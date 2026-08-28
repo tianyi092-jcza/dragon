@@ -95,7 +95,7 @@ playwright-cli open http://localhost:8321   # 浏览器冒烟测试；截图/临
 
 - **样式按前端布局思路**（居中/padding/`measureText` 右对齐/space-between），**不还原原版组件绝对定位**——用户明确要求
 - 列表弹窗：游戏内画布弹窗走 `gamebar.js openListDialog()`（米黄底/黑表头/右键关闭/滚轮滚动），开局选单走 `startmenu.js prompt()`；遗留 DOM 弹窗走 `hud.js _listDialog()`
-- 字体：数字列 `Bahnschrift`（`_numText`），中文 `Noto Serif TC`；标题全角字 `_fwText`
+- 字体：数字列 `Oswald`（`_numText`，`Oswald-Light.woff2`），中文 `Noto Serif TC`；标题全角字 `_fwText`
 - 计时机制（逆向实锲，re-notes-kernel.md「实时时钟系统」）：原版主循环 `[0xD2A]=1`（菜单开）时完全跳过时钟进位链；`[0x98A5]`=鼠标活动暂停计数器，静止自动恢复。Web 对应：`gamebar.syncClock()` 每帧断言 `clock.hold`（鼠标近 1s 活动 ∥ 子菜单/设置开 ∥ `hud.dialogCount>0`）
 
 ## 已知坑

@@ -21,7 +21,7 @@ import { factionColorEx } from "../game/world.js";
 import { getProjectedFinance } from "../game/economy.js";
 
 const FONT = '16px "Noto Serif TC","PMingLiU",serif';
-const DIN = '300 16px "Bahnschrift","Noto Serif TC","PMingLiU",serif';
+const DIN = '300 16px "Oswald","Noto Serif TC","PMingLiU",serif';
 const NAVY = "#002266";
 const GOLD = "#cc8822";
 const CREAM = "#ffdd99";
@@ -212,16 +212,10 @@ export class GameBar {
     d.top = d.titleH + d.headerH;
     d.cap = Math.max(1, Math.floor((d.h - d.top) / d.rowH));
     if (d.footer) {
-      d.fx = d.px;
-      d.fw = d.w;
-      d.fh = 64; // 对齐 16px 框格 (hTiles=5 → 内高 64)
-      // 提示框紧贴列表下方；若超出下缘则改为底部左对齐
-      if (d.py + d.h + 8 + d.fh <= innerHeight - 8) {
-        d.fy = d.py + d.h + 8;
-      } else {
-        d.fx = Math.max(4, this.bx);
-        d.fy = innerHeight - d.fh - 8;
-      }
+      d.fw = 480; // 统一为武将弹窗宽度 480px (30 tiles)
+      d.fh = 64; // 对齐 16px 框格 (hTiles=5 → 内高 64，外高 80px)
+      d.fx = Math.round((innerWidth - d.fw) / 2); // 屏幕水平居中
+      d.fy = innerHeight - d.fh - 16; // 屏幕底对齐且与底部保持 8px 间距 (fy-8 = innerHeight-80-8)
     }
     if (this.formationDialog) {
       this.formationDialog.ox = d.px + 128;
@@ -416,19 +410,19 @@ export class GameBar {
         fth = Math.ceil((fh + 16) / 16);
       const { x, y, h } = this._drawWindow(
         ctx,
-        fx - 8,
-        fy - 8,
+        fx,
+        fy,
         ftw,
         fth,
         "black",
       );
-      const ph = h - 8;
-      ctx.drawImage(this.imgs.messageNpc, x + 4, y + 4, ph, ph);
+      const ph = 64;
+      ctx.drawImage(this.imgs.messageNpc, x, y, ph, ph);
       ctx.font = FONT;
       ctx.textBaseline = "top";
       ctx.fillStyle = "#ffffff"; // ★所有提示弹窗的文字为白色
-      const tx = x + ph + 12;
-      const maxTextW = Math.max(40, fx + fw - 8 - tx);
+      const tx = x + ph + 14;
+      const maxTextW = Math.max(40, (ftw - 1) * 16 - ph - 28);
 
       // 自动折行 (Auto-wrap)
       const rawText = String(d.footer.text ?? "");
@@ -451,7 +445,7 @@ export class GameBar {
         if (cur) lines.push(cur);
       }
 
-      const lineH = 18;
+      const lineH = 20;
       const totalH = lines.length * lineH;
       const startY = y + Math.max(4, Math.floor((h - totalH) / 2));
       lines.forEach((line, li) => {
@@ -1326,22 +1320,23 @@ export class GameBar {
     this.syncClock();
 
     const wTiles = 21;
-    const infoHTiles = 5;
     const hTiles = 10;
-    const gap = 8;
-    const totalH = (infoHTiles + hTiles) * 16 + gap;
+    const infoHTiles = 5;
+    const infoWTiles = 30; // 统一为武将弹窗宽度 480px (30 tiles)
 
     const ox = this.bx + Math.round((640 - wTiles * 16) / 2);
-    const startY = Math.max(36, Math.round((innerHeight - totalH) / 2));
-    const infoOy = startY;
-    const oy = startY + infoHTiles * 16 + gap;
+    const oy = Math.max(36, Math.round((innerHeight - hTiles * 16) / 2));
+    const infoOx = Math.round((innerWidth - infoWTiles * 16) / 2);
+    const infoOy = innerHeight - infoHTiles * 16 - 8;
 
     this.financeDialog = {
       ox,
       oy,
       wTiles,
       hTiles,
+      infoOx,
       infoOy,
+      infoWTiles,
       infoHTiles,
       advisorImg: null,
     };
@@ -1372,14 +1367,13 @@ export class GameBar {
     const fd = this.financeDialog;
     if (!fd) return;
     const wTiles = fd.wTiles ?? 21;
-    const infoHTiles = fd.infoHTiles ?? 5;
     const hTiles = fd.hTiles ?? 10;
-    const gap = 8;
-    const totalH = (infoHTiles + hTiles) * 16 + gap;
+    const infoHTiles = fd.infoHTiles ?? 5;
+    const infoWTiles = fd.infoWTiles ?? 30;
     fd.ox = this.bx + Math.round((640 - wTiles * 16) / 2);
-    const startY = Math.max(36, Math.round((innerHeight - totalH) / 2));
-    fd.infoOy = startY;
-    fd.oy = startY + infoHTiles * 16 + gap;
+    fd.oy = Math.max(36, Math.round((innerHeight - hTiles * 16) / 2));
+    fd.infoOx = Math.round((innerWidth - infoWTiles * 16) / 2);
+    fd.infoOy = innerHeight - infoHTiles * 16 - 8;
   }
 
   closeFinanceDialog() {
@@ -1423,12 +1417,21 @@ export class GameBar {
   _hitFinanceDialog(px, py) {
     const f = this.financeDialog;
     if (!f) return false;
-    const { ox, oy, infoOy, wTiles = 21, hTiles = 10 } = f;
+    const { ox, oy, infoOx, infoOy, wTiles = 21, hTiles = 10, infoWTiles = 30, infoHTiles = 5 } = f;
     const x = ox - 8;
-    const topY = (infoOy ?? oy) - 8;
-    const bottomY = oy + (hTiles + 1) * 16;
+    const y = oy - 8;
     const w = (wTiles + 1) * 16;
-    return px >= x && px < x + w && py >= topY && py < bottomY;
+    const h = (hTiles + 1) * 16;
+    const inMain = px >= x && px < x + w && py >= y && py < y + h;
+    if (inMain) return true;
+    if (infoOy != null) {
+      const ix = (infoOx ?? ox) - 8;
+      const iy = infoOy - 8;
+      const iw = ((infoWTiles ?? wTiles) + 1) * 16;
+      const ih = (infoHTiles + 1) * 16;
+      if (px >= ix && px < ix + iw && py >= iy && py < iy + ih) return true;
+    }
+    return false;
   }
 
   _hitKeypadDialog(px, py) {
@@ -1668,38 +1671,41 @@ export class GameBar {
     const {
       ox,
       oy,
+      infoOx,
       infoOy,
       wTiles = 21,
       hTiles = 10,
+      infoWTiles = 30,
       infoHTiles = 5,
     } = fd;
     const sc = this.app.scenario;
     const data = getProjectedFinance(sc);
 
-    // ── 0. 上方信息提示窗口 (黑底 + 金框 + 军师头像 + 自动回行文字) ──
-    const targetInfoOy = infoOy ?? (oy - infoHTiles * 16 - 8);
+    // ── 0. 底部信息提示窗口 (黑底 + 金框 + 军师/提示头像 + 自动回行文字) ──
+    const targetInfoOx = infoOx ?? Math.round((innerWidth - infoWTiles * 16) / 2);
+    const targetInfoOy = infoOy ?? innerHeight - infoHTiles * 16 - 8;
     const infoWin = this._drawWindow(
       ctx,
-      ox,
+      targetInfoOx,
       targetInfoOy,
-      wTiles,
+      infoWTiles,
       infoHTiles,
       "black",
     );
-    const ix = infoWin ? infoWin.x : ox + 8;
+    const ix = infoWin ? infoWin.x : targetInfoOx + 8;
     const iy = infoWin ? infoWin.y : targetInfoOy + 8;
-    const iw = infoWin ? infoWin.w : (wTiles - 1) * 16;
+    const iw = infoWin ? infoWin.w : (infoWTiles - 1) * 16;
     const ih = infoWin ? infoWin.h : (infoHTiles - 1) * 16;
 
-    // 左侧军师头像 64×64 (紧贴内框左上角)
-    const advImg = fd.advisorImg || this.imgs?.messageNpc;
+    // 左侧提示头像 64×64 (紧贴内框左上角，统一使用 message_npc)
+    const advImg = this.imgs?.messageNpc || fd.advisorImg;
     if (advImg) {
       ctx.drawImage(
         advImg,
         0,
         0,
-        advImg.naturalWidth || advImg.width || 128,
-        advImg.naturalHeight || advImg.height || 128,
+        advImg.naturalWidth || advImg.width || 64,
+        advImg.naturalHeight || advImg.height || 64,
         ix,
         iy,
         64,
@@ -1710,7 +1716,7 @@ export class GameBar {
       ctx.fillRect(ix, iy, 64, 64);
     }
 
-    // 右侧提示文字 (自动回行，不要按图标强行回行)
+    // 右侧提示文字 (自动回行)
     ctx.font = FONT;
     ctx.textBaseline = "top";
     ctx.fillStyle = "#ffffff";
@@ -1745,7 +1751,7 @@ export class GameBar {
       ctx.fillText(line, tx, startTy + li * lineH);
     });
 
-    // ── 1. 下方财政主弹窗 (金框 + 云纹底) ──
+    // ── 1. 财政主弹窗 (金框 + 云纹底) ──
     const win = this._drawWindow(ctx, ox, oy, wTiles, hTiles, "cloud");
     const x = win ? win.x : ox + 8;
     const y = win ? win.y : oy + 8;
@@ -2993,7 +2999,7 @@ export class GameBar {
     }
     if (this.portraitImg)
       ctx.drawImage(this.portraitImg, 0, 0, 128, 128, p.x + 8, p.y + 8, 64, 64);
-    // 君主/首都/軍師 (头像右侧：标签 x=80, 数值 x=124)
+    // 君主/首都/軍師 (头像右侧：标签 x=76, 竖白线 x=122, 数值 x=138)
     const cap = sc.city(me.capital);
     const advGen = adv.getAdvisor(sc, me);
     ctx.font = FONT;
@@ -3006,11 +3012,20 @@ export class GameBar {
     rows.forEach(([k, v], i) => {
       const y = p.y + 16 + i * 16;
       ctx.fillStyle = CREAM;
-      ctx.fillText(k, p.x + 80, y);
+      ctx.fillText(k, p.x + 76, y);
       ctx.fillStyle = "#ffffff";
-      ctx.fillText(v, p.x + 124, y);
+      ctx.fillText(v, p.x + 138, y);
     });
-    // 信賴度: 标签与进度条分两行; 黑底条, 中央细红条。Web 面板按用户规则以100为满格(20=1/5)
+
+    // 竖白线 (君主/首都/军师标签与姓名之间，高度从 y+14 到 y+61)
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(p.x + 122.5, p.y + 14);
+    ctx.lineTo(p.x + 122.5, p.y + 61);
+    ctx.stroke();
+
+    // 信賴度: 标签与进度条分两行; 黑底条, 中央细红条 (高度 2px)。Web 面板按用户规则以100为满格(20=1/5)
     const ty = p.y + 78;
     ctx.fillStyle = CREAM;
     ctx.fillText("信賴度", p.x + 8, ty);
@@ -3019,9 +3034,9 @@ export class GameBar {
       by = ty + 20,
       bw = 192;
     ctx.fillStyle = "#050505";
-    ctx.fillRect(bx, by, bw, 10);
+    ctx.fillRect(bx, by, bw, 8);
     ctx.fillStyle = trust <= 20 ? "#ff3333" : "#dd0000";
-    ctx.fillRect(bx, by + 3, Math.round((bw * Math.min(100, trust)) / 100), 4);
+    ctx.fillRect(bx, by + 3, Math.round((bw * Math.min(100, trust)) / 100), 2);
     // 資金 / 預備兵 (原版规格: 黑底框 + 红底剪影图标 + 白色数值)
     ctx.fillStyle = "#000000";
     ctx.fillRect(p.x + 8, p.y + 112, 192, 72);
@@ -3054,7 +3069,7 @@ export class GameBar {
         ctx.drawImage(img, rx, ry, rw, rh);
       }
 
-      // 数值 (Bahnschrift / DIN)
+      // 数值 (Oswald / DIN)
       ctx.font = DIN;
       const s = `${val}`;
       ctx.fillStyle = "#ffffff";

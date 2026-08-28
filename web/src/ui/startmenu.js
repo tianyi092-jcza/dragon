@@ -35,9 +35,9 @@ export class StartMenu {
 
   async _loadAssets() {
     if (this._imgs) return this._imgs;
-    // 预载表格数字字体 (仅数字列使用 Bahnschrift, 中文仍 Noto Serif TC)
+    // 预载表格数字字体 (仅数字列使用 Oswald, 中文仍 Noto Serif TC)
     try {
-      await document.fonts.load('300 16px "Bahnschrift"');
+      await document.fonts.load('300 16px "Oswald"');
     } catch {}
     const load = (n) =>
       new Promise((res, rej) => {
@@ -218,7 +218,7 @@ export class StartMenu {
         this._text(k, px + 88, y, 15);
         const isNum = /^\d+$/.test(v);
         ctx.font = isNum
-          ? '300 16px "Bahnschrift","Noto Serif TC","PMingLiU",serif'
+          ? '300 16px "Oswald","Noto Serif TC","PMingLiU",serif'
           : FONT;
         const tw = ctx.measureText(v).width;
         if (isNum) {
@@ -536,7 +536,7 @@ export class StartMenu {
             // 日期跟在名称同行: 白字无背景, 行内右对齐 (左名右日期 space-between)
             const ds = this._dateStr(row.date);
             this.ctx.font =
-              '300 16px "Bahnschrift","Noto Serif TC","PMingLiU",serif';
+              '300 16px "Oswald","Noto Serif TC","PMingLiU",serif';
             const tw = this.ctx.measureText(ds).width;
             const dateRight = hasScrollbar ? px + w - 24 : px + w - 18;
             this._numText(ds, dateRight - tw, ty, 15);
@@ -805,10 +805,10 @@ export class StartMenu {
     ctx.fillText(str, x, y);
   }
 
-  // 纯数字文本: 用 Bahnschrift (仅限数字显示), 中文回落 Noto Serif TC
+  // 纯数字文本: 用 Oswald (仅限数字显示), 中文回落 Noto Serif TC
   _numText(str, x, y, color) {
     const ctx = this.ctx;
-    ctx.font = '300 16px "Bahnschrift","Noto Serif TC","PMingLiU",serif';
+    ctx.font = '300 16px "Oswald","Noto Serif TC","PMingLiU",serif';
     ctx.fillStyle = COLORS[color] ?? color;
     ctx.textBaseline = "top";
     ctx.fillText(str, x, y);
