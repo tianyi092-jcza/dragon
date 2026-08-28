@@ -874,6 +874,68 @@ export class HUD {
     });
   }
 
+  /** 敵對提案 — 军师子菜单「進言」 -> 「敵對提案」: 选择交战势力 */
+  showHostileProposalFactions() {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me) return;
+
+    // 所有其它势力 (排除玩家自身势力，保持自然顺序)
+    const otherFactions = sc.factions.filter((f) => f && f.idx !== me.idx);
+
+    const rows = otherFactions.map((f) => {
+      const m = sc.generals[f.monarch_idx];
+      const rel = relation(sc, me.idx, f.idx);
+      const envoyObj = sc.envoys?.[f.idx];
+      const envoyName = envoyObj?.name ?? "－－－";
+      const genCount = sc.generals.filter(
+        (g) => g && g.faction === f.idx && g.active !== false,
+      ).length;
+      const cityCount = sc.cities.filter((c) => c.faction === f.idx).length;
+      const capName = sc.cities[f.capital]?.name ?? "－－－";
+
+      return {
+        _faction: f,
+        cells: [
+          m ? m.name.trim() : "?",
+          `${genCount}`,
+          `${cityCount}`,
+          capName,
+          { t: relationLabel(rel), color: relationColor(rel) },
+          envoyName,
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["勢力名", "武將", "據點", "首都", "外交", "外交官"],
+      cols: [
+        { x: 8, w: 78, align: "left" },
+        { x: 88, w: 56, align: "right" },
+        { x: 148, w: 56, align: "right" },
+        { x: 212, w: 78, align: "left" },
+        { x: 294, w: 64, align: "center" },
+        { x: 366, w: 78, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "請選擇交戰之勢力。",
+        portrait: "message_npc",
+      },
+      onPick: (ri) => {
+        const fac = rows[ri]?._faction;
+        if (!fac) return;
+        this.app.gamebar.closeListDialog(true);
+        this.app.gamebar.showHostileProposalAudience(fac);
+      },
+    });
+  }
+
   /** 外交官任命 — 军师子菜单「人事」 -> 「外交官任命」: 选择目标势力 */
   showAppointEnvoyFactions() {
     const sc = this.app.scenario;

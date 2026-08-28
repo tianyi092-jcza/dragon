@@ -121,12 +121,12 @@ export function computeFactionExpense(scenario, factionIdx) {
   let governorBudget = 0;
   for (const c of scenario.citiesOf ? scenario.citiesOf(factionIdx) : []) {
     if (c && c.governor != null && scenario.generals?.[c.governor]) {
-      let defGap = Math.max(0, 180 - (c.growth ?? 100));
-      let disGap = Math.max(0, 180 - (c.disaster ?? 100));
-      let maxTroops = c.troops_cap ?? 200;
-      let curTroops = c.sim ? c.sim.troops : (c.troops ?? 0);
-      let troopGap = Math.max(0, maxTroops - curTroops);
-      let totalGap = (defGap + disGap + troopGap) >> 1;
+      const defGap = Math.max(0, 180 - (c.growth ?? 100));
+      const disGap = Math.max(0, 180 - (c.disaster ?? 100));
+      const maxTroops = c.troops_cap ?? 200;
+      const curTroops = c.sim ? c.sim.troops : (c.troops ?? 0);
+      const troopGap = Math.max(0, maxTroops - curTroops);
+      const totalGap = (defGap + disGap + troopGap) >> 1;
       governorBudget += totalGap * 50;
     }
   }
@@ -147,7 +147,10 @@ export function computeFactionExpense(scenario, factionIdx) {
     }
   }
 
-  return Math.max(0, troopUpkeep + officerStipend + governorBudget + envoyBudget);
+  return Math.max(
+    0,
+    troopUpkeep + officerStipend + governorBudget + envoyBudget,
+  );
 }
 
 /** 军师「財政」界面实时数据与预测模型 */
@@ -263,7 +266,9 @@ export function monthlySettlement(scenario, _clock) {
         if (envoy.gen_idx != null && scenario.generals?.[envoy.gen_idx]) {
           pol = scenario.generals[envoy.gen_idx].ability?.politics ?? 10;
         } else {
-          const g = scenario.generals?.find((x) => x && x.name?.trim() === envoy.name?.trim());
+          const g = scenario.generals?.find(
+            (x) => x && x.name?.trim() === envoy.name?.trim(),
+          );
           if (g) pol = g.ability?.politics ?? 10;
         }
 
@@ -275,7 +280,10 @@ export function monthlySettlement(scenario, _clock) {
         const isWar = (curRel & 0x80) === 0x80 && (curRel & 0x7f) === 0;
         if (!isWar) {
           const newRel = Math.min(100, (curRel & 0x7f) + gain);
-          const newRelTarget = Math.min(100, (curRelTarget & 0x7f) + Math.max(1, Math.floor(gain / 2)));
+          const newRelTarget = Math.min(
+            100,
+            (curRelTarget & 0x7f) + Math.max(1, Math.floor(gain / 2)),
+          );
           scenario.diplomacy[pIdx][targetIdx] = newRel;
           scenario.diplomacy[targetIdx][pIdx] = newRelTarget;
         }

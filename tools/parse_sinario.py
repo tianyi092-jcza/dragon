@@ -131,6 +131,9 @@ def parse_scenario(sc: bytes):
                         "reserve_arc": u16(f[6:8]),
                         "reserve_inf": u16(f[8:10]),
                         "n_cities": f[0x23],
+                        "bellicosity": f[0x28],
+                        "target_faction": f[0x19] if f[0x19] != 0xFF else None,
+                        "talk_style": f[0x1E],
                   }
             )
       out["factions"] = factions

@@ -13,10 +13,15 @@
 import { loadImage, portrait } from "../core/assets.js";
 import * as cmd from "../game/commands.js";
 import * as adv from "../game/advisor.js";
-import { quoteFor, quoteForFormation, quoteForIndex } from "../game/talk.js";
+import {
+  quoteFor,
+  quoteForFormation,
+  quoteForIndex,
+  formatTalkTokens,
+} from "../game/talk.js";
 import { cityTypeLabel } from "../game/world.js";
 import { clickSfx, warnSfx, toggleMute, unlockSfx } from "../core/speaker.js";
-import { isFriendly } from "../game/diplomacy.js";
+import { isFriendly, relation, declareWar, isAtWar } from "../game/diplomacy.js";
 import { factionColorEx } from "../game/world.js";
 import { getProjectedFinance } from "../game/economy.js";
 
@@ -60,6 +65,8 @@ export class GameBar {
     this.cityCard = null; // 左下角据点信息弹窗
     this.baseMenu = null; // 军师子菜单「據點」二级下拉菜单 (首都確認 / 據點一覽)
     this.personnelMenu = null; // 军师子菜单「人事」二级下拉菜单
+    this.adviceMenu = null; // 军师子菜单「進言」二级下拉菜单 (敵對提案 / 停戰提案 / 請求協助 / 遷都 / 請求君主出陣)
+    this.proposalAudience = null; // 敌对提案进言对话系统
     this.financeDialog = null; // 军师「財政」弹窗
     this.keypadDialog = null; // 数字输入弹窗 (税率/各兵种征兵数)
     this._assets = Promise.all([
@@ -78,6 +85,7 @@ export class GameBar {
       loadImage("grf/ui/frame_cap.png"),
       loadImage("grf/ui/minimap_roads.png"),
       loadImage("grf/ui/message_npc.png"),
+      loadImage("grf/ivent_0_a.png"),
     ]).then(
       ([
         bar,
@@ -95,6 +103,7 @@ export class GameBar {
         cap,
         mbg,
         messageNpc,
+        ivent0,
       ]) => {
         this.imgs = {
           bar,
@@ -108,6 +117,7 @@ export class GameBar {
           inf,
           mbg,
           messageNpc,
+          ivent0,
         };
         this._gf = { cloud, sq, col, cap }; // 金框+云纹 (与弹窗同源资产)
         this.app.view.draw();
@@ -821,6 +831,627 @@ export class GameBar {
       }
       const tw = ctx.measureText(item).width;
       ctx.fillText(item, x + (w - tw) / 2, iy + (rowH - 16) / 2 + 1);
+    });
+  }
+
+  /** 军师子菜单「進言」二级下拉菜单 (敵對提案 / 停戰提案 / 請求協助 / 遷都 / 請求君主出陣) */
+  showAdviceMenu() {
+    this.closeCityCard();
+    this.closeListDialog();
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeBaseMenu();
+    this.closePersonnelMenu();
+    this.closeProposalAudience();
+    this.selectedSubmenu = 0;
+    this.syncClock();
+
+    const btnX = this.bx + 8;
+    const wTiles = 8;
+    const hTiles = 7;
+    const ox = Math.round(btnX - 22);
+    const oy = 72;
+
+    this.adviceMenu = {
+      ox,
+      oy,
+      wTiles,
+      hTiles,
+      items: ["敵對提案", "停戰提案", "請求協助", "遷都", "請求君主出陣"],
+      hover: -1,
+    };
+    this.app.view.draw();
+  }
+
+  closeAdviceMenu() {
+    if (!this.adviceMenu) return;
+    this.adviceMenu = null;
+    this.app.view.draw();
+  }
+
+  _hitAdviceMenu(px, py) {
+    if (!this.adviceMenu) return -1;
+    const { ox, oy, wTiles, hTiles, items } = this.adviceMenu;
+    const x = ox + 8;
+    const y = oy + 8;
+    const w = (wTiles - 1) * 16;
+    const h = (hTiles - 1) * 16;
+    if (px >= x && px < x + w && py >= y && py < y + h) {
+      const rowH = h / items.length;
+      const i = Math.floor((py - y) / rowH);
+      return i >= 0 && i < items.length ? i : -1;
+    }
+    return -1;
+  }
+
+  _drawAdviceMenu(ctx) {
+    if (!this.adviceMenu) return;
+    const { ox, oy, wTiles, hTiles, items, hover } = this.adviceMenu;
+    const win = this._drawWindow(ctx, ox, oy, wTiles, hTiles, "black");
+    const x = win ? win.x : ox + 8;
+    const y = win ? win.y : oy + 8;
+    const w = win ? win.w : (wTiles - 1) * 16;
+    const h = win ? win.h : (hTiles - 1) * 16;
+    const rowH = h / items.length;
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+
+    items.forEach((item, i) => {
+      const iy = y + i * rowH;
+      const isHover = hover === i;
+      if (isHover) {
+        ctx.fillStyle = "#ffe000";
+        ctx.fillRect(x + 1, iy + 1, w - 2, rowH - 2);
+        ctx.fillStyle = "#0000bb";
+      } else {
+        ctx.fillStyle = "#ffffff";
+      }
+      const tw = ctx.measureText(item).width;
+      ctx.fillText(item, x + (w - tw) / 2, iy + (rowH - 16) / 2 + 1);
+    });
+  }
+
+  /** 敌对提案进言对话系统 (100% 逆向复刻 KI.EXE 0x6475, 0x3830, 0x3B5A, 0x3BA9, 0x3C1E) */
+  async showHostileProposalAudience(targetFaction) {
+    this.closeCityCard();
+    this.closeListDialog(true);
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeBaseMenu();
+    this.closePersonnelMenu();
+    this.closeAdviceMenu();
+    this.selectedSubmenu = 0;
+    this.syncClock();
+
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me || !targetFaction) return;
+
+    const monarch = sc.monarchOf(me);
+    const advGen = adv.getAdvisor(sc, me);
+    const monarchImg = monarch
+      ? await portrait(monarch.portrait).catch(() => null)
+      : null;
+    const advImg = advGen
+      ? await portrait(advGen.portrait).catch(() => null)
+      : null;
+
+    const targetName = (targetFaction.monarch ?? "").trim();
+    const advName = (advGen?.name ?? "軍師").trim();
+    const monarchTalkIdx = (monarch?.talk_idx ?? monarch?.idx ?? 0) % 3;
+
+    // 初始君主提问对白 (Talk 86..88)
+    const monarchGreeting = await formatTalkTokens(
+      86 + monarchTalkIdx,
+      targetName,
+      advName,
+    );
+
+    // 4 大理由客观有效性判定 (KI.EXE 0x6475 & 0x6A28)
+    const rel = relation(sc, me.idx, targetFaction.idx);
+    const bellicosity = me.bellicosity ?? 10;
+
+    // r0: 外交关系恶劣
+    const r0Valid = rel < bellicosity + 15;
+    // r1: 我国较有利 (综合城池与好战度乘积对比)
+    const myScore = (me.n_cities ?? 1) * (bellicosity + 20);
+    const enemyScore = (targetFaction.n_cities ?? 1) * 25;
+    const r1Valid = myScore > enemyScore;
+    // r2: 敌正侵攻他国 (目标势力攻击目标非空且非我方)
+    const r2Valid =
+      targetFaction.target_faction != null &&
+      targetFaction.target_faction !== 0xff &&
+      targetFaction.target_faction !== me.idx;
+    // r3: 敌势力疲乏 (资金为负/赤字)
+    const r3Valid =
+      (targetFaction.money ?? 0) < 0 ||
+      (targetFaction.gold ?? 0) < 0 ||
+      (targetFaction.money_status ?? 0) < 0;
+
+    // 信赖度决定说服所需理由数 (KI.EXE 0x3C1E)
+    const trustVal = sc.trust ?? 50;
+    let requiredReasons = 4;
+    if (trustVal >= 224) requiredReasons = 1;
+    else if (trustVal >= 144) requiredReasons = 2;
+    else if (trustVal >= 32) requiredReasons = 3;
+
+    this.proposalAudience = {
+      playerFaction: me,
+      targetFaction,
+      monarch,
+      advGen,
+      monarchImg,
+      advImg,
+      targetName,
+      advName,
+      monarchTalkIdx,
+      monarchLines: monarchGreeting,
+      advLines: null,
+      step: "greet",
+      timer: null,
+      timerAction: null,
+      reasonsHover: -1,
+      validReasons: [r0Valid, r1Valid, r2Valid, r3Valid],
+      usedReasons: new Set(),
+      requiredReasons,
+    };
+
+    this.app.view.draw();
+
+    // 延时 3 秒自动进入军师进言，或玩家点击左键立即进入
+    this._setProposalTimer(3000, async () => {
+      await this._advanceToAdvisorPropose();
+    });
+  }
+
+  _setProposalTimer(ms, action) {
+    if (!this.proposalAudience) return;
+    if (this.proposalAudience.timer) {
+      clearTimeout(this.proposalAudience.timer);
+    }
+    this.proposalAudience.timerAction = action;
+    this.proposalAudience.timer = setTimeout(() => {
+      if (this.proposalAudience) {
+        this.proposalAudience.timer = null;
+        action();
+      }
+    }, ms);
+  }
+
+  async _advanceToAdvisorPropose() {
+    const p = this.proposalAudience;
+    if (!p) return;
+    p.step = "advisor_propose";
+    // 军师发言：Talk 89 (想請主公答允對\3的進兵。)
+    p.advLines = await formatTalkTokens(89, p.targetName, p.advName);
+    this.app.view.draw();
+
+    this._setProposalTimer(3000, async () => {
+      await this._advanceToMonarchReaction();
+    });
+  }
+
+  async _advanceToMonarchReaction() {
+    const p = this.proposalAudience;
+    if (!p) return;
+    const sc = this.app.scenario;
+    const me = p.playerFaction;
+    const targetFaction = p.targetFaction;
+
+    const rel = relation(sc, me.idx, targetFaction.idx);
+    const bellicosity = me.bellicosity ?? 10;
+    const isAttackingUs =
+      targetFaction.target_faction === me.idx ||
+      sc.legions.some(
+        (l) =>
+          !l.dead &&
+          l.faction === targetFaction.idx &&
+          l.target?.faction === me.idx,
+      );
+    const atWar = isAtWar(sc, me.idx, targetFaction.idx);
+    const dismissThreshold = bellicosity * 2 + 20;
+    const tooGood = rel >= dismissThreshold;
+
+    let al = 2;
+    if (isAttackingUs) al = 1;
+    else if (atWar) al = 3;
+    else if (tooGood) al = 0;
+
+    if (al === 1) {
+      // 对方已在进攻我方，直接同意开战 (Talk 93..95)
+      clickSfx();
+      p.step = "done";
+      p.monarchLines = await formatTalkTokens(
+        93 + p.monarchTalkIdx,
+        p.targetName,
+        p.advName,
+      );
+      sc.trust = Math.min(100, (sc.trust ?? 50) + 20);
+      declareWar(sc, me.idx, targetFaction.idx);
+      this.app.hud.refreshTrust();
+      this.app.hud.flashEvent(`「${me.monarch}」同意開戰！信賴度 +20`);
+      this.app.view.draw();
+      this._setProposalTimer(3000, () => {
+        this.closeProposalAudience();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      });
+    } else if (al === 3) {
+      // 已经在交战状态中了 (Talk 99..101)
+      warnSfx();
+      p.step = "done";
+      p.monarchLines = await formatTalkTokens(
+        99 + p.monarchTalkIdx,
+        p.targetName,
+        p.advName,
+      );
+      sc.trust = Math.max(0, (sc.trust ?? 50) - 20);
+      this.app.hud.refreshTrust();
+      this.app.hud.flashEvent(`已處於交戰狀態！進言被駁回，信賴度 -20`);
+      this.app.view.draw();
+      this._setProposalTimer(3000, () => {
+        this.closeProposalAudience();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      });
+    } else if (al === 0) {
+      // 关系良好，无理由开战，直接驳回 (Talk 90..92)
+      warnSfx();
+      p.step = "done";
+      p.monarchLines = await formatTalkTokens(
+        90 + p.monarchTalkIdx,
+        p.targetName,
+        p.advName,
+      );
+      sc.trust = Math.max(0, (sc.trust ?? 50) - 20);
+      this.app.hud.refreshTrust();
+      this.app.hud.flashEvent(`關係良好，進言被駁回！信賴度 -20`);
+      this.app.view.draw();
+      this._setProposalTimer(3000, () => {
+        this.closeProposalAudience();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      });
+    } else {
+      // 需要开战理由 (Talk 96..98)
+      p.step = "choose_reason";
+      p.monarchLines = await formatTalkTokens(
+        96 + p.monarchTalkIdx,
+        p.targetName,
+        p.advName,
+      );
+      this.app.view.draw();
+    }
+  }
+
+  async _selectProposalReason(ri) {
+    const p = this.proposalAudience;
+    if (!p) return;
+
+    p.step = "reason_speak";
+    // 军师发言：Talk 103 + ri
+    p.advLines = await formatTalkTokens(103 + ri, p.targetName, p.advName);
+    this.app.view.draw();
+
+    this._setProposalTimer(1500, async () => {
+      await this._evaluateProposalReason(ri);
+    });
+  }
+
+  async _evaluateProposalReason(ri) {
+    const p = this.proposalAudience;
+    if (!p) return;
+    const sc = this.app.scenario;
+
+    if (ri === 4) {
+      // 撤回进言 (Talk 144..146) -> 不扣信赖度，结束
+      p.step = "done";
+      p.monarchLines = await formatTalkTokens(
+        144 + p.monarchTalkIdx,
+        p.targetName,
+        p.advName,
+      );
+      this.app.view.draw();
+      this._setProposalTimer(3000, () => {
+        this.closeProposalAudience();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      });
+      return;
+    }
+
+    if (p.usedReasons.has(ri)) {
+      // 重复理由 (Talk 147..149) -> 不扣信赖度，重新选理由
+      p.step = "repeating_reason";
+      p.monarchLines = await formatTalkTokens(
+        147 + p.monarchTalkIdx,
+        p.targetName,
+        p.advName,
+      );
+      this.app.view.draw();
+      this._setProposalTimer(2500, () => {
+        p.step = "choose_reason";
+        this.app.view.draw();
+      });
+      return;
+    }
+
+    const isValid = p.validReasons[ri];
+    if (!isValid) {
+      // 假理由 / 谎言 (Talk 108..110 / 117..119 / 126..128 / 135..137) -> 信赖度 -20，驳回结束
+      warnSfx();
+      p.step = "done";
+      const talkIdx = 108 + ri * 9 + p.monarchTalkIdx;
+      p.monarchLines = await formatTalkTokens(
+        talkIdx,
+        p.targetName,
+        p.advName,
+      );
+      sc.trust = Math.max(0, (sc.trust ?? 50) - 20);
+      this.app.hud.refreshTrust();
+      this.app.hud.flashEvent(`理由不實！進言被訓斥駁回，信賴度 -20`);
+      this.app.view.draw();
+      this._setProposalTimer(3000, () => {
+        this.closeProposalAudience();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      });
+      return;
+    }
+
+    // 理由成立 (真理由!)
+    p.usedReasons.add(ri);
+    p.requiredReasons--;
+
+    if (p.requiredReasons > 0) {
+      // 仍需补充理由 (Talk 114..116 / 123..125 / 132..134 / 141..143)
+      clickSfx();
+      p.step = "need_more_reason";
+      const talkIdx = 114 + ri * 9 + p.monarchTalkIdx;
+      p.monarchLines = await formatTalkTokens(
+        talkIdx,
+        p.targetName,
+        p.advName,
+      );
+      this.app.view.draw();
+      this._setProposalTimer(2500, () => {
+        p.step = "choose_reason";
+        this.app.view.draw();
+      });
+    } else {
+      // 理由充分，说服成功，君主采纳并同意开战! (Talk 111..113 / 120..122 / 129..131 / 138..140)
+      clickSfx();
+      p.step = "done";
+      const talkIdx = 111 + ri * 9 + p.monarchTalkIdx;
+      p.monarchLines = await formatTalkTokens(
+        talkIdx,
+        p.targetName,
+        p.advName,
+      );
+      sc.trust = Math.min(100, (sc.trust ?? 50) + 10);
+      declareWar(sc, p.playerFaction.idx, p.targetFaction.idx);
+      this.app.hud.refreshTrust();
+      this.app.hud.flashEvent(
+        `「${p.playerFaction.monarch}」准許對「${p.targetName}」開戰！信賴度 +10`,
+      );
+      this.app.view.draw();
+      this._setProposalTimer(3000, () => {
+        this.closeProposalAudience();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      });
+    }
+  }
+
+  closeProposalAudience() {
+    if (!this.proposalAudience) return;
+    if (this.proposalAudience.timer) {
+      clearTimeout(this.proposalAudience.timer);
+    }
+    this.proposalAudience = null;
+    this.app.view.draw();
+  }
+
+  _hitProposalReasons(px, py) {
+    const p = this.proposalAudience;
+    if (!p || p.step !== "choose_reason" || !p.reasonsRect) return -1;
+    const { x, y, w, h, items } = p.reasonsRect;
+    if (px >= x && px < x + w && py >= y && py < y + h) {
+      const rowH = h / items.length;
+      const i = Math.floor((py - y) / rowH);
+      return i >= 0 && i < items.length ? i : -1;
+    }
+    return -1;
+  }
+
+  _clickProposalAudience(px, py, btn = 0) {
+    const p = this.proposalAudience;
+    if (!p) return false;
+    if (btn === 2) {
+      // 右键取消 / 退出进言
+      clickSfx();
+      this.closeProposalAudience();
+      this.selectedSubmenu = null;
+      this.syncClock();
+      this.app.view.draw();
+      return true;
+    }
+    if (btn !== 0) return true;
+
+    // 如果当前处于选择理由状态，优先检测点击理由项
+    if (p.step === "choose_reason") {
+      const ri = this._hitProposalReasons(px, py);
+      if (ri >= 0) {
+        clickSfx();
+        this._selectProposalReason(ri);
+        return true;
+      }
+      return true; // 处于选理由阶段时，点外面不快进
+    }
+
+    // 其它阶段（有等待计时器时）：左键点击任意位置立即触发下一步
+    if (p.timer) {
+      clearTimeout(p.timer);
+      p.timer = null;
+      if (typeof p.timerAction === "function") {
+        p.timerAction();
+      }
+      return true;
+    }
+
+    return true;
+  }
+
+  _drawProposalAudience(ctx) {
+    const p = this.proposalAudience;
+    if (!p) return;
+
+    const iw = innerWidth;
+    const ih = innerHeight;
+
+    // 1. 背景大图窗口 (20×24 tiles = 320×384，居中展示)
+    const winW = 320;
+    const winH = 384;
+    const winX = Math.round((iw - winW) / 2);
+    const winY = Math.round((ih - winH) / 2) + 20;
+
+    const bgWin = this._drawWindow(ctx, winX, winY, 20, 24, "black");
+    const cx = bgWin ? bgWin.x : winX + 8;
+    const cy = bgWin ? bgWin.y : winY + 8;
+
+    // 绘制 ivent_0_a.png 事件背景图 (288×352)
+    const iventImg = this.imgs?.ivent0;
+    if (iventImg) {
+      ctx.drawImage(iventImg, cx, cy, 288, 352);
+    } else {
+      ctx.fillStyle = "#112233";
+      ctx.fillRect(cx, cy, 288, 352);
+    }
+
+    // 2. 上方君主发言框 (17×5 tiles = 272×80，位于左上错落)
+    const topW = 272;
+    const topH = 80;
+    const topX = Math.max(8, winX - 72);
+    const topY = Math.max(40, winY - 16);
+    this._drawSpeechBox(
+      ctx,
+      topX,
+      topY,
+      topW,
+      topH,
+      p.monarchImg,
+      p.monarchLines,
+    );
+
+    // 3. 下方军师发言框 (17×5 tiles = 272×80，位于右下错落)
+    if (p.advLines) {
+      const btmW = 272;
+      const btmH = 80;
+      const btmX = Math.min(iw - btmW - 8, winX + 120);
+      const btmY = Math.min(ih - btmH - 8, winY + 288);
+      this._drawSpeechBox(ctx, btmX, btmY, btmW, btmH, p.advImg, p.advLines);
+    }
+
+    // 4. 开战理由选择菜单 (11×7 tiles = 176×112，位于中间偏左)
+    if (p.step === "choose_reason") {
+      const rTilesW = 11;
+      const rTilesH = 7;
+      const rx = winX - 24;
+      const ry = winY + 90;
+
+      const rWin = this._drawWindow(ctx, rx, ry, rTilesW, rTilesH, "black");
+      const rInnerX = rWin ? rWin.x : rx + 8;
+      const rInnerY = rWin ? rWin.y : ry + 8;
+      const rInnerW = rWin ? rWin.w : (rTilesW - 1) * 16;
+      const rInnerH = rWin ? rWin.h : (rTilesH - 1) * 16;
+
+      const items = [
+        "外交關係惡劣",
+        "我國較有利",
+        "敵正侵攻他國",
+        "敵勢力疲乏",
+        "撤回進言",
+      ];
+      p.reasonsRect = { x: rInnerX, y: rInnerY, w: rInnerW, h: rInnerH, items };
+
+      const rowH = rInnerH / items.length;
+      ctx.font = FONT;
+      ctx.textBaseline = "top";
+
+      items.forEach((item, i) => {
+        const iy = rInnerY + i * rowH;
+        const isHover = p.reasonsHover === i;
+        if (isHover) {
+          ctx.fillStyle = "#ffe000";
+          ctx.fillRect(rInnerX + 1, iy + 1, rInnerW - 2, rowH - 2);
+          ctx.fillStyle = "#0000bb";
+        } else {
+          ctx.fillStyle = "#ffffff";
+        }
+        const tw = ctx.measureText(item).width;
+        ctx.fillText(
+          item,
+          rInnerX + (rInnerW - tw) / 2,
+          iy + (rowH - 16) / 2 + 1,
+        );
+      });
+    } else {
+      p.reasonsRect = null;
+    }
+  }
+
+  /** 绘制黑底金框发言框 (左侧头像 64×64，右侧多行对白) */
+  _drawSpeechBox(ctx, px, py, w, h, img, lines) {
+    const tw = Math.ceil((w + 16) / 16);
+    const th = Math.ceil((h + 16) / 16);
+    const win = this._drawWindow(ctx, px, py, tw, th, "black");
+    const x = win ? win.x : px + 8;
+    const y = win ? win.y : py + 8;
+
+    // 左侧头像 64×64
+    if (img) {
+      ctx.drawImage(img, x + 8, y + 8, 64, 64);
+    } else {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(x + 8, y + 8, 64, 64);
+    }
+
+    // 右侧文字
+    if (!lines) return;
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+    const tx = x + 8 + 64 + 14;
+    const lineH = 18;
+    const rawLines = Array.isArray(lines) ? lines : [lines];
+    const totalH = rawLines.length * lineH;
+    const startY = y + Math.max(8, Math.floor((h - totalH) / 2));
+
+    rawLines.forEach((line, li) => {
+      const ly = startY + li * lineH;
+      if (Array.isArray(line)) {
+        let curX = tx;
+        line.forEach((token) => {
+          if (typeof token === "string") {
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(token, curX, ly);
+            curX += ctx.measureText(token).width;
+          } else if (token && typeof token === "object") {
+            ctx.fillStyle = token.color || "#ffffff";
+            const text = String(token.text ?? "");
+            ctx.fillText(text, curX, ly);
+            curX += ctx.measureText(text).width;
+          }
+        });
+      } else {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(String(line ?? ""), tx, ly);
+      }
     });
   }
 
@@ -2261,6 +2892,8 @@ export class GameBar {
         this.choiceDialog ||
         this.baseMenu ||
         this.personnelMenu ||
+        this.adviceMenu ||
+        this.proposalAudience ||
         this.formationDialog ||
         this.financeDialog ||
         this.keypadDialog
@@ -2279,6 +2912,8 @@ export class GameBar {
     this.layout();
     // ★军师菜单下任何一个菜单被选中打开时，整个游戏地图锁定不可移动，地图上的操作全部无效
     if (this.selectedSubmenu != null) return true;
+    if (this.proposalAudience) return true;
+    if (this.adviceMenu) return true;
     if (this.choiceDialog) return true;
     if (this.baseMenu) return true;
     if (this.personnelMenu) return true;
@@ -2317,6 +2952,22 @@ export class GameBar {
     //    取消该菜单上所有被选项，所有菜单恢复未被选中状态，并立即开始计时。
     // 2. 若已回退到该菜单上且已无被选项，再次右键才关闭子菜单条本身。
     if (btn === 2) {
+      if (this.proposalAudience) {
+        clickSfx();
+        this.closeProposalAudience();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+        return true;
+      }
+      if (this.adviceMenu) {
+        clickSfx();
+        this.closeAdviceMenu();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+        return true;
+      }
       if (this.keypadDialog) {
         clickSfx();
         this.closeKeypadDialog();
@@ -2356,6 +3007,8 @@ export class GameBar {
       const hadSelectedCity = Boolean(this.app?.view?.selectedCity);
       const hadBaseMenu = Boolean(this.baseMenu);
       const hadPersonnelMenu = Boolean(this.personnelMenu);
+      const hadAdviceMenu = Boolean(this.adviceMenu);
+      const hadProposal = Boolean(this.proposalAudience);
       const hadSubActive = this.selectedSubmenu != null;
       const hadList = Boolean(this.listDialog);
       const hadChoice = Boolean(this.choiceDialog);
@@ -2371,6 +3024,8 @@ export class GameBar {
       const hadDomDlg = domDlgs.length > 0;
 
       if (
+        hadAdviceMenu ||
+        hadProposal ||
         hadBaseMenu ||
         hadPersonnelMenu ||
         hadSubActive ||
@@ -2385,6 +3040,8 @@ export class GameBar {
         hadSelectedCity
       ) {
         clickSfx();
+        if (hadProposal) this.closeProposalAudience();
+        if (hadAdviceMenu) this.closeAdviceMenu();
         if (hadKeypad) this.closeKeypadDialog();
         if (hadFinance) this.closeFinanceDialog();
         if (hadFormation) this.closeFormationDialog();
@@ -2410,6 +3067,39 @@ export class GameBar {
         return true;
       }
       return false;
+    }
+
+    if (this.proposalAudience) {
+      return this._clickProposalAudience(px, py, btn);
+    }
+
+    if (this.adviceMenu) {
+      const i = this._hitAdviceMenu(px, py);
+      if (btn === 0) {
+        if (i === 0) {
+          // 敵對提案
+          clickSfx();
+          this.closeAdviceMenu();
+          this.selectedSubmenu = 0;
+          this.syncClock();
+          this.app.hud.showHostileProposalFactions();
+          this.selectedSubmenu = 0;
+          this.app.view.draw();
+          return true;
+        }
+        if (i > 0 && i < this.adviceMenu.items.length) {
+          clickSfx();
+          this.closeAdviceMenu();
+          this.selectedSubmenu = 0;
+          this.syncClock();
+          this.app.hud.flashEvent(
+            `「${this.adviceMenu.items[i]}」界面還原中…（右鍵取消返回）`,
+          );
+          this.app.view.draw();
+          return true;
+        }
+      }
+      return true;
     }
 
     if (this.baseMenu) {
@@ -2699,6 +3389,29 @@ export class GameBar {
   hover(px, py) {
     this.layout();
     let changed = false;
+    if (this.proposalAudience) {
+      const p = this.proposalAudience;
+      if (p.step === "choose_reason") {
+        const old = p.reasonsHover;
+        p.reasonsHover = this._hitProposalReasons(px, py);
+        if (old !== p.reasonsHover) changed = true;
+      }
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
+      return changed;
+    }
+    if (this.adviceMenu) {
+      const old = this.adviceMenu.hover;
+      this.adviceMenu.hover = this._hitAdviceMenu(px, py);
+      if (old !== this.adviceMenu.hover) changed = true;
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
+      return changed;
+    }
     if (this.baseMenu) {
       const old = this.baseMenu.hover;
       this.baseMenu.hover = this._hitBaseMenu(px, py);
@@ -2782,7 +3495,7 @@ export class GameBar {
     this.hoverAct = null;
     this.app.view.draw();
 
-    if (i === 0) return hud.showAdvice(); // 進言
+    if (i === 0) return this.showAdviceMenu(); // 進言
     if (i === 1) return this.showPersonnelMenu(); // 人事
     if (i === 2) return this.showFinanceDialog(); // 財政
     if (i === 3) return hud.showFormation(); // 編成
@@ -2952,6 +3665,12 @@ export class GameBar {
     }
     if (this.personnelMenu) {
       this._drawPersonnelMenu(ctx);
+    }
+    if (this.adviceMenu) {
+      this._drawAdviceMenu(ctx);
+    }
+    if (this.proposalAudience) {
+      this._drawProposalAudience(ctx);
     }
   }
 

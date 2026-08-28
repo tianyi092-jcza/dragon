@@ -96,7 +96,52 @@ export async function quoteForIndex(idx) {
   };
 }
 
-/** 占位符替换: \1..\4 → args[1..4] (势力/城池/武将名等) */
+/** 占位符替换: \\1..\\4 → args[1..4] (势力/城池/武将名等) */
 export function fmt(s, args = {}) {
   return s.replace(/\\([1-4])/g, (_, n) => args[n] ?? `\\${n}`);
 }
+
+/**
+ * 解析并格式化 TALK.DAT 对白分词（支持 \\3 目标君主黄色高亮 #ffe000，\\4 军师名白色）
+ * @param {number} idx
+ * @param {string} targetName
+ * @param {string} advisorName
+ * @returns {Promise<Array<Array<{text: string, color: string}>>>}
+ */
+export async function formatTalkTokens(idx, targetName = "", advisorName = "") {
+  const t = await ensureTable();
+  const entry = t[idx] ?? [];
+  const rawLines = Array.isArray(entry) ? entry : [String(entry)];
+
+  return rawLines.map((raw) => {
+    const segs = [];
+    let cur = "";
+    let i = 0;
+    while (i < raw.length) {
+      if (
+        raw[i] === "\\" &&
+        i + 1 < raw.length &&
+        (raw[i + 1] === "3" || raw[i + 1] === "4")
+      ) {
+        if (cur) {
+          segs.push({ text: cur, color: "#ffffff" });
+          cur = "";
+        }
+        const tag = raw[i + 1];
+        const val = tag === "3" ? targetName : advisorName;
+        // 原版 \\3 目标势力君主名黄色高亮 (#ffe000)，\\4 军师名白色
+        const col = tag === "3" ? "#ffe000" : "#ffffff";
+        if (val) segs.push({ text: val, color: col });
+        i += 2;
+      } else {
+        cur += raw[i];
+        i++;
+      }
+    }
+    if (cur) {
+      segs.push({ text: cur, color: "#ffffff" });
+    }
+    return segs;
+  });
+}
+

@@ -27,6 +27,24 @@ export function relation(sc, a, b) {
   return sc.diplomacy?.[a]?.[b] ?? NEUTRAL;
 }
 
+/** 是否处于交战状态 (关系 <= 0x80) */
+export function isAtWar(sc, a, b) {
+  return relation(sc, a, b) <= 0x80;
+}
+
+/** 宣告交战 (复刻 KI.EXE 0x3526): 关系双向置底 0x80 并撤回外交官 */
+export function declareWar(sc, a, b) {
+  if (a == null || b == null || a === b) return;
+  if (!sc.diplomacy) return;
+  if (!sc.diplomacy[a]) sc.diplomacy[a] = [];
+  if (!sc.diplomacy[b]) sc.diplomacy[b] = [];
+  sc.diplomacy[a][b] = 0x80;
+  sc.diplomacy[b][a] = 0x80;
+  if (sc.envoys && sc.envoys[b]) {
+    delete sc.envoys[b];
+  }
+}
+
 /** 外交等级 (原版标签表 @KI.EXE VA 0x7844, 字符串区实测):
  *  交戰/最惡/險惡/普通/良好/親密 (+－－ 无);
  *  颜色字节=表项+6: 交戰=0x0A(红) 最惡=0x03(蓝) 險惡/普通/良好=0x00(默认) 親密=0x05(绿);
