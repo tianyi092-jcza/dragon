@@ -59,6 +59,7 @@ export class GameBar {
     this.formationQuote = null; // 部队编成确认/提示发言弹窗 (武将/军师发言)
     this.cityCard = null; // 左下角据点信息弹窗
     this.baseMenu = null; // 军师子菜单「據點」二级下拉菜单 (首都確認 / 據點一覽)
+    this.personnelMenu = null; // 军师子菜单「人事」二级下拉菜单
     this.financeDialog = null; // 军师「財政」弹窗
     this.keypadDialog = null; // 数字输入弹窗 (税率/各兵种征兵数)
     this._assets = Promise.all([
@@ -179,18 +180,24 @@ export class GameBar {
       footer: opt.footer ?? null,
       onPick: opt.onPick ?? null,
       onPickCell: opt.onPickCell ?? null,
+      onCancel: opt.onCancel ?? null,
     };
     this.layout();
     this._recalcListDialog();
     this.app.view.draw();
   }
 
-  closeListDialog() {
+  closeListDialog(force = false) {
     if (!this.listDialog) return;
+    const cancelCb = !force ? this.listDialog.onCancel : null;
     this.closeGeneralCard();
     this.closeFormationDialog();
     this.formationQuote = null;
     this.listDialog = null;
+    if (cancelCb) {
+      cancelCb();
+      return;
+    }
     this.selectedSubmenu = null; // 取消子菜单被选项，恢复未选中状态
     this.app.hud.dialogCount = Math.max(0, (this.app.hud.dialogCount ?? 1) - 1);
     this.syncClock(); // 开始计时
@@ -741,6 +748,87 @@ export class GameBar {
     });
   }
 
+  /** 军师子菜单「人事」二级下拉菜单 (內政官任命 / 內政官解任 / 外交官任命 / 外交官解任) */
+  showPersonnelMenu() {
+    this.closeCityCard();
+    this.closeListDialog();
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeBaseMenu();
+    this.selectedSubmenu = 1;
+    this.syncClock();
+
+    const cellW = 78;
+    const btnX = this.bx + 8 + 1 * cellW;
+    const wTiles = 8;
+    const hTiles = 6;
+    const ox = Math.round(btnX - 22);
+    const oy = 72;
+
+    this.personnelMenu = {
+      ox,
+      oy,
+      wTiles,
+      hTiles,
+      items: [
+        "內政官任命",
+        "內政官解任",
+        "外交官任命",
+        "外交官解任",
+      ],
+      hover: -1,
+    };
+    this.app.view.draw();
+  }
+
+  closePersonnelMenu() {
+    if (!this.personnelMenu) return;
+    this.personnelMenu = null;
+    this.app.view.draw();
+  }
+
+  _hitPersonnelMenu(px, py) {
+    if (!this.personnelMenu) return -1;
+    const { ox, oy, wTiles, hTiles, items } = this.personnelMenu;
+    const x = ox + 8;
+    const y = oy + 8;
+    const w = (wTiles - 1) * 16;
+    const h = (hTiles - 1) * 16;
+    if (px >= x && px < x + w && py >= y && py < y + h) {
+      const rowH = h / items.length;
+      const i = Math.floor((py - y) / rowH);
+      return i >= 0 && i < items.length ? i : -1;
+    }
+    return -1;
+  }
+
+  _drawPersonnelMenu(ctx) {
+    if (!this.personnelMenu) return;
+    const { ox, oy, wTiles, hTiles, items, hover } = this.personnelMenu;
+    const win = this._drawWindow(ctx, ox, oy, wTiles, hTiles, "black");
+    const x = win ? win.x : ox + 8;
+    const y = win ? win.y : oy + 8;
+    const w = win ? win.w : (wTiles - 1) * 16;
+    const h = win ? win.h : (hTiles - 1) * 16;
+    const rowH = h / items.length;
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+
+    items.forEach((item, i) => {
+      const iy = y + i * rowH;
+      const isHover = hover === i;
+      if (isHover) {
+        ctx.fillStyle = "#ffe000";
+        ctx.fillRect(x + 1, iy + 1, w - 2, rowH - 2);
+        ctx.fillStyle = "#0000bb";
+      } else {
+        ctx.fillStyle = "#ffffff";
+      }
+      const tw = ctx.measureText(item).width;
+      ctx.fillText(item, x + (w - tw) / 2, iy + (rowH - 16) / 2 + 1);
+    });
+  }
+
   /** 武将特长/对白信息弹窗 (逆向 KI.EXE 0x6580 - 0x65B9 规格: 16×5 tiles = 256×80) */
   async showGeneralCard(gen) {
     if (!gen) return;
@@ -761,10 +849,34 @@ export class GameBar {
     this.app.view.draw();
   }
 
+  /** 武将固定发言对话弹窗 (如任命内政官「我立刻前往。」，16×5 tiles = 256×80) */
+  async showGeneralMessageDialog(gen, text, onClose = null) {
+    if (!gen) return;
+    const img = await portrait(gen.portrait).catch(() => null);
+    const w = 256;
+    const h = 80;
+    let px, py;
+    if (this.listDialog) {
+      const d = this.listDialog;
+      px = d.px + d.w - w - 24;
+      py = d.py + d.h - h - 36;
+    } else {
+      px = Math.round((innerWidth - w) / 2);
+      py = Math.round((innerHeight - h) / 2);
+    }
+    this.generalCard = { gen, img, lines: [text], px, py, w, h, onClose };
+    this.app.view.draw();
+  }
+
   closeGeneralCard() {
     if (!this.generalCard) return;
+    const onClose = this.generalCard.onClose;
     this.generalCard = null;
     if (this.listDialog) this.listDialog.selectedRow = -1;
+    if (onClose) {
+      onClose();
+      return;
+    }
     this.app.view.draw();
   }
 
@@ -2076,6 +2188,7 @@ export class GameBar {
         this.listDialog ||
         this.choiceDialog ||
         this.baseMenu ||
+        this.personnelMenu ||
         this.formationDialog ||
         this.financeDialog ||
         this.keypadDialog
@@ -2096,6 +2209,7 @@ export class GameBar {
     if (this.selectedSubmenu != null) return true;
     if (this.choiceDialog) return true;
     if (this.baseMenu) return true;
+    if (this.personnelMenu) return true;
     if (this.listDialog) return true;
     if (this.generalCard) return true;
     if (this.formationDialog) return true;
@@ -2169,6 +2283,7 @@ export class GameBar {
 
       const hadSelectedCity = Boolean(this.app?.view?.selectedCity);
       const hadBaseMenu = Boolean(this.baseMenu);
+      const hadPersonnelMenu = Boolean(this.personnelMenu);
       const hadSubActive = this.selectedSubmenu != null;
       const hadList = Boolean(this.listDialog);
       const hadChoice = Boolean(this.choiceDialog);
@@ -2185,6 +2300,7 @@ export class GameBar {
 
       if (
         hadBaseMenu ||
+        hadPersonnelMenu ||
         hadSubActive ||
         hadList ||
         hadChoice ||
@@ -2201,6 +2317,7 @@ export class GameBar {
         if (hadFinance) this.closeFinanceDialog();
         if (hadFormation) this.closeFormationDialog();
         if (hadBaseMenu) this.closeBaseMenu();
+        if (hadPersonnelMenu) this.closePersonnelMenu();
         if (hadList) this.closeListDialog();
         if (hadChoice) this.closeChoiceDialog();
         if (hadCard) this.closeCityCard();
@@ -2259,6 +2376,55 @@ export class GameBar {
         }
       }
       // 点击在二级菜单外：消费事件，不做任何操作（只有右键才能取消关闭）
+      return true;
+    }
+
+    if (this.personnelMenu) {
+      const i = this._hitPersonnelMenu(px, py);
+      if (btn === 0) {
+        if (i === 0) {
+          // 內政官任命
+          clickSfx();
+          this.closePersonnelMenu();
+          this.selectedSubmenu = 1;
+          this.syncClock();
+          this.app.hud.showAppointGovernorCities();
+          this.selectedSubmenu = 1;
+          this.app.view.draw();
+          return true;
+        }
+        if (i === 1) {
+          // 內政官解任
+          clickSfx();
+          this.closePersonnelMenu();
+          this.selectedSubmenu = 1;
+          this.syncClock();
+          this.app.hud.flashEvent("「內政官解任」界面还原中…（右鍵取消返回）");
+          this.app.view.draw();
+          return true;
+        }
+        if (i === 2) {
+          // 外交官任命
+          clickSfx();
+          this.closePersonnelMenu();
+          this.selectedSubmenu = 1;
+          this.syncClock();
+          this.app.hud.flashEvent("「外交官任命」界面还原中…（右鍵取消返回）");
+          this.app.view.draw();
+          return true;
+        }
+        if (i === 3) {
+          // 外交官解任
+          clickSfx();
+          this.closePersonnelMenu();
+          this.selectedSubmenu = 1;
+          this.syncClock();
+          this.app.hud.flashEvent("「外交官解任」界面还原中…（右鍵取消返回）");
+          this.app.view.draw();
+          return true;
+        }
+      }
+      // 点击在二级菜单外：消费事件，不做任何操作
       return true;
     }
 
@@ -2466,6 +2632,16 @@ export class GameBar {
       }
       return changed;
     }
+    if (this.personnelMenu) {
+      const old = this.personnelMenu.hover;
+      this.personnelMenu.hover = this._hitPersonnelMenu(px, py);
+      if (old !== this.personnelMenu.hover) changed = true;
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
+      return changed;
+    }
     if (this.formationQuote) {
       if (this.hoverAct) {
         this.hoverAct = null;
@@ -2530,6 +2706,7 @@ export class GameBar {
     this.app.view.draw();
 
     if (i === 0) return hud.showAdvice(); // 進言
+    if (i === 1) return this.showPersonnelMenu(); // 人事
     if (i === 2) return this.showFinanceDialog(); // 財政
     if (i === 3) return hud.showFormation(); // 編成
     if (i === 5) return this.showBaseMenu(); // 據點
@@ -2695,6 +2872,9 @@ export class GameBar {
     }
     if (this.baseMenu) {
       this._drawBaseMenu(ctx);
+    }
+    if (this.personnelMenu) {
+      this._drawPersonnelMenu(ctx);
     }
   }
 

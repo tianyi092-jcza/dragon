@@ -582,6 +582,155 @@ export class HUD {
     });
   }
 
+  /** 內政官任命 — 军师子菜单「人事」 -> 「內政官任命」: 选择无内政官的据点 */
+  showAppointGovernorCities() {
+    const sc = this.app.scenario;
+    const f = cmd.playerFaction(sc);
+    if (!f) return;
+
+    // 筛选我方所有没有内政官的据点
+    const mine = sc.cities.filter(
+      (c) =>
+        c &&
+        c.faction === f.idx &&
+        (c.governor == null || !sc.generals[c.governor]),
+    );
+
+    const rows = mine.map((c) => {
+      const troops = (c.sim ? c.sim.troops : c.troops) ?? c.troops ?? 0;
+      const rise = ((c.sim ? c.sim.morale : c.growth) ?? 100) - 100;
+      const defence = (c.sim ? c.sim.food : c.defence) ?? 0;
+      const prod = c.prod ?? 0;
+
+      return {
+        _city: c,
+        cells: [
+          c.name?.trim() ?? "？",
+          `${prod}`,
+          rise <= 0 ? { t: `${rise}`, color: "#ff4444" } : `${rise}`,
+          `${defence}`,
+          `${troops * 10}`,
+          "－－－",
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["據點名", "生產力", "上昇率", "防災", "城兵", "內政官"],
+      cols: [
+        { x: 8, w: 78, align: "left" },
+        { x: 88, w: 68, align: "right" },
+        { x: 160, w: 56, align: "right" },
+        { x: 220, w: 56, align: "right" },
+        { x: 280, w: 64, align: "right" },
+        { x: 352, w: 90, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "要派遣內政官到哪個據點？",
+        portrait: "message_npc",
+      },
+      onPick: (ri) => {
+        const city = rows[ri]?._city;
+        if (!city) return;
+        this.showAppointGovernorGenerals(city);
+      },
+    });
+  }
+
+  /** 內政官任命 — 选择武将并完成任命 */
+  showAppointGovernorGenerals(city) {
+    const sc = this.app.scenario;
+    const f = cmd.playerFaction(sc);
+    if (!f || !city) return;
+
+    const getIdentity = (g) => {
+      if (g.status === 4) return "俘虜";
+      if (g.is_monarch || g.status === 5) return "君主";
+      if (g.status === 1) return "軍團長";
+      if (g.status === 2) return "內政官";
+      if (g.status === 3) return "外交官";
+      if (sc.legions?.some((L) => L.leader === g.name || L.leader === g.idx)) {
+        return "軍團長";
+      }
+      if (sc.cities?.some((c) => c.governor === g.idx)) {
+        return "內政官";
+      }
+      if (
+        sc.envoys &&
+        Object.values(sc.envoys).some((e) => e?.name === g.name?.trim())
+      ) {
+        return "外交官";
+      }
+      return "－－－";
+    };
+
+    // 筛选所有身份为“－－－”的空闲武将
+    const mine = sc.generals.filter(
+      (g) =>
+        g &&
+        g.faction === f.idx &&
+        g.active !== false &&
+        getIdentity(g) === "－－－",
+    );
+
+    const rows = mine.map((g) => {
+      const facName = f.monarch ?? "－－－";
+      return {
+        _gen: g,
+        cells: [
+          g.name?.trim() ?? "？",
+          `${g.ability?.force ?? 0}`,
+          `${g.ability?.lead ?? 0}`,
+          `${g.ability?.politics ?? 0}`,
+          facName,
+          "－－－",
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["武將名", "武術", "統率", "政治", "勢力", "身分"],
+      cols: [
+        { x: 8, w: 80, align: "left" },
+        { x: 96, w: 48, align: "right" },
+        { x: 152, w: 48, align: "right" },
+        { x: 208, w: 48, align: "right" },
+        { x: 272, w: 80, align: "left" },
+        { x: 360, w: 80, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "請選擇任命之武將。",
+        portrait: "message_npc",
+      },
+      onCancel: () => {
+        this.showAppointGovernorCities();
+      },
+      onPick: (ri) => {
+        const gen = rows[ri]?._gen;
+        if (!gen) return;
+        // 执行内政官任命
+        city.governor = gen.idx;
+        gen.status = 2; // 内政官
+        // 弹出武将对话小弹窗「我立刻前往。」
+        this.app.gamebar.showGeneralMessageDialog(gen, "我立刻前往。", () => {
+          this.showAppointGovernorCities();
+        });
+      },
+    });
+  }
+
   /** 據點一覽 — 军师子菜单「據點」 -> 「據點一覽」: 我方据点列表 (Canvas 弹窗构建) */
   showBaseCities() {
     const sc = this.app.scenario;
