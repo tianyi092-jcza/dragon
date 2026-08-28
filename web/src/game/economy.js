@@ -11,6 +11,8 @@
 //   - 0x5695: 城池成长动力学。玩家税率与 30% 基准比较：税率<30% 增长，税率>30% 萎缩；更新生产力与上升率。
 //   - 0x4194: 城池每日/月度城兵 (defense) 与防灾 (disaster) 恢复，内政官 (governor) 政治属性提供恢复加成。
 
+import { increaseRelation } from "./diplomacy.js";
+
 export function saturatingAdd(cur, delta, max = 0xffff) {
   const v = (cur ?? 0) + delta;
   if (v < 0) return 0;
@@ -272,21 +274,9 @@ export function monthlySettlement(scenario, _clock) {
           if (g) pol = g.ability?.politics ?? 10;
         }
 
-        // KI.EXE 0x3E8E: 友好度向上限 100 (0x64) 逐渐改善，每次提升步长基于政治能力
+        // KI.EXE 0x3E8E: 友好度向上限 100 (0x64，即 raw 0xE4) 逐渐改善，每次提升步长基于政治能力
         const gain = Math.max(1, Math.floor(pol / 4));
-        const curRel = scenario.diplomacy[pIdx]?.[targetIdx] ?? 100;
-        const curRelTarget = scenario.diplomacy[targetIdx]?.[pIdx] ?? 100;
-
-        const isWar = (curRel & 0x80) === 0x80 && (curRel & 0x7f) === 0;
-        if (!isWar) {
-          const newRel = Math.min(100, (curRel & 0x7f) + gain);
-          const newRelTarget = Math.min(
-            100,
-            (curRelTarget & 0x7f) + Math.max(1, Math.floor(gain / 2)),
-          );
-          scenario.diplomacy[pIdx][targetIdx] = newRel;
-          scenario.diplomacy[targetIdx][pIdx] = newRelTarget;
-        }
+        increaseRelation(scenario, pIdx, targetIdx, gain);
       }
     }
   }

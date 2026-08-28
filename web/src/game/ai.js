@@ -1,11 +1,16 @@
 // AI 逻辑 — 复刻 KI.EXE 三态机: 威胁感知(0x3FA9)→强弱判断(0x4057)→攻/逃/游走(0x4155/0x40C9)
-import { isFriendly, relation } from "./diplomacy.js";
+import {
+  isFriendly,
+  isAtWar,
+  declareWar,
+  decreaseRelation,
+} from "./diplomacy.js";
 import { playerFaction } from "./commands.js";
 import { findPath, passable, gateDirs } from "./pathfind.js";
 
-/** 未开战判定: 关系触底 0x80=交戰(可通行攻击)；>0x80=未开战第三方(堵路) */
+/** 未开战判定: 关系触底 (<0x80)=交戰(可通行攻击)；>=0x80=未开战第三方(堵路) */
 function atWar(sc, a, b) {
-  return relation(sc, a, b) <= 0x80;
+  return isAtWar(sc, a, b);
 }
 
 /** 该格是否被「未开战的第三方势力」占据 (原版 0x48FD 归属检查：非己方/未交战=堵路)。
@@ -222,6 +227,7 @@ function resolveBattle(app, A, city) {
 export function applyBattleResult(app, A, city, winner, troops) {
   const sc = app.scenario;
   if (winner === "atk") {
+    const oldFaction = city.faction;
     for (const B of sc.legions)
       if (B !== A && B.faction === city.faction && B.x === A.x && B.y === A.y) {
         B.dead = true;
@@ -232,6 +238,10 @@ export function applyBattleResult(app, A, city, winner, troops) {
     A.troops = Math.max(1, troops ?? A.troops);
     A.x = city.x;
     A.y = city.y;
+    if (oldFaction != null && oldFaction !== A.faction) {
+      declareWar(sc, A.faction, oldFaction);
+      decreaseRelation(sc, A.faction, oldFaction, 20);
+    }
     app.hud?.flashEvent?.(`${A.leader} 攻破 ${city.name}（餘兵${A.troops}）`);
   } else {
     // 败退: 回到行军途中路过的最近己方/中立足点 (打不过则撤回, 不再直接打散)

@@ -3,7 +3,7 @@
 //   宣戰 0x6405→IVENTGRF图0 / 停戰 0x64F1→图1 / 請援 0x6623→图2
 //   信赖分档 0x3C1E: ≥0xE0档1 / ≥0x90档2 / ≥0x20档3 / 否则4 (决定台词与态度)
 //   停战成功率 0x36C4/0x3712: 关系值加权; 同盟检查 0x37D8(友好≥0xD8)
-import { isFriendly, relation, relationLabel } from "./diplomacy.js";
+import { isFriendly, relation, relationLabel, declareWar, makeCeasefire } from "./diplomacy.js";
 import { fmt } from "./talk.js";
 
 const NEUTRAL = 0xb7;
@@ -126,11 +126,10 @@ function warScene({ sc, me, target, monarch, tier, say, base }) {
 			{
 				label: `進言：對${target.monarch}宣戰`,
 				apply() {
-					sc.diplomacy[me.idx][target.idx] = HOSTILE;
-					sc.diplomacy[target.idx][me.idx] = HOSTILE;
+					declareWar(sc, me.idx, target.idx);
 					return {
-						result: `${me.monarch}允諾，對${target.monarch}宣戰！關係→惡劣`,
-						trustDelta: 2,
+						result: `${me.monarch}允諾，對${target.monarch}宣戰！關係→交戰`,
+						trustDelta: 20,
 					};
 				},
 			},
@@ -163,21 +162,15 @@ function ceasefireScene(ctx) {
 				label: "進言：與罷兵停戰",
 				apply() {
 					if (roll() < chance) {
-						sc.diplomacy[me.idx][target.idx] = clampRel(Math.max(rel, NEUTRAL + 8));
-						sc.diplomacy[target.idx][me.idx] = clampRel(
-							Math.max(relation(sc, target.idx, me.idx), NEUTRAL),
-						);
+						makeCeasefire(sc, me.idx, target.idx);
 						return {
 							result: `停戰成立！關係→${relationLabel(relation(sc, me.idx, target.idx))}`,
-							trustDelta: 5,
+							trustDelta: 10,
 						};
 					}
-					sc.diplomacy[target.idx][me.idx] = clampRel(
-						relation(sc, target.idx, me.idx) - 6,
-					);
 					return {
 						result: `${monarch.name}：「${say(base + 4 + ((Math.random() < 0.5) | 0))}」交涉失敗。`,
-						trustDelta: -5,
+						trustDelta: -20,
 					};
 				},
 			},
