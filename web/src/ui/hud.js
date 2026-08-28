@@ -820,7 +820,7 @@ export class HUD {
       w: 480,
       h: 352,
       footer: {
-        text: "要解除哪個據點的內政官職務？",
+        text: "要解任哪個據點的內政\n官？",
         portrait: "message_npc",
       },
       onPick: (ri) => {
@@ -841,9 +841,10 @@ export class HUD {
           this.app.gamebar.showNpcMessageDialog({
             lines: [
               [
+                { text: "是否有所差錯？", color: "#ffffff" },
                 { text: cityName, color: "#f8a800" },
-                { text: "　並未任命內政官。", color: "#ffffff" },
               ],
+              "並未派遣任何人。",
             ],
             onClose: () => {
               if (this.app.gamebar.listDialog) {
@@ -861,10 +862,14 @@ export class HUD {
         }
         city.governor = null;
         gov.status = 0; // 恢复为闲置武将
-        // 弹出武将发言弹窗「我這就返回。」
-        this.app.gamebar.showGeneralMessageDialog(gov, "我這就返回。", () => {
-          this.showDismissGovernorCities();
-        });
+        // 弹出武将发言弹窗「那我這就回京城。」
+        this.app.gamebar.showGeneralMessageDialog(
+          gov,
+          "那我這就回京城。",
+          () => {
+            this.showDismissGovernorCities();
+          },
+        );
       },
     });
   }

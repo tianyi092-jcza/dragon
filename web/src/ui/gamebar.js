@@ -871,20 +871,24 @@ export class GameBar {
     this.app.view.draw();
   }
 
-  /** 武将固定发言对话弹窗 (如任命内政官「我立刻前往。」，16×5 tiles = 256×80) */
-  async showGeneralMessageDialog(gen, text, onClose = null) {
+  /** 武将固定发言对话弹窗 (如任命内政官「我立刻前往。」、解任「那我這就回京城。」，19×5 tiles = 304×80) */
+  async showGeneralMessageDialog(
+    gen,
+    text,
+    onClose = null,
+    { w = 304, h = 80, px, py } = {},
+  ) {
     if (!gen) return;
     const img = await portrait(gen.portrait).catch(() => null);
-    const w = 256;
-    const h = 80;
-    let px, py;
-    if (this.listDialog) {
-      const d = this.listDialog;
-      px = d.px + d.w - w - 24;
-      py = d.py + d.h - h - 36;
-    } else {
-      px = Math.round((innerWidth - w) / 2);
-      py = Math.round((innerHeight - h) / 2);
+    if (px == null || py == null) {
+      if (this.listDialog) {
+        const d = this.listDialog;
+        px = d.px + d.w - w - 8;
+        py = d.py + 76;
+      } else {
+        px = Math.round((innerWidth - w) / 2);
+        py = Math.round((innerHeight - h) / 2);
+      }
     }
     this.generalCard = { gen, img, lines: [text], px, py, w, h, onClose };
     this.app.view.draw();
