@@ -1326,17 +1326,60 @@ export class GameBar {
     this.syncClock();
 
     const wTiles = 21;
+    const infoHTiles = 5;
     const hTiles = 10;
+    const gap = 8;
+    const totalH = (infoHTiles + hTiles) * 16 + gap;
+
     const ox = this.bx + Math.round((640 - wTiles * 16) / 2);
-    const oy = Math.round((innerHeight - hTiles * 16) / 2);
+    const startY = Math.max(36, Math.round((innerHeight - totalH) / 2));
+    const infoOy = startY;
+    const oy = startY + infoHTiles * 16 + gap;
 
     this.financeDialog = {
       ox,
       oy,
       wTiles,
       hTiles,
+      infoOy,
+      infoHTiles,
+      advisorImg: null,
     };
+
+    // 异步加载军师头像
+    const sc = this.app.scenario;
+    if (sc) {
+      const fac = cmd.playerFaction(sc);
+      const advGen =
+        (fac ? adv.getAdvisor(sc, fac) : null) ||
+        (fac ? sc.monarchOf(fac) : null);
+      if (advGen && advGen.portrait != null) {
+        portrait(advGen.portrait)
+          .then((img) => {
+            if (this.financeDialog) {
+              this.financeDialog.advisorImg = img;
+              this.app.view.draw();
+            }
+          })
+          .catch(() => {});
+      }
+    }
+
     this.app.view.draw();
+  }
+
+  _recalcFinanceDialog() {
+    const fd = this.financeDialog;
+    if (!fd) return;
+    const wTiles = fd.wTiles ?? 21;
+    const infoHTiles = fd.infoHTiles ?? 5;
+    const hTiles = fd.hTiles ?? 10;
+    const gap = 8;
+    const totalH = (infoHTiles + hTiles) * 16 + gap;
+    fd.ox = this.bx + Math.round((640 - wTiles * 16) / 2);
+    const startY = Math.max(36, Math.round((innerHeight - totalH) / 2));
+    fd.infoOy = startY;
+    fd.oy = startY + infoHTiles * 16 + gap;
   }
 
   closeFinanceDialog() {
@@ -1380,12 +1423,12 @@ export class GameBar {
   _hitFinanceDialog(px, py) {
     const f = this.financeDialog;
     if (!f) return false;
-    const { ox, oy, wTiles = 21, hTiles = 10 } = f;
+    const { ox, oy, infoOy, wTiles = 21, hTiles = 10 } = f;
     const x = ox - 8;
-    const y = oy - 8;
+    const topY = (infoOy ?? oy) - 8;
+    const bottomY = oy + (hTiles + 1) * 16;
     const w = (wTiles + 1) * 16;
-    const h = (hTiles + 1) * 16;
-    return px >= x && px < x + w && py >= y && py < y + h;
+    return px >= x && px < x + w && py >= topY && py < bottomY;
   }
 
   _hitKeypadDialog(px, py) {
@@ -1499,12 +1542,7 @@ export class GameBar {
     const keypadOx = fx + 252;
 
     // 1. 次月 稅率 (绘制于 fy + 70，高 16)
-    if (
-      px >= fx + 220 &&
-      px < fx + 312 &&
-      py >= fy + 68 &&
-      py < fy + 84
-    ) {
+    if (px >= fx + 220 && px < fx + 312 && py >= fy + 68 && py < fy + 84) {
       clickSfx();
       const curVal = sc.next_tax ?? sc.tax ?? 18;
       this.showKeypadDialog("tax", curVal, 100, keypadOx, fy + 88);
@@ -1512,12 +1550,7 @@ export class GameBar {
     }
 
     // 2. 次月 騎兵 徵兵數 (绘制于 fy + 86，高 16)
-    if (
-      px >= fx + 220 &&
-      px < fx + 312 &&
-      py >= fy + 84 &&
-      py < fy + 99
-    ) {
+    if (px >= fx + 220 && px < fx + 312 && py >= fy + 84 && py < fy + 99) {
       clickSfx();
       const curVal = sc.next_conscription?.[0] ?? 0;
       this.showKeypadDialog("cav", curVal, 10000, keypadOx, fy + 104);
@@ -1525,12 +1558,7 @@ export class GameBar {
     }
 
     // 3. 次月 弓兵 徵兵數 (绘制于 fy + 101，高 16)
-    if (
-      px >= fx + 220 &&
-      px < fx + 312 &&
-      py >= fy + 99 &&
-      py < fy + 114
-    ) {
+    if (px >= fx + 220 && px < fx + 312 && py >= fy + 99 && py < fy + 114) {
       clickSfx();
       const curVal = sc.next_conscription?.[1] ?? 0;
       this.showKeypadDialog("arc", curVal, 10000, keypadOx, fy + 119);
@@ -1538,12 +1566,7 @@ export class GameBar {
     }
 
     // 4. 次月 步兵 徵兵數 (绘制于 fy + 116，高 16)
-    if (
-      px >= fx + 220 &&
-      px < fx + 312 &&
-      py >= fy + 114 &&
-      py < fy + 132
-    ) {
+    if (px >= fx + 220 && px < fx + 312 && py >= fy + 114 && py < fy + 132) {
       clickSfx();
       const curVal = sc.next_conscription?.[2] ?? 0;
       this.showKeypadDialog("inf", curVal, 10000, keypadOx, fy + 134);
@@ -1572,7 +1595,11 @@ export class GameBar {
     ctx.textBaseline = "middle";
     const sVal = `${val}`;
     const twVal = ctx.measureText(sVal).width;
-    ctx.fillText(sVal, kx + Math.round((kw - twVal) / 2), ky + headerH / 2 + 0.5);
+    ctx.fillText(
+      sVal,
+      kx + Math.round((kw - twVal) / 2),
+      ky + headerH / 2 + 0.5,
+    );
 
     const btnData = [
       [
@@ -1638,10 +1665,87 @@ export class GameBar {
   _drawFinanceDialog(ctx) {
     const fd = this.financeDialog;
     if (!fd) return;
-    const { ox, oy, wTiles = 21, hTiles = 10 } = fd;
+    const {
+      ox,
+      oy,
+      infoOy,
+      wTiles = 21,
+      hTiles = 10,
+      infoHTiles = 5,
+    } = fd;
     const sc = this.app.scenario;
     const data = getProjectedFinance(sc);
 
+    // ── 0. 上方信息提示窗口 (黑底 + 金框 + 军师头像 + 自动回行文字) ──
+    const targetInfoOy = infoOy ?? (oy - infoHTiles * 16 - 8);
+    const infoWin = this._drawWindow(
+      ctx,
+      ox,
+      targetInfoOy,
+      wTiles,
+      infoHTiles,
+      "black",
+    );
+    const ix = infoWin ? infoWin.x : ox + 8;
+    const iy = infoWin ? infoWin.y : targetInfoOy + 8;
+    const iw = infoWin ? infoWin.w : (wTiles - 1) * 16;
+    const ih = infoWin ? infoWin.h : (infoHTiles - 1) * 16;
+
+    // 左侧军师头像 64×64 (紧贴内框左上角)
+    const advImg = fd.advisorImg || this.imgs?.messageNpc;
+    if (advImg) {
+      ctx.drawImage(
+        advImg,
+        0,
+        0,
+        advImg.naturalWidth || advImg.width || 128,
+        advImg.naturalHeight || advImg.height || 128,
+        ix,
+        iy,
+        64,
+        64,
+      );
+    } else {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(ix, iy, 64, 64);
+    }
+
+    // 右侧提示文字 (自动回行，不要按图标强行回行)
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#ffffff";
+    const tx = ix + 64 + 14;
+    const maxTextW = Math.max(60, iw - 64 - 28);
+
+    const infoText = "請指示下個月以後的財政予定。";
+    const renderLines = [];
+    for (const paragraph of infoText.split("\n")) {
+      if (!paragraph) {
+        renderLines.push("");
+        continue;
+      }
+      let cur = "";
+      for (let i = 0; i < paragraph.length; i++) {
+        const ch = paragraph[i];
+        const test = cur + ch;
+        if (ctx.measureText(test).width > maxTextW && cur.length > 0) {
+          renderLines.push(cur);
+          cur = ch;
+        } else {
+          cur = test;
+        }
+      }
+      if (cur) renderLines.push(cur);
+    }
+
+    const lineH = 20;
+    const totalTextH = renderLines.length * lineH;
+    const startTy = iy + Math.max(4, Math.floor((ih - totalTextH) / 2));
+    renderLines.forEach((line, li) => {
+      ctx.fillText(line, tx, startTy + li * lineH);
+    });
+
+    // ── 1. 下方财政主弹窗 (金框 + 云纹底) ──
     const win = this._drawWindow(ctx, ox, oy, wTiles, hTiles, "cloud");
     const x = win ? win.x : ox + 8;
     const y = win ? win.y : oy + 8;
@@ -1929,6 +2033,10 @@ export class GameBar {
       y += p.h + gap;
     }
     this.panels = panels;
+
+    if (this.financeDialog) {
+      this._recalcFinanceDialog();
+    }
   }
 
   panelRect(kind) {
