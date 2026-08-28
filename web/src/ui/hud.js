@@ -1198,10 +1198,7 @@ export class HUD {
         const targetFac = rows[ri]?._faction;
         if (!targetFac) return;
         this.app.gamebar.closeListDialog(true);
-        this.app.gamebar.showAssistanceProposalAudience(
-          allyFaction,
-          targetFac,
-        );
+        this.app.gamebar.showAssistanceProposalAudience(allyFaction, targetFac);
       },
     });
   }

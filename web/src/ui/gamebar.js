@@ -1357,20 +1357,27 @@ export class GameBar {
       advName,
     );
 
-    // 出阵评估 (KI.EXE 0x69B4): 检查势力总预备兵力是否 >= 600 (即 6000 人)
+    // 出阵评估 (100% 逆向 KI.EXE 0x699E - 0x69EC)
+    // 条件 1: 君主好战度 vs 国库资金 (0x69B6 - 0x69CE)
+    const bellicosity = me.bellicosity ?? 10;
+    const minGold = Math.max(0, (15 - bellicosity) * 400);
+    const currentGold = me.gold ?? 0;
+    const hasEnoughGold = currentGold >= 0 && currentGold >= minGold;
+
+    // 条件 2: 势力总预备兵力是否 >= 600 (即 6000 人, 0x69D2 - 0x69EC)
     const totRes =
-      ((me.reserve_cav ?? 0) +
-        (me.reserve_inf ?? 0) +
-        (me.reserve_arc ?? 0)) *
+      ((me.reserve_cav ?? 0) + (me.reserve_inf ?? 0) + (me.reserve_arc ?? 0)) *
       10;
     const hasEnoughReserves = totRes >= 6000;
+
+    const canDeploy = hasEnoughGold && hasEnoughReserves;
 
     this.proposalAudience = {
       type: "monarch_deploy",
       playerFaction: me,
       monarch,
       advGen,
-      hasEnoughReserves,
+      canDeploy,
       monarchImg,
       advImg,
       advName,
@@ -1513,7 +1520,7 @@ export class GameBar {
     }
 
     if (p.type === "monarch_deploy") {
-      if (p.hasEnoughReserves) {
+      if (p.canDeploy) {
         clickSfx();
         p.step = "done";
         p.monarchLines = await formatTalkTokens(
@@ -1521,8 +1528,6 @@ export class GameBar {
           "",
           p.advName,
         );
-        sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
-        this.app.hud.refreshTrust();
 
         // 扣除预备兵 200 骑兵、200 步兵、200 弓兵 (以 10 兵为单位)
         me.reserve_cav = Math.max(0, (me.reserve_cav ?? 0) - 200);
@@ -1563,7 +1568,7 @@ export class GameBar {
 
         this.app.hud.refreshInfo?.();
         this.app.hud.flashEvent(
-          `「${p.monarch.name}」親征軍團出陣！駐守於「${cap.name}」，信賴度 +10`,
+          `「${p.monarch.name}」親征軍團出陣！駐守於「${cap.name}」。`,
         );
         this.app.view.draw();
         this._setProposalTimer(3000, () => {
@@ -1588,10 +1593,8 @@ export class GameBar {
           "",
           p.advName,
         );
-        sc.trust = Math.max(0, (sc.trust ?? 255) - 20);
-        this.app.hud.refreshTrust();
         this.app.hud.flashEvent(
-          `預備兵不足（需6000兵）！君主駁回出陣，信賴度 -20`,
+          `君主目前不便出陣。`,
         );
         this.app.view.draw();
         this._setProposalTimer(3000, () => {
