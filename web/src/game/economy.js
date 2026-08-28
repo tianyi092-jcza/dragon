@@ -1,105 +1,284 @@
-// 月度结算 — 对应 KI.EXE 0x5358 换月处理
-// ★真实公式 (逆向自 0x53C6/0x54FC/0x5538/0x5547, 见 docs/re-notes-kernel.md)
+// 财政与月度结算系统 — 完整逆向还原 KI.EXE 0x5358 / 0x53C6 / 0x54FC / 0x5538 / 0x5547 / 0x5695
 //
-// 每势力遍历己方城池:
-//   等级 = 距都城切比雪夫距离查表: ≤80→2, ≤200→3, 其余→4  (阈值表 CS:0x5532)
-//   金 += 开发值 / 等级                        (0x5538, 带进位双字累计)
-//   base = 开发值 / 等级 / 32                  (0x5547 >>5)
-//   按 [di+0xA](民忠?) 分档扣减:
-//     <80:  扣 base/4+base/16 + 其半   →粮
-//     <150: 扣 base/8                  →兵
-//     ≥150: 扣 base/32                 →兵
-// 结果经饱和加法并入势力资源 (+4金/+6粮/+8兵)
+// 逆向依据 (详见 docs/re-notes-kernel.md):
+//   - 0x5358: 换月结算主函数。
+//   - 0x53A6: 换月时将次月参数 (次月税率 CS:[0xD10]、次月征兵 CS:[0xD12..0xD17]) 复制到当月 (CS:[0xD08..0xD0F])。
+//   - 0x54FC: 切比雪夫距离 → 距离衰减等级 (≤80: 2, ≤200: 3, >200: 4)。
+//   - 0x5538: 城池生产力 ÷ 距离等级 累加得全势力原始收入基数。
+//   - 0x548F: 玩家月收入 = 原始收入基数 × 税率(%) ÷ 100；并根据预备兵和武将数计算月支出。
+//   - 0x5547: 城池征兵产出 base = (生产力 ÷ 距离等级) ÷ 32，按纬度 (北 y<80 骑多 / 中 80≤y<150 / 南 y≥150 弓步多) 计算三兵种征兵池。
+//   - 0x54BF: 玩家设定征兵上限钳制实际征兵数，并入预备兵池 (reserve_cav, reserve_arc, reserve_inf)。
+//   - 0x5695: 城池成长动力学。玩家税率与 30% 基准比较：税率<30% 增长，税率>30% 萎缩；更新生产力与上升率。
+//   - 0x4194: 城池每日/月度城兵 (defense) 与防灾 (disaster) 恢复，内政官 (governor) 政治属性提供恢复加成。
 
 export function saturatingAdd(cur, delta, max = 0xffff) {
-  // 复刻 55EC
-  const v = cur + delta;
+  const v = (cur ?? 0) + delta;
   if (v < 0) return 0;
   return v > max ? max : v;
 }
 
-/** 复刻 0x54FC: 切比雪夫距离 → 衰减等级 */
-function distLevel(c, cap) {
-  const dx = Math.abs(cap.x - c.x),
-    dy = Math.abs(cap.y - c.y);
+/** 0x54FC: 城池距首都切比雪夫距离 → 收益衰减除数 (2, 3, 4) */
+export function distLevel(city, cap) {
+  if (!cap) return 2;
+  const dx = Math.abs(cap.x - city.x);
+  const dy = Math.abs(cap.y - city.y);
   const d = Math.max(dx, dy) & 0xff;
   if (d <= 0x50) return 2;
   if (d <= 0xc8) return 3;
   return 4;
 }
 
-/** 月度结算主入口 — 结构复刻 0x53C6 */
-export function monthlySettlement(scenario, _clock, taxRate = 25) {
-  const report = [];
-  for (const f of scenario.factions) {
-    const cap = scenario.cities[f.capital]; // 都城 (0x54FC 取坐标基准)
-    if (!cap) continue;
-    let gold = 0,
-      goldCarry = 0; // [bp]双字 (0x5538 adc 进位)
-    let food = 0,
-      troops = 0,
-      nCity = 0;
-    for (const c of scenario.citiesOf(f.idx)) {
-      const L = distLevel(c, cap);
-      // 0x5538: 金 += prod / L (余数进位)
-      const g = Math.floor((c.prod ?? 0) / L);
-      goldCarry += (c.prod ?? 0) % L >= L / 2 ? 1 : 0;
-      gold += g;
-      nCity++;
-      // 0x5547: base = prod/L/32; 按 [di+0xA] 分档
-      const base = Math.floor(g / 32);
-      const m = c.growth ?? 100; // [di+0xA] (growth 字段)
-      let a = base,
-        cx = 0,
-        dx = 0;
-      if (m < 0x50) {
-        // <80: 重税档
-        dx = Math.floor(base / 4) + Math.floor(base / 16);
-        cx = Math.floor(dx / 4);
-        a -= dx + cx;
-      } else if (m < 0x96) {
-        // <150: 中档
-        dx = Math.floor(base / 8);
-        cx = a - dx - Math.floor(dx / 2);
-        a = Math.floor(base >> 3); // 与反汇编对齐: ax>>3
-        dx = base - a - cx;
-      } else {
-        // ≥150: 低档
-        dx = base - Math.floor(base / 32);
-        cx = dx;
-        a = Math.floor(base / 32);
-      }
-      food += cx;
-      troops += dx;
-      void a;
+/** 0x5538: 计算某势力所有据点的原始收入总基数 (未乘税率) */
+export function computeFactionRawIncome(scenario, factionIdx) {
+  const f = scenario.factions[factionIdx];
+  if (!f) return 0;
+  const cap = f.capital == null ? null : scenario.cities[f.capital];
+  let raw = 0;
+  for (const c of scenario.citiesOf(factionIdx)) {
+    const L = distLevel(c, cap);
+    const prod = c.prod ?? 0;
+    raw += Math.floor(prod / L);
+  }
+  return raw;
+}
+
+/** 0x5547: 计算某势力所有据点的三兵种征兵产出上限 (按南北地理区域划分) */
+export function computeConscriptionYields(scenario, factionIdx) {
+  const f = scenario.factions[factionIdx];
+  if (!f) return { cav: 0, arc: 0, inf: 0 };
+  const cap = f.capital == null ? null : scenario.cities[f.capital];
+
+  let cavYield = 0;
+  let arcYield = 0;
+  let infYield = 0;
+
+  for (const c of scenario.citiesOf(factionIdx)) {
+    const L = distLevel(c, cap);
+    const prod = c.prod ?? 0;
+    const base = Math.floor(Math.floor(prod / L) / 32);
+    if (base <= 0) continue;
+
+    const y = c.y ?? 100;
+    if (y < 80) {
+      // 北方区域 (幽州/并州/凉州/冀州等): 盛产骑兵
+      const dx = Math.floor(base / 4) + Math.floor(base / 16);
+      const cx = Math.floor(dx / 4);
+      const ax = Math.max(0, base - dx - cx);
+      cavYield += ax;
+      arcYield += cx;
+      infYield += dx;
+    } else if (y < 150) {
+      // 中原/平原区域: 均衡，以步兵为主
+      const dx = Math.floor(base / 8);
+      const cx = Math.max(0, base - dx - Math.floor(dx / 2));
+      const ax = Math.floor(base >> 3);
+      const remDx = Math.max(0, base - ax - cx);
+      cavYield += ax;
+      arcYield += cx;
+      infYield += remDx;
+    } else {
+      // 南方区域 (江东/荆南/蜀中): 水乡多弓箭与步兵，极少骑兵
+      const ax = Math.floor(base / 32);
+      const dx = Math.max(0, base - ax);
+      const cx = dx;
+      cavYield += ax;
+      arcYield += cx;
+      infYield += dx;
     }
-    // 饱和并入三资源 (0x55EC), 金用双字合计
-    f.gold = saturatingAdd(f.gold ?? 0, gold + (goldCarry > 0xff ? 0xff : 0));
-    f.food = saturatingAdd(f.food ?? 0, food);
-    f.troops = saturatingAdd(f.troops ?? 0, troops);
+  }
 
-    // ★财政连续负3月→未出征部队消失 (攻略实证; 对应调度器灭亡判定候选)
-    if ((f.gold ?? 0) === 0) f.brokeMonths = (f.brokeMonths ?? 0) + 1;
-    else f.brokeMonths = 0;
+  return {
+    cav: cavYield,
+    arc: arcYield,
+    inf: infYield,
+  };
+}
 
-    // ★发展度: 税率≤30%稳定增长, >30%转负 (攻略实证; 发展度±200)
-    for (const c of scenario.citiesOf(f.idx)) {
-      const g = (c.development ?? 50) + (taxRate <= 30 ? 10 : -10);
-      c.development = Math.max(-200, Math.min(200, g));
-      if (c.development > 0)
-        c.prod = Math.min(30000, (c.prod ?? 0) + Math.ceil(c.development / 40));
-      else if (c.development < 0)
-        c.prod = Math.max(100, (c.prod ?? 0) + Math.ceil(c.development / 20));
+/** 0x3E65: 计算势力的每月预估总支出 (预备兵维护费 + 武将俸禄) */
+export function computeFactionExpense(scenario, factionIdx) {
+  const f = scenario.factions[factionIdx];
+  if (!f) return 0;
+  const totalRes =
+    (f.reserve_cav ?? 0) + (f.reserve_arc ?? 0) + (f.reserve_inf ?? 0);
+  // 预备兵每 32 兵每月消耗维护费 (以 10 兵为单位，折算约 24 周期)
+  const troopUpkeep = Math.floor((totalRes / 32) * 24);
+  // 麾下武将俸禄
+  const generalsCount = scenario.generals
+    ? scenario.generals.filter(
+        (g) => g && g.faction === factionIdx && g.active !== false,
+      ).length
+    : f.n_generals ?? 1;
+  const officerStipend = generalsCount * 20;
+
+  return Math.max(0, troopUpkeep + officerStipend);
+}
+
+/** 军师「財政」界面实时数据与预测模型 */
+export function getProjectedFinance(scenario) {
+  const pIdx = scenario.player_faction ?? 0;
+  const f = scenario.factions[pIdx] || scenario.factions[0];
+  if (!f) {
+    return {
+      treasury: 0,
+      income: 0,
+      expense: 0,
+      curTax: 18,
+      curCav: 0,
+      curArc: 0,
+      curInf: 0,
+      nextTax: 18,
+      nextCav: 0,
+      nextArc: 0,
+      nextInf: 0,
+      yieldCav: 0,
+      yieldArc: 0,
+      yieldInf: 0,
+    };
+  }
+
+  const rawIncome = computeFactionRawIncome(scenario, f.idx);
+  const nextTax = scenario.next_tax ?? scenario.tax ?? 18;
+  const projectedIncome = Math.floor((rawIncome * nextTax) / 100);
+  const projectedExpense = computeFactionExpense(scenario, f.idx);
+  const yields = computeConscriptionYields(scenario, f.idx);
+
+  return {
+    treasury: f.gold ?? f.money ?? 0,
+    income: projectedIncome,
+    expense: projectedExpense,
+    curTax: scenario.tax ?? 18,
+    curCav: scenario.conscription?.[0] ?? 0,
+    curArc: scenario.conscription?.[1] ?? 0,
+    curInf: scenario.conscription?.[2] ?? 0,
+    nextTax: nextTax,
+    nextCav: scenario.next_conscription?.[0] ?? 0,
+    nextArc: scenario.next_conscription?.[1] ?? 0,
+    nextInf: scenario.next_conscription?.[2] ?? 0,
+    yieldCav: yields.cav,
+    yieldArc: yields.arc,
+    yieldInf: yields.inf,
+  };
+}
+
+/** 换月结算主入口 — 完整复刻 KI.EXE 0x5358 / 0x53C6 / 0x5695 */
+export function monthlySettlement(scenario, _clock) {
+  const pIdx = scenario.player_faction ?? 0;
+  const report = [];
+
+  // 1. 0x53A6: 将次月税率与征兵设定转移为当月
+  scenario.tax = scenario.next_tax ?? scenario.tax ?? 18;
+  if (scenario.next_conscription) {
+    scenario.conscription = [...scenario.next_conscription];
+  } else {
+    scenario.conscription = [0, 0, 0];
+  }
+
+  // 2. 0x5695: 据点生产力与上升率动力学 (192 城池全量刷新)
+  for (const c of scenario.cities ?? []) {
+    if (!c) continue;
+    const growthBase = c.growth ?? 100;
+    let growthDiff = growthBase - 100;
+
+    // 玩家据点受玩家税率影响 (以 30% 为平衡基准)
+    if (c.faction === pIdx) {
+      growthDiff -= (scenario.tax - 30);
+    }
+
+    let scale = 1;
+    if (c.type === 0) scale = 3;
+    else if (c.type === 1) scale = 2;
+    const delta = scale * growthDiff;
+
+    if (delta >= 0) {
+      const inc = Math.floor(delta / 2);
+      c.prod = Math.min(c.max_prod ?? 30000, (c.prod ?? 0) + inc);
+      c.growth_rate = inc;
+    } else {
+      const dec = Math.abs(delta);
+      c.prod = Math.max(0, (c.prod ?? 0) - dec);
+      c.growth_rate = -dec;
+    }
+
+    // 随机扰动并重设 base (0..200)
+    const randPerturb = Math.floor(Math.random() * 16);
+    c.growth = Math.max(0, Math.min(200, growthDiff - randPerturb + 100));
+
+    // 3. 0x4194: 城兵与防灾月度恢复 (内政官加成)
+    let pol = 0;
+    if (c.governor != null && scenario.generals?.[c.governor]) {
+      pol = scenario.generals[c.governor].ability?.politics ?? 0;
+    }
+    let maxDef = 1500;
+    if (c.troops_cap != null) maxDef = c.troops_cap;
+    else if (c.type === 0) maxDef = 5000;
+    else if (c.type === 1) maxDef = 3000;
+    else if (c.type === 3) maxDef = 2000;
+    c.defence = Math.min(maxDef, (c.defence ?? 0) + 10 + pol * 2);
+    c.disaster = Math.min(200, (c.disaster ?? 100) + (pol > 0 ? 2 : 1));
+  }
+
+  // 4. 0x53C6: 各势力财务与征兵结算
+  for (const f of scenario.factions ?? []) {
+    if (!f) continue;
+    const rawIncome = computeFactionRawIncome(scenario, f.idx);
+    const yields = computeConscriptionYields(scenario, f.idx);
+    const expense = computeFactionExpense(scenario, f.idx);
+
+    let actualIncome = 0;
+    let conscriptedCav = 0;
+    let conscriptedArc = 0;
+    let conscriptedInf = 0;
+
+    if (f.idx === pIdx) {
+      // 玩家势力: 按设定税率征税，按设定征兵数补充预备兵
+      actualIncome = Math.floor((rawIncome * scenario.tax) / 100);
+      conscriptedCav = Math.min(scenario.conscription[0], yields.cav);
+      conscriptedArc = Math.min(scenario.conscription[1], yields.arc);
+      conscriptedInf = Math.min(scenario.conscription[2], yields.inf);
+    } else {
+      // AI 势力: 标准 25% 税率，征募全部可用兵额
+      actualIncome = Math.floor(rawIncome * 0.25);
+      conscriptedCav = yields.cav;
+      conscriptedArc = yields.arc;
+      conscriptedInf = yields.inf;
+    }
+
+    // 资金增减
+    f.gold = Math.max(0, (f.gold ?? f.money ?? 0) + actualIncome - expense);
+    f.money = f.gold;
+
+    // 预备兵并入
+    f.reserve_cav = saturatingAdd(f.reserve_cav ?? 0, conscriptedCav);
+    f.reserve_arc = saturatingAdd(f.reserve_arc ?? 0, conscriptedArc);
+    f.reserve_inf = saturatingAdd(f.reserve_inf ?? 0, conscriptedInf);
+    f.troops =
+      ((f.reserve_cav ?? 0) + (f.reserve_arc ?? 0) + (f.reserve_inf ?? 0)) * 10;
+
+    // 赤字与信赖度处理 (连续赤字惩罚)
+    if (f.idx === pIdx) {
+      if (f.gold === 0) {
+        f.brokeMonths = (f.brokeMonths ?? 0) + 1;
+        if (f.brokeMonths >= 2 && !f.deficitScolded) {
+          f.deficitScolded = true;
+          scenario.trust = Math.max(0, (scenario.trust ?? 100) - 20);
+        }
+      } else {
+        f.brokeMonths = 0;
+        f.deficitScolded = false;
+      }
     }
 
     report.push({
       faction: f.idx,
       monarch: f.monarch,
-      income: gold,
-      food,
-      troops,
-      cities: nCity,
+      income: actualIncome,
+      expense,
+      cav: conscriptedCav,
+      arc: conscriptedArc,
+      inf: conscriptedInf,
+      gold: f.gold,
     });
   }
+
   return report;
 }

@@ -45,9 +45,17 @@ def parse_scenario(sc: bytes):
       out["player_faction"] = sc[0xF]
       out["trust"] = sc[0x10]
       out["tax"] = sc[0x18]
-      out["conscription"] = list(sc[0x1A:0x20])
+      out["conscription"] = [
+            u16(sc[0x1A:0x1C]) * 10,
+            u16(sc[0x1C:0x1E]) * 10,
+            u16(sc[0x1E:0x20]) * 10,
+      ]
       out["next_tax"] = sc[0x20]
-      out["next_conscription"] = list(sc[0x22:0x28])
+      out["next_conscription"] = [
+            u16(sc[0x22:0x24]) * 10,
+            u16(sc[0x24:0x26]) * 10,
+            u16(sc[0x26:0x28]) * 10,
+      ]
 
       # ---- 武将 (128 × 32B) ----
       generals = []

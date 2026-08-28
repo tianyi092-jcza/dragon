@@ -18,6 +18,7 @@ import { cityTypeLabel } from "../game/world.js";
 import { clickSfx, warnSfx, toggleMute, unlockSfx } from "../core/speaker.js";
 import { isFriendly } from "../game/diplomacy.js";
 import { factionColorEx } from "../game/world.js";
+import { getProjectedFinance } from "../game/economy.js";
 
 const FONT = '16px "Noto Serif TC","PMingLiU",serif';
 const DIN = '16px "Bahnschrift","Noto Serif TC","PMingLiU",serif';
@@ -58,6 +59,8 @@ export class GameBar {
     this.formationQuote = null; // 部队编成确认/提示发言弹窗 (武将/军师发言)
     this.cityCard = null; // 左下角据点信息弹窗
     this.baseMenu = null; // 军师子菜单「據點」二级下拉菜单 (首都確認 / 據點一覽)
+    this.financeDialog = null; // 军师「財政」弹窗
+    this.keypadDialog = null; // 数字输入弹窗 (税率/各兵种征兵数)
     this._assets = Promise.all([
       loadImage("grf/ui/tool_bar.png"),
       loadImage("grf/ui/tool_ico1.png"),
@@ -1310,8 +1313,473 @@ export class GameBar {
     }
   }
 
+  showFinanceDialog() {
+    this.closeCityCard();
+    this.closeListDialog();
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeFormationDialog();
+    this.closeBaseMenu();
+    this.closeKeypadDialog();
+
+    this.selectedSubmenu = 2;
+    this.syncClock();
+
+    const wTiles = 21;
+    const hTiles = 10;
+    const ox = this.bx + 16;
+    const oy = this.submenuOpen
+      ? 72
+      : Math.round((innerHeight - hTiles * 16) / 2);
+
+    this.financeDialog = {
+      ox,
+      oy,
+      wTiles,
+      hTiles,
+    };
+    this.app.view.draw();
+  }
+
+  closeFinanceDialog() {
+    this.closeKeypadDialog();
+    if (!this.financeDialog) return;
+    this.financeDialog = null;
+    this.app.view.draw();
+  }
+
+  showKeypadDialog(type, curVal, maxVal, ox, oy) {
+    this.keypadDialog = {
+      type,
+      val: Math.min(maxVal, curVal ?? 0),
+      max: maxVal,
+      ox: Math.min(innerWidth - 112, Math.max(0, ox)),
+      oy: Math.min(innerHeight - 80, Math.max(32, oy)),
+      wTiles: 7,
+      hTiles: 5,
+    };
+    this.syncClock();
+    this.app.view.draw();
+  }
+
+  closeKeypadDialog() {
+    if (!this.keypadDialog) return;
+    this.keypadDialog = null;
+    this.syncClock();
+    this.app.view.draw();
+  }
+
+  _hitFinanceDialog(px, py) {
+    const f = this.financeDialog;
+    if (!f) return false;
+    const { ox, oy, wTiles = 21, hTiles = 10 } = f;
+    const x = ox - 8;
+    const y = oy - 8;
+    const w = (wTiles + 1) * 16;
+    const h = (hTiles + 1) * 16;
+    return px >= x && px < x + w && py >= y && py < y + h;
+  }
+
+  _hitKeypadDialog(px, py) {
+    const k = this.keypadDialog;
+    if (!k) return false;
+    const { ox, oy, wTiles = 7, hTiles = 5 } = k;
+    const x = ox - 8;
+    const y = oy - 8;
+    const w = (wTiles + 1) * 16;
+    const h = (hTiles + 1) * 16;
+    return px >= x && px < x + w && py >= y && py < y + h;
+  }
+
+  _clickKeypadDialog(px, py) {
+    const k = this.keypadDialog;
+    if (!k) return false;
+    const { ox, oy, wTiles = 7, hTiles = 5 } = k;
+    const kx = ox + 8;
+    const ky = oy + 8;
+    const kw = (wTiles - 1) * 16;
+    const kh = (hTiles - 1) * 16;
+
+    if (px < kx || px >= kx + kw || py < ky || py >= ky + kh) {
+      return true; // 消费外部点击
+    }
+
+    if (py < ky + 16) return true; // 显示区
+
+    const ry = py - (ky + 16);
+    const rx = px - kx;
+    const r = Math.floor(ry / 16);
+    if (r < 0 || r >= 3) return true;
+
+    let c = -1;
+    if (rx < 16) c = 0;
+    else if (rx < 32) c = 1;
+    else if (rx < 48) c = 2;
+    else if (rx < 64) c = 3;
+    else if (rx < 96) c = 4;
+
+    if (c === -1) return true;
+
+    clickSfx();
+    const sc = this.app.scenario;
+
+    if (c === 4) {
+      if (r === 0) {
+        // 取消
+        this.closeKeypadDialog();
+      } else if (r === 1) {
+        // 最大
+        k.val = k.max;
+      } else if (r === 2) {
+        // 決定
+        if (k.type === "tax") {
+          sc.next_tax = k.val;
+        } else if (k.type === "cav") {
+          if (!sc.next_conscription) sc.next_conscription = [0, 0, 0];
+          sc.next_conscription[0] = k.val;
+        } else if (k.type === "arc") {
+          if (!sc.next_conscription) sc.next_conscription = [0, 0, 0];
+          sc.next_conscription[1] = k.val;
+        } else if (k.type === "inf") {
+          if (!sc.next_conscription) sc.next_conscription = [0, 0, 0];
+          sc.next_conscription[2] = k.val;
+        }
+        this.closeKeypadDialog();
+      }
+    } else if (c === 3) {
+      if (r === 0) {
+        // ◀ 回退
+        k.val = Math.floor(k.val / 10);
+      } else if (r === 1) {
+        // 0
+        k.val = Math.min(k.max, k.val * 10);
+      } else if (r === 2) {
+        // 00
+        k.val = Math.min(k.max, k.val * 100);
+      }
+    } else {
+      // 数字 1..9
+      const digits = [
+        [7, 8, 9],
+        [4, 5, 6],
+        [1, 2, 3],
+      ];
+      const d = digits[r][c];
+      k.val = Math.min(k.max, k.val * 10 + d);
+    }
+
+    this.app.view.draw();
+    return true;
+  }
+
+  _clickFinanceDialog(px, py) {
+    if (this.keypadDialog) {
+      return this._clickKeypadDialog(px, py);
+    }
+    const f = this.financeDialog;
+    if (!f) return false;
+    const { ox, oy } = f;
+    const fx = ox + 8;
+    const fy = oy + 8;
+    const sc = this.app.scenario;
+
+    const btnW = 22,
+      btnH = 14;
+
+    // 1. 次月 稅率 按鈕
+    const taxBtnX = fx + 224,
+      taxBtnY = fy + 68 + 1;
+    if (
+      px >= taxBtnX &&
+      px < taxBtnX + btnW &&
+      py >= taxBtnY &&
+      py < taxBtnY + btnH
+    ) {
+      clickSfx();
+      const curVal = sc.next_tax ?? sc.tax ?? 18;
+      this.showKeypadDialog("tax", curVal, 100, fx + 224 - 16, fy + 68 - 16);
+      return true;
+    }
+
+    // 2. 次月 騎兵 徵兵數 按鈕
+    const cavBtnX = fx + 224,
+      cavBtnY = fy + 84 + 1;
+    if (
+      px >= cavBtnX &&
+      px < cavBtnX + btnW &&
+      py >= cavBtnY &&
+      py < cavBtnY + btnH
+    ) {
+      clickSfx();
+      const curVal = sc.next_conscription?.[0] ?? 0;
+      this.showKeypadDialog("cav", curVal, 10000, fx + 224 - 16, fy + 84 - 16);
+      return true;
+    }
+
+    // 3. 次月 弓兵 徵兵數 按鈕
+    const arcBtnX = fx + 224,
+      arcBtnY = fy + 100 + 1;
+    if (
+      px >= arcBtnX &&
+      px < arcBtnX + btnW &&
+      py >= arcBtnY &&
+      py < arcBtnY + btnH
+    ) {
+      clickSfx();
+      const curVal = sc.next_conscription?.[1] ?? 0;
+      this.showKeypadDialog("arc", curVal, 10000, fx + 224 - 16, fy + 100 - 16);
+      return true;
+    }
+
+    // 4. 次月 步兵 徵兵數 按鈕
+    const infBtnX = fx + 224,
+      infBtnY = fy + 116 + 1;
+    if (
+      px >= infBtnX &&
+      px < infBtnX + btnW &&
+      py >= infBtnY &&
+      py < infBtnY + btnH
+    ) {
+      clickSfx();
+      const curVal = sc.next_conscription?.[2] ?? 0;
+      this.showKeypadDialog("inf", curVal, 10000, fx + 224 - 16, fy + 116 - 16);
+      return true;
+    }
+
+    return true;
+  }
+
+  _drawKeypadDialog(ctx) {
+    const k = this.keypadDialog;
+    if (!k) return;
+    const { ox, oy, val, wTiles = 7, hTiles = 5 } = k;
+    const win = this._drawWindow(ctx, ox, oy, wTiles, hTiles, "black");
+    const kx = win ? win.x : ox + 8;
+    const ky = win ? win.y : oy + 8;
+
+    // 顶部显示区域 96×16 黑底
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(kx, ky, 96, 16);
+    ctx.font = DIN;
+    ctx.fillStyle = "#ffffff";
+    ctx.textBaseline = "top";
+    const sVal = `${val}`;
+    ctx.fillText(
+      sVal,
+      kx + Math.round((96 - ctx.measureText(sVal).width) / 2),
+      ky + 1,
+    );
+
+    const btnData = [
+      [
+        { t: "7", type: "num", val: 7, w: 16 },
+        { t: "8", type: "num", val: 8, w: 16 },
+        { t: "9", type: "num", val: 9, w: 16 },
+        { t: "◀", type: "back", w: 16 },
+        { t: "取消", type: "cancel", w: 32 },
+      ],
+      [
+        { t: "4", type: "num", val: 4, w: 16 },
+        { t: "5", type: "num", val: 5, w: 16 },
+        { t: "6", type: "num", val: 6, w: 16 },
+        { t: "0", type: "num", val: 0, w: 16 },
+        { t: "最大", type: "max", w: 32 },
+      ],
+      [
+        { t: "1", type: "num", val: 1, w: 16 },
+        { t: "2", type: "num", val: 2, w: 16 },
+        { t: "3", type: "num", val: 3, w: 16 },
+        { t: "00", type: "00", w: 16 },
+        { t: "決定", type: "ok", w: 32 },
+      ],
+    ];
+
+    for (let r = 0; r < 3; r++) {
+      const by = ky + 16 + r * 16;
+      let bx = kx;
+      for (const btn of btnData[r]) {
+        const isAction =
+          btn.type === "cancel" ||
+          btn.type === "max" ||
+          btn.type === "ok" ||
+          btn.type === "back";
+        ctx.fillStyle = isAction ? "#c08030" : "#509040";
+        ctx.fillRect(bx, by, btn.w, 16);
+
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by + 0.5, btn.w - 1, 15);
+
+        if (btn.type === "back") {
+          ctx.beginPath();
+          ctx.moveTo(bx + 11, by + 4);
+          ctx.lineTo(bx + 4, by + 8);
+          ctx.lineTo(bx + 11, by + 12);
+          ctx.closePath();
+          ctx.fillStyle = "#000000";
+          ctx.fill();
+        } else {
+          ctx.font = btn.type === "num" || btn.type === "00" ? DIN : FONT;
+          ctx.fillStyle = "#000000";
+          ctx.textBaseline = "middle";
+          const tw = ctx.measureText(btn.t).width;
+          ctx.fillText(btn.t, bx + (btn.w - tw) / 2, by + 8.5);
+        }
+
+        bx += btn.w;
+      }
+    }
+  }
+
+  _drawFinanceDialog(ctx) {
+    const fd = this.financeDialog;
+    if (!fd) return;
+    const { ox, oy, wTiles = 21, hTiles = 10 } = fd;
+    const sc = this.app.scenario;
+    const data = getProjectedFinance(sc);
+
+    const win = this._drawWindow(ctx, ox, oy, wTiles, hTiles, "cloud");
+    const x = win ? win.x : ox + 8;
+    const y = win ? win.y : oy + 8;
+
+    const { money, cav, arc, inf } = this.imgs;
+
+    // 1. 左上: 資金
+    ctx.font = FONT;
+    ctx.fillStyle = "#ffffff";
+    ctx.textBaseline = "top";
+    ctx.fillText("資金", x + 16, y + 8);
+
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(x + 10, y + 26, 128, 16);
+
+    ctx.font = DIN;
+    ctx.fillStyle = "#ffffff";
+    const sTreasury = `${data.treasury}`;
+    ctx.fillText(
+      sTreasury,
+      x + 134 - ctx.measureText(sTreasury).width,
+      y + 26,
+    );
+
+    // 2. 右上: 收入 / 支出 (带垂直分隔线 | 与黑底数值框)
+    ctx.font = FONT;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("收入", x + 158, y + 8);
+    ctx.fillText("支出", x + 158, y + 26);
+
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 194.5, y + 6);
+    ctx.lineTo(x + 194.5, y + 44);
+    ctx.stroke();
+
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(x + 198, y + 8, 110, 16);
+    ctx.fillRect(x + 198, y + 26, 110, 16);
+
+    ctx.font = DIN;
+    ctx.fillStyle = "#ffffff";
+    const sIncome = `${data.income}`;
+    ctx.fillText(sIncome, x + 304 - ctx.measureText(sIncome).width, y + 8);
+
+    const sExpense = `${data.expense}`;
+    ctx.fillText(sExpense, x + 304 - ctx.measureText(sExpense).width, y + 26);
+
+    // 3. 左下: 今月底
+    ctx.font = FONT;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("今月底", x + 32, y + 50);
+
+    // 黑色连续底框
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(x + 98, y + 70, 48, 62);
+
+    // 稅率 (紅底圖標 + 數值)
+    ctx.fillText("稅率", x + 16, y + 70);
+
+    ctx.fillStyle = "#d00000";
+    ctx.fillRect(x + 72, y + 70 + 1, 22, 14);
+    if (money) ctx.drawImage(money, x + 72, y + 70 + 1, 22, 14);
+
+    ctx.font = DIN;
+    ctx.fillStyle = "#ffffff";
+    const sCurTax = `${data.curTax}%`;
+    ctx.fillText(sCurTax, x + 142 - ctx.measureText(sCurTax).width, y + 70);
+
+    // 徵兵數 (3 行紅底圖標 + 數值)
+    ctx.font = FONT;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("徵兵數", x + 16, y + 86);
+
+    const redTroops = [
+      { img: cav, val: data.curCav, ty: y + 86 },
+      { img: arc, val: data.curArc, ty: y + 101 },
+      { img: inf, val: data.curInf, ty: y + 116 },
+    ];
+
+    redTroops.forEach(({ img, val, ty }) => {
+      ctx.fillStyle = "#d00000";
+      ctx.fillRect(x + 72, ty + 1, 22, 14);
+      if (img) ctx.drawImage(img, x + 72, ty + 1, 22, 14);
+
+      ctx.font = DIN;
+      ctx.fillStyle = "#ffffff";
+      const sVal = `${val}`;
+      ctx.fillText(sVal, x + 142 - ctx.measureText(sVal).width, ty);
+    });
+
+    // 4. 右下: 次月
+    ctx.font = FONT;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("次月", x + 192, y + 50);
+
+    // 黑色连续底框
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(x + 250, y + 70, 56, 62);
+
+    // 稅率 (綠底按鈕 + 數值)
+    ctx.fillText("稅率", x + 164, y + 70);
+
+    ctx.fillStyle = "#509040";
+    ctx.fillRect(x + 224, y + 70 + 1, 22, 14);
+    if (money) ctx.drawImage(money, x + 224, y + 70 + 1, 22, 14);
+
+    ctx.font = DIN;
+    ctx.fillStyle = "#ffffff";
+    const sNextTax = `${data.nextTax}%`;
+    ctx.fillText(sNextTax, x + 302 - ctx.measureText(sNextTax).width, y + 70);
+
+    // 徵兵數 (3 行綠底按鈕 + 數值)
+    ctx.font = FONT;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("徵兵數", x + 164, y + 86);
+
+    const greenTroops = [
+      { img: cav, val: data.nextCav, ty: y + 86 },
+      { img: arc, val: data.nextArc, ty: y + 101 },
+      { img: inf, val: data.nextInf, ty: y + 116 },
+    ];
+
+    greenTroops.forEach(({ img, val, ty }) => {
+      ctx.fillStyle = "#509040";
+      ctx.fillRect(x + 224, ty + 1, 22, 14);
+      if (img) ctx.drawImage(img, x + 224, ty + 1, 22, 14);
+
+      ctx.font = DIN;
+      ctx.fillStyle = "#ffffff";
+      const sVal = `${val}`;
+      ctx.fillText(sVal, x + 302 - ctx.measureText(sVal).width, ty);
+    });
+
+    // 5. 若存在數字輸入彈窗，繪製于上方
+    if (this.keypadDialog) {
+      this._drawKeypadDialog(ctx);
+    }
+  }
+
   _recalcCityCard() {
-    const c = this.cityCard;
     if (!c) return;
     c.px = 12;
     c.py = innerHeight - c.h - 12;
@@ -1486,7 +1954,14 @@ export class GameBar {
     if (!c) return;
     const modalOpen =
       (this.app.hud?.dialogCount ?? 0) > 0 ||
-      !!(this.listDialog || this.choiceDialog || this.baseMenu);
+      !!(
+        this.listDialog ||
+        this.choiceDialog ||
+        this.baseMenu ||
+        this.formationDialog ||
+        this.financeDialog ||
+        this.keypadDialog
+      );
     const subActive = this.selectedSubmenu != null;
     c.hold = modalOpen || subActive; // 点击军师菜单项时停止计时
   }
@@ -1506,6 +1981,8 @@ export class GameBar {
     if (this.listDialog) return true;
     if (this.generalCard) return true;
     if (this.formationDialog) return true;
+    if (this.financeDialog) return true;
+    if (this.keypadDialog) return true;
 
     if (this.cityCard && this._hitCityCard(px, py)) return true;
     // 军师子菜单带
@@ -1536,6 +2013,11 @@ export class GameBar {
     //    取消该菜单上所有被选项，所有菜单恢复未被选中状态，并立即开始计时。
     // 2. 若已回退到该菜单上且已无被选项，再次右键才关闭子菜单条本身。
     if (btn === 2) {
+      if (this.keypadDialog) {
+        clickSfx();
+        this.closeKeypadDialog();
+        return true;
+      }
       if (this.formationQuote) {
         clickSfx();
         const isSuccess = this.formationQuote.type === "success";
@@ -1553,6 +2035,14 @@ export class GameBar {
         this.closeFormationDialog();
         return true;
       }
+      if (this.financeDialog) {
+        clickSfx();
+        this.closeFinanceDialog();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+        return true;
+      }
       if (this.generalCard) {
         clickSfx();
         this.closeGeneralCard();
@@ -1566,6 +2056,8 @@ export class GameBar {
       const hadChoice = Boolean(this.choiceDialog);
       const hadCard = Boolean(this.cityCard);
       const hadFormation = Boolean(this.formationDialog);
+      const hadFinance = Boolean(this.financeDialog);
+      const hadKeypad = Boolean(this.keypadDialog);
       const advDlg = document.querySelector("#advisordlg");
       const hadAdv = advDlg && advDlg.style.display !== "none";
       const domDlgs = Array.from(document.querySelectorAll(".panel")).filter(
@@ -1580,11 +2072,15 @@ export class GameBar {
         hadChoice ||
         hadCard ||
         hadFormation ||
+        hadFinance ||
+        hadKeypad ||
         hadAdv ||
         hadDomDlg ||
         hadSelectedCity
       ) {
         clickSfx();
+        if (hadKeypad) this.closeKeypadDialog();
+        if (hadFinance) this.closeFinanceDialog();
         if (hadFormation) this.closeFormationDialog();
         if (hadBaseMenu) this.closeBaseMenu();
         if (hadList) this.closeListDialog();
@@ -1650,6 +2146,14 @@ export class GameBar {
 
     if (this.formationDialog) {
       return this._clickFormationDialog(px, py);
+    }
+
+    if (this.keypadDialog) {
+      return this._clickKeypadDialog(px, py);
+    }
+
+    if (this.financeDialog) {
+      return this._clickFinanceDialog(px, py);
     }
 
     if (this.generalCard && this._hitGeneralCard(px, py)) {
@@ -1757,6 +2261,8 @@ export class GameBar {
             this.closeListDialog?.();
             this.closeGeneralCard?.();
             this.closeFormationDialog?.();
+            this.closeFinanceDialog?.();
+            this.closeKeypadDialog?.();
             this.closeCityCard?.();
             this.closeChoiceDialog?.();
             const advDlg = document.querySelector("#advisordlg");
@@ -1906,6 +2412,7 @@ export class GameBar {
     this.app.view.draw();
 
     if (i === 0) return hud.showAdvice(); // 進言
+    if (i === 2) return this.showFinanceDialog(); // 財政
     if (i === 3) return hud.showFormation(); // 編成
     if (i === 5) return this.showBaseMenu(); // 據點
     if (i === 6) return hud.showGenerals(); // 武將
@@ -2057,6 +2564,9 @@ export class GameBar {
     }
     if (this.formationDialog) {
       this._drawFormationDialog(ctx);
+    }
+    if (this.financeDialog) {
+      this._drawFinanceDialog(ctx);
     }
     if (this.cityCard) {
       this._recalcCityCard();

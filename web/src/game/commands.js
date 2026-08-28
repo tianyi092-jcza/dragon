@@ -19,7 +19,36 @@ export function initPlayer(sc) {
   if (sc.player_faction == null || sc.player_faction === 0xff)
     sc.player_faction = sc.factions[0]?.idx ?? 0;
   if (sc.trust == null || sc.trust === 0xff) sc.trust = 100;
-  if (sc.tax == null || sc.tax === 0xff) sc.tax = 25;
+  if (sc.tax == null || sc.tax === 0xff) sc.tax = 18;
+  if (sc.next_tax == null || sc.next_tax === 0xff) sc.next_tax = sc.tax;
+  if (!Array.isArray(sc.conscription) || sc.conscription.length !== 3) {
+    if (Array.isArray(sc.conscription) && sc.conscription.length >= 6) {
+      sc.conscription = [
+        (sc.conscription[0] | (sc.conscription[1] << 8)) * 10,
+        (sc.conscription[2] | (sc.conscription[3] << 8)) * 10,
+        (sc.conscription[4] | (sc.conscription[5] << 8)) * 10,
+      ];
+    } else {
+      sc.conscription = [0, 0, 0];
+    }
+  }
+  if (
+    !Array.isArray(sc.next_conscription) ||
+    sc.next_conscription.length !== 3
+  ) {
+    if (
+      Array.isArray(sc.next_conscription) &&
+      sc.next_conscription.length >= 6
+    ) {
+      sc.next_conscription = [
+        (sc.next_conscription[0] | (sc.next_conscription[1] << 8)) * 10,
+        (sc.next_conscription[2] | (sc.next_conscription[3] << 8)) * 10,
+        (sc.next_conscription[4] | (sc.next_conscription[5] << 8)) * 10,
+      ];
+    } else {
+      sc.next_conscription = [0, 0, 0];
+    }
+  }
   // 玩家化身軍師: 確認原軍師後該 NPC 從武將列表移除 (僅進言, 玩家借名扮演)
   for (const g of sc.generals) g.is_player = false;
   const pa = sc.player_advisor;

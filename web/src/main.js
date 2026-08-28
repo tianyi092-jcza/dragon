@@ -197,6 +197,7 @@ const app = {
 
 const canvas = document.querySelector("#cv");
 window.__app = app; // 调试句柄(控制台可用 __app.clock 等)
+window.app = app;
 app.view = new MapView(canvas, () => app.scenario);
 app.view.app = app;
 attachInput(app.view, {
@@ -310,6 +311,7 @@ await app.startMenu.show(); // ★開局選單: NEW GAME YES/NO → 章節選擇
 window.__aiTick = () => aiTick(app); // 调试句柄
 window.__monthlyAI = () => monthlyAI(app); // 调试句柄
 window.__monthlyAppear = () => monthlyAppear(app); // 调试句柄
+window.__monthlySettlement = () => monthlySettlement(app.scenario, app.clock); // 调试句柄：换月财务与据点结算
 window.__saveDat = (slot, label) => serializeSave(app, slot, label); // 调试句柄：导出SAVE.DAT字节
 
 // ── 主循环: 实时驱动游戏时钟 (对应 KI.EXE 0x1D8E) ──
