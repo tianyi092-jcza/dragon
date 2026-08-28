@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>臥龍傳 · 全國地圖</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;
+    font-family:"Noto Serif TC","PMingLiU",serif;}
+  #cv{display:block;width:100vw;height:100vh;cursor:grab}
+  #panel{position:fixed;top:12px;left:12px;background:rgba(20,15,10,.85);
+    border:1px solid #6b5335;border-radius:6px;padding:10px 14px;color:#e8d9b0;
+    font-size:14px;user-select:none}
+  .tab{display:inline-block;margin:2px;padding:3px 10px;border:1px solid #6b5335;
+    border-radius:4px;cursor:pointer}
+  .tab.on{background:#8a6d3b;color:#fff}
+  #tip{position:fixed;display:none;background:rgba(20,15,10,.95);color:#f0e6c8;
+    border:1px solid #6b5335;border-radius:6px;padding:8px 12px;font-size:13px;
+    pointer-events:none;line-height:1.7;z-index:9}
+  #legend{position:fixed;right:12px;top:12px;background:rgba(20,15,10,.85);
+    border:1px solid #6b5335;border-radius:6px;padding:8px 12px;color:#e8d9b0;
+    font-size:13px;line-height:1.8;max-height:80vh;overflow-y:auto}
+  #legend .frow{cursor:pointer}
+  #legend .frow:hover{text-shadow:0 0 6px #ffd700}
+  #card{position:fixed;left:12px;bottom:12px;display:none;background:rgba(20,15,10,.92);
+    border:1px solid #6b5335;border-radius:8px;padding:10px;color:#e8d9b0;font-size:13px;
+    line-height:1.7;z-index:9;width:340px}
+  #card img{float:left;margin-right:12px;border:2px solid #6b5335;border-radius:4px;
+    image-rendering:pixelated;width:128px;height:128px}
+  #card h3{margin:0 0 6px;font-size:16px;color:#ffe9a8}
+  #card .cls{clear:both}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="panel">
+  <div style="margin-bottom:6px">臥龍傳 — 全劇本全國地圖（原始地形 + SINARIO.DAT 勢力數據）</div>
+  <div id="tabs"></div>
+  <div style="margin-top:4px">季节 <span id="seasons"></span></div>
+  <div id="info" style="margin-top:4px;color:#b8a67a"></div>
+</div>
+<div id="legend"></div>
+<div id="tip"></div>
+<div id="card"></div>
+<script>
+const CELL=16;                       // 地图格 16px
+const WORLD_W=384*CELL, WORLD_H=256*CELL;
+const FACTION_COLORS = ['#e04a3a','#3a7de0','#48b04a','#e0a83a','#b04ad0','#3ac0c0',
+  '#e07090','#90a040','#7060e0','#40b090','#d08850','#6090c0',
+  '#c0c050','#c05088','#58a0d8','#88b868','#a070b8','#d0a070',
+  '#68c8b8','#b87858','#9898c8','#c898b8'];
+let DATA, SC=0, SEASON=1;   // 四季调色板 0春 1夏 2秋 3冬 (GAMEPAL.BRG 四组)
+const seasonImgs=['spring','summer','autumn','winter'].map(n=>{
+  const im=new Image(); im.src=`map_tiles_${n}.png`; return im;
+});
+const SEASON_NAMES=['春','夏','秋','冬'];
+let view={x:0,y:0,scale:1};
+
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const tip=document.getElementById('tip');
+
+fetch('data.json').then(r=>r.json()).then(d=>{
+  DATA=d; initUI(); fitView(); requestAnimationFrame(draw);
+});
+
+function fitView(){
+  const W=innerWidth,H=innerHeight,pad=30;
+  const s=Math.min(W/WORLD_W,H/WORLD_H);
+  view.scale=s;
+  view.x=(W-WORLD_W*s)/2;
+  view.y=(H-WORLD_H*s)/2;
+}
+function sx(x){return view.x+x*view.scale;}
+function sy(y){return view.y+y*view.scale;}
+
+function draw(){
+  cv.width=innerWidth; cv.height=innerHeight;
+  ctx.imageSmoothingEnabled=false;
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,cv.width,cv.height);
+  // 底图
+  const img=seasonImgs[SEASON];
+  if(img.complete&&img.naturalWidth)
+    ctx.drawImage(img,sx(0),sy(0),WORLD_W*view.scale,WORLD_H*view.scale);
+  const s=scenario();
+  // 城池标记
+  for(const c of s.cities){
+    const x=sx(c.x*CELL+CELL/2), y=sy(c.y*CELL+CELL/2);
+    const cap=s.factions.find(f=>f.capital===c.idx);
+    const col=c.faction==null?'#cfd8dc':FACTION_COLORS[c.faction%FACTION_COLORS.length];
+    ctx.beginPath(); ctx.arc(x,y,cap?7:5,0,7);
+    ctx.fillStyle=col; ctx.fill();
+    ctx.lineWidth=1.5; ctx.strokeStyle='rgba(0,0,0,.7)'; ctx.stroke();
+    if(cap){ctx.strokeStyle='#ffd700';
+      ctx.beginPath();ctx.arc(x,y,10,0,7);ctx.stroke();}
+    ctx.font='13px "Noto Serif TC","PMingLiU",serif';
+    ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,.75)';
+    ctx.strokeText(c.name.trim(),x+9,y+4);
+    ctx.fillStyle=cap?'#ffe9a8':'#fff'; ctx.fillText(c.name.trim(),x+9,y+4);
+  }
+  document.getElementById('info').textContent=
+    s.name.replace(/\s+/g,'')+' · '+s.cities.length+'城 · '+s.factions.length+'势力';
+}
+
+function scenario(){return DATA.scenarios[SC];}
+
+function initUI(){
+  const tabs=document.getElementById('tabs');
+  DATA.scenarios.forEach((s,i)=>{
+    const el=document.createElement('span');
+    el.className='tab'+(i===SC?' on':'');
+    el.textContent=s.start.year+'年';
+    el.onclick=()=>{SC=i;fitView();setSeasonByMonth(scenario().start.month);
+      document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('on',j===i));
+      drawLegend(); draw();};
+    tabs.appendChild(el);
+  });
+  // 四季切换按钮 (GAMEPAL.BRG 四组调色板)
+  const seasons=document.getElementById('seasons');
+  SEASON_NAMES.forEach((n,i)=>{
+    const el=document.createElement('span');
+    el.className='tab'+(i===SEASON?' on':'');
+    el.textContent=n;
+    el.onclick=()=>{SEASON=i;
+      seasons.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('on',j===i));
+      draw();};
+    seasons.appendChild(el);
+  });
+  setSeasonByMonth(DATA.scenarios[SC].start.month);
+  drawLegend();
+}
+function setSeasonByMonth(m){   // 3-5春 6-8夏 9-11秋 12-2冬
+  SEASON=[3,3,0,0,0,1,1,1,2,2,2,3][m%12];
+  document.querySelectorAll('#seasons .tab').forEach((t,j)=>t.classList.toggle('on',j===SEASON));
+}
+function drawLegend(){
+  const s=scenario(), lg=document.getElementById('legend');
+  let h='<b>'+s.name.replace(/\s+/g,'')+'</b><br>';
+  s.factions.forEach(f=>{
+    const c=FACTION_COLORS[f.idx%FACTION_COLORS.length];
+    h+=`<span class="frow" data-f="${f.idx}"><span style="color:${c}">●</span> ${f.monarch} <span style="color:#8a7a55">(${f.n_cities}城/${f.n_generals}將)</span></span><br>`;
+  });
+  lg.innerHTML=h;
+  lg.querySelectorAll('.frow').forEach(el=>el.onclick=()=>showFaction(+el.dataset.f));
+}
+
+// ---- 头像卡 (KAOGRF.DAT: 150×64×64 四平面planar) ----
+function monarchOf(fidx){
+  return scenario().generals.find(g=>g.is_monarch&&g.faction===fidx);
+}
+function showFaction(fidx){
+  const s=scenario(), f=s.factions.find(f=>f.idx===fidx);
+  if(!f) return;
+  const g=monarchOf(fidx), cap=s.cities[f.capital];
+  const card=document.getElementById('card');
+  const img=g?`<img src="kao/${g.portrait}.png" alt="">`
+            :'<img src="kao/0.png" style="opacity:.3">';
+  card.innerHTML=`${img}<h3><span style="color:${FACTION_COLORS[fidx%FACTION_COLORS.length]}">●</span> ${f.monarch}</h3>
+    都城 ${cap?cap.name.trim():'?'} · ${f.n_cities}城 · ${f.n_generals}將<br>
+    金糧 ${f.money}<br><span style="color:#8a7a55">（頭像提取自 KAOGRF.DAT）</span>
+    <div class="cls"></div>`;
+  card.style.display='block';
+}
+
+addEventListener('wheel',e=>{
+  e.preventDefault();
+  const k=e.deltaY<0?1.15:1/1.15;
+  const ns=Math.max(view.scale*(WORLD_W<1?1:0.05),Math.min(8,view.scale*k));
+  const kk=ns/view.scale;
+  view.x=e.clientX-(e.clientX-view.x)*kk;
+  view.y=e.clientY-(e.clientY-view.y)*kk;
+  view.scale=ns; draw();
+},{passive:false});
+let drag=null,dragMoved=false;
+cv.onmousedown=e=>{drag={mx:e.clientX,my:e.clientY,vx:view.x,vy:view.y};dragMoved=false;cv.style.cursor='grabbing';};
+addEventListener('mouseup',()=>{drag=null;cv.style.cursor='grab';});
+addEventListener('mousemove',e=>{
+  if(drag){if(Math.abs(e.clientX-drag.mx)+Math.abs(e.clientY-drag.my)>3)dragMoved=true;
+    view.x=drag.vx+e.clientX-drag.mx;view.y=drag.vy+e.clientY-drag.my;draw();}
+  const s=scenario();let hit=null;
+  for(const c of s.cities){
+    if(Math.hypot(sx(c.x*CELL+8)-e.clientX,sy(c.y*CELL+8)-e.clientY)<10){hit=c;break;}
+  }
+  if(hit){
+    const f=s.factions.find(f=>f.idx===hit.faction);
+    tip.style.display='block';
+    tip.style.left=(e.clientX+16)+'px'; tip.style.top=(e.clientY+16)+'px';
+    tip.innerHTML=`<b>${hit.name}</b> ${hit.faction==null?'<span style="color:#888">空城</span>'
+      :'<span style="color:'+FACTION_COLORS[hit.faction%FACTION_COLORS.length]+'">'+(f?f.monarch:'?')+'</span>'}<br>
+      开发 ${hit.prod}/${hit.max_prod} · 防灾 ${hit.defence} · 兵 ${hit.troops}千
+      ${hit.faction!=null?'<br><span style="color:#8a7a55">点击查看势力</span>':''}`;
+  } else tip.style.display='none';
+});
+cv.onclick=e=>{   // 点击城池 -> 势力头像卡 (拖拽不触发)
+  if(dragMoved) {dragMoved=false;return;}
+  const s=scenario();let hit=null;
+  for(const c of s.cities){
+    if(Math.hypot(sx(c.x*CELL+8)-e.clientX,sy(c.y*CELL+8)-e.clientY)<10){hit=c;break;}
+  }
+  if(hit&&hit.faction!=null) showFaction(hit.faction); else document.getElementById('card').style.display='none';
+};
+addEventListener('resize',()=>{fitView();draw();});
+addEventListener('keydown',e=>{if(e.key==='0'){fitView();draw();}});
+</script>
+</body>
+</html>

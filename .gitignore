@@ -1,0 +1,29 @@
+# IDE / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Agent / Tool Caches
+.codegraph/
+.playwright-cli/
+tmp_crop/
+
+# Python Cache & Runtime Logs
+__pycache__/
+*.pyc
+*.pyo
+*.log
+logs_webserver.txt
+adv_dump.txt
+web/logs_webserver.txt
+web/server.log
+
+# Temporary test scripts and tool outputs
+tools/*.log
+tools/*.txt
+tools/_*
+tools/kaotest*.png
+
+# Root test & verification screenshots (game assets are inside web/ and docs/)
+/*.png

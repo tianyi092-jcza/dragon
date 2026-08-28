@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <title>臥龍傳 · Web</title>
+    <style>
+      /* 表格数字字体 (原版风格替代): Bahnschrift */
+      @font-face {
+        font-family: "Bahnschrift";
+        src: url("font/bahnschrift.woff2") format("woff2");
+        font-display: block;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #141414;
+        overflow: hidden;
+        font-family: "Noto Serif TC", "PMingLiU", serif;
+      }
+      #cv {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        cursor: grab;
+      }
+      .panel {
+        position: fixed;
+        background: rgba(20, 15, 10, 0.88);
+        border: 1px solid #6b5335;
+        border-radius: 6px;
+        color: #e8d9b0;
+        user-select: none;
+      }
+      #panel {
+        top: 12px;
+        left: 12px;
+        padding: 10px 14px;
+        font-size: 14px;
+      }
+      .tab {
+        display: inline-block;
+        margin: 2px;
+        padding: 3px 10px;
+        border: 1px solid #6b5335;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .tab.on {
+        background: #8a6d3b;
+        color: #fff;
+      }
+      #tip {
+        position: fixed;
+        display: none;
+        background: rgba(20, 15, 10, 0.95);
+        color: #f0e6c8;
+        border: 1px solid #6b5335;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 13px;
+        pointer-events: none;
+        line-height: 1.7;
+        z-index: 9;
+      }
+      #legend {
+        right: 12px;
+        top: 12px;
+        padding: 8px 12px;
+        font-size: 13px;
+        line-height: 1.9;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+      .frow {
+        cursor: pointer;
+      }
+      .frow:hover {
+        background: #3a2e1c;
+        border-radius: 3px;
+      }
+      .dim {
+        color: #8a7a55;
+      }
+      #card {
+        left: 12px;
+        bottom: 12px;
+        padding: 10px;
+        display: none;
+        gap: 10px;
+        align-items: center;
+        font-size: 14px;
+        line-height: 1.8;
+      }
+      #settlelog {
+        color: #8fb86b;
+        margin-left: 10px;
+        font-size: 12px;
+      }
+      #card img {
+        width: 128px;
+        height: 128px;
+        image-rendering: pixelated;
+        border: 1px solid #6b5335;
+        border-radius: 4px;
+      }
+      #cmdpanel {
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 12px;
+        padding: 10px 14px;
+        font-size: 14px;
+        line-height: 1.8;
+        display: none;
+      }
+      #advisordlg {
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        padding: 12px 16px;
+        font-size: 14px;
+        z-index: 15;
+      }
+      #loaddlg {
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 60px;
+        padding: 12px 16px;
+        font-size: 14px;
+        z-index: 15;
+      }
+      #loaddlg .slot {
+        display: block;
+        width: 100%;
+        text-align: left;
+        margin: 3px 0;
+        cursor: pointer;
+      }
+      #savedlg {
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 60px;
+        padding: 12px 16px;
+        font-size: 14px;
+        z-index: 15;
+      }
+      #savedlg .slot {
+        display: block;
+        width: 100%;
+        text-align: left;
+        margin: 3px 0;
+        cursor: pointer;
+      }
+      #flashlog {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        font-size: 13px;
+        color: #e8d9b0;
+        pointer-events: none;
+        text-align: right;
+        z-index: 9;
+      }
+      #flashlog div {
+        background: rgba(20, 15, 10, 0.85);
+        border: 1px solid #6b5335;
+        border-radius: 4px;
+        padding: 2px 8px;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="cv"></canvas>
+    <!-- 旧开发用 UI 已由原版风格 GameBar (canvas 内绘制) 取代, 保留 DOM 供对话框复用 -->
+    <div id="panel" class="panel" style="display: none">
+      <div style="margin-bottom: 6px">
+        臥龍傳 — 全劇本全國地圖（原始地形 + SINARIO.DAT 勢力數據）
+      </div>
+      <div id="tabs"></div>
+      <div>季節 <span id="seasons"></span></div>
+      <div id="clockbar" style="margin-top: 6px"></div>
+      <div id="info" style="margin-top: 4px; color: #b8a67a"></div>
+    </div>
+    <div id="legend" class="panel" style="display: none"></div>
+    <div id="cmdpanel" class="panel"></div>
+    <div
+      id="endv"
+      style="
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: none;
+        background: #000;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      "
+    >
+      <img
+        id="edimg"
+        class="pixelated"
+        alt=""
+        style="
+          max-width: 96vw;
+          max-height: 88vh;
+          image-rendering: pixelated;
+          opacity: 0;
+        "
+      />
+      <div
+        id="edcap"
+        style="
+          color: #ffd700;
+          margin-top: 10px;
+          font-size: 15px;
+          letter-spacing: 2px;
+        "
+      ></div>
+    </div>
+    <canvas
+      id="startv"
+      width="640"
+      height="400"
+      style="
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 60;
+        display: none;
+        cursor: pointer;
+      "
+    ></canvas>
+    <div
+      id="openv"
+      style="
+        position: fixed;
+        inset: 0;
+        z-index: 48;
+        display: none;
+        background: #000;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      "
+    >
+      <img
+        id="opimg"
+        class="pixelated"
+        alt=""
+        style="
+          max-width: 96vw;
+          max-height: 88vh;
+          image-rendering: pixelated;
+          opacity: 0;
+        "
+      />
+      <div
+        id="opcap"
+        style="
+          color: #b8a67a;
+          margin-top: 10px;
+          font-size: 13px;
+          letter-spacing: 2px;
+        "
+      >
+        點擊跳過
+      </div>
+    </div>
+    <div id="advisordlg" class="panel" style="display: none">
+      <div id="advtext" style="max-width: 320px; margin-bottom: 8px"></div>
+      <button id="advyes">採納</button>
+      <button id="advno">駁回</button>
+      <button id="advcancel">撤回進言</button>
+    </div>
+    <div id="loaddlg" class="panel" style="display: none">
+      <div style="margin-bottom: 8px">讀取存檔 (SAVE.DAT)</div>
+      <div id="loadslots"></div>
+      <button id="loadcancel">取消</button>
+    </div>
+    <div id="savedlg" class="panel" style="display: none">
+      <div style="margin-bottom: 8px">存入存檔槽 (SAVE.DAT)</div>
+      <div id="saveslots"></div>
+      <button id="savecancel">取消</button>
+    </div>
+    <div id="tip"></div>
+    <canvas
+      id="bcv"
+      style="
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: none;
+        cursor: crosshair;
+      "
+    ></canvas>
+    <div
+      id="bctl"
+      class="panel"
+      style="
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 12px;
+        padding: 8px 14px;
+        font-size: 14px;
+        z-index: 31;
+        display: none;
+      "
+    >
+      <span id="btitle" style="margin-right: 12px; color: #ffd700"></span>
+      <button id="bassault">全軍突擊</button>
+      <button id="bauto">自動決戰</button>
+      <button id="bretreat">撤軍</button>
+    </div>
+    <div
+      id="diplov"
+      style="
+        position: fixed;
+        inset: 0;
+        z-index: 32;
+        display: none;
+        background: rgba(0, 0, 0, 0.72);
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      "
+    >
+      <img
+        id="dpbg"
+        class="pixelated"
+        alt=""
+        style="
+          position: absolute;
+          inset: 0;
+          margin: auto;
+          width: min(52vh, 80vw);
+          image-rendering: pixelated;
+          border: 2px solid #6b5335;
+          box-shadow: 0 0 40px #000;
+        "
+      />
+      <div
+        class="panel"
+        style="
+          position: relative;
+          z-index: 2;
+          width: min(52vh, 80vw);
+          padding: 10px 12px;
+          font-size: 15px;
+          line-height: 1.7;
+        "
+      >
+        <div style="display: flex; gap: 10px; align-items: flex-start">
+          <img
+            id="dpface"
+            class="pixelated"
+            alt=""
+            style="
+              width: 64px;
+              height: 64px;
+              border: 1px solid #6b5335;
+              image-rendering: pixelated;
+            "
+          />
+          <div id="dptext" style="flex: 1"></div>
+        </div>
+        <div id="dpopts" style="margin-top: 8px; display: flex; gap: 8px"></div>
+      </div>
+    </div>
+    <div id="card" class="panel"></div>
+    <script type="module" src="src/main.js"></script>
+  </body>
+</html>
