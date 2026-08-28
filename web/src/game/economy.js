@@ -107,7 +107,7 @@ export function computeFactionExpense(scenario, factionIdx) {
     ? scenario.generals.filter(
         (g) => g && g.faction === factionIdx && g.active !== false,
       ).length
-    : f.n_generals ?? 1;
+    : (f.n_generals ?? 1);
   const officerStipend = generalsCount * 20;
 
   return Math.max(0, troopUpkeep + officerStipend);
@@ -181,7 +181,7 @@ export function monthlySettlement(scenario, _clock) {
 
     // 玩家据点受玩家税率影响 (以 30% 为平衡基准)
     if (c.faction === pIdx) {
-      growthDiff -= (scenario.tax - 30);
+      growthDiff -= scenario.tax - 30;
     }
 
     let scale = 1;

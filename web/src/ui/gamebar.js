@@ -21,7 +21,7 @@ import { factionColorEx } from "../game/world.js";
 import { getProjectedFinance } from "../game/economy.js";
 
 const FONT = '16px "Noto Serif TC","PMingLiU",serif';
-const DIN = '16px "Bahnschrift","Noto Serif TC","PMingLiU",serif';
+const DIN = '300 16px "Bahnschrift","Noto Serif TC","PMingLiU",serif';
 const NAVY = "#002266";
 const GOLD = "#cc8822";
 const CREAM = "#ffdd99";
@@ -1327,10 +1327,8 @@ export class GameBar {
 
     const wTiles = 21;
     const hTiles = 10;
-    const ox = this.bx + 16;
-    const oy = this.submenuOpen
-      ? 72
-      : Math.round((innerHeight - hTiles * 16) / 2);
+    const ox = this.bx + Math.round((640 - wTiles * 16) / 2);
+    const oy = Math.round((innerHeight - hTiles * 16) / 2);
 
     this.financeDialog = {
       ox,
@@ -1349,14 +1347,24 @@ export class GameBar {
   }
 
   showKeypadDialog(type, curVal, maxVal, ox, oy) {
+    const wTiles = 10;
+    const hTiles = 7;
+    const cw = (wTiles + 1) * 16;
+    const ch = (hTiles + 1) * 16;
+    const bx = this.bx ?? Math.max(0, Math.round((innerWidth - 640) / 2));
+    const minX = bx + 8;
+    const maxX = bx + 640 - cw + 8;
+    const minY = 32;
+    const maxY = innerHeight - ch + 8;
+
     this.keypadDialog = {
       type,
       val: Math.min(maxVal, curVal ?? 0),
       max: maxVal,
-      ox: Math.min(innerWidth - 112, Math.max(0, ox)),
-      oy: Math.min(innerHeight - 80, Math.max(32, oy)),
-      wTiles: 7,
-      hTiles: 5,
+      ox: Math.min(maxX, Math.max(minX, ox)),
+      oy: Math.min(maxY, Math.max(minY, oy)),
+      wTiles,
+      hTiles,
     };
     this.syncClock();
     this.app.view.draw();
@@ -1383,7 +1391,7 @@ export class GameBar {
   _hitKeypadDialog(px, py) {
     const k = this.keypadDialog;
     if (!k) return false;
-    const { ox, oy, wTiles = 7, hTiles = 5 } = k;
+    const { ox, oy, wTiles = 10, hTiles = 7 } = k;
     const x = ox - 8;
     const y = oy - 8;
     const w = (wTiles + 1) * 16;
@@ -1394,7 +1402,7 @@ export class GameBar {
   _clickKeypadDialog(px, py) {
     const k = this.keypadDialog;
     if (!k) return false;
-    const { ox, oy, wTiles = 7, hTiles = 5 } = k;
+    const { ox, oy, wTiles = 10, hTiles = 7 } = k;
     const kx = ox + 8;
     const ky = oy + 8;
     const kw = (wTiles - 1) * 16;
@@ -1404,19 +1412,21 @@ export class GameBar {
       return true; // 消费外部点击
     }
 
-    if (py < ky + 16) return true; // 显示区
+    const headerH = 24;
+    if (py < ky + headerH) return true; // 显示区
 
-    const ry = py - (ky + 16);
+    const btnH = 24;
+    const ry = py - (ky + headerH);
     const rx = px - kx;
-    const r = Math.floor(ry / 16);
+    const r = Math.floor(ry / btnH);
     if (r < 0 || r >= 3) return true;
 
     let c = -1;
-    if (rx < 16) c = 0;
-    else if (rx < 32) c = 1;
-    else if (rx < 48) c = 2;
-    else if (rx < 64) c = 3;
-    else if (rx < 96) c = 4;
+    if (rx < 24) c = 0;
+    else if (rx < 48) c = 1;
+    else if (rx < 72) c = 2;
+    else if (rx < 96) c = 3;
+    else if (rx < 144) c = 4;
 
     if (c === -1) return true;
 
@@ -1425,8 +1435,8 @@ export class GameBar {
 
     if (c === 4) {
       if (r === 0) {
-        // 取消
-        this.closeKeypadDialog();
+        // ★需求 3：取消 -> 将当前输入的数复位清零为 0（不关闭窗口）
+        k.val = 0;
       } else if (r === 1) {
         // 最大
         k.val = k.max;
@@ -1483,66 +1493,60 @@ export class GameBar {
     const fy = oy + 8;
     const sc = this.app.scenario;
 
-    const btnW = 22,
-      btnH = 14;
+    // 键盘弹窗位置计算：
+    // X：位于图标列右侧偏右并留出间隙（图标列右界 fx + 246，留出 6px 间隙 -> ox = fx + 252）
+    // Y：位于当前设置行数字的下方一点，不遮挡当前及以上行的文字与数字
+    const keypadOx = fx + 252;
 
-    // 1. 次月 稅率 按鈕
-    const taxBtnX = fx + 224,
-      taxBtnY = fy + 68 + 1;
+    // 1. 次月 稅率 (绘制于 fy + 70，高 16)
     if (
-      px >= taxBtnX &&
-      px < taxBtnX + btnW &&
-      py >= taxBtnY &&
-      py < taxBtnY + btnH
+      px >= fx + 220 &&
+      px < fx + 312 &&
+      py >= fy + 68 &&
+      py < fy + 84
     ) {
       clickSfx();
       const curVal = sc.next_tax ?? sc.tax ?? 18;
-      this.showKeypadDialog("tax", curVal, 100, fx + 224 - 16, fy + 68 - 16);
+      this.showKeypadDialog("tax", curVal, 100, keypadOx, fy + 88);
       return true;
     }
 
-    // 2. 次月 騎兵 徵兵數 按鈕
-    const cavBtnX = fx + 224,
-      cavBtnY = fy + 84 + 1;
+    // 2. 次月 騎兵 徵兵數 (绘制于 fy + 86，高 16)
     if (
-      px >= cavBtnX &&
-      px < cavBtnX + btnW &&
-      py >= cavBtnY &&
-      py < cavBtnY + btnH
+      px >= fx + 220 &&
+      px < fx + 312 &&
+      py >= fy + 84 &&
+      py < fy + 99
     ) {
       clickSfx();
       const curVal = sc.next_conscription?.[0] ?? 0;
-      this.showKeypadDialog("cav", curVal, 10000, fx + 224 - 16, fy + 84 - 16);
+      this.showKeypadDialog("cav", curVal, 10000, keypadOx, fy + 104);
       return true;
     }
 
-    // 3. 次月 弓兵 徵兵數 按鈕
-    const arcBtnX = fx + 224,
-      arcBtnY = fy + 100 + 1;
+    // 3. 次月 弓兵 徵兵數 (绘制于 fy + 101，高 16)
     if (
-      px >= arcBtnX &&
-      px < arcBtnX + btnW &&
-      py >= arcBtnY &&
-      py < arcBtnY + btnH
+      px >= fx + 220 &&
+      px < fx + 312 &&
+      py >= fy + 99 &&
+      py < fy + 114
     ) {
       clickSfx();
       const curVal = sc.next_conscription?.[1] ?? 0;
-      this.showKeypadDialog("arc", curVal, 10000, fx + 224 - 16, fy + 100 - 16);
+      this.showKeypadDialog("arc", curVal, 10000, keypadOx, fy + 119);
       return true;
     }
 
-    // 4. 次月 步兵 徵兵數 按鈕
-    const infBtnX = fx + 224,
-      infBtnY = fy + 116 + 1;
+    // 4. 次月 步兵 徵兵數 (绘制于 fy + 116，高 16)
     if (
-      px >= infBtnX &&
-      px < infBtnX + btnW &&
-      py >= infBtnY &&
-      py < infBtnY + btnH
+      px >= fx + 220 &&
+      px < fx + 312 &&
+      py >= fy + 114 &&
+      py < fy + 132
     ) {
       clickSfx();
       const curVal = sc.next_conscription?.[2] ?? 0;
-      this.showKeypadDialog("inf", curVal, 10000, fx + 224 - 16, fy + 116 - 16);
+      this.showKeypadDialog("inf", curVal, 10000, keypadOx, fy + 134);
       return true;
     }
 
@@ -1552,50 +1556,50 @@ export class GameBar {
   _drawKeypadDialog(ctx) {
     const k = this.keypadDialog;
     if (!k) return;
-    const { ox, oy, val, wTiles = 7, hTiles = 5 } = k;
+    const { ox, oy, val, wTiles = 10, hTiles = 7 } = k;
     const win = this._drawWindow(ctx, ox, oy, wTiles, hTiles, "black");
     const kx = win ? win.x : ox + 8;
     const ky = win ? win.y : oy + 8;
+    const kw = (wTiles - 1) * 16;
+    const headerH = 24;
+    const btnH = 24;
 
-    // 顶部显示区域 96×16 黑底
+    // 顶部显示区域 144×24 黑底
     ctx.fillStyle = "#000000";
-    ctx.fillRect(kx, ky, 96, 16);
+    ctx.fillRect(kx, ky, kw, headerH);
     ctx.font = DIN;
     ctx.fillStyle = "#ffffff";
-    ctx.textBaseline = "top";
+    ctx.textBaseline = "middle";
     const sVal = `${val}`;
-    ctx.fillText(
-      sVal,
-      kx + Math.round((96 - ctx.measureText(sVal).width) / 2),
-      ky + 1,
-    );
+    const twVal = ctx.measureText(sVal).width;
+    ctx.fillText(sVal, kx + Math.round((kw - twVal) / 2), ky + headerH / 2 + 0.5);
 
     const btnData = [
       [
-        { t: "7", type: "num", val: 7, w: 16 },
-        { t: "8", type: "num", val: 8, w: 16 },
-        { t: "9", type: "num", val: 9, w: 16 },
-        { t: "◀", type: "back", w: 16 },
-        { t: "取消", type: "cancel", w: 32 },
+        { t: "7", type: "num", val: 7, w: 24 },
+        { t: "8", type: "num", val: 8, w: 24 },
+        { t: "9", type: "num", val: 9, w: 24 },
+        { t: "◀", type: "back", w: 24 },
+        { t: "取消", type: "cancel", w: 48 },
       ],
       [
-        { t: "4", type: "num", val: 4, w: 16 },
-        { t: "5", type: "num", val: 5, w: 16 },
-        { t: "6", type: "num", val: 6, w: 16 },
-        { t: "0", type: "num", val: 0, w: 16 },
-        { t: "最大", type: "max", w: 32 },
+        { t: "4", type: "num", val: 4, w: 24 },
+        { t: "5", type: "num", val: 5, w: 24 },
+        { t: "6", type: "num", val: 6, w: 24 },
+        { t: "0", type: "num", val: 0, w: 24 },
+        { t: "最大", type: "max", w: 48 },
       ],
       [
-        { t: "1", type: "num", val: 1, w: 16 },
-        { t: "2", type: "num", val: 2, w: 16 },
-        { t: "3", type: "num", val: 3, w: 16 },
-        { t: "00", type: "00", w: 16 },
-        { t: "決定", type: "ok", w: 32 },
+        { t: "1", type: "num", val: 1, w: 24 },
+        { t: "2", type: "num", val: 2, w: 24 },
+        { t: "3", type: "num", val: 3, w: 24 },
+        { t: "00", type: "00", w: 24 },
+        { t: "決定", type: "ok", w: 48 },
       ],
     ];
 
     for (let r = 0; r < 3; r++) {
-      const by = ky + 16 + r * 16;
+      const by = ky + headerH + r * btnH;
       let bx = kx;
       for (const btn of btnData[r]) {
         const isAction =
@@ -1604,17 +1608,17 @@ export class GameBar {
           btn.type === "ok" ||
           btn.type === "back";
         ctx.fillStyle = isAction ? "#c08030" : "#509040";
-        ctx.fillRect(bx, by, btn.w, 16);
+        ctx.fillRect(bx, by, btn.w, btnH);
 
         ctx.strokeStyle = "#000000";
         ctx.lineWidth = 1;
-        ctx.strokeRect(bx + 0.5, by + 0.5, btn.w - 1, 15);
+        ctx.strokeRect(bx + 0.5, by + 0.5, btn.w - 1, btnH - 1);
 
         if (btn.type === "back") {
           ctx.beginPath();
-          ctx.moveTo(bx + 11, by + 4);
-          ctx.lineTo(bx + 4, by + 8);
-          ctx.lineTo(bx + 11, by + 12);
+          ctx.moveTo(bx + 16, by + 6);
+          ctx.lineTo(bx + 7, by + 12);
+          ctx.lineTo(bx + 16, by + 18);
           ctx.closePath();
           ctx.fillStyle = "#000000";
           ctx.fill();
@@ -1623,7 +1627,7 @@ export class GameBar {
           ctx.fillStyle = "#000000";
           ctx.textBaseline = "middle";
           const tw = ctx.measureText(btn.t).width;
-          ctx.fillText(btn.t, bx + (btn.w - tw) / 2, by + 8.5);
+          ctx.fillText(btn.t, bx + (btn.w - tw) / 2, by + btnH / 2 + 0.5);
         }
 
         bx += btn.w;
@@ -1656,11 +1660,7 @@ export class GameBar {
     ctx.font = DIN;
     ctx.fillStyle = "#ffffff";
     const sTreasury = `${data.treasury}`;
-    ctx.fillText(
-      sTreasury,
-      x + 134 - ctx.measureText(sTreasury).width,
-      y + 26,
-    );
+    ctx.fillText(sTreasury, x + 134 - ctx.measureText(sTreasury).width, y + 26);
 
     // 2. 右上: 收入 / 支出 (带垂直分隔线 | 与黑底数值框)
     ctx.font = FONT;
