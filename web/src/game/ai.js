@@ -611,4 +611,64 @@ export function aiTick(app) {
       });
     }
   }
+
+  // 协助交涉日程推进与汇报 (复刻 KI.EXE 0x301C 队列事件 7 / 0x3712 处理器)
+  if (
+    sc.pendingAssistanceNegotiations &&
+    sc.pendingAssistanceNegotiations.length > 0
+  ) {
+    const readyItems = [];
+    const remainingItems = [];
+    for (const item of sc.pendingAssistanceNegotiations) {
+      item.daysLeft--;
+      if (item.daysLeft <= 0) {
+        readyItems.push(item);
+      } else {
+        remainingItems.push(item);
+      }
+    }
+    sc.pendingAssistanceNegotiations = remainingItems;
+
+    for (const item of readyItems) {
+      const me = playerFaction(sc);
+      const allyFaction = sc.factions.find(
+        (f) => f && f.idx === item.allyFactionIdx,
+      );
+      const targetFaction = sc.factions.find(
+        (f) => f && f.idx === item.targetFactionIdx,
+      );
+      if (!me || !allyFaction || !targetFaction) continue;
+
+      const envoyGen = sc.generals.find((g) => g && g.name === item.envoyName);
+      const allyMonarch = sc.generals[allyFaction.monarch_idx];
+
+      const ourPol = Math.floor((envoyGen?.ability?.politics ?? 60) / 10);
+      const allyPol = Math.floor((allyMonarch?.ability?.politics ?? 60) / 10);
+
+      // KI.EXE 0x3771 政治力与外交关系计算
+      const rel = relation(sc, me.idx, allyFaction.idx) & 0x7f;
+      let outcome = 0; // 0: 无条件达成 (Talk 47), 1: 支付金钱达成 (Talk 48), 2: 谈判破裂 (Talk 49)
+      let goldRequired = 0;
+
+      if (ourPol >= allyPol && rel >= 80) {
+        outcome = 0; // 亲密且使节得力 -> 无条件成立
+      } else if (rel >= 45) {
+        outcome = 1; // 需支付金钱
+        goldRequired = Math.max(500, Math.min(3000, (90 - rel) * 50));
+        if ((me.gold ?? 0) < goldRequired) {
+          outcome = 2; // 资金不足破裂
+        }
+      } else {
+        outcome = 2; // 谈判破裂
+      }
+
+      app.gamebar?.showAssistanceNegotiationResult?.({
+        allyFaction,
+        targetFaction,
+        envoyName: item.envoyName,
+        outcome,
+        goldRequired,
+      });
+    }
+  }
 }

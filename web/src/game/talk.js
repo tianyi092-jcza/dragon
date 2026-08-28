@@ -110,16 +110,30 @@ export function fmt(s, args = {}) {
  * @param {string} extraStr
  * @returns {Promise<Array<Array<{text: string, color: string}>>>}
  */
+/**
+ * 解析并格式化 TALK.DAT 对白分词（支持 \3 目标君主黄色高亮 #ffe000，\4 军师名白色，\1 武将名，\2 据点名/武将名，\7 金额/额外字符串）
+ * @param {number} idx
+ * @param {string|string[]} targetName
+ * @param {string} advisorName
+ * @param {string} generalName
+ * @param {string} extraStr
+ * @param {string} cityName
+ * @returns {Promise<Array<Array<{text: string, color: string}>>>}
+ */
 export async function formatTalkTokens(
   idx,
   targetName = "",
   advisorName = "",
   generalName = "",
   extraStr = "",
+  cityName = "",
 ) {
   const t = await ensureTable();
   const entry = t[idx] ?? [];
   const rawLines = Array.isArray(entry) ? entry : [String(entry)];
+
+  // 如果 targetName 是数组（例如 [allyName, targetName]），跨行维护消耗索引
+  let targetIdx = 0;
 
   return rawLines.map((raw) => {
     const segs = [];
@@ -133,6 +147,7 @@ export async function formatTalkTokens(
           tag === "2" ||
           tag === "3" ||
           tag === "4" ||
+          tag === "6" ||
           tag === "7"
         ) {
           if (cur) {
@@ -145,14 +160,20 @@ export async function formatTalkTokens(
             val = generalName;
             col = "#ffffff";
           } else if (tag === "2") {
-            val = generalName;
+            val = cityName || generalName;
             col = "#ffffff";
           } else if (tag === "3") {
-            val = targetName;
+            if (Array.isArray(targetName)) {
+              val = targetName[targetIdx++] ?? "";
+            } else {
+              val = targetName;
+            }
             col = "#ffe000"; // 原版 \3 目标势力君主名黄色高亮 (#ffe000)
           } else if (tag === "4") {
             val = advisorName;
             col = "#ffffff";
+          } else if (tag === "6") {
+            val = ""; // 原版 \6 内部控制符，置空略过
           } else if (tag === "7") {
             val = extraStr;
             col = "#ffe000";

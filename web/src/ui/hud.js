@@ -1036,6 +1036,256 @@ export class HUD {
     });
   }
 
+  /** 請求協助 — 军师子菜单「進言」 -> 「請求協助」: 步骤一 选择协助势力 (Talk 8) */
+  showAssistanceAllyFactions() {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me) return;
+
+    // 所有其它势力 (排除玩家自身势力，保持自然顺序)
+    const otherFactions = sc.factions.filter((f) => f && f.idx !== me.idx);
+
+    const rows = otherFactions.map((f) => {
+      const m = sc.generals[f.monarch_idx];
+      const rel = relation(sc, me.idx, f.idx);
+      const envoyObj = sc.envoys?.[f.idx];
+      const envoyName = envoyObj?.name ?? "－－－";
+      const genCount = sc.generals.filter(
+        (g) => g && g.faction === f.idx && g.active !== false,
+      ).length;
+      const cityCount = sc.cities.filter((c) => c.faction === f.idx).length;
+      const capName = sc.cities[f.capital]?.name ?? "－－－";
+
+      return {
+        _faction: f,
+        cells: [
+          m ? m.name.trim() : "?",
+          `${genCount}`,
+          `${cityCount}`,
+          capName,
+          { t: relationLabel(rel), color: relationColor(rel) },
+          envoyName,
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["勢力名", "武將", "據點", "首都", "外交", "外交官"],
+      cols: [
+        { x: 8, w: 78, align: "left" },
+        { x: 88, w: 56, align: "right" },
+        { x: 148, w: 56, align: "right" },
+        { x: 212, w: 78, align: "left" },
+        { x: 294, w: 64, align: "center" },
+        { x: 366, w: 78, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "請選擇協助勢力。",
+        portrait: "message_npc",
+      },
+      onPick: async (ri) => {
+        const fac = rows[ri]?._faction;
+        if (!fac) return;
+
+        // 分支 A: 该势力未派遣外交官 (Talk 55: "\3勢力仍未派遣任何．．．")
+        const envoyObj = sc.envoys?.[fac.idx];
+        if (!envoyObj) {
+          const lines = await formatTalkTokens(55, fac.monarch);
+          await this.app.gamebar.showNpcMessageDialog({
+            lines,
+            autoClose: 3000,
+            onClose: () => {
+              if (this.app.gamebar.listDialog) {
+                this.app.gamebar.listDialog.selectedRow = -1;
+                this.app.view.draw();
+              }
+            },
+          });
+          return;
+        }
+
+        // 分支 B: 已派遣协助使者正在交涉中 (Talk 74: "遵照命令，已派遣使者前往\3請求協助。")
+        const alreadyPending = sc.pendingAssistanceNegotiations?.some(
+          (p) => p.allyFactionIdx === fac.idx,
+        );
+        if (alreadyPending) {
+          const lines = await formatTalkTokens(74, fac.monarch);
+          await this.app.gamebar.showNpcMessageDialog({
+            lines,
+            autoClose: 3000,
+            onClose: () => {
+              if (this.app.gamebar.listDialog) {
+                this.app.gamebar.listDialog.selectedRow = -1;
+                this.app.view.draw();
+              }
+            },
+          });
+          return;
+        }
+
+        // 分支 C: 进入第二步，选择协同进攻的目标势力
+        this.showAssistanceTargetFactions(fac);
+      },
+    });
+  }
+
+  /** 請求協助 — 步骤二 选择协同进攻的目标势力 (Talk 7) */
+  showAssistanceTargetFactions(allyFaction) {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me || !allyFaction) return;
+
+    // 所有其它势力 (排除玩家自身势力与协助势力)
+    const targetFactions = sc.factions.filter(
+      (f) => f && f.idx !== me.idx && f.idx !== allyFaction.idx,
+    );
+
+    const rows = targetFactions.map((f) => {
+      const m = sc.generals[f.monarch_idx];
+      const rel = relation(sc, me.idx, f.idx);
+      const envoyObj = sc.envoys?.[f.idx];
+      const envoyName = envoyObj?.name ?? "－－－";
+      const genCount = sc.generals.filter(
+        (g) => g && g.faction === f.idx && g.active !== false,
+      ).length;
+      const cityCount = sc.cities.filter((c) => c.faction === f.idx).length;
+      const capName = sc.cities[f.capital]?.name ?? "－－－";
+
+      return {
+        _faction: f,
+        cells: [
+          m ? m.name.trim() : "?",
+          `${genCount}`,
+          `${cityCount}`,
+          capName,
+          { t: relationLabel(rel), color: relationColor(rel) },
+          envoyName,
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["勢力名", "武將", "據點", "首都", "外交", "外交官"],
+      cols: [
+        { x: 8, w: 78, align: "left" },
+        { x: 88, w: 56, align: "right" },
+        { x: 148, w: 56, align: "right" },
+        { x: 212, w: 78, align: "left" },
+        { x: 294, w: 64, align: "center" },
+        { x: 366, w: 78, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "請選擇協同進攻之勢力。",
+        portrait: "message_npc",
+      },
+      onCancel: () => {
+        // 右键返回步骤一
+        this.showAssistanceAllyFactions();
+      },
+      onPick: (ri) => {
+        const targetFac = rows[ri]?._faction;
+        if (!targetFac) return;
+        this.app.gamebar.closeListDialog(true);
+        this.app.gamebar.showAssistanceProposalAudience(
+          allyFaction,
+          targetFac,
+        );
+      },
+    });
+  }
+
+  /** 遷都 — 军师子菜单「進言」 -> 「遷都」: 选择我方据点 (Talk 15) */
+  showRelocateCapitalCities() {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me) return;
+
+    // 我方所有据点 (保持数据表自然顺序)
+    const mine = sc.cities.filter((c) => c && c.faction === me.idx);
+
+    const rows = mine.map((c) => {
+      const troops = (c.sim ? c.sim.troops : c.troops) ?? c.troops ?? 0;
+      const rise = ((c.sim ? c.sim.morale : c.growth) ?? 100) - 100;
+      const defence = (c.sim ? c.sim.food : c.defence) ?? 0;
+      const prod = c.prod ?? 0;
+
+      let govName = "－－－";
+      if (c.governor != null && sc.generals[c.governor]) {
+        govName = sc.generals[c.governor].name?.trim() ?? "－－－";
+      }
+
+      return {
+        _city: c,
+        cells: [
+          c.name?.trim() ?? "？",
+          `${prod}`,
+          rise <= 0 ? { t: `${rise}`, color: "#ff4444" } : `${rise}`,
+          `${defence}`,
+          `${troops * 10}`,
+          govName,
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["據點名", "生產力", "上昇率", "防災", "城兵", "內政官"],
+      cols: [
+        { x: 8, w: 80, align: "left" },
+        { x: 96, w: 56, align: "right" },
+        { x: 160, w: 56, align: "right" },
+        { x: 224, w: 56, align: "right" },
+        { x: 288, w: 64, align: "right" },
+        { x: 360, w: 80, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "請選擇遷都的對象據點。",
+        portrait: "message_npc",
+      },
+      onPick: async (ri) => {
+        const city = rows[ri]?._city;
+        if (!city) return;
+
+        // 分支 A: 已经是当前首都 (Talk 61: "\2早已經是我國的首都了。")
+        if (city.idx === me.capital) {
+          const lines = await formatTalkTokens(61, "", "", "", "", city.name);
+          await this.app.gamebar.showNpcMessageDialog({
+            lines,
+            autoClose: 3000,
+            onClose: () => {
+              if (this.app.gamebar.listDialog) {
+                this.app.gamebar.listDialog.selectedRow = -1;
+                this.app.view.draw();
+              }
+            },
+          });
+          return;
+        }
+
+        // 分支 B: 进入迁都进言对话大窗口
+        this.app.gamebar.closeListDialog(true);
+        this.app.gamebar.showRelocateCapitalAudience(city);
+      },
+    });
+  }
+
   /** 外交官任命 — 军师子菜单「人事」 -> 「外交官任命」: 选择目标势力 */
   showAppointEnvoyFactions() {
     const sc = this.app.scenario;

@@ -1124,6 +1124,271 @@ export class GameBar {
     });
   }
 
+  /** 请求协助进言对话系统 (100% 逆向复刻 KI.EXE 0x6623, 0x66D9, 0x6695, 0x301C) */
+  async showAssistanceProposalAudience(allyFaction, targetFaction) {
+    this.closeCityCard();
+    this.closeListDialog(true);
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeBaseMenu();
+    this.closePersonnelMenu();
+    this.closeAdviceMenu();
+    this.selectedSubmenu = 0;
+    this.syncClock();
+
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me || !allyFaction || !targetFaction) return;
+
+    const monarch = sc.monarchOf(me);
+    const advGen = adv.getAdvisor(sc, me);
+    const monarchImg = monarch
+      ? await portrait(monarch.portrait).catch(() => null)
+      : null;
+    const advImg = advGen
+      ? await portrait(advGen.portrait).catch(() => null)
+      : null;
+
+    const allyName = (allyFaction.monarch ?? "").trim();
+    const targetName = (targetFaction.monarch ?? "").trim();
+    const advName = (advGen?.name ?? "軍師").trim();
+    const monarchTalkIdx = (monarch?.talk_idx ?? monarch?.idx ?? 0) % 3;
+
+    // 初始君主提问对白 (Talk 214..216: "\4啊，突然來找我是為了什麼事啊？")
+    const monarchGreeting = await formatTalkTokens(
+      214 + monarchTalkIdx,
+      allyName,
+      advName,
+    );
+
+    // 4 大理由客观有效性判定 (KI.EXE 0x66D9)
+    const relAlly = relation(sc, me.idx, allyFaction.idx);
+    const bellicosity = me.bellicosity ?? 10;
+    const myPower = (me.n_cities ?? 1) * (bellicosity + 20);
+    const allyPower = (allyFaction.n_cities ?? 1) * 25;
+    const targetPower = (targetFaction.n_cities ?? 1) * 25;
+
+    // r0: 外交關係良好 (友好度 >= bellicosity * 4 + 60 | 0x80)
+    const r0Valid = relAlly >= (((bellicosity * 4 + 60) & 0x7f) | 0x80);
+    // r1: 協力國強大 (协助势力总体实力 > 我军实力)
+    const r1Valid = allyPower > myPower;
+    // r2: 侵攻對象強大 (目标势力总体实力 > 我军实力)
+    const r2Valid = targetPower > myPower;
+    // r3: 我正在防禦戰 (目标势力正在进攻我方)
+    const r3Valid = targetFaction.target_faction === me.idx;
+
+    // 信赖度决定说服所需理由数 (KI.EXE 0x3C1E)
+    const trustVal = sc.trust ?? 255;
+    let requiredReasons = 4;
+    if (trustVal >= 224) requiredReasons = 1;
+    else if (trustVal >= 144) requiredReasons = 2;
+    else if (trustVal >= 32) requiredReasons = 3;
+
+    this.proposalAudience = {
+      type: "assistance",
+      playerFaction: me,
+      allyFaction,
+      targetFaction,
+      monarch,
+      advGen,
+      monarchImg,
+      advImg,
+      allyName,
+      targetName,
+      advName,
+      monarchTalkIdx,
+      monarchLines: monarchGreeting,
+      advLines: null,
+      step: "greet",
+      timer: null,
+      timerAction: null,
+      reasonsHover: -1,
+      validReasons: [r0Valid, r1Valid, r2Valid, r3Valid],
+      usedReasons: new Set(),
+      requiredReasons,
+      reasonsItems: [
+        "外交關係良好",
+        "協力國強大",
+        "侵攻對象強大",
+        "我正在防禦戰",
+        "撤回進言",
+      ],
+    };
+
+    this.app.view.draw();
+
+    this._setProposalTimer(3000, async () => {
+      await this._advanceToAdvisorPropose();
+    });
+  }
+
+  /** 迁都进言对话系统 (100% 逆向复刻 KI.EXE 0x6909, 0x6951, 0x3B08, 0x33FD) */
+  async showRelocateCapitalAudience(targetCity) {
+    this.closeCityCard();
+    this.closeListDialog(true);
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeBaseMenu();
+    this.closePersonnelMenu();
+    this.closeAdviceMenu();
+    this.selectedSubmenu = 0;
+    this.syncClock();
+
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me || !targetCity) return;
+
+    const monarch = sc.monarchOf(me);
+    const advGen = adv.getAdvisor(sc, me);
+    const monarchImg = monarch
+      ? await portrait(monarch.portrait).catch(() => null)
+      : null;
+    const advImg = advGen
+      ? await portrait(advGen.portrait).catch(() => null)
+      : null;
+
+    const cityName = (targetCity.name ?? "").trim();
+    const advName = (advGen?.name ?? "軍師").trim();
+    const monarchTalkIdx = (monarch?.talk_idx ?? monarch?.idx ?? 0) % 3;
+
+    // 初始君主提问对白 (Talk 386..388: "對此地是否有何不滿呢？")
+    const monarchGreeting = await formatTalkTokens(
+      386 + monarchTalkIdx,
+      "",
+      advName,
+      "",
+      "",
+      cityName,
+    );
+
+    // 迁都评估 (KI.EXE 0x6951): 比较新城与旧城 tier (type) 与生产力
+    const curCap =
+      (me.capital != null ? sc.cities[me.capital] : null) || targetCity;
+    const isBetter =
+      (targetCity.type ?? 2) <= (curCap.type ?? 2) &&
+      (targetCity.prod ?? 0) >= (curCap.prod ?? 0) * 0.7;
+
+    this.proposalAudience = {
+      type: "relocate",
+      playerFaction: me,
+      targetCity,
+      curCap,
+      isBetter,
+      monarch,
+      advGen,
+      monarchImg,
+      advImg,
+      cityName,
+      advName,
+      monarchTalkIdx,
+      monarchLines: monarchGreeting,
+      advLines: null,
+      step: "greet",
+      timer: null,
+      timerAction: null,
+    };
+
+    this.app.view.draw();
+
+    this._setProposalTimer(3000, async () => {
+      await this._advanceToAdvisorPropose();
+    });
+  }
+
+  /** 请求君主出阵进言对话系统 (100% 逆向复刻 KI.EXE 0x699E, 0x69B4, 0x3B08, 0x6E8F, 0x5E80) */
+  async showMonarchDeployAudience() {
+    this.closeCityCard();
+    this.closeListDialog(true);
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeBaseMenu();
+    this.closePersonnelMenu();
+    this.closeAdviceMenu();
+    this.selectedSubmenu = 0;
+    this.syncClock();
+
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me) return;
+
+    const monarch = sc.monarchOf(me);
+    if (!monarch) return;
+
+    // 检查君主是否已经在军团出征中 (KI.EXE 0x69A0: Talk 64)
+    const isDeploying =
+      monarch.status === 1 ||
+      sc.legions?.some(
+        (L) =>
+          !L.dead &&
+          L.faction === me.idx &&
+          (L.leader === monarch.name ||
+            L.leader === monarch.idx ||
+            L.is_monarch),
+      );
+    if (isDeploying) {
+      const lines = await formatTalkTokens(64);
+      await this.showNpcMessageDialog({
+        lines,
+        autoClose: 3000,
+        onClose: () => {
+          this.selectedSubmenu = null;
+          this.syncClock();
+          this.app.view.draw();
+        },
+      });
+      return;
+    }
+
+    const advGen = adv.getAdvisor(sc, me);
+    const monarchImg = monarch
+      ? await portrait(monarch.portrait).catch(() => null)
+      : null;
+    const advImg = advGen
+      ? await portrait(advGen.portrait).catch(() => null)
+      : null;
+
+    const advName = (advGen?.name ?? "軍師").trim();
+    const monarchTalkIdx = (monarch?.talk_idx ?? monarch?.idx ?? 0) % 3;
+
+    // 初始君主提问对白 (Talk 396..398: "軍師，戰況有所不利嗎？")
+    const monarchGreeting = await formatTalkTokens(
+      396 + monarchTalkIdx,
+      "",
+      advName,
+    );
+
+    // 出阵评估 (KI.EXE 0x69B4): 检查势力总预备兵力是否 >= 600 (即 6000 人)
+    const totRes =
+      ((me.reserve_cav ?? 0) +
+        (me.reserve_inf ?? 0) +
+        (me.reserve_arc ?? 0)) *
+      10;
+    const hasEnoughReserves = totRes >= 6000;
+
+    this.proposalAudience = {
+      type: "monarch_deploy",
+      playerFaction: me,
+      monarch,
+      advGen,
+      hasEnoughReserves,
+      monarchImg,
+      advImg,
+      advName,
+      monarchTalkIdx,
+      monarchLines: monarchGreeting,
+      advLines: null,
+      step: "greet",
+      timer: null,
+      timerAction: null,
+    };
+
+    this.app.view.draw();
+
+    this._setProposalTimer(3000, async () => {
+      await this._advanceToAdvisorPropose();
+    });
+  }
+
   _setProposalTimer(ms, action) {
     if (!this.proposalAudience) return;
     if (this.proposalAudience.timer) {
@@ -1145,6 +1410,26 @@ export class GameBar {
     if (p.type === "truce") {
       // 军师停战发言：Talk 153 (我認為與\3還是停戰為宜。)
       p.advLines = await formatTalkTokens(153, p.targetName, p.advName);
+    } else if (p.type === "assistance") {
+      // 军师请求协助发言：Talk 217 (和\3大人合作，去打倒\3如何？)
+      p.advLines = await formatTalkTokens(
+        217,
+        [p.allyName, p.targetName],
+        p.advName,
+      );
+    } else if (p.type === "relocate") {
+      // 军师迁都发言：Talk 389 (為今後之事設想，我認為遷移到\2為宜。)
+      p.advLines = await formatTalkTokens(
+        389,
+        "",
+        p.advName,
+        "",
+        "",
+        p.cityName,
+      );
+    } else if (p.type === "monarch_deploy") {
+      // 军师请求君主出阵发言：Talk 399 (若請主公出陣，將士的士氣也會提高吧。)
+      p.advLines = await formatTalkTokens(399, "", p.advName);
     } else {
       // 军师敌对发言：Talk 89 (想請主公答允對\3的進兵。)
       p.advLines = await formatTalkTokens(89, p.targetName, p.advName);
@@ -1163,9 +1448,275 @@ export class GameBar {
     const me = p.playerFaction;
     const targetFaction = p.targetFaction;
 
-    const rel = relation(sc, me.idx, targetFaction.idx);
+    const rel = targetFaction ? relation(sc, me.idx, targetFaction.idx) : 0;
     const bellicosity = me.bellicosity ?? 10;
-    const atWar = isAtWar(sc, me.idx, targetFaction.idx);
+    const atWar = targetFaction
+      ? isAtWar(sc, me.idx, targetFaction.idx)
+      : false;
+
+    if (p.type === "relocate") {
+      if (p.isBetter) {
+        clickSfx();
+        p.step = "done";
+        p.monarchLines = await formatTalkTokens(
+          390 + p.monarchTalkIdx,
+          "",
+          p.advName,
+          "",
+          "",
+          p.cityName,
+        );
+        sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
+        me.capital = p.targetCity.idx;
+        sc.capital = p.targetCity.idx;
+        this.app.hud.refreshTrust();
+        this.app.hud.refreshInfo?.();
+        this.app.hud.flashEvent(
+          `「${p.playerFaction.monarch}」同意遷都至「${p.cityName}」！信賴度 +10`,
+        );
+        this.app.view.draw();
+        this._setProposalTimer(3000, () => {
+          this.closeProposalAudience();
+          const view = this.app.view;
+          const [wxp, wyp] = view.cityPixel(p.targetCity);
+          view.cam.x = innerWidth / 2 - wxp;
+          view.cam.y = innerHeight / 2 - wyp;
+          view.clampCam();
+          this.showCityCard(p.targetCity);
+          this.selectedSubmenu = 0;
+          this.syncClock();
+          this.app.view.draw();
+        });
+      } else {
+        warnSfx();
+        p.step = "done";
+        p.monarchLines = await formatTalkTokens(
+          393 + p.monarchTalkIdx,
+          "",
+          p.advName,
+          "",
+          "",
+          p.cityName,
+        );
+        sc.trust = Math.max(0, (sc.trust ?? 255) - 20);
+        this.app.hud.refreshTrust();
+        this.app.hud.flashEvent(`遷都據點條件欠佳！進言被訓斥駁回，信賴度 -20`);
+        this.app.view.draw();
+        this._setProposalTimer(3000, () => {
+          this.closeProposalAudience();
+          this.selectedSubmenu = null;
+          this.syncClock();
+          this.app.view.draw();
+        });
+      }
+      return;
+    }
+
+    if (p.type === "monarch_deploy") {
+      if (p.hasEnoughReserves) {
+        clickSfx();
+        p.step = "done";
+        p.monarchLines = await formatTalkTokens(
+          400 + p.monarchTalkIdx,
+          "",
+          p.advName,
+        );
+        sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
+        this.app.hud.refreshTrust();
+
+        // 扣除预备兵 200 骑兵、200 步兵、200 弓兵 (以 10 兵为单位)
+        me.reserve_cav = Math.max(0, (me.reserve_cav ?? 0) - 200);
+        me.reserve_inf = Math.max(0, (me.reserve_inf ?? 0) - 200);
+        me.reserve_arc = Math.max(0, (me.reserve_arc ?? 0) - 200);
+
+        // 创建君主亲征军团 (6000 兵力，驻守首都)
+        p.monarch.status = 1;
+        p.monarch.is_monarch = true;
+        const cap =
+          (me.capital != null ? sc.cities[me.capital] : null) ||
+          sc.citiesOf(me.idx)[0];
+
+        if (!sc.legions) sc.legions = [];
+        const newLegion = {
+          leader: p.monarch.name,
+          is_monarch: true,
+          faction: me.idx,
+          x: cap.x,
+          y: cap.y,
+          prevX: cap.x,
+          prevY: cap.y,
+          troops: 600, // 6000 兵
+          morale: 200,
+          formation: 1,
+          target: cap,
+          cooldown: 0,
+          units: [
+            { type: 0, troops: 1000 },
+            { type: 0, troops: 1000 },
+            { type: 1, troops: 1000 },
+            { type: 1, troops: 1000 },
+            { type: 2, troops: 1000 },
+            { type: 2, troops: 1000 },
+          ],
+        };
+        sc.legions.push(newLegion);
+
+        this.app.hud.refreshInfo?.();
+        this.app.hud.flashEvent(
+          `「${p.monarch.name}」親征軍團出陣！駐守於「${cap.name}」，信賴度 +10`,
+        );
+        this.app.view.draw();
+        this._setProposalTimer(3000, () => {
+          this.closeProposalAudience();
+          if (cap) {
+            const view = this.app.view;
+            const [wxp, wyp] = view.cityPixel(cap);
+            view.cam.x = innerWidth / 2 - wxp;
+            view.cam.y = innerHeight / 2 - wyp;
+            view.clampCam();
+            this.showCityCard(cap);
+          }
+          this.selectedSubmenu = null;
+          this.syncClock();
+          this.app.view.draw();
+        });
+      } else {
+        warnSfx();
+        p.step = "done";
+        p.monarchLines = await formatTalkTokens(
+          403 + p.monarchTalkIdx,
+          "",
+          p.advName,
+        );
+        sc.trust = Math.max(0, (sc.trust ?? 255) - 20);
+        this.app.hud.refreshTrust();
+        this.app.hud.flashEvent(
+          `預備兵不足（需6000兵）！君主駁回出陣，信賴度 -20`,
+        );
+        this.app.view.draw();
+        this._setProposalTimer(3000, () => {
+          this.closeProposalAudience();
+          this.selectedSubmenu = null;
+          this.syncClock();
+          this.app.view.draw();
+        });
+      }
+      return;
+    }
+
+    if (p.type === "assistance") {
+      // 请求协助提案判断 (KI.EXE 0x66D9)
+      const relAlly = relation(sc, me.idx, p.allyFaction.idx);
+      const minAllyRel = ((bellicosity * 4 + 30) & 0x7f) | 0x80;
+      const atWarWithTarget = isAtWar(sc, me.idx, p.targetFaction.idx);
+
+      if (relAlly < minAllyRel) {
+        // 与协助国交情不够，君主严词驳回 (Talk 218..220)
+        warnSfx();
+        p.step = "done";
+        p.monarchLines = await formatTalkTokens(
+          218 + p.monarchTalkIdx,
+          p.allyName,
+          p.advName,
+        );
+        sc.trust = Math.max(0, (sc.trust ?? 255) - 20);
+        this.app.hud.refreshTrust();
+        this.app.hud.flashEvent(`與協助國交情不足！進言被訓斥駁回，信賴度 -20`);
+        this.app.view.draw();
+        this._setProposalTimer(3000, () => {
+          this.closeProposalAudience();
+          this.selectedSubmenu = null;
+          this.syncClock();
+          this.app.view.draw();
+        });
+        return;
+      }
+
+      if (!atWarWithTarget) {
+        // 未与目标国交战，君主训斥驳回 (Talk 227..229: "\6沒必要和目前並未敵對的\3為敵。")
+        warnSfx();
+        p.step = "done";
+        p.monarchLines = await formatTalkTokens(
+          227 + p.monarchTalkIdx,
+          p.targetName,
+          p.advName,
+        );
+        sc.trust = Math.max(0, (sc.trust ?? 255) - 20);
+        this.app.hud.refreshTrust();
+        this.app.hud.flashEvent(`未與目標國交戰！進言被訓斥駁回，信賴度 -20`);
+        this.app.view.draw();
+        this._setProposalTimer(3000, () => {
+          this.closeProposalAudience();
+          this.selectedSubmenu = null;
+          this.syncClock();
+          this.app.view.draw();
+        });
+        return;
+      }
+
+      // 检查是否目标国正在攻击我方且实力占优 -> 直接同意 (Talk 221..223)
+      const myPower = (me.n_cities ?? 1) * (bellicosity + 20);
+      const targetPower = (p.targetFaction.n_cities ?? 1) * 25;
+      if (
+        p.targetFaction.target_faction === me.idx &&
+        myPower < targetPower / 2
+      ) {
+        clickSfx();
+        p.step = "done";
+        p.monarchLines = await formatTalkTokens(
+          221 + p.monarchTalkIdx,
+          p.allyName,
+          p.advName,
+        );
+        sc.trust = Math.min(255, (sc.trust ?? 255) + 20);
+        this.app.hud.refreshTrust();
+        this.app.hud.flashEvent(
+          `「${p.playerFaction.monarch}」同意請求協助！信賴度 +20`,
+        );
+
+        if (!sc.pendingAssistanceNegotiations)
+          sc.pendingAssistanceNegotiations = [];
+        const envoyObj = sc.envoys?.[p.allyFaction.idx];
+        const envoyName = envoyObj?.name ?? "外交官";
+        sc.pendingAssistanceNegotiations.push({
+          allyFactionIdx: p.allyFaction.idx,
+          targetFactionIdx: p.targetFaction.idx,
+          envoyName,
+          daysLeft: 20,
+        });
+
+        this.app.view.draw();
+        this._setProposalTimer(3000, async () => {
+          this.closeProposalAudience();
+          const lines = await formatTalkTokens(
+            60,
+            p.allyName,
+            p.advName,
+            envoyName,
+          );
+          await this.showNpcMessageDialog({
+            lines,
+            autoClose: 3000,
+            onClose: () => {
+              this.selectedSubmenu = null;
+              this.syncClock();
+              this.app.view.draw();
+            },
+          });
+        });
+        return;
+      }
+
+      // 询问理由 (Talk 224..226)
+      p.step = "choose_reason";
+      p.monarchLines = await formatTalkTokens(
+        224 + p.monarchTalkIdx,
+        p.allyName,
+        p.advName,
+      );
+      this.app.view.draw();
+      return;
+    }
 
     if (p.type === "truce") {
       // 停战提案判断 (KI.EXE 0x6577)
@@ -1320,6 +1871,11 @@ export class GameBar {
     if (p.type === "truce") {
       // 军师停战理由发言：Talk 167 + ri
       p.advLines = await formatTalkTokens(167 + ri, p.targetName, p.advName);
+    } else if (p.type === "assistance") {
+      // 军师协助理由发言：Talk 231..235
+      const talkIdx = 231 + ri;
+      const tName = ri <= 1 ? p.allyName : p.targetName;
+      p.advLines = await formatTalkTokens(talkIdx, tName, p.advName);
     } else {
       // 军师开战理由发言：Talk 103 + ri
       p.advLines = await formatTalkTokens(103 + ri, p.targetName, p.advName);
@@ -1335,6 +1891,134 @@ export class GameBar {
     const p = this.proposalAudience;
     if (!p) return;
     const sc = this.app.scenario;
+
+    if (p.type === "assistance") {
+      // 协助理由评估 (KI.EXE 0x66D9)
+      if (ri === 4) {
+        // 撤回进言 (Talk 235: 那也不再勉強，一切就任憑主公的旨意。) -> 不扣信赖度，结束
+        p.step = "done";
+        this.app.view.draw();
+        this._setProposalTimer(2000, () => {
+          this.closeProposalAudience();
+          this.selectedSubmenu = null;
+          this.syncClock();
+          this.app.view.draw();
+        });
+        return;
+      }
+
+      if (p.usedReasons.has(ri)) {
+        // 重复理由 (Talk 275..277) -> 不扣信赖度，重新选理由
+        p.step = "repeating_reason";
+        p.monarchLines = await formatTalkTokens(
+          275 + p.monarchTalkIdx,
+          p.allyName,
+          p.advName,
+        );
+        this.app.view.draw();
+        this._setProposalTimer(2500, () => {
+          p.step = "choose_reason";
+          this.app.view.draw();
+        });
+        return;
+      }
+
+      const isValid = p.validReasons[ri];
+      if (!isValid) {
+        // 假理由 / 谎言 (Talk 236 / 245 / 254 / 263) -> 信赖度 -20，驳回结束
+        warnSfx();
+        p.step = "done";
+        const baseTalks = [236, 245, 254, 263];
+        const talkIdx = baseTalks[ri] + p.monarchTalkIdx;
+        p.monarchLines = await formatTalkTokens(
+          talkIdx,
+          ri <= 1 ? p.allyName : p.targetName,
+          p.advName,
+        );
+        sc.trust = Math.max(0, (sc.trust ?? 255) - 20);
+        this.app.hud.refreshTrust();
+        this.app.hud.flashEvent(`理由不實！進言被訓斥駁回，信賴度 -20`);
+        this.app.view.draw();
+        this._setProposalTimer(3000, () => {
+          this.closeProposalAudience();
+          this.selectedSubmenu = null;
+          this.syncClock();
+          this.app.view.draw();
+        });
+        return;
+      }
+
+      // 理由成立 (真理由!)
+      p.usedReasons.add(ri);
+      p.requiredReasons--;
+
+      if (p.requiredReasons > 0) {
+        // 仍需补充理由 (Talk 242 / 251 / 260 / 269)
+        clickSfx();
+        p.step = "need_more_reason";
+        const baseTalks = [242, 251, 260, 269];
+        const talkIdx = baseTalks[ri] + p.monarchTalkIdx;
+        p.monarchLines = await formatTalkTokens(
+          talkIdx,
+          ri <= 1 ? p.allyName : p.targetName,
+          p.advName,
+        );
+        this.app.view.draw();
+        this._setProposalTimer(2500, () => {
+          p.step = "choose_reason";
+          this.app.view.draw();
+        });
+      } else {
+        // 理由充分，说服成功，君主采纳并同意派使者请求协助! (Talk 239 / 248 / 257 / 266)
+        clickSfx();
+        p.step = "done";
+        const baseTalks = [239, 248, 257, 266];
+        const talkIdx = baseTalks[ri] + p.monarchTalkIdx;
+        p.monarchLines = await formatTalkTokens(
+          talkIdx,
+          ri <= 1 ? p.allyName : p.targetName,
+          p.advName,
+        );
+        sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
+        this.app.hud.refreshTrust();
+        this.app.hud.flashEvent(
+          `「${p.playerFaction.monarch}」同意向「${p.allyName}」請求協助！信賴度 +10`,
+        );
+
+        if (!sc.pendingAssistanceNegotiations)
+          sc.pendingAssistanceNegotiations = [];
+        const envoyObj = sc.envoys?.[p.allyFaction.idx];
+        const envoyName = envoyObj?.name ?? "外交官";
+        sc.pendingAssistanceNegotiations.push({
+          allyFactionIdx: p.allyFaction.idx,
+          targetFactionIdx: p.targetFaction.idx,
+          envoyName,
+          daysLeft: 20, // 20 天后外交官前来报告交涉结果
+        });
+
+        this.app.view.draw();
+        this._setProposalTimer(3000, async () => {
+          this.closeProposalAudience();
+          // 弹出 Talk 60: "那麼，就儘速向\1大人發出請求協助的指示。"
+          const lines = await formatTalkTokens(
+            60,
+            p.allyName,
+            p.advName,
+            envoyName,
+          );
+          await this.showNpcMessageDialog({
+            lines,
+            autoClose: 3000,
+            onClose: () => {
+              this.selectedSubmenu = null;
+              this.syncClock();
+              this.app.view.draw();
+            },
+          });
+        });
+      }
+      return;
+    }
 
     if (p.type === "truce") {
       // 停战理由评估 (KI.EXE 0x3B5A & 0x3BA9)
@@ -1628,6 +2312,100 @@ export class GameBar {
               this.syncClock();
               this.app.hud.flashEvent(
                 `與「${targetName}」停戰談判破裂！信賴度 -30`,
+              );
+              this.app.view.draw();
+            },
+          });
+        }
+      },
+    });
+  }
+
+  /** 外交官返回汇报请求协助谈判结果 (100% 逆向复刻 KI.EXE 0x301C, 0x3712, 0x3C3D) */
+  async showAssistanceNegotiationResult({
+    allyFaction,
+    targetFaction,
+    envoyName,
+    outcome,
+    goldRequired,
+  }) {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    const allyName = (allyFaction?.monarch ?? "").trim();
+    const targetName = (targetFaction?.monarch ?? "").trim();
+
+    // 第一步：Talk 57 "駐\3勢力的外交官\1大人前來報告。"
+    const step1Lines = await formatTalkTokens(57, allyName, "", envoyName);
+
+    await this.showNpcMessageDialog({
+      lines: step1Lines,
+      autoClose: 3000,
+      onClose: async () => {
+        // 第二步：根据谈判结果展示 Talk 47 / 48 / 49
+        if (outcome === 0) {
+          // 无条件达成 (Talk 47: "與\3的合作交涉的結果，無條件成立了。")
+          clickSfx();
+          declareWar(sc, allyFaction.idx, targetFaction.idx);
+          allyFaction.target_faction = targetFaction.idx;
+          sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
+          this.app.hud.refreshTrust();
+          const step2Lines = await formatTalkTokens(47, allyName);
+          await this.showNpcMessageDialog({
+            lines: step2Lines,
+            autoClose: 3500,
+            onClose: () => {
+              this.syncClock();
+              this.app.hud.buildLegend?.();
+              this.app.hud.flashEvent(
+                `「${allyName}」同意協同進攻「${targetName}」！信賴度 +10`,
+              );
+              this.app.view.draw();
+            },
+          });
+        } else if (outcome === 1) {
+          // 支付金钱达成 (Talk 48: "與\3的合作交涉，的結果，已經\7達成協定。")
+          clickSfx();
+          if (me) {
+            me.gold = Math.max(0, (me.gold ?? 0) - goldRequired);
+          }
+          declareWar(sc, allyFaction.idx, targetFaction.idx);
+          allyFaction.target_faction = targetFaction.idx;
+          sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
+          this.app.hud.refreshTrust();
+          const costStr = `支付${goldRequired}金`;
+          const step2Lines = await formatTalkTokens(
+            48,
+            allyName,
+            "",
+            "",
+            costStr,
+          );
+          await this.showNpcMessageDialog({
+            lines: step2Lines,
+            autoClose: 3500,
+            onClose: () => {
+              this.syncClock();
+              this.app.hud.buildLegend?.();
+              this.app.hud.refreshInfo?.();
+              this.app.hud.flashEvent(
+                `「${allyName}」同意協同進攻「${targetName}」！支付 ${goldRequired} 金。`,
+              );
+              this.app.view.draw();
+            },
+          });
+        } else {
+          // 谈判破裂 (Talk 49: "與\3的合作交涉，很遺憾，交涉破裂了。")
+          warnSfx();
+          sc.trust = Math.max(0, (sc.trust ?? 255) - 30);
+          this.app.hud.refreshTrust();
+          const step2Lines = await formatTalkTokens(49, allyName);
+          await this.showNpcMessageDialog({
+            lines: step2Lines,
+            autoClose: 3500,
+            onClose: () => {
+              this.syncClock();
+              this.app.hud.flashEvent(
+                `與「${allyName}」的請求協助談判破裂！信賴度 -30`,
               );
               this.app.view.draw();
             },
@@ -3482,6 +4260,39 @@ export class GameBar {
           this.selectedSubmenu = 0;
           this.syncClock();
           this.app.hud.showTruceProposalFactions();
+          this.selectedSubmenu = 0;
+          this.app.view.draw();
+          return true;
+        }
+        if (i === 2) {
+          // 請求協助
+          clickSfx();
+          this.closeAdviceMenu();
+          this.selectedSubmenu = 0;
+          this.syncClock();
+          this.app.hud.showAssistanceAllyFactions();
+          this.selectedSubmenu = 0;
+          this.app.view.draw();
+          return true;
+        }
+        if (i === 3) {
+          // 遷都
+          clickSfx();
+          this.closeAdviceMenu();
+          this.selectedSubmenu = 0;
+          this.syncClock();
+          this.app.hud.showRelocateCapitalCities();
+          this.selectedSubmenu = 0;
+          this.app.view.draw();
+          return true;
+        }
+        if (i === 4) {
+          // 請求君主出陣
+          clickSfx();
+          this.closeAdviceMenu();
+          this.selectedSubmenu = 0;
+          this.syncClock();
+          this.showMonarchDeployAudience();
           this.selectedSubmenu = 0;
           this.app.view.draw();
           return true;
