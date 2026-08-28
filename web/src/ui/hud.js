@@ -570,7 +570,7 @@ export class HUD {
       w: 480,
       h: 352,
       footer: {
-        text: "進行軍隊編組。\n請選擇武將。",
+        text: "進行軍隊編組。請選擇武將。",
         portrait: "message_npc",
       },
       onPick: (ri) => {
@@ -820,7 +820,7 @@ export class HUD {
       w: 480,
       h: 352,
       footer: {
-        text: "要解任哪個據點的內政\n官？",
+        text: "要解任哪個據點的內政官？",
         portrait: "message_npc",
       },
       onPick: (ri) => {
@@ -925,7 +925,7 @@ export class HUD {
       w: 480,
       h: 352,
       footer: {
-        text: "要派遣外交官到哪個勢\n力？",
+        text: "要派遣外交官到哪個勢力？",
         portrait: "message_npc",
       },
       onPick: (ri) => {
@@ -1057,13 +1057,9 @@ export class HUD {
           this.app.gamebar.listDialog.selectedRow = ri;
         }
         // 弹出武将对话弹窗「遵命。」(3秒自动关闭或右键关闭)
-        this.app.gamebar.showGeneralMessageDialog(
-          gen,
-          "遵命。",
-          () => {
-            this.showAppointEnvoyFactions();
-          },
-        );
+        this.app.gamebar.showGeneralMessageDialog(gen, "遵命。", () => {
+          this.showAppointEnvoyFactions();
+        });
       },
     });
   }
