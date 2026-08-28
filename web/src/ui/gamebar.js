@@ -189,7 +189,7 @@ export class GameBar {
 
   closeListDialog(force = false) {
     if (!this.listDialog) return;
-    const cancelCb = !force ? this.listDialog.onCancel : null;
+    const cancelCb = force ? null : this.listDialog.onCancel;
     this.closeGeneralCard();
     this.closeFormationDialog();
     this.formationQuote = null;
@@ -770,12 +770,7 @@ export class GameBar {
       oy,
       wTiles,
       hTiles,
-      items: [
-        "內政官任命",
-        "內政官解任",
-        "外交官任命",
-        "外交官解任",
-      ],
+      items: ["內政官任命", "內政官解任", "外交官任命", "外交官解任"],
       hover: -1,
     };
     this.app.view.draw();
@@ -849,6 +844,33 @@ export class GameBar {
     this.app.view.draw();
   }
 
+  /** 通用 NPC 提示信息弹窗 (如据点已有内政官提示: 19×5 tiles = 304×80，黑底金框，左侧 NPC 头像 64×64) */
+  async showNpcMessageDialog({
+    lines,
+    px,
+    py,
+    w = 304,
+    h = 80,
+    onClose = null,
+  } = {}) {
+    let img = this.imgs?.messageNpc;
+    if (!img) {
+      img = await loadImage("grf/ui/message_npc.png").catch(() => null);
+    }
+    if (px == null || py == null) {
+      if (this.listDialog) {
+        const d = this.listDialog;
+        px = d.px + d.w - w - 8;
+        py = d.py + 76;
+      } else {
+        px = Math.round((innerWidth - w) / 2);
+        py = Math.round((innerHeight - h) / 2);
+      }
+    }
+    this.generalCard = { gen: null, img, lines, px, py, w, h, onClose };
+    this.app.view.draw();
+  }
+
   /** 武将固定发言对话弹窗 (如任命内政官「我立刻前往。」，16×5 tiles = 256×80) */
   async showGeneralMessageDialog(gen, text, onClose = null) {
     if (!gen) return;
@@ -901,7 +923,7 @@ export class GameBar {
     const x = win ? win.x : px;
     const y = win ? win.y : py;
 
-    // 左侧武将头像 64×64
+    // 左侧武将/NPC 头像 64×64
     if (img) {
       ctx.drawImage(img, x + 8, y + 8, 64, 64);
     } else {
@@ -912,14 +934,17 @@ export class GameBar {
     // 右侧对白文字
     ctx.font = FONT;
     ctx.textBaseline = "top";
-    ctx.fillStyle = "#ffffff";
     const tx = x + 8 + 64 + 14;
     const maxTextW = Math.max(40, w - 8 - 64 - 14 - 8);
 
-    const rawLines = Array.isArray(lines) ? lines : [String(lines || "")];
+    const rawLines = Array.isArray(lines) ? lines : [lines];
     const renderLines = [];
     for (const raw of rawLines) {
-      for (const paragraph of String(raw).split("\n")) {
+      if (Array.isArray(raw)) {
+        renderLines.push(raw);
+        continue;
+      }
+      for (const paragraph of String(raw || "").split("\n")) {
         if (!paragraph) {
           renderLines.push("");
           continue;
@@ -942,7 +967,25 @@ export class GameBar {
     const totalH = renderLines.length * lineH;
     const startY = y + Math.max(8, Math.floor((h - totalH) / 2));
     renderLines.forEach((line, li) => {
-      ctx.fillText(line, tx, startY + li * lineH);
+      const ly = startY + li * lineH;
+      if (Array.isArray(line)) {
+        let curX = tx;
+        line.forEach((token) => {
+          if (typeof token === "string") {
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(token, curX, ly);
+            curX += ctx.measureText(token).width;
+          } else if (token && typeof token === "object") {
+            ctx.fillStyle = token.color || "#ffffff";
+            const text = String(token.text ?? "");
+            ctx.fillText(text, curX, ly);
+            curX += ctx.measureText(text).width;
+          }
+        });
+      } else {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(String(line ?? ""), tx, ly);
+      }
     });
   }
 
@@ -2399,7 +2442,8 @@ export class GameBar {
           this.closePersonnelMenu();
           this.selectedSubmenu = 1;
           this.syncClock();
-          this.app.hud.flashEvent("「內政官解任」界面还原中…（右鍵取消返回）");
+          this.app.hud.showDismissGovernorCities();
+          this.selectedSubmenu = 1;
           this.app.view.draw();
           return true;
         }
@@ -2440,9 +2484,11 @@ export class GameBar {
       return this._clickFinanceDialog(px, py);
     }
 
-    if (this.generalCard && this._hitGeneralCard(px, py)) {
-      clickSfx();
-      this.closeGeneralCard();
+    if (this.generalCard) {
+      if (this._hitGeneralCard(px, py)) {
+        clickSfx();
+        this.closeGeneralCard();
+      }
       return true;
     }
 

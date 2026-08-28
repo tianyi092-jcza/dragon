@@ -582,25 +582,25 @@ export class HUD {
     });
   }
 
-  /** 內政官任命 — 军师子菜单「人事」 -> 「內政官任命」: 选择无内政官的据点 */
+  /** 內政官任命 — 军师子菜单「人事」 -> 「內政官任命」: 选择据点 */
   showAppointGovernorCities() {
     const sc = this.app.scenario;
     const f = cmd.playerFaction(sc);
     if (!f) return;
 
-    // 筛选我方所有没有内政官的据点
-    const mine = sc.cities.filter(
-      (c) =>
-        c &&
-        c.faction === f.idx &&
-        (c.governor == null || !sc.generals[c.governor]),
-    );
+    // 我方所有据点 (保持数据表自然顺序)
+    const mine = sc.cities.filter((c) => c && c.faction === f.idx);
 
     const rows = mine.map((c) => {
       const troops = (c.sim ? c.sim.troops : c.troops) ?? c.troops ?? 0;
       const rise = ((c.sim ? c.sim.morale : c.growth) ?? 100) - 100;
       const defence = (c.sim ? c.sim.food : c.defence) ?? 0;
       const prod = c.prod ?? 0;
+
+      let govName = "－－－";
+      if (c.governor != null && sc.generals[c.governor]) {
+        govName = sc.generals[c.governor].name?.trim() ?? "－－－";
+      }
 
       return {
         _city: c,
@@ -610,7 +610,7 @@ export class HUD {
           rise <= 0 ? { t: `${rise}`, color: "#ff4444" } : `${rise}`,
           `${defence}`,
           `${troops * 10}`,
-          "－－－",
+          govName,
         ],
       };
     });
@@ -638,6 +638,38 @@ export class HUD {
       onPick: (ri) => {
         const city = rows[ri]?._city;
         if (!city) return;
+
+        const gov =
+          city.governor != null && sc.generals[city.governor]
+            ? sc.generals[city.governor]
+            : null;
+
+        if (gov) {
+          // 该据点已有内政官：高亮当前行，弹出 NPC 提示框
+          if (this.app.gamebar.listDialog) {
+            this.app.gamebar.listDialog.selectedRow = ri;
+          }
+          const cityName = city.name?.trim() ?? "";
+          const govName = gov.name?.trim() ?? "";
+          this.app.gamebar.showNpcMessageDialog({
+            lines: [
+              [
+                { text: cityName, color: "#f8a800" },
+                { text: `　已有${govName}　大人`, color: "#ffffff" },
+              ],
+              "前去赴任了。",
+            ],
+            onClose: () => {
+              if (this.app.gamebar.listDialog) {
+                this.app.gamebar.listDialog.selectedRow = -1;
+              }
+              this.app.view.draw();
+            },
+          });
+          return;
+        }
+
+        // 未任命内政官：进入武将选择
         this.showAppointGovernorGenerals(city);
       },
     });
@@ -723,9 +755,111 @@ export class HUD {
         // 执行内政官任命
         city.governor = gen.idx;
         gen.status = 2; // 内政官
+        if (this.app.gamebar.listDialog) {
+          this.app.gamebar.listDialog.selectedRow = ri;
+        }
         // 弹出武将对话小弹窗「我立刻前往。」
         this.app.gamebar.showGeneralMessageDialog(gen, "我立刻前往。", () => {
           this.showAppointGovernorCities();
+        });
+      },
+    });
+  }
+
+  /** 內政官解任 — 军师子菜单「人事」 -> 「內政官解任」: 选择有内政官的据点解任 */
+  showDismissGovernorCities() {
+    const sc = this.app.scenario;
+    const f = cmd.playerFaction(sc);
+    if (!f) return;
+
+    // 我方所有据点
+    const mine = sc.cities.filter((c) => c && c.faction === f.idx);
+
+    const rows = mine.map((c) => {
+      const troops = (c.sim ? c.sim.troops : c.troops) ?? c.troops ?? 0;
+      const rise = ((c.sim ? c.sim.morale : c.growth) ?? 100) - 100;
+      const defence = (c.sim ? c.sim.food : c.defence) ?? 0;
+      const prod = c.prod ?? 0;
+
+      let govName = "－－－";
+      if (c.governor != null && sc.generals[c.governor]) {
+        govName = sc.generals[c.governor].name?.trim() ?? "－－－";
+      }
+
+      return {
+        _city: c,
+        cells: [
+          c.name?.trim() ?? "？",
+          `${prod}`,
+          rise <= 0 ? { t: `${rise}`, color: "#ff4444" } : `${rise}`,
+          `${defence}`,
+          `${troops * 10}`,
+          govName,
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["據點名", "生產力", "上昇率", "防災", "城兵", "內政官"],
+      cols: [
+        { x: 8, w: 78, align: "left" },
+        { x: 88, w: 68, align: "right" },
+        { x: 160, w: 56, align: "right" },
+        { x: 220, w: 56, align: "right" },
+        { x: 280, w: 64, align: "right" },
+        { x: 352, w: 90, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "要解除哪個據點的內政官職務？",
+        portrait: "message_npc",
+      },
+      onPick: (ri) => {
+        const city = rows[ri]?._city;
+        if (!city) return;
+
+        const gov =
+          city.governor != null && sc.generals[city.governor]
+            ? sc.generals[city.governor]
+            : null;
+
+        if (!gov) {
+          // 该据点未任命内政官
+          if (this.app.gamebar.listDialog) {
+            this.app.gamebar.listDialog.selectedRow = ri;
+          }
+          const cityName = city.name?.trim() ?? "";
+          this.app.gamebar.showNpcMessageDialog({
+            lines: [
+              [
+                { text: cityName, color: "#f8a800" },
+                { text: "　並未任命內政官。", color: "#ffffff" },
+              ],
+            ],
+            onClose: () => {
+              if (this.app.gamebar.listDialog) {
+                this.app.gamebar.listDialog.selectedRow = -1;
+              }
+              this.app.view.draw();
+            },
+          });
+          return;
+        }
+
+        // 解除内政官
+        if (this.app.gamebar.listDialog) {
+          this.app.gamebar.listDialog.selectedRow = ri;
+        }
+        city.governor = null;
+        gov.status = 0; // 恢复为闲置武将
+        // 弹出武将发言弹窗「我這就返回。」
+        this.app.gamebar.showGeneralMessageDialog(gov, "我這就返回。", () => {
+          this.showDismissGovernorCities();
         });
       },
     });
