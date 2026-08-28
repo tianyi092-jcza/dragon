@@ -874,6 +874,200 @@ export class HUD {
     });
   }
 
+  /** 外交官任命 — 军师子菜单「人事」 -> 「外交官任命」: 选择目标势力 */
+  showAppointEnvoyFactions() {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me) return;
+
+    // 所有其它势力 (排除玩家自身势力，保持自然顺序)
+    const otherFactions = sc.factions.filter((f) => f && f.idx !== me.idx);
+
+    const rows = otherFactions.map((f) => {
+      const m = sc.generals[f.monarch_idx];
+      const rel = relation(sc, me.idx, f.idx);
+      const envoyObj = sc.envoys?.[f.idx];
+      const envoyName = envoyObj?.name ?? "－－－";
+      const genCount = sc.generals.filter(
+        (g) => g && g.faction === f.idx && g.active !== false,
+      ).length;
+      const cityCount = sc.cities.filter((c) => c.faction === f.idx).length;
+      const capName = sc.cities[f.capital]?.name ?? "－－－";
+
+      return {
+        _faction: f,
+        _envoyName: envoyObj?.name ?? null,
+        cells: [
+          m ? m.name.trim() : "?",
+          `${genCount}`,
+          `${cityCount}`,
+          capName,
+          { t: relationLabel(rel), color: relationColor(rel) },
+          envoyName,
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["勢力名", "武將", "據點", "首都", "外交", "外交官"],
+      cols: [
+        { x: 8, w: 78, align: "left" },
+        { x: 88, w: 56, align: "right" },
+        { x: 148, w: 56, align: "right" },
+        { x: 212, w: 78, align: "left" },
+        { x: 294, w: 64, align: "center" },
+        { x: 366, w: 78, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "要派遣外交官到哪個勢\n力？",
+        portrait: "message_npc",
+      },
+      onPick: (ri) => {
+        const fac = rows[ri]?._faction;
+        if (!fac) return;
+
+        const envoyName = rows[ri]?._envoyName;
+
+        if (envoyName) {
+          // 该势力已有外交官：高亮当前行，弹出 NPC 提示框
+          if (this.app.gamebar.listDialog) {
+            this.app.gamebar.listDialog.selectedRow = ri;
+          }
+          const monarchName = (fac.monarch ?? "").trim();
+          this.app.gamebar.showNpcMessageDialog({
+            lines: [
+              [
+                { text: monarchName + "　", color: "#f8a800" },
+                { text: `勢力已有${envoyName}`, color: "#ffffff" },
+              ],
+              "大人前去赴任了。",
+            ],
+            onClose: () => {
+              if (this.app.gamebar.listDialog) {
+                this.app.gamebar.listDialog.selectedRow = -1;
+              }
+              this.app.view.draw();
+            },
+          });
+          return;
+        }
+
+        // 未任命外交官：进入武将选择
+        this.showAppointEnvoyGenerals(fac);
+      },
+    });
+  }
+
+  /** 外交官任命 — 选择武将并完成任命 */
+  showAppointEnvoyGenerals(targetFaction) {
+    const sc = this.app.scenario;
+    const f = cmd.playerFaction(sc);
+    if (!f || !targetFaction) return;
+
+    const getIdentity = (g) => {
+      if (g.is_player) return "軍師";
+      if (g.status === 4) return "俘虜";
+      if (g.is_monarch || g.status === 5) return "君主";
+      if (g.status === 1) return "軍團長";
+      if (g.status === 2) return "內政官";
+      if (g.status === 3) return "外交官";
+      if (sc.legions?.some((L) => L.leader === g.name || L.leader === g.idx)) {
+        return "軍團長";
+      }
+      if (sc.cities?.some((c) => c.governor === g.idx)) {
+        return "內政官";
+      }
+      if (
+        sc.envoys &&
+        Object.values(sc.envoys).some(
+          (e) => e?.name === g.name?.trim() || e?.gen_idx === g.idx,
+        )
+      ) {
+        return "外交官";
+      }
+      return "－－－";
+    };
+
+    // 筛选所有身份为“－－－”的空闲武将 (排除玩家化身军师)
+    const mine = sc.generals.filter(
+      (g) =>
+        g &&
+        g.faction === f.idx &&
+        g.active !== false &&
+        !g.is_player &&
+        getIdentity(g) === "－－－",
+    );
+
+    const rows = mine.map((g) => {
+      const facName = f.monarch ?? "－－－";
+      return {
+        _gen: g,
+        cells: [
+          g.name?.trim() ?? "？",
+          `${g.ability?.force ?? 0}`,
+          `${g.ability?.lead ?? 0}`,
+          `${g.ability?.politics ?? 0}`,
+          facName,
+          "－－－",
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["武將名", "武術", "統率", "政治", "勢力", "身分"],
+      cols: [
+        { x: 8, w: 80, align: "left" },
+        { x: 96, w: 48, align: "right" },
+        { x: 152, w: 48, align: "right" },
+        { x: 208, w: 48, align: "right" },
+        { x: 272, w: 80, align: "left" },
+        { x: 360, w: 80, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "請選擇任命之武將。",
+        portrait: "message_npc",
+      },
+      onCancel: () => {
+        this.showAppointEnvoyFactions();
+      },
+      onPick: (ri) => {
+        const gen = rows[ri]?._gen;
+        if (!gen) return;
+        // 执行外交官任命
+        sc.envoys = sc.envoys ?? {};
+        sc.envoys[targetFaction.idx] = {
+          name: gen.name.trim(),
+          gen_idx: gen.idx,
+          left: 6,
+        };
+        gen.status = 3; // 外交官
+        if (this.app.gamebar.listDialog) {
+          this.app.gamebar.listDialog.selectedRow = ri;
+        }
+        // 弹出武将对话弹窗「遵命。」(3秒自动关闭或右键关闭)
+        this.app.gamebar.showGeneralMessageDialog(
+          gen,
+          "遵命。",
+          () => {
+            this.showAppointEnvoyFactions();
+          },
+        );
+      },
+    });
+  }
+
   /** 據點一覽 — 军师子菜单「據點」 -> 「據點一覽」: 我方据点列表 (Canvas 弹窗构建) */
   showBaseCities() {
     const sc = this.app.scenario;

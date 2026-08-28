@@ -852,6 +852,7 @@ export class GameBar {
     w = 304,
     h = 80,
     onClose = null,
+    autoClose = 3000,
   } = {}) {
     let img = this.imgs?.messageNpc;
     if (!img) {
@@ -867,16 +868,26 @@ export class GameBar {
         py = Math.round((innerHeight - h) / 2);
       }
     }
+    if (this._generalCardTimer) {
+      clearTimeout(this._generalCardTimer);
+      this._generalCardTimer = null;
+    }
     this.generalCard = { gen: null, img, lines, px, py, w, h, onClose };
+    if (autoClose) {
+      this._generalCardTimer = setTimeout(() => {
+        this._generalCardTimer = null;
+        this.closeGeneralCard();
+      }, autoClose);
+    }
     this.app.view.draw();
   }
 
-  /** 武将固定发言对话弹窗 (如任命内政官「我立刻前往。」、解任「那我這就回京城。」，19×5 tiles = 304×80) */
+  /** 武将固定发言对话弹窗 (如任命内政官「我立刻前往。」、解任「那我這就回京城。」、任命外交官「遵命。」，19×5 tiles = 304×80) */
   async showGeneralMessageDialog(
     gen,
     text,
     onClose = null,
-    { w = 304, h = 80, px, py } = {},
+    { w = 304, h = 80, px, py, autoClose = 3000 } = {},
   ) {
     if (!gen) return;
     const img = await portrait(gen.portrait).catch(() => null);
@@ -890,12 +901,26 @@ export class GameBar {
         py = Math.round((innerHeight - h) / 2);
       }
     }
+    if (this._generalCardTimer) {
+      clearTimeout(this._generalCardTimer);
+      this._generalCardTimer = null;
+    }
     this.generalCard = { gen, img, lines: [text], px, py, w, h, onClose };
+    if (autoClose) {
+      this._generalCardTimer = setTimeout(() => {
+        this._generalCardTimer = null;
+        this.closeGeneralCard();
+      }, autoClose);
+    }
     this.app.view.draw();
   }
 
   closeGeneralCard() {
     if (!this.generalCard) return;
+    if (this._generalCardTimer) {
+      clearTimeout(this._generalCardTimer);
+      this._generalCardTimer = null;
+    }
     const onClose = this.generalCard.onClose;
     this.generalCard = null;
     if (this.listDialog) this.listDialog.selectedRow = -1;
@@ -2457,7 +2482,8 @@ export class GameBar {
           this.closePersonnelMenu();
           this.selectedSubmenu = 1;
           this.syncClock();
-          this.app.hud.flashEvent("「外交官任命」界面还原中…（右鍵取消返回）");
+          this.app.hud.showAppointEnvoyFactions();
+          this.selectedSubmenu = 1;
           this.app.view.draw();
           return true;
         }
