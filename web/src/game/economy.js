@@ -94,7 +94,7 @@ export function computeConscriptionYields(scenario, factionIdx) {
   };
 }
 
-/** 0x3E65: 计算势力的每月预估总支出 (预备兵维护费 + 武将俸禄) */
+/** 0x3E65: 计算势力的每月预估总支出 (预备兵维护费 + 武将俸禄 + 内政官治理费 + 外交官外交费) */
 export function computeFactionExpense(scenario, factionIdx) {
   const f = scenario.factions[factionIdx];
   if (!f) return 0;
@@ -102,7 +102,8 @@ export function computeFactionExpense(scenario, factionIdx) {
     (f.reserve_cav ?? 0) + (f.reserve_arc ?? 0) + (f.reserve_inf ?? 0);
   // 预备兵每 32 兵每月消耗维护费 (以 10 兵为单位，折算约 24 周期)
   const troopUpkeep = Math.floor((totalRes / 32) * 24);
-  // 麾下武将俸禄 (排除玩家化身军师)
+
+  // 麾下武将俸禄 (排除玩家化身军师，每位武将每月 20 金)
   const isPlayer = scenario.player_faction === factionIdx;
   const generalsCount = scenario.generals
     ? scenario.generals.filter(
@@ -115,7 +116,38 @@ export function computeFactionExpense(scenario, factionIdx) {
     : (f.n_generals ?? 1);
   const officerStipend = generalsCount * 20;
 
-  return Math.max(0, troopUpkeep + officerStipend);
+  // 内政官治理计划预算 (KI.EXE 0x5715 - 0x576B):
+  // 针对该势力下所有委任内政官的据点，计算其 生产力/上升率、防灾、城兵离上限的差距之和 >> 1 * 50
+  let governorBudget = 0;
+  for (const c of scenario.citiesOf ? scenario.citiesOf(factionIdx) : []) {
+    if (c && c.governor != null && scenario.generals?.[c.governor]) {
+      let defGap = Math.max(0, 180 - (c.growth ?? 100));
+      let disGap = Math.max(0, 180 - (c.disaster ?? 100));
+      let maxTroops = c.troops_cap ?? 200;
+      let curTroops = c.sim ? c.sim.troops : (c.troops ?? 0);
+      let troopGap = Math.max(0, maxTroops - curTroops);
+      let totalGap = (defGap + disGap + troopGap) >> 1;
+      governorBudget += totalGap * 50;
+    }
+  }
+
+  // 外交官外交费预算 (KI.EXE 0x578F - 0x57E1):
+  // 针对派驻各目标势力的外交官，按双方友好度差距 (100 - minRelation) * 200 计算所需外交预算
+  let envoyBudget = 0;
+  if (isPlayer && scenario.envoys) {
+    for (const [targetIdxStr, envoy] of Object.entries(scenario.envoys)) {
+      if (envoy && envoy.name) {
+        const targetIdx = Number(targetIdxStr);
+        const rel = scenario.diplomacy?.[factionIdx]?.[targetIdx] ?? 100;
+        const relTarget = scenario.diplomacy?.[targetIdx]?.[factionIdx] ?? 100;
+        const minRel = Math.min(rel & 0x7f, relTarget & 0x7f);
+        const relGap = Math.max(0, 100 - minRel);
+        envoyBudget += relGap * 200;
+      }
+    }
+  }
+
+  return Math.max(0, troopUpkeep + officerStipend + governorBudget + envoyBudget);
 }
 
 /** 军师「財政」界面实时数据与预测模型 */
@@ -222,7 +254,36 @@ export function monthlySettlement(scenario, _clock) {
     c.disaster = Math.min(200, (c.disaster ?? 100) + (pol > 0 ? 2 : 1));
   }
 
-  // 4. 0x53C6: 各势力财务与征兵结算
+  // 4. 外交官每月常态友好度增进与维持 (KI.EXE 0x3E8E / 0x30D3)
+  if (scenario.diplomacy && scenario.envoys) {
+    for (const [targetIdxStr, envoy] of Object.entries(scenario.envoys)) {
+      if (envoy && envoy.name) {
+        const targetIdx = Number(targetIdxStr);
+        let pol = 10;
+        if (envoy.gen_idx != null && scenario.generals?.[envoy.gen_idx]) {
+          pol = scenario.generals[envoy.gen_idx].ability?.politics ?? 10;
+        } else {
+          const g = scenario.generals?.find((x) => x && x.name?.trim() === envoy.name?.trim());
+          if (g) pol = g.ability?.politics ?? 10;
+        }
+
+        // KI.EXE 0x3E8E: 友好度向上限 100 (0x64) 逐渐改善，每次提升步长基于政治能力
+        const gain = Math.max(1, Math.floor(pol / 4));
+        const curRel = scenario.diplomacy[pIdx]?.[targetIdx] ?? 100;
+        const curRelTarget = scenario.diplomacy[targetIdx]?.[pIdx] ?? 100;
+
+        const isWar = (curRel & 0x80) === 0x80 && (curRel & 0x7f) === 0;
+        if (!isWar) {
+          const newRel = Math.min(100, (curRel & 0x7f) + gain);
+          const newRelTarget = Math.min(100, (curRelTarget & 0x7f) + Math.max(1, Math.floor(gain / 2)));
+          scenario.diplomacy[pIdx][targetIdx] = newRel;
+          scenario.diplomacy[targetIdx][pIdx] = newRelTarget;
+        }
+      }
+    }
+  }
+
+  // 5. 0x53C6: 各势力财务与征兵结算
   for (const f of scenario.factions ?? []) {
     if (!f) continue;
     const rawIncome = computeFactionRawIncome(scenario, f.idx);

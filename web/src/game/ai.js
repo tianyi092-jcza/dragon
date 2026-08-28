@@ -372,44 +372,52 @@ export function monthlyAI(app) {
   sc.legions = sc.legions.filter((A) => !A.dead); // ★灭亡/战败军团立即清场(不等下次aiTick)
 }
 
-// 城池每日成长 — 复刻 KI.EXE 0x4194/0x4269 (士气/兵力恢复/粮耗缺食惩罚)
+// 城池每日成长 — 复刻 KI.EXE 0x4194/0x4269 (内政官治理影响：上升率·防灾·城兵)
 export function cityDaily(sc) {
   for (const c of sc.cities) {
     if (c.faction == null) continue;
-    if (!c.raw) continue;
-    const b = c.raw;
-    const byte = (i) => parseInt(b.slice(i * 2, i * 2 + 2), 16);
-    if (!c.sim) {
-      // 初始化自原始记录(语义保守版): +0x10士气起点 +0x11储粮 +0x12兵上限(byte) +0x14现兵力
-      c.sim = {
-        morale: byte(0x10),
-        food: byte(0x11),
-        cap: byte(0x12),
-        troops: Math.min(byte(0x13), byte(0x12)),
-        drain: byte(0x15),
-      };
+    let pol = 0;
+    let lead = 0;
+    const govIdx = c.governor;
+    if (govIdx != null && sc.generals?.[govIdx]) {
+      const gen = sc.generals[govIdx];
+      pol = gen.ability?.politics ?? 0;
+      lead = gen.ability?.lead ?? 0;
     }
-    const s = c.sim;
-    const gov = byte(0x19); // 太守 idx(FF=无)
-    // 复刻 0x4194: 士气向200涨, 速率5或5+太守政治/2
-    let rate = 5;
-    if (gov !== 0xff && sc.generals[gov])
-      rate += sc.generals[gov].ability.politics >> 1;
-    s.food -= s.drain; // 日消耗 (0x4269)
-    if (s.food >= 0) {
-      s.morale = Math.min(200, s.morale + (rate >> 3)); // 缓慢上涨(速率参与)
-    } else {
-      // ★缺粮: 生产降+逃兵
-      s.food = 0;
-      s.morale = Math.max(0, s.morale - 2);
-      c.prod = Math.max(0, c.prod - s.drain * 8);
-      s.troops = Math.max(0, s.troops - 1);
+
+    // KI.EXE 0x4194 逐日动力学：
+    // cl = 5 + (有内政官 ? politics : 0)
+    // dl = (1 + (有内政官 ? lead : 0)) >> 1
+    const isPlayer = c.faction === sc.player_faction;
+    let cl = isPlayer ? 5 : 8;
+    let dl = isPlayer ? 1 : 4;
+    if (pol > 0 || lead > 0) {
+      cl += pol;
+      dl = (dl + lead) >> 1;
     }
-    if (s.troops < s.cap) s.troops += 1; // 兵力逐日向上限恢复
-    // 把运行时状态同步回可显示/可保存的持久字段
-    c.growth = s.morale;
-    c.defence = s.food;
-    c.troops = s.troops;
+
+    // ch 递增步长 = Math.max(1, cl - 15)
+    let ch = cl > 15 ? cl - 15 : 1;
+
+    // 1. 上升率 / 士气增长：随机门控 cl >= rand(16)
+    if (cl >= Math.floor(Math.random() * 16)) {
+      c.growth = Math.min(200, (c.growth ?? 100) + ch);
+    }
+
+    // 2. 防灾 / 储粮恢复：随机门控 cl >= rand(16)
+    if (cl >= Math.floor(Math.random() * 16)) {
+      const disInc = (ch >> 1) + 1;
+      c.disaster = Math.min(200, (c.disaster ?? 100) + disInc);
+      c.defence = c.disaster;
+    }
+
+    // 3. 城兵自然募补/恢复：城兵离上限差距时向城兵填充 dl
+    const maxTroops = c.troops_cap ?? 200; // 内部标准单位 (×10 即为显示人数)
+    let curTroops = c.troops ?? 0;
+    if (curTroops < maxTroops && Math.floor(Math.random() * 24) === 0) {
+      curTroops = Math.min(maxTroops, curTroops + dl);
+      c.troops = curTroops;
+    }
   }
 }
 
