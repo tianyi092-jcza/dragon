@@ -143,7 +143,7 @@ def parse_scenario(sc: bytes):
             if not name:
                   break
             fac = c[1]
-            t = c[0x17]
+            t = c[0x16] & 0x0F
             cities.append(
                   {
                         "idx": i,
@@ -158,7 +158,7 @@ def parse_scenario(sc: bytes):
                         "defence": c[0x11],
                         "troops": c[0x13],
                         "troops_cap": c[0x12],
-                        "type": t & 7,
+                        "type": t,
                         # 城市视图图号: raw[0x16]>>4 → web/grf/kyo_XX.png (KI.EXE 0x7F21 加载器)
                         "view": c[0x16] >> 4,
                         # 原始32字节(hex)——字段语义持续修订中,web端按需解码(见docs/re-notes-kernel.md)
