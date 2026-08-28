@@ -18,7 +18,7 @@ import { tickEnvoys } from "./diplomacy.js";
 export function initPlayer(sc) {
   if (sc.player_faction == null || sc.player_faction === 0xff)
     sc.player_faction = sc.factions[0]?.idx ?? 0;
-  if (sc.trust == null || sc.trust === 0xff) sc.trust = 100;
+  if (sc.trust == null || sc.trust === 0xff) sc.trust = 255;
   if (sc.tax == null || sc.tax === 0xff) sc.tax = 18;
   if (sc.next_tax == null || sc.next_tax === 0xff) sc.next_tax = sc.tax;
   if (!Array.isArray(sc.conscription) || sc.conscription.length !== 3) {

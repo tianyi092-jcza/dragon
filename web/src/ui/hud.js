@@ -159,7 +159,7 @@ export class HUD {
     if (!sc || sc.trust == null) return;
     const el = document.querySelector("#trustbar");
     const t = sc.trust ?? 0;
-    const b = h("b", { style: `color:${t <= 20 ? "#e04a3a" : "#8fb86b"}` }, t);
+    const b = h("b", { style: `color:${t <= 32 ? "#e04a3a" : "#8fb86b"}` }, t);
     el.replaceChildren("信賴度 ", b);
     document.querySelector("#taxval").textContent = (sc.tax ?? 25) + "%";
   }

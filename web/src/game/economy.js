@@ -334,7 +334,8 @@ export function monthlySettlement(scenario, _clock) {
         f.brokeMonths = (f.brokeMonths ?? 0) + 1;
         if (f.brokeMonths >= 2 && !f.deficitScolded) {
           f.deficitScolded = true;
-          scenario.trust = Math.max(0, (scenario.trust ?? 100) - 20);
+          // 连续赤字严词训斥: KI.EXE 0x3516 信赖度 -50 (al=0x32)
+          scenario.trust = Math.max(0, (scenario.trust ?? 255) - 50);
         }
       } else {
         f.brokeMonths = 0;

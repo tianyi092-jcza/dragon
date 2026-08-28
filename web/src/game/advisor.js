@@ -154,7 +154,7 @@ export function dismiss(app) {
 }
 
 export function changeTrust(sc, d) {
-  sc.trust = Math.max(0, Math.min(255, (sc.trust ?? 100) + d));
+  sc.trust = Math.max(0, Math.min(255, (sc.trust ?? 255) + d));
 }
 
 function execSuggestion(sc, s) {

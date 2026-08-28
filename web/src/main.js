@@ -65,8 +65,8 @@ const app = {
   setScenario(i, playerFaction = null, advisor) {
     const raw = this.data.scenarios[i];
     if (playerFaction != null) raw.player_faction = playerFaction; // 开局选势力
-    // 新章节固定信赖100; 读档走 loadState 不经过这里, 保留存档信赖
-    raw.trust = 100;
+    // 新章节初始信赖满值 255 (原版 SINARIO.DAT sc[0x10]=0xFF); 读档走 loadState 保留存档信赖
+    raw.trust = 255;
     delete raw.trust_game_over;
     for (const f of raw.factions ?? []) {
       delete f.brokeMonths;

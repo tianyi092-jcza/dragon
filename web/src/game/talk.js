@@ -144,4 +144,3 @@ export async function formatTalkTokens(idx, targetName = "", advisorName = "") {
     return segs;
   });
 }
-

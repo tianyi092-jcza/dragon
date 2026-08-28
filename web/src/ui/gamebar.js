@@ -21,7 +21,12 @@ import {
 } from "../game/talk.js";
 import { cityTypeLabel } from "../game/world.js";
 import { clickSfx, warnSfx, toggleMute, unlockSfx } from "../core/speaker.js";
-import { isFriendly, relation, declareWar, isAtWar } from "../game/diplomacy.js";
+import {
+  isFriendly,
+  relation,
+  declareWar,
+  isAtWar,
+} from "../game/diplomacy.js";
 import { factionColorEx } from "../game/world.js";
 import { getProjectedFinance } from "../game/economy.js";
 
@@ -969,7 +974,7 @@ export class GameBar {
       (targetFaction.money_status ?? 0) < 0;
 
     // 信赖度决定说服所需理由数 (KI.EXE 0x3C1E)
-    const trustVal = sc.trust ?? 50;
+    const trustVal = sc.trust ?? 255;
     let requiredReasons = 4;
     if (trustVal >= 224) requiredReasons = 1;
     else if (trustVal >= 144) requiredReasons = 2;
@@ -1066,7 +1071,7 @@ export class GameBar {
         p.targetName,
         p.advName,
       );
-      sc.trust = Math.min(100, (sc.trust ?? 50) + 20);
+      sc.trust = Math.min(255, (sc.trust ?? 255) + 20);
       declareWar(sc, me.idx, targetFaction.idx);
       this.app.hud.refreshTrust();
       this.app.hud.flashEvent(`「${me.monarch}」同意開戰！信賴度 +20`);
@@ -1086,7 +1091,7 @@ export class GameBar {
         p.targetName,
         p.advName,
       );
-      sc.trust = Math.max(0, (sc.trust ?? 50) - 20);
+      sc.trust = Math.max(0, (sc.trust ?? 255) - 20);
       this.app.hud.refreshTrust();
       this.app.hud.flashEvent(`已處於交戰狀態！進言被駁回，信賴度 -20`);
       this.app.view.draw();
@@ -1105,7 +1110,7 @@ export class GameBar {
         p.targetName,
         p.advName,
       );
-      sc.trust = Math.max(0, (sc.trust ?? 50) - 20);
+      sc.trust = Math.max(0, (sc.trust ?? 255) - 20);
       this.app.hud.refreshTrust();
       this.app.hud.flashEvent(`關係良好，進言被駁回！信賴度 -20`);
       this.app.view.draw();
@@ -1186,12 +1191,8 @@ export class GameBar {
       warnSfx();
       p.step = "done";
       const talkIdx = 108 + ri * 9 + p.monarchTalkIdx;
-      p.monarchLines = await formatTalkTokens(
-        talkIdx,
-        p.targetName,
-        p.advName,
-      );
-      sc.trust = Math.max(0, (sc.trust ?? 50) - 20);
+      p.monarchLines = await formatTalkTokens(talkIdx, p.targetName, p.advName);
+      sc.trust = Math.max(0, (sc.trust ?? 255) - 20);
       this.app.hud.refreshTrust();
       this.app.hud.flashEvent(`理由不實！進言被訓斥駁回，信賴度 -20`);
       this.app.view.draw();
@@ -1213,11 +1214,7 @@ export class GameBar {
       clickSfx();
       p.step = "need_more_reason";
       const talkIdx = 114 + ri * 9 + p.monarchTalkIdx;
-      p.monarchLines = await formatTalkTokens(
-        talkIdx,
-        p.targetName,
-        p.advName,
-      );
+      p.monarchLines = await formatTalkTokens(talkIdx, p.targetName, p.advName);
       this.app.view.draw();
       this._setProposalTimer(2500, () => {
         p.step = "choose_reason";
@@ -1228,12 +1225,8 @@ export class GameBar {
       clickSfx();
       p.step = "done";
       const talkIdx = 111 + ri * 9 + p.monarchTalkIdx;
-      p.monarchLines = await formatTalkTokens(
-        talkIdx,
-        p.targetName,
-        p.advName,
-      );
-      sc.trust = Math.min(100, (sc.trust ?? 50) + 10);
+      p.monarchLines = await formatTalkTokens(talkIdx, p.targetName, p.advName);
+      sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
       declareWar(sc, p.playerFaction.idx, p.targetFaction.idx);
       this.app.hud.refreshTrust();
       this.app.hud.flashEvent(
@@ -4005,7 +3998,7 @@ export class GameBar {
     ctx.lineTo(p.x + 122.5, p.y + 61);
     ctx.stroke();
 
-    // 信賴度: 标签与进度条分两行; 黑底条, 中央细红条 (高度 2px)。Web 面板按用户规则以100为满格(20=1/5)
+    // 信賴度: 标签与进度条分两行; 黑底条, 中央细红条 (高度 2px)。原版按 255 为满格 (KI.EXE 0x5F27: w = floor((trust * 100 + 159) / 160))
     const ty = p.y + 78;
     ctx.fillStyle = CREAM;
     ctx.fillText("信賴度", p.x + 8, ty);
@@ -4015,8 +4008,9 @@ export class GameBar {
       bw = 192;
     ctx.fillStyle = "#050505";
     ctx.fillRect(bx, by, bw, 8);
-    ctx.fillStyle = trust <= 20 ? "#ff3333" : "#dd0000";
-    ctx.fillRect(bx, by + 3, Math.round((bw * Math.min(100, trust)) / 100), 2);
+    ctx.fillStyle = trust <= 32 ? "#ff3333" : "#dd0000";
+    const barWidth = Math.round((bw * Math.min(255, trust)) / 255);
+    ctx.fillRect(bx, by + 3, barWidth, 2);
     // 資金 / 預備兵 (原版规格: 黑底框 + 红底剪影图标 + 白色数值)
     ctx.fillStyle = "#000000";
     ctx.fillRect(p.x + 8, p.y + 112, 192, 72);
