@@ -428,9 +428,9 @@ export class HUD {
     const f = cmd.playerFaction(sc);
     if (!f) return;
 
-    // 活跃武将 (保持数据表自然顺序)
+    // 活跃武将 (保持数据表自然顺序, 排除玩家化身的原军师 NPC)
     const mine = sc.generals.filter(
-      (g) => g && g.faction === f.idx && g.active !== false,
+      (g) => g && g.faction === f.idx && g.active !== false && !g.is_player,
     );
 
     const getIdentity = (g) => {
@@ -506,6 +506,7 @@ export class HUD {
     if (!f) return;
 
     const getIdentity = (g) => {
+      if (g.is_player) return "軍師";
       if (g.status === 4) return "俘虜";
       if (g.is_monarch || g.status === 5) return "君主";
       if (g.status === 1) return "軍團長";
@@ -527,12 +528,13 @@ export class HUD {
       return "－－－";
     };
 
-    // 筛选所有身份为“－－－”的空闲武将
+    // 筛选所有身份为“－－－”的空闲武将 (排除玩家化身的原军师 NPC)
     const mine = sc.generals.filter(
       (g) =>
         g &&
         g.faction === f.idx &&
         g.active !== false &&
+        !g.is_player &&
         getIdentity(g) === "－－－",
     );
 
@@ -682,6 +684,7 @@ export class HUD {
     if (!f || !city) return;
 
     const getIdentity = (g) => {
+      if (g.is_player) return "軍師";
       if (g.status === 4) return "俘虜";
       if (g.is_monarch || g.status === 5) return "君主";
       if (g.status === 1) return "軍團長";
@@ -702,12 +705,13 @@ export class HUD {
       return "－－－";
     };
 
-    // 筛选所有身份为“－－－”的空闲武将
+    // 筛选所有身份为“－－－”的空闲武将 (排除玩家化身的原军师 NPC)
     const mine = sc.generals.filter(
       (g) =>
         g &&
         g.faction === f.idx &&
         g.active !== false &&
+        !g.is_player &&
         getIdentity(g) === "－－－",
     );
 
@@ -945,10 +949,17 @@ export class HUD {
       const isMe = f.idx === me.idx;
       const rel = relation(sc, me.idx, f.idx);
       const envoy = sc.envoys?.[f.idx]?.name ?? "－－－";
+      const genCount = sc.generals.filter(
+        (g) =>
+          g &&
+          g.faction === f.idx &&
+          g.active !== false &&
+          !(isMe && g.is_player),
+      ).length;
       return {
         cells: [
           m ? m.name.trim() : `?`,
-          `${sc.generals.filter((g) => g && g.faction === f.idx && g.active !== false && g.idx !== f.advisor_idx).length}`,
+          `${genCount}`,
           `${sc.cities.filter((c) => c.faction === f.idx).length}`,
           sc.cities[f.capital]?.name ?? "－－－",
           isMe ? "－－" : { t: relationLabel(rel), color: relationColor(rel) },

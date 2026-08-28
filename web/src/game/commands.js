@@ -51,7 +51,24 @@ export function initPlayer(sc) {
   }
   // 玩家化身軍師: 確認原軍師後該 NPC 從武將列表移除 (僅進言, 玩家借名扮演)
   for (const g of sc.generals) g.is_player = false;
-  const pa = sc.player_advisor;
+  let pa = sc.player_advisor;
+  if (!pa) {
+    const f =
+      sc.factions.find((f) => f.idx === sc.player_faction) || sc.factions[0];
+    if (f?.advisor_idx != null && f.advisor_idx !== 0xff) {
+      const g = sc.generals[f.advisor_idx];
+      if (g) {
+        sc.player_advisor = {
+          custom: false,
+          general_idx: g.idx,
+          name: g.name.trim(),
+          hao: (g.hao ?? "").trim(),
+          portrait: g.portrait,
+        };
+        pa = sc.player_advisor;
+      }
+    }
+  }
   if (pa && !pa.custom && pa.general_idx != null) {
     const g = sc.generals[pa.general_idx];
     if (g) g.is_player = true;

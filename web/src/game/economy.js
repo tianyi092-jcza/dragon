@@ -102,10 +102,15 @@ export function computeFactionExpense(scenario, factionIdx) {
     (f.reserve_cav ?? 0) + (f.reserve_arc ?? 0) + (f.reserve_inf ?? 0);
   // 预备兵每 32 兵每月消耗维护费 (以 10 兵为单位，折算约 24 周期)
   const troopUpkeep = Math.floor((totalRes / 32) * 24);
-  // 麾下武将俸禄
+  // 麾下武将俸禄 (排除玩家化身军师)
+  const isPlayer = scenario.player_faction === factionIdx;
   const generalsCount = scenario.generals
     ? scenario.generals.filter(
-        (g) => g && g.faction === factionIdx && g.active !== false,
+        (g) =>
+          g &&
+          g.faction === factionIdx &&
+          g.active !== false &&
+          !(isPlayer && g.is_player),
       ).length
     : (f.n_generals ?? 1);
   const officerStipend = generalsCount * 20;
