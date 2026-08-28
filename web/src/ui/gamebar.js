@@ -408,14 +408,7 @@ export class GameBar {
       const { fx, fy, fw, fh } = d;
       const ftw = Math.ceil((fw + 16) / 16),
         fth = Math.ceil((fh + 16) / 16);
-      const { x, y, h } = this._drawWindow(
-        ctx,
-        fx,
-        fy,
-        ftw,
-        fth,
-        "black",
-      );
+      const { x, y, h } = this._drawWindow(ctx, fx, fy, ftw, fth, "black");
       const ph = 64;
       ctx.drawImage(this.imgs.messageNpc, x, y, ph, ph);
       ctx.font = FONT;
@@ -1417,7 +1410,16 @@ export class GameBar {
   _hitFinanceDialog(px, py) {
     const f = this.financeDialog;
     if (!f) return false;
-    const { ox, oy, infoOx, infoOy, wTiles = 21, hTiles = 10, infoWTiles = 30, infoHTiles = 5 } = f;
+    const {
+      ox,
+      oy,
+      infoOx,
+      infoOy,
+      wTiles = 21,
+      hTiles = 10,
+      infoWTiles = 30,
+      infoHTiles = 5,
+    } = f;
     const x = ox - 8;
     const y = oy - 8;
     const w = (wTiles + 1) * 16;
@@ -1682,7 +1684,8 @@ export class GameBar {
     const data = getProjectedFinance(sc);
 
     // ── 0. 底部信息提示窗口 (黑底 + 金框 + 军师/提示头像 + 自动回行文字) ──
-    const targetInfoOx = infoOx ?? Math.round((innerWidth - infoWTiles * 16) / 2);
+    const targetInfoOx =
+      infoOx ?? Math.round((innerWidth - infoWTiles * 16) / 2);
     const targetInfoOy = infoOy ?? innerHeight - infoHTiles * 16 - 8;
     const infoWin = this._drawWindow(
       ctx,
@@ -1890,6 +1893,7 @@ export class GameBar {
   }
 
   _recalcCityCard() {
+    const c = this.cityCard;
     if (!c) return;
     c.px = 12;
     c.py = innerHeight - c.h - 12;
