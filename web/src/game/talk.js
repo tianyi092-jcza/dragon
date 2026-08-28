@@ -102,13 +102,21 @@ export function fmt(s, args = {}) {
 }
 
 /**
- * 解析并格式化 TALK.DAT 对白分词（支持 \\3 目标君主黄色高亮 #ffe000，\\4 军师名白色）
+ * 解析并格式化 TALK.DAT 对白分词（支持 \\3 目标君主黄色高亮 #ffe000，\\4 军师名白色，\\1 武将名，\\7 金额/额外字符串）
  * @param {number} idx
  * @param {string} targetName
  * @param {string} advisorName
+ * @param {string} generalName
+ * @param {string} extraStr
  * @returns {Promise<Array<Array<{text: string, color: string}>>>}
  */
-export async function formatTalkTokens(idx, targetName = "", advisorName = "") {
+export async function formatTalkTokens(
+  idx,
+  targetName = "",
+  advisorName = "",
+  generalName = "",
+  extraStr = "",
+) {
   const t = await ensureTable();
   const entry = t[idx] ?? [];
   const rawLines = Array.isArray(entry) ? entry : [String(entry)];
@@ -118,25 +126,44 @@ export async function formatTalkTokens(idx, targetName = "", advisorName = "") {
     let cur = "";
     let i = 0;
     while (i < raw.length) {
-      if (
-        raw[i] === "\\" &&
-        i + 1 < raw.length &&
-        (raw[i + 1] === "3" || raw[i + 1] === "4")
-      ) {
-        if (cur) {
-          segs.push({ text: cur, color: "#ffffff" });
-          cur = "";
-        }
+      if (raw[i] === "\\" && i + 1 < raw.length) {
         const tag = raw[i + 1];
-        const val = tag === "3" ? targetName : advisorName;
-        // 原版 \\3 目标势力君主名黄色高亮 (#ffe000)，\\4 军师名白色
-        const col = tag === "3" ? "#ffe000" : "#ffffff";
-        if (val) segs.push({ text: val, color: col });
-        i += 2;
-      } else {
-        cur += raw[i];
-        i++;
+        if (
+          tag === "1" ||
+          tag === "2" ||
+          tag === "3" ||
+          tag === "4" ||
+          tag === "7"
+        ) {
+          if (cur) {
+            segs.push({ text: cur, color: "#ffffff" });
+            cur = "";
+          }
+          let val = "";
+          let col = "#ffffff";
+          if (tag === "1") {
+            val = generalName;
+            col = "#ffffff";
+          } else if (tag === "2") {
+            val = generalName;
+            col = "#ffffff";
+          } else if (tag === "3") {
+            val = targetName;
+            col = "#ffe000"; // 原版 \3 目标势力君主名黄色高亮 (#ffe000)
+          } else if (tag === "4") {
+            val = advisorName;
+            col = "#ffffff";
+          } else if (tag === "7") {
+            val = extraStr;
+            col = "#ffe000";
+          }
+          if (val) segs.push({ text: val, color: col });
+          i += 2;
+          continue;
+        }
       }
+      cur += raw[i];
+      i++;
     }
     if (cur) {
       segs.push({ text: cur, color: "#ffffff" });

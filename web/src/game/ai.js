@@ -544,4 +544,71 @@ export function aiTick(app) {
     app.hud?.buildLegend?.();
     app.view?.draw(); // 只在版图变化时重绘 (主循环不逐帧画)
   }
+
+  // 停战交涉日程推进与汇报 (复刻 KI.EXE 0x300E 队列事件 6 / 0x3327 处理器)
+  if (sc.pendingTruceNegotiations && sc.pendingTruceNegotiations.length > 0) {
+    const readyItems = [];
+    const remainingItems = [];
+    for (const item of sc.pendingTruceNegotiations) {
+      item.daysLeft--;
+      if (item.daysLeft <= 0) {
+        readyItems.push(item);
+      } else {
+        remainingItems.push(item);
+      }
+    }
+    sc.pendingTruceNegotiations = remainingItems;
+
+    for (const item of readyItems) {
+      const me = playerFaction(sc);
+      const targetFaction = sc.factions.find(
+        (f) => f && f.idx === item.targetFactionIdx,
+      );
+      if (!me || !targetFaction) continue;
+
+      const envoyGen = sc.generals.find((g) => g && g.name === item.envoyName);
+      const enemyMonarch = sc.generals[targetFaction.monarch_idx];
+
+      const ourPol = Math.floor((envoyGen?.ability?.politics ?? 60) / 10);
+      const enemyPol = Math.floor((enemyMonarch?.ability?.politics ?? 60) / 10);
+
+      // KI.EXE 0x3771 计算基础分
+      let dl = ourPol;
+      if (enemyPol > ourPol) {
+        dl = ourPol * 2;
+      } else if (ourPol > enemyPol) {
+        dl = Math.max(0, (16 - ourPol) * 2);
+      }
+
+      // KI.EXE 0x36C4 计算停战赔款/金钱与结果
+      const rel = relation(sc, me.idx, targetFaction.idx) & 0x7f;
+      const monarchPers = (targetFaction.bellicosity ?? 10) + 2;
+      const excess = Math.max(0, rel - monarchPers);
+      const ah = 30 - excess;
+      dl = Math.max(0, dl + ah);
+      dl = dl >> 1;
+      const goldRequired = dl * 1000;
+
+      let outcome = 0;
+      if (goldRequired > 0) {
+        if ((me.gold ?? 0) >= goldRequired) {
+          outcome = 1; // 支付金钱停战
+        } else {
+          outcome = 2; // 资金不足，谈判破裂
+        }
+      }
+
+      // 如果对方目前处于极度优势且对我方攻击中，可能加重条件或破裂
+      if (targetFaction.target_faction === me.idx && Math.random() < 0.2) {
+        outcome = 2; // 20% 概率谈判破裂
+      }
+
+      app.gamebar?.showTruceNegotiationResult?.({
+        targetFaction,
+        envoyName: item.envoyName,
+        outcome,
+        goldRequired,
+      });
+    }
+  }
 }

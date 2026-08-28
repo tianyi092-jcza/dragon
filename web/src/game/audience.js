@@ -3,7 +3,13 @@
 //   宣戰 0x6405→IVENTGRF图0 / 停戰 0x64F1→图1 / 請援 0x6623→图2
 //   信赖分档 0x3C1E: ≥0xE0档1 / ≥0x90档2 / ≥0x20档3 / 否则4 (决定台词与态度)
 //   停战成功率 0x36C4/0x3712: 关系值加权; 同盟检查 0x37D8(友好≥0xD8)
-import { isFriendly, relation, relationLabel, declareWar, makeCeasefire } from "./diplomacy.js";
+import {
+	isFriendly,
+	relation,
+	relationLabel,
+	declareWar,
+	makeCeasefire,
+} from "./diplomacy.js";
 import { fmt } from "./talk.js";
 
 const NEUTRAL = 0xb7;

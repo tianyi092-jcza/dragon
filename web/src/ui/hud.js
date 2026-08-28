@@ -3,7 +3,7 @@ import { factionColorEx, SEASONS } from "../game/world.js";
 import { portrait } from "../core/assets.js";
 import * as cmd from "../game/commands.js";
 import { clickSfx, warnSfx, toggleMute, unlockSfx } from "../core/speaker.js";
-import { quoteFor } from "../game/talk.js";
+import { quoteFor, formatTalkTokens } from "../game/talk.js";
 import * as adv from "../game/advisor.js";
 import {
   sendEnvoy,
@@ -932,6 +932,106 @@ export class HUD {
         if (!fac) return;
         this.app.gamebar.closeListDialog(true);
         this.app.gamebar.showHostileProposalAudience(fac);
+      },
+    });
+  }
+
+  /** 停戰提案 — 军师子菜单「進言」 -> 「停戰提案」: 选择停战势力 */
+  showTruceProposalFactions() {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me) return;
+
+    // 所有其它势力 (排除玩家自身势力，保持自然顺序)
+    const otherFactions = sc.factions.filter((f) => f && f.idx !== me.idx);
+
+    const rows = otherFactions.map((f) => {
+      const m = sc.generals[f.monarch_idx];
+      const rel = relation(sc, me.idx, f.idx);
+      const envoyObj = sc.envoys?.[f.idx];
+      const envoyName = envoyObj?.name ?? "－－－";
+      const genCount = sc.generals.filter(
+        (g) => g && g.faction === f.idx && g.active !== false,
+      ).length;
+      const cityCount = sc.cities.filter((c) => c.faction === f.idx).length;
+      const capName = sc.cities[f.capital]?.name ?? "－－－";
+
+      return {
+        _faction: f,
+        cells: [
+          m ? m.name.trim() : "?",
+          `${genCount}`,
+          `${cityCount}`,
+          capName,
+          { t: relationLabel(rel), color: relationColor(rel) },
+          envoyName,
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["勢力名", "武將", "據點", "首都", "外交", "外交官"],
+      cols: [
+        { x: 8, w: 78, align: "left" },
+        { x: 88, w: 56, align: "right" },
+        { x: 148, w: 56, align: "right" },
+        { x: 212, w: 78, align: "left" },
+        { x: 294, w: 64, align: "center" },
+        { x: 366, w: 78, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "請選擇停戰之勢力。",
+        portrait: "message_npc",
+      },
+      onPick: async (ri) => {
+        const fac = rows[ri]?._faction;
+        if (!fac) return;
+
+        // 分支 A: 该势力未派遣外交官 (Talk 55: "\3勢力仍未派遣任何．．．")
+        const envoyObj = sc.envoys?.[fac.idx];
+        if (!envoyObj) {
+          const lines = await formatTalkTokens(55, fac.monarch);
+          await this.app.gamebar.showNpcMessageDialog({
+            lines,
+            autoClose: 3000,
+            onClose: () => {
+              if (this.app.gamebar.listDialog) {
+                this.app.gamebar.listDialog.selectedRow = -1;
+                this.app.view.draw();
+              }
+            },
+          });
+          return;
+        }
+
+        // 分支 B: 已派遣停战使者正在交涉中 (Talk 73: "遵照命令，已派遣停戰使者前往\3。")
+        const alreadyPending = sc.pendingTruceNegotiations?.some(
+          (p) => p.targetFactionIdx === fac.idx,
+        );
+        if (alreadyPending) {
+          const lines = await formatTalkTokens(73, fac.monarch);
+          await this.app.gamebar.showNpcMessageDialog({
+            lines,
+            autoClose: 3000,
+            onClose: () => {
+              if (this.app.gamebar.listDialog) {
+                this.app.gamebar.listDialog.selectedRow = -1;
+                this.app.view.draw();
+              }
+            },
+          });
+          return;
+        }
+
+        // 分支 C & D: 有外交官，关闭列表并进入停战进言对话大窗口
+        this.app.gamebar.closeListDialog(true);
+        this.app.gamebar.showTruceProposalAudience(fac);
       },
     });
   }

@@ -39,7 +39,7 @@ export function isAtWar(sc, a, b) {
   return relation(sc, a, b) < 0x80;
 }
 
-/** 宣告交战 (复刻 KI.EXE 0x3674): 清除和平 bit 7，友好度减半，撤回使者 */
+/** 宣告交战 (复刻 KI.EXE 0x3674): 清除和平 bit 7，友好度减半 */
 export function declareWar(sc, a, b) {
   if (a == null || b == null || a === b) return;
   if (!sc.diplomacy) sc.diplomacy = [];
@@ -53,10 +53,6 @@ export function declareWar(sc, a, b) {
 
   sc.diplomacy[a][b] = warVal;
   sc.diplomacy[b][a] = warVal;
-
-  if (sc.envoys && sc.envoys[b]) {
-    delete sc.envoys[b];
-  }
 }
 
 /** 缔结停战 / 恢复和平 (复刻 KI.EXE 0x3644): 置位 bit 7 恢复和平状态 */
@@ -69,7 +65,7 @@ export function makeCeasefire(sc, a, b) {
   const curA = relation(sc, a, b) & 0x7f;
   const curB = relation(sc, b, a) & 0x7f;
   const minVal = Math.min(curA, curB);
-  const peaceVal = (minVal | 0x80); // 0x3688: or cl, 0x80
+  const peaceVal = minVal | 0x80; // 0x3688: or cl, 0x80
 
   sc.diplomacy[a][b] = peaceVal;
   sc.diplomacy[b][a] = peaceVal;
@@ -84,12 +80,15 @@ export function increaseRelation(sc, a, b, delta) {
   const rawA = relation(sc, a, b);
   const isPeaceA = (rawA & 0x80) !== 0;
   const valA = Math.min(100, (rawA & 0x7f) + delta);
-  sc.diplomacy[a][b] = isPeaceA ? (valA | 0x80) : valA;
+  sc.diplomacy[a][b] = isPeaceA ? valA | 0x80 : valA;
 
   const rawB = relation(sc, b, a);
   const isPeaceB = (rawB & 0x80) !== 0;
-  const valB = Math.min(100, (rawB & 0x7f) + Math.max(1, Math.floor(delta / 2)));
-  sc.diplomacy[b][a] = isPeaceB ? (valB | 0x80) : valB;
+  const valB = Math.min(
+    100,
+    (rawB & 0x7f) + Math.max(1, Math.floor(delta / 2)),
+  );
+  sc.diplomacy[b][a] = isPeaceB ? valB | 0x80 : valB;
 }
 
 /** 降低双方友好度 (复刻 KI.EXE 0x30F0) */
@@ -101,12 +100,12 @@ export function decreaseRelation(sc, a, b, delta) {
   const rawA = relation(sc, a, b);
   const isPeaceA = (rawA & 0x80) !== 0;
   const valA = Math.max(0, (rawA & 0x7f) - delta);
-  sc.diplomacy[a][b] = isPeaceA ? (valA | 0x80) : valA;
+  sc.diplomacy[a][b] = isPeaceA ? valA | 0x80 : valA;
 
   const rawB = relation(sc, b, a);
   const isPeaceB = (rawB & 0x80) !== 0;
   const valB = Math.max(0, (rawB & 0x7f) - delta);
-  sc.diplomacy[b][a] = isPeaceB ? (valB | 0x80) : valB;
+  sc.diplomacy[b][a] = isPeaceB ? valB | 0x80 : valB;
 }
 
 /** 外交等级 (原版标签表 @KI.EXE VA 0x7844 & 算法 0x7A9A)
@@ -162,7 +161,7 @@ export function sendEnvoy(sc, targetIdx) {
   if (pol < 13)
     return {
       ok: false,
-      msg: `${envoy.name}拙於言辭，${target.monarch ?? ""}不以為然。（無效果）`
+      msg: `${envoy.name}拙於言辭，${target.monarch ?? ""}不以為然。（無效果）`,
     };
 
   const delta = Math.max(1, Math.floor(pol / 3));
@@ -174,7 +173,7 @@ export function sendEnvoy(sc, targetIdx) {
   sc.envoys[targetIdx] = { name: envoy.name.trim(), left: 6 };
   return {
     ok: true,
-    msg: `遣${envoy.name}出使${target.monarch ?? ""}：關係→${relationLabel(v)}`
+    msg: `遣${envoy.name}出使${target.monarch ?? ""}：關係→${relationLabel(v)}`,
   };
 }
 
@@ -191,7 +190,7 @@ export function moveCapital(sc, city) {
   const old = sc.cities[f.capital];
   f.capital = city.idx;
   return {
-    ok: `遷都：主城自${old?.name ?? "?"}移至${city.name}。`
+    ok: `遷都：主城自${old?.name ?? "?"}移至${city.name}。`,
   };
 }
 
@@ -213,4 +212,3 @@ export function pickEnvoy(sc, f) {
   }
   return best;
 }
-
