@@ -2493,7 +2493,8 @@ export class GameBar {
           this.closePersonnelMenu();
           this.selectedSubmenu = 1;
           this.syncClock();
-          this.app.hud.flashEvent("「外交官解任」界面还原中…（右鍵取消返回）");
+          this.app.hud.showDismissEnvoyFactions();
+          this.selectedSubmenu = 1;
           this.app.view.draw();
           return true;
         }

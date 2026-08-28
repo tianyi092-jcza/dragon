@@ -1064,6 +1064,122 @@ export class HUD {
     });
   }
 
+  /** 外交官解任 — 军师子菜单「人事」 -> 「外交官解任」: 选择目标势力解任外交官 */
+  showDismissEnvoyFactions() {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me) return;
+
+    // 所有其它势力 (排除玩家自身势力，保持自然顺序)
+    const otherFactions = sc.factions.filter((f) => f && f.idx !== me.idx);
+
+    const rows = otherFactions.map((f) => {
+      const m = sc.generals[f.monarch_idx];
+      const rel = relation(sc, me.idx, f.idx);
+      const envoyObj = sc.envoys?.[f.idx];
+      const envoyName = envoyObj?.name ?? "－－－";
+      const genCount = sc.generals.filter(
+        (g) => g && g.faction === f.idx && g.active !== false,
+      ).length;
+      const cityCount = sc.cities.filter((c) => c.faction === f.idx).length;
+      const capName = sc.cities[f.capital]?.name ?? "－－－";
+
+      return {
+        _faction: f,
+        _envoyObj: envoyObj ?? null,
+        cells: [
+          m ? m.name.trim() : "?",
+          `${genCount}`,
+          `${cityCount}`,
+          capName,
+          { t: relationLabel(rel), color: relationColor(rel) },
+          envoyName,
+        ],
+      };
+    });
+
+    this.app.gamebar.openListDialog({
+      title: "",
+      header: ["勢力名", "武將", "據點", "首都", "外交", "外交官"],
+      cols: [
+        { x: 8, w: 78, align: "left" },
+        { x: 88, w: 56, align: "right" },
+        { x: 148, w: 56, align: "right" },
+        { x: 212, w: 78, align: "left" },
+        { x: 294, w: 64, align: "center" },
+        { x: 366, w: 78, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 352,
+      footer: {
+        text: "要解任哪個勢力的外交官？",
+        portrait: "message_npc",
+      },
+      onPick: (ri) => {
+        const fac = rows[ri]?._faction;
+        if (!fac) return;
+
+        const envoyObj = rows[ri]?._envoyObj;
+
+        if (!envoyObj || !envoyObj.name) {
+          // 该势力未派遣外交官：高亮当前行，弹出 NPC 提示框
+          if (this.app.gamebar.listDialog) {
+            this.app.gamebar.listDialog.selectedRow = ri;
+          }
+          const monarchName = (fac.monarch ?? "").trim();
+          this.app.gamebar.showNpcMessageDialog({
+            lines: [
+              [
+                { text: monarchName + "　", color: "#f8a800" },
+                { text: "勢力仍未派遣任", color: "#ffffff" },
+              ],
+              "何人．．．",
+            ],
+            onClose: () => {
+              if (this.app.gamebar.listDialog) {
+                this.app.gamebar.listDialog.selectedRow = -1;
+              }
+              this.app.view.draw();
+            },
+          });
+          return;
+        }
+
+        // 解除外交官
+        if (this.app.gamebar.listDialog) {
+          this.app.gamebar.listDialog.selectedRow = ri;
+        }
+        let gen = null;
+        if (envoyObj.gen_idx != null && sc.generals[envoyObj.gen_idx]) {
+          gen = sc.generals[envoyObj.gen_idx];
+        } else if (envoyObj.name) {
+          gen = sc.generals.find(
+            (g) =>
+              g &&
+              g.name?.trim() === envoyObj.name?.trim() &&
+              g.faction === me.idx,
+          );
+        }
+        if (gen) {
+          gen.status = 0; // 恢复为闲置武将
+        }
+        delete sc.envoys[fac.idx];
+
+        // 弹出武将对话弹窗「遵命。」(3秒自动关闭或右键关闭)
+        this.app.gamebar.showGeneralMessageDialog(
+          gen || { name: envoyObj.name, portrait: 0 },
+          "遵命。",
+          () => {
+            this.showDismissEnvoyFactions();
+          },
+        );
+      },
+    });
+  }
+
   /** 據點一覽 — 军师子菜单「據點」 -> 「據點一覽」: 我方据点列表 (Canvas 弹窗构建) */
   showBaseCities() {
     const sc = this.app.scenario;
