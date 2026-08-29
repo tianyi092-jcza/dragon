@@ -1,162 +1,211 @@
 # Checkpoint Journal — 臥龍傳 Web 复刻
 
-> 写给下一个对话：本文档记录项目稳定事实、当前架构、约定、坑点与主线状态。
-> 日期：2026-08-29 ｜ 服务器：`cd E:/Dragon/web-port && python tools/webserver.py 8321` → <http://127.0.0.1:8321/>
+> 给下一个对话的项目记忆。这里只保留稳定事实、当前架构、操作约定、重要坑点和最近 checkpoint；详细逆向结论见 `AGENTS.md`、`docs/re-notes-kernel.md` 与 `docs/game-mechanics.md`。
+>
+> 更新日期：2026-08-29
 
----
+## 一、项目稳定事实
 
-## 一、项目概览（稳定事实）
+- 项目目标：不用模拟器，以 **原生 JavaScript ES Modules + Canvas 2D** 重写 1995 DOS《臥龍傳》。无框架、无构建、无 npm 运行时依赖。
+- 仓库根目录：`E:/Dragon/web-port`；原版程序和真实运行数据位于 `E:/Dragon/Dragon/`。
+- 官方基准在 `E:/Dragon/原版/`；`上/中/下/后/` 是爱好者改版剧本。运行中的真实剧本/存档是：
+  - `E:/Dragon/Dragon/SINARIO.DAT`
+  - `E:/Dragon/Dragon/SAVE.DAT`
+- `web/data.json` 是由五组目录合并出的 20 章数据；修改解析器后必须重新生成，不能手改输出代替修复解析器。
+- 游戏逻辑分辨率为 **640×400**。战略地图用 `#cv`，标题与开局菜单用独立画布 `#startv`。
+- 原版 `SAVE.DAT` 为 4 槽，每槽 `0x56C0` 字节，总长度 `4 * 0x56C0`。自动化测试不得写真实存档。
+- BGM 不复刻；PC Speaker 风格 SFX 已接入 WebAudio。
+- 更完整的数据格式、逆向地址和治理/外交公式以 `AGENTS.md` 和逆向文档为准，本文件不重复维护。
 
-- **目标**：Web 复刻 DOS 经典《臥龍傳》（1995）。原版二进制在 `E:/Dragon/Dragon/`：KI.EXE（主程序 66KB）、MMAP.MAP/.MDL/.MCH（地图/tile/旗帜）、GAMEPAL.BRG（4季×16色 6-bit）、sinario.dat（剧本）、SAVE.DAT。
-- **Web 端**：`E:/Dragon/web-port/web/`，原生 JS + Canvas，无构建。`data.json` = 20 剧本解析结果（城池含 type 0-5）。
-- **原版显示模式**：VGA mode 0x12（640×480 16 色，`mov ax,0x12; int 0x10` @KI.EXE 0xEB6C）。
-- **代码索引与快速查找**：项目已配置并运行 CodeGraph 索引插件（SQLite FTS5 + WAL，112 文件 / 799 节点 / 1815 边），支持 `codegraph_search` / `codegraph_callers` / `codegraph_impact` 毫秒级符号与调用链定位。
-- **逆向工具**：`web-port/tools/disasm.py`（capstone：`func(addr,len)`、`callers(addr)`）；`render_map.py` 提供 `load_palette(bank)`/`load_tiles()`（**返回 list[256] 非 dict**）。
-- **时钟与速度分离**：
-  - **战略速度（`clock.js`）**：5 档（最低速 480ms、低速 280ms、普通 160ms、高速 80ms、最高速 25ms/刻度），驱动真实时间流逝、军团移动插值与换月结算；
-  - **战术速度（`battleview.js`）**：5 档（最低速 0.5×、低速 0.75×、普通 1.0×、高速 1.5×、最高速 2.5×），独立驱动战场步进帧率与动画播放；
-- **军师菜单交互规范与全局约束（2026 最新用户定稿）**：
-  1. **羽扇图标一级乒乓开关**：羽扇图标为全局乒乓开关，隐藏时强制关闭所有子孙弹窗与选中状态并恢复计时；能关闭军师菜单的**只有再次点击羽扇图标**；
-  2. **单选互斥与绝对锁定**：8 项子菜单（進言、人事、財政、編成、軍團、據點、武將、勢力）严格单选。任意子项被打开时，大地图全局锁定（不可拖拽平移，地图交互拾取全部失效），其余 7 项子菜单不可点击且无悬停高亮；
-  3. **严格右键回退与无关闭按钮**：全游戏无任何 UI 关闭按钮，所有弹窗与二级菜单只能通过鼠标右键回退关闭。第 1 次右键关闭子弹窗并取消子项选中状态，恢复未选中并立即开始计时（`clock.hold=false`），菜单条保持展开；再次右键关闭军师菜单条；
-  4. **地图左键纯粹性**：除据点中心与行走军团外，点击地图空白/山川/河流没有任何功能，不关闭弹窗/菜单。
+## 二、当前架构
 
----
-
-## 二、本轮目标与已完成工作汇总（2026-08-29）
-
-### 1. 本轮目标
-
-1. 完整重构并 1:1 还原原版第四个工具栏图标「系統選單」（System Menu，KI.EXE 0x1DF8..0x1E16, 0x60DC）；
-2. 规范系统选单 6 大选项：
-   - `資料儲存` [ OK ]
-   - `存檔讀取` [ OK ]（替换原有非原版的画面模式）
-   - `音　　效` [ TYPE 1..4 循环切换 ]
-   - `戰略速度` [ 最低速/低速/普通/高速/最高速 循环切换 ]
-   - `戰術速度` [ 最低速/低速/普通/高速/最高速 循环切换 ]
-   - `遊戲結束` [ OK ]（退出并返回首页）
-3. 居中绘制并实装「資料儲存」（SAVE DATA）Canvas 弹窗，支持 4 槽位显示、日期格式化与覆盖保存；
-4. 实现「存檔讀取」防丢失确认机制：点击「存檔讀取」时弹出防丢失确认弹窗（“現在讀取存檔將會遺失目前遊戲進度，是否確定？”），提供「確　認」与「取　消」；
-5. 实现防丢失确认弹窗的多级回退与联动：取消/右键返回系统选单，确认关闭所有窗口返回首页并自动弹出首页读取存档弹窗，首页读档弹窗右键回退至开局 YES/NO 选单；
-6. 完善自动化回归测试脚本，使用 mocked `/api/save` 验证关键交互且不改写真实存档。
-
-### 2. 已完成工作
-
-#### A. 系统选单（System Menu）UI 与机制复刻 (`gamebar.js`)
-
-- 规格：外框 14×13 tiles（224×208 px），内部 208×192 px，屏幕严格居中；
-- 视觉风格：金框 + 盘龙云纹底色（`cloud`），顶部居中白色大标题「系　統　選　單」，标题下方 1px 细白横线；
-- 6 大选项垂直排列（行高 26px，起始 y = cy + 30）：
-  - 左侧文字：金黄色 `GOLD`（#cc8822）全角文字；
-  - 右侧按钮：66×20 px 绿底 3D 浮雕按钮（`_drawReliefButton`，悬停高亮色 `#62aa4e` / 普通色 `#509040`，顶左浅绿高光 `#88d070`，底右深阴影 `#183010`，1px 外黑边框）；
-- 选项功能与驱动：
-  - **資料儲存**：打开居中 SAVE DATA 弹窗，保持计时冻结；
-  - **存檔讀取**：打开防丢失确认弹窗，保持计时冻结；
-  - **音　　效**：`TYPE 1` $\to$ `TYPE 2` $\to$ `TYPE 3` $\to$ `TYPE 4` $\to$ `TYPE 1` 循环切换；
-  - **戰略速度**：`最低速` $\to$ `低速` $\to$ `普通` $\to$ `高速` $\to$ `最高速` 循环切换，实时更新 `clock.strategicSpeed` 并改变主循环 tick 间隔步长；
-  - **戰術速度**：`最低速` $\to$ `低速` $\to$ `普通` $\to$ `高速` $\to$ `最高速` 循环切换，独立设置 `app.tacticalSpeed` 与 `app.tacticalSpeedFactor`（0.5×..2.5×）；
-  - **遊戲結束**：点击触发确认音效，关闭系统选单并调用 `app.returnToTitle()` 返回首页開局流程。
-
-#### B. 资料储存（SAVE DATA）Canvas 弹窗复刻 (`gamebar.js`)
-
-- 规格：外框 20×16 tiles（320×256 px），内部 288×224 px，屏幕严格居中；
-- 标题：居中英文大写 `SAVE  DATA`（Oswald 18px 白色），下方细白横线；
-- 4 个槽位（步长 50px）：
-  - 第一行左侧：`第○章勢力：○○　　軍師：○○○`（金黄色字，未游玩空槽为灰色）；
-  - 第二行右侧：140×20 px 绿底 3D 浮雕日期按钮（`YYYY年 M月 D日`，纯数字 Oswald 字体）；
-- 交互与存档：点击槽位后调用 `app.saveGame(slotIdx, label)` 覆盖保存，关闭保存弹窗并**返回系统选单**，时钟保持冻结；
-- 回退：在保存弹窗内按鼠标右键，关闭保存弹窗并返回系统选单。
-
-#### C. 存档读取防丢失确认弹窗 (`gamebar.js` & `startmenu.js`)
-
-- 规格：外框 22×8 tiles（352×128 px），内部 336×112 px，屏幕严格居中；
-- 提示文案（白色 16px 两行居中）：
-  > **現在讀取存檔將會遺失目前遊戲進度，**
-  > **是否確定？**
-- 布局：文案下方 1px 细白分割线，底部并排居中两个 76×22 px 绿底 3D 浮雕按钮（`確　認` 与 `取　消`）；
-- 多级交互与回退：
-  - 点击「取　消」或点击鼠标右键：关闭确认弹窗，**安全回退至系统选单**，时钟保持冻结；
-  - 点击「確　認」：关闭所有游戏内弹窗与系统选单，调用 `app.returnToTitle(1)` 回到首页标题画面，并自动打开标题画面的「读取存档」弹窗（`prompt({ title: "读取存档", ... })`）；
-  - 在首页读档弹窗内按鼠标右键：取消读档，**回退至首页 `NEW GAME / LOAD DATA (YES/NO)` 初始选单**。
-
-#### D. 自动化回归验证
-
-- 新增可由 `playwright-cli run-code --filename=tools/verify_system_menu.js`（从仓库根目录执行） 执行的断言脚本；
-- 脚本通过路由拦截 mock `/api/save`，不会覆盖 `E:/Dragon/Dragon/SAVE.DAT`；
-- 覆盖：进入战略地图、打开系统选单、时钟冻结、音效/战略/战术速度循环、SAVE DATA 保存回退、读档确认取消、确认返回首页读档、标题页保持战略暂停、右键回退 YES/NO；
-- 另有 `tools/verify_clock_pause.js` 验证旧模态调用 `clock.speed=0` 仍会暂停并保留最低速档；`tools/verify_save_buffer.mjs` 验证连续保存两个槽位不会把先前槽位回退到启动底版；`tools/verify_startmenu_empty_slot.mjs` 验证标题读档空槽标记与点击禁用逻辑；`tools/verify_sound_profiles.mjs` 验证四种音效配置存在差异；
-- 2026-08-29 实测通过：系统选单返回 `sound 1→2`、`strategic 2→3`、`tactical 2→3 (1.5×)`、`mockedSave=true`；时钟回归返回 `day 1/hour 0 → paused hour 0 → resumed hour 1` 且最低速档保持为 0；连续存档返回 `sequential save buffer preserved slot 1`；空槽与音效回归分别返回 `title load empty slots are disabled`、`four distinct sound profiles configured`；
-- 运行截图属于临时验证产物，统一由 `.gitignore` 的 `/docs/test_*.png` 排除，不纳入版本库。
-
----
-
-## 三、关键决策与设计约定
-
-1. **系统选单最高优先级与时钟联动**：
-   - 打开系统选单（或其子弹窗 SAVE DATA、防丢失确认弹窗）时，`clock.hold = true` 绝对冻结游戏时间；
-   - 只有通过右键完全退出系统选单、回到无弹窗无选中的大地图状态时，才恢复计时；
-   - 点击书本图标也可乒乓关闭系统选单并恢复计时。
-2. **读档防丢失确认规范**：
-   - 用户在游戏进行中点击“存檔讀取”，不可直接破坏当前运行中的游戏状态，必须弹出防丢失提示确认；
-   - 取消必须回到系统选单；确认必须关闭所有游戏窗口回到首页并展开读取存档弹窗；
-   - 首页读档弹窗右键必须能安全回退至开局 YES/NO 选单。
-3. **战略与战术速度解耦**：
-   - 战略速度（`c.strategicSpeed`）只影响大地图天数时间流逝步长；
-   - 战术速度（`app.tacticalSpeed`）只影响遭遇战与攻城战的动画及决算倍率。
-4. **全游戏零关闭按钮**：所有弹窗与二级菜单均通过鼠标右键回退关闭。
-
----
-
-## 四、失败尝试与设计禁区（勿重复）
-
-1. **切勿在游戏内直接就地替换 scenario 读档**：
-   - 在游戏内若直接调用 `loadSave`，容易造成军团、音效、事件队列以及视图组件状态残留；必须遵循用户定稿规范：确认后回到首页开局选单并由 StartMenu 打开读档弹窗。
-2. **`returnToTitle` 需清理所有 GameBar 状态**：
-   - 早期 `returnToTitle` 未重置 `systemLoadConfirmDialog`，导致重返游戏时有脏标记；现已统一在 `returnToTitle` 中彻底清理所有子视窗与弹窗句柄。
-3. **全角字符空白注意**：
-   - 中文字符间留白使用标准全角空格 `\u3000`（如 `確　認`、`取　消`、`系　統　選　單`），符合原版 Big5 显示规范。
-
----
-
-## 五、相关文件索引
-
-| 文件 | 内容 |
+| 路径 | 职责 |
 | --- | --- |
-| `web/src/ui/gamebar.js` | 系统选单（设置）、SAVE DATA 弹窗、读档防丢失确认弹窗、军师 8 项子系统、右键回退、时钟同步 |
-| `web/src/ui/startmenu.js` | 开场选单（YES/NO $\to$ 章节/读档 $\to$ 势力 $\to$ 军师）、支持 `show(initialAction)` 参数直达读档 |
-| `web/src/main.js` | `returnToTitle(initialAction)` 清理状态并重启 StartMenu；逐帧主循环时钟运行判定 |
-| `web/src/game/clock.js` | 战略速度 5 档（最低速/低速/普通/高速/最高速），真实时间流逝与 `dayProgress` 插值 |
-| `web/src/render/battleview.js` | 战术速度 5 档（0.5×..2.5× 倍率因子），独立驱动战术战斗步进 |
-| `web/src/ui/hud.js` | 模态弹窗列表组件 `openListDialog`、NPC底栏提示、武将/据点/势力列表 |
-| `tools/verify_system_menu.js` | Playwright 全流程断言脚本（系统选单、速度循环、mock 存档、读档防丢失确认、首页联动） |
-| `tools/verify_clock_pause.js` | 战略时钟旧模态暂停/恢复兼容性回归脚本 |
-| `tools/verify_save_buffer.mjs` | 连续保存多个槽位时保留本会话先前写入槽位的回归脚本 |
-| `tools/verify_startmenu_empty_slot.mjs` | 标题读档空槽显示与禁用逻辑回归脚本 |
-| `tools/verify_sound_profiles.mjs` | TYPE 1..4 音效配置差异回归脚本 |
-| `web-port/docs/checkpoint-journal.md` | 本 Checkpoint Journal 记录文件 |
+| `web/src/main.js` | 应用装配、主循环、剧本/存档加载、返回标题和跨模块状态清理 |
+| `web/src/ui/gamebar.js` | 顶栏、军师菜单、系统选单及主要 Canvas 弹窗、菜单层级和地图锁定 |
+| `web/src/ui/startmenu.js` | 标题 YES/NO、章节/读档/势力/军师流程及通用 `prompt()` 弹窗 |
+| `web/src/ui/hud.js` | 遗留 DOM HUD、列表/NPC 提示；`closeAll()` 用于切场景时清理 |
+| `web/src/game/clock.js` | 战略历法、五档战略速度、兼容旧暂停接口 |
+| `web/src/core/modalclock.js` | 模态窗口暂停/恢复战略时钟，保存速度档和原暂停状态 |
+| `web/src/render/battleview.js` | 战术画面、五档战术倍率、战斗期间接管战略时钟 |
+| `web/src/game/savegame.js` | SAVE.DAT 解析/序列化、会话内完整存档镜像与槽位 patch |
+| `web/src/core/speaker.js` | SFX、静音及 TYPE 1..4 音色配置 |
+| `tools/webserver.py` | 静态服务器、`/api/save` 和 `/api/saves.json` |
+| `docs/re-notes-kernel.md` | KI.EXE 与数据格式逆向细节 |
+| `docs/game-mechanics.md` | 游戏机制与逆向结论互证 |
 
----
+### 时钟模型
 
-## 六、当前状态、阻塞点与下一步
+- `clock.strategicSpeed` 是合法速度档索引 `0..4`：最低、低、普通、高、最高。
+- 战略步长为 `[480, 280, 160, 80, 25]` ms/刻度。
+- 兼容旧调用的 `clock.speed`：
+  - 写入 `0` 表示暂停；
+  - 写入 `1..5` 映射到战略速度 `0..4`；
+  - 因此最低战略速度不再与暂停 sentinel 冲突。
+- `clock.hold` 用于菜单、弹窗和返回标题期间的绝对冻结；不要用修改速度档来代替 hold。
+- 战术速度完全独立：倍率 `[0.5, 0.75, 1.0, 1.5, 2.5]`，只影响战斗步进和动画。
+
+### UI 与交互约定
+
+- 全游戏不增加关闭按钮；弹窗和二级界面使用鼠标右键逐层回退。
+- 军师菜单由羽扇图标乒乓开关；关闭父菜单时必须清理全部子孙窗口、选中状态并恢复计时。
+- 军师子菜单激活时地图绝对锁定；地图空白处左键不承担关闭或取消功能。
+- 系统选单及 SAVE/LOAD 子窗口打开时必须保持 `clock.hold = true`。
+- 游戏内读档不得直接替换当前 scenario；确认后必须通过 `returnToTitle(1)` 回标题，再由 StartMenu 读档。
+- Canvas 列表滚动条统一在右侧；中文按钮使用全角空格，如 `確　認`、`取　消`。
+- 标题存档空槽显示 `（未使用）`，必须带 `disabled` 并在 hover、hit-test 和点击路径中全部拒绝选择。
+
+## 三、常用命令
+
+在 `E:/Dragon/web-port` 执行：
+
+```bash
+python tools/webserver.py 8321
+# 浏览器：http://127.0.0.1:8321/
+
+# JS 语法检查；项目 .js 使用 ESM，复制为 .mjs 再检查最稳妥
+cp web/src/ui/gamebar.js /tmp/gamebar.mjs
+node --check /tmp/gamebar.mjs
+
+git diff --check
+
+# 浏览器回归；/api/save 已 mock，不会改真实 SAVE.DAT
+playwright-cli open http://127.0.0.1:8321/ --browser=chromium
+playwright-cli run-code --filename=tools/verify_system_menu.js
+playwright-cli run-code --filename=tools/verify_clock_pause.js
+playwright-cli close
+
+# Node 回归
+node tools/verify_save_buffer.mjs
+node tools/verify_startmenu_empty_slot.mjs
+node tools/verify_sound_profiles.mjs
+```
+
+提交前还应执行变更文件 LSP/diagnostics，并确认 `git status` 只有预期产品代码、测试和文档。
+
+## 四、重要坑点与设计禁区
+
+1. **禁止测试改写真实存档**
+   - 浏览器保存测试必须 mock `/api/save`；不要让测试请求落到 `E:/Dragon/Dragon/SAVE.DAT`。
+
+2. **不要恢复游戏内直接读档**
+   - 旧 HUD 的 `showLoadDialog()` 会就地调用 `app.loadSave()`，容易残留军团、事件、音效、视图和 UI 状态，现已删除。
+
+3. **最低速不是暂停**
+   - 不能再用 `speed === 0` 同时表达最低速度和暂停。模态恢复应保存 `{ strategicSpeed, legacyPaused }`，不要只保存旧 `speed` 数值。
+
+4. **连续保存必须基于最新会话镜像**
+   - 每次从启动时的 SAVE.DAT 底版重新序列化，会覆盖本会话刚写入的其他槽位。`savegame.js` 的 `saveImage` 必须持续作为最新完整镜像。
+
+5. **返回标题必须彻底清场**
+   - `returnToTitle()` 要冻结旧场景，并清理 GameBar、HUD、选中据点、弹窗、事件、战斗/外交视图和 dispatch 状态；遗漏句柄会在下一局留下脏状态。
+
+6. **浏览器模块缓存会造成假回归**
+   - 修改 JS 后仅 reload 可能仍使用旧模块。结果异常时关闭 Playwright 会话后重新 open。
+
+7. **LSP 可能出现过期伪诊断**
+   - 无 tsconfig 时 TypeScript 服务偶尔报告超过文件实际 EOF 的 `hud.js` 错误。先以 `node --check` 验证真实语法，再重启/刷新 LSP；不要为不存在的行改代码。
+
+8. **测试脚本格式**
+   - `playwright-cli run-code` 文件当前通过全局函数形式运行；修改后应保证结尾分号和 `node --check` 通过。
+
+9. **临时产物不提交**
+   - `docs/test_*.png`、`.playwright-cli/`、`test-artifacts/`、日志和代理缓存均为本地产物。稳定回归脚本应提交，过程截图不提交。
+
+10. **旧存档兼容仍有历史风险**
+    - 旧存档的 `scenario_idx` 与后来的 20 章合集可能错位，尚未专项迁移。
+
+## 五、本轮 Checkpoint
+
+### 本轮目标
+
+- 审查并完成系统选单、SAVE DATA、安全读档、五档战略/战术速度和音效 TYPE 1..4。
+- 修复审查发现的暂停 sentinel、空存档槽、直接游戏内读档、连续多槽保存和返回标题残留问题。
+- 建立不会破坏真实 SAVE.DAT 的耐久回归，完成 Git 提交并推送。
+- 本次文档整理目标：删除旧 journal 中重复的尺寸、颜色、一次性验证过程和已完成任务清单，保留可长期复用的项目记忆。
+
+### 已完成工作
+
+- 系统选单 6 项已闭环：`資料儲存`、`存檔讀取`、`音效`、`戰略速度`、`戰術速度`、`遊戲結束`。
+- SAVE DATA 支持 4 槽显示、空槽、日期、覆盖保存及连续保存多个槽位。
+- 游戏内读档增加防丢失确认：取消返回系统选单；确认调用 `returnToTitle(1)` 并直达标题读档流程。
+- 标题读档中的未使用槽位不可 hover/选择。
+- 战略速度改为独立 `0..4` 档；旧 `clock.speed=0` 暂停兼容保留，最低速可正确暂停/恢复。
+- 战术速度独立于战略速度，战斗结束后恢复进入战斗前的战略速度和暂停状态。
+- `returnToTitle()` 与 `HUD.closeAll()` 增强，遗留 HUD 直接读档控件和 DOM 已删除。
+- TYPE 1..4 已接入四组实际不同的声音 profile。
+- 新增 5 个回归脚本：
+  - `tools/verify_system_menu.js`
+  - `tools/verify_clock_pause.js`
+  - `tools/verify_save_buffer.mjs`
+  - `tools/verify_startmenu_empty_slot.mjs`
+  - `tools/verify_sound_profiles.mjs`
+- 回归、语法检查、LSP、`git diff --check` 已通过；提交 `1b5a527` 已推送至 `origin/main`。
+
+### 关键决策
+
+- 游戏内读档一律返回标题后执行，不接受当前场景热替换。
+- 菜单冻结使用 `clock.hold`，旧模态暂停使用独立 paused state，速度档本身永远是合法游戏设置。
+- SAVE.DAT 更新采用“完整会话镜像 + 单槽 patch”，确保多次保存不回退其他槽。
+- 自动化只保留可重复、带断言且不碰真实存档的脚本；运行截图不作为版本资产。
+- 系统选单功能已完成，后续主线转向战术战斗底层机制，不继续扩展一次性系统选单样式细节。
+
+### 失败尝试
+
+- 曾让 `Clock.speed` 的 `0` 同时代表最低档和暂停，导致最低档主循环停住、模态恢复后永久暂停；已通过速度档/暂停分离解决。
+- 曾在 HUD 中直接 `app.loadSave()`，造成跨场景状态残留风险；已移除并统一走返回标题流程。
+- 曾以启动时 SAVE.DAT 底版逐次保存，第二次保存会抹掉第一次写入的槽；已改为会话镜像。
+- 曾只根据槽记录是否存在判断可选，导致 `played=false` 空槽仍可点击；现使用显式 `disabled`。
+- 曾在返回标题后让旧场景继续运行；现标题流程全程保持 clock hold，并清理活动视图。
+- Playwright 的 request 监听一度挂得过晚，无法稳定统计 save 请求；现监听在页面导航和 route 测试前注册。
+
+### 相关文件
+
+- 产品代码：
+  - `web/src/ui/gamebar.js`
+  - `web/src/ui/startmenu.js`
+  - `web/src/ui/hud.js`
+  - `web/src/main.js`
+  - `web/src/game/clock.js`
+  - `web/src/game/savegame.js`
+  - `web/src/core/modalclock.js`
+  - `web/src/core/speaker.js`
+  - `web/src/render/battleview.js`
+  - `web/src/render/diploview.js`
+  - `web/src/render/openview.js`
+  - `web/src/render/endview.js`
+  - `web/index.html`
+- 测试：`tools/verify_*.js`、`tools/verify_*.mjs` 中上述 5 个脚本。
+- 文档：`AGENTS.md`、`docs/game-mechanics.md`、本文件。
 
 ### 当前状态
 
-- **一级「系统选单」与「資料儲存」/「存檔讀取」全链路复刻完毕**：
-  - 6 个选项（資料儲存/存檔讀取/音效/戰略速度/戰術速度/遊戲結束）功能闭环；
-  - SAVE DATA 弹窗支持 4 槽位覆盖保存、日期显示与连续多槽保存；
-  - 存檔讀取防丢失确认弹窗及「確認」回首页读档、「取消」回系统选单均已就绪；
-  - 战略速度与战术速度独立档位驱动；
-  - Playwright mocked-save 回归脚本通过；变更文件 LSP 与 `node --check` 验证通过。
-- 本地开发服务器 8321 稳定运行中。
+- `main` 与 `origin/main` 当前提交均为 `1b5a527`，系统选单与安全存读档主线已完成并推送。
+- 最近一轮自动格式化/诊断后，工作区又出现少量**未提交格式变更**：
+  - `docs/game-mechanics.md`
+  - `tools/verify_clock_pause.js`
+  - `tools/verify_save_buffer.mjs`
+  - `tools/verify_system_menu.js`
+  - `web/src/core/modalclock.js`
+  - `web/src/ui/gamebar.js`
+  - `web/src/ui/hud.js`
+- 这些变更目前看是空行、缩进、换行和分号整理，不应误当成新的产品功能；开始下一项开发前应先复查并决定提交或还原。
+- 本文件重写后也属于新的未提交文档变更。
 
 ### 阻塞点
 
-- 无。
+- 产品功能无阻塞。
+- 流程上的唯一阻塞是当前工作区不干净：必须先处理上述格式变更和本 journal，避免与下一轮战斗系统改动混在一起。
+- 历史兼容风险：旧存档 `scenario_idx` 与 20 章合集可能错位，但不阻塞当前新游戏和本轮系统选单功能。
 
-### 下一步计划
+### 下一步
 
-1. **遭遇战与攻城战底层战斗系统机制逆向与复刻**：
-   - 逆向 `KI.EXE` 战术战场 AI 行为机、兵种克制、突击决算与城门防守机制；
-   - 完善五军战术指令交互与撤退判定。
-2. **AI 外交策略演化与主动外交提案**：
-   - 完善月度结算中 AI 势力主动遣使、宣战、停战与请援行为。
+1. 审查当前格式化差异，运行 `node --check`、LSP 和 `git diff --check`，将纯格式整理与本 journal 单独提交或还原。
+2. 开始主线：逆向并完善遭遇战/攻城战底层机制，优先确认：
+   - 战术 AI 行为状态机；
+   - 兵种克制与伤亡/士气公式；
+   - 突击决算、城门和守城判定；
+   - 五军指令、撤退和战斗结束状态回写。
+3. 为战斗机制新增纯函数或可注入 RNG 的单元回归，再补 Playwright 战斗层冒烟测试。
+4. 次要方向：完善 AI 月度主动外交（遣使、宣战、停战、请援）。
+5. 非主线且暂不处理：BGM、旧存档章节索引迁移、自创军师命名。
