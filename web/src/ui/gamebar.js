@@ -5146,7 +5146,9 @@ export class GameBar {
             }
             this.closeOrderChoiceMenu();
             this.closeMarchingOrder();
-            this.showLegionMarchOrders();
+            this.selectedSubmenu = null;
+            this.syncClock();
+            this.app.view.draw();
             return true;
           }
         }
