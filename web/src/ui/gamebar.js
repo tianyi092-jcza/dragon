@@ -652,7 +652,9 @@ export class GameBar {
     const rows = legions.map((L) => {
       const curCity = sc.cities.find((c) => c.x === L.x && c.y === L.y) || null;
       const curName = curCity?.name?.trim() ?? `(${L.x},${L.y})`;
-      const targetName = L.target ? (L.target.name ?? "－－－－").trim() : "－－－－";
+      const targetName = L.target
+        ? (L.target.name ?? "－－－－").trim()
+        : "－－－－";
       const mode = L.delegated ? "委任" : "戰鬥指揮";
       const troops = (L.troops ?? 0) * 10;
       const morale = L.morale ?? 200;
@@ -672,14 +674,28 @@ export class GameBar {
     // 补足 10 行虚线占位 (原版军团情报规格)
     while (rows.length < 10) {
       rows.push({
-        cells: ["－－－－", "－－－－", "－－－", "－－－－", "－－－－", "－－－－"],
+        cells: [
+          "－－－－",
+          "－－－－",
+          "－－－",
+          "－－－－",
+          "－－－－",
+          "－－－－",
+        ],
       });
     }
 
     this.openListDialog({
       title: "",
       titleBar: false,
-      header: ["武將名", "總兵數", "士氣值", "現在位置", "目標據點", "戰鬥模式"],
+      header: [
+        "武將名",
+        "總兵數",
+        "士氣值",
+        "現在位置",
+        "目標據點",
+        "戰鬥模式",
+      ],
       cols: [
         { x: 8, w: 72, align: "left" },
         { x: 82, w: 56, align: "right" },
@@ -828,7 +844,9 @@ export class GameBar {
     const rows = myLegions.map((L) => {
       const curCity = sc.cities.find((c) => c.x === L.x && c.y === L.y) || null;
       const curName = curCity?.name?.trim() ?? `(${L.x},${L.y})`;
-      const targetName = L.target ? (L.target.name ?? "－－－－").trim() : "－－－－";
+      const targetName = L.target
+        ? (L.target.name ?? "－－－－").trim()
+        : "－－－－";
       const mode = L.delegated ? "委任" : "戰鬥指揮";
       const troops = (L.troops ?? 0) * 10;
       const morale = L.morale ?? 200;
@@ -848,14 +866,28 @@ export class GameBar {
 
     while (rows.length < 10) {
       rows.push({
-        cells: ["－－－－", "－－－－", "－－－", "－－－－", "－－－－", "－－－－"],
+        cells: [
+          "－－－－",
+          "－－－－",
+          "－－－",
+          "－－－－",
+          "－－－－",
+          "－－－－",
+        ],
       });
     }
 
     this.openListDialog({
       title: "",
       titleBar: false,
-      header: ["武將名", "總兵數", "士氣值", "現在位置", "目標據點", "戰鬥模式"],
+      header: [
+        "武將名",
+        "總兵數",
+        "士氣值",
+        "現在位置",
+        "目標據點",
+        "戰鬥模式",
+      ],
       cols: [
         { x: 8, w: 72, align: "left" },
         { x: 82, w: 56, align: "right" },
@@ -933,7 +965,9 @@ export class GameBar {
     const rows = myLegions.map((L) => {
       const curCity = sc.cities.find((c) => c.x === L.x && c.y === L.y) || null;
       const curName = curCity?.name?.trim() ?? `(${L.x},${L.y})`;
-      const targetName = L.target ? (L.target.name ?? "－－－－").trim() : "－－－－";
+      const targetName = L.target
+        ? (L.target.name ?? "－－－－").trim()
+        : "－－－－";
       const mode = L.delegated ? "委任" : "戰鬥指揮";
       const troops = (L.troops ?? 0) * 10;
       const morale = L.morale ?? 200;
@@ -952,14 +986,28 @@ export class GameBar {
 
     while (rows.length < 10) {
       rows.push({
-        cells: ["－－－－", "－－－－", "－－－", "－－－－", "－－－－", "－－－－"],
+        cells: [
+          "－－－－",
+          "－－－－",
+          "－－－",
+          "－－－－",
+          "－－－－",
+          "－－－－",
+        ],
       });
     }
 
     this.openListDialog({
       title: "",
       titleBar: false,
-      header: ["武將名", "總兵數", "士氣值", "現在位置", "目標據點", "戰鬥模式"],
+      header: [
+        "武將名",
+        "總兵數",
+        "士氣值",
+        "現在位置",
+        "目標據點",
+        "戰鬥模式",
+      ],
       cols: [
         { x: 8, w: 72, align: "left" },
         { x: 82, w: 56, align: "right" },
@@ -1157,7 +1205,7 @@ export class GameBar {
     this._drawBottomPromptWindow(ctx, promptText);
   }
 
-  /** 绘制军团详细信息面板 (14×13 tiles = 224×208, KI.EXE 0x807B & 0x812A) */
+  /** 绘制军团详细信息面板 (14×15 tiles = 224×240, KI.EXE 0x807B & 0x812A) */
   _drawLegionDetailPanel(ctx, legion) {
     if (!legion) return;
     const sc = this.app.scenario;
@@ -1166,7 +1214,7 @@ export class GameBar {
 
     const W = innerWidth;
     const pw = 224;
-    const ph = 208;
+    const ph = 240;
     const res = this.panelRect("res");
     const px = res ? res.x : W - pw - 4;
     const targetY = res ? res.y + res.h + 8 : 36;
@@ -1176,7 +1224,7 @@ export class GameBar {
     }
 
     if (this._gf) {
-      this._drawWindow(ctx, px - 8, py - 8, 14, 13, "cloud");
+      this._drawWindow(ctx, px - 8, py - 8, 14, 15, "cloud");
     } else {
       ctx.fillStyle = NAVY;
       ctx.fillRect(px, py, pw, ph);
@@ -1191,7 +1239,7 @@ export class GameBar {
     const monarch = sc.monarchOf(me);
     const isMonarch = legion.is_monarch || gen?.name === monarch?.name;
 
-    // 1. 头像 64x64
+    // 1. 头像 64x64 (向下微移至 y+14，与右侧 4 行文字整体垂直居中对齐)
     const portraitKey = gen?.portrait ?? monarch?.portrait;
     if (this._legionPortraitKey !== portraitKey) {
       this._legionPortraitKey = portraitKey;
@@ -1203,11 +1251,22 @@ export class GameBar {
         })
         .catch(() => {});
     }
+    const avatarY = y + 14;
     if (this._legionPortraitImg) {
-      ctx.drawImage(this._legionPortraitImg, 0, 0, 128, 128, x + 8, y + 8, 64, 64);
+      ctx.drawImage(
+        this._legionPortraitImg,
+        0,
+        0,
+        128,
+        128,
+        x + 8,
+        avatarY,
+        64,
+        64,
+      );
     } else {
       ctx.fillStyle = "#000000";
-      ctx.fillRect(x + 8, y + 8, 64, 64);
+      ctx.fillRect(x + 8, avatarY, 64, 64);
     }
 
     // 2. 右侧信息: 將軍/君主, 首都, 總兵力, 士氣值
@@ -1222,30 +1281,30 @@ export class GameBar {
     ];
 
     infoRows.forEach(([label, val, isNum], i) => {
-      const iy = y + 16 + i * 16;
+      const iy = y + 14 + i * 16;
       ctx.fillStyle = CREAM;
-      ctx.fillText(label, x + 76, iy);
+      ctx.fillText(label, x + 78, iy);
       ctx.fillStyle = "#ffffff";
       if (isNum) {
         ctx.font = DIN;
-        ctx.fillText(val, x + 138, iy);
+        ctx.fillText(val, x + 141, iy);
         ctx.font = FONT;
       } else {
-        ctx.fillText(val, x + 138, iy);
+        ctx.fillText(val, x + 141, iy);
       }
     });
 
-    // 竖直分隔白线 (与上方资源面板完全对齐)
+    // 竖直分隔白线 (向右平移至 x+128.5，两侧间距保持 12.5px 严格对称相等)
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x + 122.5, y + 14);
-    ctx.lineTo(x + 122.5, y + 78);
+    ctx.moveTo(x + 128.5, y + 12);
+    ctx.lineTo(x + 128.5, y + 80);
     ctx.stroke();
 
-    // 3. 下方 6 队编制 (黑底框)
+    // 3. 下方 6 队编制 (黑底框高 120px，下方与底线框保留充足空间)
     ctx.fillStyle = "#000000";
-    ctx.fillRect(x + 8, y + 84, 192, 116);
+    ctx.fillRect(x + 8, y + 86, 192, 120);
 
     const unitNames = ["主將", "前鋒", "左翼", "右翼", "左備", "右備"];
     const units = this._getLegionUnits(legion);
@@ -1253,7 +1312,7 @@ export class GameBar {
     const typeImgs = [cav, inf, arc];
 
     units.forEach((u, i) => {
-      const uy = y + 88 + i * 18;
+      const uy = y + 90 + i * 18;
       // 编制名称
       ctx.fillStyle = CREAM;
       ctx.fillText(unitNames[i] || "隊伍", x + 16, uy);
@@ -1283,7 +1342,7 @@ export class GameBar {
     if (!this.marchingOrder) return false;
     const W = innerWidth;
     const pw = 224;
-    const ph = 208;
+    const ph = 240;
     const res = this.panelRect("res");
     const px0 = res ? res.x : W - pw - 4;
     const targetY = res ? res.y + res.h + 8 : 36;
