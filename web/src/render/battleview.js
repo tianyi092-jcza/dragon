@@ -6,6 +6,15 @@ import { factionColorEx } from "../game/world.js";
 import { loadImage } from "../core/assets.js";
 import { clickSfx } from "../core/speaker.js";
 
+export const TACTICAL_SPEED_LABELS = [
+  "最低速",
+  "低速",
+  "普通",
+  "高速",
+  "最高速",
+];
+export const TACTICAL_SPEED_FACTORS = [0.5, 0.75, 1.0, 1.5, 2.5];
+
 export class BattleView {
   /** @param cv 覆盖层 canvas(#bcv) @param app 引擎句柄(用 clock/battle) */
   constructor(cv, app) {
@@ -61,8 +70,11 @@ export class BattleView {
     this.battle = battle;
     this.onFinish = onFinish;
     this.sel = null;
-    this.prevSpeed = this.app.clock.speed;
-    this.app.clock.speed = 0; // ★战术时间接管 (原版战略/战术速度分离)
+    this.prevClockState = {
+      strategicSpeed: this.app.clock.strategicSpeed,
+      legacyPaused: this.app.clock._legacyPaused,
+    };
+    this.app.clock._legacyPaused = true; // ★战术时间接管 (原版战略/战术速度分离)
     this.cv.style.display = "block";
     document.querySelector("#bctl").style.display = "none"; // 开场期间隐藏指挥按钮
     document.querySelector("#btitle").textContent = battle.title;
@@ -79,10 +91,11 @@ export class BattleView {
       if (!this.active) return;
       const dt = Math.min(0.05, (now - this._last) / 1000);
       this._last = now;
+      const factor = this.app.tacticalSpeedFactor ?? 1.0;
       import("../game/battle.js").then(({ tickBattle }) => {
-        if (this.cutscene) this.updateCutscene(dt);
+        if (this.cutscene) this.updateCutscene(dt * factor);
         else {
-          const over = tickBattle(battle, dt);
+          const over = tickBattle(battle, dt * factor);
           if (over) {
             this.draw();
             this.finish(over, false);
@@ -166,7 +179,11 @@ export class BattleView {
     this.cutscene = null;
     this.cv.style.display = "none";
     document.querySelector("#bctl").style.display = "none";
-    this.app.clock.speed = this.prevSpeed ?? 2;
+    if (this.prevClockState) {
+      this.app.clock.strategicSpeed = this.prevClockState.strategicSpeed;
+      this.app.clock._legacyPaused = this.prevClockState.legacyPaused;
+      this.prevClockState = null;
+    }
     const cb = this.onFinish;
     this.onFinish = null;
     cb?.({

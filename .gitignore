@@ -25,5 +25,7 @@ tools/*.txt
 tools/_*
 tools/kaotest*.png
 
-# Root test & verification screenshots (game assets are inside web/ and docs/)
+# Test & verification screenshots (curated docs images use semantic names)
 /*.png
+/docs/test_*.png
+/test-artifacts/

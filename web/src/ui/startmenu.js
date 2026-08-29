@@ -56,7 +56,7 @@ export class StartMenu {
   }
 
   // ── 主流程: 對應 0x1AC3 迴圈 (YES/NO 無取消路徑, 右鍵僅在二級對話框回退) ──
-  async show() {
+  async show(initialAction) {
     const hidden = [];
     for (const id of ["panel", "legend", "cmdpanel", "tip"]) {
       const el = document.querySelector(`#${id}`);
@@ -68,8 +68,10 @@ export class StartMenu {
     this.cv.style.display = "block";
     try {
       await this._loadAssets();
+      let nextAct = initialAction;
       for (;;) {
-        const act = await this._yesNo(); // 0=新遊戲 1=載入 (0x8DC8 無右鍵取消)
+        const act = nextAct !== undefined ? nextAct : await this._yesNo(); // 0=新遊戲 1=載入 (0x8DC8 無右鍵取消)
+        nextAct = undefined;
         if (act === 0) {
           // 章節選擇: 20 章(原版4章置顶+其它章) → 屏幕居中加大彈窗
           const sortedIdx = await this.prompt({
@@ -437,7 +439,9 @@ export class StartMenu {
     const slots = this.app.saves?.slots ?? [];
     return [0, 1, 2, 3].map((i) => {
       const sv = slots.find((s) => s.slot === i);
-      if (!sv) return null;
+      if (!sv || !sv.played) {
+        return { name: "（未使用）", date: null, disabled: true };
+      }
       const d = sv.state?.save_date;
       return {
         name: `${sv.label ?? ""}`,
@@ -642,6 +646,7 @@ export class StartMenu {
           const ry = py + top + rowH * i;
           if (
             rows[scroll + i] &&
+            !rows[scroll + i].disabled &&
             this._in(x2, y2, px + 14, ry, rightBound, ry + rowH - 1)
           )
             return scroll + i;

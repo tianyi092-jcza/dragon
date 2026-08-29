@@ -16,7 +16,7 @@ export class EndView {
 		this.root = root;
 		this.app = app;
 		this.active = false;
-		this._prevSpeed = null;
+		this._clockPauseState = null;
 		this.img = root.querySelector("#edimg");
 		this.cap = root.querySelector("#edcap");
 		root.addEventListener("click", () => this.finish());

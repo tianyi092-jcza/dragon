@@ -18,7 +18,7 @@ export class DiploView {
 		this.app = app;
 		this.active = false;
 		this._timer = null;
-		this._prevSpeed = null;
+		this._clockPauseState = null;
 		this.bg = root.querySelector("#dpbg");
 		this.face = root.querySelector("#dpface");
 		this.text = root.querySelector("#dptext");

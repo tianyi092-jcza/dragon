@@ -8,6 +8,11 @@
 python tools/webserver.py 8321   # 静态服务（3000 常被占用，用 8321）
 node --check x.mjs               # 语法验证：先 cp file.js /tmp/x.mjs（--check 需 .mjs 后缀）
 playwright-cli open http://localhost:8321   # 浏览器冒烟测试；截图/临时脚本用完即删
+playwright-cli run-code --filename=tools/verify_system_menu.js  # 系统选单回归（mock /api/save，不改真实存档）
+playwright-cli run-code --filename=tools/verify_clock_pause.js   # 旧模态暂停兼容性回归
+node tools/verify_save_buffer.mjs                                # 连续保存多槽不回退回归
+node tools/verify_startmenu_empty_slot.mjs                       # 标题读档空槽禁用回归
+node tools/verify_sound_profiles.mjs                             # 四种音效配置回归
 ```
 
 - LSP/TS 诊断在无 tsconfig 下是推断模式，偶发伪影（如 startmenu.js L744 EOF 误报）——以 `node --check` 为准

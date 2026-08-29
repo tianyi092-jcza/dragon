@@ -41,6 +41,32 @@ export class HUD {
     this.buildLegend();
   }
 
+  closeAll() {
+    this._pendingAdvice = null;
+    const advisor = document.querySelector("#advisordlg");
+    if (advisor) advisor.style.display = "none";
+    const saveDialog = document.querySelector("#savedlg");
+    if (saveDialog) saveDialog.style.display = "none";
+    document
+      .querySelectorAll(".panel")
+      .forEach((el) => {
+        if (
+          ![
+            "panel",
+            "legend",
+            "cmdpanel",
+            "advisordlg",
+            "savedlg",
+            "bctl",
+            "card",
+          ].includes(el.id)
+        ) {
+          el.remove();
+        }
+      });
+    this.dialogCount = 0;
+  }
+
   buildClockBar() {
     // 时间控制条: 日期显示 + 暂停/速度 (对应系统菜单"戰略速度")
     const bar = document.querySelector("#clockbar");
@@ -64,7 +90,6 @@ export class HUD {
       ...spdTabs,
       h("span", { id: "trustbar" }),
       h("span", { class: "tab", id: "askadv" }, "進言"),
-      h("span", { class: "tab", id: "loadsav" }, "讀檔"),
       h("span", { class: "tab", id: "savesav" }, "存檔"),
       h("span", { class: "tab", id: "sndtgl" }, "🔊"),
       taxCtl,
@@ -84,7 +109,6 @@ export class HUD {
         cmd.setTax(this.app.scenario, (this.app.scenario.tax ?? 25) - 1),
       );
     document.querySelector("#askadv").onclick = () => this.showAdvice();
-    document.querySelector("#loadsav").onclick = () => this.showLoadDialog();
     document.querySelector("#savesav").onclick = () => this.showSaveDialog();
     document.querySelector("#sndtgl").onclick = () => {
       unlockSfx(); // 切换前先解锁(手势内)
@@ -98,29 +122,6 @@ export class HUD {
     document.querySelector("#advno").onclick = () => this.resolveAdvice(false);
     document.querySelector("#advcancel").onclick = () =>
       this.resolveAdvice(null);
-    document.querySelector("#loadcancel").onclick = () =>
-      (document.querySelector("#loaddlg").style.display = "none");
-  }
-
-  /** 讀檔對話框: 列出 SAVE.DAT 四槽 (parse_save.py 預解析) */
-  showLoadDialog() {
-    const slots = this.app.saves?.slots ?? [];
-    const box = document.querySelector("#loadslots");
-    box.replaceChildren(
-      ...slots.map((s) => {
-        const b = h("button", { class: "slot" });
-        b.textContent =
-          `槽${s.slot + 1} ${s.played ? s.label : "（未使用）"} ` +
-          `· 劇本${s.scenario_idx + 1} · 軍團${s.state.legions?.length ?? 0}`;
-        b.onclick = () => {
-          document.querySelector("#loaddlg").style.display = "none";
-          this.app.loadSave(s.slot);
-          this.refreshTrust();
-        };
-        return b;
-      }),
-    );
-    document.querySelector("#loaddlg").style.display = "block";
   }
 
   /** 存檔對話框: 選槽→寫入 (快照+SAVE.DAT 組裝) */

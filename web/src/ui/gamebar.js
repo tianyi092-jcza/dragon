@@ -20,7 +20,12 @@ import {
   formatTalkTokens,
 } from "../game/talk.js";
 import { cityTypeLabel } from "../game/world.js";
-import { clickSfx, warnSfx, toggleMute, unlockSfx } from "../core/speaker.js";
+import {
+  clickSfx,
+  warnSfx,
+  setSoundType,
+  unlockSfx,
+} from "../core/speaker.js";
 import {
   isFriendly,
   relation,
@@ -30,6 +35,11 @@ import {
 } from "../game/diplomacy.js";
 import { factionColorEx } from "../game/world.js";
 import { getProjectedFinance } from "../game/economy.js";
+import { STRATEGIC_SPEED_LABELS } from "../game/clock.js";
+import {
+  TACTICAL_SPEED_LABELS,
+  TACTICAL_SPEED_FACTORS,
+} from "../render/battleview.js";
 
 const FONT = '16px "Noto Serif TC","PMingLiU",serif';
 const DIN = '300 16px "Oswald","Noto Serif TC","PMingLiU",serif';
@@ -78,6 +88,11 @@ export class GameBar {
     this.legionMenu = null; // 军师子菜单「軍團」二级下拉菜单 (位置確認 / 行軍指示)
     this.marchingOrder = null; // 行军指示状态 { legion, step: 'pick_target'|'choose_order', targetCity }
     this.orderChoiceMenu = null; // 目标据点指示命令菜单 (戰鬥指揮 / 委任 / 解體)
+    this.systemSaveDialog = null; // 系统选单「資料儲存」弹窗
+    this.systemLoadConfirmDialog = null; // 系统选单「存檔讀取」防丢失确认弹窗
+    this.soundType = 1; // 1..4 (TYPE 1..4)
+    this.settingsHover = -1;
+    this._clockHoldRequested = false;
     this._legionPortraitImg = null;
     this._legionPortraitKey = null;
     this._assets = Promise.all([
@@ -4763,7 +4778,12 @@ export class GameBar {
   /** 鼠标移动暂停计时, 静止 1 秒恢复 (原版 [0x98A5] 暂停计数器语义);
    *  操作菜单/弹窗打开时计时冻结 (原版 [0xD2A]=1 主循环跳过时钟进位链) */
   isMenuOpen() {
-    return !!(this.submenuOpen || this.settingsOpen);
+    return !!(
+      this.submenuOpen ||
+      this.settingsOpen ||
+      this.systemSaveDialog ||
+      this.systemLoadConfirmDialog
+    );
   }
 
   /** 每帧同步: 只有模态弹窗 (進言/武將/勢力/存读档/列表选择) 打开时才冻结计时;
@@ -4774,6 +4794,9 @@ export class GameBar {
     const modalOpen =
       (this.app.hud?.dialogCount ?? 0) > 0 ||
       !!(
+        this.settingsOpen ||
+        this.systemSaveDialog ||
+        this.systemLoadConfirmDialog ||
         this.listDialog ||
         this.choiceDialog ||
         this.baseMenu ||
@@ -4789,7 +4812,7 @@ export class GameBar {
         this.orderChoiceMenu
       );
     const subActive = this.selectedSubmenu != null;
-    c.hold = modalOpen || subActive; // 点击军师菜单项时停止计时
+    c.hold = this._clockHoldRequested || modalOpen || subActive; // 点击军师菜单项或外部模态时停止计时
   }
 
   pokeClock() {
@@ -4831,6 +4854,9 @@ export class GameBar {
     if (this.formationDialog) return true;
     if (this.financeDialog) return true;
     if (this.keypadDialog) return true;
+    if (this.settingsOpen) return true;
+    if (this.systemSaveDialog) return true;
+    if (this.systemLoadConfirmDialog) return true;
 
     if (this.cityCard && this._hitCityCard(px, py)) return true;
     // 军师子菜单带
@@ -4861,6 +4887,23 @@ export class GameBar {
     //    取消该菜单上所有被选项，所有菜单恢复未被选中状态，并立即开始计时。
     // 2. 若已回退到该菜单上且已无被选项，再次右键才关闭子菜单条本身。
     if (btn === 2) {
+      if (this.systemLoadConfirmDialog) {
+        clickSfx();
+        this.closeSystemLoadConfirmDialog();
+        return true;
+      }
+      if (this.systemSaveDialog) {
+        clickSfx();
+        this.closeSystemSaveDialog();
+        return true;
+      }
+      if (this.settingsOpen) {
+        clickSfx();
+        this.settingsOpen = false;
+        this.syncClock(); // 开始计时!
+        this.app.view.draw();
+        return true;
+      }
       if (this.orderChoiceMenu) {
         clickSfx();
         this.closeOrderChoiceMenu();
@@ -5005,6 +5048,7 @@ export class GameBar {
       if (this.settingsOpen) {
         clickSfx();
         this.settingsOpen = false;
+        this.syncClock();
         this.app.view.draw();
         return true;
       }
@@ -5417,7 +5461,14 @@ export class GameBar {
               this.closeListDialog?.();
             }
           }
-          if (act === "book") this.settingsOpen = !this.settingsOpen;
+          if (act === "book") {
+            this.settingsOpen = !this.settingsOpen;
+            if (!this.settingsOpen) {
+              this.systemSaveDialog = null;
+              this.systemLoadConfirmDialog = null;
+            }
+            this.syncClock();
+          }
           this.app.view.draw();
           return true;
         }
@@ -5452,14 +5503,43 @@ export class GameBar {
       py < res.y + res.h
     )
       return true;
-    // 设置菜单
+    // 系统选单「存檔讀取」防丢失确认弹窗
+    if (this.systemLoadConfirmDialog) {
+      const i = this._hitSystemLoadConfirmDialog(px, py);
+      if (btn === 0) {
+        if (i === 0) {
+          this.confirmSystemLoadConfirm();
+          return true;
+        } else if (i === 1) {
+          this.closeSystemLoadConfirmDialog();
+          return true;
+        }
+      }
+      // 点击在弹窗其他区域：消费事件，不做任何操作（只有右键或按钮响应）
+      return true;
+    }
+
+    // 系统选单「資料儲存」弹窗
+    if (this.systemSaveDialog) {
+      const i = this._hitSystemSaveOrLoadDialog(this.systemSaveDialog, px, py);
+      if (btn === 0 && i >= 0) {
+        this.confirmSystemSave(i);
+        return true;
+      }
+      // 点击在弹窗外：消费事件，不做任何操作（只有右键才能取消关闭）
+      return true;
+    }
+
+    // 系统选单「存檔讀取」弹窗
+
+    // 系统选单主弹窗
     if (this.settingsOpen) {
-      const m = this._settingsRect();
-      if (px >= m.x && px < m.x + m.w && py >= m.y && py < m.y + m.rows * 24) {
-        const i = Math.floor((py - m.y) / 24);
+      const i = this._hitSettings(px, py);
+      if (btn === 0 && i >= 0) {
         this.settingsClick(i);
         return true;
       }
+      return true;
     }
     return false;
   }
@@ -5559,6 +5639,43 @@ export class GameBar {
       changed = old !== this.choiceDialog.hover;
       return changed;
     }
+    if (this.systemLoadConfirmDialog) {
+      const old = this.systemLoadConfirmDialog.hover;
+      this.systemLoadConfirmDialog.hover = this._hitSystemLoadConfirmDialog(
+        px,
+        py,
+      );
+      if (old !== this.systemLoadConfirmDialog.hover) changed = true;
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
+      return changed;
+    }
+    if (this.systemSaveDialog) {
+      const old = this.systemSaveDialog.hover;
+      this.systemSaveDialog.hover = this._hitSystemSaveOrLoadDialog(
+        this.systemSaveDialog,
+        px,
+        py,
+      );
+      if (old !== this.systemSaveDialog.hover) changed = true;
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
+      return changed;
+    }
+    if (this.settingsOpen) {
+      const old = this.settingsHover;
+      this.settingsHover = this._hitSettings(px, py);
+      if (old !== this.settingsHover) changed = true;
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
+      return changed;
+    }
     if (this.listDialog && this._hitListDialog(px, py)) {
       const d = this.listDialog;
       const old = d.hover;
@@ -5606,28 +5723,484 @@ export class GameBar {
     hud.flashEvent(`「${SUBMENU[i]}」界面还原中…（右鍵取消返回）`);
   }
 
+  // ── 绿底 3D 浮雕按钮 (复刻原版 0xC14 + 0xE9C1 UI 按钮) ──
+  _drawReliefButton(ctx, x, y, w, h, text, isHover = false, isNum = false) {
+    // 绿色底色
+    ctx.fillStyle = isHover ? "#62aa4e" : "#509040";
+    ctx.fillRect(x, y, w, h);
+    // 3D 浮雕边框
+    // 顶线与左线 (浅高光)
+    ctx.fillStyle = "#88d070";
+    ctx.fillRect(x, y, w, 1);
+    ctx.fillRect(x, y, 1, h);
+    // 底线与右线 (深阴影)
+    ctx.fillStyle = "#183010";
+    ctx.fillRect(x, y + h - 1, w, 1);
+    ctx.fillRect(x + w - 1, y, 1, h);
+    // 最外层 1px 黑色轮廓
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+
+    // 黑色居中文字
+    ctx.fillStyle = "#000000";
+    ctx.font = isNum ? DIN : FONT;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
+    ctx.textAlign = "left";
+  }
+
+  // ── 系统选单主弹窗 (复刻 KI.EXE component 2 @ (216,120) 192×176 居中) ──
+  _settingsRect() {
+    const W = innerWidth;
+    const H = innerHeight;
+    const wTiles = 14; // 外框 224px (内部 208px = 13 tiles)
+    const hTiles = 13; // 外框 208px (内部 192px = 12 tiles)
+    const w = wTiles * 16;
+    const h = hTiles * 16;
+    const x = Math.round((W - w) / 2);
+    const y = Math.round((H - h) / 2);
+    return { x, y, w, h, wTiles, hTiles, rows: 6 };
+  }
+
+  _hitSettings(px, py) {
+    if (!this.settingsOpen) return -1;
+    const { x, y, wTiles, hTiles } = this._settingsRect();
+    const cx = x + 8;
+    const cy = y + 8;
+    const cw = (wTiles - 1) * 16;
+    const ch = (hTiles - 1) * 16;
+    if (px < cx || py < cy || px >= cx + cw || py >= cy + ch) return -1;
+    const startRowY = cy + 30;
+    const rowStep = 26;
+    for (let i = 0; i < 6; i++) {
+      const ry = startRowY + i * rowStep;
+      if (py >= ry && py < ry + rowStep) return i;
+    }
+    return -1;
+  }
+
   settingsClick(i) {
     const hud = this.app.hud;
     if (i === 0) {
-      this.settingsOpen = false;
-      hud.showSaveDialog();
+      // 資料儲存：打开居中 SAVE DATA 弹窗，保持计时停止
+      this.openSystemSaveDialog();
     } else if (i === 1) {
-      this.settingsOpen = false;
-      hud.showLoadDialog();
+      // 存檔讀取：弹出防丢失确认弹窗，保持计时停止
+      this.openSystemLoadConfirmDialog();
     } else if (i === 2) {
-      this.muted = toggleMute();
-      hud.flashEvent(this.muted ? "音效：關" : "音效：開");
-      if (!this.muted) clickSfx();
-    } else if (i === 3 || i === 4) {
+      // 音效：TYPE 1 -> TYPE 2 -> TYPE 3 -> TYPE 4 -> TYPE 1
+      this.soundType = (this.soundType % 4) + 1;
+      this.app.soundType = setSoundType(this.soundType);
+      clickSfx();
+      hud.flashEvent(`音效：TYPE ${this.soundType}`);
+    } else if (i === 3) {
+      // 戰略速度：最低速 -> 低速 -> 普通 -> 高速 -> 最高速 循环切换
       const c = this.app.clock;
-      if (c) c.speed = Math.max(0, Math.min(3, c.speed + (i === 3 ? 1 : -1)));
-      hud.flashEvent(`戰略速度 ${this.app.clock?.speed ?? "-"}`);
-    } else this.settingsOpen = false;
+      if (c) {
+        c.strategicSpeed = ((c.strategicSpeed ?? 2) + 1) % 5;
+      }
+      clickSfx();
+      hud.flashEvent(
+        `戰略速度：${STRATEGIC_SPEED_LABELS[this.app.clock?.strategicSpeed ?? 2]}`,
+      );
+    } else if (i === 4) {
+      // 戰術速度：最低速 -> 低速 -> 普通 -> 高速 -> 最高速 循环切换
+      this.app.tacticalSpeed = ((this.app.tacticalSpeed ?? 2) + 1) % 5;
+      this.app.tacticalSpeedFactor =
+        TACTICAL_SPEED_FACTORS[this.app.tacticalSpeed];
+      clickSfx();
+      hud.flashEvent(
+        `戰術速度：${TACTICAL_SPEED_LABELS[this.app.tacticalSpeed]}`,
+      );
+    } else if (i === 5) {
+      // 遊戲結束：返回首页
+      clickSfx();
+      this.settingsOpen = false;
+      this.syncClock();
+      this.app.returnToTitle();
+    }
     this.app.view.draw();
   }
 
-  _settingsRect() {
-    return { x: this.bx + 432 - 40, y: 32, w: 110, rows: 6 };
+  _drawSettings(ctx) {
+    if (!this.settingsOpen) return;
+    const { x, y, wTiles, hTiles } = this._settingsRect();
+    const inner = this._drawWindow(ctx, x, y, wTiles, hTiles, "cloud");
+
+    // 标题：系　統　選　單
+    ctx.font = FONT;
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#ffffff";
+    const title = "系　統　選　單";
+    const tw = ctx.measureText(title).width;
+    ctx.fillText(title, inner.x + (inner.w - tw) / 2, inner.y + 14);
+
+    // 标题下方细白横线
+    const lineY = inner.y + 26;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(inner.x + 4, lineY + 0.5);
+    ctx.lineTo(inner.x + inner.w - 4, lineY + 0.5);
+    ctx.stroke();
+
+    // 6 个选项
+    const startRowY = inner.y + 30;
+    const rowStep = 26;
+    const btnW = 66;
+    const btnH = 20;
+    const btnX = inner.x + inner.w - btnW - 10;
+
+    const labels = [
+      "資料儲存",
+      "存檔讀取",
+      "音　　效",
+      "戰略速度",
+      "戰術速度",
+      "遊戲結束",
+    ];
+
+    const c = this.app.clock;
+    const stratIdx = c?.strategicSpeed ?? 2;
+    const tactIdx = this.app.tacticalSpeed ?? 2;
+    const soundText = `TYPE ${this.soundType ?? 1}`;
+    const stratText = STRATEGIC_SPEED_LABELS[stratIdx] ?? "普通";
+    const tactText = TACTICAL_SPEED_LABELS[tactIdx] ?? "普通";
+
+    const btnTexts = ["OK", "OK", soundText, stratText, tactText, "OK"];
+
+    const hov = this.settingsHover ?? -1;
+
+    for (let i = 0; i < 6; i++) {
+      const ry = startRowY + i * rowStep;
+      const isRowHover = i === hov;
+
+      // 悬停行微高亮
+      if (isRowHover) {
+        ctx.fillStyle = "rgba(40, 80, 20, 0.4)";
+        ctx.fillRect(inner.x + 4, ry, inner.w - 8, rowStep);
+      }
+
+      // 左侧文字标签 (金黄色)
+      ctx.font = FONT;
+      ctx.fillStyle = GOLD;
+      ctx.textBaseline = "middle";
+      ctx.fillText(labels[i], inner.x + 12, ry + rowStep / 2);
+
+      // 右侧绿底 3D 浮雕按钮
+      const by = ry + Math.floor((rowStep - btnH) / 2);
+      this._drawReliefButton(
+        ctx,
+        btnX,
+        by,
+        btnW,
+        btnH,
+        btnTexts[i],
+        isRowHover,
+        i === 2, // TYPE 用英文字体
+      );
+    }
+  }
+
+  // ── SAVE DATA / LOAD DATA 弹窗公共规格 (320×256 px, 内部 288×224 px) ──
+  _systemSaveDialogRect() {
+    const W = innerWidth;
+    const H = innerHeight;
+    const wTiles = 20; // 外框 320px
+    const hTiles = 16; // 外框 256px
+    const w = wTiles * 16;
+    const h = hTiles * 16;
+    const x = Math.round((W - w) / 2);
+    const y = Math.round((H - h) / 2);
+    return { x, y, w, h, wTiles, hTiles };
+  }
+
+  // ── 系统选单「存檔讀取」防丢失确认弹窗规格 (352×128 px, 内部 336×112 px) ──
+  _systemLoadConfirmDialogRect() {
+    const W = innerWidth;
+    const H = innerHeight;
+    const wTiles = 22; // 外框 352px
+    const hTiles = 8; // 外框 128px
+    const w = wTiles * 16;
+    const h = hTiles * 16;
+    const x = Math.round((W - w) / 2);
+    const y = Math.round((H - h) / 2);
+    return { x, y, w, h, wTiles, hTiles };
+  }
+
+  _hitSystemLoadConfirmDialog(px, py) {
+    if (!this.systemLoadConfirmDialog) return -1;
+    const { x, y, wTiles } = this._systemLoadConfirmDialogRect();
+    const innerX = x + 8;
+    const innerY = y + 8;
+    const innerW = (wTiles - 1) * 16;
+    const btnW = 76;
+    const btnH = 22;
+    const btnY = innerY + 74;
+    const btn0X = innerX + Math.floor(innerW / 2) - btnW - 16;
+    const btn1X = innerX + Math.floor(innerW / 2) + 16;
+
+    if (py >= btnY && py < btnY + btnH) {
+      if (px >= btn0X && px < btn0X + btnW) return 0; // 確認
+      if (px >= btn1X && px < btn1X + btnW) return 1; // 取消
+    }
+    return -1;
+  }
+
+  openSystemLoadConfirmDialog() {
+    clickSfx();
+    this.settingsOpen = false;
+    this.systemSaveDialog = null;
+    this.systemLoadConfirmDialog = {
+      hover: -1,
+    };
+    this.syncClock();
+    this.app.view.draw();
+  }
+
+  closeSystemLoadConfirmDialog() {
+    if (!this.systemLoadConfirmDialog) return;
+    clickSfx();
+    this.systemLoadConfirmDialog = null;
+    this.settingsOpen = true; // 返回上一级系统选单
+    this.syncClock();
+    this.app.view.draw();
+  }
+
+  async confirmSystemLoadConfirm() {
+    clickSfx();
+    this.systemLoadConfirmDialog = null;
+    this.settingsOpen = false;
+    this.syncClock();
+    await this.app.returnToTitle(1);
+  }
+
+  _hitSystemSaveOrLoadDialog(dlg, px, py) {
+    if (!dlg) return -1;
+    const { x, y, wTiles, hTiles } = this._systemSaveDialogRect();
+    const cx = x + 8;
+    const cy = y + 8;
+    const cw = (wTiles - 1) * 16;
+    const ch = (hTiles - 1) * 16;
+    if (px < cx || py < cy || px >= cx + cw || py >= cy + ch) return -1;
+    const startSlotY = cy + 28;
+    const slotStep = 50;
+    for (let i = 0; i < 4; i++) {
+      const sy = startSlotY + i * slotStep;
+      if (py >= sy && py < sy + slotStep) return i;
+    }
+    return -1;
+  }
+
+  openSystemSaveDialog() {
+    clickSfx();
+    this.settingsOpen = false;
+    this.syncClock();
+
+    const rows = [0, 1, 2, 3].map((i) => {
+      const s = this.app.saves?.slots.find((x) => x.slot === i);
+      let infoText = "";
+      let dateStr = "";
+      if (s && s.played) {
+        const scState = s.state;
+        const d = scState?.save_date || s.date;
+        if (d) {
+          const p = (n) => (n >= 10 ? `${n}` : ` ${n}`);
+          dateStr = `${d.year}年${p(d.month)}月${p(d.day)}日`;
+        } else {
+          dateStr = "184年 1月 1日";
+        }
+        if (s.label && s.label.includes("勢力：")) {
+          infoText = s.label.trim();
+        } else {
+          const chNum = (s.scenario_idx ?? 0) + 1;
+          const chStr =
+            ["一", "二", "三", "四", "五"][s.scenario_idx ?? 0] ?? chNum;
+          const fName =
+            scState?.factions?.[scState?.player_faction]?.name ||
+            scState?.rulerName ||
+            "－－";
+          const advName =
+            scState?.player_advisor?.name || scState?.advisorName || "－－";
+          infoText = `第${chStr}章勢力：${fName}　　軍師：${advName}`;
+        }
+      } else {
+        infoText = "（未使用）";
+        dateStr = "－－－－－－－－－－";
+      }
+      return {
+        slot: i,
+        infoText,
+        dateStr,
+        played: !!(s && s.played),
+      };
+    });
+
+    this.systemSaveDialog = {
+      rows,
+      hover: -1,
+    };
+    this.app.view.draw();
+  }
+
+  closeSystemSaveDialog() {
+    if (!this.systemSaveDialog) return;
+    clickSfx();
+    this.systemSaveDialog = null;
+    this.settingsOpen = true; // 返回上一级系统选单
+    this.syncClock();
+    this.app.view.draw();
+  }
+
+  async confirmSystemSave(rowIdx) {
+    const row = this.systemSaveDialog?.rows?.[rowIdx];
+    if (!row) return;
+    clickSfx();
+    const slotIdx = row.slot;
+    const sc = this.app.scenario;
+    const chNum = (this.app.scenarioIdx ?? 0) + 1;
+    const chStr =
+      ["一", "二", "三", "四", "五"][this.app.scenarioIdx ?? 0] ?? chNum;
+    const meF = sc.factions?.[sc.player_faction];
+    const rulerName = meF?.monarch || meF?.name || sc.rulerName || "－－";
+    const advName = sc.player_advisor?.name || sc.advisorName || "－－";
+    const label = `第${chStr}章勢力：${rulerName.trim()}　　軍師：${advName.trim()}`;
+
+    // 关闭弹窗并返回上一级系统选单
+    this.systemSaveDialog = null;
+    this.settingsOpen = true;
+    this.syncClock();
+    this.app.view.draw();
+
+    // 执行存档
+    await this.app.saveGame(slotIdx, label);
+  }
+
+
+  _drawSystemLoadConfirmDialog(ctx) {
+    const d = this.systemLoadConfirmDialog;
+    if (!d) return;
+    const { x, y, wTiles, hTiles } = this._systemLoadConfirmDialogRect();
+    const inner = this._drawWindow(ctx, x, y, wTiles, hTiles, "cloud");
+
+    // 提示文字（两行居中）
+    ctx.font = FONT;
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#ffffff";
+    const line1 = "現在讀取存檔將會遺失目前遊戲進度，";
+    const tw1 = ctx.measureText(line1).width;
+    ctx.fillText(line1, inner.x + (inner.w - tw1) / 2, inner.y + 24);
+
+    const line2 = "是否確定？";
+    const tw2 = ctx.measureText(line2).width;
+    ctx.fillText(line2, inner.x + (inner.w - tw2) / 2, inner.y + 48);
+
+    // 细白分割线
+    const lineY = inner.y + 64;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(inner.x + 8, lineY + 0.5);
+    ctx.lineTo(inner.x + inner.w - 8, lineY + 0.5);
+    ctx.stroke();
+
+    // 按钮
+    const btnW = 76;
+    const btnH = 22;
+    const btnY = inner.y + 74;
+    const btn0X = inner.x + Math.floor(inner.w / 2) - btnW - 16;
+    const btn1X = inner.x + Math.floor(inner.w / 2) + 16;
+
+    const isHov0 = d.hover === 0;
+    const isHov1 = d.hover === 1;
+
+    this._drawReliefButton(
+      ctx,
+      btn0X,
+      btnY,
+      btnW,
+      btnH,
+      "確　認",
+      isHov0,
+      false,
+    );
+
+    this._drawReliefButton(
+      ctx,
+      btn1X,
+      btnY,
+      btnW,
+      btnH,
+      "取　消",
+      isHov1,
+      false,
+    );
+  }
+
+  _drawSystemSaveDialog(ctx) {
+    const d = this.systemSaveDialog;
+    if (!d) return;
+    this._drawSystemSaveOrLoad(ctx, d, "SAVE  DATA");
+  }
+
+  _drawSystemSaveOrLoad(ctx, d, titleText) {
+    const { x, y, wTiles, hTiles } = this._systemSaveDialogRect();
+    const inner = this._drawWindow(ctx, x, y, wTiles, hTiles, "cloud");
+
+    // 标题：SAVE DATA / LOAD DATA (英文居中大写)
+    ctx.font = '300 18px "Oswald", "Noto Serif TC", serif';
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#ffffff";
+    const tw = ctx.measureText(titleText).width;
+    ctx.fillText(titleText, inner.x + (inner.w - tw) / 2, inner.y + 14);
+
+    // 标题下方细白横线
+    const lineY = inner.y + 26;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(inner.x + 4, lineY + 0.5);
+    ctx.lineTo(inner.x + inner.w - 4, lineY + 0.5);
+    ctx.stroke();
+
+    // 4 个槽位
+    const startSlotY = inner.y + 28;
+    const slotStep = 50;
+    const btnW = 140;
+    const btnH = 20;
+    const btnX = inner.x + inner.w - btnW - 8;
+
+    d.rows.forEach((row, i) => {
+      const sy = startSlotY + i * slotStep;
+      const isSlotHover = i === d.hover;
+
+      // 槽位高亮
+      if (isSlotHover) {
+        ctx.fillStyle = "rgba(40, 80, 20, 0.45)";
+        ctx.fillRect(inner.x + 4, sy, inner.w - 8, slotStep - 2);
+      }
+
+      // 第一行：第○章勢力：○○　　軍師：○○○
+      ctx.font = FONT;
+      ctx.fillStyle = row.played ? GOLD : "#888888";
+      ctx.textBaseline = "top";
+      ctx.fillText(row.infoText, inner.x + 8, sy + 3);
+
+      // 第二行右侧：绿底 3D 浮雕日期按钮
+      const by = sy + 22;
+      this._drawReliefButton(
+        ctx,
+        btnX,
+        by,
+        btnW,
+        btnH,
+        row.dateStr,
+        isSlotHover,
+        true, // 使用 Oswald 优雅数字字体
+      );
+    });
   }
 
   /** 遇袭城集合 (被敌对军团指向的目标城) — 小地图闪烁3次+音效 */
@@ -5721,22 +6294,13 @@ export class GameBar {
     }
     // 设置菜单
     if (this.settingsOpen) {
-      const m = this._settingsRect();
-      const { x, y } = this._drawWindow(ctx, m.x - 8, m.y - 8, 8, 10, "black");
-      ctx.font = FONT;
-      ctx.textBaseline = "top";
-      const labels = [
-        "存檔",
-        "讀檔",
-        `音效：${this.muted ? "關" : "開"}`,
-        "速度＋",
-        "速度−",
-        "關閉",
-      ];
-      labels.forEach((t, i) => {
-        ctx.fillStyle = i === 5 ? GOLD : CREAM;
-        ctx.fillText(t, x + 12, y + i * 24 + 4);
-      });
+      this._drawSettings(ctx);
+    }
+    if (this.systemSaveDialog) {
+      this._drawSystemSaveDialog(ctx);
+    }
+    if (this.systemLoadConfirmDialog) {
+      this._drawSystemLoadConfirmDialog(ctx);
     }
     if (this.miniOpen) this.drawMini(ctx);
     if (this.resOpen) this.drawRes(ctx);

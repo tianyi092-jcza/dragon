@@ -31,7 +31,7 @@ export class OpenView {
     this.app = app;
     this.active = false;
     this._timer = null;
-    this._prevSpeed = null;
+    this._clockPauseState = null;
     this.img = root.querySelector("#opimg");
     root.addEventListener("click", () => this.finish());
     root.addEventListener("keydown", (e) => {

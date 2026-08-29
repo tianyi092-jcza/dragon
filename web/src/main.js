@@ -33,6 +33,58 @@ const app = {
   view: null,
   hud: null,
   battleMaps: null, // BATTLE.MAP 城池→战场布局索引
+  tacticalSpeed: 2,
+  tacticalSpeedFactor: 1.0,
+  soundType: 1,
+
+  /** 游戏结束：清理运行态并返回首页开局选单 (YES/NO) */
+  async returnToTitle(initialAction) {
+    if (this.gamebar) {
+      this.gamebar._clockHoldRequested = true;
+      this.gamebar.submenuOpen = false;
+      this.gamebar.miniOpen = false;
+      this.gamebar.resOpen = false;
+      this.gamebar.selFaction = null;
+      this.gamebar.settingsOpen = false;
+      this.gamebar.settingsHover = -1;
+      this.gamebar.systemSaveDialog = null;
+      this.gamebar.systemLoadConfirmDialog = null;
+      this.gamebar.selectedSubmenu = null;
+      this.gamebar.selectedCity = null;
+      this.gamebar.listDialog = null;
+      this.gamebar.cityCard = null;
+      this.gamebar.generalCard = null;
+      this.gamebar.formationDialog = null;
+      this.gamebar.formationQuote = null;
+      this.gamebar.financeDialog = null;
+      this.gamebar.keypadDialog = null;
+      this.gamebar.baseMenu = null;
+      this.gamebar.personnelMenu = null;
+      this.gamebar.adviceMenu = null;
+      this.gamebar.closeProposalAudience?.();
+      this.gamebar.legionMenu = null;
+      this.gamebar.marchingOrder = null;
+      this.gamebar.orderChoiceMenu = null;
+      this.gamebar.choiceDialog = null;
+      this.gamebar.hoverAct = null;
+      this.gamebar.syncClock();
+    } else if (this.clock) {
+      this.clock.hold = true;
+    }
+    this.dispatching = null;
+    this.hud?.closeAll?.();
+    if (this.view) {
+      this.view.selectedCity = null;
+      this.view.hoverTarget = null;
+      this.view.draw();
+    }
+    try {
+      await this.startMenu.show(initialAction);
+    } finally {
+      if (this.gamebar) this.gamebar._clockHoldRequested = false;
+      this.gamebar?.syncClock();
+    }
+  },
 
   /** 开战: 战术层接管 (玩家军团攻城/敌军犯境时由 ai.resolveBattle 调用) */
   startBattle(A, city) {
@@ -332,7 +384,11 @@ function frame(now) {
     !c.hold &&
     (!app.hud || app.hud.dialogCount === 0) &&
     (!app.gamebar ||
-      (!app.gamebar.listDialog && app.gamebar.selectedSubmenu == null));
+      (!app.gamebar.listDialog &&
+        app.gamebar.selectedSubmenu == null &&
+        !app.gamebar.settingsOpen &&
+        !app.gamebar.systemSaveDialog &&
+        !app.gamebar.systemLoadConfirmDialog));
 
   if (isRunning) {
     // 时钟流逝期间：逐帧重绘，驱动军团行走平滑插值 (60fps lerp)

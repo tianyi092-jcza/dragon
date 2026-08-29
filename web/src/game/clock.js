@@ -1,10 +1,21 @@
 // 游戏时钟 — 复刻 KI.EXE 0x1D8E 主循环的时间语义
 //
-// 逆向依据 (docs/re-notes-kernel.md):
+// 逆向依据 (KI.EXE 0x1DF8-0x1E16 / docs/re-notes-kernel.md):
 //   CF2 子刻度0..7 → CF3 每日时刻0..23(每刻度=1个势力AI轮) → CF0 日1..当月天数
 //   → CF4 月1..12(换月调0x5358结算) → CF6 年(>1000回绕)
+//   战略速度 5 档 (0xcfa): 最低速 (4 ticks)、低速 (3 ticks)、普通 (2 ticks)、高速 (1 tick)、最高速 (0 tick)
 //   当月天数表 @va 0x98AC = 真实历法 [31,28,31,30,...]
 export const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+export const STRATEGIC_SPEED_LABELS = [
+  "最低速",
+  "低速",
+  "普通",
+  "高速",
+  "最高速",
+];
+// 5 档每刻度流逝毫秒数 (普通档 160ms，1天 24 刻度 ≈ 3.84 秒；最高速 25ms，1天 ≈ 0.6 秒；最低速 480ms，1天 ≈ 11.5 秒)
+export const STRATEGIC_SPEEDS = [480, 280, 160, 80, 25];
 
 export class Clock {
   /**
@@ -27,14 +38,47 @@ export class Clock {
     this.month = startMonth; // CF4: 月 1..12
     this.year = startYear; // CF6: 年
 
-    this.speed = 2; // 0暂停 1慢 2中 3快 — 对应系统菜单"戰略速度"
-    this.SPEEDS = [0, 512, 256, 96]; // ms/刻度
+    this._strategicSpeed = 2; // 0最低速 1低速 2普通 3高速 4最高速 — 对应系统选单"戰略速度"
+    this._legacyPaused = false;
+    this.SPEEDS = STRATEGIC_SPEEDS;
     this._acc = 0;
-    this._lastStep = 256;
+    this._lastStep = 160;
+    this.hold = false;
 
     this.onDay = onDay;
     this.onMonthEnd = onMonthEnd;
     this.onYearEnd = onYearEnd;
+  }
+
+  get strategicSpeed() {
+    return this._strategicSpeed;
+  }
+
+  set strategicSpeed(value) {
+    const idx = Number(value);
+    if (Number.isFinite(idx)) {
+      this._strategicSpeed = Math.max(0, Math.min(4, Math.trunc(idx)));
+    }
+  }
+
+  // 兼容旧调用：0 表示暂停；速度档由 strategicSpeed 独立保存。
+  get speed() {
+    return this._legacyPaused ? 0 : this._strategicSpeed + 1;
+  }
+
+  set speed(value) {
+    const idx = Number(value);
+    if (!Number.isFinite(idx)) return;
+    if (idx === 0) {
+      this._legacyPaused = true;
+      return;
+    }
+    this.strategicSpeed = idx - 1;
+    this._legacyPaused = false;
+  }
+
+  get currentStep() {
+    return this.SPEEDS[this._strategicSpeed] ?? 160;
   }
 
   get daysInMonth() {
@@ -43,22 +87,21 @@ export class Clock {
 
   /** 获取当天时间流逝进度 0.0..1.0 (用于逐帧平滑插值) */
   dayProgress() {
-    const step = this.SPEEDS[this.speed] || this._lastStep || 256;
-    if (this.speed > 0) this._lastStep = step;
+    const step = this.currentStep || this._lastStep || 160;
+    this._lastStep = step;
     const frac = Math.min(1, Math.max(0, this._acc / step));
     return Math.min(1, Math.max(0, (this.hour + frac) / 24));
   }
 
   /** 推进一个子刻度组 (复刻 1D8E: 满8子刻度进位一次时刻) */
   advance(dtMs) {
-    if (this.speed === 0) return false;
-    if (this.hold) {
-      // 鼠标活动战略暂停 (静止1秒后由 GameBar.pokeClock 解除)
+    if (this.hold || this._legacyPaused) {
+      // 菜单/弹窗或旧模态调用暂停战略时钟
       this._acc = 0;
       return false;
     }
     this._acc += dtMs;
-    const step = this.SPEEDS[this.speed];
+    const step = this.currentStep;
     let ticked = false;
     while (this._acc >= step) {
       this._acc -= step;

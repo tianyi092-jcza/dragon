@@ -14,6 +14,7 @@ const OFF_GENERAL = 0x42c0; // 128×32B
 
 let scenRaw = null;
 let big5Map = null;
+let saveImage = null;
 
 /** 启动时载入存盘素材 (main.js 装配阶段调用一次) */
 export async function initSaveAssets() {
@@ -21,6 +22,9 @@ export async function initSaveAssets() {
     loadJSON("scen_raw.json"),
     loadJSON("big5_map.json"),
   ]);
+  saveImage = scenRaw.save_b64
+    ? b64Bytes(scenRaw.save_b64)
+    : new Uint8Array(N_SLOT * SLOT_SIZE);
 }
 
 function b64Bytes(b64) {
@@ -143,18 +147,19 @@ export function serializeSlot(app, label) {
   return slot;
 }
 
-/** 组装完整 SAVE.DAT (4×0x56C0): 底版保留其它槽, 写入目标槽 */
+/** 组装完整 SAVE.DAT (4×0x56C0): 保留本会话已写入的其它槽。 */
 export function serializeSave(app, slotIdx, label) {
   const total = N_SLOT * SLOT_SIZE;
-  let dat = scenRaw.save_b64
-    ? b64Bytes(scenRaw.save_b64)
-    : new Uint8Array(total);
-  if (dat.length !== total) {
+  if (!saveImage || saveImage.length !== total) {
     const t = new Uint8Array(total);
-    t.set(dat.subarray(0, Math.min(dat.length, total)));
-    dat = t;
+    if (saveImage) {
+      t.set(saveImage.subarray(0, Math.min(saveImage.length, total)));
+    }
+    saveImage = t;
   }
+  const dat = saveImage.slice();
   dat.set(serializeSlot(app, label), slotIdx * SLOT_SIZE);
+  saveImage = dat.slice();
   return dat;
 }
 

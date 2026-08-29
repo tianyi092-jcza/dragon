@@ -7,6 +7,14 @@
 
 let actx;
 let muted = false;
+let soundType = 1;
+
+export const SOUND_PROFILES = [
+	{ frequency: 950, gain: 0.12, wave: "square" },
+	{ frequency: 760, gain: 0.11, wave: "square" },
+	{ frequency: 1180, gain: 0.1, wave: "triangle" },
+	{ frequency: 620, gain: 0.09, wave: "sawtooth" },
+];
 
 /** 首次用户手势时解锁 AudioContext(浏览器自动播放策略)；在 pointerdown 里调 */
 export function unlockSfx() {
@@ -18,6 +26,15 @@ export function unlockSfx() {
 	} catch {
 		/* 无音频环境静默 */
 	}
+}
+
+/** 设置系统选单音效类型 1..4。 */
+export function setSoundType(type) {
+	const value = Number(type);
+	soundType = Number.isFinite(value)
+		? Math.max(1, Math.min(4, Math.trunc(value)))
+		: 1;
+	return soundType;
 }
 
 /** 静音开关(返回切换后状态) */
@@ -33,12 +50,13 @@ function tone(freqMs, gapMs) {
 			window.AudioContext || /** @type {any} */ (window).webkitAudioContext
 		)();
 		if (actx.state === "suspended") actx.resume();
+		const profile = SOUND_PROFILES[soundType - 1] ?? SOUND_PROFILES[0];
 		const t0 = actx.currentTime + gapMs;
 		const osc = actx.createOscillator();
 		const g = actx.createGain();
-		osc.type = "square";
-		osc.frequency.value = 950;
-		g.gain.setValueAtTime(0.12, t0);
+		osc.type = profile.wave;
+		osc.frequency.value = profile.frequency;
+		g.gain.setValueAtTime(profile.gain, t0);
 		g.gain.setValueAtTime(0, t0 + freqMs);
 		osc.connect(g).connect(actx.destination);
 		osc.start(t0);
