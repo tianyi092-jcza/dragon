@@ -1269,7 +1269,7 @@ export class GameBar {
       ctx.fillRect(x + 8, avatarY, 64, 64);
     }
 
-    // 2. 右侧信息: 將軍/君主, 首都, 總兵力, 士氣值
+    // 2. 右侧信息: 將軍/君主, 首都, 總兵力, 士氣值 (按四字寬度預留左側標籤)
     const cap = sc.city(me.capital);
     ctx.font = FONT;
     ctx.textBaseline = "top";
@@ -1283,23 +1283,23 @@ export class GameBar {
     infoRows.forEach(([label, val, isNum], i) => {
       const iy = y + 14 + i * 16;
       ctx.fillStyle = CREAM;
-      ctx.fillText(label, x + 78, iy);
+      ctx.fillText(label, x + 76, iy);
       ctx.fillStyle = "#ffffff";
       if (isNum) {
         ctx.font = DIN;
-        ctx.fillText(val, x + 141, iy);
+        ctx.fillText(val, x + 150, iy);
         ctx.font = FONT;
       } else {
-        ctx.fillText(val, x + 141, iy);
+        ctx.fillText(val, x + 150, iy);
       }
     });
 
-    // 竖直分隔白线 (向右平移至 x+128.5，两侧间距保持 12.5px 严格对称相等)
+    // 竖直分隔白线 (按四字寬度預留，平移至 x+142.5)
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(x + 128.5, y + 12);
-    ctx.lineTo(x + 128.5, y + 80);
+    ctx.moveTo(x + 142.5, y + 12);
+    ctx.lineTo(x + 142.5, y + 80);
     ctx.stroke();
 
     // 3. 下方 6 队编制 (黑底框高 120px，下方与底线框保留充足空间)
@@ -6088,7 +6088,7 @@ export class GameBar {
     }
     if (this.portraitImg)
       ctx.drawImage(this.portraitImg, 0, 0, 128, 128, p.x + 8, p.y + 8, 64, 64);
-    // 君主/首都/軍師 (头像右侧：标签 x=76, 竖白线 x=122, 数值 x=138)
+    // 君主/首都/軍師 (頭像右側：標籤 x=76 按四字寬度預留, 豎白線 x=142.5, 數值 x=150)
     const cap = sc.city(me.capital);
     const advGen = adv.getAdvisor(sc, me);
     ctx.font = FONT;
@@ -6103,15 +6103,15 @@ export class GameBar {
       ctx.fillStyle = CREAM;
       ctx.fillText(k, p.x + 76, y);
       ctx.fillStyle = "#ffffff";
-      ctx.fillText(v, p.x + 138, y);
+      ctx.fillText(v, p.x + 150, y);
     });
 
-    // 竖白线 (君主/首都/军师标签与姓名之间，高度从 y+14 到 y+61)
+    // 豎白線 (按四字寬度預留，高度從 y+14 到 y+61)
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(p.x + 122.5, p.y + 14);
-    ctx.lineTo(p.x + 122.5, p.y + 61);
+    ctx.moveTo(p.x + 142.5, p.y + 14);
+    ctx.lineTo(p.x + 142.5, p.y + 61);
     ctx.stroke();
 
     // 信賴度: 标签与进度条分两行; 黑底条, 中央细红条 (高度 2px)。原版按 255 为满格 (KI.EXE 0x5F27: w = floor((trust * 100 + 159) / 160))
