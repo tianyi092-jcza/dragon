@@ -75,6 +75,11 @@ export class GameBar {
     this.proposalAudience = null; // 敌对提案进言对话系统
     this.financeDialog = null; // 军师「財政」弹窗
     this.keypadDialog = null; // 数字输入弹窗 (税率/各兵种征兵数)
+    this.legionMenu = null; // 军师子菜单「軍團」二级下拉菜单 (位置確認 / 行軍指示)
+    this.marchingOrder = null; // 行军指示状态 { legion, step: 'pick_target'|'choose_order', targetCity }
+    this.orderChoiceMenu = null; // 目标据点指示命令菜单 (戰鬥指揮 / 委任 / 解體)
+    this._legionPortraitImg = null;
+    this._legionPortraitKey = null;
     this._assets = Promise.all([
       loadImage("grf/ui/tool_bar.png"),
       loadImage("grf/ui/tool_ico1.png"),
@@ -642,10 +647,15 @@ export class GameBar {
       this.app.view.selectedCity = targetCity;
     }
 
+    const me = cmd.playerFaction(sc);
+
     const rows = legions.map((L) => {
       const curCity = sc.cities.find((c) => c.x === L.x && c.y === L.y) || null;
       const curName = curCity?.name?.trim() ?? `(${L.x},${L.y})`;
-      const targetName = (L.target?.name ?? curCity?.name)?.trim() ?? "－－－";
+      let targetName = (L.target?.name ?? "－－－－")?.trim();
+      if (L.delegated) {
+        targetName = targetName === "－－－－" ? "委任" : `${targetName}(委)`;
+      }
       const troops = (L.troops ?? 0) * 10;
       const morale = L.morale ?? 200;
       return {
@@ -656,6 +666,7 @@ export class GameBar {
           curName,
           targetName,
         ],
+        _legion: L,
       };
     });
 
@@ -680,13 +691,651 @@ export class GameBar {
       rows,
       rowH: 18,
       scrollbar: "right",
-      w: 400,
-      h: 196,
+      w: 480,
+      h: 220,
+      footer: {
+        text: "請選擇進行行軍指示之軍團。",
+      },
+      onPickRow: (ri) => {
+        const row = rows[ri];
+        const L = row?._legion;
+        if (!L || L.faction !== me?.idx) return;
+        this.closeListDialog(true);
+        this.selectedSubmenu = 4;
+        this.marchingOrder = {
+          legion: L,
+          step: "pick_target",
+          targetCity: null,
+        };
+        this.syncClock();
+        this.app.view.draw();
+      },
+      onCancel: () => {
+        this.selectedSubmenu = null;
+        if (this.app?.view) this.app.view.selectedCity = null;
+        this.syncClock();
+        this.app.view.draw();
+      },
     });
   }
 
   closeLegionCard() {
     this.closeListDialog();
+  }
+
+  /** 军师子菜单「軍團」: 展开二级菜单 (位置確認 / 行軍指示) */
+  showLegionMenu() {
+    this.closeCityCard();
+    this.closeListDialog();
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeBaseMenu();
+    this.closePersonnelMenu();
+    this.closeAdviceMenu();
+    this.closeProposalAudience();
+    this.closeMarchingOrder();
+    this.selectedSubmenu = 4;
+    this.syncClock();
+
+    const cellW = 78;
+    const btnX = this.bx + 8 + 4 * cellW;
+    const wTiles = 7;
+    const hTiles = 4;
+    const ox = Math.round(btnX + (cellW - wTiles * 16) / 2);
+    const oy = 72;
+
+    this.legionMenu = {
+      ox,
+      oy,
+      wTiles,
+      hTiles,
+      items: ["位置確認", "行軍指示"],
+      hover: -1,
+    };
+    this.app.view.draw();
+  }
+
+  closeLegionMenu() {
+    if (!this.legionMenu) return;
+    this.legionMenu = null;
+    this.app.view.draw();
+  }
+
+  _hitLegionMenu(px, py) {
+    if (!this.legionMenu) return -1;
+    const { ox, oy, wTiles, hTiles, items } = this.legionMenu;
+    const x = ox + 8;
+    const y = oy + 8;
+    const w = (wTiles - 1) * 16;
+    const h = (hTiles - 1) * 16;
+    if (px >= x && px < x + w && py >= y && py < y + h) {
+      const rowH = h / items.length;
+      const i = Math.floor((py - y) / rowH);
+      return i >= 0 && i < items.length ? i : -1;
+    }
+    return -1;
+  }
+
+  _drawLegionMenu(ctx) {
+    if (!this.legionMenu) return;
+    const { ox, oy, wTiles, hTiles, items, hover } = this.legionMenu;
+    const win = this._drawWindow(ctx, ox, oy, wTiles, hTiles, "black");
+    const x = win ? win.x : ox + 8;
+    const y = win ? win.y : oy + 8;
+    const w = win ? win.w : (wTiles - 1) * 16;
+    const h = win ? win.h : (hTiles - 1) * 16;
+    const rowH = h / items.length;
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+
+    items.forEach((item, i) => {
+      const iy = y + i * rowH;
+      const isHover = hover === i;
+      if (isHover) {
+        ctx.fillStyle = "#ffe000";
+        ctx.fillRect(x + 1, iy + 1, w - 2, rowH - 2);
+        ctx.fillStyle = "#0000bb";
+      } else {
+        ctx.fillStyle = "#ffffff";
+      }
+      const tw = ctx.measureText(item).width;
+      ctx.fillText(item, x + (w - tw) / 2, iy + (rowH - 16) / 2 + 1);
+    });
+  }
+
+  /** 「位置確認」: 列出我方军团，点击居中到军团位置 (KI.EXE 0x62A4 & 0x716D) */
+  showLegionLocate() {
+    this.closeCityCard();
+    this.closeListDialog();
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeBaseMenu();
+    this.closePersonnelMenu();
+    this.closeAdviceMenu();
+    this.closeProposalAudience();
+    this.closeMarchingOrder();
+    this.selectedSubmenu = 4; // 軍團
+    this.syncClock();
+
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!sc || !me) return;
+
+    const myLegions = (sc.legions ?? []).filter(
+      (L) => !L.dead && L.faction === me.idx,
+    );
+
+    const rows = myLegions.map((L) => {
+      const curCity = sc.cities.find((c) => c.x === L.x && c.y === L.y) || null;
+      const curName = curCity?.name?.trim() ?? `(${L.x},${L.y})`;
+      let targetName = (L.target?.name ?? "－－－－")?.trim();
+      if (L.delegated) {
+        targetName = targetName === "－－－－" ? "委任" : `${targetName}(委)`;
+      }
+      const troops = (L.troops ?? 0) * 10;
+      const morale = L.morale ?? 200;
+      return {
+        cells: [
+          L.leader || "？",
+          `${troops}`,
+          `${morale}`,
+          curName,
+          targetName,
+        ],
+        _legion: L,
+        _curCity: curCity,
+      };
+    });
+
+    while (rows.length < 10) {
+      rows.push({
+        cells: ["－－－－", "－－－－", "－－－", "－－－－", "－－－－"],
+      });
+    }
+
+    this.openListDialog({
+      title: "",
+      titleBar: false,
+      header: ["武將名", "總兵數", "士氣值", "現在位置", "目標據點"],
+      cols: [
+        { x: 8, w: 72, align: "left" },
+        { x: 82, w: 62, align: "right" },
+        { x: 146, w: 54, align: "right" },
+        { x: 204, w: 84, align: "left" },
+        { x: 290, w: 84, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 220,
+      footer: {
+        text: "將游標移動至軍團的現在位置。",
+      },
+      onPickRow: (ri) => {
+        const row = rows[ri];
+        const L = row?._legion;
+        if (!L) return;
+        this.closeListDialog(true);
+
+        const view = this.app.view;
+        const curCity = row._curCity;
+        let wxp, wyp;
+        if (curCity) {
+          [wxp, wyp] = view.cityPixel(curCity);
+          view.selectedCity = curCity;
+          this.showCityCard(curCity);
+        } else {
+          wxp = L.x * 16 + 8;
+          wyp = L.y * 16 + 8;
+          view.selectedCity = null;
+        }
+
+        view.cam.x = innerWidth / 2 - wxp;
+        view.cam.y = innerHeight / 2 - wyp;
+        view.clampCam();
+
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      },
+      onCancel: () => {
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      },
+    });
+  }
+
+  /** 「行軍指示」: 列出我方军团并进入目标据点指示模式 (KI.EXE 0x62D2 & 0x7F90) */
+  showLegionMarchOrders() {
+    this.closeCityCard();
+    this.closeListDialog();
+    this.closeGeneralCard();
+    this.closeChoiceDialog();
+    this.closeBaseMenu();
+    this.closePersonnelMenu();
+    this.closeAdviceMenu();
+    this.closeProposalAudience();
+    this.closeMarchingOrder();
+    this.selectedSubmenu = 4; // 軍團
+    this.syncClock();
+
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!sc || !me) return;
+
+    const myLegions = (sc.legions ?? []).filter(
+      (L) => !L.dead && L.faction === me.idx,
+    );
+
+    const rows = myLegions.map((L) => {
+      const curCity = sc.cities.find((c) => c.x === L.x && c.y === L.y) || null;
+      const curName = curCity?.name?.trim() ?? `(${L.x},${L.y})`;
+      let targetName = (L.target?.name ?? "－－－－")?.trim();
+      if (L.delegated) {
+        targetName = targetName === "－－－－" ? "委任" : `${targetName}(委)`;
+      }
+      const troops = (L.troops ?? 0) * 10;
+      const morale = L.morale ?? 200;
+      return {
+        cells: [
+          L.leader || "？",
+          `${troops}`,
+          `${morale}`,
+          curName,
+          targetName,
+        ],
+        _legion: L,
+      };
+    });
+
+    while (rows.length < 10) {
+      rows.push({
+        cells: ["－－－－", "－－－－", "－－－", "－－－－", "－－－－"],
+      });
+    }
+
+    this.openListDialog({
+      title: "",
+      titleBar: false,
+      header: ["武將名", "總兵數", "士氣值", "現在位置", "目標據點"],
+      cols: [
+        { x: 8, w: 72, align: "left" },
+        { x: 82, w: 62, align: "right" },
+        { x: 146, w: 54, align: "right" },
+        { x: 204, w: 84, align: "left" },
+        { x: 290, w: 84, align: "left" },
+      ],
+      rows,
+      rowH: 18,
+      scrollbar: "right",
+      w: 480,
+      h: 220,
+      footer: {
+        text: "請選擇進行行軍指示之軍團。",
+      },
+      onPickRow: (ri) => {
+        const row = rows[ri];
+        const L = row?._legion;
+        if (!L) return;
+        this.closeListDialog(true);
+
+        // 进入目标据点指示模式 (大地图可平移拖拽，右侧显示军团详细面板，底部提示 Talk 3)
+        this.selectedSubmenu = 4;
+        this.marchingOrder = {
+          legion: L,
+          step: "pick_target",
+          targetCity: null,
+        };
+        this.syncClock();
+        this.app.view.draw();
+      },
+      onCancel: () => {
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      },
+    });
+  }
+
+  closeMarchingOrder() {
+    this.closeOrderChoiceMenu();
+    this.marchingOrder = null;
+    this.app.view.draw();
+  }
+
+  /** 弹出目标据点战斗指示选择菜单 (KI.EXE 0x7FDB - 0x804E, Talk 76) */
+  showOrderChoiceMenu(city) {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    const isCapital = me && city && city.idx === me.capital;
+    const items = isCapital
+      ? ["戰鬥指揮", "委　　任", "解　　體"]
+      : ["戰鬥指揮", "委　　任"];
+    const wTiles = 7;
+    const hTiles = items.length + 2;
+
+    const view = this.app.view;
+    const [wxp, wyp] = view.cityPixel(city);
+    const sx = view.sx(wxp);
+    const sy = view.sy(wyp);
+    const w = wTiles * 16;
+    const h = hTiles * 16;
+    const ox = Math.max(8, Math.min(innerWidth - w - 8, sx + 16));
+    const oy = Math.max(40, Math.min(innerHeight - h - 8, sy - 8));
+
+    this.orderChoiceMenu = {
+      city,
+      items,
+      ox,
+      oy,
+      wTiles,
+      hTiles,
+      hover: -1,
+    };
+    this.app.view.draw();
+  }
+
+  closeOrderChoiceMenu() {
+    if (!this.orderChoiceMenu) return;
+    this.orderChoiceMenu = null;
+    this.app.view.draw();
+  }
+
+  _hitOrderChoiceMenu(px, py) {
+    const m = this.orderChoiceMenu;
+    if (!m) return -1;
+    const { ox, oy, wTiles, hTiles, items } = m;
+    const x = ox + 8;
+    const y = oy + 8;
+    const w = (wTiles - 1) * 16;
+    const h = (hTiles - 1) * 16;
+    if (px >= x && px < x + w && py >= y && py < y + h) {
+      const rowH = h / items.length;
+      const i = Math.floor((py - y) / rowH);
+      return i >= 0 && i < items.length ? i : -1;
+    }
+    return -1;
+  }
+
+  _drawOrderChoiceMenu(ctx) {
+    const m = this.orderChoiceMenu;
+    if (!m) return;
+    const { ox, oy, wTiles, hTiles, items, hover } = m;
+    const win = this._drawWindow(ctx, ox, oy, wTiles, hTiles, "black");
+    const x = win ? win.x : ox + 8;
+    const y = win ? win.y : oy + 8;
+    const w = win ? win.w : (wTiles - 1) * 16;
+    const h = win ? win.h : (hTiles - 1) * 16;
+    const rowH = h / items.length;
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+
+    items.forEach((item, i) => {
+      const iy = y + i * rowH;
+      const isHover = hover === i;
+      if (isHover) {
+        ctx.fillStyle = "#ffe000";
+        ctx.fillRect(x + 1, iy + 1, w - 2, rowH - 2);
+        ctx.fillStyle = "#0000bb";
+      } else {
+        ctx.fillStyle = "#ffffff";
+      }
+      const tw = ctx.measureText(item).width;
+      ctx.fillText(item, x + (w - tw) / 2, iy + (rowH - 16) / 2 + 1);
+    });
+  }
+
+  /** 获取军团 6 队编制信息 */
+  _getLegionUnits(legion) {
+    if (Array.isArray(legion.units) && legion.units.length === 6) {
+      return legion.units;
+    }
+    const tot = (legion.troops ?? 0) * 10;
+    const per = Math.floor(tot / 6);
+    const rem = tot % 6;
+    const defaultTypes = [0, 0, 1, 1, 2, 2];
+    const units = defaultTypes.map((t, idx) => ({
+      name: ["主將", "前鋒", "左翼", "右翼", "左備", "右備"][idx],
+      type: t,
+      troops: per + (idx < rem ? 1 : 0),
+    }));
+    legion.units = units;
+    return units;
+  }
+
+  /** 军团解体: 将兵力全额返还势力预备兵池 (KI.EXE 0x463E & 0x4717) */
+  _disbandLegion(legion) {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me || !legion) return;
+
+    const units = this._getLegionUnits(legion);
+    for (const u of units) {
+      const count = u.troops || 0;
+      const poolAdd = Math.floor(count / 10);
+      if (u.type === 0) me.reserve_cav = (me.reserve_cav ?? 0) + poolAdd;
+      else if (u.type === 1) me.reserve_inf = (me.reserve_inf ?? 0) + poolAdd;
+      else if (u.type === 2) me.reserve_arc = (me.reserve_arc ?? 0) + poolAdd;
+    }
+
+    const gen = sc.generals?.find((g) => g.name === legion.leader);
+    if (gen) {
+      gen.status = 0;
+      gen.is_monarch = false;
+    }
+    const monarch = sc.monarchOf(me);
+    if (monarch && monarch.name === legion.leader) {
+      monarch.status = 0;
+      monarch.is_monarch = false;
+    }
+
+    legion.dead = true;
+    sc.legions = sc.legions.filter((l) => !l.dead && l !== legion);
+
+    this.app.hud?.flashEvent?.(
+      `「${legion.leader}」軍團已解體，兵員轉為預備兵。`,
+    );
+    this.app.hud?.refreshInfo?.();
+  }
+
+  /** 绘制行军指示全套 UI (右侧军团详细信息面板 + 底部 NPC 提示窗口) */
+  _drawMarchingOrder(ctx) {
+    const m = this.marchingOrder;
+    if (!m) return;
+
+    // 1. 绘制右侧 14×13 tiles 军团详细信息面板
+    this._drawLegionDetailPanel(ctx, m.legion);
+
+    // 2. 绘制底部 NPC 提示窗口 (Talk 3 / Talk 21)
+    const promptText =
+      m.step === "choose_order" && m.targetCity
+        ? `向${m.targetCity.name.trim()}移動下。請下達戰鬥指示。`
+        : "請指示行軍目標之據點。";
+    this._drawBottomPromptWindow(ctx, promptText);
+  }
+
+  /** 绘制军团详细信息面板 (14×13 tiles = 224×208, KI.EXE 0x807B & 0x812A) */
+  _drawLegionDetailPanel(ctx, legion) {
+    if (!legion) return;
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    if (!me) return;
+
+    const W = innerWidth;
+    const pw = 224;
+    const ph = 208;
+    const px = W - pw - 4;
+    const res = this.panelRect("res");
+    const targetY = res ? res.y + res.h + 8 : 36;
+    let py = targetY;
+    if (targetY + ph > innerHeight - 8) {
+      py = res ? res.y : 36;
+    }
+
+    const win = this._drawWindow(ctx, px, py, 14, 13, "cloud");
+    const x = win ? win.x : px + 8;
+    const y = win ? win.y : py + 8;
+
+    const gen = sc.generals?.find((g) => g.name === legion.leader);
+    const monarch = sc.monarchOf(me);
+    const isMonarch = legion.is_monarch || gen?.name === monarch?.name;
+
+    // 1. 头像 64x64
+    const portraitKey = gen?.portrait ?? monarch?.portrait;
+    if (this._legionPortraitKey !== portraitKey) {
+      this._legionPortraitKey = portraitKey;
+      this._legionPortraitImg = null;
+      portrait(portraitKey)
+        .then((img) => {
+          this._legionPortraitImg = img;
+          this.app.view.draw();
+        })
+        .catch(() => {});
+    }
+    if (this._legionPortraitImg) {
+      ctx.drawImage(this._legionPortraitImg, 0, 0, 128, 128, x, y, 64, 64);
+    } else {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(x, y, 64, 64);
+    }
+
+    // 2. 右侧信息: 將軍/君主, 首都, 總兵力, 士氣值
+    const cap = sc.city(me.capital);
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+    const infoRows = [
+      [isMonarch ? "君主" : "將軍", legion.leader || "？", false],
+      ["首都", cap?.name?.trim() ?? "無", false],
+      ["總兵力", `${(legion.troops ?? 0) * 10}`, true],
+      ["士氣值", `${legion.morale ?? 200}`, true],
+    ];
+
+    infoRows.forEach(([label, val, isNum], i) => {
+      const iy = y + i * 16;
+      ctx.fillStyle = CREAM;
+      ctx.fillText(label, x + 72, iy);
+      ctx.fillStyle = "#ffffff";
+      if (isNum) {
+        ctx.font = DIN;
+        ctx.fillText(val, x + 130, iy);
+        ctx.font = FONT;
+      } else {
+        ctx.fillText(val, x + 130, iy);
+      }
+    });
+
+    // 竖直分隔白线
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 118.5, y + 2);
+    ctx.lineTo(x + 118.5, y + 62);
+    ctx.stroke();
+
+    // 3. 下方 6 队编制
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(x, y + 68, 208, 116);
+
+    const unitNames = ["主將", "前鋒", "左翼", "右翼", "左備", "右備"];
+    const units = this._getLegionUnits(legion);
+    const { cav, arc, inf } = this.imgs;
+    const typeImgs = [cav, inf, arc];
+
+    units.forEach((u, i) => {
+      const uy = y + 72 + i * 18;
+      // 编制名称
+      ctx.fillStyle = CREAM;
+      ctx.fillText(unitNames[i] || "隊伍", x + 8, uy);
+
+      // 红底兵种图标
+      const rx = x + 76;
+      const ry = uy + 1;
+      const rw = 22;
+      const rh = 14;
+      ctx.fillStyle = "#d00000";
+      ctx.fillRect(rx, ry, rw, rh);
+      const img = typeImgs[u.type ?? 0];
+      if (img) {
+        ctx.drawImage(img, rx, ry, rw, rh);
+      }
+
+      // 兵力数值
+      ctx.font = DIN;
+      ctx.fillStyle = "#ffffff";
+      const s = `${u.troops ?? 0}`;
+      ctx.fillText(s, x + 192 - ctx.measureText(s).width, uy);
+      ctx.font = FONT;
+    });
+  }
+
+  _hitLegionDetailPanel(px, py) {
+    if (!this.marchingOrder) return false;
+    const W = innerWidth;
+    const pw = 224;
+    const ph = 208;
+    const px0 = W - pw - 4;
+    const res = this.panelRect("res");
+    const targetY = res ? res.y + res.h + 8 : 36;
+    let py0 = targetY;
+    if (targetY + ph > innerHeight - 8) {
+      py0 = res ? res.y : 36;
+    }
+    return px >= px0 && px < px0 + pw && py >= py0 && py < py0 + ph;
+  }
+
+  /** 绘制底部统一规格信息提示窗口 (480×80, 30×5 tiles, 黑底金框 + NPC 头像 + 白字折行) */
+  _drawBottomPromptWindow(ctx, rawText) {
+    if (!this.imgs?.messageNpc) return;
+    const fw = 480;
+    const fh = 64;
+    const fx = Math.round((innerWidth - fw) / 2);
+    const fy = innerHeight - 64 - 24; // 8px 底部间隙
+    const ftw = Math.ceil((fw + 16) / 16);
+    const fth = Math.ceil((fh + 16) / 16);
+    const { x, y } = this._drawWindow(ctx, fx, fy, ftw, fth, "black");
+    const ph = 64;
+    ctx.drawImage(this.imgs.messageNpc, x, y, ph, ph);
+    ctx.font = FONT;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#ffffff";
+    const tx = x + ph + 14;
+    const maxTextW = Math.max(40, (ftw - 1) * 16 - ph - 28);
+
+    const lines = [];
+    for (const paragraph of String(rawText ?? "").split("\n")) {
+      if (!paragraph) {
+        lines.push("");
+        continue;
+      }
+      let cur = "";
+      for (const char of paragraph) {
+        if (ctx.measureText(cur + char).width > maxTextW) {
+          lines.push(cur);
+          cur = char;
+        } else {
+          cur += char;
+        }
+      }
+      if (cur) lines.push(cur);
+    }
+
+    const lineH = 18;
+    const totalH = lines.length * lineH;
+    const textStartY = y + Math.max(0, Math.floor((ph - totalH) / 2));
+    lines.forEach((line, li) => {
+      ctx.fillText(line, tx, textStartY + li * lineH);
+    });
+  }
+
+  _hitBottomPromptWindow(px, py) {
+    if (!this.marchingOrder) return false;
+    const fw = 480;
+    const fh = 64;
+    const fx = Math.round((innerWidth - fw) / 2);
+    const fy = innerHeight - 64 - 24;
+    return px >= fx - 8 && px < fx + fw + 8 && py >= fy - 8 && py < fy + fh + 8;
   }
 
   /** 军师子菜单「據點」二级下拉菜单 (首都確認 / 據點一覽) */
@@ -1263,7 +1912,7 @@ export class GameBar {
 
     // 迁都评估 (KI.EXE 0x6951): 比较新城与旧城 tier (type) 与生产力
     const curCap =
-      (me.capital != null ? sc.cities[me.capital] : null) || targetCity;
+      (me.capital == null ? null : sc.cities[me.capital]) || targetCity;
     const isBetter =
       (targetCity.type ?? 2) <= (curCap.type ?? 2) &&
       (targetCity.prod ?? 0) >= (curCap.prod ?? 0) * 0.7;
@@ -1538,7 +2187,7 @@ export class GameBar {
         p.monarch.status = 1;
         p.monarch.is_monarch = true;
         const cap =
-          (me.capital != null ? sc.cities[me.capital] : null) ||
+          (me.capital == null ? null : sc.cities[me.capital]) ||
           sc.citiesOf(me.idx)[0];
 
         if (!sc.legions) sc.legions = [];
@@ -1593,9 +2242,7 @@ export class GameBar {
           "",
           p.advName,
         );
-        this.app.hud.flashEvent(
-          `君主目前不便出陣。`,
-        );
+        this.app.hud.flashEvent(`君主目前不便出陣。`);
         this.app.view.draw();
         this._setProposalTimer(3000, () => {
           this.closeProposalAudience();
@@ -4064,8 +4711,12 @@ export class GameBar {
         this.adviceMenu ||
         this.proposalAudience ||
         this.formationDialog ||
+        this.formationQuote ||
         this.financeDialog ||
-        this.keypadDialog
+        this.keypadDialog ||
+        this.legionMenu ||
+        this.marchingOrder ||
+        this.orderChoiceMenu
       );
     const subActive = this.selectedSubmenu != null;
     c.hold = modalOpen || subActive; // 点击军师菜单项时停止计时
@@ -4079,10 +4730,29 @@ export class GameBar {
   // ── 命中测试: 返回 true = 坐标在 UI 上, 地图交互不处理 ──
   hitTest(px, py) {
     this.layout();
+    // 当行军指示处于选择目标据点状态时，允许在地图上拖拽平移与点击据点
+    if (this.marchingOrder) {
+      if (this.orderChoiceMenu && this._hitOrderChoiceMenu(px, py) >= 0) {
+        return true;
+      }
+      if (py < 32 && px >= this.bx && px < this.bx + 640) return true;
+      if (this._hitLegionDetailPanel(px, py)) return true;
+      if (this._hitBottomPromptWindow(px, py)) return true;
+      if (
+        this.panels.some(
+          (p) => px >= p.x && px < p.x + p.w && py >= p.y && py < p.y + p.h,
+        )
+      ) {
+        return true;
+      }
+      return false;
+    }
+
     // ★军师菜单下任何一个菜单被选中打开时，整个游戏地图锁定不可移动，地图上的操作全部无效
     if (this.selectedSubmenu != null) return true;
     if (this.proposalAudience) return true;
     if (this.adviceMenu) return true;
+    if (this.legionMenu) return true;
     if (this.choiceDialog) return true;
     if (this.baseMenu) return true;
     if (this.personnelMenu) return true;
@@ -4113,7 +4783,7 @@ export class GameBar {
   }
 
   /** 点击分发: 消费返回 true */
-  click(px, py, btn = 0) {
+  click(px, py, btn = 0, target = null) {
     this.layout();
 
     // ★右键层级回退规则 (用户定稿):
@@ -4121,6 +4791,30 @@ export class GameBar {
     //    取消该菜单上所有被选项，所有菜单恢复未被选中状态，并立即开始计时。
     // 2. 若已回退到该菜单上且已无被选项，再次右键才关闭子菜单条本身。
     if (btn === 2) {
+      if (this.orderChoiceMenu) {
+        clickSfx();
+        this.closeOrderChoiceMenu();
+        if (this.marchingOrder) {
+          this.marchingOrder.step = "pick_target";
+          this.marchingOrder.targetCity = null;
+        }
+        this.app.view.draw();
+        return true;
+      }
+      if (this.marchingOrder) {
+        clickSfx();
+        this.closeMarchingOrder();
+        this.showLegionMarchOrders();
+        return true;
+      }
+      if (this.legionMenu) {
+        clickSfx();
+        this.closeLegionMenu();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+        return true;
+      }
       if (this.proposalAudience) {
         clickSfx();
         this.closeProposalAudience();
@@ -4177,6 +4871,9 @@ export class GameBar {
       const hadBaseMenu = Boolean(this.baseMenu);
       const hadPersonnelMenu = Boolean(this.personnelMenu);
       const hadAdviceMenu = Boolean(this.adviceMenu);
+      const hadLegionMenu = Boolean(this.legionMenu);
+      const hadMarchingOrder = Boolean(this.marchingOrder);
+      const hadOrderChoice = Boolean(this.orderChoiceMenu);
       const hadProposal = Boolean(this.proposalAudience);
       const hadSubActive = this.selectedSubmenu != null;
       const hadList = Boolean(this.listDialog);
@@ -4194,6 +4891,9 @@ export class GameBar {
 
       if (
         hadAdviceMenu ||
+        hadLegionMenu ||
+        hadMarchingOrder ||
+        hadOrderChoice ||
         hadProposal ||
         hadBaseMenu ||
         hadPersonnelMenu ||
@@ -4211,6 +4911,9 @@ export class GameBar {
         clickSfx();
         if (hadProposal) this.closeProposalAudience();
         if (hadAdviceMenu) this.closeAdviceMenu();
+        if (hadLegionMenu) this.closeLegionMenu();
+        if (hadOrderChoice) this.closeOrderChoiceMenu();
+        if (hadMarchingOrder) this.closeMarchingOrder();
         if (hadKeypad) this.closeKeypadDialog();
         if (hadFinance) this.closeFinanceDialog();
         if (hadFormation) this.closeFormationDialog();
@@ -4220,7 +4923,7 @@ export class GameBar {
         if (hadChoice) this.closeChoiceDialog();
         if (hadCard) this.closeCityCard();
         if (hadAdv) this.app.hud?.resolveAdvice?.(null);
-        domDlgs.forEach((el) => el.remove());
+        for (const el of domDlgs) el.remove();
         this.selectedSubmenu = null; // 取消菜单上所有的被选项
         if (this.app?.view) this.app.view.selectedCity = null; // 取消据点选中状态
         this.syncClock(); // 开始计时!
@@ -4309,6 +5012,95 @@ export class GameBar {
             `「${this.adviceMenu.items[i]}」界面還原中…（右鍵取消返回）`,
           );
           this.app.view.draw();
+          return true;
+        }
+      }
+      return true;
+    }
+
+    if (this.legionMenu) {
+      const i = this._hitLegionMenu(px, py);
+      if (btn === 0) {
+        if (i === 0) {
+          // 位置確認
+          clickSfx();
+          this.closeLegionMenu();
+          this.selectedSubmenu = 4;
+          this.syncClock();
+          this.showLegionLocate();
+          return true;
+        }
+        if (i === 1) {
+          // 行軍指示
+          clickSfx();
+          this.closeLegionMenu();
+          this.selectedSubmenu = 4;
+          this.syncClock();
+          this.showLegionMarchOrders();
+          return true;
+        }
+      }
+      return true;
+    }
+
+    if (this.marchingOrder) {
+      if (btn === 0) {
+        const sc = this.app.scenario;
+        const L = this.marchingOrder.legion;
+
+        // 如果命令菜单已展开
+        if (this.orderChoiceMenu) {
+          const ci = this._hitOrderChoiceMenu(px, py);
+          if (ci >= 0) {
+            clickSfx();
+            const targetCity = this.marchingOrder.targetCity;
+            if (ci === 0) {
+              // 戰鬥指揮 (玩家战术指挥)
+              L.target = targetCity;
+              L.delegated = false;
+              L.cooldown = 1;
+              this.app.hud?.flashEvent?.(
+                `「${L.leader}」隊向「${targetCity.name.trim()}」出發。`,
+              );
+            } else if (ci === 1) {
+              // 委任 (AI自主指挥)
+              L.target = targetCity;
+              L.delegated = true;
+              L.cooldown = 1;
+              this.app.hud?.flashEvent?.(
+                `「${L.leader}」隊委任向「${targetCity.name.trim()}」進軍。`,
+              );
+            } else if (ci === 2) {
+              // 解體 (仅限首都)
+              this._disbandLegion(L);
+            }
+            this.closeOrderChoiceMenu();
+            this.closeMarchingOrder();
+            this.showLegionMarchOrders();
+            return true;
+          }
+        }
+
+        // 检查是否点击了地图上的据点
+        let clickedCity = target?.type === "city" ? target.city : null;
+        if (!clickedCity && sc?.cities) {
+          const view = this.app.view;
+          for (const c of sc.cities) {
+            const [wxp, wyp] = view.cityPixel(c);
+            const sx = view.sx(wxp);
+            const sy = view.sy(wyp);
+            if (Math.hypot(px - sx, py - sy) <= 18) {
+              clickedCity = c;
+              break;
+            }
+          }
+        }
+
+        if (clickedCity) {
+          clickSfx();
+          this.marchingOrder.targetCity = clickedCity;
+          this.marchingOrder.step = "choose_order";
+          this.showOrderChoiceMenu(clickedCity);
           return true;
         }
       }
@@ -4527,6 +5319,8 @@ export class GameBar {
             this.closeFormationDialog?.();
             this.closeFinanceDialog?.();
             this.closeKeypadDialog?.();
+            this.closeLegionMenu?.();
+            this.closeMarchingOrder?.();
             this.closeCityCard?.();
             this.closeChoiceDialog?.();
             const advDlg = document.querySelector("#advisordlg");
@@ -4625,6 +5419,26 @@ export class GameBar {
       }
       return changed;
     }
+    if (this.orderChoiceMenu) {
+      const old = this.orderChoiceMenu.hover;
+      this.orderChoiceMenu.hover = this._hitOrderChoiceMenu(px, py);
+      if (old !== this.orderChoiceMenu.hover) changed = true;
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
+      return changed;
+    }
+    if (this.legionMenu) {
+      const old = this.legionMenu.hover;
+      this.legionMenu.hover = this._hitLegionMenu(px, py);
+      if (old !== this.legionMenu.hover) changed = true;
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
+      return changed;
+    }
     if (this.baseMenu) {
       const old = this.baseMenu.hover;
       this.baseMenu.hover = this._hitBaseMenu(px, py);
@@ -4712,6 +5526,7 @@ export class GameBar {
     if (i === 1) return this.showPersonnelMenu(); // 人事
     if (i === 2) return this.showFinanceDialog(); // 財政
     if (i === 3) return hud.showFormation(); // 編成
+    if (i === 4) return this.showLegionMenu(); // 軍團
     if (i === 5) return this.showBaseMenu(); // 據點
     if (i === 6) return hud.showGenerals(); // 武將
     if (i === 7) return hud.showFactions(); // 勢力
@@ -4881,6 +5696,15 @@ export class GameBar {
     }
     if (this.adviceMenu) {
       this._drawAdviceMenu(ctx);
+    }
+    if (this.legionMenu) {
+      this._drawLegionMenu(ctx);
+    }
+    if (this.marchingOrder) {
+      this._drawMarchingOrder(ctx);
+    }
+    if (this.orderChoiceMenu) {
+      this._drawOrderChoiceMenu(ctx);
     }
     if (this.proposalAudience) {
       this._drawProposalAudience(ctx);

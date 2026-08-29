@@ -447,8 +447,8 @@ export function aiTick(app) {
       A.cooldown--;
       continue;
     } // 复刻冷却[si+0x857]
-    // ★玩家势力军团由玩家指挥 (編成/軍團菜单指派目标), AI 不自动决策攻城
-    if (A.faction === sc.player_faction) {
+    // ★玩家势力军团由玩家指挥 (編成/軍團菜单指派目标), 委任状态 (delegated) 或敌对势力由 AI 决策
+    if (A.faction === sc.player_faction && !A.delegated) {
       if (!A.target) continue;
       stepTo(sc, A, A.target.x, A.target.y);
       if (A.target && A.x === A.target.x && A.y === A.target.y) {
