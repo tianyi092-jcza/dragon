@@ -696,7 +696,7 @@ export class GameBar {
       footer: {
         text: "請選擇進行行軍指示之軍團。",
       },
-      onPickRow: (ri) => {
+      onPick: (ri) => {
         const row = rows[ri];
         const L = row?._legion;
         if (!L || L.faction !== me?.idx) return;
@@ -872,7 +872,7 @@ export class GameBar {
       footer: {
         text: "將游標移動至軍團的現在位置。",
       },
-      onPickRow: (ri) => {
+      onPick: (ri) => {
         const row = rows[ri];
         const L = row?._legion;
         if (!L) return;
@@ -886,8 +886,10 @@ export class GameBar {
           view.selectedCity = curCity;
           this.showCityCard(curCity);
         } else {
-          wxp = L.x * 16 + 8;
-          wyp = L.y * 16 + 8;
+          const t = this.app.clock?.dayProgress ?? 1;
+          const pos = view.getLegionRenderPos(L, t);
+          wxp = pos.wxp;
+          wyp = pos.wyp;
           view.selectedCity = null;
         }
 
@@ -975,7 +977,7 @@ export class GameBar {
       footer: {
         text: "請選擇進行行軍指示之軍團。",
       },
-      onPickRow: (ri) => {
+      onPick: (ri) => {
         const row = rows[ri];
         const L = row?._legion;
         if (!L) return;
