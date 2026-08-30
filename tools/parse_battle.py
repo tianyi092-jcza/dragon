@@ -10,11 +10,15 @@
     每次读取4096B = **64×64 图块索引表**(16px图块 → 1024px战场)。
 - BATTLE.MDL (194560B): 1520 × 128B = 16×16 16色4平面planar图块集(与MMAP.MDL同族,
     行内2B对、平面步进32B)。KI.EXE 按 u16*256 定位读取 256B 子块
-- BATTLE.SCH (115200B): 第二图块集, 900 × 128B 同格式
+- BATTLE.SCH (115200B): CAEB按layout*0x100读取256B战术动画/调度块；
+    其余数据用途尚未完全命名，不能再整体解释为900个图形tile
+- BATTLE.MDL 内含三个layout的0xF800图形/属性大块：偏移0x1000+layout*0xF800，
+    D302指向该块，BCA6/BB3C/BBA6从其每tile 8字节描述生成高度、坡道、
+    方向mask与BD46路径代价
 - BATTLE.DAT (8192B): 32 × 256B 配置块; KI.EXE 0xCBE5 以 (军团记录byte[0x4256]*4+序号)<<8
     为偏移读取 —— 军团(0x2240区)每军种的图形/参数配置, 依赖军团区逆向(#7)
 
-输出: web/grf/battle_map_{0,1,2}.png (三种布局, MDL图块集渲染)
+输出: web/grf/battle_map_{0,1,2}.png (三种1024×1024完整布局, MDL图块集渲染)
       web/grf/battle_atlas_{mdl,sch}.png (图块集总览)
 """
 
@@ -64,7 +68,7 @@ def tile128(tb):
     return px
 
 
-def save(px, w, h, name, scale=2):
+def save(px, w, h, name, scale=1):
     img = Image.new("P", (w, h))
     img.putpalette([c for rgb in PAL for c in rgb])
     pp: Image.Image.load = img.load()  # type: ignore[assignment]
@@ -114,6 +118,7 @@ def main():
     field_directory_indices = range(0xC0, 0xD6)
     referenced_directory_indices = set(range(214)) | set(field_directory_indices)
     seen = set()
+    layout_tiles = {}  # 战术碰撞/城壁对象直接消费的64×64原始图块索引
     city_layouts = []  # ★战斗系统: 城池→(地形主题,战场布局) 索引
     for c in range(214):
         layout, theme = bmap[c * 2], bmap[c * 2 + 1] & 0xFF
@@ -129,6 +134,7 @@ def main():
         seen.add(layout)
         off = layout * 256 + 0x200
         mc = bmap[off : off + 4096]
+        layout_tiles[str(layout)] = list(mc)
         img = Image.new("P", (64 * 16, 64 * 16))
         img.putpalette([c2 for rgb in PAL for c2 in rgb])
         pp: Image.Image.load = img.load()  # type: ignore[assignment]
@@ -138,9 +144,7 @@ def main():
             for y in range(16):
                 for x in range(16):
                     pp[cx + x, cy + y] = t[y][x]
-        img.resize((512, 512), Image.Resampling.NEAREST).save(
-            os.path.join(OUT, f"battle_map_{layout}.png")
-        )
+        img.save(os.path.join(OUT, f"battle_map_{layout}.png"))
     print(f"battle maps: layouts {sorted(seen)}")
 
     # 战场布局索引 → web/battle_maps.json (battle.js 按 c.idx 查 layout)
@@ -164,7 +168,11 @@ def main():
             encoding="utf-8",
         ) as f:
             json.dump(
-                {"cities": city_layouts, "directory": directory},
+                {
+                    "cities": city_layouts,
+                    "directory": directory,
+                    "layouts": layout_tiles,
+                },
                 f,
                 ensure_ascii=False,
             )

@@ -18,8 +18,9 @@ import { EndView } from "./render/endview.js";
 import { OpenView } from "./render/openview.js";
 import { StartMenu } from "./ui/startmenu.js";
 import * as speaker from "./core/speaker.js";
-import { createBattle, createFieldBattle } from "./game/battle.js";
+import { createBattle, createFieldBattle } from "./game/tacticalbattle.js";
 import { applyBattleResult, applyFieldBattleResult } from "./game/ai.js";
+import { createOriginalBattleRng } from "./game/battle/originalrng.js";
 import {
   initSaveAssets,
   serializeSave,
@@ -34,9 +35,12 @@ const app = {
   view: null,
   hud: null,
   battleMaps: null, // BATTLE.MAP 城池→战场布局索引
+  battleNavigation: null, // CAEB/BB3C/BBA6 原版tile属性与导航源
   tacticalSpeed: 2,
   tacticalSpeedFactor: 1.0,
   soundType: 1,
+  originalRng: null,
+  activeBattleRng: null,
 
   /** 游戏结束：清理运行态并返回首页开局选单 (YES/NO) */
   async returnToTitle(initialAction) {
@@ -90,26 +94,25 @@ const app = {
   /** 开战: 战术层接管 (玩家军团攻城/敌军犯境时由 ai.resolveBattle 调用) */
   startBattle(A, city, D = null) {
     const battle = createBattle(this.scenario, A, city, this.battleMaps, D);
-    this.battleView.open(
-      battle,
-      ({ winner, atkLeft, atkUnits, defLeft, defUnits, wallRecords }) => {
-        applyBattleResult(
-          this,
-          A,
-          city,
-          winner,
-          atkLeft,
-          atkUnits,
-          null,
-          wallRecords,
-          D,
-          defLeft,
-          defUnits,
-        );
-        this.hud.buildLegend();
-        this.view.draw();
-      },
-    );
+    this.battleView.open(battle, (exit) => {
+      this.activeBattleRng = exit.strategicRng;
+      applyBattleResult(
+        this,
+        A,
+        city,
+        exit.winnerName,
+        null,
+        null,
+        null,
+        null,
+        D,
+        null,
+        null,
+        exit,
+      );
+      this.hud.buildLegend();
+      this.view.draw();
+    });
   },
 
   /** 野外战：双方均为军团，不借用城池结算。 */
@@ -126,23 +129,22 @@ const app = {
       this.battleMaps,
       terrain,
     );
-    this.battleView.open(
-      battle,
-      ({ winner, atkLeft, defLeft, atkUnits, defUnits }) => {
-        applyFieldBattleResult(
-          this,
-          A,
-          D,
-          winner,
-          atkLeft,
-          defLeft,
-          atkUnits,
-          defUnits,
-        );
-        this.hud.buildLegend();
-        this.view.draw();
-      },
-    );
+    this.battleView.open(battle, (exit) => {
+      this.activeBattleRng = exit.strategicRng;
+      applyFieldBattleResult(
+        this,
+        A,
+        D,
+        exit.winnerName,
+        null,
+        null,
+        null,
+        null,
+        exit,
+      );
+      this.hud.buildLegend();
+      this.view.draw();
+    });
   },
 
   checkTrustGameOver() {
@@ -183,6 +185,8 @@ const app = {
   loadState(raw, idx) {
     this.scenarioIdx = idx;
     this.scenario = new Scenario(raw);
+    this.originalRng ??= createOriginalBattleRng();
+    this.activeBattleRng = this.originalRng;
     loadTerrain().catch((error) =>
       console.error("strategic map navigation assets failed to load", error),
     );
@@ -263,6 +267,11 @@ const app = {
     if (!sv) return false;
     // 深拷贝: 游玩会改写 state(军团移动/死亡), 保留原始存档以便重复读档
     this.loadState(structuredClone(sv.state), sv.scenario_idx);
+    const rngSnapshot = sv.webMeta?.originalRng;
+    if (rngSnapshot) {
+      this.originalRng.restore(rngSnapshot);
+      this.activeBattleRng = this.originalRng;
+    }
     // ★可选#3: 恢复存档日期 (槽头 CS:[0xCF0] 块, parse_save.py → state.save_date)
     const d = sv.state?.save_date;
     if (d) {
@@ -378,6 +387,10 @@ try {
   app.saves = await loadJSON("save.json"); // SAVE.DAT 四槽 (parse_save.py)
 }
 app.battleMaps = await loadJSON("battle_maps.json"); // BATTLE.MAP 目录 (parse_battle.py)
+app.battleNavigation = await loadJSON("battle_navigation.json");
+app.battleMaps.navigation = app.battleNavigation;
+const battleRules = await loadJSON("battle_rules.json");
+app.battleMaps.formationVectors = battleRules.formationVectors;
 app.battleScripts = await loadJSON("battle_scripts.json"); // BATTLE.DAT 32块开场脚本 (battlescript.js 回放)
 app.battleView = new BattleView(document.querySelector("#bcv"), app);
 app.diploView = new DiploView(document.querySelector("#diplov"), app);

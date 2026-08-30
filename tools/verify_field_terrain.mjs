@@ -5,7 +5,7 @@ const { loadTerrain } = await import("../web/src/game/pathfind.js");
 const { classifyFieldBattleTerrain, fieldTerrainClass } = await import(
   "../web/src/game/fieldterrain.js"
 );
-const { createFieldBattle } = await import("../web/src/game/battle.js");
+const { createFieldBattle } = await import("../web/src/game/tacticalbattle.js");
 
 function parseJson(bytes, label) {
   try {

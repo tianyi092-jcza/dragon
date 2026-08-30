@@ -53,7 +53,8 @@ def parse_legions(slot: bytes) -> tuple[list, list]:
         r = slot[LEGION_BASE + j * LEGION_SIZE : LEGION_BASE + (j + 1) * LEGION_SIZE]
         delayed_return = r[0] == 0x08 and r[0x03] > 0
         if delayed_return:
-            lead = big16(r[2:4])
+            # 0x2977槽的+2是武将索引字节，+3独立为48次调度倒计时。
+            lead = r[2]
             delayed_returns.append(
                 {
                     "leader": lead if lead < 128 else None,
@@ -91,6 +92,11 @@ def parse_legions(slot: bytes) -> tuple[list, list]:
                 "units": units,
                 "returnCountdown": r[0x03] if delayed_return else None,
                 "_active": not delayed_return,
+                "targetNode": big16(r[0x14:0x16]),
+                "targetX": big16(r[0x16:0x18]),
+                "targetY": big16(r[0x18:0x1A]),
+                "targetCity": r[0x20],
+                "commandState": r[0x23],
                 # 正常战略标识：+9=势力 march_marker_style*5，+8=西/东/北/南/驻止帧。
                 "marker_base": r[0x09],
                 "marker_frame": r[0x08],

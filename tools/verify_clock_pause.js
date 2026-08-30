@@ -51,4 +51,4 @@ globalThis.__verifyClockPause = async (page) => {
     "Lowest strategic speed was not preserved across pause/resume",
   );
   return result;
-}
+};

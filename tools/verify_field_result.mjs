@@ -92,7 +92,7 @@ assert.equal(D._retreat.cityIdx, 1);
 assert.equal(A.units[0].troops, 370);
 assert.equal(D.units[0].troops, 220);
 assert.equal(A.morale, 74);
-assert.equal(D.morale, 22);
+assert.equal(D.morale, 21);
 for (const legion of [A, D]) {
   assert.equal(legion._engagement, null);
   assert.equal(legion._markerFrame, 4);

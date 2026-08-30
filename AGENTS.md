@@ -31,8 +31,18 @@
 | `web/src/game/roadgraph.js` | 原版 192 节点/254 边道路拓扑、加权寻径、道路格到端点方向 |
 | `web/src/game/fieldterrain.js` | `0x4B63` 野战地形分类、BATTLE.MAP 目录与镜像选择 |
 | `web/src/game/autobattle.js` | `0x5130/0x5285/0x52D7` 野战/攻城速算、城池损伤纯函数 |
-| `web/src/game/battle.js` | 战术战斗对象、六单位映射、野战与攻城参战方构造 |
-| `web/src/render/battleview.js` | 战术渲染、镜像战场、单位结果和城壁记录回传 |
+| `web/src/game/tacticalbattle.js` / `game/battle/` | 战术战斗入口；当前实时模型将逐步替换为原版规则兼容模拟器 |
+| `web/src/game/battle/originalrng.js` | KI.EXE `0xEC82/0xECE0` 原版随机源与可回放状态 |
+| `web/src/game/battle/originalstate.js` / `originalcommands.js` | 原版 `0xC00` 对象池、字节字段、命令广播与切换 |
+| `web/src/game/battle/originalinit.js` | `0x9E97→0x9AF4→0x9C45` 两侧临时记录、6×8对象模板和固定96次RNG激活 |
+| `web/src/game/battle/originalsession.js` / `originaltargeting.js` | 固定逻辑帧、确定性输入回放与 `0xA85B` 目标选择 |
+| `web/src/game/battle/originalcollision.js` / `originalresult.js` | 原版碰撞伤害、活动对象回组六队及战后士气 |
+| `web/src/game/battle/originalmovement.js` / `originalmoveframe.js` | 四向/上下层探针、AF65移动状态机与B240占用提交 |
+| `web/src/game/battle/originalpathqueue.js` | C653/AED2环形队列、0x3000路径区与B00D路径项 |
+| `web/src/game/battle/originalnavigation.js` | CAEB/BB3C/BBA6地图资产、双平面导航与高度描述 |
+| `web/src/game/battle/originalpathfinder.js` | BD46..BFF1双平面代价寻路与64项回溯 |
+| `web/src/game/battle/originalmapobjects.js` | 9CB3/9CE2/9DA1地图对象与B5B7/B824城壁碰撞 |
+| `web/src/render/battleview.js` | Web 战术表现层、镜像战场、单位结果和城壁记录回传 |
 | `web/src/render/mapview.js` | 战略地图、道路路线、军团标识和接敌动画 |
 | `web/src/game/savegame.js` | SAVE.DAT 镜像、槽位 patch、军团和延迟回归状态序列化 |
 | `web/src/ui/gamebar.js` | 顶栏、军师菜单、主要 Canvas 列表和地图锁定 |
@@ -106,7 +116,7 @@ playwright-cli close
 4. **野战防守方**：`0x4C72` 从同坐标候选中选一个最强主军，不合并所有军团，也不能用 synthetic city 冒充。
 5. **撤退语义**：`0x291A` 不是“退到最近据点”；它是无法继续行动后的武将去向分派。
 6. **战术城损**：没有真实 `wallRecords` 时不得用 `defLeft`、战略 ratio 或臆造 metric 写城损。
-7. **存档途中导航**：二进制 SAVE 当前只保存军团坐标与稳定字段，不保存 edge/stride/point 指针；载入后重建导航。
+7. **存档途中导航**：二进制 SAVE保存status、目标节点/坐标/城和命令态，但不保存运行时edge/stride/point指针；载入后重建导航。Web私有完整RNG快照只进即时JSON metadata，不占SAVE.DAT未知尾段。
 8. **渲染纯度**：地图和小地图只能读取导航状态，不能由绘制函数推进或修改军团路线。
 9. **自动格式化**：pi-lens 可能在回合结束后改写格式；继续编辑前重读相关文件，尤其 `ai.js`、`autobattle.js`、`savegame.js` 和验证脚本。
 10. **工作区隔离**：提交前按功能审查改动，禁止用整体 reset/clean 处理含未提交工作的工作区。
@@ -124,7 +134,9 @@ playwright-cli close
 - `0x4DA4` 破城同城守军组撤退；
 - 玩家委任军团命令优先与自动战斗行为。
 
-**当前主线：战术攻城城壁对象状态机。**
-已知 `0xA65D→0x9FF8` 的最终城损聚合公式，但尚未移植 `0x9B40` 城壁对象初始化、受击和 bit/metric 更新；在此之前战术攻城没有真实 `wallRecords` 时明确不写城损。
+**当前主线：原版战术规则兼容模拟器。**
+产品定稿要求是“动画可以不同，但胜负、六队伤亡、士气、城壁与据点城损必须按原版”。当前 Web 实时 `simulation.js` 的伤害、士气、克制、冲锋、齐射和超时判胜均只是临时表现模型，不得作为最终规则。已闭合城壁对象构造/metric/破坏bit/战后城损、KI.EXE `0xEC82/0xECE0` 原版随机源、`0xC00` 对象池、固定逻辑帧、命令广播、目标选择、碰撞伤害与精确 RNG 短路、六队对象初始化/固定96次RNG激活、玩家/AI命令跳表、`A754/A785` 96槽顺序、`AA2C`阵型目标、活动子对象`A7FD`、四向及`B0D3/B116`上下层探针、`ABD2/ABFF/AC55`攻击入口、`AD2D/AD7F`与`B8AA`固定效果槽、`ADC8/AEA9`活动计数，以及战后六组/士气；真实自动撤退为首对象 `+3 < 0x32`，并包含mode0每10帧HP衰减，绝不是Web临时士气12/兵力25%。效果对象`B941→B97E→BA2E→BAB7`逐帧生命周期、`B1B1`真实平面探针及`0x9FDC`战术退出也已闭合。`C653→AED2`队列与`B00D`路径项、战后`0x291A`严格原版字节RNG，以及原版会话对Canvas正式tick/finish/命令接管均已完成；B00D路径区已修正为0x3000字节，双方无别名；UI命令使用固定帧队列，组长/子槽同步；`B240`占用提交与`AF65..B00C`移动状态机已正式接入；`CAEB→BB3C/BBA6→BD46`地图资产、双导航平面、代价寻路和64项回溯已闭合，注意目录/tile来自BATTLE.MAP、`0xF800` D302属性大块来自BATTLE.MDL、BATTLE.SCH只提供每layout 0x100块；SAVE已保存撤退关键字段并用JSON metadata保存完整RNG快照。Canvas不得再通过`simulation.tickBattle`写胜负数据。`9CE2/9DA1/9E10`地图对象及`B5B7/B824/BB6D`城壁碰撞、tile改写与bit7刷新也已进入Session，9E10固定从0xE00且D302索引只对BL加偏移。ADC8固定顺序为AE56→AED2→AF69/B240扫描；BD46的EB/74只控制跨层而非方向mask；阵型基准为2005/203A，D35不得依赖玩家势力，战后兵力比例统一十人单位。`originaldiff.js`已提供规范化规则包、hash和首差异字节定位；真实KI.EXE逐帧捕获仍需DOSBox-X debugger。TALK通用入口075B无战术调用者，606..669暂按不可证可达处理，Web对白只属表现政策。
 
-次级待办：原版路线平权动态比对、`+0x23` 等字段产品命名、YNSOUND ID3 音色解码，以及更完整的战术 AI/兵种/士气行为。
+战术画面中的双方发言固定通过两个带主将/NPC头像的通话框按侧显示；`0xC315` 是战术旗帜/主将标识呈现，不是TALK索引，具体句子在原版选择桥闭合前必须标注为Web呈现政策。
+
+次级待办：原版路线平权动态比对、`+0x23` 等字段产品命名、YNSOUND ID3 音色解码。

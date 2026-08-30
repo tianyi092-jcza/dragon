@@ -7,7 +7,9 @@ globalThis.Image = class {
   }
 };
 
-const { initSaveAssets, serializeSave } = await import("../web/src/game/savegame.js");
+const { initSaveAssets, serializeSave } = await import(
+  "../web/src/game/savegame.js"
+);
 
 const total = 4 * 0x56c0;
 const baseline = new Uint8Array(total);

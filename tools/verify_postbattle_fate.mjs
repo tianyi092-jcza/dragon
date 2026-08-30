@@ -91,7 +91,9 @@ const legion = (leader, faction, x, y) => ({
   const monarch = legion("甲", 0, 257, 9);
   sc.legions = [monarch];
   assert.equal(
-    dispatchLegionFate(sc, monarch, 1, () => 0.99),
+    dispatchLegionFate(sc, monarch, 1, {
+      nextByte: () => assert.fail("monarch path must not consume RNG"),
+    }),
     "return",
   );
   assert.equal(monarch.dead, true);
@@ -110,15 +112,83 @@ const legion = (leader, faction, x, y) => ({
   sc.factions[0].monarch_idx = 7;
   const ordinary = legion("甲", 0, 257, 9);
   sc.legions = [ordinary];
+  let rngCalls = 0;
   assert.equal(
-    dispatchLegionFate(sc, ordinary, 1, () => 0.99),
+    dispatchLegionFate(sc, ordinary, 1, {
+      nextByte() {
+        rngCalls++;
+        return 0xfd;
+      },
+    }),
     "captured",
   );
+  assert.equal(rngCalls, 1);
   assert.equal(ordinary.dead, true);
   assert.equal(sc.delayedLegionReturns?.length ?? 0, 0);
   assert.equal(sc.generals[0].status, 4);
   assert.equal(sc.generals[0].origFaction, 0);
   assert.equal(sc.generals[0].faction, 1);
+}
+
+{
+  const sc = makeScenario();
+  sc.factions[0].monarch_idx = 7;
+  sc.generals[0].battle_rating = 0xff;
+  const ordinary = legion("甲", 0, 257, 9);
+  sc.legions = [ordinary];
+  let rngCalls = 0;
+  assert.equal(
+    dispatchLegionFate(sc, ordinary, 1, {
+      nextByte() {
+        rngCalls++;
+        return 0xff;
+      },
+    }),
+    "return",
+  );
+  assert.equal(rngCalls, 1, "threshold>=127 still consumes the original byte");
+}
+
+{
+  const sc = makeScenario();
+  sc.factions[1].monarch_idx = 7;
+  const attacker = legion("乙", 1, 257, 9);
+  const defender = legion("甲", 0, 246, 15);
+  defender.units[0].troops = 0;
+  defender.morale = 0;
+  sc.generals[0].status = 1;
+  sc.factions[0].monarch_idx = 7;
+  sc.cities = [city(0, 0, 218, 11)];
+  sc.factions[0].capital = 0;
+  sc.factions[0].active = true;
+  sc.factions[0].dead = false;
+  sc.legions = [attacker, defender];
+  let rngCalls = 0;
+  applyFieldBattleResult(
+    {
+      scenario: sc,
+      originalRng: {
+        nextByte() {
+          rngCalls++;
+          return 0xff;
+        },
+      },
+      hud: { flashEvent() {} },
+    },
+    attacker,
+    defender,
+    "atk",
+    90,
+    0,
+    [90, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0],
+  );
+  assert.equal(
+    rngCalls,
+    1,
+    "strategic autoresolve must carry app original RNG",
+  );
+  assert.equal(sc.generals[0].status, 4);
 }
 
 {

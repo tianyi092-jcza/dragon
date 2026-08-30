@@ -149,18 +149,31 @@ export function serializeSlot(app, label) {
     );
     if (legionSlot == null) return;
     const r = LEGION_BASE + legionSlot * 64;
-    slot[r] = 0x80;
+    slot[r] = (A.status ?? 0x80) & 0xff;
     slot[r + 1] = A.faction;
     u16(slot, r + 2, generalIndex >= 0 ? generalIndex : 0xff);
-    u16(slot, r + 0x04, A.troops ?? 0);
+    const units = Array.isArray(A.units) ? A.units.slice(0, 6) : [];
+    const unitStrengths = Array.from({ length: 6 }, (_, i) =>
+      Math.max(0, Math.floor((units[i]?.troops ?? 0) / 10)),
+    );
+    u16(
+      slot,
+      r + 0x04,
+      unitStrengths.reduce((sum, strength) => sum + strength, 0),
+    );
     u8(slot, r + 0x06, A.morale ?? 200);
     u16(slot, r + 0x10, A.x ?? 0);
     u16(slot, r + 0x12, A.y ?? 0);
-    const units = Array.isArray(A.units) ? A.units.slice(0, 6) : [];
+    if (Number.isInteger(A.targetNode)) u16(slot, r + 0x14, A.targetNode);
+    if (Number.isInteger(A.target?.x)) u16(slot, r + 0x16, A.target.x);
+    if (Number.isInteger(A.target?.y)) u16(slot, r + 0x18, A.target.y);
+    if (A._retreat || A.target) u8(slot, r + 0x0b, 1);
+    const targetCity = A._retreat?.cityIdx ?? A.target?.idx;
+    if (Number.isInteger(targetCity)) u8(slot, r + 0x20, targetCity);
+    if (Number.isInteger(A.commandState)) u8(slot, r + 0x23, A.commandState);
     for (let i = 0; i < 6; i++) {
-      const unit = units[i];
-      u8(slot, r + 0x29 + i * 4, Math.floor((unit?.troops ?? 0) / 10));
-      u8(slot, r + 0x2a + i * 4, unit?.type ?? 4);
+      u8(slot, r + 0x29 + i * 4, unitStrengths[i]);
+      u8(slot, r + 0x2a + i * 4, units[i]?.type ?? 4);
     }
   });
   for (const item of sc.delayedLegionReturns ?? []) {
@@ -170,7 +183,7 @@ export function serializeSlot(app, label) {
     const r = LEGION_BASE + legionSlot * 64;
     slot[r] = 0x08;
     slot[r + 1] = item.faction;
-    u16(slot, r + 2, item.generalIdx);
+    u8(slot, r + 2, item.generalIdx);
     u8(slot, r + 3, item.countdown);
   }
 
@@ -181,7 +194,7 @@ export function serializeSlot(app, label) {
     const o = OFF_GENERAL + i * 32;
     if (g.status != null) slot[o + 0x17] = g.status;
     slot[o + 0x1c] = g.faction == null ? 0xff : g.faction;
-    if (g.origFaction != null) slot[o + 0x1d] = g.origFaction;
+    slot[o + 0x1d] = g.origFaction == null ? 0xff : g.origFaction;
   }
   return slot;
 }
@@ -225,11 +238,19 @@ export function snapshotState(app, slotIdx, label) {
     });
   const ck = app.clock;
   st.save_date = { year: ck.year, month: ck.month, day: ck.day };
+  const originalRng = app.originalRng ?? app.activeBattleRng;
   return {
     slot: slotIdx,
     label,
     played: true,
     scenario_idx: app.scenarioIdx,
     state: st,
+    webMeta: {
+      schema: 1,
+      originalRng:
+        originalRng && typeof originalRng.snapshot === "function"
+          ? originalRng.snapshot()
+          : null,
+    },
   };
 }

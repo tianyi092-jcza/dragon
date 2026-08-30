@@ -83,7 +83,10 @@ globalThis.__verifySystemMenu = async (page) => {
   const saveRect = await page.evaluate(() =>
     window.__app.gamebar._systemSaveDialogRect(),
   );
-  await page.mouse.click(saveRect.x + saveRect.w - 50, saveRect.y + 8 + 28 + 20);
+  await page.mouse.click(
+    saveRect.x + saveRect.w - 50,
+    saveRect.y + 8 + 28 + 20,
+  );
   await page.waitForFunction(
     () =>
       window.__app.gamebar.settingsOpen === true &&
@@ -143,4 +146,4 @@ globalThis.__verifySystemMenu = async (page) => {
     "SAVE.DAT request payload has an unexpected size",
   );
   return { initial, cycled, mockedSave: true };
-}
+};

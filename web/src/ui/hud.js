@@ -47,23 +47,21 @@ export class HUD {
     if (advisor) advisor.style.display = "none";
     const saveDialog = document.querySelector("#savedlg");
     if (saveDialog) saveDialog.style.display = "none";
-    document
-      .querySelectorAll(".panel")
-      .forEach((el) => {
-        if (
-          ![
-            "panel",
-            "legend",
-            "cmdpanel",
-            "advisordlg",
-            "savedlg",
-            "bctl",
-            "card",
-          ].includes(el.id)
-        ) {
-          el.remove();
-        }
-      });
+    document.querySelectorAll(".panel").forEach((el) => {
+      if (
+        ![
+          "panel",
+          "legend",
+          "cmdpanel",
+          "advisordlg",
+          "savedlg",
+          "bctl",
+          "card",
+        ].includes(el.id)
+      ) {
+        el.remove();
+      }
+    });
     this.dialogCount = 0;
   }
 

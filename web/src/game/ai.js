@@ -22,6 +22,7 @@ import {
   selectPrimaryLegion,
   writeStrategicBattleResult,
 } from "./autobattle.js";
+import { originalTacticalMorale } from "./battle/originalresult.js";
 
 const ENGAGE_COUNTDOWN = 12;
 const ENGAGE_KIND_FIELD = "field";
@@ -174,18 +175,21 @@ function clearEngagement(A) {
 }
 
 function applyTacticalMorale(legion, oldTroops, won) {
-  if (oldTroops <= 0 || (legion.morale ?? 0) < 100) {
-    legion.morale = 0;
-    return;
-  }
-  const base = won ? legion.morale : 100;
-  legion.morale = Math.max(
-    0,
-    Math.min(255, Math.floor((base * legion.troops) / oldTroops)),
+  legion.morale = originalTacticalMorale(
+    legion.morale ?? 0,
+    oldTroops,
+    legion.troops,
+    won,
   );
 }
 
-function settleFieldLegion(legion, troops, unitSurvivors, won) {
+function settleFieldLegion(
+  legion,
+  troops,
+  unitSurvivors,
+  won,
+  authoritativeMorale = null,
+) {
   const oldTroops = Math.max(0, legion.troops ?? 0);
   if (Array.isArray(unitSurvivors) && Array.isArray(legion.units)) {
     legion.units = legion.units.slice(0, 6).map((unit, index) => ({
@@ -199,7 +203,8 @@ function settleFieldLegion(legion, troops, unitSurvivors, won) {
   } else {
     legion.troops = Math.max(0, troops ?? legion.troops ?? 0);
   }
-  applyTacticalMorale(legion, oldTroops, won);
+  if (authoritativeMorale == null) applyTacticalMorale(legion, oldTroops, won);
+  else legion.morale = Math.max(0, Math.min(0xff, authoritativeMorale | 0));
   legion.prevX = legion.x;
   legion.prevY = legion.y;
   legion.target = null;
@@ -215,6 +220,10 @@ function generalForLegion(sc, legion) {
       general &&
       (general.idx === legion.slot || general.name === legion.leader),
   );
+}
+
+function strategicRngFor(app, originalExit) {
+  return originalExit?.strategicRng ?? app.originalRng ?? app.activeBattleRng;
 }
 
 function factionIsActive(sc, factionIdx) {
@@ -319,6 +328,7 @@ function disbandLegionForReturn(sc, legion) {
   const general = generalForLegion(sc, legion);
   sc.delayedLegionReturns ??= [];
   sc.delayedLegionReturns.push({
+    slot: legion.slot ?? legion.idx ?? general?.idx ?? null,
     leader: legion.leader,
     generalIdx: general?.idx ?? null,
     faction: legion.faction,
@@ -333,7 +343,6 @@ function disbandLegionForReturn(sc, legion) {
   legion._markerFrame = 4;
   clearEngagement(legion);
   clearMarchNavigation(legion);
-  if (general) general.status = 1;
   return "return";
 }
 
@@ -369,24 +378,27 @@ function captureOrEliminateLegion(sc, legion, captorFaction) {
 }
 
 /** KI.EXE 0x291A：无法继续行动军团的延迟回归/被俘分派。 */
-export function dispatchLegionFate(
-  sc,
-  legion,
-  captorFaction,
-  random = Math.random,
-) {
+export function dispatchLegionFate(sc, legion, captorFaction, rng = null) {
   if (legion.dead || legion._active === false) return "ignored";
   const general = generalForLegion(sc, legion);
   const faction = sc.factions.find(
     (candidate) => candidate.idx === legion.faction,
   );
-  const threshold = ((general?.battle_rating ?? 0) >> 1) + 0x28;
-  const delayedReturn =
-    factionIsActive(sc, legion.faction) &&
-    (general?.idx === faction?.monarch_idx ||
+  let delayedReturn = false;
+  if (factionIsActive(sc, legion.faction)) {
+    if (
+      general?.idx === faction?.monarch_idx ||
       captorFaction === legion.faction ||
-      captorFaction === 0x18 ||
-      (Math.floor(random() * 256) & 0x7f) <= threshold);
+      captorFaction === 0x18
+    )
+      delayedReturn = true;
+    else {
+      if (!rng || typeof rng.nextByte !== "function")
+        throw new TypeError("postbattle fate requires original byte RNG");
+      const threshold = ((general?.battle_rating ?? 0) >> 1) + 0x28;
+      delayedReturn = (rng.nextByte() & 0x7f) <= threshold;
+    }
+  }
   return delayedReturn
     ? disbandLegionForReturn(sc, legion)
     : captureOrEliminateLegion(sc, legion, captorFaction);
@@ -414,20 +426,18 @@ function tickDelayedLegionReturns(sc) {
   return completed;
 }
 
+function markerFrameToward(fromX, fromY, toX, toY) {
+  if (Math.abs(toX - fromX) >= Math.abs(toY - fromY))
+    return toX < fromX ? 0 : 1;
+  return toY < fromY ? 2 : 3;
+}
+
 function startEngagement(A, kind, target) {
   A.prevX = A.x;
   A.prevY = A.y;
   const nextPoint = A._march?.points?.[A._march.pointIndex];
-  if (nextPoint) {
-    A._markerFrame =
-      Math.abs(nextPoint.x - A.x) >= Math.abs(nextPoint.y - A.y)
-        ? nextPoint.x < A.x
-          ? 0
-          : 1
-        : nextPoint.y < A.y
-          ? 2
-          : 3;
-  }
+  if (nextPoint)
+    A._markerFrame = markerFrameToward(A.x, A.y, nextPoint.x, nextPoint.y);
   A._engagement = {
     kind,
     countdown: ENGAGE_COUNTDOWN - 1, // 0x264A 在首次接触同轮把12立即减为11。
@@ -513,7 +523,7 @@ function rememberMarchBase(sc, A) {
   );
   if (!city) return;
   A._bases ??= [];
-  if (A._bases[A._bases.length - 1] !== city) {
+  if (A._bases.at(-1) !== city) {
     A._bases.push(city);
     if (A._bases.length > 24) A._bases.shift();
   }
@@ -595,14 +605,7 @@ function stepRoadGraph(sc, A, tx, ty) {
 
   A.prevX = A.x;
   A.prevY = A.y;
-  A._markerFrame =
-    Math.abs(next.x - A.x) >= Math.abs(next.y - A.y)
-      ? next.x < A.x
-        ? 0
-        : 1
-      : next.y < A.y
-        ? 2
-        : 3;
+  A._markerFrame = markerFrameToward(A.x, A.y, next.x, next.y);
   A.x = next.x;
   A.y = next.y;
   nav.pointIndex++;
@@ -694,7 +697,8 @@ function resolveBattle(app, A, city) {
   });
   applySiegeCityDamage(city, result.ratio);
   writeStrategicBattleResult(A, result.attack);
-  if (primaryDefender) writeStrategicBattleResult(primaryDefender, result.defence);
+  if (primaryDefender)
+    writeStrategicBattleResult(primaryDefender, result.defence);
   applyBattleResult(
     app,
     A,
@@ -754,20 +758,36 @@ export function applyFieldBattleResult(
   defTroops,
   atkUnits,
   defUnits,
+  originalExit = null,
 ) {
   const sc = app.scenario;
-  settleFieldLegion(A, atkTroops, atkUnits, winner === "atk");
-  settleFieldLegion(D, defTroops, defUnits, winner === "def");
+  const strategicRng = strategicRngFor(app, originalExit);
+  const atkResult = originalExit?.sides?.[0];
+  const defResult = originalExit?.sides?.[1];
+  settleFieldLegion(
+    A,
+    atkResult?.troops ?? atkTroops,
+    atkResult?.units ?? atkUnits,
+    winner === "atk",
+    atkResult?.morale,
+  );
+  settleFieldLegion(
+    D,
+    defResult?.troops ?? defTroops,
+    defResult?.units ?? defUnits,
+    winner === "def",
+    defResult?.morale,
+  );
   const attackContinues = continueLegionAfterBattle(sc, A, winner === "atk");
   const defenceContinues = continueLegionAfterBattle(sc, D, winner === "def");
   if (A._retreat) A._retreat.captorFaction = D.faction;
   if (D._retreat) D._retreat.captorFaction = A.faction;
   const attackFate = attackContinues
     ? "continue"
-    : dispatchLegionFate(sc, A, D.faction);
+    : dispatchLegionFate(sc, A, D.faction, strategicRng);
   const defenceFate = defenceContinues
     ? "continue"
-    : dispatchLegionFate(sc, D, A.faction);
+    : dispatchLegionFate(sc, D, A.faction, strategicRng);
   const loser = winner === "atk" ? D : A;
   const survivor = winner === "atk" ? A : D;
   if (loser._active !== false) loser.cooldown = 12;
@@ -780,9 +800,9 @@ function updateFactionAfterCityCapture(sc, factionIdx) {
   if (factionIdx == null) return null;
   const faction = sc.factions.find((candidate) => candidate.idx === factionIdx);
   if (!faction) return null;
-  const cities = sc.citiesOf(factionIdx).toSorted(
-    (left, right) => left.idx - right.idx,
-  );
+  const cities = sc
+    .citiesOf(factionIdx)
+    .toSorted((left, right) => left.idx - right.idx);
   faction.n_cities = cities.length;
   if (!cities.length) {
     faction.capital = null;
@@ -798,7 +818,13 @@ function updateFactionAfterCityCapture(sc, factionIdx) {
   return sc.cities[faction.capital] ?? null;
 }
 
-function retreatCapturedGarrison(sc, city, oldFaction, captorFaction) {
+function retreatCapturedGarrison(
+  sc,
+  city,
+  oldFaction,
+  captorFaction,
+  rng = null,
+) {
   const defenders = sc.legions
     .filter(
       (legion) =>
@@ -828,7 +854,7 @@ function retreatCapturedGarrison(sc, city, oldFaction, captorFaction) {
   return {
     retreat: 0,
     fates: defenders.map((legion) =>
-      dispatchLegionFate(sc, legion, captorFaction),
+      dispatchLegionFate(sc, legion, captorFaction, rng),
     ),
   };
 }
@@ -846,18 +872,35 @@ export function applyBattleResult(
   primaryDefender = null,
   defTroops = null,
   defUnits = null,
+  originalExit = null,
 ) {
   const sc = app.scenario;
-  settleFieldLegion(A, atkTroops ?? A.troops, atkUnits, winner === "atk");
+  const strategicRng = strategicRngFor(app, originalExit);
+  const atkResult = originalExit?.sides?.[0];
+  const defResult = originalExit?.sides?.[1];
+  settleFieldLegion(
+    A,
+    atkResult?.troops ?? atkTroops ?? A.troops,
+    atkResult?.units ?? atkUnits,
+    winner === "atk",
+    atkResult?.morale,
+  );
   if (primaryDefender) {
     settleFieldLegion(
       primaryDefender,
-      defTroops ?? primaryDefender.troops,
-      defUnits,
+      defResult?.troops ?? defTroops ?? primaryDefender.troops,
+      defResult?.units ?? defUnits,
       winner === "def",
+      defResult?.morale,
     );
   }
-  if (wallRecords) applyTacticalSiegeCityDamage(city, wallRecords);
+  if (originalExit?.cityDamage) {
+    city.growth = originalExit.cityDamage.growth;
+    city.disaster = originalExit.cityDamage.disaster;
+    city.defence = originalExit.cityDamage.defence;
+    city.troops = originalExit.cityDamage.troops;
+    if (city.sim) city.sim.troops = originalExit.cityDamage.troops;
+  } else if (wallRecords) applyTacticalSiegeCityDamage(city, wallRecords);
   const oldFaction = city.faction;
   if (winner === "atk") {
     // 0x4CF3 先交换据点所属，再由0x4DA4为原守方军团求共同撤退路线；
@@ -865,7 +908,13 @@ export function applyBattleResult(
     city.faction = A.faction;
     updateFactionAfterCityCapture(sc, oldFaction);
     updateFactionAfterCityCapture(sc, A.faction);
-    const garrison = retreatCapturedGarrison(sc, city, oldFaction, A.faction);
+    const garrison = retreatCapturedGarrison(
+      sc,
+      city,
+      oldFaction,
+      A.faction,
+      strategicRng,
+    );
     if (city.sim) city.sim.troops = 0;
     city.troops = 0;
     A.x = city.x;
@@ -893,7 +942,7 @@ export function applyBattleResult(
   if (A._retreat) A._retreat.captorFaction = oldFaction ?? 0x18;
   const fate = continues
     ? "continue"
-    : dispatchLegionFate(sc, A, oldFaction ?? 0x18);
+    : dispatchLegionFate(sc, A, oldFaction ?? 0x18, strategicRng);
   if (A._active !== false) A.cooldown = 12;
   app.hud?.flashEvent?.(
     `${A.leader} 攻${city.name}失利（餘兵${A.troops}；${fate}）`,
@@ -1071,7 +1120,13 @@ export function aiTick(app) {
       }
       const retreatResult = stepTo(sc, A, A.target.x, A.target.y);
       if (retreatResult === "blocked") {
-        dispatchLegionFate(sc, A, A._retreat.captorFaction ?? A.faction);
+        const fallbackRng = app.originalRng ?? app.activeBattleRng;
+        dispatchLegionFate(
+          sc,
+          A,
+          A._retreat.captorFaction ?? A.faction,
+          fallbackRng,
+        );
         changed = true;
       } else if (retreatResult === "arrived") {
         A.target = null;
