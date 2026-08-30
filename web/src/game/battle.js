@@ -1,14 +1,15 @@
 // 战斗系统 — 战术层 (Web 版实时战斗, 复用原版战场素材与编制语义)
 //
 // 逆向依据 (docs/re-notes-kernel.md):
-//   - BATTLE.MAP 目录 214 城 × 2B: 首字节=战场布局号(battle_map_{n}.png),
-//     次字节=地形主题 → tools/parse_battle.py 已导出 web/battle_maps.json
+//   - BATTLE.MAP 目录每项2B: 首字节=战场布局号(battle_map_{n}.png),
+//     次字节=地形主题；城战使用0..213，野战由0x4B63选择0xC0..0xD5。
 //   - 军团记录 +20..+23 = 前/左/中/右/后五军编制 → 攻守双方最多各 5 单位
 //   - BATTLE.DAT 开场脚本块号 = 编制类型×4+攻守; VM 解释器见 battlescript.js,
 //     battleview 开战时回放 (编制类型以单位数-1 近似, 原版取自军团五军记录)
 //
 // 设计: 1024×1024 战场(64 图块×16px), 单位实时寻敌接战, 伤亡由
 //   武力(force)+现存兵力+士气 共同决定; 兵力<25% 或士气崩溃 → 溃走
+//   - 野外接敌使用独立军团防守方；0x4B63按战略道路地形选择目录与镜像。
 
 /** 战场世界尺寸 (px, 64图块 × 16px/块) */
 export const FIELD = 1024;
@@ -27,7 +28,7 @@ function splitTroops(total, n) {
 
 const ROLE = ["前", "左", "中", "右", "後"]; // 军团记录+20..+23 五军编制
 
-function mkUnit(side, i, n, troops, genName, force) {
+function mkUnit(side, i, n, troops, genName, force, strategicIndex = null) {
   // 攻方列于西(x小) 守方列于东 — 对应原版脚本"对称布阵"
   const mid = Math.floor(n / 2);
   const colX = side === "atk" ? 110 : FIELD - 110 - (i % 2) * 40;
@@ -35,6 +36,7 @@ function mkUnit(side, i, n, troops, genName, force) {
   return {
     side,
     idx: i,
+    strategicIndex,
     x: colX,
     y: rowY,
     hx: colX, // 编队槽位 (BATTLE.DAT 开场脚本列阵目标点)
@@ -68,13 +70,14 @@ export function placeStaging(s) {
  * @param p {attackerLegion, city, scenario, battleMaps}
  *   攻方: 军团(主将名/势力/兵力); 守方: 城池(兵力/士气/太守或君主武力)
  */
-export function createBattle(sc, A, city, battleMaps) {
+export function createBattle(sc, A, city, battleMaps, D = null) {
   const meta = battleMaps?.cities.find((m) => m.idx === city.idx);
   const layout = meta ? meta.layout : 0;
 
   // 主将武力: 军团长 / 守方太守(无则君主)
   const genOf = (name) => sc.generals.find((g) => g.name === name);
   const atkGen = genOf(A.leader);
+  const defGen = D ? genOf(D.leader) : null;
   const defCity = sc.factions[city.faction];
   const govIdx = city.raw
     ? parseInt(city.raw.slice(0x19 * 2, 0x19 * 2 + 2), 16)
@@ -93,33 +96,122 @@ export function createBattle(sc, A, city, battleMaps) {
   const nDef = Math.min(5, Math.max(1, Math.round(defTroops / 400)));
 
   const units = [];
-  splitTroops(atkTroops, nAtk).forEach((t, i) =>
-    units.push(
-      mkUnit("atk", i, nAtk, t, A.leader, atkGen?.ability.force ?? 50),
-    ),
-  );
-  splitTroops(defTroops, nDef).forEach((t, i) =>
+  const strategicAttackers = Array.isArray(A.units)
+    ? A.units
+        .slice(0, 6)
+        .map((unit, strategicIndex) => ({
+          strategicIndex,
+          troops: Math.max(0, Math.floor((unit?.troops ?? 0) / 10)),
+        }))
+        .filter((unit) => unit.troops > 0)
+    : [];
+  const attackerParts = strategicAttackers.length
+    ? strategicAttackers
+    : splitTroops(atkTroops, nAtk).map((troops, strategicIndex) => ({
+        strategicIndex,
+        troops,
+      }));
+  attackerParts.forEach((part, i) =>
     units.push(
       mkUnit(
-        "def",
+        "atk",
         i,
-        nDef,
-        t,
-        defGeneral?.name ?? `${city.name}守軍`,
-        defGeneral?.ability.force ?? 45,
+        attackerParts.length,
+        part.troops,
+        A.leader,
+        atkGen?.ability.force ?? 50,
+        part.strategicIndex,
       ),
     ),
   );
+  if (D) units.push(...fieldUnits("def", D, defGen));
+  else
+    splitTroops(defTroops, nDef).forEach((t, i) =>
+      units.push(
+        mkUnit(
+          "def",
+          i,
+          nDef,
+          t,
+          defGeneral?.name ?? `${city.name}守軍`,
+          defGeneral?.ability.force ?? 45,
+        ),
+      ),
+    );
 
   return {
+    kind: "siege",
     A,
+    D,
     city,
     layout,
+    // 原版战术层0xC00的16条城壁对象。0x9B40初始化的+0x18 metric
+    // 与城防主题/布局内部对象相关；Web尚未移植城壁受击对象状态机，因此仅
+    // 保留接口，未取得原始对象状态时不伪造城损。
+    wallRecords: null,
     formation: A.formation ?? 1, // 军团编制类型 1..4 (原版军团记录 [si+0x2A], 0xCBE5 选块用)
     units,
     time: 0,
     over: null, // null | 'atk' | 'def'
-    title: `${A.leader}軍 ⚔ ${city.name} (${defGeneral?.name ?? "守軍"})`,
+    title: `${A.leader}軍 ⚔ ${city.name} (${D?.leader ?? defGeneral?.name ?? "守軍"})`,
+  };
+}
+
+function fieldUnits(side, legion, general) {
+  const source = Array.isArray(legion.units)
+    ? legion.units
+        .slice(0, 6)
+        .map((unit, index) => ({
+          strategicIndex: index,
+          troops: Math.max(0, Math.floor((unit?.troops ?? 0) / 10)),
+        }))
+        .filter((unit) => unit.troops > 0)
+    : [];
+  const parts = source.length
+    ? source
+    : splitTroops(
+        Math.max(1, legion.troops | 0),
+        Math.min(5, Math.max(1, Math.round((legion.troops | 0) / 400))),
+      ).map((troops, strategicIndex) => ({ troops, strategicIndex }));
+  return parts.map((part, index) =>
+    mkUnit(
+      side,
+      index,
+      parts.length,
+      part.troops,
+      legion.leader,
+      general?.ability.force ?? 50,
+      part.strategicIndex,
+    ),
+  );
+}
+
+/** 野外军团战：防守方来自同一道路点的军团，不经过任何城市易主逻辑。 */
+export function createFieldBattle(sc, A, D, battleMaps, fieldTerrain) {
+  const genOf = (name) => sc.generals.find((g) => g.name === name);
+  const atkGen = genOf(A.leader);
+  const defGen = genOf(D.leader);
+  const units = [
+    ...fieldUnits("atk", A, atkGen),
+    ...fieldUnits("def", D, defGen),
+  ];
+  const directory = battleMaps?.directory?.find(
+    (entry) => entry.idx === fieldTerrain?.directoryIndex,
+  );
+  return {
+    kind: "field",
+    A,
+    D,
+    city: null,
+    layout: directory?.layout ?? 0,
+    theme: directory?.theme ?? 0,
+    mirror: Boolean(fieldTerrain?.mirror),
+    fieldTerrain,
+    formation: A.formation ?? 1,
+    units,
+    time: 0,
+    over: null,
+    title: `${A.leader}軍 ⚔ ${D.leader}軍`,
   };
 }
 

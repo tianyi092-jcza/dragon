@@ -3,11 +3,13 @@
 //   port 0x61 bit0/1 门控发声, port 0x3DA bit3 垂直回扫计时(约18Hz节拍)
 //   0xCDE = ax 0x101 → 短哔一声(命令确认/军团移动)
 //   0xCE7 = ax 0x202 → 两声(警告: 出陣条件不足/天灾提示等)
-// web 用 WebAudio 方波近似原版单音蜂鸣(原版无频率设置, 固定约1kHz味)
+//   0x2F5(AL=3) = int 61h AH=5, AL=3 → 接敌/攻城等待阶段的 YNSOUND ID 3
+// web 用 WebAudio 近似蜂鸣与短促噪声（音序器音色尚未逐音符逆向）。
 
 let actx;
 let muted = false;
 let soundType = 1;
+let engageBusyUntil = 0;
 
 export const SOUND_PROFILES = [
 	{ frequency: 950, gain: 0.12, wave: "square" },
@@ -61,6 +63,36 @@ function tone(freqMs, gapMs) {
 		osc.connect(g).connect(actx.destination);
 		osc.start(t0);
 		osc.stop(t0 + freqMs);
+	} catch {
+		/* 无音频环境静默 */
+	}
+}
+
+/** YNSOUND ID 3：战略地图接敌/攻城等待阶段每轮播放。 */
+export function engageSfx() {
+	if (muted) return;
+	try {
+		actx ??= new (
+			window.AudioContext || /** @type {any} */ (window).webkitAudioContext
+		)();
+		if (actx.state === "suspended") actx.resume();
+		if (actx.currentTime < engageBusyUntil) return;
+		const profile = SOUND_PROFILES[soundType - 1] ?? SOUND_PROFILES[0];
+		const t0 = actx.currentTime;
+		engageBusyUntil = t0 + 0.11;
+		const osc = actx.createOscillator();
+		const gain = actx.createGain();
+		osc.type = profile.wave;
+		osc.frequency.setValueAtTime(profile.frequency * 0.72, t0);
+		osc.frequency.exponentialRampToValueAtTime(
+			Math.max(80, profile.frequency * 0.38),
+			t0 + 0.09,
+		);
+		gain.gain.setValueAtTime(profile.gain * 0.75, t0);
+		gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.11);
+		osc.connect(gain).connect(actx.destination);
+		osc.start(t0);
+		osc.stop(t0 + 0.11);
 	} catch {
 		/* 无音频环境静默 */
 	}

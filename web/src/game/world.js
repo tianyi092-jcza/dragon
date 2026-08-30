@@ -18,7 +18,8 @@ export const SINARIO = {
   SCENARIO_SIZE: 22208,
   OFF_FACTIONS: 0x80, // 24 × 64B
   OFF_CITIES: 0x8c0, // 200 × 32B
-  OFF_LEGIONS: 0x21c0, // 128 × 64B
+  OFF_LEGION_STATE: 0x2240,
+  OFF_LEGION_SAVE: 0x22c0, // 128 × 64B
   OFF_GENERALS: 0x42c0, // 128 × 32B
   EMPTY_FACTION: 0x18,
 };
@@ -58,9 +59,6 @@ const FACTION_COLORS = [
 /** 玩家势力固定红色 */
 export const PLAYER_RED = "#e02020";
 export const factionColor = (i) => FACTION_COLORS[i % FACTION_COLORS.length];
-/** 行军标识 SVG 款式表: 和势力色一样按势力序号固定分配 (可替换 grf/ui/markN.svg) */
-const MARCH_MARKS = ["mark0.svg", "mark1.svg", "mark2.svg", "mark3.svg"];
-export const factionMark = (i) => MARCH_MARKS[i % MARCH_MARKS.length];
 /** 取势力颜色：玩家势力固定红，其它查表（超过 20 色循环复用） */
 export function factionColorEx(sc, i) {
   if (sc && i === sc.player_faction) return PLAYER_RED;

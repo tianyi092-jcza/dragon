@@ -9,6 +9,7 @@ import { Clock } from "./game/clock.js";
 import { monthlySettlement } from "./game/economy.js";
 import { aiTick, buildArmies, monthlyAI } from "./game/ai.js";
 import { loadTerrain } from "./game/pathfind.js";
+import { classifyFieldBattleTerrain } from "./game/fieldterrain.js";
 import * as cmd from "./game/commands.js";
 import { monthlyAppear } from "./game/recruits.js";
 import { BattleView } from "./render/battleview.js";
@@ -17,8 +18,8 @@ import { EndView } from "./render/endview.js";
 import { OpenView } from "./render/openview.js";
 import { StartMenu } from "./ui/startmenu.js";
 import * as speaker from "./core/speaker.js";
-import { createBattle } from "./game/battle.js";
-import { applyBattleResult } from "./game/ai.js";
+import { createBattle, createFieldBattle } from "./game/battle.js";
+import { applyBattleResult, applyFieldBattleResult } from "./game/ai.js";
 import {
   initSaveAssets,
   serializeSave,
@@ -87,27 +88,61 @@ const app = {
   },
 
   /** 开战: 战术层接管 (玩家军团攻城/敌军犯境时由 ai.resolveBattle 调用) */
-  startBattle(A, city) {
-    const battle = createBattle(this.scenario, A, city, this.battleMaps);
-    this.battleView.open(battle, ({ winner, retreat, atkLeft, defLeft }) => {
-      // 撤军=攻方主动退场: 军团存活但撤回原方向(简化: 留在原地+冷却)
-      if (retreat && winner === "def") {
-        A.cooldown = 10;
-        A.target = null; // 撤军后不再自动重攻 (原版: 撤退军团解散回原籍)
-        this.hud.flashEvent(`${A.leader} 撤軍（餘兵${atkLeft}）`);
-        if (A.troops != null) A.troops = Math.max(1, atkLeft);
-        return;
-      }
-      applyBattleResult(
-        this,
-        A,
-        city,
-        winner,
-        winner === "atk" ? atkLeft : defLeft,
-      );
-      this.hud.buildLegend();
-      this.view.draw();
-    });
+  startBattle(A, city, D = null) {
+    const battle = createBattle(this.scenario, A, city, this.battleMaps, D);
+    this.battleView.open(
+      battle,
+      ({ winner, atkLeft, atkUnits, defLeft, defUnits, wallRecords }) => {
+        applyBattleResult(
+          this,
+          A,
+          city,
+          winner,
+          atkLeft,
+          atkUnits,
+          null,
+          wallRecords,
+          D,
+          defLeft,
+          defUnits,
+        );
+        this.hud.buildLegend();
+        this.view.draw();
+      },
+    );
+  },
+
+  /** 野外战：双方均为军团，不借用城池结算。 */
+  startFieldBattle(A, D) {
+    const terrain = classifyFieldBattleTerrain(
+      A,
+      D,
+      this.scenario.player_faction,
+    );
+    const battle = createFieldBattle(
+      this.scenario,
+      A,
+      D,
+      this.battleMaps,
+      terrain,
+    );
+    this.battleView.open(
+      battle,
+      ({ winner, atkLeft, defLeft, atkUnits, defUnits }) => {
+        applyFieldBattleResult(
+          this,
+          A,
+          D,
+          winner,
+          atkLeft,
+          defLeft,
+          atkUnits,
+          defUnits,
+        );
+        this.hud.buildLegend();
+        this.view.draw();
+      },
+    );
   },
 
   checkTrustGameOver() {
@@ -148,7 +183,9 @@ const app = {
   loadState(raw, idx) {
     this.scenarioIdx = idx;
     this.scenario = new Scenario(raw);
-    loadTerrain(); // A* 寻路地形装载(异步, 未完成前 stepTo 兑底直线)
+    loadTerrain().catch((error) =>
+      console.error("strategic map navigation assets failed to load", error),
+    );
     cmd.initPlayer(this.scenario); // ★原版剧本头FF=未指定→默认势力0/信赖100
     this.gamebar?.setDefaultSelFaction(); // 小地图默认查看第一个非玩家势力
     buildArmies(this.scenario); // 无军团→首都合成; 有真实军团(存档)→内部归一化坐标+解析主将名

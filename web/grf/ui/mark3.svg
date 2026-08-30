@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 15 15" width="15" height="15">
-  <path d="M5 1 H9 V5 H13 V13 H1 V5 H5 Z" transform="translate(1.2,1.2)" fill="#000" opacity="0.55"/>
-  <path d="M5 1 H9 V5 H13 V13 H1 V5 H5 Z" fill="__FC__" stroke="#fff" stroke-width="1" stroke-linejoin="miter"/>
-  <path d="M2 7.5 H12 M2 9.5 H12 M2 11.5 H12" stroke="#000" stroke-width="1" opacity="0.45"/>
-</svg>

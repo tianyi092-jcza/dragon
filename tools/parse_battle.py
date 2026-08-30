@@ -2,9 +2,12 @@
 
 格式(逆向自 KI.EXE 加载器 0xCAEB-0xCC27 + 实测渲染验证):
 - BATTLE.MAP (877056B):
-    头部 0x200B = 目录: 214城 × u16le。高字节=地形主题号(0,33,35..46 → CS:0xAB4F),
-    低字节=战斗地图布局号(实测仅 0/1/2 三种)。
-    地图块位于 0x200 + 布局号*256, 每块 4096B = **64×64 图块索引表**(16px图块 → 1024px战场)
+    头部 0x200B = 256 项目录，每项两个字节：第1字节=地图布局号(0/1/2)，
+    第2字节=地形主题号(0,33,35..46 → CS:0xAB4F)。0..213供城战，
+    0xC0..0xD5同时是0x4B63野战地形分类返回的目录项。
+    地图块位于 0x200 + 布局号*256 个字节（KI.EXE将布局号换算为
+    64K:4K地址，因此三个4096B地图块以256B滑窗起点共享底层数据），
+    每次读取4096B = **64×64 图块索引表**(16px图块 → 1024px战场)。
 - BATTLE.MDL (194560B): 1520 × 128B = 16×16 16色4平面planar图块集(与MMAP.MDL同族,
     行内2B对、平面步进32B)。KI.EXE 按 u16*256 定位读取 256B 子块
 - BATTLE.SCH (115200B): 第二图块集, 900 × 128B 同格式
@@ -106,15 +109,25 @@ def main():
     print(f"atlases: MDL {n_mdl} tiles, SCH {n_sch} tiles")
 
     tiles = [tile128(mdl[t * 128 : (t + 1) * 128]) for t in range(n_mdl)]
+    # 0x4B63 的野战地形分类可返回 BATTLE.MAP 目录 0xC0..0xD5；
+    # 城池目录仍是 0..213。统一导出两者实际引用的全部目录项。
+    field_directory_indices = range(0xC0, 0xD6)
+    referenced_directory_indices = set(range(214)) | set(field_directory_indices)
     seen = set()
     city_layouts = []  # ★战斗系统: 城池→(地形主题,战场布局) 索引
     for c in range(214):
-        theme, lo = bmap[c * 2], bmap[c * 2 + 1] & 0xFF
-        city_layouts.append({"idx": c, "theme": theme, "layout": lo})
-        if lo in seen:
+        layout, theme = bmap[c * 2], bmap[c * 2 + 1] & 0xFF
+        city_layouts.append({"idx": c, "theme": theme, "layout": layout})
+
+    directory = []
+    for directory_idx in sorted(referenced_directory_indices):
+        layout = bmap[directory_idx * 2]
+        theme = bmap[directory_idx * 2 + 1] & 0xFF
+        directory.append({"idx": directory_idx, "theme": theme, "layout": layout})
+        if layout in seen:
             continue
-        seen.add(lo)
-        off = lo * 256 + 0x200
+        seen.add(layout)
+        off = layout * 256 + 0x200
         mc = bmap[off : off + 4096]
         img = Image.new("P", (64 * 16, 64 * 16))
         img.putpalette([c2 for rgb in PAL for c2 in rgb])
@@ -126,7 +139,7 @@ def main():
                 for x in range(16):
                     pp[cx + x, cy + y] = t[y][x]
         img.resize((512, 512), Image.Resampling.NEAREST).save(
-            os.path.join(OUT, f"battle_map_{lo}.png")
+            os.path.join(OUT, f"battle_map_{layout}.png")
         )
     print(f"battle maps: layouts {sorted(seen)}")
 
@@ -150,7 +163,11 @@ def main():
             "w",
             encoding="utf-8",
         ) as f:
-            json.dump({"cities": city_layouts}, f, ensure_ascii=False)
+            json.dump(
+                {"cities": city_layouts, "directory": directory},
+                f,
+                ensure_ascii=False,
+            )
         with open(
             os.path.join(outdir, "..", "web", "battle_scripts.json"),
             "w",

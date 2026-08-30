@@ -19,6 +19,10 @@ adv_dump.txt
 web/logs_webserver.txt
 web/server.log
 
+# Reproducible reverse-engineering probe reports (runtime uses web/road_graph.json)
+/web/road_graph_probe.json
+/web/road_search_probe.json
+
 # Temporary test scripts and tool outputs
 tools/*.log
 tools/*.txt

@@ -1,38 +1,62 @@
 // 地图视图 — 相机(拖动平移, 固定100%不可缩放) + 分层绘制(地形/城池/军团/标签)
-import {
-  WORLD,
-  factionColorEx,
-  contrastText,
-  factionMark,
-} from "../game/world.js";
-import { findPath, roadOffset } from "../game/pathfind.js";
+import { WORLD, factionColorEx } from "../game/world.js";
+import { roadOffset } from "../game/pathfind.js";
+import { findRoadRoute, roadGraphReady } from "../game/roadgraph.js";
 
-// 行军标识 SVG (势力属性): 文件内 __FC__ 占位符 → 势力色, 按 (文件,颜色) 缓存
-const _markCache = new Map(); // key -> {img, ok}
-function getMarkImage(file, color, onReady) {
-  const key = file + "|" + color;
-  let e = _markCache.get(key);
-  if (e) return e.ok ? e.img : null;
-  e = { img: new Image(), ok: false };
-  _markCache.set(key, e);
-  e.img.onload = () => {
-    e.ok = true;
+const MARCH_STYLE_COUNT = 24;
+const MARCH_FRAME_STATIONARY = 4;
+const _marchMarkerCache = new Map(); // "style:frame" -> {img, ok}
+const _engageMarkerCache = new Map(); // frame -> {img, ok}
+
+/** 原版 MMAP.MCH 军团标识：势力样式槽 × 西/东/北/南/驻止帧。 */
+function getMarchMarkerImage(style, frame, onReady) {
+  const safeStyle =
+    (((Number(style) || 0) % MARCH_STYLE_COUNT) + MARCH_STYLE_COUNT) %
+    MARCH_STYLE_COUNT;
+  const safeFrame = Math.max(0, Math.min(MARCH_FRAME_STATIONARY, frame | 0));
+  const key = `${safeStyle}:${safeFrame}`;
+  let entry = _marchMarkerCache.get(key);
+  if (entry) return entry.ok ? entry.img : null;
+
+  entry = { img: new Image(), ok: false };
+  _marchMarkerCache.set(key, entry);
+  entry.img.onload = () => {
+    entry.ok = true;
     onReady?.();
   };
-  fetch("grf/ui/" + file)
-    .then((r) => r.text())
-    .then((t) => {
-      e.img.src =
-        "data:image/svg+xml;utf8," +
-        encodeURIComponent(t.replaceAll("__FC__", color));
-    });
+  entry.img.src =
+    `grf/march_markers/style_${String(safeStyle).padStart(2, "0")}` +
+    `_frame_${safeFrame}.png`;
   return null;
+}
+
+/** KI.EXE 0x2B3C：group 0 的四相 48×48 接敌/攻城动画。 */
+function getEngageMarkerImage(frame, onReady) {
+  const safeFrame = frame & 3;
+  let entry = _engageMarkerCache.get(safeFrame);
+  if (entry) return entry.ok ? entry.img : null;
+  entry = { img: new Image(), ok: false };
+  _engageMarkerCache.set(safeFrame, entry);
+  entry.img.onload = () => {
+    entry.ok = true;
+    onReady?.();
+  };
+  entry.img.src = `grf/engage/group_0_frame_${safeFrame}.png`;
+  return null;
+}
+
+/** KI.EXE 0x2808: 0=西、1=东、2=北、3=南；到达/驻止为4。 */
+function marchFrame(fromX, fromY, toX, toY) {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  if (!dx && !dy) return MARCH_FRAME_STATIONARY;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx < 0 ? 0 : 1;
+  return dy < 0 ? 2 : 3;
 }
 
 const CITY_SIZE = 16; // 城池图标整体尺寸
 const CITY_CORE = 12; // 据点中心建筑尺寸（正方形填充区 / 拾取范围）
 const CURSOR_SIZE = 20; // 悬停光标（套住中心建筑/行军图标，比原游戏略大）
-const PLAQUE_SIZE = 16; // 驻军标识牌尺寸（无边框，下/右 1px 黑色阴影）
 
 // 據點图标 (用户从原版提取): 我方=红心 / 其它势力=蓝 / 空城=土黄
 const cityIcons = {};
@@ -134,14 +158,13 @@ export class MapView {
     const wxp = gx * 16 + 8 + ox;
     const wyp = gy * 16 + 8 + oy;
 
-    // 4. 朝向角度
-    let angle = 0;
+    let frame = MARCH_FRAME_STATIONARY;
     if (isMoving) {
-      angle = Math.atan2(toY - fromY, toX - fromX);
+      frame = marchFrame(fromX, fromY, toX, toY);
     } else if (L.target) {
-      const path = L._path;
-      const nxt = (path && path[0]) || L.target;
-      angle = Math.atan2(nxt.y - L.y, nxt.x - L.x);
+      const nxt =
+        L._march?.points?.[L._march.pointIndex] || L._path?.[0] || L.target;
+      frame = marchFrame(L.x, L.y, nxt.x, nxt.y);
     }
 
     return {
@@ -149,7 +172,7 @@ export class MapView {
       wyp,
       sx: this.sx(wxp),
       sy: this.sy(wyp),
-      angle,
+      frame,
       isMoving,
       curT,
     };
@@ -162,6 +185,7 @@ export class MapView {
       sc.legions.find(
         (L) =>
           !L.dead &&
+          L._active !== false &&
           L.faction != null &&
           !this.isMarching(L) &&
           L.x === city.x &&
@@ -177,7 +201,7 @@ export class MapView {
       (L.prevY != null && L.prevY !== L.y);
     const hasActiveTarget =
       L.target != null && (L.x !== L.target.x || L.y !== L.target.y);
-    return isMovingStep || hasActiveTarget;
+    return L._engagement != null || isMovingStep || hasActiveTarget;
   }
 
   /** 屏幕坐标拾取地图对象，未命中返回 null
@@ -200,7 +224,7 @@ export class MapView {
     // 行军中的军团（使用逐帧插值的实际屏幕位置）
     const t = this.app?.clock?.dayProgress?.() ?? 1;
     for (const L of sc.legions) {
-      if (L.dead || L.faction == null) continue;
+      if (L.dead || L._active === false || L.faction == null) continue;
       if (!this.isMarching(L)) continue;
       const pos = this.getLegionRenderPos(L, t);
       const x = pos.sx,
@@ -212,53 +236,20 @@ export class MapView {
     return null;
   }
 
-  /** 绘制驻军标识牌：势力色 18×18 正方形 + 1px 黑色阴影 + 白色 12px 君主姓 */
-  _drawGarrisonSquare(ctx, x, y, color, surname) {
-    const hs = PLAQUE_SIZE / 2;
-
-    // 1px 黑色阴影（右下）
-    ctx.fillStyle = "#000";
-    ctx.fillRect(x - hs + 1, y - hs + 1, PLAQUE_SIZE, PLAQUE_SIZE);
-
-    // 势力色牌面
-    ctx.fillStyle = color;
-    ctx.fillRect(x - hs, y - hs, PLAQUE_SIZE, PLAQUE_SIZE);
-
-    if (surname) {
-      ctx.font = '12px "Noto Serif TC","PMingLiU",serif';
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      // 深底白字 / 浅底黑字（依势力色亮度自动判断）
-      ctx.fillStyle = contrastText(color);
-      ctx.fillText(surname[0], x, y + 0.5);
-      ctx.textAlign = "start";
-    }
+  /** 绘制驻止旗帜帧（MMAP.MCH 每个势力样式槽的第 5 张）。 */
+  _drawStationaryMarker(ctx, x, y, style) {
+    this._drawMarchingIcon(ctx, x, y, style, MARCH_FRAME_STATIONARY);
   }
 
-  /** 行军标识 (势力属性 SVG, grf/ui/markN.svg): 凸形尖头朝上, 旋转对齐行进方向; __FC__ 占位贴势力色 */
-  _drawMarchingIcon(ctx, x, y, color, file, angle) {
-    const img = getMarkImage(file, color, () => this.draw());
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle + Math.PI / 2); // SVG 尖头朝上 → 旋转到行进方向
-    if (img) {
-      ctx.drawImage(img, -7.5, -7.5, 15, 15);
-    } else {
-      // SVG 未加载好时兜底: 简单凸形
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(-2, -6);
-      ctx.lineTo(2, -6);
-      ctx.lineTo(2, -2);
-      ctx.lineTo(6, -2);
-      ctx.lineTo(6, 6);
-      ctx.lineTo(-6, 6);
-      ctx.lineTo(-6, -2);
-      ctx.lineTo(-2, -2);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
+  /** 绘制 MMAP.MCH 原版 16×16 军团标识，不旋转、不运行时染色。 */
+  _drawMarchingIcon(ctx, x, y, style, frame) {
+    const img = getMarchMarkerImage(style, frame, () => this.draw());
+    if (img) ctx.drawImage(img, Math.round(x) - 8, Math.round(y) - 8);
+  }
+
+  _drawEngagement(ctx, x, y, countdown) {
+    const img = getEngageMarkerImage(countdown & 3, () => this.draw());
+    if (img) ctx.drawImage(img, Math.round(x) - 24, Math.round(y) - 24);
   }
 
   /** 绘制悬停光标：1px 白色方框 + 1px 右下黑色投影（复刻原版） */
@@ -323,14 +314,14 @@ export class MapView {
 
       const g = this.garrisonOf(c);
       if (g) {
-        const fac = sc.factions.find((fac) => fac.idx === g.faction);
-        const surname = fac?.monarch?.trim() || g.leader || "?";
-        this._drawGarrisonSquare(
+        const fac = sc.factions.find(
+          (candidate) => candidate.idx === g.faction,
+        );
+        this._drawStationaryMarker(
           ctx,
           x,
           y,
-          factionColorEx(sc, g.faction),
-          surname,
+          fac?.march_marker_style ?? g.faction,
         );
       }
 
@@ -353,7 +344,7 @@ export class MapView {
     // 军团: 不在城池驻军内则绘制行军图标
     const t = this.app?.clock?.dayProgress?.() ?? 1;
     for (const L of sc.legions) {
-      if (L.dead || L.faction == null) continue;
+      if (L.dead || L._active === false || L.faction == null) continue;
       const isGarrison =
         !this.isMarching(L) &&
         sc.cities.some((c) => c.x === L.x && c.y === L.y);
@@ -365,11 +356,14 @@ export class MapView {
       if (lx < -60 || ly < -40 || lx > cv.width + 60 || ly > cv.height + 40)
         continue;
 
-      if (L.target) {
-        // 行军路线虚线: 沿路网路径, 逐格贴道路线 (从当前插值位置出发)
-        let path = L._path;
-        if (!path)
-          path = L._path = findPath(L.x, L.y, L.target.x, L.target.y) || [];
+      if (L._engagement) {
+        this._drawEngagement(ctx, lx, ly, L._engagement.countdown);
+      } else if (L.target) {
+        // 行军路线虚线只读导航状态；绘制层不得写军团路径缓存。
+        let path = L._path || [];
+        if (!path.length && roadGraphReady()) {
+          path = findRoadRoute(L.x, L.y, L.target.x, L.target.y)?.points ?? [];
+        }
         ctx.strokeStyle = factionColorEx(sc, L.faction);
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
@@ -394,14 +388,14 @@ export class MapView {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // 行军标识 (势力属性 SVG): 凸标尖头对齐行进方向
+        // 行军标识：势力记录 +0x3E 指定固定样式槽，方向选离散原版帧。
+        const faction = sc.factions.find((f) => f.idx === L.faction);
         this._drawMarchingIcon(
           ctx,
           lx,
           ly,
-          factionColorEx(sc, L.faction),
-          factionMark(L.faction),
-          renderPos.angle,
+          faction?.march_marker_style ?? L.faction,
+          renderPos.frame,
         );
       } else {
         // 非驻军且非行军：仅用小圆点占位（正常情况不应出现）

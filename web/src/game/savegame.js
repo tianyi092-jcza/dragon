@@ -9,7 +9,8 @@ const N_SLOT = 4;
 const OFF_FACTION = 0x80; // 24×64B
 const OFF_DIPLO = 0x680; // 行距24
 const OFF_CITY = 0x8c0; // 200×32B
-const LEGION_BASE = 0x2240; // 军团记录64B×32
+const LEGION_BASE = 0x22c0; // 槽文件偏移；运行时状态段内偏移0x2240
+const N_LEGION = 128;
 const OFF_GENERAL = 0x42c0; // 128×32B
 
 let scenRaw = null;
@@ -112,28 +113,66 @@ export function serializeSlot(app, label) {
     slot[o + 1] = c.faction == null ? 0x18 : c.faction;
     if (c.prod != null) u16(slot, o + 0x0e, c.prod);
     const s = c.sim;
-    if (s) {
-      u8(slot, o + 0x10, s.morale ?? 0); // 士气
-      u8(slot, o + 0x11, s.food ?? 0); // 储粮
-      u8(slot, o + 0x12, s.cap ?? 0); // 兵上限
-      u8(slot, o + 0x13, s.troops ?? 0); // 现兵
-      u8(slot, o + 0x15, s.drain ?? 0); // 日耗
-    }
+    u8(slot, o + 0x10, s?.morale ?? c.growth ?? 0); // 上升率
+    u8(slot, o + 0x11, s?.food ?? c.defence ?? 0); // 防灾
+    u8(slot, o + 0x12, s?.cap ?? c.troops_cap ?? 0); // 城兵上限
+    u8(slot, o + 0x13, s?.troops ?? c.troops ?? 0); // 城兵
+    if (s?.drain != null) u8(slot, o + 0x15, s.drain); // 日耗
   }
 
-  // ---- 军团记录 (64B×32 @0x2240): 先清区再写存活军团 ----
-  slot.fill(0, LEGION_BASE, LEGION_BASE + 32 * 64);
-  sc.legions.slice(0, 32).forEach((A, j) => {
-    if (A.dead || A.faction == null) return;
-    const r = LEGION_BASE + j * 64;
-    slot[r] = 0x80; // 存活位图 (bit2有命令/bit5战斗中 未用)
+  // ---- 军团记录 (64B×128 @槽文件0x22C0 / 状态段0x2240):
+  // 先写活动军团，再把0x2977延迟队列还原为status=8/+3倒计时槽。 ----
+  slot.fill(0, LEGION_BASE, LEGION_BASE + N_LEGION * 64);
+  const occupiedLegionSlots = new Set();
+  const claimLegionSlot = (preferred) => {
+    if (
+      Number.isInteger(preferred) &&
+      preferred >= 0 &&
+      preferred < N_LEGION &&
+      !occupiedLegionSlots.has(preferred)
+    ) {
+      occupiedLegionSlots.add(preferred);
+      return preferred;
+    }
+    for (let slotIdx = 0; slotIdx < N_LEGION; slotIdx++) {
+      if (occupiedLegionSlots.has(slotIdx)) continue;
+      occupiedLegionSlots.add(slotIdx);
+      return slotIdx;
+    }
+    return null;
+  };
+  sc.legions.forEach((A) => {
+    if (A.dead || A._active === false || A.faction == null) return;
+    const generalIndex = sc.generals.findIndex((g) => g && g.name === A.leader);
+    const legionSlot = claimLegionSlot(
+      Number.isInteger(A.slot) ? A.slot : generalIndex,
+    );
+    if (legionSlot == null) return;
+    const r = LEGION_BASE + legionSlot * 64;
+    slot[r] = 0x80;
     slot[r + 1] = A.faction;
-    const gi = sc.generals.findIndex((g) => g && g.name === A.leader);
-    u16(slot, r + 2, gi >= 0 ? gi : 0xff);
+    u16(slot, r + 2, generalIndex >= 0 ? generalIndex : 0xff);
+    u16(slot, r + 0x04, A.troops ?? 0);
+    u8(slot, r + 0x06, A.morale ?? 200);
     u16(slot, r + 0x10, A.x ?? 0);
     u16(slot, r + 0x12, A.y ?? 0);
-    u16(slot, r + 0x20, A.troops ?? 0);
+    const units = Array.isArray(A.units) ? A.units.slice(0, 6) : [];
+    for (let i = 0; i < 6; i++) {
+      const unit = units[i];
+      u8(slot, r + 0x29 + i * 4, Math.floor((unit?.troops ?? 0) / 10));
+      u8(slot, r + 0x2a + i * 4, unit?.type ?? 4);
+    }
   });
+  for (const item of sc.delayedLegionReturns ?? []) {
+    if (item.countdown <= 0 || item.faction == null) continue;
+    const legionSlot = claimLegionSlot(item.generalIdx);
+    if (legionSlot == null) continue;
+    const r = LEGION_BASE + legionSlot * 64;
+    slot[r] = 0x08;
+    slot[r + 1] = item.faction;
+    u16(slot, r + 2, item.generalIdx);
+    u8(slot, r + 3, item.countdown);
+  }
 
   // ---- 武将区 (128×32 @0x42C0): 状态(+17)/所属(+1C)/原属(+1D) ----
   for (let i = 0; i < sc.generals.length; i++) {
@@ -168,7 +207,22 @@ export function snapshotState(app, slotIdx, label) {
   const sc = app.scenario;
   const st = structuredClone({ ...sc });
   delete st.armies; // 与 legions 同引用, 克隆后冗余
-  st.legions = st.legions.filter((A) => !A.dead);
+  delete st._nextRuntimeLegionId;
+  st.legions = st.legions
+    .filter((A) => !A.dead)
+    .map((A) => {
+      // 道路边/点列是可重建的运行时缓存，不写入即时快照。
+      const clean = { ...A };
+      delete clean._march;
+      delete clean._engagement;
+      delete clean._runtimeId;
+      delete clean._markerFrame;
+      delete clean._path;
+      delete clean._ptx;
+      delete clean._pty;
+      delete clean._feint;
+      return clean;
+    });
   const ck = app.clock;
   st.save_date = { year: ck.year, month: ck.month, day: ck.day };
   return {

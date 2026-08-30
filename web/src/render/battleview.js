@@ -191,6 +191,9 @@ export class BattleView {
       retreat,
       atkLeft: survivorsOf(this.battle, "atk"),
       defLeft: survivorsOf(this.battle, "def"),
+      atkUnits: strategicSurvivorsOf(this.battle, "atk"),
+      defUnits: strategicSurvivorsOf(this.battle, "def"),
+      wallRecords: this.battle.wallRecords,
     });
   }
 
@@ -238,20 +241,25 @@ export class BattleView {
     this.s = Math.min(cv.width / FIELD, cv.height / FIELD) * 1.6;
     this.ox = (cv.width - FIELD * this.s) / 2;
     this.oy = (cv.height - FIELD * this.s) / 2;
-    ctx.drawImage(
-      this.mapImg ?? cv,
-      this.ox,
-      this.oy,
-      FIELD * this.s,
-      FIELD * this.s,
-    );
+    const mapSize = FIELD * this.s;
+    ctx.save();
+    if (this.battle.mirror) {
+      ctx.translate(this.ox + mapSize, this.oy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(this.mapImg ?? cv, 0, 0, mapSize, mapSize);
+    } else {
+      ctx.drawImage(this.mapImg ?? cv, this.ox, this.oy, mapSize, mapSize);
+    }
+    ctx.restore();
 
     for (const u of this.battle.units) {
       if (u.gone) continue;
       const x = this.ox + u.x * this.s,
         y = this.oy + u.y * this.s;
       const facIdx =
-        u.side === "atk" ? this.battle.A.faction : this.battle.city.faction;
+        u.side === "atk"
+          ? this.battle.A.faction
+          : (this.battle.D?.faction ?? this.battle.city?.faction);
       const col = factionColorEx(this.app?.scenario, facIdx ?? 0);
       const w = 14 * this.s,
         h = 18 * this.s;
@@ -316,6 +324,15 @@ function survivorsOf(s, side) {
     .reduce((a, u) => a + Math.max(0, u.troops | 0), 0);
 }
 
+function strategicSurvivorsOf(s, side) {
+  const survivors = Array(6).fill(0);
+  for (const unit of s.units) {
+    if (unit.side !== side || unit.strategicIndex == null) continue;
+    survivors[unit.strategicIndex] += Math.max(0, unit.troops | 0);
+  }
+  return survivors;
+}
+
 /** VM io 钩子 → web 战斗状态映射 (控制流严格复刻; 状态查询为近似映射)
  *  单位区语义: 0x600=开场主视角方(active), 0x000=对手(other) */
 function makeBattleIO(view) {
@@ -366,9 +383,9 @@ function makeBattleIO(view) {
     },
     scan16: () => 0, // 援军记录表无对应物 → 无增援分支
     mapWord(_off) {
-      const c = b.city;
-      const t = c?.sim ? c.sim.troops : c?.troops;
-      return Math.min(0xff, (t ?? 0) >> 5);
+      let troops = b.D?.troops;
+      if (b.city) troops = b.city.sim ? b.city.sim.troops : b.city.troops;
+      return Math.min(0xff, (troops ?? 0) >> 5);
     },
     rand: () => Math.random(),
     gate2: () => false,

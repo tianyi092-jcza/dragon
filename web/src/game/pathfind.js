@@ -4,6 +4,8 @@
 // road_offset.json: 各线路 tile 的道路线质心偏移(像素)，供渲染层把虚线/标识贴在道路线上。
 // 第三方未开战势力占据的格子视为堵路 (isBlocked 回调)，全堵→佯动。
 
+import { loadRoadGraph } from "./roadgraph.js";
+
 const W = 384,
   H = 256;
 // 水域 tile: 水路也是路径但代价极高(原版陆路优先: 许昌-舞阳-汝南走陆路,
@@ -34,11 +36,18 @@ export async function loadTerrain() {
     fetch("mmap_map.bin"),
     fetch("road_cost.bin"),
     fetch("road_offset.json"),
+    loadRoadGraph(),
   ]);
   terrain = new Uint8Array(await mapRes.arrayBuffer());
   roadCost = new Uint8Array(await costRes.arrayBuffer());
   roadOff = await offRes.json();
   return terrain;
+}
+
+/** MMAP.MAP 原始图块编号；资源未就绪或越界时返回 null。 */
+export function terrainTile(x, y) {
+  if (!terrain || x < 0 || y < 0 || x >= W || y >= H) return null;
+  return terrain[y * W + x];
 }
 
 /** 该格道路线的质心偏移 [ox,oy] (像素, 相对格中心): 渲染虚线/标识时贴到道路线上 */

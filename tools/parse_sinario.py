@@ -82,6 +82,9 @@ def parse_scenario(sc: bytes):
                               "lead": g[0x12] & 0xF,
                               "politics": g[0x13] & 0xF,
                         },
+                        # 0x4C72/0x291A 使用的原始武将战斗/去向修正字节；
+                        # 精确产品名尚未闭合，保留原值供指令级算法使用。
+                        "battle_rating": g[0x1F],
                         "status": g[0x17],
                         "talk_idx": g[0x1E],
                         "captive_flag": g[0x1D],
@@ -102,6 +105,8 @@ def parse_scenario(sc: bytes):
             factions.append(
                   {
                         "idx": i,
+                        "attr": f[0],
+                        "active": f[0] >= 0x80,
                         "monarch": generals[m_idx]["name"]
                         if m_idx < len(generals)
                         else "?",
@@ -134,6 +139,9 @@ def parse_scenario(sc: bytes):
                         "bellicosity": f[0x28],
                         "target_faction": f[0x19] if f[0x19] != 0xFF else None,
                         "talk_style": f[0x1E],
+                        # 战略地图军团标识样式槽。KI.EXE 0x6FD2: legion[+9]=f[+0x3E]*5；
+                        # 0x2B2A 再加四方向/驻止帧 0..4。槽 0..23 图案与颜色均来自 MMAP.MCH。
+                        "march_marker_style": f[0x3E],
                   }
             )
       out["factions"] = factions
@@ -173,9 +181,9 @@ def parse_scenario(sc: bytes):
 
       # ---- ★0x21C0 区已破解(2026-08-23 二次逆向, 详见 re-notes-kernel.md) ----
       # KI.EXE 存档流(0x8CAE)证明：剧本文件=4×0x56C0 静态场景镜像+0x80B 头，不含军团；
-      # 运行时军团在 SAVE.DAT 文件偏移 0x2240 起（DS 状态段 0x5240B 的镜像）。
-      # 军团记录 64B@0x2240：+1 势力、+2/+3 军团长武将序号(u16le)、+8..+F 目标坐标/方向
-      # 步进、+10..+13 当前 x/y(word)、+14..+1F 移动残差与指令、+20..+23 编制。
+      # 运行时军团在状态段 DS:0x2240；SAVE 槽文件因前置0x80B头而位于0x22C0。
+      # 军团记录64B：+1势力、+2/+3军团长、+4总兵力、+6士气、+10/+12当前坐标，
+      # +28+i*4为六单位（+1兵力、+2兵种）。
       # 剧本文件同偏移的 32B 条目是「初始行军路线点表」(+4/+6=地图坐标 word)，非军团。
       out["legions"] = []
       # ---- ★外交友好度矩阵 @0x680 (game-mechanics.md: 每势力24B) ----

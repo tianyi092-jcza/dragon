@@ -1,0 +1,5 @@
+{
+  "styleCount": 24,
+  "framesPerStyle": 5,
+  "frames": ["west", "east", "north", "south", "stationary"]
+}

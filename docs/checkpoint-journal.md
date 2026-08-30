@@ -1,211 +1,240 @@
-# Checkpoint Journal — 臥龍傳 Web 复刻
+# Checkpoint Journal — 2026-08-30 战略军团与战斗底层
 
-> 给下一个对话的项目记忆。这里只保留稳定事实、当前架构、操作约定、重要坑点和最近 checkpoint；详细逆向结论见 `AGENTS.md`、`docs/re-notes-kernel.md` 与 `docs/game-mechanics.md`。
->
-> 更新日期：2026-08-29
+> 本文件记录本轮会话的详细进展、调试过程、失败尝试、相关文件、阻塞和下一步。
+> 长期项目记忆已整理到 `AGENTS.md`；逆向证据详见 `re-notes-march-pathfinding.md` 与 `re-notes-kernel.md`。
 
-## 一、项目稳定事实
+## 1. 本轮目标与范围
 
-- 项目目标：不用模拟器，以 **原生 JavaScript ES Modules + Canvas 2D** 重写 1995 DOS《臥龍傳》。无框架、无构建、无 npm 运行时依赖。
-- 仓库根目录：`E:/Dragon/web-port`；原版程序和真实运行数据位于 `E:/Dragon/Dragon/`。
-- 官方基准在 `E:/Dragon/原版/`；`上/中/下/后/` 是爱好者改版剧本。运行中的真实剧本/存档是：
-  - `E:/Dragon/Dragon/SINARIO.DAT`
-  - `E:/Dragon/Dragon/SAVE.DAT`
-- `web/data.json` 是由五组目录合并出的 20 章数据；修改解析器后必须重新生成，不能手改输出代替修复解析器。
-- 游戏逻辑分辨率为 **640×400**。战略地图用 `#cv`，标题与开局菜单用独立画布 `#startv`。
-- 原版 `SAVE.DAT` 为 4 槽，每槽 `0x56C0` 字节，总长度 `4 * 0x56C0`。自动化测试不得写真实存档。
-- BGM 不复刻；PC Speaker 风格 SFX 已接入 WebAudio。
-- 更完整的数据格式、逆向地址和治理/外交公式以 `AGENTS.md` 和逆向文档为准，本文件不重复维护。
+本轮从“战术战斗前先还原战略军团”开始，依次完成：
 
-## 二、当前架构
+1. 原版据点道路拓扑与点列移动；
+2. 势力固定军团标识与接敌等待态；
+3. 野战地形/战场布局选择；
+4. 野战与攻城战略速算；
+5. 战后继续、道路撤退、延迟回归和被俘；
+6. 破城后同城守军组撤退；
+7. 修复玩家委任军团收到目标后不行军；
+8. 定位战术攻城城损链，并明确尚缺的城壁对象状态机。
 
-| 路径 | 职责 |
-| --- | --- |
-| `web/src/main.js` | 应用装配、主循环、剧本/存档加载、返回标题和跨模块状态清理 |
-| `web/src/ui/gamebar.js` | 顶栏、军师菜单、系统选单及主要 Canvas 弹窗、菜单层级和地图锁定 |
-| `web/src/ui/startmenu.js` | 标题 YES/NO、章节/读档/势力/军师流程及通用 `prompt()` 弹窗 |
-| `web/src/ui/hud.js` | 遗留 DOM HUD、列表/NPC 提示；`closeAll()` 用于切场景时清理 |
-| `web/src/game/clock.js` | 战略历法、五档战略速度、兼容旧暂停接口 |
-| `web/src/core/modalclock.js` | 模态窗口暂停/恢复战略时钟，保存速度档和原暂停状态 |
-| `web/src/render/battleview.js` | 战术画面、五档战术倍率、战斗期间接管战略时钟 |
-| `web/src/game/savegame.js` | SAVE.DAT 解析/序列化、会话内完整存档镜像与槽位 patch |
-| `web/src/core/speaker.js` | SFX、静音及 TYPE 1..4 音色配置 |
-| `tools/webserver.py` | 静态服务器、`/api/save` 和 `/api/saves.json` |
-| `docs/re-notes-kernel.md` | KI.EXE 与数据格式逆向细节 |
-| `docs/game-mechanics.md` | 游戏机制与逆向结论互证 |
+提交前已审查全部改动与未跟踪文件，移除无关格式噪音、本机存档内容和可再生大型 probe JSON；真实 `E:/Dragon/Dragon/SAVE.DAT` 始终只读。
 
-### 时钟模型
+## 2. 详细进展
 
-- `clock.strategicSpeed` 是合法速度档索引 `0..4`：最低、低、普通、高、最高。
-- 战略步长为 `[480, 280, 160, 80, 25]` ms/刻度。
-- 兼容旧调用的 `clock.speed`：
-  - 写入 `0` 表示暂停；
-  - 写入 `1..5` 映射到战略速度 `0..4`；
-  - 因此最低战略速度不再与暂停 sentinel 冲突。
-- `clock.hold` 用于菜单、弹窗和返回标题期间的绝对冻结；不要用修改速度档来代替 hold。
-- 战术速度完全独立：倍率 `[0.5, 0.75, 1.0, 1.5, 2.5]`，只影响战斗步进和动画。
+### 2.1 道路拓扑与移动
 
-### UI 与交互约定
+- 逆向 `KI.EXE 0xE4CE..0xE992`，从 `MMAP.MAP` 构建原版道路图：
+  - 192 个据点节点；
+  - 254 条无向道路边；
+  - 单一连通分量；
+  - 完整道路点列共 5526 点，边长 6..84；
+  - 反向边、端点解析与诊断异常均为 0。
+- 闭合 `0x491B/0x4A0F`：四个有序 tagged edge slot、`0x4000/0x8000` 端点标签、加权搜索返回第一条边和 `stride=±4`。
+- 对 192×191 个有序据点对验证：距离 mismatch 0，非法 first hop 0。
+- 新增 `roadgraph.js`，据点命令改走原版拓扑；军团沿边点列逐战略更新移动，到边端下一次更新重新寻路。
+- `roadApproachesAt()` 支持道路内部点的多条边出现，端点顺序校正为 `edge+8` 后 `edge+6`，供 `0x487B` 撤退选择。
+- 大地图和小地图路线绘制改为只读导航状态，不再由渲染层推进路线。
 
-- 全游戏不增加关闭按钮；弹窗和二级界面使用鼠标右键逐层回退。
-- 军师菜单由羽扇图标乒乓开关；关闭父菜单时必须清理全部子孙窗口、选中状态并恢复计时。
-- 军师子菜单激活时地图绝对锁定；地图空白处左键不承担关闭或取消功能。
-- 系统选单及 SAVE/LOAD 子窗口打开时必须保持 `clock.hold = true`。
-- 游戏内读档不得直接替换当前 scenario；确认后必须通过 `returnToTitle(1)` 回标题，再由 StartMenu 读档。
-- Canvas 列表滚动条统一在右侧；中文按钮使用全角空格，如 `確　認`、`取　消`。
-- 标题存档空槽显示 `（未使用）`，必须带 `disabled` 并在 hover、hit-test 和点击路径中全部拒绝选择。
+### 2.2 军团标识、接敌和音效
 
-## 三、常用命令
+- 从 `MMAP.MCH` 提取 24 个样式槽×5帧，共 120 张原版 PNG；势力记录 `+0x3E` 解析为 `march_marker_style`。
+- 删除臆造的 `mark0.svg`～`mark3.svg`，不再使用独立颜色循环或任意角旋转。
+- 移动方向帧：0西、1东、2北、3南；到达/驻止帧为4。运行时字段使用 `_markerFrame`，不写入稳定快照。
+- 从 `MMAP.MCH + 0xA000` 解析5组×4相接敌动画并生成审查图；产品资产只保留运行时有实锤引用的 group 0 四帧。
+- 接触检测移到坐标写入前：发起方停在原道路点，不提前进入敌军或城市坐标。
+- 接敌状态按原版名义12、同轮减至11，再逐调度到1；防守方不被同步置等待态。
+- `speaker.engageSfx()` 复刻调用时序和忙状态门控；实际 YNSOUND ID3 音色仍仅为近似。
 
-在 `E:/Dragon/web-port` 执行：
+### 2.3 野战地形与 BATTLE.MAP
 
-```bash
-python tools/webserver.py 8321
-# 浏览器：http://127.0.0.1:8321/
+- 新增 `fieldterrain.js`，移植 `0x4B63..0x4C71`：
+  - `CS:0x982F` 的14段图块分类；
+  - `CS:0x97F0` 的21条地形组合；
+  - 输出目录 `0xC0..0xD5`；
+  - 反向组合设置水平镜像 bit `0x40`。
+- 修正旧 BATTLE.MAP 解析误判：目录项是 `[layout, theme]`，不是 `[theme, layout]`；布局窗口起点是 `0x200 + layout * 256`，不是 `layout * 4096`。
+- 重新生成 `web/battle_maps.json`，实际战场布局只有 `0/1/2`；删除错误生成的 theme 编号 PNG。
+- 野战使用真实军团防守方，不再构造 synthetic city；`BattleView` 支持 field battle、独立防守势力和镜像战场。
 
-# JS 语法检查；项目 .js 使用 ESM，复制为 .mjs 再检查最稳妥
-cp web/src/ui/gamebar.js /tmp/gamebar.mjs
-node --check /tmp/gamebar.mjs
+### 2.4 SAVE 军团表勘误
 
-git diff --check
+- 发现此前将运行时状态段 `0x2240` 直接当成 SAVE 槽文件偏移，导致解析出伪军团和错误主将。
+- 正确文件偏移为 `0x22C0`（槽头 `0x80` + 状态段 `0x2240`）。
+- `parse_save.py`、`savegame.js` 已改为读写：
+  - `+0` 状态、`+1` 势力、`+2/+3` 主将；
+  - `+4` 总兵、`+6` 士气；
+  - `+28+i*4` 的六个单位兵力/兵种；
+  - status 8 与 `+3` 倒计时的延迟回归槽。
+- 真实 SAVE 只读验证覆盖128个军团槽：四槽活跃军团数 `[32,0,9,0]`；主将槽与军团槽一致，`+4` 等于六单位十人制兵力合计。
 
-# 浏览器回归；/api/save 已 mock，不会改真实 SAVE.DAT
-playwright-cli open http://127.0.0.1:8321/ --browser=chromium
-playwright-cli run-code --filename=tools/verify_system_menu.js
-playwright-cli run-code --filename=tools/verify_clock_pause.js
-playwright-cli close
+### 2.5 野战速算与主防守军
 
-# Node 回归
-node tools/verify_save_buffer.mjs
-node tools/verify_startmenu_empty_slot.mjs
-node tools/verify_sound_profiles.mjs
-```
+- 新增 `autobattle.js`，实现 `0x5285/0x52D7/0x5130/0x51B3` 的可注入 RNG 纯函数。
+- `0x4C72` 已确认不是多军团合并：扫描同坐标目标势力军团后，按
 
-提交前还应执行变更文件 LSP/diagnostics，并确认 `git status` 只有预期产品代码、测试和文档。
+  ```text
+  (troops >> 4) * (morale >> 4) * ((general.battle_rating >> 4) + 1)
+  ```
 
-## 四、重要坑点与设计禁区
+  只选一个最强主防守军。
+- 兵种权重表：
+  - row0 `[2,3,3,0]`
+  - row1 `[3,2,1,0]`
+  - row2 `[1,3,2,0]`
+  - row3 `[2,1,2,0]`
+- `0x52D7` 末段闭合为 `((u32(basePower) * modifier) >> 10) & 0xFFFF`，JS 使用 `Math.imul` 保持乘法语义。
+- 野战速算回写双方六单位、总兵和士气；玩家直属军团进战术层，AI和委任军团速算。
 
-1. **禁止测试改写真实存档**
-   - 浏览器保存测试必须 mock `/api/save`；不要让测试请求落到 `E:/Dragon/Dragon/SAVE.DAT`。
+### 2.6 战后继续、撤退和武将去向
 
-2. **不要恢复游戏内直接读档**
-   - 旧 HUD 的 `showLoadDialog()` 会就地调用 `app.loadSave()`，容易残留军团、事件、音效、视图和 UI 状态，现已删除。
+- 实现 `0x474A`：检查士气与第一单位；胜方或已在己方城的军团继续，败方寻找撤退路线。
+- `0x487B` 已改为固定朝势力首都方向：从当前道路格按 `+8/+6` 端点顺序选可通往首都且属于己方的候选，不是“最近友城”。
+- 实现 `0x291A` 分派：君主、同势力、 neutral 接收或通过 `battle_rating` 随机门槛者进入延迟回归，否则被俘/退场。
+- `0x2977/0x2A7E`：军团移除，武将进入独立 48 调度周期队列；到期恢复武将待命，不自动重建军团。
+- `0x29C3`：更新武将 status、新旧势力和特殊退场/君主 bit。
+- SAVE 序列化可把队列写回 DOS 兼容的 status 8 槽；Web 即时快照保留队列但剔除可重建导航缓存。
 
-3. **最低速不是暂停**
-   - 不能再用 `speed === 0` 同时表达最低速度和暂停。模态恢复应保存 `{ strategicSpeed, legacyPaused }`，不要只保存旧 `speed` 数值。
+### 2.7 攻城速算与破城守军
 
-4. **连续保存必须基于最新会话镜像**
-   - 每次从启动时的 SAVE.DAT 底版重新序列化，会覆盖本会话刚写入的其他槽位。`savegame.js` 的 `saveImage` 必须持续作为最新完整镜像。
+- 攻城速算使用 `0x5130(AL=0)`：攻方权重 row3，守方 row0 并叠加城防；双方 commander mode 均为攻城专长。
+- 攻城入口先由 `0x4C72` 选择同城最强真实守军并回写其六单位/士气；仅在没有守军军团时调用 `0x4F8A` synthetic garrison：城兵展开为六个弓兵单位，士气 `0xFF`，主将索引 `0x7F`。
+- 查证 20 个原始剧本的武将槽127均为固定占位档案：三种战斗专长0，武力/统率/政治8；Web 使用显式 8/8/0 profile，避免误读普通武将。
+- 战略攻城每轮 `0x51B3` 按 `((0x3F-ratio)&0xFF)>>2` 同步损伤城兵、上升率、防灾。
+- 实现 `0x4DA4`：据点先易主，再由同城原守方最低槽军团求一次撤退目标；全部原守军共享目标城/节点，但各自重建路线。无有效路线则逐军团调用 `0x291A`。
+- 移除攻方失败时 `_bases` 历史瞬移和固定一月监禁，统一进入战后继续/撤退/去向链。
 
-5. **返回标题必须彻底清场**
-   - `returnToTitle()` 要冻结旧场景，并清理 GameBar、HUD、选中据点、弹窗、事件、战斗/外交视图和 dispatch 状态；遗漏句柄会在下一局留下脏状态。
+### 2.8 战术攻城城损定位
 
-6. **浏览器模块缓存会造成假回归**
-   - 修改 JS 后仅 reload 可能仍使用旧模块。结果异常时关闭 Playwright 会话后重新 open。
+- 逆向 `0xA65D→0x9FF8`：扫描16条 `0xC00` 城壁对象，筛选 `kind==1`，取最小 `+0x18`；若全部对象 bit0 仍置位则 metric×4。
+- 最终城损：
 
-7. **LSP 可能出现过期伪诊断**
-   - 无 tsconfig 时 TypeScript 服务偶尔报告超过文件实际 EOF 的 `hud.js` 错误。先以 `node --check` 验证真实语法，再重启/刷新 LSP；不要为不存在的行改代码。
+  ```text
+  damage = (cityTroops + 50 - floor(metric / 10)) >> 3
+  ```
 
-8. **测试脚本格式**
-   - `playwright-cli run-code` 文件当前通过全局函数形式运行；修改后应保证结尾分号和 `node --check` 通过。
+  并同步扣城兵、上升率、防灾。
+- 新增 `applyTacticalSiegeCityDamage(city, wallRecords)` 和战术回调 plumbing。
+- 当前 `battle.js` 明确返回 `wallRecords=null`，因为尚未实现 `0x9B40` 初始化及城壁受击状态；守方获胜时也不会用 `defLeft`、战略 ratio 或假 metric 改写城池。
 
-9. **临时产物不提交**
-   - `docs/test_*.png`、`.playwright-cli/`、`test-artifacts/`、日志和代理缓存均为本地产物。稳定回归脚本应提交，过程截图不提交。
+### 2.9 玩家委任军团不行军修复
 
-10. **旧存档兼容仍有历史风险**
-    - 旧存档的 `scenario_idx` 与后来的 20 章合集可能错位，尚未专项迁移。
+症状：玩家选择目标并委任后，军团没有沿目标行军。
 
-## 五、本轮 Checkpoint
+根因：通用 AI 分支在目标命令执行前覆盖了委任军团的 `target`。
 
-### 本轮目标
+修复：
 
-- 审查并完成系统选单、SAVE DATA、安全读档、五档战略/战术速度和音效 TYPE 1..4。
-- 修复审查发现的暂停 sentinel、空存档槽、直接游戏内读档、连续多槽保存和返回标题残留问题。
-- 建立不会破坏真实 SAVE.DAT 的耐久回归，完成 Git 提交并推送。
-- 本次文档整理目标：删除旧 journal 中重复的尺寸、颜色、一次性验证过程和已完成任务清单，保留可长期复用的项目记忆。
+- 玩家已下达的 target 无论 `delegated` 与否均具有最高优先级；
+- 军团先完成玩家目标，再恢复自主决策；
+- 委任军团参与战斗走战略速算，不弹玩家战术层；
+- 移动一步后正确触发战略地图 redraw。
 
-### 已完成工作
+浏览器实测 city58→59：第一日冷却归零且目标保留；第二日 x=173→175，建立 `_march`，路径18点，时钟未被错误 hold。
 
-- 系统选单 6 项已闭环：`資料儲存`、`存檔讀取`、`音效`、`戰略速度`、`戰術速度`、`遊戲結束`。
-- SAVE DATA 支持 4 槽显示、空槽、日期、覆盖保存及连续保存多个槽位。
-- 游戏内读档增加防丢失确认：取消返回系统选单；确认调用 `returnToTitle(1)` 并直达标题读档流程。
-- 标题读档中的未使用槽位不可 hover/选择。
-- 战略速度改为独立 `0..4` 档；旧 `clock.speed=0` 暂停兼容保留，最低速可正确暂停/恢复。
-- 战术速度独立于战略速度，战斗结束后恢复进入战斗前的战略速度和暂停状态。
-- `returnToTitle()` 与 `HUD.closeAll()` 增强，遗留 HUD 直接读档控件和 DOM 已删除。
-- TYPE 1..4 已接入四组实际不同的声音 profile。
-- 新增 5 个回归脚本：
-  - `tools/verify_system_menu.js`
-  - `tools/verify_clock_pause.js`
-  - `tools/verify_save_buffer.mjs`
-  - `tools/verify_startmenu_empty_slot.mjs`
-  - `tools/verify_sound_profiles.mjs`
-- 回归、语法检查、LSP、`git diff --check` 已通过；提交 `1b5a527` 已推送至 `origin/main`。
+## 3. 调试与失败尝试
 
-### 关键决策
+- 早期使用 bitmap A* 和直线插值，能“走到”但会穿越非原版道路；已由拓扑点列模型替换。
+- 曾把 `0xCB..0xD3` 全部称为道路 tile；实际它们是192个据点/关卡节点起点，已修正文档。
+- 曾对 `MMAP.MCH/MDL` 错用 MMAP.MAP RLE，生成错误 bin；现已删除错误资产。
+- 曾认为 BATTLE.MAP 布局按 `layout*4096` 排列且目录为 theme/layout；两者均已被加载器与输出交叉否定。
+- 曾计划把同坐标多个防守军团合并参战；`0x4C72` 证明只选一个主军，破城组撤退才处理同城全部军团。
+- 曾把 `0x291A` 理解为“撤退到最近据点”；实为无法继续行动后的延迟回归/被俘分派。
+- 曾为攻城失败保留 `_bases` 瞬移、固定月数囚禁；与 `0x474A/0x291A` 不符，已移除。
+- 曾准备以战术 `defLeft` 或战略 ratio 推算玩家攻城城损；因缺少真实城壁对象状态，明确拒绝该近似。
+- Node 自定义 fetch smoke 一度返回缺少 `status` 的对象，触发 `road_graph.json HTTP undefined`；这是测试 stub 问题，不是产品加载失败。
+- 浏览器验证中唯一稳定控制台错误为 `favicon.ico` 404，与游戏功能无关。
 
-- 游戏内读档一律返回标题后执行，不接受当前场景热替换。
-- 菜单冻结使用 `clock.hold`，旧模态暂停使用独立 paused state，速度档本身永远是合法游戏设置。
-- SAVE.DAT 更新采用“完整会话镜像 + 单槽 patch”，确保多次保存不回退其他槽。
-- 自动化只保留可重复、带断言且不碰真实存档的脚本；运行截图不作为版本资产。
-- 系统选单功能已完成，后续主线转向战术战斗底层机制，不继续扩展一次性系统选单样式细节。
+## 4. 本轮相关文件
 
-### 失败尝试
+### 新增核心代码
 
-- 曾让 `Clock.speed` 的 `0` 同时代表最低档和暂停，导致最低档主循环停住、模态恢复后永久暂停；已通过速度档/暂停分离解决。
-- 曾在 HUD 中直接 `app.loadSave()`，造成跨场景状态残留风险；已移除并统一走返回标题流程。
-- 曾以启动时 SAVE.DAT 底版逐次保存，第二次保存会抹掉第一次写入的槽；已改为会话镜像。
-- 曾只根据槽记录是否存在判断可选，导致 `played=false` 空槽仍可点击；现使用显式 `disabled`。
-- 曾在返回标题后让旧场景继续运行；现标题流程全程保持 clock hold，并清理活动视图。
-- Playwright 的 request 监听一度挂得过晚，无法稳定统计 save 请求；现监听在页面导航和 route 测试前注册。
+- `web/src/game/roadgraph.js`
+- `web/src/game/fieldterrain.js`
+- `web/src/game/autobattle.js`
 
-### 相关文件
+### 主要修改代码
 
-- 产品代码：
-  - `web/src/ui/gamebar.js`
-  - `web/src/ui/startmenu.js`
-  - `web/src/ui/hud.js`
-  - `web/src/main.js`
-  - `web/src/game/clock.js`
-  - `web/src/game/savegame.js`
-  - `web/src/core/modalclock.js`
-  - `web/src/core/speaker.js`
-  - `web/src/render/battleview.js`
-  - `web/src/render/diploview.js`
-  - `web/src/render/openview.js`
-  - `web/src/render/endview.js`
-  - `web/index.html`
-- 测试：`tools/verify_*.js`、`tools/verify_*.mjs` 中上述 5 个脚本。
-- 文档：`AGENTS.md`、`docs/game-mechanics.md`、本文件。
+- `web/src/game/ai.js`
+- `web/src/game/battle.js`
+- `web/src/game/pathfind.js`
+- `web/src/game/savegame.js`
+- `web/src/main.js`
+- `web/src/render/mapview.js`
+- `web/src/render/battleview.js`
+- `web/src/ui/gamebar.js`
+- `web/src/core/speaker.js`
 
-### 当前状态
+### 解析器、资产和文档
 
-- `main` 与 `origin/main` 当前提交均为 `1b5a527`，系统选单与安全存读档主线已完成并推送。
-- 最近一轮自动格式化/诊断后，工作区又出现少量**未提交格式变更**：
-  - `docs/game-mechanics.md`
-  - `tools/verify_clock_pause.js`
-  - `tools/verify_save_buffer.mjs`
-  - `tools/verify_system_menu.js`
-  - `web/src/core/modalclock.js`
-  - `web/src/ui/gamebar.js`
-  - `web/src/ui/hud.js`
-- 这些变更目前看是空行、缩进、换行和分号整理，不应误当成新的产品功能；开始下一项开发前应先复查并决定提交或还原。
-- 本文件重写后也属于新的未提交文档变更。
+- `tools/decode_mmap.py`
+- `tools/parse_battle.py`
+- `tools/parse_save.py`
+- `tools/parse_sinario.py`
+- `tools/extract_march_markers.py`
+- `tools/probe_march_topology.py`
+- `tools/probe_march_search.py`
+- `web/road_graph.json`
+- `web/road_graph.json`（版本化运行时资产）
+- `web/road_graph_probe.json`、`web/road_search_probe.json`（由工具按需再生，不提交）
+- `web/grf/march_markers/`
+- `web/grf/engage/`
+- `web/battle_maps.json`
+- `web/data.json`
+- `web/save.json`
+- `docs/re-notes-march-pathfinding.md`
+- `docs/re-notes-kernel.md`
 
-### 阻塞点
+### 新增回归
 
-- 产品功能无阻塞。
-- 流程上的唯一阻塞是当前工作区不干净：必须先处理上述格式变更和本 journal，避免与下一轮战斗系统改动混在一起。
-- 历史兼容风险：旧存档 `scenario_idx` 与 20 章合集可能错位，但不阻塞当前新游戏和本轮系统选单功能。
+- `tools/verify_road_graph.mjs`
+- `tools/verify_march_navigation.mjs`
+- `tools/verify_engagement_state.mjs`
+- `tools/verify_field_terrain.mjs`
+- `tools/verify_autobattle.mjs`
+- `tools/verify_field_result.mjs`
+- `tools/verify_postbattle_fate.mjs`
+- `tools/verify_siege_result.mjs`
+- `tools/verify_save_legions.py`
+- `tools/verify_save_roundtrip.mjs`
 
-### 下一步
+## 5. 最后验证状态
 
-1. 审查当前格式化差异，运行 `node --check`、LSP 和 `git diff --check`，将纯格式整理与本 journal 单独提交或还原。
-2. 开始主线：逆向并完善遭遇战/攻城战底层机制，优先确认：
-   - 战术 AI 行为状态机；
-   - 兵种克制与伤亡/士气公式；
-   - 突击决算、城门和守城判定；
-   - 五军指令、撤退和战斗结束状态回写。
-3. 为战斗机制新增纯函数或可注入 RNG 的单元回归，再补 Playwright 战斗层冒烟测试。
-4. 次要方向：完善 AI 月度主动外交（遣使、宣战、停战、请援）。
-5. 非主线且暂不处理：BGM、旧存档章节索引迁移、自创军师命名。
+最近一次完整相关回归均通过：
+
+- road graph：192节点、254边；
+- march navigation：典型路线逐点推进及委任命令优先；
+- engagement：野战/攻城接触都停在占用点之前；
+- field terrain：5272个道路移动点、19种目录、1303个镜像场景；
+- autobattle：野战权重、主将修正、确定性伤亡与守恒；
+- field result：六单位/士气回写、胜方继续、败方撤退；
+- postbattle fate：道路撤退、48周期回归、被俘；
+- siege result：mode0速算、战略城损、组撤退、战术城损纯函数；
+- save legions：真实 SAVE 只读计数 `[32,0,9,0]`、128槽、偏移 `0x22C0`；另验证 canonical 城池字段、slot64 延迟回归与 slot126 活动军团序列化。
+
+JS syntax、Python `py_compile`、LSP、Lens 和 `git diff --check` 已通过；仅有 Git 的 LF→CRLF 提示。
+
+## 6. 当前阻塞
+
+### 产品阻塞
+
+战术攻城尚不能产生原版城损，因为缺少真实城壁对象：
+
+- `0x9B40` 城壁对象初始化；
+- 城壁对象 `kind/bit0/+0x18` 的初值；
+- 单位攻击城壁时的命中、bit清除和 metric 更新；
+- 战斗退出时如何把完整16条记录交给 `0xA65D`。
+
+在这些字段闭合前，保持 `wallRecords=null` 是刻意且正确的行为。
+
+### 流程状态
+
+- 本轮提交前已排除 `.codegraph/`、Playwright 会话、日志、截图、缓存和 scratch 文件。
+- `web/save.json` 已改为四个空槽的脱敏静态 fixture，不提交本机真实游玩状态。
+- pi-lens 会自动格式化文件；继续修改 `ai.js`、`autobattle.js`、`savegame.js` 和验证脚本前必须重读。
+
+## 7. 下一步
+
+1. 逆向并移植 `0x9B40` 城壁对象初始化，先做只读探针和字段不变量，不直接猜测 UI 行为。
+2. 追踪战术攻击对16条 `0xC00` 记录的更新路径，建立可注入、可回放的 wall-object 状态测试。
+3. 将真实 wallRecords 接入 `BattleView.finish()`，用已实现的 `0xA65D→0x9FF8` 公式写回城兵/上升率/防灾。
+4. 补一条浏览器攻城冒烟：城壁受击→战斗结束→战略城损与对象记录一致。
+5. 次级逆向：路线平权动态比对、`+0x23` 命令状态命名、YNSOUND ID3 音色、战术 AI/兵种/士气细节。

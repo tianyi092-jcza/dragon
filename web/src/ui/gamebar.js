@@ -20,12 +20,7 @@ import {
   formatTalkTokens,
 } from "../game/talk.js";
 import { cityTypeLabel } from "../game/world.js";
-import {
-  clickSfx,
-  warnSfx,
-  setSoundType,
-  unlockSfx,
-} from "../core/speaker.js";
+import { clickSfx, warnSfx, setSoundType, unlockSfx } from "../core/speaker.js";
 import {
   isFriendly,
   relation,
@@ -34,6 +29,7 @@ import {
   isAtWar,
 } from "../game/diplomacy.js";
 import { factionColorEx } from "../game/world.js";
+import { findRoadRoute, roadGraphReady } from "../game/roadgraph.js";
 import { getProjectedFinance } from "../game/economy.js";
 import { STRATEGIC_SPEED_LABELS } from "../game/clock.js";
 import {
@@ -646,14 +642,23 @@ export class GameBar {
       targetCity = target;
       legions = sc.legions.filter(
         (L) =>
-          !L.dead && L.faction != null && L.x === target.x && L.y === target.y,
+          !L.dead &&
+          L._active !== false &&
+          L.faction != null &&
+          L.x === target.x &&
+          L.y === target.y,
       );
     } else if (target && target.leader != null) {
       // 传入的是军团
       const L = target;
       targetCity = sc.cities.find((c) => c.x === L.x && c.y === L.y) || null;
       legions = sc.legions.filter(
-        (l) => !l.dead && l.faction != null && l.x === L.x && l.y === L.y,
+        (l) =>
+          !l.dead &&
+          l._active !== false &&
+          l.faction != null &&
+          l.x === L.x &&
+          l.y === L.y,
       );
       if (!legions.includes(L)) legions.unshift(L);
     }
@@ -853,7 +858,7 @@ export class GameBar {
     if (!sc || !me) return;
 
     const myLegions = (sc.legions ?? []).filter(
-      (L) => !L.dead && L.faction === me.idx,
+      (L) => !L.dead && L._active !== false && L.faction === me.idx,
     );
 
     const rows = myLegions.map((L) => {
@@ -974,7 +979,7 @@ export class GameBar {
     if (!sc || !me) return;
 
     const myLegions = (sc.legions ?? []).filter(
-      (L) => !L.dead && L.faction === me.idx,
+      (L) => !L.dead && L._active !== false && L.faction === me.idx,
     );
 
     const rows = myLegions.map((L) => {
@@ -1162,7 +1167,7 @@ export class GameBar {
     const defaultTypes = [0, 0, 1, 1, 2, 2];
     const units = defaultTypes.map((t, idx) => ({
       name: ["主將", "前鋒", "左翼", "右翼", "左備", "右備"][idx],
-      type: t,
+      type: t + 1,
       troops: per + (idx < rem ? 1 : 0),
     }));
     legion.units = units;
@@ -1179,9 +1184,9 @@ export class GameBar {
     for (const u of units) {
       const count = u.troops || 0;
       const poolAdd = Math.floor(count / 10);
-      if (u.type === 0) me.reserve_cav = (me.reserve_cav ?? 0) + poolAdd;
-      else if (u.type === 1) me.reserve_inf = (me.reserve_inf ?? 0) + poolAdd;
-      else if (u.type === 2) me.reserve_arc = (me.reserve_arc ?? 0) + poolAdd;
+      if (u.type === 1) me.reserve_cav = (me.reserve_cav ?? 0) + poolAdd;
+      else if (u.type === 2) me.reserve_inf = (me.reserve_inf ?? 0) + poolAdd;
+      else if (u.type === 3) me.reserve_arc = (me.reserve_arc ?? 0) + poolAdd;
     }
 
     const gen = sc.generals?.find((g) => g.name === legion.leader);
@@ -2289,12 +2294,12 @@ export class GameBar {
           delegated: false,
           cooldown: 0,
           units: [
-            { type: 0, troops: 1000 },
-            { type: 0, troops: 1000 },
             { type: 1, troops: 1000 },
             { type: 1, troops: 1000 },
             { type: 2, troops: 1000 },
             { type: 2, troops: 1000 },
+            { type: 3, troops: 1000 },
+            { type: 3, troops: 1000 },
           ],
         };
         sc.legions.push(newLegion);
@@ -3790,7 +3795,7 @@ export class GameBar {
       target: null,
       delegated: false,
       cooldown: 0,
-      units: units.map((u) => ({ type: u.type, troops: u.troops })),
+      units: units.map((u) => ({ type: u.type + 1, troops: u.troops })),
     };
     sc.legions.push(newLegion);
 
@@ -6078,7 +6083,6 @@ export class GameBar {
     await this.app.saveGame(slotIdx, label);
   }
 
-
   _drawSystemLoadConfirmDialog(ctx) {
     const d = this.systemLoadConfirmDialog;
     if (!d) return;
@@ -6398,10 +6402,22 @@ export class GameBar {
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(mx + (gx * 16 + 8) * kx, my + (gy * 16 + 8) * ky);
-      ctx.lineTo(
-        mx + (L.target.x * 16 + 8) * kx,
-        my + (L.target.y * 16 + 8) * ky,
-      );
+      let path = L._path || [];
+      if (!path.length && roadGraphReady()) {
+        path = findRoadRoute(L.x, L.y, L.target.x, L.target.y)?.points ?? [];
+      }
+      if (isMoving && curT < 1) {
+        ctx.lineTo(mx + (L.x * 16 + 8) * kx, my + (L.y * 16 + 8) * ky);
+      }
+      for (const point of path) {
+        ctx.lineTo(mx + (point.x * 16 + 8) * kx, my + (point.y * 16 + 8) * ky);
+      }
+      if (!path.length) {
+        ctx.lineTo(
+          mx + (L.target.x * 16 + 8) * kx,
+          my + (L.target.y * 16 + 8) * ky,
+        );
+      }
       ctx.stroke();
     }
     ctx.setLineDash([]);
