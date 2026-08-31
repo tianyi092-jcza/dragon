@@ -34,10 +34,7 @@ import {
   roadGraphReady,
   roadNodeAt,
 } from "../game/roadgraph.js";
-import {
-  isLegionDelegated,
-  setLegionDelegated,
-} from "../game/legionmode.js";
+import { isLegionDelegated, setLegionDelegated } from "../game/legionmode.js";
 import { canSnapshotState } from "../game/savegame.js";
 import { ensureLegionSlot } from "../game/legionunits.js";
 import { getProjectedFinance } from "../game/economy.js";
@@ -82,6 +79,8 @@ export class GameBar {
     this._lastBlinkDraw = 0;
     this.listDialog = null; // 当前 canvas 列表弹窗
     this.generalCard = null; // 武将特长/对白信息弹窗
+    this._strategicMessageQueue = []; // AI 宣战等底部消息 FIFO
+    this._strategicMessageActive = false;
     this.formationDialog = null; // 部队编成弹窗
     this.formationQuote = null; // 部队编成确认/提示发言弹窗 (武将/军师发言)
     this.cityCard = null; // 左下角据点信息弹窗
@@ -1153,7 +1152,9 @@ export class GameBar {
     const blocked = Boolean(legion?._retreat || legion?._engagement);
     if (blocked && notify) {
       const state = legion._retreat ? "撤退中" : "交戰中";
-      this.app.hud?.flashEvent?.(`「${legion.leader ?? "該軍團"}」正在${state}，不能變更行軍命令。`);
+      this.app.hud?.flashEvent?.(
+        `「${legion.leader ?? "該軍團"}」正在${state}，不能變更行軍命令。`,
+      );
       warnSfx();
     }
     return !blocked;
@@ -3282,8 +3283,13 @@ export class GameBar {
     const p = this.proposalAudience;
     if (!p) return false;
     if (btn === 2) {
-      // 右键取消 / 退出进言
       clickSfx();
+      if (p.type === "envoy-budget") {
+        if (this.keypadDialog) this.closeKeypadDialog();
+        this._finishEnvoyBudget(0, "refuse");
+        return true;
+      }
+      // 右键取消 / 退出进言
       this.closeProposalAudience();
       this.selectedSubmenu = null;
       this.syncClock();
@@ -3291,6 +3297,39 @@ export class GameBar {
       return true;
     }
     if (btn !== 0) return true;
+
+    if (p.type === "envoy-budget") {
+      if (p.step === "envoy_budget_choice") {
+        const ri = this._hitProposalReasons(px, py);
+        if (ri < 0) return true;
+        clickSfx();
+        if (ri === 0) {
+          this._finishEnvoyBudget(p.budgetRequested, "accept");
+        } else if (ri === 1) {
+          const winW = 320;
+          const winH = 384;
+          const winX = Math.round((innerWidth - winW) / 2);
+          const winY = Math.round((innerHeight - winH) / 2) + 20;
+          p.step = "envoy_budget_keypad";
+          this.showKeypadDialog(
+            "envoy-budget",
+            p.budgetRequested,
+            30000,
+            winX - 8,
+            winY + 96,
+          );
+        } else {
+          this._finishEnvoyBudget(0, "refuse");
+        }
+        return true;
+      }
+      if (p.step === "envoy_budget_result" && p.timer) {
+        clearTimeout(p.timer);
+        p.timer = null;
+        this._closeEnvoyBudgetAudience();
+      }
+      return true;
+    }
 
     // 如果当前处于选择理由状态，优先检测点击理由项
     if (p.step === "choose_reason") {
@@ -3367,9 +3406,9 @@ export class GameBar {
     }
 
     // 4. 开战理由选择菜单 (11×7 tiles = 176×112，位于中间偏左)
-    if (p.step === "choose_reason") {
+    if (p.step === "choose_reason" || p.step === "envoy_budget_choice") {
       const rTilesW = 11;
-      const rTilesH = 7;
+      const rTilesH = p.step === "envoy_budget_choice" ? 5 : 7;
       const rx = winX - 24;
       const ry = winY + 90;
 
@@ -3379,13 +3418,16 @@ export class GameBar {
       const rInnerW = rWin ? rWin.w : (rTilesW - 1) * 16;
       const rInnerH = rWin ? rWin.h : (rTilesH - 1) * 16;
 
-      const items = p.reasonsItems || [
-        "外交關係惡劣",
-        "我國較有利",
-        "敵正侵攻他國",
-        "敵勢力疲乏",
-        "撤回進言",
-      ];
+      const items =
+        p.step === "envoy_budget_choice"
+          ? ["答應", "提示金額", "拒絕"]
+          : p.reasonsItems || [
+              "外交關係惡劣",
+              "我國較有利",
+              "敵正侵攻他國",
+              "敵勢力疲乏",
+              "撤回進言",
+            ];
       p.reasonsRect = { x: rInnerX, y: rInnerY, w: rInnerW, h: rInnerH, items };
 
       const rowH = rInnerH / items.length;
@@ -3567,7 +3609,182 @@ export class GameBar {
       onClose();
       return;
     }
+    this.syncClock();
     this.app.view.draw();
+    this._drainStrategicMessages();
+  }
+
+  /** AI 宣战等战略通知：高优先模态关闭后按 FIFO 显示，3秒或右键关闭。 */
+  enqueueStrategicMessage(message) {
+    if (!message?.text) return;
+    this._strategicMessageQueue.push(message);
+    this._drainStrategicMessages();
+  }
+
+  /** 0x578F type-5：外交官按月回京申请外交维持费。 */
+  enqueueEnvoyBudgetReport(report) {
+    if (report?.targetIdx == null) return;
+    this._strategicMessageQueue.push({ type: "envoy-budget", ...report });
+    this._drainStrategicMessages();
+  }
+
+  async _showEnvoyBudgetAudience(message) {
+    const sc = this.app.scenario;
+    const envoy = sc.envoys?.[message.targetIdx];
+    const target = sc.factions?.find((f) => f?.idx === message.targetIdx);
+    const me = cmd.playerFaction(sc);
+    const gen =
+      (envoy?.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
+      sc.generals?.find((g) => g?.name?.trim?.() === envoy?.name?.trim?.());
+    const monarch = me ? sc.monarchOf(me) : null;
+    if (!envoy || !target || !gen || !monarch) return false;
+    const [monarchImg, envoyImg] = await Promise.all([
+      portrait(monarch.portrait).catch(() => null),
+      portrait(gen.portrait).catch(() => null),
+    ]);
+    const targetName = (target.monarch ?? "該勢力").trim();
+    const requested = Math.max(0, message.requested | 0);
+    this.proposalAudience = {
+      type: "envoy-budget",
+      playerFaction: me,
+      targetFaction: target,
+      envoy,
+      monarch,
+      advGen: gen,
+      monarchImg,
+      advImg: envoyImg,
+      monarchLines: [
+        `駐${targetName}勢力的外交官`,
+        `${gen.name.trim()}大人前來報告。`,
+      ],
+      advLines: [`對${targetName}的外交費，希望能撥款金額 ${requested}。`],
+      step: "envoy_budget_choice",
+      budgetRequested: requested,
+      budgetAmount: requested,
+      budgetHover: -1,
+      timer: null,
+      timerAction: null,
+    };
+    this.syncClock();
+    this.app.view.draw();
+    return true;
+  }
+
+  _finishEnvoyBudget(amount, mode) {
+    const p = this.proposalAudience;
+    if (!p || p.type !== "envoy-budget") return;
+    const faction = p.playerFaction;
+    const envoy = p.envoy;
+    const requested = p.budgetRequested;
+    // 0x39E8 数字键盘上限固定30000；非零输入最低500，不按当前国库钳制。
+    const entered = Math.max(0, Math.min(30000, amount | 0));
+    const grant = entered > 0 ? Math.max(500, entered) : 0;
+    if (grant > 0) {
+      if (faction.gold != null) faction.gold -= grant;
+      else faction.money = (faction.money ?? 0) - grant;
+    }
+    // 0x3AE2/0x3AE4：批准额先×2，再取高字节写 general+0x1A，
+    // 等价 floor(金额/128)。该字节才是0x3E8E逐次消耗的工作预算。
+    const budgetPoints = Math.min(255, Math.floor(grant / 128));
+    envoy.budget = budgetPoints;
+    envoy.requested = requested;
+    envoy.granted = grant;
+    envoy.reportPending = false;
+    const gen = p.advGen;
+    if (gen) gen.assignment_budget = budgetPoints;
+    if (mode === "accept") {
+      p.monarchLines = ["由你提出的，我大可放心了。好，准予撥款。"];
+      p.advLines = ["感謝之至，我一定會帶回好的結果！敬請期待！"];
+    } else if (mode === "adjust") {
+      p.monarchLines = [
+        grant > 0 ? "就以這金額盡力試試吧。" : "無法准予撥款……",
+      ];
+      p.advLines = [
+        grant > 0
+          ? grant < requested
+            ? "是有什麼需要吧，但是無法准予全額。總之我盡量設法吧。"
+            : "感謝之至，我一定讓他成為友邦。"
+          : "嗯，如此我在那邊不就沒立場了……",
+      ];
+    } else {
+      p.monarchLines = ["是有什麼需要吧，但是無法准予撥款……"];
+      p.advLines = ["嗯，如此我在那邊不就沒立場了……"];
+    }
+    p.step = "envoy_budget_result";
+    this._setProposalTimer(3000, () => this._closeEnvoyBudgetAudience());
+    this.app.view.draw();
+  }
+
+  _closeEnvoyBudgetAudience() {
+    this.closeProposalAudience();
+    this._strategicMessageActive = false;
+    if (!this._strategicMessageQueue.length) this._clockHoldRequested = false;
+    this.syncClock();
+    this.app.hud?.refreshInfo?.();
+    this.app.view.draw();
+    this._drainStrategicMessages();
+  }
+
+  _canShowStrategicMessage() {
+    return !(
+      this._strategicMessageActive ||
+      this.generalCard ||
+      this.app.battleView?.active ||
+      this.app.engageTransition?.active ||
+      this.settingsOpen ||
+      this.systemSaveDialog ||
+      this.systemLoadConfirmDialog ||
+      this.listDialog ||
+      this.choiceDialog ||
+      this.proposalAudience ||
+      this.formationDialog ||
+      this.financeDialog ||
+      this.keypadDialog
+    );
+  }
+
+  async _drainStrategicMessages() {
+    if (!this._strategicMessageQueue.length || !this._canShowStrategicMessage())
+      return;
+    const message = this._strategicMessageQueue.shift();
+    this._strategicMessageActive = true;
+    this._clockHoldRequested = true;
+    this.syncClock();
+    if (message.type === "envoy-budget") {
+      const opened = await this._showEnvoyBudgetAudience(message);
+      if (!opened) this._closeEnvoyBudgetAudience();
+      return;
+    }
+    const w = 480;
+    const h = 64;
+    const px = Math.round((innerWidth - w) / 2);
+    const py = Math.max(40, innerHeight - h - 24);
+    const finish = () => {
+      this._strategicMessageActive = false;
+      if (!this._strategicMessageQueue.length) this._clockHoldRequested = false;
+      this.syncClock();
+      this.app.view.draw();
+      this._drainStrategicMessages();
+    };
+    if (message.gen) {
+      await this.showGeneralMessageDialog(message.gen, message.text, finish, {
+        w,
+        h,
+        px,
+        py,
+        autoClose: 3000,
+      });
+    } else {
+      await this.showNpcMessageDialog({
+        lines: [message.text],
+        w,
+        h,
+        px,
+        py,
+        autoClose: 3000,
+        onClose: finish,
+      });
+    }
   }
 
   _hitGeneralCard(px, py) {
@@ -4327,6 +4544,11 @@ export class GameBar {
         } else if (k.type === "inf") {
           if (!sc.next_conscription) sc.next_conscription = [0, 0, 0];
           sc.next_conscription[2] = k.val;
+        } else if (k.type === "envoy-budget") {
+          const amount = k.val;
+          this.closeKeypadDialog();
+          this._finishEnvoyBudget(amount, "adjust");
+          return true;
         }
         this.closeKeypadDialog();
       }
@@ -4921,7 +5143,9 @@ export class GameBar {
         this.marchingOrder ||
         this.viewingLegion ||
         this.orderChoiceMenu ||
-        this.cityCard
+        this.cityCard ||
+        this.generalCard ||
+        this._strategicMessageActive
       );
     const subActive = this.selectedSubmenu != null;
     c.hold = this._clockHoldRequested || modalOpen || subActive; // 点击军师菜单项或外部模态时停止计时
@@ -5052,7 +5276,12 @@ export class GameBar {
       }
       if (this.keypadDialog) {
         clickSfx();
+        const isEnvoyBudget = this.keypadDialog.type === "envoy-budget";
         this.closeKeypadDialog();
+        if (isEnvoyBudget && this.proposalAudience?.type === "envoy-budget") {
+          this.proposalAudience.step = "envoy_budget_choice";
+          this.app.view.draw();
+        }
         return true;
       }
       if (this.formationQuote) {
@@ -5455,10 +5684,7 @@ export class GameBar {
     }
 
     if (this.generalCard) {
-      if (this._hitGeneralCard(px, py)) {
-        clickSfx();
-        this.closeGeneralCard();
-      }
+      // 项目统一交互：NPC/武将提示只允许3秒自动关闭或右键立即关闭。
       return true;
     }
 
@@ -6423,6 +6649,7 @@ export class GameBar {
     if (this.systemLoadConfirmDialog) {
       this._drawSystemLoadConfirmDialog(ctx);
     }
+    this._drainStrategicMessages();
     if (this.miniOpen) this.drawMini(ctx);
     if (this.resOpen) this.drawRes(ctx);
     if (this.listDialog) {

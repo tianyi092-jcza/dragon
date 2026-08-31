@@ -1456,7 +1456,11 @@ export class HUD {
           name: gen.name.trim(),
           gen_idx: gen.idx,
           left: 6,
+          budget: 0,
+          requested: 0,
+          reportPending: false,
         };
+        gen.assignment_budget = 0;
         gen.status = 3; // 外交官
         if (this.app.gamebar.listDialog) {
           this.app.gamebar.listDialog.selectedRow = ri;

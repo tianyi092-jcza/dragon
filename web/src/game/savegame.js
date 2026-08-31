@@ -27,12 +27,25 @@ export function applyWebMetaToState(state, webMeta) {
     "pendingRecruits",
     "pendingTruceNegotiations",
     "pendingAssistanceNegotiations",
+    "pendingStrategicEvents",
+    "pendingEnvoyBudgetReports",
     "envoys",
     "prisoners",
   ]) {
     if (runtime && Object.hasOwn(runtime, field)) {
       state[field] = structuredClone(runtime[field]);
     }
+  }
+  for (const [targetIdx, envoy] of Object.entries(state.envoys ?? {})) {
+    if (envoy?.budget == null) envoy.budget = 0;
+    if (envoy?.requested == null) envoy.requested = 0;
+    if (envoy?.reportPending == null) envoy.reportPending = false;
+    const general =
+      envoy?.gen_idx == null ? null : state.generals?.[envoy.gen_idx];
+    if (general && general.assignment_budget == null) {
+      general.assignment_budget = envoy.budget;
+    }
+    state.envoys[targetIdx] = envoy;
   }
   for (const saved of runtime?.factionRuleState ?? []) {
     const faction = state.factions?.find(
@@ -142,6 +155,12 @@ export function snapshotState(app, slotIdx, label) {
         ),
         pendingAssistanceNegotiations: structuredClone(
           sc.pendingAssistanceNegotiations ?? [],
+        ),
+        pendingStrategicEvents: structuredClone(
+          sc.pendingStrategicEvents ?? [],
+        ),
+        pendingEnvoyBudgetReports: structuredClone(
+          sc.pendingEnvoyBudgetReports ?? [],
         ),
         envoys: structuredClone(sc.envoys ?? {}),
         prisoners: structuredClone(sc.prisoners ?? []),

@@ -2,8 +2,11 @@
 import {
   isFriendly,
   isAtWar,
+  relation,
   declareWar,
   decreaseRelation,
+  increaseRelation,
+  runStrategicDiplomacy,
 } from "./diplomacy.js";
 import { playerFaction } from "./commands.js";
 import { findPath } from "./pathfind.js";
@@ -1049,7 +1052,9 @@ export function applyBattleResult(
     A.cooldown = 8;
     if (oldFaction != null && oldFaction !== A.faction) {
       declareWar(sc, A.faction, oldFaction);
+      // 0x30F0 为单向关系修改；破城后双方各自降低。
       decreaseRelation(sc, A.faction, oldFaction, 20);
+      decreaseRelation(sc, oldFaction, A.faction, 20);
     }
     app.hud?.flashEvent?.(
       `${A.leader} 攻破 ${city.name}（餘兵${A.troops}；守軍撤退${garrison.retreat}）`,
@@ -1071,6 +1076,106 @@ export function applyBattleResult(
   app.hud?.flashEvent?.(
     `${A.leader} 攻${city.name}失利（餘兵${A.troops}；${fate}）`,
   );
+}
+
+export function processStrategicWarEvent(app, event) {
+  const sc = app.scenario;
+  const aggressor = sc.factions?.find((f) => f?.idx === event.aggressor);
+  const defender = sc.factions?.find((f) => f?.idx === event.defender);
+  if (!aggressor || !defender || isAtWar(sc, event.aggressor, event.defender))
+    return false;
+  aggressor.target_faction = defender.idx;
+  declareWar(sc, aggressor.idx, defender.idx);
+  if (defender.idx === sc.player_faction) {
+    const targetName = defender.monarch?.trim?.() || "我方";
+    const advisorName = sc.player_advisor?.name?.trim?.() || "軍師";
+    app.gamebar?.enqueueStrategicMessage?.({
+      gen: sc.generals?.[aggressor.monarch_idx] ?? null,
+      text: `就將${targetName}擊潰吧。${advisorName}啊，立即進兵侵攻！`,
+      kind: "war-declaration",
+    });
+  }
+  return true;
+}
+
+function enqueueStrategicWarEvents(sc, events, delay = 7) {
+  sc.pendingStrategicEvents = sc.pendingStrategicEvents ?? [];
+  for (const event of events) {
+    const duplicate = sc.pendingStrategicEvents.some(
+      (queued) =>
+        queued.type === event.type &&
+        queued.aggressor === event.aggressor &&
+        queued.defender === event.defender,
+    );
+    if (!duplicate) sc.pendingStrategicEvents.push({ ...event, delay });
+  }
+  return events;
+}
+
+/** 新游戏 0x1B29→0x2BD9：立即改变关系，并以 0x31AD=7 延迟调度事件。 */
+export function initializeStrategicDiplomacy(app) {
+  const events = runStrategicDiplomacy(app?.scenario);
+  return enqueueStrategicWarEvents(app.scenario, events);
+}
+
+/** 月结 0x5358→0x5394→0x2BD9：更新关系并排入 type-1 宣战事件。 */
+export function monthlyDiplomacyAI(app) {
+  const events = runStrategicDiplomacy(app?.scenario);
+  return enqueueStrategicWarEvents(app.scenario, events);
+}
+
+function tickStrategicWarEvents(app) {
+  const sc = app.scenario;
+  const remainingBudgetReports = [];
+  for (const report of sc.pendingEnvoyBudgetReports ?? []) {
+    report.delay = Math.max(0, (report.delay ?? 0) - 1);
+    if (report.delay > 0) remainingBudgetReports.push(report);
+    else app.gamebar?.enqueueEnvoyBudgetReport?.(report);
+  }
+  sc.pendingEnvoyBudgetReports = remainingBudgetReports;
+
+  const remaining = [];
+  let changed = false;
+  for (const event of sc.pendingStrategicEvents ?? []) {
+    event.delay = Math.max(0, (event.delay ?? 0) - 1);
+    if (event.delay > 0) {
+      remaining.push(event);
+      continue;
+    }
+    changed = processStrategicWarEvent(app, event) || changed;
+  }
+  sc.pendingStrategicEvents = remaining;
+  return changed;
+}
+
+/** 0x3E11→0x3E8E：每战略调度只轮转一个势力的外交官常态关系。 */
+export function tickEnvoyDiplomacy(app) {
+  const sc = app?.scenario;
+  const rng = app?.originalRng ?? app?.activeBattleRng;
+  if (!sc?.envoys || !rng?.nextByte) return false;
+  const factions = (sc.factions ?? []).filter((f) => f?.idx != null);
+  if (!factions.length) return false;
+  const cursor = Math.max(0, sc._envoyDiplomacyCursor | 0) % factions.length;
+  sc._envoyDiplomacyCursor = (cursor + 1) % factions.length;
+  const current = factions[cursor];
+  const envoy = sc.envoys[current.idx];
+  if (!envoy || (envoy.budget ?? 0) <= 0 || rng.nextByte() >= 0x20)
+    return false;
+  const general =
+    (envoy.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
+    sc.generals?.find((g) => g?.name?.trim?.() === envoy.name?.trim?.());
+  const politics = Math.max(0, Math.min(15, general?.ability?.politics ?? 0));
+  const spend = Math.max(0, 23 - politics);
+  envoy.budget = Math.max(0, (envoy.budget ?? 0) - spend);
+  if (general) general.assignment_budget = envoy.budget;
+  if ((rng.nextByte() & 0x0f) > politics) return false;
+  const playerIdx = sc.player_faction;
+  increaseRelation(sc, current.idx, playerIdx, 1);
+  if (
+    relation(sc, current.idx, playerIdx) > relation(sc, playerIdx, current.idx)
+  )
+    increaseRelation(sc, playerIdx, current.idx, 1);
+  return true;
 }
 
 // ★月度 AI: 俘虏脱逃回归 + 势力灭亡流散随机投奔(城数加权, 武将少者优先)
@@ -1228,7 +1333,8 @@ export function aiTick(app) {
   const sc = app.scenario;
   if (!sc || !sc.legions) return;
   cityDaily(sc);
-  let changed = false;
+  tickEnvoyDiplomacy(app);
+  let changed = tickStrategicWarEvents(app);
   for (const item of tickDelayedLegionReturns(sc)) {
     changed = true;
     app.hud?.flashEvent?.(`${item.leader} 收攏殘部後返回待命`);

@@ -13,10 +13,7 @@ const DEFICIT_TRUST_PENALTY = 20; // 用户规则=20; KI.EXE 0x3516 实测 al=0x
 
 import { monthlyEvents } from "./disaster.js";
 import { tickEnvoys } from "./diplomacy.js";
-import {
-  createDefaultLegionUnits,
-  ensureLegionSlot,
-} from "./legionunits.js";
+import { createDefaultLegionUnits, ensureLegionSlot } from "./legionunits.js";
 
 /** 初始化玩家槽位(原版剧本头 FF=未指定 → 默认势力0/信赖100); 在 setScenario 时调 */
 export function initPlayer(sc) {
@@ -196,7 +193,7 @@ export function dispatch(sc, fromCity, targetCity) {
 export function monthEnd(app) {
   const sc = app.scenario;
   if (!sc) return;
-  tickEnvoys(sc); // 遣使駐在衰减 (外交官列, 6 个月归国)
+  tickEnvoys(sc); // 外交官任期显示衰减；预算报告由 main 月结链另行生成
   for (const r of sc.pendingRecruits ?? []) {
     const c = sc.cities[r.city];
     if (!c) continue;

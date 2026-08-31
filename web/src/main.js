@@ -12,7 +12,14 @@ import {
 } from "./game/world.js";
 import { Clock } from "./game/clock.js";
 import { monthlySettlement } from "./game/economy.js";
-import { aiTick, buildArmies, monthlyAI } from "./game/ai.js";
+import { prepareEnvoyBudgetReports } from "./game/diplomacy.js";
+import {
+  aiTick,
+  buildArmies,
+  initializeStrategicDiplomacy,
+  monthlyAI,
+  monthlyDiplomacyAI,
+} from "./game/ai.js";
 import { loadTerrain } from "./game/pathfind.js";
 import { classifyFieldBattleTerrain } from "./game/fieldterrain.js";
 import * as cmd from "./game/commands.js";
@@ -195,11 +202,15 @@ const app = {
       playerFaction,
       advisor,
     );
-    this.loadState(raw, i);
+    this.loadState(raw, i, { initializeDiplomacy: playerFaction != null });
   },
 
   /** 公共装配路径: 剧本与读档共用 (raw=parse_sinario/parse_save 输出的 state) */
-  loadState(raw, idx, { rngSnapshot = null } = {}) {
+  loadState(
+    raw,
+    idx,
+    { rngSnapshot = null, initializeDiplomacy = false } = {},
+  ) {
     if (!raw || !Array.isArray(raw.factions) || !Array.isArray(raw.cities))
       throw new TypeError("invalid scenario state");
     if (!Number.isInteger(idx) || idx < 0 || idx >= this.data.scenarios.length)
@@ -222,6 +233,7 @@ const app = {
       );
     });
     cmd.initPlayer(this.scenario); // ★原版剧本头FF=未指定→默认势力0/信赖100
+    if (initializeDiplomacy) initializeStrategicDiplomacy(this);
     this.gamebar?.setDefaultSelFaction(); // 小地图默认查看第一个非玩家势力
     buildArmies(this.scenario); // 新游戏保持空军团表；存档军团归一化坐标、槽位和主将名
     const loadedDate = this.scenario.save_date;
@@ -241,9 +253,14 @@ const app = {
         // ★对应 KI.EXE call 0x5358
         const rep = monthlySettlement(this.scenario, c, this.scenario.tax);
         this.hud.showSettlement(rep);
+        monthlyDiplomacyAI(this); // ★0x5394→0x2BD9 关系变化/type-1宣战事件
         monthlyAI(this); // ★俘虏回归/势力灭亡/流散投奔
         cmd.monthEnd(this); // ★征兵到达+信赖度动力学
         monthlyAppear(this); // ★appear_months 到期武将登场/改投(join_faction)
+        const reports = prepareEnvoyBudgetReports(this.scenario).map(
+          (report) => ({ ...report, delay: 7 }),
+        );
+        this.scenario.pendingEnvoyBudgetReports = reports;
       },
       onDay: () => aiTick(this), // ★对应 0x3E11/0x3EFD 每日 AI tick
     });
@@ -256,6 +273,12 @@ const app = {
       0,
       Math.min(23, Number(this.scenario.save_hour) || 0),
     );
+    if (this.gamebar) {
+      for (const report of this.scenario.pendingEnvoyBudgetReports ?? []) {
+        this.gamebar.enqueueEnvoyBudgetReport(report);
+      }
+      this.scenario.pendingEnvoyBudgetReports = [];
+    }
     if (this.hud) {
       this.hud.buildLegend();
       this.hud.refreshInfo();

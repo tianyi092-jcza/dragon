@@ -1,86 +1,86 @@
 # AGENTS.md — 臥龍傳 Web 复刻项目记忆
 
-> 本文件只保存长期有效的项目事实、架构、命令、约定、重要坑点与当前主线。
-> 本轮详细过程见 `docs/checkpoint-journal.md`；二进制证据见 `docs/re-notes-kernel.md`、`docs/re-notes-march-pathfinding.md`。
+> 本文件只保存长期有效的项目事实、架构、命令、约定、重要坑点和当前主线状态。
+> 本轮详细进展、调试过程和失败尝试见 `docs/checkpoint-journal.md`；二进制证据见 `docs/re-notes-*.md` 与 `E:/Dragon/.agents/skills/`。
 
 ## 1. 项目边界
 
 - 目标：不用模拟器，以 **原生 JavaScript ES Modules + Canvas 2D** 重写 1995 DOS《臥龍傳》。
-- 无框架、无构建、无 npm 运行时依赖；产品直接由静态服务器运行。
+- 无框架、无构建、无 npm 运行时依赖；产品由静态服务器直接运行。
 - 仓库：`E:/Dragon/web-port`；原版程序与运行数据：`E:/Dragon/Dragon/`。
-- 官方基准：`E:/Dragon/原版/`；`上/中/下/后/` 为改版剧本库。
-- 必须依据原版程序、数据和资源逆向；文档与代码要区分**实锤、推断、未知**，不能把视觉近似写成原版机制。
-- 自动化测试不得依赖、读取或写入 `E:/Dragon/Dragon/SAVE.DAT`。正式存档仅使用玩家浏览器的 IndexedDB；测试须使用 mock IndexedDB 或独立浏览器 profile。
+- 官方剧本基准：`E:/Dragon/原版/`；`上/中/下/后/` 是改版剧本库。
+- 机制必须依据 KI.EXE、原始数据和资源逆向；文档与代码必须区分**实锤、推断、未知**。表现可以不同，但胜负、六队伤亡、士气、城壁和据点城损必须遵循原版规则。
+- 原版程序、资源及 DOS 存档只用于离线逆向，不得成为部署时运行依赖。
 
-## 2. 数据与坐标
+## 2. 数据与运行时边界
 
-- 游戏逻辑分辨率：`640×400`。战略主画布为 `#cv`，标题/开局为独立画布 `#startv`。
-- 战略地图网格：`384×256`，每格对应 16×16 原版图块。
-- `web/data.json`：五组剧本目录合并的 20 章数据，由 `tools/parse_sinario.py` 生成；改解析器后必须重跑，不能直接修 JSON 掩盖解析错误。正式部署仅发布 Web 重构产物；原版程序、资源和逆向辅助模板均不能作为运行时依赖。`tools/export_save_assets.py` 的逆向二进制模板输出必须留在 `.dragon-analysis/`（不发布）。
-- **数据边界（定稿）**：新游戏全部章节由服务器静态资源 `web/data.json` 提供；存档与读档只使用玩家浏览器的 IndexedDB（数据库 `wolong-web`、对象仓 `saves`，四槽）。DOS `SAVE.DAT` 二进制结构仅为逆向历史资料，`tools/parse_save.py` 仅作离线分析，均不得作为部署运行时依赖。
-- `BATTLE.MAP` 目录项为 `[layout, theme]`；布局数据从 `0x200 + layout * 256` 开始读取 4096B。实际布局仅 `0/1/2`。
-- 势力军团标识样式来自势力记录 `+0x3E`，使用固定 24 槽×5帧原版资源，不做运行时染色或任意角旋转。
-- 资金为 24bit：`word@+0x20 + byte@+0x22 << 16`。兵力相关原版记录通常以十人为单位，Web 展示/战术单位可能以人为单位，转换时必须注明层级。
-- 原版军团记录固定包含六队；旧快照/合成对象若仅有总兵，统一由 `legionunits.js` 以项目既有默认类型 `[1,1,3,3,2,2]` 确定性补为六队。这是 Web 兼容补全，不得写成 KI.EXE 已确认的自动编成规则。
-- SINARIO 剧本数据不含运行时军团表，新游戏所有势力必须从 `legions=[]` 开始；`buildArmies` 只归一化读档/运行时已有军团，禁止再按首都合成占位军团。
-- 新游戏与读档共用 `main.js::loadState` 装配，但输入构造严格分流：新游戏必须 clone 只读 `data.json` 模板并清 Web 运行时队列；存档必须保留军团/队列并使用 `save_date`。每次装载重建 canonical RNG；snapshot 自带的 RNG 快照在装配前恢复，无快照的旧档不得继承上一局随机流。
+- 逻辑分辨率 `640×400`；战略画布 `#cv`，标题/开局画布 `#startv`。战略地图逻辑网格 `384×256`。
+- `web/data.json` 由 `tools/parse_sinario.py` 从五组剧本生成，共20章。修改解析器后必须重新生成；禁止直接改 JSON 掩盖解析或运行时错误。
+- 新游戏 clone 静态 `data.json` 模板并清空军团及运行时队列；读档保留军团、事件队列和 `save_date`。两者统一经 `main.js::loadState` 装配。
+- SINARIO 不含运行时军团表，新游戏必须以 `legions=[]` 开始；`buildArmies` 只归一化已有军团，不能合成占位军团。
+- 每次装载都重建 canonical RNG；有快照时先恢复，旧档无快照时不得继承上一局随机流。
+- 正式存档只使用浏览器 IndexedDB：数据库 `wolong-web`、对象仓 `saves`、四槽纯 JSON 快照。自动化测试使用 mock IndexedDB 或独立浏览器 profile，禁止读写 `E:/Dragon/Dragon/SAVE.DAT`。
+- 同 origin 单实例首选 Web Locks（`wolong-web-game-instance`），旧浏览器降级为 `localStorage` 心跳。未取得锁的页面不得初始化 App、RAF 或写存档。
+- 资金原始字段为24bit：`word@+0x20 + byte@+0x22 << 16`。兵力数据常以十人为单位；跨战略、战术和 UI 转换时必须明确单位。
 
 ## 3. 当前架构
 
 | 路径 | 职责 |
 | --- | --- |
-| `web/src/boot.js` | 入口 gate：取得浏览器单实例锁后才动态 import `main.js` |
-| `web/src/main.js` | 应用装配、主循环、剧本/存档加载、战术层入口和战果回调 |
-| `web/src/game/ai.js` | 战略军团调度、道路移动、接敌、攻城、战后继续/撤退/武将去向 |
-| `web/src/game/roadgraph.js` | 原版 192 节点/254 边道路拓扑、加权寻径、道路格到端点方向 |
-| `web/src/game/fieldterrain.js` | `0x4B63` 野战地形分类、BATTLE.MAP 目录与镜像选择 |
-| `web/src/game/autobattle.js` | `0x5130/0x5285/0x52D7` 野战/攻城速算、城池损伤纯函数 |
-| `web/src/game/legionmode.js` / `engagetransition.js` | status bit2 委任权威与战略地图四相速算过渡 |
-| `web/src/game/tacticalbattle.js` / `game/battle/` | 战术战斗入口；当前实时模型将逐步替换为原版规则兼容模拟器 |
-| `web/src/game/battle/originalrng.js` | KI.EXE `0xEC82/0xECE0` 原版随机源与可回放状态 |
-| `web/src/game/battle/originalstate.js` / `originalcommands.js` | 原版 `0xC00` 对象池、字节字段、命令广播与切换 |
-| `web/src/game/battle/originalinit.js` | `0x9E97→0x9AF4→0x9C45` 两侧临时记录、6×8对象模板和固定96次RNG激活 |
-| `web/src/game/battle/originalsession.js` / `originaltargeting.js` | 固定逻辑帧、确定性输入回放与 `0xA85B` 目标选择 |
-| `web/src/game/battle/originalcollision.js` / `originalresult.js` | 原版碰撞伤害、活动对象回组六队及战后士气 |
-| `web/src/game/battle/originalmovement.js` / `originalmoveframe.js` | 四向/上下层探针、AF65移动状态机与B240占用提交 |
-| `web/src/game/battle/originalpathqueue.js` | C653/AED2环形队列、0x3000路径区与B00D路径项 |
-| `web/src/game/battle/originalnavigation.js` | CAEB/BB3C/BBA6地图资产、双平面导航与高度描述 |
-| `web/src/game/battle/originalpathfinder.js` | BD46..BFF1双平面代价寻路与64项回溯 |
-| `web/src/game/battle/originalmapobjects.js` | 9CB3/9CE2/9DA1地图对象与B5B7/B824城壁碰撞 |
-| `web/src/render/battleview.js` | Web 战术表现层、镜像战场、单位结果和城壁记录回传 |
-| `web/src/render/mapview.js` | 战略地图、道路路线、军团标识和接敌动画 |
-| `web/src/game/savegame.js` | Web 存档纯 JSON 快照（`snapshotState`/`applyWebMetaToState`/`canSnapshotState`），含完整 canonical RNG 与运行时队列 |
-| `web/src/core/localstore.js` | IndexedDB 四槽本地持久化 |
-| `web/src/core/singleinstance.js` | Web Locks 同 origin 单实例保护与旧浏览器 localStorage 心跳降级 |
-| `web/src/ui/gamebar.js` | 顶栏、军师菜单、主要 Canvas 列表和地图锁定 |
-| `web/src/game/clock.js` / `core/modalclock.js` | 战略速度、hold 与模态暂停恢复 |
-| `web/src/core/speaker.js` | PC Speaker 风格 SFX 与 TYPE 1..4 profile |
+| `web/src/boot.js` | 取得浏览器单实例锁后动态加载应用 |
+| `web/src/main.js` | App 装配、主循环、新局/读档、月结、战术层入口与战果回写 |
+| `web/src/core/localstore.js` | IndexedDB 四槽持久化 |
+| `web/src/core/singleinstance.js` | Web Locks 单实例与 localStorage 降级 |
+| `web/src/game/savegame.js` | 纯 JSON 快照、恢复和存档时机守卫 |
+| `web/src/game/ai.js` | 战略调度、移动、接敌、事件延迟、AI 战争及战后处理 |
+| `web/src/game/diplomacy.js` | 外交矩阵、开局/月度变化、宣战候选、外交官预算事件 |
+| `web/src/game/economy.js` | 常规月度财政；外交费只在 type-5 对话批准时扣除 |
+| `web/src/game/roadgraph.js` | 原版192节点/254边道路拓扑和加权寻径 |
+| `web/src/game/autobattle.js` | 原版战略野战/攻城速算与城损纯函数 |
+| `web/src/game/legionmode.js` / `engagetransition.js` | 委任权威和战略地图四相战斗过渡 |
+| `web/src/game/battle/original*.js` | 原版战术 RNG、对象池、命令、移动、导航、寻路、碰撞、结果和差分工具 |
+| `web/src/render/mapview.js` / `battleview.js` | 战略与战术表现层；不得推进规则状态 |
+| `web/src/ui/gamebar.js` | 顶栏、军师菜单、Canvas 弹窗、觐见、战略消息 FIFO 和地图锁定 |
+| `web/src/ui/hud.js` | 据点/人事等子界面和外交官任免 |
+| `web/src/game/clock.js` / `core/modalclock.js` | 战略速度及模态 `clock.hold` |
 | `tools/parse_*.py` | 原版数据解析和 Web 资产生成 |
+| `tools/verify_*` | Node/Python/Playwright 定向回归 |
 
-### 战略军团主流程
+## 4. 已确认的核心规则
 
-1. 据点目标通过 `road_graph.json` 的原版拓扑寻径，不在 `384×256` bitmap 上自由 A*。
-2. 每次战略更新沿当前道路边点列前进一步；到边端当轮停止，下次更新重新选择下一边。
-3. 进入下一道路点前检查敌军/敌城；发起军团停在原点，进入 `11→1` 接敌倒计时。
-4. 玩家直属军团进入战术层；AI 或玩家已委任军团走战略速算。
-5. 战果回写六单位和士气，再经过 `0x474A`：继续、沿首都方向撤退，或进入 `0x291A` 武将去向。
-6. `0x2977/0x2A7E` 用独立 48 调度周期队列恢复武将；`0x29C3` 处理被俘/退场。
-7. 破城后 `0x4DA4` 让同城原守军共享一个撤退目标；无路则逐军团调用 `0x291A`。
+### 4.1 战略军团与战斗
 
-## 4. 稳定交互约定
+- 据点目标使用 `road_graph.json` 的原版道路拓扑，不在地图 bitmap 上自由 A*。
+- 军团沿道路点列移动；到边端当轮停止，下轮再选边。渲染只能读取路线状态。
+- 接敌采用 `11→1` 倒计时并在每轮重检城主、外交和目标；玩家直属军团进战术层，AI 或委任军团走战略速算。
+- 委任权威是 legion status bit2；玩家已下达目标优先，委任不能覆盖未完成命令。
+- 战果按六队和士气回写；战后继续、撤退、武将去向、48周期回归和破城组撤退已接入原版链。细节见相关 SKILL 和 re-notes。
+- 军团途中道路上下文由原版 `+0x0A/+0x0C/+0x0E` 转为 Web `edgeId/pointIndex`；取消目标必须清理道路上下文和有效位。
+- 原版军团固定六队。旧对象只有总兵时，`legionunits.js` 使用项目兼容默认类型 `[1,1,3,3,2,2]` 补全；这是 Web 兼容策略，不是已确认 KI.EXE 自动编成规则。
 
-- 全游戏不增加关闭按钮；弹窗与二级界面按鼠标右键逐层回退。
-- 羽扇图标是军师一级菜单唯一开关；关闭父菜单必须清理全部子窗口、选中状态并恢复计时。
-- 军师子菜单激活时地图绝对锁定；地图空白处左键不关闭、不取消任何界面。
-- Canvas 列表滚动条统一在右侧；选中行使用墨绿色 `#4a7828`。
-- 系统选单、弹窗和场景切换用 `clock.hold` 冻结；不要通过改速度档模拟 hold。
-- 游戏内读档必须返回标题后执行，禁止直接热替换当前 scenario。
-- 标题空存档槽必须在 hover、hit-test、click 三条路径都禁用。
-- 玩家下达的军团目标优先于通用 AI；委任只改变后续自主和战斗处理，不能覆盖尚未完成的玩家命令。
-- 正式部署可使用任意静态 Web 服务；游戏不要求专用保存 API、服务器 lease 或原版目录。四槽存档只写入玩家当前浏览器 origin 下的 IndexedDB，保存完成后才更新内存槽；浏览器本地存储不可用或写入失败时，保持原存档并提示失败。
-- **单一游戏实例**：`boot.js` 必须先由 `core/singleinstance.js` 取得同 origin 的浏览器排他锁，才可 import/初始化 `main.js`。首选 Web Locks API（`wolong-web-game-instance`）；不支持时以 `localStorage` 心跳租约降级。第二分页面只显示阻断提示，不能初始化 App、RAF 或写入 IndexedDB；关闭持锁页后需重新载入被阻断页。该保护不依赖 `tools/webserver.py`。
+### 4.2 外交与外交官
 
-## 5. 常用命令
+- SINARIO 外交矩阵只是静态初值。新游戏选定玩家后、首次显示地图前执行 `0x1B29→0x2BD9`；月结经 `0x5358→0x5394→0x2BD9` 再执行。读档禁止重复开局初始化。
+- 关系档位使用低7位；raw `<0x80` 为交战。`0x30D3/0x30F0` 只修改指定方向，宣战/停战调用点才显式同步双方。
+- AI 主动宣战门控在 `0x2EFB`，不是 `0x2D3A`；type-1 事件延迟日调度后执行。
+- 外交官预算耗尽时，月结 `0x578F` 生成 type-5 事件；事件计数器初值7，通常在下月7日报告。
+- 建议额取双方较低关系：和平 `(100-value)×200`，交战 `(125-value)×200`。
+- 批准额在对话结束时一次性扣款，并转为工作预算 `floor(grant/128)`；数字输入上限30000，非零最低500。外交费不得提前计入常规月支出。
+- `0x3E8E` 只有预算非零才工作：第一随机门控通过后消耗 `23-politics`，第二门控 `(rng&0x0F)<=politics` 成功时关系单向 `+1`，必要时反向关系追赶 `+1`。政治影响预算持续时间和成功率，不改变单次增量。
+
+## 5. 稳定交互约定
+
+- 全游戏不增加关闭按钮；弹窗和二级界面统一右键逐层回退。
+- 羽扇是军师一级菜单唯一开关。关闭父菜单必须清理所有子孙窗口、选中态并恢复计时。
+- 军师子菜单激活时地图绝对锁定；地图空白处左键无功能，不关闭任何界面。
+- NPC/武将通用消息3秒自动关闭或右键立即关闭；连续战略消息进入 FIFO，不得覆盖。
+- Canvas 列表滚动条在右侧，选中行颜色 `#4a7828`。
+- 系统选单、弹窗和场景切换统一用 `clock.hold`，禁止通过修改速度档模拟暂停。
+- 游戏内读档先返回标题再装载，禁止热替换当前 scenario。
+- 标题空存档槽在 hover、hit-test、click 三条路径都必须禁用。
+- 保存写入成功后才更新内存槽；失败时保留旧档并提示。
+
+## 6. 常用命令
 
 在 `E:/Dragon/web-port` 执行：
 
@@ -88,12 +88,17 @@
 python tools/webserver.py 8321
 # http://127.0.0.1:8321/
 
-# 语法/格式
+# 基础检查
 node --check web/src/main.js
-python -m py_compile tools/parse_save.py tools/parse_sinario.py tools/parse_battle.py
+python -m py_compile tools/parse_sinario.py tools/parse_battle.py
+node tools/verify_local_saves.mjs
+node tools/verify_single_instance.mjs
+node tools/verify_save_transition_guard.mjs
+node tools/verify_diplomacy_runtime.mjs
+node tools/verify_envoy_budget.mjs
 git diff --check
 
-# 战略道路与战斗回归
+# 战略/战斗 focused suite
 node tools/verify_road_graph.mjs
 node tools/verify_march_navigation.mjs
 node tools/verify_engagement_state.mjs
@@ -102,14 +107,8 @@ node tools/verify_autobattle.mjs
 node tools/verify_field_result.mjs
 node tools/verify_postbattle_fate.mjs
 node tools/verify_siege_result.mjs
-python tools/verify_save_legions.py
 
-# 系统与存档回归
-node tools/verify_local_saves.mjs
-node tools/verify_single_instance.mjs
-node tools/verify_save_transition_guard.mjs
-node tools/verify_startmenu_empty_slot.mjs
-node tools/verify_sound_profiles.mjs
+# 浏览器冒烟：必须使用全新会话
 playwright-cli open http://127.0.0.1:8321/ --browser=chromium
 playwright-cli run-code --filename=tools/verify_single_instance_ui.js
 playwright-cli run-code --filename=tools/verify_system_menu.js
@@ -117,39 +116,36 @@ playwright-cli run-code --filename=tools/verify_clock_pause.js
 playwright-cli close
 ```
 
-提交前还要运行变更文件的 LSP 与 `lens_diagnostics mode=all`。浏览器冒烟应使用全新 Playwright 会话，避免 ESM 缓存造成假回归。
+提交前还要对变更文件运行 LSP 与 `lens_diagnostics mode=all`。
 
-## 6. 重要坑点
+## 7. 重要坑点
 
-1. **SAVE 偏移**：状态段 `0x2240` 不等于文件偏移；文件军团表是 `0x22C0`。
-2. **MMAP 资源**：只有 `MMAP.MAP` 使用对应 RLE；`MMAP.MCH/MDL` 是原始定长资源。
-3. **BATTLE.MAP**：目录字节不是 `[theme, layout]`；布局窗口也不是 `layout * 4096`。
-4. **野战防守方**：`0x4C72` 从同坐标候选中选一个最强主军，不合并所有军团，也不能用 synthetic city 冒充。
-5. **撤退语义**：`0x291A` 不是“退到最近据点”；它是无法继续行动后的武将去向分派。
-6. **战术城损**：没有真实 `wallRecords` 时不得用 `defLeft`、战略 ratio 或臆造 metric 写城损。
-7. **军团途中导航**：二进制记录含 `+0x0A stride/+0x0C point address/+0x0E edge-or-node` 道路上下文；Web 按 E717 固定布局转换为 `edgeId/pointIndex`，不能把 DOS 地址直接当 ID。活动军团主将为 `+2` byte，`+3` 由 bit5 接敌倒计时复用，禁止按 u16 解析；取消目标时必须清道路上下文与有效位，防止旧命令复活。无独立 field/siege 字节；首次 tick 按 `0x25CC→0x2831/0x2880` 现场重检。
-8. **渲染纯度**：地图和小地图只能读取导航状态，不能由绘制函数推进或修改军团路线。
-9. **自动格式化**：pi-lens 可能在回合结束后改写格式；继续编辑前重读相关文件，尤其 `ai.js`、`autobattle.js`、`savegame.js`、`main.js` 和验证脚本。
-10. **工作区隔离**：提交前按功能审查改动，禁止用整体 reset/clean 处理含未提交工作的工作区。
+1. 状态段地址不等于文件偏移；例如状态段 `0x2240` 与 SAVE 文件军团表 `0x22C0` 不可混用。
+2. `BATTLE.MAP` 目录项是 `[layout, theme]`；布局从 `0x200 + layout×256` 指向4096字节数据，实际布局只有0/1/2。
+3. 只有 `MMAP.MAP` 使用对应 RLE；`MMAP.MCH/MDL` 是原始定长资源。
+4. 野战防守方从同坐标候选中选最强主军，不合并全部军团，也不能用 synthetic city 代替。
+5. `0x291A` 是无法继续行动后的武将去向分派，不是“退到最近据点”。
+6. 没有真实 `wallRecords` 时，不得用 `defLeft` 或战略比例臆造战术城损。
+7. 活动军团主将是 `+2` byte；`+3` 的 bit5 被接敌倒计时复用，禁止当 u16 解析。原版无独立 field/siege 字节。
+8. `web/data.json`、TALK 和地图资产都必须由解析链修正；禁止直接改生成物掩盖源数据问题。TALK 当前存在标准 Big5 解码替换字符，校订文本必须保留索引和证据。
+9. pi-lens 可能在回合后格式化文件；继续编辑前重读相关文件。若 LSP 行号超过 EOF，先以 `node --check` 和重新扫描确认是否为缓存诊断，不能直接忽略真实错误。
+10. 工作区经常包含多条未提交主线；禁止整体 `reset/clean`，提交前按功能审查 diff。
 
-## 7. 当前主线状态
+## 8. 当前主线状态
 
-已完成并有回归覆盖：
+### 已稳定并有回归
 
-- 原版道路构图资产、拓扑寻径、道路点列移动和方向标识；
-- 固定军团标识槽、野外接敌/攻城等待动画与近似 ID3 SFX；
-- `0x4B63` 野战地形与布局/镜像选择；
-- 野战和攻城 `0x5130` 战略速算；
-- 六单位与士气战果回写；
-- `0x474A/0x487B/0x291A/0x2977/0x29C3/0x2A7E` 战后继续、撤退和武将去向；
-- `0x4DA4` 破城同城守军组撤退；
-- 玩家委任军团命令优先、status bit2 持久化、途中目标恢复、攻守速算分流与预载后严格0→3战略地图四相过渡；
-- 中立城 `0x18` 临时城防速算、战略结果士气单次写回、战术/战略/存档共享同一 canonical 原版 RNG 连续流及破城后保留 `0x51B3` 扣损城兵；
-- **存档与部署架构定稿**：新游戏用服务器 `data.json`，四槽存档用浏览器 IndexedDB 纯 JSON 快照（含完整 RNG），同 origin 单实例由 Web Locks 保护，静态服务器即可部署。
+- 静态章节加载、IndexedDB 四槽存档、浏览器单实例和存档时机守卫。
+- 原版道路拓扑、行军、接敌、野战/攻城战略速算、六队战果、士气和战后处理。
+- 新游戏运行时外交初始化、方向性关系变化、AI 主动宣战和底部战略消息队列。
+- 外交官预算申请公式、7日事件延迟、批准额预算换算、政治力消耗/成功门控及存档字段。
 
-**当前主线：原版战术规则兼容模拟器。**
-产品定稿要求是“动画可以不同，但胜负、六队伤亡、士气、城壁与据点城损必须按原版”。当前 Web 实时 `simulation.js` 的伤害、士气、克制、冲锋、齐射和超时判胜均只是临时表现模型，不得作为最终规则。已闭合城壁对象构造/metric/破坏bit/战后城损、KI.EXE `0xEC82/0xECE0` 原版随机源、`0xC00` 对象池、固定逻辑帧、命令广播、目标选择、碰撞伤害与精确 RNG 短路、六队对象初始化/固定96次RNG激活、玩家/AI命令跳表、`A754/A785` 96槽顺序、`AA2C`阵型目标、活动子对象`A7FD`、四向及`B0D3/B116`上下层探针、`ABD2/ABFF/AC55`攻击入口、`AD2D/AD7F`与`B8AA`固定效果槽、`ADC8/AEA9`活动计数，以及战后六组/士气；真实自动撤退为首对象 `+3 < 0x32`，并包含mode0每10帧HP衰减，绝不是Web临时士气12/兵力25%。效果对象`B941→B97E→BA2E→BAB7`逐帧生命周期、`B1B1`真实平面探针及`0x9FDC`战术退出也已闭合。`C653→AED2`队列与`B00D`路径项、战后`0x291A`严格原版字节RNG，以及原版会话对Canvas正式tick/finish/命令接管均已完成；B00D路径区已修正为0x3000字节，双方无别名；UI命令使用固定帧队列，组长/子槽同步；`B240`占用提交与`AF65..B00C`移动状态机已正式接入；`CAEB→BB3C/BBA6→BD46`地图资产、双导航平面、代价寻路和64项回溯已闭合，注意目录/tile来自BATTLE.MAP、`0xF800` D302属性大块来自BATTLE.MDL、BATTLE.SCH只提供每layout 0x100块；存档 snapshot 保存撤退关键字段与完整 RNG 快照。Canvas不得再通过`simulation.tickBattle`写胜负数据。`9CE2/9DA1/9E10`地图对象及`B5B7/B824/BB6D`城壁碰撞、tile改写与bit7刷新也已进入Session，9E10固定从0xE00且D302索引只对BL加偏移。ADC8固定顺序为AE56→AED2→AF69/B240扫描；BD46的EB/74只控制跨层而非方向mask；阵型基准为2005/203A，D35不得依赖玩家势力，战后兵力比例统一十人单位。`originaldiff.js`已提供规范化规则包、hash和首差异字节定位；真实KI.EXE逐帧捕获仍需DOSBox-X debugger。TALK通用入口075B无战术调用者，606..669暂按不可证可达处理，Web对白只属表现政策。
+### 当前主线
 
-战术画面中的双方发言固定通过两个带主将/NPC头像的通话框按侧显示；`0xC315` 是战术旗帜/主将标识呈现，不是TALK索引，具体句子在原版选择桥闭合前必须标注为Web呈现政策。
+**原版战术规则兼容模拟器。** `web/src/game/battle/original*.js` 已覆盖原版 RNG、对象池、固定逻辑帧、命令、移动/占用、导航/寻路、地图对象、城壁碰撞、伤害、撤退和战果回组；Canvas 已接管原版 Session。当前关键缺口是使用 DOSBox-X debugger 捕获真实 KI.EXE 逐帧状态，与 `originaldiff.js` 做 ground-truth 动态差分。`simulation.js` 的临时伤害、士气、克制和超时判胜不得作为最终规则来源。
 
-次级待办：原版路线平权动态比对、`+0x23` 等字段产品命名、YNSOUND ID3 音色解码。
+### 次级待办
+
+- 完成外交官 TALK 319..345 按武将说话类型的完整分支，并做正常日历流程实机回归。
+- 用更多章节验证尚未命名的势力/武将产品字段。
+- 原版路线平权动态比对、YNSOUND ID3 音色解码。

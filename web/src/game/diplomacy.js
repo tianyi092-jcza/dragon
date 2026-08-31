@@ -1,5 +1,6 @@
-// 外交系统 — 100% 还原原版 KI.EXE 外交引擎
-// 逆向依据 (KI.EXE 0x30CB, 0x30D3, 0x30F0, 0x3644, 0x3674, 0x36C4, 0x3712, 0x3E8E, 0x7A9A, 0x7844):
+// 外交系统 — KI.EXE 外交矩阵与 0x2BD9 战略外交流程
+// 逆向依据 (KI.EXE 0x2BD9, 0x2C52, 0x2D58, 0x2EFB, 0x30CB, 0x30D3,
+// 0x30F0, 0x3091, 0x3644, 0x3674, 0x3E8E, 0x7A9A, 0x7844):
 //   1. 友好度存储: 24×24 矩阵 @ 状态段 0x680。
 //      - bit 7 (0x80): 和平标记。bit 7 = 0 表示【交戰】(值 < 0x80)；bit 7 = 1 表示【和平】(值 >= 0x80)。
 //      - 低 7 位 (0..100): 友好度数值 (0x00 ~ 0x64，对应 0 ~ 100)。
@@ -13,11 +14,12 @@
 //        * 60..79  (raw 0xBC..0xCF): 【良好】(黑 #000000, 0x00)
 //        * 80..100 (raw 0xD0..0xE4): 【親密】(绿 #008000, 0x05)
 //        * > 100 / 0xFF: 【－－】
-//   3. 宣战与停战 (KI.EXE 0x3674 / 0x3644):
-//      - 宣战 (0x3674): 清除 bit 7，值减半: raw = (raw & 0x7F) >> 1
-//      - 停战 (0x3644): 置位 bit 7: raw = (min(raw_a, raw_b) & 0x7F) | 0x80
-//   4. 外交官日常友好度维护 (KI.EXE 0x3E8E):
-//      - 外交官政治力 pol，每月增益 gain = max(1, floor(pol / 4))，持续向 100 (raw 0xE4) 提升并维持。
+//   3. 宣战与停战:
+//      - 宣战 (0x3644): 取双方较小值，清除 bit 7，低 7 位减半。
+//      - 停战 (0x3674): 取双方较小值并置位 bit 7。
+//   4. 0x30D3 / 0x30F0 只改一个方向；双向同步只由宣战/停战等显式路径完成。
+//   5. 新游戏装载及每月月结都调用 0x2BD9；其地理候选、关系恶化与 0x2EFB
+//      主动宣战门控不能由静态 SINARIO 外交矩阵替代。
 
 import { playerFaction } from "./commands.js";
 
@@ -39,7 +41,7 @@ export function isAtWar(sc, a, b) {
   return relation(sc, a, b) < 0x80;
 }
 
-/** 宣告交战 (复刻 KI.EXE 0x3674): 清除和平 bit 7，友好度减半 */
+/** 宣告交战 (复刻 KI.EXE 0x3644): 取双方较小 raw，清 bit 7 后减半 */
 export function declareWar(sc, a, b) {
   if (a == null || b == null || a === b) return;
   if (!sc.diplomacy) sc.diplomacy = [];
@@ -55,7 +57,7 @@ export function declareWar(sc, a, b) {
   sc.diplomacy[b][a] = warVal;
 }
 
-/** 缔结停战 / 恢复和平 (复刻 KI.EXE 0x3644): 置位 bit 7 恢复和平状态 */
+/** 缔结停战 / 恢复和平 (复刻 KI.EXE 0x3674): 取双方较小 raw 并置 bit 7 */
 export function makeCeasefire(sc, a, b) {
   if (a == null || b == null || a === b) return;
   if (!sc.diplomacy) sc.diplomacy = [];
@@ -71,41 +73,169 @@ export function makeCeasefire(sc, a, b) {
   sc.diplomacy[b][a] = peaceVal;
 }
 
-/** 提升双方友好度 (复刻 KI.EXE 0x30D3) */
+/** 单向提升友好度 (KI.EXE 0x30D3)，保留和平/交战 bit。 */
 export function increaseRelation(sc, a, b, delta) {
   if (a == null || b == null || a === b || !sc.diplomacy) return;
   if (!sc.diplomacy[a]) sc.diplomacy[a] = [];
-  if (!sc.diplomacy[b]) sc.diplomacy[b] = [];
-
-  const rawA = relation(sc, a, b);
-  const isPeaceA = (rawA & 0x80) !== 0;
-  const valA = Math.min(100, (rawA & 0x7f) + delta);
-  sc.diplomacy[a][b] = isPeaceA ? valA | 0x80 : valA;
-
-  const rawB = relation(sc, b, a);
-  const isPeaceB = (rawB & 0x80) !== 0;
-  const valB = Math.min(
-    100,
-    (rawB & 0x7f) + Math.max(1, Math.floor(delta / 2)),
-  );
-  sc.diplomacy[b][a] = isPeaceB ? valB | 0x80 : valB;
+  const raw = relation(sc, a, b);
+  const state = raw & 0x80;
+  const value = Math.min(100, (raw & 0x7f) + Math.max(0, delta | 0));
+  sc.diplomacy[a][b] = state | value;
 }
 
-/** 降低双方友好度 (复刻 KI.EXE 0x30F0) */
+/** 单向降低友好度 (KI.EXE 0x30F0)，保留和平/交战 bit。 */
 export function decreaseRelation(sc, a, b, delta) {
   if (a == null || b == null || a === b || !sc.diplomacy) return;
   if (!sc.diplomacy[a]) sc.diplomacy[a] = [];
-  if (!sc.diplomacy[b]) sc.diplomacy[b] = [];
+  const raw = relation(sc, a, b);
+  const state = raw & 0x80;
+  const value = Math.max(0, (raw & 0x7f) - Math.max(0, delta | 0));
+  sc.diplomacy[a][b] = state | value;
+}
 
-  const rawA = relation(sc, a, b);
-  const isPeaceA = (rawA & 0x80) !== 0;
-  const valA = Math.max(0, (rawA & 0x7f) - delta);
-  sc.diplomacy[a][b] = isPeaceA ? valA | 0x80 : valA;
+const EMPTY_FACTION = 0x18;
 
-  const rawB = relation(sc, b, a);
-  const isPeaceB = (rawB & 0x80) !== 0;
-  const valB = Math.max(0, (rawB & 0x7f) - delta);
-  sc.diplomacy[b][a] = isPeaceB ? valB | 0x80 : valB;
+function isActiveFaction(faction) {
+  return Boolean(
+    faction &&
+      faction.idx != null &&
+      faction.active !== false &&
+      !faction.dead &&
+      (faction.n_cities ?? 0) > 0,
+  );
+}
+
+/**
+ * 0x2C52/0x2CDF：按城记录顺序及 raw[0] 低四位连接顺序收集接壤势力。
+ * 空城的 0x0600 sentinel 只作为工作表特殊项，不是可宣战势力。
+ */
+export function buildDiplomacyCandidates(sc, factionIdx) {
+  const seen = new Set();
+  const candidates = [];
+  let touchesEmptyCity = false;
+  for (const city of sc.cities ?? []) {
+    if (city?.faction !== factionIdx || typeof city.raw !== "string") continue;
+    const raw = Uint8Array.from(city.raw.match(/../g) ?? [], (byte) =>
+      Number.parseInt(byte, 16),
+    );
+    if (raw.length < 0x20) continue;
+    for (let direction = 0; direction < 4; direction++) {
+      if ((raw[0] & (1 << direction)) === 0) continue;
+      const neighbor = sc.cities?.[raw[0x1c + direction]];
+      const neighborFaction = neighbor?.faction;
+      if (neighborFaction == null || neighborFaction === EMPTY_FACTION) {
+        touchesEmptyCity = true;
+        continue;
+      }
+      if (neighborFaction === factionIdx || seen.has(neighborFaction)) continue;
+      const target = sc.factions?.find((f) => f?.idx === neighborFaction);
+      if (!isActiveFaction(target)) continue;
+      seen.add(neighborFaction);
+      candidates.push({
+        factionIdx: neighborFaction,
+        raw: relation(sc, factionIdx, neighborFaction),
+      });
+    }
+  }
+  // 0x2C8A selection-sort 的首要效果：最差的现有关系成为第一候选；同值保持
+  // 0x2CDF 首次收集的城/方向顺序。
+  candidates.sort((left, right) => left.raw - right.raw);
+  return { candidates, touchesEmptyCity };
+}
+
+function updateOrdinaryFactionRelation(sc, factionIdx, candidateIdx) {
+  if (candidateIdx == null) return;
+  const raw = relation(sc, factionIdx, candidateIdx);
+  if (raw >= 0x80) {
+    const value = Math.max(raw & 0x7f, 22) - 2;
+    sc.diplomacy[factionIdx][candidateIdx] = 0x80 | value;
+  } else if (candidateIdx !== sc.player_faction && raw < 50) {
+    sc.diplomacy[factionIdx][candidateIdx] = raw + 1;
+  }
+}
+
+function updatePlayerFactionRelations(sc, candidateIdx, touchesEmptyCity) {
+  const playerIdx = sc.player_faction;
+  if (candidateIdx != null) {
+    decreaseRelation(sc, playerIdx, candidateIdx, 1);
+    // 0x2DF3 检查工作项高字节 marker；候选带特殊项时额外 -7。
+    if (touchesEmptyCity) decreaseRelation(sc, playerIdx, candidateIdx, 7);
+  }
+  for (const faction of sc.factions ?? []) {
+    if (!isActiveFaction(faction) || faction.idx === playerIdx) continue;
+    decreaseRelation(sc, faction.idx, playerIdx, 1);
+  }
+}
+
+function factionResourceWord(faction) {
+  // KI 直接比较运行时 faction+0x21 word；Web 的公开字段已被解析成显示金单位，
+  // 因而用百金单位保留同一量级。该字段的产品名称尚未实锤。
+  return Math.max(0, Math.floor((faction?.money ?? 0) / 100));
+}
+
+/** 0x3091：三类预备兵各除以4，按城数/2000封顶，并受 raw +0x21 word 门控。 */
+export function factionStrategicPower(faction) {
+  if (!faction) return 0;
+  let power =
+    ((faction.reserve_cav ?? 0) >> 2) +
+    ((faction.reserve_arc ?? 0) >> 2) +
+    ((faction.reserve_inf ?? 0) >> 2);
+  const cityCap = Math.max(0, (faction.n_cities ?? 0) << 8);
+  if (power >= cityCap || power > 2000) power = 2000;
+  return factionResourceWord(faction) <= 19 ? 0 : power;
+}
+
+/** 0x2EFB：判断第一地理候选是否应排入 type-1 主动宣战事件。 */
+export function shouldDeclareStrategicWar(sc, faction, candidateIdx) {
+  if (!isActiveFaction(faction) || candidateIdx == null) return false;
+  if (candidateIdx === faction.target_faction) return false;
+  const target = sc.factions?.find((item) => item?.idx === candidateIdx);
+  if (!isActiveFaction(target)) return false;
+  const resourceThreshold = Math.min(
+    ((faction.n_cities ?? 0) << 4) + 0x40,
+    0x061a,
+  );
+  if (resourceThreshold >= factionResourceWord(faction)) return false;
+  const bell = faction.bellicosity ?? 0;
+  const relationThreshold = 0x80 | (bell + (bell >> 1) + 0x14);
+  if (relation(sc, faction.idx, candidateIdx) > relationThreshold) return false;
+  return (
+    factionStrategicPower(faction) >=
+    factionStrategicPower(target) - (factionStrategicPower(target) >> 2)
+  );
+}
+
+/**
+ * 0x1B29/0x5358 → 0x2BD9：运行一次地理外交更新并生成 type-1 宣战事件。
+ * 返回事件而不直接操作 UI；调用方按原版事件调度节奏处理。
+ */
+export function runStrategicDiplomacy(sc) {
+  if (!sc?.diplomacy || sc.player_faction == null) return [];
+  const work = new Map();
+  for (const faction of sc.factions ?? []) {
+    if (!isActiveFaction(faction)) continue;
+    work.set(faction.idx, buildDiplomacyCandidates(sc, faction.idx));
+  }
+  for (const faction of sc.factions ?? []) {
+    if (!isActiveFaction(faction)) continue;
+    const item = work.get(faction.idx);
+    const candidateIdx = item?.candidates?.[0]?.factionIdx ?? null;
+    if (faction.idx === sc.player_faction) {
+      updatePlayerFactionRelations(sc, candidateIdx, item?.touchesEmptyCity);
+    } else {
+      updateOrdinaryFactionRelation(sc, faction.idx, candidateIdx);
+    }
+  }
+  const events = [];
+  for (const faction of sc.factions ?? []) {
+    if (!isActiveFaction(faction) || faction.idx === sc.player_faction)
+      continue;
+    const candidateIdx = work.get(faction.idx)?.candidates?.[0]?.factionIdx;
+    if (shouldDeclareStrategicWar(sc, faction, candidateIdx)) {
+      events.push({ type: 1, aggressor: faction.idx, defender: candidateIdx });
+    }
+  }
+  return events;
 }
 
 /** 外交等级 (原版标签表 @KI.EXE VA 0x7844 & 算法 0x7A9A)
@@ -135,12 +265,45 @@ export function relationColor(v) {
   return "#000000"; // 險惡/普通/良好：黑色
 }
 
-/** 遣使驻在记录衰减 (外交官列显示, 每月调) */
+/** 外交官预算申请额 (0x578F)：和平差距按100，交战差距按125，每点×200金。 */
+export function envoyBudgetRequest(sc, targetIdx) {
+  const a = relation(sc, sc.player_faction, targetIdx);
+  const b = relation(sc, targetIdx, sc.player_faction);
+  const raw = Math.min(a, b);
+  const ceiling = raw >= 0x80 ? 100 : 125;
+  return Math.max(0, ceiling - (raw & 0x7f)) * 200;
+}
+
+/**
+ * 月结生成外交官预算报告。原版 0x578F 每月为每名活跃外交官排 type5；
+ * 事件显示时再由君主决定答应、改额或拒绝。
+ */
+export function prepareEnvoyBudgetReports(sc) {
+  const reports = [];
+  for (const [targetKey, envoy] of Object.entries(sc.envoys ?? {})) {
+    const targetIdx = Number(targetKey);
+    if (!envoy?.name || !Number.isInteger(targetIdx)) continue;
+    const target = sc.factions?.find((f) => f?.idx === targetIdx);
+    if (!target || target.dead || (target.n_cities ?? 0) <= 0) continue;
+    const general =
+      (envoy.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
+      sc.generals?.find((g) => g?.name?.trim?.() === envoy.name?.trim?.());
+    const budget = envoy.budget ?? general?.assignment_budget ?? 0;
+    if (budget > 0) continue;
+    const requested = envoyBudgetRequest(sc, targetIdx);
+    envoy.requested = requested;
+    envoy.reportPending = true;
+    reports.push({ targetIdx, requested });
+  }
+  return reports;
+}
+
+/** 外交官任期显示衰减；预算报告系统本身不以该字段决定是否继续驻在。 */
 export function tickEnvoys(sc) {
   const es = sc.envoys;
   if (!es) return;
-  for (const k of Object.keys(es)) {
-    if (--es[k].left <= 0) delete es[k];
+  for (const envoy of Object.values(es)) {
+    if (envoy?.left > 0) envoy.left--;
   }
 }
 
@@ -165,7 +328,9 @@ export function sendEnvoy(sc, targetIdx) {
     };
 
   const delta = Math.max(1, Math.floor(pol / 3));
+  // 遣使本身是双边外交动作；底层0x30D3仍保持单向，调用点显式写双方。
   increaseRelation(sc, f.idx, targetIdx, delta);
+  increaseRelation(sc, targetIdx, f.idx, Math.max(1, Math.floor(delta / 2)));
 
   const v = relation(sc, f.idx, targetIdx);
   // 外交官駐在记录 (势力弹窗「外交官」列显示, 6 个月后归国)

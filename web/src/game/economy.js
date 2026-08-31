@@ -11,8 +11,6 @@
 //   - 0x5695: 城池成长动力学。玩家税率与 30% 基准比较：税率<30% 增长，税率>30% 萎缩；更新生产力与上升率。
 //   - 0x4194: 城池每日/月度城兵 (defense) 与防灾 (disaster) 恢复，内政官 (governor) 政治属性提供恢复加成。
 
-import { increaseRelation } from "./diplomacy.js";
-
 export function saturatingAdd(cur, delta, max = 0xffff) {
   const v = (cur ?? 0) + delta;
   if (v < 0) return 0;
@@ -96,7 +94,7 @@ export function computeConscriptionYields(scenario, factionIdx) {
   };
 }
 
-/** 0x3E65: 计算势力的每月预估总支出 (预备兵维护费 + 武将俸禄 + 内政官治理费 + 外交官外交费) */
+/** 0x3E65: 计算势力的常规月支出；外交费由type-5对话批准时一次性扣除。 */
 export function computeFactionExpense(scenario, factionIdx) {
   const f = scenario.factions[factionIdx];
   if (!f) return 0;
@@ -133,26 +131,8 @@ export function computeFactionExpense(scenario, factionIdx) {
     }
   }
 
-  // 外交官外交费预算 (KI.EXE 0x578F - 0x57E1):
-  // 针对派驻各目标势力的外交官，按双方友好度差距 (100 - minRelation) * 200 计算所需外交预算
-  let envoyBudget = 0;
-  if (isPlayer && scenario.envoys) {
-    for (const [targetIdxStr, envoy] of Object.entries(scenario.envoys)) {
-      if (envoy && envoy.name) {
-        const targetIdx = Number(targetIdxStr);
-        const rel = scenario.diplomacy?.[factionIdx]?.[targetIdx] ?? 100;
-        const relTarget = scenario.diplomacy?.[targetIdx]?.[factionIdx] ?? 100;
-        const minRel = Math.min(rel & 0x7f, relTarget & 0x7f);
-        const relGap = Math.max(0, 100 - minRel);
-        envoyBudget += relGap * 200;
-      }
-    }
-  }
-
-  return Math.max(
-    0,
-    troopUpkeep + officerStipend + governorBudget + envoyBudget,
-  );
+  // 0x578F 只计算建议额并排type-5事件；不能在月结支出中预扣，否则对话批准会双扣。
+  return Math.max(0, troopUpkeep + officerStipend + governorBudget);
 }
 
 /** 军师「財政」界面实时数据与预测模型 */
@@ -259,27 +239,8 @@ export function monthlySettlement(scenario, _clock) {
     c.disaster = Math.min(200, (c.disaster ?? 100) + (pol > 0 ? 2 : 1));
   }
 
-  // 4. 外交官每月常态友好度增进与维持 (KI.EXE 0x3E8E / 0x30D3)
-  if (scenario.diplomacy && scenario.envoys) {
-    for (const [targetIdxStr, envoy] of Object.entries(scenario.envoys)) {
-      if (envoy && envoy.name) {
-        const targetIdx = Number(targetIdxStr);
-        let pol = 10;
-        if (envoy.gen_idx != null && scenario.generals?.[envoy.gen_idx]) {
-          pol = scenario.generals[envoy.gen_idx].ability?.politics ?? 10;
-        } else {
-          const g = scenario.generals?.find(
-            (x) => x && x.name?.trim() === envoy.name?.trim(),
-          );
-          if (g) pol = g.ability?.politics ?? 10;
-        }
-
-        // KI.EXE 0x3E8E: 友好度向上限 100 (0x64，即 raw 0xE4) 逐渐改善，每次提升步长基于政治能力
-        const gain = Math.max(1, Math.floor(pol / 4));
-        increaseRelation(scenario, pIdx, targetIdx, gain);
-      }
-    }
-  }
+  // 4. 外交官常态关系改善不在月结执行。KI.EXE 0x3E11→0x3E8E
+  // 每战略调度轮转一个势力，并经过两次随机门控后单向 +1；见 diplomacy.js。
 
   // 5. 0x53C6: 各势力财务与征兵结算
   for (const f of scenario.factions ?? []) {

@@ -109,9 +109,12 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   delete state.pendingRecruits;
   delete state.pendingTruceNegotiations;
   delete state.pendingAssistanceNegotiations;
+  delete state.pendingStrategicEvents;
+  delete state.pendingEnvoyBudgetReports;
   delete state.envoys;
   delete state._appeared;
   delete state._nextRuntimeLegionId;
+  delete state._envoyDiplomacyCursor;
   for (const faction of state.factions ?? []) {
     delete faction.dead;
     delete faction.gold;

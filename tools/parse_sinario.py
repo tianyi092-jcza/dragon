@@ -85,6 +85,9 @@ def parse_scenario(sc: bytes):
                         # 0x4C72/0x291A 使用的原始武将战斗/去向修正字节；
                         # 精确产品名尚未闭合，保留原值供指令级算法使用。
                         "battle_rating": g[0x1F],
+                        # 外交/内政执行进度预算。0x3E8E 读 +0x1A；
+                        # 外交官任命时原版以0起步，批准预算后按金额换算回该字节。
+                        "assignment_budget": g[0x1A],
                         "status": g[0x17],
                         "talk_idx": g[0x1E],
                         "captive_flag": g[0x1D],
