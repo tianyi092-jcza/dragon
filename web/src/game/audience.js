@@ -11,6 +11,7 @@ import {
 	makeCeasefire,
 } from "./diplomacy.js";
 import { fmt } from "./talk.js";
+import { applyFactionFundsDelta } from "./economy.js";
 
 const NEUTRAL = 0xb7;
 const HOSTILE = 0x80; // 惡劣下限
@@ -242,8 +243,8 @@ function aidRoll(sc, me, target, monarch, chance, grant) {
 			if (cap?.sim) cap.sim.troops += grant.troops;
 			else me.troops = (me.troops ?? 0) + grant.troops;
 		} else {
-			me.gold = (me.gold ?? 0) + grant.gold;
-			target.gold = Math.max(0, (target.gold ?? 0) - grant.gold);
+			applyFactionFundsDelta(me, grant.gold);
+			applyFactionFundsDelta(target, -grant.gold);
 		}
 		return {
 			result: `${monarch.name}踐盟相助！獲得${grant.gold == null ? `兵${grant.troops}` : `金${grant.gold}`}`,

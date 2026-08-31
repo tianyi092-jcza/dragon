@@ -11,6 +11,50 @@
 //   - 0x5695: 城池成长动力学。玩家税率与 30% 基准比较：税率<30% 增长，税率>30% 萎缩；更新生产力与上升率。
 //   - 0x4194: 城池每日/月度城兵 (defense) 与防灾 (disaster) 恢复，内政官 (governor) 政治属性提供恢复加成。
 
+export const FACTION_FUNDS_MAX = 655000;
+export const FACTION_FUNDS_MIN = -655000;
+
+/**
+ * KI.EXE 0x5609/0x563B：势力资金是有符号24位运行值，并在 ±655000 饱和。
+ * Web 同时维护历史字段 money 与运行字段 gold，任何即时收支必须同步两者。
+ */
+export function applyFactionFundsDelta(faction, delta) {
+  if (!faction) return 0;
+  const current = Number(faction.gold ?? faction.money ?? 0);
+  const next = Math.max(
+    FACTION_FUNDS_MIN,
+    Math.min(
+      FACTION_FUNDS_MAX,
+      Math.trunc(
+        (Number.isFinite(current) ? current : 0) + (Number(delta) || 0),
+      ),
+    ),
+  );
+  faction.gold = next;
+  faction.money = next;
+  return next;
+}
+
+/**
+ * KI.EXE 0x2609..0x262E：军团每日军费。troops 是 legion[+4] 的十人单位。
+ * 0x562B 仅有这两个直接调用点，六队兵种字段不参与单日金额公式。
+ */
+export function legionDailyMaintenanceCost(legion, onRoadEdge) {
+  const troops = Math.max(
+    0,
+    Math.min(0xffff, Math.trunc(Number(legion?.troops) || 0)),
+  );
+  return onRoadEdge
+    ? Math.floor(troops / 2) + Math.floor(troops / 4)
+    : Math.floor(troops / 32) + 1;
+}
+
+/** KI.EXE faction[+0x1D]：所属势力军团士气上限。旧快照缺字段时兼容原版常值200。 */
+export function factionLegionMoraleCap(faction) {
+  const raw = Number(faction?.legion_morale_cap);
+  return Number.isFinite(raw) ? Math.max(0, Math.min(0xff, raw | 0)) : 200;
+}
+
 export function saturatingAdd(cur, delta, max = 0xffff) {
   const v = (cur ?? 0) + delta;
   if (v < 0) return 0;
@@ -268,9 +312,8 @@ export function monthlySettlement(scenario, _clock) {
       conscriptedInf = yields.inf;
     }
 
-    // 资金增减
-    f.gold = Math.max(0, (f.gold ?? f.money ?? 0) + actualIncome - expense);
-    f.money = f.gold;
+    // 资金增减：0x5609/0x563B 允许赤字，统一在 ±655000 饱和，不能截到0。
+    applyFactionFundsDelta(f, actualIncome - expense);
 
     // 预备兵并入
     f.reserve_cav = saturatingAdd(f.reserve_cav ?? 0, conscriptedCav);
@@ -281,7 +324,7 @@ export function monthlySettlement(scenario, _clock) {
 
     // 赤字与信赖度处理 (连续赤字惩罚)
     if (f.idx === pIdx) {
-      if (f.gold === 0) {
+      if (f.gold <= 0) {
         f.brokeMonths = (f.brokeMonths ?? 0) + 1;
         if (f.brokeMonths >= 2 && !f.deficitScolded) {
           f.deficitScolded = true;

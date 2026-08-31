@@ -22,6 +22,7 @@
 //      主动宣战门控不能由静态 SINARIO 外交矩阵替代。
 
 import { playerFaction } from "./commands.js";
+import { applyFactionFundsDelta } from "./economy.js";
 
 export const GIFT_COST = 200; // 遣使一次花费(金)
 export const NEUTRAL = 0xb7; // 默认中立 (0x80 + 55)
@@ -319,7 +320,7 @@ export function sendEnvoy(sc, targetIdx) {
   if (!envoy) return { err: "無政治≥13的使者可派" };
   if ((f.gold ?? 0) < GIFT_COST) return { err: "资金不足" };
 
-  f.gold -= GIFT_COST;
+  applyFactionFundsDelta(f, -GIFT_COST);
   const pol = envoy.ability.politics;
   if (pol < 13)
     return {

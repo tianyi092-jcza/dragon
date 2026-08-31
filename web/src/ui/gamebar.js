@@ -37,7 +37,11 @@ import {
 import { isLegionDelegated, setLegionDelegated } from "../game/legionmode.js";
 import { canSnapshotState } from "../game/savegame.js";
 import { ensureLegionSlot } from "../game/legionunits.js";
-import { getProjectedFinance } from "../game/economy.js";
+import {
+  applyFactionFundsDelta,
+  factionLegionMoraleCap,
+  getProjectedFinance,
+} from "../game/economy.js";
 import { STRATEGIC_SPEED_LABELS } from "../game/clock.js";
 import {
   TACTICAL_SPEED_LABELS,
@@ -2390,7 +2394,7 @@ export class GameBar {
           prevX: cap.x,
           prevY: cap.y,
           troops: 600, // 6000 兵
-          morale: 200,
+          morale: factionLegionMoraleCap(me),
           formation: 1,
           target: null,
           status: 0x80,
@@ -3117,9 +3121,7 @@ export class GameBar {
         } else if (outcome === 1) {
           // 支付金钱达成 (Talk 44: "與\3停戰交涉的結果，已經\7成立了。")
           clickSfx();
-          if (me) {
-            me.gold = Math.max(0, (me.gold ?? 0) - goldRequired);
-          }
+          if (me) applyFactionFundsDelta(me, -goldRequired);
           makeCeasefire(sc, me.idx, targetFaction.idx);
           const costStr = `支付${goldRequired}金`;
           const step2Lines = await formatTalkTokens(
@@ -3208,9 +3210,7 @@ export class GameBar {
         } else if (outcome === 1) {
           // 支付金钱达成 (Talk 48: "與\3的合作交涉，的結果，已經\7達成協定。")
           clickSfx();
-          if (me) {
-            me.gold = Math.max(0, (me.gold ?? 0) - goldRequired);
-          }
+          if (me) applyFactionFundsDelta(me, -goldRequired);
           declareWar(sc, allyFaction.idx, targetFaction.idx);
           allyFaction.target_faction = targetFaction.idx;
           sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
@@ -3679,10 +3679,7 @@ export class GameBar {
     // 0x39E8 数字键盘上限固定30000；非零输入最低500，不按当前国库钳制。
     const entered = Math.max(0, Math.min(30000, amount | 0));
     const grant = entered > 0 ? Math.max(500, entered) : 0;
-    if (grant > 0) {
-      if (faction.gold != null) faction.gold -= grant;
-      else faction.money = (faction.money ?? 0) - grant;
-    }
+    if (grant > 0) applyFactionFundsDelta(faction, -grant);
     // 0x3AE2/0x3AE4：批准额先×2，再取高字节写 general+0x1A，
     // 等价 floor(金额/128)。该字节才是0x3E8E逐次消耗的工作预算。
     const budgetPoints = Math.min(255, Math.floor(grant / 128));
@@ -4110,7 +4107,7 @@ export class GameBar {
       prevX: cap.x,
       prevY: cap.y,
       troops: Math.floor(totalTroops / 10), // 内部标准以 10 兵为单位
-      morale: 200,
+      morale: factionLegionMoraleCap(fac),
       formation: 1,
       target: null,
       status: 0x80,
@@ -6578,6 +6575,27 @@ export class GameBar {
     return new Set(this._flashQueue.keys());
   }
 
+  /**
+   * 在大地图战斗发生位置触发小地图同步闪烁。
+   * location: 据点对象({idx,x,y}) 或 野外坐标({x,y})。
+   */
+  addMiniBattleFlash(location) {
+    if (!location) return;
+    let key;
+    if (typeof location.idx === "number") {
+      key = location.idx;
+    } else if (
+      typeof location.x === "number" &&
+      typeof location.y === "number"
+    ) {
+      key = `field:${location.x}:${location.y}`;
+    } else {
+      return;
+    }
+    // 战斗闪动本身不发警告音；等待阶段使用YNSOUND ID3，失守另由0xCE7触发。
+    this._flashQueue.set(key, performance.now());
+  }
+
   /** UI 层绘制 (MapView.draw 末尾回调) */
   draw(ctx) {
     if (!this.imgs) return;
@@ -6796,6 +6814,35 @@ export class GameBar {
       ctx.fillRect(rx - 2, ry - 2, 5, 5); // 外框 5x5（整数坐标，避免 Canvas 半像素抗锯齿把边框晕粗）
       ctx.fillStyle = col;
       ctx.fillRect(rx - 1, ry - 1, 3, 3); // 色块 3x3
+    }
+    // 据点/野外战斗位置闪烁：与大地图接敌/战斗同步，统一呈白色十字。
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#ffffff";
+    if (on) {
+      for (const key of blink) {
+        let fx;
+        let fy;
+        if (typeof key === "number") {
+          const city = sc.cities[key];
+          fx = city?.x;
+          fy = city?.y;
+        } else if (typeof key === "string" && key.startsWith("field:")) {
+          const [, sx, sy] = key.split(":");
+          fx = Number(sx);
+          fy = Number(sy);
+        } else {
+          continue;
+        }
+        if (!Number.isFinite(fx) || !Number.isFinite(fy)) continue;
+        const fxm = mx + (fx * 16 + 8) * kx;
+        const fym = my + (fy * 16 + 8) * ky;
+        ctx.beginPath();
+        ctx.moveTo(fxm - 3, fym);
+        ctx.lineTo(fxm + 3, fym);
+        ctx.moveTo(fxm, fym - 3);
+        ctx.lineTo(fxm, fym + 3);
+        ctx.stroke();
+      }
     }
     // 视口线框: 当前大地图可视范围 (缩小一半, 并加 1px 右下黑色阴影)
     const view = this.app.view;

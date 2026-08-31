@@ -1,143 +1,131 @@
 # 卧龙传 Web 复刻 · Checkpoint Journal
 
-> 本文件只记录**本轮会话**的详细进展、调试过程、失败尝试、相关文件、当前阻塞和下一步。
-> 长期项目事实、架构、命令、约定与主线状态见 `../AGENTS.md`；二进制证据与稳定逆向结论见 `docs/re-notes-*.md` 和 `E:/Dragon/.agents/skills/`。
+> 本文件只记录**本轮会话**的目标、逆向过程、实现、失败修正、相关文件、验证和遗留事项。
+> 长期项目事实、架构、命令、约定和主线状态见 `../AGENTS.md`；稳定二进制结论见 `re-notes-*.md` 与 `E:/Dragon/.agents/skills/`。
 
 ## 本轮目标
 
-1. 查明原版第一章曹操/吕布开局外交显示与 SINARIO 静态值不一致的原因。
-2. 实现 AI 主动向玩家宣战及底部战略消息。
-3. 逆向外交官月度报告、申请经费、批准/改额/拒绝流程，以及人物政治和批准金额对关系改善的作用。
-4. 按原版截图复用迁都觐见样式接入 Web，并补回归、存档和文档。
+1. 自行逆向 `E:/Dragon/Dragon/KI.EXE`，精确还原军团每日士气和军费。
+2. 核查兵种组成是否直接影响每日军费。
+3. 按用户线索闭合军团位于首都时的自动补员机制。
+4. 校准接敌音效调用、委任四相时长、小地图同步闪动和无驻军据点失守提示。
+5. 将稳定结论回流到代码、测试、SKILL、re-notes 和长期 project memory。
 
-## 一、开局外交与 AI 主动宣战
+## 一、调查与逆向过程
 
-### 调查过程
+### 1. 样本与边界
 
-- 核对 `E:/Dragon/原版/SINARIO.DAT`、运行目录 DAT 与生成后的 `web/data.json scenarios[16]`。
-- 原版第一章静态矩阵确认：曹操→吕布 `0xA9`，吕布→曹操 `0xAA`；合并和解析链没有错误。
-- 继续追踪 KI.EXE，确认玩家选势力后会在首次显示地图前执行 `0x1B29→0x2BD9`。吕布→曹操由低7位42经过运行时修正降到39，因此开局显示“险恶”。Web 原先漏掉此初始化。
-- 修正旧结论：AI 主动宣战门控在 `0x2EFB`；`0x2D3A` 只处理 type-8 事件。宣战链为 `0x2EFB→0x2FB1(type1)→0x31AE/0x31BE→0x320C→0x3526→0x3639→0x3644`。
+- 工作样本：`E:/Dragon/Dragon/KI.EXE`，大小67099字节，SHA256 前缀 `fffeba`、后缀 `d43868`。
+- 官方和改版章节目录只有不同 SINARIO 数据，没有第二份 KI.EXE；本轮以该唯一程序为机制基准。
+- 原先 Web 逻辑仅在一轮末给“驻城、未移动、未接敌/撤退”的军团固定恢复10士气，且没有每日军费。该实现属于推断，位置也会造成战后同日恢复和打开战术层后漏结其他军团。
 
-### 实施
+### 2. 每日军费与士气
 
-- `web/src/game/diplomacy.js`
-  - 新增开局/月度 `0x2BD9` 关系变化和地理候选工作表。
-  - 关系修改保持单向 cell；宣战/停战调用点显式同步。
-  - 接入 `0x2EFB` 主动宣战候选和门控。
-- `web/src/main.js` / `web/src/game/ai.js`
-  - 仅新游戏执行首次外交初始化，读档不重复。
-  - 月结再次执行；type-1 战略事件按调度延迟执行。
-- `web/src/ui/gamebar.js`
-  - 增加480×64底部君主头像战略消息、FIFO、3秒自动关闭或右键关闭。
-  - 消息显示期间 `clock.hold`；关闭后恢复。
-- `web/src/game/economy.js`
-  - 删除错误的“月末 politics/4 双向提升关系”。
-- `web/src/game/savegame.js` / `web/src/game/world.js`
-  - 保存和恢复 `pendingStrategicEvents`，新游戏清队列。
-- 新增 `tools/verify_diplomacy_runtime.mjs`。
+- 主循环 `0x1D0B` 调用 `0x25A3`，军团游标每次处理16槽；`0x2600` 仅在 `CS:[0xCF3]==1` 执行，最终每个活动军团每日结算一次。
+- `0x2609` 读取 `legion[+4]` 总兵（十人单位），只比较 `legion[+0x0E]`：
+  - 道路边 `>=0x0800`：扣 `floor(troops/2)+floor(troops/4)`，随后立即返回，不恢复士气。
+  - 节点 `<0x0800`：扣 `floor(troops/32)+1`，士气增加10并封顶所属势力 `faction[+0x1D]`。
+- 该函数不检查城市、接敌、撤退或命令状态。
+- 六队兵种字段没有进入 `0x2600` 或资金减法器；相同总兵和道路状态的单日军费不按兵种加权。兵种只能通过移动速度或在道路上停留的日数间接影响整段行军费用。
+- `0x562B→0x563B` 对势力24bit资金做减法，下限 `-655000`；`0x5609` 的收入上限为 `+655000`。资金允许为负数。
+- `faction[+0x1D]` 同时用于新编军团初始士气和 AI 休整完成门槛；当前20章活动势力均为200。
 
-### 验证
+### 3. 首都自动补员
 
-- 静态 A9/AA、开局险恶、吕布 type-1 候选、关系方向性、宣战通知和去重回归通过。
-- 全新 Playwright 会话确认吕布→曹操 raw=`0xA7`，底部消息显示时暂停，右键关闭后恢复。
-- 浏览器仅有既有 `favicon.ico` 404。
-
-## 二、外交官月度经费与政治力
-
-### 截图/TALK 定位
-
-- TALK 69：驻目标势力的外交官前来报告。
-- TALK 319/320：请求外交费金额。
-- 菜单“答应/提示金额/拒绝”和数字键盘不是该 TALK 文本本身。
-- TALK 325：批准；TALK 327：君主拒绝；TALK 340：截图中的外交官拒绝反应。
-- `talk.json` 部分外交文本因标准 Big5 `errors="replace"` 已出现替换字符；本轮只对截图必需文本做校订，保留 TALK 索引和证据，未假称整个话型池已恢复。
-
-### 逆向闭合
-
-- 月结 `0x5358→0x5394→0x2BD9` 将事件计数器置7，随后 `0x539A→0x578F` 为预算耗尽的外交官排 type-5 事件。
-- 每日 `0x3E11→0x31AE` 递减计数器，所以4月底生成的单个事件通常在5月7日处理；这与用户截图日期一致。
-- 只有武将 `+0x1A==0`，即旧预算耗尽时才申请。
-- 建议额：
+- `0x4370..0x4398`：总兵 `<0x258`（600，即6000人）且实际位于所属势力首都时，进入命令状态9。
+- `0x4499→0x461D→0x4717/0x4698→0x6FD2`：先将六队现有兵按兵种并回势力预备池，再按同兵种队数重新分配，最后重算总兵。
+- 兵种映射：骑兵1→`faction[+4]`，步兵2→`+6`，弓兵3→`+8`；类型4不参与。
+- 每队上限100。逐队公式：
 
 ```text
-raw = min(player→target, target→player)
-和平：request = (100 - (raw & 0x7F)) × 200
-交战：request = (125 - (raw & 0x7F)) × 200
+min(100, floor(available / remainingTeams) + available % remainingTeams)
 ```
 
-- 截图关系低7位52，因此 `(100-52)×200=9600`。
-- type-5 处理链 `0x32E9→0x39E8`；数字键盘上限30000，非零输入最低500，不按现有国库钳制。
-- 批准额只在对话结束后扣款，并由 `0x3ADF..0x3AE7` 转为武将工作预算：`floor(grant/128)`。9600金得到75预算点。
-- `0x3E8E`：有外交官且预算非零时，第一随机门控 `<0x20`；通过后消耗 `23-politics`，再以 `(rng&0x0F)<=politics` 判定关系改善。成功时目标→玩家单向+1；若该方向超过反向，玩家→目标追赶+1。
-- 因此政治影响预算持续时间和成功概率，批准额影响可工作轮数；单次成功增量始终是1。
+- 余数优先给先处理队；并回预备池经 `0x55EC` 饱和到 `0xFFDC=65500`。
+- 补员真实消耗对应兵种池。未完成行军目标时不补；目标仍指首都但军团已经实际到达时，同轮可补。
+- 单槽时序是补员状态机先于 `0x2600`，因此当日军费按补员后的总兵计算。多个首都军团按军团槽地址升序争用共享预备池。
 
-### 初版偏差与修正
+## 二、实现
 
-本轮先做了可交互初版，随后高精度汇编审查发现并修正：
+### 战略规则
 
-1. **报告日期过早**：初版月结后立即弹出；改为排队并延迟7个日调度。
-2. **双重扣款**：初版把建议外交费计入 `computeFactionExpense()`，批准时又扣一次；现已从常规月支出删除，只在对话批准时扣款。
-3. **预算换算错误**：初版使用 `floor(grant/200)`；按 `0x3AE2/0x3AE4` 修正为 `floor(grant/128)`。
-4. **重复申请**：初版每月为所有外交官生成报告；改为仅预算耗尽时申请。
-5. **输入上限错误**：初版按当前国库钳制；修正为固定30000、非零最低500。
-6. **场景文本**：当前截图主分支已可用，但 TALK 319..345 按武将 `talk_idx` 的完整分档仍未全部实现。
+- `web/src/game/economy.js`
+  - 新增 `applyFactionFundsDelta()`，同步 `gold/money` 并在±655000饱和。
+  - 新增道路/节点军费公式和势力军团士气上限 helper。
+  - 月结不再将负资金截为0；赤字判断改为 `<=0`。
+- `web/src/game/ai.js`
+  - 新增并导出 `replenishLegionAtCapital()`、`settleLegionDaily()`。
+  - `aiTick` 按军团槽序先执行首都补员，再在本轮移动、到达或同步战果之后统一日结；异步战术/委任战斗在战果回写后补做该日结算。
+  - 新编、延迟回归和占位重生军团统一读取势力士气上限。
+  - 玩家据点实际易主时播放警告音；无驻军失守另发通用底部提示。
+- `web/src/game/commands.js`、`diplomacy.js`、`audience.js`、`web/src/ui/gamebar.js`
+  - 即时资金收支统一使用资金 helper。
+  - 新编军团和君主亲征使用势力士气上限。
+- `tools/parse_sinario.py`
+  - 导出 `legion_morale_cap=faction[+0x1D]`，并重生成 `web/data.json`。
 
-### 实施文件
+### 接战表现
 
-| 路径 | 本轮职责 |
-| --- | --- |
-| `tools/parse_sinario.py` | 导出武将 `assignment_budget` |
-| `web/data.json` | 由解析器重生成 |
-| `web/src/game/diplomacy.js` | 申请额、预算耗尽判断、月结 type-5 报告生成 |
-| `web/src/game/ai.js` | 7日延迟和 `0x3E8E` 预算/政治维护 |
-| `web/src/game/economy.js` | 删除外交费月结预扣，避免双扣 |
-| `web/src/ui/gamebar.js` | 双头像觐见、三项菜单、数字键盘、批准/改额/拒绝、FIFO/hold |
-| `web/src/ui/hud.js` | 任命外交官时初始化预算状态 |
-| `web/src/game/savegame.js` | 保存/恢复预算、待处理报告和旧档默认值 |
-| `web/src/main.js` | 月结生成并排入延迟报告 |
-| `tools/verify_envoy_budget.mjs` | 公式、预算门控、政治消耗和关系方向回归 |
+- `web/src/core/speaker.js` 保留倒计时 `+3>1` 时调用的 YNSOUND ID 3 近似音效；四相表现层不额外重播。
+- `web/src/game/engagetransition.js` 将委任结算前的表现过渡固定为 `0→1→2→3`、每相约100ms；该过渡不写规则状态，也不重复播放倒计时音效。
+- `web/src/ui/gamebar.js`
+  - `addMiniBattleFlash()` 只维护闪动，不再重复播放失守警告音。
+  - 据点和野外战斗位置均绘制白色十字。
 
-### 验证与调试
+### 测试与文档
 
-通过：
+- 新增 `tools/verify_legion_daily.mjs`：覆盖军费边界、奇数取整、兵种不直接加权、节点士气、道路不恢复、接敌/撤退状态、资金负值饱和、首都补员、槽序争用和异步战果后延迟日结。
+- 扩展 `tools/verify_engage_transition.mjs`：验证四相顺序、预载 gate、延迟 RAF 不跳相及 once guard。
+- 更新 `tools/verify_march_navigation.mjs` fixture，补齐资金、兵池和士气上限字段。
+- 更新：
+  - `E:/Dragon/.agents/skills/re-march-engagement/SKILL.md`
+  - `docs/re-notes-kernel.md`
+  - `E:/Dragon/AGENTS.md`
+  - `web-port/AGENTS.md`
+
+## 三、调试与失败修正
+
+1. **日结时序两次校正**：最初放在循环末会被异步战术早退跳过，随后临时移到移动前又与 `0x2662→0x2600` 顺序相反；最终改为同步更新后统一结算，异步战斗在战果回写后补结。
+2. **小地图重复音效**：`addMiniBattleFlash()` 曾调用 `warnSfx()`，与接战音效叠加；现将闪动维护与失守警告分离。
+3. **据点闪动表现不一致**：最初据点只变色、野外才画十字；现两者统一绘制白十字。
+4. **首都多军团顺序隐含依赖数组顺序**：改为显式按 `slot/_runtimeId` 排序引用后补员，并增加共享兵池争用回归。
+5. **旧 SAVE 道路字段残留**：恢复的 `roadEdgeOrNode` 曾在抵达节点后继续把军团判为道路状态；现与 `_march` 一起清理，并增加边→节点次日日结回归。
+6. **四相重复音效**：倒计时阶段已按 `+3>1` 播放 ID 3，表现过渡再逐帧播放会额外重播4次；已移除表现层音效，只保留原倒计时调用。
+7. **浏览器冒烟**：全新 Playwright 会话验证成功；唯一控制台错误是既有 `favicon.ico` 404。
+8. **工具调用小失误**：一次从仓库父目录执行 focused test 导致模块路径不存在；切换到 `E:/Dragon/web-port` 后通过，不是业务逻辑失败。
+
+## 四、验证结果
+
+已通过：
 
 ```text
+python tools/parse_sinario.py
+python -m py_compile tools/parse_sinario.py
+node tools/verify_legion_daily.mjs
+node tools/verify_engage_transition.mjs
+node tools/verify_march_navigation.mjs
+node tools/verify_engagement_state.mjs
+node tools/verify_siege_result.mjs
+node tools/verify_field_result.mjs
+node tools/verify_postbattle_fate.mjs
+node tools/verify_delegated_autobattle.mjs
 node tools/verify_envoy_budget.mjs
 node tools/verify_diplomacy_runtime.mjs
-node tools/verify_save_transition_guard.mjs
-node tools/verify_local_saves.mjs
-node --check（相关 JS）
-python -m py_compile tools/parse_sinario.py
+node tools/verify_new_game_initialization.mjs
+node --check（本轮相关 JS）
 git diff --check
-lens_diagnostics mode=all（变更文件）
 ```
 
-- Playwright 新会话用测试场景直接打开外交费觐见，确认显示对刘备申请9600并持有 `clock.hold`。
-- 一次浏览器冒烟因等待场景初始化超时，随后改用正式 App 装配后注入最小场景状态完成验证；超时未证明业务逻辑失败。
-- `economy.js` 的 TypeScript LSP 一度保留4条行号超过 EOF 的旧缓存诊断；文件实际只有310行，`node --check` 通过，pi-lens 标记为 stale。后续若再次出现须重新扫描，不能把所有 LSP 错误一概视为缓存。
-- pi-lens 在会话末自动格式化了 `web/src/ui/gamebar.js` 和 `tools/verify_envoy_budget.mjs`；继续编辑前需重读。
+- 12个相关源文件 LSP error/primary：0。
+- `lens_diagnostics mode=all`：无本轮阻塞错误。
+- 浏览器动态检查：节点日结资金/士气正确；首都补员后六队为 `[75,75,80,80,55,55]`，三预备池归0。
+- 独立三路提交审查曾发现日结时序、旧 SAVE 道路字段和四相重复音效三项阻塞，均已修复并补回归。
 
-## 三、文档回流
+## 五、当前工作区与遗留事项
 
-- 更新 `E:/Dragon/.agents/skills/re-domestic-diplomacy/SKILL.md`：开局/月度外交、主动宣战、外交官预算申请和政治维护。
-- 更新 `docs/re-notes-kernel.md`：关键地址、公式、预算换算和事件日期。
-- 更新根 `E:/Dragon/AGENTS.md` 的 SKILL 索引说明。
-- 本次重新整理 `web-port/AGENTS.md`：只保留长期项目记忆；本 journal 只保留本轮详细过程。
-
-## 当前状态与下一步
-
-### 当前状态
-
-- 本轮实现和文档尚未提交；工作区同时包含此前的存档/单实例及战术主线修改，禁止整体 reset/clean。
-- 外交核心数值、事件日期、预算单位和政治门控已闭合并有 Node 回归。
-- UI 已完成主分支冒烟，但尚未从正式菜单按正常日历完整跑到5月7日逐项对照全部截图。
-
-### 下一步
-
-1. 使用全新 Playwright 会话从正式菜单选择原版第一章，任命外交官并正常推进到下月7日，验证报告日期、三项菜单、数字键盘、扣款、右键层级和时钟冻结。
-2. 测试全额批准、低于建议额、高于建议额、拒绝/输入0四个分支及读档恢复待处理报告。
-3. 按武将 `talk_idx` 闭合 TALK 319..345 的完整对白选择；修复 TALK 解析链而不是直接修改 `talk.json`。
-4. 复核通用 NPC/武将消息取消左键关闭后，其他既有回调流程没有回归。
-5. 按功能拆分审查当前 diff 后提交；提交前重跑 LSP、`lens_diagnostics mode=all`、focused Node suite 和全新浏览器冒烟。
-6. 完成本轮后回到主线：DOSBox-X debugger 捕获真实 KI.EXE 战术逐帧状态，与 `originaldiff.js` 做动态差分。
+- 本轮产品代码、测试、生成数据和必要文档已完成审查与提交准备；下一主线回到原版战术模拟器动态差分。
+- 若后续工作区并存其它未提交主线，仍禁止整体 reset/clean，应按功能审查和暂存。
+- 尚未闭合：
+  1. YNSOUND ID 3 原始音色解码；当前只对齐 `+3>1` 的调用时机和次数，四相表现时长独立约400ms。
+  2. 使用 DOSBox-X debugger 捕获真实 KI.EXE 战术逐帧状态，与 `originaldiff.js` 比较。
+  3. 外交官 TALK 319..345 的完整说话类型分支和正常日历流程回归。

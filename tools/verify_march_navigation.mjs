@@ -26,7 +26,9 @@ const {
   restoreRoadMarchContext,
   serializeRoadMarchContext,
 } = await import("../web/src/game/roadgraph.js");
-const { buildArmies, aiTick, stepTo } = await import("../web/src/game/ai.js");
+const { buildArmies, aiTick, settleLegionDaily, stepTo } = await import(
+  "../web/src/game/ai.js"
+);
 await loadRoadGraph();
 
 const source = graph.nodes[0];
@@ -57,14 +59,88 @@ assert.equal(restoredContext.stride, firstLeg.stride);
 assert.equal(restoredContext.pointIndex, 0);
 assert.deepEqual(restoredContext.points[0], firstLeg.points[0]);
 
+// 从SAVE恢复道路边后抵达节点，原始+0A/+0C/+0E必须随导航一起清除；
+// 否则次日 settleLegionDaily 会继续按道路边（75）而不是节点（4）扣费。
+const restoredEdgeTarget = graph.nodes[firstLeg.toNode];
+const restoredEdgeCity = {
+  idx: 1,
+  name: "存檔邊終點",
+  x: restoredEdgeTarget.x,
+  y: restoredEdgeTarget.y,
+  faction: 0,
+};
+const restoredEdgeLegion = {
+  slot: 0,
+  leader: "存檔道路測試",
+  faction: 0,
+  x: source.x,
+  y: source.y,
+  prevX: source.x,
+  prevY: source.y,
+  troops: 100,
+  morale: 100,
+  target: { idx: restoredEdgeCity.idx },
+  targetNode: restoredEdgeTarget.id,
+  roadStride: rawContext.stride,
+  roadPointAddress: rawContext.pointAddress,
+  roadEdgeOrNode: rawContext.edgeOrNode,
+};
+const restoredEdgeFaction = {
+  idx: 0,
+  capital: 0,
+  monarch: "存檔道路測試",
+  gold: 1000,
+  money: 1000,
+  reserve_cav: 0,
+  reserve_inf: 0,
+  reserve_arc: 0,
+  legion_morale_cap: 200,
+};
+const restoredEdgeScenario = {
+  player_faction: 0,
+  factions: [restoredEdgeFaction],
+  cities: [
+    { idx: 0, name: "存檔邊起點", x: source.x, y: source.y, faction: 0 },
+    restoredEdgeCity,
+  ],
+  generals: [],
+  legions: [restoredEdgeLegion],
+  diplomacy: [[255]],
+};
+buildArmies(restoredEdgeScenario);
+assert.ok(restoredEdgeLegion._march, "SAVE raw edge context restores navigation");
+assert.ok(!("roadEdgeOrNode" in restoredEdgeLegion));
+let restoredEdgeResult = "moved";
+for (let step = 0; step <= firstLeg.points.length; step++) {
+  restoredEdgeResult = stepTo(
+    restoredEdgeScenario,
+    restoredEdgeLegion,
+    restoredEdgeCity.x,
+    restoredEdgeCity.y,
+  );
+  if (restoredEdgeResult === "arrived") break;
+}
+assert.equal(restoredEdgeResult, "arrived");
+assert.equal(restoredEdgeLegion._march, null);
+assert.ok(!("roadStride" in restoredEdgeLegion));
+assert.ok(!("roadPointAddress" in restoredEdgeLegion));
+assert.ok(!("roadEdgeOrNode" in restoredEdgeLegion));
+settleLegionDaily(restoredEdgeScenario);
+assert.equal(restoredEdgeFaction.gold, 996, "抵达节点后按floor(100/32)+1扣费");
+assert.equal(restoredEdgeFaction.money, 996);
+assert.equal(restoredEdgeLegion.morale, 110, "抵达节点后恢复士气");
+
 // DOS +0A/+0C/+0E roundtrip：边内任意位置和±4两个方向都必须可逆。
 const edge = graph.edges[firstLeg.edgeId];
 for (const stride of [4, -4]) {
   const points =
     stride === 4
       ? [...edge.points, graph.nodes[edge.target]]
-      : [...edge.points].reverse().concat(graph.nodes[edge.source]);
-  const interiorPointIndex = Math.max(1, Math.min(points.length - 1, Math.floor(points.length / 2)));
+      : edge.points.toReversed().concat(graph.nodes[edge.source]);
+  const interiorPointIndex = Math.max(
+    1,
+    Math.min(points.length - 1, Math.floor(points.length / 2)),
+  );
   const march = {
     edgeId: edge.id,
     stride,
@@ -86,7 +162,10 @@ for (const stride of [4, -4]) {
   assert.ok(restored, `restores interior stride ${stride}`);
   assert.equal(restored.stride, stride);
   assert.equal(restored.pointIndex, interiorPointIndex);
-  assert.deepEqual(restored.points[interiorPointIndex], points[interiorPointIndex]);
+  assert.deepEqual(
+    restored.points[interiorPointIndex],
+    points[interiorPointIndex],
+  );
 }
 
 const targetCity = {
@@ -111,13 +190,27 @@ const legion = {
   prevX: source.x,
   prevY: source.y,
   troops: 100,
+  morale: 100,
   cooldown: 0,
   delegated: false,
   target: targetCity,
 };
 const scenario = {
   player_faction: 0,
-  factions: [{ idx: 0, capital: 0, monarch: "測試", n_cities: 2 }],
+  factions: [
+    {
+      idx: 0,
+      capital: 0,
+      monarch: "測試",
+      n_cities: 2,
+      gold: 100000,
+      money: 100000,
+      reserve_cav: 0,
+      reserve_inf: 0,
+      reserve_arc: 0,
+      legion_morale_cap: 200,
+    },
+  ],
   generals: [
     {
       name: "測試",
@@ -144,14 +237,27 @@ const app = {
   battleView: null,
 };
 const visited = [];
+let finalDayCost = null;
+let finalDayMoraleBefore = null;
 for (
   let day = 0;
   day < expected.points.length + expected.edges.length + 8;
   day++
 ) {
+  const fundsBefore = scenario.factions[0].gold;
+  const moraleBefore = legion.morale;
   aiTick(app);
+  const dailyCost = fundsBefore - scenario.factions[0].gold;
   visited.push({ x: legion.x, y: legion.y });
-  if (!legion.target) break;
+  if (day === 0) {
+    assert.equal(dailyCost, 75, "节点出发进入道路后按道路军费结算");
+    assert.equal(legion.morale, 100, "节点出发进入道路后不恢复士气");
+  }
+  if (!legion.target) {
+    finalDayCost = dailyCost;
+    finalDayMoraleBefore = moraleBefore;
+    break;
+  }
 }
 
 assert.deepEqual(
@@ -170,6 +276,12 @@ assert.equal(legion._march, null);
 assert.equal(legion._path, null);
 assert.equal(legion.prevX, legion.x);
 assert.equal(legion.prevY, legion.y);
+assert.equal(finalDayCost, 4, "道路抵达目标节点后按节点军费结算");
+assert.equal(
+  legion.morale,
+  Math.min(200, finalDayMoraleBefore + 10),
+  "道路抵达目标节点后恢复士气",
+);
 assert.ok(!("_feint" in legion));
 
 // 旧 Web snapshot 只有 delegated=true 且无status时，buildArmies必须先迁移bit2。
@@ -192,8 +304,14 @@ assert.equal(legacyDelegated.status & 0x04, 0x04);
 assert.equal(legacyDelegated.delegated, true);
 assert.equal(legacyDelegated.target, targetCity);
 assert.equal(legacyDelegated._march, null);
-assert.equal(stepTo(scenario, legacyDelegated, targetCity.x, targetCity.y), "moved");
-assert.ok(legacyDelegated._march, "loaded target rebuilds road navigation on first step");
+assert.equal(
+  stepTo(scenario, legacyDelegated, targetCity.x, targetCity.y),
+  "moved",
+);
+assert.ok(
+  legacyDelegated._march,
+  "loaded target rebuilds road navigation on first step",
+);
 
 // 玩家选择「委任」后仍必须先执行所选目标；旧逻辑会直接进入AI分支，
 // 因目标是己方据点而将其覆盖为null，军团始终不出城。
@@ -217,7 +335,17 @@ const hostileCity = {
   faction: 1,
 };
 scenario.cities = [sourceCity, targetCity, hostileCity];
-scenario.factions.push({ idx: 1, capital: hostileCity.idx, monarch: "敵" });
+scenario.factions.push({
+  idx: 1,
+  capital: hostileCity.idx,
+  monarch: "敵",
+  gold: 100000,
+  money: 100000,
+  reserve_cav: 0,
+  reserve_inf: 0,
+  reserve_arc: 0,
+  legion_morale_cap: 200,
+});
 scenario.diplomacy = [
   [255, 0],
   [0, 255],
@@ -267,7 +395,19 @@ const blockers = graph.nodes
   }));
 targetCity.faction = 1;
 scenario.cities = [sourceCity, targetCity, ...blockers];
-scenario.factions.push({ idx: 1, capital: targetCity.idx, monarch: "敵" });
+if (!scenario.factions.some((faction) => faction.idx === 1)) {
+  scenario.factions.push({
+    idx: 1,
+    capital: targetCity.idx,
+    monarch: "敵",
+    gold: 100000,
+    money: 100000,
+    reserve_cav: 0,
+    reserve_inf: 0,
+    reserve_arc: 0,
+    legion_morale_cap: 200,
+  });
+}
 scenario.diplomacy = [
   [255, 200],
   [200, 255],
@@ -283,17 +423,21 @@ assert.ok(!("_feint" in blockedLegion));
 // 目标中立城在换边前提前易主：己方无战进入；交战方攻击实时占领者；
 // 未开战第三方由现有道路 blocker 阻断（最后一边竞态仍未知，不在此猜测）。
 const nearbySource = graph.nodes.find((node) =>
-  graph.edges.some((edge) =>
-    (edge.source === node.id || edge.target === node.id) &&
-    graph.nodes[edge.source === node.id ? edge.target : edge.source],
+  graph.edges.some(
+    (edge) =>
+      (edge.source === node.id || edge.target === node.id) &&
+      graph.nodes[edge.source === node.id ? edge.target : edge.source],
   ),
 );
 const nearbyEdge = graph.edges.find(
   (edge) => edge.source === nearbySource.id || edge.target === nearbySource.id,
 );
-const nearbyTarget = graph.nodes[
-  nearbyEdge.source === nearbySource.id ? nearbyEdge.target : nearbyEdge.source
-];
+const nearbyTarget =
+  graph.nodes[
+    nearbyEdge.source === nearbySource.id
+      ? nearbyEdge.target
+      : nearbyEdge.source
+  ];
 const changingCity = {
   idx: 9,
   name: "易主城",
@@ -350,7 +494,7 @@ assert.equal(
 );
 assert.equal(changingLegion._engagement, undefined);
 
-console.log(
+process.stdout.write(
   `march navigation OK: ${expected.edges.length} edges, ` +
-    `${expected.points.length} points, ${visited.length} daily updates`,
+    `${expected.points.length} points, ${visited.length} daily updates\n`,
 );

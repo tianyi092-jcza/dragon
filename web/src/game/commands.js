@@ -2,7 +2,7 @@
 // 攻略依据(game-mechanics.md):
 //   - 玩家=军师, 有信赖度红线; 赤字→信赖降, 归零 GAME OVER
 //   - 征兵次月生效变预备兵; 税率<30% 据点稳定发展, >30% 停滞
-//   - 兵力提升靠解散重组/征兵; 出兵从城兵抽调
+//   - 征兵形成预备兵；军团在首都按兵种从预备池自动补员；出兵从城兵抽调
 export const COST_DEVELOP = 100; // 内政一次花费(金)
 export const COST_RECRUIT = 200; // 征兵一次花费(金) → 次月 +500 预备兵
 const RECRUIT_N = 500;
@@ -14,6 +14,7 @@ const DEFICIT_TRUST_PENALTY = 20; // 用户规则=20; KI.EXE 0x3516 实测 al=0x
 import { monthlyEvents } from "./disaster.js";
 import { tickEnvoys } from "./diplomacy.js";
 import { createDefaultLegionUnits, ensureLegionSlot } from "./legionunits.js";
+import { applyFactionFundsDelta, factionLegionMoraleCap } from "./economy.js";
 
 /** 初始化玩家槽位(原版剧本头 FF=未指定 → 默认势力0/信赖100); 在 setScenario 时调 */
 export function initPlayer(sc) {
@@ -77,6 +78,7 @@ export function initPlayer(sc) {
   // 势力资源字段统一: 月结前无 .gold 时从 data.json 播种 (24bit 资金 + 预备兵三兵种池)
   for (const f of sc.factions) {
     if (f.gold == null) f.gold = f.money ?? 0;
+    f.money = f.gold;
     if (f.food == null) f.food = 0;
     // 总预备兵池 = (騎/弓/步 之和)×10, 存储单位=十人 (原版資源面板顯示×10)
     const resTotal =
@@ -120,7 +122,7 @@ function precheck(sc, city, cost) {
   const f = playerFaction(sc);
   if (!f || city.faction !== f.idx) return { err: "非我方城池" };
   if ((f.gold ?? 0) < cost) return { err: "资金不足" };
-  f.gold -= cost;
+  applyFactionFundsDelta(f, -cost);
   return { f };
 }
 
@@ -180,6 +182,7 @@ export function dispatch(sc, fromCity, targetCity) {
     prevY: fromCity.y,
     troops: avail,
     units: createDefaultLegionUnits(avail),
+    morale: factionLegionMoraleCap(f),
     cooldown: 2,
     target: targetCity,
     formation: 1, // 编制类型 1..4 (0xCBE5 选块)

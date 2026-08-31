@@ -134,6 +134,8 @@ def parse_scenario(sc: bytes):
                         # 24bit 资金 (word + 高位字节; 实证: 何進 8464+1×65536=74000)
                         "money": u16(f[0x20:0x22]) + (f[0x22] << 16),
                         "money_hi": f[0x22],
+                        # KI.EXE 0x2600/0x6F26/0x4483：军团驻止恢复与新编初值的士气上限。
+                        "legion_morale_cap": f[0x1D],
                         # 预备兵三兵种池 (原版资源面板 騎/弓/步; 势力记录 bytes 4/6/8)
                         "reserve_cav": u16(f[4:6]),
                         "reserve_arc": u16(f[6:8]),

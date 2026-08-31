@@ -16,6 +16,7 @@ import { prepareEnvoyBudgetReports } from "./game/diplomacy.js";
 import {
   aiTick,
   buildArmies,
+  finishDeferredLegionDaily,
   initializeStrategicDiplomacy,
   monthlyAI,
   monthlyDiplomacyAI,
@@ -69,9 +70,20 @@ const app = {
 
   /** 委任玩家战斗：预载四图后在战略地图按0→3播放一次，再执行0x5130。 */
   playDelegatedEngage(legion, onFinish) {
-    return playEngageTransition(this, legion, onFinish, {
-      prepare: () => preloadEngageMarkerImages(() => this.view?.draw?.()),
-    });
+    return playEngageTransition(
+      this,
+      legion,
+      () => {
+        try {
+          onFinish();
+        } finally {
+          finishDeferredLegionDaily(this);
+        }
+      },
+      {
+        prepare: () => preloadEngageMarkerImages(() => this.view?.draw?.()),
+      },
+    );
   },
 
   /** 游戏结束：清理运行态并返回首页开局选单 (YES/NO) */
@@ -152,6 +164,7 @@ const app = {
         null,
         exit,
       );
+      finishDeferredLegionDaily(this);
       this.hud.buildLegend();
       this.view.draw();
     });
@@ -186,6 +199,7 @@ const app = {
         null,
         exit,
       );
+      finishDeferredLegionDaily(this);
       this.hud.buildLegend();
       this.view.draw();
     });
@@ -217,6 +231,7 @@ const app = {
       throw new RangeError(`invalid scenario index ${idx}`);
     this.engageTransition?.cancel?.();
     this.engageTransition = null;
+    this._legionDailySettlementDeferred = false;
     this.dispatching = null;
     this.scenarioIdx = idx;
     this.scenario = new Scenario(raw);
