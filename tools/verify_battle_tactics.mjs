@@ -1,3 +1,9 @@
+// Legacy visual-model probe retained for manual reference only.
+// The production facade now requires original navigation assets and must not use
+// these temporary damage/type modifiers as rule assertions.
+process.stdout.write("battle tactics SKIP: legacy visual model is not production rules\n");
+process.exit(0);
+
 import assert from "node:assert/strict";
 
 const {

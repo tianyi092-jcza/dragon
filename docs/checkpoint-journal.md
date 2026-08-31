@@ -1,628 +1,308 @@
-# Checkpoint Journal — 2026-08-30 战略军团与战斗底层
+# 卧龙传 Web 复刻 · 项目记忆（Checkpoint Journal）
 
-> 本文件记录本轮会话的详细进展、调试过程、失败尝试、相关文件、阻塞和下一步。
-> 长期项目记忆已整理到 `AGENTS.md`；逆向证据详见 `re-notes-march-pathfinding.md` 与 `re-notes-kernel.md`。
-
-## 1. 本轮目标与范围
-
-本轮从“战术战斗前先还原战略军团”开始，依次完成：
-
-1. 原版据点道路拓扑与点列移动；
-2. 势力固定军团标识与接敌等待态；
-3. 野战地形/战场布局选择；
-4. 野战与攻城战略速算；
-5. 战后继续、道路撤退、延迟回归和被俘；
-6. 破城后同城守军组撤退；
-7. 修复玩家委任军团收到目标后不行军；
-8. 定位战术攻城城损链，并明确尚缺的城壁对象状态机。
-
-提交前已审查全部改动与未跟踪文件，移除无关格式噪音、本机存档内容和可再生大型 probe JSON；真实 `E:/Dragon/Dragon/SAVE.DAT` 始终只读。
-
-## 2. 详细进展
-
-### 2.1 道路拓扑与移动
-
-- 逆向 `KI.EXE 0xE4CE..0xE992`，从 `MMAP.MAP` 构建原版道路图：
-  - 192 个据点节点；
-  - 254 条无向道路边；
-  - 单一连通分量；
-  - 完整道路点列共 5526 点，边长 6..84；
-  - 反向边、端点解析与诊断异常均为 0。
-- 闭合 `0x491B/0x4A0F`：四个有序 tagged edge slot、`0x4000/0x8000` 端点标签、加权搜索返回第一条边和 `stride=±4`。
-- 对 192×191 个有序据点对验证：距离 mismatch 0，非法 first hop 0。
-- 新增 `roadgraph.js`，据点命令改走原版拓扑；军团沿边点列逐战略更新移动，到边端下一次更新重新寻路。
-- `roadApproachesAt()` 支持道路内部点的多条边出现，端点顺序校正为 `edge+8` 后 `edge+6`，供 `0x487B` 撤退选择。
-- 大地图和小地图路线绘制改为只读导航状态，不再由渲染层推进路线。
-
-### 2.2 军团标识、接敌和音效
-
-- 从 `MMAP.MCH` 提取 24 个样式槽×5帧，共 120 张原版 PNG；势力记录 `+0x3E` 解析为 `march_marker_style`。
-- 删除臆造的 `mark0.svg`～`mark3.svg`，不再使用独立颜色循环或任意角旋转。
-- 移动方向帧：0西、1东、2北、3南；到达/驻止帧为4。运行时字段使用 `_markerFrame`，不写入稳定快照。
-- 从 `MMAP.MCH + 0xA000` 解析5组×4相接敌动画并生成审查图；产品资产只保留运行时有实锤引用的 group 0 四帧。
-- 接触检测移到坐标写入前：发起方停在原道路点，不提前进入敌军或城市坐标。
-- 接敌状态按原版名义12、同轮减至11，再逐调度到1；防守方不被同步置等待态。
-- `speaker.engageSfx()` 复刻调用时序和忙状态门控；实际 YNSOUND ID3 音色仍仅为近似。
-
-### 2.3 野战地形与 BATTLE.MAP
-
-- 新增 `fieldterrain.js`，移植 `0x4B63..0x4C71`：
-  - `CS:0x982F` 的14段图块分类；
-  - `CS:0x97F0` 的21条地形组合；
-  - 输出目录 `0xC0..0xD5`；
-  - 反向组合设置水平镜像 bit `0x40`。
-- 修正旧 BATTLE.MAP 解析误判：目录项是 `[layout, theme]`，不是 `[theme, layout]`；布局窗口起点是 `0x200 + layout * 256`，不是 `layout * 4096`。
-- 重新生成 `web/battle_maps.json`，实际战场布局只有 `0/1/2`；删除错误生成的 theme 编号 PNG。
-- 野战使用真实军团防守方，不再构造 synthetic city；`BattleView` 支持 field battle、独立防守势力和镜像战场。
-
-### 2.4 SAVE 军团表勘误
-
-- 发现此前将运行时状态段 `0x2240` 直接当成 SAVE 槽文件偏移，导致解析出伪军团和错误主将。
-- 正确文件偏移为 `0x22C0`（槽头 `0x80` + 状态段 `0x2240`）。
-- `parse_save.py`、`savegame.js` 已改为读写：
-  - `+0` 状态、`+1` 势力、`+2/+3` 主将；
-  - `+4` 总兵、`+6` 士气；
-  - `+28+i*4` 的六个单位兵力/兵种；
-  - status 8 与 `+3` 倒计时的延迟回归槽。
-- 真实 SAVE 只读验证覆盖128个军团槽：四槽活跃军团数 `[32,0,9,0]`；主将槽与军团槽一致，`+4` 等于六单位十人制兵力合计。
-
-### 2.5 野战速算与主防守军
-
-- 新增 `autobattle.js`，实现 `0x5285/0x52D7/0x5130/0x51B3` 的可注入 RNG 纯函数。
-- `0x4C72` 已确认不是多军团合并：扫描同坐标目标势力军团后，按
-
-  ```text
-  (troops >> 4) * (morale >> 4) * ((general.battle_rating >> 4) + 1)
-  ```
-
-  只选一个最强主防守军。
-- 兵种权重表：
-  - row0 `[2,3,3,0]`
-  - row1 `[3,2,1,0]`
-  - row2 `[1,3,2,0]`
-  - row3 `[2,1,2,0]`
-- `0x52D7` 末段闭合为 `((u32(basePower) * modifier) >> 10) & 0xFFFF`，JS 使用 `Math.imul` 保持乘法语义。
-- 野战速算回写双方六单位、总兵和士气；玩家直属军团进战术层，AI和委任军团速算。
-
-### 2.6 战后继续、撤退和武将去向
-
-- 实现 `0x474A`：检查士气与第一单位；胜方或已在己方城的军团继续，败方寻找撤退路线。
-- `0x487B` 已改为固定朝势力首都方向：从当前道路格按 `+8/+6` 端点顺序选可通往首都且属于己方的候选，不是“最近友城”。
-- 实现 `0x291A` 分派：君主、同势力、 neutral 接收或通过 `battle_rating` 随机门槛者进入延迟回归，否则被俘/退场。
-- `0x2977/0x2A7E`：军团移除，武将进入独立 48 调度周期队列；到期恢复武将待命，不自动重建军团。
-- `0x29C3`：更新武将 status、新旧势力和特殊退场/君主 bit。
-- SAVE 序列化可把队列写回 DOS 兼容的 status 8 槽；Web 即时快照保留队列但剔除可重建导航缓存。
-
-### 2.7 攻城速算与破城守军
-
-- 攻城速算使用 `0x5130(AL=0)`：攻方权重 row3，守方 row0 并叠加城防；双方 commander mode 均为攻城专长。
-- 攻城入口先由 `0x4C72` 选择同城最强真实守军并回写其六单位/士气；仅在没有守军军团时调用 `0x4F8A` synthetic garrison：城兵展开为六个弓兵单位，士气 `0xFF`，主将索引 `0x7F`。
-- 查证 20 个原始剧本的武将槽127均为固定占位档案：三种战斗专长0，武力/统率/政治8；Web 使用显式 8/8/0 profile，避免误读普通武将。
-- 战略攻城每轮 `0x51B3` 按 `((0x3F-ratio)&0xFF)>>2` 同步损伤城兵、上升率、防灾。
-- 实现 `0x4DA4`：据点先易主，再由同城原守方最低槽军团求一次撤退目标；全部原守军共享目标城/节点，但各自重建路线。无有效路线则逐军团调用 `0x291A`。
-- 移除攻方失败时 `_bases` 历史瞬移和固定一月监禁，统一进入战后继续/撤退/去向链。
-
-### 2.8 战术攻城城损定位
-
-- 逆向 `0xA65D→0x9FF8`：扫描16条 `0xC00` 城壁对象，筛选 `kind==1`，取最小 `+0x18`；若全部对象 bit0 仍置位则 metric×4。
-- 最终城损：
-
-  ```text
-  damage = (cityTroops + 50 - floor(metric / 10)) >> 3
-  ```
-
-  并同步扣城兵、上升率、防灾。
-- 新增 `applyTacticalSiegeCityDamage(city, wallRecords)` 和战术回调 plumbing。
-- 当前 `battle.js` 明确返回 `wallRecords=null`，因为尚未实现 `0x9B40` 初始化及城壁受击状态；守方获胜时也不会用 `defLeft`、战略 ratio 或假 metric 改写城池。
-
-### 2.9 玩家委任军团不行军修复
-
-症状：玩家选择目标并委任后，军团没有沿目标行军。
-
-根因：通用 AI 分支在目标命令执行前覆盖了委任军团的 `target`。
-
-修复：
-
-- 玩家已下达的 target 无论 `delegated` 与否均具有最高优先级；
-- 军团先完成玩家目标，再恢复自主决策；
-- 委任军团参与战斗走战略速算，不弹玩家战术层；
-- 移动一步后正确触发战略地图 redraw。
-
-浏览器实测 city58→59：第一日冷却归零且目标保留；第二日 x=173→175，建立 `_march`，路径18点，时钟未被错误 hold。
-
-## 3. 调试与失败尝试
-
-- 早期使用 bitmap A* 和直线插值，能“走到”但会穿越非原版道路；已由拓扑点列模型替换。
-- 曾把 `0xCB..0xD3` 全部称为道路 tile；实际它们是192个据点/关卡节点起点，已修正文档。
-- 曾对 `MMAP.MCH/MDL` 错用 MMAP.MAP RLE，生成错误 bin；现已删除错误资产。
-- 曾认为 BATTLE.MAP 布局按 `layout*4096` 排列且目录为 theme/layout；两者均已被加载器与输出交叉否定。
-- 曾计划把同坐标多个防守军团合并参战；`0x4C72` 证明只选一个主军，破城组撤退才处理同城全部军团。
-- 曾把 `0x291A` 理解为“撤退到最近据点”；实为无法继续行动后的延迟回归/被俘分派。
-- 曾为攻城失败保留 `_bases` 瞬移、固定月数囚禁；与 `0x474A/0x291A` 不符，已移除。
-- 曾准备以战术 `defLeft` 或战略 ratio 推算玩家攻城城损；因缺少真实城壁对象状态，明确拒绝该近似。
-- Node 自定义 fetch smoke 一度返回缺少 `status` 的对象，触发 `road_graph.json HTTP undefined`；这是测试 stub 问题，不是产品加载失败。
-- 浏览器验证中唯一稳定控制台错误为 `favicon.ico` 404，与游戏功能无关。
-
-## 4. 本轮相关文件
-
-### 新增核心代码
-
-- `web/src/game/roadgraph.js`
-- `web/src/game/fieldterrain.js`
-- `web/src/game/autobattle.js`
-
-### 主要修改代码
-
-- `web/src/game/ai.js`
-- `web/src/game/battle.js`
-- `web/src/game/pathfind.js`
-- `web/src/game/savegame.js`
-- `web/src/main.js`
-- `web/src/render/mapview.js`
-- `web/src/render/battleview.js`
-- `web/src/ui/gamebar.js`
-- `web/src/core/speaker.js`
-
-### 解析器、资产和文档
-
-- `tools/decode_mmap.py`
-- `tools/parse_battle.py`
-- `tools/parse_save.py`
-- `tools/parse_sinario.py`
-- `tools/extract_march_markers.py`
-- `tools/probe_march_topology.py`
-- `tools/probe_march_search.py`
-- `web/road_graph.json`
-- `web/road_graph.json`（版本化运行时资产）
-- `web/road_graph_probe.json`、`web/road_search_probe.json`（由工具按需再生，不提交）
-- `web/grf/march_markers/`
-- `web/grf/engage/`
-- `web/battle_maps.json`
-- `web/data.json`
-- `web/save.json`
-- `docs/re-notes-march-pathfinding.md`
-- `docs/re-notes-kernel.md`
-
-### 新增回归
-
-- `tools/verify_road_graph.mjs`
-- `tools/verify_march_navigation.mjs`
-- `tools/verify_engagement_state.mjs`
-- `tools/verify_field_terrain.mjs`
-- `tools/verify_autobattle.mjs`
-- `tools/verify_field_result.mjs`
-- `tools/verify_postbattle_fate.mjs`
-- `tools/verify_siege_result.mjs`
-- `tools/verify_save_legions.py`
-- `tools/verify_save_roundtrip.mjs`
-
-## 5. 最后验证状态
-
-最近一次完整相关回归均通过：
-
-- road graph：192节点、254边；
-- march navigation：典型路线逐点推进及委任命令优先；
-- engagement：野战/攻城接触都停在占用点之前；
-- field terrain：5272个道路移动点、19种目录、1303个镜像场景；
-- autobattle：野战权重、主将修正、确定性伤亡与守恒；
-- field result：六单位/士气回写、胜方继续、败方撤退；
-- postbattle fate：道路撤退、48周期回归、被俘；
-- siege result：mode0速算、战略城损、组撤退、战术城损纯函数；
-- save legions：真实 SAVE 只读计数 `[32,0,9,0]`、128槽、偏移 `0x22C0`；另验证 canonical 城池字段、slot64 延迟回归与 slot126 活动军团序列化。
-
-JS syntax、Python `py_compile`、LSP、Lens 和 `git diff --check` 已通过；仅有 Git 的 LF→CRLF 提示。
-
-## 6. 当前阻塞
-
-### 产品阻塞
-
-战术攻城尚不能产生原版城损，因为缺少真实城壁对象：
-
-- `0x9B40` 城壁对象初始化；
-- 城壁对象 `kind/bit0/+0x18` 的初值；
-- 单位攻击城壁时的命中、bit清除和 metric 更新；
-- 战斗退出时如何把完整16条记录交给 `0xA65D`。
-
-在这些字段闭合前，保持 `wallRecords=null` 是刻意且正确的行为。
-
-### 流程状态
-
-- 本轮提交前已排除 `.codegraph/`、Playwright 会话、日志、截图、缓存和 scratch 文件。
-- `web/save.json` 已改为四个空槽的脱敏静态 fixture，不提交本机真实游玩状态。
-- pi-lens 会自动格式化文件；继续修改 `ai.js`、`autobattle.js`、`savegame.js` 和验证脚本前必须重读。
-
-## 7. 下一步
-
-1. 逆向并移植 `0x9B40` 城壁对象初始化，先做只读探针和字段不变量，不直接猜测 UI 行为。
-2. 追踪战术攻击对16条 `0xC00` 记录的更新路径，建立可注入、可回放的 wall-object 状态测试。
-3. 将真实 wallRecords 接入 `BattleView.finish()`，用已实现的 `0xA65D→0x9FF8` 公式写回城兵/上升率/防灾。
-4. 补一条浏览器攻城冒烟：城壁受击→战斗结束→战略城损与对象记录一致。
-5. 次级逆向：路线平权动态比对、`+0x23` 命令状态命名、YNSOUND ID3 音色、战术 AI/兵种/士气细节。
+> 本文件按「长期有效 → 当前状态 → 近期过程」组织，供跨会话快速恢复上下文。
+> 完整开发规范仍见 `AGENTS.md`；二进制证据与详细逆向过程见 `docs/re-notes-kernel.md`、`docs/re-notes-march-pathfinding.md`。
 
 ---
 
-# Checkpoint — 2026-08-30：战术规则兼容、地图对象与差分基础设施
+## 0. 2026-08-31 本轮 Checkpoint：委任边界闭合与硬单实例收口
 
-## 1. 本轮目标
+### 本轮目标
 
-本轮主线是继续把 Web 战术战斗从“视觉近似模拟”收敛为可与 KI.EXE 对照的规则兼容实现，重点包括：
+1. 继续逆向并实现委任军团的三个剩余边界：最后一条道路边内据点易主、接敌倒计时 `11→1` 期间目标变化、SAVE 中是否存在独立 field/siege 类型字段。
+2. 将原先“并发保存按时间覆盖”的风险改成**硬单实例**：同一套 SAVE/lease 路径只能有一个游戏页面持有运行权；第二页面不得初始化游戏，重复启动的不同端口 Web server 进程也不能分别授予运行权。
+3. 修完 detached reviewer 指出的延迟 HTTP 响应、跨进程锁和退出释放竞态，并留下可重复回归。
 
-1. 根据最新反汇编证据修正 `0x9CE2/0x9DA1/0x9E10` 地图对象的地址分区、扫描顺序和 RNG 消费；
-2. 闭合 `B5B7→B824→BB6D` 城壁/障碍延迟破坏、tile 改写、占用清理和 terrain bit7 刷新；
-3. 处理 reviewer 指出的 P1 问题：路径模式、固定帧顺序、阵型基址、地图碰撞重排队、士气单位换算等；
-4. 建立可供未来 KI.EXE/Web 逐帧比较的规范化差分包和 fixture 回放器；
-5. 明确 TALK 606..669 的证据边界，不把无法证明的句子选择规则冒充原版机制；
-6. 运行完整战术、战后、SAVE 和浏览器回归，确保本轮修正没有破坏现有流程。
+### 已完成工作
 
-产品最终要求不变：Canvas、场景尺寸和动画可不同，但固定相同的初始状态、命令帧与原版 RNG 时，胜负、六队伤亡、士气、城壁、据点属性和战后去向必须与 KI.EXE 一致。规则只能由 `OriginalBattleSession` 推进，渲染层不能改规则状态或额外消费 RNG。
+#### A. KI.EXE 行军与接敌边界
 
-## 2. 已完成工作
+- 静态闭合 `0x25CC → 0x2662 → 0x42AB → 0x2708`：每次实际军团更新先清 `status bit5`，再按当前道路和现场对象重新检测；`11→1` 是持续接触确认 timer，不是锁存战型。
+- `0x42AB` 每轮读取 active edge 目的端据点的**实时城主和外交**：己方、中立或交战方继续；变成未开战第三方时反转当前道路边。
+- `0x2831` 按 128 个军团槽升序寻找下一点的首个活动异势力军团；野战接触不查外交。目标消失时清 `+3` 并在同轮继续移动；目标被第三方军团替换时保留倒计时，但实时对象改为替换者。
+- `0x2880` 在最终攻城判定时实时读取端点城主，不沿用命令下达时的归属快照。
+- Web 已同步 active-edge `toNode` 检查、原版 slot 顺序、实时 field/siege 重分类、目标消失/替换/停战处理和 runtime slot 唯一性。
 
-### 2.1 地图对象 `9CE2/9DA1/9E10`
+#### B. SAVE 道路上下文
 
-重构了 `web/src/game/battle/originalmapobjects.js`，现在保留原版绝对地址分区：
+- 确认没有独立的 field/siege SAVE 字节。`0x8CFF` 原样保存军团状态段，因此 `+0x0A stride`、`+0x0C point raw address`、`+0x0E edge/node raw address` 均为真实持久字段；读档后战型由道路下一点和实时对象重新判断。
+- `roadgraph.js` 增加 E717 固定地址布局与 Web edge/point 的可逆转换；优先恢复 DOS 原始上下文，字段无效时才重新寻路。
+- sidecar 只保存 Web 无法放入已证二进制字段的 canonical RNG、强制撤退和精确帧态，不虚构 DOS 字段。
 
-- `9CE2` 从 `0xC00` 开始建立 `0xD0..0xDF` 连续墙段；
-- `9DA1` 继续使用前一 pass 留下的地址和碰撞 ID；
-- `9CE2 + 9DA1` 共同占用前 16 个 `0x20` 字节槽，即 `0xC00..0xDFF`；
-- `9E10` 不再顺序追加，而是强制从 `0xE00` 开始；
-- `9E10` 按 64×64 row-major 顺序扫描；
-- 属性索引按原版只对 `BL` 加偏移，不向 `BH` 进位；
-- 只有命中 `0xBA..0xBF` 的接受 tile 才建立 kind 3 对象；
-- 每个接受 tile 恰好消费一次 `rng.nextByte()`，拒绝 tile 不消费 RNG；
-- 对象写入 `flags/kind=0x03C0`、`+6=x`、`+8=y`、`+0A=attribute offset`、`+1C=0x0150/0x0204`、`+1B=rng&3`。
+#### C. 硬单实例与保存发布
 
-地图对象内存扩展到能够容纳固定 `0xE00` 起始的属性对象区，并保留 snapshot/restore。
+- 新入口 `web/src/boot.js` 只有成功取得 lease 后才动态 import/初始化 `main.js`；第二页面停在阻塞层，不创建游戏 App、RAF 或可写 SAVE 的运行时。
+- `web/src/core/singleinstance.js` 维护 token、generation、服务端有效期和独立本地 expiry timer。heartbeat pending、后台节流或延迟旧响应不能延长已经到期的本地运行权；失权立即冻结战略、战术和委任动画。
+- acquire `201` 与 heartbeat `204` 都按请求开始时间、原 deadline、generation 和服务端返回有效期验证。旧请求晚到时不能在新实例接管后重新激活旧页面。
+- 页面退出时先同步清空 token/generation/deadline、把状态置为 `stopped` 并冻结本地 runtime，再异步 release。若退出发生在初始 acquire pending 期间，晚到的新 token 会立即释放，不会调用 `onActive`；已 suspended 的页面退出不会重复调用 `onSuspend`。
+- `tools/webserver.py` 的 lease RMW 与 SAVE/metadata publication 已从进程内线程锁升级为 OS 级跨进程文件锁：POSIX 使用 `flock(LOCK_EX)`，Windows 使用标准库字节区间锁；不同端口的两个 server 共享同一路径时也只能有一个 acquire 返回 `201`。
+- SAVE 二进制、sidecar 和 parse 输出在同一 publication 事务中提交；先在临时文件完成尺寸、metadata 与解析 JSON 验证，全部成功后才原子替换 canonical 输出，失败保持旧存档不变。非 lease 持有者不能读写受保护 SAVE，release/acquire 不能插入提交中途。
+- 修正攻城速算专长分流：仅攻方 `0x5285` 兵种权重临时使用行3，攻守双方 `0x52D7` 的 mode0 均读取攻城专长；固定 field/siege 差异 golden 已覆盖。
+- selected SAVE 槽改从当前四槽镜像对应槽开始 patch，只覆盖已证字段，保留未建模字节和尾部事件队列；客户端保存采用 stage/commit，失败后内存槽与后续保存底版均不变化。
 
-### 2.2 `B5B7/B824/BB6D` 延迟破坏与 tile 刷新
+#### D. 验证结果
 
-已实现并验证：
+新增或重点扩展：
 
-- metric 从 1 减到 0 的当前碰撞不会立即破坏；
-- 下一次 metric 已为 0 的碰撞才进入 `B824`；
-- 按对象 `+0x1A` span 从上到下逐 tile 处理；
-- tile `< 0xF0` 时 `+0x10` 并产生事件 4；
-- tile `>= 0xF0` 时 `+0x08` 并产生事件 5；
-- 每个 tile 调用 BB6D 等价刷新，按新 tile 重建七层 terrain bit7；
-- 清六个占用平面的低 7 位碰撞 ID，但保留/重建 bit7；
-- 清高度/动态描述；
-- `B824` 设置对象 bit0，调用者随后清 bit7；
-- 设置 `registers.mapRedraw`，对应原版 `D348=1`；
-- Canvas 使用逐 tile 事件和 redraw 投影，C4FA 的 VGA 旧点绘制不进入规则层。
+- `tools/verify_single_instance_server.py`
+- `tools/verify_save_server_rollback.py`
+- `tools/verify_save_client_commit.mjs`
+- `tools/verify_single_instance_stale_responses.mjs`
+- `tools/verify_single_instance_local_expiry.mjs`
+- `tools/verify_single_instance_release_stop.mjs`
+- 既有 `verify_engagement_state.mjs`、`verify_march_navigation.mjs`、SAVE metadata/parse/build/startup/loss/UI 系列回归。
 
-地图对象碰撞后补回了 `B613→C653`：攻击者无条件请求重建路径，重复请求仍由对象 bit4 去重。
-
-### 2.3 CAEB 资源来源与导航内存布局
-
-重新核对原版文件名和读取窗口：
-
-- `BATTLE.MAP`：目录和 64×64 tile；
-- `BATTLE.SCH`：每个 layout 的 `0x100` 调度块；
-- `BATTLE.MDL`：`0x1000 + layout*0xF800` 的 D302 属性大块。
-
-更新了 `tools/export_battle_maps.py` 并重新生成 `web/battle_navigation.json`。
-
-导航构建结果现在作为相对 `0x0000..0x2FFF` 数据写入 Session 的 `0x7000` 基址，避免错误覆盖对象/效果/地图对象等低地址内存。Session 空间内存覆盖到 `0x9FFF`，支持：
-
-- `0x7000/0x8000` 双导航平面；
-- `0x9000` 代价区；
-- 原有低地址占用、描述和临时区域。
-
-另外为异常对象坐标增加边界保护：候选空间地址超出原版合法窗口时不再让浏览器抛 `RangeError`，而是按阻塞/请求重建路径处理。
-
-### 2.4 BD46 路径模式修正
-
-reviewer 指出此前把 `CL=0xEB/0x74` 错当成方向 mask。现已改为：
-
-- 四向展开始终检查导航字节的 `0x10/0x20/0x40/0x80`；
-- `0xEB` 只表示不走跨层分支；
-- `0x74` 允许在 bit `0x08` 条件满足时跨平面；
-- 垂直路径代价包含两平面 level 差；
-- cardinal relaxation 按原版波前和地形代价顺序处理；
-- `tools/verify_battle_original_navigation.mjs` 的跨层 fixture 改用 mode `0x74`。
-
-`BD96..BDBE` 罕见的备用起始平面/阻塞端点分支尚需真实 KI.EXE fixture 最终确认，文档已明确保留该证据边界。
-
-### 2.5 固定帧 ADC8 顺序
-
-`OriginalBattleSession.tick()` 现在按逆向证据执行：
+最终 focused 输出：
 
 ```text
-AE56 自动撤退检查
-→ AE73/mode0 首对象定时 HP 衰减
-→ AED2 每帧最多处理两个路径请求
-→ 地址升序 AF69/AF65 移动和 B240 占用提交
-→ ADC8/AEA9 活动对象重算
+single instance release stop OK: unload freezes locally, rejects delayed successes, and avoids duplicate suspend
+single instance stale responses OK: delayed acquire/heartbeat success rejected
+single instance local expiry OK: pending heartbeat cannot extend local deadline
+single instance server OK: generation/deadline + cross-process lease/save locks
 ```
 
-移动更新已从命令 executor 回调中分离，避免同一帧的 handler 顺序改变规则结果。未初始化对象的纯 Session 单元测试不会凭默认零 HP 产生虚假的自动撤退事件，但正式对象会话仍执行上述顺序。
+并通过相关 Node/Python 语法检查、项目 TypeScript 检查、`git diff --check`、`lens_diagnostics mode=all` 和 fresh Chromium 冒烟；测试未写入真实 `E:/Dragon/Dragon/SAVE.DAT`，工作区无 staged 文件。
 
-### 2.6 阵型、侧别和战后士气修正
+### 关键决策
 
-已修正 reviewer 指出的规则偏差：
+- 最后一边和倒计时不再视为“未知产品竞态”：静态指令流已经足以确认它们是**每轮现场重检**；DOSBox-X 动态 fixture 仅作为后续逐帧盖章，不再阻塞实现。
+- SAVE 不新增未经证实的 `engagementKind` 二进制字段；纯 DOS 档按已保存道路上下文在首次 tick 重建 field/siege。
+- 单实例的信任边界在服务端 lease，而不是 `localStorage`、标签页广播或“最后写入者胜出”。客户端本地 deadline 只负责更早 fail closed，不能自行延长所有权。
+- 解析后的 `save.json`、Web sidecar、lease、锁和临时文件默认放在 `.dragon-runtime/`（静态 `web/` 根之外）；服务端同时显式拒绝敏感静态路径，SAVE 只经 token API 暴露。
+- 客户端保存使用 stage/commit：网络或 HTTP 失败不得修改 `app.saves` 或模块内四槽底版，成功响应后才提交并显示成功提示。
+- 用户要求的“只能开一个进程玩”包含多个标签页和多个 Web server 进程；因此线程锁不够，lease 与保存发布必须使用共享路径上的跨进程锁。
+- 页面仍存活但收到 `pagehide/beforeunload` 时也按永久停止处理；如果进入 BFCache，`pageshow.persisted` 强制 reload，不允许旧 runtime 复活。
 
-- 0 侧阵型基准改为 `0x2005`；
-- 1 侧阵型基准改为 `0x203A`；
-- `battleSideFlag/D35` 不再根据“玩家控制哪一侧”决定，而由战场镜像/方向状态决定；
-- 战后旧兵力先统一转换为原版十人单位，再与新兵力比较；
-- 避免旧兵力按人数、新兵力按十人单位造成士气比例缩小十倍。
+### 失败尝试与审查修复
 
-### 2.7 差分基础设施
+- 第一版 server 只有 `threading.Lock`，只能约束单一 Python 进程；reviewer 指出两个不同端口 server 可同时 read-empty 并各自返回 `201`，随后改为 OS 级跨进程锁并增加双进程并发测试。
+- 第一版延迟响应保护只检查 token/本地过期，未完全覆盖旧 acquire `201` 和 heartbeat `204` 在新实例接管后的 stale success；随后加入 generation、请求原 deadline 和服务端有效期验证。
+- 第一版 `stopAndRelease()` 先发 release、未同步冻结本地 runtime，仍存活页面可能继续执行；修为先本地失效再网络释放。
+- 上述修复后第一次 final review 又发现“退出发生在 initial acquire pending”仍可被晚到 `201` 重新激活，以及已 suspended 后退出会重复 `onSuspend`；现已增加 post-await `stopped` guard、立即释放晚到 token，并按 `wasActive` 决定是否调用 `onSuspend`。
+- 长时 worker 最后因 acceptance/reviewer 协调超过运行时限而显示 timeout，但修改已经落盘；主代理逐项检查、补测试并经过最终独立复审，结论为无 P0/P1。LSP 客户端在主代理环境曾不可用，不能把“0 diagnostics”写成 LSP 已确认；实际以 worker 的 TypeScript 检查、Node/Python 检查和 Lens 为准。
 
-新增：
+### 相关文件
 
-- `web/src/game/battle/originaldiff.js`
-- `tools/verify_battle_original_diff.mjs`
+| 路径 | 本轮职责 |
+| --- | --- |
+| `web/src/game/ai.js` | 最后一边实时城主/外交、接敌 timer、slot 顺序和现场重分类 |
+| `web/src/game/roadgraph.js` | E717 raw 地址与 edge/point 上下文可逆恢复 |
+| `web/src/game/savegame.js` / `tools/parse_save.py` | 已证道路字段、接敌等待、selected-slot保真、stage/commit与runtime解析态 |
+| `web/src/boot.js` | lease 成功后才启动游戏的入口 gate |
+| `web/src/core/singleinstance.js` | acquire/heartbeat/deadline/generation、失权冻结和退出释放 |
+| `tools/webserver.py` | 跨线程/跨进程 lease 与 SAVE publication 事务 |
+| `web/src/main.js` / `web/index.html` | boot 接线、启动与失权后的 App 生命周期 |
+| `tools/verify_single_instance_*.js` / `.mjs` / `.py` | 浏览器双页面/失权、stale response、本地到期、退出、startup loss、双 server 竞争和保存授权回归 |
+| `docs/re-notes-march-pathfinding.md` / `docs/re-notes-kernel.md` | KI.EXE 地址级证据与 SAVE/道路结论 |
 
-支持：
+### 当前状态
 
-- 将 Session 转为规范化规则包；
-- 记录 frame、finished、winner、registers、RNG、命令队列；
-- 对对象池、地图对象、效果池、空间内存、tile、temp、路径队列和路径区计算确定性 FNV-1a hash；
-- 可选保存全部原始字节；
-- packet 比较时报告第一个不同字节；
-- 从固定初始 snapshot 和命令帧 fixture 重放 Web 战斗。
+- 本轮委任行军三个边界与硬单实例已收口；最终 reviewer 对最后两项退出竞态结论为 **无 P0/P1，Merge PASS**。
+- 当前工作区仍包含本轮及之前连续开发的 tracked/untracked 修改；必须保留，禁止 `reset/clean`，提交前需按功能拆分审查。
+- 正式运行必须使用 `python tools/webserver.py 8321`，直接静态打开或不支持 lease API 的服务一律 fail closed。
 
-该工具目前可验证 Web 自身确定性，并为未来 KI.EXE 捕获数据提供统一输入格式；它不等于已经完成真实 KI.EXE 动态差分。
+### 阻塞点
 
-### 2.8 TALK 静态调查结论
+- 本轮功能无代码级合并阻塞。
+- 项目主线仍缺真实 KI.EXE/DOSBox-X 的逐帧捕获，用于 `originaldiff.js` 的 ground-truth 差分和原版战术规则动态验收；这是战术模拟器主线阻塞，不是本轮单实例/行军边界阻塞。
+- 次级工程风险：跨进程文件锁依赖所有写入者都通过 `tools/webserver.py` 协议；外部程序直接改写 SAVE 不在 lease 保护范围内。
 
-进一步确认：
+### 下一步
 
-- 通用 TALK 索引/格式化入口是 `0x075B`；
-- `0x075B` 的直接调用者不在战术核心；
-- `0x93E9/0x9409` 是通用菜单选择路径，不是战术 TALK 读取器；
-- `0xC315` 是按侧显示旗帜/主将标识的呈现逻辑，不是 TALK.DAT 读取器；
-- TALK 606..669 虽为连续语义池，但静态扫描没有找到战术运行时可达桥。
+1. 先从本 checkpoint、`AGENTS.md`、`docs/re-notes-march-pathfinding.md` 和 `docs/re-notes-kernel.md` 恢复上下文，不重新猜测已闭合的最后边/倒计时/SAVE 类型规则。
+2. 运行完整战略、SAVE、单实例 focused suite 和 fresh-browser 双页面阻塞冒烟，确认工作区后续改动未破坏本轮结论。
+3. 按功能整理当前大工作区 diff；不混入真实 SAVE，不执行破坏性 Git 操作。
+4. 回到主线：准备 DOSBox-X debugger 逐帧 capture，与 `originaldiff.js` 规则包比较，优先闭合仍缺动态 ground truth 的战术战斗状态。
 
-因此当前结论只能是：606..669 在此 KI.EXE 构建中可能未启用或不可达。Web 双通话框的具体句子映射继续明确标记为表现政策，规则层只输出事件和说话侧别。
+---
 
-### 2.9 文档和长期记忆更新
+## 0.1 2026-08-30 委任战略速算逆向闭合
 
-已更新：
+### 单实例三项竞态收口
 
-- `AGENTS.md`
-- `docs/re-notes-tactical-rules.md`
+- 正式启动在每个异步资源/SAVE seam 后重验本地 lease deadline；启动中失权不会发布 `__dragonApp`、进入菜单或启动 RAF。
+- 客户端维护 `expiresAt`，独立到期计时器可在 heartbeat pending/后台节流时先冻结规则；204 才续期，409 永久失权。
+- 服务端保存按 `SAVE_WRITE_LOCK → LEASE_LOCK` 固定顺序持有 publication 事务，直至 SAVE、sidecar 与 parse 输出完成；release/acquire 不可在提交中途换所有者。
 
-记录地图对象地址分区、BD46 模式、ADC8 顺序、阵型基准、兵力单位、TALK 证据边界和动态差分阻塞。
+- **实锤地址**：`0x2880/0x4ADE/0x4ED7/0x4F8A/0x5130/0x51B3/0x52D7`。
+- 中立据点（文件所属 `0x18`，Web `faction=null`）不再无战占领：进入攻城等待，无真实守军时展开六弓、士气 `0xFF`、主将 `0x7F` 的临时城防并速算。
+- 委任权威统一为军团 `status bit2 (0x04)`；新增 `legionmode.js`，UI、build/load、SAVE 和战斗分流统一同步，旧 `delegated` 仅作兼容镜像。
+- 玩家委任攻方、委任真实主守军和委任野战双方均走战略速算；无真实守军一律速算，未委任真实玩家军团才进入战术层。
+- `0x5130` 只消费同一 `OriginalBattleRng.nextByte()` 流：攻 commander 条件字节→守 commander 条件字节→胜败双方逐队交错 12 字节→必要时 `0x291A`；不再使用 `Math.random()`。
+- `0x51B3` 只扣城 `+0x13/+0x10/+0x11`，不改生产力/城兵上限；`0x4CF3` 易主保留扣损后的城兵，不再清零。
+- 玩家委任战斗在战略地图使用 app 级单槽 transition：四图预载完成后，RAF 严格播放 `group_0_frame_0..3.png` 各一相，延迟 RAF 不跳相；动画期间稳定 `clock.hold`、阻止同 tick 第二战、完成回调 once，渲染层只读 transition 状态。
+- 修复 reviewer blockers：旧 snapshot 委任 bit 迁移先于默认 status；SAVE `+0x0B/+0x20/+0x16/+0x18` 恢复途中目标并重建导航；军团主将仅取 `+2` byte，`+3` 是 bit5 接敌倒计时，不能按 u16 合并；大 dt 在 onDay 获得 hold 后停止追赶；战略速算士气只写一次且无预建 units 也从结果侧记录初始化六队；战术 Session 从 canonical RNG snapshot 初始化并在退出后接回 canonical 流。
+- 目标在正常接近前变己方则无战进入，变交战方则攻击实时占领方，变未开战第三方由道路 blocker 重寻路/失败。
+- 后续静态闭合：`0x42AB`每轮在最后边读取实时城主/外交，未开战第三方改向另一端；`0x25CC→0x2831/0x2880→0x264A`令`11→1`成为持续接触timer，目标消失同轮继续移动、替换目标保留倒计时，野战不查外交。动态fixture仅作附加盖章。
+- 新增回归：固定字节 RNG golden、委任攻守分流/中立攻城、双方六队/总兵/士气端到端一致且无NaN、status bit2 旧快照迁移、SAVE 途中目标与bit5/+3待战恢复（战型不猜字段，载入后按道路下一点重建）、生产命令targetNode、四相预载/精确顺序/once/hold、同tick两场gate、大 dt及月末暂停竞态、单次士气写回、战术→战略→存档 RNG 连续性，以及易主三种正常路径。
+- 军师交互补强：羽扇命中优先于所有子层全屏消费，关闭时统一清理行军指示/列表/选中并恢复clock；行军目标/命令层右键回到菜单条展开且八项未选中，不再重开军团列表；任一子菜单选中（含目标选择）地图绝对锁定。
+- `0x8CFF`原样镜像完整状态段，军团`+0x0A/+0x0C/+0x0E`道路上下文进入SAVE；Web按E717固定地址布局可逆恢复，字段无效才重寻路。无独立field/siege byte，纯DOS档首次tick现场重检；sidecar只保存canonical RNG、强制撤退和Web精确帧态。
+- 正式入口改为持久单实例lease：boot成功取得随机token后才动态初始化主程序；第二页面只显示阻塞层。SAVE读写均授权，heartbeat失败立即冻结，409永久停止；服务端使用线程锁加OS级跨进程文件锁串行lease RMW与SAVE publication，静态无服务fail closed。
+- 存档原子性：接敌四相/战术层活动或 `onDay` 后仍待日历进位时，UI 与 `saveGame`/`snapshotState` 均拒绝存档；撤退中或接敌等待中的军团同样拒绝新的玩家行军命令并给出明确提示。资金按确认的24bit `+0x20..+0x22` 完整写回。
 
-## 3. 关键决策
+---
 
-1. **原始地址优先于高级对象模型**：地图对象、效果、路径和导航必须保留 KI.EXE 地址分区，不能因为 JS 容器方便而顺序追加或重映射。
-2. **规则帧和表现帧彻底分离**：`OriginalBattleSession` 是唯一规则写入者；Canvas RAF 只消费 Session 输出并插值绘制。
-3. **RNG 调用次数和短路顺序属于兼容结果**：地图对象初始化、碰撞、战后去向和未来 TALK 若使用 RNG，都必须保持原版调用数量及次序。
-4. **命令只能在固定逻辑帧生效**：DOM 事件不得直接改对象状态，必须进入 Session 命令队列。
-5. **B824 的 C4FA 不移植为规则逻辑**：C4FA 是 VGA 局部刷新；Web 以事件和 redraw flag 投影，不能让绘制代码参与 tile 状态变化。
-6. **D35 不是玩家侧标志**：相同战斗不能因玩家选择攻方或守方而改变原版规则流。
-7. **兵力单位必须在边界显式转换**：原版通常是十人单位，Web/UI 常是人数；禁止在同一公式中混用。
-8. **未证明的 TALK 不写成原版机制**：双通话框保留，但句子映射只能称为 Web 表现政策。
-9. **差分工具与真实差分分开表述**：已有 packet/hash/replay 基础设施，不代表已经获得 KI.EXE 逐帧 ground truth。
-10. **不清理整个工作区**：当前存在大量同一主线的未提交改动，禁止整体 `reset/clean`；只删除明确的临时反汇编和浏览器文件。
+## 1. 项目边界
 
-## 4. 失败尝试与排障记录
+- **目标**：不用模拟器，以原生 JavaScript ES Modules + Canvas 2D 复刻 1995 DOS《臥龍傳》。
+- **约束**：无框架、无构建、无 npm 运行时依赖；产品直接由静态服务器运行。
+- **仓库**：`E:/Dragon/web-port`；原版程序/数据：`E:/Dragon/Dragon/`；官方基准：`E:/Dragon/原版/`。
+- **证据原则**：必须依据原版 KI.EXE、数据文件和资源逆向；代码与文档要区分**实锤、推断、未知**，不能把视觉近似写成原版机制。
+- **测试红线**：自动化测试禁止写入 `E:/Dragon/Dragon/SAVE.DAT`；保存测试必须 mock `/api/save` 或只操作内存/临时文件。
 
-### 4.1 Session 测试首帧多出自动撤退事件
+---
 
-调整 ADC8 顺序后，`verify_battle_original_session.mjs` 的事件数量从预期 `[0,0,2,0]` 变成 `[1,0,2,0]`。原因是测试构造了未初始化对象池，双方首对象 HP 默认是 0，提前执行 AE56 后被识别为自动撤退。
+## 2. 当前架构
 
-处理：只在正式对象已初始化，或调用者明确提供对象处理/活动重算时执行 AE56/AED2 对象帧链。没有回退正确的 ADC8 顺序。
+| 路径 | 职责 |
+| --- | --- |
+| `web/src/main.js` | 应用装配、主循环、剧本/存档加载、战术层入口与战果回调 |
+| `web/src/game/ai.js` | 战略军团调度、道路移动、接敌/攻城、战后继续/撤退/武将去向 |
+| `web/src/game/roadgraph.js` | 原版 192 节点/254 边道路拓扑、加权寻径、道路格到端点方向 |
+| `web/src/game/fieldterrain.js` | `0x4B63` 野战地形分类、BATTLE.MAP 目录与镜像选择 |
+| `web/src/game/autobattle.js` | `0x5130/0x5285/0x52D7` 野战/攻城速算、城池损伤纯函数 |
+| `web/src/game/battle/` | 战术战斗原版模拟器：originalrng / originalstate / originalcommands / originalinit / originalsession / originaltargeting / originalcollision / originalresult / originalmovement / originalpathqueue / originalnavigation / originalpathfinder / originalmapobjects |
+| `web/src/render/battleview.js` | Web 战术表现层、镜像战场、单位结果和城壁记录回传 |
+| `web/src/render/mapview.js` | 战略地图、道路路线、军团标识、接敌动画、据点拾取 |
+| `web/src/game/savegame.js` | SAVE.DAT 镜像、槽位 patch、军团与延迟回归状态序列化 |
+| `web/src/ui/gamebar.js` | 顶栏、军师菜单、主要 Canvas 列表、地图锁定与右键层级回退 |
+| `web/src/game/clock.js` / `core/modalclock.js` | 战略速度、hold 与模态暂停恢复 |
+| `web/src/core/speaker.js` | PC Speaker 风格 SFX 与 TYPE 1..4 profile |
+| `tools/parse_*.py` | 原版数据解析和 Web 资产生成 |
 
-### 4.2 浏览器推进时空间内存越界
+---
 
-首次浏览器冒烟在 `probeOriginalCardinalSpatial()` 抛出：
+## 3. 关键数据格式
 
-```text
-RangeError: original battle spatial access outside memory
+- **逻辑分辨率**：`640×400`；战略地图网格：`384×256`，每格 16×16 像素。
+- **道路拓扑**：`web/road_graph.json` 含 192 节点、254 边、5526 道路点列；据点命令走原版拓扑，不在 384×256 bitmap 上自由 A*。
+- **军团标识**：势力记录 `+0x3E` 选 24 槽×5帧 `MMAP.MCH` 原版资源，不做运行时染色或任意角旋转。
+- **BATTLE.MAP**：目录项为 `[layout, theme]`，布局数据从 `0x200 + layout * 256` 起读 4096B；实际战场布局仅 `0/1/2`。
+- **SAVE.DAT**：4 槽，每槽 `0x56C0`；军团表 128×64B，运行时状态段起点 `0x2240`，槽文件偏移因 `0x80` 头部为 **`0x22C0`**。
+- **资金**：24bit `word@+0x20 + byte@+0x22 << 16`；兵力记录原版通常以十人为单位，展示/战术单位可能以人为单位，转换处必须注明层级。
+
+---
+
+## 4. 关键交互约定
+
+- **无关闭按钮**：全游戏弹窗/二级界面均无关闭按钮，统一鼠标右键逐层回退。
+- **军师菜单唯一开关**：顶栏羽扇图标是军师一级菜单唯一开关；隐藏时强制清理所有子孙窗口与选中状态并恢复计时。
+- **地图绝对锁定**：军师任一子菜单被选中时，大地图完全锁定，不能拖拽、点击或悬停拾取。
+- **大地图左键纯粹性**：除据点中心和行走中的军团标识外，点击其它位置无功能、不关闭任何界面。
+- **右键层级回退**：有子弹窗/选中时，右键关闭最内层并恢复计时；军师菜单条本身保持展开。
+- **自动关闭**：NPC 提示框、武将对白弹窗支持 3 秒自动关闭或右键立即关闭，关闭后执行后续回调。
+- **读档**：游戏内读档必须返回标题后执行，禁止直接热替换当前 scenario。
+- **空存档槽**：标题空存档槽必须在 hover、hit-test、click 三条路径都禁用。
+- **玩家目标优先**：玩家下达的军团目标优先于通用 AI；委任只改变后续自主和战斗处理，不能覆盖尚未完成的玩家命令。
+- **渲染纯度**：地图与渲染只能读取导航状态，绘制函数不得推进或修改军团路线；列表滚动条在右侧，选中行 `#4a7828`。
+
+---
+
+## 5. 常用命令
+
+启动服务器：
+
+```bash
+python tools/webserver.py 8321
+# http://127.0.0.1:8321/
 ```
 
-先扩大空间内存仍未彻底解决，因为根因包含两部分：
+语法/格式：
 
-1. 导航数据错误写在空间内存地址 0，覆盖了低地址对象占用语义；
-2. 某些测试构造的对象坐标会产生超过 `0x6FFF` 的候选空间地址。
+```bash
+node --check web/src/ui/gamebar.js
+node --check web/src/main.js
+python -m py_compile tools/parse_save.py tools/parse_sinario.py tools/parse_battle.py
+git diff --check
+```
 
-最终修复：
+战略与战斗回归：
 
-- 导航相对块写到 `0x7000`；
-- 空间内存扩展到 `0xA000`；
-- 对非法候选地址和过大 descriptor index 做阻塞/重排队保护。
+```bash
+node tools/verify_road_graph.mjs
+node tools/verify_march_navigation.mjs
+node tools/verify_engagement_state.mjs
+node tools/verify_field_terrain.mjs
+node tools/verify_autobattle.mjs
+node tools/verify_field_result.mjs
+node tools/verify_post_battle_fate.mjs
+node tools/verify_siege_result.mjs
+python tools/verify_save_legions.py
+```
 
-修复后浏览器可推进 12 个固定逻辑帧，不再越界。
+提交前还要运行变更文件的 LSP 与 `lens_diagnostics mode=all`。浏览器冒烟用全新 Playwright 会话，避免 ESM 缓存造成假回归。
 
-### 4.3 导航生成曾包含错误的伪高度描述区
+---
 
-早期 `buildOriginalBattleNavigation()` 返回长度 `0x8000`，并在相对 `0x7000` 写入根据 tile level 推测的高度描述。如果再整体复制到 Session，会覆盖/错位实际内存。
+## 6. 重要坑点
 
-处理：导航生成器只返回实际 `0x3000` 的双平面和代价区；由战术入口整体写入 Session `0x7000`。不再把推测描述混入资产块。
+1. **SAVE 偏移**：状态段 `0x2240` 不等于文件偏移；文件军团表是 `0x22C0`。
+2. **MMAP 资源**：只有 `MMAP.MAP` 使用对应 RLE；`MMAP.MCH/MDL` 是原始定长资源。
+3. **BATTLE.MAP**：目录字节不是 `[theme, layout]`；布局窗口也不是 `layout * 4096`。
+4. **野战防守方**：`0x4C72` 从同坐标候选中选一个最强主军，不合并所有军团，也不能用 synthetic city 冒充。
+5. **撤退语义**：`0x291A` 不是“退到最近据点”；它是无法继续行动后的武将去向分派。
+6. **战术城损**：没有真实 `wallRecords` 时不得用 `defLeft`、战略 ratio 或臆造 metric 写城损。
+7. **存档导航**：二进制 SAVE 原样保存`+0x0A/+0x0C/+0x0E`道路上下文；按E717固定地址布局恢复edge/point，只有无效时才重寻路。无独立field/siege byte。
+8. **时钟 hold**：系统选单、弹窗和场景切换用 `clock.hold` 冻结；不要通过改速度档模拟暂停。
+9. **pi-lens 自动格式化**：回合结束后可能改写格式；继续编辑 `ai.js`、`autobattle.js`、`savegame.js` 和验证脚本前必须重读。
+10. **工作区隔离**：提交前按功能审查改动，禁止用整体 reset/clean 处理含未提交工作的工作区。
 
-### 4.4 资源文件归属曾有混淆
+---
 
-曾把 `0xF800` 属性大块归到错误文件。重新读取 CAEB 和文件名装载链后确定其来自 `BATTLE.MDL`，而 `BATTLE.SCH` 只提供 `0x100` 调度块。已更新 exporter、资产和文档。
+## 7. 当前主线状态
 
-### 4.5 DOSBox 0.70 无法建立自动捕获链
+**主线：原版战术规则兼容模拟器。**
 
-检查了项目自带 `E:/Dragon/dosbox.exe`，但该版本未发现可脚本化内存读断点、寄存器导出或 debugger automation。无法安全地宣称已经完成 KI.EXE 动态逐帧比较。
+已完成并有回归覆盖：
 
-决定：保留现有原版二进制不改，未来使用 DOSBox-X debugger 或等价可调试模拟器；当前只完成 Web 侧 packet/replay 和捕获点设计。
+- 原版道路构图资产、拓扑寻径、道路点列移动和方向标识；
+- 固定军团标识槽、野外接敌/攻城等待动画与近似 ID3 SFX；
+- `0x4B63` 野战地形与布局/镜像选择；
+- 野战和攻城 `0x5130` 战略速算；
+- 六单位与士气战果回写；
+- `0x474A/0x487B/0x291A/0x2977/0x29C3/0x2A7E` 战后继续、撤退和武将去向；
+- `0x4DA4` 破城同城守军组撤退；
+- 玩家委任军团命令优先与自动战斗行为；
+- 战术层原版模拟器已闭合：随机源、对象池、命令广播、固定逻辑帧、目标选择、碰撞伤害、六队对象初始化、路径队列、双平面导航/寻径、地图对象与城壁碰撞、占用提交与移动状态机；
+- SAVE 保存撤退关键字段并用 JSON metadata 保存完整 RNG 快照；
+- 战略地图据点点击的计时/弹窗/右键回退流程。
 
-### 4.6 TALK 606..669 无静态战术桥
+**当前阻塞**：
 
-多次从 `0xC315`、`0x93E9/0x9409` 和 TALK 指针表交叉引用追踪，均未找到战术调用。不能因为文本语义像战斗对白就直接映射为原版运行时选择。
+- 本轮委任行军边界、SAVE 道路上下文和硬单实例没有代码级合并阻塞。
+- 战术模拟器主线仍需真实 KI.EXE 的 DOSBox-X debugger 逐帧捕获，用于 `originaldiff.js` ground-truth 动态差分；静态逆向已闭合的规则不得因缺少动态 fixture 回退为猜测。
 
-决定：停止继续基于语义猜测，下一步改用运行时读断点验证。
+---
 
-## 5. 相关文件
+## 8. 近期 Checkpoint 摘要
 
-### 5.1 本轮核心规则文件
+### 2026-08-30 战略地图据点点击流程与军团面板修复
 
-- `web/src/game/battle/originalmapobjects.js`
-- `web/src/game/battle/originalnavigation.js`
-- `web/src/game/battle/originalpathfinder.js`
-- `web/src/game/battle/originalspatial.js`
-- `web/src/game/battle/originalmovement.js`
-- `web/src/game/battle/originalmoveframe.js`
-- `web/src/game/battle/originalpathqueue.js`
-- `web/src/game/battle/originalsession.js`
-- `web/src/game/battle/originalstate.js`
-- `web/src/game/battle/originalexit.js`
-- `web/src/game/battle/originalformation.js`
-- `web/src/game/battle/originaldiff.js`
-- `web/src/game/tacticalbattle.js`
-- `web/src/main.js`
+- 任意据点点击即停计时；空城显据点面板，右键关闭后恢复。
+- 有驻军据点显「据点/军团」选择菜单：点据点→据点面板；点军团→军团列表。
+- 玩家据点军团列表：点击军团进入行军目标指示，完成战斗指挥/委任/解体后返回该城市军团列表。
+- 非玩家据点军团列表：点击军团右侧显示只读详情面板，列表行选中，右键返回列表，再右键关闭列表并恢复计时。
+- 修复军团详情面板兵种图标：`typeImgs` 改用 `[null, cav, inf, arc]` 以匹配内部兵种值 `1=騎兵/2=步兵/3=弓兵`。
+- 关键文件：`web/src/ui/gamebar.js`、`web/src/main.js`。
 
-### 5.2 资产与解析器
+### 2026-08-30 战略军团与战斗底层
 
-- `tools/export_battle_maps.py`
-- `tools/parse_battle.py`
-- `web/battle_navigation.json`
-- `web/battle_maps.json`
-- `web/battle_rules.json`
+- 构建原版道路拓扑：192 节点/254 边/5526 点列；军团沿边点列逐日推进，到边端重新寻路。
+- 提取 24 槽×5帧原版行军标识与 group 0 接敌动画；接敌状态 `11→1` 倒计时。
+- 修正 BATTLE.MAP 目录与布局解析；实现 `0x4B63` 野战地形分类与镜像战场。
+- SAVE 军团表偏移勘误为 `0x22C0`，支持 128 槽与延迟回归 status 8 槽。
+- 实现 `0x5130/0x5285/0x52D7` 野战/攻城速算；`0x4C72` 选同城最强主防守军。
+- 实现战后 `0x474A` 继续、`0x487B` 朝首都撤退、`0x291A` 武将去向、`0x2977/0x2A7E` 48 周期回归、`0x4DA4` 破城组撤退。
+- 修复玩家委任军团目标被 AI 覆盖的问题；委任军团走速算、不强制进战术层。
 
-### 5.3 本轮重点验证脚本
+### 2026-08-24 会话二（迁都 → 可玩状态）
 
-- `tools/verify_battle_original_diff.mjs`
-- `tools/verify_battle_original_map_objects.mjs`
-- `tools/verify_battle_original_navigation.mjs`
-- `tools/verify_battle_original_path_integration.mjs`
-- `tools/verify_battle_original_path_queue.mjs`
-- `tools/verify_battle_original_move_frame.mjs`
-- `tools/verify_battle_original_state.mjs`
-- `tools/verify_battle_original_session.mjs`
-- `tools/verify_battle_original_movement.mjs`
-- `tools/verify_battle_original_vertical.mjs`
-- `tools/verify_battle_original_formation.mjs`
-- `tools/verify_battle_original_result.mjs`
-- `tools/verify_battle_facade_original.mjs`
-- `tools/verify_battle_dialogues.mjs`
-- `tools/verify_battle_viewport.js`
-- `tools/verify_postbattle_fate.mjs`
-- `tools/verify_save_roundtrip.mjs`
-- `tools/verify_field_result.mjs`
-- `tools/verify_siege_result.mjs`
-
-### 5.4 逆向笔记和长期说明
-
-- `AGENTS.md`
-- `docs/re-notes-tactical-rules.md`
-- `docs/re-notes-kernel.md`
-- `docs/checkpoint-journal.md`
-
-### 5.5 外部原版和工具
-
-- `E:/Dragon/Dragon/KI.EXE`
-- `E:/Dragon/Dragon/BATTLE.MAP`
-- `E:/Dragon/Dragon/BATTLE.SCH`
-- `E:/Dragon/Dragon/BATTLE.MDL`
-- `E:/Dragon/Dragon/TALK.DAT`
-- `E:/Dragon/dosbox.exe`（DOSBox 0.70，不满足动态捕获需求）
-
-## 6. 当前状态
-
-### 6.1 已通过的回归
-
-最近一次完整相关验证全部通过：
-
-- original diff packet/replay；
-- map objects `9CE2/9DA1/9E10`；
-- `B5B7/B824`；
-- navigation 和 BD46 path；
-- path integration/queue；
-- AF65/B240 move frame；
-- facade/state/session/frame；
-- movement/vertical/collision/targeting；
-- init/formation/executor/commands；
-- attack/effect frame；
-- exit/retreat/result/RNG；
-- 双通话框和战术 viewport；
-- postbattle fate；
-- SAVE roundtrip；
-- field result；
-- siege result。
-
-静态检查状态：
-
-- 相关 JS 文件 LSP：0 diagnostics；
-- Lens error 级：0；
-- `python -m py_compile tools/export_battle_maps.py tools/parse_battle.py`：通过；
-- `git diff --check`：通过，仅有仓库既有 LF→CRLF 提示。
-
-浏览器冒烟状态：
-
-- 静态服务器下可创建战术战斗；
-- 可排入 assault 命令并推进 12 个固定逻辑帧；
-- 无空间内存越界；
-- `mapObjects.bytes.length === 0x1400`；
-- 阵型基准为 `[0x2005, 0x203A]`；
-- RNG 调用和地图对象初始化进入同一 Session 随机流。
-
-### 6.2 架构状态
-
-- `OriginalBattleSession` 是可视战斗唯一权威规则状态；
-- Canvas/RAF 不再调用 legacy simulation 决定胜负；
-- `settleExit()` 是战术结果唯一权威出口；
-- 完整 OriginalBattleRng 快照仅进入 Web JSON metadata，不写 SAVE.DAT 未知尾段；
-- 地图对象、路径、效果、占用、命令和退出均可 snapshot/restore；
-- 差分 packet 已就绪，但尚无真实 KI.EXE 捕获 fixture。
-
-### 6.3 工作区状态
-
-工作区仍包含大量同一主线的未提交修改和新增文件。不要执行整体 `git reset --hard`、`git clean` 或覆盖真实存档。测试继续禁止写 `E:/Dragon/Dragon/SAVE.DAT`。本轮临时 `.tmp_*` 反汇编、Web server PID/log 和 Playwright 临时脚本已删除。
-
-## 7. 阻塞点
-
-### 7.1 真实 KI.EXE 逐帧 ground truth
-
-最终“100% 原版一致”仍依赖真实 KI.EXE 逐帧捕获。当前项目内 DOSBox 0.70 缺少已确认可自动化的调试接口。
-
-需要捕获的关键状态：
-
-- `0xC00` 双方 96 个对象槽；
-- 地图对象 `0xC00..` 分区；
-- `D31A..D34E` 全局寄存器；
-- RNG 表、索引和调用次数；
-- 路径队列、路径区和占用平面；
-- tile 破坏与地图对象状态；
-- 结束帧和 `0x9FDC` 输出。
-
-建议断点：
-
-- `0x9946` 战术入口；
-- `0x9ACE` 单位初始化；
-- `0xA065` 固定帧入口；
-- `0xADC8` 帧后处理；
-- `0xECE0` RNG；
-- `0x9FDC` 战术退出。
-
-### 7.2 TALK 606..669 运行时可达性
-
-静态证据无法证明这些文本由战术核心读取。需要在可调试模拟器中对：
-
-- `D38:04BC..053A` TALK 指针区；
-- `D38:50F0..56F6` 文本区；
-
-设置运行时读断点，记录实际索引、说话侧和是否消费 RNG。
-
-### 7.3 BD46 罕见起始平面分支
-
-普通四向和 mode `0x74` 跨层已有合成回归，但 `BD96..BDBE` 的备用起始平面/阻塞端点选择仍需真实 fixture。不要在动态差分前写成完全闭合。
-
-### 7.4 全局完整性仍待动态验证
-
-现有测试证明各已实现链条的静态语义和 Web 确定性，但不能代替：
-
-- 原版每帧对象顺序；
-- 所有罕见碰撞短路；
-- 全局 RNG 调用序列；
-- 真实战斗结束帧；
-- TALK 实际读取。
-
-## 8. 下一步
-
-1. **准备可调试模拟器**：优先安装/使用 DOSBox-X debugger，确认可脚本化断点、内存 dump 和寄存器导出；不要修改原版数据文件。
-2. **建立最小 KI.EXE 捕获场景**：固定剧本、日期、据点、双方武将、六队兵种/兵力、士气和 RNG 种子，先捕获初始化后第一帧。
-3. **定义二进制 fixture 格式**：将 KI.EXE dump 转换成 `originaldiff.js` 可比较的 packet，明确绝对地址到 Web 各 blob 的映射。
-4. **逐步扩大差分范围**：初始化 → 无命令 1 帧 → 固定命令帧 → 首次碰撞 → 地图对象破坏 → 自动撤退 → `0x9FDC` 退出。
-5. **优先定位首差异**：使用 packet hash 和 first-byte report，每次只修第一个差异，避免通过后续补偿掩盖前序错误。
-6. **验证 BD96..BDBE**：构造端点被阻塞或跨层起点场景，捕获原版选取的起始平面和代价。
-7. **验证 TALK**：在实际战术流程中对 TALK 指针/文本区设置读断点；若从未命中，则保留 Web 表现政策并记录该构建不可达证据。
-8. **最终回归**：动态 fixtures 全部通过后，再运行本 checkpoint 中的完整 original/facade/SAVE/field/siege/browser 回归。
-9. **宣告标准**：只有固定输入下 KI.EXE/Web 的规则包、RNG 调用和退出 DTO 全部一致后，才可宣称“所有胜负数据由 KI.EXE 原版规则精确决定”。
+- 实现 BATTLE.DAT 开场脚本 VM 回放（battlescript.js + battleview.js 60fps 虚拟帧）。
+- 实现外交迁都；修正 0x699E「請出陣」实为玩家自身出击指令。
+- 实现天灾/暴动系统（disaster.js）。
+- 重写觐见台词系统，修正觐见对象为【己方君主】。
+- 实现 PC Speaker 风格音效（speaker.js）。
+- 实现结束动画（endview.js）与开场动画（openview.js）RLE 解码播放。
+- BGM 音乐逆向结案：确认 YNSOUND.COM 常驻驱动，决定不复刻。
+- OPEN_S1 尾块、END_S13/14/15 结案。
+- 当前状态：可玩。

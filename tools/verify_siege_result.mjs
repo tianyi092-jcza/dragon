@@ -27,6 +27,9 @@ const {
   resolveStrategicBattle,
 } = await import("../web/src/game/autobattle.js");
 const { applyBattleResult } = await import("../web/src/game/ai.js");
+const { OriginalBattleRng } = await import(
+  "../web/src/game/battle/originalrng.js"
+);
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
 await loadTerrain();
 
@@ -117,7 +120,7 @@ const makeScenario = () => {
   const result = resolveStrategicBattle(sc, attacker, garrison, {
     mode: 0,
     cityDefence: target.troops,
-    random: () => 0,
+    rng: new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 }),
   });
   assert.ok(["atk", "def"].includes(result.winner));
   assert.equal(result.attack.units.length, 6);
@@ -173,7 +176,7 @@ const makeScenario = () => {
     [80, 80, 80, 80, 80, 80],
   );
   assert.equal(target.faction, 0);
-  assert.equal(target.troops, 0);
+  assert.equal(target.troops, 120, "0x4CF3 must preserve 0x51B3-damaged city troops");
   assert.equal(attacker.troops, 480);
   assert.equal(attacker.commandState, 8);
   assert.ok(defenderA._retreat);

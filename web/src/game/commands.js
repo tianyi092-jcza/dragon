@@ -13,6 +13,10 @@ const DEFICIT_TRUST_PENALTY = 20; // 用户规则=20; KI.EXE 0x3516 实测 al=0x
 
 import { monthlyEvents } from "./disaster.js";
 import { tickEnvoys } from "./diplomacy.js";
+import {
+  createDefaultLegionUnits,
+  ensureLegionSlot,
+} from "./legionunits.js";
 
 /** 初始化玩家槽位(原版剧本头 FF=未指定 → 默认势力0/信赖100); 在 setScenario 时调 */
 export function initPlayer(sc) {
@@ -170,7 +174,7 @@ export function dispatch(sc, fromCity, targetCity) {
     );
   if (!gen) return { err: "無可用大將" };
   if (fromCity.sim) fromCity.sim.troops -= avail;
-  sc.legions.push({
+  const legion = {
     leader: gen.name,
     faction: f.idx,
     x: fromCity.x,
@@ -178,10 +182,13 @@ export function dispatch(sc, fromCity, targetCity) {
     prevX: fromCity.x,
     prevY: fromCity.y,
     troops: avail,
+    units: createDefaultLegionUnits(avail),
     cooldown: 2,
     target: targetCity,
     formation: 1, // 编制类型 1..4 (0xCBE5 选块)
-  });
+  };
+  ensureLegionSlot(sc.legions, legion, gen.idx);
+  sc.legions.push(legion);
   return { ok: `${f.monarch}軍自${fromCity.name}出征${targetCity.name}` };
 }
 

@@ -5,8 +5,14 @@ let graph = null;
 let loadPromise = null;
 let nodeByCoord = new Map();
 let edgePointsByCoord = new Map();
+let edgePointBases = [];
 let adjacency = [];
 
+const ROAD_NODE_SIZE = 8;
+const ROAD_EDGE_BASE = 0x0800;
+const ROAD_EDGE_SIZE = 0x10;
+const ROAD_POINT_BASE = 0x2000;
+const ROAD_POINT_SIZE = 4;
 const coordKey = (x, y) => `${x},${y}`;
 
 function installGraph(raw) {
@@ -17,6 +23,8 @@ function installGraph(raw) {
   const nextNodeByCoord = new Map();
   const nextEdgePointsByCoord = new Map();
   const nextAdjacency = Array.from({ length: raw.nodes.length }, () => []);
+  const nextEdgePointBases = [];
+  let nextPointAddress = ROAD_POINT_BASE;
   for (const node of raw.nodes) {
     if (node.id < 0 || node.id >= raw.nodes.length) {
       throw new Error(`invalid road node id ${node.id}`);
@@ -39,6 +47,11 @@ function installGraph(raw) {
     ) {
       throw new Error(`invalid strategic road edge ${edge.id}`);
     }
+    if (edge.id !== nextEdgePointBases.length) {
+      throw new Error(`non-sequential strategic road edge ${edge.id}`);
+    }
+    nextEdgePointBases.push(nextPointAddress);
+    nextPointAddress += edge.points.length * ROAD_POINT_SIZE;
     nextAdjacency[source].push({ edge, node: target });
     nextAdjacency[target].push({ edge, node: source });
     for (const [pointIndex, point] of edge.points.entries()) {
@@ -52,6 +65,7 @@ function installGraph(raw) {
   graph = raw;
   nodeByCoord = nextNodeByCoord;
   edgePointsByCoord = nextEdgePointsByCoord;
+  edgePointBases = nextEdgePointBases;
   adjacency = nextAdjacency;
   return graph;
 }
@@ -82,6 +96,168 @@ export function roadNodeAt(x, y) {
   if (!graph) return null;
   const id = nodeByCoord.get(coordKey(x, y));
   return id == null ? null : graph.nodes[id];
+}
+
+export function roadNodeById(id) {
+  return graph?.nodes?.[id] ?? null;
+}
+
+/** E717：节点表从0起每项8B；边表从0x0800起每项0x10B。 */
+export function roadNodeRawAddress(nodeId) {
+  return Number.isInteger(nodeId) && nodeId >= 0 && nodeId < (graph?.nodes.length ?? 0)
+    ? nodeId * ROAD_NODE_SIZE
+    : null;
+}
+
+export function roadNodeIdFromRaw(rawAddress) {
+  return Number.isInteger(rawAddress) &&
+    rawAddress >= 0 &&
+    rawAddress < ROAD_EDGE_BASE &&
+    rawAddress % ROAD_NODE_SIZE === 0 &&
+    rawAddress / ROAD_NODE_SIZE < (graph?.nodes.length ?? 0)
+    ? rawAddress / ROAD_NODE_SIZE
+    : null;
+}
+
+export function roadEdgeRawAddress(edgeId) {
+  return Number.isInteger(edgeId) && edgeId >= 0 && edgeId < (graph?.edges.length ?? 0)
+    ? ROAD_EDGE_BASE + edgeId * ROAD_EDGE_SIZE
+    : null;
+}
+
+export function roadEdgeIdFromRaw(rawAddress) {
+  if (
+    !Number.isInteger(rawAddress) ||
+    rawAddress < ROAD_EDGE_BASE ||
+    (rawAddress - ROAD_EDGE_BASE) % ROAD_EDGE_SIZE !== 0
+  )
+    return null;
+  const edgeId = (rawAddress - ROAD_EDGE_BASE) / ROAD_EDGE_SIZE;
+  return edgeId < (graph?.edges.length ?? 0) ? edgeId : null;
+}
+
+function roadPointRawAddress(edgeId, pointIndex) {
+  const edge = graph?.edges?.[edgeId];
+  if (!edge || !Number.isInteger(pointIndex) || pointIndex < 0 || pointIndex >= edge.points.length)
+    return null;
+  return edgePointBases[edgeId] + pointIndex * ROAD_POINT_SIZE;
+}
+
+function rawPointIndex(edgeId, rawAddress) {
+  const edge = graph?.edges?.[edgeId];
+  const base = edgePointBases[edgeId];
+  if (!edge || !Number.isInteger(rawAddress) || rawAddress < base) return null;
+  const delta = rawAddress - base;
+  if (delta % ROAD_POINT_SIZE !== 0) return null;
+  const index = delta / ROAD_POINT_SIZE;
+  return index < edge.points.length ? index : null;
+}
+
+function marchPoints(edge, stride) {
+  const fromNode = stride === 4 ? edge.source : edge.target;
+  const toNode = stride === 4 ? edge.target : edge.source;
+  return {
+    fromNode,
+    toNode,
+    points: orientedEdgePoints(edge, fromNode, toNode),
+  };
+}
+
+/**
+ * 0x8CFF会保存+0x0A/+0x0C/+0x0E。将DOS原始地址恢复成Web边点列；
+ * 地址不满足E717生成布局时返回null，调用方才可退回目标重寻路。
+ */
+export function restoreRoadMarchContext({
+  x,
+  y,
+  targetX,
+  targetY,
+  targetNode,
+  stride,
+  pointAddress,
+  edgeOrNode,
+}) {
+  if (!graph || (stride !== 4 && stride !== -4)) return null;
+  const edgeId = roadEdgeIdFromRaw(edgeOrNode);
+  const rawIndex = rawPointIndex(edgeId, pointAddress);
+  const edge = graph.edges[edgeId];
+  if (!edge || rawIndex == null) return null;
+  const oriented = marchPoints(edge, stride);
+  let pointIndex = -1;
+  const currentIndex = edge.points.findIndex((point) => point.x === x && point.y === y);
+  if (currentIndex >= 0) {
+    const expectedRaw = roadPointRawAddress(edgeId, currentIndex);
+    if (expectedRaw !== pointAddress) return null;
+    pointIndex = stride === 4 ? currentIndex + 1 : edge.points.length - currentIndex;
+  } else {
+    const from = graph.nodes[oriented.fromNode];
+    const expectedInitial = stride === 4 ? 0 : edge.points.length - 1;
+    if (!from || from.x !== x || from.y !== y || rawIndex !== expectedInitial) return null;
+    pointIndex = 0;
+  }
+  if (pointIndex < 0 || pointIndex >= oriented.points.length) return null;
+  return {
+    targetX,
+    targetY,
+    targetNode,
+    currentNode: oriented.fromNode,
+    edgeId,
+    stride,
+    fromNode: oriented.fromNode,
+    toNode: oriented.toNode,
+    points: oriented.points,
+    pointIndex,
+  };
+}
+
+/** Web运行态反算E717地址布局，供SAVE/snapshot原样写回。 */
+export function serializeRoadMarchContext(march) {
+  const edge = graph?.edges?.[march?.edgeId];
+  if (!edge || (march.stride !== 4 && march.stride !== -4)) return null;
+  let sourceIndex;
+  if ((march.pointIndex ?? 0) <= 0) {
+    sourceIndex = march.stride === 4 ? 0 : edge.points.length - 1;
+  } else {
+    sourceIndex =
+      march.stride === 4
+        ? march.pointIndex - 1
+        : edge.points.length - march.pointIndex;
+  }
+  const pointAddress = roadPointRawAddress(edge.id, sourceIndex);
+  const edgeOrNode = roadEdgeRawAddress(edge.id);
+  if (pointAddress == null || edgeOrNode == null) return null;
+  return { stride: march.stride, pointAddress, edgeOrNode };
+}
+
+/** 0x42AB阻断时在当前边转向另一端，不重新跑Dijkstra。 */
+export function reverseRoadMarchContext(march, x, y) {
+  const edge = graph?.edges?.[march?.edgeId];
+  if (!edge) return null;
+  const stride = march.stride === 4 ? -4 : 4;
+  const oriented = marchPoints(edge, stride);
+  const currentIndex = edge.points.findIndex((point) => point.x === x && point.y === y);
+  let pointIndex;
+  if (currentIndex >= 0)
+    pointIndex = stride === 4 ? currentIndex + 1 : edge.points.length - currentIndex;
+  else {
+    const from = graph.nodes[oriented.fromNode];
+    const to = graph.nodes[oriented.toNode];
+    if (to?.x === x && to?.y === y) pointIndex = oriented.points.length;
+    else if (from?.x === x && from?.y === y) pointIndex = 0;
+    else return null;
+  }
+  return {
+    ...march,
+    targetX: graph.nodes[oriented.toNode].x,
+    targetY: graph.nodes[oriented.toNode].y,
+    targetNode: oriented.toNode,
+    currentNode: oriented.fromNode,
+    stride,
+    fromNode: oriented.fromNode,
+    toNode: oriented.toNode,
+    points: oriented.points,
+    pointIndex,
+  };
 }
 
 /** 当前道路格到相邻端点的有向点列；据点节点返回自身和空点列。 */
@@ -188,12 +364,18 @@ function routeLegs(route) {
     const edge = graph.edges[route.edges[index]];
     const fromNode = route.nodes[index];
     const toNode = route.nodes[index + 1];
+    const stride = edge.source === fromNode ? 4 : -4;
     legs.push({
       edgeId: edge.id,
       fromNode,
       toNode,
-      stride: edge.source === fromNode ? 4 : -4,
+      stride,
       points: orientedEdgePoints(edge, fromNode, toNode),
+      rawEdgeOrNode: roadEdgeRawAddress(edge.id),
+      rawPointAddress: roadPointRawAddress(
+        edge.id,
+        stride === 4 ? 0 : edge.points.length - 1,
+      ),
     });
   }
   return legs;

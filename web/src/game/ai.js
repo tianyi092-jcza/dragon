@@ -9,9 +9,12 @@ import { playerFaction } from "./commands.js";
 import { findPath } from "./pathfind.js";
 import {
   findRoadRoute,
+  reverseRoadMarchContext,
   roadApproachesAt,
   roadGraphReady,
   roadNodeAt,
+  roadNodeById,
+  restoreRoadMarchContext,
 } from "./roadgraph.js";
 import { engageSfx } from "../core/speaker.js";
 import {
@@ -20,11 +23,17 @@ import {
   createCityGarrison,
   resolveStrategicBattle,
   selectPrimaryLegion,
-  writeStrategicBattleResult,
 } from "./autobattle.js";
 import { originalTacticalMorale } from "./battle/originalresult.js";
+import { isLegionDelegated } from "./legionmode.js";
+import {
+  createDefaultLegionUnits,
+  ensureLegionSlot,
+  ensureLegionUnits,
+} from "./legionunits.js";
 
 const ENGAGE_COUNTDOWN = 12;
+const ENGAGE_STATUS_ACTIVE = 0x20;
 const ENGAGE_KIND_FIELD = "field";
 const ENGAGE_KIND_SIEGE = "siege";
 
@@ -84,6 +93,12 @@ function nextRuntimeLegionId(sc) {
   return sc._nextRuntimeLegionId;
 }
 
+function attachRuntimeLegion(sc, legion, preferredSlot = null, legions = sc.legions) {
+  ensureLegionSlot(legions, legion, preferredSlot);
+  legion._runtimeId = nextRuntimeLegionId(sc);
+  return legion;
+}
+
 export function buildArmies(sc) {
   sc._nextRuntimeLegionId = 0;
   // ★优先用真实军团数据(0x21C0开局区/存档0x22C0区); 坐标异常时落首都
@@ -91,15 +106,47 @@ export function buildArmies(sc) {
     for (const L of sc.legions) {
       L.cooldown ??= 0;
       L.morale ??= 200;
-      L._runtimeId = nextRuntimeLegionId(sc);
+      ensureLegionUnits(L);
+      attachRuntimeLegion(sc, L, L.slot ?? L.idx);
+      // 旧 Web snapshot 可能只有 delegated 布尔值；必须先迁移，再补默认 status。
+      isLegionDelegated(L);
       L.status ??= 0x80;
       L._active = true;
-      clearEngagement(L);
-      // 读盘可保留目标据点对象；道路边与点列导航缓存始终重建。
+      // 读盘目标先解析成scenario city。0x8CFF原样保存+0A/+0C/+0E；
+      // 优先按E717地址布局恢复当前边，只有无效字段才退回目标重寻路。
       if (L.target && L.target.idx != null)
         L.target = sc.cities[L.target.idx] ?? null;
       else if (L.target) L.target = null;
+      const savedMarch = restoreRoadMarchContext({
+        x: L.x,
+        y: L.y,
+        targetX: L.target?.x ?? L.targetX,
+        targetY: L.target?.y ?? L.targetY,
+        targetNode: L.targetNode,
+        stride: L.roadStride,
+        pointAddress: L.roadPointAddress,
+        edgeOrNode: L.roadEdgeOrNode,
+      });
       clearMarchNavigation(L);
+      if (savedMarch) {
+        L._march = savedMarch;
+        L._path = savedMarch.points.slice(savedMarch.pointIndex);
+      }
+    }
+    for (const L of sc.legions) {
+      // SAVE军团 status bit5/+3只确认上一轮仍接触；不存在战型位。
+      // 保留pending到首次实际tick，仿0x25CC→0x2662现场重检。
+      if (L._engagement) {
+        L.status |= ENGAGE_STATUS_ACTIVE;
+        L.engagementCountdown = Math.max(
+          1,
+          Math.min(ENGAGE_COUNTDOWN, L._engagement.countdown | 0),
+        );
+        L._engagement.countdown = L.engagementCountdown;
+      } else {
+        L.status &= ~ENGAGE_STATUS_ACTIVE;
+        L.engagementCountdown = null;
+      }
       const f = sc.factions.find((f) => f.idx === L.faction);
       // 存档军团 leader=武将序号(或 null) → 解析为主将名字符串(渲染用)
       if (typeof L.leader === "number" || L.leader == null) {
@@ -125,8 +172,7 @@ export function buildArmies(sc) {
     const cap = sc.cities[f.capital];
     if (!cap || f.monarch == null) continue;
     // 兵力与势力规模挂钩 (原版 [si+0x858] 为兵力)
-    armies.push({
-      _runtimeId: nextRuntimeLegionId(sc),
+    const legion = {
       leader: f.monarch,
       faction: f.idx,
       x: cap.x,
@@ -134,13 +180,16 @@ export function buildArmies(sc) {
       prevX: cap.x,
       prevY: cap.y,
       troops: 1 + f.n_cities,
+      units: createDefaultLegionUnits(1 + f.n_cities),
       morale: 200,
       cooldown: 0,
       status: 0x80,
       _active: true,
       target: null,
       _markerFrame: 4,
-    });
+    };
+    attachRuntimeLegion(sc, legion, f.monarch_idx, armies);
+    armies.push(legion);
   }
   sc.legions = armies;
 }
@@ -172,6 +221,16 @@ function clearMarchNavigation(A) {
 
 function clearEngagement(A) {
   A._engagement = null;
+  A.status = (A.status ?? 0x80) & ~ENGAGE_STATUS_ACTIVE;
+  A.engagementCountdown = null;
+}
+
+function numericUnitSurvivors(unitSurvivors) {
+  if (!Array.isArray(unitSurvivors)) return null;
+  return unitSurvivors.slice(0, 6).map((unit) => {
+    const value = typeof unit === "number" ? unit : unit?.troops;
+    return Number.isFinite(value) ? Math.max(0, value | 0) : 0;
+  });
 }
 
 function applyTacticalMorale(legion, oldTroops, won) {
@@ -191,15 +250,21 @@ function settleFieldLegion(
   authoritativeMorale = null,
 ) {
   const oldTroops = Math.max(0, legion.troops ?? 0);
-  if (Array.isArray(unitSurvivors) && Array.isArray(legion.units)) {
-    legion.units = legion.units.slice(0, 6).map((unit, index) => ({
-      ...unit,
-      troops: Math.max(0, (unitSurvivors[index] ?? 0) * 10),
+  const survivorRecords = Array.isArray(unitSurvivors)
+    ? unitSurvivors.slice(0, 6)
+    : null;
+  const survivors = numericUnitSurvivors(survivorRecords);
+  if (survivors?.length === 6) {
+    const oldUnits = Array.isArray(legion.units) ? legion.units : [];
+    legion.units = survivors.map((unitTroops, index) => ({
+      ...oldUnits[index],
+      type:
+        typeof survivorRecords[index] === "object"
+          ? (survivorRecords[index]?.type ?? oldUnits[index]?.type ?? 4)
+          : (oldUnits[index]?.type ?? 4),
+      troops: unitTroops * 10,
     }));
-    legion.troops = unitSurvivors.reduce(
-      (sum, unitTroops) => sum + Math.max(0, unitTroops | 0),
-      0,
-    );
+    legion.troops = survivors.reduce((sum, unitTroops) => sum + unitTroops, 0);
   } else {
     legion.troops = Math.max(0, troops ?? legion.troops ?? 0);
   }
@@ -438,9 +503,11 @@ function startEngagement(A, kind, target) {
   const nextPoint = A._march?.points?.[A._march.pointIndex];
   if (nextPoint)
     A._markerFrame = markerFrameToward(A.x, A.y, nextPoint.x, nextPoint.y);
+  A.status = (A.status ?? 0x80) | ENGAGE_STATUS_ACTIVE;
+  A.engagementCountdown = ENGAGE_COUNTDOWN - 1;
   A._engagement = {
     kind,
-    countdown: ENGAGE_COUNTDOWN - 1, // 0x264A 在首次接触同轮把12立即减为11。
+    countdown: A.engagementCountdown, // 0x264A 在首次接触同轮把12立即减为11。
     target,
   };
 }
@@ -461,60 +528,114 @@ function engagementTarget(sc, engagement) {
   return sc.cities[engagement.target.cityIdx] ?? null;
 }
 
-function hostileLegionAt(sc, A, x, y) {
-  return sc.legions.find(
-    (B) =>
-      B !== A &&
-      !B.dead &&
-      B._active !== false &&
-      B.faction != null &&
-      B.faction !== A.faction &&
-      atWar(sc, A.faction, B.faction) &&
-      B.x === x &&
-      B.y === y,
-  );
+/** 0x2831：军团表0..126槽序扫描；首个同坐标军团即停止，再比较势力。 */
+function contactLegionAt(sc, A, x, y) {
+  const occupant = sc.legions
+    .filter(
+      (B) =>
+        B !== A &&
+        !B.dead &&
+        B._active !== false &&
+        B.faction != null &&
+        B.x === x &&
+        B.y === y,
+    )
+    .toSorted((left, right) => left.slot - right.slot)[0];
+  return occupant?.faction !== A.faction ? occupant : null;
 }
 
 function hostileCityAt(sc, A, x, y) {
   const city = sc.cities.find(
     (candidate) => candidate.x === x && candidate.y === y,
   );
-  if (
-    !city ||
-    city.faction == null ||
-    city.faction === A.faction ||
-    !atWar(sc, A.faction, city.faction)
-  )
-    return null;
+  if (!city || city.faction === A.faction) return null;
+  // KI.EXE 0x2880：0x18中立城同样进入0x4ADE；外交阻断由更早的0x42AB处理。
   return city;
 }
 
-/** KI.EXE 0x2831/0x2880：先置倒计时12，之后>1时播放ID3并递减，1时开战。 */
-function advanceEngagement(app, A) {
-  const engagement = A._engagement;
-  if (!engagement) return false;
-  const target = engagementTarget(app.scenario, engagement);
+function reverseBlockedFinalEdge(sc, A) {
+  const nav = A._march;
+  if (!nav || nav.pointIndex >= nav.points.length) return false;
+  // 0x42AB检查当前active edge的行进端，不是整条命令的最终target。
+  const endpoint = roadNodeById(nav.toNode);
+  const destination = endpoint
+    ? sc.cities.find((city) => city.x === endpoint.x && city.y === endpoint.y)
+    : null;
   if (
-    !target ||
-    target.dead ||
-    target.faction == null ||
-    target.faction === A.faction ||
-    !atWar(app.scenario, A.faction, target.faction)
-  ) {
+    !destination ||
+    destination.faction == null ||
+    destination.faction === A.faction ||
+    atWar(sc, A.faction, destination.faction)
+  )
+    return false;
+  const reversed = reverseRoadMarchContext(nav, A.x, A.y);
+  if (!reversed) return false;
+  A._march = reversed;
+  A._path = reversed.points.slice(reversed.pointIndex);
+  // 0x42AB只临时改当前道路端点；玩家/AI最终命令目标仍保留，回到端点后再寻路。
+  A.status = (A.status ?? 0x80) | 0x02;
+  return true;
+}
+
+/** 0x25CC→0x42AB→0x2831/0x2880：每轮实时重检，不锁存首次kind/target。 */
+function currentEngagement(sc, A, countdown) {
+  if (reverseBlockedFinalEdge(sc, A)) return null;
+  const next = A._march?.points?.[A._march.pointIndex];
+  if (!next) return null;
+  const foe = contactLegionAt(sc, A, next.x, next.y);
+  if (foe)
+    return {
+      kind: ENGAGE_KIND_FIELD,
+      countdown,
+      target: { x: next.x, y: next.y, faction: foe.faction },
+    };
+  const city = hostileCityAt(sc, A, next.x, next.y);
+  return city
+    ? { kind: ENGAGE_KIND_SIEGE, countdown, target: { cityIdx: city.idx } }
+    : null;
+}
+
+/** KI.EXE 0x2831/0x2880：持续接触才递减；消失时同轮继续移动。 */
+function advanceEngagement(app, A) {
+  const previous = A._engagement;
+  if (!previous) return false;
+  const engagement = currentEngagement(
+    app.scenario,
+    A,
+    Math.max(1, previous.countdown ?? A.engagementCountdown ?? 1),
+  );
+  if (!engagement) {
+    clearEngagement(A);
+    return false;
+  }
+  A._engagement = engagement;
+  A.status = (A.status ?? 0x80) | ENGAGE_STATUS_ACTIVE;
+  const target = engagementTarget(app.scenario, engagement);
+  if (!target || target.dead) {
     clearEngagement(A);
     return false;
   }
   if (engagement.countdown > 1) {
     engageSfx();
     engagement.countdown--;
+    A.engagementCountdown = engagement.countdown;
     return true;
   }
 
-  clearEngagement(A);
-  if (engagement.kind === ENGAGE_KIND_FIELD) {
-    return resolveFieldBattle(app, A, target);
+  const resolve = () => {
+    clearEngagement(A);
+    if (engagement.kind === ENGAGE_KIND_FIELD)
+      return resolveFieldBattle(app, A, target);
+    return resolveBattle(app, A, target);
+  };
+  if (
+    battleUsesDelegatedPlayer(app.scenario, A, target, engagement.kind) &&
+    typeof app.playDelegatedEngage === "function"
+  ) {
+    // gate 失败时保留 _engagement，待现有过渡结束后下次 tick 再处理。
+    return app.playDelegatedEngage(A, resolve);
   }
-  return resolveBattle(app, A, target);
+  return resolve();
 }
 
 function rememberMarchBase(sc, A) {
@@ -581,6 +702,7 @@ function stepRoadGraph(sc, A, tx, ty) {
     if (!A._march) return "blocked";
   }
 
+  if (reverseBlockedFinalEdge(sc, A)) return "reversed";
   const nav = A._march;
   const next = nav.points[nav.pointIndex];
   if (!next) {
@@ -588,7 +710,7 @@ function stepRoadGraph(sc, A, tx, ty) {
     return A.x === tx && A.y === ty ? "arrived" : "blocked";
   }
 
-  const foe = hostileLegionAt(sc, A, next.x, next.y);
+  const foe = contactLegionAt(sc, A, next.x, next.y);
   if (foe) {
     startEngagement(A, ENGAGE_KIND_FIELD, {
       x: next.x,
@@ -666,7 +788,27 @@ export function stepTo(sc, A, tx, ty) {
 // ★战斗判定 — 玩家参战→开战术层(实时战场); AI互斗→原版公式速算
 // 原版公式 0x2920: rand&0x7F < 军师政治>>1 + 0x28
 // 返回 true=已开入交互战斗(调用方应中止本轮后续处理)
-function resolveBattle(app, A, city) {
+function battleUsesDelegatedPlayer(sc, A, target, kind) {
+  const pf = playerFaction(sc);
+  if (!pf) return false;
+  if (A.faction === pf.idx && isLegionDelegated(A)) return true;
+  if (kind === ENGAGE_KIND_FIELD)
+    return target?.faction === pf.idx && isLegionDelegated(target);
+  if (target?.faction !== pf.idx) return false;
+  const defenders = sc.legions.filter(
+    (legion) =>
+      legion !== A &&
+      !legion.dead &&
+      legion._active !== false &&
+      legion.faction === target.faction &&
+      legion.x === target.x &&
+      legion.y === target.y,
+  );
+  const primary = selectPrimaryLegion(sc, defenders);
+  return primary ? isLegionDelegated(primary) : false;
+}
+
+export function resolveBattle(app, A, city) {
   const sc = app.scenario;
   const defenders = sc.legions.filter(
     (legion) =>
@@ -679,26 +821,25 @@ function resolveBattle(app, A, city) {
   );
   const primaryDefender = selectPrimaryLegion(sc, defenders);
   const pf = playerFaction(sc);
-  if (
-    pf &&
-    (A.faction === pf.idx || city.faction === pf.idx) &&
-    !(A.faction === pf.idx && A.delegated) &&
-    app.battleView &&
-    !app.battleView.active
-  ) {
+  const playerAttacker = pf && A.faction === pf.idx;
+  const playerDefender = pf && city.faction === pf.idx;
+  const playerControls =
+    (playerAttacker && !isLegionDelegated(A) && primaryDefender) ||
+    (playerDefender &&
+      primaryDefender &&
+      !isLegionDelegated(primaryDefender));
+  if (playerControls && app.battleView && !app.battleView.active) {
     app.startBattle(A, city, primaryDefender); // 暂停时钟+开覆盖层; 结算在 onFinish 回调
     return true;
   }
   const defender = primaryDefender ?? createCityGarrison(city);
+  const rng = strategicRngFor(app, null);
   const result = resolveStrategicBattle(sc, A, defender, {
     mode: 0,
     cityDefence: city.sim?.troops ?? city.troops ?? 0,
-    random: Math.random,
+    rng,
   });
   applySiegeCityDamage(city, result.ratio);
-  writeStrategicBattleResult(A, result.attack);
-  if (primaryDefender)
-    writeStrategicBattleResult(primaryDefender, result.defence);
   applyBattleResult(
     app,
     A,
@@ -711,31 +852,31 @@ function resolveBattle(app, A, city) {
     primaryDefender,
     result.defence.troops,
     result.defence.units.map((unit) => unit.troops),
+    {
+      strategicRng: rng,
+      sides: [result.attack, result.defence],
+    },
   );
   return false;
 }
 
-function resolveFieldBattle(app, A, D) {
+export function resolveFieldBattle(app, A, D) {
   if (!D || D.dead) return false;
   const sc = app.scenario;
   const pf = playerFaction(sc);
   if (
     pf &&
     (A.faction === pf.idx || D.faction === pf.idx) &&
-    !(A.faction === pf.idx && A.delegated) &&
-    !(D.faction === pf.idx && D.delegated) &&
+    !(A.faction === pf.idx && isLegionDelegated(A)) &&
+    !(D.faction === pf.idx && isLegionDelegated(D)) &&
     app.battleView &&
     !app.battleView.active
   ) {
     app.startFieldBattle(A, D);
     return true;
   }
-  const result = resolveStrategicBattle(sc, A, D, {
-    mode: 1,
-    random: Math.random,
-  });
-  writeStrategicBattleResult(A, result.attack);
-  writeStrategicBattleResult(D, result.defence);
+  const rng = strategicRngFor(app, null);
+  const result = resolveStrategicBattle(sc, A, D, { mode: 1, rng });
   applyFieldBattleResult(
     app,
     A,
@@ -745,6 +886,10 @@ function resolveFieldBattle(app, A, D) {
     result.defence.troops,
     result.attack.units.map((unit) => unit.troops),
     result.defence.units.map((unit) => unit.troops),
+    {
+      strategicRng: rng,
+      sides: [result.attack, result.defence],
+    },
   );
   return false;
 }
@@ -915,8 +1060,7 @@ export function applyBattleResult(
       A.faction,
       strategicRng,
     );
-    if (city.sim) city.sim.troops = 0;
-    city.troops = 0;
+    // 0x51B3→0x4CF3：破城只交换归属，保留已扣损的+0x13城兵。
     A.x = city.x;
     A.y = city.y;
     A.prevX = city.x;
@@ -1011,8 +1155,7 @@ export function monthlyAI(app) {
         g.status = 0;
         g.faction = p.faction;
       } // 回归: status=0 待命
-      sc.legions.push({
-        _runtimeId: nextRuntimeLegionId(sc),
+      const returningLegion = {
         leader: p.leader,
         faction: p.faction,
         x: cap.x,
@@ -1020,11 +1163,14 @@ export function monthlyAI(app) {
         prevX: cap.x,
         prevY: cap.y,
         troops: 1 + sc.citiesOf(p.faction).length,
+        units: createDefaultLegionUnits(1 + sc.citiesOf(p.faction).length),
         cooldown: 6,
         target: null,
         _markerFrame: 4,
         formation: 1, // 编制类型 1..4 (0xCBE5 选块)
-      });
+      };
+      attachRuntimeLegion(sc, returningLegion, p.slot ?? p.generalIdx);
+      sc.legions.push(returningLegion);
       app.hud?.flashEvent?.(`${p.leader} 回归 ${f.monarch}麾下`);
     } else if (g0 && !g0.dead) {
       // ★流散随机再就业(攻略: 领土大/武将少势力优先) — 原属首都已失或势力亡
@@ -1097,9 +1243,11 @@ export function cityDaily(sc) {
 }
 
 export function aiTick(app) {
-  cityDaily(app.scenario);
+  // 战术场景或委任四相过渡接管期间，不能推进城池每日状态或处理第二场战斗。
+  if (app.battleView?.active || app.engageTransition?.active) return;
   const sc = app.scenario;
   if (!sc || !sc.legions) return;
+  cityDaily(sc);
   let changed = false;
   for (const item of tickDelayedLegionReturns(sc)) {
     changed = true;
@@ -1138,8 +1286,23 @@ export function aiTick(app) {
     }
     if (A._engagement) {
       const battleOpened = advanceEngagement(app, A);
-      if (battleOpened && app.battleView?.active) return;
-      // 等待、自动结算或目标消失后，本轮都停在原地。
+      if (
+        battleOpened &&
+        (app.battleView?.active || app.engageTransition?.active)
+      )
+        return;
+      if (A._engagement || A.dead) continue;
+      // 0x264A：本轮未重新接触会清+3；0x2708随后可在同轮继续移动。
+      if (A.target) {
+        const resumed = stepTo(sc, A, A.target.x, A.target.y);
+        if (resumed === "moved" || resumed === "arrived" || resumed === "reversed")
+          changed = true;
+        continue;
+      }
+    }
+    // 0x42AB属于军团实际道路更新；反向后本轮停止，但保留最终命令目标。
+    if (A._march && reverseBlockedFinalEdge(sc, A)) {
+      changed = true;
       continue;
     }
     if (A.cooldown > 0) {
@@ -1153,15 +1316,19 @@ export function aiTick(app) {
       const marchResult = stepTo(sc, A, orderedTarget.x, orderedTarget.y);
       if (marchResult === "moved") changed = true;
       if (marchResult === "contact" || marchResult === "waiting") continue;
+      if (marchResult === "reversed") {
+        changed = true;
+        continue;
+      }
       if (marchResult === "blocked") {
         A.target = null;
         continue;
       }
       if (A.x === orderedTarget.x && A.y === orderedTarget.y) {
         if (
-          orderedTarget.faction != null &&
           orderedTarget.faction !== A.faction &&
-          !isFriendly(sc, A.faction, orderedTarget.faction)
+          (orderedTarget.faction == null ||
+            !isFriendly(sc, A.faction, orderedTarget.faction))
         ) {
           if (resolveBattle(app, A, orderedTarget)) return;
           changed = true;
@@ -1172,7 +1339,7 @@ export function aiTick(app) {
       continue;
     }
     // 非委任的玩家军团没有明确命令时原地待命；委任军团才进入自主决策。
-    if (A.faction === sc.player_faction && !A.delegated) continue;
+    if (A.faction === sc.player_faction && !isLegionDelegated(A)) continue;
     const { sum, foe } = scanThreat(A, sc);
     if (foe) {
       if (A.troops + 2 > sum) {
@@ -1215,6 +1382,10 @@ export function aiTick(app) {
       if (A.target) {
         const marchResult = stepTo(sc, A, A.target.x, A.target.y);
         if (marchResult === "contact") continue;
+        if (marchResult === "reversed") {
+          changed = true;
+          continue;
+        }
         if (marchResult === "blocked") {
           A.target = null;
           continue;
@@ -1249,9 +1420,8 @@ export function aiTick(app) {
       );
       const alt =
         mon || sc.generals.find((g) => g.faction === f.idx && g.status !== 4);
-      if (cap && cap.faction === f.idx && alt)
-        sc.legions.push({
-          _runtimeId: nextRuntimeLegionId(sc),
+      if (cap && cap.faction === f.idx && alt) {
+        const reinforcement = {
           leader: alt.name,
           faction: f.idx,
           x: cap.x,
@@ -1259,6 +1429,7 @@ export function aiTick(app) {
           prevX: cap.x,
           prevY: cap.y,
           troops: 1 + f.n_cities,
+          units: createDefaultLegionUnits(1 + f.n_cities),
           morale: 200,
           cooldown: 12,
           status: 0x80,
@@ -1266,7 +1437,10 @@ export function aiTick(app) {
           target: null,
           _markerFrame: 4,
           formation: 1, // 编制类型 1..4 (0xCBE5 选块)
-        });
+        };
+        attachRuntimeLegion(sc, reinforcement, alt.idx);
+        sc.legions.push(reinforcement);
+      }
     }
   }
   if (changed) {

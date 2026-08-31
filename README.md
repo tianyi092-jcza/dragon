@@ -5,11 +5,14 @@
 
 ## 运行
 
+在 `web-port` 仓库根目录启动正式本地服务：
+
 ```bash
-cd web
-python -m http.server 8321
+python tools/webserver.py 8321
 # 浏览器打开 http://127.0.0.1:8321/
 ```
+
+正式入口需要服务端单实例 lease 和受保护的 SAVE API；普通 `python -m http.server` 不提供这些接口，应用会按安全策略拒绝启动。
 
 ## 目录结构
 

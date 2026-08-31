@@ -29,7 +29,17 @@ import {
   isAtWar,
 } from "../game/diplomacy.js";
 import { factionColorEx } from "../game/world.js";
-import { findRoadRoute, roadGraphReady } from "../game/roadgraph.js";
+import {
+  findRoadRoute,
+  roadGraphReady,
+  roadNodeAt,
+} from "../game/roadgraph.js";
+import {
+  isLegionDelegated,
+  setLegionDelegated,
+} from "../game/legionmode.js";
+import { canSnapshotState } from "../game/savegame.js";
+import { ensureLegionSlot } from "../game/legionunits.js";
 import { getProjectedFinance } from "../game/economy.js";
 import { STRATEGIC_SPEED_LABELS } from "../game/clock.js";
 import {
@@ -82,7 +92,9 @@ export class GameBar {
     this.financeDialog = null; // 军师「財政」弹窗
     this.keypadDialog = null; // 数字输入弹窗 (税率/各兵种征兵数)
     this.legionMenu = null; // 军师子菜单「軍團」二级下拉菜单 (位置確認 / 行軍指示)
-    this.marchingOrder = null; // 行军指示状态 { legion, step: 'pick_target'|'choose_order', targetCity }
+    this.marchingOrder = null; // 行军指示状态 { legion, step: 'pick_target'|'choose_order', targetCity, sourceCity }
+    this.viewingLegion = null; // 非玩家军团查看状态 (右侧显示军团信息)
+    this._legionListSourceCity = null; // 军团列表来源据点，右键/命令完成后返回该列表
     this.orderChoiceMenu = null; // 目标据点指示命令菜单 (戰鬥指揮 / 委任 / 解體)
     this.systemSaveDialog = null; // 系统选单「資料儲存」弹窗
     this.systemLoadConfirmDialog = null; // 系统选单「存檔讀取」防丢失确认弹窗
@@ -228,8 +240,9 @@ export class GameBar {
     this.listDialog = null;
     if (cancelCb) {
       cancelCb();
-      return;
     }
+    this.viewingLegion = null;
+    this._legionListSourceCity = null;
     this.selectedSubmenu = null; // 取消子菜单被选项，恢复未选中状态
     this.app.hud.dialogCount = Math.max(0, (this.app.hud.dialogCount ?? 1) - 1);
     this.syncClock(); // 开始计时
@@ -503,6 +516,7 @@ export class GameBar {
         this.app.view.draw();
       }
     });
+    this.syncClock();
     this.app.view.draw();
   }
 
@@ -589,7 +603,9 @@ export class GameBar {
     }
     clickSfx();
     const { city, legion } = this.choiceDialog;
-    this.closeChoiceDialog();
+    // 切换时不调用 closeChoiceDialog()，避免其中间同步导致计时瞬间恢复
+    this.app.hud.dialogCount = Math.max(0, (this.app.hud.dialogCount ?? 1) - 1);
+    this.choiceDialog = null;
     if (i === 0) {
       this.showCityCard(city);
     } else {
@@ -627,10 +643,16 @@ export class GameBar {
     });
   }
 
-  /** 军团信息弹窗（ beige 列表，scrollbar: right，10行原版规格） */
+  /** 军团信息弹窗（ beige 列表，scrollbar: right，10行原版规格）
+   *  大地图点击据点/军团入口：
+   *  - 我方据点：点击军团进入行军目标指示，命令完成后返回本列表。
+   *  - 非我方据点：点击军团在右侧显示查看面板，列表保持选中，右键返回列表。
+   */
   showLegionCard(target) {
     this.closeCityCard();
     this.closeChoiceDialog();
+    this.viewingLegion = null;
+    this._legionListSourceCity = null;
     const sc = this.app.scenario;
     if (!sc) return;
 
@@ -666,8 +688,10 @@ export class GameBar {
     if (targetCity && this.app?.view) {
       this.app.view.selectedCity = targetCity;
     }
+    this._legionListSourceCity = targetCity;
 
     const me = cmd.playerFaction(sc);
+    const isPlayerCity = targetCity && me && targetCity.faction === me.idx;
 
     const rows = legions.map((L) => {
       const curCity = sc.cities.find((c) => c.x === L.x && c.y === L.y) || null;
@@ -675,7 +699,7 @@ export class GameBar {
       const targetName = L.target
         ? (L.target.name ?? "－－－－").trim()
         : "－－－－";
-      const mode = L.delegated ? "委任" : "戰鬥指揮";
+      const mode = isLegionDelegated(L) ? "委任" : "戰鬥指揮";
       const troops = (L.troops ?? 0) * 10;
       const morale = L.morale ?? 200;
       return {
@@ -730,32 +754,49 @@ export class GameBar {
       w: 480,
       h: 220,
       footer: {
-        text: "請選擇進行行軍指示之軍團。",
+        text: isPlayerCity
+          ? "請選擇進行行軍指示之軍團。"
+          : "請選擇要查看之軍團。",
       },
       onPick: (ri) => {
         const row = rows[ri];
         const L = row?._legion;
-        if (!L || L.faction !== me?.idx) return;
-        this.closeListDialog(true);
-        this.selectedSubmenu = 4;
-        this.marchingOrder = {
-          legion: L,
-          step: "pick_target",
-          targetCity: null,
-        };
-        this.syncClock();
-        this.app.view.draw();
+        if (!L) return;
+        if (L.faction === me?.idx) {
+          if (!this.legionAcceptsMarchOrder(L, true)) return;
+          // 我方军团：进入行军目标指示
+          this.marchingOrder = {
+            legion: L,
+            step: "pick_target",
+            targetCity: null,
+            sourceCity: targetCity,
+          };
+          this._legionListSourceCity = targetCity;
+          this.closeListDialog(true);
+          this.syncClock();
+          this.app.view.draw();
+        } else {
+          // 非我方军团：右侧查看面板 + 列表选中 + 底部提示
+          this.viewingLegion = L;
+          if (this.listDialog) this.listDialog.selectedRow = ri;
+          this.syncClock();
+          this.app.view.draw();
+        }
       },
       onCancel: () => {
-        this.selectedSubmenu = null;
+        this.viewingLegion = null;
+        this._legionListSourceCity = null;
         if (this.app?.view) this.app.view.selectedCity = null;
         this.syncClock();
         this.app.view.draw();
       },
     });
+    this.syncClock();
   }
 
   closeLegionCard() {
+    this.viewingLegion = null;
+    this._legionListSourceCity = null;
     this.closeListDialog();
   }
 
@@ -867,7 +908,7 @@ export class GameBar {
       const targetName = L.target
         ? (L.target.name ?? "－－－－").trim()
         : "－－－－";
-      const mode = L.delegated ? "委任" : "戰鬥指揮";
+      const mode = isLegionDelegated(L) ? "委任" : "戰鬥指揮";
       const troops = (L.troops ?? 0) * 10;
       const morale = L.morale ?? 200;
       return {
@@ -988,7 +1029,7 @@ export class GameBar {
       const targetName = L.target
         ? (L.target.name ?? "－－－－").trim()
         : "－－－－";
-      const mode = L.delegated ? "委任" : "戰鬥指揮";
+      const mode = isLegionDelegated(L) ? "委任" : "戰鬥指揮";
       const troops = (L.troops ?? 0) * 10;
       const morale = L.morale ?? 200;
       return {
@@ -1047,8 +1088,7 @@ export class GameBar {
       onPick: (ri) => {
         const row = rows[ri];
         const L = row?._legion;
-        if (!L) return;
-        this.closeListDialog(true);
+        if (!L || !this.legionAcceptsMarchOrder(L, true)) return;
 
         // 进入目标据点指示模式 (大地图可平移拖拽，右侧显示军团详细面板，底部提示 Talk 3)
         this.selectedSubmenu = 4;
@@ -1057,6 +1097,7 @@ export class GameBar {
           step: "pick_target",
           targetCity: null,
         };
+        this.closeListDialog(true);
         this.syncClock();
         this.app.view.draw();
       },
@@ -1072,6 +1113,59 @@ export class GameBar {
     this.closeOrderChoiceMenu();
     this.marchingOrder = null;
     this.app.view.draw();
+  }
+
+  /** 羽扇关闭与右键回退共用：清理军师菜单的全部子孙/选择，不重开列表。 */
+  resetAdvisorDescendants() {
+    this.closeProposalAudience?.();
+    this.closeAdviceMenu?.();
+    this.closeLegionMenu?.();
+    this.closeOrderChoiceMenu?.();
+    this.closeMarchingOrder?.();
+    this.closeBaseMenu?.();
+    this.closePersonnelMenu?.();
+    this.closeKeypadDialog?.();
+    this.closeFinanceDialog?.();
+    this.closeFormationDialog?.();
+    this.formationQuote = null;
+    this.closeGeneralCard?.();
+    this.closeListDialog?.(true);
+    this.closeChoiceDialog?.();
+    this.closeCityCard?.();
+    this.viewingLegion = null;
+    this._legionListSourceCity = null;
+    this.selectedSubmenu = null;
+    if (this.app?.view) this.app.view.selectedCity = null;
+    const doc = globalThis.document;
+    const advDlg = doc?.querySelector?.("#advisordlg");
+    if (advDlg && advDlg.style.display !== "none") {
+      this.app.hud?.resolveAdvice?.(null);
+    }
+    for (const el of doc?.querySelectorAll?.(".panel") ?? []) {
+      if (el.id && el.id !== "advisordlg" && el.style.display !== "none")
+        el.remove();
+    }
+    this.syncClock();
+    this.app.view.draw();
+  }
+
+  legionAcceptsMarchOrder(legion, notify = false) {
+    const blocked = Boolean(legion?._retreat || legion?._engagement);
+    if (blocked && notify) {
+      const state = legion._retreat ? "撤退中" : "交戰中";
+      this.app.hud?.flashEvent?.(`「${legion.leader ?? "該軍團"}」正在${state}，不能變更行軍命令。`);
+      warnSfx();
+    }
+    return !blocked;
+  }
+
+  assignMarchOrder(legion, targetCity, delegated) {
+    if (!this.legionAcceptsMarchOrder(legion, true)) return false;
+    legion.target = targetCity;
+    legion.targetNode = roadNodeAt(targetCity.x, targetCity.y)?.id ?? null;
+    setLegionDelegated(legion, delegated);
+    legion.cooldown = 1;
+    return true;
   }
 
   /** 弹出目标据点战斗指示选择菜单 (KI.EXE 0x7FDB - 0x804E, Talk 76) */
@@ -1209,19 +1303,25 @@ export class GameBar {
     this.app.hud?.refreshInfo?.();
   }
 
-  /** 绘制行军指示全套 UI (右侧军团详细信息面板 + 底部 NPC 提示窗口) */
+  /** 绘制行军指示/军团查看全套 UI (右侧军团详细信息面板 + 底部 NPC 提示窗口) */
   _drawMarchingOrder(ctx) {
     const m = this.marchingOrder;
-    if (!m) return;
+    const v = this.viewingLegion;
+    const legion = m?.legion ?? v;
+    if (!legion) return;
 
     // 1. 绘制右侧 14×13 tiles 军团详细信息面板
-    this._drawLegionDetailPanel(ctx, m.legion);
+    this._drawLegionDetailPanel(ctx, legion);
 
-    // 2. 绘制底部 NPC 提示窗口 (Talk 3 / Talk 21)
-    const promptText =
-      m.step === "choose_order" && m.targetCity
-        ? `向${m.targetCity.name.trim()}移動下。請下達戰鬥指示。`
-        : "請指示行軍目標之據點。";
+    // 2. 绘制底部 NPC 提示窗口
+    let promptText;
+    if (v) {
+      promptText = "以滑鼠的右鍵回復。";
+    } else if (m.step === "choose_order" && m.targetCity) {
+      promptText = `向${m.targetCity.name.trim()}移動下。請下達戰鬥指示。`;
+    } else {
+      promptText = "請指示行軍目標之據點。";
+    }
     this._drawBottomPromptWindow(ctx, promptText);
   }
 
@@ -1229,8 +1329,7 @@ export class GameBar {
   _drawLegionDetailPanel(ctx, legion) {
     if (!legion) return;
     const sc = this.app.scenario;
-    const me = cmd.playerFaction(sc);
-    if (!me) return;
+    if (!sc) return;
 
     const W = innerWidth;
     const pw = 224;
@@ -1255,11 +1354,16 @@ export class GameBar {
     const x = px;
     const y = py;
 
+    // 使用军团所属势力信息；若无法确定（如查看非玩家军团），使用军团.faction
+    const legionFaction =
+      legion.faction == null
+        ? cmd.playerFaction(sc)
+        : sc.factions.find((f) => f.idx === legion.faction);
     const gen = sc.generals?.find((g) => g.name === legion.leader);
-    const monarch = sc.monarchOf(me);
+    const monarch = legionFaction ? sc.monarchOf(legionFaction) : null;
     const isMonarch = legion.is_monarch || gen?.name === monarch?.name;
 
-    // 1. 头像 64x64 (向下微移至 y+14，与右侧 4 行文字整体垂直居中对齐)
+    // 1. 头像 64x64
     const portraitKey = gen?.portrait ?? monarch?.portrait;
     if (this._legionPortraitKey !== portraitKey) {
       this._legionPortraitKey = portraitKey;
@@ -1289,8 +1393,8 @@ export class GameBar {
       ctx.fillRect(x + 8, avatarY, 64, 64);
     }
 
-    // 2. 右侧信息: 將軍/君主, 首都, 總兵力, 士氣值 (按四字寬度預留左側標籤)
-    const cap = sc.city(me.capital);
+    // 2. 右侧信息: 將軍/君主, 首都, 總兵力, 士氣值
+    const cap = legionFaction ? sc.city(legionFaction.capital) : null;
     ctx.font = FONT;
     ctx.textBaseline = "top";
     const infoRows = [
@@ -1314,7 +1418,7 @@ export class GameBar {
       }
     });
 
-    // 竖直分隔白线 (按四字寬度預留，平移至 x+142.5)
+    // 竖直分隔白线
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -1322,22 +1426,20 @@ export class GameBar {
     ctx.lineTo(x + 142.5, y + 80);
     ctx.stroke();
 
-    // 3. 下方 6 队编制 (黑底框高 120px，下方与底线框保留充足空间)
+    // 3. 下方 6 队编制
     ctx.fillStyle = "#000000";
     ctx.fillRect(x + 8, y + 86, 192, 120);
 
     const unitNames = ["主將", "前鋒", "左翼", "右翼", "左備", "右備"];
     const units = this._getLegionUnits(legion);
     const { cav, arc, inf } = this.imgs;
-    const typeImgs = [cav, inf, arc];
+    const typeImgs = [null, cav, inf, arc]; // 1=騎兵, 2=步兵, 3=弓兵
 
     units.forEach((u, i) => {
       const uy = y + 90 + i * 18;
-      // 编制名称
       ctx.fillStyle = CREAM;
       ctx.fillText(unitNames[i] || "隊伍", x + 16, uy);
 
-      // 红底兵种图标
       const rx = x + 95;
       const ry = uy + 1;
       const rw = 22;
@@ -1349,7 +1451,6 @@ export class GameBar {
         ctx.drawImage(img, rx, ry, rw, rh);
       }
 
-      // 兵力数值 (右对齐)
       ctx.font = DIN;
       ctx.fillStyle = "#ffffff";
       const s = `${u.troops ?? 0}`;
@@ -1359,7 +1460,7 @@ export class GameBar {
   }
 
   _hitLegionDetailPanel(px, py) {
-    if (!this.marchingOrder) return false;
+    if (!this.marchingOrder && !this.viewingLegion) return false;
     const W = innerWidth;
     const pw = 224;
     const ph = 240;
@@ -2291,6 +2392,7 @@ export class GameBar {
           morale: 200,
           formation: 1,
           target: null,
+          status: 0x80,
           delegated: false,
           cooldown: 0,
           units: [
@@ -2302,6 +2404,7 @@ export class GameBar {
             { type: 3, troops: 1000 },
           ],
         };
+        ensureLegionSlot(sc.legions, newLegion, p.monarch.idx);
         sc.legions.push(newLegion);
 
         this.app.hud.refreshInfo?.();
@@ -3793,10 +3896,12 @@ export class GameBar {
       morale: 200,
       formation: 1,
       target: null,
+      status: 0x80,
       delegated: false,
       cooldown: 0,
       units: units.map((u) => ({ type: u.type + 1, troops: u.troops })),
     };
+    ensureLegionSlot(sc.legions, newLegion, gen.idx);
     sc.legions.push(newLegion);
 
     // 5. 弹出该武将发言对白弹窗 (100% 逆向复刻 KI.EXE 0x6F32 逻辑)
@@ -4814,7 +4919,9 @@ export class GameBar {
         this.keypadDialog ||
         this.legionMenu ||
         this.marchingOrder ||
-        this.orderChoiceMenu
+        this.viewingLegion ||
+        this.orderChoiceMenu ||
+        this.cityCard
       );
     const subActive = this.selectedSubmenu != null;
     c.hold = this._clockHoldRequested || modalOpen || subActive; // 点击军师菜单项或外部模态时停止计时
@@ -4828,25 +4935,11 @@ export class GameBar {
   // ── 命中测试: 返回 true = 坐标在 UI 上, 地图交互不处理 ──
   hitTest(px, py) {
     this.layout();
-    // 当行军指示处于选择目标据点状态时，允许在地图上拖拽平移与点击据点
-    if (this.marchingOrder) {
-      if (this.orderChoiceMenu && this._hitOrderChoiceMenu(px, py) >= 0) {
-        return true;
-      }
-      if (py < 32 && px >= this.bx && px < this.bx + 640) return true;
-      if (this._hitLegionDetailPanel(px, py)) return true;
-      if (this._hitBottomPromptWindow(px, py)) return true;
-      if (
-        this.panels.some(
-          (p) => px >= p.x && px < p.x + p.w && py >= p.y && py < p.y + p.h,
-        )
-      ) {
-        return true;
-      }
-      return false;
-    }
+    // 查看非玩家军团时锁定地图，仅列表和右侧面板可交互
+    if (this.viewingLegion) return true;
 
-    // ★军师菜单下任何一个菜单被选中打开时，整个游戏地图锁定不可移动，地图上的操作全部无效
+    // ★军师菜单下任何一个菜单被选中打开时，整个游戏地图锁定不可移动，地图上的操作全部无效。
+    // 行军目标选择也属于「軍團」子菜单，不能为拖拽/地图拾取开例外。
     if (this.selectedSubmenu != null) return true;
     if (this.proposalAudience) return true;
     if (this.adviceMenu) return true;
@@ -4909,20 +5002,28 @@ export class GameBar {
         this.app.view.draw();
         return true;
       }
-      if (this.orderChoiceMenu) {
+      if (this.orderChoiceMenu || this.marchingOrder) {
         clickSfx();
-        this.closeOrderChoiceMenu();
-        if (this.marchingOrder) {
-          this.marchingOrder.step = "pick_target";
-          this.marchingOrder.targetCity = null;
-        }
-        this.app.view.draw();
+        // 定稿层级：目标选择/命令菜单右键直接回到羽扇菜单条展开、八项未选中；
+        // 不重开军团列表，也不保留行军指示器。
+        this.resetAdvisorDescendants();
         return true;
       }
-      if (this.marchingOrder) {
+      if (this.viewingLegion) {
         clickSfx();
-        this.closeMarchingOrder();
-        this.showLegionMarchOrders();
+        this.viewingLegion = null;
+        if (this.listDialog) {
+          this.listDialog.selectedRow = -1;
+          const sc = this.app.scenario;
+          const me = cmd.playerFaction(sc);
+          const src = this._legionListSourceCity;
+          this.listDialog.footer.text =
+            src && me && src.faction === me.idx
+              ? "請選擇進行行軍指示之軍團。"
+              : "請選擇要查看之軍團。";
+        }
+        this.syncClock();
+        this.app.view.draw();
         return true;
       }
       if (this.legionMenu) {
@@ -5037,6 +5138,8 @@ export class GameBar {
         if (hadFormation) this.closeFormationDialog();
         if (hadBaseMenu) this.closeBaseMenu();
         if (hadPersonnelMenu) this.closePersonnelMenu();
+        this.viewingLegion = null;
+        this._legionListSourceCity = null;
         if (hadList) this.closeListDialog();
         if (hadChoice) this.closeChoiceDialog();
         if (hadCard) this.closeCityCard();
@@ -5058,6 +5161,20 @@ export class GameBar {
         return true;
       }
       return false;
+    }
+
+    // 羽扇是唯一开关且优先级最高：即使子层正在消费全部点击，也必须先命中。
+    const fanHit =
+      btn === 0 &&
+      py >= 3 &&
+      py < 28 &&
+      px - this.bx >= 336 &&
+      px - this.bx < 366;
+    if (fanHit) {
+      clickSfx();
+      this.submenuOpen = !this.submenuOpen;
+      this.resetAdvisorDescendants();
+      return true;
     }
 
     if (this.proposalAudience) {
@@ -5166,6 +5283,10 @@ export class GameBar {
       if (btn === 0) {
         const sc = this.app.scenario;
         const L = this.marchingOrder.legion;
+        if (!this.legionAcceptsMarchOrder(L, true)) {
+          this.resetAdvisorDescendants();
+          return true;
+        }
 
         // 如果命令菜单已展开
         if (this.orderChoiceMenu) {
@@ -5173,19 +5294,16 @@ export class GameBar {
           if (ci >= 0) {
             clickSfx();
             const targetCity = this.marchingOrder.targetCity;
+            const src = this.marchingOrder.sourceCity;
             if (ci === 0) {
               // 戰鬥指揮 (玩家战术指挥)
-              L.target = targetCity;
-              L.delegated = false;
-              L.cooldown = 1;
+              if (!this.assignMarchOrder(L, targetCity, false)) return true;
               this.app.hud?.flashEvent?.(
                 `「${L.leader}」隊向「${targetCity.name.trim()}」出發。`,
               );
             } else if (ci === 1) {
               // 委任 (AI自主指挥)
-              L.target = targetCity;
-              L.delegated = true;
-              L.cooldown = 1;
+              if (!this.assignMarchOrder(L, targetCity, true)) return true;
               this.app.hud?.flashEvent?.(
                 `「${L.leader}」隊委任向「${targetCity.name.trim()}」進軍。`,
               );
@@ -5195,9 +5313,14 @@ export class GameBar {
             }
             this.closeOrderChoiceMenu();
             this.closeMarchingOrder();
-            this.selectedSubmenu = null;
-            this.syncClock();
-            this.app.view.draw();
+            if (src) {
+              // 大地图入口：命令完成后返回该城市军团列表
+              this.showLegionCard(src);
+            } else {
+              // 军师菜单入口：回到军师行军指示列表，可继续下达命令
+              this.selectedSubmenu = 4;
+              this.showLegionMarchOrders();
+            }
             return true;
           }
         }
@@ -5410,6 +5533,12 @@ export class GameBar {
       }
       return true;
     }
+
+    // 非玩家军团查看模式：点击列表外（含右侧面板/地图）均消费，不触发地图交互
+    if (this.viewingLegion) {
+      return true;
+    }
+
     if (this.cityCard && this._hitCityCard(px, py)) {
       return true;
     }
@@ -5431,32 +5560,9 @@ export class GameBar {
         if (ix >= ix0 && ix < ix0 + 30 && py >= 3 && py < 28) {
           clickSfx();
           if (act === "fan") {
+            // 普通层的羽扇命中；子层优先命中已在click入口处理。
             this.submenuOpen = !this.submenuOpen;
-            // 乒乓开关：打开或隐藏下级；隐藏时优先级最高，关闭所有子孙窗口与选中状态
-            this.selectedSubmenu = null;
-            this.closeBaseMenu?.();
-            this.closeListDialog?.();
-            this.closeGeneralCard?.();
-            this.closeFormationDialog?.();
-            this.closeFinanceDialog?.();
-            this.closeKeypadDialog?.();
-            this.closeLegionMenu?.();
-            this.closeMarchingOrder?.();
-            this.closeCityCard?.();
-            this.closeChoiceDialog?.();
-            const advDlg = document.querySelector("#advisordlg");
-            if (advDlg && advDlg.style.display !== "none") {
-              this.app.hud?.resolveAdvice?.(null);
-            }
-            const domDlgs = Array.from(
-              document.querySelectorAll(".panel"),
-            ).filter(
-              (el) =>
-                el.id && el.id !== "advisordlg" && el.style.display !== "none",
-            );
-            domDlgs.forEach((el) => el.remove());
-            if (this.app?.view) this.app.view.selectedCity = null;
-            this.syncClock();
+            this.resetAdvisorDescendants();
           }
           if (act === "flag") this.resOpen = !this.resOpen;
           if (act === "map") {
@@ -6000,6 +6106,11 @@ export class GameBar {
   }
 
   openSystemSaveDialog() {
+    if (!canSnapshotState(this.app)) {
+      this.app.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
+      warnSfx();
+      return false;
+    }
     clickSfx();
     this.settingsOpen = false;
     this.syncClock();
@@ -6048,6 +6159,7 @@ export class GameBar {
       hover: -1,
     };
     this.app.view.draw();
+    return true;
   }
 
   closeSystemSaveDialog() {
@@ -6062,6 +6174,11 @@ export class GameBar {
   async confirmSystemSave(rowIdx) {
     const row = this.systemSaveDialog?.rows?.[rowIdx];
     if (!row) return;
+    if (!canSnapshotState(this.app)) {
+      this.app.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
+      warnSfx();
+      return;
+    }
     clickSfx();
     const slotIdx = row.slot;
     const sc = this.app.scenario;
@@ -6186,7 +6303,7 @@ export class GameBar {
         ctx.fillRect(inner.x + 4, sy, inner.w - 8, slotStep - 2);
       }
 
-      // 第一行：第○章勢力：○○　　軍師：○○○
+      // 第一行：第X章势力：XX  军师：XXX
       ctx.font = FONT;
       ctx.fillStyle = row.played ? GOLD : "#888888";
       ctx.textBaseline = "top";
@@ -6340,7 +6457,7 @@ export class GameBar {
     if (this.legionMenu) {
       this._drawLegionMenu(ctx);
     }
-    if (this.marchingOrder) {
+    if (this.marchingOrder || this.viewingLegion) {
       this._drawMarchingOrder(ctx);
     }
     if (this.orderChoiceMenu) {

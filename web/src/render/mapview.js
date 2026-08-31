@@ -6,7 +6,7 @@ import { findRoadRoute, roadGraphReady } from "../game/roadgraph.js";
 const MARCH_STYLE_COUNT = 24;
 const MARCH_FRAME_STATIONARY = 4;
 const _marchMarkerCache = new Map(); // "style:frame" -> {img, ok}
-const _engageMarkerCache = new Map(); // frame -> {img, ok}
+const _engageMarkerCache = new Map(); // frame -> {img, ok, promise}
 
 /** 原版 MMAP.MCH 军团标识：势力样式槽 × 西/东/北/南/驻止帧。 */
 function getMarchMarkerImage(style, frame, onReady) {
@@ -31,18 +31,42 @@ function getMarchMarkerImage(style, frame, onReady) {
 }
 
 /** KI.EXE 0x2B3C：group 0 的四相 48×48 接敌/攻城动画。 */
-function getEngageMarkerImage(frame, onReady) {
+function engageMarkerEntry(frame, onReady) {
   const safeFrame = frame & 3;
   let entry = _engageMarkerCache.get(safeFrame);
-  if (entry) return entry.ok ? entry.img : null;
-  entry = { img: new Image(), ok: false };
+  if (entry) return entry;
+  let settle;
+  entry = {
+    img: new Image(),
+    ok: false,
+    promise: new Promise((resolve) => {
+      settle = resolve;
+    }),
+  };
   _engageMarkerCache.set(safeFrame, entry);
   entry.img.onload = () => {
     entry.ok = true;
     onReady?.();
+    settle();
+  };
+  entry.img.onerror = () => {
+    onReady?.();
+    settle();
   };
   entry.img.src = `grf/engage/group_0_frame_${safeFrame}.png`;
-  return null;
+  return entry;
+}
+
+function getEngageMarkerImage(frame, onReady) {
+  const entry = engageMarkerEntry(frame, onReady);
+  return entry.ok ? entry.img : null;
+}
+
+/** 四相全部完成加载（失败也视为已准备），避免动画开始后首帧缺图。 */
+export function preloadEngageMarkerImages(onReady) {
+  return Promise.all(
+    [0, 1, 2, 3].map((frame) => engageMarkerEntry(frame, onReady).promise),
+  );
 }
 
 /** KI.EXE 0x2808: 0=西、1=东、2=北、3=南；到达/驻止为4。 */
@@ -356,7 +380,10 @@ export class MapView {
       if (lx < -60 || ly < -40 || lx > cv.width + 60 || ly > cv.height + 40)
         continue;
 
-      if (L._engagement) {
+      const transition = this.app?.engageTransition;
+      if (transition?.active && transition.legion === L) {
+        this._drawEngagement(ctx, lx, ly, transition.frame);
+      } else if (L._engagement) {
         this._drawEngagement(ctx, lx, ly, L._engagement.countdown);
       } else if (L.target) {
         // 行军路线虚线只读导航状态；绘制层不得写军团路径缓存。

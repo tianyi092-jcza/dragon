@@ -37,6 +37,10 @@ const battleMaps = parseJson(
   await fs.readFile(new URL("../web/battle_maps.json", import.meta.url)),
   "battle_maps.json",
 );
+battleMaps.navigation = parseJson(
+  await fs.readFile(new URL("../web/battle_navigation.json", import.meta.url)),
+  "battle_navigation.json",
+);
 assert.equal(battleMaps.directory.length, 214);
 assert.deepEqual(
   battleMaps.directory.slice(0xc0, 0xd6).map((entry) => entry.layout),

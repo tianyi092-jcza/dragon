@@ -17,10 +17,11 @@
 - 游戏逻辑分辨率：`640×400`。战略主画布为 `#cv`，标题/开局为独立画布 `#startv`。
 - 战略地图网格：`384×256`，每格对应 16×16 原版图块。
 - `web/data.json`：五组剧本目录合并的 20 章数据，由 `tools/parse_sinario.py` 生成；改解析器后必须重跑，不能直接修 JSON 掩盖解析错误。
-- `SAVE.DAT`：4 槽，每槽 `0x56C0` 字节。军团表为128×64B；运行时状态段起点 `0x2240`，槽文件因 `0x80` 头部位于 **`0x22C0`**。
+- `SAVE.DAT`：4 槽，每槽 `0x56C0` 字节。军团表为128×64B；运行时状态段起点 `0x2240`，槽文件因 `0x80` 头部位于 **`0x22C0`**。`0x8CFF`原样镜像完整状态段，途中`+0x0A/+0x0C/+0x0E`道路上下文也会保存；仅`+0x1A/+0x1C`地图far pointer由`0x8AEA`读档修复。
 - `BATTLE.MAP` 目录项为 `[layout, theme]`；布局数据从 `0x200 + layout * 256` 开始读取 4096B。实际布局仅 `0/1/2`。
 - 势力军团标识样式来自势力记录 `+0x3E`，使用固定 24 槽×5帧原版资源，不做运行时染色或任意角旋转。
 - 资金为 24bit：`word@+0x20 + byte@+0x22 << 16`。兵力相关原版记录通常以十人为单位，Web 展示/战术单位可能以人为单位，转换时必须注明层级。
+- 原版 SAVE 军团记录固定包含六队；旧 Web synthetic/recreation 对象若仅有总兵，统一由 `legionunits.js` 以项目既有默认类型 `[1,1,3,3,2,2]` 确定性补为六队。这是 Web 兼容补全，不得写成 KI.EXE 已确认的自动编成规则。
 
 ## 3. 当前架构
 
@@ -31,6 +32,7 @@
 | `web/src/game/roadgraph.js` | 原版 192 节点/254 边道路拓扑、加权寻径、道路格到端点方向 |
 | `web/src/game/fieldterrain.js` | `0x4B63` 野战地形分类、BATTLE.MAP 目录与镜像选择 |
 | `web/src/game/autobattle.js` | `0x5130/0x5285/0x52D7` 野战/攻城速算、城池损伤纯函数 |
+| `web/src/game/legionmode.js` / `engagetransition.js` | status bit2 委任权威与战略地图四相速算过渡 |
 | `web/src/game/tacticalbattle.js` / `game/battle/` | 战术战斗入口；当前实时模型将逐步替换为原版规则兼容模拟器 |
 | `web/src/game/battle/originalrng.js` | KI.EXE `0xEC82/0xECE0` 原版随机源与可回放状态 |
 | `web/src/game/battle/originalstate.js` / `originalcommands.js` | 原版 `0xC00` 对象池、字节字段、命令广播与切换 |
@@ -70,6 +72,7 @@
 - 游戏内读档必须返回标题后执行，禁止直接热替换当前 scenario。
 - 标题空存档槽必须在 hover、hit-test、click 三条路径都禁用。
 - 玩家下达的军团目标优先于通用 AI；委任只改变后续自主和战斗处理，不能覆盖尚未完成的玩家命令。
+- 正式入口必须由`tools/webserver.py`单实例持久lease授权；第二页面不初始化游戏。SAVE读取/写入都校验内存token，写入按时间顺序串行覆盖，不使用CAS；静态无服务模式fail closed。解析态、sidecar、lease和锁位于静态根外的`.dragon-runtime/`，服务端保存先验证临时binary/meta/json再原子发布；客户端仅在HTTP成功后提交内存槽与四槽底版。
 
 ## 5. 常用命令
 
@@ -116,7 +119,7 @@ playwright-cli close
 4. **野战防守方**：`0x4C72` 从同坐标候选中选一个最强主军，不合并所有军团，也不能用 synthetic city 冒充。
 5. **撤退语义**：`0x291A` 不是“退到最近据点”；它是无法继续行动后的武将去向分派。
 6. **战术城损**：没有真实 `wallRecords` 时不得用 `defLeft`、战略 ratio 或臆造 metric 写城损。
-7. **存档途中导航**：二进制 SAVE保存status、目标节点/坐标/城和命令态，但不保存运行时edge/stride/point指针；载入后重建导航。Web私有完整RNG快照只进即时JSON metadata，不占SAVE.DAT未知尾段。
+7. **存档途中导航**：二进制 SAVE 原样保存`+0x0A stride/+0x0C point address/+0x0E edge-or-node`；Web须按E717固定布局转换为`edgeId/pointIndex`，不能把DOS地址直接当ID。活动军团主将为`+2` byte，`+3`由bit5接敌倒计时复用，禁止按u16解析。无独立field/siege字节；首次tick按`0x25CC→0x2831/0x2880`现场重检。Web私有完整RNG与强制撤退/精确帧态写sidecar。
 8. **渲染纯度**：地图和小地图只能读取导航状态，不能由绘制函数推进或修改军团路线。
 9. **自动格式化**：pi-lens 可能在回合结束后改写格式；继续编辑前重读相关文件，尤其 `ai.js`、`autobattle.js`、`savegame.js` 和验证脚本。
 10. **工作区隔离**：提交前按功能审查改动，禁止用整体 reset/clean 处理含未提交工作的工作区。
@@ -132,7 +135,8 @@ playwright-cli close
 - 六单位与士气战果回写；
 - `0x474A/0x487B/0x291A/0x2977/0x29C3/0x2A7E` 战后继续、撤退和武将去向；
 - `0x4DA4` 破城同城守军组撤退；
-- 玩家委任军团命令优先与自动战斗行为。
+- 玩家委任军团命令优先、status bit2 持久化、SAVE 途中目标恢复、攻守速算分流与预载后严格0→3战略地图四相过渡；
+- 中立城 `0x18` 临时城防速算、战略结果士气单次写回、战术/战略/存档共享同一 canonical 原版 RNG 连续流及破城后保留 `0x51B3` 扣损城兵。
 
 **当前主线：原版战术规则兼容模拟器。**
 产品定稿要求是“动画可以不同，但胜负、六队伤亡、士气、城壁与据点城损必须按原版”。当前 Web 实时 `simulation.js` 的伤害、士气、克制、冲锋、齐射和超时判胜均只是临时表现模型，不得作为最终规则。已闭合城壁对象构造/metric/破坏bit/战后城损、KI.EXE `0xEC82/0xECE0` 原版随机源、`0xC00` 对象池、固定逻辑帧、命令广播、目标选择、碰撞伤害与精确 RNG 短路、六队对象初始化/固定96次RNG激活、玩家/AI命令跳表、`A754/A785` 96槽顺序、`AA2C`阵型目标、活动子对象`A7FD`、四向及`B0D3/B116`上下层探针、`ABD2/ABFF/AC55`攻击入口、`AD2D/AD7F`与`B8AA`固定效果槽、`ADC8/AEA9`活动计数，以及战后六组/士气；真实自动撤退为首对象 `+3 < 0x32`，并包含mode0每10帧HP衰减，绝不是Web临时士气12/兵力25%。效果对象`B941→B97E→BA2E→BAB7`逐帧生命周期、`B1B1`真实平面探针及`0x9FDC`战术退出也已闭合。`C653→AED2`队列与`B00D`路径项、战后`0x291A`严格原版字节RNG，以及原版会话对Canvas正式tick/finish/命令接管均已完成；B00D路径区已修正为0x3000字节，双方无别名；UI命令使用固定帧队列，组长/子槽同步；`B240`占用提交与`AF65..B00C`移动状态机已正式接入；`CAEB→BB3C/BBA6→BD46`地图资产、双导航平面、代价寻路和64项回溯已闭合，注意目录/tile来自BATTLE.MAP、`0xF800` D302属性大块来自BATTLE.MDL、BATTLE.SCH只提供每layout 0x100块；SAVE已保存撤退关键字段并用JSON metadata保存完整RNG快照。Canvas不得再通过`simulation.tickBattle`写胜负数据。`9CE2/9DA1/9E10`地图对象及`B5B7/B824/BB6D`城壁碰撞、tile改写与bit7刷新也已进入Session，9E10固定从0xE00且D302索引只对BL加偏移。ADC8固定顺序为AE56→AED2→AF69/B240扫描；BD46的EB/74只控制跨层而非方向mask；阵型基准为2005/203A，D35不得依赖玩家势力，战后兵力比例统一十人单位。`originaldiff.js`已提供规范化规则包、hash和首差异字节定位；真实KI.EXE逐帧捕获仍需DOSBox-X debugger。TALK通用入口075B无战术调用者，606..669暂按不可证可达处理，Web对白只属表现政策。

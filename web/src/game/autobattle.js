@@ -2,10 +2,14 @@
 //
 // 本模块只实现已经由指令流闭合的数值部分：同地点主军选择、六单位战力、
 // 逐单位伤亡与士气回写。0x474A 的战后撤退路径和 0x291A 的武将去向另行接入。
+import {
+  createDefaultLegionUnits,
+  DEFAULT_LEGION_UNIT_TYPES,
+} from "./legionunits.js";
 
 const UNIT_COUNT = 6;
 const EMPTY_TYPE = 4;
-const DEFAULT_TYPES = [1, 1, 3, 3, 2, 2];
+const DEFAULT_TYPES = DEFAULT_LEGION_UNIT_TYPES;
 const CITY_GARRISON_TYPES = [3, 3, 3, 3, 3, 3];
 // 0x52D7 用军团长索引直接寻址128×32B武将表。0x4F8A写入索引0x7F，
 // 所有20个原始剧本的第127项均是固定占位记录：攻/野/水专长0，武/统/政8。
@@ -23,7 +27,12 @@ export const TYPE_WEIGHT = Object.freeze([
 ]);
 
 const clampByte = (value) => Math.max(0, Math.min(0xff, value | 0));
-const byteRand = (random) => Math.floor(random() * 0x100) & 0xff;
+
+function nextByte(rng) {
+  if (!rng || typeof rng.nextByte !== "function")
+    throw new TypeError("strategic battle requires OriginalBattleRng.nextByte");
+  return rng.nextByte() & 0xff;
+}
 
 function splitTotal(total) {
   const value = Math.max(0, total | 0);
@@ -71,9 +80,9 @@ export function legionBattleUnits(legion) {
     const expected = Math.max(0, legion?.troops | 0);
     if (sum === expected) return units;
   }
-  return splitTotal(legion?.troops ?? 0).map((troops, index) => ({
-    type: DEFAULT_TYPES[index],
-    troops,
+  return createDefaultLegionUnits(legion?.troops ?? 0).map((unit) => ({
+    type: unit.type,
+    troops: Math.floor(unit.troops / 10),
   }));
 }
 
@@ -121,24 +130,22 @@ export function baseArmyPower(legion, mode, cityDefence = 0) {
 }
 
 /** 0x52D7：武力、统率和对应战斗专长修正。 */
-export function commanderPower(
-  sc,
-  legion,
-  mode,
-  basePower,
-  random = Math.random,
-) {
+export function commanderPower(sc, legion, mode, basePower, rng) {
   const general = generalOf(sc, legion);
   const force = clampByte(general?.ability?.force ?? 0);
   const lead = clampByte(general?.ability?.lead ?? 0);
   let specialtyValue = general?.ability?.field ?? 0;
-  if (mode === 3) specialtyValue = general?.ability?.siege ?? 0;
+  // 0x52D7 的战型参数：mode 0 攻城与临时兵种权重行3分离；
+  // 攻守双方武将均读取攻城专长，只有0x5285的攻方兵种行临时切到3。
+  if (mode === 0 || mode === 3)
+    specialtyValue = general?.ability?.siege ?? 0;
   else if (mode === 2) specialtyValue = general?.ability?.naval ?? 0;
   const specialty = Math.max(0, Math.min(15, specialtyValue));
 
   let command;
   if (force < lead) command = lead * 2 - (lead >> 2);
-  else if ((byteRand(random) & 3) === 0) command = force + lead - (force >> 2);
+  else if ((nextByte(rng) & 3) === 0)
+    command = force + lead - (force >> 2);
   else command = force * 2;
 
   const modifier = Math.floor((command << 4) / Math.max(1, 16 - specialty));
@@ -149,25 +156,30 @@ export function commanderPower(
   return (product >>> 10) & 0xffff;
 }
 
-function applyCasualties(legion, ratio, weakSide, random) {
+function casualtyState(legion) {
   const beforeUnits = legionBattleUnits(legion);
-  const oldTotal = beforeUnits.reduce((sum, unit) => sum + unit.troops, 0);
-  const afterUnits = beforeUnits.map((unit, index) => {
-    const roll = byteRand(random);
-    let loss = (roll & 7) + 2;
-    if (weakSide) loss = (roll % (ratio + 1)) + 8;
-    let troops = Math.max(0, unit.troops - loss);
-    if (index === 0 && troops === 0) troops = 1;
-    return { ...unit, troops };
-  });
-  const newTotal = afterUnits.reduce((sum, unit) => sum + unit.troops, 0);
+  return {
+    beforeUnits,
+    units: beforeUnits.map((unit) => ({ ...unit })),
+    oldTotal: beforeUnits.reduce((sum, unit) => sum + unit.troops, 0),
+  };
+}
+
+function applyUnitLoss(state, index, loss) {
+  let troops = Math.max(0, state.units[index].troops - loss);
+  if (index === 0 && troops === 0) troops = 1;
+  state.units[index].troops = troops;
+}
+
+function finishCasualties(legion, state, weakSide) {
+  const troops = state.units.reduce((sum, unit) => sum + unit.troops, 0);
   const oldMorale = clampByte(legion?.morale ?? 200);
   let morale = 0;
-  if (oldTotal > 0 && oldMorale >= 100) {
+  if (state.oldTotal > 0 && oldMorale >= 100) {
     const moraleBase = weakSide ? 100 : oldMorale;
-    morale = Math.floor((moraleBase * newTotal) / oldTotal);
+    morale = Math.floor((moraleBase * troops) / state.oldTotal);
   }
-  return { beforeUnits, units: afterUnits, oldTotal, troops: newTotal, morale };
+  return { ...state, troops, morale };
 }
 
 /**
@@ -178,20 +190,30 @@ export function resolveStrategicBattle(
   sc,
   attacker,
   defender,
-  { mode = 1, cityDefence = 0, random = Math.random } = {},
+  { mode = 1, cityDefence = 0, rng } = {},
 ) {
   const atkBase = baseArmyPower(attacker, mode === 0 ? 3 : mode, 0);
   const defBase = baseArmyPower(defender, mode, cityDefence);
-  // 0x5130只在攻城时把第一次0x5285的AL临时改为3；
-  // 随后的0x52D7恢复原始AL=0，因此攻方仍取攻城专长。
-  const atkScore = commanderPower(sc, attacker, mode, atkBase, random) + 8;
-  const defScore = commanderPower(sc, defender, mode, defBase, random) + 8;
+  // 0x5130只在攻城时把攻方第一次0x5285兵种权重行临时改为3；
+  // 随后0x52D7仍以原始战型0调用，攻守双方均读取攻城专长。
+  const atkScore = commanderPower(sc, attacker, mode, atkBase, rng) + 8;
+  const defScore = commanderPower(sc, defender, mode, defBase, rng) + 8;
   const winner = atkScore >= defScore ? "atk" : "def";
   const strong = Math.max(atkScore, defScore);
   const weak = Math.max(1, Math.min(atkScore, defScore));
   const ratio = Math.min(100, Math.floor((strong * 8) / weak));
-  const attack = applyCasualties(attacker, ratio, winner !== "atk", random);
-  const defence = applyCasualties(defender, ratio, winner !== "def", random);
+
+  // 0x5130内的伤亡段（0x51F9起）：SI固定胜方、DI固定败方，交错消费12字节。
+  const attackState = casualtyState(attacker);
+  const defenceState = casualtyState(defender);
+  const winnerState = winner === "atk" ? attackState : defenceState;
+  const loserState = winner === "atk" ? defenceState : attackState;
+  for (let index = 0; index < UNIT_COUNT; index++) {
+    applyUnitLoss(winnerState, index, (nextByte(rng) & 7) + 2);
+    applyUnitLoss(loserState, index, (nextByte(rng) % (ratio + 1)) + 8);
+  }
+  const attack = finishCasualties(attacker, attackState, winner !== "atk");
+  const defence = finishCasualties(defender, defenceState, winner !== "def");
   return { winner, ratio, atkScore, defScore, attack, defence };
 }
 

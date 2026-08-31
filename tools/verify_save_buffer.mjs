@@ -13,18 +13,23 @@ const { initSaveAssets, serializeSave } = await import(
 
 const total = 4 * 0x56c0;
 const baseline = new Uint8Array(total);
+// selected slot的未建模字节与0x52C0..尾部事件区必须原样保留。
+baseline[0x1234] = 0x5a;
+baseline[0x52c0] = 0xa5;
+baseline[0x56bf] = 0x7e;
 const slots = Array.from({ length: 20 }, () => new Uint8Array(0x56c0));
 const toB64 = (bytes) => Buffer.from(bytes).toString("base64");
 
 globalThis.fetch = async (url) => ({
-  ok: true,
+  ok: String(url) !== "/api/save.dat",
+  status: String(url) === "/api/save.dat" ? 404 : 200,
   json: async () =>
     String(url).includes("scen_raw")
       ? { save_b64: toB64(baseline), slots: slots.map(toB64) }
       : { A: [0x41] },
 });
 
-await initSaveAssets();
+await initSaveAssets({ allowStaticFallback: true });
 const faction = { idx: 0, monarch_idx: 0, capital: 0, gold: 100, money: 100 };
 const app = {
   scenarioIdx: 0,
@@ -42,6 +47,9 @@ const app = {
   },
 };
 const first = serializeSave(app, 0, "A");
+assert.equal(first[0x1234], 0x5a, "selected-slot unknown byte was overwritten");
+assert.equal(first[0x52c0], 0xa5, "selected-slot event tail was overwritten");
+assert.equal(first[0x56bf], 0x7e, "selected-slot final byte was overwritten");
 app.clock.day = 2;
 const second = serializeSave(app, 1, "B");
 assert.deepEqual(
@@ -49,4 +57,4 @@ assert.deepEqual(
   first.slice(0, 0x56c0),
   "Saving slot 2 reverted slot 1 to the startup baseline",
 );
-console.log("sequential save buffer preserved slot 1");
+console.log("save buffer preserved selected-slot sentinels and prior slot");

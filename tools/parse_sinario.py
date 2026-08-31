@@ -182,7 +182,7 @@ def parse_scenario(sc: bytes):
       # ---- ★0x21C0 区已破解(2026-08-23 二次逆向, 详见 re-notes-kernel.md) ----
       # KI.EXE 存档流(0x8CAE)证明：剧本文件=4×0x56C0 静态场景镜像+0x80B 头，不含军团；
       # 运行时军团在状态段 DS:0x2240；SAVE 槽文件因前置0x80B头而位于0x22C0。
-      # 军团记录64B：+1势力、+2/+3军团长、+4总兵力、+6士气、+10/+12当前坐标，
+      # 军团记录64B：+1势力、+2军团长字节（+3为接敌倒计时）、+4总兵力、+6士气、+10/+12当前坐标，
       # +28+i*4为六单位（+1兵力、+2兵种）。
       # 剧本文件同偏移的 32B 条目是「初始行军路线点表」(+4/+6=地图坐标 word)，非军团。
       out["legions"] = []
@@ -203,7 +203,7 @@ def main():
             if not path.is_relative_to(base_dir):
                   continue
             try:
-                  with open(str(path), "rb") as fh:  # noqa: S108  # nosec
+                  with open(str(path), "rb") as fh:  # nosec
                         d = fh.read()
             except OSError as e:
                   raise SystemExit(f"无法读取源文件 {path}: {e}") from e

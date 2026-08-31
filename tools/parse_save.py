@@ -8,7 +8,8 @@
 
 军团记录 64B @槽+0x22C0 ×128 (内存状态段 DS:0x2240；槽文件前置0x80B头):
   +0x00 状态位图(≥0x80存活; bit2有命令; bit5战斗中)
-  +0x01 势力号；+0x02 军团长武将序号 u16le（军团槽与武将槽一一对应）
+  +0x01 势力号；+0x02 军团长武将序号 byte（军团槽与武将槽一一对应）
+  +0x03 接敌等待倒计时（status bit5时）；普通活动军团实测为0
   +0x04 总兵力；+0x06 士气
   +0x10/+0x12 当前 x/y (word le)
   +0x28+i*4 六单位记录：+1兵力、+2兵种(1..3，4为空)
@@ -32,7 +33,16 @@ from parse_sinario import SRC as SINARIO_SRC
 
 BASE = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SAVE_SRC = os.path.join(BASE, "Dragon", "SAVE.DAT")
-OUT = os.path.join(os.path.dirname(__file__), "..", "web", "save.json")
+OUT = os.environ.get(
+    "DRAGON_SAVE_JSON",
+    os.path.join(os.path.dirname(__file__), "..", ".dragon-runtime", "save.json"),
+)
+WEB_META_SRC = os.environ.get(
+    "DRAGON_SAVE_META",
+    os.path.join(
+        os.path.dirname(__file__), "..", ".dragon-runtime", "save.webmeta.json"
+    ),
+)
 
 N_SLOT = 4
 SLOT_SIZE = 0x56C0
@@ -45,7 +55,7 @@ def big16(b: bytes) -> int:
     return int.from_bytes(b, "little")
 
 
-def parse_legions(slot: bytes) -> tuple[list, list]:
+def parse_legions(slot: bytes, city_count: int = 200) -> tuple[list, list]:
     """128 条军团槽：返回活动军团与0x2977延迟回归队列。"""
     out = []
     delayed_returns = []
@@ -68,7 +78,9 @@ def parse_legions(slot: bytes) -> tuple[list, list]:
         # 也不能作为可继续行动的军团；status=8 则是0x2977延迟回归槽。
         if not delayed_return and (r[0] < 0x80 or r[0x06] == 0 or r[0x29] == 0):
             continue
-        lead = big16(r[2:4])
+        # 0x291A 以军团槽地址换算武将记录，且君主判定读取 byte [si+2]；
+        # +3 被0x2831作为接敌倒计时覆写，因此主将索引只能取+2单字节。
+        lead = r[2]
         units = [
             {
                 # Web 编成/战术层统一以“人”为单位；军团记录以十人为单位。
@@ -77,11 +89,29 @@ def parse_legions(slot: bytes) -> tuple[list, list]:
             }
             for unit_idx in range(6)
         ]
+        target_city = r[0x20]
+        target_active = r[0x0B] != 0 and target_city < city_count
+        pending_engagement = bool(r[0] & 0x20) and 1 <= r[0x03] <= 0x0C
+        engagement = None
+        if pending_engagement:
+            # status bit5/+3只实锤“接敌等待”；现有字段没有已确认的野战/攻城
+            # 类型位。+0x20仍是行军目标城，不能把有效城市索引猜成攻城。
+            # Web载入后按当前坐标→目标城重建道路下一点，再检查该点敌军/敌城。
+            engagement = {
+                "kind": "pending",
+                "countdown": r[0x03],
+                "target": {
+                    "cityIdx": target_city if target_city < city_count else None,
+                    "x": big16(r[0x16:0x18]),
+                    "y": big16(r[0x18:0x1A]),
+                },
+            }
         out.append(
             {
                 "idx": j,
                 "slot": j,
                 "status": r[0],
+                "delegated": bool(r[0] & 0x04),  # 0x4E5C/0x4ED7 委任权威bit
                 "faction": r[1],
                 "leader": lead if lead < 128 else None,
                 "leader_raw": lead,
@@ -91,11 +121,27 @@ def parse_legions(slot: bytes) -> tuple[list, list]:
                 "morale": r[0x06],
                 "units": units,
                 "returnCountdown": r[0x03] if delayed_return else None,
+                "engagementCountdown": r[0x03] if pending_engagement else None,
+                "_engagement": engagement,
                 "_active": not delayed_return,
+                # 0x8CFF原样镜像完整状态段；这些不是进程指针而是E717
+                # 道路段内地址，可由Web road_graph的确定布局反解。
+                "roadStride": int.from_bytes(r[0x0A:0x0B], "little", signed=True),
+                "roadPointAddress": big16(r[0x0C:0x0E]),
+                "roadEdgeOrNode": big16(r[0x0E:0x10]),
                 "targetNode": big16(r[0x14:0x16]),
                 "targetX": big16(r[0x16:0x18]),
                 "targetY": big16(r[0x18:0x1A]),
-                "targetCity": r[0x20],
+                "targetCity": target_city,
+                "target": (
+                    {
+                        "idx": target_city,
+                        "x": big16(r[0x16:0x18]),
+                        "y": big16(r[0x18:0x1A]),
+                    }
+                    if target_active
+                    else None
+                ),
                 "commandState": r[0x23],
                 # 正常战略标识：+9=势力 march_marker_style*5，+8=西/东/北/南/驻止帧。
                 "marker_base": r[0x09],
@@ -104,6 +150,15 @@ def parse_legions(slot: bytes) -> tuple[list, list]:
             }
         )
     return out, delayed_returns
+
+
+def load_web_meta() -> dict:
+    try:
+        payload = json.loads(Path(WEB_META_SRC).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    slots = payload.get("slots")
+    return slots if isinstance(slots, dict) else {}
 
 
 def detect_scenario(slot: bytes, sin: bytes) -> int:
@@ -130,13 +185,19 @@ def detect_scenario(slot: bytes, sin: bytes) -> int:
 def main(argv: list[str] | None = None) -> None:
     src = (argv or sys.argv)[1] if len(argv or sys.argv) > 1 else SAVE_SRC
     allowed_root = Path(BASE).resolve()
+    source_path = Path(src).resolve()
+    # 默认解析器继续限制项目内文件；测试/本地服务显式注入临时SAVE时允许该路径。
+    if "DRAGON_SAVE_DAT" not in os.environ:
+        try:
+            source_path.relative_to(allowed_root)
+        except ValueError as error:
+            raise SystemExit(f"输入路径必须位于项目目录内: {src}") from error
     try:
-        source_path = allowed_root / Path(src).resolve().relative_to(allowed_root)
         scenario_path = allowed_root / Path(SINARIO_SRC).resolve().relative_to(
             allowed_root
         )
     except ValueError as error:
-        raise SystemExit(f"输入路径必须位于项目目录内: {src}") from error
+        raise SystemExit(f"剧本路径必须位于项目目录内: {SINARIO_SRC}") from error
     try:
         d = source_path.read_bytes()
         sin = scenario_path.read_bytes()
@@ -146,6 +207,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(f"SAVE.DAT 意外大小 {len(d)}")
 
     slots = []
+    web_meta_slots = load_web_meta()
     for i in range(N_SLOT):
         slot = bytearray(d[i * SLOT_SIZE : (i + 1) * SLOT_SIZE])
         scen = detect_scenario(bytes(slot), sin)
@@ -155,7 +217,9 @@ def main(argv: list[str] | None = None) -> None:
         label = label_raw.decode("big5", errors="replace").rstrip("\x00")
         played = label.strip("─") != ""
         state = parse_scenario(bytes(slot))
-        state["legions"], state["delayedLegionReturns"] = parse_legions(bytes(slot))
+        state["legions"], state["delayedLegionReturns"] = parse_legions(
+            bytes(slot), len(state["cities"])
+        )
         # ★可选#3 (2026-08-24): 槽头前 0x3B 字节 = CS:[0xCF0] 全局块原样镜像
         #   (KI.EXE 存盘例程 0x8CFF: 写 CS:[0xCF0] 0x3B 字节到槽+0；读档 0x8CAE 对称读回)
         #   日期字段: +0 word=[本月天数<<8|当日] / +2 [CF2]子刻度 / +3 [CF3]时刻
@@ -172,22 +236,29 @@ def main(argv: list[str] | None = None) -> None:
         # 超出原版范围(税率 0..40)或 FF 时置 None → initPlayer 兜底默认值
         if state["tax"] is None or not (0 <= state["tax"] <= 40):
             state["tax"] = None
-        slots.append(
-            {
-                "slot": i,
-                "label": label,
-                "played": played,
-                "scenario_idx": scen,
-                "state": state,
-            }
-        )
+        web_meta = web_meta_slots.get(str(i))
+        # 不把sidecar规则态写进二进制解析结果：main.loadSave会在buildArmies前按槽叠加，
+        # 避免同一overlay分散在Python与JS两处。此处只把webMeta随槽返回。
+        entry = {
+            "slot": i,
+            "label": label,
+            "played": played,
+            "scenario_idx": scen,
+            "state": state,
+        }
+        if isinstance(web_meta, dict):
+            entry["webMeta"] = web_meta
+        slots.append(entry)
         print(
             f"槽{i}: 剧本{scen + 1} played={played} "
             f"军团={len(state['legions'])} 武将={len(state['generals'])}"
         )
 
-    output_path = allowed_root / Path(OUT).resolve().relative_to(allowed_root)
+    output_path = Path(OUT).resolve()
+    if "DRAGON_SAVE_JSON" not in os.environ:
+        output_path = allowed_root / output_path.relative_to(allowed_root)
     try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(
             json.dumps({"slots": slots}, ensure_ascii=False), encoding="utf-8"
         )

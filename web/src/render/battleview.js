@@ -52,6 +52,7 @@ export class BattleView {
     this._panelSignature = "";
     this.dialogueSequence = -1;
     this.dialogueFaces = { atk: null, def: null };
+    this.runtimeEnabled = true;
 
     cv.addEventListener("pointerdown", (e) => this.onPointerDown(e));
     cv.addEventListener("pointermove", (e) => this.onPointerMove(e));
@@ -91,6 +92,10 @@ export class BattleView {
     });
   }
 
+  setRuntimeEnabled(enabled) {
+    this.runtimeEnabled = Boolean(enabled);
+  }
+
   playerSide() {
     const pf = this.app.scenario.player_faction;
     if (!this.battle) return null;
@@ -128,6 +133,11 @@ export class BattleView {
     this._last = performance.now();
     const loop = (now) => {
       if (!this.active) return;
+      if (!this.runtimeEnabled || this.app.runtimeEnabled === false) {
+        this._last = now;
+        this._raf = requestAnimationFrame(loop);
+        return;
+      }
       const dt = Math.min(0.05, (now - this._last) / 1000);
       this._last = now;
       const factor = this.app.tacticalSpeedFactor ?? 1.0;

@@ -7,6 +7,8 @@ Thumbs.db
 # Agent / Tool Caches
 .codegraph/
 .playwright-cli/
+tools/.playwright-cli/
+tools/.ruff_cache/
 tmp_crop/
 
 # Python Cache & Runtime Logs
@@ -18,6 +20,15 @@ logs_webserver.txt
 adv_dump.txt
 web/logs_webserver.txt
 web/server.log
+
+# Runtime SAVE metadata / single-instance lease state (never commit live tokens)
+/.dragon-runtime/
+/web/save.webmeta.json
+/web/save.webmeta.json.lock
+/web/save.instance-lease.json
+/web/save.instance-lease.json.lock
+/web/.save.webmeta.json.*.tmp
+/web/.save.instance-lease.json.*.tmp
 
 # Reproducible reverse-engineering probe reports (runtime uses web/road_graph.json)
 /web/road_graph_probe.json

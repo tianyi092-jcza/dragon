@@ -44,6 +44,7 @@ export class Clock {
     this._acc = 0;
     this._lastStep = 160;
     this.hold = false;
+    this._pendingDayAdvance = false;
 
     this.onDay = onDay;
     this.onMonthEnd = onMonthEnd;
@@ -107,30 +108,50 @@ export class Clock {
       this._acc -= step;
       this._tick();
       ticked = true;
+      // onDay 可能打开战术层或委任过渡；立即终止本次大 dt 的追赶循环。
+      if (this.hold || this._legacyPaused) {
+        this._acc = 0;
+        break;
+      }
     }
     return ticked;
   }
 
   _tick() {
+    if (this._pendingDayAdvance) {
+      this._pendingDayAdvance = false;
+      this._advanceDayCalendar();
+      return;
+    }
     this.hour++;
     if (this.hour > 23) {
       // 一天结束 (KI.EXE 1DE0 分支)
       this.hour = 0;
       if (this.onDay) this.onDay(this);
-      this.day++;
-      if (this.day > this.daysInMonth) {
-        // 月末 (1DA3 分支)
-        this.day = 1;
-        this.month++;
-        if (this.month > 12) {
-          // 年末 (1DA3→1DAA 分支)
-          this.month = 1;
-          this.year++;
-          if (this.year > 1000) this.year = 998; // 复刻 cmp 0x3E8 / 重置 0x3E6+1... 取整
-          if (this.onYearEnd) this.onYearEnd(this);
-        }
-        if (this.onMonthEnd) this.onMonthEnd(this); // ★月度结算钩子 (对应 0x5358)
+      // onDay 可打开战术层/委任动画。该日已经完成，但同一_tick不得继续
+      // 月进位或触发0x5358；解除hold后的下一次tick先补日历，再恢复时刻。
+      if (this.hold || this._legacyPaused) {
+        this._pendingDayAdvance = true;
+        return;
       }
+      this._advanceDayCalendar();
+    }
+  }
+
+  _advanceDayCalendar() {
+    this.day++;
+    if (this.day > this.daysInMonth) {
+      // 月末 (1DA3 分支)
+      this.day = 1;
+      this.month++;
+      if (this.month > 12) {
+        // 年末 (1DA3→1DAA 分支)
+        this.month = 1;
+        this.year++;
+        if (this.year > 1000) this.year = 998; // 复刻 cmp 0x3E8 / 重置 0x3E6+1... 取整
+        if (this.onYearEnd) this.onYearEnd(this);
+      }
+      if (this.onMonthEnd) this.onMonthEnd(this); // ★月度结算钩子 (对应 0x5358)
     }
   }
 

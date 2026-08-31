@@ -110,13 +110,22 @@ function defaultFormationVectors() {
   return vectors;
 }
 
-function createHandle(sc, view, attacker, defender, mode, battleMaps) {
+function createHandle(
+  sc,
+  view,
+  attacker,
+  defender,
+  mode,
+  battleMaps,
+  rngSnapshot = null,
+) {
   const temps = new OriginalBattleTempRecords([
     sideTemp(sc, attacker),
     sideTemp(sc, defender),
   ]);
   const session = new OriginalBattleSession({
     tempBytes: temps.snapshot(),
+    rngSnapshot,
     registers: {
       mode,
       battleSideFlag: view.mirror ? 0x80 : 0x00,
@@ -172,7 +181,14 @@ function createHandle(sc, view, attacker, defender, mode, battleMaps) {
   return handle;
 }
 
-export function createBattle(sc, A, city, battleMaps, D = null) {
+export function createBattle(
+  sc,
+  A,
+  city,
+  battleMaps,
+  D = null,
+  rngSnapshot = null,
+) {
   const view = createLegacyBattle(sc, A, city, battleMaps, D);
   const defender = D ?? {
     leader: view.speakers?.def?.name ?? "守軍",
@@ -184,12 +200,19 @@ export function createBattle(sc, A, city, battleMaps, D = null) {
       .sort((left, right) => left.idx - right.idx)
       .map((unit) => ({ type: unit.type, troops: unit.troops })),
   };
-  return createHandle(sc, view, A, defender, 0, battleMaps);
+  return createHandle(sc, view, A, defender, 0, battleMaps, rngSnapshot);
 }
 
-export function createFieldBattle(sc, A, D, battleMaps, fieldTerrain) {
+export function createFieldBattle(
+  sc,
+  A,
+  D,
+  battleMaps,
+  fieldTerrain,
+  rngSnapshot = null,
+) {
   const view = createLegacyFieldBattle(sc, A, D, battleMaps, fieldTerrain);
-  return createHandle(sc, view, A, D, 1, battleMaps);
+  return createHandle(sc, view, A, D, 1, battleMaps, rngSnapshot);
 }
 
 function eventDialogue(handle, event) {
