@@ -17,7 +17,12 @@ const baseline = new Uint8Array(total);
 baseline[0x1234] = 0x5a;
 baseline[0x52c0] = 0xa5;
 baseline[0x56bf] = 0x7e;
-const slots = Array.from({ length: 20 }, () => new Uint8Array(0x56c0));
+const slots = Array.from({ length: 20 }, (_, index) => {
+  const template = new Uint8Array(0x56c0);
+  template[0x1234] = 0x40 + index;
+  template[0x52c0] = 0x60 + index;
+  return template;
+});
 const toB64 = (bytes) => Buffer.from(bytes).toString("base64");
 
 globalThis.fetch = async (url) => ({
@@ -47,9 +52,18 @@ const app = {
   },
 };
 const first = serializeSave(app, 0, "A");
-assert.equal(first[0x1234], 0x5a, "selected-slot unknown byte was overwritten");
-assert.equal(first[0x52c0], 0xa5, "selected-slot event tail was overwritten");
-assert.equal(first[0x56bf], 0x7e, "selected-slot final byte was overwritten");
+// 新游戏没有loadedSaveSlot，必须使用当前章节静态模板，不能继承目标槽旧章节。
+assert.equal(first[0x1234], 0x40, "new game did not use scenario template");
+assert.equal(first[0x52c0], 0x60, "new game event baseline was wrong scenario");
+assert.equal(first[0x56bf], 0, "new game inherited target-slot tail");
+// 从槽0读档后另存槽2，目标槽必须继承当前加载槽的未知区，而不是槽2旧底版。
+app.loadedSaveSlot = 0;
+app.clock.day = 2;
+const copied = serializeSave(app, 1, "COPY");
+assert.equal(copied[0x56c0 + 0x1234], 0x40);
+assert.equal(copied[0x56c0 + 0x52c0], 0x60);
+assert.equal(copied[0x56c0 + 0x56bf], 0);
+app.loadedSaveSlot = null;
 app.clock.day = 2;
 const second = serializeSave(app, 1, "B");
 assert.deepEqual(
@@ -57,4 +71,6 @@ assert.deepEqual(
   first.slice(0, 0x56c0),
   "Saving slot 2 reverted slot 1 to the startup baseline",
 );
-console.log("save buffer preserved selected-slot sentinels and prior slot");
+process.stdout.write(
+  "save buffer uses scenario template for new games and loaded slot for save-as\n",
+);

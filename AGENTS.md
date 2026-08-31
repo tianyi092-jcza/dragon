@@ -22,6 +22,11 @@
 - 势力军团标识样式来自势力记录 `+0x3E`，使用固定 24 槽×5帧原版资源，不做运行时染色或任意角旋转。
 - 资金为 24bit：`word@+0x20 + byte@+0x22 << 16`。兵力相关原版记录通常以十人为单位，Web 展示/战术单位可能以人为单位，转换时必须注明层级。
 - 原版 SAVE 军团记录固定包含六队；旧 Web synthetic/recreation 对象若仅有总兵，统一由 `legionunits.js` 以项目既有默认类型 `[1,1,3,3,2,2]` 确定性补为六队。这是 Web 兼容补全，不得写成 KI.EXE 已确认的自动编成规则。
+- SINARIO 剧本数据不含运行时军团表，新游戏所有势力必须从 `legions=[]` 开始；`buildArmies` 只归一化读档/运行时已有军团，禁止再按首都合成占位军团。
+- 新游戏与读档共用 `main.js::loadState` 装配，但输入构造严格分流：新游戏必须 clone 只读 `data.json` 模板并清 Web 运行时队列；存档必须保留军团/队列并使用 `save_date`。每次装载重建 canonical RNG，无 sidecar 的 DOS 档不得继承上一局随机流，有 sidecar 时在装配前恢复快照。
+- `parse_save.py` 的章节索引必须与 `data.json` 五组×4章全局顺序一致；SAVE 头 `0x11` 优先并由武将姓名区校验，`start/name/n_factions` 从匹配静态模板回填，不能把槽头运行时日历误作章节起始日。
+- 从存档继续后“另存为”其它槽时，未知字节/尾部事件区必须以当前加载槽为源底版再 patch 到目标槽；新游戏必须以当前章节的原始 SINARIO 模板为源，不能继承目标槽的旧章节静态字节。`scen_raw.json` 与 `data.json` 同序包含 20 章模板。活动军团记录保留底版中未建模字节，仅覆盖已证字段；未占用/延迟回归槽按其已证结构清理，避免旧军团复活。
+- SAVE 序列化须回写已证的全局章节号、日内 `sub/hour`、当月/次月税率与三兵种征兵（Web 人数写回时÷10）、势力 active/attr、三预备兵池、AI目标、城太守、武将 active/attr/talk 等运行字段；武将 `+0x1D` 解析旧名 `captive_flag` 与运行态 `origFaction` 必须兼容，不能把 DOS 俘虏原属清成 `0xFF`。候选序列化在 HTTP 成功前不得改写 live 军团槽/status/六队。仍未定位二进制字段的玩家自创军师、外交队列、使者、流散队列与财政连续赤字标记统一进 sidecar `scenarioRuntimeState`，不可只依赖进程内 snapshot。
 
 ## 3. 当前架构
 
@@ -72,7 +77,7 @@
 - 游戏内读档必须返回标题后执行，禁止直接热替换当前 scenario。
 - 标题空存档槽必须在 hover、hit-test、click 三条路径都禁用。
 - 玩家下达的军团目标优先于通用 AI；委任只改变后续自主和战斗处理，不能覆盖尚未完成的玩家命令。
-- 正式入口必须由`tools/webserver.py`单实例持久lease授权；第二页面不初始化游戏。SAVE读取/写入都校验内存token，写入按时间顺序串行覆盖，不使用CAS；静态无服务模式fail closed。解析态、sidecar、lease和锁位于静态根外的`.dragon-runtime/`，服务端保存先验证临时binary/meta/json再原子发布；客户端仅在HTTP成功后提交内存槽与四槽底版。
+- 正式入口必须由`tools/webserver.py`单实例持久lease授权；第二页面不初始化游戏。SAVE读取/写入都校验内存token，写入按时间顺序串行覆盖，不使用CAS；静态无服务模式fail closed。解析态、sidecar、lease和锁位于静态根外的`.dragon-runtime/`；每次启动均从 canonical SAVE+sidecar 重建解析态。服务端保存先验证临时binary/meta/json，再发布三份 canonical 输出；任一替换失败必须恢复事务前快照。客户端仅在HTTP成功后提交内存槽与四槽底版；网络异常因提交结果不确定必须立即失权冻结，禁止以旧整份底版再次保存。
 
 ## 5. 常用命令
 
@@ -119,7 +124,7 @@ playwright-cli close
 4. **野战防守方**：`0x4C72` 从同坐标候选中选一个最强主军，不合并所有军团，也不能用 synthetic city 冒充。
 5. **撤退语义**：`0x291A` 不是“退到最近据点”；它是无法继续行动后的武将去向分派。
 6. **战术城损**：没有真实 `wallRecords` 时不得用 `defLeft`、战略 ratio 或臆造 metric 写城损。
-7. **存档途中导航**：二进制 SAVE 原样保存`+0x0A stride/+0x0C point address/+0x0E edge-or-node`；Web须按E717固定布局转换为`edgeId/pointIndex`，不能把DOS地址直接当ID。活动军团主将为`+2` byte，`+3`由bit5接敌倒计时复用，禁止按u16解析。无独立field/siege字节；首次tick按`0x25CC→0x2831/0x2880`现场重检。Web私有完整RNG与强制撤退/精确帧态写sidecar。
+7. **存档途中导航**：二进制 SAVE 原样保存`+0x0A stride/+0x0C point address/+0x0E edge-or-node`；Web须按E717固定布局转换为`edgeId/pointIndex`，不能把DOS地址直接当ID。活动军团主将为`+2` byte，`+3`由bit5接敌倒计时复用，禁止按u16解析；`+8/+9`写回当前方向帧/势力标识基址。取消目标时必须清`+0x0B/+0x14/+0x16/+0x18/+0x20`及道路上下文，不能继承底版旧命令。无独立field/siege字节；首次tick按`0x25CC→0x2831/0x2880`现场重检。Web私有完整RNG与强制撤退/精确帧态写sidecar。
 8. **渲染纯度**：地图和小地图只能读取导航状态，不能由绘制函数推进或修改军团路线。
 9. **自动格式化**：pi-lens 可能在回合结束后改写格式；继续编辑前重读相关文件，尤其 `ai.js`、`autobattle.js`、`savegame.js` 和验证脚本。
 10. **工作区隔离**：提交前按功能审查改动，禁止用整体 reset/clean 处理含未提交工作的工作区。

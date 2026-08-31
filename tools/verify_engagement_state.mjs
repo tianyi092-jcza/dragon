@@ -25,10 +25,35 @@ await loadRoadGraph();
 assert.equal(roadGraphReady(), true);
 
 const raw = await readJson(new URL("../web/data.json", import.meta.url));
-const sc = structuredClone(raw.scenarios[0]);
-sc.citiesOf = (idx) => sc.cities.filter((city) => city.faction === idx);
-buildArmies(sc);
+function scenarioWithTestLegions() {
+  const scenario = structuredClone(raw.scenarios[0]);
+  scenario.citiesOf = (idx) =>
+    scenario.cities.filter((city) => city.faction === idx);
+  const factions = scenario.factions.filter(
+    (faction) => faction.capital != null && scenario.cities[faction.capital],
+  );
+  scenario.legions = factions.slice(0, 3).map((faction) => {
+    const capital = scenario.cities[faction.capital];
+    return {
+      leader: faction.monarch,
+      faction: faction.idx,
+      x: capital.x,
+      y: capital.y,
+      troops: 100,
+      morale: 200,
+      status: 0x80,
+      _active: true,
+      units: Array.from({ length: 6 }, (_, index) => ({
+        type: (index % 3) + 1,
+        troops: index === 0 ? 1000 : 0,
+      })),
+    };
+  });
+  buildArmies(scenario);
+  return scenario;
+}
 
+const sc = scenarioWithTestLegions();
 const attacker = sc.legions[0];
 const defender = sc.legions.find(
   (legion) => legion.faction !== attacker.faction,
@@ -62,10 +87,7 @@ assert.equal(attacker._engagement.target.y, next.y);
 assert.equal(defender._engagement, undefined);
 
 // Siege contact also begins before the city point is committed.
-const siegeSc = structuredClone(raw.scenarios[0]);
-siegeSc.citiesOf = (idx) =>
-  siegeSc.cities.filter((city) => city.faction === idx);
-buildArmies(siegeSc);
+const siegeSc = scenarioWithTestLegions();
 const siegeAttacker = siegeSc.legions[0];
 const enemyCity = siegeSc.cities.find(
   (city) =>
@@ -173,12 +195,12 @@ aiTick(gatedApp);
 assert.equal(transitions, 2);
 
 // 0x25CC/0x2831：倒计时每轮重检；替换第三势力且停战仍保留timer并换目标。
-const raceSc = structuredClone(raw.scenarios[0]);
-raceSc.citiesOf = (idx) => raceSc.cities.filter((city) => city.faction === idx);
-buildArmies(raceSc);
+const raceSc = scenarioWithTestLegions();
 const raceA = raceSc.legions[0];
 const raceTarget = raceSc.cities.find(
-  (city) => city.faction !== raceA.faction && findRoadRoute(raceA.x, raceA.y, city.x, city.y)?.points.length > 2,
+  (city) =>
+    city.faction !== raceA.faction &&
+    findRoadRoute(raceA.x, raceA.y, city.x, city.y)?.points.length > 2,
 );
 for (let faction = 0; faction < raceSc.diplomacy.length; faction++) {
   raceSc.diplomacy[raceA.faction][faction] = 0;
@@ -191,7 +213,8 @@ originalFoe.x = raceNext.x;
 originalFoe.y = raceNext.y;
 assert.equal(stepTo(raceSc, raceA, raceTarget.x, raceTarget.y), "contact");
 const replacementFaction = raceSc.factions.find(
-  (faction) => faction.idx !== raceA.faction && faction.idx !== originalFoe.faction,
+  (faction) =>
+    faction.idx !== raceA.faction && faction.idx !== originalFoe.faction,
 ).idx;
 originalFoe.x = raceTarget.x;
 originalFoe.y = raceTarget.y;
@@ -224,7 +247,11 @@ replacement.y = raceTarget.y;
 const beforeResume = { x: raceA.x, y: raceA.y };
 aiTick(raceApp);
 assert.equal(raceA._engagement, null);
-assert.notDeepEqual({ x: raceA.x, y: raceA.y }, beforeResume, "lost contact resumes movement in same tick");
+assert.notDeepEqual(
+  { x: raceA.x, y: raceA.y },
+  beforeResume,
+  "lost contact resumes movement in same tick",
+);
 
 // 0x2831严格军团槽序：数组打乱也必须先命中低槽己方，从而不见高槽敌军。
 const slotPoint = raceA._march?.points?.[raceA._march.pointIndex] ?? raceNext;
@@ -255,11 +282,10 @@ assert.notEqual(
 );
 
 // 0x42AB最后边矩阵：己方/中立/交战第三方继续；未开战第三方转向另一端。
-const finalSc = structuredClone(raw.scenarios[0]);
-finalSc.citiesOf = (idx) => finalSc.cities.filter((city) => city.faction === idx);
-buildArmies(finalSc);
+const finalSc = scenarioWithTestLegions();
 const finalA = finalSc.legions[0];
-for (let faction = 0; faction < finalSc.diplomacy.length; faction++) finalSc.diplomacy[finalA.faction][faction] = 0;
+for (let faction = 0; faction < finalSc.diplomacy.length; faction++)
+  finalSc.diplomacy[finalA.faction][faction] = 0;
 for (const legion of finalSc.legions) {
   if (legion !== finalA) {
     legion.dead = true;
@@ -267,30 +293,38 @@ for (const legion of finalSc.legions) {
   }
 }
 const finalCity = finalSc.cities.find(
-  (city) => findRoadRoute(finalA.x, finalA.y, city.x, city.y)?.legs.length === 1,
+  (city) =>
+    findRoadRoute(finalA.x, finalA.y, city.x, city.y)?.legs.length === 1,
 );
 assert.ok(finalCity);
 const originalOwner = finalCity.faction;
-finalCity.faction = finalSc.factions.find((faction) => faction.idx !== finalA.faction).idx;
+finalCity.faction = finalSc.factions.find(
+  (faction) => faction.idx !== finalA.faction,
+).idx;
 finalA.target = finalCity;
 let finalResult = "moved";
-while (finalResult === "moved") finalResult = stepTo(finalSc, finalA, finalCity.x, finalCity.y);
+while (finalResult === "moved")
+  finalResult = stepTo(finalSc, finalA, finalCity.x, finalCity.y);
 assert.equal(finalResult, "contact");
 finalA._engagement.countdown = 9;
-const third = finalSc.factions.find(
-  (faction) => faction.idx !== finalA.faction && faction.idx !== finalCity.faction,
-)?.idx ?? originalOwner;
+const third =
+  finalSc.factions.find(
+    (faction) =>
+      faction.idx !== finalA.faction && faction.idx !== finalCity.faction,
+  )?.idx ?? originalOwner;
 finalCity.faction = third;
 finalSc.diplomacy[finalA.faction][third] = 0xff;
 const oldStride = finalA._march.stride;
 assert.equal(stepTo(finalSc, finalA, finalCity.x, finalCity.y), "reversed");
 assert.equal(finalA._march.stride, -oldStride);
-assert.equal(finalA.target, finalCity, "42AB reversal preserves final command target");
+assert.equal(
+  finalA.target,
+  finalCity,
+  "42AB reversal preserves final command target",
+);
 
 // 多边路线的当前中间端点易主：0x42AB看nav.toNode，不得误看最终target。
-const multiSc = structuredClone(raw.scenarios[0]);
-multiSc.citiesOf = (idx) => multiSc.cities.filter((city) => city.faction === idx);
-buildArmies(multiSc);
+const multiSc = scenarioWithTestLegions();
 const multiA = multiSc.legions[0];
 for (const legion of multiSc.legions) if (legion !== multiA) legion.dead = true;
 let multiRoute = null;
@@ -321,7 +355,9 @@ const intermediate = multiSc.cities.find(
 if (!multiSc.cities.includes(intermediate)) multiSc.cities.push(intermediate);
 const intermediateCity = intermediate;
 assert.ok(intermediateCity);
-const nonWarOwner = multiSc.factions.find((faction) => faction.idx !== multiA.faction).idx;
+const nonWarOwner = multiSc.factions.find(
+  (faction) => faction.idx !== multiA.faction,
+).idx;
 intermediateCity.faction = nonWarOwner;
 multiSc.diplomacy[multiA.faction][nonWarOwner] = 0xff;
 const multiOldStride = multiA._march.stride;

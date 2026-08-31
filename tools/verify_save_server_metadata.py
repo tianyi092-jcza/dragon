@@ -45,6 +45,16 @@ with tempfile.TemporaryDirectory(prefix="dragon-save-meta-") as temp:
     web_meta = {
         "schema": 2,
         "originalRng": rng,
+        "appearedGeneralIds": [12, 34],
+        "scenarioRuntimeState": {
+            "player_advisor": {"custom": True, "name": "測試軍師"},
+            "pendingRecruits": [{"city": 0, "n": 100}],
+            "pendingTruceNegotiations": [],
+            "pendingAssistanceNegotiations": [],
+            "envoys": {"1": {"name": "使者", "left": 2}},
+            "prisoners": [],
+            "factionRuleState": [{"idx": 0, "brokeMonths": 2, "deficitScolded": True}],
+        },
         "legionRuleState": [
             {
                 "slot": 1,
@@ -91,8 +101,7 @@ with tempfile.TemporaryDirectory(prefix="dragon-save-meta-") as temp:
         assert token
         # 真实fresh JS initSaveAssets路径：GET当前SAVE，再serializeSave仅patch槽0。
         before_slots = [
-            bytes(server_binary[i * SLOT_SIZE : (i + 1) * SLOT_SIZE])
-            for i in range(4)
+            bytes(server_binary[i * SLOT_SIZE : (i + 1) * SLOT_SIZE]) for i in range(4)
         ]
         fresh_output = temp_path / "fresh-client-save.dat"
         fresh_client = subprocess.run(
@@ -130,7 +139,9 @@ with tempfile.TemporaryDirectory(prefix="dragon-save-meta-") as temp:
         http_response = connection.getresponse()
         response_body = http_response.read()
         connection.close()
-        assert http_response.status == 200, response_body.decode("utf-8", errors="replace")
+        assert http_response.status == 200, response_body.decode(
+            "utf-8", errors="replace"
+        )
         response = json.loads(response_body)
         assert response == {"ok": True}
         persisted = save_dat.read_bytes()
@@ -148,6 +159,10 @@ with tempfile.TemporaryDirectory(prefix="dragon-save-meta-") as temp:
         connection.close()
         slot = next(item for item in fresh["slots"] if item["slot"] == 0)
         assert slot["webMeta"]["originalRng"] == rng
+        assert slot["webMeta"]["appearedGeneralIds"] == [12, 34]
+        assert (
+            slot["webMeta"]["scenarioRuntimeState"] == web_meta["scenarioRuntimeState"]
+        )
         assert slot["webMeta"]["legionRuleState"] == web_meta["legionRuleState"]
         sidecar = json.loads(save_meta.read_text(encoding="utf-8"))["slots"]
         assert sidecar["0"] == web_meta
@@ -201,9 +216,13 @@ with tempfile.TemporaryDirectory(prefix="dragon-save-meta-") as temp:
             leaked_response.read()
             connection.close()
             assert leaked_response.status == 404, leaked_path
-        assert source.read_bytes() == source_before, "test must not modify real SAVE.DAT"
+        assert source.read_bytes() == source_before, (
+            "test must not modify real SAVE.DAT"
+        )
     finally:
         server.terminate()
         server.wait(timeout=10)
 
-print("save server metadata OK: temporary POST -> parse -> fresh GET preserves canonical RNG")
+print(
+    "save server metadata OK: temporary POST -> parse -> fresh GET preserves canonical RNG"
+)

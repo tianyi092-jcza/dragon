@@ -63,7 +63,7 @@ E:/Dragon/Dragon/          游戏本体数据
 | 势力 0x80 | 24×64B | +1君主 +2军师(7F无) +3首都 +4-9兵 +18武将数(影响投奔) +20-22**钱24bit上限65万** +23城数 +3A外交官 |
 | 外交 0x680 | 每势力24B | 友好度矩阵，自己=FF；NEUTRAL=0xB7/恶劣≤0x9F/友好≥0xD8 |
 | 城池 0x8C0 | 200×32B | +1所属(18空城) +2-7名 +8-B坐标(x4-370/y9-248,×16像素) +C/E生产力 +10上升值(显示=值-100) +11防灾 +12/13城兵 +17类型(0-2城/3关卡) +19内政官 |
-| 军团 | **剧本无军团** | 运行时状态段 0x2240 起 64B×127（SAVE.DAT 同偏移）；web 由 buildArmies 从首都合成 |
+| 军团 | **剧本无军团** | 运行时状态段 0x2240 起 64B×128（SAVE 槽文件偏移 0x22C0）；新游戏保持空表，实际编成/读档后才产生 |
 | 武将 0x42C0 | 128×32B | +0属性(bit7登场/bit6君主/bit4自杀) +1头像 +2-7名 +8-D号 +E城塞(高4位,maxA0,隐藏) +F野战 +10水战 +11-13武统政(低4位) +17状态(0待命1军团长2内政官3外交官4被俘) +18登场倒计时月 +19投奔势力(一次性后FF) +1C所属(FF自由) |
 
 **×10 显示规则**贯穿兵力/钱；能力位宽：武统政低4位、城塞野战水战高4位。
@@ -145,7 +145,7 @@ await app.startMenu.prompt({ x:200, y:120, w:240, h:160,
 - **原版 UI 引擎逆向**（KI.EXE，全部实锤）：弹窗=图元拼组非整图。0x337(al=组件号,dx,bx=组原点)→0xE9C1 分发 CS:0xE16 组件表（每记录12B=type,u8,dx,dy,w,h,extra；type=0组头；handler表0xEA0D）：type3=纯色矩形(0xF1A3)/4=矩形描边(0xF465,色=extra高字节)/5=横线(extra低字节=色)/6=竖线/7=云纹窗(0xF26E,32×32屏对齐平铺)/8=文字(0xF6DC: ax高位=色,全角16px半角8px节进)/9=blit 16×24金纹块。组件：comp2=系統選單(192×176)、comp6=章节/读档共用(288×224)、comp7=YES/NO(192×80)。0x895D(al,dx,bx,cx)=画窗wrapper（0xC14金框+背景恢复）；0x8DC8=YES/NO菜单引擎@0x1AC3调用(208,128)；0x8B7C(al=0/1/2章节/读/存,dx=CS标题串)=选择窗引擎@comp6(104,88)；标题串表CS:0x98C8="NEW GAME\0LOAD DATA\0SAVE DATA\0"每串19B；0x1AC3 主循环=YES/NO→0x8B12章节/0x8B40读档→0x8E5A势力选择→0x8FC9自定军师（后两者未复刻）
 - **素材**（tools/extract_ui.py→web/grf/ui/，全部 ICONGRF.DAT 提取禁止截图裁剪，颜色经原版放大图逐像素定色）：cloud.png=0xBA20 128B 1bpp 32×32盘龙纹章(位0=蓝idx8底/位1=黑龙,32px平铺屏对齐)；frame_sq.png=0x9DC8回形□链(1位=金idx11/0位=红idx10,不透明,顶/底带逐8px)；frame_cap.png=0x9DF8实心金块(柱顶/底帽)；frame_col.png=0x9DE0编织纹(6c 56×6 6c=绳纹链,1位=浅绿idx13高光/0位=绿idx5底,不透明)。金框=0xC14(dx,bx,cx) 16px格单位：顶/底带=□链(起+8)，左右柱=帽+柱身交替
 - **实现**：startmenu.js _frame/_cloud/_rect/_outline/_fwText/_text 原语+prompt()生成器；YES/NO=comp7@(216,136)框(208,128)13×6格；章节/读档=comp6@(104,88)框(96,80)19×15格；#startv 640×400画布1:1居中(游戏坐标→屏幕+(320,160))；全局 contextmenu preventDefault；右键取消用 pointerdown（click 收不到 button=2）；悬停行反白；空存档槽不可选(0x8BB3 0xD0A1检查)
-- **流程**：main.js 开场动画播完→await app.startMenu.show()：YES→章节选择(4章名+起始日来自 scen_raw)→setScenario(i)；NO→读档窗(SAVE.DAT 4槽头)→loadSave(i)；右键二级窗回 YES/NO。playwright 全流程验证（_t1/_t2/_t3.js 可复用）
+- **流程**：main.js 开场动画播完→await app.startMenu.show()：YES→20章选择(data.json)→clone/清运行态→setScenario(i)，所有势力 `legions=[]`；NO→读档窗(SAVE.DAT 4槽头)→loadSave(i)。两路共用 `loadState` 装配，但每次重建 RNG，读档在装配前恢复 sidecar RNG，并以 `save_date` 建钟。`parse_save.py` 以槽头0x11+姓名区校验映射20章，静态 start/name 从匹配模板回填。右键二级窗回 YES/NO。
 
 **22.** LSP 清理轮 ✅ (2026-08-24 续)
 

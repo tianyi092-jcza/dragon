@@ -85,7 +85,75 @@ export const CITY_TYPES = [
 ];
 export const cityTypeLabel = (t) => CITY_TYPES[t] ?? "";
 
-/** 剧本数据视图 — 对 data.json 的一个剧本薄封装 */
+/**
+ * 从 data.json 的只读章节模板创建一局全新的游戏状态。
+ * SINARIO 不含运行时军团表，因此所有章节开局都必须保持 legions=[]。
+ */
+export function createNewGameScenario(raw, playerFaction = null, advisor) {
+  const state = structuredClone(raw);
+  if (playerFaction != null) state.player_faction = playerFaction;
+
+  // 原版新章节头字段为未指定/满信赖；Web 选定玩家势力后从满值开始。
+  state.trust = 255;
+  delete state.trust_game_over;
+  for (const faction of state.factions ?? []) {
+    delete faction.brokeMonths;
+    delete faction.deficitScolded;
+  }
+
+  // 新局不得继承任何 Web 运行时队列或派生状态。正常 data.json 模板不含这些字段；
+  // 这里仍显式清理，保证同章重开及意外模板污染都回到纯 SINARIO 初态。
+  delete state.save_date;
+  delete state.delayedLegionReturns;
+  delete state.prisoners;
+  delete state.pendingRecruits;
+  delete state.pendingTruceNegotiations;
+  delete state.pendingAssistanceNegotiations;
+  delete state.envoys;
+  delete state._appeared;
+  delete state._nextRuntimeLegionId;
+  for (const faction of state.factions ?? []) {
+    delete faction.dead;
+    delete faction.gold;
+    delete faction.food;
+    delete faction.troops;
+  }
+  for (const city of state.cities ?? []) {
+    delete city.sim;
+    delete city.disaster;
+    delete city.growth_rate;
+  }
+  for (const general of state.generals ?? []) delete general.is_player;
+
+  // 剧本镜像没有运行时军团。即使模板被意外污染，也不能带入新游戏。
+  state.legions = [];
+  delete state.armies;
+
+  state.player_advisor = null;
+  if (advisor === null) {
+    const faction = state.factions?.find(
+      (candidate) => candidate.idx === state.player_faction,
+    );
+    const general =
+      faction?.advisor_idx == null
+        ? null
+        : state.generals?.[faction.advisor_idx];
+    if (general) {
+      state.player_advisor = {
+        custom: false,
+        general_idx: general.idx,
+        name: general.name.trim(),
+        hao: (general.hao ?? "").trim(),
+        portrait: general.portrait,
+      };
+    }
+  } else if (advisor) {
+    state.player_advisor = { custom: true, general_idx: null, ...advisor };
+  }
+  return state;
+}
+
+/** 剧本数据视图 — 对 data.json / SAVE state 的一个薄封装 */
 export class Scenario {
   constructor(raw) {
     Object.assign(this, raw);

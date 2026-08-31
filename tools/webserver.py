@@ -27,8 +27,12 @@ SAVE_DAT = Path(
 )
 # 解析态、sidecar、lease和锁默认全部放在静态web根之外。
 SAVE_JSON = Path(os.environ.get("DRAGON_SAVE_JSON", RUNTIME_ROOT / "save.json"))
-SAVE_META = Path(
-    os.environ.get("DRAGON_SAVE_META", RUNTIME_ROOT / "save.webmeta.json")
+SAVE_META = Path(os.environ.get("DRAGON_SAVE_META", RUNTIME_ROOT / "save.webmeta.json"))
+SAVE_JOURNAL = Path(
+    os.environ.get(
+        "DRAGON_SAVE_JOURNAL",
+        SAVE_JSON.with_name("save.publication-journal.json"),
+    )
 )
 INSTANCE_LEASE = Path(
     os.environ.get(
@@ -41,7 +45,15 @@ HEARTBEAT_MS = max(250, int(os.environ.get("DRAGON_HEARTBEAT_MS", "5000")))
 LEASE_LOCK = threading.RLock()
 SAVE_WRITE_LOCK = threading.Lock()
 SAVE_TEST_DELAY_MS = max(0, int(os.environ.get("DRAGON_SAVE_TEST_DELAY_MS", "0")))
-SAVE_TEST_FORCE_PARSE_FAILURE = os.environ.get("DRAGON_SAVE_TEST_FORCE_PARSE_FAILURE") == "1"
+SAVE_TEST_FORCE_PARSE_FAILURE = (
+    os.environ.get("DRAGON_SAVE_TEST_FORCE_PARSE_FAILURE") == "1"
+)
+SAVE_TEST_FAIL_REPLACE_AT = max(
+    0, int(os.environ.get("DRAGON_SAVE_TEST_FAIL_REPLACE_AT", "0"))
+)
+SAVE_TEST_CRASH_AFTER_REPLACE = max(
+    0, int(os.environ.get("DRAGON_SAVE_TEST_CRASH_AFTER_REPLACE", "0"))
+)
 LEASE_PROCESS_LOCK = INSTANCE_LEASE.with_name(f"{INSTANCE_LEASE.name}.lock")
 SAVE_PROCESS_LOCK = SAVE_DAT.with_name(f"{SAVE_DAT.name}.lock")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -94,9 +106,21 @@ def temp_path(path: Path, tag: str) -> Path:
     )
 
 
+def write_bytes_durable(path: Path, payload: bytes) -> None:
+    """写完整文件并flush，供跨进程崩溃恢复日志/备份使用。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def write_json_temp(path: Path, payload: dict, tag: str) -> Path:
     temp = temp_path(path, tag)
-    temp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    write_bytes_durable(
+        temp,
+        json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+    )
     # 发布前必须可重新解析。
     json.loads(temp.read_text(encoding="utf-8"))
     return temp
@@ -105,6 +129,95 @@ def write_json_temp(path: Path, payload: dict, tag: str) -> Path:
 def atomic_json(path: Path, payload: dict) -> None:
     temp = write_json_temp(path, payload, "atomic")
     os.replace(temp, path)
+
+
+def replace_canonical(staged: Path, target: Path, index: int) -> None:
+    """测试可注入第N次发布失败/硬退出；正式路径等价于os.replace。"""
+    if index == SAVE_TEST_FAIL_REPLACE_AT:
+        raise OSError(f"forced canonical replace failure at {index}")
+    os.replace(staged, target)
+    if index == SAVE_TEST_CRASH_AFTER_REPLACE:
+        os._exit(90 + index)
+
+
+def restore_canonical(path: Path, payload: bytes | None) -> None:
+    """发布中途失败时恢复进入事务前的canonical文件。"""
+    if payload is None:
+        with contextlib.suppress(FileNotFoundError):
+            path.unlink()
+        return
+    restored = temp_path(path, "rollback")
+    try:
+        write_bytes_durable(restored, payload)
+        os.replace(restored, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            restored.unlink()
+
+
+def prepare_publication_journal(paths: tuple[Path, ...]) -> list[Path]:
+    """发布前持久化三份canonical快照；journal存在即表示提交尚未完成。"""
+    transaction = secrets.token_hex(8)
+    entries = []
+    backups = []
+    try:
+        for index, path in enumerate(paths):
+            existed = path.exists()
+            backup = path.with_name(f".{path.name}.{transaction}.{index}.backup")
+            if existed:
+                write_bytes_durable(backup, path.read_bytes())
+                backups.append(backup)
+            entries.append(
+                {
+                    "target": str(path.resolve()),
+                    "existed": existed,
+                    "backup": str(backup.resolve()) if existed else None,
+                }
+            )
+        atomic_json(SAVE_JOURNAL, {"schema": 1, "entries": entries})
+        return backups
+    except (OSError, TypeError, ValueError):
+        for backup in backups:
+            with contextlib.suppress(FileNotFoundError):
+                backup.unlink()
+        raise
+
+
+def recover_publication_journal() -> bool:
+    """启动或发布异常后按持久journal回滚；可重复执行直到journal删除。"""
+    if not SAVE_JOURNAL.exists():
+        return False
+    payload = json.loads(SAVE_JOURNAL.read_text(encoding="utf-8"))
+    entries = payload.get("entries")
+    if payload.get("schema") != 1 or not isinstance(entries, list):
+        raise RuntimeError("invalid save publication journal")
+    backups = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("target"), str):
+            raise RuntimeError("invalid save publication journal entry")
+        target = Path(entry["target"])
+        backup_name = entry.get("backup")
+        if entry.get("existed"):
+            if not isinstance(backup_name, str):
+                raise RuntimeError("save publication backup missing from journal")
+            backup = Path(backup_name)
+            backups.append(backup)
+            restore_canonical(target, backup.read_bytes())
+        else:
+            restore_canonical(target, None)
+    SAVE_JOURNAL.unlink()
+    for backup in backups:
+        with contextlib.suppress(FileNotFoundError):
+            backup.unlink()
+    return True
+
+
+def commit_publication_journal(backups: list[Path]) -> None:
+    """三份replace均成功后以删除journal作为单一提交点，再清理备份。"""
+    SAVE_JOURNAL.unlink()
+    for backup in backups:
+        with contextlib.suppress(FileNotFoundError):
+            backup.unlink()
 
 
 class LeaseRegistry:
@@ -188,9 +301,7 @@ class LeaseRegistry:
         with self._guard():
             lease = self._active(time.time())
             valid = bool(
-                token
-                and lease
-                and secrets.compare_digest(lease["token"], token)
+                token and lease and secrets.compare_digest(lease["token"], token)
             )
             yield valid
 
@@ -209,9 +320,7 @@ LEASES = LeaseRegistry(INSTANCE_LEASE)
 
 
 def ensure_runtime_save_json() -> None:
-    """首次正式启动时在静态根外生成token API使用的解析态。"""
-    if SAVE_JSON.exists():
-        return
+    """每次正式启动均从canonical SAVE与sidecar重建解析态，避免外部改档后陈旧。"""
     staged_json = temp_path(SAVE_JSON, "startup")
     env = os.environ.copy()
     env["DRAGON_SAVE_DAT"] = str(SAVE_DAT)
@@ -328,9 +437,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.json_response(201 if ok else 423, payload)
             return
         if self.route == "/api/instance/heartbeat":
-            lease = LEASES.validate(
-                self.headers.get("X-Dragon-Instance"), renew=True
-            )
+            lease = LEASES.validate(self.headers.get("X-Dragon-Instance"), renew=True)
             if lease:
                 self.send_response(204)
                 self.lease_response_headers(lease)
@@ -375,9 +482,11 @@ class Handler(SimpleHTTPRequestHandler):
                 return
         # 固定锁序 SAVE_WRITE_LOCK→LEASE_LOCK。持有publication直到binary、
         # sidecar与parse产物全部提交，release/acquire不能在中途换所有者。
-        with SAVE_WRITE_LOCK, process_file_lock(SAVE_PROCESS_LOCK), LEASES.publication(
-            self.headers.get("X-Dragon-Instance")
-        ) as valid:
+        with (
+            SAVE_WRITE_LOCK,
+            process_file_lock(SAVE_PROCESS_LOCK),
+            LEASES.publication(self.headers.get("X-Dragon-Instance")) as valid,
+        ):
             if not valid:
                 self.json_response(409, {"ok": False, "reason": "lease-lost"})
                 return
@@ -424,10 +533,19 @@ class Handler(SimpleHTTPRequestHandler):
                 parsed = json.loads(staged_json.read_text(encoding="utf-8"))
                 if not isinstance(parsed.get("slots"), list):
                     raise TypeError("parsed save JSON missing slots")
-                # 所有候选均验证成功后才原子替换canonical输出。
-                os.replace(staged_save, SAVE_DAT)
-                os.replace(staged_meta, SAVE_META)
-                os.replace(staged_json, SAVE_JSON)
+                # 所有候选均验证成功后才发布canonical输出。三文件无法由文件系统
+                # 提供单次原子替换，因此先把事务前快照写入持久journal；普通异常立刻
+                # 回滚，进程硬退出/断电则由下一次启动在解析前恢复。
+                canonical_paths = (SAVE_DAT, SAVE_META, SAVE_JSON)
+                backups = prepare_publication_journal(canonical_paths)
+                try:
+                    replace_canonical(staged_save, SAVE_DAT, 1)
+                    replace_canonical(staged_meta, SAVE_META, 2)
+                    replace_canonical(staged_json, SAVE_JSON, 3)
+                    commit_publication_journal(backups)
+                except OSError:
+                    recover_publication_journal()
+                    raise
                 ok = True
             except (OSError, TypeError, ValueError, json.JSONDecodeError):
                 ok = False
@@ -447,6 +565,8 @@ if __name__ == "__main__":
         port = int(sys.argv[1]) if len(sys.argv) > 1 else 8321
     except ValueError:
         port = 8321
+    # 必须先恢复上次未完成的三文件发布，再以恢复后的SAVE+sidecar重建解析态。
+    recover_publication_journal()
     ensure_runtime_save_json()
     print(f"serving {ROOT} at http://127.0.0.1:{port}  (SAVE.DAT -> {SAVE_DAT})")
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

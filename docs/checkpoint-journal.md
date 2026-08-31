@@ -274,6 +274,21 @@ python tools/verify_save_legions.py
 
 ---
 
+## 7.1 2026-08-31 章节/存档共享加载初始化复核
+
+- 新游戏不再按势力首都生成 synthetic 军团；20章全部从 `legions=[]` 开始，`data.json` 仅作只读模板并在开局时 `structuredClone`。
+- 新游戏构造显式清理存档日期、延迟回归/俘虏/征兵/外交队列、使者、登场Set、派生资源与城池运行态，防止同章重开或模板污染。
+- `loadState` 统一装配新游戏与存档，但每次装载重建 canonical RNG；存档 sidecar RNG 在 build/时钟启动前恢复，无 sidecar 的 DOS 档不继承上一局随机流。
+- 存档时钟直接由 `save_date` 构造并按当月天数钳制，不再先以章节日建钟再补改日期。
+- `parse_save.py` 改为与 `data.json` 一致的五组×4章全局章节库；槽头 `0x11` 优先并以武将姓名区校验，失败回退20章最小diff；静态 `start/name/n_factions` 从匹配章节模板回填，避免把槽头运行时日历当章节起始日。
+- 二次 SAVE 写入审查补齐槽头全局章节号、当月/次月税率与三兵种征兵（Web 人数÷10写原版word），并修复武将 `+0x1D` 字段名不对称：DOS 解析态 `captive_flag` 在无 Web `origFaction` 时继续原样写回，避免真实俘虏原属被清成 `0xFF`；roundtrip 回归覆盖以上字段。
+- 武将已登场 Set 通过 sidecar `appearedGeneralIds` 显式 roundtrip，避免 JSON 降级后读档重复登场。
+- 存档继续后另存其它槽时，序列化以当前加载槽为未知区源底版；否则目标槽的旧尾部事件/未建模字段会覆盖当前运行状态。新游戏则固定以当前章节 SINARIO 模板为底版，`scen_raw.json` 已扩为与 `data.json` 同序的20章，不能继承目标槽旧章节静态字节。
+- 军团表不再整段清零：活动槽保留未建模字节并覆盖已证字段；`+8/+9` 写回当前方向帧/势力标识基址，取消目标时清理有效位、目标节点/坐标/城市与道路上下文，防止底版旧命令复活。未占用槽清零、延迟回归槽仅写已证 `status/faction/general/countdown`。
+- 保存发布增加持久事务日志：SAVE/meta/json 任一次 canonical replace 失败即恢复事务前快照；若进程在 replace 间硬退出，下一次启动先按 journal/backup 回滚，再从 SAVE+sidecar 重建解析态。客户端遇到网络异常时因服务端是否已提交未知而立即失权冻结，禁止再次上传旧整份底版。
+- 补齐 SAVE 已证字段回写：势力 active/attr、三预备兵池、AI目标，城太守，武将 active/attr/talk；尚无二进制定位的自创军师、征兵/外交队列、使者、流散队列和财政连续赤字标记进入 sidecar `scenarioRuntimeState`。
+- 回归：`verify_new_game_initialization.mjs`、`verify_save_scenario_detection.py`、`verify_save_roundtrip.mjs`、SAVE parse/build/target，以及行军/接敌/战后/撤退恢复均通过；真实 SAVE 仅只读解析到临时 `.dragon-runtime/save.review.json`。
+
 ## 8. 近期 Checkpoint 摘要
 
 ### 2026-08-30 战略地图据点点击流程与军团面板修复

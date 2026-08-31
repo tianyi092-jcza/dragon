@@ -15,10 +15,10 @@
   +0x28+i*4 六单位记录：+1兵力、+2兵种(1..3，4为空)
   +0x08..+0x0F 目标坐标/方向步进包; +0x14..+0x1F 移动残差
 
-注意: 槽头部 [0x11]/[0x3A] 不可靠(实测自动槽值异常)——剧本号用武将名区
-(+2..+14, 运行时不变)与四个剧本逐一 diff 取最优(阈值 500)判定;
-parse_scenario 依赖的 [0x3A]=势力数 始终用剧本静态值回填。
-日期字段未定位(需多存档差分), web 端读档后时钟从剧本起始日重新起算。
+注意: [0x3A] 不可靠；[0x11] 作为20章全局章节号优先使用，并用武将姓名/字号区
+(+2..+14, 运行时基本不变)校验，头部越界或校验失败时再取20章最小diff(阈值500)。
+parse_scenario 依赖的 [0x3A]=势力数与章节静态start/name始终用匹配模板回填。
+槽头日期已确认：+0 word低字节=日、+4=月、+6 word=年；有效存档写入 state.save_date。
 
 输出: web/save.json  {slots:[{slot,label,played,scenario_idx,state}]}
 """
@@ -28,8 +28,7 @@ import os
 import sys
 from pathlib import Path
 
-from parse_sinario import N_SCENARIO, parse_scenario
-from parse_sinario import SRC as SINARIO_SRC
+from parse_sinario import N_SCENARIO, SOURCES, parse_scenario
 
 BASE = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SAVE_SRC = os.path.join(BASE, "Dragon", "SAVE.DAT")
@@ -161,22 +160,53 @@ def load_web_meta() -> dict:
     return slots if isinstance(slots, dict) else {}
 
 
-def detect_scenario(slot: bytes, sin: bytes) -> int:
-    """只比较128名武将的姓名/字号静态字节，返回0基剧本号。"""
-    best_i, best_d = -1, 10**9
-    for sc_i in range(N_SCENARIO):
-        scenario = sin[sc_i * SLOT_SIZE : (sc_i + 1) * SLOT_SIZE]
-        d = 0
-        for general_idx in range(128):
-            start = 0x42C0 + general_idx * 32 + 2
-            d += sum(
-                a != b
-                for a, b in zip(
-                    slot[start : start + 12], scenario[start : start + 12], strict=True
-                )
+def load_scenario_library(base_root: Path) -> list[bytes]:
+    """按 data.json 的 SOURCES 顺序载入20章原始槽，返回全局章节索引表。"""
+    scenarios = []
+    for source_name in SOURCES:
+        path = (base_root / source_name / "SINARIO.DAT").resolve()
+        try:
+            path.relative_to(base_root)
+        except ValueError as error:
+            raise SystemExit(f"剧本路径必须位于项目目录内: {path}") from error
+        try:
+            data = path.read_bytes()
+        except OSError as error:
+            raise SystemExit(f"无法读取剧本文件: {path}: {error}") from error
+        expected = N_SCENARIO * SLOT_SIZE
+        if len(data) > expected:
+            raise SystemExit(f"剧本文件意外大小 {len(data)}: {path}")
+        if len(data) < expected:
+            data += b"\x00" * (expected - len(data))
+        scenarios.extend(
+            data[index * SLOT_SIZE : (index + 1) * SLOT_SIZE]
+            for index in range(N_SCENARIO)
+        )
+    return scenarios
+
+
+def scenario_name_diff(slot: bytes, scenario: bytes) -> int:
+    """比较128名武将的姓名/字号静态字节。"""
+    distance = 0
+    for general_idx in range(128):
+        start = 0x42C0 + general_idx * 32 + 2
+        distance += sum(
+            a != b
+            for a, b in zip(
+                slot[start : start + 12], scenario[start : start + 12], strict=True
             )
-        if d < best_d:
-            best_i, best_d = sc_i, d
+        )
+    return distance
+
+
+def detect_scenario(slot: bytes, scenarios: list[bytes]) -> int:
+    """返回data.json全局章节索引；优先采用SAVE头部章节号并以姓名区校验。"""
+    distances = [scenario_name_diff(slot, scenario) for scenario in scenarios]
+    header_idx = slot[0x11]
+    best_i = min(range(len(distances)), key=distances.__getitem__)
+    best_d = distances[best_i]
+    if header_idx < len(scenarios) and distances[header_idx] < 500:
+        return header_idx
     if best_d >= 500:
         raise ValueError(f"剧本判定失败: 最小姓名diff={best_d}")
     return best_i
@@ -187,22 +217,20 @@ def main(argv: list[str] | None = None) -> None:
     allowed_root = Path(BASE).resolve()
     source_path = Path(src).resolve()
     # 默认解析器继续限制项目内文件；测试/本地服务显式注入临时SAVE时允许该路径。
-    if "DRAGON_SAVE_DAT" not in os.environ:
+    if "DRAGON_SAVE_DAT" in os.environ:
+        configured_source = Path(os.environ["DRAGON_SAVE_DAT"]).resolve()
+        if source_path != configured_source:
+            raise SystemExit(f"输入路径不匹配 DRAGON_SAVE_DAT: {src}")
+    else:
         try:
             source_path.relative_to(allowed_root)
         except ValueError as error:
             raise SystemExit(f"输入路径必须位于项目目录内: {src}") from error
     try:
-        scenario_path = allowed_root / Path(SINARIO_SRC).resolve().relative_to(
-            allowed_root
-        )
-    except ValueError as error:
-        raise SystemExit(f"剧本路径必须位于项目目录内: {SINARIO_SRC}") from error
-    try:
         d = source_path.read_bytes()
-        sin = scenario_path.read_bytes()
     except OSError as e:
         raise SystemExit(f"无法读取源文件: {e}") from e
+    scenario_library = load_scenario_library(allowed_root)
     if len(d) != N_SLOT * SLOT_SIZE:
         raise SystemExit(f"SAVE.DAT 意外大小 {len(d)}")
 
@@ -210,16 +238,24 @@ def main(argv: list[str] | None = None) -> None:
     web_meta_slots = load_web_meta()
     for i in range(N_SLOT):
         slot = bytearray(d[i * SLOT_SIZE : (i + 1) * SLOT_SIZE])
-        scen = detect_scenario(bytes(slot), sin)
-        # 槽头势力数不可靠 → 始终用剧本静态值回填 (parse_scenario 依赖它)
-        slot[0x3A] = sin[scen * SLOT_SIZE + 0x3A]
+        scen = detect_scenario(bytes(slot), scenario_library)
+        # 槽头势力数不可靠 → 始终用匹配章节静态值回填 (parse_scenario 依赖它)
+        slot[0x3A] = scenario_library[scen][0x3A]
         label_raw = bytes(slot[0x40:0x60])
         label = label_raw.decode("big5", errors="replace").rstrip("\x00")
         played = label.strip("─") != ""
         state = parse_scenario(bytes(slot))
+        # 槽头前8字节是运行时日历而非SINARIO静态start；存档章节初始年月必须
+        # 来自匹配到的章节模板，否则武将appear_months会把存档日期当新起点。
+        template_state = parse_scenario(scenario_library[scen])
+        state["name"] = template_state["name"]
+        state["start"] = template_state["start"]
         state["legions"], state["delayedLegionReturns"] = parse_legions(
             bytes(slot), len(state["cities"])
         )
+        # 势力attr bit7是活跃权威位；运行时AI以dead筛选，读档必须同步恢复。
+        for faction in state["factions"]:
+            faction["dead"] = not faction["active"]
         # ★可选#3 (2026-08-24): 槽头前 0x3B 字节 = CS:[0xCF0] 全局块原样镜像
         #   (KI.EXE 存盘例程 0x8CFF: 写 CS:[0xCF0] 0x3B 字节到槽+0；读档 0x8CAE 对称读回)
         #   日期字段: +0 word=[本月天数<<8|当日] / +2 [CF2]子刻度 / +3 [CF3]时刻
@@ -230,8 +266,15 @@ def main(argv: list[str] | None = None) -> None:
             "month": slot[0x04],
             "year": big16(bytes(slot[0x06:0x08])),
         }
-        if played and 1 <= date["month"] <= 12 and 190 <= date["year"] <= 999:
+        if (
+            played
+            and 1 <= date["day"] <= 31
+            and 1 <= date["month"] <= 12
+            and 1 <= date["year"] <= 1000
+        ):
             state["save_date"] = date
+            state["save_sub"] = slot[0x02]
+            state["save_hour"] = slot[0x03]
         # 存档槽头部≠剧本头部布局, tax/trust 语义不可信:
         # 超出原版范围(税率 0..40)或 FF 时置 None → initPlayer 兜底默认值
         if state["tax"] is None or not (0 <= state["tax"] <= 40):
@@ -250,7 +293,7 @@ def main(argv: list[str] | None = None) -> None:
             entry["webMeta"] = web_meta
         slots.append(entry)
         print(
-            f"槽{i}: 剧本{scen + 1} played={played} "
+            f"槽{i}: 章节索引{scen} played={played} "
             f"军团={len(state['legions'])} 武将={len(state['generals'])}"
         )
 

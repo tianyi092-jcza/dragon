@@ -87,13 +87,19 @@ function weightedPick(sc, candidates) {
   }
   return pick;
 }
-// SINARIO 文件内无军团坐标/派系/主将(实测32B单元表语义待逆向),从各势力首都合成演示军团
+// SINARIO 文件不包含运行时军团表；新游戏必须以空军团表开始。
+// 这里只为真实 SAVE 军团和游玩期间新建军团分配 Web 运行时身份。
 function nextRuntimeLegionId(sc) {
   sc._nextRuntimeLegionId = (sc._nextRuntimeLegionId ?? 0) + 1;
   return sc._nextRuntimeLegionId;
 }
 
-function attachRuntimeLegion(sc, legion, preferredSlot = null, legions = sc.legions) {
+function attachRuntimeLegion(
+  sc,
+  legion,
+  preferredSlot = null,
+  legions = sc.legions,
+) {
   ensureLegionSlot(legions, legion, preferredSlot);
   legion._runtimeId = nextRuntimeLegionId(sc);
   return legion;
@@ -101,7 +107,8 @@ function attachRuntimeLegion(sc, legion, preferredSlot = null, legions = sc.legi
 
 export function buildArmies(sc) {
   sc._nextRuntimeLegionId = 0;
-  // ★优先用真实军团数据(0x21C0开局区/存档0x22C0区); 坐标异常时落首都
+  // ★只归一化真实运行时军团数据（SAVE 槽文件 0x22C0 区）。
+  // parse_sinario.py 明确输出 legions=[]；新游戏不得在首都合成占位军团。
   if (sc.legions && sc.legions.length) {
     for (const L of sc.legions) {
       L.cooldown ??= 0;
@@ -164,34 +171,9 @@ export function buildArmies(sc) {
       L.prevY = L.y;
       L._markerFrame ??= 4;
     }
-    sc.armies = sc.legions;
     return;
   }
-  const armies = [];
-  for (const f of sc.factions) {
-    const cap = sc.cities[f.capital];
-    if (!cap || f.monarch == null) continue;
-    // 兵力与势力规模挂钩 (原版 [si+0x858] 为兵力)
-    const legion = {
-      leader: f.monarch,
-      faction: f.idx,
-      x: cap.x,
-      y: cap.y,
-      prevX: cap.x,
-      prevY: cap.y,
-      troops: 1 + f.n_cities,
-      units: createDefaultLegionUnits(1 + f.n_cities),
-      morale: 200,
-      cooldown: 0,
-      status: 0x80,
-      _active: true,
-      target: null,
-      _markerFrame: 4,
-    };
-    attachRuntimeLegion(sc, legion, f.monarch_idx, armies);
-    armies.push(legion);
-  }
-  sc.legions = armies;
+  sc.legions = [];
 }
 
 // 威胁感知: 只看4邻格 (复刻原版视野规则)
@@ -825,9 +807,7 @@ export function resolveBattle(app, A, city) {
   const playerDefender = pf && city.faction === pf.idx;
   const playerControls =
     (playerAttacker && !isLegionDelegated(A) && primaryDefender) ||
-    (playerDefender &&
-      primaryDefender &&
-      !isLegionDelegated(primaryDefender));
+    (playerDefender && primaryDefender && !isLegionDelegated(primaryDefender));
   if (playerControls && app.battleView && !app.battleView.active) {
     app.startBattle(A, city, primaryDefender); // 暂停时钟+开覆盖层; 结算在 onFinish 回调
     return true;
@@ -1295,7 +1275,11 @@ export function aiTick(app) {
       // 0x264A：本轮未重新接触会清+3；0x2708随后可在同轮继续移动。
       if (A.target) {
         const resumed = stepTo(sc, A, A.target.x, A.target.y);
-        if (resumed === "moved" || resumed === "arrived" || resumed === "reversed")
+        if (
+          resumed === "moved" ||
+          resumed === "arrived" ||
+          resumed === "reversed"
+        )
           changed = true;
         continue;
       }

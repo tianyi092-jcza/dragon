@@ -138,7 +138,7 @@ assert.deepEqual(invalidScenario.legions[0]._engagement, {
   target: { cityIdx: null, x: 246, y: 15 },
 });
 
-// 最后P1回归：新剧本/旧Web synthetic军团可能只有总兵。buildArmies与SAVE
+// 旧 Web synthetic/recreation 军团可能只有总兵。buildArmies与SAVE
 // fallback必须共享六队补全；二进制经Python parse后fresh build仍为活动军团。
 const { createDefaultLegionUnits } = await import(
   "../web/src/game/legionunits.js"
@@ -160,7 +160,6 @@ const unitlessScenario = {
       capital: 0,
       monarch: "將7",
       monarch_idx: 7,
-      // synthetic buildArmies现有占位公式是1+n_cities；特意取257验证余数。
       n_cities: 256,
     },
   ],
@@ -171,7 +170,18 @@ const unitlessScenario = {
     active: true,
   })),
   diplomacy: [[0xff]],
-  legions: [],
+  legions: [
+    {
+      leader: "將7",
+      faction: 0,
+      x: 257,
+      y: 9,
+      troops: 257,
+      morale: 200,
+      status: 0x80,
+      _active: true,
+    },
+  ],
   citiesOf(idx) {
     return this.cities.filter((city) => city.faction === idx);
   },

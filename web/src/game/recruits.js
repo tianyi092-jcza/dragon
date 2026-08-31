@@ -17,8 +17,10 @@ export function monthlyAppear(app) {
   if (!sc || !app.clock) return;
   const elapsed =
     (app.clock.year - sc.start.year) * 12 + (app.clock.month - sc.start.month);
-  // 本局已处理表(防重复登场); setScenario 换剧本后是新对象自然重置
-  sc._appeared = sc._appeared ?? new Set();
+  // 本局已处理表(防重复登场)。旧快照/JSON可能把Set降级为数组，统一恢复。
+  if (!(sc._appeared instanceof Set)) {
+    sc._appeared = new Set(Array.isArray(sc._appeared) ? sc._appeared : []);
+  }
   for (const g of sc.generals) {
     if (isOnMap(g) || g.join_faction == null) continue;
     if (sc._appeared.has(g.idx)) continue;
