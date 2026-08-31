@@ -7,6 +7,7 @@ export function canSnapshotState(app) {
   return !(
     app?.engageTransition?.active ||
     app?.battleView?.active ||
+    app?.clock?._pendingStrategicAdvance ||
     app?.clock?._pendingDayAdvance
   );
 }
@@ -29,8 +30,12 @@ export function applyWebMetaToState(state, webMeta) {
     "pendingAssistanceNegotiations",
     "pendingStrategicEvents",
     "pendingEnvoyBudgetReports",
+    "delayedLegionReturns",
     "envoys",
     "prisoners",
+    "_legionBatchCursor",
+    "_cityTickCursor",
+    "_envoyDiplomacyCursor",
   ]) {
     if (runtime && Object.hasOwn(runtime, field)) {
       state[field] = structuredClone(runtime[field]);
@@ -55,6 +60,8 @@ export function applyWebMetaToState(state, webMeta) {
     if (saved.brokeMonths != null) faction.brokeMonths = saved.brokeMonths;
     if (saved.deficitScolded != null)
       faction.deficitScolded = saved.deficitScolded;
+    if (saved.extinctionHandled != null)
+      faction._extinctionHandled = saved.extinctionHandled;
   }
   for (const saved of webMeta?.legionRuleState ?? []) {
     const legion = state.legions?.find(
@@ -162,12 +169,17 @@ export function snapshotState(app, slotIdx, label) {
         pendingEnvoyBudgetReports: structuredClone(
           sc.pendingEnvoyBudgetReports ?? [],
         ),
+        delayedLegionReturns: structuredClone(sc.delayedLegionReturns ?? []),
+        _legionBatchCursor: sc._legionBatchCursor ?? 0,
+        _cityTickCursor: sc._cityTickCursor ?? 0,
+        _envoyDiplomacyCursor: sc._envoyDiplomacyCursor ?? 0,
         envoys: structuredClone(sc.envoys ?? {}),
         prisoners: structuredClone(sc.prisoners ?? []),
         factionRuleState: (sc.factions ?? []).map((faction) => ({
           idx: faction.idx,
           brokeMonths: faction.brokeMonths ?? null,
           deficitScolded: faction.deficitScolded ?? null,
+          extinctionHandled: faction._extinctionHandled ?? false,
         })),
       },
     },

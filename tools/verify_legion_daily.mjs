@@ -276,7 +276,11 @@ assert.equal(finishDeferredLegionDaily(deferredApp), true);
 assert.equal(deferredFaction.gold, 998, "异步战果后按新总兵和节点状态结算");
 assert.equal(deferredFaction.money, 998);
 assert.equal(deferredLegion.morale, 110);
-assert.equal(finishDeferredLegionDaily(deferredApp), false, "延迟日结至多执行一次");
+assert.equal(
+  finishDeferredLegionDaily(deferredApp),
+  false,
+  "延迟日结至多执行一次",
+);
 assert.equal(deferredFaction.gold, 998);
 
 process.stdout.write(

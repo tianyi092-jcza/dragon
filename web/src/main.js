@@ -20,6 +20,9 @@ import {
   initializeStrategicDiplomacy,
   monthlyAI,
   monthlyDiplomacyAI,
+  completePlayerWarDeclaration,
+  tickEnvoyDiplomacy,
+  tickStrategicWarEvents,
 } from "./game/ai.js";
 import { loadTerrain } from "./game/pathfind.js";
 import { classifyFieldBattleTerrain } from "./game/fieldterrain.js";
@@ -209,6 +212,10 @@ const app = {
     return cmd.checkTrustGameOver(this);
   },
 
+  completePlayerWarDeclaration(targetFaction) {
+    return completePlayerWarDeclaration(this, targetFaction);
+  },
+
   setScenario(i, playerFaction = null, advisor) {
     this.loadedSaveSlot = null;
     const raw = createNewGameScenario(
@@ -232,6 +239,7 @@ const app = {
     this.engageTransition?.cancel?.();
     this.engageTransition = null;
     this._legionDailySettlementDeferred = false;
+    this._legionDailySettlementSlots = null;
     this.dispatching = null;
     this.scenarioIdx = idx;
     this.scenario = new Scenario(raw);
@@ -264,6 +272,23 @@ const app = {
       startYear,
       startMonth,
       startDay: Math.max(1, requestedDay | 0),
+      onStrategicTick: (c) => {
+        const batchStart = this.scenario._legionBatchCursor ?? 0;
+        const cityCursor = this.scenario._cityTickCursor ?? 0;
+        aiTick(this, {
+          legionBatchStart: batchStart,
+          cityIndex: cityCursor,
+          hour: c.hour,
+          runFactionTick: false,
+        });
+        this.scenario._legionBatchCursor = (batchStart + 16) % 128;
+        this.scenario._cityTickCursor = (cityCursor + 1) % 192;
+      },
+      onHour: () => {
+        // 0x1D8E 仅在CF2达到8时调用一次0x3E11；其内部固定轮转一个势力槽。
+        tickEnvoyDiplomacy(this);
+        tickStrategicWarEvents(this);
+      },
       onMonthEnd: (c) => {
         // ★对应 KI.EXE call 0x5358
         const rep = monthlySettlement(this.scenario, c, this.scenario.tax);
@@ -277,12 +302,12 @@ const app = {
         );
         this.scenario.pendingEnvoyBudgetReports = reports;
       },
-      onDay: () => aiTick(this), // ★对应 0x3E11/0x3EFD 每日 AI tick
+      onDay: null,
     });
     this.clock.day = Math.min(this.clock.day, this.clock.daysInMonth);
     this.clock.sub = Math.max(
       0,
-      Math.min(7, Number(this.scenario.save_sub) || 0),
+      Math.min(8, Number(this.scenario.save_sub) || 0),
     );
     this.clock.hour = Math.max(
       0,

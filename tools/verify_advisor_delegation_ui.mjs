@@ -17,7 +17,13 @@ globalThis.fetch = async (url) => {
     status: 200,
     arrayBuffer: async () =>
       data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
-    json: async () => JSON.parse(data.toString("utf8")),
+    json: async () => {
+      try {
+        return JSON.parse(data.toString("utf8"));
+      } catch (error) {
+        throw new Error(`invalid JSON fixture ${url}`, { cause: error });
+      }
+    },
   };
 };
 
@@ -45,7 +51,12 @@ const app = {
     },
     resolveAdvice() {},
   },
-  scenario: { player_faction: 0, factions: [{ idx: 0 }], cities: [], legions: [] },
+  scenario: {
+    player_faction: 0,
+    factions: [{ idx: 0 }],
+    cities: [],
+    legions: [],
+  },
 };
 const bar = new GameBar(app);
 bar._assets.catch(() => {});
@@ -91,6 +102,36 @@ assert.equal(bar.hitTest(700, 400), true);
 bar.marchingOrder = null;
 bar.selectedSubmenu = null;
 
+// 空据点点击后的命令菜单必须在hover路径优先命中，三项/空白/外部均可更新。
+bar.orderChoiceMenu = {
+  items: ["戰鬥指揮", "委　　任", "解　　體"],
+  ox: 100,
+  oy: 100,
+  wTiles: 7,
+  hTiles: 5,
+  hover: -1,
+};
+assert.equal(bar.hover(120, 112), true);
+assert.equal(bar.orderChoiceMenu.hover, 0);
+assert.equal(bar.hover(120, 136), true);
+assert.equal(bar.orderChoiceMenu.hover, 1);
+assert.equal(bar.hover(120, 164), true);
+assert.equal(bar.orderChoiceMenu.hover, 2);
+assert.equal(bar.hover(102, 102), true);
+assert.equal(bar.orderChoiceMenu.hover, -1);
+assert.equal(bar.hover(20, 20), false);
+bar.orderChoiceMenu = null;
+
+// 普通行军目标不能触发闪动；只有显式战斗位置进入队列，1500ms后清理。
+let now = 0;
+globalThis.performance.now = () => now;
+app.scenario.legions = [{ target: { idx: 9 }, x: 1, y: 2 }];
+assert.equal(bar.blinkTargets().size, 0);
+bar.addMiniBattleFlash({ x: 12, y: 34 });
+assert.deepEqual([...bar.blinkTargets()], ["field:12:34"]);
+now = 1501;
+assert.equal(bar.blinkTargets().size, 0);
+
 // 生产下令必须写准确道路节点，再由SAVE序列化使用。
 const city = { idx: 9, x: 257, y: 9, name: "目標" };
 const legion = { status: 0x80 };
@@ -112,7 +153,11 @@ assert.equal(bar.assignMarchOrder(retreating, city, false), false);
 assert.equal(retreating.target, oldRetreatTarget);
 assert.equal(retreating.targetNode, 123);
 assert.match(notices.at(-1), /撤退中/);
-const engaged = { leader: "戰軍", status: 0xa0, _engagement: { kind: "field" } };
+const engaged = {
+  leader: "戰軍",
+  status: 0xa0,
+  _engagement: { kind: "field" },
+};
 assert.equal(bar.assignMarchOrder(engaged, city, true), false);
 assert.equal(engaged.target, undefined);
 assert.match(notices.at(-1), /交戰中/);

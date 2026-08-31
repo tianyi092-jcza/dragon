@@ -114,6 +114,8 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   delete state.envoys;
   delete state._appeared;
   delete state._nextRuntimeLegionId;
+  delete state._legionBatchCursor;
+  delete state._cityTickCursor;
   delete state._envoyDiplomacyCursor;
   for (const faction of state.factions ?? []) {
     delete faction.dead;

@@ -204,6 +204,238 @@ function scanThreat(A, sc) {
   return { sum, foe };
 }
 
+const AI_FORMATION_TYPE_CANDIDATES = Object.freeze([
+  Object.freeze([1, 3, 2]),
+  Object.freeze([1, 3, 2]),
+  Object.freeze([3, 1, 2]),
+  Object.freeze([3, 1, 2]),
+  Object.freeze([2, 3, 1]),
+  Object.freeze([2, 3, 1]),
+]);
+
+function cityRawBytes(city) {
+  if (typeof city?.raw !== "string") return null;
+  const bytes = city.raw.match(/../g);
+  return bytes?.length >= 0x20
+    ? Uint8Array.from(bytes, (value) => Number.parseInt(value, 16))
+    : null;
+}
+
+function cityNeighbours(sc, city) {
+  const raw = cityRawBytes(city);
+  if (!raw) return [];
+  const neighbours = [];
+  for (let direction = 0; direction < 4; direction++) {
+    if ((raw[0] & (1 << direction)) === 0) continue;
+    const neighbour = sc.cities?.[raw[0x1c + direction]];
+    if (neighbour) neighbours.push(neighbour);
+  }
+  return neighbours;
+}
+
+function cityLocalStrength(sc, city) {
+  return Math.min(
+    0x7f,
+    sc.legions.filter(
+      (legion) =>
+        !legion.dead &&
+        legion._active !== false &&
+        legion.faction === city.faction &&
+        legion.x === city.x &&
+        legion.y === city.y,
+    ).length,
+  );
+}
+
+function aiFormationLimit(faction) {
+  const fundsWord = Math.max(
+    0,
+    Math.floor(Number(faction?.money ?? faction?.gold ?? 0) / 0x100),
+  );
+  return fundsWord <= 0xa0 ? 5 : Math.floor(fundsWord / 0x20);
+}
+
+function selectAiFormationTypes(faction) {
+  const pools = {
+    1: Math.max(0, faction.reserve_cav ?? 0),
+    2: Math.max(0, faction.reserve_inf ?? 0),
+    3: Math.max(0, faction.reserve_arc ?? 0),
+  };
+  const types = [];
+  for (const candidates of AI_FORMATION_TYPE_CANDIDATES) {
+    const type = candidates.find((candidate) => pools[candidate] >= 0x32);
+    if (!type) return null;
+    pools[type] -= 0x32;
+    types.push(type);
+  }
+  return types;
+}
+
+function selectAiCommander(sc, factionIdx) {
+  let selected = null;
+  for (const general of sc.generals ?? []) {
+    if (
+      general?.faction !== factionIdx ||
+      general.active === false ||
+      (general.status ?? 0) !== 0
+    )
+      continue;
+    const force = general.ability?.force ?? 0;
+    if (!selected || force > (selected.ability?.force ?? 0)) selected = general;
+  }
+  return selected;
+}
+
+/** KI.EXE 0x4575→0x45C1→0x6E8F：AI按边境请求在首都真实编成。 */
+function formAiReinforcements(app, faction, city, requested) {
+  const sc = app.scenario;
+  const capital = faction?.capital == null ? null : sc.cities[faction.capital];
+  if (!capital || capital.faction !== faction.idx) return 0;
+  const current = sc.legions.filter(
+    (legion) =>
+      !legion.dead &&
+      legion._active !== false &&
+      legion.faction === faction.idx,
+  ).length;
+  let remaining = Math.min(
+    Math.max(0, requested | 0),
+    Math.max(0, aiFormationLimit(faction) - current),
+  );
+  let formed = 0;
+  while (remaining-- > 0) {
+    const general = selectAiCommander(sc, faction.idx);
+    const types = selectAiFormationTypes(faction);
+    if (!general || !types) break;
+    const legion = {
+      leader: general.name,
+      generalIdx: general.idx,
+      faction: faction.idx,
+      x: capital.x,
+      y: capital.y,
+      prevX: capital.x,
+      prevY: capital.y,
+      troops: 0,
+      units: types.map((type) => ({ type, troops: 0 })),
+      morale: factionLegionMoraleCap(faction),
+      cooldown: 0,
+      status: 0xc4,
+      delegated: true,
+      _active: true,
+      target: null,
+      _aiOrdered: true,
+      _markerFrame: 4,
+      formation: 1,
+      commandState: 0,
+    };
+    attachRuntimeLegion(sc, legion, general.idx);
+    sc.legions.push(legion);
+    general.status = 1;
+    replenishLegionAtCapital(sc, legion);
+    if (legion.troops <= 0) {
+      sc.legions.pop();
+      general.status = 0;
+      break;
+    }
+    faction.n_legions = (faction.n_legions ?? current) + 1;
+    legion.target = city;
+    formed++;
+  }
+  return formed;
+}
+
+/** KI.EXE 0x3EFD→0x3F74：每次仅轮询一个据点槽。 */
+export function tickStrategicCity(app, cityIndex) {
+  const sc = app?.scenario;
+  const city = sc?.cities?.[cityIndex];
+  if (!city || city.faction == null) return false;
+  if ((city._aiCooldown ?? 0) > 0) city._aiCooldown--;
+  const faction = sc.factions?.find(
+    (candidate) => candidate?.idx === city.faction,
+  );
+  if (!faction || faction.active === false || faction.dead) return false;
+  const targetIdx = faction.target_faction;
+  if (targetIdx == null || targetIdx === 0xff) return false;
+  const candidates = cityNeighbours(sc, city).filter(
+    (neighbour) =>
+      neighbour.faction === targetIdx && isAtWar(sc, city.faction, targetIdx),
+  );
+  if (!candidates.length) return false;
+  const localStrength = cityLocalStrength(sc, city);
+  // 0x4013..0x4019：候选邻城写入的是运行态强度+1，随后0x407A
+  // 用全部候选之和计算弱城请求数。
+  const threatTotal = candidates.reduce(
+    (sum, neighbour) => sum + cityLocalStrength(sc, neighbour) + 1,
+    0,
+  );
+  if (localStrength < 1) {
+    if ((city._aiCooldown ?? 0) > 0) return false;
+    if (city.faction === sc.player_faction) {
+      const rng = app.originalRng ?? app.activeBattleRng;
+      const random = rng?.nextByte?.() ?? 0;
+      city._aiCooldown = 0x18 + (random & 0x0f);
+      app.gamebar?.enqueueStrategicMessage?.({
+        gen: null,
+        text: `${city.name}　前來請求援軍。`,
+        kind: "reinforcement-request",
+      });
+      return true;
+    }
+    const formed = formAiReinforcements(app, faction, city, 1);
+    if (formed > 0) {
+      const capital = sc.cities[faction.capital];
+      city._aiCooldown = Math.min(
+        0x1e,
+        Math.floor(
+          (Math.abs(city.x - capital.x) + Math.abs(city.y - capital.y)) / 8,
+        ),
+      );
+    }
+    return formed > 0;
+  }
+  if (localStrength <= 1 && city.faction !== sc.player_faction) {
+    const requested = Math.max(0, threatTotal + 2 - localStrength);
+    const formed = formAiReinforcements(app, faction, city, requested);
+    if (formed > 0) {
+      const capital = sc.cities[faction.capital];
+      city._aiCooldown = Math.min(
+        0x1e,
+        Math.floor(
+          (Math.abs(city.x - capital.x) + Math.abs(city.y - capital.y)) / 8,
+        ),
+      );
+    }
+    return formed > 0;
+  }
+  const rng = app.originalRng ?? app.activeBattleRng;
+  const target = candidates[(rng?.nextByte?.() ?? 0) & 3] ?? candidates[0];
+  let remaining = Math.max(1, cityLocalStrength(sc, target) + 1);
+  for (const legion of sc.legions.toSorted(
+    (left, right) => (left.slot ?? 0x7fff) - (right.slot ?? 0x7fff),
+  )) {
+    if (remaining <= 0) break;
+    if (
+      legion.dead ||
+      legion._active === false ||
+      legion.faction !== city.faction ||
+      legion.x !== city.x ||
+      legion.y !== city.y ||
+      !isLegionDelegated(legion) ||
+      (legion.commandState ?? 0) >= 8
+    )
+      continue;
+    if (remaining > 1 && (rng?.nextByte?.() ?? 0xff) < 0x40) {
+      remaining--;
+      continue;
+    }
+    legion.target = target;
+    legion._aiOrdered = true;
+    legion.commandState = 0;
+    remaining--;
+  }
+  city._aiCooldown = 0;
+  return true;
+}
+
 function clearMarchNavigation(A) {
   A._march = null;
   A._path = null;
@@ -270,7 +502,18 @@ function settleFieldLegion(
   else legion.morale = Math.max(0, Math.min(0xff, authoritativeMorale | 0));
   legion.prevX = legion.x;
   legion.prevY = legion.y;
+  // 0x474A/0x487B 必须读取战败瞬间的当前道路边与端点；先快照，
+  // 再清普通攻击命令，避免边内战败被误判为无路而直接0x291A。
+  legion._battleRoadContext = legion._march
+    ? {
+        edgeId: legion._march.edgeId,
+        stride: legion._march.stride,
+        pointIndex: legion._march.pointIndex,
+        points: legion._march.points?.map((point) => ({ ...point })) ?? [],
+      }
+    : null;
   legion.target = null;
+  legion._aiOrdered = false;
   legion.cooldown = 8;
   legion._markerFrame = 4;
   clearEngagement(legion);
@@ -311,7 +554,35 @@ function retreatRouteToFriendlyCity(sc, legion, allowCurrentNode = false) {
   // 0x487B不是“最近己城”：它先以势力首都为最终搜索目标；军团位于道路
   // 边内时按edge+8端、edge+6端的原版顺序取第一个己方端点，再确认从该端
   // 仍能通往首都。roadApproachesAt按target(+8)、source(+6)排序以保留此优先级。
-  for (const approach of roadApproachesAt(legion.x, legion.y)) {
+  const saved = legion._battleRoadContext;
+  const savedApproaches = [];
+  if (saved?.points?.length) {
+    const currentIndex = Math.max(
+      0,
+      Math.min(saved.points.length - 1, saved.pointIndex - 1),
+    );
+    const current = saved.points[currentIndex] ?? { x: legion.x, y: legion.y };
+    for (const index of [saved.points.length - 1, 0]) {
+      const endpoint = saved.points[index];
+      if (!endpoint) continue;
+      const node = roadNodeAt(endpoint.x, endpoint.y);
+      if (!node) continue;
+      const from = Math.min(currentIndex, index);
+      const to = Math.max(currentIndex, index);
+      const section = saved.points.slice(from, to + 1);
+      const points = index < currentIndex ? section.toReversed() : section;
+      savedApproaches.push({
+        node,
+        distance: Math.abs(index - currentIndex),
+        points,
+        current,
+      });
+    }
+  }
+  const approaches = savedApproaches.length
+    ? savedApproaches
+    : roadApproachesAt(legion.x, legion.y);
+  for (const approach of approaches) {
     if (!allowCurrentNode && approach.distance === 0) continue;
     const city = sc.cities.find(
       (candidate) =>
@@ -325,7 +596,14 @@ function retreatRouteToFriendlyCity(sc, legion, allowCurrentNode = false) {
       approach.node.y,
       capital.x,
       capital.y,
-      (node) => blockedRoadNode(sc, legion, node),
+      (node) => {
+        const routeCity = sc.cities.find(
+          (candidate) => candidate.x === node.x && candidate.y === node.y,
+        );
+        // 0x487B/0x491B：战败撤退只可沿本势力据点链返回首都；
+        // 与普通进军不同，交战中的敌城也必须阻断。
+        return Boolean(routeCity && routeCity.faction !== legion.faction);
+      },
     );
     if (!onward) continue;
     return {
@@ -347,6 +625,7 @@ function assignRetreatRoute(sc, legion, retreat, captorFaction) {
   legion._march = null;
   legion._path = retreat.points.map((point) => ({ ...point }));
   legion.commandState = 8;
+  legion._battleRoadContext = null;
   legion._retreat = {
     cityIdx: retreat.city.idx,
     nodeId: retreat.node?.id ?? null,
@@ -467,10 +746,15 @@ export function dispatchLegionFate(sc, legion, captorFaction, rng = null) {
     : captureOrEliminateLegion(sc, legion, captorFaction);
 }
 
-function tickDelayedLegionReturns(sc) {
+function tickDelayedLegionReturns(sc, processedSlots = null) {
   const remaining = [];
   const completed = [];
   for (const item of sc.delayedLegionReturns ?? []) {
+    const slot = item.slot ?? item.generalIdx;
+    if (processedSlots && !processedSlots.has(slot)) {
+      remaining.push(item);
+      continue;
+    }
     item.countdown = Math.max(0, (item.countdown ?? 0) - 1);
     if (item.countdown > 0) {
       remaining.push(item);
@@ -539,7 +823,7 @@ function contactLegionAt(sc, A, x, y) {
         B.y === y,
     )
     .toSorted((left, right) => left.slot - right.slot)[0];
-  return occupant?.faction !== A.faction ? occupant : null;
+  return occupant?.faction === A.faction ? null : occupant;
 }
 
 function hostileCityAt(sc, A, x, y) {
@@ -967,6 +1251,34 @@ function updateFactionAfterCityCapture(sc, factionIdx) {
   return sc.cities[faction.capital] ?? null;
 }
 
+/** KI.EXE 0x4FCE：最后据点失陷同轮处理灭亡并显示TALK36。 */
+function finalizeFactionExtinction(app, factionIdx) {
+  const sc = app.scenario;
+  const faction = sc.factions.find(
+    (candidate) => candidate?.idx === factionIdx,
+  );
+  if (!faction || !faction.dead || faction._extinctionHandled) return false;
+  faction._extinctionHandled = true;
+  // 0x4FCE 内武将自尽、俘获、流散的完整分支仍未闭合。此处只落实
+  // 已实锤的即时灭亡、TALK36和其它势力目标清理，不臆造武将去向。
+  app.gamebar?.enqueueStrategicMessage?.({
+    gen: null,
+    text: `${faction.monarch}的勢力滅亡了。`,
+    kind: "faction-extinction",
+  });
+  for (const other of sc.factions) {
+    if (other?.active === false || other?.dead) continue;
+    if (other.target_faction === factionIdx) other.target_faction = null;
+  }
+  if (factionIdx === sc.player_faction) {
+    app.endView?.show({
+      img: "grf/gameover.png",
+      caption: `大業未成，${faction.monarch}軍覆滅…（點擊返回標題）`,
+    });
+  }
+  return true;
+}
+
 function retreatCapturedGarrison(
   sc,
   city,
@@ -1064,6 +1376,10 @@ export function applyBattleResult(
       A.faction,
       strategicRng,
     );
+    // 原版先走0x4DA4处理破城守军组，随后才在无新首都时进入0x4FCE。
+    if (oldFaction != null && oldFaction !== A.faction) {
+      finalizeFactionExtinction(app, oldFaction);
+    }
     if (oldFaction === sc.player_faction && oldFaction !== A.faction) {
       // KI.EXE 0x4F71：玩家据点实际易主时播放 0xCE7 警告音。
       warnSfx();
@@ -1109,22 +1425,90 @@ export function applyBattleResult(
   );
 }
 
+const WAR_TALKS_AI = [
+  "無法再與貴國維持外交了。要擊潰貴國！",
+  "與你不共戴天！好好覺悟吧。",
+  "很遺憾，只有滅了貴國了．．．好好迎戰吧。",
+];
+
+const WAR_TALKS_PLAYER = [
+  "斷絕與{target}的外交，將軍團派往國境！",
+  "就將{target}擊潰吧。{advisor}啊，立即進兵侵攻！",
+  "已經不能再與{target}共存了．．立即固守國境。",
+];
+
+function warTalkStyle(sc, faction) {
+  const monarch = sc.generals?.[faction?.monarch_idx];
+  return Math.max(0, Math.min(2, monarch?.talk_idx ?? 0));
+}
+
+/** KI.EXE 0x3526：宣战消息按发起者与君主说话类型分池。 */
 export function processStrategicWarEvent(app, event) {
   const sc = app.scenario;
   const aggressor = sc.factions?.find((f) => f?.idx === event.aggressor);
   const defender = sc.factions?.find((f) => f?.idx === event.defender);
   if (!aggressor || !defender || isAtWar(sc, event.aggressor, event.defender))
     return false;
-  aggressor.target_faction = defender.idx;
-  declareWar(sc, aggressor.idx, defender.idx);
+  const commit = () => {
+    if (isAtWar(sc, aggressor.idx, defender.idx)) return;
+    aggressor.target_faction = defender.idx;
+    declareWar(sc, aggressor.idx, defender.idx);
+  };
+  const monarch = sc.generals?.[aggressor.monarch_idx] ?? null;
   if (defender.idx === sc.player_faction) {
-    const targetName = defender.monarch?.trim?.() || "我方";
-    const advisorName = sc.player_advisor?.name?.trim?.() || "軍師";
+    // AI→玩家：0xCE7 后先 AL=0x93/TALK63 通用报告，再由发起君主
+    // 显示 CX=415→TALK 478+general[+0x1E]；第二条关闭后才提交敌对状态。
+    warnSfx();
     app.gamebar?.enqueueStrategicMessage?.({
-      gen: sc.generals?.[aggressor.monarch_idx] ?? null,
-      text: `就將${targetName}擊潰吧。${advisorName}啊，立即進兵侵攻！`,
-      kind: "war-declaration",
+      gen: null,
+      text: `${aggressor.monarch?.trim?.() || "敵方"}對我發出宣戰佈告了。`,
+      kind: "war-declaration-report",
     });
+    app.gamebar?.enqueueStrategicMessage?.({
+      gen: monarch,
+      text: WAR_TALKS_AI[warTalkStyle(sc, aggressor)],
+      kind: "war-declaration",
+      onClose: commit,
+    });
+  } else {
+    commit();
+  }
+  return true;
+}
+
+/** 玩家主动宣战成功后的0x645D→0x3526第二阶段。 */
+export function completePlayerWarDeclaration(app, targetFaction) {
+  const sc = app?.scenario;
+  const aggressor = sc?.factions?.find((f) => f?.idx === sc.player_faction);
+  const defender =
+    typeof targetFaction === "object"
+      ? targetFaction
+      : sc?.factions?.find((f) => f?.idx === targetFaction);
+  if (!aggressor || !defender || isAtWar(sc, aggressor.idx, defender.idx))
+    return false;
+  const style = warTalkStyle(sc, aggressor);
+  const advisorName =
+    sc.player_advisor?.name?.trim?.() ||
+    sc.generals?.[aggressor.advisor_idx]?.name?.trim?.() ||
+    "軍師";
+  const targetName = defender.monarch?.trim?.() || "敵方";
+  const text = WAR_TALKS_PLAYER[style]
+    .replace("{target}", targetName)
+    .replace("{advisor}", advisorName);
+  const commit = () => {
+    if (isAtWar(sc, aggressor.idx, defender.idx)) return;
+    aggressor.target_faction = defender.idx;
+    declareWar(sc, aggressor.idx, defender.idx);
+  };
+  if (app.gamebar?.enqueueStrategicMessage) {
+    app.gamebar.enqueueStrategicMessage({
+      gen: sc.generals?.[aggressor.monarch_idx] ?? null,
+      text,
+      kind: "war-declaration",
+      onClose: commit,
+    });
+  } else {
+    commit();
   }
   return true;
 }
@@ -1155,7 +1539,7 @@ export function monthlyDiplomacyAI(app) {
   return enqueueStrategicWarEvents(app.scenario, events);
 }
 
-function tickStrategicWarEvents(app) {
+export function tickStrategicWarEvents(app) {
   const sc = app.scenario;
   const remainingBudgetReports = [];
   for (const report of sc.pendingEnvoyBudgetReports ?? []) {
@@ -1213,35 +1597,8 @@ export function tickEnvoyDiplomacy(app) {
 export function monthlyAI(app) {
   const sc = app.scenario;
   if (!sc) return;
-  // 势力灭亡判定: 无城 → 军团解散, 君主/武将部分自杀(张任曹操类)其余流散
-  for (const f of sc.factions) {
-    if (f.dead || f.idx == null) continue;
-    if (
-      sc.citiesOf(f.idx).length === 0 &&
-      sc.legions.some((A) => A.faction === f.idx)
-    ) {
-      f.dead = true;
-      for (const A of sc.legions.filter((A) => A.faction === f.idx)) {
-        A.dead = true;
-        // 流散 → 随机投奔(按城数加权 = 领土大吸引力大)
-        const alive = sc.factions.filter((x) => !x.dead && x.idx !== f.idx);
-        if (alive.length) {
-          const pick = weightedPick(sc, alive);
-          const g = sc.generals.find((g2) => g2.name === A.leader);
-          if (g) g.faction = pick.idx;
-          sc.prisoners = sc.prisoners ?? [];
-          sc.prisoners.push({ leader: A.leader, faction: pick.idx, months: 1 });
-        }
-      }
-      app.hud?.flashEvent?.(`${f.monarch} 势力灭亡`);
-      // ★D7OVER: 玩家势力灭亡 → GAMEOVER 画面
-      if (f.idx === sc.player_faction)
-        app.endView?.show({
-          img: "grf/gameover.png",
-          caption: `大業未成，${f.monarch}軍覆滅…（點擊返回標題）`,
-        });
-    }
-  }
+  // 势力灭亡由最后据点易主的0x4CF3→0x4FCE同轮处理；月结不得补扫或
+  // 随机改投，否则会改变TALK36、武将去向和其它势力目标清理的顺序。
   // ★D7END: 玩家統一天下 → 通关结局画 (剧本1..12 各自专属图)
   {
     const pf = playerFaction(sc);
@@ -1310,52 +1667,58 @@ export function monthlyAI(app) {
   sc.legions = sc.legions.filter((A) => !A.dead); // ★灭亡/战败军团立即清场(不等下次aiTick)
 }
 
-// 城池每日成长 — 复刻 KI.EXE 0x4194/0x4269 (内政官治理影响：上升率·防灾·城兵)
+// 单城成长 — KI.EXE 0x3EFD 每次处理一个城槽后立即调用0x4194/0x4269。
+function tickStrategicCityDaily(sc, cityIndex) {
+  const c = sc.cities?.[cityIndex];
+  if (!c || c.faction == null) return;
+  let pol = 0;
+  let lead = 0;
+  const govIdx = c.governor;
+  if (govIdx != null && sc.generals?.[govIdx]) {
+    const gen = sc.generals[govIdx];
+    pol = gen.ability?.politics ?? 0;
+    lead = gen.ability?.lead ?? 0;
+  }
+
+  // KI.EXE 0x4194 逐城轮询动力学：
+  // cl = 5 + (有内政官 ? politics : 0)
+  // dl = (1 + (有内政官 ? lead : 0)) >> 1
+  const isPlayer = c.faction === sc.player_faction;
+  let cl = isPlayer ? 5 : 8;
+  let dl = isPlayer ? 1 : 4;
+  if (pol > 0 || lead > 0) {
+    cl += pol;
+    dl = (dl + lead) >> 1;
+  }
+
+  // ch 递增步长 = Math.max(1, cl - 15)
+  const ch = cl > 15 ? cl - 15 : 1;
+
+  // 1. 上升率 / 士气增长：随机门控 cl >= rand(16)
+  if (cl >= Math.floor(Math.random() * 16)) {
+    c.growth = Math.min(200, (c.growth ?? 100) + ch);
+  }
+
+  // 2. 防灾 / 储粮恢复：随机门控 cl >= rand(16)
+  if (cl >= Math.floor(Math.random() * 16)) {
+    const disInc = (ch >> 1) + 1;
+    c.disaster = Math.min(200, (c.disaster ?? 100) + disInc);
+    c.defence = c.disaster;
+  }
+
+  // 3. 城兵自然募补/恢复：城兵离上限差距时向城兵填充 dl
+  const maxTroops = c.troops_cap ?? 200; // 内部标准单位 (×10 即为显示人数)
+  let curTroops = c.troops ?? 0;
+  if (curTroops < maxTroops && Math.floor(Math.random() * 24) === 0) {
+    curTroops = Math.min(maxTroops, curTroops + dl);
+    c.troops = curTroops;
+  }
+}
+
+/** 兼容测试/工具的全城批处理入口；产品主循环使用单城tick。 */
 export function cityDaily(sc) {
-  for (const c of sc.cities) {
-    if (c.faction == null) continue;
-    let pol = 0;
-    let lead = 0;
-    const govIdx = c.governor;
-    if (govIdx != null && sc.generals?.[govIdx]) {
-      const gen = sc.generals[govIdx];
-      pol = gen.ability?.politics ?? 0;
-      lead = gen.ability?.lead ?? 0;
-    }
-
-    // KI.EXE 0x4194 逐日动力学：
-    // cl = 5 + (有内政官 ? politics : 0)
-    // dl = (1 + (有内政官 ? lead : 0)) >> 1
-    const isPlayer = c.faction === sc.player_faction;
-    let cl = isPlayer ? 5 : 8;
-    let dl = isPlayer ? 1 : 4;
-    if (pol > 0 || lead > 0) {
-      cl += pol;
-      dl = (dl + lead) >> 1;
-    }
-
-    // ch 递增步长 = Math.max(1, cl - 15)
-    const ch = cl > 15 ? cl - 15 : 1;
-
-    // 1. 上升率 / 士气增长：随机门控 cl >= rand(16)
-    if (cl >= Math.floor(Math.random() * 16)) {
-      c.growth = Math.min(200, (c.growth ?? 100) + ch);
-    }
-
-    // 2. 防灾 / 储粮恢复：随机门控 cl >= rand(16)
-    if (cl >= Math.floor(Math.random() * 16)) {
-      const disInc = (ch >> 1) + 1;
-      c.disaster = Math.min(200, (c.disaster ?? 100) + disInc);
-      c.defence = c.disaster;
-    }
-
-    // 3. 城兵自然募补/恢复：城兵离上限差距时向城兵填充 dl
-    const maxTroops = c.troops_cap ?? 200; // 内部标准单位 (×10 即为显示人数)
-    let curTroops = c.troops ?? 0;
-    if (curTroops < maxTroops && Math.floor(Math.random() * 24) === 0) {
-      curTroops = Math.min(maxTroops, curTroops + dl);
-      c.troops = curTroops;
-    }
+  for (let cityIndex = 0; cityIndex < sc.cities.length; cityIndex++) {
+    tickStrategicCityDaily(sc, cityIndex);
   }
 }
 
@@ -1451,10 +1814,16 @@ export function replenishLegionAtCapital(sc, legion) {
 }
 
 /** KI.EXE 0x2600..0x2649：军团每日军费与节点士气恢复。 */
-export function settleLegionDaily(sc) {
+export function settleLegionDaily(sc, processedSlots = null) {
   if (!sc?.legions) return;
   for (const legion of sc.legions) {
-    if (legion.dead || legion._active === false || legion.faction == null)
+    const slot = legion.slot ?? legion._runtimeId;
+    if (
+      (processedSlots && !processedSlots.has(slot)) ||
+      legion.dead ||
+      legion._active === false ||
+      legion.faction == null
+    )
       continue;
     const faction = sc.factions?.find(
       (candidate) => candidate?.idx === legion.faction,
@@ -1478,41 +1847,73 @@ export function settleLegionDaily(sc) {
 export function finishDeferredLegionDaily(app) {
   if (!app?._legionDailySettlementDeferred) return false;
   app._legionDailySettlementDeferred = false;
-  settleLegionDaily(app.scenario);
+  const processedSlots = app._legionDailySettlementSlots ?? null;
+  app._legionDailySettlementSlots = null;
+  settleLegionDaily(app.scenario, processedSlots);
   return true;
 }
 
-export function aiTick(app) {
+export function aiTick(app, options = {}) {
   // 战术场景或委任四相过渡接管期间，不能推进城池每日状态或处理第二场战斗。
   if (app.battleView?.active || app.engageTransition?.active) return;
   const sc = app.scenario;
   if (!sc || !sc.legions) return;
   // 0x25CC→0x2662 的首都状态9先于同槽 0x2600；军团表按固定槽地址升序处理。
   // 排序仅复制引用数组，不能复制军团对象，否则同首都多军团争用预备池的结果会偏离原版。
+  const batchStart = Number.isInteger(options.legionBatchStart)
+    ? Math.max(0, Math.min(112, options.legionBatchStart))
+    : null;
+  const processedSlots =
+    batchStart == null
+      ? null
+      : new Set(Array.from({ length: 16 }, (_, index) => batchStart + index));
+  const shouldProcessLegion = (legion) =>
+    !processedSlots || processedSlots.has(legion.slot ?? legion._runtimeId);
+  const shouldSettleDaily =
+    options.settleDaily ?? (batchStart == null || options.hour === 1);
+  // 0x1D0B 固定顺序：0x3EFD 单城槽（含该城0x4194/0x4269），再0x25A3
+  // 十六军团槽。先让边城请求编成，不能让同批首都军团抢先消耗预备兵池。
+  if (Number.isInteger(options.cityIndex)) {
+    tickStrategicCity(app, options.cityIndex);
+    tickStrategicCityDaily(sc, options.cityIndex);
+  } else if (options.runCityDaily !== false) {
+    cityDaily(sc);
+  }
   let replenished = false;
-  const legionsInSlotOrder = sc.legions.toSorted(
-    (left, right) =>
-      (left.slot ?? left._runtimeId ?? 0x7fff) -
-      (right.slot ?? right._runtimeId ?? 0x7fff),
-  );
+  const legionsInSlotOrder = sc.legions
+    .filter(shouldProcessLegion)
+    .toSorted(
+      (left, right) =>
+        (left.slot ?? left._runtimeId ?? 0x7fff) -
+        (right.slot ?? right._runtimeId ?? 0x7fff),
+    );
   for (const legion of legionsInSlotOrder) {
     if (replenishLegionAtCapital(sc, legion)) replenished = true;
   }
-  cityDaily(sc);
-  tickEnvoyDiplomacy(app);
-  let changed = replenished || tickStrategicWarEvents(app);
-  for (const item of tickDelayedLegionReturns(sc)) {
+  // 0x3E11 在0x1D8E时刻进位时由主调度器调用，不属于每次0x1D0B主更新。
+  // 无显式分批的旧工具调用仍可通过runFactionTick:true请求一次。
+  if (options.runFactionTick === true) tickEnvoyDiplomacy(app);
+  let changed =
+    replenished ||
+    (options.runFactionTick === true && tickStrategicWarEvents(app));
+  for (const item of tickDelayedLegionReturns(sc, processedSlots)) {
     changed = true;
     app.hud?.flashEvent?.(`${item.leader} 收攏殘部後返回待命`);
   }
   for (const A of sc.legions) {
-    if (A.dead || A.faction == null) continue;
+    if (!shouldProcessLegion(A) || A.dead || A.faction == null) continue;
     if (A.prevX === A.x && A.prevY === A.y) continue;
     A.prevX = A.x;
     A.prevY = A.y;
   }
   for (const A of sc.legions) {
-    if (A.dead || A._active === false || A.faction == null) continue;
+    if (
+      !shouldProcessLegion(A) ||
+      A.dead ||
+      A._active === false ||
+      A.faction == null
+    )
+      continue;
     if (A._retreat && A.target) {
       if (A.cooldown > 0) {
         A.cooldown--;
@@ -1542,8 +1943,16 @@ export function aiTick(app) {
         battleOpened &&
         (app.battleView?.active || app.engageTransition?.active)
       ) {
-        // 0x25A3 单槽先0x2662、后0x2600；异步战斗结束后再按战果和当前位置结算。
-        app._legionDailySettlementDeferred = true;
+        // 0x25A3 单槽先0x2662、后0x2600；只有CF3==1的批次需要异步补日结。
+        app._legionDailySettlementDeferred = shouldSettleDaily;
+        app._legionDailySettlementSlots = shouldSettleDaily
+          ? new Set(
+              processedSlots ??
+                legionsInSlotOrder.map(
+                  (legion) => legion.slot ?? legion._runtimeId,
+                ),
+            )
+          : null;
         return;
       }
       if (A._engagement || A.dead) continue;
@@ -1590,7 +1999,15 @@ export function aiTick(app) {
             !isFriendly(sc, A.faction, orderedTarget.faction))
         ) {
           if (resolveBattle(app, A, orderedTarget)) {
-            app._legionDailySettlementDeferred = true;
+            app._legionDailySettlementDeferred = shouldSettleDaily;
+            app._legionDailySettlementSlots = shouldSettleDaily
+              ? new Set(
+                  processedSlots ??
+                    legionsInSlotOrder.map(
+                      (legion) => legion.slot ?? legion._runtimeId,
+                    ),
+                )
+              : null;
             return;
           }
           changed = true;
@@ -1612,7 +2029,15 @@ export function aiTick(app) {
         if (A.x === foe.x && A.y === foe.y) {
           if (T && T.faction != null && T.faction !== A.faction) {
             if (resolveBattle(app, A, T)) {
-              app._legionDailySettlementDeferred = true;
+              app._legionDailySettlementDeferred = shouldSettleDaily;
+              app._legionDailySettlementSlots = shouldSettleDaily
+                ? new Set(
+                    processedSlots ??
+                      legionsInSlotOrder.map(
+                        (legion) => legion.slot ?? legion._runtimeId,
+                      ),
+                  )
+                : null;
               return; // ★交互战斗已开启, 结算延至战果回写后
             }
             changed = true;
@@ -1625,25 +2050,8 @@ export function aiTick(app) {
         A.cooldown = 3;
       }
     } else {
-      // 游走: 缓慢逼近最近敌城 (原版 rand 目标+寻路 0x4575 的简化)
-      if (
-        !A.target ||
-        A.target.faction == null ||
-        A.target.faction === A.faction
-      ) {
-        let best = null,
-          bd = Infinity;
-        for (const c of sc.cities) {
-          if (c.faction == null || c.faction === A.faction) continue;
-          if (isFriendly(sc, A.faction, c.faction)) continue; // 同盟默契: 友好势力不攻
-          const d = (c.x - A.x) ** 2 + (c.y - A.y) ** 2;
-          if (d < bd) {
-            bd = d;
-            best = c;
-          }
-        }
-        A.target = best;
-      }
+      // 0x3EFD城池AI负责为AI军团写入边境增援/出击目标；没有命令时驻守。
+      // 禁止以“最近敌城”替代尚未闭合的0x4325状态机，避免破城后连续攻击。
       if (A.target) {
         const marchResult = stepTo(sc, A, A.target.x, A.target.y);
         if (marchResult === "contact") continue;
@@ -1659,7 +2067,15 @@ export function aiTick(app) {
           // 中途易主变友方(如同盟成立)则不攻
           if (!isFriendly(sc, A.faction, A.target.faction)) {
             if (resolveBattle(app, A, A.target)) {
-              app._legionDailySettlementDeferred = true;
+              app._legionDailySettlementDeferred = shouldSettleDaily;
+              app._legionDailySettlementSlots = shouldSettleDaily
+                ? new Set(
+                    processedSlots ??
+                      legionsInSlotOrder.map(
+                        (legion) => legion.slot ?? legion._runtimeId,
+                      ),
+                  )
+                : null;
               return; // ★交互战斗已开启, 结算延至战果回写后
             }
             changed = true;
@@ -1671,49 +2087,8 @@ export function aiTick(app) {
     }
   }
   // 0x25A3 单槽顺序为0x2662→0x2600：按本轮移动、到达和同步战果后的状态结算。
-  settleLegionDaily(sc);
+  if (shouldSettleDaily) settleLegionDaily(sc, processedSlots);
   sc.legions = sc.legions.filter((A) => !A.dead);
-
-  // 兵源补充(占位): 无军团的活跃势力从首都重新起兵(真实募兵/武将重现待逆向)
-  // ★统帅必须是该势力未被俘的武将 — 否则坐牢君主会"分身"出幽灵军团被反复俘获
-  for (const f of sc.factions) {
-    if (f.idx === sc.player_faction) continue; // 玩家势力不自动起兵 (編成菜单指挥)
-    const hasFieldedLegion = sc.legions.some(
-      (A) => !A.dead && A._active !== false && A.faction === f.idx,
-    );
-    const hasReturningGeneral = (sc.delayedLegionReturns ?? []).some(
-      (item) => item.countdown > 0 && item.faction === f.idx,
-    );
-    if (!hasFieldedLegion && !hasReturningGeneral) {
-      const cap = sc.cities[f.capital];
-      const mon = sc.generals.find(
-        (g) => g.name === f.monarch && g.status !== 4 && g.faction === f.idx,
-      );
-      const alt =
-        mon || sc.generals.find((g) => g.faction === f.idx && g.status !== 4);
-      if (cap && cap.faction === f.idx && alt) {
-        const reinforcement = {
-          leader: alt.name,
-          faction: f.idx,
-          x: cap.x,
-          y: cap.y,
-          prevX: cap.x,
-          prevY: cap.y,
-          troops: 1 + f.n_cities,
-          units: createDefaultLegionUnits(1 + f.n_cities),
-          morale: factionLegionMoraleCap(f),
-          cooldown: 12,
-          status: 0x80,
-          _active: true,
-          target: null,
-          _markerFrame: 4,
-          formation: 1, // 编制类型 1..4 (0xCBE5 选块)
-        };
-        attachRuntimeLegion(sc, reinforcement, alt.idx);
-        sc.legions.push(reinforcement);
-      }
-    }
-  }
   if (changed) {
     app.hud?.buildLegend?.();
     app.view?.draw(); // 只在版图变化时重绘 (主循环不逐帧画)

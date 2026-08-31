@@ -108,7 +108,10 @@ const restoredEdgeScenario = {
   diplomacy: [[255]],
 };
 buildArmies(restoredEdgeScenario);
-assert.ok(restoredEdgeLegion._march, "SAVE raw edge context restores navigation");
+assert.ok(
+  restoredEdgeLegion._march,
+  "SAVE raw edge context restores navigation",
+);
 assert.ok(!("roadEdgeOrNode" in restoredEdgeLegion));
 let restoredEdgeResult = "moved";
 for (let step = 0; step <= firstLeg.points.length; step++) {

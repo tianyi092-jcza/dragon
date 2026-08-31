@@ -89,6 +89,7 @@ const legion = (leader, faction, x, y) => ({
 {
   const sc = makeScenario();
   const monarch = legion("甲", 0, 257, 9);
+  monarch.slot = 37;
   sc.legions = [monarch];
   assert.equal(
     dispatchLegionFate(sc, monarch, 1, {
@@ -98,10 +99,30 @@ const legion = (leader, faction, x, y) => ({
   );
   assert.equal(monarch.dead, true);
   assert.equal(sc.delayedLegionReturns[0].countdown, 48);
-  for (let i = 0; i < 47; i++) aiTick({ scenario: sc });
+  const targetBatch = 32;
+  for (let visit = 0; visit < 47; visit++) {
+    for (const batchStart of [0, 16, 48, 64, 80, 96, 112]) {
+      aiTick(
+        { scenario: sc },
+        { legionBatchStart: batchStart, runFactionTick: false },
+      );
+    }
+    assert.equal(
+      sc.delayedLegionReturns[0].countdown,
+      48 - visit,
+      "非目标七个批次不得递减48次回归计数",
+    );
+    aiTick(
+      { scenario: sc },
+      { legionBatchStart: targetBatch, runFactionTick: false },
+    );
+  }
   assert.equal(sc.delayedLegionReturns[0].countdown, 1);
   assert.equal(sc.generals[0].status, 1);
-  aiTick({ scenario: sc });
+  aiTick(
+    { scenario: sc },
+    { legionBatchStart: targetBatch, runFactionTick: false },
+  );
   assert.equal(sc.generals[0].status, 0);
   assert.equal(sc.delayedLegionReturns.length, 0);
   assert.ok(!sc.legions.includes(monarch));

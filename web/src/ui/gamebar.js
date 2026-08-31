@@ -2650,7 +2650,7 @@ export class GameBar {
         p.advName,
       );
       sc.trust = Math.min(255, (sc.trust ?? 255) + 20);
-      declareWar(sc, me.idx, targetFaction.idx);
+      this.app.completePlayerWarDeclaration?.(targetFaction);
       this.app.hud.refreshTrust();
       this.app.hud.flashEvent(`「${me.monarch}」同意開戰！信賴度 +20`);
       this.app.view.draw();
@@ -3067,7 +3067,7 @@ export class GameBar {
       const talkIdx = 111 + ri * 9 + p.monarchTalkIdx;
       p.monarchLines = await formatTalkTokens(talkIdx, p.targetName, p.advName);
       sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
-      declareWar(sc, p.playerFaction.idx, p.targetFaction.idx);
+      this.app.completePlayerWarDeclaration?.(p.targetFaction);
       this.app.hud.refreshTrust();
       this.app.hud.flashEvent(
         `「${p.playerFaction.monarch}」准許對「${p.targetName}」開戰！信賴度 +10`,
@@ -3756,7 +3756,11 @@ export class GameBar {
     const h = 64;
     const px = Math.round((innerWidth - w) / 2);
     const py = Math.max(40, innerHeight - h - 24);
+    let finished = false;
     const finish = () => {
+      if (finished) return;
+      finished = true;
+      message.onClose?.();
       this._strategicMessageActive = false;
       if (!this._strategicMessageQueue.length) this._clockHoldRequested = false;
       this.syncClock();
@@ -5158,6 +5162,9 @@ export class GameBar {
     this.layout();
     // 查看非玩家军团时锁定地图，仅列表和右侧面板可交互
     if (this.viewingLegion) return true;
+    // 地图直接点击军团也可进入行军指示；该入口没有 selectedSubmenu，
+    // 仍必须把目标选择/命令菜单路由给 GameBar.hover/click，禁止穿透地图。
+    if (this.marchingOrder || this.orderChoiceMenu) return true;
 
     // ★军师菜单下任何一个菜单被选中打开时，整个游戏地图锁定不可移动，地图上的操作全部无效。
     // 行军目标选择也属于「軍團」子菜单，不能为拖拽/地图拾取开例外。
@@ -6547,30 +6554,13 @@ export class GameBar {
     });
   }
 
-  /** 遇袭城集合 (被敌对军团指向的目标城) — 小地图闪烁3次+音效 */
+  /** 实际接敌/攻城位置集合。普通行军目标不得触发闪动或音效。 */
   blinkTargets() {
-    const sc = this.app.scenario;
     const now = performance.now();
-    const targets = new Set();
-    if (sc)
-      for (const L of sc.legions) {
-        if (L.faction == null || !L.target) continue;
-        // 只有敌对(非友好)军团目标才闪烁
-        if (isFriendly(sc, L.faction, L.target.faction)) continue;
-        targets.add(L.target.idx ?? L.target);
-      }
-    // 新攻击目标 → 加入闪烁队列并响一声
-    let hasNew = false;
-    for (const idx of targets) {
-      if (!this._flashQueue.has(idx)) {
-        hasNew = true;
-        this._flashQueue.set(idx, now);
-      }
-    }
-    if (hasNew) warnSfx();
-    // 清理已完成 3 闪的 (每闪 500ms, 共 1500ms)
-    for (const [idx, start] of this._flashQueue) {
-      if (now - start > 1500) this._flashQueue.delete(idx);
+    // 清理已完成 3 闪的 (每闪 500ms, 共 1500ms)。队列只由
+    // addMiniBattleFlash() 写入，draw/needsAnim 均保持无额外规则副作用。
+    for (const [key, start] of this._flashQueue) {
+      if (now - start > 1500) this._flashQueue.delete(key);
     }
     return new Set(this._flashQueue.keys());
   }

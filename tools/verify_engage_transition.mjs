@@ -66,7 +66,11 @@ assert.equal(
   true,
 );
 assert.equal(app.clock.hold, true);
-assert.equal(queue.size, 0, "RAF does not begin before engage images are ready");
+assert.equal(
+  queue.size,
+  0,
+  "RAF does not begin before engage images are ready",
+);
 await Promise.resolve();
 assert.equal(typeof releasePrepare, "function");
 assert.equal(

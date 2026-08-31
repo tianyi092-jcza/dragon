@@ -8,6 +8,7 @@ import {
   runStrategicDiplomacy,
 } from "../web/src/game/diplomacy.js";
 import {
+  completePlayerWarDeclaration,
   initializeStrategicDiplomacy,
   processStrategicWarEvent,
 } from "../web/src/game/ai.js";
@@ -72,8 +73,18 @@ assert.equal(
   processStrategicWarEvent(app, { type: 1, aggressor: 13, defender: 0 }),
   true,
 );
-assert.equal(messages.length, 1);
-assert.match(messages[0].text, /立即進兵侵攻/);
+assert.equal(messages.length, 2);
+assert.equal(messages[0].gen, null);
+assert.match(messages[0].text, /宣戰佈告/);
+assert.equal(messages[1].gen?.idx, eventScenario.factions[13].monarch_idx);
+assert.match(messages[1].text, /不共戴天/);
+assert.notEqual(
+  eventScenario.factions[13].target_faction,
+  0,
+  "第二条宣战对白关闭前不得提前提交战略目标",
+);
+assert.equal(eventScenario.diplomacy[13][0] >= 0x80, true);
+messages[1].onClose();
 assert.equal(eventScenario.factions[13].target_faction, 0);
 assert.equal(eventScenario.diplomacy[13][0] < 0x80, true);
 assert.equal(
@@ -81,7 +92,32 @@ assert.equal(
   false,
   "已交战不能重复通知",
 );
-assert.equal(messages.length, 1);
+assert.equal(messages.length, 2);
+
+for (const style of [0, 1, 2]) {
+  const playerScenario = structuredClone(data.scenarios[16]);
+  playerScenario.player_faction = 0;
+  playerScenario.generals[playerScenario.factions[0].monarch_idx].talk_idx =
+    style;
+  const playerMessages = [];
+  const playerApp = {
+    scenario: playerScenario,
+    gamebar: {
+      enqueueStrategicMessage(message) {
+        playerMessages.push(message);
+      },
+    },
+  };
+  assert.equal(completePlayerWarDeclaration(playerApp, 13), true);
+  assert.equal(playerMessages.length, 1);
+  assert.equal(
+    playerMessages[0].gen?.idx,
+    playerScenario.factions[0].monarch_idx,
+  );
+  assert.equal(playerScenario.diplomacy[0][13] >= 0x80, true);
+  playerMessages[0].onClose();
+  assert.equal(playerScenario.diplomacy[0][13] < 0x80, true);
+}
 
 const monthFixture = structuredClone(data.scenarios[16]);
 monthFixture.player_faction = 0;

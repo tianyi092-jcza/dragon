@@ -176,7 +176,11 @@ const makeScenario = () => {
     [80, 80, 80, 80, 80, 80],
   );
   assert.equal(target.faction, 0);
-  assert.equal(target.troops, 120, "0x4CF3 must preserve 0x51B3-damaged city troops");
+  assert.equal(
+    target.troops,
+    120,
+    "0x4CF3 must preserve 0x51B3-damaged city troops",
+  );
   assert.equal(attacker.troops, 480);
   assert.equal(attacker.commandState, 8);
   assert.ok(defenderA._retreat);
@@ -310,6 +314,52 @@ const makeScenario = () => {
   assert.ok(defender._retreat || defender.dead);
 }
 
+{
+  const sc = makeScenario();
+  const lastCity = sc.cities[1];
+  sc.cities[2].faction = 0;
+  const attacker = legion("甲", 0, lastCity.x, lastCity.y, 500);
+  const defender = legion("乙", 1, lastCity.x, lastCity.y, 400);
+  sc.legions = [attacker, defender];
+  const messages = [];
+  const app = {
+    scenario: sc,
+    hud: { flashEvent() {} },
+    gamebar: { enqueueStrategicMessage: (message) => messages.push(message) },
+  };
+  applyBattleResult(
+    app,
+    attacker,
+    lastCity,
+    "atk",
+    450,
+    [75, 75, 75, 75, 75, 75],
+  );
+  assert.equal(sc.factions[1].dead, true);
+  assert.equal(sc.factions[1]._extinctionHandled, true);
+  assert.equal(
+    messages.filter((message) => message.kind === "faction-extinction").length,
+    1,
+  );
+  assert.ok(
+    defender._retreat || defender.dead,
+    "0x4DA4守军处理必须先于0x4FCE灭亡通知",
+  );
+  assert.equal(sc.generals[2].faction, 1, "未闭合的0x4FCE武将去向不得臆造改写");
+  applyBattleResult(
+    app,
+    attacker,
+    lastCity,
+    "atk",
+    450,
+    [75, 75, 75, 75, 75, 75],
+  );
+  assert.equal(
+    messages.filter((message) => message.kind === "faction-extinction").length,
+    1,
+  );
+}
+
 process.stdout.write(
-  "siege result OK: mode0 autoresolve, city damage, shared garrison retreat\n",
+  "siege result OK: mode0 autoresolve, city damage, shared garrison retreat, extinction order\n",
 );

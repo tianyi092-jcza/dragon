@@ -13,6 +13,7 @@ const clock = new Clock({
   },
 });
 clock.strategicSpeed = 4;
+clock.sub = 8;
 clock.hour = 23;
 clock._acc = 0;
 clock.advance(clock.currentStep * 20);
@@ -29,6 +30,7 @@ const legacy = new Clock({
   },
 });
 legacy.strategicSpeed = 4;
+legacy.sub = 8;
 legacy.hour = 23;
 legacy.advance(legacy.currentStep * 20);
 assert.equal(legacy.hour, 0);
@@ -51,6 +53,7 @@ const monthHold = new Clock({
     months++;
   },
 });
+monthHold.sub = 8;
 monthHold.hour = 23;
 monthHold.advance(monthHold.currentStep);
 assert.equal(monthHold.day, 31);
@@ -62,6 +65,29 @@ assert.equal(monthHold.day, 1);
 assert.equal(monthHold.month, 2);
 assert.equal(months, 1);
 
+// 0x1D8E：CF2必须经历0..8共9次主更新才进一时刻；onStrategicTick每次执行。
+let strategicTicks = 0;
+let hours = 0;
+const layered = new Clock({
+  startYear: 190,
+  startMonth: 1,
+  startDay: 1,
+  onStrategicTick() {
+    strategicTicks++;
+  },
+  onHour() {
+    hours++;
+  },
+});
+for (let i = 0; i < 8; i++) layered.advance(layered.currentStep);
+assert.equal(layered.sub, 8);
+assert.equal(layered.hour, 0);
+layered.advance(layered.currentStep);
+assert.equal(layered.sub, 0);
+assert.equal(layered.hour, 1);
+assert.equal(strategicTicks, 9);
+assert.equal(hours, 1);
+
 process.stdout.write(
-  "clock transition OK: catch-up and month rollover stop on hold/legacy pause\n",
+  "clock transition OK: 9 strategic ticks/hour + catch-up and month rollover holds\n",
 );

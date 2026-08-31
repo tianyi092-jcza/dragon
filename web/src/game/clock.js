@@ -1,7 +1,7 @@
 // 游戏时钟 — 复刻 KI.EXE 0x1D8E 主循环的时间语义
 //
 // 逆向依据 (KI.EXE 0x1DF8-0x1E16 / docs/re-notes-kernel.md):
-//   CF2 子刻度0..7 → CF3 每日时刻0..23(每刻度=1个势力AI轮) → CF0 日1..当月天数
+//   CF2 子刻度0..8 → CF3 每日时刻0..23(进位时轮询1个势力槽) → CF0 日1..当月天数
 //   → CF4 月1..12(换月调0x5358结算) → CF6 年(>1000回绕)
 //   战略速度 5 档 (0xcfa): 最低速 (4 ticks)、低速 (3 ticks)、普通 (2 ticks)、高速 (1 tick)、最高速 (0 tick)
 //   当月天数表 @va 0x98AC = 真实历法 [31,28,31,30,...]
@@ -14,7 +14,8 @@ export const STRATEGIC_SPEED_LABELS = [
   "高速",
   "最高速",
 ];
-// 5 档每刻度流逝毫秒数 (普通档 160ms，1天 24 刻度 ≈ 3.84 秒；最高速 25ms，1天 ≈ 0.6 秒；最低速 480ms，1天 ≈ 11.5 秒)
+// 5档每次0x1D0B主更新的墙钟间隔。每时刻需9次主更新、每天216次；
+// 精确原版毫秒值尚未闭合，这里是Web表现速度，不改变规则调度次数。
 export const STRATEGIC_SPEEDS = [480, 280, 160, 80, 25];
 
 export class Clock {
@@ -28,11 +29,13 @@ export class Clock {
     startYear,
     startMonth,
     startDay = 1,
+    onStrategicTick = null,
+    onHour = null,
     onDay = null,
     onMonthEnd = null,
     onYearEnd = null,
   }) {
-    this.sub = 0; // CF2: 子刻度 0..7
+    this.sub = 0; // CF2: 子刻度 0..8
     this.hour = 0; // CF3: 每日时刻 0..23
     this.day = startDay; // CF0: 日 1..当月天数
     this.month = startMonth; // CF4: 月 1..12
@@ -45,7 +48,10 @@ export class Clock {
     this._lastStep = 160;
     this.hold = false;
     this._pendingDayAdvance = false;
+    this._pendingStrategicAdvance = false;
 
+    this.onStrategicTick = onStrategicTick;
+    this.onHour = onHour;
     this.onDay = onDay;
     this.onMonthEnd = onMonthEnd;
     this.onYearEnd = onYearEnd;
@@ -86,15 +92,14 @@ export class Clock {
     return DAYS_IN_MONTH[this.month - 1];
   }
 
-  /** 获取当天时间流逝进度 0.0..1.0 (用于逐帧平滑插值) */
+  /** 获取当前主更新间的插值进度0..1，供军团单步移动平滑显示。 */
   dayProgress() {
     const step = this.currentStep || this._lastStep || 160;
     this._lastStep = step;
-    const frac = Math.min(1, Math.max(0, this._acc / step));
-    return Math.min(1, Math.max(0, (this.hour + frac) / 24));
+    return Math.min(1, Math.max(0, this._acc / step));
   }
 
-  /** 推进一个子刻度组 (复刻 1D8E: 满8子刻度进位一次时刻) */
+  /** 推进一个子刻度组 (复刻 1D8E: 当前值达到8时进位一次时刻) */
   advance(dtMs) {
     if (this.hold || this._legacyPaused) {
       // 菜单/弹窗或旧模态调用暂停战略时钟
@@ -118,24 +123,46 @@ export class Clock {
   }
 
   _tick() {
+    if (this._pendingStrategicAdvance) {
+      this._pendingStrategicAdvance = false;
+      this._advanceStrategicCalendar();
+      return;
+    }
     if (this._pendingDayAdvance) {
       this._pendingDayAdvance = false;
       this._advanceDayCalendar();
       return;
     }
+
+    // KI.EXE 0x1D0B：每次现实时间步先处理一个城槽、16个军团槽和
+    // 其它战略状态，再由0x1D8E推进CF2/CF3。战斗在其中打开时，日历推进
+    // 延到覆盖层结束后的下一步，不能重复处理同一批槽。
+    if (this.onStrategicTick) this.onStrategicTick(this);
+    if (this.hold || this._legacyPaused) {
+      this._pendingStrategicAdvance = true;
+      return;
+    }
+    this._advanceStrategicCalendar();
+  }
+
+  _advanceStrategicCalendar() {
+    if (this.sub < 8) {
+      this.sub++;
+      return;
+    }
+    this.sub = 0;
     this.hour++;
     if (this.hour > 23) {
-      // 一天结束 (KI.EXE 1DE0 分支)
+      // 一天结束 (KI.EXE 1DD7..1DE0)
       this.hour = 0;
       if (this.onDay) this.onDay(this);
-      // onDay 可打开战术层/委任动画。该日已经完成，但同一_tick不得继续
-      // 月进位或触发0x5358；解除hold后的下一次tick先补日历，再恢复时刻。
       if (this.hold || this._legacyPaused) {
         this._pendingDayAdvance = true;
         return;
       }
       this._advanceDayCalendar();
     }
+    if (this.onHour) this.onHour(this);
   }
 
   _advanceDayCalendar() {
