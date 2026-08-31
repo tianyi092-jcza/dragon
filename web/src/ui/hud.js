@@ -122,7 +122,7 @@ export class HUD {
       this.resolveAdvice(null);
   }
 
-  /** 存檔對話框: 選槽→寫入 (快照+SAVE.DAT 組裝) */
+  /** 存檔對話框: 選槽→寫入瀏覽器 IndexedDB 快照 */
   showSaveDialog() {
     const dlg = document.querySelector("#savedlg");
     const box = document.querySelector("#saveslots");
@@ -135,10 +135,7 @@ export class HUD {
         b.textContent = `槽${i + 1} ${s?.played ? s.label : "（未使用）"} → 存入「${label}」`;
         b.onclick = () => {
           dlg.style.display = "none";
-          this.app.saveGame(i, label).then((r) => {
-            if (r.saved === "download")
-              this.flashEvent("已下載 SAVE.DAT（替換遊戲目錄同名檔）");
-          });
+          this.app.saveGame(i, label);
           this.refreshTrust();
         };
         return b;

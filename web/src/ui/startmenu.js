@@ -435,7 +435,7 @@ export class StartMenu {
   }
 
   _saveRows() {
-    // SAVE.DAT 四槽頭 (0x8C20: 每槽 0x80 頭, 空槽名=全形空白 → 不可選)
+    // 瀏覽器 IndexedDB 四槽；未使用槽禁止選擇。
     const slots = this.app.saves?.slots ?? [];
     return [0, 1, 2, 3].map((i) => {
       const sv = slots.find((s) => s.slot === i);

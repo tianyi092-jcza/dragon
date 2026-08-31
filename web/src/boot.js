@@ -3,27 +3,14 @@ import {
   startSingleInstance,
 } from "./core/singleinstance.js";
 
-let appLoaded = false;
-
 try {
-  await startSingleInstance({
-    onActive() {
-      globalThis.__dragonApp?.setRuntimeEnabled?.(true);
-    },
-    onSuspend() {
-      globalThis.__dragonApp?.setRuntimeEnabled?.(false);
-    },
-    onLost() {
-      globalThis.__dragonApp?.loseInstanceLease?.();
-    },
-  });
-  const module = await import("./main.js");
-  const runtime = globalThis.__dragonInstance;
-  if (runtime?.state !== "active" || Date.now() >= runtime.expiresAt)
-    throw new Error("lease-lost");
-  await module.startApp();
-  appLoaded = true;
+  const runtime = await startSingleInstance();
+  if (runtime?.state === "active") {
+    const module = await import("./main.js");
+    await module.startApp();
+  } else {
+    // 已由 singleinstance 显示阻塞说明；绝不能初始化第二个 App/RAF/存档写入者。
+  }
 } catch (error) {
-  if (!appLoaded && !document.querySelector("#instance-lock")?.textContent)
-    showInstanceMessage(`遊戲無法啟動。\n${error?.message ?? error}`);
+  showInstanceMessage(`遊戲無法啟動。\n${error?.message ?? error}`);
 }

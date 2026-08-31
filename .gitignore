@@ -21,14 +21,9 @@ adv_dump.txt
 web/logs_webserver.txt
 web/server.log
 
-# Runtime SAVE metadata / single-instance lease state (never commit live tokens)
+# Runtime scratch & offline reverse-engineering output
 /.dragon-runtime/
-/web/save.webmeta.json
-/web/save.webmeta.json.lock
-/web/save.instance-lease.json
-/web/save.instance-lease.json.lock
-/web/.save.webmeta.json.*.tmp
-/web/.save.instance-lease.json.*.tmp
+/.dragon-analysis/
 
 # Reproducible reverse-engineering probe reports (runtime uses web/road_graph.json)
 /web/road_graph_probe.json

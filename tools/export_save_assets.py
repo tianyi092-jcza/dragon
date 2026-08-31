@@ -1,11 +1,8 @@
-"""导出存盘功能所需素材 (2026-08-24)
+"""导出仅供离线逆向分析使用的原版剧本模板与 Big5 字表。
 
-1. web/scen_raw.json — 与 data.json 同顺序的 20 章 0x56C0 槽模板(base64)
-   + 当前 SAVE.DAT 全文件 base64。新游戏序列化以当前章节模板为底版；
-   从存档继续则以所读槽为底版；SAVE.DAT 底版用于保留未覆盖的其它槽位。
-2. web/big5_map.json — 游戏文本中出现的全部字符 → Big5 双字节映射(存档名编码用)。
-
-输出均为紧凑 JSON; 字符表来源于 data.json / talk.json / save.json 的全部字符串。
+输出位置由 ``DRAGON_ANALYSIS_OUT`` 指定（默认 ``.dragon-analysis/``），绝不写入
+Web 发布目录。正式 Web 游戏不读取、打包或依赖 DOS SAVE.DAT/SINARIO 模板；它只保存
+玩家浏览器 IndexedDB 中的 Web 状态快照。
 """
 
 import base64
@@ -18,14 +15,14 @@ from parse_sinario import N_SCENARIO, SOURCES
 HERE = os.path.dirname(__file__)
 WEB = os.path.join(HERE, "..", "web")
 BASE = os.path.normpath(os.path.join(HERE, "..", ".."))
-
-SAVE_SRC = os.path.join(BASE, "Dragon", "SAVE.DAT")
+OUT = os.path.normpath(
+    os.environ.get("DRAGON_ANALYSIS_OUT", os.path.join(HERE, "..", ".dragon-analysis"))
+)
 
 SC_SIZE = 0x56C0
-N_SAVE_SLOT = 4
 
-# 收集字符的数据源
-TEXT_SOURCES = ["data.json", "talk.json", "save.json", "battle_maps.json"]
+# 收集已发布静态资源文本；不包含运行时存档。
+TEXT_SOURCES = ["data.json", "talk.json", "battle_maps.json"]
 
 
 def load_json(path: str):
@@ -107,23 +104,15 @@ def main() -> None:
             for i in range(N_SCENARIO)
         )
 
-    save_b64 = ""
-    if os.path.exists(SAVE_SRC):
-        d = read_bin(SAVE_SRC)
-        if len(d) == N_SAVE_SLOT * SC_SIZE:
-            save_b64 = base64.b64encode(d).decode()
-        else:
-            print(f"SAVE.DAT 大小异常 {len(d)}, 跳过底版")
-
     bm = build_big5_map(collect_chars())
-    out_scen = {"scenario_size": SC_SIZE, "slots": slots, "save_b64": save_b64}
-    dump_json(os.path.join(WEB, "scen_raw.json"), out_scen)
-    dump_json(os.path.join(WEB, "big5_map.json"), bm)
+    os.makedirs(OUT, exist_ok=True)
+    scen_out = os.path.join(OUT, "scen_raw.json")
+    big5_out = os.path.join(OUT, "big5_map.json")
+    out_scen = {"scenario_size": SC_SIZE, "slots": slots}
+    dump_json(scen_out, out_scen)
+    dump_json(big5_out, bm)
 
-    print(
-        f"OK scen_raw.json={os.path.getsize(os.path.join(WEB, 'scen_raw.json'))}B "
-        f"big5_map={len(bm)}chars"
-    )
+    print(f"OK {scen_out}={os.path.getsize(scen_out)}B big5_map={len(bm)}chars")
 
 
 if __name__ == "__main__":

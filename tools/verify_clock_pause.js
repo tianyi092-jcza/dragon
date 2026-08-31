@@ -4,17 +4,44 @@ globalThis.__verifyClockPause = async (page) => {
   };
   const baseUrl = globalThis.DRAGON_TEST_URL ?? "http://127.0.0.1:8321/";
   await page.goto(baseUrl);
+  await page.setViewportSize({ width: 1024, height: 768 });
   await page.waitForFunction(() => !!window.__app?.startMenu);
   await page.evaluate(() => {
     sessionStorage.setItem("openPlayed", "1");
     window.__app?.openView?.finish();
   });
-  await page.mouse.click(468, 360);
-  await page.waitForTimeout(250);
-  await page.mouse.click(512, 234);
-  await page.waitForTimeout(250);
-  await page.mouse.click(512, 234);
-  await page.waitForTimeout(250);
+  await page.waitForFunction(() => {
+    const startMenu = window.__app?.startMenu;
+    return (
+      document.querySelector("#startv")?.style.display !== "none" &&
+      !!startMenu?._onClick
+    );
+  });
+  const clickAndRebind = async (x, y) => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await page.evaluate(() => {
+        window.__verifyMenuHandler = window.__app?.startMenu?._onClick ?? null;
+      });
+      await page.mouse.click(x, y);
+      const rebound = await page
+        .waitForFunction(
+          () =>
+            window.__app?.startMenu?._onClick &&
+            window.__app.startMenu._onClick !== window.__verifyMenuHandler,
+          null,
+          { timeout: 3000 },
+        )
+        .then(
+          () => true,
+          () => false,
+        );
+      if (rebound) return;
+    }
+    throw new Error(`start menu click at ${x},${y} did not rebind`);
+  };
+  await clickAndRebind(468, 360);
+  await clickAndRebind(512, 234);
+  await clickAndRebind(512, 234);
   await page.mouse.click(633, 474);
   await page.waitForFunction(
     () => document.querySelector("#startv")?.style.display === "none",

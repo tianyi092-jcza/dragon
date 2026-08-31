@@ -23,13 +23,39 @@ globalThis.__verifySystemMenu = async (page) => {
     window.__app?.openView?.finish();
   });
 
-  // YES → 第一章 → 第一势力 → 确定军师。
-  await page.mouse.click(468, 360);
-  await page.waitForTimeout(250);
-  await page.mouse.click(512, 234);
-  await page.waitForTimeout(250);
-  await page.mouse.click(512, 234);
-  await page.waitForTimeout(250);
+  // YES → 第一章 → 第一势力 → 确定军师。每个对话框绑定后才点击，避免慢机竞态。
+  await page.waitForFunction(() => {
+    const startMenu = window.__app?.startMenu;
+    return (
+      document.querySelector("#startv")?.style.display !== "none" &&
+      !!startMenu?._onClick
+    );
+  });
+  const clickAndRebind = async (x, y) => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await page.evaluate(() => {
+        window.__verifyMenuHandler = window.__app?.startMenu?._onClick ?? null;
+      });
+      await page.mouse.click(x, y);
+      const rebound = await page
+        .waitForFunction(
+          () =>
+            window.__app?.startMenu?._onClick &&
+            window.__app.startMenu._onClick !== window.__verifyMenuHandler,
+          null,
+          { timeout: 3000 },
+        )
+        .then(
+          () => true,
+          () => false,
+        );
+      if (rebound) return;
+    }
+    throw new Error(`start menu click at ${x},${y} did not rebind`);
+  };
+  await clickAndRebind(468, 360);
+  await clickAndRebind(512, 234);
+  await clickAndRebind(512, 234);
   await page.mouse.click(633, 474);
   await page.waitForFunction(
     () =>
@@ -140,10 +166,13 @@ globalThis.__verifySystemMenu = async (page) => {
     "Right click should return from title load dialog to YES/NO",
   );
 
-  check(saveRequests.length >= 1, "Expected a mocked save request");
-  check(
-    saveRequests.at(-1).postDataBuffer()?.byteLength === 4 * 0x56c0,
-    "SAVE.DAT request payload has an unexpected size",
+  check(saveRequests.length === 0, "System save must not call a server API");
+  const savedLocally = await page.evaluate(() =>
+    window.__app.saves?.slots?.some((slot) => slot?.played === true),
   );
-  return { initial, cycled, mockedSave: true };
+  check(
+    savedLocally === true,
+    "System save was not written to IndexedDB state",
+  );
+  return { initial, cycled, localSave: true };
 };

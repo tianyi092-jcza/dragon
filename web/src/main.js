@@ -30,19 +30,9 @@ import { playEngageTransition } from "./game/engagetransition.js";
 import {
   applyWebMetaToState,
   canSnapshotState,
-  commitSaveImage,
-  encodeWebSaveMeta,
-  initSaveAssets,
-  serializeSave,
   snapshotState,
-  stageSave,
 } from "./game/savegame.js";
-import {
-  InstanceLeaseError,
-  instanceFetch,
-  instanceRuntimeActive,
-  requireInstanceRuntime,
-} from "./core/singleinstance.js";
+import { loadLocalSaveSlots, saveLocalSaveSlots } from "./core/localstore.js";
 
 const app = {
   data: null,
@@ -60,7 +50,7 @@ const app = {
   originalRng: null,
   activeBattleRng: null,
   engageTransition: null,
-  runtimeEnabled: instanceRuntimeActive(),
+  runtimeEnabled: true,
   _saveQueue: Promise.resolve(),
 
   setRuntimeEnabled(enabled) {
@@ -68,13 +58,6 @@ const app = {
     this.battleView?.setRuntimeEnabled?.(this.runtimeEnabled);
     this.engageTransition?.setRuntimeEnabled?.(this.runtimeEnabled);
     if (this.clock) this.clock.hold = !this.runtimeEnabled;
-  },
-
-  loseInstanceLease() {
-    this.runtimeEnabled = false;
-    this.engageTransition?.suspend?.();
-    this.battleView?.setRuntimeEnabled?.(false);
-    if (this.clock) this.clock.hold = true;
   },
 
   /** 委任玩家战斗：预载四图后在战略地图按0→3播放一次，再执行0x5130。 */
@@ -295,10 +278,10 @@ const app = {
     this.checkTrustGameOver(); // 读入 trust=0 的坏档也立即进入结束画面
   },
 
-  /** 单实例授权下按调用顺序串行写SAVE；lease错误禁止下载回退。 */
+  /** 按调用顺序写入玩家浏览器的 IndexedDB；服务端不接收任何存档。 */
   async saveGame(slotIdx, label) {
-    if (!instanceRuntimeActive() || !this.runtimeEnabled) {
-      this.hud?.flashEvent?.("遊戲使用權已失效，無法存檔。");
+    if (!this.runtimeEnabled) {
+      this.hud?.flashEvent?.("遊戲目前已暫停，無法存檔。");
       return { saved: "blocked" };
     }
     const operation = async () => {
@@ -306,50 +289,27 @@ const app = {
         this.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
         return { saved: "blocked" };
       }
-      // 内存槽与四槽binary都只在服务端确认后提交；网络/HTTP失败不得污染后续保存。
       const sv = snapshotState(this, slotIdx, label);
-      const dat = stageSave(this, slotIdx, label);
-      let res;
+      const next = structuredClone(this.saves);
+      const index = next.slots.findIndex((saved) => saved.slot === slotIdx);
+      if (index >= 0) next.slots[index] = sv;
+      else next.slots.push(sv);
       try {
-        res = await instanceFetch("/api/save", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "X-Dragon-Web-Meta": encodeWebSaveMeta(slotIdx, sv.webMeta),
-          },
-          body: dat,
-        });
+        this.saves = await saveLocalSaveSlots(next);
       } catch (error) {
-        // 请求可能已在服务端提交但响应丢失；此时本地四槽底版已不可信。
-        // 立即失效租约并冻结游戏，禁止下一次整份上传回滚刚提交的服务端存档。
-        this.loseInstanceLease();
-        this.hud?.flashEvent?.(
-          "存檔結果不明，遊戲已鎖定；請重新啟動確認存檔。",
-        );
-        return { saved: "unknown", error };
+        this.hud?.flashEvent?.("本機存檔失敗，原存檔未變更。");
+        return { saved: "failed", error };
       }
-      if (res.status === 409 || res.status === 423) {
-        this.loseInstanceLease();
-        throw new InstanceLeaseError("lease-lost", res.status);
-      }
-      if (!res.ok) {
-        this.hud?.flashEvent?.("存檔失敗，原存檔未變更。");
-        return { saved: "failed", status: res.status };
-      }
-      commitSaveImage(dat);
       this.loadedSaveSlot = slotIdx;
-      const cur = this.saves?.slots.find((s) => s.slot === slotIdx);
-      if (cur) Object.assign(cur, sv);
-      else this.saves?.slots.push(sv);
       this.hud?.flashEvent?.(`存檔：槽${slotIdx + 1} ${label}`);
-      return { saved: "file" };
+      return { saved: "local" };
     };
     const queued = this._saveQueue.then(operation, operation);
     this._saveQueue = queued.catch(() => null);
     return queued;
   },
 
-  /** 读档: 用 SAVE.DAT 槽位状态覆盖当前场景 */
+  /** 读档: 用浏览器本地槽位状态覆盖当前场景 */
   loadSave(slotIdx) {
     const sv = this.saves?.slots.find((s) => s.slot === slotIdx);
     if (!sv?.played || !sv.state) return false;
@@ -457,22 +417,11 @@ addEventListener("mouseup", (e) => {
 // ★鼠标活动=战略暂停, 静止1秒自动恢复 (原版机制: 愌知鼠标移动/停止控制计时)
 addEventListener("mousemove", () => app.gamebar?.pokeClock());
 
-// 数据加载完成后装配 HUD 并进入初始剧本；每个异步seam后重新校验lease。
+// 新游戏章节由服务器静态资源 data.json 提供；存档仅来自浏览器 IndexedDB。
 export async function startApp() {
-  requireInstanceRuntime();
   app.runtimeEnabled = false;
   app.data = await loadJSON("data.json");
-  requireInstanceRuntime();
-  // 正式入口由boot持有单实例lease；存档读取也必须受同一token授权，禁止静态回落。
-  const savesResponse = await instanceFetch("/api/saves.json", {
-    cache: "no-store",
-  });
-  if (!savesResponse.ok) {
-    if (savesResponse.status === 409) app.loseInstanceLease();
-    throw new InstanceLeaseError("save-read-denied", savesResponse.status);
-  }
-  app.saves = await savesResponse.json();
-  requireInstanceRuntime();
+  app.saves = await loadLocalSaveSlots();
   const [battleMaps, battleNavigation, battleRules, battleScripts, talkTable] =
     await Promise.all([
       loadJSON("battle_maps.json"),
@@ -481,15 +430,13 @@ export async function startApp() {
       loadJSON("battle_scripts.json"),
       loadJSON("talk.json"),
     ]);
-  requireInstanceRuntime();
   app.battleMaps = battleMaps;
   app.battleNavigation = battleNavigation;
   app.battleMaps.navigation = app.battleNavigation;
   app.battleMaps.formationVectors = battleRules.formationVectors;
   app.battleScripts = battleScripts;
   app.talkTable = talkTable;
-  await initSaveAssets(); // scen_raw.json + big5_map.json + authorized /api/save.dat
-  requireInstanceRuntime();
+
   app.battleView = new BattleView(document.querySelector("#bcv"), app);
   app.diploView = new DiploView(document.querySelector("#diplov"), app);
   app.endView = new EndView(document.querySelector("#endv"), app); // D7OVER/D7END 结束动画
@@ -501,22 +448,18 @@ export async function startApp() {
   app.view.overlay = (ctx) => app.gamebar.draw(ctx);
   app.setScenario(0); // 背景地图 (原版标题画面=全国地图)
   app.startMenu = new StartMenu(app);
-  requireInstanceRuntime();
   app.setRuntimeEnabled(true);
-  // 发布app只表示初始化完成；菜单/RAF仍在下方各自经过lease检查。
+  // 仅在 boot.js 已取得浏览器单实例锁后发布 App 并启动主循环。
   globalThis.__dragonApp = app;
   if (!sessionStorage.getItem("openPlayed")) {
     sessionStorage.setItem("openPlayed", "1");
     await app.openView.play(); // 開場動畫(每次浏览器会话首次載入播放, 點擊跳過)
-    requireInstanceRuntime();
   }
   await app.startMenu.show(); // ★開局選單: NEW GAME YES/NO → 章節選擇/讀檔 (0x1AC3)
-  requireInstanceRuntime();
   window.__aiTick = () => aiTick(app); // 调试句柄
   window.__monthlyAI = () => monthlyAI(app); // 调试句柄
   window.__monthlyAppear = () => monthlyAppear(app); // 调试句柄
   window.__monthlySettlement = () => monthlySettlement(app.scenario, app.clock); // 调试句柄：换月财务与据点结算
-  window.__saveDat = (slot, label) => serializeSave(app, slot, label); // 调试句柄：导出SAVE.DAT字节
 
   // ── 主循环: 实时驱动游戏时钟 (对应 KI.EXE 0x1D8E) ──
   let last = performance.now(),
