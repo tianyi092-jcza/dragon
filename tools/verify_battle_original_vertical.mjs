@@ -66,6 +66,26 @@ const { swapOriginalSpatialRecords } = await import(
 {
   const pool = new OriginalBattleObjectPool();
   const spatial = new OriginalBattleSpatialMemory();
+  const address = originalObjectAddress(0, 0, 1);
+  pool.write16(address, ORIGINAL_OBJECT.SPATIAL_0C, 0x0123);
+  spatial.writeTile(0x123, 0xf8);
+  spatial.write8(0x2123, 0x02);
+  const result = stepOriginalUp(pool, address, {
+    spatial,
+    collision: () => ({ carry: false }),
+  });
+  assert.equal(result.moved, true);
+  assert.equal(result.committed, false);
+  assert.equal(
+    pool.read16(address, ORIGINAL_OBJECT.SPATIAL_0C),
+    0x1123,
+    "B0D3 commits candidate BX after B533 returns carry-clear",
+  );
+}
+
+{
+  const pool = new OriginalBattleObjectPool();
+  const spatial = new OriginalBattleSpatialMemory();
   const attacker = originalObjectAddress(0, 0, 1);
   const target = originalObjectAddress(0, 0, 2);
   pool.write16(attacker, ORIGINAL_OBJECT.SPATIAL_0C, 0x0100);

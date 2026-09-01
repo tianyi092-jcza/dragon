@@ -23,19 +23,25 @@ for (let group = 0; group < 6; group++) {
   }
   temps.write8(0, 8 + group * 4 + 1, 2);
   temps.write8(1, 8 + group * 4 + 1, 1);
+  temps.write8(0, 8 + group * 4 + 3, 0);
+  temps.write8(1, 8 + group * 4 + 3, 0);
 }
 const walls = Array.from({ length: 16 }, (_, index) => ({
   kind: 1,
-  flags: 1,
+  flags: 0,
   metric: 100 + index,
 }));
 assert.deepEqual(calculateOriginalWallMetric(walls), {
   found: true,
-  allBit0: true,
+  anyBit0: false,
   metric: 400,
 });
-walls[0].flags = 0;
-assert.equal(calculateOriginalWallMetric(walls).metric, 100);
+walls[0].flags = 1;
+assert.deepEqual(calculateOriginalWallMetric(walls), {
+  found: true,
+  anyBit0: true,
+  metric: 100,
+});
 
 const result = settleOriginalBattleExit({
   pool,
@@ -65,6 +71,10 @@ assert.deepEqual(
 );
 assert.equal(result.rngCalls, 0);
 
+for (let group = 0; group < 6; group++) {
+  temps.write8(0, 8 + group * 4 + 3, 0);
+  temps.write8(1, 8 + group * 4 + 3, 0);
+}
 const session = new OriginalBattleSession({
   objectBytes: pool.snapshot(),
   tempBytes: temps.snapshot(),

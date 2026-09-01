@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 
-const { createFieldBattle, tickBattle } = await import(
+const { advanceOriginalScriptFrame, createFieldBattle } = await import(
   "../web/src/game/tacticalbattle.js"
 );
 
@@ -28,6 +28,13 @@ battleMaps.navigation = parseJson(
   ),
   "battle_navigation.json",
 );
+battleMaps.formationVectors = parseJson(
+  await fs.readFile(
+    new URL("../web/battle_rules.json", import.meta.url),
+    "utf8",
+  ),
+  "battle_rules.json",
+).formationVectors;
 
 const sc = {
   player_faction: 0,
@@ -35,11 +42,13 @@ const sc = {
     {
       name: "攻將",
       portrait: 12,
+      battle_formation: 0,
       ability: { force: 80, siege: 4, field: 8, naval: 2 },
     },
     {
       name: "守將",
       portrait: 34,
+      battle_formation: 0,
       ability: { force: 75, siege: 3, field: 7, naval: 2 },
     },
   ],
@@ -72,7 +81,7 @@ attacker.y = 100;
 defender.x = 100 + 26;
 defender.y = 100;
 const rngBefore = battle.session.rng.calls;
-tickBattle(battle, 0.1);
+advanceOriginalScriptFrame(battle, { step: () => "run" });
 assert.equal(
   battle.session.rng.calls,
   rngBefore,

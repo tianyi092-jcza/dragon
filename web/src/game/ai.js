@@ -4,6 +4,7 @@ import {
   isAtWar,
   relation,
   declareWar,
+  makeCeasefire,
   decreaseRelation,
   increaseRelation,
   runStrategicDiplomacy,
@@ -23,7 +24,9 @@ import { engageSfx, warnSfx } from "../core/speaker.js";
 import {
   applyFactionFundsDelta,
   factionLegionMoraleCap,
+  factionReserveUpkeepTick,
   legionDailyMaintenanceCost,
+  updateFactionFiscalCrisis,
 } from "./economy.js";
 import {
   applySiegeCityDamage,
@@ -34,11 +37,7 @@ import {
 } from "./autobattle.js";
 import { originalTacticalMorale } from "./battle/originalresult.js";
 import { isLegionDelegated } from "./legionmode.js";
-import {
-  createDefaultLegionUnits,
-  ensureLegionSlot,
-  ensureLegionUnits,
-} from "./legionunits.js";
+import { ensureLegionSlot, ensureLegionUnits } from "./legionunits.js";
 
 const ENGAGE_COUNTDOWN = 12;
 const ENGAGE_STATUS_ACTIVE = 0x20;
@@ -81,20 +80,6 @@ function blockedAt(sc, A, x, y) {
   return false;
 }
 
-/** 按城数加权随机选势力(流散/投奔: 领土大吸引力大) */
-function weightedPick(sc, candidates) {
-  const tot = candidates.reduce((s, x) => s + sc.citiesOf(x.idx).length, 0);
-  let r = Math.random() * tot;
-  let pick = candidates[0];
-  for (const x of candidates) {
-    r -= sc.citiesOf(x.idx).length;
-    if (r <= 0) {
-      pick = x;
-      break;
-    }
-  }
-  return pick;
-}
 // SINARIO 文件不包含运行时军团表；新游戏必须以空军团表开始。
 // 这里只为真实 SAVE 军团和游玩期间新建军团分配 Web 运行时身份。
 function nextRuntimeLegionId(sc) {
@@ -247,6 +232,244 @@ function cityLocalStrength(sc, city) {
   );
 }
 
+/**
+ * 0x28F4给0x4325遗留DI=当前节点*4；状态5读取[DI+0x18]。
+ * 该地址不是“目标城+0x18”通用字段，必须按实际线性别名解释。
+ */
+function factionRawByte(sc, faction, offset, fallback = 0) {
+  if (offset === 0x18 && faction) {
+    const advisor =
+      faction.advisor_idx == null ? null : sc.generals?.[faction.advisor_idx];
+    const advisorIncluded = advisor?.faction === faction.idx ? 1 : 0;
+    return Math.max(
+      0,
+      Math.min(0xff, (faction.n_generals ?? 0) + advisorIncluded),
+    );
+  }
+  if (typeof faction?.raw === "string") {
+    const byte = Number.parseInt(
+      faction.raw.slice(offset * 2, offset * 2 + 2),
+      16,
+    );
+    if (Number.isFinite(byte)) return byte;
+  }
+  return fallback;
+}
+
+function state5AliasedByte(sc, targetCity) {
+  // 0x28F4 leaves DI=targetCityIndex*0x20. State5 then reads [DI+0x18]
+  // in the state segment, so the addressed byte walks faction records first,
+  // then the diplomacy matrix, then city-record +0x18 values.
+  const cityIndex = targetCity?.idx;
+  if (!Number.isInteger(cityIndex)) return 0;
+  const absolute = cityIndex * 0x20 + 0x18;
+  if (absolute < 0x600) {
+    const factionIndex = Math.floor(absolute / 0x40);
+    const offset = absolute & 0x3f;
+    const aliasedFaction = sc.factions.find(
+      (candidate) => candidate?.idx === factionIndex,
+    );
+    return factionRawByte(sc, aliasedFaction, offset, 0xff);
+  }
+  if (absolute < 0x840) {
+    const diplomacyOffset = absolute - 0x600;
+    const row = Math.floor(diplomacyOffset / 24);
+    const column = diplomacyOffset % 24;
+    return sc.diplomacy?.[row]?.[column] ?? 0xff;
+  }
+  const aliasedCityIndex = Math.floor((absolute - 0x840) / 0x20);
+  const offset = (absolute - 0x840) & 0x1f;
+  if (offset !== 0x18) return 0xff;
+  return cityLocalStrength(sc, sc.cities[aliasedCityIndex]);
+}
+
+function cityAttr(city) {
+  const raw = cityRawBytes(city);
+  return raw?.[0] ?? city?.attr ?? 0;
+}
+
+function legionTargetCity(sc, legion) {
+  if (legion?.target?.idx != null)
+    return sc.cities.find((city) => city?.idx === legion.target.idx) ?? null;
+  if (legion?.targetCity != null)
+    return sc.cities.find((city) => city?.idx === legion.targetCity) ?? null;
+  return null;
+}
+
+function legionFaction(sc, legion) {
+  return sc.factions.find((faction) => faction?.idx === legion.faction) ?? null;
+}
+
+function legionAtTargetNode(sc, legion) {
+  if (
+    legion?.target &&
+    legion.target.x === legion.x &&
+    legion.target.y === legion.y
+  )
+    return true;
+  if (!legion?.target && !Number.isInteger(legion?.targetNode)) {
+    return sc.cities.some((city) => city.x === legion.x && city.y === legion.y);
+  }
+  const currentNode = legion?._march?.currentNode ?? legion?.roadEdgeOrNode;
+  return (
+    Number.isInteger(legion?.targetNode) &&
+    Number.isInteger(currentNode) &&
+    legion.targetNode === currentNode
+  );
+}
+
+/**
+ * KI.EXE 0x4325：只在军团到达命令目标节点时运行的12态命令机。
+ * 返回 true 表示本轮已重写状态/目标，应由调用方继续按新目标处理。
+ */
+function settleArrivedLegionCommand(sc, legion, rng = null) {
+  if (!legionAtTargetNode(sc, legion)) return false;
+  const faction = legionFaction(sc, legion);
+  if (!faction) return false;
+  const fiscalCrisis = ((faction.attr ?? 0) & 0x40) !== 0;
+  const targetCity = legionTargetCity(sc, legion);
+  const targetAttr = cityAttr(targetCity);
+  if (legion.commandState == null) return false;
+  const state = legion.commandState;
+  // 0x433D..0x434C：NPC 的0..3态偏移到处理器4..7；玩家保留0..3。
+  const handler =
+    state < 4 && legion.faction !== sc.player_faction ? state + 4 : state;
+
+  switch (handler) {
+    case 0:
+    case 1:
+    case 2:
+    case 3: {
+      // 0x4370：玩家状态0..3共用到达处理；不足600且到达首都转状态9。
+      if ((legion.troops ?? 0) < 600 && targetCity?.idx === faction.capital) {
+        legion.commandState = 9;
+        return true;
+      }
+      legion.commandState = 0;
+      return false;
+    }
+    case 4: {
+      // 0x439D→0x43A5：NPC状态0。到达首都先检查补员；否则目标城
+      // attr bit6清零时转1，置位时保持0。这里不是势力财政bit6。
+      if ((legion.troops ?? 0) < 600 && targetCity?.idx === faction.capital) {
+        legion.commandState = 9;
+        return true;
+      }
+      if ((targetAttr & 0x40) === 0) {
+        legion.commandState = 1;
+        return true;
+      }
+      return false;
+    }
+    case 5: {
+      // 0x43AF：NPC状态1。兵力降到300及以下进入状态10；目标城
+      // attr bit6置位时回0。其余按0x28F4遗留DI所指辅助byte+0x18门控。
+      if ((legion.troops ?? 0) <= 300) {
+        legion.commandState = 10;
+        return true;
+      }
+      if ((targetAttr & 0x40) !== 0) {
+        legion.commandState = 0;
+        return true;
+      }
+      if (targetAttr < 0x80 || state5AliasedByte(sc, targetCity) <= 2) {
+        legion.cooldown = ((rng?.nextByte?.() ?? 0) & 7) + 1;
+        legion.commandState = 2;
+        return true;
+      }
+      return false;
+    }
+    case 6: {
+      // 0x440F：目标城标记bit6、失活且仅余本军团时停止调动；否则从势力
+      // +0x17/+0x16 两个一次性城市槽取新目标。严重财政不足跳过+0x17。
+      const attr = targetAttr;
+      if (
+        (attr & 0x40) !== 0 ||
+        (attr >= 0x80 && cityLocalStrength(sc, targetCity) <= 1)
+      ) {
+        legion.commandState = 1;
+        return true;
+      }
+      let nextCityIdx = null;
+      if (!fiscalCrisis && faction.strategic_city_secondary != null) {
+        nextCityIdx = faction.strategic_city_secondary;
+        faction.strategic_city_secondary = null;
+      } else if (faction.strategic_city_primary != null) {
+        nextCityIdx = faction.strategic_city_primary;
+        faction.strategic_city_primary = null;
+      }
+      if (nextCityIdx != null) {
+        const nextCity = sc.cities.find((city) => city?.idx === nextCityIdx);
+        if (nextCity && nextCity.idx !== targetCity?.idx) {
+          legion.target = nextCity;
+          legion.targetNode = roadNodeAt(nextCity.x, nextCity.y)?.id ?? null;
+          legion.status = (legion.status ?? 0x80) | 2;
+        }
+        legion.commandState = 0;
+        return true;
+      }
+      if (attr < 0x80) {
+        legion.commandState = 11;
+        return true;
+      }
+      return false;
+    }
+    case 7:
+      // 0x4466：任一队不足300人（原版byte<30）转状态11；六队均达标转8。
+      legion.commandState = (legion.units ?? [])
+        .slice(0, 6)
+        .every(
+          (unit) => Math.max(0, Math.floor((unit?.troops ?? 0) / 10)) >= 30,
+        )
+        ? 8
+        : 11;
+      return true;
+    case 8:
+      // 0x4483：状态8是士气休整，达到势力上限后回状态1。
+      if ((legion.morale ?? 0) >= factionLegionMoraleCap(faction)) {
+        legion.commandState = 1;
+        return true;
+      }
+      return false;
+    case 9:
+      // 0x4499 的实际预备兵重编由 replenishLegionAtCapital 执行。
+      return false;
+    case 10: {
+      // 0x44A9：状态10持续锁定首都；到达首都且兵力不足时转状态9。
+      const capital = sc.cities[faction.capital];
+      if (!capital) return false;
+      if (legionTargetCity(sc, legion)?.idx !== capital.idx) {
+        legion.target = capital;
+        legion.targetNode = roadNodeAt(capital.x, capital.y)?.id ?? null;
+        legion.commandState = 10;
+        return true;
+      }
+      if (legionAtTargetNode(sc, legion) && (legion.troops ?? 0) < 600) {
+        legion.commandState = 9;
+        return true;
+      }
+      return false;
+    }
+    case 11: {
+      // 0x44D6：状态11同样返回首都；到达后直接解散并把兵归还预备池。
+      const capital = sc.cities[faction.capital];
+      if (!capital) return false;
+      if (legionTargetCity(sc, legion)?.idx !== capital.idx) {
+        legion.target = capital;
+        legion.targetNode = roadNodeAt(capital.x, capital.y)?.id ?? null;
+        return true;
+      }
+      if (legionAtTargetNode(sc, legion)) {
+        legion._disbandAtCapital = true;
+        return true;
+      }
+      return false;
+    }
+    default:
+      return false;
+  }
+}
+
 function aiFormationLimit(faction) {
   const fundsWord = Math.max(
     0,
@@ -338,16 +561,40 @@ function formAiReinforcements(app, faction, city, requested) {
     }
     faction.n_legions = (faction.n_legions ?? current) + 1;
     legion.target = city;
+    legion.targetNode = roadNodeAt(city.x, city.y)?.id ?? null;
     formed++;
   }
   return formed;
+}
+
+function rememberFactionStrategicCity(sc, factionIdx, field, cityIndex) {
+  if (factionIdx == null || factionIdx === 0x18) return;
+  const faction = sc.factions?.find(
+    (candidate) => candidate?.idx === factionIdx,
+  );
+  if (!faction || faction.active === false || faction.dead) return;
+  faction[field] = cityIndex;
 }
 
 /** KI.EXE 0x3EFD→0x3F74：每次仅轮询一个据点槽。 */
 export function tickStrategicCity(app, cityIndex) {
   const sc = app?.scenario;
   const city = sc?.cities?.[cityIndex];
-  if (!city || city.faction == null) return false;
+  if (!city) return false;
+  // 0x3F11..0x3F29：运行态上次所属与当前所属不同时，把该城索引
+  // 记入旧势力+0x17。
+  if (city._strategicLastFaction === undefined)
+    city._strategicLastFaction = city.faction;
+  else if (city._strategicLastFaction !== city.faction) {
+    rememberFactionStrategicCity(
+      sc,
+      city._strategicLastFaction,
+      "strategic_city_secondary",
+      city.idx,
+    );
+    city._strategicLastFaction = city.faction;
+  }
+  if (city.faction == null) return false;
   if ((city._aiCooldown ?? 0) > 0) city._aiCooldown--;
   const faction = sc.factions?.find(
     (candidate) => candidate?.idx === city.faction,
@@ -373,6 +620,12 @@ export function tickStrategicCity(app, cityIndex) {
       const rng = app.originalRng ?? app.activeBattleRng;
       const random = rng?.nextByte?.() ?? 0;
       city._aiCooldown = 0x18 + (random & 0x0f);
+      rememberFactionStrategicCity(
+        sc,
+        city.faction,
+        "strategic_city_primary",
+        city.idx,
+      );
       app.gamebar?.enqueueStrategicMessage?.({
         gen: null,
         text: `${city.name}　前來請求援軍。`,
@@ -382,6 +635,12 @@ export function tickStrategicCity(app, cityIndex) {
     }
     const formed = formAiReinforcements(app, faction, city, 1);
     if (formed > 0) {
+      rememberFactionStrategicCity(
+        sc,
+        city.faction,
+        "strategic_city_primary",
+        city.idx,
+      );
       const capital = sc.cities[faction.capital];
       city._aiCooldown = Math.min(
         0x1e,
@@ -396,6 +655,12 @@ export function tickStrategicCity(app, cityIndex) {
     const requested = Math.max(0, threatTotal + 2 - localStrength);
     const formed = formAiReinforcements(app, faction, city, requested);
     if (formed > 0) {
+      rememberFactionStrategicCity(
+        sc,
+        city.faction,
+        "strategic_city_primary",
+        city.idx,
+      );
       const capital = sc.cities[faction.capital];
       city._aiCooldown = Math.min(
         0x1e,
@@ -428,10 +693,17 @@ export function tickStrategicCity(app, cityIndex) {
       continue;
     }
     legion.target = target;
+    legion.targetNode = roadNodeAt(target.x, target.y)?.id ?? null;
     legion._aiOrdered = true;
     legion.commandState = 0;
     remaining--;
   }
+  rememberFactionStrategicCity(
+    sc,
+    city.faction,
+    "strategic_city_primary",
+    city.idx,
+  );
   city._aiCooldown = 0;
   return true;
 }
@@ -1259,8 +1531,53 @@ function finalizeFactionExtinction(app, factionIdx) {
   );
   if (!faction || !faction.dead || faction._extinctionHandled) return false;
   faction._extinctionHandled = true;
-  // 0x4FCE 内武将自尽、俘获、流散的完整分支仍未闭合。此处只落实
-  // 已实锤的即时灭亡、TALK36和其它势力目标清理，不臆造武将去向。
+  const captorFaction = sc._lastCapturingFaction ?? 0x18;
+  // 0x4FCE→0x5074：灭亡势力的外交官立即结束任职并恢复待命。
+  if (faction.diplomat_idx != null) {
+    const diplomat = sc.generals?.[faction.diplomat_idx];
+    if (diplomat) diplomat.status = 0;
+    faction.diplomat_idx = null;
+  }
+  // 0x5000..0x5033：按武将索引固定扫描并严格按+1D/君主/+17分三路。
+  for (const general of sc.generals ?? []) {
+    if (!general?.active || general.faction !== factionIdx) continue;
+    if (general.origFaction != null || general.captive_flag !== 0xff) {
+      const origin = general.origFaction ?? general.captive_flag;
+      const originFaction = sc.factions.find(
+        (candidate) => candidate?.idx === origin,
+      );
+      general.status = 0;
+      general.faction = originFaction && !originFaction.dead ? origin : null;
+      general.origFaction = null;
+      general.captive_flag = 0xff;
+      continue;
+    }
+    if (general.idx !== faction.monarch_idx && (general.status ?? 0) !== 0) {
+      const legion = sc.legions.find(
+        (candidate) =>
+          !candidate.dead &&
+          (candidate.generalIdx === general.idx ||
+            candidate.slot === general.idx ||
+            candidate.leader === general.name),
+      );
+      if (legion) {
+        legion.status = 0;
+        legion._active = false;
+        legion.dead = true;
+        legion.target = null;
+        clearEngagement(legion);
+        clearMarchNavigation(legion);
+      }
+      general.status = 0;
+      general.faction = null;
+      continue;
+    }
+    // 其余走0x29C3等价的被俘/退场状态；不额外消费RNG。
+    general.status = 4;
+    general.origFaction = factionIdx;
+    general.captive_flag = factionIdx;
+    general.faction = captorFaction === 0x18 ? null : captorFaction;
+  }
   app.gamebar?.enqueueStrategicMessage?.({
     gen: null,
     text: `${faction.monarch}的勢力滅亡了。`,
@@ -1378,7 +1695,9 @@ export function applyBattleResult(
     );
     // 原版先走0x4DA4处理破城守军组，随后才在无新首都时进入0x4FCE。
     if (oldFaction != null && oldFaction !== A.faction) {
+      sc._lastCapturingFaction = A.faction;
       finalizeFactionExtinction(app, oldFaction);
+      delete sc._lastCapturingFaction;
     }
     if (oldFaction === sc.player_faction && oldFaction !== A.faction) {
       // KI.EXE 0x4F71：玩家据点实际易主时播放 0xCE7 警告音。
@@ -1513,66 +1832,974 @@ export function completePlayerWarDeclaration(app, targetFaction) {
   return true;
 }
 
-function enqueueStrategicWarEvents(sc, events, delay = 7) {
-  sc.pendingStrategicEvents = sc.pendingStrategicEvents ?? [];
-  for (const event of events) {
-    const duplicate = sc.pendingStrategicEvents.some(
-      (queued) =>
-        queued.type === event.type &&
-        queued.aggressor === event.aggressor &&
-        queued.defender === event.defender,
-    );
-    if (!duplicate) sc.pendingStrategicEvents.push({ ...event, delay });
+const STRATEGIC_EVENT_PAGE_SLOTS = 64;
+const STRATEGIC_EVENT_TOTAL_SLOTS = 256;
+
+function factionByIndex(sc, factionIdx) {
+  return sc.factions?.find((faction) => faction?.idx === factionIdx) ?? null;
+}
+
+function strategicEventFactionIndex(event, field) {
+  const value = Number(event?.[field]);
+  return Number.isInteger(value) && 0 <= value && value < 0x18 ? value : null;
+}
+
+function strategicEventGeneralIndex(event) {
+  const value = Number(event?.arg0);
+  return Number.isInteger(value) && 0 <= value && value < 0x7f ? value : null;
+}
+
+/** 原版事件查询0x304E：只查尚未消费的当前位置至第四页末。 */
+export function hasPendingStrategicEvent(
+  sc,
+  type,
+  { arg0 = null, arg1 = null } = {},
+) {
+  const slots = ensureStrategicEventSlots(sc);
+  const cursor = Math.max(
+    0,
+    Math.min(STRATEGIC_EVENT_TOTAL_SLOTS, sc._strategicEventCursor | 0),
+  );
+  return slots.slice(cursor).some((event) => {
+    if (event?.type !== type) return false;
+    if (arg0 != null && event.arg0 !== arg0) return false;
+    if (arg1 != null && event.arg1 !== arg1) return false;
+    return true;
+  });
+}
+
+/**
+ * 0x301C：从指定延迟槽开始向四页末尾顺序寻找空4B槽。
+ * type6/7生产者的BL固定0x14，因此正好排到20个事件槽后；不是20天。
+ */
+export function enqueueDelayedStrategicEvent(app, event, delaySlots) {
+  const sc = app?.scenario;
+  if (!sc) return false;
+  const slots = ensureStrategicEventSlots(sc);
+  const cursor = Math.max(
+    0,
+    Math.min(STRATEGIC_EVENT_TOTAL_SLOTS, sc._strategicEventCursor | 0),
+  );
+  let index = cursor + Math.max(0, Math.trunc(delaySlots) || 0);
+  while (index < STRATEGIC_EVENT_TOTAL_SLOTS && slots[index]) index++;
+  if (index >= STRATEGIC_EVENT_TOTAL_SLOTS) return false;
+  slots[index] = structuredClone(event);
+  return true;
+}
+
+function legacyStrategicEvents(sc) {
+  return [
+    ...(sc.pendingStrategicEvents ?? []),
+    ...(sc.pendingEnvoyBudgetReports ?? []).map((report) => ({
+      type: 5,
+      report,
+    })),
+    ...(sc.pendingTruceNegotiations ?? []).map((item) => ({
+      type: 6,
+      arg0: item.targetFactionIdx,
+    })),
+    ...(sc.pendingAssistanceNegotiations ?? []).map((item) => ({
+      type: 7,
+      arg0: item.allyFactionIdx,
+      arg1: item.targetFactionIdx,
+    })),
+  ];
+}
+
+function ensureStrategicEventSlots(sc) {
+  if (!Array.isArray(sc.strategicEventSlots)) {
+    sc.strategicEventSlots = Array(STRATEGIC_EVENT_TOTAL_SLOTS).fill(null);
+    // 兼容旧Web存档：旧队列没有原版槽位地址，只能保序装入当前页。
+    for (const [index, event] of legacyStrategicEvents(sc).entries()) {
+      if (index >= STRATEGIC_EVENT_PAGE_SLOTS) break;
+      sc.strategicEventSlots[index] = event;
+    }
   }
-  return events;
+  delete sc.pendingStrategicEvents;
+  delete sc.pendingEnvoyBudgetReports;
+  delete sc.pendingTruceNegotiations;
+  delete sc.pendingAssistanceNegotiations;
+  if (sc.strategicEventSlots.length < STRATEGIC_EVENT_TOTAL_SLOTS) {
+    sc.strategicEventSlots.push(
+      ...Array(
+        STRATEGIC_EVENT_TOTAL_SLOTS - sc.strategicEventSlots.length,
+      ).fill(null),
+    );
+  }
+  return sc.strategicEventSlots;
 }
 
-/** 新游戏 0x1B29→0x2BD9：立即改变关系，并以 0x31AD=7 延迟调度事件。 */
+/** 0x2BD9：事件时间轮前移一页，并把首个消费分频重设为7。 */
+function beginStrategicEventMonth(sc) {
+  const slots = ensureStrategicEventSlots(sc);
+  sc.strategicEventSlots = slots
+    .slice(STRATEGIC_EVENT_PAGE_SLOTS)
+    .concat(Array(STRATEGIC_EVENT_PAGE_SLOTS).fill(null));
+  sc._strategicEventCursor = 0;
+  sc._strategicEventDivider = 7;
+}
+
+/** 0x2FBF：从当前消费游标加随机0..31槽开始，向后寻找当前页空槽。 */
+function enqueueCurrentStrategicEvent(app, event, fixedOffset = null) {
+  const sc = app.scenario;
+  const slots = ensureStrategicEventSlots(sc);
+  const cursor = Math.max(0, Math.min(64, sc._strategicEventCursor | 0));
+  const rng = app.originalRng ?? app.activeBattleRng;
+  let randomOffset = Math.max(0, Math.trunc(fixedOffset ?? 0));
+  if (fixedOffset == null && rng?.nextByte)
+    randomOffset = (rng.nextByte() & 0x7c) >> 2;
+  let index = cursor + randomOffset;
+  while (index < STRATEGIC_EVENT_PAGE_SLOTS && slots[index]) index++;
+  if (index >= STRATEGIC_EVENT_PAGE_SLOTS) return false;
+  slots[index] = structuredClone(event);
+  return true;
+}
+
+function sameStrategicEvent(left, right) {
+  if (left?.type !== right?.type) return false;
+  if (right.type === 1)
+    return (
+      left.aggressor === right.aggressor && left.defender === right.defender
+    );
+  return (
+    left.arg0 === right.arg0 &&
+    left.arg1 === right.arg1 &&
+    left.arg2 === right.arg2
+  );
+}
+
+function enqueueStrategicWarEvents(app, events) {
+  const queued = [];
+  for (const event of events) {
+    const slots = ensureStrategicEventSlots(app.scenario);
+    const duplicate = slots.some((item) => sameStrategicEvent(item, event));
+    if (!duplicate && enqueueCurrentStrategicEvent(app, event))
+      queued.push(event);
+  }
+  return queued;
+}
+
+/** 新游戏 0x1B29→0x2BD9：立即改变关系，并按事件时间轮排入type-1。 */
 export function initializeStrategicDiplomacy(app) {
-  const events = runStrategicDiplomacy(app?.scenario);
-  return enqueueStrategicWarEvents(app.scenario, events);
+  beginStrategicEventMonth(app.scenario);
+  const capitalEvents = enqueueStrategicCapitalEvents(app);
+  const warEvents = runStrategicDiplomacy(app?.scenario);
+  return [...capitalEvents, ...enqueueStrategicWarEvents(app, warEvents)];
 }
 
-/** 月结 0x5358→0x5394→0x2BD9：更新关系并排入 type-1 宣战事件。 */
+/** 月结 0x5358→0x5394→0x2BD9：滚动事件页、更新关系并排入type-1。 */
 export function monthlyDiplomacyAI(app) {
-  const events = runStrategicDiplomacy(app?.scenario);
-  return enqueueStrategicWarEvents(app.scenario, events);
+  beginStrategicEventMonth(app.scenario);
+  const capitalEvents = enqueueStrategicCapitalEvents(app);
+  const warEvents = runStrategicDiplomacy(app?.scenario);
+  return [...capitalEvents, ...enqueueStrategicWarEvents(app, warEvents)];
+}
+
+/** 0x2BD9→0x2D3A→0x2FB1：无战略目标势力以RNG<0x40排type8。 */
+export function enqueueStrategicCapitalEvents(app) {
+  const sc = app?.scenario;
+  const rng = app?.originalRng ?? app?.activeBattleRng;
+  if (!sc || !rng || typeof rng.nextByte !== "function") return [];
+  const queued = [];
+  for (const faction of sc.factions ?? []) {
+    if (!factionIsActive(sc, faction.idx) || faction.target_faction != null)
+      continue;
+    if (rng.nextByte() >= 0x40) continue;
+    const event = { type: 8, arg0: faction.idx, arg1: 0xff, arg2: 0xff };
+    if (!enqueueCurrentStrategicEvent(app, event)) continue;
+    queued.push(event);
+  }
+  return queued;
+}
+
+/** 0x5715→0x2FBF：月结扫描玩家据点并排入type-4内政预算。 */
+/**
+ * KI.EXE 0x585F→0x5940：月结扫描仍有原属(+1D)的武将并处理回归。
+ * 同一个随机字节决定无动作、立即回归或延后8..23槽；延后条目是
+ * `{type=9,generalIndex,0xFF,0xFF}`，并把当前所属暂置0x18。
+ */
+export function processMonthlyGeneralFates(app) {
+  const sc = app?.scenario;
+  const rng = app?.originalRng ?? app?.activeBattleRng;
+  if (!sc || !rng || typeof rng.nextByte !== "function") return [];
+  const queued = [];
+  for (const general of (sc.generals ?? []).slice(0, 0x7f)) {
+    if (!general?.active) continue;
+    const origin =
+      general.origFaction ??
+      (general.captive_flag === 0xff ? null : general.captive_flag);
+    if (origin == null) continue;
+
+    const random = rng.nextByte();
+    if (random >= 0x40) continue;
+    if (random >= 0x20 && general.faction === general.join_faction) {
+      general.origFaction = null;
+      general.captive_flag = 0xff;
+      general.status = 0;
+      if (general.faction === sc.player_faction) {
+        app.gamebar?.enqueueStrategicMessage?.({
+          gen: general,
+          text: `${general.name}加入麾下了。`,
+          kind: "general-joined",
+        });
+      }
+      continue;
+    }
+
+    const event = { type: 9, arg0: general.idx, arg1: 0xff, arg2: 0xff };
+    if (!enqueueDelayedStrategicEvent(app, event, (random & 0x0f) + 8))
+      continue;
+    queued.push(event);
+    if (general.faction === sc.player_faction) {
+      app.gamebar?.enqueueStrategicMessage?.({
+        gen: general,
+        text: `俘虜的${general.name}大人，被召見了。`,
+        kind: "general-fate-pending",
+      });
+    }
+    general.faction = 0x18;
+  }
+  return queued;
+}
+
+export function enqueueDomesticBudgetEvents(app) {
+  const sc = app?.scenario;
+  if (!sc) return [];
+  const queued = [];
+  for (const city of sc.cities ?? []) {
+    if (city?.faction !== sc.player_faction || city.governor == null) continue;
+    const governor = sc.generals?.[city.governor];
+    if (!governor || (governor.assignment_budget ?? 0) !== 0) continue;
+    const requested =
+      ((Math.max(0, 180 - (city.growth ?? 0)) +
+        Math.max(0, 180 - (city.defence ?? 0)) +
+        Math.max(0, (city.troops_cap ?? 0) - (city.troops ?? 0))) >>
+        1) *
+      50;
+    const event = { type: 4, arg0: city.idx, amount: requested };
+    if (enqueueCurrentStrategicEvent(app, event)) queued.push(event);
+  }
+  return queued;
+}
+
+/** 0x578F→0x2FBF：type-5外交预算与其它战略事件共用当前页。 */
+export function enqueueEnvoyBudgetEvents(app, reports) {
+  return reports.filter((report) =>
+    enqueueCurrentStrategicEvent(app, { type: 5, report }),
+  );
+}
+
+/** 0x53A3→0x57FE：玩家负资金达到门槛时，按好战度排type13信赖处罚。 */
+function cityEventPointer(city) {
+  return 0x840 + Math.max(0, Math.trunc(city?.idx ?? 0)) * 0x20;
+}
+
+function eventPointerCity(sc, event) {
+  const pointer = Math.trunc(Number(event?.cityPointer));
+  if (!Number.isInteger(pointer) || pointer < 0x840) return null;
+  const index = (pointer - 0x840) >> 5;
+  return sc.cities?.[index] ?? null;
+}
+
+/** 0x22DB/0x2286：月结只生成type11/12；效果由事件轮延后执行。 */
+export function enqueueMonthlyDisasterEvents(app) {
+  const sc = app?.scenario;
+  const rng = app?.originalRng ?? app?.activeBattleRng;
+  if (!sc || !rng || typeof rng.nextByte !== "function") return [];
+  const queued = [];
+
+  if (rng.nextByte() & 1) {
+    const selector = rng.nextByte();
+    if (selector < 0xc0) {
+      const city = sc.cities?.[selector >> 3];
+      if (city) {
+        let allowed = true;
+        const raw = cityRawBytes(city);
+        const xLow = raw ? raw[8] : (city.x ?? 0) & 0xff;
+        if (xLow < 0xc0) allowed = Boolean(rng.nextByte() & 1);
+        if (allowed) {
+          const delay = (rng.nextByte() & 7) + 8;
+          const event = { type: 11, arg0: 0, arg1: 0, arg2: 0 };
+          if (enqueueCurrentStrategicEvent(app, event, delay)) {
+            sc._disasterBounds = {
+              minX: city.x >= 10 ? city.x - 5 : city.x,
+              maxX: city.x >= 10 ? city.x + 5 : city.x + 10,
+              minY: city.y >= 10 ? city.y - 5 : city.y,
+              maxY: city.y >= 10 ? city.y + 5 : city.y + 10,
+            };
+            queued.push(event);
+          }
+        }
+      }
+    }
+  }
+
+  for (const city of (sc.cities ?? []).slice(0, 0xc0)) {
+    const firstGate = rng.nextByte();
+    if (firstGate < 0x18 && (rng.nextByte() & 0x3f) >= (city.defence ?? 0)) {
+      const event = {
+        type: 12,
+        arg0: 1,
+        cityPointer: cityEventPointer(city),
+      };
+      if (enqueueCurrentStrategicEvent(app, event)) queued.push(event);
+      continue;
+    }
+    const secondGate = rng.nextByte();
+    if (secondGate < 0x18 && (rng.nextByte() & 0x3f) >= (city.growth ?? 0)) {
+      const event = {
+        type: 12,
+        arg0: 2,
+        cityPointer: cityEventPointer(city),
+      };
+      if (enqueueCurrentStrategicEvent(app, event)) queued.push(event);
+    }
+  }
+  return queued;
+}
+
+/** 0x53A3→0x57FE：玩家负资金达到门槛时，按好战度排type13信赖处罚。 */
+export function enqueueDeficitTrustEvent(app) {
+  const sc = app?.scenario;
+  const faction = playerFaction(sc);
+  const rng = app?.originalRng ?? app?.activeBattleRng;
+  if (!sc || !faction || !rng || typeof rng.nextByte !== "function")
+    return false;
+  const funds = Math.trunc(Number(faction.gold ?? faction.money ?? 0));
+  if (!Number.isFinite(funds) || funds >= 0) return false;
+  const word = funds & 0xffff;
+  if ((-word & 0xffff) < 0x27) return false;
+  if ((rng.nextByte() & 0x0f) >= (faction.bellicosity ?? 0)) return false;
+  return enqueueCurrentStrategicEvent(app, {
+    type: 13,
+    arg0: 0,
+    talkIndex: 0x196,
+  });
 }
 
 export function tickStrategicWarEvents(app) {
   const sc = app.scenario;
-  const remainingBudgetReports = [];
-  for (const report of sc.pendingEnvoyBudgetReports ?? []) {
-    report.delay = Math.max(0, (report.delay ?? 0) - 1);
-    if (report.delay > 0) remainingBudgetReports.push(report);
-    else app.gamebar?.enqueueEnvoyBudgetReport?.(report);
-  }
-  sc.pendingEnvoyBudgetReports = remainingBudgetReports;
+  const slots = ensureStrategicEventSlots(sc);
+  const divisor = Math.trunc(sc._strategicEventDivider ?? 7) & 0xff;
+  sc._strategicEventDivider = (divisor - 1) & 0xff;
+  if (sc._strategicEventDivider !== 0) return false;
 
-  const remaining = [];
-  let changed = false;
-  for (const event of sc.pendingStrategicEvents ?? []) {
-    event.delay = Math.max(0, (event.delay ?? 0) - 1);
-    if (event.delay > 0) {
-      remaining.push(event);
+  const cursor = Math.max(0, sc._strategicEventCursor | 0);
+  if (cursor >= STRATEGIC_EVENT_PAGE_SLOTS) return false;
+  sc._strategicEventDivider = 10;
+  sc._strategicEventCursor = cursor + 1;
+  const event = slots[cursor];
+  return event ? dispatchStrategicEvent(app, event) : false;
+}
+
+function highestPoliticsIdleGeneral(sc, factionIdx) {
+  let selected = null;
+  for (const general of (sc.generals ?? []).slice(0, 0x7f)) {
+    if (
+      !general?.active ||
+      general.faction !== factionIdx ||
+      (general.status ?? 0) !== 0
+    )
       continue;
-    }
-    changed = processStrategicWarEvent(app, event) || changed;
+    if (
+      !selected ||
+      (general.ability?.politics ?? 0) > (selected.ability?.politics ?? 0)
+    )
+      selected = general;
   }
-  sc.pendingStrategicEvents = remaining;
+  return selected;
+}
+
+function negotiationRepresentative(sc, recipientFaction, requesterFaction) {
+  const runtimeEnvoy = sc.envoys?.[recipientFaction.idx];
+  const runtimeGeneral =
+    runtimeEnvoy?.gen_idx == null ? null : sc.generals?.[runtimeEnvoy.gen_idx];
+  if (runtimeGeneral && runtimeGeneral.active !== false) return runtimeGeneral;
+  const assignedIdx =
+    recipientFaction.diplomat_idx ??
+    factionRawByte(sc, recipientFaction, 0x2a, 0xff);
+  if (assignedIdx !== 0xff) {
+    const assigned = sc.generals?.[assignedIdx];
+    if (assigned && assigned.active !== false) return assigned;
+  }
+  return (
+    highestPoliticsIdleGeneral(sc, requesterFaction.idx) ??
+    sc.generals?.[requesterFaction.monarch_idx] ??
+    null
+  );
+}
+
+function negotiationRecipientGeneral(sc, recipientFaction) {
+  const monarch = sc.generals?.[recipientFaction.monarch_idx];
+  if (!monarch || monarch.active === false) return null;
+  if ((monarch.status ?? 0) === 0)
+    return highestPoliticsIdleGeneral(sc, recipientFaction.idx) ?? monarch;
+  const legion = (sc.legions ?? []).find(
+    (candidate) =>
+      !candidate?.dead &&
+      candidate?._active !== false &&
+      (candidate.slot ?? candidate.generalIdx) === monarch.idx &&
+      (candidate.status ?? 0) >= 0x80,
+  );
+  return legion ? monarch : null;
+}
+
+/** 0x3771 + 0x36C4/0x3712：任意两势力的停战/协同谈判结果。 */
+export function resolveFactionNegotiation(
+  app,
+  recipientFaction,
+  requesterFaction,
+  targetFaction = null,
+  assistance = targetFaction != null,
+) {
+  const sc = app?.scenario;
+  if (!sc || !recipientFaction || !requesterFaction) return null;
+  const representative = negotiationRepresentative(
+    sc,
+    recipientFaction,
+    requesterFaction,
+  );
+  const recipientGeneral = negotiationRecipientGeneral(sc, recipientFaction);
+  if (!representative || !recipientGeneral) return null;
+
+  const requesterPolitics = Math.max(
+    0,
+    Math.min(15, representative.ability?.politics ?? 0),
+  );
+  const recipientPolitics = Math.max(
+    0,
+    Math.min(15, recipientGeneral.ability?.politics ?? 0),
+  );
+  let base;
+  if (recipientPolitics > requesterPolitics) base = recipientPolitics * 2;
+  else if (recipientPolitics < requesterPolitics)
+    base = Math.max(0, 16 - requesterPolitics) * 2;
+  else {
+    const rng = app.originalRng ?? app.activeBattleRng;
+    base =
+      ((rng?.nextByte?.() ?? 0) & 1) === 0
+        ? recipientPolitics * 2
+        : Math.max(0, 16 - requesterPolitics) * 2;
+  }
+
+  let outcome = 1;
+  if (assistance) {
+    // 0x3712：比较受邀方→请求方与受邀方→进攻目标的两格关系。
+    const requesterRelation = relation(
+      sc,
+      recipientFaction.idx,
+      requesterFaction.idx,
+    );
+    const targetRelation = targetFaction
+      ? relation(sc, recipientFaction.idx, targetFaction.idx)
+      : requesterRelation;
+    if (requesterRelation < targetRelation) outcome = 2;
+    const value = requesterRelation < 0x80 ? 0 : requesterRelation & 0x7f;
+    if (value < (recipientFaction.bellicosity ?? 0) * 2 + 0x28) outcome = 2;
+    base += Math.max(0, Math.min(60, 90 - value)) >> 1;
+  } else {
+    // 0x36C4：受邀方正以请求方为战略目标时必为拒绝结果。
+    if (recipientFaction.target_faction === requesterFaction.idx) outcome = 2;
+    const value =
+      relation(sc, recipientFaction.idx, requesterFaction.idx) & 0x7f;
+    const excess = Math.max(
+      0,
+      value - ((recipientFaction.bellicosity ?? 0) + 2),
+    );
+    base = Math.max(0, base + 30 - excess) >> 1;
+  }
+  const goldRequired = Math.max(0, base) * 1000;
+  if (goldRequired === 0 && outcome < 2) outcome = 0;
+  return { outcome, goldRequired };
+}
+
+/** 玩家派使者的type6/type7兼容入口。 */
+export function resolveStrategicNegotiation(
+  app,
+  otherFaction,
+  assistance,
+  targetFaction = null,
+) {
+  const me = playerFaction(app?.scenario);
+  return me && otherFaction
+    ? resolveFactionNegotiation(
+        app,
+        otherFaction,
+        me,
+        assistance ? targetFaction : null,
+        assistance,
+      )
+    : null;
+}
+
+function releaseNegotiationPrisoners(sc, firstFactionIdx, secondFactionIdx) {
+  for (const general of (sc.generals ?? []).slice(0, 0x7f)) {
+    const origin =
+      general?.origFaction ??
+      (general?.captive_flag === 0xff ? null : general?.captive_flag);
+    if (
+      !general?.active ||
+      !(
+        (general.faction === firstFactionIdx && origin === secondFactionIdx) ||
+        (general.faction === secondFactionIdx && origin === firstFactionIdx)
+      )
+    )
+      continue;
+    general.status = 0;
+    general.origFaction = null;
+    general.captive_flag = 0xff;
+    general.faction = factionIsActive(sc, origin) ? origin : null;
+  }
+}
+
+/** 0x3902：玩家选择仅在RNG<=信赖时覆盖算法结果；超额报价转结果3。 */
+export function resolveIncomingDiplomacyChoice(
+  app,
+  result,
+  choice,
+  amount = 0,
+) {
+  const sc = app?.scenario;
+  if (!sc || !result) return null;
+  let selected = choice === "refuse" ? 2 : choice === "pay" ? 1 : 0;
+  const entered = Math.max(0, Math.min(30000, amount | 0));
+  if (selected === 1 && entered === 0) selected = 0;
+  let outcome = result.outcome;
+  let goldRequired = result.goldRequired;
+  const rng = app.originalRng ?? app.activeBattleRng;
+  if ((rng?.nextByte?.() ?? 0xff) <= (sc.trust ?? 0)) {
+    outcome = selected;
+    goldRequired = entered;
+    if (entered > result.goldRequired) outcome = 3;
+  }
+  return { outcome, goldRequired };
+}
+
+/** 0x35ED + 0x3526或0x45F8/0x4236/0x3669：提交谈判结果。 */
+export function settleFactionNegotiation(
+  app,
+  {
+    recipientFaction,
+    requesterFaction,
+    targetFaction = null,
+    outcome,
+    goldRequired = 0,
+  },
+) {
+  const sc = app?.scenario;
+  if (!sc || !recipientFaction || !requesterFaction) return false;
+  if (outcome >= 2) {
+    if (outcome === 3) {
+      sc.trust = Math.max(0, (sc.trust ?? 0) - 30);
+      app.checkTrustGameOver?.();
+    }
+    return false;
+  }
+  if (outcome === 1) {
+    applyFactionFundsDelta(requesterFaction, -Math.max(0, goldRequired | 0));
+    applyFactionFundsDelta(recipientFaction, Math.max(0, goldRequired | 0));
+  }
+  releaseNegotiationPrisoners(sc, recipientFaction.idx, requesterFaction.idx);
+  if (targetFaction) {
+    recipientFaction.target_faction = targetFaction.idx;
+    declareWar(sc, recipientFaction.idx, targetFaction.idx);
+  } else {
+    if (recipientFaction.target_faction === requesterFaction.idx)
+      recipientFaction.target_faction = null;
+    if (requesterFaction.target_faction === recipientFaction.idx)
+      requesterFaction.target_faction = null;
+    for (const city of (sc.cities ?? []).slice(0, 0xc0)) {
+      if (
+        city.faction === recipientFaction.idx ||
+        city.faction === requesterFaction.idx ||
+        city.strategic_affiliation === recipientFaction.idx ||
+        city.strategic_affiliation === requesterFaction.idx
+      )
+        city.strategic_affiliation = city.faction;
+    }
+    makeCeasefire(sc, recipientFaction.idx, requesterFaction.idx);
+  }
+  return true;
+}
+
+function dispatchIncomingAssistanceEvent(app, event) {
+  const sc = app?.scenario;
+  const recipientFaction = factionByIndex(
+    sc,
+    strategicEventFactionIndex(event, "arg0"),
+  );
+  const targetFaction = factionByIndex(
+    sc,
+    strategicEventFactionIndex(event, "arg1"),
+  );
+  const requesterFaction = factionByIndex(
+    sc,
+    strategicEventFactionIndex(event, "arg2"),
+  );
+  if (!recipientFaction || !targetFaction || !requesterFaction) return false;
+  const result = resolveFactionNegotiation(
+    app,
+    recipientFaction,
+    requesterFaction,
+    targetFaction,
+  );
+  if (!result) return false;
+  const settle = (choice = result.outcome, amount = result.goldRequired) =>
+    settleFactionNegotiation(app, {
+      recipientFaction,
+      requesterFaction,
+      targetFaction,
+      outcome: choice,
+      goldRequired: amount,
+    });
+  if (
+    recipientFaction.idx === sc.player_faction &&
+    app.gamebar?.enqueueIncomingDiplomacyRequest
+  ) {
+    app.gamebar.enqueueIncomingDiplomacyRequest({
+      type: "incoming-assistance",
+      requesterFaction,
+      targetFaction,
+      result,
+      onResolve: settle,
+    });
+    return true;
+  }
+  if (result.outcome < 2) settle();
+  return true;
+}
+
+function dispatchIncomingTruceEvent(app, event) {
+  const sc = app?.scenario;
+  const requesterFaction = factionByIndex(
+    sc,
+    strategicEventFactionIndex(event, "arg0"),
+  );
+  const recipientFaction = factionByIndex(
+    sc,
+    strategicEventFactionIndex(event, "arg1"),
+  );
+  if (!recipientFaction || !requesterFaction) return false;
+  const result = resolveFactionNegotiation(
+    app,
+    recipientFaction,
+    requesterFaction,
+  );
+  if (!result) return false;
+  const settle = (choice = result.outcome, amount = result.goldRequired) =>
+    settleFactionNegotiation(app, {
+      recipientFaction,
+      requesterFaction,
+      outcome: choice,
+      goldRequired: amount,
+    });
+  if (
+    recipientFaction.idx === sc.player_faction &&
+    app.gamebar?.enqueueIncomingDiplomacyRequest
+  ) {
+    app.gamebar.enqueueIncomingDiplomacyRequest({
+      type: "incoming-truce",
+      requesterFaction,
+      result,
+      onResolve: settle,
+    });
+    return true;
+  }
+  if (result.outcome < 2) settle();
+  return true;
+}
+
+function dispatchTruceNegotiationEvent(app, event) {
+  const sc = app?.scenario;
+  const targetFaction = factionByIndex(
+    sc,
+    strategicEventFactionIndex(event, "arg0"),
+  );
+  const envoy = targetFaction ? sc.envoys?.[targetFaction.idx] : null;
+  const envoyGeneral =
+    (envoy?.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
+    sc.generals?.find((general) => general?.name?.trim?.() === envoy?.name);
+  if (!targetFaction || !envoy || !envoyGeneral) return false;
+  app.gamebar?.showTruceNegotiationResult?.({
+    targetFaction,
+    envoyName: envoyGeneral.name?.trim?.() || envoy.name || "外交官",
+  });
+  return true;
+}
+
+function dispatchAssistanceNegotiationEvent(app, event) {
+  const sc = app?.scenario;
+  const allyFaction = factionByIndex(
+    sc,
+    strategicEventFactionIndex(event, "arg0"),
+  );
+  const targetFaction = factionByIndex(
+    sc,
+    strategicEventFactionIndex(event, "arg1"),
+  );
+  const envoy = allyFaction ? sc.envoys?.[allyFaction.idx] : null;
+  const envoyGeneral =
+    (envoy?.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
+    sc.generals?.find((general) => general?.name?.trim?.() === envoy?.name);
+  if (!allyFaction || !targetFaction || !envoy || !envoyGeneral) return false;
+  app.gamebar?.showAssistanceNegotiationResult?.({
+    allyFaction,
+    targetFaction,
+    envoyName: envoyGeneral.name?.trim?.() || envoy.name || "外交官",
+  });
+  return true;
+}
+
+function selectStrategicCapital(sc, factionIdx) {
+  let selected = null;
+  let preferred = false;
+  for (const city of (sc.cities ?? []).slice(0, 0xc0)) {
+    if (city?.faction !== factionIdx) continue;
+    const raw = cityRawBytes(city);
+    const cityPreferred = Boolean(raw && (raw[0] & 0x1f) === 0);
+    const type = raw ? raw[0x16] & 0x0f : (city.type ?? 0) & 0x0f;
+    const production = raw
+      ? raw[0x0e] | (raw[0x0f] << 8)
+      : Math.max(0, Number(city.prod) || 0);
+    if (
+      !selected ||
+      (type <= selected.type &&
+        production >= selected.production &&
+        (!preferred || cityPreferred))
+    ) {
+      selected = { city, type, production };
+      if (cityPreferred) preferred = true;
+    }
+  }
+  return selected?.city ?? null;
+}
+
+function retargetLegionsFromCapital(sc, factionIdx, oldCapital, newCapital) {
+  const oldNode = oldCapital << 3;
+  const newNode = newCapital << 3;
+  for (const legion of sc.legions ?? []) {
+    if (
+      legion?.dead ||
+      legion?._active === false ||
+      legion?.faction !== factionIdx
+    )
+      continue;
+    const targetsOldCapital =
+      legion.target?.idx === oldCapital || legion.targetCity === oldCapital;
+    if (!targetsOldCapital) continue;
+    legion.target = sc.cities[newCapital] ?? null;
+    legion.targetCity = newCapital;
+    // 0x452E..0x4538原样：+20由旧城改新城后，+14若等于新城节点则写旧城节点。
+    // 指令流方向看似反直觉，但字段/比较次序已有地址证据，不能擅自倒置。
+    if (legion.targetNode === newNode) legion.targetNode = oldNode;
+    legion.status = (legion.status ?? 0) | 2;
+    clearMarchNavigation(legion);
+  }
+}
+
+function dispatchStrategicCapitalEvent(app, event) {
+  const sc = app.scenario;
+  const factionIdx = strategicEventFactionIndex(event, "arg0");
+  if (factionIdx == null || factionIdx === sc.player_faction) return false;
+  const faction = factionByIndex(sc, factionIdx);
+  if (!factionIsActive(sc, factionIdx)) return false;
+  const city = selectStrategicCapital(sc, factionIdx);
+  if (!city || city.idx === faction.capital) return false;
+  const oldCapital = faction.capital;
+  faction.capital = city.idx;
+  retargetLegionsFromCapital(sc, factionIdx, oldCapital, city.idx);
+  if (faction.diplomat_idx != null) {
+    app.gamebar?.enqueueStrategicMessage?.({
+      gen: sc.generals?.[faction.diplomat_idx] ?? null,
+      text: `${faction.monarch}軍將主城移至${city.name}。`,
+      kind: "capital-relocation",
+    });
+  }
+  return true;
+}
+
+function dispatchGeneralFateEvent(app, event) {
+  const sc = app.scenario;
+  const generalIdx = strategicEventGeneralIndex(event);
+  if (generalIdx == null) return false;
+  const general = sc.generals?.[generalIdx];
+  if (!general?.active) return false;
+
+  // 0x3485→0x50D7：清+17，将+1D原属交换为FF；原属势力仍活跃才恢复。
+  const origin =
+    general.origFaction ??
+    (general.captive_flag === 0xff ? null : general.captive_flag);
+  general.status = 0;
+  general.origFaction = null;
+  general.captive_flag = 0xff;
+  general.faction =
+    origin != null && factionIsActive(sc, origin) ? origin : null;
+  if (general.faction === sc.player_faction) {
+    app.gamebar?.enqueueStrategicMessage?.({
+      gen: general,
+      text: `被敵軍所擒的${general.name}大人回來了。`,
+      kind: "general-returned",
+    });
+  }
+  return true;
+}
+
+function applyDisasterArea(app, baseStrength) {
+  const sc = app.scenario;
+  const bounds = sc._disasterBounds;
+  if (!bounds) return false;
+  let changed = false;
+  for (const city of (sc.cities ?? []).slice(0, 0xc0)) {
+    const centerX = bounds.minX + ((bounds.maxX - bounds.minX) >> 1);
+    const centerY = bounds.minY + ((bounds.maxY - bounds.minY) >> 1);
+    const distance = Math.max(
+      Math.abs(city.x - centerX),
+      Math.abs(city.y - centerY),
+    );
+    if (distance > 0x14) continue;
+    const damage = Math.max(0, baseStrength - (distance >> 1));
+    city.disaster_event = damage;
+    if (damage > 0) changed = true;
+    if (damage > 0 && city.faction === sc.player_faction) {
+      app.gamebar?.enqueueStrategicMessage?.({
+        gen: null,
+        text: `${city.name}遭受天災。`,
+        kind: "disaster-area",
+      });
+    }
+  }
   return changed;
 }
 
-/** 0x3E11→0x3E8E：每战略调度只轮转一个势力的外交官常态关系。 */
-export function tickEnvoyDiplomacy(app) {
+function dispatchDisasterAreaEvent(app) {
+  const rng = app.originalRng ?? app.activeBattleRng;
+  if (!rng || typeof rng.nextByte !== "function") return false;
+  return applyDisasterArea(app, (rng.nextByte() & 0x0f) + 0x18);
+}
+
+function dispatchDisasterObjectEvent(app, event) {
+  const sc = app.scenario;
+  const city = eventPointerCity(sc, event);
+  if (!city) return false;
+  const kind = Math.max(0, Math.trunc(Number(event.arg0) || 0));
+  sc.disasterMapObjects ??= [];
+  if (kind === 0) {
+    city.disaster_event = 0;
+    sc.disasterMapObjects = sc.disasterMapObjects.filter(
+      (item) => item.x !== city.x || item.y !== city.y,
+    );
+    return true;
+  }
+  if (sc.disasterMapObjects.length >= 32) return false;
+  sc.disasterMapObjects.push({ kind, x: city.x, y: city.y });
+  if (city.faction === sc.player_faction) {
+    app.gamebar?.enqueueStrategicMessage?.({
+      gen: null,
+      text: `${city.name}發生${kind === 1 ? "暴動" : "災害"}。`,
+      kind: "disaster-object",
+    });
+  }
+  const rng = app.originalRng ?? app.activeBattleRng;
+  if (!rng || typeof rng.nextByte !== "function") return true;
+  city.disaster_event = (rng.nextByte() & 7) + 4;
+  enqueueDelayedStrategicEvent(
+    app,
+    { type: 12, arg0: 0, cityPointer: cityEventPointer(city) },
+    (rng.nextByte() & 7) + 6,
+  );
+  return true;
+}
+
+function dispatchGenericTalkEvent(app, event) {
+  const talkIndex = Math.trunc(Number(event?.talkIndex));
+  const arg0 = Math.trunc(Number(event?.arg0));
+  if (!Number.isInteger(talkIndex) || talkIndex < 0 || talkIndex >= 1023)
+    return false;
+  app.gamebar?.enqueueGenericTalkEvent?.({ talkIndex, arg0 });
+  return true;
+}
+
+function dispatchDeficitTrustEvent(app, event) {
+  const sc = app.scenario;
+  const talkIndex = Math.max(0, Math.trunc(Number(event?.talkIndex) || 0));
+  sc.trust = Math.max(0, (sc.trust ?? 0) - 50);
+  app.gamebar?.enqueueStrategicMessage?.({
+    gen: null,
+    text: "主公前來了，看來正在盛怒之中啊！！（信賴度-50）",
+    kind: "deficit-trust-penalty",
+    talkIndex,
+  });
+  app.checkTrustGameOver?.();
+  return true;
+}
+
+function dispatchStrategicEvent(app, event) {
+  if (event?.type === 1) return processStrategicWarEvent(app, event);
+  if (event?.type === 2) return dispatchIncomingAssistanceEvent(app, event);
+  if (event?.type === 3) return dispatchIncomingTruceEvent(app, event);
+  if (event?.type === 4) {
+    const cityIdx = Number(event.arg0);
+    if (!Number.isInteger(cityIdx) || !app.scenario?.cities?.[cityIdx])
+      return false;
+    const city = app.scenario.cities[cityIdx];
+    if (city.governor == null) return false;
+    app.gamebar?.enqueueDomesticBudgetReport?.({
+      cityIdx,
+      requested: Math.max(0, Number(event.amount) || 0),
+    });
+    return true;
+  }
+  if (event?.type === 5) {
+    app.gamebar?.enqueueEnvoyBudgetReport?.(event.report);
+    return true;
+  }
+  if (event?.type === 6) return dispatchTruceNegotiationEvent(app, event);
+  if (event?.type === 7) return dispatchAssistanceNegotiationEvent(app, event);
+  if (event?.type === 8) return dispatchStrategicCapitalEvent(app, event);
+  if (event?.type === 9) return dispatchGeneralFateEvent(app, event);
+  if (event?.type === 10) return dispatchGenericTalkEvent(app, event);
+  if (event?.type === 11) return dispatchDisasterAreaEvent(app, event);
+  if (event?.type === 12) return dispatchDisasterObjectEvent(app, event);
+  if (event?.type === 13) return dispatchDeficitTrustEvent(app, event);
+  // 其余类型的处理器地址已定位，但参数与产品回调未全部闭合。
+  // 事件槽仍按原版时间轮消费，不能用错误的Web替代逻辑重复执行。
+  return false;
+}
+
+/**
+ * KI.EXE 0x3E11：每游戏时刻固定轮转一个势力槽。
+ * 顺序为财政危机门控→0x3E65预备兵维护费累计→0x3E8E外交官维护；
+ * 目标选择不在这里，而在0x2BD9月度/开局候选和随后type-1事件。
+ */
+export function tickFactionStrategicState(app) {
+  const sc = app?.scenario;
+  if (!sc) return false;
+  const factions = sc.factions ?? [];
+  const cursor = Math.max(0, sc._factionTickCursor | 0) % 22;
+  sc._factionTickCursor = (cursor + 1) % 22;
+  const current = factions.find((faction) => faction?.idx === cursor);
+  if (!current) return false;
+  const changed = updateFactionFiscalCrisis(current);
+  current.monthly_reserve_upkeep = Math.min(
+    655000,
+    Math.max(0, Math.trunc(current.monthly_reserve_upkeep ?? 0)) +
+      factionReserveUpkeepTick(current),
+  );
+  return tickEnvoyDiplomacy(app, current) || changed;
+}
+
+/** 0x3E8E：处理已经由0x3E11选定的一个势力槽。 */
+export function tickEnvoyDiplomacy(app, current = null) {
   const sc = app?.scenario;
   const rng = app?.originalRng ?? app?.activeBattleRng;
   if (!sc?.envoys || !rng?.nextByte) return false;
-  const factions = (sc.factions ?? []).filter((f) => f?.idx != null);
-  if (!factions.length) return false;
-  const cursor = Math.max(0, sc._envoyDiplomacyCursor | 0) % factions.length;
-  sc._envoyDiplomacyCursor = (cursor + 1) % factions.length;
-  const current = factions[cursor];
+  if (!current) {
+    const factions = (sc.factions ?? []).filter((f) => f?.idx != null);
+    if (!factions.length) return false;
+    const cursor = Math.max(0, sc._envoyDiplomacyCursor | 0) % factions.length;
+    sc._envoyDiplomacyCursor = (cursor + 1) % factions.length;
+    current = factions[cursor];
+  }
   const envoy = sc.envoys[current.idx];
   if (!envoy || (envoy.budget ?? 0) <= 0 || rng.nextByte() >= 0x20)
     return false;
@@ -1593,7 +2820,7 @@ export function tickEnvoyDiplomacy(app) {
   return true;
 }
 
-// ★月度 AI: 俘虏脱逃回归 + 势力灭亡流散随机投奔(城数加权, 武将少者优先)
+// 月结AI只保留结局检查；俘虏/流散去向由0x29C3/0x4FCE/0x585F事件链处理。
 export function monthlyAI(app) {
   const sc = app.scenario;
   if (!sc) return;
@@ -1610,65 +2837,13 @@ export function monthlyAI(app) {
       });
     }
   }
-  // 俘虏脱逃/月初回归: 回原属势力首都重起军团
-  const out = [];
-  for (const p of sc.prisoners ?? []) {
-    if (--p.months > 0) {
-      out.push(p);
-      continue;
-    }
-    const f = sc.factions.find((f) => f.idx === p.faction);
-    const cap = f && !f.dead && sc.cities[f.capital];
-    const g0 = f && sc.generals.find((g2) => g2.name === p.leader);
-    // 防御: 同名军团已存在(未清场的dead除外)则不重复重建
-    const hasLive = sc.legions.some((A) => A.leader === p.leader && !A.dead);
-    if (!hasLive && cap && cap.faction === p.faction) {
-      const g = sc.generals.find((g2) => g2.name === p.leader);
-      if (g) {
-        g.status = 0;
-        g.faction = p.faction;
-      } // 回归: status=0 待命
-      const returningLegion = {
-        leader: p.leader,
-        faction: p.faction,
-        x: cap.x,
-        y: cap.y,
-        prevX: cap.x,
-        prevY: cap.y,
-        troops: 1 + sc.citiesOf(p.faction).length,
-        units: createDefaultLegionUnits(1 + sc.citiesOf(p.faction).length),
-        morale: factionLegionMoraleCap(f),
-        cooldown: 6,
-        target: null,
-        _markerFrame: 4,
-        formation: 1, // 编制类型 1..4 (0xCBE5 选块)
-      };
-      attachRuntimeLegion(sc, returningLegion, p.slot ?? p.generalIdx);
-      sc.legions.push(returningLegion);
-      app.hud?.flashEvent?.(`${p.leader} 回归 ${f.monarch}麾下`);
-    } else if (g0 && !g0.dead) {
-      // ★流散随机再就业(攻略: 领土大/武将少势力优先) — 原属首都已失或势力亡
-      const alive = sc.factions.filter(
-        (x) => !x.dead && x.idx !== p.faction && sc.citiesOf(x.idx).length,
-      );
-      if (alive.length) {
-        const pick = weightedPick(sc, alive);
-        const g2 = sc.generals.find((g3) => g3.name === p.leader);
-        if (g2) {
-          g2.status = 0;
-          g2.faction = pick.idx;
-        } // 流散: 改换门庭, 不再回归原属
-        app.hud?.flashEvent?.(`${p.leader} 流散改投 ${pick.monarch}麾下`);
-      }
-    }
-    // 无处可投(全灭) → 彻底退场
-  }
-  sc.prisoners = out;
-  sc.legions = sc.legions.filter((A) => !A.dead); // ★灭亡/战败军团立即清场(不等下次aiTick)
+  sc.legions = sc.legions.filter((legion) => !legion.dead);
 }
 
 // 单城成长 — KI.EXE 0x3EFD 每次处理一个城槽后立即调用0x4194/0x4269。
-function tickStrategicCityDaily(sc, cityIndex) {
+function tickStrategicCityDaily(sc, cityIndex, rng) {
+  if (!rng?.nextByte)
+    throw new TypeError("strategic city tick requires canonical original RNG");
   const c = sc.cities?.[cityIndex];
   if (!c || c.faction == null) return;
   let pol = 0;
@@ -1695,12 +2870,12 @@ function tickStrategicCityDaily(sc, cityIndex) {
   const ch = cl > 15 ? cl - 15 : 1;
 
   // 1. 上升率 / 士气增长：随机门控 cl >= rand(16)
-  if (cl >= Math.floor(Math.random() * 16)) {
+  if (cl >= (rng.nextByte() & 0x0f)) {
     c.growth = Math.min(200, (c.growth ?? 100) + ch);
   }
 
   // 2. 防灾 / 储粮恢复：随机门控 cl >= rand(16)
-  if (cl >= Math.floor(Math.random() * 16)) {
+  if (cl >= (rng.nextByte() & 0x0f)) {
     const disInc = (ch >> 1) + 1;
     c.disaster = Math.min(200, (c.disaster ?? 100) + disInc);
     c.defence = c.disaster;
@@ -1709,16 +2884,16 @@ function tickStrategicCityDaily(sc, cityIndex) {
   // 3. 城兵自然募补/恢复：城兵离上限差距时向城兵填充 dl
   const maxTroops = c.troops_cap ?? 200; // 内部标准单位 (×10 即为显示人数)
   let curTroops = c.troops ?? 0;
-  if (curTroops < maxTroops && Math.floor(Math.random() * 24) === 0) {
+  if (curTroops < maxTroops && rng.nextByte() < 0x18) {
     curTroops = Math.min(maxTroops, curTroops + dl);
     c.troops = curTroops;
   }
 }
 
 /** 兼容测试/工具的全城批处理入口；产品主循环使用单城tick。 */
-export function cityDaily(sc) {
+export function cityDaily(sc, rng) {
   for (let cityIndex = 0; cityIndex < sc.cities.length; cityIndex++) {
-    tickStrategicCityDaily(sc, cityIndex);
+    tickStrategicCityDaily(sc, cityIndex, rng);
   }
 }
 
@@ -1875,9 +3050,13 @@ export function aiTick(app, options = {}) {
   // 十六军团槽。先让边城请求编成，不能让同批首都军团抢先消耗预备兵池。
   if (Number.isInteger(options.cityIndex)) {
     tickStrategicCity(app, options.cityIndex);
-    tickStrategicCityDaily(sc, options.cityIndex);
+    tickStrategicCityDaily(
+      sc,
+      options.cityIndex,
+      app.originalRng ?? app.activeBattleRng,
+    );
   } else if (options.runCityDaily !== false) {
-    cityDaily(sc);
+    cityDaily(sc, app.originalRng ?? app.activeBattleRng);
   }
   let replenished = false;
   const legionsInSlotOrder = sc.legions
@@ -1887,8 +3066,62 @@ export function aiTick(app, options = {}) {
         (left.slot ?? left._runtimeId ?? 0x7fff) -
         (right.slot ?? right._runtimeId ?? 0x7fff),
     );
+  const stateRng = app.originalRng ?? app.activeBattleRng;
+  const settledCommandLegions = new Set();
   for (const legion of legionsInSlotOrder) {
-    if (replenishLegionAtCapital(sc, legion)) replenished = true;
+    if (
+      !legion.dead &&
+      legion._active !== false &&
+      legion.commandState != null &&
+      legionAtTargetNode(sc, legion)
+    ) {
+      settleArrivedLegionCommand(sc, legion, stateRng);
+      // 0x2662在调用0x4325后无条件ret；即使状态处理器只观察而未改写，
+      // 该槽本轮也不会继续进入普通道路移动。
+      settledCommandLegions.add(legion);
+    }
+    if (legion._disbandAtCapital) {
+      legion._disbandAtCapital = false;
+      const faction = legionFaction(sc, legion);
+      if (faction) {
+        const units = ensureLegionUnits(legion);
+        for (const unit of units) {
+          const field = LEGION_RESERVE_FIELD_BY_TYPE[unit?.type | 0];
+          if (!field) continue;
+          faction[field] = Math.min(
+            0xffdc,
+            Math.max(0, Math.trunc(Number(faction[field]) || 0)) +
+              Math.max(0, Math.floor((unit.troops ?? 0) / 10)),
+          );
+        }
+        faction.n_legions = Math.max(0, (faction.n_legions ?? 1) - 1);
+      }
+      const general = generalForLegion(sc, legion);
+      if (general) general.status = 0;
+      legion.status = 0;
+      legion._active = false;
+      legion.dead = true;
+      legion.target = null;
+      clearEngagement(legion);
+      clearMarchNavigation(legion);
+      replenished = true;
+      continue;
+    }
+    const targetCity = legionTargetCity(sc, legion);
+    const atCapital =
+      legionAtTargetNode(sc, legion) &&
+      (targetCity?.idx ??
+        sc.cities.find((city) => city.x === legion.x && city.y === legion.y)
+          ?.idx) === legionFaction(sc, legion)?.capital;
+    if (
+      (legion.commandState === 9 ||
+        (legion.commandState == null && atCapital)) &&
+      replenishLegionAtCapital(sc, legion)
+    ) {
+      legion.commandState = 3;
+      legion.cooldown = 8;
+      replenished = true;
+    }
   }
   // 0x3E11 在0x1D8E时刻进位时由主调度器调用，不属于每次0x1D0B主更新。
   // 无显式分批的旧工具调用仍可通过runFactionTick:true请求一次。
@@ -1914,6 +3147,9 @@ export function aiTick(app, options = {}) {
       A.faction == null
     )
       continue;
+    // 0x25CC→0x2662：到达节点的0x4325命令处理就是该槽本轮动作；
+    // 新写入的等待计时、状态或目标不得在同一Web循环再次递减/移动。
+    if (settledCommandLegions.has(A)) continue;
     if (A._retreat && A.target) {
       if (A.cooldown > 0) {
         A.cooldown--;
@@ -1921,12 +3157,12 @@ export function aiTick(app, options = {}) {
       }
       const retreatResult = stepTo(sc, A, A.target.x, A.target.y);
       if (retreatResult === "blocked") {
-        const fallbackRng = app.originalRng ?? app.activeBattleRng;
+        const fateRng = app.originalRng ?? app.activeBattleRng;
         dispatchLegionFate(
           sc,
           A,
           A._retreat.captorFaction ?? A.faction,
-          fallbackRng,
+          fateRng,
         );
         changed = true;
       } else if (retreatResult === "arrived") {
@@ -2092,132 +3328,5 @@ export function aiTick(app, options = {}) {
   if (changed) {
     app.hud?.buildLegend?.();
     app.view?.draw(); // 只在版图变化时重绘 (主循环不逐帧画)
-  }
-
-  // 停战交涉日程推进与汇报 (复刻 KI.EXE 0x300E 队列事件 6 / 0x3327 处理器)
-  if (sc.pendingTruceNegotiations && sc.pendingTruceNegotiations.length > 0) {
-    const readyItems = [];
-    const remainingItems = [];
-    for (const item of sc.pendingTruceNegotiations) {
-      item.daysLeft--;
-      if (item.daysLeft <= 0) {
-        readyItems.push(item);
-      } else {
-        remainingItems.push(item);
-      }
-    }
-    sc.pendingTruceNegotiations = remainingItems;
-
-    for (const item of readyItems) {
-      const me = playerFaction(sc);
-      const targetFaction = sc.factions.find(
-        (f) => f && f.idx === item.targetFactionIdx,
-      );
-      if (!me || !targetFaction) continue;
-
-      const envoyGen = sc.generals.find((g) => g && g.name === item.envoyName);
-      const enemyMonarch = sc.generals[targetFaction.monarch_idx];
-
-      const ourPol = Math.floor((envoyGen?.ability?.politics ?? 60) / 10);
-      const enemyPol = Math.floor((enemyMonarch?.ability?.politics ?? 60) / 10);
-
-      // KI.EXE 0x3771 计算基础分
-      let dl = ourPol;
-      if (enemyPol > ourPol) {
-        dl = ourPol * 2;
-      } else if (ourPol > enemyPol) {
-        dl = Math.max(0, (16 - ourPol) * 2);
-      }
-
-      // KI.EXE 0x36C4 计算停战赔款/金钱与结果
-      const rel = relation(sc, me.idx, targetFaction.idx) & 0x7f;
-      const monarchPers = (targetFaction.bellicosity ?? 10) + 2;
-      const excess = Math.max(0, rel - monarchPers);
-      const ah = 30 - excess;
-      dl = Math.max(0, dl + ah);
-      dl = dl >> 1;
-      const goldRequired = dl * 1000;
-
-      let outcome = 0;
-      if (goldRequired > 0) {
-        if ((me.gold ?? 0) >= goldRequired) {
-          outcome = 1; // 支付金钱停战
-        } else {
-          outcome = 2; // 资金不足，谈判破裂
-        }
-      }
-
-      // 如果对方目前处于极度优势且对我方攻击中，可能加重条件或破裂
-      if (targetFaction.target_faction === me.idx && Math.random() < 0.2) {
-        outcome = 2; // 20% 概率谈判破裂
-      }
-
-      app.gamebar?.showTruceNegotiationResult?.({
-        targetFaction,
-        envoyName: item.envoyName,
-        outcome,
-        goldRequired,
-      });
-    }
-  }
-
-  // 协助交涉日程推进与汇报 (复刻 KI.EXE 0x301C 队列事件 7 / 0x3712 处理器)
-  if (
-    sc.pendingAssistanceNegotiations &&
-    sc.pendingAssistanceNegotiations.length > 0
-  ) {
-    const readyItems = [];
-    const remainingItems = [];
-    for (const item of sc.pendingAssistanceNegotiations) {
-      item.daysLeft--;
-      if (item.daysLeft <= 0) {
-        readyItems.push(item);
-      } else {
-        remainingItems.push(item);
-      }
-    }
-    sc.pendingAssistanceNegotiations = remainingItems;
-
-    for (const item of readyItems) {
-      const me = playerFaction(sc);
-      const allyFaction = sc.factions.find(
-        (f) => f && f.idx === item.allyFactionIdx,
-      );
-      const targetFaction = sc.factions.find(
-        (f) => f && f.idx === item.targetFactionIdx,
-      );
-      if (!me || !allyFaction || !targetFaction) continue;
-
-      const envoyGen = sc.generals.find((g) => g && g.name === item.envoyName);
-      const allyMonarch = sc.generals[allyFaction.monarch_idx];
-
-      const ourPol = Math.floor((envoyGen?.ability?.politics ?? 60) / 10);
-      const allyPol = Math.floor((allyMonarch?.ability?.politics ?? 60) / 10);
-
-      // KI.EXE 0x3771 政治力与外交关系计算
-      const rel = relation(sc, me.idx, allyFaction.idx) & 0x7f;
-      let outcome = 0; // 0: 无条件达成 (Talk 47), 1: 支付金钱达成 (Talk 48), 2: 谈判破裂 (Talk 49)
-      let goldRequired = 0;
-
-      if (ourPol >= allyPol && rel >= 80) {
-        outcome = 0; // 亲密且使节得力 -> 无条件成立
-      } else if (rel >= 45) {
-        outcome = 1; // 需支付金钱
-        goldRequired = Math.max(500, Math.min(3000, (90 - rel) * 50));
-        if ((me.gold ?? 0) < goldRequired) {
-          outcome = 2; // 资金不足破裂
-        }
-      } else {
-        outcome = 2; // 谈判破裂
-      }
-
-      app.gamebar?.showAssistanceNegotiationResult?.({
-        allyFaction,
-        targetFaction,
-        envoyName: item.envoyName,
-        outcome,
-        goldRequired,
-      });
-    }
   }
 }

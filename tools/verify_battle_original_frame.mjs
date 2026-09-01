@@ -98,13 +98,22 @@ assert.deepEqual(registers, {
 
 const aiPool = new OriginalBattleObjectPool();
 const aiLeader = activate(aiPool, 1, 0, 0, 4);
-activate(aiPool, 0, 0, 0, 7);
+const distantTarget = activate(aiPool, 0, 0, 0, 7);
+aiPool.write8(distantTarget, ORIGINAL_OBJECT.ANCHOR_X, 40);
 aiPool.write8(aiLeader, ORIGINAL_OBJECT.STATUS_TIME, 0x0f);
-updateOriginalBattleSide(aiPool, 1, { player: false });
+updateOriginalBattleSide(aiPool, 1);
+for (let slot = 1; slot < 8; slot++)
+  assert.equal(
+    aiPool.read8(
+      originalObjectAddress(1, 0, slot),
+      ORIGINAL_OBJECT.PENDING_COMMAND,
+    ),
+    0,
+  );
 assert.equal(
   aiPool.read8(aiLeader, ORIGINAL_OBJECT.PENDING_COMMAND),
-  0,
-  "AI side must use A82D command4 behavior instead of the player jump table",
+  4,
+  "both sides' leaders use A7B7; command4 broadcasts child command0 when target is distant",
 );
 
 process.stdout.write(

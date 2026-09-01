@@ -230,6 +230,7 @@ const makeScenario = () => {
   let openedDefender = null;
   const app = {
     scenario: sc,
+    originalRng: { nextByte: () => 0xff },
     battleView: { active: false },
     startBattle(_attacker, _city, defender) {
       openedDefender = defender;
@@ -345,7 +346,10 @@ const makeScenario = () => {
     defender._retreat || defender.dead,
     "0x4DA4守军处理必须先于0x4FCE灭亡通知",
   );
-  assert.equal(sc.generals[2].faction, 1, "未闭合的0x4FCE武将去向不得臆造改写");
+  assert.equal(sc.generals[1].status, 4, "灭亡君主走0x29C3被俘/退场态");
+  assert.equal(sc.generals[1].faction, 0, "0x29C3接收方是攻城势力");
+  assert.equal(sc.generals[2].status, 0, "非君主且+0x17非零走0x50B4流散");
+  assert.equal(sc.generals[2].faction, null);
   applyBattleResult(
     app,
     attacker,

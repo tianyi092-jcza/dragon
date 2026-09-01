@@ -1,7 +1,8 @@
 """导出 KI.EXE 战术规则查表资产。
 
-当前仅导出已由 0xAA2C/0xAA7E 指令流确认的 0xCCE4 起 48×(dx,dy)
-有符号阵型向量。产品规则层不得在 JS 中手抄或猜测该表。
+导出 0xAA2C 使用的 CCE4 阵型向量窗口。BATTLE.DAT op1 把 D344 写为
+AH*0x60 字节，因此需覆盖16块×0x60B，而不是只导出首块48向量。
+产品规则层不得在 JS 中手抄或猜测该表。
 """
 
 import json
@@ -12,7 +13,9 @@ EXE = ROOT.parent / "Dragon" / "KI.EXE"
 OUT = ROOT / "web" / "battle_rules.json"
 MZ_LOAD = 0x200
 FORMATION_VECTOR_OFFSET = 0xCCE4
-FORMATION_VECTOR_SIZE = 0x60
+FORMATION_VECTOR_BLOCK_SIZE = 0x60
+FORMATION_VECTOR_BLOCK_COUNT = 0x10
+FORMATION_VECTOR_SIZE = FORMATION_VECTOR_BLOCK_SIZE * FORMATION_VECTOR_BLOCK_COUNT
 
 
 def signed_byte(value: int) -> int:
@@ -22,8 +25,9 @@ def signed_byte(value: int) -> int:
 def main() -> None:
     raw = EXE.read_bytes()
     block = raw[
-        MZ_LOAD + FORMATION_VECTOR_OFFSET :
-        MZ_LOAD + FORMATION_VECTOR_OFFSET + FORMATION_VECTOR_SIZE
+        MZ_LOAD + FORMATION_VECTOR_OFFSET : MZ_LOAD
+        + FORMATION_VECTOR_OFFSET
+        + FORMATION_VECTOR_SIZE
     ]
     if len(block) != FORMATION_VECTOR_SIZE:
         raise SystemExit("KI.EXE formation-vector table is truncated")
@@ -36,11 +40,16 @@ def main() -> None:
             "file": "KI.EXE",
             "loadOffset": MZ_LOAD,
             "formationVectorOffset": FORMATION_VECTOR_OFFSET,
+            "formationVectorBlockSize": FORMATION_VECTOR_BLOCK_SIZE,
+            "formationVectorBlockCount": FORMATION_VECTOR_BLOCK_COUNT,
         },
         "formationVectors": vectors,
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    print(f"battle rules OK: {len(vectors)} formation vectors -> {OUT}")
+    print(
+        "battle rules OK: "
+        f"{FORMATION_VECTOR_BLOCK_COUNT} blocks / {len(vectors)} formation vectors -> {OUT}"
+    )
 
 
 if __name__ == "__main__":

@@ -96,11 +96,6 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   // 原版新章节头字段为未指定/满信赖；Web 选定玩家势力后从满值开始。
   state.trust = 255;
   delete state.trust_game_over;
-  for (const faction of state.factions ?? []) {
-    delete faction.brokeMonths;
-    delete faction.deficitScolded;
-  }
-
   // 新局不得继承任何 Web 运行时队列或派生状态。正常 data.json 模板不含这些字段；
   // 这里仍显式清理，保证同章重开及意外模板污染都回到纯 SINARIO 初态。
   delete state.save_date;
@@ -111,22 +106,31 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   delete state.pendingAssistanceNegotiations;
   delete state.pendingStrategicEvents;
   delete state.pendingEnvoyBudgetReports;
+  delete state.strategicEventSlots;
+  delete state.disasterMapObjects;
+  delete state._disasterBounds;
   delete state.envoys;
   delete state._appeared;
   delete state._nextRuntimeLegionId;
   delete state._legionBatchCursor;
   delete state._cityTickCursor;
+  delete state._factionTickCursor;
+  delete state._strategicEventCursor;
+  delete state._strategicEventDivider;
   delete state._envoyDiplomacyCursor;
   for (const faction of state.factions ?? []) {
     delete faction.dead;
     delete faction.gold;
     delete faction.food;
     delete faction.troops;
+    delete faction.monthly_reserve_upkeep;
   }
   for (const city of state.cities ?? []) {
     delete city.sim;
     delete city.disaster;
     delete city.growth_rate;
+    delete city.disaster_event;
+    delete city._strategicLastFaction;
   }
   for (const general of state.generals ?? []) delete general.is_player;
 

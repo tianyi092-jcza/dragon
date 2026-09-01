@@ -22,7 +22,7 @@
 //      主动宣战门控不能由静态 SINARIO 外交矩阵替代。
 
 import { playerFaction } from "./commands.js";
-import { applyFactionFundsDelta } from "./economy.js";
+import { applyFactionFundsDelta, factionFundsWordQ256 } from "./economy.js";
 
 export const GIFT_COST = 200; // 遣使一次花费(金)
 export const NEUTRAL = 0xb7; // 默认中立 (0x80 + 55)
@@ -169,9 +169,8 @@ function updatePlayerFactionRelations(sc, candidateIdx, touchesEmptyCity) {
 }
 
 function factionResourceWord(faction) {
-  // KI 直接比较运行时 faction+0x21 word；Web 的公开字段已被解析成显示金单位，
-  // 因而用百金单位保留同一量级。该字段的产品名称尚未实锤。
-  return Math.max(0, Math.floor((faction?.money ?? 0) / 100));
+  // KI直接比较未对齐signed word[faction+0x21]，等价24位资金算术右移8位。
+  return factionFundsWordQ256(faction);
 }
 
 /** 0x3091：三类预备兵各除以4，按城数/2000封顶，并受 raw +0x21 word 门控。 */
@@ -217,22 +216,84 @@ export function runStrategicDiplomacy(sc) {
     if (!isActiveFaction(faction)) continue;
     work.set(faction.idx, buildDiplomacyCandidates(sc, faction.idx));
   }
+
+  const events = [];
   for (const faction of sc.factions ?? []) {
     if (!isActiveFaction(faction)) continue;
     const item = work.get(faction.idx);
-    const candidateIdx = item?.candidates?.[0]?.factionIdx ?? null;
+    const candidates = item?.candidates ?? [];
+    const candidateIdx = candidates[0]?.factionIdx ?? null;
     if (faction.idx === sc.player_faction) {
       updatePlayerFactionRelations(sc, candidateIdx, item?.touchesEmptyCity);
     } else {
       updateOrdinaryFactionRelation(sc, faction.idx, candidateIdx);
     }
-  }
-  const events = [];
-  for (const faction of sc.factions ?? []) {
-    if (!isActiveFaction(faction) || faction.idx === sc.player_faction)
-      continue;
-    const candidateIdx = work.get(faction.idx)?.candidates?.[0]?.factionIdx;
-    if (shouldDeclareStrategicWar(sc, faction, candidateIdx)) {
+
+    // 0x2E33：正在进攻第三方的势力若与玩家接壤，而被攻击方与玩家关系
+    // 至少0xA3，则由被攻击方向玩家提出协同参战请求。4B参数顺序由
+    // 0x2E7B交换后的SI与DX实锤：{player,attacker,requester}。
+    const targetIdx = faction.target_faction;
+    const playerTouches = candidates.some(
+      (candidate) => candidate.factionIdx === sc.player_faction,
+    );
+    if (
+      targetIdx != null &&
+      targetIdx !== sc.player_faction &&
+      playerTouches &&
+      relation(sc, faction.idx, sc.player_faction) >= 0x80 &&
+      relation(sc, targetIdx, sc.player_faction) >= 0xa3
+    ) {
+      events.push({
+        type: 2,
+        arg0: sc.player_faction,
+        arg1: faction.idx,
+        arg2: targetIdx,
+      });
+    }
+
+    // 0x2E89：仅非玩家；从最差关系候选起逐个减去对方战略实力，直到
+    // 累计敌力达到当前势力。随后从该位置向后，对除首候选外的连续交战
+    // 候选逐一排type3。工作表raw是0x2C52排序时快照，不能读更新后关系。
+    if (faction.idx !== sc.player_faction && candidates[0]?.raw < 0x80) {
+      let remainingPower = factionStrategicPower(faction);
+      let startIndex = -1;
+      for (let index = 0; index < Math.min(0x15, candidates.length); index++) {
+        const candidate = candidates[index];
+        if (candidate.raw >= 0x80) break;
+        const other = sc.factions?.find(
+          (item) => item?.idx === candidate.factionIdx,
+        );
+        if (!isActiveFaction(other)) break;
+        remainingPower -= factionStrategicPower(other);
+        if (remainingPower <= 0) {
+          startIndex = index;
+          break;
+        }
+      }
+      if (startIndex >= 0) {
+        const firstFactionIdx = candidates[0].factionIdx;
+        for (
+          let index = startIndex;
+          index < Math.min(0x15, candidates.length);
+          index++
+        ) {
+          const candidate = candidates[index];
+          if (candidate.raw >= 0x80) break;
+          if (candidate.factionIdx === firstFactionIdx) continue;
+          events.push({
+            type: 3,
+            arg0: faction.idx,
+            arg1: candidate.factionIdx,
+            arg2: 0xff,
+          });
+        }
+      }
+    }
+
+    if (
+      faction.idx !== sc.player_faction &&
+      shouldDeclareStrategicWar(sc, faction, candidateIdx)
+    ) {
       events.push({ type: 1, aggressor: faction.idx, defender: candidateIdx });
     }
   }

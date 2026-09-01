@@ -18,8 +18,11 @@ export const ORIGINAL_OBJECT = Object.freeze({
   CLASS: 0x04,
   DIRECTION: 0x05,
   ANCHOR_X: 0x06,
+  PREVIOUS_X: 0x07,
   ANCHOR_Y: 0x08,
+  PREVIOUS_Y: 0x09,
   LEVEL: 0x0a,
+  PREVIOUS_LEVEL: 0x0b,
   POSITION_X: 0x10,
   POSITION_Y: 0x11,
   POSITION_LEVEL: 0x12,
@@ -37,7 +40,8 @@ export const ORIGINAL_OBJECT = Object.freeze({
   PENDING_COMMAND: 0x1b,
   TARGET_POINTER: 0x1c,
   HEIGHT: 0x1e,
-  GROUP_NUMBER: 0x24,
+  PREVIOUS_HEIGHT: 0x1f,
+  FIRST_CHILD_CLASS: 0x24,
 });
 
 const u8 = (value) => value & 0xff;
@@ -185,11 +189,18 @@ export function createOriginalBattleRegisters() {
     selectedGroupMask: 0x00, // D310
     winnerState: 0x00, // D349
     endCountdown: 0x78, // D34A
-    mapRedraw: 0x00, // D348，B824完成对象破坏后置1
+    mapRedraw: 0x00, // D348，B824完成对象破坏后置1，下一A065入口消费并清零
+    tacticalFrameCounter: 0x0000, // D318，A12A每个A065先自增
+    side0MarkerAt: 0xffff, // D322，A12A视觉标识调度
+    side1MarkerAt: 0xffff, // D324，A12A视觉标识调度
+    wallMarkerAt: 0xffff, // D326，A12A城壁标识调度
     mode: 0x00, // D34B，之后由战场目录写入
     d31e: 0x00, // D31E，0/1/2三态；先保留原始名，避免过早解释
     siegeLeaderTick: 0x0a, // D321，mode0每10次ADC8令指定侧首对象HP--
-    battleSideFlag: 0x00, // D35，bit7选择mode0定时扣HP的一侧
+    battleSideFlag: 0x00, // D35，bit6镜像、bit7选择玩家战场侧
+    themeFlag: 0x00, // AB4F，BATTLE.MAP目录第二字节
+    cameraColumn: 0x00, // D346，战场UI/相机列状态
+    scriptCommandByte: 0x00, // D347，BATTLE.DAT op1
     side0Timed: 0x00, // D31A，ADC8逐帧重建：0侧+19非零活动对象数
     side1Timed: 0x00, // D31B，ADC8逐帧重建：1侧+19非零活动对象数
     side0Active: 0xff, // D31C，ADC8逐帧重建
@@ -200,5 +211,6 @@ export function createOriginalBattleRegisters() {
     side1FormationOffset: 0x0000, // D344，CCE4表的字节偏移
     scriptPc: 0x0000, // D311
     scriptWait: 0x0000, // D313
+    startupComplete: false, // 0xA1C5是否已执行
   };
 }

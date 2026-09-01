@@ -279,11 +279,12 @@ export function swapOriginalSpatialRecords(
     const targetLow = spatial.read8(targetOld);
     spatial.write8(targetOld, low);
     low = targetLow;
+    // B761交换高平面，随后B76C只把原目标低平面值写入新攻击者低平面；
+    // 交换得到的原目标高平面留在AH，但原版不再写回。
     const targetHigh = spatial.read8(targetOld + 0x1000);
     spatial.write8(targetOld + 0x1000, high);
-    high = targetHigh;
     spatial.write8(targetOld, low);
-    void high;
+    void targetHigh;
   } else
     swapWord(pool, attackerAddress, targetAddress, ORIGINAL_OBJECT.SPATIAL_0C);
   swapWord(pool, attackerAddress, targetAddress, ORIGINAL_OBJECT.SPATIAL_0E);
@@ -348,10 +349,10 @@ export function resolveOriginalCollision(
   );
   const bypassSideGate =
     attackerClass === 0 && (attackerCommand === 0 || attackerCommand === 5);
-  const enemy =
+  const crossesSideGate =
     attackerAddress < ORIGINAL_SIDE_SIZE !== targetAddress < ORIGINAL_SIDE_SIZE;
 
-  if (!bypassSideGate && enemy) {
+  if (!bypassSideGate && crossesSideGate) {
     if (!pool.isActive(targetAddress))
       return {
         category: "enemy-inactive",

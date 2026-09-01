@@ -53,10 +53,17 @@ assert.deepEqual(registers, {
   winnerState: 0,
   endCountdown: 0x78,
   mapRedraw: 0,
+  tacticalFrameCounter: 0,
+  side0MarkerAt: 0xffff,
+  side1MarkerAt: 0xffff,
+  wallMarkerAt: 0xffff,
   mode: 0,
   d31e: 0,
   siegeLeaderTick: 0x0a,
   battleSideFlag: 0,
+  themeFlag: 0,
+  cameraColumn: 0,
+  scriptCommandByte: 0,
   side0Timed: 0,
   side1Timed: 0,
   side0Active: 0xff,
@@ -67,6 +74,7 @@ assert.deepEqual(registers, {
   side1FormationOffset: 0,
   scriptPc: 0,
   scriptWait: 0,
+  startupComplete: false,
 });
 issueOriginalScriptCommand(pool, registers, {
   group: 7,
@@ -146,6 +154,7 @@ assert.deepEqual(
 const session = new OriginalBattleSession({
   registers: { side0Active: 1, side1Active: 1 },
   commands: [{ frame: 1, command: 2 }],
+  objectsInitialized: true,
 });
 session.pool.write8(
   originalObjectAddress(0, 0, 0),

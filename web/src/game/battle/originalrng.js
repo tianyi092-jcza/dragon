@@ -50,11 +50,6 @@ export class OriginalBattleRng {
     return value;
   }
 
-  /** 仅供仍期待 Math.random 风格值的边界适配；规则层应优先使用 nextByte。 */
-  nextFloat() {
-    return this.nextByte() / BYTE_COUNT;
-  }
-
   snapshot() {
     return {
       table: Array.from(this.table),

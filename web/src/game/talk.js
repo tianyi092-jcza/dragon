@@ -96,6 +96,21 @@ export async function quoteForIndex(idx) {
   };
 }
 
+/** type10/其它运行态通用TALK：按原版单个AX占位word替换控制符。 */
+export async function formatGenericTalkEvent(idx, arg0, sc = null) {
+  const general = sc?.generals?.[arg0] ?? null;
+  const faction = sc?.factions?.find((candidate) => candidate?.idx === arg0);
+  const city = sc?.cities?.[arg0] ?? null;
+  const label =
+    general?.name?.trim?.() ||
+    faction?.monarch?.trim?.() ||
+    city?.name?.trim?.() ||
+    "";
+  const targetName = faction?.monarch?.trim?.() || label;
+  const cityName = city?.name?.trim?.() || label;
+  return formatTalkTokens(idx, targetName, label, label, label, cityName);
+}
+
 /** 占位符替换: \\1..\\4 → args[1..4] (势力/城池/武将名等) */
 export function fmt(s, args = {}) {
   return s.replace(/\\([1-4])/g, (_, n) => args[n] ?? `\\${n}`);

@@ -48,6 +48,9 @@ SLOT_SIZE = 0x56C0
 LEGION_BASE = 0x22C0  # 槽文件偏移；运行时状态段内偏移为0x2240
 N_LEGION = 128
 LEGION_SIZE = 64
+EVENT_BASE = 0x52C0
+EVENT_SIZE = 4
+EVENT_COUNT = 256
 
 
 def big16(b: bytes) -> int:
@@ -151,6 +154,51 @@ def parse_legions(slot: bytes, city_count: int = 200) -> tuple[list, list]:
     return out, delayed_returns
 
 
+def parse_strategic_events(slot: bytes) -> tuple[list, int]:
+    """SAVE尾部0x400B原版战略事件轮；返回256槽与当前槽游标。"""
+    events = []
+    for index in range(EVENT_COUNT):
+        start = EVENT_BASE + index * EVENT_SIZE
+        event_type, arg0, arg1, arg2 = slot[start : start + EVENT_SIZE]
+        if event_type == 0:
+            events.append(None)
+            continue
+        word = arg1 | (arg2 << 8)
+        if event_type == 1:
+            event = {"type": 1, "aggressor": arg0, "defender": arg1}
+        elif event_type in (2, 3):
+            event = {"type": event_type, "arg0": arg0, "arg1": arg1, "arg2": arg2}
+        elif event_type == 4:
+            event = {"type": 4, "arg0": arg0, "amount": word}
+        elif event_type == 5:
+            event = {
+                "type": 5,
+                "report": {"targetIdx": arg0, "requested": word},
+            }
+        elif event_type in (6, 7, 8, 9):
+            event = {"type": event_type, "arg0": arg0, "arg1": arg1, "arg2": arg2}
+        elif event_type == 10:
+            event = {"type": 10, "arg0": arg0, "talkIndex": word}
+        elif event_type == 11:
+            event = {"type": 11, "arg0": arg0, "arg1": arg1, "arg2": arg2}
+        elif event_type == 12:
+            event = {"type": 12, "arg0": arg0, "cityPointer": word}
+        elif event_type == 13:
+            event = {"type": 13, "arg0": arg0, "talkIndex": word}
+        else:
+            # 未知类型也必须保留原始4B，避免读档时静默吞掉证据。
+            event = {"type": event_type, "arg0": arg0, "arg1": arg1, "arg2": arg2}
+        events.append(event)
+
+    cursor_bytes = big16(slot[0x30:0x32])
+    cursor = (
+        cursor_bytes // EVENT_SIZE
+        if cursor_bytes <= 0x100 and cursor_bytes % 4 == 0
+        else 0
+    )
+    return events, cursor
+
+
 def load_web_meta() -> dict:
     try:
         payload = json.loads(Path(WEB_META_SRC).read_text(encoding="utf-8"))
@@ -252,6 +300,9 @@ def main(argv: list[str] | None = None) -> None:
         state["start"] = template_state["start"]
         state["legions"], state["delayedLegionReturns"] = parse_legions(
             bytes(slot), len(state["cities"])
+        )
+        state["strategicEventSlots"], state["_strategicEventCursor"] = (
+            parse_strategic_events(bytes(slot))
         )
         # 势力attr bit7是活跃权威位；运行时AI以dead筛选，读档必须同步恢复。
         for faction in state["factions"]:

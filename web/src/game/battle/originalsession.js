@@ -2,10 +2,16 @@
 // 帧命令→A6FA结束检查→A754/A785对象顺序→ADC8/AEA9活动计数重建。
 
 import {
+  ORIGINAL_OBJECT,
   OriginalBattleObjectPool,
   createOriginalBattleRegisters,
   originalTraversalOrder,
 } from "./originalstate.js";
+import {
+  finalizeOriginalBattleObject,
+  updateOriginalActiveObject,
+  updateOriginalInactiveObject,
+} from "./originalobjectframe.js";
 import { OriginalBattleEffectPool } from "./originaleffects.js";
 import { OriginalBattleSpatialMemory } from "./originalspatial.js";
 import { OriginalBattleCommandQueue } from "./originalcommands.js";
@@ -15,10 +21,7 @@ import {
   OriginalBattleTempRecords,
   initializeOriginalBattleObjects,
 } from "./originalinit.js";
-import {
-  recountOriginalBattleActivity,
-  updateOriginalBattleObjects,
-} from "./originalframe.js";
+import { updateOriginalBattleObjects } from "./originalframe.js";
 import {
   checkOriginalAutomaticRetreat,
   tickOriginalSiegeLeaderAttrition,
@@ -31,6 +34,7 @@ import {
   initializeOriginalMapObjects,
   originalWallRecords,
   resolveOriginalMapObjectCollision,
+  sweepOriginalWallObjectsB7CB,
 } from "./originalmapobjects.js";
 import {
   OriginalBattlePathState,
@@ -93,6 +97,16 @@ export class OriginalBattleSession {
 
   enqueuePath(address) {
     return this.paths.enqueue(this.pool, address);
+  }
+
+  /** 0x9FA0输入阶段：在A426之前消费本帧已到期玩家命令。 */
+  applyReadyCommands(applyCommand = null) {
+    const events = [];
+    for (const command of this.queue.take(this.frame)) {
+      applyCommand?.(this, command);
+      events.push({ ...command, commandType: command.type, type: "command" });
+    }
+    return events;
   }
 
   /** 0x9FDC：生成唯一权威战术退出结果，不执行外层战略去向。 */
@@ -173,45 +187,39 @@ export class OriginalBattleSession {
   /** 一个调用严格代表一个原版逻辑帧，不接受浏览器dt。 */
   tick({
     applyCommand = null,
+    inputEvents = null,
     updateObject = null,
     objectHandlers = null,
     updateMovement = null,
-    playerSide = 0,
     recountActivity = null,
   } = {}) {
     if (this.finished) return this.#frameResult([]);
-    const events = [];
-    for (const command of this.queue.take(this.frame)) {
-      applyCommand?.(this, command);
-      events.push({ type: "command", ...command });
-    }
+    const events = Array.isArray(inputEvents)
+      ? inputEvents.map((event) => ({ ...event }))
+      : this.applyReadyCommands(applyCommand);
 
-    // A6FA在A754/A785和ADC8前读取上一帧重建的D31C/D31D。
+    // A065入口：D348重绘请求在本帧消费后清零；A12A令D318自增并触发
+    // D322/D324/D326的呈现调度。这里只记录事件，不混入规则对象写入。
+    if ((this.registers.mapRedraw & 0xff) !== 0) {
+      events.push({ type: "map-redraw" });
+      this.registers.mapRedraw = 0;
+    }
+    this.registers.tacticalFrameCounter =
+      ((this.registers.tacticalFrameCounter ?? 0) + 1) & 0xffff;
+    const frameCounter = this.registers.tacticalFrameCounter;
+    if ((this.registers.side0MarkerAt & 0xffff) === frameCounter)
+      events.push({ type: "side-marker", side: 0 });
+    if ((this.registers.side1MarkerAt & 0xffff) === frameCounter)
+      events.push({ type: "side-marker", side: 1 });
+    if ((this.registers.wallMarkerAt & 0xffff) === frameCounter)
+      events.push({ type: "wall-marker" });
+
+    // 玩家输入已在9FA0的A426之前处理；直接调用tick时由上方兼容入口消费。
+
+    // A6FA：结束判定后先A754/A785对象命令，再B941效果，最后ADC8后处理。
     this.#checkEnd(events);
     if (!this.finished) {
       let objectsUpdated = false;
-      if (this.objectsInitialized || objectHandlers || recountActivity) {
-        // ADC8顺序：AE56自动撤退检查先于AED2和对象AF69/B240扫描。
-        const retreat = checkOriginalAutomaticRetreat(
-          this.pool,
-          this.registers,
-        );
-        if (retreat) events.push({ type: "automatic-retreat", ...retreat });
-        const attrition = tickOriginalSiegeLeaderAttrition(
-          this.pool,
-          this.registers,
-        );
-        if (attrition)
-          events.push({ type: "siege-leader-attrition", ...attrition });
-        const pathFrames = consumeOriginalPathQueue(
-          this.pool,
-          this.paths,
-          this.spatial,
-          { buildPath: objectHandlers?.buildPath ?? null },
-        );
-        if (pathFrames.length)
-          events.push({ type: "path-frames", paths: pathFrames });
-      }
       if (updateObject) {
         // 调试/差分钩子保留严格96槽地址顺序；正式规则默认走originalframe。
         for (const address of originalTraversalOrder())
@@ -219,7 +227,6 @@ export class OriginalBattleSession {
         objectsUpdated = true;
       } else if (this.objectsInitialized || objectHandlers) {
         const handlers = objectHandlers ?? {};
-        const side = playerSide === 1 ? 1 : 0;
         const formation = handlers.formation
           ? {
               ...handlers.formation,
@@ -241,20 +248,46 @@ export class OriginalBattleSession {
             rng: this.rng,
             events,
           },
-          side0: { player: side === 0, ...handlers.side0 },
-          side1: { player: side === 1, ...handlers.side1 },
+          leaderHandlers: {
+            wallSweep: ({ address }) => {
+              const sweep = sweepOriginalWallObjectsB7CB(
+                this.mapObjects,
+                this.spatial,
+                address,
+                this.registers,
+              );
+              if (sweep.events.length) events.push(...sweep.events);
+              return sweep;
+            },
+            formationExit: ({ address }) =>
+              finalizeOriginalBattleObject(
+                this.pool,
+                this.temps,
+                this.spatial,
+                address,
+                { creditSurvivor: true },
+              ),
+            ...(handlers.leaderHandlers ?? {}),
+          },
+          childHandlers: {
+            formationExit: ({ address }) =>
+              finalizeOriginalBattleObject(
+                this.pool,
+                this.temps,
+                this.spatial,
+                address,
+                { creditSurvivor: true },
+              ),
+            ...(handlers.childHandlers ?? {}),
+          },
+          side0: { ...handlers.side0 },
+          side1: { ...handlers.side1 },
         });
         objectsUpdated = true;
       }
-      if (objectsUpdated || recountActivity) {
-        if (updateMovement) {
-          for (const address of originalTraversalOrder()) {
-            if (this.pool.isActive(address))
-              updateMovement(this, address, events);
-          }
-        }
 
-        // A082→B941位于ADC8之前；此处保留效果投影但不允许改变AE56本帧观察值。
+      // A082→B941发生在ADC8之前；效果可改变随后ADC8观察到的flags/对象状态。
+      if (objectsUpdated || recountActivity) {
         const effectFrames = updateOriginalAttackEffects(
           this.pool,
           this.effects,
@@ -266,10 +299,75 @@ export class OriginalBattleSession {
         );
         if (effectFrames.length)
           events.push({ type: "effect-frames", effects: effectFrames });
+      }
+
+      if (this.objectsInitialized || objectHandlers || recountActivity) {
+        // ADC8顺序：先清D31A..D31D，再AE56→AED2→逐槽AF69/B240/AEA9→D31E。
+        this.registers.side0Timed = 0;
+        this.registers.side1Timed = 0;
+        this.registers.side0Active = 0;
+        this.registers.side1Active = 0;
+        const retreat = checkOriginalAutomaticRetreat(
+          this.pool,
+          this.registers,
+        );
+        if (retreat) events.push({ type: "automatic-retreat", ...retreat });
+        const attrition = tickOriginalSiegeLeaderAttrition(
+          this.pool,
+          this.registers,
+        );
+        if (attrition)
+          events.push({ type: "siege-leader-attrition", ...attrition });
+        const pathFrames = consumeOriginalPathQueue(
+          this.pool,
+          this.paths,
+          this.spatial,
+          { buildPath: objectHandlers?.buildPath ?? null },
+        );
+        if (pathFrames.length)
+          events.push({ type: "path-frames", paths: pathFrames });
+
+        // ADE7..AE2C严格逐槽：inactive可B413补员；active执行AF69/B240。
+        for (const address of originalTraversalOrder()) {
+          const activeAtScan = this.pool.isActive(address);
+          if (activeAtScan) {
+            updateOriginalActiveObject(
+              this,
+              address,
+              updateMovement
+                ? (session, activeAddress) =>
+                    updateMovement(session, activeAddress, events)
+                : null,
+            );
+            const side1 = address >= 0x600;
+            if (side1) {
+              this.registers.side1Active++;
+              if (this.pool.read8(address, ORIGINAL_OBJECT.STATUS_TIME) !== 0)
+                this.registers.side1Timed++;
+            } else {
+              this.registers.side0Active++;
+              if (this.pool.read8(address, ORIGINAL_OBJECT.STATUS_TIME) !== 0)
+                this.registers.side0Timed++;
+            }
+          } else
+            updateOriginalInactiveObject(
+              this.pool,
+              this.temps,
+              this.spatial,
+              this.registers,
+              address,
+            );
+        }
 
         const activity = recountActivity
           ? recountActivity(this, events)
-          : recountOriginalBattleActivity(this.pool, this.registers);
+          : {
+              side0Active: this.registers.side0Active & 0xff,
+              side1Active: this.registers.side1Active & 0xff,
+              side0Timed: this.registers.side0Timed & 0xff,
+              side1Timed: this.registers.side1Timed & 0xff,
+            };
+        if (recountActivity) Object.assign(this.registers, activity);
         events.push({ type: "activity-counts", ...activity });
         events.push({
           type: "battle-balance",

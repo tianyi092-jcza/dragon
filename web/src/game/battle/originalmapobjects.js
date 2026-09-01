@@ -328,6 +328,85 @@ export function rewriteOriginalMapObjectTilesB824(
   return { tileChanges, events, redraw: true };
 }
 
+/** B799：按被命中对象Y扫描前16槽，所有同Y记录都调用B824。 */
+export function rewriteOriginalMapObjectRowB799(
+  mapObjects,
+  spatial,
+  targetAddress,
+) {
+  const targetY = mapObjects.read8(targetAddress, ORIGINAL_MAP_OBJECT.Y);
+  const rewritten = [];
+  const tileChanges = [];
+  const events = [];
+  const end = ORIGINAL_MAP_OBJECT_BASE + 0x10 * ORIGINAL_MAP_OBJECT_SIZE;
+  for (
+    let address = ORIGINAL_MAP_OBJECT_BASE;
+    address < end;
+    address += ORIGINAL_MAP_OBJECT_SIZE
+  ) {
+    if (mapObjects.read8(address, ORIGINAL_MAP_OBJECT.Y) !== targetY) continue;
+    const rewrite = rewriteOriginalMapObjectTilesB824(
+      mapObjects,
+      spatial,
+      address,
+    );
+    rewritten.push({ address, ...rewrite });
+    tileChanges.push(...rewrite.tileChanges);
+    events.push(...rewrite.events);
+  }
+  return { targetY, rewritten, tileChanges, events, redraw: true };
+}
+
+/** B7CB：命令2切换时，D35 bit7门控玩家对象侧；扫描前16槽kind1墙。 */
+export function sweepOriginalWallObjectsB7CB(
+  mapObjects,
+  spatial,
+  attackerAddress,
+  registers,
+) {
+  if ((registers?.mode ?? 0) !== 0)
+    return { executed: false, destroyed: [], events: [] };
+  // B7CB: SI<0x600 => CL=0x80，否则CL=0；仅CL==(D35&0x80)执行。
+  const playerObjectSide =
+    ((registers?.battleSideFlag ?? 0) & 0x80) === 0 ? 1 : 0;
+  const objectSide = attackerAddress >= 0x600 ? 1 : 0;
+  if (objectSide !== playerObjectSide)
+    return { executed: false, destroyed: [], events: [] };
+
+  const destroyed = [];
+  const events = [];
+  const end = ORIGINAL_MAP_OBJECT_BASE + 0x10 * ORIGINAL_MAP_OBJECT_SIZE;
+  for (
+    let address = ORIGINAL_MAP_OBJECT_BASE;
+    address < end;
+    address += ORIGINAL_MAP_OBJECT_SIZE
+  ) {
+    const flags = mapObjects.read8(address, ORIGINAL_MAP_OBJECT.FLAGS);
+    if (
+      mapObjects.read8(address, ORIGINAL_MAP_OBJECT.KIND) !== 1 ||
+      flags < 0x80 ||
+      (flags & 1) !== 0
+    )
+      continue;
+    const rewrite = rewriteOriginalMapObjectTilesB824(
+      mapObjects,
+      spatial,
+      address,
+    );
+    destroyed.push({ address, ...rewrite });
+    events.push(...rewrite.events, {
+      type: "map-object-destroyed",
+      attackerAddress,
+      targetAddress: address,
+      metric: mapObjects.read16(address, ORIGINAL_MAP_OBJECT.METRIC),
+      tileChanges: rewrite.tileChanges,
+      source: "B7CB",
+    });
+  }
+  if (registers) registers.mapRedraw = 1;
+  return { executed: true, destroyed, events };
+}
+
 /** B5B7：metric已为0才调用B824；随后caller清对象bit7。碰撞全链0 RNG。 */
 export function resolveOriginalMapObjectCollision(
   mapObjects,
@@ -361,7 +440,7 @@ export function resolveOriginalMapObjectCollision(
   let rewrite = { tileChanges: [], events: [], redraw: false };
   if (metric === 0) {
     destroyed = true;
-    rewrite = rewriteOriginalMapObjectTilesB824(
+    rewrite = rewriteOriginalMapObjectRowB799(
       mapObjects,
       spatial,
       targetAddress,

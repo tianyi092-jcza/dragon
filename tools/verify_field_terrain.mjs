@@ -78,7 +78,9 @@ for (const edge of graph.edges) {
       leader: "攻",
       troops: 100,
     };
-    const selected = classifyFieldBattleTerrain(attacker, defender, 0, () => 0);
+    const selected = classifyFieldBattleTerrain(attacker, defender, 0, {
+      nextByte: () => 0,
+    });
     assert.ok(
       selected.directoryIndex >= 0xc0 && selected.directoryIndex <= 0xd5,
     );
@@ -113,6 +115,16 @@ assert.equal(battle.layout, battleMaps.directory[0xc0].layout);
 assert.equal(battle.theme, battleMaps.directory[0xc0].theme);
 assert.equal(battle.mirror, true);
 assert.deepEqual(battle.fieldTerrain, selected);
+assert.equal(
+  battle.session.registers.battleSideFlag & 0x40,
+  0x40,
+  "D35 bit6 preserves field-map mirror independently from player-side bit7",
+);
+assert.equal(
+  battle.session.registers.themeFlag,
+  battleMaps.directory[0xc0].theme,
+  "AB4F mirrors the BATTLE.MAP directory theme byte",
+);
 
 process.stdout.write(
   `field terrain OK: ${checked} road points, ${seenDirectories.size} directory codes, ${mirrored} mirrored\n`,

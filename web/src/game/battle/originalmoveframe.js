@@ -18,10 +18,12 @@ function cardinalDirection(pool, address) {
   const anchorY = pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y);
   const positionX = pool.read8(address, ORIGINAL_OBJECT.POSITION_X);
   const positionY = pool.read8(address, ORIGINAL_OBJECT.POSITION_Y);
-  if (anchorX > positionX) return "east";
-  if (anchorX < positionX) return "west";
-  if (anchorY > positionY) return "south";
-  if (anchorY < positionY) return "north";
+  // AF6E..AFF5：+6/+8锚点逐格趋近+10/+11位置。
+  // anchor大于position时走B047/B08B递减，小于时走B069/B0AF递增。
+  if (anchorX > positionX) return "west";
+  if (anchorX < positionX) return "east";
+  if (anchorY > positionY) return "north";
+  if (anchorY < positionY) return "south";
   return null;
 }
 

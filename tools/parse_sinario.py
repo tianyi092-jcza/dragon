@@ -88,6 +88,9 @@ def parse_scenario(sc: bytes):
                         # 外交/内政执行进度预算。0x3E8E 读 +0x1A；
                         # 外交官任命时原版以0起步，批准预算后按金额换算回该字节。
                         "assignment_budget": g[0x1A],
+                        # 0xCBE5：以对手军团槽索引定位其武将记录，读取+0x16后
+                        # 乘4并加战型变体，选择32个BATTLE.DAT脚本块之一。
+                        "battle_formation": g[0x16],
                         "status": g[0x17],
                         "talk_idx": g[0x1E],
                         "captive_flag": g[0x1D],
@@ -108,6 +111,7 @@ def parse_scenario(sc: bytes):
             factions.append(
                   {
                         "idx": i,
+                        "raw": f.hex(),
                         "attr": f[0],
                         "active": f[0] >= 0x80,
                         "monarch": generals[m_idx]["name"]
@@ -142,7 +146,18 @@ def parse_scenario(sc: bytes):
                         "reserve_inf": u16(f[8:10]),
                         "n_cities": f[0x23],
                         "bellicosity": f[0x28],
+                        # 驻该势力的玩家外交官武将索引。0x3771在AI入站
+                        # type2/type3谈判中优先读取势力+0x2A，FF时才选请求方代表。
+                        "diplomat_idx": f[0x2A] if f[0x2A] != 0xFF else None,
                         "target_faction": f[0x19] if f[0x19] != 0xFF else None,
+                        # 0x3F29/0x40C5均把cityIndex写入一次性目标槽；
+                        # 0x4325状态2取出后写FF，再复制到legion[+0x20]。
+                        "strategic_city_primary": (
+                              f[0x16] if f[0x16] != 0xFF else None
+                        ),
+                        "strategic_city_secondary": (
+                              f[0x17] if f[0x17] != 0xFF else None
+                        ),
                         "talk_style": f[0x1E],
                         # 战略地图军团标识样式槽。KI.EXE 0x6FD2: legion[+9]=f[+0x3E]*5；
                         # 0x2B2A 再加四方向/驻止帧 0..4。槽 0..23 图案与颜色均来自 MMAP.MCH。

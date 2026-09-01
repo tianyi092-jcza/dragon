@@ -1,6 +1,6 @@
 // KI.EXE A754/A785 原版每帧对象处理顺序。
-// 本切片固化：两侧各6组，组长先选目标并按对应玩家/AI跳表执行，随后7个
-// 活动子槽走A7FD；非活动组长走A83F。具体移动/攻击由回调注入。
+// 本切片固化：两侧各6组，组长先选目标并统一走A7B7组长跳表，随后7个
+// 活动子槽走A7FD子对象跳表；非活动组长走A83F。具体移动/攻击由回调注入。
 
 import {
   ORIGINAL_GROUP_COUNT,
@@ -19,7 +19,6 @@ export function updateOriginalBattleSide(
   pool,
   side,
   {
-    player = true,
     leaderHandlers = {},
     childHandlers = {},
     formation = null,
@@ -35,13 +34,12 @@ export function updateOriginalBattleSide(
       let result;
       if (selectTarget) {
         result = executeOriginalGroupLeader(pool, leader, {
-          player,
           handlers: leaderHandlers,
           formation,
           attackContext,
         });
         target = result.target;
-        if (!player) leaderHandlers.ai?.(result);
+        leaderHandlers.after?.(result);
       } else {
         target = null;
         // executeOriginalGroupLeader固定包含A85B；无目标选择模式仅供顺序测试。
@@ -75,7 +73,6 @@ export function updateOriginalBattleSide(
 /** A6FA尾部固定顺序：先A754的0侧，再A785的0x600侧。 */
 export function updateOriginalBattleObjects(pool, handlers = {}) {
   const defaults = {
-    player: handlers.player ?? true,
     leaderHandlers: handlers.leaderHandlers ?? {},
     childHandlers: handlers.childHandlers ?? {},
     formation: handlers.formation ?? null,

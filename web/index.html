@@ -114,14 +114,6 @@
         line-height: 1.8;
         display: none;
       }
-      #advisordlg {
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        padding: 12px 16px;
-        font-size: 14px;
-        z-index: 15;
-      }
       #savedlg {
         left: 50%;
         transform: translateX(-50%);
@@ -283,12 +275,6 @@
       >
         點擊跳過
       </div>
-    </div>
-    <div id="advisordlg" class="panel" style="display: none">
-      <div id="advtext" style="max-width: 320px; margin-bottom: 8px"></div>
-      <button id="advyes">採納</button>
-      <button id="advno">駁回</button>
-      <button id="advcancel">撤回進言</button>
     </div>
     <div id="savedlg" class="panel" style="display: none">
       <div style="margin-bottom: 8px">存入本機存檔槽</div>
@@ -466,61 +452,6 @@
         >
           選擇部隊後下達命令。
         </div>
-      </div>
-    </div>
-    <div
-      id="diplov"
-      style="
-        position: fixed;
-        inset: 0;
-        z-index: 32;
-        display: none;
-        background: rgba(0, 0, 0, 0.72);
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-      "
-    >
-      <img
-        id="dpbg"
-        class="pixelated"
-        alt=""
-        style="
-          position: absolute;
-          inset: 0;
-          margin: auto;
-          width: min(52vh, 80vw);
-          image-rendering: pixelated;
-          border: 2px solid #6b5335;
-          box-shadow: 0 0 40px #000;
-        "
-      />
-      <div
-        class="panel"
-        style="
-          position: relative;
-          z-index: 2;
-          width: min(52vh, 80vw);
-          padding: 10px 12px;
-          font-size: 15px;
-          line-height: 1.7;
-        "
-      >
-        <div style="display: flex; gap: 10px; align-items: flex-start">
-          <img
-            id="dpface"
-            class="pixelated"
-            alt=""
-            style="
-              width: 64px;
-              height: 64px;
-              border: 1px solid #6b5335;
-              image-rendering: pixelated;
-            "
-          />
-          <div id="dptext" style="flex: 1"></div>
-        </div>
-        <div id="dpopts" style="margin-top: 8px; display: flex; gap: 8px"></div>
       </div>
     </div>
     <div id="card" class="panel"></div>

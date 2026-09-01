@@ -17,7 +17,7 @@
 
 ## 二、目录结构
 
-```
+```text
 E:/Dragon/Dragon/          游戏本体数据
 │   SINARIO.DAT            剧本 88832B=4×22208B（SAVE.DAT 同构,槽=slot×0x56C0）
 │   MMAP.MAP/.MDL/.MCH     地图
@@ -25,7 +25,7 @@ E:/Dragon/Dragon/          游戏本体数据
 │   KAOGRF.DAT             头像 150×2048B(64×64 16色 planar)
 │   KYOGRF.DAT/IVENTGRF.DAT 城市风景×15/觐见背景×3(行交错双帧)
 │   TALK.DAT               对白(1024×u16指针表,Big5,\x00分句需join,占位符\1..\4)
-│   BATTLE.MAP/.MDL/.SCH/.DAT  战斗资源(.DAT=开场脚本VM 32块×256B)
+│   BATTLE.MAP/.MDL/.SCH/.DAT  战斗资源(.DAT=持续战场脚本VM 32块×256B)
 │   OPEN_S1..6.DAT/END_S1..12.DAT/GAMEOVER.DAT  开场/结局图(成对触发RLE)
 │   BGM.DAT/ENDBGM/OPENBGM/OVERBGM.DAT  音乐(YNSOUND.COM驱动,未复刻,见re-notes)
 │   END_S13/14.DAT=遗留未引用  END_S15.DAT=自創軍師命名Big5码表
@@ -46,9 +46,9 @@ E:/Dragon/Dragon/          游戏本体数据
             ├── core/              assets.js input.js speaker.js(WebAudio方波SFX)
             ├── game/              world.js clock.js economy.js ai.js battle.js
             │                      battlescript.js(开场VM解释器) commands.js(玩家命令+monthEnd)
-            │                      advisor.js(进言) diplomacy.js(遣使/关系/迁都) audience.js(觐见)
+            │                      advisor.js(军师解析) diplomacy.js(关系/迁都；提案交互在gamebar.js)
             │                      disaster.js(天灾/暴动) recruits.js(登庸) talk.js savegame.js
-            ├── render/            mapview.js battleview.js diploview.js openview.js endview.js
+            ├── render/            mapview.js battleview.js openview.js endview.js
             ├── ui/hud.js          HUD(面板/图例/城池命令/势力卡/外交按钮行/存读盘对话框)
             └── ui/startmenu.js    开场选单(YES/NO→章节/读档)+通用同风格弹窗生成器 prompt()
 ```
@@ -75,7 +75,7 @@ E:/Dragon/Dragon/          游戏本体数据
 - 外交：菜单跳转表 cs:[0x625B]（宣战0x6405/停战0x64F1/请援0x6623/迁都0x6909→0x33FD）；觐见场景 0x3830/0x3C99（行=cx+偏移，**对象是己方君主**）；信赖分档 0x3C1E(≥0xE0/≥0x90/≥0x20)；事件队列 cs:[0x31F2]
 - 战斗屏 init 0x1B5A→0x9946；脚本 VM 执行器 0xA426/0xA436（op=低5位,cc=次3位,ah=高8位；op10 跳转目标 t&0xFF==0→si=bh*2 字节偏移）；画军旗 0xC315
 - 0xCDE/0xCE7=PC喇叭音效封装（0xEB11 忙等短哔）；0xEC82=VGA DAC 渐变；VRAM blit 0xFA37
-- 音乐：int 61h(KI)/int A1h(D7系)→YNSOUND.COM（钩INT8+PIT ch0 分频0x100 音序时钟）；BGM.DAT 5轨道偏移+10B轨头 `80 0F A0 00 F0 00 00 06 D0 00`，音符编码未破（不复刻）
+- 音乐：int 61h(KI)/int A1h(D7系)→YNSOUND.COM（钩INT8+PIT ch0分频0x100音序时钟）；端口布局为Sound Blaster Pro双OPL2：220/221左FM、222/223右FM、224/225 mixer。BGM.DAT 5轨道偏移+10B轨头 `80 0F A0 00 F0 00 00 06 D0 00`，音符编码与双YM3812可听输出尚未产品化（不复刻）
 - 内存段分配器 0xDF（槽位[0xD38]起13段）
 
 ## 五、功能状态总表（全部 playwright 验证）
@@ -86,9 +86,9 @@ E:/Dragon/Dragon/          游戏本体数据
 | 月结经济 | ✅ | 真公式0x5358：距离衰减税收+税率→发展度联动 |
 | AI | ✅ | 三态机+威胁感知；AI互斗用0x2920速算 |
 | 战斗 | ✅ | 1024²战场实时战斗+五军编制；玩家参战开交互层，全軍突擊/自動決戰/撤軍 |
-| 开场脚本VM | ✅ | battlescript.js 逐帧解释器(每帧1指令+WAIT阻塞)，battleview cutscene(点击跳过/40s安全阀) |
+| 战场脚本VM | ✅ | battlescript.js逐帧解释器；BattleView在整个战斗中持续执行输入→A426→A065，不允许点击/墙钟截断规则脚本 |
 | 玩家命令 | ✅ | develop/recruit/setTax/dispatch(出征)/moveCapital(遷都) |
-| 进言系统 | ✅ | 军师建议→採納信赖+20/駁回-20 |
+| 进言系统 | ✅ | GameBar敌对/停战/请援/迁都/君主出阵原版提案链；已删除旧Web随机“诚实/劣质建议”替代入口 |
 | 外交 | ✅ | 遣使(政治≥13才有效)/宣戰/停戰/請援觐见(IVENTGRF双帧背景+信赖四档台词,对象=己方君主) |
 | 天灾/暴动 | ✅ | disaster.js 复刻0x22DB门控(50%×75%)+0x2286(9.4%×稳定度) |
 | 俘虏/登庸 | ✅ | 月初回归/流散改投/灭亡解散；recruits.js appear_months 真实登场 |
@@ -167,12 +167,11 @@ await app.startMenu.prompt({ x:200, y:120, w:240, h:160,
 
 ## 九、剩余可选项（全部非必须）
 
-1. 开场动画打磨：编制类型真实判定（原版军团五军记录+20..23，web 现用单位数-1近似）、相机漂移跟随脚本 MODE 段、军旗阶段细分视觉
+1. 开场动画打磨（历史记录已被后续勘误）：CBE5脚本块现确认由对手武将`+0x16`×4+variant选择，不再使用单位数或军团UI formation近似；VM状态已改读Session，军旗仍属表现细分。
 2. BGM 音符编码破解（YNSOUND.COM 解析器 0x1xx-0x7xx 区）——若将来要复刻音乐
 3. 自創軍師命名功能（END_S15 码表已破解留档）
 
 **21.** 开场动画编制类型真实判定 ✅ (2026-08-24 续)
 
-- 逆向：0xCBE5 选块 = 军团编制类型字节(1..4，0x6C92 UI [si+0x2A] 循环选阵)×4 + 攻守；军团表基址 0x2240
-- 实现：battle.js createBattle 返回 formation；battleview startCutscene 用 (b.formation??1)-1 替代 nAtk-1 近似；dispatch()/ai.js 三处军团创建补 formation:1
-- 验证：formation=3 → block 12 (type2×4+atk) VM 128 words 正常启动；console 仅 favicon 404
+- **后续勘误**：0xCBE5的`[D30-0x2240>>1 + 0x4256]`实际落到对手武将`general[+0x16]`，block=`field*4+variant`；旧“军团formation 1..4”解释无效。
+- 当前实现：`parse_sinario.py`解析`battle_formation`，战术创建按玩家攻守/mode计算variant；军团`formation`仅保留Web UI编成字段。

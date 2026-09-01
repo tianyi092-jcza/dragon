@@ -25,19 +25,19 @@ const { ORIGINAL_OBJECT, originalObjectAddress } = await import(
   session.pool.write16(address, ORIGINAL_OBJECT.SPATIAL_0E, 0x128a);
   session.spatial.write8(0x128a, 0x82);
   session.spatial.write8(0x228a, 0x82);
-  session.spatial.write8(0x1289, 0);
-  session.spatial.write8(0x2289, 0);
-  session.spatial.write8(0x7289, 1);
+  session.spatial.write8(0x128b, 0);
+  session.spatial.write8(0x228b, 0);
+  session.spatial.write8(0x728b, 1);
   const result = updateOriginalObjectMovement(session, address);
   assert.equal(result.moved, true);
-  assert.equal(session.pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X), 9);
+  assert.equal(session.pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X), 11);
   assert.equal(
     session.pool.read16(address, ORIGINAL_OBJECT.SPATIAL_0E),
-    0x1289,
+    0x128b,
   );
   assert.equal(session.spatial.read8(0x128a), 0x80);
   assert.equal(session.spatial.read8(0x228a), 0x80);
-  assert.equal(session.spatial.read8(0x1289) & 0x7f, 2);
+  assert.equal(session.spatial.read8(0x128b) & 0x7f, 2);
 }
 
 {

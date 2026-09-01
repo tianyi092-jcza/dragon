@@ -17,17 +17,12 @@ import {
   quoteFor,
   quoteForFormation,
   quoteForIndex,
+  formatGenericTalkEvent,
   formatTalkTokens,
 } from "../game/talk.js";
 import { cityTypeLabel } from "../game/world.js";
 import { clickSfx, warnSfx, setSoundType, unlockSfx } from "../core/speaker.js";
-import {
-  isFriendly,
-  relation,
-  declareWar,
-  makeCeasefire,
-  isAtWar,
-} from "../game/diplomacy.js";
+import { relation, isAtWar } from "../game/diplomacy.js";
 import { factionColorEx } from "../game/world.js";
 import {
   findRoadRoute,
@@ -47,6 +42,12 @@ import {
   TACTICAL_SPEED_LABELS,
   TACTICAL_SPEED_FACTORS,
 } from "../render/battleview.js";
+import {
+  enqueueDelayedStrategicEvent,
+  resolveIncomingDiplomacyChoice,
+  resolveStrategicNegotiation,
+  settleFactionNegotiation,
+} from "../game/ai.js";
 
 const FONT = '16px "Noto Serif TC","PMingLiU",serif';
 const DIN = '300 16px "Oswald","Noto Serif TC","PMingLiU",serif';
@@ -1140,13 +1141,8 @@ export class GameBar {
     this.selectedSubmenu = null;
     if (this.app?.view) this.app.view.selectedCity = null;
     const doc = globalThis.document;
-    const advDlg = doc?.querySelector?.("#advisordlg");
-    if (advDlg && advDlg.style.display !== "none") {
-      this.app.hud?.resolveAdvice?.(null);
-    }
     for (const el of doc?.querySelectorAll?.(".panel") ?? []) {
-      if (el.id && el.id !== "advisordlg" && el.style.display !== "none")
-        el.remove();
+      if (el.id && el.style.display !== "none") el.remove();
     }
     this.syncClock();
     this.app.view.draw();
@@ -2521,16 +2517,17 @@ export class GameBar {
           `「${p.playerFaction.monarch}」同意請求協助！信賴度 +20`,
         );
 
-        if (!sc.pendingAssistanceNegotiations)
-          sc.pendingAssistanceNegotiations = [];
         const envoyObj = sc.envoys?.[p.allyFaction.idx];
         const envoyName = envoyObj?.name ?? "外交官";
-        sc.pendingAssistanceNegotiations.push({
-          allyFactionIdx: p.allyFaction.idx,
-          targetFactionIdx: p.targetFaction.idx,
-          envoyName,
-          daysLeft: 20,
-        });
+        enqueueDelayedStrategicEvent(
+          this.app,
+          {
+            type: 7,
+            arg0: p.allyFaction.idx,
+            arg1: p.targetFaction.idx,
+          },
+          0x14,
+        );
 
         this.app.view.draw();
         this._setProposalTimer(3000, async () => {
@@ -2832,16 +2829,17 @@ export class GameBar {
           `「${p.playerFaction.monarch}」同意向「${p.allyName}」請求協助！信賴度 +10`,
         );
 
-        if (!sc.pendingAssistanceNegotiations)
-          sc.pendingAssistanceNegotiations = [];
         const envoyObj = sc.envoys?.[p.allyFaction.idx];
         const envoyName = envoyObj?.name ?? "外交官";
-        sc.pendingAssistanceNegotiations.push({
-          allyFactionIdx: p.allyFaction.idx,
-          targetFactionIdx: p.targetFaction.idx,
-          envoyName,
-          daysLeft: 20, // 20 天后外交官前来报告交涉结果
-        });
+        enqueueDelayedStrategicEvent(
+          this.app,
+          {
+            type: 7,
+            arg0: p.allyFaction.idx,
+            arg1: p.targetFaction.idx,
+          },
+          0x14,
+        );
 
         this.app.view.draw();
         this._setProposalTimer(3000, async () => {
@@ -2957,15 +2955,13 @@ export class GameBar {
           `「${p.playerFaction.monarch}」同意派出停戰使者！信賴度 +10`,
         );
 
-        if (!sc.pendingTruceNegotiations) sc.pendingTruceNegotiations = [];
         const envoyObj = sc.envoys?.[p.targetFaction.idx];
         const envoyName = envoyObj?.name ?? "外交官";
-        sc.pendingTruceNegotiations.push({
-          targetFactionIdx: p.targetFaction.idx,
-          targetFactionName: p.targetName,
-          envoyName,
-          daysLeft: 20, // 20 天后外交官前来报告交涉结果 (KI.EXE 0x654C: mov bl, 0x14)
-        });
+        enqueueDelayedStrategicEvent(
+          this.app,
+          { type: 6, arg0: p.targetFaction.idx, arg1: 0 },
+          0x14,
+        );
 
         this.app.view.draw();
         this._setProposalTimer(3000, async () => {
@@ -3082,13 +3078,8 @@ export class GameBar {
     }
   }
 
-  /** 外交官返回汇报停战谈判结果 (100% 逆向复刻 KI.EXE 0x3327, 0x36C4, 0x3771, 0x3C3D) */
-  async showTruceNegotiationResult({
-    targetFaction,
-    envoyName,
-    outcome,
-    goldRequired,
-  }) {
+  /** 外交官返回汇报停战谈判结果 (KI.EXE 0x3327→0x36C4→0x3C3D) */
+  async showTruceNegotiationResult({ targetFaction, envoyName }) {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
     const targetName = (targetFaction?.monarch ?? "").trim();
@@ -3100,11 +3091,24 @@ export class GameBar {
       lines: step1Lines,
       autoClose: 3000,
       onClose: async () => {
+        // 0x3327在报告后才调用0x36C4；事件条目只携带目标势力。
+        const result = resolveStrategicNegotiation(
+          this.app,
+          targetFaction,
+          false,
+        );
+        if (!result) return;
+        const { outcome, goldRequired } = result;
         // 第二步：根据谈判结果展示 Talk 43 / 44 / 45
         if (outcome === 0) {
           // 无条件达成 (Talk 43: "與\3停戰交涉的結果，無條件地達成了。")
           clickSfx();
-          makeCeasefire(sc, me.idx, targetFaction.idx);
+          settleFactionNegotiation(this.app, {
+            recipientFaction: targetFaction,
+            requesterFaction: me,
+            outcome,
+            goldRequired,
+          });
           const step2Lines = await formatTalkTokens(43, targetName);
           await this.showNpcMessageDialog({
             lines: step2Lines,
@@ -3121,8 +3125,12 @@ export class GameBar {
         } else if (outcome === 1) {
           // 支付金钱达成 (Talk 44: "與\3停戰交涉的結果，已經\7成立了。")
           clickSfx();
-          if (me) applyFactionFundsDelta(me, -goldRequired);
-          makeCeasefire(sc, me.idx, targetFaction.idx);
+          settleFactionNegotiation(this.app, {
+            recipientFaction: targetFaction,
+            requesterFaction: me,
+            outcome,
+            goldRequired,
+          });
           const costStr = `支付${goldRequired}金`;
           const step2Lines = await formatTalkTokens(
             44,
@@ -3147,17 +3155,13 @@ export class GameBar {
         } else {
           // 谈判破裂 (Talk 45: "與\3的停戰交涉，很遺憾，談判破裂了。")
           warnSfx();
-          sc.trust = Math.max(0, (sc.trust ?? 255) - 30); // 问责扣减 30 信赖度 (KI.EXE 0x3C8B)
-          this.app.hud.refreshTrust();
           const step2Lines = await formatTalkTokens(45, targetName);
           await this.showNpcMessageDialog({
             lines: step2Lines,
             autoClose: 3500,
             onClose: () => {
               this.syncClock();
-              this.app.hud.flashEvent(
-                `與「${targetName}」停戰談判破裂！信賴度 -30`,
-              );
+              this.app.hud.flashEvent(`與「${targetName}」停戰談判破裂！`);
               this.app.view.draw();
             },
           });
@@ -3166,13 +3170,106 @@ export class GameBar {
     });
   }
 
-  /** 外交官返回汇报请求协助谈判结果 (100% 逆向复刻 KI.EXE 0x301C, 0x3712, 0x3C3D) */
+  async _showIncomingDiplomacyRequest({
+    type,
+    requesterFaction,
+    targetFaction = null,
+    result,
+    onResolve,
+  }) {
+    const sc = this.app.scenario;
+    const me = cmd.playerFaction(sc);
+    const monarch = me ? sc.monarchOf(me) : null;
+    if (!me || !monarch || !requesterFaction || !result) return false;
+    const requesterName = (requesterFaction.monarch ?? "").trim();
+    const targetName = (targetFaction?.monarch ?? "").trim();
+    const monarchImg = await portrait(monarch.portrait).catch(() => null);
+    const reportLines = await formatTalkTokens(
+      type === "incoming-truce" ? 360 : 373,
+      requesterName,
+    );
+    const requestLines = await formatTalkTokens(
+      type === "incoming-truce" ? 362 : 375,
+      [requesterName, targetName],
+    );
+    this.proposalAudience = {
+      type,
+      playerFaction: me,
+      requesterFaction,
+      targetFaction,
+      monarch,
+      monarchImg,
+      advImg: this.imgs?.messageNpc ?? null,
+      monarchLines: reportLines,
+      advLines: requestLines,
+      step: "incoming_diplomacy_choice",
+      reasonsHover: -1,
+      incomingResult: result,
+      incomingResolve: onResolve,
+      timer: null,
+      timerAction: null,
+    };
+    this.syncClock();
+    this.app.view.draw();
+    return true;
+  }
+
+  /** 0x3220/0x3262：入站外交与其它战略模态共用FIFO。 */
+  enqueueIncomingDiplomacyRequest(payload) {
+    if (!payload?.requesterFaction || !payload?.result) return;
+    this._strategicMessageQueue.push({
+      type: "incoming-diplomacy",
+      ...payload,
+    });
+    this._drainStrategicMessages();
+  }
+
+  async _finishIncomingDiplomacy(choice, amount = 0) {
+    const p = this.proposalAudience;
+    if (!p || (p.type !== "incoming-truce" && p.type !== "incoming-assistance"))
+      return;
+    if (choice === "pay" && amount <= 0) return;
+    const resolved = resolveIncomingDiplomacyChoice(
+      this.app,
+      p.incomingResult,
+      choice,
+      amount,
+    );
+    if (!resolved) return;
+    const { outcome, goldRequired } = resolved;
+    if (typeof p.incomingResolve === "function")
+      p.incomingResolve(outcome, goldRequired);
+    const requesterName = (p.requesterFaction?.monarch ?? "").trim();
+    const targetName = (p.targetFaction?.monarch ?? "").trim();
+    p.monarchLines = await formatTalkTokens(
+      p.type === "incoming-truce" ? 367 + outcome : 380 + outcome,
+      [requesterName, targetName],
+      "",
+      "",
+      `${goldRequired}`,
+    );
+    p.advLines = null;
+    p.step = "incoming_diplomacy_result";
+    this._setProposalTimer(3000, () => this._closeIncomingDiplomacy());
+    this.app.view.draw();
+  }
+
+  _closeIncomingDiplomacy() {
+    this.closeProposalAudience();
+    this._strategicMessageActive = false;
+    if (!this._strategicMessageQueue.length) this._clockHoldRequested = false;
+    this.syncClock();
+    this.app.hud?.refreshInfo?.();
+    this.app.hud?.buildLegend?.();
+    this.app.view.draw();
+    this._drainStrategicMessages();
+  }
+
+  /** 外交官返回汇报请求协助谈判结果 (KI.EXE 0x3388→0x3712→0x3C3D) */
   async showAssistanceNegotiationResult({
     allyFaction,
     targetFaction,
     envoyName,
-    outcome,
-    goldRequired,
   }) {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
@@ -3186,14 +3283,26 @@ export class GameBar {
       lines: step1Lines,
       autoClose: 3000,
       onClose: async () => {
+        // 0x3388在报告后才调用0x3712；事件条目携带协助/目标两势力。
+        const result = resolveStrategicNegotiation(
+          this.app,
+          allyFaction,
+          true,
+          targetFaction,
+        );
+        if (!result) return;
+        const { outcome, goldRequired } = result;
         // 第二步：根据谈判结果展示 Talk 47 / 48 / 49
         if (outcome === 0) {
           // 无条件达成 (Talk 47: "與\3的合作交涉的結果，無條件成立了。")
           clickSfx();
-          declareWar(sc, allyFaction.idx, targetFaction.idx);
-          allyFaction.target_faction = targetFaction.idx;
-          sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
-          this.app.hud.refreshTrust();
+          settleFactionNegotiation(this.app, {
+            recipientFaction: allyFaction,
+            requesterFaction: me,
+            targetFaction,
+            outcome,
+            goldRequired,
+          });
           const step2Lines = await formatTalkTokens(47, allyName);
           await this.showNpcMessageDialog({
             lines: step2Lines,
@@ -3202,7 +3311,7 @@ export class GameBar {
               this.syncClock();
               this.app.hud.buildLegend?.();
               this.app.hud.flashEvent(
-                `「${allyName}」同意協同進攻「${targetName}」！信賴度 +10`,
+                `「${allyName}」同意協同進攻「${targetName}」！`,
               );
               this.app.view.draw();
             },
@@ -3210,11 +3319,13 @@ export class GameBar {
         } else if (outcome === 1) {
           // 支付金钱达成 (Talk 48: "與\3的合作交涉，的結果，已經\7達成協定。")
           clickSfx();
-          if (me) applyFactionFundsDelta(me, -goldRequired);
-          declareWar(sc, allyFaction.idx, targetFaction.idx);
-          allyFaction.target_faction = targetFaction.idx;
-          sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
-          this.app.hud.refreshTrust();
+          settleFactionNegotiation(this.app, {
+            recipientFaction: allyFaction,
+            requesterFaction: me,
+            targetFaction,
+            outcome,
+            goldRequired,
+          });
           const costStr = `支付${goldRequired}金`;
           const step2Lines = await formatTalkTokens(
             48,
@@ -3239,17 +3350,13 @@ export class GameBar {
         } else {
           // 谈判破裂 (Talk 49: "與\3的合作交涉，很遺憾，交涉破裂了。")
           warnSfx();
-          sc.trust = Math.max(0, (sc.trust ?? 255) - 30);
-          this.app.hud.refreshTrust();
           const step2Lines = await formatTalkTokens(49, allyName);
           await this.showNpcMessageDialog({
             lines: step2Lines,
             autoClose: 3500,
             onClose: () => {
               this.syncClock();
-              this.app.hud.flashEvent(
-                `與「${allyName}」的請求協助談判破裂！信賴度 -30`,
-              );
+              this.app.hud.flashEvent(`與「${allyName}」的請求協助談判破裂！`);
               this.app.view.draw();
             },
           });
@@ -3269,7 +3376,16 @@ export class GameBar {
 
   _hitProposalReasons(px, py) {
     const p = this.proposalAudience;
-    if (!p || p.step !== "choose_reason" || !p.reasonsRect) return -1;
+    if (
+      !p ||
+      ![
+        "choose_reason",
+        "envoy_budget_choice",
+        "incoming_diplomacy_choice",
+      ].includes(p.step) ||
+      !p.reasonsRect
+    )
+      return -1;
     const { x, y, w, h, items } = p.reasonsRect;
     if (px >= x && px < x + w && py >= y && py < y + h) {
       const rowH = h / items.length;
@@ -3284,9 +3400,14 @@ export class GameBar {
     if (!p) return false;
     if (btn === 2) {
       clickSfx();
-      if (p.type === "envoy-budget") {
+      if (p.type === "envoy-budget" || p.type === "domestic-budget") {
         if (this.keypadDialog) this.closeKeypadDialog();
-        this._finishEnvoyBudget(0, "refuse");
+        void this._finishBudgetAudience(0, "refuse");
+        return true;
+      }
+      if (p.type === "incoming-truce" || p.type === "incoming-assistance") {
+        if (this.keypadDialog) this.closeKeypadDialog();
+        void this._finishIncomingDiplomacy("refuse");
         return true;
       }
       // 右键取消 / 退出进言
@@ -3298,13 +3419,46 @@ export class GameBar {
     }
     if (btn !== 0) return true;
 
-    if (p.type === "envoy-budget") {
+    if (p.type === "incoming-truce" || p.type === "incoming-assistance") {
+      if (p.step === "incoming_diplomacy_choice") {
+        const ri = this._hitProposalReasons(px, py);
+        if (ri < 0) return true;
+        clickSfx();
+        if (ri === 0) {
+          void this._finishIncomingDiplomacy("accept");
+        } else if (ri === 1) {
+          const winW = 320;
+          const winH = 384;
+          const winX = Math.round((innerWidth - winW) / 2);
+          const winY = Math.round((innerHeight - winH) / 2) + 20;
+          p.step = "incoming_diplomacy_keypad";
+          this.showKeypadDialog(
+            p.type,
+            p.incomingResult?.goldRequired ?? 0,
+            30000,
+            winX - 8,
+            winY + 96,
+          );
+        } else {
+          void this._finishIncomingDiplomacy("refuse");
+        }
+        return true;
+      }
+      if (p.step === "incoming_diplomacy_result" && p.timer) {
+        clearTimeout(p.timer);
+        p.timer = null;
+        this._closeIncomingDiplomacy();
+      }
+      return true;
+    }
+
+    if (p.type === "envoy-budget" || p.type === "domestic-budget") {
       if (p.step === "envoy_budget_choice") {
         const ri = this._hitProposalReasons(px, py);
         if (ri < 0) return true;
         clickSfx();
         if (ri === 0) {
-          this._finishEnvoyBudget(p.budgetRequested, "accept");
+          void this._finishBudgetAudience(p.budgetRequested, "accept");
         } else if (ri === 1) {
           const winW = 320;
           const winH = 384;
@@ -3312,21 +3466,21 @@ export class GameBar {
           const winY = Math.round((innerHeight - winH) / 2) + 20;
           p.step = "envoy_budget_keypad";
           this.showKeypadDialog(
-            "envoy-budget",
+            p.type,
             p.budgetRequested,
             30000,
             winX - 8,
             winY + 96,
           );
         } else {
-          this._finishEnvoyBudget(0, "refuse");
+          void this._finishBudgetAudience(0, "refuse");
         }
         return true;
       }
       if (p.step === "envoy_budget_result" && p.timer) {
         clearTimeout(p.timer);
         p.timer = null;
-        this._closeEnvoyBudgetAudience();
+        this._closeBudgetAudience();
       }
       return true;
     }
@@ -3406,9 +3560,16 @@ export class GameBar {
     }
 
     // 4. 开战理由选择菜单 (11×7 tiles = 176×112，位于中间偏左)
-    if (p.step === "choose_reason" || p.step === "envoy_budget_choice") {
+    if (
+      p.step === "choose_reason" ||
+      p.step === "envoy_budget_choice" ||
+      p.step === "incoming_diplomacy_choice"
+    ) {
       const rTilesW = 11;
-      const rTilesH = p.step === "envoy_budget_choice" ? 5 : 7;
+      const compactChoice =
+        p.step === "envoy_budget_choice" ||
+        p.step === "incoming_diplomacy_choice";
+      const rTilesH = compactChoice ? 5 : 7;
       const rx = winX - 24;
       const ry = winY + 90;
 
@@ -3421,13 +3582,15 @@ export class GameBar {
       const items =
         p.step === "envoy_budget_choice"
           ? ["答應", "提示金額", "拒絕"]
-          : p.reasonsItems || [
-              "外交關係惡劣",
-              "我國較有利",
-              "敵正侵攻他國",
-              "敵勢力疲乏",
-              "撤回進言",
-            ];
+          : p.step === "incoming_diplomacy_choice"
+            ? ["無條件同意", "提供資金", "拒絕"]
+            : p.reasonsItems || [
+                "外交關係惡劣",
+                "我國較有利",
+                "敵正侵攻他國",
+                "敵勢力疲乏",
+                "撤回進言",
+              ];
       p.reasonsRect = { x: rInnerX, y: rInnerY, w: rInnerW, h: rInnerH, items };
 
       const rowH = rInnerH / items.length;
@@ -3621,11 +3784,76 @@ export class GameBar {
     this._drainStrategicMessages();
   }
 
+  /** type10：SAVE尾部事件轮中的通用TALK通知。 */
+  enqueueGenericTalkEvent(event) {
+    if (!Number.isInteger(event?.talkIndex)) return;
+    this._strategicMessageQueue.push({ type: "generic-talk", ...event });
+    this._drainStrategicMessages();
+  }
+
+  /** 0x5715 type-4：内政官按月回京申请治理预算。 */
+  enqueueDomesticBudgetReport(report) {
+    if (report?.cityIdx == null) return;
+    this._strategicMessageQueue.push({ type: "domestic-budget", ...report });
+    this._drainStrategicMessages();
+  }
+
   /** 0x578F type-5：外交官按月回京申请外交维持费。 */
   enqueueEnvoyBudgetReport(report) {
     if (report?.targetIdx == null) return;
     this._strategicMessageQueue.push({ type: "envoy-budget", ...report });
     this._drainStrategicMessages();
+  }
+
+  async _showDomesticBudgetAudience(message) {
+    const sc = this.app.scenario;
+    const city = sc.cities?.[message.cityIdx];
+    const me = cmd.playerFaction(sc);
+    if (!city || city.faction !== sc.player_faction || city.governor == null)
+      return false;
+    const gen = sc.generals?.[city.governor];
+    const monarch = me ? sc.monarchOf(me) : null;
+    if (!gen || !monarch) return false;
+    const [monarchImg, governorImg] = await Promise.all([
+      portrait(monarch.portrait).catch(() => null),
+      portrait(gen.portrait).catch(() => null),
+    ]);
+    const requested = Math.max(0, message.requested | 0);
+    const reportLines = await formatTalkTokens(
+      56,
+      "",
+      "",
+      gen.name.trim(),
+      "",
+      city.name?.trim?.() || "據點",
+    );
+    this.proposalAudience = {
+      type: "domestic-budget",
+      playerFaction: me,
+      city,
+      monarch,
+      advGen: gen,
+      monarchImg,
+      advImg: governorImg,
+      monarchLines: reportLines,
+      advLines: await formatTalkTokens(
+        278,
+        "",
+        "",
+        gen.name.trim(),
+        `${requested}`,
+        city.name?.trim?.() || "據點",
+      ),
+      step: "envoy_budget_choice",
+      budgetRequested: requested,
+      budgetAmount: requested,
+      budgetHover: -1,
+      timer: null,
+      timerAction: null,
+    };
+    this.syncClock();
+    this.app.view.draw();
+    return true;
   }
 
   async _showEnvoyBudgetAudience(message) {
@@ -3644,6 +3872,12 @@ export class GameBar {
     ]);
     const targetName = (target.monarch ?? "該勢力").trim();
     const requested = Math.max(0, message.requested | 0);
+    const reportLines = await formatTalkTokens(
+      57,
+      targetName,
+      "",
+      gen.name.trim(),
+    );
     this.proposalAudience = {
       type: "envoy-budget",
       playerFaction: me,
@@ -3653,11 +3887,14 @@ export class GameBar {
       advGen: gen,
       monarchImg,
       advImg: envoyImg,
-      monarchLines: [
-        `駐${targetName}勢力的外交官`,
-        `${gen.name.trim()}大人前來報告。`,
-      ],
-      advLines: [`對${targetName}的外交費，希望能撥款金額 ${requested}。`],
+      monarchLines: reportLines,
+      advLines: await formatTalkTokens(
+        319,
+        targetName,
+        "",
+        gen.name.trim(),
+        `${requested}`,
+      ),
       step: "envoy_budget_choice",
       budgetRequested: requested,
       budgetAmount: requested,
@@ -3670,12 +3907,20 @@ export class GameBar {
     return true;
   }
 
-  _finishEnvoyBudget(amount, mode) {
+  async _finishBudgetAudience(amount, mode) {
     const p = this.proposalAudience;
-    if (!p || p.type !== "envoy-budget") return;
+    if (!p || (p.type !== "envoy-budget" && p.type !== "domestic-budget"))
+      return;
     const faction = p.playerFaction;
-    const envoy = p.envoy;
     const requested = p.budgetRequested;
+    const domestic = p.type === "domestic-budget";
+    if (
+      domestic &&
+      (p.city?.governor == null || p.city.governor !== p.advGen?.idx)
+    ) {
+      this._closeBudgetAudience();
+      return;
+    }
     // 0x39E8 数字键盘上限固定30000；非零输入最低500，不按当前国库钳制。
     const entered = Math.max(0, Math.min(30000, amount | 0));
     const grant = entered > 0 ? Math.max(500, entered) : 0;
@@ -3683,36 +3928,70 @@ export class GameBar {
     // 0x3AE2/0x3AE4：批准额先×2，再取高字节写 general+0x1A，
     // 等价 floor(金额/128)。该字节才是0x3E8E逐次消耗的工作预算。
     const budgetPoints = Math.min(255, Math.floor(grant / 128));
-    envoy.budget = budgetPoints;
-    envoy.requested = requested;
-    envoy.granted = grant;
-    envoy.reportPending = false;
     const gen = p.advGen;
     if (gen) gen.assignment_budget = budgetPoints;
+    if (p.type === "envoy-budget") {
+      const envoy = p.envoy;
+      envoy.budget = budgetPoints;
+      envoy.requested = requested;
+      envoy.granted = grant;
+      envoy.reportPending = false;
+    }
+    const targetName = (p.targetFaction?.monarch ?? "").trim();
+    const cityName = p.city?.name?.trim?.() || "據點";
+    const generalName = p.advGen?.name?.trim?.() || "";
+    const talkBase = domestic ? 284 : 325;
     if (mode === "accept") {
-      p.monarchLines = ["由你提出的，我大可放心了。好，准予撥款。"];
-      p.advLines = ["感謝之至，我一定會帶回好的結果！敬請期待！"];
-    } else if (mode === "adjust") {
-      p.monarchLines = [
-        grant > 0 ? "就以這金額盡力試試吧。" : "無法准予撥款……",
+      p.monarchLines = await formatTalkTokens(
+        talkBase,
+        targetName,
+        "",
+        generalName,
+        `${grant}`,
+        cityName,
+      );
+      p.advLines = [
+        domestic
+          ? "感謝之至，我一定會盡力治理據點。"
+          : "感謝之至，我一定會帶回好的結果！敬請期待！",
       ];
+    } else if (mode === "adjust") {
+      p.monarchLines = await formatTalkTokens(
+        grant > 0
+          ? talkBase + (grant === requested ? 0 : grant < requested ? 1 : 3)
+          : talkBase + 2,
+        targetName,
+        "",
+        generalName,
+        `${grant}`,
+        cityName,
+      );
       p.advLines = [
         grant > 0
           ? grant < requested
             ? "是有什麼需要吧，但是無法准予全額。總之我盡量設法吧。"
-            : "感謝之至，我一定讓他成為友邦。"
-          : "嗯，如此我在那邊不就沒立場了……",
+            : domestic
+              ? "感謝之至，我一定會善加運用。"
+              : "感謝之至，我一定讓他成為友邦。"
+          : "嗯，如此便難以推進任務了……",
       ];
     } else {
-      p.monarchLines = ["是有什麼需要吧，但是無法准予撥款……"];
-      p.advLines = ["嗯，如此我在那邊不就沒立場了……"];
+      p.monarchLines = await formatTalkTokens(
+        talkBase + 2,
+        targetName,
+        "",
+        generalName,
+        "0",
+        cityName,
+      );
+      p.advLines = ["嗯，如此便難以推進任務了……"];
     }
     p.step = "envoy_budget_result";
-    this._setProposalTimer(3000, () => this._closeEnvoyBudgetAudience());
+    this._setProposalTimer(3000, () => this._closeBudgetAudience());
     this.app.view.draw();
   }
 
-  _closeEnvoyBudgetAudience() {
+  _closeBudgetAudience() {
     this.closeProposalAudience();
     this._strategicMessageActive = false;
     if (!this._strategicMessageQueue.length) this._clockHoldRequested = false;
@@ -3747,9 +4026,32 @@ export class GameBar {
     this._strategicMessageActive = true;
     this._clockHoldRequested = true;
     this.syncClock();
+    if (message.type === "incoming-diplomacy") {
+      const opened = await this._showIncomingDiplomacyRequest(message);
+      if (!opened) this._closeIncomingDiplomacy();
+      return;
+    }
+    if (message.type === "generic-talk") {
+      message.lines = await formatGenericTalkEvent(
+        message.talkIndex,
+        message.arg0,
+        this.app.scenario,
+      );
+      message.text = message.lines
+        .flat()
+        .map((token) =>
+          typeof token === "string" ? token : (token?.text ?? ""),
+        )
+        .join("");
+    }
+    if (message.type === "domestic-budget") {
+      const opened = await this._showDomesticBudgetAudience(message);
+      if (!opened) this._closeBudgetAudience();
+      return;
+    }
     if (message.type === "envoy-budget") {
       const opened = await this._showEnvoyBudgetAudience(message);
-      if (!opened) this._closeEnvoyBudgetAudience();
+      if (!opened) this._closeBudgetAudience();
       return;
     }
     const w = 480;
@@ -3777,7 +4079,7 @@ export class GameBar {
       });
     } else {
       await this.showNpcMessageDialog({
-        lines: [message.text],
+        lines: message.lines ?? [message.text],
         w,
         h,
         px,
@@ -4545,10 +4847,18 @@ export class GameBar {
         } else if (k.type === "inf") {
           if (!sc.next_conscription) sc.next_conscription = [0, 0, 0];
           sc.next_conscription[2] = k.val;
-        } else if (k.type === "envoy-budget") {
+        } else if (k.type === "envoy-budget" || k.type === "domestic-budget") {
           const amount = k.val;
           this.closeKeypadDialog();
-          this._finishEnvoyBudget(amount, "adjust");
+          void this._finishBudgetAudience(amount, "adjust");
+          return true;
+        } else if (
+          k.type === "incoming-truce" ||
+          k.type === "incoming-assistance"
+        ) {
+          const amount = k.val;
+          this.closeKeypadDialog();
+          void this._finishIncomingDiplomacy("pay", amount);
           return true;
         }
         this.closeKeypadDialog();
@@ -5262,8 +5572,40 @@ export class GameBar {
         this.app.view.draw();
         return true;
       }
+      if (this.keypadDialog) {
+        clickSfx();
+        const dialogType = this.keypadDialog.type;
+        const isBudget =
+          dialogType === "envoy-budget" || dialogType === "domestic-budget";
+        const isIncoming =
+          dialogType === "incoming-truce" ||
+          dialogType === "incoming-assistance";
+        this.closeKeypadDialog();
+        if (isBudget && this.proposalAudience?.type === dialogType) {
+          this.proposalAudience.step = "envoy_budget_choice";
+          this.app.view.draw();
+        } else if (isIncoming && this.proposalAudience?.type === dialogType) {
+          this.proposalAudience.step = "incoming_diplomacy_choice";
+          this.app.view.draw();
+        }
+        return true;
+      }
       if (this.proposalAudience) {
         clickSfx();
+        if (
+          this.proposalAudience.type === "envoy-budget" ||
+          this.proposalAudience.type === "domestic-budget"
+        ) {
+          void this._finishBudgetAudience(0, "refuse");
+          return true;
+        }
+        if (
+          this.proposalAudience.type === "incoming-truce" ||
+          this.proposalAudience.type === "incoming-assistance"
+        ) {
+          void this._finishIncomingDiplomacy("refuse");
+          return true;
+        }
         this.closeProposalAudience();
         this.selectedSubmenu = null;
         this.syncClock();
@@ -5276,16 +5618,6 @@ export class GameBar {
         this.selectedSubmenu = null;
         this.syncClock();
         this.app.view.draw();
-        return true;
-      }
-      if (this.keypadDialog) {
-        clickSfx();
-        const isEnvoyBudget = this.keypadDialog.type === "envoy-budget";
-        this.closeKeypadDialog();
-        if (isEnvoyBudget && this.proposalAudience?.type === "envoy-budget") {
-          this.proposalAudience.step = "envoy_budget_choice";
-          this.app.view.draw();
-        }
         return true;
       }
       if (this.formationQuote) {
@@ -5334,10 +5666,8 @@ export class GameBar {
       const hadFormation = Boolean(this.formationDialog);
       const hadFinance = Boolean(this.financeDialog);
       const hadKeypad = Boolean(this.keypadDialog);
-      const advDlg = document.querySelector("#advisordlg");
-      const hadAdv = advDlg && advDlg.style.display !== "none";
       const domDlgs = Array.from(document.querySelectorAll(".panel")).filter(
-        (el) => el.id && el.id !== "advisordlg" && el.style.display !== "none",
+        (el) => el.id && el.style.display !== "none",
       );
       const hadDomDlg = domDlgs.length > 0;
 
@@ -5356,12 +5686,18 @@ export class GameBar {
         hadFormation ||
         hadFinance ||
         hadKeypad ||
-        hadAdv ||
         hadDomDlg ||
         hadSelectedCity
       ) {
         clickSfx();
-        if (hadProposal) this.closeProposalAudience();
+        if (hadProposal) {
+          if (
+            this.proposalAudience?.type === "incoming-truce" ||
+            this.proposalAudience?.type === "incoming-assistance"
+          )
+            void this._finishIncomingDiplomacy("refuse");
+          else this.closeProposalAudience();
+        }
         if (hadAdviceMenu) this.closeAdviceMenu();
         if (hadLegionMenu) this.closeLegionMenu();
         if (hadOrderChoice) this.closeOrderChoiceMenu();
@@ -5376,7 +5712,6 @@ export class GameBar {
         if (hadList) this.closeListDialog();
         if (hadChoice) this.closeChoiceDialog();
         if (hadCard) this.closeCityCard();
-        if (hadAdv) this.app.hud?.resolveAdvice?.(null);
         for (const el of domDlgs) el.remove();
         this.selectedSubmenu = null; // 取消菜单上所有的被选项
         if (this.app?.view) this.app.view.selectedCity = null; // 取消据点选中状态

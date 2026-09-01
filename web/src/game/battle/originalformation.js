@@ -42,7 +42,7 @@ export function applyOriginalFormationTarget(
     sideOffsets = [0, 0],
     sideBases = [0, 0],
     baseMode = "side-base",
-    commandChanged = false,
+    clearPositionLevel = false,
   } = {},
 ) {
   const index = formationByteIndex(address, sideOffsets);
@@ -64,7 +64,8 @@ export function applyOriginalFormationTarget(
     throw new RangeError("invalid original formation base mode");
   }
 
-  if (commandChanged) pool.write8(address, ORIGINAL_OBJECT.POSITION_LEVEL, 0);
+  if (clearPositionLevel)
+    pool.write8(address, ORIGINAL_OBJECT.POSITION_LEVEL, 0);
   const targetX = clampCoordinate(baseX + dx);
   const targetY = clampCoordinate(baseY + dy);
   pool.write8(address, ORIGINAL_OBJECT.TARGET_X, targetX);

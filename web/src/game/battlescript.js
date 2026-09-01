@@ -1,4 +1,4 @@
-// BATTLE.DAT 开场脚本 VM 解释器 — 复刻 KI.EXE 执行器 0xA426/0xA436
+// BATTLE.DAT 战场持续脚本 VM — 复刻 KI.EXE 执行器 0xA426/0xA436
 //
 // 逆向定论 (docs/re-notes-kernel.md ★BATTLE.DAT 最终定论 + 2026-08-24 反汇编补全):
 //   脚本字 u16le: op=低5位(跳转表 cs:[0xA466]×19), cc/imm=次3位, 参数 ah=高8位
@@ -8,25 +8,25 @@
 //   op2  MODE      [0xD33E]= ah==0?0x3A : ah==1?0x24 : 0x10 (镜头步进模式)
 //   op3  UCMD      给单位区(ds:[0xD30E]+0x600+i*0x100)+0x1B 写命令:
 //                  ah==5→调 0xA8F6 列阵; ah==3 且 [0xAB4F]==0 →改1;
-//                  imm==7 全体6单位, 否则单兵 #imm
+//                  imm==7 全体6组长, 否则单组 #imm
 //   op4  R=[0xD346]
 //   op5  R= [0xD33C]<0x1C?0 :==?1:>2
-//   op6/7 扫描单位区 0x600/0x000 的 +0x1A 取最小值(≥4归0; 无符号字节下恒0)
-//   op8  R= 相机高位≤0x20 ? 2 : 低位
-//   op9  R= AX mod bl (0xECE0 随机源近似)
+//   op6/7 扫描单位区 0x600/0x000 六组长的 +0x1A，≥4归0后取最大值
+//   op8  R= D31B(side1Timed)<=0x20 ? 2 : D31E
+//   op9  R= 0xECE0原版随机字节除AH的余数；AH=0时除数改1
 //   op10 Jcc       子表 0xA59C: cc0=JMP,1=je,2=jne,3=jae(R>=ah),4=jbe(R<=ah);
 //                  目标字 t=[pc+1]: t&0xFF≠0→t 本身是落点指令(两条路径都到 t);
 //                  t&0xFF==0→成立则绝对跳 (t>>8)*2, 不成立跳过 t
-//   op11/12 R=min(255, [[0xD30A]+0x24 / +4])
-//   op13 SEL       按 +0x24==imm*18 选边置 bit3+[+0x1B]=ah 并调 0xA8DE
+//   op11/12 R=min(255, [[0xD30A]+0x24 / +4] 的u16总兵)
+//   op13 SEL       按0x600侧组长+0x24==imm*18匹配，置bit3/写pending并调A8DE
 //   op14 R=[0xD31D]
 //   op15 SCAN16    扫 ds:[0xC00]+i*0x20 十六条目: 无 bit0 旗标时 R=(min[+0x18]<<2)>>8
 //   op16 FLAGS     调 0xC315 画军旗 ah 次(分阶段旗帜动画)
-//   op17 R= 区内任一单位命令[+0x1B]>=9 (仍在移动)?
+//   op17 R= 仅0x600侧首组长[+0x1B]>=9
 //   op18 R=[[0xD30E]:0x600+3]
 //
-// Web 移植策略: 控制流(op0/1/2/10/16)严格复刻; 状态查询委托 io 钩子映射到
-//   web 战斗模型(编队距离/移动中判定); 结尾待机循环由调用方超时/点击结束。
+// VM只负责原始脚本字控制流；生产io直接读写OriginalBattleSession对象池、寄存器与RNG。
+// 结尾待机循环仍由调用方超时/点击结束。
 
 export class BattleScript {
   /** @param words u16 数组(128字) @param io 状态钩子集合 */
@@ -39,20 +39,17 @@ export class BattleScript {
     this.cmd = 0; // [0xD347]
     this.mode = 0x3a; // [0xD33E]
     this.done = false;
-    this.steps = 0;
   }
 
-  /** 推进一虚拟帧。返回 'run' | 'done' */
+  /** 推进一个9FA0逻辑帧。有效BATTLE.DAT块持续循环，正常只返回run。 */
   step() {
     if (this.done) return "done";
     if (this.wait > 0) {
       this.wait--;
       return "run";
     }
-    if (this.pc >= this.words.length) {
-      this.done = true;
-      return "done";
-    }
+    if (this.pc < 0 || this.pc >= this.words.length)
+      throw new RangeError("battle script PC is outside the 128-word block");
     const w = this.words[this.pc++];
     const op = w & 0x1f,
       cc = (w >> 5) & 7,
@@ -63,6 +60,7 @@ export class BattleScript {
         break;
       case 1: // CMD
         this.cmd = ah;
+        this.io.command?.(ah);
         break;
       case 2: {
         // MODE
@@ -101,13 +99,21 @@ export class BattleScript {
         this.R = this.io.scanUnits?.("other") ?? 0;
         break;
       case 8: {
-        const p = this.io.camPos?.() ?? { hi: 0xff, lo: 0 };
-        this.R = p.hi <= 0x20 ? 2 : p.lo;
+        const balance = this.io.balance?.() ?? {
+          side1Timed: 0,
+          d31e: 0,
+        };
+        this.R = balance.side1Timed <= 0x20 ? 2 : balance.d31e;
         break;
       }
       case 9: {
-        const bl = ah || 6;
-        this.R = Math.abs(Math.floor(this.io.rand?.() * 0x106)) % bl;
+        // A57A：AH=0时改为AH=1、AL=6；否则AL保留opcode字低字节。
+        let bl = ah;
+        if (bl === 0) bl = 1;
+        const random = this.io.nextRandomByte?.();
+        if (!Number.isInteger(random))
+          throw new TypeError("battle script op9 requires original RNG byte");
+        this.R = (random & 0xff) % bl;
         break;
       }
       case 10: // Jcc
@@ -137,21 +143,19 @@ export class BattleScript {
       case 18:
         this.R = this.io.unitByte?.(3) ?? 0;
         break;
-      default: // op>=19: 跳转表越界, 视为脚本终止
-        this.done = true;
-        return "done";
+      default:
+        throw new RangeError(
+          `battle script opcode ${op} is outside A466 table`,
+        );
     }
-    if (++this.steps > 4000 || this.pc >= this.words.length) this.done = true;
-    return this.done ? "done" : "run";
+    return "run";
   }
 
   /** op10 条件跳转 (0xA59C 子表语义) */
   jump(cc, ah) {
     const tIdx = this.pc; // 目标字位置
-    if (tIdx >= this.words.length) {
-      this.done = true;
-      return;
-    }
+    if (tIdx >= this.words.length)
+      throw new RangeError("battle script jump target word is outside block");
     const t = this.words[tIdx];
     const cond =
       cc === 0 ||

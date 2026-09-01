@@ -15,8 +15,8 @@
 - BATTLE.MDL 内含三个layout的0xF800图形/属性大块：偏移0x1000+layout*0xF800，
     D302指向该块，BCA6/BB3C/BBA6从其每tile 8字节描述生成高度、坡道、
     方向mask与BD46路径代价
-- BATTLE.DAT (8192B): 32 × 256B 配置块; KI.EXE 0xCBE5 以 (军团记录byte[0x4256]*4+序号)<<8
-    为偏移读取 —— 军团(0x2240区)每军种的图形/参数配置, 依赖军团区逆向(#7)
+- BATTLE.DAT (8192B): 32 × 256B持续战场脚本块；KI.EXE 0xCBE5由对手军团槽定位
+    武将记录，按`(general[+0x16]*4+战型variant)<<8`读取，交给0xA426 VM每战术帧执行
 
 输出: web/grf/battle_map_{0,1,2}.png (三种1024×1024完整布局, MDL图块集渲染)
       web/grf/battle_atlas_{mdl,sch}.png (图块集总览)
@@ -34,6 +34,7 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "web", "grf")
 def load_palette(off=16):
     p = os.path.join(os.path.dirname(__file__), "palette.json")
     try:
+        # pi-lens-ignore: python-path-traversal
         with open(p, encoding="utf-8") as f:
             pal = json.load(f)
     except OSError as e:
@@ -48,6 +49,7 @@ PAL = load_palette()
 
 def read_dat(path):
     try:
+        # pi-lens-ignore: python-path-traversal
         with open(path, "rb") as f:
             return f.read()
     except OSError as e:
@@ -162,6 +164,7 @@ def main():
     ]
     outdir = os.path.dirname(__file__)
     try:
+        # pi-lens-ignore: python-path-traversal
         with open(
             os.path.join(outdir, "..", "web", "battle_maps.json"),
             "w",
@@ -176,6 +179,7 @@ def main():
                 f,
                 ensure_ascii=False,
             )
+        # pi-lens-ignore: python-path-traversal
         with open(
             os.path.join(outdir, "..", "web", "battle_scripts.json"),
             "w",

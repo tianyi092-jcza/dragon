@@ -25,7 +25,8 @@ const rules = parseJson(
   "battle_rules.json",
 );
 const vectors = rules.formationVectors;
-assert.equal(vectors.length, 48);
+assert.equal(vectors.length, 16 * 48);
+assert.equal(rules.source.formationVectorBlockCount, 16);
 
 {
   const pool = new OriginalBattleObjectPool();
@@ -36,7 +37,7 @@ assert.equal(vectors.length, 48);
   const result = applyOriginalFormationTarget(pool, address, {
     vectors,
     sideBases: [20 | (20 << 8), 40 | (20 << 8)],
-    commandChanged: true,
+    clearPositionLevel: true,
   });
   assert.equal(result.vectorIndex, 0);
   assert.deepEqual([result.dx, result.dy], [-2, 0]);
@@ -72,16 +73,28 @@ assert.equal(vectors.length, 48);
 
 {
   const pool = new OriginalBattleObjectPool();
+  const address = originalObjectAddress(1, 0, 0);
+  const result = applyOriginalFormationTarget(pool, address, {
+    vectors,
+    sideOffsets: [0, 15 * 0x60],
+    sideBases: [0x2020, 0x2020],
+  });
+  assert.equal(result.vectorIndex, 15 * 48);
+  assert.deepEqual([result.dx, result.dy], [-2, 0]);
+}
+
+{
+  const pool = new OriginalBattleObjectPool();
   const address = originalObjectAddress(0, 5, 7);
   assert.throws(
     () =>
       applyOriginalFormationTarget(pool, address, {
         vectors,
-        sideOffsets: [2, 0],
+        sideOffsets: [16 * 0x60, 0],
         sideBases: [0x2020, 0x2020],
       }),
     /outside exported table/,
-    "nonzero selector must not wrap the exported 48-vector window",
+    "selector beyond the 16 exported CCE4 windows must fail",
   );
 }
 

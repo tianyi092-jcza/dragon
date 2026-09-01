@@ -44,14 +44,14 @@ export function tacticalGroupSurvivors(groupRecords) {
  });
 }
 
-/** 0x9F2C：把一侧仍活动的48对象按组累计到临时记录+0x0B。 */
+/** 0x9F2C：在B4B8已累计的退出幸存数上，追加仍活动的48对象。 */
 export function countOriginalPoolSurvivors(pool, temps, side) {
  if (!(temps instanceof OriginalBattleTempRecords))
   throw new TypeError("original survivor count requires temporary records");
  const counts = Array(GROUP_COUNT).fill(0);
  for (let group = 0; group < GROUP_COUNT; group++) {
   const offset = ORIGINAL_TEMP_GROUP_BASE + group * ORIGINAL_TEMP_GROUP_SIZE;
-  temps.write8(side, offset + 3, 0);
+  counts[group] = temps.read8(side, offset + 3);
   for (let slot = 0; slot < ORIGINAL_SLOTS_PER_GROUP; slot++) {
    const address = originalObjectAddress(side, group, slot);
    if (pool.read8(address, ORIGINAL_OBJECT.FLAGS) < 0x80) continue;

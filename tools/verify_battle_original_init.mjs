@@ -151,7 +151,7 @@ function side({ total, morale = 100, groups }) {
   assert.equal(pool.read8(leader, ORIGINAL_OBJECT.CLASS), 0);
   assert.equal(pool.read8(leader, ORIGINAL_OBJECT.POWER), 26);
   assert.equal(pool.read8(leader, ORIGINAL_OBJECT.HP), 70);
-  assert.equal(pool.read16(leader, ORIGINAL_OBJECT.SPATIAL_0C), 0x101);
+  assert.equal(pool.read16(leader, ORIGINAL_OBJECT.SPATIAL_0C), 0x401);
 
   const side0Group0Last = originalObjectAddress(0, 0, 7);
   assert.equal(pool.read8(side0Group0Last, ORIGINAL_OBJECT.FLAGS), 0x80);
@@ -161,7 +161,10 @@ function side({ total, morale = 100, groups }) {
 
   const side0Group1First = originalObjectAddress(0, 1, 0);
   assert.equal(pool.read8(side0Group1First, ORIGINAL_OBJECT.ANCHOR_Y), 47);
-  assert.equal(pool.read16(side0Group1First, ORIGINAL_OBJECT.SPATIAL_0C), 753);
+  assert.equal(
+    pool.read16(side0Group1First, ORIGINAL_OBJECT.SPATIAL_0C),
+    0xbc1,
+  );
   assert.equal(
     pool.read8(originalObjectAddress(0, 1, 3), ORIGINAL_OBJECT.FLAGS),
     0,

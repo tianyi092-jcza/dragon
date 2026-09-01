@@ -1,7 +1,6 @@
-// KI.EXE 原版战术命令执行器（当前闭合的高层状态部分）。
-// 玩家跳表 A7E7 与AI跳表 A82D按原始命令编号分派；AA2C阵型目标和活动
-// 子对象A7FD已接入。具体移动步进、ABD2/ABFF/AC55攻击对象生成和地图探针
-// 尚未闭合，本文件只实现已经能逐指令确认的字段写入与分派。
+// KI.EXE 原版战术命令执行器。
+// 两侧组长均走A7B7组长跳表；只有组内其余7槽走A7FD子对象跳表。
+// AA2C阵型目标与ABD2/ABFF/AC55攻击对象链由生产固定帧直接调用。
 
 import {
   ORIGINAL_GROUP_COUNT,
@@ -18,11 +17,11 @@ import { selectOriginalTarget } from "./originaltargeting.js";
 import { applyOriginalFormationTarget } from "./originalformation.js";
 import { executeOriginalAttackByClass } from "./originalattack.js";
 
-export const ORIGINAL_PLAYER_COMMAND_ENTRY = Object.freeze([
+export const ORIGINAL_LEADER_COMMAND_ENTRY = Object.freeze([
   0xa92e, 0xa953, 0xa96d, 0xa988, 0xa99c, 0xa9d0, 0xab39, 0xaa2c, 0xa7e6,
 ]);
 
-export const ORIGINAL_AI_COMMAND_ENTRY = Object.freeze([
+export const ORIGINAL_CHILD_COMMAND_ENTRY = Object.freeze([
   0xaa2c, 0xab9c, 0xab7c, 0xab39, 0xabb2, 0xaaed, 0xab39, 0xa82c, 0xa82c,
 ]);
 
@@ -30,17 +29,13 @@ function setPending(pool, address, command) {
   pool.write8(address, ORIGINAL_OBJECT.PENDING_COMMAND, command);
 }
 
-function setTargetToAnchor(pool, address) {
-  pool.write8(
+function callOriginalRefreshHandler(pool, address, handler) {
+  // A8CC只处理0侧；0x600侧直接返回。
+  if (address >= ORIGINAL_SIDE_SIZE) return;
+  handler?.({
     address,
-    ORIGINAL_OBJECT.TARGET_X,
-    pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X),
-  );
-  pool.write8(
-    address,
-    ORIGINAL_OBJECT.TARGET_Y,
-    pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y),
-  );
+    command: pool.read8(address, ORIGINAL_OBJECT.CURRENT_COMMAND),
+  });
 }
 
 function dispatchAttackClass(pool, address) {
@@ -50,26 +45,48 @@ function dispatchAttackClass(pool, address) {
   return "class-high";
 }
 
-/** A92E中可独立确认的到达状态；AI命令0的AA2C目标由originalformation计算。 */
-function updateMoveArrival(pool, address, changed) {
-  if (changed) pool.write8(address, ORIGINAL_OBJECT.POSITION_LEVEL, 0);
-  const targetX = pool.read8(address, ORIGINAL_OBJECT.TARGET_X);
-  const targetY = pool.read8(address, ORIGINAL_OBJECT.TARGET_Y);
-  const anchorX = pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X);
-  const anchorY = pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y);
-  const arrived = targetX === anchorX && targetY === anchorY;
-  if (arrived) pool.write8(address, ORIGINAL_OBJECT.STATUS_TIME, 0x80);
-  return { arrived };
+function applySideFormationTarget(
+  pool,
+  address,
+  formation,
+  clearPositionLevel,
+) {
+  if (!formation) return null;
+  return applyOriginalFormationTarget(pool, address, {
+    ...formation,
+    baseMode: "side-base",
+    clearPositionLevel,
+  });
 }
 
-function executeCommand3(pool, address, changed) {
+function executeAttack(pool, address, command, attackContext, handlers) {
+  const route = dispatchAttackClass(pool, address);
+  const attack = attackContext
+    ? executeOriginalAttackByClass(pool, address, attackContext)
+    : { route };
+  handlers.attack?.({ address, command, route, attack });
+  return attack;
+}
+
+/** AB39：特殊高层目标立即转AB7C；普通切换帧只重设目标点。 */
+function executeCommand3(
+  pool,
+  address,
+  changed,
+  command,
+  attackContext,
+  handlers,
+) {
   const flags = pool.read8(address, ORIGINAL_OBJECT.FLAGS);
   if (
     (flags & 0x02) !== 0 &&
     pool.read8(address, ORIGINAL_OBJECT.HEIGHT) !== 0
   ) {
     setPending(pool, address, 6);
-    return { route: dispatchAttackClass(pool, address), pending: 6 };
+    return {
+      ...executeAttack(pool, address, command, attackContext, handlers),
+      pending: 6,
+    };
   }
   if (changed) {
     const targetX = 0x1f;
@@ -80,12 +97,14 @@ function executeCommand3(pool, address, changed) {
     pool.write8(address, ORIGINAL_OBJECT.TARGET_X, targetX);
     pool.write8(address, ORIGINAL_OBJECT.TARGET_Y, targetY);
   }
-  return { route: dispatchAttackClass(pool, address), pending: null };
+  handlers.move?.({ address, command });
+  return { route: "move", pending: null };
 }
 
-function executeFormation(pool, address, currentBefore, pending) {
+/** AAED：首次进入命令5时把进入前命令保存到pending，并移动到本侧边缘。 */
+function executeFormation(pool, address, currentBefore) {
   if (currentBefore !== 5) {
-    setPending(pool, address, pending);
+    setPending(pool, address, currentBefore);
     pool.write8(address, ORIGINAL_OBJECT.CURRENT_COMMAND, 5);
     const edge = address < ORIGINAL_SIDE_SIZE ? 1 : 0x3e;
     const y = Math.max(
@@ -106,119 +125,108 @@ function executeFormation(pool, address, currentBefore, pending) {
   };
 }
 
-function executeOriginalCommand(
+function executeLeaderCommand(
   pool,
   address,
   command,
-  {
-    currentBefore,
-    pending,
-    changed,
-    player,
-    handlers,
-    formation,
-    attackContext,
-  },
+  { currentBefore, pending, changed, handlers, formation, attackContext },
 ) {
   switch (command) {
     case 0: {
-      if (player && changed) {
+      if (changed) {
         broadcastOriginalGroupCommand(pool, address, 0);
-        handlers.refresh?.({ address, command: 0 });
+        callOriginalRefreshHandler(pool, address, handlers.refresh);
       }
-      let formationTarget = null;
-      if (player) {
-        if (changed) setTargetToAnchor(pool, address);
-      } else {
-        formationTarget = applyOriginalFormationTarget(pool, address, {
-          ...(formation ?? {}),
-          commandChanged: changed,
-        });
-      }
-      const arrived =
+      const arrivedBefore =
         pool.read8(address, ORIGINAL_OBJECT.TARGET_X) ===
           pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X) &&
         pool.read8(address, ORIGINAL_OBJECT.TARGET_Y) ===
           pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y);
-      if (player && arrived) {
+      if (arrivedBefore) {
         pool.write8(address, ORIGINAL_OBJECT.PENDING_COMMAND, 7);
         pool.write8(address, ORIGINAL_OBJECT.CURRENT_COMMAND, 7);
       }
+      // A92E在进入AA2C前把AX改为target word；targetX!=targetY时清+0x12。
+      const formationTarget = applySideFormationTarget(
+        pool,
+        address,
+        formation,
+        pool.read8(address, ORIGINAL_OBJECT.TARGET_X) !==
+          pool.read8(address, ORIGINAL_OBJECT.TARGET_Y),
+      );
       handlers.move?.({ address, command: 0, formationTarget });
-      return {
-        route: "move",
-        formationTarget,
-        ...updateMoveArrival(pool, address, changed),
-      };
+      return { route: "move", formationTarget, arrivedBefore };
     }
     case 1: {
-      if (player && changed) {
+      if (changed) {
         broadcastOriginalGroupCommand(pool, address, 1);
-        handlers.refresh?.({ address, command: 1 });
+        callOriginalRefreshHandler(pool, address, handlers.refresh);
       }
-      const route =
-        pool.read8(address, ORIGINAL_OBJECT.CLASS) === 0
-          ? "move"
-          : dispatchAttackClass(pool, address);
-      if (route === "move") {
-        handlers.move?.({ address, command: 1 });
-        return { route };
-      }
-      const attack = attackContext
-        ? executeOriginalAttackByClass(pool, address, attackContext)
-        : { route };
-      handlers.attack?.({ address, command: 1, route, attack });
-      return attack;
+      if (pool.read8(address, ORIGINAL_OBJECT.CLASS) !== 0)
+        return executeAttack(pool, address, 1, attackContext, handlers);
+      const formationTarget = applySideFormationTarget(
+        pool,
+        address,
+        formation,
+        false,
+      );
+      handlers.move?.({ address, command: 1, formationTarget });
+      return { route: "move", formationTarget };
     }
     case 2: {
-      if (player && changed) {
+      if (changed) {
         broadcastOriginalGroupCommand(pool, address, 2);
-        handlers.refresh?.({ address, command: 2 });
+        callOriginalRefreshHandler(pool, address, handlers.refresh);
+        handlers.wallSweep?.({ address, command: 2 });
       }
-      if (player) handlers.wallSweep?.({ address, command: 2 });
       if (pool.read8(address, ORIGINAL_OBJECT.STATUS_TIME) >= 0x28)
         pool.write8(address, ORIGINAL_OBJECT.STATUS_TIME, 0x28);
-      const route = dispatchAttackClass(pool, address);
-      const attack = attackContext
-        ? executeOriginalAttackByClass(pool, address, attackContext)
-        : { route };
-      handlers.attack?.({ address, command: 2, route, attack });
-      return { ...attack, wallScan: player };
+      return {
+        ...executeAttack(pool, address, 2, attackContext, handlers),
+        wallScan: true,
+      };
     }
     case 3:
     case 6:
-      if (player && changed) broadcastOriginalGroupCommand(pool, address, 3);
-      return executeCommand3(pool, address, changed);
-    case 4: {
-      let distance = null;
-      if (player) {
-        const targetAddress = pool.read16(
-          address,
-          ORIGINAL_OBJECT.TARGET_POINTER,
-        );
-        const dx = Math.abs(
-          pool.read8(targetAddress, ORIGINAL_OBJECT.ANCHOR_X) -
-            pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X),
-        );
-        const dy = Math.abs(
-          pool.read8(targetAddress, ORIGINAL_OBJECT.ANCHOR_Y) -
-            pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y),
-        );
-        distance = dx + dy;
-        broadcastOriginalGroupCommand(pool, address, distance <= 0x10 ? 4 : 0);
-      } else if (pool.read8(address, ORIGINAL_OBJECT.STATUS_TIME) < 0x10) {
-        setPending(pool, address, 0);
+      if (command === 3 && changed) {
+        broadcastOriginalGroupCommand(pool, address, 3);
+        callOriginalRefreshHandler(pool, address, handlers.refresh);
       }
-      handlers.move?.({ address, command: 4, distance });
-      const route = dispatchAttackClass(pool, address);
-      const attack = attackContext
-        ? executeOriginalAttackByClass(pool, address, attackContext)
-        : { route };
-      handlers.attack?.({ address, command: 4, route, attack });
-      return { ...attack, distance };
+      return executeCommand3(
+        pool,
+        address,
+        changed,
+        command,
+        attackContext,
+        handlers,
+      );
+    case 4: {
+      if (changed) callOriginalRefreshHandler(pool, address, handlers.refresh);
+      const targetAddress = pool.read16(
+        address,
+        ORIGINAL_OBJECT.TARGET_POINTER,
+      );
+      const dx = Math.abs(
+        pool.read8(targetAddress, ORIGINAL_OBJECT.ANCHOR_X) -
+          pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X),
+      );
+      const dy = Math.abs(
+        pool.read8(targetAddress, ORIGINAL_OBJECT.ANCHOR_Y) -
+          pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y),
+      );
+      const distance = dx + dy;
+      broadcastOriginalGroupCommand(pool, address, distance <= 0x10 ? 4 : 0);
+      const formationTarget = applySideFormationTarget(
+        pool,
+        address,
+        formation,
+        changed,
+      );
+      handlers.move?.({ address, command: 4, distance, formationTarget });
+      return { route: "move", distance, formationTarget };
     }
     case 5:
-      if (player) {
+      if (currentBefore !== 5) {
         for (let slot = 1; slot < 8; slot++) {
           const child = address + slot * 0x20;
           pool.write8(
@@ -229,30 +237,98 @@ function executeOriginalCommand(
           if (pool.read8(child, ORIGINAL_OBJECT.CURRENT_COMMAND) !== pending)
             setPending(pool, child, pending);
         }
+        callOriginalRefreshHandler(pool, address, handlers.refresh);
       }
       handlers.formationMove?.({ address, command: 5, pending });
-      return {
-        route: "formation",
-        ...executeFormation(pool, address, currentBefore, pending),
-      };
+      {
+        const formationResult = executeFormation(pool, address, currentBefore);
+        if (formationResult.atEdge)
+          handlers.formationExit?.({
+            address,
+            command: 5,
+            ...formationResult,
+          });
+        return { route: "formation", ...formationResult };
+      }
+    case 7: {
+      const formationTarget = applySideFormationTarget(
+        pool,
+        address,
+        formation,
+        changed,
+      );
+      handlers.move?.({ address, command: 7, formationTarget });
+      return { route: "move", formationTarget };
+    }
+    case 8:
+      return { route: "idle" };
+    default:
+      throw new RangeError("original leader command must be 0..8");
+  }
+}
+
+function executeChildCommand(
+  pool,
+  address,
+  command,
+  { currentBefore, changed, handlers, formation, attackContext },
+) {
+  switch (command) {
+    case 0: {
+      const formationTarget = applySideFormationTarget(
+        pool,
+        address,
+        formation,
+        changed,
+      );
+      handlers.move?.({ address, command: 0, formationTarget });
+      return { route: "move", formationTarget };
+    }
+    case 1:
+      return executeAttack(pool, address, command, attackContext, handlers);
+    case 2:
+      if (pool.read8(address, ORIGINAL_OBJECT.STATUS_TIME) >= 0x28)
+        pool.write8(address, ORIGINAL_OBJECT.STATUS_TIME, 0x28);
+      return executeAttack(pool, address, command, attackContext, handlers);
+    case 3:
+    case 6:
+      return executeCommand3(
+        pool,
+        address,
+        changed,
+        command,
+        attackContext,
+        handlers,
+      );
+    case 4:
+      if (pool.read8(address, ORIGINAL_OBJECT.STATUS_TIME) < 0x10)
+        setPending(pool, address, 0);
+      return executeAttack(pool, address, 4, attackContext, handlers);
+    case 5:
+      handlers.formationMove?.({ address, command: 5 });
+      {
+        const formationResult = executeFormation(pool, address, currentBefore);
+        if (formationResult.atEdge)
+          handlers.formationExit?.({
+            address,
+            command: 5,
+            ...formationResult,
+          });
+        return { route: "formation", ...formationResult };
+      }
     case 7:
     case 8:
       return { route: "idle" };
     default:
-      return { route: "unsupported" };
+      throw new RangeError("original child command must be 0..8");
   }
 }
 
-/** A7B7：组长选择目标、切换命令并按玩家/AI跳表分派。 */
+/** A7B7：两侧活动组长都走同一组长命令跳表。 */
 export function executeOriginalGroupLeader(
   pool,
   address,
-  {
-    player = false,
-    handlers = {},
-    formation = null,
-    attackContext = null,
-  } = {},
+  { handlers = {}, formation = null, attackContext = null } = {},
 ) {
   const parts = originalAddressParts(address);
   if (parts.slot !== 0)
@@ -261,7 +337,7 @@ export function executeOriginalGroupLeader(
   const currentBefore = pool.read8(address, ORIGINAL_OBJECT.CURRENT_COMMAND);
   const pending = pool.read8(address, ORIGINAL_OBJECT.PENDING_COMMAND);
   const transition = applyOriginalPendingCommand(pool, address);
-  const action = executeOriginalCommand(
+  const action = executeLeaderCommand(
     pool,
     address,
     transition.dispatchCommand,
@@ -269,7 +345,6 @@ export function executeOriginalGroupLeader(
       currentBefore,
       pending,
       changed: transition.changed,
-      player,
       handlers,
       formation,
       attackContext,
@@ -286,7 +361,7 @@ export function executeOriginalGroupLeader(
   };
 }
 
-/** A7FD：活动子对象选择目标、切换命令并只走AI跳表。 */
+/** A7FD：活动子对象走独立子对象命令跳表。 */
 export function executeOriginalChild(
   pool,
   address,
@@ -297,17 +372,14 @@ export function executeOriginalChild(
     throw new RangeError("original child executor requires a child slot");
   const target = selectOriginalTarget(pool, address);
   const currentBefore = pool.read8(address, ORIGINAL_OBJECT.CURRENT_COMMAND);
-  const pending = pool.read8(address, ORIGINAL_OBJECT.PENDING_COMMAND);
   const transition = applyOriginalPendingCommand(pool, address);
-  const action = executeOriginalCommand(
+  const action = executeChildCommand(
     pool,
     address,
     transition.dispatchCommand,
     {
       currentBefore,
-      pending,
       changed: transition.changed,
-      player: false,
       handlers,
       formation,
       attackContext,
@@ -334,20 +406,13 @@ export function parkOriginalInactiveGroup(pool, side, group) {
   }
 }
 
-/**
- * A754/A785的组级骨架：按组序处理组长和7子槽。保留给旧调用者；正式固定帧
- * 遍历位于originalframe.js并直接调用executeOriginalChild。
- */
-export function executeOriginalSide(
-  pool,
-  side,
-  { player = false, updateChild = null } = {},
-) {
+/** A754/A785的组级骨架；正式固定帧遍历位于originalframe.js。 */
+export function executeOriginalSide(pool, side, { updateChild = null } = {}) {
   const results = [];
   for (let group = 0; group < ORIGINAL_GROUP_COUNT; group++) {
     const leader = originalObjectAddress(side, group, 0);
     if (pool.isActive(leader))
-      results.push(executeOriginalGroupLeader(pool, leader, { player }));
+      results.push(executeOriginalGroupLeader(pool, leader));
     else parkOriginalInactiveGroup(pool, side, group);
     for (let slot = 1; slot < 8; slot++) {
       const address = originalObjectAddress(side, group, slot);

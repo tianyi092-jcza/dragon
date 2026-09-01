@@ -4,8 +4,10 @@ import { readFile } from "node:fs/promises";
 import {
   declareWar,
   increaseRelation,
+  factionStrategicPower,
   relationLabel,
   runStrategicDiplomacy,
+  shouldDeclareStrategicWar,
 } from "../web/src/game/diplomacy.js";
 import {
   completePlayerWarDeclaration,
@@ -30,15 +32,70 @@ assert.equal(scenario.diplomacy[13][0], 0xaa);
 const queued = initializeStrategicDiplomacy({ scenario });
 assert.equal(relationLabel(scenario.diplomacy[0][13]), "險惡");
 assert.equal(relationLabel(scenario.diplomacy[13][0]), "險惡");
-assert.ok(
-  queued.some((event) => event.aggressor === 13 && event.defender === 0),
-  "第一章吕布应把玩家曹操作为 type-1 宣战候选",
+assert.deepEqual(queued, [
+  { type: 1, aggressor: 1, defender: 10 },
+  { type: 1, aggressor: 11, defender: 14 },
+]);
+assert.equal(
+  scenario.strategicEventSlots.filter((event) => event?.type === 1).length,
+  2,
+  "funds>>8 gate removes the formerly over-permissive Lu Bu declaration",
 );
-assert.ok(
-  scenario.pendingStrategicEvents.some(
-    (event) =>
-      event.aggressor === 13 && event.defender === 0 && event.delay === 7,
+assert.equal(
+  scenario._strategicEventDivider,
+  7,
+  "0x2BD9后首个事件槽应等待7次0x3E11调度",
+);
+
+const thresholdScenario = {
+  factions: [
+    {
+      idx: 0,
+      active: true,
+      attr: 0x80,
+      money: 0x6400,
+      n_cities: 1,
+      reserve_cav: 2000,
+      reserve_arc: 2000,
+      reserve_inf: 2000,
+      bellicosity: 0,
+      target_faction: null,
+    },
+    {
+      idx: 1,
+      active: true,
+      attr: 0x80,
+      money: 0x6400,
+      n_cities: 1,
+      reserve_cav: 1000,
+      reserve_arc: 1000,
+      reserve_inf: 1000,
+    },
+  ],
+  diplomacy: [
+    [0xff, 0x80],
+    [0x80, 0xff],
+  ],
+};
+assert.equal(factionStrategicPower(thresholdScenario.factions[0]), 2000);
+assert.equal(
+  shouldDeclareStrategicWar(
+    thresholdScenario,
+    thresholdScenario.factions[0],
+    1,
   ),
+  true,
+  "0x6400 funds gives faction+0x21 word 100 (arithmetic >>8)",
+);
+thresholdScenario.factions[0].money = 0x5000;
+assert.equal(
+  shouldDeclareStrategicWar(
+    thresholdScenario,
+    thresholdScenario.factions[0],
+    1,
+  ),
+  false,
+  "resource threshold uses signed funds>>8 rather than /100",
 );
 
 const relationFixture = {

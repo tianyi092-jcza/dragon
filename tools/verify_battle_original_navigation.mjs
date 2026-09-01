@@ -79,14 +79,60 @@ for (let layout = 0; layout < 3; layout++) {
     current: 0x0202,
     target: 0x0203,
     layer: 0,
-    targetLayer: 1,
     mask: 0x74,
-    endpointPolicy: 1,
+    endpointPolicy: 0,
   });
   assert.equal(path.carry, false);
   assert.equal(path.words.length, 3);
   assert.equal(path.words[0] & 0xff, 0x80, "first word is a layer transition");
   assert.deepEqual(path.words.slice(1), [0x0202, 0x0203]);
+}
+
+// BD96..BDBE endpoint plane choice: policy0/mask74 prefers the upper plane
+// when target center/right/left has any cardinal connection; otherwise low plane.
+{
+  const navigation = new Uint8Array(ORIGINAL_NAV_COST_BASE + 0x1000);
+  const start = 3 * 0x40 + 1;
+  const target = 3 * 0x40 + 3;
+  navigation[start] = 0x20 | 1;
+  navigation[start + 1] = 0x10 | 0x20 | 1;
+  navigation[target] = 0x10 | 1;
+  navigation[target + 0x1000] = 0;
+  const low = buildOriginalPath(navigation, {
+    current: 0x0301,
+    target: 0x0303,
+    layer: 0,
+    mask: 0x74,
+    endpointPolicy: 0,
+  });
+  assert.equal(low.carry, false);
+  assert.deepEqual(low.words, [0x0302, 0x0303]);
+
+  navigation[start] = 8 | 1;
+  navigation[start + 0x1000] = 8 | 0x20 | 5;
+  navigation[start + 1 + 0x1000] = 0x10 | 0x20 | 5;
+  navigation[target + 0x1000] = 0x10 | 5;
+  const high = buildOriginalPath(navigation, {
+    current: 0x0301,
+    target: 0x0303,
+    layer: 0,
+    mask: 0x74,
+    endpointPolicy: 0,
+  });
+  assert.equal(high.carry, false);
+  assert.equal(high.words[0] & 0xff, 0x80);
+}
+
+{
+  const navigation = new Uint8Array(ORIGINAL_NAV_COST_BASE + 0x1000);
+  const none = buildOriginalPath(navigation, {
+    current: 0x0401,
+    target: 0x0403,
+    layer: 0,
+    mask: 0x74,
+    endpointPolicy: 0,
+  });
+  assert.deepEqual(none, { carry: true, words: [], reason: "endpoint" });
 }
 
 process.stdout.write(

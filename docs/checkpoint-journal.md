@@ -1,223 +1,190 @@
 # 卧龙传 Web 复刻 · Checkpoint Journal
 
-> 记录最近一轮会话的详细进展、调试过程、失败尝试、相关文件、当前阻塞和下一步。
-> 长期项目事实、架构、命令和约定见 `../AGENTS.md`；稳定逆向证据见 `re-notes-*.md` 与 `E:/Dragon/.agents/skills/`。
+> 本文只记录最近一轮会话的详细进展、调试过程、失败尝试、相关文件、当前阻塞和下一步。
+> 长期项目事实、架构、命令和约定见 `../AGENTS.md`；稳定逆向证据与公式见 `re-notes-*.md` 和 `E:/Dragon/.agents/skills/`。
 
-## 会话日期与目标
+## 1. 会话目标与结果
 
-- 日期：2026-08-31
-- 基线提交：`a9ec763 feat: restore legion upkeep and capital replenishment`
-- 用户目标：从最初11项战略/战斗问题扩展为“全面逆向原游戏 AI”，所有结论必须来自 KI.EXE、数据或资源，并标注地址、字段、RNG、扫描顺序及实锤/推断/未知。
-- 本轮实际范围：闭合并落实 **战略调度、NPC边境军事反应、宣战消息、道路接敌、战略速算入口、战败撤退、破城与灭亡通知**。没有宣称完整 NPC 自主经营 AI 或完整战术逐帧 AI 已完成。
+- 日期：2026-08-31 至 2026-09-01。
+- 基线：`a9ec763 feat: restore legion upkeep and capital replenishment`。
+- 用户目标：全面逆向并正确实现原版NPC势力级AI、战略事件和战术六队逐帧规则；结论必须来自KI.EXE、原始数据或资源。
+- 范围澄清：要求复刻 **AI与玩法规则**，不要求DOS硬件、低分辨率或逐像素动画。Web可使用高分辨率和近似动画，但表现不能改变规则帧、RNG、决策和战果。
+- 结果：战略调度/事件轮、NPC军事反应、外交、行军接敌、战略速算、战后链和战术固定帧规则已闭合到现有静态证据；旧随机平行系统已删除。durable goal已完成并通过验证审计。
 
-## 一、主要逆向结论
+## 2. 本轮主要实现
 
-### 1. 战略主循环与调度
+### 2.1 战略调度、事件和NPC AI
 
-- `0x1D0B` 固定顺序：
-  1. `0x3EFD`：一个据点槽；
-  2. `0x25A3`：16个军团槽；
-  3. `0x2459`；
-  4. `0x1D8E`：日历/时刻进位。
-- `CF2` 当前值 `<8` 时只自增；达到8时进位。因此从0起共9次主更新进入下一游戏时刻。
-- `0x1DEC` 仅在时刻进位时调用 `0x3E11`；每次轮转一个势力槽。旧笔记“每主更新调用”以及地址 `0x1E04` 均已修正。
-- 128军团槽每8次主更新扫完；192据点槽约每日扫完。接敌11次槽调度约10游戏小时；48回归约42.7游戏小时。
+- 闭合 `0x3E11`：每时刻轮转一个势力，顺序为事件泵、财政危机门控、预备兵维护累计、外交官维护；确认它不是完整目标选择AI。
+- 实现256×4B战略事件轮：4页×64槽，首槽7次、后续10次调度，空槽也消费，月结前移一页；加入存档恢复和旧队列迁移。
+- 闭合type1..13的现存处理语义和已证生产者：宣战、协同、停战、内政/外交预算、玩家停战/请援、迁都、武将原属回归、SAVE通用TALK、灾害及负资金信赖事件。
+- type10确认无KI直接生产者，只兼容DOS SAVE尾段已有事件。
+- 修正财政门控为 `nCities*8+24` 对 signed `funds>>8`；预备兵维护按每次势力轮询累计，而非固定周期估算。
+- 闭合 `0x4325` 军团状态机、势力`+0x16/+0x17`一次性目标槽、状态8/9/10/11及财政bit6门控。
+- 实现边境弱城请求、首都选将、真实兵池六队编成、增援/出击、道路接敌、战略速算、占城、撤退和灭亡闭环。
+- 闭合 `0x4FCE` 武将三分支，删除按城数随机改投和按月俘虏复活链。
+- 修复reviewer发现的三项战略回归：
+  - type4内政预算不再在月结预扣；
+  - 主动宣战资源门控统一为signed资金`>>8`；
+  - type12灾害地图对象容量由16改为原版32。
 
-### 2. NPC边境反应与编成
+### 2.2 战术规则与BATTLE.DAT
 
-- `0x3EFD→0x3F74→0x3FA9` 按 `city.raw[0x1C..0x1F]` 原始四邻顺序检查战略目标势力。
-- 邻城候选写入运行态强度 `+1`（`0x4013..0x4019`）；弱城请求数为 `threatTotal+2-localStrength`。
-- 玩家空虚边城走 `0x40C9`：通用NPC TALK38，冷却 `(rng&0x0F)+0x18`，即24..39次本城轮询。
-- AI边城走 `0x4575→0x45C1→0x6E8F`：
-  - 首都生成新军；
-  - 选择最高武力待命武将，同值低索引；
-  - 六队候选顺序：`[骑弓步, 骑弓步, 弓骑步, 弓骑步, 步弓骑, 步弓骑]`；
-  - 每个候选池至少50，任一队失败则整次编成失败；
-  - 实际每队补至最多100并真实消耗预备池；
-  - 新军目标为请求增援的己方边境城。
-- 官方第一章 fixture：吕布势力首都79、边境城76，宣战后可由首都编成并增援城76。
-- `city[+0x18]` 的完整产品语义仍未知；当前 Web 用同城有效军团数映射强度，文档已标为推断。
+- 纠正核心架构：BATTLE.DAT `A426` 是全战斗持续脚本，不是可跳过开场cutscene。
+- 每个固定帧改为：**就绪玩家输入/按钮 → A426 → 同一Session的A065**。删除点击跳过、40秒超时和4000指令上限。
+- `OriginalBattleSession`增加就绪命令阶段；测试证明玩家命令在同帧A426前写入，A065随后观察到状态。
+- 实现 `A1C5` 启动链：所有模式固定50个A065预帧；mode1加入A2E8/A34F评分、RNG、等待、单挑、重定位和脚本跳过。
+- 全部32个BATTLE.DAT脚本块经过10,000帧持续循环测试；非法PC、opcode和跳转改为明确错误。
+- 补齐固定帧顺序、对象生命周期和规则字段：
+  - A754/A785对象命令 → B941效果 → ADC8；
+  - B413补入未展开兵，B4B8撤退退出并累计幸存；
+  - B240同步占用及前一X/Y/层/高度；
+  - D348/A12A帧入口状态；
+  - CBE5读取对手武将`general[+0x16]`；
+  - B7CB按D35玩家对象侧门控；
+  - op16按AH次数投影C315，op17只读0x600首组长。
+- 删除 `originalcommands-exec.js` 重复执行器，保留 `originalexecutor.js` 为唯一生产实现。
 
-### 3. 宣战消息
+### 2.3 删除平行近似系统
 
-- AI→玩家：`0xCE7` 警告 → 通用NPC TALK63 → AI君主 TALK478..480。
-- 玩家主动宣战：玩家君主 TALK486..488。
-- 战略消息改为 FIFO；最终君主对白关闭后才提交 `target_faction` 与敌对关系，避免对白尚未完成就提前开战。
-- 消息 `onClose` 增加 once guard，右键与自动关闭不能重复提交。
+- 删除 `web/src/game/battle/simulation.js` 及五个只验证随机伤害、兵种克制和超时判胜的legacy测试。
+- 新增 `web/src/game/battle/battleprojection.js`，仅负责零RNG、只读的地图/武将/六队Canvas DTO。
+- 将 `battlewalls.js` 缩减为只读城壁矩形投影；城壁权威状态只来自Session地图对象池。
+- 删除战场空白点击产生的legacy `unit.order` 任意坐标移动。
+- 删除旧随机“诚实/劣质建议”、百分比外交和隐藏DOM旁路：移除 `audience.js`、`diploview.js` 及相关入口；进言统一走GameBar已逆向流程。
+- 战略据点、月结和野战地形生产入口删除 `Math.random` 回退，强制使用canonical `OriginalBattleRng`。`web/src`中仅单实例ID生成仍使用非玩法随机。
 
-### 4. 接敌、速算与闪动
+## 3. 关键调试与勘误
 
-- `0x2708` 提交下一道路点前按军团槽序查敌；发现异势力军团后停止原位。
-- 接敌状态初值12，并在同轮减为11；逐次该槽调度重检目标，倒计时结束后进入战斗。
-- NPC-NPC、委任军团和临时城防走战略速算；玩家直属军团进入战术层。
-- `0x5130` 速算实锤：平手攻方胜，六队交错消耗12次原版字节 RNG，胜败方伤亡及士气按原公式回写。
-- 小地图只读取 `addMiniBattleFlash()` 显式队列；普通 `legion.target` 不再提前响/闪。闪动1500ms后清理。
-- YNSOUND ID3 已闭合到 SOUND.DAT 记录3→13→0及PIT分频256（约4.66kHz）；芯片/PCM仍未知，Web音色不得称为复刻。
+1. **`0x3E11`调用频率误判**
+   - reviewer曾分别判断为每日调用或`CF2=0..7`。
+   - 重反汇编 `0x1D0B..0x1E16` 后确认 `CF2=0..8`，`0x3E11`位于时刻进位分支`0x1DEC`。
 
-### 5. 战败撤退与灭亡
+2. **城与军团处理顺序**
+   - 初版先补员后处理据点，导致首都军团抢先消耗兵池并压制边境编成。
+   - 改为一个据点槽先于同轮16个军团槽。
 
-- `0x474A/0x487B`：败方若可继续，最终目标固定为本势力首都，不是最近己城。
-- 道路中战败必须在清导航前保存当前边、点序和方向；端点按原版 `edge+8` 后 `edge+6` 优先级。
-- 撤退后续路径只允许经过己方据点；交战中的敌城同样阻断。
-- 破城链确认：`0x4CF3→0x4DF0→0x4DA4→0x4FCE`。必须先处理同城守军组，再执行最后一城灭亡。
-- `0x4FCE` 已定位为按武将索引0..126扫描并进入三类分支，但自尽/俘获/流散条件未完全闭合。本轮删除了未经证据支持的近似武将去向，只保留势力失活、TALK36、目标清理与玩家game over。
+3. **灭亡武将无证近似**
+   - 初版按君主/俘虏标志猜测去向，且调用顺序早于同城守军处理。
+   - 重反汇编 `0x4CF3..0x511F` 后删除近似，恢复破城→迁都→守军组→灭亡顺序，并闭合三分支。
 
-## 二、实现与相关文件
+4. **宣战提交过早**
+   - 初版消息入队后立即改外交状态。
+   - 改为最后一条君主对白关闭后提交，并给`onClose`加once guard。
+
+5. **BATTLE.DAT被误作开场动画**
+   - 初版VM仅在开场期间运行，用户点击或超时会销毁，A426与A065不交错。
+   - 静态主循环证明A426每帧持续执行，遂重构为固定帧调度器；这也是本轮最大架构修正。
+
+6. **B7CB侧别命名误导**
+   - reviewer指出当前“守城侧”解释与命令路径冲突。
+   - 直接反汇编B7CB确认门控条件是SI侧与`D35&0x80`匹配；结合对象0固定玩家军团，文档和实现改称“玩家对象侧”。
+
+7. **C315/op16边界**
+   - reviewer认为op16只改presentation flag，未实现副作用。
+   - 重反汇编A69F和C315确认其为按AH次数绘制战术旗帜，不改变规则对象；Canvas按调用次数投影即可。
+
+8. **遗留随机战术回退**
+   - product facade仍可进入legacy `Math.random`模拟器，部分旧测试还把它当规则。
+   - 先禁止回退，再迁移/删除只验证legacy规则的测试，最后删除整个simulation模块。
+
+9. **工具与审查问题**
+   - 一次从错误目录运行测试导致模块路径不存在，切回 `E:/Dragon/web-port` 后通过。
+   - 一次全面reviewer运行15分钟超时；随后缩小为关键点只读复审并获得可操作结论。
+   - Playwright冒烟仅见 `favicon.ico` 404，非业务错误。
+
+## 4. 主要相关文件
 
 ### 产品代码
 
-- `web/src/game/clock.js`
-  - 增加 `onStrategicTick/onHour`；实现9主更新/时刻和战斗 hold 后的 pending calendar advance。
-  - 注释统一为 `CF2=0..8`；速度仅作为Web墙钟表现。
-- `web/src/main.js`
-  - 每主更新按游标调用一个据点槽和16个军团槽；每时刻调用 `0x3E11` 对应入口。
-  - 初始化/恢复 `_cityTickCursor`、`_legionBatchCursor`、外交游标和时钟子刻度。
-- `web/src/game/ai.js`
-  - 移除“NPC无军团就自动生成君主军团”的无证逻辑。
-  - 接入逐城边境扫描、AI编成、单城 `0x4194/0x4269`、16槽军团处理和延迟回归。
-  - 修正主循环顺序为城先于军团，避免首都补员抢先消耗编成兵池。
-  - 修正邻城强度 `+1`、撤退己方城市约束、占城后停止旧命令。
-  - 增加宣战关闭回调、道路上下文快照、即时灭亡通知；删除未知灭亡武将近似分派。
-- `web/src/game/savegame.js`
-  - 快照守卫加入待补战略进位。
-  - sidecar 保存延迟回归、事件队列、RNG及三个调度游标。
-- `web/src/game/world.js`
-  - 新局显式清除战略调度游标。
-- `web/src/ui/gamebar.js`
-  - 修正空据点命令菜单 hover/hit-test 优先级。
-  - 战略消息支持 once `onClose`；普通行军目标不再进入闪动队列。
+- 战略：
+  - `web/src/game/ai.js`
+  - `web/src/game/economy.js`
+  - `web/src/game/diplomacy.js`
+  - `web/src/game/clock.js`
+  - `web/src/game/savegame.js`
+  - `web/src/game/world.js`
+  - `web/src/main.js`
+- 战术：
+  - `web/src/game/tacticalbattle.js`
+  - `web/src/game/battlescript.js`
+  - `web/src/game/battle/originalsession.js`
+  - `web/src/game/battle/originalstartup.js`
+  - `web/src/game/battle/originalexecutor.js`
+  - `web/src/game/battle/originalobjectframe.js`
+  - `web/src/game/battle/originalmovement.js`
+  - `web/src/game/battle/originalmapobjects.js`
+  - `web/src/game/battle/originalexit.js`
+  - `web/src/game/battle/battleprojection.js`
+  - `web/src/game/battlewalls.js`
+  - `web/src/render/battleview.js`
+- UI清理：
+  - `web/src/game/advisor.js`
+  - `web/src/ui/gamebar.js`
+  - `web/src/ui/hud.js`
+  - `web/index.html`
 
-### 测试
+### 生成、测试与文档
 
-- 新增 `tools/verify_strategic_city_ai.mjs`：
-  - 第一章吕布首都编成/边境增援；
-  - TALK38冷却；
-  - 弱城“邻城强度+1”请求数；
-  - 最高武力而非君主特判。
-- 扩展：
-  - `verify_clock_transition.mjs`
-  - `verify_diplomacy_runtime.mjs`
-  - `verify_postbattle_fate.mjs`
-  - `verify_siege_result.mjs`
-  - `verify_advisor_delegation_ui.mjs`
-- 工作区原先已有三项纯格式改动：
-  - `verify_engage_transition.mjs`
-  - `verify_legion_daily.mjs`
-  - `verify_march_navigation.mjs`
-  本轮未覆盖或回退。
+- `tools/parse_sinario.py`
+- `tools/parse_battle.py`
+- `tools/export_battle_rules.py`
+- `tools/verify_battle_original_*.mjs`
+- `tools/verify_battle_script_vm.mjs`
+- `tools/verify_tactical_rng_continuity.mjs`
+- `tools/verify_*event*.mjs`
+- `tools/verify_*save*.py`
+- `docs/re-notes-kernel.md`
+- `docs/re-notes-tactical-rules.md`
+- `E:/Dragon/.agents/skills/re-battle-command/SKILL.md`
+- 其它对应战略SKILL。
 
-### 文档与技能
+### 本轮删除
 
-- 更新：
-  - `web-port/AGENTS.md`
-  - `docs/re-notes-kernel.md`
-  - `E:/Dragon/.agents/skills/re-domestic-diplomacy/SKILL.md`
-  - `E:/Dragon/.agents/skills/re-march-engagement/SKILL.md`
-  - `E:/Dragon/.agents/skills/re-post-battle/SKILL.md`
+- `web/src/game/battle/simulation.js`
+- `web/src/game/battle/originalcommands-exec.js`
+- `web/src/game/audience.js`
+- `web/src/render/diploview.js`
+- 五个legacy随机战术测试及重复执行器测试。
 
-## 三、调试、审查与失败尝试
+## 5. 验证结果
 
-1. **审查纠正 `0x3E11` 频率误判**
-   - 初版 reviewer 将其判为每日调用，另一 reviewer 又将 `CF2` 判为0..7。
-   - 重新直接反汇编 `0x1D0B..0x1E16` 后确认：`CF2=0..8`；`0x3E11` 位于 `0x1DEC`，是每时刻一次。
-   - 旧文档中的 `0x1E04` 实为速度等待分支，已勘误。
+完成审计前执行了fresh验证：
 
-2. **城/军团顺序**
-   - 初版 `aiTick` 先补员后跑据点AI，会使同批首都军团先消耗兵池，压制边境请求编成。
-   - 改为单城AI及成长先执行，再处理16个军团槽。
+- 所有剩余 `tools/verify_*.mjs` 通过；
+- 所有 `tools/verify_*.py` 通过；
+- `tools/verify_battle_viewport.js`、`tools/verify_clock_pause.js` 通过；
+- 变更JS执行 `node --check` 通过；
+- 解析/导出脚本执行 `py_compile` 通过；
+- 变更产品文件LSP为0 diagnostics；
+- `lens_diagnostics mode=all` 无问题；
+- `git diff --check` 无空白错误，仅既有LF→CRLF提示；
+- 全新Chrome会话正常启动，旧`#advisordlg/#diplov`不存在；
+- 浏览器内程序化野战验证：VM保持活动，玩家队列由1变0，frame 0→1，组长current/pending在同一“输入→A426→A065”帧变为命令1；console仅favicon 404；
+- 重生成 `web/data.json`、战场脚本/地图/规则资源后，相关测试继续通过。
 
-3. **灭亡链无证实现**
-   - 初版根据君主、俘虏标志和status近似处理全部残余武将。
-   - reviewer指出 `0x4FCE` 特殊条件未闭合，且调用顺序早于 `0x4DA4`。
-   - 重新反汇编 `0x4CF3..0x511F` 后删除近似规则，并恢复守军先于灭亡。
+## 6. 当前工作区
 
-4. **宣战提交过早**
-   - 初版两条消息入队后立即 `declareWar`。
-   - 加入战略消息 `onClose`，最终对白关闭后才提交；无GameBar的纯逻辑环境才直接提交。
+- 工作区仍故意保持未提交，包含约百个修改、删除和新增文件。
+- 本轮没有执行 `reset`、`clean` 或丢弃用户改动，也没有提交。
+- 后续操作前应先按功能查看 `git status --short` 和相关diff，不能假定所有脏文件都属于同一个原子改动。
 
-5. **测试执行目录错误**
-   - 一次从 `E:/Dragon` 运行 `node tools/...` 导致模块路径不存在。
-   - 切换到 `E:/Dragon/web-port` 后全部通过；非业务回归。
+## 7. 当前阻塞与已知边界
 
-6. **UI测试暴露既有诊断**
-   - 扩展 `verify_advisor_delegation_ui.mjs` 时，pi-lens指出 JSON fixture 解析无 try/catch。
-   - 已补明确错误包装，再加入 hover 与闪动回归。
+### 阻塞
 
-7. **最终 reviewer**
-   - 一次全面 reviewer 运行15分钟超时，未修改文件也未产出结论。
-   - 随后限制为六个关键点的快速只读复审，结果 `PASS`。
+- 当前没有已知阻塞性的AI或玩法规则缺口。
 
-## 四、验证结果
+### 非阻塞证据增强
 
-以下命令均在 `E:/Dragon/web-port` 通过：
+- 使用可脚本化DOSBox-X debugger捕获KI.EXE的A426/A065/9FDC逐帧状态，并与 `originaldiff.js` 比较。
+- 继续验证YNSOUND双YM3812寄存器序列和原始可听音色；这不影响AI/玩法规则。
+- 测量外部INT61驱动的IRQ周期，以确定五档战略速度绝对毫秒；当前只实锤0/1/2/3/4计数门槛。
+- 若新二进制或原始数据证据推翻既有解释，应同步修订实现、focused regression、`re-notes`和SKILL。
 
-```text
-node tools/verify_clock_transition.mjs
-node tools/verify_strategic_city_ai.mjs
-node tools/verify_diplomacy_runtime.mjs
-node tools/verify_new_game_initialization.mjs
-node tools/verify_legion_daily.mjs
-node tools/verify_engagement_state.mjs
-node tools/verify_march_navigation.mjs
-node tools/verify_postbattle_fate.mjs
-node tools/verify_siege_result.mjs
-node tools/verify_field_result.mjs
-node tools/verify_delegated_autobattle.mjs
-node tools/verify_save_transition_guard.mjs
-node tools/verify_local_saves.mjs
-node tools/verify_advisor_delegation_ui.mjs
-```
+## 8. 下一步
 
-另已通过：
-
-- 本轮相关 JS/MJS `node --check`；
-- `git diff --check`；
-- 变更文件 LSP primary：0 diagnostics；
-- `lens_diagnostics mode=all`：无问题；
-- 全新 Chromium Playwright 冒烟：应用正常加载，仅既有 `favicon.ico` 404；动态检查9次战略tick进入下一时刻。
-
-## 五、当前工作区
-
-尚未提交。`git status --short` 当前包含：
-
-```text
-M AGENTS.md
-M docs/checkpoint-journal.md
-M docs/re-notes-kernel.md
-M tools/verify_advisor_delegation_ui.mjs
-M tools/verify_clock_transition.mjs
-M tools/verify_diplomacy_runtime.mjs
-M tools/verify_engage_transition.mjs
-M tools/verify_legion_daily.mjs
-M tools/verify_march_navigation.mjs
-M tools/verify_postbattle_fate.mjs
-M tools/verify_siege_result.mjs
-M web/src/game/ai.js
-M web/src/game/clock.js
-M web/src/game/savegame.js
-M web/src/game/world.js
-M web/src/main.js
-M web/src/ui/gamebar.js
-?? tools/verify_strategic_city_ai.mjs
-```
-
-禁止整体 `reset/clean`；其中三项测试文件包含本轮开始前已有的纯格式改动。
-
-## 六、当前阻塞与下一步
-
-### 未闭合/阻塞
-
-1. `0x3E11` 势力级完整自主决策：目标选择/改换、财政危机、内政和多战线调动。
-2. `city[+0x18]` 运行态强度的完整产品定义，以及 `0x4325` 状态8/10策略。
-3. `0x4FCE` 武将自尽、俘获、流散三分支的精确字段条件。
-4. 战略事件 type2/4/6/7/8/9/10 的产品语义和NPC响应。
-5. 战术战场内六队逐帧 AI 尚未全面动态对齐。
-6. YNSOUND ID3 的后端芯片/PCM和真实音色。
-7. 原版五档战略速度的精确墙钟毫秒值。
-
-### 建议下一步
-
-1. 继续反汇编 `0x3E11` 相关势力字段与其调用的 `0x31AE/0x3E65/0x3E8E`，区分事件队列、资源危机与真正的目标决策。
-2. 针对 `0x4FCE→0x50B4/0x50D7/0x29C3` 建立字段矩阵，先闭合固定扫描和分支条件，再写产品代码。
-3. 使用 DOSBox-X debugger 捕获 KI.EXE 战术逐帧状态，与 `web/src/game/battle/originaldiff.js` 做 ground-truth 差分。
-4. 提交前再次运行变更 focused suite、LSP、lens和全新浏览器冒烟；按功能审查并暂存，避免混入无关工作区改动。
+1. 将当前大工作区按功能拆分审查，确认生成物、产品代码、测试和文档一致。
+2. 在需要提交时重新执行全量focused suite、语法、LSP、lens、diff-check和全新浏览器冒烟。
+3. 优先处理新证据驱动的勘误；不要恢复已删除的随机平行规则。
+4. 条件允许时增加DOSBox-X逐帧捕获fixture，作为现有静态证据的独立验证层。

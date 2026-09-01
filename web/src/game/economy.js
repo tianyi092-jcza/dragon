@@ -61,6 +61,46 @@ export function saturatingAdd(cur, delta, max = 0xffff) {
   return v > max ? max : v;
 }
 
+/**
+ * KI.EXE 0x3E11：当前势力槽的财政门控。
+ * 原版以 signed word[faction+0x21] 比较；该未对齐字等于有符号24位资金
+ * 算术右移8位。一般不足时清战略目标，严重不足时另置 faction attr bit6。
+ */
+export function factionFundsWordQ256(faction) {
+  const funds = Math.trunc(Number(faction?.gold ?? faction?.money ?? 0));
+  return (Number.isFinite(funds) ? funds : 0) >> 8;
+}
+
+export function updateFactionFiscalCrisis(faction) {
+  if (!faction || faction.active === false || (faction.attr ?? 0) < 0x80)
+    return false;
+  faction.attr &= 0xbf;
+  const fundsQ256 = factionFundsWordQ256(faction);
+  const threshold = Math.max(0, Math.trunc(faction.n_cities ?? 0)) * 8 + 24;
+  let changed = false;
+  if (threshold >= fundsQ256) {
+    if (faction.target_faction != null && faction.target_faction !== 0xff) {
+      faction.target_faction = null;
+      changed = true;
+    }
+    if (threshold >> 1 >= fundsQ256) faction.attr |= 0x40;
+  }
+  return changed;
+}
+
+/**
+ * KI.EXE 0x3E65→0x5673：每次该势力槽被0x3E11轮询时，将三类预备兵
+ * 合计/32累加到本月支出。这里按Web金单位直接返回本次增量，由月结扣除。
+ */
+export function factionReserveUpkeepTick(faction) {
+  if (!faction) return 0;
+  const total =
+    Math.max(0, Math.trunc(faction.reserve_cav ?? 0)) +
+    Math.max(0, Math.trunc(faction.reserve_arc ?? 0)) +
+    Math.max(0, Math.trunc(faction.reserve_inf ?? 0));
+  return Math.floor(total / 32);
+}
+
 /** 0x54FC: 城池距首都切比雪夫距离 → 收益衰减除数 (2, 3, 4) */
 export function distLevel(city, cap) {
   if (!cap) return 2;
@@ -138,14 +178,12 @@ export function computeConscriptionYields(scenario, factionIdx) {
   };
 }
 
-/** 0x3E65: 计算势力的常规月支出；外交费由type-5对话批准时一次性扣除。 */
+/** 计算势力的月支出；外交费由type-5对话批准时一次性扣除。 */
 export function computeFactionExpense(scenario, factionIdx) {
   const f = scenario.factions[factionIdx];
   if (!f) return 0;
-  const totalRes =
-    (f.reserve_cav ?? 0) + (f.reserve_arc ?? 0) + (f.reserve_inf ?? 0);
-  // 预备兵每 32 兵每月消耗维护费 (以 10 兵为单位，折算约 24 周期)
-  const troopUpkeep = Math.floor((totalRes / 32) * 24);
+  // 0x3E65 已在该势力每次0x3E11轮询时累计，不能在月结按固定24周期重算。
+  const troopUpkeep = Math.max(0, Math.trunc(f.monthly_reserve_upkeep ?? 0));
 
   // 麾下武将俸禄 (排除玩家化身军师，每位武将每月 20 金)
   const isPlayer = scenario.player_faction === factionIdx;
@@ -160,23 +198,9 @@ export function computeFactionExpense(scenario, factionIdx) {
     : (f.n_generals ?? 1);
   const officerStipend = generalsCount * 20;
 
-  // 内政官治理计划预算 (KI.EXE 0x5715 - 0x576B):
-  // 针对该势力下所有委任内政官的据点，计算其 生产力/上升率、防灾、城兵离上限的差距之和 >> 1 * 50
-  let governorBudget = 0;
-  for (const c of scenario.citiesOf ? scenario.citiesOf(factionIdx) : []) {
-    if (c && c.governor != null && scenario.generals?.[c.governor]) {
-      const defGap = Math.max(0, 180 - (c.growth ?? 100));
-      const disGap = Math.max(0, 180 - (c.disaster ?? 100));
-      const maxTroops = c.troops_cap ?? 200;
-      const curTroops = c.sim ? c.sim.troops : (c.troops ?? 0);
-      const troopGap = Math.max(0, maxTroops - curTroops);
-      const totalGap = (defGap + disGap + troopGap) >> 1;
-      governorBudget += totalGap * 50;
-    }
-  }
-
-  // 0x578F 只计算建议额并排type-5事件；不能在月结支出中预扣，否则对话批准会双扣。
-  return Math.max(0, troopUpkeep + officerStipend + governorBudget);
+  // 0x5715/0x578F只计算建议额并排type4/5事件；批准额在对话回调一次性扣除。
+  // 月结预扣会使拒绝无效且批准后双扣，因此支出只含已实锤常态维护项。
+  return Math.max(0, troopUpkeep + officerStipend);
 }
 
 /** 军师「財政」界面实时数据与预测模型 */
@@ -227,7 +251,9 @@ export function getProjectedFinance(scenario) {
 }
 
 /** 换月结算主入口 — 完整复刻 KI.EXE 0x5358 / 0x53C6 / 0x5695 */
-export function monthlySettlement(scenario, _clock) {
+export function monthlySettlement(scenario, _clock, rng) {
+  if (!rng?.nextByte)
+    throw new TypeError("monthly settlement requires canonical original RNG");
   const pIdx = scenario.player_faction ?? 0;
   const report = [];
 
@@ -266,7 +292,7 @@ export function monthlySettlement(scenario, _clock) {
     }
 
     // 随机扰动并重设 base (0..200)
-    const randPerturb = Math.floor(Math.random() * 16);
+    const randPerturb = rng.nextByte() & 0x0f;
     c.growth = Math.max(0, Math.min(200, growthDiff - randPerturb + 100));
 
     // 3. 0x4194: 城兵与防灾月度恢复 (内政官加成)
@@ -314,6 +340,7 @@ export function monthlySettlement(scenario, _clock) {
 
     // 资金增减：0x5609/0x563B 允许赤字，统一在 ±655000 饱和，不能截到0。
     applyFactionFundsDelta(f, actualIncome - expense);
+    f.monthly_reserve_upkeep = 0;
 
     // 预备兵并入
     f.reserve_cav = saturatingAdd(f.reserve_cav ?? 0, conscriptedCav);
@@ -321,21 +348,6 @@ export function monthlySettlement(scenario, _clock) {
     f.reserve_inf = saturatingAdd(f.reserve_inf ?? 0, conscriptedInf);
     f.troops =
       ((f.reserve_cav ?? 0) + (f.reserve_arc ?? 0) + (f.reserve_inf ?? 0)) * 10;
-
-    // 赤字与信赖度处理 (连续赤字惩罚)
-    if (f.idx === pIdx) {
-      if (f.gold <= 0) {
-        f.brokeMonths = (f.brokeMonths ?? 0) + 1;
-        if (f.brokeMonths >= 2 && !f.deficitScolded) {
-          f.deficitScolded = true;
-          // 连续赤字严词训斥: KI.EXE 0x3516 信赖度 -50 (al=0x32)
-          scenario.trust = Math.max(0, (scenario.trust ?? 255) - 50);
-        }
-      } else {
-        f.brokeMonths = 0;
-        f.deficitScolded = false;
-      }
-    }
 
     report.push({
       faction: f.idx,

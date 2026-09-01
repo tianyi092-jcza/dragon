@@ -235,6 +235,7 @@ legion.target = targetCity;
 
 const app = {
   scenario,
+  originalRng: { nextByte: () => 0xff },
   hud: null,
   view: null,
   battleView: null,

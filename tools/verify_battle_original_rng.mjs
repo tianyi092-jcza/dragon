@@ -42,7 +42,7 @@ assert.deepEqual(
   suffix,
   "restored RNG state must reproduce the original random call stream",
 );
-assert.ok(rng.nextFloat() >= 0 && rng.nextFloat() < 1);
+assert.ok(rng.nextByte() >= 0 && rng.nextByte() <= 0xff);
 
 process.stdout.write(
   "battle original RNG OK: KI.EXE 0xEC82 seed + 0xECE0 stream\n",

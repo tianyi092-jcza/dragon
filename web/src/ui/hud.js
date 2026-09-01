@@ -1,17 +1,15 @@
 // HUD — 顶部面板(剧本/季节切换)、势力图例、悬停提示、君主卡
 import { factionColorEx, SEASONS } from "../game/world.js";
+import { hasPendingStrategicEvent } from "../game/ai.js";
 import { portrait } from "../core/assets.js";
 import * as cmd from "../game/commands.js";
 import { clickSfx, warnSfx, toggleMute, unlockSfx } from "../core/speaker.js";
 import { quoteFor, formatTalkTokens } from "../game/talk.js";
 import * as adv from "../game/advisor.js";
 import {
-  sendEnvoy,
-  pickEnvoy,
   relation,
   relationLabel,
   relationColor,
-  GIFT_COST,
   moveCapital,
 } from "../game/diplomacy.js";
 
@@ -42,22 +40,13 @@ export class HUD {
   }
 
   closeAll() {
-    this._pendingAdvice = null;
-    const advisor = document.querySelector("#advisordlg");
-    if (advisor) advisor.style.display = "none";
     const saveDialog = document.querySelector("#savedlg");
     if (saveDialog) saveDialog.style.display = "none";
     document.querySelectorAll(".panel").forEach((el) => {
       if (
-        ![
-          "panel",
-          "legend",
-          "cmdpanel",
-          "advisordlg",
-          "savedlg",
-          "bctl",
-          "card",
-        ].includes(el.id)
+        !["panel", "legend", "cmdpanel", "savedlg", "bctl", "card"].includes(
+          el.id,
+        )
       ) {
         el.remove();
       }
@@ -106,7 +95,8 @@ export class HUD {
       this.setTax(
         cmd.setTax(this.app.scenario, (this.app.scenario.tax ?? 25) - 1),
       );
-    document.querySelector("#askadv").onclick = () => this.showAdvice();
+    document.querySelector("#askadv").onclick = () =>
+      this.app.gamebar?.showAdviceMenu?.();
     document.querySelector("#savesav").onclick = () => this.showSaveDialog();
     document.querySelector("#sndtgl").onclick = () => {
       unlockSfx(); // 切换前先解锁(手势内)
@@ -116,10 +106,6 @@ export class HUD {
     };
     // 首次任意点击解锁音频(浏览器自动播放策略)
     document.addEventListener("pointerdown", () => unlockSfx(), { once: true });
-    document.querySelector("#advyes").onclick = () => this.resolveAdvice(true);
-    document.querySelector("#advno").onclick = () => this.resolveAdvice(false);
-    document.querySelector("#advcancel").onclick = () =>
-      this.resolveAdvice(null);
   }
 
   /** 存檔對話框: 選槽→寫入瀏覽器 IndexedDB 快照 */
@@ -254,58 +240,6 @@ export class HUD {
   }
 
   /** ★进言对话框 — 军师建议 + 采纳/驳回(信赖±20, KI.EXE 0x38AD/0x389A) */
-  showAdvice() {
-    const sc = this.app.scenario;
-    const f = cmd.playerFaction(sc);
-    if (!f) return;
-    const gen = adv.getAdvisor(sc, f);
-    const s = adv.makeSuggestion(this.app);
-    const dlg = document.querySelector("#advisordlg");
-    const who = gen ? `${gen.name}曰：` : "（無人可進言）";
-    document.querySelector("#advtext").textContent =
-      who + (s ? adv.suggestionText(sc, s) : "眼下並無良策。");
-    this._pendingAdvice = s;
-    const wasOpen = dlg.style.display === "block";
-    dlg.style.display = "block";
-    if (!wasOpen) {
-      this.dialogCount = (this.dialogCount ?? 0) + 1; // 模态弹窗冻结计时
-    }
-    if (!dlg._hasCtx) {
-      dlg._hasCtx = true;
-      dlg.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        this.resolveAdvice(null);
-      });
-    }
-    this.refreshTrust();
-  }
-
-  /** ok=true采纳 / false君主直接驳回(-20) / null撤回进言(不扣信赖) */
-  resolveAdvice(ok) {
-    const dlg = document.querySelector("#advisordlg");
-    dlg.style.display = "none";
-    this.dialogCount = Math.max(0, (this.dialogCount ?? 1) - 1);
-    this.app.gamebar?.onModalClosed?.();
-    const s = this._pendingAdvice;
-    this._pendingAdvice = null;
-    if (ok === null) {
-      clickSfx();
-      this.flashEvent("已撤回進言。（信賴度不變）");
-    } else if (!s) {
-      this.flashEvent("眼下並無良策。（信賴度不變）");
-    } else if (ok) {
-      const r = adv.adopt(this.app, s);
-      if (r.ok) clickSfx();
-      else warnSfx();
-      this.flashEvent((r.ok ? "✓ " : "✗ ") + r.msg);
-      if (r.ok && s.type === "dispatch") this.app.dispatching = null;
-    } else {
-      warnSfx(); // 君主直接駁回=警告音, 信赖-20 (KI.EXE 0x389A)
-      this.flashEvent(adv.dismiss(this.app).msg);
-    }
-    this.refreshTrust();
-  }
-
   flashEvent(msg) {
     if (!msg) return;
     let el = document.querySelector("#flashlog");
@@ -1007,9 +941,9 @@ export class HUD {
         }
 
         // 分支 B: 已派遣停战使者正在交涉中 (Talk 73: "遵照命令，已派遣停戰使者前往\3。")
-        const alreadyPending = sc.pendingTruceNegotiations?.some(
-          (p) => p.targetFactionIdx === fac.idx,
-        );
+        const alreadyPending = hasPendingStrategicEvent(sc, 6, {
+          arg0: fac.idx,
+        });
         if (alreadyPending) {
           const lines = await formatTalkTokens(73, fac.monarch);
           await this.app.gamebar.showNpcMessageDialog({
@@ -1107,9 +1041,9 @@ export class HUD {
         }
 
         // 分支 B: 已派遣协助使者正在交涉中 (Talk 74: "遵照命令，已派遣使者前往\3請求協助。")
-        const alreadyPending = sc.pendingAssistanceNegotiations?.some(
-          (p) => p.allyFactionIdx === fac.idx,
-        );
+        const alreadyPending = hasPendingStrategicEvent(sc, 7, {
+          arg0: fac.idx,
+        });
         if (alreadyPending) {
           const lines = await formatTalkTokens(74, fac.monarch);
           await this.app.gamebar.showNpcMessageDialog({
@@ -1460,6 +1394,9 @@ export class HUD {
           requested: 0,
           reportPending: false,
         };
+        // 势力+0x2A是驻该势力的玩家外交官索引；AI入站type2/3的
+        // 0x3771会优先读取此槽。任命/解任必须与envoys镜像同步。
+        targetFaction.diplomat_idx = gen.idx;
         gen.assignment_budget = 0;
         gen.status = 3; // 外交官
         if (this.app.gamebar.listDialog) {
@@ -1576,6 +1513,7 @@ export class HUD {
           gen.status = 0; // 恢复为闲置武将
         }
         delete sc.envoys[fac.idx];
+        fac.diplomat_idx = null;
 
         // 弹出武将对话弹窗「遵命。」(3秒自动关闭或右键关闭)
         this.app.gamebar.showGeneralMessageDialog(
@@ -2051,56 +1989,11 @@ export class HUD {
         ` ${f.food ?? 0} `,
         h("span", { class: "dim" }, "兵"),
         ` ${f.troops ?? 0}`,
-        h("div", { class: "dim" }, "(占位公式·真实公式逆向中)"),
         quote
           ? h("div", { style: "color:#fd5;margin-top:2px" }, `「${quote}」`)
           : null,
-        this._envoyBtn(f),
       ),
     );
     this.card.style.display = "flex";
-  }
-
-  /** ★外交按钮行 — 关系显示 + 遣使 + 觐见三动作 (TALK 0x77 菜单: 宣戰/停戰/請援) */
-  _envoyBtn(f) {
-    const sc = this.app.scenario;
-    const me = cmd.playerFaction(sc);
-    if (!me || f.idx === me.idx || f.n_cities === 0) return null;
-    const v = relation(sc, me.idx, f.idx);
-    const envoy = pickEnvoy(sc, me);
-    const act = (label, actionId) =>
-      h(
-        "button",
-        {
-          style: "margin-left:6px",
-          onclick: () => this.app.diploView.open(actionId, f.idx),
-        },
-        label,
-      );
-    return h(
-      "div",
-      { style: "margin-top:4px" },
-      h("span", { class: "dim" }, "關係 "),
-      `${relationLabel(v)}(${v})`,
-      h(
-        "div",
-        { style: "margin-top:4px;display:flex;flex-wrap:wrap;gap:2px 0" },
-        h(
-          "button",
-          {
-            onclick: () => {
-              const r = sendEnvoy(sc, f.idx);
-              this.flashEvent(r.err ?? r.msg);
-              if (r.ok) this.showFactionCard(f); // 刷新关系显示
-            },
-          },
-          `遣使${GIFT_COST}金`,
-        ),
-        act("宣戰", "war"),
-        act("停戰", "ceasefire"),
-        act("請援", "aid"),
-      ),
-      envoy ? null : h("span", { class: "dim" }, "(無使者:遣使無效)"),
-    );
   }
 }

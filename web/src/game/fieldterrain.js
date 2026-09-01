@@ -74,7 +74,7 @@ export function classifyFieldBattleTerrain(
   attacker,
   defender,
   playerFaction,
-  random = Math.random,
+  rng,
 ) {
   const x = defender?.x;
   const y = defender?.y;
@@ -102,8 +102,12 @@ export function classifyFieldBattleTerrain(
         (attacker?.faction === playerFaction);
       return { directoryIndex: 0xd5, mirror, terrainClass: center };
     }
+    if (!rng?.nextByte)
+      throw new TypeError(
+        "field terrain class 8 requires canonical original RNG",
+      );
     return {
-      directoryIndex: 0xd1 + Math.max(0, Math.min(3, Math.floor(random() * 4))),
+      directoryIndex: 0xd1 + (rng.nextByte() & 3),
       mirror: false,
       terrainClass: center,
     };

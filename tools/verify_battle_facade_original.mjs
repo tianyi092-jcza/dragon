@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 
-const { advanceVisualBattle, createFieldBattle, queueTacticalCommand } =
+const { advanceOriginalScriptFrame, createFieldBattle, queueTacticalCommand } =
   await import("../web/src/game/tacticalbattle.js");
 const { ORIGINAL_OBJECT, originalObjectAddress } = await import(
   "../web/src/game/battle/originalstate.js"
@@ -41,8 +41,18 @@ battleMaps.navigation = parseJson(
 const sc = {
   player_faction: 0,
   generals: [
-    { idx: 0, name: "攻", ability: { force: 80, lead: 70, field: 5 } },
-    { idx: 1, name: "守", ability: { force: 75, lead: 65, field: 4 } },
+    {
+      idx: 0,
+      name: "攻",
+      battle_formation: 0,
+      ability: { force: 80, lead: 70, field: 5 },
+    },
+    {
+      idx: 1,
+      name: "守",
+      battle_formation: 0,
+      ability: { force: 75, lead: 65, field: 4 },
+    },
   ],
 };
 const legion = (leader, faction, troops) => ({
@@ -66,6 +76,11 @@ const legion = (leader, faction, troops) => ({
   );
   assert.equal(battle.session.temps.group(0, 0).remaining, 17);
   assert.equal(battle.session.registers.side0Active, 8);
+  assert.equal(
+    battle.battleScriptBlock,
+    2,
+    "field variant uses opponent +0x16*4+2",
+  );
 }
 
 {
@@ -76,7 +91,7 @@ const legion = (leader, faction, troops) => ({
     battleMaps,
     { directoryIndex: 0xc0, terrainClass: 0, mirror: false },
   );
-  queueTacticalCommand(battle, { groups: [0], command: "defend" });
+  queueTacticalCommand(battle, { groups: [0], command: "assault" });
   assert.equal(battle.session.queue.snapshot().length, 1);
   const leader = originalObjectAddress(0, 0, 0);
   const child = originalObjectAddress(0, 0, 1);
@@ -84,20 +99,30 @@ const legion = (leader, faction, troops) => ({
     leader,
     ORIGINAL_OBJECT.PENDING_COMMAND,
   );
-  assert.notEqual(pendingBefore, 3);
+  assert.notEqual(pendingBefore, 1);
   assert.equal(
     battle.session.pool.read8(child, ORIGINAL_OBJECT.PENDING_COMMAND),
     pendingBefore,
     "DOM command must not mutate rules before its logic frame",
   );
-  advanceVisualBattle(battle, 1 / 60);
+  const vm = {
+    step() {
+      assert.equal(
+        battle.session.pool.read8(leader, ORIGINAL_OBJECT.PENDING_COMMAND),
+        1,
+        "player input is applied before A426",
+      );
+      return "run";
+    },
+  };
+  advanceOriginalScriptFrame(battle, vm);
   assert.equal(
     battle.session.pool.read8(leader, ORIGINAL_OBJECT.CURRENT_COMMAND),
-    3,
+    1,
   );
   assert.equal(
     battle.session.pool.read8(child, ORIGINAL_OBJECT.CURRENT_COMMAND),
-    3,
+    1,
   );
 }
 
@@ -110,17 +135,56 @@ const legion = (leader, faction, troops) => ({
     { directoryIndex: 0xc0, terrainClass: 0, mirror: false },
   );
   queueTacticalCommand(battle, { command: "retreat" });
-  advanceVisualBattle(battle, 1 / 60);
-  assert.equal(battle.session.registers.winnerState, 2);
-  for (let group = 0; group < 6; group++) {
+  advanceOriginalScriptFrame(battle, { step: () => "run" });
+  assert.equal(battle.session.registers.winnerState, 1);
+  const activeLeader = originalObjectAddress(0, 0, 0);
+  assert.equal(
+    battle.session.pool.read8(activeLeader, ORIGINAL_OBJECT.FLAGS) & 0x80,
+    0,
+    "B413/B4B8 removes the retreating group leader at the edge",
+  );
+  assert.equal(
+    battle.session.temps.group(0, 0).survivors,
+    8,
+    "B4B8 AH=0 credits every exited object in the retreating group",
+  );
+  for (let group = 1; group < 6; group++)
     assert.equal(
       battle.session.pool.read8(
-        originalObjectAddress(1, group, 0),
+        originalObjectAddress(0, group, 0),
         ORIGINAL_OBJECT.PENDING_COMMAND,
       ),
       5,
+      "A8F6 writes pending5 even to inactive group leaders",
     );
-  }
+}
+
+{
+  const badScenario = structuredClone(sc);
+  delete badScenario.generals[1].battle_formation;
+  assert.throws(
+    () =>
+      createFieldBattle(
+        badScenario,
+        legion("攻", 0, 250),
+        legion("守", 1, 250),
+        battleMaps,
+        { directoryIndex: 0xc0, terrainClass: 0, mirror: false },
+      ),
+    /opponent general \+0x16 must be 0\.\.7/,
+  );
+  badScenario.generals[1].battle_formation = 8;
+  assert.throws(
+    () =>
+      createFieldBattle(
+        badScenario,
+        legion("攻", 0, 250),
+        legion("守", 1, 250),
+        battleMaps,
+        { directoryIndex: 0xc0, terrainClass: 0, mirror: false },
+      ),
+    /opponent general \+0x16 must be 0\.\.7/,
+  );
 }
 
 process.stdout.write(

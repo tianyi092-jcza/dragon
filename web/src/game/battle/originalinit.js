@@ -255,7 +255,8 @@ function activateSlot(pool, temps, rng, side, group, slot) {
   temps.write16(side, 4, temps.read16(side, 4) - 1);
   temps.write8(side, groupOffset + 1, remaining - 1);
   pool.write8(address, ORIGINAL_OBJECT.FLAGS, 0x80);
-  const spatial = word(lane * 0x10 + anchor);
+  // 9C98..9CA6：AX=(Y<<8)>>2 + X，即64×64地图线性索引y*0x40+x。
+  const spatial = word(lane * 0x40 + anchor);
   pool.write16(address, ORIGINAL_OBJECT.SPATIAL_0C, spatial);
   pool.write16(address, ORIGINAL_OBJECT.SPATIAL_0E, spatial);
   return { address, active: true, random, lane, spatial };

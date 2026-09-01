@@ -11,22 +11,22 @@ const u16 = (value) => value & 0xffff;
 const saturatingSub = (value, amount) =>
   Math.max(0, (value | 0) - Math.max(0, amount | 0));
 
-/** A65D：扫描16条原始城壁记录；bit0全部置位时最小metric乘4。 */
+/** A65D：扫描16条kind1记录；没有任何bit0置位时最小metric乘4。 */
 export function calculateOriginalWallMetric(records) {
   let metric = 0xffff;
   let found = false;
-  let allBit0 = true;
+  let anyBit0 = false;
   for (let index = 0; index < 16; index++) {
     const record = records?.[index];
     if (!record || (record.kind ?? record.type ?? 0) !== 1) continue;
     found = true;
     metric = Math.min(metric, u16(record.metric ?? 0xffff));
-    if (((record.flags ?? 0) & 1) === 0) allBit0 = false;
+    if (((record.flags ?? 0) & 1) !== 0) anyBit0 = true;
   }
   return {
     found,
-    allBit0,
-    metric: found && allBit0 ? u16(metric * 4) : metric,
+    anyBit0,
+    metric: found && !anyBit0 ? u16(metric * 4) : metric,
   };
 }
 
@@ -46,7 +46,7 @@ export function applyOriginalBattleCityDamage(city, wallMetric) {
     defence: disaster,
     troops: remainingTroops,
     metric: wallMetric.metric,
-    allBit0: wallMetric.allBit0,
+    anyBit0: wallMetric.anyBit0,
   };
 }
 

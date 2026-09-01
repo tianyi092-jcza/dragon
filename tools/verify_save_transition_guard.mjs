@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 let fetchCalls = 0;
-const { canSnapshotState, snapshotState } = await import(
+const { applyWebMetaToState, canSnapshotState, snapshotState } = await import(
   "../web/src/game/savegame.js"
 );
 const slotBefore = { slot: 0, label: "OLD", played: true };
@@ -8,7 +8,13 @@ const notices = [];
 const app = {
   scenarioIdx: 0,
   scenario: {
-    factions: [],
+    factions: [
+      {
+        idx: 0,
+        strategic_city_primary: 17,
+        strategic_city_secondary: 23,
+      },
+    ],
     cities: [],
     generals: [],
     legions: [],
@@ -55,6 +61,21 @@ assert.equal(canSnapshotState(app), true);
 assert.deepEqual(await guardedSave.call(app, 0, "NEW"), { saved: "file" });
 assert.equal(app.saves.slots[0].label, "NEW");
 assert.equal(fetchCalls, 1);
+assert.deepEqual(
+  app.saves.slots[0].webMeta.scenarioRuntimeState.factionRuleState[0],
+  {
+    idx: 0,
+    extinctionHandled: false,
+    monthlyReserveUpkeep: 0,
+    diplomatIdx: null,
+    strategicCityPrimary: 17,
+    strategicCitySecondary: 23,
+  },
+);
+const restoredState = structuredClone(app.saves.slots[0].state);
+applyWebMetaToState(restoredState, app.saves.slots[0].webMeta);
+assert.equal(restoredState.factions[0].strategic_city_primary, 17);
+assert.equal(restoredState.factions[0].strategic_city_secondary, 23);
 app.clock._pendingDayAdvance = true;
 assert.equal(canSnapshotState(app), false);
 

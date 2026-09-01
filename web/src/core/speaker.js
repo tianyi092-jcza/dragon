@@ -4,7 +4,8 @@
 //   0xCDE = ax 0x101 → 短哔一声(命令确认/军团移动)
 //   0xCE7 = ax 0x202 → 两声(警告: 出陣条件不足/天灾提示等)
 //   0x2F5(AL=3) = int 61h AH=5, AL=3 → 接敌/攻城等待阶段的 YNSOUND ID 3
-// web 用 WebAudio 近似蜂鸣与短促噪声（音序器音色尚未逐音符逆向）。
+// YNSOUND硬件链已实锤为SB Pro双OPL2端口(220/221左、222/223右、224/225 mixer)。
+// 当前Web仍是明确标注的表现近似；在双YM3812寄存器序列产品化前不得称原音色复刻。
 
 let actx;
 let muted = false;

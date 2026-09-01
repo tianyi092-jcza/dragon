@@ -49,17 +49,32 @@ function movementCost(navigation, node) {
   return navigation[ORIGINAL_NAV_COST_BASE + nodeIndex(node)] ?? 0;
 }
 
-function endpointClear(navigation, node, pathMask, endpointPolicy) {
-  if (endpointPolicy !== 0 || pathMask === 0xeb) return true;
-  const index = nodeIndex(node);
-  const plane = nodePlane(node) * ORIGINAL_NAV_PLANE_SIZE;
-  const samples = [index, index + 1, index - 1];
-  return samples.every(
-    (sample) =>
+function endpointHasConnection(navigation, index, plane) {
+  const planeOffset = plane * ORIGINAL_NAV_PLANE_SIZE;
+  for (const sample of [index, index + 1, index - 1]) {
+    if (
       sample >= 0 &&
       sample < ORIGINAL_MAP_CELLS &&
-      (navigation[sample + plane] & 0xf0) === 0,
-  );
+      (navigation[sample + planeOffset] & 0xf0) !== 0
+    )
+      return true;
+  }
+  return false;
+}
+
+/** BD96..BDBE：选目标所在平面；检查的是目标中心/左右的方向高半字节。 */
+function selectEndpointNode(navigation, targetIndex, pathMask, endpointPolicy) {
+  // BP==0且CL!=EB时先尝试上层；任一采样有方向连接就直接选上层。
+  if (
+    endpointPolicy === 0 &&
+    pathMask !== 0xeb &&
+    endpointHasConnection(navigation, targetIndex, 1)
+  )
+    return nodeOf(targetIndex, 1);
+  // BP!=0、CL==EB，或上层无连接时，只以低层三点作为回退。
+  return endpointHasConnection(navigation, targetIndex, 0)
+    ? nodeOf(targetIndex, 0)
+    : null;
 }
 
 function neighborNodes(navigation, node, pathMode) {
@@ -155,16 +170,16 @@ export function buildOriginalPath(navigation, request) {
   if (currentIndex < 0 || targetIndex < 0)
     return { carry: true, words: [], reason: "coordinate" };
   const startPlane = request.layer ? 1 : 0;
-  const targetPlane =
-    request.targetLayer == null ? startPlane : request.targetLayer ? 1 : 0;
   const startNode = nodeOf(currentIndex, startPlane);
-  const targetNode = nodeOf(targetIndex, targetPlane);
+  const targetNode = selectEndpointNode(
+    navigation,
+    targetIndex,
+    request.mask,
+    request.endpointPolicy,
+  );
+  if (targetNode == null) return { carry: true, words: [], reason: "endpoint" };
   if (startNode === targetNode)
     return { carry: true, words: [], reason: "same-position" };
-  if (
-    !endpointClear(navigation, startNode, request.mask, request.endpointPolicy)
-  )
-    return { carry: true, words: [], reason: "endpoint" };
 
   const costs = new Uint16Array(ORIGINAL_MAP_CELLS * 2);
   costs.fill(UNVISITED);

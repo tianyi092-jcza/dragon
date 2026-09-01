@@ -32,7 +32,7 @@ export function issueOriginalScriptCommand(
 ) {
   if (registers.winnerState === 2) return false;
   let value = byte(command);
-  if (value === 5) return startOriginalFormation(pool, registers, 0);
+  if (value === 5) return startOriginalFormation(pool, registers, 0x600);
   if (value === 3 && !themeFlag) value = 1;
 
   const first = group === 7 ? 0 : group;
@@ -61,16 +61,17 @@ export function startOriginalFormation(pool, registers, baseAddress = 0) {
   return true;
 }
 
-/** A60D：按组号字段匹配活动侧六个组长，随后广播同组全部子槽。 */
+/** A60D：按首子槽CLASS(+0x24)==groupNumber*0x12匹配0x600侧六组。 */
 export function issueOriginalCommandByGroupNumber(
   pool,
   { groupNumber, command, themeFlag = true },
 ) {
   let value = byte(command);
   if (value === 3 && !themeFlag) value = 1;
+  const classValue = byte(byte(groupNumber) * 0x12);
   for (let group = 0; group < ORIGINAL_GROUP_COUNT; group++) {
     const leader = originalObjectAddress(1, group, 0);
-    if (pool.read8(leader, ORIGINAL_OBJECT.GROUP_NUMBER) !== byte(groupNumber))
+    if (pool.read8(leader, ORIGINAL_OBJECT.FIRST_CHILD_CLASS) !== classValue)
       continue;
     if (group !== 0) {
       pool.write8(

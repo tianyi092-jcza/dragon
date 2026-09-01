@@ -10,6 +10,29 @@ const { encodeOriginalCollisionAddress } = await import(
   "../web/src/game/battle/originalcollision.js"
 );
 
+{
+  const entry = new OriginalBattleSession({
+    registers: {
+      mapRedraw: 1,
+      tacticalFrameCounter: 0xffff,
+      side0MarkerAt: 0,
+      side1MarkerAt: 0,
+      wallMarkerAt: 0,
+      side0Active: 1,
+      side1Active: 1,
+    },
+  });
+  const frame = entry.tick();
+  assert.equal(entry.registers.mapRedraw, 0);
+  assert.equal(entry.registers.tacticalFrameCounter, 0);
+  assert.deepEqual(frame.events.slice(0, 4), [
+    { type: "map-redraw" },
+    { type: "side-marker", side: 0 },
+    { type: "side-marker", side: 1 },
+    { type: "wall-marker" },
+  ]);
+}
+
 const countdown = new OriginalBattleSession({
   registers: {
     winnerState: 2,
@@ -129,6 +152,62 @@ assert.deepEqual(
 );
 assert.equal(recountFrame.events.at(-1).type, "battle-balance");
 assert.equal(collisionSession.registers.side1Active, 0);
+const movementGate = new OriginalBattleSession({
+  registers: { side0Active: 1, side1Active: 1 },
+  objectsInitialized: true,
+});
+const moving = originalObjectAddress(0, 0, 0);
+const effectLocked = originalObjectAddress(0, 0, 1);
+for (const address of [moving, effectLocked]) {
+  movementGate.pool.write8(address, ORIGINAL_OBJECT.FLAGS, 0x80);
+  movementGate.pool.write8(address, ORIGINAL_OBJECT.CURRENT_COMMAND, 7);
+  movementGate.pool.write8(address, ORIGINAL_OBJECT.PENDING_COMMAND, 7);
+}
+movementGate.pool.write8(effectLocked, ORIGINAL_OBJECT.FLAGS, 0xc0);
+const movedAddresses = [];
+movementGate.tick({
+  updateObject: () => {},
+  updateMovement: (_session, address) => movedAddresses.push(address),
+});
+assert.deepEqual(
+  movedAddresses,
+  [moving],
+  "ADC8 must skip AF69 movement when object flags bit6 is set",
+);
+
+function activateFrameObject(session, address) {
+  session.pool.write8(address, ORIGINAL_OBJECT.FLAGS, 0x80);
+  session.pool.write8(address, ORIGINAL_OBJECT.HP, 0x60);
+  session.pool.write8(address, ORIGINAL_OBJECT.CURRENT_COMMAND, 7);
+  session.pool.write8(address, ORIGINAL_OBJECT.PENDING_COMMAND, 7);
+}
+
+const frameOrder = new OriginalBattleSession({
+  registers: { side0Active: 1, side1Active: 1, mode: 1 },
+  objectsInitialized: true,
+});
+activateFrameObject(frameOrder, originalObjectAddress(0, 0, 0));
+activateFrameObject(frameOrder, originalObjectAddress(1, 0, 0));
+frameOrder.pool.write8(0, ORIGINAL_OBJECT.HP, 0x32);
+frameOrder.pool.write8(0, ORIGINAL_OBJECT.CLASS, 1);
+frameOrder.effects.write8(0, 0x00, 0xc0);
+frameOrder.effects.write8(0, 0x01, 2);
+frameOrder.effects.write16(0, 0x02, 0x600);
+frameOrder.effects.write8(0, 0x04, 1);
+frameOrder.effects.write8(0, 0x05, 0x80);
+frameOrder.effects.write16(0, 0x10, 0x0010);
+frameOrder.effects.write16(0, 0x14, 0);
+frameOrder.spatial.write8(0x0010, 1);
+frameOrder.tick({
+  updateObject: () => {},
+  objectHandlers: { effectRender: {} },
+});
+assert.equal(
+  frameOrder.registers.winnerState,
+  1,
+  "A082 B941 damage must be visible to later ADC8 AE56 in the same frame",
+);
+
 const observedNextFrame = collisionSession.tick();
 assert.equal(observedNextFrame.finished, true);
 assert.equal(observedNextFrame.winner, 0);
@@ -153,15 +232,23 @@ for (const [address, command] of [
   sideDispatch.pool.write8(address, ORIGINAL_OBJECT.ANCHOR_Y, 10);
   sideDispatch.pool.write8(address, ORIGINAL_OBJECT.STATUS_TIME, 0x0f);
 }
-sideDispatch.tick({ playerSide: 0 });
+sideDispatch.tick();
 assert.equal(
   sideDispatch.pool.read8(
     originalObjectAddress(1, 0, 0),
     ORIGINAL_OBJECT.PENDING_COMMAND,
   ),
-  0,
-  "non-player side must execute the AI command table during default session ticks",
+  4,
+  "both sides' leaders execute A7B7; only child slots use A7FD",
 );
+for (let slot = 1; slot < 8; slot++)
+  assert.equal(
+    sideDispatch.pool.read8(
+      originalObjectAddress(1, 0, slot),
+      ORIGINAL_OBJECT.PENDING_COMMAND,
+    ),
+    0,
+  );
 
 process.stdout.write(
   "battle original session OK: A6FA end order + deterministic command/RNG frames\n",

@@ -1,0 +1,225 @@
+import assert from "node:assert/strict";
+
+import { aiTick, tickStrategicCity } from "../web/src/game/ai.js";
+
+function units(counts = [50, 50, 50, 50, 50, 50]) {
+  return counts.map((count, index) => ({
+    type: index < 2 ? 1 : index < 4 ? 2 : 3,
+    troops: count * 10,
+  }));
+}
+
+function makeScenario({
+  fiscal = false,
+  targetAttr = 0x80,
+  assigned = 1,
+} = {}) {
+  const capital = {
+    idx: 0,
+    faction: 0,
+    x: 10,
+    y: 10,
+    raw: `${targetAttr.toString(16).padStart(2, "0")}${"00".repeat(31)}`,
+  };
+  const target = {
+    idx: 1,
+    faction: 0,
+    x: 20,
+    y: 20,
+    raw: `${targetAttr.toString(16).padStart(2, "0")}${"00".repeat(31)}`,
+  };
+  const faction = {
+    idx: 0,
+    raw: `${"00".repeat(0x18)}02${"00".repeat(0x27)}`,
+    attr: 0x80 | (fiscal ? 0x40 : 0),
+    capital: 0,
+    reserve_cav: 100,
+    reserve_arc: 100,
+    reserve_inf: 100,
+    legion_morale_cap: 200,
+    n_legions: assigned,
+  };
+  return {
+    factions: [faction],
+    cities: [capital, target],
+    generals: [],
+    delayedLegionReturns: [],
+    pendingStrategicEvents: [],
+    player_faction: 7,
+    legions: [],
+    citiesOf(factionIdx) {
+      return this.cities.filter((city) => city.faction === factionIdx);
+    },
+  };
+}
+
+function legion(overrides = {}) {
+  return {
+    slot: 1,
+    status: 0xc4,
+    faction: 0,
+    x: 20,
+    y: 20,
+    troops: 500,
+    morale: 200,
+    units: units(),
+    _active: true,
+    targetNode: 1,
+    roadEdgeOrNode: 1,
+    commandState: 0,
+    ...overrides,
+  };
+}
+
+function tick(sc, rng = null) {
+  aiTick(
+    {
+      scenario: sc,
+      originalRng: rng,
+    },
+    { runCityDaily: false, settleDaily: false },
+  );
+}
+
+// 0x3F29：据点所属变化时，旧所属势力+0x17接收该城索引。
+{
+  const sc = makeScenario();
+  sc.factions.push({ idx: 1, attr: 0x80, active: true });
+  sc.cities[1]._strategicLastFaction = 0;
+  sc.cities[1].faction = 1;
+  tickStrategicCity({ scenario: sc }, 1);
+  assert.equal(sc.factions[0].strategic_city_secondary, 1);
+}
+
+// 0x439D→0x43A5：NPC状态0到达时，目标城attr bit6清零转1、置位保持0。
+{
+  const sc = makeScenario();
+  const L = legion({ target: sc.cities[1], commandState: 0 });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 1);
+}
+{
+  const sc = makeScenario({ targetAttr: 0xc0 });
+  const L = legion({ target: sc.cities[1], commandState: 0 });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 0);
+}
+
+// 0x43AF：NPC状态1在>300兵时，目标城attr bit6置位回0；否则按DI别名byte+0x18门控后消耗1 RNG。
+{
+  const sc = makeScenario({ targetAttr: 0xc0 });
+  const L = legion({ target: sc.cities[1], commandState: 1 });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 0);
+}
+{
+  const calls = [];
+  const sc = makeScenario();
+  const L = legion({ target: sc.cities[1], commandState: 1 });
+  sc.legions = [L];
+  tick(sc, {
+    nextByte() {
+      calls.push(0xab);
+      return 0xab;
+    },
+  });
+  assert.equal(L.commandState, 2);
+  assert.equal(L.cooldown, 4);
+  assert.equal(calls.length, 1);
+}
+
+// 0x440F/0x442F：NPC状态2在财政危机下跳过势力+0x17，只消费+0x16并转0。
+{
+  const sc = makeScenario({ fiscal: true, targetAttr: 0x00 });
+  sc.factions[0].strategic_city_secondary = 1;
+  sc.factions[0].strategic_city_primary = 0;
+  const L = legion({ target: sc.cities[1], commandState: 2 });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.target, sc.cities[0]);
+  assert.equal(L.commandState, 0);
+  assert.equal(sc.factions[0].strategic_city_secondary, 1);
+  assert.equal(sc.factions[0].strategic_city_primary, null);
+}
+
+// 0x4466：NPC状态3六队任一<300人转11；全部>=300人转8。
+{
+  const sc = makeScenario();
+  const L = legion({
+    target: sc.cities[1],
+    commandState: 3,
+    units: units([30, 30, 29, 30, 30, 30]),
+  });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 11);
+}
+{
+  const sc = makeScenario();
+  const L = legion({
+    target: sc.cities[1],
+    commandState: 3,
+    units: units([30, 30, 30, 30, 30, 30]),
+  });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 8);
+}
+
+// 0x4483：状态8仅在达到势力士气上限时回1。
+{
+  const sc = makeScenario();
+  const L = legion({ target: sc.cities[1], commandState: 8, morale: 199 });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 8);
+  L.morale = 200;
+  tick(sc);
+  assert.equal(L.commandState, 1);
+}
+
+// 0x44A9：状态10锁定首都；抵达且不足600时进入9并同轮用预备兵重编到状态3。
+{
+  const sc = makeScenario();
+  const L = legion({ target: sc.cities[1], commandState: 10, troops: 300 });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.target, sc.cities[0]);
+  assert.equal(L.commandState, 10);
+  L.x = sc.cities[0].x;
+  L.y = sc.cities[0].y;
+  L.targetNode = 0;
+  L.roadEdgeOrNode = 0;
+  tick(sc);
+  assert.equal(L.commandState, 3);
+  assert.equal(L.troops, 600);
+}
+
+// 0x44D6→0x463E：状态11抵达首都后解散，六队兵归还预备池，武将回待命。
+{
+  const sc = makeScenario();
+  sc.generals = [{ idx: 0, name: "甲", status: 1 }];
+  const L = legion({
+    leader: "甲",
+    generalIdx: 0,
+    target: sc.cities[0],
+    x: 10,
+    y: 10,
+    targetNode: 0,
+    roadEdgeOrNode: 0,
+    commandState: 11,
+  });
+  sc.legions = [L];
+  const before = sc.factions[0].reserve_cav;
+  tick(sc);
+  assert.equal(sc.legions.length, 0);
+  assert.equal(sc.generals[0].status, 0);
+  assert.equal(sc.factions[0].reserve_cav, before + 100);
+}
+
+process.stdout.write(
+  "legion command state verification passed: 0x4325 city/fiscal bit6 gates and states 8/10/11\n",
+);

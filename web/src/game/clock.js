@@ -3,7 +3,7 @@
 // 逆向依据 (KI.EXE 0x1DF8-0x1E16 / docs/re-notes-kernel.md):
 //   CF2 子刻度0..8 → CF3 每日时刻0..23(进位时轮询1个势力槽) → CF0 日1..当月天数
 //   → CF4 月1..12(换月调0x5358结算) → CF6 年(>1000回绕)
-//   战略速度 5 档 (0xcfa): 最低速 (4 ticks)、低速 (3 ticks)、普通 (2 ticks)、高速 (1 tick)、最高速 (0 tick)
+//   战略速度 5 档 (0xcfa): 最低速 (4 IRQ counts)、低速 (3)、普通 (2)、高速 (1)、最高速 (0，无等待)
 //   当月天数表 @va 0x98AC = 真实历法 [31,28,31,30,...]
 export const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
@@ -14,8 +14,8 @@ export const STRATEGIC_SPEED_LABELS = [
   "高速",
   "最高速",
 ];
-// 5档每次0x1D0B主更新的墙钟间隔。每时刻需9次主更新、每天216次；
-// 精确原版毫秒值尚未闭合，这里是Web表现速度，不改变规则调度次数。
+// 5档每次0x1D0B主更新的Web墙钟间隔。原版只实锤CFA=4/3/2/1/0个
+// 外部INT61 IRQ计数，KI内无绝对毫秒换算；以下仍是表现值，不改变规则次数。
 export const STRATEGIC_SPEEDS = [480, 280, 160, 80, 25];
 
 export class Clock {

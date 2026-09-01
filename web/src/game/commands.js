@@ -8,10 +8,6 @@ export const COST_RECRUIT = 200; // 征兵一次花费(金) → 次月 +500 预�
 const RECRUIT_N = 500;
 export const TAX_MIN = 0,
   TAX_MAX = 40;
-const DEFICIT_SCOLD_MONTHS = 2;
-const DEFICIT_TRUST_PENALTY = 20; // 用户规则=20; KI.EXE 0x3516 实测 al=0x32(原版为50)
-
-import { monthlyEvents } from "./disaster.js";
 import { tickEnvoys } from "./diplomacy.js";
 import { createDefaultLegionUnits, ensureLegionSlot } from "./legionunits.js";
 import { applyFactionFundsDelta, factionLegionMoraleCap } from "./economy.js";
@@ -185,14 +181,14 @@ export function dispatch(sc, fromCity, targetCity) {
     morale: factionLegionMoraleCap(f),
     cooldown: 2,
     target: targetCity,
-    formation: 1, // 编制类型 1..4 (0xCBE5 选块)
+    formation: 1, // Web编成UI字段；CBE5权威值是主将general[+0x16]
   };
   ensureLegionSlot(sc.legions, legion, gen.idx);
   sc.legions.push(legion);
   return { ok: `${f.monarch}軍自${fromCity.name}出征${targetCity.name}` };
 }
 
-/** 月末钩子: 征兵到达 + 天灾/暴动(0x22DB/0x2286) + 信赖度动力学(赤字降信赖, 攻略红线机制) */
+/** 月末钩子: 征兵到达；天灾/暴动由type11/12事件轮处理。 */
 export function monthEnd(app) {
   const sc = app.scenario;
   if (!sc) return;
@@ -204,26 +200,5 @@ export function monthEnd(app) {
     app.hud?.flashEvent?.(`${c.name} 徵兵${r.n}到達`);
   }
   sc.pendingRecruits = [];
-  // 天灾/暴动 (0x22DB/0x2286 月结随机事件链) — 0xCE7 警告音
-  for (const m of monthlyEvents(sc)) {
-    app.speaker?.warnSfx?.();
-    app.hud?.flashEvent?.(m);
-  }
-  const f = playerFaction(sc);
-  if (!f) return;
-  // 财政连续赤字: 第2个月触发一次君主训斥并扣信赖; 财政转正后解除“已训斥”标记
-  if ((f.gold ?? 0) > 0) {
-    f.deficitScolded = false;
-  } else if (
-    (f.brokeMonths ?? 1) >= DEFICIT_SCOLD_MONTHS &&
-    !f.deficitScolded &&
-    (sc.trust ?? 0) > 0
-  ) {
-    f.deficitScolded = true;
-    sc.trust = Math.max(0, sc.trust - DEFICIT_TRUST_PENALTY);
-    app.hud?.flashEvent?.(
-      `財政連續赤字，君主嚴厲訓斥。（信賴度-${DEFICIT_TRUST_PENALTY}）`,
-    );
-  }
   checkTrustGameOver(app);
 }

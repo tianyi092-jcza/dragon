@@ -228,6 +228,7 @@ const lateSlotLegion = {
   units: units([1, 1, 4, 4, 4, 4], [50, 50, 50, 50, 50, 50]),
 };
 const slotApp = {
+  originalRng: { nextByte: () => 0xff },
   scenario: {
     factions: [slotFaction],
     cities: [slotCapital],

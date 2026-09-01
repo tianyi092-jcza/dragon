@@ -13,7 +13,13 @@ globalThis.fetch = async (url) => {
   return {
     ok: true,
     status: 200,
-    json: async () => JSON.parse(data.toString("utf8")),
+    json: async () => {
+      try {
+        return JSON.parse(data.toString("utf8"));
+      } catch (error) {
+        throw new Error(`invalid JSON fixture ${url}`, { cause: error });
+      }
+    },
   };
 };
 const { loadRoadGraph, findRoadRoute, roadNodeAt } = await import(
@@ -23,9 +29,14 @@ await loadRoadGraph();
 const { aiTick, buildArmies } = await import("../web/src/game/ai.js");
 const { applyWebMetaToState } = await import("../web/src/game/savegame.js");
 
-const raw = JSON.parse(
-  await fs.readFile(new URL("../web/data.json", import.meta.url), "utf8"),
-);
+let raw;
+try {
+  raw = JSON.parse(
+    await fs.readFile(new URL("../web/data.json", import.meta.url), "utf8"),
+  );
+} catch (error) {
+  throw new Error("cannot load data.json fixture", { cause: error });
+}
 const state = structuredClone(raw.scenarios[0]);
 const faction = state.factions[0];
 const target = state.cities[faction.capital];
@@ -81,12 +92,16 @@ assert.equal(legion._retreat.cityIdx, target.idx);
 const before = { x: legion.x, y: legion.y };
 const app = {
   scenario: state,
+  originalRng: { nextByte: () => 0xff },
   battleView: { active: false },
   engageTransition: null,
   hud: { flashEvent() {} },
 };
 aiTick(app);
-assert.ok(legion._retreat, "forced retreat remains authoritative after fresh load");
+assert.ok(
+  legion._retreat,
+  "forced retreat remains authoritative after fresh load",
+);
 assert.equal(legion.target.idx, target.idx);
 assert.deepEqual(
   { x: legion.x, y: legion.y },

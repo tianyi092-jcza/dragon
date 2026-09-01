@@ -1,4 +1,4 @@
-// 模态视图时钟控制 — diploview/endview/openview 共用
+// 模态视图时钟控制 — endview/openview 共用
 // 打开模态时暂停游戏时钟(战略速度分离)，关闭时恢复
 
 /**
@@ -7,13 +7,13 @@
  * @param {object} holder
  */
 export function clockPause(app, holder) {
-   if (app.clock && holder._clockPauseState == null) {
-      holder._clockPauseState = {
-         strategicSpeed: app.clock.strategicSpeed,
-         legacyPaused: app.clock._legacyPaused,
-      };
-      app.clock._legacyPaused = true;
-   }
+     if (app.clock && holder._clockPauseState == null) {
+          holder._clockPauseState = {
+               strategicSpeed: app.clock.strategicSpeed,
+               legacyPaused: app.clock._legacyPaused,
+          };
+          app.clock._legacyPaused = true;
+     }
 }
 
 /**
@@ -22,9 +22,9 @@ export function clockPause(app, holder) {
  * @param {object} holder
  */
 export function clockRestore(app, holder) {
-   if (app.clock && holder._clockPauseState != null) {
-      app.clock.strategicSpeed = holder._clockPauseState.strategicSpeed;
-      app.clock._legacyPaused = holder._clockPauseState.legacyPaused;
-      holder._clockPauseState = null;
-   }
+     if (app.clock && holder._clockPauseState != null) {
+          app.clock.strategicSpeed = holder._clockPauseState.strategicSpeed;
+          app.clock._legacyPaused = holder._clockPauseState.legacyPaused;
+          holder._clockPauseState = null;
+     }
 }

@@ -3,12 +3,16 @@
 import {
   FIELD,
   TACTICAL_UNIT_TYPES,
-  advanceVisualBattle,
-  placeStaging,
+  advanceOriginalScriptFrame,
+  initializeVisualBattleStartup,
   queueTacticalCommand,
   settleVisualBattle,
 } from "../game/tacticalbattle.js";
 import { BattleScript } from "../game/battlescript.js";
+import {
+  issueOriginalCommandByGroupNumber,
+  issueOriginalScriptCommand,
+} from "../game/battle/originalcommands.js";
 import { factionColorEx } from "../game/world.js";
 import { loadImage, portrait } from "../core/assets.js";
 import { clickSfx } from "../core/speaker.js";
@@ -39,8 +43,10 @@ export class BattleView {
     this.sceneCanvas.height = FIELD;
     this.sceneReady = false;
     this.sel = null; // 选中单位
-    this.cutscene = null; // BATTLE.DAT 开场脚本回放态 (BattleScript + 元数据)
-    this.flagPulse = 0; // op16 军旗绘制脉冲 (视觉反馈)
+    this.battleScriptVm = null; // 0x9FA0每逻辑帧持续执行的BATTLE.DAT VM
+    this.scriptAccumulator = 0;
+    this.flagPulse = 0; // op16/C315逐次投影的军旗绘制脉冲
+    this.flagDrawCount = 0;
     this._raf = 0;
     this._last = 0;
     // 战场以原始 1:1 像素合成完整 1024×1024 场景；小窗口只改变可见范围。
@@ -62,7 +68,6 @@ export class BattleView {
     for (let i = 0; i < 6; i++) {
       document.querySelector(`#bunit${i}`).addEventListener("click", () => {
         clickSfx();
-        if (this.cutscene) this.endCutscene(true);
         this.selectPlayerUnit(i);
       });
     }
@@ -102,7 +107,7 @@ export class BattleView {
     return this.battle.A.faction === pf ? "atk" : "def";
   }
 
-  /** 开战: 暂停战略时钟 → 加载地图 → 回放开场脚本 → 进入主循环 */
+  /** 开战：暂停战略时钟→A1C5启动→持续9FA0输入/A426/A065主循环。 */
   async open(battle, onFinish) {
     this.battle = battle;
     this.onFinish = onFinish;
@@ -118,7 +123,7 @@ export class BattleView {
     };
     this.app.clock._legacyPaused = true; // ★战术时间接管 (原版战略/战术速度分离)
     this.cv.style.display = "block";
-    document.querySelector("#bctl").style.display = "none"; // 开场期间隐藏指挥按钮
+    document.querySelector("#bctl").style.display = "none";
     document.querySelector("#btitle").textContent = battle.title;
     this.syncBattlePanel();
     try {
@@ -128,8 +133,17 @@ export class BattleView {
     }
     this.composeBattlefield();
     this.active = true;
-    this.startCutscene();
-    if (!this.cutscene) document.querySelector("#bctl").style.display = "block";
+    try {
+      initializeVisualBattleStartup(battle);
+    } catch (error) {
+      this.active = false;
+      this.cv.style.display = "none";
+      document.querySelector("#bctl").style.display = "none";
+      this.app.clock._legacyPaused = this.prevClockState.legacyPaused;
+      throw error;
+    }
+    this.startBattleScript();
+    document.querySelector("#bctl").style.display = "block";
     this._last = performance.now();
     const loop = (now) => {
       if (!this.active) return;
@@ -141,14 +155,11 @@ export class BattleView {
       const dt = Math.min(0.05, (now - this._last) / 1000);
       this._last = now;
       const factor = this.app.tacticalSpeedFactor ?? 1.0;
-      if (this.cutscene) this.updateCutscene(dt * factor);
-      else {
-        const over = advanceVisualBattle(battle, dt * factor);
-        if (over) {
-          this.draw();
-          this.finish(false);
-          return;
-        }
+      const over = this.updateBattleFrames(dt * factor);
+      if (over) {
+        this.draw();
+        this.finish();
+        return;
       }
       this.draw();
       this._raf = requestAnimationFrame(loop);
@@ -156,75 +167,47 @@ export class BattleView {
     this._raf = requestAnimationFrame(loop);
   }
 
-  /** BATTLE.DAT 开场: 单位退场边待命, VM 驱动列阵/移动/军旗 (无脚本素材则跳过) */
-  startCutscene() {
+  /** CBE5选择后建立持续运行的BATTLE.DAT VM；无脚本属于资产错误。 */
+  startBattleScript() {
     const scripts = this.app.battleScripts;
     const b = this.battle;
-    if (!scripts?.[0]?.length) return;
-    // 编制类型真实判定 (0xCBE5): 块号 = 军团编制字节×4 + 攻守；编制 1..4 → 索引 0..3
-    const type = Math.min(3, Math.max(0, (b.formation ?? 1) - 1));
-    const side = this.playerSide() === "atk" ? 0 : 1;
-    const words = scripts[type * 4 + side];
-    if (!words) return;
-    placeStaging(b);
-    this.cutscene = {
-      vm: new BattleScript(words, makeBattleIO(this)),
-      t: 0,
-      acc: 0,
-    };
-    this.app.hud.flashEvent("⚔ 開戰（點擊跳過開場）");
+    if (!scripts?.[0]?.length)
+      throw new Error("BATTLE.DAT script blocks are unavailable");
+    // CBE5块号由战术创建时按对手武将+0x16与原版战型变体计算。
+    const words = scripts[b.battleScriptBlock];
+    if (!words)
+      throw new RangeError(`missing BATTLE.DAT block ${b.battleScriptBlock}`);
+    const vm = new BattleScript(words, makeBattleIO(this));
+    vm.pc = b.originalStartup?.scriptWordSkip ?? 0;
+    this.battleScriptVm = vm;
+    this.scriptAccumulator = 0;
+    this.app.hud.flashEvent("⚔ 開戰");
   }
 
-  /** 开场帧推进: 60fps 虚拟帧驱动 VM + 单位行军 */
-  updateCutscene(dt) {
-    const cs = this.cutscene,
-      b = this.battle;
-    cs.t += dt;
-    cs.acc += dt * 60;
-    while (cs.acc >= 1 && this.cutscene) {
-      cs.acc -= 1;
-      if (cs.vm.step() === "done") this.endCutscene(false);
-    }
-    // 单位向指令目标行军 (与 tickBattle 同速逻辑)
-    for (const u of b.units) {
-      if (u.gone || !u.order) continue;
-      const dx = u.order.x - u.x,
-        dy = u.order.y - u.y,
-        d = Math.hypot(dx, dy);
-      if (d < 6) u.order = null;
-      else {
-        const st = Math.min(d, u.speed * dt);
-        u.x += (dx / d) * st;
-        u.y += (dy / d) * st;
-      }
+  /** 每逻辑帧严格执行输入队列→A426→A065，直到战斗本身结束。 */
+  updateBattleFrames(dt) {
+    this.scriptAccumulator += Math.max(0, dt) * 60;
+    let frames = 0;
+    while (
+      this.scriptAccumulator >= 1 &&
+      !this.battle.session.finished &&
+      frames < 12
+    ) {
+      this.scriptAccumulator--;
+      advanceOriginalScriptFrame(this.battle, this.battleScriptVm);
+      frames++;
     }
     this.flagPulse = Math.max(0, this.flagPulse - dt * 2);
-    // 安全阀: 超时强收 (结尾 WAIT(255) 待机循环节流)
-    if (this.cutscene && cs.t > 40) this.endCutscene(false);
-  }
-
-  /** 结束开场: snap=true(用户跳过)把未到位单位收回编队槽位; 自然播完则就地清指令 */
-  endCutscene(snap) {
-    if (!this.cutscene) return;
-    this.cutscene = null;
-    for (const u of this.battle.units) {
-      if (u.gone) continue;
-      if (snap) {
-        u.x = u.hx;
-        u.y = u.hy;
-      }
-      u.order = null;
-    }
-    document.querySelector("#bctl").style.display = "block";
-    this.syncBattlePanel();
+    return this.battle.over;
   }
 
   /** 结束：战果只来自OriginalBattleSession.settleExit。 */
-  finish(retreat = false) {
+  finish() {
     if (!this.active) return;
     this.active = false;
     cancelAnimationFrame(this._raf);
-    this.cutscene = null;
+    this.battleScriptVm = null;
+    this.scriptAccumulator = 0;
     this.drag = null;
     this.clearBattleDialogue();
     this.cv.style.display = "none";
@@ -236,7 +219,7 @@ export class BattleView {
     }
     const cb = this.onFinish;
     this.onFinish = null;
-    cb?.({ ...settleVisualBattle(this.battle), retreat });
+    cb?.(settleVisualBattle(this.battle));
   }
 
   playerUnits() {
@@ -273,7 +256,18 @@ export class BattleView {
 
   issueTacticalCommand(command) {
     if (!this.active) return;
-    if (this.cutscene) this.endCutscene(true);
+    if (
+      (command === "siege" || command === "wall") &&
+      this.battle.kind !== "siege"
+    ) {
+      this.setCommandHint(
+        command === "siege"
+          ? "野戰與水戰不能下達攻城命令。"
+          : "野戰與水戰沒有城壁目標。",
+        "blocked",
+      );
+      return;
+    }
     const units = this.selectedUnits();
     if (!units.length && command !== "retreat") return;
     const groups = units.map((unit) => unit.strategicIndex ?? unit.idx);
@@ -299,10 +293,6 @@ export class BattleView {
         command,
       );
     } else if (command === "siege") {
-      if (this.battle.kind !== "siege") {
-        this.setCommandHint("野戰與水戰不能下達攻城命令。", "blocked");
-        return;
-      }
       this.setCommandHint("所選部隊向城壁缺口進軍並攻擊。", command);
       this.announceBattleDialogue(
         this.playerSide(),
@@ -313,10 +303,6 @@ export class BattleView {
       this.setCommandHint("所選部隊在當前位置重新集結列陣。", command);
       this.announceBattleDialogue(this.playerSide(), "擺出陣形！！", command);
     } else if (command === "wall") {
-      if (this.battle.kind !== "siege") {
-        this.setCommandHint("野戰與水戰沒有城壁目標。", "blocked");
-        return;
-      }
       this.setCommandHint("所選部隊集中破壞最近城壁。", command);
       this.announceBattleDialogue(this.playerSide(), "集中攻擊城壁！", command);
     } else if (command === "defend") {
@@ -407,15 +393,11 @@ export class BattleView {
   syncBattlePanel() {
     if (!this.battle) return;
     this.syncBattleDialogue();
-    const atk = this.battle.units.filter((u) => u.side === "atk");
     const def = this.battle.units.filter((u) => u.side === "def");
-    const averageMorale = (units) =>
-      units.length
-        ? Math.round(
-            units.reduce((sum, u) => sum + Math.max(0, u.morale), 0) /
-              units.length,
-          )
-        : 0;
+    const sideMorale = (sideName) => {
+      const side = this.battle.sideMap?.[sideName];
+      return side == null ? 0 : this.battle.session.temps.read8(side, 6) & 0xff;
+    };
     const atkName = this.battle.A?.leader ?? "攻方";
     const defName =
       this.battle.D?.leader ??
@@ -424,8 +406,8 @@ export class BattleView {
       "守方";
     const atkTroops = survivorsOf(this.battle, "atk");
     const defTroops = survivorsOf(this.battle, "def");
-    const atkMorale = averageMorale(atk);
-    const defMorale = averageMorale(def);
+    const atkMorale = sideMorale("atk");
+    const defMorale = sideMorale("def");
     const units = this.playerUnits();
     const signature = [
       this.battle.kind,
@@ -567,8 +549,7 @@ export class BattleView {
     const moved = drag.moved;
     this.cancelDrag(e);
     if (moved) return;
-    if (this.cutscene) this.endCutscene(true);
-    else this.onClick(e.clientX, e.clientY);
+    this.onClick(e.clientX, e.clientY);
     this.updateCursor();
   }
 
@@ -597,13 +578,8 @@ export class BattleView {
       }
     }
     if (hit) this.sel = this.sel === hit ? null : hit;
-    else if (this.sel) {
-      this.sel.order = {
-        x: Math.max(20, Math.min(FIELD - 20, wx)),
-        y: Math.max(20, Math.min(FIELD - 20, wy)),
-      };
-      this.app.hud.flashEvent(`${this.sel.gen} 移動指令`);
-    }
+    // 原版战术地图空白左键只参与按钮/组选择流程，不存在任意坐标移动命令。
+    // Canvas不得写无规则消费者的legacy unit.order。
     this.updateCursor();
     this.syncBattlePanel();
   }
@@ -742,8 +718,8 @@ export class BattleView {
       else if (fill > 0.25) ctx.fillStyle = "#fc5";
       else ctx.fillStyle = "#f55";
       ctx.fillRect(x - w / 2, y - h / 2 - 7 * this.s, w * fill, 4 * this.s);
-      // 开场军旗脉冲 (BATTLE.DAT op16 → 0xC315 画旗的 web 近似)
-      if (this.cutscene && this.flagPulse > 0 && !u.routed) {
+      // 开场军旗投影 (BATTLE.DAT op16逐次调用0xC315)
+      if (this.flagPulse > 0 && !u.routed) {
         ctx.globalAlpha = this.flagPulse * 0.5;
         ctx.strokeStyle = "#ffd700";
         ctx.lineWidth = Math.max(1, 2 * this.s);
@@ -775,9 +751,7 @@ export class BattleView {
     ctx.font = '16px "Noto Serif TC","PMingLiU",serif';
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(0,0,0,.8)";
-    const txt = this.cutscene
-      ? `⚔ 開戰… ${ta} 對 ${td}（點擊跳過）`
-      : `攻 ${ta}   ⚔   守 ${td}`;
+    const txt = `攻 ${ta}   ⚔   守 ${td}`;
     ctx.strokeText(txt, 16, 30);
     ctx.fillStyle = "#e8d9b0";
     ctx.fillText(txt, 16, 30);
@@ -878,66 +852,94 @@ function survivorsOf(s, side) {
     .reduce((a, u) => a + Math.max(0, u.troops | 0), 0);
 }
 
-/** VM io 钩子 → web 战斗状态映射 (控制流严格复刻; 状态查询为近似映射)
- *  单位区语义: 0x600=开场主视角方(active), 0x000=对手(other) */
+/** A426/A436 BATTLE.DAT VM io：规则读写直接落到OriginalBattleSession。 */
 function makeBattleIO(view) {
-  const b = view.battle;
-  const activeSide = view.playerSide() ?? "atk";
-  const unitsOf = (area) =>
-    b.units.filter(
-      (u) =>
-        !u.gone &&
-        (area === "active" ? u.side === activeSide : u.side !== activeSide),
-    );
+  const battle = view.battle;
+  const session = battle.session;
+  // A4BF/A52E等脚本处理器固定以0x600侧为脚本命令区，0侧为另一侧。
+  const activeBase = 0x600;
+  const otherBase = 0;
+  const groupAddress = (base, group, slot = 0) =>
+    base + group * 0x100 + slot * 0x20;
+  const maximumNormalizedCommand = (base) => {
+    let value = 0;
+    for (let group = 0; group < 6; group++) {
+      const command = session.pool.read8(groupAddress(base, group), 0x1a);
+      const normalized = command < 4 ? command : 0;
+      if (normalized > value) value = normalized;
+    }
+    return value;
+  };
   return {
-    // op3: ah==5 已分流; 其余命令=向敌方向推进一段 (原版命令值→方向/步数语义)
-    issueCmd(_c, sel) {
-      const targets =
-        sel === 7
-          ? unitsOf("active")
-          : [unitsOf("active")[sel]].filter(Boolean);
-      for (const u of targets) {
-        const dir = u.side === "atk" ? 1 : -1;
-        u.order = { x: u.hx + dir * 90, y: u.hy }; // 向前探一步的可见动作
-      }
+    issueCmd(command, group) {
+      issueOriginalScriptCommand(session.pool, session.registers, {
+        group,
+        command,
+        themeFlag: (session.registers.themeFlag & 0xff) !== 0,
+      });
     },
     formation() {
-      for (const u of unitsOf("active")) u.order = { x: u.hx, y: u.hy };
+      issueOriginalScriptCommand(session.pool, session.registers, {
+        group: 7,
+        command: 5,
+        themeFlag: (session.registers.themeFlag & 0xff) !== 0,
+      });
     },
-    select(group) {
-      if (group > 1) return; // 原版 +0x24==imm*18 组选; web 仅映射 0/1 两边
-      view.flagPulse = Math.max(view.flagPulse, 0.6); // 组选中→旗帜高亮脉冲
+    select(groupNumber, command) {
+      issueOriginalCommandByGroupNumber(session.pool, {
+        groupNumber,
+        command,
+        themeFlag: (session.registers.themeFlag & 0xff) !== 0,
+      });
+      view.flagPulse = Math.max(view.flagPulse, 0.6);
     },
-    flags(stage) {
-      view.flagPulse = 1; // 军旗阶段脉冲
-      view.flagStage = stage;
+    command(value) {
+      session.registers.scriptCommandByte = value & 0xff;
+      session.registers.side1FormationOffset = ((value & 0xff) * 0x60) & 0xffff;
     },
-    camMode(m) {
-      view.camMode = m;
+    flags(count) {
+      // A69F：AH次调用C315。C315只读战术记录并绘制军旗，不改规则对象；
+      // Canvas逐次记录相同调用次数并刷新投影，避免把AH误作“阶段号”。
+      for (let index = 0; index < (count & 0xff); index++) {
+        view.flagDrawCount = (view.flagDrawCount ?? 0) + 1;
+        view.flagPulse = 1;
+      }
     },
-    camPos() {
-      // 相机漂移相位: 高位>0x20 使 op8 走低位分支
-      const ph = Math.floor((view.cutscene?.t ?? 0) * 8) & 0xff;
-      return { hi: 0x30, lo: ph };
+    camMode(mode) {
+      view.camMode = mode;
     },
-    moving() {
-      return unitsOf("active").some((u) => u.order);
-    },
+    balance: () => ({
+      side1Timed: session.registers.side1Timed & 0xff,
+      d31e: session.registers.d31e & 0xff,
+    }),
+    moving: () => session.pool.read8(activeBase, 0x1b) >= 9,
     scanUnits(area) {
-      return unitsOf(area).some((u) => u.order) ? 1 : 0;
+      return maximumNormalizedCommand(
+        area === "active" ? activeBase : otherBase,
+      );
     },
-    scan16: () => 0, // 援军记录表无对应物 → 无增援分支
-    mapWord(_off) {
-      let troops = b.D?.troops;
-      if (b.city) troops = b.city.sim ? b.city.sim.troops : b.city.troops;
-      return Math.min(0xff, (troops ?? 0) >> 5);
+    scan16() {
+      let minimum = 0xffff;
+      let anyBit0 = false;
+      for (const record of session.wallRecords().slice(0, 16)) {
+        if (record.kind !== 1) continue;
+        if ((record.flags & 1) !== 0) anyBit0 = true;
+        minimum = Math.min(minimum, record.metric & 0xffff);
+      }
+      if (minimum === 0xffff) return 0xff;
+      return anyBit0 ? 0 : Math.min(0xff, (minimum * 4) >> 8);
     },
-    rand: () => Math.random(),
-    gate2: () => false,
-    themeFlag: () => false,
-    d346: () => 0,
-    d33c: () => 0,
-    d31d: () => 0,
-    unitByte: () => 0,
+    mapWord(offset) {
+      const side = offset === 0x24 ? 1 : 0;
+      return session.temps.read16(side, 4);
+    },
+    nextRandomByte: () => session.rng.nextByte(),
+    gate2: () => session.registers.winnerState === 2,
+    themeFlag: () => (session.registers.themeFlag & 0xff) !== 0,
+    d346: () => session.registers.cameraColumn ?? 0,
+    d33c: () => session.registers.side0FormationBase & 0xff,
+    d31d: () => session.registers.side1Active & 0xff,
+    unitByte: (offset) =>
+      session.pool.read8(groupAddress(activeBase, 0), offset),
   };
 }

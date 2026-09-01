@@ -37,7 +37,7 @@ function checkedDirection(direction) {
   return value;
 }
 
-/** B240：把旧+0E占用清低7位、在新+0C双平面写对象ID，并同步+0E。 */
+/** B240规则态：旧+0E清占用、新+0C双平面写ID、同步前坐标/层高与+0E。 */
 export function commitOriginalSpatialOccupancy(pool, spatial, address) {
   if (!spatial)
     throw new TypeError("original occupancy commit requires spatial memory");
@@ -50,6 +50,28 @@ export function commitOriginalSpatialOccupancy(pool, spatial, address) {
   spatial.write8(current, spatial.read8(current) | id);
   spatial.write8(current + 0x1000, spatial.read8(current + 0x1000) | id);
   pool.write16(address, ORIGINAL_OBJECT.SPATIAL_0E, current);
+
+  // B31B..B32A：B240绘制提交后，旧坐标/层字段更新为本帧锚点/层高。
+  pool.write8(
+    address,
+    ORIGINAL_OBJECT.PREVIOUS_X,
+    pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X),
+  );
+  pool.write8(
+    address,
+    ORIGINAL_OBJECT.PREVIOUS_Y,
+    pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y),
+  );
+  pool.write8(
+    address,
+    ORIGINAL_OBJECT.PREVIOUS_LEVEL,
+    pool.read8(address, ORIGINAL_OBJECT.LEVEL),
+  );
+  pool.write8(
+    address,
+    ORIGINAL_OBJECT.PREVIOUS_HEIGHT,
+    pool.read8(address, ORIGINAL_OBJECT.HEIGHT),
+  );
   return { previous, current, id };
 }
 
@@ -191,15 +213,34 @@ export function stepOriginalCardinal(
   };
 }
 
-function verticalCollision(attackerAddress, collisionId, collision) {
+function verticalCollision(
+  pool,
+  attackerAddress,
+  spatialBefore,
+  spatialAfter,
+  collisionId,
+  collision,
+) {
   if (collisionId === 0)
-    return { moved: false, committed: false, collided: false, blocked: true };
+    return {
+      moved: false,
+      committed: false,
+      collided: false,
+      blocked: true,
+      spatialBefore,
+      spatialAfter,
+    };
   const result = collision?.(attackerAddress, collisionId) ?? { carry: true };
+  const moved = result.carry === false;
+  if (moved)
+    pool.write16(attackerAddress, ORIGINAL_OBJECT.SPATIAL_0C, spatialAfter);
   return {
-    moved: result.carry === false,
+    moved,
     committed: false,
     collided: true,
-    blocked: result.carry !== false,
+    blocked: !moved,
+    spatialBefore,
+    spatialAfter: moved ? spatialAfter : spatialBefore,
     collision: result,
   };
 }
@@ -232,7 +273,14 @@ export function stepOriginalUp(
   );
   const collisionId = spatial.read8(spatialAfter + 0x1000) & 0x7f;
   if (collisionId !== 0)
-    return verticalCollision(attackerAddress, collisionId, collision);
+    return verticalCollision(
+      pool,
+      attackerAddress,
+      spatialBefore,
+      spatialAfter,
+      collisionId,
+      collision,
+    );
   if (spatial.tile(spatialAfter) < 0xf8)
     return { moved: false, committed: false, collided: false, blocked: true };
   pool.write8(
@@ -276,7 +324,14 @@ export function stepOriginalDown(
   );
   const collisionId = spatial.read8(spatialAfter) & 0x7f;
   if (collisionId !== 0)
-    return verticalCollision(attackerAddress, collisionId, collision);
+    return verticalCollision(
+      pool,
+      attackerAddress,
+      spatialBefore,
+      spatialAfter,
+      collisionId,
+      collision,
+    );
   if (spatial.tile(spatialAfter) < 0xf8)
     return { moved: false, committed: false, collided: false, blocked: true };
   pool.write8(

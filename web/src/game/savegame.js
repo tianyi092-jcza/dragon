@@ -30,16 +30,28 @@ export function applyWebMetaToState(state, webMeta) {
     "pendingAssistanceNegotiations",
     "pendingStrategicEvents",
     "pendingEnvoyBudgetReports",
+    "strategicEventSlots",
+    "disasterMapObjects",
+    "_disasterBounds",
     "delayedLegionReturns",
     "envoys",
-    "prisoners",
     "_legionBatchCursor",
     "_cityTickCursor",
+    "_factionTickCursor",
+    "_strategicEventCursor",
+    "_strategicEventDivider",
     "_envoyDiplomacyCursor",
   ]) {
     if (runtime && Object.hasOwn(runtime, field)) {
       state[field] = structuredClone(runtime[field]);
     }
+  }
+  if (state.pendingEnvoyBudgetReports?.length) {
+    state.pendingStrategicEvents = [
+      ...(state.pendingStrategicEvents ?? []),
+      ...state.pendingEnvoyBudgetReports.map((report) => ({ type: 5, report })),
+    ];
+    state.pendingEnvoyBudgetReports = [];
   }
   for (const [targetIdx, envoy] of Object.entries(state.envoys ?? {})) {
     if (envoy?.budget == null) envoy.budget = 0;
@@ -52,16 +64,26 @@ export function applyWebMetaToState(state, webMeta) {
     }
     state.envoys[targetIdx] = envoy;
   }
+  for (const saved of runtime?.cityRuleState ?? []) {
+    const city = state.cities?.[saved.idx];
+    if (city && saved.disasterEvent != null)
+      city.disaster_event = saved.disasterEvent;
+  }
   for (const saved of runtime?.factionRuleState ?? []) {
     const faction = state.factions?.find(
       (candidate) => candidate.idx === saved.idx,
     );
     if (!faction) continue;
-    if (saved.brokeMonths != null) faction.brokeMonths = saved.brokeMonths;
-    if (saved.deficitScolded != null)
-      faction.deficitScolded = saved.deficitScolded;
     if (saved.extinctionHandled != null)
       faction._extinctionHandled = saved.extinctionHandled;
+    if (saved.monthlyReserveUpkeep != null)
+      faction.monthly_reserve_upkeep = saved.monthlyReserveUpkeep;
+    if (Object.hasOwn(saved, "diplomatIdx"))
+      faction.diplomat_idx = saved.diplomatIdx;
+    if (Object.hasOwn(saved, "strategicCityPrimary"))
+      faction.strategic_city_primary = saved.strategicCityPrimary;
+    if (Object.hasOwn(saved, "strategicCitySecondary"))
+      faction.strategic_city_secondary = saved.strategicCitySecondary;
   }
   for (const saved of webMeta?.legionRuleState ?? []) {
     const legion = state.legions?.find(
@@ -157,29 +179,36 @@ export function snapshotState(app, slotIdx, label) {
       scenarioRuntimeState: {
         player_advisor: structuredClone(sc.player_advisor ?? null),
         pendingRecruits: structuredClone(sc.pendingRecruits ?? []),
-        pendingTruceNegotiations: structuredClone(
-          sc.pendingTruceNegotiations ?? [],
-        ),
-        pendingAssistanceNegotiations: structuredClone(
-          sc.pendingAssistanceNegotiations ?? [],
-        ),
         pendingStrategicEvents: structuredClone(
           sc.pendingStrategicEvents ?? [],
         ),
         pendingEnvoyBudgetReports: structuredClone(
           sc.pendingEnvoyBudgetReports ?? [],
         ),
+        strategicEventSlots: structuredClone(sc.strategicEventSlots ?? []),
+        disasterMapObjects: structuredClone(sc.disasterMapObjects ?? []),
+        _disasterBounds: structuredClone(sc._disasterBounds ?? null),
         delayedLegionReturns: structuredClone(sc.delayedLegionReturns ?? []),
         _legionBatchCursor: sc._legionBatchCursor ?? 0,
         _cityTickCursor: sc._cityTickCursor ?? 0,
+        _factionTickCursor: sc._factionTickCursor ?? 0,
+        _strategicEventCursor: sc._strategicEventCursor ?? 0,
+        _strategicEventDivider: sc._strategicEventDivider ?? 7,
         _envoyDiplomacyCursor: sc._envoyDiplomacyCursor ?? 0,
         envoys: structuredClone(sc.envoys ?? {}),
-        prisoners: structuredClone(sc.prisoners ?? []),
+        cityRuleState: (sc.cities ?? [])
+          .filter((city) => city?.disaster_event != null)
+          .map((city) => ({
+            idx: city.idx,
+            disasterEvent: city.disaster_event,
+          })),
         factionRuleState: (sc.factions ?? []).map((faction) => ({
           idx: faction.idx,
-          brokeMonths: faction.brokeMonths ?? null,
-          deficitScolded: faction.deficitScolded ?? null,
           extinctionHandled: faction._extinctionHandled ?? false,
+          monthlyReserveUpkeep: faction.monthly_reserve_upkeep ?? 0,
+          diplomatIdx: faction.diplomat_idx ?? null,
+          strategicCityPrimary: faction.strategic_city_primary ?? null,
+          strategicCitySecondary: faction.strategic_city_secondary ?? null,
         })),
       },
     },

@@ -85,6 +85,10 @@ assert.equal(noCollisionCall, true);
   const address = originalObjectAddress(1, 0, 0);
   pool.write16(address, ORIGINAL_OBJECT.SPATIAL_0E, 0x20);
   pool.write16(address, ORIGINAL_OBJECT.SPATIAL_0C, 0x21);
+  pool.write8(address, ORIGINAL_OBJECT.ANCHOR_X, 0x12);
+  pool.write8(address, ORIGINAL_OBJECT.ANCHOR_Y, 0x23);
+  pool.write8(address, ORIGINAL_OBJECT.LEVEL, 0x34);
+  pool.write8(address, ORIGINAL_OBJECT.HEIGHT, 0x40);
   spatial.write8(0x20, 0xff);
   spatial.write8(0x1020, 0xfe);
   spatial.write8(0x21, 0x80);
@@ -96,6 +100,10 @@ assert.equal(noCollisionCall, true);
   assert.equal(spatial.read8(0x1021), 0xb1);
   assert.equal(committed.id, 0x31);
   assert.equal(pool.read16(address, ORIGINAL_OBJECT.SPATIAL_0E), 0x21);
+  assert.equal(pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_X), 0x12);
+  assert.equal(pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_Y), 0x23);
+  assert.equal(pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_LEVEL), 0x34);
+  assert.equal(pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_HEIGHT), 0x40);
 }
 
 process.stdout.write(

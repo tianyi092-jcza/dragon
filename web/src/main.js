@@ -21,7 +21,12 @@ import {
   monthlyAI,
   monthlyDiplomacyAI,
   completePlayerWarDeclaration,
-  tickEnvoyDiplomacy,
+  enqueueDeficitTrustEvent,
+  enqueueDomesticBudgetEvents,
+  enqueueEnvoyBudgetEvents,
+  enqueueMonthlyDisasterEvents,
+  processMonthlyGeneralFates,
+  tickFactionStrategicState,
   tickStrategicWarEvents,
 } from "./game/ai.js";
 import { loadTerrain } from "./game/pathfind.js";
@@ -29,7 +34,6 @@ import { classifyFieldBattleTerrain } from "./game/fieldterrain.js";
 import * as cmd from "./game/commands.js";
 import { monthlyAppear } from "./game/recruits.js";
 import { BattleView } from "./render/battleview.js";
-import { DiploView } from "./render/diploview.js";
 import { EndView } from "./render/endview.js";
 import { OpenView } from "./render/openview.js";
 import { StartMenu } from "./ui/startmenu.js";
@@ -179,6 +183,7 @@ const app = {
       A,
       D,
       this.scenario.player_faction,
+      this.originalRng,
     );
     const battle = createFieldBattle(
       this.scenario,
@@ -285,22 +290,27 @@ const app = {
         this.scenario._cityTickCursor = (cityCursor + 1) % 192;
       },
       onHour: () => {
-        // 0x1D8E 仅在CF2达到8时调用一次0x3E11；其内部固定轮转一个势力槽。
-        tickEnvoyDiplomacy(this);
+        // 0x1D8E 仅在CF2达到8时调用一次0x3E11：先泵一个全局事件槽，
+        // 再对当前势力做财政危机、预备兵维护累计和外交官维护。
         tickStrategicWarEvents(this);
+        tickFactionStrategicState(this);
       },
       onMonthEnd: (c) => {
         // ★对应 KI.EXE call 0x5358
-        const rep = monthlySettlement(this.scenario, c, this.scenario.tax);
+        const rep = monthlySettlement(this.scenario, c, this.originalRng);
         this.hud.showSettlement(rep);
+        processMonthlyGeneralFates(this); // ★0x538E→0x585F/0x5940 type-9武将回归事件
         monthlyDiplomacyAI(this); // ★0x5394→0x2BD9 关系变化/type-1宣战事件
-        monthlyAI(this); // ★俘虏回归/势力灭亡/流散投奔
-        cmd.monthEnd(this); // ★征兵到达+信赖度动力学
+        enqueueDomesticBudgetEvents(this); // ★0x5397→0x5715 type-4内政预算
+        enqueueEnvoyBudgetEvents(
+          this,
+          prepareEnvoyBudgetReports(this.scenario),
+        ); // ★0x539A→0x578F type-5外交预算
+        enqueueMonthlyDisasterEvents(this); // ★0x539D/0x53A0→type11/12
+        enqueueDeficitTrustEvent(this); // ★0x53A3→0x57FE type-13负资金信赖处罚
+        monthlyAI(this); // ★统一结局检查；俘虏/流散由原版事件链处理
+        cmd.monthEnd(this); // ★征兵到达；天灾/暴动已排入type11/12
         monthlyAppear(this); // ★appear_months 到期武将登场/改投(join_faction)
-        const reports = prepareEnvoyBudgetReports(this.scenario).map(
-          (report) => ({ ...report, delay: 7 }),
-        );
-        this.scenario.pendingEnvoyBudgetReports = reports;
       },
       onDay: null,
     });
@@ -314,10 +324,6 @@ const app = {
       Math.min(23, Number(this.scenario.save_hour) || 0),
     );
     if (this.gamebar) {
-      for (const report of this.scenario.pendingEnvoyBudgetReports ?? []) {
-        this.gamebar.enqueueEnvoyBudgetReport(report);
-      }
-      this.scenario.pendingEnvoyBudgetReports = [];
     }
     if (this.hud) {
       this.hud.buildLegend();
@@ -501,7 +507,6 @@ export async function startApp() {
   app.talkTable = talkTable;
 
   app.battleView = new BattleView(document.querySelector("#bcv"), app);
-  app.diploView = new DiploView(document.querySelector("#diplov"), app);
   app.endView = new EndView(document.querySelector("#endv"), app); // D7OVER/D7END 结束动画
   app.openView = new OpenView(document.querySelector("#openv"), app); // D7OPEN 开场动画
   app.speaker = speaker; // 0xCDE/0xCE7 PC喇叭音效复刻
@@ -522,7 +527,8 @@ export async function startApp() {
   window.__aiTick = () => aiTick(app); // 调试句柄
   window.__monthlyAI = () => monthlyAI(app); // 调试句柄
   window.__monthlyAppear = () => monthlyAppear(app); // 调试句柄
-  window.__monthlySettlement = () => monthlySettlement(app.scenario, app.clock); // 调试句柄：换月财务与据点结算
+  window.__monthlySettlement = () =>
+    monthlySettlement(app.scenario, app.clock, app.originalRng); // 调试句柄：换月财务与据点结算
 
   // ── 主循环: 实时驱动游戏时钟 (对应 KI.EXE 0x1D8E) ──
   let last = performance.now(),
