@@ -1,5 +1,5 @@
 // 引擎主入口 — 装配数据/视图/输入/HUD
-import { loadJSON, seasonTiles } from "./core/assets.js";
+import { loadJSON, loadSeasonTile } from "./core/assets.js";
 import { MapView, preloadEngageMarkerImages } from "./render/mapview.js";
 import { attachInput } from "./core/input.js";
 import { HUD } from "./ui/hud.js";
@@ -35,7 +35,6 @@ import * as cmd from "./game/commands.js";
 import { monthlyAppear } from "./game/recruits.js";
 import { BattleView } from "./render/battleview.js";
 import { EndView } from "./render/endview.js";
-import { OpenView } from "./render/openview.js";
 import { StartMenu } from "./ui/startmenu.js";
 import * as speaker from "./core/speaker.js";
 import { createBattle, createFieldBattle } from "./game/tacticalbattle.js";
@@ -60,13 +59,86 @@ const app = {
   battleMaps: null, // BATTLE.MAP 城池→战场布局索引
   battleNavigation: null, // CAEB/BB3C/BBA6 原版tile属性与导航源
   tacticalSpeed: 2,
-  tacticalSpeedFactor: 1.0,
+  tacticalSpeedFactor: 1.0, // 旧调试兼容字段；正式战术帧使用IRQ门控
   soundType: 1,
   originalRng: null,
   activeBattleRng: null,
   engageTransition: null,
   runtimeEnabled: true,
+  gameStarted: false,
+  _gameAssetsPromise: null,
   _saveQueue: Promise.resolve(),
+
+  /** 标题选单只加载背景和菜单数据；确认新局/存档后才载入地图与战斗资源。 */
+  async ensureGameAssets() {
+    if (!this._gameAssetsPromise) {
+      this._gameAssetsPromise = Promise.all([
+        loadJSON("battle_maps.json"),
+        loadJSON("battle_navigation.json"),
+        loadJSON("battle_rules.json"),
+        loadJSON("battle_scripts.json"),
+        loadJSON("talk.json"),
+      ]).then(
+        ([
+          battleMaps,
+          battleNavigation,
+          battleRules,
+          battleScripts,
+          talkTable,
+        ]) => {
+          battleMaps.navigation = battleNavigation;
+          battleMaps.formationVectors = battleRules.formationVectors;
+          this.battleMaps = battleMaps;
+          this.battleNavigation = battleNavigation;
+          this.battleScripts = battleScripts;
+          this.talkTable = talkTable;
+        },
+      );
+    }
+    return this._gameAssetsPromise;
+  },
+
+  ensureGameShell() {
+    this.battleView ??= new BattleView(document.querySelector("#bcv"), this);
+    this.endView ??= new EndView(document.querySelector("#endv"), this);
+    if (!this.gamebar) {
+      this.gamebar = new GameBar(this);
+      this.view.overlay = (ctx) => this.gamebar.draw(ctx);
+    }
+  },
+
+  async enterGame(load) {
+    this.setRuntimeEnabled(false);
+    try {
+      await this.ensureGameAssets();
+      this.ensureGameShell();
+      await load();
+      this.gameStarted = true;
+      this.hud ??= new HUD(this);
+      this.hud.buildLegend();
+      this.hud.refreshInfo();
+      await this.gamebar._assets;
+      document.body.classList.add("game-active");
+      this.view.draw();
+    } catch (error) {
+      this.gameStarted = false;
+      document.body.classList.remove("game-active");
+      throw error;
+    } finally {
+      this.setRuntimeEnabled(true);
+    }
+  },
+
+  beginNewGame(i, playerFaction, advisor) {
+    return this.enterGame(() => this.setScenario(i, playerFaction, advisor));
+  },
+
+  async beginSavedGame(slotIdx) {
+    await this.enterGame(async () => {
+      if (!(await this.loadSave(slotIdx))) throw new Error("無法讀取指定存檔");
+    });
+    this.hud?.flashEvent?.(`讀檔：${this._lastLoadedSaveLabel}`);
+  },
 
   setRuntimeEnabled(enabled) {
     this.runtimeEnabled = Boolean(enabled);
@@ -98,6 +170,9 @@ const app = {
     this.engageTransition?.cancel?.();
     this.engageTransition = null;
     if (this.gamebar) {
+      // GameBar会跨剧本复用；先取消旧剧本的自动关闭计时器和战略消息FIFO，
+      // 避免下一局触发旧宣战/谈判闭包或显示过期对白。
+      this.gamebar.resetScenarioUi?.();
       this.gamebar._clockHoldRequested = true;
       this.gamebar.submenuOpen = false;
       this.gamebar.miniOpen = false;
@@ -136,6 +211,11 @@ const app = {
       this.view.hoverTarget = null;
       this.view.draw();
     }
+    this.gameStarted = false;
+    document.body.classList.remove("game-active");
+    this.view.seasonImg = null;
+    this.scenario = null;
+    this.clock = null;
     try {
       await this.startMenu.show(initialAction);
     } finally {
@@ -228,7 +308,9 @@ const app = {
       playerFaction,
       advisor,
     );
-    this.loadState(raw, i, { initializeDiplomacy: playerFaction != null });
+    return this.loadState(raw, i, {
+      initializeDiplomacy: playerFaction != null,
+    });
   },
 
   /** 公共装配路径: 剧本与读档共用 (raw=parse_sinario/parse_save 输出的 state) */
@@ -253,7 +335,7 @@ const app = {
     this.originalRng = createOriginalBattleRng();
     if (rngSnapshot) this.originalRng.restore(rngSnapshot);
     this.activeBattleRng = this.originalRng;
-    loadTerrain().catch((error) => {
+    const terrainReady = loadTerrain().catch((error) => {
       this.hud?.flashEvent?.("道路資料載入失敗，行軍功能暫停。");
       globalThis.__dragonDebug?.reportError?.(
         "strategic map navigation assets failed to load",
@@ -271,7 +353,7 @@ const app = {
         : this.scenario.start.month;
     const requestedDay = loadedDate?.day ?? this.scenario.start.day;
     const startYear = loadedDate?.year ?? this.scenario.start.year;
-    this.setSeason(seasonOf(startMonth));
+    const seasonReady = this.setSeason(seasonOf(startMonth));
     // 新游戏使用章节起始日；存档使用 parse_save/snapshotState 的 save_date。
     this.clock = new Clock({
       startYear,
@@ -280,6 +362,9 @@ const app = {
       onStrategicTick: (c) => {
         const batchStart = this.scenario._legionBatchCursor ?? 0;
         const cityCursor = this.scenario._cityTickCursor ?? 0;
+        // 表现层只用它判断某次道路单步的插值是否仍属于当前战略更新。
+        // 不进入规则、RNG 或存档。
+        this.scenario._strategicTickSerial = c.strategicTickSerial;
         aiTick(this, {
           legionBatchStart: batchStart,
           cityIndex: cityCursor,
@@ -345,6 +430,7 @@ const app = {
     }
     this.view.draw();
     this.checkTrustGameOver(); // 读入 trust=0 的坏档也立即进入结束画面
+    return Promise.all([terrainReady, seasonReady]);
   },
 
   /** 按调用顺序写入玩家浏览器的 IndexedDB；服务端不接收任何存档。 */
@@ -379,24 +465,25 @@ const app = {
   },
 
   /** 读档: 用浏览器本地槽位状态覆盖当前场景 */
-  loadSave(slotIdx) {
+  async loadSave(slotIdx) {
     const sv = this.saves?.slots.find((s) => s.slot === slotIdx);
     if (!sv?.played || !sv.state) return false;
     // 深拷贝: 游玩会改写 state(军团移动/死亡), 保留原始存档以便重复读档
     const state = applyWebMetaToState(structuredClone(sv.state), sv.webMeta);
     this.loadedSaveSlot = slotIdx;
-    this.loadState(state, sv.scenario_idx, {
+    await this.loadState(state, sv.scenario_idx, {
       rngSnapshot: sv.webMeta?.originalRng ?? null,
     });
-    this.hud.flashEvent(`讀檔：${sv.label}`);
+    this._lastLoadedSaveLabel = sv.label;
     return true;
   },
 
   setSeason(i) {
     this.seasonIdx = i;
-    seasonTiles[SEASONS[i]].then((img) => {
+    return loadSeasonTile(SEASONS[i]).then((img) => {
+      if (this.seasonIdx !== i) return;
       this.view.seasonImg = img;
-      this.view.draw();
+      if (this.gameStarted) this.view.draw();
     });
   },
 };
@@ -409,6 +496,7 @@ app.view.app = app;
 attachInput(app.view, {
   uiHit: (x, y) => app.gamebar?.hitTest(x, y) ?? false,
   onHover: (target, e) => {
+    if (!app.gameStarted || !app.hud) return;
     // UI (工具栏/面板/弹窗) 区域内不触发地图拾取
     if (app.gamebar?.hitTest(e.clientX, e.clientY)) {
       const changed = app.gamebar.hover(e.clientX, e.clientY);
@@ -426,6 +514,8 @@ attachInput(app.view, {
     if (moved && !mouseDown) app.view.draw();
   },
   onSelect: (target, e) => {
+    // 标题选单有独立输入绑定；战略层全局右键监听不得穿透到持久GameBar。
+    if (!app.gameStarted || !app.scenario) return;
     // UI 点击优先消费 (工具栏图标/子菜单/小地图城点/设置菜单/弹窗)
     if (app.gamebar?.click(e.clientX, e.clientY, e.button, target)) {
       app.view.draw();
@@ -472,6 +562,7 @@ attachInput(app.view, {
     // 4、除点击据点中心或行走军团外，在地图其它地方左键点击没有任何功能
   },
   onWheel: (e) => {
+    if (!app.gameStarted || !app.scenario) return;
     if (app.gamebar?.wheel(e.clientX, e.clientY, e.deltaY)) return;
   },
 });
@@ -483,47 +574,31 @@ addEventListener("mouseup", (e) => {
   if (e.button === 0) mouseDown = false;
 });
 
-// ★鼠标活动=战略暂停, 静止1秒自动恢复 (原版机制: 愌知鼠标移动/停止控制计时)
-addEventListener("mousemove", () => app.gamebar?.pokeClock());
+// ★仅地图画布上的鼠标活动暂停战略计时；静止 1 秒后由 GameBar 恢复。
+// 不能监听 window，否则战斗层、标题和 DOM 控件的鼠标移动也会错误影响战略时钟。
+canvas.addEventListener("mousemove", (event) => {
+  app.view.setPointer(event.clientX, event.clientY);
+  app.gamebar?.pokeClock();
+  // 时钟冻结时没有常规RAF重绘，光标也必须立即跟随鼠标。
+  app.view.draw();
+});
+canvas.addEventListener("mouseleave", () => {
+  if (app.view.setPointer(null, null)) app.view.draw();
+});
 
-// 新游戏章节由服务器静态资源 data.json 提供；存档仅来自浏览器 IndexedDB。
+// 标题阶段只读取章节目录和本机存档；地图/道路/战斗数据在确认进入游戏后加载。
 export async function startApp() {
   app.runtimeEnabled = false;
-  app.data = await loadJSON("data.json");
-  app.saves = await loadLocalSaveSlots();
-  const [battleMaps, battleNavigation, battleRules, battleScripts, talkTable] =
-    await Promise.all([
-      loadJSON("battle_maps.json"),
-      loadJSON("battle_navigation.json"),
-      loadJSON("battle_rules.json"),
-      loadJSON("battle_scripts.json"),
-      loadJSON("talk.json"),
-    ]);
-  app.battleMaps = battleMaps;
-  app.battleNavigation = battleNavigation;
-  app.battleMaps.navigation = app.battleNavigation;
-  app.battleMaps.formationVectors = battleRules.formationVectors;
-  app.battleScripts = battleScripts;
-  app.talkTable = talkTable;
+  [app.data, app.saves] = await Promise.all([
+    loadJSON("data.json"),
+    loadLocalSaveSlots(),
+  ]);
 
-  app.battleView = new BattleView(document.querySelector("#bcv"), app);
-  app.endView = new EndView(document.querySelector("#endv"), app); // D7OVER/D7END 结束动画
-  app.openView = new OpenView(document.querySelector("#openv"), app); // D7OPEN 开场动画
   app.speaker = speaker; // 0xCDE/0xCE7 PC喇叭音效复刻
-  app.scenario = new Scenario(app.data.scenarios[0]);
-  app.hud = new HUD(app);
-  app.gamebar = new GameBar(app); // 顶部工具栏+小地图+资源面板 (UI 覆盖层画在主画布)
-  app.view.overlay = (ctx) => app.gamebar.draw(ctx);
-  app.setScenario(0); // 背景地图 (原版标题画面=全国地图)
   app.startMenu = new StartMenu(app);
-  app.setRuntimeEnabled(true);
-  // 仅在 boot.js 已取得浏览器单实例锁后发布 App 并启动主循环。
+  // 仅在 boot.js 已取得浏览器单实例锁后发布 App；不再播放开场动画或装配默认地图。
   globalThis.__dragonApp = app;
-  if (!sessionStorage.getItem("openPlayed")) {
-    sessionStorage.setItem("openPlayed", "1");
-    await app.openView.play(); // 開場動畫(每次浏览器会话首次載入播放, 點擊跳過)
-  }
-  await app.startMenu.show(); // ★開局選單: NEW GAME YES/NO → 章節選擇/讀檔 (0x1AC3)
+  await app.startMenu.show(); // ★背景图上的开局选单；确认章节/存档后才进入地图
   window.__aiTick = () => aiTick(app); // 调试句柄
   window.__monthlyAI = () => monthlyAI(app); // 调试句柄
   window.__monthlyAppear = () => monthlyAppear(app); // 调试句柄

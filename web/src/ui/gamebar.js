@@ -39,9 +39,9 @@ import {
 } from "../game/economy.js";
 import { STRATEGIC_SPEED_LABELS } from "../game/clock.js";
 import {
-  TACTICAL_SPEED_LABELS,
   TACTICAL_SPEED_FACTORS,
-} from "../render/battleview.js";
+  TACTICAL_SPEED_LABELS,
+} from "../game/tacticalclock.js";
 import {
   enqueueDelayedStrategicEvent,
   resolveIncomingDiplomacyChoice,
@@ -105,6 +105,7 @@ export class GameBar {
     this.soundType = 1; // 1..4 (TYPE 1..4)
     this.settingsHover = -1;
     this._clockHoldRequested = false;
+    this._lastMouse = -Infinity;
     this._legionPortraitImg = null;
     this._legionPortraitKey = null;
     this._assets = Promise.all([
@@ -1267,6 +1268,19 @@ export class GameBar {
     }));
     legion.units = units;
     return units;
+  }
+
+  /**
+   * 玩家在首都外选择「解體」时，原版状态11必须先返首都；抵达后的
+   * 0x44D6/aiTick 才归还兵员并清除军团，不能在当前据点瞬间删除。
+   */
+  _orderDisbandAtCapital(legion, capital) {
+    if (!this.assignMarchOrder(legion, capital, false)) return false;
+    legion.commandState = 11;
+    this.app.hud?.flashEvent?.(
+      `「${legion.leader}」隊返「${capital.name.trim()}」後解體。`,
+    );
+    return true;
   }
 
   /** 军团解体: 将兵力全额返还势力预备兵池 (KI.EXE 0x463E & 0x4717) */
@@ -3374,6 +3388,22 @@ export class GameBar {
     this.app.view.draw();
   }
 
+  /** 返回标题时丢弃旧剧本的异步对白/计时器，不执行其 onClose 状态回调。 */
+  resetScenarioUi() {
+    if (this.proposalAudience?.timer) {
+      clearTimeout(this.proposalAudience.timer);
+    }
+    if (this._generalCardTimer) {
+      clearTimeout(this._generalCardTimer);
+      this._generalCardTimer = null;
+    }
+    this.proposalAudience = null;
+    this.generalCard = null;
+    this._strategicMessageQueue.length = 0;
+    this._strategicMessageActive = false;
+    this._clockHoldRequested = true;
+  }
+
   _hitProposalReasons(px, py) {
     const p = this.proposalAudience;
     if (
@@ -5418,8 +5448,7 @@ export class GameBar {
     this.app.view.draw();
   }
 
-  /** 鼠标移动暂停计时, 静止 1 秒恢复 (原版 [0x98A5] 暂停计数器语义);
-   *  操作菜单/弹窗打开时计时冻结 (原版 [0xD2A]=1 主循环跳过时钟进位链) */
+  /** 菜单/弹窗打开时冻结战略时钟 (原版 [0xD2A]=1 主循环跳过时钟进位链)。 */
   isMenuOpen() {
     return !!(
       this.submenuOpen ||
@@ -5429,11 +5458,11 @@ export class GameBar {
     );
   }
 
-  /** 每帧同步: 只有模态弹窗 (進言/武將/勢力/存读档/列表选择) 打开时才冻结计时;
-   *  菜单条/下拉/小地图/资源面板/悬停均不影响计时 */
+  /** 每帧同步：模态窗口/激活军师子菜单，或地图鼠标活动后的1秒内均冻结计时。 */
   syncClock() {
     const c = this.app.clock;
     if (!c) return;
+    const mapMouseActive = performance.now() - this._lastMouse < 1000;
     const modalOpen =
       (this.app.hud?.dialogCount ?? 0) > 0 ||
       !!(
@@ -5459,10 +5488,12 @@ export class GameBar {
         this._strategicMessageActive
       );
     const subActive = this.selectedSubmenu != null;
-    c.hold = this._clockHoldRequested || modalOpen || subActive; // 点击军师菜单项或外部模态时停止计时
+    c.hold =
+      this._clockHoldRequested || modalOpen || subActive || mapMouseActive;
   }
 
   pokeClock() {
+    // 地图任意移动都暂停；只要静止满1秒，下一帧syncClock即恢复。
     this._lastMouse = performance.now();
     this.syncClock();
   }
@@ -5876,8 +5907,9 @@ export class GameBar {
                 `「${L.leader}」隊委任向「${targetCity.name.trim()}」進軍。`,
               );
             } else if (ci === 2) {
-              // 解體 (仅限首都)
-              this._disbandLegion(L);
+              // 解體：无论当前驻点，均先写状态11并沿道路返首都；
+              // 实际归还预备兵/移除军团由抵达后的aiTick执行。
+              if (!this._orderDisbandAtCapital(L, targetCity)) return true;
             }
             this.closeOrderChoiceMenu();
             this.closeMarchingOrder();
@@ -6484,6 +6516,7 @@ export class GameBar {
     } else if (i === 4) {
       // 戰術速度：最低速 -> 低速 -> 普通 -> 高速 -> 最高速 循环切换
       this.app.tacticalSpeed = ((this.app.tacticalSpeed ?? 2) + 1) % 5;
+      // 旧调试兼容字段；BattleView正式推进只读取tacticalSpeed的IRQ门控。
       this.app.tacticalSpeedFactor =
         TACTICAL_SPEED_FACTORS[this.app.tacticalSpeed];
       clickSfx();

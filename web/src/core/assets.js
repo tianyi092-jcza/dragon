@@ -1,6 +1,4 @@
 // 资源加载器 — 集中管理所有逆向提取的资产，带缓存
-import { SEASONS } from "../game/world.js";
-
 const cache = new Map();
 const imageBust = new Set([
   "battle_map_0.png",
@@ -36,10 +34,10 @@ export function loadImage(url) {
   return cache.get(url);
 }
 
-/** 四季地形图 {spring: Promise<Image>, ...} */
-export const seasonTiles = Object.fromEntries(
-  SEASONS.map((s) => [s, loadImage(`map_tiles_${s}.png`)]),
-);
+/** 四季战略地图按需加载；标题选单阶段不得提前请求地图位图。 */
+export function loadSeasonTile(season) {
+  return loadImage(`map_tiles_${season}.png`);
+}
 
 /** 武将头像 (懒加载+缓存) */
 export function portrait(i) {

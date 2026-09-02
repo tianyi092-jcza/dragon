@@ -185,6 +185,11 @@ assert.deepEqual(legacySidecarState.strategicEventSlots[1], {
 
 const saveSc = scenarioFixture();
 saveSc.strategicEventSlots[37] = { type: 7, arg0: 1, arg1: 2 };
+saveSc.strategicEventSlots[38] = {
+  type: 1,
+  aggressor: 1,
+  defender: 0x18,
+};
 const saveApp = {
   scenarioIdx: 0,
   scenario: saveSc,
@@ -216,7 +221,12 @@ assert.deepEqual(restored.strategicEventSlots[37], {
   arg0: 1,
   arg1: 2,
 });
+assert.deepEqual(restored.strategicEventSlots[38], {
+  type: 1,
+  aggressor: 1,
+  defender: 0x18,
+});
 
 process.stdout.write(
-  "strategic negotiation events OK: type6/7 use 0x301C slots, dispatch typed args, migrate legacy queues, save wheel\n",
+  "strategic negotiation events OK: type6/7 use 0x301C slots, dispatch typed args, migrate legacy queues, save wheel including empty-expansion type1\n",
 );

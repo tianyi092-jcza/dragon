@@ -94,7 +94,7 @@ export function decreaseRelation(sc, a, b, delta) {
   sc.diplomacy[a][b] = state | value;
 }
 
-const EMPTY_FACTION = 0x18;
+export const EMPTY_FACTION = 0x18;
 
 function isActiveFaction(faction) {
   return Boolean(
@@ -102,7 +102,7 @@ function isActiveFaction(faction) {
       faction.idx != null &&
       faction.active !== false &&
       !faction.dead &&
-      (faction.n_cities ?? 0) > 0,
+      (faction.attr == null || faction.attr >= 0x80),
   );
 }
 
@@ -114,7 +114,7 @@ export function buildDiplomacyCandidates(sc, factionIdx) {
   const seen = new Set();
   const candidates = [];
   let touchesEmptyCity = false;
-  for (const city of sc.cities ?? []) {
+  for (const city of (sc.cities ?? []).slice(0, 0xc0)) {
     if (city?.faction !== factionIdx || typeof city.raw !== "string") continue;
     const raw = Uint8Array.from(city.raw.match(/../g) ?? [], (byte) =>
       Number.parseInt(byte, 16),
@@ -125,27 +125,43 @@ export function buildDiplomacyCandidates(sc, factionIdx) {
       const neighbor = sc.cities?.[raw[0x1c + direction]];
       const neighborFaction = neighbor?.faction;
       if (neighborFaction == null || neighborFaction === EMPTY_FACTION) {
+        // 0x2D09：空城只在工作行头写独立的0x0600 sentinel；它不参加排序。
         touchesEmptyCity = true;
         continue;
       }
       if (neighborFaction === factionIdx || seen.has(neighborFaction)) continue;
-      const target = sc.factions?.find((f) => f?.idx === neighborFaction);
-      if (!isActiveFaction(target)) continue;
+      // 0x2CDF按邻城所属直接写势力指针，不另查目标势力attr。
+      // 正常状态下有城势力必为活动；保留该原始语义可避免瞬时状态漂移。
       seen.add(neighborFaction);
+      const rawRelation = relation(sc, factionIdx, neighborFaction);
       candidates.push({
         factionIdx: neighborFaction,
-        raw: relation(sc, factionIdx, neighborFaction),
+        raw: rawRelation,
+        // 0x2CB7..0x2CBF：排序工作项bit15记录建表快照时已处于交战。
+        atWarSnapshot: rawRelation < 0x80,
       });
     }
   }
-  // 0x2C8A selection-sort 的首要效果：最差的现有关系成为第一候选；同值保持
-  // 0x2CDF 首次收集的城/方向顺序。
-  candidates.sort((left, right) => left.raw - right.raw);
+  // 0x2C8A..0x2CDB 是严格“小于才替换”的不稳定 selection-sort。
+  // 第一候选的同值顺序与收集顺序相同，但后续同值项可因交换而重排，
+  // 会影响动态月结时 type-3 停战事件的目标顺序，不能用稳定 Array.sort。
+  for (let start = 0; start < candidates.length - 1; start++) {
+    let minimum = start;
+    for (let index = start + 1; index < candidates.length; index++) {
+      if (candidates[index].raw < candidates[minimum].raw) minimum = index;
+    }
+    if (minimum !== start)
+      [candidates[start], candidates[minimum]] = [
+        candidates[minimum],
+        candidates[start],
+      ];
+  }
   return { candidates, touchesEmptyCity };
 }
 
-function updateOrdinaryFactionRelation(sc, factionIdx, candidateIdx) {
-  if (candidateIdx == null) return;
+function updateOrdinaryFactionRelation(sc, factionIdx, candidate) {
+  if (!candidate) return;
+  const candidateIdx = candidate.factionIdx;
   const raw = relation(sc, factionIdx, candidateIdx);
   if (raw >= 0x80) {
     const value = Math.max(raw & 0x7f, 22) - 2;
@@ -155,14 +171,16 @@ function updateOrdinaryFactionRelation(sc, factionIdx, candidateIdx) {
   }
 }
 
-function updatePlayerFactionRelations(sc, candidateIdx, touchesEmptyCity) {
+function updatePlayerFactionRelations(sc, candidate) {
   const playerIdx = sc.player_faction;
-  if (candidateIdx != null) {
-    decreaseRelation(sc, playerIdx, candidateIdx, 1);
-    // 0x2DF3 检查工作项高字节 marker；候选带特殊项时额外 -7。
-    if (touchesEmptyCity) decreaseRelation(sc, playerIdx, candidateIdx, 7);
+  if (candidate) {
+    decreaseRelation(sc, playerIdx, candidate.factionIdx, 1);
+    // 0x2DFD..0x2E0F 检查的是第一候选word的战争marker：建表时仍和平
+    // 才再减7。空城0x0600位于工作行头，与这个判定完全无关。
+    if (!candidate.atWarSnapshot)
+      decreaseRelation(sc, playerIdx, candidate.factionIdx, 7);
   }
-  for (const faction of sc.factions ?? []) {
+  for (const faction of (sc.factions ?? []).slice(0, 0x16)) {
     if (!isActiveFaction(faction) || faction.idx === playerIdx) continue;
     decreaseRelation(sc, faction.idx, playerIdx, 1);
   }
@@ -171,6 +189,10 @@ function updatePlayerFactionRelations(sc, candidateIdx, touchesEmptyCity) {
 function factionResourceWord(faction) {
   // KI直接比较未对齐signed word[faction+0x21]，等价24位资金算术右移8位。
   return factionFundsWordQ256(faction);
+}
+
+function factionResourceWordUnsigned(faction) {
+  return factionResourceWord(faction) & 0xffff;
 }
 
 /** 0x3091：三类预备兵各除以4，按城数/2000封顶，并受 raw +0x21 word 门控。 */
@@ -182,7 +204,8 @@ export function factionStrategicPower(faction) {
     ((faction.reserve_inf ?? 0) >> 2);
   const cityCap = Math.max(0, (faction.n_cities ?? 0) << 8);
   if (power >= cityCap || power > 2000) power = 2000;
-  return factionResourceWord(faction) <= 19 ? 0 : power;
+  // 0x30BF使用无符号JBE；这与0x2EFB的有符号资金门槛不同。
+  return factionResourceWordUnsigned(faction) <= 19 ? 0 : power;
 }
 
 /** 0x2EFB：判断第一地理候选是否应排入 type-1 主动宣战事件。 */
@@ -190,7 +213,7 @@ export function shouldDeclareStrategicWar(sc, faction, candidateIdx) {
   if (!isActiveFaction(faction) || candidateIdx == null) return false;
   if (candidateIdx === faction.target_faction) return false;
   const target = sc.factions?.find((item) => item?.idx === candidateIdx);
-  if (!isActiveFaction(target)) return false;
+  if (!target) return false;
   const resourceThreshold = Math.min(
     ((faction.n_cities ?? 0) << 4) + 0x40,
     0x061a,
@@ -212,21 +235,22 @@ export function shouldDeclareStrategicWar(sc, faction, candidateIdx) {
 export function runStrategicDiplomacy(sc) {
   if (!sc?.diplomacy || sc.player_faction == null) return [];
   const work = new Map();
-  for (const faction of sc.factions ?? []) {
+  for (const faction of (sc.factions ?? []).slice(0, 0x16)) {
     if (!isActiveFaction(faction)) continue;
     work.set(faction.idx, buildDiplomacyCandidates(sc, faction.idx));
   }
 
   const events = [];
-  for (const faction of sc.factions ?? []) {
+  for (const faction of (sc.factions ?? []).slice(0, 0x16)) {
     if (!isActiveFaction(faction)) continue;
     const item = work.get(faction.idx);
     const candidates = item?.candidates ?? [];
-    const candidateIdx = candidates[0]?.factionIdx ?? null;
+    const firstCandidate = candidates[0] ?? null;
+    const candidateIdx = firstCandidate?.factionIdx ?? null;
     if (faction.idx === sc.player_faction) {
-      updatePlayerFactionRelations(sc, candidateIdx, item?.touchesEmptyCity);
+      updatePlayerFactionRelations(sc, firstCandidate);
     } else {
-      updateOrdinaryFactionRelation(sc, faction.idx, candidateIdx);
+      updateOrdinaryFactionRelation(sc, faction.idx, firstCandidate);
     }
 
     // 0x2E33：正在进攻第三方的势力若与玩家接壤，而被攻击方与玩家关系
@@ -234,7 +258,9 @@ export function runStrategicDiplomacy(sc) {
     // 0x2E7B交换后的SI与DX实锤：{player,attacker,requester}。
     const targetIdx = faction.target_faction;
     const playerTouches = candidates.some(
-      (candidate) => candidate.factionIdx === sc.player_faction,
+      (candidate) =>
+        candidate.factionIdx === sc.player_faction &&
+        !candidate.atWarSnapshot,
     );
     if (
       targetIdx != null &&
@@ -254,16 +280,19 @@ export function runStrategicDiplomacy(sc) {
     // 0x2E89：仅非玩家；从最差关系候选起逐个减去对方战略实力，直到
     // 累计敌力达到当前势力。随后从该位置向后，对除首候选外的连续交战
     // 候选逐一排type3。工作表raw是0x2C52排序时快照，不能读更新后关系。
-    if (faction.idx !== sc.player_faction && candidates[0]?.raw < 0x80) {
+    if (
+      faction.idx !== sc.player_faction &&
+      candidates[0]?.atWarSnapshot
+    ) {
       let remainingPower = factionStrategicPower(faction);
       let startIndex = -1;
       for (let index = 0; index < Math.min(0x15, candidates.length); index++) {
         const candidate = candidates[index];
-        if (candidate.raw >= 0x80) break;
+        if (!candidate.atWarSnapshot) break;
         const other = sc.factions?.find(
           (item) => item?.idx === candidate.factionIdx,
         );
-        if (!isActiveFaction(other)) break;
+        if (!other) break;
         remainingPower -= factionStrategicPower(other);
         if (remainingPower <= 0) {
           startIndex = index;
@@ -278,7 +307,7 @@ export function runStrategicDiplomacy(sc) {
           index++
         ) {
           const candidate = candidates[index];
-          if (candidate.raw >= 0x80) break;
+          if (!candidate.atWarSnapshot) break;
           if (candidate.factionIdx === firstFactionIdx) continue;
           events.push({
             type: 3,
@@ -290,11 +319,58 @@ export function runStrategicDiplomacy(sc) {
       }
     }
 
-    if (
-      faction.idx !== sc.player_faction &&
-      shouldDeclareStrategicWar(sc, faction, candidateIdx)
-    ) {
+    // 0x2D58 对所有活跃势力依次执行关系更新后，都会调用 0x2EFB；
+    // 玩家势力只是在 0x2DF3 使用不同的关系更新分支，并不会跳过主动宣战。
+    // 第一章选曹操时，曹操的 funds>>8=289 恰好高于门槛 14*16+64=288，
+    // 因而开局应排入曹操→吕布 type-1；吕布自身 125<176，反而不通过。
+    const declaredAgainstFirst = shouldDeclareStrategicWar(
+      sc,
+      faction,
+      candidateIdx,
+    );
+    let preserveEmptyTarget = false;
+    if (declaredAgainstFirst) {
       events.push({ type: 1, aggressor: faction.idx, defender: candidateIdx });
+    } else {
+      // 0x2F71：主候选门控失败后，只有接壤空城、当前无普通势力目标且
+      // funds>>8严格超过min(nCities*16+96,0x06DD)时，排目标0x18的type-1。
+      // 该事件对AI只设置“扩张空城”目标，不执行外交宣战。
+      const targetByte =
+        faction.target_faction == null ? 0xff : faction.target_faction & 0xff;
+      if (targetByte >= EMPTY_FACTION) {
+        const emptyThreshold = Math.min(
+          ((faction.n_cities ?? 0) << 4) + 0x60,
+          0x06dd,
+        );
+        if (
+          item?.touchesEmptyCity &&
+          emptyThreshold < factionResourceWord(faction)
+        ) {
+          if (targetByte === EMPTY_FACTION) preserveEmptyTarget = true;
+          else
+            events.push({
+              type: 1,
+              aggressor: faction.idx,
+              defender: EMPTY_FACTION,
+            });
+        } else {
+          faction.target_faction = null;
+        }
+      }
+    }
+
+    // 0x2D8E..0x2DB7：每次开局/月结都校验旧战略目标。仅当目标0x18
+    // 仍通过上面的空城门控，或第一候选在建表快照时已交战且正是旧目标，
+    // 才保留；其它普通/失效目标一律清除。
+    const targetByte =
+      faction.target_faction == null ? 0xff : faction.target_faction & 0xff;
+    if (!preserveEmptyTarget) {
+      if (
+        targetByte === EMPTY_FACTION ||
+        !firstCandidate?.atWarSnapshot ||
+        firstCandidate.factionIdx !== targetByte
+      )
+        faction.target_faction = null;
     }
   }
   return events;
@@ -419,14 +495,6 @@ export function moveCapital(sc, city) {
   return {
     ok: `遷都：主城自${old?.name ?? "?"}移至${city.name}。`,
   };
-}
-
-/** AI 攻击目标过滤: 友好/亲密 (>= 0x80+60 = 0xBC) 势力城池不主动攻击 */
-export function isFriendly(sc, a, b) {
-  if (a === b) return true;
-  const r = relation(sc, a, b);
-  if (r < 0x80) return false;
-  return (r & 0x7f) >= 60; // 良好 (60+) / 亲密 (80+) 不主动进攻
 }
 
 /** 选玩家势力政治最高且≥13的空闲武将任使者(null=无人可派) */

@@ -220,6 +220,25 @@ function fixture() {
   );
 }
 
+// type2要求工作表中的玩家候选仍为和平；带战争marker的玩家项不能匹配。
+{
+  const sc = fixture();
+  sc.factions[1].target_faction = 2;
+  sc.factions[1].money = 100000;
+  sc.factions[2].money = 100000;
+  const c1 = new Uint8Array(32);
+  c1[0] = 3;
+  c1[0x1c] = 0;
+  c1[0x1d] = 2;
+  sc.cities[1].raw = Buffer.from(c1).toString("hex");
+  sc.diplomacy[1][0] = 0x20;
+  sc.diplomacy[2][0] = 0xd0;
+  assert.equal(
+    runStrategicDiplomacy(sc).some((event) => event.type === 2),
+    false,
+  );
+}
+
 // type3 producer: weaker AI with at least two hostile candidates queues each
 // subsequent hostile candidate as {requester,recipient,FF}.
 {
@@ -249,6 +268,43 @@ function fixture() {
   );
 }
 
+// 原版0x2C8A是不稳定selection-sort；后续同值候选顺序影响type3。
+{
+  const sc = fixture();
+  sc.player_faction = 2;
+  sc.factions.push({
+    idx: 3,
+    attr: 0x80,
+    active: true,
+    n_cities: 1,
+    reserve_cav: 400,
+    money: 100000,
+  });
+  for (const row of sc.diplomacy) row.push(0x20);
+  sc.diplomacy.push([0x20, 0x20, 0x20, 0xff]);
+  sc.factions[0].reserve_cav = 100;
+  sc.factions[0].money = 100000;
+  sc.factions[1].money = 0;
+  sc.factions[2].money = 0;
+  sc.factions[3].money = 100000;
+  const c0 = new Uint8Array(32);
+  c0[0] = 7;
+  c0[0x1c] = 1;
+  c0[0x1d] = 2;
+  c0[0x1e] = 3;
+  sc.cities[0].raw = Buffer.from(c0).toString("hex");
+  sc.cities.push({ idx: 3, faction: 3, raw: Buffer.from(new Uint8Array(32)).toString("hex") });
+  sc.diplomacy[0][1] = 0x20;
+  sc.diplomacy[0][2] = 0x20;
+  sc.diplomacy[0][3] = 0x10;
+  const type3 = runStrategicDiplomacy(sc).filter((event) => event.type === 3);
+  assert.deepEqual(
+    type3.map((event) => event.arg1),
+    [2, 1],
+    "末项最小值与首位交换后，同值项应反转为2,1而非稳定排序的1,2",
+  );
+}
+
 process.stdout.write(
-  "incoming diplomacy events OK: type2/3 decode, negotiation choice, payment/prisoners/target cleanup\n",
+  "incoming diplomacy events OK: type2/3 decode, marker/order, negotiation choice, payment/prisoners/target cleanup\n",
 );

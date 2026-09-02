@@ -29,6 +29,8 @@ const {
 const { buildArmies, aiTick, settleLegionDaily, stepTo } = await import(
   "../web/src/game/ai.js"
 );
+const { MapView } = await import("../web/src/render/mapview.js");
+const { Clock } = await import("../web/src/game/clock.js");
 await loadRoadGraph();
 
 const source = graph.nodes[0];
@@ -241,25 +243,25 @@ const app = {
   battleView: null,
 };
 const visited = [];
-let finalDayCost = null;
-let finalDayMoraleBefore = null;
+let finalSettlementCost = null;
+let finalMoraleBefore = null;
 for (
-  let day = 0;
-  day < expected.points.length + expected.edges.length + 8;
-  day++
+  let update = 0;
+  update < expected.points.length + expected.edges.length + 8;
+  update++
 ) {
   const fundsBefore = scenario.factions[0].gold;
   const moraleBefore = legion.morale;
   aiTick(app);
-  const dailyCost = fundsBefore - scenario.factions[0].gold;
+  const settlementCost = fundsBefore - scenario.factions[0].gold;
   visited.push({ x: legion.x, y: legion.y });
-  if (day === 0) {
-    assert.equal(dailyCost, 75, "节点出发进入道路后按道路军费结算");
+  if (update === 0) {
+    assert.equal(settlementCost, 75, "节点出发进入道路后按道路军费结算");
     assert.equal(legion.morale, 100, "节点出发进入道路后不恢复士气");
   }
   if (!legion.target) {
-    finalDayCost = dailyCost;
-    finalDayMoraleBefore = moraleBefore;
+    finalSettlementCost = settlementCost;
+    finalMoraleBefore = moraleBefore;
     break;
   }
 }
@@ -280,13 +282,101 @@ assert.equal(legion._march, null);
 assert.equal(legion._path, null);
 assert.equal(legion.prevX, legion.x);
 assert.equal(legion.prevY, legion.y);
-assert.equal(finalDayCost, 4, "道路抵达目标节点后按节点军费结算");
+assert.equal(finalSettlementCost, 4, "道路抵达目标节点后按节点军费结算");
 assert.equal(
   legion.morale,
-  Math.min(200, finalDayMoraleBefore + 10),
+  Math.min(200, finalMoraleBefore + 10),
   "道路抵达目标节点后恢复士气",
 );
 assert.ok(!("_feint" in legion));
+
+// 主游戏调度回归：军团移动由0x1D0B战略主更新/16槽批次驱动，不等onDay。
+// slot0在第1与第9次主更新各前进一步；此时只刚进入游戏第1时刻，日期未变。
+{
+  const clockSource = graph.nodes[0];
+  const clockTarget = graph.nodes.at(-1);
+  const clockSourceCity = {
+    idx: 0,
+    name: "時鐘起點",
+    x: clockSource.x,
+    y: clockSource.y,
+    faction: 0,
+  };
+  const clockTargetCity = {
+    idx: 1,
+    name: "時鐘終點",
+    x: clockTarget.x,
+    y: clockTarget.y,
+    faction: 0,
+  };
+  const clockLegion = {
+    slot: 0,
+    leader: "時鐘軍團",
+    faction: 0,
+    x: clockSource.x,
+    y: clockSource.y,
+    prevX: clockSource.x,
+    prevY: clockSource.y,
+    troops: 100,
+    morale: 100,
+    target: clockTargetCity,
+    status: 0x80,
+    _active: true,
+  };
+  const clockScenario = {
+    player_faction: 0,
+    factions: [
+      {
+        idx: 0,
+        active: true,
+        capital: 0,
+        monarch: "時鐘軍團",
+        gold: 100000,
+        money: 100000,
+        reserve_cav: 0,
+        reserve_arc: 0,
+        reserve_inf: 0,
+        legion_morale_cap: 200,
+      },
+    ],
+    cities: [clockSourceCity, clockTargetCity],
+    generals: [],
+    legions: [clockLegion],
+    diplomacy: [[0xff]],
+  };
+  const clockApp = {
+    scenario: clockScenario,
+    originalRng: { nextByte: () => 0xff },
+    battleView: null,
+    engageTransition: null,
+  };
+  let batchStart = 0;
+  const changedAt = [];
+  let previous = `${clockLegion.x},${clockLegion.y}`;
+  const strategicClock = new Clock({
+    startYear: 190,
+    startMonth: 1,
+    startDay: 1,
+    onStrategicTick(current) {
+      clockScenario._strategicTickSerial = current.strategicTickSerial;
+      aiTick(clockApp, {
+        legionBatchStart: batchStart,
+        runCityDaily: false,
+        runFactionTick: false,
+        settleDaily: false,
+      });
+      batchStart = (batchStart + 16) % 128;
+      const position = `${clockLegion.x},${clockLegion.y}`;
+      if (position !== previous) changedAt.push(current.strategicTickSerial);
+      previous = position;
+    },
+  });
+  for (let update = 0; update < 9; update++)
+    strategicClock.advance(strategicClock.currentStep);
+  assert.deepEqual(changedAt, [1, 9]);
+  assert.equal(strategicClock.hour, 1);
+  assert.equal(strategicClock.day, 1);
+}
 
 // 旧 Web snapshot 只有 delegated=true 且无status时，buildArmies必须先迁移bit2。
 targetCity.faction = 0;
@@ -363,9 +453,9 @@ aiTick(app);
 assert.equal(delegatedLegion.target, targetCity);
 assert.ok(delegatedLegion._march);
 for (
-  let day = 0;
-  day < expected.points.length + expected.edges.length + 8;
-  day++
+  let update = 0;
+  update < expected.points.length + expected.edges.length + 8;
+  update++
 ) {
   if (!delegatedLegion.target) break;
   aiTick(app);
@@ -498,7 +588,108 @@ assert.equal(
 );
 assert.equal(changingLegion._engagement, undefined);
 
+// 玩家在外据点选择首都「解體」会写状态11；必须沿原版道路返首都，
+// 到达后的下一次军团槽调度才归还六队兵员并移除军团。
+const returnCapital = {
+  idx: 1,
+  name: "返京首都",
+  x: target.x,
+  y: target.y,
+  faction: 0,
+};
+const returnOrigin = {
+  idx: 0,
+  name: "外地據點",
+  x: source.x,
+  y: source.y,
+  faction: 0,
+};
+const returningLegion = {
+  slot: 0,
+  leader: "返京解體測試",
+  faction: 0,
+  x: returnOrigin.x,
+  y: returnOrigin.y,
+  prevX: returnOrigin.x,
+  prevY: returnOrigin.y,
+  troops: 600,
+  morale: 200,
+  units: [
+    { type: 1, troops: 1000 },
+    { type: 1, troops: 1000 },
+    { type: 2, troops: 1000 },
+    { type: 2, troops: 1000 },
+    { type: 3, troops: 1000 },
+    { type: 3, troops: 1000 },
+  ],
+  target: returnCapital,
+  targetNode: target.id,
+  commandState: 11,
+};
+const returnFaction = {
+  idx: 0,
+  capital: returnCapital.idx,
+  monarch: "返京解體測試",
+  gold: 100000,
+  money: 100000,
+  reserve_cav: 0,
+  reserve_inf: 0,
+  reserve_arc: 0,
+  legion_morale_cap: 200,
+  n_legions: 1,
+};
+scenario.player_faction = 0;
+scenario.factions = [returnFaction];
+scenario.cities = [returnOrigin, returnCapital];
+scenario.generals = [
+  {
+    name: returningLegion.leader,
+    faction: 0,
+    active: true,
+    status: 1,
+    ability: { politics: 1 },
+  },
+];
+scenario.legions = [returningLegion];
+scenario.diplomacy = [[255]];
+for (
+  let guard = 0;
+  guard < expected.points.length + expected.edges.length + 16;
+  guard++
+) {
+  if (!scenario.legions.length) break;
+  aiTick(app);
+}
+assert.equal(scenario.legions.length, 0, "状态11军团抵达首都后才解体");
+assert.equal(returnFaction.reserve_cav, 200);
+assert.equal(returnFaction.reserve_inf, 200);
+assert.equal(returnFaction.reserve_arc, 200);
+assert.equal(scenario.generals[0].status, 0);
+
+// 渲染插值只属于产生道路单步的那个战略tick；后续轮到其它16槽时，
+// 该军团必须留在新点，不能随_clock._acc归零倒跳到上一个道路点。
+const renderView = new MapView({ getContext: () => ({}) }, () => scenario);
+renderView.app = { clock: { strategicTickSerial: 9 } };
+const renderLegion = {
+  x: source.x + 1,
+  y: source.y,
+  prevX: source.x,
+  prevY: source.y,
+  _renderMoveSerial: 8,
+};
+assert.equal(
+  renderView.getLegionRenderPos(renderLegion, 0).curT,
+  1,
+  "下一战略tick不能重播上一道路步",
+);
+renderView.app.clock.strategicTickSerial = 8;
+assert.equal(
+  renderView.getLegionRenderPos(renderLegion, 0.25).curT,
+  0.25,
+  "道路单步仅在产生它的战略tick内平滑插值",
+);
+
 process.stdout.write(
   `march navigation OK: ${expected.edges.length} edges, ` +
-    `${expected.points.length} points, ${visited.length} daily updates\n`,
+    `${expected.points.length} points, ${visited.length} strategic updates\n`,
 );

@@ -17,15 +17,7 @@ import { factionColorEx } from "../game/world.js";
 import { loadImage, portrait } from "../core/assets.js";
 import { clickSfx } from "../core/speaker.js";
 import { wallDestroyed, wallRect } from "../game/battlewalls.js";
-
-export const TACTICAL_SPEED_LABELS = [
-  "最低速",
-  "低速",
-  "普通",
-  "高速",
-  "最高速",
-];
-export const TACTICAL_SPEED_FACTORS = [0.5, 0.75, 1.0, 1.5, 2.5];
+import { consumeTacticalFrameBudget } from "../game/tacticalclock.js";
 
 const TACTICAL_SIDEBAR_WIDTH = 144;
 
@@ -154,8 +146,7 @@ export class BattleView {
       }
       const dt = Math.min(0.05, (now - this._last) / 1000);
       this._last = now;
-      const factor = this.app.tacticalSpeedFactor ?? 1.0;
-      const over = this.updateBattleFrames(dt * factor);
+      const over = this.updateBattleFrames(dt);
       if (over) {
         this.draw();
         this.finish();
@@ -186,14 +177,14 @@ export class BattleView {
 
   /** 每逻辑帧严格执行输入队列→A426→A065，直到战斗本身结束。 */
   updateBattleFrames(dt) {
-    this.scriptAccumulator += Math.max(0, dt) * 60;
+    const budget = consumeTacticalFrameBudget(
+      this.scriptAccumulator,
+      Math.max(0, dt) * 1000,
+      this.app.tacticalSpeed ?? 2,
+    );
+    this.scriptAccumulator = budget.remainderMs;
     let frames = 0;
-    while (
-      this.scriptAccumulator >= 1 &&
-      !this.battle.session.finished &&
-      frames < 12
-    ) {
-      this.scriptAccumulator--;
+    while (!this.battle.session.finished && frames < budget.frames) {
       advanceOriginalScriptFrame(this.battle, this.battleScriptVm);
       frames++;
     }

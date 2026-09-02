@@ -32,6 +32,8 @@ const { loadRoadGraph, roadNodeAt } = await import(
   "../web/src/game/roadgraph.js"
 );
 await loadRoadGraph();
+let now = 0;
+globalThis.performance = { now: () => now };
 const clock = { hold: false };
 const view = {
   selectedCity: null,
@@ -82,6 +84,22 @@ assert.equal(bar.orderChoiceMenu, null);
 assert.equal(view.selectedCity, null);
 assert.equal(clock.hold, false);
 
+// 仅地图鼠标活动暂停；满一秒后恢复。菜单/模态的冻结优先级仍高于鼠标静止。
+bar.pokeClock();
+assert.equal(clock.hold, true);
+now = 999;
+bar.syncClock();
+assert.equal(clock.hold, true);
+now = 1000;
+bar.syncClock();
+assert.equal(clock.hold, false);
+bar.selectedSubmenu = 4;
+bar.pokeClock();
+now = 3000;
+bar.syncClock();
+assert.equal(clock.hold, true);
+bar.selectedSubmenu = null;
+
 // 右键从目标选择直接回菜单条展开/八项未选中，不重开军团列表。
 bar.submenuOpen = true;
 bar.selectedSubmenu = 4;
@@ -123,8 +141,7 @@ assert.equal(bar.hover(20, 20), false);
 bar.orderChoiceMenu = null;
 
 // 普通行军目标不能触发闪动；只有显式战斗位置进入队列，1500ms后清理。
-let now = 0;
-globalThis.performance.now = () => now;
+now = 0;
 app.scenario.legions = [{ target: { idx: 9 }, x: 1, y: 2 }];
 assert.equal(bar.blinkTargets().size, 0);
 bar.addMiniBattleFlash({ x: 12, y: 34 });

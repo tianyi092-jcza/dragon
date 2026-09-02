@@ -116,6 +116,7 @@ export function snapshotState(app, slotIdx, label) {
   delete state.armies;
   delete state._nextRuntimeLegionId;
   delete state._appeared;
+  delete state._strategicTickSerial;
   state.legions = state.legions
     .filter((legion) => !legion.dead)
     .map((legion) => {
@@ -130,6 +131,7 @@ export function snapshotState(app, slotIdx, label) {
       delete clean._march;
       delete clean._runtimeId;
       delete clean._markerFrame;
+      delete clean._renderMoveSerial;
       delete clean._path;
       delete clean._ptx;
       delete clean._pty;

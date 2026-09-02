@@ -14,9 +14,10 @@ export const STRATEGIC_SPEED_LABELS = [
   "高速",
   "最高速",
 ];
-// 5档每次0x1D0B主更新的Web墙钟间隔。原版只实锤CFA=4/3/2/1/0个
-// 外部INT61 IRQ计数，KI内无绝对毫秒换算；以下仍是表现值，不改变规则次数。
-export const STRATEGIC_SPEEDS = [480, 280, 160, 80, 25];
+// 5档每次0x1D0B主更新的Web墙钟间隔。原版CFA=4/3/2/1/0个
+// INT61计时回调，实测非零等待约13.731/10.299/6.866/3.433ms；Web仍
+// 使用便于观察的表现节奏，但相较旧值整体提速1倍（墙钟间隔减半）。
+export const STRATEGIC_SPEEDS = [240, 140, 80, 40, 12.5];
 
 export class Clock {
   /**
@@ -45,7 +46,9 @@ export class Clock {
     this._legacyPaused = false;
     this.SPEEDS = STRATEGIC_SPEEDS;
     this._acc = 0;
-    this._lastStep = 160;
+    this._lastStep = STRATEGIC_SPEEDS[2];
+    // 单调战略更新序号仅供表现层插值；不参与任何规则、RNG 或存档状态。
+    this.strategicTickSerial = 0;
     this.hold = false;
     this._pendingDayAdvance = false;
     this._pendingStrategicAdvance = false;
@@ -85,7 +88,7 @@ export class Clock {
   }
 
   get currentStep() {
-    return this.SPEEDS[this._strategicSpeed] ?? 160;
+    return this.SPEEDS[this._strategicSpeed] ?? STRATEGIC_SPEEDS[2];
   }
 
   get daysInMonth() {
@@ -94,7 +97,7 @@ export class Clock {
 
   /** 获取当前主更新间的插值进度0..1，供军团单步移动平滑显示。 */
   dayProgress() {
-    const step = this.currentStep || this._lastStep || 160;
+    const step = this.currentStep || this._lastStep || STRATEGIC_SPEEDS[2];
     this._lastStep = step;
     return Math.min(1, Math.max(0, this._acc / step));
   }
@@ -133,6 +136,9 @@ export class Clock {
       this._advanceDayCalendar();
       return;
     }
+
+    // 只在实际执行0x1D0B时递增；延后日历进位不能被当作军团移动帧。
+    this.strategicTickSerial++;
 
     // KI.EXE 0x1D0B：每次现实时间步先处理一个城槽、16个军团槽和
     // 其它战略状态，再由0x1D8E推进CF2/CF3。战斗在其中打开时，日历推进

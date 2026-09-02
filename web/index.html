@@ -20,10 +20,24 @@
         font-family: "Noto Serif TC", "PMingLiU", serif;
       }
       #cv {
-        display: block;
+        display: none;
         width: 100vw;
         height: 100vh;
-        cursor: grab;
+        /* 战略层不用系统箭头：MapView 每帧绘制原版风格圆角方框光标。 */
+        cursor: none;
+      }
+      body.game-active #cv {
+        display: block;
+      }
+      #titlebg {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        background: #000 url("grf/ui/loginbg.jpg") center center / cover
+          no-repeat;
+      }
+      body.game-active #titlebg {
+        display: none;
       }
       .panel {
         position: fixed;
@@ -178,6 +192,8 @@
   </head>
   <body>
     <canvas id="cv"></canvas>
+    <!-- 确定新游戏章节/势力或存档前，只显示此背景；不装配也不绘制战略地图。 -->
+    <div id="titlebg" aria-hidden="true"></div>
     <!-- 旧开发用 UI 已由原版风格 GameBar (canvas 内绘制) 取代, 保留 DOM 供对话框复用 -->
     <div id="panel" class="panel" style="display: none">
       <div style="margin-bottom: 6px">
@@ -239,43 +255,6 @@
         cursor: pointer;
       "
     ></canvas>
-    <div
-      id="openv"
-      style="
-        position: fixed;
-        inset: 0;
-        z-index: 48;
-        display: none;
-        background: #000;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-      "
-    >
-      <img
-        id="opimg"
-        class="pixelated"
-        alt=""
-        style="
-          max-width: 96vw;
-          max-height: 88vh;
-          image-rendering: pixelated;
-          opacity: 0;
-        "
-      />
-      <div
-        id="opcap"
-        style="
-          color: #b8a67a;
-          margin-top: 10px;
-          font-size: 13px;
-          letter-spacing: 2px;
-        "
-      >
-        點擊跳過
-      </div>
-    </div>
     <div id="savedlg" class="panel" style="display: none">
       <div style="margin-bottom: 8px">存入本機存檔槽</div>
       <div id="saveslots"></div>

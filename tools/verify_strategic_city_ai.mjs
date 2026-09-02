@@ -78,7 +78,36 @@ assert.equal(playerSc.cities[76]._aiCooldown, 29);
 assert.equal(tickStrategicCity(playerApp, 76), false);
 assert.equal(messages.length, 1);
 
-// 0x407A：弱城请求数为所有目标邻城(运行态强度+1)之和+2-local。
+// 0x3FA9的0xFE威胁标记看任一正式交战邻国，不依赖玩家势力+0x19目标。
+// AI向玩家宣战时0x35AB明确不写玩家目标，仍必须触发无守军边城TALK38。
+const untargetedPlayerSc = structuredClone(data.scenarios[16]);
+untargetedPlayerSc.player_faction = 13;
+untargetedPlayerSc.citiesOf = (idx) =>
+  untargetedPlayerSc.cities.filter((city) => city.faction === idx);
+buildArmies(untargetedPlayerSc);
+untargetedPlayerSc.factions.find(
+  (faction) => faction.idx === 13,
+).target_faction = null;
+untargetedPlayerSc.diplomacy[13][0] = 0;
+untargetedPlayerSc.diplomacy[0][13] = 0;
+const untargetedMessages = [];
+assert.equal(
+  tickStrategicCity(
+    {
+      scenario: untargetedPlayerSc,
+      originalRng: { nextByte: () => 0 },
+      gamebar: {
+        enqueueStrategicMessage: (message) => untargetedMessages.push(message),
+      },
+    },
+    76,
+  ),
+  true,
+);
+assert.equal(untargetedMessages.length, 1);
+assert.match(untargetedMessages[0].text, /前來請求援軍/);
+
+// 0x407A：弱城请求数为所有交战邻城(运行态强度+1)之和+2-local。
 // 本城1军、一个空敌城时应请求2军；以调用次数而非最终成功数锁住+1语义。
 const raw = new Uint8Array(0x20);
 raw[0] = 1;

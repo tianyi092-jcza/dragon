@@ -82,7 +82,7 @@ E:/Dragon/Dragon/          游戏本体数据
 
 | 模块 | 状态 | 要点 |
 | --- | --- | --- |
-| 地图/四季/时钟 | ✅ | 192城标记、按月换季；系统选单提供五档战略速度（480/280/160/80/25ms 每刻度），模态暂停独立于速度档 |
+| 地图/四季/时钟 | ✅ | 192城标记、按月换季；系统选单提供五档战略速度（Web表现值240/140/80/40/12.5ms 每次战略主更新），模态暂停独立于速度档 |
 | 月结经济 | ✅ | 真公式0x5358：距离衰减税收+税率→发展度联动 |
 | AI | ✅ | 三态机+威胁感知；AI互斗用0x2920速算 |
 | 战斗 | ✅ | 1024²战场实时战斗+五军编制；玩家参战开交互层，全軍突擊/自動決戰/撤軍 |
@@ -92,8 +92,8 @@ E:/Dragon/Dragon/          游戏本体数据
 | 外交 | ✅ | 遣使(政治≥13才有效)/宣戰/停戰/請援觐见(IVENTGRF双帧背景+信赖四档台词,对象=己方君主) |
 | 天灾/暴动 | ✅ | disaster.js 复刻0x22DB门控(50%×75%)+0x2286(9.4%×稳定度) |
 | 俘虏/登庸 | ✅ | 月初回归/流散改投/灭亡解散；recruits.js appear_months 真实登场 |
-| 存读盘 | ✅ | SAVE.DAT 兼容序列化；webserver.py POST /api/save 直写原版文件+回读 |
-| 开场动画 | ✅ | openview.js：S1全景3.2s→49帧@450ms，点击/Esc跳过，sessionStorage 防重播 |
+| 存读盘 | ✅ | 正式存档仅使用浏览器 IndexedDB 四槽；Web服务器不读取或写入 DOS SAVE.DAT |
+| 标题启动 | ✅ | 不播放开场动画；确认新游戏/有效存档前仅显示 `grf/ui/loginbg.jpg` 与标题选单，确认后延迟加载地图和战斗资源 |
 | 结束动画 | ✅ | endview.js：灭亡/统一/信赖归零三触发；S13/14/15 回退 S12 图=原版行为 |
 | 音效 | ✅ | speaker.js 方波近似0xCDE(0x101短哔/0x202两声)；unlockSfx+🔇开关 |
 | BGM | ✗不复刻 | 驱动已逆向留档（re-notes「音乐系统定论」节） |
@@ -101,7 +101,7 @@ E:/Dragon/Dragon/          游戏本体数据
 ## 六、常用命令
 
 ```bash
-# 本地服务(静态+存盘API)——当前常驻
+# 本地静态服务（正式存档由浏览器 IndexedDB 管理）
 cd E:/Dragon/web-port && python tools/webserver.py 8321
 # 浏览器: http://127.0.0.1:8321/index.html
 
@@ -121,12 +121,12 @@ python tools/parse_save.py [路径]   # SAVE.DAT→save.json
 
 ## 七、架构约定
 
-- ES modules 无构建步骤；`window.__app`/`__aiTick()`/`__monthlyAI()`/`__saveDat()` 为调试句柄
+- ES modules 无构建步骤；`window.__app`/`__aiTick()`/`__monthlyAI()` 为调试句柄
 - 模态层统一模式：open 暂停时钟(`_prevSpeed`)→finish 恢复+flashEvent；**异步序列播放器 finish() 必须 resolve 挂起的 await（保存 _wake resolver）**
 - 可测性：随机逻辑 rng 参数注入（disaster.js）；纯函数+io 钩子分离（battlescript.js）
 - 玩家势力=序号 number（非对象）；`sc.player_faction`；playerFaction(sc) 取势力
 - flashEvent=右下事件浮窗；HUD 刷新走 refreshTrust/refreshClock
-- 存档=剧本槽底版 patch（savegame.js serializeSlot），快照 structuredClone 滤 dead 军团
+- 存档=浏览器 IndexedDB JSON 快照；`snapshotState` 过滤 dead 军团及纯表现字段，禁止写 DOS SAVE.DAT
 
 **23.** 开场选单 UI 系统（弹窗引擎）✅ (2026-08-24 续)
 
@@ -145,7 +145,7 @@ await app.startMenu.prompt({ x:200, y:120, w:240, h:160,
 - **原版 UI 引擎逆向**（KI.EXE，全部实锤）：弹窗=图元拼组非整图。0x337(al=组件号,dx,bx=组原点)→0xE9C1 分发 CS:0xE16 组件表（每记录12B=type,u8,dx,dy,w,h,extra；type=0组头；handler表0xEA0D）：type3=纯色矩形(0xF1A3)/4=矩形描边(0xF465,色=extra高字节)/5=横线(extra低字节=色)/6=竖线/7=云纹窗(0xF26E,32×32屏对齐平铺)/8=文字(0xF6DC: ax高位=色,全角16px半角8px节进)/9=blit 16×24金纹块。组件：comp2=系統選單(192×176)、comp6=章节/读档共用(288×224)、comp7=YES/NO(192×80)。0x895D(al,dx,bx,cx)=画窗wrapper（0xC14金框+背景恢复）；0x8DC8=YES/NO菜单引擎@0x1AC3调用(208,128)；0x8B7C(al=0/1/2章节/读/存,dx=CS标题串)=选择窗引擎@comp6(104,88)；标题串表CS:0x98C8="NEW GAME\0LOAD DATA\0SAVE DATA\0"每串19B；0x1AC3 主循环=YES/NO→0x8B12章节/0x8B40读档→0x8E5A势力选择→0x8FC9自定军师（后两者未复刻）
 - **素材**（tools/extract_ui.py→web/grf/ui/，全部 ICONGRF.DAT 提取禁止截图裁剪，颜色经原版放大图逐像素定色）：cloud.png=0xBA20 128B 1bpp 32×32盘龙纹章(位0=蓝idx8底/位1=黑龙,32px平铺屏对齐)；frame_sq.png=0x9DC8回形□链(1位=金idx11/0位=红idx10,不透明,顶/底带逐8px)；frame_cap.png=0x9DF8实心金块(柱顶/底帽)；frame_col.png=0x9DE0编织纹(6c 56×6 6c=绳纹链,1位=浅绿idx13高光/0位=绿idx5底,不透明)。金框=0xC14(dx,bx,cx) 16px格单位：顶/底带=□链(起+8)，左右柱=帽+柱身交替
 - **实现**：startmenu.js _frame/_cloud/_rect/_outline/_fwText/_text 原语+prompt()生成器；YES/NO=comp7@(216,136)框(208,128)13×6格；章节/读档=comp6@(104,88)框(96,80)19×15格；#startv 640×400画布1:1居中(游戏坐标→屏幕+(320,160))；全局 contextmenu preventDefault；右键取消用 pointerdown（click 收不到 button=2）；悬停行反白；空存档槽不可选(0x8BB3 0xD0A1检查)
-- **流程**：main.js 开场动画播完→await app.startMenu.show()：YES→20章选择(data.json)→clone/清运行态→setScenario(i)，所有势力 `legions=[]`；NO→读档窗(SAVE.DAT 4槽头)→loadSave(i)。两路共用 `loadState` 装配，但每次重建 RNG，读档在装配前恢复 sidecar RNG，并以 `save_date` 建钟。`parse_save.py` 以槽头0x11+姓名区校验映射20章，静态 start/name 从匹配模板回填。右键二级窗回 YES/NO。
+- **流程（后续实现已勘误）**：main.js 启动后直接在背景图上 `await app.startMenu.show()`；YES→20章选择→势力/军师确认→`beginNewGame`，NO→浏览器 IndexedDB 四槽→`beginSavedGame`。两路确认前均不装配默认地图，确认后共用 `enterGame→loadState` 延迟加载资源；右键二级窗回 YES/NO。
 
 **22.** LSP 清理轮 ✅ (2026-08-24 续)
 

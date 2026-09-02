@@ -90,7 +90,7 @@ export class StartMenu {
           // 軍師確認 (0x8E5A→0x8FC9): undefined=右鍵回勢力選擇, null=用原軍師, 對象=自定軍師
           const adv = await this._advisorDialog(idx, f);
           if (adv === undefined) continue;
-          this.app.setScenario(idx, f, adv);
+          await this.app.beginNewGame(idx, f, adv);
           return;
         }
         const slot = await this.prompt({
@@ -104,7 +104,7 @@ export class StartMenu {
           rows: this._saveRows(),
         });
         if (slot < 0) continue; // 右鍵 → 回 YES/NO (0x1ADC jb)
-        this.app.loadSave(slot);
+        await this.app.beginSavedGame(slot);
         return;
       }
     } finally {

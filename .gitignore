@@ -39,3 +39,8 @@ tools/kaotest*.png
 /*.png
 /docs/test_*.png
 /test-artifacts/
+
+# Local image-generation source/export artifacts; product-ready assets belong under grf/ui.
+/web/capture/*.psd
+/web/grf/Codex 图像 *.png
+/web/grf/loginbg.png

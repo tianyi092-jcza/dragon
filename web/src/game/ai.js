@@ -1,11 +1,12 @@
 // AI 逻辑 — 复刻 KI.EXE 三态机: 威胁感知(0x3FA9)→强弱判断(0x4057)→攻/逃/游走(0x4155/0x40C9)
 import {
-  isFriendly,
+  EMPTY_FACTION,
   isAtWar,
   relation,
   declareWar,
   makeCeasefire,
   decreaseRelation,
+  factionStrategicPower,
   increaseRelation,
   runStrategicDiplomacy,
 } from "./diplomacy.js";
@@ -179,7 +180,8 @@ function scanThreat(A, sc) {
   for (const B of sc.legions) {
     if (B === A || B.dead || B._active === false || B.faction === A.faction)
       continue;
-    if (isFriendly(sc, A.faction, B.faction)) continue; // 同盟军不算威胁
+    // 外交低迷仍是和平；只有raw<0x80的正式交战势力才进入威胁/接敌。
+    if (!isAtWar(sc, A.faction, B.faction)) continue;
     const d = Math.abs(B.x - A.x) + Math.abs(B.y - A.y);
     if (d === 1) {
       sum += B.troops;
@@ -600,39 +602,55 @@ export function tickStrategicCity(app, cityIndex) {
     (candidate) => candidate?.idx === city.faction,
   );
   if (!faction || faction.active === false || faction.dead) return false;
+  const neighbours = cityNeighbours(sc, city).filter(
+    (neighbour) =>
+      neighbour.faction != null && neighbour.faction !== city.faction,
+  );
+  // 0x3FA9：正式交战的任一邻国都会写工作行首的0xFE威胁标记并
+  // 累加CH；它不要求等于势力+0x19战略目标。玩家无守军边城的TALK38
+  // 因而也不能被target_faction过滤掉。
+  const hostileNeighbours = neighbours.filter((neighbour) =>
+    isAtWar(sc, city.faction, neighbour.faction),
+  );
+  const localStrength = cityLocalStrength(sc, city);
+  const threatTotal = hostileNeighbours.reduce(
+    (sum, neighbour) => sum + cityLocalStrength(sc, neighbour) + 1,
+    0,
+  );
+  if (
+    hostileNeighbours.length &&
+    localStrength < 1 &&
+    city.faction === sc.player_faction
+  ) {
+    if ((city._aiCooldown ?? 0) > 0) return false;
+    const rng = app.originalRng ?? app.activeBattleRng;
+    const random = rng?.nextByte?.() ?? 0;
+    city._aiCooldown = 0x18 + (random & 0x0f);
+    rememberFactionStrategicCity(
+      sc,
+      city.faction,
+      "strategic_city_primary",
+      city.idx,
+    );
+    app.gamebar?.enqueueStrategicMessage?.({
+      gen: null,
+      text: `${city.name}　前來請求援軍。`,
+      kind: "reinforcement-request",
+    });
+    return true;
+  }
+
   const targetIdx = faction.target_faction;
   if (targetIdx == null || targetIdx === 0xff) return false;
-  const candidates = cityNeighbours(sc, city).filter(
+  // 0x4003另行把“邻城所属==战略目标”的项目写入候选记录；正常宣战
+  // 路径已令两国交战，额外保留战争门防止陈旧目标驱动和平攻击。
+  const candidates = neighbours.filter(
     (neighbour) =>
       neighbour.faction === targetIdx && isAtWar(sc, city.faction, targetIdx),
   );
   if (!candidates.length) return false;
-  const localStrength = cityLocalStrength(sc, city);
-  // 0x4013..0x4019：候选邻城写入的是运行态强度+1，随后0x407A
-  // 用全部候选之和计算弱城请求数。
-  const threatTotal = candidates.reduce(
-    (sum, neighbour) => sum + cityLocalStrength(sc, neighbour) + 1,
-    0,
-  );
-  if (localStrength < 1) {
+  if (localStrength < 1 && city.faction !== sc.player_faction) {
     if ((city._aiCooldown ?? 0) > 0) return false;
-    if (city.faction === sc.player_faction) {
-      const rng = app.originalRng ?? app.activeBattleRng;
-      const random = rng?.nextByte?.() ?? 0;
-      city._aiCooldown = 0x18 + (random & 0x0f);
-      rememberFactionStrategicCity(
-        sc,
-        city.faction,
-        "strategic_city_primary",
-        city.idx,
-      );
-      app.gamebar?.enqueueStrategicMessage?.({
-        gen: null,
-        text: `${city.name}　前來請求援軍。`,
-        kind: "reinforcement-request",
-      });
-      return true;
-    }
     const formed = formAiReinforcements(app, faction, city, 1);
     if (formed > 0) {
       rememberFactionStrategicCity(
@@ -652,6 +670,7 @@ export function tickStrategicCity(app, cityIndex) {
     return formed > 0;
   }
   if (localStrength <= 1 && city.faction !== sc.player_faction) {
+    if ((city._aiCooldown ?? 0) > 0) return false;
     const requested = Math.max(0, threatTotal + 2 - localStrength);
     const formed = formAiReinforcements(app, faction, city, requested);
     if (formed > 0) {
@@ -1287,6 +1306,8 @@ function stepRoadGraph(sc, A, tx, ty) {
 
   A.prevX = A.x;
   A.prevY = A.y;
+  // 仅供Canvas插值判断这次道路单步所属的战略tick；不参与规则或存档。
+  A._renderMoveSerial = sc._strategicTickSerial ?? null;
   A._markerFrame = markerFrameToward(A.x, A.y, next.x, next.y);
   A.x = next.x;
   A.y = next.y;
@@ -1328,6 +1349,8 @@ function stepLegacyPath(sc, A, tx, ty) {
   rememberMarchBase(sc, A);
   A.prevX = A.x;
   A.prevY = A.y;
+  // 同道路拓扑移动：防止下一战略tick的插值从上一格倒跳。
+  A._renderMoveSerial = sc._strategicTickSerial ?? null;
   A.x = next.x;
   A.y = next.y;
   rememberMarchBase(sc, A);
@@ -1765,16 +1788,58 @@ function warTalkStyle(sc, faction) {
 export function processStrategicWarEvent(app, event) {
   const sc = app.scenario;
   const aggressor = sc.factions?.find((f) => f?.idx === event.aggressor);
+  if (!aggressor) return false;
+  // 0x2F71→0x3526：目标0x18是空城扩张命令。非玩家势力只写战略目标，
+  // 不显示宣战对白，也不修改外交矩阵；玩家事件同原版分支不写目标。
+  if (event.defender === EMPTY_FACTION) {
+    if (aggressor.idx !== sc.player_faction)
+      aggressor.target_faction = EMPTY_FACTION;
+    return true;
+  }
   const defender = sc.factions?.find((f) => f?.idx === event.defender);
-  if (!aggressor || !defender || isAtWar(sc, event.aggressor, event.defender))
-    return false;
+  if (!defender || isAtWar(sc, event.aggressor, event.defender)) return false;
   const commit = () => {
     if (isAtWar(sc, aggressor.idx, defender.idx)) return;
-    aggressor.target_faction = defender.idx;
+    // 0x3526：AI发起者写战略目标；玩家分支跳过该写入，但仍正式宣战。
+    if (aggressor.idx !== sc.player_faction)
+      aggressor.target_faction = defender.idx;
+    // 0x35AB..0x35E8：玩家防守方不写AI目标。AI防守方在目标字节
+    // >=0x24（通常FF）时直接反指发起者；已有0..0x23目标时，仅当自身
+    // 战略实力低于发起者才改指。这一步发生在0x3644正式置交战之前。
+    if (defender.idx !== sc.player_faction) {
+      const targetByte =
+        defender.target_faction == null ? 0xff : defender.target_faction & 0xff;
+      if (
+        targetByte >= 0x24 ||
+        factionStrategicPower(defender) < factionStrategicPower(aggressor)
+      )
+        defender.target_faction = aggressor.idx;
+    }
     declareWar(sc, aggressor.idx, defender.idx);
   };
   const monarch = sc.generals?.[aggressor.monarch_idx] ?? null;
-  if (defender.idx === sc.player_faction) {
+  if (aggressor.idx === sc.player_faction) {
+    // 0x2BD9→0x2EFB可以为玩家势力生成type-1。0x3526命中玩家发起者时
+    // 使用CX=416（TALK486..488），与军师进言成功后的君主命令同一话池。
+    const advisorName =
+      sc.player_advisor?.name?.trim?.() ||
+      sc.generals?.[aggressor.advisor_idx]?.name?.trim?.() ||
+      "軍師";
+    const targetName = defender.monarch?.trim?.() || "敵方";
+    const text = WAR_TALKS_PLAYER[warTalkStyle(sc, aggressor)]
+      .replace("{target}", targetName)
+      .replace("{advisor}", advisorName);
+    if (app.gamebar?.enqueueStrategicMessage) {
+      app.gamebar.enqueueStrategicMessage({
+        gen: monarch,
+        text,
+        kind: "war-declaration",
+        onClose: commit,
+      });
+    } else {
+      commit();
+    }
+  } else if (defender.idx === sc.player_faction) {
     // AI→玩家：0xCE7 后先 AL=0x93/TALK63 通用报告，再由发起君主
     // 显示 CX=415→TALK 478+general[+0x1E]；第二条关闭后才提交敌对状态。
     warnSfx();
@@ -1816,7 +1881,7 @@ export function completePlayerWarDeclaration(app, targetFaction) {
     .replace("{advisor}", advisorName);
   const commit = () => {
     if (isAtWar(sc, aggressor.idx, defender.idx)) return;
-    aggressor.target_faction = defender.idx;
+    // 0x3526 的玩家发起分支不写 AI 专用 faction[+0x19] 战略目标。
     declareWar(sc, aggressor.idx, defender.idx);
   };
   if (app.gamebar?.enqueueStrategicMessage) {
@@ -1955,26 +2020,12 @@ function enqueueCurrentStrategicEvent(app, event, fixedOffset = null) {
   return true;
 }
 
-function sameStrategicEvent(left, right) {
-  if (left?.type !== right?.type) return false;
-  if (right.type === 1)
-    return (
-      left.aggressor === right.aggressor && left.defender === right.defender
-    );
-  return (
-    left.arg0 === right.arg0 &&
-    left.arg1 === right.arg1 &&
-    left.arg2 === right.arg2
-  );
-}
-
 function enqueueStrategicWarEvents(app, events) {
   const queued = [];
   for (const event of events) {
-    const slots = ensureStrategicEventSlots(app.scenario);
-    const duplicate = slots.some((item) => sameStrategicEvent(item, event));
-    if (!duplicate && enqueueCurrentStrategicEvent(app, event))
-      queued.push(event);
+    // 0x2FB1/0x2FBF没有去重查询；相同事件可在四页时间轮中并存。
+    // 即使当前页没有可用槽，随机槽字节也已在enqueueCurrent中消费。
+    if (enqueueCurrentStrategicEvent(app, event)) queued.push(event);
   }
   return queued;
 }
@@ -2001,11 +2052,13 @@ export function enqueueStrategicCapitalEvents(app) {
   const rng = app?.originalRng ?? app?.activeBattleRng;
   if (!sc || !rng || typeof rng.nextByte !== "function") return [];
   const queued = [];
-  for (const faction of sc.factions ?? []) {
+  for (const faction of (sc.factions ?? []).slice(0, 0x16)) {
+    // 0x2D3A只检查原始+0x19是否为0xFF；Web的null是该值的规范化表示。
     if (!factionIsActive(sc, faction.idx) || faction.target_faction != null)
       continue;
     if (rng.nextByte() >= 0x40) continue;
     const event = { type: 8, arg0: faction.idx, arg1: 0xff, arg2: 0xff };
+    // 通过门控后0x2FB1再固定消费一次RNG选择随机槽；入队失败也已消费。
     if (!enqueueCurrentStrategicEvent(app, event)) continue;
     queued.push(event);
   }
@@ -2321,15 +2374,14 @@ export function resolveStrategicNegotiation(
   targetFaction = null,
 ) {
   const me = playerFaction(app?.scenario);
-  return me && otherFaction
-    ? resolveFactionNegotiation(
-        app,
-        otherFaction,
-        me,
-        assistance ? targetFaction : null,
-        assistance,
-      )
-    : null;
+  if (!me || !otherFaction) return null;
+  return resolveFactionNegotiation(
+    app,
+    otherFaction,
+    me,
+    assistance ? targetFaction : null,
+    assistance,
+  );
 }
 
 function releaseNegotiationPrisoners(sc, firstFactionIdx, secondFactionIdx) {
@@ -2361,7 +2413,9 @@ export function resolveIncomingDiplomacyChoice(
 ) {
   const sc = app?.scenario;
   if (!sc || !result) return null;
-  let selected = choice === "refuse" ? 2 : choice === "pay" ? 1 : 0;
+  let selected = 0;
+  if (choice === "refuse") selected = 2;
+  else if (choice === "pay") selected = 1;
   const entered = Math.max(0, Math.min(30000, amount | 0));
   if (selected === 1 && entered === 0) selected = 0;
   let outcome = result.outcome;
@@ -3232,7 +3286,7 @@ export function aiTick(app, options = {}) {
         if (
           orderedTarget.faction !== A.faction &&
           (orderedTarget.faction == null ||
-            !isFriendly(sc, A.faction, orderedTarget.faction))
+            isAtWar(sc, A.faction, orderedTarget.faction))
         ) {
           if (resolveBattle(app, A, orderedTarget)) {
             app._legionDailySettlementDeferred = shouldSettleDaily;
@@ -3248,7 +3302,9 @@ export function aiTick(app, options = {}) {
           }
           changed = true;
         }
-        A.target = null;
+        // 状态11必须保留首都目标，供下次槽调度的0x44D6到达处理解散；
+        // 不能在外地选择「解體」时直接删除军团。
+        if (A.commandState !== 11) A.target = null;
         A.cooldown = 6;
       }
       continue;
@@ -3300,8 +3356,11 @@ export function aiTick(app, options = {}) {
           continue;
         }
         if (A.target && A.x === A.target.x && A.y === A.target.y) {
-          // 中途易主变友方(如同盟成立)则不攻
-          if (!isFriendly(sc, A.faction, A.target.faction)) {
+          // 中途易主或停战后不攻；只有正式交战目标才能进入战斗。
+          if (
+            A.target.faction == null ||
+            isAtWar(sc, A.faction, A.target.faction)
+          ) {
             if (resolveBattle(app, A, A.target)) {
               app._legionDailySettlementDeferred = shouldSettleDaily;
               app._legionDailySettlementSlots = shouldSettleDaily

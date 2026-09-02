@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 
-const { Clock } = await import("../web/src/game/clock.js");
+const { Clock, STRATEGIC_SPEEDS } = await import("../web/src/game/clock.js");
+
+assert.deepEqual(
+  STRATEGIC_SPEEDS,
+  [240, 140, 80, 40, 12.5],
+  "战略五档相较旧表现值整体提速1倍，普通档每主更新80ms",
+);
 
 let days = 0;
 const clock = new Clock({
