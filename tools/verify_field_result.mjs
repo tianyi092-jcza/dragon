@@ -40,7 +40,6 @@ const makeLegion = (leader, faction, troops, x, y) => ({
   _march: { points: [{ x: 11, y: 20 }] },
   _engagement: { kind: "field", countdown: 1 },
 });
-const events = [];
 const cities = [
   { idx: 0, faction: 0, x: 257, y: 9 },
   { idx: 1, faction: 1, x: 246, y: 15 },
@@ -62,7 +61,11 @@ const app = {
       return this.cities.filter((city) => city.faction === faction);
     },
   },
-  hud: { flashEvent: (message) => events.push(message) },
+  hud: {
+    flashEvent() {
+      assert.fail("strategic battle results must not bypass the TALK FIFO");
+    },
+  },
 };
 const A = makeLegion("甲", 0, 100, 257, 9);
 const D = makeLegion("乙", 1, 100, 255, 9);
@@ -99,7 +102,6 @@ for (const legion of [A, D]) {
   assert.equal(legion.prevX, legion.x);
   assert.equal(legion.prevY, legion.y);
 }
-assert.match(events[0], /野戰擊退/);
 process.stdout.write(
   "field result OK: winner continues, loser retreats by 0x474A route\n",
 );

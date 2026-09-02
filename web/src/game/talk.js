@@ -96,6 +96,18 @@ export async function quoteForIndex(idx) {
   };
 }
 
+/**
+ * KI.EXE 0x075B：CX>=0x196时，把选择器换算为八句个性对白窗口。
+ * `tableIndex = 0x196 + (selector - 0x196) * 8 + general[+0x1E]`。
+ */
+export function personalityTalkIndex(selector, gen) {
+  if (!Number.isInteger(selector) || selector < 0x196) return null;
+  const personality = Number.isInteger(gen?.talk_idx)
+    ? gen.talk_idx
+    : (((gen?.idx ?? 0) % 8) + 8) % 8;
+  return 0x196 + (selector - 0x196) * 8 + (personality & 0xff);
+}
+
 /** type10/其它运行态通用TALK：按原版单个AX占位word替换控制符。 */
 export async function formatGenericTalkEvent(idx, arg0, sc = null) {
   const general = sc?.generals?.[arg0] ?? null;
@@ -147,8 +159,10 @@ export async function formatTalkTokens(
   const entry = t[idx] ?? [];
   const rawLines = Array.isArray(entry) ? entry : [String(entry)];
 
-  // 如果 targetName 是数组（例如 [allyName, targetName]），跨行维护消耗索引
+  // 同类占位符可对应多个栈参数；索引跨行延续，保持0x0CDE原顺序。
   let targetIdx = 0;
+  let generalIdx = 0;
+  let cityIdx = 0;
 
   return rawLines.map((raw) => {
     const segs = [];
@@ -172,10 +186,16 @@ export async function formatTalkTokens(
           let val = "";
           let col = "#ffffff";
           if (tag === "1") {
-            val = generalName;
+            val = Array.isArray(generalName)
+              ? (generalName[generalIdx++] ?? "")
+              : generalName;
             col = "#ffffff";
           } else if (tag === "2") {
-            val = cityName || generalName;
+            if (Array.isArray(cityName)) val = cityName[cityIdx++] ?? "";
+            else if (cityName) val = cityName;
+            else if (Array.isArray(generalName))
+              val = generalName[generalIdx++] ?? "";
+            else val = generalName;
             col = "#ffffff";
           } else if (tag === "3") {
             if (Array.isArray(targetName)) {

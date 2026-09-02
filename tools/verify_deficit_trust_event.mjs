@@ -83,7 +83,7 @@ function fixture({ funds = -39, bellicosity = 8, bytes = [] } = {}) {
   });
 }
 
-// 0x3507: TALK51 equivalent and trust -50, then immediate game-over check.
+// 0x3507: TALK51后进入0x3DC9训斥；消息关闭前不得扣信赖或检查Game Over。
 {
   const { app, scenario, messages, checks } = fixture();
   scenario.strategicEventSlots[0] = {
@@ -92,13 +92,16 @@ function fixture({ funds = -39, bellicosity = 8, bytes = [] } = {}) {
     talkIndex: 0x196,
   };
   assert.equal(tickStrategicWarEvents(app), true);
-  assert.equal(scenario.trust, 50);
+  assert.equal(scenario.trust, 100);
   assert.equal(messages.length, 1);
   assert.equal(messages[0].kind, "deficit-trust-penalty");
   assert.equal(messages[0].talkIndex, 0x196);
+  assert.equal(checks(), 0);
+  messages[0].onClose();
+  assert.equal(scenario.trust, 50);
   assert.equal(checks(), 1);
 }
 
 process.stdout.write(
-  "deficit trust event OK: 0x57FE gate/serialization and 0x3507 trust-50 dispatch\n",
+  "deficit trust event OK: 0x57FE gate/serialization and close-boundary trust-50 dispatch\n",
 );

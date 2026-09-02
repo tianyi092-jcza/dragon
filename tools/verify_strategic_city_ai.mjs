@@ -34,7 +34,7 @@ assert.equal(sc.legions.length, 0);
 const app = {
   scenario: sc,
   originalRng: { nextByte: () => 0 },
-  gamebar: { enqueueStrategicMessage: () => assert.fail("AI城不得弹援军消息") },
+  gamebar: { enqueueTalkMessage: () => assert.fail("AI城不得弹援军消息") },
 };
 assert.equal(tickStrategicCity(app, 76), true);
 assert.equal(sc.legions.length, 1);
@@ -68,12 +68,13 @@ const messages = [];
 const playerApp = {
   scenario: playerSc,
   originalRng: { nextByte: () => 5 },
-  gamebar: { enqueueStrategicMessage: (message) => messages.push(message) },
+  gamebar: { enqueueTalkMessage: (message) => messages.push(message) },
 };
 assert.equal(tickStrategicCity(playerApp, 76), true);
 assert.equal(messages.length, 1);
 assert.equal(messages[0].gen, null);
-assert.match(messages[0].text, /前來請求援軍/);
+assert.equal(messages[0].talkIndex, 38);
+assert.equal(messages[0].cityName, border.name.trim());
 assert.equal(playerSc.cities[76]._aiCooldown, 29);
 assert.equal(tickStrategicCity(playerApp, 76), false);
 assert.equal(messages.length, 1);
@@ -97,7 +98,7 @@ assert.equal(
       scenario: untargetedPlayerSc,
       originalRng: { nextByte: () => 0 },
       gamebar: {
-        enqueueStrategicMessage: (message) => untargetedMessages.push(message),
+        enqueueTalkMessage: (message) => untargetedMessages.push(message),
       },
     },
     76,
@@ -105,7 +106,7 @@ assert.equal(
   true,
 );
 assert.equal(untargetedMessages.length, 1);
-assert.match(untargetedMessages[0].text, /前來請求援軍/);
+assert.equal(untargetedMessages[0].talkIndex, 38);
 
 // 0x407A：弱城请求数为所有交战邻城(运行态强度+1)之和+2-local。
 // 本城1军、一个空敌城时应请求2军；以调用次数而非最终成功数锁住+1语义。

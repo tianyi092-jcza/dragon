@@ -62,6 +62,9 @@ function fixture(bytes = []) {
       enqueueStrategicMessage(message) {
         messages.push(message);
       },
+      enqueueTalkMessage(message) {
+        messages.push(message);
+      },
     },
   };
   return { app, scenario, messages };
@@ -138,6 +141,9 @@ function fixture(bytes = []) {
   assert.equal(scenario.legions[2].target, scenario.cities[1]);
   assert.equal(messages.length, 1);
   assert.equal(messages[0].kind, "capital-relocation");
+  assert.equal(messages[0].talkIndex, 57);
+  assert.equal(messages[0].personalitySelector, 0x1a4);
+  assert.equal(messages[0].targetName, "乙");
   assert.equal(messages[0].gen.name, "外交官");
 }
 

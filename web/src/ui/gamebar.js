@@ -19,6 +19,7 @@ import {
   quoteForIndex,
   formatGenericTalkEvent,
   formatTalkTokens,
+  personalityTalkIndex,
 } from "../game/talk.js";
 import { cityTypeLabel } from "../game/world.js";
 import { clickSfx, warnSfx, setSoundType, unlockSfx } from "../core/speaker.js";
@@ -86,6 +87,7 @@ export class GameBar {
     this.generalCard = null; // 武将特长/对白信息弹窗
     this._strategicMessageQueue = []; // AI 宣战等底部消息 FIFO
     this._strategicMessageActive = false;
+    this._scenarioUiGeneration = 0;
     this.formationDialog = null; // 部队编成弹窗
     this.formationQuote = null; // 部队编成确认/提示发言弹窗 (武将/军师发言)
     this.cityCard = null; // 左下角据点信息弹窗
@@ -2326,16 +2328,17 @@ export class GameBar {
           "",
           p.cityName,
         );
-        sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
-        me.capital = p.targetCity.idx;
-        sc.capital = p.targetCity.idx;
-        this.app.hud.refreshTrust();
-        this.app.hud.refreshInfo?.();
-        this.app.hud.flashEvent(
-          `「${p.playerFaction.monarch}」同意遷都至「${p.cityName}」！信賴度 +10`,
-        );
         this.app.view.draw();
         this._setProposalTimer(3000, () => {
+          // 0x6909：0x3B08完整对白返回后才调用0x33FD提交迁都。
+          sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
+          me.capital = p.targetCity.idx;
+          sc.capital = p.targetCity.idx;
+          this.app.hud.refreshTrust();
+          this.app.hud.refreshInfo?.();
+          this.app.hud.flashEvent(
+            `「${p.playerFaction.monarch}」同意遷都至「${p.cityName}」！信賴度 +10`,
+          );
           this.closeProposalAudience();
           const view = this.app.view;
           const [wxp, wyp] = view.cityPixel(p.targetCity);
@@ -2382,52 +2385,48 @@ export class GameBar {
           p.advName,
         );
 
-        // 扣除预备兵 200 骑兵、200 步兵、200 弓兵 (以 10 兵为单位)
-        me.reserve_cav = Math.max(0, (me.reserve_cav ?? 0) - 200);
-        me.reserve_inf = Math.max(0, (me.reserve_inf ?? 0) - 200);
-        me.reserve_arc = Math.max(0, (me.reserve_arc ?? 0) - 200);
-
-        // 创建君主亲征军团 (6000 兵力，驻守首都，初始无目标据点 target: null，默认战斗指挥 delegated: false)
-        p.monarch.status = 1;
-        p.monarch.is_monarch = true;
         const cap =
           (me.capital == null ? null : sc.cities[me.capital]) ||
           sc.citiesOf(me.idx)[0];
-
-        if (!sc.legions) sc.legions = [];
-        const newLegion = {
-          leader: p.monarch.name,
-          is_monarch: true,
-          faction: me.idx,
-          x: cap.x,
-          y: cap.y,
-          prevX: cap.x,
-          prevY: cap.y,
-          troops: 600, // 6000 兵
-          morale: factionLegionMoraleCap(me),
-          formation: 1,
-          target: null,
-          status: 0x80,
-          delegated: false,
-          cooldown: 0,
-          units: [
-            { type: 1, troops: 1000 },
-            { type: 1, troops: 1000 },
-            { type: 2, troops: 1000 },
-            { type: 2, troops: 1000 },
-            { type: 3, troops: 1000 },
-            { type: 3, troops: 1000 },
-          ],
-        };
-        ensureLegionSlot(sc.legions, newLegion, p.monarch.idx);
-        sc.legions.push(newLegion);
-
-        this.app.hud.refreshInfo?.();
-        this.app.hud.flashEvent(
-          `「${p.monarch.name}」親征軍團出陣！駐守於「${cap.name}」。`,
-        );
         this.app.view.draw();
         this._setProposalTimer(3000, () => {
+          // 0x699E：0x3B08完整对白返回后才调用0x6E8F/0x5E80提交亲征。
+          me.reserve_cav = Math.max(0, (me.reserve_cav ?? 0) - 200);
+          me.reserve_inf = Math.max(0, (me.reserve_inf ?? 0) - 200);
+          me.reserve_arc = Math.max(0, (me.reserve_arc ?? 0) - 200);
+          p.monarch.status = 1;
+          p.monarch.is_monarch = true;
+          if (!sc.legions) sc.legions = [];
+          const newLegion = {
+            leader: p.monarch.name,
+            is_monarch: true,
+            faction: me.idx,
+            x: cap.x,
+            y: cap.y,
+            prevX: cap.x,
+            prevY: cap.y,
+            troops: 600,
+            morale: factionLegionMoraleCap(me),
+            formation: 1,
+            target: null,
+            status: 0x80,
+            delegated: false,
+            cooldown: 0,
+            units: [
+              { type: 1, troops: 1000 },
+              { type: 1, troops: 1000 },
+              { type: 2, troops: 1000 },
+              { type: 2, troops: 1000 },
+              { type: 3, troops: 1000 },
+              { type: 3, troops: 1000 },
+            ],
+          };
+          ensureLegionSlot(sc.legions, newLegion, p.monarch.idx);
+          sc.legions.push(newLegion);
+          this.app.hud.refreshInfo?.();
+          this.app.hud.flashEvent(
+            `「${p.monarch.name}」親征軍團出陣！駐守於「${cap.name}」。`,
+          );
           this.closeProposalAudience();
           if (cap) {
             const view = this.app.view;
@@ -3117,17 +3116,17 @@ export class GameBar {
         if (outcome === 0) {
           // 无条件达成 (Talk 43: "與\3停戰交涉的結果，無條件地達成了。")
           clickSfx();
-          settleFactionNegotiation(this.app, {
-            recipientFaction: targetFaction,
-            requesterFaction: me,
-            outcome,
-            goldRequired,
-          });
           const step2Lines = await formatTalkTokens(43, targetName);
           await this.showNpcMessageDialog({
             lines: step2Lines,
-            autoClose: 3500,
+            autoClose: 3000,
             onClose: () => {
+              settleFactionNegotiation(this.app, {
+                recipientFaction: targetFaction,
+                requesterFaction: me,
+                outcome,
+                goldRequired,
+              });
               this.syncClock();
               this.app.hud.buildLegend?.();
               this.app.hud.flashEvent(
@@ -3139,12 +3138,6 @@ export class GameBar {
         } else if (outcome === 1) {
           // 支付金钱达成 (Talk 44: "與\3停戰交涉的結果，已經\7成立了。")
           clickSfx();
-          settleFactionNegotiation(this.app, {
-            recipientFaction: targetFaction,
-            requesterFaction: me,
-            outcome,
-            goldRequired,
-          });
           const costStr = `支付${goldRequired}金`;
           const step2Lines = await formatTalkTokens(
             44,
@@ -3155,8 +3148,14 @@ export class GameBar {
           );
           await this.showNpcMessageDialog({
             lines: step2Lines,
-            autoClose: 3500,
+            autoClose: 3000,
             onClose: () => {
+              settleFactionNegotiation(this.app, {
+                recipientFaction: targetFaction,
+                requesterFaction: me,
+                outcome,
+                goldRequired,
+              });
               this.syncClock();
               this.app.hud.buildLegend?.();
               this.app.hud.refreshInfo?.();
@@ -3172,7 +3171,7 @@ export class GameBar {
           const step2Lines = await formatTalkTokens(45, targetName);
           await this.showNpcMessageDialog({
             lines: step2Lines,
-            autoClose: 3500,
+            autoClose: 3000,
             onClose: () => {
               this.syncClock();
               this.app.hud.flashEvent(`與「${targetName}」停戰談判破裂！`);
@@ -3190,6 +3189,7 @@ export class GameBar {
     targetFaction = null,
     result,
     onResolve,
+    generation = this._scenarioUiGeneration,
   }) {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
@@ -3206,6 +3206,7 @@ export class GameBar {
       type === "incoming-truce" ? 362 : 375,
       [requesterName, targetName],
     );
+    if (generation !== this._scenarioUiGeneration) return false;
     this.proposalAudience = {
       type,
       playerFaction: me,
@@ -3251,8 +3252,12 @@ export class GameBar {
     );
     if (!resolved) return;
     const { outcome, goldRequired } = resolved;
-    if (typeof p.incomingResolve === "function")
-      p.incomingResolve(outcome, goldRequired);
+    let committed = false;
+    p.incomingCommit = () => {
+      if (committed) return;
+      committed = true;
+      p.incomingResolve?.(outcome, goldRequired);
+    };
     const requesterName = (p.requesterFaction?.monarch ?? "").trim();
     const targetName = (p.targetFaction?.monarch ?? "").trim();
     p.monarchLines = await formatTalkTokens(
@@ -3269,14 +3274,19 @@ export class GameBar {
   }
 
   _closeIncomingDiplomacy() {
-    this.closeProposalAudience();
-    this._strategicMessageActive = false;
-    if (!this._strategicMessageQueue.length) this._clockHoldRequested = false;
-    this.syncClock();
-    this.app.hud?.refreshInfo?.();
-    this.app.hud?.buildLegend?.();
-    this.app.view.draw();
-    this._drainStrategicMessages();
+    const commit = this.proposalAudience?.incomingCommit;
+    try {
+      commit?.();
+    } finally {
+      this.closeProposalAudience();
+      this._strategicMessageActive = false;
+      if (!this._strategicMessageQueue.length) this._clockHoldRequested = false;
+      this.syncClock();
+      this.app.hud?.refreshInfo?.();
+      this.app.hud?.buildLegend?.();
+      this.app.view.draw();
+      this._drainStrategicMessages();
+    }
   }
 
   /** 外交官返回汇报请求协助谈判结果 (KI.EXE 0x3388→0x3712→0x3C3D) */
@@ -3310,18 +3320,18 @@ export class GameBar {
         if (outcome === 0) {
           // 无条件达成 (Talk 47: "與\3的合作交涉的結果，無條件成立了。")
           clickSfx();
-          settleFactionNegotiation(this.app, {
-            recipientFaction: allyFaction,
-            requesterFaction: me,
-            targetFaction,
-            outcome,
-            goldRequired,
-          });
           const step2Lines = await formatTalkTokens(47, allyName);
           await this.showNpcMessageDialog({
             lines: step2Lines,
-            autoClose: 3500,
+            autoClose: 3000,
             onClose: () => {
+              settleFactionNegotiation(this.app, {
+                recipientFaction: allyFaction,
+                requesterFaction: me,
+                targetFaction,
+                outcome,
+                goldRequired,
+              });
               this.syncClock();
               this.app.hud.buildLegend?.();
               this.app.hud.flashEvent(
@@ -3333,13 +3343,6 @@ export class GameBar {
         } else if (outcome === 1) {
           // 支付金钱达成 (Talk 48: "與\3的合作交涉，的結果，已經\7達成協定。")
           clickSfx();
-          settleFactionNegotiation(this.app, {
-            recipientFaction: allyFaction,
-            requesterFaction: me,
-            targetFaction,
-            outcome,
-            goldRequired,
-          });
           const costStr = `支付${goldRequired}金`;
           const step2Lines = await formatTalkTokens(
             48,
@@ -3350,8 +3353,15 @@ export class GameBar {
           );
           await this.showNpcMessageDialog({
             lines: step2Lines,
-            autoClose: 3500,
+            autoClose: 3000,
             onClose: () => {
+              settleFactionNegotiation(this.app, {
+                recipientFaction: allyFaction,
+                requesterFaction: me,
+                targetFaction,
+                outcome,
+                goldRequired,
+              });
               this.syncClock();
               this.app.hud.buildLegend?.();
               this.app.hud.refreshInfo?.();
@@ -3367,7 +3377,7 @@ export class GameBar {
           const step2Lines = await formatTalkTokens(49, allyName);
           await this.showNpcMessageDialog({
             lines: step2Lines,
-            autoClose: 3500,
+            autoClose: 3000,
             onClose: () => {
               this.syncClock();
               this.app.hud.flashEvent(`與「${allyName}」的請求協助談判破裂！`);
@@ -3390,6 +3400,7 @@ export class GameBar {
 
   /** 返回标题时丢弃旧剧本的异步对白/计时器，不执行其 onClose 状态回调。 */
   resetScenarioUi() {
+    this._scenarioUiGeneration++;
     if (this.proposalAudience?.timer) {
       clearTimeout(this.proposalAudience.timer);
     }
@@ -3432,19 +3443,44 @@ export class GameBar {
       clickSfx();
       if (p.type === "envoy-budget" || p.type === "domestic-budget") {
         if (this.keypadDialog) this.closeKeypadDialog();
-        void this._finishBudgetAudience(0, "refuse");
+        if (p.step === "envoy_budget_result") {
+          if (p.timer) {
+            clearTimeout(p.timer);
+            p.timer = null;
+          }
+          this._closeBudgetAudience();
+        } else {
+          void this._finishBudgetAudience(0, "refuse");
+        }
         return true;
       }
       if (p.type === "incoming-truce" || p.type === "incoming-assistance") {
         if (this.keypadDialog) this.closeKeypadDialog();
-        void this._finishIncomingDiplomacy("refuse");
+        if (p.step === "incoming_diplomacy_result") {
+          if (p.timer) {
+            clearTimeout(p.timer);
+            p.timer = null;
+          }
+          this._closeIncomingDiplomacy();
+        } else {
+          void this._finishIncomingDiplomacy("refuse");
+        }
         return true;
       }
-      // 右键取消 / 退出进言
-      this.closeProposalAudience();
-      this.selectedSubmenu = null;
-      this.syncClock();
-      this.app.view.draw();
+      // 最终结果框的右键与3秒自动关闭等价：先执行原版返回边界回调；
+      // 其它阶段仍是取消本次进言。
+      if (p.step === "done" && p.timer) {
+        clearTimeout(p.timer);
+        p.timer = null;
+        const action = p.timerAction;
+        p.timerAction = null;
+        action?.();
+      } else {
+        this.closeProposalAudience();
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      }
       return true;
     }
     if (btn !== 0) return true;
@@ -3727,11 +3763,13 @@ export class GameBar {
     h = 80,
     onClose = null,
     autoClose = 3000,
+    generation = this._scenarioUiGeneration,
   } = {}) {
     let img = this.imgs?.messageNpc;
     if (!img) {
       img = await loadImage("grf/ui/message_npc.png").catch(() => null);
     }
+    if (generation !== this._scenarioUiGeneration) return;
     if (px == null || py == null) {
       if (this.listDialog) {
         const d = this.listDialog;
@@ -3746,9 +3784,11 @@ export class GameBar {
       clearTimeout(this._generalCardTimer);
       this._generalCardTimer = null;
     }
-    this.generalCard = { gen: null, img, lines, px, py, w, h, onClose };
+    const card = { gen: null, img, lines, px, py, w, h, onClose };
+    this.generalCard = card;
     if (autoClose) {
       this._generalCardTimer = setTimeout(() => {
+        if (this.generalCard !== card) return;
         this._generalCardTimer = null;
         this.closeGeneralCard();
       }, autoClose);
@@ -3761,10 +3801,18 @@ export class GameBar {
     gen,
     text,
     onClose = null,
-    { w = 304, h = 80, px, py, autoClose = 3000 } = {},
+    {
+      w = 304,
+      h = 80,
+      px,
+      py,
+      autoClose = 3000,
+      generation = this._scenarioUiGeneration,
+    } = {},
   ) {
     if (!gen) return;
     const img = await portrait(gen.portrait).catch(() => null);
+    if (generation !== this._scenarioUiGeneration) return;
     if (px == null || py == null) {
       if (this.listDialog) {
         const d = this.listDialog;
@@ -3779,9 +3827,11 @@ export class GameBar {
       clearTimeout(this._generalCardTimer);
       this._generalCardTimer = null;
     }
-    this.generalCard = { gen, img, lines: [text], px, py, w, h, onClose };
+    const card = { gen, img, lines: [text], px, py, w, h, onClose };
+    this.generalCard = card;
     if (autoClose) {
       this._generalCardTimer = setTimeout(() => {
+        if (this.generalCard !== card) return;
         this._generalCardTimer = null;
         this.closeGeneralCard();
       }, autoClose);
@@ -3814,10 +3864,40 @@ export class GameBar {
     this._drainStrategicMessages();
   }
 
+  /** 已确认TALK索引的战略通知；type10与规则事件共用格式化/FIFO。 */
+  enqueueTalkMessage(message) {
+    if (!Number.isInteger(message?.talkIndex)) return;
+    const first = { type: "talk-message", ...message };
+    const personalityIndex = personalityTalkIndex(
+      message.personalitySelector,
+      message.gen,
+    );
+    delete first.personalitySelector;
+    this._strategicMessageQueue.push(first);
+    if (personalityIndex != null) {
+      this._strategicMessageQueue.push({
+        type: "talk-message",
+        gen: message.gen,
+        talkIndex: personalityIndex,
+        targetName: message.targetName,
+        advisorName: message.advisorName,
+        generalName: message.generalName ?? message.gen?.name?.trim?.() ?? "",
+        extraStr: message.extraStr,
+        cityName: message.cityName,
+        kind: `${message.kind ?? "talk"}-personality`,
+      });
+    }
+    this._drainStrategicMessages();
+  }
+
   /** type10：SAVE尾部事件轮中的通用TALK通知。 */
   enqueueGenericTalkEvent(event) {
     if (!Number.isInteger(event?.talkIndex)) return;
-    this._strategicMessageQueue.push({ type: "generic-talk", ...event });
+    this._strategicMessageQueue.push({
+      type: "talk-message",
+      generic: true,
+      ...event,
+    });
     this._drainStrategicMessages();
   }
 
@@ -3835,7 +3915,10 @@ export class GameBar {
     this._drainStrategicMessages();
   }
 
-  async _showDomesticBudgetAudience(message) {
+  async _showDomesticBudgetAudience(
+    message,
+    generation = this._scenarioUiGeneration,
+  ) {
     const sc = this.app.scenario;
     const city = sc.cities?.[message.cityIdx];
     const me = cmd.playerFaction(sc);
@@ -3857,6 +3940,15 @@ export class GameBar {
       "",
       city.name?.trim?.() || "據點",
     );
+    const requestLines = await formatTalkTokens(
+      278,
+      "",
+      "",
+      gen.name.trim(),
+      `${Math.max(0, message.requested | 0)}`,
+      city.name?.trim?.() || "據點",
+    );
+    if (generation !== this._scenarioUiGeneration) return false;
     this.proposalAudience = {
       type: "domestic-budget",
       playerFaction: me,
@@ -3866,14 +3958,7 @@ export class GameBar {
       monarchImg,
       advImg: governorImg,
       monarchLines: reportLines,
-      advLines: await formatTalkTokens(
-        278,
-        "",
-        "",
-        gen.name.trim(),
-        `${requested}`,
-        city.name?.trim?.() || "據點",
-      ),
+      advLines: requestLines,
       step: "envoy_budget_choice",
       budgetRequested: requested,
       budgetAmount: requested,
@@ -3886,7 +3971,10 @@ export class GameBar {
     return true;
   }
 
-  async _showEnvoyBudgetAudience(message) {
+  async _showEnvoyBudgetAudience(
+    message,
+    generation = this._scenarioUiGeneration,
+  ) {
     const sc = this.app.scenario;
     const envoy = sc.envoys?.[message.targetIdx];
     const target = sc.factions?.find((f) => f?.idx === message.targetIdx);
@@ -3908,6 +3996,14 @@ export class GameBar {
       "",
       gen.name.trim(),
     );
+    const requestLines = await formatTalkTokens(
+      319,
+      targetName,
+      "",
+      gen.name.trim(),
+      `${Math.max(0, message.requested | 0)}`,
+    );
+    if (generation !== this._scenarioUiGeneration) return false;
     this.proposalAudience = {
       type: "envoy-budget",
       playerFaction: me,
@@ -3918,13 +4014,7 @@ export class GameBar {
       monarchImg,
       advImg: envoyImg,
       monarchLines: reportLines,
-      advLines: await formatTalkTokens(
-        319,
-        targetName,
-        "",
-        gen.name.trim(),
-        `${requested}`,
-      ),
+      advLines: requestLines,
       step: "envoy_budget_choice",
       budgetRequested: requested,
       budgetAmount: requested,
@@ -4052,35 +4142,55 @@ export class GameBar {
   async _drainStrategicMessages() {
     if (!this._strategicMessageQueue.length || !this._canShowStrategicMessage())
       return;
+    const generation = this._scenarioUiGeneration;
     const message = this._strategicMessageQueue.shift();
     this._strategicMessageActive = true;
     this._clockHoldRequested = true;
     this.syncClock();
     if (message.type === "incoming-diplomacy") {
-      const opened = await this._showIncomingDiplomacyRequest(message);
+      const opened = await this._showIncomingDiplomacyRequest({
+        ...message,
+        generation,
+      });
+      if (generation !== this._scenarioUiGeneration) return;
       if (!opened) this._closeIncomingDiplomacy();
       return;
     }
-    if (message.type === "generic-talk") {
-      message.lines = await formatGenericTalkEvent(
-        message.talkIndex,
-        message.arg0,
-        this.app.scenario,
-      );
+    if (message.type === "talk-message") {
+      message.lines = message.generic
+        ? await formatGenericTalkEvent(
+            message.talkIndex,
+            message.arg0,
+            this.app.scenario,
+          )
+        : await formatTalkTokens(
+            message.talkIndex,
+            message.targetName ?? "",
+            message.advisorName ?? "",
+            message.generalName ?? message.gen?.name?.trim?.() ?? "",
+            message.extraStr ?? "",
+            message.cityName ?? "",
+          );
       message.text = message.lines
         .flat()
         .map((token) =>
           typeof token === "string" ? token : (token?.text ?? ""),
         )
         .join("");
+      if (generation !== this._scenarioUiGeneration) return;
     }
     if (message.type === "domestic-budget") {
-      const opened = await this._showDomesticBudgetAudience(message);
+      const opened = await this._showDomesticBudgetAudience(
+        message,
+        generation,
+      );
+      if (generation !== this._scenarioUiGeneration) return;
       if (!opened) this._closeBudgetAudience();
       return;
     }
     if (message.type === "envoy-budget") {
-      const opened = await this._showEnvoyBudgetAudience(message);
+      const opened = await this._showEnvoyBudgetAudience(message, generation);
+      if (generation !== this._scenarioUiGeneration) return;
       if (!opened) this._closeBudgetAudience();
       return;
     }
@@ -4092,12 +4202,16 @@ export class GameBar {
     const finish = () => {
       if (finished) return;
       finished = true;
-      message.onClose?.();
-      this._strategicMessageActive = false;
-      if (!this._strategicMessageQueue.length) this._clockHoldRequested = false;
-      this.syncClock();
-      this.app.view.draw();
-      this._drainStrategicMessages();
+      try {
+        message.onClose?.();
+      } finally {
+        this._strategicMessageActive = false;
+        if (!this._strategicMessageQueue.length)
+          this._clockHoldRequested = false;
+        this.syncClock();
+        this.app.view.draw();
+        this._drainStrategicMessages();
+      }
     };
     if (message.gen) {
       await this.showGeneralMessageDialog(message.gen, message.text, finish, {
@@ -4106,6 +4220,7 @@ export class GameBar {
         px,
         py,
         autoClose: 3000,
+        generation,
       });
     } else {
       await this.showNpcMessageDialog({
@@ -4116,6 +4231,7 @@ export class GameBar {
         py,
         autoClose: 3000,
         onClose: finish,
+        generation,
       });
     }
   }
@@ -5446,6 +5562,7 @@ export class GameBar {
     this.selectedSubmenu = null; // 模态弹窗关闭 → 取消子菜单被选项
     this.syncClock(); // 开始计时
     this.app.view.draw();
+    this._drainStrategicMessages();
   }
 
   /** 菜单/弹窗打开时冻结战略时钟 (原版 [0xD2A]=1 主循环跳过时钟进位链)。 */

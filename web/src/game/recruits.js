@@ -31,6 +31,13 @@ export function monthlyAppear(app) {
     g.faction = f.idx;
     g.status = 0;
     sc._appeared.add(g.idx);
-    app.hud?.flashEvent?.(`${g.name} 出場、投奔 ${f.monarch}麾下`);
+    if (f.idx === sc.player_faction) {
+      app.gamebar?.enqueueTalkMessage?.({
+        gen: g,
+        talkIndex: 41,
+        generalName: g.name?.trim?.() || "",
+        kind: "general-appeared",
+      });
+    }
   }
 }

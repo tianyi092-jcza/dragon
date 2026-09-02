@@ -166,9 +166,15 @@ const makeScenario = () => {
   defenderA.slot = 9;
   defenderB.slot = 3;
   sc.legions = [attacker, defenderA, defenderB];
-  const events = [];
   applyBattleResult(
-    { scenario: sc, hud: { flashEvent: (message) => events.push(message) } },
+    {
+      scenario: sc,
+      hud: {
+        flashEvent() {
+          assert.fail("strategic siege results must use the TALK FIFO");
+        },
+      },
+    },
     attacker,
     target,
     "atk",
@@ -189,7 +195,6 @@ const makeScenario = () => {
   assert.equal(defenderA._retreat.captorFaction, 0);
   assert.equal(defenderA._path, null);
   assert.equal(defenderB._path, null);
-  assert.match(events[0], /守軍撤退2/);
 }
 
 {
@@ -251,9 +256,15 @@ const makeScenario = () => {
   target.y = 9;
   const attacker = legion("甲", 0, target.x, target.y, 500);
   sc.legions = [attacker];
-  const events = [];
   applyBattleResult(
-    { scenario: sc, hud: { flashEvent: (message) => events.push(message) } },
+    {
+      scenario: sc,
+      hud: {
+        flashEvent() {
+          assert.fail("strategic siege results must use the TALK FIFO");
+        },
+      },
+    },
     attacker,
     target,
     "def",
@@ -266,7 +277,6 @@ const makeScenario = () => {
   assert.equal(attacker.troops, 300);
   assert.ok(attacker._retreat);
   assert.equal(attacker._retreat.captorFaction, 1);
-  assert.match(events[0], /失利/);
 }
 
 {
@@ -326,7 +336,10 @@ const makeScenario = () => {
   const app = {
     scenario: sc,
     hud: { flashEvent() {} },
-    gamebar: { enqueueStrategicMessage: (message) => messages.push(message) },
+    gamebar: {
+      enqueueStrategicMessage: (message) => messages.push(message),
+      enqueueTalkMessage: (message) => messages.push(message),
+    },
   };
   applyBattleResult(
     app,
@@ -341,6 +354,10 @@ const makeScenario = () => {
   assert.equal(
     messages.filter((message) => message.kind === "faction-extinction").length,
     1,
+  );
+  assert.equal(
+    messages.find((message) => message.kind === "faction-extinction").talkIndex,
+    36,
   );
   assert.ok(
     defender._retreat || defender.dead,

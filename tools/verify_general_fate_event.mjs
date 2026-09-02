@@ -34,6 +34,9 @@ function fixture(randomBytes = []) {
       enqueueStrategicMessage(message) {
         messages.push(message);
       },
+      enqueueTalkMessage(message) {
+        messages.push(message);
+      },
     },
   };
   return { app, scenario, messages };
@@ -64,21 +67,24 @@ const general = (idx, extra = {}) => ({
 
 // random 0x20..0x3F and current == scheduled join: immediate clear, no event.
 {
-  const { app, scenario } = fixture([0x20]);
-  const g = general(0, { faction: 3, join_faction: 3 });
+  const { app, scenario, messages } = fixture([0x20]);
+  const g = general(0, { faction: 0, join_faction: 0 });
   scenario.generals = [g];
   assert.deepEqual(processMonthlyGeneralFates(app), []);
   assert.equal(g.status, 0);
-  assert.equal(g.faction, 3);
+  assert.equal(g.faction, 0);
   assert.equal(g.origFaction, null);
   assert.equal(g.captive_flag, 0xff);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].talkIndex, 66);
+  assert.equal(messages[0].kind, "general-joined");
 }
 
 // random < 0x20: delay (random&15)+8 slots, event bytes type/general/FF/FF,
 // then current faction becomes original neutral sentinel 0x18.
 {
-  const { app, scenario } = fixture([0x05]);
-  const g = general(0);
+  const { app, scenario, messages } = fixture([0x05]);
+  const g = general(0, { faction: 0 });
   scenario.generals = [g];
   const queued = processMonthlyGeneralFates(app);
   assert.deepEqual(queued, [{ type: 9, arg0: 0, arg1: 0xff, arg2: 0xff }]);
@@ -86,6 +92,9 @@ const general = (idx, extra = {}) => ({
   assert.equal(g.faction, 0x18);
   assert.equal(g.origFaction, 0);
   assert.equal(g.captive_flag, 0);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].talkIndex, 65);
+  assert.equal(messages[0].kind, "general-fate-pending");
 }
 
 // Collision scan is forward from the requested slot through all four pages.
@@ -116,6 +125,8 @@ const general = (idx, extra = {}) => ({
   assert.equal(g.captive_flag, 0xff);
   assert.equal(messages.length, 1);
   assert.equal(messages[0].kind, "general-returned");
+  assert.equal(messages[0].talkIndex, 37);
+  assert.equal(messages[0].personalitySelector, 0x199);
 }
 
 // Dead/inactive original faction yields unowned general, with no player report.

@@ -201,6 +201,9 @@ const openingPumpApp = {
     enqueueStrategicMessage(message) {
       openingPumpMessages.push(message);
     },
+    enqueueTalkMessage(message) {
+      openingPumpMessages.push(message);
+    },
   },
 };
 initializeStrategicDiplomacy(openingPumpApp);
@@ -227,6 +230,9 @@ const openingWarApp = {
     enqueueStrategicMessage(message) {
       openingWarMessages.push(message);
     },
+    enqueueTalkMessage(message) {
+      openingWarMessages.push(message);
+    },
   },
 };
 assert.equal(
@@ -243,7 +249,11 @@ assert.equal(
   openingWarMessages[0].gen?.idx,
   openingWarScenario.factions[0].monarch_idx,
 );
-assert.match(openingWarMessages[0].text, /呂布/);
+assert.equal(
+  openingWarMessages[0].talkIndex,
+  486 + openingWarScenario.generals[openingWarScenario.factions[0].monarch_idx].talk_idx,
+);
+assert.equal(openingWarMessages[0].targetName, "呂布");
 assert.equal(
   openingWarScenario.diplomacy[0][13] >= 0x80,
   true,
@@ -335,6 +345,9 @@ const app = {
     enqueueStrategicMessage(message) {
       messages.push(message);
     },
+    enqueueTalkMessage(message) {
+      messages.push(message);
+    },
   },
 };
 assert.equal(
@@ -343,9 +356,9 @@ assert.equal(
 );
 assert.equal(messages.length, 2);
 assert.equal(messages[0].gen, null);
-assert.match(messages[0].text, /宣戰佈告/);
+assert.equal(messages[0].talkIndex, 63);
 assert.equal(messages[1].gen?.idx, eventScenario.factions[13].monarch_idx);
-assert.match(messages[1].text, /不共戴天/);
+assert.equal(messages[1].talkIndex, 479);
 assert.notEqual(
   eventScenario.factions[13].target_faction,
   0,
@@ -451,6 +464,9 @@ for (const style of [0, 1, 2]) {
     scenario: playerScenario,
     gamebar: {
       enqueueStrategicMessage(message) {
+        playerMessages.push(message);
+      },
+      enqueueTalkMessage(message) {
         playerMessages.push(message);
       },
     },

@@ -99,7 +99,12 @@ const legion = (leader, faction, x, y) => ({
   );
   assert.equal(monarch.dead, true);
   assert.equal(sc.delayedLegionReturns[0].countdown, 48);
-  const app = { scenario: sc, originalRng: { nextByte: () => 0xff } };
+  const messages = [];
+  const app = {
+    scenario: sc,
+    originalRng: { nextByte: () => 0xff },
+    gamebar: { enqueueTalkMessage: (message) => messages.push(message) },
+  };
   const targetBatch = 32;
   for (let visit = 0; visit < 47; visit++) {
     for (const batchStart of [0, 16, 48, 64, 80, 96, 112]) {
@@ -118,6 +123,10 @@ const legion = (leader, faction, x, y) => ({
   assert.equal(sc.generals[0].status, 0);
   assert.equal(sc.delayedLegionReturns.length, 0);
   assert.ok(!sc.legions.includes(monarch));
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].talkIndex, 35);
+  assert.equal(messages[0].personalitySelector, 0x198);
+  assert.equal(messages[0].kind, "postbattle-general-return");
 }
 
 {
@@ -125,14 +134,25 @@ const legion = (leader, faction, x, y) => ({
   sc.factions[0].monarch_idx = 7;
   const ordinary = legion("甲", 0, 257, 9);
   sc.legions = [ordinary];
+  const messages = [];
+  const app = {
+    scenario: sc,
+    gamebar: { enqueueTalkMessage: (message) => messages.push(message) },
+  };
   let rngCalls = 0;
   assert.equal(
-    dispatchLegionFate(sc, ordinary, 1, {
-      nextByte() {
-        rngCalls++;
-        return 0xfd;
+    dispatchLegionFate(
+      sc,
+      ordinary,
+      1,
+      {
+        nextByte() {
+          rngCalls++;
+          return 0xfd;
+        },
       },
-    }),
+      app,
+    ),
     "captured",
   );
   assert.equal(rngCalls, 1);
@@ -141,6 +161,40 @@ const legion = (leader, faction, x, y) => ({
   assert.equal(sc.generals[0].status, 4);
   assert.equal(sc.generals[0].origFaction, 0);
   assert.equal(sc.generals[0].faction, 1);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].talkIndex, 33);
+  assert.equal(messages[0].personalitySelector, 0x19a);
+}
+
+// 对手军团溃散时，玩家分别收到TALK32（未擒获）或TALK34（擒获）。
+{
+  const sc = makeScenario();
+  sc.factions[1].monarch_idx = 7;
+  sc.generals.push(general(2, "丙", 1));
+  const escaped = legion("乙", 1, 218, 11);
+  const captured = legion("丙", 1, 218, 11);
+  captured.slot = 2;
+  sc.legions = [escaped, captured];
+  const messages = [];
+  const app = {
+    scenario: sc,
+    gamebar: { enqueueTalkMessage: (message) => messages.push(message) },
+  };
+  assert.equal(
+    dispatchLegionFate(sc, escaped, 0, { nextByte: () => 0 }, app),
+    "return",
+  );
+  assert.equal(
+    dispatchLegionFate(sc, captured, 0, { nextByte: () => 0xff }, app),
+    "captured",
+  );
+  assert.deepEqual(
+    messages.map((message) => [message.talkIndex, message.personalitySelector]),
+    [
+      [32, undefined],
+      [34, 0x19a],
+    ],
+  );
 }
 
 {
@@ -210,9 +264,15 @@ const legion = (leader, faction, x, y) => ({
   const defender = legion("乙", 1, 246, 15);
   defender.units[0].troops = 0;
   sc.legions = [attacker, defender];
-  const events = [];
   applyFieldBattleResult(
-    { scenario: sc, hud: { flashEvent: (message) => events.push(message) } },
+    {
+      scenario: sc,
+      hud: {
+        flashEvent() {
+          assert.fail("strategic field results must use the TALK FIFO");
+        },
+      },
+    },
     attacker,
     defender,
     "atk",
@@ -224,7 +284,6 @@ const legion = (leader, faction, x, y) => ({
   assert.equal(attacker.commandState, 8);
   assert.equal(defender.dead, true);
   assert.equal(sc.delayedLegionReturns[0].leader, "乙");
-  assert.match(events[0], /野戰擊退/);
 }
 
 process.stdout.write("postbattle fate OK: retreat, 48-tick return, capture\n");

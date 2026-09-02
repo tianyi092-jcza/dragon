@@ -159,6 +159,9 @@ const eventApp = {
     enqueueStrategicMessage(message) {
       if (message.onClose) eventOrder.push(eventScenario._strategicEventCursor);
     },
+    enqueueTalkMessage(message) {
+      if (message.onClose) eventOrder.push(eventScenario._strategicEventCursor);
+    },
   },
 };
 assert.equal(tickStrategicWarEvents(eventApp), false);

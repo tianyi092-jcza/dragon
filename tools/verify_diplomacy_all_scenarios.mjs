@@ -454,6 +454,9 @@ for (const [scenarioIndex, playerName, aggressorName, defenderName] of [
       enqueueStrategicMessage(message) {
         messages.push(message);
       },
+      enqueueTalkMessage(message) {
+        messages.push(message);
+      },
     },
   };
   initializeStrategicDiplomacy(app);

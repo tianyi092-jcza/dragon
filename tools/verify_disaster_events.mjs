@@ -39,6 +39,9 @@ function fixture(bytes = [], count = 24) {
       enqueueStrategicMessage(message) {
         messages.push(message);
       },
+      enqueueTalkMessage(message) {
+        messages.push(message);
+      },
     },
   };
   return { app, scenario, messages };
@@ -83,6 +86,7 @@ function fixture(bytes = [], count = 24) {
   assert.equal(scenario.cities[1].disaster_event, 39);
   assert.equal(messages.length, 1);
   assert.equal(messages[0].kind, "disaster-area");
+  assert.equal(messages[0].talkIndex, 70);
 }
 
 // Type12 create allocates object, uses 2 RNG bytes, and schedules type12 removal.
@@ -98,12 +102,21 @@ function fixture(bytes = [], count = 24) {
     cityPointer: 0x840,
   });
   assert.equal(messages[0].kind, "disaster-object");
+  assert.equal(messages[0].talkIndex, 71);
 
   scenario._strategicEventCursor = 9;
   scenario._strategicEventDivider = 1;
   assert.equal(tickStrategicWarEvents(app), true);
   assert.equal(scenario.disasterMapObjects.length, 0);
   assert.equal(scenario.cities[0].disaster_event, 0);
+}
+
+// type12 arg0=2 uses TALK72 (暴動), distinct from arg0=1 TALK71 (大火).
+{
+  const { app, scenario, messages } = fixture([0, 0], 1);
+  scenario.strategicEventSlots[0] = { type: 12, arg0: 2, cityPointer: 0x840 };
+  assert.equal(tickStrategicWarEvents(app), true);
+  assert.equal(messages[0].talkIndex, 72);
 }
 
 // 0x34B1 uses a 32-slot object table: slots 17..32 remain valid, the 33rd is rejected.

@@ -39,6 +39,7 @@ import {
 import { originalTacticalMorale } from "./battle/originalresult.js";
 import { isLegionDelegated } from "./legionmode.js";
 import { ensureLegionSlot, ensureLegionUnits } from "./legionunits.js";
+import { personalityTalkIndex } from "./talk.js";
 
 const ENGAGE_COUNTDOWN = 12;
 const ENGAGE_STATUS_ACTIVE = 0x20;
@@ -632,9 +633,10 @@ export function tickStrategicCity(app, cityIndex) {
       "strategic_city_primary",
       city.idx,
     );
-    app.gamebar?.enqueueStrategicMessage?.({
+    app.gamebar?.enqueueTalkMessage?.({
       gen: null,
-      text: `${city.name}　前來請求援軍。`,
+      talkIndex: 38,
+      cityName: city.name?.trim?.() || "",
       kind: "reinforcement-request",
     });
     return true;
@@ -957,7 +959,36 @@ export function continueLegionAfterBattle(sc, legion, won) {
   return true;
 }
 
-function disbandLegionForReturn(sc, legion) {
+function enqueuePostbattleFateTalk(
+  app,
+  general,
+  oldFaction,
+  captorFaction,
+  outcome,
+) {
+  const playerFaction = app?.scenario?.player_faction;
+  let talkIndex = null;
+  if (outcome === "return") {
+    if (oldFaction === playerFaction) talkIndex = 31;
+    else if (captorFaction === playerFaction) talkIndex = 32;
+  } else if (outcome === "captured") {
+    if (oldFaction === playerFaction) talkIndex = 33;
+    else if (captorFaction === playerFaction) talkIndex = 34;
+  } else if (outcome === "eliminated" && captorFaction === playerFaction) {
+    talkIndex = 67;
+  }
+  if (talkIndex == null) return;
+  const message = {
+    gen: general,
+    talkIndex,
+    generalName: general?.name?.trim?.() || "",
+    kind: `postbattle-${outcome}`,
+  };
+  if (outcome === "captured") message.personalitySelector = 0x19a;
+  app.gamebar?.enqueueTalkMessage?.(message);
+}
+
+function disbandLegionForReturn(sc, legion, captorFaction, app = null) {
   const general = generalForLegion(sc, legion);
   sc.delayedLegionReturns ??= [];
   sc.delayedLegionReturns.push({
@@ -976,10 +1007,51 @@ function disbandLegionForReturn(sc, legion) {
   legion._markerFrame = 4;
   clearEngagement(legion);
   clearMarchNavigation(legion);
+  enqueuePostbattleFateTalk(
+    app,
+    general,
+    legion.faction,
+    captorFaction,
+    "return",
+  );
   return "return";
 }
 
-function captureOrEliminateLegion(sc, legion, captorFaction) {
+function settleCapturedGeneral(app, sc, general, oldFaction, captorFaction) {
+  general.status = 4;
+  general.origFaction = oldFaction;
+  general.faction = captorFaction;
+  if (!factionIsActive(sc, oldFaction) && general.attr & 0x10) {
+    general.attr = 0;
+    general.active = false;
+    general.status = 0;
+    general.faction = null;
+    general.origFaction = null;
+    enqueuePostbattleFateTalk(
+      app,
+      general,
+      oldFaction,
+      captorFaction,
+      "eliminated",
+    );
+    return "eliminated";
+  }
+  if (general.attr & 0x40) {
+    general.attr &= ~0x40;
+    general.is_monarch = false;
+    general.talk_idx = ((general.talk_idx ?? 0) + 3) & 0xff;
+  }
+  enqueuePostbattleFateTalk(
+    app,
+    general,
+    oldFaction,
+    captorFaction,
+    "captured",
+  );
+  return "captured";
+}
+
+function captureOrEliminateLegion(sc, legion, captorFaction, app = null) {
   const general = generalForLegion(sc, legion);
   const oldFaction = legion.faction;
   legion.status = 0;
@@ -990,28 +1062,17 @@ function captureOrEliminateLegion(sc, legion, captorFaction) {
   clearEngagement(legion);
   clearMarchNavigation(legion);
   if (!general) return "captured";
-
-  general.status = 4;
-  general.origFaction = oldFaction;
-  general.faction = captorFaction;
-  if (!factionIsActive(sc, oldFaction) && general.attr & 0x10) {
-    general.attr = 0;
-    general.active = false;
-    general.status = 0;
-    general.faction = null;
-    general.origFaction = null;
-    return "eliminated";
-  }
-  if (general.attr & 0x40) {
-    general.attr &= ~0x40;
-    general.is_monarch = false;
-    general.talk_idx = ((general.talk_idx ?? 0) + 3) & 0xff;
-  }
-  return "captured";
+  return settleCapturedGeneral(app, sc, general, oldFaction, captorFaction);
 }
 
 /** KI.EXE 0x291A：无法继续行动军团的延迟回归/被俘分派。 */
-export function dispatchLegionFate(sc, legion, captorFaction, rng = null) {
+export function dispatchLegionFate(
+  sc,
+  legion,
+  captorFaction,
+  rng = null,
+  app = null,
+) {
   if (legion.dead || legion._active === false) return "ignored";
   const general = generalForLegion(sc, legion);
   const faction = sc.factions.find(
@@ -1033,8 +1094,8 @@ export function dispatchLegionFate(sc, legion, captorFaction, rng = null) {
     }
   }
   return delayedReturn
-    ? disbandLegionForReturn(sc, legion)
-    : captureOrEliminateLegion(sc, legion, captorFaction);
+    ? disbandLegionForReturn(sc, legion, captorFaction, app)
+    : captureOrEliminateLegion(sc, legion, captorFaction, app);
 }
 
 function tickDelayedLegionReturns(sc, processedSlots = null) {
@@ -1394,6 +1455,7 @@ function battleUsesDelegatedPlayer(sc, A, target, kind) {
 export function resolveBattle(app, A, city) {
   app.gamebar?.addMiniBattleFlash?.(city);
   const sc = app.scenario;
+  const oldFaction = city.faction;
   const defenders = sc.legions.filter(
     (legion) =>
       legion !== A &&
@@ -1411,9 +1473,22 @@ export function resolveBattle(app, A, city) {
     (playerAttacker && !isLegionDelegated(A) && primaryDefender) ||
     (playerDefender && primaryDefender && !isLegionDelegated(primaryDefender));
   if (playerControls && app.battleView && !app.battleView.active) {
-    app.startBattle(A, city, primaryDefender); // 暂停时钟+开覆盖层; 结算在 onFinish 回调
+    // 0x4ED7：攻城战术层开启前先显示TALK27/28；关闭后才进入战场。
+    const talkIndex = playerDefender ? 27 : 28;
+    const start = () => app.startBattle(A, city, primaryDefender);
+    if (app.gamebar?.enqueueTalkMessage) {
+      app.gamebar.enqueueTalkMessage({
+        gen: null,
+        talkIndex,
+        generalName: A.leader?.trim?.() || "",
+        cityName: city.name?.trim?.() || "",
+        onClose: start,
+        kind: playerDefender ? "siege-defence-opening" : "siege-attack-opening",
+      });
+    } else start();
     return true;
   }
+  // 0x4ED7的非战术路径没有TALK27/28；委任/AI速算直接结算。
   const defender = primaryDefender ?? createCityGarrison(city);
   const rng = strategicRngFor(app, null);
   const result = resolveStrategicBattle(sc, A, defender, {
@@ -1437,6 +1512,7 @@ export function resolveBattle(app, A, city) {
     {
       strategicRng: rng,
       sides: [result.attack, result.defence],
+      oldFaction,
     },
   );
   return false;
@@ -1455,7 +1531,17 @@ export function resolveFieldBattle(app, A, D) {
     app.battleView &&
     !app.battleView.active
   ) {
-    app.startFieldBattle(A, D);
+    // 0x4E5C→0x4EB9：玩家参与的非委任野战先显示TALK29，关闭后开战场。
+    const start = () => app.startFieldBattle(A, D);
+    if (app.gamebar?.enqueueTalkMessage) {
+      app.gamebar.enqueueTalkMessage({
+        gen: null,
+        talkIndex: 29,
+        generalName: [A.leader?.trim?.() || "", D.leader?.trim?.() || ""],
+        onClose: start,
+        kind: "field-battle-opening",
+      });
+    } else start();
     return true;
   }
   const rng = strategicRngFor(app, null);
@@ -1510,18 +1596,11 @@ export function applyFieldBattleResult(
   const defenceContinues = continueLegionAfterBattle(sc, D, winner === "def");
   if (A._retreat) A._retreat.captorFaction = D.faction;
   if (D._retreat) D._retreat.captorFaction = A.faction;
-  const attackFate = attackContinues
-    ? "continue"
-    : dispatchLegionFate(sc, A, D.faction, strategicRng);
-  const defenceFate = defenceContinues
-    ? "continue"
-    : dispatchLegionFate(sc, D, A.faction, strategicRng);
+  if (!attackContinues) dispatchLegionFate(sc, A, D.faction, strategicRng, app);
+  if (!defenceContinues)
+    dispatchLegionFate(sc, D, A.faction, strategicRng, app);
   const loser = winner === "atk" ? D : A;
-  const survivor = winner === "atk" ? A : D;
   if (loser._active !== false) loser.cooldown = 12;
-  app.hud?.flashEvent?.(
-    `${survivor.leader} 野戰擊退 ${loser.leader}（${A.troops}／${D.troops}；${attackFate}/${defenceFate}）`,
-  );
 }
 
 function updateFactionAfterCityCapture(sc, factionIdx) {
@@ -1558,7 +1637,17 @@ function finalizeFactionExtinction(app, factionIdx) {
   // 0x4FCE→0x5074：灭亡势力的外交官立即结束任职并恢复待命。
   if (faction.diplomat_idx != null) {
     const diplomat = sc.generals?.[faction.diplomat_idx];
-    if (diplomat) diplomat.status = 0;
+    if (diplomat) {
+      diplomat.status = 0;
+      app.gamebar?.enqueueTalkMessage?.({
+        gen: diplomat,
+        talkIndex: 69,
+        targetName: faction.monarch?.trim?.() || "",
+        generalName: diplomat.name?.trim?.() || "",
+        personalitySelector: 0x1a7,
+        kind: "extinction-diplomat-return",
+      });
+    }
     faction.diplomat_idx = null;
   }
   // 0x5000..0x5033：按武将索引固定扫描并严格按+1D/君主/+17分三路。
@@ -1573,6 +1662,15 @@ function finalizeFactionExtinction(app, factionIdx) {
       general.faction = originFaction && !originFaction.dead ? origin : null;
       general.origFaction = null;
       general.captive_flag = 0xff;
+      if (general.faction === sc.player_faction) {
+        app.gamebar?.enqueueTalkMessage?.({
+          gen: general,
+          talkIndex: 37,
+          generalName: general.name?.trim?.() || "",
+          personalitySelector: 0x199,
+          kind: "extinction-general-return",
+        });
+      }
       continue;
     }
     if (general.idx !== faction.monarch_idx && (general.status ?? 0) !== 0) {
@@ -1596,14 +1694,13 @@ function finalizeFactionExtinction(app, factionIdx) {
       continue;
     }
     // 其余走0x29C3等价的被俘/退场状态；不额外消费RNG。
-    general.status = 4;
-    general.origFaction = factionIdx;
-    general.captive_flag = factionIdx;
-    general.faction = captorFaction === 0x18 ? null : captorFaction;
+    settleCapturedGeneral(app, sc, general, factionIdx, captorFaction);
+    general.captive_flag = general.origFaction ?? 0xff;
   }
-  app.gamebar?.enqueueStrategicMessage?.({
+  app.gamebar?.enqueueTalkMessage?.({
     gen: null,
-    text: `${faction.monarch}的勢力滅亡了。`,
+    talkIndex: 36,
+    targetName: faction.monarch?.trim?.() || "",
     kind: "faction-extinction",
   });
   for (const other of sc.factions) {
@@ -1620,6 +1717,7 @@ function finalizeFactionExtinction(app, factionIdx) {
 }
 
 function retreatCapturedGarrison(
+  app,
   sc,
   city,
   oldFaction,
@@ -1655,7 +1753,7 @@ function retreatCapturedGarrison(
   return {
     retreat: 0,
     fates: defenders.map((legion) =>
-      dispatchLegionFate(sc, legion, captorFaction, rng),
+      dispatchLegionFate(sc, legion, captorFaction, rng, app),
     ),
   };
 }
@@ -1702,20 +1800,47 @@ export function applyBattleResult(
     city.troops = originalExit.cityDamage.troops;
     if (city.sim) city.sim.troops = originalExit.cityDamage.troops;
   } else if (wallRecords) applyTacticalSiegeCityDamage(city, wallRecords);
-  const oldFaction = city.faction;
+  const oldFaction = originalExit?.oldFaction ?? city.faction;
+  const oldCapital =
+    oldFaction == null
+      ? null
+      : sc.factions.find((faction) => faction.idx === oldFaction)?.capital;
   if (winner === "atk") {
+    // 0x4CF3→0x4D63：据点内政官先结束任职并报告，再处理首都/守军/灭亡链。
+    if (city.governor != null) {
+      const governor = sc.generals?.[city.governor];
+      if (governor) {
+        governor.status = 0;
+        app.gamebar?.enqueueTalkMessage?.({
+          gen: governor,
+          talkIndex: 68,
+          cityName: city.name?.trim?.() || "",
+          generalName: governor.name?.trim?.() || "",
+          personalitySelector: 0x1a6,
+          kind: "extinction-governor-return",
+        });
+      }
+      city.governor = null;
+    }
     // 0x4CF3 先交换据点所属，再由0x4DA4为原守方军团求共同撤退路线；
     // 否则刚失陷的城市仍会被误选为“己方最近据点”。
     city.faction = A.faction;
-    updateFactionAfterCityCapture(sc, oldFaction);
+    const replacementCapital = updateFactionAfterCityCapture(sc, oldFaction);
     updateFactionAfterCityCapture(sc, A.faction);
-    const garrison = retreatCapturedGarrison(
-      sc,
-      city,
-      oldFaction,
-      A.faction,
-      strategicRng,
-    );
+    // 0x4DF0：玩家首都失陷但势力尚存时，先以TALK30报告新首都。
+    if (
+      oldFaction === sc.player_faction &&
+      oldCapital === city.idx &&
+      replacementCapital
+    ) {
+      app.gamebar?.enqueueTalkMessage?.({
+        gen: null,
+        talkIndex: 30,
+        cityName: replacementCapital.name?.trim?.() || "",
+        kind: "player-capital-relocated",
+      });
+    }
+    retreatCapturedGarrison(app, sc, city, oldFaction, A.faction, strategicRng);
     // 原版先走0x4DA4处理破城守军组，随后才在无新首都时进入0x4FCE。
     if (oldFaction != null && oldFaction !== A.faction) {
       sc._lastCapturingFaction = A.faction;
@@ -1723,14 +1848,15 @@ export function applyBattleResult(
       delete sc._lastCapturingFaction;
     }
     if (oldFaction === sc.player_faction && oldFaction !== A.faction) {
-      // KI.EXE 0x4F71：玩家据点实际易主时播放 0xCE7 警告音。
+      // KI.EXE 0x4F71：玩家据点实际易主时播放0xCE7警告音并显示TALK26。
       warnSfx();
-      // 无驻军据点失守时另给通用底部提示；有守军时战报已含撤退/去向。
-      if (garrison.retreat === 0 && garrison.fates.length === 0) {
-        app.gamebar?.enqueueStrategicMessage?.({
-          text: `${city.name} 被 ${A.leader} 占領`,
-        });
-      }
+      app.gamebar?.enqueueTalkMessage?.({
+        gen: generalForLegion(sc, A),
+        talkIndex: 26,
+        generalName: A.leader?.trim?.() || "",
+        cityName: city.name?.trim?.() || "",
+        kind: "player-city-fallen",
+      });
     }
     // 0x51B3→0x4CF3：破城只交换归属，保留已扣损的+0x13城兵。
     A.x = city.x;
@@ -1745,9 +1871,6 @@ export function applyBattleResult(
       decreaseRelation(sc, A.faction, oldFaction, 20);
       decreaseRelation(sc, oldFaction, A.faction, 20);
     }
-    app.hud?.flashEvent?.(
-      `${A.leader} 攻破 ${city.name}（餘兵${A.troops}；守軍撤退${garrison.retreat}）`,
-    );
     return;
   }
 
@@ -1758,30 +1881,14 @@ export function applyBattleResult(
   }
   const continues = continueLegionAfterBattle(sc, A, false);
   if (A._retreat) A._retreat.captorFaction = oldFaction ?? 0x18;
-  const fate = continues
-    ? "continue"
-    : dispatchLegionFate(sc, A, oldFaction ?? 0x18, strategicRng);
+  if (!continues)
+    dispatchLegionFate(sc, A, oldFaction ?? 0x18, strategicRng, app);
   if (A._active !== false) A.cooldown = 12;
-  app.hud?.flashEvent?.(
-    `${A.leader} 攻${city.name}失利（餘兵${A.troops}；${fate}）`,
-  );
 }
-
-const WAR_TALKS_AI = [
-  "無法再與貴國維持外交了。要擊潰貴國！",
-  "與你不共戴天！好好覺悟吧。",
-  "很遺憾，只有滅了貴國了．．．好好迎戰吧。",
-];
-
-const WAR_TALKS_PLAYER = [
-  "斷絕與{target}的外交，將軍團派往國境！",
-  "就將{target}擊潰吧。{advisor}啊，立即進兵侵攻！",
-  "已經不能再與{target}共存了．．立即固守國境。",
-];
 
 function warTalkStyle(sc, faction) {
   const monarch = sc.generals?.[faction?.monarch_idx];
-  return Math.max(0, Math.min(2, monarch?.talk_idx ?? 0));
+  return Math.max(0, Math.min(7, monarch?.talk_idx ?? 0));
 }
 
 /** KI.EXE 0x3526：宣战消息按发起者与君主说话类型分池。 */
@@ -1826,13 +1933,12 @@ export function processStrategicWarEvent(app, event) {
       sc.generals?.[aggressor.advisor_idx]?.name?.trim?.() ||
       "軍師";
     const targetName = defender.monarch?.trim?.() || "敵方";
-    const text = WAR_TALKS_PLAYER[warTalkStyle(sc, aggressor)]
-      .replace("{target}", targetName)
-      .replace("{advisor}", advisorName);
-    if (app.gamebar?.enqueueStrategicMessage) {
-      app.gamebar.enqueueStrategicMessage({
+    if (app.gamebar?.enqueueTalkMessage) {
+      app.gamebar.enqueueTalkMessage({
         gen: monarch,
-        text,
+        talkIndex: 486 + warTalkStyle(sc, aggressor),
+        targetName,
+        advisorName,
         kind: "war-declaration",
         onClose: commit,
       });
@@ -1843,14 +1949,15 @@ export function processStrategicWarEvent(app, event) {
     // AI→玩家：0xCE7 后先 AL=0x93/TALK63 通用报告，再由发起君主
     // 显示 CX=415→TALK 478+general[+0x1E]；第二条关闭后才提交敌对状态。
     warnSfx();
-    app.gamebar?.enqueueStrategicMessage?.({
+    app.gamebar?.enqueueTalkMessage?.({
       gen: null,
-      text: `${aggressor.monarch?.trim?.() || "敵方"}對我發出宣戰佈告了。`,
+      talkIndex: 63,
+      targetName: aggressor.monarch?.trim?.() || "敵方",
       kind: "war-declaration-report",
     });
-    app.gamebar?.enqueueStrategicMessage?.({
+    app.gamebar?.enqueueTalkMessage?.({
       gen: monarch,
-      text: WAR_TALKS_AI[warTalkStyle(sc, aggressor)],
+      talkIndex: personalityTalkIndex(0x19f, monarch),
       kind: "war-declaration",
       onClose: commit,
     });
@@ -1876,18 +1983,17 @@ export function completePlayerWarDeclaration(app, targetFaction) {
     sc.generals?.[aggressor.advisor_idx]?.name?.trim?.() ||
     "軍師";
   const targetName = defender.monarch?.trim?.() || "敵方";
-  const text = WAR_TALKS_PLAYER[style]
-    .replace("{target}", targetName)
-    .replace("{advisor}", advisorName);
   const commit = () => {
     if (isAtWar(sc, aggressor.idx, defender.idx)) return;
     // 0x3526 的玩家发起分支不写 AI 专用 faction[+0x19] 战略目标。
     declareWar(sc, aggressor.idx, defender.idx);
   };
-  if (app.gamebar?.enqueueStrategicMessage) {
-    app.gamebar.enqueueStrategicMessage({
+  if (app.gamebar?.enqueueTalkMessage) {
+    app.gamebar.enqueueTalkMessage({
       gen: sc.generals?.[aggressor.monarch_idx] ?? null,
-      text,
+      talkIndex: 486 + style,
+      targetName,
+      advisorName,
       kind: "war-declaration",
       onClose: commit,
     });
@@ -2090,9 +2196,10 @@ export function processMonthlyGeneralFates(app) {
       general.captive_flag = 0xff;
       general.status = 0;
       if (general.faction === sc.player_faction) {
-        app.gamebar?.enqueueStrategicMessage?.({
+        app.gamebar?.enqueueTalkMessage?.({
           gen: general,
-          text: `${general.name}加入麾下了。`,
+          talkIndex: 66,
+          generalName: general.name?.trim?.() || "",
           kind: "general-joined",
         });
       }
@@ -2104,9 +2211,10 @@ export function processMonthlyGeneralFates(app) {
       continue;
     queued.push(event);
     if (general.faction === sc.player_faction) {
-      app.gamebar?.enqueueStrategicMessage?.({
+      app.gamebar?.enqueueTalkMessage?.({
         gen: general,
-        text: `俘虜的${general.name}大人，被召見了。`,
+        talkIndex: 65,
+        generalName: general.name?.trim?.() || "",
         kind: "general-fate-pending",
       });
     }
@@ -2663,9 +2771,14 @@ function dispatchStrategicCapitalEvent(app, event) {
   faction.capital = city.idx;
   retargetLegionsFromCapital(sc, factionIdx, oldCapital, city.idx);
   if (faction.diplomat_idx != null) {
-    app.gamebar?.enqueueStrategicMessage?.({
-      gen: sc.generals?.[faction.diplomat_idx] ?? null,
-      text: `${faction.monarch}軍將主城移至${city.name}。`,
+    const diplomat = sc.generals?.[faction.diplomat_idx] ?? null;
+    app.gamebar?.enqueueTalkMessage?.({
+      gen: diplomat,
+      talkIndex: 57,
+      targetName: faction.monarch?.trim?.() || "",
+      generalName: diplomat?.name?.trim?.() || "",
+      cityName: city.name?.trim?.() || "",
+      personalitySelector: 0x1a4,
       kind: "capital-relocation",
     });
   }
@@ -2689,9 +2802,11 @@ function dispatchGeneralFateEvent(app, event) {
   general.faction =
     origin != null && factionIsActive(sc, origin) ? origin : null;
   if (general.faction === sc.player_faction) {
-    app.gamebar?.enqueueStrategicMessage?.({
+    app.gamebar?.enqueueTalkMessage?.({
       gen: general,
-      text: `被敵軍所擒的${general.name}大人回來了。`,
+      talkIndex: 37,
+      generalName: general.name?.trim?.() || "",
+      personalitySelector: 0x199,
       kind: "general-returned",
     });
   }
@@ -2715,9 +2830,10 @@ function applyDisasterArea(app, baseStrength) {
     city.disaster_event = damage;
     if (damage > 0) changed = true;
     if (damage > 0 && city.faction === sc.player_faction) {
-      app.gamebar?.enqueueStrategicMessage?.({
+      app.gamebar?.enqueueTalkMessage?.({
         gen: null,
-        text: `${city.name}遭受天災。`,
+        talkIndex: 70,
+        cityName: city.name?.trim?.() || "",
         kind: "disaster-area",
       });
     }
@@ -2747,9 +2863,10 @@ function dispatchDisasterObjectEvent(app, event) {
   if (sc.disasterMapObjects.length >= 32) return false;
   sc.disasterMapObjects.push({ kind, x: city.x, y: city.y });
   if (city.faction === sc.player_faction) {
-    app.gamebar?.enqueueStrategicMessage?.({
+    app.gamebar?.enqueueTalkMessage?.({
       gen: null,
-      text: `${city.name}發生${kind === 1 ? "暴動" : "災害"}。`,
+      talkIndex: kind === 1 ? 71 : 72,
+      cityName: city.name?.trim?.() || "",
       kind: "disaster-object",
     });
   }
@@ -2776,14 +2893,21 @@ function dispatchGenericTalkEvent(app, event) {
 function dispatchDeficitTrustEvent(app, event) {
   const sc = app.scenario;
   const talkIndex = Math.max(0, Math.trunc(Number(event?.talkIndex) || 0));
-  sc.trust = Math.max(0, (sc.trust ?? 0) - 50);
-  app.gamebar?.enqueueStrategicMessage?.({
-    gen: null,
-    text: "主公前來了，看來正在盛怒之中啊！！（信賴度-50）",
-    kind: "deficit-trust-penalty",
-    talkIndex,
-  });
-  app.checkTrustGameOver?.();
+  const commit = () => {
+    sc.trust = Math.max(0, (sc.trust ?? 0) - 50);
+    app.checkTrustGameOver?.();
+  };
+  if (app.gamebar?.enqueueStrategicMessage) {
+    app.gamebar.enqueueStrategicMessage({
+      gen: null,
+      text: "主公前來了，看來正在盛怒之中啊！！（信賴度-50）",
+      kind: "deficit-trust-penalty",
+      talkIndex,
+      onClose: commit,
+    });
+  } else {
+    commit();
+  }
   return true;
 }
 
@@ -3185,7 +3309,16 @@ export function aiTick(app, options = {}) {
     (options.runFactionTick === true && tickStrategicWarEvents(app));
   for (const item of tickDelayedLegionReturns(sc, processedSlots)) {
     changed = true;
-    app.hud?.flashEvent?.(`${item.leader} 收攏殘部後返回待命`);
+    if (item.faction === sc.player_faction) {
+      const general = sc.generals?.[item.generalIdx] ?? null;
+      app.gamebar?.enqueueTalkMessage?.({
+        gen: general,
+        talkIndex: 35,
+        generalName: general?.name?.trim?.() || item.leader || "",
+        personalitySelector: 0x198,
+        kind: "postbattle-general-return",
+      });
+    }
   }
   for (const A of sc.legions) {
     if (!shouldProcessLegion(A) || A.dead || A.faction == null) continue;
@@ -3217,6 +3350,7 @@ export function aiTick(app, options = {}) {
           A,
           A._retreat.captorFaction ?? A.faction,
           fateRng,
+          app,
         );
         changed = true;
       } else if (retreatResult === "arrived") {
