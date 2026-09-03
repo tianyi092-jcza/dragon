@@ -197,6 +197,50 @@ assert.ok(bar.listDialog);
 assert.match(notices.at(-1), /撤退中/);
 bar.closeListDialog(true);
 
+// 所有有表头的Canvas列表默认支持双向排序：数字按数值、文字按繁中排序，
+// 占位虚线始终留在末尾；第二次点击同一表头反向，选择保持绑定原row。
+const sortRows = [
+  { cells: ["乙", "10"], id: "b" },
+  { cells: ["甲", "2"], id: "a" },
+  { cells: ["－－", "－－"], id: "placeholder" },
+];
+bar.openListDialog({
+  header: ["武將名", "總兵數"],
+  cols: [
+    { x: 0, w: 80 },
+    { x: 80, w: 80, align: "right" },
+  ],
+  rows: sortRows,
+  w: 160,
+  h: 96,
+  scrollbar: "right",
+});
+const d = bar.listDialog;
+d.px = 100;
+d.py = 100;
+d.titleH = 0;
+d.headerH = 16;
+d.top = 16;
+d.cap = 4;
+d.selectedRow = 0;
+assert.equal(bar.click(190, 108, 0), true);
+assert.deepEqual(
+  d.rows.map((row) => row.id),
+  ["a", "b", "placeholder"],
+);
+assert.equal(d.rows[d.selectedRow].id, "b");
+assert.equal(d.sortColumn, 1);
+assert.equal(d.sortDirection, 1);
+assert.equal(bar.click(190, 108, 0), true);
+assert.deepEqual(
+  d.rows.map((row) => row.id),
+  ["b", "a", "placeholder"],
+);
+assert.equal(d.sortDirection, -1);
+assert.equal(bar.hover(110, 108), true);
+assert.equal(d.headerHover, 0);
+bar.closeListDialog(true);
+
 // 四相过渡与onDay待补日历期间，系统保存入口不可打开。
 app.engageTransition = { active: true };
 bar.settingsOpen = true;
@@ -212,5 +256,5 @@ assert.equal(bar.openSystemSaveDialog(), true);
 assert.ok(bar.systemSaveDialog);
 
 process.stdout.write(
-  "advisor delegation UI OK: fan/right-click/map lock + order guards + save transition guard\n",
+  "advisor delegation UI OK: fan/right-click/map lock + sortable list headers + order/save guards\n",
 );

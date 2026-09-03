@@ -5,6 +5,7 @@
 import {
   createDefaultLegionUnits,
   DEFAULT_LEGION_UNIT_TYPES,
+  generalForLegion,
 } from "./legionunits.js";
 
 const UNIT_COUNT = 6;
@@ -69,16 +70,15 @@ export function createCityGarrison(city, leader = null) {
 export function legionBattleUnits(legion) {
   const source = Array.isArray(legion?.units) ? legion.units : null;
   if (source?.length === UNIT_COUNT) {
-    const units = source.map((unit, index) => ({
+    // KI.EXE 0x5285始终直接读取六队+0x29/+0x2A；+4总兵即使暂时
+    // 不一致也不能反向重建、均分并改写兵种。0x6FD2会另行重算总兵。
+    return source.map((unit, index) => ({
       type: Math.max(
         1,
         Math.min(EMPTY_TYPE, (unit.type ?? DEFAULT_TYPES[index]) | 0),
       ),
       troops: Math.max(0, Math.floor((unit.troops ?? 0) / 10)),
     }));
-    const sum = units.reduce((total, unit) => total + unit.troops, 0);
-    const expected = Math.max(0, legion?.troops | 0);
-    if (sum === expected) return units;
   }
   return createDefaultLegionUnits(legion?.troops ?? 0).map((unit) => ({
     type: unit.type,
@@ -88,12 +88,7 @@ export function legionBattleUnits(legion) {
 
 function generalOf(sc, legion) {
   if (legion?._commanderProfile) return legion._commanderProfile;
-  if (Number.isInteger(legion?.generalIdx)) {
-    return sc?.generals?.[legion.generalIdx] ?? null;
-  }
-  return (
-    sc?.generals?.find((general) => general?.name === legion?.leader) ?? null
-  );
+  return generalForLegion(sc, legion);
 }
 
 function battleRating(general) {
@@ -104,7 +99,12 @@ function battleRating(general) {
 export function selectPrimaryLegion(sc, candidates) {
   let selected = null;
   let best = -1;
-  for (const legion of candidates ?? []) {
+  // 0x4C72从军团表0x2240起按0x40槽序扫描；评分相等时JAe保留低槽。
+  for (const legion of (candidates ?? []).toSorted(
+    (left, right) =>
+      (left?.slot ?? left?._runtimeId ?? 0x7fff) -
+      (right?.slot ?? right?._runtimeId ?? 0x7fff),
+  )) {
     if (!legion || legion.dead || legion.faction == null) continue;
     const troops = Math.max(0, legion.troops | 0) >> 4;
     const morale = Math.max(0, legion.morale ?? 200) >> 4;
@@ -137,15 +137,13 @@ export function commanderPower(sc, legion, mode, basePower, rng) {
   let specialtyValue = general?.ability?.field ?? 0;
   // 0x52D7 的战型参数：mode 0 攻城与临时兵种权重行3分离；
   // 攻守双方武将均读取攻城专长，只有0x5285的攻方兵种行临时切到3。
-  if (mode === 0 || mode === 3)
-    specialtyValue = general?.ability?.siege ?? 0;
+  if (mode === 0 || mode === 3) specialtyValue = general?.ability?.siege ?? 0;
   else if (mode === 2) specialtyValue = general?.ability?.naval ?? 0;
   const specialty = Math.max(0, Math.min(15, specialtyValue));
 
   let command;
   if (force < lead) command = lead * 2 - (lead >> 2);
-  else if ((nextByte(rng) & 3) === 0)
-    command = force + lead - (force >> 2);
+  else if ((nextByte(rng) & 3) === 0) command = force + lead - (force >> 2);
   else command = force * 2;
 
   const modifier = Math.floor((command << 4) / Math.max(1, 16 - specialty));

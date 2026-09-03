@@ -133,6 +133,98 @@ assert.equal(
 );
 assert.notEqual(contactedCity.faction, siegeAttacker.faction);
 
+// 0x2662没有“见到相邻敌军便主动走出据点”的军团级威胁分支。没有
+// +0x14目标的委任守军必须留在城市中心，等待攻方经0x2880进入攻城。
+const fixedDefender = siegeSc.legions.find(
+  (legion) =>
+    legion !== siegeAttacker && legion.faction !== siegeAttacker.faction,
+);
+assert.ok(fixedDefender);
+fixedDefender.faction = contactedCity.faction;
+fixedDefender.x = contactedCity.x;
+fixedDefender.y = contactedCity.y;
+fixedDefender.prevX = contactedCity.x;
+fixedDefender.prevY = contactedCity.y;
+fixedDefender.target = null;
+fixedDefender.targetNode = contactedCity.idx;
+fixedDefender.commandState = null;
+fixedDefender.status = 0x84;
+const fixedPosition = { x: fixedDefender.x, y: fixedDefender.y };
+aiTick({
+  scenario: siegeSc,
+  battleView: { active: false },
+  originalRng: { nextByte: () => 0 },
+  hud: { flashEvent() {} },
+});
+assert.deepEqual(
+  { x: fixedDefender.x, y: fixedDefender.y },
+  fixedPosition,
+  "无目标委任守军不得主动走出据点迎击相邻敌军",
+);
+
+// 攻方下一道路点是驻有敌军的据点中心时，0x2831必须先进入野战接触，
+// 而非跳过接触直接调用0x2880/0x4ADE攻城胜负判定。
+const cityOccupantSc = scenarioWithTestLegions();
+const cityOccupantAttacker = cityOccupantSc.legions[0];
+const cityOccupantDefender = cityOccupantSc.legions.find(
+  (legion) => legion.faction !== cityOccupantAttacker.faction,
+);
+for (let faction = 0; faction < cityOccupantSc.diplomacy.length; faction++) {
+  if (faction === cityOccupantAttacker.faction) continue;
+  cityOccupantSc.diplomacy[cityOccupantAttacker.faction][faction] = 0;
+  cityOccupantSc.diplomacy[faction][cityOccupantAttacker.faction] = 0;
+}
+const cityOccupantCity = cityOccupantSc.cities.find(
+  (city) =>
+    city.faction != null &&
+    city.faction !== cityOccupantAttacker.faction &&
+    findRoadRoute(
+      cityOccupantAttacker.x,
+      cityOccupantAttacker.y,
+      city.x,
+      city.y,
+    )?.points.length > 1,
+);
+assert.ok(cityOccupantCity);
+for (const city of cityOccupantSc.cities) {
+  if (city !== cityOccupantCity) city.faction = cityOccupantAttacker.faction;
+}
+const cityOccupantRoute = findRoadRoute(
+  cityOccupantAttacker.x,
+  cityOccupantAttacker.y,
+  cityOccupantCity.x,
+  cityOccupantCity.y,
+);
+assert.ok(cityOccupantRoute?.points.length);
+cityOccupantDefender.x = cityOccupantCity.x;
+cityOccupantDefender.y = cityOccupantCity.y;
+cityOccupantDefender.prevX = cityOccupantCity.x;
+cityOccupantDefender.prevY = cityOccupantCity.y;
+cityOccupantDefender.target = null;
+cityOccupantAttacker._engagement = null;
+cityOccupantAttacker.engagementCountdown = null;
+cityOccupantAttacker.status &= ~0x20;
+let cityOccupantResult = "moved";
+for (
+  let guard = 0;
+  guard < cityOccupantRoute.points.length + 4 && cityOccupantResult === "moved";
+  guard++
+) {
+  cityOccupantResult = stepTo(
+    cityOccupantSc,
+    cityOccupantAttacker,
+    cityOccupantCity.x,
+    cityOccupantCity.y,
+  );
+}
+assert.equal(cityOccupantResult, "contact");
+assert.equal(
+  cityOccupantAttacker._engagement.kind,
+  "field",
+  "据点中心真实驻军必须由0x2831军团优先检测触发野战",
+);
+assert.equal(cityOccupantAttacker._engagement.countdown, 11);
+
 // 同一tick已有transition gate时，第二场countdown=1必须原样保留。
 siegeAttacker._engagement = {
   kind: "siege",

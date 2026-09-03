@@ -160,7 +160,14 @@ const app = {
         }
       },
       {
-        prepare: () => preloadEngageMarkerImages(() => this.view?.draw?.()),
+        prepare: () =>
+          Promise.all([
+            speaker.preloadEngageSfx(),
+            preloadEngageMarkerImages(() => this.view?.draw?.()),
+          ]),
+        onFrame: () => {
+          void speaker.engageSfx();
+        },
       },
     );
   },

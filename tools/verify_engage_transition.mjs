@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 
 const {
   ENGAGE_TRANSITION_FRAMES,
+  ENGAGE_TRANSITION_FRAME_MS,
   engageTransitionFrame,
   playEngageTransition,
 } = await import("../web/src/game/engagetransition.js");
 
 assert.deepEqual(ENGAGE_TRANSITION_FRAMES, [0, 1, 2, 3]);
+assert.equal(ENGAGE_TRANSITION_FRAME_MS, 550);
 assert.deepEqual(
   [0, 99, 100, 199, 200, 299, 300, 399, 400].map((elapsed) =>
     engageTransitionFrame(elapsed, 100),
@@ -29,6 +31,7 @@ const step = (timestamp) => {
 };
 
 const frames = [];
+const soundFrames = [];
 let finishes = 0;
 let prepared = false;
 let releasePrepare;
@@ -62,6 +65,7 @@ assert.equal(
           resolve();
         };
       }),
+    onFrame: (frame) => soundFrames.push(frame),
   }),
   true,
 );
@@ -91,6 +95,11 @@ assert.equal(finishes, 1);
 assert.equal(app.engageTransition, null);
 assert.equal(app.clock.hold, false);
 assert.deepEqual(frames, [0, 1, 2, 3]);
+assert.deepEqual(
+  soundFrames,
+  [0, 1, 2, 3],
+  "原版ID3音效必须与委任交战四幅动画逐相同步",
+);
 
 // once guard：完成后重复调用旧finish不重复结算。
 assert.equal(
@@ -107,5 +116,5 @@ assert.equal(finishes, 2);
 assert.equal(app.clock.hold, false);
 
 process.stdout.write(
-  "engage transition OK: preload + exact 0,1,2,3 under delayed RAF + once gate\n",
+  "engage transition OK: preload + exact 0,1,2,3 sound sync under delayed RAF + once gate\n",
 );

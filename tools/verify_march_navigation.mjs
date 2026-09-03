@@ -683,10 +683,17 @@ assert.equal(
   "下一战略tick不能重播上一道路步",
 );
 renderView.app.clock.strategicTickSerial = 8;
+const quarterPos = renderView.getLegionRenderPos(renderLegion, 0.25);
+assert.equal(quarterPos.curT, 0.25, "道路单步仅在产生它的战略tick内平滑插值");
 assert.equal(
-  renderView.getLegionRenderPos(renderLegion, 0.25).curT,
-  0.25,
-  "道路单步仅在产生它的战略tick内平滑插值",
+  quarterPos.wxp,
+  (source.x + 0.25) * 16 + 8,
+  "军团标识沿逻辑道路格中心线行走，不叠加tile视觉质心横移",
+);
+assert.equal(
+  quarterPos.wyp,
+  source.y * 16 + 8,
+  "水平道路上的军团标识保持道路逻辑中线",
 );
 
 process.stdout.write(

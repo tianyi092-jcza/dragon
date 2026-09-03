@@ -195,6 +195,81 @@ assert.deepEqual(
   "编成按武力降序选择，不得君主特判",
 );
 
+// 0x4099..0x40AA：正常出击命中候选后把AL从0改为1，再作为DL传给
+// 0x4155；无论敌城驻军多少，每次据点轮询最多只给一支委任军团写目标。
+{
+  const cityRaw = new Uint8Array(0x20);
+  cityRaw[0] = 1;
+  cityRaw[0x1c] = 1;
+  const sortieSc = {
+    player_faction: 9,
+    cities: [
+      {
+        idx: 0,
+        faction: 0,
+        x: 10,
+        y: 10,
+        raw: Buffer.from(cityRaw).toString("hex"),
+      },
+      {
+        idx: 1,
+        faction: 1,
+        x: 20,
+        y: 10,
+        raw: "00".repeat(0x20),
+      },
+    ],
+    factions: [
+      { idx: 0, active: true, target_faction: 1, capital: 0 },
+      { idx: 1, active: true, capital: 1 },
+    ],
+    diplomacy: [
+      [0xff, 0],
+      [0, 0xff],
+    ],
+    legions: [
+      ...Array.from({ length: 3 }, (_, index) => ({
+        slot: index,
+        status: 0xc4,
+        faction: 0,
+        x: 10,
+        y: 10,
+        troops: 600,
+        morale: 200,
+        units: [],
+        commandState: 1,
+        _active: true,
+      })),
+      ...Array.from({ length: 4 }, (_, index) => ({
+        slot: 10 + index,
+        status: 0xc4,
+        faction: 1,
+        x: 20,
+        y: 10,
+        troops: 600,
+        morale: 200,
+        units: [],
+        commandState: 1,
+        _active: true,
+      })),
+    ],
+  };
+  assert.equal(
+    tickStrategicCity(
+      { scenario: sortieSc, originalRng: { nextByte: () => 1 } },
+      0,
+    ),
+    true,
+  );
+  assert.equal(
+    sortieSc.legions.filter(
+      (item) => item.faction === 0 && item.target?.idx === 1,
+    ).length,
+    1,
+    "一次据点轮询只能派一支委任军团，不能按敌城兵力把驻军全部派出",
+  );
+}
+
 process.stdout.write(
-  "strategic city AI OK: border reinforcement formation + TALK38 cooldown + weak-city request\n",
+  "strategic city AI OK: border reinforcement + TALK38 + weak-city request + one-legion sortie\n",
 );

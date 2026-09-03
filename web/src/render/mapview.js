@@ -1,6 +1,5 @@
 // 地图视图 — 相机(拖动平移, 固定100%不可缩放) + 分层绘制(地形/城池/军团/标签)
 import { WORLD, factionColorEx } from "../game/world.js";
-import { roadOffset } from "../game/pathfind.js";
 
 const MARCH_STYLE_COUNT = 24;
 const MARCH_FRAME_STATIONARY = 4;
@@ -79,7 +78,7 @@ function marchFrame(fromX, fromY, toX, toY) {
 
 const CITY_SIZE = 16; // 城池图标整体尺寸
 const CITY_CORE = 12; // 据点中心建筑尺寸（正方形填充区 / 拾取范围）
-const CURSOR_SIZE = 20; // 悬停光标（套住中心建筑/行军图标，比原游戏略大）
+const CURSOR_SIZE = 18; // 游戏光标：较原20px圆角方框缩小2px
 const CURSOR_RADIUS = 3;
 
 // 據點图标 (用户从原版提取): 我方=红心 / 其它势力=蓝 / 空城=土黄
@@ -168,7 +167,7 @@ export class MapView {
     return [pos.wxp, pos.wyp];
   }
 
-  /** 获取军团插值渲染位置 (支持 lerp 平滑移动与道路中线吸附) */
+  /** 获取军团插值渲染位置 (支持 lerp 平滑移动) */
   getLegionRenderPos(L, t = 1) {
     const fromX = L.prevX ?? L.x;
     const fromY = L.prevY ?? L.y;
@@ -191,15 +190,11 @@ export class MapView {
     const gx = fromX + (toX - fromX) * curT;
     const gy = fromY + (toY - fromY) * curT;
 
-    // 2. 道路偏移量插值 (沿道路中心线滑动)
-    const [ox0, oy0] = roadOffset(fromX, fromY);
-    const [ox1, oy1] = roadOffset(toX, toY);
-    const ox = ox0 * (1 - curT) + ox1 * curT;
-    const oy = oy0 * (1 - curT) + oy1 * curT;
-
-    // 3. 世界像素坐标
-    const wxp = gx * 16 + 8 + ox;
-    const wyp = gy * 16 + 8 + oy;
+    // 2. 世界像素坐标。KI.EXE军团标识使用逻辑道路坐标，不叠加地图
+    // tile图案的视觉质心。road_offset曾令虚线和标识整体偏向道路一侧，
+    // 且弯道路段逐格摆动；现在固定沿16×16逻辑格中心线插值。
+    const wxp = gx * 16 + 8;
+    const wyp = gy * 16 + 8;
 
     let frame = MARCH_FRAME_STATIONARY;
     if (isMoving) {
@@ -230,6 +225,7 @@ export class MapView {
           !L.dead &&
           L._active !== false &&
           L.faction != null &&
+          L.faction === city.faction &&
           !this.isMarching(L) &&
           L.x === city.x &&
           L.y === city.y,
@@ -296,7 +292,7 @@ export class MapView {
     if (img) ctx.drawImage(img, Math.round(x) - 24, Math.round(y) - 24);
   }
 
-  /** 绘制悬停光标：1px 白色方框 + 1px 右下黑色投影（复刻原版） */
+  /** 绘制Canvas游戏光标：1px白色圆角框 + 1px右下黑色投影。 */
   _drawHoverCursor(ctx, x, y) {
     const hs = CURSOR_SIZE / 2;
     ctx.save();
@@ -399,7 +395,9 @@ export class MapView {
       if (L.dead || L._active === false || L.faction == null) continue;
       const isGarrison =
         !this.isMarching(L) &&
-        sc.cities.some((c) => c.x === L.x && c.y === L.y);
+        sc.cities.some(
+          (c) => c.x === L.x && c.y === L.y && c.faction === L.faction,
+        );
       if (isGarrison) continue; // 已在城池方块中表现
 
       const renderPos = this.getLegionRenderPos(L, t);
@@ -434,7 +432,7 @@ export class MapView {
       }
     }
 
-    // 选中据点光标（正方形边框显示在据点中心上，右键关闭信息弹窗时消失）
+    // 已点击选中的据点保留中心选中框；右键关闭信息弹窗时消失。
     const selCity = this.selectedCity;
     if (selCity) {
       const [wxp, wyp] = this.cityPixel(selCity);
@@ -443,23 +441,8 @@ export class MapView {
       this._drawHoverCursor(ctx, cx, cy);
     }
 
-    // 悬停光标（对空城中心建筑和行军军团显示；与已选中据点重合时不重复绘制）
-    if (this.hoverTarget) {
-      let cx, cy;
-      if (this.hoverTarget.type === "city") {
-        if (this.hoverTarget.city !== selCity) {
-          const [wxp, wyp] = this.cityPixel(this.hoverTarget.city);
-          cx = this.sx(wxp);
-          cy = this.sy(wyp);
-          this._drawHoverCursor(ctx, cx, cy);
-        }
-      } else {
-        const renderPos = this.getLegionRenderPos(this.hoverTarget.legion, t);
-        cx = renderPos.sx;
-        cy = renderPos.sy;
-        this._drawHoverCursor(ctx, cx, cy);
-      }
-    }
+    // 悬停据点/军团时只保留鼠标位置的游戏光标；不再在对象中心额外
+    // 绘制同款方框，避免两个圆角正方形重叠或并排出现。
 
     // UI 覆盖层 (工具栏/小地图/资源面板 — GameBar)
     this.overlay?.(ctx);

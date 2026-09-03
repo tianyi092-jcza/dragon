@@ -12,6 +12,7 @@ import {
   createOriginalBattleSideTemp,
 } from "./battle/originalinit.js";
 import { legionBattleUnits } from "./autobattle.js";
+import { generalForLegion } from "./legionunits.js";
 import {
   broadcastOriginalGroupCommand,
   startOriginalFormation,
@@ -34,10 +35,7 @@ export { FIELD, TACTICAL_UNIT_TYPES };
 export const ORIGINAL_TACTICAL_FPS = 60;
 
 function generalOf(sc, legion) {
-  return sc.generals.find(
-    (general) =>
-      general?.name === legion?.leader || general?.idx === legion?.leader,
-  );
+  return generalForLegion(sc, legion);
 }
 
 function originalGroups(legion) {

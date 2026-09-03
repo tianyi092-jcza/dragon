@@ -31,9 +31,7 @@ globalThis.fetch = async (url) => {
 const { aiTick, resolveBattle, resolveFieldBattle } = await import(
   "../web/src/game/ai.js"
 );
-const { setLegionDelegated } = await import(
-  "../web/src/game/legionmode.js"
-);
+const { setLegionDelegated } = await import("../web/src/game/legionmode.js");
 const { resolveStrategicBattle } = await import(
   "../web/src/game/autobattle.js"
 );
@@ -43,9 +41,8 @@ const { OriginalBattleRng } = await import(
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
 await loadTerrain();
 
-const units = () =>
-  [1, 1, 3, 3, 2, 2].map((type) => ({ type, troops: 1000 }));
-const general = (idx, name, faction) => ({
+const units = () => [1, 1, 3, 3, 2, 2].map((type) => ({ type, troops: 1000 }));
+const general = (idx, name, faction, ability = null) => ({
   idx,
   name,
   faction,
@@ -53,7 +50,7 @@ const general = (idx, name, faction) => ({
   active: true,
   attr: 0x80,
   battle_rating: 0,
-  ability: { force: 80, lead: 70, field: 4, siege: 4, naval: 0 },
+  ability: ability ?? { force: 15, lead: 11, field: 4, siege: 4, naval: 0 },
 });
 const legion = (leader, faction, x, y) => ({
   leader,
@@ -70,9 +67,36 @@ const legion = (leader, faction, x, y) => ({
 });
 const makeScenario = (cityFaction = 1) => {
   const cities = [
-    { idx: 0, name: "甲城", faction: 0, x: 257, y: 9, troops: 120, growth: 150, defence: 140 },
-    { idx: 1, name: "乙城", faction: cityFaction, x: 255, y: 9, troops: 120, growth: 150, defence: 140 },
-    { idx: 2, name: "退路", faction: 1, x: 246, y: 15, troops: 120, growth: 150, defence: 140 },
+    {
+      idx: 0,
+      name: "甲城",
+      faction: 0,
+      x: 257,
+      y: 9,
+      troops: 120,
+      growth: 150,
+      defence: 140,
+    },
+    {
+      idx: 1,
+      name: "乙城",
+      faction: cityFaction,
+      x: 255,
+      y: 9,
+      troops: 120,
+      growth: 150,
+      defence: 140,
+    },
+    {
+      idx: 2,
+      name: "退路",
+      faction: 1,
+      x: 246,
+      y: 15,
+      troops: 120,
+      growth: 150,
+      defence: 140,
+    },
   ];
   return {
     player_faction: 0,
@@ -92,7 +116,10 @@ const makeScenario = (cityFaction = 1) => {
     },
   };
 };
-const makeApp = (scenario, rng = new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 })) => {
+const makeApp = (
+  scenario,
+  rng = new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 }),
+) => {
   let tactical = null;
   return {
     scenario,
@@ -130,6 +157,67 @@ const assertSide = (actual, expected, label) => {
   );
 };
 
+// 第一章用户实测型攻城：吕布六满队攻击程昱六满队、城兵89；按
+// 0x5285/0x52D7所有RNG分支均应守方胜，锁住委任胜负算法而非概率近似。
+{
+  const sc = makeScenario(0);
+  sc.generals = [
+    general(0, "呂布", 1, {
+      force: 15,
+      lead: 11,
+      field: 10,
+      siege: 4,
+      naval: 0,
+    }),
+    general(1, "程昱", 0, {
+      force: 3,
+      lead: 12,
+      field: 4,
+      siege: 10,
+      naval: 0,
+    }),
+  ];
+  const city = sc.cities[1];
+  city.faction = 0;
+  city.troops = 89;
+  const A = legion("呂布", 1, 255, 9);
+  A.generalIdx = 0;
+  A.slot = 0;
+  A.status = 0xc4;
+  const D = legion("程昱", 0, city.x, city.y);
+  D.generalIdx = 1;
+  D.slot = 1;
+  D.status = 0xc4;
+  sc.legions = [A, D];
+  for (let branch = 0; branch < 4; branch++) {
+    const bytes = [branch, ...Array(12).fill(0)];
+    let cursor = 0;
+    const result = resolveStrategicBattle(
+      sc,
+      structuredClone(A),
+      structuredClone(D),
+      {
+        mode: 0,
+        cityDefence: city.troops,
+        rng: { nextByte: () => bytes[cursor++] ?? 0 },
+      },
+    );
+    assert.equal(result.winner, "def");
+    assert.ok(result.defScore > result.atkScore);
+  }
+  // 也必须经过真实resolveBattle入口：选中程昱为主守军、调用0x5130速算，
+  // 而不是仅孤立验证公式或退化为0x4F8A临时城防。
+  let battleCursor = 0;
+  const app = makeApp(sc, {
+    nextByte: () => [0, ...Array(12).fill(0)][battleCursor++] ?? 0,
+  });
+  assert.equal(resolveBattle(app, A, city), false);
+  assert.equal(app.tactical(), null);
+  assert.equal(city.faction, 0, "程昱守城胜后据点不得易主");
+  assert.ok(D.troops < 600, "真实主守军必须收到0x5130六队战果回写");
+  assert.notEqual(A.commandState, 8, "败退攻方不得被误写成守城胜军");
+}
+
 // 玩家攻方：status bit2决定战术/速算；无真实守军一律速算。
 {
   const sc = makeScenario(1);
@@ -158,7 +246,9 @@ const assertSide = (actual, expected, label) => {
   const synthetic = {
     leader: null,
     generalIdx: 0x7f,
-    _commanderProfile: { ability: { force: 8, lead: 8, siege: 0, field: 0, naval: 0 } },
+    _commanderProfile: {
+      ability: { force: 8, lead: 8, siege: 0, field: 0, naval: 0 },
+    },
     faction: 0x18,
     troops: sc.cities[1].troops,
     morale: 0xff,
@@ -169,8 +259,15 @@ const assertSide = (actual, expected, label) => {
   assert.equal(resolveBattle(app, A, sc.cities[1]), false);
   assert.equal(app.tactical(), null);
   assertSide(A, expected.attack, "neutral siege attacker");
-  assert.equal(sc.cities[1].faction, 0, "neutral city uses synthetic garrison and changes owner on victory");
-  assert.ok(sc.cities[1].troops > 0, "captured neutral city preserves 0x51B3 city troops");
+  assert.equal(
+    sc.cities[1].faction,
+    0,
+    "neutral city uses synthetic garrison and changes owner on victory",
+  );
+  assert.ok(
+    sc.cities[1].troops > 0,
+    "captured neutral city preserves 0x51B3 city troops",
+  );
 }
 
 // 玩家真实主守军：委任走速算，未委任才进入战术层。

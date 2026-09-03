@@ -1615,6 +1615,7 @@ export class HUD {
           !(isMe && g.is_player),
       ).length;
       return {
+        _faction: f,
         cells: [
           m ? m.name.trim() : `?`,
           `${genCount}`,
@@ -1645,7 +1646,7 @@ export class HUD {
         portrait: "message_npc",
       },
       onPick: (ri) => {
-        const target = sc.factions[ri];
+        const target = rows[ri]?._faction;
         if (!target) return;
         this.app.gamebar.closeListDialog();
         const cap = target.capital == null ? null : sc.cities[target.capital];

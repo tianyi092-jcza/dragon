@@ -171,6 +171,7 @@ export function dispatch(sc, fromCity, targetCity) {
   if (fromCity.sim) fromCity.sim.troops -= avail;
   const legion = {
     leader: gen.name,
+    generalIdx: gen.idx,
     faction: f.idx,
     x: fromCity.x,
     y: fromCity.y,

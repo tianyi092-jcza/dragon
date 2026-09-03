@@ -7,8 +7,7 @@ export const LEGION_SLOT_COUNT = 128;
 const UNIT_COUNT = DEFAULT_LEGION_UNIT_TYPES.length;
 const MAX_UNIT_TROOPS = 1000;
 const SAVE_TROOP_SCALE = 10;
-const MAX_LEGION_STRENGTH =
-  (UNIT_COUNT * MAX_UNIT_TROOPS) / SAVE_TROOP_SCALE;
+const MAX_LEGION_STRENGTH = (UNIT_COUNT * MAX_UNIT_TROOPS) / SAVE_TROOP_SCALE;
 
 /**
  * 将 Web 战略总兵（十人为一单位）展开成六队 Web 人数。
@@ -51,6 +50,29 @@ export function claimLegionSlot(legions, preferred = null, exclude = null) {
   return null;
 }
 
+/**
+ * 军团主将权威关联。新Web军团以generalIdx保存武将索引；leader仅供显示。
+ * 旧Web快照若只有显示名，必须先按去空白姓名恢复；军团slot不是主将索引。
+ */
+export function generalForLegion(scenario, legion) {
+  if (!scenario || !legion) return null;
+  const generals = scenario.generals ?? [];
+  for (const index of [legion.generalIdx, legion.leader]) {
+    if (Number.isInteger(index) && generals[index]) return generals[index];
+  }
+  const leaderName =
+    typeof legion.leader === "string" ? legion.leader.trim() : "";
+  if (!leaderName) return null;
+  return (
+    generals.find(
+      (general) =>
+        general &&
+        typeof general.name === "string" &&
+        general.name.trim() === leaderName,
+    ) ?? null
+  );
+}
+
 export function ensureLegionSlot(legions, legion, preferred = null) {
   if (
     Number.isInteger(legion?.slot) &&
@@ -58,7 +80,9 @@ export function ensureLegionSlot(legions, legion, preferred = null) {
     legion.slot < LEGION_SLOT_COUNT &&
     !(legions ?? []).some(
       (candidate) =>
-        candidate !== legion && !candidate.dead && candidate.slot === legion.slot,
+        candidate !== legion &&
+        !candidate.dead &&
+        candidate.slot === legion.slot,
     )
   )
     return legion.slot;

@@ -5,12 +5,19 @@
 //   0xCE7 = ax 0x202 → 两声(警告: 出陣条件不足/天灾提示等)
 //   0x2F5(AL=3) = int 61h AH=5, AL=3 → 接敌/攻城等待阶段的 YNSOUND ID 3
 // YNSOUND硬件链已实锤为SB Pro双OPL2端口(220/221左、222/223右、224/225 mixer)。
-// 当前Web仍是明确标注的表现近似；在双YM3812寄存器序列产品化前不得称原音色复刻。
+// ID3由SOUND.DAT记录3驱动channel 6，3个INT1Ch tick后续接记录13，再过7 tick静音。
+// grf/sfx/ynsound-id3.wav是按该寄存器链离线渲染并经用户听感确认的原音色样本。
+
+const ENGAGE_SFX_URL = new URL(
+	"../../grf/sfx/ynsound-id3.wav",
+	import.meta.url,
+);
 
 let actx;
 let muted = false;
 let soundType = 1;
-let engageBusyUntil = 0;
+let engageBuffer = null;
+let engageBufferPromise = null;
 
 export const SOUND_PROFILES = [
 	{ frequency: 950, gain: 0.12, wave: "square" },
@@ -69,33 +76,45 @@ function tone(freqMs, gapMs) {
 	}
 }
 
-/** YNSOUND ID 3：战略地图接敌/攻城等待阶段每轮播放。 */
-export function engageSfx() {
-	if (muted) return;
+async function loadEngageBuffer() {
+	if (engageBuffer) return engageBuffer;
 	try {
 		actx ??= new (
 			window.AudioContext || /** @type {any} */ (window).webkitAudioContext
 		)();
-		if (actx.state === "suspended") actx.resume();
-		if (actx.currentTime < engageBusyUntil) return;
-		const profile = SOUND_PROFILES[soundType - 1] ?? SOUND_PROFILES[0];
-		const t0 = actx.currentTime;
-		engageBusyUntil = t0 + 0.11;
-		const osc = actx.createOscillator();
-		const gain = actx.createGain();
-		osc.type = profile.wave;
-		osc.frequency.setValueAtTime(profile.frequency * 0.72, t0);
-		osc.frequency.exponentialRampToValueAtTime(
-			Math.max(80, profile.frequency * 0.38),
-			t0 + 0.09,
-		);
-		gain.gain.setValueAtTime(profile.gain * 0.75, t0);
-		gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.11);
-		osc.connect(gain).connect(actx.destination);
-		osc.start(t0);
-		osc.stop(t0 + 0.11);
+		engageBufferPromise ??= fetch(ENGAGE_SFX_URL)
+			.then((response) => {
+				if (!response.ok) throw new Error(`engage SFX ${response.status}`);
+				return response.arrayBuffer();
+			})
+			.then((bytes) => actx.decodeAudioData(bytes));
+		engageBuffer = await engageBufferPromise;
+		return engageBuffer;
 	} catch {
-		/* 无音频环境静默 */
+		engageBufferPromise = null;
+		return null;
+	}
+}
+
+/** 预载YNSOUND ID3样本；首次用户手势后调用可避免交战时网络延迟。 */
+export function preloadEngageSfx() {
+	return loadEngageBuffer();
+}
+
+/** YNSOUND ID 3：播放一次原版channel 6双阶段包络样本。 */
+export async function engageSfx() {
+	if (muted) return false;
+	const buffer = await loadEngageBuffer();
+	if (!buffer || muted || !actx) return false;
+	try {
+		if (actx.state === "suspended") await actx.resume();
+		const source = actx.createBufferSource();
+		source.buffer = buffer;
+		source.connect(actx.destination);
+		source.start();
+		return true;
+	} catch {
+		return false;
 	}
 }
 

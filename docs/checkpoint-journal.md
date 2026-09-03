@@ -1,120 +1,134 @@
 # 臥龍傳 Web · Checkpoint Journal
 
-> 本文只记录最近一轮会话的详细进展、调试过程、失败尝试、相关文件、当前阻塞和下一步。
-> 长期项目事实、架构、命令和约定见 `../AGENTS.md`；稳定逆向证据与公式见 `re-notes-*.md` 和 `E:/Dragon/.agents/skills/`。
+> 本文只记录当前一轮未提交工作的详细进展、调试过程、失败尝试、相关文件、阻塞和下一步。
+> 长期事实、架构、命令和约定见 `../AGENTS.md`；稳定逆向证据见 `re-notes-*.md` 和 `E:/Dragon/.agents/skills/`。
 
-## 1. 本轮目标与结果
+## 1. 本轮目标与当前结论
 
-- 目标：完整审计主动/被动战略消息生产者，必要时继续反汇编；统一消息生命周期、状态提交边界和TALK数据驱动。
-- 结果：任务完成并提交为：
+本轮主线是复核并修正委任模式完整战斗链，起因是第一章曹操—吕布战局中：
 
-```text
-b88b703 feat: complete strategic message fifo audit
-```
+- 程昱、曹仁等强守军会主动离开据点；
+- 吕布、张辽错误攻下本应守住的城市；
+- 战后双方军团可能停成据点两侧圆点；
+- 占城后可能同轮派出多支军团；
+- 接战动画有时没有原版音效。
 
-- 当前分支：`main`领先`origin/main`一个提交；工作区干净。
-- 用户更新的 `web/grf/ui/loginbg.jpg` 已纳入该提交。
+已确认主因不是`0x5130`胜负公式，而是Web自创的军团级`scanThreat()`令无目标委任守军主动出城，破坏了原版接敌/攻城入口与真实守军选择。相关规则、状态和输入偏差现已修正，并补充回归。当前改动尚未提交。
 
-## 2. 主要实现
+## 2. 逆向与实现进展
 
-### 2.1 统一消息基础设施
+### 2.1 委任战斗入口与胜负
 
+- 重新审计 `0x4E5C/0x4ED7 → 0x5130 → 0x5285 → 0x52D7 → 0x51B3`。
+- 用第一章实际样本机械代入：
+  - 吕布攻程昱守陈留：攻方约`740/984`，守方约`2317`；
+  - 张辽攻曹仁守谯：攻方约`813`，守方约`996/1078`。
+- 所有相关RNG分支均应守方胜，证明公式主体没有导致当前错误失城。
+- `ai.js`删除无原版依据的通用`scanThreat()`出城分支；无目标军团现在驻止，目标只由据点AI或`0x4325`状态机写入。
+- 入口顺序补充确认：`0x2736`先调用`0x2831`军团接敌，再调用`0x2880`据点攻城。据点中心存在敌军团时先进入军团接敌链，不应绕过真实守军。
+
+### 2.2 速算输入与军团身份
+
+- `autobattle.js`现在始终读取完整六队原值；`legion.troops`与六队和暂时不一致时，不再均分重建默认六队或替换兵种。
+- `selectPrimaryLegion()`按原版军团槽顺序比较；评分相等时保留低槽。
+- `generalForLegion()`以`generalIdx`和旧数字/姓名leader恢复主将，不再把运行期军团slot误当武将索引。
+- 编成、战略速算、战术初始化、战场投影和战后命运统一使用主将解析逻辑。
+
+### 2.3 撤退、战后与AI调度
+
+- 重新闭合 `0x487B/0x491B/0x48E5..0x4901`：非己城市增加高代价但仍参与搜索；即时第一跳必须属己；当前位于已失陷据点节点时沿返回第一边取得下一据点。
+- 修复陈留节点74失陷后经边105撤向许昌节点82，不再原地清退。
+- 地图驻军识别要求军团与据点同势力且位于中心，避免易主中间态误吞敌军。
+- 重查 `0x474A → 0x4483 → 0x405D..0x40AA`：占城胜军先进入状态8休整；一次据点轮询最多调动一支合格委任军团，不按敌城驻军数同时派多军。
+- 战后双方坐标、目标、接敌状态和武将去向的focused regression已增强。
+
+### 2.4 接战音效与战略地图表现
+
+- 从YNSOUND链确认ID3：`SOUND.DAT`记录3驱动左YM3812 channel 6，3个INT1Ch tick后接记录13，再过7 tick静音。
+- 正式资源：`web/grf/sfx/ynsound-id3.wav`。委任四相动画逐相播放；预载函数现在返回并等待解码完成，避免首次接战异步静音。
+- 移除战略军团渲染对`road_offset.json`视觉质心的叠加；军团沿16×16逻辑道路格中心插值。
+- 游戏光标缩为18px；hover据点/军团不再额外画重复方框，已选据点持续选中框仍保留。
+
+### 2.5 Canvas列表排序
+
+- `gamebar.js`所有带表头Canvas列表支持双向排序：首次升序、再次降序，切换列从升序开始。
+- 数字按数值比较，文字使用`zh-Hant`，占位虚线固定末尾；表头显示箭头和hover反馈。
+- 排序保持选中/hover行对象身份，不依赖原数组下标。
+- `HUD.showFactions()`改为通过`row._faction`绑定势力，修复排序后点击错位。
+
+## 3. 主要相关文件
+
+### 规则与实现
+
+- `web/src/game/ai.js`
+- `web/src/game/autobattle.js`
+- `web/src/game/legionunits.js`
+- `web/src/game/roadgraph.js`
+- `web/src/game/engagetransition.js`
+- `web/src/game/battle/battleprojection.js`
+- `web/src/game/commands.js`
+- `web/src/game/tacticalbattle.js`
+- `web/src/core/speaker.js`
+- `web/src/main.js`
+- `web/src/render/mapview.js`
 - `web/src/ui/gamebar.js`
-  - 战略规则消息统一进入FIFO；全链保持 `clock.hold`。
-  - NPC/武将消息统一3秒自动关闭或右键立即关闭。
-  - `onClose`使用once与`try/finally`，避免右键和旧timer重复提交或异常卡死FIFO。
-  - timer绑定当前卡片，旧timer不能关闭后继消息。
-  - 高优先级模态和战术层期间不出队，关闭后恢复drain。
-  - 加入scenario UI generation守卫，返回标题/reset时等待头像/TALK的旧消息不能复活。
-  - 新增 `enqueueTalkMessage()`；通用TALK与个性段作为相邻FIFO条目。
-- `web/src/game/talk.js`
-  - 复刻 `0x075B`：`0x196 + (selector-0x196)*8 + general[+0x1E]`。
-  - 占位符支持同类多参数顺序消费，用于TALK29等多武将文本。
+- `web/src/ui/hud.js`
 
-### 2.2 提交边界修复
+### 资源、测试与文档
 
-- 玩家停战/请援使者、入站外交、主动宣战：最终结果/君主对白关闭后才提交外交、资金和战略目标。
-- 玩家迁都与君主亲征：成功状态推迟到最终君主对白关闭；失败、已出阵TALK64也补足暂停/关闭边界测试。
-- type13严重赤字：TALK51关闭后才扣信赖50并检查Game Over。
-- type4/type5预算：修复结果阶段右键会再次执行拒绝的问题。
+- `web/grf/sfx/ynsound-id3.wav`
+- `tools/verify_autobattle.mjs`
+- `tools/verify_delegated_autobattle.mjs`
+- `tools/verify_engagement_state.mjs`
+- `tools/verify_postbattle_fate.mjs`
+- `tools/verify_strategic_city_ai.mjs`
+- `tools/verify_engage_transition.mjs`
+- `tools/verify_engage_sfx_asset.mjs`
+- `tools/verify_march_navigation.mjs`
+- `tools/verify_advisor_delegation_ui.mjs`
+- `docs/re-notes-march-pathfinding.md`
+- `E:/Dragon/.agents/skills/re-battle-command/SKILL.md`
+- `E:/Dragon/.agents/skills/re-march-engagement/SKILL.md`
+- `E:/Dragon/.agents/skills/re-ui-advisor-menu/SKILL.md`
 
-### 2.3 TALK与战略事件覆盖
+## 4. 调试过程与失败尝试
 
-- 战斗与战后：TALK26..37、67；包括战前TALK27/28/29、据点失陷TALK26、新首都TALK30、溃散/被俘/回归和个性段。
-- 灭亡链：内政官TALK68→0x1A6、守军命运、外交官TALK69→0x1A7、逐将TALK34/37/67及个性段、最终TALK36。
-- 外交与内政：TALK38、41、51、56/57、63、65/66、70/71/72、type10 SAVE通用TALK。
-- 宣战链改为真实TALK：
-  - AI→玩家：TALK63→选择器0x19F（TALK478..485）。
-  - 玩家发起：选择器0x1A0（TALK486..493）。
-  - 最终君主段关闭后提交战争状态。
-- 战略战果自拟 `hud.flashEvent()` 摘要已移除；AI/委任速算无原版消息的路径保持静默。
+- 初期只核对战略速算公式，测试均通过，但真实玩法仍错误。读取运行态后发现程昱、曹仁已离开城市中心，说明关键是输入和状态机而不是公式。
+- 两个“据点两侧圆点”不是对象被删除，而是军团仍活动、`target=null`、`_engagement=null`并停在中心相邻格；这直接指向Web主动出城分支。
+- 一次并行公式审计子任务超时，没有可用产物；后续由主流程直接逐指令复核。
+- `generalForLegion()`曾兼容“slot即武将索引”，会让旧Web快照在slot修复后绑定错误主将；现已删除该假设。
+- 交战声音资源可正常加载，但首次流程仍可能无声；定位为过渡只等待图像、不等待音频解码，现已让`prepare`同时等待两者。
+- 地图标识偏左最初怀疑道路数据，最终确认是渲染层额外使用tile颜色质心；逻辑道路坐标本身无误。
+- 部分验证脚本被pi-lens自动格式化，产生与功能无关的换行diff；提交前需继续检查并定点恢复噪声，不能整体reset。
+- TypeScript LSP曾对`legionunits.js`报告文件尾伪语法错误，而Node解析和复制后的同内容文件正常；重写文件后恢复。仍应以最终LSP结果为准。
 
-### 2.4 战斗开场与失城
+## 5. 验证状态
 
-- 重反汇编 `0x4E5C..0x4F89`：
-  - 玩家非委任野战TALK29关闭后才进入战术层。
-  - 玩家攻/守有真实守军据点时，TALK28/27关闭后才进入战术层。
-  - 无真实守军或委任军团直接战略速算，无TALK27/28。
-  - 玩家据点实际易主统一TALK26。
-  - 玩家首都失陷且找到替代首都时，FIFO顺序为TALK30→TALK26。
+已完成：
 
-## 3. 逆向勘误与证据回流
+- 委任攻城、接敌状态、撤退、战后命运、据点AI、接战动画/音效、道路插值和列表排序的focused regression。
+- 本轮中曾运行全部78个`verify_*.mjs`与4个`verify_*.py`，均通过；`verify_battle_viewport.js`和`verify_clock_pause.js`通过。
+- 相关变更文件Node语法、LSP、`lens_diagnostics mode=all`和`git diff --check`曾分别通过。
 
-- 重查 `0x291A..0x2AD1`、`0x4CF3..0x511F`、`0x3526`、`0x40C9`、`0x4E5C..0x4F89`。
-- 确认 `0x50B4` 只有军团/武将状态清理，无TALK路径。
-- TALK68条件是旧城非中立且有governor；`0x4D63`内部无玩家门控。
-- `0x5074`外交官返回TALK69同样无玩家门控；新增AI对AI灭亡动态测试。
-- 勘误TALK57/69：外交预算与AI迁都报告使用TALK57；TALK69只属于灭亡势力外交官返回链。
-- 稳定结论已更新：
-  - `docs/re-notes-kernel.md`
-  - `docs/message-system-audit.md`
-  - `E:/Dragon/.agents/skills/re-domestic-diplomacy/SKILL.md`
-  - `E:/Dragon/.agents/skills/re-post-battle/SKILL.md`
+注意：此后又加入了列表排序、HUD绑定和文档整理，提交前必须重新执行一次完整验证；不能沿用旧结果作为最终证据。
 
-## 4. 新增或重点增强的测试
+## 6. 当前阻塞与风险
 
-- `tools/verify_strategic_message_fifo.mjs`
-- `tools/verify_negotiation_message_commit.mjs`
-- `tools/verify_personality_talk_selector.mjs`
-- `tools/verify_budget_message_ui.mjs`
-- `tools/verify_type10_message_fifo.mjs`
-- `tools/verify_recruits_message.mjs`
-- `tools/verify_extinction_message_fifo.mjs`
-- `tools/verify_battle_opening_messages.mjs`
-- `tools/verify_war_message_fifo.mjs`
-- `tools/verify_advice_commit_boundary.mjs`
-- 同步增强外交、边城AI、战后命运、围城、灾害和灭亡测试。
+- 无外部硬阻塞；DOSBox-X原版现场已关闭，若要做新的动态断点复核需重建战局。
+- 最大剩余风险是浏览器真实流程尚未在本轮最终代码上完整复跑：需确认程昱/曹仁留在据点、正确守城、战后无圆点残留、四相音效可听、列表排序点击目标正确。
+- 工作区包含约30个功能/测试/文档/资源修改，尚未提交；其中可能仍有自动格式化噪声。
+- 当前HEAD：`acd28e8 docs: refresh project memory and journal`，与`origin/main`一致。
 
-## 5. 调试过程与失败尝试
+## 7. 下一步
 
-- `tools/verify_save_legions.py` 多次被pi-lens自动格式化，形成与功能无关的print换行diff；最终用定点 `git checkout -- tools/verify_save_legions.py` 恢复。
-- TALK生产入口从 `enqueueStrategicMessage`迁到 `enqueueTalkMessage` 后，多个旧测试mock未实现新方法，导致消息数组为空或canonical外交日期断言失败；逐个补兼容mock后恢复。
-- 新宣战FIFO测试最初把字符串行当token对象读取，得到空文本；修正测试帮助函数以兼容string/token两种行结构。
-- AI对AI灭亡测试最初复用了已被前一fixture修改为dead/handled的对象，导致只见TALK68；改为重建势力状态并确保目标是最后据点后，确认TALK68→69。
-- 战后测试曾出现TypeScript LSP行尾伪诊断，Node `--check`与执行均通过；重写文件后不再影响最终诊断。
-- 全量suite中先后暴露 `verify_diplomacy_all_scenarios.mjs`、`verify_envoy_budget.mjs`旧mock只监听硬编码消息入口；补 `enqueueTalkMessage` 后通过。
-
-## 6. 验证结果
-
-提交前后均完成：
-
-- 所有 `tools/verify_*.mjs` 通过。
-- 所有 `tools/verify_*.py` 通过。
-- `tools/verify_battle_viewport.js`、`tools/verify_clock_pause.js` 通过。
-- 变更文件LSP：0 diagnostics。
-- `lens_diagnostics mode=all`：无问题。
-- `git diff --check`：通过，仅有工作树换行提示。
-- fresh Playwright标题冒烟正常；仅 `favicon.ico` 404，非业务错误。
-
-## 7. 当前阻塞与下一步
-
-### 当前阻塞
-
-- 无已知阻塞性的AI、玩法或消息系统缺口。
-
-### 下一步（均为非阻塞增强）
-
-1. 推送本地提交 `b88b703`（仅在用户明确要求时）。
-2. 按 `docs/dosbox-original-battle-capture.md` 建立DOSBox-X逐帧捕获fixture，与 `originaldiff.js` 做独立差分。
-3. 继续验证YNSOUND双YM3812寄存器序列和可听音色。
-4. 若出现新二进制/原始数据证据，按“实现 + focused regression + re-notes + SKILL”四处同步勘误。
+1. 审查全部工作区diff，恢复确认无关的格式化噪声，保留用户与本轮功能修改。
+2. 重新运行全量`verify_*.mjs`、`verify_*.py`、viewport、clock、变更文件LSP、`lens_diagnostics mode=all`和`git diff --check`。
+3. 启动新静态服务并使用全新Playwright profile复跑真实流程：
+   - 吕布攻程昱守陈留；
+   - 张辽攻曹仁守谯；
+   - 守军保持据点中心并正确获胜；
+   - 战后无无目标圆点；
+   - ID3四相音效可听；
+   - 表头升降序、选中保持和势力点击映射正确。
+4. 若浏览器结果通过，更新本journal的最终验证证据并整理提交；未经用户明确要求不推送远端。
+5. 后续非阻塞增强：DOSBox-X逐帧捕获与`originaldiff.js`差分；继续提取其它YNSOUND音效和测量INT61五档绝对时长。

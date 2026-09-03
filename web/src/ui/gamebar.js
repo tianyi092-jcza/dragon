@@ -57,6 +57,19 @@ const GOLD = "#cc8822";
 const CREAM = "#ffdd99";
 const BEIGE = "#f0d090";
 
+function listCellValue(cell) {
+  const value = typeof cell === "object" && cell !== null ? cell.t : cell;
+  const text = String(value ?? "").trim();
+  if (/^[+-]?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+  return text;
+}
+
+function isPlaceholderListRow(row) {
+  return (row?.cells ?? []).every((cell) =>
+    /^[\s－—-]*$/.test(String(listCellValue(cell))),
+  );
+}
+
 const SUBMENU = [
   "進言",
   "人事",
@@ -227,7 +240,12 @@ export class GameBar {
       y: opt.y ?? "center",
       scroll: 0,
       hover: -1,
+      headerHover: -1,
       selectedRow: -1,
+      sortColumn: -1,
+      sortDirection: 0,
+      sortable: opt.sortable ?? Boolean(opt.header?.length),
+      _rowOrder: new Map((opt.rows ?? []).map((row, index) => [row, index])),
       footer: opt.footer ?? null,
       onPick: opt.onPick ?? null,
       onPickCell: opt.onPickCell ?? null,
@@ -236,6 +254,42 @@ export class GameBar {
     this.layout();
     this._recalcListDialog();
     this.app.view.draw();
+  }
+
+  _sortListDialog(column) {
+    const d = this.listDialog;
+    if (!d?.sortable || column < 0 || column >= d.header.length) return false;
+    const selected = d.rows[d.selectedRow] ?? null;
+    const hovered = d.rows[d.hover] ?? null;
+    d.sortDirection = d.sortColumn === column ? -d.sortDirection : 1;
+    d.sortColumn = column;
+    const direction = d.sortDirection;
+    d.rows.sort((left, right) => {
+      const leftPlaceholder = isPlaceholderListRow(left);
+      const rightPlaceholder = isPlaceholderListRow(right);
+      if (leftPlaceholder !== rightPlaceholder) return leftPlaceholder ? 1 : -1;
+      if (leftPlaceholder) {
+        return (d._rowOrder.get(left) ?? 0) - (d._rowOrder.get(right) ?? 0);
+      }
+      const a = listCellValue(left?.cells?.[column]);
+      const b = listCellValue(right?.cells?.[column]);
+      let compared;
+      if (typeof a === "number" && typeof b === "number") compared = a - b;
+      else {
+        compared = String(a).localeCompare(String(b), "zh-Hant", {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+      return (
+        compared * direction ||
+        (d._rowOrder.get(left) ?? 0) - (d._rowOrder.get(right) ?? 0)
+      );
+    });
+    d.selectedRow = selected ? d.rows.indexOf(selected) : -1;
+    d.hover = hovered ? d.rows.indexOf(hovered) : -1;
+    d.scroll = 0;
+    return true;
   }
 
   closeListDialog(force = false) {
@@ -352,14 +406,22 @@ export class GameBar {
       header.forEach((t, c) => {
         const col = cols[c];
         if (!col) return;
+        if (d.sortable && d.headerHover === c) {
+          ctx.fillStyle = "#4a7828";
+          ctx.fillRect(px + col.x, py + titleH, col.w, 16);
+        }
+        const sortMark =
+          d.sortColumn === c ? (d.sortDirection > 0 ? "▲" : "▼") : "";
+        const label = sortMark ? `${t}${sortMark}` : t;
+        ctx.fillStyle = "#ffffff";
         if (col.align === "right") {
-          const tw2 = ctx.measureText(t).width;
-          ctx.fillText(t, px + col.x + col.w - tw2, py + titleH + 1);
+          const tw2 = ctx.measureText(label).width;
+          ctx.fillText(label, px + col.x + col.w - tw2, py + titleH + 1);
         } else if (col.align === "center") {
-          const tw2 = ctx.measureText(t).width;
-          ctx.fillText(t, px + col.x + (col.w - tw2) / 2, py + titleH + 1);
+          const tw2 = ctx.measureText(label).width;
+          ctx.fillText(label, px + col.x + (col.w - tw2) / 2, py + titleH + 1);
         } else {
-          ctx.fillText(t, px + col.x, py + titleH + 1);
+          ctx.fillText(label, px + col.x, py + titleH + 1);
         }
       });
     }
@@ -2399,6 +2461,7 @@ export class GameBar {
           if (!sc.legions) sc.legions = [];
           const newLegion = {
             leader: p.monarch.name,
+            generalIdx: p.monarch.idx,
             is_monarch: true,
             faction: me.idx,
             x: cap.x,
@@ -4553,6 +4616,7 @@ export class GameBar {
     sc.legions = sc.legions || [];
     const newLegion = {
       leader: gen.name,
+      generalIdx: gen.idx,
       faction: fac.idx,
       x: cap.x,
       y: cap.y,
@@ -6184,6 +6248,23 @@ export class GameBar {
         return true;
       }
       if (btn === 0) {
+        const headerY = d.py + d.titleH;
+        if (
+          d.sortable &&
+          d.header.length &&
+          py >= headerY &&
+          py < headerY + d.headerH
+        ) {
+          const rx = px - d.px;
+          const column = d.cols.findIndex(
+            (col) => rx >= col.x && rx < col.x + col.w,
+          );
+          if (this._sortListDialog(column)) {
+            clickSfx();
+            this.app.view.draw();
+          }
+          return true;
+        }
         // 滚动条点击处理 (left / right 均支持)
         const hasScrollbar = d.scrollbar === "left" || d.scrollbar === "right";
         if (hasScrollbar && d.rows.length > d.cap) {
@@ -6504,8 +6585,21 @@ export class GameBar {
     if (this.listDialog && this._hitListDialog(px, py)) {
       const d = this.listDialog;
       const old = d.hover;
+      const oldHeader = d.headerHover;
       const ry = py - d.py - d.top;
       let hov = -1;
+      let headerHover = -1;
+      if (
+        d.sortable &&
+        d.header.length &&
+        py >= d.py + d.titleH &&
+        py < d.py + d.titleH + d.headerH
+      ) {
+        const rx = px - d.px;
+        headerHover = d.cols.findIndex(
+          (col) => rx >= col.x && rx < col.x + col.w,
+        );
+      }
       const hasScrollbar = d.scrollbar === "left" || d.scrollbar === "right";
       const isLeft = d.scrollbar === "left";
       const sbx = isLeft ? d.px : d.px + d.w - 18;
@@ -6516,7 +6610,8 @@ export class GameBar {
         if (hov < 0 || hov >= d.rows.length) hov = -1;
       }
       d.hover = hov;
-      changed = old !== hov;
+      d.headerHover = headerHover;
+      changed = old !== hov || oldHeader !== headerHover;
       if (this.hoverAct) {
         this.hoverAct = null;
         changed = true;

@@ -1,6 +1,7 @@
 // Canvas战场投影DTO。只组装地图/武将/六队显示信息，不推进规则、不消费RNG。
 
 import { createCityGarrison, legionBattleUnits } from "../autobattle.js";
+import { generalForLegion } from "../legionunits.js";
 
 export const FIELD = 1024;
 
@@ -14,10 +15,7 @@ export const TACTICAL_UNIT_TYPES = Object.freeze({
 });
 
 function generalOf(scenario, legion) {
-  return scenario.generals.find(
-    (general) =>
-      general?.name === legion?.leader || general?.idx === legion?.leader,
-  );
+  return generalForLegion(scenario, legion);
 }
 
 function projectUnits(side, legion) {

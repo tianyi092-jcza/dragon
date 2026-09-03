@@ -20,9 +20,12 @@ globalThis.fetch = async (url) => {
 };
 
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
-const { roadApproachesAt } = await import("../web/src/game/roadgraph.js");
+const { findRoadRoute, roadApproachesAt, roadNodeById } = await import(
+  "../web/src/game/roadgraph.js"
+);
 const {
   aiTick,
+  applyBattleResult,
   applyFieldBattleResult,
   continueLegionAfterBattle,
   dispatchLegionFate,
@@ -84,6 +87,118 @@ const legion = (leader, faction, x, y) => ({
   assert.equal(loser.target.idx, 2);
   assert.equal(loser._retreat.cityIdx, 2);
   assert.ok(loser._path.length > 0);
+}
+
+// 0x491B：非己城市加入约0x80A6代价但仍展开；存在己城绕路时不得阻断失败。
+{
+  const sc = makeScenario();
+  sc.cities[0].faction = 1;
+  sc.cities[1].faction = 1;
+  sc.cities[2].faction = 0;
+  sc.factions[1].capital = 1;
+  for (const nodeId of [3, 8, 14, 16, 15, 7, 6, 4]) {
+    const node = roadNodeById(nodeId);
+    sc.cities.push(city(sc.cities.length, 1, node.x, node.y));
+  }
+  const direct = findRoadRoute(257, 9, 218, 11);
+  assert.deepEqual(direct.nodes, [0, 2, 1]);
+  const weighted = findRoadRoute(218, 11, 257, 9, null, (node) =>
+    node.id === 2 ? 0x80a6 : 0,
+  );
+  assert.ok(weighted);
+  assert.ok(!weighted.nodes.includes(2));
+  const loser = legion("乙", 1, 255, 9);
+  loser.troops = 400;
+  loser.units[0].troops = 4000;
+  sc.legions = [loser];
+  assert.equal(continueLegionAfterBattle(sc, loser, false), true);
+  assert.equal(loser.target.idx, 0);
+  assert.ok(
+    loser._retreat,
+    "enemy-node penalty must preserve a capital-directed friendly first hop",
+  );
+}
+
+// 0x48E5→0x48F1：失陷据点本身是拓扑节点时，0x491B返回朝首都的
+// 第一条边；0x487B沿该边取败方下一跳，不会把已易主的当前节点判成无路。
+{
+  const chenliu = city(74, 0, 225, 107);
+  const xuchang = city(82, 0, 206, 114);
+  const cities = Array.from({ length: 83 }, (_, index) =>
+    city(index, 0x18, -index - 1, -1),
+  );
+  cities[74] = chenliu;
+  cities[82] = xuchang;
+  const sc = {
+    cities,
+    factions: [
+      { idx: 0, capital: 82, monarch_idx: 0, active: true },
+      { idx: 1, capital: 74, monarch_idx: 1, active: true },
+    ],
+    generals: [general(0, "甲", 0), general(1, "乙", 1)],
+    legions: [],
+    player_faction: 0,
+    citiesOf(faction) {
+      return this.cities.filter((candidate) => candidate.faction === faction);
+    },
+  };
+  const attacker = legion("乙", 1, chenliu.x, chenliu.y);
+  attacker.slot = 1;
+  attacker.troops = 500;
+  attacker.units[0].troops = 5000;
+  const defender = legion("甲", 0, chenliu.x, chenliu.y);
+  defender.slot = 0;
+  defender.troops = 400;
+  defender.units[0].troops = 4000;
+  sc.legions = [attacker, defender];
+  applyBattleResult(
+    { scenario: sc },
+    attacker,
+    chenliu,
+    "atk",
+    450,
+    [450, 0, 0, 0, 0, 0],
+    null,
+    null,
+    null,
+    null,
+    null,
+    { strategicRng: { nextByte: () => 0xff }, oldFaction: 0 },
+  );
+  assert.equal(chenliu.faction, 1);
+  assert.equal(defender.dead, undefined);
+  assert.equal(defender.target.idx, 82);
+  assert.equal(defender._retreat.cityIdx, 82);
+  assert.equal(defender._retreat.nodeId, 82);
+  assert.equal(defender._path, null);
+}
+
+// generalIdx是权威主将关联；slot冲突和显示名空白不能导致静默删除/错抓武将。
+{
+  const sc = makeScenario();
+  sc.factions[1].monarch_idx = 7;
+  sc.generals.push(general(2, "丙　", 1));
+  const loser = legion("错误显示名", 1, 218, 11);
+  loser.generalIdx = 2;
+  loser.slot = 1;
+  sc.legions = [loser];
+  const messages = [];
+  assert.equal(
+    dispatchLegionFate(
+      sc,
+      loser,
+      0,
+      { nextByte: () => 0xff },
+      {
+        scenario: sc,
+        gamebar: { enqueueTalkMessage: (message) => messages.push(message) },
+      },
+    ),
+    "captured",
+  );
+  assert.equal(sc.generals[2].status, 4);
+  assert.equal(sc.generals[1].status, 1);
+  assert.equal(messages[0].talkIndex, 34);
 }
 
 {

@@ -1,6 +1,7 @@
 // 委任战斗的战略地图四相示意动画。表现时间不参与 KI.EXE 规则状态。
 export const ENGAGE_TRANSITION_FRAMES = Object.freeze([0, 1, 2, 3]);
-export const ENGAGE_TRANSITION_FRAME_MS = 100;
+// ID3→ID13→静音共10个INT1Ch tick，约549.254ms；四相各配一声。
+export const ENGAGE_TRANSITION_FRAME_MS = 550;
 
 /** 纯函数：给定经过时间，返回理论帧；播放结束返回 null。 */
 export function engageTransitionFrame(
@@ -26,6 +27,7 @@ export function playEngageTransition(
     requestFrame = globalThis.requestAnimationFrame,
     cancelFrame = globalThis.cancelAnimationFrame,
     prepare = null,
+    onFrame = null,
   } = {},
 ) {
   if (app.engageTransition?.active || typeof onFinish !== "function")
@@ -43,6 +45,9 @@ export function playEngageTransition(
     runtimeEnabled: true,
     legion,
     frame: ENGAGE_TRANSITION_FRAMES[0],
+  };
+  const emitFrame = () => {
+    if (typeof onFrame === "function") onFrame(transition.frame);
   };
   app.engageTransition = transition;
   if (gamebar) {
@@ -99,6 +104,7 @@ export function playEngageTransition(
         return;
       }
       transition.frame = ENGAGE_TRANSITION_FRAMES[frameIndex];
+      emitFrame();
       app.view?.draw?.();
     }
     rafId = requestFrame(tick);
@@ -107,6 +113,7 @@ export function playEngageTransition(
   const start = () => {
     if (done || prepared) return;
     prepared = true;
+    emitFrame();
     app.view?.draw?.();
     if (typeof requestFrame !== "function") {
       finish();

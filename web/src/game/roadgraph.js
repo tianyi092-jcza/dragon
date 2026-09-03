@@ -104,7 +104,9 @@ export function roadNodeById(id) {
 
 /** E717：节点表从0起每项8B；边表从0x0800起每项0x10B。 */
 export function roadNodeRawAddress(nodeId) {
-  return Number.isInteger(nodeId) && nodeId >= 0 && nodeId < (graph?.nodes.length ?? 0)
+  return Number.isInteger(nodeId) &&
+    nodeId >= 0 &&
+    nodeId < (graph?.nodes.length ?? 0)
     ? nodeId * ROAD_NODE_SIZE
     : null;
 }
@@ -120,7 +122,9 @@ export function roadNodeIdFromRaw(rawAddress) {
 }
 
 export function roadEdgeRawAddress(edgeId) {
-  return Number.isInteger(edgeId) && edgeId >= 0 && edgeId < (graph?.edges.length ?? 0)
+  return Number.isInteger(edgeId) &&
+    edgeId >= 0 &&
+    edgeId < (graph?.edges.length ?? 0)
     ? ROAD_EDGE_BASE + edgeId * ROAD_EDGE_SIZE
     : null;
 }
@@ -138,7 +142,12 @@ export function roadEdgeIdFromRaw(rawAddress) {
 
 function roadPointRawAddress(edgeId, pointIndex) {
   const edge = graph?.edges?.[edgeId];
-  if (!edge || !Number.isInteger(pointIndex) || pointIndex < 0 || pointIndex >= edge.points.length)
+  if (
+    !edge ||
+    !Number.isInteger(pointIndex) ||
+    pointIndex < 0 ||
+    pointIndex >= edge.points.length
+  )
     return null;
   return edgePointBases[edgeId] + pointIndex * ROAD_POINT_SIZE;
 }
@@ -184,15 +193,19 @@ export function restoreRoadMarchContext({
   if (!edge || rawIndex == null) return null;
   const oriented = marchPoints(edge, stride);
   let pointIndex = -1;
-  const currentIndex = edge.points.findIndex((point) => point.x === x && point.y === y);
+  const currentIndex = edge.points.findIndex(
+    (point) => point.x === x && point.y === y,
+  );
   if (currentIndex >= 0) {
     const expectedRaw = roadPointRawAddress(edgeId, currentIndex);
     if (expectedRaw !== pointAddress) return null;
-    pointIndex = stride === 4 ? currentIndex + 1 : edge.points.length - currentIndex;
+    pointIndex =
+      stride === 4 ? currentIndex + 1 : edge.points.length - currentIndex;
   } else {
     const from = graph.nodes[oriented.fromNode];
     const expectedInitial = stride === 4 ? 0 : edge.points.length - 1;
-    if (!from || from.x !== x || from.y !== y || rawIndex !== expectedInitial) return null;
+    if (!from || from.x !== x || from.y !== y || rawIndex !== expectedInitial)
+      return null;
     pointIndex = 0;
   }
   if (pointIndex < 0 || pointIndex >= oriented.points.length) return null;
@@ -235,10 +248,13 @@ export function reverseRoadMarchContext(march, x, y) {
   if (!edge) return null;
   const stride = march.stride === 4 ? -4 : 4;
   const oriented = marchPoints(edge, stride);
-  const currentIndex = edge.points.findIndex((point) => point.x === x && point.y === y);
+  const currentIndex = edge.points.findIndex(
+    (point) => point.x === x && point.y === y,
+  );
   let pointIndex;
   if (currentIndex >= 0)
-    pointIndex = stride === 4 ? currentIndex + 1 : edge.points.length - currentIndex;
+    pointIndex =
+      stride === 4 ? currentIndex + 1 : edge.points.length - currentIndex;
   else {
     const from = graph.nodes[oriented.fromNode];
     const to = graph.nodes[oriented.toNode];
@@ -278,11 +294,13 @@ export function roadApproachesAt(x, y) {
     // 分别对应这两个端点。返回顺序是战后撤退的稳定平权依据。
     return [
       {
+        edgeId: edge.id,
         node: target,
         points: [...targetPoints, { x: target.x, y: target.y }],
         distance: targetPoints.length + 1,
       },
       {
+        edgeId: edge.id,
         node: source,
         points: [...sourcePoints, { x: source.x, y: source.y }],
         distance: sourcePoints.length + 1,
@@ -296,7 +314,7 @@ export function roadEndpointsAt(x, y) {
   return roadApproachesAt(x, y).map((approach) => approach.node);
 }
 
-function routeNodeIds(source, target, isNodeBlocked) {
+function routeNodeIds(source, target, isNodeBlocked, nodePenalty) {
   const count = graph.nodes.length;
   const distance = new Float64Array(count);
   distance.fill(Infinity);
@@ -324,8 +342,14 @@ function routeNodeIds(source, target, isNodeBlocked) {
       if (neighbour !== source && isNodeBlocked?.(graph.nodes[neighbour])) {
         continue;
       }
-      // KI.EXE 0x49C3/0x4A3D：每次展开节点先加4，再累加边点数。
-      const candidate = best + 4 + step.edge.weight;
+      // KI.EXE 0x49C3/0x4A3D：每次展开当前节点先加4，再累加边点数。
+      // 0x491B 的战败搜索还会对非己城市加入约 0x80A6 的巨额代价；
+      // 它们仍会展开，不能用 blocked 回调直接删除。
+      const penalty = Math.max(
+        0,
+        Number(nodePenalty?.(graph.nodes[current])) || 0,
+      );
+      const candidate = best + penalty + 4 + step.edge.weight;
       if (candidate < distance[neighbour]) {
         distance[neighbour] = candidate;
         previousNode[neighbour] = current;
@@ -385,7 +409,7 @@ function routeLegs(route) {
  * 按原版“节点展开4 + 边点数”代价求据点到据点路线。
  * 返回节点、边和沿边点列；不含起点据点格，包含终点据点格。
  */
-export function findRoadRoute(sx, sy, tx, ty, isNodeBlocked) {
+export function findRoadRoute(sx, sy, tx, ty, isNodeBlocked, nodePenalty) {
   if (!graph) return null;
   const source = nodeByCoord.get(coordKey(sx, sy));
   const target = nodeByCoord.get(coordKey(tx, ty));
@@ -399,7 +423,7 @@ export function findRoadRoute(sx, sy, tx, ty, isNodeBlocked) {
       distance: 0,
     };
 
-  const route = routeNodeIds(source, target, isNodeBlocked);
+  const route = routeNodeIds(source, target, isNodeBlocked, nodePenalty);
   if (!route) return null;
   const legs = routeLegs(route);
   return {

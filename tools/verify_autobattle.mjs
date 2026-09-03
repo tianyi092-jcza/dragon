@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 
+const { generalForLegion } = await import("../web/src/game/legionunits.js");
 const {
   TYPE_WEIGHT,
   baseArmyPower,
@@ -51,6 +52,8 @@ sc.generals = [
   },
 ];
 
+// 旧Web快照只有显示名时，运行期分配的slot不能冒充原版军团+2主将索引。
+assert.equal(generalForLegion(sc, { leader: "G2", slot: 0 })?.name, "G2");
 assert.deepEqual(TYPE_WEIGHT[1], [3, 2, 1, 0]);
 const fixedUnits = [1, 1, 3, 3, 2, 2].map((type) => ({
   type,
@@ -75,23 +78,21 @@ assert.equal(
   600,
 );
 assert.equal(baseArmyPower(A, 1), (200 >> 3) * 1200);
-assert.ok(
-  commanderPower(
-    sc,
-    A,
-    1,
-    baseArmyPower(A, 1),
-    new ByteRng([0]),
-  ) > 0,
-);
+assert.ok(commanderPower(sc, A, 1, baseArmyPower(A, 1), new ByteRng([0])) > 0);
 // mode0的0x52D7必须读攻城专长；field/siege不同值给出精确分叉golden。
 const specialtyProbe = {
   _commanderProfile: {
     ability: { force: 40, lead: 50, field: 1, siege: 9, naval: 0 },
   },
 };
-assert.equal(commanderPower(sc, specialtyProbe, 1, 0x4000, new ByteRng([])), 1488);
-assert.equal(commanderPower(sc, specialtyProbe, 0, 0x4000, new ByteRng([])), 3216);
+assert.equal(
+  commanderPower(sc, specialtyProbe, 1, 0x4000, new ByteRng([])),
+  1488,
+);
+assert.equal(
+  commanderPower(sc, specialtyProbe, 0, 0x4000, new ByteRng([])),
+  3216,
+);
 
 // 0x52D7 的 MUL + 字节重排 + 两次 RCR 精确等于 u32乘积>>10。
 const extreme = {
@@ -109,6 +110,35 @@ assert.equal(
 const weaker = { ...D, leader: "G2", troops: 100, morale: 100 };
 assert.equal(selectPrimaryLegion(sc, [weaker, D]), D);
 assert.equal(selectPrimaryLegion(sc, [weaker, D, { ...D, dead: true }]), D);
+// 0x4C72按军团槽地址升序扫描；评分相等时JAe保留先遇到的低槽。
+const highSlot = { ...D, slot: 20 };
+const lowSlot = { ...D, slot: 5 };
+assert.equal(selectPrimaryLegion(sc, [highSlot, lowSlot]), lowSlot);
+
+// 0x5285直接读取六队；+4总兵暂时不一致时不得均分并替换兵种。
+const mismatchedTotal = {
+  ...A,
+  troops: 600,
+  units: [
+    { type: 3, troops: 1000 },
+    { type: 4, troops: 0 },
+    { type: 4, troops: 0 },
+    { type: 4, troops: 0 },
+    { type: 4, troops: 0 },
+    { type: 4, troops: 0 },
+  ],
+};
+assert.deepEqual(
+  legionBattleUnits(mismatchedTotal).map((unit) => [unit.type, unit.troops]),
+  [
+    [3, 100],
+    [4, 0],
+    [4, 0],
+    [4, 0],
+    [4, 0],
+    [4, 0],
+  ],
+);
 
 // 固定原版字节 golden：攻方 commander 消费1字节，守方force<lead不消费；
 // 后续按胜方/败方逐队交错消费12字节。
@@ -134,7 +164,10 @@ assert.equal(rng.calls, 13);
 
 writeStrategicBattleResult(A, result.attack);
 assert.equal(A.troops, 528);
-assert.equal(A.units.reduce((sum, unit) => sum + unit.troops, 0), 5280);
+assert.equal(
+  A.units.reduce((sum, unit) => sum + unit.troops, 0),
+  5280,
+);
 assert.equal(A.morale, 88);
 
 process.stdout.write(
