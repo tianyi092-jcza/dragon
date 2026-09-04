@@ -20,9 +20,8 @@ globalThis.fetch = async (url) => {
 };
 
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
-const { findRoadRoute, roadApproachesAt, roadNodeById } = await import(
-  "../web/src/game/roadgraph.js"
-);
+const { findRoadRoute, roadApproachesAt, roadEdgeById, roadNodeById } =
+  await import("../web/src/game/roadgraph.js");
 const {
   aiTick,
   applyBattleResult,
@@ -87,6 +86,126 @@ const legion = (leader, faction, x, y) => ({
   assert.equal(loser.target.idx, 2);
   assert.equal(loser._retreat.cityIdx, 2);
   assert.ok(loser._path.length > 0);
+}
+
+// 0x487B边内撤退的结构端点顺序固定为edge+8后edge+6，不能按原行军
+// 有向点列首尾猜端点。双向遍历全部254边：攻城端为敌、另一端为己时，
+// 败退第一段必须逐原始道路点返回己方端，任何相邻步不得超过资产上限2格。
+{
+  for (let edgeId = 0; edgeId < 254; edgeId++) {
+    const edge = roadEdgeById(edgeId);
+    assert.ok(edge);
+    for (const stride of [4, -4]) {
+      const sourceNode = roadNodeById(edge.source);
+      const targetNode = roadNodeById(edge.target);
+      const ownNode = stride === 4 ? sourceNode : targetNode;
+      const enemyNode = stride === 4 ? targetNode : sourceNode;
+      const directedPoints =
+        stride === 4 ? edge.points : edge.points.toReversed();
+      const current = directedPoints.at(-1);
+      assert.ok(current);
+      const cities = Array.from({ length: 192 }, (_, idx) => {
+        const node = roadNodeById(idx);
+        return city(idx, 0x18, node.x, node.y);
+      });
+      cities[ownNode.id].faction = 1;
+      cities[enemyNode.id].faction = 0;
+      const sc = {
+        cities,
+        factions: [
+          { idx: 0, capital: enemyNode.id },
+          { idx: 1, capital: ownNode.id },
+        ],
+        generals: [],
+        legions: [],
+        player_faction: 0,
+        citiesOf(faction) {
+          return this.cities.filter(
+            (candidate) => candidate.faction === faction,
+          );
+        },
+      };
+      const loser = legion("乙", 1, current.x, current.y);
+      loser.troops = 400;
+      loser.units[0].troops = 4000;
+      loser._battleRoadContext = {
+        edgeId,
+        stride,
+        pointIndex: directedPoints.length,
+        points: directedPoints.map((point) => ({ ...point })),
+      };
+      sc.legions = [loser];
+      assert.equal(continueLegionAfterBattle(sc, loser, false), true);
+      assert.equal(loser.target.idx, ownNode.id);
+      assert.ok(loser._march);
+      let previous = { x: loser.x, y: loser.y };
+      for (const point of [...loser._march.points, ownNode]) {
+        assert.ok(
+          Math.max(
+            Math.abs(point.x - previous.x),
+            Math.abs(point.y - previous.y),
+          ) <= 2,
+          `edge ${edgeId} stride ${stride}撤退不得跨整边瞬移`,
+        );
+        previous = point;
+      }
+    }
+  }
+}
+
+// 0x474A硬失败门槛：战后士气0或首队0才不能继续；士气仍为1且有兵时
+// 即使很低也必须按首都方向撤退，不能额外臆造“士气<100歼灭”。
+{
+  const sc = makeScenario();
+  const lowMorale = legion("乙", 1, 255, 9);
+  lowMorale.morale = 1;
+  lowMorale.troops = 100;
+  lowMorale.units[0].troops = 1000;
+  sc.legions = [lowMorale];
+  assert.equal(continueLegionAfterBattle(sc, lowMorale, false), true);
+  assert.ok(lowMorale._retreat);
+}
+{
+  const sc = makeScenario();
+  const broken = legion("乙", 1, 255, 9);
+  broken.morale = 0;
+  sc.legions = [broken];
+  assert.equal(continueLegionAfterBattle(sc, broken, false), false);
+}
+
+// 0x474A：总兵<=300时即使即时退路不是首都，也必须写状态10继续返首都。
+{
+  const sc = makeScenario();
+  const loser = legion("乙", 1, 255, 9);
+  loser.troops = 300;
+  loser.units[0].troops = 3000;
+  sc.legions = [loser];
+  assert.equal(continueLegionAfterBattle(sc, loser, false), true);
+  assert.equal(loser.target.idx, 2);
+  assert.equal(loser.commandState, 10);
+}
+
+// Web撤退调度抵达即时据点时不得清掉0x474A写入的目标/状态；状态10
+// 下一轮0x4325会改锁首都，否则就会在道路端点变成无目标圆点。
+{
+  const sc = makeScenario();
+  const loser = legion("乙", 1, 246, 15);
+  loser.troops = 300;
+  loser.units[0].troops = 3000;
+  loser.target = sc.cities[2];
+  loser.targetNode = 2;
+  loser.roadEdgeOrNode = 2;
+  loser.commandState = 10;
+  loser.cooldown = 0;
+  loser._retreat = { cityIdx: 2, nodeId: 2, captorFaction: 0 };
+  sc.legions = [loser];
+  aiTick(
+    { scenario: sc, originalRng: { nextByte: () => 0 } },
+    { runCityDaily: false, settleDaily: false },
+  );
+  assert.equal(loser.target.idx, 1);
+  assert.equal(loser.commandState, 10);
+  assert.equal(loser._retreat, null);
 }
 
 // 0x491B：非己城市加入约0x80A6代价但仍展开；存在己城绕路时不得阻断失败。

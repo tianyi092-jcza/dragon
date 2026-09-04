@@ -1,5 +1,6 @@
 // 地图视图 — 相机(拖动平移, 固定100%不可缩放) + 分层绘制(地形/城池/军团/标签)
 import { WORLD, factionColorEx } from "../game/world.js";
+import { findRoadRoute, roadGraphReady } from "../game/roadgraph.js";
 
 const MARCH_STYLE_COUNT = 24;
 const MARCH_FRAME_STATIONARY = 4;
@@ -74,6 +75,18 @@ function marchFrame(fromX, fromY, toX, toY) {
   if (!dx && !dy) return MARCH_FRAME_STATIONARY;
   if (Math.abs(dx) >= Math.abs(dy)) return dx < 0 ? 0 : 1;
   return dy < 0 ? 2 : 3;
+}
+
+/**
+ * Web道路美术映射。连续截图夹逼校正：竖路右移2px；横路下移2px
+ * 仍偏上、下移4px又偏下，故取像素中点3px。斜向按两轴分量过渡。
+ */
+function roadVisualOffset(fromX, fromY, toX, toY) {
+  const dx = Math.abs(toX - fromX);
+  const dy = Math.abs(toY - fromY);
+  const span = dx + dy;
+  if (!span) return [0, 0];
+  return [(2 * dy) / span, (3 * dx) / span];
 }
 
 const CITY_SIZE = 16; // 城池图标整体尺寸
@@ -167,7 +180,7 @@ export class MapView {
     return [pos.wxp, pos.wyp];
   }
 
-  /** 获取军团插值渲染位置 (支持 lerp 平滑移动) */
+  /** 获取军团插值渲染位置 (支持 lerp 平滑移动与道路轴向显示补偿) */
   getLegionRenderPos(L, t = 1) {
     const fromX = L.prevX ?? L.x;
     const fromY = L.prevY ?? L.y;
@@ -190,11 +203,26 @@ export class MapView {
     const gx = fromX + (toX - fromX) * curT;
     const gy = fromY + (toY - fromY) * curT;
 
-    // 2. 世界像素坐标。KI.EXE军团标识使用逻辑道路坐标，不叠加地图
-    // tile图案的视觉质心。road_offset曾令虚线和标识整体偏向道路一侧，
-    // 且弯道路段逐格摆动；现在固定沿16×16逻辑格中心线插值。
-    const wxp = gx * 16 + 8;
-    const wyp = gy * 16 + 8;
+    // 2. Web显示映射：连续截图确认水平+2px偏上而+4px偏下，取+3px；
+    // 垂直道路右移2px已正确。仅补偿道路法线方向，避免旧tile质心表在弯道
+    // 产生-4..+4px逐格摆动；KI规则坐标和沿路进度完全不变。接敌/战后
+    // 冷却时坐标不动，需从尚未消费的道路点推导轴向，否则标识会短暂
+    // 跳回tile几何中心。
+    const pendingPoints =
+      L._march?.points?.slice(L._march.pointIndex ?? 0) ?? L._path ?? [];
+    const nextVisualPoint = pendingPoints.find(
+      (point) => point.x !== toX || point.y !== toY,
+    );
+    const visualToX = isMoving ? toX : (nextVisualPoint?.x ?? toX);
+    const visualToY = isMoving ? toY : (nextVisualPoint?.y ?? toY);
+    const [offsetX, offsetY] = roadVisualOffset(
+      fromX,
+      fromY,
+      visualToX,
+      visualToY,
+    );
+    const wxp = gx * 16 + 8 + offsetX;
+    const wyp = gy * 16 + 8 + offsetY;
 
     let frame = MARCH_FRAME_STATIONARY;
     if (isMoving) {
@@ -261,11 +289,18 @@ export class MapView {
       }
     }
 
-    // 行军中的军团（使用逐帧插值的实际屏幕位置）
+    // 地图上独立显示的活动军团（含战后冷却/状态机等待）都可点击。
+    // 驻在同势力据点中心的军团仍由上方据点入口打开驻军选择。
     const t = this.app?.clock?.dayProgress?.() ?? 1;
     for (const L of sc.legions) {
       if (L.dead || L._active === false || L.faction == null) continue;
-      if (!this.isMarching(L)) continue;
+      const isGarrison =
+        !this.isMarching(L) &&
+        sc.cities.some(
+          (city) =>
+            city.x === L.x && city.y === L.y && city.faction === L.faction,
+        );
+      if (isGarrison) continue;
       const pos = this.getLegionRenderPos(L, t);
       const x = pos.sx,
         y = pos.sy;
@@ -412,8 +447,49 @@ export class MapView {
       } else if (L._engagement) {
         this._drawEngagement(ctx, lx, ly, L._engagement.countdown);
       } else if (L.target) {
-        // 原版大地图只绘制军团标识，不显示通往下一据点的路线虚线。
-        // 导航点列仍由规则层维护，渲染层只读取当前位置与方向帧。
+        // Web诊断表现：恢复行军路线虚线，便于直接核对道路点列与地图美术
+        // 中线。路径只读规则层导航状态，绝不在绘制时回写军团缓存。
+        let path = L._path ?? [];
+        if (!path.length && roadGraphReady()) {
+          path = findRoadRoute(L.x, L.y, L.target.x, L.target.y)?.points ?? [];
+        }
+        ctx.strokeStyle = factionColorEx(sc, L.faction);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        const routePoints = [];
+        if (renderPos.isMoving && renderPos.curT < 1) {
+          routePoints.push({ x: L.x, y: L.y });
+        }
+        routePoints.push(...path);
+        if (
+          !path.length &&
+          (L.x !== L.target.x || L.y !== L.target.y) &&
+          !routePoints.some(
+            (point) => point.x === L.target.x && point.y === L.target.y,
+          )
+        ) {
+          routePoints.push(L.target);
+        }
+        for (let index = 0; index < routePoints.length; index++) {
+          const point = routePoints[index];
+          const previous = routePoints[index - 1] ?? { x: L.x, y: L.y };
+          const next = routePoints[index + 1] ?? point;
+          const [offsetX, offsetY] = roadVisualOffset(
+            previous.x,
+            previous.y,
+            next.x,
+            next.y,
+          );
+          ctx.lineTo(
+            this.sx(point.x * 16 + 8 + offsetX),
+            this.sy(point.y * 16 + 8 + offsetY),
+          );
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+
         // 行军标识：势力记录 +0x3E 指定固定样式槽，方向选离散原版帧。
         const faction = sc.factions.find((f) => f.idx === L.faction);
         this._drawMarchingIcon(
@@ -424,11 +500,15 @@ export class MapView {
           renderPos.frame,
         );
       } else {
-        // 非驻军且非行军：仅用小圆点占位（正常情况不应出现）
-        ctx.fillStyle = factionColorEx(sc, L.faction);
-        ctx.beginPath();
-        ctx.arc(lx, ly, 4, 0, Math.PI * 2);
-        ctx.fill();
+        // 活动军团即使在节点等待状态机写入下一目标，也仍使用原版驻止帧。
+        // 小圆点不是MMAP.MCH资产，会掩盖撤退目标/道路状态丢失并造成假坐标。
+        const faction = sc.factions.find((f) => f.idx === L.faction);
+        this._drawStationaryMarker(
+          ctx,
+          lx,
+          ly,
+          faction?.march_marker_style ?? L.faction,
+        );
       }
     }
 

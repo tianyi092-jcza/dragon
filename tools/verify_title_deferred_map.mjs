@@ -11,8 +11,8 @@ const [html, main, assets, menu, mapview] = await Promise.all([
 
 assert.match(
   html,
-  /#titlebg[\s\S]*loginbg\.jpg[\s\S]*center center\s*\/\s*cover/,
-  "标题阶段应使用自适应铺满的 loginbg.jpg",
+  /#titlebg\s*\{[\s\S]*?background-image:\s*url\("grf\/ui\/loginbg\.jpg"\)[\s\S]*?background-position:\s*left top[\s\S]*?background-repeat:\s*no-repeat[\s\S]*?background-size:\s*cover/,
+  "标题阶段的 loginbg.jpg 应保持比例、左上对齐且无重复地铺满窗口",
 );
 assert.match(html, /#cv\s*\{[\s\S]*display:\s*none/);
 assert.match(html, /body\.game-active\s+#cv\s*\{[\s\S]*display:\s*block/);

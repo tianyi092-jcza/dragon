@@ -101,17 +101,51 @@ export function preloadEngageSfx() {
 	return loadEngageBuffer();
 }
 
-/** YNSOUND ID 3：播放一次原版channel 6双阶段包络样本。 */
-export async function engageSfx() {
-	if (muted) return false;
+/**
+ * 委任四相开始前同时完成样本解码与AudioContext恢复。仅预载buffer不足以
+ * 保证声音起拍：浏览器仍可能在第一帧后才完成resume()。
+ */
+export async function prepareEngageSfx() {
 	const buffer = await loadEngageBuffer();
-	if (!buffer || muted || !actx) return false;
+	if (!buffer || muted || !actx) return buffer;
 	try {
 		if (actx.state === "suspended") await actx.resume();
+		if (actx.state === "running") return buffer;
+		// 部分浏览器的resume()会先resolve、随后才切running；首帧必须等到
+		// 状态事件，而不是让四相画面先于实际音频时钟启动。
+		await new Promise((resolve) => {
+			let settled = false;
+			const finish = () => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timeout);
+				actx.removeEventListener?.("statechange", check);
+				resolve();
+			};
+			const check = () => {
+				if (actx.state === "running") finish();
+			};
+			const timeout = setTimeout(finish, 1000);
+			actx.addEventListener?.("statechange", check);
+			check();
+		});
+	} catch {
+		return null;
+	}
+	return buffer;
+}
+
+/**
+ * YNSOUND ID 3：同步起播一次已缓存样本。这里不能await加载/resume；四相
+ * onFrame必须在同一调用栈内启动声音，否则画面会先走完再补播。
+ */
+export function engageSfx() {
+	if (muted || !engageBuffer || !actx || actx.state !== "running") return false;
+	try {
 		const source = actx.createBufferSource();
-		source.buffer = buffer;
+		source.buffer = engageBuffer;
 		source.connect(actx.destination);
-		source.start();
+		source.start(actx.currentTime);
 		return true;
 	} catch {
 		return false;

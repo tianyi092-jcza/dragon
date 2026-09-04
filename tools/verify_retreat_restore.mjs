@@ -27,7 +27,9 @@ const { loadRoadGraph, findRoadRoute, roadNodeAt } = await import(
 );
 await loadRoadGraph();
 const { aiTick, buildArmies } = await import("../web/src/game/ai.js");
-const { applyWebMetaToState } = await import("../web/src/game/savegame.js");
+const { applyWebMetaToState, snapshotState } = await import(
+  "../web/src/game/savegame.js"
+);
 
 let raw;
 try {
@@ -111,6 +113,84 @@ assert.deepEqual(
 assert.equal(legion.cooldown, 1);
 assert.equal(legion.commandState, 10);
 assert.ok(route.points.length > 1);
+
+// 边内0x487B临时撤退点列不能伪装成DOS ±4道路上下文；Web sidecar需
+// 保存最小点列，使快照→恢复后仍能从非节点坐标继续，而不是blocked后0x291A。
+{
+  const edgePoints = route.points.slice(0, Math.min(4, route.points.length));
+  assert.ok(edgePoints.length > 1);
+  const edgeLegion = legion;
+  edgeLegion.x = edgePoints[0].x;
+  edgeLegion.y = edgePoints[0].y;
+  edgeLegion.prevX = edgeLegion.x;
+  edgeLegion.prevY = edgeLegion.y;
+  edgeLegion.cooldown = 0;
+  edgeLegion._march = {
+    targetX: target.x,
+    targetY: target.y,
+    targetNode: roadNodeAt(target.x, target.y).id,
+    currentNode: null,
+    edgeId: route.edges[0]?.id ?? 0,
+    stride: 0,
+    toNode: null,
+    points: edgePoints.map((point) => ({ ...point })),
+    pointIndex: 1,
+  };
+  edgeLegion._path = edgePoints.slice(1).map((point) => ({ ...point }));
+  delete state.citiesOf;
+  const snap = snapshotState(
+    {
+      scenario: state,
+      scenarioIdx: 0,
+      clock: { year: 1, month: 1, day: 1, sub: 0, hour: 0 },
+      originalRng: { snapshot: () => null },
+      battleView: { active: false },
+      engageTransition: null,
+    },
+    0,
+    "retreat",
+  );
+  const restored = structuredClone(snap.state);
+  applyWebMetaToState(restored, snap.webMeta);
+  restored.citiesOf = (idx) =>
+    restored.cities.filter((city) => city.faction === idx);
+  buildArmies(restored);
+  const restoredLegion = restored.legions[0];
+  assert.equal(restoredLegion._march?.currentNode, null);
+  assert.equal(restoredLegion._march?.stride, 0);
+  assert.equal(restoredLegion._march?.pointIndex, 1);
+  assert.deepEqual(restoredLegion._path, edgePoints.slice(1));
+  const restoredBefore = { x: restoredLegion.x, y: restoredLegion.y };
+  aiTick({
+    scenario: restored,
+    originalRng: { nextByte: () => 0xff },
+    battleView: { active: false },
+    engageTransition: null,
+    hud: { flashEvent() {} },
+  });
+  assert.notDeepEqual(
+    { x: restoredLegion.x, y: restoredLegion.y },
+    restoredBefore,
+    "读档后的边内败军必须沿保存点列继续移动",
+  );
+  assert.ok(restoredLegion._retreat);
+  assert.notEqual(restoredLegion.dead, true);
+
+  // pointIndex==points.length表示边内点已全部消费、等待下一槽切端点；
+  // 恢复时不得钳回最后一个边点并重复移动。
+  const exhausted = structuredClone(snap.state);
+  const exhaustedMeta = structuredClone(snap.webMeta);
+  exhaustedMeta.legionRuleState[0].retreatMarch.pointIndex =
+    exhaustedMeta.legionRuleState[0].retreatMarch.points.length;
+  applyWebMetaToState(exhausted, exhaustedMeta);
+  exhausted.citiesOf = (idx) =>
+    exhausted.cities.filter((city) => city.faction === idx);
+  buildArmies(exhausted);
+  assert.equal(
+    exhausted.legions[0]._march.pointIndex,
+    exhausted.legions[0]._march.points.length,
+  );
+}
 
 process.stdout.write(
   "retreat restore OK: webMeta overlay -> buildArmies -> aiTick keeps forced route\n",

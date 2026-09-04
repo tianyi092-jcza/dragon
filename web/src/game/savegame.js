@@ -91,6 +91,8 @@ export function applyWebMetaToState(state, webMeta) {
     );
     if (!legion) continue;
     if (saved._retreat) legion._retreat = structuredClone(saved._retreat);
+    if (saved.retreatMarch)
+      legion._savedRetreatMarch = structuredClone(saved.retreatMarch);
     if (saved._engagement)
       legion._engagement = structuredClone(saved._engagement);
     if (saved.engagementCountdown != null)
@@ -155,9 +157,26 @@ export function snapshotState(app, slotIdx, label) {
             (general) => general && general.name === legion.leader,
           );
       if (slot < 0 || (!legion._retreat && !legion._engagement)) return null;
+      const sourceLegion = sc.legions.find(
+        (candidate) => (candidate.slot ?? candidate.idx) === slot,
+      );
+      const sourceMarch = sourceLegion?._march;
+      const retreatMarch =
+        legion._retreat && sourceMarch?.currentNode == null
+          ? {
+              targetX: sourceMarch.targetX,
+              targetY: sourceMarch.targetY,
+              targetNode: sourceMarch.targetNode ?? null,
+              edgeId: sourceMarch.edgeId ?? null,
+              toNode: sourceMarch.toNode ?? null,
+              pointIndex: sourceMarch.pointIndex ?? 0,
+              points: sourceMarch.points?.map((point) => ({ ...point })) ?? [],
+            }
+          : null;
       return {
         slot,
         _retreat: legion._retreat ?? null,
+        retreatMarch,
         _engagement: legion._engagement ?? null,
         engagementCountdown: legion.engagementCountdown ?? null,
       };

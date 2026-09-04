@@ -33,8 +33,12 @@
         position: fixed;
         inset: 0;
         z-index: 50;
-        background: #000 url("grf/ui/loginbg.jpg") center center / cover
-          no-repeat;
+        background-color: #000;
+        background-image: url("grf/ui/loginbg.jpg");
+        background-position: left top;
+        background-repeat: no-repeat;
+        /* 保持loginbg原始比例；裁掉窗口外区域，不随非16:10窗口挤压变形。 */
+        background-size: cover;
       }
       body.game-active #titlebg {
         display: none;

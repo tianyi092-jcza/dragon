@@ -115,6 +115,37 @@ const highSlot = { ...D, slot: 20 };
 const lowSlot = { ...D, slot: 5 };
 assert.equal(selectPrimaryLegion(sc, [highSlot, lowSlot]), lowSlot);
 
+// 0x4F8A空城防御只读取当前城兵+0x13；据点type/城兵上限/生产力
+// 不直接进入0x5130。不同规模据点的差异来自其当前城兵原始值。
+{
+  const { createCityGarrison } = await import("../web/src/game/autobattle.js");
+  const small = createCityGarrison({
+    faction: 1,
+    troops: 59,
+    type: 2,
+    troops_cap: 85,
+    prod: 3000,
+  });
+  const large = createCityGarrison({
+    faction: 1,
+    troops: 118,
+    type: 0,
+    troops_cap: 169,
+    prod: 20714,
+  });
+  assert.equal(small.troops, 59);
+  assert.deepEqual(
+    small.units.map((unit) => unit.troops),
+    [100, 100, 100, 100, 100, 90],
+  );
+  assert.equal(large.troops, 118);
+  assert.deepEqual(
+    large.units.map((unit) => unit.troops),
+    [200, 200, 200, 200, 190, 190],
+  );
+  assert.ok(baseArmyPower(large, 0, 118) > baseArmyPower(small, 0, 59));
+}
+
 // 0x5285直接读取六队；+4总兵暂时不一致时不得均分并替换兵种。
 const mismatchedTotal = {
   ...A,

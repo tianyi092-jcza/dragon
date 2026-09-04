@@ -8,7 +8,7 @@ const {
 } = await import("../web/src/game/engagetransition.js");
 
 assert.deepEqual(ENGAGE_TRANSITION_FRAMES, [0, 1, 2, 3]);
-assert.equal(ENGAGE_TRANSITION_FRAME_MS, 550);
+assert.equal(ENGAGE_TRANSITION_FRAME_MS, 165);
 assert.deepEqual(
   [0, 99, 100, 199, 200, 299, 300, 399, 400].map((elapsed) =>
     engageTransitionFrame(elapsed, 100),
@@ -98,7 +98,7 @@ assert.deepEqual(frames, [0, 1, 2, 3]);
 assert.deepEqual(
   soundFrames,
   [0, 1, 2, 3],
-  "原版ID3音效必须与委任交战四幅动画逐相同步",
+  "Web委任过渡必须让已确认的ID3样本与四幅动画逐相同步",
 );
 
 // once guard：完成后重复调用旧finish不重复结算。

@@ -1,7 +1,8 @@
 // 委任战斗的战略地图四相示意动画。表现时间不参与 KI.EXE 规则状态。
 export const ENGAGE_TRANSITION_FRAMES = Object.freeze([0, 1, 2, 3]);
-// ID3→ID13→静音共10个INT1Ch tick，约549.254ms；四相各配一声。
-export const ENGAGE_TRANSITION_FRAME_MS = 550;
+// 当前WAV的有效声段约330ms；用户现场确认委任攻击应一帧一声连续倍速播放。
+// 这里采用165ms起拍间隔，允许相邻样本轻微叠音，但动画和音效始终同相触发。
+export const ENGAGE_TRANSITION_FRAME_MS = 165;
 
 /** 纯函数：给定经过时间，返回理论帧；播放结束返回 null。 */
 export function engageTransitionFrame(

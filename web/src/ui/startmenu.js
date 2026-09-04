@@ -22,6 +22,9 @@ const TABLE_BG = "#f0d090"; // 原版列表米黄底 (240,208,144)
 export class StartMenu {
   constructor(app) {
     this.app = app;
+    // 标题阶段的首次操作就是可靠的用户手势；在该手势内解锁并预缓存
+    // 接战WAV，避免数分钟后首次委任战斗才启动AudioContext/解码。
+    this._engageSfxWarmup = null;
     this.cv = document.querySelector("#startv");
     this.ctx = this.cv.getContext("2d");
     this._imgs = null;
@@ -472,7 +475,7 @@ export class StartMenu {
   //        title       顶部白字标题 (全角串, 自动居中)
   //        rows        [{ name, date? }] 或 [{ cols: [...] }] 行 (空 name 行不可选)
   //        rowH        行高 (默认 48; 紧凑表格式传 16)
-  //        header      表头列标签数组 (可选, 占 16px 一行, 需配 colX)
+  //        header      表头列标签数组 (可选, 默认占 24px 一行, 需配 colX)
   //        colX        cols/表头各列相对 x 偏移 (row.cols 时必传)
   //        date        底部居中绿钮日期 {year,month,day} (可选)
   //      }
@@ -488,6 +491,7 @@ export class StartMenu {
       rowH = 48,
       pad = 4, // 列表行上下内边距 (黑带高度 = rowH - 2*pad)
       header = null,
+      headerH = 24,
       colX = null,
       date = null,
     } = opt;
@@ -500,7 +504,7 @@ export class StartMenu {
       th = (h + 16) / 16;
     const rowTop0 = rowH >= 24 ? 30 : 28; // 列表行=30, 紧凑表格=28
     const headY = title ? 26 : 4; // 表头黑带 y 偏移 (无标题时顶格)
-    const top = header ? headY + 18 : rowTop0; // 首行 y 偏移 (表头占 16px+2 间隔)
+    const top = header ? headY + headerH + 2 : rowTop0;
     const bottom = date ? 20 : 0; // 底部日期带
     const cap = Math.max(1, Math.floor((h - top - bottom - 2) / rowH));
     let scroll = 0; // 可视首行 (绝对行号)
@@ -516,11 +520,16 @@ export class StartMenu {
       if (rowH < 24) {
         // 紧凑表格 (原版配色: 黑底白字表头 + 米黄底黑字行) — 先画带后画字
         const twRight = hasScrollbar ? px + w - 20 : px + w - 1;
-        this._rect(px, py + headY, twRight, py + headY + 15, 0); // 表头黑带
+        this._rect(px, py + headY, twRight, py + headY + headerH - 1, 0); // 表头黑带
       }
       if (header)
         header.forEach((t, c) =>
-          this._text(t, px + colX[c], py + headY + 2, 15),
+          this._text(
+            t,
+            px + colX[c],
+            py + headY + Math.floor((headerH - 16) / 2),
+            15,
+          ),
         );
       if (rowH < 24) {
         const twRight = hasScrollbar ? px + w - 20 : px + w - 1;
@@ -713,6 +722,9 @@ export class StartMenu {
     };
     this._unbind();
     this._onClick = (e) => {
+      if (!this._engageSfxWarmup) {
+        this._engageSfxWarmup = this.app.prepareEngageAudio?.() ?? true;
+      }
       const [x, y] = toGame(e);
       onClick(x, y, e.button);
     };

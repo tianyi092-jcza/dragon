@@ -102,6 +102,10 @@ export function roadNodeById(id) {
   return graph?.nodes?.[id] ?? null;
 }
 
+export function roadEdgeById(id) {
+  return graph?.edges?.[id] ?? null;
+}
+
 /** E717：节点表从0起每项8B；边表从0x0800起每项0x10B。 */
 export function roadNodeRawAddress(nodeId) {
   return Number.isInteger(nodeId) &&
@@ -208,7 +212,8 @@ export function restoreRoadMarchContext({
       return null;
     pointIndex = 0;
   }
-  if (pointIndex < 0 || pointIndex >= oriented.points.length) return null;
+  // pointIndex==points.length是合法的“边内点已耗尽，等待下一槽切端点”状态。
+  if (pointIndex < 0 || pointIndex > oriented.points.length) return null;
   return {
     targetX,
     targetY,
@@ -288,7 +293,7 @@ export function roadApproachesAt(x, y) {
   return locations.flatMap(({ edge, pointIndex }) => {
     const source = graph.nodes[edge.source];
     const target = graph.nodes[edge.target];
-    const sourcePoints = edge.points.slice(0, pointIndex).reverse();
+    const sourcePoints = edge.points.slice(0, pointIndex).toReversed();
     const targetPoints = edge.points.slice(pointIndex + 1);
     // 0x487B检查当前边的+8端后再检查+6端；拓扑资产中target/source
     // 分别对应这两个端点。返回顺序是战后撤退的稳定平权依据。
@@ -370,16 +375,17 @@ function routeNodeIds(source, target, isNodeBlocked, nodePenalty) {
     edges.push(edgeId);
   }
   nodes.push(source);
-  nodes.reverse();
-  edges.reverse();
-  return { nodes, edges, distance: distance[target] };
+  return {
+    nodes: nodes.toReversed(),
+    edges: edges.toReversed(),
+    distance: distance[target],
+  };
 }
 
-function orientedEdgePoints(edge, fromNode, toNode) {
-  const points =
-    edge.source === fromNode ? edge.points : edge.points.slice().reverse();
-  const destination = graph.nodes[toNode];
-  return [...points, { x: destination.x, y: destination.y }];
+function orientedEdgePoints(edge, fromNode, _toNode) {
+  // E717/E961：边内点列只保存道路点，两端据点节点由edge +6/+8独立保存；
+  // 节点中心绝不能追加到points，否则0x2831会把驻城守军误判为道路野战。
+  return edge.source === fromNode ? edge.points : edge.points.toReversed();
 }
 
 function routeLegs(route) {
@@ -407,7 +413,7 @@ function routeLegs(route) {
 
 /**
  * 按原版“节点展开4 + 边点数”代价求据点到据点路线。
- * 返回节点、边和沿边点列；不含起点据点格，包含终点据点格。
+ * 返回节点、边和沿边点列；边点不含起点或终点据点中心。
  */
 export function findRoadRoute(sx, sy, tx, ty, isNodeBlocked, nodePenalty) {
   if (!graph) return null;

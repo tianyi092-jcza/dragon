@@ -8,4 +8,11 @@ const source = await fs.readFile(
 assert.match(source, /!sv\.played/);
 assert.match(source, /disabled: true/);
 assert.match(source, /!rows\[scroll \+ i\]\.disabled/);
-console.log("title load empty slots are disabled");
+assert.match(
+  source,
+  /headerH\s*=\s*24[\s\S]*const top = header \? headY \+ headerH \+ 2/,
+  "标题阶段势力等表格也必须使用加高的24px表头",
+);
+process.stdout.write(
+  "title load empty slots are disabled; list headers are 24px\n",
+);

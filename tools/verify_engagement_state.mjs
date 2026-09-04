@@ -5,9 +5,8 @@ import fs from "node:fs/promises";
 globalThis.window = {};
 
 const { aiTick, buildArmies, stepTo } = await import("../web/src/game/ai.js");
-const { loadRoadGraph, findRoadRoute, roadGraphReady } = await import(
-  "../web/src/game/roadgraph.js"
-);
+const { loadRoadGraph, findRoadRoute, roadGraphReady, roadNodeById } =
+  await import("../web/src/game/roadgraph.js");
 
 async function readJson(url) {
   try {
@@ -123,15 +122,34 @@ assert.equal(siegeAttacker._engagement.countdown, 11);
 const contactedCity = siegeSc.cities[siegeAttacker._engagement.target.cityIdx];
 assert.ok(contactedCity);
 assert.equal(contactedCity.x, siegeSc.cities[contactedCity.idx].x);
-assert.equal(
-  contactedCity.x,
-  siegeAttacker._march.points[siegeAttacker._march.pointIndex].x,
+assert.notDeepEqual(
+  { x: contactedCity.x, y: contactedCity.y },
+  { x: siegeAttacker.x, y: siegeAttacker.y },
+  "0x2880在城前最后道路点触发，不要求军团先踏入据点中心",
 );
 assert.equal(
-  contactedCity.y,
-  siegeAttacker._march.points[siegeAttacker._march.pointIndex].y,
+  siegeAttacker._march.pointIndex,
+  siegeAttacker._march.points.length,
+  "攻城接触发生在E717边内点列耗尽后、0x27A2切节点之前",
 );
 assert.notEqual(contactedCity.faction, siegeAttacker.faction);
+
+// 攻城倒计时位于“边点已耗尽、尚未切入端点节点”的状态；每轮必须
+// 通过0x2880端点重检继续递减，而不能清掉后反复重建为12。
+{
+  const beforeCountdown = siegeAttacker._engagement.countdown;
+  aiTick({
+    scenario: siegeSc,
+    battleView: { active: false },
+    originalRng: { nextByte: () => 0xff },
+    hud: { flashEvent() {} },
+  });
+  assert.equal(
+    siegeAttacker._engagement.countdown,
+    beforeCountdown - 1,
+    "城前攻城接触必须持续并推进倒计时",
+  );
+}
 
 // 0x2662没有“见到相邻敌军便主动走出据点”的军团级威胁分支。没有
 // +0x14目标的委任守军必须留在城市中心，等待攻方经0x2880进入攻城。
@@ -162,8 +180,8 @@ assert.deepEqual(
   "无目标委任守军不得主动走出据点迎击相邻敌军",
 );
 
-// 攻方下一道路点是驻有敌军的据点中心时，0x2831必须先进入野战接触，
-// 而非跳过接触直接调用0x2880/0x4ADE攻城胜负判定。
+// E717边点列不含据点中心：无目标驻城军团不能被0x2831误判为野战，
+// 应由城前端点的0x2880→0x4ADE→0x4C72作为真实守军进入攻城。
 const cityOccupantSc = scenarioWithTestLegions();
 const cityOccupantAttacker = cityOccupantSc.legions[0];
 const cityOccupantDefender = cityOccupantSc.legions.find(
@@ -207,7 +225,9 @@ cityOccupantAttacker.status &= ~0x20;
 let cityOccupantResult = "moved";
 for (
   let guard = 0;
-  guard < cityOccupantRoute.points.length + 4 && cityOccupantResult === "moved";
+  guard <
+    cityOccupantRoute.points.length + cityOccupantRoute.edges.length + 4 &&
+  cityOccupantResult === "moved";
   guard++
 ) {
   cityOccupantResult = stepTo(
@@ -220,8 +240,8 @@ for (
 assert.equal(cityOccupantResult, "contact");
 assert.equal(
   cityOccupantAttacker._engagement.kind,
-  "field",
-  "据点中心真实驻军必须由0x2831军团优先检测触发野战",
+  "siege",
+  "据点中心真实驻军必须由0x2880触发攻城，不得送入道路野战",
 );
 assert.equal(cityOccupantAttacker._engagement.countdown, 11);
 
@@ -272,7 +292,7 @@ const gatedApp = {
   playDelegatedEngage(_legion, finish) {
     if (active) return false;
     active = true;
-    void finish;
+    finish();
     transitions++;
     return true;
   },
@@ -280,11 +300,17 @@ const gatedApp = {
   hud: { flashEvent() {} },
 };
 aiTick(gatedApp);
-assert.equal(transitions, 1);
-assert.deepEqual(second._engagement.target, { cityIdx: city2.idx });
-active = false; // 此fixture只验证gate调度；结算逻辑由autobattle verify覆盖。
-aiTick(gatedApp);
-assert.equal(transitions, 2);
+assert.equal(
+  transitions,
+  1,
+  "边点耗尽后的有效端点攻城必须取得transition gate并结算",
+);
+assert.deepEqual(
+  second._engagement.target,
+  { cityIdx: city2.idx },
+  "首场取得gate后必须立即返回，第二场接战状态原样保留",
+);
+active = false;
 
 // 0x25CC/0x2831：倒计时每轮重检；替换第三势力且停战仍保留timer并换目标。
 const raceSc = scenarioWithTestLegions();
@@ -408,7 +434,11 @@ finalCity.faction = third;
 finalSc.diplomacy[finalA.faction][third] = 0xff;
 const oldStride = finalA._march.stride;
 assert.equal(stepTo(finalSc, finalA, finalCity.x, finalCity.y), "reversed");
-assert.equal(finalA._march.stride, -oldStride);
+assert.equal(
+  finalA._march.stride,
+  oldStride,
+  "0x42AB已在进入0x2880端点分支前完成反向；失效接战重检不得二次反转",
+);
 assert.equal(
   finalA.target,
   finalCity,
@@ -434,7 +464,7 @@ for (let faction = 0; faction < multiSc.diplomacy.length; faction++)
 multiA.target = multiTarget;
 assert.equal(stepTo(multiSc, multiA, multiTarget.x, multiTarget.y), "moved");
 const intermediateNode = multiA._march.toNode;
-const intermediatePoint = multiRoute.legs[0].points.at(-1);
+const intermediatePoint = roadNodeById(intermediateNode);
 const intermediate = multiSc.cities.find(
   (city) => city.x === intermediatePoint.x && city.y === intermediatePoint.y,
 ) ?? {

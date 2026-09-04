@@ -28,9 +28,8 @@ globalThis.fetch = async (url) => {
   };
 };
 
-const { aiTick, resolveBattle, resolveFieldBattle } = await import(
-  "../web/src/game/ai.js"
-);
+const { aiTick, applyBattleResult, resolveBattle, resolveFieldBattle } =
+  await import("../web/src/game/ai.js");
 const { setLegionDelegated } = await import("../web/src/game/legionmode.js");
 const { resolveStrategicBattle } = await import(
   "../web/src/game/autobattle.js"
@@ -216,6 +215,268 @@ const assertSide = (actual, expected, label) => {
   assert.equal(city.faction, 0, "程昱守城胜后据点不得易主");
   assert.ok(D.troops < 600, "真实主守军必须收到0x5130六队战果回写");
   assert.notEqual(A.commandState, 8, "败退攻方不得被误写成守城胜军");
+  assert.ok(
+    A._retreat || A._active === false || A.dead,
+    "攻城失败方必须撤向首都方向或经0x291A离场",
+  );
+  assert.ok(
+    A._active === false || A.target,
+    "仍存活的攻城失败方必须保留撤退目标，不能变成无目标圆点",
+  );
+}
+
+// 人工构造道路点野战：仅用于验证0x4A7B胜方保留进攻目标并在后续
+// 独立0x4ADE中占城。真实驻城军团位于节点中心，不走此入口。
+{
+  const sc = makeScenario(0);
+  sc.generals = [
+    general(0, "强攻", 1, {
+      force: 15,
+      lead: 15,
+      field: 15,
+      siege: 1,
+      naval: 0,
+    }),
+    general(1, "弱守", 0, {
+      force: 1,
+      lead: 1,
+      field: 1,
+      siege: 15,
+      naval: 0,
+    }),
+  ];
+  const city = sc.cities[0];
+  city.faction = 0;
+  const A = legion("强攻", 1, city.x - 2, city.y);
+  A.generalIdx = 0;
+  A.slot = 0;
+  A.target = city;
+  A.targetCity = city.idx;
+  A.targetNode = 0;
+  A._march = {
+    targetX: city.x,
+    targetY: city.y,
+    targetNode: 0,
+    currentNode: 2,
+    edgeId: 0,
+    stride: -4,
+    toNode: 0,
+    points: [{ x: city.x - 1, y: city.y }],
+    pointIndex: 0,
+  };
+  A._path = [{ x: city.x - 1, y: city.y }];
+  A._engagement = {
+    kind: "field",
+    countdown: 1,
+    target: { x: city.x - 1, y: city.y, faction: 0 },
+  };
+  const D = legion("弱守", 0, city.x - 1, city.y);
+  D.generalIdx = 1;
+  D.slot = 1;
+  D.units = D.units.map((unit) => ({ ...unit, troops: 1000 }));
+  D.troops = 600;
+  D.morale = 200;
+  setLegionDelegated(D, true);
+  sc.legions = [A, D];
+  const app = makeApp(sc, { nextByte: () => 0xff });
+  aiTick(app, { runCityDaily: false, settleDaily: false });
+  assert.equal(city.faction, 0, "野战本身不得交换据点归属");
+  assert.equal(A.target, city, "野战胜方必须保留原攻城目标");
+  assert.equal(A.x, city.x - 1, "另一军团槽可推进胜方一步，但不得直接换城");
+  assert.equal(A._engagement, null, "野战结束后旧道路接战必须清除");
+  assert.equal(city.faction, 0, "道路野战后据点仍不得提前易主");
+  for (let step = 0; step < 16 && city.faction === 0; step++) {
+    A.cooldown = 0;
+    if (A._engagement) A._engagement.countdown = 1;
+    aiTick(app, { runCityDaily: false, settleDaily: false });
+  }
+  assert.equal(city.faction, 1, "后续独立攻城胜利才允许据点易主");
+  assert.equal(A.x, city.x);
+  assert.equal(A.y, city.y);
+  assert.equal(A.target, city, "破城胜军必须绑定新占据的据点中心");
+  assert.equal(A.targetCity, city.idx);
+}
+
+// 真实aiTick接敌链必须在战果结算前保留_march，且同步速算返回后不能
+// 再用旧攻击目标覆盖0x474A写入的撤退目标。该组合是现场“总是歼灭/
+// 战后小圆点”的直接回归路径，孤立调用resolveBattle覆盖不到。
+{
+  const sc = makeScenario(0);
+  sc.generals = [
+    general(0, "呂布", 1, {
+      force: 3,
+      lead: 3,
+      field: 1,
+      siege: 1,
+      naval: 0,
+    }),
+    general(1, "程昱", 0, {
+      force: 15,
+      lead: 15,
+      field: 10,
+      siege: 15,
+      naval: 0,
+    }),
+  ];
+  const city = sc.cities[0];
+  city.faction = 0;
+  city.troops = 89;
+  const A = legion("呂布", 1, 255, 9);
+  A.generalIdx = 0;
+  A.slot = 0;
+  A.status = 0xc4;
+  A.target = city;
+  A.targetNode = 0;
+  A.cooldown = 0;
+  A._march = {
+    targetX: city.x,
+    targetY: city.y,
+    targetNode: 0,
+    currentNode: 2,
+    edgeId: 0,
+    stride: -4,
+    toNode: 0,
+    points: [{ x: city.x, y: city.y }],
+    pointIndex: 0,
+  };
+  A._path = [{ x: city.x, y: city.y }];
+  A._engagement = {
+    kind: "siege",
+    countdown: 1,
+    target: { cityIdx: city.idx },
+  };
+  const D = legion("程昱", 0, city.x, city.y);
+  D.generalIdx = 1;
+  D.slot = 1;
+  D.status = 0xc4;
+  sc.legions = [A, D];
+  let cursor = 0;
+  const app = makeApp(sc, {
+    nextByte: () => [0, ...Array(12).fill(0)][cursor++] ?? 0,
+  });
+  aiTick(app, { runCityDaily: false, settleDaily: false });
+  assert.equal(A.dead, undefined, "有原版有效退路的败军不得错误进入0x291A");
+  assert.ok(A._retreat, "边内接敌上下文必须传递给0x487B");
+  assert.notEqual(A.target, city, "败军不得继续保留旧攻击城目标");
+  assert.ok(A.target, "同步战果返回后不得清空新撤退目标");
+  assert.equal(A.targetCity, A.target.idx, "撤退目标必须同步原版+0x20城索引");
+  assert.equal(A._engagement, null, "战果结算必须清除旧接敌状态");
+  assert.ok(D.morale > 0, "守方胜军士气必须保留0x51B3权威回写值");
+  const defenderMorale = D.morale;
+  aiTick(app, { runCityDaily: false, settleDaily: true });
+  assert.ok(
+    D.morale > defenderMorale,
+    "守方胜军留在节点时必须继续由0x2600恢复士气",
+  );
+}
+
+// 接战发生在保存边点列的当前/下一点时，0x487B必须按战果坐标定位，
+// 不能固定使用pointIndex-1退回前一格后误判无路、直接0x291A。
+{
+  const sc = makeScenario(0);
+  sc.generals = [
+    general(0, "弱攻", 1, { force: 1, lead: 1, siege: 1 }),
+    general(1, "强守", 0, { force: 15, lead: 15, siege: 15 }),
+  ];
+  const city = sc.cities[0];
+  sc.cities[2].faction = 1;
+  const A = legion("弱攻", 1, 255, 9);
+  A.generalIdx = 0;
+  A.slot = 0;
+  A.status = 0xc4;
+  A.target = city;
+  A.targetNode = 0;
+  A._march = {
+    targetX: city.x,
+    targetY: city.y,
+    targetNode: 0,
+    currentNode: 2,
+    edgeId: 0,
+    stride: -4,
+    toNode: 0,
+    points: [
+      { x: 255, y: 9 },
+      { x: 254, y: 9 },
+      { x: 253, y: 9 },
+      { x: 252, y: 9 },
+      { x: 251, y: 9 },
+      { x: 250, y: 9 },
+      { x: 250, y: 10 },
+      { x: 250, y: 11 },
+      { x: 250, y: 12 },
+      { x: 250, y: 13 },
+      { x: 249, y: 13 },
+      { x: 248, y: 13 },
+      { x: 247, y: 13 },
+      { x: 246, y: 13 },
+      { x: 246, y: 14 },
+    ],
+    pointIndex: 15,
+  };
+  A._engagement = {
+    kind: "siege",
+    countdown: 1,
+    target: { cityIdx: city.idx },
+  };
+  setLegionDelegated(A, true);
+  A.x = 255;
+  A.y = 9;
+  A.prevX = A.x;
+  A.prevY = A.y;
+  const D = legion("强守", 0, city.x, city.y);
+  D.generalIdx = 1;
+  D.slot = 1;
+  sc.legions = [A, D];
+  let cursor = 0;
+  const app = makeApp(sc, {
+    nextByte: () => [0, ...Array(12).fill(0)][cursor++] ?? 0,
+  });
+  aiTick(app, {
+    runCityDaily: false,
+    settleDaily: false,
+    legionBatchStart: 0,
+  });
+  assert.equal(
+    A._engagement?.kind,
+    "siege",
+    "城前端点攻城必须在pointIndex==points.length时持续重检",
+  );
+  // 直接完成倒计时，验证后续0x474A撤退；不能再依赖旧fixture中把
+  // 据点中心伪装成边点的状态。
+  A._engagement.countdown = 1;
+  applyBattleResult(
+    app,
+    A,
+    city,
+    "def",
+    500,
+    [80, 80, 80, 80, 80, 80],
+    city.troops,
+    null,
+    D,
+    500,
+    [80, 80, 80, 80, 80, 80],
+  );
+  assert.equal(A.dead, undefined, "接触点索引不得导致有路败军被清退");
+  assert.ok(A._retreat, "战果坐标应恢复首都方向的有效撤退端点");
+  assert.equal(A.target?.idx, 2, "省略节点格的边点列必须恢复己方端点");
+  assert.ok(A.target, "战败存活军团必须保留撤退目标");
+  assert.ok(A._march, "边内战败必须把0x487B点列恢复为活动撤退导航");
+  assert.notDeepEqual(
+    A._march.points.at(-1),
+    { x: A.target.x, y: A.target.y },
+    "0x487B只写目标字段，撤退边点列不得提前混入端点节点中心",
+  );
+  const battleX = A.x;
+  const battleY = A.y;
+  A.cooldown = 0;
+  aiTick(app, { runCityDaily: false, settleDaily: false });
+  assert.notDeepEqual(
+    [A.x, A.y],
+    [battleX, battleY],
+    "败军冷却结束后必须沿当前边退走，不能卡在据点前",
+  );
+  assert.ok(A._retreat, "尚未抵达己方端点时不得提前清除撤退状态");
 }
 
 // 玩家攻方：status bit2决定战术/速算；无真实守军一律速算。

@@ -26,7 +26,9 @@ const {
   createCityGarrison,
   resolveStrategicBattle,
 } = await import("../web/src/game/autobattle.js");
-const { applyBattleResult } = await import("../web/src/game/ai.js");
+const { applyBattleResult, updateFactionAfterCityCapture } = await import(
+  "../web/src/game/ai.js"
+);
 const { OriginalBattleRng } = await import(
   "../web/src/game/battle/originalrng.js"
 );
@@ -96,6 +98,40 @@ const makeScenario = () => {
     },
   };
 };
+
+{
+  const sc = makeScenario();
+  sc.cities = [
+    {
+      ...city(0, 0, 10, 10),
+      type: 8,
+      prod: 10,
+    },
+    {
+      ...city(1, 0, 20, 20),
+      type: 9,
+      prod: 20,
+    },
+    {
+      ...city(2, 1, 30, 30),
+      type: 7,
+      prod: 30,
+    },
+    {
+      ...city(3, 1, 40, 40),
+      type: 6,
+      prod: 40,
+    },
+  ];
+  sc.factions[1].capital = 0;
+  const capital = updateFactionAfterCityCapture(sc, 1);
+  assert.equal(capital.idx, 3);
+  assert.equal(
+    sc.factions[1].capital,
+    3,
+    "0x4DF0必须按0x6A3D重选首都，而不是退化为最低idx据点",
+  );
+}
 
 {
   const target = city(9, 1, 50, 50, 121);
@@ -189,6 +225,17 @@ const makeScenario = () => {
   );
   assert.equal(attacker.troops, 480);
   assert.equal(attacker.commandState, 8);
+  assert.equal(attacker.x, target.x);
+  assert.equal(attacker.y, target.y);
+  assert.equal(attacker.prevX, target.x);
+  assert.equal(attacker.prevY, target.y);
+  assert.equal(attacker.target, target, "破城胜军必须绑定新占据的据点中心");
+  assert.equal(attacker.targetCity, target.idx);
+  assert.equal(
+    attacker.targetNode,
+    null,
+    "非真实道路节点的测试坐标不伪造节点号",
+  );
   assert.ok(defenderA._retreat);
   assert.ok(defenderB._retreat);
   assert.equal(defenderA.target.idx, defenderB.target.idx);

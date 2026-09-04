@@ -43,6 +43,8 @@ import {
   TACTICAL_SPEED_FACTORS,
   TACTICAL_SPEED_LABELS,
 } from "../game/tacticalclock.js";
+
+const LIST_HEADER_HEIGHT = 24;
 import {
   enqueueDelayedStrategicEvent,
   resolveIncomingDiplomacyChoice,
@@ -321,7 +323,7 @@ export class GameBar {
       d.py = Math.max(minY, Math.round((innerHeight - d.h) / 2));
     } else d.py = d.y;
     d.titleH = d.titleBar ? 20 : 0;
-    d.headerH = d.header.length ? 16 : 0;
+    d.headerH = d.header.length ? LIST_HEADER_HEIGHT : 0;
     d.top = d.titleH + d.headerH;
     d.cap = Math.max(1, Math.floor((d.h - d.top) / d.rowH));
     if (d.footer) {
@@ -399,16 +401,16 @@ export class GameBar {
     const hw = hasScrollbar ? w - 18 : w;
     if (header.length) {
       ctx.fillStyle = "#000000";
-      ctx.fillRect(hx, py + titleH, hw, 16);
+      ctx.fillRect(hx, py + titleH, hw, d.headerH);
       ctx.font = FONT;
-      ctx.textBaseline = "top";
+      ctx.textBaseline = "middle";
       ctx.fillStyle = "#ffffff";
       header.forEach((t, c) => {
         const col = cols[c];
         if (!col) return;
         if (d.sortable && d.headerHover === c) {
           ctx.fillStyle = "#4a7828";
-          ctx.fillRect(px + col.x, py + titleH, col.w, 16);
+          ctx.fillRect(px + col.x, py + titleH, col.w, d.headerH);
         }
         const sortMark =
           d.sortColumn === c ? (d.sortDirection > 0 ? "▲" : "▼") : "";
@@ -416,12 +418,20 @@ export class GameBar {
         ctx.fillStyle = "#ffffff";
         if (col.align === "right") {
           const tw2 = ctx.measureText(label).width;
-          ctx.fillText(label, px + col.x + col.w - tw2, py + titleH + 1);
+          ctx.fillText(
+            label,
+            px + col.x + col.w - tw2,
+            py + titleH + d.headerH / 2,
+          );
         } else if (col.align === "center") {
           const tw2 = ctx.measureText(label).width;
-          ctx.fillText(label, px + col.x + (col.w - tw2) / 2, py + titleH + 1);
+          ctx.fillText(
+            label,
+            px + col.x + (col.w - tw2) / 2,
+            py + titleH + d.headerH / 2,
+          );
         } else {
-          ctx.fillText(label, px + col.x, py + titleH + 1);
+          ctx.fillText(label, px + col.x, py + titleH + d.headerH / 2);
         }
       });
     }
@@ -598,7 +608,7 @@ export class GameBar {
     this.app.view.draw();
   }
 
-  /** 驻军据点点击后的选择菜单：據點 / 軍團 (原版 7×3 tiles 垂直下拉) */
+  /** 驻军据点点击后的选择菜单：与行军目标指示菜单同为24px行高。 */
   showGarrisonChoice(city, legion) {
     // 关闭可能冲突的弹窗
     this.closeCityCard();
@@ -610,9 +620,9 @@ export class GameBar {
       city,
       legion,
       w: 96,
-      h: 32,
+      h: 48,
       wTiles: 7,
-      hTiles: 3,
+      hTiles: 4,
       items: ["據點", "軍團"],
       hover: -1,
     };
@@ -641,7 +651,7 @@ export class GameBar {
     const [wxp, wyp] = view.cityPixel(d.city);
     const sx = view.sx(wxp);
     const sy = view.sy(wyp);
-    // 面板位于城市中心偏右下 (112x48 外框，96x32 内区)
+    // 面板位于城市中心偏右下（112×64外框，96×48内区）。
     const w = d.wTiles * 16;
     const h = d.hTiles * 16;
     d.ox = Math.max(8, Math.min(innerWidth - w - 8, sx - 16));
@@ -656,7 +666,7 @@ export class GameBar {
     this._recalcChoice();
     const { px: x, py: y, w, h, items } = d;
     if (px >= x && px < x + w && py >= y && py < y + h) {
-      const rowH = 16;
+      const rowH = h / items.length;
       const i = Math.floor((py - y) / rowH);
       return i >= 0 && i < items.length ? i : -1;
     }
@@ -692,7 +702,8 @@ export class GameBar {
     const x = win ? win.x : ox + 8;
     const y = win ? win.y : oy + 8;
     const w = win ? win.w : (wTiles - 1) * 16;
-    const rowH = 16;
+    const h = win ? win.h : (hTiles - 1) * 16;
+    const rowH = h / items.length;
     ctx.font = FONT;
     ctx.textBaseline = "top";
 
@@ -706,9 +717,9 @@ export class GameBar {
       } else {
         ctx.fillStyle = "#ffffff";
       }
-      // 據 點 / 軍 團 原版对称间距 (x+16, x+64)
-      ctx.fillText(item[0], x + 16, iy + 1);
-      ctx.fillText(item[1], x + 64, iy + 1);
+      const label = `${item[0]}　${item[1]}`;
+      const tw = ctx.measureText(label).width;
+      ctx.fillText(label, x + (w - tw) / 2, iy + (rowH - 16) / 2 + 1);
     });
   }
 
@@ -1047,7 +1058,7 @@ export class GameBar {
           [wxp, wyp] = view.cityPixel(curCity);
           view.selectedCity = null;
         } else {
-          const t = this.app.clock?.dayProgress ?? 1;
+          const t = this.app.clock?.dayProgress?.() ?? 1;
           const pos = view.getLegionRenderPos(L, t);
           wxp = pos.wxp;
           wyp = pos.wyp;
@@ -5639,7 +5650,7 @@ export class GameBar {
     );
   }
 
-  /** 每帧同步：模态窗口/激活军师子菜单，或地图鼠标活动后的1秒内均冻结计时。 */
+  /** 每帧同步：战斗/过渡、模态窗口、军师子菜单或地图鼠标活动均冻结战略计时。 */
   syncClock() {
     const c = this.app.clock;
     if (!c) return;
@@ -5669,8 +5680,15 @@ export class GameBar {
         this._strategicMessageActive
       );
     const subActive = this.selectedSubmenu != null;
+    const battleActive = Boolean(
+      this.app.battleView?.active || this.app.engageTransition?.active,
+    );
     c.hold =
-      this._clockHoldRequested || modalOpen || subActive || mapMouseActive;
+      battleActive ||
+      this._clockHoldRequested ||
+      modalOpen ||
+      subActive ||
+      mapMouseActive;
   }
 
   pokeClock() {
@@ -6750,7 +6768,7 @@ export class GameBar {
     const { x, y, wTiles, hTiles } = this._settingsRect();
     const inner = this._drawWindow(ctx, x, y, wTiles, hTiles, "cloud");
 
-    // 标题：系　統　選　單
+    // 标题：系 統 選 單（实际绘制字符串保留原版全角间隔）
     ctx.font = FONT;
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#ffffff";

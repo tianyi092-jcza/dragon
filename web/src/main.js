@@ -69,6 +69,12 @@ const app = {
   _gameAssetsPromise: null,
   _saveQueue: Promise.resolve(),
 
+  /** 用户手势内解锁AudioContext并开始解码委任接战样本。 */
+  prepareEngageAudio() {
+    speaker.unlockSfx();
+    return speaker.prepareEngageSfx();
+  },
+
   /** 标题选单只加载背景和菜单数据；确认新局/存档后才载入地图与战斗资源。 */
   async ensureGameAssets() {
     if (!this._gameAssetsPromise) {
@@ -78,6 +84,8 @@ const app = {
         loadJSON("battle_rules.json"),
         loadJSON("battle_scripts.json"),
         loadJSON("talk.json"),
+        speaker.preloadEngageSfx(),
+        preloadEngageMarkerImages(() => this.view?.draw?.()),
       ]).then(
         ([
           battleMaps,
@@ -162,7 +170,7 @@ const app = {
       {
         prepare: () =>
           Promise.all([
-            speaker.preloadEngageSfx(),
+            speaker.prepareEngageSfx(),
             preloadEngageMarkerImages(() => this.view?.draw?.()),
           ]),
         onFrame: () => {
@@ -381,6 +389,7 @@ const app = {
         this.scenario._legionBatchCursor = (batchStart + 16) % 128;
         this.scenario._cityTickCursor = (cityCursor + 1) % 192;
       },
+      onSyncHold: () => this.gamebar?.syncClock?.(),
       onHour: () => {
         // 0x1D8E 仅在CF2达到8时调用一次0x3E11：先泵一个全局事件槽，
         // 再对当前势力做财政危机、预备兵维护累计和外交官维护。
@@ -415,8 +424,6 @@ const app = {
       0,
       Math.min(23, Number(this.scenario.save_hour) || 0),
     );
-    if (this.gamebar) {
-    }
     if (this.hud) {
       this.hud.buildLegend();
       this.hud.refreshInfo();

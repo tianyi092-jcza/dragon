@@ -87,7 +87,7 @@ assert.equal(A.dead, undefined);
 assert.equal(D.dead, undefined);
 assert.equal(app.scenario.prisoners.length, 0);
 assert.equal(A.cooldown, 8);
-assert.equal(D.cooldown, 12);
+assert.equal(D.cooldown, 0);
 assert.equal(A.commandState, 8);
 assert.equal(D.commandState, 10);
 assert.equal(D.target.idx, 1);

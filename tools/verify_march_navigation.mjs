@@ -10,7 +10,8 @@ try {
   throw new Error("cannot load generated road graph", { cause: error });
 }
 globalThis.fetch = async (url) => {
-  if (String(url).endsWith("road_graph.json")) {
+  const resource = String(url);
+  if (resource.endsWith("road_graph.json")) {
     return { ok: true, json: async () => graph };
   }
   return {
@@ -139,9 +140,7 @@ assert.equal(restoredEdgeLegion.morale, 110, "抵达节点后恢复士气");
 const edge = graph.edges[firstLeg.edgeId];
 for (const stride of [4, -4]) {
   const points =
-    stride === 4
-      ? [...edge.points, graph.nodes[edge.target]]
-      : edge.points.toReversed().concat(graph.nodes[edge.source]);
+    stride === 4 ? edge.points : edge.points.toReversed();
   const interiorPointIndex = Math.max(
     1,
     Math.min(points.length - 1, Math.floor(points.length / 2)),
@@ -171,6 +170,29 @@ for (const stride of [4, -4]) {
     restored.points[interiorPointIndex],
     points[interiorPointIndex],
   );
+
+  // 城前最后边点已经消费时，pointIndex==points.length仍是合法上下文；
+  // 读档后必须保留toNode供0x2880攻城重检，不能退回节点重寻路。
+  const exhausted = {
+    edgeId: edge.id,
+    stride,
+    points,
+    pointIndex: points.length,
+  };
+  const exhaustedRaw = serializeRoadMarchContext(exhausted);
+  const exhaustedCurrent = points.at(-1);
+  const exhaustedRestored = restoreRoadMarchContext({
+    x: exhaustedCurrent.x,
+    y: exhaustedCurrent.y,
+    targetX: target.x,
+    targetY: target.y,
+    targetNode: target.id,
+    stride: exhaustedRaw.stride,
+    pointAddress: exhaustedRaw.pointAddress,
+    edgeOrNode: exhaustedRaw.edgeOrNode,
+  });
+  assert.ok(exhaustedRestored, `restores exhausted stride ${stride}`);
+  assert.equal(exhaustedRestored.pointIndex, exhaustedRestored.points.length);
 }
 
 const targetCity = {
@@ -266,6 +288,10 @@ for (
   }
 }
 
+const expectedTraversal = expected.legs.flatMap((leg) => [
+  ...leg.points,
+  (({ x, y }) => ({ x, y }))(graph.nodes[leg.toNode]),
+]);
 assert.deepEqual(
   visited.filter(
     (point, index) =>
@@ -273,7 +299,7 @@ assert.deepEqual(
       point.x !== visited[index - 1].x ||
       point.y !== visited[index - 1].y,
   ),
-  expected.points,
+  expectedTraversal,
 );
 assert.equal(legion.x, target.x);
 assert.equal(legion.y, target.y);
@@ -684,16 +710,146 @@ assert.equal(
 );
 renderView.app.clock.strategicTickSerial = 8;
 const quarterPos = renderView.getLegionRenderPos(renderLegion, 0.25);
-assert.equal(quarterPos.curT, 0.25, "道路单步仅在产生它的战略tick内平滑插值");
+assert.equal(quarterPos.curT, 0.25, "战略tick提交后按墙钟进度连续完成道路单步");
 assert.equal(
   quarterPos.wxp,
   (source.x + 0.25) * 16 + 8,
-  "军团标识沿逻辑道路格中心线行走，不叠加tile视觉质心横移",
+  "水平道路不添加切向横移",
 );
 assert.equal(
   quarterPos.wyp,
-  source.y * 16 + 8,
-  "水平道路上的军团标识保持道路逻辑中线",
+  source.y * 16 + 11,
+  "水平道路按连续截图夹逼向下补偿3px",
+);
+const verticalLegion = {
+  ...renderLegion,
+  prevX: source.x,
+  prevY: source.y,
+  x: source.x,
+  y: source.y + 1,
+};
+const verticalPos = renderView.getLegionRenderPos(verticalLegion, 0.25);
+assert.equal(verticalPos.wxp, source.x * 16 + 10, "垂直道路向右补偿2px");
+assert.equal(
+  verticalPos.wyp,
+  (source.y + 0.25) * 16 + 8,
+  "垂直道路不添加切向纵移",
+);
+const waitingRoadLegion = {
+  x: source.x,
+  y: source.y,
+  prevX: source.x,
+  prevY: source.y,
+  _path: [{ x: source.x + 1, y: source.y }],
+};
+const waitingPos = renderView.getLegionRenderPos(waitingRoadLegion, 1);
+assert.equal(waitingPos.wxp, source.x * 16 + 8, "道路等待不添加切向横移");
+assert.equal(
+  waitingPos.wyp,
+  source.y * 16 + 11,
+  "接敌/冷却等待时仍按下一道路点保持轴向补偿",
+);
+
+// 恢复的大地图虚线只能读取既有导航/道路图，不能在draw阶段写回路径缓存。
+const routeLegion = {
+  ...renderLegion,
+  faction: 0,
+  target: { x: target.x, y: target.y },
+  _path: null,
+};
+const drawCalls = [];
+const drawCtx = {
+  imageSmoothingEnabled: false,
+  fillStyle: "",
+  strokeStyle: "",
+  lineWidth: 0,
+  font: "",
+  textBaseline: "",
+  fillRect() {},
+  drawImage(...args) {
+    drawCalls.push(["image", ...args]);
+  },
+  strokeText() {},
+  fillText() {},
+  strokeRect() {},
+  setLineDash(value) {
+    drawCalls.push(["dash", [...value]]);
+  },
+  beginPath() {},
+  moveTo(x, y) {
+    drawCalls.push(["move", x, y]);
+  },
+  lineTo(x, y) {
+    drawCalls.push(["line", x, y]);
+  },
+  stroke() {
+    drawCalls.push(["stroke"]);
+  },
+  save() {},
+  restore() {},
+  roundRect() {},
+  arc() {},
+};
+const routeScenario = {
+  cities: [],
+  factions: [{ idx: 0, march_marker_style: 0 }],
+  legions: [routeLegion],
+  player_faction: 0,
+  factionOf() {
+    return null;
+  },
+};
+globalThis.innerWidth = 1280;
+globalThis.innerHeight = 720;
+globalThis.Image = class {
+  set src(_value) {
+    this.onload?.();
+  }
+};
+const routeView = new MapView(
+  { width: 0, height: 0, getContext: () => drawCtx },
+  () => routeScenario,
+);
+routeView.cam.x = -(routeLegion.x * 16 - 100);
+routeView.cam.y = -(routeLegion.y * 16 - 100);
+routeView.app = {
+  gameStarted: true,
+  clock: { strategicTickSerial: 8, dayProgress: () => 0.25 },
+};
+routeView.draw();
+assert.deepEqual(routeLegion._path, null, "路线虚线绘制不得回写军团_path");
+assert.ok(
+  drawCalls.some(([kind, value]) => kind === "dash" && value.length === 2),
+  "行军目标存在时必须绘制道路路线虚线",
+);
+assert.ok(
+  drawCalls.some(([kind]) => kind === "line"),
+  "路线虚线必须沿道路点列产生线段",
+);
+
+// 活动军团在节点等待下一命令时也必须使用MMAP.MCH驻止帧；不得退化为
+// 4px小圆点，否则会把战后目标/状态问题误表现成坐标异常。
+const stationaryLegion = {
+  faction: 0,
+  x: source.x,
+  y: source.y,
+  prevX: source.x,
+  prevY: source.y,
+  _active: true,
+  target: null,
+};
+routeScenario.legions = [stationaryLegion];
+const imagesBefore = drawCalls.filter(([kind]) => kind === "image").length;
+routeView.draw();
+assert.ok(
+  drawCalls.filter(([kind]) => kind === "image").length > imagesBefore,
+  "无目标活动军团必须绘制驻止标识，不得绘制小圆点",
+);
+const stationaryPos = routeView.getLegionRenderPos(stationaryLegion, 1);
+assert.equal(
+  routeView.pick(stationaryPos.sx, stationaryPos.sy)?.legion,
+  stationaryLegion,
+  "地图上独立显示的无目标/冷却军团也必须可以点击查看",
 );
 
 process.stdout.write(

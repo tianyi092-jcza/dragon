@@ -23,7 +23,41 @@ assert.match(source, /ynsound-id3\.wav/);
 assert.match(
   source,
   /export function preloadEngageSfx\(\) \{\s*return loadEngageBuffer\(\);\s*\}/,
-  "transition prepare must await decoded ID3 before emitting the first frame",
+  "ID3 asset must remain explicitly preloadable",
+);
+assert.match(
+  source,
+  /export async function prepareEngageSfx\(\)[\s\S]*await loadEngageBuffer\(\)[\s\S]*await actx\.resume\(\)/,
+  "transition prepare must decode ID3 and resume AudioContext before frame 0",
+);
+const mainSource = await fs.readFile(
+  new URL("../web/src/main.js", import.meta.url),
+  "utf8",
+);
+assert.match(
+  mainSource,
+  /prepareEngageAudio\(\)\s*\{[\s\S]*speaker\.unlockSfx\(\)[\s\S]*speaker\.prepareEngageSfx\(\)/,
+  "title input must unlock and cache the engage sample during a user gesture",
+);
+assert.match(
+  mainSource,
+  /ensureGameAssets\(\)[\s\S]*speaker\.preloadEngageSfx\(\)[\s\S]*preloadEngageMarkerImages/,
+  "game loading must cache both audio and all four engage frames",
+);
+assert.match(
+  mainSource,
+  /prepare:\s*\(\)\s*=>[\s\S]*speaker\.prepareEngageSfx\(\)/,
+  "delegated transition must await the audio-ready prepare path",
+);
+assert.match(
+  source,
+  /export function engageSfx\(\)[\s\S]*actx\.state !== "running"[\s\S]*source\.start\(actx\.currentTime\)/,
+  "each animation frame must synchronously start an already-cached sample",
+);
+assert.doesNotMatch(
+  source,
+  /export async function engageSfx\(\)/,
+  "frame-synchronous engage playback must not await loading or resume",
 );
 assert.doesNotMatch(
   source,

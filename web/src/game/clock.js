@@ -31,6 +31,7 @@ export class Clock {
     startMonth,
     startDay = 1,
     onStrategicTick = null,
+    onSyncHold = null,
     onHour = null,
     onDay = null,
     onMonthEnd = null,
@@ -54,6 +55,7 @@ export class Clock {
     this._pendingStrategicAdvance = false;
 
     this.onStrategicTick = onStrategicTick;
+    this.onSyncHold = onSyncHold;
     this.onHour = onHour;
     this.onDay = onDay;
     this.onMonthEnd = onMonthEnd;
@@ -116,6 +118,10 @@ export class Clock {
       this._acc -= step;
       this._tick();
       ticked = true;
+      // onStrategicTick内可能刚建立战术层/委任过渡；不要依赖下一帧的
+      // GameBar.syncClock才写hold，否则高速档同一RAF的catch-up循环会继续
+      // 推进战略时间，且过渡动画自身没有获得重绘/冻结边界。
+      this.onSyncHold?.();
       // onDay 可能打开战术层或委任过渡；立即终止本次大 dt 的追赶循环。
       if (this.hold || this._legacyPaused) {
         this._acc = 0;

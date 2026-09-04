@@ -112,8 +112,12 @@ export class BattleView {
     this.prevClockState = {
       strategicSpeed: this.app.clock.strategicSpeed,
       legacyPaused: this.app.clock._legacyPaused,
+      hold: this.app.clock.hold,
     };
-    this.app.clock._legacyPaused = true; // ★战术时间接管 (原版战略/战术速度分离)
+    // 战术时间接管：同时置hold与旧暂停位。主循环每帧会调用GameBar.syncClock，
+    // 其battleActive门控必须保持hold，不能把这里只写一次的暂停状态覆盖掉。
+    this.app.clock.hold = true;
+    this.app.clock._legacyPaused = true;
     this.cv.style.display = "block";
     document.querySelector("#bctl").style.display = "none";
     document.querySelector("#btitle").textContent = battle.title;
@@ -132,6 +136,7 @@ export class BattleView {
       this.cv.style.display = "none";
       document.querySelector("#bctl").style.display = "none";
       this.app.clock._legacyPaused = this.prevClockState.legacyPaused;
+      this.app.clock.hold = this.prevClockState.hold;
       throw error;
     }
     this.startBattleScript();
@@ -206,6 +211,7 @@ export class BattleView {
     if (this.prevClockState) {
       this.app.clock.strategicSpeed = this.prevClockState.strategicSpeed;
       this.app.clock._legacyPaused = this.prevClockState.legacyPaused;
+      this.app.clock.hold = this.prevClockState.hold;
       this.prevClockState = null;
     }
     const cb = this.onFinish;

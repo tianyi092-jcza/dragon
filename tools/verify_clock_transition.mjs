@@ -42,6 +42,28 @@ legacy.advance(legacy.currentStep * 20);
 assert.equal(legacy.hour, 0);
 assert.equal(legacy._acc, 0);
 
+// 高速档的大dt中，战略tick刚建立委任过渡后必须在同一catch-up循环
+// 同步hold；不能等下一浏览器RAF才由GameBar发现，否则日期仍继续跑。
+let transitionActive = false;
+let transitionTicks = 0;
+const transitionClock = new Clock({
+  startYear: 190,
+  startMonth: 1,
+  startDay: 1,
+  onStrategicTick() {
+    transitionTicks++;
+    transitionActive = true;
+  },
+  onSyncHold() {
+    transitionClock.hold = transitionActive;
+  },
+});
+transitionClock.strategicSpeed = 4;
+transitionClock.advance(transitionClock.currentStep * 20);
+assert.equal(transitionTicks, 1, "委任过渡建立后必须立即停止高速追赶");
+assert.equal(transitionClock.sub, 1, "仅当前0x1D0B完成，后续日历追赶必须冻结");
+assert.equal(transitionClock._acc, 0);
+
 // 月末当天onDay取得hold时，同一_tick不能继续月进位或触发月结算。
 let months = 0;
 let holdMonthOnce = true;

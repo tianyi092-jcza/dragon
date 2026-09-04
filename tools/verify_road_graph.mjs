@@ -36,8 +36,16 @@ for (const edge of graph.edges) {
   // never return a route more expensive than that direct edge, and is symmetric.
   assert.ok(forward.distance <= edge.weight + 4);
   assert.equal(reverse.distance, forward.distance);
-  assert.deepEqual(forward.points.at(-1), { x: target.x, y: target.y });
-  assert.deepEqual(reverse.points.at(-1), { x: source.x, y: source.y });
+  assert.notDeepEqual(
+    forward.points.at(-1),
+    { x: target.x, y: target.y },
+    "E717边点列不得包含目标据点节点中心",
+  );
+  assert.notDeepEqual(
+    reverse.points.at(-1),
+    { x: source.x, y: source.y },
+    "E717反向边点列不得包含源据点节点中心",
+  );
 }
 
 const first = graph.nodes[0];
@@ -49,7 +57,7 @@ assert.equal(findRoadRoute(-1, -1, first.x, first.y), null);
 const last = graph.nodes.at(-1);
 const crossGraph = findRoadRoute(first.x, first.y, last.x, last.y);
 assert.ok(crossGraph?.edges.length > 0);
-assert.deepEqual(crossGraph.points.at(-1), { x: last.x, y: last.y });
+assert.notDeepEqual(crossGraph.points.at(-1), { x: last.x, y: last.y });
 
 console.log(
   `road graph OK: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ` +

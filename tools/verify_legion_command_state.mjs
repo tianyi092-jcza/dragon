@@ -181,7 +181,7 @@ function tick(sc, rng = null) {
   assert.equal(L.commandState, 1);
 }
 
-// 0x44A9：状态10锁定首都；抵达且不足600时进入9并同轮用预备兵重编到状态3。
+// 0x44A9：状态10锁定首都；抵达后无总兵门槛，直接进入9并同轮按预备兵重编到状态3。
 {
   const sc = makeScenario();
   const L = legion({ target: sc.cities[1], commandState: 10, troops: 300 });
@@ -194,8 +194,45 @@ function tick(sc, rng = null) {
   L.targetNode = 0;
   L.roadEdgeOrNode = 0;
   tick(sc);
+  assert.equal(L.commandState, 9);
+  tick(sc);
   assert.equal(L.commandState, 3);
   assert.equal(L.troops, 600);
+}
+{
+  const sc = makeScenario();
+  const L = legion({
+    target: sc.cities[0],
+    x: sc.cities[0].x,
+    y: sc.cities[0].y,
+    targetNode: 0,
+    roadEdgeOrNode: 0,
+    commandState: 10,
+    troops: 600,
+  });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 9, "状态10抵达首都不检查总兵<600");
+  tick(sc);
+  assert.equal(L.commandState, 3, "状态9在下一次槽调度执行重编");
+}
+{
+  const sc = makeScenario();
+  sc.factions[0].reserve_inf = 0;
+  sc.factions[0].reserve_cav = 0;
+  sc.factions[0].reserve_arc = 0;
+  const L = legion({
+    target: sc.cities[0],
+    x: sc.cities[0].x,
+    y: sc.cities[0].y,
+    targetNode: 0,
+    roadEdgeOrNode: 0,
+    commandState: 9,
+    troops: 600,
+  });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 3, "状态9即使无可补预备兵也无条件转状态3");
 }
 
 // 0x44D6→0x463E：状态11抵达首都后解散，六队兵归还预备池，武将回待命。

@@ -197,6 +197,55 @@ assert.ok(bar.listDialog);
 assert.match(notices.at(-1), /撤退中/);
 bar.closeListDialog(true);
 
+// 据点/军团二选一弹窗与行军目标的战斗指挥/委任弹窗统一为24px行高。
+const choiceCity = { idx: 8, x: 10, y: 10, faction: 0 };
+app.view.cityPixel = () => [160, 160];
+app.view.sx = (value) => value;
+app.view.sy = (value) => value;
+bar.showGarrisonChoice(choiceCity, retreating);
+assert.equal(bar.choiceDialog.h, 48);
+assert.equal(bar.choiceDialog.hTiles, 4);
+bar._recalcChoice();
+assert.equal(
+  bar._hitChoice(bar.choiceDialog.px + 4, bar.choiceDialog.py + 23),
+  0,
+);
+assert.equal(
+  bar._hitChoice(bar.choiceDialog.px + 4, bar.choiceDialog.py + 25),
+  1,
+);
+bar.closeChoiceDialog();
+
+// 位置确认选择道路中的军团时必须调用dayProgress()取得数值，不能把函数
+// 对象传给插值后将相机坐标污染为NaN。
+const marching = {
+  leader: "行軍",
+  faction: 0,
+  x: 2,
+  y: 2,
+  prevX: 1,
+  prevY: 2,
+  troops: 100,
+  morale: 100,
+  target: city,
+};
+app.scenario.legions = [marching];
+app.scenario.cities = [city];
+clock.dayProgress = () => 0.5;
+view.getLegionRenderPos = (_legion, t) => {
+  assert.equal(t, 0.5);
+  return { wxp: 24, wyp: 32 };
+};
+view.cam = { x: 0, y: 0 };
+view.clampCam = () => {
+  assert.equal(Number.isFinite(view.cam.x), true);
+  assert.equal(Number.isFinite(view.cam.y), true);
+};
+bar.showLegionLocate();
+bar.listDialog.onPick(0);
+assert.equal(Number.isFinite(view.cam.x), true);
+assert.equal(Number.isFinite(view.cam.y), true);
+
 // 所有有表头的Canvas列表默认支持双向排序：数字按数值、文字按繁中排序，
 // 占位虚线始终留在末尾；第二次点击同一表头反向，选择保持绑定原row。
 const sortRows = [
@@ -219,8 +268,9 @@ const d = bar.listDialog;
 d.px = 100;
 d.py = 100;
 d.titleH = 0;
-d.headerH = 16;
-d.top = 16;
+assert.equal(d.headerH, 24, "所有Canvas列表表头统一加高至24px");
+d.headerH = 24;
+d.top = 24;
 d.cap = 4;
 d.selectedRow = 0;
 assert.equal(bar.click(190, 108, 0), true);
