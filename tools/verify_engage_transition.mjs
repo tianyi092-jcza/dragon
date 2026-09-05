@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 
 const {
   ENGAGE_TRANSITION_FRAMES,
   ENGAGE_TRANSITION_FRAME_MS,
   engageTransitionFrame,
-  playEngageTransition,
 } = await import("../web/src/game/engagetransition.js");
 
 assert.deepEqual(ENGAGE_TRANSITION_FRAMES, [0, 1, 2, 3]);
@@ -16,105 +16,58 @@ assert.deepEqual(
   [0, 0, 1, 1, 2, 2, 3, 3, null],
 );
 
-let nextId = 0;
-const queue = new Map();
-const requestFrame = (callback) => {
-  const id = ++nextId;
-  queue.set(id, callback);
-  return id;
-};
-const cancelFrame = (id) => queue.delete(id);
-const step = (timestamp) => {
-  const current = [...queue.values()];
-  queue.clear();
-  for (const callback of current) callback(timestamp);
-};
-
-const frames = [];
-const soundFrames = [];
-let finishes = 0;
-let prepared = false;
-let releasePrepare;
-const app = {
-  clock: { hold: false },
-  gamebar: {
-    _clockHoldRequested: false,
-    syncClock() {
-      app.clock.hold = this._clockHoldRequested;
-    },
-  },
-  view: {
-    draw() {
-      if (app.engageTransition?.active) {
-        const frame = app.engageTransition.frame;
-        if (frames.at(-1) !== frame) frames.push(frame);
-      }
-    },
-  },
-};
-const legion = { leader: "委任將" };
-assert.equal(
-  playEngageTransition(app, legion, () => finishes++, {
-    requestFrame,
-    cancelFrame,
-    frameMs: 100,
-    prepare: () =>
-      new Promise((resolve) => {
-        releasePrepare = () => {
-          prepared = true;
-          resolve();
-        };
-      }),
-    onFrame: (frame) => soundFrames.push(frame),
-  }),
-  true,
+const mapSource = await fs.readFile(
+  new URL("../web/src/render/mapview.js", import.meta.url),
+  "utf8",
 );
-assert.equal(app.clock.hold, true);
-assert.equal(
-  queue.size,
-  0,
-  "RAF does not begin before engage images are ready",
+const animationDraw = mapSource.indexOf(
+  "this._drawEngagement(ctx, pos.sx, pos.sy, engageFrame);",
 );
-await Promise.resolve();
-assert.equal(typeof releasePrepare, "function");
-assert.equal(
-  playEngageTransition(app, legion, () => finishes++, {
-    requestFrame,
-    cancelFrame,
-  }),
-  false,
-  "app-level gate rejects a second battle transition",
+const markerDraw = mapSource.indexOf(
+  "this._drawMarchingIcon(ctx, lx, ly, markerStyle, renderPos.frame);",
 );
-releasePrepare();
-await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(prepared, true);
-assert.equal(queue.size, 1);
-// 延迟 RAF 也只能每次推进一相，不能从0直接跳到3或结束。
-for (const timestamp of [0, 350, 500, 900, 1200]) step(timestamp);
-assert.equal(finishes, 1);
-assert.equal(app.engageTransition, null);
-assert.equal(app.clock.hold, false);
-assert.deepEqual(frames, [0, 1, 2, 3]);
-assert.deepEqual(
-  soundFrames,
-  [0, 1, 2, 3],
-  "Web委任过渡必须让已确认的ID3样本与四幅动画逐相同步",
+assert.ok(animationDraw >= 0 && markerDraw > animationDraw);
+assert.match(
+  mapSource,
+  /L\._engagement\?\.countdown/,
+  "rule countdown must expose the engagement image from first contact",
+);
+assert.doesNotMatch(
+  mapSource,
+  /transition\.target\.(?:x|y)/,
+  "engagement graphics must use the attacker's city-edge coordinates, not the target city",
 );
 
-// once guard：完成后重复调用旧finish不重复结算。
-assert.equal(
-  playEngageTransition(app, legion, () => finishes++, {
-    requestFrame,
-    cancelFrame,
-  }),
-  true,
+const aiSource = await fs.readFile(
+  new URL("../web/src/game/ai.js", import.meta.url),
+  "utf8",
 );
-const finish = app.engageTransition.finish;
-finish();
-finish();
-assert.equal(finishes, 2);
-assert.equal(app.clock.hold, false);
+assert.match(
+  aiSource,
+  /function startEngagement[\s\S]*A\._engagement = \{[\s\S]*engageSfxBurst\(\);/,
+  "five sounds must be queued when contact begins, alongside the first visible frame",
+);
+
+const mainSource = await fs.readFile(
+  new URL("../web/src/main.js", import.meta.url),
+  "utf8",
+);
+assert.match(
+  mainSource,
+  /playDelegatedEngage\(legion, onFinish\)[\s\S]*requestAnimationFrame\(\(\) => finish\(\)\)/,
+  "delegated resolution keeps only a one-RAF serialization gate",
+);
+assert.doesNotMatch(
+  mainSource,
+  /playDelegatedEngage[\s\S]*speaker\.prepareEngageSfx\(\)/,
+  "battle resolution must not wait up to one second for AudioContext",
+);
+assert.doesNotMatch(
+  mainSource,
+  /playEngageTransition/,
+  "the completed rule countdown must not append a second four-frame transition",
+);
 
 process.stdout.write(
-  "engage transition OK: preload + exact 0,1,2,3 sound sync under delayed RAF + once gate\n",
+  "engage transition OK: immediate city-edge countdown art + top marker + five-sound cue + one-RAF settle gate\n",
 );

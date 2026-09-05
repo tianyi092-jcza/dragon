@@ -287,8 +287,9 @@ const legion = (leader, faction, x, y) => ({
   assert.equal(chenliu.faction, 1);
   assert.equal(defender.dead, undefined);
   assert.equal(defender.target.idx, 82);
-  assert.equal(defender._retreat.cityIdx, 82);
-  assert.equal(defender._retreat.nodeId, 82);
+  assert.equal(defender.targetNode, 82);
+  assert.equal(defender._retreat, null);
+  assert.equal(defender.cooldown, 1);
   assert.equal(defender._path, null);
 }
 

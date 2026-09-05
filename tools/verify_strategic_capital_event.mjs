@@ -104,7 +104,7 @@ function fixture(bytes = []) {
       status: 0x80,
       target: scenario.cities[1],
       targetCity: 1,
-      targetNode: 3 << 3,
+      targetNode: 3,
       _march: { stale: true },
     },
     {
@@ -113,7 +113,7 @@ function fixture(bytes = []) {
       status: 0x80,
       target: scenario.cities[2],
       targetCity: 2,
-      targetNode: 2 << 3,
+      targetNode: 2,
       _march: { keep: true },
     },
     {
@@ -133,7 +133,7 @@ function fixture(bytes = []) {
   assert.equal(scenario.factions[1].capital, 3);
   assert.equal(scenario.legions[0].target, scenario.cities[3]);
   assert.equal(scenario.legions[0].targetCity, 3);
-  assert.equal(scenario.legions[0].targetNode, 1 << 3);
+  assert.equal(scenario.legions[0].targetNode, 1);
   assert.equal(scenario.legions[0]._march, null);
   assert.equal(scenario.legions[0].status & 2, 2);
   assert.equal(scenario.legions[1].target, scenario.cities[2]);

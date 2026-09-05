@@ -11,7 +11,7 @@ try {
     cause: error,
   });
 }
-const { buildArmies, tickStrategicCity } = await import(
+const { aiTick, buildArmies, tickStrategicCity } = await import(
   "../web/src/game/ai.js"
 );
 
@@ -37,6 +37,7 @@ const app = {
   gamebar: { enqueueTalkMessage: () => assert.fail("AI城不得弹援军消息") },
 };
 assert.equal(tickStrategicCity(app, 76), true);
+assert.equal(border.attr & 0xc0, 0xc0, "战略目标邻城须写运行态attr bit7+6");
 assert.equal(sc.legions.length, 1);
 const legion = sc.legions[0];
 assert.equal(legion.leader, luBuFaction.monarch, "武力最高待命者为吕布");
@@ -53,6 +54,23 @@ assert.deepEqual(
   [luBuFaction.reserve_cav, luBuFaction.reserve_arc, luBuFaction.reserve_inf],
   [200, 300, 400],
 );
+// 用户现场回归：吕布军团到达椎阳后，目标候选bit6会令NPC状态0保持0，
+// 不得因静态raw[0]<0x80而数槽后误走0→1→2→11返首都。
+legion.x = border.x;
+legion.y = border.y;
+legion.prevX = border.x;
+legion.prevY = border.y;
+legion.target = border;
+legion.targetCity = border.idx;
+legion.targetNode = border.idx;
+legion.roadEdgeOrNode = border.idx * 8;
+legion.commandState = 0;
+legion.cooldown = 0;
+for (let index = 0; index < 4; index++) {
+  aiTick(app, { runCityDaily: false, settleDaily: false });
+}
+assert.equal(legion.commandState, 0);
+assert.equal(legion.target, border);
 
 // 玩家边境空城仅发TALK38式通用消息，并以该城自己的24..39轮询冷却去重。
 const playerSc = structuredClone(data.scenarios[16]);
@@ -107,6 +125,11 @@ assert.equal(
 );
 assert.equal(untargetedMessages.length, 1);
 assert.equal(untargetedMessages[0].talkIndex, 38);
+assert.equal(
+  untargetedPlayerSc.cities[76].attr & 0xc0,
+  0x80,
+  "无战略目标但存在交战邻城时只写运行态bit7",
+);
 
 // 0x407A：弱城请求数为所有交战邻城(运行态强度+1)之和+2-local。
 // 本城1军、一个空敌城时应请求2军；以调用次数而非最终成功数锁住+1语义。

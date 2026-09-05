@@ -201,6 +201,8 @@ const makeScenario = () => {
   const defenderB = legion("丙", 1, target.x, target.y, 350);
   defenderA.slot = 9;
   defenderB.slot = 3;
+  defenderA.commandState = 1;
+  defenderB.commandState = 2;
   sc.legions = [attacker, defenderA, defenderB];
   applyBattleResult(
     {
@@ -216,6 +218,9 @@ const makeScenario = () => {
     "atk",
     480,
     [80, 80, 80, 80, 80, 80],
+    null,
+    null,
+    defenderA,
   );
   assert.equal(target.faction, 0);
   assert.equal(
@@ -236,10 +241,13 @@ const makeScenario = () => {
     null,
     "非真实道路节点的测试坐标不伪造节点号",
   );
-  assert.ok(defenderA._retreat);
-  assert.ok(defenderB._retreat);
+  assert.equal(defenderA.commandState, 8, "实际参战主守军由0x474A转8");
+  assert.equal(defenderB.commandState, 2, "0x4DA4不得覆盖同城其余守军状态");
   assert.equal(defenderA.target.idx, defenderB.target.idx);
-  assert.equal(defenderA._retreat.captorFaction, 0);
+  assert.equal(defenderA._retreat, null);
+  assert.equal(defenderB._retreat, null);
+  assert.equal(defenderA.cooldown, 1);
+  assert.equal(defenderB.cooldown, 1);
   assert.equal(defenderA._path, null);
   assert.equal(defenderB._path, null);
 }
@@ -252,6 +260,8 @@ const makeScenario = () => {
   const primaryDefender = legion("丙", 1, target.x, target.y, 500);
   weakDefender.slot = 1;
   primaryDefender.slot = 2;
+  weakDefender.commandState = 1;
+  primaryDefender.commandState = 0;
   sc.legions = [attacker, weakDefender, primaryDefender];
   applyBattleResult(
     { scenario: sc, hud: { flashEvent() {} } },
@@ -267,7 +277,11 @@ const makeScenario = () => {
     [40, 40, 40, 40, 40, 40],
   );
   assert.equal(primaryDefender.troops, 240);
+  assert.equal(primaryDefender.commandState, 8);
+  assert.equal(primaryDefender.target, undefined);
   assert.equal(weakDefender.troops, 100);
+  assert.equal(weakDefender.commandState, 1);
+  assert.equal(weakDefender.target, undefined);
 }
 
 {
@@ -369,7 +383,11 @@ const makeScenario = () => {
   assert.equal(sc.factions[1].capital, fallback.idx);
   assert.equal(sc.factions[1].active, true);
   assert.equal(sc.factions[1].dead, false);
-  assert.ok(defender._retreat || defender.dead);
+  assert.ok(defender.target === fallback || defender.dead);
+  if (!defender.dead) {
+    assert.equal(defender._retreat, null);
+    assert.equal(defender.cooldown, 1);
+  }
 }
 
 {

@@ -210,6 +210,11 @@ function fixture({ betterRelocation = true, deploying = false, deployable = true
   assert.equal(monarch.status, 1);
   assert.equal(scenario.legions.length, 1);
   assert.equal(scenario.legions[0].leader, "曹操");
+  assert.deepEqual(
+    scenario.legions[0].units.map((unit) => unit.type),
+    [1, 1, 3, 3, 2, 2],
+    "君主亲征也必须使用原始1骑/3步/2弓编成码",
+  );
 }
 
 // 君主无法出阵：拒绝对白不修改兵池/军团，关闭后恢复计时。

@@ -6,12 +6,13 @@ import {
   createDefaultLegionUnits,
   DEFAULT_LEGION_UNIT_TYPES,
   generalForLegion,
+  LEGION_UNIT_TYPE,
 } from "./legionunits.js";
 
 const UNIT_COUNT = 6;
-const EMPTY_TYPE = 4;
+const EMPTY_TYPE = LEGION_UNIT_TYPE.EMPTY;
 const DEFAULT_TYPES = DEFAULT_LEGION_UNIT_TYPES;
-const CITY_GARRISON_TYPES = [3, 3, 3, 3, 3, 3];
+const CITY_GARRISON_TYPES = Array(6).fill(LEGION_UNIT_TYPE.INFANTRY);
 // 0x52D7 用军团长索引直接寻址128×32B武将表。0x4F8A写入索引0x7F，
 // 所有20个原始剧本的第127项均是固定占位记录：攻/野/水专长0，武/统/政8。
 // 显式保留该档案，避免解析器是否显示占位姓名影响战力。
@@ -45,7 +46,7 @@ function splitTotal(total) {
   );
 }
 
-/** 0x4F8A：把城兵临时展开成六个弓兵单位，余数从第一单位起分配。 */
+/** 0x4F8A：把城兵临时展开成六个步兵(type 3)单位，余数从第一队起分配。 */
 export function createCityGarrison(city, leader = null) {
   const troops = Math.max(0, (city?.sim ? city.sim.troops : city?.troops) | 0);
   const faction = city?.faction ?? 0x18;

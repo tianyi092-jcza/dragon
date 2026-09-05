@@ -19,6 +19,13 @@ let soundType = 1;
 let engageBuffer = null;
 let engageBufferPromise = null;
 
+// 原始ID3样本的有效声段约330ms；2倍速压至165ms，保留完整的ID3→ID13
+// 包络。用户实机复核的当前表现标定为五声、82.5ms起拍间隔。
+export const ENGAGE_SFX_PLAYBACK_RATE = 2;
+export const ENGAGE_SFX_MAX_DURATION_MS = 165;
+export const ENGAGE_SFX_BURST_COUNT = 5;
+export const ENGAGE_SFX_BURST_INTERVAL_MS = 82.5;
+
 export const SOUND_PROFILES = [
 	{ frequency: 950, gain: 0.12, wave: "square" },
 	{ frequency: 760, gain: 0.11, wave: "square" },
@@ -102,7 +109,7 @@ export function preloadEngageSfx() {
 }
 
 /**
- * 委任四相开始前同时完成样本解码与AudioContext恢复。仅预载buffer不足以
+ * 委任接战开始前同时完成样本解码与AudioContext恢复。仅预载buffer不足以
  * 保证声音起拍：浏览器仍可能在第一帧后才完成resume()。
  */
 export async function prepareEngageSfx() {
@@ -135,20 +142,54 @@ export async function prepareEngageSfx() {
 	return buffer;
 }
 
-/**
- * YNSOUND ID 3：同步起播一次已缓存样本。这里不能await加载/resume；四相
- * onFrame必须在同一调用栈内启动声音，否则画面会先走完再补播。
- */
-export function engageSfx() {
-	if (muted || !engageBuffer || !actx || actx.state !== "running") return false;
+/** 在同一个AudioContext时间轴上安排一次已缓存的YNSOUND ID 3样本。 */
+function scheduleEngageSfx(startAt, durationMs) {
+	const source = actx.createBufferSource();
+	const boundedDurationMs = Number.isFinite(durationMs)
+		? Math.max(1, durationMs)
+		: ENGAGE_SFX_MAX_DURATION_MS;
+	source.buffer = engageBuffer;
+	source.playbackRate.value = ENGAGE_SFX_PLAYBACK_RATE;
+	source.connect(actx.destination);
+	source.start(startAt);
+	source.stop(startAt + boundedDurationMs / 1000);
+}
+
+/** YNSOUND ID 3：同步起播一次已缓存样本，不在战斗入口等待AudioContext。 */
+export function engageSfx(durationMs = ENGAGE_SFX_MAX_DURATION_MS) {
+	if (muted || !engageBuffer || !actx || actx.state === "closed") return false;
 	try {
-		const source = actx.createBufferSource();
-		source.buffer = engageBuffer;
-		source.connect(actx.destination);
-		source.start(actx.currentTime);
+		if (actx.state === "suspended") void actx.resume();
+		scheduleEngageSfx(actx.currentTime, durationMs);
 		return true;
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * 接触建立时一次性排入五声，WebAudio负责82.5ms精确间隔；不使用setTimeout，
+ * 也不等待最长1秒的statechange，避免军团已到城边后画面和声音才延迟出现。
+ */
+export function engageSfxBurst(
+	count = ENGAGE_SFX_BURST_COUNT,
+	intervalMs = ENGAGE_SFX_BURST_INTERVAL_MS,
+) {
+	if (muted || !engageBuffer || !actx || actx.state === "closed") return 0;
+	try {
+		if (actx.state === "suspended") void actx.resume();
+		const safeCount = Math.max(0, Math.trunc(Number(count) || 0));
+		const safeIntervalMs = Math.max(1, Number(intervalMs) || 1);
+		const startAt = actx.currentTime;
+		for (let index = 0; index < safeCount; index++) {
+			scheduleEngageSfx(
+				startAt + (index * safeIntervalMs) / 1000,
+				ENGAGE_SFX_MAX_DURATION_MS,
+			);
+		}
+		return safeCount;
+	} catch {
+		return 0;
 	}
 }
 

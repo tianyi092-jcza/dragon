@@ -28,6 +28,30 @@ globalThis.fetch = async (url) => {
 };
 
 const { GameBar } = await import("../web/src/ui/gamebar.js");
+const {
+  DEFAULT_LEGION_UNIT_TYPES,
+  LEGION_RESERVE_FIELD_BY_TYPE,
+  LEGION_UNIT_TYPE,
+} = await import("../web/src/game/legionunits.js");
+const { TACTICAL_UNIT_TYPES } = await import(
+  "../web/src/game/battle/battleprojection.js"
+);
+assert.deepEqual(LEGION_UNIT_TYPE, {
+  CAVALRY: 1,
+  ARCHER: 2,
+  INFANTRY: 3,
+  EMPTY: 4,
+});
+assert.deepEqual(LEGION_RESERVE_FIELD_BY_TYPE, {
+  1: "reserve_cav",
+  2: "reserve_arc",
+  3: "reserve_inf",
+});
+assert.deepEqual(DEFAULT_LEGION_UNIT_TYPES, [1, 1, 3, 3, 2, 2]);
+assert.deepEqual(
+  [1, 2, 3].map((type) => TACTICAL_UNIT_TYPES[type].label),
+  ["騎", "弓", "步"],
+);
 const { loadRoadGraph, roadNodeAt } = await import(
   "../web/src/game/roadgraph.js"
 );
@@ -119,6 +143,14 @@ bar.marchingOrder = { legion: {}, step: "pick_target", targetCity: null };
 assert.equal(bar.hitTest(700, 400), true);
 bar.marchingOrder = null;
 bar.selectedSubmenu = null;
+
+// 一级菜单只消费自身640×48矩形；同高度但在菜单左右的据点点击必须穿透给地图。
+bar.submenuOpen = true;
+assert.equal(bar.hitTest(320, 50), true);
+assert.equal(bar.hitTest(700, 50), false);
+assert.equal(bar.click(700, 50, 0, { type: "city", city: { idx: 99 } }), false);
+assert.equal(bar.submenuOpen, true);
+bar.submenuOpen = false;
 
 // 空据点点击后的命令菜单必须在hover路径优先命中，三项/空白/外部均可更新。
 bar.orderChoiceMenu = {
@@ -245,6 +277,62 @@ bar.showLegionLocate();
 bar.listDialog.onPick(0);
 assert.equal(Number.isFinite(view.cam.x), true);
 assert.equal(Number.isFinite(view.cam.y), true);
+
+// KI.EXE 0x7344..0x736C：内部总兵<300（显示<3000）或士气<100时，
+// 军团列表对应数值用GAMEPAL索引A红字；边界3000/100保持普通黑字。
+const warningCity = {
+  idx: 10,
+  faction: 0,
+  name: "警戒城",
+  x: 20,
+  y: 20,
+  type: 1,
+  prod: 1,
+};
+const lowStrength = {
+  leader: "低軍",
+  faction: 0,
+  x: 20,
+  y: 20,
+  troops: 299,
+  morale: 99,
+  units: [],
+};
+const thresholdStrength = {
+  leader: "界軍",
+  faction: 0,
+  x: 20,
+  y: 20,
+  troops: 300,
+  morale: 100,
+  units: [],
+};
+app.scenario.cities = [warningCity];
+app.scenario.legions = [lowStrength, thresholdStrength];
+const assertStrengthColors = (rows, label) => {
+  assert.deepEqual(
+    rows[0].cells.slice(1, 3),
+    [
+      { t: "2990", color: "#dd0000" },
+      { t: "99", color: "#dd0000" },
+    ],
+    `${label}: low troop/morale cells are red`,
+  );
+  assert.deepEqual(
+    rows[1].cells.slice(1, 3),
+    ["3000", "100"],
+    `${label}: exact thresholds remain black`,
+  );
+};
+bar.showLegionCard(warningCity);
+assertStrengthColors(bar.listDialog.rows, "city legion list");
+bar.closeListDialog(true);
+bar.showLegionLocate();
+assertStrengthColors(bar.listDialog.rows, "legion locate list");
+bar.closeListDialog(true);
+bar.showLegionMarchOrders();
+assertStrengthColors(bar.listDialog.rows, "legion march list");
+bar.closeListDialog(true);
 
 // 所有有表头的Canvas列表默认支持双向排序：数字按数值、文字按繁中排序，
 // 占位虚线始终留在末尾；第二次点击同一表头反向，选择保持绑定原row。

@@ -424,8 +424,18 @@ export class MapView {
       ctx.fillText(c.name, x + 14, y);
     }
 
-    // 军团: 不在城池驻军内则绘制行军图标
+    // KI.EXE 0x2AF4先扫描status bit5并由0x2B3C画接战图，随后第二轮
+    // 才由0x2B2A画军团标识；两者都读取军团+0x10/+0x12同一城前坐标。
     const t = this.app?.clock?.dayProgress?.() ?? 1;
+    for (const L of sc.legions) {
+      if (L.dead || L._active === false || L.faction == null) continue;
+      const engageFrame = L._engagement?.countdown;
+      if (!Number.isInteger(engageFrame)) continue;
+      const pos = this.getLegionRenderPos(L, t);
+      this._drawEngagement(ctx, pos.sx, pos.sy, engageFrame);
+    }
+
+    // 第二轮绘制军团：接战中只保留标识，不再绘制诊断路线。
     for (const L of sc.legions) {
       if (L.dead || L._active === false || L.faction == null) continue;
       const isGarrison =
@@ -441,11 +451,10 @@ export class MapView {
       if (lx < -60 || ly < -40 || lx > cv.width + 60 || ly > cv.height + 40)
         continue;
 
-      const transition = this.app?.engageTransition;
-      if (transition?.active && transition.legion === L) {
-        this._drawEngagement(ctx, lx, ly, transition.frame);
-      } else if (L._engagement) {
-        this._drawEngagement(ctx, lx, ly, L._engagement.countdown);
+      const faction = sc.factions.find((f) => f.idx === L.faction);
+      const markerStyle = faction?.march_marker_style ?? L.faction;
+      if (L._engagement) {
+        this._drawMarchingIcon(ctx, lx, ly, markerStyle, renderPos.frame);
       } else if (L.target) {
         // Web诊断表现：恢复行军路线虚线，便于直接核对道路点列与地图美术
         // 中线。路径只读规则层导航状态，绝不在绘制时回写军团缓存。
@@ -491,24 +500,11 @@ export class MapView {
         ctx.setLineDash([]);
 
         // 行军标识：势力记录 +0x3E 指定固定样式槽，方向选离散原版帧。
-        const faction = sc.factions.find((f) => f.idx === L.faction);
-        this._drawMarchingIcon(
-          ctx,
-          lx,
-          ly,
-          faction?.march_marker_style ?? L.faction,
-          renderPos.frame,
-        );
+        this._drawMarchingIcon(ctx, lx, ly, markerStyle, renderPos.frame);
       } else {
         // 活动军团即使在节点等待状态机写入下一目标，也仍使用原版驻止帧。
         // 小圆点不是MMAP.MCH资产，会掩盖撤退目标/道路状态丢失并造成假坐标。
-        const faction = sc.factions.find((f) => f.idx === L.faction);
-        this._drawStationaryMarker(
-          ctx,
-          lx,
-          ly,
-          faction?.march_marker_style ?? L.faction,
-        );
+        this._drawStationaryMarker(ctx, lx, ly, markerStyle);
       }
     }
 

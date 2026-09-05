@@ -1,7 +1,27 @@
 // Web 军团兼容补全：原版 SAVE 军团记录固定有六队，但部分旧 Web
 // synthetic/recreation 路径只保存总兵。这里不是新增 KI.EXE 编成规则；仅用项目
 // 既有默认类型确定性展开，保证运行时与 SAVE 都有可表示的六队。
-export const DEFAULT_LEGION_UNIT_TYPES = Object.freeze([1, 1, 3, 3, 2, 2]);
+// KI.EXE 0x4717以(type-1)*2索引势力+4/+6/+8；0x5F7F资源面板的
+// ICONGRF原始剪影依次为骑、弓、步。数字是二进制兵种码，不可按Web旧标签互换。
+export const LEGION_UNIT_TYPE = Object.freeze({
+  CAVALRY: 1,
+  ARCHER: 2,
+  INFANTRY: 3,
+  EMPTY: 4,
+});
+export const LEGION_RESERVE_FIELD_BY_TYPE = Object.freeze({
+  [LEGION_UNIT_TYPE.CAVALRY]: "reserve_cav",
+  [LEGION_UNIT_TYPE.ARCHER]: "reserve_arc",
+  [LEGION_UNIT_TYPE.INFANTRY]: "reserve_inf",
+});
+export const DEFAULT_LEGION_UNIT_TYPES = Object.freeze([
+  LEGION_UNIT_TYPE.CAVALRY,
+  LEGION_UNIT_TYPE.CAVALRY,
+  LEGION_UNIT_TYPE.INFANTRY,
+  LEGION_UNIT_TYPE.INFANTRY,
+  LEGION_UNIT_TYPE.ARCHER,
+  LEGION_UNIT_TYPE.ARCHER,
+]);
 export const LEGION_SLOT_COUNT = 128;
 
 const UNIT_COUNT = DEFAULT_LEGION_UNIT_TYPES.length;
@@ -26,7 +46,6 @@ export function createDefaultLegionUnits(troops) {
   }));
 }
 
-/** 已有完整六队保持原样；只补全缺失/不完整的旧 Web 军团。 */
 /** 按当前军团占用分配原版128槽；运行期新军团与SAVE claim使用同一最小空槽策略。 */
 export function claimLegionSlot(legions, preferred = null, exclude = null) {
   const occupied = new Set(
@@ -91,6 +110,7 @@ export function ensureLegionSlot(legions, legion, preferred = null) {
   return slot;
 }
 
+/** 已有完整六队保持原样；只补全缺失/不完整的旧 Web 军团。 */
 export function ensureLegionUnits(legion) {
   if (!legion) return [];
   if (

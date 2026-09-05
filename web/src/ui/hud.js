@@ -13,6 +13,46 @@ import {
   moveCapital,
 } from "../game/diplomacy.js";
 
+// SINARIO 武将记录 +0x0E/+0x0F/+0x10 高四位：攻城、野战、水战专长。
+// 624px 内窗配合列表外框恰好占满 640px 战略画布，并为右侧滚动条留位。
+const GENERAL_LIST_HEADER = [
+  "武將名",
+  "武術",
+  "統率",
+  "政治",
+  "攻城",
+  "野戰",
+  "水戰",
+  "勢力",
+  "身分",
+];
+const GENERAL_LIST_COLS = [
+  { x: 8, w: 80, align: "left" },
+  { x: 96, w: 48, align: "right" },
+  { x: 152, w: 48, align: "right" },
+  { x: 208, w: 48, align: "right" },
+  { x: 264, w: 48, align: "right" },
+  { x: 320, w: 48, align: "right" },
+  { x: 376, w: 48, align: "right" },
+  { x: 432, w: 80, align: "left" },
+  { x: 520, w: 80, align: "left" },
+];
+const GENERAL_LIST_WIDTH = 624;
+
+function generalListCells(g, factionName, identity) {
+  return [
+    g.name?.trim() ?? "？",
+    `${g.ability?.force ?? 0}`,
+    `${g.ability?.lead ?? 0}`,
+    `${g.ability?.politics ?? 0}`,
+    `${g.ability?.siege ?? 0}`,
+    `${g.ability?.field ?? 0}`,
+    `${g.ability?.naval ?? 0}`,
+    factionName,
+    identity,
+  ];
+}
+
 /** DOM 构建辅助(替代 innerHTML, 规避 XSS 静态检查) */
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -390,32 +430,18 @@ export class HUD {
       const iden = getIdentity(g);
       return {
         _gen: g,
-        cells: [
-          g.name?.trim() ?? "？",
-          `${g.ability?.force ?? 0}`,
-          `${g.ability?.lead ?? 0}`,
-          `${g.ability?.politics ?? 0}`,
-          facName,
-          iden,
-        ],
+        cells: generalListCells(g, facName, iden),
       };
     });
 
     this.app.gamebar.openListDialog({
       title: "",
-      header: ["武將名", "武術", "統率", "政治", "勢力", "身分"],
-      cols: [
-        { x: 8, w: 80, align: "left" },
-        { x: 96, w: 48, align: "right" },
-        { x: 152, w: 48, align: "right" },
-        { x: 208, w: 48, align: "right" },
-        { x: 272, w: 80, align: "left" },
-        { x: 360, w: 80, align: "left" },
-      ],
+      header: GENERAL_LIST_HEADER,
+      cols: GENERAL_LIST_COLS,
       rows,
       rowH: 18,
       scrollbar: "right",
-      w: 480,
+      w: GENERAL_LIST_WIDTH,
       h: 352,
       footer: {
         text: "確認指示之武將的能力。",
@@ -472,32 +498,18 @@ export class HUD {
       const facName = f.monarch ?? "－－－";
       return {
         _gen: g,
-        cells: [
-          g.name?.trim() ?? "？",
-          `${g.ability?.force ?? 0}`,
-          `${g.ability?.lead ?? 0}`,
-          `${g.ability?.politics ?? 0}`,
-          facName,
-          "－－－",
-        ],
+        cells: generalListCells(g, facName, "－－－"),
       };
     });
 
     this.app.gamebar.openListDialog({
       title: "",
-      header: ["武將名", "武術", "統率", "政治", "勢力", "身分"],
-      cols: [
-        { x: 8, w: 80, align: "left" },
-        { x: 96, w: 48, align: "right" },
-        { x: 152, w: 48, align: "right" },
-        { x: 208, w: 48, align: "right" },
-        { x: 272, w: 80, align: "left" },
-        { x: 360, w: 80, align: "left" },
-      ],
+      header: GENERAL_LIST_HEADER,
+      cols: GENERAL_LIST_COLS,
       rows,
       rowH: 18,
       scrollbar: "right",
-      w: 480,
+      w: GENERAL_LIST_WIDTH,
       h: 352,
       footer: {
         text: "進行軍隊編組。請選擇武將。",

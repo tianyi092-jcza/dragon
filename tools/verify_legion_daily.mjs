@@ -134,7 +134,7 @@ const capitalSc = { factions: [faction], cities: [capital] };
 assert.equal(replenishLegionAtCapital(capitalSc, legion), true);
 assert.deepEqual(
   legion.units.map((unit) => unit.troops / 10),
-  [75, 75, 80, 80, 55, 55],
+  [75, 75, 55, 55, 80, 80],
 );
 assert.equal(legion.troops, 420);
 assert.equal(faction.reserve_cav, 0);

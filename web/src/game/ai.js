@@ -20,9 +20,11 @@ import {
   roadGraphReady,
   roadNodeAt,
   roadNodeById,
+  roadNodeIdFromRaw,
+  roadNodeRawAddress,
   restoreRoadMarchContext,
 } from "./roadgraph.js";
-import { warnSfx } from "../core/speaker.js";
+import { engageSfxBurst, warnSfx } from "../core/speaker.js";
 import {
   applyFactionFundsDelta,
   factionLegionMoraleCap,
@@ -43,6 +45,7 @@ import {
   ensureLegionSlot,
   ensureLegionUnits,
   generalForLegion,
+  LEGION_RESERVE_FIELD_BY_TYPE,
 } from "./legionunits.js";
 import { personalityTalkIndex } from "./talk.js";
 
@@ -127,6 +130,16 @@ export function buildArmies(sc) {
       if (L.target && L.target.idx != null)
         L.target = sc.cities[L.target.idx] ?? null;
       else if (L.target) L.target = null;
+      // 运行态统一使用road graph node id；原始SAVE的+0x14是node*8地址。
+      // 目标城坐标是权威边界，可消除id恰为8的倍数时的歧义。
+      const savedTargetCity =
+        L.target ??
+        (Number.isInteger(L.targetCity) ? sc.cities[L.targetCity] : null);
+      const savedTargetNode = savedTargetCity
+        ? savedTargetCity.idx
+        : rawRoadNodeId(L.targetNode);
+      if (savedTargetNode != null) L.targetNode = savedTargetNode;
+      const savedCurrentNode = rawRoadNodeId(L.roadEdgeOrNode);
       const savedMarch = restoreRoadMarchContext({
         x: L.x,
         y: L.y,
@@ -168,6 +181,9 @@ export function buildArmies(sc) {
       } else if (savedMarch) {
         L._march = savedMarch;
         L._path = savedMarch.points.slice(savedMarch.pointIndex);
+      } else {
+        // 道路图仍在异步加载时也能按E717固定node*8布局保住驻点+0x0E。
+        markLegionAtRoadNode(L, savedCurrentNode);
       }
     }
     for (const L of sc.legions) {
@@ -199,6 +215,7 @@ export function buildArmies(sc) {
           L.y = cap.y;
         }
       }
+      if (!L._march) markLegionAtRoadNode(L, roadNodeAt(L.x, L.y)?.id);
       L.prevX = L.x;
       L.prevY = L.y;
       L._markerFrame ??= 4;
@@ -303,8 +320,11 @@ function state5AliasedByte(sc, targetCity) {
 }
 
 function cityAttr(city) {
+  // SINARIO raw[0]只有邻接方向低位；0x4028在每次据点轮询时把运行态
+  // bit7/bit6重算为“存在交战邻城/存在战略目标候选”。运行态值必须优先。
+  if (Number.isInteger(city?.attr)) return city.attr & 0xff;
   const raw = cityRawBytes(city);
-  return raw?.[0] ?? city?.attr ?? 0;
+  return raw?.[0] ?? 0;
 }
 
 function legionTargetCity(sc, legion) {
@@ -312,7 +332,11 @@ function legionTargetCity(sc, legion) {
     return sc.cities.find((city) => city?.idx === legion.target.idx) ?? null;
   if (legion?.targetCity != null)
     return sc.cities.find((city) => city?.idx === legion.targetCity) ?? null;
-  return null;
+  // 仅兼容缺少+0x20的旧Web快照；原版活动军团正常保留目标城字段。
+  return (
+    sc.cities.find((city) => city.x === legion?.x && city.y === legion?.y) ??
+    null
+  );
 }
 
 function legionFaction(sc, legion) {
@@ -329,18 +353,22 @@ function legionAtTargetNode(sc, legion) {
   if (!Number.isInteger(legion?.targetNode)) {
     return sc.cities.some((city) => city.x === legion.x && city.y === legion.y);
   }
-  const currentNode = legion?._march?.currentNode ?? legion?.roadEdgeOrNode;
-  return (
-    Number.isInteger(legion?.targetNode) &&
-    Number.isInteger(currentNode) &&
-    legion.targetNode === currentNode
-  );
+  const currentNode =
+    legion?._march?.currentNode ??
+    legion?._currentNode ??
+    roadNodeIdFromRaw(legion?.roadEdgeOrNode);
+  return Number.isInteger(currentNode) && legion.targetNode === currentNode;
 }
 
 /**
  * KI.EXE 0x4325：只在军团到达命令目标节点时运行的12态命令机。
  * 返回 true 表示本轮已重写状态/目标，应由调用方继续按新目标处理。
  */
+function legionCommandHandlerIndex(sc, legion, state = legion?.commandState) {
+  if (!Number.isInteger(state)) return null;
+  return state < 8 && legion.faction !== sc.player_faction ? state + 4 : state;
+}
+
 function settleArrivedLegionCommand(sc, legion, rng = null) {
   if (!legionAtTargetNode(sc, legion)) return false;
   const faction = legionFaction(sc, legion);
@@ -350,9 +378,8 @@ function settleArrivedLegionCommand(sc, legion, rng = null) {
   const targetAttr = cityAttr(targetCity);
   if (legion.commandState == null) return false;
   const state = legion.commandState;
-  // 0x433D..0x434C：NPC 的0..3态偏移到处理器4..7；玩家保留0..3。
-  const handler =
-    state < 4 && legion.faction !== sc.player_faction ? state + 4 : state;
+  // 0x433D..0x434C：NPC 的0..7态均把表索引偏移4；玩家保留原索引。
+  const handler = legionCommandHandlerIndex(sc, legion, state);
 
   switch (handler) {
     case 0:
@@ -368,12 +395,8 @@ function settleArrivedLegionCommand(sc, legion, rng = null) {
       return false;
     }
     case 4: {
-      // 0x439D→0x43A5：NPC状态0。到达首都先检查补员；否则目标城
-      // attr bit6清零时转1，置位时保持0。这里不是势力财政bit6。
-      if ((legion.troops ?? 0) < 600 && targetCity?.idx === faction.capital) {
-        legion.commandState = 9;
-        return true;
-      }
+      // 0x439D→0x43A5：NPC状态0只检查目标城运行态attr bit6；
+      // 原版此处理器没有“低兵力到首都补员”分支。
       if ((targetAttr & 0x40) === 0) {
         legion.commandState = 1;
         return true;
@@ -391,9 +414,15 @@ function settleArrivedLegionCommand(sc, legion, rng = null) {
         legion.commandState = 0;
         return true;
       }
-      if (targetAttr < 0x80 || state5AliasedByte(sc, targetCity) <= 2) {
+      const aliased = state5AliasedByte(sc, targetCity);
+      if (targetAttr < 0x80 || aliased > 2) {
         legion.cooldown = ((rng?.nextByte?.() ?? 0) & 7) + 1;
         legion.commandState = 2;
+        return true;
+      }
+      // 0x43E8：别名<=2才继续检查低兵力首都补员；不满足则保持状态1。
+      if ((legion.troops ?? 0) < 600 && targetCity?.idx === faction.capital) {
+        legion.commandState = 9;
         return true;
       }
       return false;
@@ -503,8 +532,8 @@ function aiFormationLimit(faction) {
 function selectAiFormationTypes(faction) {
   const pools = {
     1: Math.max(0, faction.reserve_cav ?? 0),
-    2: Math.max(0, faction.reserve_inf ?? 0),
-    3: Math.max(0, faction.reserve_arc ?? 0),
+    2: Math.max(0, faction.reserve_arc ?? 0),
+    3: Math.max(0, faction.reserve_inf ?? 0),
   };
   const types = [];
   for (const candidates of AI_FORMATION_TYPE_CANDIDATES) {
@@ -638,6 +667,20 @@ export function tickStrategicCity(app, cityIndex) {
     (sum, neighbour) => sum + cityLocalStrength(sc, neighbour) + 1,
     0,
   );
+  const targetIdx = faction.target_faction;
+  // 0x4028：先保留SINARIO邻接低6位，再按本次0x3FA9工作行重算高位。
+  // FE威胁记录置bit7；实际战略目标候选再置bit6。不能读取静态raw高位。
+  const candidates =
+    targetIdx == null || targetIdx === 0xff
+      ? []
+      : neighbours.filter(
+          (neighbour) =>
+            neighbour.faction === targetIdx &&
+            isAtWar(sc, city.faction, targetIdx),
+        );
+  city.attr =
+    (cityAttr(city) & 0x3f) |
+    (candidates.length ? 0xc0 : hostileNeighbours.length ? 0x80 : 0);
   if (
     hostileNeighbours.length &&
     localStrength < 1 &&
@@ -662,15 +705,8 @@ export function tickStrategicCity(app, cityIndex) {
     return true;
   }
 
-  const targetIdx = faction.target_faction;
-  if (targetIdx == null || targetIdx === 0xff) return false;
-  // 0x4003另行把“邻城所属==战略目标”的项目写入候选记录；正常宣战
-  // 路径已令两国交战，额外保留战争门防止陈旧目标驱动和平攻击。
-  const candidates = neighbours.filter(
-    (neighbour) =>
-      neighbour.faction === targetIdx && isAtWar(sc, city.faction, targetIdx),
-  );
-  if (!candidates.length) return false;
+  if (targetIdx == null || targetIdx === 0xff || !candidates.length)
+    return false;
   if (localStrength < 1 && city.faction !== sc.player_faction) {
     if ((city._aiCooldown ?? 0) > 0) return false;
     const formed = formAiReinforcements(app, faction, city, 1);
@@ -758,14 +794,34 @@ export function tickStrategicCity(app, cityIndex) {
 function clearMarchNavigation(A) {
   A._march = null;
   A._path = null;
-  // SAVE 的 +0A/+0C/+0E 只用于恢复当前道路边；离边或重建导航后不得继续
-  // 让旧原始地址覆盖当前节点语义，否则次日军费会一直误走道路分支。
+  // SAVE 的 +0A/+0C/+0E 只用于恢复当前道路边；重建导航前先清旧值，
+  // 真正抵达节点后再由markLegionAtRoadNode写回新的+0x0E节点地址。
   delete A.roadStride;
   delete A.roadPointAddress;
   delete A.roadEdgeOrNode;
+  delete A._currentNode;
   delete A._ptx;
   delete A._pty;
   delete A._feint;
+}
+
+function rawRoadNodeId(rawAddress) {
+  const decoded = roadNodeIdFromRaw(rawAddress);
+  if (decoded != null) return decoded;
+  return Number.isInteger(rawAddress) &&
+    rawAddress >= 0 &&
+    rawAddress < 0x0800 &&
+    rawAddress % 8 === 0 &&
+    rawAddress / 8 < 192
+    ? rawAddress / 8
+    : null;
+}
+
+function markLegionAtRoadNode(legion, nodeId) {
+  if (!Number.isInteger(nodeId) || nodeId < 0 || nodeId >= 192) return;
+  const rawAddress = roadNodeRawAddress(nodeId) ?? nodeId * 8;
+  legion._currentNode = nodeId;
+  legion.roadEdgeOrNode = rawAddress;
 }
 
 function clearEngagement(A) {
@@ -1252,6 +1308,9 @@ function startEngagement(A, kind, target) {
     countdown: A.engagementCountdown, // 0x264A 在首次接触同轮把12立即减为11。
     target,
   };
+  // Web表现：接敌图从本次接触立即可见，五声也在同一时点交给WebAudio
+  // 排程；不能等11→1规则倒计时结束后再补一轮动画/声音。
+  engageSfxBurst();
 }
 
 function engagementTarget(sc, engagement) {
@@ -1446,6 +1505,7 @@ function stepRoadGraph(sc, A, tx, ty) {
   if (!roadGraphReady()) return "unavailable";
   if (A.x === tx && A.y === ty) {
     clearMarchNavigation(A);
+    markLegionAtRoadNode(A, roadNodeAt(A.x, A.y)?.id);
     A.prevX = A.x;
     A.prevY = A.y;
     A._markerFrame = 4;
@@ -1498,6 +1558,7 @@ function stepRoadGraph(sc, A, tx, ty) {
     A.y = endpoint.y;
     rememberMarchBase(sc, A);
     clearMarchNavigation(A);
+    markLegionAtRoadNode(A, endpoint.id);
     if (A.x === tx && A.y === ty) {
       A.prevX = A.x;
       A.prevY = A.y;
@@ -1535,6 +1596,7 @@ function stepRoadGraph(sc, A, tx, ty) {
   if (A.x === tx && A.y === ty) {
     rememberMarchBase(sc, A);
     clearMarchNavigation(A);
+    markLegionAtRoadNode(A, roadNodeAt(A.x, A.y)?.id);
     A.prevX = A.x;
     A.prevY = A.y;
     A._markerFrame = 4;
@@ -1571,7 +1633,12 @@ function stepLegacyPath(sc, A, tx, ty) {
   A.y = next.y;
   rememberMarchBase(sc, A);
   if (!A._path.length) A._path = null;
-  return A.x === tx && A.y === ty ? "arrived" : "moved";
+  if (A.x === tx && A.y === ty) {
+    clearMarchNavigation(A);
+    markLegionAtRoadNode(A, roadNodeAt(A.x, A.y)?.id);
+    return "arrived";
+  }
+  return "moved";
 }
 
 export function stepTo(sc, A, tx, ty) {
@@ -1903,11 +1970,20 @@ function retreatCapturedGarrison(
   if (!defenders.length) return { retreat: 0, fates: [] };
   const retreat = retreatRouteToFriendlyCity(sc, defenders[0]);
   if (retreat) {
+    const currentNode = roadNodeAt(city.x, city.y)?.id;
     for (const legion of defenders) {
-      // 原版只共享目标城/节点，不复制代表军团的当前边或stride缓存。
-      assignRetreatRoute(legion, { ...retreat, points: [] }, captorFaction);
-      legion._path = null;
-      legion.cooldown = 12;
+      // 0x4DA4只共享目标城/节点、写+0x0B=1并置status bit1；不得复用
+      // 0x474A的单败军逻辑覆盖各军团+0x23，也没有人为12槽停顿。
+      clearMarchNavigation(legion);
+      markLegionAtRoadNode(legion, currentNode);
+      legion.status = (legion.status ?? 0x80) | 0x82;
+      legion.target = retreat.city;
+      legion.targetCity = retreat.city.idx;
+      legion.targetNode = retreat.node?.id ?? null;
+      legion.moveDelay = 1;
+      legion.cooldown = 1;
+      legion._battleRoadContext = null;
+      legion._retreat = null;
     }
     return { retreat: defenders.length, fates: [] };
   }
@@ -1953,6 +2029,12 @@ export function applyBattleResult(
       winner === "def",
       defResult?.morale,
     );
+    // 0x4ED7返回后攻守两个实际参战对象都各调用一次0x474A。
+    // 城内主守军无论胜负都会先写状态8；只有真正破城后才由0x4DA4
+    // 给战前同城组共享撤退目标，且该组函数不覆盖其余军团命令态。
+    if (!continueLegionAfterBattle(sc, primaryDefender, winner === "def")) {
+      dispatchLegionFate(sc, primaryDefender, A.faction, strategicRng, app);
+    }
   }
   if (originalExit?.cityDamage) {
     city.growth = originalExit.cityDamage.growth;
@@ -2025,6 +2107,7 @@ export function applyBattleResult(
     A.prevX = city.x;
     A.prevY = city.y;
     clearMarchNavigation(A);
+    markLegionAtRoadNode(A, roadNodeAt(city.x, city.y)?.id);
     A.target = city;
     A.targetCity = city.idx;
     A.targetNode = roadNodeAt(city.x, city.y)?.id ?? null;
@@ -2902,8 +2985,10 @@ function selectStrategicCapital(sc, factionIdx) {
 }
 
 function retargetLegionsFromCapital(sc, factionIdx, oldCapital, newCapital) {
-  const oldNode = oldCapital << 3;
-  const newNode = newCapital << 3;
+  // Web运行态targetNode统一为road graph id；节点表与192城槽同序。
+  // 原版0x4502比较的是cityIndex*8，只在SAVE边界换算原始地址。
+  const oldNode = oldCapital;
+  const newNode = newCapital;
   for (const legion of sc.legions ?? []) {
     if (
       legion?.dead ||
@@ -2918,7 +3003,8 @@ function retargetLegionsFromCapital(sc, factionIdx, oldCapital, newCapital) {
     legion.targetCity = newCapital;
     // 0x452E..0x4538原样：+20由旧城改新城后，+14若等于新城节点则写旧城节点。
     // 指令流方向看似反直觉，但字段/比较次序已有地址证据，不能擅自倒置。
-    if (legion.targetNode === newNode) legion.targetNode = oldNode;
+    if (newNode != null && legion.targetNode === newNode)
+      legion.targetNode = oldNode;
     legion.status = (legion.status ?? 0) | 2;
     clearMarchNavigation(legion);
   }
@@ -3248,12 +3334,6 @@ function legionOnRoadEdge(legion) {
   return Number.isFinite(raw) && raw >= 0x0800;
 }
 
-const LEGION_RESERVE_FIELD_BY_TYPE = Object.freeze({
-  1: "reserve_cav",
-  2: "reserve_inf",
-  3: "reserve_arc",
-});
-
 /**
  * KI.EXE 0x4370..0x4398→状态9→0x4499→0x461D/0x4717/0x4698→0x6FD2：
  * 军团在本势力首都且总兵<600时，按六队兵种从三预备兵池补到每队最多100。
@@ -3418,6 +3498,11 @@ export function aiTick(app, options = {}) {
       legion._retreat = null;
     }
     const commandStateAtDispatch = legion.commandState;
+    const commandHandlerAtDispatch = legionCommandHandlerIndex(
+      sc,
+      legion,
+      commandStateAtDispatch,
+    );
     if (
       !legion.dead &&
       legion._active !== false &&
@@ -3462,9 +3547,9 @@ export function aiTick(app, options = {}) {
       (targetCity?.idx ??
         sc.cities.find((city) => city.x === legion.x && city.y === legion.y)
           ?.idx) === legionFaction(sc, legion)?.capital;
-    if (commandStateAtDispatch === 9 && atCapital) {
-      // 0x4499无条件执行重编并转状态3；即使预备池不足、兵数未变化，
-      // 也不能停留在状态9。由状态10刚转入9的军团要等下次槽调度。
+    if (commandHandlerAtDispatch === 9 && settledCommandLegions.has(legion)) {
+      // 0x4499被0x4325分派后无条件执行重编并转状态3；它本身不另查首都。
+      // 即使预备池不足、兵数未变化也不能停留；状态10新转9要等下一槽。
       replenished = replenishLegionAtCapital(sc, legion, true) || replenished;
       legion.commandState = 3;
       legion.cooldown = 8;
@@ -3626,9 +3711,9 @@ export function aiTick(app, options = {}) {
           A.cooldown = Math.max(A.cooldown ?? 0, 6);
           continue;
         }
-        // 状态11必须保留首都目标，供下次槽调度的0x44D6到达处理解散；
-        // 不能在外地选择「解體」时直接删除军团。
-        if (A.commandState !== 11) A.target = null;
+        // 0x2662抵达后保留+0x14/+0x20；显式命令态要在下一槽交给
+        // 0x4325处理（尤其状态10补员、状态11解散）。仅兼容无状态旧快照。
+        if (A.commandState == null) A.target = null;
         A.cooldown = 6;
       }
       continue;
@@ -3668,9 +3753,9 @@ export function aiTick(app, options = {}) {
         }
         changed = true;
       }
-      // resolveBattle的同步战果可能已把目标替换为撤退据点；只能清理
-      // 仍等于旧攻击目标的命令，不能制造战后无目标军团。
-      if (A.target === orderedTarget) A.target = null;
+      // 原版抵达保留+0x14/+0x20，下一槽才执行0x4325。同步战果若已
+      // 换成撤退目标更不能清；这里只兼容没有+0x23的旧Web快照。
+      if (A.target === orderedTarget && A.commandState == null) A.target = null;
       A.cooldown = Math.max(A.cooldown ?? 0, 6);
     }
   }

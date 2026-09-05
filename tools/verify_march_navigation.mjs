@@ -25,6 +25,7 @@ const {
   loadRoadGraph,
   findRoadRoute,
   restoreRoadMarchContext,
+  roadNodeRawAddress,
   serializeRoadMarchContext,
 } = await import("../web/src/game/roadgraph.js");
 const { buildArmies, aiTick, settleLegionDaily, stepTo } = await import(
@@ -62,8 +63,8 @@ assert.equal(restoredContext.stride, firstLeg.stride);
 assert.equal(restoredContext.pointIndex, 0);
 assert.deepEqual(restoredContext.points[0], firstLeg.points[0]);
 
-// 从SAVE恢复道路边后抵达节点，原始+0A/+0C/+0E必须随导航一起清除；
-// 否则次日 settleLegionDaily 会继续按道路边（75）而不是节点（4）扣费。
+// 从SAVE恢复道路边后抵达节点，原始+0A/+0C边字段必须清除，+0E改写
+// 为目标节点原始地址；否则次日会继续按道路边（75）而不是节点（4）扣费。
 const restoredEdgeTarget = graph.nodes[firstLeg.toNode];
 const restoredEdgeCity = {
   idx: 1,
@@ -130,7 +131,11 @@ assert.equal(restoredEdgeResult, "arrived");
 assert.equal(restoredEdgeLegion._march, null);
 assert.ok(!("roadStride" in restoredEdgeLegion));
 assert.ok(!("roadPointAddress" in restoredEdgeLegion));
-assert.ok(!("roadEdgeOrNode" in restoredEdgeLegion));
+assert.equal(
+  restoredEdgeLegion.roadEdgeOrNode,
+  roadNodeRawAddress(restoredEdgeTarget.id),
+);
+assert.equal(restoredEdgeLegion._currentNode, restoredEdgeTarget.id);
 settleLegionDaily(restoredEdgeScenario);
 assert.equal(restoredEdgeFaction.gold, 996, "抵达节点后按floor(100/32)+1扣费");
 assert.equal(restoredEdgeFaction.money, 996);
@@ -139,8 +144,7 @@ assert.equal(restoredEdgeLegion.morale, 110, "抵达节点后恢复士气");
 // DOS +0A/+0C/+0E roundtrip：边内任意位置和±4两个方向都必须可逆。
 const edge = graph.edges[firstLeg.edgeId];
 for (const stride of [4, -4]) {
-  const points =
-    stride === 4 ? edge.points : edge.points.toReversed();
+  const points = stride === 4 ? edge.points : edge.points.toReversed();
   const interiorPointIndex = Math.max(
     1,
     Math.min(points.length - 1, Math.floor(points.length / 2)),
@@ -613,6 +617,98 @@ assert.equal(
   "blocked",
 );
 assert.equal(changingLegion._engagement, undefined);
+
+// 状态10必须走完整道路后保留命令目标/当前节点，并在后续两次槽调度
+// 完成10→9→3及按现有兵种从三个预备池补员；玩家/NPC都覆盖。
+for (const playerFactionIdx of [0, 7]) {
+  const capital = {
+    idx: 1,
+    name: "返京补员首都",
+    x: target.x,
+    y: target.y,
+    faction: 0,
+    attr: 0x80,
+  };
+  const origin = {
+    idx: 0,
+    name: "返京补员出发地",
+    x: source.x,
+    y: source.y,
+    faction: 0,
+    attr: 0x80,
+  };
+  const faction = {
+    idx: 0,
+    capital: 1,
+    attr: 0x80,
+    monarch: "返京补员测试",
+    gold: 100000,
+    money: 100000,
+    reserve_cav: 140,
+    reserve_arc: 140,
+    reserve_inf: 140,
+    legion_morale_cap: 200,
+    n_legions: 1,
+  };
+  const returning = {
+    slot: 0,
+    leader: "返京补员测试",
+    faction: 0,
+    status: 0xc4,
+    x: origin.x,
+    y: origin.y,
+    prevX: origin.x,
+    prevY: origin.y,
+    troops: 180,
+    morale: 100,
+    units: [1, 1, 2, 2, 3, 3].map((type) => ({ type, troops: 300 })),
+    target: capital,
+    targetCity: 1,
+    targetNode: target.id,
+    commandState: 10,
+    cooldown: 0,
+    _active: true,
+  };
+  const returnScenario = {
+    player_faction: playerFactionIdx,
+    factions: [faction],
+    cities: [origin, capital],
+    generals: [],
+    legions: [returning],
+    diplomacy: [[0xff]],
+    delayedLegionReturns: [],
+    pendingStrategicEvents: [],
+    citiesOf(factionIdx) {
+      return this.cities.filter((city) => city.faction === factionIdx);
+    },
+  };
+  const returnApp = {
+    scenario: returnScenario,
+    originalRng: { nextByte: () => 0xff },
+    hud: null,
+    view: null,
+    battleView: null,
+  };
+  for (
+    let guard = 0;
+    guard < expected.points.length + expected.edges.length + 20;
+    guard++
+  ) {
+    aiTick(returnApp, { runCityDaily: false, settleDaily: false });
+    if (returning.commandState === 3) break;
+  }
+  assert.equal(returning.x, capital.x);
+  assert.equal(returning.y, capital.y);
+  assert.equal(returning.target, capital);
+  assert.equal(returning._currentNode, target.id);
+  assert.equal(returning.roadEdgeOrNode, roadNodeRawAddress(target.id));
+  assert.equal(returning.commandState, 3);
+  assert.equal(returning.troops, 600);
+  assert.deepEqual(
+    [faction.reserve_cav, faction.reserve_arc, faction.reserve_inf],
+    [0, 0, 0],
+  );
+}
 
 // 玩家在外据点选择首都「解體」会写状态11；必须沿原版道路返首都，
 // 到达后的下一次军团槽调度才归还六队兵员并移除军团。

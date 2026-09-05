@@ -15,6 +15,74 @@ assert.ok(dataOffset >= 12, "engage SFX must contain a data chunk");
 const duration = wav.readUInt32LE(dataOffset + 4) / (48_000 * 2);
 assert.ok(duration > 0.64 && duration < 0.66);
 
+let createdSource = null;
+const createdSources = [];
+class FakeAudioContext {
+  constructor() {
+    this.state = "running";
+    this.currentTime = 7.5;
+    this.destination = {};
+  }
+
+  async decodeAudioData(bytes) {
+    assert.ok(bytes.byteLength > 0);
+    return { duration };
+  }
+
+  createBufferSource() {
+    createdSource = {
+      buffer: null,
+      playbackRate: { value: 1 },
+      connectedTo: null,
+      startedAt: null,
+      stoppedAt: null,
+      connect: (destination) => {
+        createdSource.connectedTo = destination;
+      },
+      start: (at) => {
+        createdSource.startedAt = at;
+      },
+      stop: (at) => {
+        createdSource.stoppedAt = at;
+      },
+    };
+    createdSources.push(createdSource);
+    return createdSource;
+  }
+}
+globalThis.window = { AudioContext: FakeAudioContext };
+globalThis.fetch = async () => ({
+  ok: true,
+  status: 200,
+  arrayBuffer: async () =>
+    wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength),
+});
+const speaker = await import("../web/src/core/speaker.js");
+await speaker.preloadEngageSfx();
+assert.equal(speaker.ENGAGE_SFX_PLAYBACK_RATE, 2);
+assert.equal(speaker.ENGAGE_SFX_MAX_DURATION_MS, 165);
+assert.equal(speaker.ENGAGE_SFX_BURST_COUNT, 5);
+assert.equal(speaker.ENGAGE_SFX_BURST_INTERVAL_MS, 82.5);
+assert.equal(speaker.engageSfx(), true);
+assert.equal(createdSource.playbackRate.value, 2);
+assert.equal(createdSource.startedAt, 7.5);
+assert.equal(createdSource.stoppedAt, 7.665);
+createdSources.length = 0;
+assert.equal(speaker.engageSfxBurst(), 5);
+assert.deepEqual(
+  createdSources.map((source) => source.startedAt),
+  [7.5, 7.5825, 7.665, 7.7475, 7.83],
+);
+assert.deepEqual(
+  createdSources.map((source) => source.stoppedAt),
+  [7.665, 7.7475, 7.83, 7.9125, 7.995],
+);
+assert.ok(
+  createdSources.every(
+    (source) => source.playbackRate.value === 2 && source.buffer != null,
+  ),
+);
+
 const source = await fs.readFile(
   new URL("../web/src/core/speaker.js", import.meta.url),
   "utf8",
@@ -28,7 +96,7 @@ assert.match(
 assert.match(
   source,
   /export async function prepareEngageSfx\(\)[\s\S]*await loadEngageBuffer\(\)[\s\S]*await actx\.resume\(\)/,
-  "transition prepare must decode ID3 and resume AudioContext before frame 0",
+  "user-gesture prewarm must decode ID3 and attempt to resume AudioContext",
 );
 const mainSource = await fs.readFile(
   new URL("../web/src/main.js", import.meta.url),
@@ -44,15 +112,15 @@ assert.match(
   /ensureGameAssets\(\)[\s\S]*speaker\.preloadEngageSfx\(\)[\s\S]*preloadEngageMarkerImages/,
   "game loading must cache both audio and all four engage frames",
 );
-assert.match(
+assert.doesNotMatch(
   mainSource,
-  /prepare:\s*\(\)\s*=>[\s\S]*speaker\.prepareEngageSfx\(\)/,
-  "delegated transition must await the audio-ready prepare path",
+  /playDelegatedEngage[\s\S]*prepareEngageSfx\(\)/,
+  "battle resolution must not wait up to one second for AudioContext statechange",
 );
 assert.match(
   source,
-  /export function engageSfx\(\)[\s\S]*actx\.state !== "running"[\s\S]*source\.start\(actx\.currentTime\)/,
-  "each animation frame must synchronously start an already-cached sample",
+  /export function engageSfxBurst\([\s\S]*startAt \+ \(index \* safeIntervalMs\) \/ 1000/,
+  "all five sounds must be scheduled on one WebAudio clock at exact intervals",
 );
 assert.doesNotMatch(
   source,
@@ -66,5 +134,5 @@ assert.doesNotMatch(
 );
 
 process.stdout.write(
-  "engage SFX asset OK: confirmed mono PCM ID3 sample replaces sweep approximation\n",
+  "engage SFX asset OK: confirmed full 2x PCM envelope supports five 82.5ms starts\n",
 );

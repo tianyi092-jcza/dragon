@@ -40,7 +40,6 @@ import * as speaker from "./core/speaker.js";
 import { createBattle, createFieldBattle } from "./game/tacticalbattle.js";
 import { applyBattleResult, applyFieldBattleResult } from "./game/ai.js";
 import { createOriginalBattleRng } from "./game/battle/originalrng.js";
-import { playEngageTransition } from "./game/engagetransition.js";
 import {
   applyWebMetaToState,
   canSnapshotState,
@@ -155,29 +154,39 @@ const app = {
     if (this.clock) this.clock.hold = !this.runtimeEnabled;
   },
 
-  /** 委任玩家战斗：预载四图后在战略地图按0→3播放一次，再执行0x5130。 */
+  /**
+   * 委任速算在规则倒计时最后一帧结算。接战四相和五声音效已从首次接触
+   * 开始，这里只保留一个RAF的单槽gate，不能再追加一轮延迟动画。
+   */
   playDelegatedEngage(legion, onFinish) {
-    return playEngageTransition(
-      this,
+    if (this.engageTransition?.active || typeof onFinish !== "function")
+      return false;
+    let done = false;
+    let rafId = null;
+    const transition = {
+      active: true,
       legion,
-      () => {
-        try {
-          onFinish();
-        } finally {
-          finishDeferredLegionDaily(this);
-        }
-      },
-      {
-        prepare: () =>
-          Promise.all([
-            speaker.prepareEngageSfx(),
-            preloadEngageMarkerImages(() => this.view?.draw?.()),
-          ]),
-        onFrame: () => {
-          void speaker.engageSfx();
-        },
-      },
-    );
+      cancel: () => finish(false),
+      setRuntimeEnabled() {},
+    };
+    const finish = (resolveBattle = true) => {
+      if (done) return;
+      done = true;
+      transition.active = false;
+      if (rafId != null) cancelAnimationFrame(rafId);
+      if (this.engageTransition === transition) this.engageTransition = null;
+      try {
+        if (resolveBattle) onFinish();
+      } finally {
+        finishDeferredLegionDaily(this);
+        this.gamebar?.syncClock?.();
+        this.view?.draw?.();
+      }
+    };
+    this.engageTransition = transition;
+    this.gamebar?.syncClock?.();
+    rafId = requestAnimationFrame(() => finish());
+    return true;
   },
 
   /** 游戏结束：清理运行态并返回首页开局选单 (YES/NO) */

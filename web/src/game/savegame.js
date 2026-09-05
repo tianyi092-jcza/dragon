@@ -131,6 +131,7 @@ export function snapshotState(app, slotIdx, label) {
         clean.roadEdgeOrNode = roadContext.edgeOrNode;
       }
       delete clean._march;
+      delete clean._currentNode;
       delete clean._runtimeId;
       delete clean._markerFrame;
       delete clean._renderMoveSerial;

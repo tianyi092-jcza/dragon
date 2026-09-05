@@ -696,7 +696,7 @@ export class BattleView {
         ctx.quadraticCurveTo(x, y + h / 2 + 7, x + 10, y + h / 2 + 3);
         ctx.stroke();
       }
-      // 兵种标识：战略记录的1骑/2步/3弓直接带入战术层。
+      // 兵种标识：战略记录的原始码1骑/2弓/3步直接带入战术层。
       ctx.font = '10px "Noto Serif TC","PMingLiU",serif';
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";

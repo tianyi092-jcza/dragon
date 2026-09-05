@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { aiTick, tickStrategicCity } from "../web/src/game/ai.js";
 
 function units(counts = [50, 50, 50, 50, 50, 50]) {
-  return counts.map((count, index) => ({
-    type: index < 2 ? 1 : index < 4 ? 2 : 3,
-    troops: count * 10,
-  }));
+  return counts.map((count, index) => {
+    let type = 3;
+    if (index < 2) type = 1;
+    else if (index < 4) type = 2;
+    return { type, troops: count * 10 };
+  });
 }
 
 function makeScenario({
@@ -19,14 +21,16 @@ function makeScenario({
     faction: 0,
     x: 10,
     y: 10,
-    raw: `${targetAttr.toString(16).padStart(2, "0")}${"00".repeat(31)}`,
+    attr: targetAttr,
+    raw: "00".repeat(32),
   };
   const target = {
     idx: 1,
     faction: 0,
     x: 20,
     y: 20,
-    raw: `${targetAttr.toString(16).padStart(2, "0")}${"00".repeat(31)}`,
+    attr: targetAttr,
+    raw: "00".repeat(32),
   };
   const faction = {
     idx: 0,
@@ -65,7 +69,7 @@ function legion(overrides = {}) {
     units: units(),
     _active: true,
     targetNode: 1,
-    roadEdgeOrNode: 1,
+    roadEdgeOrNode: 8,
     commandState: 0,
     ...overrides,
   };
@@ -81,6 +85,34 @@ function tick(sc, rng = null) {
   );
 }
 
+// 0x4028：真实SINARIO raw[0]仅有邻接低位；轮询时必须按FE威胁/
+// 战略目标候选重算运行态bit7/bit6，不能伪造静态raw高位。
+{
+  const sc = makeScenario();
+  const raw = new Uint8Array(32);
+  raw[0] = 1;
+  raw[0x1c] = 1;
+  sc.cities[0].raw = Array.from(raw, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  delete sc.cities[0].attr;
+  sc.cities[1].faction = 1;
+  sc.factions[0].target_faction = 1;
+  sc.factions.push({ idx: 1, active: true, capital: 1 });
+  sc.diplomacy = [
+    [0xff, 0],
+    [0, 0xff],
+  ];
+  tickStrategicCity({ scenario: sc }, 0);
+  assert.equal(sc.cities[0].attr, 0xc1);
+  sc.factions[0].target_faction = null;
+  tickStrategicCity({ scenario: sc }, 0);
+  assert.equal(sc.cities[0].attr, 0x81);
+  sc.diplomacy[0][1] = 0xff;
+  tickStrategicCity({ scenario: sc }, 0);
+  assert.equal(sc.cities[0].attr, 0x01);
+}
+
 // 0x3F29：据点所属变化时，旧所属势力+0x17接收该城索引。
 {
   const sc = makeScenario();
@@ -91,13 +123,29 @@ function tick(sc, rng = null) {
   assert.equal(sc.factions[0].strategic_city_secondary, 1);
 }
 
-// 0x439D→0x43A5：NPC状态0到达时，目标城attr bit6清零转1、置位保持0。
+// 0x439D→0x43A5：NPC状态0只按目标城attr bit6转态；原版这里没有首都低兵补员。
 {
   const sc = makeScenario();
   const L = legion({ target: sc.cities[1], commandState: 0 });
   sc.legions = [L];
   tick(sc);
   assert.equal(L.commandState, 1);
+}
+{
+  const sc = makeScenario();
+  const L = legion({
+    target: sc.cities[0],
+    x: sc.cities[0].x,
+    y: sc.cities[0].y,
+    targetNode: 0,
+    roadEdgeOrNode: 0,
+    commandState: 0,
+    troops: 100,
+  });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 1);
+  assert.equal(L.troops, 100);
 }
 {
   const sc = makeScenario({ targetAttr: 0xc0 });
@@ -107,7 +155,7 @@ function tick(sc, rng = null) {
   assert.equal(L.commandState, 0);
 }
 
-// 0x43AF：NPC状态1在>300兵时，目标城attr bit6置位回0；否则按DI别名byte+0x18门控后消耗1 RNG。
+// 0x43AF：NPC状态1在>300兵时，目标城attr bit6置位回0；attr>=0x80时仅DI别名byte+0x18>2才随机转2，<=2保持1并检查首都补员。
 {
   const sc = makeScenario({ targetAttr: 0xc0 });
   const L = legion({ target: sc.cities[1], commandState: 1 });
@@ -118,6 +166,27 @@ function tick(sc, rng = null) {
 {
   const calls = [];
   const sc = makeScenario();
+  const L = legion({ target: sc.cities[1], commandState: 1 });
+  sc.legions = [L];
+  tick(sc, {
+    nextByte() {
+      calls.push(0xab);
+      return 0xab;
+    },
+  });
+  assert.equal(L.commandState, 1);
+  assert.equal(calls.length, 0);
+}
+{
+  const calls = [];
+  const sc = makeScenario();
+  const raw = Uint8Array.from(sc.factions[0].raw.match(/../g), (byte) =>
+    Number.parseInt(byte, 16),
+  );
+  raw[0x38] = 3;
+  sc.factions[0].raw = Array.from(raw, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
   const L = legion({ target: sc.cities[1], commandState: 1 });
   sc.legions = [L];
   tick(sc, {
@@ -184,7 +253,12 @@ function tick(sc, rng = null) {
 // 0x44A9：状态10锁定首都；抵达后无总兵门槛，直接进入9并同轮按预备兵重编到状态3。
 {
   const sc = makeScenario();
-  const L = legion({ target: sc.cities[1], commandState: 10, troops: 300 });
+  const L = legion({
+    target: sc.cities[1],
+    commandState: 10,
+    troops: 300,
+    morale: 1,
+  });
   sc.legions = [L];
   tick(sc);
   assert.equal(L.target, sc.cities[0]);
@@ -198,6 +272,7 @@ function tick(sc, rng = null) {
   tick(sc);
   assert.equal(L.commandState, 3);
   assert.equal(L.troops, 600);
+  assert.equal(L.morale, 1, "状态10→9补员全链不读取或改写士气");
 }
 {
   const sc = makeScenario();
@@ -216,6 +291,24 @@ function tick(sc, rng = null) {
   tick(sc);
   assert.equal(L.commandState, 3, "状态9在下一次槽调度执行重编");
 }
+
+// 0x433D的门槛是state<8，不是state<4：NPC原始状态5偏移到处理器9。
+{
+  const sc = makeScenario();
+  const L = legion({
+    target: sc.cities[0],
+    x: sc.cities[0].x,
+    y: sc.cities[0].y,
+    targetNode: 0,
+    roadEdgeOrNode: 0,
+    commandState: 5,
+    troops: 300,
+  });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 3);
+  assert.equal(L.troops, 600);
+}
 {
   const sc = makeScenario();
   sc.factions[0].reserve_inf = 0;
@@ -233,6 +326,60 @@ function tick(sc, rng = null) {
   sc.legions = [L];
   tick(sc);
   assert.equal(L.commandState, 3, "状态9即使无可补预备兵也无条件转状态3");
+  tick(sc);
+  assert.equal(L.commandState, 8, "NPC六队均不少于300人时转状态8而非解散");
+}
+{
+  const sc = makeScenario();
+  sc.factions[0].reserve_inf = 0;
+  sc.factions[0].reserve_cav = 0;
+  sc.factions[0].reserve_arc = 0;
+  const L = legion({
+    target: sc.cities[0],
+    x: sc.cities[0].x,
+    y: sc.cities[0].y,
+    targetNode: 0,
+    roadEdgeOrNode: 0,
+    commandState: 9,
+    troops: 179,
+    units: units([30, 30, 29, 30, 30, 30]),
+  });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 3);
+  tick(sc);
+  assert.equal(
+    L.commandState,
+    11,
+    "NPC补员后任一队少于300人时转状态11；不是按总兵阈值",
+  );
+}
+{
+  const sc = makeScenario();
+  sc.player_faction = 0;
+  sc.factions[0].reserve_inf = 0;
+  sc.factions[0].reserve_cav = 0;
+  sc.factions[0].reserve_arc = 0;
+  const L = legion({
+    target: sc.cities[0],
+    x: sc.cities[0].x,
+    y: sc.cities[0].y,
+    targetNode: 0,
+    roadEdgeOrNode: 0,
+    commandState: 9,
+    troops: 179,
+    units: units([30, 30, 29, 30, 30, 30]),
+  });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 3);
+  tick(sc);
+  assert.equal(
+    L.commandState,
+    9,
+    "玩家势力（包括委任军团）后备不足时继续补员循环，不走NPC自动解散",
+  );
+  assert.equal(L.dead, undefined);
 }
 
 // 0x44D6→0x463E：状态11抵达首都后解散，六队兵归还预备池，武将回待命。

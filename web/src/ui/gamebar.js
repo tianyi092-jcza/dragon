@@ -32,7 +32,12 @@ import {
 } from "../game/roadgraph.js";
 import { isLegionDelegated, setLegionDelegated } from "../game/legionmode.js";
 import { canSnapshotState } from "../game/savegame.js";
-import { ensureLegionSlot } from "../game/legionunits.js";
+import {
+  DEFAULT_LEGION_UNIT_TYPES,
+  ensureLegionSlot,
+  LEGION_RESERVE_FIELD_BY_TYPE,
+  LEGION_UNIT_TYPE,
+} from "../game/legionunits.js";
 import {
   applyFactionFundsDelta,
   factionLegionMoraleCap,
@@ -45,6 +50,13 @@ import {
 } from "../game/tacticalclock.js";
 
 const LIST_HEADER_HEIGHT = 24;
+// 编成窗口内部按钮顺序为骑→步→弓；写入二进制兵种码时必须映射为
+// 1=骑、3=步、2=弓，不能直接用内部索引+1。
+const FORMATION_TYPE_TO_LEGION_TYPE = Object.freeze([
+  LEGION_UNIT_TYPE.CAVALRY,
+  LEGION_UNIT_TYPE.INFANTRY,
+  LEGION_UNIT_TYPE.ARCHER,
+]);
 import {
   enqueueDelayedStrategicEvent,
   resolveIncomingDiplomacyChoice,
@@ -70,6 +82,20 @@ function isPlaceholderListRow(row) {
   return (row?.cells ?? []).every((cell) =>
     /^[\s－—-]*$/.test(String(listCellValue(cell))),
   );
+}
+
+// KI.EXE 0x7344..0x736C：军团+4按十人计，<0x12C（显示<3000）红字；
+// 军团+6士气<0x64（100）红字。0x90→0x9A把前景色切到GAMEPAL索引A。
+const LEGION_WARNING_COLOR = "#dd0000";
+function legionStrengthCells(legion) {
+  const troopUnits = legion.troops ?? 0;
+  const troops = `${troopUnits * 10}`;
+  const moraleValue = legion.morale ?? 200;
+  const morale = `${moraleValue}`;
+  return [
+    troopUnits < 0x012c ? { t: troops, color: LEGION_WARNING_COLOR } : troops,
+    moraleValue < 0x64 ? { t: morale, color: LEGION_WARNING_COLOR } : morale,
+  ];
 }
 
 const SUBMENU = [
@@ -333,7 +359,8 @@ export class GameBar {
       d.fy = innerHeight - d.fh - 16; // 屏幕底对齐且与底部保持 8px 间距 (fy-8 = innerHeight-80-8)
     }
     if (this.formationDialog) {
-      this.formationDialog.ox = d.px + 128;
+      const formationW = (this.formationDialog.wTiles ?? 15) * 16;
+      this.formationDialog.ox = d.px + Math.round((d.w - formationW) / 2) + 8;
       this.formationDialog.oy = d.py + 28;
       if (this.formationQuote) {
         this.formationQuote.ox = this.formationDialog.ox;
@@ -780,17 +807,9 @@ export class GameBar {
         ? (L.target.name ?? "－－－－").trim()
         : "－－－－";
       const mode = isLegionDelegated(L) ? "委任" : "戰鬥指揮";
-      const troops = (L.troops ?? 0) * 10;
-      const morale = L.morale ?? 200;
+      const [troops, morale] = legionStrengthCells(L);
       return {
-        cells: [
-          L.leader || "？",
-          `${troops}`,
-          `${morale}`,
-          curName,
-          targetName,
-          mode,
-        ],
+        cells: [L.leader || "？", troops, morale, curName, targetName, mode],
         _legion: L,
       };
     });
@@ -989,17 +1008,9 @@ export class GameBar {
         ? (L.target.name ?? "－－－－").trim()
         : "－－－－";
       const mode = isLegionDelegated(L) ? "委任" : "戰鬥指揮";
-      const troops = (L.troops ?? 0) * 10;
-      const morale = L.morale ?? 200;
+      const [troops, morale] = legionStrengthCells(L);
       return {
-        cells: [
-          L.leader || "？",
-          `${troops}`,
-          `${morale}`,
-          curName,
-          targetName,
-          mode,
-        ],
+        cells: [L.leader || "？", troops, morale, curName, targetName, mode],
         _legion: L,
         _curCity: curCity,
       };
@@ -1110,17 +1121,9 @@ export class GameBar {
         ? (L.target.name ?? "－－－－").trim()
         : "－－－－";
       const mode = isLegionDelegated(L) ? "委任" : "戰鬥指揮";
-      const troops = (L.troops ?? 0) * 10;
-      const morale = L.morale ?? 200;
+      const [troops, morale] = legionStrengthCells(L);
       return {
-        cells: [
-          L.leader || "？",
-          `${troops}`,
-          `${morale}`,
-          curName,
-          targetName,
-          mode,
-        ],
+        cells: [L.leader || "？", troops, morale, curName, targetName, mode],
         _legion: L,
       };
     });
@@ -1335,10 +1338,9 @@ export class GameBar {
     const tot = (legion.troops ?? 0) * 10;
     const per = Math.floor(tot / 6);
     const rem = tot % 6;
-    const defaultTypes = [0, 0, 1, 1, 2, 2];
-    const units = defaultTypes.map((t, idx) => ({
+    const units = DEFAULT_LEGION_UNIT_TYPES.map((type, idx) => ({
       name: ["主將", "前鋒", "左翼", "右翼", "左備", "右備"][idx],
-      type: t + 1,
+      type,
       troops: per + (idx < rem ? 1 : 0),
     }));
     legion.units = units;
@@ -1368,9 +1370,8 @@ export class GameBar {
     for (const u of units) {
       const count = u.troops || 0;
       const poolAdd = Math.floor(count / 10);
-      if (u.type === 1) me.reserve_cav = (me.reserve_cav ?? 0) + poolAdd;
-      else if (u.type === 2) me.reserve_inf = (me.reserve_inf ?? 0) + poolAdd;
-      else if (u.type === 3) me.reserve_arc = (me.reserve_arc ?? 0) + poolAdd;
+      const reserveField = LEGION_RESERVE_FIELD_BY_TYPE[u.type];
+      if (reserveField) me[reserveField] = (me[reserveField] ?? 0) + poolAdd;
     }
 
     const gen = sc.generals?.find((g) => g.name === legion.leader);
@@ -1523,7 +1524,7 @@ export class GameBar {
     const unitNames = ["主將", "前鋒", "左翼", "右翼", "左備", "右備"];
     const units = this._getLegionUnits(legion);
     const { cav, arc, inf } = this.imgs;
-    const typeImgs = [null, cav, inf, arc]; // 1=騎兵, 2=步兵, 3=弓兵
+    const typeImgs = [null, cav, arc, inf]; // 原始码：1=騎兵, 2=弓兵, 3=步兵
 
     units.forEach((u, i) => {
       const uy = y + 90 + i * 18;
@@ -2486,14 +2487,10 @@ export class GameBar {
             status: 0x80,
             delegated: false,
             cooldown: 0,
-            units: [
-              { type: 1, troops: 1000 },
-              { type: 1, troops: 1000 },
-              { type: 2, troops: 1000 },
-              { type: 2, troops: 1000 },
-              { type: 3, troops: 1000 },
-              { type: 3, troops: 1000 },
-            ],
+            units: DEFAULT_LEGION_UNIT_TYPES.map((type) => ({
+              type,
+              troops: 1000,
+            })),
           };
           ensureLegionSlot(sc.legions, newLegion, p.monarch.idx);
           sc.legions.push(newLegion);
@@ -4432,7 +4429,7 @@ export class GameBar {
     let ox, oy;
     if (this.listDialog) {
       const d = this.listDialog;
-      ox = d.px + 128;
+      ox = d.px + Math.round((d.w - 15 * 16) / 2) + 8;
       oy = d.py + 28;
       if (d.footer) {
         d.footer.text = "請下達各部隊編成之指示。";
@@ -4640,7 +4637,10 @@ export class GameBar {
       status: 0x80,
       delegated: false,
       cooldown: 0,
-      units: units.map((u) => ({ type: u.type + 1, troops: u.troops })),
+      units: units.map((u) => ({
+        type: FORMATION_TYPE_TO_LEGION_TYPE[u.type],
+        troops: u.troops,
+      })),
     };
     ensureLegionSlot(sc.legions, newLegion, gen.idx);
     sc.legions.push(newLegion);
@@ -5697,6 +5697,17 @@ export class GameBar {
     this.syncClock();
   }
 
+  /** 军师一级菜单条仅遮挡自身640×48区域；同高度的左右地图仍可交互。 */
+  _hitAdvisorBar(px, py) {
+    return (
+      this.submenuOpen &&
+      py >= 32 &&
+      py < 80 &&
+      px >= this.bx &&
+      px < this.bx + 640
+    );
+  }
+
   // ── 命中测试: 返回 true = 坐标在 UI 上, 地图交互不处理 ──
   hitTest(px, py) {
     this.layout();
@@ -5726,14 +5737,7 @@ export class GameBar {
 
     if (this.cityCard && this._hitCityCard(px, py)) return true;
     // 军师子菜单带
-    if (
-      this.submenuOpen &&
-      py >= 32 &&
-      py < 80 &&
-      px >= this.bx &&
-      px < this.bx + 640
-    )
-      return true; // 军师子菜单带
+    if (this._hitAdvisorBar(px, py)) return true;
     if (py < 32 && px >= this.bx && px < this.bx + 640) return true; // 工具栏
     if (
       this.panels.some(
@@ -6401,7 +6405,7 @@ export class GameBar {
       return true;
     }
     // 军师菜单带交互 (单选机制: 当有任意子项被选中时，禁止点击其他项)
-    if (this.submenuOpen && py >= 32 && py < 80) {
+    if (this._hitAdvisorBar(px, py)) {
       if (this.selectedSubmenu != null) {
         // 当前已有子菜单项被选中，不可点击其他子项
         return true;
