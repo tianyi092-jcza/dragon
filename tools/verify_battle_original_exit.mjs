@@ -52,7 +52,7 @@ const result = settleOriginalBattleExit({
     { troops: 60, morale: 150 },
   ],
   wallRecords: walls,
-  city: { growth: 100, disaster: 90, troops: 80 },
+  city: { growth: 100, defence: 90, troops: 80 },
 });
 assert.equal(result.winner, 0);
 assert.deepEqual(result.sides[0].units, [5, 5, 5, 5, 5, 5]);
@@ -89,7 +89,7 @@ assert.equal(
       { troops: 60, morale: 150 },
     ],
     wallRecords: walls,
-    city: { growth: 100, disaster: 90, troops: 80 },
+    city: { growth: 100, defence: 90, troops: 80 },
   }).sides[0].troops,
   30,
 );

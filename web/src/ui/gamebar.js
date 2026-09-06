@@ -3511,20 +3511,25 @@ export class GameBar {
     const p = this.proposalAudience;
     if (!p) return false;
     if (btn === 2) {
-      clickSfx();
-      if (p.type === "envoy-budget" || p.type === "domestic-budget") {
-        if (this.keypadDialog) this.closeKeypadDialog();
-        if (p.step === "envoy_budget_result") {
-          if (p.timer) {
-            clearTimeout(p.timer);
-            p.timer = null;
-          }
-          this._closeBudgetAudience();
-        } else {
-          void this._finishBudgetAudience(0, "refuse");
+      if (p.type === "envoy-budget") {
+        // 外交费报告是强制流程：整段屏蔽右键，只允许左键选择并推进。
+        // 右键必须被消费，不能触发通用回退或暗中视为拒绝。
+        return true;
+      }
+      if (p.type === "domestic-budget") {
+        // 0x3B7E取消会原地等待；数字键盘右键由公开分发退回三选项。
+        if (p.step === "envoy_budget_choice" || p.budgetCommitting) return true;
+        if (p.timer) {
+          clickSfx();
+          clearTimeout(p.timer);
+          p.timer = null;
+          const action = p.timerAction;
+          p.timerAction = null;
+          action?.();
         }
         return true;
       }
+      clickSfx();
       if (p.type === "incoming-truce" || p.type === "incoming-assistance") {
         if (this.keypadDialog) this.closeKeypadDialog();
         if (p.step === "incoming_diplomacy_result") {
@@ -3555,6 +3560,21 @@ export class GameBar {
       return true;
     }
     if (btn !== 0) return true;
+
+    if (
+      (p.type === "envoy-budget" || p.type === "domestic-budget") &&
+      p.step !== "envoy_budget_choice" &&
+      p.step !== "envoy_budget_result"
+    ) {
+      if (p.timer) {
+        clearTimeout(p.timer);
+        p.timer = null;
+        const action = p.timerAction;
+        p.timerAction = null;
+        action?.();
+      }
+      return true;
+    }
 
     if (p.type === "incoming-truce" || p.type === "incoming-assistance") {
       if (p.step === "incoming_diplomacy_choice") {
@@ -3993,16 +4013,18 @@ export class GameBar {
     const sc = this.app.scenario;
     const city = sc.cities?.[message.cityIdx];
     const me = cmd.playerFaction(sc);
-    if (!city || city.faction !== sc.player_faction || city.governor == null)
-      return false;
+    if (!city || city.governor == null) return false;
     const gen = sc.generals?.[city.governor];
     const monarch = me ? sc.monarchOf(me) : null;
-    if (!gen || !monarch) return false;
-    const [monarchImg, governorImg] = await Promise.all([
-      portrait(monarch.portrait).catch(() => null),
+    const advisor = sc.generals?.[me?.advisor_idx] ?? monarch;
+    if (!gen || !monarch || !advisor) return false;
+    const [governorImg, advisorImg] = await Promise.all([
       portrait(gen.portrait).catch(() => null),
+      portrait(advisor.portrait).catch(() => null),
     ]);
-    const requested = Math.max(0, message.requested | 0);
+    const rawRequested = Math.max(0, message.requested | 0);
+    // 0x39F1..0x39FA：只把入口建议额的1..499钳为500；键盘自定义值不钳。
+    const requested = rawRequested > 0 ? Math.max(500, rawRequested) : 0;
     const reportLines = await formatTalkTokens(
       56,
       "",
@@ -4011,32 +4033,30 @@ export class GameBar {
       "",
       city.name?.trim?.() || "據點",
     );
-    const requestLines = await formatTalkTokens(
-      278,
-      "",
-      "",
-      gen.name.trim(),
-      `${Math.max(0, message.requested | 0)}`,
-      city.name?.trim?.() || "據點",
-    );
     if (generation !== this._scenarioUiGeneration) return false;
     this.proposalAudience = {
       type: "domestic-budget",
       playerFaction: me,
       city,
       monarch,
+      advisorGen: advisor,
       advGen: gen,
-      monarchImg,
-      advImg: governorImg,
+      advisorImg,
+      workerImg: governorImg,
+      monarchImg: this.imgs?.messageNpc ?? null,
+      advImg: null,
       monarchLines: reportLines,
-      advLines: requestLines,
-      step: "envoy_budget_choice",
+      advLines: null,
+      step: "budget_report",
+      requestTalkBase: 278,
       budgetRequested: requested,
       budgetAmount: requested,
+      budgetGrant: null,
       budgetHover: -1,
       timer: null,
       timerAction: null,
     };
+    this._setProposalTimer(3000, () => void this._advanceBudgetAudience());
     this.syncClock();
     this.app.view.draw();
     return true;
@@ -4054,25 +4074,20 @@ export class GameBar {
       (envoy?.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
       sc.generals?.find((g) => g?.name?.trim?.() === envoy?.name?.trim?.());
     const monarch = me ? sc.monarchOf(me) : null;
-    if (!envoy || !target || !gen || !monarch) return false;
-    const [monarchImg, envoyImg] = await Promise.all([
-      portrait(monarch.portrait).catch(() => null),
+    const advisor = sc.generals?.[me?.advisor_idx] ?? monarch;
+    if (!envoy || !target || !gen || !monarch || !advisor) return false;
+    const [envoyImg, advisorImg] = await Promise.all([
       portrait(gen.portrait).catch(() => null),
+      portrait(advisor.portrait).catch(() => null),
     ]);
     const targetName = (target.monarch ?? "該勢力").trim();
-    const requested = Math.max(0, message.requested | 0);
+    const rawRequested = Math.max(0, message.requested | 0);
+    const requested = rawRequested > 0 ? Math.max(500, rawRequested) : 0;
     const reportLines = await formatTalkTokens(
       57,
       targetName,
       "",
       gen.name.trim(),
-    );
-    const requestLines = await formatTalkTokens(
-      319,
-      targetName,
-      "",
-      gen.name.trim(),
-      `${Math.max(0, message.requested | 0)}`,
     );
     if (generation !== this._scenarioUiGeneration) return false;
     this.proposalAudience = {
@@ -4081,29 +4096,114 @@ export class GameBar {
       targetFaction: target,
       envoy,
       monarch,
+      advisorGen: advisor,
       advGen: gen,
-      monarchImg,
-      advImg: envoyImg,
+      advisorImg,
+      workerImg: envoyImg,
+      monarchImg: this.imgs?.messageNpc ?? null,
+      advImg: null,
       monarchLines: reportLines,
-      advLines: requestLines,
-      step: "envoy_budget_choice",
+      advLines: null,
+      step: "budget_report",
+      requestTalkBase: 319,
       budgetRequested: requested,
       budgetAmount: requested,
+      budgetGrant: null,
       budgetHover: -1,
       timer: null,
       timerAction: null,
     };
+    this._setProposalTimer(3000, () => void this._advanceBudgetAudience());
     this.syncClock();
     this.app.view.draw();
     return true;
   }
 
-  async _finishBudgetAudience(amount, mode) {
+  _budgetWorkerTalkIndex(base, gen) {
+    const raw = Math.max(0, gen?.talk_idx ?? 0) & 0xff;
+    return base + (raw >= 3 ? raw - 3 : raw);
+  }
+
+  async _advanceBudgetAudience() {
     const p = this.proposalAudience;
     if (!p || (p.type !== "envoy-budget" && p.type !== "domestic-budget"))
       return;
-    const faction = p.playerFaction;
-    const requested = p.budgetRequested;
+    const targetName = (p.targetFaction?.monarch ?? "").trim();
+    const cityName = p.city?.name?.trim?.() || "據點";
+    const generalName = p.advGen?.name?.trim?.() || "";
+    let talkIndex;
+    let speakerImg;
+    let nextStep;
+    let nextAction;
+
+    if (p.step === "budget_report") {
+      if (p.budgetRequested === 0) {
+        p.budgetGrant = 0;
+        talkIndex = this._budgetWorkerTalkIndex(
+          p.requestTalkBase + 30,
+          p.advGen,
+        );
+        speakerImg = p.workerImg;
+        nextStep = "budget_zero_worker";
+        nextAction = () => void this._advanceBudgetAudience();
+      } else {
+        talkIndex = this._budgetWorkerTalkIndex(p.requestTalkBase, p.advGen);
+        speakerImg = p.workerImg;
+        nextStep = "budget_request";
+        nextAction = () => void this._advanceBudgetAudience();
+      }
+    } else if (p.step === "budget_request") {
+      p.step = "envoy_budget_choice";
+      p.timerAction = null;
+      this.app.view.draw();
+      return;
+    } else if (p.step === "budget_zero_worker") {
+      talkIndex = p.requestTalkBase + 35;
+      speakerImg = p.advisorImg;
+      nextStep = "budget_zero_advisor";
+      nextAction = () => void this._advanceBudgetAudience();
+    } else if (p.step === "budget_zero_advisor") {
+      talkIndex = this._budgetWorkerTalkIndex(p.requestTalkBase + 36, p.advGen);
+      speakerImg = p.workerImg;
+      nextStep = "envoy_budget_result";
+      nextAction = () => this._closeBudgetAudience();
+    } else if (p.step === "budget_advisor_result") {
+      p.monarchImg = p.workerImg;
+      p.monarchLines = p.workerResultLines;
+      p.advLines = null;
+      p.step = "envoy_budget_result";
+      this._setProposalTimer(3000, () => this._closeBudgetAudience());
+      this.app.view.draw();
+      return;
+    } else {
+      return;
+    }
+
+    const lines = await formatTalkTokens(
+      talkIndex,
+      targetName,
+      "",
+      generalName,
+      `${p.budgetRequested}`,
+      cityName,
+    );
+    if (this.proposalAudience !== p) return;
+    p.monarchImg = speakerImg;
+    p.monarchLines = lines;
+    p.advLines = null;
+    p.step = nextStep;
+    this._setProposalTimer(3000, nextAction);
+    this.app.view.draw();
+  }
+
+  async _finishBudgetAudience(amount, mode) {
+    const p = this.proposalAudience;
+    if (
+      !p ||
+      (p.type !== "envoy-budget" && p.type !== "domestic-budget") ||
+      p.budgetCommitting
+    )
+      return;
     const domestic = p.type === "domestic-budget";
     if (
       domestic &&
@@ -4112,77 +4212,79 @@ export class GameBar {
       this._closeBudgetAudience();
       return;
     }
-    // 0x39E8 数字键盘上限固定30000；非零输入最低500，不按当前国库钳制。
+    // 0x3A88：键盘返回的1..499保持原值；500下限只在0x39E8入口建议额生效。
     const entered = Math.max(0, Math.min(30000, amount | 0));
-    const grant = entered > 0 ? Math.max(500, entered) : 0;
-    if (grant > 0) applyFactionFundsDelta(faction, -grant);
-    // 0x3AE2/0x3AE4：批准额先×2，再取高字节写 general+0x1A，
-    // 等价 floor(金额/128)。该字节才是0x3E8E逐次消耗的工作预算。
-    const budgetPoints = Math.min(255, Math.floor(grant / 128));
-    const gen = p.advGen;
-    if (gen) gen.assignment_budget = budgetPoints;
-    if (p.type === "envoy-budget") {
-      const envoy = p.envoy;
-      envoy.budget = budgetPoints;
-      envoy.requested = requested;
-      envoy.granted = grant;
-      envoy.reportPending = false;
-    }
+    const grant = mode === "refuse" ? 0 : entered;
+    const requested = p.budgetRequested;
+    const category =
+      grant === 0 ? 2 : grant === requested ? 0 : grant < requested ? 1 : 3;
+    p.budgetCommitting = true;
+    p.step = "budget_committing";
+    p.budgetGrant = grant;
+
     const targetName = (p.targetFaction?.monarch ?? "").trim();
     const cityName = p.city?.name?.trim?.() || "據點";
     const generalName = p.advGen?.name?.trim?.() || "";
-    const talkBase = domestic ? 284 : 325;
-    if (mode === "accept") {
-      p.monarchLines = await formatTalkTokens(
-        talkBase,
+    const advisorTalk = p.requestTalkBase + 6 + category;
+    const workerTalk = this._budgetWorkerTalkIndex(
+      p.requestTalkBase + 10 + category * 5,
+      p.advGen,
+    );
+    const [advisorLines, workerLines] = await Promise.all([
+      formatTalkTokens(
+        advisorTalk,
         targetName,
         "",
         generalName,
         `${grant}`,
         cityName,
-      );
-      p.advLines = [
-        domestic
-          ? "感謝之至，我一定會盡力治理據點。"
-          : "感謝之至，我一定會帶回好的結果！敬請期待！",
-      ];
-    } else if (mode === "adjust") {
-      p.monarchLines = await formatTalkTokens(
-        grant > 0
-          ? talkBase + (grant === requested ? 0 : grant < requested ? 1 : 3)
-          : talkBase + 2,
+      ),
+      formatTalkTokens(
+        workerTalk,
         targetName,
         "",
         generalName,
         `${grant}`,
         cityName,
-      );
-      p.advLines = [
-        grant > 0
-          ? grant < requested
-            ? "是有什麼需要吧，但是無法准予全額。總之我盡量設法吧。"
-            : domestic
-              ? "感謝之至，我一定會善加運用。"
-              : "感謝之至，我一定讓他成為友邦。"
-          : "嗯，如此便難以推進任務了……",
-      ];
-    } else {
-      p.monarchLines = await formatTalkTokens(
-        talkBase + 2,
-        targetName,
-        "",
-        generalName,
-        "0",
-        cityName,
-      );
-      p.advLines = ["嗯，如此便難以推進任務了……"];
-    }
-    p.step = "envoy_budget_result";
-    this._setProposalTimer(3000, () => this._closeBudgetAudience());
+      ),
+    ]);
+    if (this.proposalAudience !== p) return;
+    p.budgetCommitting = false;
+    p.monarchImg = p.advisorImg;
+    p.monarchLines = advisorLines;
+    p.advLines = null;
+    p.workerResultLines = workerLines;
+    p.step = "budget_advisor_result";
+    this._setProposalTimer(3000, () => void this._advanceBudgetAudience());
     this.app.view.draw();
   }
 
+  _commitBudgetAudience(p) {
+    if (!p || p.budgetCommitted || p.budgetGrant == null) return;
+    p.budgetCommitted = true;
+    const grant = Math.max(0, p.budgetGrant | 0);
+    const domestic = p.type === "domestic-budget";
+    if (
+      domestic &&
+      (p.city?.governor == null || p.city.governor !== p.advGen?.idx)
+    )
+      return;
+    const budgetPoints = Math.min(255, Math.floor(grant / 128));
+    if (grant > 0) {
+      applyFactionFundsDelta(p.playerFaction, -grant);
+      if (p.advGen) p.advGen.assignment_budget = budgetPoints;
+    }
+    if (p.type === "envoy-budget") {
+      p.envoy.budget = budgetPoints;
+      p.envoy.requested = p.budgetRequested;
+      p.envoy.granted = grant;
+      p.envoy.reportPending = false;
+    }
+  }
+
   _closeBudgetAudience() {
+    const p = this.proposalAudience;
+    this._commitBudgetAudience(p);
     this.closeProposalAudience();
     this._strategicMessageActive = false;
     if (!this._strategicMessageQueue.length) this._clockHoldRequested = false;
@@ -5814,6 +5916,13 @@ export class GameBar {
         const isIncoming =
           dialogType === "incoming-truce" ||
           dialogType === "incoming-assistance";
+        if (
+          dialogType === "envoy-budget" &&
+          this.proposalAudience?.type === dialogType
+        ) {
+          // 强制外交费流程整段屏蔽右键，只允许左键操作数字键盘。
+          return true;
+        }
         this.closeKeypadDialog();
         if (isBudget && this.proposalAudience?.type === dialogType) {
           this.proposalAudience.step = "envoy_budget_choice";
@@ -5825,14 +5934,13 @@ export class GameBar {
         return true;
       }
       if (this.proposalAudience) {
-        clickSfx();
         if (
           this.proposalAudience.type === "envoy-budget" ||
           this.proposalAudience.type === "domestic-budget"
         ) {
-          void this._finishBudgetAudience(0, "refuse");
-          return true;
+          return this._clickProposalAudience(px, py, btn);
         }
+        clickSfx();
         if (
           this.proposalAudience.type === "incoming-truce" ||
           this.proposalAudience.type === "incoming-assistance"
@@ -5973,10 +6081,20 @@ export class GameBar {
       px - this.bx >= 336 &&
       px - this.bx < 366;
     if (fanHit) {
+      if (
+        this.proposalAudience?.type === "envoy-budget" ||
+        this.proposalAudience?.type === "domestic-budget"
+      ) {
+        return true;
+      }
       clickSfx();
       this.submenuOpen = !this.submenuOpen;
       this.resetAdvisorDescendants();
       return true;
+    }
+
+    if (this.keypadDialog && this.proposalAudience) {
+      return this._clickKeypadDialog(px, py);
     }
 
     if (this.proposalAudience) {
@@ -7302,6 +7420,7 @@ export class GameBar {
     }
     if (this.proposalAudience) {
       this._drawProposalAudience(ctx);
+      if (this.keypadDialog) this._drawKeypadDialog(ctx);
     }
   }
 

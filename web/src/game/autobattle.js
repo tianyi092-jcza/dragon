@@ -231,7 +231,6 @@ export function applySiegeCityDamage(city, ratio) {
   write("troops", "troops", Math.max(0, read("troops", "troops") - damage));
   write("morale", "growth", Math.max(0, read("morale", "growth") - damage));
   write("food", "defence", Math.max(0, read("food", "defence") - damage));
-  if (!city?.sim) city.disaster = city.defence;
   return damage;
 }
 
@@ -255,7 +254,6 @@ export function applyTacticalSiegeCityDamage(city, wallRecords) {
   city.troops = subtract(city.troops);
   city.growth = subtract(city.growth);
   city.defence = subtract(city.defence);
-  city.disaster = city.defence;
   if (city.sim) {
     city.sim.troops = city.troops;
     if ("morale" in city.sim) city.sim.morale = city.growth;

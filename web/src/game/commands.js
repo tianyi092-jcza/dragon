@@ -92,6 +92,33 @@ export function playerFaction(sc) {
   );
 }
 
+/** 0x7663/0x76A0：内政官候选只要求活动、同势力、status=0且非君主。 */
+export function domesticGovernorCandidates(sc, faction) {
+  if (!faction) return [];
+  return (sc.generals ?? []).filter(
+    (general) =>
+      general &&
+      general.faction === faction.idx &&
+      general.active !== false &&
+      (general.status ?? 0) === 0 &&
+      !general.is_monarch &&
+      general.idx !== faction.monarch_idx,
+  );
+}
+
+/** 0x765A：任命只写city[+0x19]与general[+0x17]=2，不改旧预算。 */
+export function appointDomesticGovernor(city, general) {
+  city.governor = general.idx;
+  general.status = 2;
+}
+
+/** 0x6B4F：手动解任清city[+0x19]、身份和general[+0x1A]预算。 */
+export function dismissDomesticGovernor(city, general) {
+  city.governor = null;
+  general.status = 0;
+  general.assignment_budget = 0;
+}
+
 /** 信赖归零立即 GAME OVER (KI.EXE 0x3DC9 减信赖后直转 0x1CB1) */
 export function checkTrustGameOver(app) {
   const sc = app.scenario;
@@ -140,10 +167,10 @@ export function recruit(sc, city) {
   return { ok: `${city.name} 徵兵${RECRUIT_N}·次月到達` };
 }
 
-/** 税率设定 (本月即改 → 下次月结按新税率) */
+/** 税率设定写入next_tax，0x53A6在下次月结末尾转正。 */
 export function setTax(sc, n) {
-  sc.tax = Math.max(TAX_MIN, Math.min(TAX_MAX, n | 0));
-  return { ok: `稅率→${sc.tax}%` };
+  sc.next_tax = Math.max(TAX_MIN, Math.min(TAX_MAX, n | 0));
+  return { ok: `次月稅率→${sc.next_tax}%` };
 }
 
 /**

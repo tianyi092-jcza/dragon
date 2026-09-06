@@ -259,8 +259,7 @@ export function runStrategicDiplomacy(sc) {
     const targetIdx = faction.target_faction;
     const playerTouches = candidates.some(
       (candidate) =>
-        candidate.factionIdx === sc.player_faction &&
-        !candidate.atWarSnapshot,
+        candidate.factionIdx === sc.player_faction && !candidate.atWarSnapshot,
     );
     if (
       targetIdx != null &&
@@ -280,10 +279,7 @@ export function runStrategicDiplomacy(sc) {
     // 0x2E89：仅非玩家；从最差关系候选起逐个减去对方战略实力，直到
     // 累计敌力达到当前势力。随后从该位置向后，对除首候选外的连续交战
     // 候选逐一排type3。工作表raw是0x2C52排序时快照，不能读更新后关系。
-    if (
-      faction.idx !== sc.player_faction &&
-      candidates[0]?.atWarSnapshot
-    ) {
+    if (faction.idx !== sc.player_faction && candidates[0]?.atWarSnapshot) {
       let remainingPower = factionStrategicPower(faction);
       let startIndex = -1;
       for (let index = 0; index < Math.min(0x15, candidates.length); index++) {
@@ -418,16 +414,29 @@ export function envoyBudgetRequest(sc, targetIdx) {
  */
 export function prepareEnvoyBudgetReports(sc) {
   const reports = [];
-  for (const [targetKey, envoy] of Object.entries(sc.envoys ?? {})) {
-    const targetIdx = Number(targetKey);
-    if (!envoy?.name || !Number.isInteger(targetIdx)) continue;
-    const target = sc.factions?.find((f) => f?.idx === targetIdx);
-    if (!target || target.dead || (target.n_cities ?? 0) <= 0) continue;
+  for (const target of sc.factions ?? []) {
+    const targetIdx = target?.idx;
+    if (!Number.isInteger(targetIdx) || targetIdx === sc.player_faction)
+      continue;
+    const saved = sc.envoys?.[targetIdx];
+    const generalIdx = target.diplomat_idx ?? saved?.gen_idx;
     const general =
-      (envoy.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
-      sc.generals?.find((g) => g?.name?.trim?.() === envoy.name?.trim?.());
-    const budget = envoy.budget ?? general?.assignment_budget ?? 0;
+      (generalIdx != null && sc.generals?.[generalIdx]) ||
+      sc.generals?.find((g) => g?.name?.trim?.() === saved?.name?.trim?.());
+    if (!general) continue;
+    // 0x57A8..0x57BD：势力+0x2A指向驻外武将，是否申请只读武将+0x1A。
+    // envoys仅是Web显示镜像，不能覆盖这个原版权威字段。
+    const budget = general.assignment_budget ?? saved?.budget ?? 0;
     if (budget > 0) continue;
+    sc.envoys ??= {};
+    const envoy = (sc.envoys[targetIdx] ??= {
+      name: general.name?.trim?.() ?? "",
+      gen_idx: general.idx,
+      left: 0,
+    });
+    envoy.name = general.name?.trim?.() ?? envoy.name;
+    envoy.gen_idx = general.idx;
+    envoy.budget = 0;
     const requested = envoyBudgetRequest(sc, targetIdx);
     envoy.requested = requested;
     envoy.reportPending = true;

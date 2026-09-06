@@ -7,6 +7,8 @@ export function canSnapshotState(app) {
   return !(
     app?.engageTransition?.active ||
     app?.battleView?.active ||
+    app?.gamebar?._strategicMessageActive ||
+    app?.gamebar?.proposalAudience ||
     app?.clock?._pendingStrategicAdvance ||
     app?.clock?._pendingDayAdvance
   );

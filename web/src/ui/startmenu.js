@@ -73,7 +73,7 @@ export class StartMenu {
       await this._loadAssets();
       let nextAct = initialAction;
       for (;;) {
-        const act = nextAct !== undefined ? nextAct : await this._yesNo(); // 0=新遊戲 1=載入 (0x8DC8 無右鍵取消)
+        const act = nextAct === undefined ? await this._yesNo() : nextAct; // 0=新遊戲 1=載入 (0x8DC8 無右鍵取消)
         nextAct = undefined;
         if (act === 0) {
           // 章節選擇: 20 章(原版4章置顶+其它章) → 屏幕居中加大彈窗
@@ -128,10 +128,14 @@ export class StartMenu {
       .filter((_s, i) => !origIndices.includes(i));
     const sorted = [...orig, ...others];
     this._sortedScenarios = sorted;
-    return sorted.map((s) => ({
-      name: s.name,
-      date: s.start,
-    }));
+    return sorted.map((s) => {
+      // 仅在新游戏列表标注合集章节；内部 scenario.name 仍保留原始标题。
+      const name = s.name.replace(/(章[．.])　　/, "$1 ");
+      return {
+        name: origIndices.includes(s._origIdx) ? name : `[重制]${name}`,
+        date: s.start,
+      };
+    });
   }
 
   _factionRows(scen) {

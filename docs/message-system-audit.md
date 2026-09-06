@@ -9,7 +9,7 @@
 1. **同步阻塞消息链**：战前报告、战后武将去向、失城/迁都/灭亡、玩家进言等在规则函数中调用 `0x8810`，返回前主流程不继续。
 2. **四页战略事件轮**：256个4B槽、4页×64槽；新局/月结首槽等待7次势力调度，之后每10次消费一槽。type6/type7的20是事件槽偏移，不是天数；出队时才重读外交官并计算结果。
 
-Web统一呈现契约：FIFO；显示期间 `clock.hold`；NPC/武将框3秒自动关闭或右键关闭；回调once；战术层及高优先级模态期间延后；状态必须在原版规定的对白关闭边界提交。
+Web统一呈现契约：FIFO；显示期间 `clock.hold`；普通NPC/武将框3秒自动关闭或右键关闭；回调once；战术层及高优先级模态期间延后；状态必须在原版规定的对白关闭边界提交。外交费type5是强制交互例外：整段屏蔽右键，只允许左键选择、输入和推进；右键不能退出、暗中当作拒绝或改写已批准预算。
 
 ## 2. 主动消息矩阵
 
@@ -34,7 +34,7 @@ Web统一呈现契约：FIFO；显示期间 `clock.hold`；NPC/武将框3秒自�
 | 势力灭亡全局公告 | `0x4FCE`末尾 TALK36 | 已改为TALK36数据驱动，并在内政官、外交官、逐将消息之后进入同一FIFO。 |
 | 俘虏逃亡/归降/原属回归 | 月结 `0x585F→0x5940`；TALK65/66；type9 TALK37 | 已改为TALK65/66/37数据驱动；TALK37后的0x199个性对白已按`0x075B`选择器接入。 |
 | 新武将投奔 | TALK41 | 本轮已改为玩家势力TALK41进入权威FIFO；AI势力投奔静默，并新增独立测试。 |
-| 内政/外交预算 | type4/type5；TALK56/TALK57及结果池 | audience与生产器已实现；新增真实GameBar测试覆盖FIFO hold、选择提交、3秒结果、结果阶段右键关闭和后继消息等待。 |
+| 内政/外交预算 | type4/type5；TALK56/TALK57及结果池 | audience与生产器已实现；type5公开输入分发保证选择、金额及结果阶段均屏蔽右键，只允许左键完成流程，且不会二次清零预算。 |
 | 入站协同/停战请求 | type2/type3；TALK360..384 | audience已实现。审计发现结果显示前提交；本轮改为最终结果框关闭时once提交。 |
 | AI迁都 | type8 `0x33EA`；TALK57→个性选择器0x1A4；无外交官静默 | TALK57和按外交官`talk_idx`选择的0x1A4第二段均已接入；无外交官保持静默。 |
 | 暴风雨/大火/暴动 | type11 TALK70；type12 TALK71/72 | 本轮已按TALK70/71/72拆分并接入统一TALK/FIFO，补齐arg0=1/2索引测试。 |
@@ -54,7 +54,7 @@ Web统一呈现契约：FIFO；显示期间 `clock.hold`；NPC/武将框3秒自�
 - 复刻 `0x075B` 的选择器换算：`0x196 + (selector-0x196)*8 + general[+0x1E]`；通用段与个性段作为相邻FIFO条目，严格在第一段关闭后推进。
 - 新增 `verify_extinction_message_fifo.mjs`，走真实`applyBattleResult→GameBar`，验证TALK68→0x1A6、TALK69→0x1A7、TALK34→0x19A、TALK36全链顺序、逐段3秒与持续clock hold。
 - 复核`0x50B4`：仅调用`0x2BA8`清军团地图状态、`0x7028`注销军团并清武将`+0x17/+0x1C`，没有直接或间接TALK调用。`0x4D63`的TALK68条件仅为旧城非中立且`city[+0x19]!=FF`，函数内无玩家阵营判断。
-- 新增 `verify_budget_message_ui.mjs`：type4/type5从真实GameBar出队，覆盖选择提交、3秒结果、结果阶段右键once关闭及后继FIFO门控；同时修正预算结果阶段右键此前会再次执行“拒绝”的缺陷。
+- `verify_budget_message_ui.mjs`：type4/type5从真实GameBar出队；现经公开`GameBar.click()`覆盖type5选择、金额及结果阶段右键均无效，左键可完成“提示金额”与批准提交，预算不被二次清零且后继FIFO门控正确。旧测试只调用私有`_clickProposalAudience()`，曾漏过公开右键分发把已批准预算重写为0的缺陷。
 - 新增 `verify_type10_message_fifo.mjs`：从真实战略事件槽出队type10，验证通用占位格式化和3秒clock-hold生命周期。
 - 新增 `verify_advice_commit_boundary.mjs`：实测玩家迁都与请求君主出阵的最终对白关闭边界；修复两条成功路径此前在最终君主对白出现时即提交状态的问题，并让结果阶段右键等价于3秒完成回调且once。
 

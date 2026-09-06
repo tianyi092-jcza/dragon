@@ -115,12 +115,10 @@ assert.equal(
 );
 
 const expenseScenario = fixture();
-expenseScenario.citiesOf = (idx) =>
-  expenseScenario.cities.filter((city) => city.faction === idx);
 assert.equal(
   computeFactionExpense(expenseScenario, 0),
-  40,
-  "type4 request amounts are not pre-charged in monthly expenses",
+  0,
+  "type4 request and fabricated officer stipends are not monthly expenses",
 );
 
 const faction = { money: 50000, gold: 50000 };
@@ -141,8 +139,10 @@ const budgetHost = {
     playerFaction: budgetFaction,
     city: budgetCity,
     advGen: budgetGeneral,
+    requestTalkBase: 278,
     budgetRequested: 1000,
   },
+  _budgetWorkerTalkIndex: GameBar.prototype._budgetWorkerTalkIndex,
   _setProposalTimer(_delay, action) {
     this.proposalAudience.timerAction = action;
   },
@@ -151,9 +151,15 @@ const budgetHost = {
   },
 };
 await GameBar.prototype._finishBudgetAudience.call(budgetHost, 1000, "accept");
+assert.equal(budgetFaction.money, 50000);
+assert.equal(budgetGeneral.assignment_budget, 0);
+assert.equal(budgetHost.proposalAudience.step, "budget_advisor_result");
+GameBar.prototype._commitBudgetAudience.call(
+  budgetHost,
+  budgetHost.proposalAudience,
+);
 assert.equal(budgetFaction.money, 49000);
 assert.equal(budgetGeneral.assignment_budget, 7);
-assert.equal(budgetHost.proposalAudience.step, "envoy_budget_result");
 
 const staleBudgetHost = {
   ...budgetHost,

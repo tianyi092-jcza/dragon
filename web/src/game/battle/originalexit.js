@@ -37,7 +37,7 @@ export function applyOriginalBattleCityDamage(city, wallMetric) {
   const expression = u16(troops + 50 - Math.floor(wallMetric.metric / 10));
   const damage = expression >>> 3;
   const growth = saturatingSub(city.growth ?? 0, damage);
-  const disaster = saturatingSub(city.disaster ?? city.defence ?? 0, damage);
+  const disaster = saturatingSub(city.defence ?? 0, damage);
   const remainingTroops = saturatingSub(troops, damage);
   return {
     damage,

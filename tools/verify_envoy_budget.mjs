@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   envoyBudgetRequest,
   prepareEnvoyBudgetReports,
 } from "../web/src/game/diplomacy.js";
 import {
+  initializeStrategicDiplomacy,
+  monthlyDiplomacyAI,
   tickEnvoyDiplomacy,
   tickFactionStrategicState,
   tickStrategicWarEvents,
@@ -27,7 +30,13 @@ function fixture(raw = 0xb4) {
     player_faction: 0,
     factions: [
       { idx: 0, n_cities: 1, active: true, money: 50000 },
-      { idx: 1, n_cities: 1, active: true, money: 50000 },
+      {
+        idx: 1,
+        n_cities: 1,
+        active: true,
+        money: 50000,
+        diplomat_idx: 1,
+      },
     ],
     generals: [
       { idx: 0, name: "曹操", ability: { politics: 8 } },
@@ -57,11 +66,20 @@ assert.deepEqual(prepareEnvoyBudgetReports(peace), [
 ]);
 assert.equal(peace.envoys[1].reportPending, true);
 peace.envoys[1].budget = 1;
+peace.generals[1].assignment_budget = 1;
 assert.deepEqual(
   prepareEnvoyBudgetReports(peace),
   [],
   "预算尚未耗尽时不应再次申请",
 );
+
+const authoritativeAssignment = fixture(0xb4);
+delete authoritativeAssignment.envoys;
+assert.deepEqual(prepareEnvoyBudgetReports(authoritativeAssignment), [
+  { targetIdx: 1, requested: 9600 },
+]);
+assert.equal(authoritativeAssignment.envoys[1].gen_idx, 1);
+assert.equal(authoritativeAssignment.envoys[1].name, "夏侯惇");
 
 const war = fixture(40);
 assert.equal(envoyBudgetRequest(war, 1), (125 - 40) * 200);
@@ -75,10 +93,15 @@ assert.equal(
   }),
   false,
 );
-assert.equal(calls, 0, "没有预算时不应消费随机数或改善关系");
+assert.equal(
+  calls,
+  1,
+  "0x3E96先做概率门：有外交官但预算为0时仍消费第一次随机数",
+);
 
 const funded = fixture(0xb4);
 funded.envoys[1].budget = Math.floor(9600 / 128);
+funded.generals[1].assignment_budget = funded.envoys[1].budget;
 const rolls = [0, 0];
 assert.equal(
   tickEnvoyDiplomacy({
@@ -174,6 +197,77 @@ assert.equal(tickStrategicWarEvents(eventApp), true);
 assert.equal(eventScenario._strategicEventCursor, 2);
 assert.deepEqual(eventOrder, [1, 2]);
 
+// 原版第一章「呂布歸天」：曹操派政治14的荀攸驻刘备。
+// 月结0x2BD9先令刘备→曹操再降1，随后0x578F应申请9600；
+// 关系改善先推刘备→曹操，超过反向值后曹操→刘备才追赶，绝非按月直接加政治/金额公式。
+{
+  let library;
+  try {
+    library = JSON.parse(
+      readFileSync(new URL("../web/data.json", import.meta.url), "utf8"),
+    );
+  } catch (error) {
+    throw new Error("failed to load official scenario fixture", {
+      cause: error,
+    });
+  }
+  const scenario = structuredClone(library.scenarios[16]);
+  scenario.player_faction = 0;
+  const app = {
+    scenario,
+    originalRng: { nextByte: () => 0xff },
+  };
+  initializeStrategicDiplomacy(app);
+  const liuBei = scenario.factions.find(
+    (faction) => faction.monarch === "劉備",
+  );
+  const xunYou = scenario.generals.find(
+    (general) => general.name?.trim?.() === "荀攸",
+  );
+  assert.equal(liuBei.idx, 2);
+  assert.equal(xunYou.ability.politics, 14);
+  scenario.envoys = {
+    [liuBei.idx]: {
+      name: xunYou.name.trim(),
+      gen_idx: xunYou.idx,
+      budget: 0,
+      requested: 0,
+      reportPending: false,
+    },
+  };
+  liuBei.diplomat_idx = xunYou.idx;
+  xunYou.assignment_budget = 0;
+
+  monthlyDiplomacyAI(app);
+  const reports = prepareEnvoyBudgetReports(scenario);
+  assert.deepEqual(reports, [{ targetIdx: 2, requested: 9600 }]);
+  const budgetPoints = Math.floor(reports[0].requested / 128);
+  xunYou.assignment_budget = budgetPoints;
+  scenario.envoys[2].budget = budgetPoints;
+  assert.deepEqual(
+    prepareEnvoyBudgetReports(scenario),
+    [],
+    "批准的工作预算耗尽前，0x578F不会再次申请",
+  );
+
+  const playerToTarget = scenario.diplomacy[0][2];
+  const targetToPlayer = scenario.diplomacy[2][0];
+  const successApp = {
+    scenario,
+    originalRng: { nextByte: () => 0 },
+  };
+  for (let i = 0; i < 4; i++) {
+    assert.equal(tickEnvoyDiplomacy(successApp, liuBei), true);
+  }
+  assert.equal(scenario.diplomacy[2][0], targetToPlayer + 4);
+  assert.equal(
+    scenario.diplomacy[0][2],
+    playerToTarget + 1,
+    "玩家界面方向须等驻在国→玩家超过反向值后才追赶",
+  );
+  assert.equal(xunYou.assignment_budget, budgetPoints - 4 * (23 - 14));
+}
+
 process.stdout.write(
-  "envoy/faction tick verification passed: budget, fiscal crisis, reserve upkeep and 7/10 event cadence\n",
+  "envoy/faction tick verification passed: original chapter Cao Cao/Xun You/Liu Bei, budget authority, RNG order, relation direction, fiscal crisis, reserve upkeep and 7/10 event cadence\n",
 );

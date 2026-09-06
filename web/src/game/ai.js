@@ -2038,7 +2038,6 @@ export function applyBattleResult(
   }
   if (originalExit?.cityDamage) {
     city.growth = originalExit.cityDamage.growth;
-    city.disaster = originalExit.cityDamage.disaster;
     city.defence = originalExit.cityDamage.defence;
     city.troops = originalExit.cityDamage.troops;
     if (city.sim) city.sim.troops = originalExit.cityDamage.troops;
@@ -3221,24 +3220,30 @@ export function tickFactionStrategicState(app) {
 export function tickEnvoyDiplomacy(app, current = null) {
   const sc = app?.scenario;
   const rng = app?.originalRng ?? app?.activeBattleRng;
-  if (!sc?.envoys || !rng?.nextByte) return false;
+  if (!sc || !rng?.nextByte) return false;
   if (!current) {
-    const factions = (sc.factions ?? []).filter((f) => f?.idx != null);
-    if (!factions.length) return false;
-    const cursor = Math.max(0, sc._envoyDiplomacyCursor | 0) % factions.length;
-    sc._envoyDiplomacyCursor = (cursor + 1) % factions.length;
-    current = factions[cursor];
+    const cursor = Math.max(0, sc._envoyDiplomacyCursor | 0) % 22;
+    sc._envoyDiplomacyCursor = (cursor + 1) % 22;
+    current = (sc.factions ?? []).find((faction) => faction?.idx === cursor);
+    if (!current) return false;
   }
-  const envoy = sc.envoys[current.idx];
-  if (!envoy || (envoy.budget ?? 0) <= 0 || rng.nextByte() >= 0x20)
-    return false;
+  const envoy = sc.envoys?.[current.idx];
+  const generalIdx = current.diplomat_idx ?? envoy?.gen_idx;
+  if (generalIdx == null) return false;
+  // 0x3E96..0x3EAA：有外交官时先消费第一次RNG，再检查武将+0x1A预算。
+  // 预算为0也不能把这次随机消费提前短路掉，否则后续全局随机流会错位。
+  if (rng.nextByte() >= 0x20) return false;
   const general =
-    (envoy.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
-    sc.generals?.find((g) => g?.name?.trim?.() === envoy.name?.trim?.());
-  const politics = Math.max(0, Math.min(15, general?.ability?.politics ?? 0));
+    sc.generals?.[generalIdx] ||
+    sc.generals?.find((g) => g?.name?.trim?.() === envoy?.name?.trim?.());
+  if (!general) return false;
+  const budget = general.assignment_budget ?? envoy?.budget ?? 0;
+  if (budget <= 0) return false;
+  const politics = Math.max(0, Math.min(15, general.ability?.politics ?? 0));
   const spend = Math.max(0, 23 - politics);
-  envoy.budget = Math.max(0, (envoy.budget ?? 0) - spend);
-  if (general) general.assignment_budget = envoy.budget;
+  const remaining = Math.max(0, budget - spend);
+  general.assignment_budget = remaining;
+  if (envoy) envoy.budget = remaining;
   if ((rng.nextByte() & 0x0f) > politics) return false;
   const playerIdx = sc.player_faction;
   increaseRelation(sc, current.idx, playerIdx, 1);
@@ -3274,48 +3279,40 @@ function tickStrategicCityDaily(sc, cityIndex, rng) {
   if (!rng?.nextByte)
     throw new TypeError("strategic city tick requires canonical original RNG");
   const c = sc.cities?.[cityIndex];
-  if (!c || c.faction == null) return;
-  let pol = 0;
-  let lead = 0;
-  const govIdx = c.governor;
-  if (govIdx != null && sc.generals?.[govIdx]) {
-    const gen = sc.generals[govIdx];
-    pol = gen.ability?.politics ?? 0;
-    lead = gen.ability?.lead ?? 0;
-  }
+  if (!c) return;
 
-  // KI.EXE 0x4194 逐城轮询动力学：
-  // cl = 5 + (有内政官 ? politics : 0)
-  // dl = (1 + (有内政官 ? lead : 0)) >> 1
+  // KI.EXE 0x4194：AI与中立城固定8/4；只有玩家城会读取内政官。
+  // 玩家内政官的+0x1A预算非零时先扣1，本轮仍按政治与武术获得加成。
   const isPlayer = c.faction === sc.player_faction;
   let cl = isPlayer ? 5 : 8;
   let dl = isPlayer ? 1 : 4;
-  if (pol > 0 || lead > 0) {
-    cl += pol;
-    dl = (dl + lead) >> 1;
+  if (isPlayer && c.governor != null) {
+    const gen = sc.generals?.[c.governor];
+    if (gen && (gen.assignment_budget ?? 0) > 0) {
+      gen.assignment_budget = Math.max(0, (gen.assignment_budget | 0) - 1);
+      cl += gen.ability?.politics ?? 0;
+      // 0x41C6读取general[+0x11]武术，不是+0x12统率。
+      dl = (1 + (gen.ability?.force ?? 0)) >> 1;
+    }
   }
 
-  // ch 递增步长 = Math.max(1, cl - 15)
   const ch = cl > 15 ? cl - 15 : 1;
 
-  // 1. 上升率 / 士气增长：随机门控 cl >= rand(16)
-  if (cl >= (rng.nextByte() & 0x0f)) {
+  // 0x41D5..0x4207：无论数值是否已满，前两次RNG固定消费。
+  if ((rng.nextByte() & 0x0f) <= cl) {
     c.growth = Math.min(200, (c.growth ?? 100) + ch);
   }
-
-  // 2. 防灾 / 储粮恢复：随机门控 cl >= rand(16)
-  if (cl >= (rng.nextByte() & 0x0f)) {
+  if ((rng.nextByte() & 0x0f) <= cl) {
     const disInc = (ch >> 1) + 1;
-    c.disaster = Math.min(200, (c.disaster ?? 100) + disInc);
-    c.defence = c.disaster;
+    c.defence = Math.min(200, (c.defence ?? 100) + disInc);
   }
 
-  // 3. 城兵自然募补/恢复：城兵离上限差距时向城兵填充 dl
-  const maxTroops = c.troops_cap ?? 200; // 内部标准单位 (×10 即为显示人数)
-  let curTroops = c.troops ?? 0;
+  // 仅城兵未满时消费第三次RNG；成功补兵同时按dl扣减上升率。
+  const maxTroops = c.troops_cap ?? 200;
+  const curTroops = c.troops ?? 0;
   if (curTroops < maxTroops && rng.nextByte() < 0x18) {
-    curTroops = Math.min(maxTroops, curTroops + dl);
-    c.troops = curTroops;
+    c.growth = Math.max(0, (c.growth ?? 0) - dl);
+    c.troops = Math.min(maxTroops, Math.min(0xff, curTroops + dl));
   }
 }
 

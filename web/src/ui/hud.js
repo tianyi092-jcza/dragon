@@ -129,11 +129,17 @@ export class HUD {
     });
     document.querySelector("#taxup").onclick = () =>
       this.setTax(
-        cmd.setTax(this.app.scenario, (this.app.scenario.tax ?? 25) + 1),
+        cmd.setTax(
+          this.app.scenario,
+          (this.app.scenario.next_tax ?? this.app.scenario.tax ?? 25) + 1,
+        ),
       );
     document.querySelector("#taxdn").onclick = () =>
       this.setTax(
-        cmd.setTax(this.app.scenario, (this.app.scenario.tax ?? 25) - 1),
+        cmd.setTax(
+          this.app.scenario,
+          (this.app.scenario.next_tax ?? this.app.scenario.tax ?? 25) - 1,
+        ),
       );
     document.querySelector("#askadv").onclick = () =>
       this.app.gamebar?.showAdviceMenu?.();
@@ -625,37 +631,9 @@ export class HUD {
     const f = cmd.playerFaction(sc);
     if (!f || !city) return;
 
-    const getIdentity = (g) => {
-      if (g.is_player) return "軍師";
-      if (g.status === 4) return "俘虜";
-      if (g.is_monarch || g.status === 5) return "君主";
-      if (g.status === 1) return "軍團長";
-      if (g.status === 2) return "內政官";
-      if (g.status === 3) return "外交官";
-      if (sc.legions?.some((L) => L.leader === g.name || L.leader === g.idx)) {
-        return "軍團長";
-      }
-      if (sc.cities?.some((c) => c.governor === g.idx)) {
-        return "內政官";
-      }
-      if (
-        sc.envoys &&
-        Object.values(sc.envoys).some((e) => e?.name === g.name?.trim())
-      ) {
-        return "外交官";
-      }
-      return "－－－";
-    };
-
-    // 筛选所有身份为“－－－”的空闲武将 (排除玩家化身的原军师 NPC)
-    const mine = sc.generals.filter(
-      (g) =>
-        g &&
-        g.faction === f.idx &&
-        g.active !== false &&
-        !g.is_player &&
-        getIdentity(g) === "－－－",
-    );
+    // 0x7663/0x76A0：活动、同势力、status=0且非君主；原版不排除
+    // faction[+2]军师，因此不能按Web的is_player镜像过滤。
+    const mine = cmd.domesticGovernorCandidates(sc, f);
 
     const rows = mine.map((g) => {
       const facName = f.monarch ?? "－－－";
@@ -698,9 +676,8 @@ export class HUD {
       onPick: (ri) => {
         const gen = rows[ri]?._gen;
         if (!gen) return;
-        // 执行内政官任命
-        city.governor = gen.idx;
-        gen.status = 2; // 内政官
+        // 0x765A：任命不重置该武将残留的+0x1A预算。
+        cmd.appointDomesticGovernor(city, gen);
         if (this.app.gamebar.listDialog) {
           this.app.gamebar.listDialog.selectedRow = ri;
         }
@@ -802,8 +779,7 @@ export class HUD {
         if (this.app.gamebar.listDialog) {
           this.app.gamebar.listDialog.selectedRow = ri;
         }
-        city.governor = null;
-        gov.status = 0; // 恢复为闲置武将
+        cmd.dismissDomesticGovernor(city, gov);
         // 弹出武将发言弹窗「那我這就回京城。」
         this.app.gamebar.showGeneralMessageDialog(
           gov,
