@@ -21,12 +21,12 @@
 //   op13 SEL       按0x600侧组长+0x24==imm*18匹配，置bit3/写pending并调A8DE
 //   op14 R=[0xD31D]
 //   op15 SCAN16    扫 ds:[0xC00]+i*0x20 十六条目: 无 bit0 旗标时 R=(min[+0x18]<<2)>>8
-//   op16 FLAGS     调 0xC315 画军旗 ah 次(分阶段旗帜动画)
+//   op16 MESSAGE   A69F按cc/D349门控，至多一次C315，CX=0x1CE+AH
 //   op17 R= 仅0x600侧首组长[+0x1B]>=9
 //   op18 R=[[0xD30E]:0x600+3]
 //
 // VM只负责原始脚本字控制流；生产io直接读写OriginalBattleSession对象池、寄存器与RNG。
-// 结尾待机循环仍由调用方超时/点击结束。
+// 脚本结尾仍为持续循环；战斗只由A6FA/9FDC的原版撤退或空侧条件结束。
 
 export class BattleScript {
   /** @param words u16 数组(128字) @param io 状态钩子集合 */
@@ -63,12 +63,12 @@ export class BattleScript {
         this.io.command?.(ah);
         break;
       case 2: {
-        // MODE
-        // ah==0→0x3A / ah==1→0x24 / 其余→0x10 (镜头步进模式三档)
+        // A4AB：改写敌侧D33E阵形基准X；并非镜头模式。
+        // ah==0→0x3A / ah==1→0x24 / 其余→0x10。
         if (ah === 0) this.mode = 0x3a;
         else if (ah === 1) this.mode = 0x24;
         else this.mode = 0x10;
-        this.io.camMode?.(this.mode);
+        this.io.formationBaseX?.(this.mode);
         break;
       }
       case 3: // UCMD
@@ -134,9 +134,19 @@ export class BattleScript {
       case 15:
         this.R = this.io.scan16?.() ?? 0;
         break;
-      case 16: // FLAGS
-        this.io.flags?.(ah);
+      case 16: {
+        // A69F：AH选择TALK 0x1CE+AH；cc三位按当前D349胜方条件门控，
+        // 条件满足时至多调用一次C315，并非循环AH次绘制军旗。
+        const winner = this.io.winnerState?.() ?? 0;
+        let expected = 0;
+        if ((cc & 6) !== 0) {
+          let encoded = cc & 6;
+          if ((cc & 1) !== 0) encoded ^= 6;
+          expected = encoded >> 1;
+        }
+        if (winner === expected) this.io.scriptMessage?.(0x01ce + ah, cc & 1);
         break;
+      }
       case 17:
         this.R = this.io.moving?.() ? 1 : 0;
         break;

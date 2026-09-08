@@ -201,8 +201,8 @@ function side({ total, morale = 100, groups }) {
   });
   assert.equal(session.rng.calls - callsBefore, 96);
   assert.deepEqual(initialized.activeBySide, [1, 1]);
-  assert.equal(session.registers.side0Active, 1);
-  assert.equal(session.registers.side1Active, 1);
+  assert.equal(session.registers.side0Active, 0xff);
+  assert.equal(session.registers.side1Active, 0xff);
   const restored = new OriginalBattleSession().restore(session.snapshot());
   assert.deepEqual(restored.temps.snapshot(), session.temps.snapshot());
 }

@@ -4,6 +4,19 @@ import { createCityGarrison, legionBattleUnits } from "../autobattle.js";
 import { generalForLegion, LEGION_UNIT_TYPE } from "../legionunits.js";
 
 export const FIELD = 1024;
+export const BATTLE_SCENE_WIDTH = 2048;
+export const BATTLE_SCENE_HEIGHT = 1088;
+export const BATTLE_SCENE_TOP = 64;
+
+/** DA1C/DAAA：screenColumn=x+y；16px screenRow=(y-x)/2+0x20-level。 */
+export function battleCellToScene(x, y, level = 0) {
+  const cellX = x | 0;
+  const cellY = y | 0;
+  return {
+    x: (cellX + cellY) * 16 + 16,
+    y: BATTLE_SCENE_TOP + (0x40 + cellY - cellX) * 8 - (level | 0) * 16,
+  };
+}
 
 const ROLE = ["主將", "前鋒", "左翼", "右翼", "左備", "右備"];
 
@@ -52,7 +65,16 @@ function projectUnits(side, legion) {
   });
 }
 
-function baseView({ kind, attacker, defender, city, layout, theme, mirror }) {
+function baseView({
+  kind,
+  attacker,
+  defender,
+  city,
+  directoryIndex,
+  layout,
+  theme,
+  mirror,
+}) {
   const attackerGeneral = generalOf(this, attacker);
   const defenderGeneral = generalOf(this, defender);
   return {
@@ -60,6 +82,7 @@ function baseView({ kind, attacker, defender, city, layout, theme, mirror }) {
     A: attacker,
     D: defender,
     city,
+    directoryIndex,
     layout,
     theme,
     mirror,
@@ -84,7 +107,11 @@ export function createSiegeProjection(
   battleMaps,
   defender = null,
 ) {
-  const map = battleMaps?.cities?.find((entry) => entry.idx === city.idx);
+  const map =
+    battleMaps?.directory?.[city.idx] ??
+    battleMaps?.cities?.find((entry) => entry.idx === city.idx);
+  if (!map || map.idx !== city.idx)
+    throw new RangeError(`missing BATTLE.MAP city directory ${city.idx}`);
   let defendingLegion = defender;
   if (!defendingLegion) {
     const faction = scenario.factions?.[city.faction];
@@ -103,8 +130,9 @@ export function createSiegeProjection(
     attacker,
     defender: defendingLegion,
     city,
-    layout: map?.layout ?? 0,
-    theme: map?.theme ?? 0,
+    directoryIndex: city.idx,
+    layout: map.layout,
+    theme: map.theme,
     mirror: false,
   });
   view.title = `${attacker.leader}軍 ⚔ ${city.name} (${defendingLegion.leader ?? "守軍"})`;
@@ -126,6 +154,7 @@ export function createFieldProjection(
     attacker,
     defender,
     city: null,
+    directoryIndex: fieldTerrain?.directoryIndex ?? 0xc0,
     layout: directory?.layout ?? 0,
     theme: directory?.theme ?? 0,
     mirror: Boolean(fieldTerrain?.mirror),

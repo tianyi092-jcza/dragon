@@ -41,6 +41,15 @@ import {
   consumeOriginalPathQueue,
 } from "./originalpathqueue.js";
 
+import {
+  OriginalBattleMessages,
+  cloneOriginalMessageData,
+} from "./originalmessages.js";
+import {
+  OriginalBattleDisplay,
+  updateOriginalAttributeDisplays,
+} from "./originaldisplay.js";
+
 export class OriginalBattleSession {
   constructor({
     objectBytes = null,
@@ -62,6 +71,17 @@ export class OriginalBattleSession {
     finished = false,
     winner = null,
     events = [],
+    playerGroupStatusIcons = [0, 0, 0, 0, 0, 0],
+    objectDisplays = Array(96).fill(null),
+    talkContext = null,
+    talkCatalog = null,
+    messages = null,
+    nativeDisplay = null,
+    nativeDisplayOperations = [],
+    nativeDisplayBoundary = 0,
+    nativeInitialCommitPending = false,
+    attributeDisplays = [],
+    effectDisplays = [],
   } = {}) {
     this.pool = new OriginalBattleObjectPool(objectBytes);
     this.effects = new OriginalBattleEffectPool(effectBytes);
@@ -88,7 +108,59 @@ export class OriginalBattleSession {
     this.objectsInitialized = Boolean(objectsInitialized);
     this.finished = Boolean(finished);
     this.winner = winner == null ? null : winner & 0xff;
-    this.events = events.map((event) => ({ ...event }));
+    // C673 framebuffer state: internal commands 6/7/8 retain the prior icon.
+    this.playerGroupStatusIcons = [...playerGroupStatusIcons];
+    // Last DA1C unit/death draw, independent of the next rule STATE phase.
+    this.objectDisplays = objectDisplays.map((display) =>
+      display ? { ...display } : null,
+    );
+    this.events = structuredClone(events);
+    this.nativeDisplay = nativeDisplay
+      ? OriginalBattleDisplay.fromSnapshot(nativeDisplay)
+      : null;
+    this.nativeDisplayOperations = structuredClone(nativeDisplayOperations);
+    this.nativeDisplayBoundary = Math.max(0, nativeDisplayBoundary | 0);
+    this.nativeInitialCommitPending = Boolean(nativeInitialCommitPending);
+    this.attributeDisplays = new Map(
+      attributeDisplays.map((capture) => [capture.address, { ...capture }]),
+    );
+    this.effectDisplays = new Map(
+      effectDisplays.map((capture) => [capture.address, { ...capture }]),
+    );
+    this.messages = new OriginalBattleMessages({
+      context: talkContext,
+      catalog: talkCatalog,
+      snapshot: messages,
+    });
+  }
+
+  emitTalk(side, selector, source) {
+    const event = this.messages.show(this.registers, side, selector, source);
+    this.recordMessageEvent(event);
+    return event;
+  }
+
+  recordMessageEvent(event) {
+    if (this._messageFrameEvents) this._messageFrameEvents.push(event);
+    else this.events.push({ frame: this.frame, ...event });
+  }
+
+  messageInput(hitId, button) {
+    const event = this.messages.input(this.registers, hitId, button);
+    if (event) this.recordMessageEvent(event);
+    return event;
+  }
+
+  finalizeObject(address, options) {
+    const result = finalizeOriginalBattleObject(
+      this.pool,
+      this.temps,
+      this.spatial,
+      address,
+      options,
+    );
+    this.objectDisplays[address >>> 5] = null;
+    return result;
   }
 
   enqueue(command) {
@@ -142,7 +214,8 @@ export class OriginalBattleSession {
     return originalWallRecords(this.mapObjects).slice(0, 16);
   }
 
-  /** 0x9ACE初始化：临时记录必须先由0x9E97等价裁剪填入。 */
+  /** 0x9ACE初始化：临时记录必须先由0x9E97等价裁剪填入。
+   * D31C/D31D仍保留9A92写入的FFFF低字节，直到首个ADC8重建。 */
   initializeObjects({ commanders = [], mode = this.registers.mode } = {}) {
     const result = initializeOriginalBattleObjects({
       pool: this.pool,
@@ -151,10 +224,44 @@ export class OriginalBattleSession {
       mode,
       rng: this.rng,
     });
-    this.registers.side0Active = result.activeBySide[0] & 0xff;
-    this.registers.side1Active = result.activeBySide[1] & 0xff;
     this.objectsInitialized = true;
     return result;
+  }
+
+  /** 99F3→DC9D→99CB：初始地形和一次B941属性访问。
+   * 99CB不清D348；首个A065必须再次执行DC9D。 */
+  initializeNativeDisplay({ tileBytes, attributes } = {}) {
+    if (this.nativeDisplay) return false;
+    if (!tileBytes || tileBytes.length < 0x1000)
+      throw new TypeError("native display requires 4096 map tiles");
+    if (!attributes || attributes.length < 0x800)
+      throw new TypeError("native display requires MDL tile attributes");
+    this.nativeDisplay = new OriginalBattleDisplay();
+    const operations = [{ type: "terrain-refresh", source: "99C2/DC9D" }];
+    this.nativeDisplay.terrain(tileBytes, attributes);
+    const captures = updateOriginalAttributeDisplays(
+      this.mapObjects,
+      this.nativeDisplay,
+    );
+    for (const capture of captures) {
+      this.attributeDisplays.set(capture.address, { ...capture });
+      operations.push({ type: "attribute", ...capture });
+    }
+    this.nativeDisplayBoundary++;
+    this.nativeDisplayOperations = operations;
+    this.nativeInitialCommitPending = true;
+    this.registers.mapRedraw = 1;
+    return true;
+  }
+
+  consumeInitialNativeCommit() {
+    if (!this.nativeInitialCommitPending || !this.nativeDisplay) return null;
+    this.nativeInitialCommitPending = false;
+    return {
+      boundary: this.nativeDisplayBoundary,
+      source: "99CB/DDB4",
+      operations: structuredClone(this.nativeDisplayOperations),
+    };
   }
 
   /** 使用会话自身对象池、寄存器与RNG执行一次0xB533碰撞分派。 */
@@ -176,6 +283,15 @@ export class OriginalBattleSession {
             targetAddress,
             this.registers,
           );
+          if (result.wallMessage) {
+            const messageEvents = this.messages.showWall(
+              this.registers,
+              result.metric,
+              this.mapObjects.read8(targetAddress, 0),
+              targetAddress,
+            );
+            for (const event of messageEvents) this.recordMessageEvent(event);
+          }
           this.enqueuePath(attackerAddress);
           return result;
         },
@@ -185,7 +301,15 @@ export class OriginalBattleSession {
   }
 
   /** 一个调用严格代表一个原版逻辑帧，不接受浏览器dt。 */
-  tick({
+  tick(options = {}) {
+    try {
+      return this.tickFrame(options);
+    } finally {
+      this._messageFrameEvents = null;
+    }
+  }
+
+  tickFrame({
     applyCommand = null,
     inputEvents = null,
     updateObject = null,
@@ -197,22 +321,48 @@ export class OriginalBattleSession {
     const events = Array.isArray(inputEvents)
       ? inputEvents.map((event) => ({ ...event }))
       : this.applyReadyCommands(applyCommand);
+    const displayOperations = [];
+    this._messageFrameEvents = events;
 
-    // A065入口：D348重绘请求在本帧消费后清零；A12A令D318自增并触发
-    // D322/D324/D326的呈现调度。这里只记录事件，不混入规则对象写入。
-    if ((this.registers.mapRedraw & 0xff) !== 0) {
+    // A065入口：正常显示时消费并清D348；C234把A06A改JMP时两者都跳过。
+    // A12A照常令D318自增并触发D322/D324/D326的呈现调度。
+    if (
+      !this.registers.battlefieldHidden &&
+      (this.registers.mapRedraw & 0xff) !== 0
+    ) {
       events.push({ type: "map-redraw" });
+      if (this.nativeDisplay) {
+        this.nativeDisplay.terrain(
+          this.spatial.tiles,
+          this.spatial.tileAttributes,
+        );
+        displayOperations.push({
+          type: "terrain-refresh",
+          source: "A06A/DC9D",
+        });
+      }
       this.registers.mapRedraw = 0;
     }
+    // A12A INC byte[D318]: preserve D319, including nonzero snapshot values.
+    const previousCounter = this.registers.tacticalFrameCounter ?? 0;
     this.registers.tacticalFrameCounter =
-      ((this.registers.tacticalFrameCounter ?? 0) + 1) & 0xffff;
-    const frameCounter = this.registers.tacticalFrameCounter;
-    if ((this.registers.side0MarkerAt & 0xffff) === frameCounter)
-      events.push({ type: "side-marker", side: 0 });
-    if ((this.registers.side1MarkerAt & 0xffff) === frameCounter)
-      events.push({ type: "side-marker", side: 1 });
-    if ((this.registers.wallMarkerAt & 0xffff) === frameCounter)
+      (previousCounter & 0xff00) | ((previousCounter + 1) & 0xff);
+    // A12F loads AX once. C3B8 does NOT preserve AX: C3F6 sets AH=1,
+    // C3E3/C3E5 set AL=1B+side, E41B preserves that value. Later compares
+    // use 011B/011C after a close, not D318 again (raw bounded oracle).
+    let comparisonAx = this.registers.tacticalFrameCounter;
+    for (const side of [0, 1]) {
+      const marker = side === 0 ? "side0MarkerAt" : "side1MarkerAt";
+      if ((this.registers[marker] & 0xffff) === comparisonAx) {
+        events.push(this.messages.close(this.registers, side, "expiry"));
+        events.push({ type: "side-marker", side });
+        comparisonAx = 0x011b + side;
+      }
+    }
+    if ((this.registers.wallMarkerAt & 0xffff) === comparisonAx) {
+      events.push(this.messages.closeWall(this.registers, "expiry"));
       events.push({ type: "wall-marker" });
+    }
 
     // 玩家输入已在9FA0的A426之前处理；直接调用tick时由上方兼容入口消费。
 
@@ -244,6 +394,8 @@ export class OriginalBattleSession {
           ...handlers,
           formation,
           attackContext: handlers.attackContext ?? {
+            wallTargetX: this.registers.themeFlag, // CB13/CB8C patch AB4F.
+            heightDescriptor: (index) => this.spatial.heightDescriptor(index),
             effects: this.effects,
             rng: this.rng,
             events,
@@ -260,24 +412,16 @@ export class OriginalBattleSession {
               return sweep;
             },
             formationExit: ({ address }) =>
-              finalizeOriginalBattleObject(
-                this.pool,
-                this.temps,
-                this.spatial,
-                address,
-                { creditSurvivor: true },
-              ),
+              this.finalizeObject(address, { creditSurvivor: true }),
             ...(handlers.leaderHandlers ?? {}),
+            refresh: ({ address, command }) => {
+              this.playerGroupStatusIcons[address >>> 8] = command;
+              handlers.leaderHandlers?.refresh?.({ address, command });
+            },
           },
           childHandlers: {
             formationExit: ({ address }) =>
-              finalizeOriginalBattleObject(
-                this.pool,
-                this.temps,
-                this.spatial,
-                address,
-                { creditSurvivor: true },
-              ),
+              this.finalizeObject(address, { creditSurvivor: true }),
             ...(handlers.childHandlers ?? {}),
           },
           side0: { ...handlers.side0 },
@@ -286,19 +430,42 @@ export class OriginalBattleSession {
         objectsUpdated = true;
       }
 
-      // A082→B941发生在ADC8之前；效果可改变随后ADC8观察到的flags/对象状态。
+      // A082→B941发生在ADC8之前；效果槽升序执行erase/move/draw，随后
+      // 属性槽升序执行BB10捕获并递增phase。Canvas只读取这些捕获。
       if (objectsUpdated || recountActivity) {
+        const externalRender = objectHandlers?.effectRender ?? {};
         const effectFrames = updateOriginalAttackEffects(
           this.pool,
           this.effects,
           this.spatial,
           {
             events,
-            render: objectHandlers?.effectRender ?? {},
+            render: {
+              erase: (capture) => {
+                this.nativeDisplay?.erase(capture);
+                this.effectDisplays.delete(capture.address);
+                displayOperations.push({ type: "effect-erase", ...capture });
+                externalRender.erase?.(capture);
+              },
+              draw: (capture) => {
+                this.nativeDisplay?.draw(capture);
+                this.effectDisplays.set(capture.address, { ...capture });
+                displayOperations.push({ type: "effect-draw", ...capture });
+                externalRender.draw?.(capture);
+              },
+            },
           },
         );
         if (effectFrames.length)
           events.push({ type: "effect-frames", effects: effectFrames });
+      }
+      const attributeCaptures = updateOriginalAttributeDisplays(
+        this.mapObjects,
+        this.nativeDisplay,
+      );
+      for (const capture of attributeCaptures) {
+        this.attributeDisplays.set(capture.address, { ...capture });
+        displayOperations.push({ type: "attribute", ...capture });
       }
 
       if (this.objectsInitialized || objectHandlers || recountActivity) {
@@ -311,7 +478,10 @@ export class OriginalBattleSession {
           this.pool,
           this.registers,
         );
-        if (retreat) events.push({ type: "automatic-retreat", ...retreat });
+        if (retreat) {
+          this.emitTalk(retreat.side, 0x1b0, "AE56/A8F6");
+          events.push({ type: "automatic-retreat", ...retreat });
+        }
         const attrition = tickOriginalSiegeLeaderAttrition(
           this.pool,
           this.registers,
@@ -329,9 +499,10 @@ export class OriginalBattleSession {
 
         // ADE7..AE2C严格逐槽：inactive可B413补员；active执行AF69/B240。
         for (const address of originalTraversalOrder()) {
+          const previousDisplay = this.objectDisplays[address >>> 5];
           const activeAtScan = this.pool.isActive(address);
           if (activeAtScan) {
-            updateOriginalActiveObject(
+            const objectFrame = updateOriginalActiveObject(
               this,
               address,
               updateMovement
@@ -339,6 +510,24 @@ export class OriginalBattleSession {
                     updateMovement(session, activeAddress, events)
                 : null,
             );
+            this.objectDisplays[address >>> 5] = objectFrame.display;
+            if (previousDisplay) {
+              this.nativeDisplay?.erase({ ...previousDisplay, pair: true });
+              displayOperations.push({
+                type: "unit-erase",
+                ...previousDisplay,
+                pair: true,
+              });
+            }
+            if (objectFrame.display) {
+              const capture = {
+                ...objectFrame.display,
+                code: 0xc0 + objectFrame.display.frame * 2,
+                pair: true,
+              };
+              this.nativeDisplay?.draw(capture);
+              displayOperations.push({ type: "unit-draw", ...capture });
+            }
             const side1 = address >= 0x600;
             if (side1) {
               this.registers.side1Active++;
@@ -349,14 +538,41 @@ export class OriginalBattleSession {
               if (this.pool.read8(address, ORIGINAL_OBJECT.STATUS_TIME) !== 0)
                 this.registers.side0Timed++;
             }
-          } else
-            updateOriginalInactiveObject(
+          } else {
+            const objectFrame = updateOriginalInactiveObject(
               this.pool,
               this.temps,
               this.spatial,
               this.registers,
               address,
             );
+            this.objectDisplays[address >>> 5] = objectFrame.display ?? null;
+            if (previousDisplay) {
+              this.nativeDisplay?.erase({ ...previousDisplay, pair: true });
+              displayOperations.push({
+                type: "unit-erase",
+                ...previousDisplay,
+                pair: true,
+              });
+            }
+            if (objectFrame.display) {
+              const capture = {
+                ...objectFrame.display,
+                code: 0xc0 + objectFrame.display.frame * 2,
+                pair: true,
+              };
+              this.nativeDisplay?.draw(capture);
+              displayOperations.push({ type: "unit-draw", ...capture });
+            }
+            if (objectFrame.statusIcon != null) {
+              this.playerGroupStatusIcons[address >>> 8] =
+                objectFrame.statusIcon;
+              objectHandlers?.leaderHandlers?.refresh?.({
+                address,
+                command: objectFrame.statusIcon,
+              });
+            }
+          }
         }
 
         const activity = recountActivity
@@ -374,6 +590,15 @@ export class OriginalBattleSession {
           ...updateOriginalBattleBalance(this.registers),
         });
         // 遍历期间的禁用由本次ADC8重建；胜负在下一帧A6FA观察。
+      }
+      if (this.nativeDisplay) {
+        this.nativeDisplayBoundary++;
+        this.nativeDisplayOperations = structuredClone(displayOperations);
+        events.push({
+          type: "native-display-commit",
+          boundary: this.nativeDisplayBoundary,
+          operations: structuredClone(displayOperations),
+        });
       }
     }
 
@@ -420,6 +645,8 @@ export class OriginalBattleSession {
       finished: this.finished,
       winner: this.winner,
       rngCalls: this.rng.calls,
+      // A6FA/9FDC terminal frames bypass B941, ADC8 and DDB4.
+      displayCommitted: !this.finished,
     };
   }
 
@@ -430,6 +657,10 @@ export class OriginalBattleSession {
       finished: this.finished,
       winner: this.winner,
       registers: { ...this.registers },
+      playerGroupStatusIcons: [...this.playerGroupStatusIcons],
+      objectDisplays: this.objectDisplays.map((display) =>
+        display ? { ...display } : null,
+      ),
       objectBytes: this.pool.snapshot(),
       effectBytes: this.effects.snapshot(),
       mapObjectBytes: this.mapObjects.snapshot(),
@@ -438,13 +669,29 @@ export class OriginalBattleSession {
       tempBytes: this.temps.snapshot(),
       rng: this.rng.snapshot(),
       commands: this.queue.snapshot(),
-      events: this.events.map((event) => ({ ...event })),
+      messages: this.messages.snapshot(),
+      nativeDisplay: this.nativeDisplay?.snapshot() ?? null,
+      nativeDisplayOperations: structuredClone(this.nativeDisplayOperations),
+      nativeDisplayBoundary: this.nativeDisplayBoundary,
+      nativeInitialCommitPending: this.nativeInitialCommitPending,
+      attributeDisplays: [...this.attributeDisplays.values()].map((v) => ({
+        ...v,
+      })),
+      effectDisplays: [...this.effectDisplays.values()].map((v) => ({ ...v })),
+      events: structuredClone(this.events),
     };
   }
 
   restore(snapshot) {
     if (!snapshot || !Number.isInteger(snapshot.frame) || snapshot.frame < 0)
       throw new TypeError("invalid original battle session snapshot");
+    const preparedMessages = this.messages.prepareRestore(
+      snapshot.messages,
+      snapshot.registers,
+    );
+    // Events retain message captures too. No message/event clone may fail after
+    // committing rules. This is not an audit of unrelated pool restore errors.
+    const preparedEvents = cloneOriginalMessageData(snapshot.events ?? []);
     this.frame = snapshot.frame;
     this.objectsInitialized = Boolean(snapshot.objectsInitialized);
     this.finished = Boolean(snapshot.finished);
@@ -453,6 +700,12 @@ export class OriginalBattleSession {
       ...createOriginalBattleRegisters(),
       ...(snapshot.registers ?? {}),
     };
+    this.playerGroupStatusIcons = [
+      ...(snapshot.playerGroupStatusIcons ?? [0, 0, 0, 0, 0, 0]),
+    ];
+    this.objectDisplays = (snapshot.objectDisplays ?? Array(96).fill(null)).map(
+      (display) => (display ? { ...display } : null),
+    );
     this.pool.restore(snapshot.objectBytes);
     this.effects.restore(
       snapshot.effectBytes ?? new Uint8Array(this.effects.bytes.length),
@@ -474,7 +727,33 @@ export class OriginalBattleSession {
     this.temps.restore(snapshot.tempBytes ?? new Uint8Array(0x40));
     this.rng.restore(snapshot.rng);
     this.queue = new OriginalBattleCommandQueue(snapshot.commands ?? []);
-    this.events = (snapshot.events ?? []).map((event) => ({ ...event }));
+    this.nativeDisplay = snapshot.nativeDisplay
+      ? OriginalBattleDisplay.fromSnapshot(snapshot.nativeDisplay)
+      : null;
+    this.nativeDisplayOperations = structuredClone(
+      snapshot.nativeDisplayOperations ?? [],
+    );
+    this.nativeDisplayBoundary = Math.max(
+      0,
+      snapshot.nativeDisplayBoundary | 0,
+    );
+    this.nativeInitialCommitPending = Boolean(
+      snapshot.nativeInitialCommitPending,
+    );
+    this.attributeDisplays = new Map(
+      (snapshot.attributeDisplays ?? []).map((capture) => [
+        capture.address,
+        { ...capture },
+      ]),
+    );
+    this.effectDisplays = new Map(
+      (snapshot.effectDisplays ?? []).map((capture) => [
+        capture.address,
+        { ...capture },
+      ]),
+    );
+    this.events = preparedEvents;
+    this.messages = preparedMessages;
     return this;
   }
 }

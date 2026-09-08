@@ -1,25 +1,50 @@
-// 战场视图 — 全屏覆盖层: BATTLE.MAP 战场地形 + 单位横幅/血条 + 点选指挥
-// 素材: grf/battle_map_{layout}.png (1024×1024, 64 图块 × 16px)
+import { originalActiveObjectDisplay } from "../game/battle/originalobjectframe.js";
+// 战场视图 — BATTLE.MAP/MDL等距地形 + BATTLE.SCH原版对象 + 点选指挥。
+// 地图与对象均只投影OriginalBattleSession；Canvas不得推进规则态。
 import {
+  BATTLE_SCENE_HEIGHT,
+  BATTLE_SCENE_WIDTH,
   FIELD,
-  TACTICAL_UNIT_TYPES,
+  battleCellToScene,
   advanceOriginalScriptFrame,
-  initializeVisualBattleStartup,
+  createVisualBattleStartupStepper,
   queueTacticalCommand,
+  queueTacticalPanelInput,
+  tacticalPanelState,
   settleVisualBattle,
 } from "../game/tacticalbattle.js";
 import { BattleScript } from "../game/battlescript.js";
+import { BattleDialoguePresentation } from "../ui/battledialogue.js";
+import { BATTLE_PANEL_SPECS, POPUP_FONT_PX } from "../ui/battlepanels.js";
 import {
   issueOriginalCommandByGroupNumber,
   issueOriginalScriptCommand,
 } from "../game/battle/originalcommands.js";
-import { factionColorEx } from "../game/world.js";
-import { loadImage, portrait } from "../core/assets.js";
+import { loadBytes, loadImage, loadJSON, portrait } from "../core/assets.js";
+import { OriginalBattleDisplayProcess } from "./originalcompositor.js";
 import { clickSfx } from "../core/speaker.js";
-import { wallDestroyed, wallRect } from "../game/battlewalls.js";
 import { consumeTacticalFrameBudget } from "../game/tacticalclock.js";
+import {
+  ORIGINAL_OBJECT,
+  originalAddressParts,
+  originalObjectAddress,
+} from "../game/battle/originalstate.js";
 
 const TACTICAL_SIDEBAR_WIDTH = 144;
+const BATTLE_ATLAS_COLUMNS = 16;
+const BATTLE_SPRITE_WIDTH = 32;
+const BATTLE_SPRITE_HEIGHT = 16;
+// C7A9底栏固定显示顺序：左翼、左備、大將、先鋒、右備、右翼。
+// 对应军团原始六队槽：大将0、先锋1、左右翼2/3、左右备4/5。
+const BATTLE_CARD_GROUP_ORDER = Object.freeze([2, 4, 0, 1, 5, 3]);
+const BATTLE_CARD_ROLE_LABELS = Object.freeze([
+  "左翼",
+  "左備",
+  "大將",
+  "先鋒",
+  "右備",
+  "右翼",
+]);
 
 export class BattleView {
   /** @param cv 覆盖层 canvas(#bcv) @param app 引擎句柄(用 clock/battle) */
@@ -30,27 +55,39 @@ export class BattleView {
     this.active = false;
     this.battle = null;
     this.mapImg = null;
+    this.unitImg = null;
+    // CS:E164 is process-scoped: this owner survives every battle opened by
+    // this app shell and is not reset by return-to-title or same-process load.
+    this.originalDisplayProcess = new OriginalBattleDisplayProcess();
     this.sceneCanvas = document.createElement("canvas");
-    this.sceneCanvas.width = FIELD;
-    this.sceneCanvas.height = FIELD;
+    this.sceneCanvas.width = BATTLE_SCENE_WIDTH;
+    this.sceneCanvas.height = BATTLE_SCENE_HEIGHT;
+    this.terrainLayers = [];
     this.sceneReady = false;
-    this.sel = null; // 选中单位
     this.battleScriptVm = null; // 0x9FA0每逻辑帧持续执行的BATTLE.DAT VM
+    this.battleStartup = null; // A1C5逐A065让帧；对白只投影，不阻塞此状态机
     this.scriptAccumulator = 0;
-    this.flagPulse = 0; // op16/C315逐次投影的军旗绘制脉冲
-    this.flagDrawCount = 0;
+    // A0F2 is the tail of A065. The first startup A065 performs work before
+    // any wait; later frames consume the phase left by that completed frame.
+    this.firstTacticalFramePending = false;
+    this.scriptMessageCount = 0; // A69F条件满足后调用C315的次数
     this._raf = 0;
     this._last = 0;
-    // 战场以原始 1:1 像素合成完整 1024×1024 场景；小窗口只改变可见范围。
+    this._openGeneration = 0;
+    // 战场以原始1:1像素合成完整2048×1088场景；视口只改变裁切范围。
     this.camera = { x: 0, y: 0 };
     this.ox = 0;
     this.oy = 0;
     this.s = 1;
     this.drag = null;
     this._panelSignature = "";
-    this.dialogueSequence = -1;
-    this.dialogueFaces = { atk: null, def: null };
+    this.dialoguePresentation = new BattleDialoguePresentation({
+      show: (capture, entry) => this.showBattleDialogue(capture, entry),
+      hide: (side) => this.hideBattleDialogue(side),
+    });
     this.runtimeEnabled = true;
+    this._layoutOnResize = () => this.layoutBattlePanels();
+    globalThis.addEventListener?.("resize", this._layoutOnResize);
 
     cv.addEventListener("pointerdown", (e) => this.onPointerDown(e));
     cv.addEventListener("pointermove", (e) => this.onPointerMove(e));
@@ -67,9 +104,9 @@ export class BattleView {
       clickSfx();
       this.issueTacticalCommand("assault");
     });
-    document.querySelector("#bsiege").addEventListener("click", () => {
+    document.querySelector("#battack").addEventListener("click", () => {
       clickSfx();
-      this.issueTacticalCommand("siege");
+      this.issueTacticalCommand("attack");
     });
     document.querySelector("#bformation").addEventListener("click", () => {
       clickSfx();
@@ -87,6 +124,24 @@ export class BattleView {
       clickSfx();
       this.issueTacticalCommand("retreat");
     });
+    for (const button of document.querySelectorAll(".battle-symbol-btn")) {
+      button.addEventListener("click", () => {
+        clickSfx();
+        this.queuePanelInput({
+          type: "formation-select",
+          index: Number(button.dataset.formation),
+        });
+      });
+    }
+    for (const button of document.querySelectorAll(".battle-deployment-btn")) {
+      button.addEventListener("click", () => {
+        clickSfx();
+        this.queuePanelInput({
+          type: "deployment-select",
+          baseX: Number(button.dataset.baseX),
+        });
+      });
+    }
   }
 
   setRuntimeEnabled(enabled) {
@@ -94,22 +149,23 @@ export class BattleView {
   }
 
   playerSide() {
-    const pf = this.app.scenario.player_faction;
-    if (!this.battle) return null;
-    return this.battle.A.faction === pf ? "atk" : "def";
+    // 4E75/4E9A→9E70 已在 createHandle 固化：玩家无论攻守都映射为
+    // 对象0侧；不要在渲染层按势力重新猜测双方身份。
+    return this.battle?.playerSide ?? null;
   }
 
   /** 开战：暂停战略时钟→A1C5启动→持续9FA0输入/A426/A065主循环。 */
   async open(battle, onFinish) {
+    const generation = ++this._openGeneration;
+    cancelAnimationFrame(this._raf);
+    this.active = false;
     this.battle = battle;
     this.onFinish = onFinish;
-    this.sel = null;
-    this.dialogueSequence = -1;
+    this._panelSignature = "";
     this.clearBattleDialogue();
-    this.loadBattleDialogueFaces();
     this.focusCameraOnPlayer();
     this.updateCursor();
-    this.prevClockState = {
+    this.prevClockState ??= {
       strategicSpeed: this.app.clock.strategicSpeed,
       legacyPaused: this.app.clock._legacyPaused,
       hold: this.app.clock.hold,
@@ -123,33 +179,84 @@ export class BattleView {
     document.querySelector("#btitle").textContent = battle.title;
     this.syncBattlePanel();
     try {
-      this.mapImg = await loadImage(`grf/battle_map_${battle.layout}.png`);
-    } catch {
-      this.mapImg = null;
+      const [mapImg, unitImg, talkCatalog, displayBytes] = await Promise.all([
+        loadImage(`grf/battle_terrain_${battle.layout}.png`),
+        loadImage("grf/battle_units.png"),
+        loadJSON("battle_talk.json"),
+        loadBytes("battle_display.bin"),
+      ]);
+      if (generation !== this._openGeneration) return;
+      this.mapImg = mapImg;
+      this.unitImg = unitImg;
+      battle.session.messages.catalog = talkCatalog;
+      const terrainSize = 192 * 0x140;
+      const schOffset = 3 * terrainSize;
+      if (displayBytes.length !== schOffset + 360 * 0x140)
+        throw new Error("invalid authenticated battle_display.bin length");
+      const nativeGraphics = new Uint8Array((192 + 360) * 0x140);
+      nativeGraphics.set(
+        displayBytes.subarray(
+          battle.layout * terrainSize,
+          (battle.layout + 1) * terrainSize,
+        ),
+      );
+      nativeGraphics.set(displayBytes.subarray(schOffset), terrainSize);
+      const initialCommit = battle.session.consumeInitialNativeCommit();
+      if (!initialCommit)
+        throw new Error("missing once-only 99CB native display boundary");
+      const processCommit = this.originalDisplayProcess.startBattle(
+        battle.session.nativeDisplay,
+        nativeGraphics,
+      );
+      if (
+        processCommit.boundary !== initialCommit.boundary ||
+        processCommit.boundary !== battle.session.nativeDisplayBoundary
+      )
+        throw new Error("99CB native display boundary mismatch");
+      this.composeBattlefield();
+    } catch (error) {
+      if (generation !== this._openGeneration) return;
+      this.clearBattleDialogue();
+      this.cv.style.display = "none";
+      this.app.clock._legacyPaused = this.prevClockState.legacyPaused;
+      this.app.clock.hold = this.prevClockState.hold;
+      this.prevClockState = null;
+      throw error;
     }
-    this.composeBattlefield();
     this.active = true;
     try {
-      initializeVisualBattleStartup(battle);
+      // A1C5 is part of live tactical time. It advances one A065 at each
+      // tactical frame budget instead of being synchronously consumed before
+      // the first paint, so both genuine startup speakers can be seen.
+      this.battleStartup = createVisualBattleStartupStepper(battle);
+      this.scriptAccumulator = 0;
+      this.firstTacticalFramePending = true;
     } catch (error) {
       this.active = false;
       this.cv.style.display = "none";
       document.querySelector("#bctl").style.display = "none";
+      document.querySelector("#battle-bottom-bar").style.display = "none";
       this.app.clock._legacyPaused = this.prevClockState.legacyPaused;
       this.app.clock.hold = this.prevClockState.hold;
       throw error;
     }
-    this.startBattleScript();
     document.querySelector("#bctl").style.display = "block";
+    document.querySelector("#battle-bottom-bar").style.display = "block";
+    this.dialoguePendingStart = true;
+    this.syncBattleDialogue();
     this._last = performance.now();
     const loop = (now) => {
-      if (!this.active) return;
+      if (!this.active || generation !== this._openGeneration) return;
       if (!this.runtimeEnabled || this.app.runtimeEnabled === false) {
         this._last = now;
         this._raf = requestAnimationFrame(loop);
         return;
       }
-      const dt = Math.min(0.05, (now - this._last) / 1000);
+      const elapsedSeconds = (now - this._last) / 1000;
+      const dt =
+        Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0
+          ? elapsedSeconds
+          : 0;
       this._last = now;
       const over = this.updateBattleFrames(dt);
       if (over) {
@@ -176,24 +283,153 @@ export class BattleView {
     const vm = new BattleScript(words, makeBattleIO(this));
     vm.pc = b.originalStartup?.scriptWordSkip ?? 0;
     this.battleScriptVm = vm;
-    this.scriptAccumulator = 0;
+    // Do not reset scriptAccumulator here. The final A1C5 A065 has already
+    // reached A0F2, so its fractional wait phase also paces the first 9FA0
+    // A426→A065 frame (which may start in this same due callback).
     this.app.hud.flashEvent("⚔ 開戰");
+  }
+
+  commitNativeDisplay(events) {
+    const commits = (events ?? []).filter(
+      (event) => event.type === "native-display-commit",
+    );
+    if (!commits.length) return;
+    if (commits.length !== 1 || !this.battle?.session?.nativeDisplay)
+      throw new Error("invalid native display commit event");
+    const processCommit = this.originalDisplayProcess.commit(
+      this.battle.session.nativeDisplay,
+    );
+    if (
+      processCommit.boundary !== commits[0].boundary ||
+      processCommit.boundary !== this.battle.session.nativeDisplayBoundary
+    )
+      throw new Error("native display boundary mismatch");
+  }
+
+  /** Internal deterministic post-start checkpoint; never part of game saves. */
+  captureActiveCheckpoint() {
+    const session = this.battle?.session;
+    if (!this.active || this.battleStartup || !this.battleScriptVm || !session)
+      throw new Error(
+        "active checkpoint requires a quiescent post-start battle",
+      );
+    const native = this.originalDisplayProcess.snapshotBattle();
+    if (
+      !native ||
+      session.nativeInitialCommitPending ||
+      native.boundary !== session.nativeDisplayBoundary
+    )
+      throw new Error("active checkpoint native boundary mismatch");
+    const vm = this.battleScriptVm;
+    return {
+      session: session.snapshot(),
+      vm: {
+        pc: vm.pc,
+        wait: vm.wait,
+        R: vm.R,
+        cmd: vm.cmd,
+        mode: vm.mode,
+        done: vm.done,
+      },
+      native,
+      pacing: {
+        scriptAccumulator: this.scriptAccumulator,
+        firstTacticalFramePending: this.firstTacticalFramePending,
+      },
+    };
+  }
+
+  restoreActiveCheckpoint(checkpoint, now = performance.now()) {
+    const session = this.battle?.session;
+    if (
+      !checkpoint ||
+      !this.active ||
+      this.battleStartup ||
+      !this.battleScriptVm ||
+      !session
+    )
+      throw new Error(
+        "active checkpoint restore requires a quiescent post-start battle",
+      );
+    session.restore(checkpoint.session);
+    Object.assign(this.battleScriptVm, checkpoint.vm);
+    this.originalDisplayProcess.restoreBattle(
+      checkpoint.native,
+      this.originalDisplayProcess.graphics,
+    );
+    this.scriptAccumulator = Math.max(
+      0,
+      Number(checkpoint.pacing?.scriptAccumulator) || 0,
+    );
+    this.firstTacticalFramePending = Boolean(
+      checkpoint.pacing?.firstTacticalFramePending,
+    );
+    if (
+      session.nativeInitialCommitPending ||
+      session.nativeDisplayBoundary !== this.originalDisplayProcess.boundary
+    )
+      throw new Error("restored native display boundary mismatch");
+    this._last = Number.isFinite(now) ? now : performance.now();
   }
 
   /** 每逻辑帧严格执行输入队列→A426→A065，直到战斗本身结束。 */
   updateBattleFrames(dt) {
-    const budget = consumeTacticalFrameBudget(
-      this.scriptAccumulator,
-      Math.max(0, dt) * 1000,
-      this.app.tacticalSpeed ?? 2,
-    );
+    const firstFrameDue = this.firstTacticalFramePending;
+    const elapsedSeconds = Number(dt);
+    const elapsedMs =
+      Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0
+        ? elapsedSeconds * 1000
+        : 0;
+    const budget = firstFrameDue
+      ? { frames: 1, remainderMs: this.scriptAccumulator }
+      : consumeTacticalFrameBudget(
+          this.scriptAccumulator,
+          elapsedMs,
+          this.app.tacticalSpeed ?? 2,
+          // 原版最高速只是取消INT61额外等待，并不会在同一幅显示帧中瞬间
+          // 执行12次完整A426/A065。现代浏览器以RAF作为可见战术帧上限；
+          // 否则最高速会达到约720逻辑帧/秒，在玩家看见战场前直接结算。
+          1,
+        );
     this.scriptAccumulator = budget.remainderMs;
     let frames = 0;
     while (!this.battle.session.finished && frames < budget.frames) {
-      advanceOriginalScriptFrame(this.battle, this.battleScriptVm);
+      if (this.battleStartup) {
+        const startup = this.battleStartup.step();
+        const frameEvents = startup.ended
+          ? startup.result?.terminalFrameResult?.events
+          : startup.result?.events;
+        if (frameEvents?.some((event) => event.type === "map-redraw"))
+          this.composeBattlefield();
+        this.commitNativeDisplay(frameEvents);
+        if (startup.advancedFrame) {
+          frames++;
+          if (firstFrameDue) {
+            this.firstTacticalFramePending = false;
+            // Elapsed time before the first A065 is not phase for the wait
+            // that begins only after that frame completes.
+            this.scriptAccumulator = 0;
+          }
+        }
+        if (!startup.done) continue;
+        this.battleStartup = null;
+        // 9FDC bypasses the rest of A1C5 and 9FA0. Never instantiate A426 or
+        // flash battle-start after a terminal yielded A065.
+        if (startup.ended || this.battle.session.finished) continue;
+        // A1C5 has returned: only now does 9FA0 begin A426 input/script work.
+        this.focusCameraOnPlayer();
+        this.startBattleScript();
+        continue;
+      }
+      const result = advanceOriginalScriptFrame(
+        this.battle,
+        this.battleScriptVm,
+      );
+      if (result.events?.some((event) => event.type === "map-redraw"))
+        this.composeBattlefield();
+      this.commitNativeDisplay(result.events);
       frames++;
     }
-    this.flagPulse = Math.max(0, this.flagPulse - dt * 2);
     return this.battle.over;
   }
 
@@ -201,13 +437,18 @@ export class BattleView {
   finish() {
     if (!this.active) return;
     this.active = false;
+    this._openGeneration++;
     cancelAnimationFrame(this._raf);
     this.battleScriptVm = null;
+    this.battleStartup = null;
+    this.originalDisplayProcess?.endBattle();
     this.scriptAccumulator = 0;
+    this.firstTacticalFramePending = false;
     this.drag = null;
     this.clearBattleDialogue();
     this.cv.style.display = "none";
     document.querySelector("#bctl").style.display = "none";
+    document.querySelector("#battle-bottom-bar").style.display = "none";
     if (this.prevClockState) {
       this.app.clock.strategicSpeed = this.prevClockState.strategicSpeed;
       this.app.clock._legacyPaused = this.prevClockState.legacyPaused;
@@ -221,24 +462,39 @@ export class BattleView {
 
   playerUnits() {
     const side = this.playerSide();
-    return (
-      this.battle?.units
-        .filter((u) => u.side === side)
-        .sort((a, b) => a.idx - b.idx) ?? []
+    const byStrategicGroup = new Map(
+      (this.battle?.units ?? [])
+        .filter((unit) => unit.side === side)
+        .map((unit) => [unit.strategicIndex ?? unit.idx, unit]),
+    );
+    return BATTLE_CARD_GROUP_ORDER.map(
+      (strategicIndex) => byStrategicGroup.get(strategicIndex) ?? null,
     );
   }
 
+  panelState() {
+    return this.battle?.session ? tacticalPanelState(this.battle) : null;
+  }
+
+  queuePanelInput(input) {
+    if (!this.active || !queueTacticalPanelInput(this.battle, input)) return;
+    this.updateCursor();
+    this.syncBattlePanel();
+  }
+
   selectedUnits() {
-    if (this.sel && !this.sel.gone) return [this.sel];
-    return this.playerUnits().filter((u) => !u.gone);
+    const mask = this.panelState()?.selectedGroupMask ?? 0;
+    return this.playerUnits().filter(
+      (unit) =>
+        unit && (!mask || mask & (1 << (unit.strategicIndex ?? unit.idx))),
+    );
   }
 
   selectPlayerUnit(index) {
-    const unit = this.playerUnits()[index];
-    if (!unit || unit.routed || unit.gone) return;
-    this.sel = this.sel === unit ? null : unit;
-    this.updateCursor();
-    this.syncBattlePanel();
+    const group = BATTLE_CARD_GROUP_ORDER[index];
+    if (group == null) return;
+    // C27D..C30C toggle even an empty/inactive group's bit.
+    this.queuePanelInput({ type: "group-toggle", group });
   }
 
   commandTargetX(unit, distance) {
@@ -253,30 +509,21 @@ export class BattleView {
 
   issueTacticalCommand(command) {
     if (!this.active) return;
+    const before = this.panelState();
+    if (!queueTacticalCommand(this.battle, { command })) return;
+    this.updateCursor();
+    this.syncBattlePanel();
     if (
-      (command === "siege" || command === "wall") &&
-      this.battle.kind !== "siege"
-    ) {
-      this.setCommandHint(
-        command === "siege"
-          ? "野戰與水戰不能下達攻城命令。"
-          : "野戰與水戰沒有城壁目標。",
-        "blocked",
-      );
+      before.winnerState === 1 ||
+      (command === "retreat" && before.winnerState !== 0)
+    )
+      return;
+    if (command === "wall" && (before.themeFlag & 0xff) === 0) {
+      this.setCommandHint("此戰場不能下達城壁命令。", "blocked");
       return;
     }
-    const units = this.selectedUnits();
-    if (!units.length && command !== "retreat") return;
-    const groups = units.map((unit) => unit.strategicIndex ?? unit.idx);
-    if (!queueTacticalCommand(this.battle, { groups, command })) return;
     if (command === "retreat") {
-      this.sel = null;
-      this.setCommandHint("所選部隊開始退卻。", "retreat");
-      this.announceBattleDialogue(
-        this.playerSide(),
-        "全軍撤退！！",
-        "manual-retreat",
-      );
+      this.setCommandHint("全軍開始退卻。", "retreat");
       this.updateCursor();
       this.syncBattlePanel();
       return;
@@ -284,31 +531,14 @@ export class BattleView {
 
     if (command === "assault") {
       this.setCommandHint("所選部隊向敵軍突擊。", command);
-      this.announceBattleDialogue(
-        this.playerSide(),
-        "全軍，向敵陣突擊！",
-        command,
-      );
-    } else if (command === "siege") {
-      this.setCommandHint("所選部隊向城壁缺口進軍並攻擊。", command);
-      this.announceBattleDialogue(
-        this.playerSide(),
-        "攻向城壁，打開突破口！",
-        command,
-      );
+    } else if (command === "attack") {
+      this.setCommandHint("所選部隊攻擊敵軍。", command);
     } else if (command === "formation") {
-      this.setCommandHint("所選部隊在當前位置重新集結列陣。", command);
-      this.announceBattleDialogue(this.playerSide(), "擺出陣形！！", command);
+      this.setCommandHint("所選部隊按選定陣形與部署位置列陣。", command);
     } else if (command === "wall") {
       this.setCommandHint("所選部隊集中破壞最近城壁。", command);
-      this.announceBattleDialogue(this.playerSide(), "集中攻擊城壁！", command);
     } else if (command === "defend") {
       this.setCommandHint("所選部隊原地守陣。", command);
-      this.announceBattleDialogue(
-        this.playerSide(),
-        "守住陣地，不可妄動！",
-        command,
-      );
     }
     this.syncBattlePanel();
   }
@@ -320,71 +550,69 @@ export class BattleView {
   }
 
   clearBattleDialogue() {
-    for (const side of ["atk", "def"]) {
-      const box = document.querySelector(`#bdialogue-${side}`);
-      const text = document.querySelector(`#bdialogue-${side}-text`);
-      const face = document.querySelector(`#bdialogue-${side}-face`);
-      if (box) box.dataset.kind = "";
-      if (text) text.textContent = "－－－";
-      if (face) face.removeAttribute("src");
-    }
+    this.dialoguePendingStart = false;
+    this.dialoguePresentation?.dispose();
+    for (const side of [0, 1]) this.hideBattleDialogue(side);
   }
 
-  async loadBattleDialogueFaces() {
-    for (const side of ["atk", "def"]) {
-      const speaker = this.battle?.speakers?.[side];
-      let image = null;
-      if (speaker?.portrait != null)
-        image = await portrait(speaker.portrait).catch(() => null);
-      if (!image)
-        image = await loadImage("grf/ui/message_npc.png").catch(() => null);
-      if (!this.active && this.battle == null) return;
-      this.dialogueFaces[side] = image;
-      const face = document.querySelector(`#bdialogue-${side}-face`);
-      if (face && image?.src) face.src = image.src;
-    }
+  dialogueSideName(side) {
+    return this.battle?.sideMap?.atk === side ? "atk" : "def";
   }
 
-  showBattleDialogue(event) {
-    if (!event || (event.side !== "atk" && event.side !== "def")) return;
-    const side = event.side;
+  hideBattleDialogue(side) {
+    const name = this.dialogueSideName(side);
+    const box = document.querySelector(`#bdialogue-${name}`);
+    if (box) {
+      box.dataset.kind = "";
+      box.dataset.originalSide = String(side);
+    }
+    const face = document.querySelector(`#bdialogue-${name}-face`);
+    if (face) face.removeAttribute("src");
+  }
+
+  showBattleDialogue(capture, entry) {
+    const side = this.dialogueSideName(capture.side);
     const box = document.querySelector(`#bdialogue-${side}`);
     const name = document.querySelector(`#bdialogue-${side}-name`);
     const text = document.querySelector(`#bdialogue-${side}-text`);
-    if (box) box.dataset.kind = event.kind ?? "battle";
-    if (name)
-      name.textContent =
-        event.speaker ??
-        this.battle?.speakers?.[side]?.name ??
-        (side === "atk" ? this.battle?.A?.leader : this.battle?.D?.leader) ??
-        (side === "atk" ? "攻方" : "守方");
-    if (text) text.textContent = event.text ?? "……";
+    const face = document.querySelector(`#bdialogue-${side}-face`);
+    if (box) {
+      box.dataset.kind = "decoded";
+      // Object side0 is always the player and belongs at the bottom even when
+      // the strategic player was the defending legion; side1 is the top enemy.
+      box.dataset.originalSide = String(capture.side);
+    }
+    if (name) name.textContent = capture.speaker.name;
+    if (text) text.textContent = capture.text;
+    if (face) face.removeAttribute("src");
+    // Only the retained slot portrait, never commander/generalIdx or NPC fallback.
+    // Slow asset loads may fill this capture, but cannot revive/replace a window.
+    portrait(capture.speaker.portrait)
+      .then((image) => {
+        this.dialoguePresentation.expire();
+        if (face && this.dialoguePresentation.owns(capture.side, entry))
+          face.src = image.src;
+      })
+      .catch(() => {});
   }
 
   syncBattleDialogue() {
-    for (const event of this.battle?.dialogues ?? []) {
-      if ((event.sequence ?? -1) <= this.dialogueSequence) continue;
-      this.dialogueSequence = event.sequence;
-      this.showBattleDialogue(event);
+    // Hidden tabs don't start an unseen capture's three seconds. Existing
+    // deadlines still elapse; sync expires them before the next visible paint.
+    if (document.hidden || !this.dialoguePresentation) return;
+    if (this.dialoguePendingStart) {
+      this.dialoguePendingStart = false;
+      const session = this.battle.session;
+      this.dialoguePresentation.start(session.events, session.messages.slots);
+    } else {
+      this.dialoguePresentation.sync(this.battle?.session?.events ?? []);
     }
   }
 
-  announceBattleDialogue(side, text, kind = "command") {
-    if (!this.battle || !text) return;
-    this.battle.dialogues ??= [];
-    const event = {
-      sequence: this.battle.nextDialogueSequence ?? 0,
-      side,
-      speaker:
-        side === "atk"
-          ? this.battle.A?.leader
-          : (this.battle.D?.leader ?? this.battle.speakers?.def?.name),
-      text,
-      kind,
-    };
-    this.battle.nextDialogueSequence = event.sequence + 1;
-    this.battle.dialogues.push(event);
-    this.syncBattleDialogue();
+  dismissBattleDialogue() {
+    // Global modern right click is NOT native IDs27/28 or a queued command.
+    if (this.drag) this.cancelDrag({ pointerId: this.drag.pointerId });
+    this.dialoguePresentation?.dismissAll();
   }
 
   syncBattlePanel() {
@@ -393,7 +621,16 @@ export class BattleView {
     const def = this.battle.units.filter((u) => u.side === "def");
     const sideMorale = (sideName) => {
       const side = this.battle.sideMap?.[sideName];
-      return side == null ? 0 : this.battle.session.temps.read8(side, 6) & 0xff;
+      if (side == null) return 0;
+      // 战术主将HP可因能力加成超过200，但显示的军团士气上限仍为200；
+      // 这里只钳制呈现值，不改对象HP、C78E黄线或战斗规则态。
+      return Math.min(
+        200,
+        this.battle.session.pool.read8(
+          originalObjectAddress(side, 0, 0),
+          ORIGINAL_OBJECT.HP,
+        ),
+      );
     };
     const atkName = this.battle.A?.leader ?? "攻方";
     const defName =
@@ -405,67 +642,362 @@ export class BattleView {
     const defTroops = survivorsOf(this.battle, "def");
     const atkMorale = sideMorale("atk");
     const defMorale = sideMorale("def");
+    const playerSideName = this.battle.sideMap?.[0] ?? "atk";
+    const enemySideName = this.battle.sideMap?.[1] ?? "def";
+    const nameBySide = { atk: atkName, def: defName };
+    const troopsBySide = { atk: atkTroops, def: defTroops };
+    const moraleBySide = { atk: atkMorale, def: defMorale };
+    // C6F6→C775/C78E：红线取临时记录+4总兵/4，黄线取主将的
+    // 士气/HP字段×3/4；两者都在124px封顶。顶栏固定原始1侧。
+    const meterByOriginalSide = [0, 1].map((side) => {
+      const troops = this.battle.session.temps.read16(side, 4);
+      const morale = this.battle.session.pool.read8(
+        originalObjectAddress(side, 0, 0),
+        ORIGINAL_OBJECT.HP,
+      );
+      return {
+        troops: Math.min(124, troops >> 2),
+        morale: Math.min(124, (morale >> 1) + (morale >> 2)),
+      };
+    });
+    const entityBySide = { atk: this.battle.A, def: this.battle.D };
+    const rulerBySide = (sideName) => {
+      const factionIndex = entityBySide[sideName]?.faction;
+      return (
+        this.app.scenario?.factions?.[factionIndex]?.monarch ??
+        nameBySide[sideName]
+      );
+    };
+    let operationName;
+    if (this.battle.kind === "siege")
+      operationName = `${this.battle.city?.name ?? "據點"}　作戰`;
+    else {
+      const fieldName =
+        this.battle.session.registers.mode === 2 ? "海上" : "陸上";
+      operationName = `${fieldName}　作戰`;
+    }
     const units = this.playerUnits();
+    const panel = this.panelState();
+    const statusIcons = this.battle.session.playerGroupStatusIcons;
     const signature = [
       this.battle.kind,
       this.battle.terrain?.key ?? "",
+      operationName,
+      playerSideName,
+      enemySideName,
+      rulerBySide(playerSideName),
+      rulerBySide(enemySideName),
       atkName,
       defName,
       atkTroops,
       defTroops,
       atkMorale,
       defMorale,
-      this.sel?.idx ?? -1,
+      meterByOriginalSide[0].troops,
+      meterByOriginalSide[0].morale,
+      meterByOriginalSide[1].troops,
+      meterByOriginalSide[1].morale,
+      panel.selectedGroupMask,
+      panel.selectedFormation,
+      panel.side0FormationBase,
+      panel.battlefieldHidden,
+      ...statusIcons,
       this.battle.wallRevision ?? 0,
       ...(this.battle.wallRecords ?? []).map(
         (wall) => `${wall.index}:${wall.metric | 0}:${wall.flags | 0}`,
       ),
-      ...units.map(
-        (u) =>
-          `${u.idx}:${u.type ?? 0}:${u.troops | 0}:${u.routed ? 1 : 0}:${u.gone ? 1 : 0}`,
-      ),
+      ...units.map((unit) => {
+        if (!unit) return "-";
+        return `${unit.strategicIndex ?? unit.idx}:${unit.type ?? 0}:${unit.troops | 0}:${unit.routed ? 1 : 0}:${unit.gone ? 1 : 0}`;
+      }),
     ].join("|");
     if (signature === this._panelSignature) return;
     this._panelSignature = signature;
 
-    document.querySelector("#btitle").textContent =
-      `${this.battle.title}　${this.battle.terrain?.label ?? ""}`;
-    document.querySelector("#batkname").textContent = `${atkName}軍（攻）`;
-    document.querySelector("#bdefname").textContent = `${defName}軍（守）`;
-    document.querySelector("#batktroops").textContent = atkTroops;
-    document.querySelector("#bdeftroops").textContent = defTroops;
-    document.querySelector("#batkmorale").textContent = atkMorale;
-    document.querySelector("#bdefmorale").textContent = defMorale;
-    document.querySelector("#bdialogue-atk-name").textContent = atkName;
-    document.querySelector("#bdialogue-def-name").textContent = defName;
+    document.querySelector("#btitle").textContent = operationName;
+    document.querySelector("#bbelligerents").textContent =
+      `${rulerBySide(playerSideName)}　對　${rulerBySide(enemySideName)}`;
+    document.querySelector("#batkname").textContent =
+      nameBySide[playerSideName];
+    document.querySelector("#bdefname").textContent = nameBySide[enemySideName];
+    document.querySelector("#batktroops").textContent =
+      Math.max(0, troopsBySide[playerSideName] | 0) * 10;
+    document.querySelector("#bdeftroops").textContent =
+      Math.max(0, troopsBySide[enemySideName] | 0) * 10;
+    document.querySelector("#batkmorale").textContent =
+      moraleBySide[playerSideName];
+    document.querySelector("#bdefmorale").textContent =
+      moraleBySide[enemySideName];
+    // C775/C78E的0..124原始值等比映射到现代浮窗的160px内容宽度。
+    const meterWidth = (value) => Math.round((value * 160) / 124);
+    document.querySelector("#batk-troops-fill").style.width =
+      `${meterWidth(meterByOriginalSide[0].troops)}px`;
+    document.querySelector("#batk-morale-fill").style.width =
+      `${meterWidth(meterByOriginalSide[0].morale)}px`;
+    document.querySelector("#bdef-troops-fill").style.width =
+      `${meterWidth(meterByOriginalSide[1].troops)}px`;
+    document.querySelector("#bdef-morale-fill").style.width =
+      `${meterWidth(meterByOriginalSide[1].morale)}px`;
 
     for (let i = 0; i < 6; i++) {
-      const button = document.querySelector(`#bunit${i}`);
+      const card = document.querySelector(`#bunit${i}`);
       const unit = units[i];
-      button.disabled = !unit || unit.routed || unit.gone;
-      button.textContent = unit
-        ? `${unit.typeLabel ?? TACTICAL_UNIT_TYPES[unit.type]?.label ?? i + 1}\n${Math.max(0, unit.troops | 0)}`
-        : `${i + 1}\n－－`;
-      button.dataset.unitType = unit?.typeKey ?? "empty";
-      button.classList.toggle("selected", this.sel === unit);
+      if (!card) continue;
+      const group = BATTLE_CARD_GROUP_ORDER[i];
+      const selected = (panel.selectedGroupMask & (1 << group)) !== 0;
+      card.classList.toggle("active", selected);
+      card.setAttribute("aria-pressed", String(selected));
+      const statusEl = card.querySelector(".battle-card-status");
+      if (statusEl) {
+        statusEl.dataset.command = String(statusIcons[group]);
+        statusEl.style.backgroundImage = `url("grf/ui/battle_status_${statusIcons[group]}.png")`;
+      }
+      card.classList.toggle(
+        "routed",
+        Boolean(!unit || unit.routed || unit.gone),
+      );
+      const roleEl = card.querySelector(".battle-card-role-label");
+      const iconEl = card.querySelector(".battle-card-unit-icon");
+      const troopsValEl = card.querySelector(".battle-card-troops-val");
+      const troopsFillEl = card.querySelector(".battle-card-troops-fill");
+      if (roleEl) roleEl.textContent = BATTLE_CARD_ROLE_LABELS[i];
+      if (iconEl) {
+        iconEl.dataset.unitType = unit?.typeKey ?? "infantry";
+        let iconFile = "battle_unit_infantry.png";
+        if (unit?.type === 1) iconFile = "battle_unit_cavalry.png";
+        else if (unit?.type === 2) iconFile = "battle_unit_archer.png";
+        iconEl.style.backgroundImage = `url("grf/ui/${iconFile}")`;
+      }
+      if (troopsValEl)
+        troopsValEl.textContent = unit ? Math.max(0, unit.troops | 0) * 10 : 0;
+      if (troopsFillEl) {
+        const pct =
+          unit && unit.maxTroops > 0
+            ? Math.max(0, Math.min(100, (unit.troops / unit.maxTroops) * 100))
+            : 0;
+        troopsFillEl.style.width = `${pct}%`;
+      }
     }
-    const siegeOnly = this.battle.kind !== "siege";
-    document.querySelector("#bsiege").disabled = siegeOnly;
-    document.querySelector("#bwall").disabled = siegeOnly;
+    for (const button of document.querySelectorAll(".battle-symbol-btn")) {
+      const selected =
+        Number(button.dataset.formation) === panel.selectedFormation;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    }
+    for (const button of document.querySelectorAll(".battle-deployment-btn")) {
+      const selected =
+        Number(button.dataset.baseX) === (panel.side0FormationBase & 0xff);
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    }
+    // C1CE still clears selection for an unavailable wall command.
+    document.querySelector("#bwall").disabled = false;
+  }
+
+  atlasFrame(ctx, image, index, x, y) {
+    if (!image || index < 0) return;
+    const sx = (index % BATTLE_ATLAS_COLUMNS) * BATTLE_SPRITE_WIDTH;
+    const sy = Math.floor(index / BATTLE_ATLAS_COLUMNS) * BATTLE_SPRITE_HEIGHT;
+    ctx.drawImage(
+      image,
+      sx,
+      sy,
+      BATTLE_SPRITE_WIDTH,
+      BATTLE_SPRITE_HEIGHT,
+      Math.round(x),
+      Math.round(y),
+      BATTLE_SPRITE_WIDTH,
+      BATTLE_SPRITE_HEIGHT,
+    );
   }
 
   composeBattlefield() {
     const ctx = this.sceneCanvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, BATTLE_SCENE_WIDTH, BATTLE_SCENE_HEIGHT);
     ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, FIELD, FIELD);
-    if (this.mapImg) ctx.drawImage(this.mapImg, 0, 0, FIELD, FIELD);
+    ctx.fillRect(0, 0, BATTLE_SCENE_WIDTH, BATTLE_SCENE_HEIGHT);
+    const directoryIndex = this.battle?.directoryIndex ?? 0;
+    const rawTiles = this.app.battleMaps?.maps?.[String(directoryIndex)];
+    const sessionTiles = this.battle?.session?.spatial?.tiles;
+    const tiles = sessionTiles?.length >= 0x1000 ? sessionTiles : rawTiles;
+    const attributes =
+      this.app.battleMaps?.navigation?.layouts?.[
+        String(this.battle?.layout ?? 0)
+      ]?.attributes;
+    if (!this.mapImg || !tiles || tiles.length < 0x1000)
+      throw new Error(`missing tactical map ${directoryIndex}`);
+    if (!attributes || attributes.length < 0x800)
+      throw new Error(
+        `missing tactical MDL layout ${this.battle?.layout ?? 0}`,
+      );
+
+    // DD22越界时固定取tile0；descriptor0的首图形正是原版蓝色菱形底纹。
+    const outsideSprite = attributes[1] & 0xff;
+    const mapTop = battleCellToScene(0, 0).y - 8;
+    // 同一屏幕行相隔8px，奇偶行水平错开16px；这是DA1C投影后的tile0
+    // 晶格。旧的32×16矩形平铺会留下错误黑洞并把菱格排成方阵。
+    for (let y = 0; y < BATTLE_SCENE_HEIGHT; y += 8) {
+      const depth = (y - mapTop) / 8;
+      const firstX = (depth & 1) === 0 ? 0 : -16;
+      for (let x = firstX; x < BATTLE_SCENE_WIDTH; x += BATTLE_SPRITE_WIDTH)
+        this.atlasFrame(ctx, this.mapImg, outsideSprite, x, y);
+    }
+
+    // DA1C/DAAA的深度轴是y-x。静态地形按深度预合成窄条，显示时与
+    // 动态对象交错绘制，避免城墙/树林后的部队错误浮在所有建筑上方。
+    this.terrainLayers = [];
+    for (let depth = -0x3f; depth <= 0x3f; depth++) {
+      const firstX = Math.max(0, -depth);
+      const lastX = Math.min(0x3f, 0x3f - depth);
+      const firstPoint = battleCellToScene(firstX, firstX + depth);
+      const lastPoint = battleCellToScene(lastX, lastX + depth);
+      const left = firstPoint.x - 16;
+      // DD22每个descriptor槽把SI减0x400，正好上移DDB4的一条16px
+      // screen row；同时写入的0,2,..,12是遮挡高度码，不是8px坐标。
+      const top = firstPoint.y - 104;
+      const layer = document.createElement("canvas");
+      layer.width = lastPoint.x + 16 - left;
+      layer.height = 112;
+      const layerContext = layer.getContext("2d");
+      layerContext.imageSmoothingEnabled = false;
+      for (let x = firstX; x <= lastX; x++) {
+        const y = x + depth;
+        const tile = tiles[y * 0x40 + x] & 0xff;
+        const descriptor = tile * 8;
+        const point = battleCellToScene(x, y);
+        for (let level = 0; level < 7; level++) {
+          const sprite = attributes[descriptor + level + 1] & 0xff;
+          if (sprite === 0) continue;
+          this.atlasFrame(
+            layerContext,
+            this.mapImg,
+            sprite,
+            point.x - 16 - left,
+            point.y - 8 - level * 16 - top,
+          );
+        }
+      }
+      this.terrainLayers.push({ depth, image: layer, x: left, y: top });
+    }
     this.sceneReady = true;
   }
 
+  battleUiScale() {
+    // 战场地图扩大为可拖拽视口，但面板文字与图形始终保持100%。
+    return 1;
+  }
+
+  layoutBattlePanels() {
+    const rootStyle = document.documentElement?.style;
+    rootStyle?.setProperty?.("--popup-font-size", `${POPUP_FONT_PX}px`);
+    const dialogue = BATTLE_PANEL_SPECS.dialogue;
+    for (const [name, value] of [
+      ["width", dialogue.width],
+      ["height", dialogue.height],
+      ["inset", dialogue.inset],
+      ["portrait", dialogue.portrait],
+      ["copy-gap", dialogue.copyGap],
+      ["line-height", dialogue.lineHeight],
+      ["name-margin", dialogue.nameMargin],
+      ["top", BATTLE_PANEL_SPECS[dialogue.topAnchor].top],
+      ["bottom", BATTLE_PANEL_SPECS[dialogue.bottomAnchor].bottom],
+    ])
+      rootStyle?.setProperty?.(`--battle-dialogue-${name}`, `${value}px`);
+    rootStyle?.setProperty?.(
+      "--battle-dialogue-copy-align",
+      dialogue.copyAlign,
+    );
+
+    // The title, side windows and cards remain exact 1:1 panels. Their shared
+    // specs also drive every textured canvas backing below.
+    for (const key of ["title", "enemy", "player", "cards"]) {
+      const spec = BATTLE_PANEL_SPECS[key];
+      const panel = document.querySelector(spec.selector);
+      if (!panel) continue;
+      panel.style.width = `${spec.width}px`;
+      panel.style.height = `${spec.height}px`;
+      for (const edge of ["top", "right", "bottom", "left"])
+        if (spec[edge] != null) panel.style[edge] = `${spec[edge]}px`;
+    }
+
+    for (const box of document.querySelectorAll(dialogue.selector)) {
+      box.style.width = `${dialogue.width}px`;
+      box.style.height = `${dialogue.height}px`;
+      box.style.padding = `${dialogue.inset}px`;
+      box.style.gridTemplateColumns = `${dialogue.portrait}px 1fr`;
+      if (box.dataset.originalSide === "1") {
+        box.style.top = `${BATTLE_PANEL_SPECS[dialogue.topAnchor].top}px`;
+        box.style.bottom = "auto";
+      } else {
+        box.style.top = "auto";
+        box.style.bottom = `${BATTLE_PANEL_SPECS[dialogue.bottomAnchor].bottom}px`;
+      }
+    }
+
+    for (const canvas of document.querySelectorAll(
+      ".battle-window-frame[data-battle-panel]",
+    )) {
+      const spec = BATTLE_PANEL_SPECS[canvas.dataset.battlePanel];
+      if (!spec?.cols || !spec?.rows) continue;
+      canvas.dataset.windowCols = String(spec.cols);
+      canvas.dataset.windowRows = String(spec.rows);
+      if (canvas.width !== spec.width) canvas.width = spec.width;
+      if (canvas.height !== spec.height) canvas.height = spec.height;
+    }
+  }
+
+  // Compatibility name for older focused fixtures; all panel geometry now
+  // comes from BATTLE_PANEL_SPECS rather than this method's callers.
+  layoutBattleDialogues() {
+    this.layoutBattlePanels();
+  }
+
+  drawBattleWindowFrames() {
+    this.layoutBattlePanels();
+    const windowBuilder = this.app.gamebar?._drawWindow;
+    if (typeof windowBuilder !== "function" || !this.app.gamebar?._gf) return;
+    for (const canvas of document.querySelectorAll(
+      ".battle-window-frame[data-battle-panel]",
+    )) {
+      const spec = BATTLE_PANEL_SPECS[canvas.dataset.battlePanel];
+      if (!spec?.cols || !spec?.rows) continue;
+      const context = canvas.getContext("2d");
+      if (!context) continue;
+      context.imageSmoothingEnabled = false;
+      context.clearRect(0, 0, spec.width, spec.height);
+      // Preserve GameBar's raw frame_sq/frame_col/frame_cap composition.
+      windowBuilder.call(
+        this.app.gamebar,
+        context,
+        0,
+        0,
+        spec.cols,
+        spec.rows,
+        "black",
+      );
+    }
+  }
+
   battlefieldViewport() {
-    const width = Math.max(1, innerWidth - TACTICAL_SIDEBAR_WIDTH);
-    return { width, height: Math.max(1, innerHeight) };
+    const uiScale = this.battleUiScale();
+    const sidebarWidth = Math.round(TACTICAL_SIDEBAR_WIDTH * uiScale);
+    const panel = document.querySelector("#bctl");
+    if (panel) {
+      panel.style.width = `${sidebarWidth}px`;
+      panel.style.setProperty?.("--battle-ui-scale", String(uiScale));
+      panel.style.setProperty?.("--battle-sidebar-width", `${sidebarWidth}px`);
+    }
+    const bottomBar = document.querySelector("#battle-bottom-bar");
+    if (bottomBar) {
+      bottomBar.style.removeProperty?.("right");
+      bottomBar.style.setProperty?.("--battle-ui-scale", String(uiScale));
+    }
+    // 三个右侧窗口与六队卡栏都浮在Canvas上，不再为整条黑色侧栏/底栏
+    // 预留裁切区域，让战场使用完整浏览器视口。
+    const width = Math.max(1, innerWidth);
+    const height = Math.max(1, innerHeight);
+    return { width, height, sidebarWidth, uiScale };
   }
 
   focusCameraOnPlayer() {
@@ -473,13 +1005,15 @@ export class BattleView {
     const units = this.battle?.units.filter((u) => u.side === side && !u.gone);
     const focusX = units?.length
       ? units.reduce((sum, u) => sum + (u.hx ?? u.x), 0) / units.length
-      : FIELD / 2;
+      : BATTLE_SCENE_WIDTH / 2;
     const focusY = units?.length
       ? units.reduce((sum, u) => sum + (u.hy ?? u.y), 0) / units.length
-      : FIELD / 2;
+      : BATTLE_SCENE_HEIGHT / 2;
     const viewport = this.battlefieldViewport();
-    this.camera.x = focusX - viewport.width / 2;
-    this.camera.y = focusY - viewport.height / 2;
+    // DDB4图形以1:1的32×16/32×32像素绘制；依靠相机裁切而非缩图。
+    this.s = 1;
+    this.camera.x = focusX - viewport.width / (2 * this.s);
+    this.camera.y = focusY - viewport.height / (2 * this.s);
     this.clampCamera();
   }
 
@@ -487,8 +1021,8 @@ export class BattleView {
     const viewport = this.battlefieldViewport();
     const viewportWidth = viewport.width;
     const viewportHeight = viewport.height;
-    const maxX = Math.max(0, FIELD - viewportWidth / this.s);
-    const maxY = Math.max(0, FIELD - viewportHeight / this.s);
+    const maxX = Math.max(0, BATTLE_SCENE_WIDTH - viewportWidth / this.s);
+    const maxY = Math.max(0, BATTLE_SCENE_HEIGHT - viewportHeight / this.s);
     this.camera.x = Math.max(0, Math.min(maxX, this.camera.x));
     this.camera.y = Math.max(0, Math.min(maxY, this.camera.y));
   }
@@ -501,7 +1035,10 @@ export class BattleView {
 
   updateCursor() {
     if (this.drag?.moved) this.cv.style.cursor = "grabbing";
-    else this.cv.style.cursor = this.sel ? "crosshair" : "grab";
+    else
+      this.cv.style.cursor = this.panelState()?.selectedGroupMask
+        ? "crosshair"
+        : "grab";
   }
 
   onPointerDown(e) {
@@ -541,6 +1078,7 @@ export class BattleView {
   }
 
   onPointerUp(e) {
+    if (e.button !== 0) return;
     const drag = this.drag;
     if (!drag || drag.pointerId !== e.pointerId) return;
     const moved = drag.moved;
@@ -560,9 +1098,10 @@ export class BattleView {
   onClick(px, py) {
     if (!this.active) return;
     // 屏幕→战场坐标
-    const wx = (px - this.ox) / this.s,
-      wy = (py - this.oy) / this.s;
-    if (wx < 0 || wy < 0 || wx > FIELD || wy > FIELD) return;
+    const wx = (px - this.ox) / this.s;
+    const wy = (py - this.oy) / this.s;
+    if (wx < 0 || wy < 0 || wx > BATTLE_SCENE_WIDTH || wy > BATTLE_SCENE_HEIGHT)
+      return;
     const mine = this.playerSide();
     let hit = null,
       hd = 40 * 40;
@@ -574,11 +1113,156 @@ export class BattleView {
         hit = u;
       }
     }
-    if (hit) this.sel = this.sel === hit ? null : hit;
+    if (hit && !this.battle.session.registers.battlefieldHidden)
+      this.queuePanelInput({
+        type: "group-toggle",
+        group: hit.strategicIndex ?? hit.idx,
+      });
     // 原版战术地图空白左键只参与按钮/组选择流程，不存在任意坐标移动命令。
     // Canvas不得写无规则消费者的legacy unit.order。
     this.updateCursor();
     this.syncBattlePanel();
+  }
+
+  originalObjectSprite(address) {
+    const pool = this.battle?.session?.pool;
+    if (!pool) return null;
+    const { side, group, slot } = originalAddressParts(address);
+    const captured = this.battle.session.objectDisplays?.[address >>> 5];
+    // B240 draws before STATE^1; B360 draws inactive dying slots. Rendering
+    // never advances the phase/countdown, and older/pre-frame snapshots fall
+    // back only for active objects that have not had a captured DA1C draw.
+    if (!captured && !pool.isActive(address)) return null;
+    const display = captured ?? originalActiveObjectDisplay(pool, address);
+    if (display.frame < 0 || display.frame >= 180) return null;
+    return {
+      ...display,
+      side,
+      group,
+      slot,
+      point: battleCellToScene(display.x, display.y, display.level),
+    };
+  }
+
+  originalAttributeSprites() {
+    const captures = this.battle?.session?.attributeDisplays;
+    if (!captures) return [];
+    return [...captures.values()]
+      .map((capture) => {
+        const { address, x, y, level, code, pair } = capture;
+        const point = battleCellToScene(x, y, level);
+        // This is the actual BB10 pre-increment capture. Repaint and camera
+        // movement never derive or advance a phase from D318.
+        return pair
+          ? {
+              address,
+              mapAttribute: true,
+              frame: (code - 0x00c0) >> 1,
+              x,
+              y,
+              level,
+              point,
+            }
+          : {
+              address,
+              mapAttribute: true,
+              halfFrame: code - 0x00c0,
+              x,
+              y,
+              level,
+              point,
+            };
+      })
+      .filter((object) =>
+        object.halfFrame == null
+          ? object.frame >= 0 && object.frame < 180
+          : object.halfFrame >= 0 && object.halfFrame < 360,
+      );
+  }
+
+  drawBattlefieldLayers(ctx) {
+    if (!this.sceneReady) return false;
+    const pool = this.battle?.session?.pool;
+    const unitObjects =
+      this.unitImg && pool
+        ? pool
+            .addresses()
+            .map((address) => this.originalObjectSprite(address))
+            .filter(Boolean)
+        : [];
+    const effectObjects = [
+      ...(this.battle?.session?.effectDisplays?.values?.() ?? []),
+    ]
+      .map((capture) => ({
+        ...capture,
+        effect: true,
+        halfFrame: capture.code - 0x00c0,
+        point: battleCellToScene(capture.x, capture.y, capture.level),
+      }))
+      .filter((object) => object.halfFrame >= 0 && object.halfFrame < 360);
+    const objects = [
+      ...this.originalAttributeSprites(),
+      ...effectObjects,
+      ...unitObjects,
+    ].sort(
+      (left, right) =>
+        left.y - left.x - (right.y - right.x) ||
+        left.x + left.y - (right.x + right.y) ||
+        left.level - right.level ||
+        Number(Boolean(left.mapAttribute)) -
+          Number(Boolean(right.mapAttribute)) ||
+        left.address - right.address,
+    );
+    const drawUnitFrame = (frame, point) => {
+      const frameTop = frame * 2;
+      this.atlasFrame(ctx, this.unitImg, frameTop, point.x - 16, point.y - 24);
+      this.atlasFrame(
+        ctx,
+        this.unitImg,
+        frameTop + 1,
+        point.x - 16,
+        point.y - 8,
+      );
+    };
+    const drawObject = (object) => {
+      if (object.halfFrame != null) {
+        this.atlasFrame(
+          ctx,
+          this.unitImg,
+          object.halfFrame,
+          object.point.x - 16,
+          object.point.y - 8,
+        );
+        return;
+      }
+      drawUnitFrame(object.frame, object.point);
+    };
+    ctx.save();
+    ctx.translate(this.ox, this.oy);
+    ctx.scale(this.s, this.s);
+    ctx.drawImage(this.sceneCanvas, 0, 0);
+    // C234/DC9D(128,128): only off-map tile0 remains; rule frames continue.
+    if (this.battle.session.registers.battlefieldHidden) {
+      ctx.restore();
+      return true;
+    }
+    let objectIndex = 0;
+    for (const layer of this.terrainLayers) {
+      while (
+        objectIndex < objects.length &&
+        objects[objectIndex].y - objects[objectIndex].x < layer.depth
+      )
+        drawObject(objects[objectIndex++]);
+      ctx.drawImage(layer.image, layer.x, layer.y);
+      while (
+        objectIndex < objects.length &&
+        objects[objectIndex].y - objects[objectIndex].x === layer.depth
+      )
+        drawObject(objects[objectIndex++]);
+    }
+    while (objectIndex < objects.length) drawObject(objects[objectIndex++]);
+    ctx.restore();
+    return true;
   }
 
   draw() {
@@ -589,169 +1273,33 @@ export class BattleView {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, cv.width, cv.height);
     if (!this.battle) return;
+    // 直接复用GameBar通用弹窗构造器；四边纹理不在CSS中另造。
+    this.drawBattleWindowFrames();
 
-    // 与战略地图相同，固定 100% 比例；视口小于战场时通过拖动相机查看。
+    // 原生像素大场景按相机裁切；不同分辨率只改变可见范围。
+    const viewport = this.battlefieldViewport();
     this.s = 1;
     this.clampCamera();
-    const viewport = this.battlefieldViewport();
+    const scaledWidth = BATTLE_SCENE_WIDTH * this.s;
+    const scaledHeight = BATTLE_SCENE_HEIGHT * this.s;
     this.ox =
-      viewport.width >= FIELD
-        ? Math.floor((viewport.width - FIELD) / 2)
-        : -this.camera.x;
+      viewport.width >= scaledWidth
+        ? Math.floor((viewport.width - scaledWidth) / 2)
+        : -this.camera.x * this.s;
     this.oy =
-      viewport.height >= FIELD
-        ? Math.floor((viewport.height - FIELD) / 2)
-        : -this.camera.y;
-    const mapSize = FIELD;
+      viewport.height >= scaledHeight
+        ? Math.floor((viewport.height - scaledHeight) / 2)
+        : -this.camera.y * this.s;
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, viewport.width, viewport.height);
     ctx.clip();
-    if (this.battle.mirror) {
-      ctx.translate(this.ox + mapSize, this.oy);
-      ctx.scale(-1, 1);
-      ctx.drawImage(
-        this.sceneReady ? this.sceneCanvas : this.mapImg,
-        0,
-        0,
-        mapSize,
-        mapSize,
-      );
-    } else if (this.sceneReady || this.mapImg) {
-      ctx.drawImage(
-        this.sceneReady ? this.sceneCanvas : this.mapImg,
-        this.ox,
-        this.oy,
-        mapSize,
-        mapSize,
-      );
-    }
-    if (this.battle.terrain?.key === "water") {
-      const waveOffset = ((this.battle.time ?? 0) * 18) % 32;
-      ctx.save();
-      ctx.globalAlpha = 0.24;
-      ctx.strokeStyle = "#bfeaff";
-      ctx.lineWidth = 1;
-      for (let y = -32 + waveOffset; y < FIELD; y += 32) {
-        ctx.beginPath();
-        for (let x = 0; x <= FIELD; x += 32) {
-          const sx = this.ox + x * this.s;
-          const sy = this.oy + (y + Math.sin((x + y) / 34) * 3) * this.s;
-          if (x === 0) ctx.moveTo(sx, sy);
-          else ctx.lineTo(sx, sy);
-        }
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-    if (this.battle.kind === "siege") {
-      for (const wall of this.battle.wallRecords ?? []) {
-        if (!wallDestroyed(wall)) continue;
-        const rect = wallRect(wall);
-        if (!rect) continue;
-        const x = this.ox + rect.left * this.s;
-        const y = this.oy + rect.top * this.s;
-        const width = (rect.right - rect.left) * this.s;
-        const height = (rect.bottom - rect.top) * this.s;
-        ctx.fillStyle = "rgba(18, 12, 8, .78)";
-        ctx.fillRect(x, y, width, height);
-        ctx.strokeStyle = "#d8a840";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(x, y + height * 0.2);
-        ctx.lineTo(x + width, y + height * 0.45);
-        ctx.moveTo(x, y + height * 0.65);
-        ctx.lineTo(x + width, y + height * 0.9);
-        ctx.stroke();
-      }
-    }
-    for (const u of this.battle.units) {
-      if (u.gone) continue;
-      const attackDirection = u.side === "atk" ? 1 : -1;
-      const attackOffset = (u.attackPulse ?? 0) > 0 ? attackDirection * 3 : 0;
-      const x = this.ox + (u.x + attackOffset) * this.s,
-        y = this.oy + u.y * this.s;
-      const facIdx =
-        u.side === "atk"
-          ? this.battle.A.faction
-          : (this.battle.D?.faction ?? this.battle.city?.faction);
-      const col = factionColorEx(this.app?.scenario, facIdx ?? 0);
-      const w = 14 * this.s,
-        h = 18 * this.s;
-      // 旗身
-      let unitColor = col;
-      if (u.routed) unitColor = "#555";
-      else if ((u.hitPulse ?? 0) > 0) unitColor = "#fff";
-      ctx.fillStyle = unitColor;
-      ctx.fillRect(x - w / 2, y - h / 2, w, h);
-      ctx.lineWidth = Math.max(1, 1.5 * this.s);
-      if (this.sel === u) ctx.strokeStyle = "#ffd700";
-      else ctx.strokeStyle = u.side === "atk" ? "#fff" : "#222";
-      ctx.strokeRect(x - w / 2, y - h / 2, w, h);
-      if (this.battle.terrain?.key === "water" && !u.routed) {
-        ctx.strokeStyle = "rgba(192, 234, 255, .9)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x - 10, y + h / 2 + 3);
-        ctx.quadraticCurveTo(x, y + h / 2 + 7, x + 10, y + h / 2 + 3);
-        ctx.stroke();
-      }
-      // 兵种标识：战略记录的原始码1骑/2弓/3步直接带入战术层。
-      ctx.font = '10px "Noto Serif TC","PMingLiU",serif';
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = "#fff7c4";
-      ctx.fillText(
-        u.typeLabel ?? TACTICAL_UNIT_TYPES[u.type]?.label ?? "兵",
-        x,
-        y,
-      );
-      ctx.textBaseline = "alphabetic";
-      // 兵力条
-      const fill = Math.max(0, u.troops / u.maxTroops);
-      ctx.fillStyle = "#300";
-      ctx.fillRect(x - w / 2, y - h / 2 - 7 * this.s, w, 4 * this.s);
-      if (fill > 0.5) ctx.fillStyle = "#7c5";
-      else if (fill > 0.25) ctx.fillStyle = "#fc5";
-      else ctx.fillStyle = "#f55";
-      ctx.fillRect(x - w / 2, y - h / 2 - 7 * this.s, w * fill, 4 * this.s);
-      // 开场军旗投影 (BATTLE.DAT op16逐次调用0xC315)
-      if (this.flagPulse > 0 && !u.routed) {
-        ctx.globalAlpha = this.flagPulse * 0.5;
-        ctx.strokeStyle = "#ffd700";
-        ctx.lineWidth = Math.max(1, 2 * this.s);
-        ctx.strokeRect(
-          x - w / 2 - 3 * this.s,
-          y - h / 2 - 3 * this.s,
-          w + 6 * this.s,
-          h + 6 * this.s,
-        );
-        ctx.globalAlpha = 1;
-      }
-      // 主将名
-      if (this.s > 0.45) {
-        ctx.font = `${Math.round(11 * Math.min(1.4, this.s))}px "Noto Serif TC","PMingLiU",serif`;
-        ctx.textAlign = "center";
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = "rgba(0,0,0,.8)";
-        ctx.strokeText(u.label, x, y + h / 2 + 12 * this.s);
-        ctx.fillStyle = "#ffe9a0";
-        ctx.fillText(u.label, x, y + h / 2 + 12 * this.s);
-        ctx.textAlign = "start";
-      }
-    }
-    this.drawBattleEffects(ctx);
+    // 水路、河岸与桥均来自 BATTLE.MAP/MDL；不叠加 Web 自制波纹。
+    // BATTLE.SCH 是唯一人员图形来源；资产错误时不回退到矩形/文字代用品。
+    this.drawBattlefieldLayers(ctx);
+    // B941投射物只使用实际捕获的SCH单半帧336/337/340/341；没有
+    // wall-clock轮播、PNG alpha替代或手绘几何兜底。
     ctx.restore();
-    // 计时/兵力总览
-    const ta = survivorsOf(this.battle, "atk"),
-      td = survivorsOf(this.battle, "def");
-    ctx.font = '16px "Noto Serif TC","PMingLiU",serif';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(0,0,0,.8)";
-    const txt = `攻 ${ta}   ⚔   守 ${td}`;
-    ctx.strokeText(txt, 16, 30);
-    ctx.fillStyle = "#e8d9b0";
-    ctx.fillText(txt, 16, 30);
     this.syncBattlePanel();
   }
 
@@ -876,11 +1424,16 @@ function makeBattleIO(view) {
       });
     },
     formation() {
-      issueOriginalScriptCommand(session.pool, session.registers, {
-        group: 7,
-        command: 5,
-        themeFlag: (session.registers.themeFlag & 0xff) !== 0,
-      });
+      const accepted = issueOriginalScriptCommand(
+        session.pool,
+        session.registers,
+        {
+          group: 7,
+          command: 5,
+          themeFlag: (session.registers.themeFlag & 0xff) !== 0,
+        },
+      );
+      if (accepted) session.emitTalk(1, 0x1af, "A500/A8F6");
     },
     select(groupNumber, command) {
       issueOriginalCommandByGroupNumber(session.pool, {
@@ -888,22 +1441,20 @@ function makeBattleIO(view) {
         command,
         themeFlag: (session.registers.themeFlag & 0xff) !== 0,
       });
-      view.flagPulse = Math.max(view.flagPulse, 0.6);
     },
     command(value) {
       session.registers.scriptCommandByte = value & 0xff;
       session.registers.side1FormationOffset = ((value & 0xff) * 0x60) & 0xffff;
     },
-    flags(count) {
-      // A69F：AH次调用C315。C315只读战术记录并绘制军旗，不改规则对象；
-      // Canvas逐次记录相同调用次数并刷新投影，避免把AH误作“阶段号”。
-      for (let index = 0; index < (count & 0xff); index++) {
-        view.flagDrawCount = (view.flagDrawCount ?? 0) + 1;
-        view.flagPulse = 1;
-      }
+    scriptMessage(selector, side) {
+      // A69F至多调用一次C315；CX=0x1CE+脚本AH，是TALK选择值而非军旗数。
+      view.scriptMessageCount = (view.scriptMessageCount ?? 0) + 1;
+      view.lastScriptMessageSelector = selector & 0xffff;
+      session.emitTalk(side, selector, "A69F");
     },
-    camMode(mode) {
-      view.camMode = mode;
+    formationBaseX(x) {
+      session.registers.side1FormationBase =
+        (session.registers.side1FormationBase & 0xff00) | (x & 0xff);
     },
     balance: () => ({
       side1Timed: session.registers.side1Timed & 0xff,
@@ -932,8 +1483,9 @@ function makeBattleIO(view) {
     },
     nextRandomByte: () => session.rng.nextByte(),
     gate2: () => session.registers.winnerState === 2,
+    winnerState: () => session.registers.winnerState & 0xff,
     themeFlag: () => (session.registers.themeFlag & 0xff) !== 0,
-    d346: () => session.registers.cameraColumn ?? 0,
+    d346: () => session.registers.selectedFormation ?? 0,
     d33c: () => session.registers.side0FormationBase & 0xff,
     d31d: () => session.registers.side1Active & 0xff,
     unitByte: (offset) =>

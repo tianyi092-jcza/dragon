@@ -1,234 +1,165 @@
-// KI.EXE 0xBD46..0xBFF1 原版代价寻路与最多64项回溯。
-// navigation布局：0x0000/0x1000方向mask，0x2000每格u8代价；全链0 RNG。
+// KI.EXE BD46..BFF1; VA=file offset-200h. Native translation, not Dijkstra.
+// D2FC +4000 aliases D300 distance words; +8000 is its 4000..47FF ring.
+// See docs/re-notes-tactical-lifecycle.md for raw differential scope.
+import { ORIGINAL_NAV_COST_BASE } from "./originalnavigation.js";
 
-import {
-  ORIGINAL_MAP_CELLS,
-  ORIGINAL_MAP_WIDTH,
-  ORIGINAL_NAV_COST_BASE,
-  ORIGINAL_NAV_PLANE_SIZE,
-} from "./originalnavigation.js";
+const u16 = (value) => value & 0xffff;
+const DIRECTIONS = [
+  { bit: 0x10, delta: -2, axis: 0, x: -1, y: 0 },
+  { bit: 0x20, delta: 2, axis: 0, x: 1, y: 0 },
+  { bit: 0x40, delta: -0x80, axis: 1, x: 0, y: -1 },
+  { bit: 0x80, delta: 0x80, axis: 1, x: 0, y: 1 },
+];
+const indexOf = (word) => (word & 0xff) + ((word >>> 8) & 0xff) * 64;
 
-const UNVISITED = 0xffff;
-const CARDINALS = Object.freeze([
-  { bit: 0x10, delta: -1, wordDelta: -1 },
-  { bit: 0x20, delta: 1, wordDelta: 1 },
-  { bit: 0x40, delta: -0x40, wordDelta: -0x100 },
-  { bit: 0x80, delta: 0x40, wordDelta: 0x100 },
-]);
-
-function coordinateWord(x, y) {
-  return (x & 0xff) | ((y & 0xff) << 8);
-}
-
-function coordinateIndex(word) {
-  const x = word & 0xff;
-  const y = (word >> 8) & 0xff;
-  if (x >= 0x40 || y >= 0x40) return -1;
-  return y * ORIGINAL_MAP_WIDTH + x;
-}
-
-function nodeOf(index, plane) {
-  return index + plane * ORIGINAL_MAP_CELLS;
-}
-
-function nodeIndex(node) {
-  return node & 0x0fff;
-}
-
-function nodePlane(node) {
-  return node >= ORIGINAL_MAP_CELLS ? 1 : 0;
-}
-
-function navigationValue(navigation, node) {
-  return navigation[
-    nodeIndex(node) + nodePlane(node) * ORIGINAL_NAV_PLANE_SIZE
-  ];
-}
-
-function movementCost(navigation, node) {
-  return navigation[ORIGINAL_NAV_COST_BASE + nodeIndex(node)] ?? 0;
-}
-
-function endpointHasConnection(navigation, index, plane) {
-  const planeOffset = plane * ORIGINAL_NAV_PLANE_SIZE;
-  for (const sample of [index, index + 1, index - 1]) {
-    if (
-      sample >= 0 &&
-      sample < ORIGINAL_MAP_CELLS &&
-      (navigation[sample + planeOffset] & 0xf0) !== 0
-    )
-      return true;
-  }
-  return false;
-}
-
-/** BD96..BDBE：选目标所在平面；检查的是目标中心/左右的方向高半字节。 */
-function selectEndpointNode(navigation, targetIndex, pathMask, endpointPolicy) {
-  // BP==0且CL!=EB时先尝试上层；任一采样有方向连接就直接选上层。
-  if (
-    endpointPolicy === 0 &&
-    pathMask !== 0xeb &&
-    endpointHasConnection(navigation, targetIndex, 1)
-  )
-    return nodeOf(targetIndex, 1);
-  // BP!=0、CL==EB，或上层无连接时，只以低层三点作为回退。
-  return endpointHasConnection(navigation, targetIndex, 0)
-    ? nodeOf(targetIndex, 0)
-    : null;
-}
-
-function neighborNodes(navigation, node, pathMode) {
-  const value = navigationValue(navigation, node);
-  const currentIndex = nodeIndex(node);
-  const plane = nodePlane(node);
-  const neighbors = [];
-  for (const direction of CARDINALS) {
-    if ((value & direction.bit) === 0) continue;
-    const nextIndex = currentIndex + direction.delta;
-    if (nextIndex < 0 || nextIndex >= ORIGINAL_MAP_CELLS) continue;
-    neighbors.push({ node: nodeOf(nextIndex, plane), ...direction });
-  }
-  if (pathMode === 0x74 && (value & 8) !== 0) {
-    const otherPlane = plane ^ 1;
-    neighbors.push({
-      node: nodeOf(currentIndex, otherPlane),
-      vertical: true,
-      wordDelta: 0,
-    });
-  }
-  return neighbors;
-}
-
-function reconstructOriginalPath(
-  navigation,
-  costs,
-  startNode,
-  targetNode,
-  distance,
-) {
-  let node = targetNode;
-  let remaining = Math.max(0, distance - 2);
-  let x = nodeIndex(targetNode) % ORIGINAL_MAP_WIDTH;
-  let y = Math.floor(nodeIndex(targetNode) / ORIGINAL_MAP_WIDTH);
-  let currentWord = coordinateWord(x, y);
-  const reverseWords = [currentWord];
-  let cardinalPhase = 0;
-
-  while (remaining > 0 && reverseWords.length < 0x40) {
-    const options = CARDINALS.filter((direction) => {
-      const previous = nodeIndex(node) + direction.delta;
-      if (previous < 0 || previous >= ORIGINAL_MAP_CELLS) return false;
-      return costs[nodeOf(previous, nodePlane(node))] === remaining;
-    });
-    let selected =
-      cardinalPhase === 0
-        ? options.find((option) => option.bit === 0x10 || option.bit === 0x20)
-        : options.find((option) => option.bit === 0x40 || option.bit === 0x80);
-    if (!selected) selected = options[0] ?? null;
-    if (selected) {
-      node = nodeOf(nodeIndex(node) + selected.delta, nodePlane(node));
-      const previousIndex = nodeIndex(node);
-      x = previousIndex % ORIGINAL_MAP_WIDTH;
-      y = Math.floor(previousIndex / ORIGINAL_MAP_WIDTH);
-      currentWord = coordinateWord(x, y);
-      if (node !== startNode) reverseWords.push(currentWord);
-      remaining--;
-      cardinalPhase ^= 1;
-      continue;
-    }
-
-    const value = navigationValue(navigation, node);
-    if ((value & 8) !== 0) {
-      const other = nodeOf(nodeIndex(node), nodePlane(node) ^ 1);
-      if (costs[other] <= remaining) {
-        const fromLevel = value & 7;
-        const toLevel = navigationValue(navigation, other) & 7;
-        const signedDelta =
-          nodePlane(node) === 0 ? toLevel - fromLevel : fromLevel - toLevel;
-        currentWord = 0x80 | ((signedDelta & 0xff) << 8);
-        reverseWords.push(currentWord);
-        remaining = costs[other];
-        node = other;
-        continue;
-      }
-    }
-    break;
-  }
-
-  return {
-    carry: node !== startNode || reverseWords.length >= 0x40,
-    words: reverseWords.reverse(),
-  };
-}
-
-/** BD46：分层Dijkstra式波前，u16代价、方向顺序10/20/40/80/08。 */
-export function buildOriginalPath(navigation, request) {
+/** BD46: target-seeded, tick-scanned ring; debug receives the private workspace. */
+export function buildOriginalPath(navigation, request, debug = null) {
   if (!navigation || navigation.length < ORIGINAL_NAV_COST_BASE + 0x1000)
     throw new TypeError("original pathfinder requires navigation/cost bytes");
-  const currentIndex = coordinateIndex(request.current);
-  const targetIndex = coordinateIndex(request.target);
-  if (currentIndex < 0 || targetIndex < 0)
-    return { carry: true, words: [], reason: "coordinate" };
-  const startPlane = request.layer ? 1 : 0;
-  const startNode = nodeOf(currentIndex, startPlane);
-  const targetNode = selectEndpointNode(
-    navigation,
-    targetIndex,
-    request.mask,
-    request.endpointPolicy,
+  for (const word of [request.current, request.target]) {
+    if ((word & 0xff) >= 64 || ((word >>> 8) & 0xff) >= 64)
+      return { carry: true, words: [], reason: "coordinate" };
+  }
+  // One shared byte view is essential: BFDC reads a byte of *current* distance,
+  // not a cached edge weight. No persistent rule state/RNG is changed here.
+  const memory = new Uint8Array(0x10000);
+  memory.set(navigation.subarray(0, 0x4000));
+  memory.fill(0xff, 0x4000, 0x8000); // BD7C/BD82: 2000 words.
+  const read = (offset) => memory[u16(offset)];
+  const word = (offset) => read(offset) | (read(offset + 1) << 8);
+  const write = (offset, value) => {
+    memory[u16(offset)] = value;
+    memory[u16(offset + 1)] = value >>> 8;
+  };
+  const cost = (bx) => word(0x4000 + u16(bx));
+  const setCost = (bx, value) => write(0x4000 + u16(bx), value);
+  let bx = indexOf(request.target);
+  const stop = u16(
+    (indexOf(request.current) | ((request.layer ?? 0) << 8)) * 2,
   );
-  if (targetNode == null) return { carry: true, words: [], reason: "endpoint" };
-  if (startNode === targetNode)
-    return { carry: true, words: [], reason: "same-position" };
-
-  const costs = new Uint16Array(ORIGINAL_MAP_CELLS * 2);
-  costs.fill(UNVISITED);
-  costs[startNode] = 1;
-  let frontier = [startNode];
-  let distance = 2;
-  let found = false;
-  while (frontier.length && !found) {
-    const next = [];
-    for (const node of frontier) {
-      if (node === targetNode) {
-        found = true;
+  // BDAD/BDCB keep the adjusted BX, not merely the chosen plane.
+  const endpoint = (base) =>
+    [base, u16(base + 1), u16(base - 1)].find(
+      (node) => (read(node) & 0xf0) !== 0,
+    );
+  const upper =
+    request.endpointPolicy === 0 && request.mask !== 0xeb
+      ? endpoint(bx | 0x1000)
+      : undefined;
+  bx = upper ?? endpoint(bx);
+  if (bx === undefined) return { carry: true, words: [], reason: "endpoint" };
+  bx *= 2;
+  setCost(bx, 1);
+  if (bx === stop) return { carry: true, words: [], reason: "same-position" };
+  let si = 0x4000,
+    di = 0x4000,
+    boundary = 0x4000,
+    dx = 2;
+  const enqueue = (node) => {
+    write(0x4000 + si, node);
+    si = (si + 2) & 0x47ff;
+  };
+  // BE00 compares DX, not the proposed weighted value: a later scan may
+  // overwrite with a larger cost and enqueue a duplicate. Preserve that order.
+  for (;;) {
+    if (dx <= cost(bx)) enqueue(bx);
+    else {
+      const descriptor = read(bx >>> 1);
+      for (const direction of DIRECTIONS) {
+        if (!(descriptor & direction.bit)) continue;
+        const next = u16(bx + direction.delta);
+        if (dx >= cost(next)) continue;
+        setCost(next, dx + read(0x2000 + (next >>> 1)));
+        enqueue(next);
+      }
+      if (request.mask !== 0xeb && descriptor & 8) {
+        const next = bx ^ 0x2000;
+        if (dx < cost(next)) {
+          const difference = Math.abs(
+            (descriptor & 7) - (read(next >>> 1) & 7),
+          );
+          // BFCD restores doubled BX BEFORE BFDC; upper node aliases the
+          // visited lower-source distance low byte. BE00 cannot expand FFFF;
+          // alias byte FF can instead come from visited 00FF/01FF, etc.
+          const value = u16(dx + difference + read(0x2000 + next));
+          setCost(next, value);
+          enqueue(next);
+        }
+      }
+    }
+    if (di === boundary) {
+      dx = u16(dx + 1);
+      boundary = si;
+      if (si === di) return { carry: true, words: [], reason: "unreachable" };
+    }
+    bx = word(0x4000 + di);
+    di = (di + 2) & 0x47ff;
+    if (bx === stop) break; // BDF9 before cost test / next boundary increment.
+  }
+  const distance = dx; // Observed DX at BE4A; not an original public result.
+  debug?.({ memory, distance, stop, queueHead: di, queueTail: si });
+  const visited = Array.from({ length: 0x2000 }, (_, n) => cost(n * 2)).reduce(
+    (n, value) => n + (value !== 0xffff),
+    0,
+  );
+  dx = u16(dx - 2);
+  bx = u16(bx + 0x4000);
+  let ax = request.current,
+    axis = 0,
+    initial = true;
+  const words = [];
+  const emit = (value) => {
+    words.push(u16(value));
+    return words.length === 64;
+  };
+  // BE5A..BF23: follow decreasing DX, preserve axis, emit at axis changes
+  // (even a cost gap), retry gaps, and succeed with a 64-word prefix.
+  for (;;) {
+    let selected;
+    if (initial) {
+      selected = DIRECTIONS.find((d) => word(bx + d.delta) === dx);
+      axis = selected?.axis ?? 1;
+    } else {
+      selected = DIRECTIONS.find(
+        (d) => d.axis === axis && word(bx + d.delta) === dx,
+      );
+      if (!selected) {
+        axis ^= 1;
+        if (emit(ax)) break;
+        selected = DIRECTIONS.find(
+          (d) => d.axis === axis && word(bx + d.delta) === dx,
+        );
+      }
+    }
+    if (selected) {
+      ax =
+        (((ax & 0xff) + selected.x) & 0xff) |
+        ((((ax >>> 8) + selected.y) & 0xff) << 8);
+      bx = u16(bx + selected.delta);
+      dx = u16(dx - 1);
+      if (!dx) {
+        emit(ax);
         break;
       }
-      if (distance <= costs[node]) {
-        next.push(node);
-        continue;
-      }
-      for (const neighbor of neighborNodes(navigation, node, request.mask)) {
-        if (distance >= costs[neighbor.node]) continue;
-        let candidate = distance + movementCost(navigation, neighbor.node);
-        if (neighbor.vertical) {
-          const currentLevel = navigationValue(navigation, node) & 7;
-          const nextLevel = navigationValue(navigation, neighbor.node) & 7;
-          candidate += Math.abs(currentLevel - nextLevel);
-        }
-        costs[neighbor.node] = candidate & 0xffff;
-        next.push(neighbor.node);
+      initial = false;
+      continue;
+    }
+    // BEEA always reads the upper descriptor. BEF5 toggles BX even when
+    // BEFA rejects the transition; neither behavior can be generalized away.
+    const upperDescriptor = read(((bx >>> 1) & 0xfff) + 0x1000);
+    if (upperDescriptor & 8) {
+      bx ^= 0x2000;
+      if (dx >= word(bx)) {
+        dx = word(bx);
+        const level = upperDescriptor & 7;
+        if (emit(0x80 | (((bx & 0x2000 ? level : -level) & 0xff) << 8))) break;
       }
     }
-    if (!found) {
-      frontier = next;
-      distance = (distance + 1) & 0xffff;
-    }
+    dx = u16(dx - 1); // BF10/BF13 retry, never reject a weighted gap.
+    if (!dx) break;
+    initial = true;
   }
-  if (!found) return { carry: true, words: [], reason: "unreachable" };
-
-  const rebuilt = reconstructOriginalPath(
-    navigation,
-    costs,
-    startNode,
-    targetNode,
-    distance,
-  );
-  return {
-    ...rebuilt,
-    distance,
-    visited: costs.reduce((count, value) => count + (value !== UNVISITED), 0),
-  };
+  return { carry: false, words, distance, visited };
 }
 
 export function createOriginalPathBuilder(navigation) {

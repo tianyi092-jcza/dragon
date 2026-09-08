@@ -62,6 +62,4 @@ for slot_idx in range(slot_count):
 if actual_counts != expected_counts:
     raise SystemExit(f"unexpected live legion counts: {actual_counts}")
 
-print(
-    f"save legions OK: in-memory counts={actual_counts}, base=0x{legion_base:X}"
-)
+print(f"save legions OK: in-memory counts={actual_counts}, base=0x{legion_base:X}")

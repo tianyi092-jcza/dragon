@@ -199,7 +199,8 @@ export function createOriginalBattleRegisters() {
     siegeLeaderTick: 0x0a, // D321，mode0每10次ADC8令指定侧首对象HP--
     battleSideFlag: 0x00, // D35，bit6镜像、bit7选择玩家战场侧
     themeFlag: 0x00, // AB4F，BATTLE.MAP目录第二字节
-    cameraColumn: 0x00, // D346，战场UI/相机列状态
+    selectedFormation: 0x00, // D346，C11A玩家阵形索引0..15
+    battlefieldHidden: false, // C234自修改A06A：74=正常，EB=显示抑制
     scriptCommandByte: 0x00, // D347，BATTLE.DAT op1
     side0Timed: 0x00, // D31A，ADC8逐帧重建：0侧+19非零活动对象数
     side1Timed: 0x00, // D31B，ADC8逐帧重建：1侧+19非零活动对象数

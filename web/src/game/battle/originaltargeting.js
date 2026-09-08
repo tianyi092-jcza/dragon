@@ -2,10 +2,7 @@
 // 扫描对侧48对象，地址升序；评分为u8，严格小于才替换，因此同分保留
 // 首个槽。目标改变时置自身flags bit3并写+1C目标指针。
 
-import {
-  ORIGINAL_OBJECT,
-  ORIGINAL_SIDE_SIZE,
-} from "./originalstate.js";
+import { ORIGINAL_OBJECT, ORIGINAL_SIDE_SIZE } from "./originalstate.js";
 
 const absByteDelta = (left, right) => Math.abs((left & 0xff) - (right & 0xff));
 
@@ -23,7 +20,8 @@ export function originalTargetScore(pool, sourceAddress, candidateAddress) {
   const sourceHeight = pool.read8(sourceAddress, ORIGINAL_OBJECT.HEIGHT);
   const targetHeight = pool.read8(candidateAddress, ORIGINAL_OBJECT.HEIGHT);
   if (sourceHeight > targetHeight) {
-    if (pool.read8(candidateAddress, ORIGINAL_OBJECT.FLAGS) & 0x02) score += 0x40;
+    if (pool.read8(candidateAddress, ORIGINAL_OBJECT.FLAGS) & 0x02)
+      score += 0x40;
   } else if (
     pool.read8(sourceAddress, ORIGINAL_OBJECT.CLASS) <= 0x12 &&
     targetHeight !== 0
@@ -31,7 +29,10 @@ export function originalTargetScore(pool, sourceAddress, candidateAddress) {
     score += 0x40;
   }
 
-  // A85B最终还执行 add al,ah（第二坐标差）；上方先以可读形式累加后统一u8。
+  // A889 borrow path alone adds abs(dy) at A88D; A8A9 adds it again.
+  const sourceY = pool.read8(sourceAddress, ORIGINAL_OBJECT.ANCHOR_Y);
+  const candidateY = pool.read8(candidateAddress, ORIGINAL_OBJECT.ANCHOR_Y);
+  if (sourceY < candidateY) score += candidateY - sourceY;
   return score & 0xff;
 }
 
@@ -58,5 +59,9 @@ export function selectOriginalTarget(pool, sourceAddress) {
     );
     pool.write16(sourceAddress, ORIGINAL_OBJECT.TARGET_POINTER, selected);
   }
-  return { address: selected, score: bestScore, changed: previous !== selected };
+  return {
+    address: selected,
+    score: bestScore,
+    changed: previous !== selected,
+  };
 }

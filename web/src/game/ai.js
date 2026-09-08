@@ -1511,11 +1511,32 @@ function stepRoadGraph(sc, A, tx, ty) {
     A._markerFrame = 4;
     return "arrived";
   }
-  if (!A._march || A._march.targetX !== tx || A._march.targetY !== ty) {
+  if (!A._march) {
     clearMarchNavigation(A);
     rememberMarchBase(sc, A);
     A._march = makeMarchNavigation(sc, A, tx, ty);
     if (!A._march) return "blocked";
+  } else if (A._march.targetX !== tx || A._march.targetY !== ty) {
+    const targetNode = roadNodeAt(tx, ty);
+    if (!targetNode) return "blocked";
+    // 0x7FB7置status bit1后，0x26A0→0x47BB在当前edge上改向，但保留
+    // +0x0C道路点地址：目标是edge+6端点时stride=-4，其余目标从+8
+    // 端点重寻下一边并令stride=+4。不能清掉edge后从道路点跑节点寻路。
+    const edge = roadEdgeById(A._march.edgeId);
+    const desiredStride = edge?.source === targetNode.id ? -4 : 4;
+    if (
+      edge &&
+      (A._march.stride === 4 || A._march.stride === -4) &&
+      A._march.stride !== desiredStride
+    ) {
+      const reversed = reverseRoadMarchContext(A._march, A.x, A.y);
+      if (!reversed) return "blocked";
+      A._march = reversed;
+    }
+    A._march.targetX = tx;
+    A._march.targetY = ty;
+    A._march.targetNode = targetNode.id;
+    A.targetNode = targetNode.id;
   }
 
   // 战败撤退可从道路边内直接恢复0x487B给出的剩余点列；该临时导航

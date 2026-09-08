@@ -30,25 +30,47 @@ const resource = parseJson(
   "battle_navigation.json",
 );
 for (let layout = 0; layout < 3; layout++) {
-  const assets = navigationAssetsForLayout(resource, layout);
+  const directoryIndex = [0, 1, 4][layout];
+  const assets = navigationAssetsForLayout(resource, layout, {
+    directoryIndex,
+  });
+  assert.equal(assets.directoryIndex, directoryIndex);
   assert.equal(assets.tiles.length, 0x1000);
-  assert.equal(assets.schedule.length, 0x100);
-  assert.equal(assets.attributes.length, 0xf800);
+  assert.equal(assets.attributes.length, 0x800);
   const built = buildOriginalBattleNavigation(assets.tiles, assets.attributes);
-  assert.equal(built.navigation.length, 0x3000);
+  assert.equal(built.navigation.length, 0x4000); // BC22 clears two surcharge planes
   assert.ok([4, 5].includes(built.canonicalRamp));
 }
+assert.notDeepEqual(
+  resource.maps["0"],
+  resource.maps["10"],
+  "CAEB selects a distinct 0x1000-byte map by directory index",
+);
 
 {
-  const source = Uint8Array.from({ length: ORIGINAL_MAP_CELLS }, (_, i) => i);
+  const source = new Uint8Array(ORIGINAL_MAP_CELLS);
+  source[0] = 0xaa;
+  source[0x40] = 0x30;
+  source[0x0fbf] = 0xf0;
+  source[0x0fc0] = 0xbb;
   const mirrored = mirrorOriginalBattleTiles(source);
+  assert.equal(mirrored[0], 0xaa, "CB9B leaves the first border row intact");
   assert.equal(
-    mirrored[0],
-    0x4f,
-    "0x3f mirrors and applies CBBC direction transform",
+    mirrored[0x0fc0],
+    0xbb,
+    "CB9B leaves the last border row intact",
   );
-  assert.equal(mirrored[0x3f], source[0]);
-  assert.equal(source[0], 0, "mirror must not mutate the original tile buffer");
+  assert.equal(
+    mirrored[0x40],
+    0xf1,
+    "CB9B reverses the linear interior and CBBC transforms F0 to F1",
+  );
+  assert.equal(
+    mirrored[0x0fbf],
+    0x40,
+    "CB9B reverses the linear interior and CBBC transforms 30 to 40",
+  );
+  assert.equal(source[0x40], 0x30, "mirror must not mutate the source buffer");
 }
 
 {
@@ -66,7 +88,7 @@ for (let layout = 0; layout < 3; layout++) {
     endpointPolicy: 1,
   });
   assert.equal(path.carry, false);
-  assert.deepEqual(path.words, [0x0102, 0x0103, 0x0104]);
+  assert.deepEqual(path.words, [0x0104]); // BE75 axis compression, raw differential.
 }
 
 {
@@ -83,9 +105,8 @@ for (let layout = 0; layout < 3; layout++) {
     endpointPolicy: 0,
   });
   assert.equal(path.carry, false);
-  assert.equal(path.words.length, 3);
-  assert.equal(path.words[0] & 0xff, 0x80, "first word is a layer transition");
-  assert.deepEqual(path.words.slice(1), [0x0202, 0x0203]);
+  // BEEA/BF05 emits the upper descriptor level (5), not level difference.
+  assert.deepEqual(path.words, [0x0580, 0x0203]);
 }
 
 // BD96..BDBE endpoint plane choice: policy0/mask74 prefers the upper plane
@@ -106,7 +127,7 @@ for (let layout = 0; layout < 3; layout++) {
     endpointPolicy: 0,
   });
   assert.equal(low.carry, false);
-  assert.deepEqual(low.words, [0x0302, 0x0303]);
+  assert.deepEqual(low.words, [0x0303]);
 
   navigation[start] = 8 | 1;
   navigation[start + 0x1000] = 8 | 0x20 | 5;
@@ -136,5 +157,5 @@ for (let layout = 0; layout < 3; layout++) {
 }
 
 process.stdout.write(
-  "battle original navigation OK: CAEB assets + BB3C/BBA6 graph + BD46 path\n",
+  "battle original navigation OK: 214 CAEB maps + BB3C/BBA6 graph + BD46 path\n",
 );

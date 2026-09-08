@@ -293,6 +293,139 @@ assert.deepEqual(
   );
 }
 
+// 0x1D0B固定先跑0x3EFD据点AI、后跑0x25A3军团槽；0x5358月结
+// 又发生在当轮二者之后。因此新月预备兵到账后的下一战略tick，边城可先经
+// 0x40C9→0x4575→0x6E8F→0x461D编成新军，再轮到首都状态9败军补员。
+// 原版不存在“先补现有败军”的全局优先级，后者可能只能重分自己的残兵。
+{
+  const borderRaw = new Uint8Array(0x20);
+  borderRaw[0] = 1;
+  borderRaw[0x1c] = 1;
+  const capital = {
+    idx: 2,
+    name: "首都",
+    faction: 0,
+    x: 0,
+    y: 0,
+    raw: "00".repeat(0x20),
+  };
+  const prioritySc = {
+    player_faction: 9,
+    cities: [
+      {
+        idx: 0,
+        name: "邊城",
+        faction: 0,
+        x: 10,
+        y: 10,
+        raw: Buffer.from(borderRaw).toString("hex"),
+        growth: 100,
+        defence: 100,
+        troops: 0,
+        troops_cap: 200,
+      },
+      {
+        idx: 1,
+        name: "敵城",
+        faction: 1,
+        x: 20,
+        y: 10,
+        raw: "00".repeat(0x20),
+      },
+      capital,
+    ],
+    factions: [
+      {
+        idx: 0,
+        active: true,
+        target_faction: 1,
+        capital: 2,
+        money: 0,
+        n_legions: 1,
+        reserve_cav: 100,
+        reserve_arc: 100,
+        reserve_inf: 100,
+        legion_morale_cap: 200,
+      },
+      { idx: 1, active: true, capital: 1 },
+    ],
+    diplomacy: [
+      [0xff, 0],
+      [0, 0xff],
+    ],
+    generals: [
+      {
+        idx: 0,
+        name: "敗軍將",
+        faction: 0,
+        status: 1,
+        active: true,
+        ability: { force: 20 },
+      },
+      {
+        idx: 1,
+        name: "新軍將",
+        faction: 0,
+        status: 0,
+        active: true,
+        ability: { force: 15 },
+      },
+    ],
+    legions: [
+      {
+        slot: 0,
+        leader: "敗軍將",
+        generalIdx: 0,
+        status: 0xc4,
+        faction: 0,
+        x: 0,
+        y: 0,
+        prevX: 0,
+        prevY: 0,
+        troops: 275,
+        morale: 142,
+        units: [
+          { type: 1, troops: 500 },
+          { type: 1, troops: 450 },
+          { type: 3, troops: 450 },
+          { type: 3, troops: 450 },
+          { type: 2, troops: 450 },
+          { type: 2, troops: 450 },
+        ],
+        _active: true,
+        target: capital,
+        targetCity: 2,
+        targetNode: null,
+        roadEdgeOrNode: null,
+        commandState: 9,
+        delegated: true,
+      },
+    ],
+    delayedLegionReturns: [],
+    pendingStrategicEvents: [],
+    citiesOf(factionIdx) {
+      return this.cities.filter((city) => city.faction === factionIdx);
+    },
+  };
+  aiTick(
+    { scenario: prioritySc, originalRng: { nextByte: () => 0 } },
+    { cityIndex: 0, legionBatchStart: 0, settleDaily: false },
+  );
+  assert.equal(prioritySc.legions.length, 2);
+  assert.equal(prioritySc.legions[1].leader, "新軍將");
+  assert.equal(prioritySc.legions[1].troops, 300);
+  assert.equal(prioritySc.legions[0].troops, 275);
+  assert.equal(prioritySc.legions[0].commandState, 3);
+  assert.deepEqual(
+    [
+      prioritySc.factions[0].reserve_cav,
+      prioritySc.factions[0].reserve_arc,
+      prioritySc.factions[0].reserve_inf,
+    ],
+    [0, 0, 0],
+  );
+}
+
 process.stdout.write(
-  "strategic city AI OK: border reinforcement + TALK38 + weak-city request + one-legion sortie\n",
+  "strategic city AI OK: reinforcement, TALK38, sortie, and original formation priority\n",
 );

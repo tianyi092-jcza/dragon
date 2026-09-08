@@ -1,14 +1,15 @@
 // 资源加载器 — 集中管理所有逆向提取的资产，带缓存
 const cache = new Map();
 const imageBust = new Set([
-  "battle_map_0.png",
-  "battle_map_1.png",
-  "battle_map_2.png",
+  "battle_terrain_0.png",
+  "battle_terrain_1.png",
+  "battle_terrain_2.png",
+  "battle_units.png",
 ]);
 
 function imageUrl(url) {
   const name = url.split("/").pop();
-  return imageBust.has(name) ? `${url}?v=full-field-1` : url;
+  return imageBust.has(name) ? `${url}?v=original-sprites-1` : url;
 }
 
 export async function loadJSON(url) {
@@ -16,6 +17,18 @@ export async function loadJSON(url) {
     cache.set(
       url,
       fetch(url).then((r) => r.json()),
+    );
+  return cache.get(url);
+}
+
+export function loadBytes(url) {
+  if (!cache.has(url))
+    cache.set(
+      url,
+      fetch(url).then(async (response) => {
+        if (!response.ok) throw new Error(`加载失败: ${url}`);
+        return new Uint8Array(await response.arrayBuffer());
+      }),
     );
   return cache.get(url);
 }

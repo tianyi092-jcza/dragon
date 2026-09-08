@@ -112,7 +112,13 @@ const selected = { directoryIndex: 0xc0, mirror: true, terrainClass: 0 };
 const battle = createFieldBattle(sc, attacker, defender, battleMaps, selected);
 assert.equal(battle.kind, "field");
 assert.equal(battle.layout, battleMaps.directory[0xc0].layout);
-assert.equal(battle.theme, battleMaps.directory[0xc0].theme);
+assert.equal(
+  battle.theme,
+  battleMaps.directory[0xc0].theme === 0
+    ? 0
+    : 0x3f - battleMaps.directory[0xc0].theme,
+  "CB9B mirrored maps also transform a nonzero theme to 3Fh-theme",
+);
 assert.equal(battle.mirror, true);
 assert.deepEqual(battle.fieldTerrain, selected);
 assert.equal(
@@ -122,8 +128,8 @@ assert.equal(
 );
 assert.equal(
   battle.session.registers.themeFlag,
-  battleMaps.directory[0xc0].theme,
-  "AB4F mirrors the BATTLE.MAP directory theme byte",
+  battle.theme,
+  "AB4F reads the CB9B-resolved BATTLE.MAP theme byte",
 );
 
 process.stdout.write(

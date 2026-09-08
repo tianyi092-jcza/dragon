@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <title>臥龍傳 · Web</title>
     <style>
+      :root {
+        /* GameBar canvas popups and tactical DOM popups share this 16px policy. */
+        --popup-font-size: 16px;
+      }
       /* 表格数字字体 (原版风格替代): Oswald */
       @font-face {
         font-family: "Oswald";
@@ -164,33 +168,431 @@
         padding: 2px 8px;
         margin-top: 4px;
       }
-      #bctl button {
-        min-height: 25px;
-        border: 1px solid #8d6b14;
-        background: #eee;
-        color: #111;
-        font-family: inherit;
-        white-space: pre-line;
+      #bctl {
+        --battle-ui-scale: 1;
+        position: fixed;
+        inset: 0 0 0 auto;
+        width: calc(160px * var(--battle-ui-scale));
+        overflow: visible;
+        color: #e8d9b0;
+        font-family: "Noto Serif TC", "PMingLiU", serif;
+        font-size: calc(11px * var(--battle-ui-scale));
+        line-height: 1.25;
+        z-index: 31;
+        display: none;
+        user-select: none;
+        pointer-events: none;
+      }
+      .battle-panel-inner {
+        position: static;
+        width: 100%;
+        height: 100%;
+      }
+      .battle-floating-window {
+        position: absolute;
+        width: calc(192px * var(--battle-ui-scale));
+        box-sizing: border-box;
+        pointer-events: auto;
+      }
+      .battle-window-frame {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        image-rendering: pixelated;
+        pointer-events: none;
+        z-index: 0;
+      }
+      .battle-floating-window > :not(.battle-window-frame) {
+        z-index: 1;
+      }
+      .battle-operation-header {
+        position: fixed;
+        top: calc(16px * var(--battle-ui-scale));
+        left: calc(16px * var(--battle-ui-scale));
+        right: auto;
+        height: calc(80px * var(--battle-ui-scale));
+        box-sizing: border-box;
+        padding: calc(16px * var(--battle-ui-scale));
+        color: #ffd700;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        font-weight: bold;
+        font-size: calc(16px * var(--battle-ui-scale));
+        letter-spacing: 1px;
+        line-height: 1.3;
+      }
+      #btitle, #bbelligerents {
+        width: 100%;
+        min-height: calc(16px * var(--battle-ui-scale));
+        white-space: nowrap;
+      }
+      .battle-enemy-window {
+        top: calc(16px * var(--battle-ui-scale));
+        right: calc(16px * var(--battle-ui-scale));
+        height: calc(112px * var(--battle-ui-scale));
+      }
+      .battle-player-window {
+        right: calc(16px * var(--battle-ui-scale));
+        bottom: calc(16px * var(--battle-ui-scale));
+        height: calc(288px * var(--battle-ui-scale));
+      }
+      .battle-banner-row {
+        position: absolute;
+        top: calc(16px * var(--battle-ui-scale));
+        left: calc(16px * var(--battle-ui-scale));
+        width: calc(160px * var(--battle-ui-scale));
+        height: calc(20px * var(--battle-ui-scale));
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .battle-banner-enemy { color: #8fb8ff; }
+      .battle-banner-player { color: #ff9b7e; }
+      .battle-banner-name {
+        width: 100%;
+        margin: 0;
+        font-size: calc(16px * var(--battle-ui-scale));
+        font-weight: bold;
+        color: #fff;
+        text-shadow: 1px 1px 0 #000;
+        text-align: center;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .battle-stats-row {
+        position: absolute;
+        top: calc(40px * var(--battle-ui-scale));
+        left: calc(16px * var(--battle-ui-scale));
+        width: calc(160px * var(--battle-ui-scale));
+        display: flex;
+        flex-direction: column;
+        gap: calc(2px * var(--battle-ui-scale));
+        color: #fff;
+        font-size: calc(16px * var(--battle-ui-scale));
+        font-weight: normal;
+        line-height: calc(18px * var(--battle-ui-scale));
+        white-space: nowrap;
+      }
+      .battle-stat-line {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+      }
+      .battle-stat-number {
+        color: #fff;
+        font-family: "Oswald", sans-serif;
+        font-weight: 300;
+        text-align: right;
+      }
+      .battle-side-progress {
+        position: absolute;
+        top: calc(84px * var(--battle-ui-scale));
+        left: calc(16px * var(--battle-ui-scale));
+        width: calc(160px * var(--battle-ui-scale));
+        height: calc(7px * var(--battle-ui-scale));
+      }
+      .battle-side-progress-track {
+        width: calc(160px * var(--battle-ui-scale));
+        height: calc(2px * var(--battle-ui-scale));
+        margin-bottom: calc(2px * var(--battle-ui-scale));
+        overflow: hidden;
+        background: #200;
+      }
+      .battle-side-progress-fill { height: 100%; width: 0; }
+      .battle-side-progress-fill.troops { background: #d00000; }
+      .battle-side-progress-fill.morale { background: #f0e000; }
+      .battle-divider-red {
+        height: calc(4px * var(--battle-ui-scale));
+        border-top: 1px solid #d00;
+        border-bottom: 1px solid #d00;
+        background: #800;
+        margin: calc(2px * var(--battle-ui-scale)) 0;
+      }
+      .battle-panel-inner > .battle-divider-red { display: none; }
+      .battle-symbols-grid {
+        position: absolute;
+        top: calc(108px * var(--battle-ui-scale));
+        bottom: auto;
+        left: calc(32px * var(--battle-ui-scale));
+        width: calc(128px * var(--battle-ui-scale));
+        height: calc(32px * var(--battle-ui-scale));
+        box-sizing: border-box;
+        display: grid;
+        grid-template-columns: repeat(8, calc(16px * var(--battle-ui-scale)));
+        grid-template-rows: repeat(2, calc(16px * var(--battle-ui-scale)));
+        gap: 0;
+        background: transparent;
+        padding: 0;
+        border: 0;
+        margin: 0;
+      }
+      .battle-symbol-btn {
+        position: relative;
+        display: block;
+        width: calc(16px * var(--battle-ui-scale));
+        height: calc(16px * var(--battle-ui-scale));
+        background-color: #000;
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 16px 16px;
+        border: 0;
+        padding: 0;
         cursor: pointer;
       }
-      #bctl button.selected {
-        background: #4a7828;
-        color: #fff6b0;
-        box-shadow: inset 0 0 0 1px #e3bd3a;
+      .battle-symbol-btn::after {
+        content: "";
+        position: absolute;
+        inset: 1px;
+        box-sizing: border-box;
+        border: 1px solid transparent;
+        pointer-events: none;
       }
-      #bunits button[data-unit-type="cavalry"] {
-        border-color: #d7a850;
+      .battle-symbol-btn[data-formation="0"] { background-image: url("grf/ui/battle_symbol_0.png"); }
+      .battle-symbol-btn[data-formation="1"] { background-image: url("grf/ui/battle_symbol_1.png"); }
+      .battle-symbol-btn[data-formation="2"] { background-image: url("grf/ui/battle_symbol_2.png"); }
+      .battle-symbol-btn[data-formation="3"] { background-image: url("grf/ui/battle_symbol_3.png"); }
+      .battle-symbol-btn[data-formation="4"] { background-image: url("grf/ui/battle_symbol_4.png"); }
+      .battle-symbol-btn[data-formation="5"] { background-image: url("grf/ui/battle_symbol_5.png"); }
+      .battle-symbol-btn[data-formation="6"] { background-image: url("grf/ui/battle_symbol_6.png"); }
+      .battle-symbol-btn[data-formation="7"] { background-image: url("grf/ui/battle_symbol_7.png"); }
+      .battle-symbol-btn[data-formation="8"] { background-image: url("grf/ui/battle_symbol_8.png"); }
+      .battle-symbol-btn[data-formation="9"] { background-image: url("grf/ui/battle_symbol_9.png"); }
+      .battle-symbol-btn[data-formation="10"] { background-image: url("grf/ui/battle_symbol_10.png"); }
+      .battle-symbol-btn[data-formation="11"] { background-image: url("grf/ui/battle_symbol_11.png"); }
+      .battle-symbol-btn[data-formation="12"] { background-image: url("grf/ui/battle_symbol_12.png"); }
+      .battle-symbol-btn[data-formation="13"] { background-image: url("grf/ui/battle_symbol_13.png"); }
+      .battle-symbol-btn[data-formation="14"] { background-image: url("grf/ui/battle_symbol_14.png"); }
+      .battle-symbol-btn[data-formation="15"] { background-image: url("grf/ui/battle_symbol_15.png"); }
+
+      .battle-command-section {
+        position: absolute;
+        top: calc(152px * var(--battle-ui-scale));
+        bottom: auto;
+        left: calc(16px * var(--battle-ui-scale));
+        width: calc(160px * var(--battle-ui-scale));
+        height: calc(96px * var(--battle-ui-scale));
+        display: flex;
+        gap: calc(4px * var(--battle-ui-scale));
+        margin: 0;
+        align-items: stretch;
       }
-      #bunits button[data-unit-type="infantry"] {
-        border-color: #78ad68;
+      .battle-cmd-btn-column {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        width: calc(64px * var(--battle-ui-scale));
+        flex-shrink: 0;
       }
-      #bunits button[data-unit-type="archer"] {
-        border-color: #72a7d7;
+      .battle-cmd-img-btn {
+        width: calc(64px * var(--battle-ui-scale));
+        height: calc(16px * var(--battle-ui-scale));
+        border: 1px solid #6b3214;
+        background: linear-gradient(#f1d394, #c28a3a 55%, #8f5420);
+        color: #111;
+        font: bold calc(16px * var(--battle-ui-scale)) / calc(14px * var(--battle-ui-scale)) "Noto Serif TC", "PMingLiU", serif;
+        text-shadow: 1px 0 #f6e4b3;
+        cursor: pointer;
+        padding: 0;
       }
-      #bctl button:disabled {
-        background: #555;
-        color: #888;
-        cursor: default;
+      .battle-cmd-img-btn:hover:not(:disabled) {
+        filter: brightness(1.25);
+      }
+      .battle-cmd-img-btn:disabled {
+        filter: grayscale(0.8) brightness(0.5);
+        cursor: not-allowed;
+      }
+      .battle-formation-stone {
+        position: relative;
+        flex: 0 0 76px;
+        margin-left: auto;
+        height: calc(96px * var(--battle-ui-scale));
+        background: url("grf/ui/battle_formation_stone.png") no-repeat center / 76px 96px;
+        border: 1px solid #d00;
+      }
+      .battle-deployment-btn {
+        position: absolute;
+        left: 6px;
+        width: 64px;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+      .battle-deployment-btn[data-base-x="48"] { top: 8px; height: 24px; }
+      .battle-deployment-btn[data-base-x="28"] { top: 32px; height: 32px; }
+      .battle-deployment-btn[data-base-x="5"] { top: 64px; height: 24px; }
+      .battle-symbol-btn.active::after { border-color: #f0e000; }
+      .battle-deployment-btn.active {
+        box-shadow: inset 0 0 0 1px #f00000;
+      }
+      .battle-symbol-btn:focus-visible, .battle-deployment-btn:focus-visible {
+        outline: 1px solid #f0e000;
+      }
+      #bcommandhint {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+
+      /* 底部 6 队单位卡栏 */
+      #battle-bottom-bar {
+        display: none;
+        position: fixed;
+        bottom: calc(16px * var(--battle-ui-scale));
+        left: calc(16px * var(--battle-ui-scale));
+        right: auto;
+        width: calc(624px * var(--battle-ui-scale));
+        max-width: 100vw;
+        height: calc(36px * var(--battle-ui-scale));
+        background: transparent;
+        border: 0;
+        z-index: 31;
+        user-select: none;
+        box-sizing: border-box;
+      }
+      .battle-bottom-inner {
+        height: 100%;
+        display: flex;
+        align-items: stretch;
+        gap: 0;
+        padding: 0;
+      }
+      .battle-unit-card {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: calc(2px * var(--battle-ui-scale));
+        flex: 0 0 calc(104px * var(--battle-ui-scale));
+        width: calc(104px * var(--battle-ui-scale));
+        height: calc(36px * var(--battle-ui-scale));
+        background: #050505;
+        border: 0;
+        border-top: calc(2px * var(--battle-ui-scale)) solid #d00000;
+        border-bottom: calc(2px * var(--battle-ui-scale)) solid #d00000;
+        border-left: calc(2px * var(--battle-ui-scale)) solid #d00000;
+        cursor: pointer;
+        padding: 0 calc(4px * var(--battle-ui-scale)) calc(4px * var(--battle-ui-scale));
+        box-sizing: border-box;
+      }
+      .battle-unit-card:last-child {
+        border-right: calc(2px * var(--battle-ui-scale)) solid #d00000;
+      }
+      .battle-unit-card:hover,
+      .battle-unit-card.active {
+        background: #302000;
+        box-shadow: 0 0 0 1px #ffd700 inset;
+      }
+      .battle-unit-card.routed {
+        opacity: 0.35;
+        filter: grayscale(1);
+        cursor: pointer;
+      }
+      .battle-card-role-label {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: calc(40px * var(--battle-ui-scale));
+        height: calc(18px * var(--battle-ui-scale));
+        box-sizing: border-box;
+        border: 0;
+        background: linear-gradient(#f1d394, #c28a3a 55%, #8f5420);
+        color: #111;
+        font: bold calc(16px * var(--battle-ui-scale)) / calc(16px * var(--battle-ui-scale)) "Noto Serif TC", "PMingLiU", serif;
+        text-shadow: 1px 0 #f6e4b3;
+        white-space: nowrap;
+      }
+      .battle-card-unit-icon {
+        flex: 0 0 calc(24px * var(--battle-ui-scale));
+        width: calc(24px * var(--battle-ui-scale));
+        height: calc(16px * var(--battle-ui-scale));
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 100% 100%;
+      }
+      .battle-card-status {
+        flex: 0 0 24px;
+        width: 24px;
+        height: 16px;
+        background: url("grf/ui/battle_status_0.png") no-repeat center / 24px 16px;
+      }
+      .battle-card-troops-track {
+        position: absolute;
+        left: calc(2px * var(--battle-ui-scale));
+        right: calc(2px * var(--battle-ui-scale));
+        bottom: calc(1px * var(--battle-ui-scale));
+        height: calc(3px * var(--battle-ui-scale));
+        overflow: hidden;
+        background: #4c2400;
+      }
+      .battle-card-troops-fill {
+        display: block;
+        width: 0;
+        height: 100%;
+        background: #ffd000;
+      }
+      .battle-dialogue {
+        position: fixed;
+        display: none;
+        grid-template-columns: var(--battle-dialogue-portrait) 1fr;
+        width: var(--battle-dialogue-width);
+        height: var(--battle-dialogue-height);
+        box-sizing: border-box;
+        padding: var(--battle-dialogue-inset);
+        /* Dialogue is presentation-only; command/card controls remain clickable. */
+        pointer-events: none;
+        background: #000;
+        color: #fff;
+        font-size: var(--popup-font-size);
+        line-height: var(--battle-dialogue-line-height);
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 33;
+      }
+      .battle-dialogue[data-kind]:not([data-kind=""]) { display: grid; }
+      /* Object side1 is always the enemy; side0 is always the player. */
+      .battle-dialogue[data-original-side="1"] { top: var(--battle-dialogue-top); bottom: auto; }
+      .battle-dialogue[data-original-side="0"] { top: auto; bottom: var(--battle-dialogue-bottom); }
+      .battle-dialogue img {
+        width: var(--battle-dialogue-portrait);
+        height: var(--battle-dialogue-portrait);
+        object-fit: contain;
+        image-rendering: pixelated;
+      }
+      .battle-dialogue > :not(.battle-window-frame) { position: relative; z-index: 1; }
+      .battle-dialogue-copy {
+        min-width: 0;
+        height: var(--battle-dialogue-portrait);
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: var(--battle-dialogue-copy-align);
+        padding-left: var(--battle-dialogue-copy-gap);
+        overflow: hidden;
+      }
+      .battle-dialogue-name {
+        color: #ffd75c;
+        margin-bottom: var(--battle-dialogue-name-margin);
+        font-weight: bold;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: clip;
+      }
+      .battle-dialogue-text {
+        max-height: calc(var(--battle-dialogue-line-height) * 2);
+        overflow: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: normal;
       }
     </style>
   </head>
@@ -275,166 +677,145 @@
         cursor: crosshair;
       "
     ></canvas>
-    <div
-      id="bctl"
-      style="
-        position: fixed;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        width: 144px;
-        box-sizing: border-box;
-        padding: 4px;
-        background: #050505;
-        border-left: 4px double #d6a61f;
-        color: #f1df8a;
-        font-size: 12px;
-        line-height: 1.35;
-        z-index: 31;
-        display: none;
-        user-select: none;
-      "
-    >
-      <!-- 完整战场模式不再绘制小地图；双方战中发言固定显示在带头像的双通话框。 -->
-      <div
-        id="bdialogue-atk"
-        style="
-          display: grid;
-          grid-template-columns: 48px 1fr;
-          min-height: 70px;
-          border: 2px solid #b8860b;
-          padding: 3px;
-          background: #080808;
-        "
-      >
-        <img
-          id="bdialogue-atk-face"
-          alt=""
-          style="
-            width: 48px;
-            height: 64px;
-            object-fit: cover;
-            image-rendering: pixelated;
-          "
-        />
-        <div style="min-width: 0; padding-left: 4px">
-          <div id="bdialogue-atk-name" style="color: #8fb8ff">攻方</div>
-          <div id="bdialogue-atk-text" style="color: #fff; white-space: normal">
-            －－－
-          </div>
+    <div id="bctl">
+      <!-- 对话弹窗移至战场内覆盖显示 -->
+      <div id="bdialogue-atk" class="battle-dialogue atk" data-kind="" data-original-side="0">
+        <canvas class="battle-window-frame" data-battle-panel="dialogue" width="1" height="1" aria-hidden="true"></canvas>
+        <img id="bdialogue-atk-face" alt="" />
+        <div class="battle-dialogue-copy">
+          <div id="bdialogue-atk-name" class="battle-dialogue-name">攻方</div>
+          <div id="bdialogue-atk-text" class="battle-dialogue-text">－－－</div>
         </div>
       </div>
-      <div
-        id="bdialogue-def"
-        style="
-          display: grid;
-          grid-template-columns: 48px 1fr;
-          min-height: 70px;
-          margin-top: 4px;
-          border: 2px solid #b8860b;
-          padding: 3px;
-          background: #080808;
-        "
-      >
-        <img
-          id="bdialogue-def-face"
-          alt=""
-          style="
-            width: 48px;
-            height: 64px;
-            object-fit: cover;
-            image-rendering: pixelated;
-          "
-        />
-        <div style="min-width: 0; padding-left: 4px">
-          <div id="bdialogue-def-name" style="color: #ff8d78">守方</div>
-          <div id="bdialogue-def-text" style="color: #fff; white-space: normal">
-            －－－
-          </div>
+      <div id="bdialogue-def" class="battle-dialogue def" data-kind="" data-original-side="1">
+        <canvas class="battle-window-frame" data-battle-panel="dialogue" width="1" height="1" aria-hidden="true"></canvas>
+        <img id="bdialogue-def-face" alt="" />
+        <div class="battle-dialogue-copy">
+          <div id="bdialogue-def-name" class="battle-dialogue-name">守方</div>
+          <div id="bdialogue-def-text" class="battle-dialogue-text">－－－</div>
         </div>
       </div>
-      <div
-        style="
-          margin-top: 6px;
-          border: 2px solid #b8860b;
-          padding: 4px;
-          background: #080808;
-        "
-      >
-        <div id="btitle" style="color: #ffd700; text-align: center"></div>
-        <div
-          style="
-            margin-top: 4px;
-            border-top: 1px solid #705810;
-            padding-top: 4px;
-          "
-        >
-          <div id="batkname" style="color: #8fb8ff"></div>
-          <div>
-            兵力 <span id="batktroops">0</span>　士氣
-            <span id="batkmorale">0</span>
+
+      <div class="battle-panel-inner">
+        <div class="battle-operation-header battle-floating-window">
+          <canvas class="battle-window-frame" data-battle-panel="title" data-window-cols="12" data-window-rows="5" width="192" height="80" aria-hidden="true"></canvas>
+          <div id="btitle"></div>
+          <div id="bbelligerents"></div>
+        </div>
+
+        <!-- 敌我信息分属两个独立浮窗。 -->
+        <div class="battle-enemy-window battle-floating-window">
+          <canvas class="battle-window-frame" data-battle-panel="enemy" data-window-cols="12" data-window-rows="7" width="192" height="112" aria-hidden="true"></canvas>
+          <div class="battle-banner-row battle-banner-enemy">
+            <span id="bdefname" class="battle-banner-name">守方</span>
+          </div>
+          <div class="battle-stats-row def">
+            <div class="battle-stat-line"><span>兵力</span><span id="bdeftroops" class="battle-stat-number">0</span></div>
+            <div class="battle-stat-line"><span>士氣</span><span id="bdefmorale" class="battle-stat-number">0</span></div>
+          </div>
+          <div class="battle-side-progress enemy" aria-label="敵軍兵力與士氣">
+            <div class="battle-side-progress-track"><div id="bdef-troops-fill" class="battle-side-progress-fill troops"></div></div>
+            <div class="battle-side-progress-track"><div id="bdef-morale-fill" class="battle-side-progress-fill morale"></div></div>
           </div>
         </div>
-        <div
-          style="
-            margin-top: 4px;
-            border-top: 1px solid #705810;
-            padding-top: 4px;
-          "
-        >
-          <div id="bdefname" style="color: #ff8d78"></div>
-          <div>
-            兵力 <span id="bdeftroops">0</span>　士氣
-            <span id="bdefmorale">0</span>
+
+        <div class="battle-player-window battle-floating-window">
+          <canvas class="battle-window-frame" data-battle-panel="player" data-window-cols="12" data-window-rows="18" width="192" height="288" aria-hidden="true"></canvas>
+          <div class="battle-banner-row battle-banner-player">
+            <span id="batkname" class="battle-banner-name">攻方</span>
+          </div>
+          <div class="battle-stats-row atk">
+            <div class="battle-stat-line"><span>兵力</span><span id="batktroops" class="battle-stat-number">0</span></div>
+            <div class="battle-stat-line"><span>士氣</span><span id="batkmorale" class="battle-stat-number">0</span></div>
+          </div>
+          <div class="battle-side-progress player" aria-label="我軍兵力與士氣">
+            <div class="battle-side-progress-track"><div id="batk-troops-fill" class="battle-side-progress-fill troops"></div></div>
+            <div class="battle-side-progress-track"><div id="batk-morale-fill" class="battle-side-progress-fill morale"></div></div>
+          </div>
+
+        <!-- C863注册整块ID3；C11A在块内细分16种阵形，不自动发命令0。 -->
+        <div class="battle-symbols-grid">
+          <button class="battle-symbol-btn" data-formation="0" type="button" aria-label="陣形 1" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="1" type="button" aria-label="陣形 2" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="2" type="button" aria-label="陣形 3" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="3" type="button" aria-label="陣形 4" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="4" type="button" aria-label="陣形 5" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="5" type="button" aria-label="陣形 6" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="6" type="button" aria-label="陣形 7" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="7" type="button" aria-label="陣形 8" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="8" type="button" aria-label="陣形 9" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="9" type="button" aria-label="陣形 10" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="10" type="button" aria-label="陣形 11" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="11" type="button" aria-label="陣形 12" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="12" type="button" aria-label="陣形 13" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="13" type="button" aria-label="陣形 14" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="14" type="button" aria-label="陣形 15" aria-pressed="false"></button>
+          <button class="battle-symbol-btn" data-formation="15" type="button" aria-label="陣形 16" aria-pressed="false"></button>
+        </div>
+
+        <!-- 6 个战术命令按钮 + 阵形预览框 -->
+        <div class="battle-command-section">
+          <div class="battle-cmd-btn-column">
+            <button id="bassault" class="battle-cmd-img-btn" type="button" title="突擊">突擊</button>
+            <button id="battack" class="battle-cmd-img-btn" type="button" title="攻擊">攻擊</button>
+            <button id="bformation" class="battle-cmd-img-btn" type="button" title="陣形">陣形</button>
+            <button id="bwall" class="battle-cmd-img-btn" type="button" title="城壁">城壁</button>
+            <button id="bdefend" class="battle-cmd-img-btn" type="button" title="守陣">守陣</button>
+            <button id="bretreat" class="battle-cmd-img-btn" type="button" title="退卻">退卻</button>
+          </div>
+          <div class="battle-formation-stone" role="group" aria-label="部署位置">
+            <button class="battle-deployment-btn" data-base-x="48" type="button" aria-label="部署 X48" aria-pressed="false"></button>
+            <button class="battle-deployment-btn" data-base-x="28" type="button" aria-label="部署 X28" aria-pressed="false"></button>
+            <button class="battle-deployment-btn" data-base-x="5" type="button" aria-label="部署 X5" aria-pressed="false"></button>
           </div>
         </div>
+
+        </div>
+
+        <!-- 命令反馈只供辅助技术读取，不占据画面。 -->
+        <div id="bcommandhint" aria-live="polite">選擇部隊後下達命令。</div>
       </div>
-      <div
-        style="
-          margin-top: 6px;
-          border: 2px solid #b8860b;
-          padding: 4px;
-          background: #080808;
-        "
-      >
-        <div style="color: #ffd700; text-align: center">部隊選擇</div>
-        <div
-          id="bunits"
-          style="
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 3px;
-            margin-top: 4px;
-          "
-        >
-          <button id="bunit0" type="button">一</button>
-          <button id="bunit1" type="button">二</button>
-          <button id="bunit2" type="button">三</button>
-          <button id="bunit3" type="button">四</button>
-          <button id="bunit4" type="button">五</button>
-          <button id="bunit5" type="button">六</button>
-        </div>
-        <div
-          style="
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 4px;
-            margin-top: 6px;
-          "
-        >
-          <button id="bassault" type="button">突擊</button>
-          <button id="bsiege" type="button">攻城</button>
-          <button id="bformation" type="button">陣形</button>
-          <button id="bwall" type="button">城壁</button>
-          <button id="bdefend" type="button">守陣</button>
-          <button id="bretreat" type="button">退卻</button>
-        </div>
-        <div
-          id="bcommandhint"
-          style="min-height: 34px; margin-top: 6px; color: #cbb968"
-        >
-          選擇部隊後下達命令。
-        </div>
+    </div>
+
+    <!-- 底部 6 队部队卡 -->
+    <div id="battle-bottom-bar">
+      <div id="bunits" class="battle-bottom-inner">
+        <button id="bunit0" class="battle-unit-card" data-index="0" type="button" aria-pressed="false">
+          <span class="battle-card-role-label">左翼</span>
+          <span class="battle-card-unit-icon" data-unit-type="infantry"></span>
+          <span class="battle-card-status" aria-hidden="true"></span>
+          <span class="battle-card-troops-track" aria-hidden="true"><span class="battle-card-troops-fill"></span></span>
+        </button>
+        <button id="bunit1" class="battle-unit-card" data-index="1" type="button" aria-pressed="false">
+          <span class="battle-card-role-label">左備</span>
+          <span class="battle-card-unit-icon" data-unit-type="archer"></span>
+          <span class="battle-card-status" aria-hidden="true"></span>
+          <span class="battle-card-troops-track" aria-hidden="true"><span class="battle-card-troops-fill"></span></span>
+        </button>
+        <button id="bunit2" class="battle-unit-card" data-index="2" type="button" aria-pressed="false">
+          <span class="battle-card-role-label">大將</span>
+          <span class="battle-card-unit-icon" data-unit-type="cavalry"></span>
+          <span class="battle-card-status" aria-hidden="true"></span>
+          <span class="battle-card-troops-track" aria-hidden="true"><span class="battle-card-troops-fill"></span></span>
+        </button>
+        <button id="bunit3" class="battle-unit-card" data-index="3" type="button" aria-pressed="false">
+          <span class="battle-card-role-label">先鋒</span>
+          <span class="battle-card-unit-icon" data-unit-type="cavalry"></span>
+          <span class="battle-card-status" aria-hidden="true"></span>
+          <span class="battle-card-troops-track" aria-hidden="true"><span class="battle-card-troops-fill"></span></span>
+        </button>
+        <button id="bunit4" class="battle-unit-card" data-index="4" type="button" aria-pressed="false">
+          <span class="battle-card-role-label">右備</span>
+          <span class="battle-card-unit-icon" data-unit-type="archer"></span>
+          <span class="battle-card-status" aria-hidden="true"></span>
+          <span class="battle-card-troops-track" aria-hidden="true"><span class="battle-card-troops-fill"></span></span>
+        </button>
+        <button id="bunit5" class="battle-unit-card" data-index="5" type="button" aria-pressed="false">
+          <span class="battle-card-role-label">右翼</span>
+          <span class="battle-card-unit-icon" data-unit-type="infantry"></span>
+          <span class="battle-card-status" aria-hidden="true"></span>
+          <span class="battle-card-troops-track" aria-hidden="true"><span class="battle-card-troops-fill"></span></span>
+        </button>
       </div>
     </div>
     <div id="card" class="panel"></div>

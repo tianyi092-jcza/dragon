@@ -13,6 +13,63 @@ function tempGroupOffset(group) {
   return ORIGINAL_TEMP_GROUP_BASE + group * ORIGINAL_TEMP_GROUP_SIZE;
 }
 
+/** B32D..B355: capture DA1C's pair BEFORE B35B changes the rule phase. */
+export function originalActiveObjectDisplay(pool, address) {
+  const state = pool.read8(address, ORIGINAL_OBJECT.STATE) & 0x19;
+  const direction =
+    state & 0x10
+      ? 0
+      : (pool.read8(address, ORIGINAL_OBJECT.DIRECTION) << 1) & 0xff;
+  const animation =
+    ((direction | state) + pool.read8(address, ORIGINAL_OBJECT.CLASS)) & 0xff;
+  return originalObjectDisplay(
+    pool,
+    address,
+    animation + (address >= 0x600 ? 90 : 0),
+  );
+}
+
+function originalObjectDisplay(pool, address, frame) {
+  return {
+    address,
+    frame,
+    x: pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X),
+    y: pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y),
+    level: pool.read8(address, ORIGINAL_OBJECT.LEVEL),
+  };
+}
+
+/** Full active tail only at AE26/B4AF, never at utility probe commits. */
+function commitOriginalActiveTail(pool, spatial, address) {
+  const occupancy = commitOriginalSpatialOccupancy(pool, spatial, address);
+  const display = originalActiveObjectDisplay(pool, address);
+  pool.write8(
+    address,
+    ORIGINAL_OBJECT.FLAGS,
+    pool.read8(address, ORIGINAL_OBJECT.FLAGS) & 0xbf,
+  );
+  pool.write8(
+    address,
+    ORIGINAL_OBJECT.STATE,
+    pool.read8(address, ORIGINAL_OBJECT.STATE) ^ 1,
+  );
+  return { occupancy, display };
+}
+
+/** B360..B3AE: death draws update previous coordinates, not occupancy or STATE. */
+function commitOriginalDeathDisplay(pool, address, kind) {
+  const objectClass = pool.read8(address, ORIGINAL_OBJECT.CLASS);
+  const frame =
+    (address >= 0x600 ? 174 : 84) +
+    (objectClass < 0x24 ? 0 : objectClass === 0x24 ? 2 : 4) +
+    (kind <= 2 ? 1 : 0);
+  const display = originalObjectDisplay(pool, address, frame);
+  pool.write8(address, ORIGINAL_OBJECT.PREVIOUS_X, display.x);
+  pool.write8(address, ORIGINAL_OBJECT.PREVIOUS_Y, display.y);
+  pool.write8(address, ORIGINAL_OBJECT.PREVIOUS_LEVEL, display.level);
+  return display;
+}
+
 /** B4B8→B3B2：退出对象并清旧双平面占用；AH=0时累计该队幸存槽。 */
 export function finalizeOriginalBattleObject(
   pool,
@@ -29,6 +86,12 @@ export function finalizeOriginalBattleObject(
   const previous = pool.read16(address, ORIGINAL_OBJECT.SPATIAL_0E);
   spatial.write8(previous, spatial.read8(previous) & 0x80);
   spatial.write8(previous + 0x1000, spatial.read8(previous + 0x1000) & 0x80);
+  // B3F0..B3F6 deliberately uses CURRENT +1E, unlike B2AB's previous +1F.
+  spatial.writePathSurcharge(
+    previous,
+    pool.read8(address, ORIGINAL_OBJECT.HEIGHT),
+    0,
+  );
   pool.write8(
     address,
     ORIGINAL_OBJECT.FLAGS,
@@ -50,7 +113,14 @@ export function reviveOriginalBattleObject(
   const remaining = temps.read8(side, offset + 1);
   const sideCode = side + 1;
   if (remaining === 0 || sideCode === (registers.winnerState & 0xff))
-    return { address, revived: false, reason: "empty-or-retreating", slot };
+    return {
+      address,
+      revived: false,
+      reason: "empty-or-retreating",
+      slot,
+      // B445/B44D → A8CC: only the player's leader refreshes icon5.
+      statusIcon: side === 0 && slot === 0 ? 5 : null,
+    };
 
   const y = Math.max(
     0x10,
@@ -88,11 +158,16 @@ export function reviveOriginalBattleObject(
   let pending = pool.read8(address, ORIGINAL_OBJECT.PENDING_COMMAND);
   const current = pool.read8(address, ORIGINAL_OBJECT.CURRENT_COMMAND);
   if (pending === 5) pending = current;
-  else if (pending === 6) pending = 3;
-  else if (pending === 7) pending = 0;
+  // B495 falls through B497 and B49E, including current6/7 + pending5.
+  if (pending === 6) pending = 3;
+  if (pending === 7) pending = 0;
   pool.write8(address, ORIGINAL_OBJECT.CURRENT_COMMAND, 8);
   pool.write8(address, ORIGINAL_OBJECT.PENDING_COMMAND, pending);
-  const occupancy = commitOriginalSpatialOccupancy(pool, spatial, address);
+  const { occupancy, display } = commitOriginalActiveTail(
+    pool,
+    spatial,
+    address,
+  );
   return {
     address,
     side,
@@ -102,6 +177,7 @@ export function reviveOriginalBattleObject(
     mapIndex,
     pending,
     occupancy,
+    display,
   };
 }
 
@@ -118,7 +194,14 @@ export function updateOriginalInactiveObject(
     return reviveOriginalBattleObject(pool, temps, spatial, registers, address);
   const kind = (pool.read8(address, ORIGINAL_OBJECT.KIND) - 1) & 0xff;
   pool.write8(address, ORIGINAL_OBJECT.KIND, kind);
-  if (kind !== 0) return { address, revived: false, animation: true, kind };
+  if (kind !== 0)
+    return {
+      address,
+      revived: false,
+      animation: true,
+      kind,
+      display: commitOriginalDeathDisplay(pool, address, kind),
+    };
   return finalizeOriginalBattleObject(pool, temps, spatial, address, {
     creditSurvivor: false,
   });
@@ -151,10 +234,10 @@ export function updateOriginalActiveObject(
         );
     }
   }
-  const occupancy = commitOriginalSpatialOccupancy(
+  const { occupancy, display } = commitOriginalActiveTail(
     pool,
     session.spatial,
     address,
   );
-  return { address, movement, occupancy };
+  return { address, movement, occupancy, display };
 }

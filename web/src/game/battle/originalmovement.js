@@ -44,12 +44,31 @@ export function commitOriginalSpatialOccupancy(pool, spatial, address) {
   const previous = pool.read16(address, ORIGINAL_OBJECT.SPATIAL_0E);
   spatial.write8(previous, spatial.read8(previous) & 0x80);
   spatial.write8(previous + 0x1000, spatial.read8(previous + 0x1000) & 0x80);
+  // B2A8..B2AE: old overlay uses PREVIOUS_HEIGHT, independently of +0E's layer.
+  spatial.writePathSurcharge(
+    previous,
+    pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_HEIGHT),
+    0,
+  );
 
   const current = pool.read16(address, ORIGINAL_OBJECT.SPATIAL_0C);
   const id = (((address << 3) + 0x100) >> 8) & 0xff || 1;
   spatial.write8(current, spatial.read8(current) | id);
   spatial.write8(current + 0x1000, spatial.read8(current + 0x1000) | id);
   pool.write16(address, ORIGINAL_OBJECT.SPATIAL_0E, current);
+  const height = pool.read8(address, ORIGINAL_OBJECT.HEIGHT);
+  pool.write8(address, ORIGINAL_OBJECT.PREVIOUS_HEIGHT, height);
+  spatial.writePathSurcharge(current, height, 8); // B2C2..B2CD
+
+  // B2D3..B300: D2F6 tile, then D302 descriptor byte0; not D2FC navigation.
+  const tile = spatial.tile(current);
+  const attribute = spatial.tileAttributes?.[tile * 8] ?? 0;
+  const flags = pool.read8(address, ORIGINAL_OBJECT.FLAGS);
+  pool.write8(
+    address,
+    ORIGINAL_OBJECT.FLAGS,
+    tile < 0xf0 && attribute >= 4 ? flags | 2 : flags & 0xfd,
+  );
 
   // B31B..B32A：B240绘制提交后，旧坐标/层字段更新为本帧锚点/层高。
   pool.write8(
@@ -66,11 +85,6 @@ export function commitOriginalSpatialOccupancy(pool, spatial, address) {
     address,
     ORIGINAL_OBJECT.PREVIOUS_LEVEL,
     pool.read8(address, ORIGINAL_OBJECT.LEVEL),
-  );
-  pool.write8(
-    address,
-    ORIGINAL_OBJECT.PREVIOUS_HEIGHT,
-    pool.read8(address, ORIGINAL_OBJECT.HEIGHT),
   );
   return { previous, current, id };
 }
@@ -190,6 +204,7 @@ export function stepOriginalCardinal(
     const movement = {
       moved: true,
       blocked: false,
+      carry: false,
       direction,
       spatialBefore,
       spatialAfter: committedSpatial,
@@ -206,6 +221,7 @@ export function stepOriginalCardinal(
   return {
     moved: Boolean(collisionResult && !collisionResult.carry),
     blocked: !collisionResult || collisionResult.carry,
+    carry: !collisionResult || collisionResult.carry,
     direction,
     spatialBefore,
     spatialAfter: spatialBefore,
@@ -227,18 +243,19 @@ function verticalCollision(
       committed: false,
       collided: false,
       blocked: true,
+      carry: true,
       spatialBefore,
       spatialAfter,
     };
   const result = collision?.(attackerAddress, collisionId) ?? { carry: true };
   const moved = result.carry === false;
-  if (moved)
-    pool.write16(attackerAddress, ORIGINAL_OBJECT.SPATIAL_0C, spatialAfter);
+  // B112/B159 only return CLC; any collision position writes belong to B533/B732.
   return {
     moved,
     committed: false,
     collided: true,
     blocked: !moved,
+    carry: result.carry,
     spatialBefore,
     spatialAfter: moved ? spatialAfter : spatialBefore,
     collision: result,
@@ -259,7 +276,13 @@ export function stepOriginalUp(
   );
   const connector = spatial.tile(spatialBefore);
   if (connector < 0xf0)
-    return { moved: false, committed: false, collided: false, blocked: true };
+    return {
+      moved: false,
+      committed: false,
+      collided: false,
+      blocked: true,
+      carry: true,
+    };
   pool.write8(
     attackerAddress,
     ORIGINAL_OBJECT.DIRECTION,
@@ -282,7 +305,13 @@ export function stepOriginalUp(
       collision,
     );
   if (spatial.tile(spatialAfter) < 0xf8)
-    return { moved: false, committed: false, collided: false, blocked: true };
+    return {
+      moved: false,
+      committed: false,
+      collided: false,
+      blocked: true,
+      carry: true,
+    };
   pool.write8(
     attackerAddress,
     ORIGINAL_OBJECT.LEVEL,
@@ -295,6 +324,7 @@ export function stepOriginalUp(
     committed: true,
     collided: false,
     blocked: false,
+    carry: false,
     spatialBefore,
     spatialAfter,
   };
@@ -314,7 +344,13 @@ export function stepOriginalDown(
   );
   const connector = spatial.tile(spatialBefore);
   if (connector < 0xf0)
-    return { moved: false, committed: false, collided: false, blocked: true };
+    return {
+      moved: false,
+      committed: false,
+      collided: false,
+      blocked: true,
+      carry: true,
+    };
   pool.write8(attackerAddress, ORIGINAL_OBJECT.DIRECTION, (connector & 1) << 1);
   const spatialAfter = (spatialBefore - 0x1000) & 0xffff;
   pool.write8(
@@ -333,7 +369,13 @@ export function stepOriginalDown(
       collision,
     );
   if (spatial.tile(spatialAfter) < 0xf8)
-    return { moved: false, committed: false, collided: false, blocked: true };
+    return {
+      moved: false,
+      committed: false,
+      collided: false,
+      blocked: true,
+      carry: true,
+    };
   pool.write8(
     attackerAddress,
     ORIGINAL_OBJECT.LEVEL,
@@ -347,6 +389,7 @@ export function stepOriginalDown(
     committed: true,
     collided: false,
     blocked: false,
+    carry: false,
     spatialBefore,
     spatialAfter,
   };

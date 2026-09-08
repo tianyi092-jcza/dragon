@@ -1,14 +1,16 @@
 // KI.EXE 0xBB3C..0xBD43 战术地图可通行层、方向mask与路径代价。
-// BATTLE.MAP提供64×64 tile id；BATTLE.MDL在layout*0xF800+0x1000提供D302
-// 图块属性/图形大块。BATTLE.SCH提供layout*0x100的256B调度块。
+// CAEB..CB43 以目录号读取 BATTLE.MAP 的独立 64×64 tile map；
+// CB44..CB71 再按 layout 读取 BATTLE.MDL 0xF800 块，其中前 0x800
+// 是 D302 的 256×8 字节 tile 描述。BATTLE.SCH 是战术对象图形，不是调度表。
 
 export const ORIGINAL_MAP_WIDTH = 0x40;
 export const ORIGINAL_MAP_CELLS = 0x1000;
 export const ORIGINAL_NAV_PLANE_SIZE = 0x1000;
 export const ORIGINAL_NAV_PLANES = 2;
 export const ORIGINAL_NAV_COST_BASE = 0x2000;
-export const ORIGINAL_NAV_COST_COUNT = 0x1000;
-export const ORIGINAL_TILE_ATTRIBUTE_SIZE = 0xf800;
+export const ORIGINAL_NAV_COST_COUNT = 0x2000; // BC22..BC2E: 0x1000 zero words
+export const ORIGINAL_TILE_ATTRIBUTE_SIZE = 0x800;
+export const ORIGINAL_MDL_LAYOUT_SIZE = 0xf800;
 
 function cellIndex(x, y) {
   const xx = x | 0;
@@ -23,10 +25,10 @@ function checkBytes(source, expected, label) {
     throw new TypeError(`invalid original ${label} bytes`);
 }
 
-/** CAEB：从原始BATTLE.MAP/SCH/MDL提取当前layout目录、tile、脚本及属性大块。 */
+/** CAEB：从原始 BATTLE.MAP/MDL 提取当前目录地图与 layout 描述表。 */
 export function loadOriginalBattleMapAssets(
   battleMapBytes,
-  battleScheduleBytes,
+  _battleScheduleBytes,
   directoryIndex,
   { mirror = false, modelBytes = null } = {},
 ) {
@@ -34,16 +36,19 @@ export function loadOriginalBattleMapAssets(
   const index = directoryIndex & 0xff;
   const layout = battleMapBytes[index * 2];
   let theme = battleMapBytes[index * 2 + 1];
-  const tileOffset = 0x200 + layout * 0x100;
-  const attributeOffset = 0x1000 + layout * ORIGINAL_TILE_ATTRIBUTE_SIZE;
-  const scheduleOffset = layout * 0x100;
+  const tileOffset = 0x200 + index * ORIGINAL_MAP_CELLS;
+  const attributeOffset = 0x1000 + layout * ORIGINAL_MDL_LAYOUT_SIZE;
   const battleModelBytes = modelBytes ?? battleMapBytes;
+  checkBytes(
+    battleMapBytes,
+    tileOffset + ORIGINAL_MAP_CELLS,
+    "BATTLE.MAP tile",
+  );
   checkBytes(
     battleModelBytes,
     attributeOffset + ORIGINAL_TILE_ATTRIBUTE_SIZE,
     "BATTLE.MDL attribute",
   );
-  checkBytes(battleScheduleBytes, scheduleOffset + 0x100, "BATTLE.SCH");
   let tiles = Uint8Array.from(
     battleMapBytes.subarray(tileOffset, tileOffset + ORIGINAL_MAP_CELLS),
   );
@@ -56,9 +61,6 @@ export function loadOriginalBattleMapAssets(
     layout,
     theme,
     tiles,
-    schedule: Uint8Array.from(
-      battleScheduleBytes.subarray(scheduleOffset, scheduleOffset + 0x100),
-    ),
     attributes: Uint8Array.from(
       battleModelBytes.subarray(
         attributeOffset,
@@ -68,7 +70,7 @@ export function loadOriginalBattleMapAssets(
   };
 }
 
-/** CB9B/C BBC：64×64 tile图水平镜像，并转换方向相关tile编码。 */
+/** CB9B/CBBC：反转0x40..0xFBF的线性内部区，并转换方向tile编码。 */
 export function mirrorOriginalBattleTiles(tileBytes) {
   checkBytes(tileBytes, ORIGINAL_MAP_CELLS, "battle tile");
   const result = Uint8Array.from(tileBytes.subarray(0, ORIGINAL_MAP_CELLS));
@@ -83,14 +85,12 @@ export function mirrorOriginalBattleTiles(tileBytes) {
     } else if (tile >= 0xf0) tile ^= 1;
     return tile;
   };
-  for (let y = 0; y < 0x40; y++) {
-    for (let x = 0; x < 0x20; x++) {
-      const left = y * 0x40 + x;
-      const right = y * 0x40 + (0x3f - x);
-      const oldLeft = result[left];
-      result[left] = transform(result[right]);
-      result[right] = transform(oldLeft);
-    }
+  let low = 0x40;
+  let high = 0x0fbf;
+  for (let count = 0; count < 0x07c0; count++) {
+    const oldLow = result[low];
+    result[low++] = transform(result[high]);
+    result[high--] = transform(oldLow);
   }
   return result;
 }
@@ -216,22 +216,24 @@ export function createOriginalNavigationFromAssets(assets) {
   return { ...assets, ...built };
 }
 
-/** Web导出资产：battle_navigation.json按layout保存CAEB原始窗口。 */
+/** Web导出资产：目录号选择地图，layout 只选择 MDL 描述表。 */
 export function navigationAssetsForLayout(
   resource,
   layout,
-  { mirror = false } = {},
+  { directoryIndex = layout, mirror = false } = {},
 ) {
   const source = resource?.layouts?.[String(layout)];
   if (!source)
     throw new RangeError("missing original battle navigation layout");
-  let tiles = Uint8Array.from(source.tiles ?? []);
+  const mapSource = resource?.maps?.[String(directoryIndex)];
+  // 兼容旧的最小测试夹具；生产资源必须提供按目录号索引的 maps。
+  let tiles = Uint8Array.from(mapSource ?? source.tiles ?? []);
   checkBytes(tiles, ORIGINAL_MAP_CELLS, "battle tile");
   if (mirror) tiles = mirrorOriginalBattleTiles(tiles);
   return {
+    directoryIndex: directoryIndex | 0,
     layout: layout | 0,
     tiles,
-    schedule: Uint8Array.from(source.schedule ?? []),
     attributes: Uint8Array.from(source.attributes ?? []),
   };
 }

@@ -251,7 +251,9 @@ assert.equal(
 );
 assert.equal(
   openingWarMessages[0].talkIndex,
-  486 + openingWarScenario.generals[openingWarScenario.factions[0].monarch_idx].talk_idx,
+  486 +
+    openingWarScenario.generals[openingWarScenario.factions[0].monarch_idx]
+      .talk_idx,
 );
 assert.equal(openingWarMessages[0].targetName, "呂布");
 assert.equal(

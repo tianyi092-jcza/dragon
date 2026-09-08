@@ -83,19 +83,29 @@ function executeCommand3(
     pool.read8(address, ORIGINAL_OBJECT.HEIGHT) !== 0
   ) {
     setPending(pool, address, 6);
+    // AB48 jumps through AB7C, including its timed clamp.
+    if (pool.read8(address, ORIGINAL_OBJECT.STATUS_TIME) >= 0x28)
+      pool.write8(address, ORIGINAL_OBJECT.STATUS_TIME, 0x28);
     return {
       ...executeAttack(pool, address, command, attackContext, handlers),
       pending: 6,
     };
   }
   if (changed) {
-    const targetX = 0x1f;
+    const targetX = attackContext?.wallTargetX ?? 0x1f;
     const targetY = pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y);
     pool.write16(address, ORIGINAL_OBJECT.TIMER, 0);
     pool.write8(address, ORIGINAL_OBJECT.POSITION_X, targetX);
     pool.write8(address, ORIGINAL_OBJECT.POSITION_Y, targetY);
     pool.write8(address, ORIGINAL_OBJECT.TARGET_X, targetX);
     pool.write8(address, ORIGINAL_OBJECT.TARGET_Y, targetY);
+    // AB5E..AB78: D2FC upper descriptor at wall X / anchor Y.
+    pool.write8(
+      address,
+      ORIGINAL_OBJECT.POSITION_LEVEL,
+      (attackContext?.heightDescriptor?.(0x1000 + targetY * 64 + targetX) ??
+        0) & 7,
+    );
   }
   handlers.move?.({ address, command });
   return { route: "move", pending: null };

@@ -1,5 +1,5 @@
 // KI.EXE 0xA1C5 战术主循环前启动序列。规则帧必须与随后A426→A065
-// 使用同一对象池/RNG；C315与远调用音效只记录为呈现事件。
+// 使用同一对象池/RNG；C315同步产生原版消息，AX5远调用是鼠标按钮计数清空。
 
 import { ORIGINAL_OBJECT, originalObjectAddress } from "./originalstate.js";
 
@@ -21,8 +21,9 @@ function leaderScore(session, address, commander, mode) {
   const { force, lead } = commanderFields(commander, mode);
   const power = session.pool.read8(address, ORIGINAL_OBJECT.POWER);
   const hp = session.pool.read8(address, ORIGINAL_OBJECT.HP);
-  let gate = byte(force * 3 - lead);
-  gate >>= 1;
+  // A370..A37C: byte SHL/ADD first, then saturate only SUB borrow.
+  const tripleForce = byte(force * 3);
+  const gate = (tripleForce < lead ? 0 : tripleForce - lead) >> 1;
   let base = word(power * hp);
   const gateRoll = (session.rng.nextByte() & 7) + 8;
   if (gateRoll > gate) base = 0;
@@ -42,11 +43,19 @@ function sideOf(address) {
   return address >= 0x600 ? 1 : 0;
 }
 
+class OriginalBattleStartupNonlocalExit extends Error {
+  constructor(result) {
+    super("0x9FDC nonlocal startup exit");
+    this.result = result;
+  }
+}
+
 /**
- * 0xA1C5。tickFrame 必须严格执行一个A065规则帧。
- * 返回的scriptWordSkip对应A2E8对D311增加6字节（3个脚本word）。
+ * 0xA1C5 incremental interpreter. Every yielded value follows exactly one
+ * A04B/A065 frame; C315 events between frames are therefore paintable without
+ * adding a dialogue wait or changing RNG/frame order.
  */
-export function runOriginalBattleStartup(
+function* originalBattleStartupFrames(
   handle,
   { commanders = [], tickFrame } = {},
 ) {
@@ -62,33 +71,46 @@ export function runOriginalBattleStartup(
 
   const events = [];
   let frames = 0;
+  let scriptWordSkip = 0;
   const tick = () => {
     if (session.finished)
-      throw new Error("original battle ended unexpectedly during 0xA1C5");
-    const result = tickFrame();
+      throw new Error("cannot resume a completed 0xA1C5 interpreter");
+    const terminalFrameResult = tickFrame();
     frames++;
-    return result;
-  };
-  const runFrames = (count, after = null) => {
-    for (let index = 0; index < count; index++) {
-      tick();
-      if (after?.() === false) return false;
+    if (session.finished || terminalFrameResult?.finished) {
+      const result = {
+        completed: false,
+        ended: true,
+        framesIncludingTerminal: frames,
+        frames,
+        scriptWordSkip,
+        terminalFrameResult,
+        events,
+      };
+      handle.originalStartup = result;
+      throw new OriginalBattleStartupNonlocalExit(result);
     }
-    return true;
-  };
-  const flag = (address, originalId) => {
-    const event = {
-      type: "startup-flag",
-      side: sideOf(address),
-      originalId,
+    return {
+      advancedFrame: true,
+      ended: false,
+      displayCommitted: terminalFrameResult?.displayCommitted !== false,
+      frame: session.frame,
+      result: terminalFrameResult,
     };
+  };
+  function* runFrames(count) {
+    for (let index = 0; index < count; index++) yield tick();
+  }
+  const flag = (address, originalId) => {
+    session.emitTalk(sideOf(address), originalId, "A1C5");
+    // Retain historical startup trace for lifecycle fixtures; not a flag sprite.
+    const event = { type: "startup-flag", side: sideOf(address), originalId };
     events.push(event);
     session.events.push({ frame: session.frame, ...event });
   };
 
   // A1C5..A1CB：所有mode先固定执行50个A065。
-  runFrames(0x32);
-  let scriptWordSkip = 0;
+  yield* runFrames(0x32);
 
   if ((session.registers.mode & 0xff) === 1) {
     let first = originalObjectAddress(0, 0, 0);
@@ -101,7 +123,7 @@ export function runOriginalBattleStartup(
     }
 
     if (firstScore >= 0x12c0) {
-      // A398：优势方亮旗、移至18/28,20、pending8并等待40帧。
+      // A398：优势方发言、移至18/28,20、pending8并等待40帧。
       flag(first, 0x1b7);
       setLeaderPosition(
         session.pool,
@@ -111,12 +133,13 @@ export function runOriginalBattleStartup(
         true,
       );
       session.pool.write8(first, ORIGINAL_OBJECT.PENDING_COMMAND, 8);
-      runFrames(0x28);
+      yield* runFrames(0x28);
       scriptWordSkip = 3;
 
-      if (secondScore < 0x12c0 || secondScore < firstScore >> 1) {
+      const refused = secondScore < 0x12c0 || secondScore < firstScore >> 1;
+      if (refused) {
         flag(second, 0x1b9);
-        runFrames(0x14);
+        yield* runFrames(0x14);
         flag(first, 0x1cc);
       } else {
         flag(second, 0x1b8);
@@ -128,111 +151,163 @@ export function runOriginalBattleStartup(
           true,
         );
         session.pool.write8(second, ORIGINAL_OBJECT.PENDING_COMMAND, 8);
-        runFrames(0x28);
+        yield* runFrames(0x28);
       }
 
-      // A1E3：A2E8的两个成功分支都进入同一单挑循环。
-      session.pool.write8(first, ORIGINAL_OBJECT.PENDING_COMMAND, 8);
-      session.pool.write8(second, ORIGINAL_OBJECT.PENDING_COMMAND, 8);
-      let round = 0;
-      let duelEnded = false;
-      let carryLoopCount = 0;
-      while (!duelEnded) {
-        let flagId = 0x1ba;
-        if (round !== 0) {
-          let firstHp = session.pool.read8(first, ORIGINAL_OBJECT.HP);
-          let secondHp = session.pool.read8(second, ORIGINAL_OBJECT.HP);
-          if (firstHp < secondHp) {
-            [first, second] = [second, first];
-            [firstHp, secondHp] = [secondHp, firstHp];
+      // A33F→A34D STC→A1E0: refusal goes straight to A27A, never duel.
+      if (!refused) {
+        session.pool.write8(first, ORIGINAL_OBJECT.PENDING_COMMAND, 8);
+        session.pool.write8(second, ORIGINAL_OBJECT.PENDING_COMMAND, 8);
+        let round = 0;
+        let duelEnded = false;
+        let cx;
+        while (!duelEnded) {
+          let flagId = 0x1ba;
+          if (round !== 0) {
+            let firstHp = session.pool.read8(first, ORIGINAL_OBJECT.HP);
+            let secondHp = session.pool.read8(second, ORIGINAL_OBJECT.HP);
+            if (firstHp < secondHp) {
+              [first, second] = [second, first];
+              [firstHp, secondHp] = [secondHp, firstHp];
+            }
+            const difference = firstHp - secondHp;
+            flagId = 0x1bc + (round - 1) * 4 + (difference < 0x14 ? 2 : 0);
           }
-          const difference = firstHp - secondHp;
-          flagId = 0x1bc + (round - 1) * 4 + (difference < 0x14 ? 2 : 0);
-        }
-        flag(first, flagId);
-        runFrames(0x0a);
-        flag(second, flagId + 1);
-        setLeaderPosition(session.pool, first, 0x20, 0x20);
-        setLeaderPosition(session.pool, second, 0x20, 0x20);
+          flag(first, flagId);
+          yield* runFrames(0x0a);
+          // A40B overwrites the exhausted ten-frame LOOP CX with selector Q.
+          cx = flagId + 1;
+          flag(second, cx);
+          setLeaderPosition(session.pool, first, 0x20, 0x20);
+          setLeaderPosition(session.pool, second, 0x20, 0x20);
 
-        // A298：80帧；后47帧按固定门控随机重定位双方。
-        for (let counter = 0x50; counter > 0; counter--) {
-          if (counter < 0x30) {
-            const gate = session.rng.nextByte();
-            if (gate < 0x20) {
-              const y = (gate & 7) + 0x1c;
-              const x = (session.rng.nextByte() & 0x0f) + 0x18;
-              setLeaderPosition(session.pool, first, x, y);
-              setLeaderPosition(session.pool, second, x, y);
+          // A298：80帧；后47帧按固定门控随机重定位双方。
+          for (let counter = 0x50; counter > 0; counter--) {
+            if (counter < 0x30) {
+              const gate = session.rng.nextByte();
+              if (gate < 0x20) {
+                const y = (gate & 7) + 0x1c;
+                const x = (session.rng.nextByte() & 0x0f) + 0x18;
+                setLeaderPosition(session.pool, first, x, y);
+                setLeaderPosition(session.pool, second, x, y);
+              }
+            }
+            yield tick();
+            if (
+              session.pool.read8(first, ORIGINAL_OBJECT.HP) < 0x46 ||
+              session.pool.read8(second, ORIGINAL_OBJECT.HP) < 0x46
+            ) {
+              duelEnded = true;
+              break;
             }
           }
-          tick();
-          if (
-            session.pool.read8(first, ORIGINAL_OBJECT.HP) < 0x46 ||
-            session.pool.read8(second, ORIGINAL_OBJECT.HP) < 0x46
-          ) {
-            // A298不改CX；A3C3的10帧LOOP结束后CX为0。
-            carryLoopCount = 0;
-            duelEnded = true;
-            break;
-          }
-        }
-        if (duelEnded) break;
+          if (duelEnded) break;
 
-        setLeaderPosition(
-          session.pool,
-          first,
-          sideOf(first) === 0 ? 0x18 : 0x28,
-          0x20,
-        );
-        setLeaderPosition(
-          session.pool,
-          second,
-          sideOf(second) === 0 ? 0x18 : 0x28,
-          0x20,
-        );
-        for (let count = 0; count < 0x14; count++) {
-          tick();
-          if (
-            session.pool.read8(first, ORIGINAL_OBJECT.HP) < 0x46 ||
-            session.pool.read8(second, ORIGINAL_OBJECT.HP) < 0x46
-          ) {
-            // A219在LOOP执行前短路，CX仍为20-count。
-            carryLoopCount = 0x14 - count;
-            duelEnded = true;
-            break;
+          setLeaderPosition(
+            session.pool,
+            first,
+            sideOf(first) === 0 ? 0x18 : 0x28,
+            0x20,
+          );
+          setLeaderPosition(
+            session.pool,
+            second,
+            sideOf(second) === 0 ? 0x18 : 0x28,
+            0x20,
+          );
+          for (cx = 0x14; cx !== 0; cx = word(cx - 1)) {
+            yield tick();
+            if (
+              session.pool.read8(first, ORIGINAL_OBJECT.HP) < 0x46 ||
+              session.pool.read8(second, ORIGINAL_OBJECT.HP) < 0x46
+            ) {
+              // A219 branches before LOOP, preserving CX=20..1.
+              duelEnded = true;
+              break;
+            }
           }
+          if (!duelEnded) round = Math.min(4, round + 1);
         }
-        round = Math.min(4, round + 1);
-      }
 
-      // A23F：HP较低者退回命令0，胜方亮旗。
-      if (
-        session.pool.read8(first, ORIGINAL_OBJECT.HP) <
-        session.pool.read8(second, ORIGINAL_OBJECT.HP)
-      )
-        [first, second] = [second, first];
-      let loserWait = 0x14;
-      if (session.pool.read8(second, ORIGINAL_OBJECT.CURRENT_COMMAND) !== 5) {
-        flag(second, 0x1cc);
-        session.pool.write8(second, ORIGINAL_OBJECT.PENDING_COMMAND, 0);
-      } else {
-        // A251直接跳A264，沿用携带路径的CX；CX=0时LOOP回绕为65536次。
-        loserWait = carryLoopCount || 0x10000;
+        if (
+          session.pool.read8(first, ORIGINAL_OBJECT.HP) <
+          session.pool.read8(second, ORIGINAL_OBJECT.HP)
+        )
+          [first, second] = [second, first];
+
+        if (session.pool.read8(second, ORIGINAL_OBJECT.CURRENT_COMMAND) !== 5) {
+          flag(second, 0x1cc);
+          session.pool.write8(second, ORIGINAL_OBJECT.PENDING_COMMAND, 0);
+          cx = 0x14;
+        }
+        do {
+          yield tick();
+          cx = word(cx - 1);
+        } while (cx !== 0);
+        flag(first, 0x1cd);
+        yield* runFrames(0x14);
       }
-      runFrames(loserWait);
-      flag(first, 0x1cd);
-      runFrames(0x14);
     }
 
     session.pool.write8(first, ORIGINAL_OBJECT.PENDING_COMMAND, 0);
     session.pool.write8(second, ORIGINAL_OBJECT.PENDING_COMMAND, 0);
-    events.push({ type: "startup-sound", side: 0, originalId: 5 });
-    events.push({ type: "startup-sound", side: 1, originalId: 5 });
+    events.push({ type: "startup-input-drain", button: 0 });
+    events.push({ type: "startup-input-drain", button: 1 });
   }
 
   session.registers.startupComplete = true;
   const result = { frames, scriptWordSkip, events };
   handle.originalStartup = result;
   return result;
+}
+
+export function createOriginalBattleStartupStepper(handle, options = {}) {
+  const iterator = originalBattleStartupFrames(handle, options);
+  let done = false;
+  let result = null;
+  return {
+    step() {
+      if (done) return { done: true, advancedFrame: false, result };
+      let next;
+      try {
+        next = iterator.next();
+      } catch (error) {
+        if (!(error instanceof OriginalBattleStartupNonlocalExit)) throw error;
+        done = true;
+        result = error.result;
+        return {
+          done: true,
+          advancedFrame: true,
+          ended: true,
+          displayCommitted: false,
+          result,
+        };
+      }
+      done = next.done;
+      if (done) result = next.value;
+      return done
+        ? {
+            done: true,
+            advancedFrame: false,
+            ended: Boolean(result?.ended),
+            displayCommitted: false,
+            result,
+          }
+        : { done: false, ...next.value };
+    },
+    get done() {
+      return done;
+    },
+    get result() {
+      return result;
+    },
+  };
+}
+
+/** Synchronous compatibility driver for rule fixtures; browser production uses
+ * createOriginalBattleStartupStepper so each yielded A065 can be painted. */
+export function runOriginalBattleStartup(handle, options = {}) {
+  const stepper = createOriginalBattleStartupStepper(handle, options);
+  while (!stepper.step().done) {}
+  return stepper.result;
 }

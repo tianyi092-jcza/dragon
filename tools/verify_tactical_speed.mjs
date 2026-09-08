@@ -26,10 +26,67 @@ budget = consumeTacticalFrameBudget(budget.remainderMs, 1, 2);
 assert.equal(budget.frames, 1);
 assert.ok(Math.abs(budget.remainderMs) < 1e-9);
 budget = consumeTacticalFrameBudget(0, 16.67, 4);
-assert.deepEqual(budget, { frames: 12, remainderMs: 0 });
+assert.deepEqual(
+  budget,
+  { frames: 1, remainderMs: 0 },
+  "highest speed defaults to one complete rule frame per visible RAF",
+);
+budget = consumeTacticalFrameBudget(0, 16.67, 4, 12);
+assert.deepEqual(
+  budget,
+  { frames: 12, remainderMs: 0 },
+  "multi-frame batches require an explicit non-production limit",
+);
 budget = consumeTacticalFrameBudget(0, 0, 4);
 assert.deepEqual(budget, { frames: 0, remainderMs: 0 });
 
+budget = consumeTacticalFrameBudget(0, normal * 20 + 7, 2);
+assert.equal(budget.frames, 1);
+assert.ok(
+  Math.abs(budget.remainderMs - 7) < 1e-9,
+  "a delayed/background frame drops whole missed intervals instead of retaining catch-up debt",
+);
+
+const delayedNormal = consumeTacticalFrameBudget(0, 250, 2);
+assert.equal(delayedNormal.frames, 1);
+assert.ok(Math.abs(normal - 109.85080230844918) < 1e-9);
+assert.ok(
+  Math.abs(delayedNormal.remainderMs - 30.29839538310164) < 1e-9,
+  "a 250ms normal-speed RAF keeps the true modulo phase after advancing once",
+);
+const untilNextNormal = normal - delayedNormal.remainderMs;
+budget = consumeTacticalFrameBudget(
+  delayedNormal.remainderMs,
+  untilNextNormal - 1,
+  2,
+);
+assert.equal(budget.frames, 0, "retained phase is not eligible one millisecond early");
+budget = consumeTacticalFrameBudget(budget.remainderMs, 1, 2);
+assert.equal(budget.frames, 1, "retained phase becomes eligible at the exact next interval");
+assert.ok(Math.abs(budget.remainderMs) < 1e-9);
+
+for (let speed = 0; speed < 5; speed++) {
+  const interval = tacticalFrameIntervalMs(speed);
+  const delayed = consumeTacticalFrameBudget(0, 250, speed);
+  assert.equal(delayed.frames, 1, `speed ${speed}: delayed callback advances at most once`);
+  assert.ok(
+    Math.abs(delayed.remainderMs - (interval === 0 ? 0 : 250 % interval)) < 1e-9,
+    `speed ${speed}: delayed callback retains its true fractional phase`,
+  );
+  for (const unsafeElapsed of [-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
+    assert.deepEqual(
+      consumeTacticalFrameBudget(0, unsafeElapsed, speed),
+      { frames: 0, remainderMs: 0 },
+      `speed ${speed}: negative/nonfinite elapsed time is ignored`,
+    );
+}
+for (const unsafeAccumulator of [-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
+  assert.deepEqual(
+    consumeTacticalFrameBudget(unsafeAccumulator, 1, 2),
+    { frames: 0, remainderMs: 1 },
+    "negative/nonfinite phase is ignored",
+  );
+
 process.stdout.write(
-  "tactical speed OK: YNSOUND 291.304Hz callback and 64/48/32/16/0 IRQ gates\n",
+  "tactical speed OK: original 291.304Hz/64,48,32,16,0 gates; exact 250ms modulo phase; finite nonnegative safety; one-frame RAF cap; no background debt\n",
 );

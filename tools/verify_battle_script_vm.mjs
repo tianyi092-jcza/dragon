@@ -54,10 +54,44 @@ assert.throws(
 {
   const calls = [];
   const vm = new BattleScript([(3 << 8) | 16], {
-    flags: (count) => calls.push(count),
+    winnerState: () => 0,
+    scriptMessage: (selector) => calls.push(selector),
   });
   vm.step();
-  assert.deepEqual(calls, [3], "op16 forwards the C315 repeat count");
+  assert.deepEqual(
+    calls,
+    [0x01d1],
+    "A69F op16 selects TALK 0x1CE+AH and calls C315 at most once",
+  );
+}
+
+{
+  const calls = [];
+  const vm = new BattleScript([(5 << 8) | (2 << 5) | 16], {
+    winnerState: () => 0,
+    scriptMessage: (selector) => calls.push(selector),
+  });
+  vm.step();
+  assert.deepEqual(
+    calls,
+    [],
+    "A69F suppresses op16 when D349 does not match cc",
+  );
+}
+
+{
+  const bases = [];
+  const vm = new BattleScript([(0 << 8) | 2, (1 << 8) | 2, (2 << 8) | 2], {
+    formationBaseX: (x) => bases.push(x),
+  });
+  vm.step();
+  vm.step();
+  vm.step();
+  assert.deepEqual(
+    bases,
+    [0x3a, 0x24, 0x10],
+    "A4AB op2 writes the enemy D33E formation-base X, not a camera mode",
+  );
 }
 
 {

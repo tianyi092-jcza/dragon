@@ -1,4 +1,4 @@
-"""导出KI.EXE CAEB加载的目录/tile、SCH 256B块与MDL 0xF800属性块。"""
+"""导出 KI.EXE CAEB 装载的 214 张地图与三个 MDL 属性块。"""
 
 from __future__ import annotations
 
@@ -8,8 +8,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(__file__).resolve().parents[1] / "web" / "battle_navigation.json"
 MAP_PATH = ROOT / "Dragon" / "BATTLE.MAP"
-SCH_PATH = ROOT / "Dragon" / "BATTLE.SCH"
 MDL_PATH = ROOT / "Dragon" / "BATTLE.MDL"
+MAP_COUNT = 214
+MAP_SIZE = 0x1000
+MAP_BASE = 0x200
+ATTRIBUTE_SIZE = 0x800
+MDL_LAYOUT_SIZE = 0xF800
 
 
 def read_bytes(path: Path) -> bytes:
@@ -21,36 +25,40 @@ def read_bytes(path: Path) -> bytes:
 
 def main() -> None:
     battle_map = read_bytes(MAP_PATH)
-    battle_sch = read_bytes(SCH_PATH)
     battle_mdl = read_bytes(MDL_PATH)
-    if len(battle_map) < 0x1300:
-        raise RuntimeError("BATTLE.MAP is shorter than the directory/tile windows")
-    if len(battle_sch) < 0x300:
-        raise RuntimeError("BATTLE.SCH is shorter than the three 0x100 blocks")
+    expected_map_size = MAP_BASE + MAP_COUNT * MAP_SIZE
+    if len(battle_map) != expected_map_size:
+        raise RuntimeError(f"BATTLE.MAP must contain exactly {expected_map_size} bytes")
+    expected_mdl_size = 0x1000 + 3 * MDL_LAYOUT_SIZE
+    if len(battle_mdl) != expected_mdl_size:
+        raise RuntimeError(f"BATTLE.MDL must contain exactly {expected_mdl_size} bytes")
 
     layouts: dict[str, dict[str, list[int]]] = {}
     for layout in range(3):
-        tile_offset = 0x200 + layout * 0x100
-        attribute_offset = 0x1000 + layout * 0xF800
-        schedule_offset = layout * 0x100
+        attribute_offset = 0x1000 + layout * MDL_LAYOUT_SIZE
         layouts[str(layout)] = {
-            "tiles": list(battle_map[tile_offset : tile_offset + 0x1000]),
-            "schedule": list(battle_sch[schedule_offset : schedule_offset + 0x100]),
             "attributes": list(
-                battle_mdl[attribute_offset : attribute_offset + 0xF800]
-            ),
+                battle_mdl[attribute_offset : attribute_offset + ATTRIBUTE_SIZE]
+            )
         }
+
+    maps: dict[str, list[int]] = {}
+    for directory_index in range(MAP_COUNT):
+        tile_offset = MAP_BASE + directory_index * MAP_SIZE
+        maps[str(directory_index)] = list(
+            battle_map[tile_offset : tile_offset + MAP_SIZE]
+        )
 
     payload = {
         "source": {
             "map": "Dragon/BATTLE.MAP",
-            "schedule": "Dragon/BATTLE.SCH",
             "model": "Dragon/BATTLE.MDL",
-            "loader": "KI.EXE CS:CAEB..CB74",
-            "tileOffset": "0x200 + layout*0x100",
+            "loader": "KI.EXE CS:CAEB..CB71",
+            "tileOffset": "0x200 + directoryIndex*0x1000",
             "attributeOffset": "0x1000 + layout*0xF800",
-            "scheduleOffset": "layout*0x100",
+            "attributeSize": "0x800",
         },
+        "maps": maps,
         "layouts": layouts,
     }
     try:

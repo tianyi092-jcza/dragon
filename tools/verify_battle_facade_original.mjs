@@ -75,7 +75,11 @@ const legion = (leader, faction, troops) => ({
     { directoryIndex: 0xc0, terrainClass: 0, mirror: false },
   );
   assert.equal(battle.session.temps.group(0, 0).remaining, 17);
-  assert.equal(battle.session.registers.side0Active, 8);
+  assert.equal(
+    battle.session.registers.side0Active,
+    0xff,
+    "9ACE diagnostic object count does not replace D31C before first ADC8",
+  );
   assert.equal(
     battle.battleScriptBlock,
     2,
@@ -99,7 +103,7 @@ const legion = (leader, faction, troops) => ({
     leader,
     ORIGINAL_OBJECT.PENDING_COMMAND,
   );
-  assert.notEqual(pendingBefore, 1);
+  assert.notEqual(pendingBefore, 2);
   assert.equal(
     battle.session.pool.read8(child, ORIGINAL_OBJECT.PENDING_COMMAND),
     pendingBefore,
@@ -109,8 +113,8 @@ const legion = (leader, faction, troops) => ({
     step() {
       assert.equal(
         battle.session.pool.read8(leader, ORIGINAL_OBJECT.PENDING_COMMAND),
-        1,
-        "player input is applied before A426",
+        2,
+        "C8E6 hit id9 maps the 突擊 button to original command2 before A426",
       );
       return "run";
     },
@@ -118,11 +122,11 @@ const legion = (leader, faction, troops) => ({
   advanceOriginalScriptFrame(battle, vm);
   assert.equal(
     battle.session.pool.read8(leader, ORIGINAL_OBJECT.CURRENT_COMMAND),
-    1,
+    2,
   );
   assert.equal(
     battle.session.pool.read8(child, ORIGINAL_OBJECT.CURRENT_COMMAND),
-    1,
+    2,
   );
 }
 

@@ -115,6 +115,65 @@ export function applyOriginalPendingCommand(pool, address) {
   return { changed: true, dispatchCommand: pending };
 }
 
+/** C11A/C165/C181/C19D/C27D..C30C/C1B9/C21A/C234 input-stage state.
+ * Returns the accepted leader write, or null. No object writes/RNG here, so the
+ * UI may replay queued inputs on a copy for immediate selection highlighting.
+ */
+export function applyOriginalPanelInput(registers, input, onTalk = null) {
+  switch (input.type) {
+    case "formation-select":
+      registers.selectedFormation = input.index;
+      registers.side0FormationOffset = input.index * 0x60;
+      return null;
+    case "deployment-select":
+      registers.side0FormationBase =
+        (registers.side0FormationBase & 0xff00) | input.baseX;
+      return null;
+    case "group-toggle":
+      registers.selectedGroupMask ^= 1 << input.group;
+      return null;
+    case "battlefield-display-toggle":
+      registers.battlefieldHidden = !registers.battlefieldHidden;
+      if (!registers.battlefieldHidden) registers.mapRedraw = 1;
+      return null;
+    case "tactical-command": {
+      const command = input.commandNumber;
+      if (command === 5) {
+        // C21A/A8F6: side-wide, rejected once either side is retreating.
+        if (registers.winnerState !== 0) return null;
+        registers.winnerState = 1;
+        registers.selectedGroupMask = 0;
+        onTalk?.(0x1af); // C221/A926, only accepted retreat
+        return { command, groups: [0, 1, 2, 3, 4, 5] };
+      }
+      if (registers.winnerState === 1) return null;
+      // Explicit groups are the programmatic equivalent of a D310 selection.
+      const mask =
+        input.groups == null
+          ? registers.selectedGroupMask
+          : input.groups.reduce((value, group) => value | (1 << group), 0);
+      registers.selectedGroupMask = 0; // C1CE xchg precedes the AB4F gate.
+      if (command === 3 && (registers.themeFlag & 0xff) === 0) {
+        onTalk?.(0x1ac); // C211 rejection still speaks, after mask clear
+        return null;
+      }
+      onTalk?.(
+        command === 3 && (registers.battleSideFlag & 0x80) !== 0
+          ? 0x1b6
+          : 0x1b1 + command,
+      );
+      return {
+        command,
+        groups: [0, 1, 2, 3, 4, 5].filter(
+          (group) => ((mask || 0xff) & (1 << group)) !== 0,
+        ),
+      };
+    }
+    default:
+      return null;
+  }
+}
+
 export class OriginalBattleCommandQueue {
   constructor(commands = []) {
     this.commands = [];
@@ -129,6 +188,7 @@ export class OriginalBattleCommandQueue {
     const sequence = suppliedSequence ?? this.nextSequence;
     const item = {
       ...command,
+      ...(command.groups == null ? {} : { groups: [...command.groups] }),
       frame: Math.max(0, command.frame | 0),
       sequence,
     };
@@ -149,6 +209,9 @@ export class OriginalBattleCommandQueue {
   }
 
   snapshot() {
-    return this.commands.map((command) => ({ ...command }));
+    return this.commands.map((command) => ({
+      ...command,
+      ...(command.groups == null ? {} : { groups: [...command.groups] }),
+    }));
   }
 }

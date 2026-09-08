@@ -1,7 +1,5 @@
-// KI.EXE 0xAF65..0xB00C 单对象移动状态机。
-// 目标计算与命令分派在executor完成；本模块负责position→anchor四向/上下层步进、
-// 路径word消费、碰撞边界和B240最终占用提交。全链不自行消费RNG。
-
+// KI.EXE AF65..B00C: AH controls path consumption, CF controls axis fallback.
+// Probes may return CF=0 after a collision without moving the anchor.
 import { calculateOriginalAttackGeometry } from "./originalattack.js";
 import {
   commitOriginalSpatialOccupancy,
@@ -11,97 +9,81 @@ import {
   stepOriginalUp,
 } from "./originalmovement.js";
 import { executeOriginalNextPathWord } from "./originalpathqueue.js";
-import { ORIGINAL_OBJECT } from "./originalstate.js";
+import { ORIGINAL_OBJECT as O } from "./originalstate.js";
 
-function cardinalDirection(pool, address) {
-  const anchorX = pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X);
-  const anchorY = pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y);
-  const positionX = pool.read8(address, ORIGINAL_OBJECT.POSITION_X);
-  const positionY = pool.read8(address, ORIGINAL_OBJECT.POSITION_Y);
-  // AF6E..AFF5：+6/+8锚点逐格趋近+10/+11位置。
-  // anchor大于position时走B047/B08B递减，小于时走B069/B0AF递增。
-  if (anchorX > positionX) return "west";
-  if (anchorX < positionX) return "east";
-  if (anchorY > positionY) return "north";
-  if (anchorY < positionY) return "south";
-  return null;
-}
-
-function collisionHandler(session, options) {
-  return (attackerAddress, collisionId) =>
-    session.collide(attackerAddress, collisionId, options?.collisionOptions);
-}
-
-/** AF69：AH=1常态更新；AF65等价可传consumePath=false。 */
+/** AF69 starts AH=1; AF65 starts AH=0. Neither path adds RNG outside probes. */
 export function updateOriginalObjectMovement(
   session,
   address,
   { consumePath = true, commit = true, collisionOptions = null } = {},
 ) {
   const pool = session.pool;
-  pool.write8(
-    address,
-    ORIGINAL_OBJECT.FLAGS,
-    pool.read8(address, ORIGINAL_OBJECT.FLAGS) | 0x20,
-  );
-  const collision = collisionHandler(session, { collisionOptions });
-  const direction = cardinalDirection(pool, address);
+  const read = (field) => pool.read8(address, field);
+  const write = (field, value) => pool.write8(address, field, value);
+  const collision = (attacker, id) => session.collide(attacker, id, collisionOptions);
+  let mayConsume = consumePath;
+  let path = null;
   let step = null;
-  if (direction) {
-    step = stepOriginalCardinal(pool, address, direction, {
-      probe: ({ spatial: candidate }) =>
-        probeOriginalCardinalSpatial(pool, address, candidate, {
-          spatial: session.spatial,
-          enqueue: () => session.enqueuePath(address),
-        }),
-      collision,
+  const finishStep = () => {
+    if (step.moved && !step.occupancy && commit)
+      step.occupancy = commitOriginalSpatialOccupancy(pool, session.spatial, address);
+    return { moved: step.moved, step, path };
+  };
+  const cardinal = (direction) => stepOriginalCardinal(pool, address, direction, {
+    probe: ({ spatial: candidate }) => probeOriginalCardinalSpatial(pool, address, candidate, {
       spatial: session.spatial,
-      commit,
-    });
-  } else if (pool.read8(address, ORIGINAL_OBJECT.CLASS) > 0x12) {
-    const level = pool.read8(address, ORIGINAL_OBJECT.LEVEL);
-    const positionLevel = pool.read8(address, ORIGINAL_OBJECT.POSITION_LEVEL);
-    if (level < positionLevel)
-      step = stepOriginalUp(pool, address, {
-        spatial: session.spatial,
-        collision,
-      });
-    else if (level > positionLevel)
-      step = stepOriginalDown(pool, address, {
-        spatial: session.spatial,
-        collision,
-      });
-  }
+      enqueue: () => session.enqueuePath(address),
+    }),
+    collision,
+    spatial: session.spatial,
+    commit,
+  });
 
-  if (step?.moved && step.committed && commit)
-    step.occupancy = commitOriginalSpatialOccupancy(
-      pool,
-      session.spatial,
-      address,
-    );
-  else if (step?.moved && !step.occupancy && commit)
-    step.occupancy = commitOriginalSpatialOccupancy(
-      pool,
-      session.spatial,
-      address,
-    );
-  if (step?.moved) return { moved: true, step, path: null };
-
-  if (
-    consumePath &&
-    pool.read8(address, ORIGINAL_OBJECT.PATH_REMAINING) !== 0
-  ) {
-    const path = executeOriginalNextPathWord(pool, session.paths, address);
-    if (!path.carry) return { moved: false, step, path };
-  }
-
-  const flags = pool.read8(address, ORIGINAL_OBJECT.FLAGS);
-  pool.write8(address, ORIGINAL_OBJECT.FLAGS, flags & 0xdf);
-  if (consumePath) {
-    session.enqueuePath(address);
+  // At most one B00D succeeds: AF99 then re-enters AF65 with AH=0.
+  for (;;) {
+    write(O.FLAGS, read(O.FLAGS) | 0x20);
+    if (read(O.ANCHOR_X) !== read(O.POSITION_X)) {
+      step = cardinal(read(O.ANCHOR_X) > read(O.POSITION_X) ? "west" : "east");
+      mayConsume = false; // AFE0/AFE8, regardless of CF.
+      if (!step.carry) return finishStep();
+    }
+    if (read(O.ANCHOR_Y) !== read(O.POSITION_Y)) {
+      step = cardinal(read(O.ANCHOR_Y) > read(O.POSITION_Y) ? "north" : "south");
+      mayConsume = false;
+      if (!step.carry) return finishStep();
+    }
+    if (read(O.CLASS) > 0x12 && read(O.LEVEL) !== read(O.POSITION_LEVEL)) {
+      step = (read(O.LEVEL) < read(O.POSITION_LEVEL) ? stepOriginalUp : stepOriginalDown)(
+        pool, address, { spatial: session.spatial, collision },
+      );
+      mayConsume = false;
+      if (!step.carry) return finishStep();
+    }
+    if (!mayConsume) {
+      // AFD0 is the only AF69 terminal branch which calls C653.
+      write(O.FLAGS, read(O.FLAGS) & 0xdf);
+      session.enqueuePath(address);
+      const geometry = calculateOriginalAttackGeometry(pool, address);
+      write(O.DIRECTION, geometry.direction);
+      return { moved: false, step, path, queued: true, geometry };
+    }
+    path = executeOriginalNextPathWord(pool, session.paths, address); // even when remaining=0
+    if (!path.carry) {
+      mayConsume = false;
+      continue; // AF99 -> AF65: move toward the new word in this same call.
+    }
     const geometry = calculateOriginalAttackGeometry(pool, address);
-    pool.write8(address, ORIGINAL_OBJECT.DIRECTION, geometry.direction);
-    return { moved: false, step, path: null, queued: true, geometry };
+    if (geometry.distance === 1 && read(O.TARGET_X) === read(O.ANCHOR_X) &&
+        read(O.TARGET_Y) === read(O.ANCHOR_Y)) {
+      // AFB0..AFBC: chase adjacent target; direction is deliberately unchanged.
+      write(O.POSITION_X, pool.read8(geometry.target, O.ANCHOR_X));
+      write(O.POSITION_Y, pool.read8(geometry.target, O.ANCHOR_Y));
+      write(O.POSITION_LEVEL, pool.read8(geometry.target, O.LEVEL));
+    } else {
+      write(O.DIRECTION, geometry.direction);
+      pool.write16(address, O.POSITION_X, pool.read16(address, O.TARGET_X));
+    }
+    write(O.FLAGS, read(O.FLAGS) & 0xdf);
+    return { moved: false, step, path, queued: false, geometry };
   }
-  return { moved: false, step, path: null, queued: false };
 }

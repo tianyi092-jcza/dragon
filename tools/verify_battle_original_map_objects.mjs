@@ -28,6 +28,8 @@ const { OriginalBattleSpatialMemory } = await import(
   tiles[2 * 0x40 + 3] = 0xd0;
   tiles[3 * 0x40 + 3] = 0xd1;
   tiles[8 * 0x40 + 9] = 0xf2;
+  spatial.write8(0x7000 + 2 * 0x40 + 3, 0x71);
+  spatial.write8(0x7000 + 8 * 0x40 + 9, 0x42);
   const result = initializeOriginalMapObjects(mapObjects, spatial, tiles, {
     cityTroops: 20,
     mode: 0,
@@ -40,13 +42,18 @@ const { OriginalBattleSpatialMemory } = await import(
   assert.equal(mapObjects.read8(wall, ORIGINAL_MAP_OBJECT.SPAN), 2);
   assert.equal(mapObjects.read16(wall, ORIGINAL_MAP_OBJECT.METRIC), 700);
   assert.equal(spatial.read8(2 * 0x40 + 3) & 0x7f, 0x61);
-  assert.equal(spatial.read8(0x7000 + 2 * 0x40 + 3), 0x64);
+  assert.equal(spatial.read8(0x9000 + 2 * 0x40 + 3), 0x64);
 
   const obstacle = mapObjects.address(1);
   assert.equal(mapObjects.read16(obstacle, ORIGINAL_MAP_OBJECT.FLAGS), 0x0280);
   assert.equal(mapObjects.read16(obstacle, ORIGINAL_MAP_OBJECT.METRIC), 0x50);
   assert.notEqual(spatial.read8(8 * 0x40 + 9 + 0x2000), 0);
-  assert.equal(spatial.read8(0x7000 + 8 * 0x40 + 9), 0x32);
+  assert.equal(spatial.read8(0x9000 + 8 * 0x40 + 9), 0x32);
+  assert.equal(spatial.read8(0x7000 + 2 * 0x40 + 3), 0x71);
+  assert.equal(spatial.read8(0x7000 + 8 * 0x40 + 9), 0x42);
+  rewriteOriginalMapObjectRowB799(mapObjects, spatial, wall);
+  assert.equal(spatial.read8(0x9000 + 2 * 0x40 + 3), 0);
+  assert.equal(spatial.read8(0x7000 + 2 * 0x40 + 3), 0x71, "B87F never clears D2FC");
 }
 
 {

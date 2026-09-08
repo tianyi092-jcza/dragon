@@ -97,7 +97,10 @@ function fixture(playerFaction = 0) {
   assert.equal(clock.hold, true);
   assert.equal(scenario.diplomacy[1][0] >= 0x80, true);
   assert.equal(
-    bar.generalCard.lines.flat().map((part) => part.text).join(""),
+    bar.generalCard.lines
+      .flat()
+      .map((part) => part.text)
+      .join(""),
     "呂布對我方發出宣戰布告。",
   );
   fireOnlyTimer();

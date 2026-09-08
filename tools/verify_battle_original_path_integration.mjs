@@ -18,7 +18,8 @@ const address = originalObjectAddress(0, 0, 1);
 session.pool.write8(address, ORIGINAL_OBJECT.FLAGS, 0x80);
 session.pool.write8(address, ORIGINAL_OBJECT.CLASS, 1);
 session.pool.write8(address, ORIGINAL_OBJECT.CURRENT_COMMAND, 1);
-session.pool.write16(address, ORIGINAL_OBJECT.ANCHOR_X, 0x0101);
+session.pool.write8(address, ORIGINAL_OBJECT.ANCHOR_X, 1);
+session.pool.write8(address, ORIGINAL_OBJECT.ANCHOR_Y, 1); // AEF9 reads +8, not previousX +7.
 session.pool.write8(address, ORIGINAL_OBJECT.TARGET_X, 4);
 session.pool.write8(address, ORIGINAL_OBJECT.TARGET_Y, 1);
 session.enqueuePath(address);
@@ -43,9 +44,9 @@ const result = session.tick({
 const pathEvent = result.events.find((event) => event.type === "path-frames");
 assert.ok(pathEvent);
 assert.equal(pathEvent.paths[0].built.carry, false);
-assert.deepEqual(pathEvent.paths[0].built.words, [0x0102, 0x0103, 0x0104]);
-assert.equal(session.pool.read16(address, ORIGINAL_OBJECT.POSITION_X), 0x0102);
-assert.equal(session.pool.read8(address, ORIGINAL_OBJECT.PATH_REMAINING), 2);
+assert.deepEqual(pathEvent.paths[0].built.words, [0x0104]); // Raw BE75 compression.
+assert.equal(session.pool.read16(address, ORIGINAL_OBJECT.POSITION_X), 0x0104);
+assert.equal(session.pool.read8(address, ORIGINAL_OBJECT.PATH_REMAINING), 0);
 assert.equal(session.rng.calls, 0);
 
 process.stdout.write(

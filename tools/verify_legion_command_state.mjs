@@ -250,7 +250,39 @@ function tick(sc, rng = null) {
   assert.equal(L.commandState, 1);
 }
 
-// 0x44A9：状态10锁定首都；抵达后无总兵门槛，直接进入9并同轮按预备兵重编到状态3。
+// 玩家普通行军指示写状态0；不足600且实际抵达首都时先转9，下一槽按
+// 六队兵种从预备池重编并转3。不能把正式路径留给commandState缺失旁路。
+{
+  const sc = makeScenario();
+  sc.player_faction = 0;
+  const L = legion({
+    target: sc.cities[0],
+    targetCity: 0,
+    x: sc.cities[0].x,
+    y: sc.cities[0].y,
+    targetNode: 0,
+    roadEdgeOrNode: 0,
+    commandState: 0,
+    troops: 300,
+  });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 9);
+  assert.equal(L.troops, 300, "状态0抵都槽只转9，不在同槽抢先重编");
+  tick(sc);
+  assert.equal(L.commandState, 3);
+  assert.equal(L.troops, 600);
+  assert.deepEqual(
+    [
+      sc.factions[0].reserve_cav,
+      sc.factions[0].reserve_arc,
+      sc.factions[0].reserve_inf,
+    ],
+    [0, 0, 0],
+  );
+}
+
+// 0x44A9：状态10锁定首都；抵达后无总兵门槛，直接进入9并在后续槽按预备兵重编。
 {
   const sc = makeScenario();
   const L = legion({

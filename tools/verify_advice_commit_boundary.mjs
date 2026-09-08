@@ -37,7 +37,11 @@ function onlyTimer() {
   return { id, timer };
 }
 
-function fixture({ betterRelocation = true, deploying = false, deployable = true } = {}) {
+function fixture({
+  betterRelocation = true,
+  deploying = false,
+  deployable = true,
+} = {}) {
   const me = {
     idx: 0,
     active: true,
@@ -177,7 +181,13 @@ function fixture({ betterRelocation = true, deploying = false, deployable = true
   scheduled.clear();
   const { bar, clock } = fixture({ deploying: true });
   await bar.showMonarchDeployAudience();
-  assert.equal(bar.generalCard.lines.flat().map((part) => part.text).join(""), "TALK64");
+  assert.equal(
+    bar.generalCard.lines
+      .flat()
+      .map((part) => part.text)
+      .join(""),
+    "TALK64",
+  );
   assert.equal(clock.hold, true);
   const [, stale] = [...scheduled.entries()][0];
   bar.closeGeneralCard();

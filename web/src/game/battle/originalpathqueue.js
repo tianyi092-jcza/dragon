@@ -165,14 +165,17 @@ export function consumeOriginalPathQueue(
       pool.write8(
         address,
         ORIGINAL_OBJECT.POSITION_LEVEL,
-        spatial.read8(mapIndex) & 7,
+        spatial.heightDescriptor(mapIndex) & 7, // D2FC, not D2FA occupancy.
       );
     }
     const classValue = pool.read8(address, ORIGINAL_OBJECT.CLASS);
     const command = pool.read8(address, ORIGINAL_OBJECT.CURRENT_COMMAND);
     const request = {
       address,
-      current: pool.read16(address, ORIGINAL_OBJECT.ANCHOR_X),
+      // AEF6/AEF9 pack nonadjacent +6/+8, never +6/+7.
+      current:
+        pool.read8(address, ORIGINAL_OBJECT.ANCHOR_X) |
+        (pool.read8(address, ORIGINAL_OBJECT.ANCHOR_Y) << 8),
       target: pool.read16(address, ORIGINAL_OBJECT.TARGET_X),
       layer: pool.read8(address, ORIGINAL_OBJECT.HEIGHT),
       mask: classValue > 0x12 ? 0x74 : 0xeb,

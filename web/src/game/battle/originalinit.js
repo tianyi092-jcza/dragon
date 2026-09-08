@@ -215,6 +215,8 @@ function writeGroupTemplate(pool, temps, side, group, commander, mode) {
     pool.write8(address, ORIGINAL_OBJECT.CLASS, values.classByte);
     pool.write8(address, ORIGINAL_OBJECT.POWER, values.power);
     pool.write8(address, ORIGINAL_OBJECT.STATUS_TIME, 0x80);
+    // 9BCE写word 0001：+1A current=1，邻接+1B pending=0；首帧
+    // A7B7/A7FD因此切到命令0（阵形），不是敌我双方默认自动攻击。
     pool.write16(address, ORIGINAL_OBJECT.CURRENT_COMMAND, 1);
   }
 }

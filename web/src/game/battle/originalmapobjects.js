@@ -137,7 +137,7 @@ function initializeWalls9CE2(
         const marker = collisionId | 0x80;
         for (const plane of [0, 0x1000, 0x2000, 0x3000])
           spatial.write8(source + plane, marker);
-        spatial.write8(0x7000 + source, 0x64);
+        spatial.writePathSurcharge(source, 0, 0x64); // 9D6C: D2FA:+9000
       }
       if (!isWall && current != null) {
         mapObjects.write8(current, ORIGINAL_MAP_OBJECT.SPAN, span);
@@ -177,7 +177,7 @@ function initializeF0Objects9DA1(
       mapObjects.write8(address, ORIGINAL_MAP_OBJECT.SPAN, 1);
       spatial.write8(source + 0x2000, collisionId);
       spatial.write8(source + 0x5000, collisionId);
-      spatial.write8(source + 0x7000, 0x32);
+      spatial.writePathSurcharge(source, 0, 0x32); // 9DE8: D2FA:+9000
       address += 0x20;
       collisionId = nextCollisionId(collisionId);
     }
@@ -285,12 +285,15 @@ function refreshOriginalTilePassability(spatial, index, tile) {
     const current = spatial.read8(address);
     spatial.write8(
       address,
-      value === 0 || value >= 0x70 ? current & 0x7f : current | 0x80,
+      // BB7F/BB81: tile 0 skips the attribute read and sets all seven bits.
+      base === 0 || (value !== 0 && value < 0x70)
+        ? current | 0x80
+        : current & 0x7f,
     );
   }
 }
 
-/** B824：对象span个tile逐项改写、事件4/5、BB6D bit7刷新、六平面清ID。 */
+/** B824：改tile→BB6D七物理面bit7→前六面写0→低surcharge清0；D2FC不改。 */
 export function rewriteOriginalMapObjectTilesB824(
   mapObjects,
   spatial,
@@ -313,9 +316,11 @@ export function rewriteOriginalMapObjectTilesB824(
     const tileAfter = (tileBefore + (tileBefore < 0xf0 ? 0x10 : 0x08)) & 0xff;
     spatial.writeTile(index, tileAfter);
     refreshOriginalTilePassability(spatial, index, tileAfter);
+    // B861..B87A XOR AL,AL / MOV: erase terrain bit7 as well as occupancy IDs.
+    // Plane 6000 retains BB6D's result; neither D2FC descriptor plane is rebuilt.
     for (const plane of [0, 0x1000, 0x2000, 0x3000, 0x4000, 0x5000])
-      spatial.write8(index + plane, spatial.read8(index + plane) & 0x80);
-    spatial.write8(0x7000 + index, 0);
+      spatial.write8(index + plane, 0);
+    spatial.writePathSurcharge(index, 0, 0); // B87F; do not erase D2FC descriptor
     tileChanges.push({ index, tileBefore, tileAfter, eventId });
     events.push({
       type: "map-tile-changed",
@@ -354,7 +359,13 @@ export function rewriteOriginalMapObjectRowB799(
     tileChanges.push(...rewrite.tileChanges);
     events.push(...rewrite.events);
   }
-  return { targetY, rewritten, tileChanges, events, redraw: true };
+  return {
+    targetY,
+    rewritten,
+    tileChanges,
+    events,
+    redraw: rewritten.length > 0,
+  };
 }
 
 /** B7CB：命令2切换时，D35 bit7门控玩家对象侧；扫描前16槽kind1墙。 */
@@ -403,11 +414,12 @@ export function sweepOriginalWallObjectsB7CB(
       source: "B7CB",
     });
   }
-  if (registers) registers.mapRedraw = 1;
+  // Only B824/B89D writes D348; an empty/skipped sweep does not request redraw.
+  if (registers && destroyed.length) registers.mapRedraw = 1;
   return { executed: true, destroyed, events };
 }
 
-/** B5B7：metric已为0才调用B824；随后caller清对象bit7。碰撞全链0 RNG。 */
+/** B5B7：mode0侧别早退/方向归零先于active门控；零metric扫同Y，非零只减1。0 RNG。 */
 export function resolveOriginalMapObjectCollision(
   mapObjects,
   spatial,
@@ -421,20 +433,28 @@ export function resolveOriginalMapObjectCollision(
     targetAddress >= ORIGINAL_MAP_OBJECT_LIMIT
   )
     return { handled: false, events: [] };
-  if (!mapObjects.isActive(targetAddress))
-    return { handled: true, active: false, events: [] };
-
   let metric = mapObjects.read16(targetAddress, ORIGINAL_MAP_OBJECT.METRIC);
   if ((registers?.mode ?? 0) === 0) {
     const sideFlag = (registers?.battleSideFlag ?? 0) & 0x80;
     const attackerSide = attackerAddress >= 0x600 ? 0x80 : 0;
+    // B5CB/B5DE go straight to B612/C653: no hit or metric decrement.
+    if (attackerSide !== sideFlag)
+      return {
+        handled: true,
+        active: mapObjects.isActive(targetAddress),
+        metric,
+        destroyed: false,
+        events: [],
+      };
     const direction = attackerPool.read8(attackerAddress, 0x05);
-    if (
-      (sideFlag === 0 && attackerSide === 0 && direction === 0) ||
-      (sideFlag !== 0 && attackerSide !== 0 && direction === 2)
-    )
+    if (direction === (sideFlag === 0 ? 0 : 2)) {
       metric = 0;
+      // B5D3/B5E6 write the actual word even if B5EB then finds inactive.
+      mapObjects.write16(targetAddress, ORIGINAL_MAP_OBJECT.METRIC, 0);
+    }
   }
+  if (!mapObjects.isActive(targetAddress))
+    return { handled: true, active: false, metric, events: [] };
 
   let destroyed = false;
   let rewrite = { tileChanges: [], events: [], redraw: false };
@@ -450,7 +470,7 @@ export function resolveOriginalMapObjectCollision(
       ORIGINAL_MAP_OBJECT.FLAGS,
       mapObjects.read8(targetAddress, ORIGINAL_MAP_OBJECT.FLAGS) & 0x7f,
     );
-    if (registers) registers.mapRedraw = 1;
+    if (registers && rewrite.redraw) registers.mapRedraw = 1;
   } else {
     metric--;
     mapObjects.write16(targetAddress, ORIGINAL_MAP_OBJECT.METRIC, metric);
@@ -462,6 +482,11 @@ export function resolveOriginalMapObjectCollision(
     destroyed,
     ...rewrite,
     collisionId: encodeOriginalCollisionAddress(targetAddress),
+    // B601/B609/B60F: only the nonzero-metric decrement branch calls C407.
+    wallMessage:
+      !destroyed &&
+      (registers?.mode ?? 0) === 0 &&
+      mapObjects.read8(targetAddress, ORIGINAL_MAP_OBJECT.KIND) === 1,
     events: [
       ...rewrite.events,
       {

@@ -64,7 +64,7 @@ export function calculateOriginalAttackGeometry(pool, address) {
   const dy = Math.abs(ay - ty);
   const useX = dx >= dy;
   let direction;
-  if (useX) direction = ax >= tx ? 1 : 2;
+  if (useX) direction = ax >= tx ? 0 : 2;
   else direction = ay < ty ? 3 : 1;
   const rawLevelDelta = u8(
     pool.read8(target, ORIGINAL_OBJECT.LEVEL) -
@@ -89,13 +89,14 @@ export function adjustOriginalProjectileTarget(
   const step = levelDelta >= 0 ? 10 + u8(levelDelta) : 0;
   let x = pool.read8(target, ORIGINAL_OBJECT.ANCHOR_X);
   let y = pool.read8(target, ORIGINAL_OBJECT.ANCHOR_Y);
-  if (direction === 1) {
+  // AD01 table: AD09=X+, AD12=Y+, AD1B=X-, AD24=Y-.
+  if (direction === 0) {
     if (x <= 0x36) x = u8(x + step);
+  } else if (direction === 1) {
+    if (y <= 0x36) y = u8(y + step);
   } else if (direction === 2) {
     if (x >= 0x0a) x = u8(x - step);
-  } else if (direction === 3) {
-    if (y <= 0x36) y = u8(y + step);
-  } else if (y >= 0x0a) y = u8(y - step);
+  } else if (direction === 3 && y >= 0x0a) y = u8(y - step);
   pool.write8(address, ORIGINAL_OBJECT.TARGET_X, x);
   pool.write8(address, ORIGINAL_OBJECT.TARGET_Y, y);
   return { x, y, step };

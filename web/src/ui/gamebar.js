@@ -29,6 +29,7 @@ import {
   findRoadRoute,
   roadGraphReady,
   roadNodeAt,
+  roadNodeRawAddress,
 } from "../game/roadgraph.js";
 import { isLegionDelegated, setLegionDelegated } from "../game/legionmode.js";
 import { canSnapshotState } from "../game/savegame.js";
@@ -48,6 +49,7 @@ import {
   TACTICAL_SPEED_FACTORS,
   TACTICAL_SPEED_LABELS,
 } from "../game/tacticalclock.js";
+import { POPUP_FONT_PX } from "./battlepanels.js";
 
 const LIST_HEADER_HEIGHT = 24;
 // 编成窗口内部按钮顺序为骑→步→弓；写入二进制兵种码时必须映射为
@@ -64,8 +66,8 @@ import {
   settleFactionNegotiation,
 } from "../game/ai.js";
 
-const FONT = '16px "Noto Serif TC","PMingLiU",serif';
-const DIN = '300 16px "Oswald","Noto Serif TC","PMingLiU",serif';
+const FONT = `${POPUP_FONT_PX}px "Noto Serif TC","PMingLiU",serif`;
+const DIN = `300 ${POPUP_FONT_PX}px "Oswald","Noto Serif TC","PMingLiU",serif`;
 const NAVY = "#002266";
 const GOLD = "#cc8822";
 const CREAM = "#ffdd99";
@@ -1242,7 +1244,13 @@ export class GameBar {
   assignMarchOrder(legion, targetCity, delegated) {
     if (!this.legionAcceptsMarchOrder(legion, true)) return false;
     legion.target = targetCity;
+    legion.targetCity = targetCity.idx;
     legion.targetNode = roadNodeAt(targetCity.x, targetCity.y)?.id ?? null;
+    // 0x7F90→0x4155：玩家普通行军指示建立新的常规命令；不能保留
+    // 战后状态8，否则返都后会先长期等待士气而跳过0x4370低兵补员门。
+    legion.commandState = 0;
+    legion.status = (legion.status ?? 0x80) | 0x02;
+    delete legion._aiOrdered;
     setLegionDelegated(legion, delegated);
     legion.cooldown = 1;
     return true;
@@ -2471,6 +2479,7 @@ export class GameBar {
           p.monarch.status = 1;
           p.monarch.is_monarch = true;
           if (!sc.legions) sc.legions = [];
+          const capitalNode = roadNodeAt(cap.x, cap.y);
           const newLegion = {
             leader: p.monarch.name,
             generalIdx: p.monarch.idx,
@@ -2484,9 +2493,15 @@ export class GameBar {
             morale: factionLegionMoraleCap(me),
             formation: 1,
             target: null,
+            targetCity: cap.idx,
+            targetNode: capitalNode?.id ?? null,
+            _currentNode: capitalNode?.id ?? null,
+            roadEdgeOrNode: roadNodeRawAddress(capitalNode?.id),
+            commandState: 0,
             status: 0x80,
             delegated: false,
             cooldown: 0,
+            _active: true,
             units: DEFAULT_LEGION_UNIT_TYPES.map((type) => ({
               type,
               troops: 1000,
@@ -4724,6 +4739,7 @@ export class GameBar {
 
     // 4. 创建新军团并驻守在首都（初始无目标据点 target: null，默认战斗指挥 delegated: false）
     sc.legions = sc.legions || [];
+    const capitalNode = roadNodeAt(cap.x, cap.y);
     const newLegion = {
       leader: gen.name,
       generalIdx: gen.idx,
@@ -4736,9 +4752,15 @@ export class GameBar {
       morale: factionLegionMoraleCap(fac),
       formation: 1,
       target: null,
+      targetCity: cap.idx,
+      targetNode: capitalNode?.id ?? null,
+      _currentNode: capitalNode?.id ?? null,
+      roadEdgeOrNode: roadNodeRawAddress(capitalNode?.id),
+      commandState: 0,
       status: 0x80,
       delegated: false,
       cooldown: 0,
+      _active: true,
       units: units.map((u) => ({
         type: FORMATION_TYPE_TO_LEGION_TYPE[u.type],
         troops: u.troops,
@@ -5874,6 +5896,13 @@ export class GameBar {
         this.settingsOpen = false;
         this.syncClock(); // 开始计时!
         this.app.view.draw();
+        return true;
+      }
+      // System dialogs/settings stay above tactical speech in the global
+      // hierarchy. Consume even an empty battle click; never reach the map or
+      // manufacture native local message input (IDs27/28/29).
+      if (this.app.battleView?.active) {
+        this.app.battleView.dismissBattleDialogue?.();
         return true;
       }
       if (this.orderChoiceMenu || this.marchingOrder) {

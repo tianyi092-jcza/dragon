@@ -11,6 +11,7 @@ export const TAX_MIN = 0,
 import { tickEnvoys } from "./diplomacy.js";
 import { createDefaultLegionUnits, ensureLegionSlot } from "./legionunits.js";
 import { applyFactionFundsDelta, factionLegionMoraleCap } from "./economy.js";
+import { roadNodeAt } from "./roadgraph.js";
 
 /** 初始化玩家槽位(原版剧本头 FF=未指定 → 默认势力0/信赖100); 在 setScenario 时调 */
 export function initPlayer(sc) {
@@ -209,10 +210,17 @@ export function dispatch(sc, fromCity, targetCity) {
     morale: factionLegionMoraleCap(f),
     cooldown: 2,
     target: targetCity,
+    targetCity: targetCity.idx,
+    targetNode: roadNodeAt(targetCity.x, targetCity.y)?.id ?? null,
+    commandState: 0,
+    status: 0x82,
+    delegated: false,
+    _active: true,
     formation: 1, // Web编成UI字段；CBE5权威值是主将general[+0x16]
   };
   ensureLegionSlot(sc.legions, legion, gen.idx);
   sc.legions.push(legion);
+  gen.status = 1;
   return { ok: `${f.monarch}軍自${fromCity.name}出征${targetCity.name}` };
 }
 

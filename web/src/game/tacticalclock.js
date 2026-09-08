@@ -31,18 +31,29 @@ export function consumeTacticalFrameBudget(
   accumulatorMs,
   elapsedMs,
   speed,
-  maxFrames = 12,
+  maxFrames = 1,
 ) {
-  const elapsed = Math.max(0, Number(elapsedMs) || 0);
+  const rawElapsed = Number(elapsedMs);
+  const elapsed =
+    Number.isFinite(rawElapsed) && rawElapsed >= 0 ? rawElapsed : 0;
   const limit = Math.max(0, Math.trunc(Number(maxFrames) || 0));
   const intervalMs = tacticalFrameIntervalMs(speed);
   if (intervalMs === 0) {
     return { frames: elapsed > 0 ? limit : 0, remainderMs: 0 };
   }
-  const accumulated = Math.max(0, Number(accumulatorMs) || 0) + elapsed;
-  const frames = Math.min(limit, Math.floor(accumulated / intervalMs));
+  const rawAccumulator = Number(accumulatorMs);
+  const accumulator =
+    Number.isFinite(rawAccumulator) && rawAccumulator >= 0 ? rawAccumulator : 0;
+  const accumulated = accumulator + elapsed;
+  const available = Math.floor(accumulated / intervalMs);
+  const frames = Math.min(limit, available);
   return {
     frames,
-    remainderMs: accumulated - frames * intervalMs,
+    // A throttled/background RAF must not leave a hidden backlog that drains as
+    // one rule frame on every later paint. Keep only the fractional phase.
+    remainderMs:
+      available > limit
+        ? accumulated % intervalMs
+        : accumulated - frames * intervalMs,
   };
 }

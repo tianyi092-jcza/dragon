@@ -1,8 +1,11 @@
 // 战术战斗稳定入口。Canvas布局DTO仅供投影；所有规则状态由OriginalBattleSession写入。
 
 import {
+  BATTLE_SCENE_HEIGHT,
+  BATTLE_SCENE_WIDTH,
   FIELD,
   TACTICAL_UNIT_TYPES,
+  battleCellToScene,
   createFieldProjection,
   createSiegeProjection,
 } from "./battle/battleprojection.js";
@@ -13,13 +16,9 @@ import {
 } from "./battle/originalinit.js";
 import { legionBattleUnits } from "./autobattle.js";
 import { generalForLegion } from "./legionunits.js";
-import {
-  broadcastOriginalGroupCommand,
-  startOriginalFormation,
-} from "./battle/originalcommands.js";
+import { applyOriginalPanelInput } from "./battle/originalcommands.js";
 import {
   ORIGINAL_OBJECT,
-  ORIGINAL_SIDE_SIZE,
   originalObjectAddress,
 } from "./battle/originalstate.js";
 import {
@@ -28,11 +27,19 @@ import {
 } from "./battle/originalnavigation.js";
 import { createOriginalPathBuilder } from "./battle/originalpathfinder.js";
 import { updateOriginalObjectMovement } from "./battle/originalmoveframe.js";
-import { runOriginalBattleStartup } from "./battle/originalstartup.js";
+import {
+  createOriginalBattleStartupStepper,
+  runOriginalBattleStartup,
+} from "./battle/originalstartup.js";
+import { originalTalkContext } from "./battle/originalmessages.js";
 
-export { FIELD, TACTICAL_UNIT_TYPES };
-
-export const ORIGINAL_TACTICAL_FPS = 60;
+export {
+  BATTLE_SCENE_HEIGHT,
+  BATTLE_SCENE_WIDTH,
+  FIELD,
+  TACTICAL_UNIT_TYPES,
+  battleCellToScene,
+};
 
 function generalOf(sc, legion) {
   return generalForLegion(sc, legion);
@@ -96,17 +103,25 @@ function createHandle(
   let scriptVariant = Math.min(3, mode + 1);
   if (mode === 0) scriptVariant = playerSide === "def" ? 0 : 1;
   const battleScriptBlock = opponentFormation * 4 + scriptVariant;
-  // 4B63返回CH只含镜像bit6；4E8F/4F16仅追加bit7/bit6，故D35低四位恒0。
+  // 野战4B63的反向组合置bit6；攻城玩家守方4F16同时置bit7/bit6。
+  // bit6由CB9B直接变换地图字节，Canvas不得再做第二次镜像。
+  const mapMirrored =
+    Boolean(view.mirror) || (mode === 0 && playerSide === "def");
+  const resolvedTheme =
+    mapMirrored && (view.theme ?? 0) !== 0
+      ? 0x3f - (view.theme & 0xff)
+      : (view.theme ?? 0);
   const battleSideFlag =
-    (view.mirror ? 0x40 : 0x00) | (playerSide === "def" ? 0x80 : 0x00);
+    (mapMirrored ? 0x40 : 0x00) | (playerSide === "def" ? 0x80 : 0x00);
   const session = new OriginalBattleSession({
     tempBytes: temps.snapshot(),
     rngSnapshot,
+    talkContext: originalTalkContext(sc, sideLegions),
     registers: {
       mode,
       // D35 bit6=野战地图镜像，bit7=玩家所在战场侧；低四位由完整写入链证明恒0。
       battleSideFlag,
-      themeFlag: view.theme ?? 0,
+      themeFlag: resolvedTheme,
       side0FormationBase: 0x2005,
       side1FormationBase: 0x203a,
     },
@@ -122,12 +137,17 @@ function createHandle(
   const navigationAssets = navigationAssetsForLayout(
     battleMaps?.navigation,
     view.layout ?? 0,
-    { mirror: Boolean(view.mirror) },
+    {
+      directoryIndex: view.directoryIndex ?? 0,
+      mirror: mapMirrored,
+    },
   );
   const originalNavigation =
     createOriginalNavigationFromAssets(navigationAssets);
   const handle = Object.assign(view, {
     originalRules: true,
+    mirror: mapMirrored,
+    theme: resolvedTheme,
     playerSide,
     battleScriptBlock,
     session,
@@ -141,12 +161,11 @@ function createHandle(
     originalLastEvents: [],
     originalNavigation,
     originalPathBuilder: createOriginalPathBuilder(
-      originalNavigation.navigation,
+      session.spatial.navigationBytes(),
     ),
     originalCommanders,
     originalFormation: {
       vectors: battleMaps?.formationVectors,
-      sideBases: [0x2005, 0x203a],
     },
   });
   handle.session.spatial.tiles.set(originalNavigation.tiles, 0);
@@ -159,6 +178,12 @@ function createHandle(
     attributes: originalNavigation.attributes,
     cityTroops: view.city?.sim?.troops ?? view.city?.troops ?? 0,
     mode,
+  });
+  // 99C2 DC9D and the once-only 99CB precede A1C5. This installs the
+  // battle-scoped native cells while preserving D348=1 for the first A065.
+  handle.session.initializeNativeDisplay({
+    tileBytes: originalNavigation.tiles,
+    attributes: originalNavigation.attributes,
   });
   handle.wallRecords = handle.session.wallRecords();
   // 9C45只写对象+0C/+0E；单位占用由首帧ADC8按地址顺序B240逐槽建立。
@@ -188,20 +213,11 @@ export function createFieldBattle(
   rngSnapshot = null,
 ) {
   const view = createFieldProjection(sc, A, D, battleMaps, fieldTerrain);
-  return createHandle(sc, view, A, D, 1, battleMaps, rngSnapshot);
-}
-
-function eventDialogue(handle, event) {
-  if (event.type === "automatic-retreat") {
-    const side = handle.sideMap[event.side];
-    handle.dialogues.push({
-      sequence: handle.nextDialogueSequence++,
-      side,
-      speaker: side === "atk" ? handle.A?.leader : handle.D?.leader,
-      text: "全軍撤退！！",
-      kind: "automatic-retreat",
-    });
-  }
+  // 9A5E..9A6F: D34 directory, not MDL layout (D0 is still mode1).
+  let mode = 2;
+  if (view.directoryIndex < 0xc0) mode = 0;
+  else if (view.directoryIndex < 0xd1) mode = 1;
+  return createHandle(sc, view, A, D, mode, battleMaps, rngSnapshot);
 }
 
 export function projectOriginalBattle(handle) {
@@ -232,73 +248,88 @@ export function projectOriginalBattle(handle) {
     unit.gone = unit.troops <= 0;
     unit.routed = false;
     if (active > 0) {
-      // Canvas只投影组级横幅；规则位置取本组活动对象锚点的平均值。
-      unit.x = (positions[side][group].x / active + 0.5) * 16;
-      unit.y = (positions[side][group].y / active + 0.5) * 16;
+      // 规则位置取本组活动对象锚点的平均值；Canvas 使用 DDB4 的等距坐标。
+      unit.gridX = positions[side][group].x / active;
+      unit.gridY = positions[side][group].y / active;
+      const scene = battleCellToScene(unit.gridX, unit.gridY);
+      unit.x = scene.x;
+      unit.y = scene.y;
+      unit.hx = scene.x;
+      unit.hy = scene.y;
     }
   }
-  handle.time = handle.session.frame / ORIGINAL_TACTICAL_FPS;
+  // KI.EXE has no universal 60Hz tactical wall clock: 60A5/A0F2 gate each
+  // complete frame by CFB<<4 timer callbacks, while highest speed skips waiting.
   handle.over = handle.session.finished
     ? handle.sideMap[handle.session.winner]
     : null;
   if (handle.kind === "siege")
     handle.wallRecords = handle.session.wallRecords();
-  for (const event of handle.originalLastEvents) eventDialogue(handle, event);
   return handle;
 }
 
+// C8E6..C934注册的按钮命中号不是按画面行序排列：
+// 突擊/攻擊/陣形/城壁/守陣/退卻分别为9/8/7/10/11/12；
+// C1C2以命中号-7得到原版对象命令2/1/0/3/4，C21A负责命令5。
 const ORIGINAL_UI_COMMAND = Object.freeze({
   formation: 0,
-  assault: 1,
-  wall: 2,
-  defend: 3,
-  siege: 4,
+  attack: 1,
+  assault: 2,
+  wall: 3,
+  defend: 4,
   retreat: 5,
 });
 
-function applyQueuedTacticalCommand(session, queued) {
-  const side = queued.side === 1 ? 1 : 0;
-  if (queued.commandNumber === 5) {
-    startOriginalFormation(
-      session.pool,
-      session.registers,
-      side * ORIGINAL_SIDE_SIZE,
-    );
-    return;
+/** Replay only input registers for responsive UI; authoritative writes wait for 9FA0. */
+export function tacticalPanelState(handle) {
+  const registers = { ...handle.session.registers };
+  for (const input of handle.session.queue.snapshot()) {
+    if (input.frame <= handle.session.frame)
+      applyOriginalPanelInput(registers, input);
   }
-  for (const group of queued.groups) {
-    if (group < 0 || group >= 6) continue;
-    const leader = originalObjectAddress(side, group, 0);
-    session.pool.write8(
-      leader,
-      ORIGINAL_OBJECT.FLAGS,
-      session.pool.read8(leader, ORIGINAL_OBJECT.FLAGS) | 0x08,
-    );
-    session.pool.write8(
-      leader,
-      ORIGINAL_OBJECT.PENDING_COMMAND,
-      queued.commandNumber,
-    );
-    broadcastOriginalGroupCommand(session.pool, leader, queued.commandNumber);
-  }
+  return registers;
 }
 
-export function queueTacticalCommand(handle, { groups = [], command }) {
-  if (!handle?.session || !handle?.sideMap) return true;
-  const side = handle.sideMap[handle.playerSide];
+export function queueTacticalPanelInput(handle, input) {
+  if (!handle?.session || handle.session.finished) return false;
+  const valid =
+    (input.type === "formation-select" &&
+      Number.isInteger(input.index) &&
+      input.index >= 0 &&
+      input.index < 16) ||
+    (input.type === "deployment-select" &&
+      [0x30, 0x1c, 0x05].includes(input.baseX)) ||
+    (input.type === "group-toggle" &&
+      Number.isInteger(input.group) &&
+      input.group >= 0 &&
+      input.group < 6) ||
+    input.type === "battlefield-display-toggle" ||
+    (input.type === "message-input" &&
+      [27, 28, 29].includes(input.hitId) &&
+      [0, 2].includes(input.button));
+  if (!valid) return false;
+  handle.session.enqueue({ ...input, frame: handle.session.frame });
+  return true;
+}
+
+export function queueTacticalCommand(handle, { groups, command }) {
+  if (!handle?.session || handle.session.finished) return false;
   const commandNumber = ORIGINAL_UI_COMMAND[command];
   if (commandNumber == null) return false;
-  // C1D9..C211：玩家按钮命令3在AB4F=0时只显示原版提示，不写pending。
-  if (commandNumber === 3 && (handle.session.registers.themeFlag & 0xff) === 0)
+  if (
+    groups != null &&
+    (!Array.isArray(groups) ||
+      groups.some(
+        (group) => !Number.isInteger(group) || group < 0 || group >= 6,
+      ))
+  )
     return false;
-  const selected = (groups.length ? groups : [0, 1, 2, 3, 4, 5]).filter(
-    (group) => Number.isInteger(group) && group >= 0 && group < 6,
-  );
+  // Gates and mask clearing happen at input consumption, not DOM click time.
   handle.session.enqueue({
     type: "tactical-command",
     frame: handle.session.frame,
-    side,
-    groups: selected,
+    side: 0, // D2E always maps the player to object side 0.
+    ...(groups == null ? {} : { groups: [...groups] }),
     commandNumber,
   });
   return true;
@@ -306,8 +337,29 @@ export function queueTacticalCommand(handle, { groups = [], command }) {
 
 function applyReadyTacticalCommands(handle) {
   return handle.session.applyReadyCommands((session, queued) => {
-    if (queued.type === "tactical-command")
-      applyQueuedTacticalCommand(session, queued);
+    if (queued.type === "message-input") {
+      session.messageInput(queued.hitId, queued.button);
+      return;
+    }
+    let selector = null;
+    const accepted = applyOriginalPanelInput(
+      session.registers,
+      queued,
+      (value) => {
+        selector = value;
+      },
+    );
+    // C1E8/C21A write only leader pending. A7B7 dispatch owns acceptance,
+    // but C216 acknowledgment occurs now, even if current5 later rejects it.
+    if (accepted)
+      for (const group of accepted.groups) {
+        session.pool.write8(
+          originalObjectAddress(0, group, 0),
+          ORIGINAL_OBJECT.PENDING_COMMAND,
+          accepted.command,
+        );
+      }
+    if (selector != null) session.emitTalk(0, selector, "C1B9/C21A");
   });
 }
 
@@ -324,6 +376,26 @@ function tickOriginalBattleFrame(handle, handlers = null, inputEvents = null) {
   });
   handle.originalLastEvents = result.events;
   return result;
+}
+
+export function createVisualBattleStartupStepper(handle, handlers = null) {
+  const startup = createOriginalBattleStartupStepper(handle, {
+    commanders: handle.originalCommanders,
+    tickFrame: () => tickOriginalBattleFrame(handle, handlers),
+  });
+  return {
+    step() {
+      const result = startup.step();
+      if (result.advancedFrame || result.done) projectOriginalBattle(handle);
+      return result;
+    },
+    get done() {
+      return startup.done;
+    },
+    get result() {
+      return startup.result;
+    },
+  };
 }
 
 export function initializeVisualBattleStartup(handle, handlers = null) {

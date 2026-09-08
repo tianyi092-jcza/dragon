@@ -15,22 +15,29 @@ const { encodeOriginalCollisionAddress } = await import(
     registers: {
       mapRedraw: 1,
       tacticalFrameCounter: 0xffff,
-      side0MarkerAt: 0,
-      side1MarkerAt: 0,
-      wallMarkerAt: 0,
+      side0MarkerAt: 0xff00,
+      side1MarkerAt: 0xff00,
+      wallMarkerAt: 0xff00,
       side0Active: 1,
       side1Active: 1,
     },
   });
   const frame = entry.tick();
   assert.equal(entry.registers.mapRedraw, 0);
-  assert.equal(entry.registers.tacticalFrameCounter, 0);
-  assert.deepEqual(frame.events.slice(0, 4), [
-    { type: "map-redraw" },
-    { type: "side-marker", side: 0 },
-    { type: "side-marker", side: 1 },
-    { type: "wall-marker" },
-  ]);
+  assert.equal(
+    entry.registers.tacticalFrameCounter,
+    0xff00,
+    "A12A increments only the low byte",
+  );
+  assert.equal(entry.registers.side0MarkerAt, 0xffff);
+  assert.equal(entry.registers.side1MarkerAt, 0xff00);
+  assert.equal(entry.registers.wallMarkerAt, 0xff00); // side0 close clobbered AX=011B
+  assert.deepEqual(
+    frame.events.filter((event) =>
+      ["map-redraw", "side-marker", "wall-marker"].includes(event.type),
+    ),
+    [{ type: "map-redraw" }, { type: "side-marker", side: 0 }],
+  );
 }
 
 const countdown = new OriginalBattleSession({

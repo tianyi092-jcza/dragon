@@ -53,9 +53,12 @@ const { ORIGINAL_OBJECT, originalObjectAddress } = await import(
   session.pool.write8(address, ORIGINAL_OBJECT.TARGET_Y, 10);
   session.pool.write16(address, ORIGINAL_OBJECT.SPATIAL_0C, 0x028a);
   const result = updateOriginalObjectMovement(session, address);
-  assert.equal(result.queued, true);
+  assert.equal(result.queued, false, "AFC3 exhausted path first copies own target to position");
+  assert.equal(session.pool.read16(address, ORIGINAL_OBJECT.POSITION_X), 0x0a14);
+  assert.equal(session.paths.head, session.paths.tail);
+  const queued = updateOriginalObjectMovement(session, address);
+  assert.equal(queued.queued, true, "AFD0 queues only after the next blocked probe (AH=0)");
   assert.equal(session.paths.readQueued(), address);
-  assert.equal(session.pool.read8(address, ORIGINAL_OBJECT.FLAGS) & 0x10, 0x10);
 }
 
 process.stdout.write(

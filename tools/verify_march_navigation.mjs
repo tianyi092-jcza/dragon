@@ -32,6 +32,7 @@ const { buildArmies, aiTick, settleLegionDaily, stepTo } = await import(
   "../web/src/game/ai.js"
 );
 const { MapView } = await import("../web/src/render/mapview.js");
+const { dispatch } = await import("../web/src/game/commands.js");
 const { Clock } = await import("../web/src/game/clock.js");
 await loadRoadGraph();
 
@@ -213,6 +214,101 @@ const sourceCity = {
   y: source.y,
   faction: 0,
 };
+
+// 玩家军团在道路边内改令时，必须保留当前edge/stride/point，先抵达
+// 既定端点后再按新目标选边；节点级寻路不能以道路点为起点。
+{
+  const retargetSource = { ...sourceCity };
+  const retargetOldTarget = { ...targetCity };
+  const retargetLegion = {
+    leader: "途中改令",
+    faction: 0,
+    x: source.x,
+    y: source.y,
+    prevX: source.x,
+    prevY: source.y,
+    troops: 100,
+    morale: 100,
+    target: retargetOldTarget,
+    targetCity: retargetOldTarget.idx,
+    targetNode: target.id,
+    commandState: 0,
+    cooldown: 0,
+    status: 0x82,
+    _active: true,
+  };
+  const retargetScenario = {
+    player_faction: 0,
+    factions: [{ idx: 0, capital: 0 }],
+    cities: [retargetSource, retargetOldTarget],
+    legions: [retargetLegion],
+    diplomacy: [[0xff]],
+  };
+  assert.equal(
+    stepTo(retargetScenario, retargetLegion, target.x, target.y),
+    "moved",
+  );
+  const activeEdge = retargetLegion._march.edgeId;
+  retargetLegion.target = retargetSource;
+  retargetLegion.targetCity = retargetSource.idx;
+  retargetLegion.targetNode = source.id;
+  const retargetResult = stepTo(
+    retargetScenario,
+    retargetLegion,
+    source.x,
+    source.y,
+  );
+  assert.notEqual(retargetResult, "blocked");
+  if (retargetResult !== "arrived") {
+    assert.equal(
+      retargetLegion._march?.edgeId,
+      activeEdge,
+      "途中改令只能在当前edge上改向，不能丢失道路上下文",
+    );
+  }
+  let arrived = retargetResult;
+  for (let guard = 0; guard < expected.points.length * 2 + 32; guard++) {
+    if (arrived === "arrived") break;
+    arrived = stepTo(retargetScenario, retargetLegion, source.x, source.y);
+  }
+  assert.equal(arrived, "arrived");
+  assert.equal(retargetLegion.x, source.x);
+  assert.equal(retargetLegion.y, source.y);
+}
+
+// 城池「出征」创建的玩家军团必须直接进入正式0x4325命令链，不能只靠
+// 旧快照的commandState缺失兼容旁路完成返都补员。
+{
+  const dispatchSource = {
+    ...sourceCity,
+    sim: { troops: 1200 },
+  };
+  const dispatchTarget = { ...targetCity };
+  const dispatchGeneral = {
+    idx: 0,
+    name: "出征命令态",
+    faction: 0,
+    active: true,
+    status: 0,
+    ability: { force: 100 },
+  };
+  const dispatchScenario = {
+    player_faction: 0,
+    factions: [{ idx: 0, monarch: "測試", legion_morale_cap: 200 }],
+    cities: [dispatchSource, dispatchTarget],
+    generals: [dispatchGeneral],
+    legions: [],
+  };
+  assert.ok(dispatch(dispatchScenario, dispatchSource, dispatchTarget).ok);
+  const dispatched = dispatchScenario.legions[0];
+  assert.equal(dispatched.commandState, 0);
+  assert.equal(dispatched.targetCity, dispatchTarget.idx);
+  assert.equal(dispatched.targetNode, target.id);
+  assert.equal(dispatched.status & 0x02, 0x02);
+  assert.equal(dispatched._active, true);
+  assert.equal(dispatchGeneral.status, 1);
+}
+
 const legion = {
   leader: "測試",
   faction: 0,

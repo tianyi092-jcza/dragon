@@ -78,8 +78,8 @@ const { swapOriginalSpatialRecords } = await import(
   assert.equal(result.committed, false);
   assert.equal(
     pool.read16(address, ORIGINAL_OBJECT.SPATIAL_0C),
-    0x1123,
-    "B0D3 commits candidate BX after B533 returns carry-clear",
+    0x0123,
+    "B112 returns CLC without committing candidate BX after B533",
   );
 }
 

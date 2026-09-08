@@ -181,13 +181,18 @@ assert.deepEqual([...bar.blinkTargets()], ["field:12:34"]);
 now = 1501;
 assert.equal(bar.blinkTargets().size, 0);
 
-// 生产下令必须写准确道路节点，再由SAVE序列化使用。
+// 生产下令必须写准确道路节点/目标城和常规命令态，再由SAVE序列化使用。
+// 战后状态8若不重置，低兵军团返都后会先等待士气而跳过0x4370补员门。
 const city = { idx: 9, x: 257, y: 9, name: "目標" };
-const legion = { status: 0x80 };
+const legion = { status: 0x80, commandState: 8, _aiOrdered: true };
 bar.assignMarchOrder(legion, city, true);
 assert.equal(legion.target, city);
+assert.equal(legion.targetCity, city.idx);
 assert.equal(legion.targetNode, roadNodeAt(city.x, city.y).id);
+assert.equal(legion.commandState, 0);
+assert.equal(legion.status & 0x02, 0x02);
 assert.equal(legion.status & 0x04, 0x04);
+assert.equal(legion._aiOrdered, undefined);
 
 // 强制撤退/接敌等待是权威规则态：列表入口与direct assign都必须拒绝并提示。
 const retreating = {

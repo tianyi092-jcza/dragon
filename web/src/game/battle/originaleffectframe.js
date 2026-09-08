@@ -88,9 +88,10 @@ export function contactOriginalAttackEffect(
     objects.read8(target, ORIGINAL_OBJECT.FLAGS) | 0x40,
   );
   const hp = objects.read8(target, ORIGINAL_OBJECT.HP);
-  const killed = hp <= damage;
-  if (killed) {
-    objects.write8(target, ORIGINAL_OBJECT.HP, 0);
+  const lethal = hp <= damage; // BA0B JA: equality and borrow both clamp.
+  const killed = lethal && targetClass !== 0;
+  if (lethal) {
+    objects.write8(target, ORIGINAL_OBJECT.HP, 1);
     if (targetClass !== 0) {
       objects.write8(
         target,
@@ -98,6 +99,7 @@ export function contactOriginalAttackEffect(
         (objects.read8(target, ORIGINAL_OBJECT.FLAGS) & 0x10) | 1,
       );
       objects.write8(target, ORIGINAL_OBJECT.KIND, 4);
+      objects.write8(target, ORIGINAL_OBJECT.HP, 0);
     }
   } else objects.write8(target, ORIGINAL_OBJECT.HP, hp - damage);
   terminate(effects, address);

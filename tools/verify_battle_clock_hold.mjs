@@ -45,7 +45,7 @@ const battleViewSource = await fs.readFile(
 );
 assert.match(
   battleViewSource,
-  /prevClockState\s*=\s*\{[\s\S]*?hold:\s*this\.app\.clock\.hold[\s\S]*?this\.app\.clock\.hold\s*=\s*true/,
+  /prevClockState\s*(?:\?\?)?=\s*\{[\s\S]*?hold:\s*this\.app\.clock\.hold[\s\S]*?this\.app\.clock\.hold\s*=\s*true/,
   "BattleView.open必须保存旧hold并在加载战场资源前冻结时钟",
 );
 assert.match(

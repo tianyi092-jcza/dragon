@@ -118,16 +118,18 @@ export function spawnOriginalAttackEffect(
   effects.write16(address, ORIGINAL_EFFECT.SOURCE_POINTER, sourceAddress);
   let x = objects.read8(sourceAddress, ORIGINAL_OBJECT.ANCHOR_X);
   let y = objects.read8(sourceAddress, ORIGINAL_OBJECT.ANCHOR_Y);
-  const level = objects.read8(sourceAddress, ORIGINAL_OBJECT.LEVEL) + 1;
-  effects.write16(address, ORIGINAL_EFFECT.ANCHOR_X, x << 8);
-  effects.write16(address, ORIGINAL_EFFECT.ANCHOR_Y, y << 8);
-  effects.write16(address, ORIGINAL_EFFECT.LEVEL, level << 8);
+  const level = u8(objects.read8(sourceAddress, ORIGINAL_OBJECT.LEVEL) + 1);
   if ((direction & 0x80) !== 0) {
     const delta = (direction & 0x02) === 0 ? -1 : 1;
     if ((direction & 1) === 0) x = u8(x + delta);
     else y = u8(y + delta);
   }
-  const spatial = u16(x + y * 0x40);
+  // B8DA..B922 offsets precede both fixed-point anchors and erase coordinates.
+  effects.write16(address, ORIGINAL_EFFECT.ANCHOR_X, x << 8);
+  effects.write16(address, ORIGINAL_EFFECT.ANCHOR_Y, y << 8);
+  effects.write16(address, ORIGINAL_EFFECT.LEVEL, level << 8);
+  // B925..B935: AH=byte(level<<4), AX += y*64, with AL=adjusted X.
+  const spatial = u16((u8(level << 4) << 8) + x + y * 0x40);
   effects.write8(address, ORIGINAL_EFFECT.SPATIAL_0C, x);
   effects.write8(address, ORIGINAL_EFFECT.SPATIAL_0C + 1, y);
   effects.write8(address, ORIGINAL_EFFECT.SPATIAL_0E, level);

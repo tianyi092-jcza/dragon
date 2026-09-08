@@ -25,6 +25,7 @@ const west = stepOriginalCardinal(pool, object, "west", {
 assert.deepEqual(west, {
   moved: true,
   blocked: false,
+  carry: false,
   direction: "west",
   spatialBefore: 0x1200,
   spatialAfter: 0x11ff,
@@ -88,7 +89,7 @@ assert.equal(noCollisionCall, true);
   pool.write8(address, ORIGINAL_OBJECT.ANCHOR_X, 0x12);
   pool.write8(address, ORIGINAL_OBJECT.ANCHOR_Y, 0x23);
   pool.write8(address, ORIGINAL_OBJECT.LEVEL, 0x34);
-  pool.write8(address, ORIGINAL_OBJECT.HEIGHT, 0x40);
+  pool.write8(address, ORIGINAL_OBJECT.HEIGHT, 0x10); // B103: upper navigation plane
   spatial.write8(0x20, 0xff);
   spatial.write8(0x1020, 0xfe);
   spatial.write8(0x21, 0x80);
@@ -103,7 +104,7 @@ assert.equal(noCollisionCall, true);
   assert.equal(pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_X), 0x12);
   assert.equal(pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_Y), 0x23);
   assert.equal(pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_LEVEL), 0x34);
-  assert.equal(pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_HEIGHT), 0x40);
+  assert.equal(pool.read8(address, ORIGINAL_OBJECT.PREVIOUS_HEIGHT), 0x10);
 }
 
 process.stdout.write(
