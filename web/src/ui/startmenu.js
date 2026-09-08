@@ -88,13 +88,20 @@ export class StartMenu {
           });
           if (sortedIdx < 0) continue; // 右鍵 → 回 YES/NO (0x1AE3 jb)
           const idx = this._sortedScenarios?.[sortedIdx]?._origIdx ?? sortedIdx;
-          const f = await this._factionDialog(idx);
-          if (f < 0) continue; // 右鍵 → 回章節選擇
-          // 軍師確認 (0x8E5A→0x8FC9): undefined=右鍵回勢力選擇, null=用原軍師, 對象=自定軍師
-          const adv = await this._advisorDialog(idx, f);
-          if (adv === undefined) continue;
-          await this.app.beginNewGame(idx, f, adv);
-          return;
+          let backToChapter = false;
+          for (;;) {
+            const f = await this._factionDialog(idx);
+            if (f < 0) {
+              backToChapter = true;
+              break;
+            } // 右鍵 → 回章節選擇
+            // 軍師確認 (0x8E5A→0x8FC9): undefined=右鍵回勢力選擇, null=用原軍師, 對象=自定軍師
+            const adv = await this._advisorDialog(idx, f);
+            if (adv === undefined) continue;
+            await this.app.beginNewGame(idx, f, adv);
+            return;
+          }
+          if (backToChapter) continue;
         }
         const slot = await this.prompt({
           x: "center",
@@ -174,7 +181,10 @@ export class StartMenu {
   // ── 軍師頭像快取 (kao/{portrait}.png, 128×128) ──
   _kao(i) {
     this._kaos ??= {};
-    return (this._kaos[i] ??= portrait(i).catch(() => null));
+    if (!this._kaos[i]) {
+      this._kaos[i] = portrait(i).catch(() => null);
+    }
+    return this._kaos[i];
   }
 
   // 自創軍師命名文字庫 (END_S15.DAT → nametable.json, KI.EXE 0x8FC8)
@@ -183,7 +193,8 @@ export class StartMenu {
     return this._nt;
   }
 
-  // ── 軍師確認 (0x8E5A→0x8FC9): 君主/軍師頭像 + 首都/武将数/據點数 + 自定/确定 ──
+  // ── 軍師確認 (0x8E5A→0x8FC9): 君主/軍師頭像 (64×64) + 首都/武將數/據點數 + 自定/確定 ──
+  // 原版外框 240×192 (15×12 tiles, 金框邊厚各 8px, 內部雲紋 224×176)
   // 返回: undefined=右鍵回退, null=確認原軍師(無軍師則直接確認), {name,hao,portrait}=自定
   async _advisorDialog(scenIdx, facIdx) {
     const scen = this.app.data.scenarios[scenIdx];
@@ -191,57 +202,82 @@ export class StartMenu {
     const mon = scen.generals[f.monarch_idx];
     const adv = f.advisor_idx == null ? null : scen.generals[f.advisor_idx];
     const cap = f.capital == null ? null : scen.cities[f.capital];
-    const w = 352,
-      h = 384; // 原版: 近全屏高 (金框 368×400 居中)
+    const w = 224,
+      h = 176; // 金框外圍 240×192 (15×12 tiles)，居中 (208, 112)
     const px = (640 - w) >> 1,
       py = (400 - h) >> 1;
     const monImg = await this._kao(mon.portrait);
     const advImg = adv ? await this._kao(adv.portrait) : null;
     const btns = [
-      { label: "自定", act: "custom", x: px + 272, y: py + 224 },
-      { label: "确定", act: "ok", x: px + 272, y: py + 272 },
+      { label: "自定", act: "custom", x: px + 159, y: py + 126, w: 50, h: 18 },
+      { label: "確定", act: "ok", x: px + 159, y: py + 150, w: 50, h: 18 },
     ];
     const draw = (hoverAct) => {
       const ctx = this.ctx;
       ctx.clearRect(0, 0, 640, 400);
-      this._frame(px - 8, py - 8, (w + 16) / 16, (h + 16) / 16);
+      this._frame(px - 8, py - 8, 15, 12);
       this._cloud(px, py, w, h);
-      // 君主 (左): 大頭像 192×192 + 稱謂/名分兩行
+
+      // 上部頭像與文字區域黑色底框 (寬 208, 高 104, 包含君主/軍師頭像及名號)
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(px + 8, py + 7, 208, 104);
+
+      // 下部情報區域黑色底框 (寬 144, 高 48, 包含首都/武將數/據點數及數值)
+      ctx.fillRect(px + 8, py + 119, 144, 48);
+
+      // 君主 (左上): 64×64 頭像 + 下方「君主」/君主名 (縮進 16px)
       if (monImg)
-        ctx.drawImage(monImg, 0, 0, 128, 128, px + 16, py + 16, 192, 192);
-      this._text("君主", px + 16, py + 224, 15);
-      this._text(mon.name.trim(), px + 16, py + 248, 15);
-      // 軍師 (右上): 稱謂 + 名(無軍師=－－－) + 小頭像 96×96 (明顯小於君主)
-      this._text("軍師", px + 208, py + 20, 15);
-      this._text(adv ? adv.name.trim() : "－－－", px + 256, py + 20, 15);
+        ctx.drawImage(monImg, 0, 0, 128, 128, px + 16, py + 7, 64, 64);
+      this._text("君主", px + 16, py + 79, 15);
+      this._text(mon.name.trim(), px + 32, py + 95, 15);
+
+      // 軍師 (右上): 「軍師」/軍師名 (縮進 16px) + 64×64 頭像 (無軍師則空)
+      this._text("軍師", px + 144, py + 7, 15);
+      this._text(adv ? adv.name.trim() : "－－－", px + 160, py + 23, 15);
       if (advImg)
-        ctx.drawImage(advImg, 0, 0, 128, 128, px + 216, py + 48, 96, 96);
-      // 情报表 (左下): 三行分別与 君主/曹操 及其下一行同高, 标签 x=88, 数值右对齐 x=208
-      const rows = [
-        ["首都", cap ? cap.name.trim() : "－"],
-        ["武将数", `${f.n_generals}`],
-        ["據點数", `${f.n_cities}`],
-      ];
-      rows.forEach(([k, v], i) => {
-        const y = py + 224 + i * 28;
-        this._text(k, px + 88, y, 15);
-        const isNum = /^\d+$/.test(v);
-        ctx.font = isNum
-          ? '300 16px "Oswald","Noto Serif TC","PMingLiU",serif'
-          : FONT;
-        const tw = ctx.measureText(v).width;
-        if (isNum) {
-          this._numText(v, px + 208 - tw, y, 15);
-        } else {
-          this._text(v, px + 208 - tw, y, 15);
-        }
-      });
-      // 按鈕 (懸停反白, 64×28)
+        ctx.drawImage(advImg, 0, 0, 128, 128, px + 144, py + 47, 64, 64);
+
+      // 情報表 (左下): 首都 / 武將數 / 據點數 + 白色豎線 + 數值
+      this._text("首\u3000都", px + 16, py + 119, 15);
+      this._text("武將數", px + 16, py + 135, 15);
+      this._text("據點數", px + 16, py + 151, 15);
+
+      // 白色分割豎線 (x=79, y=119..166, 高 48px)
+      this._rect(px + 79, py + 119, px + 79, py + 166, 15);
+
+      // 首都名
+      this._text(cap ? cap.name.trim() : "－－－", px + 96, py + 119, 15);
+
+      // 武將數 & 據點數 (右對齊於 px + 126)
+      const numFont = '300 16px "Oswald","Noto Serif TC","PMingLiU",serif';
+      ctx.font = numFont;
+      const genStr = `${f.n_generals}`;
+      const genTw = ctx.measureText(genStr).width;
+      this._numText(genStr, px + 126 - genTw, py + 135, 15);
+
+      const cityStr = `${f.n_cities}`;
+      const cityTw = ctx.measureText(cityStr).width;
+      this._numText(cityStr, px + 126 - cityTw, py + 151, 15);
+
+      // 按鈕 (立體黃褐金屬底色, 懸停反白, 50×18)
       for (const b of btns) {
         const hov = b.act === hoverAct;
-        this._rect(b.x, b.y, b.x + 63, b.y + 27, hov ? 15 : 13);
-        this._outline(b.x - 1, b.y - 1, b.x + 64, b.y + 28, 2);
-        this._text(b.label, b.x + 16, b.y + 6, 0);
+        const x0 = b.x,
+          y0 = b.y,
+          x1 = b.x + b.w - 1,
+          y1 = b.y + b.h - 1;
+        // 填充底色
+        ctx.fillStyle = hov ? "#ffffff" : "#c08020";
+        ctx.fillRect(x0 + 1, y0 + 1, b.w - 2, b.h - 2);
+        // 立體邊框: 頂/左高亮 (#f0d090), 底/右陰影 (#804020)
+        ctx.fillStyle = hov ? "#ffffff" : "#f0d090";
+        ctx.fillRect(x0, y0, b.w - 1, 1);
+        ctx.fillRect(x0, y0, 1, b.h);
+        ctx.fillStyle = hov ? "#442211" : "#804020";
+        ctx.fillRect(x1, y0, 1, b.h);
+        ctx.fillRect(x0 + 1, y1, b.w - 1, 1);
+        // 文字 (黑體 16px 居中: x+9, y+1)
+        this._text(b.label, b.x + 9, b.y + 1, 0);
       }
     };
     return new Promise((resolve) => {
@@ -250,8 +286,8 @@ export class StartMenu {
         resolve(v);
       };
       const hit = (x, y) =>
-        btns.find((b) => this._in(x, y, b.x, b.y, b.x + 63, b.y + 27))?.act ??
-        null;
+        btns.find((b) => this._in(x, y, b.x, b.y, b.x + b.w - 1, b.y + b.h - 1))
+          ?.act ?? null;
       // 绑定抽成函数: 从 _nameDialog 返回后其 _bind/_unbind 会覆盖/移除本窗处理器, 需重绑
       const bind = () => this._bind(onClick, onMove);
       const onClick = (x, y, btn) => {
@@ -260,9 +296,9 @@ export class StartMenu {
         if (act === "ok") return done(null); // 確認原軍師
         if (act === "custom") {
           this._nameDialog({
-            name: adv?.name?.trim() ?? "",
-            hao: adv?.hao?.trim() ?? "",
-            portrait: adv?.portrait ?? 0,
+            name: "",
+            hao: "",
+            portrait: adv?.portrait ?? 145,
           }).then((r) => {
             if (r === undefined) {
               draw(null);
@@ -283,161 +319,261 @@ export class StartMenu {
     });
   }
 
-  // ── 自創軍師命名 (0x8FC9 + END_S15 碼表): 頭像前後翻 + 軍師名/別號 + 文字面板 ──
-  // 重来=清空 继续=回退一字 确定=保存返回; 右鍵取消不保存
+  // ── 自創軍師命名: 頭像前後翻 + 原生輸入框 (最多3個全角漢字或6個英數) + 確定/取消 ──
   async _nameDialog(cur = {}) {
-    const { chars } = await this._nameTable();
-    const COLS = 16,
-      ROWS = 8,
-      PER = COLS * ROWS,
-      MAX = 4;
-    const w = 480,
-      h = 320;
+    const w = 336,
+      h = 176;
     const px = (640 - w) >> 1,
       py = (400 - h) >> 1;
-    let name = cur.name ?? "",
-      hao = cur.hao ?? "",
-      pt = cur.portrait ?? 0,
-      field = 0,
-      page = 0;
-    const fields = [
-      { label: "軍師名", x: px + 240, y: py + 16, get: () => name },
-      { label: "別號", x: px + 240, y: py + 56, get: () => hao },
+    let pt = cur.portrait ?? 145; // 預設頭像 (0x5221 預設 145 號儒士頭像)
+    let errorMsg = null;
+    let hoverAct = null;
+
+    // 字符等效寬度計算: 全角字符 (漢字、日文假名、韓文諺文等) 佔 2, 半角英數佔 1
+    const clampVisualWidth = (str, maxUnits = 6) => {
+      let width = 0;
+      let res = "";
+      for (const ch of str) {
+        const cw = ch.charCodeAt(0) > 0x7f ? 2 : 1;
+        if (width + cw > maxUnits) break;
+        width += cw;
+        res += ch;
+      }
+      return res;
+    };
+
+    // 建立 DOM 輸入框容器
+    const overlay = document.createElement("div");
+    overlay.id = "advisor-input-overlay";
+    overlay.style.position = "fixed";
+    overlay.style.zIndex = "70";
+    overlay.style.pointerEvents = "none";
+    overlay.style.userSelect = "none";
+
+    const createInput = (placeholder) => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = placeholder;
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.style.position = "absolute";
+      input.style.pointerEvents = "auto";
+      input.style.border = "1px solid #804020";
+      input.style.background = "#eed8a1";
+      input.style.color = "#000000";
+      input.style.fontFamily =
+        '"Noto Serif TC","Noto Serif SC","PMingLiU","SimSun",serif';
+      input.style.fontWeight = "bold";
+      input.style.textAlign = "center";
+      input.style.outline = "none";
+      input.style.boxSizing = "border-box";
+      input.style.boxShadow = "inset 1px 1px 2px rgba(0,0,0,0.35)";
+
+      input.onfocus = () => {
+        input.style.border = "1px solid #ffd700";
+        input.style.boxShadow =
+          "0 0 6px rgba(255, 215, 0, 0.8), inset 1px 1px 2px rgba(0,0,0,0.2)";
+      };
+      input.onblur = () => {
+        input.style.border = "1px solid #804020";
+        input.style.boxShadow = "inset 1px 1px 2px rgba(0,0,0,0.35)";
+      };
+      input.oninput = () => {
+        const clamped = clampVisualWidth(input.value, 6);
+        if (input.value !== clamped) input.value = clamped;
+        if (errorMsg) {
+          errorMsg = null;
+          draw();
+        }
+      };
+      return input;
+    };
+
+    const nameInput = createInput("最多3字");
+    const haoInput = createInput("最多3字");
+    overlay.append(nameInput, haoInput);
+    document.body.append(overlay);
+
+    const syncPositions = () => {
+      const r = this.cv.getBoundingClientRect();
+      const scaleX = r.width / 640;
+      const scaleY = r.height / 400;
+      overlay.style.left = `${r.left}px`;
+      overlay.style.top = `${r.top}px`;
+      overlay.style.width = `${r.width}px`;
+      overlay.style.height = `${r.height}px`;
+
+      const positionInput = (el, ix, iy, iw, ih) => {
+        el.style.left = `${ix * scaleX}px`;
+        el.style.top = `${iy * scaleY}px`;
+        el.style.width = `${iw * scaleX}px`;
+        el.style.height = `${ih * scaleY}px`;
+        el.style.fontSize = `${15 * scaleY}px`;
+        el.style.lineHeight = `${ih * scaleY}px`;
+      };
+      positionInput(nameInput, px + 144, py + 48, 84, 26);
+      positionInput(haoInput, px + 240, py + 48, 84, 26);
+    };
+
+    window.addEventListener("resize", syncPositions);
+    syncPositions();
+    setTimeout(() => nameInput.focus(), 50);
+
+    // 交互區域定義
+    const navBtns = [
+      { act: "prev", x: px + 88, y: py + 22, w: 38, h: 20 },
+      { act: "next", x: px + 88, y: py + 54, w: 38, h: 20 },
     ];
-    const btns = [
-      { label: "重来", act: "clear", x: px + 176, y: py + 100 },
-      { label: "继续", act: "bs", x: px + 244, y: py + 100 },
-      { label: "确定", act: "ok", x: px + 312, y: py + 100 },
-      { label: "前▲", act: "prev", x: px + 16, y: py + 120 },
-      { label: "後▼", act: "next", x: px + 72, y: py + 120 },
-      { label: "上一頁", act: "pgup", x: px + 16, y: py + 282 },
-      { label: "下一頁", act: "pgdn", x: px + 400, y: py + 282 },
+    const actionBtns = [
+      { label: "確定", act: "ok", x: px + 98, y: py + 138, w: 64, h: 22 },
+      { label: "取消", act: "cancel", x: px + 178, y: py + 138, w: 64, h: 22 },
     ];
-    const draw = async (hoverAct, hoverCell) => {
-      const img2 = await this._kao(pt);
+
+    const draw = async () => {
+      const img = await this._kao(pt);
       const ctx = this.ctx;
       ctx.clearRect(0, 0, 640, 400);
-      this._frame(px - 8, py - 8, (w + 16) / 16, (h + 16) / 16);
+
+      // 外框與雲紋底: 22×12 tiles (外圍 352×192, 內部雲紋 336×176)
+      this._frame(px - 8, py - 8, 22, 12);
       this._cloud(px, py, w, h);
-      if (img2) ctx.drawImage(img2, 0, 0, 128, 128, px + 16, py + 16, 96, 96);
-      // 輸入框 (活動框米黄底白描邊, 非活動灰底)
-      fields.forEach((f2, i) => {
-        this._text(f2.label, px + 176, f2.y + 4, 15);
-        this._rect(
-          f2.x,
-          f2.y,
-          f2.x + 127,
-          f2.y + 23,
-          i === field ? TABLE_BG : 2,
-        );
-        if (i === field)
-          this._outline(f2.x - 1, f2.y - 1, f2.x + 128, f2.y + 24, 15);
-        this._text(f2.get(), f2.x + 8, f2.y + 4, 0);
-      });
-      for (const b of btns) {
+
+      // 頂部黑色底框 (320×88)
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(px + 8, py + 8, 320, 88);
+
+      // 頭像 (64×64)
+      if (img) ctx.drawImage(img, 0, 0, 128, 128, px + 16, py + 20, 64, 64);
+      // 頭像外框細線
+      ctx.strokeStyle = "#805020";
+      ctx.strokeRect(px + 15.5, py + 19.5, 65, 65);
+
+      // 頭像翻頁: 前▲ / 後▼ 與白色分割線 (原版風格)
+      const prevHov = hoverAct === "prev";
+      const nextHov = hoverAct === "next";
+      this._text("前 ▲", px + 88, py + 24, prevHov ? 14 : 15);
+      // 分割白線
+      this._rect(px + 86, py + 48, px + 128, py + 48, 15);
+      this._text("後 ▼", px + 88, py + 56, nextHov ? 14 : 15);
+
+      // 標籤
+      this._text("軍師名", px + 158, py + 24, 15);
+      this._text("別　號", px + 254, py + 24, 15);
+
+      // 規則或錯誤提示 (置於黑框下方雲紋區域)
+      ctx.font = '13px "Noto Serif TC","PMingLiU",serif';
+      const msg = errorMsg
+        ? `！${errorMsg}`
+        : "※ 限1至3個漢字（或6個英數），均為必填";
+      ctx.fillStyle = errorMsg ? "#ff5533" : "#ecd088";
+      const tw = ctx.measureText(msg).width;
+      ctx.fillText(msg, px + ((w - tw) >> 1), py + 110);
+
+      // 操作按鈕 (立體土金底色, 懸停反白)
+      for (const b of actionBtns) {
         const hov = b.act === hoverAct;
-        this._rect(b.x, b.y, b.x + 55, b.y + 19, hov ? 15 : 13);
-        this._outline(b.x - 1, b.y - 1, b.x + 56, b.y + 20, 2);
-        this._text(b.label, b.x + 4, b.y + 2, 0);
+        const x0 = b.x,
+          y0 = b.y,
+          x1 = b.x + b.w - 1,
+          y1 = b.y + b.h - 1;
+        ctx.fillStyle = hov ? "#ffffff" : "#c08020";
+        ctx.fillRect(x0 + 1, y0 + 1, b.w - 2, b.h - 2);
+        ctx.fillStyle = hov ? "#ffffff" : "#f0d090";
+        ctx.fillRect(x0, y0, b.w - 1, 1);
+        ctx.fillRect(x0, y0, 1, b.h);
+        ctx.fillStyle = hov ? "#442211" : "#804020";
+        ctx.fillRect(x1, y0, 1, b.h);
+        ctx.fillRect(x0 + 1, y1, b.w - 1, 1);
+        this._text(b.label, b.x + 16, b.y + 3, 0);
       }
-      // 文字面板 (END_S15 碼表 16×8 分頁) — 原版: 蓝底白字直接绘在云窗上, 无面板底色
-      ctx.font = FONT;
-      for (let r = 0; r < ROWS; r++)
-        for (let c = 0; c < COLS; c++) {
-          const idx = page * PER + r * COLS + c;
-          if (idx >= chars.length) break;
-          if (idx === hoverCell) {
-            // 悬停反白: 黑底块
-            this._rect(
-              px + 16 + c * 16,
-              py + 144 + r * 16,
-              px + 31 + c * 16,
-              py + 159 + r * 16,
-              0,
-            );
-          }
-          ctx.fillStyle = COLORS[15]; // 原版白字
-          ctx.fillText(chars[idx], px + 16 + c * 16, py + 144 + r * 16);
-        }
     };
+
     return new Promise((resolve) => {
-      const done = (v) => {
+      let isDone = false;
+      const cleanup = () => {
+        if (isDone) return;
+        isDone = true;
+        window.removeEventListener("resize", syncPositions);
+        overlay.remove();
         this._unbind();
-        resolve(v);
       };
-      const redraw = (hoverAct = null, hoverCell = -1) =>
-        draw(hoverAct, hoverCell);
-      const hitBtn = (x, y) =>
-        btns.find((b) => this._in(x, y, b.x, b.y, b.x + 55, b.y + 19))?.act ??
-        null;
-      const hitField = (x, y) =>
-        fields.findIndex((f2) =>
-          this._in(x, y, f2.x, f2.y, f2.x + 127, f2.y + 23),
+
+      const submit = () => {
+        const nameVal = nameInput.value.trim();
+        const haoVal = haoInput.value.trim();
+        if (!nameVal) {
+          errorMsg = "請輸入軍師名";
+          draw();
+          nameInput.focus();
+          return;
+        }
+        if (!haoVal) {
+          errorMsg = "請輸入別號";
+          draw();
+          haoInput.focus();
+          return;
+        }
+        cleanup();
+        resolve({
+          name: nameVal,
+          hao: haoVal,
+          portrait: pt,
+        });
+      };
+
+      const cancel = () => {
+        cleanup();
+        resolve(undefined);
+      };
+
+      const onKeyDown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          submit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          cancel();
+        }
+      };
+      nameInput.addEventListener("keydown", onKeyDown);
+      haoInput.addEventListener("keydown", onKeyDown);
+
+      const hit = (x, y) => {
+        const nav = navBtns.find((b) =>
+          this._in(x, y, b.x, b.y, b.x + b.w - 1, b.y + b.h - 1),
         );
-      const hitCell = (x, y) => {
-        if (
-          !this._in(
-            x,
-            y,
-            px + 16,
-            py + 144,
-            px + 15 + COLS * 16,
-            py + 143 + ROWS * 16,
-          )
-        )
-          return -1;
-        const c = (x - px - 16) >> 4,
-          r = (y - py - 144) >> 4;
-        const idx = page * PER + r * COLS + c;
-        return idx < chars.length ? idx : -1;
+        if (nav) return nav.act;
+        const act = actionBtns.find((b) =>
+          this._in(x, y, b.x, b.y, b.x + b.w - 1, b.y + b.h - 1),
+        );
+        if (act) return act.act;
+        return null;
       };
+
       this._bind(
         (x, y, btn) => {
-          if (btn === 2) return done(undefined); // 右鍵取消不保存
-          const act = hitBtn(x, y);
-          if (act === "clear") {
-            name = "";
-            hao = "";
-            redraw();
-          } else if (act === "bs") {
-            if (field === 0) name = name.slice(0, -1);
-            else hao = hao.slice(0, -1);
-            redraw();
-          } else if (act === "ok") {
-            if (!name.trim()) return; // 無名不可確定
-            done({ name: name.trim(), hao: hao.trim(), portrait: pt });
-          } else if (act === "prev") {
+          if (btn === 2) return cancel(); // 右鍵取消
+          const act = hit(x, y);
+          if (act === "cancel") return cancel();
+          if (act === "ok") return submit();
+          if (act === "prev") {
             pt = (pt + 149) % 150;
-            redraw();
+            draw();
           } else if (act === "next") {
             pt = (pt + 1) % 150;
-            redraw();
-          } else if (act === "pgup") {
-            page = Math.max(0, page - 1);
-            redraw();
-          } else if (act === "pgdn") {
-            page = Math.min(Math.ceil(chars.length / PER) - 1, page + 1);
-            redraw();
-          } else {
-            const fi = hitField(x, y);
-            if (fi >= 0) {
-              field = fi;
-              redraw();
-              return;
-            }
-            const ci = hitCell(x, y);
-            if (ci >= 0) {
-              if (field === 0 && name.length < MAX) name += chars[ci];
-              else if (field === 1 && hao.length < MAX) hao += chars[ci];
-              redraw();
-            }
+            draw();
           }
         },
         (x, y) => {
-          redraw(hitBtn(x, y), hitCell(x, y));
+          const act = hit(x, y);
+          if (act !== hoverAct) {
+            hoverAct = act;
+            draw();
+          }
         },
       );
-      redraw();
+
+      draw();
     });
   }
 
@@ -526,15 +662,16 @@ export class StartMenu {
         const twRight = hasScrollbar ? px + w - 20 : px + w - 1;
         this._rect(px, py + headY, twRight, py + headY + headerH - 1, 0); // 表头黑带
       }
-      if (header)
-        header.forEach((t, c) =>
+      if (header) {
+        header.forEach((t, c) => {
           this._text(
             t,
             px + colX[c],
             py + headY + Math.floor((headerH - 16) / 2),
             15,
-          ),
-        );
+          );
+        });
+      }
       if (rowH < 24) {
         const twRight = hasScrollbar ? px + w - 20 : px + w - 1;
         this._rect(px, rowsTop, twRight, rowsTop + cap * rowH - 1, TABLE_BG);
@@ -645,9 +782,9 @@ export class StartMenu {
         resolve(v);
       };
       const setScroll = (ns) => {
-        ns = Math.max(0, Math.min(rows.length - cap, ns));
-        if (ns !== scroll) {
-          scroll = ns;
+        const targetScroll = Math.max(0, Math.min(rows.length - cap, ns));
+        if (targetScroll !== scroll) {
+          scroll = targetScroll;
           this._hover = -1;
           draw(-1);
         }
