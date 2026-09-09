@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 let graph;
+let terrain;
 try {
   graph = JSON.parse(
     await readFile(new URL("../web/road_graph.json", import.meta.url)),
   );
+  terrain = new Uint8Array(
+    await readFile(new URL("../web/mmap_map.bin", import.meta.url)),
+  );
 } catch (error) {
-  throw new Error("cannot load generated road graph", { cause: error });
+  throw new Error("cannot load generated road graph/map", { cause: error });
 }
 globalThis.fetch = async () => ({
   ok: true,
@@ -21,7 +25,9 @@ await loadRoadGraph();
 assert.equal(roadGraphReady(), true);
 assert.equal(graph.nodes.length, 192);
 assert.equal(graph.edges.length, 254);
+assert.equal(terrain.length, 384 * 256);
 
+let cityBoundaryEndpoints = 0;
 for (const edge of graph.edges) {
   const source = graph.nodes[edge.source];
   const target = graph.nodes[edge.target];
@@ -46,7 +52,23 @@ for (const edge of graph.edges) {
     { x: source.x, y: source.y },
     "E717反向边点列不得包含源据点节点中心",
   );
+  for (const point of [edge.points[0], edge.points.at(-1)]) {
+    const tile = terrain[point.y * 384 + point.x];
+    assert.ok(
+      tile >= 0xce && tile <= 0xdd,
+      "0x274C must classify every edge endpoint point as a city boundary tile",
+    );
+    cityBoundaryEndpoints++;
+  }
+  for (const point of edge.points.slice(1, -1)) {
+    const tile = terrain[point.y * 384 + point.x];
+    assert.ok(
+      tile < 0xce || tile > 0xdd,
+      "0xCE..0xDD city boundary tiles must occur only at edge point ends",
+    );
+  }
 }
+assert.equal(cityBoundaryEndpoints, 508);
 
 const first = graph.nodes[0];
 assert.equal(roadNodeAt(first.x, first.y)?.id, first.id);
@@ -59,7 +81,8 @@ const crossGraph = findRoadRoute(first.x, first.y, last.x, last.y);
 assert.ok(crossGraph?.edges.length > 0);
 assert.notDeepEqual(crossGraph.points.at(-1), { x: last.x, y: last.y });
 
-console.log(
+process.stdout.write(
   `road graph OK: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ` +
-    `cross-route ${crossGraph.edges.length} edges/${crossGraph.distance} weight`,
+    `${cityBoundaryEndpoints} city-boundary endpoints, ` +
+    `cross-route ${crossGraph.edges.length} edges/${crossGraph.distance} weight\n`,
 );

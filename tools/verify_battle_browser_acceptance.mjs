@@ -23,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
+const { verifyClockPause } = require("./clock_pause_browser_helper.cjs");
 let chromium;
 try {
   ({ chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright"));
@@ -144,7 +145,15 @@ try {
     requests.add(url.pathname);
     return route.continue();
   });
-  const page = context.pages()[0] ?? (await context.newPage());
+
+  // The clock/RAF regression is a browser helper, not a standalone Node test.
+  // Run it in this acceptance's isolated profile and ephemeral local server so
+  // direct `node tools/verify_clock_pause.js` can never report a false pass.
+  const clockPage = context.pages()[0] ?? (await context.newPage());
+  results.clockPause = await verifyClockPause(clockPage, origin);
+  await clockPage.close();
+
+  const page = await context.newPage();
   page.on("pageerror", (error) =>
     errors.push(`pageerror: ${error.stack ?? error.message}`),
   );
@@ -220,7 +229,7 @@ try {
   await titleClick("new-game-yes", { x: 300, y: 175 });
   await titleClick("chapter-0", { x: 120, y: 55 });
   await titleClick("faction-0", { x: 120, y: 52 });
-  await titleClick("advisor-confirm", { x: 440, y: 294 });
+  await titleClick("advisor-confirm", { x: 392, y: 271 });
   await page.waitForFunction(
     () =>
       getComputedStyle(document.querySelector("#startv")).display === "none" &&

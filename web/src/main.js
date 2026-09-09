@@ -642,14 +642,15 @@ export async function startApp() {
       return;
     }
     app.gamebar?.syncClock?.(); // 模态弹窗开→计时冻结 (原版 [0xD2A]=1)
-    app.clock?.advance(dt);
+    app.clock?.advanceFrame(dt);
 
     const c = app.clock;
     const isRunning =
       c &&
       c.speed > 0 &&
       !c.hold &&
-      (!app.hud || app.hud.dialogCount === 0) &&
+      // HUD刚装配且没有模态时dialogCount允许缺省；undefined不能被误判为暂停。
+      (app.hud?.dialogCount ?? 0) === 0 &&
       (!app.gamebar ||
         (!app.gamebar.listDialog &&
           app.gamebar.selectedSubmenu == null &&

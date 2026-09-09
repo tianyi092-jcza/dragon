@@ -1,201 +1,152 @@
 # 臥龍傳 Web · Checkpoint Journal
 
-> 更新时间：2026-09-08
+> 更新时间：2026-09-09
 >
-> 用途：记录本轮战术战斗工作的当前可继续状态。长期规则与地址级证据仍以 `AGENTS.md`、`docs/re-notes-tactical-rules.md`、`docs/re-notes-tactical-lifecycle.md` 和 `E:/Dragon/.agents/skills/re-battle-command/SKILL.md` 为准。
+> 用途：记录本轮会话的实现、调试、失败尝试、验证、当前阻塞和下一步。长期稳定规则见`../AGENTS.md`，地址级证据见`re-notes-*.md`与`E:/Dragon/.agents/skills/`。
 
-## 1. 本轮目标
+## 1. 本轮范围
 
-本轮目标是继续以 `KI.EXE`、`BATTLE.MAP/MDL/SCH/DAT`、`ICONGRF.DAT`、`TALK.DAT` 和受控浏览器运行态为证据，修复并验证战术战斗的：
+本轮从开局军师界面延伸到战略内政与委任表现，主要处理：
 
-1. 64×64战场地图、地形、建筑、军旗、单位及原生绘制历史；
-2. 16阵形、三部署区域、六命令、六队选择、状态图标及敌方脚本；
-3. BD46寻路、占用/高度/城墙破坏、对象生命周期和战斗结束；
-4. 开场对白、命令对白、3秒关闭、启动逐帧呈现与战术速度；
-5. 现代大视口下的浮窗、卡栏、阵形图标和对白布局；
-6. 核实最新截图中“地图下角内收、对边不平行”的视觉问题。
+1. 原版规格的军师确认窗与现代Web自定军师输入；
+2. 内政官申请资金的底部报告、朝堂议政与双人对白；
+3. 玩家确认的默认军师不能再作为普通武将参与操作；
+4. 委任攻城接触位置及野战胜方战后续行；
+5. 战略地图逐RAF重绘、道路移动插值和接战动画连续性。
 
-本轮不是“整个战斗已经100%复刻”的完成声明；仍需保留证据未闭合项。
+本轮不宣称整个战略/战术系统已完全等价于原版；未闭合项继续按「推断/未知」处理。
 
-## 2. 已完成工作
+## 2. 已完成进展
 
-### 2.1 地图资源、投影与可见对象
+### 2.1 开局军师确认与自定输入（已提交）
 
-- `BATTLE.MAP` 已按 `0x200 + directoryIndex*0x1000` 解析为214张独立64×64地图，不再错误地让三个layout共用三张图。
-- `BATTLE.MDL` 每layout解析256个8字节descriptor和192个32×16地形图；`BATTLE.SCH`解析360个32×16半帧。
-- mask与四个颜色平面均按左上/右上/左下/右下四象限解码；调色板通道保持原4-bit高半字节 `n*16`。
-- 地图索引固定为 `y*64+x`；投影固定为：
-  - `X = 16*(x+y)+16`
-  - `Y = 64+8*(64+y-x)-16*level`
-- `DD22`每个descriptor槽令显示缓冲位置上移一个DDB4的16px行；旧的8px解释已撤销。该修正同时消除了屋顶白缝，并使 `9E10→BB10→DC03` 的城头军旗高度正确。
-- `CB9B/CBBC`镜像继续采用“保留边界、反转内部线性区并转换方向tile”，不再对Canvas、人物或点击坐标二次水平翻转。
-- 越界区域使用原descriptor tile0的等距晶格，不用黑底或矩形平铺。
-- 城头红/蓝军旗来自 `0xE00..` kind3地图属性对象及SCH基址 `0x150/0x204`，不是六队slot0的替代标记。
+- 军师确认窗依据`KI.EXE 0x8F37`改为240×192金框、224×176内区；君主/军师头像均为64×64，并重排首都、武将数、据点数和两个按钮。
+- 自定军师不再使用`END_S15.DAT`选字板，改用Canvas上方的原生DOM输入框，以支持系统中文输入法。
+- 军师名与别号均必填；等效宽度上限为6单位（全角2、半角1），即最多3个全角字符或6个半角字符。支持Enter确认、Esc/右键取消。
+- 自定军师保持独立对象`{custom:true,general_idx:null,name,hao,portrait}`，姓名不参与武将身份寻址；简繁中文和其他Unicode文本由IndexedDB JSON无损保存。
+- 已验证`createNewGameScenario → snapshotState → applyWebMetaToState → getAdvisor`后名称、别号、头像及`custom`标记一致。
+- 已提交：`4a6098d feat: replicate advisor confirmation dialog and modernize custom advisor input`。
 
-### 2.2 指挥、AI、寻路、占用与生命周期
+### 2.2 内政官资金申请UI与资源修正（未提交）
 
-- 16阵形已按 `C11A` 写入 `D346` 与 `D342=index*0x60`；三部署区按 `C165/C181/C19D` 写 `D33C` 的 `0x48/0x28/0x05`。
-- 六卡按原槽顺序 `2,4,0,1,5,3` 显示为 `左翼、左備、大將、先鋒、右備、右翼`；多选按 `C27D..C30C` XOR mask，零mask表示全选。
-- 六命令按原队列执行：普通命令只写组长pending，接受边界才广播并更新状态图标；撤退走side-wide路径。状态图标直接由 `ICONGRF.DAT` 原始图形生成。
-- 敌方 `BATTLE.DAT` VM、阵形基准、城壁目标、方向、目标评分、追击和mode选择中的已识别错误均按原始调用链修正。
-- BD46已改为原版target-seeded反向波前、环形队列和回溯：包括双plane成本、实时surcharge、BFDC distance alias、cost-gap retry、端点BX调整、方向压缩、64-word CLC截断及CF/AL语义。
-  - 原始走廊：plain输出 `[0104]`；中间surcharge 8输出 `[0103,0104]`；上下plane均CF=0。
-  - `tools/bd46_raw_oracle.py` 是带KI hash认证的有界指令解释器，仅作测试oracle，不是DOS或通用8086模拟器。
-- B413补员状态归一化、B240/B3B2占用和surcharge写回、地形flags bit02、B8AA投射物初始位置/层级已经闭合。
-- B824破墙后六个physical occupancy plane按原版写0；第七面、descriptor plane与上下surcharge的保留/清除边界已经分开处理。
-- 启动拒绝/单挑评分、D318低字节递增、marker word比较、主将致命HP保1、B240相位切换、B360死亡半帧及终止帧跳过B941/ADC8/DDB4均已按证据修正。
+- TALK56“前来报告现状”已改为复用统一底部`generalCard`系统消息框，不再新增顶部报告窗。关闭报告卡后才进入朝堂议政。
+- `_drawProposalAudience()`在`budget_report`阶段不再重复绘制窗口；进入朝堂前清除报告卡，避免两个体系叠画。
+- `showNpcMessageDialog()`增加可见文本守卫：空字符串、空token或纯空白消息不创建头像空框；若存在`onClose`则直接续行。`_showBudgetReportCard()`返回是否真正显示，未显示时不等待3秒。
+- `IVENTGRF.DAT`提取纠偏：原脚本把288×176插图误按交错格式解成288×352并拉伸。根据`0xFA37`的`ax=0xB012`，`tools/parse_kyoivent.py`现只输出原生288×176的canonical `ivent_0/1/2.png`；六个无引用且内容重复的`_a/_b`别名已删除。
+- 朝堂背景和传统进言背景均按288×176原寸绘制；内政官在左上、君主在右下。第3步显示答应/提示金额/拒绝；选择后按两轮对白推进并保留前一方发言。
+- TALK解析中据点名使用土橙`#c08020`；金额数字标记`isNum`，由DIN/Oswald以`#ffd700`绘制。
 
-### 2.3 TALK、开场逐帧、速度与原生参考历史
+### 2.3 默认军师排除普通武将操作（未提交）
 
-- 已生成424条认证战术TALK目录，闭合C315的legion slot→general/personality/speaker、跨行栈参数、开场/命令/撤退生产者及原始marker/AX副作用。
-- A1C5改为增量stepper；每个真实A04B/A065规则帧后yield，使双方开场对白能够在生产RAF中依次显示，同时战斗规则继续运行。
-- 战术对白为纯表现层：显示3000ms或全局右键关闭；不暂停Session、不clock hold、不改marker、命令、RNG或规则帧。
-- 修复浏览器原生 `setTimeout` 被脱离 `window` 调用造成的 `Illegal invocation` 和首条对白卡死。
-- 战略速度 `CFA` 与战术速度 `CFB→CFC` 已确认相互独立；战术五档原等待量为 `64/48/32/16/0` 个约3.43284ms回调。
-- Web生产层每个RAF最多推进一个完整规则帧；首个启用RAF立即执行，之后按A0F2尾等待；使用完整有限非负RAF delta，丢弃整帧欠账但保留真实模余相位。最高档只声明“无原版附加等待”，不冒充原版固定60FPS。
-- 已激活隐藏的原生参考display/process：保留跨战 `CS:E164` scratch、framebuffer known-mask、99CB初始提交及每个非终止A065的B941→ADC8→DDB4历史。现代2048×1088场景只读取原始capture，与隐藏native viewport分离。
-- 活动checkpoint成对保存Session、VM、pacing和native scratch/framebuffer历史；正式IndexedDB仍禁止战中存档。
+- 新增`commands.js::isPlayerAdvisorGeneral(sc,general)`，同时检查`general.is_player`和非自定`player_advisor.general_idx`，确保读档身份标记重建前也不会短暂进入候选。
+- 已从武将一览、编成、内政官任命、外交官任命、旧自动出征、旧遣使和玩家势力AI选将中过滤已确认的默认军师。
+- 全新浏览器确认该军师在武将、编成、内政官、外交官四个可见列表中均不存在。
 
-### 2.4 现代战术UI
+### 2.4 委任攻城接触位置与野战续行（未提交）
 
-用户已明确：战术UI不要求照搬原版整体排版，但各原始素材和命令语义仍需有证据。
+- 用户发现攻城时攻方标识/48×48接战动画伸入据点。重新核对`0x26FF→0x2708→0x274C..0x275E→0x2880`：候选道路点先检查军团，随后在status bit0已置位且tile为`0xCE..0xDD`时检查edge端点城；敌城返回发生在坐标写回之前。
+- 扫描原始`MMAP.MAP`及E717资产：254条edge首末共508格均为`0xCE..0xDD`据点边界tile，5526个边内点没有其他中段命中。因此起点首格可以消费，敌城末端边界格不能消费。
+- `ai.js`新增`siegeApproachCity()`，在候选点坐标写回前判断攻城；保留`pointIndex===points.length`旧Web快照兼容重检。反向路径也允许从旧终点状态正确回退。
+- 浏览器构造同一目标城时，城坐标`(225,107)`、不可消费边界点`(226,107)`、攻方停在`(227,107)`，显示间距32px，接战动画不再伸入城内。
+- 野战胜方约停1秒的根因是Web统一写`cooldown=8`。`0x5130→0x474A→0x6FD2/0x701D`只写原始`+0x0B=1`，下一自身槽减至0后同槽继续；Web动作前检查模型的等价值是`cooldown=0`，现已修正。
 
-- 取消可见战术小地图和右下双箭头；保留16阵形、三部署区、六命令、六卡及系统战术速度。
-- 使用三个192px浮窗和左下624×36六卡栏；窗口边框均调用既有 `GameBar._drawWindow(..., "black")`，不以CSS伪造原窗纹理。
-- 对白规格集中到 `web/src/ui/battlepanels.js`：480×80外框、8px inset、64×64头像、16px字号、20px行高、两行有界换行。
-- 上对白与左上标题窗顶边对齐；下对白与左下卡栏底边对齐；姓名与正文作为整体在64px正文区域垂直居中。
-- 16阵形图重新从 `ICONGRF.DAT[0x2800..0x2FFF]` 四个plane解码为完整128×32网格和16个16×16格：两排无整体外框，每个格保留原14×14内框；运行时仅当前D346格叠黄色选中框。
-- 右侧兵力/士气线使用 `C775/C78E` 的原始长度公式；文字显示与规则态分离。
+### 2.5 战略逐帧重绘与道路移动连续性（未提交）
 
-### 2.5 最新地图形状核实
+- 用户观察到军团像每天才更新一次、道路移动跳格、接战动画瞬间播放完。
+- 根因：`HUD`构造时没有初始化`dialogCount`，值为`undefined`；主RAF使用严格条件`dialogCount === 0`，导致规则时钟正常推进，但地图进入暂停分支，只在日期变化时重绘。
+- `hud.js`现显式初始化`dialogCount=0`；`main.js`同时以`(app.hud?.dialogCount ?? 0) === 0`防御缺省状态。
+- `clock.js`新增浏览器RAF入口`advanceFrame(dtMs)`：每RAF最多一个战略更新；延迟/后台帧丢弃整帧欠账，只保留小于step的相位。原`advance()`继续供受控测试完整消费dt。
+- `mapview.js`按`0x25A3`每次扫描16/128军团槽的调度事实，把一个道路点位移铺满8个战略更新间隔。仅Canvas插值改变，规则坐标、寻路、RNG和战果未改。
+- 全新Chrome实测：无模态时`dialogCount=0/hold=false`，350ms内21次Canvas绘制；最高速单步`curT`约为`0.19/0.36/0.40/0.57/0.73/0.77/0.95/1.00`，约8个可见采样完成，没有整步跳跃。
 
-用户截图来自本轮会话临时目录，不作为仓库产物提交。
+## 3. 调试过程与失败尝试
 
-结论：**底层地图仍是严格菱形，截图中的不规则感来自视口裁切，不是投影变形。**
+1. **把前台Web服务误判为卡死**
 
-完整64×64地面菱形边界为：
+   `tools/webserver.py`使用前台`serve_forever()`，正确启动命令是`python tools/webserver.py 8321`。早期无端口启动及访问`localhost:8000`失败，随后发现8321存在多个重复监听；清理旧实例后保留单一服务。以后启动前先检查PID和端口占用。
 
-- 上角 `(1024,64)`
-- 左角 `(0,576)`
-- 右角 `(2048,576)`
-- 下角 `(1024,1088)`
+2. **空白内政官头像框被误判为重复入队**
 
-四边斜率严格为 `±0.5`，两组对边平行。截图尺寸1897×1049；截图上角约 `(992,48)`，精确对应相机偏移约 `(32,16)`。其余角应显示在：
+   排查确认`enqueueDomesticBudgetReport()`只入队一次，`_drainStrategicMessages()`也只进入预算分支；TALK56格式化结果有可见文本。问题处理方式是统一报告卡路径并对空内容做入口守卫。全新浏览器重新触发后只出现一个带完整文字的底部框。
 
-- 左 `(-32,560)`：越过左边；
-- 右 `(2016,560)`：越过右边；
-- 下 `(992,1072)`：比截图底边低23px。
+3. **原始插图尺寸误判**
 
-因此截图只完整显示上角。两条下边在截图底行约 `x=944` 与 `x=1040` 处被截断，尚未汇合，视觉上就像下角提前内收。本项暂未修改代码；若继续核查，应输出不受相机裁切的2048×1088全场景调试图。
+   旧提取器输出288×352并由浏览器缩放，造成朝堂图像失真。重新检查原始blit尺寸后撤销交错解码，改为288×176原寸输出。
 
-## 3. 关键决策
+4. **攻城仅在`pointIndex===length`判断过晚**
 
-1. **原始证据优先**：截图只用于发现与复核视觉问题，不单独定义机制。
-2. **地图保持原生1:1**：不为一次截图缩放整个2048×1088战场；大视口继续通过相机拖拽浏览。
-3. **现代全场与native参考分离**：隐藏native display用于保存原始局部绘制历史；不能把它未经证明地扩展成全世界像素等价结论。
-4. **UI产品例外固定**：不恢复战术小地图和双箭头；现代浮窗布局可以不同，但阵形、命令、状态和数值仍按原始语义。
-5. **对白关闭是表现政策**：全局3秒/右键只控制DOM，不改变原始marker和战斗推进。
-6. **最高速度不补公式**：原版最高档绝对FPS依赖硬件；Web只执行每RAF最多一完整帧以避免旧12帧批跑。
-7. **存档安全**：任何验证不得读取或写入 `E:/Dragon/Dragon/SAVE.DAT`；战中正式保存仍禁止。
-8. **不整体回退脏树**：当前大量修改属于本轮与此前连续工作，禁止 `reset/clean` 覆盖。
+   旧Web先消费据点边界点再攻城，单纯改视觉偏移会让规则坐标继续错误。最终在候选点写回前按原始tile与edge端点检查，而不是用渲染补丁掩盖。
 
-## 4. 失败尝试与教训
+5. **战略动画问题最初看似速度过快**
 
-- 早期把军旗附着到六队slot0，位置错误；原始对象链证明它们是 `9E10` 建立的kind3地图属性对象。
-- 曾把descriptor层和对象level理解为8px，造成屋顶白缝及军旗陷入墙面；DDB4缓冲行证明应为16px。
-- 旧BD46使用正向最短路并在cost gap立即CF=1；实时surcharge接入后拒绝原版可达路线。最终必须整体重写原target-seeded反向工作区，不能只补carry。
-- 第一版外部BD46 oracle把KI body复制越过64KiB CS并污染ES fixture；现限制CS为单段并显式安装测试数据。
-- B824任务初稿曾假设破墙需要重建两个descriptor plane；原始指令只清六physical plane和指定surcharge，该假设已撤销。
-- 试图仅凭PNG alpha复刻B941不成立：DFBB可忽略mask写满颜色面，慢路还依赖persistent `CS:E164` scratch和历史。
-- 第一版开场浏览器fixture绕过未完成的标题Promise，导致 `#startv` 覆盖对白；现用四次真实pointer完成标题流程并验证post-await状态。
-- 玩家面板曾因CSS数字错误变成2104px高；已修为192×288并加入真实布局回归。
-- 对白timer曾因脱离window调用原生setTimeout而抛错；改为绑定包装函数。
-- 旧RAF路径把delta截到50ms并曾每callback批跑12帧，造成高档过快和规则衰减异常；现按完整delta和一帧上限处理。
-- 最新“地图不规则”观察经坐标反推确认是三个角被viewport裁掉；在完整场景证据出现前不得改投影去迎合观感。
+   实际根因是RAF绘制门控失效，不是道路规则或速度公式。先修`dialogCount`后再加单RAF规则预算及只读插值，避免通过减慢规则tick掩盖问题。
 
-## 5. 相关文件
+6. **无关格式化diff**
+
+   pi-lens曾自动格式化八份与本轮功能无关的战术验证脚本。审查确认后已逐文件恢复，未整体reset，也未覆盖本轮功能修改。
+
+7. **浏览器时钟测试曾是假成功入口**
+
+   旧`verify_clock_pause.js`只定义全局helper，直接以Node执行会零断言退出。现改为`clock_pause_browser_helper.cjs`，由`verify_battle_browser_acceptance.mjs`在隔离profile和临时服务器中真实调用；首次接入还暴露了测试错误地期待单个战略tick改变小时，已改为校验`strategicTickSerial`精确增加1。
+
+## 4. 相关文件
 
 ### 产品代码
 
-- `web/src/game/battle/battleprojection.js`：等距投影与16px level。
-- `web/src/render/battleview.js`：大场景、对象capture、浮窗投影、RAF推进、checkpoint。
-- `web/src/game/tacticalbattle.js`、`web/src/game/tacticalclock.js`：战斗装配与战术帧预算。
-- `web/src/game/battle/originalpathfinder.js`、`originalpathqueue.js`、`originalspatial.js`：BD46、路径队列和B000空间。
-- `web/src/game/battle/originalmovement.js`、`originalobjectframe.js`、`originaleffects.js`、`originaleffectframe.js`：移动、占用、生命周期和投射物。
-- `web/src/game/battle/originalstartup.js`、`originalsession.js`、`originalmessages.js`：增量启动、快照、TALK/marker。
-- `web/src/game/battle/originaldisplay.js`、`web/src/render/originalcompositor.js`：隐藏native参考历史。
-- `web/src/ui/battledialogue.js`、`web/src/ui/battlepanels.js`：3秒对白及集中布局规格。
-- `web/index.html`：现代战术浮窗、命令、阵形和六卡DOM/CSS。
+- `web/src/ui/startmenu.js`：军师确认窗和自定输入（已提交）。
+- `web/src/ui/gamebar.js`、`web/src/game/talk.js`：TALK56底部报告、朝堂对白、token颜色与数字字体。
+- `web/src/ui/hud.js`：默认军师列表过滤、`dialogCount=0`初始化。
+- `web/src/game/commands.js`、`diplomacy.js`、`ai.js`：军师候选排除、战略AI及委任攻城/战后续行。
+- `web/src/game/clock.js`、`web/src/main.js`、`web/src/render/mapview.js`：RAF预算、持续重绘和道路点插值。
+- `tools/parse_kyoivent.py`、`web/grf/ivent_0/1/2.png`：三张288×176议政插图提取与canonical产物。
 
-### 原始生成物与提取工具
+### 重点回归
 
-- `web/battle_maps.json`、`web/battle_navigation.json`、`web/battle_scripts.json`
-- `web/battle_display.bin`、`web/battle_talk.json`
-- `web/grf/battle_terrain_*.png`、`web/grf/battle_units.png`
-- `tools/parse_battle.py`、`tools/export_battle_maps.py`
-- `tools/export_battle_display.py`、`tools/export_battle_talk.py`
-- `tools/extract_battle_status_icons.py`、`tools/extract_battle_formation_icons.py`
+- 内政/消息：`verify_budget_message_ui.mjs`、`verify_domestic_budget_event.mjs`、`verify_domestic_governance.mjs`、`verify_strategic_message_fifo.mjs`。
+- 军师/外交：`verify_diplomacy_runtime.mjs`、`verify_legion_command_state.mjs`。
+- 行军/战果：`verify_engagement_state.mjs`、`verify_field_result.mjs`、`verify_road_graph.mjs`、`verify_march_navigation.mjs`、`verify_delegated_autobattle.mjs`。
+- RAF/UI：`verify_clock_transition.mjs`、`clock_pause_browser_helper.cjs`（由browser acceptance调用）、`verify_battle_browser_acceptance.mjs`。
+- 资源迁移：`verify_kyoivent_assets.py`锁定三张canonical插图的尺寸、RGB像素哈希及旧别名删除。
 
-### 关键验证
+### 证据文档
 
-- `tools/verify_battle_original_bd46*.mjs`
-- `tools/verify_battle_original_wall_clear.mjs`
-- `tools/verify_battle_original_lifecycle.mjs`
-- `tools/verify_battle_original_display*.mjs`
-- `tools/verify_battle_original_messages.mjs`
-- `tools/verify_battle_original_message_snapshot.mjs`
-- `tools/verify_battle_message_raw.mjs`
-- `tools/verify_battle_dialogue_presentation.mjs`
-- `tools/verify_battle_dialogue_command_clicks.mjs`
-- `tools/verify_battle_command_panel.mjs`
-- `tools/verify_battle_formation_assets.py`
-- `tools/verify_tactical_speed*.mjs`
-- `tools/verify_battle_panel_layout.mjs`
-- `tools/verify_battle_browser_acceptance.mjs`
-- `tools/verify_battle_viewport.js`
+- `../AGENTS.md`
+- `re-notes-march-pathfinding.md`
+- `E:/Dragon/.agents/skills/re-march-engagement/SKILL.md`
 
-### 长期证据文档
+## 5. 验证记录
 
-- `AGENTS.md`
-- `docs/re-notes-tactical-rules.md`
-- `docs/re-notes-tactical-lifecycle.md`
-- `docs/re-notes-kernel.md`
-- `E:/Dragon/.agents/skills/re-battle-command/SKILL.md`
+- 已通过：
+  - `verify_budget_message_ui.mjs`
+  - `verify_domestic_budget_event.mjs`
+  - `verify_domestic_governance.mjs`
+  - `verify_diplomacy_runtime.mjs`
+  - `verify_legion_command_state.mjs`
+  - `verify_engagement_state.mjs`
+  - `verify_field_result.mjs`
+  - `verify_road_graph.mjs`
+  - `verify_march_navigation.mjs`
+  - `verify_delegated_autobattle.mjs`
+  - `verify_clock_transition.mjs`
+- 最终工作树完整执行：98项`verify_*.mjs`、9项`verify_*.py`及`verify_battle_viewport.js`全部通过。
+- `verify_battle_browser_acceptance.mjs`使用全新Chrome 152隔离profile和临时端口，现同时真实执行战略时钟/RAF回归；三尺寸panel验收也包含在98项MJS中。
+- 23个本轮相关JS/Python文件primary LSP零诊断；`lens_diagnostics mode=all`无blocking，仅报告一个已恢复且未改动的旧战术验证脚本`console.log` warning。
+- `git diff --check`通过，仅有仓库既有LF/CRLF转换提示。
+- 浏览器证据位于系统临时目录；本地profile、代理缓存、日志、PID、截图和一次性脚本均未纳入提交。
+- 全程未读取或写入`E:/Dragon/Dragon/SAVE.DAT`。
 
-## 6. 当前状态
+## 6. 当前状态与阻塞
 
 - 仓库：`E:/Dragon/web-port`
-- 分支/基线：`main`，`HEAD 57df722`
-- 工作树：大量已修改及未跟踪文件，均为连续工作成果；**暂存区为空，未提交**。
-- 禁止整体reset/clean或覆盖用户已有修改。
-- 最近完整验证口径：
-  - 105项安全非浏览器正文通过；
-  - 另有Playwright/Chrome三尺寸panel布局和完整production BattleView acceptance两项正文通过；
-  - Chrome版本 `152.0.7977.76`，使用全新临时profile，结束后删除；
-  - primary LSP无错误；Lens无blocking，仅有既有测试重复/console/大型函数等warning；
-  - `git diff --check`仅报告既有LF→CRLF提示；暂存为空。
-- 本轮布局与生产BattleView的浏览器证据生成在本机临时目录，仅用于验收，不纳入仓库。
-- 未读取或写入 `E:/Dragon/Dragon/SAVE.DAT`。
-- 最新地图形状分析只产生结论和本记录，未改产品代码。
+- 分支：`main`
+- 本批基线：`4a6098d`；最终提交以`git log`为准。
+- 全部已改动和未跟踪文件已审查：保留产品代码、focused tests、资源迁移与必要文档；恢复八份纯格式化噪声；删除六份废弃图片别名；所有本地profile、代理缓存、日志、PID、截图和一次性脚本继续由`.gitignore`排除。
+- 暂无代码或测试阻塞；本批已获用户明确授权提交并推送。
 
-## 7. 阻塞点与残余风险
+## 7. 下一步
 
-当前没有导致项目无法运行的硬阻塞，但以下证据链仍未闭合，不能宣称整场完全忠实：
-
-1. `E04A` scratch整块writer及全部间接调用可达性尚未闭合；跨战 `CS:E164` 的全部合法历史仍未知。
-2. 首次DDB4之前完整VGA背景、UI、cursor和其他writer来源未闭合；known-mask未知区域不能冒充黑色。
-3. 隐藏native viewport只证明原局部绘制历史；现代2048×1088全世界的逐像素native equivalence未建立。
-4. B533完整伤害/对象交换边界仍需专项审计。
-5. CBE5的slot/commander身份依赖原版 `6E8F` 不变量；不能直接用Web `legion.idx/generalIdx` 猜补。
-6. 内部命令9/10的完整生产可达性仍不明确；不得仅因CFG未找到writer就宣称不可达。
-7. 尚缺覆盖完整战斗生命周期的受控DOSBox原版动态差分；现有raw oracle都是有界指令级工具，不是DOS运行等价证明。
-8. 最新截图未包含完整地图四角。虽然坐标已证明投影平行，但若用户仍认为轮廓异常，应先生成完整scene图，而不是改公式。
-
-## 8. 下一步
-
-1. **地图视觉复核**：输出不受viewport裁切的2048×1088场景图，标出四角和四条理论边；增加四角/边斜率回归。若完整图仍有视觉缺口，再区分原始tile0边界、透明mask和实际坐标问题。
-2. **native scratch审计**：继续追E04A及间接writer、首次DDB4前VGA/UI/cursor来源和跨战scratch可达状态。
-3. **剩余规则链**：专项闭合B533伤害/交换、CBE5身份不变量及命令9/10生产入口。
-4. **动态差分**：在不接触正式SAVE.DAT的独立环境中，建立可重复DOSBox战斗fixture，对关键Session、RNG、路径、消息和终止边界做逐帧差分。
-5. **长时浏览器回归**：用全新profile覆盖攻/守城、野战、水战、破墙、撤退、主将死亡、不同速度及checkpoint恢复；继续明确区分实际执行正文与只定义page helper的脚本。
-6. 每批完成后同步更新本文件、`re-notes-tactical-*`、SKILL和focused tests，并运行变更文件LSP、`lens_diagnostics mode=all`、安全验证及 `git diff --check`。
+1. 长时运行第一章，覆盖内政官预算耗尽、type4零建议额、批准/拒绝/自定义金额、月结政策边界和保存禁止条件。
+2. 在五档速度下持续观察多军团行军、道路接敌、攻城边界、接战四相和野战胜方立即续行，确认无后台RAF恢复追赶。
+3. 复核旧IndexedDB快照的`pointIndex===points.length`兼容路径与默认军师读档身份重建。
+4. 后续修改继续避免夹带自动格式化、本地运行产物和浏览器profile；提交前保持同一审查口径。
+5. 战术长期未闭合项继续记录在`re-notes-tactical-*`，不要重新塞回本journal：E04A scratch来源、首DDB4前VGA来源、B533完整伤害/交换、CBE5身份不变量、命令9/10可达性及受控DOSBox逐帧差分。

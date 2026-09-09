@@ -88,7 +88,7 @@ function oneCityScenario({ faction = 0, budget = 1, troops = 50 } = {}) {
   assert.equal(rng.calls.length, 2);
 }
 
-// 0x7663/0x76A0：军师仍可任内政官；只排君主、非闲置和非本势力武将。
+// 玩家确认的默认军师是玩家化身：保留原武将记录，但不得进入内政官候选。
 {
   const faction = { idx: 0, monarch_idx: 0, advisor_idx: 1 };
   const sc = {
@@ -102,19 +102,26 @@ function oneCityScenario({ faction = 0, budget = 1, troops = 50 } = {}) {
   };
   assert.deepEqual(
     domesticGovernorCandidates(sc, faction).map((general) => general.idx),
-    [1, 4],
+    [4],
+  );
+  sc.generals[1].is_player = false;
+  sc.player_advisor = { custom: false, general_idx: 1 };
+  assert.deepEqual(
+    domesticGovernorCandidates(sc, faction).map((general) => general.idx),
+    [4],
+    "saved advisor identity must exclude the avatar even before marker rebuild",
   );
   const city = { governor: null };
-  const advisor = sc.generals[1];
-  advisor.assignment_budget = 9;
-  appointDomesticGovernor(city, advisor);
-  assert.equal(city.governor, 1);
-  assert.equal(advisor.status, 2);
-  assert.equal(advisor.assignment_budget, 9);
-  dismissDomesticGovernor(city, advisor);
+  const general = sc.generals[4];
+  general.assignment_budget = 9;
+  appointDomesticGovernor(city, general);
+  assert.equal(city.governor, 4);
+  assert.equal(general.status, 2);
+  assert.equal(general.assignment_budget, 9);
+  dismissDomesticGovernor(city, general);
   assert.equal(city.governor, null);
-  assert.equal(advisor.status, 0);
-  assert.equal(advisor.assignment_budget, 0);
+  assert.equal(general.status, 0);
+  assert.equal(general.assignment_budget, 0);
 }
 
 // 0x4194：有预算的玩家内政官先扣预算，政治控制门控/步长，武术控制补兵。

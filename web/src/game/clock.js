@@ -104,7 +104,28 @@ export class Clock {
     return Math.min(1, Math.max(0, this._acc / step));
   }
 
-  /** 推进一个子刻度组 (复刻 1D8E: 当前值达到8时进位一次时刻) */
+  /**
+   * 浏览器RAF入口：每个显示帧最多执行一次战略主更新。延迟帧只保留
+   * 小于一个step的相位，不追赶整帧欠账；否则最高速或后台恢复会在
+   * 一次Canvas提交前跨过同一军团的多个道路点与接战四相。
+   */
+  advanceFrame(dtMs) {
+    if (this.hold || this._legacyPaused) {
+      this._acc = 0;
+      return false;
+    }
+    const step = this.currentStep;
+    const elapsed = Number.isFinite(dtMs) ? Math.max(0, dtMs) : 0;
+    this._acc += elapsed;
+    if (this._acc < step) return false;
+    this._acc %= step;
+    this._tick();
+    this.onSyncHold?.();
+    if (this.hold || this._legacyPaused) this._acc = 0;
+    return true;
+  }
+
+  /** 推进子刻度组；受控测试/离线调度可消费完整dt。 */
   advance(dtMs) {
     if (this.hold || this._legacyPaused) {
       // 菜单/弹窗或旧模态调用暂停战略时钟

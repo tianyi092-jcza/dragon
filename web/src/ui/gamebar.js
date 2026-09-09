@@ -169,7 +169,9 @@ export class GameBar {
       loadImage("grf/ui/frame_cap.png"),
       loadImage("grf/ui/minimap_roads.png"),
       loadImage("grf/ui/message_npc.png"),
-      loadImage("grf/ivent_0_a.png"),
+      loadImage("grf/ivent_0.png"),
+      loadImage("grf/ivent_1.png"),
+      loadImage("grf/ivent_2.png"),
     ]).then(
       ([
         bar,
@@ -188,6 +190,8 @@ export class GameBar {
         mbg,
         messageNpc,
         ivent0,
+        ivent1,
+        ivent2,
       ]) => {
         this.imgs = {
           bar,
@@ -202,6 +206,8 @@ export class GameBar {
           mbg,
           messageNpc,
           ivent0,
+          ivent1,
+          ivent2,
         };
         this._gf = { cloud, sq, col, cap }; // 金框+云纹 (与弹窗同源资产)
         this.app.view.draw();
@@ -441,8 +447,8 @@ export class GameBar {
           ctx.fillStyle = "#4a7828";
           ctx.fillRect(px + col.x, py + titleH, col.w, d.headerH);
         }
-        const sortMark =
-          d.sortColumn === c ? (d.sortDirection > 0 ? "▲" : "▼") : "";
+        let sortMark = "";
+        if (d.sortColumn === c) sortMark = d.sortDirection > 0 ? "▲" : "▼";
         const label = sortMark ? `${t}${sortMark}` : t;
         ctx.fillStyle = "#ffffff";
         if (col.align === "right") {
@@ -3599,8 +3605,8 @@ export class GameBar {
         if (ri === 0) {
           void this._finishIncomingDiplomacy("accept");
         } else if (ri === 1) {
-          const winW = 320;
-          const winH = 384;
+          const winW = 288;
+          const winH = 176;
           const winX = Math.round((innerWidth - winW) / 2);
           const winY = Math.round((innerHeight - winH) / 2) + 20;
           p.step = "incoming_diplomacy_keypad";
@@ -3632,8 +3638,8 @@ export class GameBar {
         if (ri === 0) {
           void this._finishBudgetAudience(p.budgetRequested, "accept");
         } else if (ri === 1) {
-          const winW = 320;
-          const winH = 384;
+          const winW = 288;
+          const winH = 176;
           const winX = Math.round((innerWidth - winW) / 2);
           const winY = Math.round((innerHeight - winH) / 2) + 20;
           p.step = "envoy_budget_keypad";
@@ -3687,24 +3693,150 @@ export class GameBar {
 
     const iw = innerWidth;
     const ih = innerHeight;
+    const isBudget = p.type === "domestic-budget" || p.type === "envoy-budget";
 
-    // 1. 背景大图窗口 (20×24 tiles = 320×384，居中展示)
-    const winW = 320;
-    const winH = 384;
+    // TALK 56/57 报告阶段由现有 generalCard 系统底部提示框绘制；
+    // 这里必须直接返回，避免 proposalAudience 再叠画一个空白/重复窗口。
+    if (isBudget && p.step === "budget_report") return;
+
+    if (isBudget) {
+      // ── 预算议政流程规格 (288×176 背景大图，原寸不拉伸) ──
+      const winW = 288;
+      const winH = 176;
+      const winX = Math.round((iw - winW) / 2);
+      const winY = Math.round((ih - winH) / 2) + 20;
+
+      const bgWin = this._drawWindow(ctx, winX - 8, winY - 8, 19, 12, "black");
+      const cx = bgWin ? bgWin.x : winX;
+      const cy = bgWin ? bgWin.y : winY;
+
+      const iventImg = this.imgs?.ivent1 || this.imgs?.ivent0;
+      if (iventImg) {
+        ctx.drawImage(iventImg, cx, cy, 288, 176);
+      } else {
+        ctx.fillStyle = "#112233";
+        ctx.fillRect(cx, cy, 288, 176);
+      }
+
+      // 左上方: 内政官/外交官发言框
+      const topW = 256;
+      const topH = 80;
+      const topX = Math.max(8, winX - 48);
+      const topY = Math.max(36, winY - 40);
+
+      let topLines = null;
+      if (
+        p.step === "budget_request" ||
+        p.step === "envoy_budget_choice" ||
+        p.step === "envoy_budget_keypad" ||
+        p.step === "budget_advisor_result"
+      ) {
+        topLines = p.workerRequestLines || p.monarchLines;
+      } else if (p.step === "envoy_budget_result") {
+        topLines = p.workerResultLines || p.monarchLines;
+      } else if (p.step === "budget_zero_worker") {
+        topLines = p.workerRequestLines || p.monarchLines;
+      } else if (p.step === "budget_zero_advisor") {
+        topLines = p.workerRequestLines;
+      }
+
+      if (topLines) {
+        this._drawSpeechBox(ctx, topX, topY, topW, topH, p.workerImg, topLines);
+      }
+
+      // 右下方: 君主发言框
+      const btmW = 256;
+      const btmH = 80;
+      const btmX = Math.min(iw - btmW - 8, winX + 80);
+      const btmY = Math.min(ih - btmH - 8, winY + 136);
+
+      let btmLines = null;
+      if (
+        p.step === "budget_advisor_result" ||
+        p.step === "envoy_budget_result"
+      ) {
+        btmLines = p.advisorResultLines;
+      } else if (p.step === "budget_zero_advisor") {
+        btmLines = p.advisorResultLines || p.monarchLines;
+      }
+
+      if (btmLines) {
+        this._drawSpeechBox(
+          ctx,
+          btmX,
+          btmY,
+          btmW,
+          btmH,
+          p.monarchImg,
+          btmLines,
+        );
+      }
+
+      // 三选项选择菜单 (答應 / 提示金額 / 拒絕)
+      if (p.step === "envoy_budget_choice") {
+        const rTilesW = 11;
+        const rTilesH = 5;
+        const rx = winX - 24;
+        const ry = winY + 56;
+
+        const rWin = this._drawWindow(ctx, rx, ry, rTilesW, rTilesH, "black");
+        const rInnerX = rWin ? rWin.x : rx + 8;
+        const rInnerY = rWin ? rWin.y : ry + 8;
+        const rInnerW = rWin ? rWin.w : (rTilesW - 1) * 16;
+        const rInnerH = rWin ? rWin.h : (rTilesH - 1) * 16;
+
+        const items = ["答應", "提示金額", "拒絕"];
+        p.reasonsRect = {
+          x: rInnerX,
+          y: rInnerY,
+          w: rInnerW,
+          h: rInnerH,
+          items,
+        };
+
+        const rowH = rInnerH / items.length;
+        ctx.font = FONT;
+        ctx.textBaseline = "top";
+
+        items.forEach((item, i) => {
+          const iy = rInnerY + i * rowH;
+          const isHover = p.reasonsHover === i;
+          if (isHover) {
+            ctx.fillStyle = "#ffe000";
+            ctx.fillRect(rInnerX + 1, iy + 1, rInnerW - 2, rowH - 2);
+            ctx.fillStyle = "#0000bb";
+          } else {
+            ctx.fillStyle = "#ffffff";
+          }
+          const tw = ctx.measureText(item).width;
+          ctx.fillText(
+            item,
+            rInnerX + (rInnerW - tw) / 2,
+            iy + (rowH - 16) / 2 + 1,
+          );
+        });
+      } else {
+        p.reasonsRect = null;
+      }
+      return;
+    }
+
+    // ── 以下为传统进言提案流程 (敌对/停战/请援等) ──
+    const winW = 288;
+    const winH = 176;
     const winX = Math.round((iw - winW) / 2);
     const winY = Math.round((ih - winH) / 2) + 20;
 
-    const bgWin = this._drawWindow(ctx, winX, winY, 20, 24, "black");
-    const cx = bgWin ? bgWin.x : winX + 8;
-    const cy = bgWin ? bgWin.y : winY + 8;
+    const bgWin = this._drawWindow(ctx, winX - 8, winY - 8, 19, 12, "black");
+    const cx = bgWin ? bgWin.x : winX;
+    const cy = bgWin ? bgWin.y : winY;
 
-    // 绘制 ivent_0_a.png 事件背景图 (288×352)
     const iventImg = this.imgs?.ivent0;
     if (iventImg) {
-      ctx.drawImage(iventImg, cx, cy, 288, 352);
+      ctx.drawImage(iventImg, cx, cy, 288, 176);
     } else {
       ctx.fillStyle = "#112233";
-      ctx.fillRect(cx, cy, 288, 352);
+      ctx.fillRect(cx, cy, 288, 176);
     }
 
     // 2. 上方君主发言框 (17×5 tiles = 272×80，位于左上错落)
@@ -3727,20 +3859,14 @@ export class GameBar {
       const btmW = 272;
       const btmH = 80;
       const btmX = Math.min(iw - btmW - 8, winX + 120);
-      const btmY = Math.min(ih - btmH - 8, winY + 288);
+      const btmY = Math.min(ih - btmH - 8, winY + 136);
       this._drawSpeechBox(ctx, btmX, btmY, btmW, btmH, p.advImg, p.advLines);
     }
 
     // 4. 开战理由选择菜单 (11×7 tiles = 176×112，位于中间偏左)
-    if (
-      p.step === "choose_reason" ||
-      p.step === "envoy_budget_choice" ||
-      p.step === "incoming_diplomacy_choice"
-    ) {
+    if (p.step === "choose_reason" || p.step === "incoming_diplomacy_choice") {
       const rTilesW = 11;
-      const compactChoice =
-        p.step === "envoy_budget_choice" ||
-        p.step === "incoming_diplomacy_choice";
+      const compactChoice = p.step === "incoming_diplomacy_choice";
       const rTilesH = compactChoice ? 5 : 7;
       const rx = winX - 24;
       const ry = winY + 90;
@@ -3752,17 +3878,15 @@ export class GameBar {
       const rInnerH = rWin ? rWin.h : (rTilesH - 1) * 16;
 
       const items =
-        p.step === "envoy_budget_choice"
-          ? ["答應", "提示金額", "拒絕"]
-          : p.step === "incoming_diplomacy_choice"
-            ? ["無條件同意", "提供資金", "拒絕"]
-            : p.reasonsItems || [
-                "外交關係惡劣",
-                "我國較有利",
-                "敵正侵攻他國",
-                "敵勢力疲乏",
-                "撤回進言",
-              ];
+        p.step === "incoming_diplomacy_choice"
+          ? ["無條件同意", "提供資金", "拒絕"]
+          : p.reasonsItems || [
+              "外交關係惡劣",
+              "我國較有利",
+              "敵正侵攻他國",
+              "敵勢力疲乏",
+              "撤回進言",
+            ];
       p.reasonsRect = { x: rInnerX, y: rInnerY, w: rInnerW, h: rInnerH, items };
 
       const rowH = rInnerH / items.length;
@@ -3798,46 +3922,51 @@ export class GameBar {
     const win = this._drawWindow(ctx, px, py, tw, th, "black");
     const x = win ? win.x : px + 8;
     const y = win ? win.y : py + 8;
+    const ch = win ? win.h : (th - 1) * 16;
 
-    // 左侧头像 64×64
+    // 左侧头像 64×64 (垂直居中于黑框内，避免溢出到边框)
+    const imgY = y + Math.max(0, Math.floor((ch - 64) / 2));
     if (img) {
-      ctx.drawImage(img, x + 8, y + 8, 64, 64);
+      ctx.drawImage(img, x + 8, imgY, 64, 64);
     } else {
       ctx.fillStyle = "#000000";
-      ctx.fillRect(x + 8, y + 8, 64, 64);
+      ctx.fillRect(x + 8, imgY, 64, 64);
     }
 
     // 右侧文字
     if (!lines) return;
-    ctx.font = FONT;
     ctx.textBaseline = "top";
     const tx = x + 8 + 64 + 14;
     const lineH = 18;
     const rawLines = Array.isArray(lines) ? lines : [lines];
     const totalH = rawLines.length * lineH;
-    const startY = y + Math.max(8, Math.floor((h - totalH) / 2));
+    const startY = y + Math.max(8, Math.floor((ch - totalH) / 2));
 
-    rawLines.forEach((line, li) => {
+    for (let li = 0; li < rawLines.length; li++) {
+      const line = rawLines[li];
       const ly = startY + li * lineH;
       if (Array.isArray(line)) {
         let curX = tx;
-        line.forEach((token) => {
+        for (const token of line) {
           if (typeof token === "string") {
+            ctx.font = FONT;
             ctx.fillStyle = "#ffffff";
             ctx.fillText(token, curX, ly);
             curX += ctx.measureText(token).width;
           } else if (token && typeof token === "object") {
+            ctx.font = token.isNum ? DIN : FONT;
             ctx.fillStyle = token.color || "#ffffff";
             const text = String(token.text ?? "");
             ctx.fillText(text, curX, ly);
             curX += ctx.measureText(text).width;
           }
-        });
+        }
       } else {
+        ctx.font = FONT;
         ctx.fillStyle = "#ffffff";
         ctx.fillText(String(line ?? ""), tx, ly);
       }
-    });
+    }
   }
 
   /** 武将特长/对白信息弹窗 (逆向 KI.EXE 0x6580 - 0x65B9 规格: 16×5 tiles = 256×80) */
@@ -3871,11 +4000,22 @@ export class GameBar {
     autoClose = 3000,
     generation = this._scenarioUiGeneration,
   } = {}) {
+    const parts = Array.isArray(lines) ? lines.flat(Infinity) : [lines];
+    const hasVisibleText = parts.some((part) => {
+      const value =
+        part && typeof part === "object" ? (part.text ?? "") : (part ?? "");
+      return String(value).trim().length > 0;
+    });
+    // 系统消息不得创建只有头像和黑底的空壳窗口；有后续动作时直接续行。
+    if (!hasVisibleText) {
+      onClose?.();
+      return false;
+    }
     let img = this.imgs?.messageNpc;
     if (!img) {
       img = await loadImage("grf/ui/message_npc.png").catch(() => null);
     }
-    if (generation !== this._scenarioUiGeneration) return;
+    if (generation !== this._scenarioUiGeneration) return false;
     if (px == null || py == null) {
       if (this.listDialog) {
         const d = this.listDialog;
@@ -3900,6 +4040,7 @@ export class GameBar {
       }, autoClose);
     }
     this.app.view.draw();
+    return true;
   }
 
   /** 武将固定发言对话弹窗 (如任命内政官「我立刻前往。」、解任「那我這就回京城。」、任命外交官「遵命。」，19×5 tiles = 304×80) */
@@ -4033,9 +4174,10 @@ export class GameBar {
     const monarch = me ? sc.monarchOf(me) : null;
     const advisor = sc.generals?.[me?.advisor_idx] ?? monarch;
     if (!gen || !monarch || !advisor) return false;
-    const [governorImg, advisorImg] = await Promise.all([
+    const [governorImg, advisorImg, monarchImg] = await Promise.all([
       portrait(gen.portrait).catch(() => null),
       portrait(advisor.portrait).catch(() => null),
+      portrait(monarch.portrait).catch(() => null),
     ]);
     const rawRequested = Math.max(0, message.requested | 0);
     // 0x39F1..0x39FA：只把入口建议额的1..499钳为500；键盘自定义值不钳。
@@ -4049,7 +4191,7 @@ export class GameBar {
       city.name?.trim?.() || "據點",
     );
     if (generation !== this._scenarioUiGeneration) return false;
-    this.proposalAudience = {
+    const audience = {
       type: "domestic-budget",
       playerFaction: me,
       city,
@@ -4058,10 +4200,12 @@ export class GameBar {
       advGen: gen,
       advisorImg,
       workerImg: governorImg,
-      monarchImg: this.imgs?.messageNpc ?? null,
+      monarchImg,
       advImg: null,
       monarchLines: reportLines,
-      advLines: null,
+      workerRequestLines: null,
+      advisorResultLines: null,
+      workerResultLines: null,
       step: "budget_report",
       requestTalkBase: 278,
       budgetRequested: requested,
@@ -4071,9 +4215,19 @@ export class GameBar {
       timer: null,
       timerAction: null,
     };
+    this.proposalAudience = audience;
+    const reportShown = await this._showBudgetReportCard(
+      audience,
+      reportLines,
+      generation,
+    );
+    if (generation !== this._scenarioUiGeneration) return false;
+    if (!reportShown) {
+      await this._advanceBudgetAudience();
+      return true;
+    }
     this._setProposalTimer(3000, () => void this._advanceBudgetAudience());
     this.syncClock();
-    this.app.view.draw();
     return true;
   }
 
@@ -4091,9 +4245,10 @@ export class GameBar {
     const monarch = me ? sc.monarchOf(me) : null;
     const advisor = sc.generals?.[me?.advisor_idx] ?? monarch;
     if (!envoy || !target || !gen || !monarch || !advisor) return false;
-    const [envoyImg, advisorImg] = await Promise.all([
+    const [envoyImg, advisorImg, monarchImg] = await Promise.all([
       portrait(gen.portrait).catch(() => null),
       portrait(advisor.portrait).catch(() => null),
+      portrait(monarch.portrait).catch(() => null),
     ]);
     const targetName = (target.monarch ?? "該勢力").trim();
     const rawRequested = Math.max(0, message.requested | 0);
@@ -4105,7 +4260,7 @@ export class GameBar {
       gen.name.trim(),
     );
     if (generation !== this._scenarioUiGeneration) return false;
-    this.proposalAudience = {
+    const audience = {
       type: "envoy-budget",
       playerFaction: me,
       targetFaction: target,
@@ -4115,10 +4270,12 @@ export class GameBar {
       advGen: gen,
       advisorImg,
       workerImg: envoyImg,
-      monarchImg: this.imgs?.messageNpc ?? null,
+      monarchImg,
       advImg: null,
       monarchLines: reportLines,
-      advLines: null,
+      workerRequestLines: null,
+      advisorResultLines: null,
+      workerResultLines: null,
       step: "budget_report",
       requestTalkBase: 319,
       budgetRequested: requested,
@@ -4128,10 +4285,48 @@ export class GameBar {
       timer: null,
       timerAction: null,
     };
+    this.proposalAudience = audience;
+    const reportShown = await this._showBudgetReportCard(
+      audience,
+      reportLines,
+      generation,
+    );
+    if (generation !== this._scenarioUiGeneration) return false;
+    if (!reportShown) {
+      await this._advanceBudgetAudience();
+      return true;
+    }
     this._setProposalTimer(3000, () => void this._advanceBudgetAudience());
     this.syncClock();
-    this.app.view.draw();
     return true;
+  }
+
+  async _showBudgetReportCard(audience, lines, generation) {
+    const w = 480;
+    const h = 80;
+    const shown = await this.showNpcMessageDialog({
+      lines,
+      w,
+      h,
+      px: Math.round((innerWidth - w) / 2),
+      py: Math.max(40, innerHeight - h - 24),
+      autoClose: 0,
+      generation,
+    });
+    if (shown && this.proposalAudience === audience && this.generalCard) {
+      this.generalCard.budgetReportAudience = audience;
+      return true;
+    }
+    return false;
+  }
+
+  _dismissBudgetReportCard(audience) {
+    if (this.generalCard?.budgetReportAudience !== audience) return;
+    if (this._generalCardTimer) {
+      clearTimeout(this._generalCardTimer);
+      this._generalCardTimer = null;
+    }
+    this.generalCard = null;
   }
 
   _budgetWorkerTalkIndex(base, gen) {
@@ -4143,11 +4338,11 @@ export class GameBar {
     const p = this.proposalAudience;
     if (!p || (p.type !== "envoy-budget" && p.type !== "domestic-budget"))
       return;
+    if (p.step === "budget_report") this._dismissBudgetReportCard(p);
     const targetName = (p.targetFaction?.monarch ?? "").trim();
     const cityName = p.city?.name?.trim?.() || "據點";
     const generalName = p.advGen?.name?.trim?.() || "";
     let talkIndex;
-    let speakerImg;
     let nextStep;
     let nextAction;
 
@@ -4158,12 +4353,10 @@ export class GameBar {
           p.requestTalkBase + 30,
           p.advGen,
         );
-        speakerImg = p.workerImg;
         nextStep = "budget_zero_worker";
         nextAction = () => void this._advanceBudgetAudience();
       } else {
         talkIndex = this._budgetWorkerTalkIndex(p.requestTalkBase, p.advGen);
-        speakerImg = p.workerImg;
         nextStep = "budget_request";
         nextAction = () => void this._advanceBudgetAudience();
       }
@@ -4174,18 +4367,14 @@ export class GameBar {
       return;
     } else if (p.step === "budget_zero_worker") {
       talkIndex = p.requestTalkBase + 35;
-      speakerImg = p.advisorImg;
       nextStep = "budget_zero_advisor";
       nextAction = () => void this._advanceBudgetAudience();
     } else if (p.step === "budget_zero_advisor") {
       talkIndex = this._budgetWorkerTalkIndex(p.requestTalkBase + 36, p.advGen);
-      speakerImg = p.workerImg;
       nextStep = "envoy_budget_result";
       nextAction = () => this._closeBudgetAudience();
     } else if (p.step === "budget_advisor_result") {
-      p.monarchImg = p.workerImg;
       p.monarchLines = p.workerResultLines;
-      p.advLines = null;
       p.step = "envoy_budget_result";
       this._setProposalTimer(3000, () => this._closeBudgetAudience());
       this.app.view.draw();
@@ -4203,9 +4392,12 @@ export class GameBar {
       cityName,
     );
     if (this.proposalAudience !== p) return;
-    p.monarchImg = speakerImg;
+    if (nextStep === "budget_request" || nextStep === "budget_zero_worker") {
+      p.workerRequestLines = lines;
+    } else if (nextStep === "budget_zero_advisor") {
+      p.advisorResultLines = lines;
+    }
     p.monarchLines = lines;
-    p.advLines = null;
     p.step = nextStep;
     this._setProposalTimer(3000, nextAction);
     this.app.view.draw();
@@ -4231,8 +4423,10 @@ export class GameBar {
     const entered = Math.max(0, Math.min(30000, amount | 0));
     const grant = mode === "refuse" ? 0 : entered;
     const requested = p.budgetRequested;
-    const category =
-      grant === 0 ? 2 : grant === requested ? 0 : grant < requested ? 1 : 3;
+    let category = 3;
+    if (grant === 0) category = 2;
+    else if (grant === requested) category = 0;
+    else if (grant < requested) category = 1;
     p.budgetCommitting = true;
     p.step = "budget_committing";
     p.budgetGrant = grant;
@@ -4265,10 +4459,9 @@ export class GameBar {
     ]);
     if (this.proposalAudience !== p) return;
     p.budgetCommitting = false;
-    p.monarchImg = p.advisorImg;
-    p.monarchLines = advisorLines;
-    p.advLines = null;
+    p.advisorResultLines = advisorLines;
     p.workerResultLines = workerLines;
+    p.monarchLines = advisorLines;
     p.step = "budget_advisor_result";
     this._setProposalTimer(3000, () => void this._advanceBudgetAudience());
     this.app.view.draw();
@@ -4299,6 +4492,7 @@ export class GameBar {
 
   _closeBudgetAudience() {
     const p = this.proposalAudience;
+    this._dismissBudgetReportCard(p);
     this._commitBudgetAudience(p);
     this.closeProposalAudience();
     this._strategicMessageActive = false;
@@ -4383,7 +4577,7 @@ export class GameBar {
       return;
     }
     const w = 480;
-    const h = 64;
+    const h = 80;
     const px = Math.round((innerWidth - w) / 2);
     const py = Math.max(40, innerHeight - h - 24);
     let finished = false;
@@ -4438,26 +4632,31 @@ export class GameBar {
   _drawGeneralCard(ctx) {
     const g = this.generalCard;
     if (!g) return;
-    const { px, py, w, h, img, lines } = g;
+    this._drawGeneralCardBox(ctx, g.px, g.py, g.w, g.h, g.img, g.lines);
+  }
+
+  _drawGeneralCardBox(ctx, px, py, w, h, img, lines) {
     const tw = Math.ceil((w + 16) / 16);
     const th = Math.ceil((h + 16) / 16);
     const win = this._drawWindow(ctx, px - 8, py - 8, tw, th, "black");
     const x = win ? win.x : px;
     const y = win ? win.y : py;
+    const cw = win ? win.w : (tw - 1) * 16;
+    const ch = win ? win.h : (th - 1) * 16;
 
-    // 左侧武将/NPC 头像 64×64
+    // 左侧武将/NPC 头像 64×64 (垂直居中于黑框内，避免溢出到边框)
+    const imgY = y + Math.max(0, Math.floor((ch - 64) / 2));
     if (img) {
-      ctx.drawImage(img, x + 8, y + 8, 64, 64);
+      ctx.drawImage(img, x + 8, imgY, 64, 64);
     } else {
       ctx.fillStyle = "#000000";
-      ctx.fillRect(x + 8, y + 8, 64, 64);
+      ctx.fillRect(x + 8, imgY, 64, 64);
     }
 
     // 右侧对白文字
-    ctx.font = FONT;
     ctx.textBaseline = "top";
     const tx = x + 8 + 64 + 14;
-    const maxTextW = Math.max(40, w - 8 - 64 - 14 - 8);
+    const maxTextW = Math.max(40, cw - 8 - 64 - 14 - 8);
 
     const rawLines = Array.isArray(lines) ? lines : [lines];
     const renderLines = [];
@@ -4487,28 +4686,32 @@ export class GameBar {
 
     const lineH = 18;
     const totalH = renderLines.length * lineH;
-    const startY = y + Math.max(8, Math.floor((h - totalH) / 2));
-    renderLines.forEach((line, li) => {
+    const startY = y + Math.max(8, Math.floor((ch - totalH) / 2));
+    for (let li = 0; li < renderLines.length; li++) {
+      const line = renderLines[li];
       const ly = startY + li * lineH;
       if (Array.isArray(line)) {
         let curX = tx;
-        line.forEach((token) => {
+        for (const token of line) {
           if (typeof token === "string") {
+            ctx.font = FONT;
             ctx.fillStyle = "#ffffff";
             ctx.fillText(token, curX, ly);
             curX += ctx.measureText(token).width;
           } else if (token && typeof token === "object") {
+            ctx.font = token.isNum ? DIN : FONT;
             ctx.fillStyle = token.color || "#ffffff";
             const text = String(token.text ?? "");
             ctx.fillText(text, curX, ly);
             curX += ctx.measureText(text).width;
           }
-        });
+        }
       } else {
+        ctx.font = FONT;
         ctx.fillStyle = "#ffffff";
         ctx.fillText(String(line ?? ""), tx, ly);
       }
-    });
+    }
   }
 
   /** 军师子菜单「編成」: 部队编成面板 (15×12 tiles = 240×192, inner 224×176) */
@@ -4592,17 +4795,15 @@ export class GameBar {
       } else {
         const needed = k * 1000;
         if (totalAvailable >= needed) {
-          indices.forEach((idx) => {
-            f.units[idx].troops = 1000;
-          });
+          for (const idx of indices) f.units[idx].troops = 1000;
           f.remRes[t] = totalAvailable - needed;
         } else {
           // 不足 1000 时平均分配
           const base = Math.floor(totalAvailable / k);
           const rem = totalAvailable % k;
-          indices.forEach((idx, order) => {
-            f.units[idx].troops = base + (order < rem ? 1 : 0);
-          });
+          for (let order = 0; order < indices.length; order++) {
+            f.units[indices[order]].troops = base + (order < rem ? 1 : 0);
+          }
           f.remRes[t] = 0;
         }
       }
@@ -5536,7 +5737,7 @@ export class GameBar {
       { img: inf, val: data.curInf, ty: y + 116 },
     ];
 
-    redTroops.forEach(({ img, val, ty }) => {
+    for (const { img, val, ty } of redTroops) {
       ctx.fillStyle = "#d00000";
       ctx.fillRect(x + 72, ty + 1, 22, 14);
       if (img) ctx.drawImage(img, x + 72, ty + 1, 22, 14);
@@ -5545,7 +5746,7 @@ export class GameBar {
       ctx.fillStyle = "#ffffff";
       const sVal = `${val}`;
       ctx.fillText(sVal, x + 142 - ctx.measureText(sVal).width, ty);
-    });
+    }
 
     // 4. 右下: 次月
     ctx.font = FONT;
@@ -5579,7 +5780,7 @@ export class GameBar {
       { img: inf, val: data.nextInf, ty: y + 116 },
     ];
 
-    greenTroops.forEach(({ img, val, ty }) => {
+    for (const { img, val, ty } of greenTroops) {
       ctx.fillStyle = "#509040";
       ctx.fillRect(x + 224, ty + 1, 22, 14);
       if (img) ctx.drawImage(img, x + 224, ty + 1, 22, 14);
@@ -5588,7 +5789,7 @@ export class GameBar {
       ctx.fillStyle = "#ffffff";
       const sVal = `${val}`;
       ctx.fillText(sVal, x + 302 - ctx.measureText(sVal).width, ty);
-    });
+    }
 
     // 5. 若存在數字輸入彈窗，繪製于上方
     if (this.keypadDialog) {

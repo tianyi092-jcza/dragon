@@ -5,8 +5,9 @@ import fs from "node:fs/promises";
 globalThis.window = {};
 
 const { aiTick, buildArmies, stepTo } = await import("../web/src/game/ai.js");
-const { loadRoadGraph, findRoadRoute, roadGraphReady, roadNodeById } =
-  await import("../web/src/game/roadgraph.js");
+const { findRoadRoute, roadGraphReady, roadNodeById } = await import(
+  "../web/src/game/roadgraph.js"
+);
 
 async function readJson(url) {
   try {
@@ -16,12 +17,56 @@ async function readJson(url) {
   }
 }
 
-globalThis.fetch = async (url) => ({
-  ok: true,
-  json: async () => readJson(new URL(`../web/${url}`, import.meta.url)),
-});
-await loadRoadGraph();
+globalThis.fetch = async (url) => {
+  let data;
+  try {
+    data = await fs.readFile(new URL(`../web/${url}`, import.meta.url));
+  } catch (error) {
+    throw new Error(`cannot read engagement fixture ${url}: ${error.message}`, {
+      cause: error,
+    });
+  }
+  return {
+    ok: true,
+    status: 200,
+    arrayBuffer: async () =>
+      data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+    json: async () => {
+      try {
+        return JSON.parse(data.toString("utf8"));
+      } catch (error) {
+        throw new Error(`invalid engagement fixture ${url}: ${error.message}`, {
+          cause: error,
+        });
+      }
+    },
+  };
+};
+const { loadTerrain, terrainTile } = await import(
+  "../web/src/game/pathfind.js"
+);
+await loadTerrain();
 assert.equal(roadGraphReady(), true);
+
+let ki;
+try {
+  ki = await fs.readFile(new URL("../../Dragon/KI.EXE", import.meta.url));
+} catch (error) {
+  throw new Error(`cannot read canonical KI.EXE: ${error.message}`, {
+    cause: error,
+  });
+}
+const assertKiBytes = (va, hex) =>
+  assert.equal(
+    ki.subarray(va + 0x200, va + 0x200 + hex.length / 2).toString("hex"),
+    hex,
+    `KI.EXE ${va.toString(16)}`,
+  );
+assertKiBytes(0x26ff, "800c018a440a9803d8");
+assertKiBytes(0x274c, "f60401740e3cce720a3cdd7706e824017201c3");
+assertKiBytes(0x25c1, "fe4c0b750c8a441e88440b8024dfe89000");
+assertKiBytes(0x474e, "e88128");
+assertKiBytes(0x701d, "c6440b01");
 
 const raw = await readJson(new URL("../web/data.json", import.meta.url));
 function scenarioWithTestLegions() {
@@ -129,13 +174,25 @@ assert.notDeepEqual(
 );
 assert.equal(
   siegeAttacker._march.pointIndex,
-  siegeAttacker._march.points.length,
-  "攻城接触发生在E717边内点列耗尽后、0x27A2切节点之前",
+  siegeAttacker._march.points.length - 1,
+  "0x2708须在写入末端0xCE..0xDD据点边界tile前调用0x2880",
+);
+const blockedCityTile =
+  siegeAttacker._march.points[siegeAttacker._march.pointIndex];
+assert.ok(
+  terrainTile(blockedCityTile.x, blockedCityTile.y) >= 0xce &&
+    terrainTile(blockedCityTile.x, blockedCityTile.y) <= 0xdd,
+  "未消费的末端边点必须是KI 0x2751..0x2757识别的据点边界tile",
+);
+assert.deepEqual(
+  { x: siegeAttacker.x, y: siegeAttacker.y },
+  siegeAttacker._march.points[siegeAttacker._march.pointIndex - 1],
+  "攻城动画锚点必须留在据点边界外的前一道路点",
 );
 assert.notEqual(contactedCity.faction, siegeAttacker.faction);
 
-// 攻城倒计时位于“边点已耗尽、尚未切入端点节点”的状态；每轮必须
-// 通过0x2880端点重检继续递减，而不能清掉后反复重建为12。
+// 攻城倒计时位于“末端据点边界tile尚未写入、尚未切入端点节点”的状态；
+// 每轮必须通过0x2708→0x2880重检继续递减，不能清掉后反复重建为12。
 {
   const beforeCountdown = siegeAttacker._engagement.countdown;
   aiTick({
@@ -436,8 +493,8 @@ const oldStride = finalA._march.stride;
 assert.equal(stepTo(finalSc, finalA, finalCity.x, finalCity.y), "reversed");
 assert.equal(
   finalA._march.stride,
-  oldStride,
-  "0x42AB已在进入0x2880端点分支前完成反向；失效接战重检不得二次反转",
+  -oldStride,
+  "0x42AB须在未消费的据点边界tile前把当前edge反向，且只反转一次",
 );
 assert.equal(
   finalA.target,

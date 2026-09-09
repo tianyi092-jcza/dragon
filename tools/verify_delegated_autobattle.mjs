@@ -439,7 +439,7 @@ const assertSide = (actual, expected, label) => {
   assert.equal(
     A._engagement?.kind,
     "siege",
-    "城前端点攻城必须在pointIndex==points.length时持续重检",
+    "旧Web pointIndex==points.length快照仍须兼容攻城重检",
   );
   // 直接完成倒计时，验证后续0x474A撤退；不能再依赖旧fixture中把
   // 据点中心伪装成边点的状态。

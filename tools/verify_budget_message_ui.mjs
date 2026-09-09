@@ -129,6 +129,21 @@ function fixture() {
   return { bar, clock, player, target, governor, envoy, city, scenario };
 }
 
+// 通用系统消息拒绝空文本，不能先绘制只有NPC头像的空壳窗口。
+{
+  scheduled.clear();
+  const { bar } = fixture();
+  let continued = 0;
+  const opened = await bar.showNpcMessageDialog({
+    lines: [[{ text: "" }], ["   "]],
+    onClose: () => continued++,
+  });
+  assert.equal(opened, false);
+  assert.equal(bar.generalCard, null);
+  assert.equal(continued, 1);
+  assert.equal(scheduled.size, 0);
+}
+
 // Type4: TALK56→内政官请求→选择→军师回应→内政官回应；最后一段关闭才提交。
 {
   scheduled.clear();
@@ -138,10 +153,18 @@ function fixture() {
   await flush();
   assert.equal(bar.proposalAudience?.step, "budget_report");
   assert.equal(bar.proposalAudience?.monarchLines?.[0]?.[0]?.text, "TALK56");
+  assert.equal(bar.generalCard?.gen, null);
+  assert.equal(bar.generalCard?.lines?.[0]?.[0]?.text, "TALK56");
+  assert.equal(
+    bar.generalCard?.budgetReportAudience,
+    bar.proposalAudience,
+    "TALK56 must reuse the existing bottom system message card",
+  );
   assert.equal(clock.hold, true);
   assert.equal(bar._strategicMessageQueue.length, 1);
 
   await leftAdvance(bar);
+  assert.equal(bar.generalCard, null);
   assert.equal(bar.proposalAudience?.step, "budget_request");
   assert.equal(bar.proposalAudience?.monarchLines?.[0]?.[0]?.text, "TALK278");
   await leftAdvance(bar);
@@ -233,12 +256,17 @@ function fixture() {
   await flush();
   assert.equal(bar.proposalAudience?.step, "budget_report");
   assert.equal(bar.proposalAudience?.monarchLines?.[0]?.[0]?.text, "TALK57");
+  assert.equal(bar.generalCard?.gen, null);
+  assert.equal(bar.generalCard?.lines?.[0]?.[0]?.text, "TALK57");
+  assert.equal(bar.generalCard?.budgetReportAudience, bar.proposalAudience);
   bar.click(338, 5, 0);
   assert.equal(bar.proposalAudience?.step, "budget_report");
   bar.click(0, 0, 2);
   assert.equal(bar.proposalAudience?.step, "budget_report");
+  assert.equal(bar.generalCard?.budgetReportAudience, bar.proposalAudience);
 
   await leftAdvance(bar);
+  assert.equal(bar.generalCard, null);
   assert.equal(bar.proposalAudience?.step, "budget_request");
   assert.equal(bar.proposalAudience?.monarchLines?.[0]?.[0]?.text, "TALK319");
   bar.click(0, 0, 2);

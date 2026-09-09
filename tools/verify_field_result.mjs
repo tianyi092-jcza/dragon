@@ -19,7 +19,10 @@ globalThis.fetch = async (url) => {
   };
 };
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
-const { applyFieldBattleResult } = await import("../web/src/game/ai.js");
+const { aiTick, applyFieldBattleResult } = await import(
+  "../web/src/game/ai.js"
+);
+const { findRoadRoute } = await import("../web/src/game/roadgraph.js");
 await loadTerrain();
 
 const makeLegion = (leader, faction, troops, x, y) => ({
@@ -69,6 +72,41 @@ const app = {
 };
 const A = makeLegion("甲", 0, 100, 257, 9);
 const D = makeLegion("乙", 1, 100, 255, 9);
+const route = findRoadRoute(257, 9, 246, 15);
+assert.ok(route?.legs[0]?.points.length > 2);
+const leg = route.legs[0];
+const march = (pointIndex) => ({
+  targetX: 246,
+  targetY: 15,
+  targetNode: leg.toNode,
+  currentNode: leg.fromNode,
+  edgeId: leg.edgeId,
+  stride: leg.stride,
+  fromNode: leg.fromNode,
+  toNode: leg.toNode,
+  points: leg.points.map((point) => ({ ...point })),
+  pointIndex,
+});
+Object.assign(A, {
+  x: leg.points[0].x,
+  y: leg.points[0].y,
+  prevX: leg.points[0].x,
+  prevY: leg.points[0].y,
+  target: cities[1],
+  _march: march(1),
+});
+Object.assign(D, {
+  x: leg.points[1].x,
+  y: leg.points[1].y,
+  prevX: leg.points[1].x,
+  prevY: leg.points[1].y,
+  target: cities[1],
+  _march: march(2),
+});
+app.scenario.diplomacy = [
+  [0xff, 0],
+  [0, 0xff],
+];
 app.scenario.legions = [A, D];
 
 applyFieldBattleResult(
@@ -86,7 +124,11 @@ assert.equal(D.troops, 22);
 assert.equal(A.dead, undefined);
 assert.equal(D.dead, undefined);
 assert.equal(app.scenario.prisoners.length, 0);
-assert.equal(A.cooldown, 8);
+assert.equal(
+  A.cooldown,
+  0,
+  "0x474A→0x6FD2 writes +0x0B=1, so the winner acts on its next slot without a Web pause",
+);
 assert.equal(D.cooldown, 0);
 assert.equal(A.commandState, 8);
 assert.equal(D.commandState, 10);
@@ -102,6 +144,15 @@ for (const legion of [A, D]) {
   assert.equal(legion.prevX, legion.x);
   assert.equal(legion.prevY, legion.y);
 }
+const winnerBefore = { x: A.x, y: A.y };
+D.dead = true;
+D._active = false;
+aiTick(app, { runCityDaily: false, settleDaily: false });
+assert.notDeepEqual(
+  { x: A.x, y: A.y },
+  winnerBefore,
+  "the field winner must consume its next road point on its next eligible slot",
+);
 process.stdout.write(
-  "field result OK: winner continues, loser retreats by 0x474A route\n",
+  "field result OK: winner resumes next slot and loser retreats by 0x474A route\n",
 );

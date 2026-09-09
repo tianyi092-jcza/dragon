@@ -129,15 +129,6 @@ export function fmt(s, args = {}) {
 }
 
 /**
- * 解析并格式化 TALK.DAT 对白分词（支持 \\3 目标君主黄色高亮 #ffe000，\\4 军师名白色，\\1 武将名，\\7 金额/额外字符串）
- * @param {number} idx
- * @param {string} targetName
- * @param {string} advisorName
- * @param {string} generalName
- * @param {string} extraStr
- * @returns {Promise<Array<Array<{text: string, color: string}>>>}
- */
-/**
  * 解析并格式化 TALK.DAT 对白分词（支持 \3 目标君主黄色高亮 #ffe000，\4 军师名白色，\1 武将名，\2 据点名/武将名，\7 金额/额外字符串）
  * @param {number} idx
  * @param {string|string[]} targetName
@@ -191,12 +182,19 @@ export async function formatTalkTokens(
               : generalName;
             col = "#ffffff";
           } else if (tag === "2") {
-            if (Array.isArray(cityName)) val = cityName[cityIdx++] ?? "";
-            else if (cityName) val = cityName;
-            else if (Array.isArray(generalName))
+            if (Array.isArray(cityName)) {
+              val = cityName[cityIdx++] ?? "";
+              col = "#c08020"; // 原版 \2 據點名橙黃色高亮 (#c08020)
+            } else if (cityName) {
+              val = cityName;
+              col = "#c08020"; // 原版 \2 據點名橙黃色高亮 (#c08020)
+            } else if (Array.isArray(generalName)) {
               val = generalName[generalIdx++] ?? "";
-            else val = generalName;
-            col = "#ffffff";
+              col = "#ffffff";
+            } else {
+              val = generalName;
+              col = "#ffffff";
+            }
           } else if (tag === "3") {
             if (Array.isArray(targetName)) {
               val = targetName[targetIdx++] ?? "";
@@ -211,9 +209,12 @@ export async function formatTalkTokens(
             val = ""; // 原版 \6 内部控制符，置空略过
           } else if (tag === "7") {
             val = extraStr;
-            col = "#ffe000";
+            col = "#ffd700"; // 原版 \7 金额黄色高亮 (#ffd700)
           }
-          if (val) segs.push({ text: val, color: col });
+          if (val) {
+            const isNum = tag === "7" || /^\d+$/.test(val);
+            segs.push({ text: val, color: col, isNum });
+          }
           i += 2;
           continue;
         }

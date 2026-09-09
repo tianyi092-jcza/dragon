@@ -4,6 +4,10 @@ import { findRoadRoute, roadGraphReady } from "../game/roadgraph.js";
 
 const MARCH_STYLE_COUNT = 24;
 const MARCH_FRAME_STATIONARY = 4;
+// 0x25A3每次主更新扫描16/128个军团槽；同一槽每8次战略更新轮到一次。
+// Canvas把单个道路点的位移铺满这8个更新间隔，最高速也至少约100ms/步，
+// 只加快每步动画而不会在一个显示帧内跳过道路点。
+const LEGION_SLOT_CYCLE_TICKS = 8;
 const _marchMarkerCache = new Map(); // "style:frame" -> {img, ok}
 const _engageMarkerCache = new Map(); // frame -> {img, ok, promise}
 
@@ -188,16 +192,24 @@ export class MapView {
     const toY = L.y;
 
     const isMoving = fromX !== toX || fromY !== toY;
-    // 仅在移动逻辑刚发生的同一战略更新内插值。下一帧逻辑尚未更新时
-    // 必须保持在新点，不能因_clock._acc从零重新开始而倒跳到上一道路点。
+    // 规则在军团自身槽被轮到时一次提交一个道路点。表现层以战略更新序号
+    // 计算距该次提交经过的批次数，把该点位移连续铺到下一次同槽调度。
+    // 这既避免_clock._acc每次归零造成倒跳，也保证最高速仍有多个RAF可见帧。
     const moveSerial = L._renderMoveSerial;
     const currentSerial = this.app?.clock?.strategicTickSerial;
-    const sameStrategicTick =
-      !Number.isInteger(moveSerial) ||
-      !Number.isInteger(currentSerial) ||
-      moveSerial === currentSerial;
-    const curT =
-      isMoving && sameStrategicTick ? Math.min(1, Math.max(0, t)) : 1;
+    let curT = 1;
+    if (isMoving) {
+      if (Number.isInteger(moveSerial) && Number.isInteger(currentSerial)) {
+        const elapsedTicks = Math.max(0, currentSerial - moveSerial);
+        curT =
+          (elapsedTicks + Math.min(1, Math.max(0, t))) /
+          LEGION_SLOT_CYCLE_TICKS;
+      } else {
+        // 旧快照/独立预览没有战略序号时维持单步0..1兼容。
+        curT = t;
+      }
+      curT = Math.min(1, Math.max(0, curT));
+    }
 
     // 1. 世界格点插值
     const gx = fromX + (toX - fromX) * curT;

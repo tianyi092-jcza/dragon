@@ -176,8 +176,8 @@ for (const stride of [4, -4]) {
     points[interiorPointIndex],
   );
 
-  // 城前最后边点已经消费时，pointIndex==points.length仍是合法上下文；
-  // 读档后必须保留toNode供0x2880攻城重检，不能退回节点重寻路。
+  // 友方边界末点已消费，或兼容旧Web错误保存的城前等待状态时，
+  // pointIndex==points.length仍是可恢复上下文；不得钳回末点重复移动。
   const exhausted = {
     edgeId: edge.id,
     stride,
@@ -884,8 +884,8 @@ assert.equal(returnFaction.reserve_inf, 200);
 assert.equal(returnFaction.reserve_arc, 200);
 assert.equal(scenario.generals[0].status, 0);
 
-// 渲染插值只属于产生道路单步的那个战略tick；后续轮到其它16槽时，
-// 该军团必须留在新点，不能随_clock._acc归零倒跳到上一个道路点。
+// 0x25A3每次处理16/128槽：一次道路点位移应连续铺满8个战略更新间隔。
+// 最高速只缩短每步墙钟时间，仍不得在单个显示帧内跳过整步。
 const renderView = new MapView({ getContext: () => ({}) }, () => scenario);
 renderView.app = { clock: { strategicTickSerial: 9 } };
 const renderLegion = {
@@ -897,15 +897,19 @@ const renderLegion = {
 };
 assert.equal(
   renderView.getLegionRenderPos(renderLegion, 0).curT,
-  1,
-  "下一战略tick不能重播上一道路步",
+  1 / 8,
+  "下一批次应接续上一道路步而非倒跳或瞬移到终点",
 );
 renderView.app.clock.strategicTickSerial = 8;
 const quarterPos = renderView.getLegionRenderPos(renderLegion, 0.25);
-assert.equal(quarterPos.curT, 0.25, "战略tick提交后按墙钟进度连续完成道路单步");
+assert.equal(
+  quarterPos.curT,
+  0.25 / 8,
+  "战略tick提交后按完整军团槽周期连续推进道路单步",
+);
 assert.equal(
   quarterPos.wxp,
-  (source.x + 0.25) * 16 + 8,
+  (source.x + 0.25 / 8) * 16 + 8,
   "水平道路不添加切向横移",
 );
 assert.equal(
@@ -913,6 +917,19 @@ assert.equal(
   source.y * 16 + 11,
   "水平道路按连续截图夹逼向下补偿3px",
 );
+renderView.app.clock.strategicTickSerial = 15;
+assert.equal(
+  renderView.getLegionRenderPos(renderLegion, 0.5).curT,
+  7.5 / 8,
+  "下一次同槽调度前应连续接近本步终点",
+);
+renderView.app.clock.strategicTickSerial = 16;
+assert.equal(
+  renderView.getLegionRenderPos(renderLegion, 0).curT,
+  1,
+  "下一次同槽调度时必须完整落在本步终点",
+);
+renderView.app.clock.strategicTickSerial = 8;
 const verticalLegion = {
   ...renderLegion,
   prevX: source.x,
@@ -924,7 +941,7 @@ const verticalPos = renderView.getLegionRenderPos(verticalLegion, 0.25);
 assert.equal(verticalPos.wxp, source.x * 16 + 10, "垂直道路向右补偿2px");
 assert.equal(
   verticalPos.wyp,
-  (source.y + 0.25) * 16 + 8,
+  (source.y + 0.25 / 8) * 16 + 8,
   "垂直道路不添加切向纵移",
 );
 const waitingRoadLegion = {

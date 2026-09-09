@@ -71,6 +71,10 @@ function h(tag, attrs = {}, ...children) {
 export class HUD {
   constructor(app) {
     this.app = app; // { setScenario, setSeason, view }
+    // 无DOM模态时必须显式为0；主RAF据此决定是否逐帧重绘战略地图。
+    // 若保持undefined，规则时钟仍推进但画面只在日期变化时刷新，表现为
+    // 军团每日跳格、接战四相瞬间结束。
+    this.dialogCount = 0;
     this.tip = document.querySelector("#tip");
     this.card = document.querySelector("#card");
     this.buildTabs();
@@ -406,7 +410,11 @@ export class HUD {
 
     // 活跃武将 (保持数据表自然顺序, 排除玩家化身的原军师 NPC)
     const mine = sc.generals.filter(
-      (g) => g && g.faction === f.idx && g.active !== false && !g.is_player,
+      (g) =>
+        g &&
+        g.faction === f.idx &&
+        g.active !== false &&
+        !cmd.isPlayerAdvisorGeneral(sc, g),
     );
 
     const getIdentity = (g) => {
@@ -496,7 +504,7 @@ export class HUD {
         g &&
         g.faction === f.idx &&
         g.active !== false &&
-        !g.is_player &&
+        !cmd.isPlayerAdvisorGeneral(sc, g) &&
         getIdentity(g) === "－－－",
     );
 
@@ -631,8 +639,7 @@ export class HUD {
     const f = cmd.playerFaction(sc);
     if (!f || !city) return;
 
-    // 0x7663/0x76A0：活动、同势力、status=0且非君主；原版不排除
-    // faction[+2]军师，因此不能按Web的is_player镜像过滤。
+    // 玩家确认的剧本默认军师是玩家化身，不再进入任何武将任命列表。
     const mine = cmd.domesticGovernorCandidates(sc, f);
 
     const rows = mine.map((g) => {
@@ -1327,7 +1334,7 @@ export class HUD {
         g &&
         g.faction === f.idx &&
         g.active !== false &&
-        !g.is_player &&
+        !cmd.isPlayerAdvisorGeneral(sc, g) &&
         getIdentity(g) === "－－－",
     );
 
@@ -1658,16 +1665,14 @@ export class HUD {
     const f = cmd.playerFaction(sc);
     if (!f) return;
     const busy = new Set(sc.legions.map((L) => L.leader));
-    const advGen = adv.getAdvisor(sc, f);
     const cands = sc.generals.filter(
       (g) =>
         g &&
         g.faction === f.idx &&
         g.active !== false &&
         g.status === 0 &&
-        !g.is_player &&
-        !busy.has(g.name) &&
-        !(advGen && !advGen.custom && advGen.general_idx === g.idx),
+        !cmd.isPlayerAdvisorGeneral(sc, g) &&
+        !busy.has(g.name),
     );
     if (!cands.length) {
       this.flashEvent("無可用大將（皆在閑以外或已帶軍）");

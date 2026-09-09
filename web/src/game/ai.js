@@ -10,8 +10,8 @@ import {
   increaseRelation,
   runStrategicDiplomacy,
 } from "./diplomacy.js";
-import { playerFaction } from "./commands.js";
-import { findPath } from "./pathfind.js";
+import { isPlayerAdvisorGeneral, playerFaction } from "./commands.js";
+import { findPath, terrainTile } from "./pathfind.js";
 import {
   findRoadRoute,
   reverseRoadMarchContext,
@@ -551,7 +551,8 @@ function selectAiCommander(sc, factionIdx) {
     if (
       general?.faction !== factionIdx ||
       general.active === false ||
-      (general.status ?? 0) !== 0
+      (general.status ?? 0) !== 0 ||
+      isPlayerAdvisorGeneral(sc, general)
     )
       continue;
     const force = general.ability?.force ?? 0;
@@ -678,9 +679,10 @@ export function tickStrategicCity(app, cityIndex) {
             neighbour.faction === targetIdx &&
             isAtWar(sc, city.faction, targetIdx),
         );
-  city.attr =
-    (cityAttr(city) & 0x3f) |
-    (candidates.length ? 0xc0 : hostileNeighbours.length ? 0x80 : 0);
+  let strategicAttr = 0;
+  if (candidates.length) strategicAttr = 0xc0;
+  else if (hostileNeighbours.length) strategicAttr = 0x80;
+  city.attr = (cityAttr(city) & 0x3f) | strategicAttr;
   if (
     hostileNeighbours.length &&
     localStrength < 1 &&
@@ -898,7 +900,10 @@ function settleFieldLegion(
   // 撤退目标，无法继续时由0x291A清退；不能在统一战果回写中先清目标。
   if (!won) legion.target = null;
   legion._aiOrdered = false;
-  legion.cooldown = 8;
+  // 0x474A入口先调用0x6FD2，后者在0x701D把+0x0B写为1；下一次
+  // 0x25C1由1减至0后会在同一军团槽立即执行0x2662。Web在动作前
+  // 检查cooldown，因此等价值必须是0，不能写8而凭空停顿多个槽。
+  legion.cooldown = 0;
   legion._markerFrame = 4;
   clearEngagement(legion);
   clearMarchNavigation(legion);
@@ -1354,9 +1359,22 @@ function hostileCityAt(sc, A, x, y) {
   return city;
 }
 
+/**
+ * 0x2708..0x275E：走过起点侧首个边点后，候选格若是0xCE..0xDD
+ * 据点边界tile，先以当前edge终点调用0x2880；敌城时军团留在前一
+ * 道路点建立攻城接触，不把这格写入+0x10/+0x12。
+ */
+function siegeApproachCity(sc, A, nav, next) {
+  if (!nav || !next || (nav.pointIndex ?? 0) <= 0) return null;
+  const tile = terrainTile(next.x, next.y);
+  if (tile == null || tile < 0xce || tile > 0xdd) return null;
+  const endpoint = roadNodeById(nav.toNode);
+  return endpoint ? hostileCityAt(sc, A, endpoint.x, endpoint.y) : null;
+}
+
 function reverseBlockedFinalEdge(sc, A) {
   const nav = A._march;
-  if (!nav || nav.pointIndex >= nav.points.length) return false;
+  if (!nav || nav.pointIndex > nav.points.length) return false;
   // 0x42AB检查当前active edge的行进端，不是整条命令的最终target。
   const endpoint = roadNodeById(nav.toNode);
   const destination = endpoint
@@ -1381,8 +1399,11 @@ function reverseBlockedFinalEdge(sc, A) {
 /** 0x25CC→0x42AB→0x2831/0x2880：每轮实时重检，不锁存首次kind/target。 */
 function currentEngagement(sc, A, countdown) {
   if (reverseBlockedFinalEdge(sc, A)) return null;
-  const next = A._march?.points?.[A._march.pointIndex];
+  const nav = A._march;
+  const next = nav?.points?.[nav.pointIndex];
   if (next) {
+    // 0x2708先查候选格军团，再查该格是否为据点边界；驻城军团位于
+    // 节点中心，不会抢先成为道路野战目标。
     const foe = contactLegionAt(sc, A, next.x, next.y);
     if (foe)
       return {
@@ -1390,12 +1411,14 @@ function currentEngagement(sc, A, countdown) {
         countdown,
         target: { x: next.x, y: next.y, faction: foe.faction },
       };
-    return null;
+    const city = siegeApproachCity(sc, A, nav, next);
+    return city
+      ? { kind: ENGAGE_KIND_SIEGE, countdown, target: { cityIdx: city.idx } }
+      : null;
   }
-  // E717边点耗尽后，0x2880检查edge +6/+8端点敌城。攻城倒计时
-  // 期间pointIndex==points.length，不能因“没有下一边点”把接战清掉；
-  // 否则每个tick都会重新建立countdown=12，既无四相/音效也永不结算。
-  const endpoint = roadNodeById(A._march?.toNode);
+  // 兼容旧Web快照中已经错误消费据点边界tile的状态；规范新状态会在
+  // 候选边界格写回前由上方0x2708/0x2880分支建立接触。
+  const endpoint = roadNodeById(nav?.toNode);
   const city = endpoint ? hostileCityAt(sc, A, endpoint.x, endpoint.y) : null;
   return city
     ? { kind: ENGAGE_KIND_SIEGE, countdown, target: { cityIdx: city.idx } }
@@ -1596,6 +1619,11 @@ function stepRoadGraph(sc, A, tx, ty) {
       y: next.y,
       faction: foe.faction,
     });
+    return "contact";
+  }
+  const approachCity = siegeApproachCity(sc, A, nav, next);
+  if (approachCity) {
+    startEngagement(A, ENGAGE_KIND_SIEGE, { cityIdx: approachCity.idx });
     return "contact";
   }
   const city = hostileCityAt(sc, A, next.x, next.y);

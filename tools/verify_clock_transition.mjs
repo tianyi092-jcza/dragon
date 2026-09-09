@@ -64,6 +64,25 @@ assert.equal(transitionTicks, 1, "委任过渡建立后必须立即停止高速�
 assert.equal(transitionClock.sub, 1, "仅当前0x1D0B完成，后续日历追赶必须冻结");
 assert.equal(transitionClock._acc, 0);
 
+// 浏览器RAF不得追赶整帧欠账；即使最高速遇到大dt，每次Canvas提交前
+// 最多执行一个战略主更新，避免同一军团跨道路点或接战四相不可见。
+let frameTicks = 0;
+const frameClock = new Clock({
+  startYear: 190,
+  startMonth: 1,
+  startDay: 1,
+  onStrategicTick() {
+    frameTicks++;
+  },
+});
+frameClock.strategicSpeed = 4;
+assert.equal(frameClock.advanceFrame(frameClock.currentStep * 20), true);
+assert.equal(frameTicks, 1, "大dt的单个RAF最多执行一个战略主更新");
+assert.equal(frameClock._acc, 0, "整帧欠账丢弃，只保留小于step的相位");
+assert.equal(frameClock.advanceFrame(frameClock.currentStep / 2), false);
+assert.equal(frameClock.advanceFrame(frameClock.currentStep / 2), true);
+assert.equal(frameTicks, 2, "小数相位跨RAF累积后正常执行下一更新");
+
 // 月末当天onDay取得hold时，同一_tick不能继续月进位或触发月结算。
 let months = 0;
 let holdMonthOnce = true;
@@ -117,5 +136,5 @@ assert.equal(strategicTicks, 9);
 assert.equal(hours, 1);
 
 process.stdout.write(
-  "clock transition OK: 9 strategic ticks/hour + catch-up and month rollover holds\n",
+  "clock transition OK: 9 strategic ticks/hour + bounded RAF + catch-up and month rollover holds\n",
 );

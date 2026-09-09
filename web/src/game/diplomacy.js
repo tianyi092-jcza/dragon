@@ -21,7 +21,7 @@
 //   5. 新游戏装载及每月月结都调用 0x2BD9；其地理候选、关系恶化与 0x2EFB
 //      主动宣战门控不能由静态 SINARIO 外交矩阵替代。
 
-import { playerFaction } from "./commands.js";
+import { isPlayerAdvisorGeneral, playerFaction } from "./commands.js";
 import { applyFactionFundsDelta, factionFundsWordQ256 } from "./economy.js";
 
 export const GIFT_COST = 200; // 遣使一次花费(金)
@@ -510,7 +510,13 @@ export function moveCapital(sc, city) {
 export function pickEnvoy(sc, f) {
   let best = null;
   for (const g of sc.generals) {
-    if (g.faction !== f.idx || g.status !== 0 || !g.active) continue;
+    if (
+      g.faction !== f.idx ||
+      g.status !== 0 ||
+      !g.active ||
+      isPlayerAdvisorGeneral(sc, g)
+    )
+      continue;
     if (g.ability.politics < 13) continue;
     if (!best || g.ability.politics > best.ability.politics) best = g;
   }

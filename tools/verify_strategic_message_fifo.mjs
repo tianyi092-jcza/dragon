@@ -15,6 +15,7 @@ globalThis.fetch = async (url) => {
     const strings = Array.from({ length: 1023 }, () => []);
     strings[37] = ["被敵軍所擒的\\1大人回來了。"];
     strings[57] = ["外交官前來報告。"];
+    strings[63] = ["向\\2宣戰。"];
     strings[70] = ["\\2發生了暴風雨。"];
     strings[380] = ["交涉成功。"];
     strings[442] = ["個性第二段。"];

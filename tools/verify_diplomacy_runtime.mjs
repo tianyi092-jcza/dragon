@@ -5,6 +5,7 @@ import {
   declareWar,
   increaseRelation,
   factionStrategicPower,
+  pickEnvoy,
   relationLabel,
   runStrategicDiplomacy,
   shouldDeclareStrategicWar,
@@ -27,6 +28,29 @@ try {
 }
 const scenario = structuredClone(data.scenarios[16]);
 scenario.player_faction = 0;
+
+// 玩家确认的剧本默认军师是化身，不能被旧遣使入口自动选作使者。
+{
+  const faction = { idx: 0 };
+  const advisor = {
+    idx: 1,
+    name: "軍師",
+    faction: 0,
+    status: 0,
+    active: true,
+    is_player: true,
+    ability: { politics: 15 },
+  };
+  const general = {
+    idx: 2,
+    name: "武將",
+    faction: 0,
+    status: 0,
+    active: true,
+    ability: { politics: 14 },
+  };
+  assert.equal(pickEnvoy({ generals: [advisor, general] }, faction), general);
+}
 
 assert.equal(scenario.diplomacy[0][13], 0xa9);
 assert.equal(scenario.diplomacy[13][0], 0xaa);

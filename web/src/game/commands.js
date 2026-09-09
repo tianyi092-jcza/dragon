@@ -84,6 +84,16 @@ export function initPlayer(sc) {
   }
 }
 
+/** 已被玩家确认为化身的剧本军师不再是可操作武将。 */
+export function isPlayerAdvisorGeneral(sc, general) {
+  if (!general) return false;
+  if (general.is_player) return true;
+  const selected = sc?.player_advisor;
+  return Boolean(
+    selected && !selected.custom && selected.general_idx === general.idx,
+  );
+}
+
 /** 玩家势力对象(null=无) */
 export function playerFaction(sc) {
   return (
@@ -93,7 +103,7 @@ export function playerFaction(sc) {
   );
 }
 
-/** 0x7663/0x76A0：内政官候选只要求活动、同势力、status=0且非君主。 */
+/** 内政官候选；玩家确认的默认军师作为化身，不参与任何武将任命。 */
 export function domesticGovernorCandidates(sc, faction) {
   if (!faction) return [];
   return (sc.generals ?? []).filter(
@@ -102,6 +112,7 @@ export function domesticGovernorCandidates(sc, faction) {
       general.faction === faction.idx &&
       general.active !== false &&
       (general.status ?? 0) === 0 &&
+      !isPlayerAdvisorGeneral(sc, general) &&
       !general.is_monarch &&
       general.idx !== faction.monarch_idx,
   );
@@ -189,7 +200,11 @@ export function dispatch(sc, fromCity, targetCity) {
   const gen = sc.generals
     .filter(
       (g) =>
-        g.faction === f.idx && g.active && g.status === 0 && !busy.has(g.name),
+        g.faction === f.idx &&
+        g.active &&
+        g.status === 0 &&
+        !isPlayerAdvisorGeneral(sc, g) &&
+        !busy.has(g.name),
     )
     .reduce(
       (a, b) => (b.ability.force > (a?.ability.force ?? -1) ? b : a),
