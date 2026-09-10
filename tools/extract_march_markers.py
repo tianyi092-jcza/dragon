@@ -22,12 +22,23 @@ SHEET = ROOT / "web-port" / "docs" / "march-marker-styles.png"
 MANIFEST = ROOT / "web-port" / "web" / "grf" / "march_markers" / "manifest.json"
 ENGAGE_OUT_DIR = ROOT / "web-port" / "web" / "grf" / "engage"
 ENGAGE_SHEET = ROOT / "web-port" / "docs" / "engage-animation-groups.png"
+WEATHER_OUT_DIR = ROOT / "web-port" / "web" / "grf" / "weather"
+WEATHER_SHEET = ROOT / "web-port" / "docs" / "weather-cloud-animation.png"
+DISASTER_OUT_DIR = ROOT / "web-port" / "web" / "grf" / "disaster"
+DISASTER_SHEET = ROOT / "web-port" / "docs" / "disaster-object-animation.png"
 STYLE_COUNT = 24
 FRAMES_PER_STYLE = 5
 TILE_SIZE = 160
-ENGAGE_TABLE_OFFSET = 0xA000
+COMPOSITE_TABLE_OFFSET = 0xA000
 ENGAGE_GROUPS = 5
 ENGAGE_FRAMES = 4
+# KI.EXE CS:0x985A：通用对象group0/1/2的八相描述符映射。
+WEATHER_DESCRIPTORS = (0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x18, 0x19, 0x1A)
+DISASTER_DESCRIPTORS = {
+    1: (0x20, 0x21, 0x22, 0x23, 0x20, 0x21, 0x22, 0x23),
+    2: (0x28, 0x29, 0x2A, 0x2B, 0x28, 0x29, 0x2A, 0x2B),
+}
+DISASTER_NAMES = {1: "fire", 2: "riot"}
 
 
 def decode_overlay_tile(raw: bytes) -> Image.Image:
@@ -57,28 +68,96 @@ def decode_overlay_tile(raw: bytes) -> Image.Image:
     return rgba
 
 
-def decode_engage_sprite(decoded: bytes, group: int, frame: int) -> Image.Image:
-    """Compose one 0x2B3C sprite from the MMAP.MCH tile-index table at 0xA000."""
-    index = group * ENGAGE_FRAMES + frame
-    entry = ENGAGE_TABLE_OFFSET + index * 4
-    rows = decoded[entry]
-    columns = decoded[entry + 1]
+def decode_composite_sprite(decoded: bytes, descriptor: int) -> Image.Image:
+    """Compose one D51F sprite from the MMAP.MCH descriptor table at 0xA000."""
+    entry = COMPOSITE_TABLE_OFFSET + descriptor * 4
+    width = decoded[entry]
+    height = decoded[entry + 1]
     offset = int.from_bytes(decoded[entry + 2 : entry + 4], "little")
     tile_indices = decoded[
-        ENGAGE_TABLE_OFFSET + offset + 0x100 : ENGAGE_TABLE_OFFSET
+        COMPOSITE_TABLE_OFFSET + offset + 0x100 : COMPOSITE_TABLE_OFFSET
         + offset
         + 0x100
-        + rows * columns
+        + width * height
     ]
-    if len(tile_indices) != rows * columns:
-        raise ValueError(f"engage sprite {group}:{frame} index list is truncated")
+    if len(tile_indices) != width * height:
+        raise ValueError(f"composite sprite {descriptor:#x} index list is truncated")
 
-    sprite = Image.new("RGBA", (columns * 16, rows * 16), (0, 0, 0, 0))
+    sprite = Image.new("RGBA", (width * 16, height * 16), (0, 0, 0, 0))
     for cell, tile_index in enumerate(tile_indices):
+        if tile_index == 0xFF:
+            continue
         start = tile_index * TILE_SIZE
         tile = decode_overlay_tile(decoded[start : start + TILE_SIZE])
-        sprite.alpha_composite(tile, ((cell % columns) * 16, (cell // columns) * 16))
+        sprite.alpha_composite(tile, ((cell % width) * 16, (cell // width) * 16))
     return sprite
+
+
+def decode_engage_sprite(decoded: bytes, group: int, frame: int) -> Image.Image:
+    """Compose one 0x2B3C sprite; its descriptors are direct group×4 entries."""
+    return decode_composite_sprite(decoded, group * ENGAGE_FRAMES + frame)
+
+
+def extract_weather_sprites(decoded: bytes) -> None:
+    """Extract 0x2533 group0's five source images as its exact eight-phase cycle."""
+    WEATHER_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    frames = []
+    for frame, descriptor in enumerate(WEATHER_DESCRIPTORS):
+        sprite = decode_composite_sprite(decoded, descriptor)
+        sprite.save(WEATHER_OUT_DIR / f"cloud_frame_{frame}.png")
+        frames.append(sprite)
+
+    scale = 2
+    sheet = Image.new(
+        "RGBA",
+        (4 * 256 * scale, 2 * (144 * scale + 18)),
+        (30, 30, 30, 255),
+    )
+    draw = ImageDraw.Draw(sheet)
+    for frame, sprite in enumerate(frames):
+        x = (frame % 4) * 256 * scale
+        y = (frame // 4) * (144 * scale + 18)
+        draw.text((x + 4, y + 2), f"phase {frame}", fill="white")
+        sheet.alpha_composite(
+            sprite.resize(
+                (sprite.width * scale, sprite.height * scale),
+                Image.Resampling.NEAREST,
+            ),
+            (x, y + 18),
+        )
+    WEATHER_SHEET.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(WEATHER_SHEET)
+
+
+def extract_disaster_sprites(decoded: bytes) -> None:
+    """Extract group1 fire and group2 riot as their exact eight-phase cycles."""
+    DISASTER_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    scale = 2
+    cell_width = 80 * scale
+    cell_height = 80 * scale + 18
+    sheet = Image.new(
+        "RGBA",
+        (4 * cell_width, 4 * cell_height),
+        (30, 30, 30, 255),
+    )
+    draw = ImageDraw.Draw(sheet)
+    for kind, descriptors in DISASTER_DESCRIPTORS.items():
+        name = DISASTER_NAMES[kind]
+        for frame, descriptor in enumerate(descriptors):
+            sprite = decode_composite_sprite(decoded, descriptor)
+            sprite.save(DISASTER_OUT_DIR / f"{name}_frame_{frame}.png")
+            x = (frame % 4) * cell_width
+            y = ((kind - 1) * 2 + frame // 4) * cell_height
+            draw.text((x + 4, y + 2), f"{name} phase {frame}", fill="white")
+            sheet.alpha_composite(
+                sprite.resize(
+                    (sprite.width * scale, sprite.height * scale),
+                    Image.Resampling.NEAREST,
+                ),
+                (x, y + 18),
+            )
+    DISASTER_SHEET.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(DISASTER_SHEET)
 
 
 def extract_engage_sprites(decoded: bytes) -> None:
@@ -95,7 +174,10 @@ def extract_engage_sprites(decoded: bytes) -> None:
     for group in range(ENGAGE_GROUPS):
         for frame in range(ENGAGE_FRAMES):
             sprite = decode_engage_sprite(decoded, group, frame)
-            sprite.save(ENGAGE_OUT_DIR / f"group_{group}_frame_{frame}.png")
+            # 产品只引用0x2B3C的group0；其它组仅留在审查图集，避免生成
+            # 无正式消费者的PNG别名。
+            if group == 0:
+                sprite.save(ENGAGE_OUT_DIR / f"group_{group}_frame_{frame}.png")
             x = group * cell_w
             y = frame * cell_h
             draw.text((x + 4, y + 2), f"G{group} F{frame}", fill="white")
@@ -145,6 +227,8 @@ def main() -> None:
     SHEET.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(SHEET)
     extract_engage_sprites(decoded)
+    extract_weather_sprites(decoded)
+    extract_disaster_sprites(decoded)
     MANIFEST.write_text(
         '{\n  "styleCount": 24,\n  "framesPerStyle": 5,\n'
         '  "frames": ["west", "east", "north", "south", "stationary"]\n}\n',
@@ -154,6 +238,8 @@ def main() -> None:
     print(f"markers -> {OUT_DIR}")
     print(f"sheet   -> {SHEET}")
     print(f"engage  -> {ENGAGE_OUT_DIR}")
+    print(f"weather -> {WEATHER_OUT_DIR}")
+    print(f"disaster -> {DISASTER_OUT_DIR}")
 
 
 if __name__ == "__main__":

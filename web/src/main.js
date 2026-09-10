@@ -1,6 +1,11 @@
 // 引擎主入口 — 装配数据/视图/输入/HUD
 import { loadJSON, loadSeasonTile } from "./core/assets.js";
-import { MapView, preloadEngageMarkerImages } from "./render/mapview.js";
+import {
+  MapView,
+  preloadDisasterObjectImages,
+  preloadEngageMarkerImages,
+  preloadWeatherCloudImages,
+} from "./render/mapview.js";
 import { attachInput } from "./core/input.js";
 import { HUD } from "./ui/hud.js";
 import { GameBar } from "./ui/gamebar.js";
@@ -46,6 +51,10 @@ import {
   snapshotState,
 } from "./game/savegame.js";
 import { loadLocalSaveSlots, saveLocalSaveSlots } from "./core/localstore.js";
+import {
+  normalizeDisasterMapObjectState,
+  normalizeWeatherCloudState,
+} from "./game/weather.js";
 
 const app = {
   data: null,
@@ -86,6 +95,8 @@ const app = {
         loadJSON("talk.json"),
         speaker.preloadEngageSfx(),
         preloadEngageMarkerImages(() => this.view?.draw?.()),
+        preloadWeatherCloudImages(() => this.view?.draw?.()),
+        preloadDisasterObjectImages(() => this.view?.draw?.()),
       ]).then(
         ([
           battleMaps,
@@ -362,9 +373,18 @@ const app = {
     this.engageTransition = null;
     this._legionDailySettlementDeferred = false;
     this._legionDailySettlementSlots = null;
+    this._strategicWeatherTickDeferred = false;
+    this._strategicEventPostMessageRngPending = false;
+    this._factionTickDeferred = false;
     this.dispatching = null;
     this.scenarioIdx = idx;
     this.scenario = new Scenario(raw);
+    normalizeDisasterMapObjectState(this.scenario);
+    normalizeWeatherCloudState(
+      this.scenario,
+      this.data.scenarios[idx]?.weatherClouds ?? [],
+      this.data.scenarios[idx]?.weatherCloudBounds ?? null,
+    );
     // 每次新局/读档都是独立进程态：无sidecar的DOS档也必须重置随机流，
     // 不能继续消费上一局 RNG；Web sidecar存在时则在装配前恢复精确快照。
     this.originalRng = createOriginalBattleRng();

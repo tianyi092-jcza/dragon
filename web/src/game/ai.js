@@ -48,6 +48,11 @@ import {
   LEGION_RESERVE_FIELD_BY_TYPE,
 } from "./legionunits.js";
 import { personalityTalkIndex } from "./talk.js";
+import {
+  applyDisasterDamageToCity,
+  normalizeDisasterMapObjectState,
+  tickStrategicWeather,
+} from "./weather.js";
 
 const ENGAGE_COUNTDOWN = 12;
 const ENGAGE_STATUS_ACTIVE = 0x20;
@@ -2565,24 +2570,37 @@ export function enqueueMonthlyDisasterEvents(app) {
   if (!sc || !rng || typeof rng.nextByte !== "function") return [];
   const queued = [];
 
+  // 0x22E3..0x2305：新一轮尝试前先清旧暴雨区域的+0x15，再让
+  // 16朵雨云恢复全图随机游走。强度0不会显示TALK70。
+  if (sc._disasterBounds) {
+    applyDisasterArea(app, 0);
+    sc._disasterBounds = null;
+  }
+
   if (rng.nextByte() & 1) {
     const selector = rng.nextByte();
     if (selector < 0xc0) {
-      const city = sc.cities?.[selector >> 3];
+      // 0x231A..0x2324：BH=selector、BL=0后右移三次，得到
+      // selector*0x20 的城记录偏移；selector本身就是城市索引。
+      const city = sc.cities?.[selector];
       if (city) {
         let allowed = true;
         const raw = cityRawBytes(city);
         const xLow = raw ? raw[8] : (city.x ?? 0) & 0xff;
         if (xLow < 0xc0) allowed = Boolean(rng.nextByte() & 1);
         if (allowed) {
-          const delay = (rng.nextByte() & 7) + 8;
+          // 0x2336..0x2346先乘4，0x2FBF又把BL乘4换成事件
+          // 字节地址；以4B槽计，固定起点是32,36,...,60。
+          const delay = ((rng.nextByte() & 7) + 8) << 2;
           const event = { type: 11, arg0: 0, arg1: 0, arg2: 0 };
           if (enqueueCurrentStrategicEvent(app, event, delay)) {
+            const minX = city.x >= 10 ? city.x - 5 : city.x;
+            const minY = city.y >= 10 ? city.y - 5 : city.y;
             sc._disasterBounds = {
-              minX: city.x >= 10 ? city.x - 5 : city.x,
-              maxX: city.x >= 10 ? city.x + 5 : city.x + 10,
-              minY: city.y >= 10 ? city.y - 5 : city.y,
-              maxY: city.y >= 10 ? city.y + 5 : city.y + 10,
+              minX,
+              maxX: minX + 10,
+              minY,
+              maxY: minY + 10,
             };
             queued.push(event);
           }
@@ -3134,6 +3152,7 @@ function applyDisasterArea(app, baseStrength) {
         talkIndex: 70,
         cityName: city.name?.trim?.() || "",
         kind: "disaster-area",
+        sound: "warn",
       });
     }
   }
@@ -3151,32 +3170,75 @@ function dispatchDisasterObjectEvent(app, event) {
   const city = eventPointerCity(sc, event);
   if (!city) return false;
   const kind = Math.max(0, Math.trunc(Number(event.arg0) || 0));
-  sc.disasterMapObjects ??= [];
+  const objectSlots = normalizeDisasterMapObjectState(sc);
   if (kind === 0) {
     city.disaster_event = 0;
-    sc.disasterMapObjects = sc.disasterMapObjects.filter(
-      (item) => item.x !== city.x || item.y !== city.y,
-    );
+    // 0x2438逐槽清flags，不压缩其余对象；同坐标的火灾/暴动全部清除。
+    for (let slot = 0; slot < objectSlots.length; slot++) {
+      const object = objectSlots[slot];
+      if (object?.x === city.x && object?.y === city.y)
+        objectSlots[slot] = null;
+    }
     return true;
   }
-  if (sc.disasterMapObjects.length >= 32) return false;
-  sc.disasterMapObjects.push({ kind, x: city.x, y: city.y });
-  if (city.faction === sc.player_faction) {
-    app.gamebar?.enqueueTalkMessage?.({
+
+  // 0x23FF只找DS:0x2040..0x213F的首个空槽；池满立即返回，
+  // 不显示消息，也不消费伤害/移除事件的两个RNG字节。
+  const freeSlot = objectSlots.findIndex((object) => !object);
+  if (freeSlot < 0) return false;
+  objectSlots[freeSlot] = {
+    active: true,
+    kind,
+    group: kind,
+    x: city.x,
+    y: city.y,
+    raw6: 1,
+    raw7: 1,
+    timer: 1,
+    interval: 0x10,
+    frame: 1,
+  };
+
+  let finalized = false;
+  const finalizeDisaster = () => {
+    if (finalized) return;
+    finalized = true;
+    try {
+      const rng = app.originalRng ?? app.activeBattleRng;
+      if (!rng || typeof rng.nextByte !== "function") return;
+      // 0x34E5..0x3501：玩家消息返回后才依次消费伤害与移除延迟。
+      city.disaster_event = (rng.nextByte() & 7) + 4;
+      enqueueDelayedStrategicEvent(
+        app,
+        { type: 12, arg0: 0, cityPointer: cityEventPointer(city) },
+        (rng.nextByte() & 7) + 6,
+      );
+    } finally {
+      app._strategicEventPostMessageRngPending = false;
+      // 0x3E11要等0x34B1完整返回后才继续本时刻势力槽，不能让其RNG
+      // 越过玩家TALK71/72之后的两个灾害字节。
+      if (app._factionTickDeferred) {
+        app._factionTickDeferred = false;
+        tickFactionStrategicState(app);
+        app.hud?.refreshInfo?.();
+      }
+    }
+  };
+
+  if (city.faction === sc.player_faction && app.gamebar?.enqueueTalkMessage) {
+    app._strategicEventPostMessageRngPending = true;
+    app.gamebar.enqueueTalkMessage({
       gen: null,
       talkIndex: kind === 1 ? 71 : 72,
       cityName: city.name?.trim?.() || "",
       kind: "disaster-object",
+      disasterKind: kind === 1 ? "fire" : "riot",
+      sound: "warn",
+      onClose: finalizeDisaster,
     });
+  } else {
+    finalizeDisaster();
   }
-  const rng = app.originalRng ?? app.activeBattleRng;
-  if (!rng || typeof rng.nextByte !== "function") return true;
-  city.disaster_event = (rng.nextByte() & 7) + 4;
-  enqueueDelayedStrategicEvent(
-    app,
-    { type: 12, arg0: 0, cityPointer: cityEventPointer(city) },
-    (rng.nextByte() & 7) + 6,
-  );
   return true;
 }
 
@@ -3249,6 +3311,10 @@ function dispatchStrategicEvent(app, event) {
  * 目标选择不在这里，而在0x2BD9月度/开局候选和随后type-1事件。
  */
 export function tickFactionStrategicState(app) {
+  if (app?._strategicEventPostMessageRngPending) {
+    app._factionTickDeferred = true;
+    return false;
+  }
   const sc = app?.scenario;
   if (!sc) return false;
   const factions = sc.factions ?? [];
@@ -3363,6 +3429,10 @@ function tickStrategicCityDaily(sc, cityIndex, rng) {
     c.growth = Math.max(0, (c.growth ?? 0) - dl);
     c.troops = Math.min(maxTroops, Math.min(0xff, curTroops + dl));
   }
+
+  // 0x3F5A先治理，0x3F5D再无条件调用0x4269；+0x15在下月清除前
+  // 每次轮到该城都会重复消耗防灾，并在防灾不足时同步破坏其它字段。
+  applyDisasterDamageToCity(c);
 }
 
 /** 兼容测试/工具的全城批处理入口；产品主循环使用单城tick。 */
@@ -3487,14 +3557,29 @@ export function settleLegionDaily(sc, processedSlots = null) {
   }
 }
 
-/** 战术层/委任过渡异步返回后，补做被暂停战略日的0x2600结算。 */
+/**
+ * 战术层/委任过渡异步返回后，按0x1D0B原顺序补做被暂停的0x2600与0x2459。
+ * 战术与战略雨云共用canonical RNG，所以雨云必须等战术回写新RNG后再推进。
+ */
 export function finishDeferredLegionDaily(app) {
-  if (!app?._legionDailySettlementDeferred) return false;
-  app._legionDailySettlementDeferred = false;
-  const processedSlots = app._legionDailySettlementSlots ?? null;
-  app._legionDailySettlementSlots = null;
-  settleLegionDaily(app.scenario, processedSlots);
-  return true;
+  if (!app) return false;
+  let changed = false;
+  if (app._legionDailySettlementDeferred) {
+    app._legionDailySettlementDeferred = false;
+    const processedSlots = app._legionDailySettlementSlots ?? null;
+    app._legionDailySettlementSlots = null;
+    settleLegionDaily(app.scenario, processedSlots);
+    changed = true;
+  }
+  if (app._strategicWeatherTickDeferred) {
+    app._strategicWeatherTickDeferred = false;
+    changed =
+      tickStrategicWeather(
+        app.scenario,
+        app.originalRng ?? app.activeBattleRng,
+      ) || changed;
+  }
+  return changed;
 }
 
 export function aiTick(app, options = {}) {
@@ -3687,6 +3772,7 @@ export function aiTick(app, options = {}) {
                 ),
             )
           : null;
+        app._strategicWeatherTickDeferred = true;
         return;
       }
       if (A._engagement || A.dead) continue;
@@ -3748,6 +3834,7 @@ export function aiTick(app, options = {}) {
                     ),
                 )
               : null;
+            app._strategicWeatherTickDeferred = true;
             return;
           }
           changed = true;
@@ -3795,6 +3882,7 @@ export function aiTick(app, options = {}) {
                   ),
               )
             : null;
+          app._strategicWeatherTickDeferred = true;
           return; // ★交互战斗已开启, 结算延至战果回写后
         }
         changed = true;
@@ -3807,6 +3895,8 @@ export function aiTick(app, options = {}) {
   }
   // 0x25A3 单槽顺序为0x2662→0x2600：按本轮移动、到达和同步战果后的状态结算。
   if (shouldSettleDaily) settleLegionDaily(sc, processedSlots);
+  // 0x1D19→0x2459严格在军团槽之后；雨云移动在每16次战略更新消费RNG。
+  changed = tickStrategicWeather(sc, stateRng) || changed;
   sc.legions = sc.legions.filter((A) => !A.dead);
   if (changed) {
     app.hud?.buildLegend?.();

@@ -4598,6 +4598,9 @@ export class GameBar {
         this._drainStrategicMessages();
       }
     };
+    // 0x237E按受灾玩家城逐条执行0xCE7；等该FIFO条目真正可见时再响，
+    // 避免同轮入队的多个城市把警告音并发叠在一起。
+    if (message.sound === "warn") warnSfx();
     if (message.gen) {
       await this.showGeneralMessageDialog(message.gen, message.text, finish, {
         w,

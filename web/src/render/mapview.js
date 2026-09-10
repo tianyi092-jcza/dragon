@@ -9,6 +9,14 @@ const MARCH_FRAME_STATIONARY = 4;
 const LEGION_SLOT_CYCLE_TICKS = 8;
 const _marchMarkerCache = new Map(); // "style:frame" -> {img, ok}
 const _engageMarkerCache = new Map(); // frame -> {img, ok, promise}
+const _weatherCloudCache = new Map(); // phase -> {img, ok, promise}
+const _disasterObjectCache = new Map(); // "group:phase" -> {img, ok, promise}
+const WEATHER_CLOUD_FRAMES = 8;
+const WEATHER_CLOUD_WIDTH = 256;
+const WEATHER_CLOUD_HEIGHT = 144;
+const DISASTER_OBJECT_FRAMES = 8;
+const DISASTER_OBJECT_SIZE = 80;
+const DISASTER_OBJECT_ASSET = Object.freeze({ 1: "fire", 2: "riot" });
 
 /** 原版 MMAP.MCH 军团标识：势力样式槽 × 西/东/北/南/驻止帧。 */
 function getMarchMarkerImage(style, frame, onReady) {
@@ -69,6 +77,95 @@ export function preloadEngageMarkerImages(onReady) {
   return Promise.all(
     [0, 1, 2, 3].map((frame) => engageMarkerEntry(frame, onReady).promise),
   );
+}
+
+/** KI.EXE 0x2533 + CS:0x985A：group0雨云的八相原始MMAP.MCH复合图。 */
+function weatherCloudEntry(frame, onReady) {
+  const safeFrame = frame & 7;
+  let entry = _weatherCloudCache.get(safeFrame);
+  if (entry) return entry;
+  let settle;
+  entry = {
+    img: new Image(),
+    ok: false,
+    promise: new Promise((resolve) => {
+      settle = resolve;
+    }),
+  };
+  _weatherCloudCache.set(safeFrame, entry);
+  entry.img.onload = () => {
+    entry.ok = true;
+    onReady?.();
+    settle();
+  };
+  entry.img.onerror = () => {
+    onReady?.();
+    settle();
+  };
+  entry.img.src = `grf/weather/cloud_frame_${safeFrame}.png`;
+  return entry;
+}
+
+function getWeatherCloudImage(frame, onReady) {
+  const entry = weatherCloudEntry(frame, onReady);
+  return entry.ok ? entry.img : null;
+}
+
+/** 八相全部预载；其中5/6/7按原表分别复用0/1/2的源位图。 */
+export function preloadWeatherCloudImages(onReady) {
+  return Promise.all(
+    Array.from(
+      { length: WEATHER_CLOUD_FRAMES },
+      (_, frame) => weatherCloudEntry(frame, onReady).promise,
+    ),
+  );
+}
+
+/** KI.EXE 0x2533：group1大火、group2暴动均为5×5 tile、八相。 */
+function disasterObjectEntry(group, frame, onReady) {
+  const safeGroup = Number(group) | 0;
+  const asset = DISASTER_OBJECT_ASSET[safeGroup];
+  if (!asset) return null;
+  const safeFrame = frame & 7;
+  const key = `${safeGroup}:${safeFrame}`;
+  let entry = _disasterObjectCache.get(key);
+  if (entry) return entry;
+  let settle;
+  entry = {
+    img: new Image(),
+    ok: false,
+    promise: new Promise((resolve) => {
+      settle = resolve;
+    }),
+  };
+  _disasterObjectCache.set(key, entry);
+  entry.img.onload = () => {
+    entry.ok = true;
+    onReady?.();
+    settle();
+  };
+  entry.img.onerror = () => {
+    onReady?.();
+    settle();
+  };
+  entry.img.src = `grf/disaster/${asset}_frame_${safeFrame}.png`;
+  return entry;
+}
+
+function getDisasterObjectImage(group, frame, onReady) {
+  const entry = disasterObjectEntry(group, frame, onReady);
+  return entry?.ok ? entry.img : null;
+}
+
+/** 预载大火/暴动共16个逻辑相位，避免事件出现时首帧空白。 */
+export function preloadDisasterObjectImages(onReady) {
+  const pending = [];
+  for (const group of [1, 2]) {
+    for (let frame = 0; frame < DISASTER_OBJECT_FRAMES; frame++) {
+      pending.push(disasterObjectEntry(group, frame, onReady).promise);
+    }
+  }
+  return Promise.all(pending);
 }
 
 /** KI.EXE 0x2808: 0=西、1=东、2=北、3=南；到达/驻止为4。 */
@@ -628,6 +725,50 @@ export class MapView {
         // 小圆点不是MMAP.MCH资产，会掩盖撤退目标/道路状态丢失并造成假坐标。
         this._drawStationaryMarker(ctx, lx, ly, markerStyle);
       }
+    }
+
+    // 0x2533先按固定槽序画前16个静态对象。group1大火/group2暴动
+    // 都是5×5 tile，以对象坐标为中心，故左上为(x-2,y-2)。
+    for (const object of (sc.disasterMapObjects ?? []).slice(0, 16)) {
+      if (!object || object.active === false) continue;
+      const image = getDisasterObjectImage(
+        object.group ?? object.kind,
+        object.frame ?? 1,
+        () => this.draw(),
+      );
+      if (!image) continue;
+      const left = this.sx(((object.x ?? 0) - 2) * WORLD.TILE_PX);
+      const top = this.sy(((object.y ?? 0) - 2) * WORLD.TILE_PX);
+      const size = DISASTER_OBJECT_SIZE * this.cam.scale;
+      if (
+        left >= cv.width ||
+        top >= cv.height ||
+        left + size <= 0 ||
+        top + size <= 0
+      )
+        continue;
+      ctx.drawImage(image, left, top, size, size);
+    }
+
+    // 0x1CC9先画军团、再由0x2533按槽序画通用对象；后16槽雨云
+    // 因此覆盖据点、军团和静态灾害。16×9图左上为(x-8,y-4)。
+    for (const cloud of sc.weatherClouds ?? []) {
+      if (!cloud || cloud.active === false || (cloud.group ?? 0) !== 0)
+        continue;
+      const image = getWeatherCloudImage(cloud.frame ?? 0, () => this.draw());
+      if (!image) continue;
+      const left = this.sx(((cloud.x ?? 0) - 8) * WORLD.TILE_PX);
+      const top = this.sy(((cloud.y ?? 0) - 4) * WORLD.TILE_PX);
+      const width = WEATHER_CLOUD_WIDTH * this.cam.scale;
+      const height = WEATHER_CLOUD_HEIGHT * this.cam.scale;
+      if (
+        left >= cv.width ||
+        top >= cv.height ||
+        left + width <= 0 ||
+        top + height <= 0
+      )
+        continue;
+      ctx.drawImage(image, left, top, width, height);
     }
 
     // 军团移动不跟随：若当前吸附的是行军军团，检查其是否已完全移出吸附框；

@@ -21,6 +21,10 @@ SC_SIZE = 22208
 N_SCENARIO = 4
 OFF_FACTION = 0x80  # 势力区 24×64B
 OFF_CITY = 0x8C0  # 城池区 200×32B
+# 战略雨云：文件 +0x21C0 = 运行时状态段 DS:0x2140，16×16B。
+# 前一半 DS:0x2040..0x213F 是运行期火灾/暴动对象空槽，不在新剧本中预置。
+OFF_WEATHER_CLOUD = 0x21C0
+WEATHER_CLOUD_COUNT = 16
 OFF_LEGION = 0x22C0  # 军团区 64B×128 (jiangsheng 完整文档+逆向 state 0x2240 双重实证)
 OFF_GENERAL = 0x42C0  # 武将区 128×32B
 
@@ -56,6 +60,13 @@ def parse_scenario(sc: bytes):
             u16(sc[0x24:0x26]) * 10,
             u16(sc[0x26:0x28]) * 10,
       ]
+      # 0x22DB每月清理后恢复的雨云吸引边界；官方各章均为±16..400。
+      out["weatherCloudBounds"] = {
+            "minX": int.from_bytes(sc[0x32:0x34], "little", signed=True),
+            "minY": int.from_bytes(sc[0x34:0x36], "little", signed=True),
+            "maxX": int.from_bytes(sc[0x36:0x38], "little", signed=True),
+            "maxY": int.from_bytes(sc[0x38:0x3A], "little", signed=True),
+      }
 
       # ---- 武将 (128 × 32B) ----
       generals = []
@@ -199,12 +210,33 @@ def parse_scenario(sc: bytes):
             )
       out["cities"] = cities
 
-      # ---- ★0x21C0 区已破解(2026-08-23 二次逆向, 详见 re-notes-kernel.md) ----
-      # KI.EXE 存档流(0x8CAE)证明：剧本文件=4×0x56C0 静态场景镜像+0x80B 头，不含军团；
-      # 运行时军团在状态段 DS:0x2240；SAVE 槽文件因前置0x80B头而位于0x22C0。
-      # 军团记录64B：+1势力、+2军团长字节（+3为接敌倒计时）、+4总兵力、+6士气、+10/+12当前坐标，
-      # +28+i*4为六单位（+1兵力、+2兵种）。
-      # 剧本文件同偏移的 32B 条目是「初始行军路线点表」(+4/+6=地图坐标 word)，非军团。
+      # ---- 战略雨云 @文件0x21C0 / 状态段DS:0x2140，16×16B ----
+      # KI.EXE 0x2459只让后16槽移动；0x248A/+0x24FF按+8/+9与+A/+B
+      # 保存两轴残差/速度，0x2533以+E组、+F八相绘制。原版20章初态一致，
+      # 但仍从每章原始记录解析，避免把二进制事实改成Web常量。
+      weather_clouds = []
+      for i in range(WEATHER_CLOUD_COUNT):
+            cloud = sc[OFF_WEATHER_CLOUD + i * 16 : OFF_WEATHER_CLOUD + (i + 1) * 16]
+            weather_clouds.append(
+                  {
+                        "active": cloud[0] >= 0x80,
+                        "x": int.from_bytes(cloud[2:4], "little", signed=True),
+                        "y": int.from_bytes(cloud[4:6], "little", signed=True),
+                        "phaseX": int.from_bytes(cloud[8:9], "little", signed=True),
+                        "velocityX": int.from_bytes(cloud[9:10], "little", signed=True),
+                        "phaseY": int.from_bytes(cloud[10:11], "little", signed=True),
+                        "velocityY": int.from_bytes(
+                              cloud[11:12], "little", signed=True
+                        ),
+                        "timer": cloud[12],
+                        "interval": cloud[13],
+                        "group": cloud[14],
+                        "frame": cloud[15] & 7,
+                  }
+            )
+      out["weatherClouds"] = weather_clouds
+
+      # SINARIO不含运行时军团；军团表在状态段DS:0x2240，浏览器新局为空。
       out["legions"] = []
       # ---- ★外交友好度矩阵 @0x680 (game-mechanics.md: 每势力24B) ----
       # 对角线FF；未登场势力0x80；活跃对默认0xB7(中立)，实测范围 0x94(恶劣)..0xE4(友好)
