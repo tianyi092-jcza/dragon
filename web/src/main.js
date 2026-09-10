@@ -42,9 +42,15 @@ import { BattleView } from "./render/battleview.js";
 import { EndView } from "./render/endview.js";
 import { StartMenu } from "./ui/startmenu.js";
 import * as speaker from "./core/speaker.js";
+import { MusicPlayer } from "./core/music.js";
+import { ScoreDirector } from "./core/score.js";
+import { EngagementPresentation } from "./render/engagementpresentation.js";
 import { createBattle, createFieldBattle } from "./game/tacticalbattle.js";
 import { applyBattleResult, applyFieldBattleResult } from "./game/ai.js";
-import { createOriginalBattleRng } from "./game/battle/originalrng.js";
+import {
+  createOriginalBattleRng,
+  originalBiosClockFromDate,
+} from "./game/battle/originalrng.js";
 import {
   applyWebMetaToState,
   canSnapshotState,
@@ -68,10 +74,21 @@ const app = {
   battleNavigation: null, // CAEB/BB3C/BBA6 原版tile属性与导航源
   tacticalSpeed: 2,
   tacticalSpeedFactor: 1.0, // 旧调试兼容字段；正式战术帧使用IRQ门控
-  soundType: 1,
-  originalRng: null,
+  music: new MusicPlayer({
+    context: speaker.getAudioContext,
+    onDriverStart: speaker.musicDriverStarted,
+  }),
+  // KI.EXE initializes 0xEC82 once at process start from BIOS local RTC;
+  // title/new-game/load paths continue that stream unless a Web sidecar restores it.
+  originalRng: createOriginalBattleRng(originalBiosClockFromDate()),
   activeBattleRng: null,
   engageTransition: null,
+  engagementFx: new EngagementPresentation({
+    playSound: speaker.engageSfx,
+    stopSound: speaker.stopEngageSfx,
+  }),
+  // 用户批准的地图指针计时hold；与GameBar模态hold取并集。
+  mapPointerHold: false,
   runtimeEnabled: true,
   gameStarted: false,
   exitConfirmed: false,
@@ -141,6 +158,7 @@ const app = {
       document.body.classList.add("game-active");
       this.view.draw();
     } catch (error) {
+      this.score.title();
       this.gameStarted = false;
       document.body.classList.remove("game-active");
       throw error;
@@ -169,18 +187,24 @@ const app = {
 
   setRuntimeEnabled(enabled) {
     this.runtimeEnabled = Boolean(enabled);
+    this.music.setEnabled(this.runtimeEnabled);
+    if (!this.runtimeEnabled) {
+      clearMapPointerClockHold();
+      this.engagementFx.reset();
+    }
     this.battleView?.setRuntimeEnabled?.(this.runtimeEnabled);
     this.engageTransition?.setRuntimeEnabled?.(this.runtimeEnabled);
     if (this.clock) this.clock.hold = !this.runtimeEnabled;
   },
 
   /**
-   * 委任速算在规则倒计时最后一帧结算。接战四相和五声音效已从首次接触
-   * 开始，这里只保留一个RAF的单槽gate，不能再追加一轮延迟动画。
+   * 委任速算仍在倒数为1且道路轮询到期时结算。独立音画到此一起停止；
+   * 这里只留一个RAF的gate，不等待或追加动画/声音。
    */
   playDelegatedEngage(legion, onFinish) {
     if (this.engageTransition?.active || typeof onFinish !== "function")
       return false;
+    this.engagementFx.reset();
     let done = false;
     let rafId = null;
     const transition = {
@@ -211,6 +235,10 @@ const app = {
 
   /** 游戏结束：清理运行态并返回首页开局选单 (YES/NO) */
   async returnToTitle(initialAction) {
+    this._strategicCityRequest = null;
+    this.engagementFx.reset();
+    this.score.title();
+    clearMapPointerClockHold();
     this.engageTransition?.cancel?.();
     this.engageTransition = null;
     if (this.gamebar) {
@@ -272,6 +300,7 @@ const app = {
 
   /** 开战: 战术层接管 (玩家军团攻城/敌军犯境时由 ai.resolveBattle 调用) */
   startBattle(A, city, D = null) {
+    this.engagementFx.reset();
     const battle = createBattle(
       this.scenario,
       A,
@@ -297,6 +326,7 @@ const app = {
         null,
         exit,
       );
+      this.score.endBattle(battle);
       finishDeferredLegionDaily(this);
       this.hud.buildLegend();
       this.view.draw();
@@ -305,6 +335,7 @@ const app = {
 
   /** 野外战：双方均为军团，不借用城池结算。 */
   startFieldBattle(A, D) {
+    this.engagementFx.reset();
     const terrain = classifyFieldBattleTerrain(
       A,
       D,
@@ -333,6 +364,7 @@ const app = {
         null,
         exit,
       );
+      this.score.endBattle(battle);
       finishDeferredLegionDaily(this);
       this.hud.buildLegend();
       this.view.draw();
@@ -369,11 +401,14 @@ const app = {
       throw new TypeError("invalid scenario state");
     if (!Number.isInteger(idx) || idx < 0 || idx >= this.data.scenarios.length)
       throw new RangeError(`invalid scenario index ${idx}`);
+    this.engagementFx.reset();
+    clearMapPointerClockHold();
     this.engageTransition?.cancel?.();
     this.engageTransition = null;
     this._legionDailySettlementDeferred = false;
     this._legionDailySettlementSlots = null;
     this._strategicWeatherTickDeferred = false;
+    this._strategicCityRequest = null;
     this._strategicEventPostMessageRngPending = false;
     this._factionTickDeferred = false;
     this.dispatching = null;
@@ -385,9 +420,10 @@ const app = {
       this.data.scenarios[idx]?.weatherClouds ?? [],
       this.data.scenarios[idx]?.weatherCloudBounds ?? null,
     );
-    // 每次新局/读档都是独立进程态：无sidecar的DOS档也必须重置随机流，
-    // 不能继续消费上一局 RNG；Web sidecar存在时则在装配前恢复精确快照。
-    this.originalRng = createOriginalBattleRng();
+    // KI.EXE 仅在0x0077启动路径调用一次0xEC82；切换标题、新局或读档
+    // 不会重新播种。Web首次装配已按本地BIOS式时钟建流，sidecar读档才恢复
+    // 保存时的精确状态；无sidecar DOS档继续当前进程流。
+    this.originalRng ??= createOriginalBattleRng(originalBiosClockFromDate());
     if (rngSnapshot) this.originalRng.restore(rngSnapshot);
     this.activeBattleRng = this.originalRng;
     const terrainReady = loadTerrain().catch((error) => {
@@ -430,7 +466,8 @@ const app = {
         this.scenario._cityTickCursor = (cityCursor + 1) % 192;
       },
       onSyncHold: () => this.gamebar?.syncClock?.(),
-      onHour: () => {
+      onHour: (c) => {
+        this.score.calendar(c); // KI:1DE9 before 3E11; no audio await/clock mutation
         // 0x1D8E 仅在CF2达到8时调用一次0x3E11：先泵一个全局事件槽，
         // 再对当前势力做财政危机、预备兵维护累计和外交官维护。
         tickStrategicWarEvents(this);
@@ -465,6 +502,7 @@ const app = {
       0,
       Math.min(23, Number(this.scenario.save_hour) || 0),
     );
+    this.score.strategy(); // loaded month, not the graphics season callback
     if (this.hud) {
       this.hud.buildLegend();
       this.hud.refreshInfo();
@@ -542,6 +580,7 @@ const app = {
     });
   },
 };
+app.score = new ScoreDirector(app.music, () => app.clock);
 
 const canvas = document.querySelector("#cv");
 window.__app = app; // 调试句柄(控制台可用 __app.clock 等)
@@ -622,6 +661,19 @@ attachInput(app.view, {
   },
 });
 let mouseDown = false;
+// 高频pointer事件只保存最新位置；战略RAF在下一可见帧统一执行hit-test和重绘，
+// 避免一次鼠标移动触发多次完整Canvas重画。
+let queuedMapPointer;
+let mapRedrawRequested = false;
+function queueMapPointer(x, y) {
+  queuedMapPointer = { x, y };
+}
+function clearQueuedMapPointer() {
+  queuedMapPointer = null;
+}
+function requestMapRedraw() {
+  mapRedrawRequested = true;
+}
 canvas.addEventListener("mousedown", (e) => {
   if (e.button === 0) mouseDown = true;
 });
@@ -629,17 +681,48 @@ addEventListener("mouseup", (e) => {
   if (e.button === 0) mouseDown = false;
 });
 
-// ★仅地图画布上的鼠标活动暂停战略计时；静止 1 秒后由 GameBar 恢复。
-// 不能监听 window，否则战斗层、标题和 DOM 控件的鼠标移动也会错误影响战略时钟。
+// 用户批准的Web交互：地图移动先暂停战略，静止满1秒才自动恢复。它是
+// 指针可点击性的产品决定，不参与原版规则、RNG或路线；GameBar同步其它
+// 模态hold时必须保留这个独立holder。
+const MAP_POINTER_IDLE_HOLD_MS = 1000;
+let mapPointerHoldTimer = null;
+function holdMapPointerClock() {
+  if (app.mapPointerHold) return;
+  app.mapPointerHold = true;
+  app.gamebar?.syncClock?.();
+}
+function releaseMapPointerClock() {
+  if (!app.mapPointerHold) return;
+  app.mapPointerHold = false;
+  app.gamebar?.syncClock?.();
+}
+function deferMapPointerClockResume() {
+  holdMapPointerClock();
+  if (mapPointerHoldTimer != null) clearTimeout(mapPointerHoldTimer);
+  mapPointerHoldTimer = setTimeout(() => {
+    mapPointerHoldTimer = null;
+    releaseMapPointerClock();
+  }, MAP_POINTER_IDLE_HOLD_MS);
+}
+function clearMapPointerClockHold() {
+  if (mapPointerHoldTimer != null) clearTimeout(mapPointerHoldTimer);
+  mapPointerHoldTimer = null;
+  releaseMapPointerClock();
+}
 canvas.addEventListener("mousemove", (event) => {
-  app.view.setPointer(event.clientX, event.clientY);
-  app.gamebar?.pokeClock();
-  // 时钟冻结时没有常规RAF重绘，光标也必须立即跟随鼠标。
-  app.view.draw();
+  queueMapPointer(event.clientX, event.clientY);
+  if (
+    app.gameStarted &&
+    app.scenario &&
+    app.runtimeEnabled &&
+    !app.gamebar?.hitMapChrome?.(event.clientX, event.clientY)
+  )
+    deferMapPointerClockResume();
 });
 canvas.addEventListener("mouseleave", () => {
-  if (app.view.setPointer(null, null)) app.view.draw();
+  clearQueuedMapPointer();
 });
+addEventListener("resize", requestMapRedraw);
 
 // 全局刷新或关闭防丢失保护 (首选游戏内弹窗，回车/右键默认返回游戏)
 window.addEventListener(
@@ -709,6 +792,18 @@ export async function startApp() {
 
   app.speaker = speaker; // 0xCDE/0xCE7 PC喇叭音效复刻
   app.startMenu = new StartMenu(app);
+  app.score.title();
+  document.addEventListener(
+    "pointerdown",
+    () => {
+      speaker.unlockSfx();
+      app.music.unlock();
+    },
+    { capture: true },
+  );
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) app.engagementFx.pause();
+  });
   // 仅在 boot.js 已取得浏览器单实例锁后发布 App；不再播放开场动画或装配默认地图。
   globalThis.__dragonApp = app;
   await app.startMenu.show(); // ★背景图上的开局选单；确认章节/存档后才进入地图
@@ -721,7 +816,6 @@ export async function startApp() {
   // ── 主循环: 实时驱动游戏时钟 (对应 KI.EXE 0x1D8E) ──
   let last = performance.now(),
     uiAcc = 0,
-    blinkAcc = 0,
     lastDateKey = "";
   function frame(now) {
     const dt = now - last;
@@ -730,10 +824,25 @@ export async function startApp() {
       requestAnimationFrame(frame);
       return;
     }
+    const pointerUpdate = queuedMapPointer;
+    queuedMapPointer = undefined;
+    let pointerChanged = false;
+    if (pointerUpdate === null)
+      pointerChanged = app.view.setPointer(null, null);
+    else if (pointerUpdate !== undefined)
+      pointerChanged = app.view.setPointer(pointerUpdate.x, pointerUpdate.y);
+
     app.gamebar?.syncClock?.(); // 模态弹窗开→计时冻结 (原版 [0xD2A]=1)
     app.clock?.advanceFrame(dt);
 
     const c = app.clock;
+    const effectsChanged = app.engagementFx.update(app.scenario, now, {
+      enabled:
+        app.gameStarted &&
+        app.score.scene === "strategy" &&
+        !app.engageTransition?.active,
+      paused: document.hidden || !c || c.hold || c.speed <= 0,
+    });
     const isRunning =
       c &&
       c.speed > 0 &&
@@ -748,20 +857,27 @@ export async function startApp() {
           !app.gamebar.systemLoadConfirmDialog &&
           !app.gamebar.exitConfirmDialog));
 
+    let mapDrawn = false;
     if (isRunning) {
       // 时钟流逝期间：逐帧重绘，驱动军团行走平滑插值 (60fps lerp)
       app.view.draw();
+      mapDrawn = true;
     } else if (c) {
       // 暂停/冻结期间：仅在日期变化时重绘
       const key = `${c.year}/${c.month}/${c.day}/${c.hold ? 1 : 0}`;
       if (key !== lastDateKey) {
         lastDateKey = key;
         app.view.draw();
+        mapDrawn = true;
       }
     }
+    if (!mapDrawn && (pointerChanged || mapRedrawRequested || effectsChanged)) {
+      app.view.draw();
+      mapDrawn = true;
+    }
+    mapRedrawRequested = false;
 
     uiAcc += dt;
-    blinkAcc += dt;
     if (uiAcc >= 100) {
       // 10Hz 刷新日期显示
       uiAcc = 0;
@@ -771,11 +887,6 @@ export async function startApp() {
         const want = seasonOf(c.month);
         if (want !== app.seasonIdx) app.setSeason(want);
       }
-    }
-    // 小地图遇袭闪烁: 4Hz 重绘 (暂停时也能闪烁)
-    if (blinkAcc >= 250) {
-      blinkAcc = 0;
-      if (!isRunning && app.gamebar?.needsAnim()) app.view.draw();
     }
     requestAnimationFrame(frame);
   }

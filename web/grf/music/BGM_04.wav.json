@@ -1,0 +1,15 @@
+{
+  "source": "BGM_04.vgm",
+  "sourceSha256": "13393ff3a56e3196a8dda3966409638322e6978c94792da15b4e7e240d74e9a7",
+  "core": "doomjs/opl3@0.4.3",
+  "coreSha256": "74dee027c6e2ba248d06e88a60b6756316280ee3a7563b6c7b42d088e26e8ada",
+  "rate": 49700,
+  "channels": 2,
+  "gain": 8,
+  "writes": 1134,
+  "samples": 1702889,
+  "seconds": 34.263360160965796,
+  "peak": 4136,
+  "rms": 1114.470962963689,
+  "wavSha256": "ed3ef6aff4aab3b575cf9c58ec1f971e6b2f61d12b07dc9467c65576f600d9a0"
+}

@@ -88,6 +88,30 @@ const legion = (leader, faction, troops) => ({
 }
 
 {
+  const cbe5Scenario = structuredClone(sc);
+  cbe5Scenario.generals[1].battle_formation = 7;
+  cbe5Scenario.generals.push({
+    idx: 2,
+    name: "槽位將",
+    battle_formation: 3,
+    ability: { force: 60, lead: 60, field: 3 },
+  });
+  const battle = createFieldBattle(
+    cbe5Scenario,
+    { ...legion("攻", 0, 250), slot: 0, generalIdx: 0 },
+    // The battle leader remains general1; CBE5 instead reads slot2's +0x16.
+    { ...legion("守", 1, 250), slot: 2, generalIdx: 1 },
+    battleMaps,
+    { directoryIndex: 0xc0, terrainClass: 0, mirror: false },
+  );
+  assert.equal(
+    battle.battleScriptBlock,
+    14,
+    "CBE5 selects the opponent legion slot's general record, not legion +2",
+  );
+}
+
+{
   const battle = createFieldBattle(
     sc,
     legion("攻", 0, 1000),

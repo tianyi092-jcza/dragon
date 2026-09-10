@@ -1,0 +1,1788 @@
+{
+  "input": "C:/Users/fczll/AppData/Local/Temp/dragon-music-loops/extended/BGM_00.audible.events.json",
+  "sourceSha256": "d2fb90b6e168b987258d9c727889bf23c81dfb8ced9492dcabcde739e2991534",
+  "coreSha256": "74dee027c6e2ba248d06e88a60b6756316280ee3a7563b6c7b42d088e26e8ada",
+  "rate": 49700,
+  "gain": 8,
+  "samples": 20627805,
+  "loopStartSample": 3946043,
+  "loopEndSample": 20627805,
+  "loopStartSeconds": 79.39724346076459,
+  "loopEndSeconds": 415.0463782696177,
+  "peak": 4712,
+  "rms": 1022.274861453491,
+  "wavSha256": "4c5347aed1b6e4d24b0283a4d21482cc44292d8388cef4da4484dd00c12f7072",
+  "phaseEqual": false,
+  "initialPhase": {
+    "vibrato": 5691,
+    "tremolo": 10467,
+    "operators": [
+      [
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 60,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.37647157826935135,
+            "attenuation": 0,
+            "totalLevel": -47.25,
+            "sustainLevel": -93,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0011005401611328125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 28,
+            "actualDecayRate": 4,
+            "actualReleaseRate": 52,
+            "xAttackIncrement": -0.003864228318544792,
+            "xMinimumInAttack": 6.065530201054164,
+            "dBdecayIncrement": 0.00002337911385079406,
+            "dBreleaseIncrement": 0.0950497549095887,
+            "attenuation": 0,
+            "totalLevel": -20.25,
+            "sustainLevel": -3,
+            "x": -0.8249833835982079,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -0.5644887039275248
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.010406494140625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 26,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.001115244568525611,
+            "attenuation": 0,
+            "totalLevel": -31.5,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -7.500019723330484
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 60,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.37647157826935135,
+            "attenuation": 0,
+            "totalLevel": -47.25,
+            "sustainLevel": -93,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0011005401611328125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 60,
+            "actualDecayRate": 4,
+            "actualReleaseRate": 52,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00002337911385079406,
+            "dBreleaseIncrement": 0.0950497549095887,
+            "attenuation": 0,
+            "totalLevel": -9,
+            "sustainLevel": -6,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -0.5803631222321856
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.02081298828125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 2,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -41.25,
+            "sustainLevel": -18,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        null,
+        null,
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 60,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.37647157826935135,
+            "attenuation": 0,
+            "totalLevel": -47.25,
+            "sustainLevel": -93,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0011005401611328125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 28,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 44,
+            "xAttackIncrement": -0.003864228318544792,
+            "xMinimumInAttack": 6.065530201054164,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.02394021258321312,
+            "attenuation": 0,
+            "totalLevel": -10.5,
+            "sustainLevel": -3,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.010406494140625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 10,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00006970278553285069,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -12.75,
+            "sustainLevel": -21,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -5.190905844196831
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 60,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.37647157826935135,
+            "attenuation": 0,
+            "totalLevel": -47.25,
+            "sustainLevel": -93,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0011005401611328125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 28,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 56,
+            "xAttackIncrement": -0.003864228318544792,
+            "xMinimumInAttack": 6.065530201054164,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.1900995098191774,
+            "attenuation": -0.375,
+            "totalLevel": -24.75,
+            "sustainLevel": -6,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.02081298828125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 6,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00003485139276642534,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -26.25,
+            "sustainLevel": 0,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        null,
+        null,
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        }
+      ],
+      [
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0088043212890625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 26,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.001115244568525611,
+            "attenuation": 0,
+            "totalLevel": -31.5,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -7.500019723330484
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.083251953125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 30,
+            "actualReleaseRate": 22,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.002230489137051222,
+            "dBreleaseIncrement": 0.0005575898963738433,
+            "attenuation": 0,
+            "totalLevel": -43.5,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -19.46757173398748
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.017608642578125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 2,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -41.25,
+            "sustainLevel": -18,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.010406494140625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 18,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.00027881114213140274,
+            "attenuation": 0,
+            "totalLevel": -21,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -6.921207792266489
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        null,
+        null,
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0088043212890625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 10,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00006970278553285069,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -12.75,
+            "sustainLevel": -21,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -5.190905844196831
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.02081298828125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 18,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.00027881114213140274,
+            "attenuation": -10.125,
+            "totalLevel": -43.5,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -6.921207792266489
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.017608642578125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 6,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00003485139276642534,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -26.25,
+            "sustainLevel": 0,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.010406494140625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 22,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.0005575898963738433,
+            "attenuation": -10.125,
+            "totalLevel": -21,
+            "sustainLevel": -3,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -1.500003944666972
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        null,
+        null,
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        }
+      ]
+    ]
+  },
+  "finalPhase": {
+    "vibrato": 349,
+    "tremolo": 9685,
+    "operators": [
+      [
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 60,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.37647157826935135,
+            "attenuation": 0,
+            "totalLevel": -47.25,
+            "sustainLevel": -93,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0011005401611328125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 28,
+            "actualDecayRate": 4,
+            "actualReleaseRate": 52,
+            "xAttackIncrement": -0.003864228318544792,
+            "xMinimumInAttack": 6.065530201054164,
+            "dBdecayIncrement": 0.00002337911385079406,
+            "dBreleaseIncrement": 0.0950497549095887,
+            "attenuation": 0,
+            "totalLevel": -20.25,
+            "sustainLevel": -3,
+            "x": -0.8249236335395596,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -0.5645120830413756
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.010406494140625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 26,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.001115244568525611,
+            "attenuation": 0,
+            "totalLevel": -31.5,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -7.500019723330484
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 60,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.37647157826935135,
+            "attenuation": 0,
+            "totalLevel": -47.25,
+            "sustainLevel": -93,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0011005401611328125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 60,
+            "actualDecayRate": 4,
+            "actualReleaseRate": 52,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00002337911385079406,
+            "dBreleaseIncrement": 0.0950497549095887,
+            "attenuation": 0,
+            "totalLevel": -9,
+            "sustainLevel": -6,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -0.5803865013460363
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.02081298828125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 2,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -41.25,
+            "sustainLevel": -18,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        null,
+        null,
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 60,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.37647157826935135,
+            "attenuation": 0,
+            "totalLevel": -47.25,
+            "sustainLevel": -93,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0011005401611328125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 28,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 44,
+            "xAttackIncrement": -0.003864228318544792,
+            "xMinimumInAttack": 6.065530201054164,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.02394021258321312,
+            "attenuation": 0,
+            "totalLevel": -10.5,
+            "sustainLevel": -3,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.010406494140625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 10,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00006970278553285069,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -12.75,
+            "sustainLevel": -21,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -5.190975546982364
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 60,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.37647157826935135,
+            "attenuation": 0,
+            "totalLevel": -47.25,
+            "sustainLevel": -93,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0011005401611328125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 28,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 56,
+            "xAttackIncrement": -0.003864228318544792,
+            "xMinimumInAttack": 6.065530201054164,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.1900995098191774,
+            "attenuation": -0.375,
+            "totalLevel": -24.75,
+            "sustainLevel": -6,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.02081298828125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 6,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00003485139276642534,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -26.25,
+            "sustainLevel": 0,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        null,
+        null,
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        }
+      ],
+      [
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0088043212890625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 26,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.001115244568525611,
+            "attenuation": 0,
+            "totalLevel": -31.5,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -7.500019723330484
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.083251953125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 30,
+            "actualReleaseRate": 22,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.002230489137051222,
+            "dBreleaseIncrement": 0.0005575898963738433,
+            "attenuation": 0,
+            "totalLevel": -43.5,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -19.468129323883854
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.017608642578125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 2,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -41.25,
+            "sustainLevel": -18,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.010406494140625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 18,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.00027881114213140274,
+            "attenuation": 0,
+            "totalLevel": -21,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -6.92148660340862
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        null,
+        null,
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.0088043212890625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 10,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00006970278553285069,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -12.75,
+            "sustainLevel": -21,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -5.190975546982364
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.02081298828125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 18,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.00027881114213140274,
+            "attenuation": -10.125,
+            "totalLevel": -43.5,
+            "sustainLevel": -15,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -6.92148660340862
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.017608642578125
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 6,
+            "actualReleaseRate": 38,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00003485139276642534,
+            "dBreleaseIncrement": 0.008921956548204888,
+            "attenuation": 0,
+            "totalLevel": -26.25,
+            "sustainLevel": 0,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": 0
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0.010406494140625
+          },
+          "envelope": {
+            "stage": "ATTACK",
+            "actualAttackRate": 62,
+            "actualDecayRate": 18,
+            "actualReleaseRate": 22,
+            "xAttackIncrement": null,
+            "xMinimumInAttack": null,
+            "dBdecayIncrement": 0.00027881114213140274,
+            "dBreleaseIncrement": 0.0005575898963738433,
+            "attenuation": -10.125,
+            "totalLevel": -21,
+            "sustainLevel": -3,
+            "x": null,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -1.500003944666972
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        null,
+        null,
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        },
+        {
+          "phase": {
+            "phase": 0,
+            "phaseIncrement": 0
+          },
+          "envelope": {
+            "stage": "OFF",
+            "actualAttackRate": 0,
+            "actualDecayRate": 0,
+            "actualReleaseRate": 0,
+            "xAttackIncrement": 0,
+            "xMinimumInAttack": 3.321928094887362,
+            "dBdecayIncrement": 0,
+            "dBreleaseIncrement": 0,
+            "attenuation": 0,
+            "totalLevel": 0,
+            "sustainLevel": 0,
+            "x": 6.584962500721156,
+            "resolutionMaximum": -2.415037499278844,
+            "percentage10": 3.321928094887362,
+            "percentage90": -1.1279201611045753,
+            "envelope": -96
+          }
+        }
+      ]
+    ]
+  },
+  "lastStereo": [
+    -352,
+    -352
+  ],
+  "loopFirstStereo": [
+    592,
+    592
+  ]
+}

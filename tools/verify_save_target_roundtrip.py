@@ -7,7 +7,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-spec = importlib.util.spec_from_file_location("parse_save_target_fixture", ROOT / "tools" / "parse_save.py")
+spec = importlib.util.spec_from_file_location(
+    "parse_save_target_fixture", ROOT / "tools" / "parse_save.py"
+)
 assert spec and spec.loader
 parse_save = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(parse_save)
@@ -47,13 +49,17 @@ assert legion["roadPointAddress"] == 0x2030
 assert legion["roadEdgeOrNode"] == 0x0810
 assert legion["targetNode"] == 0x1234
 assert legion["target"] == {"idx": 1, "x": 321, "y": 45}
-assert legion["delegated"] is True
+assert isinstance(legion["delegated"], bool) and legion["delegated"]
 assert legion["_engagement"] is None
 
 # status bit5/+3 是原版接敌等待字段；二进制无已确认战型位，先恢复pending。
 slot[r] |= 0x20
 slot[r + 0x03] = 7
+slot[r + 0x0B] = 2
+slot[r + 0x1E] = 3
 legions, _ = parse_legions(bytes(slot), city_count=2)
+assert legions[0]["moveDelay"] == 2
+assert legions[0]["movePeriod"] == 3
 assert legions[0]["leader"] == 7  # +3倒计时不得污染+2主将索引
 assert legions[0]["leader_raw"] == 7
 assert legions[0]["engagementCountdown"] == 7
@@ -75,4 +81,13 @@ assert legions[0]["_engagement"]["target"]["cityIdx"] is None
 assert legions[0]["_engagement"]["target"]["x"] == 321
 assert legions[0]["_engagement"]["target"]["y"] == 45
 
-print("save target roundtrip OK: target + pending engagement restored in memory")
+# 原始字节相位0也必须保留，不拿countdown或默认周期替换。
+slot[r + 0x0B] = 0
+slot[r + 0x1E] = 0
+legions, _ = parse_legions(bytes(slot), city_count=2)
+assert legions[0]["moveDelay"] == 0
+assert legions[0]["movePeriod"] == 0
+
+print(
+    "save target roundtrip OK: target + pending engagement + raw road-poll phase restored in memory"
+)

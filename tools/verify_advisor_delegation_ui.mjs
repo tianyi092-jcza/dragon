@@ -28,6 +28,9 @@ globalThis.fetch = async (url) => {
 };
 
 const { GameBar } = await import("../web/src/ui/gamebar.js");
+const { minimapBattleMarkers } = await import(
+  "../web/src/render/minimapmarkers.js"
+);
 const {
   DEFAULT_LEGION_UNIT_TYPES,
   LEGION_RESERVE_FIELD_BY_TYPE,
@@ -70,6 +73,7 @@ const notices = [];
 const app = {
   clock,
   view,
+  mapPointerHold: false,
   hud: {
     dialogCount: 0,
     flashEvent(message) {
@@ -108,17 +112,12 @@ assert.equal(bar.orderChoiceMenu, null);
 assert.equal(view.selectedCity, null);
 assert.equal(clock.hold, false);
 
-// 仅地图鼠标活动暂停；满一秒后恢复。菜单/模态的冻结优先级仍高于鼠标静止。
-bar.pokeClock();
-assert.equal(clock.hold, true);
-now = 999;
+// Web产品决定：地图鼠标暂停由main的1秒idle门控持有，不替代菜单hold。
+app.mapPointerHold = true;
 bar.syncClock();
 assert.equal(clock.hold, true);
-now = 1000;
-bar.syncClock();
-assert.equal(clock.hold, false);
 bar.selectedSubmenu = 4;
-bar.pokeClock();
+app.mapPointerHold = false;
 now = 3000;
 bar.syncClock();
 assert.equal(clock.hold, true);
@@ -172,14 +171,28 @@ assert.equal(bar.orderChoiceMenu.hover, -1);
 assert.equal(bar.hover(20, 20), false);
 bar.orderChoiceMenu = null;
 
-// 普通行军目标不能触发闪动；只有显式战斗位置进入队列，1500ms后清理。
+// 普通行军不闪动；共享独立表现相位，暂停不自行超时。
+const { EngagementPresentation } = await import(
+  "../web/src/render/engagementpresentation.js"
+);
+app.engagementFx = new EngagementPresentation();
+const markers = () => minimapBattleMarkers(app.scenario, app.engagementFx);
 now = 0;
 app.scenario.legions = [{ target: { idx: 9 }, x: 1, y: 2 }];
-assert.equal(bar.blinkTargets().size, 0);
-bar.addMiniBattleFlash({ x: 12, y: 34 });
-assert.deepEqual([...bar.blinkTargets()], ["field:12:34"]);
+app.engagementFx.update(app.scenario, now);
+assert.equal(markers().size, 0);
+app.scenario.legions[0]._engagement = {
+  kind: "field",
+  countdown: 11,
+  target: { x: 12, y: 34 },
+};
+app.engagementFx.update(app.scenario, now);
+assert.deepEqual([...markers().keys()], ["field:12:34"]);
 now = 1501;
-assert.equal(bar.blinkTargets().size, 0);
+app.engagementFx.update(app.scenario, now, { paused: true });
+assert.equal(markers().size, 1);
+app.scenario.legions[0]._engagement = null;
+assert.equal(markers().size, 0);
 
 // 生产下令必须写准确道路节点/目标城和常规命令态，再由SAVE序列化使用。
 // 战后状态8若不重置，低兵军团返都后会先等待士气而跳过0x4370补员门。

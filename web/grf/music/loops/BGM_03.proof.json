@@ -1,0 +1,126 @@
+{
+  "track": 3,
+  "archiveOffset": 3196,
+  "bytes": 1100,
+  "songSha256": "67c5606501157e9fb00e3daa5947c8066c010f10a3fe5fe1b7e72d7da044a0b2",
+  "streams": [
+    48,
+    212,
+    608,
+    34,
+    34,
+    34
+  ],
+  "silentVoices": [
+    3,
+    4,
+    5
+  ],
+  "silentRawHex": "d00000000000000000000000c000",
+  "silentRegisters": [
+    416,
+    417,
+    418,
+    432,
+    433,
+    434
+  ],
+  "tempos": [
+    [
+      1,
+      1
+    ],
+    [
+      4,
+      46
+    ]
+  ],
+  "simulatedToIRQ": 4990039,
+  "wallSeconds": 44.02547645568848,
+  "firstSixMainJumps": [
+    [
+      476887,
+      953815,
+      1430743,
+      1907671,
+      2384599,
+      2861527
+    ],
+    [
+      476887,
+      953815,
+      1430743,
+      1907671,
+      2384599,
+      2861527
+    ],
+    [
+      476887,
+      953815,
+      1430743,
+      1907671,
+      2384599,
+      2861527
+    ],
+    [
+      43981,
+      88141,
+      132301,
+      176461,
+      220621,
+      264781
+    ],
+    [
+      43981,
+      88141,
+      132301,
+      176461,
+      220621,
+      264781
+    ],
+    [
+      43981,
+      88141,
+      132301,
+      176461,
+      220621,
+      264781
+    ]
+  ],
+  "modes": {
+    "audible": {
+      "startIRQ": 220759,
+      "endIRQ": 697687,
+      "periodIRQ": 476928,
+      "verifiedSecondEndIRQ": 1174615,
+      "startSeconds": 47.3643618492401,
+      "endSeconds": 149.6903841995605,
+      "periodSeconds": 102.3260223503204,
+      "stateSha256": "0bd3e0a16e97a09ac2c0c2b3f1c7dd8407642758062d25dbdd0e95eaeb69417e",
+      "registerSequenceSha256": "f329632750a0f72c9d470fde349c67520fe2e34ce8c8f4ab334a5e9938533a8d",
+      "registerWritesPerLoop": 2162,
+      "exactSecondStateAndRegisterSequence": true,
+      "direct49700Start": 2354009,
+      "direct49700End": 7439612,
+      "viaVgm49700Start": 2354008,
+      "viaVgm49700End": 7439612
+    },
+    "full": {
+      "startIRQ": 220759,
+      "endIRQ": 2605399,
+      "periodIRQ": 2384640,
+      "verifiedSecondEndIRQ": 4990039,
+      "startSeconds": 47.3643618492401,
+      "endSeconds": 558.9944736008421,
+      "periodSeconds": 511.63011175160204,
+      "stateSha256": "a94373ecd1f6f3a1790bbee3dc543c33da97878331ca5ae169aefebfe1ac566d",
+      "registerSequenceSha256": "320b0af169171319a6f0de9270a6e6913c915f06a36e22ae6e88b617a001415d",
+      "registerWritesPerLoop": 14050,
+      "exactSecondStateAndRegisterSequence": true,
+      "direct49700Start": 2354009,
+      "direct49700End": 27782025,
+      "viaVgm49700Start": 2354008,
+      "viaVgm49700End": 27782025
+    }
+  }
+}

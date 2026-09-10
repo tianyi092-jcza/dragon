@@ -15,7 +15,7 @@ Rechecked directly from `Dragon/KI.EXE` with `tools/disasm.py`, file offset VA+0
 - **9A5E..9A6F** mode derives from directory: <C0=0, C0..D0=1, >=D1=2, independent of layout. CBE5 variant=mode+1 except mode0/player defender=0; mode2 selects formation*4+3. 9C13 reads specialty at general+0E+mode; A1CD skips A34F unless mode1. A1C5 remains the same rule sequence, but the browser driver now suspends after each actual A04B/A065 so it can paint without stopping or batching tactical time.
 - Queue `groups` copying is a Web snapshot isolation contract, not an original DOS save mechanism. Insert, snapshot, and restored queue payloads must be independent.
 
-**Explicitly pending after lifecycle/BD46/B941 follow-ups:** B533 full damage/exchange audit; CBE5 slot identity invariant and command9/10 reachability; E04A and all indirect scratch-writer reachability; complete pre-first-DDB4 VGA/UI/cursor provenance; original TALK window pixels; legacy restore without display history; expanded full-world native pixel equivalence; controlled complete DOS runtime differential. Browser yielding, legal startup nonlocal exit, bounded B941/native reference, C315/TALK/marker producers and B824 six-plane writes are covered only by their lifecycle sections and do not imply whole-battle equivalence. Do not blindly replace generalIdx with legion.idx. Earlier contrary descriptions below are historical and superseded by these corrections.
+**Explicitly pending after lifecycle/BD46/B941 follow-ups:** B533 full damage/exchange audit; command9/10 reachability; E04A and all indirect scratch-writer reachability; complete pre-first-DDB4 VGA/UI/cursor provenance; original TALK window pixels; legacy restore without display history; expanded full-world native pixel equivalence; controlled complete DOS runtime differential. Browser yielding, legal startup nonlocal exit, bounded B941/native reference, C315/TALK/marker producers and B824 six-plane writes are covered only by their lifecycle sections and do not imply whole-battle equivalence. Do not blindly replace generalIdx with legion.idx. Earlier contrary descriptions below are historical and superseded by these corrections.
 
 # 战术战斗规则兼容目标与逆向账本
 
@@ -50,15 +50,16 @@ Rechecked directly from `Dragon/KI.EXE` with `tools/disasm.py`, file offset VA+0
 - 保存：`addend=AL`，`index=AL xor BL`；
 - 每次 `0xECE0`：`value = table[index] + addend (mod 256)`，
   `addend += 0x89`，`index=value`，返回 `value`。
+- `0xEC82`唯一直接调用在程序启动`0x0077`，而非新局/读档入口；`INT 1Ah/AH=2`的本地RTC BCD `CH/CL/DH`只在该时刻播种。因而标题、新局和无sidecar DOS读档持续消费同一流；Web只在浏览器进程初始装配按本地BCD建流，sidecar才恢复保存快照。战略`0x2FBF`的随机事件槽随此流变化，固定种子仅供可回放测试。
 
 规则模拟层必须逐调用消费此字节流，不能使用 `Math.random()`。随机调用次数和顺序也是兼容要求。
 
 ### 2.2 战斗主循环和结束入口
 
-- 主循环 `0x9FA0`：输入 → 按钮 → BATTLE.DAT VM `0xA426` → 战术帧 `0xA065`；`A156`未取到点击时直接落到`0x9FD4 call A426`与`0x9FD7 call A065`，然后回到输入循环。因此A426是全战斗持续脚本，不是开场动画；Web不得等待玩家首令而冻结整个战斗，也不得以墙钟或指令数上限截断命令/RNG/规则帧；最高战术速度仅取消额外INT61等待，Web每个RAF仍最多执行1个完整逻辑帧，不能在一幅显示帧中批跑12帧造成进场即结算；
+- 主循环 `0x9FA0`：输入 → 按钮 → BATTLE.DAT VM `0xA426` → 战术帧 `0xA065`；`A156`未取到点击时直接落到`0x9FD4 call A426`与`0x9FD7 call A065`，然后回到输入循环。因此A426是全战斗持续脚本，不是开场动画；Web不得等待玩家首令而冻结整个战斗，也不得以墙钟或指令数上限截断命令/RNG/规则帧；原版最高速仅取消额外INT61等待。**Web产品决定（非原版IRQ机制）**现按§5半速政策固定为`1000/30ms`规则门控（此前为60Hz），避免显示器RAF频率改变战斗速率；所有档位每RAF仍最多执行1个完整逻辑帧，不能在一幅显示帧中批跑12帧造成进场即结算。
 - 玩家攻方路径`0x4E75`和玩家守方交换路径`0x4E8F/0x4E9A`都把玩家军团写入`D2E`；`0x9E81`先将D2E复制到对象0侧，`0x9E89`再将D30敌军复制到0x600侧。`A6FA`随后固定先调用`A754`处理玩家0侧，再调用`A785`处理敌方0x600侧；
 - `0x9BCE mov word ptr es:[di+1A],0001`的精确字节语义是`currentCommand=1`、`pendingCommand=0`，不是两者都为1。首个A065中A7B7/A7FD把双方切到命令0；玩家侧按AA2C回阵并在到位后转内部命令7待机，不会因为无输入而获得后续AI改令；
-- 敌方策略块由`CBE5`按敌将`general[+0x16]*4+variant`选择，variant为玩家守城0、玩家攻城1、野战2、第四战型3。A426的A4BF固定从`0x600`写一个或六个敌方组长，A60D也固定扫描0x600侧按兵种CLASS改令；脚本只读取玩家侧命令、兵力和战况用于决策，绝不写玩家0侧。因此玩家不操作时，敌方仍会按WAIT、原版RNG、双方命令/兵力、D31E、城壁和主将HP持续变阵、进攻、守阵或退却；
+- 敌方策略块由`CBE5`按敌军团**槽位**的`general[slot][+0x16]*4+variant`选择：`0x4E75/4E8F/4F16`把对手军团记录地址写D30，`CBE5`计算`(D30-0x2240)>>1=slot*0x20`并从D52武将表`0x4240+slot*0x20+0x16`读取；不读军团`+2`主将索引或Web `generalIdx`。`0x6E8F`正常编成让槽号与主将索引同号是独立约束，不可借此替换读取规则。variant为玩家守城0、玩家攻城1、野战2、第四战型3。A426的A4BF固定从`0x600`写一个或六个敌方组长，A60D也固定扫描0x600侧按兵种CLASS改令；脚本只读取玩家侧命令、兵力和战况用于决策，绝不写玩家0侧。因此玩家不操作时，敌方仍会按WAIT、原版RNG、双方命令/兵力、D31E、城壁和主将HP持续变阵、进攻、守阵或退却；
 - `C8B0`六行按钮配合`C8E6..C937`命中区得到精确映射：突擊=id9→命令2、攻擊=id8→命令1、陣形=id7→命令0、城壁=id10→命令3、守陣=id11→命令4、退卻=id12→C21A命令5。“攻擊”不是攻城专用；只有命令3在`C1D9..C211`受`AB4F==0`门控；
 - `0xA065` 内调用 `0xA6FA`；
 - `0xA6FA`：
@@ -259,13 +260,15 @@ Rechecked directly from `Dragon/KI.EXE` with `tools/disasm.py`, file offset VA+0
 
 现代对白窗口的产品规格集中在`web/src/ui/battlepanels.js`：480×80外框（30×5个16px tile）、8px纹理框内距、64×64缩放头像、16px共享popup字体；敌方顶边对齐左上标题窗的16px顶距，玩家底边对齐六卡栏的16px底距。姓名与正文作为一个内容块在64px内高垂直居中；正文保留换行并对CJK和无断点长词自动折行，固定内容高内裁切；纹理仍由`GameBar._drawWindow`读取原`frame_sq/frame_col/frame_cap`绘制。此段是用户批准的现代呈现，不是KI布局结论；3秒、全局右键、双侧替换及规则/RNG隔离语义不变。
 
-## 5. 战术墙钟门控与战略速度隔离（实锤）
+## 5. 战术墙钟门控与战略速度隔离（原始证据 / Web政策）
 
 - 认证源：`KI.EXE` 67099B，SHA-256 `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`；`YNSOUND.COM` 3463B，SHA-256 `e2c6a6a8576c4f2a96b7e3f156d7f48c9570ae03539fe9367adb78aebb364fa1`。
 - 设置链`5FAA→6062`、字符串向量`5FF2/6033`及分发表`6056`闭合：原存储`CFB=0..4`依次为最高速、高速、普通、低速、最低速。`60A5..60B3`执行`CFC=CFB<<4`，故Web低到高等待计数为`64/48/32/16/0`。
 - 战略尾段`1DF8..1E16`只读`CFA`；每个完整战术帧末段`A0F2..A110`只读`CFC`并等待`D2C/D2D`。`9FA0..9FDA`无输入仍按`A426→A065`执行，门控位于同一完整规则帧内，不能把战术速度降为纯动画速度，也不能让战略速度改变战术帧、HP或RNG进度。
 - KI`0031→033B`经INT61 AH=0Ch注册`0356`回调；YNSOUND `017D→08B7`将PIT ch0设mode3、除数`0100h`，`0913`每16次IRQ执行`093D`回调。标准PIT下周期为`256×16/1193182≈3.4328376ms`，四档非零战术等待约`219.7016/164.7762/109.8508/54.9254ms`；最高速跳过等待，绝对FPS依硬件而未知。
-- Web保留上述非零延迟和完整规则帧顺序；最高速采用每RAF最多1帧的现代显示上限。实际RAF把完整有限非负间隔交给预算器，不先截断为50ms；延迟/后台callback按完整间隔取模，只保留不足一帧的真实相位并丢弃整帧欠账，恢复后不得连续追赶。此RAF上限是呈现政策，不冒充原版固定FPS。
+- **Web产品决定（战术节奏半速批次，用户明确要求）**：入场展开和后续战斗的五档推进速率统一减为本次变更前的1/2。`tacticalclock.js`单独定义`TACTICAL_PLAYBACK_RATE=0.5`，不改原始IRQ常量：低到高实际间隔约为`439.4032/329.5524/219.7016/109.8508/33.3333ms`；最高档由此前固定60Hz变为30Hz。该倍率是用户要求的Web节奏，不是由截图或体感证明原程序快慢，更不声称实机同档FPS一致。
+- `BattleView.updateBattleFrames`的A1C5启动步进和后续输入→A426→A065共用这一个预算器；首个A065仍立即执行，之后尾部等待加倍。相同命令帧的Session/RNG/HP/城损处理不变；不通过改单位位移、伤害、动画帧数或跳帧来减速。战略速度、音乐速度及已批准的3秒对白显示时长均不随此倍率改变。
+- 每RAF仍最多1个完整规则帧。实际RAF把完整有限非负间隔交给预算器，不先截断为50ms；延迟/后台callback按完整间隔取模，只保留不足一帧的真实相位并丢弃整帧欠账，恢复后不得连续追赶。此RAF上限是呈现政策，不冒充原版固定FPS。
 - 原始字节锁见`tools/verify_tactical_speed_original.mjs`；墙钟、默认单帧上限、丢欠账和战略速度隔离矩阵见`tools/verify_tactical_speed.mjs`及fresh Chromium acceptance。
 
 ## 6. 实施顺序

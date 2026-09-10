@@ -184,6 +184,7 @@ export class BattleView {
     document.querySelector("#bctl").style.display = "none";
     document.querySelector("#btitle").textContent = battle.title;
     this.syncBattlePanel();
+    this.app.score?.beginBattle(battle);
     try {
       const [mapImg, unitImg, talkCatalog, displayBytes] = await Promise.all([
         loadImage(`grf/battle_terrain_${battle.layout}.png`),
@@ -227,8 +228,10 @@ export class BattleView {
       this.app.clock._legacyPaused = this.prevClockState.legacyPaused;
       this.app.clock.hold = this.prevClockState.hold;
       this.prevClockState = null;
+      this.app.score?.endBattle(battle);
       throw error;
     }
+    this.app.score?.readyBattle(battle);
     this.active = true;
     try {
       // A1C5 is part of live tactical time. It advances one A065 at each
@@ -244,6 +247,7 @@ export class BattleView {
       document.querySelector("#battle-bottom-bar").style.display = "none";
       this.app.clock._legacyPaused = this.prevClockState.legacyPaused;
       this.app.clock.hold = this.prevClockState.hold;
+      this.app.score?.endBattle(battle);
       throw error;
     }
     document.querySelector("#bctl").style.display = "block";
@@ -392,9 +396,9 @@ export class BattleView {
           this.scriptAccumulator,
           elapsedMs,
           this.app.tacticalSpeed ?? 2,
-          // 原版最高速只是取消INT61额外等待，并不会在同一幅显示帧中瞬间
-          // 执行12次完整A426/A065。现代浏览器以RAF作为可见战术帧上限；
-          // 否则最高速会达到约720逻辑帧/秒，在玩家看见战场前直接结算。
+          // 原版最高速只取消INT61额外等待，并不会在同一幅显示帧中瞬间
+          // 执行12次完整A426/A065。用户要求五档统一减半后，最高档固定
+          // 30Hz；入场与后续帧共用门控，RAF仍至多一帧，不改帧内规则。
           1,
         );
     this.scriptAccumulator = budget.remainderMs;
@@ -463,6 +467,7 @@ export class BattleView {
     }
     const cb = this.onFinish;
     this.onFinish = null;
+    this.app.score?.fadeBattle(this.battle);
     cb?.(settleVisualBattle(this.battle));
   }
 

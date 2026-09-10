@@ -1,0 +1,100 @@
+[
+  {
+    "name": "BGM_00",
+    "noteEventsMatched": 471,
+    "registerWritesRoundtrip": 2428,
+    "midiNoteOns": 420,
+    "pass": true
+  },
+  {
+    "name": "BGM_01",
+    "noteEventsMatched": 219,
+    "registerWritesRoundtrip": 1061,
+    "midiNoteOns": 125,
+    "pass": true
+  },
+  {
+    "name": "BGM_02",
+    "noteEventsMatched": 368,
+    "registerWritesRoundtrip": 1607,
+    "midiNoteOns": 173,
+    "pass": true
+  },
+  {
+    "name": "BGM_03",
+    "noteEventsMatched": 687,
+    "registerWritesRoundtrip": 3115,
+    "midiNoteOns": 509,
+    "pass": true
+  },
+  {
+    "name": "BGM_04",
+    "noteEventsMatched": 220,
+    "registerWritesRoundtrip": 1134,
+    "midiNoteOns": 148,
+    "pass": true
+  },
+  {
+    "name": "BGM_05",
+    "noteEventsMatched": 575,
+    "registerWritesRoundtrip": 2784,
+    "midiNoteOns": 493,
+    "pass": true
+  },
+  {
+    "name": "BGM_06",
+    "noteEventsMatched": 198,
+    "registerWritesRoundtrip": 1137,
+    "midiNoteOns": 144,
+    "pass": true
+  },
+  {
+    "name": "BGM_07",
+    "noteEventsMatched": 2370,
+    "registerWritesRoundtrip": 12429,
+    "midiNoteOns": 2233,
+    "pass": true
+  },
+  {
+    "name": "BGM_08",
+    "noteEventsMatched": 981,
+    "registerWritesRoundtrip": 4875,
+    "midiNoteOns": 962,
+    "pass": true
+  },
+  {
+    "name": "BGM_09",
+    "noteEventsMatched": 2402,
+    "registerWritesRoundtrip": 16170,
+    "midiNoteOns": 2248,
+    "pass": true
+  },
+  {
+    "name": "BGM_10",
+    "noteEventsMatched": 1630,
+    "registerWritesRoundtrip": 8568,
+    "midiNoteOns": 1519,
+    "pass": true
+  },
+  {
+    "name": "OPENBGM",
+    "noteEventsMatched": 1235,
+    "registerWritesRoundtrip": 6031,
+    "midiNoteOns": 1005,
+    "pass": true
+  },
+  {
+    "name": "ENDBGM",
+    "noteEventsMatched": 758,
+    "registerWritesRoundtrip": 3792,
+    "midiNoteOns": 567,
+    "pass": true
+  },
+  {
+    "name": "OVERBGM",
+    "noteEventsMatched": 219,
+    "registerWritesRoundtrip": 1061,
+    "midiNoteOns": 125,
+    "pass": true
+  }
+]

@@ -189,6 +189,27 @@ function fixture() {
   assert.ok([0, 1, 2].includes(result.outcome));
 }
 
+// 0x3771 accepts an active deployed recipient monarch by the army's +2 commander
+// field; the 128-slot army-table index is unrelated to that general index.
+{
+  const sc = fixture();
+  sc.generals[2].status = 1;
+  sc.legions.push({
+    slot: 47,
+    generalIdx: 2,
+    faction: 2,
+    status: 0x80,
+    _active: true,
+  });
+  const result = resolveFactionNegotiation(
+    { scenario: sc },
+    sc.factions[2],
+    sc.factions[1],
+    sc.factions[0],
+  );
+  assert.ok(result, "deployed monarch must remain a valid recipient");
+}
+
 // Producer regression: type2/type3 are returned as typed 4-byte payloads when gates hit.
 {
   const sc = fixture();
@@ -293,7 +314,11 @@ function fixture() {
   c0[0x1d] = 2;
   c0[0x1e] = 3;
   sc.cities[0].raw = Buffer.from(c0).toString("hex");
-  sc.cities.push({ idx: 3, faction: 3, raw: Buffer.from(new Uint8Array(32)).toString("hex") });
+  sc.cities.push({
+    idx: 3,
+    faction: 3,
+    raw: Buffer.from(new Uint8Array(32)).toString("hex"),
+  });
   sc.diplomacy[0][1] = 0x20;
   sc.diplomacy[0][2] = 0x20;
   sc.diplomacy[0][3] = 0x10;

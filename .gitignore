@@ -5,6 +5,7 @@ Thumbs.db
 .idea/
 
 # Agent / Tool Caches
+/.pi/
 .codegraph/
 .playwright-cli/
 tools/.playwright-cli/

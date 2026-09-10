@@ -29,6 +29,7 @@ export class EndView {
 	async show(o) {
 		if (this.active) return;
 		this.active = true;
+		if (o.img === "grf/gameover.png") this.app.score?.gameOver();
 		this.root.style.display = "flex";
 		this.cap.textContent = o.caption ?? "";
 		this.img.style.opacity = "0";
@@ -54,6 +55,7 @@ export class EndView {
 		this.active = false;
 		this.root.style.display = "none";
 		clockRestore(this.app, this);
+		this.app.music?.select(null);
 		location.reload(); // 回标题 = 重新载入
 	}
 }

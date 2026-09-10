@@ -29,8 +29,8 @@ const markerDraw = mapSource.indexOf(
 assert.ok(animationDraw >= 0 && markerDraw > animationDraw);
 assert.match(
   mapSource,
-  /L\._engagement\?\.countdown/,
-  "rule countdown must expose the engagement image from first contact",
+  /this\.app\?\.engagementFx\?\.frameOf\(L\)/,
+  "map reads the shared presentation phase, not the rule countdown",
 );
 assert.doesNotMatch(
   mapSource,
@@ -42,10 +42,15 @@ const aiSource = await fs.readFile(
   new URL("../web/src/game/ai.js", import.meta.url),
   "utf8",
 );
+assert.doesNotMatch(
+  aiSource,
+  /engageSfx\(/,
+  "rules must not emit a second, speed-bound SFX stream",
+);
 assert.match(
   aiSource,
-  /function startEngagement[\s\S]*A\._engagement = \{[\s\S]*engageSfxBurst\(\);/,
-  "five sounds must be queued when contact begins, alongside the first visible frame",
+  /function advanceEngagement[\s\S]*A\.moveDelay !== 0[\s\S]*engagement\.countdown > 1/,
+  "road/countdown gating remains intact",
 );
 
 const mainSource = await fs.readFile(
@@ -69,5 +74,5 @@ assert.doesNotMatch(
 );
 
 process.stdout.write(
-  "engage transition OK: immediate city-edge countdown art + top marker + five-sound cue + one-RAF settle gate\n",
+  "engage transition OK: city-edge shared-phase art + top marker + presentation-owned ID3 + one-RAF settle gate\n",
 );

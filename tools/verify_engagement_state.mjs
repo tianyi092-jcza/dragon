@@ -192,7 +192,7 @@ assert.deepEqual(
 assert.notEqual(contactedCity.faction, siegeAttacker.faction);
 
 // 攻城倒计时位于“末端据点边界tile尚未写入、尚未切入端点节点”的状态；
-// 每轮必须通过0x2708→0x2880重检继续递减，不能清掉后反复重建为12。
+// 每槽264A继续递减，只有+0B到期才由0x2708→0x2880重检，不反复重建12。
 {
   const beforeCountdown = siegeAttacker._engagement.countdown;
   aiTick({
@@ -336,6 +336,8 @@ const second = {
 };
 siegeAttacker.status = 0x84;
 second.status = 0x84;
+siegeAttacker.moveDelay = 1;
+second.moveDelay = 1;
 siegeSc.player_faction = siegeAttacker.faction;
 siegeSc.legions = [siegeAttacker, second];
 let active = false;
@@ -369,7 +371,7 @@ assert.deepEqual(
 );
 active = false;
 
-// 0x25CC/0x2831：倒计时每轮重检；替换第三势力且停战仍保留timer并换目标。
+// 0x25CC/0x2831：只在轮询到期重检；替换第三势力且停战仍保留timer并换目标。
 const raceSc = scenarioWithTestLegions();
 const raceA = raceSc.legions[0];
 const raceTarget = raceSc.cities.find(
@@ -416,16 +418,30 @@ const raceApp = {
 aiTick(raceApp);
 assert.equal(raceA._engagement.kind, "field");
 assert.equal(raceA._engagement.countdown, 10);
+assert.equal(
+  raceA._engagement.target.faction,
+  originalFoe.faction,
+  "非轮询槽保留接触缓存",
+);
+aiTick(raceApp);
+assert.equal(raceA._engagement.countdown, 9);
+aiTick(raceApp);
+assert.equal(raceA._engagement.countdown, 8);
 assert.equal(raceA._engagement.target.faction, replacementFaction);
 replacement.x = raceTarget.x;
 replacement.y = raceTarget.y;
 const beforeResume = { x: raceA.x, y: raceA.y };
+for (let visit = 0; visit < 2; visit++) {
+  aiTick(raceApp);
+  assert.ok(raceA._engagement, "目标消失仍须等下一次道路轮询才清理");
+  assert.deepEqual({ x: raceA.x, y: raceA.y }, beforeResume);
+}
 aiTick(raceApp);
 assert.equal(raceA._engagement, null);
 assert.notDeepEqual(
   { x: raceA.x, y: raceA.y },
   beforeResume,
-  "lost contact resumes movement in same tick",
+  "lost contact resumes movement in the due road-poll tick",
 );
 
 // 0x2831严格军团槽序：数组打乱也必须先命中低槽己方，从而不见高槽敌军。

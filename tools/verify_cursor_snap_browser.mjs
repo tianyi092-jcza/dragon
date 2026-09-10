@@ -33,12 +33,16 @@ const server = spawn(
 
 await new Promise((r) => setTimeout(r, 600));
 
+let browser;
 try {
-  const browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({
     viewport: { width: 1024, height: 768 },
   });
 
+  // This test targets map input, not the ~25s opening movie. Set the isolated
+  // session flag before app boot, rather than racing its 30s title wait.
+  await page.addInitScript(() => sessionStorage.setItem("openPlayed", "1"));
   await page.goto(`http://127.0.0.1:${port}/index.html`);
   await page.waitForFunction(() => !!window.__app?.startMenu?._onClick);
 
@@ -173,8 +177,8 @@ try {
     "光标恢复跟随鼠标物理坐标",
   );
 
-  await browser.close();
   process.stdout.write("verify_cursor_snap_browser passed successfully!\n");
 } finally {
+  await browser?.close();
   server.kill();
 }

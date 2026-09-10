@@ -22,7 +22,8 @@ import {
   personalityTalkIndex,
 } from "../game/talk.js";
 import { cityTypeLabel } from "../game/world.js";
-import { clickSfx, warnSfx, setSoundType, unlockSfx } from "../core/speaker.js";
+import { clickSfx, warnSfx, unlockSfx } from "../core/speaker.js";
+import { MUSIC_TYPE_LABELS } from "../core/music.js";
 import { relation, isAtWar } from "../game/diplomacy.js";
 import { factionColorEx } from "../game/world.js";
 import {
@@ -50,6 +51,11 @@ import {
   TACTICAL_SPEED_LABELS,
 } from "../game/tacticalclock.js";
 import { POPUP_FONT_PX } from "./battlepanels.js";
+import {
+  MINI_MARKER_STYLES,
+  drawMinimapMarker,
+  minimapBattleMarkers,
+} from "../render/minimapmarkers.js";
 
 const LIST_HEADER_HEIGHT = 24;
 // 编成窗口内部按钮顺序为骑→步→弓；写入二进制兵种码时必须映射为
@@ -124,8 +130,6 @@ export class GameBar {
     this.hoverAct = null;
     this.portraitImg = null;
     this.portraitKey = null;
-    this._flashQueue = new Map(); // 正在闪烁的遇袭城: idx -> 开始时间
-    this._lastBlinkDraw = 0;
     this.listDialog = null; // 当前 canvas 列表弹窗
     this.generalCard = null; // 武将特长/对白信息弹窗
     this._strategicMessageQueue = []; // AI 宣战等底部消息 FIFO
@@ -148,10 +152,8 @@ export class GameBar {
     this.systemSaveDialog = null; // 系统选单「資料儲存」弹窗
     this.systemLoadConfirmDialog = null; // 系统选单「存檔讀取」防丢失确认弹窗
     this.exitConfirmDialog = null; // 刷新或关闭防丢失确认弹窗
-    this.soundType = 1; // 1..4 (TYPE 1..4)
     this.settingsHover = -1;
     this._clockHoldRequested = false;
-    this._lastMouse = -Infinity;
     this._legionPortraitImg = null;
     this._legionPortraitKey = null;
     this._assets = Promise.all([
@@ -1863,6 +1865,7 @@ export class GameBar {
 
   /** 敌对提案进言对话系统 (100% 逆向复刻 KI.EXE 0x6475, 0x3830, 0x3B5A, 0x3BA9, 0x3C1E) */
   async showHostileProposalAudience(targetFaction) {
+    const request = (this._proposalRequest = {});
     this.closeCityCard();
     this.closeListDialog(true);
     this.closeGeneralCard();
@@ -1925,7 +1928,13 @@ export class GameBar {
     else if (trustVal >= 144) requiredReasons = 2;
     else if (trustVal >= 32) requiredReasons = 3;
 
-    this.proposalAudience = {
+    if (
+      this._proposalRequest !== request ||
+      this.app.scenario !== sc ||
+      this.selectedSubmenu !== 0
+    )
+      return;
+    this.proposalAudience = this._audienceWithMusic({
       type: "hostile",
       playerFaction: me,
       targetFaction,
@@ -1952,7 +1961,7 @@ export class GameBar {
         "敵勢力疲乏",
         "撤回進言",
       ],
-    };
+    });
 
     this.app.view.draw();
 
@@ -1964,6 +1973,7 @@ export class GameBar {
 
   /** 停战提案进言对话系统 (100% 逆向复刻 KI.EXE 0x64F1, 0x6577, 0x3830, 0x3B5A, 0x3BA9, 0x3C1E) */
   async showTruceProposalAudience(targetFaction) {
+    const request = (this._proposalRequest = {});
     this.closeCityCard();
     this.closeListDialog(true);
     this.closeGeneralCard();
@@ -2031,7 +2041,13 @@ export class GameBar {
     else if (trustVal >= 144) requiredReasons = 2;
     else if (trustVal >= 32) requiredReasons = 3;
 
-    this.proposalAudience = {
+    if (
+      this._proposalRequest !== request ||
+      this.app.scenario !== sc ||
+      this.selectedSubmenu !== 0
+    )
+      return;
+    this.proposalAudience = this._audienceWithMusic({
       type: "truce",
       playerFaction: me,
       targetFaction,
@@ -2058,7 +2074,7 @@ export class GameBar {
         "我國力疲乏",
         "撤回進言",
       ],
-    };
+    });
 
     this.app.view.draw();
 
@@ -2070,6 +2086,7 @@ export class GameBar {
 
   /** 请求协助进言对话系统 (100% 逆向复刻 KI.EXE 0x6623, 0x66D9, 0x6695, 0x301C) */
   async showAssistanceProposalAudience(allyFaction, targetFaction) {
+    const request = (this._proposalRequest = {});
     this.closeCityCard();
     this.closeListDialog(true);
     this.closeGeneralCard();
@@ -2128,7 +2145,13 @@ export class GameBar {
     else if (trustVal >= 144) requiredReasons = 2;
     else if (trustVal >= 32) requiredReasons = 3;
 
-    this.proposalAudience = {
+    if (
+      this._proposalRequest !== request ||
+      this.app.scenario !== sc ||
+      this.selectedSubmenu !== 0
+    )
+      return;
+    this.proposalAudience = this._audienceWithMusic({
       type: "assistance",
       playerFaction: me,
       allyFaction,
@@ -2157,7 +2180,7 @@ export class GameBar {
         "我正在防禦戰",
         "撤回進言",
       ],
-    };
+    });
 
     this.app.view.draw();
 
@@ -2168,6 +2191,7 @@ export class GameBar {
 
   /** 迁都进言对话系统 (100% 逆向复刻 KI.EXE 0x6909, 0x6951, 0x3B08, 0x33FD) */
   async showRelocateCapitalAudience(targetCity) {
+    const request = (this._proposalRequest = {});
     this.closeCityCard();
     this.closeListDialog(true);
     this.closeGeneralCard();
@@ -2212,7 +2236,13 @@ export class GameBar {
       (targetCity.type ?? 2) <= (curCap.type ?? 2) &&
       (targetCity.prod ?? 0) >= (curCap.prod ?? 0) * 0.7;
 
-    this.proposalAudience = {
+    if (
+      this._proposalRequest !== request ||
+      this.app.scenario !== sc ||
+      this.selectedSubmenu !== 0
+    )
+      return;
+    this.proposalAudience = this._audienceWithMusic({
       type: "relocate",
       playerFaction: me,
       targetCity,
@@ -2230,7 +2260,7 @@ export class GameBar {
       step: "greet",
       timer: null,
       timerAction: null,
-    };
+    });
 
     this.app.view.draw();
 
@@ -2241,6 +2271,7 @@ export class GameBar {
 
   /** 请求君主出阵进言对话系统 (100% 逆向复刻 KI.EXE 0x699E, 0x69B4, 0x3B08, 0x6E8F, 0x5E80) */
   async showMonarchDeployAudience() {
+    const request = (this._proposalRequest = {});
     this.closeCityCard();
     this.closeListDialog(true);
     this.closeGeneralCard();
@@ -2316,7 +2347,13 @@ export class GameBar {
 
     const canDeploy = hasEnoughGold && hasEnoughReserves;
 
-    this.proposalAudience = {
+    if (
+      this._proposalRequest !== request ||
+      this.app.scenario !== sc ||
+      this.selectedSubmenu !== 0
+    )
+      return;
+    this.proposalAudience = this._audienceWithMusic({
       type: "monarch_deploy",
       playerFaction: me,
       monarch,
@@ -2331,13 +2368,18 @@ export class GameBar {
       step: "greet",
       timer: null,
       timerAction: null,
-    };
+    });
 
     this.app.view.draw();
 
     this._setProposalTimer(3000, async () => {
       await this._advanceToAdvisorPropose();
     });
+  }
+
+  _audienceWithMusic(audience) {
+    this.app.score?.beginAudience(audience);
+    return audience;
   }
 
   _setProposalTimer(ms, action) {
@@ -3300,6 +3342,7 @@ export class GameBar {
       [requesterName, targetName],
     );
     if (generation !== this._scenarioUiGeneration) return false;
+    this._proposalRequest = null;
     this.proposalAudience = {
       type,
       playerFaction: me,
@@ -3317,6 +3360,7 @@ export class GameBar {
       timer: null,
       timerAction: null,
     };
+    this.app.score?.beginAudience(this.proposalAudience);
     this.syncClock();
     this.app.view.draw();
     return true;
@@ -3483,7 +3527,9 @@ export class GameBar {
   }
 
   closeProposalAudience() {
+    this._proposalRequest = null;
     if (!this.proposalAudience) return;
+    this.app.score?.endAudience(this.proposalAudience);
     if (this.proposalAudience.timer) {
       clearTimeout(this.proposalAudience.timer);
     }
@@ -3493,6 +3539,8 @@ export class GameBar {
 
   /** 返回标题时丢弃旧剧本的异步对白/计时器，不执行其 onClose 状态回调。 */
   resetScenarioUi() {
+    this._proposalRequest = null;
+    this.app.score?.discardAudience();
     this._scenarioUiGeneration++;
     if (this.proposalAudience?.timer) {
       clearTimeout(this.proposalAudience.timer);
@@ -4395,6 +4443,7 @@ export class GameBar {
     );
     if (this.proposalAudience !== p) return;
     if (nextStep === "budget_request" || nextStep === "budget_zero_worker") {
+      this.app.score?.beginAudience(p);
       p.workerRequestLines = lines;
     } else if (nextStep === "budget_zero_advisor") {
       p.advisorResultLines = lines;
@@ -5982,11 +6031,10 @@ export class GameBar {
     );
   }
 
-  /** 每帧同步：战斗/过渡、模态窗口、军师子菜单或地图鼠标活动均冻结战略计时。 */
+  /** 每帧合并战斗/模态、军师工作流与地图鼠标静止等待各自持有的暂停。 */
   syncClock() {
     const c = this.app.clock;
     if (!c) return;
-    const mapMouseActive = performance.now() - this._lastMouse < 1000;
     const modalOpen =
       (this.app.hud?.dialogCount ?? 0) > 0 ||
       !!(
@@ -6021,13 +6069,8 @@ export class GameBar {
       this._clockHoldRequested ||
       modalOpen ||
       subActive ||
-      mapMouseActive;
-  }
-
-  pokeClock() {
-    // 地图任意移动都暂停；只要静止满1秒，下一帧syncClock即恢复。
-    this._lastMouse = performance.now();
-    this.syncClock();
+      this.app.mapPointerHold === true ||
+      !!this.app._strategicCityRequest;
   }
 
   /** 军师一级菜单条仅遮挡自身640×48区域；同高度的左右地图仍可交互。 */
@@ -6069,6 +6112,13 @@ export class GameBar {
     if (this.systemLoadConfirmDialog) return true;
     if (this.exitConfirmDialog) return true;
 
+    return this.hitMapChrome(px, py);
+  }
+
+  // Physical canvas chrome only: modal input ownership must not hide exposed
+  // map movement from the independent pointer-idle hold.
+  hitMapChrome(px, py) {
+    this.layout();
     if (this.cityCard && this._hitCityCard(px, py)) return true;
     // 军师子菜单带
     if (this._hitAdvisorBar(px, py)) return true;
@@ -7082,12 +7132,12 @@ export class GameBar {
     ctx.textAlign = "left";
   }
 
-  // ── 系统选单主弹窗 (复刻 KI.EXE component 2 @ (216,120) 192×176 居中) ──
+  // ── 系统选单：「音效」是原CF9音量档，不是可切换的SFX音色 ──
   _settingsRect() {
     const W = innerWidth;
     const H = innerHeight;
     const wTiles = 14; // 外框 224px (内部 208px = 13 tiles)
-    const hTiles = 13; // 外框 208px (内部 192px = 12 tiles)
+    const hTiles = 13; // 六行设置，外框208px，内部192px
     const w = wTiles * 16;
     const h = hTiles * 16;
     const x = Math.round((W - w) / 2);
@@ -7097,7 +7147,7 @@ export class GameBar {
 
   _hitSettings(px, py) {
     if (!this.settingsOpen) return -1;
-    const { x, y, wTiles, hTiles } = this._settingsRect();
+    const { x, y, wTiles, hTiles, rows } = this._settingsRect();
     const cx = x + 8;
     const cy = y + 8;
     const cw = (wTiles - 1) * 16;
@@ -7105,7 +7155,7 @@ export class GameBar {
     if (px < cx || py < cy || px >= cx + cw || py >= cy + ch) return -1;
     const startRowY = cy + 30;
     const rowStep = 26;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < rows; i++) {
       const ry = startRowY + i * rowStep;
       if (py >= ry && py < ry + rowStep) return i;
     }
@@ -7121,11 +7171,11 @@ export class GameBar {
       // 存檔讀取：弹出防丢失确认弹窗，保持计时停止
       this.openSystemLoadConfirmDialog();
     } else if (i === 2) {
-      // 音效：TYPE 1 -> TYPE 2 -> TYPE 3 -> TYPE 4 -> TYPE 1
-      this.soundType = (this.soundType % 4) + 1;
-      this.app.soundType = setSoundType(this.soundType);
-      clickSfx();
-      hud.flashEvent(`音效：TYPE ${this.soundType}`);
+      // KI:1756「音效」→5FF6/6056→60A1→02D0，TYPE只设音乐衰减。
+      const music = this.app.music;
+      if (music) music.setType((music.type + 1) % 5);
+      clickSfx(); // 原PC确认声不受CF9控制（0CDE→EB11）。
+      hud.flashEvent(`音效：${MUSIC_TYPE_LABELS[music?.type ?? 1]}`);
     } else if (i === 3) {
       // 戰略速度：最低速 -> 低速 -> 普通 -> 高速 -> 最高速 循环切换
       const c = this.app.clock;
@@ -7178,7 +7228,7 @@ export class GameBar {
     ctx.lineTo(inner.x + inner.w - 4, lineY + 0.5);
     ctx.stroke();
 
-    // 6 个选项
+    // 单一「音效」行复用原CF9，保留现有Web保存/读取入口。
     const startRowY = inner.y + 30;
     const rowStep = 26;
     const btnW = 66;
@@ -7197,15 +7247,22 @@ export class GameBar {
     const c = this.app.clock;
     const stratIdx = c?.strategicSpeed ?? 2;
     const tactIdx = this.app.tacticalSpeed ?? 2;
-    const soundText = `TYPE ${this.soundType ?? 1}`;
     const stratText = STRATEGIC_SPEED_LABELS[stratIdx] ?? "普通";
     const tactText = TACTICAL_SPEED_LABELS[tactIdx] ?? "普通";
 
-    const btnTexts = ["OK", "OK", soundText, stratText, tactText, "OK"];
+    const musicType = this.app.music?.type ?? 1;
+    const btnTexts = [
+      "OK",
+      "OK",
+      MUSIC_TYPE_LABELS[musicType],
+      stratText,
+      tactText,
+      "OK",
+    ];
 
     const hov = this.settingsHover ?? -1;
 
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < labels.length; i++) {
       const ry = startRowY + i * rowStep;
       const isRowHover = i === hov;
 
@@ -7231,7 +7288,7 @@ export class GameBar {
         btnH,
         btnTexts[i],
         isRowHover,
-        i === 2, // TYPE 用英文字体
+        i === 2 && musicType !== 0, // TYPE英文，關閉中文
       );
     }
   }
@@ -7707,38 +7764,6 @@ export class GameBar {
     });
   }
 
-  /** 实际接敌/攻城位置集合。普通行军目标不得触发闪动或音效。 */
-  blinkTargets() {
-    const now = performance.now();
-    // 清理已完成 3 闪的 (每闪 500ms, 共 1500ms)。队列只由
-    // addMiniBattleFlash() 写入，draw/needsAnim 均保持无额外规则副作用。
-    for (const [key, start] of this._flashQueue) {
-      if (now - start > 1500) this._flashQueue.delete(key);
-    }
-    return new Set(this._flashQueue.keys());
-  }
-
-  /**
-   * 在大地图战斗发生位置触发小地图同步闪烁。
-   * location: 据点对象({idx,x,y}) 或 野外坐标({x,y})。
-   */
-  addMiniBattleFlash(location) {
-    if (!location) return;
-    let key;
-    if (typeof location.idx === "number") {
-      key = location.idx;
-    } else if (
-      typeof location.x === "number" &&
-      typeof location.y === "number"
-    ) {
-      key = `field:${location.x}:${location.y}`;
-    } else {
-      return;
-    }
-    // 战斗闪动本身不发警告音；等待阶段使用YNSOUND ID3，失守另由0xCE7触发。
-    this._flashQueue.set(key, performance.now());
-  }
-
   /** UI 层绘制 (MapView.draw 末尾回调) */
   draw(ctx) {
     if (!this.imgs) return;
@@ -7892,8 +7917,7 @@ export class GameBar {
     const me = cmd.playerFaction(sc);
     const kx = 208 / 6144;
     const ky = 139 / 4096;
-    const blink = this.blinkTargets();
-    const on = Math.floor(performance.now() / 250) % 2 === 0;
+    const battles = minimapBattleMarkers(sc, this.app.engagementFx);
     // 军团路线 (虚线: 军团→目标)
     const t = this.app.clock?.dayProgress?.() ?? 1;
     ctx.setLineDash([3, 3]);
@@ -7938,58 +7962,22 @@ export class GameBar {
       const f = sc.factionOf(c);
       const isMe = me && f && f.idx === me.idx;
       const isSel = f && this.selFaction === f.idx;
-      let col = "#eeeeee"; // 空城=白
-      let border = "#000000"; // 空城=黑框
-      if (isMe) {
-        col = "#F0E000"; // 玩家=黄填充
-        border = "#D00000"; // 玩家=红边框
-      } else if (isSel) {
-        col = "#3040D0"; // 选中势力=蓝填充
-        border = "#FFFFFF"; // 白边框
-      } else if (f) {
-        col = "#3040D0"; // 其它势力=蓝填充
-        border = "#002060"; // 深蓝边框
-      }
-      if (blink.has(c.idx) && !on) {
-        // 闪烁时使用被选择查看势力的颜色
-        col = "#3040D0";
-        border = "#FFFFFF";
-      }
-      const rx = Math.round(x);
-      const ry = Math.round(y);
-      ctx.fillStyle = border;
-      ctx.fillRect(rx - 2, ry - 2, 5, 5); // 外框 5x5（整数坐标，避免 Canvas 半像素抗锯齿把边框晕粗）
-      ctx.fillStyle = col;
-      ctx.fillRect(rx - 1, ry - 1, 3, 3); // 色块 3x3
+      let style = MINI_MARKER_STYLES.neutral;
+      if (isMe) style = MINI_MARKER_STYLES.player;
+      else if (isSel) style = MINI_MARKER_STYLES.selected;
+      else if (f) style = MINI_MARKER_STYLES.other;
+      drawMinimapMarker(ctx, x, y, battles.get(c.idx)?.style ?? style);
     }
-    // 据点/野外战斗位置闪烁：与大地图接敌/战斗同步，统一呈白色十字。
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#ffffff";
-    if (on) {
-      for (const key of blink) {
-        let fx;
-        let fy;
-        if (typeof key === "number") {
-          const city = sc.cities[key];
-          fx = city?.x;
-          fy = city?.y;
-        } else if (typeof key === "string" && key.startsWith("field:")) {
-          const [, sx, sy] = key.split(":");
-          fx = Number(sx);
-          fy = Number(sy);
-        } else {
-          continue;
-        }
-        if (!Number.isFinite(fx) || !Number.isFinite(fy)) continue;
-        const fxm = mx + (fx * 16 + 8) * kx;
-        const fym = my + (fy * 16 + 8) * ky;
-        ctx.beginPath();
-        ctx.moveTo(fxm - 3, fym);
-        ctx.lineTo(fxm + 3, fym);
-        ctx.moveTo(fxm, fym - 3);
-        ctx.lineTo(fxm, fym + 3);
-        ctx.stroke();
-      }
+    // 两军野战同样是方块，不追加星形/十字。共享大地图的独立表现相位；
+    // 暂停不换相，接触解除/战果完成后不保留尾闪。
+    for (const [key, marker] of battles) {
+      if (typeof key !== "string") continue;
+      drawMinimapMarker(
+        ctx,
+        mx + (marker.x * 16 + 8) * kx,
+        my + (marker.y * 16 + 8) * ky,
+        marker.style,
+      );
     }
     // 视口线框: 当前大地图可视范围 (缩小一半, 并加 1px 右下黑色阴影)
     const view = this.app.view;
@@ -8284,10 +8272,5 @@ export class GameBar {
       ctx.fillText(s, p.x + 196 - ctx.measureText(s).width, iy);
       ctx.font = FONT;
     });
-  }
-
-  /** 遇袭闪烁需要持续重绘 (主循环 4Hz 调用) */
-  needsAnim() {
-    return this.miniOpen && this.blinkTargets().size > 0;
   }
 }

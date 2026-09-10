@@ -1397,7 +1397,8 @@ try {
       };
       await view.open(battle, () => finishCallbacks++);
       view.setRuntimeEnabled(true);
-      const deadline = performance.now() + 20000;
+      // Slowest now needs ~22.4s for these 51 post-first-frame waits.
+      const deadline = performance.now() + 40000;
       while (battle.session.frame < 52) {
         if (performance.now() > deadline)
           throw new Error(`tactical speed ${speed} RAF timeout`);
@@ -1426,8 +1427,7 @@ try {
       const advancing = callbacks.filter((entry) => entry.advanced);
       const spacings = advancing
         .slice(1)
-        .map((entry, index) => entry.at - advancing[index].at)
-        .filter((value) => speed === 4 || value < 300);
+        .map((entry, index) => entry.at - advancing[index].at);
       spacings.sort((x, y) => x - y);
       const delayed = blockedAt == null ? null : callbacks[blockedAt + 1];
       const postBlock =
@@ -1476,7 +1476,7 @@ try {
     a.app.tacticalSpeed = priorTacticalSpeed;
     return rows;
   });
-  const expectedIntervals = [219.7016, 164.7762, 109.8508, 54.9254];
+  const expectedIntervals = [439.4032, 329.5524, 219.7016, 109.8508];
   for (const row of tacticalRafMatrix) {
     assert.equal(
       row.coldScratch,
@@ -1520,7 +1520,7 @@ try {
     if (row.speed < 4)
       assert.ok(
         Math.abs(row.medianSpacingMs - expectedIntervals[row.speed]) < 25,
-        `tactical speed ${row.speed}: cadence follows authenticated relative wait`,
+        `tactical speed ${row.speed}: Web cadence doubles the authenticated nonzero wait`,
       );
   }
   assert.deepEqual(
@@ -1531,8 +1531,12 @@ try {
     "nonzero tactical settings retain slow-to-fast relative cadence",
   );
   assert.ok(
+    Math.abs(tacticalRafMatrix[4].medianSpacingMs - 1000 / 30) < 12,
+    "highest uses the user-approved half-speed 30Hz cap, not the display refresh rate",
+  );
+  assert.ok(
     tacticalRafMatrix[4].medianSpacingMs < tacticalRafMatrix[3].medianSpacingMs,
-    "highest has no original added wait; no fixed original FPS is asserted",
+    "highest remains faster than the Web-scaled 16-callback high-speed wait",
   );
   const delayedNormalRaf = tacticalRafMatrix[2];
   assert.ok(

@@ -24,7 +24,7 @@ import {
   roadNodeRawAddress,
   restoreRoadMarchContext,
 } from "./roadgraph.js";
-import { engageSfxBurst, warnSfx } from "../core/speaker.js";
+import { warnSfx } from "../core/speaker.js";
 import {
   applyFactionFundsDelta,
   factionLegionMoraleCap,
@@ -193,8 +193,20 @@ export function buildArmies(sc) {
     }
     for (const L of sc.legions) {
       // SAVE军团 status bit5/+3只确认上一轮仍接触；不存在战型位。
-      // 保留pending到首次实际tick，仿0x25CC→0x2662现场重检。
+      // 保留pending到+0B轮询到期，仿0x25CC→0x2662现场重检。
       if (L._engagement) {
+        // 原始导入/新快照保留相位；兼容旧解析器已有的64B raw镜像。
+        for (const [field, offset] of [
+          ["moveDelay", 0x0b],
+          ["movePeriod", 0x1e],
+        ]) {
+          if (Number.isInteger(L[field]) || typeof L.raw !== "string") continue;
+          const value = Number.parseInt(
+            L.raw.slice(offset * 2, offset * 2 + 2),
+            16,
+          );
+          if (Number.isInteger(value)) L[field] = value;
+        }
         L.status |= ENGAGE_STATUS_ACTIVE;
         L.engagementCountdown = Math.max(
           1,
@@ -616,7 +628,10 @@ function formAiReinforcements(app, faction, city, requested) {
       general.status = 0;
       break;
     }
-    faction.n_legions = (faction.n_legions ?? current) + 1;
+    // 0x6E8F increments faction[+0x14] for every successful formation;
+    // 0x4575 may loop and form more than one legion in this same request.
+    faction.n_legions =
+      (Number.isInteger(faction.n_legions) ? faction.n_legions : current) + 1;
     legion.target = city;
     legion.targetCity = city.idx;
     legion.targetNode = roadNodeAt(city.x, city.y)?.id ?? null;
@@ -635,7 +650,8 @@ function rememberFactionStrategicCity(sc, factionIdx, field, cityIndex) {
 }
 
 /** KI.EXE 0x3EFD→0x3F74：每次仅轮询一个据点槽。 */
-export function tickStrategicCity(app, cityIndex) {
+export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
+  if (app?._strategicCityRequest) return false;
   const sc = app?.scenario;
   const city = sc?.cities?.[cityIndex];
   if (!city) return false;
@@ -695,64 +711,97 @@ export function tickStrategicCity(app, cityIndex) {
   ) {
     if ((city._aiCooldown ?? 0) > 0) return false;
     const rng = app.originalRng ?? app.activeBattleRng;
-    const random = rng?.nextByte?.() ?? 0;
-    city._aiCooldown = 0x18 + (random & 0x0f);
+    const request = { scenario: sc, clock: app.clock };
+    app._strategicCityRequest = request;
+    app.gamebar?.syncClock?.();
+    let completed = false;
+    const completeRequest = () => {
+      if (completed) return;
+      completed = true;
+      if (
+        app._strategicCityRequest !== request ||
+        app.scenario !== sc ||
+        app.clock !== request.clock
+      ) return;
+      app._strategicCityRequest = null;
+      // 0x40C9 waits for TALK38 to return before consuming this byte and
+      // 0x4028 then calls 0x40B3. Advancing either state at enqueue time
+      // would shift the shared strategic RNG during the modal hold.
+      const random = rng?.nextByte?.() ?? 0;
+      city._aiCooldown = 0x18 + (random & 0x0f);
+      rememberFactionStrategicCity(
+        sc,
+        city.faction,
+        "strategic_city_primary",
+        city.idx,
+      );
+      onRequestComplete?.();
+      app.gamebar?.syncClock?.();
+    };
+    if (!app.gamebar?.enqueueTalkMessage) {
+      completeRequest();
+      return true;
+    }
+    app.gamebar.enqueueTalkMessage({
+      gen: null,
+      talkIndex: 38,
+      cityName: city.name?.trim?.() || "",
+      kind: "reinforcement-request",
+      onClose: completeRequest,
+    });
+    return true;
+  }
+
+  // 0x4028：没有任何交战邻城时清+857后返回。反之，空城会在
+  // 0x4057选择“战略目标候选”以前直接调用40C9；因此即使+0x19
+  // 暂时没有目标，AI交战空边城仍可向本城编成一支援军。
+  if (!hostileNeighbours.length) {
+    city._aiCooldown = 0;
+    return false;
+  }
+  const rememberFormationRequest = () =>
     rememberFactionStrategicCity(
       sc,
       city.faction,
       "strategic_city_primary",
       city.idx,
     );
-    app.gamebar?.enqueueTalkMessage?.({
-      gen: null,
-      talkIndex: 38,
-      cityName: city.name?.trim?.() || "",
-      kind: "reinforcement-request",
-    });
-    return true;
-  }
-
-  if (targetIdx == null || targetIdx === 0xff || !candidates.length)
-    return false;
+  const applyFormationCooldown = () => {
+    const capital = sc.cities[faction.capital];
+    city._aiCooldown = Math.min(
+      0x1e,
+      Math.floor(
+        (Math.abs(city.x - capital.x) + Math.abs(city.y - capital.y)) / 8,
+      ),
+    );
+  };
   if (localStrength < 1 && city.faction !== sc.player_faction) {
-    if ((city._aiCooldown ?? 0) > 0) return false;
-    const formed = formAiReinforcements(app, faction, city, 1);
-    if (formed > 0) {
-      rememberFactionStrategicCity(
-        sc,
-        city.faction,
-        "strategic_city_primary",
-        city.idx,
-      );
-      const capital = sc.cities[faction.capital];
-      city._aiCooldown = Math.min(
-        0x1e,
-        Math.floor(
-          (Math.abs(city.x - capital.x) + Math.abs(city.y - capital.y)) / 8,
-        ),
-      );
+    // 4028 AL=1 → 40C9; 40B3 executes even when +857 suppresses 4575 or
+    // formation fails, so its one-shot faction city slot must still update.
+    if ((city._aiCooldown ?? 0) > 0) {
+      rememberFormationRequest();
+      return false;
     }
+    const formed = formAiReinforcements(app, faction, city, 1);
+    rememberFormationRequest();
+    if (formed > 0) applyFormationCooldown();
     return formed > 0;
   }
+  // 4057's weak-city/multiple-formation branch only exists for a concrete
+  // target candidate; the prior empty-city 4028 path deliberately did not.
+  if (targetIdx == null || targetIdx === 0xff || !candidates.length)
+    return false;
   if (localStrength <= 1 && city.faction !== sc.player_faction) {
-    if ((city._aiCooldown ?? 0) > 0) return false;
+    // 407A computes CH+2-local and passes it to 40C9/4575; 40B3 still runs
+    // for cooldown/capacity failures.
+    if ((city._aiCooldown ?? 0) > 0) {
+      rememberFormationRequest();
+      return false;
+    }
     const requested = Math.max(0, threatTotal + 2 - localStrength);
     const formed = formAiReinforcements(app, faction, city, requested);
-    if (formed > 0) {
-      rememberFactionStrategicCity(
-        sc,
-        city.faction,
-        "strategic_city_primary",
-        city.idx,
-      );
-      const capital = sc.cities[faction.capital];
-      city._aiCooldown = Math.min(
-        0x1e,
-        Math.floor(
-          (Math.abs(city.x - capital.x) + Math.abs(city.y - capital.y)) / 8,
-        ),
-      );
-    }
+    rememberFormationRequest();
+    if (formed > 0) applyFormationCooldown();
     return formed > 0;
   }
   const rng = app.originalRng ?? app.activeBattleRng;
@@ -760,9 +809,12 @@ export function tickStrategicCity(app, cityIndex) {
   // 因此目标下标是(raw-1) mod 候选数，raw=0会按u8下溢为255。
   const rawChoice = (rng?.nextByte?.() ?? 0) & 3;
   const target = candidates[((rawChoice || 0x100) - 1) % candidates.length];
-  // 0x4099..0x40AA：命中目标后AL为0，随后明确改成1并以DL传给
-  // 0x4155；敌城驻军强度只参与前面的派遣门，不是出击军团数量。
+  // 0x4099..0x4155：AL=0会先改成1，故本轮只会写一军团目标。
+  // 4155以DH=本城运行态兵力-1扫描128个槽。每个同节点活动槽在
+  // DH尚非0时先消费RNG；低于40h便DH--并跳过该槽，甚至还没测试
+  // 委任bit。不能把这个随机筛选误写成“多支派遣时才掷骰”。
   let remaining = 1;
+  let precedingLocalSlots = Math.max(0, localStrength - remaining);
   for (const legion of sc.legions.toSorted(
     (left, right) => (left.slot ?? 0x7fff) - (right.slot ?? 0x7fff),
   )) {
@@ -770,17 +822,16 @@ export function tickStrategicCity(app, cityIndex) {
     if (
       legion.dead ||
       legion._active === false ||
-      legion.faction !== city.faction ||
+      (legion.status ?? 0) < 0x80 ||
       legion.x !== city.x ||
-      legion.y !== city.y ||
-      !isLegionDelegated(legion) ||
-      (legion.commandState ?? 0) >= 8
+      legion.y !== city.y
     )
       continue;
-    if (remaining > 1 && (rng?.nextByte?.() ?? 0xff) < 0x40) {
-      remaining--;
+    if (precedingLocalSlots > 0 && (rng?.nextByte?.() ?? 0) < 0x40) {
+      precedingLocalSlots--;
       continue;
     }
+    if (!isLegionDelegated(legion) || (legion.commandState ?? 0) >= 8) continue;
     legion.target = target;
     legion.targetCity = target.idx;
     legion.targetNode = roadNodeAt(target.x, target.y)?.id ?? null;
@@ -788,12 +839,8 @@ export function tickStrategicCity(app, cityIndex) {
     legion.commandState = 0;
     remaining--;
   }
-  rememberFactionStrategicCity(
-    sc,
-    city.faction,
-    "strategic_city_primary",
-    city.idx,
-  );
+  // 0x4099→0x4155 normal sortie only clears this city's +857. It does not
+  // call 0x40B3, so it must not overwrite the formation-request city slot.
   city._aiCooldown = 0;
   return true;
 }
@@ -1305,6 +1352,11 @@ function markerFrameToward(fromX, fromY, toX, toY) {
   return toY < fromY ? 2 : 3;
 }
 
+/** 0x6FD2：逐读六队type字节（零兵队也参与），有效军团地址下周期为2/3。 */
+function engagementRoadPeriod(legion) {
+  return ensureLegionUnits(legion).every((unit) => unit.type === 1) ? 2 : 3;
+}
+
 function startEngagement(A, kind, target) {
   A.prevX = A.x;
   A.prevY = A.y;
@@ -1318,9 +1370,10 @@ function startEngagement(A, kind, target) {
     countdown: A.engagementCountdown, // 0x264A 在首次接触同轮把12立即减为11。
     target,
   };
-  // Web表现：接敌图从本次接触立即可见，五声也在同一时点交给WebAudio
-  // 排程；不能等11→1规则倒计时结束后再补一轮动画/声音。
-  engageSfxBurst();
+  // 首次接触来自道路轮询，+0B已重装+1E；本槽只写12并减11，不发ID3。
+  // 此处补齐接战区域的轮询相位，不把普通道路移动调度冒称已完整复刻。
+  A.movePeriod = engagementRoadPeriod(A);
+  A.moveDelay = A.movePeriod;
 }
 
 function engagementTarget(sc, engagement) {
@@ -1430,10 +1483,19 @@ function currentEngagement(sc, A, countdown) {
     : null;
 }
 
-/** KI.EXE 0x2831/0x2880：持续接触才递减；消失时同轮继续移动。 */
+/** 25C1/264A：每槽倒数，只在+0B到期时重检或结算；Web音画由独立表现时钟驱动。 */
 function advanceEngagement(app, A) {
   const previous = A._engagement;
   if (!previous) return false;
+  // 没有raw/相位字段的旧Web快照只能沿用“下一槽重检”的兼容行为；
+  // 不将该迁移入口宣称为可恢复的原版相位。新接触和原始导入均有字段。
+  A.moveDelay = ((A.moveDelay ?? 1) - 1) & 0xff;
+  if (A.moveDelay !== 0) {
+    previous.countdown = Math.max(1, previous.countdown - 1);
+    A.engagementCountdown = previous.countdown;
+    return true;
+  }
+  A.moveDelay = A.movePeriod ?? engagementRoadPeriod(A);
   const engagement = currentEngagement(
     app.scenario,
     A,
@@ -1450,13 +1512,8 @@ function advanceEngagement(app, A) {
     clearEngagement(A);
     return false;
   }
-  // 小地图同步闪烁接敌/攻城位置（大地图发生战斗时小地图同步闪动）
-  const flashLoc =
-    engagement.kind === ENGAGE_KIND_SIEGE
-      ? target
-      : { x: target.x ?? A.x, y: target.y ?? A.y };
-  app.gamebar?.addMiniBattleFlash?.(flashLoc);
   if (engagement.countdown > 1) {
+    // 原286C/28B4会请求ID3；用户批准的Web独立音画不在规则轮询中发声。
     engagement.countdown--;
     A.engagementCountdown = engagement.countdown;
     return true;
@@ -1729,7 +1786,6 @@ function battleUsesDelegatedPlayer(sc, A, target, kind) {
 }
 
 export function resolveBattle(app, A, city) {
-  app.gamebar?.addMiniBattleFlash?.(city);
   const sc = app.scenario;
   const oldFaction = city.faction;
   const defenders = sc.legions.filter(
@@ -1796,7 +1852,6 @@ export function resolveBattle(app, A, city) {
 
 export function resolveFieldBattle(app, A, D) {
   if (!D || D.dead) return false;
-  app.gamebar?.addMiniBattleFlash?.({ x: D.x, y: D.y });
   const sc = app.scenario;
   const pf = playerFaction(sc);
   if (
@@ -2713,7 +2768,8 @@ function negotiationRecipientGeneral(sc, recipientFaction) {
     (candidate) =>
       !candidate?.dead &&
       candidate?._active !== false &&
-      (candidate.slot ?? candidate.generalIdx) === monarch.idx &&
+      candidate?.faction === recipientFaction.idx &&
+      generalForLegion(sc, candidate)?.idx === monarch.idx &&
       (candidate.status ?? 0) >= 0x80,
   );
   return legion ? monarch : null;
@@ -3573,6 +3629,26 @@ export function finishDeferredLegionDaily(app) {
 }
 
 export function aiTick(app, options = {}) {
+  if (app._strategicCityRequest) return;
+  if (app.battleView?.active || app.engageTransition?.active) return;
+  if (!app.scenario?.legions) return;
+  // KI 3F57 returns from military/TALK38 before 3F5A governance. Preserve
+  // this update's options; never rerun its city phase or advance cursors twice.
+  const update = { ...options };
+  let resumed = false;
+  const resume = () => {
+    if (resumed) return;
+    resumed = true;
+    finishStrategicCityUpdate(app, update);
+  };
+  if (Number.isInteger(update.cityIndex)) {
+    tickStrategicCity(app, update.cityIndex, resume);
+    if (app._strategicCityRequest) return;
+  }
+  resume();
+}
+
+function finishStrategicCityUpdate(app, options) {
   // 战术场景或委任四相过渡接管期间，不能推进城池每日状态或处理第二场战斗。
   if (app.battleView?.active || app.engageTransition?.active) return;
   const sc = app.scenario;
@@ -3593,7 +3669,6 @@ export function aiTick(app, options = {}) {
   // 0x1D0B 固定顺序：0x3EFD 单城槽（含该城0x4194/0x4269），再0x25A3
   // 十六军团槽。先让边城请求编成，不能让同批首都军团抢先消耗预备兵池。
   if (Number.isInteger(options.cityIndex)) {
-    tickStrategicCity(app, options.cityIndex);
     tickStrategicCityDaily(
       sc,
       options.cityIndex,
@@ -3710,7 +3785,7 @@ export function aiTick(app, options = {}) {
     A.prevX = A.x;
     A.prevY = A.y;
   }
-  for (const A of sc.legions) {
+  for (const A of legionsInSlotOrder) {
     if (
       !shouldProcessLegion(A) ||
       A.dead ||

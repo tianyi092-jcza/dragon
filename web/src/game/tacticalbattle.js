@@ -45,6 +45,15 @@ function generalOf(sc, legion) {
   return generalForLegion(sc, legion);
 }
 
+// KI.EXE CBE5 derives this record from D30's legion-table address:
+// (D30 - 0x2240) >> 1 is the same slot's 0x20-byte general-table offset.
+// It does not read the legion's +2 commander field. Slot-less test/legacy
+// construction has no DOS address to reproduce, so it retains the old resolver.
+function cbe5ScriptGeneral(sc, legion) {
+  if (Number.isInteger(legion?.slot)) return sc?.generals?.[legion.slot];
+  return generalOf(sc, legion);
+}
+
 function originalGroups(legion) {
   return legionBattleUnits(legion).map((unit) => ({
     type: unit.type,
@@ -93,7 +102,10 @@ function createHandle(
     sideTemp(sc, sideLegions[0]),
     sideTemp(sc, sideLegions[1]),
   ]);
-  const opponentFormation = generalOf(sc, sideLegions[1])?.battle_formation;
+  const opponentFormation = cbe5ScriptGeneral(
+    sc,
+    sideLegions[1],
+  )?.battle_formation;
   if (
     !Number.isInteger(opponentFormation) ||
     opponentFormation < 0 ||

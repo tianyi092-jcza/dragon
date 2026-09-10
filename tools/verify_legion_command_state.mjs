@@ -214,6 +214,30 @@ function tick(sc, rng = null) {
   assert.equal(sc.factions[0].strategic_city_primary, null);
 }
 
+// 0x440F：state2并不以“仍在交战”或资金直接决定撤回。目标城无bit6、
+// 无待处理+17/+16据点、且attr<80时才进入11；随后44D6锁定首都并解散。
+{
+  const sc = makeScenario({ fiscal: true, targetAttr: 0x00 });
+  sc.factions.push({ idx: 1, active: true, capital: 1 });
+  sc.diplomacy = [
+    [0xff, 0],
+    [0, 0xff],
+  ]; // 保持交战，证明和平不是这条撤回链的前提。
+  const L = legion({ target: sc.cities[1], commandState: 2, troops: 600 });
+  sc.legions = [L];
+  tick(sc);
+  assert.equal(L.commandState, 11);
+  tick(sc);
+  assert.equal(L.target, sc.cities[0]);
+  assert.equal(L.commandState, 11);
+  L.x = sc.cities[0].x;
+  L.y = sc.cities[0].y;
+  L.targetNode = 0;
+  L.roadEdgeOrNode = 0;
+  tick(sc);
+  assert.equal(sc.legions.length, 0, "状态11抵都后必须立即解散军团");
+}
+
 // 0x4466：NPC状态3六队任一<300人转11；全部>=300人转8。
 {
   const sc = makeScenario();

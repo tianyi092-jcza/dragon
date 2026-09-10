@@ -450,7 +450,13 @@ view.battleScriptVm = {
   },
 };
 app.tacticalSpeed = 4;
-view.updateBattleFrames(0.016);
+view.updateBattleFrames(0.032);
+assert.equal(
+  autonomousVmSteps,
+  0,
+  "32ms is below the user-approved half-speed 30Hz rule-frame interval",
+);
+view.updateBattleFrames(0.002);
 assert.equal(
   autonomousVmSteps,
   1,

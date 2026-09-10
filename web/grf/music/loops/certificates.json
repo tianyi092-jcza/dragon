@@ -1,0 +1,123 @@
+[
+  {
+    "index": 0,
+    "file": "BGM_00.flac",
+    "pcmSha256": "769a1968dd20d1bdf444c1f926cab9bd6d4d75a3415555b53da90881c548cc28",
+    "pcmBytes": 82511220,
+    "flacSha256": "ff3538432dc473ee657f8eea171001712a55a78d7875ca1a7f1b4a7c2afae378",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 3946043,
+    "loopEndSample": 20627805
+  },
+  {
+    "index": 2,
+    "file": "BGM_02.flac",
+    "pcmSha256": "5fda197da86233f6d7990699b20cc32f077243484f3a8e753d402e930bbd15ec",
+    "pcmBytes": 26650580,
+    "flacSha256": "bcd8de6c8c831d36967560e06856ececd666e17ba0f0456a889c0c88327381c3",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 3272243,
+    "loopEndSample": 6662645
+  },
+  {
+    "index": 3,
+    "file": "BGM_03.flac",
+    "pcmSha256": "8e8f77e1de7b6b85a55731438952a6e0972cb91908a8d810ddb11bdd3f985c0a",
+    "pcmBytes": 29758448,
+    "flacSha256": "9c5ae3b429d79ae580bf69820291b5aa8ee751782c6ef9b6fd8eb854d05de44d",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 2354009,
+    "loopEndSample": 7439612
+  },
+  {
+    "index": 4,
+    "file": "BGM_04.flac",
+    "pcmSha256": "a7be8080c82232a66a1e72b4b29c1e1690381322bb3c2a9e0c6dea03a81699b5",
+    "pcmBytes": 6813776,
+    "flacSha256": "d67bcdafdac0b9b1c1dbf5a05cb463646dacb601f7fa02f498bf8031d75aa7a3",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 53,
+    "loopEndSample": 1703444
+  },
+  {
+    "index": 5,
+    "file": "BGM_05.flac",
+    "pcmSha256": "33b7419aa0ca5a4aeefd4d8e1aecfabdc55efb1cf4d3ab91c201a93ff5d0e02c",
+    "pcmBytes": 11307652,
+    "flacSha256": "247e45072985d795f8a532e34438f50caab046fea08b2f0d8071af9d3a92f7de",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 99851,
+    "loopEndSample": 2826913
+  },
+  {
+    "index": 6,
+    "file": "BGM_06.flac",
+    "pcmSha256": "4094143ee794e411d9a43b35f29b0e67c59c9013e8bd39fac165bd9ad2522d59",
+    "pcmBytes": 6420684,
+    "flacSha256": "cc9d69108e6ad167292a3f62fc5ab4f69f9f8b6c9488ad936136eb0de68e48ca",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 53,
+    "loopEndSample": 1605171
+  },
+  {
+    "index": 7,
+    "file": "BGM_07.flac",
+    "pcmSha256": "ce81894a2330a046caff48b6aaf7fe10c6d8f99a320df3bb972aabd6fb6f23fe",
+    "pcmBytes": 41129612,
+    "flacSha256": "1a48d26d0637bcd7b26a33cb29b9429020d8307ebcb81ac0ad0532e5db6ca692",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 5245936,
+    "loopEndSample": 10282403
+  },
+  {
+    "index": 8,
+    "file": "BGM_08.flac",
+    "pcmSha256": "2424651d60b5efadb31df0fae957db6d8f386feb662d8453ab325dbf4b7b0525",
+    "pcmBytes": 17752012,
+    "flacSha256": "c3903b6d00e27a30e9fb603de989e08608257aecffd06f5206d95a6666edcb8e",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 408829,
+    "loopEndSample": 4438003
+  },
+  {
+    "index": 9,
+    "file": "BGM_09.flac",
+    "pcmSha256": "84dce32280984f44ce487faf5dcc396da5259f46e06c08f67538e16091c5b0da",
+    "pcmBytes": 66066520,
+    "flacSha256": "6e56f4d184100975d5f742965bdee32f1e18dcdc5742de339e08a917dee2399f",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 5051502,
+    "loopEndSample": 16516630
+  },
+  {
+    "index": 10,
+    "file": "BGM_10.flac",
+    "pcmSha256": "b28bcc734cf4a60170edfe694f09ea1ff2dae349759a03efb04a29d1560ab4f7",
+    "pcmBytes": 31511360,
+    "flacSha256": "e4f4133e2133ea053eaea99ffa1f56137002ed3d1cd6b288fc21905c323fcf89",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 302666,
+    "loopEndSample": 7877840
+  },
+  {
+    "index": "OVERBGM",
+    "file": "OVERBGM.flac",
+    "pcmSha256": "4cc35f1931910a6b043b3b52f580cd40bc233fc08d0d5de9e4e188679b9c7369",
+    "pcmBytes": 8514436,
+    "flacSha256": "d6147e9c8d01a2cf0a65aaf5a89ee7b8b380255987b2f73512d0629787ae0466",
+    "losslessRoundtrip": true,
+    "rate": 49700,
+    "loopStartSample": 32128,
+    "loopEndSample": 2128609
+  }
+]

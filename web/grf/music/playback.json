@@ -1,0 +1,70 @@
+{
+  "tracks": [
+    {
+      "index": 0,
+      "file": "loops/BGM_00.flac",
+      "loopStart": 79.39724346076459,
+      "loopEnd": 415.0463782696177
+    },
+    {
+      "index": 2,
+      "file": "loops/BGM_02.flac",
+      "loopStart": 65.83989939637827,
+      "loopEnd": 134.0572434607646
+    },
+    {
+      "index": 3,
+      "file": "loops/BGM_03.flac",
+      "loopStart": 47.364366197183095,
+      "loopEnd": 149.69038229376258
+    },
+    {
+      "index": 4,
+      "file": "loops/BGM_04.flac",
+      "loopStart": 0.0010663983903420524,
+      "loopEnd": 34.27452716297787
+    },
+    {
+      "index": 5,
+      "file": "loops/BGM_05.flac",
+      "loopStart": 2.0090744466800805,
+      "loopEnd": 56.87953722334004
+    },
+    {
+      "index": 6,
+      "file": "loops/BGM_06.flac",
+      "loopStart": 0.0010663983903420524,
+      "loopEnd": 32.2972032193159
+    },
+    {
+      "index": 7,
+      "file": "loops/BGM_07.flac",
+      "loopStart": 105.55203219315895,
+      "loopEnd": 206.88939637826962
+    },
+    {
+      "index": 8,
+      "file": "loops/BGM_08.flac",
+      "loopStart": 8.225935613682093,
+      "loopEnd": 89.29583501006036
+    },
+    {
+      "index": 9,
+      "file": "loops/BGM_09.flac",
+      "loopStart": 101.63987927565393,
+      "loopEnd": 332.32655935613684
+    },
+    {
+      "index": 10,
+      "file": "loops/BGM_10.flac",
+      "loopStart": 6.089859154929577,
+      "loopEnd": 158.50784708249498
+    },
+    {
+      "index": "OVERBGM",
+      "file": "loops/OVERBGM.flac",
+      "loopStart": 0.6464386317907445,
+      "loopEnd": 42.82915492957746
+    }
+  ]
+}

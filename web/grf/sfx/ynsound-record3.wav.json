@@ -1,0 +1,15 @@
+{
+  "source": "ynsound-record3.vgm",
+  "sourceSha256": "5d0df59882464f606408f0e6924a6bc5aa1022ef2162c2b30cd75e28f58ab705",
+  "core": "doomjs/opl3@0.4.3",
+  "coreSha256": "74dee027c6e2ba248d06e88a60b6756316280ee3a7563b6c7b42d088e26e8ada",
+  "rate": 49700,
+  "channels": 2,
+  "gain": 8,
+  "writes": 18,
+  "samples": 29826,
+  "seconds": 0.6001207243460764,
+  "peak": 4440,
+  "rms": 1054.5110772373905,
+  "wavSha256": "ae0595a8d405fa69b57e9aa744c6ad52c5909f34c81e2b4dd0bd5082738c2984"
+}

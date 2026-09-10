@@ -218,6 +218,50 @@ export class MapView {
     this.snapState = null; // 当前光标吸附状态: { target, key, x, y }
     this.selectedCity = null; // 当前选中的据点对象（中心显示正方形光标边框）
     this.selectedFaction = null; // 图例选中的势力 idx 或 null
+    this._canvasSize = null;
+  }
+
+  /**
+   * CSS像素仍是全部地图/输入坐标的单位；仅在视口或DPR变化时重置
+   * backing store。反复写canvas.width/height会清空并重新分配位图，不能
+   * 放在每一帧draw中。
+   */
+  syncCanvasSize() {
+    const width = Math.max(
+      1,
+      Math.floor(
+        Number(globalThis.innerWidth) ||
+          Number(this.cv.clientWidth) ||
+          Number(this.cv.width) ||
+          1,
+      ),
+    );
+    const height = Math.max(
+      1,
+      Math.floor(
+        Number(globalThis.innerHeight) ||
+          Number(this.cv.clientHeight) ||
+          Number(this.cv.height) ||
+          1,
+      ),
+    );
+    const dpr = Math.max(1, Number(globalThis.devicePixelRatio) || 1);
+    const pixelWidth = Math.max(1, Math.round(width * dpr));
+    const pixelHeight = Math.max(1, Math.round(height * dpr));
+    const unchanged =
+      this._canvasSize?.width === width &&
+      this._canvasSize?.height === height &&
+      this._canvasSize?.dpr === dpr &&
+      this.cv.width === pixelWidth &&
+      this.cv.height === pixelHeight;
+    if (unchanged) return this._canvasSize;
+
+    this.cv.width = pixelWidth;
+    this.cv.height = pixelHeight;
+    this.ctx.setTransform?.(dpr, 0, 0, dpr, 0, 0);
+    this.ctx.imageSmoothingEnabled = false;
+    this._canvasSize = { width, height, dpr };
+    return this._canvasSize;
   }
 
   fit() {
@@ -623,13 +667,12 @@ export class MapView {
   }
 
   draw() {
-    const { ctx, cv } = this;
+    const { ctx } = this;
     if (this.app && !this.app.gameStarted) return;
-    cv.width = innerWidth;
-    cv.height = innerHeight;
+    const { width, height } = this.syncCanvasSize();
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#141414";
-    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillRect(0, 0, width, height);
 
     // 底图
     if (this.seasonImg) {
@@ -650,8 +693,7 @@ export class MapView {
       const [wxp, wyp] = this.cityPixel(c);
       const x = this.sx(wxp),
         y = this.sy(wyp);
-      if (x < -40 || y < -40 || x > cv.width + 40 || y > cv.height + 40)
-        continue;
+      if (x < -40 || y < -40 || x > width + 40 || y > height + 40) continue;
       const f = sc.factionOf(c);
       let kind = "empty";
       if (f) {
@@ -693,7 +735,7 @@ export class MapView {
     const t = this.app?.clock?.dayProgress?.() ?? 1;
     for (const L of sc.legions) {
       if (L.dead || L._active === false || L.faction == null) continue;
-      const engageFrame = L._engagement?.countdown;
+      const engageFrame = this.app?.engagementFx?.frameOf(L);
       if (!Number.isInteger(engageFrame)) continue;
       const pos = this.getLegionRenderPos(L, t);
       this._drawEngagement(ctx, pos.sx, pos.sy, engageFrame);
@@ -712,8 +754,7 @@ export class MapView {
       const renderPos = this.getLegionRenderPos(L, t);
       const lx = renderPos.sx,
         ly = renderPos.sy;
-      if (lx < -60 || ly < -40 || lx > cv.width + 60 || ly > cv.height + 40)
-        continue;
+      if (lx < -60 || ly < -40 || lx > width + 60 || ly > height + 40) continue;
 
       const faction = sc.factions.find((f) => f.idx === L.faction);
       const markerStyle = faction?.march_marker_style ?? L.faction;
@@ -740,12 +781,7 @@ export class MapView {
       const left = this.sx(((object.x ?? 0) - 2) * WORLD.TILE_PX);
       const top = this.sy(((object.y ?? 0) - 2) * WORLD.TILE_PX);
       const size = DISASTER_OBJECT_SIZE * this.cam.scale;
-      if (
-        left >= cv.width ||
-        top >= cv.height ||
-        left + size <= 0 ||
-        top + size <= 0
-      )
+      if (left >= width || top >= height || left + size <= 0 || top + size <= 0)
         continue;
       ctx.drawImage(image, left, top, size, size);
     }
@@ -759,16 +795,16 @@ export class MapView {
       if (!image) continue;
       const left = this.sx(((cloud.x ?? 0) - 8) * WORLD.TILE_PX);
       const top = this.sy(((cloud.y ?? 0) - 4) * WORLD.TILE_PX);
-      const width = WEATHER_CLOUD_WIDTH * this.cam.scale;
-      const height = WEATHER_CLOUD_HEIGHT * this.cam.scale;
+      const cloudWidth = WEATHER_CLOUD_WIDTH * this.cam.scale;
+      const cloudHeight = WEATHER_CLOUD_HEIGHT * this.cam.scale;
       if (
-        left >= cv.width ||
-        top >= cv.height ||
-        left + width <= 0 ||
-        top + height <= 0
+        left >= width ||
+        top >= height ||
+        left + cloudWidth <= 0 ||
+        top + cloudHeight <= 0
       )
         continue;
-      ctx.drawImage(image, left, top, width, height);
+      ctx.drawImage(image, left, top, cloudWidth, cloudHeight);
     }
 
     // 军团移动不跟随：若当前吸附的是行军军团，检查其是否已完全移出吸附框；

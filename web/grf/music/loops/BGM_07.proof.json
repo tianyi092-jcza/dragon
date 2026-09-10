@@ -1,0 +1,91 @@
+{
+  "track": 7,
+  "archiveOffset": 7524,
+  "bytes": 6208,
+  "songSha256": "58a6cfaac6a8d9fe6d8322d08cbfe8d3d3f5163de4f034068aa724933bd3483a",
+  "streams": [
+    1152,
+    3380,
+    4124,
+    48,
+    2224,
+    5250
+  ],
+  "silentVoices": [],
+  "silentRawHex": "d00000000000000000000000c000",
+  "silentRegisters": [],
+  "tempos": [
+    [
+      1,
+      1
+    ],
+    [
+      4,
+      41
+    ]
+  ],
+  "simulatedToIRQ": 1436604,
+  "wallSeconds": 21.578023672103882,
+  "firstSixMainJumps": [
+    [
+      503772,
+      976092
+    ],
+    [
+      503772,
+      976092
+    ],
+    [
+      503772,
+      976092
+    ],
+    [
+      503772,
+      976092
+    ],
+    [
+      503772,
+      976092
+    ],
+    [
+      503772,
+      976092
+    ]
+  ],
+  "modes": {
+    "audible": {
+      "startIRQ": 491964,
+      "endIRQ": 964284,
+      "periodIRQ": 472320,
+      "verifiedSecondEndIRQ": 1436604,
+      "startSeconds": 105.55203145873806,
+      "endSeconds": 206.88939658828244,
+      "periodSeconds": 101.33736512954437,
+      "stateSha256": "58c47b8c8f686f6bdc3472415b6300be7abbde435ee73f3ed44d46c44a310819",
+      "registerSequenceSha256": "3af60314de2ffa2484948dc429f8b15d2c470b850e839ff5c00cc78f56c83e82",
+      "registerWritesPerLoop": 11377,
+      "exactSecondStateAndRegisterSequence": true,
+      "direct49700Start": 5245936,
+      "direct49700End": 10282403,
+      "viaVgm49700Start": 5245936,
+      "viaVgm49700End": 10282403
+    },
+    "full": {
+      "startIRQ": 491964,
+      "endIRQ": 964284,
+      "periodIRQ": 472320,
+      "verifiedSecondEndIRQ": 1436604,
+      "startSeconds": 105.55203145873806,
+      "endSeconds": 206.88939658828244,
+      "periodSeconds": 101.33736512954437,
+      "stateSha256": "58c47b8c8f686f6bdc3472415b6300be7abbde435ee73f3ed44d46c44a310819",
+      "registerSequenceSha256": "3af60314de2ffa2484948dc429f8b15d2c470b850e839ff5c00cc78f56c83e82",
+      "registerWritesPerLoop": 11377,
+      "exactSecondStateAndRegisterSequence": true,
+      "direct49700Start": 5245936,
+      "direct49700End": 10282403,
+      "viaVgm49700Start": 5245936,
+      "viaVgm49700End": 10282403
+    }
+  }
+}

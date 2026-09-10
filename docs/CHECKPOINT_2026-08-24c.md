@@ -73,7 +73,9 @@
 - parse_open.py 导出 50 张 PNG → openview.js 播放器（S1 停留 3.2s→帧进 450ms）→ main.js sessionStorage 防重播。
 - **★调试坑（重要教训）**：点击跳过后播放协程永久悬挂——finish() 只 clearTimeout 不 resolve 挂起的 await Promise。表现为 page.evaluate "promise garbage collected"。修复：保存 resolver（this._wake）finish 时调用。另有一次"自动播放提前结束"假象，实为重载竞态，挂 MutationObserver 全程 trace 后确认播放器本身正确。
 
-## 9. BGM 音乐逆向结案（不复刻）✅
+## 9. BGM 音乐逆向结案（历史结论已撤销）
+
+> 下列“不复刻/五轨/音符未破/1.27kHz”是当时历史误判，不再作为规则或任务范围依据。原指令链已确认OPL3六声部、4660.867Hz硬件IRQ、11曲归档及3个独立资源，并导出四季WAV与全部MIDI/VGM；现行详细证据见[音频维护源](re-notes-audio.md)。
 
 - **排查路径**：KI.EXE 全文无 AdLib(388/389)/PIT(40-43)/int21 AH=25 钩子 → 疑文件不被播放 → 发现 EXE 内嵌 BGM.DAT/SOUND.DAT 文件名字符串 → 找到加载代码 **int 0x61**（D7 系 int 0xA1）→ 常驻驱动 **YNSOUND.COM**（目录里一直躺着）。
 - 驱动逆向：int 21h AH=25h 钩 INT8 + PIT ch0 mode3 分频 0x100（≈1.27kHz 音序时钟）+ EOI/链旧向量；另有 [0x97c] 变址端口协议接硬件音乐卡。

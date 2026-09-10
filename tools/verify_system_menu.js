@@ -56,7 +56,7 @@ globalThis.__verifySystemMenu = async (page) => {
   await clickAndRebind(468, 360);
   await clickAndRebind(512, 234);
   await clickAndRebind(512, 234);
-  await page.mouse.click(633, 474);
+  await page.mouse.click(584, 455);
   await page.waitForFunction(
     () =>
       document.querySelector("#startv")?.style.display === "none" &&
@@ -72,11 +72,15 @@ globalThis.__verifySystemMenu = async (page) => {
   );
 
   const menu = await page.evaluate(() => window.__app.gamebar._settingsRect());
+  check(
+    menu.rows === 6,
+    "System menu must expose six rows with one audio setting",
+  );
   const clickX = menu.x + menu.w / 2;
   const rowY = (index) => menu.y + 8 + 30 + index * 26 + 13;
 
   const initial = await page.evaluate(() => ({
-    sound: window.__app.soundType,
+    sound: window.__app.music.type,
     strategic: window.__app.clock.strategicSpeed,
     tactical: window.__app.tacticalSpeed,
   }));
@@ -84,15 +88,15 @@ globalThis.__verifySystemMenu = async (page) => {
   await page.mouse.click(clickX, rowY(3));
   await page.mouse.click(clickX, rowY(4));
   const cycled = await page.evaluate(() => ({
-    sound: window.__app.soundType,
+    sound: window.__app.music.type,
     strategic: window.__app.clock.strategicSpeed,
     tactical: window.__app.tacticalSpeed,
     tacticalFactor: window.__app.tacticalSpeedFactor,
   }));
-  check(cycled.sound === (initial.sound % 4) + 1, "Sound type did not cycle");
+  check(cycled.sound === (initial.sound + 1) % 5, "Sound type did not cycle");
   check(
-    await page.evaluate(() => window.__app.soundType === 2),
-    "Sound profile state was not applied to the app",
+    await page.evaluate(() => window.__app.music.type === 2),
+    "Original CF9 audio volume was not applied to the app",
   );
   check(
     cycled.strategic === (initial.strategic + 1) % 5,
@@ -148,13 +152,21 @@ globalThis.__verifySystemMenu = async (page) => {
   await page.waitForFunction(
     () => !!window.__app.gamebar.systemLoadConfirmDialog,
   );
+  await page.evaluate(() => {
+    window.__verifyAbandonedClock = window.__app.clock;
+  });
   await page.mouse.click(buttons.okX, buttons.y);
   await page.waitForFunction(
     () => document.querySelector("#startv")?.style.display !== "none",
   );
   check(
-    await page.evaluate(() => window.__app.clock.hold === true),
-    "Title load dialog must keep the abandoned scenario paused",
+    await page.evaluate(
+      () =>
+        window.__verifyAbandonedClock.hold === true &&
+        window.__app.clock === null &&
+        !window.__app.gameStarted,
+    ),
+    "Title load dialog must keep the abandoned clock held and detach the scenario",
   );
 
   await page.mouse.click(320, 200, { button: "right" });

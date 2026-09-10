@@ -128,6 +128,9 @@ def parse_legions(slot: bytes, city_count: int = 200) -> tuple[list, list]:
                 "_active": not delayed_return,
                 # 0x8CFF原样镜像完整状态段；这些不是进程指针而是E717
                 # 道路段内地址，可由Web road_graph的确定布局反解。
+                # 25C1/25C6：轮询剩余相位与重装周期（不得从接敌倒数猜相位）。
+                "moveDelay": r[0x0B],
+                "movePeriod": r[0x1E],
                 "roadStride": int.from_bytes(r[0x0A:0x0B], "little", signed=True),
                 "roadPointAddress": big16(r[0x0C:0x0E]),
                 "roadEdgeOrNode": big16(r[0x0E:0x10]),

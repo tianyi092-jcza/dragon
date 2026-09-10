@@ -11,7 +11,10 @@ import {
   initializeStrategicDiplomacy,
   tickStrategicWarEvents,
 } from "../web/src/game/ai.js";
-import { OriginalBattleRng } from "../web/src/game/battle/originalrng.js";
+import {
+  OriginalBattleRng,
+  originalBiosClockFromDate,
+} from "../web/src/game/battle/originalrng.js";
 
 let data;
 try {
@@ -469,7 +472,52 @@ for (const [scenarioIndex, playerName, aggressorName, defenderName] of [
       break;
     }
   }
-  assert.equal(hour, 167, "默认canonical RNG下赤壁曹操应在第7天进入交战");
+  assert.equal(hour, 167, "00:00:00固定回放种子下赤壁曹操应在第7天进入交战");
+}
+
+// 0xEC82只在进程启动时以INT 1Ah/AH=2的BCD本地时间播种。Web显式
+// 夹具可保持可回放；真实启动时钟应让同一type1的槽位/逻辑日期随时间变化。
+assert.deepEqual(originalBiosClockFromDate(new Date(2000, 0, 1, 13, 45, 9)), {
+  ch: 0x13,
+  cl: 0x45,
+  dh: 0x09,
+});
+assert.throws(
+  () => originalBiosClockFromDate(new Date("invalid")),
+  /valid Date/,
+);
+for (const { scenarioIndex, playerName, aggressor, defender } of [
+  { scenarioIndex: 16, playerName: "曹操", aggressor: 0, defender: 13 },
+  { scenarioIndex: 17, playerName: "劉備", aggressor: 0, defender: 2 },
+]) {
+  const scheduledHours = new Set();
+  for (const clock of [
+    { ch: 0x00, cl: 0x00, dh: 0x00 },
+    { ch: 0x12, cl: 0x34, dh: 0x56 },
+    { ch: 0x23, cl: 0x59, dh: 0x59 },
+  ]) {
+    const scenario = structuredClone(data.scenarios[scenarioIndex]);
+    scenario.player_faction = scenario.factions.find(
+      (faction) => faction.monarch.trim() === playerName,
+    ).idx;
+    initializeStrategicDiplomacy({
+      scenario,
+      originalRng: new OriginalBattleRng(clock),
+    });
+    const slot = scenario.strategicEventSlots.findIndex(
+      (event) =>
+        event?.type === 1 &&
+        event.aggressor === aggressor &&
+        event.defender === defender,
+    );
+    assert.ok(slot >= 0, `SC${scenarioIndex}必须排入指定type1`);
+    // 2BD9先等7次3E11，之后每槽相隔10次；slot因此决定逻辑日期。
+    scheduledHours.add(7 + slot * 10);
+  }
+  assert.ok(
+    scheduledHours.size > 1,
+    `SC${scenarioIndex}的原始时钟种子必须改变${playerName}相关type1时刻`,
+  );
 }
 
 process.stdout.write(
