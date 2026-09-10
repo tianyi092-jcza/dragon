@@ -450,7 +450,7 @@ const app = {
         enqueueMonthlyDisasterEvents(this); // ★0x539D/0x53A0→type11/12
         enqueueDeficitTrustEvent(this); // ★0x53A3→0x57FE type-13负资金信赖处罚
         activateNextMonthPolicy(this.scenario); // ★0x53A6：次月税率/征兵设定转正
-        monthlyAI(this); // ★统一结局检查；俘虏/流散由原版事件链处理
+        monthlyAI(this); // ★只清理退场军团；通关后不再触发D7END过场
         cmd.monthEnd(this); // ★征兵到达；天灾/暴动已排入type11/12
         monthlyAppear(this); // ★appear_months 到期武将登场/改投(join_faction)
       },

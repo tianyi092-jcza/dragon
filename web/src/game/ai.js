@@ -3369,23 +3369,13 @@ export function tickEnvoyDiplomacy(app, current = null) {
   return true;
 }
 
-// 月结AI只保留结局检查；俘虏/流散去向由0x29C3/0x4FCE/0x585F事件链处理。
+// 月结AI只清理已退场军团；俘虏/流散去向由0x29C3/0x4FCE/0x585F事件链处理。
 export function monthlyAI(app) {
   const sc = app.scenario;
   if (!sc) return;
   // 势力灭亡由最后据点易主的0x4CF3→0x4FCE同轮处理；月结不得补扫或
   // 随机改投，否则会改变TALK36、武将去向和其它势力目标清理的顺序。
-  // ★D7END: 玩家統一天下 → 通关结局画 (剧本1..12 各自专属图)
-  {
-    const pf = playerFaction(sc);
-    if (pf && !pf.dead && sc.cities.every((c) => c.faction === pf.idx)) {
-      const num = (app.scenarioIdx ?? 0) + 1;
-      app.endView?.show({
-        img: num <= 12 ? `grf/end_s${num}.png` : "grf/end_s12.png",
-        caption: `天下統一！${pf.monarch}成就霸業（劇本${num}・點擊返回標題）`,
-      });
-    }
-  }
+  // 产品决定：玩家统一天下后继续停留在战略地图，不触发D7END通关过场。
   sc.legions = sc.legions.filter((legion) => !legion.dead);
 }
 
