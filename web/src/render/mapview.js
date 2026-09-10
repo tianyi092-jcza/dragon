@@ -1,6 +1,5 @@
 // 地图视图 — 相机(拖动平移, 固定100%不可缩放) + 分层绘制(地形/城池/军团/标签)
-import { WORLD, factionColorEx } from "../game/world.js";
-import { findRoadRoute, roadGraphReady } from "../game/roadgraph.js";
+import { WORLD } from "../game/world.js";
 
 const MARCH_STYLE_COUNT = 24;
 const MARCH_FRAME_STATIONARY = 4;
@@ -94,9 +93,9 @@ function roadVisualOffset(fromX, fromY, toX, toY) {
 }
 
 const CITY_SIZE = 16; // 城池图标整体尺寸
-const CITY_CORE = 12; // 据点中心建筑尺寸（正方形填充区 / 拾取范围）
 const CURSOR_SIZE = 18; // 游戏光标：较原20px圆角方框缩小2px
 const CURSOR_RADIUS = 3;
+const SNAP_INTERSECT_RADIUS = 17; // 光标(18×18)与据点/军团图标(16×16) AABB相交半距: (18/2 + 16/2) = 17
 
 // 據點图标 (用户从原版提取): 我方=红心 / 其它势力=蓝 / 空城=土黄
 const cityIcons = {};
@@ -117,7 +116,9 @@ export class MapView {
     this.cam = { x: 0, y: 0, scale: 1 };
     this.seasonImg = null; // 当前地形 Image（由外部 setSeason 设置）
     this.hoverTarget = null; // 当前悬停的地图对象 {type:'city'|'legion', ...}
+    this.rawPointer = null; // 真实物理鼠标位置 { x, y }
     this.pointer = null; // 原版风格Canvas光标的屏幕位置；不属于规则状态
+    this.snapState = null; // 当前光标吸附状态: { target, key, x, y }
     this.selectedCity = null; // 当前选中的据点对象（中心显示正方形光标边框）
     this.selectedFaction = null; // 图例选中的势力 idx 或 null
   }
@@ -141,13 +142,139 @@ export class MapView {
     return (py - this.cam.y) / this.cam.scale;
   }
 
-  /** 更新Canvas自绘光标位置；返回是否有可见变化。 */
+  /** 更新Canvas自绘光标位置；返回是否有可见变化。
+   *  当正方形光标(18×18)与据点中心图标(16×16)或活动军团图标(16×16)相交时，
+   *  自动吸附使光标定位在对象中心上。自动吸附只一次，军团移动不跟随。
+   */
   setPointer(x, y) {
-    const next = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      const changed = this.pointer !== null || this.snapState !== null;
+      this.rawPointer = null;
+      this.pointer = null;
+      this.snapState = null;
+      return changed;
+    }
+
+    this.rawPointer = { x, y };
+
+    // 如果鼠标处于普通 UI 区域（工具栏/弹窗等），不执行地图对象吸附
+    // 出征目标据点选择阶段允许在大地图上吸附据点
+    const gamebar = this.app?.gamebar;
+    const isChoosingMarchCity =
+      gamebar?.marchingOrder && !gamebar?.orderChoiceMenu;
+    const inUi = !isChoosingMarchCity && (gamebar?.hitTest?.(x, y) ?? false);
+
+    if (inUi) {
+      this.snapState = null;
+      const previous = this.pointer;
+      this.pointer = { x, y };
+      return previous?.x !== x || previous?.y !== y;
+    }
+
+    const radius = SNAP_INTERSECT_RADIUS;
+
+    // 若当前已吸附：检查物理鼠标是否已脱离当前吸附区域
+    if (this.snapState) {
+      const dx = Math.abs(x - this.snapState.x);
+      const dy = Math.abs(y - this.snapState.y);
+      if (dx <= radius && dy <= radius) {
+        // 物理鼠标仍在当前吸附区内：保持吸附在目标触发点，光标不随鼠标微移，军团移动不跟随
+        const previous = this.pointer;
+        this.pointer = { x: this.snapState.x, y: this.snapState.y };
+        return previous?.x !== this.pointer.x || previous?.y !== this.pointer.y;
+      }
+      // 物理鼠标已移出相交区：解除吸附
+      this.snapState = null;
+    }
+
+    // 检查是否有相交的据点或军团图标
+    const hit = this.findIntersectingTarget(x, y);
+    if (hit) {
+      // 触发自动吸附！仅吸附一次并固定在触发时的中心坐标 (hit.x, hit.y)
+      this.snapState = {
+        target: hit.target,
+        key: hit.key,
+        x: hit.x,
+        y: hit.y,
+      };
+      const previous = this.pointer;
+      this.pointer = { x: hit.x, y: hit.y };
+      return previous?.x !== hit.x || previous?.y !== hit.y;
+    }
+
+    // 未相交：使用物理鼠标位置
     const previous = this.pointer;
-    if (previous?.x === next?.x && previous?.y === next?.y) return false;
-    this.pointer = next;
-    return true;
+    this.pointer = { x, y };
+    return previous?.x !== x || previous?.y !== y;
+  }
+
+  /**
+   * 检查屏幕坐标 (px, py) 处的光标 (18×18) 是否与据点中心图标 (16×16) 或活动军团图标 (16×16) 相交。
+   * 相交阈值: (18/2 + 16/2) = 17 像素。
+   * 包含据点内有军团（驻军）的情况。
+   * 优先级: 据点中心建筑 > 行军中的军团。若同类有多个相交，取中心距离最近者。
+   */
+  findIntersectingTarget(px, py) {
+    const sc = this.getScenario();
+    if (!sc) return null;
+    const radius = SNAP_INTERSECT_RADIUS;
+
+    // 1. 据点中心建筑（含驻军旗帜/各势力据点/空城）
+    let bestCity = null;
+    let bestCityDist = Infinity;
+    for (const c of sc.cities) {
+      const [wxp, wyp] = this.cityPixel(c);
+      const cx = this.sx(wxp);
+      const cy = this.sy(wyp);
+      const dx = Math.abs(px - cx);
+      const dy = Math.abs(py - cy);
+      if (dx <= radius && dy <= radius) {
+        const dist = dx * dx + dy * dy;
+        if (dist < bestCityDist) {
+          bestCityDist = dist;
+          bestCity = {
+            target: { type: "city", city: c },
+            key: `city_${c.idx}`,
+            x: cx,
+            y: cy,
+          };
+        }
+      }
+    }
+    if (bestCity) return bestCity;
+
+    // 2. 地图上独立显示的活动军团（非同势力驻军）
+    const t = this.app?.clock?.dayProgress?.() ?? 1;
+    let bestLegion = null;
+    let bestLegionDist = Infinity;
+    for (const L of sc.legions) {
+      if (L.dead || L._active === false || L.faction == null) continue;
+      const isGarrison =
+        !this.isMarching(L) &&
+        sc.cities.some(
+          (city) =>
+            city.x === L.x && city.y === L.y && city.faction === L.faction,
+        );
+      if (isGarrison) continue;
+      const pos = this.getLegionRenderPos(L, t);
+      const lx = pos.sx;
+      const ly = pos.sy;
+      const dx = Math.abs(px - lx);
+      const dy = Math.abs(py - ly);
+      if (dx <= radius && dy <= radius) {
+        const dist = dx * dx + dy * dy;
+        if (dist < bestLegionDist) {
+          bestLegionDist = dist;
+          bestLegion = {
+            target: { type: "legion", legion: L },
+            key: `legion_${L.idx}`,
+            x: lx,
+            y: ly,
+          };
+        }
+      }
+    }
+    return bestLegion;
   }
 
   /** 相机钳制: 地图四边不得越出屏幕 (拖到边即停, 不留黑边) */
@@ -167,6 +294,7 @@ export class MapView {
     this.cam.x += dx;
     this.cam.y += dy;
     this.clampCam();
+    this.snapState = null;
   }
 
   fitScale() {
@@ -285,25 +413,46 @@ export class MapView {
 
   /** 屏幕坐标拾取地图对象，未命中返回 null
    *  命中优先级：据点中心建筑 > 行军中的军团
+   *  支持与光标(18×18)相交吸附区域匹配，确保吸附状态下点击即中。
    */
   pick(px, py) {
+    // 优先：若当前处于有效吸附状态，且查询点在该吸附的相交有效范围内，直接返回吸附对象
+    if (this.snapState) {
+      const dx = Math.abs(px - this.snapState.x);
+      const dy = Math.abs(py - this.snapState.y);
+      if (dx <= SNAP_INTERSECT_RADIUS && dy <= SNAP_INTERSECT_RADIUS) {
+        return this.snapState.target;
+      }
+    }
+
     const sc = this.getScenario();
     if (!sc) return null;
-    const half = CITY_CORE / 2;
+    const radius = SNAP_INTERSECT_RADIUS;
 
     // 据点中心建筑（含驻军/空城）
+    let bestCity = null;
+    let bestCityDist = Infinity;
     for (const c of sc.cities) {
       const [wxp, wyp] = this.cityPixel(c);
       const x = this.sx(wxp),
         y = this.sy(wyp);
-      if (px >= x - half && px < x + half && py >= y - half && py < y + half) {
-        return { type: "city", city: c };
+      const dx = Math.abs(px - x);
+      const dy = Math.abs(py - y);
+      if (dx <= radius && dy <= radius) {
+        const dist = dx * dx + dy * dy;
+        if (dist < bestCityDist) {
+          bestCityDist = dist;
+          bestCity = { type: "city", city: c };
+        }
       }
     }
+    if (bestCity) return bestCity;
 
     // 地图上独立显示的活动军团（含战后冷却/状态机等待）都可点击。
     // 驻在同势力据点中心的军团仍由上方据点入口打开驻军选择。
     const t = this.app?.clock?.dayProgress?.() ?? 1;
+    let bestLegion = null;
+    let bestLegionDist = Infinity;
     for (const L of sc.legions) {
       if (L.dead || L._active === false || L.faction == null) continue;
       const isGarrison =
@@ -316,11 +465,17 @@ export class MapView {
       const pos = this.getLegionRenderPos(L, t);
       const x = pos.sx,
         y = pos.sy;
-      if (px >= x - half && px < x + half && py >= y - half && py < y + half) {
-        return { type: "legion", legion: L };
+      const dx = Math.abs(px - x);
+      const dy = Math.abs(py - y);
+      if (dx <= radius && dy <= radius) {
+        const dist = dx * dx + dy * dy;
+        if (dist < bestLegionDist) {
+          bestLegionDist = dist;
+          bestLegion = { type: "legion", legion: L };
+        }
       }
     }
-    return null;
+    return bestLegion;
   }
 
   /** 绘制驻止旗帜帧（MMAP.MCH 每个势力样式槽的第 5 张）。 */
@@ -465,58 +620,34 @@ export class MapView {
 
       const faction = sc.factions.find((f) => f.idx === L.faction);
       const markerStyle = faction?.march_marker_style ?? L.faction;
-      if (L._engagement) {
-        this._drawMarchingIcon(ctx, lx, ly, markerStyle, renderPos.frame);
-      } else if (L.target) {
-        // Web诊断表现：恢复行军路线虚线，便于直接核对道路点列与地图美术
-        // 中线。路径只读规则层导航状态，绝不在绘制时回写军团缓存。
-        let path = L._path ?? [];
-        if (!path.length && roadGraphReady()) {
-          path = findRoadRoute(L.x, L.y, L.target.x, L.target.y)?.points ?? [];
-        }
-        ctx.strokeStyle = factionColorEx(sc, L.faction);
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath();
-        ctx.moveTo(lx, ly);
-        const routePoints = [];
-        if (renderPos.isMoving && renderPos.curT < 1) {
-          routePoints.push({ x: L.x, y: L.y });
-        }
-        routePoints.push(...path);
-        if (
-          !path.length &&
-          (L.x !== L.target.x || L.y !== L.target.y) &&
-          !routePoints.some(
-            (point) => point.x === L.target.x && point.y === L.target.y,
-          )
-        ) {
-          routePoints.push(L.target);
-        }
-        for (let index = 0; index < routePoints.length; index++) {
-          const point = routePoints[index];
-          const previous = routePoints[index - 1] ?? { x: L.x, y: L.y };
-          const next = routePoints[index + 1] ?? point;
-          const [offsetX, offsetY] = roadVisualOffset(
-            previous.x,
-            previous.y,
-            next.x,
-            next.y,
-          );
-          ctx.lineTo(
-            this.sx(point.x * 16 + 8 + offsetX),
-            this.sy(point.y * 16 + 8 + offsetY),
-          );
-        }
-        ctx.stroke();
-        ctx.setLineDash([]);
-
+      if (L._engagement || L.target || renderPos.isMoving) {
         // 行军标识：势力记录 +0x3E 指定固定样式槽，方向选离散原版帧。
         this._drawMarchingIcon(ctx, lx, ly, markerStyle, renderPos.frame);
       } else {
         // 活动军团即使在节点等待状态机写入下一目标，也仍使用原版驻止帧。
         // 小圆点不是MMAP.MCH资产，会掩盖撤退目标/道路状态丢失并造成假坐标。
         this._drawStationaryMarker(ctx, lx, ly, markerStyle);
+      }
+    }
+
+    // 军团移动不跟随：若当前吸附的是行军军团，检查其是否已完全移出吸附框；
+    // 仅当其渲染位置已远离吸附点超过阈值时才自动脱离，恢复物理鼠标位置。
+    if (this.snapState && this.snapState.target?.type === "legion") {
+      const L = this.snapState.target.legion;
+      if (L.dead || L._active === false || L.faction == null) {
+        this.snapState = null;
+        if (this.rawPointer) this.pointer = { ...this.rawPointer };
+      } else {
+        const renderPos = this.getLegionRenderPos(L, t);
+        const lx = renderPos.sx;
+        const ly = renderPos.sy;
+        if (
+          Math.abs(lx - this.snapState.x) > SNAP_INTERSECT_RADIUS ||
+          Math.abs(ly - this.snapState.y) > SNAP_INTERSECT_RADIUS
+        ) {
+          this.snapState = null;
+          if (this.rawPointer) this.pointer = { ...this.rawPointer };
+        }
       }
     }
 

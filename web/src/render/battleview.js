@@ -93,7 +93,13 @@ export class BattleView {
     cv.addEventListener("pointermove", (e) => this.onPointerMove(e));
     cv.addEventListener("pointerup", (e) => this.onPointerUp(e));
     cv.addEventListener("pointercancel", (e) => this.cancelDrag(e));
-    cv.addEventListener("contextmenu", (e) => e.preventDefault());
+    cv.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      if (this.app.gamebar?.exitConfirmDialog) {
+        this.app.gamebar.click(e.clientX, e.clientY, 2);
+        this.draw();
+      }
+    });
     for (let i = 0; i < 6; i++) {
       document.querySelector(`#bunit${i}`).addEventListener("click", () => {
         clickSfx();
@@ -1043,6 +1049,7 @@ export class BattleView {
 
   onPointerDown(e) {
     if (!this.active || e.button !== 0) return;
+    if (this.app.gamebar?.exitConfirmDialog) return;
     const viewport = this.battlefieldViewport();
     if (e.clientX >= viewport.width || e.clientY >= viewport.height) return;
     this.drag = {
@@ -1058,6 +1065,11 @@ export class BattleView {
   }
 
   onPointerMove(e) {
+    if (this.app.gamebar?.exitConfirmDialog) {
+      const changed = this.app.gamebar.hover(e.clientX, e.clientY);
+      if (changed) this.draw();
+      return;
+    }
     const drag = this.drag;
     if (!drag || drag.pointerId !== e.pointerId) return;
     const dx = e.clientX - drag.x;
@@ -1078,6 +1090,11 @@ export class BattleView {
   }
 
   onPointerUp(e) {
+    if (this.app.gamebar?.exitConfirmDialog) {
+      this.app.gamebar.click(e.clientX, e.clientY, e.button);
+      this.draw();
+      return;
+    }
     if (e.button !== 0) return;
     const drag = this.drag;
     if (!drag || drag.pointerId !== e.pointerId) return;
@@ -1301,6 +1318,9 @@ export class BattleView {
     // wall-clock轮播、PNG alpha替代或手绘几何兜底。
     ctx.restore();
     this.syncBattlePanel();
+    if (this.app.gamebar?.exitConfirmDialog) {
+      this.app.gamebar._drawExitConfirmDialog(ctx);
+    }
   }
 
   drawBattleEffects(ctx) {

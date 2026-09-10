@@ -147,6 +147,7 @@ export class GameBar {
     this.orderChoiceMenu = null; // 目标据点指示命令菜单 (戰鬥指揮 / 委任 / 解體)
     this.systemSaveDialog = null; // 系统选单「資料儲存」弹窗
     this.systemLoadConfirmDialog = null; // 系统选单「存檔讀取」防丢失确认弹窗
+    this.exitConfirmDialog = null; // 刷新或关闭防丢失确认弹窗
     this.soundType = 1; // 1..4 (TYPE 1..4)
     this.settingsHover = -1;
     this._clockHoldRequested = false;
@@ -364,7 +365,7 @@ export class GameBar {
       d.fw = 480; // 统一为武将弹窗宽度 480px (30 tiles)
       d.fh = 64; // 对齐 16px 框格 (hTiles=5 → 内高 64，外高 80px)
       d.fx = Math.round((innerWidth - d.fw) / 2); // 屏幕水平居中
-      d.fy = innerHeight - d.fh - 16; // 屏幕底对齐且与底部保持 8px 间距 (fy-8 = innerHeight-80-8)
+      d.fy = innerHeight - (d.fh + 16) - 24; // 屏幕底部留 24px 间距 (外框高 80px，底部 y = innerHeight - 24)
     }
     if (this.formationDialog) {
       const formationW = (this.formationDialog.wTiles ?? 15) * 16;
@@ -1585,7 +1586,7 @@ export class GameBar {
     const fw = 480;
     const fh = 64;
     const fx = Math.round((innerWidth - fw) / 2);
-    const fy = innerHeight - 64 - 24; // 8px 底部间隙
+    const fy = innerHeight - (fh + 16) - 24; // 底部留 24px 间距
     const ftw = Math.ceil((fw + 16) / 16);
     const fth = Math.ceil((fh + 16) / 16);
     const { x, y } = this._drawWindow(ctx, fx, fy, ftw, fth, "black");
@@ -1628,7 +1629,7 @@ export class GameBar {
     const fw = 480;
     const fh = 64;
     const fx = Math.round((innerWidth - fw) / 2);
-    const fy = innerHeight - 64 - 24;
+    const fy = innerHeight - (fh + 16) - 24;
     return px >= fx - 8 && px < fx + fw + 8 && py >= fy - 8 && py < fy + fh + 8;
   }
 
@@ -3502,6 +3503,7 @@ export class GameBar {
     }
     this.proposalAudience = null;
     this.generalCard = null;
+    this.exitConfirmDialog = null;
     this._strategicMessageQueue.length = 0;
     this._strategicMessageActive = false;
     this._clockHoldRequested = true;
@@ -4512,6 +4514,7 @@ export class GameBar {
       this.settingsOpen ||
       this.systemSaveDialog ||
       this.systemLoadConfirmDialog ||
+      this.exitConfirmDialog ||
       this.listDialog ||
       this.choiceDialog ||
       this.proposalAudience ||
@@ -5971,7 +5974,8 @@ export class GameBar {
       this.submenuOpen ||
       this.settingsOpen ||
       this.systemSaveDialog ||
-      this.systemLoadConfirmDialog
+      this.systemLoadConfirmDialog ||
+      this.exitConfirmDialog
     );
   }
 
@@ -5986,6 +5990,7 @@ export class GameBar {
         this.settingsOpen ||
         this.systemSaveDialog ||
         this.systemLoadConfirmDialog ||
+        this.exitConfirmDialog ||
         this.listDialog ||
         this.choiceDialog ||
         this.baseMenu ||
@@ -6059,6 +6064,7 @@ export class GameBar {
     if (this.settingsOpen) return true;
     if (this.systemSaveDialog) return true;
     if (this.systemLoadConfirmDialog) return true;
+    if (this.exitConfirmDialog) return true;
 
     if (this.cityCard && this._hitCityCard(px, py)) return true;
     // 军师子菜单带
@@ -6082,6 +6088,11 @@ export class GameBar {
     //    取消该菜单上所有被选项，所有菜单恢复未被选中状态，并立即开始计时。
     // 2. 若已回退到该菜单上且已无被选项，再次右键才关闭子菜单条本身。
     if (btn === 2) {
+      if (this.exitConfirmDialog) {
+        clickSfx();
+        this.closeExitConfirmDialog();
+        return true;
+      }
       if (this.systemLoadConfirmDialog) {
         clickSfx();
         this.closeSystemLoadConfirmDialog();
@@ -6301,6 +6312,22 @@ export class GameBar {
         return true;
       }
       return false;
+    }
+
+    // 刷新或关闭防丢失确认弹窗优先级最高：拦截所有左键点击
+    if (this.exitConfirmDialog) {
+      const i = this._hitExitConfirmDialog(px, py);
+      if (btn === 0) {
+        if (i === 0) {
+          this.confirmExit();
+          return true;
+        } else if (i === 1) {
+          this.closeExitConfirmDialog();
+          return true;
+        }
+      }
+      // 点击在弹窗其他区域：消费事件，不做任何操作（只有回车、右键或按钮响应）
+      return true;
     }
 
     // 羽扇是唯一开关且优先级最高：即使子层正在消费全部点击，也必须先命中。
@@ -6779,6 +6806,7 @@ export class GameBar {
       py < res.y + res.h
     )
       return true;
+
     // 系统选单「存檔讀取」防丢失确认弹窗
     if (this.systemLoadConfirmDialog) {
       const i = this._hitSystemLoadConfirmDialog(px, py);
@@ -6913,6 +6941,16 @@ export class GameBar {
       const old = this.choiceDialog.hover;
       this.choiceDialog.hover = this._hitChoice(px, py);
       changed = old !== this.choiceDialog.hover;
+      return changed;
+    }
+    if (this.exitConfirmDialog) {
+      const old = this.exitConfirmDialog.hover;
+      this.exitConfirmDialog.hover = this._hitExitConfirmDialog(px, py);
+      if (old !== this.exitConfirmDialog.hover) changed = true;
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
       return changed;
     }
     if (this.systemLoadConfirmDialog) {
@@ -7266,6 +7304,168 @@ export class GameBar {
     this.settingsOpen = false;
     this.syncClock();
     await this.app.returnToTitle(1);
+  }
+
+  // ── 刷新或关闭防丢失确认弹窗规格 (352×128 px, 内部 336×112 px) ──
+  _exitConfirmDialogRect() {
+    const W = innerWidth;
+    const H = innerHeight;
+    const wTiles = 22; // 外框 352px
+    const hTiles = 8; // 外框 128px
+    const w = wTiles * 16;
+    const h = hTiles * 16;
+    const x = Math.round((W - w) / 2);
+    const y = Math.round((H - h) / 2);
+    return { x, y, w, h, wTiles, hTiles };
+  }
+
+  _hitExitConfirmDialog(px, py) {
+    if (!this.exitConfirmDialog) return -1;
+    const { x, y, wTiles } = this._exitConfirmDialogRect();
+    const innerX = x + 8;
+    const innerY = y + 8;
+    const innerW = (wTiles - 1) * 16;
+    const btnW = 84;
+    const btnH = 22;
+    const btnY = innerY + 74;
+    const btn0X = innerX + Math.floor(innerW / 2) - btnW - 16;
+    const btn1X = innerX + Math.floor(innerW / 2) + 16;
+
+    if (py >= btnY && py < btnY + btnH) {
+      if (px >= btn0X && px < btn0X + btnW) return 0; // 确定退出
+      if (px >= btn1X && px < btn1X + btnW) return 1; // 返回游戏
+    }
+    return -1;
+  }
+
+  openExitConfirmDialog(action = "reload") {
+    if (this.exitConfirmDialog) return;
+    clickSfx();
+    this.exitConfirmDialog = {
+      hover: -1,
+      action,
+      message: "刷新或关闭会丢失当前进度，请检查是否已存档。",
+      buttons: ["确定退出", "返回游戏"],
+      defaultButton: 1,
+    };
+    this.syncClock();
+    if (this.app.view) {
+      this.app.view.hoverTarget = null;
+    }
+    const bctl = document.querySelector("#bctl");
+    const bbar = document.querySelector("#battle-bottom-bar");
+    if (bctl) bctl.style.pointerEvents = "none";
+    if (bbar) bbar.style.pointerEvents = "none";
+    if (this.app.battleView?.active) {
+      this.app.battleView.drag = null;
+      this.app.battleView.draw();
+    } else {
+      this.app.view?.draw?.();
+    }
+  }
+
+  closeExitConfirmDialog() {
+    if (!this.exitConfirmDialog) return;
+    clickSfx();
+    this.exitConfirmDialog = null;
+    const bctl = document.querySelector("#bctl");
+    const bbar = document.querySelector("#battle-bottom-bar");
+    if (bctl) bctl.style.pointerEvents = "";
+    if (bbar) bbar.style.pointerEvents = "";
+    this.syncClock();
+    if (this.app.battleView?.active) {
+      this.app.battleView.draw();
+    } else {
+      this.app.view?.draw?.();
+    }
+  }
+
+  confirmExit() {
+    clickSfx();
+    this.app.exitConfirmed = true;
+    const action = this.exitConfirmDialog?.action || "reload";
+    this.app.lastExitAction = action;
+    this.exitConfirmDialog = null;
+    const bctl = document.querySelector("#bctl");
+    const bbar = document.querySelector("#battle-bottom-bar");
+    if (bctl) bctl.style.pointerEvents = "";
+    if (bbar) bbar.style.pointerEvents = "";
+    this.syncClock();
+    if (action === "reload") {
+      location.reload();
+    } else {
+      try {
+        window.close();
+      } catch {}
+      if (!window.closed) {
+        location.reload();
+      }
+    }
+  }
+
+  _drawExitConfirmDialog(ctx) {
+    const d = this.exitConfirmDialog;
+    if (!d) return;
+    const { x, y, wTiles, hTiles } = this._exitConfirmDialogRect();
+    const inner = this._drawWindow(ctx, x, y, wTiles, hTiles, "cloud");
+
+    // 提示文字（两行居中）
+    ctx.font = FONT;
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#ffffff";
+    const line1 = "刷新或关闭会丢失当前进度，";
+    const tw1 = ctx.measureText(line1).width;
+    ctx.fillText(line1, inner.x + (inner.w - tw1) / 2, inner.y + 24);
+
+    const line2 = "请检查是否已存档。";
+    const tw2 = ctx.measureText(line2).width;
+    ctx.fillText(line2, inner.x + (inner.w - tw2) / 2, inner.y + 48);
+
+    // 细白分割线
+    const lineY = inner.y + 64;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(inner.x + 8, lineY + 0.5);
+    ctx.lineTo(inner.x + inner.w - 8, lineY + 0.5);
+    ctx.stroke();
+
+    // 按钮
+    const btnW = 84;
+    const btnH = 22;
+    const btnY = inner.y + 74;
+    const btn0X = inner.x + Math.floor(inner.w / 2) - btnW - 16;
+    const btn1X = inner.x + Math.floor(inner.w / 2) + 16;
+
+    const isHov0 = d.hover === 0;
+    const isHov1 = d.hover === 1;
+
+    this._drawReliefButton(
+      ctx,
+      btn0X,
+      btnY,
+      btnW,
+      btnH,
+      "确定退出",
+      isHov0,
+      false,
+    );
+
+    this._drawReliefButton(
+      ctx,
+      btn1X,
+      btnY,
+      btnW,
+      btnH,
+      "返回游戏",
+      isHov1,
+      false,
+    );
+
+    // 突出默认按钮（返回游戏）
+    ctx.strokeStyle = "#ffd700";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(btn1X - 1.5, btnY - 1.5, btnW + 3, btnH + 3);
   }
 
   _hitSystemSaveOrLoadDialog(dlg, px, py) {
@@ -7651,6 +7851,9 @@ export class GameBar {
     if (this.proposalAudience) {
       this._drawProposalAudience(ctx);
       if (this.keypadDialog) this._drawKeypadDialog(ctx);
+    }
+    if (this.exitConfirmDialog) {
+      this._drawExitConfirmDialog(ctx);
     }
   }
 

@@ -1026,14 +1026,14 @@ routeView.app = {
   clock: { strategicTickSerial: 8, dayProgress: () => 0.25 },
 };
 routeView.draw();
-assert.deepEqual(routeLegion._path, null, "路线虚线绘制不得回写军团_path");
+assert.deepEqual(routeLegion._path, null, "绘制军团不得回写军团_path");
 assert.ok(
-  drawCalls.some(([kind, value]) => kind === "dash" && value.length === 2),
-  "行军目标存在时必须绘制道路路线虚线",
+  drawCalls.every(([kind]) => kind !== "dash"),
+  "大地图军团行军不再绘制道路路线虚线",
 );
 assert.ok(
-  drawCalls.some(([kind]) => kind === "line"),
-  "路线虚线必须沿道路点列产生线段",
+  drawCalls.some(([kind]) => kind === "image"),
+  "行军军团必须绘制军团标识",
 );
 
 // 活动军团在节点等待下一命令时也必须使用MMAP.MCH驻止帧；不得退化为

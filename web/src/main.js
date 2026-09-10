@@ -65,6 +65,7 @@ const app = {
   engageTransition: null,
   runtimeEnabled: true,
   gameStarted: false,
+  exitConfirmed: false,
   _gameAssetsPromise: null,
   _saveQueue: Promise.resolve(),
 
@@ -121,6 +122,7 @@ const app = {
       this.ensureGameShell();
       await load();
       this.gameStarted = true;
+      this.exitConfirmed = false;
       this.hud ??= new HUD(this);
       this.hud.buildLegend();
       this.hud.refreshInfo();
@@ -138,6 +140,13 @@ const app = {
 
   beginNewGame(i, playerFaction, advisor) {
     return this.enterGame(() => this.setScenario(i, playerFaction, advisor));
+  },
+
+  promptExit(action = "reload") {
+    if (!this.gameStarted || !this.scenario) return false;
+    this.ensureGameShell();
+    this.gamebar?.openExitConfirmDialog?.(action);
+    return true;
   },
 
   async beginSavedGame(slotIdx) {
@@ -206,6 +215,7 @@ const app = {
       this.gamebar.settingsHover = -1;
       this.gamebar.systemSaveDialog = null;
       this.gamebar.systemLoadConfirmDialog = null;
+      this.gamebar.exitConfirmDialog = null;
       this.gamebar.selectedSubmenu = null;
       this.gamebar.selectedCity = null;
       this.gamebar.listDialog = null;
@@ -229,6 +239,7 @@ const app = {
       this.clock.hold = true;
     }
     this.dispatching = null;
+    this.exitConfirmed = false;
     this.hud?.closeAll?.();
     if (this.view) {
       this.view.selectedCity = null;
@@ -610,6 +621,64 @@ canvas.addEventListener("mouseleave", () => {
   if (app.view.setPointer(null, null)) app.view.draw();
 });
 
+// 全局刷新或关闭防丢失保护 (首选游戏内弹窗，回车/右键默认返回游戏)
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (app.gamebar?.exitConfirmDialog) {
+      if (e.key === "Enter" || e.code === "NumpadEnter") {
+        e.preventDefault();
+        e.stopPropagation();
+        app.gamebar.closeExitConfirmDialog();
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        app.gamebar.closeExitConfirmDialog();
+        return;
+      }
+    }
+
+    const isRefreshKey =
+      e.key === "F5" ||
+      ((e.ctrlKey || e.metaKey) &&
+        (e.key === "r" || e.key === "R" || e.code === "KeyR"));
+    const isCloseKey =
+      (e.ctrlKey || e.metaKey) &&
+      (e.key === "w" || e.key === "W" || e.code === "KeyW");
+
+    if (isRefreshKey || isCloseKey) {
+      if (app.gameStarted && app.scenario) {
+        e.preventDefault();
+        e.stopPropagation();
+        app.gamebar?.openExitConfirmDialog?.(isRefreshKey ? "reload" : "close");
+      }
+    }
+  },
+  { capture: true },
+);
+
+window.addEventListener(
+  "contextmenu",
+  (e) => {
+    if (app.gamebar?.exitConfirmDialog) {
+      e.preventDefault();
+      e.stopPropagation();
+      app.gamebar.closeExitConfirmDialog();
+    }
+  },
+  { capture: true },
+);
+
+window.addEventListener("beforeunload", (e) => {
+  if (app.exitConfirmed || !app.gameStarted || !app.scenario) return;
+  e.preventDefault();
+  const msg = "刷新或关闭会丢失当前进度，请检查是否已存档。";
+  e.returnValue = msg;
+  return msg;
+});
+
 // 标题阶段只读取章节目录和本机存档；地图/道路/战斗数据在确认进入游戏后加载。
 export async function startApp() {
   app.runtimeEnabled = false;
@@ -656,7 +725,8 @@ export async function startApp() {
           app.gamebar.selectedSubmenu == null &&
           !app.gamebar.settingsOpen &&
           !app.gamebar.systemSaveDialog &&
-          !app.gamebar.systemLoadConfirmDialog));
+          !app.gamebar.systemLoadConfirmDialog &&
+          !app.gamebar.exitConfirmDialog));
 
     if (isRunning) {
       // 时钟流逝期间：逐帧重绘，驱动军团行走平滑插值 (60fps lerp)
