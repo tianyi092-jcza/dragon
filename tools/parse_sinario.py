@@ -247,9 +247,10 @@ def parse_scenario(sc: bytes):
       return out
 
 
-def main():
+def read_scenarios(base=BASE):
+      """离线读取五组非存档剧本；调用方决定输出，不在导入模块时写文件。"""
       data = []
-      base_dir = Path(BASE).resolve()
+      base_dir = Path(base).resolve()
       for src_dir in SOURCES:
             path = (base_dir / src_dir / "SINARIO.DAT").resolve()
             if not path.is_relative_to(base_dir):
@@ -279,16 +280,22 @@ def main():
       ys = [c["y"] for s in data for c in s["cities"]]
       meta = {"x_range": [min(xs), max(xs)], "y_range": [min(ys), max(ys)]}
 
+      return {"meta": meta, "scenarios": data}
+
+
+def main():
+      # 兼容旧提取命令；新的可编辑源入口见import_builtin_content.py。
+      data = read_scenarios()
       out_file = Path(__file__).resolve().parent.parent / "web" / "data.json"
       try:
             out_file.write_text(
-                  json.dumps({"meta": meta, "scenarios": data}, ensure_ascii=False),
+                  json.dumps(data, ensure_ascii=False),
                   encoding="utf-8",
             )
       except OSError as e:
             raise SystemExit(f"无法写入输出文件 {OUT}: {e}") from e
       print(f"OK -> {os.path.abspath(OUT)}")
-      print("坐标范围:", meta)
+      print("坐标范围:", data["meta"])
 
 
 if __name__ == "__main__":

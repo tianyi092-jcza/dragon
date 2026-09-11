@@ -9,6 +9,9 @@ const RECRUIT_N = 500;
 export const TAX_MIN = 0,
   TAX_MAX = 40;
 import { tickEnvoys } from "./diplomacy.js";
+import { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
+// 保留旧命令API；新只读使用方可直接依赖playerqueries，避免外交反向依赖命令。
+export { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 import { createDefaultLegionUnits, ensureLegionSlot } from "./legionunits.js";
 import { applyFactionFundsDelta, factionLegionMoraleCap } from "./economy.js";
 import { roadNodeAt } from "./roadgraph.js";
@@ -82,25 +85,6 @@ export function initPlayer(sc) {
       ((f.reserve_cav ?? 0) + (f.reserve_arc ?? 0) + (f.reserve_inf ?? 0)) * 10;
     if (f.troops == null) f.troops = resTotal;
   }
-}
-
-/** 已被玩家确认为化身的剧本军师不再是可操作武将。 */
-export function isPlayerAdvisorGeneral(sc, general) {
-  if (!general) return false;
-  if (general.is_player) return true;
-  const selected = sc?.player_advisor;
-  return Boolean(
-    selected && !selected.custom && selected.general_idx === general.idx,
-  );
-}
-
-/** 玩家势力对象(null=无) */
-export function playerFaction(sc) {
-  return (
-    sc.factions.find((f) => f.idx === (sc.player_faction ?? 0)) ??
-    sc.factions[0] ??
-    null
-  );
 }
 
 /** 内政官候选；玩家确认的默认军师作为化身，不参与任何武将任命。 */

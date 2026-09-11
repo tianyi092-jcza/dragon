@@ -5,6 +5,8 @@
 // 雲紋平鋪對齊螢幕原點 (0xF26E: src += (x0 mod 256)/8 + (y0 mod 32)*4)
 // 金框拼裝復刻 0xC14 + DOSBox 截圖比對: 頂/底=紅帶(idx10)+方框鏈片(frame_sq);
 // 左右柱(含四角)=實心柱塊 frame_col 整柱堆疊 (放大截圖比對確認)
+import { runStartFlow } from "../app/startflow.js";
+
 const COLORS = {
   0: "#000000",
   2: "#aabbbb",
@@ -71,62 +73,63 @@ export class StartMenu {
     this.cv.style.display = "block";
     try {
       await this._loadAssets();
-      let nextAct = initialAction;
-      for (;;) {
-        const act = nextAct === undefined ? await this._yesNo() : nextAct; // 0=新遊戲 1=載入 (0x8DC8 無右鍵取消)
-        nextAct = undefined;
-        if (act === 0) {
-          // 章節選擇: 20 章(原版4章置顶+其它章) → 屏幕居中加大彈窗
-          const sortedIdx = await this.prompt({
-            x: "center",
-            y: "center", // 按画布尺寸动态居中
-            w: 448,
-            h: 368, // 雲窗 640×400 居中 (金框 88,8..552,392)
-            title: "新游戏",
-            rowH: 28, // 紧行距: 20px 黑带 + 8px 间隔
-            rows: this._chapterRows(),
-          });
-          if (sortedIdx < 0) continue; // 右鍵 → 回 YES/NO (0x1AE3 jb)
-          const idx = this._sortedScenarios?.[sortedIdx]?._origIdx ?? sortedIdx;
-          let backToChapter = false;
-          for (;;) {
-            const f = await this._factionDialog(idx);
-            if (f < 0) {
-              backToChapter = true;
-              break;
-            } // 右鍵 → 回章節選擇
-            // 軍師確認 (0x8E5A→0x8FC9): undefined=右鍵回勢力選擇, null=用原軍師, 對象=自定軍師
-            const adv = await this._advisorDialog(idx, f);
-            if (adv === undefined) continue;
+      await runStartFlow(
+        {
+          chooseAction: () => this._yesNo(),
+          chooseChapter: () => this._chooseChapter(),
+          chooseFaction: (idx) => this._factionDialog(idx),
+          chooseAdvisor: (idx, faction) => this._advisorDialog(idx, faction),
+          chooseSave: () => this._chooseSave(),
+          beginNewGame: async (idx, f, adv) => {
             await this.app.beginNewGame(idx, f, adv);
-            return;
-          }
-          if (backToChapter) continue;
-        }
-        const slot = await this.prompt({
-          x: "center",
-          y: "center",
-          w: 448, // 加宽 (原 304)
-          h: 256, // 4 槽 × 56 + 顶部 30 + 余量
-          title: "读取存档",
-          rowH: 56, // 列表项加高, 上下留 pad
-          pad: 8,
-          rows: this._saveRows(),
-        });
-        if (slot < 0) continue; // 右鍵 → 回 YES/NO (0x1ADC jb)
-        await this.app.beginSavedGame(slot);
-        return;
-      }
+          },
+          beginSavedGame: async (slot) => {
+            await this.app.beginSavedGame(slot);
+          },
+        },
+        initialAction,
+      );
     } finally {
       this.cv.style.display = "none";
       for (const el of hidden) el.style.display = "";
     }
   }
 
+  async _chooseChapter() {
+    const sortedIdx = await this.prompt({
+      x: "center",
+      y: "center",
+      w: 448,
+      h: 368,
+      title: "新游戏",
+      rowH: 28,
+      rows: this._chapterRows(),
+    });
+    if (sortedIdx < 0) return sortedIdx;
+    return this._sortedScenarios?.[sortedIdx]?._origIdx ?? sortedIdx;
+  }
+
+  _chooseSave() {
+    return this.prompt({
+      x: "center",
+      y: "center",
+      w: 448,
+      h: 256,
+      title: "读取存档",
+      rowH: 56,
+      pad: 8,
+      rows: this._saveRows(),
+    });
+  }
+
   _chapterRows() {
-    // SINARIO.DAT: 原版 4 章放在最前面，其余章节依次排列
+    // 目录决定官方章节与旧槽号；无目录的旧调用/测试保留原排序兼容。
     const all = this.app.data.scenarios;
-    const origIndices = [16, 17, 18, 19];
+    const origIndices = this.app.content
+      ? this.app.content.chapters
+          .filter((chapter) => chapter.official)
+          .map((chapter) => chapter.legacyScenarioIndex)
+      : [16, 17, 18, 19];
     const orig = origIndices
       .filter((i) => all[i])
       .map((i) => ({ ...all[i], _origIdx: i }));

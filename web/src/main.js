@@ -34,7 +34,9 @@ import {
   tickFactionStrategicState,
   tickStrategicWarEvents,
 } from "./game/ai.js";
-import { loadTerrain } from "./game/pathfind.js";
+import { defaultWorldResources } from "./game/worldresources.js";
+import { loadBuiltinContent } from "./content/catalog.js";
+import { STRATEGIC_LAYOUT } from "./content/worlddefinition.js";
 import { classifyFieldBattleTerrain } from "./game/fieldterrain.js";
 import * as cmd from "./game/commands.js";
 import { monthlyAppear } from "./game/recruits.js";
@@ -64,6 +66,8 @@ import {
 
 const app = {
   data: null,
+  content: null,
+  world: defaultWorldResources,
   scenario: null,
   scenarioIdx: 0,
   loadedSaveSlot: null,
@@ -382,7 +386,7 @@ const app = {
   setScenario(i, playerFaction = null, advisor) {
     this.loadedSaveSlot = null;
     const raw = createNewGameScenario(
-      this.data.scenarios[i],
+      this.content ? this.content.chapter(i)?.template : this.data.scenarios[i],
       playerFaction,
       advisor,
     );
@@ -426,7 +430,7 @@ const app = {
     this.originalRng ??= createOriginalBattleRng(originalBiosClockFromDate());
     if (rngSnapshot) this.originalRng.restore(rngSnapshot);
     this.activeBattleRng = this.originalRng;
-    const terrainReady = loadTerrain().catch((error) => {
+    const terrainReady = this.world.terrain.loadTerrain().catch((error) => {
       this.hud?.flashEvent?.("道路資料載入失敗，行軍功能暫停。");
       globalThis.__dragonDebug?.reportError?.(
         "strategic map navigation assets failed to load",
@@ -462,8 +466,11 @@ const app = {
           hour: c.hour,
           runFactionTick: false,
         });
-        this.scenario._legionBatchCursor = (batchStart + 16) % 128;
-        this.scenario._cityTickCursor = (cityCursor + 1) % 192;
+        this.scenario._legionBatchCursor =
+          (batchStart + STRATEGIC_LAYOUT.legionBatchSize) %
+          STRATEGIC_LAYOUT.legionSlots;
+        this.scenario._cityTickCursor =
+          (cityCursor + 1) % STRATEGIC_LAYOUT.citySlots;
       },
       onSyncHold: () => this.gamebar?.syncClock?.(),
       onHour: (c) => {
@@ -785,10 +792,11 @@ window.addEventListener("beforeunload", (e) => {
 // 标题阶段只读取章节目录和本机存档；地图/道路/战斗数据在确认进入游戏后加载。
 export async function startApp() {
   app.runtimeEnabled = false;
-  [app.data, app.saves] = await Promise.all([
-    loadJSON("data.json"),
+  [app.content, app.saves] = await Promise.all([
+    loadBuiltinContent(),
     loadLocalSaveSlots(),
   ]);
+  app.data = app.content.data;
 
   app.speaker = speaker; // 0xCDE/0xCE7 PC喇叭音效复刻
   app.startMenu = new StartMenu(app);

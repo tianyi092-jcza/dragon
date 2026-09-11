@@ -21,7 +21,7 @@
 //   5. 新游戏装载及每月月结都调用 0x2BD9；其地理候选、关系恶化与 0x2EFB
 //      主动宣战门控不能由静态 SINARIO 外交矩阵替代。
 
-import { isPlayerAdvisorGeneral, playerFaction } from "./commands.js";
+import { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 import { applyFactionFundsDelta, factionFundsWordQ256 } from "./economy.js";
 
 export const GIFT_COST = 200; // 遣使一次花费(金)

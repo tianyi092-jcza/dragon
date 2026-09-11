@@ -286,31 +286,56 @@ try {
       const app = window.__app;
       const inputLocked = app.gamebar.hitTest(100, 120);
       const chrome = app.gamebar.hitMapChrome(100, 120);
-      document.querySelector("#cv").dispatchEvent(new MouseEvent("mousemove", {
-        clientX: 100, clientY: 120, bubbles: true,
-      }));
+      document.querySelector("#cv").dispatchEvent(
+        new MouseEvent("mousemove", {
+          clientX: 100,
+          clientY: 120,
+          bubbles: true,
+        }),
+      );
       if (kind === "settings") app.gamebar.click(100, 120, 2);
-      else { app.gamebar.selectedSubmenu = null; app.gamebar.syncClock(); }
-      return { inputLocked, chrome, pointer: app.mapPointerHold, hold: app.clock.hold, tick: app.clock.strategicTickSerial };
+      else {
+        app.gamebar.selectedSubmenu = null;
+        app.gamebar.syncClock();
+      }
+      return {
+        inputLocked,
+        chrome,
+        pointer: app.mapPointerHold,
+        hold: app.clock.hold,
+        tick: app.clock.strategicTickSerial,
+      };
     }, mode);
     assert.equal(locked.inputLocked, true);
     assert.equal(locked.chrome, false);
     assert.equal(locked.pointer, true);
     assert.equal(locked.hold, true);
     await page.waitForTimeout(600);
-    assert.equal(await page.evaluate(() => window.__app.clock.strategicTickSerial), locked.tick);
+    assert.equal(
+      await page.evaluate(() => window.__app.clock.strategicTickSerial),
+      locked.tick,
+    );
     await page.evaluate(() => {
       window.__app.gamebar._clockHoldRequested = true;
       window.__app.gamebar.syncClock();
     });
     await page.waitForTimeout(500);
-    assert.deepEqual(await page.evaluate(() => ({ pointer: window.__app.mapPointerHold, hold: window.__app.clock.hold })), { pointer: false, hold: true });
+    assert.deepEqual(
+      await page.evaluate(() => ({
+        pointer: window.__app.mapPointerHold,
+        hold: window.__app.clock.hold,
+      })),
+      { pointer: false, hold: true },
+    );
     await page.evaluate(() => {
       window.__app.gamebar._clockHoldRequested = false;
       window.__app.gamebar.syncClock();
     });
     await page.waitForTimeout(100);
-    assert.ok(await page.evaluate(() => window.__app.clock.strategicTickSerial) > locked.tick);
+    assert.ok(
+      (await page.evaluate(() => window.__app.clock.strategicTickSerial)) >
+        locked.tick,
+    );
   }
 
   await page.setViewportSize({ width: 800, height: 600 });

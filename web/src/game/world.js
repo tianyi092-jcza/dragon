@@ -1,10 +1,11 @@
 // 卧龙传 Web 引擎 — 世界常量与游戏数据模型
-// 数据来源: tools/parse_sinario.py 提取自 SINARIO.DAT
+// 数据来源: Web内容源 → tools/compile_content.py → data.json
+import { DEFAULT_WORLD } from "../content/worlddefinition.js";
 
 export const WORLD = {
-  TILES_X: 384,
-  TILES_Y: 256, // MMAP.MAP 格子数
-  TILE_PX: 16, // 每格像素 (mode 12h 图块)
+  TILES_X: DEFAULT_WORLD.width,
+  TILES_Y: DEFAULT_WORLD.height,
+  TILE_PX: DEFAULT_WORLD.tileSize,
   get WIDTH() {
     return this.TILES_X * this.TILE_PX;
   }, // 6144

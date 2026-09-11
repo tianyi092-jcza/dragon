@@ -10,7 +10,8 @@ import {
   increaseRelation,
   runStrategicDiplomacy,
 } from "./diplomacy.js";
-import { isPlayerAdvisorGeneral, playerFaction } from "./commands.js";
+import { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
+import { cityRawBytes, factionRawByte } from "./legacyrecords.js";
 import { findPath, terrainTile } from "./pathfind.js";
 import {
   findRoadRoute,
@@ -251,14 +252,6 @@ const AI_FORMATION_TYPE_CANDIDATES = Object.freeze([
   Object.freeze([2, 3, 1]),
 ]);
 
-function cityRawBytes(city) {
-  if (typeof city?.raw !== "string") return null;
-  const bytes = city.raw.match(/../g);
-  return bytes?.length >= 0x20
-    ? Uint8Array.from(bytes, (value) => Number.parseInt(value, 16))
-    : null;
-}
-
 function cityNeighbours(sc, city) {
   const raw = cityRawBytes(city);
   if (!raw) return [];
@@ -283,30 +276,6 @@ function cityLocalStrength(sc, city) {
         legion.y === city.y,
     ).length,
   );
-}
-
-/**
- * 0x28F4给0x4325遗留DI=当前节点*4；状态5读取[DI+0x18]。
- * 该地址不是“目标城+0x18”通用字段，必须按实际线性别名解释。
- */
-function factionRawByte(sc, faction, offset, fallback = 0) {
-  if (offset === 0x18 && faction) {
-    const advisor =
-      faction.advisor_idx == null ? null : sc.generals?.[faction.advisor_idx];
-    const advisorIncluded = advisor?.faction === faction.idx ? 1 : 0;
-    return Math.max(
-      0,
-      Math.min(0xff, (faction.n_generals ?? 0) + advisorIncluded),
-    );
-  }
-  if (typeof faction?.raw === "string") {
-    const byte = Number.parseInt(
-      faction.raw.slice(offset * 2, offset * 2 + 2),
-      16,
-    );
-    if (Number.isFinite(byte)) return byte;
-  }
-  return fallback;
 }
 
 function state5AliasedByte(sc, targetCity) {
@@ -722,7 +691,8 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
         app._strategicCityRequest !== request ||
         app.scenario !== sc ||
         app.clock !== request.clock
-      ) return;
+      )
+        return;
       app._strategicCityRequest = null;
       // 0x40C9 waits for TALK38 to return before consuming this byte and
       // 0x4028 then calls 0x40B3. Advancing either state at enqueue time

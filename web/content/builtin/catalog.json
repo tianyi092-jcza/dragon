@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "id": "wolong-builtin",
+  "revision": "1",
+  "rules": "ki-1995",
+  "world": "world/world.json",
+  "chapters": [
+    {
+      "id": "upper-1",
+      "file": "chapters/upper-1.json",
+      "legacyScenarioIndex": 0,
+      "official": false
+    },
+    {
+      "id": "upper-2",
+      "file": "chapters/upper-2.json",
+      "legacyScenarioIndex": 1,
+      "official": false
+    },
+    {
+      "id": "upper-3",
+      "file": "chapters/upper-3.json",
+      "legacyScenarioIndex": 2,
+      "official": false
+    },
+    {
+      "id": "upper-4",
+      "file": "chapters/upper-4.json",
+      "legacyScenarioIndex": 3,
+      "official": false
+    },
+    {
+      "id": "middle-1",
+      "file": "chapters/middle-1.json",
+      "legacyScenarioIndex": 4,
+      "official": false
+    },
+    {
+      "id": "middle-2",
+      "file": "chapters/middle-2.json",
+      "legacyScenarioIndex": 5,
+      "official": false
+    },
+    {
+      "id": "middle-3",
+      "file": "chapters/middle-3.json",
+      "legacyScenarioIndex": 6,
+      "official": false
+    },
+    {
+      "id": "middle-4",
+      "file": "chapters/middle-4.json",
+      "legacyScenarioIndex": 7,
+      "official": false
+    },
+    {
+      "id": "lower-1",
+      "file": "chapters/lower-1.json",
+      "legacyScenarioIndex": 8,
+      "official": false
+    },
+    {
+      "id": "lower-2",
+      "file": "chapters/lower-2.json",
+      "legacyScenarioIndex": 9,
+      "official": false
+    },
+    {
+      "id": "lower-3",
+      "file": "chapters/lower-3.json",
+      "legacyScenarioIndex": 10,
+      "official": false
+    },
+    {
+      "id": "lower-4",
+      "file": "chapters/lower-4.json",
+      "legacyScenarioIndex": 11,
+      "official": false
+    },
+    {
+      "id": "later-1",
+      "file": "chapters/later-1.json",
+      "legacyScenarioIndex": 12,
+      "official": false
+    },
+    {
+      "id": "later-2",
+      "file": "chapters/later-2.json",
+      "legacyScenarioIndex": 13,
+      "official": false
+    },
+    {
+      "id": "later-3",
+      "file": "chapters/later-3.json",
+      "legacyScenarioIndex": 14,
+      "official": false
+    },
+    {
+      "id": "later-4",
+      "file": "chapters/later-4.json",
+      "legacyScenarioIndex": 15,
+      "official": false
+    },
+    {
+      "id": "original-1",
+      "file": "chapters/original-1.json",
+      "legacyScenarioIndex": 16,
+      "official": true
+    },
+    {
+      "id": "original-2",
+      "file": "chapters/original-2.json",
+      "legacyScenarioIndex": 17,
+      "official": true
+    },
+    {
+      "id": "original-3",
+      "file": "chapters/original-3.json",
+      "legacyScenarioIndex": 18,
+      "official": true
+    },
+    {
+      "id": "original-4",
+      "file": "chapters/original-4.json",
+      "legacyScenarioIndex": 19,
+      "official": true
+    }
+  ]
+}

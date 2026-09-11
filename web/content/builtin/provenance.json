@@ -1,0 +1,17 @@
+{
+  "note": "Import provenance only; not a runtime dependency or a rules proof.",
+  "sha256": {
+    "上\\SINARIO.DAT": "6183b6b2883fb1cd9c6d7c7d0def86049b7707a64d9258836940900a09454d73",
+    "中\\SINARIO.DAT": "cf91e4360fa4e9363b5136ba379d58c8b1c8b5b3ca309eca4071b4f7a805ce59",
+    "下\\SINARIO.DAT": "89406f442dad626cea8df87d3c3ffb049a784a97da996caa13ae82622a1e8ffb",
+    "后\\SINARIO.DAT": "3e70ad54e3fc3b9d13a25883098d1ccc53218aafd1a7a461b095c1f1fc9812db",
+    "原版\\SINARIO.DAT": "4ad37ad619649bf9ca2f075ffe483ff67f205fafa1e2d7b4926dc2598ec08c87",
+    "Dragon\\MMAP.MDL": "2fa1dd1b1ec7c426cf22583334a62dc61bdb1f1cefc59cbe8e9827480d118d1d",
+    "Dragon\\GAMEPAL.BRG": "1f0119c75ea5cd333bd3ac75ef92030f93924f011728edc9b1f727c483263708",
+    "web-port\\web\\data.json": "c8a1f9597195087e2e0191c317148cd7d5207f602578312af176751298aaf39c",
+    "web-port\\web\\mmap_map.bin": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+    "web-port\\web\\road_graph.json": "2e0be83817c1db29725edaa05d6b8463201361ee5cb93d7cc1c01d27f94a98c2",
+    "web-port\\web\\road_cost.bin": "dcc1ea444ed2d098a9f481bab5cffab713195e9b3b5c304ad993a4533c3ffee6",
+    "web-port\\web\\road_offset.json": "e317d2d17a98e73826e04c39f2ca3d0fa901dedf768754ed59342df982e2e90b"
+  }
+}
