@@ -1,5 +1,9 @@
   <main id="wolong-intro" aria-label="卧龙传开场场景">
-    <p id="load-status" role="status">山河将启…</p>
+    <section id="load-status" aria-label="开场加载">
+      <p id="load-label" role="status">正在加载开场音乐…</p>
+      <progress id="load-progress" max="100" aria-labelledby="load-label"></progress>
+      <button id="start-opening" type="button" hidden>点击开始（开启声音）</button>
+    </section>
     <div id="scene">
       <img id="landscape" class="art" src="intro/assets/landscape.png" alt="" draggable="false" />
       <div id="foreground" aria-hidden="true">
@@ -10,9 +14,8 @@
       <p id="subtitle"></p>
       <nav id="menu-layer" aria-label="游戏操作" inert></nav>
     </div>
-    <footer id="scene-footer" aria-label="版权说明与项目链接" inert>
-      <p id="footer-line-1"></p>
-      <p id="footer-line-2"></p>
+    <footer id="scene-footer" aria-label="版权说明与联系方式" inert>
+      <p id="footer-text"></p>
     </footer>
     <button id="sound-toggle" type="button" aria-label="开启背景音乐" aria-pressed="false" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l10-2v13M9 8l10-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="16" cy="16" rx="3" ry="2"/><path class="sound-slash" d="m3 3 18 18"/></svg>

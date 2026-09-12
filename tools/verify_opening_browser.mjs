@@ -15,6 +15,9 @@ assert.equal(openingFrame(0).landscapeY, 352);
 assert.equal(openingFrame(28).landscapeY, 43);
 assert.equal(openingFrame(24).foregroundY, 594);
 assert.equal(openingFrame(15).titleOpacity, 0);
+assert.equal(openingFrame(20).subtitleOpacity, 0);
+assert.ok(openingFrame(21.99).subtitleOpacity < 1);
+assert.equal(openingFrame(22).subtitleOpacity, 1);
 const root = fileURLToPath(new URL("../web/", import.meta.url));
 const types = {
   ".html": "text/html",
@@ -48,7 +51,10 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 let browser;
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    args: ["--autoplay-policy=no-user-gesture-required"],
+  });
   const context = await browser.newContext({
     viewport: { width: 1024, height: 768 },
   });
@@ -64,7 +70,34 @@ try {
     () => window.__dragonApp && window.WolongIntro?.phase === "intro",
   );
   assert.equal(await page.locator("#startv").isVisible(), false);
+  await page.evaluate(() => {
+    const observeFirstPopup = () => {
+      if (
+        getComputedStyle(document.querySelector("#startv")).display !== "none"
+      ) {
+        window.firstOpeningPopup = {
+          time: window.WolongIntro.time,
+          subtitleOpacity: Number(
+            getComputedStyle(document.querySelector("#subtitle")).opacity,
+          ),
+        };
+      } else requestAnimationFrame(observeFirstPopup);
+    };
+    requestAnimationFrame(observeFirstPopup);
+  });
   await page.waitForFunction(() => window.WolongIntro.time >= 15);
+  assert.equal(
+    await page.locator("#startv").isVisible(),
+    false,
+    "old 15s gate must stay closed",
+  );
+  await page.waitForFunction(() => !!window.firstOpeningPopup);
+  const firstPopup = await page.evaluate(() => window.firstOpeningPopup);
+  assert.ok(
+    firstPopup.time >= 22,
+    "popup waits for the entire subtitle fade-in",
+  );
+  assert.equal(firstPopup.subtitleOpacity, 1);
   await page.waitForFunction(() => !!window.__dragonApp.startMenu._onClick);
   assert.equal(await page.locator("#startv").isVisible(), true);
   await page.evaluate(() => {
@@ -166,7 +199,7 @@ try {
   // Explicit restart resets the entire page, even while a popup exists.
   await page.locator("#replay-button").click();
   await page.waitForFunction(
-    () => window.WolongIntro?.phase === "intro" && window.WolongIntro.time < 15,
+    () => window.WolongIntro?.phase === "intro" && window.WolongIntro.time < 22,
   );
   assert.equal(await page.locator("#startv").isVisible(), false);
   await page.locator("#skip-button").click();
@@ -227,6 +260,46 @@ try {
     assert.deepEqual(layout.client, [width, height]);
     await page.mouse.wheel(300, 300);
     assert.deepEqual(await page.evaluate(() => [scrollX, scrollY]), [0, 0]);
+    const footerBox = await page.locator("#scene-footer").boundingBox();
+    assert.ok(
+      Math.abs(footerBox.width - width * 0.8) < 0.1,
+      "footer uses 80% of every viewport",
+    );
+    if (width === 1920) {
+      const footer = await page.locator("#scene-footer").evaluate((node) => {
+        const text = node.querySelector("#footer-text");
+        const style = getComputedStyle(node);
+        return {
+          text: text.textContent,
+          breaks: text.querySelectorAll("br").length,
+          links: text.querySelectorAll("a, [href], [onclick], [role=link]")
+            .length,
+          height: text.getBoundingClientRect().height,
+          lineHeight: parseFloat(style.lineHeight),
+          bottom: style.bottom,
+          padding: style.padding,
+          radius: style.borderRadius,
+        };
+      });
+      assert.equal(
+        footer.text,
+        "《卧龙传·三国制霸之计》及原版游戏数据（图像、音乐、文本、剧本等）版权归NEO·GETEN及松岗所有。重制章节来自轩辕春秋文化论坛(www.xycq.org.cn)网友yanguodong发布，加载页音乐来自电影《少林足球》主题曲opening(黄英华作)本重构游戏仅供技术学习、研究与怀旧交流之用，禁止任何商业用途；如版权方认为本仓库损害其权益，请联系删除。在线体验：https://dragon.720108.xyz，代码仓库：https://github.com/fczllc/dragon， 联系邮箱：fczllc@163.com。",
+      );
+      assert.equal(footer.breaks, 1);
+      assert.equal(footer.radius, "5px");
+      assert.equal(
+        footer.links,
+        0,
+        "all footer content is plain text, not links",
+      );
+      assert.ok(
+        Math.abs(footer.height - footer.lineHeight * 2) < 0.1,
+        "two rendered footer lines at full width",
+      );
+      assert.equal(footer.lineHeight, 16.8);
+      assert.equal(footer.bottom, "12px");
+      assert.equal(footer.padding, "6px 11px");
+    }
     if (width === 1912 && process.env.OPENING_SCREENSHOT)
       await page.screenshot({ path: process.env.OPENING_SCREENSHOT });
   }
@@ -284,29 +357,61 @@ try {
         this.pending = [];
         window.__testOpeningAudio = this;
       }
-      load() { queueMicrotask(() => this.dispatchEvent(new Event('canplay'))); }
-      play() { this.paused = false; return new Promise((resolve) => this.pending.push(resolve)); }
-      pause() { this.paused = true; }
+      load() {
+        queueMicrotask(() => this.dispatchEvent(new Event("canplay")));
+      }
+      play() {
+        this.paused = false;
+        return new Promise((resolve) => this.pending.push(resolve));
+      }
+      pause() {
+        this.paused = true;
+      }
       removeAttribute() {}
     };
   });
   const race = await raceContext.newPage();
-  race.on('pageerror', (error) => errors.push(String(error)));
+  race.on("pageerror", (error) => errors.push(String(error)));
   await race.goto(origin);
-  await race.waitForFunction(() => window.__testOpeningAudio?.pending.length === 1);
-  await race.locator('#sound-toggle').click();
-  await race.locator('#sound-toggle').click();
-  await race.waitForFunction(() => window.__testOpeningAudio.pending.length === 2);
-  await race.evaluate(async () => { window.__testOpeningAudio.pending[0](); await Promise.resolve(); });
-  assert.equal(await race.evaluate(() => window.WolongIntro.music.playing), true, 'stale play must not stop newer playback');
-  await race.evaluate(async () => { window.__testOpeningAudio.pending[1](); await Promise.resolve(); window.__testOpeningAudio.currentTime = 12; });
-  await race.locator('#skip-button').click();
-  assert.deepEqual(await race.evaluate(() => [window.WolongIntro.music.playing, window.WolongIntro.music.muted, window.WolongIntro.music.time]), [false, true, 0]);
-  assert.equal(await race.evaluate(() => window.__testOpeningAudio.loop), false);
+  await race.waitForFunction(
+    () => window.__testOpeningAudio?.pending.length === 1,
+  );
+  await race.locator("#sound-toggle").click();
+  await race.locator("#sound-toggle").click();
+  await race.waitForFunction(
+    () => window.__testOpeningAudio.pending.length === 2,
+  );
+  await race.evaluate(async () => {
+    window.__testOpeningAudio.pending[0]();
+    await Promise.resolve();
+  });
+  assert.equal(
+    await race.evaluate(() => window.WolongIntro.music.playing),
+    true,
+    "stale play must not stop newer playback",
+  );
+  await race.evaluate(async () => {
+    window.__testOpeningAudio.pending[1]();
+    await Promise.resolve();
+    window.__testOpeningAudio.currentTime = 12;
+  });
+  await race.locator("#skip-button").click();
+  assert.deepEqual(
+    await race.evaluate(() => [
+      window.WolongIntro.music.playing,
+      window.WolongIntro.music.muted,
+      window.WolongIntro.music.time,
+    ]),
+    [false, true, 0],
+  );
+  assert.equal(
+    await race.evaluate(() => window.__testOpeningAudio.loop),
+    false,
+  );
   assert.deepEqual(errors, []);
   await raceContext.close();
   process.stdout.write(
-    "opening OK: 15s gate, early/late skip, independent audio, custom UI, new/load game, refresh/restart, small-screen controls and natural completion\n",
+    "opening OK: full subtitle/22s gate, early/late skip, independent audio, custom UI, new/load game, refresh/restart, small-screen controls and natural completion\n",
   );
 } finally {
   await browser?.close();

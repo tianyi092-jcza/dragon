@@ -2,6 +2,41 @@
 
 > 长期事实、当前架构、命令、约定和主线状态见[项目记忆](../AGENTS.md)；安全/审批见[全局AGENTS](../../AGENTS.md)。本文只保留当前重构批次及本轮文档整理的过程，不下达任务、不替代原始证据。历史测试结果只适用于所述批次。
 
+## 开场完善批次：整理提交与推送
+
+- 用户明确授权将本轮改动整理为一次提交并推送。候选10个仓库文件覆盖音乐加载缓存、中央进度条/手势启动、副标题完全显现后弹窗、两行纯文本版权说明、对应测试和文档。保留之前测试格式化，不加入本地缓存、截图、代理目录或其它临时产物。
+- 提交前8项相关回归重新通过：opening loading browser、opening browser、music browser、title deferred map、start flow、startmenu empty slot、music runtime、standalone web browser。覆盖严格自动播放策略、缓存命中、完整字节、写入门控、22秒首次弹窗、两行/80%/5px/零链接、真实新局与隔离保存读取、音乐菜单及静态独立部署。未修改共享规则/调度/存档格式，未跑无关全量规则回归。
+- 主动LSP及缓存诊断仍有push-only/Markdown不可确认和既有风格提示；不报全绿。补充JS语法、文档链接、实际diff与暂存范围检查。仓库外数据Skill仅有副标题门控摘要更新，不属于Git仓库，此提交用仓库文档保留同等说明。
+- 此处记录提交前验证；提交哈希和推送结果以Git与最终交付为准，不提前宣称远端更新成功。下方未授权/未提交是各历史阶段状态。
+
+## 版权说明两行纯文本批次
+
+- 用户连续调整：改用最新两行原文（包含原版版权声明），说明框宽度80%、圆角5px；随后取消全部链接属性。最终 `footerText` 保持单字符串/一个BR，所有网址和邮箱均为纯文本，无跳转和链接hover样式，保留此前紧凑间距。下方三行/链接记录仅为历史。
+- `verify_opening_browser.mjs` 回归通过：9组视口宽度均为80%，1920宽度实际两行、原文完整、BR数1、圆角5px、链接元素/属性数0；原22秒副标题门控、跳过、新局/隔离读档、刷新重启仍通过。语法、diff检查通过。截图 `C:/Users/fczll/AppData/Local/Temp/wolong-opening-footer-plain.png` 已核对。
+- LSP存在push-only未确认、Markdown服务不可用及既有日志helper/测试URL风格提示，不称全绿。未跑无关游戏全量回归，未提交推送。
+
+## 版权说明三行与间距批次
+
+- 按用户原文替换版权说明，`intro.config.js` 由两字段改为单个 `footerText` 字符串，两个 `<br>` 分三行；DOM只识别换行，网址/邮箱生成链接，不使用任意HTML注入。行间额外空隙、内边距与底部基准留白减半，窄屏允许自然折行。
+- 两份opening浏览器回归通过，新增1920宽度下原文、两处BR、三行实际高度、4个链接、16.8px行高、12px底距和6×11px内边距断言；3份JS语法、diff检查通过。已查看1912×956截图 `C:/Users/fczll/AppData/Local/Temp/wolong-opening-footer.png`，确认三行紧凑显示。
+- LSP有既有日志helper/测试URL提示，部分push-only不确认、Markdown服务不可用；不称全绿。未跑无关规则全量回归，未提交推送，保留之前本地变更。
+
+## 新游戏弹窗等待副标题批次
+
+- 用户要求首个新游戏弹窗必须在“三国制霸之计”出现后。已将 `app.js` 门控从15秒改为 `openingFrame(time).subtitleOpacity >= 1`，即当前副标题20–22秒渐显结束后放行。手动跳过仍先绘制完整终场再放行；普通刷新、读档及减少动画沿用终场流程。下方旧批次的15秒记录仅作历史，不再是当前规则。
+- 已同步 `opening-scene.md`、项目AGENTS及仓库外数据Skill摘要。浏览器逐帧记录首次弹窗时刻，确认不早于22秒且副标题实际opacity=1；旧15秒时弹窗不可见。两份opening浏览器回归通过，包含加载/缓存/手势门控、提前/晚跳过、新局与隔离读档、刷新/重启。
+- JS语法与diff检查通过；LSP有错误日志helper和测试localhost风格警告，Markdown服务不可用，不报全绿。未跑无关规则全量回归。保留上批本地修改，未提交/推送。
+
+## 开场音乐加载与缓存批次
+
+- 用户要求：首次打开先在空白页面中央显示标准进度条，音乐完整加载并缓存后才开始开场，后续优先使用缓存。本批仅Web开场表现，不修改游戏规则、时钟、RNG或存档格式。
+- 已实现：`music-cache.js` 分段字节进度、完整Blob、同源Cache Storage及内容版本URL；`app.js` 等待缓存写入/图片与音频就绪，取消旧4秒自动放行。受浏览器自动播放限制时停在起点，中央点击开始后才一起播放音画；保留明确静音/跳过。缓存权限或配额拒绝时如实标记本次内存缓存；失败放行游戏选择，销毁撤销Blob URL。详细规则仅维护于[opening-scene.md](opening-scene.md)。
+- 隔离验证通过8项：新增 `verify_opening_loading_browser.mjs`，及 opening browser、music browser、title deferred map、start flow、startmenu empty slot、music runtime、standalone web browser。最终修改后重跑两份opening浏览器测试通过；5份JS/MJS语法检查和diff空白检查通过。未跑无关战略/战斗全量回归；未触碰真实DOS SAVE或用户IndexedDB。
+- 新测试验证实际分段下载超过4秒仍为time=0、等待缓存写入、缓存全字节SHA-256、真实严格自动播放拒绝及鼠标/键盘恢复、新页缓存命中且禁止音乐网络请求、静默刷新、未知总长、存储拒绝/配额、减少动画、HTTP失败和销毁清理。截图 `C:/Users/fczll/AppData/Local/Temp/wolong-opening-loading.png` 已检查：1024×768白底中央标准进度条。
+- 测试调试：初版fixture路径尾分隔符重复导致资源403，修正了fixture路径归一化。自动播放测试曾受Playwright求值/截图注入用户激活影响而超时；改用 `user-gesture-required` 和不授予手势的CDP观察/截图，保留真实Audio，不以伪造播放成功绕过。含截图与无截图运行均已通过。
+- 主动LSP：存在push-only无法确认及Markdown服务不可用；辅助诊断为错误日志helper、测试localhost/条件展开等风格提示，不称全绿。以语法、浏览器、文档链接和实际diff补充。
+- 本轮开始时 `tools/verify_opening_browser.mjs` 已有上轮音频竞态测试格式化差异，已审查并保留；本轮仅增加该测试的明确自动播放允许策略，严格拒绝策略由新测试覆盖。所有修改留在本地，未获本轮commit/push授权，未提交推送。
+
 ## 开场批次完整提交前审查
 
 - 用户本次明确授权：审查所有已改动/未跟踪文件，保留产品、测试、必要文档，排除本地代理和运行产物，创建一个完整提交并推送。该授权仅适用于本次；下方旧交接的“未授权提交”是当时状态。
