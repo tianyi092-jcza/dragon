@@ -1,0 +1,27 @@
+  <main id="wolong-intro" aria-label="卧龙传开场场景">
+    <p id="load-status" role="status">山河将启…</p>
+    <div id="scene">
+      <img id="landscape" class="art" src="intro/assets/landscape.png" alt="" draggable="false" />
+      <div id="foreground" aria-hidden="true">
+        <img id="cliff" class="art" src="intro/assets/cliff.png" alt="" draggable="false" />
+        <img id="character" class="art" src="intro/assets/character-aligned-still.png" alt="" draggable="false" />
+      </div>
+      <img id="game-title" class="art" src="intro/assets/gametitle.png" alt="卧龙传" draggable="false" />
+      <p id="subtitle"></p>
+      <nav id="menu-layer" aria-label="游戏操作" inert></nav>
+    </div>
+    <footer id="scene-footer" aria-label="版权说明与项目链接" inert>
+      <p id="footer-line-1"></p>
+      <p id="footer-line-2"></p>
+    </footer>
+    <button id="sound-toggle" type="button" aria-label="开启背景音乐" aria-pressed="false" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l10-2v13M9 8l10-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="16" cy="16" rx="3" ry="2"/><path class="sound-slash" d="m3 3 18 18"/></svg>
+      <span id="sound-hint" hidden>点击播放音乐</span>
+    </button>
+    <button id="replay-button" type="button" aria-label="重新播放动画和音乐" title="重新播放动画和音乐" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg>
+    </button>
+    <button id="skip-button" type="button" aria-label="跳过动画" title="跳过动画" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 5 10 7-10 7V5ZM19 5v14"/></svg>
+    </button>
+  </main>

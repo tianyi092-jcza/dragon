@@ -51,7 +51,7 @@ try {
   });
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => !!window.__app?.startMenu?._onClick);
-  assert.equal(await page.evaluate(() => window.__app.music.track), 0);
+  assert.equal(await page.evaluate(() => window.__app.music.track), null);
   async function rebind(x, y) {
     await page.evaluate(() => {
       /** @type {any} */ (window).__musicHandler =
@@ -66,13 +66,11 @@ try {
     );
   }
   await rebind(468, 360);
-  await page.waitForFunction(() => window.__app.music.source != null, null, {
-    timeout: 30000,
-  });
+  await page.waitForFunction(() => window.WolongIntro.music.playing);
   assert.equal(
-    await page.evaluate(() => window.__app.music.source.loop),
-    true,
-    "title BGM0 starts after gesture",
+    await page.evaluate(() => window.__app.music.source),
+    null,
+    "opening MP3 owns title audio; no parallel BGM0",
   );
   await rebind(512, 234);
   await rebind(512, 234);
@@ -263,8 +261,10 @@ try {
   await page.waitForFunction(
     () =>
       window.__app.score.scene === "title" &&
-      window.__app.music.track === 0 &&
-      window.__app.music.source != null,
+      window.__app.music.track === null &&
+      window.__app.music.source === null &&
+      window.WolongIntro.phase === "idle" &&
+      !window.WolongIntro.music.playing,
     null,
     { timeout: 30000 },
   );

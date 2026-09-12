@@ -30,6 +30,7 @@ const output = process.argv[2]
 await mkdir(output, { recursive: true });
 const origin = "http://battle-layout.test";
 const mime = {
+  ".css": "text/css",
   ".js": "text/javascript",
   ".png": "image/png",
   ".jpg": "image/jpeg",

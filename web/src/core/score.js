@@ -21,7 +21,8 @@ export class ScoreDirector {
     this.scene = "title";
     this.audience = null;
     this.battle = null;
-    this.music.select(0); // KI:1A74, not standalone OPENBGM
+    // Web product decision: opening scene owns its independent single-play MP3.
+    this.music.select(null);
   }
   strategy() {
     this.scene = "strategy";

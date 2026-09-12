@@ -11,8 +11,8 @@ const [html, main, assets, menu, mapview] = await Promise.all([
 
 assert.match(
   html,
-  /#titlebg\s*\{[\s\S]*?background-image:\s*url\("grf\/ui\/loginbg\.jpg"\)[\s\S]*?background-position:\s*left top[\s\S]*?background-repeat:\s*no-repeat[\s\S]*?background-size:\s*cover/,
-  "标题阶段的 loginbg.jpg 应保持比例、左上对齐且无重复地铺满窗口",
+  /href="intro\/styles\.css"/,
+  "标题阶段使用本地原生开场；不依赖旧login背景",
 );
 assert.match(html, /#cv\s*\{[\s\S]*display:\s*none/);
 assert.match(html, /body\.game-active\s+#cv\s*\{[\s\S]*display:\s*block/);
@@ -59,5 +59,5 @@ assert.match(gamebar, /this\._strategicMessageQueue\.length = 0/);
 assert.match(gamebar, /clearTimeout\(this\._generalCardTimer\)/);
 
 process.stdout.write(
-  "title deferred map OK: no opening animation/default scenario; login background until confirmed new/load game\n",
+  "title deferred map OK: native opening, no default scenario; background until confirmed new/load game\n",
 );

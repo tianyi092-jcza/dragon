@@ -36,17 +36,7 @@
       body.game-active #cv {
         display: block;
       }
-      #titlebg {
-        position: fixed;
-        inset: 0;
-        z-index: 50;
-        background-color: #000;
-        background-image: url("grf/ui/loginbg.jpg");
-        background-position: left top;
-        background-repeat: no-repeat;
-        /* 保持loginbg原始比例；裁掉窗口外区域，不随非16:10窗口挤压变形。 */
-        background-size: cover;
-      }
+      /* Opening background and controls are layered by intro/styles.css. */
       body.game-active #titlebg {
         display: none;
       }
@@ -598,11 +588,12 @@
         word-break: normal;
       }
     </style>
+    <link rel="stylesheet" href="intro/styles.css" />
   </head>
   <body>
     <canvas id="cv"></canvas>
     <!-- 确定新游戏章节/势力或存档前，只显示此背景；不装配也不绘制战略地图。 -->
-    <div id="titlebg" aria-hidden="true"></div>
+    <div id="titlebg"></div>
     <!-- 旧开发用 UI 已由原版风格 GameBar (canvas 内绘制) 取代, 保留 DOM 供对话框复用 -->
     <div id="panel" class="panel" style="display: none">
       <div style="margin-bottom: 6px">

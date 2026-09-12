@@ -78,7 +78,9 @@ try {
     if (message.type() === "error") errors.push(`console: ${message.text()}`);
   });
   page.on("requestfailed", (request) => {
-    errors.push(`request failed: ${request.url()} ${request.failure()?.errorText}`);
+    errors.push(
+      `request failed: ${request.url()} ${request.failure()?.errorText}`,
+    );
   });
   page.on("response", (response) => {
     if (response.status() >= 400)

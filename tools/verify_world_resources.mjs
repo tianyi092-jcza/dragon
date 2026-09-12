@@ -28,7 +28,10 @@ try {
         json: async () => structuredClone(second ? secondGraph : graph),
       };
     if (url.endsWith("offset"))
-      return { ok: true, json: async () => ({ [second ? 202 : 95]: [second ? 2 : 1, 0] }) };
+      return {
+        ok: true,
+        json: async () => ({ [second ? 202 : 95]: [second ? 2 : 1, 0] }),
+      };
     const tile = second ? 202 : 95;
     const cost = second ? 0 : 1;
     const bytes = new Uint8Array(384 * 256).fill(

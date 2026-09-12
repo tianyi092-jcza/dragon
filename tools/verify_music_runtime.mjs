@@ -205,7 +205,7 @@ const clock = { month: 3, day: 1, hour: 0 };
 const score = new ScoreDirector(music, () => clock);
 score.title();
 score.strategy();
-assert.deepEqual(intents, [0, 2]);
+assert.deepEqual(intents, [null, 2]);
 score.calendar(clock);
 assert.equal(intents.length, 2);
 clock.hour = 1;
@@ -258,8 +258,8 @@ score.readyBattle(battle);
 score.endAudience(audience);
 assert.equal(
   intents.at(-1),
-  0,
-  "obsolete battle/audience callbacks cannot revive old music",
+  null,
+  "title leaves BGM ownership to the independent opening scene",
 );
 process.stdout.write(
   "music runtime OK: selection/loop, CF9 types, fade, stale downloads, disabled/autoplay, scene ownership and raw date/track mapping\n",

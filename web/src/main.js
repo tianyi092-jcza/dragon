@@ -161,6 +161,7 @@ const app = {
       await this.gamebar._assets;
       document.body.classList.add("game-active");
       this.view.draw();
+      this.opening?.hide();
     } catch (error) {
       this.score.title();
       this.gameStarted = false;
@@ -242,6 +243,7 @@ const app = {
     this._strategicCityRequest = null;
     this.engagementFx.reset();
     this.score.title();
+    this.opening?.showFinished();
     clearMapPointerClockHold();
     this.engageTransition?.cancel?.();
     this.engageTransition = null;
@@ -790,7 +792,8 @@ window.addEventListener("beforeunload", (e) => {
 });
 
 // 标题阶段只读取章节目录和本机存档；地图/道路/战斗数据在确认进入游戏后加载。
-export async function startApp() {
+export async function startApp(opening) {
+  app.opening = opening;
   app.runtimeEnabled = false;
   [app.content, app.saves] = await Promise.all([
     loadBuiltinContent(),
@@ -812,9 +815,10 @@ export async function startApp() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) app.engagementFx.pause();
   });
-  // 仅在 boot.js 已取得浏览器单实例锁后发布 App；不再播放开场动画或装配默认地图。
+  // boot.js 取得单实例锁后挂载独立开场；这里不装配默认地图。
   globalThis.__dragonApp = app;
-  await app.startMenu.show(); // ★背景图上的开局选单；确认章节/存档后才进入地图
+  await Promise.all([opening?.menuReady, app.startMenu._loadAssets()]);
+  await app.startMenu.show(); // 15秒或提前跳过后显示；弹窗流程独立于开场控制
   window.__aiTick = () => aiTick(app); // 调试句柄
   window.__monthlyAI = () => monthlyAI(app); // 调试句柄
   window.__monthlyAppear = () => monthlyAppear(app); // 调试句柄
