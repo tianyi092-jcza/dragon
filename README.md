@@ -23,6 +23,8 @@
 - **本地四槽存档**：使用浏览器 IndexedDB，无服务器数据库、登录系统或云存档依赖。
 - **静态自托管**：无需框架、打包器、npm 运行时依赖或原版安装目录；可部署到普通静态服务器、Cloudflare Pages 或 Workers Static Assets。
 
+- **全屏体验**：使用 F11 开启浏览器全屏，效果更佳。
+
 ### 与原版呈现不同的部分
 
 | 项目 | 当前 Web 版 |
@@ -150,4 +152,4 @@ git diff --check
 
 如权利人认为内容涉及其权益，请通过 GitHub Issue 或 **<fczllc@163.com>** 联系，提供涉及资源及权利说明，维护者将核实并处理，包括移除或替换。联系处理机制不消除既有使用的法律责任。
 
-感谢原作开发与中文化团队、改版章节作者和参与研究验证的贡献者。README 的组织参考了 [Legend-of-Sword-and-Fairy](https://github.com/fczllc/Legend-of-Sword-and-Fairy)，两项目实现与许可独立。
+感谢原作开发与中文化团队、改版章节作者和参与研究验证的贡献者。
