@@ -11,7 +11,7 @@
 ## Pages Git 自动部署（推荐）
 
 1. 登录 Cloudflare，在 **Workers & Pages → Create application → Pages → Connect to Git** 创建项目。
-2. 安装／授权 Cloudflare GitHub 集成，仅选择所需仓库，例如 `fczllc/dragon`。首次 OAuth 和账号选择需要仓库所有者完成，不能用 Wrangler 登录替代 GitHub 授权。
+2. 安装／授权 Cloudflare GitHub 集成，仅选择所需仓库，例如 `tianyi092-jcza/dragon`。首次 OAuth 和账号选择需要仓库所有者完成，不能用 Wrangler 登录替代 GitHub 授权。
 3. 选择生产分支 `main`，框架 `None`，仓库根目录保持默认。
 4. 构建命令：`node tools/prepare_deploy.mjs`；输出目录：`dist`；环境变量可设 `NODE_VERSION=22`。
 5. 保存并部署，记录实际分配的 `*.pages.dev` 地址。不要把示例项目名或预期域名当作已上线地址。

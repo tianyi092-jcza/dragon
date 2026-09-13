@@ -57,7 +57,7 @@
 需要 Git、Python 3，以及支持 ES Modules、Canvas 2D、IndexedDB、Web Audio 的现代桌面浏览器。
 
 ```bash
-git clone https://github.com/fczllc/dragon.git
+git clone https://github.com/tianyi092-jcza/dragon.git
 cd dragon
 python -m http.server 8321 --directory web
 ```

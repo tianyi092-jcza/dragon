@@ -9,7 +9,7 @@ export const introConfig = {
   musicVolume: 0.82,
   musicLoop: false,
   footerText:
-    "《卧龙传·三国制霸之计》及原版游戏数据（图像、音乐、文本、剧本等）版权归NEO·GETEN及松岗所有。重制章节来自轩辕春秋文化论坛(www.xycq.org.cn)网友yanguodong发布，加载页音乐来自电影《少林足球》主题曲opening(黄英华作)<br>本项目为非官方重构，用于学习、研究与非商业怀旧交流。原创代码采用MIT许可，原作及第三方素材不在MIT范围内；维护者未取得原版图片、音乐等素材的公开再分发授权。学习或非商业用途不等于授权或免责，使用及部署前请确认所需许可。如权利人认为内容涉及其权益，请联系核实、移除或替换。在线体验：https://dragon.720108.xyz，代码仓库：https://github.com/fczllc/dragon， 联系邮箱：fczllc@163.com。",
+    "《卧龙传·三国制霸之计》及原版游戏数据（图像、音乐、文本、剧本等）版权归NEO·GETEN及松岗所有。重制章节来自轩辕春秋文化论坛(www.xycq.org.cn)网友yanguodong发布，加载页音乐来自电影《少林足球》主题曲opening(黄英华作)<br>本项目为非官方重构，用于学习、研究与非商业怀旧交流。原创代码采用MIT许可，原作及第三方素材不在MIT范围内；维护者未取得原版图片、音乐等素材的公开再分发授权。学习或非商业用途不等于授权或免责，使用及部署前请确认所需许可。如权利人认为内容涉及其权益，请联系核实、移除或替换。在线体验：https://dragon.720108.xyz，代码仓库：https://github.com/tianyi092-jcza/dragon， 联系邮箱：fczllc@163.com。",
   subtitle: {
     text: "三国制霸之计",
     x: 328,
