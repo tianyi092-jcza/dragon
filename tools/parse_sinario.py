@@ -20,7 +20,7 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "web", "data.json")
 SC_SIZE = 22208
 N_SCENARIO = 4
 OFF_FACTION = 0x80  # 势力区 24×64B
-OFF_CITY = 0x8C0  # 城池区 200×32B
+OFF_CITY = 0x8C0  # 原版城池区192×32B；下方旧200上界待另批修正
 # 战略雨云：文件 +0x21C0 = 运行时状态段 DS:0x2140，16×16B。
 # 前一半 DS:0x2040..0x213F 是运行期火灾/暴动对象空槽，不在新剧本中预置。
 OFF_WEATHER_CLOUD = 0x21C0
@@ -42,10 +42,12 @@ def parse_scenario(sc: bytes):
       out = {}
 
       # ---- 头部 ----
+      # 原码头00=day、03=hour、06..07=year word；下方旧start表达式待导入纠错。
+      # 本批仅修证据注释，完整约束见docs/re-notes-custom-data.md。
       out["name"] = big5(sc[0x40:0x60])
       out["start"] = {"year": sc[6], "month": sc[4], "day": sc[3]}
       out["n_factions"] = sc[0x3A]
-      # 玩家头部字段 (→ CS:0xCFF玩家势力/0xD00信赖度/0xD08税率, 见 game-mechanics.md)
+      # 玩家头部字段 (→ CS:0xCFF玩家势力/0xD00信赖度/0xD08税率, 见 docs/re-notes-custom-data.md)
       out["player_faction"] = sc[0xF]
       out["trust"] = sc[0x10]
       out["tax"] = sc[0x18]
@@ -84,20 +86,20 @@ def parse_scenario(sc: bytes):
                         "portrait": g[1],
                         "name": name,
                         "hao": big5(g[8:14]),
-                        "ability": {  # 高四位有效
+                        "ability": {  # 0E..10高四位为专长；低四位仍未知需保留
                               "siege": g[0x0E] >> 4,
                               "field": g[0x0F] >> 4,
                               "naval": g[0x10] >> 4,
-                              # 武力/统率/政治取低4位 (jiangsheng文档: 高四位为0, max 0x0F)
+                              # KI的11..13为全byte；此处旧&0F有损，见实体字典，待另批改导入。
                               "force": g[0x11] & 0xF,
                               "lead": g[0x12] & 0xF,
                               "politics": g[0x13] & 0xF,
                         },
                         # 0x4C72/0x291A 使用的原始武将战斗/去向修正字节；
-                        # 精确产品名尚未闭合，保留原值供指令级算法使用。
+                        # 55A6重算active 0..126；新局/标准读档首入战略均执行，仍须保留原值。
                         "battle_rating": g[0x1F],
                         # 外交/内政执行进度预算。0x3E8E 读 +0x1A；
-                        # 外交官任命时原版以0起步，批准预算后按金额换算回该字节。
+                        # 两类任命保留旧预算；手动解任清零，批准后按金额换算写回。
                         "assignment_budget": g[0x1A],
                         # 0xCBE5：以对手军团槽索引定位其武将记录，读取+0x16后
                         # 乘4并加战型变体，选择32个BATTLE.DAT脚本块之一。
@@ -134,7 +136,7 @@ def parse_scenario(sc: bytes):
                         # 实证: 孫策→周瑜/劉備→孫乾/馬騰→韓遂/呂布→陳宮/張繡→賈詡 与原版开局列表一致
                         "advisor_idx": f[2] if f[2] != 0x7F else None,
                         "capital": f[3] if f[3] != 0xFF else None,
-                        # 武将数需扣除势力军师(NPC 军师不占武将名额)
+                        # 现Web旧转换扣同属军师；KI只扣所选玩家非7F军师，不代表NPC规则。
                         "n_generals": max(
                               0,
                               f[0x18]
@@ -146,7 +148,7 @@ def parse_scenario(sc: bytes):
                                     else 0
                               ),
                         ),
-                        # 24bit 资金 (word + 高位字节; 实证: 何進 8464+1×65536=74000)
+                        # 原版signed24资金；下方旧unsigned解析不保真负值，待另批纠错。
                         "money": u16(f[0x20:0x22]) + (f[0x22] << 16),
                         "money_hi": f[0x22],
                         # KI.EXE 0x2600/0x6F26/0x4483：军团驻止恢复与新编初值的士气上限。
@@ -177,7 +179,7 @@ def parse_scenario(sc: bytes):
             )
       out["factions"] = factions
 
-      # ---- 城池 (200 × 32B) ----
+      # ---- 城池（原版192×32B；旧循环靠空名结束，暂不改逻辑）----
       cities = []
       for i in range(200):
             c = sc[OFF_CITY + i * 32 : OFF_CITY + (i + 1) * 32]
@@ -236,10 +238,10 @@ def parse_scenario(sc: bytes):
             )
       out["weatherClouds"] = weather_clouds
 
-      # SINARIO不含运行时军团；军团表在状态段DS:0x2240，浏览器新局为空。
+      # SINARIO含128×64B军团表，官方四章初始全零；浏览器新局仍为空。
       out["legions"] = []
-      # ---- ★外交友好度矩阵 @0x680 (game-mechanics.md: 每势力24B) ----
-      # 对角线FF；未登场势力0x80；活跃对默认0xB7(中立)，实测范围 0x94(恶劣)..0xE4(友好)
+      # ---- 外交矩阵 @0x680：有向24×24，详见docs/re-notes-custom-data.md ----
+      # 活动对角FF；非活动常80h；关系不可强制对称，UI文案档不等于AI阈值。
       n = out["n_factions"]
       out["diplomacy"] = [
             list(sc[0x680 + i * 24 : 0x680 + i * 24 + n]) for i in range(n)

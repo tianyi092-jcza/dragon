@@ -3,7 +3,7 @@
 
 /**
  * 玩家军师解析：①自定军师 ②确认的原军师 ③势力记录byte[2]
- * ④政治最高的可用武将回退（0x45C1同值保持低索引）。
+ * ④政治最高的可用武将回退（现Web策略；0x45C1是最高武力编成，非此规则证据）。
  */
 export function getAdvisor(sc, faction) {
   const playerAdvisor = sc.player_advisor;

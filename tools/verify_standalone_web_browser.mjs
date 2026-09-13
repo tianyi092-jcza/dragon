@@ -53,7 +53,9 @@ const server = createServer(async (request, response) => {
 });
 let browser;
 try {
-  await cp(new URL("../web/", import.meta.url), root, { recursive: true });
+  // Only the two repository-owned static roots are accepted; never copy save directories.
+  const releaseDirectory = process.env.DRAGON_VERIFY_DIST === "1" ? "../dist/" : "../web/";
+  await cp(new URL(releaseDirectory, import.meta.url), root, { recursive: true });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);

@@ -1,6 +1,7 @@
 // TALK.DAT 对白表 — 隐藏属性提示 (对应原版「確認指示之武將的能力」流)
 // 数据: tools/parse_talk.py → talk.json (1023条目, Big5 已转 UTF-8)
-// 逆向实测依据 (KI.EXE 0x6580 - 0x65B9):
+// 以下为现Web选择策略，完整原版入口尚未闭合；旧6580证据误指停战提案。
+// 见docs/re-notes-entity-fields.md；本批只撤证据声明，不改行为：
 //   - 俘虏 status === 4 时进入 553..557 对白
 //   - 正常武将: 比较 ability.siege, field, naval, 优先取最大项:
 //       siege >= field && siege >= naval -> 城塞戰 (558..565)
@@ -20,7 +21,7 @@ async function ensureTable() {
 }
 
 /**
- * 武将特长对白 (100% 逆向复刻 KI.EXE 0x6580 逻辑)
+ * 武将特长对白（现Web策略，非已认证完整原版规则）
  * @param {object} gen
  * @returns {Promise<{ lines: string[], text: string }>}
  */
@@ -58,7 +59,7 @@ export async function quoteFor(gen) {
 }
 
 /**
- * 军团编成完成对白 (100% 逆向复刻 KI.EXE 0x6F32 逻辑)
+ * 军团编成完成对白（075B选句索引有证据；模运算/缺句回退未证全等）
  * @param {object} gen
  * @returns {Promise<{ lines: string[], text: string }>}
  */

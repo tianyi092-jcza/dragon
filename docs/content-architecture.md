@@ -41,10 +41,11 @@
 ### 章节兼容区不是编辑权威
 
 - 章节的`state`中不含城/势力`raw`。已知数值、名称、人物、四邻`connections`等直接作为命名字段编辑；世界坐标由世界定义注入。
-- `initial_flags`仅保留原城记录高四位；低四位由有序四邻连接生成。未知位不猜语义、不自行提供玩法选项。
+- 现编译器`initial_flags`保留原城高四位，低四位按有序连接生成；这是当前Web行为，不是KI原规则：KI低4位是各邻接槽的异属边界，+1B为计数。差异见[实体字典](re-notes-entity-fields.md#city)，本批不改编译/资产。未知位不猜语义、不自行提供玩法选项。
 - `compatibility.cities/factions`保留完整原记录，用于尚未建模的字节和原版线性别名。编译器覆盖已建模数值/邻接；修改资金、生产力、城类型、位置等不必同步手改hex。
 - `active/is_monarch`、势力君主显示名、`money_hi/n_factions`等由命名字段生成；不保留第二个可编辑副本。
-- 兼容记录中旧Big5姓名等未消费字节仍是导入档案。编译器**不是DOS序列化器**，也不是SAVE导出器；不声称所有原始字节都已语义化。未知区不得擅自删除/重新分配。
+- 兼容区仅覆盖city/faction，general并无raw：+14/+15/+1B、专长低4位、武术/统率/政治高4位及原始名字编码/填充未保真；完整审计见[实体字典](re-notes-entity-fields.md#general)。不能把本节泛化为所有实体raw都已保留。
+- 城/势力兼容记录中旧Big5姓名等未消费字节仍是导入档案。编译器**不是DOS序列化器**，也不是SAVE导出器；不声称所有原始字节都已语义化。未知区不得擅自删除/重新分配。
 - 人物/势力的`idx`仍是固定槽身份；不能靠排序数组重编号。稳定内容包/章ID与旧运行槽分开，更多实体ID适配留待后续，不虚构已完成。
 
 ### 命令与依赖
@@ -66,7 +67,7 @@ python -B tools/render_map.py
 python -B tools/import_builtin_content.py --output /path/to/new-source
 ```
 
-- 导入器读取五份`SINARIO.DAT`、`MMAP.MDL/GAMEPAL.BRG`及已认证Web布局/道路资产；不读取SAVE。首次导入校验20章与当前运行资产无损一致。
+- 导入器读取五份`SINARIO.DAT`、`MMAP.MDL/GAMEPAL.BRG`及已认证Web布局/道路资产；不读取SAVE。首次导入校验20章与既有Web运行资产一致；不是对DOS所有原字节无损认证。
 - `parse_sinario.py`保留旧离线提取命令和解析API，**不是日常内容编辑后的编译入口**。原始证据纠错应修提取链、导入到新目录、审查源差异后再编译；不能用旧提取命令覆盖编辑源变更。
 - `render_map.load_tiles/load_palette`保留给离线导入和证据工具；`render_map.main`不再通过它们读取DOS。
 - `compile_content`先在临时目录完成校验与渲染，再发布运行资产；无效源不先覆盖`data.json`。文件系统发布阶段不是跨文件事务，写入权限/磁盘失败仍须重新生成核对。

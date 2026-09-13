@@ -14,7 +14,7 @@ const EMPTY_TYPE = LEGION_UNIT_TYPE.EMPTY;
 const DEFAULT_TYPES = DEFAULT_LEGION_UNIT_TYPES;
 const CITY_GARRISON_TYPES = Array(6).fill(LEGION_UNIT_TYPE.INFANTRY);
 // 0x52D7 用军团长索引直接寻址128×32B武将表。0x4F8A写入索引0x7F，
-// 所有20个原始剧本的第127项均是固定占位记录：攻/野/水专长0，武/统/政8。
+// 五库20章（含改版，官方为原版4章）的第127项均是固定占位记录：攻/野/水专长0，武/统/政8。
 // 显式保留该档案，避免解析器是否显示占位姓名影响战力。
 const CITY_GARRISON_COMMANDER = Object.freeze({
   ability: Object.freeze({ force: 8, lead: 8, siege: 0, field: 0, naval: 0 }),

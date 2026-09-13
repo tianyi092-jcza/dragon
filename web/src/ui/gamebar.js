@@ -4019,7 +4019,7 @@ export class GameBar {
     }
   }
 
-  /** 武将特长/对白信息弹窗 (逆向 KI.EXE 0x6580 - 0x65B9 规格: 16×5 tiles = 256×80) */
+  /** 武将特长/对白信息弹窗（现Web布局16×5 tiles；旧6580依据已撤销） */
   async showGeneralCard(gen) {
     if (!gen) return;
     const { lines } = await quoteFor(gen);
@@ -5025,7 +5025,7 @@ export class GameBar {
     ensureLegionSlot(sc.legions, newLegion, gen.idx);
     sc.legions.push(newLegion);
 
-    // 5. 弹出该武将发言对白弹窗 (100% 逆向复刻 KI.EXE 0x6F32 逻辑)
+    // 5. 弹出编成对白（选句索引见075B；quoteForFormation回退策略未证全等）
     const { lines } = await quoteForFormation(gen);
     this.formationQuote = {
       type: "success",

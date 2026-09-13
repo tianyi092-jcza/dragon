@@ -15,7 +15,7 @@ try:
         DATA = f.read()
 except FileNotFoundError as err:
     raise SystemExit("ICONGRF.DAT not found; run from repo tools/ dir") from err
-OUT = r"E:/Dragon/web-port/web/grf/uiprobe"
+OUT = str(Path(__file__).resolve().parent.parent / ".dragon-analysis" / "ui-probes")
 OUTDIR = Path(OUT)
 try:
     OUTDIR.mkdir(parents=True, exist_ok=True)

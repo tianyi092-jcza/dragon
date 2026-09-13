@@ -10,6 +10,10 @@ Reverse-engineering anchors:
   deliberately does not reduce the original geometry to a guessed four-neighbour
   graph.
 
+Known evidence correction: weight=len(points) below is a legacy approximation,
+not KI E7AE byte cost (special E81C seed is allocated but not counted).
+See docs/re-notes-custom-data.md; this documentation batch does not change it.
+
 This first-stage probe outputs evidence and local candidates only. It does not
 claim that a neighbouring classified tile is a completed topology edge.
 """
