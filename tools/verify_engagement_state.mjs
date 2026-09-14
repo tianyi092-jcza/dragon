@@ -397,8 +397,9 @@ originalFoe.x = raceTarget.x;
 originalFoe.y = raceTarget.y;
 const replacement = {
   ...structuredClone(originalFoe),
-  slot: 127,
-  _runtimeId: 127,
+  // 283A/4C75仅扫描0..126；127不是合法接敌候选。
+  slot: 126,
+  _runtimeId: 126,
   faction: replacementFaction,
   x: raceNext.x,
   y: raceNext.y,

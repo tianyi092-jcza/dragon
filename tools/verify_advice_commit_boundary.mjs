@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 const scheduled = new Map();
 let nextTimerId = 1;
@@ -44,6 +45,7 @@ function fixture({
 } = {}) {
   const me = {
     idx: 0,
+    n_legions: 0,
     active: true,
     monarch_idx: 0,
     monarch: "曹操",
@@ -99,6 +101,7 @@ function fixture({
       return this.cities.filter((city) => city.faction === faction);
     },
   };
+  initializeLegionSlotState(scenario);
   const clock = {
     hold: false,
     setHold(value) {

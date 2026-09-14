@@ -19,6 +19,8 @@ import { BattleView } from "../web/src/render/battleview.js";
 import { dispatch } from "../web/src/game/commands.js";
 import { buildArmies, tickStrategicCity } from "../web/src/game/ai.js";
 import { createOriginalBattleRng } from "../web/src/game/battle/originalrng.js";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
+import { initializeFactionLegionCounts } from "../web/src/game/legioncounts.js";
 
 const json = (name) => {
   try {
@@ -512,6 +514,8 @@ for (const winner of [0, 1, 2]) {
 // facade constructors/attack-defense mapping. No fallback slot invention here.
 {
   const official = structuredClone(json("data").scenarios[16]);
+  initializeLegionSlotState(official);
+  initializeFactionLegionCounts(official);
   official.player_faction = 0;
   official.citiesOf = (idx) => official.cities.filter((c) => c.faction === idx);
   buildArmies(official);

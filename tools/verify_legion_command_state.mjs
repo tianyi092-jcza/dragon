@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { aiTick, tickStrategicCity } from "../web/src/game/ai.js";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 function units(counts = [50, 50, 50, 50, 50, 50]) {
   return counts.map((count, index) => {
@@ -43,7 +44,7 @@ function makeScenario({
     legion_morale_cap: 200,
     n_legions: assigned,
   };
-  return {
+  const sc = {
     factions: [faction],
     cities: [capital, target],
     generals: [],
@@ -55,6 +56,8 @@ function makeScenario({
       return this.cities.filter((city) => city.faction === factionIdx);
     },
   };
+  initializeLegionSlotState(sc);
+  return sc;
 }
 
 function legion(overrides = {}) {
@@ -71,18 +74,26 @@ function legion(overrides = {}) {
     targetNode: 1,
     roadEdgeOrNode: 8,
     commandState: 0,
+    moveDelay: 1,
+    movePeriod: 3,
     ...overrides,
   };
 }
 
+function visitSlot(sc, rng = null) {
+  const app = { scenario: sc, originalRng: rng };
+  aiTick(app, { runCityDaily: false, settleDaily: false, legionBatchStart: 0 });
+  assert.equal(app._strategicBattleFailure, undefined);
+}
+
+// These handler cases advance to the next due action through real slot visits.
+// Never reset the byte or consume RNG to make an action eligible.
 function tick(sc, rng = null) {
-  aiTick(
-    {
-      scenario: sc,
-      originalRng: rng,
-    },
-    { runCityDaily: false, settleDaily: false },
-  );
+  assert.equal(sc.legions.length, 1);
+  const delay = sc.legions[0].moveDelay;
+  assert.ok(Number.isInteger(delay) && delay >= 0 && delay <= 255);
+  const visits = delay === 0 ? 256 : delay;
+  for (let i = 0; i < visits; i++) visitSlot(sc, rng);
 }
 
 // 0x4028：真实SINARIO raw[0]仅有邻接低位；轮询时必须按FE威胁/
@@ -196,8 +207,15 @@ function tick(sc, rng = null) {
     },
   });
   assert.equal(L.commandState, 2);
-  assert.equal(L.cooldown, 4);
+  assert.equal(L.moveDelay, 4);
   assert.equal(calls.length, 1);
+  for (const delay of [3, 2, 1]) {
+    visitSlot(sc);
+    assert.equal(L.moveDelay, delay);
+    assert.equal(L.commandState, 2);
+  }
+  visitSlot(sc);
+  assert.equal(L.moveDelay, 3, "fourth visit reaches the stored reload period");
 }
 
 // 0x440F/0x442F：NPC状态2在财政危机下跳过势力+0x17，只消费+0x16并转0。
@@ -274,7 +292,7 @@ function tick(sc, rng = null) {
   assert.equal(L.commandState, 1);
 }
 
-// 玩家普通行军指示写状态0；不足600且实际抵达首都时先转9，下一槽按
+// 玩家普通行军指示写状态0；不足600且实际抵达首都时先转9，下一到期动作按
 // 六队兵种从预备池重编并转3。不能把正式路径留给commandState缺失旁路。
 {
   const sc = makeScenario();
@@ -345,7 +363,12 @@ function tick(sc, rng = null) {
   tick(sc);
   assert.equal(L.commandState, 9, "状态10抵达首都不检查总兵<600");
   tick(sc);
-  assert.equal(L.commandState, 3, "状态9在下一次槽调度执行重编");
+  assert.equal(L.commandState, 3, "状态9在下一次到期动作执行重编");
+  assert.equal(
+    L.moveDelay,
+    1,
+    "6FD2 writes +0B even when troops do not change",
+  );
 }
 
 // 0x433D的门槛是state<8，不是state<4：NPC原始状态5偏移到处理器9。

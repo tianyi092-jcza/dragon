@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { openingFrame } from "../web/intro/timeline.js";
+import { introConfig } from "../web/intro/intro.config.js";
 const require = createRequire(import.meta.url);
 const { chromium } = require(
   process.env.PLAYWRIGHT_MODULE ||
@@ -275,6 +276,8 @@ try {
           links: text.querySelectorAll("a, [href], [onclick], [role=link]")
             .length,
           height: text.getBoundingClientRect().height,
+          scrollHeight: text.scrollHeight,
+          clientHeight: text.clientHeight,
           lineHeight: parseFloat(style.lineHeight),
           bottom: style.bottom,
           padding: style.padding,
@@ -283,7 +286,8 @@ try {
       });
       assert.equal(
         footer.text,
-        "《卧龙传·三国制霸之计》及原版游戏数据（图像、音乐、文本、剧本等）版权归NEO·GETEN及松岗所有。重制章节来自轩辕春秋文化论坛(www.xycq.org.cn)网友yanguodong发布，加载页音乐来自电影《少林足球》主题曲opening(黄英华作)本重构游戏仅供技术学习、研究与怀旧交流之用，禁止任何商业用途；如版权方认为本仓库损害其权益，请联系删除。在线体验：https://dragon.720108.xyz，代码仓库：https://github.com/fczllc/dragon， 联系邮箱：fczllc@163.com。",
+        introConfig.footerText.replace(/<br\s*\/?\s*>/gi, ""),
+        "render the existing configured notice verbatim; do not pin an obsolete repository URL",
       );
       assert.equal(footer.breaks, 1);
       assert.equal(footer.radius, "5px");
@@ -293,8 +297,12 @@ try {
         "all footer content is plain text, not links",
       );
       assert.ok(
-        Math.abs(footer.height - footer.lineHeight * 2) < 0.1,
-        "two rendered footer lines at full width",
+        footer.height >= footer.lineHeight * 2 - 0.1,
+        "the explicit break is retained; the longer configured notice may wrap",
+      );
+      assert.ok(
+        footer.scrollHeight <= footer.clientHeight,
+        "the configured notice is not vertically clipped",
       );
       assert.equal(footer.lineHeight, 16.8);
       assert.equal(footer.bottom, "12px");

@@ -15,6 +15,11 @@ export { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 import { createDefaultLegionUnits, ensureLegionSlot } from "./legionunits.js";
 import { applyFactionFundsDelta, factionLegionMoraleCap } from "./economy.js";
 import { roadNodeAt } from "./roadgraph.js";
+import {
+  bindLegionSlotCounter,
+  resetLegionActionPhase,
+} from "./legionphase.js";
+import { countLegionActivation } from "./legioncounts.js";
 
 /** 初始化玩家槽位(原版剧本头 FF=未指定 → 默认势力0/信赖100); 在 setScenario 时调 */
 export function initPlayer(sc) {
@@ -171,7 +176,7 @@ export function setTax(sc, n) {
 
 /**
  * 出征: 从玩家城抽调一半城兵组建军团, 指定目标城
- * 复刻 0x4155 给军团写方向/步数 的语义(Web 版直接给 target)
+ * 历史Web接口，抽城兵创建机制尚未获原始证据；不冒称0x4155创建军团。
  */
 export function dispatch(sc, fromCity, targetCity) {
   if (!targetCity || targetCity === fromCity) return { err: "選擇目標城池" };
@@ -207,7 +212,6 @@ export function dispatch(sc, fromCity, targetCity) {
     troops: avail,
     units: createDefaultLegionUnits(avail),
     morale: factionLegionMoraleCap(f),
-    cooldown: 2,
     target: targetCity,
     targetCity: targetCity.idx,
     targetNode: roadNodeAt(targetCity.x, targetCity.y)?.id ?? null,
@@ -218,6 +222,11 @@ export function dispatch(sc, fromCity, targetCity) {
     formation: 1, // Web编成UI字段；CBE5权威值是主将general[+0x16]
   };
   ensureLegionSlot(sc.legions, legion, gen.idx);
+  // Keep the legacy API's troop source pending audit; this only supplies
+  // the common record's evidenced 6FD2 timing, not proof of that producer.
+  bindLegionSlotCounter(sc, legion);
+  resetLegionActionPhase(legion);
+  countLegionActivation(sc, legion);
   sc.legions.push(legion);
   gen.status = 1;
   return { ok: `${f.monarch}軍自${fromCity.name}出征${targetCity.name}` };

@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import net from "node:net";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { startBrowserTestServer } from "./browser_test_server.mjs";
 
 const require = createRequire(import.meta.url);
 const playwrightPath =
@@ -11,27 +8,8 @@ const playwrightPath =
   "C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright";
 const { chromium } = require(playwrightPath);
 
-const repo = fileURLToPath(new URL("../", import.meta.url));
-
-function getFreePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.listen(0, "127.0.0.1", () => {
-      const port = s.address().port;
-      s.close(() => resolve(port));
-    });
-    s.on("error", reject);
-  });
-}
-
-const port = await getFreePort();
-const server = spawn(
-  "python",
-  [path.join(repo, "tools", "webserver.py"), String(port)],
-  { stdio: "ignore" },
-);
-
-await new Promise((r) => setTimeout(r, 600));
+const server = await startBrowserTestServer();
+const { port } = server;
 
 let browser;
 try {
@@ -180,5 +158,5 @@ try {
   process.stdout.write("verify_cursor_snap_browser passed successfully!\n");
 } finally {
   await browser?.close();
-  server.kill();
+  await server.close();
 }

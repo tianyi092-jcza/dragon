@@ -463,6 +463,11 @@ for (const [scenarioIndex, playerName, aggressorName, defenderName] of [
     },
   };
   initializeStrategicDiplomacy(app);
+  const scheduledSlot = scenario.strategicEventSlots.findIndex(
+    (event) =>
+      event?.type === 1 && event.aggressor === 0 && event.defender === 2,
+  );
+  assert.ok(scheduledSlot > 0, "canonical RNG须排入实际非零槽");
   let hour = null;
   for (let current = 1; current <= 24 * 10; current++) {
     tickStrategicWarEvents(app);
@@ -472,7 +477,9 @@ for (const [scenarioIndex, playerName, aggressorName, defenderName] of [
       break;
     }
   }
-  assert.equal(hour, 167, "00:00:00固定回放种子下赤壁曹操应在第7天进入交战");
+  // 31AD/31AE：首槽7次、以后10次。旧167来自错误EC82洗牌，撤销。
+  // 此处验证调度与已入槽事件一致，不把全局RNG消费历史写成固定开战日。
+  assert.equal(hour, 7 + scheduledSlot * 10);
 }
 
 // 0xEC82只在进程启动时以INT 1Ah/AH=2的BCD本地时间播种。Web显式

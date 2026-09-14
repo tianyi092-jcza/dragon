@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { LegionSlotBatch } from "../web/src/game/legionscheduler.js";
 
 const {
   ENGAGE_TRANSITION_FRAMES,
@@ -47,24 +48,43 @@ assert.doesNotMatch(
   /engageSfx\(/,
   "rules must not emit a second, speed-bound SFX stream",
 );
+// The common slot cursor, not advanceEngagement, now owns the byte gate.
+const record = { status: 0xa4, moveDelay: 2, movePeriod: 3 };
+const batch = () =>
+  new LegionSlotBatch({ firstSlot: 0, endSlot: 1, settleDaily: false });
+const waiting = batch();
+assert.equal(waiting.next(() => record).kind, "tail");
+assert.equal(record.moveDelay, 1);
+assert.equal(waiting.next(() => record).kind, "done");
+const due = batch();
+assert.equal(due.next(() => record).kind, "action");
+assert.equal(record.moveDelay, 3);
+assert.equal(record.status, 0x84);
+const resolveAction = aiSource.match(
+  /function resolveEngagementAction\(app, A\) \{[\s\S]*?\n\}/,
+)?.[0];
+assert.ok(resolveAction, "locate only the contact action body");
 assert.match(
-  aiSource,
-  /function advanceEngagement[\s\S]*A\.moveDelay !== 0[\s\S]*engagement\.countdown > 1/,
-  "road/countdown gating remains intact",
+  resolveAction,
+  /if \(legionSlotCounter\(A\) > 1\) return "waiting";/,
 );
 
 const mainSource = await fs.readFile(
   new URL("../web/src/main.js", import.meta.url),
   "utf8",
 );
+const delegatedGate = mainSource.match(
+  /  playDelegatedEngage\(legion, onFinish\) \{[\s\S]*?\n  \},/,
+)?.[0];
+assert.ok(delegatedGate, "locate only the delegated gate method");
 assert.match(
-  mainSource,
-  /playDelegatedEngage\(legion, onFinish\)[\s\S]*requestAnimationFrame\(\(\) => finish\(\)\)/,
-  "delegated resolution keeps only a one-RAF serialization gate",
+  delegatedGate,
+  /requestAnimationFrame\(\(\) =>[\s\S]*complete\(\(\) =>[\s\S]*onFinish\(\);[\s\S]*finishDeferredLegionDaily\(/,
+  "one RAF resolves the battle before resuming the owned slot batch",
 );
 assert.doesNotMatch(
-  mainSource,
-  /playDelegatedEngage[\s\S]*speaker\.prepareEngageSfx\(\)/,
+  delegatedGate,
+  /speaker\.prepareEngageSfx\(\)/,
   "battle resolution must not wait up to one second for AudioContext",
 );
 assert.doesNotMatch(

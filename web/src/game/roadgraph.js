@@ -12,6 +12,7 @@ export const {
   roadNodeIdFromRaw,
   roadEdgeRawAddress,
   roadEdgeIdFromRaw,
+  roadPointRawAddress,
   restoreRoadMarchContext,
   serializeRoadMarchContext,
   reverseRoadMarchContext,

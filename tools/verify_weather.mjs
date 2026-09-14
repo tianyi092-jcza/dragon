@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 import {
   aiTick,
@@ -199,21 +200,78 @@ function cloud(extra = {}) {
     },
     originalRng: rng,
   };
+  initializeLegionSlotState(app.scenario);
   aiTick(app, {
     legionBatchStart: 0,
     runCityDaily: false,
     settleDaily: false,
   });
+  assert.equal(app._strategicBattleFailure, undefined);
   assert.equal(rng.calls, 2);
   assert.equal(app.scenario.weatherClouds[0].frame, 1);
 
-  const deferredRng = byteRng([1, 1]);
-  app.originalRng = deferredRng;
+  const beforeBattleRng = byteRng([]);
+  app.originalRng = beforeBattleRng;
   app.scenario.weatherClouds[0].timer = 1;
-  app._strategicWeatherTickDeferred = true;
-  assert.equal(finishDeferredLegionDaily(app), true);
+  app.scenario.player_faction = 0;
+  app.scenario.factions = [
+    { idx: 0, active: true, n_legions: 1 },
+    { idx: 1, active: true, n_legions: 1 },
+  ];
+  app.scenario.diplomacy = [
+    [255, 0],
+    [0, 255],
+  ];
+  const attacker = {
+    slot: 0,
+    status: 0xa4,
+    faction: 0,
+    moveDelay: 1,
+    movePeriod: 3,
+    commandState: 0,
+    x: 10,
+    y: 10,
+    target: { x: 20, y: 20 },
+    _march: { edgeId: 3, pointIndex: 0, points: [{ x: 11, y: 10 }] },
+    _engagement: { kind: "field", target: { x: 11, y: 10, faction: 1 } },
+  };
+  app.scenario.legions = [
+    attacker,
+    {
+      slot: 17,
+      status: 0x80,
+      faction: 1,
+      x: 11,
+      y: 10,
+      moveDelay: 2,
+      movePeriod: 3,
+    },
+  ];
+  app.scenario.legionSlotCounters[0] = 1;
+  app.playDelegatedEngage = () => {
+    app.engageTransition = { active: true };
+    return true; // stop at the real delegated entry, no battle calculation substitute
+  };
+  aiTick(app, { legionBatchStart: 0, runCityDaily: false, settleDaily: false });
+  assert.equal(app._strategicBattleFailure, undefined);
+  assert.equal(app.engageTransition?.active, true);
+  assert.equal(beforeBattleRng.calls, 0);
+  assert.equal(app.scenario.weatherClouds[0].timer, 1);
+  const batch = app._legionSlotBatch;
+  const ticket = batch.ticket;
+  const deferredRng = byteRng([1, 1]);
+  app.originalRng = deferredRng; // canonical RNG replacement on an explicit simulated return
+  app.engageTransition.active = false;
+  assert.equal(finishDeferredLegionDaily(app, batch, ticket), true);
+  assert.equal(app._strategicBattleFailure, undefined);
   assert.equal(deferredRng.calls, 2);
-  assert.equal(app._strategicWeatherTickDeferred, false);
+  assert.equal(app.scenario.weatherClouds[0].timer, 16);
+  assert.equal(finishDeferredLegionDaily(app, batch, ticket), false);
+  assert.equal(
+    deferredRng.calls,
+    2,
+    "a repeated old return cannot advance weather twice",
+  );
 }
 
 // IndexedDB sidecar恢复逐云相位/速度/计时，不能从模板重新随机化。

@@ -1,6 +1,8 @@
 // 卧龙传 Web 引擎 — 世界常量与游戏数据模型
 // 数据来源: Web内容源 → tools/compile_content.py → data.json
 import { DEFAULT_WORLD } from "../content/worlddefinition.js";
+import { initializeLegionSlotState } from "./legionphase.js";
+import { initializeFactionLegionCounts } from "./legioncounts.js";
 
 export const WORLD = {
   TILES_X: DEFAULT_WORLD.width,
@@ -88,7 +90,7 @@ export const cityTypeLabel = (t) => CITY_TYPES[t] ?? "";
 
 /**
  * 从 data.json 的只读章节模板创建一局全新的游戏状态。
- * SINARIO 不含运行时军团表，因此所有章节开局都必须保持 legions=[]。
+ * 已核20章 SINARIO 军团区全零，开局活动军团列表保持 legions=[]（全链P24）。
  */
 export function createNewGameScenario(raw, playerFaction = null, advisor) {
   const state = structuredClone(raw);
@@ -137,6 +139,8 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
 
   // 剧本镜像没有运行时军团。即使模板被意外污染，也不能带入新游戏。
   state.legions = [];
+  initializeLegionSlotState(state);
+  initializeFactionLegionCounts(state);
   delete state.armies;
 
   state.player_advisor = null;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 globalThis.window = {};
 globalThis.fetch = async (url) => {
@@ -46,8 +47,8 @@ const general = (idx, name, faction, extra = {}) => ({
 const makeScenario = () => {
   const cities = [city(0, 0, 257, 9), city(1, 1, 218, 11), city(2, 1, 246, 15)];
   const factions = [
-    { idx: 0, capital: 0, monarch_idx: 0 },
-    { idx: 1, capital: 1, monarch_idx: 1 },
+    { idx: 0, capital: 0, monarch_idx: 0, active: true },
+    { idx: 1, capital: 1, monarch_idx: 1, active: true },
   ];
   const generals = [general(0, "甲", 0), general(1, "乙", 1)];
   return {
@@ -64,6 +65,10 @@ const makeScenario = () => {
 const legion = (leader, faction, x, y) => ({
   leader,
   faction,
+  slot: faction,
+  generalIdx: faction,
+  moveDelay: 1,
+  movePeriod: 3,
   x,
   y,
   prevX: x,
@@ -72,25 +77,72 @@ const legion = (leader, faction, x, y) => ({
   morale: 200,
   status: 0x80,
   _active: true,
-  units: [{ type: 1, troops: 1000 }],
+  _march: null,
+  _path: null,
+  _retreat: null,
+  units: [1, 1, 2, 2, 3, 3].map((type, index) => ({
+    type,
+    troops: index === 0 ? 1000 : 0,
+  })),
 });
+function setTroops(record, total) {
+  record.troops = total;
+  record.units.forEach((unit, index) => {
+    unit.troops = Math.max(0, Math.min(100, total - index * 100)) * 10;
+  });
+}
+function putLegions(sc, records, counts) {
+  // Fixture construction only, never derive or repair a running F14 value.
+  assert.equal(sc.legions.length, 0);
+  assert.equal(sc.legionPhaseVersion, undefined);
+  assert.equal(counts.length, sc.factions.length);
+  initializeLegionSlotState(sc);
+  sc.factions.forEach((faction, index) => {
+    faction.n_legions = counts[index];
+  });
+  sc.legions.push(...records);
+}
+function approachLegion(total) {
+  const record = legion("乙", 1, 255, 9);
+  setTroops(record, total);
+  const edge = findRoadRoute(257, 9, 246, 15).legs[0];
+  assert.deepEqual(edge.points[0], { x: 255, y: 9 });
+  record._march = {
+    edgeId: edge.edgeId,
+    stride: edge.stride,
+    fromNode: edge.fromNode,
+    toNode: edge.toNode,
+    currentNode: edge.fromNode,
+    targetNode: edge.toNode,
+    targetX: 246,
+    targetY: 15,
+    points: structuredClone(edge.points),
+    pointIndex: 1,
+  };
+  record._path = record._march.points.slice(1);
+  return record;
+}
 
 {
   const sc = makeScenario();
-  const loser = legion("乙", 1, 255, 9);
-  loser.troops = 400;
-  loser.units[0].troops = 4000;
-  sc.legions = [loser];
+  const loser = approachLegion(400);
+  putLegions(sc, [loser], [0, 1]);
+  const originalMarch = structuredClone(loser._march);
   assert.equal(continueLegionAfterBattle(sc, loser, false), true);
   assert.equal(loser.commandState, 8);
   assert.equal(loser.target.idx, 2);
   assert.equal(loser._retreat.cityIdx, 2);
   assert.ok(loser._path.length > 0);
+  assert.deepEqual(
+    loser._march,
+    originalMarch,
+    "474A preserves the current road context",
+  );
 }
 
-// 0x487B边内撤退的结构端点顺序固定为edge+8后edge+6，不能按原行军
-// 有向点列首尾猜端点。双向遍历全部254边：攻城端为敌、另一端为己时，
-// 败退第一段必须逐原始道路点返回己方端，任何相邻步不得超过资产上限2格。
+// Single-friendly-endpoint inputs on all 254 edges, both stored directions.
+// 474A/487B select that endpoint but do not turn/rebuild the current road now.
+// This does not certify the separate next-action movement or a two-friendly tie.
 {
   for (let edgeId = 0; edgeId < 254; edgeId++) {
     const edge = roadEdgeById(edgeId);
@@ -126,29 +178,35 @@ const legion = (leader, faction, x, y) => ({
         },
       };
       const loser = legion("乙", 1, current.x, current.y);
-      loser.troops = 400;
-      loser.units[0].troops = 4000;
-      loser._battleRoadContext = {
+      setTroops(loser, 400);
+      loser.status = 0xc1;
+      loser.moveDelay = 13;
+      loser._march = {
+        currentNode: ownNode.id,
+        fromNode: ownNode.id,
+        toNode: enemyNode.id,
+        targetNode: enemyNode.id,
+        targetX: enemyNode.x,
+        targetY: enemyNode.y,
         edgeId,
         stride,
         pointIndex: directedPoints.length,
         points: directedPoints.map((point) => ({ ...point })),
       };
-      sc.legions = [loser];
+      loser._battleRoadContext = structuredClone(loser._march);
+      putLegions(sc, [loser], [0, 1]);
+      const originalMarch = structuredClone(loser._march);
+      const position = { x: loser.x, y: loser.y };
       assert.equal(continueLegionAfterBattle(sc, loser, false), true);
       assert.equal(loser.target.idx, ownNode.id);
-      assert.ok(loser._march);
-      let previous = { x: loser.x, y: loser.y };
-      for (const point of [...loser._march.points, ownNode]) {
-        assert.ok(
-          Math.max(
-            Math.abs(point.x - previous.x),
-            Math.abs(point.y - previous.y),
-          ) <= 2,
-          `edge ${edgeId} stride ${stride}撤退不得跨整边瞬移`,
-        );
-        previous = point;
-      }
+      assert.deepEqual(
+        loser._march,
+        originalMarch,
+        `edge ${edgeId} stride ${stride}: no road rewrite in 474A`,
+      );
+      assert.deepEqual({ x: loser.x, y: loser.y }, position);
+      assert.equal(loser.moveDelay, 1);
+      assert.equal(loser.movePeriod, 3);
     }
   }
 }
@@ -157,11 +215,9 @@ const legion = (leader, faction, x, y) => ({
 // 即使很低也必须按首都方向撤退，不能额外臆造“士气<100歼灭”。
 {
   const sc = makeScenario();
-  const lowMorale = legion("乙", 1, 255, 9);
+  const lowMorale = approachLegion(100);
   lowMorale.morale = 1;
-  lowMorale.troops = 100;
-  lowMorale.units[0].troops = 1000;
-  sc.legions = [lowMorale];
+  putLegions(sc, [lowMorale], [0, 1]);
   assert.equal(continueLegionAfterBattle(sc, lowMorale, false), true);
   assert.ok(lowMorale._retreat);
 }
@@ -169,17 +225,15 @@ const legion = (leader, faction, x, y) => ({
   const sc = makeScenario();
   const broken = legion("乙", 1, 255, 9);
   broken.morale = 0;
-  sc.legions = [broken];
+  putLegions(sc, [broken], [0, 1]);
   assert.equal(continueLegionAfterBattle(sc, broken, false), false);
 }
 
 // 0x474A：总兵<=300时即使即时退路不是首都，也必须写状态10继续返首都。
 {
   const sc = makeScenario();
-  const loser = legion("乙", 1, 255, 9);
-  loser.troops = 300;
-  loser.units[0].troops = 3000;
-  sc.legions = [loser];
+  const loser = approachLegion(300);
+  putLegions(sc, [loser], [0, 1]);
   assert.equal(continueLegionAfterBattle(sc, loser, false), true);
   assert.equal(loser.target.idx, 2);
   assert.equal(loser.commandState, 10);
@@ -190,25 +244,23 @@ const legion = (leader, faction, x, y) => ({
 {
   const sc = makeScenario();
   const loser = legion("乙", 1, 246, 15);
-  loser.troops = 300;
-  loser.units[0].troops = 3000;
+  setTroops(loser, 300);
   loser.target = sc.cities[2];
   loser.targetNode = 2;
-  loser.roadEdgeOrNode = 2;
+  loser.roadEdgeOrNode = 2 * 8;
   loser.commandState = 10;
-  loser.cooldown = 0;
   loser._retreat = { cityIdx: 2, nodeId: 2, captorFaction: 0 };
-  sc.legions = [loser];
-  aiTick(
-    { scenario: sc, originalRng: { nextByte: () => 0 } },
-    { runCityDaily: false, settleDaily: false },
-  );
+  putLegions(sc, [loser], [0, 1]);
+  const app = { scenario: sc, originalRng: { nextByte: () => 0 } };
+  aiTick(app, { legionBatchStart: 0, runCityDaily: false, settleDaily: false });
+  assert.equal(app._strategicBattleFailure, undefined);
   assert.equal(loser.target.idx, 1);
   assert.equal(loser.commandState, 10);
   assert.equal(loser._retreat, null);
 }
 
-// 0x491B：非己城市加入约0x80A6代价但仍展开；存在己城绕路时不得阻断失败。
+// Controlled routing input: non-own nodes remain expandable with ADD A6/OR 8000.
+// The constant-penalty route below is only a Web search control, not the full word formula.
 {
   const sc = makeScenario();
   sc.cities[0].faction = 1;
@@ -226,10 +278,8 @@ const legion = (leader, faction, x, y) => ({
   );
   assert.ok(weighted);
   assert.ok(!weighted.nodes.includes(2));
-  const loser = legion("乙", 1, 255, 9);
-  loser.troops = 400;
-  loser.units[0].troops = 4000;
-  sc.legions = [loser];
+  const loser = approachLegion(400);
+  putLegions(sc, [loser], [0, 1]);
   assert.equal(continueLegionAfterBattle(sc, loser, false), true);
   assert.equal(loser.target.idx, 0);
   assert.ok(
@@ -263,33 +313,35 @@ const legion = (leader, faction, x, y) => ({
   };
   const attacker = legion("乙", 1, chenliu.x, chenliu.y);
   attacker.slot = 1;
-  attacker.troops = 500;
-  attacker.units[0].troops = 5000;
+  setTroops(attacker, 500);
   const defender = legion("甲", 0, chenliu.x, chenliu.y);
   defender.slot = 0;
-  defender.troops = 400;
-  defender.units[0].troops = 4000;
-  sc.legions = [attacker, defender];
+  setTroops(defender, 400);
+  putLegions(sc, [attacker, defender], [1, 1]);
   applyBattleResult(
     { scenario: sc },
     attacker,
     chenliu,
     "atk",
     450,
-    [450, 0, 0, 0, 0, 0],
+    [90, 90, 90, 90, 90, 0],
     null,
     null,
     null,
     null,
     null,
-    { strategicRng: { nextByte: () => 0xff }, oldFaction: 0 },
+    {
+      strategicRng: { nextByte: () => 0xff },
+      oldFaction: 0,
+      defenders: [defender],
+    },
   );
   assert.equal(chenliu.faction, 1);
   assert.equal(defender.dead, undefined);
   assert.equal(defender.target.idx, 82);
   assert.equal(defender.targetNode, 82);
   assert.equal(defender._retreat, null);
-  assert.equal(defender.cooldown, 1);
+  assert.equal(defender.moveDelay, 1);
   assert.equal(defender._path, null);
 }
 
@@ -301,7 +353,7 @@ const legion = (leader, faction, x, y) => ({
   const loser = legion("错误显示名", 1, 218, 11);
   loser.generalIdx = 2;
   loser.slot = 1;
-  sc.legions = [loser];
+  putLegions(sc, [loser], [0, 1]);
   const messages = [];
   assert.equal(
     dispatchLegionFate(
@@ -325,7 +377,7 @@ const legion = (leader, faction, x, y) => ({
   const sc = makeScenario();
   const monarch = legion("甲", 0, 257, 9);
   monarch.slot = 37;
-  sc.legions = [monarch];
+  putLegions(sc, [monarch], [1, 0]);
   assert.equal(
     dispatchLegionFate(sc, monarch, 1, {
       nextByte: () => assert.fail("monarch path must not consume RNG"),
@@ -340,21 +392,25 @@ const legion = (leader, faction, x, y) => ({
     originalRng: { nextByte: () => 0xff },
     gamebar: { enqueueTalkMessage: (message) => messages.push(message) },
   };
+  const visitBatch = (legionBatchStart) => {
+    aiTick(app, { legionBatchStart, runCityDaily: false, settleDaily: false });
+    assert.equal(app._strategicBattleFailure, undefined);
+  };
   const targetBatch = 32;
   for (let visit = 0; visit < 47; visit++) {
     for (const batchStart of [0, 16, 48, 64, 80, 96, 112]) {
-      aiTick(app, { legionBatchStart: batchStart, runFactionTick: false });
+      visitBatch(batchStart);
     }
     assert.equal(
       sc.delayedLegionReturns[0].countdown,
       48 - visit,
       "非目标七个批次不得递减48次回归计数",
     );
-    aiTick(app, { legionBatchStart: targetBatch, runFactionTick: false });
+    visitBatch(targetBatch);
   }
   assert.equal(sc.delayedLegionReturns[0].countdown, 1);
   assert.equal(sc.generals[0].status, 1);
-  aiTick(app, { legionBatchStart: targetBatch, runFactionTick: false });
+  visitBatch(targetBatch);
   assert.equal(sc.generals[0].status, 0);
   assert.equal(sc.delayedLegionReturns.length, 0);
   assert.ok(!sc.legions.includes(monarch));
@@ -368,7 +424,7 @@ const legion = (leader, faction, x, y) => ({
   const sc = makeScenario();
   sc.factions[0].monarch_idx = 7;
   const ordinary = legion("甲", 0, 257, 9);
-  sc.legions = [ordinary];
+  putLegions(sc, [ordinary], [1, 0]);
   const messages = [];
   const app = {
     scenario: sc,
@@ -409,7 +465,8 @@ const legion = (leader, faction, x, y) => ({
   const escaped = legion("乙", 1, 218, 11);
   const captured = legion("丙", 1, 218, 11);
   captured.slot = 2;
-  sc.legions = [escaped, captured];
+  captured.generalIdx = 2;
+  putLegions(sc, [escaped, captured], [0, 2]);
   const messages = [];
   const app = {
     scenario: sc,
@@ -437,7 +494,7 @@ const legion = (leader, faction, x, y) => ({
   sc.factions[0].monarch_idx = 7;
   sc.generals[0].battle_rating = 0xff;
   const ordinary = legion("甲", 0, 257, 9);
-  sc.legions = [ordinary];
+  putLegions(sc, [ordinary], [1, 0]);
   let rngCalls = 0;
   assert.equal(
     dispatchLegionFate(sc, ordinary, 1, {
@@ -460,11 +517,13 @@ const legion = (leader, faction, x, y) => ({
   defender.morale = 0;
   sc.generals[0].status = 1;
   sc.factions[0].monarch_idx = 7;
-  sc.cities = [city(0, 0, 218, 11)];
+  // Keep a valid winning-attacker capital: only the defender's 474A fails
+  // (AH=2). A missing attacker capital would instead exercise AH=3.
+  sc.cities = [city(0, 0, 218, 11), city(1, 1, 257, 9)];
   sc.factions[0].capital = 0;
   sc.factions[0].active = true;
   sc.factions[0].dead = false;
-  sc.legions = [attacker, defender];
+  putLegions(sc, [attacker, defender], [1, 1]);
   let rngCalls = 0;
   applyFieldBattleResult(
     {
@@ -498,7 +557,7 @@ const legion = (leader, faction, x, y) => ({
   const attacker = legion("甲", 0, 257, 9);
   const defender = legion("乙", 1, 246, 15);
   defender.units[0].troops = 0;
-  sc.legions = [attacker, defender];
+  putLegions(sc, [attacker, defender], [1, 1]);
   applyFieldBattleResult(
     {
       scenario: sc,

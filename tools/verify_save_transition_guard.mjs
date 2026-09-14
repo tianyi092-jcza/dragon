@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 let fetchCalls = 0;
-const { applyWebMetaToState, canSnapshotState, snapshotState } = await import(
+const { restoreSnapshotState, canSnapshotState, snapshotState } = await import(
   "../web/src/game/savegame.js"
 );
 const slotBefore = { slot: 0, label: "OLD", played: true };
@@ -11,6 +12,7 @@ const app = {
     factions: [
       {
         idx: 0,
+        n_legions: 0,
         strategic_city_primary: 17,
         strategic_city_secondary: 23,
       },
@@ -36,6 +38,8 @@ const app = {
     },
   },
 };
+// New empty in-memory scenario, not migration of the old target slot.
+initializeLegionSlotState(app.scenario);
 assert.equal(canSnapshotState(app), false);
 assert.throws(() => snapshotState(app, 0, "NEW"), /cannot save/);
 
@@ -78,8 +82,7 @@ assert.deepEqual(
     strategicCitySecondary: 23,
   },
 );
-const restoredState = structuredClone(app.saves.slots[0].state);
-applyWebMetaToState(restoredState, app.saves.slots[0].webMeta);
+const restoredState = restoreSnapshotState(app.saves.slots[0]);
 assert.equal(restoredState.factions[0].strategic_city_primary, 17);
 assert.equal(restoredState.factions[0].strategic_city_secondary, 23);
 app.clock._pendingDayAdvance = true;

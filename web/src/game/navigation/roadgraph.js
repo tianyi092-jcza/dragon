@@ -301,8 +301,8 @@ export function createRoadGraph(url) {
       const target = graph.nodes[edge.target];
       const sourcePoints = edge.points.slice(0, pointIndex).toReversed();
       const targetPoints = edge.points.slice(pointIndex + 1);
-      // 0x487B检查当前边的+8端后再检查+6端；拓扑资产中target/source
-      // 分别对应这两个端点。返回顺序是战后撤退的稳定平权依据。
+      // This helper enumerates target/source (+8/+6); its array order is
+      // NOT proof of 487B tie-breaking, which uses the two-stop 491B search.
       return [
         {
           edgeId: edge.id,
@@ -353,9 +353,9 @@ export function createRoadGraph(url) {
         if (neighbour !== source && isNodeBlocked?.(graph.nodes[neighbour])) {
           continue;
         }
-        // KI.EXE 0x49C3/0x4A3D：每次展开当前节点先加4，再累加边点数。
-        // 0x491B 的战败搜索还会对非己城市加入约 0x80A6 的巨额代价；
-        // 它们仍会展开，不能用 blocked 回调直接删除。
+        // Existing Web approximation, not full 491B: original 4A3D reads
+        // the edge cost BYTE, and non-own costs use word ADD A6 / OR 8000.
+        // Original tagged-slot/frontier ordering is also not certified here.
         const penalty = Math.max(
           0,
           Number(nodePenalty?.(graph.nodes[current])) || 0,
@@ -418,7 +418,7 @@ export function createRoadGraph(url) {
   }
 
   /**
-   * 按原版“节点展开4 + 边点数”代价求据点到据点路线。
+   * Web全路径查询；当前Dijkstra/数值代价并非完整491B合同（行军§5.4）。
    * 返回节点、边和沿边点列；边点不含起点或终点据点中心。
    */
   function findRoadRoute(sx, sy, tx, ty, isNodeBlocked, nodePenalty) {
@@ -455,6 +455,7 @@ export function createRoadGraph(url) {
     roadNodeIdFromRaw,
     roadEdgeRawAddress,
     roadEdgeIdFromRaw,
+    roadPointRawAddress,
     restoreRoadMarchContext,
     serializeRoadMarchContext,
     reverseRoadMarchContext,

@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import net from "node:net";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { startBrowserTestServer } from "./browser_test_server.mjs";
 
 import { OriginalBattleRng } from "../web/src/game/battle/originalrng.js";
 
@@ -12,28 +9,10 @@ const playwrightPath =
   process.env.PLAYWRIGHT_MODULE ||
   "C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright";
 const { chromium } = require(playwrightPath);
-const repo = fileURLToPath(new URL("../", import.meta.url));
-
-function getFreePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      server.close(() => resolve(address.port));
-    });
-    server.on("error", reject);
-  });
-}
-
-const port = await getFreePort();
-const server = spawn(
-  "python",
-  [path.join(repo, "tools", "webserver.py"), String(port)],
-  { stdio: "ignore" },
-);
+const server = await startBrowserTestServer();
+const { port } = server;
 let browser;
 try {
-  await new Promise((resolve) => setTimeout(resolve, 600));
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1024, height: 768 },
@@ -43,6 +22,9 @@ try {
   // wall time so this product-lifecycle assertion is deterministic.
   const seedTime = new Date(2000, 0, 1, 13, 45, 9).getTime();
   await context.addInitScript((timestamp) => {
+    // Exercise strategic timing, not intro media cancellation. The opening
+    // has its own test; skip it before any MP3 request starts in this realm.
+    sessionStorage.setItem("wolong.intro.seen.v1", "1");
     const NativeDate = Date;
     class FixedDate extends NativeDate {
       constructor(...args) {
@@ -77,11 +59,6 @@ try {
     new OriginalBattleRng({ ch: 0x13, cl: 0x45, dh: 0x09 }).snapshot(),
     "browser startup must seed EC82 from local BCD clock, not zero fixture",
   );
-  await page.evaluate(() => {
-    sessionStorage.setItem("openPlayed", "1");
-    window.__app?.openView?.finish?.();
-  });
-
   async function clickAndRebind(x, y) {
     for (let attempt = 0; attempt < 4; attempt++) {
       await page.evaluate(() => {
@@ -356,5 +333,5 @@ try {
   );
 } finally {
   await browser?.close();
-  server.kill();
+  await server.close();
 }

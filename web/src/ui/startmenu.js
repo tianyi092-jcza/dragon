@@ -6,6 +6,7 @@
 // 金框拼裝復刻 0xC14 + DOSBox 截圖比對: 頂/底=紅帶(idx10)+方框鏈片(frame_sq);
 // 左右柱(含四角)=實心柱塊 frame_col 整柱堆疊 (放大截圖比對確認)
 import { runStartFlow } from "../app/startflow.js";
+import { restoreSnapshotState } from "../game/savegame.js";
 
 const COLORS = {
   0: "#000000",
@@ -588,10 +589,28 @@ export class StartMenu {
       if (!sv || !sv.played) {
         return { name: "（未使用）", date: null, disabled: true };
       }
+      // Approved Web boundary: preserve incompatible saves, but never
+      // enter the new AI with guessed phase bytes. This only reads the slot.
+      let supported = false;
+      try {
+        // Use the same cloned, merged state as loadSave, not just sv.state:
+        // scenarioRuntimeState can replace a delayed-return list.
+        const state = restoreSnapshotState(sv);
+        supported =
+          Array.isArray(state.cities) &&
+          Number.isInteger(sv.scenario_idx) &&
+          sv.scenario_idx >= 0 &&
+          sv.scenario_idx < this.app.data.scenarios.length;
+      } catch {
+        /* incompatible or incomplete rule state */
+      }
       const d = sv.state?.save_date;
       return {
-        name: `${sv.label ?? ""}`,
+        name: supported
+          ? `${sv.label ?? ""}`
+          : `${sv.label ?? ""}（不相容，已保留）`,
         date: d ? { year: d.year, month: d.month, day: d.day } : null,
+        disabled: !supported,
       };
     });
   }

@@ -101,7 +101,7 @@ const extreme = {
   },
 };
 const extremeCommand = 0xff + 0xff - (0xff >> 2);
-const extremeModifier = Math.floor((extremeCommand << 4) / (16 - 15));
+const extremeModifier = Math.floor(((extremeCommand & 0xff) << 4) / (16 - 15));
 assert.equal(
   commanderPower(sc, extreme, 1, 0xffff, new ByteRng([0])),
   (Math.imul(0xffff, extremeModifier & 0xffff) >>> 10) & 0xffff,
@@ -181,25 +181,25 @@ assert.equal(result.winner, "def");
 assert.equal(result.ratio, 8);
 assert.deepEqual(
   result.attack.units.map((unit) => unit.troops),
-  [90, 88, 86, 84, 91, 89],
+  [90, 92, 87, 84, 83, 84],
 );
 assert.deepEqual(
   result.defence.units.map((unit) => unit.troops),
   [96, 92, 96, 92, 96, 92],
 );
-assert.equal(result.attack.troops, 528);
+assert.equal(result.attack.troops, 520);
 assert.equal(result.defence.troops, 564);
-assert.equal(result.attack.morale, 88);
+assert.equal(result.attack.morale, 86);
 assert.equal(result.defence.morale, 169);
 assert.equal(rng.calls, 13);
 
 writeStrategicBattleResult(A, result.attack);
-assert.equal(A.troops, 528);
+assert.equal(A.troops, 520);
 assert.equal(
   A.units.reduce((sum, unit) => sum + unit.troops, 0),
-  5280,
+  5200,
 );
-assert.equal(A.morale, 88);
+assert.equal(A.morale, 86);
 
 process.stdout.write(
   "autobattle OK: field/siege specialty golden + fixed-byte interleaved 12-byte losses\n",

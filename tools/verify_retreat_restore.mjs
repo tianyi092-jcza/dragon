@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
+import { initializeFactionLegionCounts } from "../web/src/game/legioncounts.js";
 
-// 全程内存fixture：验证server sidecar覆盖后的强制撤退不会被下一次aiTick改写。
+// New in-memory Web snapshot/sidecar, not an old-AI or DOS save migration.
 globalThis.window = {};
 globalThis.Image = class {
   set src(_value) {
@@ -27,9 +29,8 @@ const { loadRoadGraph, findRoadRoute, roadNodeAt } = await import(
 );
 await loadRoadGraph();
 const { aiTick, buildArmies } = await import("../web/src/game/ai.js");
-const { applyWebMetaToState, snapshotState } = await import(
-  "../web/src/game/savegame.js"
-);
+const { applyWebMetaToState, restoreSnapshotState, snapshotState } =
+  await import("../web/src/game/savegame.js");
 
 let raw;
 try {
@@ -40,13 +41,19 @@ try {
   throw new Error("cannot load data.json fixture", { cause: error });
 }
 const state = structuredClone(raw.scenarios[0]);
+initializeLegionSlotState(state);
+initializeFactionLegionCounts(state);
+state.weatherClouds = [];
 const faction = state.factions[0];
+faction.n_legions = 1;
 const target = state.cities[faction.capital];
-const source = state.cities.find(
-  (city) =>
-    city.idx !== target.idx &&
-    findRoadRoute(city.x, city.y, target.x, target.y)?.points.length > 1,
-);
+// 487B's retreat target is the immediate friendly endpoint, not a distant
+// capital beyond a neutral first edge (which would exercise the separate 42AB gate).
+const source = state.cities.find((city) => {
+  if (city.idx === target.idx) return false;
+  const candidate = findRoadRoute(city.x, city.y, target.x, target.y);
+  return candidate?.legs.length === 1 && candidate.legs[0].points.length > 1;
+});
 assert.ok(source);
 const route = findRoadRoute(source.x, source.y, target.x, target.y);
 const general = state.generals[faction.monarch_idx];
@@ -66,12 +73,13 @@ state.legions = [
     target: { idx: target.idx, x: target.x, y: target.y },
     targetNode: roadNodeAt(target.x, target.y).id,
     commandState: 10,
-    cooldown: 2,
+    moveDelay: 2,
+    movePeriod: 3,
     _active: true,
   },
 ];
 const webMeta = {
-  schema: 2,
+  schema: 1,
   originalRng: null,
   legionRuleState: [
     {
@@ -82,7 +90,7 @@ const webMeta = {
         captorFaction: 1,
       },
       _engagement: null,
-      engagementCountdown: null,
+      engagementCountdown: 0,
     },
   ],
 };
@@ -99,7 +107,13 @@ const app = {
   engageTransition: null,
   hud: { flashEvent() {} },
 };
-aiTick(app);
+const slotOptions = {
+  runCityDaily: false,
+  settleDaily: false,
+  legionBatchStart: Math.floor(general.idx / 16) * 16,
+};
+aiTick(app, slotOptions);
+assert.equal(app._strategicBattleFailure, undefined);
 assert.ok(
   legion._retreat,
   "forced retreat remains authoritative after fresh load",
@@ -108,81 +122,104 @@ assert.equal(legion.target.idx, target.idx);
 assert.deepEqual(
   { x: legion.x, y: legion.y },
   before,
-  "retreat cooldown is consumed before route movement",
+  "the first own-slot visit only decrements +0B=2 to 1",
 );
-assert.equal(legion.cooldown, 1);
+assert.equal(legion.moveDelay, 1);
 assert.equal(legion.commandState, 10);
 assert.ok(route.points.length > 1);
 
-// 边内0x487B临时撤退点列不能伪装成DOS ±4道路上下文；Web sidecar需
-// 保存最小点列，使快照→恢复后仍能从非节点坐标继续，而不是blocked后0x291A。
+// 474A preserves the real current edge. Save/restore must retain its ±4
+// stride and whole edge, not the withdrawn stride0 truncated representation.
 {
-  const edgePoints = route.points.slice(0, Math.min(4, route.points.length));
+  const edge = route.legs[0];
+  const edgePoints = edge.points;
   assert.ok(edgePoints.length > 1);
   const edgeLegion = legion;
   edgeLegion.x = edgePoints[0].x;
   edgeLegion.y = edgePoints[0].y;
   edgeLegion.prevX = edgeLegion.x;
   edgeLegion.prevY = edgeLegion.y;
-  edgeLegion.cooldown = 0;
+  edgeLegion.moveDelay = 1;
+  edgeLegion._markerFrame = 0; // Explicit runtime value; not a new direction formula.
+  // This fixture moves the record from a node to an edge explicitly. Its old
+  // node 0E must not be silently overwritten by snapshot's drawing projection.
+  edgeLegion.roadStride = edge.stride;
+  edgeLegion.roadPointAddress = edge.rawPointAddress;
+  edgeLegion.roadEdgeOrNode = edge.rawEdgeOrNode;
   edgeLegion._march = {
     targetX: target.x,
     targetY: target.y,
     targetNode: roadNodeAt(target.x, target.y).id,
-    currentNode: null,
-    edgeId: route.edges[0]?.id ?? 0,
-    stride: 0,
-    toNode: null,
+    currentNode: edge.fromNode,
+    edgeId: edge.edgeId,
+    stride: edge.stride,
+    fromNode: edge.fromNode,
+    toNode: edge.toNode,
     points: edgePoints.map((point) => ({ ...point })),
     pointIndex: 1,
   };
   edgeLegion._path = edgePoints.slice(1).map((point) => ({ ...point }));
   delete state.citiesOf;
-  const snap = snapshotState(
-    {
-      scenario: state,
-      scenarioIdx: 0,
-      clock: { year: 1, month: 1, day: 1, sub: 0, hour: 0 },
-      originalRng: { snapshot: () => null },
-      battleView: { active: false },
-      engageTransition: null,
-    },
-    0,
-    "retreat",
-  );
-  const restored = structuredClone(snap.state);
-  applyWebMetaToState(restored, snap.webMeta);
+  const makeSnapshot = () =>
+    snapshotState(
+      {
+        scenario: state,
+        scenarioIdx: 0,
+        clock: { year: 1, month: 1, day: 1, sub: 0, hour: 0 },
+        originalRng: { snapshot: () => null },
+        battleView: { active: false },
+        engageTransition: null,
+      },
+      0,
+      "retreat",
+    );
+  const snap = makeSnapshot();
+  const restored = restoreSnapshotState(snap);
   restored.citiesOf = (idx) =>
     restored.cities.filter((city) => city.faction === idx);
   buildArmies(restored);
   const restoredLegion = restored.legions[0];
-  assert.equal(restoredLegion._march?.currentNode, null);
-  assert.equal(restoredLegion._march?.stride, 0);
+  assert.equal(
+    restoredLegion._markerFrame,
+    0,
+    "build must not replace saved zero with frame 4",
+  );
+  assert.equal(restoredLegion._march?.currentNode, edge.fromNode);
+  assert.equal(restoredLegion._march?.stride, edge.stride);
   assert.equal(restoredLegion._march?.pointIndex, 1);
   assert.deepEqual(restoredLegion._path, edgePoints.slice(1));
   const restoredBefore = { x: restoredLegion.x, y: restoredLegion.y };
-  aiTick({
+  const restoredApp = {
     scenario: restored,
     originalRng: { nextByte: () => 0xff },
     battleView: { active: false },
     engageTransition: null,
     hud: { flashEvent() {} },
-  });
+  };
+  aiTick(restoredApp, slotOptions);
+  assert.equal(restoredApp._strategicBattleFailure, undefined);
   assert.notDeepEqual(
     { x: restoredLegion.x, y: restoredLegion.y },
     restoredBefore,
     "读档后的边内败军必须沿保存点列继续移动",
   );
+  assert.deepEqual(
+    { x: restoredLegion.x, y: restoredLegion.y },
+    { x: edgePoints[1].x, y: edgePoints[1].y },
+    "one due action must land on the saved next point, not jump elsewhere",
+  );
   assert.ok(restoredLegion._retreat);
   assert.notEqual(restoredLegion.dead, true);
 
-  // pointIndex==points.length表示边内点已全部消费、等待下一槽切端点；
-  // 恢复时不得钳回最后一个边点并重复移动。
-  const exhausted = structuredClone(snap.state);
-  const exhaustedMeta = structuredClone(snap.webMeta);
-  exhaustedMeta.legionRuleState[0].retreatMarch.pointIndex =
-    exhaustedMeta.legionRuleState[0].retreatMarch.points.length;
-  applyWebMetaToState(exhausted, exhaustedMeta);
+  // Artificial exhausted-point input: restoration must not clamp it back.
+  // This does not certify how a real action produces it, or its next action;
+  // original 2783..279E may already reach 27A2 within the final-point action.
+  edgeLegion._march.pointIndex = edgePoints.length;
+  edgeLegion.roadPointAddress =
+    edge.rawPointAddress + (edgePoints.length - 1) * edge.stride;
+  edgeLegion.x = edgePoints.at(-1).x;
+  edgeLegion.y = edgePoints.at(-1).y;
+  const exhausted = restoreSnapshotState(makeSnapshot());
   exhausted.citiesOf = (idx) =>
     exhausted.cities.filter((city) => city.faction === idx);
   buildArmies(exhausted);

@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import net from "node:net";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { startBrowserTestServer } from "./browser_test_server.mjs";
 
 const require = createRequire(import.meta.url);
 const playwrightPath =
@@ -11,40 +8,11 @@ const playwrightPath =
   "C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright";
 const { chromium } = require(playwrightPath);
 
-const repo = fileURLToPath(new URL("../", import.meta.url));
-
-function findFreePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const port = srv.address().port;
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
-}
-
-const port = await findFreePort();
-const server = spawn(
-  process.platform === "win32" ? "python" : "python3",
-  [path.join(repo, "tools", "webserver.py"), String(port)],
-  { stdio: "ignore" },
-);
-
-async function waitForServer(targetPort) {
-  for (let i = 0; i < 40; i++) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${targetPort}/index.html`);
-      if (res.ok) return;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error("Server failed to start");
-}
-
+const server = await startBrowserTestServer();
+const { port } = server;
+let browser;
 try {
-  await waitForServer(port);
-  const browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1024, height: 768 },
   });
@@ -191,8 +159,8 @@ try {
   ]);
   assert.ok(navResponse, "成功触发并完成了刷新/重载页面");
 
-  await browser.close();
   process.stdout.write("verify_exit_confirm_browser passed successfully!\n");
 } finally {
-  server.kill();
+  await browser?.close();
+  await server.close();
 }

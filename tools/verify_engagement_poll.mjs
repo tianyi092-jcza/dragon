@@ -3,6 +3,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import {
+  initializeLegionSlotState,
+  finishLegionSlotTail,
+} from "../web/src/game/legionphase.js";
+import { initializeFactionLegionCounts } from "../web/src/game/legioncounts.js";
 
 const ki = await fs.readFile(new URL("../../Dragon/KI.EXE", import.meta.url));
 assert.equal(
@@ -71,7 +76,9 @@ const { preloadEngageSfx } = await import("../web/src/core/speaker.js");
 const { aiTick, buildArmies, stepTo } = await import("../web/src/game/ai.js");
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
 const { findRoadRoute } = await import("../web/src/game/roadgraph.js");
-const { snapshotState } = await import("../web/src/game/savegame.js");
+const { snapshotState, restoreSnapshotState } = await import(
+  "../web/src/game/savegame.js"
+);
 const { OriginalBattleRng } = await import(
   "../web/src/game/battle/originalrng.js"
 );
@@ -81,12 +88,20 @@ const data = await readJson(new URL("../web/data.json", import.meta.url));
 
 function contactFixture(kind, types) {
   const sc = structuredClone(data.scenarios[0]);
+  initializeLegionSlotState(sc);
+  initializeFactionLegionCounts(sc);
+  const period = types.every((type) => type === 1) ? 2 : 3;
   const factions = sc.factions.filter((f) => sc.cities[f.capital]).slice(0, 2);
+  for (const faction of factions) faction.n_legions = 1;
   sc.legions = factions.map((f, slot) => ({
     slot,
+    generalIdx: f.monarch_idx,
     leader: f.monarch,
     faction: f.idx,
     status: 0x84,
+    // Direct stepTo below represents the action AFTER the slot has reloaded.
+    moveDelay: period,
+    movePeriod: period,
     _active: true,
     x: sc.cities[f.capital].x,
     y: sc.cities[f.capital].y,
@@ -117,12 +132,23 @@ function contactFixture(kind, types) {
     const point = attacker._march.points[attacker._march.pointIndex];
     defender.x = point.x;
     defender.y = point.y;
-  } else defender.dead = true;
+  } else {
+    defender.status = 0;
+    defender.dead = true;
+    factions[1].n_legions = 0;
+  }
   let result = "moved";
   for (let guard = 0; guard < 2000 && result === "moved"; guard++)
     result = stepTo(sc, attacker, target.x, target.y);
   assert.equal(result, "contact");
   assert.equal(attacker._engagement.kind, kind);
+  assert.equal(attacker.engagementCountdown, 12, "2831/2880 action writes 12");
+  finishLegionSlotTail(attacker);
+  assert.equal(
+    attacker.engagementCountdown,
+    11,
+    "264A owns the one current-slot decrement",
+  );
   return { sc, attacker };
 }
 
@@ -133,7 +159,8 @@ for (const kind of ["field", "siege"]) {
   ]) {
     sounds = [];
     mainTick = 0;
-    const { sc, attacker } = contactFixture(kind, types);
+    const { sc, attacker: firstAttacker } = contactFixture(kind, types);
+    let attacker = firstAttacker;
     const period = types.every((type) => type === 1) ? 2 : 3;
     assert.equal(sounds.length, 0, "first contact writes 12->11, never ID3");
     assert.equal(
@@ -167,13 +194,14 @@ for (const kind of ["field", "siege"]) {
         settleDaily: false,
         runCityDaily: false,
       });
+      assert.equal(app._strategicBattleFailure, undefined);
       if (mainTick % 8 !== 0 || mainTick === 96) continue;
       const visit = mainTick / 8;
       assert.equal(attacker._engagement.countdown, Math.max(1, 11 - visit));
       assert.equal(attacker.moveDelay, period - (visit % period));
       if (visit === 4) {
         const saved = snapshotState(app, 0, "isolated contact");
-        const restored = saved.state;
+        const restored = restoreSnapshotState(saved);
         buildArmies(restored);
         const reloaded = restored.legions.find((l) => l.slot === attacker.slot);
         assert.equal(reloaded.moveDelay, attacker.moveDelay);
@@ -184,8 +212,7 @@ for (const kind of ["field", "siege"]) {
         );
         // Continue on the restored in-memory state, not just a serialization assertion.
         app.scenario = restored;
-        Object.assign(attacker, reloaded);
-        restored.legions[restored.legions.indexOf(reloaded)] = attacker;
+        attacker = reloaded; // Keep projections bound to the restored table, not the old scene.
       }
     }
     assert.deepEqual(

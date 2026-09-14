@@ -1,107 +1,94 @@
 # AGENTS.md — 臥龍傳 Web 项目记忆
 
-> 本文件维护长期事实、架构、命令、约定与当前主线。先读[全局AGENTS](../AGENTS.md)，安全、证据、审批与自主执行以其为准。
-> [journal](docs/checkpoint-journal.md)只记会话过程与验证；模块规则及原始证据由对应SKILL/`re-notes`维护。不得从旧日志恢复任务或提交授权。
+> 维护长期事实、架构、命令、约定与当前主线。先读[全局AGENTS](../AGENTS.md)：安全、原证、审批与自主执行以其为准。
+> [journal](docs/checkpoint-journal.md)只记会话过程/失败/验证；SKILL与`re-notes`维护模块规则和原始证据。历史日志不恢复任务或提交授权。
 
 ## 1. 项目边界
 
-- 原生JavaScript ES Modules + Canvas 2D重写1995 DOS《臥龍傳》；无模拟器、框架、构建步骤或npm运行时依赖。完整`web/`可独立部署到普通静态HTTP服务，运行不需要原版目录或提取工具。
+- 用原生JavaScript ES Modules + Canvas 2D重写1995 DOS《臥龍傳》；无模拟器、框架、构建步骤或npm运行时依赖。完整`web/`由普通静态HTTP服务独立运行，不依赖原版目录或提取工具。
 - 仓库`E:/Dragon/web-port`；原程序/运行数据`E:/Dragon/Dragon/`；官方基准`E:/Dragon/原版/`，`上/中/下/后/`为改版库。
-- 原版机制只依据可复核指令、原始数据/资源及必要的受控运行观测。用户观察、Web现状、测试和文档不构成原版证明；区分实锤/推断/未知，未闭合不补公式。Web产品差异另标，成果回流唯一详细维护源。
-- 自动化禁止读写`E:/Dragon/Dragon/SAVE.DAT`。保留用户/其它会话改动；commit与push分别需要明确授权。分支、提交和工作树状态现场查Git，不把批次状态当永久事实。
+- 机制区分实锤/推断/未知，未闭合不补公式；Web产品差异另标，详细结论只维护一处。自动化禁读写真实SAVE和用户游戏存档/profile；测试用内存、mock或新隔离profile。保留共享脏改，commit/push分别需明确授权。
 
 ## 2. 当前主线
 
-- **一套规则/AI/UI内核，内容与运行态分离**；不是两套“原版/扩展”玩法。渐进拆分，保持现有规则、RNG顺序、消息返回边界、hold并集、视觉与四槽行为。
-- **已落地 B0–B4a**：纯玩家查询解除commands↔diplomacy循环；原始记录读取隔离；Web可编辑内容源/编译管线与目录身份；图集/布局源；世界独立道路/地形缓存；无绘制开局选择流程。
-- **开场场景**：`web/intro/` 原生动画及独立单次MP3；副标题完全显现（当前22秒）/提前跳过放行既有弹窗、会话刷新终场、显式重启整页、读档直达终场。用户批准的Web表现差异与维护入口见[开场维护源](docs/opening-scene.md)。
-- **后续拆分**：场景生命周期与存储仓储；GameBar/HUD按工作流拆分；AI按城市/军团/事件/战后/调度拆分；BattleView驱动与绘制分离。`OriginalBattleSession`不按文件行数硬拆。
-- **尚未实现**：编辑器、地图扩容、任意内容包/世界热切换、新通关过场及多语言。现有AI/渲染仍使用默认世界门面，四槽存储尚未迁移为内容身份。
-- 普通非接触道路调度仍未全链闭合；战术BD46/B824/compositor等以笔记标注的scoped-PASS为限，不宣称全DOS等价。最新用户任务决定本轮范围。
+- **只彻底还原AI，尚未完成**：外交、编成/补员、驻防/出击、行军接敌、战果、占城、撤退、返都、解散及必要的状态/RNG/调度；不扩为字体或完整DOS环境复刻。
+- **已接生产**：统一槽泵、固定槽相位/F14、一次性战斗续段/故障hold、快照相位校验、道路ready后装配；道路字段/目标保存保值已局部修正，不代表完整道路机制正确。
+- **关键缺口**：原搜索、图memory/城市归属适配及互反校验已有，但**未接生产选路**；源/运行道路仍v1、旧近似算法仍在。下一阶段联动内容校验/编译、加载、图工作区/保存后接`47BB/487B`等，再修42AB续行、flags/节点化、方向与14/20消费者；不能只换权重。详见[AI全链](docs/re-notes-ai-chain.md)和[行军字段矩阵](docs/re-notes-march-pathfinding.md#55-p24字段工程矩阵与冷加载修复非完整道路接线)。
+- 战后后续批、完整回归及战役因果仍待验证。“持续战争中全军返都”与“占城后弃守”分别调查，不预设同因。基础内容/世界/开局拆分已落地；编辑器、地图扩容、任意包/世界热切换、多语言不是当前AI前置任务。最新用户请求决定本轮范围。
 
 ## 3. 架构与数据流
 
-`原版非存档资料 → 显式离线导入 → Web可编辑源 → 校验/编译资产 → 复制为Scenario → 保存守卫/快照 → IndexedDB`
+`原版非存档资料 → 显式离线导入 → Web可编辑源 → 校验/编译资产 → Scenario副本 → 保存守卫/快照 → IndexedDB`
 
-以下模块路径相对`web/src/`，同组省略重复目录前缀：
+模块路径相对`web/src/`，同组省略重复目录前缀：
 
 | 模块 | 职责 |
 | --- | --- |
-| `main.js`、`app/startflow.js` | App装配、战略RAF/月结/战果接续；无绘制选择流程；新局/读档共用`loadState` |
-| `content/` | 内容包/章节/修订身份、旧索引映射、世界资源与布局常量 |
-| `game/world.js`、`worldresources.js`、`navigation/` | Scenario/模板复制、每世界资源实例与导航；`roadgraph.js/pathfind.js`为默认实例门面 |
-| `game/ai.js`、`weather.js`、`autobattle.js` | 战略调度、接敌/战后、事件/灾害、六队速算 |
-| `game/playerqueries.js`、`legacyrecords.js` | 纯玩家查询与原记录兼容读取 |
-| `game/clock.js`、`tacticalclock.js`、`battle/original*.js` | 战略/战术预算；权威Session、RNG、VM、命令与结算 |
-| `game/savegame.js`、`core/localstore.js` | 快照/恢复与保存守卫；IndexedDB读写 |
-| `render/`、`ui/` | 战略/战术投影与表现；GameBar/HUD工作流、消息FIFO、StartMenu布局/输入/清理 |
-| `core/assets.js`、`music.js`、`score.js`、`speaker.js` | 资源缓存、BGM播放、场景选曲与效果音 |
+| `main.js`、`app/startflow.js`、`app/battleflow.js` | App装配、无绘制开局流程、战斗入口/接续；新局与读档共用`loadState` |
+| `content/`、`game/world.js`、`worldresources.js` | 内容/章节/修订身份、旧索引映射、Scenario副本、每世界资源实例 |
+| `game/navigation/`、`roadgraph.js`、`pathfind.js` | 导航实现与默认世界门面；原搜索尚未进入规则调用链 |
+| `game/ai.js`、`weather.js`、`autobattle.js`、`legionscheduler.js` | 战略AI/灾害/接敌战后/速算与逐槽调度 |
+| `game/legionphase.js`、`legioncounts.js`、`legioncontinuation.js`、`strategicfailure.js` | 固定槽相位/计数、续段所有权及失败暂停/禁存 |
+| `game/clock.js`、`tacticalclock.js`、`battle/original*.js` | 战略/战术预算、权威Session、RNG、VM与结算 |
+| `game/savegame.js`、`core/localstore.js` | 快照/恢复、保存守卫、IndexedDB四槽 |
+| `game/playerqueries.js`、`legacyrecords.js`；`render/`、`ui/` | 纯玩家查询/字节兼容读取；只读绘制、GameBar/HUD工作流、消息FIFO与StartMenu |
 
-- 逻辑分辨率`640×400`；当前世界`384×256`格、16px图块、192道路节点、128军团槽、24势力槽。尺寸/槽位/地址/哨兵限制不能一律替换为数组length。
-- `web/content/builtin/`为可编辑源，`tools/compile_content.py`生成20章运行模板及地图/道路资产。`state`命名字段是编辑权威，未知兼容字节保留；不手改`data.json`等生成物掩盖错误。原始解析纠错经离线导入新目录、核对源差异后再编译。
-- 图集、图块排列、世界对象与道路拓扑分离；`map_tiles_*.png`是四季整图派生缓存。贴道路图不产生通行性，图块索引仍参与规则，不能随意重编号。详见[内容架构](docs/content-architecture.md)。
-- 新局从`legions=[]`开始；保留16雨云初态与头部吸引边界。地图对象前16槽为火灾/暴动、后16槽为雨云，不用filter压缩固定槽。
-- 正式保存为浏览器同源IndexedDB `wolong-web/saves`四槽JSON。sidecar在快照内保存导航、军团、回归队列、事件/灾害、调度游标、军师和RNG，不是服务端文件。旧SAVE API、token/lease均已废弃；单实例由浏览器锁管理。
-- 游戏内读档先回标题；空槽hover/hit-test/click都禁用。战斗、接战过渡、待补日历或未完成战略交互期间按保存守卫禁快照；保存测试仅用mock、内存或全新隔离profile。
+- 逻辑分辨率`640×400`；当前世界`384×256`格、16px图块、192道路节点、128军团槽、24势力槽。尺寸、地址、哨兵、正常调度槽数不可一律换成数组length。
+- `web/content/builtin/`为编辑源；`tools/compile_content.py`生成20章模板及地图/道路资产。命名state字段为编辑权威，未知兼容字节保留；不手改`data.json`等生成物掩盖错误。解析纠错先导入新目录比较，再编译。只有一套规则/AI/UI内核。
+- 图集/布局、世界对象、道路拓扑分离；`map_tiles_*.png`是派生缓存，贴道路图不产生通路，图块索引仍参与规则。编译预生成不等于跨文件发布事务；详见[内容架构](docs/content-architecture.md)。
+- 新局`legions=[]`，保留雨云初态与头部吸引边界；地图对象前16火灾/暴动、后16雨云，不filter压缩。AI/渲染仍用默认世界门面，存档槽尚未迁移为内容身份。
+- 正式存档为同源IndexedDB `wolong-web/saves`四槽JSON；sidecar是快照内运行态，不是服务端文件。旧SAVE API/token/lease已废弃，浏览器锁管理单实例。
+- **已批准旧档政策**：保全旧档、修正版从新局开始，拒缺相位/不相容档，不猜迁移/双内核。恢复先克隆合并sidecar再校验；phase标记不证明道路字段/单位有效，新增准入门须说明具体缺字段及原消费者，不能只凭phase1标签一刀切拒载。见[数据技能](../.agents/skills/re-data-formats/SKILL.md)。
+- 读档先回标题，空/不相容槽hover/hit-test/click禁用；战斗/待续段/未完成战略交互/装配pending或故障时禁存。先资源ready再build，await后核scenario/world/clock/票据；失败保部分写，不假事务回滚。
 
 ## 4. 现行交互与Web产品约定
 
-- 不增加关闭按钮；可取消窗口右键逐层回退。普通NPC/武将提示3秒或右键关闭后执行回调；外交费type5整段禁右键，不得通过自动关闭/羽扇绕过强制预算。
-- 羽扇是军师一级菜单唯一开关，只清所属工作流。选中子菜单就锁全地图；退层保留上级选中/hold，最后退出才释放。仅展开一级菜单只拦截实际`640×48`矩形；空白地图左键不关闭界面。详见[UI技能](../.agents/skills/re-ui-advisor-menu/SKILL.md)。
-- 模态、场景切换、战术入口使用所属`clock.hold`，不改速度档模拟暂停。地图鼠标移动取得独立hold，静止满1秒释放；所有hold取并集。物理UI命中区域与全屏输入锁分开，锁地图时仍须识别暴露区域的鼠标移动。
-- 逐RAF重绘、合并指针更新；每RAF最多一个战略步或完整战术帧，不补后台债务。Canvas backing store只在尺寸/DPR变化时重建；绘图不推进导航、规则或RNG。
-- Canvas列表右侧滚动条、24px表头、墨绿`#4a7828`选中；排序后绑定原对象。战略消息使用GameBar FIFO，规则提交与RNG消费遵守各自消息返回边界。
-- **玩家化身**：自定军师为`{custom:true,general_idx:null,name,hao,portrait}`；默认军师成为化身后排除普通武将/编成/任官/自动出征候选。这是Web决定，非原版候选规则证据。
-- **结局**：统一后继续战略地图、不播D7END；信赖归零/玩家势力灭亡仍保留GAME OVER，不能整体删除EndView。
-- **系统菜单**：保存、读取、音效、战略速度、战术速度、退出共六行。单一「音效」TYPE1→2→3→4→关闭调CF9音量，不是选曲/SFX音色；OFF停BGM，不禁PC/FM效果。
-- **接战表现**：独立共享时钟100ms换帧、200ms发声，首次同步、结束清理；暂停冻结、不补播，PCM不升调。独立的只是音画，不是接敌等待；不改道路倒数或延后战斗入口。
-- **战术表现**：入场/战斗共用`TACTICAL_PLAYBACK_RATE=0.5`，低四档等待加倍、最高30Hz，首帧立即执行。战术对白3秒或全局右键关闭，不暂停Session；无战术小地图/右下双箭头。见[战术规则§5](docs/re-notes-tactical-rules.md)。
+- 无关闭按钮、羽扇唯一开关、右键逐层回退、子菜单地图锁、空白地图左键无功能、普通对白3秒关闭/type5强制例外，按[全局约定](../AGENTS.md)及[军师UI技能](../.agents/skills/re-ui-advisor-menu/SKILL.md)，不另维护状态表。
+- 模态/场景/战斗/装配/鼠标移动hold取并集，不改速度模拟暂停；地图静止满1秒释放鼠标hold。输入锁与物理命中区域分开，锁地图仍识别暴露区域鼠标移动。
+- 每RAF最多一个战略步或完整战术帧，不补后台债务；绘图不推进规则/导航/RNG。Canvas backing store仅尺寸/DPR变化时重建；列表右滚、24px表头、`#4a7828`选中，排序绑定原对象。
+- 自定军师为`{custom:true,general_idx:null,name,hao,portrait}`；默认军师化身排除普通武将/编成/任官/自动出征候选。统一后继续地图、不播D7END；信赖归零/玩家灭亡仍GAME OVER，不能整体删EndView。
+- 系统菜单六行：保存、读取、音效、战略速度、战术速度、退出。音效TYPE1→2→3→4→关闭调CF9音量，不选曲/换SFX；OFF停BGM、不禁PC/FM效果。
+- 接战音画共享100ms换帧/200ms发声时钟：首次同步、暂停冻结、结束清理、不补播/升调，不改规则等待或延迟开战。战术表现`TACTICAL_PLAYBACK_RATE=0.5`、低四档等待加倍、最高30Hz、首帧立即；对白3秒或全局右键关闭但不暂停Session，无小地图/右下双箭头。见[战术规则](docs/re-notes-tactical-rules.md)。
+- 独立开场在`web/intro/`：原生动画/单次MP3，副标题完全显现或skip后放行弹窗；会话刷新/读档直达终场，显式重启整页，左上覆盖不缩小。音乐隔离、加载与版权纯文本等以[开场维护源](docs/opening-scene.md)为准。
 
 ## 5. 重要坑点与详细维护源
 
-- 规则只用canonical `OriginalBattleRng`，进程启动RTC播种一次；新局/标题不重播种，读档恢复快照，禁`Math.random()`回退。异步战术先回写同一RNG再恢复战略；保持就绪输入→A426 VM→A065帧顺序，无输入仍推进。无真实对象/墙记录不能按战略比例造城损。见[战斗技能](../.agents/skills/re-battle-command/SKILL.md)。
-- 主更新处理1据点/16军团，128军团需8次，不是每日移动。敌城末端边界tile在坐标写回前检查；插值不改规则坐标，真实军团不合并或换成synthetic city。玩家未完成命令优先于通用AI；委任不能覆盖目标。见[行军技能](../.agents/skills/re-march-engagement/SKILL.md)。
-- `generalIdx`与军团slot分开，`leader`仅显示/旧快照兼容；兵种`1骑/2弓/3步/4空`，六队原值为权威。`0x291A`、48周期回归与破城组撤退不能简化为普通返都。见[战后技能](../.agents/skills/re-post-battle/SKILL.md)。
-- 状态段地址不等于SAVE偏移；军团`+2`主将byte与`+3`状态/倒数不能合成u16。BATTLE.MAP含214张64×64图，layout只选MDL块。MMAP透明用独立mask，索引0可能是不透明黑。见[数据技能](../.agents/skills/re-data-formats/SKILL.md)。
-- TALK38保留城市更新续段，返回后再处理相应RNG/治理/军团/天气，不重跑城市轮询；过期或重复回调不能复活旧局。灾害消息返回、入队成功/失败影响RNG；type11槽号与字节地址、雨云吸引maxY=400与回绕Y=272必须区分。见[内政/外交技能](../.agents/skills/re-domestic-diplomacy/SKILL.md)及[kernel笔记](docs/re-notes-kernel.md)。
-- BGM运行资产是`web/grf/music/loops/*.flac`，不是试听WAV/MIDI；软件OPL3合成非实机录音，控制循环不保证PCM无缝，压缩不减少解码内存。CF9 TYPE1重启、TYPE2–4衰减；AH7取消未来SFX后继、AH8不取消。PCM音量、原/Web换日边界与OFF/OVER差异以[音频维护源](docs/re-notes-audio.md)为准，不宣称逐样本等价。
+- canonical `OriginalBattleRng`仅进程启动RTC播种一次，新局/标题不重播种、读档恢复，禁`Math.random()`兜底；战术先回写同一RNG再续战略，保持输入→A426 VM→A065帧顺序，无输入仍推进。消息返回/RNG不得重播；无真实对象/墙记录不按比例造城损。见[战斗技能](../.agents/skills/re-battle-command/SKILL.md)。
+- 每主更新1据点/16军团；每槽到期动作→日结→03尾，再余槽/天气。当前槽退场仍完成尾段；0B/1E保零、03固定槽存留、F14不从live数组重算。generalIdx与slot分开，leader仅显示/兼容，六队原值为权威；不将真实军团合并或替换为synthetic city，插值不改规则坐标。撤退不传送/抹道路，初始化48不等于固定48次等待。见[AI全链P24](docs/re-notes-ai-chain.md#28-p24进行中槽游标写者与缺失相位)及[战后技能](../.agents/skills/re-post-battle/SKILL.md)。
+- 已知0A/0C/0E不由`_march`覆盖，清缓存不删残值；校验早于outer reverse/engagement，节点化不清0A/0C，日费读动作后0E。0E为原地址，targetNode现有Web id不因8倍数就解码，也不由20补写14；完整消费者仍待修。原搜索保槽序、字宽、环队列与读写顺序；CF1不一律无路、未知RAM不补零、资产拒绝不伪造KI blocked。见[行军技能](../.agents/skills/re-march-engagement/SKILL.md)。
+- 战争关系/势力目标/军团命令分开，清目标/迁都不是停战或返都广播；玩家未完成命令优先，委任不能覆盖。TALK38保城市续段，付款/互俘可能早于拒战，不假回滚。见[外交技能](../.agents/skills/re-domestic-diplomacy/SKILL.md)、[kernel笔记](docs/re-notes-kernel.md)与[消息ABI](docs/re-notes-strategic-message-abi.md)。
+- 状态地址不等于SAVE偏移、军团+2/+3不能合u16；地图编号/布局编号不同，MMAP透明有独立mask（索引0可为不透明黑）。格式细节只维护在[数据技能](../.agents/skills/re-data-formats/SKILL.md)。
+- BGM资产`grf/music/loops/*.flac`是软件OPL3非实机录音；无损不保证循环无缝/减少解码内存。音量、场景所有权与SFX详见[音频](docs/re-notes-audio.md)。部署/版权见[README](README.md)，不从旧日志推定远端状态或资源再分发许可。
 
 ## 6. 常用命令
 
-在仓库根执行；测试/生成器先审计I/O。开发工具依赖不等于产品运行依赖，不自动安装库或修改全局配置。
+在仓库根执行；先审所选测试/生成器I/O，入口不是本轮执行授权，不自动安装或改全局配置。
 
 ```bash
-# 任一普通静态服务；端口是位置参数，前台常驻正常
-python tools/webserver.py 8321
-# 或：python -m http.server 8321 --directory web
-
-# 内容源编译先输出新目录比较，确认后才显式输出到web；开发机需Pillow
-python -B tools/compile_content.py --output /path/to/generated
+python -m http.server 8321 --directory web  # 前台常驻正常
+# 亦可：python tools/webserver.py 8321
+unset PYTHONOPTIMIZE                       # 不能让断言失效
+export PYTHONDONTWRITEBYTECODE=1 PYTHONUTF8=1
+python -B tools/compile_content.py --output /path/to/new-generated  # 需Pillow；新目录先比较
 python -B tools/verify_content_pipeline.py
 node tools/verify_content_catalog.mjs
 node tools/verify_world_resources.mjs
 node tools/verify_start_flow.mjs
-node tools/verify_standalone_web_browser.mjs
-
-# 全量安全回归：已安装Playwright，必要时用PLAYWRIGHT_MODULE指定其路径
-unset PYTHONOPTIMIZE
-export PYTHONDONTWRITEBYTECODE=1
-for f in tools/verify_*.mjs; do node "$f" || exit 1; done
-for f in tools/verify_*.py; do python -B "$f" || exit 1; done
-node tools/verify_battle_viewport.js
-
+node tools/verify_legion_slot_phase.mjs     # focused示例，不代表全量
+node tools/verify_legion_slot_battle.mjs
+node --test tools/verify_road_field_authority.mjs
+node tools/verify_road_cold_load_browser.mjs # 需已有Playwright，可显式PLAYWRIGHT_MODULE
+node tools/verify_legion_lifecycle_browser.mjs
 node --check web/src/main.js
 git diff --check
-# KI反汇编：VA=文件偏移-0x200；near call按16位IP回绕
-PYTHONPATH=tools python -B -c 'from disasm import va_range; print(va_range(0x2D0,0x2F5))'
 ```
 
-其它生成命令见[内容架构](docs/content-architecture.md)与对应SKILL/音频笔记；只重建变更涉及的资产。浏览器测试串行使用全新会话/profile，避免ESM缓存或真实存档干扰；只关闭本轮启动的服务/浏览器。
+全量先固定入口/依赖/源码并审I/O，再串行执行，不以`verify_*`通配或历史放行当安全证明。浏览器用新profile/本轮自持静态监听，只关闭本轮服务。生成脚本可能清目标目录，勿把共享`dist/`当可删临时目录；其它命令按对应SKILL，只重建涉及资产。
 
 ## 7. 分级验证
 
-- **所有变更**：实际diff、受支持的变更文件LSP、`lens_diagnostics mode=all`、`git diff --check`；仓库外文件另查前后差异/空白/路径。工具可能自动格式化，后续编辑先重读。
-- **文档/Skill**：链接、规则一致性、围栏/元数据；改加载配置才验证相应cwd的发现。无需无关游戏回归或浏览器冒烟。
-- **规则/数据/工具**：focused回归、解析/静态检查与相关原始证据复核；共享调度、RNG、存档或跨模块状态变更须全量安全回归。
-- **UI/浏览器**：全新profile验证流程及console/page错误；保存增加守卫、往返与失败路径，只用mock/内存/隔离profile。
-- 工具缺失明确记录，可用覆盖同风险的替代检查，但不能报工具通过；关键覆盖不足标待验证/阻塞。测试数字、临时证据位置和调试经过只进journal，不构成永久健康保证。
+- **全部变更**：实际diff、受支持变更文件LSP、`lens_diagnostics mode=all`、`git diff --check`；仓库外另查前后差异/空白/路径。工具可能自动格式化，后续编辑先重读。
+- **文档/Skill**：链接、规则一致性、围栏/元数据；改加载配置才验证对应cwd发现，不要求无关游戏回归/浏览器。
+- **规则/数据/工具**：focused、解析/静态检查及原证复核；共享调度/RNG/存档/跨模块状态改动须全量安全回归，未跑完整批次明列待验证，不拼局部绿测。
+- **UI/保存**：新profile流程及console/page/request错误；保存另测守卫、往返、失败路径，只用mock/内存/隔离profile。
+- LSP unavailable/inconclusive或缓存沉默不是clean；限定OK不等于native门通过，片段/首批/tick/战役分开陈述。缺工具、失败或覆盖不足如实列出；数字/临时产物/调试过程只进journal，不作永久健康保证。

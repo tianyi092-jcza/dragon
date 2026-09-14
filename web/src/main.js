@@ -16,11 +16,14 @@ import {
   SEASONS,
 } from "./game/world.js";
 import { Clock } from "./game/clock.js";
+import { captureLegionContinuation } from "./game/legioncontinuation.js";
+import { assertLegionPhaseState } from "./game/legionphase.js";
 import { activateNextMonthPolicy, monthlySettlement } from "./game/economy.js";
 import { prepareEnvoyBudgetReports } from "./game/diplomacy.js";
 import {
   aiTick,
   buildArmies,
+  cancelLegionSlotBatch,
   finishDeferredLegionDaily,
   initializeStrategicDiplomacy,
   monthlyAI,
@@ -37,7 +40,6 @@ import {
 import { defaultWorldResources } from "./game/worldresources.js";
 import { loadBuiltinContent } from "./content/catalog.js";
 import { STRATEGIC_LAYOUT } from "./content/worlddefinition.js";
-import { classifyFieldBattleTerrain } from "./game/fieldterrain.js";
 import * as cmd from "./game/commands.js";
 import { monthlyAppear } from "./game/recruits.js";
 import { BattleView } from "./render/battleview.js";
@@ -47,14 +49,13 @@ import * as speaker from "./core/speaker.js";
 import { MusicPlayer } from "./core/music.js";
 import { ScoreDirector } from "./core/score.js";
 import { EngagementPresentation } from "./render/engagementpresentation.js";
-import { createBattle, createFieldBattle } from "./game/tacticalbattle.js";
-import { applyBattleResult, applyFieldBattleResult } from "./game/ai.js";
+import { createStrategicBattleMethods } from "./app/battleflow.js";
 import {
   createOriginalBattleRng,
   originalBiosClockFromDate,
 } from "./game/battle/originalrng.js";
 import {
-  applyWebMetaToState,
+  restoreSnapshotState,
   canSnapshotState,
   snapshotState,
 } from "./game/savegame.js";
@@ -148,27 +149,38 @@ const app = {
   },
 
   async enterGame(load) {
+    const entry = {};
+    this._gameEntryRequest = entry;
+    const assertCurrentEntry = () => {
+      if (this._gameEntryRequest !== entry)
+        throw new DOMException("Game entry superseded", "AbortError");
+    };
     this.setRuntimeEnabled(false);
     try {
       await this.ensureGameAssets();
+      assertCurrentEntry();
       this.ensureGameShell();
       await load();
+      assertCurrentEntry();
       this.gameStarted = true;
       this.exitConfirmed = false;
       this.hud ??= new HUD(this);
       this.hud.buildLegend();
       this.hud.refreshInfo();
       await this.gamebar._assets;
+      assertCurrentEntry();
       document.body.classList.add("game-active");
       this.view.draw();
       this.opening?.hide();
     } catch (error) {
-      this.score.title();
-      this.gameStarted = false;
-      document.body.classList.remove("game-active");
+      if (this._gameEntryRequest === entry) {
+        this.score.title();
+        this.gameStarted = false;
+        document.body.classList.remove("game-active");
+      }
       throw error;
     } finally {
-      this.setRuntimeEnabled(true);
+      if (this._gameEntryRequest === entry) this.setRuntimeEnabled(true);
     }
   },
 
@@ -199,7 +211,12 @@ const app = {
     }
     this.battleView?.setRuntimeEnabled?.(this.runtimeEnabled);
     this.engageTransition?.setRuntimeEnabled?.(this.runtimeEnabled);
-    if (this.clock) this.clock.hold = !this.runtimeEnabled;
+    if (this.clock) {
+      if (this.gamebar) this.gamebar.syncClock();
+      else
+        this.clock.hold =
+          !this.runtimeEnabled || Boolean(this._scenarioAssemblyPending);
+    }
   },
 
   /**
@@ -210,36 +227,50 @@ const app = {
     if (this.engageTransition?.active || typeof onFinish !== "function")
       return false;
     this.engagementFx.reset();
+    const continuation = captureLegionContinuation(this);
     let done = false;
     let rafId = null;
     const transition = {
       active: true,
       legion,
-      cancel: () => finish(false),
+      cancel: () => complete(() => cancelLegionSlotBatch(this)),
       setRuntimeEnabled() {},
     };
-    const finish = (resolveBattle = true) => {
+    const complete = (operation) => {
       if (done) return;
       done = true;
       transition.active = false;
       if (rafId != null) cancelAnimationFrame(rafId);
       if (this.engageTransition === transition) this.engageTransition = null;
       try {
-        if (resolveBattle) onFinish();
+        if (!continuation.claim()) return;
+        operation();
       } finally {
-        finishDeferredLegionDaily(this);
         this.gamebar?.syncClock?.();
         this.view?.draw?.();
       }
     };
     this.engageTransition = transition;
     this.gamebar?.syncClock?.();
-    rafId = requestAnimationFrame(() => finish());
+    rafId = requestAnimationFrame(() =>
+      complete(() => {
+        onFinish();
+        finishDeferredLegionDaily(
+          this,
+          continuation.batch,
+          continuation.ticket,
+        );
+      }),
+    );
     return true;
   },
 
   /** 游戏结束：清理运行态并返回首页开局选单 (YES/NO) */
   async returnToTitle(initialAction) {
+    this._gameEntryRequest = null;
+    this._scenarioAssemblyPending = null;
+    cancelLegionSlotBatch(this);
+    this._strategicBattleFailure = null;
     this._strategicCityRequest = null;
     this.engagementFx.reset();
     this.score.title();
@@ -296,6 +327,7 @@ const app = {
     this.view.seasonImg = null;
     this.scenario = null;
     this.clock = null;
+    this.setRuntimeEnabled(true);
     try {
       await this.startMenu.show(initialAction);
     } finally {
@@ -304,78 +336,8 @@ const app = {
     }
   },
 
-  /** 开战: 战术层接管 (玩家军团攻城/敌军犯境时由 ai.resolveBattle 调用) */
-  startBattle(A, city, D = null) {
-    this.engagementFx.reset();
-    const battle = createBattle(
-      this.scenario,
-      A,
-      city,
-      this.battleMaps,
-      D,
-      this.originalRng?.snapshot?.(),
-    );
-    this.battleView.open(battle, (exit) => {
-      this.originalRng = exit.strategicRng;
-      this.activeBattleRng = this.originalRng;
-      applyBattleResult(
-        this,
-        A,
-        city,
-        exit.winnerName,
-        null,
-        null,
-        null,
-        null,
-        D,
-        null,
-        null,
-        exit,
-      );
-      this.score.endBattle(battle);
-      finishDeferredLegionDaily(this);
-      this.hud.buildLegend();
-      this.view.draw();
-    });
-  },
-
-  /** 野外战：双方均为军团，不借用城池结算。 */
-  startFieldBattle(A, D) {
-    this.engagementFx.reset();
-    const terrain = classifyFieldBattleTerrain(
-      A,
-      D,
-      this.scenario.player_faction,
-      this.originalRng,
-    );
-    const battle = createFieldBattle(
-      this.scenario,
-      A,
-      D,
-      this.battleMaps,
-      terrain,
-      this.originalRng?.snapshot?.(),
-    );
-    this.battleView.open(battle, (exit) => {
-      this.originalRng = exit.strategicRng;
-      this.activeBattleRng = this.originalRng;
-      applyFieldBattleResult(
-        this,
-        A,
-        D,
-        exit.winnerName,
-        null,
-        null,
-        null,
-        null,
-        exit,
-      );
-      this.score.endBattle(battle);
-      finishDeferredLegionDaily(this);
-      this.hud.buildLegend();
-      this.view.draw();
-    });
-  },
+  // Tactical entry/exit ownership and startup errors share one adapter.
+  ...createStrategicBattleMethods(),
 
   checkTrustGameOver() {
     return cmd.checkTrustGameOver(this);
@@ -398,7 +360,7 @@ const app = {
   },
 
   /** 公共装配路径: 剧本与读档共用 (raw=parse_sinario/parse_save 输出的 state) */
-  loadState(
+  async loadState(
     raw,
     idx,
     { rngSnapshot = null, initializeDiplomacy = false } = {},
@@ -407,6 +369,9 @@ const app = {
       throw new TypeError("invalid scenario state");
     if (!Number.isInteger(idx) || idx < 0 || idx >= this.data.scenarios.length)
       throw new RangeError(`invalid scenario index ${idx}`);
+    assertLegionPhaseState(raw);
+    cancelLegionSlotBatch(this);
+    this._strategicBattleFailure = null;
     this.engagementFx.reset();
     clearMapPointerClockHold();
     this.engageTransition?.cancel?.();
@@ -420,6 +385,8 @@ const app = {
     this.dispatching = null;
     this.scenarioIdx = idx;
     this.scenario = new Scenario(raw);
+    this._scenarioAssemblyPending = this.scenario;
+    if (this.clock) this.clock.hold = true;
     normalizeDisasterMapObjectState(this.scenario);
     normalizeWeatherCloudState(
       this.scenario,
@@ -432,13 +399,30 @@ const app = {
     this.originalRng ??= createOriginalBattleRng(originalBiosClockFromDate());
     if (rngSnapshot) this.originalRng.restore(rngSnapshot);
     this.activeBattleRng = this.originalRng;
-    const terrainReady = this.world.terrain.loadTerrain().catch((error) => {
-      this.hud?.flashEvent?.("道路資料載入失敗，行軍功能暫停。");
-      globalThis.__dragonDebug?.reportError?.(
-        "strategic map navigation assets failed to load",
-        error,
-      );
+    const loadedScenario = this.scenario,
+      loadedWorld = this.world;
+    let ownedClock = this.clock;
+    const assertCurrentAssembly = () => {
+      if (
+        this.scenario !== loadedScenario ||
+        this.world !== loadedWorld ||
+        this.clock !== ownedClock
+      )
+        throw new DOMException("Scenario assembly superseded", "AbortError");
+    };
+    const terrainReady = loadedWorld.terrain.loadTerrain().catch((error) => {
+      if (this.scenario === loadedScenario) {
+        this.hud?.flashEvent?.("道路資料載入失敗，無法裝配此局。");
+        globalThis.__dragonDebug?.reportError?.(
+          "strategic map navigation assets failed to load",
+          error,
+        );
+      }
+      throw error;
     });
+    // A cold graph cannot restore 0C/0E; never clear their input before ready.
+    await terrainReady;
+    assertCurrentAssembly();
     cmd.initPlayer(this.scenario); // ★原版剧本头FF=未指定→默认势力0/信赖100
     if (initializeDiplomacy) initializeStrategicDiplomacy(this);
     this.gamebar?.setDefaultSelFaction(); // 小地图默认查看第一个非玩家势力
@@ -502,6 +486,8 @@ const app = {
       },
       onDay: null,
     });
+    ownedClock = this.clock;
+    this.clock.hold = true; // this load owns the hold until its final ready barrier
     this.clock.day = Math.min(this.clock.day, this.clock.daysInMonth);
     this.clock.sub = Math.max(
       0,
@@ -532,7 +518,12 @@ const app = {
     }
     this.view.draw();
     this.checkTrustGameOver(); // 读入 trust=0 的坏档也立即进入结束画面
-    return Promise.all([terrainReady, seasonReady]);
+    const ready = await Promise.all([terrainReady, seasonReady]);
+    assertCurrentAssembly();
+    this._scenarioAssemblyPending = null;
+    if (this.gamebar) this.gamebar.syncClock();
+    else this.clock.hold = !this.runtimeEnabled;
+    return ready;
   },
 
   /** 按调用顺序写入玩家浏览器的 IndexedDB；服务端不接收任何存档。 */
@@ -570,12 +561,13 @@ const app = {
   async loadSave(slotIdx) {
     const sv = this.saves?.slots.find((s) => s.slot === slotIdx);
     if (!sv?.played || !sv.state) return false;
-    // 深拷贝: 游玩会改写 state(军团移动/死亡), 保留原始存档以便重复读档
-    const state = applyWebMetaToState(structuredClone(sv.state), sv.webMeta);
-    this.loadedSaveSlot = slotIdx;
+    // Reject old/invalid phases before changing the scene, RNG or slot.
+    // Restoration deep-clones; playing never mutates the stored snapshot.
+    const state = restoreSnapshotState(sv);
     await this.loadState(state, sv.scenario_idx, {
       rngSnapshot: sv.webMeta?.originalRng ?? null,
     });
+    this.loadedSaveSlot = slotIdx;
     this._lastLoadedSaveLabel = sv.label;
     return true;
   },

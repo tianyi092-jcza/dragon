@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
+import { initializeFactionLegionCounts } from "../web/src/game/legioncounts.js";
 
 let data;
 try {
@@ -17,6 +19,9 @@ const { aiTick, buildArmies, tickStrategicCity } = await import(
 
 // 官方第一章（合集中索引16）：吕布首都79，边境城76邻接曹操88/74。
 const sc = structuredClone(data.scenarios[16]);
+initializeLegionSlotState(sc);
+initializeFactionLegionCounts(sc);
+sc.weatherClouds = [];
 sc.player_faction = 0;
 sc.citiesOf = (idx) => sc.cities.filter((city) => city.faction === idx);
 buildArmies(sc);
@@ -65,15 +70,24 @@ legion.targetCity = border.idx;
 legion.targetNode = border.idx;
 legion.roadEdgeOrNode = border.idx * 8;
 legion.commandState = 0;
-legion.cooldown = 0;
-for (let index = 0; index < 4; index++) {
-  aiTick(app, { runCityDaily: false, settleDaily: false });
+for (let action = 0; action < 4; action++) {
+  const visits = legion.moveDelay || 256;
+  for (let visit = 0; visit < visits; visit++) {
+    aiTick(app, {
+      runCityDaily: false,
+      settleDaily: false,
+      legionBatchStart: Math.floor(legion.slot / 16) * 16,
+    });
+    assert.equal(app._strategicBattleFailure, undefined);
+  }
 }
 assert.equal(legion.commandState, 0);
 assert.equal(legion.target, border);
 
 // 玩家边境空城仅发TALK38式通用消息，并以该城自己的24..39轮询冷却去重。
 const playerSc = structuredClone(data.scenarios[16]);
+initializeLegionSlotState(playerSc);
+initializeFactionLegionCounts(playerSc);
 playerSc.player_faction = 13;
 playerSc.citiesOf = (idx) =>
   playerSc.cities.filter((city) => city.faction === idx);
@@ -113,6 +127,8 @@ assert.equal(messages.length, 1);
 // 0x3FA9的0xFE威胁标记看任一正式交战邻国，不依赖玩家势力+0x19目标。
 // AI向玩家宣战时0x35AB明确不写玩家目标，仍必须触发无守军边城TALK38。
 const untargetedPlayerSc = structuredClone(data.scenarios[16]);
+initializeLegionSlotState(untargetedPlayerSc);
+initializeFactionLegionCounts(untargetedPlayerSc);
 untargetedPlayerSc.player_faction = 13;
 untargetedPlayerSc.citiesOf = (idx) =>
   untargetedPlayerSc.cities.filter((city) => city.faction === idx);
@@ -144,8 +160,8 @@ assert.equal(
   "无战略目标但存在交战邻城时只写运行态bit7",
 );
 
-// 0x407A：弱城请求数为所有交战邻城(运行态强度+1)之和+2-local。
-// 本城1军、一个空敌城时应请求2军；以调用次数而非最终成功数锁住+1语义。
+// 3FFF/407A：CH只累计敌邻城缓存，不含候选记录的+1。
+// 本城1军、一个空敌城应请求0+2-1=1军。
 const raw = new Uint8Array(0x20);
 raw[0] = 1;
 raw[0x1c] = 1;
@@ -176,7 +192,7 @@ const weakSc = {
       reserve_inf: 1000,
       legion_morale_cap: 200,
     },
-    { idx: 1, active: true, capital: 1 },
+    { idx: 1, active: true, capital: 1, n_legions: 0 },
   ],
   diplomacy: [
     [0xff, 0],
@@ -208,20 +224,27 @@ const weakSc = {
       ability: { force: 14 },
     },
   ],
-  legions: [
-    {
-      slot: 0,
-      leader: "守將",
-      faction: 0,
-      x: 10,
-      y: 10,
-      troops: 100,
-      morale: 200,
-      units: [{ type: 1, troops: 1000 }],
-      _active: true,
-    },
-  ],
+  legions: [],
 };
+initializeLegionSlotState(weakSc);
+weakSc.legions.push({
+  slot: 0,
+  generalIdx: 0,
+  status: 0xc4,
+  moveDelay: 1,
+  movePeriod: 3,
+  leader: "守將",
+  faction: 0,
+  x: 10,
+  y: 10,
+  troops: 100,
+  morale: 200,
+  units: [1, 4, 4, 4, 4, 4].map((type) => ({
+    type,
+    troops: type === 1 ? 1000 : 0,
+  })),
+  _active: true,
+});
 // 0x4028的空城分支在4057目标选择前即调用40C9：战略目标被财政
 // 调度暂时清空也不能阻止AI为交战空边城编成；40B3仍记该请求城。
 const untargetedAiSc = structuredClone(weakSc);
@@ -246,17 +269,51 @@ assert.equal(
   "40C9被城冷却短路时40B3仍必须记录AI请求城",
 );
 
+// 敌邻城一军时请求1+2-1=2，保留同次请求多军编成与逐军计数覆盖。
+const multiSc = structuredClone(weakSc);
+multiSc.factions[1].n_legions = 1;
+multiSc.legions.push({
+  slot: 10,
+  faction: 1,
+  status: 0xc4,
+  moveDelay: 1,
+  movePeriod: 3,
+  x: 20,
+  y: 10,
+  troops: 600,
+  morale: 200,
+  units: [1, 1, 3, 3, 2, 2].map((type) => ({ type, troops: 1000 })),
+  _active: true,
+});
+assert.equal(
+  tickStrategicCity(
+    {
+      scenario: multiSc,
+      originalRng: { nextByte: () => 0 },
+    },
+    0,
+  ),
+  true,
+);
+assert.equal(multiSc.factions[0].n_legions, 3);
+assert.deepEqual(
+  multiSc.legions
+    .filter((item) => item.slot === 1 || item.slot === 2)
+    .map((item) => item.leader),
+  ["強將", "次將"],
+);
+
 const weakApp = { scenario: weakSc, originalRng: { nextByte: () => 0 } };
 assert.equal(tickStrategicCity(weakApp, 0), true);
-assert.equal(weakSc.legions.length, 3, "一个空敌邻城应使弱城请求两支援军");
+assert.equal(weakSc.legions.length, 2, "空敌邻城不额外增加一支援军请求");
 assert.equal(
   weakSc.factions[0].n_legions,
-  3,
+  2,
   "4575在同一弱城请求内每成功编成一军都递增势力军团计数",
 );
 assert.deepEqual(
   weakSc.legions.slice(1).map((item) => item.leader),
-  ["強將", "次將"],
+  ["強將"],
   "编成按武力降序选择，不得君主特判",
 );
 
@@ -291,40 +348,47 @@ assert.deepEqual(
         target_faction: 1,
         capital: 0,
         strategic_city_primary: 99,
+        n_legions: 3,
       },
-      { idx: 1, active: true, capital: 1 },
+      { idx: 1, active: true, capital: 1, n_legions: 4 },
     ],
     diplomacy: [
       [0xff, 0],
       [0, 0xff],
     ],
-    legions: [
-      ...Array.from({ length: 3 }, (_, index) => ({
-        slot: index,
-        status: 0xc4,
-        faction: 0,
-        x: 10,
-        y: 10,
-        troops: 600,
-        morale: 200,
-        units: [],
-        commandState: 1,
-        _active: true,
-      })),
-      ...Array.from({ length: 4 }, (_, index) => ({
-        slot: 10 + index,
-        status: 0xc4,
-        faction: 1,
-        x: 20,
-        y: 10,
-        troops: 600,
-        morale: 200,
-        units: [],
-        commandState: 1,
-        _active: true,
-      })),
-    ],
+    legions: [],
   };
+  initializeLegionSlotState(sortieSc);
+  sortieSc.legions.push(
+    ...Array.from({ length: 3 }, (_, index) => ({
+      slot: index,
+      status: 0xc4,
+      moveDelay: 1,
+      movePeriod: 3,
+      faction: 0,
+      x: 10,
+      y: 10,
+      troops: 600,
+      morale: 200,
+      units: [1, 1, 3, 3, 2, 2].map((type) => ({ type, troops: 1000 })),
+      commandState: 1,
+      _active: true,
+    })),
+    ...Array.from({ length: 4 }, (_, index) => ({
+      slot: 10 + index,
+      status: 0xc4,
+      moveDelay: 1,
+      movePeriod: 3,
+      faction: 1,
+      x: 20,
+      y: 10,
+      troops: 600,
+      morale: 200,
+      units: [1, 1, 3, 3, 2, 2].map((type) => ({ type, troops: 1000 })),
+      commandState: 1,
+      _active: true,
+    })),
+  );
   const sortieRngBytes = [1, 1, 1];
   let sortieRngCalls = 0;
   assert.equal(
@@ -362,6 +426,60 @@ assert.deepEqual(
     99,
     "4099正常出击只清城冷却，不得调用40B3覆盖编成请求城",
   );
+
+  // 418A：第一个未随机跳过的槽不合格，也耗掉唯一机会。
+  for (const blocked of [{ commandState: 8 }, { status: 0xc0 }]) {
+    const probe = structuredClone(sortieSc);
+    for (const item of probe.legions) delete item.target;
+    Object.assign(probe.legions[0], blocked);
+    const bytes = [1, 0x80];
+    let calls = 0;
+    tickStrategicCity(
+      {
+        scenario: probe,
+        originalRng: {
+          nextByte: () => {
+            assert.ok(calls < bytes.length);
+            return bytes[calls++];
+          },
+        },
+      },
+      0,
+    );
+    assert.equal(calls, 2);
+    assert.equal(
+      probe.legions.some((item) => item.target),
+      false,
+    );
+  }
+
+  // 405D在4073/408F/40C9之前；玩家最后一军绝不落入4155，
+  // NPC弱城即使冷却未过，也必须消费候选选择字节。
+  for (const player of [true, false]) {
+    const probe = structuredClone(sortieSc);
+    probe.legions = [probe.legions[0]];
+    probe.factions[0].n_legions = 1;
+    probe.factions[1].n_legions = 0;
+    delete probe.legions[0].target;
+    probe.player_faction = player ? 0 : 9;
+    probe.cities[0]._aiCooldown = 5;
+    let calls = 0;
+    tickStrategicCity(
+      {
+        scenario: probe,
+        originalRng: {
+          nextByte: () => {
+            calls++;
+            return 1;
+          },
+        },
+      },
+      0,
+    );
+    assert.equal(calls, 1);
+    assert.equal(probe.legions[0].target, undefined);
+    assert.equal(probe.legions.length, 1);
+  }
 }
 
 // 0x1D0B固定先跑0x3EFD据点AI、后跑0x25A3军团槽；0x5358月结
@@ -418,7 +536,7 @@ assert.deepEqual(
         reserve_inf: 100,
         legion_morale_cap: 200,
       },
-      { idx: 1, active: true, capital: 1 },
+      { idx: 1, active: true, capital: 1, n_legions: 0 },
     ],
     diplomacy: [
       [0xff, 0],
@@ -442,46 +560,54 @@ assert.deepEqual(
         ability: { force: 15 },
       },
     ],
-    legions: [
-      {
-        slot: 0,
-        leader: "敗軍將",
-        generalIdx: 0,
-        status: 0xc4,
-        faction: 0,
-        x: 0,
-        y: 0,
-        prevX: 0,
-        prevY: 0,
-        troops: 275,
-        morale: 142,
-        units: [
-          { type: 1, troops: 500 },
-          { type: 1, troops: 450 },
-          { type: 3, troops: 450 },
-          { type: 3, troops: 450 },
-          { type: 2, troops: 450 },
-          { type: 2, troops: 450 },
-        ],
-        _active: true,
-        target: capital,
-        targetCity: 2,
-        targetNode: null,
-        roadEdgeOrNode: null,
-        commandState: 9,
-        delegated: true,
-      },
-    ],
+    legions: [],
     delayedLegionReturns: [],
     pendingStrategicEvents: [],
     citiesOf(factionIdx) {
       return this.cities.filter((city) => city.faction === factionIdx);
     },
   };
-  aiTick(
-    { scenario: prioritySc, originalRng: { nextByte: () => 0 } },
-    { cityIndex: 0, legionBatchStart: 0, settleDaily: false },
-  );
+  initializeLegionSlotState(prioritySc);
+  prioritySc.legions.push({
+    slot: 0,
+    moveDelay: 1,
+    movePeriod: 3,
+    leader: "敗軍將",
+    generalIdx: 0,
+    status: 0xc4,
+    faction: 0,
+    x: 0,
+    y: 0,
+    prevX: 0,
+    prevY: 0,
+    troops: 275,
+    morale: 142,
+    units: [
+      { type: 1, troops: 500 },
+      { type: 1, troops: 450 },
+      { type: 3, troops: 450 },
+      { type: 3, troops: 450 },
+      { type: 2, troops: 450 },
+      { type: 2, troops: 450 },
+    ],
+    _active: true,
+    target: capital,
+    targetCity: 2,
+    targetNode: 2,
+    roadEdgeOrNode: 16,
+    commandState: 9,
+    delegated: true,
+  });
+  const priorityApp = {
+    scenario: prioritySc,
+    originalRng: { nextByte: () => 0 },
+  };
+  aiTick(priorityApp, {
+    cityIndex: 0,
+    legionBatchStart: 0,
+    settleDaily: false,
+  });
+  assert.equal(priorityApp._strategicBattleFailure, undefined);
   assert.equal(prioritySc.legions.length, 2);
   assert.equal(prioritySc.legions[1].leader, "新軍將");
   assert.equal(prioritySc.legions[1].troops, 300);

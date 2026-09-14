@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 globalThis.window = {};
 globalThis.fetch = async (url) => {
@@ -52,15 +53,17 @@ const legion = (leader, generalIdx, faction, x) => ({
   morale: 200,
   units: unitSet(),
   status: 0x80,
+  moveDelay: 1,
+  movePeriod: 3,
   _active: true,
 });
 
 const cities = [city(0, 0, 10), city(1, 1, 20), city(2, 2, 30)];
 cities[1].governor = 5;
 const factions = [
-  { idx: 0, capital: 0, monarch_idx: 0, active: true },
-  { idx: 1, capital: 1, monarch_idx: 1, active: true },
-  { idx: 2, capital: 2, monarch_idx: 4, active: true },
+  { idx: 0, capital: 0, monarch_idx: 0, active: true, n_legions: 1 },
+  { idx: 1, capital: 1, monarch_idx: 1, active: true, n_legions: 1 },
+  { idx: 2, capital: 2, monarch_idx: 4, active: true, n_legions: 0 },
 ];
 const generals = [
   { idx: 0, name: "攻", faction: 0, active: true, status: 1 },
@@ -92,8 +95,14 @@ const generals = [
   { idx: 4, name: "原", faction: 2, active: true, status: 0 },
   { idx: 5, name: "政", faction: 1, active: true, status: 2 },
   { idx: 6, name: "使", faction: 1, active: true, status: 3 },
-];
+].map((general) => ({
+  attr: 0x80,
+  captive_flag: 0xff,
+  origFaction: null,
+  ...general,
+}));
 factions[1].diplomat_idx = 6;
+const initialSeed = structuredClone({ cities, factions, generals });
 const attacker = legion("攻", 0, 0, 20);
 const fieldGeneralLegion = legion("軍", 2, 1, 50);
 const sc = {
@@ -101,7 +110,7 @@ const sc = {
   cities,
   factions,
   generals,
-  legions: [attacker, fieldGeneralLegion],
+  legions: [],
   diplomacy: [
     [0xff, 0, 0x80],
     [0, 0xff, 0x80],
@@ -111,6 +120,8 @@ const sc = {
     return this.cities.filter((candidate) => candidate.faction === faction);
   },
 };
+initializeLegionSlotState(sc);
+sc.legions.push(attacker, fieldGeneralLegion);
 const messages = [];
 const app = {
   scenario: sc,
@@ -127,6 +138,12 @@ applyBattleResult(
   "atk",
   300,
   [50, 50, 50, 50, 50, 50],
+  null,
+  null,
+  null,
+  null,
+  null,
+  { oldFaction: 1, defenders: [] }, // Slot 2 is elsewhere, not in this city's BP group.
 );
 assert.equal(factions[1].dead, true);
 assert.equal(generals[1].status, 4);
@@ -147,31 +164,40 @@ assert.deepEqual(
   [
     ["extinction-governor-return", 68, 0x1a6],
     ["extinction-diplomat-return", 69, 0x1a7],
-    ["postbattle-captured", 34, 0x19a],
+    ["postbattle-captured", 34, 0x19a], // Monarch 1.
+    ["postbattle-captured", 34, 0x19a], // Governor 5: 4D7E cleared +17.
+    ["postbattle-captured", 34, 0x19a], // Envoy 6: 5091 cleared +17.
     ["faction-extinction", 36, undefined],
   ],
   "0x4D63/TALK68先于0x5074/TALK69和逐将，TALK36最后",
 );
+// With explicit +1D=FF, 5014/5023/5030 send all three idle officers to 29C3.
+assert.deepEqual(
+  messages
+    .filter((message) => message.kind === "postbattle-captured")
+    .map((message) => message.gen.idx),
+  [1, 5, 6],
+);
 
 // 静态0x4D63/0x5074均无玩家门控：AI攻AI最后据点也必须产生TALK68/69链。
 {
-  const aiCities = [city(0, 0, 10), city(1, 1, 20), city(2, 2, 30)];
-  aiCities[1].governor = 5;
-  const aiFactions = structuredClone(factions).map((faction) => ({
-    ...faction,
-    dead: false,
-    _extinctionHandled: false,
-  }));
-  const aiGenerals = structuredClone(generals);
-  aiFactions[1].diplomat_idx = 6;
-  aiCities[2].faction = 2;
+  const {
+    cities: aiCities,
+    factions: aiFactions,
+    generals: aiGenerals,
+  } = structuredClone(initialSeed);
+  assert.equal(aiFactions[1].active, true);
+  assert.equal(aiFactions[1].capital, 1);
+  assert.equal(aiFactions[1].n_legions, 1);
+  assert.deepEqual([aiGenerals[5].faction, aiGenerals[5].status], [1, 2]);
+  assert.deepEqual([aiGenerals[6].faction, aiGenerals[6].status], [1, 3]);
   const aiAttacker = legion("攻", 0, 0, 20);
   const aiScenario = {
     player_faction: 2,
     cities: aiCities,
     factions: aiFactions,
     generals: aiGenerals,
-    legions: [aiAttacker],
+    legions: [],
     diplomacy: [
       [0xff, 0, 0x80],
       [0, 0xff, 0x80],
@@ -181,6 +207,8 @@ assert.deepEqual(
       return this.cities.filter((candidate) => candidate.faction === faction);
     },
   };
+  initializeLegionSlotState(aiScenario);
+  aiScenario.legions.push(aiAttacker, legion("軍", 2, 1, 50));
   const aiMessages = [];
   applyBattleResult(
     {
@@ -194,6 +222,12 @@ assert.deepEqual(
     "atk",
     300,
     [50, 50, 50, 50, 50, 50],
+    null,
+    null,
+    null,
+    null,
+    null,
+    { oldFaction: 1, defenders: [] },
   );
   assert.deepEqual(
     aiMessages.slice(0, 2).map((message) => message.talkIndex),

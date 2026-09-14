@@ -1,35 +1,14 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import net from "node:net";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { startBrowserTestServer } from "./browser_test_server.mjs";
 
 const require = createRequire(import.meta.url);
 const playwrightPath =
   process.env.PLAYWRIGHT_MODULE ||
   "C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright";
 const { chromium } = require(playwrightPath);
-const repo = fileURLToPath(new URL("../", import.meta.url));
-
-function getFreePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      server.close(() => resolve(address.port));
-    });
-    server.on("error", reject);
-  });
-}
-
-const port = await getFreePort();
-const server = spawn(
-  "python",
-  [path.join(repo, "tools", "webserver.py"), String(port)],
-  { stdio: "ignore" },
-);
-await new Promise((resolve) => setTimeout(resolve, 600));
+const server = await startBrowserTestServer();
+const { port } = server;
 
 let browser;
 try {
@@ -37,6 +16,11 @@ try {
   const context = await browser.newContext({
     viewport: { width: 1024, height: 768 },
   });
+  // Weather-only fixture: an already-seen opening in this new isolated context.
+  // Do not start/cancel an unrelated MP3 download or suppress request failures.
+  await context.addInitScript(() =>
+    sessionStorage.setItem("wolong.intro.seen.v1", "1"),
+  );
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
@@ -51,11 +35,6 @@ try {
 
   await page.goto(`http://127.0.0.1:${port}/index.html`);
   await page.waitForFunction(() => !!window.__app?.startMenu?._onClick);
-  await page.evaluate(() => {
-    sessionStorage.setItem("openPlayed", "1");
-    window.__app?.openView?.finish?.();
-  });
-
   async function clickAndRebind(x, y) {
     for (let attempt = 0; attempt < 4; attempt++) {
       await page.evaluate(() => {
@@ -406,5 +385,5 @@ try {
   );
 } finally {
   await browser?.close();
-  server.kill();
+  await server.close();
 }

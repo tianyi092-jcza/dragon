@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { cityDaily } from "../web/src/game/ai.js";
 import {
   applyWebMetaToState,
+  restoreSnapshotState,
   snapshotState,
 } from "../web/src/game/savegame.js";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 import {
   normalizeDisasterMapObjectState,
   tickStrategicWeather,
@@ -119,13 +121,14 @@ function fireObject(extra = {}) {
   const strategicEventSlots = Array(256).fill(null);
   strategicEventSlots[9] = removal;
   const scenario = {
-    factions: [{ idx: 0 }],
+    factions: [{ idx: 0, n_legions: 0 }],
     cities: [{ idx: 0, disaster_event: 7 }],
     generals: [],
     legions: [],
     disasterMapObjects: slots,
     strategicEventSlots,
   };
+  initializeLegionSlotState(scenario);
   const saved = snapshotState(
     {
       scenario,
@@ -141,6 +144,11 @@ function fireObject(extra = {}) {
     calls: 9,
   });
 
+  const roundTrip = restoreSnapshotState(saved);
+  assert.equal(roundTrip.disasterMapObjects[5].frame, 6);
+  assert.deepEqual(roundTrip.strategicEventSlots[9], removal);
+  assert.equal(roundTrip.cities[0].disaster_event, 7);
+  // Independently retain the sidecar helper's reconstruction coverage.
   const restored = structuredClone(saved.state);
   restored.disasterMapObjects = [];
   restored.strategicEventSlots = [];

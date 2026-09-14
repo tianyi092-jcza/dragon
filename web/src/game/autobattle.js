@@ -106,11 +106,23 @@ export function selectPrimaryLegion(sc, candidates) {
       (left?.slot ?? left?._runtimeId ?? 0x7fff) -
       (right?.slot ?? right?._runtimeId ?? 0x7fff),
   )) {
-    if (!legion || legion.dead || legion.faction == null) continue;
-    const troops = Math.max(0, legion.troops | 0) >> 4;
-    const morale = Math.max(0, legion.morale ?? 200) >> 4;
-    const rating = (battleRating(generalOf(sc, legion)) >> 4) + 1;
-    const score = troops * morale * rating;
+    if (
+      !legion ||
+      legion.dead ||
+      legion._active === false ||
+      legion.faction == null ||
+      (legion.status ?? 0x80) < 0x80 ||
+      (Number.isInteger(legion.slot) && (legion.slot < 0 || legion.slot >= 127))
+    )
+      continue;
+    // 4CC3覆盖AH，随后MUL AH只读AL；4CD0按军团槽而非+2主将取+1F。
+    const troops = ((legion.troops & 0xffff) >> 4) & 0xff;
+    const morale = clampByte(legion.morale ?? 200) >> 4;
+    const general = Number.isInteger(legion.slot)
+      ? sc.generals?.[legion.slot]
+      : generalOf(sc, legion); // 仅无槽旧Web夹具兼容
+    const rating = ((battleRating(general) & 0xff) >> 4) + 1;
+    const score = (troops * morale * rating) & 0xffff;
     if (score > best) {
       best = score;
       selected = legion;
@@ -127,7 +139,7 @@ export function baseArmyPower(legion, mode, cityDefence = 0) {
     weighted += unit.troops * row[(unit.type - 1) & 3];
   }
   if ((mode | 0) === 0) weighted += Math.max(0, cityDefence | 0);
-  return (clampByte(legion?.morale ?? 200) >> 3) * weighted;
+  return ((clampByte(legion?.morale ?? 200) >> 3) * weighted) & 0xffff;
 }
 
 /** 0x52D7：武力、统率和对应战斗专长修正。 */
@@ -147,7 +159,8 @@ export function commanderPower(sc, legion, mode, basePower, rng) {
   else if ((nextByte(rng) & 3) === 0) command = force + lead - (force >> 2);
   else command = force * 2;
 
-  const modifier = Math.floor((command << 4) / Math.max(1, 16 - specialty));
+  // 52EB..5304的运算目标CH为byte，溢出不能带入后面的word除法。
+  const modifier = Math.floor(((command & 0xff) << 4) / (16 - specialty));
   // 0x52D7: 16位 MUL 后把 DX:AX 的字节重排为乘积>>8，再做两次
   // SHR DX/RCR AX，恰好等于无符号32位乘积>>10，返回低16位DX。
   const product =
@@ -160,7 +173,10 @@ function casualtyState(legion) {
   return {
     beforeUnits,
     units: beforeUnits.map((unit) => ({ ...unit })),
-    oldTotal: beforeUnits.reduce((sum, unit) => sum + unit.troops, 0),
+    // 5249/524C换出旧+4作为士气除数，不由六队重新推导旧总兵。
+    oldTotal: Number.isFinite(legion?.troops)
+      ? legion.troops & 0xffff
+      : beforeUnits.reduce((sum, unit) => sum + unit.troops, 0),
   };
 }
 
@@ -176,7 +192,7 @@ function finishCasualties(legion, state, weakSide) {
   let morale = 0;
   if (state.oldTotal > 0 && oldMorale >= 100) {
     const moraleBase = weakSide ? 100 : oldMorale;
-    morale = Math.floor((moraleBase * troops) / state.oldTotal);
+    morale = Math.floor((moraleBase * troops) / state.oldTotal) & 0xff;
   }
   return { ...state, troops, morale };
 }
@@ -195,8 +211,10 @@ export function resolveStrategicBattle(
   const defBase = baseArmyPower(defender, mode, cityDefence);
   // 0x5130只在攻城时把攻方第一次0x5285兵种权重行临时改为3；
   // 随后0x52D7仍以原始战型0调用，攻守双方均读取攻城专长。
-  const atkScore = commanderPower(sc, attacker, mode, atkBase, rng) + 8;
-  const defScore = commanderPower(sc, defender, mode, defBase, rng) + 8;
+  const atkScore =
+    (commanderPower(sc, attacker, mode, atkBase, rng) + 8) & 0xffff;
+  const defScore =
+    (commanderPower(sc, defender, mode, defBase, rng) + 8) & 0xffff;
   const winner = atkScore >= defScore ? "atk" : "def";
   const strong = Math.max(atkScore, defScore);
   const weak = Math.max(1, Math.min(atkScore, defScore));
@@ -209,14 +227,15 @@ export function resolveStrategicBattle(
   const loserState = winner === "atk" ? defenceState : attackState;
   for (let index = 0; index < UNIT_COUNT; index++) {
     applyUnitLoss(winnerState, index, (nextByte(rng) & 7) + 2);
-    applyUnitLoss(loserState, index, (nextByte(rng) % (ratio + 1)) + 8);
+    // 51F5仅初始化一次CH；521D在循环内INC CH，除数依次ratio+1..+6。
+    applyUnitLoss(loserState, index, (nextByte(rng) % (ratio + index + 1)) + 8);
   }
   const attack = finishCasualties(attacker, attackState, winner !== "atk");
   const defence = finishCasualties(defender, defenceState, winner !== "def");
   return { winner, ratio, atkScore, defScore, attack, defence };
 }
 
-/** 0x51B3：城战每轮按兵力差距损伤城兵、上升率和防灾，最低归零。 */
+/** 0x51B3：每场城战在六队伤亡循环前扣一次城兵、上升率和防灾。 */
 export function applySiegeCityDamage(city, ratio) {
   // 16位代码在byte AH中相减后做逻辑右移；ratio>0x3F时按u8回绕。
   const damage = ((0x3f - (ratio | 0)) & 0xff) >> 2;

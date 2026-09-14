@@ -35,6 +35,11 @@ import {
 import { isLegionDelegated, setLegionDelegated } from "../game/legionmode.js";
 import { canSnapshotState } from "../game/savegame.js";
 import {
+  bindLegionSlotCounter,
+  resetLegionActionPhase,
+} from "../game/legionphase.js";
+import { countLegionActivation } from "../game/legioncounts.js";
+import {
   DEFAULT_LEGION_UNIT_TYPES,
   ensureLegionSlot,
   LEGION_RESERVE_FIELD_BY_TYPE,
@@ -70,6 +75,7 @@ import {
   resolveIncomingDiplomacyChoice,
   resolveStrategicNegotiation,
   settleFactionNegotiation,
+  settleArrivedLegionCommand,
 } from "../game/ai.js";
 
 const FONT = `${POPUP_FONT_PX}px "Noto Serif TC","PMingLiU",serif`;
@@ -1255,13 +1261,17 @@ export class GameBar {
     legion.target = targetCity;
     legion.targetCity = targetCity.idx;
     legion.targetNode = roadNodeAt(targetCity.x, targetCity.y)?.id ?? null;
-    // 0x7F90→0x4155：玩家普通行军指示建立新的常规命令；不能保留
-    // 战后状态8，否则返都后会先长期等待士气而跳过0x4370低兵补员门。
+    // 7FDB writes +0B=1 without changing +1E/+03. 7FB4 immediately calls
+    // 4325 (not through the slot gate), then 7FB7 sets bit1. 4548 resolves
+    // the new target coordinates/node even when the legion has not arrived.
+    legion.targetX = targetCity.x;
+    legion.targetY = targetCity.y;
     legion.commandState = 0;
-    legion.status = (legion.status ?? 0x80) | 0x02;
     delete legion._aiOrdered;
     setLegionDelegated(legion, delegated);
-    legion.cooldown = 1;
+    legion.moveDelay = 1;
+    settleArrivedLegionCommand(this.app.scenario, legion);
+    legion.status |= 0x02;
     return true;
   }
 
@@ -2549,7 +2559,6 @@ export class GameBar {
             commandState: 0,
             status: 0x80,
             delegated: false,
-            cooldown: 0,
             _active: true,
             units: DEFAULT_LEGION_UNIT_TYPES.map((type) => ({
               type,
@@ -2557,6 +2566,9 @@ export class GameBar {
             })),
           };
           ensureLegionSlot(sc.legions, newLegion, p.monarch.idx);
+          bindLegionSlotCounter(sc, newLegion);
+          resetLegionActionPhase(newLegion); // 6A03→6E8F→6FD2.
+          countLegionActivation(sc, newLegion);
           sc.legions.push(newLegion);
           this.app.hud.refreshInfo?.();
           this.app.hud.flashEvent(
@@ -4170,9 +4182,11 @@ export class GameBar {
       message.gen,
     );
     delete first.personalitySelector;
+    delete first.onComplete;
     this._strategicMessageQueue.push(first);
+    let last = first;
     if (personalityIndex != null) {
-      this._strategicMessageQueue.push({
+      last = {
         type: "talk-message",
         gen: message.gen,
         talkIndex: personalityIndex,
@@ -4182,7 +4196,17 @@ export class GameBar {
         extraStr: message.extraStr,
         cityName: message.cityName,
         kind: `${message.kind ?? "talk"}-personality`,
-      });
+      };
+      this._strategicMessageQueue.push(last);
+    }
+    // onClose retains its existing first-message contract. A rule caller
+    // waiting for the entire TALK + personality sequence uses onComplete.
+    if (typeof message.onComplete === "function") {
+      const onClose = last.onClose;
+      last.onClose = () => {
+        onClose?.();
+        message.onComplete();
+      };
     }
     this._drainStrategicMessages();
   }
@@ -5015,7 +5039,6 @@ export class GameBar {
       commandState: 0,
       status: 0x80,
       delegated: false,
-      cooldown: 0,
       _active: true,
       units: units.map((u) => ({
         type: FORMATION_TYPE_TO_LEGION_TYPE[u.type],
@@ -5023,6 +5046,9 @@ export class GameBar {
       })),
     };
     ensureLegionSlot(sc.legions, newLegion, gen.idx);
+    bindLegionSlotCounter(sc, newLegion);
+    resetLegionActionPhase(newLegion); // Final six types, 6CDA→6FD2.
+    countLegionActivation(sc, newLegion);
     sc.legions.push(newLegion);
 
     // 5. 弹出编成对白（选句索引见075B；quoteForFormation回退策略未证全等）
@@ -6070,7 +6096,12 @@ export class GameBar {
       modalOpen ||
       subActive ||
       this.app.mapPointerHold === true ||
-      !!this.app._strategicCityRequest;
+      this.app.runtimeEnabled === false ||
+      !!this.app._scenarioAssemblyPending ||
+      !!this.app._strategicCityRequest ||
+      !!this.app._legionSlotBatch ||
+      !!this.app._strategicBattleFailure ||
+      !!this.app.endView?.active;
   }
 
   /** 军师一级菜单条仅遮挡自身640×48区域；同高度的左右地图仍可交互。 */

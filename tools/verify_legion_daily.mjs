@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 // Browser-only sound routines are inert in Node.
 globalThis.window = {};
@@ -206,6 +207,7 @@ const slotFaction = {
   reserve_cav: 50,
   reserve_inf: 0,
   reserve_arc: 0,
+  n_legions: 2,
 };
 const earlySlotLegion = {
   slot: 2,
@@ -232,13 +234,32 @@ const slotApp = {
   scenario: {
     factions: [slotFaction],
     cities: [slotCapital],
-    legions: [lateSlotLegion, earlySlotLegion],
+    legions: [],
     generals: [],
     pendingStrategicEvents: [],
     delayedLegionReturns: [],
   },
 };
-aiTick(slotApp);
+initializeLegionSlotState(slotApp.scenario);
+for (const record of [earlySlotLegion, lateSlotLegion]) {
+  Object.assign(record, {
+    status: 0xc4,
+    moveDelay: 1,
+    movePeriod: 3,
+    commandState: 9,
+    target: slotCapital,
+    targetCity: 0,
+    targetNode: 0,
+    roadEdgeOrNode: 0,
+  });
+}
+slotApp.scenario.legions.push(lateSlotLegion, earlySlotLegion);
+aiTick(slotApp, {
+  runCityDaily: false,
+  settleDaily: true,
+  legionBatchStart: 0,
+});
+assert.equal(slotApp._strategicBattleFailure, undefined);
 assert.deepEqual(
   earlySlotLegion.units.slice(0, 2).map((unit) => unit.troops / 10),
   [75, 75],
@@ -250,30 +271,95 @@ assert.deepEqual(
   "较晚军团槽只能使用前槽结算后的剩余预备池",
 );
 assert.equal(slotFaction.reserve_cav, 0);
+// Deliberate raw input: type4 still has 50 troops in each of four teams.
+// 472B/46DA skip these bytes; 6FE9 nevertheless includes them in the total.
+assert.equal(earlySlotLegion.troops, 350);
+assert.equal(lateSlotLegion.troops, 300);
+assert.equal(
+  slotFaction.gold,
+  979,
+  "node costs are floor(350/32)+1 then floor(300/32)+1",
+);
+assert.equal(earlySlotLegion.moveDelay, 1);
+assert.equal(lateSlotLegion.moveDelay, 1);
 
 // 交互战斗在0x2662等价更新中暂停日调度；0x2600必须延迟到战果回写之后。
 const deferredFaction = {
   idx: 0,
+  active: true,
+  n_legions: 1,
   gold: 1000,
   money: 1000,
   legion_morale_cap: 200,
 };
 const deferredLegion = {
+  slot: 0,
+  status: 0xa4,
   faction: 0,
+  moveDelay: 1,
+  movePeriod: 3,
+  commandState: 0,
+  x: 10,
+  y: 10,
+  target: { x: 20, y: 20 },
   troops: 100,
   morale: 100,
   _active: true,
-  _march: { edgeId: 3 },
+  _march: { edgeId: 3, pointIndex: 0, points: [{ x: 11, y: 10 }] },
+  _engagement: { kind: "field", target: { x: 11, y: 10, faction: 1 } },
   units: units([1, 1, 2, 2, 3, 3], [20, 20, 15, 15, 15, 15]),
 };
 const deferredApp = {
-  scenario: { factions: [deferredFaction], legions: [deferredLegion] },
-  _legionDailySettlementDeferred: true,
+  scenario: {
+    player_faction: 0,
+    cities: [],
+    generals: [],
+    legions: [],
+    factions: [deferredFaction, { idx: 1, active: true, n_legions: 1 }],
+    diplomacy: [
+      [255, 0],
+      [0, 255],
+    ],
+  },
+  playDelegatedEngage() {
+    this.engageTransition = { active: true };
+    return true; // real contact suspension; battle output below is explicit test input
+  },
 };
-// 模拟战果把军团留在节点且兵力降到32，再执行战术回调中的延迟日结。
+initializeLegionSlotState(deferredApp.scenario);
+deferredApp.scenario.legionSlotCounters[0] = 1;
+deferredApp.scenario.legions.push(deferredLegion, {
+  slot: 17,
+  status: 0x80,
+  faction: 1,
+  x: 11,
+  y: 10,
+  moveDelay: 2,
+  movePeriod: 3,
+});
+aiTick(deferredApp, {
+  runCityDaily: false,
+  settleDaily: true,
+  legionBatchStart: 0,
+});
+assert.equal(deferredApp._strategicBattleFailure, undefined);
+assert.equal(deferredApp.engageTransition?.active, true);
+assert.equal(
+  deferredFaction.gold,
+  1000,
+  "current daily phase is still pending",
+);
+// Explicit post-action data, not a claim that a real field battle moves to a node.
+// Check that resumption reads these new fields instead of the pre-action snapshot.
 deferredLegion._march = null;
+deferredLegion.roadEdgeOrNode = 0;
 deferredLegion.troops = 32;
+deferredLegion.status &= ~0x20;
+deferredLegion.engagementCountdown = 0;
+deferredLegion._engagement = null;
+deferredApp.engageTransition.active = false;
 assert.equal(finishDeferredLegionDaily(deferredApp), true);
+assert.equal(deferredApp._strategicBattleFailure, undefined);
 assert.equal(deferredFaction.gold, 998, "异步战果后按新总兵和节点状态结算");
 assert.equal(deferredFaction.money, 998);
 assert.equal(deferredLegion.morale, 110);

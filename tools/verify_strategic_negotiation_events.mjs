@@ -8,8 +8,10 @@ import {
 } from "../web/src/game/ai.js";
 import {
   applyWebMetaToState,
+  restoreSnapshotState,
   snapshotState,
 } from "../web/src/game/savegame.js";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 function scenarioFixture() {
   const slots = Array(256).fill(null);
@@ -184,6 +186,9 @@ assert.deepEqual(legacySidecarState.strategicEventSlots[1], {
 });
 
 const saveSc = scenarioFixture();
+// New empty snapshot fixture; the legacy queue-only helper cases above stay unversioned.
+initializeLegionSlotState(saveSc);
+for (const faction of saveSc.factions) faction.n_legions = 0;
 saveSc.strategicEventSlots[37] = { type: 7, arg0: 1, arg1: 2 };
 saveSc.strategicEventSlots[38] = {
   type: 1,
@@ -212,10 +217,7 @@ assert.equal(
   ),
   false,
 );
-const restored = applyWebMetaToState(
-  structuredClone(saved.state),
-  saved.webMeta,
-);
+const restored = restoreSnapshotState(saved);
 assert.deepEqual(restored.strategicEventSlots[37], {
   type: 7,
   arg0: 1,

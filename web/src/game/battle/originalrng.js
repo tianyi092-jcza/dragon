@@ -39,21 +39,25 @@ export class OriginalBattleRng {
 
   /** 复刻 0xEC82。clock 对应 DOS int 1Ah/AH=2 的 CH、CL、DH。 */
   seed({ ch = 0, cl = 0, dh = 0 } = {}) {
+    // EC B3/B5只在循环外令DX=秒字节+1。FF不是合法RTC秒值，
+    // 会越过256B表进入后继代码；不为这种输入伪造第257字节洗牌。
+    if (byte(dh) === 0xff)
+      throw new RangeError("original RNG seed seconds must not be 0xff");
     for (let index = 0; index < BYTE_COUNT; index++) this.table[index] = index;
+    // 第257项仅为旧Web快照形状兼容；原版EC82只初始化/洗牌256B。
     this.table[BYTE_COUNT] = 0;
 
     const al = byte(dh + cl + (byte(ch) << 2));
     let bl = byte(dh);
-    let ah = 0;
-    do {
-      // 原版在 bl==0xFF 时令 dx=0x0100，因此会与表尾的额外字节交换。
-      const next = bl === 0xff ? BYTE_COUNT : bl + 1;
+    let dl = bl + 1;
+    for (let count = 0; count < BYTE_COUNT; count++) {
+      // ECB6..ECCE：先交换，再分别递增BL(+4F)和DL(+89)。
       const value = this.table[bl];
-      this.table[bl] = this.table[next];
-      this.table[next] = value;
+      this.table[bl] = this.table[dl];
+      this.table[dl] = value;
       bl = byte(bl + 0x4f);
-      ah = byte(ah - 1);
-    } while (ah !== 0);
+      dl = byte(dl + 0x89);
+    }
 
     this.addend = al;
     this.index = byte(al ^ bl);

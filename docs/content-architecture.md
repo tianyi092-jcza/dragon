@@ -38,6 +38,8 @@
 | `world/road-cost.bin`、`road-offset.json` | 现有格网回退与表现偏移的兼容资源，不以此替代权威道路图 |
 | `provenance.json` | 首次导入输入哈希，仅作来源追踪，不是机制证明或运行依赖 |
 
+P24的原tag槽、成本byte、flags/bbox候选v2与原图字节重建见[行军§3.6](re-notes-march-pathfinding.md#36-p24图字节重建与默认图条件队列界)。`createCheckedOriginalRoadMemory`已提供记录/互反槽结构检查，但不是完整世界校验或任意地图容量证明；编译器与生产加载器仍只接现有v1，候选尚未发布。不得先换运行权重，再以旧近似AI继续运行来冒充原搜索接线。
+
 ### 章节兼容区不是编辑权威
 
 - 章节的`state`中不含城/势力`raw`。已知数值、名称、人物、四邻`connections`等直接作为命名字段编辑；世界坐标由世界定义注入。
@@ -81,8 +83,8 @@ python -B tools/import_builtin_content.py --output /path/to/new-source
 | `src/content/catalog.js` | 加载目录/运行模板；`packId/chapterId/revision`查询及旧索引映射，不修改存档 |
 | `src/content/worlddefinition.js` | 当前世界资源URL/尺寸及明确的原版布局常量；不是“所有常量都换length” |
 | `src/game/worldresources.js` | 工厂创建每世界独立道路/地形缓存；App装配默认实例 |
-| `src/game/navigation/roadgraph.js` | 原道路算法与该实例索引/加载缓存，保持搜索顺序与地址换算 |
-| `src/game/navigation/pathfinder.js` | 原格网回退算法与该实例地形/成本/偏移缓存 |
+| `src/game/navigation/roadgraph.js` | 现有道路索引/加载缓存与旧近似路由，不代表原491B搜索已接线 |
+| `src/game/navigation/pathfinder.js` | Web格网回退与该实例地形/成本/偏移缓存，不是原战略道路寻径 |
 | `src/game/roadgraph.js`、`pathfind.js` | 旧API门面，统一指向默认世界，便于渐进迁移调用方 |
 | `src/game/playerqueries.js` | 两个纯玩家身份查询，解除commands↔diplomacy循环 |
 | `src/game/legacyrecords.js` | 原记录字节兼容读取；保留原初始/运行字段选择，不悄悄修机制 |

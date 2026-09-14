@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 globalThis.window = {};
 globalThis.fetch = async (url) => {
@@ -27,18 +28,24 @@ await loadTerrain();
 
 const makeLegion = (leader, faction, troops, x, y) => ({
   leader,
+  slot: faction,
+  generalIdx: faction,
   faction,
   troops,
   morale: 200,
   status: 0x80,
   _active: true,
-  units: [{ type: 1, troops: troops * 10 }],
+  units: Array.from({ length: 6 }, (_, index) => ({
+    type: index === 0 ? 1 : 4,
+    troops: index === 0 ? troops * 10 : 0,
+  })),
   x,
   y,
   prevX: 0,
   prevY: 0,
   target: { idx: 1 },
-  cooldown: 0,
+  moveDelay: 1,
+  movePeriod: 3,
   _markerFrame: faction ? 0 : 1,
   _march: { points: [{ x: 11, y: 20 }] },
   _engagement: { kind: "field", countdown: 1 },
@@ -54,8 +61,8 @@ const app = {
       { idx: 1, name: "乙", faction: 1, status: 1, battle_rating: 0 },
     ],
     factions: [
-      { idx: 0, capital: 0, monarch_idx: 0 },
-      { idx: 1, capital: 1, monarch_idx: 1 },
+      { idx: 0, capital: 0, monarch_idx: 0, n_legions: 1 },
+      { idx: 1, capital: 1, monarch_idx: 1, n_legions: 1 },
     ],
     cities,
     prisoners: [],
@@ -70,6 +77,7 @@ const app = {
     },
   },
 };
+initializeLegionSlotState(app.scenario);
 const A = makeLegion("甲", 0, 100, 257, 9);
 const D = makeLegion("乙", 1, 100, 255, 9);
 const route = findRoadRoute(257, 9, 246, 15);
@@ -125,11 +133,13 @@ assert.equal(A.dead, undefined);
 assert.equal(D.dead, undefined);
 assert.equal(app.scenario.prisoners.length, 0);
 assert.equal(
-  A.cooldown,
-  0,
+  A.moveDelay,
+  1,
   "0x474A→0x6FD2 writes +0x0B=1, so the winner acts on its next slot without a Web pause",
 );
-assert.equal(D.cooldown, 0);
+assert.equal(D.moveDelay, 1);
+assert.equal(A.movePeriod, 3);
+assert.equal(D.movePeriod, 3);
 assert.equal(A.commandState, 8);
 assert.equal(D.commandState, 10);
 assert.equal(D.target.idx, 1);
@@ -145,9 +155,12 @@ for (const legion of [A, D]) {
   assert.equal(legion.prevY, legion.y);
 }
 const winnerBefore = { x: A.x, y: A.y };
+// Isolate the surviving winner's next action; status is the slot admission byte.
+D.status = 0;
 D.dead = true;
 D._active = false;
-aiTick(app, { runCityDaily: false, settleDaily: false });
+aiTick(app, { runCityDaily: false, settleDaily: false, legionBatchStart: 0 });
+assert.equal(app._strategicBattleFailure, undefined);
 assert.notDeepEqual(
   { x: A.x, y: A.y },
   winnerBefore,

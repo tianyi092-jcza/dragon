@@ -12,18 +12,22 @@ import {
 } from "./diplomacy.js";
 import { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 import { cityRawBytes, factionRawByte } from "./legacyrecords.js";
+import { countLegionActivation, countLegionRemoval } from "./legioncounts.js";
 import { findPath, terrainTile } from "./pathfind.js";
 import {
   findRoadRoute,
   reverseRoadMarchContext,
   roadApproachesAt,
   roadEdgeById,
+  roadEdgeRawAddress,
+  roadPointRawAddress,
   roadGraphReady,
   roadNodeAt,
   roadNodeById,
   roadNodeIdFromRaw,
   roadNodeRawAddress,
   restoreRoadMarchContext,
+  serializeRoadMarchContext,
 } from "./roadgraph.js";
 import { warnSfx } from "../core/speaker.js";
 import {
@@ -49,6 +53,17 @@ import {
   LEGION_RESERVE_FIELD_BY_TYPE,
 } from "./legionunits.js";
 import { personalityTalkIndex } from "./talk.js";
+import { LegionSlotBatch } from "./legionscheduler.js";
+import { captureLegionContinuation } from "./legioncontinuation.js";
+import { holdFailedStrategicUpdate } from "./strategicfailure.js";
+import {
+  bindLegionSlotCounter,
+  bindLegionReturnCounter,
+  projectEngagementCounter,
+  legionSlotCounter,
+  resetLegionActionPhase,
+  finishLegionSlotTail,
+} from "./legionphase.js";
 import {
   applyDisasterDamageToCity,
   normalizeDisasterMapObjectState,
@@ -96,7 +111,7 @@ function blockedAt(sc, A, x, y) {
   return false;
 }
 
-// SINARIO 文件不包含运行时军团表；新游戏必须以空军团表开始。
+// 已核五库20章 SINARIO 含全零军团表；新游戏没有初始活动军团（全链P24）。
 // 这里只为真实 SAVE 军团和游玩期间新建军团分配 Web 运行时身份。
 function nextRuntimeLegionId(sc) {
   sc._nextRuntimeLegionId = (sc._nextRuntimeLegionId ?? 0) + 1;
@@ -110,17 +125,20 @@ function attachRuntimeLegion(
   legions = sc.legions,
 ) {
   ensureLegionSlot(legions, legion, preferredSlot);
+  bindLegionSlotCounter(sc, legion);
   legion._runtimeId = nextRuntimeLegionId(sc);
   return legion;
 }
 
 export function buildArmies(sc) {
   sc._nextRuntimeLegionId = 0;
+  for (const record of sc.delayedLegionReturns ?? []) {
+    bindLegionReturnCounter(sc, record);
+  }
   // ★只归一化真实运行时军团数据（SAVE 槽文件 0x22C0 区）。
   // parse_sinario.py 明确输出 legions=[]；新游戏不得在首都合成占位军团。
   if (sc.legions && sc.legions.length) {
     for (const L of sc.legions) {
-      L.cooldown ??= 0;
       const faction = sc.factions.find(
         (candidate) => candidate.idx === L.faction,
       );
@@ -129,22 +147,16 @@ export function buildArmies(sc) {
       attachRuntimeLegion(sc, L, L.slot ?? L.idx);
       // 旧 Web snapshot 可能只有 delegated 布尔值；必须先迁移，再补默认 status。
       isLegionDelegated(L);
-      L.status ??= 0x80;
-      L._active = true;
-      // 读盘目标先解析成scenario city。0x8CFF原样保存+0A/+0C/+0E；
-      // 优先按E717地址布局恢复当前边，只有无效字段才退回目标重寻路。
+      L._active = L.status >= 0x80;
+      // Rebind the Web entity reference without recreating original fields.
+      // Explicit road fields are retained; invalid ones are not a new route.
       if (L.target && L.target.idx != null)
         L.target = sc.cities[L.target.idx] ?? null;
       else if (L.target) L.target = null;
-      // 运行态统一使用road graph node id；原始SAVE的+0x14是node*8地址。
-      // 目标城坐标是权威边界，可消除id恰为8的倍数时的歧义。
-      const savedTargetCity =
-        L.target ??
-        (Number.isInteger(L.targetCity) ? sc.cities[L.targetCity] : null);
-      const savedTargetNode = savedTargetCity
-        ? savedTargetCity.idx
-        : rawRoadNodeId(L.targetNode);
-      if (savedTargetNode != null) L.targetNode = savedTargetNode;
+      // Runtime targetNode is a graph id. Do not reinterpret multiples of 8
+      // as DOS addresses, or overwrite independent 14 from targetCity (20).
+      // 4502..4547 can leave 14 != 20; preserve the known value, including 0.
+      // Missing fields / legacy DOS conversion require their own input contract.
       const savedCurrentNode = rawRoadNodeId(L.roadEdgeOrNode);
       const savedMarch = restoreRoadMarchContext({
         x: L.x,
@@ -195,29 +207,9 @@ export function buildArmies(sc) {
     for (const L of sc.legions) {
       // SAVE军团 status bit5/+3只确认上一轮仍接触；不存在战型位。
       // 保留pending到+0B轮询到期，仿0x25CC→0x2662现场重检。
-      if (L._engagement) {
-        // 原始导入/新快照保留相位；兼容旧解析器已有的64B raw镜像。
-        for (const [field, offset] of [
-          ["moveDelay", 0x0b],
-          ["movePeriod", 0x1e],
-        ]) {
-          if (Number.isInteger(L[field]) || typeof L.raw !== "string") continue;
-          const value = Number.parseInt(
-            L.raw.slice(offset * 2, offset * 2 + 2),
-            16,
-          );
-          if (Number.isInteger(value)) L[field] = value;
-        }
-        L.status |= ENGAGE_STATUS_ACTIVE;
-        L.engagementCountdown = Math.max(
-          1,
-          Math.min(ENGAGE_COUNTDOWN, L._engagement.countdown | 0),
-        );
-        L._engagement.countdown = L.engagementCountdown;
-      } else {
-        L.status &= ~ENGAGE_STATUS_ACTIVE;
-        L.engagementCountdown = null;
-      }
+      // Fixed-slot +03 and named +0B/+1E are already restored. Neither
+      // stale raw input nor a presentation object may reset those bytes.
+      if (L._engagement) projectEngagementCounter(L);
       const f = sc.factions.find((f) => f.idx === L.faction);
       // SAVE军团leader可能仍是武将序号；旧Web快照若只有显示名，必须
       // 在任何slot兼容处理之前按姓名恢复权威+2主将索引。
@@ -233,7 +225,10 @@ export function buildArmies(sc) {
           L.y = cap.y;
         }
       }
-      if (!L._march) markLegionAtRoadNode(L, roadNodeAt(L.x, L.y)?.id);
+      // An explicit 0E survives reconstruction, including node zero. A
+      // coordinate-derived cache must not overwrite a saved edge or node.
+      if (L.roadEdgeOrNode == null)
+        markLegionAtRoadNode(L, roadNodeAt(L.x, L.y)?.id);
       L.prevX = L.x;
       L.prevY = L.y;
       L._markerFrame ??= 4;
@@ -330,9 +325,15 @@ function legionFaction(sc, legion) {
 }
 
 function legionAtTargetNode(sc, legion) {
-  // 有实体目标时坐标是权威判据。道路边内的roadEdgeOrNode/currentNode
-  // 仍可能保存某个端点；若目标坐标尚未抵达，不能仅因节点号相同就
-  // 提前执行0x4325，否则战败撤退会在据点前清掉_retreat并永久停住。
+  // 2662 cannot enter the node command branch while authoritative 0E is an edge.
+  if (
+    Number.isInteger(legion?.roadEdgeOrNode) &&
+    legion.roadEdgeOrNode >= 0x800
+  )
+    return false;
+  // Remaining Web target binding: an entity target still uses coordinates.
+  // This is NOT the complete original 0E==14 contract; reconciling 14/20
+  // and its callers remains pending (march notes §5.5).
   if (legion?.target) {
     return legion.target.x === legion.x && legion.target.y === legion.y;
   }
@@ -340,9 +341,9 @@ function legionAtTargetNode(sc, legion) {
     return sc.cities.some((city) => city.x === legion.x && city.y === legion.y);
   }
   const currentNode =
-    legion?._march?.currentNode ??
+    rawRoadNodeId(legion?.roadEdgeOrNode) ??
     legion?._currentNode ??
-    roadNodeIdFromRaw(legion?.roadEdgeOrNode);
+    legion?._march?.currentNode;
   return Number.isInteger(currentNode) && legion.targetNode === currentNode;
 }
 
@@ -355,7 +356,7 @@ function legionCommandHandlerIndex(sc, legion, state = legion?.commandState) {
   return state < 8 && legion.faction !== sc.player_faction ? state + 4 : state;
 }
 
-function settleArrivedLegionCommand(sc, legion, rng = null) {
+export function settleArrivedLegionCommand(sc, legion, rng = null) {
   if (!legionAtTargetNode(sc, legion)) return false;
   const faction = legionFaction(sc, legion);
   if (!faction) return false;
@@ -402,7 +403,9 @@ function settleArrivedLegionCommand(sc, legion, rng = null) {
       }
       const aliased = state5AliasedByte(sc, targetCity);
       if (targetAttr < 0x80 || aliased > 2) {
-        legion.cooldown = ((rng?.nextByte?.() ?? 0) & 7) + 1;
+        if (!rng?.nextByte)
+          throw new TypeError("legion command requires canonical RNG");
+        legion.moveDelay = (rng.nextByte() & 7) + 1;
         legion.commandState = 2;
         return true;
       }
@@ -578,7 +581,6 @@ function formAiReinforcements(app, faction, city, requested) {
       troops: 0,
       units: types.map((type) => ({ type, troops: 0 })),
       morale: factionLegionMoraleCap(faction),
-      cooldown: 0,
       status: 0xc4,
       delegated: true,
       _active: true,
@@ -589,18 +591,12 @@ function formAiReinforcements(app, faction, city, requested) {
       commandState: 0,
     };
     attachRuntimeLegion(sc, legion, general.idx);
+    countLegionActivation(sc, legion); // 6EB6→6F26, before 461D/6FD2.
     sc.legions.push(legion);
     general.status = 1;
     replenishLegionAtCapital(sc, legion);
-    if (legion.troops <= 0) {
-      sc.legions.pop();
-      general.status = 0;
-      break;
-    }
-    // 0x6E8F increments faction[+0x14] for every successful formation;
-    // 0x4575 may loop and form more than one legion in this same request.
-    faction.n_legions =
-      (Number.isInteger(faction.n_legions) ? faction.n_legions : current) + 1;
+    resetLegionActionPhase(legion); // 6EBC→6FD2, including no-change output.
+    // 6EC4 returns success: there is no post-6FD2 zero-total rollback.
     legion.target = city;
     legion.targetCity = city.idx;
     legion.targetNode = roadNodeAt(city.x, city.y)?.id ?? null;
@@ -654,8 +650,13 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
     isAtWar(sc, city.faction, neighbour.faction),
   );
   const localStrength = cityLocalStrength(sc, city);
+  // 3FFF只累加非中立敌邻城的+18；候选记录另存的+1不进入CH。
+  // cityLocalStrength的即时计数仍是待移植的占格缓存寿命差异，见AI逆向笔记。
   const threatTotal = hostileNeighbours.reduce(
-    (sum, neighbour) => sum + cityLocalStrength(sc, neighbour) + 1,
+    (sum, neighbour) =>
+      neighbour.faction === 0x18
+        ? sum
+        : (sum + cityLocalStrength(sc, neighbour)) & 0xff,
     0,
   );
   const targetIdx = faction.target_faction;
@@ -741,7 +742,8 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
     city._aiCooldown = Math.min(
       0x1e,
       Math.floor(
-        (Math.abs(city.x - capital.x) + Math.abs(city.y - capital.y)) / 8,
+        // 4137实指令第二项也减首都X，不可按直觉改为Y。
+        (Math.abs(city.x - capital.x) + Math.abs(city.y - capital.x)) / 8,
       ),
     );
   };
@@ -761,26 +763,28 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
   // target candidate; the prior empty-city 4028 path deliberately did not.
   if (targetIdx == null || targetIdx === 0xff || !candidates.length)
     return false;
-  if (localStrength <= 1 && city.faction !== sc.player_faction) {
-    // 407A computes CH+2-local and passes it to 40C9/4575; 40B3 still runs
-    // for cooldown/capacity failures.
+  const rng = app.originalRng ?? app.activeBattleRng;
+  // 405D先消费候选选择RNG；4073之后才判断弱城、冷却和玩家分支。
+  const rawChoice = (rng?.nextByte?.() ?? 0) & 3;
+  // 此取模只认证1..3候选/明确哨兵；四候选填满的原始栈边界仍未知。
+  // 完整差异及来源：docs/re-notes-npc-strategy.md §6，不能视作全AI等价。
+  const target = candidates[((rawChoice || 0x100) - 1) % candidates.length];
+  if (localStrength <= 1) {
+    // 407A byte ADD后SUB/JBE；408F令玩家弱城直接返回，不落入出击。
+    const requested = ((threatTotal + 2) & 0xff) - localStrength;
+    if (requested <= 0 || city.faction === sc.player_faction) return false;
+    // 40B3仍在40C9冷却/编成失败后执行。
     if ((city._aiCooldown ?? 0) > 0) {
       rememberFormationRequest();
       return false;
     }
-    const requested = Math.max(0, threatTotal + 2 - localStrength);
     const formed = formAiReinforcements(app, faction, city, requested);
     rememberFormationRequest();
     if (formed > 0) applyFormationCooldown();
     return formed > 0;
   }
-  const rng = app.originalRng ?? app.activeBattleRng;
-  // 0x405D..0x4073：RNG低2位按候选记录循环递减，命中时AL恒为0；
-  // 因此目标下标是(raw-1) mod 候选数，raw=0会按u8下溢为255。
-  const rawChoice = (rng?.nextByte?.() ?? 0) & 3;
-  const target = candidates[((rawChoice || 0x100) - 1) % candidates.length];
-  // 0x4099..0x4155：AL=0会先改成1，故本轮只会写一军团目标。
-  // 4155以DH=本城运行态兵力-1扫描128个槽。每个同节点活动槽在
+  // 0x4099..0x4155：AL=0会先改成1，本轮只有一次机会（未必写目标）。
+  // 4155以DH=本城占格缓存-1按40h扫描，无显式槽上界。每个同节点活动槽在
   // DH尚非0时先消费RNG；低于40h便DH--并跳过该槽，甚至还没测试
   // 委任bit。不能把这个随机筛选误写成“多支派遣时才掷骰”。
   let remaining = 1;
@@ -801,12 +805,14 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
       precedingLocalSlots--;
       continue;
     }
-    if (!isLegionDelegated(legion) || (legion.commandState ?? 0) >= 8) continue;
-    legion.target = target;
-    legion.targetCity = target.idx;
-    legion.targetNode = roadNodeAt(target.x, target.y)?.id ?? null;
-    legion._aiOrdered = true;
-    legion.commandState = 0;
+    if (isLegionDelegated(legion) && (legion.commandState ?? 0) < 8) {
+      legion.target = target;
+      legion.targetCity = target.idx;
+      legion.targetNode = roadNodeAt(target.x, target.y)?.id ?? null;
+      legion._aiOrdered = true;
+      legion.commandState = 0;
+    }
+    // 418A：非随机跳过的匹配槽即使资格不符，也消耗唯一DL机会。
     remaining--;
   }
   // 0x4099→0x4155 normal sortie only clears this city's +857. It does not
@@ -818,11 +824,8 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
 function clearMarchNavigation(A) {
   A._march = null;
   A._path = null;
-  // SAVE 的 +0A/+0C/+0E 只用于恢复当前道路边；重建导航前先清旧值，
-  // 真正抵达节点后再由markLegionAtRoadNode写回新的+0x0E节点地址。
-  delete A.roadStride;
-  delete A.roadPointAddress;
-  delete A.roadEdgeOrNode;
+  // Invalidate projections, NOT original fields. 27B5 writes the new 0E
+  // without clearing 0A/0C; capture/extinction also must retain known residue.
   delete A._currentNode;
   delete A._ptx;
   delete A._pty;
@@ -851,7 +854,6 @@ function markLegionAtRoadNode(legion, nodeId) {
 function clearEngagement(A) {
   A._engagement = null;
   A.status = (A.status ?? 0x80) & ~ENGAGE_STATUS_ACTIVE;
-  A.engagementCountdown = null;
 }
 
 function numericUnitSurvivors(unitSurvivors) {
@@ -922,16 +924,13 @@ function settleFieldLegion(
   // 撤退目标，无法继续时由0x291A清退；不能在统一战果回写中先清目标。
   if (!won) legion.target = null;
   legion._aiOrdered = false;
-  // 0x474A入口先调用0x6FD2，后者在0x701D把+0x0B写为1；下一次
-  // 0x25C1由1减至0后会在同一军团槽立即执行0x2662。Web在动作前
-  // 检查cooldown，因此等价值必须是0，不能写8而凭空停顿多个槽。
-  legion.cooldown = 0;
   legion._markerFrame = 4;
   clearEngagement(legion);
-  clearMarchNavigation(legion);
+  // Do not erase +0E here: a failed continuation still reaches this
+  // entered slot's 2600 with the original road/node and surviving troops.
   if (won && activeMarch) {
     // 0x4A7B胜方仍在原边上继续其据点命令；保留目标却丢掉当前边同样
-    // 会令非节点坐标下一轮无法寻路。败方则由0x474A另写撤退导航。
+    // 会令非节点坐标下一轮无法寻路。败方也保留当前边，仅改即时退点。
     legion._march = activeMarch;
     legion._path = activeMarch.points
       .slice(activeMarch.pointIndex ?? 0)
@@ -1069,43 +1068,14 @@ function retreatRouteToFriendlyCity(sc, legion) {
 }
 
 function assignRetreatRoute(legion, retreat, captorFaction) {
-  legion.status = (legion.status ?? 0x80) | 0x82;
-  legion._active = true;
+  legion.status |= 0x02;
   legion.target = retreat.city;
   legion.targetCity = retreat.city.idx;
   legion.targetNode = retreat.node?.id ?? null;
-  legion.moveDelay = 1;
-  // 边内战败时当前位置不是道路节点，stepRoadGraph无法从坐标重新寻路。
-  // 0x487B已经给出沿当前边退到己方端点的点列，必须直接恢复为活动
-  // _march；此前只写_path却把_march置空，下一tick会立即blocked并进入
-  // 0x291A，或被清目标后卡成据点前不可点击的驻止标识。
-  const points = (retreat.points ?? []).map((point) => ({ ...point }));
-  while (points.length && points[0].x === legion.x && points[0].y === legion.y)
-    points.shift();
-  // 0x487B只改+0x14/+0x20/status/+0x23，不改+0x10/+0x12；败军仍由
-  // 后续0x25A3→0x2662→0x2708逐个边点移动。端点节点必须由stepRoadGraph
-  // 的0x27A2对应分支在下一槽切换，不能把节点中心塞进points造成整段瞬移。
-  while (
-    retreat.node &&
-    points.length &&
-    points.at(-1).x === retreat.node.x &&
-    points.at(-1).y === retreat.node.y
-  )
-    points.pop();
-  legion._march = points.length
-    ? {
-        targetX: retreat.city.x,
-        targetY: retreat.city.y,
-        targetNode: retreat.node?.id ?? null,
-        currentNode: null,
-        edgeId: retreat.edgeId ?? null,
-        stride: 0,
-        toNode: retreat.node?.id ?? null,
-        points,
-        pointIndex: 0,
-      }
-    : null;
-  legion._path = points.map((point) => ({ ...point }));
+  // 474E→6FD2 already wrote +0B=1. 4780/4789/478C change only the
+  // destination and bit1: preserve the CURRENT +0A/+0C/+0E, not a new
+  // stride=0 retreat path. The next due 26A5→47BB chooses direction.
+  // In particular, this battle's 2600 and snapshot still read the old edge.
   legion.commandState = 8;
   legion._battleRoadContext = null;
   legion._retreat = {
@@ -1118,12 +1088,13 @@ function assignRetreatRoute(legion, retreat, captorFaction) {
 
 /** KI.EXE 0x474A：重算可战状态，败方尽量写入撤退路线。 */
 export function continueLegionAfterBattle(sc, legion, won) {
-  const units = Array.isArray(legion.units) ? legion.units : [];
+  // 474E→6FD2 writes the action phase BEFORE either failure gate.
+  ensureLegionUnits(legion);
+  resetLegionActionPhase(legion);
+  const units = legion.units;
   const firstUnit = Math.floor((units[0]?.troops ?? legion.troops * 10) / 10);
   if ((legion.morale ?? 0) === 0 || firstUnit === 0) return false;
 
-  legion.status = (legion.status ?? 0x80) | 0x80;
-  legion._active = true;
   if (won) {
     legion.commandState = 8;
     return true;
@@ -1181,23 +1152,21 @@ function enqueuePostbattleFateTalk(
 
 function disbandLegionForReturn(sc, legion, captorFaction, app = null) {
   const general = generalForLegion(sc, legion);
-  sc.delayedLegionReturns ??= [];
-  sc.delayedLegionReturns.push({
-    slot: legion.slot ?? legion.idx ?? general?.idx ?? null,
-    leader: legion.leader,
-    generalIdx: general?.idx ?? null,
-    faction: legion.faction,
-    countdown: 0x30,
-  });
-  legion.status = 0;
+  bindLegionReturnCounter(sc, legion);
+  sc.delayedLegionReturns = (sc.delayedLegionReturns ?? []).filter(
+    (record) => record.slot !== legion.slot,
+  );
+  sc.delayedLegionReturns.push(legion);
+  // 2990/2993 only write status=08 and +03=48. Keep this SAME record
+  // for a current active slot tail and for the original captured BP list.
+  legion.status = 8;
+  legion.engagementCountdown = 0x30;
+  countLegionRemoval(sc, legion); // 2997→4689, after the status/03 writes.
   legion._active = false;
   legion.dead = true;
-  legion.target = null;
   legion._retreat = null;
-  legion.cooldown = 0;
   legion._markerFrame = 4;
   clearEngagement(legion);
-  clearMarchNavigation(legion);
   enqueuePostbattleFateTalk(
     app,
     general,
@@ -1242,16 +1211,25 @@ function settleCapturedGeneral(app, sc, general, oldFaction, captorFaction) {
   return "captured";
 }
 
-function captureOrEliminateLegion(sc, legion, captorFaction, app = null) {
-  const general = generalForLegion(sc, legion);
-  const oldFaction = legion.faction;
+// 29D4/29E2: only an active old slot decrements F14; 29ED clears
+// status unconditionally. Preserve +03 and road data for any current tail.
+function clearCapturedLegionRecord(sc, legion) {
+  if (legion.status >= 0x80) countLegionRemoval(sc, legion);
   legion.status = 0;
   legion._active = false;
   legion.dead = true;
   legion.target = null;
   legion._retreat = null;
   clearEngagement(legion);
-  clearMarchNavigation(legion);
+  sc.delayedLegionReturns = (sc.delayedLegionReturns ?? []).filter(
+    (record) => record.slot !== legion.slot,
+  );
+}
+
+function captureOrEliminateLegion(sc, legion, captorFaction, app = null) {
+  const general = generalForLegion(sc, legion);
+  const oldFaction = legion.faction;
+  clearCapturedLegionRecord(sc, legion);
   if (!general) return "captured";
   return settleCapturedGeneral(app, sc, general, oldFaction, captorFaction);
 }
@@ -1264,7 +1242,10 @@ export function dispatchLegionFate(
   rng = null,
   app = null,
 ) {
-  if (legion.dead || legion._active === false) return "ignored";
+  // 291A/291F: an inactive BP-list member returns before any RNG/write.
+  // Keep this raw status gate; dead/_active are only Web projections.
+  if (legion.status < 0x80) return null;
+  bindLegionSlotCounter(sc, legion);
   const general = generalForLegion(sc, legion);
   const faction = sc.factions.find(
     (candidate) => candidate.idx === legion.faction,
@@ -1289,42 +1270,39 @@ export function dispatchLegionFate(
     : captureOrEliminateLegion(sc, legion, captorFaction, app);
 }
 
-function tickDelayedLegionReturns(sc, processedSlots = null) {
-  const remaining = [];
-  const completed = [];
-  for (const item of sc.delayedLegionReturns ?? []) {
-    const slot = item.slot ?? item.generalIdx;
-    if (processedSlots && !processedSlots.has(slot)) {
-      remaining.push(item);
-      continue;
-    }
-    item.countdown = Math.max(0, (item.countdown ?? 0) - 1);
-    if (item.countdown > 0) {
-      remaining.push(item);
-      continue;
-    }
-    const general =
-      sc.generals[item.generalIdx] ??
-      sc.generals.find((candidate) => candidate?.name === item.leader);
-    if (general) {
-      general.status = 0;
-      if (!factionIsActive(sc, item.faction)) general.faction = null;
-    }
-    completed.push(item);
+function tickDelayedLegionReturn(app, record) {
+  const sc = app.scenario;
+  record.engagementCountdown = (legionSlotCounter(record) - 1) & 0xff;
+  if (record.engagementCountdown !== 0) return "complete";
+  record.status = 0;
+  sc.delayedLegionReturns = sc.delayedLegionReturns.filter(
+    (item) => item !== record,
+  );
+  const general = sc.generals[record.generalIdx];
+  if (general) {
+    general.status = 0;
+    if (!factionIsActive(sc, record.faction)) general.faction = null;
   }
-  sc.delayedLegionReturns = remaining;
-  return completed;
+  if (record.faction === sc.player_faction && app.gamebar?.enqueueTalkMessage) {
+    const batch = app._legionSlotBatch;
+    const ticket = batch?.ticket;
+    app.gamebar.enqueueTalkMessage({
+      gen: general,
+      talkIndex: 35,
+      generalName: general?.name?.trim?.() || record.leader || "",
+      personalitySelector: 0x198,
+      kind: "postbattle-general-return",
+      onComplete: () => finishDeferredLegionDaily(app, batch, ticket),
+    });
+    return "suspended";
+  }
+  return "complete";
 }
 
 function markerFrameToward(fromX, fromY, toX, toY) {
   if (Math.abs(toX - fromX) >= Math.abs(toY - fromY))
     return toX < fromX ? 0 : 1;
   return toY < fromY ? 2 : 3;
-}
-
-/** 0x6FD2：逐读六队type字节（零兵队也参与），有效军团地址下周期为2/3。 */
-function engagementRoadPeriod(legion) {
-  return ensureLegionUnits(legion).every((unit) => unit.type === 1) ? 2 : 3;
 }
 
 function startEngagement(A, kind, target) {
@@ -1334,16 +1312,12 @@ function startEngagement(A, kind, target) {
   if (nextPoint)
     A._markerFrame = markerFrameToward(A.x, A.y, nextPoint.x, nextPoint.y);
   A.status = (A.status ?? 0x80) | ENGAGE_STATUS_ACTIVE;
-  A.engagementCountdown = ENGAGE_COUNTDOWN - 1;
-  A._engagement = {
-    kind,
-    countdown: A.engagementCountdown, // 0x264A 在首次接触同轮把12立即减为11。
-    target,
-  };
-  // 首次接触来自道路轮询，+0B已重装+1E；本槽只写12并减11，不发ID3。
-  // 此处补齐接战区域的轮询相位，不把普通道路移动调度冒称已完整复刻。
-  A.movePeriod = engagementRoadPeriod(A);
-  A.moveDelay = A.movePeriod;
+  // 2831/2880 compare stored +03 BEFORE the active tail. Reused slots
+  // can have nonzero residuals; only zero starts a new 12-count wait.
+  if (legionSlotCounter(A) === 0) A.engagementCountdown = ENGAGE_COUNTDOWN;
+  A._engagement = { kind, target };
+  projectEngagementCounter(A);
+  // The caller already reloaded +0B before 2662; only 264A decrements +03.
 }
 
 function engagementTarget(sc, engagement) {
@@ -1418,6 +1392,7 @@ function reverseBlockedFinalEdge(sc, A) {
   const reversed = reverseRoadMarchContext(nav, A.x, A.y);
   if (!reversed) return false;
   A._march = reversed;
+  A.roadStride = reversed.stride;
   A._path = reversed.points.slice(reversed.pointIndex);
   // 0x42AB只临时改当前道路端点；玩家/AI最终命令目标仍保留，回到端点后再寻路。
   A.status = (A.status ?? 0x80) | 0x02;
@@ -1426,7 +1401,6 @@ function reverseBlockedFinalEdge(sc, A) {
 
 /** 0x25CC→0x42AB→0x2831/0x2880：每轮实时重检，不锁存首次kind/target。 */
 function currentEngagement(sc, A, countdown) {
-  if (reverseBlockedFinalEdge(sc, A)) return null;
   const nav = A._march;
   const next = nav?.points?.[nav.pointIndex];
   if (next) {
@@ -1453,59 +1427,40 @@ function currentEngagement(sc, A, countdown) {
     : null;
 }
 
-/** 25C1/264A：每槽倒数，只在+0B到期时重检或结算；Web音画由独立表现时钟驱动。 */
+/** Action only: 25A3 owns +0B, and 264A alone owns the slot tail. */
 function advanceEngagement(app, A) {
-  const previous = A._engagement;
-  if (!previous) return false;
-  // 没有raw/相位字段的旧Web快照只能沿用“下一槽重检”的兼容行为；
-  // 不将该迁移入口宣称为可恢复的原版相位。新接触和原始导入均有字段。
-  A.moveDelay = ((A.moveDelay ?? 1) - 1) & 0xff;
-  if (A.moveDelay !== 0) {
-    previous.countdown = Math.max(1, previous.countdown - 1);
-    A.engagementCountdown = previous.countdown;
-    return true;
-  }
-  A.moveDelay = A.movePeriod ?? engagementRoadPeriod(A);
-  const engagement = currentEngagement(
-    app.scenario,
-    A,
-    Math.max(1, previous.countdown ?? A.engagementCountdown ?? 1),
-  );
+  const engagement = currentEngagement(app.scenario, A, legionSlotCounter(A));
   if (!engagement) {
     clearEngagement(A);
-    return false;
+    return "clear";
   }
-  A._engagement = engagement;
-  A.status = (A.status ?? 0x80) | ENGAGE_STATUS_ACTIVE;
+  startEngagement(A, engagement.kind, engagement.target);
+  return resolveEngagementAction(app, A);
+}
+
+function resolveEngagementAction(app, A) {
+  const engagement = A._engagement;
   const target = engagementTarget(app.scenario, engagement);
   if (!target || target.dead) {
     clearEngagement(A);
-    return false;
+    return "clear";
   }
-  if (engagement.countdown > 1) {
-    // 原286C/28B4会请求ID3；用户批准的Web独立音画不在规则轮询中发声。
-    engagement.countdown--;
-    A.engagementCountdown = engagement.countdown;
-    return true;
-  }
-
-  const resolve = () => {
-    // settleFieldLegion必须在clearMarchNavigation之前快照当前道路边；
-    // 若先清接敌（会连同_march清空），边内败军就会在0x487B找不到
-    // 即时己方端点，错误进入0x291A并显示“遭歼灭/被擒”。战果函数
-    // 已负责清双方接敌/导航；这里不能再清一次，以免擦掉新撤退路线。
-    if (engagement.kind === ENGAGE_KIND_FIELD)
-      return resolveFieldBattle(app, A, target);
-    return resolveBattle(app, A, target);
-  };
+  if (legionSlotCounter(A) > 1) return "waiting";
+  const resolve = () =>
+    engagement.kind === ENGAGE_KIND_FIELD
+      ? resolveFieldBattle(app, A, target)
+      : resolveBattle(app, A, target);
   if (
     battleUsesDelegatedPlayer(app.scenario, A, target, engagement.kind) &&
     typeof app.playDelegatedEngage === "function"
   ) {
-    // gate 失败时保留 _engagement，待现有过渡结束后下次 tick 再处理。
-    return app.playDelegatedEngage(A, resolve);
+    if (!app.playDelegatedEngage(A, resolve)) {
+      throw new Error("Delegated battle gate rejected an idle legion batch");
+    }
+    return "suspended";
   }
-  return resolve();
+  // true includes TALK queued before the tactical view becomes active.
+  return resolve() ? "suspended" : "complete";
 }
 
 function rememberMarchBase(sc, A) {
@@ -1555,10 +1510,46 @@ function makeMarchNavigation(sc, A, tx, ty) {
   };
 }
 
+/** Reconcile a view cache before ANY action consumer, without writing 0A/0C/0E. */
+function prepareRoadMarchProjection(A, tx, ty) {
+  if (!roadGraphReady()) return;
+  if (A.roadEdgeOrNode != null && A._march) {
+    // Read-only cache check. Never copy this computed tuple into the record.
+    const projected = serializeRoadMarchContext(A._march);
+    if (
+      projected?.edgeOrNode !== A.roadEdgeOrNode ||
+      projected?.pointAddress !== A.roadPointAddress ||
+      projected?.stride !== A.roadStride
+    )
+      clearMarchNavigation(A);
+  }
+  // A target/scene cache invalidation can leave a valid current edge. Restore
+  // its projection instead of starting node search from a non-node coordinate.
+  if (
+    !A._march &&
+    Number.isInteger(A.roadEdgeOrNode) &&
+    A.roadEdgeOrNode >= 0x800
+  ) {
+    A._march = restoreRoadMarchContext({
+      x: A.x,
+      y: A.y,
+      targetX: tx,
+      targetY: ty,
+      targetNode: A.targetNode,
+      stride: A.roadStride,
+      pointAddress: A.roadPointAddress,
+      edgeOrNode: A.roadEdgeOrNode,
+    });
+    if (!A._march)
+      throw new TypeError("Cannot project explicit legion road fields");
+  }
+}
+
 /** 原版道路边点列推进；返回 moved/arrived/blocked/unavailable。 */
 function stepRoadGraph(sc, A, tx, ty) {
   if (!roadGraphReady()) return "unavailable";
-  if (A.x === tx && A.y === ty) {
+  prepareRoadMarchProjection(A, tx, ty);
+  if (A.x === tx && A.y === ty && !legionOnRoadEdge(A)) {
     clearMarchNavigation(A);
     markLegionAtRoadNode(A, roadNodeAt(A.x, A.y)?.id);
     A.prevX = A.x;
@@ -1567,16 +1558,35 @@ function stepRoadGraph(sc, A, tx, ty) {
     return "arrived";
   }
   if (!A._march) {
+    // Node entry: 26A5 consumes bit1 BEFORE 47BB, including a failed
+    // query. Only a successful node→edge selection reaches 4869's bit0
+    // clear; first-point 2708 must still bypass the departure city tile.
+    A.status &= 0xfd;
     clearMarchNavigation(A);
     rememberMarchBase(sc, A);
     A._march = makeMarchNavigation(sc, A, tx, ty);
     if (!A._march) return "blocked";
-  } else if (A._march.targetX !== tx || A._march.targetY !== ty) {
+    const selectedEdge = roadEdgeById(A._march.edgeId);
+    // 4863/4866/4869/486C: record selection immediately, before the first
+    // candidate contact/commit and before this slot's 2600 daily settlement.
+    A.roadPointAddress = roadPointRawAddress(
+      selectedEdge.id,
+      A._march.stride === 4 ? 0 : selectedEdge.points.length - 1,
+    );
+    A.roadEdgeOrNode = roadEdgeRawAddress(selectedEdge.id);
+    A.status &= 0xfe;
+    A.roadStride = A._march.stride;
+  } else if (
+    A.status & 2 ||
+    A._march.targetX !== tx ||
+    A._march.targetY !== ty
+  ) {
+    A.status &= 0xfd; // 26A5 consumes a reselect request even if projection is fresh.
     const targetNode = roadNodeAt(tx, ty);
     if (!targetNode) return "blocked";
-    // 0x7FB7置status bit1后，0x26A0→0x47BB在当前edge上改向，但保留
-    // +0x0C道路点地址：目标是edge+6端点时stride=-4，其余目标从+8
-    // 端点重寻下一边并令stride=+4。不能清掉edge后从道路点跑节点寻路。
+    // Known divergence (march notes §5.4): 47EA searches BOTH endpoints
+    // for a non-endpoint target. The shortcut
+    // below is not its full contract; 0C must also be preserved by address.
     const edge = roadEdgeById(A._march.edgeId);
     const desiredStride = edge?.source === targetNode.id ? -4 : 4;
     if (
@@ -1587,7 +1597,9 @@ function stepRoadGraph(sc, A, tx, ty) {
       const reversed = reverseRoadMarchContext(A._march, A.x, A.y);
       if (!reversed) return "blocked";
       A._march = reversed;
+      A.roadStride = reversed.stride; // No 0C/0E write on an in-edge turn.
     }
+    A.status |= 1; // 4823/482A (and 4816): an in-edge direction selection.
     A._march.targetX = tx;
     A._march.targetY = ty;
     A._march.targetNode = targetNode.id;
@@ -1669,6 +1681,13 @@ function stepRoadGraph(sc, A, tx, ty) {
   // 仅供Canvas插值判断这次道路单步所属的战略tick；不参与规则或存档。
   A._renderMoveSerial = sc._strategicTickSerial ?? null;
   A._markerFrame = markerFrameToward(A.x, A.y, next.x, next.y);
+  const edge = roadEdgeById(nav.edgeId);
+  const committedIndex =
+    nav.stride === 4 ? nav.pointIndex : edge.points.length - 1 - nav.pointIndex;
+  const committedAddress = roadPointRawAddress(nav.edgeId, committedIndex);
+  if (committedAddress == null)
+    throw new TypeError("Invalid road point commit");
+  A.roadPointAddress = committedAddress; // 276A precedes coordinate writeback.
   A.x = next.x;
   A.y = next.y;
   nav.pointIndex++;
@@ -1758,15 +1777,23 @@ function battleUsesDelegatedPlayer(sc, A, target, kind) {
 export function resolveBattle(app, A, city) {
   const sc = app.scenario;
   const oldFaction = city.faction;
-  const defenders = sc.legions.filter(
-    (legion) =>
-      legion !== A &&
-      !legion.dead &&
-      legion._active !== false &&
-      legion.faction === city.faction &&
-      legion.x === city.x &&
-      legion.y === city.y,
-  );
+  // 4AEC/4AEF precede selection and the opening message. Siege clears
+  // only the attacker; unlike 4AA5..4AAF it does not clear the defender.
+  bindLegionSlotCounter(sc, A);
+  clearEngagement(A);
+  A.engagementCountdown = 0;
+  // 4C72's BP list survives the battle and any primary-defender fate.
+  const defenders = sc.legions
+    .filter(
+      (legion) =>
+        legion.slot >= 0 &&
+        legion.slot < 127 &&
+        legion.status >= 0x80 &&
+        legion.faction === city.faction &&
+        legion.x === city.x &&
+        legion.y === city.y,
+    )
+    .toSorted((left, right) => left.slot - right.slot);
   const primaryDefender = selectPrimaryLegion(sc, defenders);
   const pf = playerFaction(sc);
   const playerAttacker = pf && A.faction === pf.idx;
@@ -1777,7 +1804,11 @@ export function resolveBattle(app, A, city) {
   if (playerControls && app.battleView && !app.battleView.active) {
     // 0x4ED7：攻城战术层开启前先显示TALK27/28；关闭后才进入战场。
     const talkIndex = playerDefender ? 27 : 28;
-    const start = () => app.startBattle(A, city, primaryDefender);
+    const continuation = captureLegionContinuation(app);
+    const start = () => {
+      if (continuation.claim())
+        app.startBattle(A, city, primaryDefender, defenders);
+    };
     if (app.gamebar?.enqueueTalkMessage) {
       app.gamebar.enqueueTalkMessage({
         gen: null,
@@ -1815,6 +1846,7 @@ export function resolveBattle(app, A, city) {
       strategicRng: rng,
       sides: [result.attack, result.defence],
       oldFaction,
+      defenders,
     },
   );
   return false;
@@ -1823,6 +1855,12 @@ export function resolveBattle(app, A, city) {
 export function resolveFieldBattle(app, A, D) {
   if (!D || D.dead) return false;
   const sc = app.scenario;
+  // 4AA5..4AAF: clear the two actual combatants before 4E5C/TALK29.
+  for (const legion of [A, D]) {
+    bindLegionSlotCounter(sc, legion);
+    clearEngagement(legion);
+    legion.engagementCountdown = 0;
+  }
   const pf = playerFaction(sc);
   if (
     pf &&
@@ -1833,7 +1871,10 @@ export function resolveFieldBattle(app, A, D) {
     !app.battleView.active
   ) {
     // 0x4E5C→0x4EB9：玩家参与的非委任野战先显示TALK29，关闭后开战场。
-    const start = () => app.startFieldBattle(A, D);
+    const continuation = captureLegionContinuation(app);
+    const start = () => {
+      if (continuation.claim()) app.startFieldBattle(A, D);
+    };
     if (app.gamebar?.enqueueTalkMessage) {
       app.gamebar.enqueueTalkMessage({
         gen: null,
@@ -1898,12 +1939,10 @@ export function applyFieldBattleResult(
   if (A._retreat) A._retreat.captorFaction = D.faction;
   if (D._retreat) D._retreat.captorFaction = A.faction;
   if (!attackContinues) dispatchLegionFate(sc, A, D.faction, strategicRng, app);
-  if (!defenceContinues)
+  // 4AB6..4AD1: AH=1 or 3 selects attacker fate; only AH=2 selects
+  // defender fate. Two failed continuations do NOT dispatch two fates.
+  else if (!defenceContinues)
     dispatchLegionFate(sc, D, A.faction, strategicRng, app);
-  const loser = winner === "atk" ? D : A;
-  // 0x6FD2在0x474A入口写+0x0B=1；成功建立撤退后，下次该军团槽
-  // 即可进入0x47BB/0x2708逐点退却，不存在额外12槽停顿。
-  if (loser._active !== false && loser._retreat) loser.cooldown = 0;
 }
 
 export function updateFactionAfterCityCapture(sc, factionIdx) {
@@ -2000,7 +2039,13 @@ function finalizeFactionExtinction(app, factionIdx) {
       general.faction = null;
       continue;
     }
-    // 其余走0x29C3等价的被俘/退场状态；不额外消费RNG。
+    // 5030 directly calls 29C3, NOT the 291A fate/RNG dispatcher.
+    // 29C8..29D0 derives the slot from the general pointer, even when
+    // that slot is inactive or already retired by the original BP group.
+    const capturedRecord =
+      sc.legions.find((record) => record.slot === general.idx) ??
+      sc.delayedLegionReturns?.find((record) => record.slot === general.idx);
+    if (capturedRecord) clearCapturedLegionRecord(sc, capturedRecord);
     settleCapturedGeneral(app, sc, general, factionIdx, captorFaction);
     general.captive_flag = general.origFaction ?? 0xff;
   }
@@ -2023,46 +2068,19 @@ function finalizeFactionExtinction(app, factionIdx) {
   return true;
 }
 
-function retreatCapturedGarrison(
-  app,
-  sc,
-  city,
-  oldFaction,
-  captorFaction,
-  rng = null,
-) {
-  const defenders = sc.legions
-    .filter(
-      (legion) =>
-        !legion.dead &&
-        legion._active !== false &&
-        legion.faction === oldFaction &&
-        legion.x === city.x &&
-        legion.y === city.y,
-    )
-    // 0x4C72按军团槽地址升序收集，0x4DA4固定以BP[0]为代表。
-    .toSorted(
-      (left, right) =>
-        (left.slot ?? left._runtimeId ?? 0x7fff) -
-        (right.slot ?? right._runtimeId ?? 0x7fff),
-    );
+function retreatCapturedGarrison(app, sc, defenders, captorFaction, rng) {
+  // These are the ORIGINAL 4C72 BP references, not a post-fate active scan.
   if (!defenders.length) return { retreat: 0, fates: [] };
   const retreat = retreatRouteToFriendlyCity(sc, defenders[0]);
   if (retreat) {
-    const currentNode = roadNodeAt(city.x, city.y)?.id;
     for (const legion of defenders) {
-      // 0x4DA4只共享目标城/节点、写+0x0B=1并置status bit1；不得复用
-      // 0x474A的单败军逻辑覆盖各军团+0x23，也没有人为12槽停顿。
-      clearMarchNavigation(legion);
-      markLegionAtRoadNode(legion, currentNode);
-      legion.status = (legion.status ?? 0x80) | 0x82;
+      // 4DC9..4DD3 writes only +20/+14/+0B and OR2: no position,
+      // +03/+1E/+23 or active-bit write, even for a retired BP member.
+      legion.status |= 2;
       legion.target = retreat.city;
       legion.targetCity = retreat.city.idx;
       legion.targetNode = retreat.node?.id ?? null;
       legion.moveDelay = 1;
-      legion.cooldown = 1;
-      legion._battleRoadContext = null;
-      legion._retreat = null;
     }
     return { retreat: defenders.length, fates: [] };
   }
@@ -2090,6 +2108,9 @@ export function applyBattleResult(
   originalExit = null,
 ) {
   const sc = app.scenario;
+  const defenders = originalExit?.defenders;
+  if (!Array.isArray(defenders))
+    throw new TypeError("Missing pre-battle defender list");
   const strategicRng = strategicRngFor(app, originalExit);
   const atkResult = originalExit?.sides?.[0];
   const defResult = originalExit?.sides?.[1];
@@ -2100,6 +2121,9 @@ export function applyBattleResult(
     winner === "atk",
     atkResult?.morale,
   );
+  // 5192 precedes 51A1 and both precede 4B1F/city capture. 4B23 only
+  // consumes defender failure when attacker won; it ignores winner failure.
+  const attackContinues = continueLegionAfterBattle(sc, A, winner === "atk");
   if (primaryDefender) {
     settleFieldLegion(
       primaryDefender,
@@ -2111,7 +2135,12 @@ export function applyBattleResult(
     // 0x4ED7返回后攻守两个实际参战对象都各调用一次0x474A。
     // 城内主守军无论胜负都会先写状态8；只有真正破城后才由0x4DA4
     // 给战前同城组共享撤退目标，且该组函数不覆盖其余军团命令态。
-    if (!continueLegionAfterBattle(sc, primaryDefender, winner === "def")) {
+    const defenceContinues = continueLegionAfterBattle(
+      sc,
+      primaryDefender,
+      winner === "def",
+    );
+    if (winner === "atk" && !defenceContinues) {
       dispatchLegionFate(sc, primaryDefender, A.faction, strategicRng, app);
     }
   }
@@ -2161,7 +2190,7 @@ export function applyBattleResult(
         kind: "player-capital-relocated",
       });
     }
-    retreatCapturedGarrison(app, sc, city, oldFaction, A.faction, strategicRng);
+    retreatCapturedGarrison(app, sc, defenders, A.faction, strategicRng);
     // 原版先走0x4DA4处理破城守军组，随后才在无新首都时进入0x4FCE。
     if (oldFaction != null && oldFaction !== A.faction) {
       sc._lastCapturingFaction = A.faction;
@@ -2179,18 +2208,8 @@ export function applyBattleResult(
         kind: "player-city-fallen",
       });
     }
-    // 0x51B3→0x4CF3：破城只交换归属，保留已扣损的+0x13城兵。
-    A.x = city.x;
-    A.y = city.y;
-    A.prevX = city.x;
-    A.prevY = city.y;
-    clearMarchNavigation(A);
-    markLegionAtRoadNode(A, roadNodeAt(city.x, city.y)?.id);
-    A.target = city;
-    A.targetCity = city.idx;
-    A.targetNode = roadNodeAt(city.x, city.y)?.id ?? null;
-    continueLegionAfterBattle(sc, A, true);
-    A.cooldown = 8;
+    // 4CF3 changes ownership, not attacker coordinates/+0E/target.
+    // Its current slot still owes road upkeep before its next movement.
     if (oldFaction != null && oldFaction !== A.faction) {
       declareWar(sc, A.faction, oldFaction);
       // 0x30F0 为单向关系修改；破城后双方各自降低。
@@ -2205,11 +2224,9 @@ export function applyBattleResult(
     if (city.sim) city.sim.troops = Math.min(city.sim.cap ?? 0xff, remaining);
     city.troops = remaining;
   }
-  const continues = continueLegionAfterBattle(sc, A, false);
   if (A._retreat) A._retreat.captorFaction = oldFaction ?? 0x18;
-  if (!continues)
+  if (!attackContinues)
     dispatchLegionFate(sc, A, oldFaction ?? 0x18, strategicRng, app);
-  if (A._active !== false && A._retreat) A.cooldown = 0;
 }
 
 function warTalkStyle(sc, faction) {
@@ -3358,7 +3375,8 @@ export function tickFactionStrategicState(app) {
 }
 
 /** 0x3E8E：处理已经由0x3E11选定的一个势力槽。 */
-export function tickEnvoyDiplomacy(app, current = null) {
+export function tickEnvoyDiplomacy(app, selectedFaction = null) {
+  let current = selectedFaction;
   const sc = app?.scenario;
   const rng = app?.originalRng ?? app?.activeBattleRng;
   if (!sc || !rng?.nextByte) return false;
@@ -3460,10 +3478,14 @@ export function cityDaily(sc, rng) {
 
 function legionOnRoadEdge(legion) {
   // KI.EXE 0x2609 只比较 legion[+0x0E] 是否 >=0x0800。
-  // Web 运行态优先读取已恢复/已建立的 edgeId；旧快照保留原始地址时直接比较。
-  if (legion?._march?.edgeId != null) return true;
-  const raw = Number(legion?.roadEdgeOrNode);
-  return Number.isFinite(raw) && raw >= 0x0800;
+  // Known 0E is authoritative, especially node 0 with a stale edge cache.
+  if (legion?.roadEdgeOrNode != null) {
+    const raw = Number(legion.roadEdgeOrNode);
+    return Number.isFinite(raw) && raw >= 0x0800;
+  }
+  // Retained pre-existing Web in-memory compatibility, not an original field
+  // reconstruction or permission to migrate missing original road state.
+  return legion?._march?.edgeId != null;
 }
 
 /**
@@ -3495,7 +3517,14 @@ export function replenishLegionAtCapital(sc, legion, force = false) {
     capital.y !== legion.y
   )
     return false;
+  return repartitionLegionReserves(sc, legion);
+}
 
+// 4499/461D body: capital/active/strength gates belong to producers of
+// command 9, not to this dispatcher. In particular 449C runs even unchanged.
+function repartitionLegionReserves(sc, legion) {
+  const faction = sc.factions.find((item) => item.idx === legion.faction);
+  if (!faction) throw new TypeError("Repartition requires a faction record");
   const units = ensureLegionUnits(legion);
   const counts = { 1: 0, 2: 0, 3: 0 };
   for (const unit of units) {
@@ -3555,51 +3584,72 @@ export function settleLegionDaily(sc, processedSlots = null) {
       legion.faction == null
     )
       continue;
-    const faction = sc.factions?.find(
-      (candidate) => candidate?.idx === legion.faction,
-    );
-    if (!faction) continue;
-    const onRoadEdge = legionOnRoadEdge(legion);
-    applyFactionFundsDelta(
-      faction,
-      -legionDailyMaintenanceCost(legion, onRoadEdge),
-    );
-    if (!onRoadEdge) {
-      legion.morale = Math.min(
-        factionLegionMoraleCap(faction),
-        Math.max(0, Number(legion.morale) || 0) + 10,
-      );
-    }
+    settleEnteredLegionDaily(sc, legion);
   }
 }
 
-/**
- * 战术层/委任过渡异步返回后，按0x1D0B原顺序补做被暂停的0x2600与0x2459。
- * 战术与战略雨云共用canonical RNG，所以雨云必须等战术回写新RNG后再推进。
+function settleEnteredLegionDaily(sc, legion) {
+  // Entry qualification belongs to 25B6, not to post-action active/dead flags.
+  const faction = sc.factions.find((item) => item.idx === legion.faction);
+  if (!faction) throw new TypeError("Entered legion has no faction record");
+  const onRoadEdge = legionOnRoadEdge(legion);
+  applyFactionFundsDelta(
+    faction,
+    -legionDailyMaintenanceCost(legion, onRoadEdge),
+  );
+  if (!onRoadEdge) {
+    legion.morale = Math.min(
+      factionLegionMoraleCap(faction),
+      (legion.morale + 10) & 255,
+    );
+  }
+}
+
+/** Resume the current tail AND remaining slots after a normal return.
+ * Callers capture batch/ticket before yielding; an earlier battle cannot
+ * acknowledge a later battle's ticket, even inside the same batch.
  */
-export function finishDeferredLegionDaily(app) {
-  if (!app) return false;
-  let changed = false;
-  if (app._legionDailySettlementDeferred) {
-    app._legionDailySettlementDeferred = false;
-    const processedSlots = app._legionDailySettlementSlots ?? null;
-    app._legionDailySettlementSlots = null;
-    settleLegionDaily(app.scenario, processedSlots);
-    changed = true;
+export function finishDeferredLegionDaily(
+  app,
+  batch = app?._legionSlotBatch,
+  ticket = batch?.ticket,
+) {
+  if (
+    !batch ||
+    app._legionSlotBatch !== batch ||
+    batch.ticket !== ticket ||
+    !ticket ||
+    ticket.completed ||
+    batch.scenario !== app.scenario ||
+    batch.clock !== app.clock
+  )
+    return false;
+  if (app.endView?.active) {
+    cancelLegionSlotBatch(app);
+    return false;
   }
-  if (app._strategicWeatherTickDeferred) {
-    app._strategicWeatherTickDeferred = false;
-    changed =
-      tickStrategicWeather(
-        app.scenario,
-        app.originalRng ?? app.activeBattleRng,
-      ) || changed;
-  }
-  return changed;
+  ticket.completed = true;
+  if (batch.running) return false;
+  batch.ticket = null;
+  return runLegionSlotBatch(app, batch);
+}
+
+export function cancelLegionSlotBatch(app) {
+  const batch = app?._legionSlotBatch;
+  if (!batch) return false;
+  batch.cursor.cancel();
+  batch.ticket = null;
+  app._legionSlotBatch = null;
+  return true;
 }
 
 export function aiTick(app, options = {}) {
-  if (app._strategicCityRequest) return;
+  if (
+    app._strategicCityRequest ||
+    app._legionSlotBatch ||
+    app._strategicBattleFailure
+  )
+    return;
   if (app.battleView?.active || app.engageTransition?.active) return;
   if (!app.scenario?.legions) return;
   // KI 3F57 returns from military/TALK38 before 3F5A governance. Preserve
@@ -3619,25 +3669,17 @@ export function aiTick(app, options = {}) {
 }
 
 function finishStrategicCityUpdate(app, options) {
-  // 战术场景或委任四相过渡接管期间，不能推进城池每日状态或处理第二场战斗。
-  if (app.battleView?.active || app.engageTransition?.active) return;
+  if (
+    app._legionSlotBatch ||
+    app._strategicBattleFailure ||
+    app.battleView?.active ||
+    app.engageTransition?.active
+  )
+    return;
   const sc = app.scenario;
-  if (!sc || !sc.legions) return;
-  // 0x25CC→0x2662 的首都状态9先于同槽 0x2600；军团表按固定槽地址升序处理。
-  // 排序仅复制引用数组，不能复制军团对象，否则同首都多军团争用预备池的结果会偏离原版。
-  const batchStart = Number.isInteger(options.legionBatchStart)
-    ? Math.max(0, Math.min(112, options.legionBatchStart))
-    : null;
-  const processedSlots =
-    batchStart == null
-      ? null
-      : new Set(Array.from({ length: 16 }, (_, index) => batchStart + index));
-  const shouldProcessLegion = (legion) =>
-    !processedSlots || processedSlots.has(legion.slot ?? legion._runtimeId);
-  const shouldSettleDaily =
-    options.settleDaily ?? (batchStart == null || options.hour === 1);
-  // 0x1D0B 固定顺序：0x3EFD 单城槽（含该城0x4194/0x4269），再0x25A3
-  // 十六军团槽。先让边城请求编成，不能让同批首都军团抢先消耗预备兵池。
+  if (!sc?.legions) return;
+  // 1D0B: city military/request already returned, then governance, then
+  // 25A3. Newly formed armies compete for reserves BEFORE these slots.
   if (Number.isInteger(options.cityIndex)) {
     tickStrategicCityDaily(
       sc,
@@ -3647,294 +3689,196 @@ function finishStrategicCityUpdate(app, options) {
   } else if (options.runCityDaily !== false) {
     cityDaily(sc, app.originalRng ?? app.activeBattleRng);
   }
-  let replenished = false;
-  const legionsInSlotOrder = sc.legions
-    .filter(shouldProcessLegion)
-    .toSorted(
-      (left, right) =>
-        (left.slot ?? left._runtimeId ?? 0x7fff) -
-        (right.slot ?? right._runtimeId ?? 0x7fff),
-    );
-  const stateRng = app.originalRng ?? app.activeBattleRng;
-  const settledCommandLegions = new Set();
-  for (const legion of legionsInSlotOrder) {
-    // Web运行态的_retreat只标记强制道路行进；抵达0x474A指定的即时
-    // 据点后清除此包装，但保留原版+0x20目标与+0x23状态给0x4325处理。
-    if (legion._retreat && legion.target && legionAtTargetNode(sc, legion)) {
-      legion._retreat = null;
+  // Explicit legacy tool hook, not the production 1D8E clock boundary.
+  if (options.runFactionTick === true) {
+    tickEnvoyDiplomacy(app);
+    tickStrategicWarEvents(app);
+  }
+  const firstSlot = options.legionBatchStart ?? 0;
+  const endSlot = options.legionBatchStart == null ? 128 : firstSlot + 16;
+  const batch = {
+    scenario: sc,
+    clock: app.clock,
+    cursor: new LegionSlotBatch({
+      firstSlot,
+      endSlot,
+      settleDaily:
+        options.settleDaily ??
+        (options.legionBatchStart == null || options.hour === 1),
+    }),
+    ticket: null,
+    running: false,
+    changed: false,
+  };
+  app._legionSlotBatch = batch;
+  return runLegionSlotBatch(app, batch);
+}
+
+function runLegionSlotBatch(app, batch) {
+  if (
+    batch.running ||
+    app._legionSlotBatch !== batch ||
+    app.scenario !== batch.scenario ||
+    app.clock !== batch.clock
+  )
+    return false;
+  const sc = batch.scenario;
+  const lookup = (slot) => {
+    const record =
+      sc.legions.find((item) => item.slot === slot) ??
+      sc.delayedLegionReturns?.find((item) => item.slot === slot);
+    if (record) bindLegionSlotCounter(sc, record);
+    return record;
+  };
+  batch.running = true;
+  try {
+    for (;;) {
+      if (app._legionSlotBatch !== batch) return false;
+      if (app.endView?.active) {
+        cancelLegionSlotBatch(app);
+        return false;
+      }
+      const op = batch.cursor.next(lookup);
+      if (op.kind === "cancelled") return false;
+      if (op.kind === "done") {
+        // Fetch canonical RNG NOW: tactical return can replace its object.
+        batch.changed =
+          tickStrategicWeather(sc, app.originalRng ?? app.activeBattleRng) ||
+          batch.changed;
+        sc.legions = sc.legions.filter((record) => !record.dead);
+        app._legionSlotBatch = null;
+        app.gamebar?.syncClock?.();
+        if (batch.changed) {
+          app.hud?.buildLegend?.();
+          app.view?.draw?.();
+        }
+        return batch.changed;
+      }
+      if (op.kind === "daily") {
+        settleEnteredLegionDaily(sc, op.record);
+      } else if (op.kind === "tail") {
+        finishLegionSlotTail(op.record);
+        if (!(op.record.status & ENGAGE_STATUS_ACTIVE))
+          clearEngagement(op.record);
+      } else {
+        // Publish the ticket BEFORE calling code that may synchronously
+        // invoke a test callback. The cursor is already at the continuation.
+        const ticket = { completed: false };
+        batch.ticket = ticket;
+        const outcome =
+          op.kind === "inactive"
+            ? tickDelayedLegionReturn(app, op.record)
+            : performLegionSlotAction(app, op.record);
+        batch.changed = true;
+        if (app._legionSlotBatch !== batch) return false;
+        if (outcome === "suspended" && !ticket.completed) {
+          app.gamebar?.syncClock?.();
+          return false;
+        }
+        batch.ticket = null;
+      }
     }
-    const commandStateAtDispatch = legion.commandState;
-    const commandHandlerAtDispatch = legionCommandHandlerIndex(
-      sc,
-      legion,
-      commandStateAtDispatch,
-    );
+  } catch (error) {
+    // This pump owns remaining slots after the battle ticket is consumed.
+    // A previous battle callback cannot handle failures at this boundary.
     if (
-      !legion.dead &&
-      legion._active !== false &&
-      commandStateAtDispatch != null &&
-      legionAtTargetNode(sc, legion)
+      app._legionSlotBatch === batch &&
+      app.scenario === batch.scenario &&
+      app.clock === batch.clock
     ) {
-      settleArrivedLegionCommand(sc, legion, stateRng);
-      // 0x2662在调用0x4325后无条件ret；即使状态处理器只观察而未改写，
-      // 该槽本轮也不会继续进入普通道路移动。
-      settledCommandLegions.add(legion);
+      cancelLegionSlotBatch(app);
+      holdFailedStrategicUpdate(app, error);
     }
-    if (legion._disbandAtCapital) {
-      legion._disbandAtCapital = false;
-      const faction = legionFaction(sc, legion);
-      if (faction) {
-        const units = ensureLegionUnits(legion);
-        for (const unit of units) {
-          const field = LEGION_RESERVE_FIELD_BY_TYPE[unit?.type | 0];
-          if (!field) continue;
-          faction[field] = Math.min(
-            0xffdc,
-            Math.max(0, Math.trunc(Number(faction[field]) || 0)) +
-              Math.max(0, Math.floor((unit.troops ?? 0) / 10)),
-          );
-        }
-        faction.n_legions = Math.max(0, (faction.n_legions ?? 1) - 1);
-      }
-      const general = generalForLegion(sc, legion);
-      if (general) general.status = 0;
-      legion.status = 0;
-      legion._active = false;
-      legion.dead = true;
-      legion.target = null;
-      clearEngagement(legion);
-      clearMarchNavigation(legion);
-      replenished = true;
-      continue;
-    }
-    const targetCity = legionTargetCity(sc, legion);
-    const atCapital =
-      legionAtTargetNode(sc, legion) &&
-      (targetCity?.idx ??
-        sc.cities.find((city) => city.x === legion.x && city.y === legion.y)
-          ?.idx) === legionFaction(sc, legion)?.capital;
-    if (commandHandlerAtDispatch === 9 && settledCommandLegions.has(legion)) {
-      // 0x4499被0x4325分派后无条件执行重编并转状态3；它本身不另查首都。
-      // 即使预备池不足、兵数未变化也不能停留；状态10新转9要等下一槽。
-      replenished = replenishLegionAtCapital(sc, legion, true) || replenished;
-      legion.commandState = 3;
-      legion.cooldown = 8;
-    } else if (
-      commandStateAtDispatch == null &&
-      atCapital &&
-      replenishLegionAtCapital(sc, legion)
-    ) {
-      // 兼容无命令态旧快照；原版活动军团应有明确的+0x23状态。
-      legion.commandState = 3;
-      legion.cooldown = 8;
-      replenished = true;
-    }
+    return false;
+  } finally {
+    batch.running = false;
   }
-  // 0x3E11 在0x1D8E时刻进位时由主调度器调用，不属于每次0x1D0B主更新。
-  // 无显式分批的旧工具调用仍可通过runFactionTick:true请求一次。
-  if (options.runFactionTick === true) tickEnvoyDiplomacy(app);
-  let changed =
-    replenished ||
-    (options.runFactionTick === true && tickStrategicWarEvents(app));
-  for (const item of tickDelayedLegionReturns(sc, processedSlots)) {
-    changed = true;
-    if (item.faction === sc.player_faction) {
-      const general = sc.generals?.[item.generalIdx] ?? null;
-      app.gamebar?.enqueueTalkMessage?.({
-        gen: general,
-        talkIndex: 35,
-        generalName: general?.name?.trim?.() || item.leader || "",
-        personalitySelector: 0x198,
-        kind: "postbattle-general-return",
-      });
+}
+
+function disbandLegionAtCapital(sc, legion) {
+  legion._disbandAtCapital = false;
+  const faction = legionFaction(sc, legion);
+  if (faction) {
+    for (const unit of ensureLegionUnits(legion)) {
+      const field = LEGION_RESERVE_FIELD_BY_TYPE[unit.type];
+      if (!field) continue;
+      faction[field] = Math.min(
+        0xffdc,
+        Math.max(0, Math.trunc(Number(faction[field]) || 0)) +
+          Math.max(0, Math.floor((unit.troops ?? 0) / 10)),
+      );
     }
+    countLegionRemoval(sc, legion); // 4658→4689: byte DEC, not saturation.
   }
-  for (const A of sc.legions) {
-    if (!shouldProcessLegion(A) || A.dead || A.faction == null) continue;
-    if (A.prevX === A.x && A.prevY === A.y) continue;
-    A.prevX = A.x;
-    A.prevY = A.y;
+  const general = generalForLegion(sc, legion);
+  if (general) general.status = 0;
+  legion.status = 0;
+  legion._active = false;
+  legion.dead = true;
+  // 4651 does not erase +03/+04/+0E. The entered slot still gets its tail.
+  clearEngagement(legion);
+}
+
+function performLegionSlotAction(app, A) {
+  const sc = app.scenario;
+  A.prevX = A.x;
+  A.prevY = A.y;
+  // The outer 42AB and engagement paths run BEFORE stepTo. They must not
+  // consume a stale edge cache or write its stride into a known node record.
+  prepareRoadMarchProjection(A, A.target?.x, A.target?.y);
+  if (legionAtTargetNode(sc, A)) {
+    if (A._retreat) A._retreat = null;
+    const handler = legionCommandHandlerIndex(sc, A);
+    settleArrivedLegionCommand(sc, A, app.originalRng ?? app.activeBattleRng);
+    if (A._disbandAtCapital) disbandLegionAtCapital(sc, A);
+    else if (handler === 9) {
+      repartitionLegionReserves(sc, A);
+      resetLegionActionPhase(A);
+      A.commandState = 3;
+    }
+    // 2662 RET: a newly selected command/target never moves in this action.
+    return "complete";
   }
-  for (const A of legionsInSlotOrder) {
-    if (
-      !shouldProcessLegion(A) ||
-      A.dead ||
-      A._active === false ||
-      A.faction == null
-    )
-      continue;
-    // 0x25CC→0x2662：到达节点的0x4325命令处理就是该槽本轮动作；
-    // 新写入的等待计时、状态或目标不得在同一Web循环再次递减/移动。
-    if (settledCommandLegions.has(A)) continue;
-    if (A._retreat && A.target) {
-      if (A.cooldown > 0) {
-        A.cooldown--;
-        continue;
-      }
-      const retreatResult = stepTo(sc, A, A.target.x, A.target.y);
-      if (retreatResult === "blocked") {
-        const fateRng = app.originalRng ?? app.activeBattleRng;
-        dispatchLegionFate(
-          sc,
-          A,
-          A._retreat.captorFaction ?? A.faction,
-          fateRng,
-          app,
-        );
-        changed = true;
-      } else if (retreatResult === "arrived") {
-        // 0x474A已写好的目标城与状态8/10必须保留：状态8在即时据点
-        // 休整；状态10下一次0x4325会继续锁定首都。清目标会令少兵败军
-        // 永久停成无目标圆点，并绕过首都补员/状态11解散链。
-        A._retreat = null;
-        A.cooldown = 6;
-      }
-      continue;
-    }
-    if (A._engagement) {
-      const battleOpened = advanceEngagement(app, A);
-      if (
-        battleOpened &&
-        (app.battleView?.active || app.engageTransition?.active)
-      ) {
-        // 0x25A3 单槽先0x2662、后0x2600；只有CF3==1的批次需要异步补日结。
-        app._legionDailySettlementDeferred = shouldSettleDaily;
-        app._legionDailySettlementSlots = shouldSettleDaily
-          ? new Set(
-              processedSlots ??
-                legionsInSlotOrder.map(
-                  (legion) => legion.slot ?? legion._runtimeId,
-                ),
-            )
-          : null;
-        app._strategicWeatherTickDeferred = true;
-        return;
-      }
-      if (A._engagement || A.dead) continue;
-      // 接敌若在本轮完成战果，0x2831/0x4A7B返回后该军团槽立即结束；
-      // 胜方虽保留原据点目标，也必须等下一次槽调度再清守军或攻城。
-      if (battleOpened) {
-        changed = true;
-        continue;
-      }
-      // 0x264A：仅接触对象消失、没有发生战果时，才可同轮继续移动。
-      if (A.target) {
-        const resumed = stepTo(sc, A, A.target.x, A.target.y);
-        if (
-          resumed === "moved" ||
-          resumed === "arrived" ||
-          resumed === "reversed"
-        )
-          changed = true;
-        continue;
-      }
-    }
-    // 0x42AB属于军团实际道路更新；反向后本轮停止，但保留最终命令目标。
-    if (A._march && reverseBlockedFinalEdge(sc, A)) {
-      changed = true;
-      continue;
-    }
-    if (A.cooldown > 0) {
-      A.cooldown--;
-      continue;
-    } // 复刻冷却[si+0x857]
-    // 玩家从「行軍指示」指定的目标优先于委任 AI。委任只改变后续战斗控制，
-    // 不能把玩家刚选择的己方调动目标立即替换成 AI 的最近敌城。
-    if (A.faction === sc.player_faction && A.target) {
-      const orderedTarget = A.target;
-      const marchResult = stepTo(sc, A, orderedTarget.x, orderedTarget.y);
-      if (marchResult === "moved") changed = true;
-      if (marchResult === "contact" || marchResult === "waiting") continue;
-      if (marchResult === "reversed") {
-        changed = true;
-        continue;
-      }
-      if (marchResult === "blocked") {
-        A.target = null;
-        continue;
-      }
-      if (A.x === orderedTarget.x && A.y === orderedTarget.y) {
-        if (
-          orderedTarget.faction !== A.faction &&
-          (orderedTarget.faction == null ||
-            isAtWar(sc, A.faction, orderedTarget.faction))
-        ) {
-          if (resolveBattle(app, A, orderedTarget)) {
-            app._legionDailySettlementDeferred = shouldSettleDaily;
-            app._legionDailySettlementSlots = shouldSettleDaily
-              ? new Set(
-                  processedSlots ??
-                    legionsInSlotOrder.map(
-                      (legion) => legion.slot ?? legion._runtimeId,
-                    ),
-                )
-              : null;
-            app._strategicWeatherTickDeferred = true;
-            return;
-          }
-          changed = true;
-        }
-        // 同步速算可能已由0x474A写入撤退目标；不得再用旧攻击目标清掉。
-        if (A.target !== orderedTarget) {
-          A.cooldown = Math.max(A.cooldown ?? 0, 6);
-          continue;
-        }
-        // 0x2662抵达后保留+0x14/+0x20；显式命令态要在下一槽交给
-        // 0x4325处理（尤其状态10补员、状态11解散）。仅兼容无状态旧快照。
-        if (A.commandState == null) A.target = null;
-        A.cooldown = 6;
-      }
-      continue;
-    }
-    // 没有目标命令时必须驻止。原版0x2662只沿+0x14目标推进；新目标只由
-    // 0x3EFD据点AI→0x4155或0x4325状态机写入。此前通用scanThreat会令
-    // 委任驻军主动走出据点迎击相邻敌军，导致0x4C72攻城时找不到真实守军。
-    if (!A.target) continue;
-    const marchResult = stepTo(sc, A, A.target.x, A.target.y);
-    if (marchResult === "contact") continue;
-    if (marchResult === "reversed") {
-      changed = true;
-      continue;
-    }
-    if (marchResult === "blocked") {
-      A.target = null;
-      continue;
-    }
-    if (A.target && A.x === A.target.x && A.y === A.target.y) {
-      const orderedTarget = A.target;
-      // 中途易主或停战后不攻；只有正式交战目标才能进入战斗。
-      if (
-        orderedTarget.faction == null ||
-        isAtWar(sc, A.faction, orderedTarget.faction)
-      ) {
-        if (resolveBattle(app, A, orderedTarget)) {
-          app._legionDailySettlementDeferred = shouldSettleDaily;
-          app._legionDailySettlementSlots = shouldSettleDaily
-            ? new Set(
-                processedSlots ??
-                  legionsInSlotOrder.map(
-                    (legion) => legion.slot ?? legion._runtimeId,
-                  ),
-              )
-            : null;
-          app._strategicWeatherTickDeferred = true;
-          return; // ★交互战斗已开启, 结算延至战果回写后
-        }
-        changed = true;
-      }
-      // 原版抵达保留+0x14/+0x20，下一槽才执行0x4325。同步战果若已
-      // 换成撤退目标更不能清；这里只兼容没有+0x23的旧Web快照。
-      if (A.target === orderedTarget && A.commandState == null) A.target = null;
-      A.cooldown = Math.max(A.cooldown ?? 0, 6);
-    }
+  if (A._retreat && A.target) {
+    const result = stepTo(sc, A, A.target.x, A.target.y);
+    if (result === "blocked") {
+      dispatchLegionFate(
+        sc,
+        A,
+        A._retreat.captorFaction ?? A.faction,
+        app.originalRng ?? app.activeBattleRng,
+        app,
+      );
+    } else if (result === "arrived") A._retreat = null;
+    if (result === "contact") return resolveEngagementAction(app, A);
+    return "complete";
   }
-  // 0x25A3 单槽顺序为0x2662→0x2600：按本轮移动、到达和同步战果后的状态结算。
-  if (shouldSettleDaily) settleLegionDaily(sc, processedSlots);
-  // 0x1D19→0x2459严格在军团槽之后；雨云移动在每16次战略更新消费RNG。
-  changed = tickStrategicWeather(sc, stateRng) || changed;
-  sc.legions = sc.legions.filter((A) => !A.dead);
-  if (changed) {
-    app.hud?.buildLegend?.();
-    app.view?.draw(); // 只在版图变化时重绘 (主循环不逐帧画)
+  if (A._march && reverseBlockedFinalEdge(sc, A)) {
+    clearEngagement(A);
+    return "complete";
   }
+  if (A._engagement) {
+    const outcome = advanceEngagement(app, A);
+    if (outcome !== "clear") return outcome;
+    // Only lost contact (not completed battle) continues moving this action.
+  }
+  if (!A.target) return "complete";
+  const target = A.target;
+  const result = stepTo(sc, A, target.x, target.y);
+  if (result === "contact") return resolveEngagementAction(app, A);
+  if (result === "blocked") {
+    A.target = null;
+    return "complete";
+  }
+  if (result === "reversed" || result === "waiting") return "complete";
+  if (
+    A.x === target.x &&
+    A.y === target.y &&
+    target.faction !== A.faction &&
+    (target.faction == null || isAtWar(sc, A.faction, target.faction))
+  ) {
+    return resolveBattle(app, A, target) ? "suspended" : "complete";
+  }
+  // Arrival preserves the target until the NEXT due command action.
+  return "complete";
 }

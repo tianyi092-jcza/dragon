@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 const scheduled = new Map();
 let nextTimerId = 1;
@@ -86,13 +87,22 @@ const legion = (leader, generalIdx, faction, x) => ({
   morale: 200,
   units: units(),
   status: 0x80,
+  moveDelay: 1,
+  movePeriod: 3,
   _active: true,
 });
 
 const cities = [city(0, 0, 10), city(1, 1, 20), city(2, 2, 30)];
 cities[1].governor = 5;
 const factions = [
-  { idx: 0, capital: 0, monarch_idx: 0, monarch: "攻", active: true },
+  {
+    idx: 0,
+    capital: 0,
+    monarch_idx: 0,
+    monarch: "攻",
+    active: true,
+    n_legions: 1,
+  },
   {
     idx: 1,
     capital: 1,
@@ -100,8 +110,16 @@ const factions = [
     monarch: "君",
     diplomat_idx: 6,
     active: true,
+    n_legions: 1,
   },
-  { idx: 2, capital: 2, monarch_idx: 4, monarch: "原", active: true },
+  {
+    idx: 2,
+    capital: 2,
+    monarch_idx: 4,
+    monarch: "原",
+    active: true,
+    n_legions: 0,
+  },
 ];
 const generals = [
   { idx: 0, name: "攻", faction: 0, active: true, status: 1, portrait: 0 },
@@ -153,7 +171,12 @@ const generals = [
     portrait: 6,
     talk_idx: 6,
   },
-];
+].map((general) => ({
+  attr: 0x80,
+  captive_flag: 0xff,
+  origFaction: null,
+  ...general,
+}));
 const attacker = legion("攻", 0, 0, 20);
 const fieldGeneralLegion = legion("軍", 2, 1, 50);
 const scenario = {
@@ -161,7 +184,7 @@ const scenario = {
   cities,
   factions,
   generals,
-  legions: [attacker, fieldGeneralLegion],
+  legions: [],
   diplomacy: [
     [0xff, 0, 0x80],
     [0, 0xff, 0x80],
@@ -174,6 +197,8 @@ const scenario = {
     return this.generals[faction?.monarch_idx] ?? null;
   },
 };
+initializeLegionSlotState(scenario);
+scenario.legions.push(attacker, fieldGeneralLegion);
 const clock = {
   hold: false,
   setHold(value) {
@@ -199,10 +224,18 @@ applyBattleResult(
   "atk",
   300,
   [50, 50, 50, 50, 50, 50],
+  null,
+  null,
+  null,
+  null,
+  null,
+  { oldFaction: 1, defenders: [] },
 );
 
-// 0x4D63 governor pair, 0x5074 diplomat pair, 0x29C3 monarch pair, TALK36.
-const expected = [68, 539, 69, 548, 34, 439, 36];
+// 4D7E/5091 clear +17. All three uncaptured idle officers then reach
+// 5014/5023/5030 -> 29C3. 075B expands 19Ah to 438 + talk_idx.
+// This is the Web FIFO contract for those static branches, not a DOS UI RET proof.
+const expected = [68, 539, 69, 548, 34, 439, 34, 443, 34, 444, 36];
 for (let index = 0; index < expected.length; index++) {
   await flush();
   const text = bar.generalCard?.lines

@@ -23,7 +23,7 @@
 
 - CPU：CS:IP、DS、ES、SS、AX/BX/CX/DX/SI/DI/BP/SP、FLAGS；
 - 战术寄存器与标志：Web `snapshot().registers` 所对应的D2E/D30/D31A..D31E/D313/D316/D318/D322/D324/D326/D348等；
-- 原版RNG：257字节表/索引及已消费次数可推导信息；
+- 原版RNG：256字节表（CS:ECFE..EDFD）、addend/index及已消费次数可推导信息；Web第257项只是快照兼容padding，见[播种勘误](re-notes-npc-strategy.md#4-rng初始化勘误实锤)；
 - 八个差分blob对应内存窗口：对象池、地图对象、效果对象、空间占用、tile、临时军团、路径队列、路径区；
 - 当前BATTLE.DAT VM PC/等待寄存器；
 - `9FDC`的胜负、六队幸存、士气、城损结果。

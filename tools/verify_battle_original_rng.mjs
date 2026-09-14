@@ -1,49 +1,69 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { OriginalBattleRng } from "../web/src/game/battle/originalrng.js";
 
-const { OriginalBattleRng, createOriginalBattleRng } = await import(
-  "../web/src/game/battle/originalrng.js"
+// Authenticated KI EC82/ECE0 execution, private memory, controlled RTC only.
+// Neither the oracle nor this test accesses any SAVE file.
+const run = spawnSync(
+  "python",
+  [
+    "-B",
+    fileURLToPath(new URL("./strategic_rng_raw_oracle.py", import.meta.url)),
+  ],
+  {
+    encoding: "utf8",
+    timeout: 30000,
+    maxBuffer: 1024 * 1024,
+    env: { ...process.env, PYTHONOPTIMIZE: "", PYTHONDONTWRITEBYTECODE: "1" },
+  },
 );
-
-const vectors = [
-  {
-    seed: { ch: 0x12, cl: 0x34, dh: 0x56 },
-    bytes: [
-      0x54, 0xad, 0x8f, 0x00, 0xf7, 0x75, 0x7c, 0x11, 0x2e, 0xcf, 0xfe, 0xb5,
-      0xf6, 0xbb, 0x0a, 0xe2,
-    ],
-  },
-  {
-    seed: { ch: 0, cl: 0, dh: 0 },
-    bytes: [
-      0x01, 0x8d, 0x9d, 0x37, 0x59, 0x09, 0x3e, 0xfb, 0x41, 0x10, 0x6d, 0x4e,
-      0xb9, 0xac, 0x28, 0x2e,
-    ],
-  },
-];
-
-for (const vector of vectors) {
-  const rng = createOriginalBattleRng(vector.seed);
-  assert.deepEqual(
-    vector.bytes.map(() => rng.nextByte()),
-    vector.bytes,
-  );
-  assert.equal(rng.calls, vector.bytes.length);
+assert.equal(run.status, 0, run.error?.message ?? run.stderr);
+let oracle;
+try {
+  oracle = JSON.parse(run.stdout);
+} catch (cause) {
+  throw new Error("invalid EC82/ECE0 oracle output", { cause });
 }
-
-const rng = new OriginalBattleRng({ ch: 0x23, cl: 0x59, dh: 0x59 });
-const prefix = Array.from({ length: 7 }, () => rng.nextByte());
-const snapshot = rng.snapshot();
-const suffix = Array.from({ length: 12 }, () => rng.nextByte());
-assert.equal(snapshot.table.length, 257);
-assert.equal(snapshot.calls, prefix.length);
-rng.restore(snapshot);
-assert.deepEqual(
-  Array.from({ length: 12 }, () => rng.nextByte()),
-  suffix,
-  "restored RNG state must reproduce the original random call stream",
-);
-assert.ok(rng.nextByte() >= 0 && rng.nextByte() <= 0xff);
-
+assert.equal(oracle.results.length, 5);
+for (const expected of oracle.results) {
+  const rng = new OriginalBattleRng(expected.clock);
+  assert.deepEqual(Array.from(rng.table.slice(0, 256)), expected.table);
+  assert.equal(
+    rng.table.length,
+    257,
+    "extra byte is Web snapshot compatibility padding",
+  );
+  assert.equal(rng.table[256], 0);
+  assert.deepEqual(
+    [rng.addend, rng.index, rng.calls],
+    [expected.addend, expected.index, 0],
+  );
+  assert.deepEqual(
+    Array.from({ length: 16 }, () => rng.nextByte()),
+    expected.draws.slice(0, 16),
+  );
+  const saved = rng.snapshot();
+  assert.deepEqual(
+    Array.from({ length: 16 }, () => rng.nextByte()),
+    expected.draws.slice(16),
+  );
+  assert.deepEqual([rng.addend, rng.index], expected.final);
+  rng.restore(saved);
+  assert.deepEqual(
+    Array.from({ length: 16 }, () => rng.nextByte()),
+    expected.draws.slice(16),
+  );
+  assert.equal(rng.calls, 32);
+}
+// Existing snapshots restore their stored stream without reseeding or rewriting it.
+const old = new OriginalBattleRng().snapshot();
+old.table = Array.from({ length: 257 }, (_, i) => i & 255);
+old.addend = 17;
+old.index = 32;
+old.calls = 41;
+assert.deepEqual(new OriginalBattleRng().restore(old).snapshot(), old);
+assert.throws(() => new OriginalBattleRng({ dh: 0xff }), RangeError);
 process.stdout.write(
-  "battle original RNG OK: KI.EXE 0xEC82 seed + 0xECE0 stream\n",
+  "battle original RNG OK: 5 authenticated EC82/ECE0 executions, 256B table + 32 draws + snapshot continuity\n",
 );

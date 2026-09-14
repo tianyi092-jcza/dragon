@@ -7,6 +7,8 @@ import {
   stepTo,
 } from "../web/src/game/ai.js";
 import { Clock } from "../web/src/game/clock.js";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
+import { initializeFactionLegionCounts } from "../web/src/game/legioncounts.js";
 import { canSnapshotState } from "../web/src/game/savegame.js";
 import { loadTerrain } from "../web/src/game/pathfind.js";
 import { findRoadRoute } from "../web/src/game/roadgraph.js";
@@ -37,6 +39,8 @@ const data = parseJson(
 await loadTerrain();
 function fixture(bytes = [0, 15, 15]) {
   const sc = structuredClone(data.scenarios[16]);
+  initializeLegionSlotState(sc);
+  initializeFactionLegionCounts(sc);
   sc.player_faction = 13;
   sc.diplomacy[13][0] = sc.diplomacy[0][13] = 0;
   sc.weatherClouds = [];
@@ -88,6 +92,7 @@ function fixture(bytes = [0, 15, 15]) {
         settleDaily: false,
       };
       aiTick(app, options);
+      assert.equal(app._strategicBattleFailure, undefined);
       sc._cityTickCursor = (sc._cityTickCursor + 1) % 192;
       sc._legionBatchCursor = (sc._legionBatchCursor + 16) % 128;
     },
@@ -129,6 +134,7 @@ function fixture(bytes = [0, 15, 15]) {
   messages[0].onClose();
   messages[0].onClose();
   assert.deepEqual(consumed, [0, 15, 15]);
+  assert.equal(app._strategicBattleFailure, undefined);
   assert.equal(city._aiCooldown, 24);
   assert.equal(city.growth, 100);
   assert.equal(app.clock.hold, true, "other hold survives request closure");
@@ -173,9 +179,11 @@ function addCloud(sc) {
   const f = fixture([0, 15, 15, 0xab, 0, 0]);
   const city = f.sc.cities[79];
   city.attr = 0;
+  f.sc.factions[0].n_legions = 1;
   f.sc.legions = [
     {
       slot: 0,
+      generalIdx: 0,
       faction: 0,
       status: 0x84,
       _active: true,
@@ -186,8 +194,11 @@ function addCloud(sc) {
       targetNode: city.idx,
       roadEdgeOrNode: city.idx * 8,
       commandState: 1,
+      moveDelay: 1,
+      movePeriod: 3,
       troops: 600,
       morale: 200,
+      units: Array.from({ length: 6 }, () => ({ type: 3, troops: 1000 })),
     },
   ];
   addCloud(f.sc);
@@ -196,18 +207,23 @@ function addCloud(sc) {
   assert.equal(f.sc.weatherClouds[0].timer, 1);
   assert.deepEqual(f.consumed, []);
   f.messages[0].onClose();
+  assert.equal(f.app._strategicBattleFailure, undefined);
   assert.equal(f.sc.legions[0].commandState, 2);
+  assert.equal(f.sc.legions[0].moveDelay, 4, "43E0: (ABh & 7) + 1");
   assert.equal(f.sc.weatherClouds[0].timer, 16);
   assert.deepEqual(f.consumed, [0, 15, 15, 0xab, 0, 0]);
 }
 {
   const f = fixture([0, 15, 15, 99, 0, 0]);
   const capital = f.sc.cities[79];
+  f.sc.factions[13].n_legions = 1;
   const attacker = {
     slot: 0,
     faction: 13,
     leader: f.sc.factions[13].monarch,
     status: 0x84,
+    moveDelay: 1,
+    movePeriod: 2,
     _active: true,
     x: capital.x,
     y: capital.y,
@@ -227,7 +243,7 @@ function addCloud(sc) {
   for (let n = 0; n < 2000 && result === "moved"; n++)
     result = stepTo(f.sc, attacker, target.x, target.y);
   assert.equal(result, "contact");
-  attacker._engagement.countdown = 1;
+  attacker.engagementCountdown = 1;
   attacker.moveDelay = 1;
   addCloud(f.sc);
   let battles = 0;
@@ -240,13 +256,15 @@ function addCloud(sc) {
   aiTick(f.app, { cityIndex: 76, legionBatchStart: 0, settleDaily: false });
   assert.equal(battles, 0);
   f.messages[0].onClose();
+  assert.equal(f.app._strategicBattleFailure, undefined);
   assert.equal(battles, 1);
   assert.deepEqual(f.consumed, [0, 15, 15]);
   assert.equal(f.sc.weatherClouds[0].timer, 1);
   // Represent canonical battle RNG writeback before the existing deferred tail.
   assert.equal(f.app.originalRng.nextByte(), 99);
   f.app.engageTransition.active = false;
-  finishDeferredLegionDaily(f.app);
+  assert.equal(finishDeferredLegionDaily(f.app), true);
+  assert.equal(f.app._strategicBattleFailure, undefined);
   assert.deepEqual(f.consumed, [0, 15, 15, 99, 0, 0]);
   assert.equal(f.sc.weatherClouds[0].timer, 16);
   f.messages[0].onClose();

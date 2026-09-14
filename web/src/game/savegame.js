@@ -1,6 +1,7 @@
 // Web 存档：仅保存玩家浏览器 IndexedDB 中的 JSON 状态。
 // 不读取、生成或上传 DOS SAVE.DAT；二进制格式兼容代码已从正式产品路径移除。
 import { isLegionDelegated } from "./legionmode.js";
+import { assertLegionPhaseState, LEGION_PHASE_VERSION } from "./legionphase.js";
 import { serializeRoadMarchContext } from "./roadgraph.js";
 
 export function canSnapshotState(app) {
@@ -8,6 +9,9 @@ export function canSnapshotState(app) {
     app?.engageTransition?.active ||
     app?.battleView?.active ||
     app?._strategicCityRequest ||
+    app?._scenarioAssemblyPending ||
+    app?._legionSlotBatch ||
+    app?._strategicBattleFailure ||
     app?.gamebar?._strategicMessageActive ||
     app?.gamebar?.proposalAudience ||
     app?.clock?._pendingStrategicAdvance ||
@@ -20,6 +24,26 @@ function assertSnapshotSafe(app) {
     throw new Error(
       "cannot save during battle transition or pending calendar advance",
     );
+  }
+}
+
+// Approved compatibility policy: old slots remain untouched. The new AI
+// accepts only snapshots produced with the explicit fixed-slot phase format.
+export function restoreSnapshotState(saved) {
+  if (saved?.state?.legionPhaseVersion !== LEGION_PHASE_VERSION) {
+    throw new Error("此為舊版 AI 存檔，已原樣保留；修正版請從新遊戲開始。");
+  }
+  try {
+    const state = applyWebMetaToState(
+      structuredClone(saved.state),
+      saved.webMeta,
+    );
+    assertLegionPhaseState(state);
+    return state;
+  } catch (cause) {
+    throw new Error("存檔的軍團調度資料不完整或已損壞，原存檔未變更。", {
+      cause,
+    });
   }
 }
 
@@ -128,7 +152,13 @@ export function snapshotState(app, slotIdx, label) {
     .map((legion) => {
       const clean = { ...legion };
       isLegionDelegated(clean);
-      const roadContext = serializeRoadMarchContext(legion._march);
+      // Never let a projection overwrite known 0A/0C/0E (including zero or
+      // node residue). Only retain the pre-existing conversion for Web objects
+      // that have no explicit 0E at all; this is not an old-save migration.
+      const roadContext =
+        legion.roadEdgeOrNode == null
+          ? serializeRoadMarchContext(legion._march)
+          : null;
       if (roadContext) {
         clean.roadStride = roadContext.stride;
         clean.roadPointAddress = roadContext.pointAddress;
@@ -137,7 +167,9 @@ export function snapshotState(app, slotIdx, label) {
       delete clean._march;
       delete clean._currentNode;
       delete clean._runtimeId;
-      delete clean._markerFrame;
+      // Keep the actual runtime direction, including 0. Original L+08 is
+      // consumed by 430B, not purely a disposable drawing cache. This does
+      // not repair missing old values or certify the current direction writer.
       delete clean._renderMoveSerial;
       delete clean._path;
       delete clean._ptx;
@@ -145,6 +177,7 @@ export function snapshotState(app, slotIdx, label) {
       delete clean._feint;
       return clean;
     });
+  assertLegionPhaseState(state);
   const clock = app.clock;
   state.save_date = {
     year: clock.year,

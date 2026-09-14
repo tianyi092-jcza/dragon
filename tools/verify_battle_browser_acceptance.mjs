@@ -6,7 +6,7 @@
 // PLAYWRIGHT_MODULE="$(npm root -g)/@playwright/cli/node_modules/playwright" \
 //   node tools/verify_battle_browser_acceptance.mjs [artifact-directory]
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { startBrowserTestServer } from "./browser_test_server.mjs";
 import { createHash } from "node:crypto";
 import {
   mkdir,
@@ -17,7 +17,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createRequire } from "node:module";
-import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,47 +64,9 @@ assert.deepEqual(
   "fresh Chromium profile must begin empty",
 );
 
-async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const { port } = server.address();
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
-const port = await freePort();
+const server = await startBrowserTestServer();
+const { port } = server;
 const origin = `http://127.0.0.1:${port}`;
-const server = spawn("python", ["-u", "tools/webserver.py", String(port)], {
-  cwd: repo,
-  stdio: ["ignore", "pipe", "pipe"],
-});
-let serverLog = "";
-server.stdout.on("data", (chunk) => {
-  serverLog += chunk;
-});
-server.stderr.on("data", (chunk) => {
-  serverLog += chunk;
-});
-
-async function waitForServer() {
-  const deadline = Date.now() + 10000;
-  while (Date.now() < deadline) {
-    if (server.exitCode != null)
-      throw new Error(`static server exited ${server.exitCode}: ${serverLog}`);
-    try {
-      const response = await fetch(origin, { cache: "no-store" });
-      if (response.ok) return;
-    } catch {
-      // The child may not have bound its socket yet.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`static server did not become ready: ${serverLog}`);
-}
-await waitForServer();
 
 const errors = [];
 const requests = new Set();
@@ -119,7 +80,7 @@ const results = {
     isolated: true,
     removedAfterRun: false,
   },
-  server: { command: `python -u tools/webserver.py ${port}`, log: serverLog },
+  server: { kind: "owned node HTTP listener", port, closed: false },
   titleBoundary: {},
   startup: {},
   controls: {},
@@ -179,6 +140,9 @@ try {
   // Complete the production title promise through the same pointerdown path a
   // player uses. window.__aiTick is installed only after StartMenu.show()
   // resolves, so it is also an observable post-title await boundary.
+  // The production intro now gates this canvas on its subtitle/skip boundary.
+  // Use its real visible button, not a promise stub or synthetic saved session.
+  await page.locator("#skip-button").click({ timeout: 30000 });
   const startCanvas = page.locator("#startv");
   await startCanvas.waitFor({ state: "visible", timeout: 15000 });
   await page.waitForFunction(
@@ -1897,13 +1861,9 @@ try {
   console.log(`Evidence: ${output}`);
 } finally {
   if (context) await context.close();
-  server.kill();
-  await new Promise((resolve) => {
-    if (server.exitCode == null) server.once("exit", resolve);
-    else resolve();
-  });
+  await server.close();
+  results.server.closed = true;
   results.profile.removedAfterRun = true;
-  results.server.log = serverLog;
   await rm(profile, { recursive: true, force: true });
   if (results.screenshot)
     await writeFile(

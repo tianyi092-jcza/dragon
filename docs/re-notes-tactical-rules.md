@@ -42,11 +42,10 @@ Rechecked directly from `Dragon/KI.EXE` with `tools/disasm.py`, file offset VA+0
 
 实现：`web/src/game/battle/originalrng.js`。
 
-- 初始化建立 257B 表：前 256B 为 `0..255`，末字节为 0；
+- 原版初始化256B表`CS:ECFE..EDFD=0..255`；Web的257长度仅快照兼容padding；
 - DOS `int 1Ah/AH=2` 提供 `CH/CL/DH`；
 - 初值 `AL = DH + CL + CH*4 (mod 256)`，`BL = DH`；
-- 执行 256 次洗牌，索引依次 `BL += 0x4F`；当原版 `BL=0xFF` 时，
-  `DX` 的进位令交换对象成为额外的第 257 字节；
+- `ECB3/ECB5`在循环外一次令`DX=BL+1`；256次先交换`table[BL]/table[DL]`，再分别byte加`4Fh/89h`。合法RTC不会触及第257项；旧相邻交换结论撤销，详见[原始执行证据](re-notes-npc-strategy.md#4-rng初始化勘误实锤)；
 - 保存：`addend=AL`，`index=AL xor BL`；
 - 每次 `0xECE0`：`value = table[index] + addend (mod 256)`，
   `addend += 0x89`，`index=value`，返回 `value`。
@@ -55,6 +54,8 @@ Rechecked directly from `Dragon/KI.EXE` with `tools/disasm.py`, file offset VA+0
 规则模拟层必须逐调用消费此字节流，不能使用 `Math.random()`。随机调用次数和顺序也是兼容要求。
 
 ### 2.2 战斗主循环和结束入口
+
+32块原始脚本、19个opcode、条件标记、选表与分支分母统一见[P07战术AI账本](re-notes-tactical-ai.md)。该包区分单步RET、C315入口停点与完整帧；R范围排除只在明确的跨步接口模型内成立，不代替A065/输入/消息写集核验。
 
 - 主循环 `0x9FA0`：输入 → 按钮 → BATTLE.DAT VM `0xA426` → 战术帧 `0xA065`；`A156`未取到点击时直接落到`0x9FD4 call A426`与`0x9FD7 call A065`，然后回到输入循环。因此A426是全战斗持续脚本，不是开场动画；Web不得等待玩家首令而冻结整个战斗，也不得以墙钟或指令数上限截断命令/RNG/规则帧；原版最高速仅取消额外INT61等待。**Web产品决定（非原版IRQ机制）**现按§5半速政策固定为`1000/30ms`规则门控（此前为60Hz），避免显示器RAF频率改变战斗速率；所有档位每RAF仍最多执行1个完整逻辑帧，不能在一幅显示帧中批跑12帧造成进场即结算。
 - 玩家攻方路径`0x4E75`和玩家守方交换路径`0x4E8F/0x4E9A`都把玩家军团写入`D2E`；`0x9E81`先将D2E复制到对象0侧，`0x9E89`再将D30敌军复制到0x600侧。`A6FA`随后固定先调用`A754`处理玩家0侧，再调用`A785`处理敌方0x600侧；
@@ -87,7 +88,7 @@ Rechecked directly from `Dragon/KI.EXE` with `tools/disasm.py`, file offset VA+0
   `pendingCommand`，不检查活动标志；
 - `0xA7B7/0xA7FD` 公共切换：除 current=5 外，current/pending 不同时清
   `+0x16` 并把 `+0x10/+0x11/+0x12` 恢复到 `+6/+8/+0x0A` 锚点；
-- 已实现 `0xA4BF` 脚本命令、`0xA8F6` 列阵入口、`0xA60D` 组号匹配群发；
+- `0xA4BF`写敌组长pending；`0xA8F6`是撤退入口，不是列阵；`0xA60D`按首孩子CLASS匹配群发，不是组号匹配。原指令分支及实现认证范围以[P07](re-notes-tactical-ai.md)为准；
 - 固定逻辑帧会话同时快照对象池、原版 RNG、帧号、
   `D31A/D31B/D31C/D31D/D349/D34A/D310` 状态和剩余命令；
 - `0xA85B` 按对侧48槽地址升序选择 u8 曼哈顿评分最小目标，同分保留首槽，
@@ -105,9 +106,42 @@ Rechecked directly from `Dragon/KI.EXE` with `tools/disasm.py`, file offset VA+0
 - mode 0 初值：`metric=(城兵+50)*10`；其它模式为 300；
 - `0xB5B7` 有效接触通常使`metric--`；mode0的直接清零条件已闭合：`D35 bit7=0`时0侧攻击者且`direction=0`，或`D35 bit7=1`时1侧攻击者且`direction=2`，同次接触写`metric=0`并进入B799/B824；其它侧别/方向不触发；
 - `metric==0` 后 `0xB799→0xB824` 设置 bit0，清除地图对象；
-- `0xA65D→0x9FF8` 只扫描kind1墙对象：若尚无任何对象bit0置位则返回最小metric×4；一旦任一bit0置位则R=0且结算AX保持原始最小metric。随后按该metric计算并同步扣城兵/上升率/防灾。
+- `0xA65D→0x9FF8`只扫描前16条kind1墙对象；**返回AX始终是原始最小metric，不乘4**。无bit0时乘4只用于写VM的D315；位宽、无kind1分支及旧实现差异见下节。
 
 `0xB533`触发边界已由静态调用图闭合：只有AF69逐帧移动中B047/B069/B08B/B0AF四向探针与B0D3/B116上下层探针在“占用ID非零”时各至多调用一次；ABD2/ABFF/AC55及B941远近程攻击效果链均不直接调用B533。实际调用频率因此等于单位进入AF69的帧数中占用探针命中非零ID的次数，不按攻击/兵种另设周期；直接清零读取的是对象`+5 direction`，不是兵种/武力字段。
+
+### 2.4.1 A65D返回值与城损勘误
+
+**实锤：原始指令及以下私有RAM整调用证书；不等于所有战术入口/墙构造可达性已认证。** 固定KI哈希见[AI专项原始来源](re-notes-ai-chain.md#1-范围与证据纪律)。
+
+`A65D`保存DS/CX/DX，以DS=CS:D30E扫描`0C00..0DFF`的16条32B记录，DX初值FFFF、AH初值1。每个`kind(+1)==1`记录按无符号word比较更新最小`+18`；任一该类记录flags bit0置位便令AH=0。循环后：
+
+```text
+if AH != 0:
+    AX = u16(DX * 4)                 # A68E/A690/A692
+CS:D315 = AH                        # A694：仅VM查询值
+AX = DX                             # A699，字节8B C2，无条件还原！
+restore DX/CX/DS; return
+```
+
+故没有kind1时AX仍FFFF，不能凭Web的`found=false`跳过原城损。`9FF8`将该AX无符号除10；`A00C..A01A`计算`damageWord=u16(u8(city+13)+50-floor(metric/10))>>3`，之后三次`SUB byte,DL`只使用`damage=damageWord&FFh`，依次饱和扣`city+10/+11/+13`。中间减法下溢不能钳0，也不能把整个damageWord扣进byte字段。该链0 RNG，不写产量/城兵上限。
+
+复演输入：城兵/上升率/防灾为87/104/100；16条kind1、flags80、metric1370。原版返回metric1370，D315=21，damage=0，三字段不变；现Web正式`originalexit.js`却返回5480、damage8140并扣为0。flags81时D315=0但AX仍1370。另无kind1或全FFFF的受控异常输入得到damageWord7390、DL222；metric3000得到8171/DL235。这组纯内存输入本身不证明地图可达性；后续§2.4.2已在两个原始城市目录构造出无kind1状态，不能再把该分支一概当损坏数据。
+
+父重放源码/结果保全于`C:/Users/fczll/AppData/Local/Temp/dragon-ai-date-render-13emjwia/`：`wall-probe.py`只提取固定快照的CPU/walls/wall_boundaries，快照SHA256为`3282b011c402aebeb65779f5490265ab86771679bcd681fe7fb5e359535c6005`；输出`wall-result.json`、`wall-web-contrast.json`。执行范围`9FF8..A037`及`A65D..A69F`，停在清屏入口前，无KI callee替身；10条常规墙输入和4条边界输入均与上述原指令一致。该有限CPU只建模本路径消费的标志，不认证硬件/完整战役。
+
+**撤销旧实现一致声明**：`originalexit.js`的乘4、缺少最终DL截取、无kind1早退，以及`autobattle.js`旧战术城损fallback均须按本证据修正；`verify_battle_original_exit.mjs`中的旧乘4golden不能再作为原版证明。本专项当前阶段只完成证据勘误，尚未修改这些生产/测试路径，后续修正必须同步更正错误回归。VM op15对D315的乘4查询是另一输出，不能一并删除。
+
+### 2.4.2 原始城市目录确有无kind1的构造结果
+
+原始`BATTLE.MAP`长`0x200+214*0x1000`，SHA256 `8bbb2867ed526a2dcd2fcc1e0202a93952dcd113d3720936fd7304fd9e3ef872`；`BATTLE.MDL` SHA256 `3522f7362f928fae45c1431a9efe57e285250d9db05d04ebdcb59f420e3e0bd3`。未使用Web导出资产反证原版。
+
+- `4AF3..4B08`将攻城DI换成城市索引D34并清D35；`9A5E..9A6F`令目录0..191为mode0。`CAEB..CB41`取目录号而非layout号计算地图偏移`200h+directory*1000h`；目录首byte仅选择MDL布局。对214块原始地图逐byte计数，前192城只有**75与154**完全没有D0..DF墙tile；两者layout都为1。目录88对照有5个墙tile、layout0。
+- `9ACE..9ADF`清对象区1800h字节；军团初始化限定前96对象，即0000..0BFF。随后`9CB3`以ES=D30E+00C0、DI=0进入`9CE2`，按列扫描D0..DF，建kind1记录；`9DA1`只向剩余前16槽建kind2，`9E10`从DI=0200开始建kind3。不能将“前16条地图对象”视为“永远至少一条城壁”。
+- `CB9B/CBBC`的翻转与tile改码保持D0..DF集合，不会凭空生成墙。父分别以两个无墙目录和88目录的原始MAP/MDL输入，实际执行可选`CB9B`、完整`9CB3`（含`9CE2/9DA1/9E10`及真实ECE0）、再执行`A65D`，无KI callee替身。
+- 75与154在翻转前/后均得到kind1数量0、AX=FFFF、D315=FF；88两向均得kind1数量1、metric1370、D315=21。地图对象构造的RNG为0/0/12字节，不能统一把`9CB3`当无RNG函数或跳过`9E10`。
+
+证书：上述父TEMP内`wall-map-probe.py`与`wall-map-result.json`；每次原调用限500000指令，仅执行已审核CPU类。资源装载输入和9ACE后的零区是显式接口，未模拟DOS读盘、整场军团初始化或全部战斗帧。**已闭合的是原始城市资源经真实构造得到无kind1，不是这两个目录的任意完整战斗历史都已复演。** 后续仍要接到真实退出调用，并审核其它目录及运行中所有墙写者；但当前Web `found=false`早退不能再以“原始城市图不可能无墙”作理由。
 
 ## 3. 已定位、尚待闭合
 
@@ -138,7 +172,7 @@ Rechecked directly from `Dragon/KI.EXE` with `tools/disasm.py`, file offset VA+0
 - `B1B1`双占用平面、动态高度描述、tile门槛与probe内自动跨层已闭合；
 - `B941→B97E→BA2E→BAB7`效果对象逐帧命中、8.8轨迹、重力、阻挡和清槽已闭合，
   该链0 RNG且不经过B533；B8AA仅有32固定槽并按`source&0x1E0`产生别名；
-- `0x9FDC`战术层退出聚合、双方六队/总兵/士气和`A65D→9FF8`城损已闭合；
+- `0x9FDC`退出接口已定位；旧“城损实现已闭合”声明撤销，`A65D→9FF8`的原返回值和DL位宽已由§2.4.1更正，生产路径尚未修复。双方六队/士气仍须与完整退出及战略续段分别认证；
 - `C653→AED2`环形队列、每帧2项预算、路径内存快照与`B00D`路径word消费已闭合；
   B00D已确认路径区寻址为`0x1800+(SI<<2)+u8 offset`，完整窗口0x3000字节，
   双方对应对象不再错误别名；`BD46..BFF1`双平面u16代价波前、固定方向展开、

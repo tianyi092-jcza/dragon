@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
+import { findRoadRoute, roadNodeAt } from "../web/src/game/roadgraph.js";
 
 globalThis.window = {};
 globalThis.fetch = async (url) => {
@@ -47,20 +49,32 @@ const general = (idx, name, faction) => ({
   active: true,
   attr: 0x80,
   battle_rating: 0,
+  captive_flag: 0xff,
+  origFaction: null,
   ability: { force: 10, lead: 10, field: 1, siege: 4, naval: 0 },
 });
-const legion = (leader, faction, x, y, troops = 600) => ({
+const legion = (leader, faction, x, y, troops = 600, generalIdx = faction) => ({
   leader,
   faction,
+  generalIdx,
+  slot: generalIdx,
+  moveDelay: 1,
+  movePeriod: 3,
   x,
   y,
   prevX: x,
   prevY: y,
   troops,
   morale: 200,
-  units: structuredClone(fixedUnits),
+  units: fixedUnits.map((unit, index) => ({
+    ...unit,
+    troops: Math.max(0, Math.min(100, troops - index * 100)) * 10,
+  })),
   status: 0x80,
   _active: true,
+  _march: null,
+  _path: null,
+  _retreat: null,
 });
 const city = (idx, faction, x, y, troops = 120) => ({
   idx,
@@ -76,18 +90,19 @@ const city = (idx, faction, x, y, troops = 120) => ({
 const makeScenario = () => {
   const cities = [city(0, 0, 257, 9), city(1, 1, 218, 11), city(2, 1, 246, 15)];
   const factions = [
-    { idx: 0, capital: 0, monarch_idx: 0, active: true },
-    { idx: 1, capital: 1, monarch_idx: 1, active: true },
+    { idx: 0, capital: 0, monarch_idx: 0, active: true, n_legions: 0 },
+    { idx: 1, capital: 1, monarch_idx: 1, active: true, n_legions: 0 },
   ];
   const generals = [
     general(0, "甲", 0),
     general(1, "乙", 1),
     general(2, "丙", 1),
   ];
-  return {
+  const sc = {
     cities,
     factions,
     generals,
+    player_faction: 0,
     legions: [],
     diplomacy: [
       [0xff, 0],
@@ -97,7 +112,47 @@ const makeScenario = () => {
       return this.cities.filter((candidate) => candidate.faction === faction);
     },
   };
+  initializeLegionSlotState(sc);
+  return sc;
 };
+function putLegions(sc, records, counts) {
+  assert.equal(sc.legions.length, 0); // new fixture construction, never runtime count repair
+  sc.factions.forEach((faction, index) => {
+    faction.n_legions = counts[index];
+  });
+  sc.legions.push(...records);
+}
+function prepareSiegeApproach(record, source, target) {
+  const edge = findRoadRoute(source.x, source.y, target.x, target.y).legs.at(
+    -1,
+  );
+  assert.ok(edge.points.length >= 2);
+  const point = edge.points.at(-2);
+  Object.assign(record, {
+    x: point.x,
+    y: point.y,
+    prevX: point.x,
+    prevY: point.y,
+    target,
+    targetCity: target.idx,
+    targetNode: roadNodeAt(target.x, target.y).id,
+    status: record.status | 0x21,
+    _march: {
+      currentNode: edge.fromNode,
+      fromNode: edge.fromNode,
+      toNode: edge.toNode,
+      edgeId: edge.edgeId,
+      stride: edge.stride,
+      pointIndex: edge.points.length - 1,
+      points: structuredClone(edge.points),
+      targetNode: roadNodeAt(target.x, target.y).id,
+      targetX: target.x,
+      targetY: target.y,
+    },
+    _engagement: { kind: "siege", target: { cityIdx: target.idx } },
+  });
+  record._path = record._march.points.slice(record._march.pointIndex);
+}
 
 {
   const sc = makeScenario();
@@ -190,20 +245,23 @@ const makeScenario = () => {
 {
   const sc = makeScenario();
   const target = sc.cities[0];
-  target.x = 255;
-  target.y = 9;
   target.faction = 1;
+  sc.cities[1].faction = 0;
+  sc.factions[0].capital = 1;
   sc.cities[2].x = 246;
   sc.cities[2].y = 15;
   sc.factions[1].capital = 2;
   const attacker = legion("甲", 0, target.x, target.y, 500);
   const defenderA = legion("乙", 1, target.x, target.y, 400);
-  const defenderB = legion("丙", 1, target.x, target.y, 350);
+  const defenderB = legion("丙", 1, target.x, target.y, 350, 2);
   defenderA.slot = 9;
   defenderB.slot = 3;
   defenderA.commandState = 1;
   defenderB.commandState = 2;
-  sc.legions = [attacker, defenderA, defenderB];
+  prepareSiegeApproach(attacker, sc.cities[2], target);
+  putLegions(sc, [attacker, defenderA, defenderB], [1, 2]);
+  const position = { x: attacker.x, y: attacker.y };
+  const originalMarch = structuredClone(attacker._march);
   applyBattleResult(
     {
       scenario: sc,
@@ -221,6 +279,9 @@ const makeScenario = () => {
     null,
     null,
     defenderA,
+    null,
+    null,
+    { oldFaction: 1, defenders: [defenderB, defenderA] },
   );
   assert.equal(target.faction, 0);
   assert.equal(
@@ -230,24 +291,24 @@ const makeScenario = () => {
   );
   assert.equal(attacker.troops, 480);
   assert.equal(attacker.commandState, 8);
-  assert.equal(attacker.x, target.x);
-  assert.equal(attacker.y, target.y);
-  assert.equal(attacker.prevX, target.x);
-  assert.equal(attacker.prevY, target.y);
-  assert.equal(attacker.target, target, "破城胜军必须绑定新占据的据点中心");
-  assert.equal(attacker.targetCity, target.idx);
-  assert.equal(
-    attacker.targetNode,
-    null,
-    "非真实道路节点的测试坐标不伪造节点号",
+  assert.deepEqual(
+    { x: attacker.x, y: attacker.y },
+    position,
+    "474A/4CF3 do not teleport the winner",
   );
+  assert.deepEqual({ x: attacker.prevX, y: attacker.prevY }, position);
+  assert.deepEqual(attacker._march, originalMarch);
+  assert.equal(attacker.target, target, "破城胜军保留原进攻目标");
+  assert.equal(attacker.targetCity, target.idx);
+  assert.equal(attacker.targetNode, 0);
+  assert.equal(attacker.moveDelay, 1);
   assert.equal(defenderA.commandState, 8, "实际参战主守军由0x474A转8");
   assert.equal(defenderB.commandState, 2, "0x4DA4不得覆盖同城其余守军状态");
   assert.equal(defenderA.target.idx, defenderB.target.idx);
   assert.equal(defenderA._retreat, null);
   assert.equal(defenderB._retreat, null);
-  assert.equal(defenderA.cooldown, 1);
-  assert.equal(defenderB.cooldown, 1);
+  assert.equal(defenderA.moveDelay, 1);
+  assert.equal(defenderB.moveDelay, 1);
   assert.equal(defenderA._path, null);
   assert.equal(defenderB._path, null);
 }
@@ -257,12 +318,12 @@ const makeScenario = () => {
   const target = sc.cities[1];
   const attacker = legion("甲", 0, target.x, target.y, 500);
   const weakDefender = legion("乙", 1, target.x, target.y, 100);
-  const primaryDefender = legion("丙", 1, target.x, target.y, 500);
+  const primaryDefender = legion("丙", 1, target.x, target.y, 500, 2);
   weakDefender.slot = 1;
   primaryDefender.slot = 2;
   weakDefender.commandState = 1;
   primaryDefender.commandState = 0;
-  sc.legions = [attacker, weakDefender, primaryDefender];
+  putLegions(sc, [attacker, weakDefender, primaryDefender], [1, 2]);
   applyBattleResult(
     { scenario: sc, hud: { flashEvent() {} } },
     attacker,
@@ -275,6 +336,7 @@ const makeScenario = () => {
     primaryDefender,
     240,
     [40, 40, 40, 40, 40, 40],
+    { oldFaction: 1, defenders: [weakDefender, primaryDefender] },
   );
   assert.equal(primaryDefender.troops, 240);
   assert.equal(primaryDefender.commandState, 8);
@@ -289,10 +351,12 @@ const makeScenario = () => {
   const target = sc.cities[1];
   const attacker = legion("甲", 0, target.x, target.y, 500);
   const weakDefender = legion("乙", 1, target.x, target.y, 100);
-  const primaryDefender = legion("丙", 1, target.x, target.y, 500);
+  const primaryDefender = legion("丙", 1, target.x, target.y, 500, 2);
   weakDefender.morale = 100;
   primaryDefender.morale = 240;
-  sc.legions = [attacker, weakDefender, primaryDefender];
+  prepareSiegeApproach(attacker, sc.cities[2], target);
+  putLegions(sc, [attacker, weakDefender, primaryDefender], [1, 2]);
+  sc.legionSlotCounters[attacker.slot] = 1;
   let openedDefender = null;
   const app = {
     scenario: sc,
@@ -300,12 +364,14 @@ const makeScenario = () => {
     battleView: { active: false },
     startBattle(_attacker, _city, defender) {
       openedDefender = defender;
+      this.battleView.active = true;
     },
   };
   const targetBefore = target.faction;
   attacker.target = target;
   const { aiTick } = await import("../web/src/game/ai.js");
-  aiTick(app);
+  aiTick(app, { legionBatchStart: 0, runCityDaily: false, settleDaily: false });
+  assert.equal(app._strategicBattleFailure, undefined);
   assert.equal(target.faction, targetBefore);
   assert.equal(openedDefender, primaryDefender);
 }
@@ -313,10 +379,9 @@ const makeScenario = () => {
 {
   const sc = makeScenario();
   const target = sc.cities[2];
-  target.x = 255;
-  target.y = 9;
   const attacker = legion("甲", 0, target.x, target.y, 500);
-  sc.legions = [attacker];
+  prepareSiegeApproach(attacker, sc.cities[0], target);
+  putLegions(sc, [attacker], [1, 0]);
   applyBattleResult(
     {
       scenario: sc,
@@ -332,6 +397,11 @@ const makeScenario = () => {
     300,
     [50, 50, 50, 50, 50, 50],
     77,
+    null,
+    null,
+    null,
+    null,
+    { oldFaction: 1, defenders: [] },
   );
   assert.equal(target.faction, 1);
   assert.equal(target.troops, 77);
@@ -344,7 +414,7 @@ const makeScenario = () => {
   const sc = makeScenario();
   const target = sc.cities[1];
   const attacker = legion("甲", 0, target.x, target.y, 500);
-  sc.legions = [attacker];
+  putLegions(sc, [attacker], [1, 0]);
   const before = {
     troops: target.troops,
     growth: target.growth,
@@ -359,6 +429,10 @@ const makeScenario = () => {
     [50, 50, 50, 50, 50, 50],
     null,
     null,
+    null,
+    null,
+    null,
+    { oldFaction: 1, defenders: [] },
   );
   assert.equal(target.troops, before.troops);
   assert.equal(target.growth, before.growth);
@@ -371,7 +445,7 @@ const makeScenario = () => {
   const fallback = sc.cities[2];
   const attacker = legion("甲", 0, oldCapital.x, oldCapital.y, 500);
   const defender = legion("乙", 1, oldCapital.x, oldCapital.y, 400);
-  sc.legions = [attacker, defender];
+  putLegions(sc, [attacker, defender], [1, 1]);
   applyBattleResult(
     { scenario: sc, hud: { flashEvent() {} } },
     attacker,
@@ -379,6 +453,12 @@ const makeScenario = () => {
     "atk",
     450,
     [75, 75, 75, 75, 75, 75],
+    null,
+    null,
+    defender,
+    null,
+    null,
+    { oldFaction: 1, defenders: [defender] },
   );
   assert.equal(sc.factions[1].capital, fallback.idx);
   assert.equal(sc.factions[1].active, true);
@@ -386,7 +466,7 @@ const makeScenario = () => {
   assert.ok(defender.target === fallback || defender.dead);
   if (!defender.dead) {
     assert.equal(defender._retreat, null);
-    assert.equal(defender.cooldown, 1);
+    assert.equal(defender.moveDelay, 1);
   }
 }
 
@@ -396,7 +476,9 @@ const makeScenario = () => {
   sc.cities[2].faction = 0;
   const attacker = legion("甲", 0, lastCity.x, lastCity.y, 500);
   const defender = legion("乙", 1, lastCity.x, lastCity.y, 400);
-  sc.legions = [attacker, defender];
+  const remote = legion("丙", 1, 255, 9, 100, 2);
+  putLegions(sc, [attacker, defender, remote], [1, 2]);
+  const originalExit = { oldFaction: 1, defenders: [defender] };
   const messages = [];
   const app = {
     scenario: sc,
@@ -413,6 +495,12 @@ const makeScenario = () => {
     "atk",
     450,
     [75, 75, 75, 75, 75, 75],
+    null,
+    null,
+    defender,
+    null,
+    null,
+    originalExit,
   );
   assert.equal(sc.factions[1].dead, true);
   assert.equal(sc.factions[1]._extinctionHandled, true);
@@ -439,6 +527,12 @@ const makeScenario = () => {
     "atk",
     450,
     [75, 75, 75, 75, 75, 75],
+    null,
+    null,
+    null,
+    null,
+    null,
+    originalExit,
   );
   assert.equal(
     messages.filter((message) => message.kind === "faction-extinction").length,

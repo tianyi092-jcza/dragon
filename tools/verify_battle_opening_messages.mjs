@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 const scheduled = new Map();
 let nextTimerId = 1;
@@ -45,7 +46,14 @@ function fireOnlyTimer(expectedMs = 3000) {
 }
 
 function faction(idx, capital) {
-  return { idx, capital, monarch_idx: idx, active: true, n_cities: 1 };
+  return {
+    idx,
+    capital,
+    monarch_idx: idx,
+    active: true,
+    n_cities: 1,
+    n_legions: 1,
+  };
 }
 
 function general(idx, name, factionIdx) {
@@ -63,6 +71,8 @@ function general(idx, name, factionIdx) {
 function legion(leader, factionIdx, x, y) {
   return {
     leader,
+    slot: factionIdx,
+    generalIdx: factionIdx,
     faction: factionIdx,
     x,
     y,
@@ -71,8 +81,13 @@ function legion(leader, factionIdx, x, y) {
     troops: 100,
     morale: 200,
     status: 0x80,
+    moveDelay: 1,
+    movePeriod: 3,
     _active: true,
-    units: [{ type: 1, troops: 1000 }],
+    units: Array.from({ length: 6 }, (_, index) => ({
+      type: index === 0 ? 1 : 4,
+      troops: index === 0 ? 1000 : 0,
+    })),
   };
 }
 
@@ -99,6 +114,7 @@ function fixture() {
       return this.generals[factionRecord.monarch_idx];
     },
   };
+  initializeLegionSlotState(scenario);
   const started = [];
   const app = {
     scenario,
@@ -202,7 +218,9 @@ function fixture() {
   assert.equal(started[0][0], "field");
 }
 
-// 玩家首都失陷但势力尚存：新首都TALK30先于据点失陷TALK26入队。
+// Local 4DF0 capital notice only. Withdraw the old [30,26] golden:
+// the real empty-garrison caller emits 26 before outer 4CF3/30, not here.
+// Full loss-message ordering remains pending (message-system-audit §3.1).
 {
   const { app, scenario, cities } = fixture();
   const messages = [];
@@ -213,17 +231,31 @@ function fixture() {
   };
   const attacker = legion("呂布", 1, cities[0].x, cities[0].y);
   scenario.legions = [attacker];
-  applyBattleResult(app, attacker, cities[0], "atk", 90, [90, 0, 0, 0, 0, 0]);
+  scenario.factions[0].n_legions = 0;
+  applyBattleResult(
+    app,
+    attacker,
+    cities[0],
+    "atk",
+    90,
+    [90, 0, 0, 0, 0, 0],
+    null,
+    null,
+    null,
+    null,
+    null,
+    { oldFaction: 0, defenders: [] },
+  );
   assert.equal(scenario.factions[0].capital, 2);
   assert.deepEqual(
     messages
-      .filter((message) => [26, 30].includes(message.talkIndex))
-      .map((message) => message.talkIndex),
-    [30, 26],
+      .filter((message) => message.talkIndex === 30)
+      .map((message) => message.cityName),
+    ["小沛"],
   );
   assert.equal(messages[0].cityName, "小沛");
 }
 
 process.stdout.write(
-  "battle opening messages OK: TALK27/28/29 gate battle start, TALK30 precedes TALK26\n",
+  "battle opening messages OK: TALK27/28/29 gate battle start, local TALK30 target; full loss-message ordering pending\n",
 );

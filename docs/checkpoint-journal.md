@@ -1,205 +1,112 @@
-# 臥龍傳 Web · 会话日志
+# Checkpoint Journal
 
-> 长期事实、当前架构、命令、约定和主线状态见[项目记忆](../AGENTS.md)；安全/审批见[全局AGENTS](../../AGENTS.md)。本文只保留当前重构批次及本轮文档整理的过程，不下达任务、不替代原始证据。历史测试结果只适用于所述批次。
+> 本文是会话日志与交接，不是长期指令或任务授权。项目事实/架构/命令见[项目记忆](../AGENTS.md)，安全与证据约定见[全局AGENTS](../../AGENTS.md)。机制结论只在对应SKILL/`re-notes`维护；此处保留关键过程、验证边界及证据入口，不复写全部逆向笔记。
 
-## 开场完善批次：整理提交与推送
+## P24：AI槽调度与道路接线——当前交接
 
-- 用户明确授权将本轮改动整理为一次提交并推送。候选10个仓库文件覆盖音乐加载缓存、中央进度条/手势启动、副标题完全显现后弹窗、两行纯文本版权说明、对应测试和文档。保留之前测试格式化，不加入本地缓存、截图、代理目录或其它临时产物。
-- 提交前8项相关回归重新通过：opening loading browser、opening browser、music browser、title deferred map、start flow、startmenu empty slot、music runtime、standalone web browser。覆盖严格自动播放策略、缓存命中、完整字节、写入门控、22秒首次弹窗、两行/80%/5px/零链接、真实新局与隔离保存读取、音乐菜单及静态独立部署。未修改共享规则/调度/存档格式，未跑无关全量规则回归。
-- 主动LSP及缓存诊断仍有push-only/Markdown不可确认和既有风格提示；不报全绿。补充JS语法、文档链接、实际diff与暂存范围检查。仓库外数据Skill仅有副标题门控摘要更新，不属于Git仓库，此提交用仓库文档保留同等说明。
-- 此处记录提交前验证；提交哈希和推送结果以Git与最终交付为准，不提前宣称远端更新成功。下方未授权/未提交是各历史阶段状态。
+### 1. 范围与结论
 
-## 版权说明两行纯文本批次
+- 连续AI专项覆盖外交、编成/补员、驻防/出击、移动接敌、战果、占城、撤退、返都及解散。**全AI尚未完成**；“仍在战争中全军返都”与“占城后弃守”的战役级因果未闭合，不能以局部序列替代解释。
+- 槽泵/相位/F14、战斗续段、冷加载与道路字段/目标保值已有生产修复。最近子批修的是字段生命周期与缓存污染，**不是原搜索上线**；原搜索/图内存/城市归属适配及互反校验仍未接生产，源和运行道路仍v1。
+- 本次整理只改文档。现场为`main`、HEAD `dd877b3cda2d9e7b5cd163daeec360f96e560e44`，暂存区空、共享脏改保留；未commit/push。此状态不是未来现场或授权，继续工作时重查。
 
-- 用户连续调整：改用最新两行原文（包含原版版权声明），说明框宽度80%、圆角5px；随后取消全部链接属性。最终 `footerText` 保持单字符串/一个BR，所有网址和邮箱均为纯文本，无跳转和链接hover样式，保留此前紧凑间距。下方三行/链接记录仅为历史。
-- `verify_opening_browser.mjs` 回归通过：9组视口宽度均为80%，1920宽度实际两行、原文完整、BR数1、圆角5px、链接元素/属性数0；原22秒副标题门控、跳过、新局/隔离读档、刷新重启仍通过。语法、diff检查通过。截图 `C:/Users/fczll/AppData/Local/Temp/wolong-opening-footer-plain.png` 已核对。
-- LSP存在push-only未确认、Markdown服务不可用及既有日志helper/测试URL风格提示，不称全绿。未跑无关游戏全量回归，未提交推送。
+### 2. 已完成的生产切片
 
-## 版权说明三行与间距批次
-
-- 按用户原文替换版权说明，`intro.config.js` 由两字段改为单个 `footerText` 字符串，两个 `<br>` 分三行；DOM只识别换行，网址/邮箱生成链接，不使用任意HTML注入。行间额外空隙、内边距与底部基准留白减半，窄屏允许自然折行。
-- 两份opening浏览器回归通过，新增1920宽度下原文、两处BR、三行实际高度、4个链接、16.8px行高、12px底距和6×11px内边距断言；3份JS语法、diff检查通过。已查看1912×956截图 `C:/Users/fczll/AppData/Local/Temp/wolong-opening-footer.png`，确认三行紧凑显示。
-- LSP有既有日志helper/测试URL提示，部分push-only不确认、Markdown服务不可用；不称全绿。未跑无关规则全量回归，未提交推送，保留之前本地变更。
-
-## 新游戏弹窗等待副标题批次
-
-- 用户要求首个新游戏弹窗必须在“三国制霸之计”出现后。已将 `app.js` 门控从15秒改为 `openingFrame(time).subtitleOpacity >= 1`，即当前副标题20–22秒渐显结束后放行。手动跳过仍先绘制完整终场再放行；普通刷新、读档及减少动画沿用终场流程。下方旧批次的15秒记录仅作历史，不再是当前规则。
-- 已同步 `opening-scene.md`、项目AGENTS及仓库外数据Skill摘要。浏览器逐帧记录首次弹窗时刻，确认不早于22秒且副标题实际opacity=1；旧15秒时弹窗不可见。两份opening浏览器回归通过，包含加载/缓存/手势门控、提前/晚跳过、新局与隔离读档、刷新/重启。
-- JS语法与diff检查通过；LSP有错误日志helper和测试localhost风格警告，Markdown服务不可用，不报全绿。未跑无关规则全量回归。保留上批本地修改，未提交/推送。
-
-## 开场音乐加载与缓存批次
-
-- 用户要求：首次打开先在空白页面中央显示标准进度条，音乐完整加载并缓存后才开始开场，后续优先使用缓存。本批仅Web开场表现，不修改游戏规则、时钟、RNG或存档格式。
-- 已实现：`music-cache.js` 分段字节进度、完整Blob、同源Cache Storage及内容版本URL；`app.js` 等待缓存写入/图片与音频就绪，取消旧4秒自动放行。受浏览器自动播放限制时停在起点，中央点击开始后才一起播放音画；保留明确静音/跳过。缓存权限或配额拒绝时如实标记本次内存缓存；失败放行游戏选择，销毁撤销Blob URL。详细规则仅维护于[opening-scene.md](opening-scene.md)。
-- 隔离验证通过8项：新增 `verify_opening_loading_browser.mjs`，及 opening browser、music browser、title deferred map、start flow、startmenu empty slot、music runtime、standalone web browser。最终修改后重跑两份opening浏览器测试通过；5份JS/MJS语法检查和diff空白检查通过。未跑无关战略/战斗全量回归；未触碰真实DOS SAVE或用户IndexedDB。
-- 新测试验证实际分段下载超过4秒仍为time=0、等待缓存写入、缓存全字节SHA-256、真实严格自动播放拒绝及鼠标/键盘恢复、新页缓存命中且禁止音乐网络请求、静默刷新、未知总长、存储拒绝/配额、减少动画、HTTP失败和销毁清理。截图 `C:/Users/fczll/AppData/Local/Temp/wolong-opening-loading.png` 已检查：1024×768白底中央标准进度条。
-- 测试调试：初版fixture路径尾分隔符重复导致资源403，修正了fixture路径归一化。自动播放测试曾受Playwright求值/截图注入用户激活影响而超时；改用 `user-gesture-required` 和不授予手势的CDP观察/截图，保留真实Audio，不以伪造播放成功绕过。含截图与无截图运行均已通过。
-- 主动LSP：存在push-only无法确认及Markdown服务不可用；辅助诊断为错误日志helper、测试localhost/条件展开等风格提示，不称全绿。以语法、浏览器、文档链接和实际diff补充。
-- 本轮开始时 `tools/verify_opening_browser.mjs` 已有上轮音频竞态测试格式化差异，已审查并保留；本轮仅增加该测试的明确自动播放允许策略，严格拒绝策略由新测试覆盖。所有修改留在本地，未获本轮commit/push授权，未提交推送。
-
-## 开场批次完整提交前审查
-
-- 用户本次明确授权：审查所有已改动/未跟踪文件，保留产品、测试、必要文档，排除本地代理和运行产物，创建一个完整提交并推送。该授权仅适用于本次；下方旧交接的“未授权提交”是当时状态。
-- 候选26文件：开场源码/六份素材、启动和音乐衔接、相关测试、说明与journal。现有两份测试的换行格式改动已审查并保留。`.pi/`、`.codegraph/`、`.dragon-runtime/`、`.playwright-cli/`、缓存/临时截图保持忽略，不强制加入，不删除用户本地产物。仓库外数据Skill不属于本仓库提交；同等产品说明已经写入仓库文档。
-- 审查发现并修复：快速关闭/开启开场音乐时，过期play Promise不得暂停较新的播放；补受控Audio异步回归，并补齐skip位置归零，保持单次播放/独立静音。没有修改游戏规则或存档格式。
-- 全量安全回归最终覆盖142项（128 MJS、13 Python、1 viewport JS；另两份JS helper由对应浏览器测试调用）。首轮因部分测试找不到默认playwright停止；显式设置已安装的PLAYWRIGHT_MODULE后继续，未安装依赖或改全局配置。随后战斗布局fixture拒绝新增的本地开场CSS，已补`.css: text/css`白名单，不绕过资源错误检查；修正后该项及后续93项通过，之前49项通过。
-- 原始验证日志：`/tmp/wolong-precommit-MNCrnt.log`（环境失败）、`/tmp/wolong-precommit-DuBYiw.log`（前49项及CSS fixture失败）、`/tmp/wolong-precommit-rest-jn21Ll.log`（修正后93项）。均为本机临时文件，不纳入提交。测试没有访问实际DOS SAVE或用户正式浏览器存档。
-- 26份暂存候选通过路径排除和窄范围凭证扫描；从`git write-tree`导出到`/tmp/wolong-staged-r8d5oN`，独立部署与完整开场浏览器测试再次通过（含音频异步竞态），不依赖忽略文件兜底。Node在临时目录提示ESM自动识别，未为消除提示修改全局package配置。
-- 主动LSP检查16份源/测试：11份push-only无法确认，其余辅助诊断为main既有布尔参数、测试localhost/日志风格警告；不称全绿。语法/差异检查和真实浏览器为补充覆盖。
-- 远端预检受阻：当前origin为`https://gitea.fczllc.top/fczllc/dragon.git`，`git fetch origin`返回`404 page not found / repository not found`。未更改remote或凭证；本地验证/提交不依赖此网络步骤，远端更新需正确地址或访问权限。
-- 本段记录提交前证据；实际提交/推送是否成功及哈希，以Git状态和最终交付回复为准，避免提前写成远端已更新。
-
-## 本轮交接 checkpoint：开场移植与视口适配
-
-### 目标
-
-将用户提供的 `F:/dragon/wolong_intro_vite` 开场页面与音乐整合到当前游戏，从首次打开、现有新游戏/章节/势力/军师选择或读档，一直到进入战略地图。随后按用户截图修正普通窗口两侧留白。当前这次请求只补交接文档，不授权新功能或提交推送。
-
-### 已完成工作
-
-- 必要代码、配置和六份素材已迁入 `web/intro/`，以后在当前游戏项目维护；F盘原项目保留备份，不是运行依赖。六份素材与源文件SHA-256一致。
-- 以原生RAF和sine.inOut插值替代GSAP，不引入Vite、PixiJS、npm运行依赖或构建步骤。
-- 新场景接入 `boot → startApp → StartMenu → enterGame/returnToTitle`；保留原弹窗绘制和交互，未修改 `startmenu.js` 或 `startflow.js`。进入游戏清理开场音频/RAF，返回标题复用终场。
-- 新MP3与现有音乐系统分离，标题不再选择旧FLAC曲目0，游戏内四季/交涉/战斗音乐和设置保留。
-- 初版contain已改为左上覆盖、不缩小；9组视口测试及1912×956截图检查通过。具体测试证据见下方两个批次记录。
-
-### 关键决策（最新确认）
-
-1. 正常播放第15秒显示首个“是否新游戏”弹窗，背景继续播放；15秒前跳到最后立即放行弹窗；之后skip不关闭、不推进、不重置弹窗。
-2. 背景“重新开始”按钮清除会话标记并整页reload，包括已有弹窗和选择；普通音乐按钮只控制开场音乐。skip停止并静音开场音乐，不影响游戏里的设置。单次MP3播完停止，不循环。
-3. 首次进入当前标签页播放；同一标签页普通刷新/结束游戏reload直达终场，静态人物、不自动播音乐。网页无法可靠识别Ctrl+F5，用户已接受 `sessionStorage['wolong.intro.seen.v1']` 替代，不再承诺硬刷新必定重播。
-4. 游戏内读取进度仍先退出当前局，经 `returnToTitle(1)` 显示终场和现有读档弹窗，不重播动画/音乐；取消沿用原流程。
-5. 当前视口策略为 `max(1, innerWidth/1920, innerHeight/1080)`，原点(0,0)，不平铺、不缩小，必要时等比放大；右侧/底部溢出裁切，无滚动条。1920×1080为原尺寸；小窗口看见局部构图是预期，不为保全构图重新缩小。弹窗仍640×400、屏幕居中，控制按钮/页脚按视口定位。
-6. 以上均为用户批准的Web表现决定，不冒称原版机制。长期详细维护源是[opening-scene.md](opening-scene.md)，journal仅记录本次交接。
-
-### 失败尝试与纠正
-
-- F盘项目没有CodeGraph索引，结构查询失败后改为只读文件检查，没有创建索引或安装依赖。
-- 初版沿用了原开场的居中contain：窗口高度受浏览器工具栏影响时场景缩小，左右出现白边。用户截图明确否定这一效果，最终采用其确认的方案2；不要恢复contain。
-- “严格不缩放且任意大分辨率都铺满”不能同时满足。已说明1920×1080边界，用户选择允许必要的等比放大，不是拉伸或重复图片。
-- 不采用“可靠检测Ctrl+F5”的方案；已明确浏览器能力限制并获得会话标记替代方案批准。
-- 初次迁入用了 `innerHTML`，静态检查报风险，改为解析本地 `scene.html` 后 `replaceChildren`。CSS一次批量编辑出现部分应用（前两项已落盘、第三项匹配不唯一），随后仅修正剩余项；另修复了测试里的尾随空白。
-- 避免固定父层的叠层上下文把背景按钮压在整个弹窗Canvas下：标题容器改为display:contents，背景、弹窗、控制分别分层，小窗口命中已实测。
-- 旧测试仍预期loginbg和标题BGM0，按新产品行为更新断言，而不是恢复旧播放路径。LSP多次无法确认干净状态，不能把silent-on-clean、服务不可用当通过。
-
-### 相关文件
-
-| 用途 | 路径（相对 `web-port/`） |
+| 子批 | 实际变化与边界 |
 | --- | --- |
-| 开场生命周期、音频、视口比例 | `web/intro/app.js` |
-| 动画参数投影 | `web/intro/timeline.js` |
-| 文字/音乐配置、场景结构、样式 | `web/intro/intro.config.js`、`scene.html`、`styles.css` |
-| 迁入素材 | `web/intro/assets/{landscape.png,cliff.png,gametitle.png,character-aligned-still.png,wolong_sleeves_aligned.gif,opening.mp3}` |
-| 页面、启动与场景交接 | `web/index.html`、`web/src/boot.js`、`web/src/main.js` |
-| 标题音乐所有权 | `web/src/core/score.js` |
-| 新增浏览器回归 | `tools/verify_opening_browser.mjs` |
-| 更新既有断言 | `tools/verify_music_browser.mjs`、`verify_music_runtime.mjs`、`verify_title_deferred_map.mjs` |
-| 维护说明与音频差异 | `docs/opening-scene.md`、`docs/re-notes-audio.md`、`AGENTS.md` |
+| 槽调度/创建写者 | `LegionSlotBatch`按实时固定槽执行：到期动作→日结→03尾→下一槽→天气。0B/1E与128槽03、F14为权威；当前记录退场后仍完成本槽尾。创建/重编及战果写者已接；不等于整战役认证。 |
+| 战果与异步接续 | 保战前守军名单、六队与原道路位置；撤退先改目标、不传送。scene/clock/batch/ticket一次性claim防旧回调确认新战；异常保部分写、取消批次、hold/禁存。P06五例只认证首批写回，后续到期仍待补。 |
+| 冷加载/保存 | `loadState`先等同世界道路/地形ready再build；await后核所有权。entry票据防交叠/回标题后复活；装配pending并入hold/保存守卫。坏图拒绝后可重试，不声称加载全过程事务回滚。保存保留实际`_markerFrame`，不补旧档方向或修原方向公式。 |
+| 道路字段 | clear只清投影；选边先写0C/0E/0A，候选通过后在坐标前提交0C；节点化保0A/0C。snapshot/日费优先已知0E，build不以坐标覆盖。缺0E仍有原Web内存fallback，不是迁移/准入认证。 |
+| 缓存接缝 | `prepareRoadMarchProjection`不写原字段，先校验/必要时重建投影；在真实action的outer reverse/engagement等读取之前调用，stepTo路径共用。无法投影的显式边抛错，不伪造原版无路。一般目标选路、42AB与flags等仍有旧偏差。 |
+| 目标保值 | build不再用targetCity/20覆盖targetNode/14，不再把8倍数runtime id当DOS地址解码；保留0，缺失不补写。正式Web写者/IndexedDB入口已限定复核，phase1不是单位证明；原`0E==14`及其它目标消费者尚未整体接线。 |
 
-仓库外还更新了 `E:/Dragon/.agents/skills/re-data-formats/SKILL.md` 的开场差异摘要与链接；不要漏记为仓库内提交文件。
+详细已修/未修矩阵见[行军§5.5](re-notes-march-pathfinding.md#55-p24字段工程矩阵与冷加载修复非完整道路接线)；槽泵与此前P01–P24链见[AI全链](re-notes-ai-chain.md)。
 
-### 当前状态
+### 3. 关键调试、失败与修正
 
-- 本地整合及视口修改已完成，浏览器回归通过；尚未收到用户对最终视口效果的新反馈，不据此声称用户已视觉验收。未部署远端、未commit/push。
-- 交接时现场Git：分支 `main`，HEAD `1630d28 refactor: separate content sources, world resources and startup flow`。产品/测试/文档改动仍在工作区，`web/intro/`、`docs/opening-scene.md`、`tools/verify_opening_browser.mjs`仍未跟踪；下轮必须重新查状态。
-- 开始本轮前已存在 `tools/verify_standalone_web_browser.mjs`、`tools/verify_world_resources.mjs` 的改动；本轮只运行前者，未编辑这两个文件，不能当无关噪声回退。
-- 开场移植阶段通过7项focused检查；最终视口修改后重跑新增开场浏览器回归（含9组尺寸）、3份JS语法及diff检查。未重新跑全量战略/战斗规则回归；下方历史141/141不是本轮全量结果。
-- 临时图：最新 `C:/Users/fczll/AppData/Local/Temp/wolong-opening-cover.png`；旧contain对比 `.../wolong-opening-integrated.png`。Temp可能被清理，应能从测试重生成。
+1. **冷加载不能只验warm**：人工输入先误配点坐标，初红不作为生产证据；纠正为`2004h=(254,9)`后，用冻结旧main在隔离页面替换，warm通过而cold丢边，才建立有效反例。之后补交叠加载、标题取消、pending禁存/hold及坏图失败重试。坏图错误文案、可选debug输出的错误期待也单独保留。
+2. **字段初红四例**：实际移动不写三字段、snapshot用旧`_march`覆盖node0E、build删残值/按坐标覆写、人工exhausted节点化丢0A/0C。接触测试另因漏绑定03失败，补合法固定槽绑定；这次是夹具错误，不是生产机制缺陷。
+3. **retreat夹具混合输入**：原先build已写node0E，测试却只改坐标/手造edge `_march`，借snapshot暗中修补。现在明确设置0A/0C/0E及末点地址，保原恢复断言；人工`pointIndex==length`仅隔离写集，不证原flags会正常生成该状态。
+4. **fresh首审抓到新增P1**：只在stepTo内校验太迟；真实槽先用stale edge执行outer reverse，将`-4`写入已知node的0A残值。真实slot反例复现后，将共用准备函数前置。回归比较相同规则输入有/无污染缓存的结果，不把旧算法对非交战城市的blocked行为写成原版golden。
+5. **目标0被20覆盖**：新增JSON→restore→build控制先红，修后保留id `0/8/16/191`×有无目标城八组现值。cold测试原人工phase1里混入raw地址16，纠正为runtime id2，并补cold/warm目标断言。只保值，不恢复旧已损坏目标；缺目标只做静态核对。
+6. **浏览器服务失败不冒根因**：`road-fields-browser-psl9susk`为3/4，lifecycle出现四次`ERR_CONNECTION_REFUSED`并在20秒等待超时。改用已审自持Node port0监听，保隔离IndexedDB与全部流程断言，追加请求失败诊断；之后通过。旧Python服务为何失败仍未知，不能从绿测倒推根因。
+7. **原搜索准备并非上线**：补齐默认图有序四tag槽、byte成本、flags/bounds；候选图低32KiB与原图一致。原语保分批环队列与读写顺序；fresh指出496C独立再读被合并，补控制先红后修。互反校验补“只缺source tag”负控及私有变异控制。默认图复合native replay绑定模块SHA，三个人工所属profile共256896查询；不是DOS执行、独立费用/平局oracle、任意图或战役证书。
 
-### 阻塞点与验证边界
+### 4. 相关文件与维护源
 
-- 没有已知阻塞当前功能交付的问题；自动播放仍受浏览器用户手势策略限制，已有开场解锁处理。
-- 主动LSP部分push-only未确认、Markdown语言服务不可用；辅助诊断有既有布尔参数/测试localhost风格警告。以语法、隔离浏览器、差异及链接检查补充，不报全绿。
-- 全屏测试采用对应视口尺寸，不是实机按F11；没有宣称全浏览器/所有DPR或用户实际机器都已验收。存档测试仅使用临时端口与全新profile，未访问真实DOS SAVE或实际用户IndexedDB。
-
-### 下一步（不是自动授权）
-
-1. 下轮先读根AGENTS、`web-port/AGENTS.md`和[开场维护源](opening-scene.md)，重新检查工作区；依据用户下一条要求继续，不从历史“提交前审查”恢复commit/push授权。
-2. 若用户反馈视觉问题，只在 `web/intro/` 调整，保持上述门控、音频隔离和既有弹窗；不要回F盘项目作为主维护源。
-3. 如需复测，在仓库根运行 `node tools/verify_opening_browser.mjs`；设置 `OPENING_SCREENSHOT` 为临时绝对路径可导出1912×956截图。需人工体验时用普通静态服务器启动完整web目录，在独立profile检查普通窗口/F11。
-4. 本次仅写journal，无需再跑无关游戏回归。用户明确要求提交/推送时再审查全部候选变更，保护既有两份测试修改，并单独说明仓库外Skill。
-
-## 开场视口调整批次：左上覆盖、不缩小
-
-- 用户确认方案2：`scale=max(1, width/1920, height/1080)`，背景固定左上角，不平铺、溢出裁切，不改变既有弹窗大小/居中及开局流程。撤销初版contain配置。
-- 全新隔离浏览器开场回归通过，新增9组尺寸：1912×956、1920×1080、2560×1440、3840×2160、1366×768、3440×1440、1280×1024、800×1200、640×400；断言左上原点、覆盖、不缩小、无滚动条/滚动、640×400弹窗居中。保留15秒、跳过、新局/隔离读档、刷新和自然终场验证。模拟全屏视口尺寸，未声称实际按F11。
-- 检查1912×956截图：`C:/Users/fczll/AppData/Local/Temp/wolong-opening-cover.png`，原两侧适配白边已消除。3份JS语法及diff空白检查通过。LSP主动检查有push-only未确认、Markdown服务不可用及测试localhost风格警告，未冒报全绿。未跑无关战斗回归，未提交推送。
-
-## 开场移植批次：原生场景与开局衔接
-
-- 用户批准：15秒放行既有弹窗，提前skip立即放行；晚skip不动弹窗，停曲静音只作用开场；会话刷新/结束直接终场，显式重启整页重播；游戏内读档直达终场和存档框。无法可靠识别Ctrl+F5，采用已批准的sessionStorage替代。详细维护源：[开场场景](opening-scene.md)。
-- `web/intro/`迁入必要资源与配置，原生RAF替代GSAP；没有引入Vite/Pixi/第三方运行依赖。六份资产逐文件SHA-256与F盘源一致，F盘原项目保留。旧标题FLAC保留资源但停止标题选曲，独立MP3不写游戏音乐设置。
-- 通过7项focused检查：opening browser、music browser、music runtime、start flow、startmenu empty slot、title deferred map、standalone web browser。浏览器均临时端口/全新隔离上下文；实际覆盖15秒、早晚skip、自定军师、真实新局与隔离保存/读取、刷新/重启、小窗口按钮命中、自然终场、单实例及原音乐菜单。没有访问DOS SAVE或用户实际IndexedDB。
-- 10份JS/MJS语法检查、实际diff及`git diff --check`通过。13份源/测试主动LSP探测：11份因push-only/silent-on-clean不能确认，另2份有4条既存风格警告（main布尔参数、音乐测试临时localhost）；不声称LSP全绿。5份Markdown的LSP不可用，另核对围栏与本地链接。全量战略/战斗机制回归未跑：本批未改变规则/存档格式/调度，仅开场表现与生命周期入口。
-- 人工查看浏览器截图确认叠层；临时截图`C:/Users/fczll/AppData/Local/Temp/wolong-opening-integrated.png`。保留开始时已有的`verify_standalone_web_browser.mjs`、`verify_world_resources.mjs`改动，本批未编辑它们。未commit/push。
-
-## 1. 基础重构 B0–B4a：范围与进展
-
-用户批准渐进重构，同一内核服务Web内容源；本批保持现有规则、UI、RNG顺序、消息返回边界及四槽存档。未实施编辑器、扩容、Loading/通关动画或新运行时依赖。
-
-1. **基线与I/O审计**：保存原代码/测试及资源哈希；两路只读审计分别检查测试安全和内容/地图依赖。138个原有验证文件区分可执行测试与helper；禁止触碰真实SAVE，浏览器使用隔离profile。保留原有`ai.js`条件换行和两个测试文件格式改动。
-2. **公共查询/兼容边界**：抽出`playerqueries.js`，命令模块保留旧导出，外交不再反向依赖命令；`legacyrecords.js`隔离原字节读取，未重解释AI别名或初始/运行字段选择。
-3. **内容源**：导入20章可编辑Web文档，增加包/章节/修订身份与旧索引映射；已命名字段驱动编译，未知兼容字节保留。编译结果与原运行模板无损一致，不宣称完整DOS序列化。
-4. **地图源/世界实例**：256个16×16图块转换为256×256索引色atlas，另存裁剪、四季调色板、排列、据点位置和道路拓扑。导航算法移入实例工厂，旧API指向默认世界；现有Canvas继续使用四季整图。
-5. **开局流程**：从StartMenu抽出无绘制开局流程，保留选择循环、旧章节索引、默认/自定军师返回值和await进入边界；窗口布局、输入及finally清理由StartMenu持有。
-6. **文档回流**：内容格式、生成入口、资源职责和固定限制统一在[内容架构](content-architecture.md)；README撤销过时的服务端SAVE API/lease要求，项目记忆与数据技能同步入口。
-
-整体重构未完成；下一阶段范围以[项目记忆“当前主线”](../AGENTS.md#2-当前主线)为准，不在日志重复维护待办。该开发批次未commit/push。
-
-## 2. 调试、失败尝试与修正
-
-- 发现“直接改解码字段、仍由raw驱动部分规则”的双源风险：改为命名字段覆盖已建模兼容字节；未知区保留，不用经验补定义。回归专门修改生产力、城类型、资金、人物名与世界坐标，验证编译与显示派生字段同步。
-- 原地图PNG是完整地图，不是图集：另建可编辑atlas/布局源，保留现有整图渲染；未把视觉道路当作导航或删除旧格网回退资源。
-- 编译可能在写出数据后才遇到坏调色板：增加临时目录预生成，校验/渲染成功后再发布；补非有限JSON值拒绝。发布阶段仍非跨文件事务，磁盘/权限失败需重新生成核对。
-- 开局旧注释与取消后的实际外层循环不完全一致：本次机械保留代码返回路径，不按注释悄悄改交互；用流程回归锁定此次迁移前后的行为，不据此认定原版机制。
-- 曾误跑不存在的`verify_road_resume_restore.mjs`，报MODULE_NOT_FOUND，未计为覆盖；改用实际存在的回归与原导航备份差分。
-- `render_map.py`固定资源路径被报路径穿越：逐项确认仅由脚本根和代码常量构成，无外部路径输入，记录为误报；未禁用规则或修改工具权限。Markdown语言服务未就绪，另用链接/结构检查，不冒报LSP通过。
-
-## 3. 该代码批次验证
-
-- 最终全量 **141/141通过**：127 MJS、13 Python、1 viewport JS，其中10项隔离浏览器；两个JS helper分别经音乐/独立部署测试调用，未将空执行算覆盖。中间阶段结果不再重复保留。
-- 原导航备份差分：1468组道路路线、32组格网路线、192节点地址换算一致；检查包含边/腿/点顺序。
-- 编译回归：20章完整对象、道路JSON、布局/成本字节及四季逐像素一致；7项既有运行资产SHA256未变。非有限值拒绝补充后重跑内容focused回归通过。
-- 独立部署：仅复制`web/`到临时静态根，拒绝外源请求；全新profile真实点击开局，检查延迟加载、首章旧索引16及浏览器单实例接管。Python纯源测试用审计钩子拒绝所有原版目录和SAVE文件访问。
-- 静态检查：27个变更JS/Python primary LSP通过，随后2个Python/3个关键JSON复查通过；29个JS/Python语法检查、82模块静态ESM依赖检查通过。27份源JSON及5份文档结构/链接检查通过；5份Markdown LSP不可用，未计通过。最终lens与diff检查通过。
-- 原有两个测试文件与基线逐字节一致，AI diff保留原条件换行。没有把测试通过扩写为全DOS等价或已支持动态世界切换。
-
-## 4. 相关文件
-
-| 范围 | 文件（相对仓库根） |
+| 类别 | 文件 |
 | --- | --- |
-| 查询/兼容读取 | `web/src/game/{playerqueries,legacyrecords,commands,diplomacy,ai}.js` |
-| 内容与地图源 | `web/content/builtin/`、`web/src/content/`、`tools/{content_pipeline,compile_content,import_builtin_content,parse_sinario,render_map}.py` |
-| 世界/导航 | `web/src/game/{worldresources,roadgraph,pathfind,world}.js`、`web/src/game/navigation/` |
-| 开局与装配 | `web/src/app/startflow.js`、`web/src/ui/startmenu.js`、`web/src/main.js`、`web/src/core/assets.js` |
-| 新回归 | `tools/verify_content_pipeline.py`、`tools/verify_{content_catalog,world_resources,start_flow,standalone_web_browser}.mjs` |
-| 长期说明 | `AGENTS.md`、`README.md`、`docs/content-architecture.md`、仓库外数据技能 |
+| 本批核心生产 | `web/src/game/ai.js`、`savegame.js`、`roadgraph.js`、`navigation/roadgraph.js`；冷加载涉及`web/src/main.js`、`ui/gamebar.js` |
+| 槽/计数/续段 | `web/src/game/legionscheduler.js`、`legionphase.js`、`legioncounts.js`、`legioncontinuation.js`、`strategicfailure.js`；`web/src/app/battleflow.js` |
+| 尚未接线原模块 | `web/src/game/navigation/originalroadsearch.js`、`originalroadmemory.js`、`originalroadstate.js` |
+| 当前新增/修正测试 | `tools/verify_road_field_authority.mjs`、`verify_retreat_restore.mjs`、`verify_road_cold_load_browser.mjs`、`verify_legion_lifecycle_browser.mjs`；共用`browser_test_server.mjs` |
+| 详细规则/字段 | [行军](re-notes-march-pathfinding.md)、[原字段](re-notes-custom-data.md)、[AI全链](re-notes-ai-chain.md)、[内容架构](content-architecture.md)；march/data/post-battle SKILL保摘要与原证索引 |
 
-## 5. 项目记忆整理批次（仅文档）
+表内同组省略重复目录前缀。本次记忆整理未改这些代码、资产、SKILL或`re-notes`。
 
-- 只整理`AGENTS.md`与本文；保留工作区全部既有代码、资产、测试及其它文档改动，不读取真实SAVE，不commit/push。
-- 项目记忆补齐B0–B4a当前主线，集中长期架构、命令、产品约定和重要坑点；日志聚焦本批进展、失败原因、相关文件及验证，不再复制长期规则。
-- 删除旧音频/接战批次过程、重复测试数字、历史提交授权、过期“本次整理”记录、机器临时目录和中间快照位置。仍有效的产品决定/风险留在项目记忆，详细音频、战术、TALK38等证据继续由原SKILL/`re-notes`维护，未删除原始证据文件。
-- 本轮未跑游戏回归或浏览器冒烟；上节141项是代码批次结果。两份文档的17个相对链接/锚点、围栏、空白、实际差异及`git diff --check`通过；文件哈希核对确认本轮只改这两份文档。Markdown LSP不可用，lens缓存未提供本轮文档诊断，不计作主动检查通过；以结构/引用和差异检查补足。
+### 5. 验证与审阅：只按相应版本和范围成立
 
-## 6. 完整提交前审查与验证
+| 批次 | 实际结果 | 不可扩大的边界 |
+| --- | --- | --- |
+| 最近非浏览器focused | `road-target-focused-33.log/.json`：33个明确入口通过；包含新增道路字段8项子测试 | 不是新完整非浏览器回归；直接stepTo/人工exhausted不等于完整原调度/flags |
+| 最近隔离浏览器 | `road-fields-browser-v_ev9koy/summary.json`：cold/lifecycle/clock/exit四入口4/4、0超时，11指定源前后无漂移；server helper另2单测通过 | 每入口新context/临时根；不是全Web冻结或完整浏览器套件 |
+| 最近代码静态检查 | 8个JS/MJS语法及diff检查通过；20文档309本地链接无错 | 这是代码批次记录，不冒作本次纯文档检查 |
+| 最近代码LSP | 8个JS路径inconclusive、5个Markdown/Skill unavailable，0确认clean；session尚有5旧warning | 不采编辑工具的clean提示或缓存沉默；不能写成诊断全过 |
+| 最新保留的完整批次 | 非浏览器141：118过/23败；浏览器13：11过/2败 | 冻结旧版本。20个旧失败入口后来定向修正，不拼成新全量比例；旧opening/weather夹具修后也只限定复跑 |
+| 最近独立审阅 | 字段首审BLOCK 1个新增P1→前置校验复审限定关闭→目标保值限定OK with notes | 最后native验收仍`review-required`；不是全道路/全AI审查通过 |
 
-- 用户明确授权审查全部已改动/未跟踪内容，形成一个完整提交并推送。候选共62文件：产品源码、测试、离线迁移/编译工具、29份内容源/资产及4份文档；现有忽略规则排除本地代理配置、缓存、运行日志、截图与图像工程文件，未强制加入忽略项。
-- 两路只读审查覆盖运行层和内容/工具。发现编译器接受零权重道路、运行时却拒绝；已在`content_pipeline.py`统一为有限正数，测试覆盖零、负数、布尔、字符串、null及非有限值，并确认失败不覆盖已有产物。基准内容本身有效，未修改规则或资产。
-- 补强`verify_world_resources.mjs`：两世界使用不同terrain/cost并在第二次加载后分别断言；补强`verify_standalone_web_browser.mjs`的console.error/requestfailed捕获。两项原覆盖不足不代表运行时已发生串用或网络错误。
-- 修正后重新执行全量安全回归 **141/141通过**，另从Git暂存区导出821个发行/测试文件，再以隔离profile真实开局和单实例接管通过，排除工作区忽略文件兜底。20章与解析/产物一致、12项来源哈希匹配；未访问真实SAVE。
-- 独立导航差分覆盖36,864条有序路线、384个阻断/惩罚案例、11,560个行军上下文、98,304个格点和192条A*路线，与HEAD一致；只证明本次重构等价，不证明全DOS机制。
-- 29份JS/Python与3份Markdown primary LSP通过；journal语言服务不可用，以结构/链接与实际差异检查补足。JSON解析、窄范围凭证模式扫描、暂存内容与空白检查另行核对；审查日志、基线及测试输出保留仓库外。
-- 暂存导出的测试出现Node无type字段自动识别ESM警告，功能通过；未为消警告改全局package配置。LF/CRLF提示不算失败。提交/远端结果以Git为准，不预记尚未执行的推送为成功。
+结果锁定各日志中的源码版本；之后有自动格式化，不能把这些SHA当永远当前值。完整失败批次分别在本机TEMP下`dragon-ai-regression-p24-nonbrowser-_s5_mu_1/`、`dragon-ai-regression-p24-browser-sux8zfsi/`。
 
-## 7. 双仓库与 Cloudflare 发布准备
+尚余旧失败入口：`verify_delegated_autobattle.mjs`、`verify_engagement_state.mjs`、`verify_march_navigation.mjs`；不能全归为夹具问题。全量安全清单/源码版本也须更新后重跑，当前不能结项。
 
-- 用户授权现有改动与本批一起提交并推送 Gitea/GitHub；GitHub 原有独立初始化历史须合并保留，不强推覆盖。
-- 清理无消费者的旧地图输出、两份未使用字体、临时验证截图；三张展示图归档 `docs/screenshots/`。105 份 UI 探针／参考图／测量文件迁入 `docs/reference-assets/ui-probes/`，保留逆向证据；今后探针输出到忽略的 `.dragon-analysis/`。PSD 设计源另存本机仓库外备份，未发布。结束画面、GAME OVER 和 ENDBGM 导出保留。
-- 98 份清理文件及清单、清理前已有 diff 备份在本机临时目录 `dragon-release-audit/`；不是项目永久证据源。原版资料目录未改动，未访问真实 SAVE。
-- README 重写为当前功能、战略／战术分别合成大地图、限制、截图、自托管与 Cloudflare 指南。MIT 保留 GitHub 初始版权署名，仅覆盖可授权原创代码；第三方未授权状态单列，并同步开场页用途说明。
-- 新增纯复制发行脚本、404、缓存头与 Workers 静态配置。当前 `dist/` 603 文件约74.81 MiB；完整 `web/` 仍可独立运行。Wrangler dry-run通过，但不等于已登录或已上线。
-- 两路只读审计核对90份运行JS/HTML/CSS、183条模块引用、358项主要动态资产；未发现后端依赖或明确静态部署阻断。占位武将portrait255的UI可达性、全20章完整浏览器流程及跨浏览器仍未全覆盖，不据此修改规则或造占位图片。
-- 通过：精简dist隔离浏览器真实新局／单实例、content catalog、world resources、start flow、mock IndexedDB四槽、battle viewport、entity fields 85条指令证书。未重跑全量游戏回归（本批不改规则，原有源码改动核对为注释）。
-- 主动LSP已调用，部分服务静默无法确认clean；lens全缓存有测试的本地URL、CLI日志告警，以及既有entity验证脚本内部tile调用未try/except提示。定点检查是内存几何证书辅助函数、校验失败应中止测试，不作为部署阻断；未假报诊断全绿。浏览器及语法检查作补充证据。
-- Cloudflare真实账号授权、Git集成创建、线上域名与推送状态以之后实际结果为准，本节不预记成功。
+### 6. 当前阻塞与恢复AI开发后的下一步
+
+1. **资源/生命周期联动**：发布v2前同时完成内容schema/校验/编译、loader/world身份、每场景原图RAM、visited/旧queue工作区及保存边界；不逐次重建/清高半区来掩盖未知。互反结构检查不是完整世界或所有caller准入。
+2. **原搜索进入真实调用链**：替换`makeMarchNavigation`、节点下一跳、`47BB/487B/4DA4`及双端反搜；保CF/CX/字宽/读写顺序和实际返回值，绘图虚线不能调用有工作区写入的规则搜索。
+3. **完整移动/字段消费者**：修42AB同动作改目标续行、bit1重选、flags前后门、27A2同动作节点化/日费、2808方向和0E/14/20关系；`!x/!y`吞0、整写Y与原低byte写差异仍在。不得重算已权威的0B/1E/03/F14，也不能因+22未知拒全部phase1档。
+4. **补后续与全量**：P06下一到期/后续批、三旧失败、相关fresh复审；重新审I/O并固定完整入口/源码，实际跑非浏览器与隔离串行浏览器，不拼接局部结果。
+5. **继续剩余原证/因果**：4300截留、+21完整callee/+22、55A6评分/占格、野战主军选择、玩家消息非局部返回与世界交错。未闭合部分保持未知，完成独立已授权工作，不重开字体支线。
+
+本次用户请求仅整理文档；以上是交接顺序，不自动开始新实现或授权提交/推送。
+
+### 7. 可复核证据入口
+
+本节代码路径相对仓库；下表证据文件相对本机包 **P**：
+`C:/Users/fczll/AppData/Local/Temp/dragon-ai-slot-order-parent-uudvtfid/`。
+这些是定位索引，不是复制出的第二套规则；原始日志/冻结件未删除。
+
+| 证据束 | 必要入口 |
+| --- | --- |
+| 槽泵/创建/计数/P06 | `slot-fix-readiness-frozen.md`、`writers-frozen/`、`counter-frozen/`、`slot-motion-count-raw.txt`、`p24-focused-lifecycle-final.log`；仓库`tools/fixtures/legion-slot-p06.json` |
+| 移动原窗/首审/补录 | `movement-contract-v1/raw/movement.txt`、`movement-contract-first.md`、`movement-search-addendum.md`、`road-field-serialization-audit-first.md` |
+| 图候选/搜索/容量边界 | `road-source-import-v1/world/roads.json`、`road-memory-reconstruction.json`、`road-queue-bound-proof.md`、`road-bound-proof-review-first.md`、`original-road-topology-default.json/.log`、`road-topology-review-first.md`、`topology-source-tag-mutation-v1/` |
+| 冷加载/方向先前审阅 | `road-stage-review-v1/`、`cold-load-code-review-first.md`、`road-memory-codec-review-first.md`、`marker-save-review-first.md`、`road-stage-followup-statuses.json` |
+| 当前字段red/夹具/前置P1 | `road-authority-before-v1/`、`road-field-authority-red.log`、`road-field-authority-cache.log`、`road-field-authority-cache-fixed.log`、`road-field-outer-cache-red.log`、`road-fields-focused-third-33.log` |
+| 目标保值/最新focused | `road-target-preservation-red.log`、`road-target-preservation-fixed.log`、`road-target-focused-33.log/.json` |
+| 本批浏览器 | `run-road-fields-browsers.py`、`road-fields-lifecycle-before.mjs`、`road-fields-browser-psl9susk/`、`road-fields-browser-3wil9fl2/`、`road-fields-browser-v_ev9koy/summary.json` |
+| 字段/目标审阅冻结 | `road-authority-review-v1/`（含raw补窗、followup及target provenance）、`road-field-authority-review-first.md`、`road-field-authority-review-followup.md`、`road-field-authority-review-receipt.json`、`road-target-preservation-review.md`、`road-target-preservation-review-meta.json` |
+
+原P04低32KiB图：`C:/Users/fczll/AppData/Local/Temp/dragon-road-init-mfecc1mo/raw-init-00-graph-0000-7fff.bin`。候选/解释器重放不等于实际执行KI。
+
+当前审阅workflow为`e19fe410-5ed7-44ad-b8f5-2f53ec054e67`；首child `410f0fb0-c795-4771-b7fe-eacb6dd4cf77`，后续恢复`0e732599-d15c-45e2-aa62-4f878fc8c5eb`、`86ddfad3-376d-4af2-9319-036068cb36a2`均结束。managed同一路报告会被resume覆盖，复核首稿请用表内分别冻结件。更早retreat冻结不是紧邻before；cold前版为逆变更重建并与既有SHA吻合，不冒作事前另存原件。
+
+**必须保留的失败/安全记录**：
+
+- 旧scout `62025777-3531-4eb7-9b69-8d7d14c14b14`（slot21-raw）根目录grep违规读取`.dragon-runtime/save.json`前500字符，已停止且不恢复；父未读取、复制或使用该内容。见P中`incident-slot21-read.json`、`incident-slot21-stop.json`，不得宣称整个专项零SAVE读取。该事件之后的本专项验证使用固定原资料静态字节、已审有界解释器/合成RAM及隔离测试，未运行原EXE/COM或接触真实存档/profile；不抹去此前违规。
+- runner启动失败与同协议恢复、错误golden/partial冻结、旧报告的`rejected/review-required`均保留，不由后来局部绿测追改。P中`runner-start-failure.json`、`runner-start-failure-meta.txt`、`runner-start-failure-partial.diff`保留失败现场。
+- 旧journal将一次cold四浏览器目录误写为`cold-load-browser-followup-6z7gnwtv`；实际是`cold-load-browser-followup-6zictuy5`。这里只保勘误，不虚构前者产物。
+
+## 历史收束：不再作为当前待办
+
+- P01–P23的原调用链、外交/财政、战略事件、VM与消息返回边界已归入[AI全链](re-notes-ai-chain.md)、[外交](re-notes-ai-diplomacy.md)、[财政](re-notes-ai-fiscal.md)、[战术AI](re-notes-tactical-ai.md)、[消息ABI](re-notes-strategic-message-abi.md)。片段、首批、完整RET/暂停与战役证书的差别保留；局部闭合不是全部外交/UI或整战闭合。
+- 早期NPC修复与更早145项144过/1个opening断言失败见[NPC策略](re-notes-npc-strategy.md)，不覆盖上面的P24完整失败基线。
+- B0–B4a的内容/世界/开局拆分已落地，现状见[内容架构](content-architecture.md)。早期开场15秒门、三行链接文案、反复交接/截图/发布准备不再是现行方案；当前开场以[opening-scene](opening-scene.md)为准。
+- 旧提交授权、HEAD、远端404、dry-run与dist体积只属于当时会话，不作为本轮授权或当前部署状态。发布与版权维护源是[README](../README.md)。
+
+## 本次project memory整理（仅文档）
+
+- 分工恢复：`web-port/AGENTS.md`保长期事实/架构/命令/约定/坑点及当前AI主线；本journal保P24详细过程、关键失败、相关文件、验证边界、阻塞与交接。全局AGENTS、SKILL及`re-notes`不复制成第二套维护源。
+- 删除乱序重复进度、已被后续推翻的中间“当前状态”、过期重构/开场方案、旧提交授权及无交接价值的计时/报告长度/重复路径。保留原始失败产物与最小可复核索引，不把庞大旧文整体转存成新的常驻记忆。
+- 两文件整理前精确备份在`C:/Users/fczll/AppData/Local/Temp/dragon-project-memory-u797futb/`，`before.json`记录SHA/字节数。未改代码/资产，未执行游戏回归、浏览器或原程序；旧安全事件未抹去。
+- 本轮验证：两文档37处本地链接/锚点及围栏检查通过，44个证据索引路径存在，`git diff --check`通过。两文档主动LSP均unavailable，未确认clean；session缓存仅5条既有代码warning。记录在上述备份目录`validation-final.json`、`evidence-index-check.json`及`diff-check-final.log`。纯文档范围不跑无关游戏回归；AI整体仍待开发与完整验证，本次不结项。

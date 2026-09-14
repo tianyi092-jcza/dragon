@@ -7,7 +7,11 @@ import {
   dismissDomesticGovernor,
   domesticGovernorCandidates,
 } from "../web/src/game/commands.js";
-import { snapshotState } from "../web/src/game/savegame.js";
+import {
+  restoreSnapshotState,
+  snapshotState,
+} from "../web/src/game/savegame.js";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 import {
   activateNextMonthPolicy,
   computeConscriptionYields,
@@ -281,12 +285,13 @@ for (const faction of [1, null]) {
 // 已批准的general[+0x1A]预算与city[+0x19]任命必须进入浏览器快照往返。
 {
   const scenario = {
-    factions: [{ idx: 0 }],
+    factions: [{ idx: 0, n_legions: 0 }],
     cities: [{ idx: 0, governor: 0, defence: 170 }],
     generals: [{ idx: 0, status: 2, assignment_budget: 7 }],
     legions: [],
     diplomacy: [],
   };
+  initializeLegionSlotState(scenario);
   const saved = snapshotState(
     {
       scenarioIdx: 0,
@@ -301,6 +306,10 @@ for (const faction of [1, null]) {
   assert.equal(saved.state.cities[0].defence, 170);
   assert.equal(saved.state.generals[0].status, 2);
   assert.equal(saved.state.generals[0].assignment_budget, 7);
+  const restored = restoreSnapshotState(saved);
+  assert.deepEqual(restored.cities, saved.state.cities);
+  assert.deepEqual(restored.generals, saved.state.generals);
+  assert.deepEqual(restored.legionSlotCounters, Array(128).fill(0));
 }
 
 process.stdout.write(
