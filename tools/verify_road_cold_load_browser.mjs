@@ -293,7 +293,7 @@ try {
   await context.close();
 
   // A second fresh realm injects only a malformed road response, not a failed
-  // AI callee. Failure must remain unsavable; a later valid load may recover.
+  // AI callee. Preflight failure preserves the empty title scene; retry may recover.
   const brokenContext = await browser.newContext();
   await brokenContext.addInitScript(() =>
     sessionStorage.setItem("wolong.intro.seen.v1", "1"),
@@ -338,7 +338,8 @@ try {
     return {
       error,
       allowed: canSnapshotState(app),
-      pending: app._scenarioAssemblyPending === app.scenario,
+      pending: !!app._scenarioAssemblyPending,
+      noScenario: app.scenario == null,
       ready: app.world.roads.roadGraphReady(),
       noClock: app.clock == null,
       selected: app.loadedSaveSlot ?? null,
@@ -350,8 +351,9 @@ try {
     { ...failed, error: null },
     {
       error: null,
-      allowed: false,
-      pending: true,
+      allowed: true,
+      pending: false,
+      noScenario: true,
       ready: false,
       noClock: true,
       selected: null,

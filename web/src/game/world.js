@@ -103,6 +103,7 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   // 这里仍显式清理，保证同章重开及意外模板污染都回到纯 SINARIO 初态。
   delete state.save_date;
   delete state.delayedLegionReturns;
+  delete state.nativeLegionSlots; // Explicit native initializer, never inherit runtime slots.
   delete state.prisoners;
   delete state.pendingRecruits;
   delete state.pendingTruceNegotiations;

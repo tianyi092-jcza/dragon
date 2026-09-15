@@ -25,6 +25,8 @@ const signedWord = (value, fallback = 0) =>
 const cityByte = (value) => Math.max(0, Math.min(0xff, trunc(value)));
 
 function normalizeCloud(cloud) {
+  // Explicit native records preserve unknown fields through cold restore.
+  if (cloud && Object.hasOwn(cloud, "status")) return { ...cloud };
   return {
     active: cloud?.active !== false,
     x: signedWord(cloud?.x),
@@ -41,6 +43,7 @@ function normalizeCloud(cloud) {
 }
 
 function normalizeDisasterMapObject(object) {
+  if (object && Object.hasOwn(object, "status")) return { ...object };
   if (!object || object.active === false || object.active === 0) return null;
   const group = byte(object.group, object.kind);
   return {
@@ -183,8 +186,36 @@ function moveCloud(cloud, bounds, rng) {
 
 /**
  * KI.EXE 0x2459：每个战略更新扫描 16 个定点灾害对象，再扫描 16 朵雨云。
- * 只有后半区雨云调用 0x248A，因此一次云移动严格按槽序消费 32 个 RNG 字节。
+ * Native有限域0 RNG；后半区到期在248A入口暂停，非完整云移动。
  */
+export function tickOriginalStrategicWeather(scenario) {
+  const readByte = (value, at) => {
+    if (!Number.isInteger(value) || value < 0 || value > 255)
+      throw new RangeError(`Web engineering Uncovered weather ${at}`);
+    return value;
+  };
+  let changed = false;
+  // KI 2459..2489: both halves have the same status>=80 gate. No frame
+  // projection or RNG here. Unknown 248A stops after DEC/reload/dirty writes.
+  for (let slot = 0; slot < 32; slot++) {
+    const object =
+      slot < 16
+        ? scenario.disasterMapObjects?.[slot]
+        : scenario.weatherClouds?.[slot - 16];
+    const status = readByte(object?.status, `slot ${slot} status at 2463`);
+    if (status < 0x80) continue;
+    object.timer =
+      (readByte(object.timer, `slot ${slot} timer at 2468`) - 1) & 255;
+    changed = true;
+    if (object.timer !== 0) continue;
+    object.timer = readByte(object.interval, `slot ${slot} interval at 246D`);
+    object.status = status | 1;
+    if (slot >= 16)
+      throw new RangeError("Web engineering Uncovered 248A at 247C");
+  }
+  return changed;
+}
+
 export function tickStrategicWeather(scenario, rng) {
   if (!scenario) return false;
   let changed = false;

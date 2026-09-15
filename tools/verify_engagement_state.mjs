@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 // Browser-only audio is deliberately inert in this node-side state-machine test.
 globalThis.window = {};
@@ -71,6 +72,8 @@ assertKiBytes(0x701d, "c6440b01");
 const raw = await readJson(new URL("../web/data.json", import.meta.url));
 function scenarioWithTestLegions() {
   const scenario = structuredClone(raw.scenarios[0]);
+  initializeLegionSlotState(scenario); // Explicit empty chapter fixture, slot03=0.
+  for (const faction of scenario.factions) faction.n_legions = 0;
   scenario.citiesOf = (idx) =>
     scenario.cities.filter((city) => city.faction === idx);
   const factions = scenario.factions.filter(
@@ -78,7 +81,12 @@ function scenarioWithTestLegions() {
   );
   scenario.legions = factions.slice(0, 3).map((faction) => {
     const capital = scenario.cities[faction.capital];
+    faction.n_legions = 1;
     return {
+      slot: faction.monarch_idx,
+      generalIdx: faction.monarch_idx,
+      moveDelay: 1,
+      movePeriod: 3,
       leader: faction.monarch,
       faction: faction.idx,
       x: capital.x,
@@ -125,10 +133,36 @@ const result = stepTo(sc, attacker, target.x, target.y);
 assert.equal(result, "contact");
 assert.deepEqual({ x: attacker.x, y: attacker.y }, before);
 assert.equal(attacker._engagement.kind, "field");
-assert.equal(attacker._engagement.countdown, 11);
+assert.equal(attacker._engagement.countdown, 12); // Bare 2831, before 264A.
 assert.equal(attacker._engagement.target.x, next.x);
 assert.equal(attacker._engagement.target.y, next.y);
 assert.equal(defender._engagement, undefined);
+
+// Independent real-slot control: initial contact12 becomes11 only at 264A.
+const tailSc = scenarioWithTestLegions();
+const tailA = tailSc.legions[0],
+  tailD = tailSc.legions[1];
+for (const row of tailSc.diplomacy) row.fill(0);
+const tailTarget = tailSc.cities[tailSc.factions[tailD.faction].capital];
+tailA.target = tailTarget;
+assert.equal(stepTo(tailSc, tailA, tailTarget.x, tailTarget.y), "moved");
+const tailNext = tailA._march.points[tailA._march.pointIndex];
+tailD.x = tailNext.x;
+tailD.y = tailNext.y;
+tailA.moveDelay = 1;
+const tailPosition = { x: tailA.x, y: tailA.y };
+aiTick(
+  { scenario: tailSc, originalRng: { nextByte: () => 255 } },
+  {
+    legionBatchStart: tailA.slot,
+    runCityDaily: false,
+    settleDaily: false,
+  },
+);
+assert.deepEqual({ x: tailA.x, y: tailA.y }, tailPosition);
+assert.equal(tailA.engagementCountdown, 11);
+assert.equal(tailA._engagement.countdown, 11);
+assert.equal(tailSc.legionSlotCounters[tailA.slot], 11);
 
 // Siege contact also begins before the city point is committed.
 const siegeSc = scenarioWithTestLegions();
@@ -163,7 +197,7 @@ for (let guard = 0; guard < 2000 && siegeResult === "moved"; guard++) {
 assert.equal(siegeResult, "contact");
 assert.deepEqual({ x: siegeAttacker.x, y: siegeAttacker.y }, siegeApproach);
 assert.equal(siegeAttacker._engagement.kind, "siege");
-assert.equal(siegeAttacker._engagement.countdown, 11);
+assert.equal(siegeAttacker._engagement.countdown, 12); // Bare 2880, before 264A.
 const contactedCity = siegeSc.cities[siegeAttacker._engagement.target.cityIdx];
 assert.ok(contactedCity);
 assert.equal(contactedCity.x, siegeSc.cities[contactedCity.idx].x);
@@ -277,7 +311,7 @@ cityOccupantDefender.prevX = cityOccupantCity.x;
 cityOccupantDefender.prevY = cityOccupantCity.y;
 cityOccupantDefender.target = null;
 cityOccupantAttacker._engagement = null;
-cityOccupantAttacker.engagementCountdown = null;
+cityOccupantAttacker.engagementCountdown = 0;
 cityOccupantAttacker.status &= ~0x20;
 let cityOccupantResult = "moved";
 for (
@@ -300,7 +334,7 @@ assert.equal(
   "siege",
   "据点中心真实驻军必须由0x2880触发攻城，不得送入道路野战",
 );
-assert.equal(cityOccupantAttacker._engagement.countdown, 11);
+assert.equal(cityOccupantAttacker._engagement.countdown, 12);
 
 // 同一tick已有transition gate时，第二场countdown=1必须原样保留。
 siegeAttacker._engagement = {
@@ -308,6 +342,7 @@ siegeAttacker._engagement = {
   countdown: 1,
   target: { cityIdx: contactedCity.idx },
 };
+siegeSc.legionSlotCounters[siegeAttacker.slot] = 1;
 const pendingSnapshot = structuredClone(siegeAttacker._engagement);
 aiTick({
   scenario: siegeSc,
@@ -323,6 +358,7 @@ siegeSc.cities.push(city2);
 const second = {
   ...siegeAttacker,
   leader: "次將",
+  slot: (siegeAttacker.slot + 1) % 127,
   _runtimeId: 99,
   x: siegeAttacker.x,
   y: siegeAttacker.y,
@@ -340,6 +376,10 @@ siegeAttacker.moveDelay = 1;
 second.moveDelay = 1;
 siegeSc.player_faction = siegeAttacker.faction;
 siegeSc.legions = [siegeAttacker, second];
+siegeSc.legionSlotCounters[siegeAttacker.slot] = 1;
+siegeSc.legionSlotCounters[second.slot] = 1;
+for (const faction of siegeSc.factions)
+  faction.n_legions = faction.idx === siegeAttacker.faction ? 2 : 0;
 let active = false;
 let transitions = 0;
 const gatedApp = {
@@ -389,6 +429,10 @@ const originalFoe = raceSc.legions.find((legion) => legion !== raceA);
 originalFoe.x = raceNext.x;
 originalFoe.y = raceNext.y;
 assert.equal(stepTo(raceSc, raceA, raceTarget.x, raceTarget.y), "contact");
+assert.equal(raceA.engagementCountdown, 12); // Bare calls have no 264A tail.
+raceA.moveDelay = 3; // Explicit next three visits: 3→2→1→reload3.
+raceA.movePeriod = 3;
+originalFoe.moveDelay = 8;
 const replacementFaction = raceSc.factions.find(
   (faction) =>
     faction.idx !== raceA.faction && faction.idx !== originalFoe.faction,
@@ -400,6 +444,8 @@ const replacement = {
   // 283A/4C75仅扫描0..126；127不是合法接敌候选。
   slot: 126,
   _runtimeId: 126,
+  moveDelay: 8,
+  movePeriod: 3,
   faction: replacementFaction,
   x: raceNext.x,
   y: raceNext.y,
@@ -417,27 +463,37 @@ const raceApp = {
   hud: { flashEvent() {} },
 };
 aiTick(raceApp);
+assert.equal(raceApp._strategicBattleFailure, undefined);
+assert.equal(raceA.moveDelay, 2);
 assert.equal(raceA._engagement.kind, "field");
-assert.equal(raceA._engagement.countdown, 10);
+assert.equal(raceA._engagement.countdown, 11);
 assert.equal(
   raceA._engagement.target.faction,
   originalFoe.faction,
   "非轮询槽保留接触缓存",
 );
 aiTick(raceApp);
-assert.equal(raceA._engagement.countdown, 9);
+assert.equal(raceApp._strategicBattleFailure, undefined);
+assert.equal(raceA.moveDelay, 1);
+assert.equal(raceA._engagement.countdown, 10);
 aiTick(raceApp);
-assert.equal(raceA._engagement.countdown, 8);
+assert.equal(raceApp._strategicBattleFailure, undefined);
+assert.equal(raceA.moveDelay, 3);
+assert.equal(raceA._engagement.countdown, 9);
 assert.equal(raceA._engagement.target.faction, replacementFaction);
 replacement.x = raceTarget.x;
 replacement.y = raceTarget.y;
 const beforeResume = { x: raceA.x, y: raceA.y };
 for (let visit = 0; visit < 2; visit++) {
   aiTick(raceApp);
+  assert.equal(raceApp._strategicBattleFailure, undefined);
+  assert.equal(raceA.moveDelay, 2 - visit);
   assert.ok(raceA._engagement, "目标消失仍须等下一次道路轮询才清理");
   assert.deepEqual({ x: raceA.x, y: raceA.y }, beforeResume);
 }
 aiTick(raceApp);
+assert.equal(raceApp._strategicBattleFailure, undefined);
+assert.equal(raceA.moveDelay, 3);
 assert.equal(raceA._engagement, null);
 assert.notDeepEqual(
   { x: raceA.x, y: raceA.y },
@@ -498,7 +554,7 @@ let finalResult = "moved";
 while (finalResult === "moved")
   finalResult = stepTo(finalSc, finalA, finalCity.x, finalCity.y);
 assert.equal(finalResult, "contact");
-finalA._engagement.countdown = 9;
+finalA.engagementCountdown = 9; // Synthetic fixed-slot03 input.
 const third =
   finalSc.factions.find(
     (faction) =>

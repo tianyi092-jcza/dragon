@@ -6098,6 +6098,7 @@ export class GameBar {
       this.app.mapPointerHold === true ||
       this.app.runtimeEnabled === false ||
       !!this.app._scenarioAssemblyPending ||
+      !!this.app._scenarioAssemblyIncomplete ||
       !!this.app._strategicCityRequest ||
       !!this.app._legionSlotBatch ||
       !!this.app._strategicBattleFailure ||

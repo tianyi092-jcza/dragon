@@ -1,6 +1,15 @@
 // 战略道路图实例；原搜索、顺序与地址换算保持不变。
 // 不持有全局活动图，编辑预览/不同世界可以各自拥有独立实例。
 import { STRATEGIC_LAYOUT } from "../../content/worlddefinition.js";
+import { validateOriginalRoadContent } from "./originalroadcontent.js";
+
+function freezeContent(value) {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) freezeContent(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 
 export function createRoadGraph(url) {
   let graph = null;
@@ -18,9 +27,15 @@ export function createRoadGraph(url) {
   const coordKey = (x, y) => `${x},${y}`;
 
   function installGraph(raw) {
+    if (raw?.version === 2) {
+      // Validate a detached candidate completely before changing any installed index.
+      raw = structuredClone(raw);
+      validateOriginalRoadContent(raw);
+      freezeContent(raw);
+    }
     if (
       !raw ||
-      raw.version !== 1 ||
+      (raw.version !== 1 && raw.version !== 2) ||
       raw.nodes?.length !== STRATEGIC_LAYOUT.citySlots
     ) {
       throw new Error("invalid strategic road graph");
@@ -49,7 +64,7 @@ export function createRoadGraph(url) {
         target < 0 ||
         target >= raw.nodes.length ||
         !Number.isFinite(weight) ||
-        weight <= 0
+        (raw.version === 1 && weight <= 0)
       ) {
         throw new Error(`invalid strategic road edge ${edge.id}`);
       }
@@ -95,6 +110,23 @@ export function createRoadGraph(url) {
 
   function roadGraphReady() {
     return graph != null;
+  }
+
+  function loadedRoadVersion() {
+    return graph?.version ?? null;
+  }
+
+  /** Immutable staged asset only. RAM belongs to an explicit Scenario owner. */
+  function originalRoadGraph() {
+    if (graph?.version !== 2)
+      throw new Error("Expected a loaded v2 road graph");
+    return graph;
+  }
+
+  function assertLegacyRoutingAvailable() {
+    if (graph?.version === 2) {
+      throw new Error("v2 road rule callers are not connected");
+    }
   }
 
   function roadNodeAt(x, y) {
@@ -196,6 +228,7 @@ export function createRoadGraph(url) {
     pointAddress,
     edgeOrNode,
   }) {
+    assertLegacyRoutingAvailable();
     if (!graph || (stride !== 4 && stride !== -4)) return null;
     const edgeId = roadEdgeIdFromRaw(edgeOrNode);
     const rawIndex = rawPointIndex(edgeId, pointAddress);
@@ -236,6 +269,7 @@ export function createRoadGraph(url) {
 
   /** Web运行态反算E717地址布局，供SAVE/snapshot原样写回。 */
   function serializeRoadMarchContext(march) {
+    assertLegacyRoutingAvailable();
     const edge = graph?.edges?.[march?.edgeId];
     if (!edge || (march.stride !== 4 && march.stride !== -4)) return null;
     let sourceIndex;
@@ -255,6 +289,7 @@ export function createRoadGraph(url) {
 
   /** 0x42AB阻断时在当前边转向另一端，不重新跑Dijkstra。 */
   function reverseRoadMarchContext(march, x, y) {
+    assertLegacyRoutingAvailable();
     const edge = graph?.edges?.[march?.edgeId];
     if (!edge) return null;
     const stride = march.stride === 4 ? -4 : 4;
@@ -422,6 +457,7 @@ export function createRoadGraph(url) {
    * 返回节点、边和沿边点列；边点不含起点或终点据点中心。
    */
   function findRoadRoute(sx, sy, tx, ty, isNodeBlocked, nodePenalty) {
+    assertLegacyRoutingAvailable();
     if (!graph) return null;
     const source = nodeByCoord.get(coordKey(sx, sy));
     const target = nodeByCoord.get(coordKey(tx, ty));
@@ -448,6 +484,9 @@ export function createRoadGraph(url) {
   return {
     loadRoadGraph,
     roadGraphReady,
+    loadedRoadVersion,
+    originalRoadGraph,
+    assertLegacyRoutingAvailable,
     roadNodeAt,
     roadNodeById,
     roadEdgeById,

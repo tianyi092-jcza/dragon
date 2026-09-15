@@ -31,6 +31,31 @@ import {
 } from "./roadgraph.js";
 import { warnSfx } from "../core/speaker.js";
 import {
+  hasNativeLegionSlots,
+  nativeLegionAt,
+  rebindNativeLegionViews,
+} from "./nativelegions.js";
+import {
+  refreshOriginalLegion,
+  formationByte,
+  originalTeamTroops,
+} from "./navigation/originalformation.js";
+import { scenarioNativeRoadContext } from "./scenarioassembly.js";
+import { performOriginalRoadAction } from "./navigation/originalroadmovement.js";
+import { refreshOriginalCityCache } from "./navigation/originalroadarrival.js";
+import {
+  runOriginalCityMilitary,
+  governOriginalCity,
+  damageOriginalCity,
+} from "./navigation/originalcity.js";
+import { tickOriginalStrategicWeather } from "./weather.js";
+import {
+  originalRetreatRoute,
+  readOriginalRetreatCurrent,
+  readOriginalRetreatFaction,
+  readOriginalRetreatCapital,
+} from "./navigation/originalroadretreat.js";
+import {
   applyFactionFundsDelta,
   factionLegionMoraleCap,
   factionReserveUpkeepTick,
@@ -132,6 +157,15 @@ function attachRuntimeLegion(
 
 export function buildArmies(sc) {
   sc._nextRuntimeLegionId = 0;
+  if (hasNativeLegionSlots(sc)) {
+    rebindNativeLegionViews(sc);
+    for (const record of sc.legions) {
+      record._runtimeId = nextRuntimeLegionId(sc);
+      record.prevX = record.x;
+      record.prevY = record.y;
+    }
+    return;
+  }
   for (const record of sc.delayedLegionReturns ?? []) {
     bindLegionReturnCounter(sc, record);
   }
@@ -622,6 +656,16 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
   if (!city) return false;
   // 0x3F11..0x3F29：运行态上次所属与当前所属不同时，把该城索引
   // 记入旧势力+0x17。
+  const native = scenarioNativeRoadContext(sc);
+  if (native) {
+    refreshOriginalCityCache(sc, native, city);
+    return runOriginalCityMilitary(
+      sc,
+      native,
+      city,
+      app.originalRng ?? app.activeBattleRng,
+    );
+  }
   if (city._strategicLastFaction === undefined)
     city._strategicLastFaction = city.faction;
   else if (city._strategicLastFaction !== city.faction) {
@@ -954,6 +998,8 @@ function factionIsActive(sc, factionIdx) {
 }
 
 function retreatRouteToFriendlyCity(sc, legion) {
+  const native = scenarioNativeRoadContext(sc);
+  if (native) return originalRetreatRoute(sc, legion, native);
   if (!roadGraphReady()) return null;
   const faction = sc.factions.find(
     (candidate) => candidate.idx === legion.faction,
@@ -961,15 +1007,13 @@ function retreatRouteToFriendlyCity(sc, legion) {
   const capital = faction?.capital == null ? null : sc.cities[faction.capital];
   if (!capital || capital.faction !== legion.faction) return null;
 
-  // 0x487B不是“最近己城”：它先以势力首都为最终搜索目标；军团位于道路
-  // 边内时按edge+8端、edge+6端的原版顺序取第一个己方端点。0x491B对
-  // 非己城市加约0x80A6巨额代价但仍展开；0x487B最终只要求即时第一跳属己。
-  // roadApproachesAt按target(+8)、source(+6)排序以保留端点优先级。
+  // Legacy v1 approximation only: fixed endpoint priority and Dijkstra costs
+  // are NOT 487B. Detached v2 above uses the original double-stop caller.
   const saved = legion._battleRoadContext;
   const savedApproaches = [];
   const savedEdge = roadEdgeById(saved?.edgeId);
   if (savedEdge?.points?.length) {
-    // 0x487B对结构端点固定先检查edge+8(target)，再检查edge+6(source)。
+    // Legacy v1 priority, not the original 487B endpoint/search order.
     // 战前_march.points是按行军方向排列的有向副本；stride=-4时其首尾
     // 与结构端点相反，不能再用有向数组的[last,0]猜+8/+6，否则会把
     // 城前败军的第一撤退步错误配到整条边另一端并产生几十格瞬移。
@@ -1068,15 +1112,23 @@ function retreatRouteToFriendlyCity(sc, legion) {
 }
 
 function assignRetreatRoute(legion, retreat, captorFaction) {
-  legion.status |= 0x02;
-  legion.target = retreat.city;
-  legion.targetCity = retreat.city.idx;
-  legion.targetNode = retreat.node?.id ?? null;
+  if (retreat.native) {
+    // 4780,4789,478C; targetNode is the Web id projection of raw BX>>2.
+    legion.targetNode = retreat.node.id;
+    legion.targetCity = retreat.city.idx;
+    legion.status |= 0x02;
+    legion.target = retreat.city;
+  } else {
+    legion.status |= 0x02;
+    legion.target = retreat.city;
+    legion.targetCity = retreat.city.idx;
+    legion.targetNode = retreat.node?.id ?? null;
+  }
   // 474E→6FD2 already wrote +0B=1. 4780/4789/478C change only the
   // destination and bit1: preserve the CURRENT +0A/+0C/+0E, not a new
   // stride=0 retreat path. The next due 26A5→47BB chooses direction.
   // In particular, this battle's 2600 and snapshot still read the old edge.
-  legion.commandState = 8;
+  if (!retreat.native) legion.commandState = 8;
   legion._battleRoadContext = null;
   legion._retreat = {
     cityIdx: retreat.city.idx,
@@ -1088,29 +1140,60 @@ function assignRetreatRoute(legion, retreat, captorFaction) {
 
 /** KI.EXE 0x474A：重算可战状态，败方尽量写入撤退路线。 */
 export function continueLegionAfterBattle(sc, legion, won) {
-  // 474E→6FD2 writes the action phase BEFORE either failure gate.
-  ensureLegionUnits(legion);
-  resetLegionActionPhase(legion);
-  const units = legion.units;
-  const firstUnit = Math.floor((units[0]?.troops ?? legion.troops * 10) / 10);
-  if ((legion.morale ?? 0) === 0 || firstUnit === 0) return false;
+  // Native 474E must precede legacy normalization and preserve late failures.
+  const native = scenarioNativeRoadContext(sc);
+  if (native) {
+    refreshOriginalLegion(sc, legion);
+    if (formationByte(legion.morale, "L06 at 4751") === 0) return false;
+    if (originalTeamTroops(legion, 0, "L29 at 4757") === 0) return false;
+  } else {
+    ensureLegionUnits(legion);
+    resetLegionActionPhase(legion);
+    const firstUnit = Math.floor(
+      (legion.units[0]?.troops ?? legion.troops * 10) / 10,
+    );
+    if ((legion.morale ?? 0) === 0 || firstUnit === 0) return false;
+  }
 
   if (won) {
     legion.commandState = 8;
     return true;
   }
 
-  const currentCity = sc.cities.find(
-    (city) => city.x === legion.x && city.y === legion.y,
-  );
-  if (currentCity?.faction === legion.faction) {
-    legion.commandState = 8;
-    return true;
+  if (native) {
+    // 4761..4775 uses raw L0E, never x/y or a battle projection.
+    const current = readOriginalRetreatCurrent(legion);
+    if (
+      current < 0x600 &&
+      native.readCityOwnerByte(current * 4 + 0x841) ===
+        readOriginalRetreatFaction(legion)
+    ) {
+      legion.commandState = 8;
+      return true;
+    }
+  } else {
+    const currentCity = sc.cities.find(
+      (city) => city.x === legion.x && city.y === legion.y,
+    );
+    if (currentCity?.faction === legion.faction) {
+      legion.commandState = 8;
+      return true;
+    }
   }
 
   const retreat = retreatRouteToFriendlyCity(sc, legion);
   if (!retreat) return false;
   assignRetreatRoute(legion, retreat, null);
+  if (native) {
+    // 478F skips the capital read for low troops; do not pre-read it.
+    legion.commandState =
+      legion.troops <= 300 ||
+      retreat.city.idx ===
+        readOriginalRetreatCapital(sc, readOriginalRetreatFaction(legion))
+        ? 10
+        : 8;
+    return true;
+  }
   const faction = sc.factions.find(
     (candidate) => candidate.idx === legion.faction,
   );
@@ -1167,6 +1250,7 @@ function disbandLegionForReturn(sc, legion, captorFaction, app = null) {
   legion._retreat = null;
   legion._markerFrame = 4;
   clearEngagement(legion);
+  if (hasNativeLegionSlots(sc)) rebindNativeLegionViews(sc);
   enqueuePostbattleFateTalk(
     app,
     general,
@@ -1214,7 +1298,10 @@ function settleCapturedGeneral(app, sc, general, oldFaction, captorFaction) {
 // 29D4/29E2: only an active old slot decrements F14; 29ED clears
 // status unconditionally. Preserve +03 and road data for any current tail.
 function clearCapturedLegionRecord(sc, legion) {
-  if (legion.status >= 0x80) countLegionRemoval(sc, legion);
+  const status = hasNativeLegionSlots(sc)
+    ? formationByte(legion.status, "L00 at 29D4")
+    : legion.status;
+  if (status >= 0x80) countLegionRemoval(sc, legion);
   legion.status = 0;
   legion._active = false;
   legion.dead = true;
@@ -1224,6 +1311,7 @@ function clearCapturedLegionRecord(sc, legion) {
   sc.delayedLegionReturns = (sc.delayedLegionReturns ?? []).filter(
     (record) => record.slot !== legion.slot,
   );
+  if (hasNativeLegionSlots(sc)) rebindNativeLegionViews(sc);
 }
 
 function captureOrEliminateLegion(sc, legion, captorFaction, app = null) {
@@ -1742,6 +1830,8 @@ function stepLegacyPath(sc, A, tx, ty) {
 }
 
 export function stepTo(sc, A, tx, ty) {
+  const native = scenarioNativeRoadContext(sc);
+  if (native) return performOriginalRoadAction(sc, A, native);
   if (tx == null) return "blocked";
   const targetIsCity = sc.cities.some((city) => city.x === tx && city.y === ty);
   if (targetIsCity && !roadGraphReady()) return "waiting";
@@ -2042,9 +2132,10 @@ function finalizeFactionExtinction(app, factionIdx) {
     // 5030 directly calls 29C3, NOT the 291A fate/RNG dispatcher.
     // 29C8..29D0 derives the slot from the general pointer, even when
     // that slot is inactive or already retired by the original BP group.
-    const capturedRecord =
-      sc.legions.find((record) => record.slot === general.idx) ??
-      sc.delayedLegionReturns?.find((record) => record.slot === general.idx);
+    const capturedRecord = hasNativeLegionSlots(sc)
+      ? nativeLegionAt(sc, general.idx, "29D4")
+      : (sc.legions.find((record) => record.slot === general.idx) ??
+        sc.delayedLegionReturns?.find((record) => record.slot === general.idx));
     if (capturedRecord) clearCapturedLegionRecord(sc, capturedRecord);
     settleCapturedGeneral(app, sc, general, factionIdx, captorFaction);
     general.captive_flag = general.origFaction ?? 0xff;
@@ -2076,11 +2167,20 @@ function retreatCapturedGarrison(app, sc, defenders, captorFaction, rng) {
     for (const legion of defenders) {
       // 4DC9..4DD3 writes only +20/+14/+0B and OR2: no position,
       // +03/+1E/+23 or active-bit write, even for a retired BP member.
-      legion.status |= 2;
-      legion.target = retreat.city;
-      legion.targetCity = retreat.city.idx;
-      legion.targetNode = retreat.node?.id ?? null;
-      legion.moveDelay = 1;
+      if (retreat.native) {
+        // Unlike 474A, 4DA4 writes +20 before +14, then +0B and status.
+        legion.targetCity = retreat.city.idx;
+        legion.targetNode = retreat.node.id;
+        legion.moveDelay = 1;
+        legion.status |= 2;
+        legion.target = retreat.city;
+      } else {
+        legion.status |= 2;
+        legion.target = retreat.city;
+        legion.targetCity = retreat.city.idx;
+        legion.targetNode = retreat.node?.id ?? null;
+        legion.moveDelay = 1;
+      }
     }
     return { retreat: defenders.length, fates: [] };
   }
@@ -2121,9 +2221,8 @@ export function applyBattleResult(
     winner === "atk",
     atkResult?.morale,
   );
-  // 5192 precedes 51A1 and both precede 4B1F/city capture. 4B23 only
-  // consumes defender failure when attacker won; it ignores winner failure.
-  const attackContinues = continueLegionAfterBattle(sc, A, winner === "atk");
+  // 5180/5189 -> 51B3 commits BOTH sides' units, totals and morale
+  // before 5192 -> attacker 474A can fail or leave this boundary.
   if (primaryDefender) {
     settleFieldLegion(
       primaryDefender,
@@ -2132,6 +2231,11 @@ export function applyBattleResult(
       winner === "def",
       defResult?.morale,
     );
+  }
+  // Keep phase/continuation order: 5192 attacker, then 51A1 defender.
+  // 4B23 consumes defender failure only when attacker won.
+  const attackContinues = continueLegionAfterBattle(sc, A, winner === "atk");
+  if (primaryDefender) {
     // 0x4ED7返回后攻守两个实际参战对象都各调用一次0x474A。
     // 城内主守军无论胜负都会先写状态8；只有真正破城后才由0x4DA4
     // 给战前同城组共享撤退目标，且该组函数不覆盖其余军团命令态。
@@ -3588,7 +3692,73 @@ export function settleLegionDaily(sc, processedSlots = null) {
   }
 }
 
+// Native daily/tail consumers must not use legacy numeric defaults. KI source
+// 2600..2661 / 562B..5662 and the named funds/byte21 bridge: march §3.13.
+function originalDailyUnsigned(value, maximum, instruction) {
+  if (!Number.isInteger(value) || value < 0 || value > maximum)
+    throw new RangeError(
+      `Uncovered native legion settlement at ${instruction}`,
+    );
+  return value;
+}
+
+function settleOriginalEnteredLegionDaily(sc, legion) {
+  const troops = originalDailyUnsigned(legion.troops, 0xffff, "2609 L04");
+  const current = originalDailyUnsigned(
+    legion.roadEdgeOrNode,
+    0xffff,
+    "260C L0E",
+  );
+  const edge = current >= 0x800;
+  const cost = edge ? (troops >>> 1) + (troops >>> 2) : (troops >>> 5) + 1;
+  const factionAt = (instruction) => {
+    const owner = originalDailyUnsigned(legion.faction, 255, instruction);
+    const faction =
+      owner < 24 && sc.factions.find((item) => item.idx === owner);
+    if (!faction)
+      throw new RangeError(
+        `Uncovered native faction address at ${instruction}`,
+      );
+    return faction;
+  };
+  const faction = factionAt(edge ? "261D L01" : "262B L01");
+  // Existing Web funds alias: explicit gold owns the value, otherwise money.
+  // 563D/5640 subtract in 24 bits; 5649..5657 impose only the signed lower cap.
+  const funds = Object.hasOwn(faction, "gold") ? faction.gold : faction.money;
+  if (!Number.isInteger(funds) || funds < -0x800000 || funds > 0x7fffff)
+    throw new RangeError("Uncovered native signed24 funds at 563D");
+  let next = (funds - cost) & 0xffffff;
+  if (next & 0x800000) next -= 0x1000000;
+  next = Math.max(-655000, next);
+  faction.gold = next;
+  faction.money = next;
+  if (edge) return; // 2623: never read F1D/L06 on this branch.
+  const moraleFaction = factionAt("2631 L01");
+  const cap = originalDailyUnsigned(
+    moraleFaction.legion_morale_cap,
+    255,
+    "263A F1D",
+  );
+  const morale = originalDailyUnsigned(legion.morale, 255, "263D L06");
+  legion.morale = (morale + 10) & 255;
+  if (originalDailyUnsigned(legion.morale, 255, "2641 L06") >= cap)
+    legion.morale = cap;
+}
+
+function finishOriginalLegionSlotTail(record) {
+  const status = originalDailyUnsigned(record.status, 255, "264A L00");
+  if (status & 0x20) {
+    record.engagementCountdown = (legionSlotCounter(record) - 1) & 255;
+    if (record.engagementCountdown === 0) record.engagementCountdown = 1;
+  } else {
+    record.engagementCountdown = 0; // 264F, before the separate 2653 write.
+    record.contactAnimationByte21 = 0;
+  }
+}
+
 function settleEnteredLegionDaily(sc, legion) {
+  if (scenarioNativeRoadContext(sc))
+    return settleOriginalEnteredLegionDaily(sc, legion);
   // Entry qualification belongs to 25B6, not to post-action active/dead flags.
   const faction = sc.factions.find((item) => item.idx === legion.faction);
   if (!faction) throw new TypeError("Entered legion has no faction record");
@@ -3649,9 +3819,43 @@ export function aiTick(app, options = {}) {
     app._legionSlotBatch ||
     app._strategicBattleFailure
   )
-    return;
-  if (app.battleView?.active || app.engageTransition?.active) return;
+    return scenarioNativeRoadContext(app.scenario)
+      ? app._strategicBattleFailure
+        ? "failed"
+        : "pending"
+      : undefined;
+  if (app.battleView?.active || app.engageTransition?.active)
+    return scenarioNativeRoadContext(app.scenario) ? "pending" : undefined;
   if (!app.scenario?.legions) return;
+  if (scenarioNativeRoadContext(app.scenario)) {
+    const scenario = app.scenario,
+      clock = app.clock;
+    try {
+      if (Number.isInteger(options.cityIndex)) {
+        if (
+          options.cityIndex < 0 ||
+          options.cityIndex >= 192 ||
+          scenario.cities?.[options.cityIndex]?.idx !== options.cityIndex
+        )
+          throw new RangeError("Uncovered city cursor at 3EFD");
+        tickStrategicCity(app, options.cityIndex);
+      } else if (options.runCityDaily !== false) {
+        throw new RangeError(
+          "Uncovered native update requires explicit cityIndex",
+        );
+      }
+      finishStrategicCityUpdate(app, options);
+      return app._strategicBattleFailure
+        ? "failed"
+        : app._legionSlotBatch
+          ? "pending"
+          : "returned";
+    } catch (error) {
+      if (app.scenario === scenario && app.clock === clock)
+        holdFailedStrategicUpdate(app, error);
+      return "failed";
+    }
+  }
   // KI 3F57 returns from military/TALK38 before 3F5A governance. Preserve
   // this update's options; never rerun its city phase or advance cursors twice.
   const update = { ...options };
@@ -3680,17 +3884,31 @@ function finishStrategicCityUpdate(app, options) {
   if (!sc?.legions) return;
   // 1D0B: city military/request already returned, then governance, then
   // 25A3. Newly formed armies compete for reserves BEFORE these slots.
+  const native = scenarioNativeRoadContext(sc);
   if (Number.isInteger(options.cityIndex)) {
-    tickStrategicCityDaily(
-      sc,
-      options.cityIndex,
-      app.originalRng ?? app.activeBattleRng,
-    );
+    if (native) {
+      const city = sc.cities[options.cityIndex];
+      governOriginalCity(
+        sc,
+        native,
+        city,
+        app.originalRng ?? app.activeBattleRng,
+      );
+      damageOriginalCity(city);
+      sc._cityTickCursor = (options.cityIndex + 1) % 192; // 3F6F, once after 4269 RET.
+    } else
+      tickStrategicCityDaily(
+        sc,
+        options.cityIndex,
+        app.originalRng ?? app.activeBattleRng,
+      );
   } else if (options.runCityDaily !== false) {
     cityDaily(sc, app.originalRng ?? app.activeBattleRng);
   }
   // Explicit legacy tool hook, not the production 1D8E clock boundary.
   if (options.runFactionTick === true) {
+    if (native)
+      throw new RangeError("Uncovered native legacy faction-tick tool hook");
     tickEnvoyDiplomacy(app);
     tickStrategicWarEvents(app);
   }
@@ -3724,9 +3942,10 @@ function runLegionSlotBatch(app, batch) {
     return false;
   const sc = batch.scenario;
   const lookup = (slot) => {
-    const record =
-      sc.legions.find((item) => item.slot === slot) ??
-      sc.delayedLegionReturns?.find((item) => item.slot === slot);
+    const record = scenarioNativeRoadContext(sc)
+      ? nativeLegionAt(sc, slot, "L00 at 25B6")
+      : (sc.legions.find((item) => item.slot === slot) ??
+        sc.delayedLegionReturns?.find((item) => item.slot === slot));
     if (record) bindLegionSlotCounter(sc, record);
     return record;
   };
@@ -3741,11 +3960,18 @@ function runLegionSlotBatch(app, batch) {
       const op = batch.cursor.next(lookup);
       if (op.kind === "cancelled") return false;
       if (op.kind === "done") {
-        // Fetch canonical RNG NOW: tactical return can replace its object.
-        batch.changed =
-          tickStrategicWeather(sc, app.originalRng ?? app.activeBattleRng) ||
-          batch.changed;
-        sc.legions = sc.legions.filter((record) => !record.dead);
+        // 25FF commits before 2459; a weather failure retains this cursor.
+        if (scenarioNativeRoadContext(sc)) {
+          sc._legionBatchCursor = batch.cursor.endSlot % 128;
+          batch.changed = tickOriginalStrategicWeather(sc) || batch.changed;
+        } else {
+          // Fetch canonical RNG NOW: tactical return can replace its object.
+          batch.changed =
+            tickStrategicWeather(sc, app.originalRng ?? app.activeBattleRng) ||
+            batch.changed;
+        }
+        if (hasNativeLegionSlots(sc)) rebindNativeLegionViews(sc);
+        else sc.legions = sc.legions.filter((record) => !record.dead);
         app._legionSlotBatch = null;
         app.gamebar?.syncClock?.();
         if (batch.changed) {
@@ -3757,7 +3983,9 @@ function runLegionSlotBatch(app, batch) {
       if (op.kind === "daily") {
         settleEnteredLegionDaily(sc, op.record);
       } else if (op.kind === "tail") {
-        finishLegionSlotTail(op.record);
+        if (scenarioNativeRoadContext(sc))
+          finishOriginalLegionSlotTail(op.record);
+        else finishLegionSlotTail(op.record);
         if (!(op.record.status & ENGAGE_STATUS_ACTIVE))
           clearEngagement(op.record);
       } else {
@@ -3765,6 +3993,8 @@ function runLegionSlotBatch(app, batch) {
         // invoke a test callback. The cursor is already at the continuation.
         const ticket = { completed: false };
         batch.ticket = ticket;
+        if (op.kind === "inactive" && scenarioNativeRoadContext(sc))
+          throw new RangeError("Web engineering Uncovered 2A7E at 25E5");
         const outcome =
           op.kind === "inactive"
             ? tickDelayedLegionReturn(app, op.record)
@@ -3821,6 +4051,16 @@ function disbandLegionAtCapital(sc, legion) {
 
 function performLegionSlotAction(app, A) {
   const sc = app.scenario;
+  const native = scenarioNativeRoadContext(sc);
+  if (native) {
+    performOriginalRoadAction(
+      sc,
+      A,
+      native,
+      app.originalRng ?? app.activeBattleRng,
+    );
+    return "complete"; // Only the existing pump owns normal daily/03 tails.
+  }
   A.prevX = A.x;
   A.prevY = A.y;
   // The outer 42AB and engagement paths run BEFORE stepTo. They must not

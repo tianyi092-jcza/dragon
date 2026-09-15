@@ -204,6 +204,78 @@ def compile_chapter(document, world_cities):
     return state
 
 
+def validate_original_road_content(roads):
+    """Staged v2 Web asset profile, not KI's handling of malformed live RAM.
+
+    E717..E81B record widths and 4A21..4A4E reciprocal tags; march notes §3.9.
+    Keep ordered explicit fields; never derive byte cost/flags/tags from v1.
+    """
+    if (roads.get("width"), roads.get("height")) != (384, 256):
+        raise ValueError("invalid original road content dimensions")
+    nodes, edges = roads["nodes"], roads["edges"]
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        raise ValueError("original road nodes/edges must be arrays")
+    if len(nodes) != 192 or 0x800 + len(edges) * 16 > 0x2000:
+        raise ValueError("original road records exceed address regions")
+    coordinates = set()
+    seen = set()
+    for index, node in enumerate(nodes):
+        if integer(node["id"], 0, 191, "road node id") != index:
+            raise ValueError("road node order must match node IDs")
+        coordinates.add(
+            (integer(node["x"], 0, 383, "node x"), integer(node["y"], 0, 255, "node y"))
+        )
+        if not isinstance(node.get("edgeSlots"), list) or len(node["edgeSlots"]) != 4:
+            raise ValueError("original road node requires four ordered tags")
+        for tag in node["edgeSlots"]:
+            integer(tag, 0, 65535, "road tag")
+            if tag == 0:
+                continue
+            selector, pointer = tag & 0xC000, tag & 0x3FFF
+            if (
+                selector not in (0x4000, 0x8000)
+                or pointer < 0x800
+                or pointer >= 0x800 + len(edges) * 16
+                or (pointer - 0x800) % 16
+            ):
+                raise ValueError("invalid original road tag selector/pointer")
+            edge_id = (pointer - 0x800) // 16
+            endpoint = "source" if selector == 0x4000 else "target"
+            if edges[edge_id][endpoint] != index or (edge_id, selector) in seen:
+                raise ValueError("original road duplicate or mismatched endpoint tag")
+            seen.add((edge_id, selector))
+    if len(coordinates) != 192 or len(seen) != 2 * len(edges):
+        raise ValueError("original road duplicate coordinates or missing endpoint tag")
+    point_address = 0x2000
+    for index, edge in enumerate(edges):
+        if integer(edge["id"], 0, len(edges) - 1, "edge id") != index:
+            raise ValueError("road edge order must match edge IDs")
+        source = integer(edge["source"], 0, 191, "edge source")
+        target = integer(edge["target"], 0, 191, "edge target")
+        if source == target:
+            raise ValueError("original road self-loop")
+        integer(edge["weight"], 0, 255, "original road byte cost")
+        points = edge["points"]
+        if not isinstance(points, list) or not points:
+            raise ValueError("original road edge requires points")
+        point_address += len(points) * 4
+        if point_address > 0x8000:
+            raise ValueError("original road points overlap search workspace")
+        for point in points:
+            integer(point["x"], 0, 383, "road point x")
+            integer(point["y"], 0, 255, "road point y")
+            integer(point["flags"], 0, 255, "road point flags")
+        for field, axis, limit, extreme in (
+            ("minX", "x", 65535, min),
+            ("maxX", "x", 65535, max),
+            ("minY", "y", 255, min),
+            ("maxY", "y", 255, max),
+        ):
+            value = integer(edge["bounds"][field], 0, limit, "road bounds")
+            if value != extreme(point[axis] for point in points):
+                raise ValueError("original road bounds disagree with points")
+
+
 def load_content(root=SOURCE_ROOT):
     root = Path(root)
     catalog = read_json(root / "catalog.json")
@@ -255,8 +327,10 @@ def load_content(root=SOURCE_ROOT):
         for tile in row:
             integer(tile, 0, 255, "layout tile")
     roads = read_json(source_path(root, world["roads"]))
-    if roads.get("version") != 1 or len(roads["nodes"]) != 192:
-        raise ValueError("current engine requires 192 road nodes")
+    if roads.get("version") not in (1, 2) or len(roads["nodes"]) != 192:
+        raise ValueError("current engine requires version 1/2 and 192 road nodes")
+    if roads["version"] == 2:
+        validate_original_road_content(roads)
     if (
         len(world["cities"]) != 192
         or len({city["id"] for city in world["cities"]}) != 192
@@ -279,7 +353,7 @@ def load_content(root=SOURCE_ROOT):
             not edge["points"]
             or type(edge["weight"]) not in (int, float)
             or not math.isfinite(edge["weight"])
-            or edge["weight"] <= 0
+            or (roads["version"] == 1 and edge["weight"] <= 0)
         ):
             raise ValueError("invalid road edge geometry/weight")
         for index, point in enumerate(edge["points"]):
@@ -335,6 +409,10 @@ def render_world(root, world, tileset, layout):
 def compile_content(root, output, *, maps=True):
     catalog, data, world, tileset, layout, roads = load_content(root)
     output = Path(output)
+    # v2 remains explicit staging until native callers and formal load/save agree.
+    # Do not let compiler support publish over the existing v1 runtime/source.
+    if roads["version"] == 2 and output.exists():
+        raise ValueError("staged v2 content requires a new output directory")
     # 完成校验/渲染后才发布；坏源不能先覆盖data.json，再在地图阶段报错。
     with TemporaryDirectory(prefix="wolong-content-compile-") as temporary:
         stage = Path(temporary)

@@ -38,7 +38,7 @@
 | `world/road-cost.bin`、`road-offset.json` | 现有格网回退与表现偏移的兼容资源，不以此替代权威道路图 |
 | `provenance.json` | 首次导入输入哈希，仅作来源追踪，不是机制证明或运行依赖 |
 
-P24的原tag槽、成本byte、flags/bbox候选v2与原图字节重建见[行军§3.6](re-notes-march-pathfinding.md#36-p24图字节重建与默认图条件队列界)。`createCheckedOriginalRoadMemory`已提供记录/互反槽结构检查，但不是完整世界校验或任意地图容量证明；编译器与生产加载器仍只接现有v1，候选尚未发布。不得先换运行权重，再以旧近似AI继续运行来冒充原搜索接线。
+P24的原tag槽、成本byte、flags/bbox候选v2与原图字节重建见[行军§3.6](re-notes-march-pathfinding.md#36-p24图字节重建与默认图条件队列界)。`createCheckedOriginalRoadMemory`已提供记录/互反槽结构检查，但不是完整世界校验或任意地图容量证明；默认源/运行资产仍为v1，候选尚未发布；编译器与loader已支持显式v2预备接线（仅新目录编译、不可变资源与独立Scenario RAM），安装v2后拒绝未接线的旧规则查询。预备合同见[行军§3.9](re-notes-march-pathfinding.md#39-p24v2内容与scenario生命周期预备接线非生产切换)；实际新局/读档两阶段准入、正式身份sidecar及detached v2保存往返见[§3.10](re-notes-march-pathfinding.md#310-p24正式装配与保存身份准入web工程生产仍限v1)，生产仍明确拒绝v2。不得先换运行权重，再以旧近似AI继续运行来冒充原搜索接线。
 
 ### 章节兼容区不是编辑权威
 
@@ -89,6 +89,7 @@ python -B tools/import_builtin_content.py --output /path/to/new-source
 | `src/game/playerqueries.js` | 两个纯玩家身份查询，解除commands↔diplomacy循环 |
 | `src/game/legacyrecords.js` | 原记录字节兼容读取；保留原初始/运行字段选择，不悄悄修机制 |
 | `src/game/world.js` | 运行态Scenario/模板复制，不拥有资源加载状态 |
+| `src/game/scenarioassembly.js` | 共享detached准备、当前catalog/world/道路版本身份；生产仍只准入v1，合同见行军§3.10 |
 
 - `main.startApp`只加载目录、章模板和本地槽位；确认新局/读档后才请求地图、道路与战斗资源。
 - 标题排序由目录`official`决定；既有无目录调用保留旧20章排序适配。原版4章置顶和所有旧索引不变。
@@ -116,6 +117,6 @@ node tools/verify_standalone_web_browser.mjs
 
 ## 5. 批次界限
 
-B0–B4a已落地公共查询、内容身份/原生源管线、图集地图源、世界资源实例基础和无绘制开局流程。当前未动正式四槽结构、原规则/RNG/消息返回边界，也没有引入动画库。
+B0–B4a已落地公共查询、内容身份/原生源管线、图集地图源、世界资源实例基础和无绘制开局流程；该批未动正式四槽结构。后续P24身份sidecar与装配准入见行军§3.10：保留四槽/旧索引及无新metadata的有效phase v1，不迁移旧存档；未改原规则/RNG/消息返回边界，也没有引入动画库。
 
 后续已讨论但尚未完成：场景生命周期继续拆分、存储仓储边界、GameBar/HUD按工作流拆分、AI按城市/军团/事件/战后/调度拆分、BattleView驱动与绘制分离。`OriginalBattleSession`不按行数硬拆。批次实测与原有用户改动保留情况只记[日志](checkpoint-journal.md)。

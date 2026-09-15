@@ -9,15 +9,14 @@ import {
 import { attachInput } from "./core/input.js";
 import { HUD } from "./ui/hud.js";
 import { GameBar } from "./ui/gamebar.js";
-import {
-  createNewGameScenario,
-  Scenario,
-  seasonOf,
-  SEASONS,
-} from "./game/world.js";
+import { createNewGameScenario, seasonOf, SEASONS } from "./game/world.js";
 import { Clock } from "./game/clock.js";
 import { captureLegionContinuation } from "./game/legioncontinuation.js";
-import { assertLegionPhaseState } from "./game/legionphase.js";
+import {
+  prepareScenario,
+  assertPlayableScenario,
+  scenarioNativeRoadContext,
+} from "./game/scenarioassembly.js";
 import { activateNextMonthPolicy, monthlySettlement } from "./game/economy.js";
 import { prepareEnvoyBudgetReports } from "./game/diplomacy.js";
 import {
@@ -55,7 +54,7 @@ import {
   originalBiosClockFromDate,
 } from "./game/battle/originalrng.js";
 import {
-  restoreSnapshotState,
+  admitSavedScenario,
   canSnapshotState,
   snapshotState,
 } from "./game/savegame.js";
@@ -196,6 +195,9 @@ const app = {
   },
 
   async beginSavedGame(slotIdx) {
+    // Recheck the current slot before enterGame changes runtime/UI; never trust rows.
+    const saved = this.saves?.slots.find((slot) => slot.slot === slotIdx);
+    admitSavedScenario(saved, this);
     await this.enterGame(async () => {
       if (!(await this.loadSave(slotIdx))) throw new Error("無法讀取指定存檔");
     });
@@ -269,6 +271,7 @@ const app = {
   async returnToTitle(initialAction) {
     this._gameEntryRequest = null;
     this._scenarioAssemblyPending = null;
+    this._scenarioAssemblyIncomplete = null;
     cancelLegionSlotBatch(this);
     this._strategicBattleFailure = null;
     this._strategicCityRequest = null;
@@ -348,7 +351,6 @@ const app = {
   },
 
   setScenario(i, playerFaction = null, advisor) {
-    this.loadedSaveSlot = null;
     const raw = createNewGameScenario(
       this.content ? this.content.chapter(i)?.template : this.data.scenarios[i],
       playerFaction,
@@ -356,6 +358,7 @@ const app = {
     );
     return this.loadState(raw, i, {
       initializeDiplomacy: playerFaction != null,
+      mode: "fresh",
     });
   },
 
@@ -363,13 +366,73 @@ const app = {
   async loadState(
     raw,
     idx,
-    { rngSnapshot = null, initializeDiplomacy = false } = {},
+    {
+      rngSnapshot = null,
+      initializeDiplomacy = false,
+      mode = "restore",
+      metadata = null,
+      roadMemory = null,
+      savedSlot = null,
+      savedLabel = null,
+    } = {},
   ) {
-    if (!raw || !Array.isArray(raw.factions) || !Array.isArray(raw.cities))
-      throw new TypeError("invalid scenario state");
-    if (!Number.isInteger(idx) || idx < 0 || idx >= this.data.scenarios.length)
-      throw new RangeError(`invalid scenario index ${idx}`);
-    assertLegionPhaseState(raw);
+    const loadedWorld = this.world,
+      loadedContent = this.content;
+    const entry = this._gameEntryRequest,
+      previousClock = this.clock;
+    const prior = this._scenarioAssemblyPending;
+    const previousHold =
+      prior && prior.preflightClock === previousClock
+        ? prior.previousHold
+        : previousClock?.hold;
+    const assembly = { preflightClock: previousClock, previousHold };
+    rngSnapshot = structuredClone(rngSnapshot);
+    this._scenarioAssemblyPending = assembly;
+    if (this.gamebar) this.gamebar.syncClock();
+    else if (previousClock) previousClock.hold = true;
+    const assertCurrentPreflight = () => {
+      if (
+        this._scenarioAssemblyPending !== assembly ||
+        this.world !== loadedWorld ||
+        this.content !== loadedContent ||
+        this._gameEntryRequest !== entry ||
+        this.clock !== previousClock
+      )
+        throw new DOMException("Scenario assembly superseded", "AbortError");
+    };
+    let prepared;
+    try {
+      prepared = await prepareScenario({
+        raw,
+        idx,
+        content: loadedContent,
+        world: loadedWorld,
+        mode,
+        metadata,
+        roadMemory,
+      });
+      assertCurrentPreflight();
+      // v2 never reaches initPlayer/buildArmies/diplomacy or the default v1 facades.
+      assertPlayableScenario(prepared);
+    } catch (error) {
+      if (this._scenarioAssemblyPending === assembly) {
+        this._scenarioAssemblyPending = null;
+        if (this.gamebar) this.gamebar.syncClock();
+        else if (this.clock === previousClock && previousClock)
+          previousClock.hold =
+            !!this._scenarioAssemblyIncomplete || previousHold;
+        this.hud?.flashEvent?.("道路資料載入失敗，無法裝配此局。");
+        globalThis.__dragonDebug?.reportError?.(
+          "strategic map navigation assets failed to load",
+          error,
+        );
+      }
+      throw error;
+    }
+    // Protect installed/partially written state independently of the replaceable
+    // preflight ticket. A rejected replacement must not release or revive it.
+    this._scenarioAssemblyIncomplete = assembly;
+    // Commit boundary. Later failures retain existing partial assembly semantics.
     cancelLegionSlotBatch(this);
     this._strategicBattleFailure = null;
     this.engagementFx.reset();
@@ -384,8 +447,8 @@ const app = {
     this._factionTickDeferred = false;
     this.dispatching = null;
     this.scenarioIdx = idx;
-    this.scenario = new Scenario(raw);
-    this._scenarioAssemblyPending = this.scenario;
+    this.scenario = prepared.scenario;
+    if (mode === "fresh") this.loadedSaveSlot = null;
     if (this.clock) this.clock.hold = true;
     normalizeDisasterMapObjectState(this.scenario);
     normalizeWeatherCloudState(
@@ -399,29 +462,20 @@ const app = {
     this.originalRng ??= createOriginalBattleRng(originalBiosClockFromDate());
     if (rngSnapshot) this.originalRng.restore(rngSnapshot);
     this.activeBattleRng = this.originalRng;
-    const loadedScenario = this.scenario,
-      loadedWorld = this.world;
+    const loadedScenario = this.scenario;
     let ownedClock = this.clock;
     const assertCurrentAssembly = () => {
       if (
+        this._scenarioAssemblyPending !== assembly ||
+        this._scenarioAssemblyIncomplete !== assembly ||
+        this._gameEntryRequest !== entry ||
+        this.content !== loadedContent ||
         this.scenario !== loadedScenario ||
         this.world !== loadedWorld ||
         this.clock !== ownedClock
       )
         throw new DOMException("Scenario assembly superseded", "AbortError");
     };
-    const terrainReady = loadedWorld.terrain.loadTerrain().catch((error) => {
-      if (this.scenario === loadedScenario) {
-        this.hud?.flashEvent?.("道路資料載入失敗，無法裝配此局。");
-        globalThis.__dragonDebug?.reportError?.(
-          "strategic map navigation assets failed to load",
-          error,
-        );
-      }
-      throw error;
-    });
-    // A cold graph cannot restore 0C/0E; never clear their input before ready.
-    await terrainReady;
     assertCurrentAssembly();
     cmd.initPlayer(this.scenario); // ★原版剧本头FF=未指定→默认势力0/信赖100
     if (initializeDiplomacy) initializeStrategicDiplomacy(this);
@@ -434,7 +488,12 @@ const app = {
         : this.scenario.start.month;
     const requestedDay = loadedDate?.day ?? this.scenario.start.day;
     const startYear = loadedDate?.year ?? this.scenario.start.year;
-    const seasonReady = this.setSeason(seasonOf(startMonth));
+    const seasonReady = this.setSeason(
+      seasonOf(startMonth),
+      () =>
+        this._scenarioAssemblyPending === assembly &&
+        this.scenario === loadedScenario,
+    );
     // 新游戏使用章节起始日；存档使用 parse_save/snapshotState 的 save_date。
     this.clock = new Clock({
       startYear,
@@ -452,11 +511,14 @@ const app = {
           hour: c.hour,
           runFactionTick: false,
         });
-        this.scenario._legionBatchCursor =
-          (batchStart + STRATEGIC_LAYOUT.legionBatchSize) %
-          STRATEGIC_LAYOUT.legionSlots;
-        this.scenario._cityTickCursor =
-          (cityCursor + 1) % STRATEGIC_LAYOUT.citySlots;
+        // Native cursors commit at 3F6F / 25FF, never on a failed return.
+        if (!scenarioNativeRoadContext(this.scenario)) {
+          this.scenario._legionBatchCursor =
+            (batchStart + STRATEGIC_LAYOUT.legionBatchSize) %
+            STRATEGIC_LAYOUT.legionSlots;
+          this.scenario._cityTickCursor =
+            (cityCursor + 1) % STRATEGIC_LAYOUT.citySlots;
+        }
       },
       onSyncHold: () => this.gamebar?.syncClock?.(),
       onHour: (c) => {
@@ -518,9 +580,14 @@ const app = {
     }
     this.view.draw();
     this.checkTrustGameOver(); // 读入 trust=0 的坏档也立即进入结束画面
-    const ready = await Promise.all([terrainReady, seasonReady]);
+    const ready = await seasonReady;
     assertCurrentAssembly();
     this._scenarioAssemblyPending = null;
+    this._scenarioAssemblyIncomplete = null;
+    if (savedSlot !== null) {
+      this.loadedSaveSlot = savedSlot;
+      this._lastLoadedSaveLabel = savedLabel;
+    }
     if (this.gamebar) this.gamebar.syncClock();
     else this.clock.hold = !this.runtimeEnabled;
     return ready;
@@ -537,12 +604,12 @@ const app = {
         this.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
         return { saved: "blocked" };
       }
-      const sv = snapshotState(this, slotIdx, label);
-      const next = structuredClone(this.saves);
-      const index = next.slots.findIndex((saved) => saved.slot === slotIdx);
-      if (index >= 0) next.slots[index] = sv;
-      else next.slots.push(sv);
       try {
+        const sv = snapshotState(this, slotIdx, label);
+        const next = structuredClone(this.saves);
+        const index = next.slots.findIndex((saved) => saved.slot === slotIdx);
+        if (index >= 0) next.slots[index] = sv;
+        else next.slots.push(sv);
         this.saves = await saveLocalSaveSlots(next);
       } catch (error) {
         this.hud?.flashEvent?.("本機存檔失敗，原存檔未變更。");
@@ -563,19 +630,22 @@ const app = {
     if (!sv?.played || !sv.state) return false;
     // Reject old/invalid phases before changing the scene, RNG or slot.
     // Restoration deep-clones; playing never mutates the stored snapshot.
-    const state = restoreSnapshotState(sv);
-    await this.loadState(state, sv.scenario_idx, {
+    const admitted = admitSavedScenario(sv, this);
+    await this.loadState(admitted.raw, admitted.idx, {
+      mode: "restore",
+      metadata: admitted.metadata,
+      roadMemory: admitted.roadMemory,
       rngSnapshot: sv.webMeta?.originalRng ?? null,
+      savedSlot: slotIdx,
+      savedLabel: sv.label,
     });
-    this.loadedSaveSlot = slotIdx;
-    this._lastLoadedSaveLabel = sv.label;
     return true;
   },
 
-  setSeason(i) {
+  setSeason(i, isCurrent = () => true) {
     this.seasonIdx = i;
     return loadSeasonTile(SEASONS[i]).then((img) => {
-      if (this.seasonIdx !== i) return;
+      if (!isCurrent() || this.seasonIdx !== i) return;
       this.view.seasonImg = img;
       if (this.gameStarted) this.view.draw();
     });

@@ -140,6 +140,7 @@ export function createPathfinder(definition, roads) {
    * @returns [{x,y},...] 不含起点、含终点的路径; 起点即终点=[]; 不可达/未装载=null
    */
   function findPath(sx, sy, tx, ty, isBlocked) {
+    roads.assertLegacyRoutingAvailable();
     if (!roadCost) return null;
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return null;
     if (sx === tx && sy === ty) return [];

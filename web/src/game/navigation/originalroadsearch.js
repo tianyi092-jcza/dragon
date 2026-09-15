@@ -1,6 +1,6 @@
 // KI.EXE 491B..4A7A. Native data algorithm, not an instruction emulator.
 // Detailed contract: docs/re-notes-march-pathfinding.md, section 3.5.
-// This primitive is not yet connected to the strategic movement callers.
+// Detached v2 callers: originalroadretreat / originalroadmovement; default v1 unchanged.
 // Readers must supply known bytes or throw; missing/old queue bytes are NOT zero.
 
 const u16 = (value) => value & 0xffff;

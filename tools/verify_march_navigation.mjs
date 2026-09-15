@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import {
+  initializeLegionSlotState,
+  bindLegionSlotCounter,
+} from "../web/src/game/legionphase.js";
 
 let graph;
 try {
@@ -64,8 +68,8 @@ assert.equal(restoredContext.stride, firstLeg.stride);
 assert.equal(restoredContext.pointIndex, 0);
 assert.deepEqual(restoredContext.points[0], firstLeg.points[0]);
 
-// 从SAVE恢复道路边后抵达节点，原始+0A/+0C边字段必须清除，+0E改写
-// 为目标节点原始地址；否则次日会继续按道路边（75）而不是节点（4）扣费。
+// KI 27A2 only replaces +0E; +0A/+0C retain their last edge values.
+// Daily cost reads the resulting +0E, not whether residual edge fields exist.
 const restoredEdgeTarget = graph.nodes[firstLeg.toNode];
 const restoredEdgeCity = {
   idx: 1,
@@ -76,6 +80,9 @@ const restoredEdgeCity = {
 };
 const restoredEdgeLegion = {
   slot: 0,
+  status: 0xc0,
+  moveDelay: 1,
+  movePeriod: 3,
   leader: "存檔道路測試",
   faction: 0,
   x: source.x,
@@ -92,6 +99,7 @@ const restoredEdgeLegion = {
 };
 const restoredEdgeFaction = {
   idx: 0,
+  n_legions: 1,
   capital: 0,
   monarch: "存檔道路測試",
   gold: 1000,
@@ -109,15 +117,32 @@ const restoredEdgeScenario = {
     restoredEdgeCity,
   ],
   generals: [],
-  legions: [restoredEdgeLegion],
+  legions: [],
   diplomacy: [[255]],
 };
+initializeLegionSlotState(restoredEdgeScenario);
+restoredEdgeScenario.legions = [restoredEdgeLegion];
 buildArmies(restoredEdgeScenario);
 assert.ok(
   restoredEdgeLegion._march,
   "SAVE raw edge context restores navigation",
 );
-assert.ok(!("roadEdgeOrNode" in restoredEdgeLegion));
+assert.equal(restoredEdgeLegion.roadEdgeOrNode, rawContext.edgeOrNode);
+let retainedEdgeFields;
+let currentRaw = restoredEdgeLegion.roadEdgeOrNode;
+Object.defineProperty(restoredEdgeLegion, "roadEdgeOrNode", {
+  configurable: true,
+  enumerable: true,
+  get: () => currentRaw,
+  set(value) {
+    if (value < 0x800)
+      retainedEdgeFields = [
+        restoredEdgeLegion.roadStride,
+        restoredEdgeLegion.roadPointAddress,
+      ];
+    currentRaw = value;
+  },
+});
 let restoredEdgeResult = "moved";
 for (let step = 0; step <= firstLeg.points.length; step++) {
   restoredEdgeResult = stepTo(
@@ -130,8 +155,9 @@ for (let step = 0; step <= firstLeg.points.length; step++) {
 }
 assert.equal(restoredEdgeResult, "arrived");
 assert.equal(restoredEdgeLegion._march, null);
-assert.ok(!("roadStride" in restoredEdgeLegion));
-assert.ok(!("roadPointAddress" in restoredEdgeLegion));
+assert.equal(restoredEdgeLegion.roadStride, retainedEdgeFields[0]);
+assert.equal(restoredEdgeLegion.roadPointAddress, retainedEdgeFields[1]);
+assert(Number.isInteger(restoredEdgeLegion.roadPointAddress));
 assert.equal(
   restoredEdgeLegion.roadEdgeOrNode,
   roadNodeRawAddress(restoredEdgeTarget.id),
@@ -294,11 +320,14 @@ const sourceCity = {
   };
   const dispatchScenario = {
     player_faction: 0,
-    factions: [{ idx: 0, monarch: "測試", legion_morale_cap: 200 }],
+    factions: [
+      { idx: 0, monarch: "測試", legion_morale_cap: 200, n_legions: 0 },
+    ],
     cities: [dispatchSource, dispatchTarget],
     generals: [dispatchGeneral],
     legions: [],
   };
+  initializeLegionSlotState(dispatchScenario);
   assert.ok(dispatch(dispatchScenario, dispatchSource, dispatchTarget).ok);
   const dispatched = dispatchScenario.legions[0];
   assert.equal(dispatched.commandState, 0);
@@ -310,6 +339,10 @@ const sourceCity = {
 }
 
 const legion = {
+  slot: 0,
+  status: 0xc0,
+  moveDelay: 1,
+  movePeriod: 3,
   leader: "測試",
   faction: 0,
   x: source.x,
@@ -330,6 +363,7 @@ const scenario = {
       capital: 0,
       monarch: "測試",
       n_cities: 2,
+      n_legions: 1,
       gold: 100000,
       money: 100000,
       reserve_cav: 0,
@@ -348,12 +382,14 @@ const scenario = {
     },
   ],
   cities: [sourceCity, targetCity],
-  legions: [legion],
+  legions: [],
   diplomacy: [[255]],
   citiesOf(faction) {
     return this.cities.filter((city) => city.faction === faction);
   },
 };
+initializeLegionSlotState(scenario);
+scenario.legions = [legion];
 buildArmies(scenario);
 legion.target = targetCity;
 
@@ -367,11 +403,12 @@ const app = {
 const visited = [];
 let finalSettlementCost = null;
 let finalMoraleBefore = null;
-for (
-  let update = 0;
-  update < expected.points.length + expected.edges.length + 8;
-  update++
-) {
+// At most one point per due action, plus node/next-edge actions and final
+// arrival. Each aiTick visits this slot once; +1E spaces due actions.
+const traversalUpdates =
+  legion.moveDelay +
+  (expected.points.length + 2 * expected.edges.length + 1) * legion.movePeriod;
+for (let update = 0; update < traversalUpdates; update++) {
   const fundsBefore = scenario.factions[0].gold;
   const moraleBefore = legion.morale;
   aiTick(app);
@@ -381,7 +418,12 @@ for (
     assert.equal(settlementCost, 75, "节点出发进入道路后按道路军费结算");
     assert.equal(legion.morale, 100, "节点出发进入道路后不恢复士气");
   }
-  if (!legion.target) {
+  assert.equal(app._strategicBattleFailure, undefined);
+  if (
+    legion.x === target.x &&
+    legion.y === target.y &&
+    legion.roadEdgeOrNode === target.id * 8
+  ) {
     finalSettlementCost = settlementCost;
     finalMoraleBefore = moraleBefore;
     break;
@@ -403,7 +445,8 @@ assert.deepEqual(
 );
 assert.equal(legion.x, target.x);
 assert.equal(legion.y, target.y);
-assert.equal(legion.target, null);
+assert.strictEqual(legion.target, targetCity); // Nodeization preserves the order/target.
+assert.equal(legion.roadEdgeOrNode, target.id * 8);
 assert.equal(legion._march, null);
 assert.equal(legion._path, null);
 assert.equal(legion.prevX, legion.x);
@@ -417,7 +460,7 @@ assert.equal(
 assert.ok(!("_feint" in legion));
 
 // 主游戏调度回归：军团移动由0x1D0B战略主更新/16槽批次驱动，不等onDay。
-// slot0在第1与第9次主更新各前进一步；此时只刚进入游戏第1时刻，日期未变。
+// slot0在1/9/17/25访次，0B1/1E3只在第1/25主更新动作；未跨日。
 {
   const clockSource = graph.nodes[0];
   const clockTarget = graph.nodes.at(-1);
@@ -438,6 +481,9 @@ assert.ok(!("_feint" in legion));
   const clockLegion = {
     slot: 0,
     leader: "時鐘軍團",
+    moveDelay: 1,
+    movePeriod: 3,
+    units: Array.from({ length: 6 }, () => ({ type: 3, troops: 100 })),
     faction: 0,
     x: clockSource.x,
     y: clockSource.y,
@@ -457,6 +503,7 @@ assert.ok(!("_feint" in legion));
         active: true,
         capital: 0,
         monarch: "時鐘軍團",
+        n_legions: 1,
         gold: 100000,
         money: 100000,
         reserve_cav: 0,
@@ -467,9 +514,11 @@ assert.ok(!("_feint" in legion));
     ],
     cities: [clockSourceCity, clockTargetCity],
     generals: [],
-    legions: [clockLegion],
+    legions: [],
     diplomacy: [[0xff]],
   };
+  initializeLegionSlotState(clockScenario);
+  clockScenario.legions = [clockLegion];
   const clockApp = {
     scenario: clockScenario,
     originalRng: { nextByte: () => 0xff },
@@ -491,16 +540,18 @@ assert.ok(!("_feint" in legion));
         runFactionTick: false,
         settleDaily: false,
       });
+      assert.equal(clockApp._strategicBattleFailure, undefined);
       batchStart = (batchStart + 16) % 128;
       const position = `${clockLegion.x},${clockLegion.y}`;
       if (position !== previous) changedAt.push(current.strategicTickSerial);
       previous = position;
     },
   });
-  for (let update = 0; update < 9; update++)
+  for (let update = 0; update < 25; update++)
     strategicClock.advance(strategicClock.currentStep);
-  assert.deepEqual(changedAt, [1, 9]);
-  assert.equal(strategicClock.hour, 1);
+  assert.deepEqual(changedAt, [1, 25]);
+  assert.equal(strategicClock.hour, 2);
+  assert.equal(strategicClock.sub, 7);
   assert.equal(strategicClock.day, 1);
 }
 
@@ -536,6 +587,12 @@ assert.ok(
 // 玩家选择「委任」后仍必须先执行所选目标；旧逻辑会直接进入AI分支，
 // 因目标是己方据点而将其覆盖为null，军团始终不出城。
 const delegatedLegion = {
+  slot: 0,
+  status: 0xc4,
+  moveDelay: 2,
+  movePeriod: 3,
+  units: [1, 1, 3, 3, 2, 2].map((type) => ({ type, troops: 100 })),
+  morale: 100,
   leader: "委任將",
   faction: 0,
   x: source.x,
@@ -543,7 +600,6 @@ const delegatedLegion = {
   prevX: source.x,
   prevY: source.y,
   troops: 100,
-  cooldown: 1,
   delegated: true,
   target: targetCity,
 };
@@ -559,6 +615,7 @@ scenario.factions.push({
   idx: 1,
   capital: hostileCity.idx,
   monarch: "敵",
+  n_legions: 0,
   gold: 100000,
   money: 100000,
   reserve_cav: 0,
@@ -572,23 +629,34 @@ scenario.diplomacy = [
 ];
 scenario.legions = [delegatedLegion];
 aiTick(app);
-assert.equal(delegatedLegion.cooldown, 0);
+assert.equal(app._strategicBattleFailure, undefined);
+assert.equal(delegatedLegion.moveDelay, 1);
 assert.equal(delegatedLegion.target, targetCity);
 assert.equal(delegatedLegion.x, source.x);
 aiTick(app);
+assert.equal(app._strategicBattleFailure, undefined);
+assert.equal(delegatedLegion.moveDelay, 3);
 assert.equal(delegatedLegion.target, targetCity);
 assert.ok(delegatedLegion._march);
 for (
   let update = 0;
-  update < expected.points.length + expected.edges.length + 8;
+  update <
+  (expected.points.length + 2 * expected.edges.length + 8) *
+    delegatedLegion.movePeriod;
   update++
 ) {
-  if (!delegatedLegion.target) break;
+  if (
+    delegatedLegion.x === target.x &&
+    delegatedLegion.y === target.y &&
+    delegatedLegion.roadEdgeOrNode === target.id * 8
+  )
+    break;
   aiTick(app);
+  assert.equal(app._strategicBattleFailure, undefined);
 }
 assert.equal(delegatedLegion.x, target.x);
 assert.equal(delegatedLegion.y, target.y);
-assert.equal(delegatedLegion.target, null);
+assert.strictEqual(delegatedLegion.target, targetCity);
 assert.equal(delegatedLegion.delegated, true);
 
 const blockedLegion = {
@@ -666,6 +734,9 @@ const changingCity = {
   faction: null,
 };
 const makeChangingLegion = () => ({
+  slot: 0,
+  moveDelay: 1,
+  movePeriod: 3,
   leader: "易主測試",
   faction: 0,
   x: nearbySource.x,
@@ -674,7 +745,11 @@ const makeChangingLegion = () => ({
   prevY: nearbySource.y,
   troops: 100,
   morale: 200,
-  units: [{ type: 1, troops: 1000 }],
+  // Explicit 100 tens total, six mixed teams; not a one-team/default fixture.
+  units: [1, 1, 3, 3, 2, 2].map((type, i) => ({
+    type,
+    troops: (i < 4 ? 17 : 16) * 10,
+  })),
   status: 0x84,
   target: changingCity,
 });
@@ -690,14 +765,27 @@ scenario.diplomacy = [
 
 changingCity.faction = 0;
 let changingLegion = makeChangingLegion();
+scenario.legionSlotCounters[0] = 0;
+bindLegionSlotCounter(scenario, changingLegion);
 scenario.legions = [changingLegion];
-for (let guard = 0; guard < 200 && changingLegion.target; guard++) aiTick(app);
+for (let guard = 0; guard < (nearbyEdge.points.length + 3) * 3; guard++) {
+  if (
+    changingLegion.x === changingCity.x &&
+    changingLegion.y === changingCity.y &&
+    changingLegion.roadEdgeOrNode === nearbyTarget.id * 8
+  )
+    break;
+  aiTick(app);
+  assert.equal(app._strategicBattleFailure, undefined);
+}
 assert.equal(changingLegion.x, changingCity.x);
 assert.equal(changingLegion.y, changingCity.y);
 assert.ok(changingLegion._engagement == null);
 
 changingCity.faction = 1;
 changingLegion = makeChangingLegion();
+scenario.legionSlotCounters[0] = 0;
+bindLegionSlotCounter(scenario, changingLegion);
 scenario.legions = [changingLegion];
 let contact = "moved";
 for (let guard = 0; guard < 200 && contact === "moved"; guard++)
@@ -707,6 +795,8 @@ assert.equal(changingLegion._engagement.kind, "siege");
 
 changingCity.faction = 2;
 changingLegion = makeChangingLegion();
+scenario.legionSlotCounters[0] = 0;
+bindLegionSlotCounter(scenario, changingLegion);
 scenario.legions = [changingLegion];
 assert.equal(
   stepTo(scenario, changingLegion, changingCity.x, changingCity.y),
@@ -762,7 +852,8 @@ for (const playerFactionIdx of [0, 7]) {
     targetCity: 1,
     targetNode: target.id,
     commandState: 10,
-    cooldown: 0,
+    moveDelay: 1,
+    movePeriod: 3,
     _active: true,
   };
   const returnScenario = {
@@ -770,7 +861,7 @@ for (const playerFactionIdx of [0, 7]) {
     factions: [faction],
     cities: [origin, capital],
     generals: [],
-    legions: [returning],
+    legions: [],
     diplomacy: [[0xff]],
     delayedLegionReturns: [],
     pendingStrategicEvents: [],
@@ -778,6 +869,8 @@ for (const playerFactionIdx of [0, 7]) {
       return this.cities.filter((city) => city.faction === factionIdx);
     },
   };
+  initializeLegionSlotState(returnScenario);
+  returnScenario.legions = [returning];
   const returnApp = {
     scenario: returnScenario,
     originalRng: { nextByte: () => 0xff },
@@ -787,10 +880,19 @@ for (const playerFactionIdx of [0, 7]) {
   };
   for (
     let guard = 0;
-    guard < expected.points.length + expected.edges.length + 20;
+    guard <
+    (expected.points.length + 2 * expected.edges.length + 20) *
+      returning.movePeriod;
     guard++
   ) {
+    const priorCommand = returning.commandState;
     aiTick(returnApp, { runCityDaily: false, settleDaily: false });
+    assert.equal(returnApp._strategicBattleFailure, undefined);
+    if (returning.commandState !== priorCommand) {
+      assert.equal(returning.x, capital.x);
+      assert.equal(returning.y, capital.y);
+      assert.equal(returning.commandState, priorCommand === 10 ? 9 : 3);
+    }
     if (returning.commandState === 3) break;
   }
   assert.equal(returning.x, capital.x);
@@ -824,6 +926,9 @@ const returnOrigin = {
 };
 const returningLegion = {
   slot: 0,
+  status: 0xc4,
+  moveDelay: 1,
+  movePeriod: 3,
   leader: "返京解體測試",
   faction: 0,
   x: returnOrigin.x,
@@ -872,11 +977,20 @@ scenario.legions = [returningLegion];
 scenario.diplomacy = [[255]];
 for (
   let guard = 0;
-  guard < expected.points.length + expected.edges.length + 16;
+  guard <
+  (expected.points.length + 2 * expected.edges.length + 16) *
+    returningLegion.movePeriod;
   guard++
 ) {
   if (!scenario.legions.length) break;
+  const atCapital =
+    returningLegion.x === returnCapital.x &&
+    returningLegion.y === returnCapital.y;
+  const due = returningLegion.moveDelay === 1;
   aiTick(app);
+  assert.equal(app._strategicBattleFailure, undefined);
+  if (!atCapital || !due)
+    assert.equal(scenario.legions.length, 1, "到达及未到期访次不得提前解散");
 }
 assert.equal(scenario.legions.length, 0, "状态11军团抵达首都后才解体");
 assert.equal(returnFaction.reserve_cav, 200);

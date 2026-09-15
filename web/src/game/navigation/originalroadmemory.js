@@ -118,9 +118,91 @@ export function createOriginalRoadMemory(graph) {
       pointAddress += 4;
     }
   }
+  // Bind checkpoints to the exact INITIAL graph bytes, not to a mutable JSON
+  // object or a caller-provided version label. This is graph RAM identity only;
+  // world/scenario/content ownership still belongs to the future integration.
+  const initial = bytes.slice(0, INITIALIZED_END);
+  const initialGraph = encodeHex(initial);
+  function snapshot() {
+    const patches = [];
+    const changed = (at) =>
+      known[at] && (at >= INITIALIZED_END || bytes[at] !== initial[at]);
+    for (let address = 0; address < GRAPH_BYTES; ) {
+      if (!changed(address)) {
+        address++;
+        continue;
+      }
+      const start = address++;
+      while (address < GRAPH_BYTES && changed(address)) address++;
+      patches.push({
+        address: start,
+        hex: encodeHex(bytes.subarray(start, address)),
+      });
+    }
+    // Plain detached JSON. Even a known high-half ZERO needs a patch; omitted
+    // high-half bytes remain unknown. Low-half writes back to initial may omit.
+    return { version: 1, initialGraph, patches };
+  }
   // Keep the backing arrays private: unknown allocated bytes must not leak as 0.
   // Writes remain immediate and persistent, including explicitly supplied old RAM.
-  return Object.freeze({ readByte, writeByte });
+  return Object.freeze({ readByte, writeByte, snapshot });
+}
+
+function encodeHex(bytes) {
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join(
+    "",
+  );
+}
+
+/** Restore a detached RAM checkpoint into a NEW memory instance.
+ * Web-only codec, not DOS SAVE format and not yet a production save adapter.
+ * E49F initializes only the lower half; 491B clears visited, not the old queue.
+ * Revalidate the initial asset, then preserve all supplied runtime writes,
+ * including lower-half changes. Do not reapply initial-tag rules to live RAM.
+ * No current memory, input graph or checkpoint is modified on failure.
+ */
+export function restoreOriginalRoadMemory(graph, checkpoint) {
+  const memory = createCheckedOriginalRoadMemory(graph);
+  if (
+    checkpoint?.version !== 1 ||
+    checkpoint.initialGraph !== memory.snapshot().initialGraph ||
+    !Array.isArray(checkpoint.patches) ||
+    checkpoint.patches.length > GRAPH_BYTES
+  ) {
+    throw new TypeError(
+      "Invalid or mismatched original road memory checkpoint",
+    );
+  }
+  let end = 0;
+  const decoded = [];
+  for (const patch of checkpoint.patches) {
+    const address = unsigned(patch?.address, 0xffff, "checkpoint address");
+    const hex = patch?.hex;
+    if (
+      address < end ||
+      typeof hex !== "string" ||
+      hex.length === 0 ||
+      hex.length % 2 !== 0 ||
+      hex.length > (GRAPH_BYTES - address) * 2 ||
+      !/^[0-9a-f]+$/.test(hex)
+    ) {
+      throw new TypeError("Invalid original road memory checkpoint patch");
+    }
+    const values = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < values.length; i++) {
+      values[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    }
+    decoded.push({ address, values });
+    end = address + values.length;
+  }
+  // Validate every range before applying any patch. Only this fresh instance
+  // is written; later search failures retain their ordinary partial writes.
+  for (const { address, values } of decoded) {
+    for (let i = 0; i < values.length; i++) {
+      memory.writeByte(address + i, values[i]);
+    }
+  }
+  return memory;
 }
 
 /** Encode and check the initial reciprocal-tag contract of v2 content.

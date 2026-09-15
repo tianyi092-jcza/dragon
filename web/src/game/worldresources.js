@@ -3,6 +3,14 @@ import { DEFAULT_WORLD } from "../content/worlddefinition.js";
 import { createRoadGraph } from "./navigation/roadgraph.js";
 import { createPathfinder } from "./navigation/pathfinder.js";
 
+function freezeDefinition(value) {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) freezeDefinition(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 export function createWorldResources(definition = DEFAULT_WORLD) {
   // 当前世界仍有固定坐标/槽位/图块语义约束，不能靠修改width就启用扩容。
   if (
@@ -13,9 +21,11 @@ export function createWorldResources(definition = DEFAULT_WORLD) {
     throw new RangeError(
       "unsupported world dimensions for current rule profile",
     );
+  // Capture identity and URLs before asynchronous loads; never retain caller aliases.
+  definition = freezeDefinition(structuredClone(definition));
   const roads = createRoadGraph(definition.assets.roadGraph);
   const terrain = createPathfinder(definition, roads);
-  return { definition, roads, terrain };
+  return Object.freeze({ definition, roads, terrain });
 }
 
 // 当前产品仅装配基准世界；旧API是此实例的兼容门面，不可用于预览热替换。

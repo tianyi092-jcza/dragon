@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 globalThis.window = {};
 globalThis.fetch = async (url) => {
@@ -38,6 +39,9 @@ const { OriginalBattleRng } = await import(
   "../web/src/game/battle/originalrng.js"
 );
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
+const { findRoadRoute, serializeRoadMarchContext } = await import(
+  "../web/src/game/roadgraph.js"
+);
 await loadTerrain();
 
 const units = () => [1, 1, 3, 3, 2, 2].map((type) => ({ type, troops: 1000 }));
@@ -62,6 +66,8 @@ const legion = (leader, faction, x, y) => ({
   morale: 200,
   units: units(),
   status: 0x80,
+  moveDelay: 1,
+  movePeriod: 3,
   _active: true,
 });
 const makeScenario = (cityFaction = 1) => {
@@ -97,7 +103,7 @@ const makeScenario = (cityFaction = 1) => {
       defence: 140,
     },
   ];
-  return {
+  const scenario = {
     player_faction: 0,
     cities,
     factions: [
@@ -114,12 +120,26 @@ const makeScenario = (cityFaction = 1) => {
       return this.cities.filter((city) => city.faction === faction);
     },
   };
+  initializeLegionSlotState(scenario); // Explicit empty fixture before army injection.
+  return scenario;
 };
 const makeApp = (
   scenario,
   rng = new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 }),
 ) => {
   let tactical = null;
+  for (const army of scenario.legions) {
+    if (army.slot == null) {
+      army.slot = scenario.generals.findIndex((g) => g.name === army.leader);
+      assert(army.slot >= 0);
+      army.generalIdx = army.slot;
+    }
+    scenario.legionSlotCounters[army.slot] = army._engagement?.countdown ?? 0;
+  }
+  for (const faction of scenario.factions)
+    faction.n_legions = scenario.legions.filter(
+      (a) => a.faction === faction.idx && a.status >= 128,
+    ).length;
   return {
     scenario,
     originalRng: rng,
@@ -282,18 +302,27 @@ const assertSide = (actual, expected, label) => {
   aiTick(app, { runCityDaily: false, settleDaily: false });
   assert.equal(city.faction, 0, "野战本身不得交换据点归属");
   assert.equal(A.target, city, "野战胜方必须保留原攻城目标");
-  assert.equal(A.x, city.x - 1, "另一军团槽可推进胜方一步，但不得直接换城");
+  assert.equal(A.x, city.x - 2, "25CF返回只日结/尾，不在同批重复胜方道路动作");
+  assert.equal(A.moveDelay, 1, "474A/6FD2只安排下一次到期动作");
   assert.equal(A._engagement, null, "野战结束后旧道路接战必须清除");
   assert.equal(city.faction, 0, "道路野战后据点仍不得提前易主");
+  let beforeCapture;
+  const roadState = () => [
+    A.x,
+    A.y,
+    A.roadStride,
+    A.roadPointAddress,
+    A.roadEdgeOrNode,
+  ];
   for (let step = 0; step < 16 && city.faction === 0; step++) {
-    A.cooldown = 0;
-    if (A._engagement) A._engagement.countdown = 1;
+    A.moveDelay = 1; // Synthetic due-slot input, not natural elapsed timing.
+    if (A._engagement) A.engagementCountdown = 1;
+    beforeCapture = roadState();
     aiTick(app, { runCityDaily: false, settleDaily: false });
   }
   assert.equal(city.faction, 1, "后续独立攻城胜利才允许据点易主");
-  assert.equal(A.x, city.x);
-  assert.equal(A.y, city.y);
-  assert.equal(A.target, city, "破城胜军必须绑定新占据的据点中心");
+  assert.deepEqual(roadState(), beforeCapture, "474A返回不传送XY或清0A/0C/0E");
+  assert.equal(A.target, city, "破城胜军保留新占据城的目标，尚未进入中心");
   assert.equal(A.targetCity, city.idx);
 }
 
@@ -386,41 +415,39 @@ const assertSide = (actual, expected, label) => {
   A.status = 0xc4;
   A.target = city;
   A.targetNode = 0;
+  // Explicit current-format unconsumed boundary point, not exhausted old data.
+  const approach = findRoadRoute(
+    sc.cities[2].x,
+    sc.cities[2].y,
+    city.x,
+    city.y,
+  ).legs.at(-1);
   A._march = {
     targetX: city.x,
     targetY: city.y,
-    targetNode: 0,
-    currentNode: 2,
-    edgeId: 0,
-    stride: -4,
-    toNode: 0,
-    points: [
-      { x: 255, y: 9 },
-      { x: 254, y: 9 },
-      { x: 253, y: 9 },
-      { x: 252, y: 9 },
-      { x: 251, y: 9 },
-      { x: 250, y: 9 },
-      { x: 250, y: 10 },
-      { x: 250, y: 11 },
-      { x: 250, y: 12 },
-      { x: 250, y: 13 },
-      { x: 249, y: 13 },
-      { x: 248, y: 13 },
-      { x: 247, y: 13 },
-      { x: 246, y: 13 },
-      { x: 246, y: 14 },
-    ],
-    pointIndex: 15,
+    targetNode: approach.toNode,
+    currentNode: null,
+    edgeId: approach.edgeId,
+    stride: approach.stride,
+    toNode: approach.toNode,
+    points: approach.points,
+    pointIndex: approach.points.length - 1,
   };
+  const current = approach.points.at(-2);
+  A.x = current.x;
+  A.y = current.y;
+  const fields = serializeRoadMarchContext(A._march);
+  A.roadEdgeOrNode = fields.edgeOrNode;
+  A.roadPointAddress = fields.pointAddress;
+  A.roadStride = fields.stride;
+  A.moveDelay = 1;
+  A.movePeriod = 3;
   A._engagement = {
     kind: "siege",
-    countdown: 1,
+    countdown: 12,
     target: { cityIdx: city.idx },
   };
   setLegionDelegated(A, true);
-  A.x = 255;
-  A.y = 9;
   A.prevX = A.x;
   A.prevY = A.y;
   const D = legion("强守", 0, city.x, city.y);
@@ -439,11 +466,11 @@ const assertSide = (actual, expected, label) => {
   assert.equal(
     A._engagement?.kind,
     "siege",
-    "旧Web pointIndex==points.length快照仍须兼容攻城重检",
+    "未消费城前边点在真实到期槽中重检攻城，不要求旧耗尽快照兼容",
   );
   // 直接完成倒计时，验证后续0x474A撤退；不能再依赖旧fixture中把
   // 据点中心伪装成边点的状态。
-  A._engagement.countdown = 1;
+  A.engagementCountdown = 1; // Synthetic fixed-slot03 control.
   applyBattleResult(
     app,
     A,
@@ -456,6 +483,7 @@ const assertSide = (actual, expected, label) => {
     D,
     500,
     [80, 80, 80, 80, 80, 80],
+    { defenders: [D] }, // This fixture's captured pre-battle singleton BP list.
   );
   assert.equal(A.dead, undefined, "接触点索引不得导致有路败军被清退");
   assert.ok(A._retreat, "战果坐标应恢复首都方向的有效撤退端点");

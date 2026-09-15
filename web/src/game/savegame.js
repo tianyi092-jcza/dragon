@@ -1,8 +1,20 @@
 // Web 存档：仅保存玩家浏览器 IndexedDB 中的 JSON 状态。
 // 不读取、生成或上传 DOS SAVE.DAT；二进制格式兼容代码已从正式产品路径移除。
 import { isLegionDelegated } from "./legionmode.js";
+import {
+  hasNativeLegionSlots,
+  assertNativeLegionSlots,
+  rebindNativeLegionViews,
+  snapshotNativeLegionSlots,
+} from "./nativelegions.js";
 import { assertLegionPhaseState, LEGION_PHASE_VERSION } from "./legionphase.js";
 import { serializeRoadMarchContext } from "./roadgraph.js";
+import {
+  readSavedAssembly,
+  assertAssemblyIdentity,
+  assertPlayableScenario,
+  snapshotScenarioAssembly,
+} from "./scenarioassembly.js";
 
 export function canSnapshotState(app) {
   return !(
@@ -10,6 +22,7 @@ export function canSnapshotState(app) {
     app?.battleView?.active ||
     app?._strategicCityRequest ||
     app?._scenarioAssemblyPending ||
+    app?._scenarioAssemblyIncomplete ||
     app?._legionSlotBatch ||
     app?._strategicBattleFailure ||
     app?.gamebar?._strategicMessageActive ||
@@ -27,24 +40,119 @@ function assertSnapshotSafe(app) {
   }
 }
 
-// Approved compatibility policy: old slots remain untouched. The new AI
-// accepts only snapshots produced with the explicit fixed-slot phase format.
+// Current snapshots require the explicit fixed-slot phase format; do not
+// reconstruct missing old state. Rejection itself does not write any save.
 export function restoreSnapshotState(saved) {
   if (saved?.state?.legionPhaseVersion !== LEGION_PHASE_VERSION) {
     throw new Error("此為舊版 AI 存檔，已原樣保留；修正版請從新遊戲開始。");
   }
+  let state;
   try {
-    const state = applyWebMetaToState(
-      structuredClone(saved.state),
-      saved.webMeta,
-    );
+    state = applyWebMetaToState(structuredClone(saved.state), saved.webMeta);
+    assertNativeLegionSlots(state);
+    if (hasNativeLegionSlots(state)) rebindNativeLegionViews(state);
     assertLegionPhaseState(state);
-    return state;
   } catch (cause) {
     throw new Error("存檔的軍團調度資料不完整或已損壞，原存檔未變更。", {
       cause,
     });
   }
+  const assembly = readSavedAssembly(saved);
+  if (hasNativeLegionSlots(state) && assembly.metadata?.roadVersion !== 2)
+    throw new TypeError("Native legion slots require v2 assembly identity");
+  if (assembly.metadata?.roadVersion === 2)
+    assertNativeCitySnapshotState(state);
+  return state;
+}
+
+// Optional known native inputs remain optional; present bytes must survive
+// JSON exactly. In particular array holes/NaN cannot turn into FF or zero.
+function assertNativeCitySnapshotState(state) {
+  if (hasNativeLegionSlots(state)) assertNativeFormationSnapshotState(state);
+  const checkByte = (value, field, nullable = false) => {
+    if (nullable && value === null) return;
+    if (!Number.isInteger(value) || value < 0 || value > 255)
+      throw new TypeError(`Invalid native city/weather byte: ${field}`);
+  };
+  for (const city of state.cities ?? []) {
+    for (const field of ["strategicThreat", "strategicBorderCount"])
+      if (Object.hasOwn(city, field)) checkByte(city[field], field);
+    if (Object.hasOwn(city, "strategicNeighbours")) {
+      const neighbours = city.strategicNeighbours;
+      if (!Array.isArray(neighbours) || neighbours.length !== 4)
+        throw new TypeError("Invalid native strategicNeighbours");
+      for (let i = 0; i < 4; i++)
+        checkByte(neighbours[i], `strategicNeighbours[${i}]`);
+    }
+    if (Object.hasOwn(city, "governor"))
+      checkByte(city.governor, "governor", true);
+  }
+  for (const faction of state.factions ?? [])
+    if (Object.hasOwn(faction, "target_faction"))
+      checkByte(faction.target_faction, "target_faction", true);
+  for (const general of state.generals ?? [])
+    if (general && Object.hasOwn(general, "faction"))
+      checkByte(general.faction, "general faction", true);
+  for (const records of [state.disasterMapObjects, state.weatherClouds])
+    for (const record of records ?? []) {
+      if (!record || !Object.hasOwn(record, "status")) continue;
+      for (const field of ["status", "timer", "interval"])
+        if (Object.hasOwn(record, field))
+          checkByte(record[field], `weather ${field}`);
+    }
+}
+
+// Formation's newly consumed named inputs: absent keys remain unknown, while
+// own undefined/null/nonfinite values must not change meaning across JSON.
+function assertNativeFormationSnapshotState(state) {
+  const check = (record, field, max, nullable = false, min = 0) => {
+    if (!record || !Object.hasOwn(record, field)) return;
+    const value = record[field];
+    if (nullable && value === null) return;
+    if (!Number.isInteger(value) || value < min || value > max)
+      throw new TypeError(`Invalid native formation field: ${field}`);
+  };
+  for (const faction of state.factions ?? []) {
+    for (const field of [
+      "march_marker_style",
+      "legion_morale_cap",
+      "n_legions",
+    ])
+      check(faction, field, 255);
+    check(faction, "capital", 255, true);
+    for (const field of ["reserve_cav", "reserve_arc", "reserve_inf"])
+      check(faction, field, 65535);
+    check(
+      faction,
+      Object.hasOwn(faction, "gold") ? "gold" : "money",
+      0x7fffff,
+      false,
+      -0x800000,
+    );
+  }
+  for (const general of state.generals ?? []) {
+    check(general, "status", 255);
+    check(general?.ability, "force", 255);
+  }
+}
+
+/** Shared title/final-load admission. No terrain fetch or live mutation. */
+export function admitSavedScenario(saved, app) {
+  if (!saved?.played || !saved.state) throw new TypeError("Unused save slot");
+  const raw = restoreSnapshotState(saved);
+  const idx = saved.scenario_idx;
+  if (
+    !Array.isArray(raw.cities) ||
+    !Number.isInteger(idx) ||
+    idx < 0 ||
+    idx >= app.data.scenarios.length
+  )
+    throw new TypeError("Invalid saved scenario index/state");
+  const assembly = readSavedAssembly(saved);
+  if (assembly.metadata)
+    assertAssemblyIdentity(assembly.metadata, idx, app.content, app.world);
+  assertPlayableScenario(assembly);
+  return { raw, idx, ...assembly };
 }
 
 /** 将 Web 专有运行态覆盖到从 IndexedDB 取出的场景快照。 */
@@ -70,6 +178,8 @@ export function applyWebMetaToState(state, webMeta) {
     "_strategicEventDivider",
     "_envoyDiplomacyCursor",
   ]) {
+    if (field === "delayedLegionReturns" && hasNativeLegionSlots(state))
+      continue;
     if (runtime && Object.hasOwn(runtime, field)) {
       state[field] = structuredClone(runtime[field]);
     }
@@ -113,7 +223,9 @@ export function applyWebMetaToState(state, webMeta) {
     if (Object.hasOwn(saved, "strategicCitySecondary"))
       faction.strategic_city_secondary = saved.strategicCitySecondary;
   }
-  for (const saved of webMeta?.legionRuleState ?? []) {
+  for (const saved of hasNativeLegionSlots(state)
+    ? []
+    : (webMeta?.legionRuleState ?? [])) {
     const legion = state.legions?.find(
       (candidate) => (candidate.slot ?? candidate.idx) === saved.slot,
     );
@@ -142,7 +254,37 @@ export function applyWebMetaToState(state, webMeta) {
 export function snapshotState(app, slotIdx, label) {
   assertSnapshotSafe(app);
   const sc = app.scenario;
-  const state = structuredClone({ ...sc });
+  const assembly = snapshotScenarioAssembly(app);
+  const nativeRoads = assembly.scenarioAssembly?.roadVersion === 2;
+  if (nativeRoads) {
+    assertNativeCitySnapshotState(sc);
+    // JSON turns non-finite numbers into null, which these native bytes encode
+    // as known FF. IndexedDB structuredClone itself does not lose these values.
+    for (const faction of sc.factions)
+      for (const field of [
+        "strategic_city_primary",
+        "strategic_city_secondary",
+      ]) {
+        const value = faction[field];
+        if (typeof value === "number" && !Number.isFinite(value))
+          throw new TypeError(
+            `Non-finite native faction order: ${faction.idx} ${field}`,
+          );
+      }
+  }
+  const nativeSlots = hasNativeLegionSlots(sc);
+  if (nativeSlots && !nativeRoads)
+    throw new TypeError("Native legion slots require v2 assembly identity");
+  const state = structuredClone(
+    nativeSlots
+      ? {
+          ...sc,
+          nativeLegionSlots: snapshotNativeLegionSlots(sc),
+          legions: [],
+          delayedLegionReturns: [],
+        }
+      : { ...sc },
+  );
   delete state.armies;
   delete state._nextRuntimeLegionId;
   delete state._appeared;
@@ -156,7 +298,7 @@ export function snapshotState(app, slotIdx, label) {
       // node residue). Only retain the pre-existing conversion for Web objects
       // that have no explicit 0E at all; this is not an old-save migration.
       const roadContext =
-        legion.roadEdgeOrNode == null
+        !nativeRoads && legion.roadEdgeOrNode == null
           ? serializeRoadMarchContext(legion._march)
           : null;
       if (roadContext) {
@@ -177,7 +319,14 @@ export function snapshotState(app, slotIdx, label) {
       delete clean._feint;
       return clean;
     });
+  if (nativeSlots) rebindNativeLegionViews(state);
   assertLegionPhaseState(state);
+  // Store the authoritative table once, not copies of active/delayed views.
+  if (nativeSlots) {
+    state.nativeLegionSlots = snapshotNativeLegionSlots(state);
+    state.legions = [];
+    state.delayedLegionReturns = [];
+  }
   const clock = app.clock;
   state.save_date = {
     year: clock.year,
@@ -198,9 +347,11 @@ export function snapshotState(app, slotIdx, label) {
       const sourceLegion = sc.legions.find(
         (candidate) => (candidate.slot ?? candidate.idx) === slot,
       );
-      const sourceMarch = sourceLegion?._march;
+      // Detached native callers need only authoritative fields + bound RAM;
+      // legacy retreat projections are neither required nor serialized for v2.
+      const sourceMarch = nativeRoads ? null : sourceLegion?._march;
       const retreatMarch =
-        legion._retreat && sourceMarch?.currentNode == null
+        !nativeRoads && legion._retreat && sourceMarch?.currentNode == null
           ? {
               targetX: sourceMarch.targetX,
               targetY: sourceMarch.targetY,
@@ -228,6 +379,7 @@ export function snapshotState(app, slotIdx, label) {
     state,
     webMeta: {
       schema: 1,
+      ...assembly,
       originalRng:
         originalRng && typeof originalRng.snapshot === "function"
           ? originalRng.snapshot()
@@ -248,7 +400,13 @@ export function snapshotState(app, slotIdx, label) {
         disasterMapObjects: structuredClone(sc.disasterMapObjects ?? []),
         weatherClouds: structuredClone(sc.weatherClouds ?? []),
         _disasterBounds: structuredClone(sc._disasterBounds ?? null),
-        delayedLegionReturns: structuredClone(sc.delayedLegionReturns ?? []),
+        ...(nativeSlots
+          ? {}
+          : {
+              delayedLegionReturns: structuredClone(
+                sc.delayedLegionReturns ?? [],
+              ),
+            }),
         _legionBatchCursor: sc._legionBatchCursor ?? 0,
         _cityTickCursor: sc._cityTickCursor ?? 0,
         _factionTickCursor: sc._factionTickCursor ?? 0,
@@ -267,8 +425,20 @@ export function snapshotState(app, slotIdx, label) {
           extinctionHandled: faction._extinctionHandled ?? false,
           monthlyReserveUpkeep: faction.monthly_reserve_upkeep ?? 0,
           diplomatIdx: faction.diplomat_idx ?? null,
-          strategicCityPrimary: faction.strategic_city_primary ?? null,
-          strategicCitySecondary: faction.strategic_city_secondary ?? null,
+          ...(nativeRoads
+            ? {
+                ...(Object.hasOwn(faction, "strategic_city_primary")
+                  ? { strategicCityPrimary: faction.strategic_city_primary }
+                  : {}),
+                ...(Object.hasOwn(faction, "strategic_city_secondary")
+                  ? { strategicCitySecondary: faction.strategic_city_secondary }
+                  : {}),
+              }
+            : {
+                strategicCityPrimary: faction.strategic_city_primary ?? null,
+                strategicCitySecondary:
+                  faction.strategic_city_secondary ?? null,
+              }),
         })),
       },
     },
