@@ -433,8 +433,14 @@ export function advanceOriginalScriptFrame(handle, vm, handlers = null) {
 
 export function settleVisualBattle(handle) {
   const exit = handle.session.settleExit(handle.exitContext);
+  // 1BAA..1BC6：原版在 1BBA/1BC9 之前把对象侧帧连同 SI/DI 指针序一起换算成攻守帧
+  //（D35 bit7 置位时 xor al,1 + xchg）。exit.sides 统一为攻守帧 [attacker,
+  // defender]，ai.js sides[0] -> A（战略攻方）的既有合同在玩家守方时仍成立。
+  const atkIndex = handle.sideMap?.atk ?? 0;
+  const defIndex = handle.sideMap?.def ?? 1;
   return {
     ...exit,
+    sides: [exit.sides[atkIndex], exit.sides[defIndex]],
     winnerName: handle.sideMap[exit.winner],
     strategicRng: handle.session.rng,
     rng: handle.session.rng.snapshot(),

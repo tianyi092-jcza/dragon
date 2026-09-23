@@ -3,6 +3,9 @@
 import { searchOriginalRoadMemory } from "./originalroadsearch.js";
 import { movementPlaneAddress } from "./scenariomovementmemory.js";
 import { nativeLegionAt } from "../nativelegions.js";
+import { performScenarioFieldEntry } from "./originalfieldterrain.js";
+import { performScenarioSiegeEntry } from "./originalsiege.js";
+import { performScenarioLegionFate } from "./scenariolegionfate.js";
 import {
   redistributeOriginalLegion,
   refreshOriginalLegion,
@@ -63,8 +66,11 @@ export function selectOriginalRoad47BB(io) {
     readStateByte: io.readCityOwnerByte,
   });
   if (result.cx >= 0x8000 && rb(0x23) >= 0x0a) {
-    rb(1); // 47FE / 484E: AL is read before the unimplemented callee.
-    uncoveredOriginalMovement("291A", edge ? "4801" : "4851");
+    const captor = rb(1); // 47FE / 484E, not a search result or city owner.
+    if (typeof io.fate !== "function")
+      uncoveredOriginalMovement("291A", edge ? "4801" : "4851");
+    io.fate(captor);
+    return { cf: true }; // 4875..487A; caller still performs 26F5 occupancy INC.
   }
   const al = result.ax & 255;
   if (edge) {
@@ -81,7 +87,7 @@ export function selectOriginalRoad47BB(io) {
   return { cf: false };
 }
 
-function movementIO(sc, legion, context) {
+function movementIO(sc, legion, context, rng) {
   const byteFields = {
     0: "status",
     1: "faction",
@@ -156,6 +162,9 @@ function movementIO(sc, legion, context) {
     readGraphByte: gb,
     writeGraphByte: context.memory.writeByte,
     readCityOwnerByte: context.readCityOwnerByte,
+    fate: (captor) =>
+      performScenarioLegionFate(sc, legion, context, "291A", captor, rng),
+    disband: () => performScenarioLegionFate(sc, legion, context, "463E"),
     replenish: () => {
       redistributeOriginalLegion(sc, legion);
       refreshOriginalLegion(sc, legion);
@@ -175,10 +184,10 @@ function movementIO(sc, legion, context) {
   };
 }
 
-export function performOriginalRoadAction(sc, legion, context, rng = null) {
+export function performOriginalRoadAction(sc, legion, context, rng = null, blocks) {
   if (!context?.movement)
     throw new Error("Web engineering Uncovered native movement capability");
-  const io = movementIO(sc, legion, context);
+  const io = movementIO(sc, legion, context, rng);
   const {
     readByte: rb,
     readWord: rw,
@@ -236,14 +245,24 @@ export function performOriginalRoadAction(sc, legion, context, rng = null) {
     const stride = s8(rb(0x0a));
     return flags & 0x40 ? stride > 0 : stride < 0;
   }
-  function wait(kind, target) {
+  function wait(kind, target, firstDefender = null) {
     wb(0, rb(0) | 0x20);
     const count = rb(3);
-    if (count === 1)
-      uncoveredOriginalMovement(
-        kind === "field" ? "4A7B" : "4ADE",
-        kind === "field" ? "2873" : "28BF",
-      );
+    if (count === 1) {
+      if (kind === "field")
+        // 2734 clears AH; 2831 preserves AX on this branch. AL is candidate
+        // Y, and DI is the FIRST matching slot, before strongest selection.
+        return performScenarioFieldEntry(
+          sc,
+          legion,
+          firstDefender,
+          context,
+          rng,
+          target.x,
+          target.y,
+        );
+      return performScenarioSiegeEntry(sc, legion, target.cityIdx, context, rng, blocks);
+    }
     if (count === 0) wb(3, 12);
     // Product presentation only; never used to select the next native contact.
     legion._engagement = { kind, target };
@@ -260,7 +279,7 @@ export function performOriginalRoadAction(sc, legion, context, rng = null) {
       const owner = rb(1);
       if (owner === unsigned(record.faction, 255, "occupant faction"))
         return null;
-      return wait("field", { slot, faction: record.faction, x, y });
+      return wait("field", { slot, faction: record.faction, x, y }, record);
     }
     return null;
   }
@@ -295,7 +314,7 @@ export function performOriginalRoadAction(sc, legion, context, rng = null) {
   const current = rw(0x0e);
   if (current === rw(0x14))
     return arriveOriginalRoad(sc, context, io, current, rng);
-  if (rb(0) & 0x10) uncoveredOriginalMovement("2BA8", "267A");
+  if (rb(0) & 0x10) performScenarioLegionFate(sc, legion, context, "2BA8");
   if (current < 0x800) {
     if (rb(1) !== unsigned(sc.player_faction, 255, "player faction")) {
       const interception = interceptOriginalRoad4300(sc, context, io, current);
@@ -326,10 +345,16 @@ export function performOriginalRoadAction(sc, legion, context, rng = null) {
   let firstPoint = false;
   if (rb(0) & 2) {
     wb(0, rb(0) & 0xfd);
-    selectOriginalRoad47BB(io);
+    if (selectOriginalRoad47BB(io).cf) {
+      occupancyDelta(1); // 26AB→26F5 even after fate deactivation.
+      return "fate";
+    }
     firstPoint = !(rb(0) & 1);
   } else if (rw(0x0e) < 0x800) {
-    selectOriginalRoad47BB(io);
+    if (selectOriginalRoad47BB(io).cf) {
+      occupancyDelta(1); // 26BE→26F5.
+      return "fate";
+    }
     firstPoint = true;
   }
   let outcome = "moved";

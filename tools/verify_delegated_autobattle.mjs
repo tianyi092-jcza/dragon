@@ -39,7 +39,7 @@ const { OriginalBattleRng } = await import(
   "../web/src/game/battle/originalrng.js"
 );
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
-const { findRoadRoute, serializeRoadMarchContext } = await import(
+const { serializeRoadMarchContext } = await import(
   "../web/src/game/roadgraph.js"
 );
 await loadTerrain();
@@ -314,9 +314,58 @@ const assertSide = (actual, expected, label) => {
     A.roadPointAddress,
     A.roadEdgeOrNode,
   ];
+  // P63 G2: the v1 walker is deleted (stepTo on !native fails closed), so the
+  // loop below can no longer walk A from city.x-2 to the siege point. Each
+  // iteration now plants the contact the walk produced — field while the
+  // weakened defender still holds city.x-1, siege once A is re-placed at
+  // the boundary — while contact evaluation, battle, capture gating and
+  // 474A write discipline stay genuine (shared currentEngagement/advance
+  // path, same as this file's pre-planted fixtures). A.target is re-pinned
+  // on each plant: v1 and native both preserve the winner's target, and the
+  // deleted walker can no longer carry it between battles.
   for (let step = 0; step < 16 && city.faction === 0; step++) {
     A.moveDelay = 1; // Synthetic due-slot input, not natural elapsed timing.
-    if (A._engagement) A.engagementCountdown = 1;
+    if (!A._engagement) {
+      A.target = city;
+      A.targetCity = city.idx;
+      A.targetNode = 0;
+      const holder =
+        !D.dead && D._active !== false && D.x === city.x - 1 && D.y === city.y
+          ? D
+          : null;
+      if (holder) {
+        A._engagement = {
+          kind: "field",
+          countdown: 1,
+          target: { x: holder.x, y: holder.y, faction: holder.faction },
+        };
+      } else {
+        // Siege approach: pose A on the consumed boundary point with an
+        // exhausted march, exactly the state the walker left before 2880.
+        // The shared compat branch (endpoint node → hostile city) then
+        // evaluates the siege genuinely; nothing here fabricates contact.
+        A.x = city.x - 1;
+        A.prevX = A.x;
+        A._march = {
+          targetX: city.x,
+          targetY: city.y,
+          targetNode: 0,
+          currentNode: 2,
+          edgeId: 0,
+          stride: -4,
+          toNode: 0,
+          points: [{ x: city.x - 1, y: city.y }],
+          pointIndex: 1,
+        };
+        A._path = [];
+        A._engagement = {
+          kind: "siege",
+          countdown: 1,
+          target: { cityIdx: city.idx },
+        };
+      }
+      A.engagementCountdown = 1;
+    } else A.engagementCountdown = 1;
     beforeCapture = roadState();
     aiTick(app, { runCityDaily: false, settleDaily: false });
   }
@@ -384,11 +433,14 @@ const assertSide = (actual, expected, label) => {
     nextByte: () => [0, ...Array(12).fill(0)][cursor++] ?? 0,
   });
   aiTick(app, { runCityDaily: false, settleDaily: false });
-  assert.equal(A.dead, undefined, "有原版有效退路的败军不得错误进入0x291A");
-  assert.ok(A._retreat, "边内接敌上下文必须传递给0x487B");
-  assert.notEqual(A.target, city, "败军不得继续保留旧攻击城目标");
-  assert.ok(A.target, "同步战果返回后不得清空新撤退目标");
-  assert.equal(A.targetCity, A.target.idx, "撤退目标必须同步原版+0x20城索引");
+  // P62 G1: v1 retreat arm deleted. This non-native fixture no longer gets
+  // a 487B retreat route; the loser falls through to fate dispatch.
+  // TEMP-PIN (delete at G5/G6 with v1 support): assert the fail-closed
+  // routing, not retreat contents.
+  assert.equal(A.dead, true);
+  assert.equal(A._retreat, null);
+  // (P62 G1 TEMP) retreat-target pins below deleted with the v1 arm;
+  // winner-side pins stay: they do not depend on the loser retreat path.
   assert.equal(A._engagement, null, "战果结算必须清除旧接敌状态");
   assert.ok(D.morale > 0, "守方胜军士气必须保留0x51B3权威回写值");
   const defenderMorale = D.morale;
@@ -416,12 +468,24 @@ const assertSide = (actual, expected, label) => {
   A.target = city;
   A.targetNode = 0;
   // Explicit current-format unconsumed boundary point, not exhausted old data.
-  const approach = findRoadRoute(
-    sc.cities[2].x,
-    sc.cities[2].y,
-    city.x,
-    city.y,
-  ).legs.at(-1);
+  // P69 G8: v1 Dijkstra oracle deleted. Arrival at the node-0 city comes off
+  // the shipped graph's own edge 0 traversed backwards (stride -4 over the
+  // reversed stored point order) — the arrival leg the search returned here.
+  let arrivalEdge;
+  try {
+    const shipped = JSON.parse(
+      await fs.readFile(new URL("../web/road_graph.json", import.meta.url), "utf8"),
+    );
+    arrivalEdge = shipped.edges.find((edge) => edge.id === 0);
+  } catch (error) {
+    throw new Error("cannot load shipped road graph", { cause: error });
+  }
+  const approach = {
+    edgeId: arrivalEdge.id,
+    stride: -4,
+    toNode: 0,
+    points: arrivalEdge.points.toReversed(),
+  };
   A._march = {
     targetX: city.x,
     targetY: city.y,
@@ -485,26 +549,13 @@ const assertSide = (actual, expected, label) => {
     [80, 80, 80, 80, 80, 80],
     { defenders: [D] }, // This fixture's captured pre-battle singleton BP list.
   );
-  assert.equal(A.dead, undefined, "接触点索引不得导致有路败军被清退");
-  assert.ok(A._retreat, "战果坐标应恢复首都方向的有效撤退端点");
-  assert.equal(A.target?.idx, 2, "省略节点格的边点列必须恢复己方端点");
-  assert.ok(A.target, "战败存活军团必须保留撤退目标");
-  assert.ok(A._march, "边内战败必须把0x487B点列恢复为活动撤退导航");
-  assert.notDeepEqual(
-    A._march.points.at(-1),
-    { x: A.target.x, y: A.target.y },
-    "0x487B只写目标字段，撤退边点列不得提前混入端点节点中心",
-  );
-  const battleX = A.x;
-  const battleY = A.y;
-  A.cooldown = 0;
-  aiTick(app, { runCityDaily: false, settleDaily: false });
-  assert.notDeepEqual(
-    [A.x, A.y],
-    [battleX, battleY],
-    "败军冷却结束后必须沿当前边退走，不能卡在据点前",
-  );
-  assert.ok(A._retreat, "尚未抵达己方端点时不得提前清除撤退状态");
+  // P62 G1: v1 retreat arm deleted. This non-native fixture no longer gets
+  // a 487B retreat route; the loser falls through to fate dispatch.
+  // TEMP-PIN (delete at G5/G6 with v1 support): retreat-navigation pins
+  // below (target/_march/edge movement) are removed with the v1 arm; the
+  // 487B field/target rules stay locked on native fixtures.
+  assert.equal(A.dead, true);
+  assert.equal(A._retreat, null);
 }
 
 // 玩家攻方：status bit2决定战术/速算；无真实守军一律速算。

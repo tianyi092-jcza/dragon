@@ -2,6 +2,7 @@
 // Static KI goldens (not CPU execution): march notes §3.15.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { attachSyntheticNativeFactionSource } from "./native_faction_fixture.mjs";
 import { createContentCatalog } from "../web/src/content/catalog.js";
 import { createWorldResources } from "../web/src/game/worldresources.js";
 import { createNewGameScenario } from "../web/src/game/world.js";
@@ -34,8 +35,20 @@ import {
   redistributeOriginalLegion,
   refreshOriginalLegion,
 } from "../web/src/game/navigation/originalformation.js";
-const json = (v) => JSON.parse(JSON.stringify(v));
-async function fixture({ slot = 2, change = () => {} } = {}) {
+const json = (value) => {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    throw new Error("synthetic fixture JSON round-trip failed", {
+      cause: error,
+    });
+  }
+};
+async function fixture({
+  slot = 2,
+  terrainMemory = null,
+  change = () => {},
+} = {}) {
   const graph = {
     version: 2,
     width: 384,
@@ -124,6 +137,7 @@ async function fixture({ slot = 2, change = () => {} } = {}) {
     markerBase: 17,
   });
   change(raw, graph);
+  attachSyntheticNativeFactionSource(raw);
   const world = createWorldResources();
   const args = {
     raw,
@@ -131,6 +145,7 @@ async function fixture({ slot = 2, change = () => {} } = {}) {
     content,
     world,
     mode: "fresh",
+    terrainMemory,
     movementMemory: {
       version: 1,
       spans: [{ address: 3840, hex: "00".repeat(768) }],
@@ -570,7 +585,7 @@ test("native formation: native474A strict late style and morale reads", async ()
   assert.equal(a.markerBase, 5);
 });
 
-test("native formation: unknown slot is not empty; inactive bit3 does not enter legacy2A7E", async () => {
+test("native formation: unknown slot is not empty; native25E5 decrements48→47 without active tail", async () => {
   const f = await fixture();
   f.sc.nativeLegionSlots.records.splice(4, 1);
   tick(f);
@@ -583,8 +598,11 @@ test("native formation: unknown slot is not empty; inactive bit3 does not enter 
   record(g, 0).status = 8;
   g.sc.legionSlotCounters[0] = 48;
   tick(g);
-  assert(g.app._strategicBattleFailure);
-  assert.equal(g.sc.legionSlotCounters[0], 48);
+  assert.equal(g.app._strategicBattleFailure, undefined);
+  assert.equal(g.sc.legionSlotCounters[0], 47);
+  assert.equal(record(g, 0).status, 8);
+  assert.equal(g.sc._legionBatchCursor, 16);
+  assert.equal(g.sc.legionSlotCounters[2], 0); //new active slot receives264A.
 });
 
 test("native formation: one success then partial CF1 still returns success and one cooldown", async () => {
@@ -613,6 +631,11 @@ test("native formation: one success then partial CF1 still returns success and o
 
 test("native formation: cold second expiry consumes original47BB then one road point", async () => {
   const f = await fixture({
+    // Synthetic BA formerly read from the mock asset; now explicit current byte.
+    terrainMemory: {
+      version: 1,
+      spans: [{ address: 11 * 384 + 2, hex: "ba" }],
+    },
     change: (_raw, graph) => {
       graph.nodes[0].edgeSlots[0] = 0x4800;
       graph.nodes[66].edgeSlots[0] = 0x8800;
@@ -783,7 +806,7 @@ test("native formation: snapshot rejects lossy values and sidecars cannot replac
   assert.throws(() => snapshotState(f.app, 0, "hole"));
 });
 
-// 501F/502E→5030→29C8..29ED: direct NPC extinction entry only.
+// Actual NPC capture now reaches conditional4FCE after proven owner/F23/capital writes.
 // Synthetic battle exit; real prepare/apply/owner/save, not a message certificate.
 async function extinctionFixture(missing = null) {
   const f = await fixture({
@@ -839,6 +862,14 @@ async function extinctionFixture(missing = null) {
     sides: [{ troops: 240, morale: 123, units: Array(6).fill(40) }],
     cityDamage: { growth: 31, defence: 32, troops: 33 },
   };
+  f.sc.factions[2].nativeGeneralCount = 31; //explicit test F18, not n_generals.
+  f.sc.factions[2].n_cities = 255; // Explicit stored F23, not live-city counts.
+  f.sc.factions[1].n_cities = 0;
+  f.app.gamebar = {
+    enqueueTalkMessage() {
+      assert.fail("no unclosed extinction message");
+    },
+  };
   return { ...f, exit, city: f.sc.cities[67], monarch: f.sc.generals[5] };
 }
 function applyExtinction(f) {
@@ -866,15 +897,20 @@ function assertExtinctionPrefix(f) {
   assert.equal(record(f).morale, 123);
   assert.equal(record(f).moveDelay, 1);
   assert.equal(record(f).commandState, 8);
-  assert.equal(f.city.faction, 1);
+  assert.equal(f.city.faction, 1); //4CF5 committed before capital failure.
+  assert.equal(f.city._strategicLastFaction, 2);
   assert.deepEqual(
     [f.city.growth, f.city.defence, f.city.troops],
     [31, 32, 33],
   );
-  assert.equal(f.sc.factions[2].dead, true);
+  assert.equal(f.sc.factions[2].dead, undefined);
   assert.equal(f.sc.factions[2].capital, null);
-  assert.equal(f.sc.factions[2]._extinctionHandled, true);
+  assert.equal(f.sc.factions[2].attr, 0);
+  assert.equal(f.sc.factions[2].n_cities, 254);
+  assert.equal(f.sc.factions[1].n_cities, 0);
+  assert.equal(f.sc.factions[2]._extinctionHandled, undefined); // Legacy v1 marker untouched by the native scan.
   assert.equal(f.sc.factions[2].n_legions, 7);
+  assert.equal(f.sc.factions[2].nativeGeneralCount, 31);
   assert.equal(f.sc.factions[1].n_legions, 1);
   assert.equal(f.sc.legionSlotCounters[5], 77);
   assert.equal(f.sc.legionSlotCounters[2], 77);
@@ -884,53 +920,46 @@ function assertExtinctionPrefix(f) {
   assert.equal(f.app.originalRng.calls, 0);
 }
 
-test("native formation: extinction direct29C3 clears authoritative inactive04 and saves residue", async () => {
+// Previous native5030/capture certificates withdrawn: enclosing4CF3/4FCE
+// lifecycles are unclosed. Strict29C3 leaf coverage lives in verify_native_legion_fate.
+test("native formation: legal inactive04 JSON survives; capture enters4FCE scan, stops at uninitialized CFD", async () => {
   const f = await extinctionFixture();
   const retired = record(f, 5);
   assert(!f.sc.legions.includes(retired));
   assert(!f.sc.delayedLegionReturns.includes(retired));
   const before = json(snapshotState(f.app, 0, "before"));
-  applyExtinction(f);
-  assert.equal(
-    retired.status,
-    0,
-    "29ED must clear the authoritative inactive04 slot",
-  );
-  assertExtinctionPrefix(f);
-  assert.equal(f.monarch.status, 4);
-  assert.equal(f.monarch.faction, 1);
-  assert.equal(f.monarch.captive_flag, 2);
-  assert.equal(f.monarch.origFaction, 2);
-  assert.equal(f.app._strategicBattleFailure, undefined);
-  assert(canSnapshotState(f.app));
   const { next, saved } = await cold(f);
   const expected = before.state.nativeLegionSlots.records[5];
-  expected.status = 0;
-  // Existing Web cleanup, not additional DOS slot writes at 29ED.
-  expected._retreat = null;
-  expected._engagement = null;
   assert.deepEqual(saved.state.nativeLegionSlots.records[5], expected);
   assert.deepEqual(
     json(snapshotState(next.app, 0, "cold")).state.nativeLegionSlots.records[5],
     expected,
   );
   assert.equal(next.sc.legionSlotCounters[5], 77);
-  assert.equal(next.sc.factions[2].n_legions, 7);
-  assert.equal(next.sc.generals[5].captive_flag, 2);
-  assert.equal(next.sc.legions.includes(record(next, 5)), false);
+  assert.equal(next.sc.factions[2].nativeGeneralCount, 31);
+  const beforeGeneral = json(f.monarch);
+  const beforeRecord = json(retired);
+  // 4FCE scan now runs past4D1E: F00 idempotent, then4FDC CFD read stops.
+  assert.throws(() => applyExtinction(f), /Uncovered.*nativePlayerFactionPointer/);
+  assertExtinctionPrefix(f);
+  assert.deepEqual(json(f.monarch), beforeGeneral);
+  assert.deepEqual(json(retired), beforeRecord);
+  assert.equal(f.app.clock.hold, true);
+  assert.equal(canSnapshotState(f.app), false);
+  assert.throws(() => snapshotState(f.app, 0, "incomplete"));
 });
 
 for (const missing of ["status", "slot"]) {
-  test(`native formation: extinction missing ${missing} stops at29D4 with owned failure`, async () => {
+  test(`native formation: extinction missing ${missing} stops at uninitialized CFD with owned failure`, async () => {
     const direct = await extinctionFixture(missing);
     const beforeGeneral = json(direct.monarch);
-    assert.throws(() => applyExtinction(direct), /Uncovered.*29D4/);
+    assert.throws(() => applyExtinction(direct), /Uncovered.*nativePlayerFactionPointer/);
     assertExtinctionPrefix(direct);
     assert.deepEqual(json(direct.monarch), beforeGeneral);
-    // Bare apply throws to its owner; it does not invent a batch or hold.
-    assert.equal(direct.app._strategicBattleFailure, undefined);
-    assert.equal(direct.app.clock.hold, false);
-    assert.equal(direct.sc._lastCapturingFaction, 1);
+    // Explicit unsupported native entry both throws and fail-holds this owner.
+    assert(direct.app._strategicBattleFailure);
+    assert.equal(direct.app.clock.hold, true);
+    assert.equal(direct.sc._lastCapturingFaction, undefined);
     const f = await extinctionFixture(missing);
     let afterApply = 0;
     f.app.engagementFx = { reset() {} };
@@ -949,7 +978,7 @@ for (const missing of ["status", "slot"]) {
     }).startBattle.call(f.app, record(f), f.city, null, []);
     assert.match(
       f.app._strategicBattleFailure?.error?.message ?? "",
-      /Uncovered.*29D4/,
+      /Uncovered.*nativePlayerFactionPointer/,
     );
     assertExtinctionPrefix(f);
     assert.deepEqual(json(f.monarch), beforeGeneral);
@@ -966,13 +995,14 @@ for (const missing of ["status", "slot"]) {
   });
 }
 
-test("native formation: extinction rejects invalid byte status at actual29D4", async () => {
+test("native formation: capture enters4FCE scan, stops at uninitialized CFD without consuming corrupt downstream slot status", async () => {
   for (const status of [null, -1, 256, 1.5, NaN, Infinity]) {
     const f = await extinctionFixture();
-    // Prepared schema rejects these; runtime corruption must also fail at the read.
+    // The scan now runs past4D1E but stops at the4FDC CFD read before any
+    // slot touch (29D4): do not claim to have consumed this byte.
     record(f, 5).status = status;
     const beforeGeneral = json(f.monarch);
-    assert.throws(() => applyExtinction(f), /Uncovered.*29D4/);
+    assert.throws(() => applyExtinction(f), /Uncovered.*nativePlayerFactionPointer/);
     assertExtinctionPrefix(f);
     assert.deepEqual(json(f.monarch), beforeGeneral);
     assert(Object.is(record(f, 5).status, status));

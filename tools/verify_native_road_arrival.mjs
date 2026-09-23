@@ -2,6 +2,7 @@
 // KI static goldens 2662/28F4/4300/4325..4574/3F06..3F50; march §3.13.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { attachSyntheticNativeFactionSource } from "./native_faction_fixture.mjs";
 import { createContentCatalog } from "../web/src/content/catalog.js";
 import { createWorldResources } from "../web/src/game/worldresources.js";
 import { createNewGameScenario } from "../web/src/game/world.js";
@@ -30,7 +31,15 @@ import {
   initializeNativeLegionSlotsFromZeroChapter,
   rebindNativeLegionViews,
 } from "../web/src/game/nativelegions.js";
-const json = (v) => JSON.parse(JSON.stringify(v));
+const json = (value) => {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    throw new Error("synthetic fixture JSON round-trip failed", {
+      cause: error,
+    });
+  }
+};
 async function fixture({
   node = 66,
   command = 5,
@@ -138,6 +147,7 @@ async function fixture({
       raw.nativeLegionSlots.records[legion.slot] = legion;
     rebindNativeLegionViews(raw);
   }
+  attachSyntheticNativeFactionSource(raw);
   const world = createWorldResources();
   const args = {
     raw,
@@ -145,6 +155,11 @@ async function fixture({
     content,
     world,
     mode: "fresh",
+    // Explicit synthetic rules terrain, independent from the fetched resource.
+    terrainMemory: {
+      version: 1,
+      spans: [{ address: 0, hex: "ba".repeat(384 * 256) }],
+    },
     ...(cache === null ? {} : { cityCache: { version: 1, spans: cache } }),
     ...(movement
       ? {
@@ -198,6 +213,27 @@ const slot = (f, daily = false) =>
     settleDaily: daily,
   });
 const go = (f) => stepTo(f.sc, f.A);
+// P40：fresh v2 恒合成占格平面/C18 缓存；“旧档无能力”用删除 webMeta 键的
+// restore 模拟（restored() 每次重新 snapshot，故需在 snapshot 后删键）。
+async function restoredWithout(f, key) {
+  const saved = json(snapshotState(f.app, 0, "arrival"));
+  delete saved.webMeta[key];
+  const result = await prepareScenario({
+    ...f.args,
+    mode: "restore",
+    raw: restoreSnapshotState(saved),
+    ...readSavedAssembly(saved),
+  });
+  return {
+    ...f,
+    sc: result.scenario,
+    A: result.scenario.legions[0],
+    context: scenarioNativeRoadContext(result.scenario),
+    app: { ...f.app, scenario: result.scenario },
+    saved,
+  };
+}
+
 async function restored(f) {
   const saved = json(snapshotState(f.app, 0, "arrival"));
   const result = await prepareScenario({
@@ -273,7 +309,12 @@ test("28F4 current node/20 independent; CF clear still dispatches; 2912 and inva
     },
   });
   slot(fail, true);
-  assert.match(fail.app._strategicBattleFailure.error.message, /291A at 2912/);
+  assert.match(
+    fail.app._strategicBattleFailure.error.message,
+    /nativeFateDisplayFlags/,
+  );
+  assert.equal(fail.A.status & 0x10, 0);
+  assert.equal(fail.sc.factions[0].n_legions, 1);
   assert.equal(fail.A._markerFrame, 4);
   assert.equal(fail.sc.factions[0].money, 1000);
   assert.equal(canSnapshotState(fail.app), false);
@@ -295,12 +336,16 @@ test("4325 player/NPC table all 12 states, targetFF unused by handlers7/8, exact
         ],
       });
       if (handler === 7 || handler === 8) f.A.targetCity = 255;
-      if (handler === 9 || handler === 11)
-        assert.throws(
-          () => go(f),
-          handler === 9 ? /pool 3 at 4735/ : /463E at 44FE/,
-        );
-      else {
+      if (handler === 9 || handler === 11) {
+        delete f.sc.factions[0].reserve_inf;
+        assert.throws(() => go(f), /pool 3 at 4735/);
+      }
+      if (handler === 11) {
+        assert.equal(f.sc.factions[0].n_legions, 0); //4658 before4717.
+        assert.equal(f.A.units[0].troops, 0); //4732 before unknown pool.
+        assert.equal(f.A.status, 0xc0); //466F not reached.
+      }
+      if (handler !== 9 && handler !== 11) {
         go(f);
         assert.equal(
           f.A.commandState,
@@ -407,14 +452,29 @@ test("43AF gates, actual DI diplomacy/cache aliases, stale raw ignored, exactly 
       command: 5,
       cache: node === 66 ? [{ address: 0, hex: "03" }] : null,
     });
-    if (node === 3) assert.throws(() => go(f), /43D3/);
-    else {
-      if (node === 48) f.sc.diplomacy[1][0] = 3;
-      assert.throws(() => go(f), /canonical RNG at 43D9/);
-      slot(f);
-      assert.equal(f.A.commandState, 2);
+    // node 3 → 势力[1]+0x38 奇数线性别名（43D3 k=0..47 全域已接）。
+    if (node === 3) {
+      const raw = f.sc.factions[1].raw;
+      f.sc.factions[1].raw =
+        raw.slice(0, 0x38 * 2) + "03" + raw.slice(0x38 * 2 + 2);
     }
+    if (node === 48) f.sc.diplomacy[1][0] = 3;
+    assert.throws(() => go(f), /canonical RNG at 43D9/);
+    slot(f);
+    assert.equal(f.A.commandState, 2);
   }
+  // 偶数节点走势力 F18（live nativeGeneralCount）：node 2 → 势力[1]+0x18。
+  const even = await fixture({ node: 2, command: 5 });
+  even.sc.factions[1].nativeGeneralCount = 3;
+  assert.throws(() => go(even), /canonical RNG at 43D9/);
+  slot(even);
+  assert.equal(even.A.commandState, 2);
+  // F18 ≤ 2 时不耗 RNG，继续低兵首都重编检查（城66 attr=0 → 非首都 → 5）。
+  const low = await fixture({ node: 2, command: 5 });
+  low.sc.factions[1].nativeGeneralCount = 2;
+  slot(low);
+  assert.equal(low.A.commandState, 5);
+  assert.equal(low.A.moveDelay, 3);
 });
 
 test("4300 ordered short circuits and interception BX/DI aliases never balance occupancy", async () => {
@@ -453,16 +513,42 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
     const before = f.context.movement.snapshot();
     if (node === 0) {
       f.sc.cities[0].faction = 1;
-      assert.throws(() => go(f), /291A at 2912/);
+      assert.throws(() => go(f), /nativeFateDisplayFlags/);
+      assert.equal(f.sc.factions[0].n_legions, 1);
     } else if (node === 6)
       assert.throws(() => go(f), /original road state byte/);
-    else if (node === 64) assert.throws(() => go(f), /43D3/);
     else {
-      const alias = (node - 3) * 32 + 30;
-      f.context.cityCache.writeByte(alias, 3);
-      slot(f);
-      assert.equal(f.A.commandState, 2);
-      assert.equal(f.app._strategicBattleFailure, undefined);
+      if (node === 64) {
+        // 4300 拦截 STC 后以 bx=node*0x100 重入，DI=u16(bx*4)=0 回绕（notes：
+        // city64 DI回绕0）→ 43D3 地址 0x18 = 势力[0] F18 线性别名。
+        // F18=0 ≤2：不耗 RNG、不写 0x23（handler5 直返，命令字节保持 1）。
+        slot(f);
+        assert.equal(f.A.commandState, 1);
+        assert.equal(f.app._strategicBattleFailure, undefined);
+        // F18=3 >2：走 43D9 RNG → 状态 2。
+        const forced = await fixture({
+          node,
+          command: 1,
+          player: 1,
+          cache: [{ address: node, hex: "01" }],
+          change: (sc) => {
+            sc.legions[0].targetNode = 191;
+            sc.legions[0].targetCity = 191;
+          },
+        });
+        forced.sc.factions[0].nativeGeneralCount = 3;
+        const before64 = forced.context.movement.snapshot();
+        slot(forced);
+        assert.equal(forced.A.commandState, 2);
+        assert.equal(forced.A.targetCity, node);
+        assert.deepEqual(forced.context.movement.snapshot(), before64);
+      } else {
+        const alias = (node - 3) * 32 + 30;
+        f.context.cityCache.writeByte(alias, 3);
+        slot(f);
+        assert.equal(f.A.commandState, 2);
+        assert.equal(f.app._strategicBattleFailure, undefined);
+      }
     }
     assert.equal(f.A.targetCity, node);
     assert.equal(f.A._markerFrame, 4);
@@ -546,10 +632,13 @@ test("4470 sequential team byte not total/default;448C full byte;44A9/44D6 retai
   assert.equal(eleven.A.targetNode, 67);
   assert.equal(eleven.A.x, 67);
   const done = await fixture({ command: 11 });
+  delete done.sc.factions[0].reserve_inf;
   const before = done.context.movement.snapshot();
-  assert.throws(() => go(done), /463E at 44FE/);
+  assert.throws(() => go(done), /pool 3 at 4735/);
   assert.equal(done.A.targetX, 67);
-  assert.equal(done.sc.factions[0].n_legions, 1);
+  assert.equal(done.sc.factions[0].n_legions, 0);
+  assert.equal(done.A.units[0].troops, 0);
+  assert.equal(done.A.status, 0xc0);
   assert.deepEqual(done.context.movement.snapshot(), before);
 });
 
@@ -580,11 +669,17 @@ test("3F06 prefix DEC before old owner, no city1A rewrite, neutral refresh and s
   assert.equal(f.context.cityCache.readByte(66), 2);
   assert.equal(f.context.cityCache.readByte(65), 0);
   assert.equal(f.context.cityCache.readByte(67), 254);
-  const noCache = await fixture({ cache: null });
+  const noCache = await restoredWithout(
+    await fixture({ cache: null }),
+    "cityCache",
+  );
   noCache.sc.cities[66]._aiCooldown = 2;
   assert.throws(() => tickStrategicCity(noCache.app, 66), /3F4C/);
   assert.equal(noCache.sc.cities[66]._aiCooldown, 1);
-  const noPlane = await fixture({ movement: false });
+  const noPlane = await restoredWithout(
+    await fixture({ movement: false }),
+    "movementMemory",
+  );
   assert.throws(() => tickStrategicCity(noPlane.app, 66), /3F47/);
 });
 
@@ -619,10 +714,10 @@ test("formal JSON cache/RAM isolation, known0/FF/holes, explicit city inputs and
   for (const value of [undefined, null, 255, 0, "bad"]) {
     f.sc.factions[0].strategic_city_secondary = value;
     f.sc.factions[0].strategic_city_primary = 255;
-    const h = await restored(f);
-    if (value === undefined || value === "bad")
-      assert.throws(() => go(h), /4436/);
-    else {
+    if (value === undefined || value === "bad") {
+      await assert.rejects(restored(f), /Invalid native faction/);
+    } else {
+      const h = await restored(f);
       go(h);
       assert.equal(h.A.commandState, value === 0 ? 0 : 11);
     }
@@ -643,9 +738,9 @@ test("formal JSON cache/RAM isolation, known0/FF/holes, explicit city inputs and
       /city cache/,
     );
   }
-  assert.throws(() => assertPlayableScenario(readSavedAssembly(g.saved)), /v2/);
+  assertPlayableScenario(readSavedAssembly(g.saved)); // P58 flip: v2 enters play
   const absent = await fixture({ command: 8, cache: null });
-  const h = await restored(absent);
+  const h = await restoredWithout(absent, "cityCache");
   assert.equal(h.context.cityCache, null);
   go(h);
   assert.equal(h.A.commandState, 8);
@@ -717,6 +812,9 @@ test("aiTick actual city prefix failure owns hold/forbids save; neutral stops mi
     const f = await fixture({ cache: [] });
     const c = f.sc.cities[66];
     c._aiCooldown = 2;
+    // P58 flip fills border inputs from explicit zero raw at fresh prepare;
+    // restore the missing-border scenario this test pins.
+    delete c.strategicBorderCount;
     if (neutral) c.faction = null;
     f.context.movement.writeByte(240, 67, 0x82);
     aiTick(f.app, { cityIndex: 66, legionBatchStart: 0, settleDaily: true });
@@ -794,28 +892,84 @@ test("43AF primitive edge gate needs no total/target attr/DI byte; real adapter 
   assert.equal(bytes[8], 4);
 });
 
-test("native cache schema and v1 metadata gates; unknown city inputs survive JSON until consuming instruction", async () => {
+test("native cache schema and retired v1 metadata gate; absent C1A survives JSON, illegal own bytes reject snapshot", async () => {
   const f = await fixture({ command: 8 });
   const saved = json(snapshotState(f.app, 0, "gates"));
   const v1 = json(saved);
   v1.webMeta.scenarioAssembly.roadVersion = 1;
   delete v1.webMeta.roadMemory;
   delete v1.webMeta.movementMemory;
-  assert.throws(() => readSavedAssembly(v1), /v1 cannot carry/);
+  delete v1.webMeta.terrainMemory; // Memory stripping now hits the P65 retired-v1 gate first.
+  assert.throws(() => readSavedAssembly(v1), /retired/);
   assert.throws(
     () =>
       readSavedAssembly({ webMeta: { cityCache: { version: 1, spans: [] } } }),
     /requires assembly/,
   );
-  for (const value of [undefined, 0, 255, -1, "bad"]) {
-    f.sc.cities[66]._aiCooldown = 2;
+  f.sc.cities[66]._aiCooldown = 2;
+  delete f.sc.cities[66]._strategicLastFaction;
+  const absent = await restored(f); // Actual snapshot -> JSON -> restore -> prepare.
+  assert.equal(
+    Object.hasOwn(absent.sc.cities[66], "_strategicLastFaction"),
+    false,
+  );
+  assert.throws(() => tickStrategicCity(absent.app, 66), /3F11/);
+  assert.equal(absent.sc.cities[66]._aiCooldown, 1); //3F0D precedes3F11.
+  assert.equal(f.sc.cities[66]._aiCooldown, 2);
+  for (const value of [undefined, -1, "bad"]) {
+    f.sc.cities[66]._strategicLastFaction = value;
+    const scenario = f.sc,
+      prototype = Object.getPrototypeOf(f.sc);
+    const city = f.sc.cities[66],
+      legion = f.A,
+      faction = f.sc.factions[0];
+    const descriptor = Object.getOwnPropertyDescriptor(
+      city,
+      "_strategicLastFaction",
+    );
+    const before = structuredClone(f.sc); // Mutation observation, not save transport.
+    const rng = f.app.originalRng.snapshot();
+    const memory = f.context.memory.snapshot();
+    const movement = f.context.movement.snapshot();
+    const cache = f.context.cityCache.snapshot();
+    assert.throws(() => snapshotState(f.app, 0, "illegal C1A"), {
+      name: "TypeError",
+      message: "Invalid native city/weather byte: _strategicLastFaction",
+    });
+    assert.deepEqual(structuredClone(f.sc), before);
+    assert.equal(f.sc, scenario);
+    assert.equal(f.app.scenario, scenario);
+    assert.equal(Object.getPrototypeOf(f.sc), prototype);
+    assert.equal(f.sc.cities[66], city);
+    assert.equal(f.sc.legions[0], legion);
+    assert.equal(f.sc.factions[0], faction);
+    assert.deepEqual(
+      Object.getOwnPropertyDescriptor(city, "_strategicLastFaction"),
+      descriptor,
+    );
+    assert.equal(Object.hasOwn(f.sc.cities[66], "_strategicLastFaction"), true);
+    assert(Object.is(f.sc.cities[66]._strategicLastFaction, value));
+    assert.deepEqual(f.app.originalRng.snapshot(), rng);
+    assert.deepEqual(f.context.memory.snapshot(), memory);
+    assert.deepEqual(f.context.movement.snapshot(), movement);
+    assert.deepEqual(f.context.cityCache.snapshot(), cache);
+    assert.equal(canSnapshotState(f.app), true);
+  }
+  for (const value of [0, 255]) {
     f.sc.cities[66]._strategicLastFaction = value;
     const g = await restored(f);
+    assert.equal(Object.hasOwn(g.sc.cities[66], "_strategicLastFaction"), true);
+    assert.equal(g.sc.cities[66]._strategicLastFaction, value);
+    // P58 flip fills border inputs at fresh prepare; the value-0 half pins
+    // the missing-border stop, so restore that scenario explicitly. The
+    // value-255 half keeps the filled count to reach the 3F29 write.
+    if (value === 0) delete g.sc.cities[66].strategicBorderCount;
     assert.throws(
       () => tickStrategicCity(g.app, 66),
-      value === 0 ? /3FAB/ : value === 255 ? /3F29/ : /3F11/,
+      value === 0 ? /3FAB/ : /3F29/,
     );
     assert.equal(g.sc.cities[66]._aiCooldown, 1);
+    assert.equal(f.sc.cities[66]._aiCooldown, 2);
   }
   for (const spans of [
     [
@@ -1084,6 +1238,8 @@ test("v1 daily defaults, byte21 and nonfinite snapshot behavior remain outside n
   const f = await fixture({ command: 4 });
   const sc = structuredClone({ ...f.sc }); // Deliberately unbound legacy state.
   delete sc.nativeLegionSlots; // This control is v1, not a native format downgrade.
+  delete sc.nativeFactionSlots;
+  delete sc.nativeFactionSlotRaw;
   delete sc.legions[0].troops;
   delete sc.factions[0].legion_morale_cap;
   sc.legions[0].contactAnimationByte21 = 71;

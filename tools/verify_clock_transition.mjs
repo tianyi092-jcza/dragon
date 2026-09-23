@@ -110,7 +110,49 @@ monthHold.hold = false;
 monthHold.advance(monthHold.currentStep);
 assert.equal(monthHold.day, 1);
 assert.equal(monthHold.month, 2);
+assert.equal(monthHold.hour, 1, "1DDB清零后1DE0仍会把新日时刻加到1");
 assert.equal(months, 1);
+
+// 1DA3..1DD7：5358看到新年月与day低字节0，真实返回后day才加一。
+for (const [startYear, expectedYear] of [
+  [999, 1000],
+  [1000, 999],
+  [1001, 999],
+  [0xffff, 999],
+]) {
+  const calls = [];
+  const boundary = new Clock({
+    startYear,
+    startMonth: 12,
+    startDay: 31,
+    onYearEnd: (current) =>
+      calls.push(["year", current.year, current.month, current.day]),
+    onMonthEnd: (current) =>
+      calls.push(["month", current.year, current.month, current.day]),
+  });
+  boundary._advanceDayCalendar();
+  assert.deepEqual(
+    [boundary.year, boundary.month, boundary.day],
+    [expectedYear, 1, 1],
+  );
+  assert.deepEqual(calls, [
+    ["year", expectedYear, 1, 0],
+    ["month", expectedYear, 1, 0],
+  ]);
+}
+{
+  const calls = [];
+  const boundary = new Clock({
+    startYear: 190,
+    startMonth: 1,
+    startDay: 31,
+    onMonthEnd: (current) =>
+      calls.push([current.year, current.month, current.day]),
+  });
+  boundary._advanceDayCalendar();
+  assert.deepEqual(calls, [[190, 2, 0]]);
+  assert.deepEqual([boundary.year, boundary.month, boundary.day], [190, 2, 1]);
+}
 
 // 0x1D8E：CF2必须经历0..8共9次主更新才进一时刻；onStrategicTick每次执行。
 let strategicTicks = 0;

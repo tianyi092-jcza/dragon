@@ -2,6 +2,7 @@
 // Static KI instruction controls, NOT independent CPU execution. See march §3.14.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { attachSyntheticNativeFactionSource } from "./native_faction_fixture.mjs";
 import { createContentCatalog } from "../web/src/content/catalog.js";
 import { createWorldResources } from "../web/src/game/worldresources.js";
 import { createNewGameScenario } from "../web/src/game/world.js";
@@ -15,7 +16,13 @@ import {
   restoreSnapshotState,
   canSnapshotState,
 } from "../web/src/game/savegame.js";
-import { aiTick, tickStrategicCity } from "../web/src/game/ai.js";
+import {
+  aiTick,
+  tickStrategicCity,
+  enqueueMonthlyDisasterEvents,
+  tickStrategicWarEvents,
+  tickFactionStrategicState,
+} from "../web/src/game/ai.js";
 import { OriginalBattleRng } from "../web/src/game/battle/originalrng.js";
 import { Clock } from "../web/src/game/clock.js";
 import {
@@ -27,7 +34,15 @@ import {
   initializeNativeLegionSlotsFromZeroChapter,
   rebindNativeLegionViews,
 } from "../web/src/game/nativelegions.js";
-const json = (v) => JSON.parse(JSON.stringify(v));
+const json = (value) => {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    throw new Error("synthetic fixture JSON round-trip failed", {
+      cause: error,
+    });
+  }
+};
 async function fixture({
   node = 66,
   command = 5,
@@ -115,6 +130,7 @@ async function fixture({
     c._strategicLastFaction = owner;
     c.disaster_event = 0; // Explicit synthetic input, not a native initializer.
   }
+  raw.weatherCloudBounds = { minX: -16, maxX: 400, minY: -16, maxY: 400 };
   raw.weatherClouds = Array.from({ length: 16 }, () => ({ status: 0 }));
   raw.disasterMapObjects = Array.from({ length: 16 }, () => ({ status: 0 }));
   raw.legions = [
@@ -146,6 +162,7 @@ async function fixture({
       raw.nativeLegionSlots.records[legion.slot] = legion;
     rebindNativeLegionViews(raw);
   }
+  attachSyntheticNativeFactionSource(raw);
   const world = createWorldResources();
   const args = {
     raw,
@@ -153,6 +170,11 @@ async function fixture({
     content,
     world,
     mode: "fresh",
+    // Explicit synthetic current terrain, independent of occupancy/resources.
+    terrainMemory: {
+      version: 1,
+      spans: [{ address: 0, hex: "ba".repeat(384 * 256) }],
+    },
     ...(cache === null ? {} : { cityCache: { version: 1, spans: cache } }),
     ...(movement
       ? {
@@ -315,20 +337,59 @@ test("3FD4 holes/null and invalid neighbour fail at actual read, retaining prefi
     assert.equal(f.context.cityCache.readByte(66), 0);
   }
 });
-test("4028 cooldown RET still F16; DEC1 enters player CDE without future RNG/F16", async () => {
-  for (const cooldown of [1, 2]) {
+test("4028 cooldown RET still F16; DEC1 enters player TALK38 modal with deferred RNG/F16", async () => {
+  // 冷却 2：3F06 递减后 40C9 门仍拦截 40D1，仅调用者尾的 40B3 生效。
+  {
     const f = await fixture();
     neighbours(f, [1], [2]);
-    city(f)._aiCooldown = cooldown;
-    if (cooldown === 1) assert.throws(() => military(f), /CDE\/8810 at 40E6/);
-    else {
-      assert.equal(military(f), "returned");
-      assert.equal(f.sc.factions[0].strategic_city_primary, 66);
-    }
+    city(f)._aiCooldown = 2;
+    assert.equal(military(f), "returned");
+    assert.equal(f.sc.factions[0].strategic_city_primary, 66);
     assert.equal(f.app.originalRng.calls, 0);
-    assert.equal(city(f)._aiCooldown, cooldown - 1);
-    if (cooldown === 1)
-      assert.equal(f.sc.factions[0].strategic_city_primary, null);
+    assert.equal(city(f)._aiCooldown, 1);
+  }
+  // 冷却 1：递减到 0 → 40C9 进入 40D1；玩家所有城走 40DD..40FD：
+  // CDE+8810 TALK38 模态（P32 审计实锤 8810 零规则写入/零 RNG），
+  // 40F6 RNG、414F 冷却(24..39 不夹 30)、40B3 登记全部推迟到真实关闭后。
+  for (const roll of [0x00, 0xff]) {
+    const f = await fixture();
+    neighbours(f, [1], [2]);
+    city(f)._aiCooldown = 1;
+    f.app.originalRng = bytes(roll);
+    const messages = [];
+    f.app.gamebar = {
+      enqueueTalkMessage: (message) => messages.push(message),
+      syncClock() {},
+    };
+    assert.equal(military(f), true);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].talkIndex, 38);
+    assert.equal(messages[0].kind, "reinforcement-request");
+    // 合成夹具城无 name；生产城名经 \2 令牌进入 TALK38。
+    assert.equal(messages[0].cityName, city(f).name?.trim?.() || "");
+    // 关闭前：RNG 未消费、冷却保持递减后的 0、未登记、请求把守后续城槽。
+    assert.equal(f.app.originalRng.calls, 0);
+    assert.equal(city(f)._aiCooldown, 0);
+    assert.equal(f.sc.factions[0].strategic_city_primary, null);
+    assert.ok(f.app._strategicCityRequest);
+    assert.equal(military(f), false);
+    messages.shift().onClose();
+    assert.equal(f.app.originalRng.calls, 1);
+    assert.equal(city(f)._aiCooldown, 0x18 + (roll & 0x0f));
+    assert.equal(f.sc.factions[0].strategic_city_primary, 66);
+    assert.equal(f.app._strategicCityRequest, null);
+  }
+  // 无 gamebar 时与 v1 同一合同：立即完成规则续段（显示被跳过）。
+  {
+    const f = await fixture();
+    neighbours(f, [1], [2]);
+    city(f)._aiCooldown = 1;
+    f.app.originalRng = bytes(0x03);
+    assert.equal(military(f), true);
+    assert.equal(f.app.originalRng.calls, 1);
+    assert.equal(city(f)._aiCooldown, 0x1b);
+    assert.equal(f.sc.factions[0].strategic_city_primary, 66);
+    assert.equal(f.app._strategicCityRequest, null);
   }
 });
 test("4575 signed high-word quota/byte shift true CF1; 45C1 no active gate and fixed 127 reads", async () => {
@@ -356,6 +417,9 @@ test("4575 signed high-word quota/byte shift true CF1; 45C1 no active gate and f
   assert.equal(military(f), "returned");
   assert.equal(city(f)._aiCooldown, 0);
   f.sc.generals[126].ability.force = 255;
+  delete f.sc.factions[0].reserve_cav;
+  delete f.sc.factions[0].reserve_arc;
+  delete f.sc.factions[0].reserve_inf;
   assert.throws(() => military(f), /pool 1 at 6ED7/);
   assert.equal(f.sc.nativeLegionSlots.records[126].generalIdx, 126);
   assert.equal(f.sc.factions[0].n_legions, 0);
@@ -554,14 +618,14 @@ test("2459 all32 status gate; timer0 wraps, front-half expiry reloads without fr
   assert.equal(f.sc.weatherClouds[15].timer, 255);
   assert.equal(f.app.originalRng.calls, 0);
 });
-test("2459 failures preserve DEC/earlier slots; 248A stops after reload and dirty bit", async () => {
+test("2459 failures preserve DEC/earlier slots; missing 248A fields stop after reload and dirty bit", async () => {
   const f = await fixture();
   f.sc.disasterMapObjects[0] = { status: 128, timer: 1 };
   assert.throws(() => tickOriginalStrategicWeather(f.sc), /246D/);
   assert.equal(f.sc.disasterMapObjects[0].timer, 0);
   f.sc.disasterMapObjects[0] = { status: 128, timer: 2 };
   f.sc.weatherClouds[0] = { status: 128, timer: 1, interval: 16 };
-  assert.throws(() => tickOriginalStrategicWeather(f.sc), /248A at 247C/);
+  assert.throws(() => tickOriginalStrategicWeather(f.sc), /phaseX at 248A/);
   assert.equal(f.sc.disasterMapObjects[0].timer, 1);
   assert.equal(f.sc.weatherClouds[0].status, 129);
   assert.equal(f.sc.weatherClouds[0].timer, 16);
@@ -573,7 +637,7 @@ test("2459 failures preserve DEC/earlier slots; 248A stops after reload and dirt
     /slot 17 status at 2463/,
   );
 });
-test("Clock city191 RET then16 slots then2459 RET then date; cursors once, slot16 untouched", async () => {
+test("Clock city191 RET then16 slots then2459/248A RET then date; cursors/RNG once, slot16 untouched", async () => {
   const f = await fixture({ command: 8 });
   f.sc._cityTickCursor = 191;
   f.sc._legionBatchCursor = 0;
@@ -586,6 +650,17 @@ test("Clock city191 RET then16 slots then2459 RET then date; cursors once, slot1
     f.sc.nativeLegionSlots.records[legion.slot] = legion;
   rebindNativeLegionViews(f.sc);
   f.sc.disasterMapObjects[0] = { status: 128, timer: 2 };
+  f.sc.weatherClouds[0] = {
+    status: 128,
+    timer: 1,
+    interval: 16,
+    phaseX: 0,
+    velocityX: 0,
+    phaseY: 0,
+    velocityY: 0,
+    x: 10,
+    y: 10,
+  };
   const clock = new Clock({
     startYear: 190,
     startMonth: 1,
@@ -600,6 +675,8 @@ test("Clock city191 RET then16 slots then2459 RET then date; cursors once, slot1
       );
       assert.equal(c.sub, 0);
       assert.equal(f.sc.disasterMapObjects[0].timer, 1);
+      assert.equal(f.sc.weatherClouds[0].timer, 16);
+      assert.equal(f.sc.weatherClouds[0].status, 129);
     },
   });
   f.app.clock = clock;
@@ -612,7 +689,7 @@ test("Clock city191 RET then16 slots then2459 RET then date; cursors once, slot1
   assert.equal(f.sc.legions[15].moveDelay, 1);
   assert.equal(f.sc.legions[16].moveDelay, 2);
   assert.equal(f.sc.legions[15].contactAnimationByte21, 0);
-  assert.equal(f.app.originalRng.calls, 2);
+  assert.equal(f.app.originalRng.calls, 4);
 });
 test("actual aiTick failures retain city/slot/weather prefix, hold and deny save, no date/replay", async () => {
   for (const phase of [
@@ -658,6 +735,153 @@ test("actual aiTick failures retain city/slot/weather prefix, hold and deny save
     assert.equal(f.app.originalRng.calls, rng);
     assert.deepEqual(json(f.sc), state);
   }
+});
+test("native monthly weather caller uses strict 22DB/2286 instead of the legacy event wheel", async () => {
+  const f = await fixture();
+  f.sc._disasterBounds = { minX: -16, maxX: 400, minY: -16, maxY: 400 };
+  f.sc._strategicEventCursor = 0;
+  f.sc.strategicEventSlots = Array(256).fill(null);
+  for (const c of f.sc.cities) {
+    c.growth = 255;
+    c.defence = 255;
+  }
+  const rng = {
+    calls: 0,
+    nextByte() {
+      return this.calls++ === 0 ? 2 : 255;
+    },
+  };
+  f.app.originalRng = rng;
+  assert.deepEqual(enqueueMonthlyDisasterEvents(f.app), []);
+  assert.equal(rng.calls, 385);
+  assert.equal(
+    f.sc.strategicEventSlots.every((event) => event === null),
+    true,
+  );
+});
+test("native 31AE type11 resumes 237E messages before the deferred 3E11 faction tail", async () => {
+  const f = await fixture();
+  f.sc._factionTickCursor = 0;
+  f.sc._disasterBounds = {
+    minX: f.sc.cities[0].x,
+    maxX: f.sc.cities[0].x,
+    minY: f.sc.cities[0].y,
+    maxY: f.sc.cities[0].y,
+  };
+  f.sc._strategicEventDivider = 1;
+  f.sc._strategicEventCursor = 0;
+  f.sc.strategicEventSlots = Array(256).fill(null);
+  f.sc.strategicEventSlots[0] = { type: 11, arg0: 0, arg1: 0, arg2: 0 };
+  for (const c of f.sc.cities) {
+    c.faction = 1;
+    c.disaster_event = 77;
+  }
+  f.sc.cities[0].faction = f.sc.player_faction;
+  f.sc.cities[2].faction = f.sc.player_faction;
+  const rng = {
+    calls: 0,
+    nextByte() {
+      this.calls++;
+      return 0;
+    },
+  };
+  const messages = [];
+  f.app.originalRng = rng;
+  f.app.gamebar = { enqueueTalkMessage: (message) => messages.push(message) };
+  f.app.hud = { refreshInfo() {} };
+  assert.equal(tickStrategicWarEvents(f.app), true);
+  assert.equal(f.sc._strategicEventDivider, 10);
+  assert.equal(f.sc._strategicEventCursor, 1);
+  assert.equal(f.sc.cities[0].disaster_event, 24);
+  assert.equal(f.sc.cities[1].disaster_event, 77);
+  assert.equal(messages.length, 1);
+  assert.equal(rng.calls, 1);
+
+  assert.equal(tickFactionStrategicState(f.app), false);
+  assert.equal(f.app._factionTickDeferred, true);
+  assert.equal(f.sc._factionTickCursor, 0);
+  messages.shift().onClose();
+  assert.equal(f.sc.cities[1].disaster_event, 24);
+  assert.equal(f.sc.cities[2].disaster_event, 23);
+  assert.equal(messages.length, 1);
+  assert.equal(f.app._factionTickDeferred, true);
+  messages.shift().onClose();
+  assert.equal(f.app._nativeDisasterAreaContinuation, undefined);
+  assert.equal(f.app._strategicEventPostMessageRngPending, false);
+  assert.equal(f.app._factionTickDeferred, false);
+  assert.equal(f.sc._factionTickCursor, 1);
+  assert.equal(rng.calls, 1);
+});
+test("native type12 player message returns into damage, delayed removal and 2438 clear", async () => {
+  const f = await fixture();
+  f.sc._factionTickCursor = 0;
+  f.sc.disasterMapObjects = Array(16).fill(null);
+  f.sc.strategicEventSlots = Array(256).fill(null);
+  f.sc._strategicEventDivider = 1;
+  f.sc._strategicEventCursor = 0;
+  f.sc.cities[0].faction = f.sc.player_faction;
+  f.sc.strategicEventSlots[0] = {
+    type: 12,
+    arg0: 1,
+    arg1: 0x40,
+    arg2: 0x08,
+  };
+  const values = [0, 0];
+  const rng = {
+    calls: 0,
+    nextByte() {
+      this.calls++;
+      return values.shift();
+    },
+  };
+  const messages = [];
+  f.app.originalRng = rng;
+  f.app.gamebar = { enqueueTalkMessage: (message) => messages.push(message) };
+  f.app.hud = { refreshInfo() {} };
+  assert.equal(tickStrategicWarEvents(f.app), true);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].talkIndex, 71);
+  assert.equal(f.sc.disasterMapObjects[0].status, 0x80);
+  assert.equal(f.sc.cities[0].disaster_event, 0);
+  assert.equal(rng.calls, 0);
+  tickFactionStrategicState(f.app);
+  messages.shift().onClose();
+  assert.equal(f.sc.cities[0].disaster_event, 4);
+  assert.equal(rng.calls, 2);
+  assert.deepEqual(f.sc.strategicEventSlots[7], {
+    type: 12,
+    arg0: 0,
+    arg1: 0x40,
+    arg2: 0x08,
+  });
+  assert.equal(f.sc._factionTickCursor, 1);
+
+  f.sc._strategicEventDivider = 1;
+  f.sc._strategicEventCursor = 7;
+  assert.equal(tickStrategicWarEvents(f.app), true);
+  assert.equal(f.sc.cities[0].disaster_event, 0);
+  assert.equal(f.sc.disasterMapObjects[0].status, 0);
+  assert.equal(f.sc.disasterMapObjects[0].active, false);
+  assert.equal(rng.calls, 2);
+});
+test("248A cold restore preserves cloud fields and canonical RNG continuation", async () => {
+  const f = await fixture();
+  f.sc.weatherClouds[0] = {
+    status: 128,
+    timer: 1,
+    interval: 16,
+    phaseX: 14,
+    velocityX: -15,
+    phaseY: -14,
+    velocityY: 15,
+    x: 400,
+    y: 272,
+  };
+  const g = await cold(f);
+  tickOriginalStrategicWeather(f.sc, f.app.originalRng);
+  tickOriginalStrategicWeather(g.sc, g.app.originalRng);
+  assert.deepEqual(g.sc.weatherClouds, f.sc.weatherClouds);
+  assert.deepEqual(g.app.originalRng.snapshot(), f.app.originalRng.snapshot());
 });
 test("JSON cold restore retains 0/FF fields/cache/weather unknown timer and isolates state", async () => {
   const f = await fixture();

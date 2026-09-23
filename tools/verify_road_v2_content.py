@@ -36,22 +36,37 @@ def guard(event, args):
 
 sys.addaudithook(guard)
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--candidate", type=Path, required=True)
+parser.add_argument(
+    "--candidate",
+    type=Path,
+    default=Path(__file__).resolve().parent / "fixtures" / "road-v2-candidate.json",
+)
 args = parser.parse_args()
 candidate_bytes = args.candidate.read_bytes()
+# P57 rebuilt candidate (user approval (a), 2026-09-21): the historical fixed
+# candidate SHA 353a6c70… is absent from disk and git history, so this pin was
+# substituted — not edited around. Rebuild provenance: probe trace data
+# (origins/edges/geometry, verified identical to P04) + documented E717 rules
+# (E81C DH stepping W=0/E=1/N=2/S=3, E77D DH^=1 target slots, E81C AH point
+# counting for byte cost, E961/E841/E889/E91E flag classes) + E717 record layout.
+# Equivalence proof: re-encoded low 32KiB == P04 frozen SHA c226fc8f… and
+# point stream == d443c417…; see march notes §3.6 P57 addendum.
 assert (
     hashlib.sha256(candidate_bytes).hexdigest()
-    == "353a6c706e002f94a861ef515d11342080290cffbcbb0acc7053231413ecadf7"
+    == "b943e43a2fdf6c21ec574702e4933d861ec2176335d32f35b65bd8989b196b48"
 )
 original_source = (SOURCE_ROOT / "world/roads.json").read_bytes()
 original_runtime = (WEB / "road_graph.json").read_bytes()
 try:
     candidate = json.loads(candidate_bytes)
+    # P58 flip: the fixed source and the published runtime are both the
+    # P57-built v2 candidate (default v2). The historical v1 pin is retired.
     assert (
         json.loads(original_source)["version"]
         == json.loads(original_runtime)["version"]
-        == 1
+        == 2
     )
+    assert original_source == candidate_bytes
 except ValueError as error:
     raise AssertionError("invalid fixed Web road JSON fixture") from error
 
@@ -74,7 +89,9 @@ with TemporaryDirectory(prefix="wolong-v2-content-test-") as temporary:
     compile_content(source, output, maps=False)
     assert read_json(output / "road_graph.json") == candidate
     published = (output / "road_graph.json").read_bytes()
-    rejected(lambda: compile_content(source, output, maps=False))
+    # P58 flip retired the new-directory-only gate: recompiling the same
+    # source over the same output must be byte-identical, never a refusal.
+    compile_content(source, output, maps=False)
     assert (output / "road_graph.json").read_bytes() == published
     # Collection types must match the JS loader. An empty edge array is a
     # valid staged asset shape, not a claim that native callers accept this world.
@@ -135,5 +152,5 @@ with TemporaryDirectory(prefix="wolong-v2-content-test-") as temporary:
 assert (SOURCE_ROOT / "world/roads.json").read_bytes() == original_source
 assert (WEB / "road_graph.json").read_bytes() == original_runtime
 print(
-    "v2 content OK: fixed candidate roundtrip, 23 malformed controls, empty-array acceptance, byte costs, new-directory-only publication; default v1 unchanged"
+    "v2 content OK: fixed candidate roundtrip, 23 malformed controls, empty-array acceptance, byte costs, idempotent republication; default v2 since P58"
 )

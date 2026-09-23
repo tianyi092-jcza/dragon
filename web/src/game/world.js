@@ -104,6 +104,10 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   delete state.save_date;
   delete state.delayedLegionReturns;
   delete state.nativeLegionSlots; // Explicit native initializer, never inherit runtime slots.
+  delete state.nativeDiplomacyMatrix; // Fixed 24×24 table is rebuilt from chapter bytes.
+  delete state.nativeMonthlyPolicy; // Fixed D08..D17 block is rebuilt from chapter bytes.
+  delete state.nativeFateDisplayFlags; // Explicit runtime input, not a chapter default.
+  delete state.nativePlayerFactionPointer; // CFD is not inferred from CFF.
   delete state.prisoners;
   delete state.pendingRecruits;
   delete state.pendingTruceNegotiations;
@@ -123,6 +127,7 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   delete state._strategicEventDivider;
   delete state._envoyDiplomacyCursor;
   for (const faction of state.factions ?? []) {
+    delete faction.nativeGeneralCount; // F18 initialization/advisor chain is not closed.
     delete faction.dead;
     delete faction.gold;
     delete faction.food;

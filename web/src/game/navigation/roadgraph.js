@@ -64,7 +64,8 @@ export function createRoadGraph(url) {
         target < 0 ||
         target >= raw.nodes.length ||
         !Number.isFinite(weight) ||
-        (raw.version === 1 && weight <= 0)
+        (raw.version === 1 && weight <= 0) ||
+        (raw.version === 2 && weight < 0)
       ) {
         throw new Error(`invalid strategic road edge ${edge.id}`);
       }
@@ -121,12 +122,6 @@ export function createRoadGraph(url) {
     if (graph?.version !== 2)
       throw new Error("Expected a loaded v2 road graph");
     return graph;
-  }
-
-  function assertLegacyRoutingAvailable() {
-    if (graph?.version === 2) {
-      throw new Error("v2 road rule callers are not connected");
-    }
   }
 
   function roadNodeAt(x, y) {
@@ -228,7 +223,6 @@ export function createRoadGraph(url) {
     pointAddress,
     edgeOrNode,
   }) {
-    assertLegacyRoutingAvailable();
     if (!graph || (stride !== 4 && stride !== -4)) return null;
     const edgeId = roadEdgeIdFromRaw(edgeOrNode);
     const rawIndex = rawPointIndex(edgeId, pointAddress);
@@ -269,7 +263,6 @@ export function createRoadGraph(url) {
 
   /** Web运行态反算E717地址布局，供SAVE/snapshot原样写回。 */
   function serializeRoadMarchContext(march) {
-    assertLegacyRoutingAvailable();
     const edge = graph?.edges?.[march?.edgeId];
     if (!edge || (march.stride !== 4 && march.stride !== -4)) return null;
     let sourceIndex;
@@ -289,7 +282,6 @@ export function createRoadGraph(url) {
 
   /** 0x42AB阻断时在当前边转向另一端，不重新跑Dijkstra。 */
   function reverseRoadMarchContext(march, x, y) {
-    assertLegacyRoutingAvailable();
     const edge = graph?.edges?.[march?.edgeId];
     if (!edge) return null;
     const stride = march.stride === 4 ? -4 : 4;
@@ -360,125 +352,10 @@ export function createRoadGraph(url) {
     return roadApproachesAt(x, y).map((approach) => approach.node);
   }
 
-  function routeNodeIds(source, target, isNodeBlocked, nodePenalty) {
-    const count = graph.nodes.length;
-    const distance = new Float64Array(count);
-    distance.fill(Infinity);
-    const previousNode = new Int16Array(count);
-    const previousEdge = new Int16Array(count);
-    previousNode.fill(-1);
-    previousEdge.fill(-1);
-    const visited = new Uint8Array(count);
-    distance[source] = 0;
-
-    for (let remaining = count; remaining > 0; remaining--) {
-      let current = -1;
-      let best = Infinity;
-      for (let node = 0; node < count; node++) {
-        if (!visited[node] && distance[node] < best) {
-          best = distance[node];
-          current = node;
-        }
-      }
-      if (current < 0 || current === target) break;
-      visited[current] = 1;
-
-      for (const step of adjacency[current]) {
-        const neighbour = step.node;
-        if (neighbour !== source && isNodeBlocked?.(graph.nodes[neighbour])) {
-          continue;
-        }
-        // Existing Web approximation, not full 491B: original 4A3D reads
-        // the edge cost BYTE, and non-own costs use word ADD A6 / OR 8000.
-        // Original tagged-slot/frontier ordering is also not certified here.
-        const penalty = Math.max(
-          0,
-          Number(nodePenalty?.(graph.nodes[current])) || 0,
-        );
-        const candidate = best + penalty + 4 + step.edge.weight;
-        if (candidate < distance[neighbour]) {
-          distance[neighbour] = candidate;
-          previousNode[neighbour] = current;
-          previousEdge[neighbour] = step.edge.id;
-        }
-      }
-    }
-
-    if (!Number.isFinite(distance[target])) return null;
-    const nodes = [];
-    const edges = [];
-    let current = target;
-    while (current !== source) {
-      nodes.push(current);
-      const edgeId = previousEdge[current];
-      current = previousNode[current];
-      if (edgeId < 0 || current < 0) return null;
-      edges.push(edgeId);
-    }
-    nodes.push(source);
-    return {
-      nodes: nodes.toReversed(),
-      edges: edges.toReversed(),
-      distance: distance[target],
-    };
-  }
-
   function orientedEdgePoints(edge, fromNode, _toNode) {
     // E717/E961：边内点列只保存道路点，两端据点节点由edge +6/+8独立保存；
     // 节点中心绝不能追加到points，否则0x2831会把驻城守军误判为道路野战。
     return edge.source === fromNode ? edge.points : edge.points.toReversed();
-  }
-
-  function routeLegs(route) {
-    const legs = [];
-    for (let index = 0; index < route.edges.length; index++) {
-      const edge = graph.edges[route.edges[index]];
-      const fromNode = route.nodes[index];
-      const toNode = route.nodes[index + 1];
-      const stride = edge.source === fromNode ? 4 : -4;
-      legs.push({
-        edgeId: edge.id,
-        fromNode,
-        toNode,
-        stride,
-        points: orientedEdgePoints(edge, fromNode, toNode),
-        rawEdgeOrNode: roadEdgeRawAddress(edge.id),
-        rawPointAddress: roadPointRawAddress(
-          edge.id,
-          stride === 4 ? 0 : edge.points.length - 1,
-        ),
-      });
-    }
-    return legs;
-  }
-
-  /**
-   * Web全路径查询；当前Dijkstra/数值代价并非完整491B合同（行军§5.4）。
-   * 返回节点、边和沿边点列；边点不含起点或终点据点中心。
-   */
-  function findRoadRoute(sx, sy, tx, ty, isNodeBlocked, nodePenalty) {
-    assertLegacyRoutingAvailable();
-    if (!graph) return null;
-    const source = nodeByCoord.get(coordKey(sx, sy));
-    const target = nodeByCoord.get(coordKey(tx, ty));
-    if (source == null || target == null) return null;
-    if (source === target)
-      return {
-        nodes: [source],
-        edges: [],
-        legs: [],
-        points: [],
-        distance: 0,
-      };
-
-    const route = routeNodeIds(source, target, isNodeBlocked, nodePenalty);
-    if (!route) return null;
-    const legs = routeLegs(route);
-    return {
-      ...route,
-      legs,
-      points: legs.flatMap((leg) => leg.points),
-    };
   }
 
   return {
@@ -486,7 +363,6 @@ export function createRoadGraph(url) {
     roadGraphReady,
     loadedRoadVersion,
     originalRoadGraph,
-    assertLegacyRoutingAvailable,
     roadNodeAt,
     roadNodeById,
     roadEdgeById,
@@ -500,6 +376,5 @@ export function createRoadGraph(url) {
     reverseRoadMarchContext,
     roadApproachesAt,
     roadEndpointsAt,
-    findRoadRoute,
   };
 }

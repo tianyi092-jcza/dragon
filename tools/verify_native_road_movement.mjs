@@ -2,7 +2,9 @@
 // KI 2662..28CB/42AB/47BB static goldens; march notes §3.12. Not a CPU oracle.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { attachSyntheticNativeFactionSource } from "./native_faction_fixture.mjs";
 import { createContentCatalog } from "../web/src/content/catalog.js";
+import { OriginalBattleRng } from "../web/src/game/battle/originalrng.js";
 import { createWorldResources } from "../web/src/game/worldresources.js";
 import { createNewGameScenario } from "../web/src/game/world.js";
 import {
@@ -29,8 +31,16 @@ import {
 import {
   initializeNativeLegionSlotsFromZeroChapter,
   rebindNativeLegionViews,
+  snapshotNativeLegionSlots,
 } from "../web/src/game/nativelegions.js";
-const json = (value) => JSON.parse(JSON.stringify(value));
+function json(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (cause) {
+    // Serialization failures must fail the test, never substitute a clone/default.
+    throw new Error("Fixture failed the actual JSON round trip", { cause });
+  }
+}
 function soldier(changes = {}) {
   return {
     slot: 0,
@@ -145,6 +155,7 @@ async function fixture({
       raw.nativeLegionSlots.records[legion.slot] = legion;
     rebindNativeLegionViews(raw);
   }
+  if (version === 2) attachSyntheticNativeFactionSource(raw);
   const world = createWorldResources();
   const args = {
     raw,
@@ -164,6 +175,19 @@ async function fixture({
   ]);
   const tiles = new Uint8Array(384 * 256).fill(0xba);
   tiles[3840 + 2] = tiles[3840 + 7] = 0xd4;
+  // Explicit synthetic current terrain, supplied separately from asset loading.
+  if (version === 2)
+    args.terrainMemory = {
+      version: 1,
+      spans: [
+        {
+          address: 0,
+          hex: Array.from(tiles, (b) => b.toString(16).padStart(2, "0")).join(
+            "",
+          ),
+        },
+      ],
+    };
   globalThis.fetch = async (url) => {
     assert(allowed.has(url), `Unexpected asset ${url}`);
     return {
@@ -267,6 +291,7 @@ test("real 474A/487B returns into next due slot/47BB without synthetic march cac
   f.A.roadEdgeOrNode = 0;
   f.A.moveDelay = 1;
   f.A.commandState = 9;
+  delete f.sc.factions[0].reserve_inf;
   slot(f);
   assert.match(f.app._strategicBattleFailure.error.message, /pool 3 at 4735/);
   assert.equal(f.sc.legions[1].moveDelay, 7);
@@ -326,6 +351,7 @@ test("26C8 first flags gate avoids underflow; second gate nodes same action then
   const before = right.context.movement.snapshot();
   right.A.moveDelay = 1;
   right.A.commandState = 9;
+  delete right.sc.factions[0].reserve_inf;
   slot(right, true);
   assert.match(
     right.app._strategicBattleFailure.error.message,
@@ -362,7 +388,7 @@ test("real slot node departure first point does not OR bit0; multiple due action
   assert.throws(() => memory.readByte(0x9000), /Unprovided/);
 });
 
-test("2831/2880 contact first/continuing/deadline preserves exact precommit prefix and slot tails", async () => {
+test("2831/2880 deadline: field missing G1F stops4CD0; siege preserves 4AEC/4F92 prefix before missing city troops", async () => {
   for (const kind of ["field", "siege"])
     for (const count of [0, 5, 1])
       for (const viaSlot of [false, true]) {
@@ -388,21 +414,52 @@ test("2831/2880 contact first/continuing/deadline preserves exact precommit pref
         else if (count === 1)
           assert.throws(
             () => stepTo(f.sc, f.A),
-            new RegExp(kind === "field" ? "4A7B at 2873" : "4ADE at 28BF"),
+            (error) =>
+              kind === "field"
+                ? error.instruction === "4CD0" &&
+                  /missing battle_rating/.test(error.message)
+                : error.instruction === "4F9D" &&
+                  /missing troops/.test(error.message),
           );
         else assert.equal(stepTo(f.sc, f.A), "contact");
         assert.deepEqual(state(f), before);
-        assert.equal(f.A.status & 0x20, 0x20);
+        const siegePrefix = kind === "siege" && count === 1;
+        assert.equal(f.A.status & 0x20, siegePrefix ? 0 : 0x20);
         assert.equal(plane(f, f.A.x), count === 1 ? 0 : 1);
         assert.equal(
           f.sc.legionSlotCounters[0],
-          count === 1 ? 1 : (count || 12) - (viaSlot ? 1 : 0),
+          count === 1
+            ? siegePrefix
+              ? 0
+              : 1
+            : (count || 12) - (viaSlot ? 1 : 0),
         );
         if (viaSlot && count === 1) {
-          assert.match(
-            f.app._strategicBattleFailure.error.message,
-            /4A7B|4ADE/,
-          );
+          if (kind === "field") {
+            assert.equal(
+              f.app._strategicBattleFailure.error.instruction,
+              "4CD0",
+            );
+            assert.deepEqual(
+              f.app._strategicBattleFailure.error.nativeFieldPrefix.bpWords,
+              { 0: 0x2340, 254: 1 },
+            );
+          } else {
+            const error = f.app._strategicBattleFailure.error;
+            assert.equal(error.instruction, "4F9D");
+            assert.deepEqual(error.nativeSiegePrefix, {
+              d32: 0x860,
+              d34: 1,
+              d35: 0,
+              bpWords: { 254: 0 },
+            });
+            const temporary = f.sc.nativeLegionSlots.records.find(
+              (r) => r.slot === 127,
+            );
+            assert.equal(temporary.generalIdx, 127);
+            assert.equal(temporary.morale, 255);
+            assert.equal(temporary.faction, 1);
+          }
           assert.equal(f.sc.factions[0].money, 1000);
           assert.equal(f.A.moveDelay, 3);
         }
@@ -475,7 +532,7 @@ test("47BB primitive double-stop directions, shortcut no workspace, ignored CF e
   assert.equal(out.words[12], 0x2014);
 });
 
-test("real 47BB high fee checks command lazily, throws at 291A retaining search/DEC/bit1", async () => {
+test("real 47BB high fee enters291A then stops at explicit display input retaining search/DEC/bit1", async () => {
   for (const command of [9, 10, undefined]) {
     const f = await fixture({
       legion: soldier({
@@ -496,11 +553,13 @@ test("real 47BB high fee checks command lazily, throws at 291A retaining search/
     else {
       assert.throws(
         () => stepTo(f.sc, f.A),
-        command === 10 ? /291A at 4851/ : /L23/,
+        command === 10 ? /nativeFateDisplayFlags/ : /L23/,
       );
       assert.equal(f.A.roadEdgeOrNode, 0);
       assert.equal(f.A.status & 2, 0);
       assert.equal(plane(f, 1), 0);
+      assert.equal(f.A.status & 0x10, 0);
+      assert.equal(f.sc.factions[0].n_legions, 1); // no2977/29C3 return.
     }
     assert.notDeepEqual(f.context.memory.snapshot(), before);
   }
@@ -669,14 +728,17 @@ test("JSON formal sidecar restores pointers, unknowns and same workspace before 
       /movement/,
     );
   }
-  assert.throws(() => assertPlayableScenario(assembly), /v2/);
+  assertPlayableScenario(assembly); // P58 flip: v2 enters play
 });
 
-test("optional capability leaves old detached 487B prepare/save valid; movement/metadata misuse rejects", async () => {
+test("fresh v2 always synthesizes the movement plane (P40 1A2D/8AEA); old detached saves without capability stay valid; movement/metadata misuse rejects", async () => {
+  // P40：fresh v2 恒合成占格平面（1A2D 清零 + 89F0/8AEA 重建），fresh 不再
+  // 存在无能力状态；“旧档无能力”用删除 webMeta.movementMemory 的 restore 模拟。
   const f = await fixture({ movement: false });
-  assert.throws(() => stepTo(f.sc, f.A), /movement capability/);
+  assert.equal(f.context.movement.readByte(240, 0) >= 0, true);
   const saved = json(snapshotState(f.app, 0, "old-native"));
-  assert.equal(Object.hasOwn(saved.webMeta, "movementMemory"), false);
+  assert.equal(saved.webMeta.movementMemory.zeroFilled, true);
+  delete saved.webMeta.movementMemory; // 能力出现前的旧档
   const restored = await prepareScenario({
     ...f.args,
     mode: "restore",
@@ -687,9 +749,12 @@ test("optional capability leaves old detached 487B prepare/save valid; movement/
     () => stepTo(restored.scenario, restored.scenario.legions[0]),
     /movement capability/,
   );
+  // P76 gate: v1 owners are unconstructible; fresh preparation against a
+  // synthetic v1 graph fails closed at the v2-graph gate (the retired
+  // "v1 cannot carry movement" guard is deleted with the v1 arms).
   await assert.rejects(
     () => fixture({ version: 1 }),
-    /v1 cannot carry movement/,
+    /must be v2/,
   );
   assert.throws(
     () =>
@@ -699,16 +764,31 @@ test("optional capability leaves old detached 487B prepare/save valid; movement/
     /requires assembly/,
   );
   const bit4 = await fixture({ legion: soldier({ status: 0xd1 }) });
-  assert.throws(() => stepTo(bit4.sc, bit4.A), /2BA8 at 267A/);
-  assert.equal(bit4.A.status, 0xd1);
-  const npc = await fixture({
+  assert.throws(() => stepTo(bit4.sc, bit4.A), /nativeFateDisplayFlags/);
+  assert.equal(bit4.A.status, 0xc1); //2BA8 clears bit4 before unknown98A6.
+  assert.equal(plane(bit4, 5), 1); //269C not reached.
+  // 4304 城市缓存能力门：P40 后 fresh 恒合成 C18 缓存，该门只剩旧档可达；
+  // 用删除 webMeta.cityCache 的 restore 模拟。
+  const npcBase = await fixture({
     legion: soldier({ roadEdgeOrNode: 0 }),
     change: (raw) => {
       raw.player_faction = 1;
     },
   });
-  assert.throws(() => stepTo(npc.sc, npc.A), /city cache capability at 4304/);
-  assert.equal(plane(npc, 5), 1);
+  const savedNpc = json(snapshotState(npcBase.app, 0, "old-native"));
+  delete savedNpc.webMeta.cityCache;
+  const npcRestored = await prepareScenario({
+    ...npcBase.args,
+    mode: "restore",
+    raw: restoreSnapshotState(savedNpc),
+    ...readSavedAssembly(savedNpc),
+  });
+  assert.throws(
+    () => stepTo(npcRestored.scenario, npcRestored.scenario.legions[0]),
+    /city cache capability at 4304/,
+  );
+  const npcContext = scenarioNativeRoadContext(npcRestored.scenario);
+  assert.equal(npcContext.movement.readByte(240, 5), 1);
 });
 
 test("both flags gates: low classes and bit6 signed gates; at most one candidate", async () => {
@@ -892,4 +972,786 @@ test("read-only geometry and waiting projection do not change graph/plane or mar
   assert.deepEqual(f.context.memory.snapshot(), graph);
   assert.deepEqual(f.context.movement.snapshot(), occupancy);
   assert.deepEqual(state(f), before);
+});
+
+async function fieldDeadline() {
+  const f = await fixture({
+    change(raw) {
+      raw.player_faction = 2; // neither combatant: AL must remain candidate Y=10.
+      raw.legionSlotCounters[0] = 1;
+      raw.legionSlotCounters[4] = 7;
+      raw.legionSlotCounters[8] = 11;
+      raw.generals = Array.from({ length: 9 }, (_, idx) => ({
+        idx,
+        battle_rating: 32,
+      }));
+      raw.legions.push(
+        soldier({
+          slot: 4,
+          faction: 1,
+          x: 6,
+          occupancyOffset: 20,
+          occupancyRowParagraph: 480,
+          troops: 1,
+          moveDelay: 9,
+        }),
+      );
+      raw.legions.push(
+        soldier({
+          slot: 8,
+          faction: 1,
+          x: 6,
+          occupancyOffset: 30,
+          occupancyRowParagraph: 480,
+          troops: 600,
+          moveDelay: 9,
+        }),
+      );
+    },
+  });
+  f.app.originalRng = new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 });
+  f.context.movement.writeByte(240, 6, 1);
+  // Saved first-D pointer != XY and != stronger slot8 pointer. W=3,E=5,
+  // N=4,S=6,center0. Candidate AL10 => W/E => directory C2, no bit6.
+  for (const [delta, tile] of [
+    [-1, 0x70],
+    [1, 0xb1],
+    [-384, 6],
+    [384, 0x0e],
+    [0, 0],
+  ])
+    f.context.terrain.writeByte(20 * 384 + 20 + delta, tile);
+  f.context.terrain.writeByte(20 * 384 + 30, 0xba);
+  f.app.startFieldBattle = () =>
+    assert.fail("no tactical lifecycle before4E5C");
+  f.app.gamebar = {
+    enqueueTalkMessage: () => assert.fail("no message before4E5C"),
+  };
+  return f;
+}
+
+test("real2873 first DI before strongest selection, candidate AL, globals, no tails; JSON cold restore", async () => {
+  const f = await fieldDeadline();
+  const saved = json(snapshotState(f.app, 0, "pre-field-prefix"));
+  const restored = await prepareScenario({
+    ...f.args,
+    mode: "restore",
+    raw: restoreSnapshotState(saved),
+    ...readSavedAssembly(saved),
+  });
+  const g = {
+    sc: restored.scenario,
+    A: restored.scenario.legions[0],
+    context: scenarioNativeRoadContext(restored.scenario),
+    app: {
+      ...f.app,
+      scenario: restored.scenario,
+      clock: { ...f.app.clock },
+      originalRng: new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 }),
+    },
+  };
+  const reported = [];
+  const debug = globalThis.__dragonDebug;
+  globalThis.__dragonDebug = {
+    reportError: (_label, error) => reported.push(error),
+  };
+  try {
+    for (const h of [f, g]) {
+      const before = h.app.originalRng.snapshot();
+      slot(h, true);
+      const error = h.app._strategicBattleFailure.error;
+      assert.equal(error.instruction, "52E7"); // original commander read, no ability defaults
+      assert.deepEqual(error.nativeFieldPrefix, {
+        d32: 0,
+        d35: 0,
+        d34: 0xc2,
+        bpWords: { 0: 0x2340, 2: 0x2440, 254: 2 },
+      });
+      assert.equal(error.nativeFieldCall.ax, 10);
+      assert.equal(error.nativeFieldCall.dx, 6);
+      assert.equal(
+        error.nativeFieldCall.firstDefender,
+        h.sc.nativeLegionSlots.records[4],
+      );
+      assert.deepEqual(error.nativeFieldCall.selection, {
+        bx: 0x2440,
+        cx: 4,
+        cf: false,
+      });
+      assert.equal(error.nativeFieldCall.di, 0x2440);
+      assert.equal(reported.at(-1), error);
+      assert.equal(reported.at(-1).nativeFieldPrefix, error.nativeFieldPrefix);
+      assert.equal(h.A.status & 0x20, 0);
+      assert.equal(h.sc.legionSlotCounters[0], 0);
+      assert.equal(h.sc.legionSlotCounters[4], 7);
+      assert.equal(h.sc.legionSlotCounters[8], 0);
+      assert.equal(h.sc.nativeLegionSlots.records[4].moveDelay, 9);
+      assert.equal(h.sc.nativeLegionSlots.records[8].moveDelay, 9);
+      assert.equal(h.sc.factions[0].money, 1000);
+      assert.equal(h.context.movement.readByte(240, 5), 0);
+      assert.equal(h.context.movement.readByte(240, 6), 1);
+      assert.equal(h.app.clock.hold, true);
+      assert.equal(canSnapshotState(h.app), false);
+      assert.deepEqual(h.app.originalRng.snapshot(), before);
+      assert.equal(Object.hasOwn(h.sc, "nativeFieldPrefix"), false);
+      assert.equal(Object.hasOwn(saved.webMeta, "nativeFieldPrefix"), false);
+    }
+    assert.deepEqual(
+      g.context.terrain.snapshot(),
+      f.context.terrain.snapshot(),
+    );
+    assert.deepEqual(
+      g.context.movement.snapshot(),
+      f.context.movement.snapshot(),
+    );
+  } finally {
+    globalThis.__dragonDebug = debug;
+  }
+});
+
+test("real2873 selected prefix failures retain same owned Error, hold/nonsave and no daily/remaining tail", async () => {
+  for (const at of ["4AA5", "4AA8", "4AAC", "4AAF"]) {
+    const f = await fieldDeadline(),
+      error = new TypeError(at);
+    const selected = f.sc.nativeLegionSlots.records[8];
+    selected.status |= 0x20;
+    if (at === "4AA5" || at === "4AAC") {
+      const record = at === "4AA5" ? f.A : selected;
+      let value = record.status;
+      Object.defineProperty(record, "status", {
+        configurable: true,
+        enumerable: true,
+        get: () => value,
+        set(next) {
+          if (value & 0x20 && !(next & 0x20)) throw error;
+          value = next;
+        },
+      });
+    } else {
+      const key = at === "4AA8" ? "0" : "8";
+      f.sc.legionSlotCounters = new Proxy(f.sc.legionSlotCounters, {
+        set(table, index, value) {
+          if (index === key && value === 0) throw error;
+          table[index] = value;
+          return true;
+        },
+      });
+    }
+    slot(f, true);
+    assert.equal(f.app._strategicBattleFailure.error, error);
+    assert.equal(error.instruction, at);
+    assert.deepEqual(error.nativeFieldCall.selection, {
+      bx: 0x2440,
+      cx: 4,
+      cf: false,
+    });
+    assert.deepEqual(error.nativeFieldPrefix.bpWords, {
+      0: 0x2340,
+      2: 0x2440,
+      254: 2,
+    });
+    assert.equal(f.A.status & 0x20, at === "4AA5" ? 0x20 : 0);
+    assert.equal(
+      f.sc.legionSlotCounters[0],
+      at === "4AA5" || at === "4AA8" ? 1 : 0,
+    );
+    assert.equal(selected.status & 0x20, at === "4AAF" ? 0 : 0x20);
+    assert.equal(f.sc.legionSlotCounters[8], 11);
+    assert.equal(f.sc.legionSlotCounters[4], 7);
+    assert.equal(f.sc.factions[0].money, 1000);
+    assert.equal(selected.moveDelay, 9);
+    assert.equal(f.context.movement.readByte(240, 5), 0);
+    assert.equal(f.app.clock.hold, true);
+    assert.equal(canSnapshotState(f.app), false);
+  }
+});
+
+test("real2873 class8 consumed RNG survives stop; early field/class9 failures keep onlyD32", async () => {
+  for (const kind of ["marker", "pointer", "class8", "class9"]) {
+    const f = await fieldDeadline();
+    const control = new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 });
+    if (kind === "marker") {
+      f.sc.player_faction = 0;
+      delete f.A._markerFrame;
+    }
+    if (kind === "pointer")
+      delete f.sc.nativeLegionSlots.records[4].occupancyRowParagraph;
+    if (kind === "class8") f.context.terrain.writeByte(20 * 384 + 20, 0xca);
+    if (kind === "class9") f.context.terrain.writeByte(20 * 384 + 20, 0xc0);
+    const directory =
+      kind === "class8" ? 0xd1 + (control.nextByte() & 3) : null;
+    slot(f, true);
+    const error = f.app._strategicBattleFailure.error;
+    assert.equal(
+      error.instruction,
+      { marker: "4B71", pointer: "4B7D", class8: "52E7", class9: "4C41" }[kind],
+    );
+    assert.deepEqual(
+      error.nativeFieldPrefix,
+      kind === "class8"
+        ? {
+            d32: 0,
+            d35: 0,
+            d34: directory,
+            bpWords: { 0: 0x2340, 2: 0x2440, 254: 2 },
+          }
+        : { d32: 0 },
+    );
+    assert.deepEqual(f.app.originalRng.snapshot(), control.snapshot());
+    assert.equal(f.sc.legionSlotCounters[0], kind === "class8" ? 0 : 1);
+    assert.equal(f.sc.legionSlotCounters[4], 7);
+    assert.equal(f.sc.legionSlotCounters[8], kind === "class8" ? 0 : 11);
+    assert.equal(f.context.movement.readByte(240, 5), 0);
+    assert.equal(canSnapshotState(f.app), false);
+  }
+});
+
+async function quickField() {
+  const f = await fieldDeadline();
+  const D = f.sc.nativeLegionSlots.records[8];
+  for (const record of [f.A, D]) {
+    record.troops = 600;
+    record.morale = 200;
+    record.units = Array.from({ length: 6 }, () => ({ type: 3, troops: 1000 }));
+  }
+  // Both L02=0 even though selector uses G1F@slot8. Ability is NOT G1F.
+  f.sc.generals[0].ability = { force: 8, lead: 9, field: 0 };
+  f.sc.generals[8].ability = { force: 255, lead: 255, field: 15 };
+  f.sc.cities[1].faction = 1;
+  f.sc.factions[1].capital = 1;
+  f.sc.factions[1].n_legions = 2;
+  f.context.movement.writeByte(480, 30, 1);
+  return { ...f, D };
+}
+
+test("real2873 neither/delegated player A/D quick RET: same canonical RNG, no4EAF DEC, current daily and other slots", async () => {
+  for (const player of [0, 1, 2]) {
+    const f = await quickField();
+    f.sc.player_faction = player;
+    if (player === 0) f.A.status |= 4;
+    if (player === 1) f.D.status |= 4;
+    const control = new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 });
+    const w = [],
+      l = [];
+    for (let i = 0; i < 6; i++) {
+      w.push(100 - ((control.nextByte() & 7) + 2));
+      l.push(100 - ((control.nextByte() % (8 + i + 1)) + 8));
+    }
+    const wt = w.reduce((a, b) => a + b),
+      lt = l.reduce((a, b) => a + b);
+    slot(f, true);
+    assert.equal(f.app._strategicBattleFailure, undefined);
+    assert.deepEqual(
+      f.A.units.map((u) => u.troops),
+      w.map((n) => n * 10),
+    );
+    assert.deepEqual(
+      f.D.units.map((u) => u.troops),
+      l.map((n) => n * 10),
+    );
+    assert.equal(f.A.troops, wt);
+    assert.equal(f.D.troops, lt);
+    assert.equal(f.A.morale, Math.floor((200 * wt) / 600));
+    assert.equal(f.D.morale, Math.floor((100 * lt) / 600));
+    assert.equal(f.A.commandState, 8);
+    assert.equal(f.D.commandState, 10);
+    assert.equal(f.A.targetNode, 1);
+    assert.equal(f.A.x, 5);
+    assert.equal(f.A.moveDelay, 1);
+    assert.equal(f.D.moveDelay, 3);
+    assert.equal(f.sc.nativeLegionSlots.records[4].moveDelay, 8);
+    assert.equal(f.sc.legionSlotCounters[0], 0);
+    assert.equal(f.sc.legionSlotCounters[8], 0);
+    assert.equal(f.sc.factions[0].money, 1000 - (wt >> 1) - (wt >> 2));
+    assert.equal(f.sc.factions[1].money, 1000 - (lt >> 1) - (lt >> 2)); // unselected troop1 costs0
+    assert.equal(f.context.movement.readByte(240, 5), 1); //269C DEC +26FA INC only
+    assert.equal(f.context.movement.readByte(480, 30), 0); //D's later slot moves old pointer
+    assert.equal(f.context.movement.readByte(240, 6), 2);
+    assert.deepEqual(f.app.originalRng.snapshot(), control.snapshot());
+    assert.equal(f.sc._legionBatchCursor, 16);
+    assert.equal(canSnapshotState(f.app), true);
+    assert.equal(Object.hasOwn(f.sc, "nativeFieldPrefix"), false);
+    const saved = json(snapshotState(f.app, 0, "quick-return"));
+    const restored = await prepareScenario({
+      ...f.args,
+      mode: "restore",
+      raw: restoreSnapshotState(saved),
+      ...readSavedAssembly(saved),
+    });
+    const savedAgain = json(
+      snapshotState(
+        { ...f.app, scenario: restored.scenario },
+        0,
+        "quick-return",
+      ),
+    );
+    assert.deepEqual(
+      savedAgain.state.nativeLegionSlots,
+      saved.state.nativeLegionSlots,
+    );
+    assert.deepEqual(
+      savedAgain.webMeta.movementMemory,
+      saved.webMeta.movementMemory,
+    );
+    const restoredRng = new OriginalBattleRng().restore(
+      saved.webMeta.originalRng,
+    );
+    assert.equal(restoredRng.nextByte(), control.nextByte());
+  }
+});
+
+test("real2873 selected player A/D first-unknown messages keep globals/clears without quick RNG, occupancy tail or replay", async () => {
+  for (const player of [0, 1]) {
+    const f = await quickField();
+    f.sc.player_faction = player;
+    const before = f.app.originalRng.snapshot();
+    slot(f, true);
+    const e = f.app._strategicBattleFailure.error;
+    assert.equal(e.instruction, player === 0 ? "4E82" : "4EA1");
+    assert.equal(e.nativeFieldPrefix.d2e, player === 0 ? 0x2240 : 0x2440);
+    assert.equal(e.nativeFieldPrefix.d30, player === 0 ? 0x2440 : 0x2240);
+    assert.equal(e.nativeFieldPrefix.d35 & 0x80, player === 1 ? 0x80 : 0);
+    assert.equal(f.sc.legionSlotCounters[0], 0);
+    assert.equal(f.sc.legionSlotCounters[8], 0);
+    assert.equal(f.sc.legionSlotCounters[4], 7);
+    assert.equal(f.context.movement.readByte(240, 5), 0);
+    assert.equal(f.D.moveDelay, 9);
+    assert.equal(f.sc.factions[0].money, 1000);
+    assert.deepEqual(f.app.originalRng.snapshot(), before);
+    assert.equal(canSnapshotState(f.app), false);
+    slot(f, true);
+    assert.equal(f.app._strategicBattleFailure.error, e);
+    assert.deepEqual(f.app.originalRng.snapshot(), before);
+  }
+});
+
+test("real5130 second474A failure retains both battle writes and attack474A, no tail or repeated RNG", async () => {
+  const f = await quickField();
+  delete f.sc.factions[1].march_marker_style;
+  const control = new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 });
+  for (let i = 0; i < 12; i++) control.nextByte();
+  slot(f, true);
+  const e = f.app._strategicBattleFailure.error;
+  assert.equal(e.instruction, "51A1");
+  assert.match(e.message, /F3E at 700F/);
+  assert(f.A.troops < 600 && f.D.troops < 600);
+  assert(f.A.morale < 200 && f.D.morale < 200);
+  assert.equal(f.A.commandState, 8);
+  assert.equal(f.A.moveDelay, 1);
+  assert.equal(f.D.movePeriod, 3);
+  assert.equal(f.D.moveDelay, 9);
+  assert.equal(f.context.movement.readByte(240, 5), 0);
+  assert.equal(f.sc.factions[0].money, 1000);
+  assert.deepEqual(f.app.originalRng.snapshot(), control.snapshot());
+  assert.equal(canSnapshotState(f.app), false);
+  slot(f, true);
+  assert.equal(f.app._strategicBattleFailure.error, e);
+  assert.deepEqual(f.app.originalRng.snapshot(), control.snapshot());
+});
+
+test("real4AB6 current/other-slot2977 return tails and AH3 onlyA fate, storedF14 and no extra RNG", async () => {
+  for (const failed of [1, 2, 3]) {
+    const f = await quickField();
+    f.sc.nativeFateDisplayFlags = 0;
+    f.sc.factions[0].monarch_idx = 0;
+    f.sc.factions[1].monarch_idx = 0;
+    if (failed & 1) f.A.morale = 99;
+    if (failed & 2) f.D.morale = 99;
+    const control = new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 });
+    for (let i = 0; i < 12; i++) control.nextByte();
+    slot(f, true);
+    assert.equal(f.app._strategicBattleFailure, undefined);
+    const aRetired = failed !== 2;
+    assert.equal(f.A.status, aRetired ? 8 : 0xc1);
+    assert.equal(f.D.status, failed === 2 ? 8 : 0xc1);
+    assert.equal(f.sc.legionSlotCounters[0], 0); //current48→264A0
+    assert.equal(f.sc.legionSlotCounters[8], failed === 2 ? 47 : 0); //other48→2A7E47
+    assert.equal(f.sc.factions[0].n_legions, aRetired ? 0 : 1);
+    assert.equal(f.sc.factions[1].n_legions, failed === 2 ? 1 : 2);
+    assert.equal(f.context.movement.readByte(240, 5), aRetired ? 0 : 1);
+    assert.equal(f.context.movement.readByte(480, 30), 0);
+    assert.equal(f.sc._legionBatchCursor, 16);
+    assert.equal(
+      f.sc.factions[0].money,
+      1000 - (f.A.troops >> 1) - (f.A.troops >> 2),
+    );
+    assert.equal(
+      f.sc.factions[1].money,
+      failed === 2 ? 1000 : 1000 - (f.D.troops >> 1) - (f.D.troops >> 2),
+    );
+    assert.deepEqual(f.app.originalRng.snapshot(), control.snapshot());
+    assert.equal(canSnapshotState(f.app), true);
+    const saved = json(snapshotState(f.app, 0, "fate-tail"));
+    const restored = await prepareScenario({
+      ...f.args,
+      mode: "restore",
+      raw: restoreSnapshotState(saved),
+      ...readSavedAssembly(saved),
+    });
+    assert.deepEqual(
+      restored.scenario.legionSlotCounters,
+      f.sc.legionSlotCounters,
+    );
+    assert.equal(
+      restored.scenario.nativeLegionSlots.records[0].status,
+      f.A.status,
+    );
+    assert.equal(
+      restored.scenario.nativeLegionSlots.records[8].status,
+      f.D.status,
+    );
+  }
+});
+
+test("real2831 both-player is friendly first-D, not a reachable4E5C battle", async () => {
+  const f = await quickField();
+  f.sc.player_faction = 0;
+  f.sc.nativeLegionSlots.records[4].faction = 0;
+  f.D.faction = 0;
+  const before = f.app.originalRng.snapshot();
+  slot(f);
+  assert.equal(f.app._strategicBattleFailure, undefined);
+  assert.equal(f.A.x, 6);
+  assert.equal(f.A.roadPointAddress, 0x2010);
+  assert.equal(f.A.troops, 600);
+  assert.equal(f.D.troops, 600);
+  assert.equal(f.A.commandState, 0);
+  assert.equal(f.D.moveDelay, 8);
+  assert.deepEqual(f.app.originalRng.snapshot(), before);
+});
+
+test("real5130 unsupported aliases and DIV preserve precise prefixes/hold without fallback or repeated RNG", async () => {
+  for (const at of ["52A4", "52E7", "5171", "5263"]) {
+    const f = await quickField();
+    if (at === "52A4") f.A.units[2].type = 0;
+    if (at === "52E7") f.A.generalIdx = 128;
+    if (at === "5263") f.A.troops = 1;
+    if (at === "5171") {
+      f.A.units = [255, 34, 1, 0, 0, 0].map((troops, i) => ({
+        type: [1, 1, 2, 4, 4, 4][i],
+        troops: troops * 10,
+      }));
+      f.A.morale = 152;
+      f.sc.generals[0].ability = { force: 127, lead: 0, field: 15 };
+      f.app.originalRng = new OriginalBattleRng().restore({
+        table: Array(257).fill(0),
+        addend: 1,
+        index: 0,
+        calls: 0,
+      });
+    }
+    const before = json({ a: f.A.units, d: f.D.units });
+    slot(f, true);
+    const e = f.app._strategicBattleFailure.error;
+    assert.equal(e.instruction, at);
+    assert.equal(
+      f.app.originalRng.calls,
+      at === "5263" ? 12 : at === "5171" ? 2 : 0,
+    );
+    if (at === "5263") {
+      assert(f.A.troops > 500);
+      assert(f.D.troops > 400);
+      assert.equal(f.A.morale, 200);
+      assert.equal(f.D.morale, 200);
+    } else assert.deepEqual({ a: f.A.units, d: f.D.units }, before);
+    assert.equal(f.sc.factions[0].money, 1000);
+    assert.equal(f.context.movement.readByte(240, 5), 0);
+    assert.equal(f.D.moveDelay, 9);
+    assert.equal(canSnapshotState(f.app), false);
+    const after = f.app.originalRng.snapshot();
+    slot(f, true);
+    assert.equal(f.app._strategicBattleFailure.error, e);
+    assert.deepEqual(f.app.originalRng.snapshot(), after);
+  }
+});
+
+async function quickSiege() {
+  const f = await fixture({
+    legion: soldier({
+      x: 6,
+      occupancyOffset: 6,
+      roadPointAddress: 0x2010,
+      troops: 300,
+      morale: 200,
+      units: Array.from({ length: 6 }, () => ({ type: 3, troops: 500 })),
+    }),
+    change(raw) {
+      raw.player_faction = 2;
+      raw.legionSlotCounters[0] = 1;
+      raw.legionSlotCounters[8] = 7;
+      Object.assign(raw.cities[1], {
+        faction: 1,
+        troops: 87,
+        growth: 104,
+        defence: 100,
+      });
+      raw.factions[1].capital = 1;
+      raw.generals = Array.from({ length: 128 }, (_, idx) => ({
+        idx,
+        battle_rating: 0,
+        ability: { force: 8, lead: 9, siege: 0 },
+      }));
+      raw.legions.push(
+        soldier({
+          slot: 8,
+          generalIdx: 8,
+          faction: 1,
+          status: 0xe4,
+          x: 8,
+          roadEdgeOrNode: 8,
+          occupancyOffset: 8,
+          moveDelay: 9,
+          troops: 600,
+          morale: 200,
+          units: Array.from({ length: 6 }, () => ({ type: 3, troops: 1000 })),
+        }),
+      );
+    },
+  });
+  f.context.movement.writeByte(240, 6, 1);
+  f.context.movement.writeByte(240, 8, 1);
+  f.app.originalRng = new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 });
+  return f;
+}
+
+test("real28BF siege loss returns to occupancy INC and same-slot tail without moving to candidate or clearing D03", async () => {
+  for (const viaSlot of [false, true]) {
+    const f = await quickSiege(),
+      D = f.sc.nativeLegionSlots.records[8];
+    if (viaSlot) slot(f, true);
+    else
+      assert.equal(
+        performOriginalRoadAction(f.sc, f.A, f.context, f.app.originalRng),
+        "siege-battle",
+      );
+    assert.equal(f.app._strategicBattleFailure, undefined);
+    assert.equal(f.A.x, 6);
+    assert.equal(f.A.roadPointAddress, 0x2010);
+    assert.equal(plane(f, 6), 1);
+    assert.equal(plane(f, 7), 0);
+    assert.equal(f.A.targetCity, 0);
+    assert.equal(f.A.commandState, 10);
+    assert.equal(f.sc.cities[1].faction, 1);
+    assert(f.sc.cities[1].troops < 87);
+    // Entry preserves D03/bit5. Later slot8 now has 0B=1 from474A;
+    // 25CC clears bit5 at its own due action, then264A clears03.
+    assert.equal(D.status & 0x20, viaSlot ? 0 : 0x20);
+    assert.equal(f.sc.legionSlotCounters[8], viaSlot ? 0 : 7);
+    assert.equal(f.sc.legionSlotCounters[0], 0);
+    assert.equal(f.app.originalRng.snapshot().calls, 12);
+  }
+});
+
+test("real28BF player siege stops before RNG, owns failure/hold, and never replays prefix", async () => {
+  const f = await quickSiege();
+  f.sc.player_faction = 0;
+  const before = f.app.originalRng.snapshot();
+  slot(f, true);
+  const error = f.app._strategicBattleFailure.error;
+  assert.equal(error.instruction, "4F36");
+  assert.deepEqual(error.nativeSiegePrefix, {
+    d32: 0x860,
+    d34: 1,
+    d35: 0,
+    bpWords: { 0: 0x2440, 254: 1 },
+  });
+  assert.equal(f.A.status & 0x20, 0);
+  assert.equal(f.sc.legionSlotCounters[0], 0);
+  assert.equal(f.sc.legionSlotCounters[8], 7);
+  assert.equal(plane(f, 6), 0);
+  assert.equal(f.app.clock.hold, true);
+  assert.equal(canSnapshotState(f.app), false);
+  slot(f, true);
+  assert.equal(f.app._strategicBattleFailure.error, error);
+  assert.deepEqual(f.app.originalRng.snapshot(), before);
+  assert.equal(f.sc.factions[0].money, 1000);
+});
+
+test("real28BF neutral zero-garrison still fights, raw063E then cleanup/capture/map/slot tail; unknown alias retains prefix", async () => {
+  for (const missing of [false, true]) {
+    const f = await quickSiege();
+    f.sc.nativeLegionSlots.records[8].status = 0;
+    rebindNativeLegionViews(f.sc);
+    Object.assign(f.sc.cities[1], {
+      faction: null,
+      troops: 0,
+      type: 0,
+      strategicNeighbours: [255, 255, 255, 255],
+    });
+    f.sc.factions[0].n_cities = 1;
+    f.sc.nativeFateDisplayFlags = 0;
+    f.sc.diplomacy[2][14] = 0xed;
+    if (missing) delete f.sc.diplomacy[2][14];
+    const temporary = f.sc.nativeLegionSlots.records[127];
+    temporary.roadEdgeOrNode = 0x1234;
+    slot(f, true);
+    if (missing) {
+      assert.match(f.app._strategicBattleFailure.error.message, /063E at 700F/);
+      assert.equal(f.sc.cities[1].faction, null);
+      assert.equal(plane(f, 6), 0);
+      assert.equal(canSnapshotState(f.app), false);
+    } else {
+      assert.equal(f.app._strategicBattleFailure, undefined);
+      assert.equal(f.sc.cities[1].faction, 0);
+      assert.equal(f.sc.factions[0].n_cities, 2);
+      assert.equal(temporary.status, 0);
+      assert.equal(temporary.markerBase, (0xed * 5) & 255);
+      assert.equal(temporary.roadEdgeOrNode, 0x1234);
+      assert.equal(temporary.morale, 0);
+      assert.equal(plane(f, 6), 1);
+      assert.equal(f.A.x, 6);
+      assert.equal(f.A.commandState, 8);
+      assert.equal(f.sc.legionSlotCounters[0], 0);
+      assert.equal(f.context.terrain.readByte(3840 + 8), 0xb9);
+    }
+  }
+});
+
+test("real28BF fixed127 and G127 survive pre/post siege JSON cold restoration without defaults or duplicate authority", async () => {
+  const f = await quickSiege();
+  f.sc.nativeLegionSlots.records[8].status = 0;
+  rebindNativeLegionViews(f.sc);
+  Object.assign(f.sc.cities[1], {
+    faction: null,
+    troops: 0,
+    type: 0,
+    strategicNeighbours: [255, 255, 255, 255],
+  });
+  f.sc.factions[0].n_cities = 1;
+  f.sc.nativeFateDisplayFlags = 0;
+  f.sc.diplomacy[2][14] = 0xed;
+  // Explicit stored input: raw G127 abilities in all 20 chapters; owner2 in
+  // upper chapters 0/1. Neither field is derived from the attacked city.
+  Object.assign(f.sc.generals[127], {
+    attr: 0,
+    faction: 2,
+    ability: { siege: 0, field: 0, naval: 0, force: 8, lead: 8, politics: 8 },
+  });
+  const generalBefore = json(f.sc.generals[127]);
+  const temporary = f.sc.nativeLegionSlots.records[127];
+  // Controlled residue, not a claim that these nonzero bytes were loaded
+  // from the zero SINARIO legion table or reached by a whole campaign.
+  temporary.roadEdgeOrNode = 0x1234;
+  temporary.commandState = 11;
+  f.sc.legionSlotCounters[127] = 106;
+  const saved = json(snapshotState(f.app, 0, "pre-siege-127"));
+  const prepared = await prepareScenario({
+    ...f.args,
+    mode: "restore",
+    raw: restoreSnapshotState(saved),
+    ...readSavedAssembly(saved),
+  });
+  const g = {
+    sc: prepared.scenario,
+    A: prepared.scenario.nativeLegionSlots.records[0],
+    context: scenarioNativeRoadContext(prepared.scenario),
+    app: {
+      ...f.app,
+      scenario: prepared.scenario,
+      clock: { ...f.app.clock },
+      originalRng: new OriginalBattleRng().restore(saved.webMeta.originalRng),
+    },
+  };
+  assert.notEqual(g.sc.nativeLegionSlots.records[127], temporary);
+  for (const h of [f, g]) {
+    slot(h, true);
+    assert.equal(h.app._strategicBattleFailure, undefined);
+    const t = h.sc.nativeLegionSlots.records[127];
+    assert.equal(t.status, 0);
+    assert.equal(t.generalIdx, 127);
+    assert.equal(t.faction, 24);
+    assert.equal(t.roadEdgeOrNode, 0x1234);
+    assert.equal(t.commandState, 11);
+    assert.equal(h.sc.legionSlotCounters[127], 106);
+    assert.equal(t.markerBase, (0xed * 5) & 255);
+    assert.deepEqual(h.sc.generals[127], generalBefore);
+    assert.equal(h.sc.legions.includes(t), false);
+    assert.equal(canSnapshotState(h.app), true);
+    const after = json(snapshotState(h.app, 0, "post-siege-127"));
+    const cold = await prepareScenario({
+      ...f.args,
+      mode: "restore",
+      raw: restoreSnapshotState(after),
+      ...readSavedAssembly(after),
+    });
+    const restored = cold.scenario.nativeLegionSlots.records[127];
+    assert.notEqual(restored, t);
+    assert.deepEqual(json(restored), json(t));
+    assert.deepEqual(cold.scenario.generals[127], generalBefore);
+    assert.equal(cold.scenario.legionSlotCounters[127], 106);
+    const rng = new OriginalBattleRng().restore(after.webMeta.originalRng);
+    assert.deepEqual(rng.snapshot(), h.app.originalRng.snapshot());
+    assert.equal(
+      rng.nextByte(),
+      new OriginalBattleRng().restore(h.app.originalRng.snapshot()).nextByte(),
+    );
+  }
+  // Compare serialized rule authority; inactive UI projections (dead/leader/
+  // target object) are intentionally absent after restore, not rule bytes.
+  assert.deepEqual(
+    json(snapshotNativeLegionSlots(g.sc)),
+    json(snapshotNativeLegionSlots(f.sc)),
+  );
+  assert.deepEqual(g.sc.legionSlotCounters, f.sc.legionSlotCounters);
+  assert.deepEqual(g.app.originalRng.snapshot(), f.app.originalRng.snapshot());
+  assert.deepEqual(
+    g.context.movement.snapshot(),
+    f.context.movement.snapshot(),
+  );
+  assert.deepEqual(g.context.terrain.snapshot(), f.context.terrain.snapshot());
+});
+
+test("real28BF surviving neutral defender uses0603; FF/shortcut return versus missing-alias failure never replays combat", async () => {
+  for (const capital of [0, 255, undefined]) {
+    const f = await quickSiege();
+    f.sc.nativeLegionSlots.records[8].status = 0;
+    rebindNativeLegionViews(f.sc);
+    Object.assign(f.sc.cities[1], {
+      faction: null,
+      troops: 255,
+      type: 0,
+      strategicNeighbours: [255, 255, 255, 255],
+    });
+    f.sc.generals[0].ability.siege = 12;
+    f.sc.factions[0].n_cities = 1;
+    f.sc.nativeFateDisplayFlags = 0;
+    f.sc.diplomacy[2][14] = 17;
+    if (capital === undefined) delete f.sc.diplomacy[0][3];
+    else f.sc.diplomacy[0][3] = capital;
+    const t = f.sc.nativeLegionSlots.records[127];
+    t.roadEdgeOrNode = 0;
+    t.commandState = 11;
+    slot(f, true);
+    assert(t.morale > 0, "fixture must reach487B after6FD2/morale gate");
+    assert(t.units[0].troops > 0);
+    assert.equal(t.markerBase, 85);
+    assert.equal(t.moveDelay, 1);
+    assert.equal(f.app.originalRng.snapshot().calls, 12);
+    if (capital === undefined) {
+      const error = f.app._strategicBattleFailure.error;
+      assert.match(error.message, /DS0603/);
+      assert.equal(t.commandState, 11);
+      assert.equal(f.sc.cities[1].faction, null);
+      assert(f.sc.cities[1].troops < 255); // numeric writes committed first
+      assert.equal(plane(f, 6), 0);
+      assert.equal(f.app.clock.hold, true);
+      assert.equal(canSnapshotState(f.app), false);
+      const rng = f.app.originalRng.snapshot();
+      slot(f, true);
+      assert.equal(f.app._strategicBattleFailure.error, error);
+      assert.deepEqual(f.app.originalRng.snapshot(), rng);
+    } else {
+      assert.equal(f.app._strategicBattleFailure, undefined);
+      assert.equal(t.status, 0); //4FC9 after the actual474A return
+      assert.equal(t.commandState, capital === 0 ? 10 : 11);
+      if (capital === 0) {
+        assert.equal(t.targetCity, 0);
+        assert.equal(t.targetNode, 0);
+      }
+      assert.equal(f.sc.cities[1].faction, 0);
+      assert.equal(plane(f, 6), 1);
+      assert.equal(f.sc.legionSlotCounters[0], 0);
+      assert.equal(canSnapshotState(f.app), true);
+    }
+  }
 });

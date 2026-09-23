@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
+import {
+  clickSfx,
+  doubleClickSfx,
+  warnSfx,
+} from "../web/src/core/speaker.js";
 
 const scheduled = new Map();
 let nextTimerId = 1;
@@ -255,6 +260,13 @@ function fixture() {
   );
   assert.equal(messages[0].cityName, "小沛");
 }
+
+// P50: 4EB9/4F58内call 0CDE(单哔)、4F71内call 0CE7(双哔)；守方TALK29经
+// 4EA1+4EB9、攻方TALK28经4F36+4F58各两次0CDE。无音频环境下静默no-op，
+// 上述三处开场分支调用不得抛错（本文件各流程已实际经过新调用点）。
+assert.doesNotThrow(() => clickSfx());
+assert.doesNotThrow(() => doubleClickSfx());
+assert.doesNotThrow(() => warnSfx());
 
 process.stdout.write(
   "battle opening messages OK: TALK27/28/29 gate battle start, local TALK30 target; full loss-message ordering pending\n",

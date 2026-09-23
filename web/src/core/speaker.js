@@ -234,6 +234,12 @@ export function clickSfx() {
 	tone(0.05, 0);
 }
 
+/** 0xCDE 连击两声：4EA1+4EB9内(守方TALK29)/4F36+4F58内(攻方TALK28)原样两次 */
+export function doubleClickSfx() {
+	tone(0.05, 0);
+	tone(0.05, 0.14);
+}
+
 /** 0xCE7 警告音(两声) */
 export function warnSfx() {
 	tone(0.07, 0);

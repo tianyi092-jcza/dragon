@@ -212,6 +212,13 @@ try {
     const other = app.scenario.factions.find(
       (f) => f?.active && f.idx !== app.scenario.player_faction,
     );
+    // P35 65EF 外交官门：[F+0x2A]==0xFF 时原版拒绝进言（TALK55）。
+    // 本测试覆盖接见对白音乐切换，夹具显式补一名外交官。
+    const me = app.scenario.factions[app.scenario.player_faction];
+    if (me && me.diplomat_idx == null) {
+      me.diplomat_idx =
+        app.scenario.generals.find((g) => g?.faction === me.idx)?.idx ?? 0;
+    }
     await app.gamebar.showHostileProposalAudience(other);
     const entered = app.music.track;
     app.gamebar.closeProposalAudience();

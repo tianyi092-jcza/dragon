@@ -115,8 +115,14 @@ export async function startSingleInstance({
       LOCK_NAME,
       { ifAvailable: true },
       async (lock) => {
+        // A lifecycle event may have stopped this page while the request queued.
+        if (stopped) {
+          acquiredResolve(null);
+          return;
+        }
         if (!lock) {
           blockExistingInstance(channel);
+          stopped = true;
           channel?.close();
           acquiredResolve(null);
           return;

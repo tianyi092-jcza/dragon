@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+// P68 G8: v1 Dijkstra oracle deleted. This file now pins only the shipped
+// graph asset integrity (counts, E717 point shape, 274C tile
+// classification) plus node-identity reads. Route search is native
+// (47BB/491B via searchOriginalRoadMemory); its coverage lives in the
+// native road tests, not here.
 let graph;
 let terrain;
 try {
@@ -18,8 +23,9 @@ globalThis.fetch = async () => ({
   json: async () => graph,
 });
 
-const { findRoadRoute, loadRoadGraph, roadNodeAt, roadGraphReady } =
-  await import("../web/src/game/roadgraph.js");
+const { loadRoadGraph, roadNodeAt, roadGraphReady } = await import(
+  "../web/src/game/roadgraph.js"
+);
 
 await loadRoadGraph();
 assert.equal(roadGraphReady(), true);
@@ -31,26 +37,20 @@ let cityBoundaryEndpoints = 0;
 for (const edge of graph.edges) {
   const source = graph.nodes[edge.source];
   const target = graph.nodes[edge.target];
-  const forward = findRoadRoute(source.x, source.y, target.x, target.y);
-  const reverse = findRoadRoute(target.x, target.y, source.x, source.y);
-  assert.ok(forward);
-  assert.ok(reverse);
-  assert.equal(forward.legs.length, forward.edges.length);
-  assert.equal(reverse.legs.length, reverse.edges.length);
-  assert.ok(forward.legs.every((leg) => leg.stride === 4 || leg.stride === -4));
-  // A direct edge can be longer than an alternate multi-edge route; Dijkstra must
-  // never return a route more expensive than that direct edge, and is symmetric.
-  assert.ok(forward.distance <= edge.weight + 4);
-  assert.equal(reverse.distance, forward.distance);
+  assert.ok(source && target, `edge ${edge.id} endpoints must exist`);
+  assert.ok(
+    Array.isArray(edge.points) && edge.points.length > 0,
+    `edge ${edge.id} must carry points`,
+  );
   assert.notDeepEqual(
-    forward.points.at(-1),
+    edge.points.at(-1),
     { x: target.x, y: target.y },
     "E717边点列不得包含目标据点节点中心",
   );
   assert.notDeepEqual(
-    reverse.points.at(-1),
+    edge.points[0],
     { x: source.x, y: source.y },
-    "E717反向边点列不得包含源据点节点中心",
+    "E717边点列不得包含源据点节点中心",
   );
   for (const point of [edge.points[0], edge.points.at(-1)]) {
     const tile = terrain[point.y * 384 + point.x];
@@ -73,16 +73,9 @@ assert.equal(cityBoundaryEndpoints, 508);
 const first = graph.nodes[0];
 assert.equal(roadNodeAt(first.x, first.y)?.id, first.id);
 assert.equal(roadNodeAt(-1, -1), null);
-assert.deepEqual(findRoadRoute(first.x, first.y, first.x, first.y)?.points, []);
-assert.equal(findRoadRoute(-1, -1, first.x, first.y), null);
-
-const last = graph.nodes.at(-1);
-const crossGraph = findRoadRoute(first.x, first.y, last.x, last.y);
-assert.ok(crossGraph?.edges.length > 0);
-assert.notDeepEqual(crossGraph.points.at(-1), { x: last.x, y: last.y });
 
 process.stdout.write(
   `road graph OK: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ` +
-    `${cityBoundaryEndpoints} city-boundary endpoints, ` +
-    `cross-route ${crossGraph.edges.length} edges/${crossGraph.distance} weight\n`,
+    `${cityBoundaryEndpoints} city-boundary endpoints ` +
+    `(P68 G8: Dijkstra oracle dropped, asset pins kept)\n`,
 );

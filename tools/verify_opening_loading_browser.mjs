@@ -94,7 +94,8 @@ try {
   const context = await browser.newContext({
     viewport: { width: 1024, height: 768 },
   });
-  await context.addInitScript(() => {
+  await context.addInitScript((origin) => {
+    if (location.origin !== origin) return;
     const put = Cache.prototype.put;
     Cache.prototype.put = async function (...args) {
       window.cacheWriting = true;
@@ -103,7 +104,7 @@ try {
       });
       return put.apply(this, args);
     };
-  });
+  }, origin);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
@@ -186,7 +187,7 @@ try {
   await page.locator("#start-opening").click();
   await page.waitForFunction(
     () =>
-      WolongIntro.phase === "intro" &&
+      window.WolongIntro?.phase === "intro" &&
       WolongIntro.music.playing &&
       WolongIntro.music.time > 0,
   );
@@ -215,11 +216,11 @@ try {
   await cached.locator("#start-opening").focus();
   await cached.keyboard.press("Enter");
   await cached.waitForFunction(
-    () => WolongIntro.phase === "intro" && WolongIntro.music.playing,
+    () => window.WolongIntro?.phase === "intro" && WolongIntro.music.playing,
   );
   await cached.reload();
   await cached.waitForFunction(
-    () => window.mounted && WolongIntro.phase === "idle",
+    () => window.mounted && window.WolongIntro?.phase === "idle",
   );
   assert.equal(await cached.evaluate(() => WolongIntro.music.playing), false);
   assert.equal(downloads, 1, "ordinary refresh must not load music");
@@ -230,10 +231,11 @@ try {
   slow = true;
   knownLength = false;
   const fallbackContext = await browser.newContext();
-  await fallbackContext.addInitScript(() => {
+  await fallbackContext.addInitScript((origin) => {
+    if (location.origin !== origin) return;
     CacheStorage.prototype.open = () =>
       Promise.reject(new DOMException("denied", "SecurityError"));
-  });
+  }, origin);
   const fallback = await fallbackContext.newPage();
   fallback.on("pageerror", (error) => errors.push(String(error)));
   await fallback.goto(origin);
@@ -255,7 +257,7 @@ try {
   );
   await fallback.locator("#start-opening").click();
   await fallback.waitForFunction(
-    () => WolongIntro.phase === "intro" && WolongIntro.music.playing,
+    () => window.WolongIntro?.phase === "intro" && WolongIntro.music.playing,
   );
   await fallback.evaluate(() => {
     const revoke = URL.revokeObjectURL;
@@ -272,10 +274,11 @@ try {
   // Quota failure after download is also an explicit in-memory fallback.
   slow = false;
   const quotaContext = await browser.newContext({ reducedMotion: "reduce" });
-  await quotaContext.addInitScript(() => {
+  await quotaContext.addInitScript((origin) => {
+    if (location.origin !== origin) return;
     Cache.prototype.put = () =>
       Promise.reject(new DOMException("full", "QuotaExceededError"));
-  });
+  }, origin);
   const quota = await quotaContext.newPage();
   quota.on("pageerror", (error) => errors.push(String(error)));
   await quota.goto(origin);
@@ -284,7 +287,7 @@ try {
   await quota.locator("#start-opening").click();
   await quota.waitForFunction(
     () =>
-      WolongIntro.phase === "idle" &&
+      window.WolongIntro?.phase === "idle" &&
       WolongIntro.music.playing &&
       window.menuReleased,
   );
@@ -299,7 +302,7 @@ try {
   );
   await failed.goto(origin);
   await failed.waitForFunction(
-    () => WolongIntro.phase === "error" && window.menuReleased,
+    () => window.WolongIntro?.phase === "error" && window.menuReleased,
   );
   assert.equal(await failed.evaluate(() => WolongIntro.music.playing), false);
   assert.equal(

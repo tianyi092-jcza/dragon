@@ -5,6 +5,18 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Chromium rejects these transport ports before issuing an HTTP request. An OS
+// ephemeral allocation can still choose one (for example 4045), so port 0 must
+// be retried rather than treated as intrinsically browser-safe.
+const unsafeBrowserPorts = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79,
+  87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137,
+  139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532,
+  540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723,
+  2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697,
+  10080,
+]);
+
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -75,6 +87,12 @@ export async function startBrowserTestServer() {
     server.listen(0, "127.0.0.1", resolve);
   });
   const { port } = server.address();
+  if (unsafeBrowserPorts.has(port)) {
+    await new Promise((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    return startBrowserTestServer();
+  }
   let closing;
   return {
     port,

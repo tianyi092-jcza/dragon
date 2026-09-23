@@ -56,7 +56,14 @@ def put(record, offset, value, size=1):
 def source_chapter(template, chapter_id):
     """导入适配：提取已知编辑字段；原记录只进入独立兼容区。"""
     state = deepcopy(template)
-    compatibility = {"cities": [], "factions": []}
+    compatibility = {
+        "cities": [],
+        "factions": [],
+        "nativeFactionSlotRaw": state.pop("nativeFactionSlotRaw"),
+        "nativeDiplomacyRaw": state.pop("nativeDiplomacyRaw"),
+        "nativeStrategicEventRaw": state.pop("nativeStrategicEventRaw"),
+        "nativeMonthlyPolicyRaw": state.pop("nativeMonthlyPolicyRaw"),
+    }
     for city in state["cities"]:
         raw = bytes.fromhex(city.pop("raw"))
         compatibility["cities"].append(raw.hex())
@@ -95,6 +102,64 @@ def compile_chapter(document, world_cities):
             raise ValueError("chapter/world city slot mismatch")
         city["x"], city["y"] = position["x"], position["y"]
     state["n_factions"] = len(state["factions"])
+    native_factions = compatibility.get("nativeFactionSlotRaw")
+    if not isinstance(native_factions, list) or len(native_factions) != 22:
+        raise ValueError("native faction table must contain 22 slots")
+    for index, encoded in enumerate(native_factions):
+        try:
+            raw = bytes.fromhex(encoded)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"native faction slot {index}: invalid hex") from error
+        if len(raw) != 64:
+            raise ValueError(f"native faction slot {index}: invalid record size")
+    state["nativeFactionSlotRaw"] = list(native_factions)
+    native_diplomacy = compatibility.get("nativeDiplomacyRaw")
+    if not isinstance(native_diplomacy, str):
+        raise ValueError("native diplomacy matrix must be hex")
+    try:
+        native_diplomacy_bytes = bytes.fromhex(native_diplomacy)
+    except ValueError as error:
+        raise ValueError("native diplomacy matrix: invalid hex") from error
+    if len(native_diplomacy_bytes) != 24 * 24:
+        raise ValueError("native diplomacy matrix must contain 24x24 bytes")
+    state["nativeDiplomacyRaw"] = native_diplomacy.lower()
+    native_events = compatibility.get("nativeStrategicEventRaw")
+    if not isinstance(native_events, str):
+        raise ValueError("native strategic event wheel must be hex")
+    try:
+        native_event_bytes = bytes.fromhex(native_events)
+    except ValueError as error:
+        raise ValueError("native strategic event wheel: invalid hex") from error
+    if len(native_event_bytes) != 0x400:
+        raise ValueError("native strategic event wheel must contain 0x400 bytes")
+    state["nativeStrategicEventRaw"] = native_events.lower()
+    native_policy = compatibility.get("nativeMonthlyPolicyRaw")
+    if not isinstance(native_policy, str):
+        raise ValueError("native monthly policy block must be hex")
+    try:
+        native_policy_bytes = bytes.fromhex(native_policy)
+    except ValueError as error:
+        raise ValueError("native monthly policy block: invalid hex") from error
+    if len(native_policy_bytes) != 0x10:
+        raise ValueError("native monthly policy block must contain 0x10 bytes")
+    state["nativeMonthlyPolicyRaw"] = native_policy.lower()
+    expected_policy = bytes([state["tax"], 0]) + b"".join(
+        (value // 10).to_bytes(2, "little") for value in state["conscription"]
+    )
+    expected_next_policy = bytes([state["next_tax"], 0]) + b"".join(
+        (value // 10).to_bytes(2, "little") for value in state["next_conscription"]
+    )
+    # D09/D11 are unknown compatibility bytes: compare only named positions and
+    # require displayed troop values to be exact multiples of the original unit.
+    if any(value % 10 for value in state["conscription"] + state["next_conscription"]):
+        raise ValueError("native monthly conscription view must use units of ten")
+    if (
+        native_policy_bytes[0] != expected_policy[0]
+        or native_policy_bytes[2:8] != expected_policy[2:8]
+        or native_policy_bytes[8] != expected_next_policy[0]
+        or native_policy_bytes[10:16] != expected_next_policy[2:8]
+    ):
+        raise ValueError("native monthly policy named fields diverge from raw bytes")
     for general in state["generals"]:
         general["active"] = bool(general["attr"] & 0x80)
         general["is_monarch"] = bool(general["attr"] & 0x40)
@@ -199,6 +264,15 @@ def compile_chapter(document, world_cities):
                 put(raw, 0x18, record["n_generals"] + advisor_count)
                 record["money_hi"] = raw[0x22]
             record["raw"] = raw.hex()
+    # P30/P34 native别名读者消费静态章节城记录字节（原 D52:0840..203F=192×32B）。
+    # 从已命名编辑字段回写后的raw派生；源文档若手写陈旧副本必须拒绝，防分叉。
+    derived_city_raw = [record["raw"] for record in state["cities"]]
+    existing_city_raw = state.get("nativeCityRecordRaw")
+    if existing_city_raw is not None and existing_city_raw != derived_city_raw:
+        raise ValueError("native city record raw diverges from named city fields")
+    if len(derived_city_raw) != 192:
+        raise ValueError("native city record table must contain 192 records")
+    state["nativeCityRecordRaw"] = derived_city_raw
     if state.get("legions") != []:
         raise ValueError("chapter templates cannot contain runtime legions")
     return state
@@ -354,6 +428,9 @@ def load_content(root=SOURCE_ROOT):
             or type(edge["weight"]) not in (int, float)
             or not math.isfinite(edge["weight"])
             or (roads["version"] == 1 and edge["weight"] <= 0)
+            # v2 cost is the native E717 point-count-minus-one (P57): a count
+            # cannot be negative, but zero is not forbidden by any closed rule.
+            or (roads["version"] == 2 and edge["weight"] < 0)
         ):
             raise ValueError("invalid road edge geometry/weight")
         for index, point in enumerate(edge["points"]):
@@ -409,10 +486,9 @@ def render_world(root, world, tileset, layout):
 def compile_content(root, output, *, maps=True):
     catalog, data, world, tileset, layout, roads = load_content(root)
     output = Path(output)
-    # v2 remains explicit staging until native callers and formal load/save agree.
-    # Do not let compiler support publish over the existing v1 runtime/source.
-    if roads["version"] == 2 and output.exists():
-        raise ValueError("staged v2 content requires a new output directory")
+    # v2 is the default road content since the P58 gate flip (native E717
+    # weights/costs/flags replace the v1 approximation). The compiler still
+    # stages everything in a temp dir and only publishes validated output.
     # 完成校验/渲染后才发布；坏源不能先覆盖data.json，再在地图阶段报错。
     with TemporaryDirectory(prefix="wolong-content-compile-") as temporary:
         stage = Path(temporary)

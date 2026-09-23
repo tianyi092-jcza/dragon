@@ -11,11 +11,14 @@
 
 ## 2. 当前主线
 
-- **全AI逆向尚未完成**：覆盖外交、编成/补员、驻防/出击、行军接敌、战果、占城、撤退、返都、解散及必要状态/RNG/调度。
-- **阶段顺序**：先保证原机制、玩法完整及正确存档，再按原生JS/Canvas架构重构独立实现；不提前大规模重写、不删减玩法或用近似兜底。编辑器、扩容、任意世界热切换、多语言和完整DOS环境复刻不是当前前置任务。
-- **已接限定域**：detached v2的[487B战后](docs/re-notes-march-pathfinding.md#native-retreat-callers)、[47BB移动/占格](docs/re-notes-march-pathfinding.md#native-movement-callers)、[到达/驻军缓存](docs/re-notes-march-pathfinding.md#native-arrival-callers)、[城市军事/治理/灾害及天气timer](docs/re-notes-march-pathfinding.md#native-city-callers)、[成功编成/state9重分/严格6FD2/唯一固定槽保存](docs/re-notes-march-pathfinding.md#native-formation-callers)。5030捕获的同号权威槽读取及29D4缺值门已补齐；不是完整29C3或灭亡链认证。
-- **运行门与缺口**：默认源/运行道路仍v1，正常App仍拒v2；旧近似选路仍在。消息返回、去向/解散、完整初始化与占格生命周期、未知槽/别名/外栈、天气后继及日期/月界尚未整体闭合。“持续战争中全军返都”和“占城后弃守”分别调查，不预设同因。
-- 具体边界见[AI全链](docs/re-notes-ai-chain.md)、[行军字段矩阵](docs/re-notes-march-pathfinding.md#55-p24字段工程矩阵与冷加载修复非完整道路接线)；批次成绩只进journal，不是永久健康保证。最新用户请求决定本轮范围。
+- **全AI逆向仍是主线且尚未完成**：先闭合初始化、财政/外交、编成/补员、调度、行军接敌、战斗、战后、事件、日期与存档恢复，再做架构重构；不以近似规则、删玩法或提前切默认路径换取表面可玩。
+- **已建立的严格骨架**：固定军团/势力/外交/事件/政策原始表与JSON恢复合同；有限编成、移动、野战、攻城、去向、占城、天气和日期链；固定槽月结已接至`53A6..53BD`政策切换。详细边界分别见[AI全链](docs/re-notes-ai-chain.md)、[行军](docs/re-notes-march-pathfinding.md)、[战后](docs/re-notes-legion-fate.md)、[财政](docs/re-notes-ai-fiscal.md)和[外交](docs/re-notes-ai-diplomacy.md)。这些均为限定域，不等于完整原生战役。
+- **当前接缝**（明细与证据根见[journal §2/§5](docs/checkpoint-journal.md)，机制正文只留各`re-notes`/SKILL）：
+  - 事件泵type1–8全类放行（type1 P25、type2/3 NPC+玩家决定 P26/P27、type4–7 P28、type8外交官径+玩家径 P29）、type9–13有限域、type1旧目标22..35别名（P30）；FFFF候选别名门（P34）、`3094`与4064外栈读实锤工程边界（P34/P39）。
+  - type10直接生产路径穷尽无0x0A（P31）；`8810`/`5E80`零规则写零RNG审计+463E/40D7放行（P32）；月末585F deferred合同、v1 recruit系native禁用差异候选（P33）；进言链C07+迁都33FD（P35/P38，6E8F留C08）。
+  - 1D0B统一胜利门D2A不变式（P36）；生产native城记录挂载（P37）；占格平面/C18 fresh初始化+native合成（P40）；43D3 faction域（P41）；7FB4立即命令入口核对（P42）。
+  - 下一步：C03槽到期分派已结（P44）→ C12灭亡4FCE扫描+resume入口已接（P45/P46）→ C11-G1F调用者/战术退出帧/城壁/开场音/退出审计/泵尾/保存恢复已闭（P47–P53）→ C09消息返回已接（P54–P55）→ C15审阅/裁决已交付（P54/P56）→ v2候选重建（P57）→ 路由翻转批准（P60）→ 生产v1删除G1–G8（P62–P69/P76）→ 原生覆盖nREPLAY/nDELEG/nBLOCKER/nCONTACT/nRESUME/nP06（P70–P75）→ C15大门翻转批准（P78，门已翻）→ 门后延续G6/H1–H5/AL围栏全闭（P79–P86；H4-(3c)为非规则影响有界围栏）。未知处保已提交前缀并hold/禁存。
+- **准入（门后现状）**：fresh装配默认v2，生产零v1残留；v1存档路径已退役删除，不兼容槽三路禁用。批次验证数字只写[journal](docs/checkpoint-journal.md)，不当作永久健康保证。
 
 ## 3. 架构与数据流
 
@@ -27,19 +30,19 @@
 | --- | --- |
 | `main.js`、`app/startflow.js`、`app/battleflow.js` | App装配、开局、战斗入口/接续；新局与读档共用`loadState` |
 | `content/`、`game/world.js`、`worldresources.js` | 内容/章节/修订身份、旧索引映射、Scenario副本及每世界资源实例 |
-| `game/navigation/`、`roadgraph.js`、`pathfind.js` | 导航与默认门面；detached原生规则和生产v1边界 |
+| `game/navigation/` | v2原生导航基建（图记录与地形保留；Dijkstra实现与`findPath`门面导出已删，P67/P69） |
 | `game/ai.js`、`weather.js`、`autobattle.js`、`legionscheduler.js` | 战略AI、灾害、接敌战后、速算与逐槽调度 |
-| `game/legionphase.js`、`legioncounts.js`、`nativelegions.js`、`legioncontinuation.js`、`strategicfailure.js` | 固定槽相位/计数、唯一记录表、续段所有权、失败暂停/禁存 |
+| `game/legionphase.js`、`legioncounts.js`、`nativelegions.js`、`nativefactions.js`、`nativediplomacy.js`、`nativeevents.js`、`nativemonthlypolicy.js`、`legioncontinuation.js`、`strategicfailure.js` | 固定槽/原始表、续段所有权、严格恢复、失败暂停/禁存 |
 | `game/clock.js`、`tacticalclock.js`、`battle/original*.js` | 战略/战术预算、权威Session、RNG、VM与结算 |
 | `game/savegame.js`、`core/localstore.js` | 快照/恢复、保存守卫、IndexedDB四槽 |
 | `game/playerqueries.js`、`legacyrecords.js`；`render/`、`ui/` | 纯查询/兼容读取；只读绘制、GameBar/HUD、消息FIFO与StartMenu |
 
-- 逻辑分辨率`640×400`；当前世界`384×256`格、16px图块、192道路节点、128军团槽、24势力槽。尺寸、地址、哨兵及正常调度槽数不能一律替换成数组length。
+- 逻辑分辨率`640×400`；当前世界`384×256`格、16px图块、192道路节点。原运行域含128军团记录、22个40h势力记录、24×24外交矩阵及256×4B事件轮；各循环的排除槽、地址和哨兵不能一律替换成数组length。
 - `web/content/builtin/`为编辑源，`tools/compile_content.py`生成20章模板及地图/道路资产。命名state字段为权威，未知兼容字节保留；不手改生成物掩盖错误。解析纠错先导入新目录比较，再编译；只有一套规则/AI/UI内核。
 - 图集/布局、世界对象、道路拓扑分离；`map_tiles_*.png`是派生缓存，贴道路图不产生通路，图块索引仍参与规则。编译预生成不等于跨文件发布事务，见[内容架构](docs/content-architecture.md)。
 - 当前新局`legions=[]`，保留雨云初态与头部吸引边界；地图对象前16火灾/暴动、后16雨云，不filter压缩。native稀疏表的缺槽/字段是未知，不能从空live数组自动造零表；显式初始化另有来源合同。
 - 正式存档是同源IndexedDB `wolong-web/saves`四槽JSON；sidecar在快照内，不是服务端文件。旧SAVE API/token/lease已废弃，浏览器锁管理单实例。
-- **现行存档政策（用户产品决定）**：用户确认无需保留旧Web存档，允许覆盖旧格式及清理空槽；兼容、迁移与保全旧档不再是开发约束。新格式必须完整保存规则状态/RNG/调度、正确恢复接续，事务失败不报成功。现有无metadata且phase有效的v1兼容路径只是实施现状，不是长期保留要求；相关变更中定点处理，不因此批量清库或访问真实SAVE/profile。见[数据技能](../.agents/skills/re-data-formats/SKILL.md)。
+- **现行存档政策（用户产品决定）**：用户确认无需保留旧Web存档，允许覆盖旧格式及清理空槽；兼容、迁移与保全旧档不再是开发约束。新格式必须完整保存规则状态/RNG/调度、正确恢复接续，事务失败不报成功。现有无metadata旧档按不相容槽禁用；v1装配臂（P65/P76）与序列化/compat读（P66/P79）已删除。相关变更中定点处理，不因此批量清库或访问真实SAVE/profile。见[数据技能](../.agents/skills/re-data-formats/SKILL.md)。
 - 读档先回标题；空/不相容槽hover/hit-test/click禁用。恢复先克隆合并sidecar再校验身份/字段，版本标签不能代替完整性。资源ready并完成detached验证后才安装，await后核scenario/world/clock/票据；预检失败不改live，提交后失败保部分写并hold/禁存，不假事务回滚。战斗、待续段、未完成交互/装配/现场或故障均禁存，见[装配合同](docs/re-notes-march-pathfinding.md#310-p24正式装配与保存身份准入web工程生产仍限v1)。
 
 ## 4. 现行交互与Web产品约定
@@ -84,6 +87,15 @@ node tools/verify_legion_lifecycle_browser.mjs
 node --check web/src/main.js
 git diff --check
 ```
+
+### 6.1 Jev开发期辅助分流（适用时自动调用）
+
+- Jev仅是开发期advisory，不是原版机制证据、测试oracle、代码审阅替代品或发布门禁；其结果不得把推断升级为实锤，也不得单独决定实现、测试期望或放行。
+- 开发代理必须主动判断适用性，不等用户逐次提醒：已有实际diff且变更跨越规则/存档状态/时序或RNG/UI或浏览器/工具或测试等多个风险域，或验证方案仍有明显遗漏风险时，使用`change`；测试失败在确定性日志、退出码和直接诊断后仍存在多种合理归因，或需要决定下一验证lane时，使用`failure`。
+- 逆向中先用反汇编、xref、读写扫描、原始数据或受控运行态观测建立事实；当仍有两个以上合理调查方向、关键证据缺口不明确，或需要在静态闭包与受控trace等探针之间排序时，必须自动使用`reverse-triage`。输入只能是人工整理的最小证据包，分列来源、已确认事实、候选解释、未知边界和可执行探针；禁止发送原始二进制、整段反汇编或大型trace。若下一步已由确定性证据唯一确定则直接执行，不额外调用。
+- 调用顺序固定为：构造当前问题所需的最小文本 → 运行不联网preview并检查最终脱敏state → 确认不含禁发数据且`TYPESAFE_API_KEY`可用后自动增加`--send`。上述适用范围内的安全调用已获持续授权，无需每次重复询问；缺key、网络失败、限流或输入不宜外发时跳过并在交付中说明，不阻塞权威验证。
+- 纯文档、显然的语法/导入错误、已由确定性证据定位的问题，以及地址、字宽、栈、公式、RNG或汇编语义的计算本身不调用。严禁发送原版/改版资源、真实存档或profile、凭据/Cookie/个人信息、私密issue、未经审阅的完整日志或大段无关源码；Jev输出不得直接作为shell参数、路径、选择器或自动改码指令。
+- 命令：`node tools/jev_assess.mjs <change|failure|reverse-triage> --input <file|->`先preview，合格后同命令加`--send`。详细输入模板、边界和输出解释见[集成文档](docs/jev-integration.md)。
 
 - 全量先固定入口、依赖与源码并审I/O，再串行执行；不以`verify_*`通配或历史放行当安全证明。浏览器用新profile、本轮自持监听，只关闭自有服务。生成器可能清目标目录，勿将共享`dist/`当临时目录。
 - 工具日志显式UTF8；机器解析测试时固定reporter。Git退出码与stdout/stderr分开保存，`diff --check`的换行warning不等于失败；状态比较用stdout，不改全局换行配置来压警告。

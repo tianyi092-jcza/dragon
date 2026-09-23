@@ -8,19 +8,23 @@ import {
   decreaseRelation,
   factionStrategicPower,
   increaseRelation,
+  prepareEnvoyBudgetReports,
   runStrategicDiplomacy,
 } from "./diplomacy.js";
 import { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 import { cityRawBytes, factionRawByte } from "./legacyrecords.js";
 import { countLegionActivation, countLegionRemoval } from "./legioncounts.js";
-import { findPath, terrainTile } from "./pathfind.js";
+import { hasNativeFactionSlots } from "./nativefactions.js";
+import { hasNativeStrategicEventWheel } from "./nativeevents.js";
 import {
-  findRoadRoute,
+  countNativeAliveFactions,
+  NATIVE_UNIFICATION_MONARCH_SELECTOR,
+  NATIVE_UNIFICATION_TALK_INDEX,
+  resolveNativeVictoryMonarch,
+} from "./navigation/originalvictorygate.js";
+import { terrainTile } from "./pathfind.js";
+import {
   reverseRoadMarchContext,
-  roadApproachesAt,
-  roadEdgeById,
-  roadEdgeRawAddress,
-  roadPointRawAddress,
   roadGraphReady,
   roadNodeAt,
   roadNodeById,
@@ -29,37 +33,99 @@ import {
   restoreRoadMarchContext,
   serializeRoadMarchContext,
 } from "./roadgraph.js";
-import { warnSfx } from "../core/speaker.js";
+import { clickSfx, doubleClickSfx, warnSfx } from "../core/speaker.js";
 import {
   hasNativeLegionSlots,
   nativeLegionAt,
   rebindNativeLegionViews,
 } from "./nativelegions.js";
-import {
-  refreshOriginalLegion,
-  formationByte,
-  originalTeamTroops,
-} from "./navigation/originalformation.js";
+import { formationByte } from "./navigation/originalformation.js";
 import { scenarioNativeRoadContext } from "./scenarioassembly.js";
 import { performOriginalRoadAction } from "./navigation/originalroadmovement.js";
+import {
+  performScenarioLegionFate,
+  performScenarioExtinction4FCE,
+  performScenarioExtinctionAfterTalk36,
+  performScenarioExtinctionPlayerGate,
+  performScenarioGeneralFateEvent,
+  performScenarioMonthlyGeneralFatesDeferred,
+  commitScenarioRecruitJoinOwnerWrite,
+  commitScenarioCaptivePendingFactionWrite,
+} from "./navigation/scenariolegionfate.js";
 import { refreshOriginalCityCache } from "./navigation/originalroadarrival.js";
+import { captureOriginalCity } from "./navigation/originalcitycapture.js";
 import {
   runOriginalCityMilitary,
   governOriginalCity,
   damageOriginalCity,
+  completePlayerReinforcementRequest,
 } from "./navigation/originalcity.js";
 import { tickOriginalStrategicWeather } from "./weather.js";
 import {
+  beginScenarioDisasterAreaEvent,
+  beginScenarioDisasterObjectEvent,
+  continueScenarioDisasterAreaEvent,
+  continueScenarioDisasterObjectEvent,
+  performScenarioMonthlyWeatherEvents,
+} from "./navigation/scenarioweather.js";
+import {
+  consumeScenarioStrategicEvent,
+  decodeScenarioGenericTalkEvent,
+} from "./navigation/scenarioevents.js";
+import { performScenarioFactionTick } from "./navigation/scenariofactiontick.js";
+import { performScenarioGeneralRatingRefresh } from "./navigation/scenariogeneralrating.js";
+import { performScenarioMonthlyDiplomacy } from "./navigation/scenariomonthlydiplomacy.js";
+import {
+  performScenarioDeficitTrustEvent,
+  performScenarioMonthlyBudgetProducers,
+} from "./navigation/scenariomonthlybudgets.js";
+import { performScenarioMonthlyPolicyActivation } from "./navigation/scenariomonthlypolicy.js";
+import { performScenarioCapitalRelocation } from "./navigation/scenariocapitalrelocation.js";
+import {
+  beginScenarioWarEvent,
+  commitScenarioWarEvent,
+  continueScenarioWarEvent,
+} from "./navigation/scenariowarconsumer.js";
+import {
+  applyScenarioPlayerTrustPenalty,
+  beginScenarioAssistanceEnvoyResult,
+  beginScenarioAssistanceEvent,
+  beginScenarioDomesticBudgetEvent,
+  beginScenarioEnvoyBudgetEvent,
+  beginScenarioTruceEnvoyResult,
+  beginScenarioTruceEvent,
+  commitScenarioAssistanceEnvoyResult,
+  commitScenarioBudgetEvent,
+  commitScenarioTruceEnvoyResult,
+  commitScenarioTruceEvent,
+  describeEnvoyResultMessageState,
+  readScenarioPlayerMonarchPersonality,
+  readScenarioPlayerTrust,
+  scenarioAssistanceEnvoyOutcome,
+  scenarioTruceEnvoyOutcome,
+  settleScenarioAssistanceEvent,
+} from "./navigation/scenarionegotiation.js";
+import {
+  resolveOriginalPlayerDecision,
+  resolveOriginalPlayerDecisionChoice,
+} from "./navigation/originalplayerdecision.js";
+import {
+  beginScenarioDeficitTrustEvent,
+  continueScenarioDeficitTrustEvent,
+  finishScenarioDeficitTrustEvent,
+} from "./navigation/scenariodeficittrust.js";
+import {
   originalRetreatRoute,
-  readOriginalRetreatCurrent,
-  readOriginalRetreatFaction,
-  readOriginalRetreatCapital,
+  retreatOriginalGarrison,
+  continueOriginalLegionAfterBattle,
 } from "./navigation/originalroadretreat.js";
 import {
   applyFactionFundsDelta,
   factionLegionMoraleCap,
   factionReserveUpkeepTick,
   legionDailyMaintenanceCost,
+  monthlySettlement,
+  activateNextMonthPolicy,
   updateFactionFiscalCrisis,
 } from "./economy.js";
 import {
@@ -103,37 +169,6 @@ const ENGAGE_KIND_SIEGE = "siege";
 /** 未开战判定: 关系触底 (<0x80)=交戰(可通行攻击)；>=0x80=未开战第三方(堵路) */
 function atWar(sc, a, b) {
   return isAtWar(sc, a, b);
-}
-
-/** 该格是否被「未开战的第三方势力」占据 (原版 0x48FD 归属检查：非己方/未交战=堵路)。
- *  中立城与交战国可通行(到达即攻击)；驻扎(非行军)军团同样堵路。 */
-function blockedAt(sc, A, x, y) {
-  const c = sc.cities.find((c) => c.x === x && c.y === y);
-  if (
-    c &&
-    c.faction != null &&
-    c.faction !== A.faction &&
-    !atWar(sc, A.faction, c.faction)
-  )
-    return true;
-  for (const B of sc.legions) {
-    if (
-      B === A ||
-      B.dead ||
-      B._active === false ||
-      B.faction == null ||
-      B.target
-    )
-      continue;
-    if (
-      B.x === x &&
-      B.y === y &&
-      B.faction !== A.faction &&
-      !atWar(sc, A.faction, B.faction)
-    )
-      return true;
-  }
-  return false;
 }
 
 // 已核五库20章 SINARIO 含全零军团表；新游戏没有初始活动军团（全链P24）。
@@ -202,35 +237,11 @@ export function buildArmies(sc) {
         pointAddress: L.roadPointAddress,
         edgeOrNode: L.roadEdgeOrNode,
       });
-      const savedRetreatMarch = L._savedRetreatMarch;
-      delete L._savedRetreatMarch;
       clearMarchNavigation(L);
-      if (
-        L._retreat &&
-        savedRetreatMarch &&
-        Array.isArray(savedRetreatMarch.points) &&
-        savedRetreatMarch.points.length
-      ) {
-        const pointIndex = Math.max(
-          0,
-          Math.min(
-            savedRetreatMarch.points.length,
-            savedRetreatMarch.pointIndex ?? 0,
-          ),
-        );
-        L._march = {
-          targetX: savedRetreatMarch.targetX ?? L.target?.x,
-          targetY: savedRetreatMarch.targetY ?? L.target?.y,
-          targetNode: savedRetreatMarch.targetNode ?? L.targetNode ?? null,
-          currentNode: null,
-          edgeId: savedRetreatMarch.edgeId ?? null,
-          stride: 0,
-          toNode: savedRetreatMarch.toNode ?? null,
-          points: savedRetreatMarch.points.map((point) => ({ ...point })),
-          pointIndex,
-        };
-        L._path = L._march.points.slice(pointIndex);
-      } else if (savedMarch) {
+      // P79 G6-closed: the pre-P66 saved-points branch is deleted with the
+      // retreatMarch compat-read (no writer, no test). Mid-retreat restore
+      // rides native savedMarch or the node mark below (P74-B proof).
+      if (savedMarch) {
         L._march = savedMarch;
         L._path = savedMarch.points.slice(savedMarch.pointIndex);
       } else {
@@ -659,12 +670,43 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
   const native = scenarioNativeRoadContext(sc);
   if (native) {
     refreshOriginalCityCache(sc, native, city);
-    return runOriginalCityMilitary(
-      sc,
-      native,
-      city,
-      app.originalRng ?? app.activeBattleRng,
-    );
+    const rng = app.originalRng ?? app.activeBattleRng;
+    const result = runOriginalCityMilitary(sc, native, city, rng);
+    if (result !== "player-request") return result;
+    // 40DD..40FD：玩家空边城求援——CDE 蜂鸣 + 8810 TALK38「\2前來請求援軍。」
+    // P32 审计实锤 8810 全树零规则写入、零 RNG；40F6 RNG、414F 冷却与
+    // 40B3 登记必须在消息真实关闭后执行（模态期间 _strategicCityRequest
+    // 阻止后续城槽tick，共享RNG不会交错）。与 v1 同一合同。
+    const request = { scenario: sc, clock: app.clock };
+    app._strategicCityRequest = request;
+    app.gamebar?.syncClock?.();
+    let completed = false;
+    const completeRequest = () => {
+      if (completed) return;
+      completed = true;
+      if (
+        app._strategicCityRequest !== request ||
+        app.scenario !== sc ||
+        app.clock !== request.clock
+      )
+        return;
+      app._strategicCityRequest = null;
+      completePlayerReinforcementRequest(sc, native, city, rng);
+      onRequestComplete?.();
+      app.gamebar?.syncClock?.();
+    };
+    if (!app.gamebar?.enqueueTalkMessage) {
+      completeRequest();
+      return true;
+    }
+    app.gamebar.enqueueTalkMessage({
+      gen: null,
+      talkIndex: 38,
+      cityName: city.name?.trim?.() || "",
+      kind: "reinforcement-request",
+      onClose: completeRequest,
+    });
+    return true;
   }
   if (city._strategicLastFaction === undefined)
     city._strategicLastFaction = city.faction;
@@ -1000,135 +1042,28 @@ function factionIsActive(sc, factionIdx) {
 function retreatRouteToFriendlyCity(sc, legion) {
   const native = scenarioNativeRoadContext(sc);
   if (native) return originalRetreatRoute(sc, legion, native);
-  if (!roadGraphReady()) return null;
-  const faction = sc.factions.find(
-    (candidate) => candidate.idx === legion.faction,
-  );
-  const capital = faction?.capital == null ? null : sc.cities[faction.capital];
-  if (!capital || capital.faction !== legion.faction) return null;
-
-  // Legacy v1 approximation only: fixed endpoint priority and Dijkstra costs
-  // are NOT 487B. Detached v2 above uses the original double-stop caller.
-  const saved = legion._battleRoadContext;
-  const savedApproaches = [];
-  const savedEdge = roadEdgeById(saved?.edgeId);
-  if (savedEdge?.points?.length) {
-    // Legacy v1 priority, not the original 487B endpoint/search order.
-    // 战前_march.points是按行军方向排列的有向副本；stride=-4时其首尾
-    // 与结构端点相反，不能再用有向数组的[last,0]猜+8/+6，否则会把
-    // 城前败军的第一撤退步错误配到整条边另一端并产生几十格瞬移。
-    const currentIndex = savedEdge.points.findIndex(
-      (point) => point.x === legion.x && point.y === legion.y,
-    );
-    if (currentIndex >= 0) {
-      const targetNode = roadNodeById(savedEdge.target);
-      const sourceNode = roadNodeById(savedEdge.source);
-      savedApproaches.push(
-        {
-          edgeId: savedEdge.id,
-          node: targetNode,
-          distance: savedEdge.points.length - currentIndex,
-          points: savedEdge.points.slice(currentIndex),
-          current: { x: legion.x, y: legion.y },
-        },
-        {
-          edgeId: savedEdge.id,
-          node: sourceNode,
-          distance: currentIndex + 1,
-          points: savedEdge.points.slice(0, currentIndex + 1).toReversed(),
-          current: { x: legion.x, y: legion.y },
-        },
-      );
-    }
-  }
-  const approaches = savedApproaches.length
-    ? savedApproaches
-    : roadApproachesAt(legion.x, legion.y);
-  for (const approach of approaches) {
-    const onward = findRoadRoute(
-      capital.x,
-      capital.y,
-      approach.node.x,
-      approach.node.y,
-      null,
-      (node) => {
-        const routeCity = sc.cities.find(
-          (candidate) => candidate.x === node.x && candidate.y === node.y,
-        );
-        return routeCity && routeCity.faction !== legion.faction ? 0x80a6 : 0;
-      },
-    );
-    if (!onward) continue;
-    const firstNodeId = onward.nodes.at(-2);
-    const firstNode = roadNodeById(firstNodeId);
-    const firstCity = firstNode
-      ? sc.cities.find(
-          (candidate) =>
-            candidate.x === firstNode.x && candidate.y === firstNode.y,
-        )
-      : null;
-
-    if (approach.distance === 0) {
-      // 0x48E5→0x48F1：当前+0x0E是据点节点时，0x491B从首都
-      // 反向搜索并返回第一条边；调用者沿该边取“当前节点的下一跳”。
-      // 失陷据点已经易主，不能把当前节点本身当作己方撤退目标。
-      if (!firstCity || firstCity.faction !== legion.faction) continue;
-      const immediate = findRoadRoute(
-        approach.node.x,
-        approach.node.y,
-        firstNode.x,
-        firstNode.y,
-      );
-      if (!immediate || immediate.nodes.length !== 2) continue;
-      return {
-        city: firstCity,
-        node: firstNode,
-        edgeId: immediate.edges[0] ?? null,
-        distance: immediate.distance,
-        points: immediate.points,
-      };
-    }
-
-    const city = sc.cities.find(
-      (candidate) =>
-        candidate.x === approach.node.x &&
-        candidate.y === approach.node.y &&
-        candidate.faction === legion.faction,
-    );
-    if (!city) continue;
-    // 0x491B目标就是当前候选端时走0x490C特殊成功出口；否则
-    // 0x48F1..0x4901要求反向搜索所得即时第一跳仍属败方势力。
-    if (onward.nodes.length > 1 && firstCity?.faction !== legion.faction)
-      continue;
-    return {
-      city,
-      node: approach.node,
-      edgeId: approach.edgeId ?? null,
-      distance: approach.distance + onward.distance,
-      points: approach.points,
-    };
-  }
+  // P62 G1 (entire-v2-replacement gate): v1 approximation arm deleted.
+  // Fixed endpoint priority + Dijkstra costs with the 0x80a6 non-friendly
+  // penalty were NOT 487B (see removed comment below in git history).
+  // Non-native scenarios now get null (no retreat route); both callers
+  // (continueLegionAfterBattle, retreatCapturedGarrison) already fail
+  // closed on null. See journal P62.
   return null;
 }
 
 function assignRetreatRoute(legion, retreat, captorFaction) {
-  if (retreat.native) {
-    // 4780,4789,478C; targetNode is the Web id projection of raw BX>>2.
-    legion.targetNode = retreat.node.id;
-    legion.targetCity = retreat.city.idx;
-    legion.status |= 0x02;
-    legion.target = retreat.city;
-  } else {
-    legion.status |= 0x02;
-    legion.target = retreat.city;
-    legion.targetCity = retreat.city.idx;
-    legion.targetNode = retreat.node?.id ?? null;
-  }
+  // P65 (entire-v2-replacement gate): the P62 G1 leftover non-native arm
+  // is deleted. retreatRouteToFriendlyCity returns null (both callers fail
+  // closed before reaching here) or originalRetreatRoute's {native:true}.
+  // 4780,4789,478C; targetNode is the Web id projection of raw BX>>2.
+  legion.targetNode = retreat.node.id;
+  legion.targetCity = retreat.city.idx;
+  legion.status |= 0x02;
+  legion.target = retreat.city;
   // 474E→6FD2 already wrote +0B=1. 4780/4789/478C change only the
   // destination and bit1: preserve the CURRENT +0A/+0C/+0E, not a new
   // stride=0 retreat path. The next due 26A5→47BB chooses direction.
   // In particular, this battle's 2600 and snapshot still read the old edge.
-  if (!retreat.native) legion.commandState = 8;
   legion._battleRoadContext = null;
   legion._retreat = {
     cityIdx: retreat.city.idx,
@@ -1142,58 +1077,30 @@ function assignRetreatRoute(legion, retreat, captorFaction) {
 export function continueLegionAfterBattle(sc, legion, won) {
   // Native 474E must precede legacy normalization and preserve late failures.
   const native = scenarioNativeRoadContext(sc);
-  if (native) {
-    refreshOriginalLegion(sc, legion);
-    if (formationByte(legion.morale, "L06 at 4751") === 0) return false;
-    if (originalTeamTroops(legion, 0, "L29 at 4757") === 0) return false;
-  } else {
-    ensureLegionUnits(legion);
-    resetLegionActionPhase(legion);
-    const firstUnit = Math.floor(
-      (legion.units[0]?.troops ?? legion.troops * 10) / 10,
-    );
-    if ((legion.morale ?? 0) === 0 || firstUnit === 0) return false;
-  }
+  if (native) return continueOriginalLegionAfterBattle(sc, legion, won, native);
+  ensureLegionUnits(legion);
+  resetLegionActionPhase(legion);
+  const firstUnit = Math.floor(
+    (legion.units[0]?.troops ?? legion.troops * 10) / 10,
+  );
+  if ((legion.morale ?? 0) === 0 || firstUnit === 0) return false;
 
   if (won) {
     legion.commandState = 8;
     return true;
   }
 
-  if (native) {
-    // 4761..4775 uses raw L0E, never x/y or a battle projection.
-    const current = readOriginalRetreatCurrent(legion);
-    if (
-      current < 0x600 &&
-      native.readCityOwnerByte(current * 4 + 0x841) ===
-        readOriginalRetreatFaction(legion)
-    ) {
-      legion.commandState = 8;
-      return true;
-    }
-  } else {
-    const currentCity = sc.cities.find(
-      (city) => city.x === legion.x && city.y === legion.y,
-    );
-    if (currentCity?.faction === legion.faction) {
-      legion.commandState = 8;
-      return true;
-    }
+  const currentCity = sc.cities.find(
+    (city) => city.x === legion.x && city.y === legion.y,
+  );
+  if (currentCity?.faction === legion.faction) {
+    legion.commandState = 8;
+    return true;
   }
 
   const retreat = retreatRouteToFriendlyCity(sc, legion);
   if (!retreat) return false;
   assignRetreatRoute(legion, retreat, null);
-  if (native) {
-    // 478F skips the capital read for low troops; do not pre-read it.
-    legion.commandState =
-      legion.troops <= 300 ||
-      retreat.city.idx ===
-        readOriginalRetreatCapital(sc, readOriginalRetreatFaction(legion))
-        ? 10
-        : 8;
-    return true;
-  }
   const faction = sc.factions.find(
     (candidate) => candidate.idx === legion.faction,
   );
@@ -1322,6 +1229,16 @@ function captureOrEliminateLegion(sc, legion, captorFaction, app = null) {
   return settleCapturedGeneral(app, sc, general, oldFaction, captorFaction);
 }
 
+// Unclosed general-owner writers must not drift the explicit native F18.
+function rejectNativeGeneralLifecycle(sc, app, at) {
+  if (!scenarioNativeRoadContext(sc) && !hasNativeLegionSlots(sc)) return;
+  const error = new RangeError(
+    `Web engineering Uncovered native general lifecycle at ${at}`,
+  );
+  if (app) holdFailedStrategicUpdate(app, error);
+  throw error;
+}
+
 /** KI.EXE 0x291A：无法继续行动军团的延迟回归/被俘分派。 */
 export function dispatchLegionFate(
   sc,
@@ -1330,6 +1247,22 @@ export function dispatchLegionFate(
   rng = null,
   app = null,
 ) {
+  const native = scenarioNativeRoadContext(sc);
+  if (native || hasNativeLegionSlots(sc)) {
+    try {
+      return performScenarioLegionFate(
+        sc,
+        legion,
+        native,
+        "291A",
+        captorFaction,
+        rng,
+      );
+    } catch (error) {
+      if (app) holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
   // 291A/291F: an inactive BP-list member returns before any RNG/write.
   // Keep this raw status gate; dead/_active are only Web projections.
   if (legion.status < 0x80) return null;
@@ -1551,53 +1484,6 @@ function resolveEngagementAction(app, A) {
   return resolve() ? "suspended" : "complete";
 }
 
-function rememberMarchBase(sc, A) {
-  const city = sc.cities.find(
-    (candidate) => candidate.x === A.x && candidate.y === A.y,
-  );
-  if (!city) return;
-  A._bases ??= [];
-  if (A._bases.at(-1) !== city) {
-    A._bases.push(city);
-    if (A._bases.length > 24) A._bases.shift();
-  }
-}
-
-function blockedRoadNode(sc, A, node) {
-  const city = sc.cities.find(
-    (candidate) => candidate.x === node.x && candidate.y === node.y,
-  );
-  return Boolean(
-    city &&
-      city.faction != null &&
-      city.faction !== A.faction &&
-      !atWar(sc, A.faction, city.faction),
-  );
-}
-
-function makeMarchNavigation(sc, A, tx, ty) {
-  if (!roadGraphReady()) return null;
-  const currentNode = roadNodeAt(A.x, A.y);
-  const targetNode = roadNodeAt(tx, ty);
-  if (!currentNode || !targetNode) return null;
-  const route = findRoadRoute(A.x, A.y, tx, ty, (node) =>
-    blockedRoadNode(sc, A, node),
-  );
-  if (!route) return null;
-  const leg = route.legs[0] ?? null;
-  return {
-    targetX: tx,
-    targetY: ty,
-    targetNode: targetNode.id,
-    currentNode: currentNode.id,
-    edgeId: leg?.edgeId ?? null,
-    stride: leg?.stride ?? 0,
-    toNode: leg?.toNode ?? currentNode.id,
-    points: leg?.points ?? [],
-    pointIndex: 0,
-  };
-}
-
 /** Reconcile a view cache before ANY action consumer, without writing 0A/0C/0E. */
 function prepareRoadMarchProjection(A, tx, ty) {
   if (!roadGraphReady()) return;
@@ -1633,212 +1519,14 @@ function prepareRoadMarchProjection(A, tx, ty) {
   }
 }
 
-/** 原版道路边点列推进；返回 moved/arrived/blocked/unavailable。 */
-function stepRoadGraph(sc, A, tx, ty) {
-  if (!roadGraphReady()) return "unavailable";
-  prepareRoadMarchProjection(A, tx, ty);
-  if (A.x === tx && A.y === ty && !legionOnRoadEdge(A)) {
-    clearMarchNavigation(A);
-    markLegionAtRoadNode(A, roadNodeAt(A.x, A.y)?.id);
-    A.prevX = A.x;
-    A.prevY = A.y;
-    A._markerFrame = 4;
-    return "arrived";
-  }
-  if (!A._march) {
-    // Node entry: 26A5 consumes bit1 BEFORE 47BB, including a failed
-    // query. Only a successful node→edge selection reaches 4869's bit0
-    // clear; first-point 2708 must still bypass the departure city tile.
-    A.status &= 0xfd;
-    clearMarchNavigation(A);
-    rememberMarchBase(sc, A);
-    A._march = makeMarchNavigation(sc, A, tx, ty);
-    if (!A._march) return "blocked";
-    const selectedEdge = roadEdgeById(A._march.edgeId);
-    // 4863/4866/4869/486C: record selection immediately, before the first
-    // candidate contact/commit and before this slot's 2600 daily settlement.
-    A.roadPointAddress = roadPointRawAddress(
-      selectedEdge.id,
-      A._march.stride === 4 ? 0 : selectedEdge.points.length - 1,
-    );
-    A.roadEdgeOrNode = roadEdgeRawAddress(selectedEdge.id);
-    A.status &= 0xfe;
-    A.roadStride = A._march.stride;
-  } else if (
-    A.status & 2 ||
-    A._march.targetX !== tx ||
-    A._march.targetY !== ty
-  ) {
-    A.status &= 0xfd; // 26A5 consumes a reselect request even if projection is fresh.
-    const targetNode = roadNodeAt(tx, ty);
-    if (!targetNode) return "blocked";
-    // Known divergence (march notes §5.4): 47EA searches BOTH endpoints
-    // for a non-endpoint target. The shortcut
-    // below is not its full contract; 0C must also be preserved by address.
-    const edge = roadEdgeById(A._march.edgeId);
-    const desiredStride = edge?.source === targetNode.id ? -4 : 4;
-    if (
-      edge &&
-      (A._march.stride === 4 || A._march.stride === -4) &&
-      A._march.stride !== desiredStride
-    ) {
-      const reversed = reverseRoadMarchContext(A._march, A.x, A.y);
-      if (!reversed) return "blocked";
-      A._march = reversed;
-      A.roadStride = reversed.stride; // No 0C/0E write on an in-edge turn.
-    }
-    A.status |= 1; // 4823/482A (and 4816): an in-edge direction selection.
-    A._march.targetX = tx;
-    A._march.targetY = ty;
-    A._march.targetNode = targetNode.id;
-    A.targetNode = targetNode.id;
-  }
-
-  // 战败撤退可从道路边内直接恢复0x487B给出的剩余点列；该临时导航
-  // 没有currentNode，但仍是同一条有效边，不能按普通节点寻路判blocked。
-  const retreatEdgeTraversal = Boolean(
-    A._retreat && A._march && A._march.currentNode == null,
-  );
-  if (!retreatEdgeTraversal && reverseBlockedFinalEdge(sc, A))
-    return "reversed";
-  const nav = A._march;
-  const next = nav.points[nav.pointIndex];
-  if (!next) {
-    const endpoint = roadNodeById(nav.toNode);
-    if (!endpoint) {
-      clearMarchNavigation(A);
-      return A.x === tx && A.y === ty ? "arrived" : "blocked";
-    }
-    // 0x27A2：边内点走完后切换到edge +6/+8端点节点；据点攻击由
-    // 0x2880独立检测，不把节点中心伪装成下一道路点交给0x2831。
-    const city = sc.cities.find(
-      (candidate) => candidate.x === endpoint.x && candidate.y === endpoint.y,
-    );
-    if (
-      city &&
-      city.faction != null &&
-      city.faction !== A.faction &&
-      !atWar(sc, A.faction, city.faction)
-    ) {
-      return "reversed";
-    }
-    if (city && city.faction !== A.faction) {
-      startEngagement(A, ENGAGE_KIND_SIEGE, { cityIdx: city.idx });
-      return "contact";
-    }
-    A.prevX = A.x;
-    A.prevY = A.y;
-    A._renderMoveSerial = sc._strategicTickSerial ?? null;
-    A._markerFrame = markerFrameToward(A.x, A.y, endpoint.x, endpoint.y);
-    A.x = endpoint.x;
-    A.y = endpoint.y;
-    rememberMarchBase(sc, A);
-    clearMarchNavigation(A);
-    markLegionAtRoadNode(A, endpoint.id);
-    if (A.x === tx && A.y === ty) {
-      A.prevX = A.x;
-      A.prevY = A.y;
-      A._markerFrame = 4;
-      return "arrived";
-    }
-    return "moved";
-  }
-
-  const foe = contactLegionAt(sc, A, next.x, next.y);
-  if (foe) {
-    startEngagement(A, ENGAGE_KIND_FIELD, {
-      x: next.x,
-      y: next.y,
-      faction: foe.faction,
-    });
-    return "contact";
-  }
-  const approachCity = siegeApproachCity(sc, A, nav, next);
-  if (approachCity) {
-    startEngagement(A, ENGAGE_KIND_SIEGE, { cityIdx: approachCity.idx });
-    return "contact";
-  }
-  const city = hostileCityAt(sc, A, next.x, next.y);
-  if (city) {
-    startEngagement(A, ENGAGE_KIND_SIEGE, { cityIdx: city.idx });
-    return "contact";
-  }
-
-  A.prevX = A.x;
-  A.prevY = A.y;
-  // 仅供Canvas插值判断这次道路单步所属的战略tick；不参与规则或存档。
-  A._renderMoveSerial = sc._strategicTickSerial ?? null;
-  A._markerFrame = markerFrameToward(A.x, A.y, next.x, next.y);
-  const edge = roadEdgeById(nav.edgeId);
-  const committedIndex =
-    nav.stride === 4 ? nav.pointIndex : edge.points.length - 1 - nav.pointIndex;
-  const committedAddress = roadPointRawAddress(nav.edgeId, committedIndex);
-  if (committedAddress == null)
-    throw new TypeError("Invalid road point commit");
-  A.roadPointAddress = committedAddress; // 276A precedes coordinate writeback.
-  A.x = next.x;
-  A.y = next.y;
-  nav.pointIndex++;
-  A._path = nav.points.slice(nav.pointIndex);
-
-  if (A.x === tx && A.y === ty) {
-    rememberMarchBase(sc, A);
-    clearMarchNavigation(A);
-    markLegionAtRoadNode(A, roadNodeAt(A.x, A.y)?.id);
-    A.prevX = A.x;
-    A.prevY = A.y;
-    A._markerFrame = 4;
-    return "arrived";
-  }
-  // 最后一条边内点走完后仍保留edge上下文；下一次军团槽由上方
-  // 0x27A2对应分支切换到+6/+8端点，并在敌城端进入0x2880。
-  return "moved";
-}
-
-function stepLegacyPath(sc, A, tx, ty) {
-  const blocked = (x, y) => blockedAt(sc, A, x, y);
-  if (
-    !A._path ||
-    A._ptx !== tx ||
-    A._pty !== ty ||
-    (A._path.length && blocked(A._path[0].x, A._path[0].y))
-  ) {
-    A._ptx = tx;
-    A._pty = ty;
-    A._path = findPath(A.x, A.y, tx, ty, blocked);
-  }
-  const next = A._path?.shift();
-  if (!next || blocked(next.x, next.y)) {
-    clearMarchNavigation(A);
-    return "blocked";
-  }
-  rememberMarchBase(sc, A);
-  A.prevX = A.x;
-  A.prevY = A.y;
-  // 同道路拓扑移动：防止下一战略tick的插值从上一格倒跳。
-  A._renderMoveSerial = sc._strategicTickSerial ?? null;
-  A.x = next.x;
-  A.y = next.y;
-  rememberMarchBase(sc, A);
-  if (!A._path.length) A._path = null;
-  if (A.x === tx && A.y === ty) {
-    clearMarchNavigation(A);
-    markLegionAtRoadNode(A, roadNodeAt(A.x, A.y)?.id);
-    return "arrived";
-  }
-  return "moved";
-}
-
-export function stepTo(sc, A, tx, ty) {
+export function stepTo(sc, A, tx, ty, blocks) {
   const native = scenarioNativeRoadContext(sc);
-  if (native) return performOriginalRoadAction(sc, A, native);
-  if (tx == null) return "blocked";
-  const targetIsCity = sc.cities.some((city) => city.x === tx && city.y === ty);
-  if (targetIsCity && !roadGraphReady()) return "waiting";
-  if (targetIsCity && roadNodeAt(tx, ty) != null) {
-    return stepRoadGraph(sc, A, tx, ty);
-  }
-  return stepLegacyPath(sc, A, tx, ty);
+  if (native) return performOriginalRoadAction(sc, A, native, undefined, blocks);
+  // G2: v1 arms (stepRoadGraph/stepLegacyPath) deleted with their oracles
+  // (Dijkstra findRoadRoute, pixel findPath). No movement oracle remains for
+  // non-native scenarios, so fail closed. Both performLegionSlotAction
+  // callers already handle "blocked" (retreat fate dispatch / target clear).
+  return "blocked";
 }
 
 // ★战斗判定 — 玩家参战→开战术层(实时战场); AI互斗→原版公式速算
@@ -1893,6 +1581,9 @@ export function resolveBattle(app, A, city) {
     (playerDefender && primaryDefender && !isLegionDelegated(primaryDefender));
   if (playerControls && app.battleView && !app.battleView.active) {
     // 0x4ED7：攻城战术层开启前先显示TALK27/28；关闭后才进入战场。
+    // 4F10守方TALK27只经4F58内一次0CDE；4F36攻方TALK28经4F36+4F58内两次0CDE。
+    if (playerDefender) clickSfx();
+    else doubleClickSfx();
     const talkIndex = playerDefender ? 27 : 28;
     const continuation = captureLegionContinuation(app);
     const start = () => {
@@ -1961,6 +1652,9 @@ export function resolveFieldBattle(app, A, D) {
     !app.battleView.active
   ) {
     // 0x4E5C→0x4EB9：玩家参与的非委任野战先显示TALK29，关闭后开战场。
+    // 4E82攻方支只经4EB9内一次0CDE；4E9F守方支经4EA1+4EB9内两次0CDE。
+    if (A.faction === pf.idx) clickSfx();
+    else doubleClickSfx();
     const continuation = captureLegionContinuation(app);
     const start = () => {
       if (continuation.claim()) app.startFieldBattle(A, D);
@@ -2036,6 +1730,8 @@ export function applyFieldBattleResult(
 }
 
 export function updateFactionAfterCityCapture(sc, factionIdx) {
+  // This legacy recomputation is not the stored F23 DEC/INC instruction chain.
+  rejectNativeGeneralLifecycle(sc, null, "4CF3/F23 legacy recomputation");
   if (factionIdx == null) return null;
   const faction = sc.factions.find((candidate) => candidate.idx === factionIdx);
   if (!faction) return null;
@@ -2068,6 +1764,9 @@ function finalizeFactionExtinction(app, factionIdx) {
     (candidate) => candidate?.idx === factionIdx,
   );
   if (!faction || !faction.dead || faction._extinctionHandled) return false;
+  // The Web helper is also called for surviving factions; only its extinction
+  // body represents4FCE. Stop before its first mutation, not every city capture.
+  rejectNativeGeneralLifecycle(sc, app, "4FCE");
   faction._extinctionHandled = true;
   const captorFaction = sc._lastCapturingFaction ?? 0x18;
   // 0x4FCE→0x5074：灭亡势力的外交官立即结束任职并恢复待命。
@@ -2159,28 +1858,30 @@ function finalizeFactionExtinction(app, factionIdx) {
   return true;
 }
 
-function retreatCapturedGarrison(app, sc, defenders, captorFaction, rng) {
+export function retreatCapturedGarrison(
+  app,
+  sc,
+  defenders,
+  captorFaction,
+  rng,
+) {
   // These are the ORIGINAL 4C72 BP references, not a post-fate active scan.
   if (!defenders.length) return { retreat: 0, fates: [] };
+  const native = scenarioNativeRoadContext(sc);
+  if (native)
+    return retreatOriginalGarrison(sc, defenders, native, (legion) =>
+      dispatchLegionFate(sc, legion, captorFaction, rng, app),
+    );
   const retreat = retreatRouteToFriendlyCity(sc, defenders[0]);
   if (retreat) {
     for (const legion of defenders) {
       // 4DC9..4DD3 writes only +20/+14/+0B and OR2: no position,
       // +03/+1E/+23 or active-bit write, even for a retired BP member.
-      if (retreat.native) {
-        // Unlike 474A, 4DA4 writes +20 before +14, then +0B and status.
-        legion.targetCity = retreat.city.idx;
-        legion.targetNode = retreat.node.id;
-        legion.moveDelay = 1;
-        legion.status |= 2;
-        legion.target = retreat.city;
-      } else {
-        legion.status |= 2;
-        legion.target = retreat.city;
-        legion.targetCity = retreat.city.idx;
-        legion.targetNode = retreat.node?.id ?? null;
-        legion.moveDelay = 1;
-      }
+      legion.status |= 2;
+      legion.target = retreat.city;
+      legion.targetCity = retreat.city.idx;
+      legion.targetNode = retreat.node?.id ?? null;
+      legion.moveDelay = 1;
     }
     return { retreat: defenders.length, fates: [] };
   }
@@ -2254,12 +1955,79 @@ export function applyBattleResult(
     city.troops = originalExit.cityDamage.troops;
     if (city.sim) city.sim.troops = originalExit.cityDamage.troops;
   } else if (wallRecords) applyTacticalSiegeCityDamage(city, wallRecords);
+  if (
+    winner === "atk" &&
+    (scenarioNativeRoadContext(sc) || hasNativeLegionSlots(sc))
+  ) {
+    try {
+      return captureOriginalCity(
+        sc,
+        city,
+        A.faction,
+        () =>
+          retreatCapturedGarrison(
+            app,
+            sc,
+            defenders,
+            city.faction === null ? EMPTY_FACTION : city.faction,
+            strategicRng,
+          ),
+        (deadOwner, captor, hooks) => {
+          // 4FD9..4FDC player gate first (F00 committed even on the exit path).
+          if (
+            performScenarioExtinctionPlayerGate(
+              sc,
+              deadOwner,
+              scenarioNativeRoadContext(sc),
+            )
+          ) {
+            triggerNativePlayerDefeat(app, sc, deadOwner);
+            return "player-defeated";
+          }
+          return performScenarioExtinction4FCE(
+            sc,
+            deadOwner,
+            captor,
+            scenarioNativeRoadContext(sc),
+            (suspendedOwner, diplomat, diplomatTail) =>
+              suspendNativeDiplomatReport(
+                app,
+                sc,
+                suspendedOwner,
+                captor,
+                scenarioNativeRoadContext(sc),
+                diplomat,
+                diplomatTail,
+                hooks?.captureTail,
+              ),
+          );
+        },
+        (deadOwner, captor, captureTail) =>
+          suspendNativeExtinctionTalk36(
+            app,
+            sc,
+            deadOwner,
+            captor,
+            scenarioNativeRoadContext(sc),
+            captureTail,
+          ),
+        {
+          onGovernorBlock: (governorCtx, governorTail) =>
+            suspendNativeGovernorReport(app, sc, governorCtx, governorTail),
+        },
+      );
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
   const oldFaction = originalExit?.oldFaction ?? city.faction;
   const oldCapital =
     oldFaction == null
       ? null
       : sc.factions.find((faction) => faction.idx === oldFaction)?.capital;
   if (winner === "atk") {
+    // Legacy only: its governor/count order is not an original-rule oracle.
     // 0x4CF3→0x4D63：据点内政官先结束任职并报告，再处理首都/守军/灭亡链。
     if (city.governor != null) {
       const governor = sc.generals?.[city.governor];
@@ -2473,7 +2241,12 @@ export function hasPendingStrategicEvent(
   type,
   { arg0 = null, arg1 = null } = {},
 ) {
-  const slots = ensureStrategicEventSlots(sc);
+  // P58 default v2 already owns the strict 256-slot native wheel. 304E is a
+  // read-only query over that same table; it must not pass through the legacy
+  // migration helper (which correctly remains forbidden for enqueue/shift).
+  const slots = hasNativeStrategicEventWheel(sc)
+    ? sc.strategicEventSlots
+    : ensureStrategicEventSlots(sc);
   const cursor = Math.max(
     0,
     Math.min(STRATEGIC_EVENT_TOTAL_SLOTS, sc._strategicEventCursor | 0),
@@ -2493,7 +2266,7 @@ export function hasPendingStrategicEvent(
 export function enqueueDelayedStrategicEvent(app, event, delaySlots) {
   const sc = app?.scenario;
   if (!sc) return false;
-  const slots = ensureStrategicEventSlots(sc);
+  const slots = ensureStrategicEventSlots(sc, app);
   const cursor = Math.max(
     0,
     Math.min(STRATEGIC_EVENT_TOTAL_SLOTS, sc._strategicEventCursor | 0),
@@ -2524,7 +2297,10 @@ function legacyStrategicEvents(sc) {
   ];
 }
 
-function ensureStrategicEventSlots(sc) {
+function ensureStrategicEventSlots(sc, app = null) {
+  // All legacy query/enqueue/page-shift callers pass here. They cannot invent
+  // native empty slots or clamp the word cursor; strict301C has its own IO.
+  rejectNativeGeneralLifecycle(sc, app, "legacy event wheel");
   if (!Array.isArray(sc.strategicEventSlots)) {
     sc.strategicEventSlots = Array(STRATEGIC_EVENT_TOTAL_SLOTS).fill(null);
     // 兼容旧Web存档：旧队列没有原版槽位地址，只能保序装入当前页。
@@ -2548,8 +2324,8 @@ function ensureStrategicEventSlots(sc) {
 }
 
 /** 0x2BD9：事件时间轮前移一页，并把首个消费分频重设为7。 */
-function beginStrategicEventMonth(sc) {
-  const slots = ensureStrategicEventSlots(sc);
+function beginStrategicEventMonth(sc, app) {
+  const slots = ensureStrategicEventSlots(sc, app);
   sc.strategicEventSlots = slots
     .slice(STRATEGIC_EVENT_PAGE_SLOTS)
     .concat(Array(STRATEGIC_EVENT_PAGE_SLOTS).fill(null));
@@ -2560,7 +2336,7 @@ function beginStrategicEventMonth(sc) {
 /** 0x2FBF：从当前消费游标加随机0..31槽开始，向后寻找当前页空槽。 */
 function enqueueCurrentStrategicEvent(app, event, fixedOffset = null) {
   const sc = app.scenario;
-  const slots = ensureStrategicEventSlots(sc);
+  const slots = ensureStrategicEventSlots(sc, app);
   const cursor = Math.max(0, Math.min(64, sc._strategicEventCursor | 0));
   const rng = app.originalRng ?? app.activeBattleRng;
   let randomOffset = Math.max(0, Math.trunc(fixedOffset ?? 0));
@@ -2583,20 +2359,31 @@ function enqueueStrategicWarEvents(app, events) {
   return queued;
 }
 
-/** 新游戏 0x1B29→0x2BD9：立即改变关系，并按事件时间轮排入type-1。 */
-export function initializeStrategicDiplomacy(app) {
-  beginStrategicEventMonth(app.scenario);
+function performStrategicDiplomacyMonth(app) {
+  const sc = app?.scenario;
+  if (sc && hasNativeFactionSlots(sc)) {
+    const rng = app?.originalRng ?? app?.activeBattleRng;
+    try {
+      return performScenarioMonthlyDiplomacy(sc, rng);
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
+  beginStrategicEventMonth(sc, app);
   const capitalEvents = enqueueStrategicCapitalEvents(app);
-  const warEvents = runStrategicDiplomacy(app?.scenario);
+  const warEvents = runStrategicDiplomacy(sc);
   return [...capitalEvents, ...enqueueStrategicWarEvents(app, warEvents)];
 }
 
-/** 月结 0x5358→0x5394→0x2BD9：滚动事件页、更新关系并排入type-1。 */
+/** 新游戏 0x1B29→0x2BD9：立即改变关系，并按事件时间轮排入提案。 */
+export function initializeStrategicDiplomacy(app) {
+  return performStrategicDiplomacyMonth(app);
+}
+
+/** 月结 0x5358→0x5394→0x2BD9：滚动事件页、更新关系并排入提案。 */
 export function monthlyDiplomacyAI(app) {
-  beginStrategicEventMonth(app.scenario);
-  const capitalEvents = enqueueStrategicCapitalEvents(app);
-  const warEvents = runStrategicDiplomacy(app?.scenario);
-  return [...capitalEvents, ...enqueueStrategicWarEvents(app, warEvents)];
+  return performStrategicDiplomacyMonth(app);
 }
 
 /** 0x2BD9→0x2D3A→0x2FB1：无战略目标势力以RNG<0x40排type8。 */
@@ -2618,15 +2405,324 @@ export function enqueueStrategicCapitalEvents(app) {
   return queued;
 }
 
-/** 0x5715→0x2FBF：月结扫描玩家据点并排入type-4内政预算。 */
-/**
- * KI.EXE 0x585F→0x5940：月结扫描仍有原属(+1D)的武将并处理回归。
- * 同一个随机字节决定无动作、立即回归或延后8..23槽；延后条目是
- * `{type=9,generalIndex,0xFF,0xFF}`，并把当前所属暂置0x18。
- */
-export function processMonthlyGeneralFates(app) {
+/** 5358..538B native fiscal/growth prefix with the shared strategic failure owner. */
+export function processMonthlyFiscalSettlement(app, clock = null) {
   const sc = app?.scenario;
   const rng = app?.originalRng ?? app?.activeBattleRng;
+  try {
+    return monthlySettlement(sc, clock, rng);
+  } catch (error) {
+    if (sc && hasNativeFactionSlots(sc)) holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+
+/** 5391→55A6 stored G1F refresh; native fixed 0..126 only. */
+export function processMonthlyGeneralRatings(app) {
+  const sc = app?.scenario;
+  if (!sc || (!scenarioNativeRoadContext(sc) && !hasNativeLegionSlots(sc)))
+    return [];
+  try {
+    return performScenarioGeneralRatingRefresh(sc);
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+
+/** Bounded native585F/5899/5940/301C; docs/re-notes-legion-fate.md §9–10.
+ * The legacy approximation below is not an original-rule oracle.
+ */
+/** 5924/599C玩家消息挂起：deferred期原扫暂停，消息返回后commit续扫。 */
+/** 4FCE→5042 TALK36挂起：扫描前缀（5074/4236/127分派）已提交，消息返回后跑504D..5073 resume，再跑4D2A尾。 */
+function suspendNativeExtinctionTalk36(
+  app,
+  sc,
+  deadOwner,
+  captor,
+  context,
+  captureTail,
+) {
+  const stale = app._nativeExtinctionContinuation;
+  if (stale && stale.scenario === sc)
+    throw new RangeError("native extinction continuation already pending");
+  if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+    throw new RangeError("native extinction TALK36 has no UI");
+  const faction = sc.factions?.find((candidate) => candidate?.idx === deadOwner);
+  app._nativeExtinctionContinuation = {
+    scenario: sc,
+    deadOwner,
+    captor,
+    context,
+    captureTail: typeof captureTail === "function" ? captureTail : null,
+  };
+  app.gamebar.enqueueTalkMessage({
+    gen: null,
+    talkIndex: 36,
+    targetName: faction?.monarch?.trim?.() || "",
+    kind: "faction-extinction",
+    onClose: () => resumeNativeExtinction(app),
+  });
+}
+
+/** 504D消息返回：先跑F19续扫，再跑延后的4D2A尾（5073 ret→4D1E+3）。 */
+export function resumeNativeExtinction(app) {
+  const continuation = app?._nativeExtinctionContinuation;
+  if (!continuation) return false;
+  const sc = app?.scenario;
+  if (!sc || continuation.scenario !== sc)
+    throw new RangeError("native extinction continuation scenario mismatch");
+  try {
+    performScenarioExtinctionAfterTalk36(
+      sc,
+      continuation.deadOwner,
+      continuation.context,
+    );
+    app._nativeExtinctionContinuation = null;
+    continuation.captureTail?.();
+    return true;
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+/** 4FE5 player-dead exit (P55-C09-2c): DOS 1CB1 resets the stack and exits
+ * with code 2 — no scan, no 4D2A tail. The Web equivalent is the existing
+ * defeat endview (same product path the legacy extinction uses for a dead
+ * player faction). The 4FD9 F00 clear is already committed by the gate. */
+export function triggerNativePlayerDefeat(app, sc, deadOwner) {
+  const faction = sc.factions?.find(
+    (candidate) => candidate?.idx === deadOwner,
+  );
+  if (typeof app.endView?.show !== "function")
+    throw new RangeError("native player defeat has no UI");
+  app.endView.show({
+    img: "grf/gameover.png",
+    caption: `大業未成，${faction?.monarch?.trim?.() || ""}軍覆滅…（點擊返回標題）`,
+  });
+  return "player-defeated";
+}
+/** 509E diplomat suspend (P55-C09-2b): 5074 carries no CDE/beep prefix
+ * (P55 fresh window) — the TALK69 + 1A7 personality sequence pumps as one
+ * gamebar sequence, and onComplete resumes the diplomat tail (4236 +
+ * 127-dispatch, ending at the 5042 gate, which chains the TALK36 suspend). */
+function suspendNativeDiplomatReport(
+  app,
+  sc,
+  deadOwner,
+  captor,
+  context,
+  diplomat,
+  diplomatTail,
+  captureTail,
+) {
+  const stale = app._nativeDiplomatContinuation;
+  if (stale && stale.scenario === sc)
+    throw new RangeError("native diplomat continuation already pending");
+  if (typeof diplomatTail !== "function")
+    throw new RangeError("native diplomat report has no resume tail");
+  if (typeof captureTail !== "function")
+    throw new RangeError("native diplomat report has no capture tail");
+  if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+    throw new RangeError("native diplomat TALK69 has no UI");
+  const faction = sc.factions?.find((candidate) => candidate?.idx === deadOwner);
+  // The leaf already XCHG-cleared F+2A to FF: use the captured index, never
+  // re-read diplomat_idx here.
+  const diplomatGeneral =
+    diplomat == null ? null : (sc.generals?.[diplomat] ?? null);
+  app._nativeDiplomatContinuation = {
+    scenario: sc,
+    deadOwner,
+    captor,
+    context,
+    diplomatTail,
+    captureTail,
+  };
+  app.gamebar.enqueueTalkMessage({
+    gen: diplomatGeneral,
+    talkIndex: 69,
+    targetName: faction?.monarch?.trim?.() || "",
+    generalName: diplomatGeneral?.name?.trim?.() || "",
+    personalitySelector: 0x1a7,
+    kind: "extinction-diplomat-report",
+    onComplete: () => resumeNativeDiplomatReport(app),
+  });
+}
+/** 509E message return: run the diplomat tail; its 5042 stop chains the
+ * TALK36 suspend (monthly-fate chaining pattern). Any other stop holds. */
+export function resumeNativeDiplomatReport(app) {
+  const continuation = app?._nativeDiplomatContinuation;
+  if (!continuation) return false;
+  const sc = app?.scenario;
+  if (!sc || continuation.scenario !== sc)
+    throw new RangeError("native diplomat continuation scenario mismatch");
+  app._nativeDiplomatContinuation = null;
+  try {
+    continuation.diplomatTail();
+  } catch (error) {
+    if (error?.instruction === "5042") {
+      suspendNativeExtinctionTalk36(
+        app,
+        sc,
+        continuation.deadOwner,
+        continuation.captor,
+        continuation.context,
+        continuation.captureTail,
+      );
+      return true;
+    }
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+  holdFailedStrategicUpdate(
+    app,
+    new RangeError("native diplomat tail returned without 5042"),
+  );
+  throw new RangeError("native diplomat tail returned without 5042");
+}
+/** 4D86 governor suspend (P55-C09-2a): 4D86 CALL CE7 is the double beep
+ * (P50 pin), then TALK68 + 1A6 personality pump as one gamebar sequence;
+ * onComplete resumes the governor tail (4D0A DEC onward, including any
+ * inner diplomat/extinction suspends, which fire their own handlers). */
+function suspendNativeGovernorReport(app, sc, governorCtx, governorTail) {
+  const stale = app._nativeGovernorContinuation;
+  if (stale && stale.scenario === sc)
+    throw new RangeError("native governor continuation already pending");
+  if (typeof governorTail !== "function")
+    throw new RangeError("native governor report has no resume tail");
+  if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+    throw new RangeError("native governor TALK68 has no UI");
+  const governor =
+    governorCtx?.governor == null
+      ? null
+      : (sc.generals?.[governorCtx.governor] ?? null);
+  const city = sc.cities?.[governorCtx?.cityIdx] ?? null;
+  app._nativeGovernorContinuation = {
+    scenario: sc,
+    governor: governorCtx?.governor ?? null,
+    cityIdx: governorCtx?.cityIdx ?? null,
+    governorTail,
+  };
+  doubleClickSfx(); // 4D86 CALL CE7 double beep.
+  app.gamebar.enqueueTalkMessage({
+    gen: governor,
+    talkIndex: 68,
+    cityName: city?.name?.trim?.() || "",
+    generalName: governor?.name?.trim?.() || "",
+    personalitySelector: 0x1a6,
+    kind: "extinction-governor-report",
+    onComplete: () => resumeNativeGovernorReport(app),
+  });
+}
+/** 4D86 message return: run the governor tail to completion-or-suspend.
+ * Inner diplomat/extinction gates suspend through their own continuations
+ * during the run; only genuine failures hold here. */
+export function resumeNativeGovernorReport(app) {
+  const continuation = app?._nativeGovernorContinuation;
+  if (!continuation) return false;
+  const sc = app?.scenario;
+  if (!sc || continuation.scenario !== sc)
+    throw new RangeError("native governor continuation scenario mismatch");
+  try {
+    const result = continuation.governorTail();
+    app._nativeGovernorContinuation = null;
+    return result;
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+function suspendNativeMonthlyFateMessage(app, sc, result, deferredTail) {
+  const stale = app._nativeMonthlyFateContinuation;
+  if (stale && stale.scenario === sc)
+    throw new RangeError("native monthly fate continuation already pending");
+  const { deferred, slot } = result;
+  if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+    throw new RangeError(`native monthly fate ${deferred.kind} has no UI`);
+  app._nativeMonthlyFateContinuation = {
+    scenario: sc,
+    kind: deferred.kind,
+    slot: deferred.slot,
+    owner: deferred.owner,
+    talkIndex: deferred.talkIndex,
+    deferredTail: typeof deferredTail === "function" ? deferredTail : null,
+  };
+  app._strategicEventPostMessageRngPending = true;
+  const general = sc.generals?.[slot];
+  app.gamebar.enqueueTalkMessage({
+    talkIndex: deferred.talkIndex,
+    gen: general,
+    generalName: general?.name ?? "",
+    onClose: () => resumeNativeMonthlyFate(app),
+  });
+}
+
+/** 5921/5999消息返回：先commit尾写，再从slot+1续扫585F，最后跑月结尾。 */
+export function resumeNativeMonthlyFate(app) {
+  const continuation = app?._nativeMonthlyFateContinuation;
+  if (!continuation) return false;
+  const sc = app?.scenario;
+  if (!sc || continuation.scenario !== sc)
+    throw new RangeError("native monthly fate continuation scenario mismatch");
+  try {
+    if (continuation.kind === "recruit-join") {
+      commitScenarioRecruitJoinOwnerWrite(
+        sc,
+        continuation.slot,
+        continuation.owner,
+      );
+    } else if (continuation.kind === "captive-pending") {
+      commitScenarioCaptivePendingFactionWrite(sc, continuation.slot);
+    } else if (continuation.kind !== "captive-joined") {
+      throw new RangeError(
+        `unknown monthly fate continuation ${continuation.kind}`,
+      );
+    }
+    const result = performScenarioMonthlyGeneralFatesDeferred(
+      sc,
+      app.originalRng ?? app.activeBattleRng,
+      continuation.slot + 1,
+    );
+    if (result?.deferred) {
+      app._nativeMonthlyFateContinuation = null;
+      suspendNativeMonthlyFateMessage(
+        app,
+        sc,
+        result,
+        continuation.deferredTail,
+      );
+      return true;
+    }
+    app._nativeMonthlyFateContinuation = null;
+    app._strategicEventPostMessageRngPending = false;
+    continuation.deferredTail?.();
+    return true;
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+
+export function processMonthlyGeneralFates(app, deferredTail) {
+  const sc = app?.scenario;
+  const rng = app?.originalRng ?? app?.activeBattleRng;
+  if (sc && (scenarioNativeRoadContext(sc) || hasNativeLegionSlots(sc))) {
+    try {
+      if (app._nativeMonthlyFateContinuation?.scenario === sc)
+        throw new RangeError(
+          "native monthly fate continuation already pending",
+        );
+      const result = performScenarioMonthlyGeneralFatesDeferred(sc, rng, 0);
+      if (result?.deferred) {
+        suspendNativeMonthlyFateMessage(app, sc, result, deferredTail);
+        return "suspended";
+      }
+      return result;
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
   if (!sc || !rng || typeof rng.nextByte !== "function") return [];
   const queued = [];
   for (const general of (sc.generals ?? []).slice(0, 0x7f)) {
@@ -2697,6 +2793,24 @@ export function enqueueEnvoyBudgetEvents(app, reports) {
   );
 }
 
+/** 5397→5715 then 539A→578F, sharing the post-2BD9 current page. */
+export function processMonthlyBudgetProducers(app) {
+  const sc = app?.scenario;
+  if (sc && hasNativeFactionSlots(sc)) {
+    const rng = app?.originalRng ?? app?.activeBattleRng;
+    try {
+      return performScenarioMonthlyBudgetProducers(sc, rng);
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
+  const domestic = enqueueDomesticBudgetEvents(app);
+  const reports = prepareEnvoyBudgetReports(sc);
+  const envoy = enqueueEnvoyBudgetEvents(app, reports);
+  return { domestic, envoy };
+}
+
 /** 0x53A3→0x57FE：玩家负资金达到门槛时，按好战度排type13信赖处罚。 */
 function cityEventPointer(city) {
   return 0x840 + Math.max(0, Math.trunc(city?.idx ?? 0)) * 0x20;
@@ -2713,7 +2827,10 @@ function eventPointerCity(sc, event) {
 export function enqueueMonthlyDisasterEvents(app) {
   const sc = app?.scenario;
   const rng = app?.originalRng ?? app?.activeBattleRng;
-  if (!sc || !rng || typeof rng.nextByte !== "function") return [];
+  if (!sc) return [];
+  if (scenarioNativeRoadContext(sc))
+    return performScenarioMonthlyWeatherEvents(sc, rng).queued;
+  if (!rng || typeof rng.nextByte !== "function") return [];
   const queued = [];
 
   // 0x22E3..0x2305：新一轮尝试前先清旧暴雨区域的+0x15，再让
@@ -2779,11 +2896,34 @@ export function enqueueMonthlyDisasterEvents(app) {
   return queued;
 }
 
+/** 53A6..53BD: exact four-word policy copy, then bounded 5E80 display return. */
+export function processMonthlyPolicyActivation(app) {
+  const sc = app?.scenario;
+  if (sc && hasNativeFactionSlots(sc)) {
+    try {
+      return performScenarioMonthlyPolicyActivation(sc);
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
+  activateNextMonthPolicy(sc);
+  return { displayMask: null };
+}
+
 /** 0x53A3→0x57FE：玩家负资金达到门槛时，按好战度排type13信赖处罚。 */
 export function enqueueDeficitTrustEvent(app) {
   const sc = app?.scenario;
-  const faction = playerFaction(sc);
   const rng = app?.originalRng ?? app?.activeBattleRng;
+  if (sc && hasNativeFactionSlots(sc)) {
+    try {
+      return performScenarioDeficitTrustEvent(sc, rng).queued;
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
+  const faction = playerFaction(sc);
   if (!sc || !faction || !rng || typeof rng.nextByte !== "function")
     return false;
   const funds = Math.trunc(Number(faction.gold ?? faction.money ?? 0));
@@ -2800,6 +2940,17 @@ export function enqueueDeficitTrustEvent(app) {
 
 export function tickStrategicWarEvents(app) {
   const sc = app.scenario;
+  if (scenarioNativeRoadContext(sc) || hasNativeLegionSlots(sc)) {
+    try {
+      const step = consumeScenarioStrategicEvent(sc);
+      return step.status === "dispatch"
+        ? dispatchStrategicEvent(app, step.event)
+        : false;
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
   const slots = ensureStrategicEventSlots(sc);
   const divisor = Math.trunc(sc._strategicEventDivider ?? 7) & 0xff;
   sc._strategicEventDivider = (divisor - 1) & 0xff;
@@ -3011,6 +3162,7 @@ export function settleFactionNegotiation(
 ) {
   const sc = app?.scenario;
   if (!sc || !recipientFaction || !requesterFaction) return false;
+  rejectNativeGeneralLifecycle(sc, app, "35ED negotiation settlement");
   if (outcome >= 2) {
     if (outcome === 3) {
       sc.trust = Math.max(0, (sc.trust ?? 0) - 30);
@@ -3249,8 +3401,18 @@ function dispatchStrategicCapitalEvent(app, event) {
   return true;
 }
 
-function dispatchGeneralFateEvent(app, event) {
+// Bounded3485 handler; the enclosing native1D8E event pump remains stopped.
+export function dispatchGeneralFateEvent(app, event) {
   const sc = app.scenario;
+  if (scenarioNativeRoadContext(sc) || hasNativeLegionSlots(sc)) {
+    try {
+      performScenarioGeneralFateEvent(sc, event);
+      return true; // Web handled marker, not original CF/AX.
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
   const generalIdx = strategicEventGeneralIndex(event);
   if (generalIdx == null) return false;
   const general = sc.generals?.[generalIdx];
@@ -3304,6 +3466,110 @@ function applyDisasterArea(app, baseStrength) {
     }
   }
   return changed;
+}
+
+function finishDeferredFactionTick(app) {
+  if (!app._factionTickDeferred) return;
+  app._factionTickDeferred = false;
+  tickFactionStrategicState(app);
+  app.hud?.refreshInfo?.();
+}
+
+function resumeNativeDisasterAreaEvent(app) {
+  const active = app._nativeDisasterAreaContinuation;
+  if (!active || active.scenario !== app.scenario)
+    throw new RangeError("Uncovered native disaster-area continuation owner");
+  const result = continueScenarioDisasterAreaEvent(
+    active.scenario,
+    active.state,
+  );
+  if (result.status === "return") {
+    delete app._nativeDisasterAreaContinuation;
+    app._strategicEventPostMessageRngPending = false;
+    finishDeferredFactionTick(app);
+    return result.changed;
+  }
+  const enqueue = app.gamebar?.enqueueTalkMessage;
+  if (typeof enqueue !== "function")
+    throw new RangeError("Uncovered native TALK70 message return");
+  app._strategicEventPostMessageRngPending = true;
+  enqueue.call(app.gamebar, {
+    gen: null,
+    talkIndex: 70,
+    cityName: active.scenario.cities[result.index]?.name?.trim?.() || "",
+    kind: "disaster-area",
+    sound: "warn",
+    onClose: () => {
+      try {
+        resumeNativeDisasterAreaEvent(app);
+      } catch (error) {
+        holdFailedStrategicUpdate(app, error);
+        throw error;
+      }
+    },
+  });
+  return true;
+}
+
+function dispatchNativeDisasterAreaEvent(app) {
+  if (app._nativeDisasterAreaContinuation)
+    throw new RangeError("Uncovered overlapping native disaster-area event");
+  const sc = app.scenario;
+  const state = beginScenarioDisasterAreaEvent(
+    sc,
+    app.originalRng ?? app.activeBattleRng,
+  );
+  app._nativeDisasterAreaContinuation = { scenario: sc, state };
+  return resumeNativeDisasterAreaEvent(app);
+}
+
+function finishNativeDisasterObjectEvent(app) {
+  const active = app._nativeDisasterObjectContinuation;
+  if (!active || active.scenario !== app.scenario)
+    throw new RangeError("Uncovered native disaster-object continuation owner");
+  const result = continueScenarioDisasterObjectEvent(
+    active.scenario,
+    active.state,
+    app.originalRng ?? app.activeBattleRng,
+  );
+  delete app._nativeDisasterObjectContinuation;
+  app._strategicEventPostMessageRngPending = false;
+  finishDeferredFactionTick(app);
+  return result.changed;
+}
+
+function dispatchNativeDisasterObjectEvent(app, event) {
+  if (app._nativeDisasterObjectContinuation)
+    throw new RangeError("Uncovered overlapping native disaster-object event");
+  const sc = app.scenario;
+  const state = beginScenarioDisasterObjectEvent(sc, event);
+  if (state.status === "return") return state.changed;
+  if (state.status === "continue") {
+    app._nativeDisasterObjectContinuation = { scenario: sc, state };
+    return finishNativeDisasterObjectEvent(app);
+  }
+  const enqueue = app.gamebar?.enqueueTalkMessage;
+  if (typeof enqueue !== "function")
+    throw new RangeError("Uncovered native TALK71/72 message return");
+  app._nativeDisasterObjectContinuation = { scenario: sc, state };
+  app._strategicEventPostMessageRngPending = true;
+  const cityIndex = (state.cityPointer - 0x0840) >>> 5;
+  enqueue.call(app.gamebar, {
+    gen: null,
+    talkIndex: 70 + state.subtype,
+    cityName: sc.cities[cityIndex]?.name?.trim?.() || "",
+    kind: "disaster-object",
+    sound: "warn",
+    onClose: () => {
+      try {
+        finishNativeDisasterObjectEvent(app);
+      } catch (error) {
+        holdFailedStrategicUpdate(app, error);
+        throw error;
+      }
+    },
+  });
+  return true;
 }
 
 function dispatchDisasterAreaEvent(app) {
@@ -3364,11 +3630,7 @@ function dispatchDisasterObjectEvent(app, event) {
       app._strategicEventPostMessageRngPending = false;
       // 0x3E11要等0x34B1完整返回后才继续本时刻势力槽，不能让其RNG
       // 越过玩家TALK71/72之后的两个灾害字节。
-      if (app._factionTickDeferred) {
-        app._factionTickDeferred = false;
-        tickFactionStrategicState(app);
-        app.hud?.refreshInfo?.();
-      }
+      finishDeferredFactionTick(app);
     }
   };
 
@@ -3389,12 +3651,237 @@ function dispatchDisasterObjectEvent(app, event) {
   return true;
 }
 
+function finishNativeCapitalRelocation(app, continuation) {
+  if (
+    app._nativeCapitalRelocationContinuation !== continuation ||
+    continuation.scenario !== app.scenario
+  )
+    throw new RangeError("Uncovered native capital continuation owner");
+  app._nativeCapitalRelocationContinuation = null;
+  app._strategicEventPostMessageRngPending = false;
+  finishDeferredFactionTick(app);
+}
+
+function continueNativeCapitalRelocation(app, continuation) {
+  try {
+    if (
+      app._nativeCapitalRelocationContinuation !== continuation ||
+      continuation.scenario !== app.scenario ||
+      continuation.stage !== "report"
+    )
+      throw new RangeError("Uncovered native capital report continuation");
+    continuation.stage = "reply";
+    const { selector, talkStyle, ...reply } = continuation.result.reply;
+    const talkIndex = personalityTalkIndex(selector, {
+      ...continuation.result.diplomatRecord,
+      talk_idx: talkStyle,
+    });
+    if (!Number.isInteger(talkIndex))
+      throw new RangeError("Uncovered native capital reply selector");
+    app.gamebar.enqueueTalkMessage({
+      gen: continuation.result.diplomatRecord,
+      ...reply,
+      talkIndex,
+      kind: "native-capital-relocation-reply",
+      onClose: () => {
+        try {
+          finishNativeCapitalRelocation(app, continuation);
+        } catch (error) {
+          holdFailedStrategicUpdate(app, error);
+          throw error;
+        }
+      },
+    });
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+
+function dispatchNativeCapitalRelocation(app, event) {
+  if (app._nativeCapitalRelocationContinuation)
+    throw new RangeError("Uncovered overlapping native capital event");
+  const result = performScenarioCapitalRelocation(app.scenario, event);
+  if (result.status === "player-message") {
+    // 3421..3448: the CFD-word player path shows exactly one monarch
+    // personality line (selector 0x1A4 = TALK[518+talk_idx]); the trailing
+    // 3445 CALL 5E60 is the 98A6-bit1 UI-field refresh gate — display-only,
+    // no rule writes, no RNG — so it is a rule no-op here.
+    if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+      throw new RangeError("Uncovered native capital TALK return");
+    const continuation = {
+      scenario: app.scenario,
+      result,
+      stage: "player",
+    };
+    app._nativeCapitalRelocationContinuation = continuation;
+    app._strategicEventPostMessageRngPending = true;
+    const { selector, talkStyle, ...reply } = result.reply;
+    const talkIndex = personalityTalkIndex(selector, {
+      ...result.monarchRecord,
+      talk_idx: talkStyle,
+    });
+    if (!Number.isInteger(talkIndex))
+      throw new RangeError("Uncovered native capital monarch selector");
+    app.gamebar.enqueueTalkMessage({
+      gen: result.monarchRecord,
+      ...reply,
+      talkIndex,
+      kind: "native-capital-relocation-player",
+      onClose: () => {
+        try {
+          finishNativeCapitalRelocation(app, continuation);
+        } catch (error) {
+          holdFailedStrategicUpdate(app, error);
+          throw error;
+        }
+      },
+    });
+    return true;
+  }
+  if (result.status !== "message") return true;
+  if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+    throw new RangeError("Uncovered native capital TALK return");
+  const continuation = {
+    scenario: app.scenario,
+    result,
+    stage: "report",
+  };
+  app._nativeCapitalRelocationContinuation = continuation;
+  app._strategicEventPostMessageRngPending = true;
+  app.gamebar.enqueueTalkMessage({
+    gen: null,
+    ...result.report,
+    kind: "native-capital-relocation-report",
+    onClose: () => continueNativeCapitalRelocation(app, continuation),
+  });
+  return true;
+}
+
+function dispatchNativeGenericTalkEvent(app, event) {
+  if (app._nativeGenericTalkContinuation)
+    throw new RangeError("Uncovered overlapping native generic TALK event");
+  if (typeof app.gamebar?.enqueueGenericTalkEvent !== "function")
+    throw new RangeError("Uncovered native generic TALK return");
+  const payload = decodeScenarioGenericTalkEvent(event);
+  if (payload.talkIndex >= 1023)
+    throw new RangeError("Uncovered native generic TALK index");
+  app._nativeGenericTalkContinuation = { scenario: app.scenario };
+  app._strategicEventPostMessageRngPending = true;
+  app.gamebar.enqueueGenericTalkEvent({
+    talkIndex: payload.talkIndex,
+    arg0: payload.arg0,
+    argumentWord: payload.argumentWord,
+    kind: "native-generic-talk",
+    onClose: () => {
+      const continuation = app._nativeGenericTalkContinuation;
+      if (!continuation || continuation.scenario !== app.scenario) {
+        const error = new RangeError(
+          "Uncovered native generic TALK continuation owner",
+        );
+        holdFailedStrategicUpdate(app, error);
+        throw error;
+      }
+      try {
+        app._nativeGenericTalkContinuation = null;
+        app._strategicEventPostMessageRngPending = false;
+        finishDeferredFactionTick(app);
+      } catch (error) {
+        holdFailedStrategicUpdate(app, error);
+        throw error;
+      }
+    },
+  });
+  return true;
+}
+
 function dispatchGenericTalkEvent(app, event) {
   const talkIndex = Math.trunc(Number(event?.talkIndex));
   const arg0 = Math.trunc(Number(event?.arg0));
   if (!Number.isInteger(talkIndex) || talkIndex < 0 || talkIndex >= 1023)
     return false;
   app.gamebar?.enqueueGenericTalkEvent?.({ talkIndex, arg0 });
+  return true;
+}
+
+function finishNativeDeficitTrustEvent(app) {
+  const continuation = app._nativeDeficitTrustContinuation;
+  if (!continuation || continuation.scenario !== app.scenario)
+    throw new RangeError("Uncovered native deficit-trust continuation owner");
+  try {
+    const result = finishScenarioDeficitTrustEvent(
+      app.scenario,
+      continuation.state,
+    );
+    if (result.gameOver) {
+      if (typeof app.checkTrustGameOver !== "function")
+        throw new RangeError("Uncovered native deficit-trust game-over return");
+      app.checkTrustGameOver();
+    }
+    app._nativeDeficitTrustContinuation = null;
+    app._strategicEventPostMessageRngPending = false;
+    finishDeferredFactionTick(app);
+    return true;
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+
+function continueNativeDeficitTrustEvent(app) {
+  const continuation = app._nativeDeficitTrustContinuation;
+  if (!continuation || continuation.scenario !== app.scenario)
+    throw new RangeError("Uncovered native deficit-trust continuation owner");
+  try {
+    const state = continueScenarioDeficitTrustEvent(
+      app.scenario,
+      continuation.state,
+    );
+    continuation.state = state;
+    if (state.phase === "return") {
+      app._nativeDeficitTrustContinuation = null;
+      app._strategicEventPostMessageRngPending = false;
+      finishDeferredFactionTick(app);
+      return true;
+    }
+    const source = app.scenario.generals?.[state.generalIndex];
+    if (!source || typeof app.gamebar?.enqueueTalkMessage !== "function")
+      throw new RangeError("Uncovered native deficit-trust ruler TALK return");
+    const gen = {
+      ...source,
+      portrait: state.portrait,
+      talk_idx: state.personality,
+    };
+    const talkIndex =
+      personalityTalkIndex(state.selector, gen) ?? state.selector;
+    app.gamebar.enqueueTalkMessage({
+      gen,
+      talkIndex,
+      kind: "deficit-trust-ruler-rebuke",
+      onClose: () => finishNativeDeficitTrustEvent(app),
+    });
+    return true;
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+
+function dispatchNativeDeficitTrustEvent(app, event) {
+  if (app._nativeDeficitTrustContinuation)
+    throw new RangeError("Uncovered overlapping native deficit-trust event");
+  if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+    throw new RangeError("Uncovered native deficit-trust TALK51 return");
+  const state = beginScenarioDeficitTrustEvent(event);
+  app._nativeDeficitTrustContinuation = { scenario: app.scenario, state };
+  // 3E11 cannot continue its faction leaf until both 3507/3DC9 TALK calls return.
+  app._strategicEventPostMessageRngPending = true;
+  app.gamebar.enqueueTalkMessage({
+    gen: null,
+    talkIndex: state.talkIndex,
+    kind: "deficit-trust-notice",
+    onClose: () => continueNativeDeficitTrustEvent(app),
+  });
   return true;
 }
 
@@ -3419,7 +3906,550 @@ function dispatchDeficitTrustEvent(app, event) {
   return true;
 }
 
+function resumeNativeWarEvent(app, continuation) {
+  if (
+    app._nativeWarEventContinuation !== continuation ||
+    continuation.scenario !== app.scenario
+  )
+    throw new RangeError("Uncovered native type1 continuation owner");
+  const state = continuation.state;
+  const enqueue = app.gamebar?.enqueueTalkMessage;
+  if (typeof enqueue !== "function")
+    throw new RangeError("Uncovered native type1 TALK return");
+  app._strategicEventPostMessageRngPending = true;
+  const finish = () => {
+    try {
+      if (
+        app._nativeWarEventContinuation !== continuation ||
+        continuation.scenario !== app.scenario
+      )
+        throw new RangeError("Uncovered native type1 continuation owner");
+      commitScenarioWarEvent(app.scenario, continuation.state);
+      app._nativeWarEventContinuation = null;
+      app._strategicEventPostMessageRngPending = false;
+      finishDeferredFactionTick(app);
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  };
+  // 356E：TALK63 真实关闭后才进入同一8810的第二段君主对白。
+  const advance = () => {
+    try {
+      if (
+        app._nativeWarEventContinuation !== continuation ||
+        continuation.scenario !== app.scenario
+      )
+        throw new RangeError("Uncovered native type1 continuation owner");
+      continuation.state = continueScenarioWarEvent(
+        app.scenario,
+        continuation.state,
+      );
+      resumeNativeWarEvent(app, continuation);
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  };
+  if (state.phase === "aggressor-message") {
+    // 3550 CDE → 3570 8810：玩家君主亲自下令，selector CX=0x1A0。
+    enqueue.call(app.gamebar, {
+      gen: state.monarch,
+      talkIndex: personalityTalkIndex(0x1a0, state.monarch),
+      targetName: state.targetName,
+      advisorName: state.advisorName,
+      kind: "native-war-declaration",
+      sound: "warn",
+      onClose: finish,
+    });
+    return true;
+  }
+  if (state.phase === "defender-report") {
+    // 3563 CE7 → 356B 8810：TALK63 通用宣战报告，\3 为发起方君主。
+    enqueue.call(app.gamebar, {
+      gen: null,
+      talkIndex: 63,
+      targetName: state.aggressorName,
+      kind: "native-war-declaration-report",
+      sound: "warn",
+      onClose: advance,
+    });
+    return true;
+  }
+  if (state.phase === "defender-message") {
+    // 3570 8810：发起方君主对白，selector CX=0x19F，关闭后才进入358C提交。
+    const talkIndex = personalityTalkIndex(0x19f, state.monarch);
+    if (!Number.isInteger(talkIndex))
+      throw new RangeError("Uncovered native type1 defender selector");
+    enqueue.call(app.gamebar, {
+      gen: state.monarch,
+      talkIndex,
+      kind: "native-war-declaration",
+      onClose: finish,
+    });
+    return true;
+  }
+  throw new RangeError(`Uncovered native type1 phase ${String(state.phase)}`);
+}
+
+function dispatchNativeWarEvent(app, event) {
+  if (app._nativeWarEventContinuation)
+    throw new RangeError("Uncovered overlapping native type1 event");
+  const state = beginScenarioWarEvent(app.scenario, event);
+  if (state.phase === "return") return true;
+  if (state.phase === "commit") {
+    commitScenarioWarEvent(app.scenario, state);
+    return true;
+  }
+  const continuation = { scenario: app.scenario, state };
+  app._nativeWarEventContinuation = continuation;
+  return resumeNativeWarEvent(app, continuation);
+}
+
+/** 3258 之后直连的 3526 战争尾段（type1 玩家防守方消息合同复用）。 */
+function runNativeAssistanceWarTail(app, warState) {
+  const sc = app.scenario;
+  if (warState.phase === "return") return true;
+  if (warState.phase === "commit") {
+    commitScenarioWarEvent(sc, warState);
+    return true;
+  }
+  if (app._nativeWarEventContinuation)
+    throw new RangeError("Uncovered overlapping native type2 war tail");
+  const continuation = { scenario: sc, state: warState };
+  app._nativeWarEventContinuation = continuation;
+  return resumeNativeWarEvent(app, continuation);
+}
+
+/**
+ * 38C7(type3)/38E6(type2) 玩家决定流（实锤，re-notes-ai-diplomacy §36）。
+ * 窗口开关(2078/20D6)、三选项(3B7E)与数字键盘(7C6E，上限 0x7530)由
+ * gamebar 入站外交模态承担；本函数建立 continuation 并入队模态。
+ * 3902 结果门在 resumeNativePlayerDecision 内执行（恰好 1 字节 RNG）。
+ */
+function enqueueNativePlayerDecision(app, kind, state) {
+  const sc = app.scenario;
+  if (app._nativePlayerDecisionContinuation)
+    throw new RangeError("Uncovered overlapping native player decision");
+  if (typeof app.gamebar?.enqueueIncomingDiplomacyRequest !== "function")
+    throw new RangeError(`Uncovered native ${kind} player decision UI`);
+  const requesterIdx = kind === "assistance" ? state.payer : state.proposer;
+  const requesterFaction = factionByIndex(sc, requesterIdx);
+  const targetFaction =
+    kind === "assistance" ? factionByIndex(sc, state.target) : null;
+  if (!requesterFaction || (kind === "assistance" && !targetFaction))
+    throw new RangeError(`Uncovered native ${kind} decision factions`);
+  // 38C7/38E6 包装：38C7 BX=0xFFFF；38E6 BX=A 攻击目标，供 TALK 占位替换。
+  const continuation = { scenario: sc, kind, state };
+  app._nativePlayerDecisionContinuation = continuation;
+  app.gamebar.enqueueIncomingDiplomacyRequest({
+    type: kind === "assistance" ? "incoming-assistance" : "incoming-truce",
+    requesterFaction,
+    targetFaction,
+    result: { outcome: state.outcome, goldRequired: state.fee },
+    nativeDecision: {
+      kind,
+      // 3C99：提问行 = TALK 基(360/373) + 君主个性变体(v>=3 减 3)。
+      personality: readScenarioPlayerMonarchPersonality(sc),
+      // 7C6E 数字键盘默认输入 0（非 v1 的算法 fee）。
+      keypadDefault: 0,
+      resolveChoice: (choice, amount) =>
+        resumeNativePlayerDecision(app, continuation, choice, amount),
+    },
+    onResolve: (outcome, fee) =>
+      commitNativePlayerDecision(app, continuation, outcome, fee),
+  });
+  return true;
+}
+
+/**
+ * 3902 决定门 + 3C3D/3DC9 罚则（模态确认时同步执行，RNG 恰好 1 字节）：
+ * RNG > 信赖 → 保持 NPC 算法 AL/DX；RNG <= 信赖 → 玩家选择生效，
+ * 输入额 > 算法 fee → AL=3（索价过高破裂）→ 3DC9 信赖-30 借位夹 0，
+ * 归零 → 1CB1（checkTrustGameOver）。返回 UI 显示所需 TALK 索引。
+ */
+function resumeNativePlayerDecision(app, continuation, choice, amount) {
+  try {
+    if (
+      app._nativePlayerDecisionContinuation !== continuation ||
+      continuation.scenario !== app.scenario
+    )
+      throw new RangeError("Uncovered native player decision owner");
+    const sc = app.scenario;
+    const rng = app.originalRng ?? app.activeBattleRng;
+    if (typeof rng?.nextByte !== "function")
+      throw new RangeError("Uncovered native player decision RNG");
+    const code = resolveOriginalPlayerDecisionChoice(choice, amount);
+    const resolved = resolveOriginalPlayerDecision({
+      kind: continuation.kind,
+      algorithmOutcome: continuation.state.outcome,
+      algorithmFee: continuation.state.fee,
+      choice: code,
+      amount,
+      rngByte: rng.nextByte(),
+      trust: readScenarioPlayerTrust(sc),
+    });
+    const penalty = applyScenarioPlayerTrustPenalty(sc, resolved.outcome);
+    if (penalty.gameOver) app.checkTrustGameOver?.();
+    const personality =
+      continuation.nativePersonality ??
+      (continuation.nativePersonality =
+        readScenarioPlayerMonarchPersonality(sc));
+    // 3C99 变体：v>=3 减 3（一次）；075B 选择器展开不折叠（直接 talk_idx）。
+    const variant = personality >= 3 ? personality - 3 : personality;
+    const base = continuation.kind === "assistance" ? 373 : 360;
+    // 3C3D 通知行：CX=0x2B(type3)/0x2F(type2)，TALK[CX+min(al,2)]（al=3 映为 2）。
+    const notifyBase = continuation.kind === "assistance" ? 0x2f : 0x2b;
+    return {
+      outcome: resolved.outcome,
+      fee: resolved.fee,
+      responseTalk: resolved.responseTalk + variant,
+      advisorTalk: base + 4 + code,
+      notifyTalk: notifyBase + Math.min(resolved.outcome, 2),
+      // 3DC9 借位 → CX=0x19E，075B 展开为 470+talk_idx 解任台词（信赖归零）。
+      praiseTalk:
+        penalty.selector === 0x19e
+          ? personalityTalkIndex(0x19e, { talk_idx: personality })
+          : null,
+    };
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+
+/**
+ * 3290/324B：AL>=2 拒绝返回（outcome 3 罚则已在 resume 完成）；AL<2 进
+ * 3297(type3)/3258(type2) 提交。type2 接受后直连 3526 战争尾段。
+ */
+function commitNativePlayerDecision(app, continuation, outcome, fee) {
+  try {
+    if (
+      app._nativePlayerDecisionContinuation !== continuation ||
+      continuation.scenario !== app.scenario
+    )
+      throw new RangeError("Uncovered native player decision owner");
+    app._nativePlayerDecisionContinuation = null;
+    if (outcome >= 2) return;
+    const sc = app.scenario;
+    const rng = app.originalRng ?? app.activeBattleRng;
+    if (continuation.kind === "truce") {
+      commitScenarioTruceEvent(
+        sc,
+        { ...continuation.state, phase: "commit", outcome, fee },
+        rng,
+      );
+      return;
+    }
+    const warState = settleScenarioAssistanceEvent(
+      sc,
+      { ...continuation.state, phase: "settle", outcome, fee },
+      rng,
+    );
+    runNativeAssistanceWarTail(app, warState);
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+
+/** 3262 type3 truce：NPC 直接提交；接收方为玩家时进入 38C7 决定流。 */
+function dispatchNativeTruceEvent(app, event) {
+  const sc = app.scenario;
+  const rng = app.originalRng ?? app.activeBattleRng;
+  const state = beginScenarioTruceEvent(sc, event, rng);
+  if (state.phase === "return") return true;
+  if (state.phase === "player-decision")
+    return enqueueNativePlayerDecision(app, "truce", state);
+  commitScenarioTruceEvent(sc, state, rng);
+  return true;
+}
+
+/**
+ * 3220 type2 cooperation：NPC 直接 3258 结账；受邀方为玩家时进入 38E6
+ * 决定流。接受的 NPC 事件先支付，再直连 3526 战争尾段；和平玩家防守方
+ * 复用 type1 8810 continuation 合同。
+ */
+function dispatchNativeAssistanceEvent(app, event) {
+  const sc = app.scenario;
+  const rng = app.originalRng ?? app.activeBattleRng;
+  const state = beginScenarioAssistanceEvent(sc, event, rng);
+  if (state.phase === "return") return true;
+  if (state.phase === "player-decision")
+    return enqueueNativePlayerDecision(app, "assistance", state);
+  const warState = settleScenarioAssistanceEvent(sc, state, rng);
+  return runNativeAssistanceWarTail(app, warState);
+}
+
+/**
+ * 32A9 type4 内政官月度预算：32B6 门（[city+19]==FF 静默消费）后把
+ * 39E8 对话交给 gamebar 预算接见流；提交在 commitNativeBudgetEvent
+ * （3AD9..3AF5 实锤顺序：先写武将+1A，再 563B 扣款）。39E8 全程 0 RNG。
+ */
+function dispatchNativeDomesticBudgetEvent(app, event) {
+  const sc = app.scenario;
+  const state = beginScenarioDomesticBudgetEvent(sc, event);
+  if (state.phase === "return") return true;
+  return enqueueNativeBudgetAudience(app, state);
+}
+
+/** 32E9 type5 外交官月度维持费：32F4 门（[faction+2A]==FF 静默消费）。 */
+function dispatchNativeEnvoyBudgetEvent(app, event) {
+  const sc = app.scenario;
+  const state = beginScenarioEnvoyBudgetEvent(sc, event);
+  if (state.phase === "return") return true;
+  return enqueueNativeBudgetAudience(app, state);
+}
+
+function enqueueNativeBudgetAudience(app, state) {
+  const sc = app.scenario;
+  if (app._nativeBudgetContinuation)
+    throw new RangeError("Uncovered overlapping native budget audience");
+  const domestic = state.kind === "domestic";
+  const enqueue = domestic
+    ? app.gamebar?.enqueueDomesticBudgetReport
+    : app.gamebar?.enqueueEnvoyBudgetReport;
+  if (typeof enqueue !== "function")
+    throw new RangeError(
+      `Uncovered native type${domestic ? 4 : 5} audience UI`,
+    );
+  const general = sc.generals?.[state.general];
+  if (!general) throw new RangeError("Uncovered native budget general");
+  const continuation = { scenario: sc, state };
+  app._nativeBudgetContinuation = continuation;
+  // 7C6E 键盘默认值实锤为 0（7CA2 xor si,si），非 v1 的建议额。
+  const nativeBudget = {
+    kind: state.kind,
+    keypadDefault: 0,
+    commit: (grant, outcome) =>
+      commitNativeBudgetEvent(app, continuation, grant, outcome),
+  };
+  if (domestic)
+    enqueue.call(app.gamebar, {
+      cityIdx: state.city,
+      requested: state.suggested,
+      nativeGeneral: state.general,
+      nativeBudget,
+    });
+  else
+    enqueue.call(app.gamebar, {
+      targetIdx: state.faction,
+      requested: state.suggested,
+      nativeGeneral: state.general,
+      nativeBudget,
+    });
+  return true;
+}
+
+/**
+ * 39E8 提交边界：outcome==2（拒绝/键盘 0）无任何写入；建议额 0 的
+ * 3A31 零请求路径在原版不初始化结果槽（栈垃圾），正常域内无可见规则
+ * 差异（推断，§37），Web 取不提交。其余先写 +1A 再 563B 扣款。
+ */
+function commitNativeBudgetEvent(app, continuation, grant, outcome) {
+  try {
+    if (
+      app._nativeBudgetContinuation !== continuation ||
+      continuation.scenario !== app.scenario
+    )
+      throw new RangeError("Uncovered native budget continuation owner");
+    if (continuation.state.suggested === 0 || outcome === 2) {
+      app._nativeBudgetContinuation = null;
+      return;
+    }
+    commitScenarioBudgetEvent(app.scenario, {
+      phase: "commit",
+      general: continuation.state.general,
+      outcome,
+      grant,
+    });
+    app._nativeBudgetContinuation = null;
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+
+/**
+ * 3327 type6 玩家停战使者结果：入口门后 TALK57（8810）真实关闭才执行
+ * 36C4（此点消费 3771 RNG）；CF → TALK58 后返回；否则 3C3D(CX=2Bh)
+ * TALK[43+min(AL,2)] 关闭后 AL<2 才提交 3371 链（35ED→45F8→4236→3669）。
+ */
+function dispatchNativeTruceEnvoyResult(app, event) {
+  if (app._nativeEnvoyResultContinuation)
+    throw new RangeError("Uncovered overlapping native envoy result");
+  const state = beginScenarioTruceEnvoyResult(app.scenario, event);
+  if (state.phase === "return") return true;
+  const continuation = {
+    scenario: app.scenario,
+    state: describeEnvoyResultMessageState(app.scenario, state),
+  };
+  app._nativeEnvoyResultContinuation = continuation;
+  return resumeNativeEnvoyResult(app, continuation);
+}
+
+/** 3388 type7 玩家请援使者结果（同一消息合同，3C3D CX=2Fh）。 */
+function dispatchNativeAssistanceEnvoyResult(app, event) {
+  if (app._nativeEnvoyResultContinuation)
+    throw new RangeError("Uncovered overlapping native envoy result");
+  const state = beginScenarioAssistanceEnvoyResult(app.scenario, event);
+  if (state.phase === "return") return true;
+  const continuation = {
+    scenario: app.scenario,
+    state: describeEnvoyResultMessageState(app.scenario, state),
+  };
+  app._nativeEnvoyResultContinuation = continuation;
+  return resumeNativeEnvoyResult(app, continuation);
+}
+
+function resumeNativeEnvoyResult(app, continuation) {
+  const sc = app.scenario;
+  const enqueue = app.gamebar?.enqueueTalkMessage;
+  if (typeof enqueue !== "function")
+    throw new RangeError("Uncovered native envoy result TALK return");
+  const state = continuation.state;
+  const diplomat = state.diplomatGeneral;
+  if (!diplomat) throw new RangeError("Uncovered native envoy diplomat");
+  const factionName = state.factionName ?? "";
+  app._strategicEventPostMessageRngPending = true;
+  const checkOwner = () => {
+    if (
+      app._nativeEnvoyResultContinuation !== continuation ||
+      continuation.scenario !== app.scenario
+    )
+      throw new RangeError("Uncovered native envoy result owner");
+  };
+  // 消息链中段（TALK57→36C4/3712→后续）：只校验所有权，不清 RNG 挂起。
+  const advance = (fn) => () => {
+    try {
+      checkOwner();
+      fn();
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  };
+  // 终止消息（TALK58 / 拒绝 / type6 提交）关闭后才清挂起并补拍。
+  const finish = (fn) => () => {
+    try {
+      checkOwner();
+      fn();
+      app._strategicEventPostMessageRngPending = false;
+      finishDeferredFactionTick(app);
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  };
+  if (state.phase === "report") {
+    // 3339/33A5：CDE 蜂鸣 + 8810 TALK57，\1=外交官名、\3=派驻势力君主名。
+    enqueue.call(app.gamebar, {
+      gen: null,
+      talkIndex: 57,
+      generalName: diplomat.name?.trim?.() ?? "",
+      targetName: factionName,
+      kind: `native-${state.kind}-envoy-report`,
+      onClose: advance(() => {
+        const rng = app.originalRng ?? app.activeBattleRng;
+        continuation.state = describeEnvoyResultMessageState(
+          sc,
+          state.kind === "truce"
+            ? scenarioTruceEnvoyOutcome(sc, state, rng)
+            : scenarioAssistanceEnvoyOutcome(sc, state, rng),
+        );
+        resumeNativeEnvoyResult(app, continuation);
+      }),
+    });
+    return true;
+  }
+  if (state.phase === "report-failed") {
+    // 3362/33CE：8810 TALK58「敵方的君主已不在了。」，AL=[外交官+1]君主号。
+    enqueue.call(app.gamebar, {
+      gen: diplomat,
+      talkIndex: state.talkIndex,
+      generalName: diplomat.name?.trim?.() ?? "",
+      targetName: factionName,
+      kind: `native-${state.kind}-envoy-failed`,
+      onClose: finish(() => {
+        app._nativeEnvoyResultContinuation = null;
+      }),
+    });
+    return true;
+  }
+  if (state.phase === "notify") {
+    // 3C3D：TALK[CX+min(AL,2)]；AL>=2 拒绝返回，AL<2 关闭后提交。
+    const talkIndex = state.notifyTalkBase + Math.min(state.outcome, 2);
+    enqueue.call(app.gamebar, {
+      gen: null,
+      talkIndex,
+      targetName: factionName,
+      kind: `native-${state.kind}-envoy-notify`,
+      onClose: () => {
+        try {
+          checkOwner();
+          if (state.outcome >= 2 || state.kind === "truce") {
+            if (state.outcome < 2)
+              commitScenarioTruceEnvoyResult(sc, {
+                phase: "commit",
+                target: state.target,
+                proposer: state.proposer,
+                outcome: state.outcome,
+                fee: state.fee,
+              });
+            app._nativeEnvoyResultContinuation = null;
+            app._strategicEventPostMessageRngPending = false;
+            finishDeferredFactionTick(app);
+            return;
+          }
+          const warState = commitScenarioAssistanceEnvoyResult(sc, {
+            phase: "commit",
+            ally: state.ally,
+            target: state.target,
+            payer: state.payer,
+            outcome: state.outcome,
+            fee: state.fee,
+          });
+          app._nativeEnvoyResultContinuation = null;
+          // 先交出 RNG 挂起，战争尾段若需消息会自行重新挂起并在其
+          // finish 中补拍；无消息（return/commit 直落）时在此补拍。
+          app._strategicEventPostMessageRngPending = false;
+          runNativeAssistanceWarTail(app, warState);
+          if (!app._nativeWarEventContinuation) finishDeferredFactionTick(app);
+        } catch (error) {
+          holdFailedStrategicUpdate(app, error);
+          throw error;
+        }
+      },
+    });
+    return true;
+  }
+  throw new RangeError(
+    `Uncovered native envoy result phase ${String(state.phase)}`,
+  );
+}
+
 function dispatchStrategicEvent(app, event) {
+  const sc = app.scenario;
+  if (scenarioNativeRoadContext(sc) || hasNativeLegionSlots(sc)) {
+    if (event?.type === 1) return dispatchNativeWarEvent(app, event);
+    if (event?.type === 2) return dispatchNativeAssistanceEvent(app, event);
+    if (event?.type === 3) return dispatchNativeTruceEvent(app, event);
+    if (event?.type === 4) return dispatchNativeDomesticBudgetEvent(app, event);
+    if (event?.type === 5) return dispatchNativeEnvoyBudgetEvent(app, event);
+    if (event?.type === 6) return dispatchNativeTruceEnvoyResult(app, event);
+    if (event?.type === 7)
+      return dispatchNativeAssistanceEnvoyResult(app, event);
+    if (event?.type === 8) return dispatchNativeCapitalRelocation(app, event);
+    if (event?.type === 9) return dispatchGeneralFateEvent(app, event);
+    if (event?.type === 10) return dispatchNativeGenericTalkEvent(app, event);
+    if (event?.type === 11) return dispatchNativeDisasterAreaEvent(app);
+    if (event?.type === 12)
+      return dispatchNativeDisasterObjectEvent(app, event);
+    if (event?.type === 13) return dispatchNativeDeficitTrustEvent(app, event);
+    throw new RangeError(
+      `Uncovered native strategic event type ${String(event?.type)}`,
+    );
+  }
   if (event?.type === 1) return processStrategicWarEvent(app, event);
   if (event?.type === 2) return dispatchIncomingAssistanceEvent(app, event);
   if (event?.type === 3) return dispatchIncomingTruceEvent(app, event);
@@ -3464,6 +4494,15 @@ export function tickFactionStrategicState(app) {
   }
   const sc = app?.scenario;
   if (!sc) return false;
+  if (scenarioNativeRoadContext(sc) || hasNativeFactionSlots(sc)) {
+    try {
+      performScenarioFactionTick(sc, app.originalRng ?? app.activeBattleRng);
+      return true;
+    } catch (error) {
+      holdFailedStrategicUpdate(app, error);
+      throw error;
+    }
+  }
   const factions = sc.factions ?? [];
   const cursor = Math.max(0, sc._factionTickCursor | 0) % 22;
   sc._factionTickCursor = (cursor + 1) % 22;
@@ -3813,17 +4852,64 @@ export function cancelLegionSlotBatch(app) {
   return true;
 }
 
+/**
+ * 1D0B 首指令统一胜利门（native 场景，v1 不动）：D2A≡活跃势力数==1 时
+ * 进入 1D20 胜利分支——CDE beep、TALK[75] 宣告、君主个性行
+ * （选择器 0x197→TALK[414+talk_idx]），关闭后 AL=2→1CB1→D7END
+ * 结局（END_S1..12 循环）。一次性（nativeUnificationShown 持久护栏），
+ * 0 RNG；缺消息/结局基础设施 fail-closed。
+ */
+export function dispatchNativeUnificationGate(app) {
+  const sc = app.scenario;
+  if (!hasNativeFactionSlots(sc)) return false;
+  if (sc.nativeUnificationShown) return false;
+  if (countNativeAliveFactions(sc) !== 1) return false;
+  if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+    throw new RangeError("Uncovered native unification TALK return");
+  if (typeof app.endView?.show !== "function")
+    throw new RangeError("Uncovered native unification D7END return");
+  sc.nativeUnificationShown = true;
+  warnSfx(); // 1D20: CALL 0CDE（PC 喇叭 beep）
+  const monarch = resolveNativeVictoryMonarch(sc);
+  app.gamebar.enqueueTalkMessage({
+    gen: null,
+    talkIndex: NATIVE_UNIFICATION_TALK_INDEX,
+    kind: "native-unification",
+  });
+  app.gamebar.enqueueTalkMessage({
+    gen: monarch,
+    talkIndex: personalityTalkIndex(
+      NATIVE_UNIFICATION_MONARCH_SELECTOR,
+      monarch,
+    ),
+    kind: "native-unification-monarch",
+    onClose: () => {
+      try {
+        // 1CB1 AL=2 → YNVSHELL→D7END.EXE：END_S1..12 循环播放至点击退出。
+        app.endView.show({
+          sequence: Array.from(
+            { length: 12 },
+            (_, i) => `grf/end_s${i + 1}.png`,
+          ),
+        });
+      } catch (error) {
+        holdFailedStrategicUpdate(app, error);
+        throw error;
+      }
+    },
+  });
+  return true;
+}
+
 export function aiTick(app, options = {}) {
   if (
     app._strategicCityRequest ||
     app._legionSlotBatch ||
     app._strategicBattleFailure
-  )
-    return scenarioNativeRoadContext(app.scenario)
-      ? app._strategicBattleFailure
-        ? "failed"
-        : "pending"
-      : undefined;
+  ) {
+    if (!scenarioNativeRoadContext(app.scenario)) return undefined;
+    return app._strategicBattleFailure ? "failed" : "pending";
+  }
   if (app.battleView?.active || app.engageTransition?.active)
     return scenarioNativeRoadContext(app.scenario) ? "pending" : undefined;
   if (!app.scenario?.legions) return;
@@ -3831,6 +4917,7 @@ export function aiTick(app, options = {}) {
     const scenario = app.scenario,
       clock = app.clock;
     try {
+      if (dispatchNativeUnificationGate(app)) return "pending";
       if (Number.isInteger(options.cityIndex)) {
         if (
           options.cityIndex < 0 ||
@@ -3845,11 +4932,8 @@ export function aiTick(app, options = {}) {
         );
       }
       finishStrategicCityUpdate(app, options);
-      return app._strategicBattleFailure
-        ? "failed"
-        : app._legionSlotBatch
-          ? "pending"
-          : "returned";
+      if (app._strategicBattleFailure) return "failed";
+      return app._legionSlotBatch ? "pending" : "returned";
     } catch (error) {
       if (app.scenario === scenario && app.clock === clock)
         holdFailedStrategicUpdate(app, error);
@@ -3963,7 +5047,12 @@ function runLegionSlotBatch(app, batch) {
         // 25FF commits before 2459; a weather failure retains this cursor.
         if (scenarioNativeRoadContext(sc)) {
           sc._legionBatchCursor = batch.cursor.endSlot % 128;
-          batch.changed = tickOriginalStrategicWeather(sc) || batch.changed;
+          // Read the same current RNG at the weather boundary, after all slots.
+          batch.changed =
+            tickOriginalStrategicWeather(
+              sc,
+              app.originalRng ?? app.activeBattleRng,
+            ) || batch.changed;
         } else {
           // Fetch canonical RNG NOW: tactical return can replace its object.
           batch.changed =
@@ -3993,12 +5082,43 @@ function runLegionSlotBatch(app, batch) {
         // invoke a test callback. The cursor is already at the continuation.
         const ticket = { completed: false };
         batch.ticket = ticket;
-        if (op.kind === "inactive" && scenarioNativeRoadContext(sc))
-          throw new RangeError("Web engineering Uncovered 2A7E at 25E5");
-        const outcome =
-          op.kind === "inactive"
-            ? tickDelayedLegionReturn(app, op.record)
-            : performLegionSlotAction(app, op.record);
+        let outcome;
+        if (op.kind === "inactive" && scenarioNativeRoadContext(sc)) {
+          outcome = performScenarioLegionFate(
+            sc,
+            op.record,
+            scenarioNativeRoadContext(sc),
+            "2A7E",
+            undefined,
+            undefined,
+            {
+              onPlayerDelayedReturn: () => {
+                const general = sc.generals?.[op.record.generalIdx];
+                app.gamebar?.clickSfx?.(); // 2AB2 CDE before TALK35.
+                if (!app.gamebar?.enqueueTalkMessage)
+                  throw new RangeError(
+                    "Web engineering Uncovered native TALK35 queue",
+                  );
+                app.gamebar.enqueueTalkMessage({
+                  gen: general,
+                  talkIndex: 35,
+                  generalName:
+                    general?.name?.trim?.() || op.record.leader || "",
+                  personalitySelector: 0x198,
+                  kind: "postbattle-general-return",
+                  onComplete: () =>
+                    finishDeferredLegionDaily(app, batch, ticket),
+                });
+                return "suspended";
+              },
+            },
+          );
+        } else {
+          outcome =
+            op.kind === "inactive"
+              ? tickDelayedLegionReturn(app, op.record)
+              : performLegionSlotAction(app, op.record);
+        }
         batch.changed = true;
         if (app._legionSlotBatch !== batch) return false;
         if (outcome === "suspended" && !ticket.completed) {
@@ -4049,15 +5169,55 @@ function disbandLegionAtCapital(sc, legion) {
   clearEngagement(legion);
 }
 
+/** Detached-chain message blocks (P55-C09-2d): app-threading for captures
+ * reached through road-movement sieges. Each closure suspends through the
+ * same continuations as the attached-battle branch; absent gamebar or a
+ * mismatched scenario fails closed at suspend time, never at build time. */
+function buildNativeSiegeBlocks(app, sc, A, context) {
+  if (!context) return undefined;
+  const captor = A?.faction;
+  return {
+    onDiplomatBlock: (deadOwner, diplomat, diplomatTail, captureTail) =>
+      suspendNativeDiplomatReport(
+        app,
+        sc,
+        deadOwner,
+        captor,
+        context,
+        diplomat,
+        diplomatTail,
+        captureTail,
+      ),
+    onGovernorBlock: (governorCtx, governorTail) =>
+      suspendNativeGovernorReport(app, sc, governorCtx, governorTail),
+    onPlayerDead: (deadOwner) => triggerNativePlayerDefeat(app, sc, deadOwner),
+  };
+}
 function performLegionSlotAction(app, A) {
   const sc = app.scenario;
   const native = scenarioNativeRoadContext(sc);
   if (native) {
+    // Web _retreat lifecycle mirror of the arrival branch below: the marker
+    // lives only until the slot acts while positioned at the retreat
+    // destination node. DOS has no such marker (2662→28F4→4325 just
+    // processes arrival); without this mirror every native retreat keeps a
+    // permanent stale marker after walking home (P74 debug: arrived with
+    // cs 8→1→0 while _retreat stayed set). The v1 body clears it at
+    // legionAtTargetNode; native arrival runs inside
+    // performOriginalRoadAction, so clear here. Destination-only: passing
+    // through other nodes never matches _retreat.nodeId.
+    if (
+      A._retreat &&
+      Number.isInteger(A._retreat.nodeId) &&
+      rawRoadNodeId(A.roadEdgeOrNode) === A._retreat.nodeId
+    )
+      A._retreat = null;
     performOriginalRoadAction(
       sc,
       A,
       native,
       app.originalRng ?? app.activeBattleRng,
+      buildNativeSiegeBlocks(app, sc, A, native),
     );
     return "complete"; // Only the existing pump owns normal daily/03 tails.
   }
@@ -4080,7 +5240,13 @@ function performLegionSlotAction(app, A) {
     return "complete";
   }
   if (A._retreat && A.target) {
-    const result = stepTo(sc, A, A.target.x, A.target.y);
+    const blocks = buildNativeSiegeBlocks(
+      app,
+      sc,
+      A,
+      scenarioNativeRoadContext(sc),
+    );
+    const result = stepTo(sc, A, A.target.x, A.target.y, blocks);
     if (result === "blocked") {
       dispatchLegionFate(
         sc,
@@ -4104,7 +5270,13 @@ function performLegionSlotAction(app, A) {
   }
   if (!A.target) return "complete";
   const target = A.target;
-  const result = stepTo(sc, A, target.x, target.y);
+  const result = stepTo(
+    sc,
+    A,
+    target.x,
+    target.y,
+    buildNativeSiegeBlocks(app, sc, A, scenarioNativeRoadContext(sc)),
+  );
   if (result === "contact") return resolveEngagementAction(app, A);
   if (result === "blocked") {
     A.target = null;

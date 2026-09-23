@@ -11,6 +11,9 @@
 //   - 0x5695: 城池成长动力学。玩家税率与 30% 基准比较：税率<30% 增长，税率>30% 萎缩；更新生产力与上升率。
 //   - 0x4194: 逐城市槽治理；本文件的月结不得重复写上升率、防灾或城兵。
 
+import { hasNativeFactionSlots } from "./nativefactions.js";
+import { performScenarioMonthlyFiscal } from "./navigation/scenariomonthlyfiscal.js";
+
 export const FACTION_FUNDS_MAX = 655000;
 export const FACTION_FUNDS_MIN = -655000;
 
@@ -252,6 +255,8 @@ export function activateNextMonthPolicy(scenario) {
 export function monthlySettlement(scenario, _clock, rng) {
   if (!rng?.nextByte)
     throw new TypeError("monthly settlement requires canonical original RNG");
+  if (hasNativeFactionSlots(scenario))
+    return performScenarioMonthlyFiscal(scenario, rng);
   const pIdx = scenario.player_faction ?? 0;
   const report = [];
 

@@ -77,6 +77,33 @@ export function normalizeDisasterMapObjectState(scenario) {
   return scenario.disasterMapObjects;
 }
 
+// 2459/2463 fresh inputs（P58 flip）：官方 SINARIO 实测（只读，不碰
+// Dragon/SAVE.DAT）——20章文件 +0x20C0 的 16×16B 灾害槽全零，+0x21C0
+// 的 16×16B 雨云 status 字节全 0x80（320/320，与模板 active:true 一致）。
+// 8CAE 把整段载入为 live 记录，故 fresh 即显式置记录值；缺模板云即
+// fail-closed。App fresh v2 首日 tick 即走 tickOriginalStrategicWeather。
+export function initializeScenarioWeatherInputs(scenario) {
+  const clouds = scenario?.weatherClouds;
+  if (!Array.isArray(clouds) || clouds.length !== WEATHER_CLOUD_COUNT)
+    throw new RangeError(
+      "Web engineering Uncovered fresh weather cloud table",
+    );
+  // Explicit caller inputs win (detached fixtures carry {status: 0});
+  // the 0x80 record byte fills only clouds lacking a status.
+  for (const cloud of clouds) {
+    if (!cloud || typeof cloud !== "object")
+      throw new RangeError("Web engineering Uncovered fresh cloud slot");
+    if (cloud.status === undefined) cloud.status = 0x80;
+  }
+  // Disaster slots: explicit tables win; absent fresh tables own sixteen
+  // zero records (official +0x20C0 bytes are all zero, status 0 = skip).
+  if (scenario.disasterMapObjects === undefined)
+    scenario.disasterMapObjects = Array.from(
+      { length: DISASTER_OBJECT_COUNT },
+      () => ({ status: 0 }),
+    );
+}
+
 /**
  * 旧 Web IndexedDB 快照没有雨云字段时，从同章节 SINARIO 模板补回
  * DS:0x2140（文件 +0x21C0）的 16 条原始记录。
@@ -184,19 +211,73 @@ function moveCloud(cloud, bounds, rng) {
   cloud.velocityY = signedByte(cloud.velocityY + pullY);
 }
 
-/**
- * KI.EXE 0x2459：每个战略更新扫描 16 个定点灾害对象，再扫描 16 朵雨云。
- * Native有限域0 RNG；后半区到期在248A入口暂停，非完整云移动。
+// Native 248A/24FF: strict IO, word/byte wrapping and immediate writes.
+// Source: docs/re-notes-march-pathfinding.md#native-weather-movement.
+const nativeS8 = (n) => (n << 24) >> 24;
+const nativeS16 = (n) => (n << 16) >> 16;
+function originalCloudAxis(pair, rng) {
+  let [phase, velocity] = pair;
+  const jitter = rng() & 7;
+  if (jitter <= 2) velocity = nativeS8(velocity + jitter - 1);
+  velocity = Math.max(-15, Math.min(15, velocity));
+  phase = nativeS8(phase + velocity);
+  let delta = 0;
+  if (phase >= 15) {
+    phase -= 15;
+    delta = 1;
+  } else if (phase <= -15) {
+    phase += 15;
+    delta = -1;
+  }
+  return { pair: [phase, velocity], delta };
+}
+
+export function moveOriginalWeatherCloud(io) {
+  const x = originalCloudAxis(io.readAxis("x", "248A"), () =>
+    io.nextByte("24FF"),
+  );
+  io.writeAxis("x", x.pair, "2490");
+  io.write("x", nativeS16(io.read("x", "2493") + x.delta), "2493");
+  const y = originalCloudAxis(io.readAxis("y", "2496"), () =>
+    io.nextByte("24FF"),
+  );
+  io.writeAxis("y", y.pair, "249C");
+  io.write("y", nativeS16(io.read("y", "249F") + y.delta), "249F");
+
+  let pullX = 0;
+  let pullY = 0;
+  let position = io.read("x", "24A4");
+  if (position < io.bound("minX", "24A7")) pullX = 1;
+  if (position > io.bound("maxX", "24B0")) pullX = -1;
+  if (position < -16) position = 400;
+  else if (position > 400) position = -16;
+  io.write("x", position, "24CB");
+
+  position = io.read("y", "24CE");
+  if (position < io.bound("minY", "24D1")) pullY = 1;
+  if (position > io.bound("maxY", "24DA")) pullY = -1;
+  if (position < -16) position = 272;
+  else if (position > 272) position = -16;
+  io.write("y", position, "24F5");
+
+  io.write("velocityX", nativeS8(io.read("velocityX", "24F8") + pullX), "24F8");
+  io.write("velocityY", nativeS8(io.read("velocityY", "24FB") + pullY), "24FB");
+}
+
+/** 2459: fixed 32 slots. Native cloud movement requires the explicit
+ * current D22..D28: a narrowed _disasterBounds or the SINARIO header defaults
+ * in weatherCloudBounds. There is no global-constant fallback. This does not
+ * implement their monthly writers or the date tail.
  */
-export function tickOriginalStrategicWeather(scenario) {
+export function tickOriginalStrategicWeather(scenario, rng) {
   const readByte = (value, at) => {
     if (!Number.isInteger(value) || value < 0 || value > 255)
       throw new RangeError(`Web engineering Uncovered weather ${at}`);
     return value;
   };
   let changed = false;
-  // KI 2459..2489: both halves have the same status>=80 gate. No frame
-  // projection or RNG here. Unknown 248A stops after DEC/reload/dirty writes.
+  // KI 2459..2489: status>=80, DEC/reload/dirty, then cloud248A.
+  // Animation frame is not a rule write here; neither is interval.
   for (let slot = 0; slot < 32; slot++) {
     const object =
       slot < 16
@@ -209,9 +290,49 @@ export function tickOriginalStrategicWeather(scenario) {
     changed = true;
     if (object.timer !== 0) continue;
     object.timer = readByte(object.interval, `slot ${slot} interval at 246D`);
-    object.status = status | 1;
-    if (slot >= 16)
-      throw new RangeError("Web engineering Uncovered 248A at 247C");
+    object.status = readByte(object.status, `slot ${slot} status at 2473`) | 1;
+    if (slot >= 16) {
+      const read = (record, field, bits, at) => {
+        const value = record?.[field];
+        const max = 2 ** (bits - 1) - 1;
+        if (
+          !record ||
+          !Object.hasOwn(record, field) ||
+          !Number.isInteger(value) ||
+          value < -max - 1 ||
+          value > max
+        )
+          throw new RangeError(
+            `Web engineering Uncovered weather ${field} at ${at}`,
+          );
+        return value;
+      };
+      const axis = (name) =>
+        name === "x" ? ["phaseX", "velocityX"] : ["phaseY", "velocityY"];
+      const bounds = scenario._disasterBounds ?? scenario.weatherCloudBounds;
+      moveOriginalWeatherCloud({
+        readAxis: (name, at) =>
+          axis(name).map((field) => read(object, field, 8, at)),
+        writeAxis: (name, pair) => {
+          const fields = axis(name);
+          object[fields[0]] = pair[0];
+          object[fields[1]] = pair[1];
+        },
+        read: (field, at) =>
+          read(object, field, field === "x" || field === "y" ? 16 : 8, at),
+        write: (field, value) => {
+          object[field] = value;
+        },
+        bound: (field, at) => read(bounds, field, 16, at),
+        nextByte: (at) => {
+          if (typeof rng?.nextByte !== "function")
+            throw new RangeError(
+              `Web engineering Uncovered weather RNG at ${at}`,
+            );
+          return readByte(rng.nextByte(), `RNG at ${at}`);
+        },
+      });
+    }
   }
   return changed;
 }

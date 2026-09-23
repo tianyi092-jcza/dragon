@@ -62,6 +62,9 @@ def parse_scenario(sc: bytes):
             u16(sc[0x24:0x26]) * 10,
             u16(sc[0x26:0x28]) * 10,
       ]
+      # CS:D08..D17的完整16B政策块；53A6按word复制D10..D17到D08..D0F。
+      # 命名征兵字段以人数显示（×10），原始块保留十人单位及D09/D11未知字节。
+      out["nativeMonthlyPolicyRaw"] = sc[0x18:0x28].hex()
       # 0x22DB每月清理后恢复的雨云吸引边界；官方各章均为±16..400。
       out["weatherCloudBounds"] = {
             "minX": int.from_bytes(sc[0x32:0x34], "little", signed=True),
@@ -96,7 +99,9 @@ def parse_scenario(sc: bytes):
                               "politics": g[0x13] & 0xF,
                         },
                         # 0x4C72/0x291A 使用的原始武将战斗/去向修正字节；
-                        # 55A6重算active 0..126；新局/标准读档首入战略均执行，仍须保留原值。
+                        # 55A6重算active 0..126；native另有启动1BE0与战术1B7E两条到达
+                        # （相对章载入/战斗先后未知，P47 hold）；仍须保留原值，
+                        # 不得在Web新局擅自重算。
                         "battle_rating": g[0x1F],
                         # 外交/内政执行进度预算。0x3E8E 读 +0x1A；
                         # 两类任命保留旧预算；手动解任清零，批准后按金额换算写回。
@@ -113,6 +118,17 @@ def parse_scenario(sc: bytes):
                   }
             )
       out["generals"] = generals
+
+      # 3E11/5358固定轮转前22个64B势力槽；声明数只控制公开势力列表。
+      out["nativeFactionSlotRaw"] = [
+            sc[OFF_FACTION + i * 64 : OFF_FACTION + (i + 1) * 64].hex()
+            for i in range(22)
+      ]
+      # 2BD9/3E8E按状态段0600h的完整24×24有向矩阵读取；
+      # 公开势力数只控制UI视图，不能截掉声明外行列。
+      out["nativeDiplomacyRaw"] = sc[0x680:0x8C0].hex()
+      # D56:0000..03FF事件轮；官方20章当前全零，仍保留原始初始化来源。
+      out["nativeStrategicEventRaw"] = sc[0x52C0:0x56C0].hex()
 
       # ---- 势力 (24 × 64B) ----
       factions = []

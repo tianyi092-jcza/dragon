@@ -161,6 +161,8 @@ export class Clock {
     if (this._pendingDayAdvance) {
       this._pendingDayAdvance = false;
       this._advanceDayCalendar();
+      this.hour = 1;
+      if (this.onHour) this.onHour(this);
       return;
     }
 
@@ -184,9 +186,11 @@ export class Clock {
       return;
     }
     this.sub = 0;
-    this.hour++;
-    if (this.hour > 23) {
-      // 一天结束 (KI.EXE 1DD7..1DE0)
+    if (this.hour < 23) {
+      this.hour++;
+    } else {
+      // 1DD7 increments the day, 1DDB clears CF3, then 1DE0 increments it:
+      // every subsequent day starts at hour 1, not hour 0.
       this.hour = 0;
       if (this.onDay) this.onDay(this);
       if (this.hold || this._legacyPaused) {
@@ -194,25 +198,30 @@ export class Clock {
         return;
       }
       this._advanceDayCalendar();
+      this.hour = 1;
     }
     if (this.onHour) this.onHour(this);
   }
 
   _advanceDayCalendar() {
-    this.day++;
-    if (this.day > this.daysInMonth) {
-      // 月末 (1DA3 分支)
-      this.day = 1;
-      this.month++;
-      if (this.month > 12) {
-        // 年末 (1DA3→1DAA 分支)
-        this.month = 1;
-        this.year++;
-        if (this.year > 1000) this.year = 998; // 复刻 cmp 0x3E8 / 重置 0x3E6+1... 取整
-        if (this.onYearEnd) this.onYearEnd(this);
-      }
-      if (this.onMonthEnd) this.onMonthEnd(this); // ★月度结算钩子 (对应 0x5358)
+    if (this.day < this.daysInMonth) {
+      this.day++;
+      return;
     }
+    // 1DA3..1DD7: year/month and the new month length are committed before
+    // 5358; the day low byte is zero during that call and increments after RET.
+    this.day = 0;
+    let yearEnded = false;
+    if (this.month >= 12) {
+      if (this.year >= 1000) this.year = 998;
+      this.year = (this.year + 1) & 0xffff;
+      this.month = 0;
+      yearEnded = true;
+    }
+    this.month++;
+    if (yearEnded && this.onYearEnd) this.onYearEnd(this);
+    if (this.onMonthEnd) this.onMonthEnd(this);
+    this.day = (this.day + 1) & 0xff;
   }
 
   serialize() {

@@ -21,21 +21,25 @@ try {
   // EC82 reads local RTC only once before KI.EXE's title flow. Fix browser
   // wall time so this product-lifecycle assertion is deterministic.
   const seedTime = new Date(2000, 0, 1, 13, 45, 9).getTime();
-  await context.addInitScript((timestamp) => {
-    // Exercise strategic timing, not intro media cancellation. The opening
-    // has its own test; skip it before any MP3 request starts in this realm.
-    sessionStorage.setItem("wolong.intro.seen.v1", "1");
-    const NativeDate = Date;
-    class FixedDate extends NativeDate {
-      constructor(...args) {
-        super(...(args.length ? args : [timestamp]));
+  await context.addInitScript(
+    ({ timestamp, origin }) => {
+      if (location.origin !== origin) return;
+      // Exercise strategic timing, not intro media cancellation. The opening
+      // has its own test; skip it before any MP3 request starts in this realm.
+      sessionStorage.setItem("wolong.intro.seen.v1", "1");
+      const NativeDate = Date;
+      class FixedDate extends NativeDate {
+        constructor(...args) {
+          super(...(args.length ? args : [timestamp]));
+        }
+        static now() {
+          return timestamp;
+        }
       }
-      static now() {
-        return timestamp;
-      }
-    }
-    globalThis.Date = FixedDate;
-  }, seedTime);
+      globalThis.Date = FixedDate;
+    },
+    { timestamp: seedTime, origin: `http://127.0.0.1:${port}` },
+  );
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
@@ -168,7 +172,14 @@ try {
       );
     return window.__app.clock.strategicTickSerial;
   });
-  await page.waitForTimeout(100);
+  // P58 native-v2 first strategic frame performs strict fixed-slot/city
+  // work and may exceed the old 100ms CI budget. Wait for the one coalesced
+  // RAF result itself; the map hold was already asserted synchronously below.
+  await page.waitForFunction(
+    () => window.__clockVerify.pointerCalls === 1,
+    null,
+    { timeout: 2000 },
+  );
   const firstPointerEvidence = await page.evaluate(() => ({
     hold: window.__app.clock.hold,
     tick: window.__app.clock.strategicTickSerial,

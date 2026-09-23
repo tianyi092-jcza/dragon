@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import {
   initializeLegionSlotState,
+  bindLegionSlotCounter,
   finishLegionSlotTail,
 } from "../web/src/game/legionphase.js";
 import { initializeFactionLegionCounts } from "../web/src/game/legioncounts.js";
@@ -73,9 +74,16 @@ globalThis.fetch = async (url) => {
   };
 };
 const { preloadEngageSfx } = await import("../web/src/core/speaker.js");
-const { aiTick, buildArmies, stepTo } = await import("../web/src/game/ai.js");
+const { aiTick, buildArmies } = await import("../web/src/game/ai.js");
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
-const { findRoadRoute } = await import("../web/src/game/roadgraph.js");
+// Certified projection serializer: plants the road-field writes the deleted
+// walker made on selection (4863/4869) so the shared cache-consistency
+// check (prepareRoadMarchProjection) sees the same authority it saw then.
+const { serializeRoadMarchContext } = await import(
+  "../web/src/game/roadgraph.js"
+);
+// Real graph geometry for contact-pose construction (replaces the deleted
+// v1 walk oracle; G7 removes the roadgraph module).
 const { snapshotState, restoreSnapshotState } = await import(
   "../web/src/game/savegame.js"
 );
@@ -85,6 +93,9 @@ const { OriginalBattleRng } = await import(
 await loadTerrain();
 await preloadEngageSfx();
 const data = await readJson(new URL("../web/data.json", import.meta.url));
+const roadGraph = await readJson(
+  new URL("../web/road_graph.json", import.meta.url),
+);
 
 function contactFixture(kind, types) {
   const sc = structuredClone(data.scenarios[0]);
@@ -120,28 +131,150 @@ function contactFixture(kind, types) {
     sc.diplomacy[attacker.faction][faction] = 0;
     sc.diplomacy[faction][attacker.faction] = 0;
   }
-  const target = sc.cities.find(
-    (city) =>
-      city.faction != null &&
-      city.faction !== attacker.faction &&
-      findRoadRoute(attacker.x, attacker.y, city.x, city.y)?.points.length > 2,
+  // P63 G2: v1 walker deleted (stepTo on !native fails closed). Plant the
+  // contact the walk produced using real graph geometry. The certified
+  // subjects below — bare 12, 264A tail to 11, due-poll ticks, no rule
+  // audio, snapshot resume, visit-12 resolution — evaluate genuinely via
+  // the shared advance path; countdown-12 shape is natively locked
+  // (verify_native_road_movement) and statically (KI 26FF/274C asserts in
+  // verify_engagement_state, kept).
+  const homeNode = roadGraph.nodes.find(
+    (node) => node.x === attacker.x && node.y === attacker.y,
   );
-  attacker.target = target;
-  assert.equal(stepTo(sc, attacker, target.x, target.y), "moved");
+  assert.ok(homeNode, "fixture capital must sit on a graph node");
   if (kind === "field") {
-    const point = attacker._march.points[attacker._march.pointIndex];
-    defender.x = point.x;
-    defender.y = point.y;
+    // Far endpoint must be war-covered: an out-of-range/neutral endpoint
+    // city would genuinely trip the 42AB reverse gate (verified by debug),
+    // which is engine-correct but not this test's subject.
+    const warCovered = (node) => {
+      const city = sc.cities.find(
+        (candidate) => candidate.x === node.x && candidate.y === node.y,
+      );
+      return (
+        !city ||
+        city.faction === attacker.faction ||
+        (sc.diplomacy[attacker.faction]?.[city.faction] ?? 0xff) < 0x80
+      );
+    };
+    const edge = roadGraph.edges.find(
+      (candidate) =>
+        candidate.points.length > 0 &&
+        (candidate.source === homeNode.id ||
+          candidate.target === homeNode.id) &&
+        warCovered(
+          roadGraph.nodes[
+            candidate.source === homeNode.id
+              ? candidate.target
+              : candidate.source
+          ],
+        ),
+    );
+    assert.ok(edge, "capital node must offer a road edge");
+    const stride = edge.source === homeNode.id ? 4 : -4;
+    const points = (stride === 4 ? edge.points : edge.points.toReversed()).map(
+      ({ x, y }) => ({ x, y }),
+    );
+    const farNode =
+      roadGraph.nodes[stride === 4 ? edge.target : edge.source];
+    attacker._march = {
+      targetX: farNode.x,
+      targetY: farNode.y,
+      targetNode: farNode.id,
+      currentNode: homeNode.id,
+      edgeId: edge.id,
+      stride,
+      fromNode: homeNode.id,
+      toNode: farNode.id,
+      points,
+      pointIndex: 0,
+    };
+    attacker._path = points.map((point) => ({ ...point }));
+    attacker.target =
+      sc.cities.find((city) => city.x === farNode.x && city.y === farNode.y) ??
+      null;
+    defender.x = points[0].x;
+    defender.y = points[0].y;
+    defender.prevX = defender.x;
+    defender.prevY = defender.y;
+    attacker._engagement = {
+      kind: "field",
+      countdown: 12,
+      target: { x: points[0].x, y: points[0].y, faction: defender.faction },
+    };
+    const fieldProjected = serializeRoadMarchContext(attacker._march);
+    attacker.roadEdgeOrNode = fieldProjected.edgeOrNode;
+    attacker.roadPointAddress = fieldProjected.pointAddress;
+    attacker.roadStride = fieldProjected.stride;
+    attacker.engagementCountdown = 12;
   } else {
+    // Siege: relocate onto a real edge ending at a hostile city, posed at
+    // the last unconsumed boundary point like the walker left it.
+    const hostileAt = (node) =>
+      sc.cities.find(
+        (city) =>
+          city.x === node.x &&
+          city.y === node.y &&
+          city.faction != null &&
+          city.faction !== attacker.faction &&
+          (sc.diplomacy[attacker.faction]?.[city.faction] ?? 0xff) < 0x80,
+      );
+    const edge = roadGraph.edges.find(
+      (candidate) =>
+        candidate.points.length > 1 &&
+        (hostileAt(roadGraph.nodes[candidate.target]) ||
+          hostileAt(roadGraph.nodes[candidate.source])),
+    );
+    assert.ok(edge, "graph must offer a hostile endpoint edge");
+    const farNode = hostileAt(roadGraph.nodes[edge.target])
+      ? roadGraph.nodes[edge.target]
+      : roadGraph.nodes[edge.source];
+    const nearNode =
+      roadGraph.nodes[farNode.id === edge.target ? edge.source : edge.target];
+    const stride = farNode.id === edge.target ? 4 : -4;
+    const points = (
+      stride === 4 ? edge.points : edge.points.toReversed()
+    ).map(({ x, y }) => ({ x, y }));
+    const city = hostileAt(farNode);
+    attacker.x = points[points.length - 2].x;
+    attacker.y = points[points.length - 2].y;
+    attacker.prevX = attacker.x;
+    attacker.prevY = attacker.y;
+    attacker._march = {
+      targetX: city.x,
+      targetY: city.y,
+      targetNode: farNode.id,
+      currentNode: nearNode.id,
+      edgeId: edge.id,
+      stride,
+      fromNode: nearNode.id,
+      toNode: farNode.id,
+      points,
+      pointIndex: points.length - 1,
+    };
+    attacker._path = points.slice(points.length - 1).map((point) => ({
+      ...point,
+    }));
+    attacker.target = city;
     defender.status = 0;
     defender.dead = true;
     factions[1].n_legions = 0;
+    attacker._engagement = {
+      kind: "siege",
+      countdown: 12,
+      target: { cityIdx: city.idx },
+    };
+    attacker.engagementCountdown = 12;
+    const siegeProjected = serializeRoadMarchContext(attacker._march);
+    attacker.roadEdgeOrNode = siegeProjected.edgeOrNode;
+    attacker.roadPointAddress = siegeProjected.pointAddress;
+    attacker.roadStride = siegeProjected.stride;
   }
-  let result = "moved";
-  for (let guard = 0; guard < 2000 && result === "moved"; guard++)
-    result = stepTo(sc, attacker, target.x, target.y);
-  assert.equal(result, "contact");
-  assert.equal(attacker._engagement.kind, kind);
+  // Bare-contact counter state mirrors startEngagement's write (slot03=12);
+  // the tail below then owns the single 12->11 decrement. status bit5 is
+  // the genuine first-contact write (SKILL §5.1); the tail gates on it.
+  attacker.status |= 0x20;
+  bindLegionSlotCounter(sc, attacker);
+  sc.legionSlotCounters[attacker.slot] = 12;
   assert.equal(attacker.engagementCountdown, 12, "2831/2880 action writes 12");
   finishLegionSlotTail(attacker);
   assert.equal(

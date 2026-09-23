@@ -20,6 +20,13 @@ import {
   resetLegionActionPhase,
 } from "./legionphase.js";
 import { countLegionActivation } from "./legioncounts.js";
+import { scenarioNativeRoadContext } from "./scenarioassembly.js";
+import { hasNativeLegionSlots } from "./nativelegions.js";
+
+/** native剧本判定：585F逐月倒数/财政政策配额为唯一登场与兵源机制。 */
+function nativeMonthlyMechanics(sc) {
+  return !!(scenarioNativeRoadContext(sc) || hasNativeLegionSlots(sc));
+}
 
 /** 初始化玩家槽位(原版剧本头 FF=未指定 → 默认势力0/信赖100); 在 setScenario 时调 */
 export function initPlayer(sc) {
@@ -159,8 +166,12 @@ export function develop(sc, city) {
   return { ok: `${city.name} 发展度→${city.development}` };
 }
 
-/** 征兵: 花金, 次月生效(预备兵入城, 不超上限) */
+/** 征兵: 花金, 次月生效(预备兵入城, 不超上限)。
+ * native剧本无此命令（原版兵源=财政政策配额+内政官自动，67C5跳表）；
+ * v1保留属未批准差异候选，待用户裁决。 */
 export function recruit(sc, city) {
+  if (nativeMonthlyMechanics(sc))
+    return { err: "原版兵源由財政政策配额按月自动补充，无征兵命令" };
   const p = precheck(sc, city, COST_RECRUIT);
   if (p.err) return p;
   sc.pendingRecruits = sc.pendingRecruits ?? [];
@@ -237,12 +248,15 @@ export function monthEnd(app) {
   const sc = app.scenario;
   if (!sc) return;
   tickEnvoys(sc); // 外交官任期显示衰减；预算报告由 main 月结链另行生成
-  for (const r of sc.pendingRecruits ?? []) {
-    const c = sc.cities[r.city];
-    if (!c) continue;
-    if (c.sim) c.sim.troops = Math.min(cityCap(c), c.sim.troops + r.n);
-    app.hud?.flashEvent?.(`${c.name} 徵兵${r.n}到達`);
+  // native剧本：pendingRecruits无原版对应，不入账（recruit命令已禁）。
+  if (!nativeMonthlyMechanics(sc)) {
+    for (const r of sc.pendingRecruits ?? []) {
+      const c = sc.cities[r.city];
+      if (!c) continue;
+      if (c.sim) c.sim.troops = Math.min(cityCap(c), c.sim.troops + r.n);
+      app.hud?.flashEvent?.(`${c.name} 徵兵${r.n}到達`);
+    }
+    sc.pendingRecruits = [];
   }
-  sc.pendingRecruits = [];
   checkTrustGameOver(app);
 }

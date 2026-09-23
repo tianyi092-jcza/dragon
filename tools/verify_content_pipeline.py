@@ -77,6 +77,21 @@ assert "raw" not in document["state"]["cities"][0]
 assert "x" not in document["state"]["cities"][0], (
     "world coordinates have one editable source"
 )
+# nativeCityRecordRaw由编译从已命名字段派生，供P30/P34别名读者消费静态章节字节。
+assert len(compiled["nativeCityRecordRaw"]) == 192
+assert all(
+    isinstance(record, str) and len(record) == 64
+    for record in compiled["nativeCityRecordRaw"]
+)
+assert compiled["nativeCityRecordRaw"] == [c["raw"] for c in compiled["cities"]]
+diverged = deepcopy(original)
+diverged["state"]["nativeCityRecordRaw"] = ["00" * 32] * 192
+try:
+    compile_chapter(diverged, deepcopy(world["cities"]))
+except ValueError:
+    pass
+else:
+    raise AssertionError("stale native city record raw accepted")
 
 for invalid in ("../escape.json", str(WEB / "data.json")):
     try:
@@ -126,9 +141,9 @@ with TemporaryDirectory(prefix="wolong-native-content-test-") as temporary:
         raise AssertionError("invalid palette was accepted")
     assert (output / "data.json").read_text(encoding="utf-8") == "existing output"
     write_json(isolated_source / world["tileset"], tileset)
-    # 编译器与运行图安装器都要求有限正数权重；坏源不能覆盖已发布文件。
+    # 编译器与运行图安装器都要求有限权重（v1正数，v2非负数＝E717点数减一）；坏源不能覆盖已发布文件。
     road_source = isolated_source / world["roads"]
-    for weight in (0, -1, True, "1", None, math.nan, math.inf, -math.inf):
+    for weight in (-1, True, "1", None, math.nan, math.inf, -math.inf):
         broken_roads = deepcopy(roads)
         broken_roads["edges"][0]["weight"] = weight
         # 非有限值是刻意构造的非法JSON输入，不能用拒绝它们的write_json生成。
@@ -136,6 +151,13 @@ with TemporaryDirectory(prefix="wolong-native-content-test-") as temporary:
         with unittest.TestCase().assertRaises(ValueError):
             compile_content(isolated_source, output, maps=False)
         assert (output / "data.json").read_text(encoding="utf-8") == "existing output"
+    if roads["version"] == 2:
+        # 零权重在v2下合法（无已闭合规则禁止单点边），必须正常编译。
+        zero_roads = deepcopy(roads)
+        zero_roads["edges"][0]["weight"] = 0
+        write_json(road_source, zero_roads)
+        compile_content(isolated_source, output, maps=False)
+        assert (output / "data.json").read_text(encoding="utf-8") != "existing output"
     write_json(road_source, roads)
     broken_world = deepcopy(world)
     broken_world["cities"][0]["x"] += 1

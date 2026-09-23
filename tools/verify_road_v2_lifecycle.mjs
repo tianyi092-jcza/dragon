@@ -97,17 +97,10 @@ test("v2 loader detaches and deeply freezes raw graph; v1 still accepts its orig
     ])
       assert.throws(mutate, TypeError);
     assert.strictEqual(await roads.loadRoadGraph(), installed);
-    const v1 = fixture();
-    v1.version = 1;
-    v1.edges[0].weight = 1.5;
-    for (const node of v1.nodes) delete node.edgeSlots;
-    delete v1.edges[0].bounds;
-    for (const point of v1.edges[0].points) delete point.flags;
-    set(v1);
-    const legacy = createRoadGraph("legacy/roads");
-    await legacy.loadRoadGraph();
-    assert.equal(legacy.findRoadRoute(0, 1, 1, 1).distance, 5.5);
-    assert.deepEqual(legacy.findRoadRoute(0, 1, 0, 1).nodes, [0]);
+    // P69 G8: the v1-fixture search probe below (legacy Dijkstra distance /
+    // nodes) is deleted with the oracle. Fixture-shape validation stays
+    // covered by the frozen-mutation pins above; search is native
+    // (searchOriginalRoadMemory), covered by the native road suites.
   });
 });
 
@@ -201,23 +194,23 @@ test("v2 collection shape matches compiler: empty arrays accepted, non-arrays re
   });
 });
 
-test("installed v2 rejects all legacy rule entries before shortcut/blocked/missing outcomes", async () => {
+test("installed v2 serves rule entries (P58 flip connects v2 callers)", async () => {
   await mocked(async () => {
     const resources = createWorldResources();
     assert.equal(resources.terrain.findPath(0, 0, 0, 0), null);
     await resources.roads.loadRoadGraph();
     const roads = resources.roads;
-    for (const call of [
-      () => roads.findRoadRoute(0, 1, 1, 1),
-      () => roads.findRoadRoute(0, 1, 0, 1),
-      () => roads.findRoadRoute(-1, -1, -1, -1),
-      () => roads.restoreRoadMarchContext({}),
-      () => roads.serializeRoadMarchContext({}),
-      () => roads.reverseRoadMarchContext({}, 0, 0),
-      () => resources.terrain.findPath(0, 0, 0, 0),
-      () => resources.terrain.findPath(-1, -1, -1, -1),
-    ])
-      assert.throws(call, /v2 road rule callers are not connected/);
+    assert.equal(roads.loadedRoadVersion(), 2);
+    // P69 G8: installed-graph smoke now probes node identity, not the
+    // deleted v1 search. Search is native (searchOriginalRoadMemory).
+    assert.equal(roads.roadNodeAt(0, 1)?.id, 0);
+    assert.equal(roads.roadNodeAt(-1, -1), null);
+    // Invalid inputs still return null; only the v2 gate throw is retired.
+    assert.equal(roads.restoreRoadMarchContext({}), null);
+    assert.equal(roads.serializeRoadMarchContext({}), null);
+    assert.equal(roads.reverseRoadMarchContext({}, 0, 0), null);
+    assert.equal(resources.terrain.findPath(0, 0, 0, 0), null);
+    assert.equal(resources.terrain.findPath(-1, -1, -1, -1), null);
     assert.equal(roads.roadPointRawAddress(0, 1), 0x2004);
     assert.equal(roads.roadNodeById(0).x, 0);
   });

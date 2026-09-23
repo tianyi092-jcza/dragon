@@ -1,4 +1,5 @@
-// 野战地形选择 — 逐指令转录 KI.EXE 0x4B63..0x4C71。
+// Legacy v1 approximation, NOT a complete KI 4B63 ABI transcription.
+// Native saved-pointer/AL/DS contract: navigation/originalfieldterrain.js; fate §13.
 // 输出的 directoryIndex 是 BATTLE.MAP 目录索引（CS:[0xD34]）；
 // mirror 对应 CS:[0xD35] bit6，实际地图布局/主题再由BATTLE.MAP目录读取。
 
@@ -21,7 +22,7 @@ const TERRAIN_RANGES = [
   [9, 0xc0, 0xc3],
 ];
 
-// {layout - 0xC0, first terrain class, second terrain class} @ CS:0x97F0.
+// {directory - 0xC0, first terrain class, second terrain class} @ CS:0x97F0.
 const TERRAIN_PAIRS = [
   [0, 3, 3],
   [1, 3, 0],
@@ -60,14 +61,14 @@ function sample(x, y) {
 }
 
 function playerFacing(attacker, defender, playerFaction) {
-  // 0x4B67 保留入口 AL；玩家在任一侧时才用该玩家军团的 legion[+8] 覆盖。
+  // Legacy fallback/priority; native uses saved candidate AL and defender override.
   if (attacker?.faction === playerFaction) return attacker._markerFrame ?? 0;
   if (defender?.faction === playerFaction) return defender._markerFrame ?? 0;
   return attacker?._markerFrame ?? 0;
 }
 
 /**
- * 复刻 0x4B63：在防守军团道路点读取左/右/上/下/中心五格并选择 BATTLE.MAP 目录。
+ * v1 XY approximation: does not reproduce saved pointers or class9 occupancy DS.
  * _markerFrame 对应原版 legion[+8]：0西、1东、2北、3南。
  */
 export function classifyFieldBattleTerrain(

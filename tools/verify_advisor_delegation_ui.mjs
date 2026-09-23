@@ -411,6 +411,51 @@ clock._pendingDayAdvance = false;
 assert.equal(bar.openSystemSaveDialog(), true);
 assert.ok(bar.systemSaveDialog);
 
+// P42：KI.EXE 7FA5..7FBA/7FDB..8045 字节钉——立即命令入口合同：
+// 7FA5 CFF==[SI+1]所有者门；7FB1 CALL 7FDB（命令选择体）→7FB4 CALL 4325
+// （不经槽门立即解算目标）→7FB7 OR [SI],2（status bit1）。7FDB 尾：
+// AL=0 戰鬥指揮 AND [SI],0xFB（清委任bit2）；AL=1 委任 OR [SI],4；
+// AL=2（仅首都菜单）解體 [SI+0x23]=0x0B；然后 [SI+0x0B]=1、
+// [SI+0x20]=目标idx。证据单一维护源 re-notes-march-pathfinding §3.15.8。
+{
+  const { createHash } = await import("node:crypto");
+  const ki = await fs.readFile(new URL("../../Dragon/KI.EXE", import.meta.url));
+  assert.equal(
+    createHash("sha256").update(ki).digest("hex").slice(0, 8),
+    "fffeba98",
+  );
+  const raw = (va, len) =>
+    Buffer.from(ki.buffer, ki.byteOffset + va + 0x200, len).toString("hex");
+  assert.equal(raw(0x7fa5, 0x17), "2ea0ff0c3a4401750ee82a82e82700e86ec3800c02eb0c");
+  assert.equal(raw(0x7fdb, 0x12), "5583ec028bece8f2a0b90300e86908e84ff0");
+  assert.equal(raw(0x8022, 0x24), "3c017407770a8024fbeb0b800c04eb06c644230beb04c6442300c6440b018a4600884420");
+  assert.equal(raw(0x804e, 0x10), "50b4182ae02e8b1e98983adc76028adc");
+}
+
+// 7FDB/7FB4/7FB7 写集等价：戰鬥指揮清委任bit2、委任置bit2、
+// 两者均 commandState(L+23)=0、moveDelay(L+0B)=1、目标X/Y与bit1置位；
+// 解體 commandState=0x0B。
+{
+  const target = { idx: 12, x: 100, y: 60, name: "目標城" };
+  const fight = { status: 0x86, commandState: 8, moveDelay: 9, _aiOrdered: true };
+  bar.assignMarchOrder(fight, target, false);
+  assert.equal(fight.status & 0x04, 0x00); // AND [SI],0xFB
+  assert.equal(fight.status & 0x02, 0x02); // 7FB7 OR [SI],2
+  assert.equal(fight.commandState, 0); // [SI+0x23]=0
+  assert.equal(fight.moveDelay, 1); // [SI+0x0B]=1
+  assert.equal(fight.targetX, 100); // 4548 解算输入
+  assert.equal(fight.targetY, 60);
+  const delegated = { status: 0x80, commandState: 3 };
+  bar.assignMarchOrder(delegated, target, true);
+  assert.equal(delegated.status & 0x04, 0x04); // OR [SI],4
+  assert.equal(delegated.commandState, 0);
+  assert.equal(delegated.moveDelay, 1);
+  const disbanding = { status: 0x80, commandState: 0 };
+  assert.equal(bar._orderDisbandAtCapital(disbanding, target), true);
+  assert.equal(disbanding.commandState, 11); // [SI+0x23]=0x0B
+  assert.equal(disbanding.status & 0x04, 0x00); // 解體径先经 AL=0 分支清委任
+}
+
 process.stdout.write(
   "advisor delegation UI OK: fan/right-click/map lock + sortable list headers + order/save guards\n",
 );

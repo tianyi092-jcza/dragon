@@ -26,6 +26,8 @@ const wordFields = [
   "y",
   "targetX",
   "targetY",
+  // 5456 scans the second 20h half-record and may read raw word +24.
+  "monthlyAliasWord24",
   "occupancyOffset",
   "occupancyRowParagraph",
 ];

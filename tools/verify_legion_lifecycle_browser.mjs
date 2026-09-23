@@ -125,9 +125,10 @@ try {
     bad.scenario_idx = 99999;
     const badMeta = structuredClone(app.saves.slots[0]);
     badMeta.slot = 3;
-    badMeta.webMeta.scenarioRuntimeState.delayedLegionReturns = [
-      { slot: 128, status: 8 },
-    ];
+    // P58 fresh saves own nativeLegionSlots; delayedLegionReturns is only a
+    // derived empty view and is intentionally ignored on restore. Corrupt the
+    // authoritative fixed table instead to retain this preflight-rejection pin.
+    badMeta.state.nativeLegionSlots.records[127].slot = 128;
     app.saves = await saveLocalSaveSlots({
       ...app.saves,
       slots: app.saves.slots.map((slot) => {
@@ -194,9 +195,17 @@ try {
     const g = app.scenario.generals[80];
     g.faction = app.scenario.player_faction;
     g.status = 1;
-    app.scenario.delayedLegionReturns = [
-      { slot: 80, status: 8, generalIdx: 80, faction: g.faction },
-    ];
+    // P58 fixed slots are authoritative: install the delayed record there
+    // and rebuild the derived delayedLegionReturns view.
+    const { rebindNativeLegionViews } = await import(
+      "/src/game/nativelegions.js"
+    );
+    Object.assign(app.scenario.nativeLegionSlots.records[80], {
+      status: 8,
+      generalIdx: 80,
+      faction: g.faction,
+    });
+    rebindNativeLegionViews(app.scenario);
     app.scenario.legionSlotCounters[80] = 1;
     aiTick(app, {
       legionBatchStart: 80,

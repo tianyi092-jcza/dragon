@@ -32,16 +32,34 @@ const walls = Array.from({ length: 16 }, (_, index) => ({
   metric: 100 + index,
 }));
 assert.deepEqual(calculateOriginalWallMetric(walls), {
-  found: true,
   anyBit0: false,
-  metric: 400,
+  metric: 100,
+  d315: 1,
 });
 walls[0].flags = 1;
 assert.deepEqual(calculateOriginalWallMetric(walls), {
-  found: true,
   anyBit0: true,
   metric: 100,
+  d315: 0,
 });
+// §2.4.1复演输入：16条kind1、flags80、metric1370 → AX=1370、D315=21。
+const standardWalls = Array.from({ length: 16 }, () => ({
+  kind: 1,
+  flags: 0x80,
+  metric: 1370,
+}));
+assert.deepEqual(calculateOriginalWallMetric(standardWalls), {
+  anyBit0: false,
+  metric: 1370,
+  d315: 21,
+});
+// 无kind1：AX=FFFF、D315=FF，仍进9FF8计算，不得早退。
+assert.deepEqual(
+  calculateOriginalWallMetric(
+    Array.from({ length: 16 }, () => ({ kind: 2, flags: 0, metric: 0 })),
+  ),
+  { anyBit0: false, metric: 0xffff, d315: 0xff },
+);
 
 const result = settleOriginalBattleExit({
   pool,
@@ -70,6 +88,71 @@ assert.deepEqual(
   [85, 75, 65],
 );
 assert.equal(result.rngCalls, 0);
+// §2.4.1标准复演：城兵/上升率/防灾87/104/100 + metric1370 → damage=0，三字段不变。
+const standardResult = settleOriginalBattleExit({
+  pool,
+  temps,
+  registers: { winnerState: 0, mode: 0 },
+  legions: [
+    { troops: 60, morale: 150 },
+    { troops: 60, morale: 150 },
+  ],
+  wallRecords: standardWalls,
+  city: { growth: 104, defence: 100, troops: 87 },
+});
+assert.equal(standardResult.wallMetric.metric, 1370);
+assert.equal(standardResult.cityDamage.damage, 0);
+assert.deepEqual(
+  [
+    standardResult.cityDamage.growth,
+    standardResult.cityDamage.disaster,
+    standardResult.cityDamage.troops,
+  ],
+  [104, 100, 87],
+);
+// 无kind1：damageWord=7390、DL=222（base=87）。
+const emptyResult = settleOriginalBattleExit({
+  pool,
+  temps,
+  registers: { winnerState: 0, mode: 0 },
+  legions: [
+    { troops: 60, morale: 150 },
+    { troops: 60, morale: 150 },
+  ],
+  wallRecords: [],
+  city: { growth: 104, defence: 100, troops: 87 },
+});
+assert.equal(emptyResult.wallMetric.metric, 0xffff);
+assert.equal(emptyResult.cityDamage.damage, 222);
+assert.deepEqual(
+  [
+    emptyResult.cityDamage.growth,
+    emptyResult.cityDamage.disaster,
+    emptyResult.cityDamage.troops,
+  ],
+  [0, 0, 0],
+);
+// metric3000：damageWord=8171、DL=235（base=87）。
+const metricResult = settleOriginalBattleExit({
+  pool,
+  temps,
+  registers: { winnerState: 0, mode: 0 },
+  legions: [
+    { troops: 60, morale: 150 },
+    { troops: 60, morale: 150 },
+  ],
+  wallRecords: [{ kind: 1, flags: 0x80, metric: 3000 }],
+  city: { growth: 104, defence: 100, troops: 87 },
+});
+assert.equal(metricResult.cityDamage.damage, 235);
+assert.deepEqual(
+  [
+    metricResult.cityDamage.growth,
+    metricResult.cityDamage.disaster,
+    metricResult.cityDamage.troops,
+  ],
+  [0, 0, 0],
+);
 
 for (let group = 0; group < 6; group++) {
   temps.write8(0, 8 + group * 4 + 3, 0);

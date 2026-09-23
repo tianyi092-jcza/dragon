@@ -9,6 +9,8 @@ import {
 } from "../game/ai.js";
 import { createBattle, createFieldBattle } from "../game/tacticalbattle.js";
 import { classifyFieldBattleTerrain } from "../game/fieldterrain.js";
+import { scenarioNativeRoadContext } from "../game/scenarioassembly.js";
+import { hasNativeLegionSlots } from "../game/nativelegions.js";
 
 // Production installs the default services once. Tests replace only battle
 // construction/result calculation, not the continuation or slot scheduler.
@@ -60,6 +62,16 @@ export function createStrategicBattleMethods(services = {}) {
       return openStrategicBattle(
         this,
         () => {
+          // Native2873 runs first-D classification and original BP selection,
+          // then stops before4E5C. This later selected-D/message entry has no original caller
+          // ABI and must not restart classification or a different lifecycle.
+          if (
+            scenarioNativeRoadContext(this.scenario) ||
+            hasNativeLegionSlots(this.scenario)
+          )
+            throw new RangeError(
+              "Web engineering Uncovered native field terrain pointer/AL ABI at 4B63",
+            );
           const terrain = api.classifyFieldBattleTerrain(
             A,
             D,

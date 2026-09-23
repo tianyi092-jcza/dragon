@@ -17,6 +17,7 @@ export class EndView {
 		this.app = app;
 		this.active = false;
 		this._clockPauseState = null;
+		this._sequenceTimer = null;
 		this.img = root.querySelector("#edimg");
 		this.cap = root.querySelector("#edcap");
 		root.addEventListener("click", () => this.finish());
@@ -34,11 +35,40 @@ export class EndView {
 		this.cap.textContent = o.caption ?? "";
 		this.img.style.opacity = "0";
 		clockPause(this.app, this);
+		const sequence =
+			Array.isArray(o.sequence) && o.sequence.length ? o.sequence : null;
 		try {
-			const im = await loadImage(o.img);
+			const im = await loadImage(sequence ? sequence[0] : o.img);
 			this.img.src = im.src;
 		} catch {
 			/* 图缺失也显示文字 */
+		}
+		if (sequence && sequence.length > 1) {
+			// D7END.EXE（实锤：硬编码 END_S1..12 文件名表动态循环播放）：
+			// 预载全序列后循环淡切，点击仍由 finish() 收尾。
+			const sources = [this.img.src];
+			for (const path of sequence.slice(1)) {
+				try {
+					const image = await loadImage(path);
+					sources.push(image.src);
+				} catch {
+					/* 缺图跳过 */
+				}
+			}
+			if (sources.length > 1) {
+				let index = 0;
+				this._sequenceTimer = setInterval(() => {
+					if (!this.active) return;
+					index = (index + 1) % sources.length;
+					this.img.style.transition = "opacity 400ms ease-in-out";
+					this.img.style.opacity = "0";
+					setTimeout(() => {
+						if (!this.active) return;
+						this.img.src = sources[index];
+						this.img.style.opacity = "1";
+					}, 400);
+				}, 2600);
+			}
 		}
 		// 双 rAF 确保 transition 生效
 		requestAnimationFrame(() =>
@@ -53,6 +83,10 @@ export class EndView {
 	finish() {
 		if (!this.active) return;
 		this.active = false;
+		if (this._sequenceTimer != null) {
+			clearInterval(this._sequenceTimer);
+			this._sequenceTimer = null;
+		}
 		this.root.style.display = "none";
 		clockRestore(this.app, this);
 		this.app.music?.select(null);

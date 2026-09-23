@@ -17,8 +17,6 @@ import {
   assertPlayableScenario,
   scenarioNativeRoadContext,
 } from "./game/scenarioassembly.js";
-import { activateNextMonthPolicy, monthlySettlement } from "./game/economy.js";
-import { prepareEnvoyBudgetReports } from "./game/diplomacy.js";
 import {
   aiTick,
   buildArmies,
@@ -29,10 +27,12 @@ import {
   monthlyDiplomacyAI,
   completePlayerWarDeclaration,
   enqueueDeficitTrustEvent,
-  enqueueDomesticBudgetEvents,
-  enqueueEnvoyBudgetEvents,
   enqueueMonthlyDisasterEvents,
+  processMonthlyBudgetProducers,
+  processMonthlyFiscalSettlement,
   processMonthlyGeneralFates,
+  processMonthlyGeneralRatings,
+  processMonthlyPolicyActivation,
   tickFactionStrategicState,
   tickStrategicWarEvents,
 } from "./game/ai.js";
@@ -41,6 +41,7 @@ import { loadBuiltinContent } from "./content/catalog.js";
 import { STRATEGIC_LAYOUT } from "./content/worlddefinition.js";
 import * as cmd from "./game/commands.js";
 import { monthlyAppear } from "./game/recruits.js";
+import { hasNativeLegionSlots } from "./game/nativelegions.js";
 import { BattleView } from "./render/battleview.js";
 import { EndView } from "./render/endview.js";
 import { StartMenu } from "./ui/startmenu.js";
@@ -512,13 +513,9 @@ const app = {
           runFactionTick: false,
         });
         // Native cursors commit at 3F6F / 25FF, never on a failed return.
-        if (!scenarioNativeRoadContext(this.scenario)) {
-          this.scenario._legionBatchCursor =
-            (batchStart + STRATEGIC_LAYOUT.legionBatchSize) %
-            STRATEGIC_LAYOUT.legionSlots;
-          this.scenario._cityTickCursor =
-            (cityCursor + 1) % STRATEGIC_LAYOUT.citySlots;
-        }
+        // P65 G4 (entire-v2-replacement gate): the v1 cursor arm is deleted.
+        // Admission (G5) guarantees a native road context for every App
+        // scenario, so no non-native live pump remains to advance here.
       },
       onSyncHold: () => this.gamebar?.syncClock?.(),
       onHour: (c) => {
@@ -530,21 +527,32 @@ const app = {
       },
       onMonthEnd: (c) => {
         // ★对应 KI.EXE call 0x5358
-        const rep = monthlySettlement(this.scenario, c, this.originalRng);
+        const rep = processMonthlyFiscalSettlement(this, c);
         this.hud.showSettlement(rep);
-        processMonthlyGeneralFates(this); // ★0x538E→0x585F/0x5940 type-9武将回归事件
-        monthlyDiplomacyAI(this); // ★0x5394→0x2BD9 关系变化/type-1宣战事件
-        enqueueDomesticBudgetEvents(this); // ★0x5397→0x5715 type-4内政预算
-        enqueueEnvoyBudgetEvents(
-          this,
-          prepareEnvoyBudgetReports(this.scenario),
-        ); // ★0x539A→0x578F type-5外交预算
-        enqueueMonthlyDisasterEvents(this); // ★0x539D/0x53A0→type11/12
-        enqueueDeficitTrustEvent(this); // ★0x53A3→0x57FE type-13负资金信赖处罚
-        activateNextMonthPolicy(this.scenario); // ★0x53A6：次月税率/征兵设定转正
-        monthlyAI(this); // ★只清理退场军团；通关后不再触发D7END过场
-        cmd.monthEnd(this); // ★征兵到达；天灾/暴动已排入type11/12
-        monthlyAppear(this); // ★appear_months 到期武将登场/改投(join_faction)
+        // 5921/5999玩家消息挂起时，剩余月结步延后为deferredTail（原版
+        // CDE+8810阻塞语义）；无挂起则按5358序立即顺序执行。
+        const nativeBlocked = !!(
+          scenarioNativeRoadContext(this.scenario) ||
+          hasNativeLegionSlots(this.scenario)
+        );
+        const runRemainingMonthEndSteps = () => {
+          processMonthlyGeneralRatings(this); // ★0x5391→0x55A6 固定0..126派生评分
+          monthlyDiplomacyAI(this); // ★0x5394→0x2BD9 关系变化/type-1宣战事件
+          processMonthlyBudgetProducers(this); // ★0x5397/539A→5715/578F type4/5预算
+          enqueueMonthlyDisasterEvents(this); // ★0x539D/0x53A0→type11/12
+          enqueueDeficitTrustEvent(this); // ★0x53A3→0x57FE type-13负资金信赖处罚
+          processMonthlyPolicyActivation(this); // ★0x53A6：严格8B政策镜像与5E80表现返回
+          monthlyAI(this); // ★只清理退场军团；通关后不再触发D7END过场
+          cmd.monthEnd(this); // ★征兵到达；天灾/暴动已排入type11/12
+          // native场景登场由585F逐月倒数驱动；v1静态阈值法会腐蚀G18。
+          if (!nativeBlocked) monthlyAppear(this);
+        };
+        // ★0x538E→0x585F/0x5940 type-9武将回归事件
+        if (
+          processMonthlyGeneralFates(this, runRemainingMonthEndSteps) !==
+          "suspended"
+        )
+          runRemainingMonthEndSteps();
       },
       onDay: null,
     });
@@ -885,7 +893,7 @@ export async function startApp(opening) {
   window.__monthlyAI = () => monthlyAI(app); // 调试句柄
   window.__monthlyAppear = () => monthlyAppear(app); // 调试句柄
   window.__monthlySettlement = () =>
-    monthlySettlement(app.scenario, app.clock, app.originalRng); // 调试句柄：换月财务与据点结算
+    processMonthlyFiscalSettlement(app, app.clock); // 调试句柄：换月财务与据点结算
 
   // ── 主循环: 实时驱动游戏时钟 (对应 KI.EXE 0x1D8E) ──
   let last = performance.now(),

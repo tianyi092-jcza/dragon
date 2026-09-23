@@ -43,6 +43,38 @@ bytes(0x6f57, "803c807303fe4714c604c0c6440804");
 bytes(0x4057, "807e00fe7355e880ac24038bfd36803dfe73f8fec8740583c704ebf1");
 bytes(0x4099, "22c07502b001368a0db5008ad08ab45808e8a800");
 
+// P39 4064 outer-stack closure: 3F74 pushes es/ax/bx/cx/dx/di/bp then reserves
+// 16 local bytes (rep stosw fills 0xFFFF); 3FA9 loops cl=4 neighbour slots and
+// never writes a terminator when all four become candidates, so al==0 with four
+// candidates falls off into ss:[bp+0x10] = pushed old-BP. BP/DI/DX/CX at the
+// 1CD0 je-1D0B entry are leftovers of the main-loop input/timer/UI calls
+// (1C22 push cx/dx around E453; 1BF9/1BFD load dx/bx from [988E]/[9890]), so
+// the walked bytes are frame-dynamic; classification = permanent fail-closed.
+bytes(0x3f74, "065053515257558" + "3ec108bec8cd08ec08bfdb90800b8fffffcf3ab");
+bytes(0x3fcc, "565581c65c08b104");
+bytes(0x4023, "75af5d5ec3");
+bytes(0x1cd0, "803ea598007434803ea59801740f");
+bytes(0x1c22, "5152e82cc85a59");
+bytes(0x1bf9, "8b168e988b1e9098");
+
+// P41 43D3 linear alias full domain: 28F4 sets DI=BX*4 with BX=node idx*8 (so
+// DI=idx*0x20 leftover into the 4325 dispatch); 43AF is the state-1 handler
+// whose 43D3 reads [DI+0x18] without adding 0x840 — k=0..47 aliases faction
+// floor(k/2) bytes +0x18 (even k) / +0x38 (odd k), 48..65 the diplomacy page,
+// 66..191 city[k-66] cache; the 4300 interception STC re-entry passes
+// BX=idx*0x100, so DI=u16(idx*0x400) wraps to 0 at idx 64 (notes: city64 DI
+// wrap). 440F state-2 reloads DI=AX (real target city pointer).
+bytes(0x28f4, "8bfbd1e7d1e78a44013a85410874148a442032e4d1e0d1e0");
+bytes(
+  0x4325,
+  "1e06568a642032c0d1e8d1e8d1e80540088a5c2332ffd1e383fb10730d2e8a0eff0c3a4c01740383c3082eff9758435e071fc3",
+);
+bytes(
+  0x43af,
+  "817c0e00087205c6442300c3817c042c017705c644230ac38bd8f6074075e8803f807206807d1802760fe804a92407fec088440bc6442302c3",
+);
+bytes(0x440f, "8bf8f60540750b803d80720b807d18017705");
+
 // 4155 initializes DH with localStrength-DL, scans 40h-byte legion slots by
 // current node and active bit, rolls ECE0 while DH!=0 before testing bit2 or
 // command state, and returns as soon as DL has been decremented to zero.

@@ -53,9 +53,8 @@ export function originalTeamTroops(record, index, at) {
   return persons / 10;
 }
 
-/** 461D: return old troops under the CURRENT types, then redistribute. No RNG. */
-export function redistributeOriginalLegion(sc, record) {
-  const owner = formationByte(record.faction, "L01 at 4625");
+/** 4717: return six teams to the explicitly addressed three pools. */
+export function returnOriginalLegionTroops(sc, record, owner) {
   for (let i = 0; i < 6; i++) {
     const unit = team(record, i, "4725");
     const type = formationByte(unit.type, "type at 4725");
@@ -65,6 +64,12 @@ export function redistributeOriginalLegion(sc, record) {
     const sum = old + readPool(sc, owner, type, "4735");
     writePool(sc, owner, type, Math.min(0xffdc, sum)); // 55EC carry or >FFDC.
   }
+}
+
+/** 461D: return old troops under the CURRENT types, then redistribute. No RNG. */
+export function redistributeOriginalLegion(sc, record) {
+  const owner = formationByte(record.faction, "L01 at 4625");
+  returnOriginalLegionTroops(sc, record, owner);
   const counts = [0, 0, 0];
   for (let i = 0; i < 6; i++) {
     const type = formationByte(team(record, i, "46B8").type, "type at 46B8");
@@ -108,8 +113,12 @@ export function refreshOriginalLegion(sc, record) {
   record.movePeriod = cavalry ? 2 : 3;
   const owner = formationByte(record.faction, "L01 at 7006");
   const style = formationByte(
-    factionAt(sc, owner, "700F").march_marker_style,
-    "F3E at 700F",
+    // owner18: DS:063E is the SAME raw diplomacy[2][14] byte (3119),
+    // not a synthetic faction24 or a normalized relation. Fate notes §14/§15.
+    owner === 0x18
+      ? sc.diplomacy?.[2]?.[14]
+      : factionAt(sc, owner, "700F").march_marker_style,
+    owner === 0x18 ? "063E at 700F" : "F3E at 700F",
   );
   record.markerBase = (style * 5) & 255;
   record.moveDelay = 1;
@@ -180,4 +189,26 @@ export function createOriginalLegion(sc, context, index) {
   refreshOriginalLegion(sc, record);
   record.status = formationByte(record.status, "L00 at 6EC1") | 4;
   return { cf: false, record };
+}
+
+/**
+ * 6A03 出陣提交体（P43）：君主亲征编成。SI = 0x4240 + idx*0x20 由 87FF 取玩家君主，
+ * 3B08 全程不碰 SI（push ax/bx/cx/dx/bp/di），69F7 直达 6A03。
+ * 6E8F CF=1（某队三候选池均不足 50）→ 6A06 jb 6A10：部分写保留，无清位、无显示。
+ * 成功 → 6A08 [DI]&=0xFB（6EBF DI=军团地址：君主亲领，清委任位，C4→C0），
+ * AL=8 → 5E80 玩家资金面板刷新是纯显示（P32 零规则写入、零 RNG），由调用方投影。
+ * 全链 0 RNG（进言 SKILL §6.6 活扫描）。45C1 只扫 0..126 槽，127 号排除槽不接。
+ */
+export function commitOriginalMonarchDeploy(sc, context, index) {
+  if (!Number.isInteger(index) || index < 0 || index > 126)
+    formationUncovered(`monarch index at 6A03`);
+  const general = sc?.generals?.[index];
+  if (!general || typeof general !== "object")
+    formationUncovered(`monarch record at 6A03`);
+  const result = createOriginalLegion(sc, context, index);
+  if (result.cf) return { cf: true };
+  const record = result.record;
+  record.status = formationByte(record.status, "L00 at 6A08") & 0xfb;
+  rebindNativeLegionViews(sc);
+  return { cf: false, slot: index };
 }

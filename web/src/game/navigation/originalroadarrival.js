@@ -51,6 +51,24 @@ function aliasedByte(sc, context, address) {
       `diplomacy ${address} at 43D3`,
     );
   }
+  // 43D3 k=0..47: DI=k*0x20 (28F4: DI=BX*4, BX=idx*8), read [DI+0x18].
+  // 偶k → 势力[k/2]+0x18（F18 武将数，live nativeGeneralCount）；
+  // 奇k → 势力[k/2]+0x38（无直接位移写者，静态初值；别名指针写不可静态排除）。
+  if (address < 0x600) {
+    const faction = factionAt(sc, address >>> 6, "43D3 faction alias");
+    const offset = address & 0x3f;
+    if (offset === 0x18)
+      return byte(faction.nativeGeneralCount, "faction F18 at 43D3");
+    if (offset === 0x38) {
+      const raw = faction.raw;
+      const value =
+        typeof raw === "string" && raw.length === 128
+          ? Number.parseInt(raw.slice(0x38 * 2, 0x38 * 2 + 2), 16)
+          : Number.NaN;
+      return byte(value, "faction +38 raw at 43D3");
+    }
+    stop(`faction alias offset ${offset} at 43D3`);
+  }
   return cacheAt(sc, context, address, "43D3");
 }
 
@@ -74,7 +92,13 @@ export function arriveOriginalRoad(sc, context, io, bx, rng) {
   const di = u16(bx * 4);
   const owner = rb(1);
   const cityOwner = context.readCityOwnerByte(u16(di + 0x841));
-  if (owner !== cityOwner && rb(0x20) * 8 === bx) stop("291A at 2912"); // AL would be low byte of target20*8, not city owner.
+  if (owner !== cityOwner) {
+    const targetAddress = rb(0x20) * 8;
+    if (targetAddress === bx) {
+      if (typeof io.fate !== "function") stop("291A at 2912");
+      io.fate(targetAddress & 255); // AL, NOT the city owner; 2915 returns STC.
+    }
+  }
   // 2671 is unconditional after 28F4 returns, regardless of its CF.
   const target = rb(0x20),
     pointer = 0x840 + target * 32;
@@ -189,7 +213,10 @@ export function arriveOriginalRoad(sc, context, io, bx, rng) {
     }
     if (targetCoordinates(0x840 + city * 32)) {
       if (handler === 10) wb(0x23, 9);
-      else stop("463E at 44FE");
+      else {
+        if (typeof io.disband !== "function") stop("463E at 44FE");
+        io.disband();
+      }
     }
   }
   return "arrived";

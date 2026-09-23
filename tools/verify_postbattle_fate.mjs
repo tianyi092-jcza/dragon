@@ -21,8 +21,21 @@ globalThis.fetch = async (url) => {
 };
 
 const { loadTerrain } = await import("../web/src/game/pathfind.js");
-const { findRoadRoute, roadApproachesAt, roadEdgeById, roadNodeById } =
-  await import("../web/src/game/roadgraph.js");
+const { roadApproachesAt, roadEdgeById, roadNodeById } = await import(
+  "../web/src/game/roadgraph.js"
+);
+// P69 G8: v1 Dijkstra oracle deleted. approachLegion's leg is the shipped
+// graph's own edge 0 (node 0 (257,9) -> node 2 (246,15), stride +4 along
+// stored point order) — the same record the search returned for this pair.
+let shippedEdge0;
+try {
+  const shipped = JSON.parse(
+    await fs.readFile(new URL("../web/road_graph.json", import.meta.url), "utf8"),
+  );
+  shippedEdge0 = shipped.edges.find((edge) => edge.id === 0);
+} catch (error) {
+  throw new Error("cannot load shipped road graph", { cause: error });
+}
 const {
   aiTick,
   applyBattleResult,
@@ -105,8 +118,17 @@ function putLegions(sc, records, counts) {
 function approachLegion(total) {
   const record = legion("乙", 1, 255, 9);
   setTroops(record, total);
-  const edge = findRoadRoute(257, 9, 246, 15).legs[0];
-  assert.deepEqual(edge.points[0], { x: 255, y: 9 });
+  const edge = {
+    edgeId: shippedEdge0.id,
+    stride: 4,
+    fromNode: shippedEdge0.source,
+    toNode: shippedEdge0.target,
+    points: shippedEdge0.points,
+  };
+  // v2 points carry native E717 flags (edge0 point0 flags=68 per the
+  // P57 candidate); the approach anchor compares coordinates.
+  assert.deepEqual((({ x, y }) => ({ x, y }))(edge.points[0]), { x: 255, y: 9 });
+  assert.equal(edge.points[0].flags, 68);
   record._march = {
     edgeId: edge.edgeId,
     stride: edge.stride,
@@ -128,20 +150,23 @@ function approachLegion(total) {
   const loser = approachLegion(400);
   putLegions(sc, [loser], [0, 1]);
   const originalMarch = structuredClone(loser._march);
-  assert.equal(continueLegionAfterBattle(sc, loser, false), true);
-  assert.equal(loser.commandState, 8);
-  assert.equal(loser.target.idx, 2);
-  assert.equal(loser._retreat.cityIdx, 2);
-  assert.ok(loser._path.length > 0);
+  // P62 G1: v1 retreat arm deleted. Non-native scenarios fail closed with
+  // no retreat route (false, no _retreat); the 474A-preserves-road-context
+  // rule itself is locked on native fixtures in verify_native_road_callers.
+  assert.equal(continueLegionAfterBattle(sc, loser, false), false);
+  assert.equal(loser._retreat, null);
+  assert.equal(loser.target, undefined);
   assert.deepEqual(
     loser._march,
     originalMarch,
-    "474A preserves the current road context",
+    "fail-closed 474A writes no road context",
   );
 }
 
 // Single-friendly-endpoint inputs on all 254 edges, both stored directions.
-// 474A/487B select that endpoint but do not turn/rebuild the current road now.
+// P62 G1: v1 retreat arm deleted, so every non-native input fails closed
+// (false, no target/_retreat) and writes no road context. Endpoint selection
+// itself is locked on native fixtures in verify_native_road_callers.
 // This does not certify the separate next-action movement or a two-friendly tie.
 {
   for (let edgeId = 0; edgeId < 254; edgeId++) {
@@ -197,8 +222,9 @@ function approachLegion(total) {
       putLegions(sc, [loser], [0, 1]);
       const originalMarch = structuredClone(loser._march);
       const position = { x: loser.x, y: loser.y };
-      assert.equal(continueLegionAfterBattle(sc, loser, false), true);
-      assert.equal(loser.target.idx, ownNode.id);
+      assert.equal(continueLegionAfterBattle(sc, loser, false), false);
+      assert.equal(loser.target, undefined);
+      assert.equal(loser._retreat, null);
       assert.deepEqual(
         loser._march,
         originalMarch,
@@ -211,15 +237,16 @@ function approachLegion(total) {
   }
 }
 
-// 0x474A硬失败门槛：战后士气0或首队0才不能继续；士气仍为1且有兵时
-// 即使很低也必须按首都方向撤退，不能额外臆造“士气<100歼灭”。
+// 0x474A硬失败门槛：战后士气0或首队0才不能继续（broken分支不受G1影响）。
+// P62 G1: 非native不再走撤退臂，士气1亦fail-closed为false；“士气>0即按
+// 首都方向撤退”规则本身锁定于verify_native_road_callers之native用例。
 {
   const sc = makeScenario();
   const lowMorale = approachLegion(100);
   lowMorale.morale = 1;
   putLegions(sc, [lowMorale], [0, 1]);
-  assert.equal(continueLegionAfterBattle(sc, lowMorale, false), true);
-  assert.ok(lowMorale._retreat);
+  assert.equal(continueLegionAfterBattle(sc, lowMorale, false), false);
+  assert.equal(lowMorale._retreat, null);
 }
 {
   const sc = makeScenario();
@@ -230,13 +257,14 @@ function approachLegion(total) {
 }
 
 // 0x474A：总兵<=300时即使即时退路不是首都，也必须写状态10继续返首都。
+// P62 G1: 非native fail-closed为false；该状态10规则锁定于
+// verify_native_road_callers之native用例（lost.commandState == 10）。
 {
   const sc = makeScenario();
   const loser = approachLegion(300);
   putLegions(sc, [loser], [0, 1]);
-  assert.equal(continueLegionAfterBattle(sc, loser, false), true);
-  assert.equal(loser.target.idx, 2);
-  assert.equal(loser.commandState, 10);
+  assert.equal(continueLegionAfterBattle(sc, loser, false), false);
+  assert.equal(loser._retreat, null);
 }
 
 // Web撤退调度抵达即时据点时不得清掉0x474A写入的目标/状态；状态10
@@ -259,8 +287,10 @@ function approachLegion(total) {
   assert.equal(loser._retreat, null);
 }
 
-// Controlled routing input: non-own nodes remain expandable with ADD A6/OR 8000.
-// The constant-penalty route below is only a Web search control, not the full word formula.
+// P69 G8: the v1 constant-penalty route control below (direct.nodes /
+// weighted-avoids-2) was pure Dijkstra behavior and is deleted with the
+// oracle. The loser fail-closed pins stay; enemy-penalty first-hop rules
+// remain locked in verify_native_road_callers (high cost非门控).
 {
   const sc = makeScenario();
   sc.cities[0].faction = 1;
@@ -271,21 +301,12 @@ function approachLegion(total) {
     const node = roadNodeById(nodeId);
     sc.cities.push(city(sc.cities.length, 1, node.x, node.y));
   }
-  const direct = findRoadRoute(257, 9, 218, 11);
-  assert.deepEqual(direct.nodes, [0, 2, 1]);
-  const weighted = findRoadRoute(218, 11, 257, 9, null, (node) =>
-    node.id === 2 ? 0x80a6 : 0,
-  );
-  assert.ok(weighted);
-  assert.ok(!weighted.nodes.includes(2));
   const loser = approachLegion(400);
   putLegions(sc, [loser], [0, 1]);
-  assert.equal(continueLegionAfterBattle(sc, loser, false), true);
-  assert.equal(loser.target.idx, 0);
-  assert.ok(
-    loser._retreat,
-    "enemy-node penalty must preserve a capital-directed friendly first hop",
-  );
+  // P62 G1: 非native fail-closed为false；enemy-penalty下首都方向首跳规则
+  // 锁定于verify_native_road_callers之native用例（high cost非门控）。
+  assert.equal(continueLegionAfterBattle(sc, loser, false), false);
+  assert.equal(loser._retreat, null);
 }
 
 // 0x48E5→0x48F1：失陷据点本身是拓扑节点时，0x491B返回朝首都的
@@ -337,12 +358,12 @@ function approachLegion(total) {
     },
   );
   assert.equal(chenliu.faction, 1);
-  assert.equal(defender.dead, undefined);
-  assert.equal(defender.target.idx, 82);
-  assert.equal(defender.targetNode, 82);
+  // P62 G1: v1 retreat arm deleted. Non-native defenders no longer get the
+  // 48E5 first-edge retreat target; they fall through to fate dispatch
+  // (here the monarch-return path). The lost-node next-hop rule itself is
+  // locked on native fixtures in verify_native_road_callers (4761 test).
+  assert.equal(defender.dead, true);
   assert.equal(defender._retreat, null);
-  assert.equal(defender.moveDelay, 1);
-  assert.equal(defender._path, null);
 }
 
 // generalIdx是权威主将关联；slot冲突和显示名空白不能导致静默删除/错抓武将。
@@ -454,7 +475,10 @@ function approachLegion(total) {
   assert.equal(sc.generals[0].faction, 1);
   assert.equal(messages.length, 1);
   assert.equal(messages[0].talkIndex, 33);
-  assert.equal(messages[0].personalitySelector, 0x19a);
+  // Revoked oracle: KI 2A41/2A43 returns after TALK33; only TALK34 adds 19Ah.
+  // The legacy helper still adds it here. Do not certify that known bug.
+  // TODO: after the production fix, assert no selector and no FIFO second card.
+  // Evidence and remaining scope: docs/re-notes-legion-fate.md §4.1.
 }
 
 // 对手军团溃散时，玩家分别收到TALK32（未擒获）或TALK34（擒获）。

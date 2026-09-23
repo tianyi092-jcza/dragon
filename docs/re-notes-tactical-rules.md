@@ -76,6 +76,26 @@ Rechecked directly from `Dragon/KI.EXE` with `tools/disasm.py`, file offset VA+0
 - `0xAE35..0xAE4C` 从 `D31A/D31B` 以原版u8差值重建 `D31E` 三态；
 - `0x9FDC` 返回 `[0xD349]`，并在攻城模式调用 `0xA65D→0x9FF8` 结算城损。
 
+### 2.2.1 战后 474A 双调与退出帧（P48 闭合）
+
+- **实锤（现刷窗，`disasm.py`）**：`4E70..4EAC`（sha256 `30f14e4d…`）——`4E70 test [SI],4` 攻方委任门，落空 `4E75` 写 `D2E=SI`（玩家攻方）；`4E8A test [DI],4` 守方委任门，落空 `4E8F or D35,0x80` 置玩家守方旗后 `D30=SI、D2E=DI`（`DI` 为玩家守方）。两条路径都把**玩家军团**写入 `D2E`，对手写入 `D30`。`CX=0x1D` 后 `call 4EB9` 即 TALK29；战术分别经 `4E85/4EAC call 1B5A` 进入（与 P47 `callers(1B5A)` 吻合；`4F26/4F49` 为攻城对应项）。
+- **实锤（现刷窗）**：`1B5A..1BDF`（sha256 `c921531a…`）——`9FA0` 主循环返回后 `push ax` 保存胜方字节；`1B7E call 533D`（G1F 刷新）后经若干中间调用（`19CA/20D6/1F7F/89F0/D615/1CC9/D66A` 语义未知，见下）；`1B9B pop ax` 取回胜方字节，`DS=[D52]`，`SI=D2E、DI=D30`；`1BAA cmp D35,0x80`：bit7 置位（玩家守方）则 `xor al,1 + xchg SI,DI`，否则直通。首调 `1BBA call 474A` 取 `CL=AL`，失败 `or AH,1`；`xchg` 后次调 `1BC9 call 474A` 取 `CL=AL^1`，失败 `or AH,2`；尾声 `1BD1 call 9321、1BD4 call 9D0`（设备调用）。`AH` 累积方式与 `5130` 的 `5192/51A1` 逐项一致。
+- **实锤（两分支消去）**：首调恒为攻方——bit7 清时 `SI=D2E=玩家=攻方`；bit7 置位时交换后 `SI=D30=敌方=攻方`。结合已记录的 `5130` 合同（首调攻方 `CL=AL`、`0` 代表该侧获胜），`xor al,1 + xchg` 配对唯一自洽读法是 `AL` 为对象侧帧（`0`=对象0/玩家侧胜，`1`=对象1/敌方侧胜），`1BAA..1BC6` 把它连同指针序一起换算成攻守帧。`A6FA` 胜方置位（`[D31C]==0→D349=1` 于 `A72F`，`[D31D]==0→D349=0` 于 `A740`，窗 sha256 `63c7734b…`）与此一致；`D31C/D31D` 各属哪一对象侧的写者归属（`AEB2/AEC4` 线性窗疑似错位）仍记未知，本结论不依赖它。P82-H1补充（门后延续H1闭合）：重读`AEA9..AED1`真边界——`cmp si,0600; jae AEC1`，SI<0600支`inc D31C`（`[si+19]!=0`再`inc D31A`），否则`inc D31D`（`[si+19]!=0`再`inc D31B`），无错位，旧疑似为线性解码伪影；D31C=side0/D31D=side1映射沿既有P48链+回归（`originalstate.js side0Active/side1Active`），本轮未改。
+- **Web 修复（生产改动）**：`settleVisualBattle`（`tacticalbattle.js`）此前直接返回对象侧序 `sides`，而 `ai.js` 按 `sides[0]→A（战略攻方）` 消费；玩家守方战术退出时双方兵力/六队/士气被交叉写回（`winnerName` 经 `sideMap` 换算正确，故 `won` 旗不受影响）。现按原版同一换算在边界统一为攻守帧 `[attacker, defender]`（`sideMap.atk/def` 索引；legacy 合成 `sides:[attack, defence]` 本就攻方在前，不受影响）。回归 `tools/verify_tactical_exit_frame.mjs`（攻/守/守败三例；修前 case2 以 `540!==60` 复现交叉写回，修后全绿且两次稳定）。
+
+### 2.2.2 开场消息音并线（P50 闭合）
+
+- **实锤（现刷窗，`disasm.py`）**：`4E5C..4F89`（sha256 `d43bb2be…`）——`4EB9` 体（`push [DI+2]/FF、push [SI+2]/FF、DI=SP→call 0CDE→AL=0x93→call 8810→add sp,4`）即 TALK29（`CX=0x1D` 由 `4E7F/4EA4` 置）；`4F58` 体（`push DI、push DI、push [SI+2]/FF、DI=SP→call 0CDE→AL=0x93→call 8810`）即 TALK27（`CX=0x1B`，`4F10`）/TALK28（`CX=0x1C`，`4F39`）；`4F71` 体（同形，`call 0CE7→AL=0x93→call 8810`）即 TALK26（`CX=0x1A`，`4F06`，`5130` 返回 `AL==0` 才显示）。分支音：攻方 TALK29 只经 `4EB9` 内一次 `0CDE`；守方 TALK29 经 `4EA1` 直调 +`4EB9` 内共两次；守方 TALK27 只经 `4F58` 内一次；攻方 TALK28 经 `4F36` 直调 +`4F58` 内共两次；TALK26 只经 `4F71` 内一次 `0CE7`。
+- **实锤（现刷窗）**：`0CDE..0CEF`（sha256 `d0d64f16…`）=`push ax→AX=0x101→call EB11→pop ax→ret`；`0CE7..0CF0`（sha256 `9a2d100b…`）=`AX=0x202→call EB11`；`EB11..EB6B`（sha256 `73a03d2f…`）以 `CX=AX` 作内外两层循环经 `EB5E`（`port 0x3DA bit3` 回扫等待）门控 `port 0x61`，即 PC 喇叭 beep（`CL`=次数：`0CDE`=1、`0CE7`=2），与 `speaker.js` 头注一致；`DI=SP` 等栈参数在 `0CDE/0CE7` 内被忽略（只读 `AX`）。
+- **Web 接线（生产改动）**：`speaker.js` 新增 `doubleClickSfx()`（`0xCDE` 连击两声）；`ai.js` 野战开场（`A.faction===pf.idx` 攻方支→`clickSfx` 一次，否则守方支→`doubleClickSfx`）、攻城开场（`playerDefender` TALK27→一次，否则 TALK28→两次）在 `enqueueTalkMessage` 前播放；TALK26 原已 `warnSfx()`（=`0CE7` 两声）不动。`AL=0x93` 在 `8810` 内的确切语义（颜色/风格？）仍记未知，Web 显示文本不变。回归 `tools/verify_battle_opening_messages.mjs` 追加三音无音频 no-op 断言（既有四流程已实际经过新调用点）。P80围栏终局（门后延续H3闭合，零生产改动）：Web侧复核——全树无AL读者（开场三分支固定哔声+固定TALK文本，`originalvictorygate.js`之AL=0x93仅注释文档；`diplomacy.js`之TALK 0x93系talk序号无关），回归no-op断言现存；KI侧P56窗结论（8810线性窗内无入口AL分支消费者）未变，未重探。围栏永久有效：Web行为已钉死，AL语义不可达。
+
+### 2.2.3 完整退出帧写集/RNG交错/D2E-D30别名（P51 闭合，零生产改动审计）
+
+- **实锤（现刷窗，`disasm.py`）**：`1B5A` 全体=战前装配（`1B62 call 2078` 驱动、`1B6D call 0A1C` 调色板、`1B70 call 9946` 战术初始化）→`1B73 call 9FA0` 主循环→战后序列 `1B7B call 19CA`（98xx 相机/VRAM 清理＋`[59D2]` 驱动分发表）→`1B7E call 533D`（G1F 刷新，P47 hold）→`1B81 call 20D6`（98xx＋驱动）→`1B84 call 1F7F`（98xx 相机：`987E/9880` 比对、`9882/9884` 视口、`988E/9890/989A/989C` 派生）→`1B87 call 89F0`（`8A1E/8AEA` 经 `ES=D44` 派生段重绘地图 tile 字节）→`1B92 call D615`（`ES↔DS` 像素换存＋`D854/D856` 光标）→`1B95 call 1CC9`（=`2AF4` 军团动画：`bit 0x20` 置位槽经 `2B3C` 置 `bit4`＋`D51F/5D19`，`≥0xC0` 槽经 `2B2A` 读 `+10/+12/+9/+8` 调 `D4C7`；`2533` 城记录动画帧：`+0xE` 索引/`+0xF` 低 3 位循环＋`D51F`）→`1B98 call D66A`（EGA 端口＋8B-stride 对象台清理，`FF` 清 `+3..+7` 或写 `0x40`）→P48 已闭 `1BBA/1BC9` 之 `474A` 双调→`1BD1 call 9321`（按 `CF4` 查表调 `10241` 定模式）→`1BD4 call 9D0`（`0x3DA`＋`0x1964` 调色板恢复）。战后序列中唯一战略规则写回是 `474A` 双调；其余全部落入驱动/调色板/VRAM/98xx 相机/地图 tile 重绘/动画帧（军团 `bit4` 沿 P44 定性为交战动画在列标志，`2BA8` 先清；城 `+0xE/+0xF` 为动画 cell 索引经表查调 `D51F`，显示类）——Web 无需新增退出写回，P48 的 `settleVisualBattle` 攻守帧＋`applyBattleResult` 攻方优先双 `474A` 已覆盖。
+- **实锤（全 EXE `callers(0xECE0)` 扫描，48 个）**：`2297/229E/22B4/22BB/230C/2313/232B/2333/24FF/295B/2D43/2FCB/34A6/34EB/34F5/37C5/399E/3E96/3EBF/405D/40F6/416E/41D5/41EE/4213/43D9/4C1F/51F9/5218/52F3/56EC/5812/5846/58A2/58E0/5941/9C58/9E54/A2A6/A2B3/A37E/A38B/A584/AA18/AD3E/B61A/B6CF/B6D6`——无一落在退出序列（`19CA/20D6/1F7F/89F0/D615/2AF4/2B2A/2B3C/2533/D66A/D782/D7E7/D804/D76B/D51F/5D19/D4C7/474A/533D/9321/9D0` 体内零命中；`Axxx/9C58/9E54` 命中均在战斗本体内，属帧内正常消费）。退出路径零 RNG 消费；Web 侧 `settleVisualBattle`/`settleExit` 只快照（`strategicRng`＋`rng.snapshot()`）不消费——流位置在末帧后对齐，无交错漂移。
+- **实锤（全 EXE disp16 含 `2E0D/300D` 且段前缀 `2E` 的读写扫描）**：`D2E/D30` 唯一写者为四组入口分支（`4E78/4E9D` 野战、`4F1F/4F42` 攻城，均在已闭窗内）；读者为退出重载 `1BA3/1BA8`（`SI=D2E、DI=D30`）、战前拷贝 `9E84/9E8C`（`9E70` 复制对象侧）、`9ED6/9F05`、`C315` 内 `C327/C336`（读 `D2E→slot→0x4240` 武将号作消息显示）、`C9AB` 内 `C9B4/C9F8`（读槽作显示）。战斗循环与退出 teardown 零写者→退出重载恒等于入口携带→Web 在 `createHandle` 入口一次建成 `sideMap/exitContext` 并全程携带与原语义等价，无需改 exit 重读。
+- **审计结论（零生产改动）**：C10–C11 三项剩余（RNG 交错/完整帧退出/别名生命周期）全部闭合；`1E17` 语义 hold 沿 P47/P48/P50 保留，不在本节展开。`AL=0x93` 语义 hold 已由 P80 转围栏终局（见上，门后延续 H3 闭合）。`D31C/D31D` 归属（门后延续 H1）已由 P82 闭合为战术域（见§2.2.1 P82-H1 补充；Web 对应状态全在 `battle/*`）。
+
 ### 2.3 原版对象池与输入回放骨架
 
 实现：`web/src/game/battle/originalstate.js`、`originalcommands.js`、
@@ -130,7 +150,7 @@ restore DX/CX/DS; return
 
 父重放源码/结果保全于`C:/Users/fczll/AppData/Local/Temp/dragon-ai-date-render-13emjwia/`：`wall-probe.py`只提取固定快照的CPU/walls/wall_boundaries，快照SHA256为`3282b011c402aebeb65779f5490265ab86771679bcd681fe7fb5e359535c6005`；输出`wall-result.json`、`wall-web-contrast.json`。执行范围`9FF8..A037`及`A65D..A69F`，停在清屏入口前，无KI callee替身；10条常规墙输入和4条边界输入均与上述原指令一致。该有限CPU只建模本路径消费的标志，不认证硬件/完整战役。
 
-**撤销旧实现一致声明**：`originalexit.js`的乘4、缺少最终DL截取、无kind1早退，以及`autobattle.js`旧战术城损fallback均须按本证据修正；`verify_battle_original_exit.mjs`中的旧乘4golden不能再作为原版证明。本专项当前阶段只完成证据勘误，尚未修改这些生产/测试路径，后续修正必须同步更正错误回归。VM op15对D315的乘4查询是另一输出，不能一并删除。
+**撤销旧实现一致声明**：`originalexit.js`的乘4、缺少最终DL截取、无kind1早退，以及`autobattle.js`旧战术城损fallback均须按本证据修正；`verify_battle_original_exit.mjs`中的旧乘4golden不能再作为原版证明。P49已按本证据修正上述生产/测试路径（`originalexit.js`、`autobattle.js` fallback、两套golden同步更正，P49现刷窗A65D..A69E/9FF8..A036与本节一致）。VM op15对D315的乘4查询是另一输出，保持不动。
 
 ### 2.4.2 原始城市目录确有无kind1的构造结果
 
@@ -172,7 +192,7 @@ restore DX/CX/DS; return
 - `B1B1`双占用平面、动态高度描述、tile门槛与probe内自动跨层已闭合；
 - `B941→B97E→BA2E→BAB7`效果对象逐帧命中、8.8轨迹、重力、阻挡和清槽已闭合，
   该链0 RNG且不经过B533；B8AA仅有32固定槽并按`source&0x1E0`产生别名；
-- `0x9FDC`退出接口已定位；旧“城损实现已闭合”声明撤销，`A65D→9FF8`的原返回值和DL位宽已由§2.4.1更正，生产路径尚未修复。双方六队/士气仍须与完整退出及战略续段分别认证；
+- `0x9FDC`退出接口已定位；旧“城损实现已闭合”声明撤销，`A65D→9FF8`的原返回值和DL位宽已由§2.4.1更正，P49已修复生产路径。双方六队/士气仍须与完整退出及战略续段分别认证；
 - `C653→AED2`环形队列、每帧2项预算、路径内存快照与`B00D`路径word消费已闭合；
   B00D已确认路径区寻址为`0x1800+(SI<<2)+u8 offset`，完整窗口0x3000字节，
   双方对应对象不再错误别名；`BD46..BFF1`双平面u16代价波前、固定方向展开、

@@ -48,12 +48,21 @@
 
 背景、弹窗与按钮使用分层显示；背景按钮在小窗口也能命中，除重启外不能改变弹窗状态。正式存档保持原同源IndexedDB四槽，不涉及DOS存档。
 
+## 单实例启动与验证生命周期
+
+`web/src/core/singleinstance.js` 的 Web Locks 为同源单实例权威；BroadcastChannel 仅通知，不决定接管。被阻塞页关闭通知通道后，`beforeunload/pagehide` 必须幂等，不再次向已关闭通道发送消息。页面在异步锁回调前已经停止时，回调直接结束，不得再触发 App/开场初始化。活动页释放锁只触发一次暂停回调；旧页重复清理不得释放新页的锁。无 Web Locks 时仍为既有 localStorage 心跳降级，不增加服务器锁或改变保存路径。
+
+浏览器测试的 sessionStorage、Cache/CacheStorage 初始化注入必须限定在本次自持 origin，跳过 `about:blank` 等非产品文档；不得在产品页吞掉缺API/存储异常以隐藏失败。严格 autoplay 测试继续使用 `userGesture:false` 的被动 CDP 检查，禁止用新增 `exposeBinding` 回调采集来污染用户激活条件；启动音乐取消调查只用有界被动事件/调用栈记录，不屏蔽 pageerror/requestfailed 或改音乐规则。HTTP503 与显式 destroy 的负向断言须保留；请求取消不能仅因入口 exit0 就归类为正常。
+
 ## 验证入口
 
 - `node tools/verify_opening_loading_browser.mjs`：受控分段下载、超过4秒保持起点、缓存写入门控、缓存完整SHA-256、真实严格自动播放策略与点击/键盘启动、缓存命中时禁止音乐网络、普通刷新、未知总长、缓存权限/配额失败、减少动画、下载失败及Blob销毁。
 - `node tools/verify_opening_browser.mjs`：临时端口与全新浏览器上下文，副标题完全显现/22秒门控、旧15秒仍无弹窗、早/晚跳过、音乐隔离、自定义军师、进入游戏、隔离存档往返、刷新/重启，以及9组窗口尺寸下的左上覆盖、不缩小、无滚动条、弹窗原尺寸居中。
 - `node tools/verify_title_deferred_map.mjs`、`node tools/verify_start_flow.mjs`、`node tools/verify_startmenu_empty_slot.mjs`。
 - `node tools/verify_music_runtime.mjs`、`node tools/verify_music_browser.mjs`。
-- `node tools/verify_standalone_web_browser.mjs`：复制静态发行目录、延迟世界加载与单实例。
+- `node tools/verify_standalone_web_browser.mjs`：复制静态发行目录、延迟世界加载与单实例；包括第二页阻塞、持锁时重载、关闭持锁页后接管，所有页面均观察错误。
+- `node tools/verify_single_instance.mjs`：既有纯内存重复启动/释放回归（保留）。
+- `node tools/verify_single_instance_lifecycle.mjs`：新增纯内存锁回调/生命周期、无BroadcastChannel及降级清理回归。
+- `node tools/verify_single_instance_browser.mjs`：独立模块、真实Web Locks/通道、全新context/port0；阻塞重载、活动页显式/关闭释放及重复清理，不加载App或存档。
 
 不将这些Web表现测试当原版机制证据。

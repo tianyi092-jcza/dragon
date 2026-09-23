@@ -77,20 +77,23 @@ try {
       await route.abort();
     }
   });
+  const observePage = (page) => {
+    page.on("pageerror", (error) => errors.push(String(error)));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(`console: ${message.text()}`);
+    });
+    page.on("requestfailed", (request) => {
+      errors.push(
+        `request failed: ${request.url()} ${request.failure()?.errorText}`,
+      );
+    });
+    page.on("response", (response) => {
+      if (response.status() >= 400)
+        errors.push(`${response.status()} ${response.url()}`);
+    });
+  };
+  context.on("page", observePage);
   const page = await context.newPage();
-  page.on("pageerror", (error) => errors.push(String(error)));
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(`console: ${message.text()}`);
-  });
-  page.on("requestfailed", (request) => {
-    errors.push(
-      `request failed: ${request.url()} ${request.failure()?.errorText}`,
-    );
-  });
-  page.on("response", (response) => {
-    if (response.status() >= 400)
-      errors.push(`${response.status()} ${response.url()}`);
-  });
   await page.goto(origin);
   await page.waitForFunction(() =>
     Boolean(window.__dragonApp?.startMenu?._onClick),
@@ -141,6 +144,11 @@ try {
   assert.deepEqual(errors, []);
   const lock = await verifySingleInstanceUi(page);
   assert.equal(lock.blocked, true);
+  assert.deepEqual(
+    errors,
+    [],
+    "all pages, including blocked-page reload, must be error-free",
+  );
   process.stdout.write(
     "standalone Web OK: copied static release, fresh profile, deferred assets, real new-game flow, single-instance takeover\n",
   );

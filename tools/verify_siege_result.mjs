@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
-import { findRoadRoute, roadNodeAt } from "../web/src/game/roadgraph.js";
+import { roadNodeAt } from "../web/src/game/roadgraph.js";
+// P69 G8: v1 Dijkstra oracle deleted. Siege-approach fixtures ride the
+// shipped graph's own edge 0 (node 0 (257,9) <-> node 2 (246,15)).
+let shippedEdges;
+try {
+  const shipped = JSON.parse(
+    await fs.readFile(new URL("../web/road_graph.json", import.meta.url), "utf8"),
+  );
+  shippedEdges = shipped.edges;
+} catch (error) {
+  throw new Error("cannot load shipped road graph", { cause: error });
+}
 
 globalThis.window = {};
 globalThis.fetch = async (url) => {
@@ -123,9 +134,28 @@ function putLegions(sc, records, counts) {
   sc.legions.push(...records);
 }
 function prepareSiegeApproach(record, source, target) {
-  const edge = findRoadRoute(source.x, source.y, target.x, target.y).legs.at(
-    -1,
+  // Orient the directly-connecting record edge by the requested direction;
+  // the arrival leg is last. Fixture pairs must be graph-adjacent; anything
+  // else fails closed instead of searching.
+  const fromId = roadNodeAt(source.x, source.y)?.id;
+  const toId = roadNodeAt(target.x, target.y)?.id;
+  const record_ = shippedEdges.find(
+    (candidate) =>
+      (candidate.source === fromId && candidate.target === toId) ||
+      (candidate.source === toId && candidate.target === fromId),
   );
+  assert.ok(
+    record_,
+    "siege-approach fixtures only cover graph-adjacent node pairs",
+  );
+  const outwards = record_.source === fromId;
+  const edge = {
+    fromNode: fromId,
+    toNode: toId,
+    edgeId: record_.id,
+    stride: outwards ? 4 : -4,
+    points: outwards ? record_.points : record_.points.toReversed(),
+  };
   assert.ok(edge.points.length >= 2);
   const point = edge.points.at(-2);
   Object.assign(record, {
@@ -233,7 +263,10 @@ function prepareSiegeApproach(record, source, target) {
     intact: true,
     metric: 1000,
   }));
-  assert.equal(applyTacticalSiegeCityDamage(intactTactical, walls), 0);
+  assert.equal(applyTacticalSiegeCityDamage(intactTactical, walls), 8);
+  assert.equal(intactTactical.troops, 112);
+  assert.equal(intactTactical.growth, 142);
+  assert.equal(intactTactical.defence, 132);
   walls[3].metric = 500;
   walls[3].intact = false;
   assert.equal(applyTacticalSiegeCityDamage(tactical, walls), 15);
@@ -265,6 +298,9 @@ function prepareSiegeApproach(record, source, target) {
   applyBattleResult(
     {
       scenario: sc,
+      // P62 G1: v1 retreat arm deleted; the losing garrison falls through
+      // to fate dispatch, which requires original byte RNG.
+      originalRng: new OriginalBattleRng({ ch: 1, cl: 2, dh: 3 }),
       hud: {
         flashEvent() {
           assert.fail("strategic siege results must use the TALK FIFO");
@@ -302,9 +338,11 @@ function prepareSiegeApproach(record, source, target) {
   assert.equal(attacker.targetCity, target.idx);
   assert.equal(attacker.targetNode, 0);
   assert.equal(attacker.moveDelay, 1);
-  assert.equal(defenderA.commandState, 8, "实际参战主守军由0x474A转8");
-  assert.equal(defenderB.commandState, 2, "0x4DA4不得覆盖同城其余守军状态");
-  assert.equal(defenderA.target.idx, defenderB.target.idx);
+  // P62 G1: v1 retreat arm deleted. The losing garrison shares no retreat
+  // target anymore; both fall through to fate dispatch (TEMP-PIN, delete at
+  // G5/G6 with v1 support; shared-garrison retreat stays locked natively).
+  assert.equal(defenderA.target, null);
+  assert.equal(defenderB.target, undefined);
   assert.equal(defenderA._retreat, null);
   assert.equal(defenderB._retreat, null);
   assert.equal(defenderA.moveDelay, 1);
@@ -385,6 +423,9 @@ function prepareSiegeApproach(record, source, target) {
   applyBattleResult(
     {
       scenario: sc,
+      // P62 G1: v1 retreat arm deleted; the loser falls through to fate
+      // dispatch, which requires original byte RNG (TEMP-PIN).
+      originalRng: new OriginalBattleRng({ ch: 4, cl: 5, dh: 6 }),
       hud: {
         flashEvent() {
           assert.fail("strategic siege results must use the TALK FIFO");
@@ -406,8 +447,10 @@ function prepareSiegeApproach(record, source, target) {
   assert.equal(target.faction, 1);
   assert.equal(target.troops, 77);
   assert.equal(attacker.troops, 300);
-  assert.ok(attacker._retreat);
-  assert.equal(attacker._retreat.captorFaction, 1);
+  // P62 G1: v1 retreat arm deleted; non-native loser fails closed to fate
+  // (TEMP-PIN, delete at G5/G6 with v1 support).
+  assert.equal(attacker.dead, true);
+  assert.equal(attacker._retreat, null);
 }
 
 {
@@ -541,5 +584,5 @@ function prepareSiegeApproach(record, source, target) {
 }
 
 process.stdout.write(
-  "siege result OK: mode0 autoresolve, city damage, shared garrison retreat, extinction order\n",
+  "siege result OK: mode0 autoresolve, city damage, extinction order; non-native garrison fails closed to fate (P62 G1 TEMP)\n",
 );

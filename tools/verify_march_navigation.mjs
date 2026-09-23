@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import {
-  initializeLegionSlotState,
-  bindLegionSlotCounter,
-} from "../web/src/game/legionphase.js";
+import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 
 let graph;
 try {
@@ -27,24 +24,30 @@ globalThis.fetch = async (url) => {
 
 const {
   loadRoadGraph,
-  findRoadRoute,
   restoreRoadMarchContext,
   roadNodeRawAddress,
   serializeRoadMarchContext,
 } = await import("../web/src/game/roadgraph.js");
-const { buildArmies, aiTick, settleLegionDaily, stepTo } = await import(
+const { buildArmies, settleLegionDaily } = await import(
   "../web/src/game/ai.js"
 );
 const { MapView } = await import("../web/src/render/mapview.js");
 const { dispatch } = await import("../web/src/game/commands.js");
-const { Clock } = await import("../web/src/game/clock.js");
 await loadRoadGraph();
 
-const source = graph.nodes[0];
-const target = graph.nodes.at(-1);
-const expected = findRoadRoute(source.x, source.y, target.x, target.y);
-assert.ok(expected?.points.length > 0);
-const firstLeg = expected.legs[0];
+// P68 G8: v1 Dijkstra oracle deleted. The serialize/restore pins below need
+// a real leg; take the graph's own first edge record directly (no search).
+// Stride +4 walks stored point order from edge source to edge target.
+const firstEdge = graph.edges[0];
+const source = graph.nodes[firstEdge.source];
+const target = graph.nodes[firstEdge.target];
+const firstLeg = {
+  edgeId: firstEdge.id,
+  stride: 4,
+  points: firstEdge.points,
+  toNode: firstEdge.target,
+};
+assert.ok(firstLeg.points.length > 0);
 const initialMarch = {
   edgeId: firstLeg.edgeId,
   stride: firstLeg.stride,
@@ -128,41 +131,18 @@ assert.ok(
   "SAVE raw edge context restores navigation",
 );
 assert.equal(restoredEdgeLegion.roadEdgeOrNode, rawContext.edgeOrNode);
-let retainedEdgeFields;
-let currentRaw = restoredEdgeLegion.roadEdgeOrNode;
-Object.defineProperty(restoredEdgeLegion, "roadEdgeOrNode", {
-  configurable: true,
-  enumerable: true,
-  get: () => currentRaw,
-  set(value) {
-    if (value < 0x800)
-      retainedEdgeFields = [
-        restoredEdgeLegion.roadStride,
-        restoredEdgeLegion.roadPointAddress,
-      ];
-    currentRaw = value;
-  },
-});
-let restoredEdgeResult = "moved";
-for (let step = 0; step <= firstLeg.points.length; step++) {
-  restoredEdgeResult = stepTo(
-    restoredEdgeScenario,
-    restoredEdgeLegion,
-    restoredEdgeCity.x,
-    restoredEdgeCity.y,
-  );
-  if (restoredEdgeResult === "arrived") break;
-}
-assert.equal(restoredEdgeResult, "arrived");
-assert.equal(restoredEdgeLegion._march, null);
-assert.equal(restoredEdgeLegion.roadStride, retainedEdgeFields[0]);
-assert.equal(restoredEdgeLegion.roadPointAddress, retainedEdgeFields[1]);
-assert(Number.isInteger(restoredEdgeLegion.roadPointAddress));
-assert.equal(
-  restoredEdgeLegion.roadEdgeOrNode,
-  roadNodeRawAddress(restoredEdgeTarget.id),
-);
-assert.equal(restoredEdgeLegion._currentNode, restoredEdgeTarget.id);
+// P63 G2: the walk-to-arrival below (stepTo through the deleted arm) plus
+// the 27A2 +0A/+0C-retention trap are dropped. Arrival write sequencing is
+// natively locked (verify_native_road_arrival: 2662 due-slot arrival,
+// 28F4/4325 dispatch). The node-rate daily rule below keeps its own lock
+// via a planted arrived state (position/node context carry the rate; the
+// +0A/+0C values do not enter settleLegionDaily).
+restoredEdgeLegion.x = restoredEdgeCity.x;
+restoredEdgeLegion.y = restoredEdgeCity.y;
+restoredEdgeLegion.prevX = restoredEdgeCity.x;
+restoredEdgeLegion.prevY = restoredEdgeCity.y;
+restoredEdgeLegion._march = null;
+restoredEdgeLegion.roadEdgeOrNode = roadNodeRawAddress(restoredEdgeTarget.id);
 settleLegionDaily(restoredEdgeScenario);
 assert.equal(restoredEdgeFaction.gold, 996, "抵达节点后按floor(100/32)+1扣费");
 assert.equal(restoredEdgeFaction.money, 996);
@@ -243,64 +223,10 @@ const sourceCity = {
 
 // 玩家军团在道路边内改令时，必须保留当前edge/stride/point，先抵达
 // 既定端点后再按新目标选边；节点级寻路不能以道路点为起点。
-{
-  const retargetSource = { ...sourceCity };
-  const retargetOldTarget = { ...targetCity };
-  const retargetLegion = {
-    leader: "途中改令",
-    faction: 0,
-    x: source.x,
-    y: source.y,
-    prevX: source.x,
-    prevY: source.y,
-    troops: 100,
-    morale: 100,
-    target: retargetOldTarget,
-    targetCity: retargetOldTarget.idx,
-    targetNode: target.id,
-    commandState: 0,
-    cooldown: 0,
-    status: 0x82,
-    _active: true,
-  };
-  const retargetScenario = {
-    player_faction: 0,
-    factions: [{ idx: 0, capital: 0 }],
-    cities: [retargetSource, retargetOldTarget],
-    legions: [retargetLegion],
-    diplomacy: [[0xff]],
-  };
-  assert.equal(
-    stepTo(retargetScenario, retargetLegion, target.x, target.y),
-    "moved",
-  );
-  const activeEdge = retargetLegion._march.edgeId;
-  retargetLegion.target = retargetSource;
-  retargetLegion.targetCity = retargetSource.idx;
-  retargetLegion.targetNode = source.id;
-  const retargetResult = stepTo(
-    retargetScenario,
-    retargetLegion,
-    source.x,
-    source.y,
-  );
-  assert.notEqual(retargetResult, "blocked");
-  if (retargetResult !== "arrived") {
-    assert.equal(
-      retargetLegion._march?.edgeId,
-      activeEdge,
-      "途中改令只能在当前edge上改向，不能丢失道路上下文",
-    );
-  }
-  let arrived = retargetResult;
-  for (let guard = 0; guard < expected.points.length * 2 + 32; guard++) {
-    if (arrived === "arrived") break;
-    arrived = stepTo(retargetScenario, retargetLegion, source.x, source.y);
-  }
-  assert.equal(arrived, "arrived");
-  assert.equal(retargetLegion.x, source.x);
-  assert.equal(retargetLegion.y, source.y);
-}
+// P63 G2: dropped with the deleted walker. The in-edge 47EA shortcut this
+// section pinned is a documented non-contract (march notes §5.4: 47EA
+// searches BOTH endpoints; the shortcut is not its full contract), and the
+// full 47EA contract is still open RE — not a gate test item.
 
 // 城池「出征」创建的玩家军团必须直接进入正式0x4325命令链，不能只靠
 // 旧快照的commandState缺失兼容旁路完成返都补员。
@@ -338,49 +264,27 @@ const sourceCity = {
   assert.equal(dispatchGeneral.status, 1);
 }
 
-const legion = {
-  slot: 0,
-  status: 0xc0,
-  moveDelay: 1,
-  movePeriod: 3,
-  leader: "測試",
-  faction: 0,
-  x: source.x,
-  y: source.y,
-  prevX: source.x,
-  prevY: source.y,
-  troops: 100,
-  morale: 100,
-  cooldown: 0,
-  delegated: false,
-  target: targetCity,
-};
+// P63 G2: the aiTick traversal below (walk the whole v1 route asserting
+// per-point positions, road/node daily rates and morale inside the walk,
+// plus the strategic-clock batch-timing section after it) is dropped with
+// the deleted walker. Rates are natively locked (verify_native_road_arrival
+// "native daily strict words/owner/funds"; node-rate morale in the same
+// suite); slot-batch scheduling is covered by the scheduler contract and
+// the native due-slot tests (verify_native_road_movement).
+
+// 主游戏调度回归：军团移动由0x1D0B战略主更新/16槽批次驱动，不等onDay。
+// P63 G2: dropped with the traversal section above (same deleted walker;
+// slot0-at-ticks-1/25 timing pinned v1 locomotion). Scheduling itself is
+// covered as cited there.
+
+// 旧 Web snapshot 只有 delegated=true 且无status时，buildArmies必须先迁移bit2。
+// P63 G2: minimal scenario shell for the kept build/render sections below
+// (the old full traversal scenario went with the deleted walker).
+targetCity.faction = 0;
 const scenario = {
   player_faction: 0,
-  factions: [
-    {
-      idx: 0,
-      capital: 0,
-      monarch: "測試",
-      n_cities: 2,
-      n_legions: 1,
-      gold: 100000,
-      money: 100000,
-      reserve_cav: 0,
-      reserve_inf: 0,
-      reserve_arc: 0,
-      legion_morale_cap: 200,
-    },
-  ],
-  generals: [
-    {
-      name: "測試",
-      faction: 0,
-      active: true,
-      status: 1,
-      ability: { politics: 1 },
-    },
-  ],
+  factions: [{ idx: 0, capital: 0, monarch: "測試", n_legions: 0 }],
+  generals: [],
   cities: [sourceCity, targetCity],
   legions: [],
   diplomacy: [[255]],
@@ -389,174 +293,6 @@ const scenario = {
   },
 };
 initializeLegionSlotState(scenario);
-scenario.legions = [legion];
-buildArmies(scenario);
-legion.target = targetCity;
-
-const app = {
-  scenario,
-  originalRng: { nextByte: () => 0xff },
-  hud: null,
-  view: null,
-  battleView: null,
-};
-const visited = [];
-let finalSettlementCost = null;
-let finalMoraleBefore = null;
-// At most one point per due action, plus node/next-edge actions and final
-// arrival. Each aiTick visits this slot once; +1E spaces due actions.
-const traversalUpdates =
-  legion.moveDelay +
-  (expected.points.length + 2 * expected.edges.length + 1) * legion.movePeriod;
-for (let update = 0; update < traversalUpdates; update++) {
-  const fundsBefore = scenario.factions[0].gold;
-  const moraleBefore = legion.morale;
-  aiTick(app);
-  const settlementCost = fundsBefore - scenario.factions[0].gold;
-  visited.push({ x: legion.x, y: legion.y });
-  if (update === 0) {
-    assert.equal(settlementCost, 75, "节点出发进入道路后按道路军费结算");
-    assert.equal(legion.morale, 100, "节点出发进入道路后不恢复士气");
-  }
-  assert.equal(app._strategicBattleFailure, undefined);
-  if (
-    legion.x === target.x &&
-    legion.y === target.y &&
-    legion.roadEdgeOrNode === target.id * 8
-  ) {
-    finalSettlementCost = settlementCost;
-    finalMoraleBefore = moraleBefore;
-    break;
-  }
-}
-
-const expectedTraversal = expected.legs.flatMap((leg) => [
-  ...leg.points,
-  (({ x, y }) => ({ x, y }))(graph.nodes[leg.toNode]),
-]);
-assert.deepEqual(
-  visited.filter(
-    (point, index) =>
-      index === 0 ||
-      point.x !== visited[index - 1].x ||
-      point.y !== visited[index - 1].y,
-  ),
-  expectedTraversal,
-);
-assert.equal(legion.x, target.x);
-assert.equal(legion.y, target.y);
-assert.strictEqual(legion.target, targetCity); // Nodeization preserves the order/target.
-assert.equal(legion.roadEdgeOrNode, target.id * 8);
-assert.equal(legion._march, null);
-assert.equal(legion._path, null);
-assert.equal(legion.prevX, legion.x);
-assert.equal(legion.prevY, legion.y);
-assert.equal(finalSettlementCost, 4, "道路抵达目标节点后按节点军费结算");
-assert.equal(
-  legion.morale,
-  Math.min(200, finalMoraleBefore + 10),
-  "道路抵达目标节点后恢复士气",
-);
-assert.ok(!("_feint" in legion));
-
-// 主游戏调度回归：军团移动由0x1D0B战略主更新/16槽批次驱动，不等onDay。
-// slot0在1/9/17/25访次，0B1/1E3只在第1/25主更新动作；未跨日。
-{
-  const clockSource = graph.nodes[0];
-  const clockTarget = graph.nodes.at(-1);
-  const clockSourceCity = {
-    idx: 0,
-    name: "時鐘起點",
-    x: clockSource.x,
-    y: clockSource.y,
-    faction: 0,
-  };
-  const clockTargetCity = {
-    idx: 1,
-    name: "時鐘終點",
-    x: clockTarget.x,
-    y: clockTarget.y,
-    faction: 0,
-  };
-  const clockLegion = {
-    slot: 0,
-    leader: "時鐘軍團",
-    moveDelay: 1,
-    movePeriod: 3,
-    units: Array.from({ length: 6 }, () => ({ type: 3, troops: 100 })),
-    faction: 0,
-    x: clockSource.x,
-    y: clockSource.y,
-    prevX: clockSource.x,
-    prevY: clockSource.y,
-    troops: 100,
-    morale: 100,
-    target: clockTargetCity,
-    status: 0x80,
-    _active: true,
-  };
-  const clockScenario = {
-    player_faction: 0,
-    factions: [
-      {
-        idx: 0,
-        active: true,
-        capital: 0,
-        monarch: "時鐘軍團",
-        n_legions: 1,
-        gold: 100000,
-        money: 100000,
-        reserve_cav: 0,
-        reserve_arc: 0,
-        reserve_inf: 0,
-        legion_morale_cap: 200,
-      },
-    ],
-    cities: [clockSourceCity, clockTargetCity],
-    generals: [],
-    legions: [],
-    diplomacy: [[0xff]],
-  };
-  initializeLegionSlotState(clockScenario);
-  clockScenario.legions = [clockLegion];
-  const clockApp = {
-    scenario: clockScenario,
-    originalRng: { nextByte: () => 0xff },
-    battleView: null,
-    engageTransition: null,
-  };
-  let batchStart = 0;
-  const changedAt = [];
-  let previous = `${clockLegion.x},${clockLegion.y}`;
-  const strategicClock = new Clock({
-    startYear: 190,
-    startMonth: 1,
-    startDay: 1,
-    onStrategicTick(current) {
-      clockScenario._strategicTickSerial = current.strategicTickSerial;
-      aiTick(clockApp, {
-        legionBatchStart: batchStart,
-        runCityDaily: false,
-        runFactionTick: false,
-        settleDaily: false,
-      });
-      assert.equal(clockApp._strategicBattleFailure, undefined);
-      batchStart = (batchStart + 16) % 128;
-      const position = `${clockLegion.x},${clockLegion.y}`;
-      if (position !== previous) changedAt.push(current.strategicTickSerial);
-      previous = position;
-    },
-  });
-  for (let update = 0; update < 25; update++)
-    strategicClock.advance(strategicClock.currentStep);
-  assert.deepEqual(changedAt, [1, 25]);
-  assert.equal(strategicClock.hour, 2);
-  assert.equal(strategicClock.sub, 7);
-  assert.equal(strategicClock.day, 1);
-}
-
-// 旧 Web snapshot 只有 delegated=true 且无status时，buildArmies必须先迁移bit2。
-targetCity.faction = 0;
 const legacyDelegated = {
   leader: "舊委任將",
   faction: 0,
@@ -575,428 +311,42 @@ assert.equal(legacyDelegated.status & 0x04, 0x04);
 assert.equal(legacyDelegated.delegated, true);
 assert.equal(legacyDelegated.target, targetCity);
 assert.equal(legacyDelegated._march, null);
-assert.equal(
-  stepTo(scenario, legacyDelegated, targetCity.x, targetCity.y),
-  "moved",
-);
-assert.ok(
-  legacyDelegated._march,
-  "loaded target rebuilds road navigation on first step",
-);
+// P63 G2: the first-step navigation rebuild below (stepTo through the
+// deleted arm) is dropped. bit2 migration stays locked above.
 
 // 玩家选择「委任」后仍必须先执行所选目标；旧逻辑会直接进入AI分支，
 // 因目标是己方据点而将其覆盖为null，军团始终不出城。
-const delegatedLegion = {
-  slot: 0,
-  status: 0xc4,
-  moveDelay: 2,
-  movePeriod: 3,
-  units: [1, 1, 3, 3, 2, 2].map((type) => ({ type, troops: 100 })),
-  morale: 100,
-  leader: "委任將",
-  faction: 0,
-  x: source.x,
-  y: source.y,
-  prevX: source.x,
-  prevY: source.y,
-  troops: 100,
-  delegated: true,
-  target: targetCity,
-};
-const hostileCity = {
-  idx: 2,
-  name: "誘餌敵城",
-  x: graph.nodes[1].x,
-  y: graph.nodes[1].y,
-  faction: 1,
-};
-scenario.cities = [sourceCity, targetCity, hostileCity];
-scenario.factions.push({
-  idx: 1,
-  capital: hostileCity.idx,
-  monarch: "敵",
-  n_legions: 0,
-  gold: 100000,
-  money: 100000,
-  reserve_cav: 0,
-  reserve_inf: 0,
-  reserve_arc: 0,
-  legion_morale_cap: 200,
-});
-scenario.diplomacy = [
-  [255, 0],
-  [0, 255],
-];
-scenario.legions = [delegatedLegion];
-aiTick(app);
-assert.equal(app._strategicBattleFailure, undefined);
-assert.equal(delegatedLegion.moveDelay, 1);
-assert.equal(delegatedLegion.target, targetCity);
-assert.equal(delegatedLegion.x, source.x);
-aiTick(app);
-assert.equal(app._strategicBattleFailure, undefined);
-assert.equal(delegatedLegion.moveDelay, 3);
-assert.equal(delegatedLegion.target, targetCity);
-assert.ok(delegatedLegion._march);
-for (
-  let update = 0;
-  update <
-  (expected.points.length + 2 * expected.edges.length + 8) *
-    delegatedLegion.movePeriod;
-  update++
-) {
-  if (
-    delegatedLegion.x === target.x &&
-    delegatedLegion.y === target.y &&
-    delegatedLegion.roadEdgeOrNode === target.id * 8
-  )
-    break;
-  aiTick(app);
-  assert.equal(app._strategicBattleFailure, undefined);
-}
-assert.equal(delegatedLegion.x, target.x);
-assert.equal(delegatedLegion.y, target.y);
-assert.strictEqual(delegatedLegion.target, targetCity);
-assert.equal(delegatedLegion.delegated, true);
+// P63 G2: this aiTick walk (delegated target preserved then marched via the
+// deleted arm) is dropped. Delegated-target-first has no native walk test
+// yet — gate gap item G8-nDELEG. The old null-target regression stays
+// described here; its native lock arrives with the gap item.
 
-const blockedLegion = {
-  leader: "受阻",
-  faction: 0,
-  x: source.x,
-  y: source.y,
-  prevX: source.x,
-  prevY: source.y,
-  troops: 10,
-  target: targetCity,
-};
-const blockers = graph.nodes
-  .filter(
-    (node) =>
-      node.id !== expected.nodes[0] && node.id !== expected.nodes.at(-1),
-  )
-  .map((node, index) => ({
-    idx: index + 2,
-    name: `阻塞${node.id}`,
-    x: node.x,
-    y: node.y,
-    faction: 1,
-  }));
-targetCity.faction = 1;
-scenario.cities = [sourceCity, targetCity, ...blockers];
-if (!scenario.factions.some((faction) => faction.idx === 1)) {
-  scenario.factions.push({
-    idx: 1,
-    capital: targetCity.idx,
-    monarch: "敵",
-    gold: 100000,
-    money: 100000,
-    reserve_cav: 0,
-    reserve_inf: 0,
-    reserve_arc: 0,
-    legion_morale_cap: 200,
-  });
-}
-scenario.diplomacy = [
-  [255, 200],
-  [200, 255],
-];
-scenario.legions = [blockedLegion];
-const blockedResult = stepTo(scenario, blockedLegion, target.x, target.y);
-assert.equal(blockedResult, "blocked");
-assert.equal(blockedLegion.x, source.x);
-assert.equal(blockedLegion.y, source.y);
-assert.equal(blockedLegion._march, null);
-assert.ok(!("_feint" in blockedLegion));
+// P63 G2: the blocked-route probe below (stepTo through the deleted arm)
+// is dropped — post-deletion it would pass trivially via fail-closed
+// "blocked", proving nothing. Third-party blocker rerouting has no native
+// walk test yet — gate gap item G8-nBLOCKER.
 
 // 目标中立城在换边前提前易主：己方无战进入；交战方攻击实时占领者；
 // 未开战第三方由现有道路 blocker 阻断（最后一边竞态仍未知，不在此猜测）。
-const nearbySource = graph.nodes.find((node) =>
-  graph.edges.some(
-    (edge) =>
-      (edge.source === node.id || edge.target === node.id) &&
-      graph.nodes[edge.source === node.id ? edge.target : edge.source],
-  ),
-);
-const nearbyEdge = graph.edges.find(
-  (edge) => edge.source === nearbySource.id || edge.target === nearbySource.id,
-);
-const nearbyTarget =
-  graph.nodes[
-    nearbyEdge.source === nearbySource.id
-      ? nearbyEdge.target
-      : nearbyEdge.source
-  ];
-const changingCity = {
-  idx: 9,
-  name: "易主城",
-  x: nearbyTarget.x,
-  y: nearbyTarget.y,
-  faction: null,
-};
-const makeChangingLegion = () => ({
-  slot: 0,
-  moveDelay: 1,
-  movePeriod: 3,
-  leader: "易主測試",
-  faction: 0,
-  x: nearbySource.x,
-  y: nearbySource.y,
-  prevX: nearbySource.x,
-  prevY: nearbySource.y,
-  troops: 100,
-  morale: 200,
-  // Explicit 100 tens total, six mixed teams; not a one-team/default fixture.
-  units: [1, 1, 3, 3, 2, 2].map((type, i) => ({
-    type,
-    troops: (i < 4 ? 17 : 16) * 10,
-  })),
-  status: 0x84,
-  target: changingCity,
-});
-scenario.cities = [
-  { idx: 8, name: "起點2", x: nearbySource.x, y: nearbySource.y, faction: 0 },
-  changingCity,
-];
-scenario.diplomacy = [
-  [255, 0, 200],
-  [0, 255, 200],
-  [200, 200, 255],
-];
-
-changingCity.faction = 0;
-let changingLegion = makeChangingLegion();
-scenario.legionSlotCounters[0] = 0;
-bindLegionSlotCounter(scenario, changingLegion);
-scenario.legions = [changingLegion];
-for (let guard = 0; guard < (nearbyEdge.points.length + 3) * 3; guard++) {
-  if (
-    changingLegion.x === changingCity.x &&
-    changingLegion.y === changingCity.y &&
-    changingLegion.roadEdgeOrNode === nearbyTarget.id * 8
-  )
-    break;
-  aiTick(app);
-  assert.equal(app._strategicBattleFailure, undefined);
-}
-assert.equal(changingLegion.x, changingCity.x);
-assert.equal(changingLegion.y, changingCity.y);
-assert.ok(changingLegion._engagement == null);
-
-changingCity.faction = 1;
-changingLegion = makeChangingLegion();
-scenario.legionSlotCounters[0] = 0;
-bindLegionSlotCounter(scenario, changingLegion);
-scenario.legions = [changingLegion];
-let contact = "moved";
-for (let guard = 0; guard < 200 && contact === "moved"; guard++)
-  contact = stepTo(scenario, changingLegion, changingCity.x, changingCity.y);
-assert.equal(contact, "contact");
-assert.equal(changingLegion._engagement.kind, "siege");
-
-changingCity.faction = 2;
-changingLegion = makeChangingLegion();
-scenario.legionSlotCounters[0] = 0;
-bindLegionSlotCounter(scenario, changingLegion);
-scenario.legions = [changingLegion];
-assert.equal(
-  stepTo(scenario, changingLegion, changingCity.x, changingCity.y),
-  "blocked",
-);
-assert.equal(changingLegion._engagement, undefined);
+// P63 G2: all three ownership-change walks below (aiTick/stepTo through the
+// deleted arm) are dropped. Own-city entry and siege contact are natively
+// locked (verify_native_road_arrival; verify_native_road_movement siege
+// contact + cityIdx); third-party blocking joins gate gap item G8-nBLOCKER.
 
 // 状态10必须走完整道路后保留命令目标/当前节点，并在后续两次槽调度
 // 完成10→9→3及按现有兵种从三个预备池补员；玩家/NPC都覆盖。
-for (const playerFactionIdx of [0, 7]) {
-  const capital = {
-    idx: 1,
-    name: "返京补员首都",
-    x: target.x,
-    y: target.y,
-    faction: 0,
-    attr: 0x80,
-  };
-  const origin = {
-    idx: 0,
-    name: "返京补员出发地",
-    x: source.x,
-    y: source.y,
-    faction: 0,
-    attr: 0x80,
-  };
-  const faction = {
-    idx: 0,
-    capital: 1,
-    attr: 0x80,
-    monarch: "返京补员测试",
-    gold: 100000,
-    money: 100000,
-    reserve_cav: 140,
-    reserve_arc: 140,
-    reserve_inf: 140,
-    legion_morale_cap: 200,
-    n_legions: 1,
-  };
-  const returning = {
-    slot: 0,
-    leader: "返京补员测试",
-    faction: 0,
-    status: 0xc4,
-    x: origin.x,
-    y: origin.y,
-    prevX: origin.x,
-    prevY: origin.y,
-    troops: 180,
-    morale: 100,
-    units: [1, 1, 2, 2, 3, 3].map((type) => ({ type, troops: 300 })),
-    target: capital,
-    targetCity: 1,
-    targetNode: target.id,
-    commandState: 10,
-    moveDelay: 1,
-    movePeriod: 3,
-    _active: true,
-  };
-  const returnScenario = {
-    player_faction: playerFactionIdx,
-    factions: [faction],
-    cities: [origin, capital],
-    generals: [],
-    legions: [],
-    diplomacy: [[0xff]],
-    delayedLegionReturns: [],
-    pendingStrategicEvents: [],
-    citiesOf(factionIdx) {
-      return this.cities.filter((city) => city.faction === factionIdx);
-    },
-  };
-  initializeLegionSlotState(returnScenario);
-  returnScenario.legions = [returning];
-  const returnApp = {
-    scenario: returnScenario,
-    originalRng: { nextByte: () => 0xff },
-    hud: null,
-    view: null,
-    battleView: null,
-  };
-  for (
-    let guard = 0;
-    guard <
-    (expected.points.length + 2 * expected.edges.length + 20) *
-      returning.movePeriod;
-    guard++
-  ) {
-    const priorCommand = returning.commandState;
-    aiTick(returnApp, { runCityDaily: false, settleDaily: false });
-    assert.equal(returnApp._strategicBattleFailure, undefined);
-    if (returning.commandState !== priorCommand) {
-      assert.equal(returning.x, capital.x);
-      assert.equal(returning.y, capital.y);
-      assert.equal(returning.commandState, priorCommand === 10 ? 9 : 3);
-    }
-    if (returning.commandState === 3) break;
-  }
-  assert.equal(returning.x, capital.x);
-  assert.equal(returning.y, capital.y);
-  assert.equal(returning.target, capital);
-  assert.equal(returning._currentNode, target.id);
-  assert.equal(returning.roadEdgeOrNode, roadNodeRawAddress(target.id));
-  assert.equal(returning.commandState, 3);
-  assert.equal(returning.troops, 600);
-  assert.deepEqual(
-    [faction.reserve_cav, faction.reserve_arc, faction.reserve_inf],
-    [0, 0, 0],
-  );
-}
-
+// P63 G2: this aiTick walk (capital return via the deleted arm, then 10→9→3
+// and reserve repartition) is dropped. State transitions are natively locked
+// (verify_native_road_arrival "4325 player/NPC table all 12 states",
+// incl. handler 9); repartition numbers ride the native formation suite
+// (march notes §3.15).
 // 玩家在外据点选择首都「解體」会写状态11；必须沿原版道路返首都，
 // 到达后的下一次军团槽调度才归还六队兵员并移除军团。
-const returnCapital = {
-  idx: 1,
-  name: "返京首都",
-  x: target.x,
-  y: target.y,
-  faction: 0,
-};
-const returnOrigin = {
-  idx: 0,
-  name: "外地據點",
-  x: source.x,
-  y: source.y,
-  faction: 0,
-};
-const returningLegion = {
-  slot: 0,
-  status: 0xc4,
-  moveDelay: 1,
-  movePeriod: 3,
-  leader: "返京解體測試",
-  faction: 0,
-  x: returnOrigin.x,
-  y: returnOrigin.y,
-  prevX: returnOrigin.x,
-  prevY: returnOrigin.y,
-  troops: 600,
-  morale: 200,
-  units: [
-    { type: 1, troops: 1000 },
-    { type: 1, troops: 1000 },
-    { type: 2, troops: 1000 },
-    { type: 2, troops: 1000 },
-    { type: 3, troops: 1000 },
-    { type: 3, troops: 1000 },
-  ],
-  target: returnCapital,
-  targetNode: target.id,
-  commandState: 11,
-};
-const returnFaction = {
-  idx: 0,
-  capital: returnCapital.idx,
-  monarch: "返京解體測試",
-  gold: 100000,
-  money: 100000,
-  reserve_cav: 0,
-  reserve_inf: 0,
-  reserve_arc: 0,
-  legion_morale_cap: 200,
-  n_legions: 1,
-};
-scenario.player_faction = 0;
-scenario.factions = [returnFaction];
-scenario.cities = [returnOrigin, returnCapital];
-scenario.generals = [
-  {
-    name: returningLegion.leader,
-    faction: 0,
-    active: true,
-    status: 1,
-    ability: { politics: 1 },
-  },
-];
-scenario.legions = [returningLegion];
-scenario.diplomacy = [[255]];
-for (
-  let guard = 0;
-  guard <
-  (expected.points.length + 2 * expected.edges.length + 16) *
-    returningLegion.movePeriod;
-  guard++
-) {
-  if (!scenario.legions.length) break;
-  const atCapital =
-    returningLegion.x === returnCapital.x &&
-    returningLegion.y === returnCapital.y;
-  const due = returningLegion.moveDelay === 1;
-  aiTick(app);
-  assert.equal(app._strategicBattleFailure, undefined);
-  if (!atCapital || !due)
-    assert.equal(scenario.legions.length, 1, "到达及未到期访次不得提前解散");
-}
-assert.equal(scenario.legions.length, 0, "状态11军团抵达首都后才解体");
-assert.equal(returnFaction.reserve_cav, 200);
-assert.equal(returnFaction.reserve_inf, 200);
-assert.equal(returnFaction.reserve_arc, 200);
-assert.equal(scenario.generals[0].status, 0);
+// P63 G2: this aiTick walk plus the disband-at-capital assertions below are
+// dropped with the deleted arm. 463E/4651 disband rules are natively locked
+// (verify_native_legion_fate "state11 actual463E returns pools first" +
+// pool-failure/occupancy cases).
+  
 
 // 0x25A3每次处理16/128槽：一次道路点位移应连续铺满8个战略更新间隔。
 // 最高速只缩短每步墙钟时间，仍不得在单个显示帧内跳过整步。
@@ -1176,6 +526,6 @@ assert.equal(
 );
 
 process.stdout.write(
-  `march navigation OK: ${expected.edges.length} edges, ` +
-    `${expected.points.length} points, ${visited.length} strategic updates\n`,
+  `march navigation OK: edge ${firstLeg.edgeId} stride ${firstLeg.stride}, ` +
+    `${firstLeg.points.length} points (P63 G2: v1 walks dropped, natively locked; P68 G8: Dijkstra oracle dropped)\n`,
 );

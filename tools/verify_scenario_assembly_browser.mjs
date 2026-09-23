@@ -20,9 +20,10 @@ try {
     const context = await browser.newContext({
       viewport: { width: 1024, height: 768 },
     });
-    await context.addInitScript(() =>
-      sessionStorage.setItem("wolong.intro.seen.v1", "1"),
-    );
+    await context.addInitScript((origin) => {
+      if (location.origin !== origin) return;
+      sessionStorage.setItem("wolong.intro.seen.v1", "1");
+    }, origin);
     await context.route("**/*", (route) => {
       const url = new URL(route.request().url());
       if (
@@ -47,25 +48,29 @@ try {
     await page.waitForFunction(() => !!window.__app?.startMenu?._onClick);
     await page.evaluate(async () => {
       const app = window.__app;
+      await app.ensureGameAssets();
       const { createNewGameScenario } = await import("/src/game/world.js");
-      app.saves.slots[0] = {
-        slot: 0,
-        played: true,
-        label: "synthetic",
-        scenario_idx: 16,
-        state: createNewGameScenario(app.data.scenarios[16], 0, null),
-        webMeta: {
-          scenarioAssembly: {
-            version: 1,
-            roadVersion: 1,
-            world: {
-              id: app.world.definition.id,
-              revision: app.world.definition.revision,
-            },
-            content: structuredClone(app.content.chapter(16).reference),
-          },
+      const { prepareScenario } = await import("/src/game/scenarioassembly.js");
+      const { snapshotState } = await import("/src/game/savegame.js");
+      const prepared = await prepareScenario({
+        raw: createNewGameScenario(app.data.scenarios[16], 0, null),
+        idx: 16,
+        content: app.content,
+        world: app.world,
+        mode: "fresh",
+      });
+      app.saves.slots[0] = snapshotState(
+        {
+          scenario: prepared.scenario,
+          scenarioIdx: 16,
+          clock: app.clock ?? { year: 190, month: 1, day: 1 },
+          originalRng: app.originalRng,
+          content: app.content,
+          world: app.world,
         },
-      };
+        0,
+        "synthetic v2",
+      );
     });
     return { page, context };
   }
@@ -162,7 +167,10 @@ try {
         enters: 0,
         runtimeUnchanged: true,
         activeUnchanged: true,
-        graphCold: true,
+        // P58 setup creates a genuine v2 snapshot through prepareScenario,
+        // which necessarily warms this realm's graph. The request slice below
+        // remains the authoritative proof that invalid title rows fetch nothing.
+        graphCold: false,
       });
       assert.deepEqual(
         requests
@@ -505,11 +513,12 @@ try {
           durable === JSON.stringify(await loadLocalSaveSlots()) &&
           live === JSON.stringify(app.scenario) &&
           app.loadedSaveSlot === 0;
-        // Successful final load is the real public entry; legacy phase v1 remains allowed.
+        // Successful final load is the real public entry. P58 default saves
+        // are v2 and therefore retain their exact assembly identity; explicit
+        // v1 restore remains covered by the unit assembly suite.
         const storedIdentity = app.saves.slots[0].webMeta.scenarioAssembly;
         app.saves.slots[1] = structuredClone(app.saves.slots[0]);
         app.saves.slots[1].slot = 1;
-        delete app.saves.slots[1].webMeta.scenarioAssembly;
         await app.beginSavedGame(1);
         return {
           freshEmpty,
@@ -520,8 +529,8 @@ try {
           failed: failed.saved,
           transactionPreserved,
           roadVersion: storedIdentity?.roadVersion,
-          legacyLoaded: app.loadedSaveSlot === 1,
-          legacyEmpty: app.scenario.legions.length === 0,
+          reloaded: app.loadedSaveSlot === 1,
+          empty: app.scenario.legions.length === 0,
         };
       });
       assert.deepEqual(result, {
@@ -532,12 +541,13 @@ try {
         failedSnapshotPreserved: true,
         failed: "failed",
         transactionPreserved: true,
-        roadVersion: 1,
-        legacyLoaded: true,
-        legacyEmpty: true,
+        roadVersion: 2,
+        reloaded: true,
+        empty: true,
       });
     } else if (name === "v2") {
-      // Synthetic valid v2 graph with actual catalog city slots; no native caller executes.
+      // P58: an alternate valid v2 graph with actual catalog city slots is
+      // playable; the saved stock identity still rejects that replacement.
       await page.route(`${origin}/road_graph.json`, async (route) => {
         const graph = await page.evaluate(() => ({
           version: 2,
@@ -576,7 +586,7 @@ try {
         return {
           fresh,
           restore,
-          scene: app.scenario,
+          sceneCities: app.scenario?.cities?.length ?? null,
           slot: app.loadedSaveSlot,
           unchanged:
             saved === JSON.stringify(app.saves) &&
@@ -584,19 +594,12 @@ try {
           pending: !!app._scenarioAssemblyPending,
         };
       });
-      assert.match(result.fresh, /v2.*not connected/);
-      assert.match(result.restore, /version mismatch/);
-      assert.deepEqual(
-        { ...result, fresh: null, restore: null },
-        {
-          fresh: null,
-          restore: null,
-          scene: null,
-          slot: 3,
-          unchanged: true,
-          pending: false,
-        },
-      );
+      assert.equal(result.fresh, undefined);
+      assert.equal(result.restore, undefined);
+      assert.equal(result.sceneCities, 192);
+      assert.equal(result.slot, 0);
+      assert.equal(result.unchanged, true);
+      assert.equal(result.pending, false);
     } else throw new Error(`Unknown case ${name}`);
     console.log(`PASS ${name}`);
     // Let explicitly awaited title/asset callbacks settle before closing a realm.

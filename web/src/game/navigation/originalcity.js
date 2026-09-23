@@ -90,8 +90,12 @@ function requestFormation(sc, context, faction, target, amount) {
 function requestReinforcement(sc, context, city, amount) {
   if (byte(city._aiCooldown, "C17 at 40C9") !== 0) return;
   const player = byte(sc.player_faction, "player at 40D2");
+  // 40D7：本城属玩家时 40C9 走 40DD..40FD：push 城记录(\2 参数) → CDE 蜂鸣 →
+  // 8810 TALK38「\2前來請求援軍。」。P32 审计实锤 8810 全树零规则写入、零 RNG；
+  // 关闭后的 40F6 RNG、414F 冷却与 40B3 登记由 tickStrategicCity 的模态续段执行，
+  // 本函数不提前消费，只返回标记（原码消息阻塞期间无任何其它 RNG 消费）。
   if (player === cityOwner(sc, context, city.idx, "40D7"))
-    stop("CDE/8810 at 40E6");
+    return "player-message";
   const faction = factionAt(
     sc,
     cityOwner(sc, context, city.idx, "410B"),
@@ -183,7 +187,8 @@ export function runOriginalCityMilitary(sc, context, city, rng) {
   }
   city.attr |= work[0] === 254 ? 0x80 : 0xc0;
   if (readOriginalCityCache(context, city.idx, "4044") < 1) {
-    requestReinforcement(sc, context, city, 1);
+    if (requestReinforcement(sc, context, city, 1) === "player-message")
+      return "player-request";
     recordRequest(sc, context, city);
     return "returned";
   }
@@ -191,6 +196,13 @@ export function runOriginalCityMilitary(sc, context, city, rng) {
   let al = random(rng, "405D") & 3,
     di = 0;
   for (;;) {
+    // P39 closure (march §3.15): with four candidates the 16-byte local frame
+    // has no 0xFFFF terminator, so al==0 falls off into ss:[bp+0x10] = pushed
+    // old-BP; BP/DI/DX/CX there are frame-dynamic leftovers of the main-loop
+    // input/timer/UI calls (1C22/1BF9 pins in verify_strategic_city_ai_raw),
+    // so the original OOB walk's outcome is input-dependent and cannot be
+    // reproduced statically. Permanent fail-closed boundary, same class as
+    // the 3094 uninitialized-RAM read.
     if (di >= 16) stop("SS:[BP+10h] at 4064");
     if (work[di] >= 254) {
       di = 0;
@@ -221,6 +233,18 @@ export function runOriginalCityMilitary(sc, context, city, rng) {
     );
     city._aiCooldown = 0;
   }
+  return "returned";
+}
+
+/**
+ * 40F6..414F + 40B3：TALK38 真实关闭后的续段。先消费 1 字节 RNG，
+ * 冷却字节 [城+0x857]=0x18+(AL&0x0F)（24..39，不经 NPC 径 4138 的 30 夹顶），
+ * 再按 40B3 登记 strategic_city_primary。调用时序由 tickStrategicCity 模态保证。
+ */
+export function completePlayerReinforcementRequest(sc, context, city, rng) {
+  const roll = random(rng, "40F6");
+  city._aiCooldown = (0x18 + (roll & 0x0f)) & 0xff;
+  recordRequest(sc, context, city);
   return "returned";
 }
 

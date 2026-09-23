@@ -1,4 +1,4 @@
-# 原始 AI 外交提案、事件消费与目标清理：P17–P23
+# 原始 AI 外交提案、事件消费与目标清理：P17–P30
 
 **范围：A01提案生产、type1/type3/type8消费、type2有界消费者、3E11资金时相及3E8E外交官维护，不是全部外交或全AI完成。** 只研究影响AI选择、事件、目标与RNG的原指令，不继续字体/显示重建。[全链总纲](re-notes-ai-chain.md)维护最终验收，[P05](re-notes-ai-chain.md#9-p05旧增援请求跨局部停战后仍可被消费)维护已有NPC停战与旧请求消费接缝。
 
@@ -57,8 +57,9 @@ P(A) >= P(B) - floor(P(B)/4)
 - 钱门`2F28 JGE`为signed，等号拒绝。城数93阈1552、94起封1562。
 - 好战阈`2F33/2F35`都是byte加，之后OR80h，不是先&7F或宽整数。全256值执行：71→254、72→128、157→255、158→129；这不授权编辑器超出原样本0..15。
 - 实力等号通过；敌101时己75拒绝、76/77通过，不是`floor(3*敌/4)`。
-- 通过后排`[1,A,B,FF]`；原2F6C无论排队成功/失败均CLC，早拒STC。此时**没有写F19或战争矩阵**。
-- 无普通候选时FFFF**未在此入口被拒绝**，会成为7FFF指针；不能补“空候选一定安全返回”原版结论，见§7。
+- 通过后排`[1,A,B,FF]`；原2F6C无论排队成功/失败均CLC，早拒STC（2F6E `pop di; stc; ret`，P34亲核）。此时**没有写F19或战争矩阵**。
+- 候选entry格式（2C52..2D39 builder实锤）：每势力行0x30字节在段`987C`，行首0x0600=中立(0x18<<6)标记，普通entry=邻城owner<<6，FFFF=空。2EFB内**2F02 `bx=ax`先把完整被掩候选字保存，2F2A `di=bx`在2F2C `bl=[si+28]`覆写BL之前执行**，故关系门3119以完整字取to=highbyte(DI<<2)=T精确（FFFF时to=0xFF）。
+- 无普通候选时FFFF不被本入口拒绝：masked为0x7FFF后，gate1解码target=0xFF——**F19==0xFF时在2F0B `je 2F6E`直接STC短路跳过所有门（P34实锤，Web已接线）**；否则关系门地址=0x600+24*A+0xFF（actor≤13在矩阵内=flat字节`rows[actor+10][15]`；actor≥14越过0x83F进入城记录区，经strict `nativeCityRecordRaw`读取，P34已接线），关系门过后3091以bx=0x7FFF读状态外内存，见§7。
 
 ## 6. 2F71与2D8E目标尾段
 
@@ -82,9 +83,9 @@ P(A) >= P(B) - floor(P(B)/4)
 
 2FBF随机BL=FF先ECE0，起址D20+(R&7C)，只向后寻找4B首byte为0的槽到100h，不回绕。写两word(type,actor)/(target,extra)后CLC，满则STC。固定BL输入另有helper边证书，不等于A01提案实际使用该入口参数。
 
-`producer-empty`确实由2BD9构出行首0600、普通第一项FFFF；但2EFB的关系等门通过后，3094试读DS:8003（本输入物理38003），不在声明的状态范围，因此停止。原先无读界版由默认零得到`[1,0,FF,FF]`的输出**撤销证书地位**，不是已确认的正常原局行为。不能补FF目标保护或把默认零认作原运行内存。
+`producer-empty`由2BD9构出行首0600、普通第一项FFFF。P34亲核闭合其边界分类：gate1对FFFF解码=0xFF，F19==0xFF时在2F0B直接STC短路；F19!=0xFF时关系门按0x600+24*A+0xFF读取（A≤13为矩阵flat字节；A≥14为0x840起的城记录区字节）。关系门全部通过后，3091以bx=0x7FFF读DS:0x8003/0x8005/0x8007/0x8020/0x8022；**8CAE初始化只向D52:0载入0x5240字节（8CDB pin实锤），0x8003超出=未初始化RAM**。该路径的可达性依赖未初始化内存内容，静态不可排除；Web将其定为**永久fail-closed工程边界**（与all-inactive ring先例一致）：别名门如实读取并可通过，3094状态外读点继续stop，不补FF目标保护、不把默认零认作原运行内存。原先无读界版由默认零得到`[1,0,FF,FF]`的输出**撤销证书地位**，不是已确认的正常原局行为。
 
-另完整`producer-neutral-relation-alias-gate`显式把状态关系别名字节06FF设FF，令2EFB在关系门早拒，后走原2F71排空城提案。它证明该输入路径，不替代38003未知值的正常前史。异常候选/外部内存的参数化读集仍须与正常生产者范围分别闭合，不能为了穷举而扩展到无关DOS/字体。
+另完整`producer-neutral-relation-alias-gate`显式把状态关系别名字节设阈上值，令2EFB在关系门早拒，后走原2F71排空城提案。它证明该输入路径，不替代FFFF尾段未初始化值的正常前史。异常候选/外部内存的参数化读集仍须与正常生产者范围分别闭合，不能为了穷举而扩展到无关DOS/字体。
 
 ## 8. 逐边、父复核与失败记录
 
@@ -264,6 +265,10 @@ P(A)=200时T的199换目标，200/201保持；防守B自身力量0↔2000不改�
 
 这条type1完成没有军团命令/目标广播。它改变的是外交/战略目标，不能直接认定全军返都原因。
 
+生产现以`originalwarconsumer.js`和固定势力/外交矩阵Scenario桥放行native type1：两次active和A.F19门按消费时重查；和平NPC→NPC或已战路径才继续，依序即时写A目标、按3091比较旧目标与A后可写B目标，最后取双向raw较小值清bit7/右移1并写两向。CFD在3549与358C按原时点独立读取，CFF只在3558/35AC读取，二者不互推；已战玩家路径无需消息仍可返回。旧目标24h以下但超出当前固定22势力表的状态别名仍在A目标已写后停，不补力量。
+
+**P25：两类和平玩家消息返回已按真实TALK关闭合同接回。** `originalBeginWarEvent320C`只做门控与消息路由，不写目标/关系；和平且发起方是玩家（3549命中CFD）进入`aggressor-message`（3550 CDE→3570 8810，selector CX=0x1A0即TALK486..488，发起方君主对白，\3=目标君主、\4=军师），和平且防守方是玩家（3558命中CFF）进入`defender-report`（3563 CE7→356B 8810 TALK63，\3=发起方君主），TALK63真实关闭后经`originalContinueWarEvent356E`进入`defender-message`（同一8810的3570段，selector CX=0x19F即TALK478..480，发起方君主对白）。所有必需消息真实关闭后才由`originalCommitWarEvent358C`执行358C→3593（玩家发起者跳过A.F19写）→35AB（玩家防守方跳过B响应）→3639双向关系提交；CFD/CFF在提交时重新独立读取。缺TALK显示能力、重复continuation或跨scenario回调均fail-closed并hold，无部分写入后伪装成功。`verify_native_war_consumer.mjs`以固定KI字节和9项回归锁定消费重门、3091、旧目标实力、CFD/CFF、关系写回、两类消息先消息后提交顺序及失败前缀。18h中立活动别名和其它type2–7仍未放行。
+
 ## 16. 独立type8迁都与精确军团写集
 
 10个独立33EA输入，不冒称已由2D3A排队。33EF先拒玩家编号，33F6再拒inactive。6A3D按192城号升序：owner匹配；`C+16低4位`不得大于当前BL，`C+0E生产word`不得小于当前DX，两门同时满足。BH尚0时可更新普通候选；一旦选到`C.attr&1F==0`置BH1，后续只允许同类候选替换，仍须满足前两门。完全平手取后城；不是先全局挑偏好类再独立排序。
@@ -282,6 +287,8 @@ P(A)=200时T的199换目标，200/201保持；防守B自身力量0↔2000不改�
 实际军团写点仅452E(+20)、4536(+14)、4539(status)。**不是把所有军团目标改新都，不清导航，不写状态11返都。** F2A=FF静默RET；有外交官则在原3464→CDE停止时，F3与这些军团字段已经提交，不能消息返回后重做迁都。
 
 无己城输入中6A3D返回FFFF/CF1，但33FD未检查CF；`u16((FFFF−0840)<<3)=BDF8`，高byteBD令新都189，原4502后完整返回。这只认证该异常输入计算；不追加“失败保留旧都/改0”经验补丁，也不证明正常AI会丢光城市后仍到此。
+
+生产现以`originalcapitalrelocation.js`和严格Scenario桥接回native type8：先按CFF拒玩家、再查固定势力active，固定192城执行6A3D并先写F+3，随后4502只扫L0..L126。CFD保持独立word；若它与事件势力pointer相等但CFF不等，已提交迁都/军团前缀后停在341F未闭合玩家消息/5E60。普通NPC无外交官直接返回；有外交官时严格等待通用TALK57关闭，再按selector 1A4和外交官talk_idx等待第二段个性对白关闭，才恢复同一3E11尾段。全程0 RNG，槽127不读；任一后段缺字段保留先前资本或军团写入并hold。`verify_native_capital_relocation.mjs`以固定KI字节和6项回归锁定后城平手、偏好、无城189、两段返回、CFD/CFF分歧及失败前缀。此接线不扩大type1–7、完整8810或5E60。
 
 ## 17. P19复跑、独立审阅与输入修订说明
 
@@ -577,3 +584,119 @@ TALK376原三行是“無條件同意／提供資金／拒　　絕”；TALK378
 | 冻结type2-player-decision.md | 114d953656c7631dea723a3c63fb6cdf5c2b4aad254c2be332c9873712941a3d |
 | fragment.py | a5a78594049eff62a4154fa6799ad4e0eeaa59f52450c66ac6d56ce7ff762d77 |
 | TALK.DAT | cb0cdba4f1c507243cbc4e636bc3fcf698a4f88fe3a0d784cc579e5548e6fcaf |
+
+## 35. P26：type2/type3原生消费者接线（Web实现）
+
+本节把P18（type3/3262）与P22（type2/3220）已核原证接回Web战略事件分派；所有机制结论沿用原证置信度，本节不新增逆向结论。
+
+**实锤（沿用原证）**：分派表0x31F2原字节`0c3220326232`，type1→320C、type2→3220、type3→3262；事件解码type=AL、arg0=AH、arg1=DL、arg2=DH。
+
+- **type3 3262**：AX=(A提出方<<8)|3，DX=FF00|B接收方，无351A活动检查。36C4起CL=1，3771双方代表（CF1→事件返回），B.F19==A时k=2。费用：R=`relation[B][A]`原字节，g=max(0,(R&0x7f)-u8(B.F28+2))，b=u8(t+u8(30-g))，s8(b)<0→0，`fee=(b>>1)*1000`，outcome=fee==0?0:k；37D8后AH恒0（3138尾CMP AX,AX→CLC）。3280：接收方==CFF→38C7玩家决定（已由§36闭合并接线）。3293 AL>=2拒绝无写入。提交序：35ED（AL=1时5609接收方+=fee上封655000、563B提出方-=fee下封-655000；再扫将0..126，`word[+1C]`命中(orig,current)∈{(B,A),(A,B)}→50D7按槽序逐个；50D7在恢复方==CFF玩家时于该将写入**之后**停5101 CDE，部分前缀保留）→45F8（清F19交叉目标）→4236（城0..191：current∈{A,B}且old∈{A,B}→old=current）→3669（双方≠0x18时双向写min(rawAB,rawBA)|0x80）。35ED尾5E80为显示门，无规则作用。
+- **type2 3220**：AX=(R受邀<<8)|2，DX=(T付款<<8)|A攻击目标。R,A,T三道351A门按序（<0x80→返回）。3712：3771(SI=R,DI=T)；x=`rel[R][A]`，y=`rel[R][T]`；code=(y<x)?2:1；e=y>=0x80?y&0x7f:0；阈值u8(u8(F28<<1)+0x28)，e<阈值→code2；v=u8(90-e) s8<0→0、封顶60；`fee=(v>>1)*1000`；outcome=fee==0?0:code。3771政治t在3748被覆盖（不参与费用），但政治相等时RNG字节**仍消费**。3241：R==CFD→38E6玩家决定（已由§36闭合并接线）。3254 AL>=2拒绝。3258：35ED（R收款、T付款，俘囚R↔T；付款不回滚），随后恢复事件包DX并**直接CALL 3526**（SI=R、DL=A，绕过320C的351A门；352A忙碌门仍生效，忙碌时付款保留）。
+- **3771**（SI=接收侧，DI=对方）：`[SI+2A]`外交官≠FF→直接取该将+13政治；否则37F5(DI)（CF1已查）。君主r=`[SI+1]`：`general[r]+17`≠0时先读军团槽r首字节（`2240+r*40`），<0x80→CF1失败，否则q=君主政治；`general[r]+17`==0时37F5(SI)的CF**未查**，失败即别名DS状态→Web硬停（37B0）。比较：q>p→q；q<p→u8(16-p)；相等→消费一个ECE0字节，偶q奇u8(16-p)；t=`u8(chosen*2)`。37F5：扫0..126，+1C==势力、+17==0、+13政治严格更大者；平手取先；政治0不被选；无候选CF1。
+- **50D7**（复用originallegionfate.js）：清G+17、xchg +1D→FF、旧方attr≥0x80恢复current否则FF、2AD2以AH=FF只加返回侧F18；恢复方==CFF→5101 CDE/TALK37/199停。
+- **5609/563B**：min(money+fee,655000)/max(money-fee,-655000)，24-bit 09FE98与F6:0168精确一致。
+
+**Web接线**：`originalwarconsumer.js`抽出共享`originalWarEvent3526`（352A门/3530/353F/消息路由），`originalBeginWarEvent320C`保留门控后委托；新增`originalnegotiation.js`（37F5/3771/5609/563B/35ED）、`originaltruceconsumer.js`（3262 begin/3297 commit）、`originalassistanceconsumer.js`（3220 begin/3258 settle）、`scenarionegotiation.js`严格桥（全读own()校验；3558玩家别名与2AD2的0/0x18读按址放行）；`ai.js`的`dispatchStrategicEvent`原生分支接type2/type3，玩家决定38C7/38E6抛错并`holdFailedStrategicUpdate`（fail-closed），type2 settle复用type1的`_nativeWarEventContinuation`消息尾段。
+
+**推断/未知**：type4–7分派项未接；v1 `ai.js`的`strategic_affiliation`为无原证幻影字段，原生路径不使用。（38C7/38E6玩家决定流已由§36闭合。）
+
+回归：`tools/verify_native_negotiation_consumer.mjs`16/16（KI字节pin含31F2表+15个原窗口；type3付费35000/免费签字门/拒绝k2/政治相等RNG 21000对17000/接收方玩家38C7抛错+hold/提出方玩家5101中段部分前缀/君主军团门/37B0别名硬停/首37F5 CF；type2付费20000宣战提交/忙碌保留付款/零费改写/bell-108回绕30000/活动门/受邀玩家38E6/和平玩家防守双消息合同）；`verify_native_war_consumer.mjs`9/9无回归。
+
+## 36. P27：38C7/38E6玩家决定流闭合与接线（Web实现）
+
+本节以本轮capstone亲核为权威，闭合§32/§33遗留的玩家决定边界并把玩家侧接回Web。**与旧摘要的勘误**：①CALL CDE是PC喇叭beep音效（cs:[20F]音效模式），非UI等待；②3DC9借位时CX=0x19E经075B展开为`470+君主talk_idx`解任台词组，**不是**TALK[414]褒奖行（414为数值巧合，075B(0x19E)不指向它）；③信赖写方不止3DC9：3D91是另一写方（加算、溢出夹0xFF），本链不走；④§33保留的“不能宣称整个UI只耗一次RNG”本轮闭合：闭环内9409/7C6E/8810/9321/87FF/1B4/1DB/62F/241/2C2/3D09/3D45/1D46/A1C/5E80/75B/2216/21E7/E453全部无ECE0调用，**整链恰好消费1字节RNG（399E）**。
+
+**调用点（实锤）**：type3 3262→3280 `cmp si,cs:[CFD]`→3287 CALL 38C7；type2 3220→3241 同构→3248 CALL 38E6。两路径此前已预计算NPC结果（36C4/3712→AL∈{0,1,2}、DX=算法fee）。返回后 CALL CDE(beep) → `mov cx,2Bh`(type3)/`2Fh`(type2)；CALL 3C3D → `cmp al,2; jae`拒绝返回 → 否则3297/3258提交。
+
+**38C7/38E6包装（实锤，字节pin）**：38C7=`535156 e8324f(87FF) 81c34042 8bf3 b96801 bbffff e89ce7(2078) e82300(3902) e8f4e7(20D6) 5e595bc3`；38E6同构但`cx=0x175`(373)且BX保持DI(A攻击目标)。87FF：`BX=cs:[CFD]`、`BH=[BX+1]`君主号、`BX>>=3`→返回`monarch_idx*0x20`（字节`2e8b1efd0c 8a7f01 32db d1ebd1ebd1eb c3`），`add bx,4240h; mov si,bx`→SI=玩家君主记录。2078开窗/20D6关窗纯显示（lcall 1000:0引擎），20D6恢复AX。
+
+**3902主体（实锤，字节pin）**：局部帧`[bp]=TALK基、[bp+2]=AL、[bp+3]=选择、[bp+8]=DX键盘额、[bp+0A]=DX算法fee副本、[bp+0C]=AH`。流程：3C99显示提问`base+变体`（变体v=`[si+1E]`≥3则减3一次，非模3）→`[bp]+=3`→3B7E(al=3)三选项（93E9/9409轮询cs:[D38]段，CF重试）→row1进7C6E键盘（AX=0x7530=**30000上限**；CF=1取消回选项重选；**输入0→[bp+3]=0转无条件同意**）→3CDC军师评论`TALK[base+4+choice]`（BX=cs:[CFD]、BH=[BX+2]顾问号）→**399E `call ece0`消费恰好1字节RNG；`cmp al,cs:[0d00]; ja 39bf`**（cs:[D00]=信赖度）→采纳组39A8：`[bp]+=3`(→base+10)、AL=选择、DX=输入额、**输入额>算法fee→AL=3**、写回`[bp+2]/[bp+0A]`；未过门保持算法AL/DX、回应基base+7。出口39CE：`AL=[bp+2]、DX=[bp+0A]`，DI/BX/AH恢复。
+
+**TALK文本（实锤）**：type3基360：问360-362、选项363、军师364-366、犹豫367-369、采纳370-372；type2基373同构（373-385）。3C3D通知：`CX=0x2B`→TALK[43/44/45]停战结果、`CX=0x2F`→TALK[47/48/49]合作结果（AL取min(al,2)）。
+
+**3C3D/3DC9（实锤，字节pin）**：3C3D显示通知行后`cmp al,3`：al==3→`al=30、cx=0x1A5、call 3DC9`。3DC9真身（0x3DC9-3E10，0x48字节pin）：`sub cs:[0d00],al`信赖-30；借位→`mov byte cs:[d00],0`夹0且`cx=0x19E`；CX≠FFFF时8810显示君主行（AL=君主名字节、AH=`[bx+425E]`信赖）；**信赖==0→`al=1; call 1CB1`**（ss=cs:[9903]/sp=cs:[9901]换栈长跳，GAME OVER，无普通RET）。callers(3DC9)=3516/389A/3BDA/3C90。075B选择器：0x19E→470+talk_idx。
+
+**35ED fee来源（实锤）**：35F4 `mov ax,dx`——fee=DX寄存器，玩家路径=输入额；仅AL==1转账（5609接收方+=、563B提出方-=，上下封655000/-655000）。
+
+**358C（实锤，补充）**：玩家为进攻方时（CFD==aggressor）不写自身target_faction——玩家命令优先。
+
+**Web接线**：新增`originalplayerdecision.js`（strict：`resolveOriginalPlayerDecisionChoice` honor/accept→0、pay>0→1、**pay0→0**、refuse→2；`resolveOriginalPlayerDecision` 3902门：rngByte≤trust采纳、输入额>算法fee→3、fee=输入额；`PLAYER_DECISION_FEE_CAP=30000`、`PLAYER_DECISION_TALK_BASE`）；`scenarionegotiation.js`增`applyScenarioPlayerTrustPenalty`（信赖-30借位夹0、selector 0x19e/0x1a5、归零gameOver）、`readScenarioPlayerTrust`、`readScenarioPlayerMonarchPersonality`（87FF strict读法）、`playerDecisionTalkVariant`；`ai.js`：`enqueueNativePlayerDecision`（continuation+incoming模态入队，`nativeDecision{kind,personality,keypadDefault:0,resolveChoice}`）、`resumeNativePlayerDecision`（3902门+3C3D/3DC9罚则+`checkTrustGameOver`，无RNG时fail-closed抛错，返回responseTalk=base+7/10+变体、advisorTalk=base+4+choice、notifyTalk=0x2b/0x2f+min(al,2)、praiseTalk=470+talk_idx）、`commitNativePlayerDecision`（outcome≥2返回；type3→commitScenarioTruceEvent；type2→settleScenarioAssistanceEvent+复用type1 8810消息尾的`runNativeAssistanceWarTail`）；dispatchNativeTruceEvent/dispatchNativeAssistanceEvent的player-decision分支不再抛错（无gamebar模态能力时仍fail-closed抛错并hold）。`gamebar.js`：native分支提问=`base+变体`单行、键盘默认0、pay-0不被吞、result步依次显示response+notify+praise（`\4`=君主名）+军师评论。v1旧路径未动。
+
+回归：`tools/verify_native_player_decision.mjs`19/19（字节pin覆盖38C7/38E6/3902帧/394B/394F/396B/397D/398A/399E/39A8/39CE/3C99/3CDC/3C3D/3C60/3C75/3C8B/3DC9/3D09/3D45/87FF/3D91；门边界rng==trust生效、超额→3、pay-0→0、罚则-30/借位夹0/归零gameOver、selector 0x19e、集成dispatch+resume+commit）；`verify_native_negotiation_consumer.mjs`16/16（两处旧断言改为无gamebar模态时/player decision UI/ fail-closed抛错）；war_consumer/deficit_trust/generic_talk 18/18无回归。超额破裂因type3 fee=35000>键盘cap 30000不可达，以type2（fee 20000）fixture覆盖。
+
+## 37. P28：type4–7消费者闭合与接线（Web实现）
+
+**分发表（实锤，字节pin扩到全表）**：0x31F2起12项word=`0C32 2032 6232 A932 E932 2733 8833 EA33 8534 9634 A634 B134`（type1..12→320C/3220/3262/32A9/32E9/3327/3388/33EA/3485/3496/34A6/34B1）。
+
+**351A势力门（实锤字节`32c0 d1e8 d1e8 8bf0 803c80 c3`）**：AX=AH<<6=索引*40h→SI=势力记录；CF=([SI]<80h)=非活动；AL=0。type6/7的`jb`在CF=1时静默RET（事件消费，无消息无写入）。
+
+**32A9 type4 内政官月度预算（实锤64B pin）**：AX=arg0*20h+840h据点记录；[BX+19]=内政官将号==FF→RET；SI=4240h+将号*20h；CDE蜂鸣→8810 TALK56（CX=38h，AL=93h显示模式，DI=栈上[武将指针,据点指针]供\1/\2替换）→2078开窗→AX=DX金额字、CX=116h(278)→39E8→20D6关窗。
+
+**32E9 type5 外交官月度维持费（实锤62B pin）**：AX=arg0*40h势力记录；[BX+2A]==FF→RET；SI=外交官武将记录；CDE→8810 TALK57（CX=39h）→2078→CX=13Fh(319)→39E8→20D6。**type5无势力活动门**，只查外交官在任。
+
+**39E8共享对话体（实锤全窗pin）**：入口保存全部寄存器；39F1..39FA仅把入口建议额1..499钳500（0与≥500不动）；12B局部帧[bp]=CX基、[bp+2]结果类、[bp+3]菜单row、[bp+4]=BX、[bp+6]=SI、[bp+8]=grant、[bp+0A]=建议额副本。建议额0→3A31零请求路径：3C99(base+0x1E个性池)→3CDC(base+0x23军师单行)→3C99(base+0x24个性池)，跳过菜单且**[bp+2]从未初始化（原栈垃圾）**；正常域内此时武将+1A已为0且扣款额为0，两分支无可见规则差异（推断），Web取不提交。建议额>0：3C99(base+个性)请求行→[bp]+=5→3B7E(al=3)菜单（**菜单文本=TALK[base+5]单条目的3行**，type4=283「答應/提示金額/拒絕」、type5=324同文，非283..285三项）→row1进7C6E键盘→分类（3A88..3AA6实锤）：0→2、==建议→0、<建议→1（保持）、>建议→3（多给）→[bp]++→3CDC军师base+6+outcome（type4 284..287、type5 325..328；TALK284文本「由你提出的…准許撥款」证实284..287为军师行而非菜单项）→[bp]+=4→3C99武将回应base+10+菜单row*5+个性（type4 288..307、type5 329..348）→3AD0关闭等待。**提交3AD9..3AF5（实锤顺序）**：outcome==2跳过；否则`AX=grant; shl ax,1; [SI+1A]=AH`（=floor(grant/128)）**先于**`shr ax,1; DL=0; SI=cs:[CFD]; CALL 563B`一次性扣玩家国库（下封-655000）；`AL=4; CALL 5E80`纯显示门。**39E8全程0 RNG**（窗内无ECE0）。
+
+**7C6E键盘默认值勘误（实锤）**：`7CA2 xor si,si`——键盘内部自清零，**默认输入恒0**，与调用方SI无关（type4/5调用前SI=武将记录指针，3902亦然）。v1预算键盘默认建议额是v1近似，native路径默认0。
+
+**3327 type6 玩家停战使者结果（实锤97B pin）**：351A(arg0=目标)→CF返回；[SI+2A]外交官==FF→返回；CDE+8810 TALK57（AH=FF，DI=栈上[外交官|FF00h,势力指针]）；**TALK57关闭后**DI=cs:[CFD]→36C4(SI=目标=接收方，DI=玩家=提出方)——3771政治相等RNG在此点消费；CF=1（3771资格失败）→8810 TALK58（CX=3Ah「敵方的君主已不在了。」，AL=[外交官将*20h+4241h]=君主号字节）→RET无写入；否则3C3D(CX=2Bh)TALK[43+min(AL,2)]→AL>=2拒绝RET。**3371..3384提交**：35ED（SI=目标收款、DI=玩家付款、互俘双向、玩家恢复将命中5101中段停止合同）→45F8（AX=3374..337E构造：AX=SI*4取AH=目标索引、AL=cs:[CFF]字节——与3297的包内提出方不同来源，CFF独立读取）→4236（城主∈{CFF,目标}归一旧主）→3669（双方!=18h双向min(raw)|80h）。
+
+**3388 type7 玩家请援使者结果（实锤98B pin）**：门序实锤——351A(arg0=协助)→CF返回；BX=SI保存；AH=DL(arg1=目标)再351A→CF返回；xchg后SI=协助、BX=目标；[SI+2A]协助方外交官==FF→返回；CDE+TALK57；关闭后DI=cs:[CFD]→3712(SI=协助=R、BX=目标=A、DI=玩家=T)；CF→TALK58→RET；3C3D(CX=2Fh)TALK[47+min(AL,2)]；AL>=2拒绝。**33DD..33E6提交**：35ED（SI=协助收款、DI=玩家付款）→BX=目标shl×2取DL=目标索引→**直接CALL 3526**（SI=协助、DL=目标，与3258同形，352A忙碌门生效，付款不回滚）。
+
+**3C1E信赖分级器归属勘误**：callers(3C1E)仅3836——属进言/战争提案域（re-war-proposal），不在3902/39E8链；3C99变体=[SI+1E]≥3减3一次的P27结论不变。3B08 callers=6983/69FC、3B5A caller=3889（5选项菜单+3DC9信赖-20）同属进言域。
+
+**Web接线**：新增`originalbudgetconsumer.js`（32A9/32E9门、`originalBudgetEntryClamp39F1`、`classifyOriginalBudgetOutcome39E8`、`originalCommitBudget39E8`先+1A后563B）；新增`originalenvoyresultconsumer.js`（3327/3388门、`originalTruceEnvoyOutcome3346`/`originalAssistanceEnvoyOutcome33B2`（TALK57关闭后计算，`readPlayerFactionPointer()>>>6`=CFD玩家）、`originalCommitTruceEnvoyResult3371`（45F8用CFF字节）、`originalCommitAssistanceEnvoyResult33DD`复用3258）；`originaltruceconsumer.js`抽出共享`originalTruceOutcome36C4`、`originalassistanceconsumer.js`抽出`originalAssistanceOutcome3712`（3262/3220行为不变）；`scenarionegotiation.js`增io（readCityGovernor=C19、general +1A读写=assignment_budget）与8个场景桥+`describeEnvoyResultMessageState`（\1/\3从固定势力表/固定武将槽解析，不用公开factions）；`ai.js`接type4/5（gamebar预算接见流+nativeBudget{keypadDefault:0,commit闭包}，39E8 0 RNG故不设RNG挂起）与type6/7（`_nativeEnvoyResultContinuation`+`_strategicEventPostMessageRngPending`合同：TALK57→outcome为advance不清挂起，TALK58/拒绝/type6提交为finish清挂起补拍，type7提交先交挂起再走3526战争尾段防误清）；`gamebar.js` native分支（武将槽固定不重查city.governor/envoy投影、键盘默认0、提交闭包替换v1写字段）。v1旧路径未动。
+
+回归：`tools/verify_native_budget_consumer.mjs`18/18（字节pin：31F2全表/351A/32A9/32E9/3327/3388/39F1/3A64/7CA2/3A88/3AD9；门、分类、提交顺序（setter间谍证+1A先于扣款）、type6付费35000和平写回、TALK58失败无写入、type7付费19000+3526宣战、两型拒绝、dispatch集成、无UI fail-closed+hold）；negotiation16/player_decision19/war9/monthly_budgets等49无回归。
+
+## §38 type8 玩家分支 341F→5E60 与 075B 选择器展开、98A6 界面更新门（P29）
+
+**范围**：闭合 §21/§22 遗留的 type8 玩家指针分支。341F 之前的前缀（351A势力门→6A3D候选→3408 `mov [F+3],新首都` xchg提交→3417 CALL 4502军团前缘）在两分支共享且已接，玩家分支不得重做或滚回。
+
+**341A/341F 门（实锤 pin `341a: 2e3b36fd0c`、`341f: 7528`）**：`cmp si,cs:[CFD]; jne 3449`——独立 word 比较，**不查 CFF**。341F 为假（SI!=玩家）走外交官径 3449（[SI+2A]外交官门→CDE→8810 TALK57→8810 CX=0x1A4 外交官个性行→RET），即 §22 已接路径。
+
+**玩家径 3421–3448（实锤 pin）**：`3421` AL=[SI+3] 新首都压栈（8810 的  参数）；`3429`（11B pin）BX=[SI+1]君主号>>3 得君主记录；`3434`（9B pin）AH=[BX+425E]个性、AL=[BX+4241]名字节；`343C` CX=0x1A4；`3442` CALL 8810；ADD SP,2；`3446` CALL 5E60；RET。8810 显示一条君主个性行后 5E60，无任何规则写入。
+
+**075B 选择器展开（实锤，P27 0x19E 同式推广）**：CX>=0x196 → TALK[0x196+(CX-0x196)*8+AH]（AH=武将 talk_idx 个性）；CX<0x196 → 直接 TALK[CX]。故 0x1A4→**518+talk_idx**、0x19E→**470+talk_idx**、0x1A5→526+talk_idx（§36 注 421 为空串之说不实，526+ 为本组变体）。
+
+**TALK[518..525]（实锤 _talk_utf8）**：迁都宣言/报告 8 变体，占位 =新首都名、=说话者（君主）名。8810 DI 栈帧无武将/势力槽，/ 在本链不出现（推断，未见引用）。
+
+**5E60 界面更新门（实锤）**：`TEST CS:[98A6],2; JZ ret`——位清则纯 RET；置位则 0x337 开窗→5E80(AL=0x0F) 四子面板（5EB7/5F27/5F5D/5F7F 读玩家势力君主名/资金/城数等展示）。cs:[98A6] 全部写方：1AAA（mov 初始化）、5A3F/5E2F/614F（or 置位）、5AB2/5E4E/61B8（and 清位）——纯 UI 状态。按 P20 §21 与 §36 既定约定，98A6/5E80 面板属纯显示：规则 no-op、0 RNG（窗内与 337/5E80/8810/075B 全线无 ECE0 调用，P20/P27 已扫描）。Web 以原版 App 常驻面板覆盖该显示义务，不复制面板逻辑。
+
+**RNG**：type8 玩家分支全程 0 RNG（实锤，3421..3448 与 5E60 窗内无 ECE0；type8 早前前缀 RNG 点不受本分支影响）。
+
+**Web 接线**：`originalcapitalrelocation.js` 玩家指针分支返回 `{status:'player-message',faction,oldCapital,newCapital,monarchSelector:0x1a4}`（前缀已提交不滚回；新旧相同仍 340B ret）；`scenariocapitalrelocation.js` 共享解析君主记录，`reply={selector,talkStyle:monarch.talk_idx,advisorName:君主名,cityName:新首都}`；`ai.js dispatchNativeCapitalRelocation` player-message 分支入队单条 `native-capital-relocation-player` 消息（talkIndex=518+talkStyle，=君主名、=新首都名），onClose→`finishNativeCapitalRelocation` 复用既有合同；不设 RNG 挂起（0 RNG）。v1 路径未动。
+
+回归：`tools/verify_native_capital_relocation.mjs` 7/7（玩家消息流重写+341A/341F/3421/3429/3434/343C/3442/5E60字节pin）、war_consumer 9/9、budget_consumer 18/18。
+
+### §38.1 33FD 迁都提交体接线（P38，C07 残件）
+
+**范围**：进言迁都（6909）对白成功后的 `call 33FD` 提交体。实锤（capstone 现刷 pin）：`33FD..340E` = `2d4008 d1e0 d1e0 d1e0 8ac4 866403 3ac4 7439`——输入 AX=城记录地址（0x840+idx*0x20），算术变换得 AL=城索引；**3408 xchg 先写 F+3，340B 新旧相同才 ret**；340F..3417 bx=势力号（si>>6）→call 4502；341A 起与 type8 消费者共享同一玩家/外交官分支（341A pin/341F/3421../3449 门字节同上节）。**与 33EA 的差异实锤**：无 351A attr 门、无 6A3D 自选首都（新首都是进言玩家显式选的）、无 CFF 忽略玩家早退——33FD 是通用提交体，6909 调用时 SI 恒=玩家（CFD），故只可达 340D unchanged 与玩家径；外交官径 3449..3484 仍按同一合同实现（防御）。进言链全链 0 RNG 已由 P35 活扫描覆盖，33FD/4502 窗内亦无 ECE0。
+
+**Web 接线**：`originalcapitalrelocation.js` 新增 `originalRelocationCommit33FD`（显式 newCapital；unchanged/player-message/message/relocated 四态复用 type8 状态合同）；`scenariocapitalrelocation.js` 抽出共享 `nativeCapitalIo`/`resolveScenarioCapitalResult` 并新增 `performScenarioRelocationCommit`；`gamebar.js` 迁都提交定时器 native 分支（原 fail-closed throw 移除）：提交后 player-message→显示君主宣言行 TALK[518+talk_idx]（\2=新城、\4=君主）→定时收尾（关接见+镜头+城卡）；unchanged→直接收尾；其它状态 fail-closed。信赖+10 保留 v1 位置（对白成功路径 3D91 合同，净效果一致）。0x6E8F 出陣提交体仍 fail-closed，归 C08 轮。
+
+回归：`verify_native_capital_relocation.mjs` 11/11（新增 33FD 字节 pin+玩家提交/unchanged/NPC 外交官三径）、war_proposal 8/8、war_consumer 9/9 等族 34/34。
+
+## 39. P30：35AB 旧目标 22..35 原状态别名
+
+**权威反汇编（本轮 capstone 亲核，字节 pin 见 verify_native_war_consumer.mjs）**：`35AB..35EC`——35AC/35B3 先排玩家与 18h；`35B8..35BE` BH=DL 后两次 SHR 得 B×40h；`35C0` 读 B.F19=T；`35C3 80 FC 24` + `jae 35E2`：T≥24h=36 不写任何读直接 B.F19=A；否则 `35C8..35CE` DI=T×40h，`35D3` 先算 P(A)（BX=SI）存 CX，`35DA` 再算 P(T)（BX=DI），`35DE cmp ax,cx / jae 35EB`：P(T)≥P(A) 保留旧目标，严格小于才 `35E8` 写 B.F19=A（AH=A 由 SI×4 得）。`3091..30CA`：`[BX+4]/[BX+6]/[BX+8]` 三 word 各 >>2 累加（DX 压栈保全）；`30AF cmp ah,[BX+23]`：highByte(S)≥该字节则 S=07D0h=2000；S>2000 再夹 2000；`30BF cmp word[BX+21],13h`：≤19 则 AX=0。3091 纯索引算术，无任何编号范围门。
+
+**别名区域（实锤，固定表位置见 re-notes-custom-data.md）**：势力表实为 **24 槽×40h=0000..05FF**（轮转只用 0..21，0x580 回绕）；0600..083F=24×24 外交矩阵；0840..203F=192 城×20h。旧目标 T∈22..35 时 3091 读取落在：
+
+| T | 记录基址 | 区域 |
+| --- | --- | --- |
+| 22/23 (16h/17h) | 0580/05C0 | 势力槽 22/23 |
+| 24..32 (18h..20h) | 0600..0800 | 外交矩阵字节 |
+| 33..35 (21h..23h) | 0840/0880/08C0 | 城记录 0..5 |
+
+**势力槽 22/23 内容**：四章 SINARIO.DAT 两个槽全部 64 字节为零（逐章 dump 实锤）；且四章 22 个真势力 F19 全 FF、槽 22/23 F19=00 但整槽零不活动。已知写方（势力轮转 0..21 回绕、3593 事件 A、2F71 清 F19）均不越 22 槽——运行期不变性为**推断**（静态无法排除未映射写方）；Web 按构造保持零（表仅 22 槽，对 22/23 的写入仍 fail-closed），与四章初态一致。
+
+**矩阵/城别名读字段**：T∈24..32 读矩阵扁平字节 T×40h+{4,6,8,21h(word),23h}，全部在 0600..083F 内（最大 0823），取 Web `nativeDiplomacyMatrix.rows` 活值（3639 等写回即反映）。T∈33..35 读城记录：偶数城（0/2/4）+4..+9（名字节 4..7 与地图横坐标 word，静态），相邻奇数城（1/3/5）的 +1（**活所属字节**，原版 4CF3 易主即写；Web 取 `city.faction`，null→18h 与 compile_chapter 约定一致）、+2/+3（名首两字节，静态）。静态字节来自章数据 `compatibility.cities` 192×32B 原始记录；运行态经新状态字段 `sc.nativeCityRecordRaw`（192×64hex，strict 校验，缺失即 fail-closed）提供。生产 v2 内容挂载（nativeFactionSlotRaw 等同链）未闭合，属既有初始化链缺口，不由本轮补造。
+
+**四章初态 P(T) 实算**：T=22/23 → 0（资源 word=0≤19）；T=24..35 → 2000（0xFF/名字节构成的高位使 highByte(S)≥[+23h] 触发重置或超 2000 夹顶，资源 word 均 >19）。即官方剧本初态下旧目标 24..35 恒保留、22/23 恒改换（若 P(A)>0）；运行态矩阵/城字节变化后按活值计算，不是常量。
+
+**3094 域外读不动**：§7 `producer-empty` 的 DS:8003 状态外读与 38003 前史仍是独立未闭合项，本别名不覆盖、不猜测。
+
+**Web 接线**：`scenariowarconsumer.js` 新增 `aliasStateByte/aliasStateWord`（0580..08FF 界内 strict）并在 `warEventIo` 的 `readFactionReserve/readFactionCityCount/readFactionResourceWord` 三个 3091 读者上按 index≥0x16 分流；其余读者（351A attr、352A/35C0 F19、3639 关系）仍限 22 真势力不变。`originalwarconsumer.js` 规则层零改动（3091 本就索引无关）。
+
+回归：`verify_native_war_consumer.mjs` 13/13——新增 35AB 全窗字节 pin、22/23 零槽改换、24..32 矩阵保留（0xFF→2000）与资源 word 置零改换（`rows[4][1]=rows[4][2]=0` 令 P(25)=0）、33..35 城别名（活 owner=5 → word 5≤19 → P=0 改换；owner=null→18h 且零兵力 → 重置 2000 保留）、城记录缺失 fail-closed（A 前缀已提交+B 保留+hold）、0x24 直接写不读别名；删除旧「22 别名抛 /faction slot/」测试（行为已被原证取代）。§15 的 18h/23h 采样别名地址（0604../08C4..）与本区域映射一致。

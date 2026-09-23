@@ -18,9 +18,10 @@ try {
   });
   // Weather-only fixture: an already-seen opening in this new isolated context.
   // Do not start/cancel an unrelated MP3 download or suppress request failures.
-  await context.addInitScript(() =>
-    sessionStorage.setItem("wolong.intro.seen.v1", "1"),
-  );
+  await context.addInitScript((origin) => {
+    if (location.origin !== origin) return;
+    sessionStorage.setItem("wolong.intro.seen.v1", "1");
+  }, `http://127.0.0.1:${port}`);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
@@ -268,7 +269,9 @@ try {
     app.scenario.strategicEventSlots[0] = {
       type: 12,
       arg0: 1,
-      cityPointer: 0x840,
+      // Native 4-byte wheel stores the city pointer word in arg1/arg2.
+      arg1: 0x40,
+      arg2: 0x08,
     };
     app.scenario._strategicEventCursor = 0;
     app.scenario._strategicEventDivider = 1;
@@ -328,7 +331,9 @@ try {
     app.scenario.strategicEventSlots[0] = {
       type: 12,
       arg0: 2,
-      cityPointer: 0x840,
+      // Native 4-byte wheel stores the city pointer word in arg1/arg2.
+      arg1: 0x40,
+      arg2: 0x08,
     };
     app.scenario._strategicEventCursor = 0;
     app.scenario._strategicEventDivider = 1;

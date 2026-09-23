@@ -1,100 +1,130 @@
 # Checkpoint Journal
 
-> 会话交接，不是长期指令或任务授权。[项目记忆](../AGENTS.md)维护事实、架构、命令与约定；[全局AGENTS](../../AGENTS.md)维护安全与证据纪律。这里只保留本轮关键过程、验证、失败、阻塞与下一步，机制细节链接唯一维护源。
+> 当前开发轮次的交接记录，不是长期指令、机制证明或任务授权。[项目记忆](../AGENTS.md)只维护长期事实、架构、命令、约定与当前主线；机制和原始证据由相关`re-notes`及Skills单点维护。日志不是任务或提交授权。
 
-## 1. 当前交付：P24成功编成与权威槽修复
+## 1. 当前主线状态
 
-**限定切片已完成，全AI仍未完成。** 成功编成/state9兵池重分、严格6FD2、唯一native固定槽及保存接缝已接；首审P1/P2经修复和fresh复审关闭，结论 **No issues found / OK with notes**。修后独立完整 **175入口全部通过（155非浏览器＋20全新隔离浏览器）**。默认源/运行道路仍v1，正常App仍拒v2；本结论不认证完整原生战役、灭亡或消息返回。
+- **C15大门已翻**（P78，用户明确批准，verdict记ai-chain C15行）：fresh装配默认v2，生产侧v1零残留（G1–G8删除，P62–P69/P76），6原生覆盖gap全闭（P70–P75）。
+- **门后延续全闭**（P79–P86，门后延续目标已标complete）：G6 compat读删除；AL=0x93围栏终局；D游标初值；H1战术域归属；H2信赖读；H4尾项——(1)选择器返回覆盖、(2)原版不可达（opening-ABORTED标签退役）、(3a)(3b)覆盖，(3c)60C8封为**非规则影响UNKNOWN围栏**（A1C纯VGA调色板重载已证返回后效应仅显示；归属/loader语义未知，影响半径不含规则状态，可终局携带）。
+- 当前分支`main`，HEAD `cebd68cf327b14bb916646bfe9afbfd05394a6ee`（未授权commit/push，HEAD自P24未动；工作区含继承共享脏改，index为空）。
+- 固定`KI.EXE` SHA256：`fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，文件偏移按`VA+0x200`换算。
+- 未stage、commit或push；未调整权限、信任或全局配置。未读取/写入真实`SAVE.DAT`、`.dragon-runtime`或用户浏览器profile。现行存档政策：用户确认无需保留旧Web存档，v1路径已退役删除，不兼容槽三路禁用。
+- 最新完整证据根（P85；P86纯文档轮无新根）：`C:/Users/fczll/.pi/agent/sessions/--E--Dragon--/native-event-p85-h4supp/`，seal `d7d22d31…`（full-1 194/194 TAP607；browser-1 21/21）。
 
-- 开发顺序已明确：先还原AI及依赖、保持玩法完整和正确存档，再做独立JS/Canvas架构重构。用户取消旧Web存档兼容/迁移/保全要求；没有因此读取或清理实际存档。
-- 交付现场：`main`，HEAD `5e14645b1e381af2a00cf4123d6a4e806ba42697`，47项modified/untracked、index空；保留继承改动，未stage/commit/push。这些是本批记录，后续继续时重查。
-- 最新修复仅改6文件：`web/src/game/ai.js`、`tools/verify_native_formation.mjs`及AI-chain、NPC-strategy、行军详细源、本journal；5个相关Skills本次修复未改。
-- 已测AI SHA：`ca95f98311b33f1ae6fbafc2f0e5c79575aa906684018e9fc9b4eabcf5c856ad`；formation测试SHA：`ba52a939b7e96368d0f23857094e4587ecf81f10118b9bea283bb249b21191b5`。之后只有父journal交付追加和本次两文档整理，不把文档新SHA写成游戏重测结果。
+## 2. 验证惯例、命令与已知噪声
 
-## 2. 本轮推进顺序
-
-| 阶段 | 已完成的限定内容与边界 |
-| --- | --- |
-| RAM/内容/装配 | 原图known/unknown与旧队列快照；内容/world身份、每Scenario独立RAM、正式sidecar及两阶段准入。修过“旧现场未完成、新预检失败却解除hold/禁存”的P1。详见[§3.8–3.10](re-notes-march-pathfinding.md#310-p24正式装配与保存身份准入web工程生产仍限v1)。 |
-| 战后与移动 | detached真实487B→474A/4DA4、47BB/42AB同动作续行、占格/点提交/节点化与槽尾。攻城双方战果必须先于攻方474A，异常不能丢守方结果。见[战后caller](re-notes-march-pathfinding.md#native-retreat-callers)、[移动caller](re-notes-march-pathfinding.md#native-movement-callers)。 |
-| 到达/城市 | 28F4/4325、4300存储缓存/别名、严格日结/资金与21尾写；城市军事/治理/灾害、游标真实返回、32槽天气timer。见[到达](re-notes-march-pathfinding.md#native-arrival-callers)、[城市](re-notes-march-pathfinding.md#native-city-callers)。 |
-| 成功编成 | 4575→45C1→6E8F、461D重分、创建/state9/474A共享严格6FD2；资格失败保逐队前缀、旧残兵按新type归池、active同号复用保F14/03及占格残值。唯一详细源：[§3.15](re-notes-march-pathfinding.md#native-formation-callers)。 |
-| 审阅修复 | 初始编成175全绿仍被fresh review判BLOCK；补5030同号native查表及29D4严格status门，再完整重验并关闭P1/P2。不是凭绿测跳过审阅。 |
-
-初始编成workflow：`5b8c5b8e-4bd8-4098-acc9-923e82686497`；修复workflow：`ae9b5ac4-5167-4b94-9424-061d8f35b4ee`。两者均已结束，不沿旧日志重新启动。
+- P轮惯例：manifest跑前重绑（4436键，0缺失）＋首入口完整重跑（非浏览器full-1＋浏览器browser-1）＋独立seal＋snapshot前后零漂移＋index空；STOP轮废弃不拼接；journal条目晚于seal生成，已声明。
+- 纯文档轮按项目AGENTS 2.4不跑无关游戏回归/浏览器冒烟，不新建P轮根。
+- 证据根标配：`full-1/{inventory.json,run_nonbrowser.py,node_guard.cjs,python_guard.py,read-allowlist.json,manifest-current.json}`、`browser-1/{inventory.json,run_browser.py,browser_guard.cjs,music-observer.js,snapshot/}`、`final/build_seal.py`＋`checks.json`/`seal.json`；语法 sweep 用P58根`synth_js.cjs`/`synth_py.py`。
+- 已知噪声（非缺陷）：opening.mp3 503×2（opening_loading）、`ERR_ABORTED`导航相位requestfailed、浏览器时序抖动（单跑确认后整轮重跑）；`.codegraph/codegraph.db`与`daemon.log`在manifest内持续churn，记噪声不改scope。
+- 铁律：含反斜线内容一律落盘Temp脚本执行；setup范式含snapshot-before；新测试文件进runner清单＋read-allowlist＋snapshot。
 
 ## 3. 调试、失败尝试与修正
 
-| 问题/失败 | 处理及保留的结论 |
+| 失败或误判 | 处理与保留结论 |
 | --- | --- |
-| 三个旧回归长期首失败 | delegated混用耗尽边点与真实未消费边界；engagement混用裸入口/槽尾；march期待到达清target，并缺03/0B/1E/F14。按原证补显式夹具、实际坐标＋0E到达和到期节奏，未改v1算法或删除后续断言。Clock非全骑slot0在第1/25主更新动作，25更新后hour2/sub7/day1；三脚本最终均到末尾。 |
-| P1：捕获遗漏权威槽 | `finalizeFactionExtinction`只查live/delayed视图，漏掉status04或未知status的槽却继续捕将。现按general.idx查native同号槽，29D4严格读byte，缺slot/status或非法值抛Uncovered；已知inactive清0，保03/F14/残值。不是按L02/leader匹配，也不创建缺槽。 |
-| P2：过时摘要 | AI-chain A03及NPC-strategy§6仍称成功新编未闭合；已改为限定域已接并链接§3.15，保留未知槽/外栈/完整初始化边界。 |
-| 新红测先被错误单位挡住 | 战果参数把400显示人数当内部数，提前在6FE9失败，不能算P1红。改为内部40/总240后得到24过＋4个具名AssertionError，修复后28/28。 |
-| 快照expected漏既有清理null | 首修27/28；仅补`_retreat:null`、`_engagement:null`这两个既有Web投影清理结果，完整原字段/冷恢复比较保留，不扩大DOS写集。 |
-| 私有变异执行器错误 | 旧TAP解析器遇默认spec输出、另一次needle漏当前括号，均属于辅助失败，不是有效mutant红。固定TAP、精确匹配私有副本后重跑baseline及具名断言控制；不在生产源码做变异。 |
-| SHA/排版漂移 | 多次交接发现布局、尾逗号或换行变化，均冻结前后件、亲读diff并重新绑定验证。最新只变formation测试排版，其余51路径不变；重新主动LSP后完整重跑8focused及controls。来源未知，不能归因于历史ai.js实际autofix通知；无证通知说法已撤销。 |
-| UTF8、shell与差分工具 | GBK解码/输出失败、shell反引号或反斜杠转义、两侧CRLF归一不一致导致假“全文新增”等，均保失败后仅修TEMP runner。明确UTF8、独立脚本、对称文本差分，原byte SHA不归一。 |
-| 收口检查误判 | validator把exit0的Git换行stderr当失败；分离stdout/stderr后重跑辅助收口。父检查又误要求21个隔离static-root入口cwd必须为repo；按已审runner两域修正。原失败、真实命令和新收据分开，未改产品追绿。 |
+| fixture短表/缺表或恢复守卫误读（外交矩阵、事件轮、月结多轮） | 更新fixture为显式完整原始表；生产恢复守卫不放宽，不从公开列表补值。 |
+| 证据脚本事故：Python反斜线heredoc损坏、漏建tmp、GBK/UTF-8聚合、seal过滤器、read-allowlist漏新条目、snapshot-before漏步 | 修基础设施后从对应首入口或不可变日志重算，不拼接成绩。**铁律**：含反斜线内容一律落盘Temp脚本；setup范式含snapshot-before（反斜线键）；新文件进runner清单。 |
+| 格式化器静默漂移（纯排版无语义，多轮复发） | postgate全manifest漂移比对当场捕获；当轮作废，按当前字节重绑manifest+首入口重跑+重建seal。来源未定位。 |
+| seal构建事故：正则补丁静默未生效误绑旧轮；manifest重建范围错误；误跑旧post脚本 | 构建脚本落盘全文写出+grep核对；manifest从上一根复制增量更新（保持绝对键范围）；post脚本按根名核对。 |
+| 陈旧缓存错断：disasm旧缓存39E8错断；旧会话「8810经88E0栈切换返回」 | 一律以disasm.py现刷权威窗为准，老缓存只作线索；旧结论作废并在维护源标勘误。 |
+| lint rewrite悬垂if（aiTick早退第二句脱离守卫） | 补花括号，从首入口完整重跑。 |
+| 测试断言误写（槽号文案、assert.equal比结构对象、pin长度/VA笔误、阈值算术） | 只修测试，从专项首入口重跑；不改规则实现。 |
+| 旧hold断言 vs 已闭合挂起合同 | 按新闭合行为改测试；manifest重绑后从首入口完整重跑，不拼接。 |
+| 浏览器audio增益时序抖动 | 单条复跑确认后从首入口全新重跑；不改断言。 |
+| `audience.entered 2!==6`（章节diplomat_idx=null触发TALK55拒绝） | 非抖动：修夹具显式任命外交官，不放宽门。 |
+| 端口/启动抖动：ERR_UNSAFE_PORT(10080)、standalone启动超时 | 换安全端口/隔离重跑；opening的ERR_ABORTED按真实requestfailed记录，不称error-clean。 |
+| snapshot-before手工补建用posix分隔符致guard零匹配 | 按铁律用生成器重建manifest后首入口全量重跑。 |
+| 历史exact-v2 candidate缺失（P57已按E717规则重建退役BLOCKED） | 若再遇缺失，保持BLOCKED，不扫描历史目录、不重建替代候选。 |
+| full-1轮中STOP（旧停点断言被新证据推翻） | 按新闭合行为改测试，逐项核对后首入口全量重跑闭合。 |
+| manifest JSON反斜线转义quirk（receipts高位行严格解析失败） | harness既有发射问题：tolerant regex键值抽取比对，生产零漂移。 |
+| 跨根脚本误用硬编码旧根改写已封存manifest | 跨根脚本一律参数化路径；记入seal checks processFailures。 |
+| read-allowlist漏新文件首跑STOP＋补键双反斜线坏键 | 落盘Temp脚本补单反斜线键（先清坏键）后从首入口完整重跑。 |
 
-每次非预期失败都先停止受影响lane，保存exact错误、Git/cwd、partial diff及SHA，再获明确同协议恢复；没有切换CLI/foreground兜底。旧失败原件仍在证据包，不保留过时“当前待验证”流水作为今天的待办。
+## 4. 相关文件
 
-### P1新增回归的实际边界
+### 4.1 核心实现
 
-- 真实prepared场景→`applyBattleResult`→NPC末城灭亡：无守军组、攻方474A正常返回；general5但槽内L02=99，slot04/03=77/F14=7，锁定按武将号查表而非主将字段。
-- 成功例验证04→0、捕获、规则残值/兵池/占格/RNG/游标及正式JSON冷保存恢复；原24测试保留，新增4例。
-- 缺slot/status、null/-1/256/非整数/非有限status在29D4停止。裸apply抛错不自建hold；owned战斗入口捕获错误、hold/禁存、不执行endBattle，保已提交战果/占城前缀而不继续捕将。
-- 此接缝不放行一般29C3、29EA→2AD2、active占格注销、完整灭亡扫描或消息返回，详细说明仅在§3.15.5维护。
+- 固定表与恢复：`web/src/game/native{factions,diplomacy,events,legions,monthlypolicy}.js`、`scenarioassembly.js`（v1准入臂已删，P65/P76）、`savegame.js`（v1道路序列化臂＋compat读已删，P66/P79）、`world.js`；占格/缓存：`navigation/scenariomovementmemory.js`、`navigation/scenariocitycache.js`。
+- 月结：`navigation/original{factiontick,generalrating,monthlyfiscal,monthlydiplomacy,monthlybudgets,monthlypolicy}.js`及对应`scenario*`桥。
+- 事件消费：`original/scenario{warconsumer,capitalrelocation,deficittrust}.js`、`originalnegotiation.js`、`original{truce,assistance}consumer.js`、`originalplayerdecision.js`、`originalbudgetconsumer.js`、`originalenvoyresultconsumer.js`、`originalvictorygate.js`、`originalwarproposal.js`、`scenarionegotiation.js`、`originalevents.js`、`scenarioevents.js`、`web/src/game/ai.js`（v1撤退/步行臂已删，P62/P63；`_retreat`清除修复P74）。
+- 行军/编成/战斗/天气：`original{formation,roadmovement,roadarrival,roadretreat,fieldbattle,fieldterrain,siege,weather}.js`、`scenariolegionfate.js`、`originallegionfate.js`、`scenarioweather.js`、`ui/gamebar.js`（live findRoadRoute预览已删，P64）、`render/endview.js`。
+- 导航基建（v2，P67正名）：`game/navigation/`图记录与地形基建保留；Dijkstra实现与`findPath`门面导出已删（P67/P69）。
+- 内容管线：`tools/parse_sinario.py`、`tools/content_pipeline.py`（nativeCityRecordRaw派生）、生产`web/data.json`。
 
-## 4. 最终验证与证据限度
+### 4.2 回归与维护源
 
-| 验证 | 当前修复版结果 |
-| --- | --- |
-| 完整回归 | 155非浏览器＋20fresh隔离浏览器＝175全过，失败/未执行0；不是旧全量拼focused。浏览器错误覆盖仅按各入口实际断言。 |
-| 定向及反向控制 | formation28/28；同版私有baseline28绿，删native查表4个具名AssertionError、删严格status2个具名AssertionError；非语法/模块导入失败。 |
-| 原证/静态 | 独核112编码行、5030 rel16→29C3、128槽地址算术；17JS/MJS语法、9文档/Skills、6修改行链接及Git检查通过。 |
-| 独立审阅 | fresh reviewer关闭P1/P2，No issues found / OK with notes；不代替原程序执行或完整战役证书。 |
-| 版本/收据 | validator绑定1016键/1003唯一输入、700条import边、764静态副本，执行前后无漂移。父核300证据hash、175逐入口metadata/顺序/loghash、3私有控制及23辅助命令。 |
-| 父交付复核 | 980个当前repo/Skills/全局AGENT输入、764静态副本及52批准路径核符；另23个原始/私有/工具输入未重开，已明确列出。之后journal单独追加并检查，其余979已测路径未变。 |
+- 专项：`tools/verify_native_{faction_tick,monthly_fiscal,general_rating,monthly_diplomacy,monthly_budgets,monthly_policy,generic_talk,deficit_trust,capital_relocation,war_consumer,negotiation_consumer,player_decision,budget_consumer,war_proposal,victory_gate,occupancy_init,event_producer_audit,message_display_audit,extinction4FCE}.mjs`、`verify_strategic_city_ai_raw.mjs`、`verify_advisor_delegation_ui.mjs`、`verify_tactical_exit_frame.mjs`、`verify_battle_opening_messages.mjs`、`verify_content_pipeline.py`、`verify_c15_upstream_replays.mjs`（原生化，P70）、`verify_delegated_target_march.mjs`（P71）、`verify_third_party_blocker_march.mjs`（P72）、`verify_siege_contact_march.mjs`（P73）、`verify_march_resume.mjs`（P74）、`verify_legion_slot_battle.mjs`（原生P06迁移，P75）。
+- 机制维护源：`docs/re-notes-ai-{chain,fiscal,diplomacy}.md`、`re-notes-legion-fate.md`（§19.9–§19.11为H4终局源）、`re-notes-march-pathfinding.md`、`re-notes-strategic-message-abi.md`、`re-notes-custom-data.md`及相关Skills。
+- 内容管线：`tools/parse_sinario.py`、`tools/content_pipeline.py`和`web/content/builtin/chapters/*.json`。
 
-初始编成阶段另有49152重分/1728编成算术对照、16窗1610编码行及20个零军团表验证；本次P1修复未重跑这些穷举，不计为本次新增覆盖。静态字节、算术、同引擎JSON往返都不是完整CPU/启动/战役认证。
+## 5. 历史seal对照表
 
-**诊断仍非全clean**：修复2代码初探5辅助，test变版重探44项（41动态Scenario字段hint＋3辅助）；JSON语义helper两建议已精确标false-positive，未改源码忽略或配置。4文档及最终journal主动LSP unavailable；缓存无列出blocking不等于active clean。详细诊断与所测SHA留父证据包。
+各根`final/checks.json`为权威明细；journal条目均晚于seal生成，已声明。
 
-## 5. 相关文件与证据入口
+| 根 | 非浏览器 | 浏览器 | seal |
+| --- | --- | --- | --- |
+| p85-h4supp | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 3rf（单轮直过无STOP） | `d7d22d31…` |
+| p84-h4tail | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 4rf（单轮直过无STOP） | `349f70dd…` |
+| p83-h2trust | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 3rf（1抖动STOP后重跑） | `6491a071…` |
+| p82-h1d31c | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 4rf（单轮直过无STOP） | `006157a1…` |
+| p81-h5image | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 4rf（单轮直过无STOP） | `56d45c60…` |
+| p80-h3fence | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 3rf（单轮直过无STOP） | `b8a96753…` |
+| p79-g6closed | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 3rf（单轮直过无STOP） | `71713fa1…` |
+| p78-gateflip | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 2rf（单轮直过无STOP） | `a7eddcdf…` |
+| p77-gatereview | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 2rf（单轮直过无STOP） | `99f8e802…` |
+| p76-g5scaffold | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 3rf（单轮直过无STOP） | `ceb0299c…` |
+| p75-np06 | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 2rf（单轮直过无STOP） | `af69610b…` |
+| p74-nresume | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 1rf（1 infra STOP后首入口重跑） | `0af234d8…` |
+| p73-ncontact | full-1 193/193 TAP605 | 21/21 snap2202 0pe 2×503 5rf（单轮直过无STOP） | `ec7ff591…` |
+| p72-nblocker | full-1 192/192 TAP604 | 21/21 snap2201 0pe 2×503 2rf（1 timing STOP后首入口重跑） | `8ef6428a…` |
+| p71-ndeleg | full-1 191/191 TAP603 | 21/21 snap2200 0pe 2×503 5rf（2 infra STOP后首入口重跑） | `5f052b13…` |
+| p70-nreplay | full-1 190/190 TAP602 | 21/21 snap2199 0pe 2×503 4rf（1 infra STOP后首入口重跑） | `431e91a3…` |
+| p69-g7dijkstra | full-1 190/190 TAP602 | 21/21 snap2199 0pe 2×503 5rf（1次engagement抖动STOP后整轮重跑直过） | `802b29af…` |
+| p68-g8-oracles1 | full-1 190/190 TAP602 | 21/21 snap2199 0pe 2×503 2rf（单轮直过无STOP） | `3c0ea089…` |
+| p67-g7-facade | full-1 190/190 TAP602 | 21/21 snap2199 0pe 2×503 4rf（单轮直过无STOP） | `6f5356a9…` |
+| p66-g6-savegame | full-1 190/190 TAP602 | 21/21 snap2199 0pe 2×503 5rf（单轮直过无STOP） | `6870d9ae…` |
+| p65-g4g5-admission | full-1 190/190 TAP602 | 21/21 snap2199 0pe 2×503 1rf（单轮直过无STOP） | `5458f229…` |
+| p64-g3-gamebar | full-1 190/190 TAP602 | 21/21 snap2199 0pe 2×503 3rf（单轮直过无STOP） | `443f60ba…` |
+| p63-g2-stepto | full-1 190/190 TAP602 | 21/21 snap2199 0pe 2×503 5rf（单轮直过无STOP） | `7c67a6d4…` |
+| p62-g1-retreat | full-1 190/190 TAP600（3 P06 skip带因） | 21/21 snap2199 0pe 2×503 5rf（单轮直过无STOP） | `20552fef…` |
+| p61-gate-inventory | full-1 190/190 TAP600 | 21/21 snap2199 0pe 2×503 4rf（单轮直过无STOP） | `c7794dc4…` |
+| p60-ruling | full-1 190/190 TAP600 | 21/21 snap2199 0pe 2×503 1rf（单轮直过无STOP） | `ec81d604…` |
+| p59-flip-audit | full-1 190/190 TAP600 | 21/21 snap2199 0pe 2×503 3rf（首跑engagement抖动STOP→单跑确认→重跑单轮直过） | `b85c994a…` |
+| p58-gate-flip | full-1 190/190 TAP600（中断后修复重跑单轮直过） | 21/21 snap2199 0pe 2×503 4rf开场/导航相位（weather/clock两STOP同轮闭合后重跑） | `cbcc7c5f…` |
+| p57-v2-candidate-rebuild | full-1 190/190+0B TAP600 | 21/21 snap2199 0pe 2×503 3rf开场相位（单轮直过） | `b726215e…` |
+| p55-c09-governor-player-detached | full-1 190/189+1B TAP600 | 21/21 snap2198 0pe 2×503 5rf开场相位（首跑road_callers旧断言STOP后首入口重跑） | `ce28bbad…` |
+| p54-c09-c15-review | full-1 190/189+1B TAP590 | 21/21 snap2198 0pe 2×503 5rf开场相位（首跑allowlist-STOP后首入口重跑） | `92b058c7…` |
+| p53-c14-save-restore | full-1 189/188+1B TAP585 | 21/21 snap2197 0pe 2×503 opening.mp3 4rf导航相位（单轮直过） | `f933109c…` |
+| p52-1d8e-pump-tail | full-1 189/188+1B TAP585 | 21/21 snap2197 0pe 0×真503 2ce+1rf导航相位（单轮直过） | `621d6c88…` |
+| p51-exit-rng-alias | full-1 189/188+1B TAP585 | 21/21 snap2197 0pe 0×503 2ce+3rf导航相位（单轮直过） | `783f88a0…` |
+| p50-battle-opening-beep | full-1 189/188+1B TAP585 | 21/21 snap2197 0pe 0×503 2ce+4rf导航相位（单轮直过） | `e3a3b9c8…` |
+| p49-city-damage-a65d-9ff8 | full-1 189/188+1B TAP585 | 21/21 snap2197 0pe 0×503 2ce+3rf导航相位（首跑music抖动重跑） | `e67d56f8…` |
+| p48-tactical-exit-frame | full-1 189/188+1B TAP585 | 21/21 snap2197 0pe 0×503 2ce+6rf导航相位 | `ad31a14f…` |
+| p47-g1f-callers | full-1 188/187+1B TAP585 | 21/21 snap1118 0pe 0×503 2ce+4rf导航abort | `98f8bf51…` |
+| p46-talk36-f19-callsite | full-1 188/187+1B TAP585 | 21/21 snap1118 0pe 2×503 4rf | `a5e338d9…` |
+| p45-extinction-4fce | full-1 188/187+1B TAP582 | 21/21 snap1118 0pe 2×503 2rf | `b9135b51…` |
+| p44-slot-expiry-dispatch | full-1 187/186+1B TAP569 | 21/21 snap1117 0pe 2×503 6rf | `bfe090ac…` |
+| p43-monarch-deploy-commit | full-1 187/186+1B TAP569 | 21/21 snap1117 0pe 2×503 5rf | `699cb852…` |
+| p42-march-order-entry | full-1 186/185+1B TAP563 | 21/21 snap1111 0pe 2×503 3rf | `80ac34f4…` |
+| p41-road43d3-alias | full-1 186/185+1B TAP563 | 21/21 snap1111 0pe 2×503 1rf | `0dbbc292…`（seal-1作废） |
+| p40-occupancy-init | full-1 186/185+1B TAP563 | 21/21 snap1111 0pe 2×503 4rf | `6d9e5b4f…`（seal-1作废） |
+| p38-relocation-commit | full-1 185/184+1B TAP552 | 21/21 snap1110 0pe 2×503 4rf | `d2e5e52c…` |
+| p37-city-records | full-1 185/184+1B TAP548 | 21/21 snap1110 0pe 2×503 3rf | `43a97ea4…` |
+| p36-victory-gate | full-1 185/184+1B TAP548 | 21/21 snap1110 0pe 2×503 2rf | `41c2b5ab…`（7aa4e9ec作废） |
+| p35-proposal-chain | full-4 184/183+1B TAP540 | browser-3 21/21 snap1108 0pe 2×503 3rf | `05209dd5…` |
+| p34-ffff-alias | full-1 183/182+1B TAP532 | 21/21 snap1106 0pe 2×503 5rf | `53cbf5d9…` |
+| p33-monthly-tail | full-1 183/182+1B TAP527 | 21/21 snap1106 rf5 | `14a5fcbb…` |
+| p32-message-audit | full-1 183/182+1B TAP527 | 21/21 snap1106 rf3 | `cd8c572c…`（1a8c1b93作废） |
+| p31-type10-audit | full-1 181过+1B TAP519 | 21/21 snap1105 | `e74555d8…`（9文件后被漂移，P32重绑） |
+| p30-target-alias | full-1 181/180+1B TAP514 | 21/21 snap1104 0pe 2×503 4rf（首轮端口抖动重跑） | `4579dfa0…` |
+| p29-type8-player | full-1 181/180+1B TAP510 | 21/21 snap1104 0pe 2×503 4rf | `eb067e9f…` |
+| p28-budget-envoy | full-1 180过+1B TAP509 | 21/21 | `bd7494dd…` |
+| p27-player-decision | full-1 180/179+1B TAP491 | 21/21 snap1101 0pe 2×503 2rf | `394dad29…`（c1e72c1c作废） |
+| p26-negotiation | full-3 179/178+1B TAP472 | browser-3 21/21 snap1099 0pe 2×503 4rf | `d0d30f30…`（b0a98cff/28c0af7b/f8490a5d作废） |
+| 01a0a5cb | — | — | `104b4225…`（只绑其输入） |
 
-- 原生实现：`web/src/game/navigation/originalformation.js`、`originalcity.js`、`originalroadarrival.js`、`originalroadmovement.js`、`originalroadretreat.js`；唯一槽表`web/src/game/nativelegions.js`。
-- 集成：`web/src/game/ai.js`、`savegame.js`、`scenarioassembly.js`、`world.js`；相位/续段见`legionphase.js`、`legioncounts.js`、`legioncontinuation.js`、`strategicfailure.js`。同组省略重复目录。
-- 回归：`tools/verify_native_formation.mjs`、`verify_native_city.mjs`、`verify_native_road_{arrival,movement,callers}.mjs`及`verify_{delegated_autobattle,engagement_state,march_navigation}.mjs`；花括号仅表示文件组，**不是执行通配命令**。
-- 规则索引：[AI全链](re-notes-ai-chain.md)、[行军§3.15](re-notes-march-pathfinding.md#native-formation-callers)、[字段字典](re-notes-entity-fields.md)、[内容架构](content-architecture.md)。早期批次详细机制已回流，不再复制旧完整日志。
+## 6. 本会话记录
 
-以下均相对本机`C:/Users/fczll/AppData/Local/Temp/`；TEMP可能清理，只是证据定位，不是运行依赖：
-
-| 证据包 | 关键入口 |
-| --- | --- |
-| `dragon-native-formation-chain-cwl3bykd/` | 初始合同/首审BLOCK及`implementation-drift/`；`validation-receipt-retry/receipt.json` |
-| `dragon-formation-repair-writer-x_wvhrab/` | `actual.diff`、真实历史红`red-retry-receipt.json`、最终`focused-receipt.json`及私有控制 |
-| `dragon-formation-repair-validation-hmwcljfx/` | `entry-ledger.json`、`final-summary.json`、原字节/双流日志与artifact清单；不要读取或分享原始环境收据 |
-| `dragon-formation-review-repair-mcjm0whb/` | `post-barrier-drift-2bf88e20/admitted-manifest.json`；`validation-completed-17d55fe7-retry/`中的`receipt.json`及`report-receipt-redacted.json`；`final-delivery/`含三最终报告、workflow receipt及交付检查 |
-| `dragon-ai-slot-order-parent-uudvtfid/` | 早期原窗/P06/道路证据；`extinction-count-raw.txt`及下述历史安全事件索引 |
-
-### 安全记录不能因清理删除
-
-- 更早scout曾违规读取`.dragon-runtime/save.json`部分内容，已停止且未恢复，父未使用该内容；原事件索引`incident-slot21-read.json`、`incident-slot21-stop.json`在上表最后一包。不能宣称整个专项从未触及禁区；后续本批测试保持固定非存档输入及隔离状态。
-- 本轮部分辅助环境快照含未脱敏凭据，父一次读取误显示后已告知用户。不要再输出、复制或上传其值；原件仅私有hash引用，分享只用脱敏摘要，已建议轮换相关密钥，未擅自改凭据/全局配置。不要公开打包整个证据目录。
-
-## 6. 当前阻塞与下一步
-
-1. **继续闭合原callee**：一般29C3/291A/2A7E及2AD2、463E、2BA8、4A7B/4ADE、完整灭亡/消息返回；当前限定接缝不能假RET替代这些链。
-2. **补初始化与写者**：active占格注销、88CC/城市边界、未知固定槽/别名、四候选外栈、55A6评分刷新、21/22完整生命周期；不从live数组、raw或坐标猜缺值。
-3. **日期与跨链复演**：248A、天气后继及日期/月界，完整P06后续批/玩家非局部返回，再调查持续战争返都与占城弃守的战役因果。
-4. **产品准入**：必要初始化/消费者/保存/返回域闭合并完成相应完整回归、复审后，才评估默认v2；随后再按已定阶段进入独立实现重构。
-
-以上是交接顺序，不自动授权下一机制实现、提交或推送。本次请求仅整理项目记忆与journal。
-
-## 7. 本次记忆整理（仅文档）
-
-- `web-port/AGENTS.md`保长期事实、架构、命令、约定、坑点和当前AI主线；本journal收束为本轮进展/调试/验证/阻塞。删除旧版本的重复成绩、过时待办、临时PID/耗时/行号、重复SHA与审批流水；重要失败和安全事件保摘要及证据索引。
-- 两文件整理前完整备份及47个既有脏路径SHA：`C:/Users/fczll/AppData/Local/Temp/dragon-project-memory-cleanup-8vrszv4e/`。不另建庞大的常驻历史记忆副本，不删除原始证据。
-- 本次只改两文档；不改代码/资产/Skills，不运行游戏回归、浏览器、原程序或访问真实SAVE/profile，不挪用上面的175成绩。37处本地链接/锚点、围栏、命令文件路径及Git空白检查通过，45个其它既有脏文件SHA不变、index空；证据索引核对时更正了脱敏收据所在目录，未打开原始环境内容。
-- 主动LSP首探两文档均unavailable；复探项目记忆clean、journal仍unavailable（marksman/typos未ready）。缓存为13个既有warning及2个hint，不作本轮文档失败或通过依据。检查记录存上述备份目录。
+- 门后延续目标已标 complete（get_goal/update_goal以`default.*`名暴露；用时6h46m，tokens 2,520,949）：P79–P86即审计对照，唯一剩余H4-(3c)为已分类非规则影响围栏。
+- 本次记忆整理：journal从595行收束为本版——§1重写为当前主线（门已翻/延续全闭/HEAD/KI/政策），§2收束为验证惯例与命令，§3坑点表保留（历史candidate-BLOCKED行按P57更新），§4文件清单同步v1删除与新增原生专项，§5删P42–P57冗长明细只留seal对照表（行内容逐字保留），删过时§6阻塞/§7下一步/§8旧整理注；同步修正web-port/AGENTS.md之P57-era接缝链与v1默认表述。只改2文档，不碰代码/资产/测试/Skills，不访问真实存档/profile。

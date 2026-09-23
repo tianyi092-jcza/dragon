@@ -4,14 +4,20 @@ import {
   aiTick,
   buildArmies,
   finishDeferredLegionDaily,
-  stepTo,
 } from "../web/src/game/ai.js";
 import { Clock } from "../web/src/game/clock.js";
-import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
+import {
+  initializeLegionSlotState,
+  bindLegionSlotCounter,
+} from "../web/src/game/legionphase.js";
 import { initializeFactionLegionCounts } from "../web/src/game/legioncounts.js";
 import { canSnapshotState } from "../web/src/game/savegame.js";
 import { loadTerrain } from "../web/src/game/pathfind.js";
-import { findRoadRoute } from "../web/src/game/roadgraph.js";
+// Certified projection serializer for contact-pose road fields (P63 G2;
+// G7 removes the roadgraph module, this JSON stays).
+const { serializeRoadMarchContext } = await import(
+  "../web/src/game/roadgraph.js"
+);
 
 function parseJson(bytes) {
   try {
@@ -35,6 +41,9 @@ globalThis.fetch = async (url) => {
 };
 const data = parseJson(
   await readFile(new URL("../web/data.json", import.meta.url), "utf8"),
+);
+const roadGraph = parseJson(
+  await readFile(new URL("../web/road_graph.json", import.meta.url), "utf8"),
 );
 await loadTerrain();
 function fixture(bytes = [0, 15, 15]) {
@@ -233,16 +242,73 @@ function addCloud(sc) {
   };
   f.sc.legions = [attacker];
   buildArmies(f.sc);
-  const target = f.sc.cities.find(
-    (c) =>
-      c.faction === 0 &&
-      findRoadRoute(attacker.x, attacker.y, c.x, c.y)?.points.length > 2,
+  // P63 G2: v1 walker deleted (stepTo on !native fails closed). Plant the
+  // siege contact the walk produced on real graph geometry: relocate onto
+  // an edge ending at a war-covered faction-0 city, posed at the last
+  // unconsumed boundary point. Road fields mirror the walker's selection
+  // writes via the certified serializer; counter/bit5 mirror
+  // startEngagement's bare-contact writes. The TALK38/RNG/calendar chain
+  // below evaluates genuinely via the shared advance path.
+  const hostileAt = (node) =>
+    f.sc.cities.find(
+      (city) =>
+        city.x === node.x &&
+        city.y === node.y &&
+        city.faction === 0 &&
+        (f.sc.diplomacy[attacker.faction]?.[city.faction] ?? 0xff) < 0x80,
+    );
+  const edge = roadGraph.edges.find(
+    (candidate) =>
+      candidate.points.length > 1 &&
+      (hostileAt(roadGraph.nodes[candidate.target]) ||
+        hostileAt(roadGraph.nodes[candidate.source])),
   );
+  assert.ok(edge, "graph must offer a war-covered faction-0 endpoint edge");
+  const farNode = hostileAt(roadGraph.nodes[edge.target])
+    ? roadGraph.nodes[edge.target]
+    : roadGraph.nodes[edge.source];
+  const nearNode =
+    roadGraph.nodes[farNode.id === edge.target ? edge.source : edge.target];
+  const stride = farNode.id === edge.target ? 4 : -4;
+  const points = (stride === 4 ? edge.points : edge.points.toReversed()).map(
+    ({ x, y }) => ({ x, y }),
+  );
+  const target = hostileAt(farNode);
+  attacker.x = points[points.length - 2].x;
+  attacker.y = points[points.length - 2].y;
+  attacker.prevX = attacker.x;
+  attacker.prevY = attacker.y;
   attacker.target = target;
-  let result = "moved";
-  for (let n = 0; n < 2000 && result === "moved"; n++)
-    result = stepTo(f.sc, attacker, target.x, target.y);
-  assert.equal(result, "contact");
+  attacker.targetCity = target.idx;
+  attacker.targetNode = farNode.id;
+  attacker._march = {
+    targetX: target.x,
+    targetY: target.y,
+    targetNode: farNode.id,
+    currentNode: nearNode.id,
+    edgeId: edge.id,
+    stride,
+    fromNode: nearNode.id,
+    toNode: farNode.id,
+    points,
+    pointIndex: points.length - 1,
+  };
+  attacker._path = points.slice(points.length - 1).map((point) => ({
+    ...point,
+  }));
+  attacker._engagement = {
+    kind: "siege",
+    countdown: 12,
+    target: { cityIdx: target.idx },
+  };
+  attacker.status |= 0x20;
+  bindLegionSlotCounter(f.sc, attacker);
+  f.sc.legionSlotCounters[attacker.slot] = 12;
+  attacker.engagementCountdown = 12;
+  const plantedProjected = serializeRoadMarchContext(attacker._march);
+  attacker.roadEdgeOrNode = plantedProjected.edgeOrNode;
+  attacker.roadPointAddress = plantedProjected.pointAddress;
+  attacker.roadStride = plantedProjected.stride;
   attacker.engagementCountdown = 1;
   attacker.moveDelay = 1;
   addCloud(f.sc);

@@ -24,14 +24,22 @@ import {
 import { cityTypeLabel } from "../game/world.js";
 import { clickSfx, warnSfx, unlockSfx } from "../core/speaker.js";
 import { MUSIC_TYPE_LABELS } from "../core/music.js";
-import { relation, isAtWar } from "../game/diplomacy.js";
-import { factionColorEx } from "../game/world.js";
+import { relation } from "../game/diplomacy.js";
 import {
-  findRoadRoute,
-  roadGraphReady,
-  roadNodeAt,
-  roadNodeRawAddress,
-} from "../game/roadgraph.js";
+  hasNativeDiplomacyMatrix,
+  nativeDiplomacyAt,
+} from "../game/nativediplomacy.js";
+import {
+  originalAssistanceProposalVerdict66D9,
+  originalHostileProposalVerdict6475,
+  originalProposalRequiredReasons3C1E,
+  originalStrengthCompare6A28,
+  originalTruceProposalVerdict6577,
+} from "../game/navigation/originalwarproposal.js";
+import { performScenarioRelocationCommit } from "../game/navigation/scenariocapitalrelocation.js";
+import { performScenarioMonarchDeployCommit } from "../game/navigation/scenariomonarchdeploy.js";
+import { factionColorEx } from "../game/world.js";
+import { roadNodeAt, roadNodeRawAddress } from "../game/roadgraph.js";
 import { isLegionDelegated, setLegionDelegated } from "../game/legionmode.js";
 import { canSnapshotState } from "../game/savegame.js";
 import {
@@ -72,6 +80,7 @@ const FORMATION_TYPE_TO_LEGION_TYPE = Object.freeze([
 ]);
 import {
   enqueueDelayedStrategicEvent,
+  hasPendingStrategicEvent,
   resolveIncomingDiplomacyChoice,
   resolveStrategicNegotiation,
   settleFactionNegotiation,
@@ -1873,6 +1882,40 @@ export class GameBar {
     });
   }
 
+  /**
+   * 0x30CB/0x3119：提案判定的关系字节。native 场景读 24×24 原始矩阵；
+   * 否则 v1 镜像（v1 场景非 native 权威，仅作显示/近似输入）。
+   */
+  _proposalRelationByte(sc, a, b, at) {
+    if (hasNativeDiplomacyMatrix(sc)) return nativeDiplomacyAt(sc, a, b, at);
+    return relation(sc, a, b) & 0xff;
+  }
+
+  /**
+   * 提案入口门（P35 实锤）：6605/676F 事件环查重（type6→TALK73、
+   * type7→TALK74，304E 任意参数在途即拒）先于 65EF 外交官门
+   * （[F+2A]==0xFF→TALK55）。敌对提案只有 65EF。返回 true=已拒绝。
+   */
+  async _proposalEntryGate(sc, me, dupType, dupTalk, dupName) {
+    let talk = null;
+    let name = "";
+    if (dupType != null && hasPendingStrategicEvent(sc, dupType)) {
+      talk = dupTalk;
+      name = dupName ?? "";
+    } else if (me.diplomat_idx == null) {
+      talk = 55; // 0x65EF：CX=0x37。
+      name = (me.monarch ?? "").trim();
+    }
+    if (talk == null) return false;
+    warnSfx();
+    const lines = await formatTalkTokens(talk, name, "");
+    await this.showNpcMessageDialog({ lines, autoClose: 3000 });
+    this.selectedSubmenu = null;
+    this.syncClock();
+    this.app.view.draw();
+    return true;
+  }
+
   /** 敌对提案进言对话系统 (100% 逆向复刻 KI.EXE 0x6475, 0x3830, 0x3B5A, 0x3BA9, 0x3C1E) */
   async showHostileProposalAudience(targetFaction) {
     const request = (this._proposalRequest = {});
@@ -1889,6 +1932,8 @@ export class GameBar {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
     if (!me || !targetFaction) return;
+    // 0x6405 入口校验：0x65EF 外交官门（P35 实锤，先于 0x87FF/判定）。
+    if (await this._proposalEntryGate(sc, me, null, 0, "")) return;
 
     const monarch = sc.monarchOf(me);
     const advGen = adv.getAdvisor(sc, me);
@@ -1910,33 +1955,32 @@ export class GameBar {
       advName,
     );
 
-    // 4 大理由客观有效性判定 (KI.EXE 0x6475 & 0x6A28)
-    const rel = relation(sc, me.idx, targetFaction.idx);
+    // 0x6475 敌对提案判定与理由位图（P35 权威模块，0 RNG）。
     const bellicosity = me.bellicosity ?? 10;
-
-    // r0: 外交关系恶劣
-    const r0Valid = rel < bellicosity + 15;
-    // r1: 我国较有利 (综合城池与好战度乘积对比)
-    const myScore = (me.n_cities ?? 1) * (bellicosity + 20);
-    const enemyScore = (targetFaction.n_cities ?? 1) * 25;
-    const r1Valid = myScore > enemyScore;
-    // r2: 敌正侵攻他国 (目标势力攻击目标非空且非我方)
-    const r2Valid =
-      targetFaction.target_faction != null &&
-      targetFaction.target_faction !== 0xff &&
-      targetFaction.target_faction !== me.idx;
-    // r3: 敌势力疲乏 (资金为负/赤字)
-    const r3Valid =
-      (targetFaction.money ?? 0) < 0 ||
-      (targetFaction.gold ?? 0) < 0 ||
-      (targetFaction.money_status ?? 0) < 0;
+    const hostileVerdict = originalHostileProposalVerdict6475({
+      relationByte: this._proposalRelationByte(
+        sc,
+        me.idx,
+        targetFaction.idx,
+        "6475",
+      ),
+      bellicosity,
+      pendingType1OnTarget: hasPendingStrategicEvent(sc, 1, {
+        arg0: me.idx,
+        arg1: targetFaction.idx,
+      }),
+      targetAttackingFaction: targetFaction.target_faction ?? 0xff,
+      playerIndex: me.idx,
+      targetMoneyWord: targetFaction.money ?? 0,
+      weStronger:
+        (me.n_cities ?? 1) * (bellicosity + 20) >
+        (targetFaction.n_cities ?? 1) * 25,
+    });
 
     // 信赖度决定说服所需理由数 (KI.EXE 0x3C1E)
-    const trustVal = sc.trust ?? 255;
-    let requiredReasons = 4;
-    if (trustVal >= 224) requiredReasons = 1;
-    else if (trustVal >= 144) requiredReasons = 2;
-    else if (trustVal >= 32) requiredReasons = 3;
+    const requiredReasons = originalProposalRequiredReasons3C1E(
+      sc.trust ?? 255,
+    );
 
     if (
       this._proposalRequest !== request ||
@@ -1961,7 +2005,8 @@ export class GameBar {
       timer: null,
       timerAction: null,
       reasonsHover: -1,
-      validReasons: [r0Valid, r1Valid, r2Valid, r3Valid],
+      validReasons: hostileVerdict.reasons.map(Boolean),
+      verdictAl: hostileVerdict.al,
       usedReasons: new Set(),
       requiredReasons,
       reasonsItems: [
@@ -1997,6 +2042,17 @@ export class GameBar {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
     if (!me || !targetFaction) return;
+    // 0x64F1 入口校验：0x6605 环查重(type6→TALK73)先于 0x65EF 外交官门。
+    if (
+      await this._proposalEntryGate(
+        sc,
+        me,
+        6,
+        73,
+        (targetFaction.monarch ?? "").trim(),
+      )
+    )
+      return;
 
     const monarch = sc.monarchOf(me);
     const advGen = adv.getAdvisor(sc, me);
@@ -2018,38 +2074,38 @@ export class GameBar {
       advName,
     );
 
-    // 4 大理由客观有效性判定 (KI.EXE 0x6577)
+    // 0x6577 停战判定与理由位图（P35 权威模块，0 RNG）。
     const bellicosity = me.bellicosity ?? 10;
-
-    // r0: 對我國較不利 (我军总体实力 < 敌军实力)
-    const myScore = (me.n_cities ?? 1) * (bellicosity + 20);
-    const enemyScore = (targetFaction.n_cities ?? 1) * 25;
-    const r0Valid = myScore < enemyScore;
-
-    // r1: 我正在防禦戰 (处于交战状态的敌方势力数 >= 2)
-    const warCount = sc.factions.filter(
-      (f) => f && f.idx !== me.idx && isAtWar(sc, me.idx, f.idx),
-    ).length;
-    const r1Valid = warCount >= 2;
-
-    // r2: 敵正侵攻他國 (目标势力正在进攻第三方势力)
-    const r2Valid =
-      targetFaction.target_faction != null &&
-      targetFaction.target_faction !== 0xff &&
-      targetFaction.target_faction !== me.idx;
-
-    // r3: 我國力疲乏 (国库资金偏低或赤字)
-    const r3Valid =
-      (me.money ?? 0) < 0 ||
-      (me.gold ?? 0) < 1000 ||
-      (me.money_status ?? 0) < 0;
+    const truceVerdict = originalTruceProposalVerdict6577({
+      relationByte: this._proposalRelationByte(
+        sc,
+        me.idx,
+        targetFaction.idx,
+        "6577",
+      ),
+      bellicosity,
+      weWeaker:
+        originalStrengthCompare6A28(
+          { cities: me.n_cities ?? 1, bellicosity },
+          { cities: targetFaction.n_cities ?? 1 },
+        ).mine <
+        (targetFaction.n_cities ?? 1) * 25,
+      anotherFactionTargetsMe: sc.factions.some(
+        (f) =>
+          f &&
+          (f.attr ?? 0) >= 0x80 &&
+          f.idx !== me.idx &&
+          f.target_faction === me.idx,
+      ),
+      targetAttackingFaction: targetFaction.target_faction ?? 0xff,
+      playerIndex: me.idx,
+      playerMoneyWord: me.money ?? 0,
+    });
 
     // 信赖度决定说服所需理由数 (KI.EXE 0x3C1E)
-    const trustVal = sc.trust ?? 255;
-    let requiredReasons = 4;
-    if (trustVal >= 224) requiredReasons = 1;
-    else if (trustVal >= 144) requiredReasons = 2;
-    else if (trustVal >= 32) requiredReasons = 3;
+    const requiredReasons = originalProposalRequiredReasons3C1E(
+      sc.trust ?? 255,
+    );
 
     if (
       this._proposalRequest !== request ||
@@ -2074,7 +2130,8 @@ export class GameBar {
       timer: null,
       timerAction: null,
       reasonsHover: -1,
-      validReasons: [r0Valid, r1Valid, r2Valid, r3Valid],
+      validReasons: truceVerdict.reasons.map(Boolean),
+      verdictAl: truceVerdict.al,
       usedReasons: new Set(),
       requiredReasons,
       reasonsItems: [
@@ -2110,6 +2167,17 @@ export class GameBar {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
     if (!me || !allyFaction || !targetFaction) return;
+    // 0x6623 入口校验：0x676F 环查重(type7→TALK74)先于 0x65EF 外交官门。
+    if (
+      await this._proposalEntryGate(
+        sc,
+        me,
+        7,
+        74,
+        (allyFaction.monarch ?? "").trim(),
+      )
+    )
+      return;
 
     const monarch = sc.monarchOf(me);
     const advGen = adv.getAdvisor(sc, me);
@@ -2132,28 +2200,38 @@ export class GameBar {
       advName,
     );
 
-    // 4 大理由客观有效性判定 (KI.EXE 0x66D9)
-    const relAlly = relation(sc, me.idx, allyFaction.idx);
+    // 0x66D9 請求協助判定与理由位图（P35 权威模块，0 RNG）。
     const bellicosity = me.bellicosity ?? 10;
     const myPower = (me.n_cities ?? 1) * (bellicosity + 20);
     const allyPower = (allyFaction.n_cities ?? 1) * 25;
     const targetPower = (targetFaction.n_cities ?? 1) * 25;
-
-    // r0: 外交關係良好 (友好度 >= bellicosity * 4 + 60 | 0x80)
-    const r0Valid = relAlly >= (((bellicosity * 4 + 60) & 0x7f) | 0x80);
-    // r1: 協力國強大 (协助势力总体实力 > 我军实力)
-    const r1Valid = allyPower > myPower;
-    // r2: 侵攻對象強大 (目标势力总体实力 > 我军实力)
-    const r2Valid = targetPower > myPower;
-    // r3: 我正在防禦戰 (目标势力正在进攻我方)
-    const r3Valid = targetFaction.target_faction === me.idx;
+    const assistanceVerdict = originalAssistanceProposalVerdict66D9({
+      allyIndex: allyFaction.idx,
+      targetIndex: targetFaction.idx,
+      bellicosity,
+      relationToAllyByte: this._proposalRelationByte(
+        sc,
+        me.idx,
+        allyFaction.idx,
+        "66D9",
+      ),
+      relationToTargetByte: this._proposalRelationByte(
+        sc,
+        me.idx,
+        targetFaction.idx,
+        "66D9",
+      ),
+      targetAttackingMe: targetFaction.target_faction === me.idx,
+      myForce: myPower,
+      targetForce: targetPower,
+      allyStrongerThanMe: allyPower > myPower,
+      targetStrongerThanMe: targetPower > myPower,
+    });
 
     // 信赖度决定说服所需理由数 (KI.EXE 0x3C1E)
-    const trustVal = sc.trust ?? 255;
-    let requiredReasons = 4;
-    if (trustVal >= 224) requiredReasons = 1;
-    else if (trustVal >= 144) requiredReasons = 2;
-    else if (trustVal >= 32) requiredReasons = 3;
+    const requiredReasons = originalProposalRequiredReasons3C1E(
+      sc.trust ?? 255,
+    );
 
     if (
       this._proposalRequest !== request ||
@@ -2180,7 +2258,8 @@ export class GameBar {
       timer: null,
       timerAction: null,
       reasonsHover: -1,
-      validReasons: [r0Valid, r1Valid, r2Valid, r3Valid],
+      validReasons: assistanceVerdict.reasons.map(Boolean),
+      verdictAl: assistanceVerdict.al,
       usedReasons: new Set(),
       requiredReasons,
       reasonsItems: [
@@ -2451,12 +2530,6 @@ export class GameBar {
     const me = p.playerFaction;
     const targetFaction = p.targetFaction;
 
-    const rel = targetFaction ? relation(sc, me.idx, targetFaction.idx) : 0;
-    const bellicosity = me.bellicosity ?? 10;
-    const atWar = targetFaction
-      ? isAtWar(sc, me.idx, targetFaction.idx)
-      : false;
-
     if (p.type === "relocate") {
       if (p.isBetter) {
         clickSfx();
@@ -2470,8 +2543,67 @@ export class GameBar {
           p.cityName,
         );
         this.app.view.draw();
-        this._setProposalTimer(3000, () => {
+        this._setProposalTimer(3000, async () => {
           // 0x6909：0x3B08完整对白返回后才调用0x33FD提交迁都。
+          if (hasNativeDiplomacyMatrix(sc)) {
+            // 0x33FD 迁都执行体（P38 已接线）：显式新首都提交——3408 xchg
+            // 写 F+3、340B 新旧相同即 ret、4502 军团前缘、341A 独立 CFD
+            // 玩家比较→3421 君主宣言行（075B 选择器 0x1A4=TALK[518+talk_idx]，
+            // \2=新城名、\4=君主名）+3445 5E60 显示门（规则 no-op）。
+            const result = performScenarioRelocationCommit(
+              sc,
+              me.idx,
+              p.targetCity.idx,
+            );
+            if (
+              result.status !== "unchanged" &&
+              result.status !== "player-message"
+            )
+              throw new RangeError(
+                `Uncovered native 0x33FD relocation status ${result.status}`,
+              );
+            sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
+            sc.capital = p.targetCity.idx;
+            this.app.hud.refreshTrust();
+            this.app.hud.refreshInfo?.();
+            this.app.hud.flashEvent(
+              `「${p.playerFaction.monarch}」同意遷都至「${p.cityName}」！信賴度 +10`,
+            );
+            const finishRelocation = () => {
+              this.closeProposalAudience();
+              const view = this.app.view;
+              const [wxp, wyp] = view.cityPixel(p.targetCity);
+              view.cam.x = innerWidth / 2 - wxp;
+              view.cam.y = innerHeight / 2 - wyp;
+              view.clampCam();
+              this.showCityCard(p.targetCity);
+              this.selectedSubmenu = 0;
+              this.syncClock();
+              this.app.view.draw();
+            };
+            if (result.status === "unchanged") {
+              finishRelocation();
+              return;
+            }
+            const talkIndex = personalityTalkIndex(result.reply.selector, {
+              ...result.monarchRecord,
+              talk_idx: result.reply.talkStyle,
+            });
+            if (!Number.isInteger(talkIndex))
+              throw new RangeError("Uncovered native 0x33FD monarch selector");
+            p.step = "declaration";
+            p.monarchLines = await formatTalkTokens(
+              talkIndex,
+              "",
+              result.reply.advisorName,
+              "",
+              "",
+              result.reply.cityName,
+            );
+            this.app.view.draw();
+            this._setProposalTimer(3000, finishRelocation);
+            return;
+          }
           sc.trust = Math.min(255, (sc.trust ?? 255) + 10);
           me.capital = p.targetCity.idx;
           sc.capital = p.targetCity.idx;
@@ -2532,44 +2664,63 @@ export class GameBar {
         this.app.view.draw();
         this._setProposalTimer(3000, () => {
           // 0x699E：0x3B08完整对白返回后才调用0x6E8F/0x5E80提交亲征。
-          me.reserve_cav = Math.max(0, (me.reserve_cav ?? 0) - 200);
-          me.reserve_inf = Math.max(0, (me.reserve_inf ?? 0) - 200);
-          me.reserve_arc = Math.max(0, (me.reserve_arc ?? 0) - 200);
-          p.monarch.status = 1;
-          p.monarch.is_monarch = true;
-          if (!sc.legions) sc.legions = [];
-          const capitalNode = roadNodeAt(cap.x, cap.y);
-          const newLegion = {
-            leader: p.monarch.name,
-            generalIdx: p.monarch.idx,
-            is_monarch: true,
-            faction: me.idx,
-            x: cap.x,
-            y: cap.y,
-            prevX: cap.x,
-            prevY: cap.y,
-            troops: 600,
-            morale: factionLegionMoraleCap(me),
-            formation: 1,
-            target: null,
-            targetCity: cap.idx,
-            targetNode: capitalNode?.id ?? null,
-            _currentNode: capitalNode?.id ?? null,
-            roadEdgeOrNode: roadNodeRawAddress(capitalNode?.id),
-            commandState: 0,
-            status: 0x80,
-            delegated: false,
-            _active: true,
-            units: DEFAULT_LEGION_UNIT_TYPES.map((type) => ({
-              type,
-              troops: 1000,
-            })),
-          };
-          ensureLegionSlot(sc.legions, newLegion, p.monarch.idx);
-          bindLegionSlotCounter(sc, newLegion);
-          resetLegionActionPhase(newLegion); // 6A03→6E8F→6FD2.
-          countLegionActivation(sc, newLegion);
-          sc.legions.push(newLegion);
+          let refused = false;
+          if (hasNativeDiplomacyMatrix(sc)) {
+            // 0x6A03 出陣提交体（P43 实锤）：6E8F 君主编成（候选序扣池、F14、占格、
+            // 士气封顶、L23=1、461D/6FD2、C4）；CF=1 则 6A06 jb 6A10 跳过清位与显示；
+            // 成功 [DI]&=0xFB 清委任位（君主亲领，C4→C0）。AL=8→5E80 纯显示见下
+            // refreshInfo（P32 全树零规则写入、零 RNG）。v1 分支行为不变。
+            refused = performScenarioMonarchDeployCommit(sc, p.monarch.idx).cf;
+            p.monarch.is_monarch = true;
+          } else {
+            me.reserve_cav = Math.max(0, (me.reserve_cav ?? 0) - 200);
+            me.reserve_inf = Math.max(0, (me.reserve_inf ?? 0) - 200);
+            me.reserve_arc = Math.max(0, (me.reserve_arc ?? 0) - 200);
+            p.monarch.status = 1;
+            p.monarch.is_monarch = true;
+            if (!sc.legions) sc.legions = [];
+            const capitalNode = roadNodeAt(cap.x, cap.y);
+            const newLegion = {
+              leader: p.monarch.name,
+              generalIdx: p.monarch.idx,
+              is_monarch: true,
+              faction: me.idx,
+              x: cap.x,
+              y: cap.y,
+              prevX: cap.x,
+              prevY: cap.y,
+              troops: 600,
+              morale: factionLegionMoraleCap(me),
+              formation: 1,
+              target: null,
+              targetCity: cap.idx,
+              targetNode: capitalNode?.id ?? null,
+              _currentNode: capitalNode?.id ?? null,
+              roadEdgeOrNode: roadNodeRawAddress(capitalNode?.id),
+              commandState: 0,
+              status: 0x80,
+              delegated: false,
+              _active: true,
+              units: DEFAULT_LEGION_UNIT_TYPES.map((type) => ({
+                type,
+                troops: 1000,
+              })),
+            };
+            ensureLegionSlot(sc.legions, newLegion, p.monarch.idx);
+            bindLegionSlotCounter(sc, newLegion);
+            resetLegionActionPhase(newLegion); // 6A03→6E8F→6FD2.
+            countLegionActivation(sc, newLegion);
+            sc.legions.push(newLegion);
+          }
+          if (refused) {
+            // 6A06 jb 6A10：编成拒绝（某队三候选池均不足 50），无清位、无 5E80，
+            // 直接共享尾声（关闭接见+时钟+重绘），无信赖变动。
+            this.closeProposalAudience();
+            this.selectedSubmenu = null;
+            this.syncClock();
+            this.app.view.draw();
+            return;
+          }
           this.app.hud.refreshInfo?.();
           this.app.hud.flashEvent(
             `「${p.monarch.name}」親征軍團出陣！駐守於「${cap.name}」。`,
@@ -2608,12 +2759,12 @@ export class GameBar {
     }
 
     if (p.type === "assistance") {
-      // 请求协助提案判断 (KI.EXE 0x66D9)
-      const relAlly = relation(sc, me.idx, p.allyFaction.idx);
-      const minAllyRel = ((bellicosity * 4 + 30) & 0x7f) | 0x80;
-      const atWarWithTarget = isAtWar(sc, me.idx, p.targetFaction.idx);
+      // 0x66D9 请求协助判定（P35 权威模块，verdict 在入口与理由位图一并算出）。
+      const al = p.verdictAl ?? 2;
+      if (al === 4)
+        throw new RangeError("Uncovered 0x66D9 verdict 4 (ally==target)");
 
-      if (relAlly < minAllyRel) {
+      if (al === 0) {
         // 与协助国交情不够，君主严词驳回 (Talk 218..220)
         warnSfx();
         p.step = "done";
@@ -2635,7 +2786,7 @@ export class GameBar {
         return;
       }
 
-      if (!atWarWithTarget) {
+      if (al === 3) {
         // 未与目标国交战，君主训斥驳回 (Talk 227..229: "\6沒必要和目前並未敵對的\3為敵。")
         warnSfx();
         p.step = "done";
@@ -2657,13 +2808,8 @@ export class GameBar {
         return;
       }
 
-      // 检查是否目标国正在攻击我方且实力占优 -> 直接同意 (Talk 221..223)
-      const myPower = (me.n_cities ?? 1) * (bellicosity + 20);
-      const targetPower = (p.targetFaction.n_cities ?? 1) * 25;
-      if (
-        p.targetFaction.target_faction === me.idx &&
-        myPower < targetPower / 2
-      ) {
+      // 目标国正在攻击我方且实力占优 -> 直接同意 (Talk 221..223)
+      if (al === 1) {
         clickSfx();
         p.step = "done";
         p.monarchLines = await formatTalkTokens(
@@ -2723,8 +2869,9 @@ export class GameBar {
     }
 
     if (p.type === "truce") {
-      // 停战提案判断 (KI.EXE 0x6577)
-      if (!atWar) {
+      // 0x6577 停战判定（P35 权威模块，verdict 入口已算）。
+      const al = p.verdictAl ?? 2;
+      if (al === 3) {
         // 未在交战状态，君主训斥驳回 (Talk 163..165: "原本就沒有和\3交戰啊！混帳東西！！")
         warnSfx();
         p.step = "done";
@@ -2746,9 +2893,8 @@ export class GameBar {
         return;
       }
 
-      // 友好度极低/君主好战驳回 (Talk 154..156: "說什麼停戰！那是不可 能的事！")
-      const refuseThreshold = Math.floor(bellicosity / 2);
-      if (rel < refuseThreshold) {
+      // 友好度极低/君主好战驳回 (Talk 154..156)
+      if (al === 0) {
         warnSfx();
         p.step = "done";
         p.monarchLines = await formatTalkTokens(
@@ -2780,22 +2926,8 @@ export class GameBar {
       return;
     }
 
-    // 敌对提案判断
-    const isAttackingUs =
-      targetFaction.target_faction === me.idx ||
-      sc.legions.some(
-        (l) =>
-          !l.dead &&
-          l.faction === targetFaction.idx &&
-          l.target?.faction === me.idx,
-      );
-    const dismissThreshold = bellicosity * 2 + 20;
-    const tooGood = rel >= dismissThreshold;
-
-    let al = 2;
-    if (isAttackingUs) al = 1;
-    else if (atWar) al = 3;
-    else if (tooGood) al = 0;
+    // 0x6475 敌对提案判定（P35 权威模块，verdict 入口已算）。
+    const al = p.verdictAl ?? 2;
 
     if (al === 1) {
       // 对方已在进攻我方，直接同意开战 (Talk 93..95)
@@ -3336,6 +3468,7 @@ export class GameBar {
     targetFaction = null,
     result,
     onResolve,
+    nativeDecision = null,
     generation = this._scenarioUiGeneration,
   }) {
     const sc = this.app.scenario;
@@ -3345,14 +3478,18 @@ export class GameBar {
     const requesterName = (requesterFaction.monarch ?? "").trim();
     const targetName = (targetFaction?.monarch ?? "").trim();
     const monarchImg = await portrait(monarch.portrait).catch(() => null);
-    const reportLines = await formatTalkTokens(
-      type === "incoming-truce" ? 360 : 373,
-      requesterName,
-    );
-    const requestLines = await formatTalkTokens(
-      type === "incoming-truce" ? 362 : 375,
-      [requesterName, targetName],
-    );
+    // 38C7/38E6：提问行 = TALK 基 + 君主个性变体（3C99：v>=3 减 3）；
+    // 原版选项前无军师行，native 分支不显示 v1 的第二行。
+    const base = type === "incoming-truce" ? 360 : 373;
+    let questionTalk = base;
+    if (nativeDecision) {
+      const v = nativeDecision.personality;
+      questionTalk = base + (v >= 3 ? v - 3 : v);
+    }
+    const reportLines = await formatTalkTokens(questionTalk, requesterName);
+    const requestLines = nativeDecision
+      ? null
+      : await formatTalkTokens(base + 2, [requesterName, targetName]);
     if (generation !== this._scenarioUiGeneration) return false;
     this._proposalRequest = null;
     this.proposalAudience = {
@@ -3369,6 +3506,7 @@ export class GameBar {
       reasonsHover: -1,
       incomingResult: result,
       incomingResolve: onResolve,
+      nativeDecision,
       timer: null,
       timerAction: null,
     };
@@ -3392,31 +3530,82 @@ export class GameBar {
     const p = this.proposalAudience;
     if (!p || (p.type !== "incoming-truce" && p.type !== "incoming-assistance"))
       return;
-    if (choice === "pay" && amount <= 0) return;
-    const resolved = resolveIncomingDiplomacyChoice(
-      this.app,
-      p.incomingResult,
-      choice,
-      amount,
-    );
-    if (!resolved) return;
-    const { outcome, goldRequired } = resolved;
+    // 3902（native）：pay 输入 0 落回无条件同意，UI 不吞掉；v1 保持原门。
+    if (!p.nativeDecision && choice === "pay" && amount <= 0) return;
+    const requesterName = (p.requesterFaction?.monarch ?? "").trim();
+    const targetName = (p.targetFaction?.monarch ?? "").trim();
+    let outcome;
+    let goldRequired;
+    let monarchTalk;
+    let advisorTalk = null;
+    let extraTalks = [];
+    let praiseTalk = null;
+    if (p.nativeDecision) {
+      const resolved = p.nativeDecision.resolveChoice?.(choice, amount);
+      if (!resolved) return;
+      outcome = resolved.outcome;
+      goldRequired = resolved.fee;
+      monarchTalk = resolved.responseTalk;
+      advisorTalk = resolved.advisorTalk;
+      extraTalks = [resolved.notifyTalk].filter((talk) => talk != null);
+      // 3DC9 借位台词（075B 展开 470+个性 解任行）：\4=玩家君主名字节。
+      praiseTalk = resolved.praiseTalk ?? null;
+    } else {
+      const resolved = resolveIncomingDiplomacyChoice(
+        this.app,
+        p.incomingResult,
+        choice,
+        amount,
+      );
+      if (!resolved) return;
+      ({ outcome, goldRequired } = resolved);
+      monarchTalk = p.type === "incoming-truce" ? 367 + outcome : 380 + outcome;
+    }
     let committed = false;
     p.incomingCommit = () => {
       if (committed) return;
       committed = true;
       p.incomingResolve?.(outcome, goldRequired);
     };
-    const requesterName = (p.requesterFaction?.monarch ?? "").trim();
-    const targetName = (p.targetFaction?.monarch ?? "").trim();
-    p.monarchLines = await formatTalkTokens(
-      p.type === "incoming-truce" ? 367 + outcome : 380 + outcome,
-      [requesterName, targetName],
-      "",
-      "",
-      `${goldRequired}`,
-    );
-    p.advLines = null;
+    p.monarchLines = [
+      ...(await formatTalkTokens(
+        monarchTalk,
+        [requesterName, targetName],
+        "",
+        "",
+        `${goldRequired}`,
+      )),
+    ];
+    for (const talk of extraTalks) {
+      p.monarchLines.push(
+        ...(await formatTalkTokens(
+          talk,
+          [requesterName, targetName],
+          "",
+          "",
+          `${goldRequired}`,
+        )),
+      );
+    }
+    if (praiseTalk != null) {
+      p.monarchLines.push(
+        ...(await formatTalkTokens(
+          praiseTalk,
+          "",
+          (p.monarch?.name ?? "").trim(),
+        )),
+      );
+    }
+    p.advLines =
+      advisorTalk == null
+        ? null
+        : await formatTalkTokens(
+            advisorTalk,
+            [requesterName, targetName],
+            "",
+            "",
+            `${goldRequired}`,
+          );
     p.step = "incoming_diplomacy_result";
     this._setProposalTimer(3000, () => this._closeIncomingDiplomacy());
     this.app.view.draw();
@@ -3674,7 +3863,10 @@ export class GameBar {
           p.step = "incoming_diplomacy_keypad";
           this.showKeypadDialog(
             p.type,
-            p.incomingResult?.goldRequired ?? 0,
+            // 7C6E：native 键盘默认 0；v1 默认算法 fee。
+            p.nativeDecision
+              ? (p.nativeDecision.keypadDefault ?? 0)
+              : (p.incomingResult?.goldRequired ?? 0),
             30000,
             winX - 8,
             winY + 96,
@@ -3707,7 +3899,10 @@ export class GameBar {
           p.step = "envoy_budget_keypad";
           this.showKeypadDialog(
             p.type,
-            p.budgetRequested,
+            // 7C6E：native 键盘默认 0（7CA2 xor si,si）；v1 默认建议额。
+            p.nativeBudget
+              ? (p.nativeBudget.keypadDefault ?? 0)
+              : p.budgetRequested,
             30000,
             winX - 8,
             winY + 96,
@@ -4243,8 +4438,15 @@ export class GameBar {
     const sc = this.app.scenario;
     const city = sc.cities?.[message.cityIdx];
     const me = cmd.playerFaction(sc);
-    if (!city || city.governor == null) return false;
-    const gen = sc.generals?.[city.governor];
+    if (!city) return false;
+    // native 32A9：SI=内政官将号在出队时已固定（32B6 门），不随 city.governor 重查。
+    let gen;
+    if (message.nativeBudget) {
+      gen = sc.generals?.[message.nativeGeneral];
+    } else {
+      if (city.governor == null) return false;
+      gen = sc.generals?.[city.governor];
+    }
     const monarch = me ? sc.monarchOf(me) : null;
     const advisor = sc.generals?.[me?.advisor_idx] ?? monarch;
     if (!gen || !monarch || !advisor) return false;
@@ -4310,15 +4512,18 @@ export class GameBar {
     generation = this._scenarioUiGeneration,
   ) {
     const sc = this.app.scenario;
-    const envoy = sc.envoys?.[message.targetIdx];
+    const envoy = message.nativeBudget ? null : sc.envoys?.[message.targetIdx];
     const target = sc.factions?.find((f) => f?.idx === message.targetIdx);
     const me = cmd.playerFaction(sc);
-    const gen =
-      (envoy?.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
-      sc.generals?.find((g) => g?.name?.trim?.() === envoy?.name?.trim?.());
+    // native 32E9：SI=外交官将号在出队时已固定（32F4 门），不依赖 v1 envoy 投影。
+    const gen = message.nativeBudget
+      ? sc.generals?.[message.nativeGeneral]
+      : (envoy?.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
+        sc.generals?.find((g) => g?.name?.trim?.() === envoy?.name?.trim?.());
     const monarch = me ? sc.monarchOf(me) : null;
     const advisor = sc.generals?.[me?.advisor_idx] ?? monarch;
-    if (!envoy || !target || !gen || !monarch || !advisor) return false;
+    if (!target || !gen || !monarch || !advisor) return false;
+    if (!message.nativeBudget && !envoy) return false;
     const [envoyImg, advisorImg, monarchImg] = await Promise.all([
       portrait(gen.portrait).catch(() => null),
       portrait(advisor.portrait).catch(() => null),
@@ -4488,6 +4693,7 @@ export class GameBar {
       return;
     const domestic = p.type === "domestic-budget";
     if (
+      !p.nativeBudget &&
       domestic &&
       (p.city?.governor == null || p.city.governor !== p.advGen?.idx)
     ) {
@@ -4502,6 +4708,7 @@ export class GameBar {
     if (grant === 0) category = 2;
     else if (grant === requested) category = 0;
     else if (grant < requested) category = 1;
+    p.budgetCategory = category;
     p.budgetCommitting = true;
     p.step = "budget_committing";
     p.budgetGrant = grant;
@@ -4546,6 +4753,13 @@ export class GameBar {
     if (!p || p.budgetCommitted || p.budgetGrant == null) return;
     p.budgetCommitted = true;
     const grant = Math.max(0, p.budgetGrant | 0);
+    // native 39E8 提交（3ADF..3AF0）：由 ai.js 闭包经严格桥写 +1A 并
+    // 563B 扣款；建议额 0 / 拒绝（outcome 2）无写入。native 不重新门控
+    // 内政官（SI 在 32A9 出队时已固定）。
+    if (p.nativeBudget) {
+      p.nativeBudget.commit?.(grant, p.budgetCategory ?? (grant > 0 ? 0 : 2));
+      return;
+    }
     const domestic = p.type === "domestic-budget";
     if (
       domestic &&
@@ -7967,10 +8181,10 @@ export class GameBar {
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(mx + (gx * 16 + 8) * kx, my + (gy * 16 + 8) * ky);
-      let path = L._path || [];
-      if (!path.length && roadGraphReady()) {
-        path = findRoadRoute(L.x, L.y, L.target.x, L.target.y)?.points ?? [];
-      }
+      // G3: v1 live route oracle deleted. Mirror the big-map native
+      // projection (L._march points); display never searches the graph.
+      const path =
+        L._march?.points?.slice(L._march.pointIndex ?? 0) ?? L._path ?? [];
       if (isMoving && curT < 1) {
         ctx.lineTo(mx + (L.x * 16 + 8) * kx, my + (L.y * 16 + 8) * ky);
       }

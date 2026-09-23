@@ -31,7 +31,7 @@ export function createPathfinder(definition, roads) {
   let roadOff = null; // {tileId: [ox,oy]} 道路线质心偏移
 
   async function loadTerrain() {
-    if (terrain && roadCost) return terrain;
+    if (terrain && roadCost) return terrain.slice();
     const [mapRes, costRes, offRes] = await Promise.all([
       fetch(definition.assets.terrain),
       fetch(definition.assets.roadCost),
@@ -41,7 +41,16 @@ export function createPathfinder(definition, roads) {
     terrain = new Uint8Array(await mapRes.arrayBuffer());
     roadCost = new Uint8Array(await costRes.arrayBuffer());
     roadOff = await offRes.json();
-    return terrain;
+    return terrain.slice();
+  }
+
+  // Immutable exact resource identity, never a mutable Scenario rules plane.
+  function terrainIdentity() {
+    if (!terrain || terrain.length !== W * H)
+      throw new TypeError("Invalid initial terrain resource");
+    return Array.from(terrain, (value) =>
+      value.toString(16).padStart(2, "0"),
+    ).join("");
   }
 
   /** MMAP.MAP 原始图块编号；资源未就绪或越界时返回 null。 */
@@ -140,7 +149,6 @@ export function createPathfinder(definition, roads) {
    * @returns [{x,y},...] 不含起点、含终点的路径; 起点即终点=[]; 不可达/未装载=null
    */
   function findPath(sx, sy, tx, ty, isBlocked) {
-    roads.assertLegacyRoutingAvailable();
     if (!roadCost) return null;
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return null;
     if (sx === tx && sy === ty) return [];
@@ -205,5 +213,13 @@ export function createPathfinder(definition, roads) {
     return null; // 不可达 (目标被水隔断且无陆桥)
   }
 
-  return { loadTerrain, terrainTile, roadOffset, passable, gateDirs, findPath };
+  return {
+    loadTerrain,
+    terrainIdentity,
+    terrainTile,
+    roadOffset,
+    passable,
+    gateDirs,
+    findPath,
+  };
 }

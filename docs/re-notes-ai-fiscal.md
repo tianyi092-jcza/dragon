@@ -1,6 +1,6 @@
 # 原始月度财政、征兵、武将与预算：P08/P09
 
-**状态：指定输入下5358整调用及本体条件已复核；完整月度所有callee/消息与全AI专项未完成。** 本页维护月结接缝的详细原始证据；[AI全链总纲](re-notes-ai-chain.md)维护最终验收，不将本体边覆盖等同于全部战役决策闭合。
+**状态：指定输入下5358整调用及本体条件已复核；5358..538B财政与5695城市生产核心已按固定槽接线，后续585F/55A6/2BD9/预算/灾害/消息与全AI专项仍未全部完成。** 本页维护月结接缝的详细原始证据；[AI全链总纲](re-notes-ai-chain.md)维护最终验收，不将本体边覆盖等同于全部战役决策闭合。
 
 ## 1. 来源、完整输入与方法
 
@@ -180,3 +180,51 @@ amount = u8((r >= 0x80 ? 100 : 125) - (r & 0x7F)) * 200
 最初没找到1e4c版本，导致严格比较失败，完整差异保留`parent-replay-failure-01.json`。后来父亲自把已保存`initial-people_budget_probe.py`的CRLF仅转换为LF，恢复**逐byte散列完全匹配**1e4c6bc77b54e48f33f7fb4d05f6f498cf5f0de7758c7c73c2e0c103508f3e00。转换/原散列见`parent-source-recovery.json`；读审恢复版与最终版差异，旧9例配置未受free家族修改影响。没有改原报告/结果，不能以恢复旧源冒称它们已由最终源重生。另一早期依赖检查猜测新包有cfg.py而失败，实际validator引用原P08路径，已按真实引用核hash并保留`parent-setup-failure-01.json`。
 
 本体585F/5715/578F共36条件72边，69边有完整月结RET见证，3边仅消息暂停前缀；原149未观察callee边新增62完整/3暂停，剩84未观察，详见`scoped-branches.md`/`validation.json`。未观察不能视为不可达，四消息后半仍为后续明确工作；未把参数化状态/页时相、字段计数或任命输入当原战役前史。后续[P10](re-notes-strategic-message-abi.md)已从这四现场在明示端口合同下执行CDE真实RET，但只到8810更深显示边界，未完成整消息/5358后半。
+
+## 12. P24：固定槽5358财政与5695生产接线
+
+生产实现拆为纯原规则核`web/src/game/navigation/originalmonthlyfiscal.js`与严格Scenario桥`scenariomonthlyfiscal.js`。`economy.monthlySettlement`仅在存在`nativeFactionSlots`时进入新核；v1旧路径不改。月末App调用经`processMonthlyFiscalSettlement`，任何固定槽缺字段/RNG失败都由既有战略失败拥有者暂停并禁存，不回滚已发生的原顺序前缀。
+
+接线范围严格保持§2顺序：固定22槽只处理`attr>=80h`财政，先563B扣原`F+1A..1C`、再53C6扫描固定192城；NPC收入右移1后执行5456，玩家按显式CFD读取D08/D0A..D0F；三池55EC后5609加钱、写F23、清旧费，再5828按税后负值逐池消费RNG。全部活动势力完成后才5695固定192城各消费一次RNG并写生产/增长。CFD必须来自`nativePlayerFactionPointer`，CFF仍独立来自`player_faction`；二者不互推。
+
+5456按地址别名实现127个20h半记录：偶数半项读固定完整槽0..63的`status/faction/troops`，奇数半项读完整槽0..62的`targetCity(+20)/contactAnimationByte21(+21)/monthlyAliasWord24(+24)`。为保存原+24别名，固定军团槽schema新增显式u16 `monthlyAliasWord24`；仅新章零表可由已证8192B全零初始化，JSON缺失不补。扫描逐项u16回绕，旧费仍取未清的F+1B；不能改成公开活动军团列表或128槽全扫。
+
+资金桥只接受signed24 `money`并按原raw24写回，同时同步既有显示别名`gold`；563B只下封`F60168h`，5609只上封`09FE98h`，不以普通JS整数净额一次钳制。城市5695按16位IMUL低word、SAR及word回绕执行；玩家税率对growth的byte加减与生产改变量分开，不使用旧Web浮点近似。
+
+本批另从固定KI原字节实际执行`5358..5715 / 5828..585F / ECE0..ECFE`，10例覆盖NPC、玩家、费用等号拒征、税后−1三次RNG、首/后半别名，以及5695正负乘积、玩家高税和max封顶；生产逐字段与这10例一致。证据根为`C:/Users/fczll/.pi/agent/sessions/--E--Dragon--/fiscal-core-01a0a5cb/`，其中`oracle/result.json`和`compare.mjs`是本批差分，不取代§1–7的19个完整5358证书。仓库回归`tools/verify_native_monthly_fiscal.mjs`冻结官方原版首章13方8778/65/65/415、费用4352等号拒征、失败前缀与CFD/CFF分离。
+
+此接线只替换5358财政/城市生产核心；后继585F、55A6、2BD9、5715/578F与57FE的新增接线见下节。天气生产虽已有独立严格模块，53A6政策8B复制、四类消息返回及完整连续月结仍未闭合，不能因局部通过宣称整月或全AI完成。
+
+## 13. P24：55A6、2BD9与预算生产连续接线
+
+月结现按真实顺序执行`585F→55A6→2BD9→5715→578F→22DB/2286→57FE`。`originalgeneralrating.js`固定只扫G0..126；`attr>=80h`才以三个专长高nibble、两个全byte能力各乘2并按byte回绕写G1F，G127永不读取。仓库测试以既有256个实际55A6原指令向量逐项比对，并锁定官方曹操54、典韦40及失败保留已写前缀。
+
+`nativeDiplomacyRaw`现从每章`+680h`保留完整24×24有向矩阵，运行时`nativeDiplomacyMatrix.rows`为固定权威；公开`diplomacy`只别名声明行，不扩公开势力。`nativeStrategicEventRaw`保留`+52C0..56BF`的256×4B事件轮（20章源字节均为零），fresh从原字节初始化，JSON恢复拒绝矩阵分歧、槽洞或非法byte。v1与正常App的v2拒绝门不变。
+
+`originalmonthlydiplomacy.js`与严格Scenario桥接回完整同步`2BD9`生产者：先写D20=0/分频7，按word顺序将未来三页前移并清第四页；逐活跃固定22槽构建地理工作表、执行`2D3A`，全部建表后再执行关系变化、type2/type3/type1、`2F71`及目标尾段。候选排序按`2C8A..2CDB`“遇严格更小立即交换”，不是旧Web每轮只交换一次；玩家势力仍执行2EFB。官方原版第一章、玩家曹操、RTC 00:00:00结果为30次RNG、曹操→吕布`A9→A1`、吕布→曹操`AA→A7`并排入曹操type1，与P17完整2BD9证书一致。无普通候选且通过关系门后到`3094`的状态外读仍按原证暂停，不补FFFF保护。
+
+`originalmonthlybudgets.js`接回`5715/578F/57FE`：5715固定192城，读取一次CFF，按城主/内政官/G1A门计算三项正差、右移1再乘50，金额0仍调用2FBF；事件4B为`{4,city,amountLo,amountHi}`。578F固定22槽，以显式CFD pointer跳玩家且不增active门，驻外将G1A为0才按两向raw较小值和byte下溢公式申请，事件为`{5,faction,amountLo,amountHi}`。57FE按CFD所指`word[F+21]`的signed高byte、word NEG门槛39、低4位RNG与F28门排`{13,0,96h,01h}`。所有成功/页满都保2FBF的单次随机起点消费，失败不回滚先前5715写入。
+
+仓库回归`verify_native_monthly_diplomacy.mjs`与`verify_native_monthly_budgets.mjs`覆盖固定源、声明外势力、页前移、立即交换排序、官方30次RNG/关系结果、金额0、51000下溢、满页消费、57FE边界、JSON恢复及失败hold。这里仍只闭合生产与存储接缝；后续政策切换与type10/type13消费见§14，其余type1–8消息/玩家返回和后续月末命令链仍须继续。
+
+## 14. P24：53A6政策切换与type10/type13消息返回
+
+章节头`CS:D08..D17`现以`nativeMonthlyPolicyRaw`完整保留16字节，不再只保存具名的征兵、税率和三项政策值。fresh只能从章节原字节初始化；v2 JSON恢复逐byte核对`nativeMonthlyPolicyState.bytes`及具名视图，缺字节、数组长度错误或别名分歧均拒绝。D08/D0A等兵力字段继续保存原十人单位，UI显示人数是派生视图；未知`D09/D11`也必须原样留存。
+
+月末`53A6..53BD`由`originalmonthlypolicy.js`按四个word顺序将`D10..D17`复制到`D08..D0F`，每个word写完即提交，不能改成字段级赋值或漏掉未知byte。复制完成后以`AL=0Eh`进入`5E80`；本次只把已证的mask更新/返回建模为无规则状态和无RNG的有界表现边界，不借此宣称完整显示实现。复制途中或表现边界失败保留已写word前缀并进入战略hold。财政5358改从这张raw权威表读取当前政策，不再让具名Web字段反向决定原字节。
+
+事件消费新增两个有限真实返回：type10跳表`3496`把`arg1|arg2<<8`作TALK索引，把`FF00h|arg0`压栈后以通用NPC selector `93h`调用8810；Web仅在实际通用TALK弹窗关闭时恢复同一`3E11`尾段，不消费RNG，越出当前1023条TALK资源或缺少消息返回就保事件游标前缀并停。运行时生产者仍未知，未据此新造type10事件。
+
+Type13跳表`3507`先以通用NPC显示TALK51；第一次真实返回后才进入`3DC9`，将玩家势力信赖减50。正常减法精确到0仍使用原selector `0196h`，借位下溢则钳0并改为`019Eh`；selector为`FFFFh`时跳过君主对白及信赖0终局检查。其它selector经`87FF`取得玩家君主，按其`talk_idx`选择个性对白；只有第二段真实关闭后且信赖为0才调用既有终局检查。缺CFD映射/君主/消息边界在已经发生的扣信赖之后fail-closed，不回滚或伪造返回。专项`verify_native_monthly_policy.mjs`、`verify_native_generic_talk.mjs`和`verify_native_deficit_trust.mjs`分别锁定固定KI字节、复制/恢复、事件游标、两段返回、下溢/精确零/FFFF及失败前缀。
+
+到此月结生产前缀及政策切换已接至`53BD`，事件消费者另放行type1 NPC/已战无消息路径、type8迁都以及既有type9、type10、type11、type12、type13的有限实锤域。type1–8全类消息流（含type2/3玩家决定38C7/38E6、type8玩家分支341F→5E60）、8810/5E80规则闭包与月末后续命令链已分别由P25–P33闭合（type1–8见[外交笔记§35–38](re-notes-ai-diplomacy.md)，8810/5E80见[消息ABI§17](re-notes-strategic-message-abi.md#17-p3288105e80传递树写集审计与规则闭包)，月末后续命令链见下节§15）；默认v1及正常App拒v2保持。
+
+## 15. P33：月末后续命令链（1D8E续段、585F玩家消息、兵源对账）
+
+本节为月末后续命令链的唯一详细维护源；`585F`玩家登场/俘虏归宿消息接线的机制细节维护于[去向§18](re-notes-legion-fate.md#18-玩家登场与俘虏归宿消息接线p33-monthly-fate-1)，本节只维护月末骨架与兵源对账。
+
+- 权威窗复核（`tools/disasm.py`现刷）：`5358`本体依次`538B→5695`（192城生产/增长，各1 RNG）、`538E→585F`、`5391→55A6`、`5394→2BD9`、`5397/539A→5715/578F`、`539D/53A0→22DB/2286`、`53A3→57FE`，随后`53A6`政策4word复制（**无独立caller，是5358内联fall-through**），再以`AL=0Eh`调`5E80`→`53C0 RET`。`5358`唯一caller是`1DD4`（在`1D8E`日历层内）；`1D8E`后续=1DD7 day0→1、1DDB hour=0、1DE0 hour=1、1DE9→9377换季视觉（hour==1且day≤16且月∈{3,6,9,12}→调色板0A65+93D7）、1DEC→3E11（先31AE事件泵再轮转单势力tick，游标cs:[D1C]，si+=0x40回绕0x580）、1DEF→1E17日期显示（VGA纯表现但须保栈效应）、1DF8速度等待尾（cfa门+d2c/d2d）→ret 1D1F。`1D0B`主更新=3EFD+25A3+2459+1D8E；`cs:[D2A]==1`→1D20 GAME OVER分支（CDE+8810(cx=0x4B,al=0x93)+君主行8810(cx=0x197→TALK[414+talk_idx])+al=2→1CB1）。Web `clock.js`已精确镜像1D8E刻度（sub 0..8、hour 0..23、换日hour1、998夹顶、5358先于day=1）。
+- **兵源实锤（5547 in 53C6）**：原版士兵=每月自动兵源（5695生产力/税率）+玩家財政政策配额：`67CD..6845`四项跳表`cs:[67C5]={67CD税byte→D10, 67E6/6806/6826三个word÷10→D12/D14/D16}`，7C6E键盘（cap税100/配额10000），次月经53A6转正、5358玩家财政541E→548F读取。**v1 `recruit()`命令（花200金次月+500，commands.js，pendingRecruits队列）与`develop()`无原版对应，属未批准差异候选**；P33起native场景`recruit()`返err禁用、`pendingRecruits`入账与清空跳过、`monthlyAppear`跳过（585F逐月减G18=appear_months与v1按elapsed阈值直改faction的双机制冲突消除），v1路径全部保留。该裁决项待用户确认。
+- Web月结结构：`main.js onMonthEnd`在5358序列后建nativeBlocked守卫（`scenarioNativeRoadContext||hasNativeLegionSlots`）与`runRemainingMonthEndSteps`闭包（ratings/diplomacy/budgets/disaster/deficit/policy/monthlyAI/cmd.monthEnd/monthlyAppear，仅非native部分受守卫）；`processMonthlyGeneralFates(this,tail)`返回'suspended'时尾巴挂入`_nativeMonthlyFateContinuation.deferredTail`，消息关闭后续跑。v1支路不挂起、立即顺序执行，行为不变。monthlyAI清死军团是既有已记产品决定，保留。
+- 回归：`verify_native_legion_fate.mjs` 40项（含deferred全合同与续扫链）、monthly族/war/negotiation/player_decision/budget/capital/city_request 99项、scenario_assembly 5项、save族 8项全绿；savegame禁存门覆盖挂起中状态。
+- 仍未闭合：35ED外围（callers 3516/389A）、1D8E事件泵整链、C01/C02/C03/C07/C08外围、生产native内容挂载（nativeFactionSlotRaw/nativeCityRecordRaw等）、保存恢复整链、准入重评估；默认v1及正常App拒v2保持。

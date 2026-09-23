@@ -14,12 +14,13 @@ const errors = [],
   forbidden = [];
 try {
   browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
+  let context = await browser.newContext({
     viewport: { width: 1024, height: 768 },
   });
-  await context.addInitScript(() =>
-    sessionStorage.setItem("wolong.intro.seen.v1", "1"),
-  );
+  await context.addInitScript((origin) => {
+    if (location.origin !== origin) return;
+    sessionStorage.setItem("wolong.intro.seen.v1", "1");
+  }, origin);
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
     if (
@@ -31,7 +32,7 @@ try {
     }
     return route.continue();
   });
-  const page = await context.newPage();
+  let page = await context.newPage();
   page.setDefaultTimeout(30000);
   page.on("pageerror", (error) => errors.push(String(error)));
   page.on("console", (message) => {
@@ -39,12 +40,22 @@ try {
   });
   await page.goto(`${origin}/index.html`);
   await page.waitForFunction(() => !!window.__app?.startMenu?._onClick);
-  const before = await page.evaluate(async () => {
+  // Builder realm (warms its own graph): prepare a genuine v2 save through
+  // fresh preparation + snapshot. The metadata-less legacy save can no
+  // longer restore against a v2 graph since the P58 flip, so the cold
+  // realm below injects this v2 save instead of a hand-built v1 snapshot.
+  const built = await page.evaluate(async () => {
     const app = window.__app;
     await app.ensureGameAssets();
     app.ensureGameShell();
     const { createNewGameScenario } = await import("/src/game/world.js");
     const { countLegionActivation } = await import("/src/game/legioncounts.js");
+    const { prepareScenario } = await import("/src/game/scenarioassembly.js");
+    const {
+      initializeNativeLegionSlotsFromZeroChapter,
+      rebindNativeLegionViews,
+    } = await import("/src/game/nativelegions.js");
+    const { snapshotState } = await import("/src/game/savegame.js");
     const state = createNewGameScenario(app.data.scenarios[16], 0, null);
     // Explicit phase1 saved edge input; edge0 point2004=(254,9), towards node2.
     // This tests public loading/assembly, not normal production of this snapshot.
@@ -71,30 +82,76 @@ try {
       targetY: state.cities[2].y,
       commandState: 0,
     };
+    initializeNativeLegionSlotsFromZeroChapter(state);
     countLegionActivation(state, legion);
-    state.legions.push(legion);
-    app.saves = {
-      slots: [
-        {
-          slot: 0,
-          played: true,
-          state,
-          scenario_idx: 16,
-          label: "cold synthetic",
+    state.nativeLegionSlots.records[0] = legion;
+    rebindNativeLegionViews(state);
+    const prepared = await prepareScenario({
+      raw: state,
+      idx: 16,
+      content: app.content,
+      world: app.world,
+      mode: "fresh",
+    });
+    const snap = snapshotState(
+      {
+        scenario: prepared.scenario,
+        scenarioIdx: 16,
+        clock: app.clock ?? { year: 190, month: 1, day: 1 },
+        originalRng: app.originalRng ?? app.activeBattleRng ?? {
+          snapshot: () => ({ state: 7 }),
         },
-      ],
-    };
-    window.__roadColdSaveBefore = JSON.stringify(app.saves);
-    return {
-      ready: app.world.roads.roadGraphReady(),
-      fields: state.legionSlotCounters.length,
-    };
+        content: app.content,
+        world: app.world,
+      },
+      0,
+      "cold synthetic",
+    );
+    return { save: snap, fields: state.legionSlotCounters.length };
   });
-  assert.deepEqual(
-    before,
-    { ready: false, fields: 128 },
-    "fixture must not prewarm graph",
+  assert.equal(built.fields, 128, "fixture must carry 128 legion slots");
+  assert.equal(
+    built.save.webMeta.scenarioAssembly.roadVersion,
+    2,
+    "builder must produce a genuine v2 save",
   );
+  await context.close();
+  // Cold realm: fresh context whose graph is untouched until loadSave.
+  context = await browser.newContext({
+    viewport: { width: 1024, height: 768 },
+  });
+  await context.addInitScript((origin) => {
+    if (location.origin !== origin) return;
+    sessionStorage.setItem("wolong.intro.seen.v1", "1");
+  }, origin);
+  await context.route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    if (
+      url.origin !== origin ||
+      /\/api\/|\.dragon-runtime|save\.dat/i.test(url.pathname)
+    ) {
+      forbidden.push(url.href);
+      return route.abort();
+    }
+    return route.continue();
+  });
+  page = await context.newPage();
+  page.setDefaultTimeout(30000);
+  page.on("pageerror", (error) => errors.push(String(error)));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.goto(`${origin}/index.html`);
+  await page.waitForFunction(() => !!window.__app?.startMenu?._onClick);
+  await page.evaluate((save) => {
+    const app = window.__app;
+    app.saves = { slots: [save] };
+    window.__roadColdSaveBefore = JSON.stringify(app.saves);
+  }, built.save);
+  const before = await page.evaluate(() => ({
+    ready: window.__app.world.roads.roadGraphReady(),
+  }));
+  assert.deepEqual(before, { ready: false }, "fixture must not prewarm graph");
   const inspectLoad = async () =>
     page.evaluate(async () => {
       const app = window.__app;
@@ -105,9 +162,9 @@ try {
         ready: app.world.roads.roadGraphReady(),
         x: army.x,
         y: army.y,
-        edgeId: army._march?.edgeId ?? null,
-        stride: army._march?.stride ?? null,
-        pointIndex: army._march?.pointIndex ?? null,
+        roadPointAddress: army.roadPointAddress,
+        roadStride: army.roadStride,
+        roadEdgeOrNode: army.roadEdgeOrNode,
         targetNode: army.targetNode,
         moveDelay: army.moveDelay,
         movePeriod: army.movePeriod,
@@ -123,9 +180,9 @@ try {
     ready: true,
     x: 254,
     y: 9,
-    edgeId: 0,
-    stride: 4,
-    pointIndex: 2,
+    roadPointAddress: 0x2004,
+    roadStride: 4,
+    roadEdgeOrNode: 0x800,
     targetNode: 2,
     moveDelay: 2,
     movePeriod: 3,
@@ -148,8 +205,8 @@ try {
     const newer = structuredClone(app.saves.slots[0]);
     newer.slot = 1;
     newer.label = "newer synthetic";
-    newer.state.legions[0].x = 253;
-    newer.state.legions[0].roadPointAddress = 0x2008;
+    newer.state.nativeLegionSlots.records[0].x = 253;
+    newer.state.nativeLegionSlots.records[0].roadPointAddress = 0x2008;
     app.saves.slots.push(newer);
     const saved = JSON.stringify(app.saves);
     const { canSnapshotState } = await import("/src/game/savegame.js");
@@ -166,8 +223,9 @@ try {
       outcomes,
       selected: app.loadedSaveSlot,
       x: army.x,
-      edge: army._march?.edgeId,
-      index: army._march?.pointIndex,
+      roadPointAddress: army.roadPointAddress,
+      roadStride: army.roadStride,
+      roadEdgeOrNode: army.roadEdgeOrNode,
       pendingAllowed,
       pendingHeld,
       readyAllowed: canSnapshotState(app),
@@ -180,8 +238,9 @@ try {
       outcomes: ["AbortError", true],
       selected: 1,
       x: 253,
-      edge: 0,
-      index: 3,
+      roadPointAddress: 0x2008,
+      roadStride: 4,
+      roadEdgeOrNode: 0x800,
       pendingAllowed: false,
       pendingHeld: true,
       readyAllowed: true,
@@ -295,9 +354,10 @@ try {
   // A second fresh realm injects only a malformed road response, not a failed
   // AI callee. Preflight failure preserves the empty title scene; retry may recover.
   const brokenContext = await browser.newContext();
-  await brokenContext.addInitScript(() =>
-    sessionStorage.setItem("wolong.intro.seen.v1", "1"),
-  );
+  await brokenContext.addInitScript((origin) => {
+    if (location.origin !== origin) return;
+    sessionStorage.setItem("wolong.intro.seen.v1", "1");
+  }, origin);
   await brokenContext.route("**/*", (route) => {
     const url = new URL(route.request().url());
     if (
@@ -369,16 +429,18 @@ try {
     const ok = await app.loadSave(0);
     return {
       ok,
-      edge: app.scenario.legions[0]._march?.edgeId,
-      index: app.scenario.legions[0]._march?.pointIndex,
+      roadPointAddress: app.scenario.legions[0].roadPointAddress,
+      roadStride: app.scenario.legions[0].roadStride,
+      roadEdgeOrNode: app.scenario.legions[0].roadEdgeOrNode,
       allowed: canSnapshotState(app),
       pending: !!app._scenarioAssemblyPending,
     };
   });
   assert.deepEqual(recovered, {
     ok: true,
-    edge: 0,
-    index: 2,
+    roadPointAddress: 0x2004,
+    roadStride: 4,
+    roadEdgeOrNode: 0x800,
     allowed: true,
     pending: false,
   });

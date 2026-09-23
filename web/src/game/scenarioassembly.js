@@ -7,8 +7,31 @@ import { assertLegionPhaseState } from "./legionphase.js";
 import {
   hasNativeLegionSlots,
   assertNativeLegionSlots,
+  initializeNativeLegionSlotsFromZeroChapter,
   rebindNativeLegionViews,
 } from "./nativelegions.js";
+import {
+  assertNativeFactionSlots,
+  hasNativeFactionSlots,
+  initializeNativeFactionSlots,
+  rebindNativeFactionViews,
+} from "./nativefactions.js";
+import {
+  assertNativeDiplomacyMatrix,
+  hasNativeDiplomacyMatrix,
+  initializeNativeDiplomacyMatrix,
+  rebindNativeDiplomacyViews,
+} from "./nativediplomacy.js";
+import {
+  assertNativeStrategicEventWheel,
+  hasNativeStrategicEventWheel,
+  initializeNativeStrategicEventWheel,
+} from "./nativeevents.js";
+import {
+  assertNativeMonthlyPolicy,
+  hasNativeMonthlyPolicy,
+  initializeNativeMonthlyPolicy,
+} from "./nativemonthlypolicy.js";
 import {
   hasScenarioRoadMemory,
   getScenarioRoadMemory,
@@ -17,8 +40,17 @@ import {
   snapshotScenarioRoadMemory,
 } from "./navigation/scenarioroadmemory.js";
 import { readOriginalRoadCityOwnerByte } from "./navigation/originalroadstate.js";
-import { createScenarioMovementMemory } from "./navigation/scenariomovementmemory.js";
-import { createScenarioCityCache } from "./navigation/scenariocitycache.js";
+import {
+  createScenarioMovementMemory,
+  synthesizeScenarioMovementMemory,
+} from "./navigation/scenariomovementmemory.js";
+import {
+  createScenarioCityCache,
+  initializeScenarioCityNativeInputs,
+  synthesizeScenarioCityCache,
+} from "./navigation/scenariocitycache.js";
+import { createScenarioTerrainMemory } from "./navigation/scenarioterrainmemory.js";
+import { initializeScenarioWeatherInputs } from "./weather.js";
 
 // Assembly identity is not a second RAM owner. RAM remains in its existing adapter.
 const assemblies = new WeakMap();
@@ -29,6 +61,7 @@ export function assertNoEmbeddedRoadMetadata(state) {
     "scenarioAssembly",
     "roadMemory",
     "movementMemory",
+    "terrainMemory",
     "cityCache",
     "roadVersion",
   ]) {
@@ -62,6 +95,7 @@ export function readSavedAssembly(saved) {
     if (
       has(meta, "roadMemory") ||
       has(meta, "movementMemory") ||
+      has(meta, "terrainMemory") ||
       has(meta, "cityCache")
     )
       throw new TypeError("Road memory requires assembly metadata");
@@ -69,23 +103,24 @@ export function readSavedAssembly(saved) {
   }
   assertMetadata(meta.scenarioAssembly);
   const metadata = structuredClone(meta.scenarioAssembly);
-  if (
-    metadata.roadVersion === 1 &&
-    (has(meta, "roadMemory") ||
-      has(meta, "movementMemory") ||
-      has(meta, "cityCache"))
-  )
-    throw new TypeError("v1 cannot carry original road memory");
+  // P65 G5 (entire-v2-replacement gate): explicit v1 save metadata is
+  // retired at the gate (P24 no-old-save-compat policy). v1 saves cannot
+  // enter play; fail closed here, never a silent downgrade or v1 restore.
+  if (metadata.roadVersion === 1)
+    throw new TypeError("v1 save retired; start a new game (v2 only)");
   if (metadata.roadVersion === 2 && !meta.roadMemory)
     throw new TypeError("v2 restore requires road memory");
   if (has(meta, "movementMemory") && !meta.movementMemory)
     throw new TypeError("Invalid saved movement memory");
+  if (has(meta, "terrainMemory") && !meta.terrainMemory)
+    throw new TypeError("Invalid saved terrain memory");
   if (has(meta, "cityCache") && !meta.cityCache)
     throw new TypeError("Invalid saved city cache");
   return {
     metadata,
     roadMemory: structuredClone(meta.roadMemory ?? null),
     movementMemory: structuredClone(meta.movementMemory ?? null),
+    terrainMemory: structuredClone(meta.terrainMemory ?? null),
     cityCache: structuredClone(meta.cityCache ?? null),
   };
 }
@@ -102,9 +137,14 @@ export function assertAssemblyIdentity(metadata, idx, content, world) {
     throw new TypeError("Scenario world identity mismatch");
 }
 
+/** Admission identity: only staged road versions may enter App play.
+ * Saves without assembly metadata are legacy phaseless saves and pass
+ * through (P58 flip keeps the pre-flip null-metadata admission intact). */
 export function assertPlayableScenario({ metadata }) {
-  if (metadata?.roadVersion === 2)
-    throw new Error("v2 road rule callers are not connected");
+  // P65 G5: only staged v2 (or phaseless legacy metadata, v2-initialized
+  // at prepare per P58) may enter App play. Explicit v1 is retired.
+  if (metadata != null && metadata.roadVersion !== 2)
+    throw new Error("unstaged road version cannot enter play");
 }
 
 function currentMetadata(idx, content, world, roadVersion) {
@@ -129,6 +169,7 @@ export async function prepareScenario({
   metadata = null,
   roadMemory = null,
   movementMemory = null,
+  terrainMemory = null,
   cityCache = null,
 }) {
   if (mode !== "fresh" && mode !== "restore")
@@ -137,28 +178,52 @@ export async function prepareScenario({
   const scenario = new Scenario(structuredClone(raw));
   assertNativeLegionSlots(scenario);
   if (hasNativeLegionSlots(scenario)) rebindNativeLegionViews(scenario);
+  assertNativeFactionSlots(scenario);
+  if (hasNativeFactionSlots(scenario)) rebindNativeFactionViews(scenario);
+  assertNativeDiplomacyMatrix(scenario);
+  if (hasNativeDiplomacyMatrix(scenario)) {
+    rebindNativeDiplomacyViews(scenario);
+    assertNativeStrategicEventWheel(scenario);
+    if (!hasNativeMonthlyPolicy(scenario))
+      throw new TypeError("Missing native monthly policy");
+    assertNativeMonthlyPolicy(scenario);
+  } else if (hasNativeMonthlyPolicy(scenario)) {
+    throw new TypeError(
+      "Native monthly policy requires native diplomacy matrix",
+    );
+  }
   assertLegionPhaseState(scenario);
   if (!Array.isArray(raw.cities))
     throw new TypeError("Missing scenario cities");
   if (metadata !== null) assertAssemblyIdentity(metadata, idx, content, world);
   if (mode === "fresh" && (metadata !== null || roadMemory !== null))
     throw new TypeError("Fresh scenario cannot restore metadata/memory");
+  // P65 G5: explicit v1 save metadata is retired at the gate (P24
+  // no-old-save-compat policy). Fail closed; never restore a v1 path.
+  if (metadata?.roadVersion === 1)
+    throw new TypeError("v1 save retired; start a new game (v2 only)");
   // Capture all mutable inputs before yielding. Ownership is checked again by App.
   const expected = currentMetadata(
     idx,
     content,
     world,
-    metadata?.roadVersion ?? 1,
+    metadata?.roadVersion ?? 2,
   );
   const checkpoint = structuredClone(roadMemory);
-  const movementInput = structuredClone(movementMemory);
-  const cacheInput = structuredClone(cityCache);
+  let movementInput = structuredClone(movementMemory);
+  const terrainInput = structuredClone(terrainMemory);
+  let cacheInput = structuredClone(cityCache);
   await world.terrain.loadTerrain();
   const roadVersion = world.roads.loadedRoadVersion();
   if (metadata !== null && roadVersion !== expected.roadVersion)
     throw new TypeError("Loaded road version mismatch");
   expected.roadVersion = roadVersion;
   assertMetadata(expected);
+  // P76 gate (entire v2 replacement): v1 owners are unconstructible.
+  // Fresh preparation against a non-v2 graph fails closed here; restore
+  // of explicit v1 metadata is already retired at the prepare gate above.
+  if (roadVersion !== 2)
+    throw new TypeError("Scenario road graph must be v2");
   if (scenario.cities.length !== STRATEGIC_LAYOUT.citySlots)
     throw new TypeError("Invalid fixed scenario city table");
   for (let slot = 0; slot < STRATEGIC_LAYOUT.citySlots; slot++) {
@@ -176,14 +241,58 @@ export async function prepareScenario({
     if (mode === "restore") {
       if (!metadata || !checkpoint)
         throw new TypeError("v2 restore requires metadata and road memory");
+      if (!hasNativeFactionSlots(scenario))
+        throw new TypeError("v2 restore requires native faction slots");
+      if (!hasNativeDiplomacyMatrix(scenario))
+        throw new TypeError("v2 restore requires native diplomacy matrix");
+      if (!hasNativeStrategicEventWheel(scenario))
+        throw new TypeError("v2 restore requires native strategic event wheel");
+      if (!hasNativeMonthlyPolicy(scenario))
+        throw new TypeError("v2 restore requires native monthly policy");
+      assertNativeMonthlyPolicy(scenario);
+      rebindNativeFactionViews(scenario);
+      rebindNativeDiplomacyViews(scenario);
       restoreScenarioRoadMemory(scenario, world, expected.content, checkpoint);
-    } else initializeScenarioRoadMemory(scenario, world, expected.content);
-  } else if (checkpoint !== null)
-    throw new TypeError("v1 cannot carry original road memory");
-  if (roadVersion === 1 && hasNativeLegionSlots(scenario))
-    throw new TypeError("v1 cannot carry native legion slots");
-  if (roadVersion === 1 && movementInput !== null)
-    throw new TypeError("v1 cannot carry movement memory");
+    } else {
+      initializeNativeFactionSlots(scenario);
+      initializeNativeDiplomacyMatrix(scenario);
+      initializeNativeStrategicEventWheel(scenario);
+      initializeNativeMonthlyPolicy(scenario);
+      initializeScenarioRoadMemory(scenario, world, expected.content);
+      // 128-slot zero table: all 20 fixed chapters carry zero at +22C0h
+      // (P24); fresh v2 owns it before the first 25A3 batch pump, unless
+      // the caller explicitly provided a table (detached fixtures do).
+      if (!hasNativeLegionSlots(scenario))
+        initializeNativeLegionSlotsFromZeroChapter(scenario);
+      // 2459 weather slots: disaster region +0x20C0 all zero, cloud
+      // status +0x21C0 all 0x80 in 20 chapters (P58 flip, read-only file
+      // evidence); fresh v2 owns them before the first daily tick.
+      initializeScenarioWeatherInputs(scenario);
+      // 3F06/3F11/3FAB/3FD4/4028/88CC fresh inputs = official city record
+      // bytes (P58 flip). DOS 8CAE loads the 192x32 records as the live
+      // structs, so the initial cooldown (+0x17, all zero in 20 chapters),
+      // old owner (+0x1A, per-city raw byte), border count (+0x1B),
+      // neighbour slots (+0x1C..+0x1F) and attr byte (+0x00, low nibble =
+      // baked border bits) are the record bytes, never backfilled.
+      initializeScenarioCityNativeInputs(scenario);
+      // D1C faction-tick cursor: word-zero in all 19 fixed chapters
+      // (block+0x1C under the block-base layout; +0x18/+0x20 are the tax
+      // bytes 0x12, not cursors). 3E11 rotates D1C 0..21 from 0
+      // (re-notes-ai-diplomacy §monthly/3E11 entries); the strict 3E14
+      // adapter reads D1C unconditionally, so fresh v2 must own 0.
+      // D18/D1E/D20 file images stay unmapped (unknown): city/legion/event
+      // cursors remain undefined until their pumps write (formation and
+      // legion-fate failure tests lock this). Explicit inputs still win.
+      if (scenario._factionTickCursor === undefined)
+        scenario._factionTickCursor = 0;
+      // 1A2D 清零平面 + 89F0/8AEA 重建（P40）；显式传入的记忆优先。
+      if (movementInput === null)
+        movementInput = synthesizeScenarioMovementMemory(scenario);
+      // C18 初值 = 8CAE 载入的城记录 byte+0x18（P37 nativeCityRecordRaw）。
+      if (cacheInput === null)
+        cacheInput = synthesizeScenarioCityCache(scenario);
+    }
+  }
   const movement =
     movementInput === null
       ? null
@@ -192,8 +301,6 @@ export async function prepareScenario({
           snapshotScenarioRoadMemory(scenario),
           mode === "restore",
         );
-  if (roadVersion === 1 && cacheInput !== null)
-    throw new TypeError("v1 cannot carry city cache");
   const cache =
     cacheInput === null
       ? null
@@ -202,7 +309,17 @@ export async function prepareScenario({
           snapshotScenarioRoadMemory(scenario),
           mode === "restore",
         );
+  const terrain =
+    terrainInput === null
+      ? null
+      : createScenarioTerrainMemory(
+          terrainInput,
+          expected,
+          world.terrain.terrainIdentity(),
+          mode === "restore",
+        );
   assemblies.set(scenario, {
+    terrain,
     movement,
     cityCache: cache,
     metadata: structuredClone(expected),
@@ -219,8 +336,8 @@ export async function prepareScenario({
 }
 
 /** Read-only assembly lookup for detached native callers, never a RAM initializer.
- * A legacy v1 has no native context. Known v2 without formal ownership is an
- * engineering error, not permission to use the default v1 graph.
+ * P76 gate: only v2 owners exist. Known v2 without formal ownership is an
+ * engineering error, never permission to run unbound.
  */
 export function scenarioNativeRoadContext(scenario) {
   assertNoEmbeddedRoadMetadata(scenario);
@@ -233,17 +350,21 @@ export function scenarioNativeRoadContext(scenario) {
   assertAssemblyIdentity(owner.metadata, owner.idx, owner.content, owner.world);
   if (owner.world.roads.loadedRoadVersion() !== owner.metadata.roadVersion)
     throw new TypeError("Native caller road version mismatch");
-  if (owner.metadata.roadVersion === 1) {
-    if (hasScenarioRoadMemory(scenario))
-      throw new TypeError("v1 cannot carry original road memory");
-    return null;
-  }
+  // P76 gate: v1 owners are unconstructible (prepare requires a v2 graph;
+  // explicit v1 metadata is retired at every gate). Fail closed.
+  if (owner.metadata.roadVersion !== 2)
+    throw new TypeError("Scenario road owner must be v2");
   return Object.freeze({
     roads: owner.world.roads,
     memory: getScenarioRoadMemory(scenario),
     movement: owner.movement,
     cityCache: owner.cityCache,
-    readTerrainByte: owner.world.terrain.terrainTile,
+    terrain: owner.terrain,
+    readTerrainByte: (x, y) => {
+      if (!owner.terrain)
+        throw new RangeError("Uncovered native terrain memory");
+      return owner.terrain.readTile(x, y);
+    },
     readCityOwnerByte: (address) =>
       readOriginalRoadCityOwnerByte(scenario, address),
   });
@@ -277,6 +398,7 @@ export function snapshotScenarioAssembly(app) {
     result.roadMemory = snapshotScenarioRoadMemory(sc);
     if (owner.movement) result.movementMemory = owner.movement.snapshot();
     if (owner.cityCache) result.cityCache = owner.cityCache.snapshot();
+    if (owner.terrain) result.terrainMemory = owner.terrain.snapshot();
     // Validate the detached checkpoint through the same existing adapter/codec.
     restoreScenarioRoadMemory(
       new Scenario({}),

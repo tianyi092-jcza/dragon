@@ -198,7 +198,8 @@ function finishCasualties(legion, state, weakSide) {
 }
 
 /**
- * 0x5130/0x51B3 的一轮战略速算。
+ * v1兼容DTO速算；默认/规范化/批量提交不属于native权威路径。
+ * native真实2873调用navigation/originalfieldbattle.js，只有TYPE_WEIGHT共用。
  * 返回 winner 与双方逐单位结果；调用方决定0x474A撤退和0x291A清退。
  */
 export function resolveStrategicBattle(
@@ -254,21 +255,24 @@ export function applySiegeCityDamage(city, ratio) {
 }
 
 /**
- * 战术攻城退出链 0xA65D→0x9FF8：16个城壁对象取最小+0x18 metric；
- * 全部对象bit0仍置位时 metric×4，随后按 (城兵+50-floor(metric/10))>>3
- * 同步扣城兵、上升率和防灾。metric必须来自战术城壁对象，不能用战略ratio代替。
+ * 战术攻城退出链 0xA65D→0x9FF8（非原生路径fallback，就地写回并返回DL）。
+ *  A65D返回原始最小metric（×4只进D315）；无kind1时AX=FFFF仍进9FF8计算；
+ *  9FF8按damageWord=u16(城兵+50-floor(metric/10))>>3取DL低字节饱和扣三属性。
+ *  正式纯函数路径见 battle/originalexit.js；VM op15的D315×4查询是另一输出，保持不动。
  */
 export function applyTacticalSiegeCityDamage(city, wallRecords) {
-  const active = (wallRecords ?? []).filter((record) => record?.kind === 1);
-  if (!active.length) return 0;
-  let metric = Math.min(
-    ...active.map((record) => Math.max(0, record.metric | 0)),
-  );
-  if (active.every((record) => record.intact !== false)) metric *= 4;
+  const u16 = (value) => value & 0xffff;
+  let metric = 0xffff;
+  for (const record of (wallRecords ?? []).slice(0, 16)) {
+    if (!record || (record?.kind ?? record?.type ?? 0) !== 1) continue;
+    metric = Math.min(metric, u16(record.metric ?? 0xffff));
+  }
+  // 注：A65D的AH/bit0分支只决定D315（VM op15另行实现），不影响返回AX与城损，
+  // 故本fallback不复刻该分支，只取原始最小metric。
   const troops = city?.sim
     ? (city.sim.troops ?? city?.troops ?? 0)
     : (city?.troops ?? 0);
-  const damage = Math.max(0, (troops + 0x32 - Math.floor(metric / 10)) >> 3);
+  const damage = (u16(troops + 0x32 - Math.floor(metric / 10)) >>> 3) & 0xff;
   const subtract = (value) => Math.max(0, (value ?? 0) - damage);
   city.troops = subtract(city.troops);
   city.growth = subtract(city.growth);
