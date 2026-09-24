@@ -107,7 +107,7 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   delete state.nativeDiplomacyMatrix; // Fixed 24×24 table is rebuilt from chapter bytes.
   delete state.nativeMonthlyPolicy; // Fixed D08..D17 block is rebuilt from chapter bytes.
   delete state.nativeFateDisplayFlags; // Explicit runtime input, not a chapter default.
-  delete state.nativePlayerFactionPointer; // CFD is not inferred from CFF.
+  delete state.nativePlayerFactionPointer; // CFD is not inferred from CFF: bound once at loadState after initPlayer (P87 1B17-equivalent); absent = FFFF unselected.
   delete state.prisoners;
   delete state.pendingRecruits;
   delete state.pendingTruceNegotiations;

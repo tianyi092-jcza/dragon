@@ -245,6 +245,26 @@ test("fixed KI 33FD proposal commit bytes (P38)", () => {
   assert.equal(raw(0x3449, 0x8).toString("hex"), "8a6c2a80fdff7433");
 });
 
+test("live neutral cities (faction null) scan as 0x18 and never throw", () => {
+  // P89 live crash: city 6 (live neutral, faction null) threw
+  // "Uncovered native capital city 6 owner at 6A50" at strategic tick 243.
+  // Fixtures used 0xff sentinels so the suite stayed green.
+  const { scenario, factions } = fixture({ diplomat: null });
+  for (const city of scenario.cities) city.faction = null;
+  Object.assign(scenario.cities[5], { faction: 7, attr: 0x85, prod: 100 });
+  Object.assign(scenario.cities[7], { faction: 7, attr: 0x80, prod: 200 });
+  Object.assign(scenario.cities[8], { faction: 7, attr: 0x80, prod: 200 });
+  const result = performScenarioCapitalRelocation(scenario, {
+    type: 8,
+    arg0: 7,
+    arg1: 0,
+    arg2: 0,
+  });
+  assert.equal(result.status, "relocated");
+  assert.equal(result.newCapital, 8);
+  assert.equal(factions[7].capital, 8);
+});
+
 test("33FD player proposal commit writes capital, retargets 4502 legions and resolves the monarch declaration", () => {
   const { scenario, factions, records } = fixture({
     player: 7,

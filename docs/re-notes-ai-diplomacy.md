@@ -265,7 +265,7 @@ P(A)=200时T的199换目标，200/201保持；防守B自身力量0↔2000不改�
 
 这条type1完成没有军团命令/目标广播。它改变的是外交/战略目标，不能直接认定全军返都原因。
 
-生产现以`originalwarconsumer.js`和固定势力/外交矩阵Scenario桥放行native type1：两次active和A.F19门按消费时重查；和平NPC→NPC或已战路径才继续，依序即时写A目标、按3091比较旧目标与A后可写B目标，最后取双向raw较小值清bit7/右移1并写两向。CFD在3549与358C按原时点独立读取，CFF只在3558/35AC读取，二者不互推；已战玩家路径无需消息仍可返回。旧目标24h以下但超出当前固定22势力表的状态别名仍在A目标已写后停，不补力量。
+生产现以`originalwarconsumer.js`和固定势力/外交矩阵Scenario桥放行native type1：两次active和A.F19门按消费时重查；和平NPC→NPC或已战路径才继续，依序即时写A目标、按3091比较旧目标与A后可写B目标，最后取双向raw较小值清bit7/右移1并写两向。CFD在3549与358C按原时点独立读取，CFF只在3558/35AC读取，二者不互推；已战玩家路径无需消息仍可返回。旧目标24h以下但超出当前固定22势力表的状态别名仍在A目标已写后停，不补力量。P87：live CFD由loadState在initPlayer之后绑定（1B17-equivalent，slot*0x40；fresh与读档同一落点，未选定留空；`verify_player_faction_pointer.mjs`锁定3549路由与三形态）。
 
 **P25：两类和平玩家消息返回已按真实TALK关闭合同接回。** `originalBeginWarEvent320C`只做门控与消息路由，不写目标/关系；和平且发起方是玩家（3549命中CFD）进入`aggressor-message`（3550 CDE→3570 8810，selector CX=0x1A0即TALK486..488，发起方君主对白，\3=目标君主、\4=军师），和平且防守方是玩家（3558命中CFF）进入`defender-report`（3563 CE7→356B 8810 TALK63，\3=发起方君主），TALK63真实关闭后经`originalContinueWarEvent356E`进入`defender-message`（同一8810的3570段，selector CX=0x19F即TALK478..480，发起方君主对白）。所有必需消息真实关闭后才由`originalCommitWarEvent358C`执行358C→3593（玩家发起者跳过A.F19写）→35AB（玩家防守方跳过B响应）→3639双向关系提交；CFD/CFF在提交时重新独立读取。缺TALK显示能力、重复continuation或跨scenario回调均fail-closed并hold，无部分写入后伪装成功。`verify_native_war_consumer.mjs`以固定KI字节和9项回归锁定消费重门、3091、旧目标实力、CFD/CFF、关系写回、两类消息先消息后提交顺序及失败前缀。18h中立活动别名和其它type2–7仍未放行。
 
@@ -288,7 +288,7 @@ P(A)=200时T的199换目标，200/201保持；防守B自身力量0↔2000不改�
 
 无己城输入中6A3D返回FFFF/CF1，但33FD未检查CF；`u16((FFFF−0840)<<3)=BDF8`，高byteBD令新都189，原4502后完整返回。这只认证该异常输入计算；不追加“失败保留旧都/改0”经验补丁，也不证明正常AI会丢光城市后仍到此。
 
-生产现以`originalcapitalrelocation.js`和严格Scenario桥接回native type8：先按CFF拒玩家、再查固定势力active，固定192城执行6A3D并先写F+3，随后4502只扫L0..L126。CFD保持独立word；若它与事件势力pointer相等但CFF不等，已提交迁都/军团前缀后停在341F未闭合玩家消息/5E60。普通NPC无外交官直接返回；有外交官时严格等待通用TALK57关闭，再按selector 1A4和外交官talk_idx等待第二段个性对白关闭，才恢复同一3E11尾段。全程0 RNG，槽127不读；任一后段缺字段保留先前资本或军团写入并hold。`verify_native_capital_relocation.mjs`以固定KI字节和6项回归锁定后城平手、偏好、无城189、两段返回、CFD/CFF分歧及失败前缀。此接线不扩大type1–7、完整8810或5E60。
+生产现以`originalcapitalrelocation.js`和严格Scenario桥接回native type8：先按CFF拒玩家、再查固定势力active，固定192城执行6A3D并先写F+3，随后4502只扫L0..L126。CFD保持独立word；若它与事件势力pointer相等但CFF不等，已提交迁都/军团前缀后停在341F未闭合玩家消息/5E60。普通NPC无外交官直接返回；有外交官时严格等待通用TALK57关闭，再按selector 1A4和外交官talk_idx等待第二段个性对白关闭，才恢复同一3E11尾段。全程0 RNG，槽127不读；任一后段缺字段保留先前资本或军团写入并hold。`verify_native_capital_relocation.mjs`以固定KI字节和7项回归锁定后城平手、偏好、无城189、两段返回、CFD/CFF分歧、失败前缀及live中立城（P89：实机tick 243首崩“city 6 owner at 6A50”——live中立城`faction`为null而fixture用0xff哨兵，套件恒绿掩盖；根因为首都域`readCityOwner`独漏`null→0x18`映射，其余四域negotiation/capture/fate/warconsumer皆有，原码依据42AB端点谓词“非己且非0x18”；0x18永不等于真实势力，6A3D扫描跳过中立城；修后先红后绿+实机复测tick 1000+零pageerror）。此接线不扩大type1–7、完整8810或5E60。
 
 ## 17. P19复跑、独立审阅与输入修订说明
 

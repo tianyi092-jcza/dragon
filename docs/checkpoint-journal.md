@@ -6,14 +6,14 @@
 
 - **C15大门已翻**（P78，用户明确批准，verdict记ai-chain C15行）：fresh装配默认v2，生产侧v1零残留（G1–G8删除，P62–P69/P76），6原生覆盖gap全闭（P70–P75）。
 - **门后延续全闭**（P79–P86，门后延续目标已标complete）：G6 compat读删除；AL=0x93围栏终局；D游标初值；H1战术域归属；H2信赖读；H4尾项——(1)选择器返回覆盖、(2)原版不可达（opening-ABORTED标签退役）、(3a)(3b)覆盖，(3c)60C8封为**非规则影响UNKNOWN围栏**（A1C纯VGA调色板重载已证返回后效应仅显示；归属/loader语义未知，影响半径不含规则状态，可终局携带）。
-- 当前分支`main`，HEAD `cebd68cf327b14bb916646bfe9afbfd05394a6ee`（未授权commit/push，HEAD自P24未动；工作区含继承共享脏改，index为空）。
+- 当前分支`main`，HEAD `3e1d182`（P25–P86已由他方提交；P87–P89工作未提交，用户m3510已授权实机绿则commit、不含push；index为空）。
 - 固定`KI.EXE` SHA256：`fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，文件偏移按`VA+0x200`换算。
 - 未stage、commit或push；未调整权限、信任或全局配置。未读取/写入真实`SAVE.DAT`、`.dragon-runtime`或用户浏览器profile。现行存档政策：用户确认无需保留旧Web存档，v1路径已退役删除，不兼容槽三路禁用。
-- 最新完整证据根（P85；P86纯文档轮无新根）：`C:/Users/fczll/.pi/agent/sessions/--E--Dragon--/native-event-p85-h4supp/`，seal `d7d22d31…`（full-1 194/194 TAP607；browser-1 21/21）。
+- 最新完整证据根（P89）：`C:/Users/fczll/.pi/agent/sessions/--E--Dragon--/native-event-p89-fresh-terrain/`，seal `864e74cf…`（full-1 196/196 TAP613 DRIFT[]；browser-1 22/22，1pe为P88诱发探针；live-verify实机tick 1000+零error）。
 
 ## 2. 验证惯例、命令与已知噪声
 
-- P轮惯例：manifest跑前重绑（4436键，0缺失）＋首入口完整重跑（非浏览器full-1＋浏览器browser-1）＋独立seal＋snapshot前后零漂移＋index空；STOP轮废弃不拼接；journal条目晚于seal生成，已声明。
+- P轮惯例：manifest跑前重绑（4437键，0缺失）＋首入口完整重跑（非浏览器full-1＋浏览器browser-1）＋独立seal＋snapshot前后零漂移＋index空；STOP轮废弃不拼接；journal条目晚于seal生成，已声明。
 - 纯文档轮按项目AGENTS 2.4不跑无关游戏回归/浏览器冒烟，不新建P轮根。
 - 证据根标配：`full-1/{inventory.json,run_nonbrowser.py,node_guard.cjs,python_guard.py,read-allowlist.json,manifest-current.json}`、`browser-1/{inventory.json,run_browser.py,browser_guard.cjs,music-observer.js,snapshot/}`、`final/build_seal.py`＋`checks.json`/`seal.json`；语法 sweep 用P58根`synth_js.cjs`/`synth_py.py`。
 - 已知噪声（非缺陷）：opening.mp3 503×2（opening_loading）、`ERR_ABORTED`导航相位requestfailed、浏览器时序抖动（单跑确认后整轮重跑）；`.codegraph/codegraph.db`与`daemon.log`在manifest内持续churn，记噪声不改scope。
@@ -39,7 +39,7 @@
 | full-1轮中STOP（旧停点断言被新证据推翻） | 按新闭合行为改测试，逐项核对后首入口全量重跑闭合。 |
 | manifest JSON反斜线转义quirk（receipts高位行严格解析失败） | harness既有发射问题：tolerant regex键值抽取比对，生产零漂移。 |
 | 跨根脚本误用硬编码旧根改写已封存manifest | 跨根脚本一律参数化路径；记入seal checks processFailures。 |
-| read-allowlist漏新文件首跑STOP＋补键双反斜线坏键 | 落盘Temp脚本补单反斜线键（先清坏键）后从首入口完整重跑。 |
+| P89 manifest双坏键（setup遗留`E:Dragonweb-port<TAB>ools<VT>erify_native_capture_map.mjs`值`<m>`＋新文件未绑；两次node -e修补又添双反斜线/TAB/VT坏键） | 落盘文件脚本重修（删双坏键，sha256重绑两真文件；复读验证4437键零控制字符零缺失；runner DRIFT[]确认）。教训：含反斜线键操作一律落盘脚本，禁多层引号转义。 |
 
 ## 4. 相关文件
 
@@ -54,7 +54,7 @@
 
 ### 4.2 回归与维护源
 
-- 专项：`tools/verify_native_{faction_tick,monthly_fiscal,general_rating,monthly_diplomacy,monthly_budgets,monthly_policy,generic_talk,deficit_trust,capital_relocation,war_consumer,negotiation_consumer,player_decision,budget_consumer,war_proposal,victory_gate,occupancy_init,event_producer_audit,message_display_audit,extinction4FCE}.mjs`、`verify_strategic_city_ai_raw.mjs`、`verify_advisor_delegation_ui.mjs`、`verify_tactical_exit_frame.mjs`、`verify_battle_opening_messages.mjs`、`verify_content_pipeline.py`、`verify_c15_upstream_replays.mjs`（原生化，P70）、`verify_delegated_target_march.mjs`（P71）、`verify_third_party_blocker_march.mjs`（P72）、`verify_siege_contact_march.mjs`（P73）、`verify_march_resume.mjs`（P74）、`verify_legion_slot_battle.mjs`（原生P06迁移，P75）。
+- 专项：`tools/verify_native_{faction_tick,monthly_fiscal,general_rating,monthly_diplomacy,monthly_budgets,monthly_policy,generic_talk,deficit_trust,capital_relocation,war_consumer,negotiation_consumer,player_decision,budget_consumer,war_proposal,victory_gate,occupancy_init,event_producer_audit,message_display_audit,extinction4FCE}.mjs`、`verify_strategic_city_ai_raw.mjs`、`verify_advisor_delegation_ui.mjs`、`verify_tactical_exit_frame.mjs`、`verify_battle_opening_messages.mjs`、`verify_content_pipeline.py`、`verify_c15_upstream_replays.mjs`（原生化，P70）、`verify_delegated_target_march.mjs`（P71）、`verify_third_party_blocker_march.mjs`（P72）、`verify_siege_contact_march.mjs`（P73）、`verify_march_resume.mjs`（P74）、`verify_legion_slot_battle.mjs`（原生P06迁移，P75）、`verify_frame_loop_survives.mjs`（P88，主循环逃逸异常存活）、`verify_fresh_terrain_bind.mjs`（P89，fresh地形合成绑定＋快照/读档round-trip）、`verify_player_faction_pointer.mjs`（P87，CFD绑定三形态＋3549/358C路由＋旧档愈合）。
 - 机制维护源：`docs/re-notes-ai-{chain,fiscal,diplomacy}.md`、`re-notes-legion-fate.md`（§19.9–§19.11为H4终局源）、`re-notes-march-pathfinding.md`、`re-notes-strategic-message-abi.md`、`re-notes-custom-data.md`及相关Skills。
 - 内容管线：`tools/parse_sinario.py`、`tools/content_pipeline.py`和`web/content/builtin/chapters/*.json`。
 
@@ -64,6 +64,9 @@
 
 | 根 | 非浏览器 | 浏览器 | seal |
 | --- | --- | --- | --- |
+| p89-fresh-terrain | full-1 196/196 TAP613 DRIFT[] | 22/22 snap2206 1pe（P88诱发探针） 2×503 1rf（单轮直过无STOP） | `864e74cf…` |
+| p88-frameloop | full-1 195/195 TAP611 | 22/22 snap2205 1pe（诱发探针，自断言） 2×503 4rf（单轮直过无STOP） | `c83f544a…` |
+| p87-cfd-bind | full-1 195/195 TAP611 | 21/21 snap2204 0pe 2×503 4rf（单轮直过无STOP） | `647c6fba…` |
 | p85-h4supp | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 3rf（单轮直过无STOP） | `d7d22d31…` |
 | p84-h4tail | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 4rf（单轮直过无STOP） | `349f70dd…` |
 | p83-h2trust | full-1 194/194 TAP607 | 21/21 snap2203 0pe 2×503 3rf（1抖动STOP后重跑） | `6491a071…` |
@@ -127,4 +130,7 @@
 ## 6. 本会话记录
 
 - 门后延续目标已标 complete（get_goal/update_goal以`default.*`名暴露；用时6h46m，tokens 2,520,949）：P79–P86即审计对照，唯一剩余H4-(3c)为已分类非规则影响围栏。
+- P87根因修复（用户实机报障：设速后`Uncovered nativePlayerFactionPointer at 3549/358C`经onHour零catch逃出frame杀死rAF，日期与光标双冻）：live CFD由loadState在initPlayer之后绑定（`bindNativePlayerFactionPointer`，1B17-equivalent；fresh与读档同一落点；未选定留空；`verify_player_faction_pointer.mjs`第195项锁定bind三形态＋3549/358C路由＋旧档愈合）；full-1 195/195 TAP611＋browser-1 21/21单轮直过，seal `647c6fba…`；外交§268回流一行。frame-loop rAF加固提案未实施，待批。
+- P89实机双崩溃根因修复（用户m3510：实机验证一次，绿则commit、不含push）：(1)首崩`Uncovered native terrain memory`——fresh新局owner.terrain恒null（main.js不传terrainMemory，fixture显式零span掩盖）；修为fresh/restore-missing时以`world.terrain.terrainIdentity()`合成全平面显式span（89F0/8A1E鲜绘刻意不做，角别名无平面模型）；`verify_fresh_terrain_bind.mjs`第196项（0xBA特征字节证合成源＋快照/读档round-trip）；capture_map两处迁移（absent-case改合成断言＋omit=-2子例期望8A3F→88EB）。(2)次崩`Uncovered native capital city 6 owner at 6A50`（tick 243）——live中立城faction为null而首都域`readCityOwner`独漏`null→0x18`映射（其余negotiation/capture/fate/warconsumer四域皆有；原码依据42AB“非己且非0x18”）；修后6A3D跳过中立城；capital_relocation新增中立城用例（先红11/1后绿12/12，临时回退证明已恢复字节一致）。live-verify复测tick 288→1009→1155零error全绿；早前一轮t1瞬时hold=true而tick 281→409续走，hold源采样全系正当UI/模态态（3秒自动关闭类），定为transient by design。full-1 196/196 TAP613 DRIFT[]＋browser-1 22/22单轮直过无STOP，seal `864e74cf…`。外交§16回流一段（6A50中立映射＋7项回归）。manifest双坏键事故见§3新行。
+- P88 frame-loop加固（用户批准执行）：`main.js`之frame入口先行调度（尾部调度删除；异常仍上浮上报，fail-closed语义不动）；新`tools/verify_frame_loop_survives.mjs`（browser第22项：advanceFrame单发探针throw，断言时钟续走＋错误全含marker；快照内旧调度复原验证红TimeoutError exit1，非空证明）；full-1 195/195 TAP611 DRIFT[]＋browser-1 22/22单轮直过无STOP（1pe为诱发探针自断言，其余已知噪声），seal `c83f544a…`。§4.2专项行已补该测试名。
 - 本次记忆整理：journal从595行收束为本版——§1重写为当前主线（门已翻/延续全闭/HEAD/KI/政策），§2收束为验证惯例与命令，§3坑点表保留（历史candidate-BLOCKED行按P57更新），§4文件清单同步v1删除与新增原生专项，§5删P42–P57冗长明细只留seal对照表（行内容逐字保留），删过时§6阻塞/§7下一步/§8旧整理注；同步修正web-port/AGENTS.md之P57-era接缝链与v1默认表述。只改2文档，不碰代码/资产/测试/Skills，不访问真实存档/profile。

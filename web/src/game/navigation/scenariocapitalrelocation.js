@@ -45,7 +45,15 @@ const nativeCapitalIo = (sc) => {
       const value = own(factionAt(index, "3449"), "diplomat_idx", "3449");
       return value === null ? 0xff : value;
     },
-    readCityOwner: (index) => own(cityAt(index, "6A50"), "faction", "6A50"),
+    // 6A50 owner byte: live neutral cities carry faction null; the original
+    // byte is 0x18 (cf. 42AB endpoint predicate "non-own and non-0x18", and
+    // the capture/fate/negotiation/warconsumer domains which all map null to
+    // 0x18). 0x18 never equals a real faction, so the 6A3D scan skips
+    // neutral cities exactly as the original does.
+    readCityOwner: (index) => {
+      const value = own(cityAt(index, "6A50"), "faction", "6A50");
+      return value === null ? 0x18 : byte(value, "city owner");
+    },
     readCityAttr: (index) => own(cityAt(index, "6A55"), "attr", "6A55"),
     readCityProduction: (index) => own(cityAt(index, "6A5F"), "prod", "6A5F"),
     readLegionFaction: (slot) => own(legionAt(slot, "451F"), "faction", "451F"),

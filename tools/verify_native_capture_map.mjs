@@ -21,7 +21,7 @@ import {
   restoreSnapshotState,
   canSnapshotState,
 } from "../web/src/game/savegame.js";
-import { applyBattleResult, aiTick, stepTo } from "../web/src/game/ai.js";
+import { applyBattleResult, aiTick } from "../web/src/game/ai.js";
 import { OriginalBattleRng } from "../web/src/game/battle/originalrng.js";
 import { createStrategicBattleMethods } from "../web/src/app/battleflow.js";
 import { performScenarioFieldEntry } from "../web/src/game/navigation/originalfieldterrain.js";
@@ -337,11 +337,14 @@ test("8A1E missing capability and each missing tile preserve exact prior writes/
     const f = await fixture({ terrain: omit !== -2, omit });
     const rng = f.app.originalRng.snapshot();
     delete f.city.strategicNeighbours;
+    // P89: omit -2 no longer means "no terrain plane" (fresh synthesis
+    // binds world bytes), so the first fault moves 8A3F -> 88EB downstream.
+    const at = omit === -2 ? "88EB" : omit <= 0 ? "8A3F" : "8AD1";
     assert.throws(
       () => apply(f),
-      (e) => e.instruction === (omit <= 0 ? "8A3F" : "8AD1"),
+      (e) => e.instruction === at,
     );
-    held(f, omit <= 0 ? "8A3F" : "8AD1");
+    held(f, at);
     assert.equal(f.city.faction, 1);
     assert.equal(f.sc.factions[0].n_cities, 8);
     assert.equal(f.sc.factions[1].n_cities, 10);
@@ -514,12 +517,11 @@ test("terrainMemory actual JSON/restore/prepare isolation, identity and missing 
   assertPlayableScenario(readSavedAssembly(g.saved)); // P58 flip: v2 enters play
   const absent = await fixture({ terrain: false }),
     restored = await cold(absent);
-  assert.equal(restored.context.terrain, null);
-  assert.equal(Object.hasOwn(restored.saved.webMeta, "terrainMemory"), false);
-  assert.throws(
-    () => restored.context.readTerrainByte(10, 10),
-    /Uncovered native terrain/,
-  );
+  // P89: fresh without explicit terrainMemory synthesizes the certified map
+  // tile plane (mocked world bytes 0xBA here); null-terrain owners retired.
+  assert.ok(restored.context.terrain);
+  assert.equal(Object.hasOwn(restored.saved.webMeta, "terrainMemory"), true);
+  assert.equal(restored.context.readTerrainByte(10, 10), 0xba);
 });
 
 test("terrain schema rejects holes/illegal/overlap and v1/misplaced metadata without modifying live owner", async () => {

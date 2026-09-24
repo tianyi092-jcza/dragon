@@ -42,6 +42,7 @@ import { STRATEGIC_LAYOUT } from "./content/worlddefinition.js";
 import * as cmd from "./game/commands.js";
 import { monthlyAppear } from "./game/recruits.js";
 import { hasNativeLegionSlots } from "./game/nativelegions.js";
+import { bindNativePlayerFactionPointer } from "./game/nativefactions.js";
 import { BattleView } from "./render/battleview.js";
 import { EndView } from "./render/endview.js";
 import { StartMenu } from "./ui/startmenu.js";
@@ -479,6 +480,9 @@ const app = {
     };
     assertCurrentAssembly();
     cmd.initPlayer(this.scenario); // ★原版剧本头FF=未指定→默认势力0/信赖100
+    // P87 (KI 1B17-equivalent): CFD bound once CFF is resolved; one point
+    // covers fresh assembly and snapshot restore alike. Absent = unselected.
+    bindNativePlayerFactionPointer(this.scenario, "loadState/initPlayer");
     if (initializeDiplomacy) initializeStrategicDiplomacy(this);
     this.gamebar?.setDefaultSelFaction(); // 小地图默认查看第一个非玩家势力
     buildArmies(this.scenario); // 新游戏保持空军团表；存档军团归一化坐标、槽位和主将名
@@ -900,10 +904,12 @@ export async function startApp(opening) {
     uiAcc = 0,
     lastDateKey = "";
   function frame(now) {
+    // 调度先行：任何逃逸异常都不能杀死主循环（P88：此前尾部调度，
+    // onHour类异常曾永久冻结计时与光标；调度与工作解耦，异常仍上浮上报）。
+    requestAnimationFrame(frame);
     const dt = now - last;
     last = now;
     if (!app.runtimeEnabled) {
-      requestAnimationFrame(frame);
       return;
     }
     const pointerUpdate = queuedMapPointer;
@@ -970,7 +976,7 @@ export async function startApp(opening) {
         if (want !== app.seasonIdx) app.setSeason(want);
       }
     }
-    requestAnimationFrame(frame);
+    // 下一帧已在入口调度，此处不再调度（见P88注释）。
   }
   requestAnimationFrame(frame);
 }

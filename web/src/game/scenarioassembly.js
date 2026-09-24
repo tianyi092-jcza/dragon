@@ -309,15 +309,34 @@ export async function prepareScenario({
           snapshotScenarioRoadMemory(scenario),
           mode === "restore",
         );
-  const terrain =
-    terrainInput === null
-      ? null
-      : createScenarioTerrainMemory(
-          terrainInput,
-          expected,
-          world.terrain.terrainIdentity(),
-          mode === "restore",
-        );
+  // P89 root cause (live-verified crash: fresh new games bound no terrain,
+  // first legion road step threw "Uncovered native terrain memory" into the
+  // frame loop). The original always owns a D44 terrain plane at load (E48A
+  // decode + 89F0 8A1E paints), so terrain reads never fault there. Fresh v2
+  // — and restores whose saves predate terrainMemory — bind the certified
+  // map tile plane as explicit known spans: the shipped layout bytes
+  // reproduce two independent original-MMAP cross-scans (march §2.2: 192
+  // city cells 0xCB..0xD3 exact; march §740: 508 endpoints 0xCE..0xDD with
+  // 0/5018 mid hits, re-verified on current assets this round), so this is
+  // the certified tile truth, not §12-prohibited PNG/raw backfill of holes:
+  // the plane is fully bound, no holes. 89F0/8A1E fresh paints stay
+  // capture-path-only (corner alias arithmetic has no plane model per §12).
+  // Restore-validation runs only for explicit inputs; synthesized planes
+  // take the fresh-construction path in either mode.
+  const terrainExplicit = terrainInput !== null;
+  const terrainEffect =
+    terrainExplicit
+      ? terrainInput
+      : {
+          version: 1,
+          spans: [{ address: 0, hex: world.terrain.terrainIdentity() }],
+        };
+  const terrain = createScenarioTerrainMemory(
+    terrainEffect,
+    expected,
+    world.terrain.terrainIdentity(),
+    mode === "restore" && terrainExplicit,
+  );
   assemblies.set(scenario, {
     terrain,
     movement,

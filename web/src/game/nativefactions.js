@@ -175,3 +175,32 @@ export function rebindNativeFactionViews(sc) {
     table[slot] = view;
   }
 }
+
+/**
+ * KI 1B17-equivalent (`MOV CS:[CFD],BX`, custom-data §6.1): CFD is the
+ * player faction slot pointer (slot*0x40), written once at player
+ * selection together with CFF, never inferred mid-game from CFF
+ * (world.js template hygiene keeps it absent until here). FFFF
+ * (absent here) means unselected: leave absent, consumption fail-closes.
+ * Runs at loadState after initPlayer resolves CFF, so one binding point
+ * covers fresh assembly and snapshot restore alike (“与0F同时重建”).
+ */
+export function bindNativePlayerFactionPointer(sc, at) {
+  if (!hasNativeFactionSlots(sc)) return false;
+  const player = sc?.player_faction;
+  if (player == null) return false;
+  const table = records(sc, at);
+  const slot = table.findIndex(
+    (record) => record && record.idx === player,
+  );
+  if (
+    !Number.isInteger(player) ||
+    slot < 0 ||
+    slot >= (sc.factions?.length ?? 0)
+  )
+    throw new RangeError(
+      `Web engineering Uncovered native player faction slot at ${at}`,
+    );
+  sc.nativePlayerFactionPointer = slot * 0x40;
+  return true;
+}
