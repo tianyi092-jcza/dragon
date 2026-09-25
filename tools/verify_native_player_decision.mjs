@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import { tickStrategicWarEvents } from "../web/src/game/ai.js";
+import {
+  clearNativeUiContinuations,
+  tickStrategicWarEvents,
+} from "../web/src/game/ai.js";
 import {
   applyScenarioPlayerTrustPenalty,
   PLAYER_TRUST_PENALTY_BORROW_SELECTOR,
@@ -288,6 +291,10 @@ function fixture({ player = 5, trust = 100 } = {}) {
     generals,
     cities,
     trust,
+    // 生产 Scenario（World）恒带 monarchOf；P91 前置门依赖此形状。
+    monarchOf(faction) {
+      return this.generals[faction?.monarch_idx];
+    },
   };
   const rngQueue = [];
   let rngCalls = 0;
@@ -570,6 +577,47 @@ test("overlapping player decisions stay fail-closed", () => {
   }
   assert.match(String(thrown?.message), /overlapping/);
   assert.equal(f.app.clock.hold, true);
+});
+
+test("P91 missing monarch fails fast with no stranded continuation", () => {
+  const f = trucePlayerFixture();
+  // 君主记录在但 talk_idx 缺失：begin 的 3771 读可过，3C99 个性 strict 读抛错。
+  // 旧序（先 set 再构造）会残留 continuation；新序必须在 set 之前精确抛。
+  delete f.generals[2].talk_idx;
+  assert.throws(() => tickStrategicWarEvents(f.app), /talk_idx/);
+  assert.ok(!f.app._nativePlayerDecisionContinuation, "no stranded continuation");
+  assert.equal(f.requests.length, 0);
+  // 恢复后新事件可正常派发：无误报 overlapping（31AE 分频，需多 tick）。
+  f.generals[2].talk_idx = 2;
+  f.scenario.strategicEventSlots[0] = { type: 3, arg0: 0, arg1: 2, arg2: 0xff };
+  f.scenario._strategicEventDivider = 1;
+  f.scenario._strategicEventCursor = 0;
+  let redispatched = false;
+  for (let i = 0; i < 64 && !redispatched; i++) {
+    try {
+      redispatched = tickStrategicWarEvents(f.app) === true;
+    } catch { redispatched = false; }
+  }
+  assert.equal(redispatched, true);
+  assert.equal(f.requests.length, 1);
+  assert.ok(f.app._nativePlayerDecisionContinuation);
+});
+
+test("P91 teardown clearing releases a pending decision", () => {
+  const f = trucePlayerFixture();
+  tickStrategicWarEvents(f.app);
+  assert.ok(f.app._nativePlayerDecisionContinuation);
+  // 读档/回标题装配语义：废除旧 UI continuation（与 reset 队列同理）。
+  clearNativeUiContinuations(f.app);
+  assert.equal(f.app._nativePlayerDecisionContinuation, null);
+  assert.equal(f.app._nativeWarEventContinuation, null);
+  assert.equal(f.app._nativeEnvoyResultContinuation, null);
+  f.scenario.strategicEventSlots[1] = { type: 3, arg0: 0, arg1: 2, arg2: 0xff };
+  let second = false;
+  for (let i = 0; i < 64 && !second; i++) {
+    second = tickStrategicWarEvents(f.app) === true && f.requests.length === 2;
+  }
+  assert.equal(second, true, "cleared teardown dispatches cleanly");
 });
 
 test("87FF monarch personality and trust readers are strict", () => {

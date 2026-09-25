@@ -4039,10 +4039,21 @@ function enqueueNativePlayerDecision(app, kind, state) {
     kind === "assistance" ? factionByIndex(sc, state.target) : null;
   if (!requesterFaction || (kind === "assistance" && !targetFaction))
     throw new RangeError(`Uncovered native ${kind} decision factions`);
+  // 入站模态显示前置（镜像 gamebar._showIncomingDiplomacyRequest 的同步门）：
+  // continuation 不变量为 set ⟺ 可显示；任一缺失必须在 set 之前精确抛出，
+  // 否则残留 continuation 会把下一次玩家决定误报为 overlapping（P91 用户报障）。
+  const decidingFaction = playerFaction(sc);
+  const decidingMonarch =
+    decidingFaction && typeof sc.monarchOf === "function"
+      ? sc.monarchOf(decidingFaction)
+      : null;
+  if (!decidingFaction || !decidingMonarch)
+    throw new RangeError(`Uncovered native ${kind} decision monarch`);
   // 38C7/38E6 包装：38C7 BX=0xFFFF；38E6 BX=A 攻击目标，供 TALK 占位替换。
+  // 先完整构造 payload（含 3C99 个性 strict 读），再 set continuation：
+  // 构造期抛错不得残留，否则同上误报 overlapping。
   const continuation = { scenario: sc, kind, state };
-  app._nativePlayerDecisionContinuation = continuation;
-  app.gamebar.enqueueIncomingDiplomacyRequest({
+  const payload = {
     type: kind === "assistance" ? "incoming-assistance" : "incoming-truce",
     requesterFaction,
     targetFaction,
@@ -4058,7 +4069,9 @@ function enqueueNativePlayerDecision(app, kind, state) {
     },
     onResolve: (outcome, fee) =>
       commitNativePlayerDecision(app, continuation, outcome, fee),
-  });
+  };
+  app._nativePlayerDecisionContinuation = continuation;
+  app.gamebar.enqueueIncomingDiplomacyRequest(payload);
   return true;
 }
 
@@ -4151,6 +4164,20 @@ function commitNativePlayerDecision(app, continuation, outcome, fee) {
     holdFailedStrategicUpdate(app, error);
     throw error;
   }
+}
+
+/**
+ * Web 生命周期卫生（P91 用户报障）：UI 绑定的 native continuation 只属于
+ * 当前剧本。resetScenarioUi 丢弃战略消息 FIFO 时已明示抛弃旧闭包；
+ * 此处把同类的三枚 app 级 continuation 一并废除，供剧本卸载/装配调用。
+ * resume/commit 的 owner 门本就预期 abandonment，此为其补全。
+ * 纯 Web 工程，不涉及 KI 机制。
+ */
+export function clearNativeUiContinuations(app) {
+  if (!app) return;
+  app._nativePlayerDecisionContinuation = null;
+  app._nativeWarEventContinuation = null;
+  app._nativeEnvoyResultContinuation = null;
 }
 
 /** 3262 type3 truce：NPC 直接提交；接收方为玩家时进入 38C7 决定流。 */

@@ -16,7 +16,7 @@ import {
 import { searchOriginalRoadMemory } from "../web/src/game/navigation/originalroadsearch.js";
 
 // P76 gate: only v2 graphs may reach prepare; v1 owners are unconstructible.
-function fixture(version = 2) {
+function fixture(version = 2, generals = []) {
   const graph = {
     version,
     width: 384,
@@ -46,7 +46,7 @@ function fixture(version = 2) {
   }
   const template = {
     factions: [{ idx: 0, n_legions: 0 }],
-    generals: [],
+    generals,
     legions: [],
     cities: graph.nodes.map(({ id, x, y }) => ({
       idx: id,
@@ -206,6 +206,31 @@ test("actual shared preparation binds v2 identity by default; explicit v1 metada
       }),
       /retired/,
     );
+  });
+});
+
+test("fresh v2 owns fate display flags 0 and mirrors general +0x1D", async () => {
+  // 4D33 reads CS:98A6 bit 2 (zeroed at init, display-transient); fresh
+  // rule processing observes 0, so fresh assembly must own it — previously
+  // absent and the first siege capture threw. General +0x1D is one DOS
+  // byte with two Web names: chapters parse captive_flag, fate reads
+  // (KI 5885 unconditional) serve origFaction; fresh mirrors it here so
+  // the first month-end 585F scan serves the chapter byte (0xFF → null).
+  const { prepareScenario } = await api();
+  const f = fixture(2, [
+    { idx: 0, faction: 0, captive_flag: 0xff },
+    { idx: 1, faction: 0, captive_flag: 3 },
+    { idx: 2, faction: 0, captive_flag: 0xff, origFaction: 5 },
+  ]);
+  assert.equal(f.raw.generals[0].origFaction, null);
+  assert.equal(f.raw.generals[1].origFaction, 3);
+  assert.equal(f.raw.generals[2].origFaction, 5);
+  await withGraph(f, async () => {
+    const prepared = await prepareScenario(f);
+    assert.equal(prepared.scenario.nativeFateDisplayFlags, 0);
+    assert.equal(prepared.scenario.generals[0].origFaction, null);
+    assert.equal(prepared.scenario.generals[1].origFaction, 3);
+    assert.equal(prepared.scenario.generals[2].origFaction, 5);
   });
 });
 

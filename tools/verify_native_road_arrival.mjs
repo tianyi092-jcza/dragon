@@ -308,7 +308,12 @@ test("28F4 current node/20 independent; CF clear still dispatches; 2912 and inva
       sc.cities[66].faction = 1;
     },
   });
+  // Fresh assembly now owns flags=0 (4D33 static); delete BEFORE the
+  // fate tail runs to keep pinning the genuine absent-contract.
+  delete fail.sc.nativeFateDisplayFlags;
   slot(fail, true);
+  // Fresh assembly now owns flags=0 (4D33 static); delete BEFORE the
+  // fate tail runs to keep pinning the genuine absent-contract.
   assert.match(
     fail.app._strategicBattleFailure.error.message,
     /nativeFateDisplayFlags/,
@@ -513,6 +518,8 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
     const before = f.context.movement.snapshot();
     if (node === 0) {
       f.sc.cities[0].faction = 1;
+      // Fresh assembly now owns flags=0; delete to pin the absent-contract.
+      delete f.sc.nativeFateDisplayFlags;
       assert.throws(() => go(f), /nativeFateDisplayFlags/);
       assert.equal(f.sc.factions[0].n_legions, 1);
     } else if (node === 6)
@@ -643,16 +650,32 @@ test("4470 sequential team byte not total/default;448C full byte;44A9/44D6 retai
 });
 
 test("3F06 prefix DEC before old owner, no city1A rewrite, neutral refresh and stale neighboring cache", async () => {
-  for (const old of [undefined, -1, 24]) {
+  for (const old of [undefined, -1]) {
     const f = await fixture({ cache: [] });
     f.sc.cities[66]._aiCooldown = 2;
     f.sc.cities[66]._strategicLastFaction = old;
-    assert.throws(
-      () => tickStrategicCity(f.app, 66),
-      old === 24 ? /3F29/ : /3F11/,
-    );
+    assert.throws(() => tickStrategicCity(f.app, 66), /3F11/);
     assert.equal(f.sc.cities[66]._aiCooldown, 1);
     assert.throws(() => f.context.cityCache.readByte(66), /Uncovered/);
+  }
+  // KI 3F11..3F29 has no range check (window 3EFD..3F2C re-verified):
+  // old=0x18 stores cityIdx at DS:0617 = diplomacy row 0 col 23, no throw,
+  // no city+0x1A rewrite. Official +0x1A domain {0x00..0x15,0x18} closed.
+  {
+    const f = await fixture({ cache: [{ address: 65, hex: "00fffe" }] });
+    f.sc.cities[66]._aiCooldown = 2;
+    f.sc.cities[66]._strategicLastFaction = 24;
+    f.context.movement.writeByte(240, 67, 0x82);
+    assert.equal(tickStrategicCity(f.app, 66), "returned");
+    // 3F06 DEC 2→1, then the owned-city military scan finds no threat
+    // (work[0]===255) and zeroes cooldown on its return path — pre-existing
+    // 3F92-path semantics, unaffected by the 3F29 alias fix.
+    assert.equal(f.sc.cities[66]._aiCooldown, 0);
+    assert.equal(f.sc.cities[66]._strategicLastFaction, 24);
+    assert.equal(f.sc.nativeDiplomacyMatrix.rows[0][23], 66);
+    assert.equal(f.sc.diplomacy[0][23], 66);
+    assert.equal(f.sc.factions[0].strategic_city_secondary, null);
+    assert.equal(f.context.cityCache.readByte(66), 2);
   }
   const missing = await fixture();
   delete missing.sc.cities[66]._aiCooldown;

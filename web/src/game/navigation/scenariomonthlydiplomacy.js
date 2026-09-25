@@ -3,6 +3,7 @@ import {
   nativeDiplomacyAt,
   writeNativeDiplomacyAt,
 } from "../nativediplomacy.js";
+import { aliasStateByte } from "./scenariowarconsumer.js";
 import { originalMonthlyDiplomacy2BD9 } from "./originalmonthlydiplomacy.js";
 
 const missing = (label) => {
@@ -134,7 +135,31 @@ function createScenarioMonthlyDiplomacyIO(sc, rng) {
       return (raw >>> 8) & 0xffff;
     },
     readRelationByte(actor, target, at) {
-      return nativeDiplomacyAt(sc, actor, target, at);
+      if (
+        Number.isInteger(actor) &&
+        Number.isInteger(target) &&
+        actor >= 0 &&
+        actor < 24 &&
+        target >= 0 &&
+        target < 24
+      )
+        return nativeDiplomacyAt(sc, actor, target, at);
+      // KI 3119 computes BX=0x600+24*A+B with no range check (window
+      // 2E6A..2E77 + 3119 re-verified): rows past 23 alias into fixed
+      // state regions via the shared aliasStateByte model (same regions
+      // as the war-consumer 3091 reads). Reached when a faction target
+      // is 0x18 (2F71 empty-expansion commit): 24*24+B lands in city
+      // records. Anything past the model stays fail-closed.
+      if (
+        !Number.isInteger(actor) ||
+        !Number.isInteger(target) ||
+        actor < 0 ||
+        actor > 0xff ||
+        target < 0 ||
+        target > 0xff
+      )
+        missing(`relation address at ${at}`);
+      return aliasStateByte(sc, 0x600 + 24 * actor + target, at);
     },
     writeRelationByte(actor, target, value, at) {
       writeNativeDiplomacyAt(sc, actor, target, value, at);

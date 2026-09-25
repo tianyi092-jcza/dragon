@@ -1,5 +1,6 @@
 // KI 28F4, 4300, 4325..4501, 4548 and city prefix 3F06..3F50.
 // Exact wrapped aliases/lazy instruction boundaries: march notes §3.13.
+import { writeNativeDiplomacyAt } from "../nativediplomacy.js";
 const u16 = (value) => value & 0xffff;
 function stop(label) {
   throw new RangeError(`Web engineering Uncovered ${label}`);
@@ -228,8 +229,20 @@ export function refreshOriginalCityCache(sc, context, city) {
   if (cooldown) city._aiCooldown = cooldown - 1;
   const oldOwner = byte(city._strategicLastFaction, "city old owner at 3F11");
   const owner = context.readCityOwnerByte(0x841 + city.idx * 32);
-  if (oldOwner !== owner)
-    factionAt(sc, oldOwner, "3F29").strategic_city_secondary = city.idx;
+  if (oldOwner !== owner) {
+    if (oldOwner === 0x18) {
+      // KI 3F11..3F29 performs no range check between the compare and the
+      // store (window 3EFD..3F2C re-verified against KI.EXE: straight-line
+      // 3F1B..3F29, BX=old*0x40, [BX+0x17], AH=cityIdx since SI=idx*32).
+      // old=0x18 addresses DS:0617, i.e. the diplomacy matrix row 0 col 23
+      // (D52:0600 base; entity-fields §4.2/npc-strategy §4 boundary).
+      // Official 20-chapter +0x1A domain is closed to {0x00..0x15,0x18}
+      // (3840 records checked); only this alias needs the model, anything
+      // else stays fail-closed in factionAt below.
+      writeNativeDiplomacyAt(sc, 0, 23, city.idx, "3F29");
+    } else
+      factionAt(sc, oldOwner, "3F29").strategic_city_secondary = city.idx;
+  }
   const y = word(city.y, "city Y at 3F2C"),
     row = u16(y * 24);
   const x = word(city.x, "city X at 3F43");

@@ -99,6 +99,21 @@ test("native NPC type1 commits both targets then symmetric hostile raw with zero
   assert.equal(rngCalls(), 0);
 });
 
+test("2F71 empty-city expansion (defender 0x18) sets aggressor target with no war", () => {
+  // KI 320C/3215 attr gates have no range check (351A window pinned above):
+  // defender=0x18 reads DS:0600 = matrix[0][0] (0xff here, proceeds).
+  // 3526 then skips both messages (3530 je 358c) and the commit writes
+  // only the aggressor target; no defender response, no relation writes.
+  const { app, scenario, factions, rows, messages, rngCalls } = fixture();
+  scenario.strategicEventSlots[0] = { type: 1, arg0: 1, arg1: 0x18, arg2: 0 };
+  assert.equal(tickStrategicWarEvents(app), true);
+  assert.equal(factions[1].target_faction, 0x18);
+  assert.equal(messages.length, 0);
+  assert.equal(rows[1][2], 0x94, "no forward relation write");
+  assert.equal(rows[0][0], 0xff, "alias attr byte not consumed");
+  assert.equal(rngCalls(), 0);
+});
+
 test("35AB compares old target power, not defender power", () => {
   const stronger = fixture();
   stronger.factions[2].target_faction = 3;

@@ -141,7 +141,20 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
     delete city.disaster_event;
     delete city._strategicLastFaction;
   }
-  for (const general of state.generals ?? []) delete general.is_player;
+  for (const general of state.generals ?? []) {
+    delete general.is_player;
+    // General +0x1D is one DOS byte with two Web names (re-data §3.2): the
+    // chapter byte parses as captive_flag, while fate reads (KI 5885 reads
+    // +0x1D unconditionally, window re-verified) serve origFaction. Fresh
+    // chapters carry only captive_flag, so mirror it here (0xFF =
+    // never-captured = null); absent-both stays fail-closed at the read.
+    if (
+      !Object.hasOwn(general, "origFaction") &&
+      Object.hasOwn(general, "captive_flag")
+    )
+      general.origFaction =
+        general.captive_flag === 0xff ? null : general.captive_flag;
+  }
 
   // 剧本镜像没有运行时军团。即使模板被意外污染，也不能带入新游戏。
   state.legions = [];

@@ -551,15 +551,23 @@ test("real 47BB high fee enters291A then stops at explicit display input retaini
     const before = f.context.memory.snapshot();
     if (command === 9) assert.equal(stepTo(f.sc, f.A), "moved");
     else {
+      // P90 fresh 默认 flags=0（CS:98A6 静态 0）：2BAB/4D33 显示门放行，
+      // fate 沿实锤窗进入 2977（2989/298C DEC、2990 写 8、4693 F14 DEC）
+      // 后停在 29AE TALK31 显示块（fail-closed）。旧 /nativeFateDisplayFlags/
+      // pin 只覆盖 fresh-undefined 空缺，已由该默认关闭（显式缺失仍由
+      // fate 文件 explicit2BA8 用例钉死）。
       assert.throws(
         () => stepTo(f.sc, f.A),
-        command === 10 ? /nativeFateDisplayFlags/ : /L23/,
+        command === 10 ? /TALK31/ : /L23/,
       );
       assert.equal(f.A.roadEdgeOrNode, 0);
       assert.equal(f.A.status & 2, 0);
-      assert.equal(plane(f, 1), 0);
+      // byte1：测试写 1 → 47BB 搜索 DEC 至 0 → 2977 再 DEC 回绕至 255
+      //（decrementOccupancy (value-1)&255，与 F14 同约）。
+      assert.equal(plane(f, 1), command === 10 ? 255 : 0);
       assert.equal(f.A.status & 0x10, 0);
-      assert.equal(f.sc.factions[0].n_legions, 1); // no2977/29C3 return.
+      // 2977 已执行（status 8、F14 DEC），仅 TALK31 显示返回未闭合。
+      assert.equal(f.sc.factions[0].n_legions, command === 10 ? 0 : 1);
     }
     assert.notDeepEqual(f.context.memory.snapshot(), before);
   }
@@ -764,9 +772,12 @@ test("fresh v2 always synthesizes the movement plane (P40 1A2D/8AEA); old detach
     /requires assembly/,
   );
   const bit4 = await fixture({ legion: soldier({ status: 0xd1 }) });
-  assert.throws(() => stepTo(bit4.sc, bit4.A), /nativeFateDisplayFlags/);
-  assert.equal(bit4.A.status, 0xc1); //2BA8 clears bit4 before unknown98A6.
-  assert.equal(plane(bit4, 5), 1); //269C not reached.
+  // P90 fresh 默认 flags=0（CS:98A6 静态 0）：2BA8 清 bit4 后 2BB3 显示门放行，
+  // 269C 到达并正常移动。旧 throw-pin 只覆盖 fresh-undefined 空缺（显式缺失
+  // 仍由 fate 文件 explicit2BA8 用例钉死）。
+  assert.equal(stepTo(bit4.sc, bit4.A), "moved");
+  assert.equal(bit4.A.status, 0xc1); //2BA8 clears bit4.
+  assert.equal(plane(bit4, 5), 0); //269C reached: departure cell vacated.
   // 4304 城市缓存能力门：P40 后 fresh 恒合成 C18 缓存，该门只剩旧档可达；
   // 用删除 webMeta.cityCache 的 restore 模拟。
   const npcBase = await fixture({

@@ -6,10 +6,10 @@
 
 - **C15大门已翻**（P78，用户明确批准，verdict记ai-chain C15行）：fresh装配默认v2，生产侧v1零残留（G1–G8删除，P62–P69/P76），6原生覆盖gap全闭（P70–P75）。
 - **门后延续全闭**（P79–P86，门后延续目标已标complete）：G6 compat读删除；AL=0x93围栏终局；D游标初值；H1战术域归属；H2信赖读；H4尾项——(1)选择器返回覆盖、(2)原版不可达（opening-ABORTED标签退役）、(3a)(3b)覆盖，(3c)60C8封为**非规则影响UNKNOWN围栏**（A1C纯VGA调色板重载已证返回后效应仅显示；归属/loader语义未知，影响半径不含规则状态，可终局携带）。
-- 当前分支`main`，HEAD `3e1d182`（P25–P86已由他方提交；P87–P89工作未提交，用户m3510已授权实机绿则commit、不含push；index为空）。
+- 当前分支`main`，HEAD `58f7cfb`（P89 seal后按用户m3510附条件授权commit本地提交P87–P89十二文件，不含push；他方jev四项untracked未碰）。
 - 固定`KI.EXE` SHA256：`fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，文件偏移按`VA+0x200`换算。
 - 未stage、commit或push；未调整权限、信任或全局配置。未读取/写入真实`SAVE.DAT`、`.dragon-runtime`或用户浏览器profile。现行存档政策：用户确认无需保留旧Web存档，v1路径已退役删除，不兼容槽三路禁用。
-- 最新完整证据根（P89）：`C:/Users/fczll/.pi/agent/sessions/--E--Dragon--/native-event-p89-fresh-terrain/`，seal `864e74cf…`（full-1 196/196 TAP613 DRIFT[]；browser-1 22/22，1pe为P88诱发探针；live-verify实机tick 1000+零error）。
+- 最新完整证据根（P91）：`C:/Users/fczll/.pi/agent/sessions/--E--Dragon--/native-event-p91-overlap/`，seal `0ba03dd6…`（full-1 196/196 TAP618，1次STOP废弃后从首入口重跑；browser-1 22/22单轮直过，1pe为P88诱发探针；含P90零日报障5修复首次整轮验证）。
 
 ## 2. 验证惯例、命令与已知噪声
 
@@ -64,6 +64,7 @@
 
 | 根 | 非浏览器 | 浏览器 | seal |
 | --- | --- | --- | --- |
+| p91-overlap | full-1 196/196 TAP618（1 STOP废弃后重跑） | 22/22 snap2206 1pe（P88诱发探针） 2×503 6rf（单轮直过无STOP） | `0ba03dd6…` |
 | p89-fresh-terrain | full-1 196/196 TAP613 DRIFT[] | 22/22 snap2206 1pe（P88诱发探针） 2×503 1rf（单轮直过无STOP） | `864e74cf…` |
 | p88-frameloop | full-1 195/195 TAP611 | 22/22 snap2205 1pe（诱发探针，自断言） 2×503 4rf（单轮直过无STOP） | `c83f544a…` |
 | p87-cfd-bind | full-1 195/195 TAP611 | 21/21 snap2204 0pe 2×503 4rf（单轮直过无STOP） | `647c6fba…` |
@@ -128,6 +129,9 @@
 | 01a0a5cb | — | — | `104b4225…`（只绑其输入） |
 
 ## 6. 本会话记录
+
+- P90零日报障（用户：顶栏日期出现0日，截图196年5月0日；未独立成轮，修复随P91整轮验证）：5堆叠崩溃逐个KI窗口实证修复——(1)3F29旧所属0x18抛错→改写外交矩阵[0][23]（DS:0617，3EFD..3F2C：BH=+0x1A、BX=old*0x40、[BX+0x17]、AH=cityIdx因SI=idx*32；官数3840条+0x1A域闭合{0..21,0x18}）；(2)320C/3215 attr门对defender=24抛错→经共享aliasStateByte读模型字节（351A无界检查已pin；2F71扩张空城defender=0x18合法，3526已正确跳过宣战）；(3)首战攻城4D33抛错→fresh装配默认nativeFateDisplayFlags=0（CS:98A6静态0，1AA7清零，置位/清零点均显示域）；(4)首个换月585F/5885读武将+0x1D抛错→createNewGameScenario从captive_flag镜像origFaction（0xFF→null；旧缺失抛错pin保留；系0日本体：换月抛错冻时钟于day=0）；(5)换月2E77读relation(24,player)抛错→经aliasStateByte走3119编址（2E6A..2E77+3119：BX=0x600+24A+B；3593确会写0x18目标）。单测122绿＋实机probe第五章4月1日→5月1日零error。改动9文件（生产5＋测试4）。
+- P91重叠报障（用户m4508：`Uncovered overlapping native player decision`，栈enqueue4033→assistance4179→dispatch4435→tick2947→onHour）：诊断probe（D1真fresh之monarchOf恒真，系统性缺失死；D2 guard语义正确复现同错；D3 teardown残留复现同错；D4正常问答干净）收敛到continuation-set早于fallible构造＋读档/回标题不清零两类（drain-false竞态为唯一残留，guard保留诊断）。修复（零规则改动）：`enqueueNativePlayerDecision`先镜像UI显示门精确错并完整构造payload（含3C99个性strict读）再set（不变量set⟺可显示+已构造）；新增`clearNativeUiContinuations`（三枚UI continuation），`loadState`提交边界＋`returnToTitle`调用；incoming/player_decision两fixture补`monarchOf`生产形状（R1构造期抛错无残留＋恢复可派发、R2 teardown清理后续派干净，旧overlap pin保留；player_decision 21/21）。另迁移road_movement两处P90遗留pin（flags=0默认下command10改钉29AE TALK31显示块：2977写已发生status 8/plane255回绕/F14 DEC；bit4改钉正常moved；显式缺失合同仍由fate文件钉死；首轮STOP后废弃重跑）。full-1 196/196 TAP618＋browser-1 22/22单轮直过（1pe诱发探针＋已知噪声），seal `0ba03dd6…`。外交§36回流P91段。用户存档干净（continuation系app级从不序列化）：补丁后读档即续。
 
 - 门后延续目标已标 complete（get_goal/update_goal以`default.*`名暴露；用时6h46m，tokens 2,520,949）：P79–P86即审计对照，唯一剩余H4-(3c)为已分类非规则影响围栏。
 - P87根因修复（用户实机报障：设速后`Uncovered nativePlayerFactionPointer at 3549/358C`经onHour零catch逃出frame杀死rAF，日期与光标双冻）：live CFD由loadState在initPlayer之后绑定（`bindNativePlayerFactionPointer`，1B17-equivalent；fresh与读档同一落点；未选定留空；`verify_player_faction_pointer.mjs`第195项锁定bind三形态＋3549/358C路由＋旧档愈合）；full-1 195/195 TAP611＋browser-1 21/21单轮直过，seal `647c6fba…`；外交§268回流一行。frame-loop rAF加固提案未实施，待批。

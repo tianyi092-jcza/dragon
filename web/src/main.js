@@ -21,6 +21,7 @@ import {
   aiTick,
   buildArmies,
   cancelLegionSlotBatch,
+  clearNativeUiContinuations,
   finishDeferredLegionDaily,
   initializeStrategicDiplomacy,
   monthlyAI,
@@ -278,6 +279,8 @@ const app = {
     this._strategicBattleFailure = null;
     this._strategicCityRequest = null;
     this.engagementFx.reset();
+    // P91：回标题同时废除旧 UI continuation（与 reset 队列同理）。
+    clearNativeUiContinuations(this);
     this.score.title();
     this.opening?.showFinished();
     clearMapPointerClockHold();
@@ -438,6 +441,8 @@ const app = {
     cancelLegionSlotBatch(this);
     this._strategicBattleFailure = null;
     this.engagementFx.reset();
+    // P91：剧本提交同时废除旧 UI continuation（与 reset 队列同理）。
+    clearNativeUiContinuations(this);
     clearMapPointerClockHold();
     this.engageTransition?.cancel?.();
     this.engageTransition = null;

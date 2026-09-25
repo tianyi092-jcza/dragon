@@ -127,6 +127,41 @@ test("official first chapter matches P17 full 2BD9 RNG count and Cao Cao/Lu Bu r
   assert.equal(sc._strategicEventDivider, 7);
 });
 
+test("2E77 target 0x18 reads the city-record alias, gating the type2 queue", () => {
+  // KI 3119 computes BX=0x600+24*A+B with no range check (window 2E6A..2E77
+  // + 3119 pinned above): with faction 7 holding the 2F71 empty-expansion
+  // target 0x18, readRelation(24, player) lands at 0x840+player = city
+  // record byte. Official chapter 5 faction 7 touches player 0 non-war at
+  // relation 183, so every gate passes except the alias byte itself.
+  const quiet = structuredClone(data.scenarios[4]);
+  quiet.player_faction = 0;
+  initialize(quiet);
+  quiet.nativeFactionSlots.records[7].target_faction = 0x18;
+  performScenarioMonthlyDiplomacy(quiet, new OriginalBattleRng({ ch: 0, cl: 0, dh: 0 }));
+  // City 0 raw byte 0 is 0x00 < 0xA3: no alliance queued, no throw.
+  assert.ok(
+    quiet.strategicEventSlots.every((item) => item?.type !== 2),
+    "alias byte below the gate queues nothing",
+  );
+  assert.equal(quiet.nativeFactionSlots.records[7].target_faction, 0x18);
+  // Rig the same alias byte to 0xA3: the read feeds the gate end to end
+  // and the type2 carries the 0x18 target through (enqueue 2FB1 args).
+  const loud = structuredClone(data.scenarios[4]);
+  loud.player_faction = 0;
+  initialize(loud);
+  loud.nativeFactionSlots.records[7].target_faction = 0x18;
+  const raw0 = Buffer.from(loud.nativeCityRecordRaw[0], "hex");
+  raw0[0] = 0xa3;
+  loud.nativeCityRecordRaw[0] = raw0.toString("hex");
+  performScenarioMonthlyDiplomacy(loud, new OriginalBattleRng({ ch: 0, cl: 0, dh: 0 }));
+  assert.ok(
+    loud.strategicEventSlots.some(
+      (item) => item?.type === 2 && item.arg0 === 0 && item.arg1 === 7 && item.arg2 === 0x18,
+    ),
+    "alias byte at/above the gate queues the alliance",
+  );
+});
+
 test("fixed hidden faction rows produce the same month as a 22-faction public view", () => {
   const full = official();
   full.player_faction = 0;

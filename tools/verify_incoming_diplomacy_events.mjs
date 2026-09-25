@@ -67,6 +67,10 @@ function fixture() {
     factions,
     cities,
     generals,
+    // 生产 Scenario（World）恒带 monarchOf；P91 前置门依赖此形状。
+    monarchOf(faction) {
+      return this.generals[faction?.monarch_idx];
+    },
     legions: [],
     diplomacy: [
       [0xff, 0xd0, 0xd8],

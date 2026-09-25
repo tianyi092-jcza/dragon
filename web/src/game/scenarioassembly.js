@@ -285,6 +285,15 @@ export async function prepareScenario({
       // legion-fate failure tests lock this). Explicit inputs still win.
       if (scenario._factionTickCursor === undefined)
         scenario._factionTickCursor = 0;
+      // 4D33 display gate reads CS:98A6 bit 2 (code-segment flag, not D52
+      // state): zeroed at init (1AA7 `mov byte cs:[0x98a6],0`) and only
+      // set/cleared transiently inside display-domain code (5A3D or /
+      // 5AA2-and). Fresh rule processing therefore observes 0; explicit
+      // inputs still win and absence stays fail-closed at the 4D33 read.
+      // Open unknown (display-subsystem call graph): whether any rule-path
+      // capture can observe the bit set; the 4D41 branch stays fail-closed.
+      if (scenario.nativeFateDisplayFlags === undefined)
+        scenario.nativeFateDisplayFlags = 0;
       // 1A2D 清零平面 + 89F0/8AEA 重建（P40）；显式传入的记忆优先。
       if (movementInput === null)
         movementInput = synthesizeScenarioMovementMemory(scenario);
