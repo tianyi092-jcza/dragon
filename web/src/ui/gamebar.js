@@ -6335,12 +6335,19 @@ export class GameBar {
     this.layout();
     // 查看非玩家军团时锁定地图，仅列表和右侧面板可交互
     if (this.viewingLegion) return true;
-    // 地图直接点击军团也可进入行军指示；该入口没有 selectedSubmenu，
-    // 仍必须把目标选择/命令菜单路由给 GameBar.hover/click，禁止穿透地图。
-    if (this.marchingOrder || this.orderChoiceMenu) return true;
+    // 行军目标选择阶段需要在大地图上拖拽寻址；只让右侧军团面板、
+    // 底部提示、命令选择菜单和实体工具栏区域占用输入，其余地图区域
+    // 继续交给地图拖拽/据点拾取。命令菜单展开后作为子层模态锁住地图。
+    if (this.orderChoiceMenu) return true;
+    if (this.marchingOrder) {
+      return (
+        this._hitLegionDetailPanel(px, py) ||
+        this._hitBottomPromptWindow(px, py) ||
+        this.hitMapChrome(px, py)
+      );
+    }
 
     // ★军师菜单下任何一个菜单被选中打开时，整个游戏地图锁定不可移动，地图上的操作全部无效。
-    // 行军目标选择也属于「軍團」子菜单，不能为拖拽/地图拾取开例外。
     if (this.selectedSubmenu != null) return true;
     if (this.proposalAudience) return true;
     if (this.adviceMenu) return true;
@@ -6800,6 +6807,18 @@ export class GameBar {
             }
             return true;
           }
+          // 命令菜单是目标指示的子层模态；点在菜单外也只消费，不穿透地图或小地图。
+          return true;
+        }
+
+        // 目标据点指示阶段仍允许点击小地图导航；但若小地图被右侧军团
+        // 面板或底部提示覆盖，优先按实体 UI 拦截，不穿透导航。
+        if (
+          !this._hitLegionDetailPanel(px, py) &&
+          !this._hitBottomPromptWindow(px, py) &&
+          this._miniHit(px, py, { allowFactionPicker: false })
+        ) {
+          return true;
         }
 
         // 检查是否点击了地图上的据点
@@ -8319,7 +8338,7 @@ export class GameBar {
   }
 
   /** 小地图点击: 窗口内任意点击均被消费; 地图区 → 大地图居中; 右名牌 → 选择势力 */
-  _miniHit(px, py) {
+  _miniHit(px, py, { allowFactionPicker = true } = {}) {
     const p = this.panelRect("mini");
     if (!p) return false;
     // 整个小地图面板（含金框）内点击都消费，避免落到大地图
@@ -8334,7 +8353,7 @@ export class GameBar {
     // 名牌区: 右名牌点击 → 弹势力列表选择显示势力
     const by = my + mh + 1;
     if (py >= by && py < by + 20 && px >= mx && px < mx + mw) {
-      if (px >= mx + 106) {
+      if (px >= mx + 106 && allowFactionPicker) {
         clickSfx();
         this._pickSelFaction();
       }

@@ -64,7 +64,9 @@ globalThis.performance = { now: () => now };
 const clock = { hold: false };
 const view = {
   selectedCity: null,
+  cam: { x: 0, y: 0, scale: 1 },
   draw() {},
+  clampCam() {},
   cityPixel: (city) => [city.x * 16, city.y * 16],
   sx: (x) => x,
   sy: (y) => y,
@@ -136,12 +138,60 @@ assert.equal(bar.marchingOrder, null);
 assert.equal(bar.listDialog, null);
 assert.equal(clock.hold, false);
 
-// 任一子菜单（包括行军目标选择）地图绝对锁定。
+// 行军目标选择阶段是军团工作流的拖拽例外：地图空白区可继续平移/拾取，
+// 但右侧军团面板、底部提示等 UI 区仍消费输入；命令菜单展开后再次锁住地图。
+bar.submenuOpen = true;
 bar.selectedSubmenu = 4;
 bar.marchingOrder = { legion: {}, step: "pick_target", targetCity: null };
+assert.equal(bar.hitTest(700, 400), false);
+assert.equal(bar.hitTest(900, 100), true);
+assert.equal(bar.hitTest(512, 700), true);
+
+// 小地图本身是实体UI，但在目标据点指示阶段点击地图区仍应导航大地图；
+// 仅关闭势力名牌弹窗入口，避免行军工作流中穿插打开小地图势力列表。
+bar.miniOpen = true;
+bar.resOpen = true;
+bar.layout = GameBar.prototype.layout.bind(bar);
+view.cam.x = 0;
+view.cam.y = 0;
+assert.equal(bar.hitTest(850, 80), true);
+assert.equal(bar.click(850, 80, 0), true);
+assert.notEqual(view.cam.x, 0);
+assert.notEqual(view.cam.y, 0);
+assert.equal(bar.listDialog, null);
+bar.miniOpen = false;
+bar.resOpen = false;
+bar.layout = () => {
+  bar.bx = 0;
+  bar.panels = [];
+};
+
+bar.orderChoiceMenu = {
+  items: ["戰鬥指揮"],
+  ox: 100,
+  oy: 100,
+  wTiles: 7,
+  hTiles: 3,
+};
+bar.miniOpen = true;
+bar.resOpen = true;
+bar.layout = GameBar.prototype.layout.bind(bar);
+view.cam.x = 123;
+view.cam.y = 456;
+assert.equal(bar.click(850, 80, 0), true);
+assert.equal(view.cam.x, 123);
+assert.equal(view.cam.y, 456);
+bar.miniOpen = false;
+bar.resOpen = false;
+bar.layout = () => {
+  bar.bx = 0;
+  bar.panels = [];
+};
 assert.equal(bar.hitTest(700, 400), true);
+bar.orderChoiceMenu = null;
 bar.marchingOrder = null;
 bar.selectedSubmenu = null;
+bar.submenuOpen = false;
 
 // 一级菜单只消费自身640×48矩形；同高度但在菜单左右的据点点击必须穿透给地图。
 bar.submenuOpen = true;
