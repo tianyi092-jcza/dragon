@@ -68,7 +68,9 @@ PYTHONPATH=tools PYTHONUTF8=1 PYTHONDONTWRITEBYTECODE=1 python -B -c 'from disas
 
 **原调用者静态分支实锤**：玩家是旧属只发TALK33；玩家不是旧属但为接收方才TALK34→19Ah；都不是则静默。两种身份相同的显式输入也由旧属门优先选33，不额外执行INC DX。完整8810寄存器/设备返回仍见[消息ABI未闭合边界](re-notes-strategic-message-abi.md)，这里不宣称已动态走通消息。
 
-撤销“所有被俘通用消息后都接19Ah”的旧摘要。当前 `enqueuePostbattleFateTalk` 对所有captured都附19Ah，属于**已定位但未修的产品偏差**；`tools/verify_postbattle_fate.mjs` 原TALK33附19Ah断言已删除，保留捕获状态、RNG次数、TALK33及独立TALK34→19Ah断言。删除错误oracle不是修复，更不是负向覆盖：正式修复时须增加TALK33不带selector及真实FIFO无第二段的回归。
+撤销“所有被俘通用消息后都接19Ah”的旧摘要。`tools/verify_postbattle_fate.mjs` 原TALK33附19Ah断言已删除，保留捕获状态、RNG次数、TALK33及独立TALK34→19Ah断言。删除错误oracle不是修复，更不是负向覆盖：正式修复时须增加TALK33不带selector及真实FIFO无第二段的回归。
+
+**本轮挂起接线（现刷＋泵验证）**：2977分支现刷`299D..29C2`关闭——`299A mov cx,1Fh`预置，玩家==L01走29AE单8810 CX=1F（TALK31），否则玩家==captor则INC CX后单8810 CX=20（TALK32），都不是静默；参数push AX=L02|FF00、DI=SP、AL=93h，无CDE、无第二段。TALK67现刷`2A5F..2A78`关闭——玩家==captor才单8810 CX=43h（push BX、DI=SP、AL=93h；无CDE、无第二段），否则静默；G17保持4。31/32/33/34/67五支前缀皆在消息前提交、关闭后原版直接返回，故挂起无尾写：内核`onFateMessage`通道（缺省历史stop裸叶合同）→行军/野战/攻城三入口blocks透传→`buildNativeSiegeBlocks.onPlayerFateMessage`→TALK35形状挂起（无clickSfx、无continuation，onComplete直认ticket，34独附0x19A）；`dispatchLegionFate`（v1结算出口）仍保持stop。legacy `enqueuePostbattleFateTalk` 的TALK33多19Ah偏差一并修复（仅34附selector）。覆盖：`verify_original_legion_fate`新增通道裁决/回落/五talk序列断言；`verify_native_legion_fate`新增blocks透传＋挂起形状（34取19A/其余无selector/无UI抛错/stale ticket完成幂等）。
 
 ### 4.2 永久退场不清G17
 
@@ -103,9 +105,11 @@ PYTHONPATH=tools PYTHONUTF8=1 PYTHONDONTWRITEBYTECODE=1 python -B -c 'from disas
 
 ### 6.2 有限返回与停点
 
-- 只允许原无消息/显示关路径正常返回。显示开在 **2BB3基本块前**停止；2977的31/32在29AE前，29C3的33/34在2A31前、67在2A6A前，2A7E的CDE/35/198在2AB2前停止。这些是明确的基本块边界，**不是声称已执行消息参数读取或callee**；前面的规则写集已经提交。
+- 只允许原无消息/显示关路径正常返回。显示开在 **2BB3基本块前**停止（生产`nativeFateDisplayFlags`恒0，该支不可达，纯工程护栏）；2977的31/32在29AE前、29C3的33/34在2A31前、67在2A6A前（以上五支已由本轮§4现刷关闭序列并经泵挂起通道接线，无通道调用方仍历史stop），2A7E的CDE/35/198在2AB2前停止（已接TALK35挂起）。这些是明确的基本块边界，**不是声称已执行消息参数读取或callee**；前面的规则写集已经提交。
+- 5101（TALK37）现刷`50FA..511F`关闭：owner==玩家才CDE＋单8810 CX=25h＋第二段8810 CX=199h（AH=G1E、AL=G01），否则静默；前缀（清17/G1D→FF/G1C/2AD2）已提交，关闭后直接返回。3485事件泵与4FCE扫描内层暂保持stop（前者泵延续设计、后者嵌套挂起待另行设计），属本轮后剩余待办。
+- 58F1全灭环：22连 inactive 才停，原版该处无返回（死循环），Web stop 恒大声；活局至少玩家活跃故不可达，纯工程边界（与4064外栈同类）。4AD3空名单尾：接触即有守军，实践不可达，保持大声stop。
 - 原CS2919/寄存器/栈由这一次调用的显式参数和局部值表示，不提供中途保存或异常重入协议。未来生产适配必须把异常接到既有失败hold/禁存，不能在相同对象上盲目重试（会重复占格/F14/F18写）。
-- legacy `ai.js` 的TALK33多第二段、永久退场多清G17、灭亡回归仍通知等偏差**仍未修改**；内核拒绝消息返回不等于真实FIFO修复。默认v1、正常App拒v2、原47BB/28F4/25E5/463E停点均保持原状。
+- legacy `ai.js` 的永久退场多清G17、灭亡回归仍通知等偏差**仍未修改**（TALK33多第二段已在本轮修复）；内核拒绝消息返回不等于真实FIFO修复。默认v1、正常App拒v2、原47BB/28F4/25E5/463E停点均保持原状。
 
 ### 6.3 验证范围与下一接线条件
 

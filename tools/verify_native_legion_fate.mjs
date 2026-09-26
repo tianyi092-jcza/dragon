@@ -28,6 +28,7 @@ import {
   monthlyDiplomacyAI,
   settleFactionNegotiation,
   tickStrategicWarEvents,
+  suspendNativeBattleFateMessage,
 } from "../web/src/game/ai.js";
 import { OriginalBattleRng } from "../web/src/game/battle/originalrng.js";
 import { performScenarioLegionFate } from "../web/src/game/navigation/scenariolegionfate.js";
@@ -511,6 +512,69 @@ test("player message boundaries retain prefix; 2A7E uses the closed TALK35 defer
     assert.equal(canSnapshotState(f.app), false);
     assert.equal(f.app.clock.hold, true);
   }
+});
+
+test("battle fate channel threads blocks: 2977 yields fate-suspended, not TALK31 stop", async () => {
+  const f = await fixture({ player: 1, command: 10 });
+  const seen = [];
+  const out = performScenarioLegionFate(
+    f.sc,
+    f.A,
+    f.context,
+    "291A",
+    2,
+    { nextByte: () => 0 },
+    {
+      onPlayerFateMessage: (message) => {
+        seen.push(message);
+        return "fate-suspended";
+      },
+    },
+  );
+  assert.equal(out, "fate-suspended");
+  assert.deepEqual(seen, [{ talk: 31, slot: 0 }]);
+  assert.equal(f.A.status, 8);
+});
+
+test("battle fate suspend enqueues exact TALK shape; 34 alone takes 19A", async () => {
+  const queued = [];
+  const ticket = { completed: true }; // stale: completion claim is a safe no-op
+  const sc = { generals: { 5: { name: "  G5 " } } };
+  const batch = { ticket, scenario: sc, clock: {} };
+  const app = {
+    scenario: sc,
+    clock: batch.clock,
+    _legionSlotBatch: batch,
+    gamebar: {
+      enqueueTalkMessage(message) {
+        queued.push(message);
+      },
+    },
+  };
+  for (const talk of [31, 32, 33, 34, 67]) {
+    assert.equal(
+      suspendNativeBattleFateMessage(app, sc, { talk, slot: 5 }),
+      "fate-suspended",
+    );
+  }
+  assert.deepEqual(
+    queued.map((message) => message.talkIndex),
+    [31, 32, 33, 34, 67],
+  );
+  for (const message of queued) {
+    assert.equal(message.kind, "postbattle-fate");
+    assert.equal(message.generalName, "G5");
+    assert.equal(typeof message.onComplete, "function");
+    if (message.talkIndex === 34)
+      assert.equal(message.personalitySelector, 0x19a);
+    else assert.equal("personalitySelector" in message, false);
+    message.onComplete(); // stale ticket: must not throw, must not run pump
+  }
+  assert.equal(ticket.completed, true);
+  assert.throws(
+    () => suspendNativeBattleFateMessage({ scenario: sc }, sc, { talk: 31, slot: 5 }),
+    /has no UI/,
+  );
 });
 
 test("player disband 464B: 5E80 HUD gate is display-only, rules complete normally", async () => {

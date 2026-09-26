@@ -87,7 +87,7 @@ export function selectOriginalRoad47BB(io) {
   return { cf: false };
 }
 
-function movementIO(sc, legion, context, rng) {
+function movementIO(sc, legion, context, rng, blocks) {
   const byteFields = {
     0: "status",
     1: "faction",
@@ -163,7 +163,15 @@ function movementIO(sc, legion, context, rng) {
     writeGraphByte: context.memory.writeByte,
     readCityOwnerByte: context.readCityOwnerByte,
     fate: (captor) =>
-      performScenarioLegionFate(sc, legion, context, "291A", captor, rng),
+      performScenarioLegionFate(
+        sc,
+        legion,
+        context,
+        "291A",
+        captor,
+        rng,
+        blocks,
+      ),
     disband: () => performScenarioLegionFate(sc, legion, context, "463E"),
     replenish: () => {
       redistributeOriginalLegion(sc, legion);
@@ -187,7 +195,7 @@ function movementIO(sc, legion, context, rng) {
 export function performOriginalRoadAction(sc, legion, context, rng = null, blocks) {
   if (!context?.movement)
     throw new Error("Web engineering Uncovered native movement capability");
-  const io = movementIO(sc, legion, context, rng);
+  const io = movementIO(sc, legion, context, rng, blocks);
   const {
     readByte: rb,
     readWord: rw,
@@ -260,6 +268,7 @@ export function performOriginalRoadAction(sc, legion, context, rng = null, block
           rng,
           target.x,
           target.y,
+          blocks,
         );
       return performScenarioSiegeEntry(sc, legion, target.cityIdx, context, rng, blocks);
     }

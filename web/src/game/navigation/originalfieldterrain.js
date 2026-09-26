@@ -195,6 +195,7 @@ export function createScenarioBattleIO(
   rng,
   x,
   y,
+  blocks,
 ) {
   const prefix = {};
   // Retain the actual first-D reference without fetching fields for diagnostics.
@@ -292,6 +293,7 @@ export function createScenarioBattleIO(
           "291A",
           captor,
           rng,
+          blocks,
         ),
       ),
     dispatchBattle: () => {
@@ -364,9 +366,9 @@ export function createScenarioBattleIO(
   return { io, prefix, call };
 }
 
-export function performScenarioFieldEntry(sc, attacker, defender, context, rng, x, y) {
+export function performScenarioFieldEntry(sc, attacker, defender, context, rng, x, y, blocks) {
   const { io, prefix, call } = createScenarioBattleIO(
-    sc, attacker, defender, context, rng, x, y,
+    sc, attacker, defender, context, rng, x, y, blocks,
   );
   try {
     return performOriginalFieldEntry(io, y);

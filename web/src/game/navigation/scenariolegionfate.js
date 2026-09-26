@@ -378,9 +378,19 @@ export function performScenarioLegionFate(
   const io = createScenarioLegionFateIO(sc, context, rng);
   switch (entry) {
     case "291A":
-      return originalFate291A(io, record.slot, captor);
+      return originalFate291A(
+        io,
+        record.slot,
+        captor,
+        blocks?.onPlayerFateMessage,
+      );
     case "29C3":
-      return originalCapture29C3(io, record.slot, captor);
+      return originalCapture29C3(
+        io,
+        record.slot,
+        captor,
+        blocks?.onPlayerFateMessage,
+      );
     case "2A7E":
       return originalDelayedReturn2A7E(
         io,

@@ -331,6 +331,56 @@ test("player message blocks stop after rule writes; old-owner wins same-owner in
   assert.equal(dead.G[28], 255);
 });
 
+test("player message channel yields handler verdict with prefix kept", () => {
+  // 通道存在时不stop：handler拿talk/slot，串回裁决即原返回；
+  // handler回undefined则落回正常返回字符串。29FB先写G1D=旧属，
+  // 故33门判的是旧属（player==旧属优先于captor门）。
+  const seen = [];
+  const handler = ({ talk, slot }) => {
+    seen.push([talk, slot]);
+    return "test-suspended";
+  };
+  const plain = () => undefined;
+  for (const [who, captor, talk] of [
+    [1, 2, 33],
+    [2, 2, 34],
+    [1, 1, 33],
+  ]) {
+    const f = fixture();
+    f.state.player = who;
+    assert.equal(originalCapture29C3(f.io, 5, captor, handler), "test-suspended");
+    assert.equal(f.G[23], 4);
+    assert.equal(f.L[0], 0);
+    const g = fixture();
+    g.state.player = who;
+    assert.equal(originalCapture29C3(g.io, 5, captor, plain), "captured");
+  }
+  for (const [who, captor, talk] of [
+    [1, 2, 31],
+    [2, 2, 32],
+  ]) {
+    const f = fixture();
+    f.state.player = who;
+    assert.equal(originalReturn2977(f.io, 5, captor, handler), "test-suspended");
+    assert.equal(f.L[3], 48);
+    assert.equal(f.F[20], 0);
+    const g = fixture();
+    g.state.player = who;
+    assert.equal(originalReturn2977(g.io, 5, captor, plain), "returning");
+  }
+  const dead = fixture();
+  dead.F[0] = 0;
+  dead.G[0] = 0x90;
+  dead.state.player = 2;
+  assert.equal(originalCapture29C3(dead.io, 5, 2, handler), "test-suspended");
+  assert.equal(dead.G[23], 4);
+  assert.deepEqual(
+    seen.map(([talk]) => talk),
+    [33, 34, 33, 31, 32, 67],
+  );
+  assert.ok(seen.every(([, slot]) => slot === 5));
+});
+
 test("2A7E counts caller-provided byte; JSON memory resume is not a savegame certificate", () => {
   for (const [initial, visits] of [
     [48, 48],

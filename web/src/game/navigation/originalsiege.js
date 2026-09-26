@@ -168,6 +168,9 @@ export function performScenarioSiegeEntry(
     null,
     context,
     rng,
+    undefined,
+    undefined,
+    blocks,
   );
   function cityAt(pointer, at) {
     const index = (pointer - 0x840) / 32;
@@ -238,7 +241,15 @@ export function performScenarioSiegeEntry(
           return nativeLegionAt(sc, (p - 0x2240) / 64, "4DAA/4DC6");
         });
         retreatOriginalGarrison(sc, defenders, context, (record) =>
-          performScenarioLegionFate(sc, record, context, "291A", receiver, rng),
+          performScenarioLegionFate(
+            sc,
+            record,
+            context,
+            "291A",
+            receiver,
+            rng,
+            blocks,
+          ),
         );
       },
       detachedScan,

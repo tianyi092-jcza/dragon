@@ -1136,7 +1136,9 @@ function enqueuePostbattleFateTalk(
     generalName: general?.name?.trim?.() || "",
     kind: `postbattle-${outcome}`,
   };
-  if (outcome === "captured") message.personalitySelector = 0x19a;
+  // 去向§4.1字节实锤：仅TALK34后接19Ah第二段；TALK33返回后直接退出，
+  // 不带selector（旧“所有captured都附19Ah”概括已撤销）。
+  if (talkIndex === 34) message.personalitySelector = 0x19a;
   app.gamebar?.enqueueTalkMessage?.(message);
 }
 
@@ -2709,6 +2711,28 @@ export function resumeNativeGovernorReport(app) {
     holdFailedStrategicUpdate(app, error);
     throw error;
   }
+}
+/** 2977/29C3玩家去向消息挂起（去向§4现刷关闭）：31/32/33/34/67皆单8810，
+ * 无CDE（故不配clickSfx）；仅34后接19A第二段（AH=G1E、AL=G01，由talk
+ * 系统按gen字段展开，传personalitySelector=0x19A；33明确无第二段）。
+ * 规则前缀已在消息前提交、关闭后原版直接返回，故无尾写、无continuation：
+ * 完成即认领batch/ticket（TALK35形状），批处理从游标继续。 */
+export function suspendNativeBattleFateMessage(app, sc, { talk, slot }) {
+  if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+    throw new RangeError(`native battle fate TALK${talk} has no UI`);
+  const batch = app._legionSlotBatch ?? null;
+  const ticket = batch?.ticket ?? null;
+  const general = sc.generals?.[slot];
+  const message = {
+    gen: general,
+    talkIndex: talk,
+    generalName: general?.name?.trim?.() ?? "",
+    kind: "postbattle-fate",
+    onComplete: () => finishDeferredLegionDaily(app, batch, ticket),
+  };
+  if (talk === 34) message.personalitySelector = 0x19a;
+  app.gamebar.enqueueTalkMessage(message);
+  return "fate-suspended";
 }
 function suspendNativeMonthlyFateMessage(app, sc, result, deferredTail) {
   const stale = app._nativeMonthlyFateContinuation;
@@ -5307,6 +5331,11 @@ function buildNativeSiegeBlocks(app, sc, A, context) {
     onGovernorBlock: (governorCtx, governorTail) =>
       suspendNativeGovernorReport(app, sc, governorCtx, governorTail),
     onPlayerDead: (deadOwner) => triggerNativePlayerDefeat(app, sc, deadOwner),
+    // 去向挂起通道：2977/29C3玩家消息（TALK31/32/33/34/67，去向§4现刷）
+    // 挂起显示并让出批处理；关闭后无尾写，直接认领ticket续跑。
+    // 缺失时内核保持历史stop（裸叶合同）。
+    onPlayerFateMessage: ({ talk, slot }) =>
+      suspendNativeBattleFateMessage(app, sc, { talk, slot }),
     // 灭亡挂起通道：行军攻城破城致他势力灭亡时，5042 TALK36 挂起并延后
     // 4D2A 尾（去向§19.7），不再沿历史hold冻时钟。
     onExtinctionBlock: (deadOwner, extinctCaptor, captureTail) =>

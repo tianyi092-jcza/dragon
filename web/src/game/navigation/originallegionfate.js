@@ -294,22 +294,51 @@ export function originalErase2BA8(io, slot) {
     stop("2BB3", "display-on 9656/96ED block");
 }
 
-/** 2977: BX denotes the same-number general, NOT the general named by L02. */
-export function originalReturn2977(io, slot, captor) {
+/** 2977/29C3玩家去向消息通道（现刷关闭见去向§4）：有handler时把原8810
+ * 序列交调用方泵挂起（返回handler裁决），缺失时保持历史stop（裸叶合同）。
+ * 所有分支规则前缀皆在消息前提交，关闭后原版直接返回，无尾写。 */
+function fateMessageOrStop(onFateMessage, talk, slot, at, detail, fallen) {
+  if (typeof onFateMessage === "function") {
+    const verdict = onFateMessage({ talk, slot });
+    return typeof verdict === "string" ? verdict : fallen;
+  }
+  stop(at, detail);
+}
+
+/** 2977玩家消息（现刷299D..29C2关闭）：299A预置CX=0x1F；玩家==L01走
+ * 29AE单8810 CX=0x1F（TALK31），否则玩家==captor则INC CX后单8810
+ * CX=0x20（TALK32），都不是则静默。参数push AX=L02|FF00、DI=SP、
+ * AL=0x93；无CDE、无第二段。08/30/F14前缀已提交，关闭后直接返回。 */
+export function originalReturn2977(io, slot, captor, onFateMessage) {
   slotIndex(slot, "297B");
   decrementOccupancy(io, slot, "2989", "298C");
   lw(io, slot, 0, 8, "2990");
   lw(io, slot, 3, 0x30, "2993");
   decrementLegions(io, slot);
   const who = player(io, "299D");
-  if (who === lb(io, slot, 1, "29A1")) stop("29AE", "TALK31 block");
+  if (who === lb(io, slot, 1, "29A1"))
+    return fateMessageOrStop(
+      onFateMessage,
+      31,
+      slot,
+      "29AE",
+      "TALK31 block",
+      "returning",
+    );
   if (who === unsigned(captor, 255, "29A6", "CS2919"))
-    stop("29AE", "TALK32 block");
+    return fateMessageOrStop(
+      onFateMessage,
+      32,
+      slot,
+      "29AE",
+      "TALK32 block",
+      "returning",
+    );
   return "returning";
 }
 
 /** 29C3: also callable with an inactive same-number slot (e.g. 5030). */
-export function originalCapture29C3(io, slot, captor) {
+export function originalCapture29C3(io, slot, captor, onFateMessage) {
   slotIndex(slot, "29C8");
   if (lb(io, slot, 0, "29D4") >= 0x80) {
     decrementOccupancy(io, slot, "29DB", "29DE");
@@ -326,7 +355,18 @@ export function originalCapture29C3(io, slot, captor) {
     gw(io, slot, 0, 0, "2A57");
     // One original word write, not two independently recoverable byte writes.
     call(io, "writeGeneralWord", [slot, 0x1c, 0xffff], "2A5A");
-    if (player(io, "2A5F") === captor) stop("2A6A", "TALK67 block");
+    // 永久退场TALK67（现刷2A5F..2A78关闭）：玩家==captor才单8810
+    // CX=0x43（push BX、DI=SP、AL=0x93；无CDE、无第二段），否则静默。
+    // G17保持4，不再写；之后直接返回。
+    if (player(io, "2A5F") === captor)
+      return fateMessageOrStop(
+        onFateMessage,
+        67,
+        slot,
+        "2A6A",
+        "TALK67 block",
+        "eliminated",
+      );
     return "eliminated"; // G17 remains 4.
   }
   if (gb(io, slot, 0, "2A12") & 0x40) {
@@ -334,13 +374,33 @@ export function originalCapture29C3(io, slot, captor) {
     gw(io, slot, 0x1e, (gb(io, slot, 0x1e, "2A1A") + 3) & 255, "2A1A");
   }
   const who = player(io, "2A20");
-  if (who === gb(io, slot, 0x1d, "2A24")) stop("2A31", "TALK33 block (no 19A)");
-  if (who === captor) stop("2A31", "TALK34 then 19A block");
+  // 被俘消息（去向§4.1字节实锤）：玩家==旧属单8810 CX=0x21（TALK33，
+  // 无19Ah，返回后直接退出）；否则玩家==captor才8810 CX=0x22（TALK34）
+  // 后接第二段8810 CX=0x19A（AH=G1E、AL=G01）；都不是则静默。
+  // 两段皆push BX、DI=SP、首段AL=0x93；全程无CDE。
+  if (who === gb(io, slot, 0x1d, "2A24"))
+    return fateMessageOrStop(
+      onFateMessage,
+      33,
+      slot,
+      "2A31",
+      "TALK33 block (no 19A)",
+      "captured",
+    );
+  if (who === captor)
+    return fateMessageOrStop(
+      onFateMessage,
+      34,
+      slot,
+      "2A31",
+      "TALK34 then 19A block",
+      "captured",
+    );
   return "captured";
 }
 
 /** 291A: inactive gate, capital FF priority, L02 monarch gate, then one ECE0. */
-export function originalFate291A(io, slot, captor) {
+export function originalFate291A(io, slot, captor, onFateMessage) {
   slotIndex(slot, "291A");
   if (lb(io, slot, 0, "291A") < 0x80) return "inactive";
   unsigned(captor, 255, "2922", "AL captor");
@@ -348,18 +408,19 @@ export function originalFate291A(io, slot, captor) {
   const owner = lb(io, slot, 1, "2929");
   const monarch = fb(io, owner, 1, "2932");
   const capital = fb(io, owner, 3, "2935");
-  if (capital === 255) return originalCapture29C3(io, slot, captor);
+  if (capital === 255)
+    return originalCapture29C3(io, slot, captor, onFateMessage);
   if (
     monarch === lb(io, slot, 2, "2949") ||
     captor === lb(io, slot, 1, "2952") ||
     captor === 0x18
   )
-    return originalReturn2977(io, slot, captor);
+    return originalReturn2977(io, slot, captor, onFateMessage);
   const random = byte(io, "nextRandomByte", [], "295B") & 0x7f;
   const threshold = (gb(io, slot, 0x1f, "2960") >>> 1) + 0x28;
   return random <= threshold
-    ? originalReturn2977(io, slot, captor)
-    : originalCapture29C3(io, slot, captor);
+    ? originalReturn2977(io, slot, captor, onFateMessage)
+    : originalCapture29C3(io, slot, captor, onFateMessage);
 }
 
 /** 2A7E: slot argument represents relative SI/40h, not absolute 2240h. */
