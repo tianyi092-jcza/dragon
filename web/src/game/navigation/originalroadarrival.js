@@ -75,15 +75,22 @@ function aliasedByte(sc, context, address) {
 
 /** 4300 returns mutated BX even on CLC; only STC re-enters 266A. */
 export function interceptOriginalRoad4300(sc, context, io, bx) {
+  // §3.13：28F4的DI由调用前BX保留——4300内部×4只供4304/4311寻址，
+  // 成功支的×8只为派生0x20=BH；返回调用者的BX必须是原节点号。
+  // 若返回变异值，arrive会按它重算DI，city14之类将读到448号野地址
+  // （如0x4041/16449）而冻时钟；0x20=BH的目标协议不受影响
+  // （(node*32>>>8)*8恒等于8对齐的node本身）。
+  const node = bx;
   bx = u16(bx * 4);
   if (cacheAt(sc, context, u16(bx + 0x858), "4304") > 1)
-    return { cf: false, bx };
-  if (io.readByte(8) === 4) return { cf: false, bx };
+    return { cf: false, bx: node };
+  if (io.readByte(8) === 4) return { cf: false, bx: node };
   const city = cityAtPointer(sc, u16(bx + 0x840), "4311");
-  if (byte(city.attr, "city attr at 4311") < 0x80) return { cf: false, bx };
+  if (byte(city.attr, "city attr at 4311") < 0x80)
+    return { cf: false, bx: node };
   bx = u16(bx * 8);
   io.writeByte(0x20, bx >>> 8);
-  return { cf: true, bx };
+  return { cf: true, bx: node };
 }
 
 /** One handler only. A normal return is owned by the original slot pump. */

@@ -253,8 +253,18 @@ function maybeQueueWar(io, actor, row) {
         "FFFF candidate relation alias",
       );
   if (candidateRelation > relationThreshold) return false;
-  if (!first)
-    stop("3094", "FFFF candidate reaches state outside the fixed tables");
+  // Web 产品决定（原版行为不可知，待用户确认；见re-notes-ai-diplomacy§7）：
+  // 无普通候选（首字FFFF）但走到这里时，原版继续以bx=0x7FFF调3091，读
+  // DS:0x8003/05/07/20/22——8CAE只载入0x5240字节，该地址超出=未初始化
+  // RAM（P34实锤），比较结果与是否排战完全取决于堆垃圾，不存在可实现
+  // 的确定性原规则（标“未知”，不得写入正式规则路径）。本轮harness已证
+  // 明该门常规可达（第三章首换月：富足和平势力空行+F19已设+关系门过），
+  // 永冻(stop)会使游戏无法推进。保守选择：宣战比较恒不成立（return
+  // false），目标维护照常走maybeQueueEmptyWar/2D94空行协议；本分支在
+  // stop前不消费RNG、不写状态，故对时间线零影响（仅跳过不可知的比较
+  // 与对0xFF的幻影排战；零填充复现的[1,A,FF,FF]输出早已撤销证书地位）。
+  // 若用户否决，改回stop即恢复永冻（单行回退）。
+  if (!first) return false;
   const mine = strategicPower3091(io, actor);
   const enemy = strategicPower3091(io, first.slot);
   if (mine < enemy - (enemy >>> 2)) return false;

@@ -2444,17 +2444,24 @@ function suspendNativeExtinctionTalk36(
   captureTail,
 ) {
   const stale = app._nativeExtinctionContinuation;
+  // 同批在途重复挂起必须fail-closed精确错，不能静默覆盖continuation丢尾
+  // （首尾的captureTail/F23与ticket认领只够一单；排队属后续设计）。
   if (stale && stale.scenario === sc)
     throw new RangeError("native extinction continuation already pending");
   if (typeof app.gamebar?.enqueueTalkMessage !== "function")
     throw new RangeError("native extinction TALK36 has no UI");
   const faction = sc.factions?.find((candidate) => candidate?.idx === deadOwner);
+  // 批内挂起：batch/ticket在resume时认领，续跑尾段后批处理从游标继续，
+  // 与原版“消息关闭才继续本轮更新”同序。批外（月结等）则无ticket。
+  const batch = app._legionSlotBatch ?? null;
   app._nativeExtinctionContinuation = {
     scenario: sc,
     deadOwner,
     captor,
     context,
     captureTail: typeof captureTail === "function" ? captureTail : null,
+    batch,
+    ticket: batch?.ticket ?? null,
   };
   app.gamebar.enqueueTalkMessage({
     gen: null,
@@ -2465,7 +2472,8 @@ function suspendNativeExtinctionTalk36(
   });
 }
 
-/** 504D消息返回：先跑F19续扫，再跑延后的4D2A尾（5073 ret→4D1E+3）。 */
+/** 504D消息返回：先跑F19续扫，再跑延后的4D2A尾（5073 ret→4D1E+3）。
+ * 批内挂起时续跑完认领ticket，批处理从游标继续；批外（月结）无ticket。 */
 export function resumeNativeExtinction(app) {
   const continuation = app?._nativeExtinctionContinuation;
   if (!continuation) return false;
@@ -2480,6 +2488,65 @@ export function resumeNativeExtinction(app) {
     );
     app._nativeExtinctionContinuation = null;
     continuation.captureTail?.();
+    if (continuation.batch && continuation.ticket)
+      finishDeferredLegionDaily(app, continuation.batch, continuation.ticket);
+    return true;
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+}
+/**
+ * KI 0x4F06→0x4F71：AI破玩家城守备队、快战胜后，先警告/TALK26
+ * （CX=1Ah即TALK索引，无个性段；4F7C→0CE7警告音），关闭后才续跑
+ * 4B3A清临时军与4B41易主（消息审计§3.1）。挂起通道见
+ * buildNativeSiegeBlocks.onSiegeWarning26。
+ */
+export function suspendNativeSiegeWarning26(app, sc, { attacker, cityIndex, resumeTail }) {
+  const stale = app._nativeSiegeWarningContinuation;
+  if (stale && stale.scenario === sc)
+    throw new RangeError("native siege warning continuation already pending");
+  if (typeof resumeTail !== "function")
+    throw new RangeError("native siege warning has no resume tail");
+  if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+    throw new RangeError("native siege warning TALK26 has no UI");
+  const general =
+    attacker?.generalIdx == null
+      ? null
+      : (sc.generals?.[attacker.generalIdx] ?? null);
+  const city = sc.cities?.[cityIndex] ?? null;
+  const batch = app._legionSlotBatch ?? null;
+  app._nativeSiegeWarningContinuation = {
+    scenario: sc,
+    cityIndex,
+    resumeTail,
+    batch,
+    ticket: batch?.ticket ?? null,
+  };
+  warnSfx(); // 4F7C CALL 0CE7（PC喇叭警告）。
+  app.gamebar.enqueueTalkMessage({
+    gen: general,
+    talkIndex: 26,
+    generalName:
+      attacker?.leader?.trim?.() || general?.name?.trim?.() || "",
+    cityName: city?.name?.trim?.() || "",
+    kind: "siege-warning-26",
+    onComplete: () => resumeNativeSiegeWarning26(app),
+  });
+}
+/** 4F71消息返回：续跑易主尾段；尾段链入更深挂起时由其认领ticket。 */
+export function resumeNativeSiegeWarning26(app) {
+  const continuation = app?._nativeSiegeWarningContinuation;
+  if (!continuation) return false;
+  const sc = app?.scenario;
+  if (!sc || continuation.scenario !== sc)
+    throw new RangeError("native siege warning continuation scenario mismatch");
+  app._nativeSiegeWarningContinuation = null;
+  try {
+    const result = continuation.resumeTail();
+    if (isRoadSuspended(result)) return true;
+    if (continuation.batch && continuation.ticket)
+      finishDeferredLegionDaily(app, continuation.batch, continuation.ticket);
     return true;
   } catch (error) {
     holdFailedStrategicUpdate(app, error);
@@ -2530,6 +2597,7 @@ function suspendNativeDiplomatReport(
   // re-read diplomat_idx here.
   const diplomatGeneral =
     diplomat == null ? null : (sc.generals?.[diplomat] ?? null);
+  const batch = app._legionSlotBatch ?? null;
   app._nativeDiplomatContinuation = {
     scenario: sc,
     deadOwner,
@@ -2537,6 +2605,8 @@ function suspendNativeDiplomatReport(
     context,
     diplomatTail,
     captureTail,
+    batch,
+    ticket: batch?.ticket ?? null,
   };
   app.gamebar.enqueueTalkMessage({
     gen: diplomatGeneral,
@@ -2597,11 +2667,14 @@ function suspendNativeGovernorReport(app, sc, governorCtx, governorTail) {
       ? null
       : (sc.generals?.[governorCtx.governor] ?? null);
   const city = sc.cities?.[governorCtx?.cityIdx] ?? null;
+  const batch = app._legionSlotBatch ?? null;
   app._nativeGovernorContinuation = {
     scenario: sc,
     governor: governorCtx?.governor ?? null,
     cityIdx: governorCtx?.cityIdx ?? null,
     governorTail,
+    batch,
+    ticket: batch?.ticket ?? null,
   };
   doubleClickSfx(); // 4D86 CALL CE7 double beep.
   app.gamebar.enqueueTalkMessage({
@@ -2626,6 +2699,11 @@ export function resumeNativeGovernorReport(app) {
   try {
     const result = continuation.governorTail();
     app._nativeGovernorContinuation = null;
+    // 内层链入更深挂起（外交官/灭亡）时由其continuation认领ticket，此处
+    // 不认领；干净跑完才认领，批处理从游标继续。
+    if (isRoadSuspended(result)) return true;
+    if (continuation.batch && continuation.ticket)
+      finishDeferredLegionDaily(app, continuation.batch, continuation.ticket);
     return result;
   } catch (error) {
     holdFailedStrategicUpdate(app, error);
@@ -4180,6 +4258,17 @@ export function clearNativeUiContinuations(app) {
   app._nativeEnvoyResultContinuation = null;
 }
 
+/** 剧本提交/回标题同时废除旧规则挂起continuation：挂起中的消息模态属于
+ * 旧剧本，其resume带有旧scenario/ticket，load后触发只会抛
+ * scenario-mismatch冻新局；load本身整体替换剧本，丢尾与收批同理。 */
+export function clearNativeSuspendContinuations(app) {
+  if (!app) return;
+  app._nativeExtinctionContinuation = null;
+  app._nativeDiplomatContinuation = null;
+  app._nativeGovernorContinuation = null;
+  app._nativeSiegeWarningContinuation = null;
+}
+
 /** 3262 type3 truce：NPC 直接提交；接收方为玩家时进入 38C7 决定流。 */
 function dispatchNativeTruceEvent(app, event) {
   const sc = app.scenario;
@@ -5218,7 +5307,28 @@ function buildNativeSiegeBlocks(app, sc, A, context) {
     onGovernorBlock: (governorCtx, governorTail) =>
       suspendNativeGovernorReport(app, sc, governorCtx, governorTail),
     onPlayerDead: (deadOwner) => triggerNativePlayerDefeat(app, sc, deadOwner),
+    // 灭亡挂起通道：行军攻城破城致他势力灭亡时，5042 TALK36 挂起并延后
+    // 4D2A 尾（去向§19.7），不再沿历史hold冻时钟。
+    onExtinctionBlock: (deadOwner, extinctCaptor, captureTail) =>
+      suspendNativeExtinctionTalk36(
+        app,
+        sc,
+        deadOwner,
+        extinctCaptor,
+        context,
+        captureTail,
+      ),
+    // 4F06裁决通道：AI破玩家城守备队快战胜后，先挂起警告/TALK26
+    // （消息审计§3.1：4F06→4F71），关闭后才续跑易主。
+    onSiegeWarning26: ({ attacker, cityIndex, resumeTail }) =>
+      suspendNativeSiegeWarning26(app, sc, { attacker, cityIndex, resumeTail }),
   };
+}
+/** 行军驱动挂起归一化：各 "*-suspended"（总督/外交官/灭亡/4F06警告）
+ * 一律让出批处理；其余道路返回（moved/contact/siege-battle/fate/
+ * arrived/blocked/reversed/waiting/player-defeated）沿历史形状处理。 */
+function isRoadSuspended(outcome) {
+  return typeof outcome === "string" && outcome.endsWith("-suspended");
 }
 function performLegionSlotAction(app, A) {
   const sc = app.scenario;
@@ -5239,14 +5349,18 @@ function performLegionSlotAction(app, A) {
       rawRoadNodeId(A.roadEdgeOrNode) === A._retreat.nodeId
     )
       A._retreat = null;
-    performOriginalRoadAction(
+    // 行军驱动挂起（总督/外交官/灭亡/4F06警告）必须让出批处理，由消息
+    // 关闭时的 resume 续跑尾段并认领 ticket；其余道路返回沿历史形状记
+    // "complete"，泵行为不变。"player-defeated" 不在此列：终局模态自带
+    // hold，循环顶的 endView 检查负责收批。
+    const outcome = performOriginalRoadAction(
       sc,
       A,
       native,
       app.originalRng ?? app.activeBattleRng,
       buildNativeSiegeBlocks(app, sc, A, native),
     );
-    return "complete"; // Only the existing pump owns normal daily/03 tails.
+    return isRoadSuspended(outcome) ? "suspended" : "complete";
   }
   A.prevX = A.x;
   A.prevY = A.y;

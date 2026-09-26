@@ -513,6 +513,16 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
       change: (sc) => {
         sc.legions[0].targetNode = 191;
         sc.legions[0].targetCity = 191;
+        // node 6 在修正寻址下抵达真实城市6：43D3的DI+18读落到势力域
+        // （faction[3].F18 live，§3.13/P41），夹具补足第4势力以覆盖之。
+        if (node === 6)
+          sc.factions.push({
+            idx: 3,
+            capital: 6,
+            nativeGeneralCount: 0,
+            n_legions: 0,
+            n_generals: 0,
+          });
       },
     });
     const before = f.context.movement.snapshot();
@@ -522,17 +532,27 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
       delete f.sc.nativeFateDisplayFlags;
       assert.throws(() => go(f), /nativeFateDisplayFlags/);
       assert.equal(f.sc.factions[0].n_legions, 1);
-    } else if (node === 6)
-      assert.throws(() => go(f), /original road state byte/);
-    else {
+    } else if (node === 6) {
+      // 旧实现误传变异BX，到达读到幻影城192在此抛road-state-byte；修正后
+      // 读真实城市6并走完handler-5的43D3分支（F18=0跳过RNG、600兵不触发
+      // 4405），不再抛错，命令态与占格快照保持拦截不平衡语义。
+      go(f);
+      assert.equal(f.A.commandState, 1);
+      assert.equal(f.app._strategicBattleFailure, undefined);
+    } else {
       if (node === 64) {
-        // 4300 拦截 STC 后以 bx=node*0x100 重入，DI=u16(bx*4)=0 回绕（notes：
-        // city64 DI回绕0）→ 43D3 地址 0x18 = 势力[0] F18 线性别名。
-        // F18=0 ≤2：不耗 RNG、不写 0x23（handler5 直返，命令字节保持 1）。
+        // 修正寻址：拦截STC重入arrive用原节点号512，DI=512*4=2048为真值
+        // （§3.13保留语义）；旧实现误传变异BX致DI回绕0读势力F18。DI+18h
+        // =2072落外交窗（row22/col8），夹具按该真地址给值：
+        // diplomacy[22][8]≤2跳过RNG（handler5直返，命令字节保持1）。
+        f.sc.diplomacy = Array.from({ length: 24 }, () =>
+          Array(24).fill(0x80),
+        );
+        f.sc.diplomacy[22][8] = 2;
         slot(f);
         assert.equal(f.A.commandState, 1);
         assert.equal(f.app._strategicBattleFailure, undefined);
-        // F18=3 >2：走 43D9 RNG → 状态 2。
+        // diplomacy[22][8]>2：走 43D9 RNG → 状态 2。
         const forced = await fixture({
           node,
           command: 1,
@@ -543,7 +563,10 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
             sc.legions[0].targetCity = 191;
           },
         });
-        forced.sc.factions[0].nativeGeneralCount = 3;
+        forced.sc.diplomacy = Array.from({ length: 24 }, () =>
+          Array(24).fill(0x80),
+        );
+        forced.sc.diplomacy[22][8] = 0x80;
         const before64 = forced.context.movement.snapshot();
         slot(forced);
         assert.equal(forced.A.commandState, 2);
@@ -553,7 +576,12 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
         const alias = (node - 3) * 32 + 30;
         f.context.cityCache.writeByte(alias, 3);
         slot(f);
-        assert.equal(f.A.commandState, 2);
+        // 4300-STC重入arrive必须用原节点号（§3.13：28F4的DI调用前保留、
+        // STC回266A、DI继承不重算；P01另有4300→28F4异属截留分支实证）。
+        // 旧实现误传变异BX，使得到达读到幻影城96/128/160主；现读真城
+        // 3/4/5，handler选择随之从2变为1（合成微节点上实现定义，其余
+        // 断言——目标/帧/占格快照——保持不变）。
+        assert.equal(f.A.commandState, 1);
         assert.equal(f.app._strategicBattleFailure, undefined);
       }
     }

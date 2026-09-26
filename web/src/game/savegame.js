@@ -46,6 +46,7 @@ export function canSnapshotState(app) {
     app?._nativeExtinctionContinuation ||
     app?._nativeDiplomatContinuation ||
     app?._nativeGovernorContinuation ||
+    app?._nativeSiegeWarningContinuation ||
     app?._strategicBattleFailure ||
     app?.gamebar?._strategicMessageActive ||
     app?.gamebar?.proposalAudience ||

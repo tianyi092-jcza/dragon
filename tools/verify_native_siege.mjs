@@ -461,3 +461,59 @@ test("6FD2 neutral owner uses same raw diplomacy063E for every byte, keeps late-
   assert.equal(record.movePeriod, 3);
   assert.equal(record.moveDelay, 9);
 });
+
+test("4F06 attacker-won verdict suspends TALK26 with a channel, historic stop without", () => {
+  // Empty player city (defender 0x4200): attacker wins the default-byte
+  // quick battle, so 4F06 fires before any cleanup/capture.
+  const bare = fixture();
+  bare.io.readPlayer = () => 1;
+  assert.throws(
+    () => dispatchOriginalSiegeBattle(bare.io, 0x860, 0x4200),
+    (e) => e.instruction === "4F06",
+  );
+  const wired = fixture();
+  wired.io.readPlayer = () => 1;
+  // Channel presence alone selects the verdict path; dispatch never calls
+  // it (the entry owns the suspend call, pinned by the next test).
+  wired.io.suspendSiegeWarning = () => "suspended";
+  const out = dispatchOriginalSiegeBattle(wired.io, 0x860, 0x4200);
+  // Bare-leaf contract: dispatch only reports the verdict, it never calls
+  // the suspend channel itself (the entry owns the suspend call).
+  assert.equal(out.suspended, "siege-warning-26");
+  assert.equal(out.result.ax & 255, 0);
+  assert.equal(out.city, 0x860);
+  assert.equal(out.defender, 0x4200);
+});
+
+test("4F06 entry suspends before temp-defender cleanup and capture, resume finishes", () => {
+  const f = fixture();
+  const verdict = {
+    suspended: "siege-warning-26",
+    result: { ax: 0 },
+    city: 0x860,
+    defender: 0x4200,
+  };
+  let tail = null;
+  f.io.dispatchSiege = () => verdict;
+  f.io.suspendSiegeWarning = (v, t) => {
+    assert.equal(v, verdict);
+    tail = t;
+    return "suspended";
+  };
+  f.io.selectDefenders = () => ({ bx: 0x4200, cx: 256, cf: true });
+  assert.equal(performOriginalSiegeEntry(f.io, 0x860), "suspended");
+  // Deferred past the message: no 4FC9 cleanup, no capture yet.
+  assert.equal(
+    f.trace.filter((r) => r[0] === "captureCity").length,
+    0,
+  );
+  assert.equal(f.records.defender.status, 0xe4);
+  assert.equal(typeof tail, "function");
+  // TALK26 close: clear temp defender, then capture, then siege-battle.
+  assert.equal(tail(), "siege-battle");
+  assert.equal(
+    f.trace.filter((r) => r[0] === "captureCity").length,
+    1,
+  );
+  assert.equal(f.records.defender.status, 0);
+});

@@ -342,13 +342,13 @@ test("FFFF candidate relation alias reads the flat matrix row for actor 0", () =
   assert.equal(sc.nativeFactionSlots.records[0].target_faction, null);
   const passing = buildFfffCandidateFixture(0);
   writeNativeDiplomacyAt(passing, 10, 15, 0xaa, "test");
-  assert.throws(
-    () =>
-      performScenarioMonthlyDiplomacy(passing, {
-        nextByte: () => 0xff,
-      }),
-    /3094/,
-  );
+  const [feedPassing, rngPassing] = countRng();
+  performScenarioMonthlyDiplomacy(passing, rngPassing);
+  // Web产品决定（原版行为不可知）：空行宣战比较恒不成立，不排战、
+  // 不消费RNG；目标维护照常（本夹具无直辖城故empty=false，F19按
+  // maybeQueueEmptyWar/2D94协议清为null，与关系门拒绝支一致）。
+  assertQuietMonth(passing, feedPassing.calls);
+  assert.equal(passing.nativeFactionSlots.records[0].target_faction, null);
 });
 
 test("FFFF candidate relation alias reads the flat matrix row for actor 5", () => {
@@ -360,13 +360,10 @@ test("FFFF candidate relation alias reads the flat matrix row for actor 5", () =
   assert.equal(sc_record(rejected).target_faction, null);
   const passing = buildFfffCandidateFixture(5);
   writeNativeDiplomacyAt(passing, 15, 15, 0xaa, "test");
-  assert.throws(
-    () =>
-      performScenarioMonthlyDiplomacy(passing, {
-        nextByte: () => 0xff,
-      }),
-    /3094/,
-  );
+  const [feedPassing5, rngPassing5] = countRng();
+  performScenarioMonthlyDiplomacy(passing, rngPassing5);
+  assertQuietMonth(passing, feedPassing5.calls);
+  assert.equal(sc_record(passing).target_faction, null);
 });
 const sc_record = (sc) => sc.nativeFactionSlots.records[sc.player_faction];
 
@@ -386,13 +383,10 @@ test("FFFF candidate relation alias crosses into city records for actor 14", () 
   const passRaw = Buffer.from(passing.nativeCityRecordRaw[0], "hex");
   passRaw[15] = 0xaa;
   passing.nativeCityRecordRaw[0] = passRaw.toString("hex");
-  assert.throws(
-    () =>
-      performScenarioMonthlyDiplomacy(passing, {
-        nextByte: () => 0xff,
-      }),
-    /3094/,
-  );
+  const [feedPassing14, rngPassing14] = countRng();
+  performScenarioMonthlyDiplomacy(passing, rngPassing14);
+  assertQuietMonth(passing, feedPassing14.calls);
+  assert.equal(passing.nativeFactionSlots.records[14].target_faction, null);
 
   const missing = buildFfffCandidateFixture(14);
   delete missing.nativeCityRecordRaw;

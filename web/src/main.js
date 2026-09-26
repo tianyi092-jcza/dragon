@@ -22,6 +22,7 @@ import {
   buildArmies,
   cancelLegionSlotBatch,
   clearNativeUiContinuations,
+  clearNativeSuspendContinuations,
   finishDeferredLegionDaily,
   initializeStrategicDiplomacy,
   monthlyAI,
@@ -281,6 +282,9 @@ const app = {
     this.engagementFx.reset();
     // P91：回标题同时废除旧 UI continuation（与 reset 队列同理）。
     clearNativeUiContinuations(this);
+    // 挂起中的规则消息模态属于旧剧本：resume带旧scenario/ticket，
+    // 留之则load后触发抛mismatch冻新局；剧本整体替换，丢尾合法。
+    clearNativeSuspendContinuations(this);
     this.score.title();
     this.opening?.showFinished();
     clearMapPointerClockHold();
@@ -443,6 +447,7 @@ const app = {
     this.engagementFx.reset();
     // P91：剧本提交同时废除旧 UI continuation（与 reset 队列同理）。
     clearNativeUiContinuations(this);
+    clearNativeSuspendContinuations(this);
     clearMapPointerClockHold();
     this.engageTransition?.cancel?.();
     this.engageTransition = null;

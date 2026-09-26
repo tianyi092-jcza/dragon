@@ -36,6 +36,8 @@ import {
   resumeNativeExtinction,
   resumeNativeDiplomatReport,
   resumeNativeGovernorReport,
+  resumeNativeSiegeWarning26,
+  suspendNativeSiegeWarning26,
 } from "../web/src/game/ai.js";
 import { canSnapshotState } from "../web/src/game/savegame.js";
 import {
@@ -738,9 +740,16 @@ test("production applyBattleResult suspends TALK36 and resumes on close", async 
   assert.equal(messages[0].talkIndex, 36);
   assert.equal(messages[0].kind, "faction-extinction");
   assert.deepEqual(
-    (({ scenario: _s, captureTail: _t, context: _c, ...rest }) => rest)(
-      app._nativeExtinctionContinuation,
-    ),
+    (
+      ({
+        scenario: _s,
+        captureTail: _t,
+        context: _c,
+        batch: _b,
+        ticket: _k,
+        ...rest
+      }) => rest
+    )(app._nativeExtinctionContinuation),
     { deadOwner: DEAD, captor: CAPTOR },
   );
   // Suspended mid-extinction: the save gate holds with prefix kept.
@@ -1074,8 +1083,10 @@ test("production applyBattleResult chains governor into TALK36", async () => {
   assert.equal(f.sc.factions[CAPTOR].n_cities, 0);
   assert.equal(canSnapshotState(app), false);
   // Sequence close: the governor tail runs into the scan's 5042 gate and
-  // chains the TALK36 suspend through its own continuation.
-  assert.equal(messages[0].onComplete(), "extinction-suspended");
+  // chains the TALK36 suspend through its own continuation (resume returns
+  // true on a chained suspend, consistent with the extinction/diplomat
+  // resumes; the chained continuation owns the batch ticket from here).
+  assert.equal(messages[0].onComplete(), true);
   assert.equal(app._nativeGovernorContinuation, null);
   assert.notEqual(app._nativeExtinctionContinuation, null);
   assert.equal(messages.length, 2);
@@ -1156,4 +1167,111 @@ test("detached extinction scan routes player defeat only with blocks", async () 
   g.sc.nativePlayerFactionPointer = DEAD * 64;
   const error = await extinctionError((async () => bare(DEAD, CAPTOR, {}))());
   assert.equal(error.instruction, "4FE5");
+});
+
+test("4F06 siege warning suspends TALK26 and resumes the deferred capture tail", async () => {
+  const f = await fixture({});
+  baseExtinction(f);
+  const attacker = { leader: "G4", generalIdx: 4, faction: CAPTOR };
+  const messages = [];
+  const app = {
+    scenario: f.sc,
+    _legionSlotBatch: null,
+    gamebar: { enqueueTalkMessage: (m) => messages.push(m) },
+  };
+  let tailRan = 0;
+  suspendNativeSiegeWarning26(app, f.sc, {
+    attacker,
+    cityIndex: 7,
+    resumeTail: () => {
+      tailRan++;
+      return "siege-battle";
+    },
+  });
+  // Single TALK26 message (CX=1Ah is the talk index, no personality segment),
+  // capture tail deferred past the close.
+  assert.notEqual(app._nativeSiegeWarningContinuation, null);
+  assert.equal(app._nativeSiegeWarningContinuation.batch, null);
+  assert.equal(app._nativeSiegeWarningContinuation.ticket, null);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].talkIndex, 26);
+  assert.equal(messages[0].generalName, "G4");
+  assert.equal(messages[0].cityName, "");
+  assert.equal(messages[0].kind, "siege-warning-26");
+  assert.equal(messages[0].personalitySelector, undefined);
+  assert.equal(tailRan, 0);
+  assert.equal(canSnapshotState(app), false);
+  // TALK26 close: tail runs, continuation clears, nothing else to resume.
+  assert.equal(typeof messages[0].onComplete, "function");
+  messages[0].onComplete();
+  assert.equal(tailRan, 1);
+  assert.equal(app._nativeSiegeWarningContinuation, null);
+});
+
+test("siege warning suspend guards in-flight duplicates and threads batch tickets", async () => {
+  const f = await fixture({});
+  baseExtinction(f);
+  const fakeTicket = { completed: false };
+  const fakeBatch = { ticket: fakeTicket };
+  const app = {
+    scenario: f.sc,
+    _legionSlotBatch: fakeBatch,
+    gamebar: { enqueueTalkMessage: () => {} },
+  };
+  const args = {
+    attacker: { leader: "G4", generalIdx: 4, faction: CAPTOR },
+    cityIndex: 7,
+    resumeTail: () => "siege-battle",
+  };
+  suspendNativeSiegeWarning26(app, f.sc, args);
+  assert.equal(app._nativeSiegeWarningContinuation.batch, fakeBatch);
+  assert.equal(app._nativeSiegeWarningContinuation.ticket, fakeTicket);
+  assert.throws(
+    () => suspendNativeSiegeWarning26(app, f.sc, args),
+    /already pending/,
+  );
+});
+
+test("detached siege 4F06 suspends before capture and resumes into the city flip", async () => {
+  const f = await fixture({
+    change(raw) {
+      const attacker = activeLegion(31, 31);
+      attacker.faction = CAPTOR;
+      raw.legions.push(attacker);
+      // Quick-battle ability reads (52D7/52E7) serve general.ability.
+      raw.generals[31].ability = { force: 90, lead: 80, siege: 4, field: 4 };
+      raw.generals[127].ability = { force: 8, lead: 8, siege: 0, field: 0 };
+    },
+  });
+  baseExtinction(f);
+  // Player city with a token garrison: AI quick-battle victory routes to
+  // the 4F06 warning instead of capturing inline.
+  const city = f.sc.cities[7];
+  city.faction = PLAYER;
+  city._strategicLastFaction = PLAYER;
+  city.troops = 6;
+  city.growth = 6;
+  city.defence = 6;
+  const attacker = f.sc.nativeLegionSlots.records.find((r) => r.slot === 31);
+  const seen = [];
+  const { performScenarioSiegeEntry } = await import(
+    "../web/src/game/navigation/originalsiege.js"
+  );
+  const out = performScenarioSiegeEntry(f.sc, attacker, 7, f.context, f.rng, {
+    onSiegeWarning26: (args) => {
+      seen.push(args);
+    },
+  });
+  assert.equal(out, "suspended");
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].attacker, attacker);
+  assert.equal(seen[0].cityIndex, 7);
+  assert.equal(typeof seen[0].resumeTail, "function");
+  // Deferred past the TALK26 close: ownership and counts untouched.
+  assert.equal(city.faction, PLAYER);
+  assert.equal(f.sc.factions[CAPTOR].n_cities, 0);
+  const resumed = seen[0].resumeTail();
+  assert.equal(resumed, "siege-battle");
+  assert.equal(city.faction, CAPTOR);
+  assert.equal(f.sc.factions[CAPTOR].n_cities, 1);
 });

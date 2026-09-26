@@ -204,6 +204,31 @@ export class HUD {
     document
       .querySelectorAll("#clockbar .spd")
       .forEach((b, i) => b.classList.toggle("on", i === c.speed));
+    this._syncFailureBanner();
+  }
+
+  // 战略失败冻结是永久性的（读档/重开才解除），4 秒 flash 会消失，
+  // 不能让玩家面对一个无解释的停表。此横幅由 flag 自维护：flag 在则
+  // 常驻，loadState 清 flag 后下一次 refresh 自动摘除，无需生命周期调用。
+  _syncFailureBanner() {
+    const failure = this.app._strategicBattleFailure?.error ?? null;
+    let banner = document.querySelector("#failurebanner");
+    if (!failure) {
+      if (banner) banner.remove();
+      return;
+    }
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "failurebanner";
+      banner.style.cssText =
+        "position:fixed;left:8px;bottom:8px;z-index:99;max-width:70%;" +
+        "background:#3a0d0d;color:#ffd88a;border:1px solid #a33;" +
+        "font-size:12px;padding:4px 8px;white-space:pre-wrap;";
+      document.body.append(banner);
+    }
+    const detail = String(failure?.message ?? failure).slice(0, 220);
+    const text = `戰略處理失敗，計時已暫停（未存檔）。請由系統選單讀檔或退出。\n${detail}`;
+    if (banner.textContent !== text) banner.textContent = text;
   }
 
   showSettlement(report) {

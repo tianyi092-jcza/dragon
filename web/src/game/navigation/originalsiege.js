@@ -73,7 +73,13 @@ export function createDetachedExtinctionScan(sc, context, blocks) {
     );
   };
 }
-/** Stop at the first unclosed message CALL, not after fabricated UI returns. */
+/** Stop at the first unclosed message CALL, not after fabricated UI returns.
+ * 4F06 is the single wired exception: with io.suspendSiegeWarning (installed
+ * by performScenarioSiegeEntry from caller blocks) the attacker-won verdict
+ * against a player city with only the 0x4200 temporary defender returns a
+ * suspension verdict instead of stopping; the entry suspends TALK26 and
+ * resumes into the deferred capture. Without the channel the historic stop
+ * stays (bare-leaf contract, pinned by unit tests). */
 export function dispatchOriginalSiegeBattle(io, city, defender) {
   const player = io.readPlayer("4ED9");
   if (io.readLegionByte("attacker", 1, "4EDD") === player) {
@@ -82,8 +88,13 @@ export function dispatchOriginalSiegeBattle(io, city, defender) {
   } else if (io.readCityByte(city, 1, "4EE2") === player) {
     if (defender === 0x4200) {
       const result = resolveOriginalSiegeQuickBattle(io);
-      if ((result.ax & 255) === 0)
+      // 4F06→4F71：攻胜先发警告/TALK26（CX=1Ah），关闭后才回外层易主
+      // （消息审计§3.1）。裁决由入口挂起，通道缺失则历史stop。
+      if ((result.ax & 255) === 0) {
+        if (typeof io.suspendSiegeWarning === "function")
+          return { suspended: "siege-warning-26", result, city, defender };
         stop("4F06", "4F71/TALK26 before city capture");
+      }
       return result;
     }
     if (!(io.readLegionByte("defender", 0, "4F0B") & 4))
@@ -109,14 +120,34 @@ export function performOriginalSiegeEntry(io, city) {
   const selection = io.selectDefenders(owner, y, x);
   if (selection.cf) buildOriginalSiegeDefender(io, city);
   else io.selectDefender(selection.bx, "4B1C"); // BX binding, NOT a D status/03 write
-  const result = io.dispatchSiege(city, selection.bx);
+  const dispatchOut = io.dispatchSiege(city, selection.bx);
+  // 4F06裁决挂起：4B3A清临时军与4B41易主都在消息关闭后（原窗4F06→4F71→
+  // 返回→4B3A→4B41），不得在挂起前执行；续跑闭包带完整后半段。
+  if (dispatchOut?.suspended)
+    return io.suspendSiegeWarning(dispatchOut, () =>
+      finishOriginalSiegeEntry(io, city, selection, dispatchOut.result),
+    );
+  return finishOriginalSiegeEntry(io, city, selection, dispatchOut);
+}
+
+/** 4B3A→4FC8清临时军、4B41→4CF3易主及攻方去向。正常路径直跑；4F06挂起
+ * 路径由 resume 在 TALK26 关闭后调用。返回 capture 的原样字符串：
+ * "captured-4D62" 为正常结束，各 "*-suspended" 由调用泵让出批处理，
+ * "player-defeated" 沿历史形状落回外层（终局模态自带计时hold）。 */
+function finishOriginalSiegeEntry(io, city, selection, result) {
   const lost = result.ax & 255;
   const failed = result.ax >>> 8;
   if (selection.cf) io.writeLegionByte("defender", 0, 0, "4FC9");
   if (!lost) {
     if (!selection.cf && failed & 2)
       io.fate("defender", io.readLegionByte("attacker", 1, "4B28"), "4B2D");
-    io.captureCity(city, io.readLegionByte("attacker", 1, "4B41"), "4B46");
+    const capOut = io.captureCity(
+      city,
+      io.readLegionByte("attacker", 1, "4B41"),
+      "4B46",
+    );
+    if (typeof capOut === "string" && capOut !== "captured-4D62")
+      return capOut;
   } else if (failed & 1) {
     io.fate("attacker", io.readCityByte(city, 1, "4B50"), "4B53");
   }
@@ -178,10 +209,23 @@ export function performScenarioSiegeEntry(
     call.battleResult = result;
     return result;
   };
+  // 4F06裁决通道：blocks.onSiegeWarning26 拥有 TALK26 序列，关闭后跑续跑
+  // 闭包；通道缺失则 dispatch 内的历史stop保持（裸叶合同，单测锁定）。
+  io.suspendSiegeWarning = (verdict, resumeTail) => {
+    if (typeof blocks?.onSiegeWarning26 !== "function")
+      stop("4F06", "4F71/TALK26 before city capture");
+    blocks.onSiegeWarning26({
+      result: verdict.result,
+      attacker,
+      cityIndex,
+      resumeTail,
+    });
+    return "suspended";
+  };
   io.captureCity = (pointer, captor, at) => {
     const city = cityAt(pointer, at);
     const detachedScan = createDetachedExtinctionScan(sc, context, blocks);
-    captureOriginalCity(
+    return captureOriginalCity(
       sc,
       city,
       captor,
@@ -198,7 +242,9 @@ export function performScenarioSiegeEntry(
         );
       },
       detachedScan,
-      undefined,
+      // 灭亡挂起通道：5042 stop 在此被收为 extinction-suspended 并延后
+      // 4D2A 尾（去向§19.7）；缺失则历史hold保持。
+      blocks?.onExtinctionBlock,
       blocks?.onGovernorBlock
         ? { onGovernorBlock: blocks.onGovernorBlock }
         : undefined,
