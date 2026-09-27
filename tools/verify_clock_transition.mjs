@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 
-const { Clock, STRATEGIC_SPEEDS } = await import("../web/src/game/clock.js");
+const { Clock, STRATEGIC_SPEEDS, MAX_TICKS_PER_FRAME } = await import("../web/src/game/clock.js");
 
 assert.deepEqual(
   STRATEGIC_SPEEDS,
-  [240, 140, 80, 40, 12.5],
-  "战略五档相较旧表现值整体提速1倍，普通档每主更新80ms",
+  [120, 70, 40, 20, 6.25],
+  "战略五档相较旧表现值整体提速3倍，普通档每主更新40ms",
 );
 
 let days = 0;
@@ -65,7 +65,8 @@ assert.equal(transitionClock.sub, 1, "仅当前0x1D0B完成，后续日历追赶
 assert.equal(transitionClock._acc, 0);
 
 // 浏览器RAF不得追赶整帧欠账；即使最高速遇到大dt，每次Canvas提交前
-// 最多执行一个战略主更新，避免同一军团跨道路点或接战四相不可见。
+// 单个RAF至多执行MAX_TICKS_PER_FRAME次（60Hz喂饱最高速），超额欠账丢弃；
+// hold在每次更新后检查，任一接战即停（advanceFrame内单测用hold变体另覆盖）。
 let frameTicks = 0;
 const frameClock = new Clock({
   startYear: 190,
@@ -77,11 +78,26 @@ const frameClock = new Clock({
 });
 frameClock.strategicSpeed = 4;
 assert.equal(frameClock.advanceFrame(frameClock.currentStep * 20), true);
-assert.equal(frameTicks, 1, "大dt的单个RAF最多执行一个战略主更新");
-assert.equal(frameClock._acc, 0, "整帧欠账丢弃，只保留小于step的相位");
+assert.equal(frameTicks, MAX_TICKS_PER_FRAME, "大dt单个RAF按上限执行后停");
+assert.ok(frameClock._acc < frameClock.currentStep, "超额欠账丢弃，只保留小于step的相位");
 assert.equal(frameClock.advanceFrame(frameClock.currentStep / 2), false);
 assert.equal(frameClock.advanceFrame(frameClock.currentStep / 2), true);
-assert.equal(frameTicks, 2, "小数相位跨RAF累积后正常执行下一更新");
+assert.equal(frameTicks, MAX_TICKS_PER_FRAME + 1, "小数相位跨RAF累积后正常执行下一更新");
+
+// 首tick置hold：同一RAF内不再执行后续更新（接战四相即停）。
+let holdTicks = 0;
+const holdClock = new Clock({
+  startYear: 190,
+  startMonth: 1,
+  startDay: 1,
+  onStrategicTick() {
+    holdTicks++;
+    holdClock.hold = true;
+  },
+});
+holdClock.strategicSpeed = 4;
+assert.equal(holdClock.advanceFrame(holdClock.currentStep * 20), true);
+assert.equal(holdTicks, 1, "hold后同一RAF不再推进");
 
 // 月末当天onDay取得hold时，同一_tick不能继续月进位或触发月结算。
 let months = 0;

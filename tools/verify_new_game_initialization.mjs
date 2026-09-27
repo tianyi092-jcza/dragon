@@ -104,6 +104,19 @@ const sanitized = createNewGameScenario(pollutedTemplate, 0, null);
 assert.deepEqual(sanitized.legions, []);
 assert.equal(Object.hasOwn(sanitized, "armies"), false);
 
+// 君主名派生：content无monarch字段，新局必须由monarch_idx补足（提案Talk55/73/74与各处f.monarch显示同源）。
+for (const sc of [restarted, sanitized]) {
+  for (const faction of sc.factions ?? []) {
+    const want = sc.generals?.[faction.monarch_idx]?.name;
+    if (typeof want === "string" && want.trim())
+      assert.equal(faction.monarch, want.trim(), `faction ${faction.idx} monarch`);
+  }
+}
+assert.ok(
+  restarted.factions.some((f) => typeof f.monarch === "string" && f.monarch.trim()),
+  "at least one faction monarch hydrated",
+);
+
 process.stdout.write(
   `new game initialization OK: ${data.scenarios.length} chapters load isolated data and keep all factions legion-free\n`,
 );

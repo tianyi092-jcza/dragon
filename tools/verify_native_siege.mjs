@@ -384,10 +384,20 @@ test("4ED7 gates use city owner, A priority and no fake message/tactical globals
               : "4F13"
             : null;
         if (gate) {
-          assert.throws(
-            () => dispatchOriginalSiegeBattle(f.io, 0x860, 0x2480),
-            (e) => e.instruction === gate,
-          );
+          // 4F36/4F13不再裸停：dispatch回战术挂起描述符（kind/talk/at），
+          // 全局/D2E-D35照旧不写（战术返回后才由1B5A写）；通道缺失的历史stop
+          // 下沉到入口层io.suspendTacticalBattle（裸叶合同，行军集成测试锁定）。
+          const kind = player === 0 ? "siege-attack" : "siege-defence";
+          assert.deepEqual(dispatchOriginalSiegeBattle(f.io, 0x860, 0x2480), {
+            suspended: "tactical-suspended",
+            kind,
+            talk: player === 0 ? 28 : 27,
+            at: gate,
+            detail:
+              gate === "4F36"
+                ? "CDE/TALK28/tactical return"
+                : "4F58/TALK27/tactical return",
+          });
           assert.equal(f.calls(), 0);
         } else {
           // For a player-owned empty city, victory stops at TALK26 BEFORE cleanup/capture.

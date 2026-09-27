@@ -48,7 +48,12 @@ function createScenarioAreaIO(sc, rng = null) {
     readCityByte(index, field) {
       const named = { owner: "faction", disaster: "disaster_event" }[field];
       if (!named) missing(`city byte ${field}`);
-      return byte(own(cityAt(index), named), `city ${index} ${named}`);
+      const value = own(cityAt(index), named);
+      // 空城faction null沿全引擎既有约定读0x18（originalroadstate.js:25；
+      // 42AB/487B皆以0x18为非己第三方）。原版23DB只做“!=玩家则跳过”比较，
+      // 玩家势力号恒<0x18，故空城结局恒为静默跳过，与原版字节具体值无关。
+      if (field === "owner" && value === null) return 0x18;
+      return byte(value, `city ${index} ${named}`);
     },
     readCityWord(index, field) {
       if (field !== "x" && field !== "y") missing(`city word ${field}`);
@@ -128,7 +133,10 @@ function createScenarioObjectIO(sc, rng, queued = []) {
     },
     readCityPointerByte(pointer, field) {
       if (field !== "owner") missing(`city byte ${field}`);
-      return byte(own(cityAtPointer(pointer), "faction"), "city owner");
+      const value = own(cityAtPointer(pointer), "faction");
+      // 同上：空城读0x18，原版34D1比较后静默跳过（见readCityByte注释）。
+      if (value === null) return 0x18;
+      return byte(value, "city owner");
     },
     writeCityPointerByte(pointer, field, value) {
       if (field !== "disaster") missing(`city write ${field}`);

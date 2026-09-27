@@ -35,7 +35,8 @@ export function originalStrengthCompare6A28(mine, other) {
 
 /**
  * 6475 敌对提案判定。输入：
- * - pendingType1OnTarget：事件环中存在 type1 [1,玩家,目标]（304E 查重，含 delay 门）。
+ * - pendingType1OnTarget：事件环中存在 type1 且arg0==玩家（304E 查重；
+ *   原版arg1不参与，用户m3270按原版放宽，旧arg1==目标偏严已去）。
  * - relationByte：matrix[玩家][目标] 原始字节（bit7=交战）。
  * - bellicosity：玩家 +0x28。
  * - targetAttackingFaction：目标 F19（0xFF=无）。

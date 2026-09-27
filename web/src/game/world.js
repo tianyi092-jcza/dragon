@@ -156,6 +156,13 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
         general.captive_flag === 0xff ? null : general.captive_flag;
   }
 
+  // 派生显示字段：content的faction无monarch（仅monarch_idx），运行时统一补君主名；
+  // monarch_idx不可变（全仓零写者），一次补足永不stale；旧档由applyWebMetaToState同补。
+  for (const faction of state.factions ?? []) {
+    if (!faction || faction.monarch != null) continue;
+    const name = state.generals?.[faction.monarch_idx]?.name;
+    if (typeof name === "string" && name.trim()) faction.monarch = name.trim();
+  }
   // 剧本镜像没有运行时军团。即使模板被意外污染，也不能带入新游戏。
   state.legions = [];
   initializeLegionSlotState(state);

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import { tickStrategicWarEvents } from "../web/src/game/ai.js";
+import {
+  tickStrategicWarEvents,
+  clearNativeUiContinuations,
+} from "../web/src/game/ai.js";
 import {
   beginScenarioDomesticBudgetEvent,
   beginScenarioEnvoyBudgetEvent,
@@ -535,6 +538,44 @@ test("native dispatch without audience UI stays fail-closed", () => {
   assert.equal(f.app.clock.hold, true);
   assert.equal(f.generals[9].assignment_budget, 0);
   assert.equal(f.factions[5].money, 100000);
+});
+
+test("overlapping budget audience stays loud; refuse-commit and lifecycle clear both release it", () => {
+  // 用户报障：内政官 dialog 未提交关闭后，下月外交官在 enqueue 抛 overlapping 锁钟。
+  const f = fixture();
+  f.cities[3].governor = 9;
+  f.factions[7].diplomat_idx = 21;
+  f.slots[0] = { type: 4, arg0: 3, arg1: 0x88, arg2: 0x13 };
+  assert.equal(tickStrategicWarEvents(f.app), true);
+  assert.equal(f.budgets.length, 1);
+  assert.notEqual(f.app._nativeBudgetContinuation, null);
+  // 未提交就到达的第二个预算事件必须大声失败，不能静默吞掉或覆盖。
+  f.slots[1] = { type: 5, arg0: 7, arg1: 0x58, arg2: 0x1e };
+  f.scenario._strategicEventDivider = 1;
+  f.scenario._strategicEventCursor = 1;
+  assert.throws(() => tickStrategicWarEvents(f.app), /overlapping/);
+  assert.equal(f.budgets.length, 1);
+  // UI 关闭路径按拒绝结算（grant 0/outcome 2，无写入）后放行。
+  f.budgets[0].nativeBudget.commit(0, 2);
+  assert.equal(f.app._nativeBudgetContinuation, null);
+  f.scenario._strategicEventDivider = 1;
+  f.scenario._strategicEventCursor = 1;
+  assert.equal(tickStrategicWarEvents(f.app), true);
+  assert.equal(f.budgets.length, 2);
+  assert.equal(f.budgets[1].kind, "envoy");
+  // 生命周期卫生：剧本卸载/装配同样断开残留 continuation。
+  f.budgets[1].nativeBudget.commit(0, 2);
+  f.slots[2] = { type: 4, arg0: 3, arg1: 0x88, arg2: 0x13 };
+  f.scenario._strategicEventDivider = 1;
+  f.scenario._strategicEventCursor = 2;
+  assert.equal(tickStrategicWarEvents(f.app), true);
+  assert.notEqual(f.app._nativeBudgetContinuation, null);
+  clearNativeUiContinuations(f.app);
+  assert.equal(f.app._nativeBudgetContinuation, null);
+  f.scenario._strategicEventDivider = 1;
+  f.scenario._strategicEventCursor = 2;
+  assert.equal(tickStrategicWarEvents(f.app), true);
+  assert.equal(f.budgets.length, 4);
 });
 
 test("describeEnvoyResultMessageState resolves names from native records", () => {

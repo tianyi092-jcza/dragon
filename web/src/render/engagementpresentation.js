@@ -1,7 +1,11 @@
 // User-approved Web pacing, NOT KI:264A/286C/28B4 timing. One presentation-only
 // clock owns map/minimap phases and the single SFX channel. No rule writes/RNG.
-export const ENGAGEMENT_FRAME_MS = 100;
-export const ENGAGEMENT_SOUND_MS = 200;
+// 选项B（用户2026-09-27）：响满全程、收紧节拍。120ms≈原版周期2倒数在顶速下的
+// 实测 visit 间隔（探针：countdown 12→0约130 tick内visit2/4/6/8/10五响）；慢档下
+// 原版间隔随墙钟拉长，Web保持墙钟节拍（既有解速绑定产品决定，延续）。顶速下
+// 一次接触约0.6秒≈5响，恰与用户记忆的“五下”吻合。帧/声保持2:1同步。
+export const ENGAGEMENT_FRAME_MS = 60;
+export const ENGAGEMENT_SOUND_MS = 120;
 
 function inContact(legion) {
   const countdown =

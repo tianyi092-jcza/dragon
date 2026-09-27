@@ -47,6 +47,8 @@ import {
   resetLegionActionPhase,
 } from "../game/legionphase.js";
 import { countLegionActivation } from "../game/legioncounts.js";
+import { publishLegacyLegionRecord } from "../game/nativelegions.js";
+import { scenarioNativeRoadContext } from "../game/scenarioassembly.js";
 import {
   DEFAULT_LEGION_UNIT_TYPES,
   ensureLegionSlot,
@@ -1892,19 +1894,21 @@ export class GameBar {
   }
 
   /**
-   * 提案入口门（P35 实锤）：6605/676F 事件环查重（type6→TALK73、
-   * type7→TALK74，304E 任意参数在途即拒）先于 65EF 外交官门
-   * （[F+2A]==0xFF→TALK55）。敌对提案只有 65EF。返回 true=已拒绝。
+   * 提案入口门（停战/协助专用）：6605/676F 事件环查重（type6→TALK73、
+   * type7→TALK74，304E 任意参数在途即拒）先于外交官门（目标diplomat_idx
+   * ==null→TALK55，\3=目标君主名）。敌对提案无此门（v1 dist实证：
+   * showHostileProposalFactions onPick直进audience；用户m2895一致），
+   * 故showHostileProposalAudience不调用本函数。返回 true=已拒绝。
    */
-  async _proposalEntryGate(sc, me, dupType, dupTalk, dupName) {
+  async _proposalEntryGate(sc, me, target, dupType, dupTalk, dupName) {
     let talk = null;
     let name = "";
     if (dupType != null && hasPendingStrategicEvent(sc, dupType)) {
       talk = dupTalk;
       name = dupName ?? "";
-    } else if (me.diplomat_idx == null) {
-      talk = 55; // 0x65EF：CX=0x37。
-      name = (me.monarch ?? "").trim();
+    } else if (target?.diplomat_idx == null) {
+      talk = 55; // 0x65EF：CX=0x37。\3=目标君主名（hydrated faction.monarch）。
+      name = (target?.monarch ?? "").trim();
     }
     if (talk == null) return false;
     warnSfx();
@@ -1932,8 +1936,9 @@ export class GameBar {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
     if (!me || !targetFaction) return;
-    // 0x6405 入口校验：0x65EF 外交官门（P35 实锤，先于 0x87FF/判定）。
-    if (await this._proposalEntryGate(sc, me, null, 0, "")) return;
+    // v1对照（dist/src/ui/hud.js showHostileProposalFactions onPick）：敌对提案
+    // 入口无使者门，直接进audience；停战/协助才在列表层查对侧使者（分支A）。
+    // 故此处不调_proposalEntryGate（65EF门只留给停战/协助两处调用点）。
 
     const monarch = sc.monarchOf(me);
     const advGen = adv.getAdvisor(sc, me);
@@ -1966,8 +1971,9 @@ export class GameBar {
       ),
       bellicosity,
       pendingType1OnTarget: hasPendingStrategicEvent(sc, 1, {
+        // 用户m3270“按原版来，不用比原版严”：6475现刷304E只约束type==1
+        // 且arg0==玩家，arg1不参与；Web旧查含arg1==目标，属偏严，已去。
         arg0: me.idx,
-        arg1: targetFaction.idx,
       }),
       targetAttackingFaction: targetFaction.target_faction ?? 0xff,
       playerIndex: me.idx,
@@ -2042,11 +2048,12 @@ export class GameBar {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
     if (!me || !targetFaction) return;
-    // 0x64F1 入口校验：0x6605 环查重(type6→TALK73)先于 0x65EF 外交官门。
+    // 0x64F1 入口校验：0x6605 环查重(type6→TALK73)先于 0x65EF 外交官门（查目标侧）。
     if (
       await this._proposalEntryGate(
         sc,
         me,
+        targetFaction,
         6,
         73,
         (targetFaction.monarch ?? "").trim(),
@@ -2167,11 +2174,12 @@ export class GameBar {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
     if (!me || !allyFaction || !targetFaction) return;
-    // 0x6623 入口校验：0x676F 环查重(type7→TALK74)先于 0x65EF 外交官门。
+    // 0x6623 入口校验：0x676F 环查重(type7→TALK74)先于 0x65EF 外交官门（查协助方R侧）。
     if (
       await this._proposalEntryGate(
         sc,
         me,
+        allyFaction,
         7,
         74,
         (allyFaction.monarch ?? "").trim(),
@@ -2710,7 +2718,13 @@ export class GameBar {
             bindLegionSlotCounter(sc, newLegion);
             resetLegionActionPhase(newLegion); // 6A03→6E8F→6FD2.
             countLegionActivation(sc, newLegion);
-            sc.legions.push(newLegion);
+            // v2 写穿原生固定槽（直接 push 会被下一次 rebind 丢掉）。
+            publishLegacyLegionRecord(
+              sc,
+              newLegion,
+              "ui-monarch-deploy-legacy",
+              scenarioNativeRoadContext(sc)?.movement ?? null,
+            );
           }
           if (refused) {
             // 6A06 jb 6A10：编成拒绝（某队三候选池均不足 50），无清位、无 5E80，
@@ -3730,6 +3744,19 @@ export class GameBar {
   closeProposalAudience() {
     this._proposalRequest = null;
     if (!this.proposalAudience) return;
+    const p = this.proposalAudience;
+    // 预算接见无提交关闭即按拒绝结算（grant 0/outcome 2，无写入）：ai.js 的
+    // _nativeBudgetContinuation 只在 commit 中清除；直接丢弃会令其永久残留，
+    // 下一次预算事件（如下月外交官）在 enqueue 处抛 overlapping 锁钟
+    // （用户报障：内政官 dialog 关闭后下月外交官 6/9 持钟）。提交中
+    // （budgetCommitting，grant 已定、结果对白待排）同样视为放弃，按拒绝计。
+    if (
+      (p.type === "domestic-budget" || p.type === "envoy-budget") &&
+      p.nativeBudget &&
+      !p.budgetCommitted
+    ) {
+      p.nativeBudget.commit?.(0, 2);
+    }
     this.app.score?.endAudience(this.proposalAudience);
     if (this.proposalAudience.timer) {
       clearTimeout(this.proposalAudience.timer);
@@ -3810,25 +3837,21 @@ export class GameBar {
             p.timer = null;
           }
           this._closeIncomingDiplomacy();
-        } else {
-          void this._finishIncomingDiplomacy("refuse");
         }
+        // 有交互顺序对话框（m2985/m2990）：选择阶段右键一律无效，
+        // 不再视为拒绝；结果展示阶段沿自动关闭等价收尾。
         return true;
       }
       // 最终结果框的右键与3秒自动关闭等价：先执行原版返回边界回调；
-      // 其它阶段仍是取消本次进言。
+      // 其它阶段（有交互顺序，m2985/m2990）右键一律无效，不取消进言。
       if (p.step === "done" && p.timer) {
         clearTimeout(p.timer);
         p.timer = null;
         const action = p.timerAction;
         p.timerAction = null;
         action?.();
-      } else {
-        this.closeProposalAudience();
-        this.selectedSubmenu = null;
-        this.syncClock();
-        this.app.view.draw();
       }
+      // 有交互顺序阶段右键无效：消费，不关闭、不恢复计时（m2985/m2990）。
       return true;
     }
     if (btn !== 0) return true;
@@ -4478,6 +4501,10 @@ export class GameBar {
       workerImg: governorImg,
       monarchImg,
       advImg: null,
+      // native 39E8 提交闭包必须随 audience 携带：ai.js 的
+      // _nativeBudgetContinuation 只在 commit 中清除；缺了它 _commitBudgetAudience
+      // 走 v1 扣款（预备金照减）却永不清门，下月事件即抛 overlapping（用户m2583实锤）。
+      nativeBudget: message.nativeBudget ?? null,
       monarchLines: reportLines,
       workerRequestLines: null,
       advisorResultLines: null,
@@ -4488,6 +4515,7 @@ export class GameBar {
       budgetAmount: requested,
       budgetGrant: null,
       budgetHover: -1,
+      reasonsHover: -1,
       timer: null,
       timerAction: null,
     };
@@ -4551,6 +4579,8 @@ export class GameBar {
       workerImg: envoyImg,
       monarchImg,
       advImg: null,
+      // 同内政：native 提交闭包随身，否则 v1 扣款掩盖门不清（用户m2583实锤）。
+      nativeBudget: message.nativeBudget ?? null,
       monarchLines: reportLines,
       workerRequestLines: null,
       advisorResultLines: null,
@@ -4561,6 +4591,7 @@ export class GameBar {
       budgetAmount: requested,
       budgetGrant: null,
       budgetHover: -1,
+      reasonsHover: -1,
       timer: null,
       timerAction: null,
     };
@@ -4857,12 +4888,16 @@ export class GameBar {
         generation,
       );
       if (generation !== this._scenarioUiGeneration) return;
+      // audience 未建成（缺将/缺主）时无 proposalAudience 可提交：直接按拒绝
+      // 结算 native 门，否则门永久残留。commit(0,2) 无写入，只清门。
+      if (!opened) message.nativeBudget?.commit?.(0, 2);
       if (!opened) this._closeBudgetAudience();
       return;
     }
     if (message.type === "envoy-budget") {
       const opened = await this._showEnvoyBudgetAudience(message, generation);
       if (generation !== this._scenarioUiGeneration) return;
+      if (!opened) message.nativeBudget?.commit?.(0, 2);
       if (!opened) this._closeBudgetAudience();
       return;
     }
@@ -4951,31 +4986,60 @@ export class GameBar {
     const tx = x + 8 + 64 + 14;
     const maxTextW = Math.max(40, cw - 8 - 64 - 14 - 8);
 
-    const rawLines = Array.isArray(lines) ? lines : [lines];
-    const renderLines = [];
-    for (const raw of rawLines) {
+    // 提示框内自动回行：原版TALK固定分行不断行，全部文本拼成一股按框宽
+    // measure折行（用户确认：武将对话框/通用提示框自动回行、不强行换行）。
+    const fragments = [];
+    const pushText = (text, color, isNum) => {
+      const clean = String(text ?? "").replace(/\r?\n/g, "");
+      if (clean) fragments.push({ text: clean, color, isNum });
+    };
+    for (const raw of Array.isArray(lines) ? lines : [lines]) {
       if (Array.isArray(raw)) {
-        renderLines.push(raw);
-        continue;
-      }
-      for (const paragraph of String(raw || "").split("\n")) {
-        if (!paragraph) {
-          renderLines.push("");
-          continue;
+        for (const token of raw) {
+          if (typeof token === "string") pushText(token, "#ffffff", false);
+          else if (token && typeof token === "object")
+            pushText(token.text, token.color || "#ffffff", token.isNum);
         }
-        let cur = "";
-        for (const ch of paragraph) {
-          const test = cur + ch;
-          if (ctx.measureText(test).width > maxTextW && cur.length > 0) {
-            renderLines.push(cur);
-            cur = ch;
-          } else {
-            cur = test;
-          }
-        }
-        if (cur) renderLines.push(cur);
+      } else {
+        pushText(raw, "#ffffff", false);
       }
     }
+    const renderLines = [];
+    let curLine = [];
+    let curW = 0;
+    const measureFrag = (text, isNum) => {
+      ctx.font = isNum ? DIN : FONT;
+      return ctx.measureText(text).width;
+    };
+    for (const frag of fragments) {
+      let rest = frag.text;
+      while (rest) {
+        let take = 0;
+        for (let i = 1; i <= rest.length; i++) {
+          if (curW + measureFrag(rest.slice(0, i), frag.isNum) > maxTextW) break;
+          take = i;
+        }
+        if (take === 0) {
+          if (curLine.length) {
+            renderLines.push(curLine);
+            curLine = [];
+            curW = 0;
+            continue;
+          }
+          take = 1;
+        }
+        const piece = rest.slice(0, take);
+        curLine.push({ text: piece, color: frag.color, isNum: frag.isNum });
+        curW += measureFrag(piece, frag.isNum);
+        rest = rest.slice(take);
+        if (rest) {
+          renderLines.push(curLine);
+          curLine = [];
+          curW = 0;
+        }
+      }
+    }
+    if (curLine.length) renderLines.push(curLine);
 
     const lineH = 18;
     const totalH = renderLines.length * lineH;
@@ -5263,7 +5327,14 @@ export class GameBar {
     bindLegionSlotCounter(sc, newLegion);
     resetLegionActionPhase(newLegion); // Final six types, 6CDA→6FD2.
     countLegionActivation(sc, newLegion);
-    sc.legions.push(newLegion);
+    // v2 写穿原生固定槽（直接 push 会被下一次 rebind 丢掉，军团凭空消失）。
+    // movement 占格 INC 与 6F86 对齐，否则首次行军步 fail-closed（L1a 缺失）。
+    publishLegacyLegionRecord(
+      sc,
+      newLegion,
+      "ui-formation-confirm",
+      scenarioNativeRoadContext(sc)?.movement ?? null,
+    );
 
     // 5. 弹出编成对白（选句索引见075B；quoteForFormation回退策略未证全等）
     const { lines } = await quoteForFormation(gen);
@@ -6456,28 +6527,9 @@ export class GameBar {
         return true;
       }
       if (this.keypadDialog) {
-        clickSfx();
-        const dialogType = this.keypadDialog.type;
-        const isBudget =
-          dialogType === "envoy-budget" || dialogType === "domestic-budget";
-        const isIncoming =
-          dialogType === "incoming-truce" ||
-          dialogType === "incoming-assistance";
-        if (
-          dialogType === "envoy-budget" &&
-          this.proposalAudience?.type === dialogType
-        ) {
-          // 强制外交费流程整段屏蔽右键，只允许左键操作数字键盘。
-          return true;
-        }
-        this.closeKeypadDialog();
-        if (isBudget && this.proposalAudience?.type === dialogType) {
-          this.proposalAudience.step = "envoy_budget_choice";
-          this.app.view.draw();
-        } else if (isIncoming && this.proposalAudience?.type === dialogType) {
-          this.proposalAudience.step = "incoming_diplomacy_choice";
-          this.app.view.draw();
-        }
+        // 有交互顺序对话框（m2985/m2990）：数字键盘属预算/外交接见序列一步，
+        // 右键一律无效（消费，不后退、不关闭；强制外交费分支本就屏蔽）。
+        // 提示框类不受此限（generalCard等保持原右键关闭）。
         return true;
       }
       if (this.proposalAudience) {
@@ -6487,18 +6539,8 @@ export class GameBar {
         ) {
           return this._clickProposalAudience(px, py, btn);
         }
-        clickSfx();
-        if (
-          this.proposalAudience.type === "incoming-truce" ||
-          this.proposalAudience.type === "incoming-assistance"
-        ) {
-          void this._finishIncomingDiplomacy("refuse");
-          return true;
-        }
-        this.closeProposalAudience();
-        this.selectedSubmenu = null;
-        this.syncClock();
-        this.app.view.draw();
+        // 有交互顺序对话框（m2985/m2990）：进言audience与外交接见序列中，
+        // 右键一律无效（消费，不视为拒绝、不关闭、不恢复计时）。
         return true;
       }
       if (this.adviceMenu) {
@@ -7172,7 +7214,13 @@ export class GameBar {
     let changed = false;
     if (this.proposalAudience) {
       const p = this.proposalAudience;
-      if (p.step === "choose_reason") {
+      // 三选项菜单悬停：进言理由 / 预算批准（内政/外交） / 外交来使选项
+      // 共用 reasonsHover 高亮绘制；缺了门则 hover 恒 -1（用户报障：批准資料无悬停）。
+      if (
+        p.step === "choose_reason" ||
+        p.step === "envoy_budget_choice" ||
+        p.step === "incoming_diplomacy_choice"
+      ) {
         const old = p.reasonsHover;
         p.reasonsHover = this._hitProposalReasons(px, py);
         if (old !== p.reasonsHover) changed = true;

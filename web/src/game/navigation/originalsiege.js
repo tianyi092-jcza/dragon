@@ -79,12 +79,22 @@ export function createDetachedExtinctionScan(sc, context, blocks) {
  * against a player city with only the 0x4200 temporary defender returns a
  * suspension verdict instead of stopping; the entry suspends TALK26 and
  * resumes into the deferred capture. Without the channel the historic stop
- * stays (bare-leaf contract, pinned by unit tests). */
+ * stays (bare-leaf contract, pinned by unit tests).
+ * 4F36/4F13 player-tactical branches likewise return suspension descriptors
+ * (converted by the entry layer to blocks.onTacticalBattle, historic stop
+ * without it); quick-battle callers never see a descriptor. */
 export function dispatchOriginalSiegeBattle(io, city, defender) {
   const player = io.readPlayer("4ED9");
   if (io.readLegionByte("attacker", 1, "4EDD") === player) {
     if (!(io.readLegionByte("attacker", 0, "4F2B") & 4) && defender !== 0x4200)
-      stop("4F36", "CDE/TALK28/tactical return");
+      // 4F36→CDE，随后CX=1C→4F58（TALK28）；返回才写D2E/D30并进1B5A。
+      return {
+        suspended: "tactical-suspended",
+        kind: "siege-attack",
+        talk: 28,
+        at: "4F36",
+        detail: "CDE/TALK28/tactical return",
+      };
   } else if (io.readCityByte(city, 1, "4EE2") === player) {
     if (defender === 0x4200) {
       const result = resolveOriginalSiegeQuickBattle(io);
@@ -98,12 +108,19 @@ export function dispatchOriginalSiegeBattle(io, city, defender) {
       return result;
     }
     if (!(io.readLegionByte("defender", 0, "4F0B") & 4))
-      stop("4F13", "4F58/TALK27/tactical return");
+      // 4F13→4F58（TALK27，CX=1B，4F58内一次0CDE）；返回才进1B5A。
+      return {
+        suspended: "tactical-suspended",
+        kind: "siege-defence",
+        talk: 27,
+        at: "4F13",
+        detail: "4F58/TALK27/tactical return",
+      };
   }
   return resolveOriginalSiegeQuickBattle(io); // no tactical 4F51 occupancy DEC
 }
 
-export function performOriginalSiegeEntry(io, city) {
+export function performOriginalSiegeEntry(io, city, resolveTacticalSides = null) {
   io.writeLegionByte(
     "attacker",
     0,
@@ -123,10 +140,21 @@ export function performOriginalSiegeEntry(io, city) {
   const dispatchOut = io.dispatchSiege(city, selection.bx);
   // 4F06裁决挂起：4B3A清临时军与4B41易主都在消息关闭后（原窗4F06→4F71→
   // 返回→4B3A→4B41），不得在挂起前执行；续跑闭包带完整后半段。
-  if (dispatchOut?.suspended)
+  if (dispatchOut?.suspended === "siege-warning-26")
     return io.suspendSiegeWarning(dispatchOut, () =>
       finishOriginalSiegeEntry(io, city, selection, dispatchOut.result),
     );
+  // 4F36/4F13战术挂起：开场TALK28/27后进战术引擎，退出裁决ax由resume带回
+  // 跑完整后半段（去向/易主）；通道缺失则入口层历史stop（裸叶合同）。
+  if (dispatchOut?.suspended === "tactical-suspended") {
+    if (typeof resolveTacticalSides !== "function")
+      stop(dispatchOut.at, "tactical sides resolver");
+    return io.suspendTacticalBattle(
+      dispatchOut,
+      (verdict) => finishOriginalSiegeEntry(io, city, selection, verdict),
+      resolveTacticalSides(),
+    );
+  }
   return finishOriginalSiegeEntry(io, city, selection, dispatchOut);
 }
 
@@ -265,7 +293,12 @@ export function performScenarioSiegeEntry(
     if (!Number.isInteger(cityIndex) || cityIndex < 0 || cityIndex >= 192)
       stop("28BB", "city pointer alias");
     call.cityPointer = 0x840 + cityIndex * 32;
-    return performOriginalSiegeEntry(io, call.cityPointer);
+    // 4F36/4F13战术挂起的三方记录：攻方原生记录、主守军原生记录、被攻城池。
+    return performOriginalSiegeEntry(io, call.cityPointer, () => ({
+      attacker,
+      defender: io.battleRecords().defender,
+      city: cityAt(call.cityPointer, "4B46"),
+    }));
   } catch (error) {
     error.nativeSiegePrefix = prefix;
     error.nativeSiegeCall = call;

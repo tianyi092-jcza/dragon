@@ -94,10 +94,18 @@ test("4E5C player-A precedence including both-player; selected-D delegation; exa
         assert.deepEqual(f.frame, { d34: 0xc6, d35: 0x40 });
         assert.equal(f.calls(), 12);
       } else {
-        boundary(
-          () => dispatchOriginalFieldBattle(f.io),
-          player === 0 ? "4E82" : "4EA1",
-        );
+        // 4E82/4EA1不再裸停：dispatch回战术挂起描述符；D2E/D30/D35置位
+        // 照旧（战术返回后才由1B5A消费）。通道缺失的历史stop下沉到入口层
+        // io.suspendTacticalBattle（裸叶合同，行军集成测试锁定）。
+        const at = player === 0 ? "4E82" : "4EA1";
+        assert.deepEqual(dispatchOriginalFieldBattle(f.io), {
+          suspended: "tactical-suspended",
+          kind: player === 0 ? "field-attack" : "field-defence",
+          talk: 29,
+          at,
+          detail:
+            player === 0 ? "4EB9 message call" : "CDE with exchanged SI/DI",
+        });
         assert.deepEqual(
           f.frame,
           player === 0
@@ -115,7 +123,14 @@ test("4E5C player-A precedence including both-player; selected-D delegation; exa
     f.records.attacker.status |= aDelegated ? 4 : 0;
     if (aDelegated)
       assert.deepEqual(dispatchOriginalFieldBattle(f.io), { ax: 0 });
-    else boundary(() => dispatchOriginalFieldBattle(f.io), "4E82");
+    else
+      assert.deepEqual(dispatchOriginalFieldBattle(f.io), {
+        suspended: "tactical-suspended",
+        kind: "field-attack",
+        talk: 29,
+        at: "4E82",
+        detail: "4EB9 message call",
+      });
     //4E63 short-circuits D-owner and D-status, unlike classifier's both-player override.
     assert(
       !f.trace.some(

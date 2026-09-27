@@ -14,14 +14,14 @@ import { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 export { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 import { createDefaultLegionUnits, ensureLegionSlot } from "./legionunits.js";
 import { applyFactionFundsDelta, factionLegionMoraleCap } from "./economy.js";
-import { roadNodeAt } from "./roadgraph.js";
+import { roadNodeAt, roadNodeRawAddress } from "./roadgraph.js";
 import {
   bindLegionSlotCounter,
   resetLegionActionPhase,
 } from "./legionphase.js";
 import { countLegionActivation } from "./legioncounts.js";
 import { scenarioNativeRoadContext } from "./scenarioassembly.js";
-import { hasNativeLegionSlots } from "./nativelegions.js";
+import { hasNativeLegionSlots, publishLegacyLegionRecord } from "./nativelegions.js";
 
 /** native剧本判定：585F逐月倒数/财政政策配额为唯一登场与兵源机制。 */
 function nativeMonthlyMechanics(sc) {
@@ -226,6 +226,10 @@ export function dispatch(sc, fromCity, targetCity) {
     target: targetCity,
     targetCity: targetCity.idx,
     targetNode: roadNodeAt(targetCity.x, targetCity.y)?.id ?? null,
+    // 出发即在fromCity节点上（E717 node*8布局；与UI编成同一写法）：缺此字段
+    // 原生首个行军动作读0x0E即fail-closed（实机196年复现）。
+    roadEdgeOrNode:
+      roadNodeRawAddress(roadNodeAt(fromCity.x, fromCity.y)?.id) ?? null,
     commandState: 0,
     status: 0x82,
     delegated: false,
@@ -238,7 +242,13 @@ export function dispatch(sc, fromCity, targetCity) {
   bindLegionSlotCounter(sc, legion);
   resetLegionActionPhase(legion);
   countLegionActivation(sc, legion);
-  sc.legions.push(legion);
+  // v2 写穿原生固定槽（直接 push 会被下一次 rebind 丢掉）。
+  publishLegacyLegionRecord(
+    sc,
+    legion,
+    "dispatch",
+    scenarioNativeRoadContext(sc)?.movement ?? null,
+  );
   gen.status = 1;
   return { ok: `${f.monarch}軍自${fromCity.name}出征${targetCity.name}` };
 }

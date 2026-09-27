@@ -120,3 +120,42 @@ test("34A6 consumes one RNG and 237E resumes after each player message", () => {
   assert.equal(done.changed, true);
   assert.equal(state.index, 192);
 });
+
+test("237E reads an empty city as owner 0x18 and skips it silently", () => {
+  // 生产实锤：第一章毗陵(120)faction null，天灾覆盖即Uncovered锁钟。
+  // 沿全引擎既有约定（originalroadstate.js:25）读0x18；原版23DB只做
+  // “!=玩家则跳过”比较，玩家号恒<0x18，故结局恒静默跳过。
+  const cities = Array.from({ length: 192 }, (_, idx) => ({
+    idx,
+    faction: 1,
+    x: 1000 + idx,
+    y: 1000,
+    disaster_event: 77,
+  }));
+  Object.assign(cities[0], { faction: 0, x: 10, y: 10 });
+  Object.assign(cities[1], { faction: null, x: 11, y: 10 });
+  const sc = {
+    player_faction: 0,
+    cities,
+    weatherCloudBounds: { minX: 0, maxX: 20, minY: 0, maxY: 20 },
+  };
+  const rng = {
+    calls: 0,
+    nextByte() {
+      this.calls++;
+      return 0;
+    },
+  };
+  const state = beginScenarioDisasterAreaEvent(sc, rng);
+  const first = continueScenarioDisasterAreaEvent(sc, state);
+  assert.deepEqual(
+    { status: first.status, index: first.index, damage: first.damage },
+    { status: "message", index: 0, damage: 24 },
+  );
+  // 空城照写灾度但不发消息，直接return收尾。
+  const done = continueScenarioDisasterAreaEvent(sc, state);
+  assert.equal(done.status, "return");
+  assert.equal(cities[1].disaster_event, 24);
+  assert.equal(done.changed, true);
+  assert.equal(state.index, 192);
+});

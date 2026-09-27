@@ -25,6 +25,7 @@ globalThis.fetch = async (url) => {
 const {
   loadRoadGraph,
   restoreRoadMarchContext,
+  roadNodeAt,
   roadNodeRawAddress,
   serializeRoadMarchContext,
 } = await import("../web/src/game/roadgraph.js");
@@ -262,6 +263,12 @@ const sourceCity = {
   assert.equal(dispatched.status & 0x02, 0x02);
   assert.equal(dispatched._active, true);
   assert.equal(dispatchGeneral.status, 1);
+  // 出征军团出发即在源城节点上：缺roadEdgeOrNode原生首个行军动作读0x0E即
+  // fail-closed（196年实机复现；与UI编成同一roadNodeRawAddress写法）。
+  assert.equal(
+    dispatched.roadEdgeOrNode,
+    roadNodeRawAddress(roadNodeAt(dispatchSource.x, dispatchSource.y)?.id),
+  );
 }
 
 // P63 G2: the aiTick traversal below (walk the whole v1 route asserting

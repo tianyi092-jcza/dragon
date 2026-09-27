@@ -84,6 +84,9 @@ export function classifyOriginalFieldTerrain(io, al) {
   const north = sample(0, "4BA4");
   const south = sample(0x300, "4BAB");
   const center = sample(0x180, "4BB4");
+  // 中心地形类只供战术水战标签（表现层）使用；地图选择权威仍是目录号。
+  // 记诊断sidecar（call），不进prefix D-全局，避免污染前缀断言。
+  if (typeof io.noteTerrainClass === "function") io.noteTerrainClass(center);
   if (center > 0 && center < 8) return 0xce + center;
   if (center === 9) {
     // 4C2C restores D52 only BEFORE LDS. LDS then replaces DS with L1C.
@@ -169,6 +172,21 @@ export function performOriginalFieldEntry(io, al) {
   );
   io.writeLegionByte("defender", 3, 0, "4AAF");
   const result = io.dispatchBattle("4AB3");
+  // 4E82/4EA1战术挂起：开场TALK29后进战术引擎，退出裁决ax由resume带回
+  // 跑失败去向尾段；通道缺失则入口层历史stop（裸叶合同）。
+  if (result?.suspended === "tactical-suspended")
+    return io.suspendTacticalBattle(
+      result,
+      (verdict) => finishOriginalFieldEntry(io, verdict),
+      io.battleRecords(),
+    );
+  //4AD3 restores this invocation's frame;2876 sets CLC before movement INC.
+  return finishOriginalFieldEntry(io, result);
+}
+
+/** 4AC1/4ACB失败去向：dispatch之后、帧恢复之前。战术挂起路径由resume在
+ * 退出结算（胜方＋双方474A续行位合成ax）后调用。 */
+function finishOriginalFieldEntry(io, result) {
   const failed = result.ax >>> 8;
   if (failed) {
     const role = failed === 2 ? "defender" : "attacker";
@@ -301,6 +319,36 @@ export function createScenarioBattleIO(
       call.battleResult = result;
       return result;
     },
+    battleRecords: () => ({ ...records }),
+    noteTerrainClass: (value) => {
+      call.terrainClass = value;
+    },
+    /** 战术入口挂起（4E82/4EA1/4F36/4F13）：dispatch描述符＋resumeTail＋
+     * 三方记录进blocks.onTacticalBattle；附d34目录/d35侧标志/terrainClass
+     * 水战类（表现标签用，地图权威仍是目录）。通道缺失则历史stop。 */
+    suspendTacticalBattle: (descriptor, resumeTail, sides) =>
+      access(descriptor?.at ?? "4E82", () => {
+        if (
+          !descriptor ||
+          descriptor.suspended !== "tactical-suspended" ||
+          typeof resumeTail !== "function" ||
+          !sides?.attacker ||
+          !sides?.defender
+        )
+          stop(descriptor?.at ?? "4E82", "tactical suspension shape");
+        if (typeof blocks?.onTacticalBattle !== "function")
+          stop(descriptor.at, descriptor.detail);
+        return blocks.onTacticalBattle({
+          kind: descriptor.kind,
+          talk: descriptor.talk,
+          at: descriptor.at,
+          resumeTail,
+          sides,
+          directory: prefix.d34,
+          sideFlag: prefix.d35,
+          terrainClass: call.terrainClass,
+        });
+      }),
     readLegionByte: (role, offset, at) => readByte(records[role], offset, at),
     readLegionWord: (role, offset, at) => readWord(records[role], offset, at),
     writeLegionByte: (role, offset, value, at) =>

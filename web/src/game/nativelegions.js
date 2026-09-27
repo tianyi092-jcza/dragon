@@ -1,9 +1,7 @@
 // Native fixed-slot ownership, not a second RAM or an empty-army inference.
 // KI 2240..423F / 6EA0; approved representation: march notes §3.15.
-import {
-  bindLegionSlotCounter,
-  bindLegionReturnCounter,
-} from "./legionphase.js";
+import { bindLegionSlotCounter, bindLegionReturnCounter } from "./legionphase.js";
+import { movementPlaneAddress } from "./navigation/scenariomovementmemory.js";
 
 const byteFields = [
   "status",
@@ -33,6 +31,103 @@ const wordFields = [
 ];
 export const hasNativeLegionSlots = (sc) =>
   Object.hasOwn(sc, "nativeLegionSlots");
+
+// Presentation-only references, mirrored from snapshotNativeLegionSlots: they
+// are derived by rebindNativeLegionViews and must never seed the fixed table.
+const PRESENTATION_KEYS = new Set([
+  "engagementCountdown",
+  "countdown",
+  "target",
+  "leader",
+  "dead",
+  "_active",
+  "_runtimeId",
+  "prevX",
+  "prevY",
+  "_march",
+  "_path",
+  "_currentNode",
+  "_renderMoveSerial",
+  "_ptx",
+  "_pty",
+  "_feint",
+  "_battleRoadContext",
+  "_engagement",
+]);
+
+/**
+ * UI/legacy writer write-through (manual formation, monarch legacy arm,
+ * dispatch). These callers build a plain record with UI-chosen values and
+ * historically pushed it to sc.legions. Under native slots sc.legions is a
+ * derived view rebuilt by rebindNativeLegionViews, so a raw push is
+ * discarded by the next batch/save rebind while reserve deductions and the
+ * general's status persist (formed legion vanishes from list and map).
+ * Write the record into the fixed-slot table instead and rebind, returning
+ * the rebound view. This is Web persistence plumbing only: field VALUES
+ * still come from the caller; no KI formation entry is claimed here (manual
+ * 6CDA entry remains unclosed, only its 6FD2 tail is evidenced). Callers
+ * must still run ensure/bind/reset/count BEFORE this (count checks the
+ * pre-insert state), and must not push afterwards.
+ *
+ * 6F86 parity for first movement (march §3.15.2): the movement pump reads
+ * occupancyOffset/RowParagraph (L1a/L1c) on the first slot action, so the
+ * record must carry targetX/targetY, zero-init stride/point defaults,
+ * _markerFrame, 701A markerBase and the occupancy pointer, plus the
+ * movement-plane INC when a movement plane is supplied. Without these the
+ * legion forms fine but the first march step fails closed with
+ * "Uncovered original movement L1a: undefined".
+ */
+export function publishLegacyLegionRecord(sc, legion, at, movement = null) {
+  if (!hasNativeLegionSlots(sc)) {
+    sc.legions.push(legion);
+    return legion;
+  }
+  integer(legion?.slot, 0, 127, "slot");
+  const record = nativeLegionAt(sc, legion.slot, at, true);
+  for (const key of Object.keys(record)) {
+    if (key !== "slot" && key !== "engagementCountdown") delete record[key];
+  }
+  for (const [key, value] of Object.entries(legion)) {
+    if (key === "slot" || PRESENTATION_KEYS.has(key)) continue;
+    if (value === null || value === undefined) continue;
+    if (key === "units") {
+      if (!Array.isArray(value) || value.length !== 6)
+        throw new TypeError("Invalid legacy six-team table");
+      record.units = structuredClone(value);
+      continue;
+    }
+    if (typeof value === "object") continue;
+    record[key] = value;
+  }
+  // 6F86 formation-time truths (caller values win when already set).
+  if (!Number.isInteger(record.x) || !Number.isInteger(record.y))
+    throw new TypeError("Legacy formation record requires integer x/y");
+  if (record.targetX == null) record.targetX = record.x;
+  if (record.targetY == null) record.targetY = record.y;
+  if (record.roadStride == null) record.roadStride = 0;
+  if (record.roadPointAddress == null) record.roadPointAddress = 0;
+  if (record._markerFrame == null) record._markerFrame = 4;
+  if (record.markerBase == null) {
+    const style = sc.factions?.find((f) => f?.idx === record.faction)
+      ?.march_marker_style;
+    if (Number.isInteger(style)) record.markerBase = (style * 5) & 255;
+  }
+  record.occupancyOffset = record.x;
+  record.occupancyRowParagraph = (record.y & 255) * 24;
+  if (movement) {
+    // 6FCA: validate the pointer halves, then INC the new square.
+    movementPlaneAddress(0, record.x);
+    movementPlaneAddress(record.occupancyRowParagraph, 0);
+    movement.writeByte(
+      record.occupancyRowParagraph,
+      record.x,
+      (movement.readByte(record.occupancyRowParagraph, record.x) + 1) & 255,
+    );
+  }
+  bindLegionSlotCounter(sc, record);
+  rebindNativeLegionViews(sc);
+  return sc.legions.find((item) => item.slot === legion.slot) ?? record;
+}
 function integer(value, min, max, field) {
   if (!Number.isInteger(value) || value < min || value > max)
     throw new TypeError(`Invalid native legion ${field}`);

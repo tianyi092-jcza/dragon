@@ -128,7 +128,10 @@ function resolveQuickBattle(io, mode) {
   return { ax: (failed << 8) | lost };
 }
 
-/** 4E5C dispatch. Player calls remain first-unknown stops, never FIFO RETs. */
+/** 4E5C dispatch. Player branches suspend into the tactical engine when
+ * the caller threads blocks.onTacticalBattle (the entry layer converts the
+ * descriptor to the channel call, or keeps the historic stop without it);
+ * quick-battle callers never see a descriptor. */
 export function dispatchOriginalFieldBattle(io) {
   const player = io.readPlayer("4E5C");
   if (player === io.readLegionByte("attacker", 1, "4E60")) {
@@ -136,7 +139,14 @@ export function dispatchOriginalFieldBattle(io) {
       return resolveOriginalFieldQuickBattle(io);
     io.writeGlobal("d2e", io.legionPointer("attacker", "4E75"), "4E75");
     io.writeGlobal("d30", io.legionPointer("defender", "4E7A"), "4E7A");
-    stop("4E82", "4EB9 message call");
+    // 4E82→4EB9：TALK29（CX=1D，4EB9内一次0CDE）后进战术层；返回才跑1B5A。
+    return {
+      suspended: "tactical-suspended",
+      kind: "field-attack",
+      talk: 29,
+      at: "4E82",
+      detail: "4EB9 message call",
+    };
   }
   if (player === io.readLegionByte("defender", 1, "4E65")) {
     if (io.readLegionByte("defender", 0, "4E8A") & 4)
@@ -144,7 +154,14 @@ export function dispatchOriginalFieldBattle(io) {
     io.writeGlobal("d35", io.readGlobal("d35", "4E8F") | 0x80, "4E8F");
     io.writeGlobal("d30", io.legionPointer("attacker", "4E95"), "4E95");
     io.writeGlobal("d2e", io.legionPointer("defender", "4E9A"), "4E9A");
-    stop("4EA1", "CDE with exchanged SI/DI");
+    // 4EA1→4EB9：守方支经4EA1直调＋4EB9内共两次0CDE后进战术层。
+    return {
+      suspended: "tactical-suspended",
+      kind: "field-defence",
+      talk: 29,
+      at: "4EA1",
+      detail: "CDE with exchanged SI/DI",
+    };
   }
   return resolveOriginalFieldQuickBattle(io); //4E6C→4E6F; NO4EAF occupancy DEC.
 }

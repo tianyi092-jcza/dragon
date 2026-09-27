@@ -54,6 +54,7 @@ import {
 } from "./navigation/scenariolegionfate.js";
 import { refreshOriginalCityCache } from "./navigation/originalroadarrival.js";
 import { captureOriginalCity } from "./navigation/originalcitycapture.js";
+import { createBattle, createFieldBattle } from "./tacticalbattle.js";
 import {
   runOriginalCityMilitary,
   governOriginalCity,
@@ -2734,6 +2735,214 @@ export function suspendNativeBattleFateMessage(app, sc, { talk, slot }) {
   app.gamebar.enqueueTalkMessage(message);
   return "fate-suspended";
 }
+/** 原生战术入口挂起（4F36/4F13/4E82/4EA1）：v1开场消息形状（TALK27/28/29＋
+ * P50分支单/双0CDE）→ v1战术引擎（createBattle/createFieldBattle＋battleView
+ * 的OriginalBattleSession）→ 退出写回原生六队/士气/城损＋双方474A →
+ * resumeTail续跑dispatch尾段（去向/易主）。Session从本批同一canonical流快照
+ * 初始化，退出后把前进状态restore回同一对象（不替换引用），保证尾段去向与
+ * 后续速算共享同一RNG流。同tick多场玩家战斗按挂起顺序排队逐场结算。任何
+ * 环节失败一律大声holdFailedStrategicUpdate，不认领ticket。 */
+export function suspendNativeTacticalBattle(app, sc, request) {
+  const kinds = ["siege-attack", "siege-defence", "field-attack", "field-defence"];
+  try {
+    if (!request || !kinds.includes(request.kind))
+      throw new RangeError(
+        `native tactical suspension shape at ${request?.at ?? "4E82"}`,
+      );
+    const talkByKind = { "siege-attack": 28, "siege-defence": 27 };
+    if ((talkByKind[request.kind] ?? 29) !== request.talk)
+      throw new RangeError(`native tactical talk mismatch at ${request.at}`);
+    if (typeof request.resumeTail !== "function")
+      throw new RangeError(`native tactical ${request.at} has no resume tail`);
+    const { attacker, defender, city } = request.sides ?? {};
+    if (!attacker || !defender || (request.kind.startsWith("siege") && !city))
+      throw new RangeError(`native tactical ${request.at} sides shape`);
+    const stream = app.originalRng ?? app.activeBattleRng;
+    if (
+      !stream ||
+      typeof stream.snapshot !== "function" ||
+      typeof stream.restore !== "function"
+    )
+      throw new RangeError(
+        `native tactical ${request.at} has no canonical RNG stream`,
+      );
+    if (
+      !app.battleView ||
+      typeof app.battleView.open !== "function" ||
+      !app.battleMaps
+    )
+      throw new RangeError(
+        `native tactical ${request.at} has no battle view/assets`,
+      );
+    if (typeof app.gamebar?.enqueueTalkMessage !== "function")
+      throw new RangeError(
+        `native tactical TALK${request.talk} has no UI`,
+      );
+    const batch = app._legionSlotBatch ?? null;
+    const record = {
+      scenario: sc,
+      batch,
+      ticket: batch?.ticket ?? null,
+      request,
+    };
+    const queue = (app._nativeTacticalQueue ??= []);
+    queue.push(record);
+    // 首场立即显示开场TALK；同tick后续场次排队等前一场结算后再显示。
+    if (queue.length === 1) showNativeTacticalOpening(app, record);
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+    throw error;
+  }
+  return "tactical-suspended";
+}
+/** v1开场形状复用：攻城TALK27/28带攻方名＋城名，野战TALK29带双方名；
+ * P50分支音——攻城攻方TALK28（4F36＋4F58）与野战守方TALK29（4EA1＋4EB9）
+ * 双0CDE，其余（攻城守方TALK27、野战攻方TALK29）单0CDE。关闭后开战场。 */
+function showNativeTacticalOpening(app, record) {
+  const { request } = record;
+  const { attacker, defender, city } = request.sides;
+  if (request.kind === "siege-attack" || request.kind === "field-defence")
+    doubleClickSfx();
+  else clickSfx();
+  const attackerName = attacker.leader?.trim?.() || "";
+  const message = {
+    gen: null,
+    talkIndex: request.talk,
+    onClose: () => openNativeTacticalBattle(app, record),
+  };
+  if (request.kind.startsWith("siege")) {
+    message.generalName = attackerName;
+    message.cityName = city.name?.trim?.() || "";
+    message.kind =
+      request.kind === "siege-defence"
+        ? "siege-defence-opening"
+        : "siege-attack-opening";
+  } else {
+    message.generalName = [attackerName, defender.leader?.trim?.() || ""];
+    message.kind = "field-battle-opening";
+  }
+  app.gamebar.enqueueTalkMessage(message);
+}
+/** 开战：原生记录直进v1 handle构造（六队/士气/slot均原生字段，CBE5按slot
+ * 取对手武将+0x16；目录/d35镜像/水战类走原生4B63前缀）。battleView接管时钟
+ * 跑A1C5＋9FA0主循环，结束后finishNativeTacticalBattle结算。 */
+async function openNativeTacticalBattle(app, record) {
+  try {
+    const sc = app.scenario;
+    if (!record || sc !== record.scenario)
+      throw new RangeError("native tactical continuation stale");
+    if (app._nativeTacticalQueue?.[0] !== record)
+      throw new RangeError("native tactical queue order");
+    if (!app.battleView || app.battleView.active)
+      throw new RangeError("native tactical battle view busy");
+    const stream = app.originalRng ?? app.activeBattleRng;
+    if (!stream || typeof stream.snapshot !== "function")
+      throw new RangeError("native tactical battle has no RNG stream");
+    const { attacker, defender, city } = record.request.sides;
+    const handle = record.request.kind.startsWith("siege")
+      ? createBattle(
+          sc,
+          attacker,
+          city,
+          app.battleMaps,
+          defender,
+          stream.snapshot(),
+        )
+      : createFieldBattle(
+          sc,
+          attacker,
+          defender,
+          app.battleMaps,
+          {
+            directoryIndex: record.request.directory,
+            mirror: Boolean((record.request.sideFlag ?? 0) & 0x40),
+            terrainClass: record.request.terrainClass ?? 0,
+          },
+          stream.snapshot(),
+        );
+    await app.battleView.open(handle, (exit) =>
+      finishNativeTacticalBattle(app, record, stream, exit),
+    );
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+  }
+}
+/** 退出结算：RNG前进状态写回同一canonical对象→双方六队/士气/城损写回原生
+ * 记录→双方474A续行合成ax→resumeTail续跑dispatch尾段。尾段链入更深挂起
+ * （去向/灭亡/警告）时由其认领ticket；干净跑完才认领并泵排队下一场。 */
+function finishNativeTacticalBattle(app, record, stream, exit) {
+  try {
+    const queue = app._nativeTacticalQueue ?? [];
+    if (queue[0] === record) queue.shift();
+    const verdict = applyNativeTacticalExit(app.scenario, record.request, stream, exit);
+    // 只补空引用、不替换live对象：dispatch闭包仍持有stream同一引用。
+    if (app.originalRng == null) app.originalRng = stream;
+    if (app.activeBattleRng == null) app.activeBattleRng = stream;
+    const outcome = record.request.resumeTail(verdict);
+    if (isRoadSuspended(outcome)) return;
+    if (record.batch && record.ticket)
+      finishDeferredLegionDaily(app, record.batch, record.ticket);
+    pumpNativeTacticalQueue(app);
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+  }
+}
+function pumpNativeTacticalQueue(app) {
+  const next = app._nativeTacticalQueue?.[0];
+  if (!next) return;
+  try {
+    if (app.scenario !== next.scenario)
+      throw new RangeError("native tactical continuation stale");
+    showNativeTacticalOpening(app, next);
+  } catch (error) {
+    holdFailedStrategicUpdate(app, error);
+  }
+}
+/** 9FDC退出聚合的原生写回：settleVisualBattle sides统一为[attacker,
+ * defender]攻守帧（P48）；双方六队/总兵/士气→原生记录，mode0城损→城池，
+ * 再双方474A续行（攻方bit0、守方bit1）合成ax交尾段。纯规则写回，不碰UI。 */
+export function applyNativeTacticalExit(sc, request, stream, exit) {
+  const atkSide = exit?.sides?.[0];
+  const defSide = exit?.sides?.[1];
+  if (
+    !atkSide ||
+    !defSide ||
+    (exit.winnerName !== "atk" && exit.winnerName !== "def") ||
+    !Array.isArray(atkSide.units) ||
+    !Array.isArray(defSide.units)
+  )
+    throw new RangeError(`native tactical exit shape at ${request.at}`);
+  if (!exit.strategicRng || typeof exit.strategicRng.snapshot !== "function")
+    throw new RangeError(`native tactical exit RNG at ${request.at}`);
+  // Session从快照副本推进：把前进状态restore回canonical同一对象，dispatch
+  // 闭包与后续速算继续同一流；不替换引用。
+  stream.restore(exit.strategicRng.snapshot());
+  const won = exit.winnerName;
+  const { attacker, defender, city } = request.sides;
+  settleFieldLegion(
+    attacker,
+    atkSide.troops,
+    atkSide.units,
+    won === "atk",
+    atkSide.morale,
+  );
+  settleFieldLegion(
+    defender,
+    defSide.troops,
+    defSide.units,
+    won === "def",
+    defSide.morale,
+  );
+  if (exit.cityDamage && city) {
+    city.growth = exit.cityDamage.growth;
+    city.defence = exit.cityDamage.defence;
+    city.troops = exit.cityDamage.troops;
+    if (city.sim) city.sim.troops = exit.cityDamage.troops;
+  }
+  let failed = continueLegionAfterBattle(sc, attacker, won === "atk") ? 0 : 1;
+  if (!continueLegionAfterBattle(sc, defender, won === "def")) failed |= 2;
+  return { ax: (failed << 8) | (won === "atk" ? 0 : 1) };
+}
 function suspendNativeMonthlyFateMessage(app, sc, result, deferredTail) {
   const stale = app._nativeMonthlyFateContinuation;
   if (stale && stale.scenario === sc)
@@ -4280,6 +4489,9 @@ export function clearNativeUiContinuations(app) {
   app._nativePlayerDecisionContinuation = null;
   app._nativeWarEventContinuation = null;
   app._nativeEnvoyResultContinuation = null;
+  // 预算接见 continuation 同为 UI 绑定：剧本卸载/装配时不断开，下一次
+  // 预算事件即抛 overlapping（其 commit 的 owner 门只认同 scenario）。
+  app._nativeBudgetContinuation = null;
 }
 
 /** 剧本提交/回标题同时废除旧规则挂起continuation：挂起中的消息模态属于
@@ -5351,6 +5563,11 @@ function buildNativeSiegeBlocks(app, sc, A, context) {
     // （消息审计§3.1：4F06→4F71），关闭后才续跑易主。
     onSiegeWarning26: ({ attacker, cityIndex, resumeTail }) =>
       suspendNativeSiegeWarning26(app, sc, { attacker, cityIndex, resumeTail }),
+    // 战术挂起通道：原生4F36/4F13/4E82/4EA1玩家战术入口——开场TALK27/28/29
+    // 后进v1战术引擎，退出写回原生记录并续跑dispatch尾段。通道缺失则入口层
+    // 历史stop（裸叶合同，单测锁定）。
+    onTacticalBattle: (request) =>
+      suspendNativeTacticalBattle(app, sc, request),
   };
 }
 /** 行军驱动挂起归一化：各 "*-suspended"（总督/外交官/灭亡/4F06警告）
@@ -5382,6 +5599,16 @@ function performLegionSlotAction(app, A) {
     // 关闭时的 resume 续跑尾段并认领 ticket；其余道路返回沿历史形状记
     // "complete"，泵行为不变。"player-defeated" 不在此列：终局模态自带
     // hold，循环顶的 endView 检查负责收批。
+    // Web表现层进给（v1分支A.prevX=A.x镜像）：原生泵每动作提交一整道路点
+    // 且从不维护prevX/prevY（b2）；地图lerp（getLegionRenderPos）按天周期在
+    // prev→current间插值。没有每动作原点，图标每天跳回出征/战败起点再滑出
+    // （战败撤退即用户所见“在路上和进攻据点之间反复跳”）。只补prev不补serial
+    // 会在每次动作边界产生±hop跳变（抖动）：必须同时写_renderMoveSerial，
+    // lerp按 (elapsed+t)/8 收敛，动作边界连续（elapsed归零处curT≈0，上一段
+    // 已钳制到1，两端都是旧current）。规则层永不读prev/serial（仅渲染消费）。
+    A.prevX = A.x;
+    A.prevY = A.y;
+    A._renderMoveSerial = app.clock?.strategicTickSerial;
     const outcome = performOriginalRoadAction(
       sc,
       A,

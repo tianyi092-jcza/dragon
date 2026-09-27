@@ -16,7 +16,7 @@
 #landscape { left: 409px; top: 0; width: 1510px; height: auto; will-change: transform, opacity; }
 #foreground { position: absolute; inset: 0; will-change: transform; pointer-events: none; }
 #cliff { left: -25px; top: 0; width: 1362px; height: auto; }
-#character { left: 324px; top: -90px; width: 320px; height: auto; }
+#character { left: 356px; top: -46px; width: 256px; height: auto; } /* 0.8等比缩小（320→256），足底位置不变：原底边-90+320*632/920≈129.83px，新顶边=底边-256*632/920≈-46px，水平居中保持站位 */
 #game-title { left: 32px; top: 22px; width: 304px; height: auto; opacity: 0; }
 #subtitle { position: absolute; margin: 0; writing-mode: vertical-rl; text-orientation: upright; line-height: 1.1; white-space: nowrap; opacity: 0; }
 #menu-layer { position: absolute; inset: 0; z-index: 10; pointer-events: none; opacity: 0; transition: opacity 600ms ease; }

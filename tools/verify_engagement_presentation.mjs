@@ -6,8 +6,8 @@ import {
   ENGAGEMENT_SOUND_MS,
 } from "../web/src/render/engagementpresentation.js";
 import { Clock } from "../web/src/game/clock.js";
-assert.equal(ENGAGEMENT_FRAME_MS, 100);
-assert.equal(ENGAGEMENT_SOUND_MS, 200);
+assert.equal(ENGAGEMENT_FRAME_MS, 60);
+assert.equal(ENGAGEMENT_SOUND_MS, 120);
 const contact = () => ({
   faction: 0,
   x: 1,
@@ -42,11 +42,14 @@ for (let speed = 0; speed < 5; speed++) {
   );
   assert.deepEqual(pulses, [
     [0, 3],
-    [200, 1],
-    [400, 3],
+    [120, 1],
+    [240, 3],
+    [360, 1],
+    [480, 3],
     [600, 1],
-    [800, 3],
-    [1000, 1],
+    [720, 3],
+    [840, 1],
+    [960, 3],
   ]);
   runs.push({ frames, pulses });
 }
@@ -72,11 +75,11 @@ const fx = new EngagementPresentation({
 });
 fx.update(scenario, 0);
 assert.equal(plays, 1, "first visible contact starts sound immediately");
-fx.update(scenario, 100);
+fx.update(scenario, 60);
 assert.equal(fx.frameOf(a), 2);
 a._engagement = { ...a._engagement, countdown: 2, target: { x: 30, y: 40 } };
 scenario.legions.push(b);
-fx.update(scenario, 150);
+fx.update(scenario, 90);
 assert.equal(
   fx.frameOf(a),
   2,
@@ -84,7 +87,7 @@ assert.equal(
 );
 assert.equal(fx.frameOf(b), 2, "simultaneous contacts share the same clock");
 assert.equal(plays, 1, "new contacts cannot multiply shared-channel frequency");
-fx.update(scenario, 200);
+fx.update(scenario, 120);
 assert.equal(plays, 2);
 fx.update(scenario, 250, { paused: true });
 assert.equal(stops, 1);
@@ -165,5 +168,5 @@ for (const mode of ["false", "throw"]) {
   );
 }
 process.stdout.write(
-  "engagement presentation OK: fixed100ms/200ms, five speeds, first/last sync, holds/hidden, multi-contact, no rule writes or backlog\n",
+  "engagement presentation OK: fixed60ms/120ms, five speeds, first/last sync, holds/hidden, multi-contact, no rule writes or backlog\n",
 );

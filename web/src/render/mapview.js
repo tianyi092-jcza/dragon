@@ -505,13 +505,26 @@ export class MapView {
     const wxp = gx * 16 + 8 + offsetX;
     const wyp = gy * 16 + 8 + offsetY;
 
+    // KI 0x2808按军团+8选标识帧；原生行军泵每步经direction()/
+    // nodeize()写+8（L._markerFrame），到达写4。原生槽下prevX/_march
+    // 只是表现派生（publish/快照会剥离、泵内不维护），反推的是出发点
+    // 或目标据点方向而非当前道路步方向，故以+8为准；缺失时才回退旧推导。
+    const markerFrame = L._markerFrame;
+    const ruleFrame =
+      Number.isInteger(markerFrame) && markerFrame >= 0 && markerFrame <= 4
+        ? markerFrame
+        : null;
     let frame = MARCH_FRAME_STATIONARY;
     if (isMoving) {
-      frame = marchFrame(fromX, fromY, toX, toY);
-    } else if (L.target) {
-      const nxt =
-        L._march?.points?.[L._march.pointIndex] || L._path?.[0] || L.target;
-      frame = marchFrame(L.x, L.y, nxt.x, nxt.y);
+      frame = ruleFrame ?? marchFrame(fromX, fromY, toX, toY);
+    } else if (L.target || L._engagement) {
+      if (ruleFrame != null) {
+        frame = ruleFrame;
+      } else {
+        const nxt =
+          L._march?.points?.[L._march.pointIndex] || L._path?.[0] || L.target;
+        frame = marchFrame(L.x, L.y, nxt.x, nxt.y);
+      }
     }
 
     return {

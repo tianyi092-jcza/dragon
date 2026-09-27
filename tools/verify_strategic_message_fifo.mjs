@@ -285,6 +285,33 @@ function fixture() {
   assert.equal(commits, 1);
 }
 
+// 有交互顺序对话框（m2985/m2990）：入站外交选择阶段右键一律无效，
+// 不再视为拒绝，对话保持、计时保持。
+{
+  scheduled.clear();
+  const { app, bar, clock } = fixture();
+  let commits = 0;
+  const opened = await bar._showIncomingDiplomacyRequest({
+    type: "incoming-truce",
+    requesterFaction: app.scenario.factions[1],
+    targetFaction: app.scenario.factions[1],
+    result: { outcome: 0, goldRequired: 0 },
+    onResolve() {
+      commits++;
+    },
+  });
+  assert.equal(opened, true);
+  bar._strategicMessageActive = true;
+  bar._clockHoldRequested = true;
+  bar.syncClock();
+  assert.equal(bar.proposalAudience.step, "incoming_diplomacy_choice");
+  bar.click(0, 0, 2);
+  await flush();
+  assert.equal(bar.proposalAudience?.step, "incoming_diplomacy_choice");
+  assert.equal(commits, 0);
+  assert.equal(clock.hold, true);
+}
+
 process.stdout.write(
   "strategic message FIFO OK: order, 3s timer, right-click once, hold/modal gate, incoming commit boundary\n",
 );

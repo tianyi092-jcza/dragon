@@ -346,11 +346,13 @@ test("Scenario adapter canonical alias/hole stops preserve original error type; 
   );
   assert.equal(error.message, "Uncovered movement byte: 12737");
   assert.deepEqual(error.nativeFieldPrefix, { d32: 0 });
+  // call诊断sidecar含terrainClass（水战标签用，不进prefix D-全局）。
   assert.deepEqual(error.nativeFieldCall, {
     ax: 33,
     dx: 44,
     firstDefender: D,
     si: 0x22c0,
+    terrainClass: 9,
   });
   D.occupancyRowParagraph = 0;
   boundary(

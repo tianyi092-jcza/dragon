@@ -16,8 +16,15 @@ export const STRATEGIC_SPEED_LABELS = [
 ];
 // 5档每次0x1D0B主更新的Web墙钟间隔。原版CFA=4/3/2/1/0个
 // INT61计时回调，实测非零等待约13.731/10.299/6.866/3.433ms；Web仍
-// 使用便于观察的表现节奏，但相较旧值整体提速1倍（墙钟间隔减半）。
-export const STRATEGIC_SPEEDS = [240, 140, 80, 40, 12.5];
+// 使用便于观察的表现节奏，但相较旧值整体提速3倍（墙钟间隔再减半：
+// 前此已减半1次，用户确认各档仍慢后再减半）。
+export const STRATEGIC_SPEEDS = [120, 70, 40, 20, 6.25];
+
+// RAF入口每帧至多推进的战略主更新次数。60Hz下恰好喂饱最高速6.25ms
+// （16.7/6.25≈2.7）；上限定死，后台恢复/卡顿不补旧债。每次更新后查hold：
+// 接战四相任一置hold即停，战术开场/命运消息模态照常接管，不存在一次提交
+// 跨过未显示的战斗；同一军团多道路点由表现层lerp连续铺开，不瞬移。
+export const MAX_TICKS_PER_FRAME = 3;
 
 export class Clock {
   /**
@@ -105,9 +112,9 @@ export class Clock {
   }
 
   /**
-   * 浏览器RAF入口：每个显示帧最多执行一次战略主更新。延迟帧只保留
-   * 小于一个step的相位，不追赶整帧欠账；否则最高速或后台恢复会在
-   * 一次Canvas提交前跨过同一军团的多个道路点与接战四相。
+   * 浏览器RAF入口：每个显示帧至多执行MAX_TICKS_PER_FRAME次战略主更新。
+   * 延迟帧只保留上限内的相位，不追赶整帧欠账；每次更新后查hold，任一
+   * 接战置hold即停（见MAX_TICKS_PER_FRAME注释）。
    */
   advanceFrame(dtMs) {
     if (this.hold || this._legacyPaused) {
@@ -116,13 +123,24 @@ export class Clock {
     }
     const step = this.currentStep;
     const elapsed = Number.isFinite(dtMs) ? Math.max(0, dtMs) : 0;
-    this._acc += elapsed;
+    this._acc = Math.min(this._acc + elapsed, step * MAX_TICKS_PER_FRAME);
     if (this._acc < step) return false;
-    this._acc %= step;
-    this._tick();
-    this.onSyncHold?.();
-    if (this.hold || this._legacyPaused) this._acc = 0;
-    return true;
+    let advanced = false;
+    for (
+      let n = 0;
+      n < MAX_TICKS_PER_FRAME && this._acc >= step;
+      n++
+    ) {
+      this._acc -= step;
+      this._tick();
+      this.onSyncHold?.();
+      advanced = true;
+      if (this.hold || this._legacyPaused) {
+        this._acc = 0;
+        break;
+      }
+    }
+    return advanced;
   }
 
   /** 推进子刻度组；受控测试/离线调度可消费完整dt。 */

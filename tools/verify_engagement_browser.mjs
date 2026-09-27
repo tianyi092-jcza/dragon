@@ -166,11 +166,11 @@ try {
     const frameMs = median(intervals(run.frames)),
       soundMs = median(intervals(run.records));
     assert.ok(
-      Math.abs(frameMs - 100) < 35,
+      Math.abs(frameMs - 60) < 30,
       `speed${speed}: ${frameMs}ms frame`,
     );
     assert.ok(
-      Math.abs(soundMs - 200) < 35,
+      Math.abs(soundMs - 120) < 30,
       `speed${speed}: ${soundMs}ms sound`,
     );
     matrix.push({ speed, frameMs, soundMs });

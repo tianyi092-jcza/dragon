@@ -300,6 +300,12 @@ export function applyWebMetaToState(state, webMeta) {
   } else if (Array.isArray(state._appeared)) {
     state._appeared = new Set(state._appeared);
   }
+  // 旧档补君主名（与createNewGameScenario同源；monarch_idx不可变）。
+  for (const faction of state.factions ?? []) {
+    if (!faction || faction.monarch != null) continue;
+    const name = state.generals?.[faction.monarch_idx]?.name;
+    if (typeof name === "string" && name.trim()) faction.monarch = name.trim();
+  }
   return state;
 }
 
