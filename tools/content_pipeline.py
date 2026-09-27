@@ -483,6 +483,29 @@ def render_world(root, world, tileset, layout):
         yield season, seasonal
 
 
+def render_atlases(root, tileset):
+    """Canonical index-ordered seasonal atlases for Web chunk rendering."""
+    with Image.open(source_path(root, tileset["indexedAtlas"])) as source:
+        if source.mode != "P" or source.size != (256, 256):
+            raise ValueError("expected 256x256 indexed tile atlas")
+        atlas = Image.new("P", (256, 256))
+        for tile in tileset["tiles"]:
+            x, y, width, height = tile["rect"]
+            if width != 16 or height != 16 or not (0 <= x <= 240 and 0 <= y <= 240):
+                raise ValueError("invalid atlas crop")
+            index = tile["index"]
+            atlas.paste(source.crop((x, y, x + 16, y + 16)), ((index % 16) * 16, (index // 16) * 16))
+        for season in SEASONS:
+            palette = tileset["palettes"][season]
+            if len(palette) != 48:
+                raise ValueError("expected 16 RGB colors")
+            for channel in palette:
+                integer(channel, 0, 255, "palette channel")
+            image = atlas.copy()
+            image.putpalette(palette + [0] * (768 - len(palette)))
+            yield season, image
+
+
 def compile_content(root, output, *, maps=True):
     catalog, data, world, tileset, layout, roads = load_content(root)
     output = Path(output)
@@ -504,6 +527,8 @@ def compile_content(root, output, *, maps=True):
         ):
             (stage / filename).write_bytes(source_path(root, world[field]).read_bytes())
         if maps:
+            for season, image in render_atlases(root, tileset):
+                image.save(stage / f"map_atlas_{season}.png", optimize=True)
             for season, image in render_world(root, world, tileset, layout):
                 image.save(stage / f"map_tiles_{season}.png", optimize=True)
         for file in stage.rglob("*"):

@@ -6,8 +6,8 @@ import {
   ENGAGEMENT_SOUND_MS,
 } from "../web/src/render/engagementpresentation.js";
 import { Clock } from "../web/src/game/clock.js";
-assert.equal(ENGAGEMENT_FRAME_MS, 60);
-assert.equal(ENGAGEMENT_SOUND_MS, 120);
+assert.equal(ENGAGEMENT_FRAME_MS, 30);
+assert.equal(ENGAGEMENT_SOUND_MS, 60);
 const contact = () => ({
   faction: 0,
   x: 1,
@@ -42,14 +42,10 @@ for (let speed = 0; speed < 5; speed++) {
   );
   assert.deepEqual(pulses, [
     [0, 3],
-    [120, 1],
+    [60, 1],
+    [120, 3],
+    [180, 1],
     [240, 3],
-    [360, 1],
-    [480, 3],
-    [600, 1],
-    [720, 3],
-    [840, 1],
-    [960, 3],
   ]);
   runs.push({ frames, pulses });
 }
@@ -75,11 +71,11 @@ const fx = new EngagementPresentation({
 });
 fx.update(scenario, 0);
 assert.equal(plays, 1, "first visible contact starts sound immediately");
-fx.update(scenario, 60);
+fx.update(scenario, 30);
 assert.equal(fx.frameOf(a), 2);
 a._engagement = { ...a._engagement, countdown: 2, target: { x: 30, y: 40 } };
 scenario.legions.push(b);
-fx.update(scenario, 90);
+fx.update(scenario, 45);
 assert.equal(
   fx.frameOf(a),
   2,
@@ -87,9 +83,9 @@ assert.equal(
 );
 assert.equal(fx.frameOf(b), 2, "simultaneous contacts share the same clock");
 assert.equal(plays, 1, "new contacts cannot multiply shared-channel frequency");
-fx.update(scenario, 120);
+fx.update(scenario, 60);
 assert.equal(plays, 2);
-fx.update(scenario, 250, { paused: true });
+fx.update(scenario, 125, { paused: true });
 assert.equal(stops, 1);
 const frozen = fx.frameOf(a);
 fx.update(scenario, 9000, { paused: true });
@@ -140,9 +136,9 @@ const failed = new EngagementPresentation({
 });
 failed.update(scenario, 0);
 ready = true;
-failed.update(scenario, 100);
+failed.update(scenario, 50);
 assert.equal(audible, 0);
-failed.update(scenario, 200);
+failed.update(scenario, 100);
 assert.equal(audible, 1, "unready audio retries only at the next live beat");
 assert.doesNotThrow(() => failed.reset());
 for (const mode of ["false", "throw"]) {
@@ -168,5 +164,5 @@ for (const mode of ["false", "throw"]) {
   );
 }
 process.stdout.write(
-  "engagement presentation OK: fixed60ms/120ms, five speeds, first/last sync, holds/hidden, multi-contact, no rule writes or backlog\n",
+  "engagement presentation OK: fixed30ms/60ms, five-pulse cap, five speeds, first/last sync, holds/hidden, multi-contact, no rule writes or backlog\n",
 );

@@ -291,6 +291,7 @@ test("explicit Scenario lifecycle owns independent persistent RAM with detached 
     );
     assert.deepEqual(Object.keys(resources).sort(), [
       "definition",
+      "loadSeason",
       "roads",
       "terrain",
     ]);

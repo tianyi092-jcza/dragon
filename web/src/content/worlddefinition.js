@@ -11,6 +11,12 @@ export const DEFAULT_WORLD = Object.freeze({
     roadGraph: "road_graph.json",
     roadCost: "road_cost.bin",
     roadOffset: "road_offset.json",
+    seasonAtlases: Object.freeze({
+      spring: "map_atlas_spring.png",
+      summer: "map_atlas_summer.png",
+      autumn: "map_atlas_autumn.png",
+      winter: "map_atlas_winter.png",
+    }),
     seasons: Object.freeze({
       spring: "map_tiles_spring.png",
       summer: "map_tiles_summer.png",

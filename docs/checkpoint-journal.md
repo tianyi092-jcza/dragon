@@ -2,6 +2,46 @@
 
 > 当前开发轮次的交接记录，不是长期指令、机制证明或任务授权。[项目记忆](../AGENTS.md)只维护长期事实、架构、命令、约定与当前主线；机制和原始证据由相关`re-notes`及Skills单点维护。日志不是任务或提交授权。
 
+## 道路对齐、行军插值、五响与战略提速（本轮）
+
+- 用户四项报障已本地修正，详细原证/原因/产品边界见[行军表现修正](march-presentation-fixes.md)。统一城标/军团显示锚点，插值从8更新改为8×movePeriod；五档墙钟间隔减半、RAF上限6；接战30ms换帧/60ms发声且连续共享接触最多五次请求。原规则、RNG、道路点、到达时机及战术速度不改；原始6FD2/25A3窗口确认六队全骑周期2、其余3（空队兵种也算）。视觉绝对美术中心与主观快慢仍非单元测试能够认证。
+- 独立证据根`C:/Users/fczll/AppData/Local/Temp/dragon-march-presentation/`。复用已审固定入口/I/O白名单与Node/Python/browser权限守卫，从首入口非浏览器201/201、fresh浏览器24/24全部通过。五档真实RAF/Canvas/WebAudio均恰好五次请求，五响后接触画面仍正常、暂停取消守恒；横纵双向/斜向、周期2/3、到城/驻止锚点连续测试通过。旧规则/20章快照/槽RNG基线仍通过。非浏览器manifest仅`.codegraph/daemon.log`后台日志变动，未作为源码变化隐藏；源码与浏览器快照漂移另由checks核对。
+- 主动LSP九个JS文件：无error报告，ai.js超5000行上限、六项push-only inconclusive，其余仅测试loopback URL/日志及await括号提示。不能称全部clean；Node语法与实际执行补充验证。文档/外部Skills同步标废旧节拍和方向补偿摘要，详细维护源单列；Jev审1440B最小preview后change调用成功，仅advisory，不含源码/资源/存档/凭据。
+- 保留前两阶段、3F47及他方未提交成果；未stage/commit/push、未使用子代理，未访问真实SAVE或用户profile。完整回归之后只补文档记录与审计，不用历史通过冒充本轮结果。
+
+## 3F47 读档能力漏传修复（继承前两阶段未提交成果）
+
+- 用户要求分析并解决前两阶段的3F47失败。根因及可复核原指令统一记录在[行军§3.13](re-notes-march-pathfinding.md#313-p24detached到达命令与存储city18缓存)：是App读档装配漏传三个已保存的能力状态，不是原版移动公式未知或武将能力不足。
+- `main.js`仅补`loadSave → loadState → prepareScenario`的`movementMemory/terrainMemory/cityCache`参数；不改保存格式、原适配器、AI、UI、RNG、调度与fail-closed门。生命周期浏览器测试新增三项非默认RAM哨兵，证明保存→标题→加载保值，而非重新初始化掩盖异常。前两阶段成果和他方Jev文件保留；未commit/push，未使用子代理。
+- 本轮独立证据根`C:/Users/fczll/AppData/Local/Temp/dragon-3f47/`，复核并复用显式入口/依赖白名单、Node/Python权限守卫及fresh浏览器profile；未覆盖旧轮证据。`full-2`从首入口201/201、DRIFT[]；`browser-2`从首入口24/24全部通过，原`verify_legion_lifecycle_browser.mjs`和`verify_opening_browser.mjs`均通过，未删除错误断言。名称full-2/browser-2沿用runner布局，不是第二阶段旧结果。两阶段characterization基线仍通过；不据这些有限回归宣称完整原版战役已认证。
+- 主动LSP：main仅一个既有async建议hint，生命周期测试push-only inconclusive，Markdown服务unavailable；不称全部clean。Node语法与实际运行补充验证。Jev按授权审阅1067B最小文字preview后change调用成功，仅状态恢复风险advisory，不发送资源、源码、存档或凭据。
+- 本条晚于完整测试，仅记录本轮证据；此前两阶段的失败条目保留为历史，当前已由本轮闭合。
+
+## Web 扩展第二阶段（历史批次，继承第一阶段未提交成果）
+
+- 用户要求继续第二阶段；实现与使用说明唯一维护于[第二阶段设计](web-refactor-phase2.md)。保留原生ESM/Canvas与单一规则/AI内核，未改变规则容量、RNG、调度或未覆盖边界；未commit/push，未使用子代理。他方Jev文件和第一阶段成果保留。
+- 已实现：多档/稳定档号，独立正文与原子摘要目录，旧bundle同事务复制且不删除；App单档保存/新档事务分配，原窗口滚动列表；独立`saves.html`摘要/JSON导入导出（detached准入、不覆盖、不热载）；`editor.html`原容量地图单格/据点六项数值编辑、撤销及hash绑定补丁；离线新目录校验发布工具；四季小图集、有界分块及非整数DPR单季采样回退。限制和启动仍全读快照的成本已明示，不宣传无限物理容量、任意世界编辑或实测FPS提升。
+- 资料同步：AGENTS/README/部署说明与架构历史提示；仓库外`E:/Dragon/.agents/skills/re-data-formats/SKILL.md`三处定点更新Web现状/历史v1说明，无新的原机制结论。
+- 证据根：`C:/Users/fczll/AppData/Local/Temp/dragon-refactor-phase2/`。复用已审白名单与读写/网络/profile guard，补新入口和依赖；`full-2/`、`browser-2/`为最终完整单轮，`checks.json`绑定源码与结果。`full-1/`、`browser-1/`是增加实际App保存守卫专项和编辑页并发输入禁用之前的完整轮次，未拼接放行。
+- 非浏览器最终201/201通过，`DRIFT []`；原20章fresh/JSON恢复快照、六资源hash、128槽/RNG轨迹不变。20个阶段二JS文件Node语法通过、3个Python文件AST解析通过。纯内存mock验证读写别名隔离、40档、摘要不读正文、单档仅两key写入、request成功后abort/error与同步throw保旧、旧bundle复制；编辑补丁验证隔离编译、compatibility/道路保留，路径逃逸/旧hash/超容量/未知字段拒绝。
+- 浏览器最终24项：22通过、2失败，**不标全绿**。新增专项真实IDB并发8次新建不碰撞、实际App保存守卫/单档RNG、坏导入不写库、标题准入/滚动命中、管理页下载再导入、编辑页修改/撤销/补丁下载均通过；四季×DPR 1/1.25/2×四视口48组逐像素比较通过。六装配/保存/读档案例、隔离IDB abort保旧专项均通过。
+- 两项失败仍为`verify_legion_lifecycle_browser.mjs`与`verify_opening_browser.mjs`的`Uncovered movement capability at 3F47`，与第一阶段及其061e221改前隔离复现同一报错/调用链。本轮没有删除断言、放宽能力门或改规则；根因仍需独立闭合，不能称完整战役/完整浏览器放行。
+- 主动LSP已尝试阶段二25个代码/HTML文件并复查修改文件；无error返回，但多数push-only inconclusive，GameBar 8625行超过5000行上限；Markdown LSP unavailable，不能称LSP全clean。最终`mode=all`为11 warning/6 hint：测试assert及预期异常pass、经source_path约束的路径sink、内部布尔分支与风格提示；Python guard已确认断言开启。语法、实际测试和文档链接检查补充覆盖，不替代LSP。
+- Jev按已授权流程先审1293B最小脱敏preview再调用change，persistence_state主关注，建议状态往返/浏览器验证；仅advisory，无源码/资源/档案/凭据外发。
+- 过程发现：实验1.5倍缩放和非整数DPR下直接分块有近邻采样差异。前者非当前产品功能（原zoomAt固定1:1），明确拒绝；后者属于现有显示环境，修为单季整图采样回退后48组通过，不以删现行DPR覆盖解决问题。旧本地mock原本提前发transaction complete，被替换为实际等待全部请求的内存协议夹具；事务失败断言未削弱。
+- 最终浏览器817文件快照前后/与当前源码均零漂移；`git diff --check`通过（仅既有LF/CRLF提示），文档链接无缺失。本条晚于完整回归，仅记录证据；未部署、未访问真实存档/profile。
+
+## Web 扩展基础第一阶段（历史批次，参考 061e221）
+
+- 用户批准按推荐顺序开始第一阶段；实现与职责合同见[第一阶段设计](web-refactor-phase1.md)。不扩192据点/四存档、不改AI/UI/规则与未覆盖边界，不提交或推送。他方Jev四项untracked保留未改。
+- 已实现：规则实现版本标识；改前20章 fresh/JSON恢复快照摘要与16批128槽/RNG轨迹基准；快照/资源/派生状态职责表；可注入四槽仓储与IDB事务适配器；App仓储注入、世界四季图入口及MapView世界定义注入、晚到图像world所有权检查。存档schema/数据库名/store/key不变。
+- 验证根：`C:/Users/fczll/AppData/Local/Temp/dragon-refactor-phase1/`；入口/I/O审计、只读白名单与权限guard、源摘要、逐项退出码见`full-1/`、`browser-1/`；结果汇总`checks.json`。本条晚于测试，非生产文件变更；产品与浏览器快照逐文件相同。
+- 非浏览器：200/200入口通过，完整单轮 `DRIFT []`；JS语法15/15。对照基准通过；mock提交/abort/error/同步throw、数据别名隔离与world懒加载/独立缓存通过。全新浏览器真实IDB事务abort保旧档、正式保存守卫/往返/标题准入、旧world图晚到拒写专项通过。
+- 浏览器完整单轮23项：21通过、2失败，**不标全绿**。`verify_legion_lifecycle_browser.mjs`、`verify_opening_browser.mjs`均报 `Uncovered movement capability at 3F47`；在`browser-reference/`替换为`061e221`的改前生产源码后，两项分别复现同一报错。此为既有失败，未为本次重构放宽规则/屏蔽错误。根因未闭合；后续应独立追查恢复后的movement能力与首个战略tick。本阶段工程改动已落地，完整浏览器放行仍受此项阻塞。
+- LSP主动查15个JS文件无error，2项确认clean、5项仅hint/辅助warning、8项push-only未确认，不能称全体LSP clean；新增测试中的console输出/await括号提示保留（测试日志非产品logger，括号不可删）。最终session `mode=all`无error、3条测试日志warning和9条hint。Markdown LSP四项unavailable，JSON基准5842行超过LSP 5000行上限；均不称LSP clean。Markdown结构检查通过，基准已由Node实际解析比对。
+- Jev：已审最小脱敏preview后调用`change`，结果以persistence_state为主，建议状态往返与fresh浏览器验证；仅advisory，未作规则oracle。输入不含源码、资源、存档或凭据。
+- 过程：首次baseline错误地要求fresh/restore快照对象完全相同，发现既有sidecar默认值具体化后改为分别冻结两种表示，未改生产快照；两处旧接口形状断言随资源API变更同步。首次非浏览器STOP轮留`failed-first-*`后首入口重跑；两次浏览器STOP轮保留后，从首入口完整收集全部23项失败仍保非零。临时browser依赖扫描误把页面import当host路径、汇总脚本GBK解码失败均已修正/以UTF8重跑，没有改产品绕过。
+
 ## 1. 当前主线状态
 
 - **C15大门已翻**（P78，用户明确批准，verdict记ai-chain C15行）：fresh装配默认v2，生产侧v1零残留（G1–G8删除，P62–P69/P76），6原生覆盖gap全闭（P70–P75）。

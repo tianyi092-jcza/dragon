@@ -4,8 +4,8 @@ const { Clock, STRATEGIC_SPEEDS, MAX_TICKS_PER_FRAME } = await import("../web/sr
 
 assert.deepEqual(
   STRATEGIC_SPEEDS,
-  [120, 70, 40, 20, 6.25],
-  "战略五档相较旧表现值整体提速3倍，普通档每主更新40ms",
+  [60, 35, 20, 10, 3.125],
+  "本轮战略五档墙钟间隔减半，普通档每主更新20ms",
 );
 
 let days = 0;

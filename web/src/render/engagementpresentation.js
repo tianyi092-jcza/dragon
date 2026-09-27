@@ -1,11 +1,10 @@
 // User-approved Web pacing, NOT KI:264A/286C/28B4 timing. One presentation-only
 // clock owns map/minimap phases and the single SFX channel. No rule writes/RNG.
-// 选项B（用户2026-09-27）：响满全程、收紧节拍。120ms≈原版周期2倒数在顶速下的
-// 实测 visit 间隔（探针：countdown 12→0约130 tick内visit2/4/6/8/10五响）；慢档下
-// 原版间隔随墙钟拉长，Web保持墙钟节拍（既有解速绑定产品决定，延续）。顶速下
-// 一次接触约0.6秒≈5响，恰与用户记忆的“五下”吻合。帧/声保持2:1同步。
-export const ENGAGEMENT_FRAME_MS = 60;
-export const ENGAGEMENT_SOUND_MS = 120;
+// 用户要求快速五响：每段连续接触最多五次请求，暂停/目标刷新不重置预算。
+// 配合本轮战略提速收紧为30ms换帧/60ms发声；不是原版IRQ或规则等待。
+export const ENGAGEMENT_FRAME_MS = 30;
+export const ENGAGEMENT_SOUND_MS = 60;
+export const ENGAGEMENT_SOUND_LIMIT = 5;
 
 function inContact(legion) {
   const countdown =
@@ -28,6 +27,7 @@ export class EngagementPresentation {
     this.elapsed = 0;
     this.lastTime = null;
     this.needsPulse = false;
+    this.pulses = 0;
     this.sounding = false;
     this.paused = false;
   }
@@ -52,6 +52,7 @@ export class EngagementPresentation {
     this.scenario = null;
     this.elapsed = 0;
     this.needsPulse = false;
+    this.pulses = 0;
     return changed;
   }
 
@@ -88,10 +89,12 @@ export class EngagementPresentation {
       this.lastTime == null ? 0 : Math.max(0, now - this.lastTime);
     this.lastTime = now;
     if (
-      this.needsPulse ||
-      Math.floor(this.elapsed / ENGAGEMENT_SOUND_MS) !== oldPulse
+      this.pulses < ENGAGEMENT_SOUND_LIMIT &&
+      (this.needsPulse ||
+        Math.floor(this.elapsed / ENGAGEMENT_SOUND_MS) !== oldPulse)
     ) {
       this.needsPulse = false;
+      this.pulses++;
       // At most one request per RAF, even after a delayed frame; no audio queue.
       try {
         if (this.playSound() !== false) this.sounding = true;

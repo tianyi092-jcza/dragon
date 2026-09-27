@@ -160,24 +160,7 @@ export class HUD {
 
   /** 存檔對話框: 選槽→寫入瀏覽器 IndexedDB 快照 */
   showSaveDialog() {
-    const dlg = document.querySelector("#savedlg");
-    const box = document.querySelector("#saveslots");
-    const ck = this.app.clock;
-    const label = `${ck.year}/${ck.month}/${ck.day}`;
-    box.replaceChildren(
-      ...[0, 1, 2, 3].map((i) => {
-        const s = this.app.saves?.slots.find((x) => x.slot === i);
-        const b = h("button", { class: "slot" });
-        b.textContent = `槽${i + 1} ${s?.played ? s.label : "（未使用）"} → 存入「${label}」`;
-        b.onclick = () => {
-          dlg.style.display = "none";
-          this.app.saveGame(i, label);
-          this.refreshTrust();
-        };
-        return b;
-      }),
-    );
-    dlg.style.display = "block";
+    return this.app.gamebar?.openSystemSaveDialog();
   }
 
   setTax(r) {

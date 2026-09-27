@@ -152,7 +152,8 @@ try {
         initialRng: state.rng,
       };
     });
-    assert.ok(run.records.length >= 5 && run.frames.length >= 9);
+    assert.equal(run.records.length, 5, "long contact stops at five requests");
+    assert.ok(run.frames.length >= 9, "visual contact remains live after sound burst");
     assert.ok(run.records.every((r) => r.ok && [1, 3].includes(r.frame)));
     assert.ok(
       Math.abs(run.records[0].t - run.frames[0].t) < 50,
@@ -166,11 +167,11 @@ try {
     const frameMs = median(intervals(run.frames)),
       soundMs = median(intervals(run.records));
     assert.ok(
-      Math.abs(frameMs - 60) < 30,
+      Math.abs(frameMs - 30) < 25,
       `speed${speed}: ${frameMs}ms frame`,
     );
     assert.ok(
-      Math.abs(soundMs - 120) < 30,
+      Math.abs(soundMs - 60) < 30,
       `speed${speed}: ${soundMs}ms sound`,
     );
     matrix.push({ speed, frameMs, soundMs });

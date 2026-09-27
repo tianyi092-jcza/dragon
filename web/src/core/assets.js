@@ -50,9 +50,9 @@ export function loadImage(url) {
 }
 
 /** 四季战略地图按需加载；标题选单阶段不得提前请求地图位图。 */
-export function loadSeasonTile(season) {
+export function loadSeasonTile(season, definition = DEFAULT_WORLD) {
   return loadImage(
-    DEFAULT_WORLD.assets.seasons[season] ?? `map_tiles_${season}.png`,
+    definition.assets.seasons[season] ?? `map_tiles_${season}.png`,
   );
 }
 

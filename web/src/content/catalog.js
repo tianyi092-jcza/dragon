@@ -1,10 +1,11 @@
 // 内容身份与旧scenario_idx的边界；不创建运行态、不读写本地存档。
 import { loadJSON } from "../core/assets.js";
+import { ORIGINAL_RULE_PROFILE } from "./ruleprofile.js";
 
 export function createContentCatalog(manifest, data) {
   if (
     manifest?.schemaVersion !== 1 ||
-    manifest.rules !== "ki-1995" ||
+    manifest.rules !== ORIGINAL_RULE_PROFILE.id ||
     typeof manifest.id !== "string" ||
     !manifest.id ||
     typeof manifest.revision !== "string" ||
@@ -41,6 +42,7 @@ export function createContentCatalog(manifest, data) {
   return Object.freeze({
     id: manifest.id,
     revision: manifest.revision,
+    rules: ORIGINAL_RULE_PROFILE,
     data, // 旧API兼容视图；新局仍必须通过createNewGameScenario复制模板。
     chapters: Object.freeze(chapters),
     chapter(indexOrId) {

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>臥龍傳 · 存檔管理</title>
+<style>body{max-width:960px;margin:2em auto;padding:1em;background:#141914;color:#eee;font:16px system-ui}button,input{font:inherit;margin:.4em}button{cursor:pointer}table{width:100%;border-collapse:collapse}td,th{padding:.6em;border-bottom:1px solid #59634f;text-align:left}a{color:#b9d79d}#status{white-space:pre-wrap}button:disabled{cursor:wait}</style>
+<h1>存檔管理</h1>
+<p>存檔只保存在本瀏覽器。匯入會建立新檔，不覆蓋現有檔案；遊戲中讀檔仍須返回標題。如遊戲已開啟，請先保存進度並返回標題，再重新整理以更新目錄。</p>
+<p><a href="./">回到遊戲</a> · <a href="editor.html">內容編輯器</a></p>
+<label>匯入 Web 存檔（非 DOS SAVE.DAT）<input id="file" type="file" accept=".json,application/json"></label>
+<button id="import" disabled>驗證並另存新檔</button><button id="refresh">重新讀取目錄</button>
+<p id="status" role="status">載入目錄中…</p>
+<table><thead><tr><th>編號</th><th>名稱</th><th>遊戲日期</th><th>備份</th></tr></thead><tbody id="rows"></tbody></table>
+<script type="module" src="src/tools/savemanager.js"></script></html>

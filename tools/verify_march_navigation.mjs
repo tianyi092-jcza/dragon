@@ -380,8 +380,8 @@ assert.equal(
 );
 assert.equal(
   quarterPos.wxp,
-  (source.x + 0.25 / 8) * 16 + 8,
-  "水平道路不添加切向横移",
+  (source.x + 0.25 / 8) * 16 + 10,
+  "水平道路与据点使用相同X锚点",
 );
 assert.equal(
   quarterPos.wyp,
@@ -412,8 +412,8 @@ const verticalPos = renderView.getLegionRenderPos(verticalLegion, 0.25);
 assert.equal(verticalPos.wxp, source.x * 16 + 10, "垂直道路向右补偿2px");
 assert.equal(
   verticalPos.wyp,
-  (source.y + 0.25 / 8) * 16 + 8,
-  "垂直道路不添加切向纵移",
+  (source.y + 0.25 / 8) * 16 + 11,
+  "垂直道路与据点使用相同Y锚点",
 );
 const waitingRoadLegion = {
   x: source.x,
@@ -423,12 +423,33 @@ const waitingRoadLegion = {
   _path: [{ x: source.x + 1, y: source.y }],
 };
 const waitingPos = renderView.getLegionRenderPos(waitingRoadLegion, 1);
-assert.equal(waitingPos.wxp, source.x * 16 + 8, "道路等待不添加切向横移");
+assert.equal(waitingPos.wxp, source.x * 16 + 10, "道路等待保持统一锚点");
 assert.equal(
   waitingPos.wyp,
   source.y * 16 + 11,
   "接敌/冷却等待时仍按下一道路点保持轴向补偿",
 );
+
+// 真实周期2/3覆盖16/24次更新，全程等差前进，末尾与驻城/下一步连续。
+for (const period of [2, 3]) {
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) {
+    const army = { ...renderLegion, movePeriod: period,
+      x: source.x + dx, y: source.y + dy };
+    const before = structuredClone(army);
+    const duration = 8 * period;
+    for (let tick = 0; tick <= duration; tick++) {
+      renderView.app.clock.strategicTickSerial = 8 + tick;
+      const pos = renderView.getLegionRenderPos(army, 0);
+      assert.equal(pos.curT, tick / duration);
+      assert.equal(pos.wxp, (source.x + dx * tick / duration) * 16 + 10);
+      assert.equal(pos.wyp, (source.y + dy * tick / duration) * 16 + 11);
+    }
+    const end = renderView.legionPixel(army, 0);
+    assert.deepEqual(end, renderView.cityPixel(army));
+    assert.deepEqual(end, renderView.legionPixel({ ...army, prevX: army.x, prevY: army.y }, 0));
+    assert.deepEqual(army, before, "draw/hit projection never writes rule or presentation input");
+  }
+}
 
 // 恢复的大地图虚线只能读取既有导航/道路图，不能在draw阶段写回路径缓存。
 const routeLegion = {

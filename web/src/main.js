@@ -1,5 +1,5 @@
 // 引擎主入口 — 装配数据/视图/输入/HUD
-import { loadJSON, loadSeasonTile } from "./core/assets.js";
+import { loadJSON } from "./core/assets.js";
 import {
   MapView,
   preloadDisasterObjectImages,
@@ -62,7 +62,7 @@ import {
   canSnapshotState,
   snapshotState,
 } from "./game/savegame.js";
-import { loadLocalSaveSlots, saveLocalSaveSlots } from "./core/localstore.js";
+import { localSaveRepository } from "./core/localstore.js";
 import {
   normalizeDisasterMapObjectState,
   normalizeWeatherCloudState,
@@ -71,6 +71,7 @@ import {
 const app = {
   data: null,
   content: null,
+  saveRepository: localSaveRepository,
   world: defaultWorldResources,
   scenario: null,
   scenarioIdx: 0,
@@ -381,6 +382,9 @@ const app = {
       mode = "restore",
       metadata = null,
       roadMemory = null,
+      movementMemory = null,
+      terrainMemory = null,
+      cityCache = null,
       savedSlot = null,
       savedLabel = null,
     } = {},
@@ -419,6 +423,9 @@ const app = {
         mode,
         metadata,
         roadMemory,
+        movementMemory,
+        terrainMemory,
+        cityCache,
       });
       assertCurrentPreflight();
       // v2 never reaches initPlayer/buildArmies/diplomacy or the default v1 facades.
@@ -627,12 +634,20 @@ const app = {
         return { saved: "blocked" };
       }
       try {
-        const sv = snapshotState(this, slotIdx, label);
-        const next = structuredClone(this.saves);
+        let sv = snapshotState(this, slotIdx, label);
+        // Stored snapshots are immutable to gameplay; copy the index, not every
+        // other archive's full rule RAM, when replacing one record.
+        const next = { schema: 1, slots: this.saves.slots.slice() };
         const index = next.slots.findIndex((saved) => saved.slot === slotIdx);
-        if (index >= 0) next.slots[index] = sv;
-        else next.slots.push(sv);
-        this.saves = await saveLocalSaveSlots(next);
+        if (index >= 0) {
+          sv = await this.saveRepository.put(sv);
+          next.slots[index] = sv;
+        } else {
+          sv = await this.saveRepository.add(sv);
+          next.slots.push(sv);
+        }
+        slotIdx = sv.slot;
+        this.saves = next;
       } catch (error) {
         this.hud?.flashEvent?.("本機存檔失敗，原存檔未變更。");
         return { saved: "failed", error };
@@ -657,6 +672,9 @@ const app = {
       mode: "restore",
       metadata: admitted.metadata,
       roadMemory: admitted.roadMemory,
+      movementMemory: admitted.movementMemory,
+      terrainMemory: admitted.terrainMemory,
+      cityCache: admitted.cityCache,
       rngSnapshot: sv.webMeta?.originalRng ?? null,
       savedSlot: slotIdx,
       savedLabel: sv.label,
@@ -666,8 +684,9 @@ const app = {
 
   setSeason(i, isCurrent = () => true) {
     this.seasonIdx = i;
-    return loadSeasonTile(SEASONS[i]).then((img) => {
-      if (!isCurrent() || this.seasonIdx !== i) return;
+    const world = this.world;
+    return world.loadSeason(SEASONS[i]).then((img) => {
+      if (!isCurrent() || this.world !== world || this.seasonIdx !== i) return;
       this.view.seasonImg = img;
       if (this.gameStarted) this.view.draw();
     });
@@ -678,7 +697,7 @@ app.score = new ScoreDirector(app.music, () => app.clock);
 const canvas = document.querySelector("#cv");
 window.__app = app; // 调试句柄(控制台可用 __app.clock 等)
 window.app = app;
-app.view = new MapView(canvas, () => app.scenario);
+app.view = new MapView(canvas, () => app.scenario, () => app.world.definition);
 app.view.app = app;
 attachInput(app.view, {
   uiHit: (x, y) => app.gamebar?.hitTest(x, y) ?? false,
@@ -881,7 +900,7 @@ export async function startApp(opening) {
   app.runtimeEnabled = false;
   [app.content, app.saves] = await Promise.all([
     loadBuiltinContent(),
-    loadLocalSaveSlots(),
+    app.saveRepository.load(),
   ]);
   app.data = app.content.data;
 

@@ -4,6 +4,8 @@
 >
 > 目标：在完善战术战斗前，先复刻军团从据点到据点的路线规划、不可达处理、沿道路移动和方向动画。
 
+> 现行Web显示/节奏见[行军表现修正](march-presentation-fixes.md)：统一城/军团锚点、8×movePeriod插值、战略提速与接战五响。本文旧方向偏移/八更新插值/100ms音画描述为历史表现，不再代表当前实现；原版坐标/周期机制不变。
+
 ## 一、结论摘要
 
 原版战略行军不是在 `384×256` 地图像素格上直接跑 A*，而是：
@@ -363,6 +365,10 @@
 正式snapshot的native F16/F17 sidecar按own-property保真：缺字段不输出，不用旧`??null`把未知变FF；现有restore仅有key才覆盖。显式null/255/0仍保留；undefined经JSON消失仍未知，其它非法类型在实际XCHG点停。**首审P2修复**：NaN/±Infinity会被JSON变null而误编码FF，native snapshot现在直接拒绝这两字段的非有限数，不能先产生可被有损JSON接受的候选。IndexedDB structuredClone本身能保NaN，不归咎于IndexedDB丢值。仅此native分支改变，v1旧sidecar不变。city `_aiCooldown`/`_strategicLastFaction`由现有state clone/JSON/prepare保存，未加副本，保缺失/0/非法值到实际消费点；`createNewGameScenario`删旧owner，不作为native初始化来源。
 
 **3EFD cache前缀，非完整城市轮询**：复用两个显式输入字段。3F06要求cooldown合法byte，非0先DEC；3F11才要求旧owner合法byte；比较实时owner，不同只在3F29写合法命名旧势力F17=city，不更新city1A。旧owner缺失/非法/别名越域保此前DEC。3F2C先Yword形成u16(Y*24)，3F43 Xword，3F47规范占格读、&7F，3F4C才要求cache写能力。Y>255等far alias不映射进规范plane。中立也必须完成此段。
+
+**现行 App 读档接线更正（3F47）**：`movement capability at 3F47` 是 Web 缺少占格平面适配器的工程异常，不是武将移动能力不足，也不是原版在此拒绝移动。复核上述固定 SHA 的 `KI.EXE`（文件偏移=VA+200h）：`3F2C..3F41` 用城市 Y 形成 `ES=CS:[9872]+Y*24`，`3F43` 取城市 X，`3F47:26 8A 07` 读 `ES:[BX]`，`3F4A:24 7F` 保低7位，`3F4C:88 84 58 08` 写城市+18；此窗口无 RNG/调用。规范坐标下对应占格平面 `Y*384+X`，初始化原证见§3.15/P40。
+
+Web 根因已确定为 `snapshotScenarioAssembly → readSavedAssembly/admitSavedScenario` 保留了 `movementMemory/terrainMemory/cityCache`，但 `main.loadSave → main.loadState → prepareScenario` 两个参数边界仅传 `roadMemory`。于是 restore 所有者的 movement/cache 为 null；terrain 则会误走既有缺输入路径而丢弃显式保存的改写。现三项完整转交原适配器，沿原有 await 前克隆、身份/known spans 校验，不新增补零或扫描重建，不放宽3F47/3F4C、未知洞及非法输入保护。fresh 路径和规则/RNG/调度未改。`verify_legion_lifecycle_browser.mjs` 在隔离存档写入非默认占格、cache、terrain 哨兵，经真实保存→标题→加载确认三项原值保留；这验证 Web 传递合同，不冒充原版战役 oracle。此前本节“可选能力/App拒v2”为历史 detached 范围，不是现行生产入口描述。
 
 **历史边界已推进**：本节初批在3F57/3F5A停止；现[§3.14](#native-city-callers)已接有限军事真返回、严格治理/灾害与城市/军团游标提交，不再把全部3F74/4194称未覆盖。legacy cityLocalStrength/raw邻接仍不供native使用，city1A的4CF8/425B完整生命周期和App v2拒绝门未变。
 

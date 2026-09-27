@@ -18,6 +18,11 @@ const secondGraph = structuredClone(graph);
 secondGraph.nodes[0].x += 1;
 const requests = [];
 const originalFetch = globalThis.fetch;
+const originalImage = globalThis.Image;
+const images = [];
+globalThis.Image = class {
+  set src(url) { this.url = url; images.push(url); queueMicrotask(() => this.onload()); }
+};
 try {
   globalThis.fetch = async (url) => {
     requests.push(url);
@@ -48,10 +53,19 @@ try {
       terrain: `${id}/terrain`,
       roadCost: `${id}/cost`,
       roadOffset: `${id}/offset`,
+      seasonAtlases: null, // exercise explicit full-image fallback for custom worlds
+      seasons: { spring: `${id}/spring.png` },
     },
   });
-  const first = createWorldResources(makeDefinition("first"));
+  const mutable = makeDefinition("first");
+  const first = createWorldResources(mutable);
+  mutable.assets.seasons.spring = 'changed.png';
   const second = createWorldResources(makeDefinition("second"));
+  assert.deepEqual(images, [], 'world construction is lazy');
+  assert.equal((await first.loadSeason('spring')).url, 'first/spring.png');
+  assert.equal((await second.loadSeason('spring')).url, 'second/spring.png');
+  await first.loadSeason('spring');
+  assert.deepEqual(images, ['first/spring.png', 'second/spring.png']);
   assert.equal(defaultWorldResources.roads.roadGraphReady(), false);
   await first.terrain.loadTerrain();
   assert.equal(first.roads.roadGraphReady(), true);
@@ -82,6 +96,8 @@ try {
   );
 } finally {
   globalThis.fetch = originalFetch;
+  if (originalImage === undefined) delete globalThis.Image;
+  else globalThis.Image = originalImage;
 }
 process.stdout.write(
   "world resources OK: independent roads, terrain, offsets and caches; default instance untouched\n",

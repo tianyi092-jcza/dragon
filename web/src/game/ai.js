@@ -5604,8 +5604,8 @@ function performLegionSlotAction(app, A) {
     // prev→current间插值。没有每动作原点，图标每天跳回出征/战败起点再滑出
     // （战败撤退即用户所见“在路上和进攻据点之间反复跳”）。只补prev不补serial
     // 会在每次动作边界产生±hop跳变（抖动）：必须同时写_renderMoveSerial，
-    // lerp按 (elapsed+t)/8 收敛，动作边界连续（elapsed归零处curT≈0，上一段
-    // 已钳制到1，两端都是旧current）。规则层永不读prev/serial（仅渲染消费）。
+    // lerp按 (elapsed+t)/(8*movePeriod) 收敛，覆盖两/三轮槽访问而非仅一轮；
+    // 动作边界两端都是旧current。规则层永不读prev/serial（仅渲染消费）。
     A.prevX = A.x;
     A.prevY = A.y;
     A._renderMoveSerial = app.clock?.strategicTickSerial;

@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>臥龍傳 · 內容編輯器</title>
+<style>body{max-width:1100px;margin:auto;padding:1em;background:#141914;color:#eee;font:16px system-ui}a{color:#b9d79d}canvas{image-rendering:pixelated;max-width:100%;border:1px solid #687b53}label,button{margin:.5em;display:inline-block}input,select,button{font:inherit}#status{white-space:pre-wrap}</style>
+<h1>現容量內容編輯器</h1><a href="./">回到遊戲</a> · <a href="saves.html">存檔管理</a>
+<p>只編輯副本，不改目前遊戲或存檔。維持 384×256 格、192 據點與原道路；道路、據點位置及未知欄位鎖定。改地形可能影響規則，匯出後必須通過內容編譯校驗；貼上道路圖塊不會建立通路。</p>
+<label>劇本 <select id="chapter"></select></label><label>據點 <select id="city"></select></label>
+<div id="fields"></div><button id="apply">更新此據點數值</button>
+<p>點選圖集，再點地圖修改單格。<span id="tile">圖塊 0</span></p>
+<canvas id="atlas" width="256" height="256"></canvas><canvas id="map" width="768" height="512"></canvas>
+<p><button id="undo">撤銷最後修改</button><button id="export">匯出內容補丁</button></p><p id="status" role="status">載入內容中…</p>
+<script type="module" src="src/tools/editorpage.js"></script></html>

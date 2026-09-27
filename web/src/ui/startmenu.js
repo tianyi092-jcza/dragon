@@ -110,8 +110,9 @@ export class StartMenu {
     return this._sortedScenarios?.[sortedIdx]?._origIdx ?? sortedIdx;
   }
 
-  _chooseSave() {
-    return this.prompt({
+  async _chooseSave() {
+    const rows = this._saveRows();
+    const index = await this.prompt({
       x: "center",
       y: "center",
       w: 448,
@@ -119,8 +120,9 @@ export class StartMenu {
       title: "读取存档",
       rowH: 56,
       pad: 8,
-      rows: this._saveRows(),
+      rows,
     });
+    return index < 0 ? -1 : rows[index].slot;
   }
 
   _chapterRows() {
@@ -592,17 +594,18 @@ export class StartMenu {
   }
 
   _saveRows() {
-    // 瀏覽器 IndexedDB 四槽；未使用槽禁止選擇。
+    // Stable identities survive sparse lists; row index is not a save identity.
     const slots = this.app.saves?.slots ?? [];
-    return [0, 1, 2, 3].map((i) => {
-      const sv = slots.find((s) => s.slot === i);
+    return slots.map((sv) => {
+      const i = sv.slot;
       if (!sv || !sv.played) {
-        return { name: "（未使用）", date: null, disabled: true };
+        return { slot: i, name: "（未使用）", date: null, disabled: true };
       }
       const supported = this._saveSupported(i);
       const menu = this;
       const d = sv.state?.save_date;
       return {
+        slot: i,
         name: supported
           ? `${sv.label ?? ""}`
           : `${sv.label ?? ""}（不相容，已保留）`,

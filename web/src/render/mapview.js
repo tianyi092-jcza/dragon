@@ -1,11 +1,11 @@
 // 地图视图 — 相机(拖动平移, 固定100%不可缩放) + 分层绘制(地形/城池/军团/标签)
-import { WORLD } from "../game/world.js";
+import { DEFAULT_WORLD } from "../content/worlddefinition.js";
 
 const MARCH_STYLE_COUNT = 24;
 const MARCH_FRAME_STATIONARY = 4;
 // 0x25A3每次主更新扫描16/128个军团槽；同一槽每8次战略更新轮到一次。
-// Canvas把单个道路点的位移铺满这8个更新间隔，最高速也至少约100ms/步，
-// 只加快每步动画而不会在一个显示帧内跳过道路点。
+// 每次动作还受movePeriod门控：纯骑2轮、混编3轮。插值覆盖完整动作间隔，
+// 不能只铺8次更新后静止等待余下的轮次。
 const LEGION_SLOT_CYCLE_TICKS = 8;
 const _marchMarkerCache = new Map(); // "style:frame" -> {img, ok}
 const _engageMarkerCache = new Map(); // frame -> {img, ok, promise}
@@ -177,17 +177,10 @@ function marchFrame(fromX, fromY, toX, toY) {
   return dy < 0 ? 2 : 3;
 }
 
-/**
- * Web道路美术映射。连续截图夹逼校正：竖路右移2px；横路下移2px
- * 仍偏上、下移4px又偏下，故取像素中点3px。斜向按两轴分量过渡。
- */
-function roadVisualOffset(fromX, fromY, toX, toY) {
-  const dx = Math.abs(toX - fromX);
-  const dy = Math.abs(toY - fromY);
-  const span = dx + dy;
-  if (!span) return [0, 0];
-  return [(2 * dy) / span, (3 * dx) / span];
-}
+// Web美术锚点（非KI规则坐标）：保留横路+3Y、竖路+2X的标定，
+// 据点/驻止/转向也使用同一平移，避免到城或换向时突然撤销法线补偿。
+const MAP_ANCHOR_X = 10;
+const MAP_ANCHOR_Y = 11;
 
 const CITY_SIZE = 16; // 城池图标整体尺寸
 const CURSOR_SIZE = 18; // 游戏光标：较原20px圆角方框缩小2px
@@ -206,10 +199,11 @@ function cityIcon(kind) {
 }
 
 export class MapView {
-  constructor(canvas, scenarioGetter) {
+  constructor(canvas, scenarioGetter, worldGetter = () => DEFAULT_WORLD) {
     this.cv = canvas;
     this.ctx = canvas.getContext("2d");
     this.getScenario = scenarioGetter;
+    this.getWorldDefinition = worldGetter;
     this.cam = { x: 0, y: 0, scale: 1 };
     this.seasonImg = null; // 当前地形 Image（由外部 setSeason 设置）
     this.hoverTarget = null; // 当前悬停的地图对象 {type:'city'|'legion', ...}
@@ -421,8 +415,9 @@ export class MapView {
   /** 相机钳制: 地图四边不得越出屏幕 (拖到边即停, 不留黑边) */
   clampCam() {
     const c = this.cam;
-    c.x = Math.min(0, Math.max(innerWidth - WORLD.WIDTH, c.x));
-    c.y = Math.min(0, Math.max(innerHeight - WORLD.HEIGHT, c.y));
+    const world = this.getWorldDefinition();
+    c.x = Math.min(0, Math.max(innerWidth - world.width * world.tileSize, c.x));
+    c.y = Math.min(0, Math.max(innerHeight - world.height * world.tileSize, c.y));
   }
 
   /** 固定 100%: 缩放已禁用 (保留 API 兑底) */
@@ -444,7 +439,7 @@ export class MapView {
 
   /** 城池世界坐标 → 世界像素中心 */
   cityPixel(c) {
-    return [c.x * 16 + 8, c.y * 16 + 8];
+    return [c.x * 16 + MAP_ANCHOR_X, c.y * 16 + MAP_ANCHOR_Y];
   }
 
   /** 军团世界坐标 → 世界像素中心 (兼容旧接口) */
@@ -472,7 +467,10 @@ export class MapView {
         const elapsedTicks = Math.max(0, currentSerial - moveSerial);
         curT =
           (elapsedTicks + Math.min(1, Math.max(0, t))) /
-          LEGION_SLOT_CYCLE_TICKS;
+          (LEGION_SLOT_CYCLE_TICKS *
+            (Number.isInteger(L.movePeriod) && L.movePeriod > 0
+              ? L.movePeriod
+              : 1));
       } else {
         // 旧快照/独立预览没有战略序号时维持单步0..1兼容。
         curT = t;
@@ -484,26 +482,9 @@ export class MapView {
     const gx = fromX + (toX - fromX) * curT;
     const gy = fromY + (toY - fromY) * curT;
 
-    // 2. Web显示映射：连续截图确认水平+2px偏上而+4px偏下，取+3px；
-    // 垂直道路右移2px已正确。仅补偿道路法线方向，避免旧tile质心表在弯道
-    // 产生-4..+4px逐格摆动；KI规则坐标和沿路进度完全不变。接敌/战后
-    // 冷却时坐标不动，需从尚未消费的道路点推导轴向，否则标识会短暂
-    // 跳回tile几何中心。
-    const pendingPoints =
-      L._march?.points?.slice(L._march.pointIndex ?? 0) ?? L._path ?? [];
-    const nextVisualPoint = pendingPoints.find(
-      (point) => point.x !== toX || point.y !== toY,
-    );
-    const visualToX = isMoving ? toX : (nextVisualPoint?.x ?? toX);
-    const visualToY = isMoving ? toY : (nextVisualPoint?.y ?? toY);
-    const [offsetX, offsetY] = roadVisualOffset(
-      fromX,
-      fromY,
-      visualToX,
-      visualToY,
-    );
-    const wxp = gx * 16 + 8 + offsetX;
-    const wyp = gy * 16 + 8 + offsetY;
+    // 同一仿射映射覆盖道路和据点；不修改规则坐标、道路点或到达时机。
+    const wxp = gx * 16 + MAP_ANCHOR_X;
+    const wyp = gy * 16 + MAP_ANCHOR_Y;
 
     // KI 0x2808按军团+8选标识帧；原生行军泵每步经direction()/
     // nodeize()写+8（L._markerFrame），到达写4。原生槽下prevX/_march
@@ -682,19 +663,22 @@ export class MapView {
   draw() {
     const { ctx } = this;
     if (this.app && !this.app.gameStarted) return;
+    const world = this.getWorldDefinition();
     const { width, height } = this.syncCanvasSize();
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#141414";
     ctx.fillRect(0, 0, width, height);
 
     // 底图
-    if (this.seasonImg) {
+    if (this.seasonImg?.draw) {
+      this.seasonImg.draw(ctx, this.sx(0), this.sy(0), this.cam.scale, width, height);
+    } else if (this.seasonImg) {
       ctx.drawImage(
         this.seasonImg,
         this.sx(0),
         this.sy(0),
-        WORLD.WIDTH * this.cam.scale,
-        WORLD.HEIGHT * this.cam.scale,
+        world.width * world.tileSize * this.cam.scale,
+        world.height * world.tileSize * this.cam.scale,
       );
     }
 
@@ -791,8 +775,8 @@ export class MapView {
         () => this.draw(),
       );
       if (!image) continue;
-      const left = this.sx(((object.x ?? 0) - 2) * WORLD.TILE_PX);
-      const top = this.sy(((object.y ?? 0) - 2) * WORLD.TILE_PX);
+      const left = this.sx(((object.x ?? 0) - 2) * world.tileSize);
+      const top = this.sy(((object.y ?? 0) - 2) * world.tileSize);
       const size = DISASTER_OBJECT_SIZE * this.cam.scale;
       if (left >= width || top >= height || left + size <= 0 || top + size <= 0)
         continue;
@@ -806,8 +790,8 @@ export class MapView {
         continue;
       const image = getWeatherCloudImage(cloud.frame ?? 0, () => this.draw());
       if (!image) continue;
-      const left = this.sx(((cloud.x ?? 0) - 8) * WORLD.TILE_PX);
-      const top = this.sy(((cloud.y ?? 0) - 4) * WORLD.TILE_PX);
+      const left = this.sx(((cloud.x ?? 0) - 8) * world.tileSize);
+      const top = this.sy(((cloud.y ?? 0) - 4) * world.tileSize);
       const cloudWidth = WEATHER_CLOUD_WIDTH * this.cam.scale;
       const cloudHeight = WEATHER_CLOUD_HEIGHT * this.cam.scale;
       if (

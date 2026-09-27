@@ -11,6 +11,7 @@
 //     点击导航大地图, 遇袭城点闪烁+警示音
 //   - 时钟联动: 仅模态弹窗(進言/列表/存读档)打开时冻结计时, 菜单条/悬停不影响
 import { loadImage, portrait } from "../core/assets.js";
+import { saveChoices } from "../core/savecatalog.js";
 import * as cmd from "../game/commands.js";
 import * as adv from "../game/advisor.js";
 import {
@@ -6273,6 +6274,16 @@ export class GameBar {
 
   wheel(px, py, dy) {
     this.layout();
+    if (this.systemSaveDialog) {
+      const d = this.systemSaveDialog;
+      const { x, y, wTiles, hTiles } = this._systemSaveDialogRect();
+      if (px >= x && px < x + wTiles * 16 && py >= y && py < y + hTiles * 16) {
+        d.scroll = Math.max(0, Math.min(Math.max(0, d.rows.length - 4), d.scroll + Math.sign(dy)));
+        d.hover = -1;
+        this.app.view.draw();
+      }
+      return true;
+    }
     if (!this.listDialog) return false;
     const d = this.listDialog;
     if (!this._hitListDialog(px, py)) return false;
@@ -7185,6 +7196,15 @@ export class GameBar {
 
     // 系统选单「資料儲存」弹窗
     if (this.systemSaveDialog) {
+      const d = this.systemSaveDialog;
+      const { x, y, wTiles } = this._systemSaveDialogRect();
+      const right = x + 8 + (wTiles - 1) * 16;
+      if (btn === 0 && d.rows.length > 4 && px >= right - 14 && px < right && py >= y + 36 && py < y + 236) {
+        d.scroll = Math.round((py - y - 36) / 200 * (d.rows.length - 4));
+        d.hover = -1;
+        this.app.view.draw();
+        return true;
+      }
       const i = this._hitSystemSaveOrLoadDialog(this.systemSaveDialog, px, py);
       if (btn === 0 && i >= 0) {
         this.confirmSystemSave(i);
@@ -7849,11 +7869,15 @@ export class GameBar {
     const cw = (wTiles - 1) * 16;
     const ch = (hTiles - 1) * 16;
     if (px < cx || py < cy || px >= cx + cw || py >= cy + ch) return -1;
+    if (dlg.rows.length > 4 && px >= cx + cw - 14) return -1;
     const startSlotY = cy + 28;
     const slotStep = 50;
     for (let i = 0; i < 4; i++) {
       const sy = startSlotY + i * slotStep;
-      if (py >= sy && py < sy + slotStep) return i;
+      if (py >= sy && py < sy + slotStep) {
+        const index = i + (dlg.scroll ?? 0);
+        return index < dlg.rows.length ? index : -1;
+      }
     }
     return -1;
   }
@@ -7868,8 +7892,8 @@ export class GameBar {
     this.settingsOpen = false;
     this.syncClock();
 
-    const rows = [0, 1, 2, 3].map((i) => {
-      const s = this.app.saves?.slots.find((x) => x.slot === i);
+    const rows = saveChoices(this.app.saves?.slots).map((s) => {
+      const i = s.slot;
       let infoText = "";
       let dateStr = "";
       if (s && s.played) {
@@ -7909,6 +7933,7 @@ export class GameBar {
 
     this.systemSaveDialog = {
       rows,
+      scroll: 0,
       hover: -1,
     };
     this.app.view.draw();
@@ -8039,16 +8064,26 @@ export class GameBar {
     ctx.lineTo(inner.x + inner.w - 4, lineY + 0.5);
     ctx.stroke();
 
-    // 4 个槽位
+    // Four visible rows; storage capacity is independent of this viewport.
     const startSlotY = inner.y + 28;
     const slotStep = 50;
     const btnW = 140;
     const btnH = 20;
-    const btnX = inner.x + inner.w - btnW - 8;
+    const btnX = inner.x + inner.w - btnW - (d.rows.length > 4 ? 22 : 8);
+    const scroll = d.scroll ?? 0;
+    if (d.rows.length > 4) {
+      const trackX = inner.x + inner.w - 12;
+      const trackH = slotStep * 4;
+      const thumbH = Math.max(12, trackH * 4 / d.rows.length);
+      ctx.fillStyle = '#222222';
+      ctx.fillRect(trackX, startSlotY, 8, trackH);
+      ctx.fillStyle = '#4a7828';
+      ctx.fillRect(trackX, startSlotY + (trackH - thumbH) * scroll / (d.rows.length - 4), 8, thumbH);
+    }
 
-    d.rows.forEach((row, i) => {
+    d.rows.slice(scroll, scroll + 4).forEach((row, i) => {
       const sy = startSlotY + i * slotStep;
-      const isSlotHover = i === d.hover;
+      const isSlotHover = i + scroll === d.hover;
 
       // 槽位高亮
       if (isSlotHover) {

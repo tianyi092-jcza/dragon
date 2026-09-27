@@ -112,6 +112,15 @@ try {
     app.gamebar.syncClock();
     if (app.saves.slots.some((slot) => slot.played))
       throw new Error("Context was not empty");
+    // Synthetic sentinels in isolated rule RAM: restoration must retain saved
+    // values, not silently bind newly synthesized occupancy/cache/terrain.
+    const { scenarioNativeRoadContext } = await import(
+      "/src/game/scenarioassembly.js"
+    );
+    const native = scenarioNativeRoadContext(app.scenario);
+    native.movement.writeByte(255 * 24, 383, 0xa5);
+    native.cityCache.writeByte(191, 0x35);
+    native.terrain.writeByte(384 * 256 - 1, 0x17);
     const saved = await app.saveGame(0, "P24 isolated current");
     if (saved.saved !== "local")
       throw new Error(`Save blocked: ${saved.saved}`);
@@ -285,7 +294,16 @@ try {
     app.gamebar._clockHoldRequested = true;
     app.gamebar.syncClock();
     const { loadLocalSaveSlots } = await import("/src/core/localstore.js");
+    const { scenarioNativeRoadContext } = await import(
+      "/src/game/scenarioassembly.js"
+    );
+    const native = scenarioNativeRoadContext(app.scenario);
     return {
+      restoredMemory: [
+        native.movement.readByte(255 * 24, 383),
+        native.cityCache.readByte(191),
+        native.terrain.readByte(384 * 256 - 1),
+      ],
       slot: app.loadedSaveSlot,
       phase: app.scenario.legionPhaseVersion,
       counter: app.scenario.legionSlotCounters[80],
@@ -296,6 +314,7 @@ try {
     };
   });
   assert.deepEqual(restored, {
+    restoredMemory: [0xa5, 0x35, 0x17],
     slot: 0,
     phase: 1,
     counter: 0,

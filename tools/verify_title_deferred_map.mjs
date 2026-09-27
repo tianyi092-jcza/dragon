@@ -48,7 +48,8 @@ assert.match(
 assert.match(menu, /await this\.app\.beginNewGame\(idx, f, adv\)/);
 assert.match(menu, /await this\.app\.beginSavedGame\(slot\)/);
 assert.doesNotMatch(assets, /Object\.fromEntries\([\s\S]*map_tiles_/);
-assert.match(assets, /export function loadSeasonTile\(season\)/);
+assert.match(assets, /export function loadSeasonTile\(season, definition = DEFAULT_WORLD\)/);
+assert.match(main, /world\.loadSeason\(SEASONS\[i\]\)/);
 assert.match(mapview, /if \(this\.app && !this\.app\.gameStarted\) return;/);
 const gamebar = await fs.readFile(
   new URL("../web/src/ui/gamebar.js", import.meta.url),

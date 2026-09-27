@@ -34,14 +34,15 @@
 | `game/ai.js`、`weather.js`、`autobattle.js`、`legionscheduler.js` | 战略AI、灾害、接敌战后、速算与逐槽调度 |
 | `game/legionphase.js`、`legioncounts.js`、`nativelegions.js`、`nativefactions.js`、`nativediplomacy.js`、`nativeevents.js`、`nativemonthlypolicy.js`、`legioncontinuation.js`、`strategicfailure.js` | 固定槽/原始表、续段所有权、严格恢复、失败暂停/禁存 |
 | `game/clock.js`、`tacticalclock.js`、`battle/original*.js` | 战略/战术预算、权威Session、RNG、VM与结算 |
-| `game/savegame.js`、`core/localstore.js` | 快照/恢复、保存守卫、IndexedDB四槽 |
+| `game/savegame.js`、`core/saverepository.js`、`core/indexeddbsavebackend.js`、`core/localstore.js` | 快照/守卫与存储分离；多档仓储、单档/摘要事务、默认组合门面 |
 | `game/playerqueries.js`、`legacyrecords.js`；`render/`、`ui/` | 纯查询/兼容读取；只读绘制、GameBar/HUD、消息FIFO与StartMenu |
 
 - 逻辑分辨率`640×400`；当前世界`384×256`格、16px图块、192道路节点。原运行域含128军团记录、22个40h势力记录、24×24外交矩阵及256×4B事件轮；各循环的排除槽、地址和哨兵不能一律替换成数组length。
 - `web/content/builtin/`为编辑源，`tools/compile_content.py`生成20章模板及地图/道路资产。命名state字段为权威，未知兼容字节保留；不手改生成物掩盖错误。解析纠错先导入新目录比较，再编译；只有一套规则/AI/UI内核。
+- 用户批准的Web扩展保持单一规则/AI内核与现有规则容量；基础见[第一阶段](docs/web-refactor-phase1.md)，多存档、独立管理/受限编辑器及地图分块见[第二阶段](docs/web-refactor-phase2.md)。这是非机制重构授权，不宣称剩余逆向已全部完成；不授权超过192据点或改变调度/公式。
 - 图集/布局、世界对象、道路拓扑分离；`map_tiles_*.png`是派生缓存，贴道路图不产生通路，图块索引仍参与规则。编译预生成不等于跨文件发布事务，见[内容架构](docs/content-architecture.md)。
 - 当前新局`legions=[]`，保留雨云初态与头部吸引边界；地图对象前16火灾/暴动、后16雨云，不filter压缩。native稀疏表的缺槽/字段是未知，不能从空live数组自动造零表；显式初始化另有来源合同。
-- 正式存档是同源IndexedDB `wolong-web/saves`四槽JSON；sidecar在快照内，不是服务端文件。旧SAVE API/token/lease已废弃，浏览器锁管理单实例。
+- 正式存档是同源IndexedDB `wolong-web/saves`的独立档案和摘要目录，不再固定四档；sidecar在快照内，不是服务端文件。数据结构、原子写入、JSON备份与容量边界见[第二阶段](docs/web-refactor-phase2.md)。旧SAVE API/token/lease已废弃，浏览器锁管理游戏单实例。
 - **现行存档政策（用户产品决定）**：用户确认无需保留旧Web存档，允许覆盖旧格式及清理空槽；兼容、迁移与保全旧档不再是开发约束。新格式必须完整保存规则状态/RNG/调度、正确恢复接续，事务失败不报成功。现有无metadata旧档按不相容槽禁用；v1装配臂（P65/P76）与序列化/compat读（P66/P79）已删除。相关变更中定点处理，不因此批量清库或访问真实SAVE/profile。见[数据技能](../.agents/skills/re-data-formats/SKILL.md)。
 - 读档先回标题；空/不相容槽hover/hit-test/click禁用。恢复先克隆合并sidecar再校验身份/字段，版本标签不能代替完整性。资源ready并完成detached验证后才安装，await后核scenario/world/clock/票据；预检失败不改live，提交后失败保部分写并hold/禁存，不假事务回滚。战斗、待续段、未完成交互/装配/现场或故障均禁存，见[装配合同](docs/re-notes-march-pathfinding.md#310-p24正式装配与保存身份准入web工程生产仍限v1)。
 
@@ -49,10 +50,10 @@
 
 - 无关闭按钮、羽扇唯一开关、右键逐层回退、子菜单地图锁、空白地图左键无功能、普通对白3秒关闭/type5强制例外，按[全局约定](../AGENTS.md)及[军师UI技能](../.agents/skills/re-ui-advisor-menu/SKILL.md)，不复制状态表。
 - 各模态/场景/战斗/装配/鼠标hold取并集，不改速度模拟暂停；地图静止满1秒释放鼠标hold。输入锁与物理命中区域分开，锁地图仍识别暴露区域鼠标移动。
-- 每RAF最多一个战略步或完整战术帧，不补后台债务；绘图不推进规则/导航/RNG。Canvas backing store仅尺寸/DPR变化时重建；列表右滚、24px表头、`#4a7828`选中，排序绑定原对象。
+- 战略每RAF最多6次完整主更新、每次检查hold；战术仍最多一个完整帧，均不补后台债务。战略五档为60/35/20/10/3.125ms；行军按8×movePeriod更新插值，城/军团共用显示锚点，详见[行军表现](docs/march-presentation-fixes.md)。绘图不推进规则/导航/RNG。Canvas backing store仅尺寸/DPR变化时重建；列表右滚、24px表头、`#4a7828`选中，排序绑定原对象。
 - 自定军师为`{custom:true,general_idx:null,name,hao,portrait}`；默认军师化身排除普通武将/编成/任官/自动出征候选。统一后继续地图、不播D7END；信赖归零/玩家灭亡仍GAME OVER，不能整体删EndView。
 - 系统菜单：保存、读取、音效、战略速度、战术速度、退出。音效TYPE1→2→3→4→关闭调CF9音量，不选曲/换SFX；OFF停BGM、不禁PC/FM效果。
-- 接战表现共享100ms换帧/200ms发声，首次同步、暂停冻结、结束清理，不补播/升调或改规则等待。战术`TACTICAL_PLAYBACK_RATE=0.5`，低四档等待加倍、最高30Hz、首帧立即；对白3秒或全局右键关闭但不暂停Session，无小地图/右下双箭头。详见[战术规则](docs/re-notes-tactical-rules.md)。
+- 接战表现共享30ms换帧/60ms发声，每段连续共享接触最多五次请求；首次同步、暂停冻结、结束清理，不补播/升调或改规则等待。历史响满全程政策由[现行修正](docs/march-presentation-fixes.md)取代。战术`TACTICAL_PLAYBACK_RATE=0.5`，低四档等待加倍、最高30Hz、首帧立即；对白3秒或全局右键关闭但不暂停Session，无小地图/右下双箭头。详见[战术规则](docs/re-notes-tactical-rules.md)。
 - 独立开场`web/intro/`：原生动画/单次MP3，副标题显现或skip后放行弹窗；会话刷新/读档直达终场，显式重启整页。左上覆盖不缩小、音乐隔离等见[开场维护源](docs/opening-scene.md)。
 
 ## 5. 重要坑点与详细维护源
