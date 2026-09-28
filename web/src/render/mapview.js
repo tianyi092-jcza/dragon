@@ -9,11 +9,7 @@ const MARCH_FRAME_STATIONARY = 4;
 const LEGION_SLOT_CYCLE_TICKS = 8;
 const _marchMarkerCache = new Map(); // "style:frame" -> {img, ok}
 const _engageMarkerCache = new Map(); // frame -> {img, ok, promise}
-const _weatherCloudCache = new Map(); // phase -> {img, ok, promise}
 const _disasterObjectCache = new Map(); // "group:phase" -> {img, ok, promise}
-const WEATHER_CLOUD_FRAMES = 8;
-const WEATHER_CLOUD_WIDTH = 256;
-const WEATHER_CLOUD_HEIGHT = 144;
 const DISASTER_OBJECT_FRAMES = 8;
 const DISASTER_OBJECT_SIZE = 80;
 const DISASTER_OBJECT_ASSET = Object.freeze({ 1: "fire", 2: "riot" });
@@ -28,16 +24,32 @@ function getMarchMarkerImage(style, frame, onReady) {
   let entry = _marchMarkerCache.get(key);
   if (entry) return entry.ok ? entry.img : null;
 
-  entry = { img: new Image(), ok: false };
+  let settle;
+  entry = { img: new Image(), ok: false,
+    promise: new Promise((resolve) => { settle = resolve; }) };
   _marchMarkerCache.set(key, entry);
   entry.img.onload = () => {
     entry.ok = true;
     onReady?.();
+    settle();
   };
+  entry.img.onerror = () => { onReady?.(); settle(); };
   entry.img.src =
     `grf/march_markers/style_${String(safeStyle).padStart(2, "0")}` +
     `_frame_${safeFrame}.png`;
   return null;
+}
+
+/** 地图安装前预载全部样式/方向，避免第一次出城或转向时空一帧。 */
+export function preloadMarchMarkerImages() {
+  const pending = [];
+  for (let style = 0; style < MARCH_STYLE_COUNT; style++) {
+    for (let frame = 0; frame <= MARCH_FRAME_STATIONARY; frame++) {
+      getMarchMarkerImage(style, frame);
+      pending.push(_marchMarkerCache.get(`${style}:${frame}`).promise);
+    }
+  }
+  return Promise.all(pending);
 }
 
 /** KI.EXE 0x2B3C：group 0 的四相 48×48 接敌/攻城动画。 */
@@ -76,48 +88,6 @@ function getEngageMarkerImage(frame, onReady) {
 export function preloadEngageMarkerImages(onReady) {
   return Promise.all(
     [0, 1, 2, 3].map((frame) => engageMarkerEntry(frame, onReady).promise),
-  );
-}
-
-/** KI.EXE 0x2533 + CS:0x985A：group0雨云的八相原始MMAP.MCH复合图。 */
-function weatherCloudEntry(frame, onReady) {
-  const safeFrame = frame & 7;
-  let entry = _weatherCloudCache.get(safeFrame);
-  if (entry) return entry;
-  let settle;
-  entry = {
-    img: new Image(),
-    ok: false,
-    promise: new Promise((resolve) => {
-      settle = resolve;
-    }),
-  };
-  _weatherCloudCache.set(safeFrame, entry);
-  entry.img.onload = () => {
-    entry.ok = true;
-    onReady?.();
-    settle();
-  };
-  entry.img.onerror = () => {
-    onReady?.();
-    settle();
-  };
-  entry.img.src = `grf/weather/cloud_frame_${safeFrame}.png`;
-  return entry;
-}
-
-function getWeatherCloudImage(frame, onReady) {
-  const entry = weatherCloudEntry(frame, onReady);
-  return entry.ok ? entry.img : null;
-}
-
-/** 八相全部预载；其中5/6/7按原表分别复用0/1/2的源位图。 */
-export function preloadWeatherCloudImages(onReady) {
-  return Promise.all(
-    Array.from(
-      { length: WEATHER_CLOUD_FRAMES },
-      (_, frame) => weatherCloudEntry(frame, onReady).promise,
-    ),
   );
 }
 
@@ -486,10 +456,9 @@ export class MapView {
     const wxp = gx * 16 + MAP_ANCHOR_X;
     const wyp = gy * 16 + MAP_ANCHOR_Y;
 
-    // KI 0x2808按军团+8选标识帧；原生行军泵每步经direction()/
-    // nodeize()写+8（L._markerFrame），到达写4。原生槽下prevX/_march
-    // 只是表现派生（publish/快照会剥离、泵内不维护），反推的是出发点
-    // 或目标据点方向而非当前道路步方向，故以+8为准；缺失时才回退旧推导。
+    // +8对应已经提交的规则终点（可已转向/驻止），不能提前套在
+    // 尚未走完prev→current的显示位置上。仅插值途中按当前显示段定向；
+    // 走完该段后才使用权威帧。规则字段完全不变。
     const markerFrame = L._markerFrame;
     const ruleFrame =
       Number.isInteger(markerFrame) && markerFrame >= 0 && markerFrame <= 4
@@ -497,7 +466,9 @@ export class MapView {
         : null;
     let frame = MARCH_FRAME_STATIONARY;
     if (isMoving) {
-      frame = ruleFrame ?? marchFrame(fromX, fromY, toX, toY);
+      frame = curT < 1
+        ? marchFrame(fromX, fromY, toX, toY)
+        : (ruleFrame ?? marchFrame(fromX, fromY, toX, toY));
     } else if (L.target || L._engagement) {
       if (ruleFrame != null) {
         frame = ruleFrame;
@@ -783,26 +754,9 @@ export class MapView {
       ctx.drawImage(image, left, top, size, size);
     }
 
-    // 0x1CC9先画军团、再由0x2533按槽序画通用对象；后16槽雨云
-    // 因此覆盖据点、军团和静态灾害。16×9图左上为(x-8,y-4)。
-    for (const cloud of sc.weatherClouds ?? []) {
-      if (!cloud || cloud.active === false || (cloud.group ?? 0) !== 0)
-        continue;
-      const image = getWeatherCloudImage(cloud.frame ?? 0, () => this.draw());
-      if (!image) continue;
-      const left = this.sx(((cloud.x ?? 0) - 8) * world.tileSize);
-      const top = this.sy(((cloud.y ?? 0) - 4) * world.tileSize);
-      const cloudWidth = WEATHER_CLOUD_WIDTH * this.cam.scale;
-      const cloudHeight = WEATHER_CLOUD_HEIGHT * this.cam.scale;
-      if (
-        left >= width ||
-        top >= height ||
-        left + cloudWidth <= 0 ||
-        top + cloudHeight <= 0
-      )
-        continue;
-      ctx.drawImage(image, left, top, cloudWidth, cloudHeight);
-    }
+    // Web表现层仍位于灾害之上、UI之下；只读已经采样的视觉状态。
+    if (this.app?.weatherFx?.scenario === sc)
+      this.app.weatherFx.draw(ctx, this.cam, world.tileSize, { width, height });
 
     // 军团移动不跟随：若当前吸附的是行军军团，检查其是否已完全移出吸附框；
     // 仅当其渲染位置已远离吸附点超过阈值时才自动脱离，恢复物理鼠标位置。

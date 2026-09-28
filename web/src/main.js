@@ -4,7 +4,7 @@ import {
   MapView,
   preloadDisasterObjectImages,
   preloadEngageMarkerImages,
-  preloadWeatherCloudImages,
+  preloadMarchMarkerImages,
 } from "./render/mapview.js";
 import { attachInput } from "./core/input.js";
 import { HUD } from "./ui/hud.js";
@@ -40,7 +40,6 @@ import {
 } from "./game/ai.js";
 import { defaultWorldResources } from "./game/worldresources.js";
 import { loadBuiltinContent } from "./content/catalog.js";
-import { STRATEGIC_LAYOUT } from "./content/worlddefinition.js";
 import * as cmd from "./game/commands.js";
 import { monthlyAppear } from "./game/recruits.js";
 import { hasNativeLegionSlots } from "./game/nativelegions.js";
@@ -52,6 +51,7 @@ import * as speaker from "./core/speaker.js";
 import { MusicPlayer } from "./core/music.js";
 import { ScoreDirector } from "./core/score.js";
 import { EngagementPresentation } from "./render/engagementpresentation.js";
+import { WeatherPresentation } from "./render/weatherpresentation.js";
 import { createStrategicBattleMethods } from "./app/battleflow.js";
 import {
   createOriginalBattleRng,
@@ -96,6 +96,7 @@ const app = {
     playSound: speaker.engageSfx,
     stopSound: speaker.stopEngageSfx,
   }),
+  weatherFx: new WeatherPresentation(),
   // 用户批准的地图指针计时hold；与GameBar模态hold取并集。
   mapPointerHold: false,
   runtimeEnabled: true,
@@ -121,7 +122,8 @@ const app = {
         loadJSON("talk.json"),
         speaker.preloadEngageSfx(),
         preloadEngageMarkerImages(() => this.view?.draw?.()),
-        preloadWeatherCloudImages(() => this.view?.draw?.()),
+        preloadMarchMarkerImages(),
+        this.weatherFx.preload(),
         preloadDisasterObjectImages(() => this.view?.draw?.()),
       ]).then(
         ([
@@ -173,6 +175,10 @@ const app = {
       this.hud.refreshInfo();
       await this.gamebar._assets;
       assertCurrentEntry();
+      // 每次正式进入新局/读档默认展开三块常驻UI，不选择军师子菜单。
+      this.gamebar.submenuOpen = true;
+      this.gamebar.miniOpen = true;
+      this.gamebar.resOpen = true;
       document.body.classList.add("game-active");
       this.view.draw();
       this.opening?.hide();
@@ -916,7 +922,10 @@ export async function startApp(opening) {
     { capture: true },
   );
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) app.engagementFx.pause();
+    if (document.hidden) {
+      app.engagementFx.pause();
+      app.weatherFx.pause();
+    }
   });
   // boot.js 取得单实例锁后挂载独立开场；这里不装配默认地图。
   globalThis.__dragonApp = app;
@@ -939,6 +948,7 @@ export async function startApp(opening) {
     const dt = now - last;
     last = now;
     if (!app.runtimeEnabled) {
+      app.weatherFx.pause();
       return;
     }
     const pointerUpdate = queuedMapPointer;
@@ -959,6 +969,12 @@ export async function startApp(opening) {
         app.score.scene === "strategy" &&
         !app.engageTransition?.active,
       paused: document.hidden || !c || c.hold || c.speed <= 0,
+    });
+    // 用户要求云雨跟随战略计时：暂停/任一hold时位置与雨丝一起冻结。
+    const weatherChanged = app.weatherFx.update(app.scenario, now, {
+      enabled: !document.hidden && app.gameStarted && !!c &&
+        c.speed > 0 && !c.hold &&
+        app.score.scene === "strategy" && !app.engageTransition?.active,
     });
     const isRunning =
       c &&
@@ -988,7 +1004,7 @@ export async function startApp(opening) {
         mapDrawn = true;
       }
     }
-    if (!mapDrawn && (pointerChanged || mapRedrawRequested || effectsChanged)) {
+    if (!mapDrawn && (pointerChanged || mapRedrawRequested || effectsChanged || weatherChanged)) {
       app.view.draw();
       mapDrawn = true;
     }

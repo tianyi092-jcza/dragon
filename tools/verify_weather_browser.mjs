@@ -21,6 +21,8 @@ try {
   await context.addInitScript((origin) => {
     if (location.origin !== origin) return;
     sessionStorage.setItem("wolong.intro.seen.v1", "1");
+    // 全部军团帧预载后资源数超过浏览器默认250条；保留本测试的完整证据。
+    performance.setResourceTimingBufferSize(2048);
   }, `http://127.0.0.1:${port}`);
   const page = await context.newPage();
   const errors = [];
@@ -70,6 +72,30 @@ try {
       window.__app?.scenario?.weatherClouds?.length === 16,
   );
 
+  // 原始完整Scenario下验证计时运行；注入可见慢帧，覆盖>100ms停动画回归。
+  await page.evaluate(() => {
+    const app = window.__app;
+    const advance = app.clock.advanceFrame.bind(app.clock);
+    window.__weatherSlowRestore = () => { app.clock.advanceFrame = advance; };
+    window.__weatherRunning = { serial: app.clock.strategicTickSerial, times: [], frames: [] };
+    app.clock.speed = 1;
+    app.clock.advanceFrame = dt => {
+      advance(dt);
+      const probe = window.__weatherRunning;
+      probe.times.push(app.weatherFx.clock.time);
+      probe.frames.push(app.weatherFx.clouds[0]?.frame);
+      const start = performance.now();
+      while (performance.now() - start < 120) { /* controlled visible main-thread load */ }
+    };
+  });
+  await page.waitForFunction(() => {
+    const app = window.__app, probe = window.__weatherRunning;
+    return app.clock.strategicTickSerial > probe.serial &&
+      Math.max(...probe.times) - Math.min(...probe.times) >= 400 &&
+      new Set(probe.frames.filter(Number.isInteger)).size >= 3;
+  }, null, { timeout: 15000 });
+  await page.evaluate(() => window.__weatherSlowRestore());
+
   const evidence = await page.evaluate(async () => {
     const app = window.__app;
     app.setRuntimeEnabled(false);
@@ -92,41 +118,61 @@ try {
     app.view.cam.y = 200 - cloud.y * 16;
     app.view.draw();
 
-    const image = new Image();
-    const loaded = new Promise((resolve, reject) => {
-      image.onload = resolve;
-      image.onerror = reject;
-    });
-    image.src = "grf/weather/cloud_frame_0.png";
-    await loaded;
-    await image.decode();
     const scratch = document.createElement("canvas");
-    scratch.width = image.width;
-    scratch.height = image.height;
-    const scratchContext = scratch.getContext("2d");
-    scratchContext.drawImage(image, 0, 0);
-    const source = scratchContext.getImageData(0, 0, image.width, image.height);
-    let opaque = -1;
-    for (let offset = 3; offset < source.data.length; offset += 4) {
-      if (source.data[offset] === 255) {
-        opaque = (offset - 3) / 4;
-        break;
-      }
+    const capture = () => Array.from(app.view.ctx.getImageData(192, 136, 256, 144).data);
+    app.weatherFx.reset();
+    app.view.draw();
+    const bare = capture();
+    const stateBefore = JSON.stringify(app.scenario);
+    const rngBefore = JSON.stringify(app.originalRng.snapshot());
+    app.weatherFx.update(app.scenario, 0);
+    for (let time = 10; time <= 300; time += 10) app.weatherFx.update(app.scenario, time);
+    app.view.draw();
+    const weather = capture();
+    const visualBeforeDraw = JSON.stringify(app.weatherFx.clouds);
+    app.view.draw();
+    const repeated = capture();
+    const drawIsReadOnly = visualBeforeDraw === JSON.stringify(app.weatherFx.clouds);
+    // 原完整PNG逐像素比对（含透明区），不再用“足够白”替代原外观。
+    scratch.width = 256;
+    scratch.height = 144;
+    const cloudContext = scratch.getContext("2d");
+    const reference = document.createElement("canvas");
+    reference.width = 256; reference.height = 144;
+    const referenceContext = reference.getContext("2d");
+    const originals = await Promise.all(Array.from({ length: 8 }, (_, frame) =>
+      new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image); image.onerror = reject;
+        image.src = `grf/weather/cloud_frame_${frame}.png`;
+      })));
+    app.weatherFx.pause();
+    app.weatherFx.update(app.scenario, 350); // 恢复帧不补债，表现时间仍为300ms。
+    let exactFrames = 0;
+    for (let step = 0; step < 8; step++) {
+      const image = originals[(3 + step) & 7];
+      app.weatherFx.update(app.scenario, 350 + step * 100);
+      cloudContext.clearRect(0, 0, 256, 144);
+      app.weatherFx.draw(cloudContext, { x: 128 - cloud.x * 16,
+        y: 64 - cloud.y * 16, scale: 1 }, 16, { width: 256, height: 144 });
+      referenceContext.clearRect(0, 0, 256, 144);
+      referenceContext.drawImage(image, 0, 0);
+      const actual = cloudContext.getImageData(0, 0, 256, 144).data;
+      const expected = referenceContext.getImageData(0, 0, 256, 144).data;
+      if (actual.every((value, index) => value === expected[index])) exactFrames++;
     }
-    if (opaque < 0) throw new Error("weather cloud PNG has no opaque pixel");
-    const sourceX = opaque % image.width;
-    const sourceY = Math.floor(opaque / image.width);
-    const sourcePixel = Array.from(
-      source.data.slice(opaque * 4, opaque * 4 + 4),
-    );
-    const destinationX = 320 - 8 * 16 + sourceX;
-    const destinationY = 200 - 4 * 16 + sourceY;
-    const destinationPixel = Array.from(
-      app.view.ctx.getImageData(destinationX, destinationY, 1, 1).data,
-    );
+    const modern = {
+      exactFrames,
+      visible: weather.some((value, index) => value !== bare[index]),
+      repeatable: repeated.every((value, index) => value === weather[index]),
+      drawIsReadOnly,
+      stateUnchanged: stateBefore === JSON.stringify(app.scenario),
+      rngUnchanged: rngBefore === JSON.stringify(app.originalRng.snapshot()),
+    };
 
     // 同一正式MapView路径再验证初始frame=1的大火对象及(x-2,y-2)锚点。
     app.scenario.weatherClouds = [];
+    app.weatherFx.reset();
     app.scenario.disasterMapObjects = Array(16).fill(null);
     app.scenario.disasterMapObjects[0] = {
       active: true,
@@ -236,9 +282,7 @@ try {
       .map((entry) => entry.name)
       .filter((name) => name.includes("/grf/disaster/"));
     return {
-      imageSize: [image.width, image.height],
-      sourcePixel,
-      destinationPixel,
+      modern,
       loadedWeatherFrames: new Set(weatherRequests).size,
       fireImageSize: [fireImage.width, fireImage.height],
       fireSourcePixel,
@@ -250,14 +294,44 @@ try {
     };
   });
 
-  assert.deepEqual(evidence.imageSize, [256, 144]);
-  assert.deepEqual(evidence.destinationPixel, evidence.sourcePixel);
+  assert.deepEqual(evidence.modern, {
+    exactFrames: 8,
+    visible: true, repeatable: true, drawIsReadOnly: true,
+    stateUnchanged: true, rngUnchanged: true,
+  });
   assert.equal(evidence.loadedWeatherFrames, 8);
   assert.deepEqual(evidence.fireImageSize, [80, 80]);
   assert.deepEqual(evidence.fireDestinationPixel, evidence.fireSourcePixel);
   assert.deepEqual(evidence.riotImageSize, [80, 80]);
   assert.deepEqual(evidence.riotDestinationPixel, evidence.riotSourcePixel);
   assert.equal(evidence.loadedDisasterFrames, 16);
+
+  // 正式RAF接线：暂停战略时位置、透明度、雨丝帧也完全冻结。
+  await page.evaluate(() => {
+    const app = window.__app;
+    app.clock.speed = 0;
+    app.scenario.weatherClouds = [{ x: 100, y: 100, active: true, group: 0 }];
+    app.weatherFx.reset();
+    window.__weatherRuleBefore = JSON.stringify(app.scenario);
+    window.__weatherRngBefore = JSON.stringify(app.originalRng.snapshot());
+    window.__weatherSerialBefore = app.clock.strategicTickSerial;
+    window.__weatherVisualBefore = JSON.stringify(app.weatherFx.clouds);
+    window.__weatherTimeBefore = app.weatherFx.clock.time;
+    app.setRuntimeEnabled(true);
+  });
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 350)));
+  const pausedWeather = await page.evaluate(() => {
+    const app = window.__app;
+    app.setRuntimeEnabled(false);
+    return {
+      frozen: window.__weatherVisualBefore === JSON.stringify(app.weatherFx.clouds) &&
+        window.__weatherTimeBefore === app.weatherFx.clock.time,
+      state: window.__weatherRuleBefore === JSON.stringify(app.scenario),
+      rng: window.__weatherRngBefore === JSON.stringify(app.originalRng.snapshot()),
+      serial: window.__weatherSerialBefore === app.clock.strategicTickSerial,
+    };
+  });
+  assert.deepEqual(pausedWeather, { frozen: true, state: true, rng: true, serial: true });
 
   const fireStart = await page.evaluate(async () => {
     const app = window.__app;
@@ -386,7 +460,7 @@ try {
   assert.deepEqual(errors, []);
   await context.close();
   process.stdout.write(
-    "weather browser OK: fresh profile rendered exact cloud/fire/riot pixels and TALK71/72\n",
+    "weather browser OK: eight original cloud frames, running/paused playback, read-only rendering; exact fire/riot pixels and TALK71/72\n",
   );
 } finally {
   await browser?.close();

@@ -106,6 +106,11 @@ try {
       window.__app?.gameStarted &&
       document.querySelector("#startv").style.display === "none",
   );
+  const panelState = () => page.evaluate(() => {
+    const bar = window.__app.gamebar;
+    return [bar.submenuOpen, bar.miniOpen, bar.resOpen, bar.selectedSubmenu];
+  });
+  assert.deepEqual(await panelState(), [true, true, true, null], "new game defaults open without submenu selection");
   const baseline = await page.evaluate(async () => {
     const app = window.__app;
     app.gamebar._clockHoldRequested = true;
@@ -288,6 +293,7 @@ try {
       window.__app.gameStarted &&
       document.querySelector("#startv").style.display === "none",
   );
+  assert.deepEqual(await panelState(), [true, true, true, null], "title restore reopens reused GameBar panels");
   const restored = await page.evaluate(async () => {
     await window.__returning;
     const app = window.__app;

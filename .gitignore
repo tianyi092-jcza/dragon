@@ -19,6 +19,7 @@ Thumbs.db
 .playwright-cli/
 tools/.playwright-cli/
 tools/.ruff_cache/
+/.ruff_cache/
 tmp_crop/
 
 # Python Cache & Runtime Logs

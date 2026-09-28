@@ -220,12 +220,13 @@ try {
   assert.equal(results.titleBoundary.postAwaitHandle, "function");
 
   await page.evaluate(async () => {
-    const [clockModule, hudModule, battleModule, stateModule] =
+    const [clockModule, hudModule, battleModule, stateModule, worldModule] =
       await Promise.all([
         import("/src/game/clock.js"),
         import("/src/ui/hud.js"),
         import("/src/game/tacticalbattle.js"),
         import("/src/game/battle/originalstate.js"),
+        import("/src/game/world.js"),
       ]);
     const app = globalThis.__dragonApp;
     const generals = [
@@ -246,7 +247,8 @@ try {
         ability: { force: 100, lead: 10, field: 15, siege: 15, naval: 15 },
       },
     ];
-    const scenario = {
+    // 常驻势力面板默认可见，夹具也须具备正式Scenario的只读查询接口。
+    const scenario = new worldModule.Scenario({
       name: "Browser acceptance",
       player_faction: 0,
       tax: 25,
@@ -255,10 +257,10 @@ try {
       legions: [],
       generals,
       factions: [
-        { idx: 0, monarch: "甲", n_cities: 1, n_generals: 1 },
-        { idx: 1, monarch: "乙", n_cities: 1, n_generals: 1 },
+        { idx: 0, monarch: "甲", monarch_idx: 0, n_cities: 1, n_generals: 1 },
+        { idx: 1, monarch: "乙", monarch_idx: 1, n_cities: 1, n_generals: 1 },
       ],
-    };
+    });
     const legion = (faction, generalIdx) => ({
       faction,
       slot: generalIdx,
