@@ -123,7 +123,7 @@ PYTHONPATH=tools PYTHONUTF8=1 PYTHONDONTWRITEBYTECODE=1 python -B -c 'from disas
 
 `scenariolegionfate.js` 是上述内核的生产 IO；`ai.js`、`originalroadmovement.js` 直接调用，不设第二调度器。SI必须是 `nativeLegionAt(sc, slot)` 的同一对象；武将由 `generals[slot]` 且 `idx===slot` 定位，不读L02找武将。status写立即重绑live/delayed视图，独立03仍在 `legionSlotCounters`；不创建缺槽、不以dead/leader/raw补规则。
 
-- **F18唯一native权威：势力own `nativeGeneralCount` byte**。由显式运行态输入提供，未提供就是未知；只由严格2AD2（捕获的旧属DEC、§8原属回归的新属INC）写，不从 `n_generals`、raw、活动武将数组或F14推导。`n_generals` 是现有解析器扣同属军师后的旧Web字段，既不读作native F18，也不随着native写者“同步”成第二权威。此合同只认证显式输入之后的有限写者，**没有宣称章加载→玩家军师处理→F18初始化已闭合**。
+- **F18唯一native权威：势力own `nativeGeneralCount` byte**。由显式运行态输入提供，未提供就是未知；本节原有限写者是严格2AD2（捕获的旧属DEC、§8原属回归的新属INC）；后续[ADVISOR-INIT-1](re-notes-entity-fields.md#g1f-advisor-initialization)另接新局玩家普通军师的1B05 byte DEC。不从 `n_generals`、raw、活动武将数组或F14推导。`n_generals` 是现有解析器扣同属军师后的旧Web字段，既不读作native F18，也不随着native写者“同步”成第二权威。此合同只认证显式输入之后的有限写者，**不宣称全部F18写者已闭合**；章raw到固定表及玩家fresh处理的现行边界见上述ADVISOR-INIT-1。
 - **98A6唯一显式输入：Scenario own `nativeFateDisplayFlags` byte**，不是全世界默认0。2BA8先清L00 bit4，才读此字段；缺值/非法值或bit2开均保已清位并抛异常，开域停2BB3，不假定9656/96ED整体no-op。
 - 已有具名G1C/G1D/F03沿 `faction/origFaction/capital`，明确null或255编码FF，缺own property仍未知；G00/G17/G1E/G1F沿 `attr/status/talk_idx/battle_rating`。`active/is_monarch/captive_flag`仅是写时UI投影，不作为native读取回退。F14沿 `n_legions`，与F18独立。
 - 占格仅使用既有 `context.movement` 和L1A/L1C规范pointer；known0/FF、未知洞及部分写沿既有能力保存，不从坐标或军团重建。
@@ -813,22 +813,22 @@ if unsigned(AX) > DI: DI = AX; SI = BP[i] // 4CDB..4CE1，严格大于
 
 **仍待闭合**：完整新局/军师/月份/战术返回写者与正式装配，任意中立别名、消息返回、一般全byte解析与源更新流程，以及C01–C15其余项。不新加初始化默认值，不放行App/defaultv2。
 
-### 16.4 55A6调用者闭合与G+0x1F唯一写者（P47-C11-G1F-CALLERS-1，零生产改动）
+### 16.4 55A6直接调用者与G+0x1F已定位写者（P47-C11-G1F-CALLERS-1，后续勘误）
 
 **实锤（现刷窗＋全EXE opcode扫描，KI SHA256沿§17，VA+200h）：**
 
 - `callers(55A6)={0x5347,0x5391}`（`E8 call rel16`全扫描）；`9A A6 55` far-call与`EA A6 55` far-jmp零命中。寄存器间接call不在opcode扫描域内，记残余未知。
-- `533D`体=533D..5357：push全寄存器→`DS=[D52]`→`call 55A6`(5347)→`DS=CS`→`call 1E17`(534E)→恢复→ret。`callers(533D)={1B7E,1BE9}`。
+- `533D`体=533D..5357：保存AX/BX/CX/DX/SI/DI→`DS=[D52]`→`call 55A6`(5347)→`DS=CS`→`call 1E17`(534E)→恢复六寄存器→ret。不保存原DS或FLAGS；后续G1F-BOUNDARY-2已对整个局部调用及数字显示尾实际执行到RET。`callers(533D)={1B7E,1BE9}`。
 - `5358`函数体=5358..53C5(ret)：派系循环5362..5389（SI+=0x40，CL<0x16）→5695(538B)→585F(538E)→55A6(5391)→2BD9(5394)→5715(5397)→578F(539A)→22DB(539D)→2286(53A0)→57FE(53A3)→53A6四word `cs:D10→D08`→AL=0x0E→5E80(53BD)→`DS=CS`→ret。`callers(5358)={1DD4}`（1DD1清CF0→call 5358→CF0++→CF3置1，月驱动）。Web `main.js`月末序（585F→55A6→2BD9→5715/578F→type11/12→57FE→53A6+5E80）与此逐项对齐，5391位置一致。
 - 启动链：入口0x00→0x31序列→0x40:`call 0x5B`→0x67:`call 1BE0`→1BE9:`call 533D`。`callers(0x5B)={0x40}`，`callers(1BE0)={0x67}`，启动期单次执行。
 - 战术驱动1B5A..1BDF内1B7E:`call 533D`，其后1B81 call 20D6、1B84 1F7F、1B87 89F0、1BBA/1BC9两次`call 474A`（SI/DI互换，AH分别or 1/or 2）。`callers(1B5A)={4E85,4EAC,4F26,4F49}`（战斗分派区）。
-- 全EXE `mov r/m8,reg8 disp8=0x1F`仅两处：55DC（55A6内写G记录+0x1F）与B2C8。B2C8属B240函数（B240..B35F ret），其SI域为0..0xC00/stride 0x20战术对象表（AE26调用点`add si,0x20; cmp si,0xC00`循环；B4AF调用前`ES=[D2FA]`战斗显示段；比较`cs:D32C/D32E/D33C`战场几何），非DS:4240系武将记录。故武将G+0x1F静态写者唯一=55DC（`C6 disp8=0x1F`直接数与`425F/523F`直接寻址写零命中）。
-- 20章全量：活动G0..126共2309槽raw +0x1F全0（以已证55A6公式对chapter JSON逐槽重算，2309/2309为raw0<>calc非零）；G127+1F=0沿§16.1。战役G1F有效值完全来自运行时55A6执行，载入初值即raw 0。
-- Web接线现状：初值=解析器raw +0x1F（`parse_sinario.py:103`，=8CAE载入语义）；唯一刷新=月末`main.js:543→processMonthlyGeneralRatings`（=5391）。两者与已证路径一致。
+- 全EXE `mov r/m8,reg8 disp8=0x1F`仅两处：55DC（55A6内写G记录+0x1F）与B2C8。B2C8属B240函数（B240..B35F ret），其SI域为0..0xC00/stride 0x20战术对象表（AE26调用点`add si,0x20; cmp si,0xC00`循环；B4AF调用前`ES=[D2FA]`战斗显示段；比较`cs:D32C/D32E/D33C`战场几何），非DS:4240系武将记录。这只能把所扫编码中的武将派生写定位到55DC，不能由此证明全程序唯一写者；预偏移指针、其它寻址/间接写及整块载入不在该扫描全集内。后续G1F-BOUNDARY-2已核DS=D30E及独立分配区，排除正常对象路径的B2C8别名，并保留8CAE整块载入写。
+- 20章全量：活动G0..126共2309槽raw +0x1F全0（以已证55A6公式对chapter JSON逐槽重算，2309/2309为raw0<>calc非零）；G127+1F=0沿§16.1。这些原章载入初值为raw 0，已定位的运行时派生生产者是55A6；这项数据统计本身不证明任意运行历史都无其它间接写入。
+- Web接线现状：初值=解析器raw +0x1F（`parse_sinario.py:103`，=8CAE载入语义）；唯一刷新=月末`main.js:543→processMonthlyGeneralRatings`（=5391）。这只对齐载入叶和月结叶，不代表首入/战术返回生命周期完整（后续勘误见下）。
 
-**推断：** 启动1BE0→55A6在玩家选章输入之前执行（entry fall-through顺序，0x5B块仅被0x40调用一次），对战役内存行为上应无实质影响；但33B/210/155/6B/30F与A1C/19CA/1A6E/89F0/1F7F身份未证，仍只标推断。
+**G1F-BOUNDARY-1撤销旧推断/hold：** 上述P47“启动1BE0在选章之前、因而无实质影响”推断错误；不能忽略`0061→1A6E→1AC3`内部完成选择与`8B22/8B52→8CAE`后才返回`0064`。`0067→1BE0→1BE9`实在最终载入后，`1B7E`实在`9FA0→9FDC/A04A`返回后、474A双调前。1E17显示语义另由P52处理；这些已定位时点不再标未知。逐窗hash、调用/返回与唯一详细维护源见[实体字典G1F-BOUNDARY-1](re-notes-entity-fields.md#g1f-refresh-boundary-audit)。
 
-**未知（hold，不修）：** (a)1BE0相对8CAE章载入的先后；(b)1B7E相对战术战斗的前/后（1B5A内相对474A双调的位置语义）；(c)1E17语义（读CF6/CF4/CF0调062F×3，疑似显示）与533D整体在Web战术返回/新局的对应；(d)寄存器间接call残余。Web新局/读档首入/战术返回均不调rating refresh（全仓库仅`main.js:543`一处调用），现状保持hold：启动期若接在载入后会把全0改写为计算值，若1BE0实为载入前则接错方向，未证前不动。`parse_sinario.py:103`旧注释“新局/标准读档首入战略均执行”属未证期望，已改未知标注。
+**G1F-BOUNDARY-2补充及仍未完成：** [唯一详细源与分类清单](re-notes-entity-fields.md#g1f-remaining-audit)现已核完整533D数字显示尾（265个有界原指令真RET）、固定分配下B2C8与武将表不别名、入口word字面量与邻接word覆盖扫描；不把它升级为全程序寄存器间接调用/别名写者或完整DOS运行态差分。其后的[G1F-INTEGRATION-1](re-notes-entity-fields.md#g1f-integration)已获批接入Web新局/战术返回刷新；IndexedDB明确保留保存时评分、不重播DOS入口。普通军师attr/F18前置处理后已按[ADVISOR-INIT-1](re-notes-entity-fields.md#g1f-advisor-initialization)获批接入fresh，restore不重播；Web custom保留独立化身、不覆盖G127。`parse_sinario.py`此前“相对先后未知”的注释亦撤销，离线解析仍必须原样保留G1F。
 
 <a id="native-neutral-retreat"></a>
 

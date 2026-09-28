@@ -2873,7 +2873,10 @@ async function openNativeTacticalBattle(app, record) {
 function finishNativeTacticalBattle(app, record, stream, exit) {
   try {
     const queue = app._nativeTacticalQueue ?? [];
-    if (queue[0] === record) queue.shift();
+    // A completed or replaced battle must not refresh a different world's G1F
+    // (nor replay its result/RNG/tail). The head is the one-shot owner.
+    if (app.scenario !== record.scenario || queue[0] !== record) return;
+    queue.shift();
     const verdict = applyNativeTacticalExit(app.scenario, record.request, stream, exit);
     // 只补空引用、不替换live对象：dispatch闭包仍持有stream同一引用。
     if (app.originalRng == null) app.originalRng = stream;
@@ -2939,6 +2942,10 @@ export function applyNativeTacticalExit(sc, request, stream, exit) {
     city.troops = exit.cityDamage.troops;
     if (city.sim) city.sim.troops = exit.cityDamage.troops;
   }
+  // 9FDC results precede 1B7E→533D→55A6; refresh stored G1F before
+  // 1BBA/1BC9's 474A pair and the dispatch's subsequent 291A fate reads.
+  // G1F-BOUNDARY-1/2: no RNG, inactive/127 retained, failure keeps prefix.
+  performScenarioGeneralRatingRefresh(sc);
   let failed = continueLegionAfterBattle(sc, attacker, won === "atk") ? 0 : 1;
   if (!continueLegionAfterBattle(sc, defender, won === "def")) failed |= 2;
   return { ax: (failed << 8) | (won === "atk" ? 0 : 1) };

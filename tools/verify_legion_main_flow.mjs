@@ -163,14 +163,24 @@ test("actual App battle callbacks resume two tickets; old exit cannot commit twi
   const { app, sc } = f;
   app.clock.advanceFrame(app.clock.currentStep);
   const batch = app._legionSlotBatch;
+  // Both App exit routes refresh before result/fate continuation, not on open.
+  sc.generals[88].battle_rating = 0;
+  sc.generals[127].battle_rating = 165;
+  f.controls.apply = () => {
+    assert.equal(sc.generals[88].battle_rating, 40);
+    assert.equal(sc.generals[127].battle_rating, 165);
+  };
   await app.startBattle(sc.legions[0], f.city, null, []);
+  assert.equal(sc.generals[88].battle_rating, 0);
   const first = f.exits[0];
   first({ winnerName: "atk", strategicRng: f.rng(233) });
   assert.equal(app._legionSlotBatch, batch);
   assert.deepEqual(f.draws, [233]);
   await app.startFieldBattle(sc.legions[0], sc.legions[1]);
   const second = f.exits[1];
+  sc.generals[88].battle_rating = 231;
   first({ winnerName: "atk", strategicRng: f.rng(99) });
+  assert.equal(sc.generals[88].battle_rating, 231, "stale callback cannot refresh");
   assert.deepEqual(f.draws, [233]);
   second({ winnerName: "def", strategicRng: f.rng(218) });
   second({ winnerName: "def", strategicRng: f.rng(99) });

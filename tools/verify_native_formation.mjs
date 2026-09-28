@@ -69,7 +69,10 @@ async function fixture({
       name: `G${idx}`,
       faction: 1,
       status: 0,
-      ability: { force: idx === slot ? 100 : 0 },
+      // Explicit fixed-table inputs for tactical return's 55A6 refresh.
+      attr: 0,
+      battle_rating: 0,
+      ability: { force: idx === slot ? 100 : 0, lead: 0, siege: 0, field: 0, naval: 0 },
     })),
     factions: Array.from({ length: 3 }, (_, idx) => ({
       idx,

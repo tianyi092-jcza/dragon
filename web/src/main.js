@@ -43,7 +43,11 @@ import { loadBuiltinContent } from "./content/catalog.js";
 import * as cmd from "./game/commands.js";
 import { monthlyAppear } from "./game/recruits.js";
 import { hasNativeLegionSlots } from "./game/nativelegions.js";
-import { bindNativePlayerFactionPointer } from "./game/nativefactions.js";
+import {
+  bindNativePlayerFactionPointer,
+  initializeFreshPlayerAdvisor,
+} from "./game/nativefactions.js";
+import { performScenarioGeneralRatingRefresh } from "./game/navigation/scenariogeneralrating.js";
 import { BattleView } from "./render/battleview.js";
 import { EndView } from "./render/endview.js";
 import { StartMenu } from "./ui/startmenu.js";
@@ -503,10 +507,17 @@ const app = {
     };
     assertCurrentAssembly();
     cmd.initPlayer(this.scenario); // ★原版剧本头FF=未指定→默认势力0/信赖100
+    // 1B05 F18 DEC / 1B12 G00 clear: only this new game's selected NPC.
+    // Snapshot restore must retain saved attr/count, never replay selection.
+    if (mode === "fresh") initializeFreshPlayerAdvisor(this.scenario);
     // P87 (KI 1B17-equivalent): CFD bound once CFF is resolved; one point
     // covers fresh assembly and snapshot restore alike. Absent = unselected.
     bindNativePlayerFactionPointer(this.scenario, "loadState/initPlayer");
     if (initializeDiplomacy) initializeStrategicDiplomacy(this);
+    // 1B12 advisor removal / 1B29 diplomacy precede 1BE9→533D→55A6.
+    // Web IndexedDB restores an exact mid-game snapshot, not the DOS entry;
+    // preserve its stored G1F (including inactive/127), never refresh on restore.
+    if (mode === "fresh") performScenarioGeneralRatingRefresh(this.scenario);
     this.gamebar?.setDefaultSelFaction(); // 小地图默认查看第一个非玩家势力
     buildArmies(this.scenario); // 新游戏保持空军团表；存档军团归一化坐标、槽位和主将名
     const loadedDate = this.scenario.save_date;

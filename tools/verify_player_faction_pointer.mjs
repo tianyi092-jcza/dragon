@@ -9,7 +9,11 @@
 // Style: plain asserts + node:test, exit code only.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bindNativePlayerFactionPointer } from "../web/src/game/nativefactions.js";
+import {
+  bindNativePlayerFactionPointer,
+  initializeFreshPlayerAdvisor,
+} from "../web/src/game/nativefactions.js";
+import { performScenarioGeneralRatingRefresh } from "../web/src/game/navigation/scenariogeneralrating.js";
 import { beginScenarioWarEvent } from "../web/src/game/navigation/scenariowarconsumer.js";
 
 function records(count) {
@@ -112,4 +116,68 @@ test("pre-fix snapshot shape heals through the same binder", () => {
   assert.equal(routed.phase, "aggressor-message");
 });
 
-console.log("player faction pointer binding: binder + 3549/358C routing green");
+function advisorScenario(count = 3, attr = 0x81) {
+  const sc = tableScenario({ player: 2 });
+  sc.factions.forEach((f) => { f.nativeGeneralCount = 9; });
+  sc.factions[2].advisor_idx = 4;
+  sc.factions[2].nativeGeneralCount = count;
+  sc.player_advisor = { custom: false, general_idx: 4, name: "軍師" };
+  sc.generals = Array.from({ length: 128 }, (_, idx) => ({
+    idx, attr: idx === 4 ? attr : 0x80, active: true,
+    ability: { siege: 1, field: 2, naval: 3, force: 4, lead: 5 },
+    battle_rating: 231, faction: 2, status: 3, budget: 7,
+    is_player: idx === 4,
+  }));
+  return sc;
+}
+
+test("1B05/1B12 fresh NPC selection: byte DEC, exact writes, no inactive shortcut", () => {
+  for (let count = 0; count < 256; count++) {
+    for (const attr of [0, 0x7f, 0x80, 0xff]) {
+      const sc = advisorScenario(count, attr);
+      const expected = structuredClone(sc);
+      expected.factions[2].nativeGeneralCount = (count + 255) & 255;
+      expected.generals[4].attr = 0;
+      expected.generals[4].active = false;
+      assert.equal(initializeFreshPlayerAdvisor(sc), true);
+      assert.deepEqual(sc, expected);
+      assert.equal(sc.factions[2], sc.nativeFactionSlots.records[2]);
+    }
+  }
+});
+
+test("fresh removal precedes 55A6; Web custom/no-NPC avatars preserve F18 and G127", () => {
+  const sc = advisorScenario();
+  initializeFreshPlayerAdvisor(sc);
+  performScenarioGeneralRatingRefresh(sc);
+  assert.equal(sc.generals[4].battle_rating, 231, "inactive advisor not refreshed");
+  assert.equal(sc.generals[5].battle_rating, 24, "other active NPCs still refresh");
+  assert.equal(sc.generals[127].battle_rating, 231);
+  for (const avatar of [null, { custom: true, general_idx: null, name: "自定" }]) {
+    const state = advisorScenario();
+    state.player_advisor = avatar;
+    const before = structuredClone(state);
+    assert.equal(initializeFreshPlayerAdvisor(state), false);
+    assert.deepEqual(state, before);
+  }
+});
+
+test("fresh advisor rejects absent/invalid count and identity; late write failure keeps DEC", () => {
+  for (const value of [undefined, null, -1, 256, 1.5, NaN]) {
+    const sc = advisorScenario();
+    sc.factions[2].nativeGeneralCount = value;
+    const before = structuredClone(sc);
+    assert.throws(() => initializeFreshPlayerAdvisor(sc), /F18/);
+    assert.deepEqual(sc, before);
+  }
+  const mismatch = advisorScenario();
+  mismatch.player_advisor.general_idx = 5;
+  assert.throws(() => initializeFreshPlayerAdvisor(mismatch), /F02/);
+  assert.equal(mismatch.factions[2].nativeGeneralCount, 3);
+  const late = advisorScenario();
+  delete late.generals[4];
+  assert.throws(() => initializeFreshPlayerAdvisor(late), /1B12/);
+  assert.equal(late.factions[2].nativeGeneralCount, 2);
+});
+
+console.log("player faction pointer + fresh advisor selection: bounded contracts green");

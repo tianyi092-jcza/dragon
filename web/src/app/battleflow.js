@@ -11,6 +11,7 @@ import { createBattle, createFieldBattle } from "../game/tacticalbattle.js";
 import { classifyFieldBattleTerrain } from "../game/fieldterrain.js";
 import { scenarioNativeRoadContext } from "../game/scenarioassembly.js";
 import { hasNativeLegionSlots } from "../game/nativelegions.js";
+import { performScenarioGeneralRatingRefresh } from "../game/navigation/scenariogeneralrating.js";
 
 // Production installs the default services once. Tests replace only battle
 // construction/result calculation, not the continuation or slot scheduler.
@@ -122,6 +123,9 @@ export async function openStrategicBattle(app, create, applyExit) {
       try {
         app.originalRng = exit.strategicRng;
         app.activeBattleRng = app.originalRng;
+        // 1B7E→533D→55A6, before applyExit's 474A/fate continuation.
+        // Native queued battles have their own boundary in applyNativeTacticalExit.
+        performScenarioGeneralRatingRefresh(app.scenario);
         applyExit(exit);
         app.score?.endBattle?.(battle);
         finishDeferredLegionDaily(app, continuation.batch, continuation.ticket);

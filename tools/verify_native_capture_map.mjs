@@ -81,7 +81,11 @@ async function fixture({
   graph.nodes[1].edgeSlots[0] = 0x8800;
   const template = {
     player_faction: player,
-    generals: [],
+    // Tactical return now executes 55A6 over the fixed table. These explicit
+    // inactive records isolate map capture from rating/ability decisions.
+    generals: Array.from({ length: 128 }, (_, idx) => ({
+      idx, attr: 0, battle_rating: 0,
+    })),
     legions: [],
     factions: [0, 1, 2].map((idx) => ({
       idx,

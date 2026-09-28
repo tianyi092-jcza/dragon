@@ -7,6 +7,16 @@ import {
   applyNativeTacticalExit,
   suspendNativeTacticalBattle,
 } from "../web/src/game/ai.js";
+import { OriginalBattleRng } from "../web/src/game/battle/originalrng.js";
+
+function ratingGenerals() {
+  return Array.from({ length: 128 }, (_, idx) => ({
+    idx, name: ({ 8: "劉備", 4: "曹操" })[idx] ?? `G${idx}`,
+    attr: idx === 127 || idx < 2 ? 0x80 : 0,
+    ability: { siege: 1, field: 2, naval: 3, force: 4, lead: 5 },
+    battle_rating: 0x5a, battle_formation: 0,
+  }));
+}
 
 function streamFixture() {
   return {
@@ -92,6 +102,64 @@ function tacticalSidesFixture(sides, spec) {
     return { attacker: sides.attacker, defender: sides.defender };
   return sides;
 }
+
+test("native queued return refreshes before tail, rejects stale/repeated exits, and holds on missing input", async () => {
+  for (const mode of ["normal", "stale", "missing"]) {
+    const { app, talks } = appFixture();
+    const sc = app.scenario;
+    Object.assign(sc, {
+      player_faction: 0, generals: ratingGenerals(),
+      factions: [{ idx: 0 }, { idx: 1 }], diplomacy: [[], []],
+    });
+    const rng = new OriginalBattleRng({ ch: 3, cl: 4, dh: 5 });
+    app.originalRng = app.activeBattleRng = rng;
+    app.battleMaps = {
+      layouts: { 1: Array(4096).fill(0) },
+      directory: [{ idx: 0xc0, layout: 1, theme: 0 }],
+      navigation: { layouts: { 1: { tiles: Array(4096).fill(0),
+        attributes: Array(0xf800).fill(0), schedule: Array(0x100).fill(0) } } },
+    };
+    let finish;
+    app.battleView.open = async (_handle, callback) => { finish = callback; };
+    const sides = sidesFixture();
+    let tails = 0;
+    const request = requestFixture("field-attack", 29, sides, {
+      directory: 0xc0,
+      resumeTail(verdict) {
+        tails++;
+        assert.equal(verdict.ax, 0x300);
+        assert.equal(sc.generals[0].battle_rating, 24);
+        assert.equal(sc.generals[1].battle_rating, 24);
+        assert.equal(sc.generals[127].battle_rating, 0x5a);
+        return "field-battle";
+      },
+    });
+    suspendNativeTacticalBattle(app, sc, request);
+    await talks[0].onClose(); // actual handle construction; no fake KI callee
+    assert.equal(typeof finish, "function");
+    assert.equal(sc.generals[0].battle_rating, 0x5a, "opening does not refresh");
+    const beforeRng = rng.snapshot();
+    const exit = { winnerName: "atk", strategicRng: rng,
+      sides: [0, 1].map(() => ({ troops: 6, units: Array(6).fill(1), morale: 0 })) };
+    if (mode === "stale") app.scenario = { generals: ratingGenerals() };
+    if (mode === "missing") delete sc.generals[1].ability.force;
+    finish(exit);
+    assert.deepEqual(rng.snapshot(), beforeRng);
+    assert.equal(app.originalRng, rng);
+    assert.equal(tails, mode === "normal" ? 1 : 0);
+    assert.equal(sc.generals[0].battle_rating, mode === "stale" ? 0x5a : 24);
+    if (mode === "stale") assert.equal(app.scenario.generals[0].battle_rating, 0x5a);
+    if (mode === "missing") {
+      assert.match(app._strategicBattleFailure?.error?.message ?? "", /force/);
+      assert.equal(app.clock.hold, true);
+      assert.equal(sc.generals[1].battle_rating, 0x5a);
+    }
+    sc.generals[0].battle_rating = 231;
+    finish(exit);
+    assert.equal(sc.generals[0].battle_rating, 231, "consumed exit cannot refresh twice");
+    assert.equal(tails, mode === "normal" ? 1 : 0);
+  }
+});
 
 test("tactical suspend validates shape loudly without side effects", () => {
   const sides = sidesFixture();
@@ -179,6 +247,12 @@ test("applyNativeTacticalExit writes teams/morale/city back and synthesizes ax",
       { idx: 1, march_marker_style: 3 },
     ],
     diplomacy: [[], [], []],
+    generals: Array.from({ length: 128 }, (_, idx) => ({
+      idx,
+      attr: idx === 0 || idx === 126 || idx === 127 ? 0x80 : 0,
+      ability: { siege: 1, field: 2, naval: 3, force: 255, lead: 129 },
+      battle_rating: 0x5a,
+    })),
   };
   const sides = sidesFixture();
   sides.attacker.roadEdgeOrNode = 0x600;
@@ -215,4 +289,17 @@ test("applyNativeTacticalExit writes teams/morale/city back and synthesizes ax",
   assert.equal(sides.city.defence, 96);
   // 攻方胜（lost=0）＋守方474A失败（morale 0→bit1）：ax=0x200。
   assert.equal(verdict.ax, 0x200);
+  assert.equal(sc.generals[0].battle_rating, 6); // u8(6 + 2*255 + 2*129)
+  assert.equal(sc.generals[126].battle_rating, 6);
+  assert.equal(sc.generals[1].battle_rating, 0x5a);
+  assert.equal(sc.generals[127].battle_rating, 0x5a);
+  // Missing input stops at its actual read: retain results and prior G1F writes,
+  // but do not enter either 474A continuation or consume an extra random byte.
+  sc.generals[0].battle_rating = 0;
+  delete sc.generals[126].ability.force;
+  sides.attacker.moveDelay = 77;
+  assert.throws(() => applyNativeTacticalExit(sc, request, stream, exit), /force/);
+  assert.equal(sc.generals[0].battle_rating, 6);
+  assert.equal(sides.attacker.moveDelay, 77);
+  assert.deepEqual(stream.snapshot(), { calls: 41 });
 });

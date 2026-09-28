@@ -176,6 +176,31 @@ export function rebindNativeFactionViews(sc) {
   }
 }
 
+/** Fresh selection only: KI 1AFD..1B12, before CFD/2BD9/55A6.
+ * No replay on Web snapshot restore. No attr-based idempotence: original DEC
+ * runs even when the selected record was already inactive; zero wraps to FF.
+ * Web custom/no-NPC avatars are separate from G127 and leave all raw slots alone.
+ */
+export function initializeFreshPlayerAdvisor(sc) {
+  const advisor = sc.player_advisor;
+  if (advisor == null || advisor.custom === true) return false;
+  if (advisor.custom !== false)
+    throw new TypeError("Invalid fresh player advisor kind");
+  const slot = integer(advisor.general_idx, 0, 126, "player advisor slot");
+  const faction = nativeFactionAt(sc, sc.player_faction, "1AFD");
+  if (faction.advisor_idx !== slot)
+    throw new RangeError("Fresh player advisor differs from native F02 at 1AFD");
+  const count = integer(faction.nativeGeneralCount, 0, 255, "F18 at 1B05");
+  faction.nativeGeneralCount = (count - 1) & 0xff;
+  // Preserve the DEC prefix if a later G table write cannot be represented.
+  const general = sc.generals?.[slot];
+  if (!general || general.idx !== slot)
+    throw new RangeError("Missing fresh player advisor record at 1B12");
+  general.attr = 0;
+  general.active = false; // Web view of G00 bit7, not another original write.
+  return true;
+}
+
 /**
  * KI 1B17-equivalent (`MOV CS:[CFD],BX`, custom-data §6.1): CFD is the
  * player faction slot pointer (slot*0x40), written once at player

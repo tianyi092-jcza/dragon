@@ -5,7 +5,7 @@
 
 ## 使用与证据边界
 
-**后续AI修复状态覆盖说明**：下文“本批只读/不修”、旧Web行号及差异表保留实体审计批次的历史范围，不再代表当前实现。后续已修速算CH/base/score字宽、4C72槽评分与索引边界、4137坐标、4155不合格槽耗机会及相关旧golden；55A6刷新、完整初始化/占城接续仍未闭合。detached的存储cache及城市军事/治理/灾害/4155连续known槽已有界接线，不能再概称全部未修；当前逐读/写序/未知洞与保存合同统一见[行军§3.14](re-notes-march-pathfinding.md#native-city-callers)，默认v1差异见[NPC复核§6](re-notes-npc-strategy.md#6-已修正与仍未闭合的实现边界)。
+**后续AI修复状态覆盖说明**：下文“本批只读/不修”、旧Web行号及差异表保留实体审计批次的历史范围，不再代表当前实现。后续已修速算CH/base/score字宽、4C72槽评分与索引边界、4137坐标、4155不合格槽耗机会及相关旧golden；55A6新局/战术返回刷新已按下文G1F-INTEGRATION-1接线；普通军师attr/F18新局前置处理已按下文ADVISOR-INIT-1接线；完整初始化/占城接续不因此全部闭合。detached的存储cache及城市军事/治理/灾害/4155连续known槽已有界接线，不能再概称全部未修；当前逐读/写序/未知洞与保存合同统一见[行军§3.14](re-notes-march-pathfinding.md#native-city-callers)，默认v1差异见[NPC复核§6](re-notes-npc-strategy.md#6-已修正与仍未闭合的实现边界)。
 
 - 本批只实施文档与原始证据验证工具、撤销错误注释；**未修改游戏规则、解析表达式、内容源/生成资产或既有测试期望**，未实现编辑器/存档修改器。
 - 实锤限所列指令窗口和可解释数据；推断、未知不可复用为正式规则。批量载入/保存涵盖所有32B；找不到单字段消费者、官方全零，都不证明unused或可回收。
@@ -191,6 +191,142 @@
 `8CAE`只有依据AH选择SINARIO/SAVE、加载头/5240状态块/事件块、处理CF8的分支；**没有调用55A6**。它会先原样恢复+1F；但标准读档完整控制流在启动第一战略步前又通过1BE9重算。因而不能把“8CAE本体不重算”说成“正常DOS读档后active+1F永远使用存档中的自定义值”，也不能把新局特有2BD9门误套在1F重算上。
 
 `89F0`通过`89FE SI=0840`处理城市，继而`8A09 CX=7F / 8A0C SI=2240 / 8A0F call8AEA`重建军团地图指针；所见+1C等访问不是general写入，不能因此说它改掉了所有武将派生字段。`19CA`主链是地图/资源加载及显示恢复；没有另一个55A6直接调用。
+
+<a id="g1f-refresh-boundary-audit"></a>
+
+#### G1F-BOUNDARY-1：刷新时点冲突复核与旧结论撤销
+
+**实锤（静态控制流，正常载入/返回合同）**：本轮从同一 `KI.EXE` 原字节重新解码上述路径，确认本节原有载入后刷新结论；撤销去向§16.4/P47及AI全链C15/P56的“1BE0在选章前、对全零武将记录零写”推断。不能仅凭`0040→005B`发生于启动就跳过它内部的`0061→1A6E→1AC3`选择/载入链。
+
+- 新局：`1AE0→8B12`中`8B22→8CAE`载入所选章；`1B12`清玩家军师attr，`1B29→2BD9`后与读档合流于`1B2C`；`1B59 RET→1A96`，`1AAD RET→0064`，然后才`0067→1BE0→1BE9→533D→5347→55A6`。`1A7B`的章0模板不是最终选章，不能用它替代`8B22`。
+- 标准DOS读档：`1AD9→8B40`选择成功后`8B52→8CAE`，`1ADC`检查取消，成功由`1ADE JMP 1B2C`进入同一后继。`8CD5..8CDE`以`BX=[D52]、SI=0、DI=5240h`载入状态块；其后才刷新。这里只核程序路径，**没有访问真实存档，也未运行DOS I/O**。
+- 战术结束：`1B73 CALL 9FA0`把返回地址`1B76`压栈，`9FA6`将当时SP存入`D340`；`9FE0`恢复此SP，退出尾`A047`取胜方、`A04A RET`回`1B76`。保存AX后`1B7E→533D→55A6`刷新，随后才`1BBA/1BC9`两次474A。启动期提前结束也使用该返回边界；不把它误读成退出前/战术启动前刷新。
+- 月结：`538E→585F`返回后`5391→55A6`，再`5394→2BD9`。三个入口都执行同一叶函数：仅G0..126且attr≥80h写`+1F`，非活动/127保留，叶内无CALL/RNG。`533D`只保存AX/BX/CX/DX/SI/DI，切DS到D52后调用55A6，再恢复DS=CS调用1E17；不是“保存所有寄存器/原DS”的通用ABI。
+- **同时撤销**战术规则§2.2.3/P51“退出序列唯一战略规则写回为474A”的概括：`55DC`本身就是武将状态写回。静态能力不变并不足以证明可以省略刷新，还必须证明入口所存G1F已等于公式；新局raw G1F为0与非零能力公式即可构成反例。此处不声称全战斗无能力间接写者。
+
+**BOUNDARY-1审计时的Web现状（已由下文G1F-INTEGRATION-1接线取代），不是原版证据**：当时CodeGraph caller链并以生产树文本交叉核对，`originalRefreshGeneralRatings55A6←performScenarioGeneralRatingRefresh←processMonthlyGeneralRatings`仅由`main.js`月结调用；首入/战术返回未见该调用。原始时点未知已退役，但这两处生产接线仍未修，本轮只更正证据与注释。Web IndexedDB恢复是中途规则快照，不能不加区分地套用DOS`8CAE`读档入口重算；后续实现须分别审新局、Web快照、战术退出与失败前缀，不能在4C72/291A消费者临时重算，也不能改静态导入资产掩盖缺口。
+
+**原证复核**：完整KI SHA256=`fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，下列均为半开VA窗口、文件偏移`VA+200h`。所有near target按16位IP回绕，不把`FFFF9FA0/102C2`当其它函数。
+
+| VA窗口 | SHA256 |
+| --- | --- |
+| 005B..006A | `2b5a007bc3c746314ae3146c652be06a1ae84556248379c8ff7a5a1ef28cac9c` |
+| 1A6E..1BF2 | `29ac2b6ed817cfa1278af73070c79b2925ceabb277fe9cec79ddf7c075e48bff` |
+| 1BE0..1C63 | `47c39aacc04b76468342074adeb1cf131d1d2558c322a1313a12aa01902aa2d6` |
+| 8B12..8B58 | `4cca95abe0ec59ebe6053470adb886ca405cbfba7f852310d0b0aba2c72e30f9` |
+| 8B40..8B5D | `4cfb2fdfa9de14958eef400759f95387a7c398d9227000746ada44d20a6591be` |
+| 8CAE..8CFF | `4f266f84ead81f130a2ebe5059cb81af361563e2a6cb82c205a50ef7e0dcae19` |
+| 533D..5358 | `bb05a8dd71d134377f3f5203562e7c2b636638bb3fa6e7503595f607219a8919` |
+| 55A6..55EC | `02cdbf0d15bd8b42736fcf248f786d502a0a62d2d0de9b8068e684488915b293` |
+| 5358..53C6 | `442201b9d1c4318beaa15c06fc08e647c6c7fc6158164d2f660da18a4b62cba7` |
+| 9FA0..9FBC | `7634c8d9e63d36e6308dc9a47f7a88cc8f9d7c9f2c954b4f194a7b9d9d593214` |
+| 9FDC..A04B | `206a51bfad3400ce69e6b06d555fbd0306f8d3523292c4d588ae17b23c32dcb1` |
+
+复核命令（仓库根；仅固定KI，替换窗口可复核全表）：
+
+```bash
+python -B -c "from tools.disasm import data,va_range; from hashlib import sha256; a,b=0x1A6E,0x1BF2; print(sha256(data()).hexdigest()); print(sha256(data()[0x200+a:0x200+b]).hexdigest()); print(va_range(a,b))"
+```
+
+**范围**：这不是完整DOS启动、输入/设备返回或连续整场CPU差分；不认证错误载入、损坏栈、任意段别名或全程序间接写集。部分初探窗口止于下一指令内部（如1BF1）；后续从1BE0/9FDC补窗核完整返回链，未以截断尾证明RET。消费者初探误从4CBD指令内部解码，已弃用并从4C72入口重读；4CD0与2960继续读取存储G1F，不现场调用55A6。
+
+<a id="g1f-remaining-audit"></a>
+
+#### G1F-BOUNDARY-2：533D完整局部返回、别名排除与剩余项
+
+**范围/授权**：继续逆向，不实施Web刷新或存档迁移。以下闭合的是指定正常内存合同下的`533D`及两个已定位`+1F`写点的区分，不是全程序间接写集或完整DOS战役认证。上一节的三个刷新时点不变。
+
+**实锤：533D的后继显示不依赖字体回调。** `5347→55A6`后`534A/534C`置DS=CS，`534E→1E17`按顺序取年word `CF6`、月byte `CF4`、日byte `CF0`，分别以`DX=0 / BX=0903,0902,0902 / DI=02BB,02C0,02C4`调用`062F`。本路径为：
+
+```text
+533D → 55A6 → 1E17 → 062F
+                         ├─ 0CAC：只OUT 03CE/03CF，保存AX/DX
+                         ├─ 069A：数字字模 DS=D54 → ES=A0C8
+                         └─ 06DE：填数字前空位 ES=A0C8
+     ← 5357 RET（不经过F75E、F789/F790字体far CALL、DOS或ECE0）
+```
+
+`062F`的数字循环由BL=3/2/2限制，每位先DIV 10；这里DX每次入口为0、后续每位再清0，任意年word/月日byte均无商溢出。绘制子循环每次16行；VRAM读回不决定条件分支或评分。显式数据内存写集只有`55DC`的活动G0..126之G1F、SS栈和A0C8显存；`D54`字模只读。正常独立DOS分配与栈/显存不别名时，显示尾不会撤销或再次刷新评分。`533D`实际保存AX/BX/CX/DX/SI/DI，子调用不改变BP/ES，**返回DS=CS、DF=0，FLAGS不是保留合同**；不得继续把它简称“push全寄存器”。硬件中断交错与VGA逐像素语义不在此证明内。
+
+**有界原指令复演（不是全DOS）**：新私有1MiB RAM，CS=1000、状态段=3000、字模段=5000、SS=9000；从533D执行全部上述callee到真实5357 RET，未替换任何KI CALL。字模/VGA为显式测试数据；OUT只记录，不冒称VGA平面/锁存器等价。执行器仅支持这5个精确窗的指令；追踪实际消费的CF/ZF/SF/OF，DIV后置未知；未知指令/IP/内存读取或未授权写址立即拒绝。没有RTC、RNG、DOS或真实存档I/O。
+
+- 256组seed：128条显式记录，G0..126每个attr/能力byte跨seed遍历0..255，G127始终设active；验证全5240B状态差分仅为按槽序的G1F写、inactive与127完整保留。此为逐byte覆盖，不冒称所有字段的笛卡尔积或合法战役前史。
+- 8组数字/VGA控制：年/月/日`0/0/0、FFFF/FF/FF、999/12/31、196/4/1`各配00/FF显存，成对规则状态和IP轨迹完全相同；另1组前127将全inactive，评分零写但完整返回。
+- 合计**265个完整533D RET、1,172,403条执行指令**；逐例核保存寄存器/SP、完整状态、精确写址和顺序。未知IP及未定义CF两个负控制均拒绝。
+- 独立输出目录重跑，`results.json / static-results.json / windows.txt`逐byte相同；这是同一有界执行器的可重复性，不是第二套CPU/硬件交叉验证。首次子进程因最小环境漏APPDATA无法导入Capstone，尚未执行原指令；保留失败，再于新目录补必要环境重跑，未安装包或改全局配置。
+
+**实锤限定扫描与别名排除，不升级唯一写者证明。**
+
+1. 固定完整KI文件中，little-endian `533D`、`55A6`两个word字面量均零命中；主CS逐byte E8候选仍分别仅`1B7E/1BE9`、`5347/5391`，均已有对齐调用链。因此没有新增“文件内直接存放该入口地址”的表项；运行时计算、重定位/自修改表、跳入函数内部不能据此排除。
+2. 主CS全部偏移逐点解码，筛首写操作数为`[SI/DI/BX+disp]`（无index）且byte/word等覆盖偏移1F，得到5候选：`1FCC/4077/55DC/9C06/B2C8`。从真实边界复核：1FCC落在1FC8的OR立即数内部；4077落在4073的CMP立即数内部；9C06落在9C05的CALL位移内部；三个均非该指令。余55DC/B2C8为真实写点。该筛选包括邻接word覆盖，但不包括预先把指针移至字段、其它寻址式、REP/MOVS或DOS块读，**不能叫全程序写者全集**。
+3. `00DF`成功申请第一块`1D5E` paragraphs，设基段A；`010E`令D52=A+1600h。武将表物理区为`16*A+[1A240h,1B240h)`。第二次独立成功申请`5356` paragraphs，基段B存D46；`CC31..CC71`累加得到D30E=B+459Ah。`ADC8:ADD6`置DS=D30E，`AE26`及`B413→B4AF`以SI=0..BE0/stride20进入B240；B2C8写的是DS对象+1F，**不是ES=D2FA，更不是武将表**。上述对象写在第二分配块内，正常DOS不重叠分配、无地址回绕时与第一块G1F不别名。此排除不认证任意损坏段值或所有间接call实参。
+4. `8CD5..8CDE→E38C→F4DF:F510 INT21/AH3F`仍是明确的整块输入写者：BX=D52、SI=0、DI=5240h，经DS=BX、DX=SI、CX=DI读入，覆盖整个G表。源初值/块载入必须与55DC派生写分列；未执行此DOS读，不把I/O成功/错误返回一并认证。
+
+**BOUNDARY-2结束时的清单（前三项现由下文G1F-INTEGRATION-1处理）：**
+
+| 类别 | 未完成项 | 已知边界／下一步 |
+| --- | --- | --- |
+| 已确认、未实施 | Web新局在最终数据载入及军师处理后刷新 | 原`1BE9→533D`时点已确认；需用户批准后接线及回归，不再记为逆向未知 |
+| 已确认、未实施 | Web战术结束、474A双调之前刷新 | 原`1B7E`时点与533D局部完整返回已确认；启动期提前结束也须走统一出口，待批准 |
+| Web方案待决定 | IndexedDB中途快照恢复是否触发刷新 | 它不是DOS启动入口；需评估并确认恢复契约，不得自行覆盖快照G1F |
+| 逆向仍未知 | 任意计算型间接调用、预偏移指针及全程序别名写的完备性 | 已排除上述字面表项/固定写点混淆；须补间接目标生产者、完整写地址区间及生命周期，零命中不等于不存在 |
+| 验证仍缺口 | 原载入/选择或整场战术→533D→后续战略的连续原运行轨迹 | 静态顺序及265个局部真RET不替代整段DOS运行；需私有状态与真实返回边界的连续轨迹，禁止使用用户SAVE或以callee空替身拼接 |
+
+本次无新机制公式/阈值，无生产改动、commit或push；上述残余不反向否定已确认刷新调用，也不授权绕过未知实现其它AI规则。
+
+**复核证据**：`C:/Users/fczll/AppData/Local/Temp/dragon-g1f-remaining-5jw5a7mu/`，固定KI SHA同上；包含`probe.py`（`ff070d25865e6e7c0e19ac1367b7452e8b01498cbd78a9e2e50b01124a53eb0a`）、`static.py`（`47e49701c22c0b688072bc54fbca91f3b853a39db7da68caa2efe44c6108d225`）、显式输入生成器、每例输出、17个原窗和`replay-check.json`；`replay/failure.txt`保留首次环境失败。只在新私有目录复制两源，以`PYTHONDONTWRITEBYTECODE=1 PYTHONUTF8=1 python -B probe.py`及`python -B static.py`复跑，不能覆盖此证据根。结果SHA256分别：
+
+- `results.json`：`b1ed4c94fbe2de309765fe964c7eab178704bde1fe7d59dc5250f43dd79c157e`
+- `static-results.json`：`bff26e3188f362d04e8dc3057ba7033561a0cfb0ca581a94085f1cffe68ed6b9`
+- `windows.txt`：`2874889b0b6b0c5a80e77c8f3f3b311ed292c85b29ef96094982b6b02b924d83`
+
+新增关键半开原窗hash（无TEMP也可用上一节命令从固定KI重取）：
+
+| VA窗口 | SHA256 |
+| --- | --- |
+| 00DF..0146 | `24ab44b0d4653de3691b48f7a07adb852d4b07094caa7405a7db6c8a0a5cf85b` |
+| 1E17..1E46 | `86531ba370e1ff86a1ccdb697a2d33843e855a8d46135ebdda3e6589535e3a3a` |
+| 062F..06F5 | `89212f69f2dd5f68e80b6ac63d6b84bcd80d46950787d3b185252c2bd044ab8d` |
+| 0CAC..0CC3 | `9b890bae0791537645d0a219e6a421269afbe5243973f62ff8d8b21577aadcc1` |
+| ADC8..AE56 | `ec4a7a23935c16053c71e3cb53fee10fc6679e7688307fd0ad8ba8314cf4f611` |
+| B240..B360 | `9f01546d9f9ae8074b6739f2ecb0dcd138e622541ee4c1965bc87f9bc5e10fb9` |
+| B413..B4B8 | `337434bbb22aff7d40cb713467aa571f3be433068da5f81e709da439bff1f27e` |
+| CC31..CC8B | `5a3037ff53bf3fc16c0675452ecff82727de35e3f6be514ed50b4e29f82da344` |
+
+<a id="g1f-advisor-initialization"></a>
+
+#### ADVISOR-INIT-1：普通军师新局初始化（获批实施）
+
+用户在G1F接线交付后明确要求修改军师attr/F18差异。本节为该修复的唯一详细维护源，不扩大为完整DOS初始化认证。
+
+**实锤原指令**：固定KI SHA256 `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，VA=文件偏移减200h。从`1AC3`真入口重读：读档`1AD9→8B40`成功后`1ADE→1B2C`跳过新局处理；新局`1AE0→8B12`最终载章、选择完成后`1AF8 DS=D52`，`1AFD AH=[BX+2]`读取玩家势力军师号。`1B00/1B03`仅当号7F跳过`1B05 DEC byte[BX+18]`；随后`1B08 AL=0 / SHR AX,3 / SI=AX`将军师号乘20h，`1B12 [SI+4240]=0`清整字节attr。之后才`1B17`绑定CFD、`1B29→2BD9`及后续`1BE9→533D→55A6`。计数0按byte减成FF；原军师已inactive也不跳过DEC。该片段无RNG，不改武将所属、状态或预算；原custom127仍清attr但不扣F18。错误的1AF0指令内起点解码不作为证据；可用上文1A6E..1BF2固定窗复核。
+
+**Web实现及产品映射**：`nativefactions.initializeFreshPlayerAdvisor`只在`main.loadState(mode='fresh')`的`commands.initPlayer`之后、CFD/外交/评分之前调用。普通军师须与玩家固定势力表F02一致，依次写`nativeGeneralCount=u8(old-1)`、`general.attr=0`及其Web视图`active=false`；不改`n_generals`、模板raw或扫描重算将数。F18与公开势力仍是同一记录，不建立第二权威。严格字段失败沿既有assembly hold/禁存；晚发现缺武将记录时保留已提交的DEC前缀，不伪造原子回滚。
+
+现行Web自定义军师是独立玩家化身，**不是DOS第127号记录**：custom及无NPC化身不扣F18、不改原军师或G127，保留已批准产品模型，不借修复覆盖临时城防原始记录。只fresh执行一次；重新开局从新克隆模板再执行，IndexedDB restore保留已有attr/active/F18，不重复扣数，也不静默迁移旧档。此恢复合同沿用G1F-INTEGRATION-1的中途快照决定，不等同DOS启动读取。
+
+**本轮验证**：`verify_player_faction_pointer.mjs`检查全部256个计数字节×4类attr（1024例）、完整状态写集/记录别名、inactive军师评分保持、其它将正常刷新、custom/null零写、缺字段拒绝及晚失败保前缀。`verify_scenario_assembly_browser.mjs`的ratings用例在独立profile/IndexedDB执行普通新局→保存→标题→恢复→再次新局→custom新局，检查仅玩家F18减1、普通军师attr0/active=false、模板不变、恢复不再扣、重新新局不累计、自定义不动原军师/127；标题等待使用测试show替身，不冒称真实菜单点击或DOS运行。
+
+安全验证根：`C:/Users/fczll/AppData/Local/Temp/dragon-advisor-initialization/`。focused **7/7**、隔离browser-focused **2/2**；full-1 **205/205**（收据SHA256 `66a99c1f28b35d558c4bd18ba653380444c80296ab877c4725737c195d7eaada`），browser-full-1 **27/27**（收据 `be81ebae80a441fb97a6b452664120b52964b7a1c9275975f66f0f429eb90770`）。全套观察器另有预期frame-loop探针1条pageerror、两个about:blank sessionStorage测试注入错误、音乐503故障用例2条console error及1次取消请求；blocked=0，不能写成全局零错误。新ratings用例无上述错误。自动化未访问用户真实SAVE/浏览器profile；Jev仅审最小人工摘要，非规则证明。LSP四个变更JS为2项async建议/2文件inconclusive，不冒称全部clean；完整连续DOS轨迹和全程序计算型间接写集仍未知。
+
+<a id="g1f-integration"></a>
+
+#### G1F-INTEGRATION-1：获批接线与Web快照合同
+
+授权：用户要求“先实施前三个，其中web方案如需要，也可以实施IndexedDB快照恢复重新计算评分”。本批不改评分公式、离线模板、4C72/291A读者或月结顺序，也不实施任意间接写者猜测。
+
+- **新局已接**：`main.loadState`只在`mode=fresh`、现有`initPlayer/CFD/initializeStrategicDiplomacy`之后调用严格`performScenarioGeneralRatingRefresh`，早于首战略更新；失败保留已安装场景及G1F写入前缀，由既有assembly-incomplete hold/禁存保护。不是在`createNewGameScenario`或内容解析时提前计算。
+- **战术返回已接**：原生`applyNativeTacticalExit`先恢复canonical RNG、提交双方六队/士气及城损，再刷新G1F，最后攻/守474A并返回去向尾；另一App适配器`openStrategicBattle`在已认领续段、`applyExit`之前刷新。两条入口不叠调，委任5130速算不新增刷新。原生队首以scenario与record身份校验一次性所有权，重复/过期callback不得再次刷新或提交战果。失败不续尾，进入既有战略故障hold；不发明回滚。
+- **Web恢复合同已评估：保留评分，不重算**。IndexedDB恢复的是中途规则快照，不执行DOS`1BE9`。即使active G1F暂不等于能力公式也原样恢复；inactive、G127同样保留。用户允许“如需要”重算，本批未发现需要改变快照连续性的理由，因此不新增迁移/补值/自动修档。旧版保存的零评分不会被偷偷修正，直到实际月結或战术返回刷新；这是Web恢复政策，不宣称DOS读档也跳过55A6。
+- 三个调用点均复用已核`55A6`叶：严格0..126、attr≥80h、byte回绕；无新RNG，未加入`is_player`跳过门。
+
+**实施中发现的前置差异（已由下文ADVISOR-INIT-1修复）**：本批当时`commands.initPlayer`只设置普通军师`is_player=true`，未执行原`1B12`清G00及普通军师F18扣数。历史测试attr80h/评分47只记录修前Web现状，不是原版golden；现已撤销该期待，改为核验fresh清attr、扣F18及restore不重播。评分函数仍不增加is_player特判。
+
+**验证及限制**：定向6入口通过；完整安全非浏览器205入口通过（含原指令256向量、战术退出/队首/缺字段/前缀/零额外RNG、保存守卫/事务失败/JSON往返）。新隔离浏览器`ratings`走真实App新局、IndexedDB保存、标题清场及恢复，验证曹操54/典韦40、模板不变，以及显式231/197/165评分与RNG/持久正文不变；标题选择等待用测试替身结束，不称实际鼠标选槽。完整浏览器首轮26/27，面板portrait naturalWidth在一次采样为0失败；同源码新context独立重跑通过，随后第二轮完整27/27通过，保留失败轮，不把首轮改写为全绿。最终观察器另记1个刻意注入的frameLoop异常、2个测试initScript在about:blank访问sessionStorage的错误、503故障用例的2条console错误/1条响应及4条开场音频ERR_ABORTED；无越界请求，不称全浏览器零错误。新增ratings用例自身page/console/request错误均为0。浏览器战斗验收通过，但不是完整DOS整场差分。主动LSP有既有hint/测试风格告警、push-only inconclusive及ai.js超5000行限制，不宣称全clean。
+
+验证根：`C:/Users/fczll/AppData/Local/Temp/dragon-g1f-implementation/`，`focused-1/2`保留缺武将夹具失败，`focused-3`为6/6；`browser-focused-1`保留测试把Web军师当原attr0的错误期待及未纳入快照的旧长跑脚本入口失败（后者未执行游戏），`browser-focused-2`改用已审战斗验收2/2；`full-1`含固定inventory/白名单/源码hash/205收据，`browser-full-1`含27收据/独立snapshot，`browser-panel-2`为同源失败项重跑，`browser-full-2`为最终完整27/27；最终浏览器收据SHA256 `d3eba3545d834727a6982f3accf34c37a9e96dd3063a77298e0bc968c6a3bcf0`，`delivery-checks.json`核当前web/tools与执行快照一致。非浏览器末hash漂移仅两种路径拼写的`.codegraph/daemon.log`，不是测试/生产/原资源漂移；安全工具禁真实存档、只用私有profile/loopback/内存。Jev仅发送已审最小人工摘要作非阻塞建议，不作机制或通过证明。
+
+仍未知：计算型间接调用/全程序别名写完备性、完整载入/整战到战略的连续DOS原轨迹；BOUNDARY-2的265局部真RET仍不升级。未commit/push。
 
 #### 两次重算间的+1F权威性与保留约束
 

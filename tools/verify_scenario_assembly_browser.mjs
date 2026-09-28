@@ -82,6 +82,7 @@ try {
         "installed-pending",
         "installed-failed",
         "snapshot",
+        "ratings",
         "v2",
       ];
   for (const name of cases) {
@@ -544,6 +545,82 @@ try {
         roadVersion: 2,
         reloaded: true,
         empty: true,
+      });
+    } else if (name === "ratings") {
+      const result = await page.evaluate(async () => {
+        const app = window.__app;
+        const template = JSON.stringify(app.content.chapter(16).template);
+        const sourceCounts = JSON.parse(template).nativeFactionSlotRaw.map(
+          (raw) => Number.parseInt(raw.slice(0x18 * 2, 0x19 * 2), 16),
+        );
+        await app.beginNewGame(16, 0, null);
+        const sc = app.scenario;
+        const advisor = sc.generals[sc.factions[0].advisor_idx];
+        const excludedRecord = JSON.stringify(sc.generals[127]);
+        const fresh = {
+          cao: sc.generals[16].battle_rating,
+          dian: sc.generals[88].battle_rating,
+          advisorAttr: advisor.attr,
+          advisorActive: advisor.active,
+          advisorRating: advisor.battle_rating,
+          countDelta: sourceCounts[0] - sc.factions[0].nativeGeneralCount,
+          onlyPlayerChanged: sc.nativeFactionSlots.records.every((f, idx) =>
+            f.nativeGeneralCount === ((sourceCounts[idx] - (idx === 0 ? 1 : 0)) & 255)),
+          sharedFaction: sc.factions[0] === sc.nativeFactionSlots.records[0],
+          excluded: sc.generals[127].battle_rating,
+          templateUnchanged: template === JSON.stringify(app.content.chapter(16).template),
+        };
+        // Explicit mid-game stored values are not necessarily a fresh formula.
+        // Snapshot restore must not replay DOS 1BE9 or repair/normalize them.
+        sc.generals[16].battle_rating = 231;
+        advisor.battle_rating = 197;
+        sc.generals[127].battle_rating = 165;
+        const rng = JSON.stringify(app.originalRng.snapshot());
+        const saved = await app.saveGame(2, "G1F isolated snapshot");
+        const { loadLocalSaveSlots } = await import("/src/core/localstore.js");
+        const stored = (await loadLocalSaveSlots()).slots[2];
+        const body = JSON.stringify(stored);
+        // Real title entry with isolated IndexedDB body, not a direct hot swap.
+        const show = app.startMenu.show;
+        app.startMenu.show = async () => {};
+        try { await app.returnToTitle(); }
+        finally { app.startMenu.show = show; }
+        if (app.scenario !== null || app.gameStarted)
+          throw new Error("restore must cross title boundary");
+        app.saves.slots[2] = stored;
+        await app.beginSavedGame(2);
+        const restoredAdvisor = app.scenario.generals[advisor.idx];
+        const restoreResult = {
+          fresh,
+          restoredAdvisorState: [restoredAdvisor.attr, restoredAdvisor.active, restoredAdvisor.is_player],
+          countPreserved: app.scenario.factions[0].nativeGeneralCount === sc.factions[0].nativeGeneralCount,
+          saved: saved.saved,
+          restored: [app.scenario.generals[16].battle_rating,
+            app.scenario.generals[advisor.idx].battle_rating,
+            app.scenario.generals[127].battle_rating],
+          sameRng: rng === JSON.stringify(app.originalRng.snapshot()),
+          storedUnchanged: body === JSON.stringify((await loadLocalSaveSlots()).slots[2]),
+        };
+        // Starting again clones the chapter, not the previous game's decremented F18.
+        await app.beginNewGame(16, 0, null);
+        const restartedOnce = app.scenario.factions[0].nativeGeneralCount === sc.factions[0].nativeGeneralCount;
+        await app.beginNewGame(16, 0, { name: "自定", hao: "測試", portrait: 0 });
+        const custom = app.scenario;
+        return { ...restoreResult, restartedOnce,
+          customPreserved: custom.factions[0].nativeGeneralCount === sourceCounts[0] &&
+            custom.generals[advisor.idx].attr === 0x80 &&
+            custom.generals[advisor.idx].active === true &&
+            !custom.generals[advisor.idx].is_player &&
+            JSON.stringify(custom.generals[127]) === excludedRecord,
+        };
+      });
+      assert.deepEqual(result, {
+        fresh: { cao: 54, dian: 40, advisorAttr: 0, advisorActive: false, advisorRating: 0,
+          countDelta: 1, onlyPlayerChanged: true, sharedFaction: true,
+          excluded: 0, templateUnchanged: true },
+        saved: "local", restored: [231, 197, 165], sameRng: true, storedUnchanged: true,
+        restoredAdvisorState: [0, false, true], countPreserved: true,
+        restartedOnce: true, customPreserved: true,
       });
     } else if (name === "v2") {
       // P58: an alternate valid v2 graph with actual catalog city slots is
