@@ -95,14 +95,15 @@ function marchFrame(fromX, fromY, toX, toY) {
   const dx = toX - fromX;
   const dy = toY - fromY;
   if (!dx && !dy) return MARCH_FRAME_STATIONARY;
-  if (Math.abs(dx) >= Math.abs(dy)) return dx < 0 ? 0 : 1;
+  if (dx !== 0) return dx < 0 ? 0 : 1;
   return dy < 0 ? 2 : 3;
 }
 
-// Web美术锚点（非KI规则坐标）：保留横路+3Y、竖路+2X的标定，
-// 据点/驻止/转向也使用同一平移，避免到城或换向时突然撤销法线补偿。
-const MAP_ANCHOR_X = 10;
-const MAP_ANCHOR_Y = 11;
+// KI 2B2A→D4C7→D66A/D804：16×16标识与地形共用同一图块原点，
+// 不按方向补偿到道路视觉中线。Web drawImage减8，故中心为格坐标+8；
+// 据点/驻止/拾取共用，转向仅换帧。证据：docs/re-notes-map-marker-anchor.md。
+const MAP_ANCHOR_X = 8;
+const MAP_ANCHOR_Y = 8;
 
 const CITY_SIZE = 16; // 城池图标整体尺寸
 const CURSOR_SIZE = 18; // 游戏光标：较原20px圆角方框缩小2px
@@ -370,7 +371,7 @@ export class MapView {
     return [pos.wxp, pos.wyp];
   }
 
-  /** 获取军团插值渲染位置 (支持 lerp 平滑移动与道路轴向显示补偿) */
+  /** 获取军团插值渲染位置（只读平滑移动，无道路轴向补偿）。 */
   getLegionRenderPos(L, t = 1) {
     const fromX = L.prevX ?? L.x;
     const fromY = L.prevY ?? L.y;

@@ -102,6 +102,7 @@ try {
       const measured = await page.evaluate(async () => {
         const { BattleView } = await import("/src/render/battleview.js");
         const { GameBar } = await import("/src/ui/gamebar.js");
+        const { BattleDialoguePresentation } = await import("/src/ui/battledialogue.js");
         const { loadImage } = await import("/src/core/assets.js");
         const gamebar = Object.create(GameBar.prototype);
         const [cloud, sq, col, cap] = await Promise.all(
@@ -112,6 +113,14 @@ try {
         gamebar._gf = { cloud, sq, col, cap };
         const view = Object.create(BattleView.prototype);
         view.app = { gamebar };
+        view.battle = { sideMap: { atk: 0, def: 1 } };
+        // Fixed presentation-only clock: no Session, rule events or real timers.
+        view.dialoguePresentation = new BattleDialoguePresentation({
+          now: () => 0, schedule: () => 0, cancel() {},
+          show: (capture, entry) => view.showBattleDialogue(capture, entry),
+          hide: (side) => view.hideBattleDialogue(side),
+        });
+        view.dialoguePresentation.start([], []);
         document.body.classList.add("game-active");
         document.querySelector("#bctl").style.display = "block";
         document.querySelector("#battle-bottom-bar").style.display = "block";
@@ -130,10 +139,31 @@ try {
           image.src = "/kao/0.png";
           await image.decode();
         }
-        document.querySelector("#bdialogue-def-text").textContent =
-          "長篇中文會自動換行，標點，仍須限制在固定高度。第二行。第三行。第四行。";
-        document.querySelector("#bdialogue-atk-text").textContent =
-          "UNBROKEN_LATIN_TOKEN_ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789\n明示換行";
+        const showSpeech = (text) => {
+          for (const side of [0, 1]) view.dialoguePresentation.replace({
+            status: "decoded", side, speaker: { name: "呂布", portrait: 0 }, text,
+          });
+        };
+        await document.fonts.ready;
+        const originalSpeech = "很有趣！看我把你打回\r\n去！！";
+        showSpeech(originalSpeech);
+        const reflow = ["atk", "def"].map((id) => {
+          const name = document.querySelector(`#bdialogue-${id}-name`);
+          const speech = document.querySelector(`#bdialogue-${id}-text`);
+          const nameBox = name.getBoundingClientRect();
+          const speechBox = speech.getBoundingClientRect();
+          return { name: name.textContent, speech: speech.textContent,
+            height: speechBox.height,
+            // Compare layout rows, not glyph ink bounds (font ascent can overhang).
+            nameBottom: nameBox.bottom, speechTop: speechBox.top,
+            belowName: speechBox.top >= nameBox.bottom,
+            raw: view.dialoguePresentation.slots[id === "atk" ? 0 : 1].capture.text };
+        });
+        // Exercise the same renderer, not a manual DOM assignment, for long speech.
+        showSpeech("長篇中文會自動換行，\n標點，仍須限制在固定高度。第二行。第三行。第四行。");
+        view.dialoguePresentation.replace({ status: "decoded", side: 0,
+          speaker: { name: "呂布", portrait: 0 },
+          text: "UNBROKEN_LATIN_TOKEN_ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789\n自動換行" });
         const selectedFormation = document.querySelector(
           '.battle-symbol-btn[data-formation="13"]',
         );
@@ -239,6 +269,7 @@ try {
         const formationGridCss = getComputedStyle(formationGridElement);
         return {
           battlefield,
+          reflow,
           windows,
           dialogues,
           controls,
@@ -319,6 +350,13 @@ try {
           "frame tile dimensions",
         );
       });
+      for (const speech of measured.reflow) {
+        assert.equal(speech.name, "呂布", "speaker remains a separate first row");
+        assert.equal(speech.speech, "很有趣！看我把你打回去！！");
+        assert.equal(speech.height, 20, "short speech no longer preserves a forced second line");
+        assert.equal(speech.belowName, true, "body begins below the name");
+        assert.equal(speech.raw, "很有趣！看我把你打回\r\n去！！", "capture stays raw");
+      }
       const [enemyDialogue, playerDialogue] = measured.dialogues;
       assert.deepEqual(rect(enemyDialogue.box), [
         (viewport.width - 480) / 2,

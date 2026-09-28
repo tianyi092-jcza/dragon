@@ -7,7 +7,8 @@ const server = await startBrowserTestServer();
 let browser;
 try {
   browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
+  for (const deviceScaleFactor of [1, 1.25, 2]) {
+  const context = await browser.newContext({ viewport: { width: 1024, height: 768 }, deviceScaleFactor });
   const origin = `http://127.0.0.1:${server.port}`;
   await context.addInitScript((origin) => {
     if (location.origin === origin) sessionStorage.setItem("wolong.intro.seen.v1", "1");
@@ -43,8 +44,26 @@ try {
         if (image.complete && image.naturalWidth === 16 && image.naturalHeight === 16) ready++;
       } }, 100, 100, style, frame);
     }
+    // All 192 source nodes retain their actual tile center, not +2/+3 road compensation.
+    for (const c of sc.cities) {
+      const p = view.cityPixel(c);
+      if (p[0] !== c.x * 16 + 8 || p[1] !== c.y * 16 + 8)
+        throw new Error(`shifted city ${c.idx}`);
+    }
+    sc.cities = [city];
+    const drawMarker = view._drawMarchingIcon.bind(view);
     const draws = [];
-    view._drawMarchingIcon = (_ctx, x, y, style, frame) => draws.push({ x, y, style, frame });
+    view._drawMarchingIcon = (ctx, x, y, style, frame) => {
+      draws.push({ x, y, style, frame });
+      drawMarker(ctx, x, y, style, frame);
+    };
+    // Observe actual raster destinations, including the city tile and all marker frames.
+    const images = [];
+    const nativeDraw = view.ctx.drawImage.bind(view.ctx);
+    view.ctx.drawImage = (image, ...args) => {
+      images.push({ src: image.src ?? '', args });
+      nativeDraw(image, ...args);
+    };
     const army = { faction: city.faction ?? sc.player_faction, prevX: city.x, prevY: city.y,
       x: city.x + 1, y: city.y, movePeriod: 3, _renderMoveSerial: 0,
       _markerFrame: 3, target: { x: city.x + 10, y: city.y } };
@@ -53,8 +72,8 @@ try {
     for (let tick = 0; tick < 24; tick++) {
       view.app.clock.strategicTickSerial = tick;
       draws.length = 0;
-      view.draw();
-      departure.push(draws.map(d => d.frame));
+      view.draw({ uncached: true });
+      departure.push(draws.map(d => ({ frame: d.frame, x: d.x, y: d.y })));
     }
     army.prevX = city.x - 1; army.x = city.x;
     army._renderMoveSerial = 24; army._markerFrame = 4; army.target = null;
@@ -62,19 +81,45 @@ try {
     for (let tick = 24; tick <= 48; tick++) {
       view.app.clock.strategicTickSerial = tick;
       draws.length = 0;
-      view.draw();
-      arrival.push(draws.map(d => d.frame));
+      view.draw({ uncached: true });
+      arrival.push(draws.map(d => ({ frame: d.frame, x: d.x, y: d.y })));
     }
-    return { ready, departure, arrival };
+    const cityDraws = images.filter(i => /icon-.*_city\.png$/.test(i.src));
+    const lastMarker = images.filter(i => /style_.*_frame_4\.png$/.test(i.src)).at(-1);
+    // Clear prev after arrival, pan, then verify garrison/pick/snap/selection alignment.
+    army.prevX = army.x; army.prevY = army.y;
+    view.cam.x -= 37; view.cam.y -= 19;
+    view.selectedCity = city;
+    view.setPointer(271, 189);
+    const picked = view.pick(271, 189)?.city === city;
+    const snapped = { ...view.pointer };
+    draws.length = 0;
+    view.draw();
+    const parked = draws.map(d => ({ frame: d.frame, x: d.x, y: d.y }));
+    return { ready, departure, arrival, cityDraws, lastMarker, picked, snapped, parked };
   });
   await page.waitForLoadState("networkidle");
   assert.equal(result.ready, 120);
-  assert.ok(result.departure.every(frames => frames.length === 1 && frames[0] === 1));
-  assert.ok(result.arrival.slice(0, -1).every(frames => frames.length === 1 && frames[0] === 1));
-  assert.deepEqual(result.arrival.at(-1), [4]);
+  const checkDraw = (draws, frame, x) => {
+    assert.equal(draws.length, 1);
+    assert.equal(draws[0].frame, frame);
+    assert.ok(Math.abs(draws[0].x - x) < 1e-9, "continuous tile-center projection");
+    assert.equal(draws[0].y, 208);
+  };
+  for (const [tick, draws] of result.departure.entries())
+    checkDraw(draws, 1, 308 + tick * 16 / 24);
+  for (const [tick, draws] of result.arrival.entries())
+    checkDraw(draws, tick === 24 ? 4 : 1, 292 + tick * 16 / 24);
+  assert.ok(result.cityDraws.length > 0);
+  assert.ok(result.cityDraws.every(d => JSON.stringify(d.args) === '[300,200,16,16]'));
+  assert.deepEqual(result.lastMarker.args, [300, 200]);
+  assert.equal(result.picked, true);
+  assert.deepEqual(result.snapped, { x: 271, y: 189 });
+  assert.deepEqual(result.parked, [{ frame: 4, x: 271, y: 189 }]);
   assert.deepEqual(errors, []);
   await context.close();
-  process.stdout.write("march markers browser OK: 120 ready images, Xuchang departure visible, turn/arrival frame boundaries\n");
+  process.stdout.write(`march markers browser OK DPR=${deviceScaleFactor}: 120 images, 192 city anchors, departure/arrival origins, panned garrison/pick/snap\n`);
+  }
 } finally {
   await browser?.close();
   await server.close();

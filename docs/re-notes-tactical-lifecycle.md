@@ -329,9 +329,18 @@ AA10已识别为组长表A7E7的**命令10**；命令9=A9FB写pending10。所谓
 - 实际显示立即起算3000ms；2999仍显示、3000关闭。只此deadline控制可见窗口。所有` tactical-talk-close `（含A12A早到/AX延期及独立raw局部关闭）不缩短/延长/复活现代捕获；timeout/global right-click也不改原始marker/slot/event/RNG/队列。没有第二个“取较早/较晚”timer，不等待窗口关闭继续规则。
 - 两侧各自替换、各自3秒；全局右键立即清两侧现代框。复用现有`attachInput`全屏contextmenu→`GameBar.click`层级：系统读档确认/保存/设置先消费，其后活动战术层消费右键（即使当前无对白），不会落到战略菜单/据点/军团。战术拖拽取消，right pointerup不执行左键选择；不新增局部27/28监听，不伪造native local input。原始`messageInput(27/28/29,2)`仍独立可调用。
 - C407「門強度」是来源特定城门状态，不是普通武将说话。保留B60F门控、C405最低值、marker/AX/局部29原始语义；本批不新建其可见UI，也不套入3秒对白控制器。
-- 复用原有双侧DOM框/头像/text与GameBar `_drawWindow`纹理canvas；名字只取捕获slot身份，原换行保留。头像异步加载带entry所有权检查；旧加载、旧timeout、已进入任务队列的取消回调不能写/关闭新内容。头像缺资源只留空，不显示虚构NPC。现代192px信息/指挥窗、1:1全场与部署/卡栏保持；对白沿用原有240px双侧位置。
+- 复用原有双侧DOM框/头像/text与GameBar `_drawWindow`纹理canvas；名字只取捕获slot身份；历史“原换行保留”显示约定已由下述BATTLE-TEXT-REFLOW-1撤销（原始捕获仍保留换行）。头像异步加载带entry所有权检查；旧加载、旧timeout、已进入任务队列的取消回调不能写/关闭新内容。头像缺资源只留空，不显示虚构NPC。现代192px信息/指挥窗、1:1全场与部署/卡栏保持；此段旧240px布局为当批历史；现行双侧480×80居中纹理框及64px头像以战斗SKILL §6为准。
 - 后台不暂停已有墙钟期限；浏览器限流导致callback延后时，下一次可见sync在paint前先检查期限。隐藏标签页不启动未显示事件的期限；回来后显示最后同侧新捕获，从显示起3秒，不补跑战术帧。无战略FIFO或新增clock.hold；现有战略暂停与战术速度完全不变。
 - view退出清timer/捕获/游标、隐藏DOM；新open使旧await/RAF失去generation所有权。现代显示态**不写入原始Session快照**。新view或已接受的独立snapshot入口以当前保留slots开始新显示期限，并跳过整个既往event历史，不能重新播放已raw关闭的启动发言。正常活跃view只读新events，不逐帧重读raw slots，因而已dismiss捕获不会复活。
 - A1C5现由增量stepper在每个实际A04B/A065后yield；C315捕获仍直接进入同一两侧展示器，不另造启动对白队列。第一侧3秒窗与后续启动规则帧并行，第二侧到达时可同时显示；对白、timer及右键都不暂停Session或取得新clock hold。native compositor/99CB、scratch历史及合法非局部结束继续dormant/延期。
+
+### BATTLE-TEXT-REFLOW-1：姓名首行、正文自动折行（Web产品决定）
+
+用户明确要求战术地图双方武将对白取消原文排版强制断行：姓名仍独占第一行，正文从下一行开始，按现有窗口实际可用宽度自动折行。此为Web显示选择，不改原TALK机制。
+
+- `BattleView.showBattleDialogue`在给正文DOM的`textContent`赋值时去掉CR/LF硬换行，直接续接前后文字，不新增空格；姓名仍单独写入name元素。双方通过同一方法，战略攻守互换亦适用。
+- 保留正文CJK/长token自动折行、现有480×80窗口/字号/两行正文裁切及姓名正文块垂直居中；不改变窗口布局、3秒期限、右键、头像所有权或Session推进。
+- 不改TALK资产、`capture.text/lines/rawLines`、保留捕获副本、原消息事件及快照约束；上文“text等于lines用换行连接”的数据契约继续有效。仅DOM投影丢弃原换行，不能在原数据解码或保存时压平。
+- `verify_battle_dialogue_presentation.mjs`覆盖双方、战略攻守互换、LF/CRLF/CR与完整Session只读；`verify_battle_panel_layout.mjs`直接调用正式显示方法，核三种视口中短对白不被强制拆行、姓名独立首行、长中文/长token按宽折行且不横向溢出。执行收据见[journal §9](checkpoint-journal.md#9-battle-text-reflow-1战术双方对白自动折行)。
 
 验证：`tools/verify_battle_dialogue_presentation.mjs`采用可控墙钟/timer/DOM/Image，不是浏览器冒烟。覆盖2999/3000、真实60tick早关/AX同deadline side1延期、两侧替换同文新serial、已排队旧回调/早timer、unresolved/C407隔离、后台限流与首次显示、原始snapshot独立继续；真实facade→queued C1B9→导出BATTLE VM→A065和BattleView.draw，逐次比较完整Session快照/引用/RNG并验证可见期间frame继续。全局右键系统层级、拖拽/右键释放、捕获slot!=commander头像、异步头像替换/退出、新view teardown均有定向断言。viewport旧手写句期待改为“没有decoded event不显示发言”，保留面板/坐标断言。父会话在review后另行全新浏览器与显式LSP/Lens，不把Node DOM替身冒认为浏览器验收。

@@ -380,13 +380,13 @@ assert.equal(
 );
 assert.equal(
   quarterPos.wxp,
-  (source.x + 0.25 / 8) * 16 + 10,
+  (source.x + 0.25 / 8) * 16 + 8,
   "水平道路与据点使用相同X锚点",
 );
 assert.equal(
   quarterPos.wyp,
-  source.y * 16 + 11,
-  "水平道路按连续截图夹逼向下补偿3px",
+  source.y * 16 + 8,
+  "D4C7同格叠图：水平道路不补偿到道路视觉中线",
 );
 renderView.app.clock.strategicTickSerial = 15;
 assert.equal(
@@ -409,10 +409,10 @@ const verticalLegion = {
   y: source.y + 1,
 };
 const verticalPos = renderView.getLegionRenderPos(verticalLegion, 0.25);
-assert.equal(verticalPos.wxp, source.x * 16 + 10, "垂直道路向右补偿2px");
+assert.equal(verticalPos.wxp, source.x * 16 + 8, "D4C7同格叠图：垂直道路不向右补偿");
 assert.equal(
   verticalPos.wyp,
-  (source.y + 0.25 / 8) * 16 + 11,
+  (source.y + 0.25 / 8) * 16 + 8,
   "垂直道路与据点使用相同Y锚点",
 );
 const waitingRoadLegion = {
@@ -423,11 +423,11 @@ const waitingRoadLegion = {
   _path: [{ x: source.x + 1, y: source.y }],
 };
 const waitingPos = renderView.getLegionRenderPos(waitingRoadLegion, 1);
-assert.equal(waitingPos.wxp, source.x * 16 + 10, "道路等待保持统一锚点");
+assert.equal(waitingPos.wxp, source.x * 16 + 8, "道路等待保持统一锚点");
 assert.equal(
   waitingPos.wyp,
-  source.y * 16 + 11,
-  "接敌/冷却等待时仍按下一道路点保持轴向补偿",
+  source.y * 16 + 8,
+  "接敌/冷却等待与移动共用原图块中心",
 );
 
 // 真实周期2/3覆盖16/24次更新，全程等差前进，末尾与驻城/下一步连续。
@@ -441,8 +441,8 @@ for (const period of [2, 3]) {
       renderView.app.clock.strategicTickSerial = 8 + tick;
       const pos = renderView.getLegionRenderPos(army, 0);
       assert.equal(pos.curT, tick / duration);
-      assert.equal(pos.wxp, (source.x + dx * tick / duration) * 16 + 10);
-      assert.equal(pos.wyp, (source.y + dy * tick / duration) * 16 + 11);
+      assert.equal(pos.wxp, (source.x + dx * tick / duration) * 16 + 8);
+      assert.equal(pos.wyp, (source.y + dy * tick / duration) * 16 + 8);
     }
     const end = renderView.legionPixel(army, 0);
     assert.deepEqual(end, renderView.cityPixel(army));

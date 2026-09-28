@@ -594,7 +594,9 @@ export class BattleView {
       box.dataset.originalSide = String(capture.side);
     }
     if (name) name.textContent = capture.speaker.name;
-    if (text) text.textContent = capture.text;
+    // Web presentation: keep the separate name row, but reflow speech across
+    // original TALK hard breaks. The captured text/lines and rule events stay raw.
+    if (text) text.textContent = capture.text.replace(/[\r\n]+/g, "");
     if (face) face.removeAttribute("src");
     // Only the retained slot portrait, never commander/generalIdx or NPC fallback.
     // Slow asset loads may fill this capture, but cannot revive/replace a window.

@@ -45,7 +45,7 @@
 - 新游戏及从标题读档后默认展开军师一级菜单、势力信息面板、小地图；军师子项未选中，不额外锁地图/hold；原按钮仍可收起。
 - 菜单/模态/场景/战斗/装配/鼠标hold取并集，不改速度模拟暂停。地图鼠标移动即暂停，连续静止1秒释放自己的hold；输入锁与物理区域识别分开。
 - 战略五档60/35/20/10/3.125ms，每RAF最多6次完整更新、每步检查hold；战术最多一个完整帧，不补后台债务。战略与表现时钟不能互相代替。
-- 行军按8×movePeriod插值；城标/军团共用锚点，显示段结束才采用下一方向/驻守帧；绘制不改路线/RNG。六队全骑周期2、其余3的规则不变。接战30ms换帧、60ms发声，每段连续共享接触最多五响；详情见[行军表现](docs/march-presentation-fixes.md)。
+- 行军按8×movePeriod插值；城标/军团共用原图块中心(16x+8,16y+8)，不补偿到道路视觉中线，证据见[图块锚点](docs/re-notes-map-marker-anchor.md)。显示段按X优先定向、结束才采用下一方向/驻守帧；绘制不改路线/RNG。六队全骑周期2、其余3的规则不变。接战30ms换帧、60ms发声，每段连续共享接触最多五响；详情见[行军表现](docs/march-presentation-fixes.md)。
 - 云雨直接使用原完整八帧PNG，不画渐变云或额外雨丝；独立表现时间100ms换帧、平滑位移，**随战略计时暂停/恢复**：speed<=0或任何hold时位置和雨丝均冻结，后台/场景退出亦冻结。可见慢帧限量推进，不整帧丢弃至永久停动画；细节见[表现合同](docs/presentation-modernization.md)。
 - Canvas backing store仅尺寸/DPR变化时重建；地图分段缓存只跳过栅格化，不跳过GameBar布局/消息drain；连续移动或超容量回退直绘。灾害播放器只读原槽/frame，无新时钟或延寿。详见[表现合同](docs/presentation-modernization.md)。
 - 列表右侧滚动条、24px表头、墨绿色`#4a7828`选中；排序绑定原对象。
@@ -81,6 +81,7 @@ node tools/verify_legion_slot_phase.mjs
 node tools/verify_legion_slot_battle.mjs
 node --test --test-reporter=tap tools/verify_native_formation.mjs
 node --test tools/verify_road_field_authority.mjs
+python -B tools/verify_map_marker_anchor.py  # 固定非存档原资源，只读锚点/像素布局核验
 node tools/verify_weather_presentation.mjs
 node tools/verify_disaster_presentation.mjs
 node tools/verify_retained_layers.mjs

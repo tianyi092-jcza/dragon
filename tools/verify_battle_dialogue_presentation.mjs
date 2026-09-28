@@ -434,7 +434,7 @@ for (const defending of [false, true]) {
   );
   assert.equal(
     document.querySelector(`#bdialogue-${playerName}-text`).textContent,
-    s.messages.slots[0].text,
+    s.messages.slots[0].text.replace(/[\r\n]+/g, ""),
   );
   assert.ok(images.has("kao/2.png"));
   assert.ok(!images.has("kao/0.png"));
@@ -457,6 +457,25 @@ for (const defending of [false, true]) {
     s.messages.slots[0],
     "modern timeout does not clear the raw marker/capture",
   );
+  p.dispose();
+}
+
+// User-approved Web reflow affects only DOM speech, never name/capture/Session.
+for (const defending of [false, true]) {
+  const { view, s, p } = production(defending);
+  for (const side of [0, 1]) {
+    for (const text of ["很有趣！看我把你打回\n去！！", "很有趣！看我把你打回\r\n去！！", "很有趣！看我把你打回\r去！！"]) {
+      const capture = Object.freeze({ status: "decoded", side,
+        speaker: Object.freeze({ name: "呂布", portrait: 2 }), text,
+        lines: Object.freeze(text.split(/\r\n|[\r\n]/)) });
+      readOnly(s, () => p.replace(capture));
+      const id = view.dialogueSideName(side);
+      assert.equal(document.querySelector(`#bdialogue-${id}-name`).textContent, "呂布");
+      assert.equal(document.querySelector(`#bdialogue-${id}-text`).textContent,
+        "很有趣！看我把你打回去！！");
+      assert.deepEqual(p.slots[side].capture, capture, "retained capture keeps original line breaks");
+    }
+  }
   p.dispose();
 }
 
