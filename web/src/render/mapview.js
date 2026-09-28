@@ -1,5 +1,8 @@
 // 地图视图 — 相机(拖动平移, 固定100%不可缩放) + 分层绘制(地形/城池/军团/标签)
 import { DEFAULT_WORLD } from "../content/worlddefinition.js";
+import { RetainedLayers } from "./retainedlayers.js";
+import { DisasterPresentation } from "./disasterpresentation.js";
+export { preloadDisasterObjectImages } from "./disasterpresentation.js";
 
 const MARCH_STYLE_COUNT = 24;
 const MARCH_FRAME_STATIONARY = 4;
@@ -9,10 +12,6 @@ const MARCH_FRAME_STATIONARY = 4;
 const LEGION_SLOT_CYCLE_TICKS = 8;
 const _marchMarkerCache = new Map(); // "style:frame" -> {img, ok}
 const _engageMarkerCache = new Map(); // frame -> {img, ok, promise}
-const _disasterObjectCache = new Map(); // "group:phase" -> {img, ok, promise}
-const DISASTER_OBJECT_FRAMES = 8;
-const DISASTER_OBJECT_SIZE = 80;
-const DISASTER_OBJECT_ASSET = Object.freeze({ 1: "fire", 2: "riot" });
 
 /** 原版 MMAP.MCH 军团标识：势力样式槽 × 西/东/北/南/驻止帧。 */
 function getMarchMarkerImage(style, frame, onReady) {
@@ -89,53 +88,6 @@ export function preloadEngageMarkerImages(onReady) {
   return Promise.all(
     [0, 1, 2, 3].map((frame) => engageMarkerEntry(frame, onReady).promise),
   );
-}
-
-/** KI.EXE 0x2533：group1大火、group2暴动均为5×5 tile、八相。 */
-function disasterObjectEntry(group, frame, onReady) {
-  const safeGroup = Number(group) | 0;
-  const asset = DISASTER_OBJECT_ASSET[safeGroup];
-  if (!asset) return null;
-  const safeFrame = frame & 7;
-  const key = `${safeGroup}:${safeFrame}`;
-  let entry = _disasterObjectCache.get(key);
-  if (entry) return entry;
-  let settle;
-  entry = {
-    img: new Image(),
-    ok: false,
-    promise: new Promise((resolve) => {
-      settle = resolve;
-    }),
-  };
-  _disasterObjectCache.set(key, entry);
-  entry.img.onload = () => {
-    entry.ok = true;
-    onReady?.();
-    settle();
-  };
-  entry.img.onerror = () => {
-    onReady?.();
-    settle();
-  };
-  entry.img.src = `grf/disaster/${asset}_frame_${safeFrame}.png`;
-  return entry;
-}
-
-function getDisasterObjectImage(group, frame, onReady) {
-  const entry = disasterObjectEntry(group, frame, onReady);
-  return entry?.ok ? entry.img : null;
-}
-
-/** 预载大火/暴动共16个逻辑相位，避免事件出现时首帧空白。 */
-export function preloadDisasterObjectImages(onReady) {
-  const pending = [];
-  for (const group of [1, 2]) {
-    for (let frame = 0; frame < DISASTER_OBJECT_FRAMES; frame++) {
-      pending.push(disasterObjectEntry(group, frame, onReady).promise);
-    }
-  }
-  return Promise.all(pending);
 }
 
 /** KI.EXE 0x2808: 0=西、1=东、2=北、3=南；到达/驻止为4。 */
@@ -631,11 +583,17 @@ export class MapView {
     ctx.restore();
   }
 
-  draw() {
-    const { ctx } = this;
+  draw({ uncached = false } = {}) {
     if (this.app && !this.app.gameStarted) return;
     const world = this.getWorldDefinition();
     const { width, height } = this.syncCanvasSize();
+    // Keep the direct path for diagnostic pixel comparisons and non-DOM mocks.
+    if (!this.layers && this.cv.ownerDocument && this.ctx.getTransform)
+      this.layers = new RetainedLayers(this.cv);
+    const layers = uncached ? null : this.layers;
+    if (uncached) this.layers?.invalidate();
+    const ctx = layers?.begin(this.ctx) ?? this.ctx;
+    layers?.layer('terrain', { immutableSources: true });
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#141414";
     ctx.fillRect(0, 0, width, height);
@@ -654,7 +612,8 @@ export class MapView {
     }
 
     const sc = this.getScenario();
-    if (!sc) return;
+    if (!sc) { layers?.finish(); return; }
+    layers?.layer('objects');
 
     // 城池: 建筑图标 + 驻军方块（覆盖中心建筑）
     for (const c of sc.cities) {
@@ -736,23 +695,9 @@ export class MapView {
       }
     }
 
-    // 0x2533先按固定槽序画前16个静态对象。group1大火/group2暴动
-    // 都是5×5 tile，以对象坐标为中心，故左上为(x-2,y-2)。
-    for (const object of (sc.disasterMapObjects ?? []).slice(0, 16)) {
-      if (!object || object.active === false) continue;
-      const image = getDisasterObjectImage(
-        object.group ?? object.kind,
-        object.frame ?? 1,
-        () => this.draw(),
-      );
-      if (!image) continue;
-      const left = this.sx(((object.x ?? 0) - 2) * world.tileSize);
-      const top = this.sy(((object.y ?? 0) - 2) * world.tileSize);
-      const size = DISASTER_OBJECT_SIZE * this.cam.scale;
-      if (left >= width || top >= height || left + size <= 0 || top + size <= 0)
-        continue;
-      ctx.drawImage(image, left, top, size, size);
-    }
+    layers?.layer('environment');
+    this.disasterFx ??= new DisasterPresentation(() => this.draw());
+    this.disasterFx.draw(ctx, sc, this.cam, world.tileSize, { width, height });
 
     // Web表现层仍位于灾害之上、UI之下；只读已经采样的视觉状态。
     if (this.app?.weatherFx?.scenario === sc)
@@ -779,6 +724,7 @@ export class MapView {
       }
     }
 
+    layers?.layer('ui');
     // 已点击选中的据点保留中心选中框；右键关闭信息弹窗时消失。
     const selCity = this.selectedCity;
     if (selCity) {
@@ -794,9 +740,11 @@ export class MapView {
     // UI 覆盖层 (工具栏/小地图/资源面板 — GameBar)
     this.overlay?.(ctx);
 
+    layers?.layer('cursor', { cursor: true });
     // 无论是否命中地图对象，都强制使用同款圆角正方形线框作为游戏光标。
     // 必须最后绘制，确保窗口上也不会露出浏览器默认箭头。
     if (this.pointer)
       this._drawHoverCursor(ctx, this.pointer.x, this.pointer.y);
+    layers?.finish();
   }
 }

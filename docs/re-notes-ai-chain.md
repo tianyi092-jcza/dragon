@@ -101,7 +101,7 @@
 
 **C13增量：无消息50D7与现有3485 handler已限定接线，详细原证见[去向§8](re-notes-legion-fate.md#8-原属回归50d7与限定3485入口p24-original-return-1)。** 重新绑定KI及真caller后撤销候选中的“前DEC”假设：50D7以AH=FF调2AD2，只给活动原属F18作byte INC，同属也不免除；原G1D=FF/18没有短路，未建模别名在清G17/交换G1D后明确停住。3485没有G00活动门；玩家5101前停。未新增槽/F14/03/占格/RNG写或F18初值。测试直接调用真实handler，不声称原外层事件泵已返回。后续已接[585F扫描→5940→301C有限生产](re-notes-legion-fate.md#9-月度俘虏5940585f扫描与301c入队p24-monthly-captive-1)，包括固定127/倒数门、匹配F18 INC、队满仍执行5990返回后写18及单一事件权威JSON保存。新增[5899严格招募](re-notes-legion-fate.md#10-招募5899与f23权威边界p24-recruitment-1)：预设/22槽最低F18/单RNG/环与rare CFD门；CFD独立own word，不从CFF推算，F23沿own n_cities存储byte。5924在owner/F18前停，599C仍停；为防F23漂移，旧native capture认证撤销，4CF3不再进入legacy写者，现按[去向§11](re-notes-legion-fate.md#11-4cf3真实占城前缀与首都返回p24-capture-1)推进实锤前缀后停止。整5358、35ED/1D8E/4CF3/4FCE、F18初始化/完整写者/事件泵与消息返回继续未闭合，不据此放行默认v2。
 
-盘点本身未新增原始证书；其raw spot-check在导入Capstone时失败、尚未读取KI。该**scout工具阻塞**与本波另行成功且绑定SHA的4DA4/291A原窗审计分开记录于[journal §11](checkpoint-journal.md#11-p24-fate-road-recovery-1有界caller修复与收据恢复)，不安装工具或修复scout环境来越过边界。
+盘点本身未新增原始证书；其raw spot-check在导入Capstone时失败、尚未读取KI。该**scout工具阻塞**与本波另行成功且绑定SHA的4DA4/291A原窗审计分开记录于[旧§11收据缺口索引（待恢复）](historical-receipts.md#p24-fate-road-recovery-1)，不安装工具或修复scout环境来越过边界。
 
 ## 4. 跨模块受控场景
 

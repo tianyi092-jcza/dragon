@@ -1,6 +1,6 @@
 # 卧龙传 Web · Dragon
 
-当前版本：**0.1.2** · [版本日志](CHANGELOG.md) · [GitHub Releases](https://github.com/tianyi092-jcza/dragon/releases)
+当前版本：**0.1.3** · [版本日志](CHANGELOG.md) · [GitHub Releases](https://github.com/tianyi092-jcza/dragon/releases)
 
 **以现代浏览器重新呈现经典三国军师战略游戏。**
 

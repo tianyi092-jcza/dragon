@@ -171,13 +171,13 @@ native `processMonthlyGeneralFates(585F)`全停已由[§9](#9-月度俘虏594058
 
 新增显式synthetic夹具由正式prepare绑定稀疏native槽0/1/5、独立03、known占格byte、F14/F18、G1F、显示关与玩家门；不会从live数组补表、从坐标造占格或把显示关设成产品默认。代表成员以给定edge800两端异属取得CF，覆盖两成员捕获/回归、第二成员在第一次status重绑视图后继续、L02不同于同号武将、规则残值、占格2→0、RNG两次和真实JSON snapshot/restore稀疏槽。它是给定输入的caller合同，不证明该合成几何由完整战役自然产生，也不认证整段4CF3的88CC/显示后继。
 
-玩家为旧属/接收方时，31/32/33/34基本块均保首成员前缀、停住后成员及apply尾、hold/禁存、不伪造FIFO返回。另以末城失陷自然生成首都FF：两个BP成员均先捕获，随后真实apply在外围4FCE停止，未写`_extinctionHandled`、未处理额外武将；不把它称作native5030成功。最新定向成绩与绑定收据见[journal §11](checkpoint-journal.md#11-p24-fate-road-recovery-1有界caller修复与收据恢复)；完整AI/全量及浏览器归因仍待后续。
+玩家为旧属/接收方时，31/32/33/34基本块均保首成员前缀、停住后成员及apply尾、hold/禁存、不伪造FIFO返回。另以末城失陷自然生成首都FF：两个BP成员均先捕获，随后真实apply在外围4FCE停止，未写`_extinctionHandled`、未处理额外武将；不把它称作native5030成功。最新定向成绩与绑定收据见[旧§11收据缺口索引（待恢复）](historical-receipts.md#p24-fate-road-recovery-1)；完整AI/全量及浏览器归因仍待后续。
 
 ## 8. 原属回归50D7与限定3485入口（P24-ORIGINAL-RETURN-1）
 
 ### 8.1 重新绑定的原始指令（静态实锤）
 
-本批重新读取§1固定KI，SHA仍为`fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，VA+200h。只执行已审`disasm.py`的`data/va_range`；未运行KI、pickle/code_addrs或访问真实存档。原byte、对齐解码及分析依赖/命令收据见[journal §13](checkpoint-journal.md#13-p24-original-return-1原属回归限定入口)。
+本批重新读取§1固定KI，SHA仍为`fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，VA+200h。只执行已审`disasm.py`的`data/va_range`；未运行KI、pickle/code_addrs或访问真实存档。原byte、对齐解码及分析依赖/命令收据见[旧§13收据缺口索引（待恢复）](historical-receipts.md#p24-original-return-1)。
 
 | 半开VA窗口 | 原字节SHA256 |
 | --- | --- |
@@ -684,7 +684,7 @@ if unsigned(AX) > DI: DI = AX; SI = BP[i] // 4CDB..4CE1，严格大于
 
 ## 14. 真实攻城入口、固定127槽与返回分流（P24-SIEGE-ENTRY-EVIDENCE-1）
 
-**实锤限定域：原字节、4ADE前缀及4C72/4ED7/4F8A/4FC8的有界原指令执行，另有显式AX/栈输入的战果返回站点与6FD2叶。** 本节记录P24-SIEGE-ENTRY-EVIDENCE-1历史原证，不是该批新增Web接线（当时`originalroadmovement`仍停28BF；后续实现见[§15](#native-siege-integration)），不能把下面的局部执行当成5130/474A/291A/4CF3或消息的完整返回证明。原证根及可复跑脚本见[journal §21](checkpoint-journal.md#21-p24-siege-entry-evidence-1攻城入口原证续查)。同KI SHA256 `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，VA+200h；不读取真实SAVE或执行DOS程序。
+**实锤限定域：原字节、4ADE前缀及4C72/4ED7/4F8A/4FC8的有界原指令执行，另有显式AX/栈输入的战果返回站点与6FD2叶。** 本节记录P24-SIEGE-ENTRY-EVIDENCE-1历史原证，不是该批新增Web接线（当时`originalroadmovement`仍停28BF；后续实现见[§15](#native-siege-integration)），不能把下面的局部执行当成5130/474A/291A/4CF3或消息的完整返回证明。原证根及可复跑脚本见[旧§21收据缺口索引（待恢复）](historical-receipts.md#p24-siege-entry-evidence-1)。同KI SHA256 `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，VA+200h；不读取真实SAVE或执行DOS程序。
 
 ### 14.1 28BF现场、4ADE帧与主军名单
 
@@ -772,7 +772,7 @@ if unsigned(AX) > DI: DI = AX; SI = BP[i] // 4CDB..4CE1，严格大于
 
 ### 15.2 原始验证与仍未闭合项
 
-本批重新执行固定SHA KI的5130/5285/52D7/51B3/ECE0原字节，256组显式mode0字宽/能力/城兵/旧总兵/RNG向量，与JS逐城byte写、十二队写、两个word交换、士气、全RNG及DIV停点比较。**执行止于5192首次474A CALL之前，不是完整5130 RET原CPU证书**；更外层原窗复用§14封存，291A/4CF3继续使用各自有限原证。脚本/输入输出/实际安全验证见[journal §22](checkpoint-journal.md#22-p24-siege-integration-1真实攻城入口与有限返回)。
+本批重新执行固定SHA KI的5130/5285/52D7/51B3/ECE0原字节，256组显式mode0字宽/能力/城兵/旧总兵/RNG向量，与JS逐城byte写、十二队写、两个word交换、士气、全RNG及DIV停点比较。**执行止于5192首次474A CALL之前，不是完整5130 RET原CPU证书**；更外层原窗复用§14封存，291A/4CF3继续使用各自有限原证。脚本/输入输出/实际安全验证见[旧§22收据缺口索引（待恢复）](historical-receipts.md#p24-siege-integration-1)。
 
 真实slot回归区分：攻城入口不清D03，但474A把D0B改1后，当批后面的D槽会在自己的25CC/264A清bit5/03；不得把后者误测为入场清零。覆盖败退→未消费候选→原格INC→同槽/余槽、玩家4F36失败/hold/不重播、中立零城兵仍战斗及063E→临时清理→占城绘图→同槽尾、未知063E保前缀。纯IO测试另核全部256城兵构造、完整AL/AH返回站点矩阵、玩家/委任门和逐IO故障；这些人工接口输入不是整战役可达性证明。
 
@@ -782,7 +782,7 @@ if unsigned(AX) > DI: DI = AX; SI = BP[i] // 4CDB..4CE1，严格大于
 
 ## 16. 临时槽源初值、55A6与攻城冷恢复（P24-SIEGE-INITIALIZATION-1）
 
-**实锤范围**：固定五个SINARIO的20章字节、KI明确载入/写指令、55A6整叶有界原执行。Web新增保存回归只证明显式输入下的攻城前后冷恢复；没有运行DOS新局、补造生产默认字段或完成C01/C14整链。原证与失败/检查收据见[journal §23](checkpoint-journal.md#23-p24-siege-initialization-1临时槽初值与冷恢复)。
+**实锤范围**：固定五个SINARIO的20章字节、KI明确载入/写指令、55A6整叶有界原执行。Web新增保存回归只证明显式输入下的攻城前后冷恢复；没有运行DOS新局、补造生产默认字段或完成C01/C14整链。原证与失败/检查收据见[旧§23收据缺口索引（待恢复）](historical-receipts.md#p24-siege-initialization-1)。
 
 ### 16.1 源值不是运行时兜底
 
@@ -834,7 +834,7 @@ if unsigned(AX) > DI: DI = AX; SI = BP[i] // 4CDB..4CE1，严格大于
 
 ## 17. 中立临时军的0603撤退别名（P24-NEUTRAL-RETREAT-1）
 
-**实锤限定域**：KI原指令及显式RAM下487B/474A整调用返回；Web只增加已证DS0603的同权威只读桥，不建势力24、不扩任意别名或城市范围。原始bin/对齐反汇编、执行器输入输出与验证收据见[journal §24](checkpoint-journal.md#24-p24-neutral-retreat-1中立撤退别名与真实返回)。KI SHA256仍`fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，VA+200h。
+**实锤限定域**：KI原指令及显式RAM下487B/474A整调用返回；Web只增加已证DS0603的同权威只读桥，不建势力24、不扩任意别名或城市范围。原始bin/对齐反汇编、执行器输入输出与验证收据见[旧§24收据缺口索引（待恢复）](historical-receipts.md#p24-neutral-retreat-1)。KI SHA256仍`fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，VA+200h。
 
 ### 17.1 真实地址、分支和写序
 

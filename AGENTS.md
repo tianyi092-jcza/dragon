@@ -8,7 +8,7 @@
 - 原生JavaScript ES Modules + Canvas 2D重写1995 DOS《臥龍傳》，无模拟器、框架、构建步骤或npm运行时依赖；完整`web/`可由静态HTTP服务独立运行。
 - 仓库`E:/Dragon/web-port`；原程序`E:/Dragon/Dragon/`；官方基准`E:/Dragon/原版/`；`上/中/下/后/`为改版库。自动化禁止访问真实`SAVE.DAT`、用户存档/profile；测试用内存、mock或新隔离profile。
 - **现行规则主干**：fresh与restore使用v2原生道路/固定表，生产v1路径已删除，不相容槽禁用。原生接线及门后续段已有各自限定域证据，但不据此宣称完整战役或所有原机制均已认证。未知消费点继续fail-closed，保已提交前缀、hold/禁存。
-- **当前工作方向**：在单一规则/AI内核上做Web工程扩展与表现修正，不再把“所有逆向完成后才能重构”作为已批准工程工作的阻塞。存储/内容扩展已落地；表现现代化按切片推进，尚未完成脏层等整体渲染重构。
+- **当前工作方向**：在单一规则/AI内核上做Web工程扩展与表现修正，不再把“所有逆向完成后才能重构”作为已批准工程工作的阻塞。存储/内容扩展已落地；表现现代化已加入地图分段脏层与灾害只读播放器，后续性能工作继续按测量切片推进。
 - 原机制只依据原指令/原数据/受控原运行态，区分实锤、推断、未知。Web产品差异单列；不凭现代码、测试或体验补公式。容量仍为原运行域，不自动授权超过192据点或改变AI/调度。
 - 保留共享脏改；commit、push分别需要明确授权，不调整全局配置、信任或权限来绕过工具限制。
 
@@ -47,7 +47,8 @@
 - 战略五档60/35/20/10/3.125ms，每RAF最多6次完整更新、每步检查hold；战术最多一个完整帧，不补后台债务。战略与表现时钟不能互相代替。
 - 行军按8×movePeriod插值；城标/军团共用锚点，显示段结束才采用下一方向/驻守帧；绘制不改路线/RNG。六队全骑周期2、其余3的规则不变。接战30ms换帧、60ms发声，每段连续共享接触最多五响；详情见[行军表现](docs/march-presentation-fixes.md)。
 - 云雨直接使用原完整八帧PNG，不画渐变云或额外雨丝；独立表现时间100ms换帧、平滑位移，**随战略计时暂停/恢复**：speed<=0或任何hold时位置和雨丝均冻结，后台/场景退出亦冻结。可见慢帧限量推进，不整帧丢弃至永久停动画；细节见[表现合同](docs/presentation-modernization.md)。
-- Canvas backing store仅尺寸/DPR变化时重建；列表右侧滚动条、24px表头、墨绿色`#4a7828`选中；排序绑定原对象。
+- Canvas backing store仅尺寸/DPR变化时重建；地图分段缓存只跳过栅格化，不跳过GameBar布局/消息drain；连续移动或超容量回退直绘。灾害播放器只读原槽/frame，无新时钟或延寿。详见[表现合同](docs/presentation-modernization.md)。
+- 列表右侧滚动条、24px表头、墨绿色`#4a7828`选中；排序绑定原对象。
 - 自定军师`{custom:true,general_idx:null,name,hao,portrait}`；军师化身排除普通任官/编成/自动出征。统一后留在地图、不播D7END；信赖归零/玩家灭亡仍GAME OVER。
 - 系统菜单：保存、读取、音效、战略速度、战术速度、退出。音效TYPE1→2→3→4→关闭调CF9；OFF停BGM，不禁PC/FM效果。战术对白不暂停Session；战术速度与布局见[战术规则](docs/re-notes-tactical-rules.md)。
 - 独立开场原生动画/单次MP3，会话刷新/读档直达终场；具体音乐与弹窗边界见[开场维护源](docs/opening-scene.md)。
@@ -81,6 +82,9 @@ node tools/verify_legion_slot_battle.mjs
 node --test --test-reporter=tap tools/verify_native_formation.mjs
 node --test tools/verify_road_field_authority.mjs
 node tools/verify_weather_presentation.mjs
+node tools/verify_disaster_presentation.mjs
+node tools/verify_retained_layers.mjs
+node tools/verify_render_layers_browser.mjs
 node tools/verify_weather_browser.mjs  # 已有Playwright；可指定PLAYWRIGHT_MODULE
 node tools/verify_legion_lifecycle_browser.mjs
 node --check web/src/main.js
