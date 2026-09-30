@@ -3,6 +3,8 @@
 import { readOriginalCityCache as readStoredCityCache } from "./originalroadarrival.js";
 import { createOriginalLegion } from "./originalformation.js";
 import { nativeLegionAt, rebindNativeLegionViews } from "../nativelegions.js";
+import { nativeFactionAt } from "../nativefactions.js";
+import { nativeDiplomacyAt } from "../nativediplomacy.js";
 
 function readOriginalCityCache(context, index, at) {
   try {
@@ -150,10 +152,14 @@ export function runOriginalCityMilitary(sc, context, city, rng) {
     bp = 0;
   if (byte(city.strategicBorderCount, "C1B at 3FAB") !== 0) {
     const owner = cityOwner(sc, context, city.idx, "3FB3");
-    const target = encodedByte(
-      factionAt(sc, owner, "3FBF").target_faction,
-      "F19 at 3FBF",
-    );
+    // DOS reads the fixed 22-slot faction table blindly (city faction
+    // domain over all 20 chapters is exactly 0..21). The Web named table
+    // carries active factions only; when no named record exists, read the
+    // same slot's native bytes (the exact memory DOS reads) instead of
+    // holding. All F19 readers go through named-or-native records only.
+    const holder = sc.factions?.find((item) => item?.idx === owner) ??
+      nativeFactionAt(sc, owner, "3FBF-dead");
+    const target = encodedByte(holder.target_faction, "F19 at 3FBF");
     for (let index = 0; index < 4; index++) {
       const neighbour = byte(
         city.strategicNeighbours?.[index],
@@ -163,10 +169,14 @@ export function runOriginalCityMilitary(sc, context, city, rng) {
       const otherOwner = cityOwner(sc, context, neighbour, "3FE4");
       if (otherOwner === owner) continue;
       if (otherOwner !== 0x18) {
-        if (
-          byte(sc.diplomacy?.[owner]?.[otherOwner], "relation at 3FF4") >= 0x80
-        )
-          continue;
+        // DOS reads the fixed 24x24 relation matrix blindly; the Web named
+        // matrix carries active factions only. Fall back to the native
+        // matrix bytes (the exact memory DOS reads) when the named row
+        // is absent. Both indices are in 0..21 here (0x18 excluded above).
+        const named = sc.diplomacy?.[owner]?.[otherOwner];
+        const relation = named ??
+          nativeDiplomacyAt(sc, owner, otherOwner, "3FF4-dead");
+        if (byte(relation, "relation at 3FF4") >= 0x80) continue;
         work[bp] = 254;
         threat =
           (threat + readOriginalCityCache(context, neighbour, "3FFF")) & 255;

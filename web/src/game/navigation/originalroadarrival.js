@@ -247,8 +247,19 @@ export function refreshOriginalCityCache(sc, context, city) {
       // (3840 records checked); only this alias needs the model, anything
       // else stays fail-closed in factionAt below.
       writeNativeDiplomacyAt(sc, 0, 23, city.idx, "3F29");
-    } else
+    } else if (oldOwner <= 0x15 && sc.factions?.some((f) => f?.idx === oldOwner)) {
       factionAt(sc, oldOwner, "3F29").strategic_city_secondary = city.idx;
+    } else if (oldOwner !== 0x18 && oldOwner > 0x15) {
+      stop(`3F29 old owner ${oldOwner} outside the closed domain`);
+    }
+    // Else (in-domain dead slot, no named record): DOS writes that slot's
+    // +0x17 blindly (no range check, 3F1B..3F29; slot domain 0x00..0x15 +
+    // 0x18 alias re-verified over all 3840 records). No modeled reader can
+    // observe it: every strategic_city_secondary read goes through the
+    // same factionAt gate (442F, case-6 order), which stops for missing
+    // records first. The Web named table carries active factions only,
+    // so the write is skipped instead of holding the game (ch1/ch6 官渡
+    // arbiter). Out-of-domain values stay fail-closed (0xFF pin kept).
   }
   const y = word(city.y, "city Y at 3F2C"),
     row = u16(y * 24);

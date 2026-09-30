@@ -16,7 +16,9 @@ function isInt(value, low, high) {
   return Number.isInteger(value) && value >= low && value <= high;
 }
 
-export function validateMapSource(src) {
+export function validateMapSource(src, options = {}) {
+  const draft = options.draft === true;
+  const diagnostics = [];
   if (!src || typeof src !== "object") throw new TypeError("map source must be an object");
   if (src.schemaVersion !== MAP_SCHEMA_VERSION) throw new RangeError("unsupported map schemaVersion");
   const bounds = src.map?.bounds;
@@ -91,10 +93,25 @@ export function validateMapSource(src) {
     }
     const fromCity = cityById.get(road.fromCityId);
     const toCity = cityById.get(road.toCityId);
-    if (!isPortOf(road.geometry[0], fromCity) || !isPortOf(road.geometry.at(-1), toCity))
-      throw new RangeError(`roads[${index}] endpoints must be ports of their cities`);
+    // E-03/Q14: endpoint port-shape is SEMANTIC (断路), not structural.
+    // Strict mode (compile/publish/tools) rejects; draft mode collects
+    // diagnostics so the断路草稿 saves with its断路 flagged, and only
+    // publish/compile is blocked until reconnected.
+    for (const [end, city, label] of [[road.geometry[0], fromCity, "from"], [road.geometry.at(-1), toCity, "to"]]) {
+      if (!isPortOf(end, city)) {
+        const diagnostic = { code: "disconnected-road", roadId: road.id, endpoint: label, message: `roads[${index}] ${label} end is not a port of its city` };
+        if (draft) diagnostics.push(diagnostic);
+        else throw new RangeError(diagnostic.message);
+      }
+    }
   }
-  return true;
+  return diagnostics;
+}
+
+// Draft diagnostics without throwing on semantic issues (structural
+// violations still throw). Compile/publish must use strict validation.
+export function diagnoseMapDraft(src) {
+  return validateMapSource(src, { draft: true });
 }
 
 // 编译：规则地形字节（base.terrainRef 直出）＋ 显式地理 ＋ 静态路网掩码。

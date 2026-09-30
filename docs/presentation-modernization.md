@@ -26,6 +26,8 @@
 
 `render/retainedlayers.js`由`MapView`持有，将绘制命令分成terrain、objects、environment、ui四段，cursor最后单独绘制。先跑所有原producer，再按命令/Canvas状态变化决定重绘；**GameBar布局与消息队列drain每次照常执行**，不把它们误当纯绘图跳过。
 
+这些是渲染命令／缓存分段，不代表地图源已经拆成可编辑组件或建筑／地形层。后继的[统一地图编辑合同](game-editor-design.md)与[当前游戏地图改造](game-map-migration-plan.md)另行定义创作结构和自动小地图；先改造验证当前游戏、再建设编辑器。小地图生成与动态覆盖须继续遵守只读规则、RNG隔离和缓存失效边界，不能以新美术改动输入／暂停政策。
+
 - 保存不透明的累积前缀，而非透明文本层，保留字形抗锯齿、alpha混合、图案、遮挡次序与原像素。指针单独改变时只拷贝已缓存UI前缀再画指针；完全稳定时不重新提交像素。
 - 状态/path/query操作在1×1 scratch context执行，不提前修改主Canvas状态栈。若消息producer同步重入draw，先提交外层命令，再将嵌套及剩余外层切到直绘；保留原调用顺序，不重跑消息回调，也不把外层tape覆盖成内层tape。
 - 前缀连续稳定后才保存checkpoint。对象连续变化时短暂回退直绘，每30次draw再探测；这是Web性能策略，不是规则timer，也不增加RAF/规则步。初版逐层全幅拷贝曾使移动场景变慢，已撤销。

@@ -2,6 +2,8 @@
 
 这是用户批准的 Web 工程扩展，不是新的 DOS 机制结论。保持原生 ES Modules + Canvas 2D、静态部署、单一规则/AI 内核；原规则容量、RNG、调度、道路搜索和快照字段不变。继承[第一阶段](web-refactor-phase1.md)的行为基准。
 
+> 后继方案拆分为[任务一：编辑器设计](game-editor-design.md)和[任务二：当前游戏地图改造](game-map-migration-plan.md)。先确定统一地图源／编译／加载合同，再完成当前游戏自动小地图与统一迁移并验证，之后建设编辑器，以原游戏的独立测试副本为第一个可编辑实例，编辑器不直接修改原件。本文受限编辑器是已交付边界，不代表新方案已实现；地图统一不等于容量限制已解除。
+
 ## 1. 多存档与存储职责
 
 - 解除四档硬限制；档号是非负安全整数，不是 DOS 槽号。仍显示最初四个占位，填满后保存列表提供下一空档；保存窗口保持原样式与四行视口，用滚轮或右侧滚动条浏览。标题读档列表复用原滚动窗口，按稳定档号而非可见行号加载；空/不相容档仍三路禁用。
@@ -51,4 +53,4 @@ python -B tools/compile_content.py --source /path/to/new-source --output /path/t
 
 新增/扩展专项：`verify_save_repository.mjs`、`verify_local_saves.mjs`、`verify_content_editor.py`、`verify_expansion_browser.mjs`。覆盖原子多档、并发分配、不覆盖导入、实际 App 保存守卫、JSON/RNG 往返、标题准入、滚动命中、管理/编辑页、四季×三种 DPR×四个视口的48组逐像素对照。
 
-固定20章状态/资源与槽/RNG基准继续不变。完整回归数字、既有失败和诊断覆盖限制只记录在 [checkpoint journal](checkpoint-journal.md)。超过192据点、地址/ID解耦、扩大固定槽和新的调度策略仍属于第三阶段，不借此绕过原未覆盖输入的 fail-closed 边界。
+固定20章状态/资源与槽/RNG基准继续不变。完整回归数字、既有失败和诊断覆盖限制只记录在 [checkpoint journal](checkpoint-journal.md)。超过192据点、地址/ID解耦、扩大固定槽和新的调度策略是本批所称后续容量扩展（旧称第三阶段），不借此绕过原未覆盖输入的 fail-closed 边界。新的整体执行顺序见[编辑器设计第8节](game-editor-design.md)；自动小地图与现容量统一迁移先做，不必等扩容，也不授权改变原调度规则。
