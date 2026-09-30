@@ -50,6 +50,7 @@ import {
   synthesizeScenarioCityCache,
 } from "./navigation/scenariocitycache.js";
 import { createScenarioTerrainMemory } from "./navigation/scenarioterrainmemory.js";
+import { paint8A1E } from "./navigation/originalcitycapture.js";
 import { initializeScenarioWeatherInputs } from "./weather.js";
 
 // Assembly identity is not a second RAM owner. RAM remains in its existing adapter.
@@ -328,8 +329,7 @@ export async function prepareScenario({
   // city cells 0xCB..0xD3 exact; march §740: 508 endpoints 0xCE..0xDD with
   // 0/5018 mid hits, re-verified on current assets this round), so this is
   // the certified tile truth, not §12-prohibited PNG/raw backfill of holes:
-  // the plane is fully bound, no holes. 89F0/8A1E fresh paints stay
-  // capture-path-only (corner alias arithmetic has no plane model per §12).
+  // the plane is fully bound, no holes.
   // Restore-validation runs only for explicit inputs; synthesized planes
   // take the fresh-construction path in either mode.
   const terrainExplicit = terrainInput !== null;
@@ -355,6 +355,18 @@ export async function prepareScenario({
     content,
     world,
   });
+  // 89F0 opening pass (G-完结): the original 1BE6 startup chain repaints
+  // all 192 cities through the SAME 8A1E body production captures use
+  // (centers + corners per owner; 89FB..8A07 loop re-read this round).
+  // Fresh initial plane only: restores carry their own plane (no 89F0
+  // caller exists on the load path: callers are 1B87 tactical-return +
+  // 1BE6 startup), and explicit test planes are used as planted. The
+  // tactical-return pass is idempotent (same owners, no other writers)
+  // and stays out of scope. City coords are gate-validated above, so the
+  // y<2 segment-alias stop cannot fire on admitted scenarios.
+  if (mode === "fresh" && !terrainExplicit) {
+    for (const city of scenario.cities) paint8A1E(scenario, city);
+  }
   return {
     scenario,
     metadata: structuredClone(expected),

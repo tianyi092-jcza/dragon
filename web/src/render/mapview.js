@@ -1,6 +1,7 @@
 // 地图视图 — 相机(拖动平移, 固定100%不可缩放) + 分层绘制(地形/城池/军团/标签)
 import { DEFAULT_WORLD } from "../content/worlddefinition.js";
 import { RetainedLayers } from "./retainedlayers.js";
+import { drawTerrainOverlay } from "../content/authoring/terrainview.js";
 import { DisasterPresentation } from "./disasterpresentation.js";
 export { preloadDisasterObjectImages } from "./disasterpresentation.js";
 
@@ -615,6 +616,27 @@ export class MapView {
     const sc = this.getScenario();
     if (!sc) { layers?.finish(); return; }
     layers?.layer('objects');
+
+    // M2：运行地形只读投影（8A1E 中心/角块写回），装配体唯一权威；
+    // 地形对象经 view.getTerrain 取自 scenarioNativeRoadContext（Scenario 本体不直挂）。
+    // 季节切换换 atlas 即重建，恢复换 scenario 即重读，不写回源/缓存。
+    try {
+      const atlas = this.seasonImg?.atlasImage;
+      const terrain = this.getTerrain?.() ?? null;
+      const identity = this.app?.world?.terrain?.terrainIdentity?.();
+      if (atlas && terrain && typeof identity === "string") {
+        drawTerrainOverlay(ctx, {
+          atlas,
+          terrain,
+          initialHex: identity,
+          sx: (wx) => this.sx(wx),
+          sy: (wy) => this.sy(wy),
+          scale: this.cam.scale,
+          viewW: width,
+          viewH: height,
+        });
+      }
+    } catch { /* 无初始身份时跳过投影，不阻断绘制 */ }
 
     // 城池: 建筑图标 + 驻军方块（覆盖中心建筑）
     for (const c of sc.cities) {

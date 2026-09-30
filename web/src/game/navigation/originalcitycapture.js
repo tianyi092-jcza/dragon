@@ -89,7 +89,8 @@ function capital4DF0(sc, city, owner) {
 
 // D44-relative canonical domain: ES=(Y-2)*24 paragraphs; BX arithmetic is
 // independently u16. Segment-base wrap/aliases are not a Web terrain plane.
-function paint8A1E(sc, city) {
+// Exported for A-MAP-2 write-order tests (same body production calls).
+export function paint8A1E(sc, city) {
   const y = own(city, "y", 65535, "8A1F");
   let bx = (own(city, "x", 65535, "8A38") + 0x300) & 65535;
   const terrain = scenarioNativeRoadContext(sc)?.terrain;
@@ -119,12 +120,13 @@ function paint8A1E(sc, city) {
   const highlight =
     currentOwner === own(sc, "player_faction", 255, "8A6B") ? 10 : 0;
   const type = own(city, "type", 15, "8A74");
-  const deltas =
-    type === 0
-      ? [-0x302, 4, 0x600, -4]
-      : type === 3
-        ? [-0x180, 0x17f, 2, 0x17f]
-        : [-0x181, 2, 0x300, -2];
+  // Corner BX walks per city type (admission §2.3): metropolis (±2,±2),
+  // checkpoint orthogonal-adjacent, others (±1,±1). Table lookup, no branch.
+  const CORNER_DELTAS = {
+    0: [-0x302, 4, 0x600, -4],
+    3: [-0x180, 0x17f, 2, 0x17f],
+  };
+  const deltas = CORNER_DELTAS[type] ?? [-0x181, 2, 0x300, -2];
   for (const delta of deltas) {
     bx = (bx + delta) & 65535;
     const corner = read("8AD1");
@@ -157,7 +159,7 @@ function borders88CC(sc, city) {
     if (reverse < 4) {
       const same = owner === ownerByte(other, "891F");
       function update(record, bit, testAt, countAt, attrAt) {
-        const set = !!(own(record, "attr", 255, testAt) & bit);
+        const set = (own(record, "attr", 255, testAt) & bit) !== 0;
         if (set === !same) return;
         record.strategicBorderCount =
           (own(record, "strategicBorderCount", 255, countAt) +

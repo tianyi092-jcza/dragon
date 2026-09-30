@@ -716,6 +716,14 @@ window.__app = app; // 调试句柄(控制台可用 __app.clock 等)
 window.app = app;
 app.view = new MapView(canvas, () => app.scenario, () => app.world.definition);
 app.view.app = app;
+// M2：大地图只读投影取装配体地形（scenarioNativeRoadContext），只读，不推进规则。
+app.view.getTerrain = () => {
+  try {
+    return scenarioNativeRoadContext(app.scenario)?.terrain ?? null;
+  } catch {
+    return null;
+  }
+};
 attachInput(app.view, {
   uiHit: (x, y) => app.gamebar?.hitTest(x, y) ?? false,
   onHover: (target, e) => {

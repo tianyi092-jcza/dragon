@@ -36,7 +36,9 @@ export function createWorldResources(definition = DEFAULT_WORLD) {
       const [image, layout] = await Promise.all([
         loadImage(atlas), loadBytes(definition.assets.terrain),
       ]);
-      return createChunkedTerrain(image, layout, definition);
+      const chunked = createChunkedTerrain(image, layout, definition);
+      // M2：只读投影需要当季图集绘制 8A1E 差分；附加引用，不改规则权威。
+      return Object.freeze({ ...chunked, atlasImage: image });
     },
   });
 }

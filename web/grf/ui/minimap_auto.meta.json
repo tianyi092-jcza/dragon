@@ -1,0 +1,29 @@
+{
+  "caseId": "M-01-pure-generate",
+  "contractRevision": "minimap-style-1",
+  "seed": 1,
+  "sourceHashes": {
+    "mmap_map_bin": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+    "road_cost_bin": "dcc1ea444ed2d098a9f481bab5cffab713195e9b3b5c304ad993a4533c3ffee6"
+  },
+  "geographyNote": "inferred-sea-edge-connected river/lake fallback; NOT an authority classification (M2 explicit waterClass pending)",
+  "artifacts": {
+    "base": {
+      "png": ".dragon-analysis\\map-migration\\minimap-a\\minimap_auto_base_1.png",
+      "sha256": "bb63f5d278227de32185354abc230f34c32481b0c4da37d5d0a52b12b4d924bb",
+      "size": {
+        "w": 208,
+        "h": 139
+      }
+    },
+    "large": {
+      "png": ".dragon-analysis\\map-migration\\minimap-a\\minimap_auto_large_1.png",
+      "sha256": "6517d017793714fdfccd265fe538b039d67b74112564c35a1d82bd763ca303f2",
+      "size": {
+        "w": 250,
+        "h": 167
+      }
+    }
+  },
+  "coverageLimits": "original 384x256 only; no capacity change; visual style pending user acceptance"
+}

@@ -278,6 +278,27 @@ def compile_chapter(document, world_cities):
     return state
 
 
+def e961_class(tile):
+    """KI.EXE 0xE961 connectable-tile classifier (march §5.4).
+
+    B8..B9 -> 01, BA..CA -> 00 (CA additionally OR 0x80), CB..D3 -> 03,
+    D4..DD -> 04; anything else is not a construction step. Same windows as
+    tools/probe_march_topology.classify_connectable, restated here so the
+    content pipeline gains no new module dependency."""
+    if not 0xB8 <= tile <= 0xDD:
+        return None
+    kind = 1
+    if tile >= 0xBA:
+        kind = 0
+        if tile >= 0xCB:
+            kind = 3
+            if tile >= 0xD4:
+                kind = 4
+    if tile == 0xCA:
+        kind |= 0x80
+    return kind
+
+
 def validate_original_road_content(roads):
     """Staged v2 Web asset profile, not KI's handling of malformed live RAM.
 
@@ -441,6 +462,49 @@ def load_content(root=SOURCE_ROOT):
                 raise ValueError(
                     "road endpoint/interior disagrees with city-boundary tile semantics"
                 )
+        if roads["version"] == 2:
+            # A-ROAD-1 construction-discipline gate (certified in
+            # tools/verify_road_construction_cert.mjs against original-binary
+            # output: 5526 flags). E841/E961 flags: first 0x44, last 0x04,
+            # interior E961(tile). A flag disagreeing with its own tile is
+            # internally inconsistent, so the pipeline rejects it here.
+            # Byte COSTS stay curated-trust (the pinned test requires the
+            # full 0..255 domain to load): cost==len-1 fidelity is certified
+            # at the derivation level, not re-derived by this gate.
+            # Tile-level trace rerun on edited tiles stays G-ROAD remainder.
+            for index, point in enumerate(edge["points"]):
+                tile = layout[point["y"]][point["x"]]
+                if index == 0:
+                    expected_flag = 0x44
+                elif index == len(edge["points"]) - 1:
+                    expected_flag = 0x04
+                else:
+                    expected_flag = e961_class(tile)
+                if point.get("flags") != expected_flag:
+                    raise ValueError(
+                        "v2 road point flag disagrees with E841/E961 classes"
+                    )
+            # A-ROAD-1 disconnect refusal: each endpoint must be a D4..DD
+            # port tile, cardinally aligned with its endpoint city center at
+            # distance 1..2 (certified 508/508 in
+            # tools/verify_road_construction_cert.mjs). A geometrically
+            # disconnected edge (truncated mid-field, wrong-city port) is
+            # accurately rejected here instead of silently loaded.
+            for point, node in (
+                (edge["points"][0], roads["nodes"][edge["source"]]),
+                (edge["points"][-1], roads["nodes"][edge["target"]]),
+            ):
+                tile = layout[point["y"]][point["x"]]
+                dx, dy = point["x"] - node["x"], point["y"] - node["y"]
+                cardinal = (dx == 0 or dy == 0) and (dx, dy) != (0, 0)
+                if not (
+                    0xD4 <= tile <= 0xDD
+                    and cardinal
+                    and 1 <= max(abs(dx), abs(dy)) <= 2
+                ):
+                    raise ValueError(
+                        "v2 road endpoint is not a port of its city"
+                    )
     if (
         len(source_path(root, world["roadCost"]).read_bytes())
         != world["width"] * world["height"]

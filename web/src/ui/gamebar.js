@@ -11,6 +11,9 @@
 //     点击导航大地图, 遇袭城点闪烁+警示音
 //   - 时钟联动: 仅模态弹窗(進言/列表/存读档)打开时冻结计时, 菜单条/悬停不影响
 import { loadImage, portrait } from "../core/assets.js";
+import { minimapTransform } from "../content/authoring/minimap.js";
+// M1 自动小地图：统一正逆变换（实际地图矩形，留边不导航），不再各处手写 208/6144 常量。
+const MINIMAP_WORLD = Object.freeze({ width: 384, height: 256, tileSize: 16 });
 import { saveChoices } from "../core/savecatalog.js";
 import * as cmd from "../game/commands.js";
 import * as adv from "../game/advisor.js";
@@ -232,6 +235,14 @@ export class GameBar {
         };
         this._gf = { cloud, sq, col, cap }; // 金框+云纹 (与弹窗同源资产)
         this.app.view.draw();
+        // M1：同一生成器产物优先，缺失时保留旧手工图回退（不改输入优先级/hold）。
+        loadImage("grf/ui/minimap_auto_208x139.png").then(
+          (auto) => {
+            this.imgs.mbg = auto;
+            this.app.view.draw();
+          },
+          () => {},
+        );
       },
     );
   }
@@ -8263,8 +8274,8 @@ export class GameBar {
     const sc = this.app.scenario;
     if (!sc) return;
     const me = cmd.playerFaction(sc);
-    const kx = 208 / 6144;
-    const ky = 139 / 4096;
+    const miniT = minimapTransform(MINIMAP_WORLD, { x: mx, y: my, w: mw, h: mh });
+    const ks = miniT.scale;
     const battles = minimapBattleMarkers(sc, this.app.engagementFx);
     // 军团路线 (虚线: 军团→目标)
     const t = this.app.clock?.dayProgress?.() ?? 1;
@@ -8282,22 +8293,19 @@ export class GameBar {
       ctx.strokeStyle = factionColorEx(sc, L.faction);
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(mx + (gx * 16 + 8) * kx, my + (gy * 16 + 8) * ky);
+      ctx.moveTo(...miniT.worldToDisplay(gx * 16 + 8, gy * 16 + 8));
       // G3: v1 live route oracle deleted. Mirror the big-map native
       // projection (L._march points); display never searches the graph.
       const path =
         L._march?.points?.slice(L._march.pointIndex ?? 0) ?? L._path ?? [];
       if (isMoving && curT < 1) {
-        ctx.lineTo(mx + (L.x * 16 + 8) * kx, my + (L.y * 16 + 8) * ky);
+        ctx.lineTo(...miniT.worldToDisplay(L.x * 16 + 8, L.y * 16 + 8));
       }
       for (const point of path) {
-        ctx.lineTo(mx + (point.x * 16 + 8) * kx, my + (point.y * 16 + 8) * ky);
+        ctx.lineTo(...miniT.worldToDisplay(point.x * 16 + 8, point.y * 16 + 8));
       }
       if (!path.length) {
-        ctx.lineTo(
-          mx + (L.target.x * 16 + 8) * kx,
-          my + (L.target.y * 16 + 8) * ky,
-        );
+        ctx.lineTo(...miniT.worldToDisplay(L.target.x * 16 + 8, L.target.y * 16 + 8));
       }
       ctx.stroke();
     }
@@ -8305,8 +8313,7 @@ export class GameBar {
     // 据点方块: 所有点 5x5(3x3色块+1px边框)
     // 玩家黄填充#F0E000+红边框#D00000; 选中蓝填充#3040D0+白边框#FFFFFF; 其它蓝填充#3040D0+深蓝边框#002060; 空城白底黑框
     for (const c of sc.cities) {
-      const x = mx + (c.x * 16 + 8) * kx;
-      const y = my + (c.y * 16 + 8) * ky;
+      const [x, y] = miniT.worldToDisplay(c.x * 16 + 8, c.y * 16 + 8);
       const f = sc.factionOf(c);
       const isMe = me && f && f.idx === me.idx;
       const isSel = f && this.selFaction === f.idx;
@@ -8320,19 +8327,14 @@ export class GameBar {
     // 暂停不换相，接触解除/战果完成后不保留尾闪。
     for (const [key, marker] of battles) {
       if (typeof key !== "string") continue;
-      drawMinimapMarker(
-        ctx,
-        mx + (marker.x * 16 + 8) * kx,
-        my + (marker.y * 16 + 8) * ky,
-        marker.style,
-      );
+      drawMinimapMarker(ctx, ...miniT.worldToDisplay(marker.x * 16 + 8, marker.y * 16 + 8), marker.style);
     }
     // 视口线框: 当前大地图可视范围 (缩小一半, 并加 1px 右下黑色阴影)
     const view = this.app.view;
-    const vx = (-view.cam.x / view.cam.scale) * kx;
-    const vy = (-view.cam.y / view.cam.scale) * ky;
-    const vw = ((innerWidth / view.cam.scale) * kx) / 2;
-    const vh = ((innerHeight / view.cam.scale) * ky) / 2;
+    const vx = (-view.cam.x / view.cam.scale) * ks;
+    const vy = (-view.cam.y / view.cam.scale) * ks;
+    const vw = ((innerWidth / view.cam.scale) * ks) / 2;
+    const vh = ((innerHeight / view.cam.scale) * ks) / 2;
     const vrx = mx + vx + vw / 2;
     const vry = my + vy + vh / 2;
     ctx.lineWidth = 1;
@@ -8431,8 +8433,7 @@ export class GameBar {
       my = p.y;
     const mw = 208,
       mh = 139;
-    const kx = 208 / 6144;
-    const ky = 139 / 4096;
+    const miniT = minimapTransform(MINIMAP_WORLD, { x: mx, y: my, w: mw, h: mh });
     // 名牌区: 右名牌点击 → 弹势力列表选择显示势力
     const by = my + mh + 1;
     if (py >= by && py < by + 20 && px >= mx && px < mx + mw) {
@@ -8442,12 +8443,14 @@ export class GameBar {
       }
       return true;
     }
-    // 地图区: 点到哪, 大地图就移到哪 (视口中心=点击点)
+    // 地图区: 点到哪, 大地图就移到哪 (视口中心=点击点)；留边经统一变换拒导航，只消费。
     if (px >= mx && py >= my && px < mx + mw && py < my + mh) {
       clickSfx();
       const view = this.app.view;
-      const wxp = ((px - mx) / kx) * view.cam.scale;
-      const wyp = ((py - my) / ky) * view.cam.scale;
+      const world = miniT.displayToWorld(px, py);
+      if (!world) return true;
+      const wxp = world[0] * view.cam.scale;
+      const wyp = world[1] * view.cam.scale;
       view.cam.x = innerWidth / 2 - wxp;
       view.cam.y = innerHeight / 2 - wyp;
       view.clampCam();
