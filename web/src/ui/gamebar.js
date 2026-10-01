@@ -11,7 +11,7 @@
 //     点击导航大地图, 遇袭城点闪烁+警示音
 //   - 时钟联动: 仅模态弹窗(進言/列表/存读档)打开时冻结计时, 菜单条/悬停不影响
 import { loadImage, portrait } from "../core/assets.js";
-import { minimapTransform } from "../content/authoring/minimap.js";
+import { mapPanelLayout, insidePanel } from "./mappanellayout.js";
 // M1 自动小地图：统一正逆变换（实际地图矩形，留边不导航），不再各处手写 208/6144 常量。
 const MINIMAP_WORLD = Object.freeze({ width: 384, height: 256, tileSize: 16 });
 import { saveChoices } from "../core/savecatalog.js";
@@ -191,11 +191,12 @@ export class GameBar {
       loadImage("grf/ui/frame_sq.png"),
       loadImage("grf/ui/frame_col.png"),
       loadImage("grf/ui/frame_cap.png"),
-      loadImage("grf/ui/minimap_roads.png"),
+      this._loadMinimapImage("base"),
       loadImage("grf/ui/message_npc.png"),
       loadImage("grf/ivent_0.png"),
       loadImage("grf/ivent_1.png"),
       loadImage("grf/ivent_2.png"),
+      this._loadMinimapImage("large"),
     ]).then(
       ([
         bar,
@@ -216,6 +217,7 @@ export class GameBar {
         ivent0,
         ivent1,
         ivent2,
+        mbgLarge,
       ]) => {
         this.imgs = {
           bar,
@@ -228,6 +230,7 @@ export class GameBar {
           arc,
           inf,
           mbg,
+          mbgLarge,
           messageNpc,
           ivent0,
           ivent1,
@@ -235,16 +238,20 @@ export class GameBar {
         };
         this._gf = { cloud, sq, col, cap }; // 金框+云纹 (与弹窗同源资产)
         this.app.view.draw();
-        // M1：同一生成器产物优先，缺失时保留旧手工图回退（不改输入优先级/hold）。
-        loadImage("grf/ui/minimap_auto_208x139.png").then(
-          (auto) => {
-            this.imgs.mbg = auto;
-            this.app.view.draw();
-          },
-          () => {},
-        );
+        // Both map sizes came from this world's immutable compiled manifest.
+        // No manual image or another revision is installed as fallback.
       },
     );
+  }
+
+  _loadMinimapImage(size) {
+    const world = this.app.world;
+    const url = world?.definition.assets.minimap?.[size];
+    if (!url) return Promise.reject(new Error(`missing compiled minimap ${size}`));
+    return loadImage(url).then((image) => {
+      if (this.app.world !== world) throw new Error("stale minimap world");
+      return image;
+    });
   }
 
   // ── 金框 + 云纹窗 (与 startmenu prompt 同款, 供右侧面板用) ──
@@ -6324,18 +6331,8 @@ export class GameBar {
   layout() {
     const W = innerWidth;
     this.bx = Math.max(0, Math.round((W - 640) / 2));
-    const panels = [];
-    // 面板尺寸必须与 _drawWindow 实际外框一致, 防止上下边框重叠
-    if (this.miniOpen) panels.push({ w: 224, h: 176, kind: "mini" });
-    if (this.resOpen) panels.push({ w: 224, h: 208, kind: "res" });
-    const gap = 8;
-    let y = 32 + 4; // 右上角: 紧贴工具栏下方
-    for (const p of panels) {
-      p.x = W - p.w - 4; // 页面右对齐
-      p.y = y;
-      y += p.h + gap;
-    }
-    this.panels = panels;
+    this.panels = mapPanelLayout({ width: W, height: innerHeight,
+      miniOpen: this.miniOpen, resOpen: this.resOpen, world: MINIMAP_WORLD });
 
     if (this.financeDialog) {
       this._recalcFinanceDialog();
@@ -6471,7 +6468,7 @@ export class GameBar {
     if (py < 32 && px >= this.bx && px < this.bx + 640) return true; // 工具栏
     if (
       this.panels.some(
-        (p) => px >= p.x && px < p.x + p.w && py >= p.y && py < p.y + p.h,
+        (p) => insidePanel(p, px, py),
       )
     )
       return true;
@@ -7181,11 +7178,7 @@ export class GameBar {
     // 资源面板: 仅点击在面板内时消费
     const res = this.panelRect("res");
     if (
-      res &&
-      px >= res.x &&
-      px < res.x + res.w &&
-      py >= res.y &&
-      py < res.y + res.h
+      res && insidePanel(res, px, py)
     )
       return true;
 
@@ -8248,33 +8241,25 @@ export class GameBar {
   drawMini(ctx) {
     const p = this.panelRect("mini");
     if (!p) return;
-    const mw = 208, // 内区宽度, 与资源面板同宽
-      mh = 139; // 按世界 6144x4096 比例的高度
-    let mx, my;
+    const { x: mx, y: my, w: mw, h: mh } = p.mapBox;
     if (this._gf) {
-      // 14x11 瓦片 → 外框 224x176, 内区 208x160
-      const { x, y } = this._drawWindow(ctx, p.x - 8, p.y - 8, 14, 11, "cloud");
-      mx = x;
-      my = y;
+      this._drawWindow(ctx, p.frame.x, p.frame.y, p.w / 16, p.h / 16, "cloud");
     } else {
       ctx.fillStyle = NAVY;
-      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.fillRect(p.frame.x, p.frame.y, p.w, p.h);
       ctx.strokeStyle = GOLD;
       ctx.lineWidth = 2;
-      ctx.strokeRect(p.x + 1, p.y + 1, p.w - 2, p.h - 2);
-      mx = p.x + 8;
-      my = p.y + 8;
+      ctx.strokeRect(p.frame.x + 1, p.frame.y + 1, p.w - 2, p.h - 2);
     }
-    // 内区 208x160：地图 208x139 置顶，下方留 21px 给名牌
-    if (this.imgs.mbg) ctx.drawImage(this.imgs.mbg, mx, my, mw, mh);
-    else {
-      ctx.fillStyle = "#d0b080";
-      ctx.fillRect(mx, my, mw, mh);
-    }
+    ctx.fillStyle = "#d0b080";
+    ctx.fillRect(mx, my, mw, mh);
+    const miniT = p.transform;
+    const r = miniT.rect;
+    const image = mw === 250 ? this.imgs.mbgLarge : this.imgs.mbg;
+    if (image) ctx.drawImage(image, r.x, r.y, r.w, r.h);
     const sc = this.app.scenario;
     if (!sc) return;
     const me = cmd.playerFaction(sc);
-    const miniT = minimapTransform(MINIMAP_WORLD, { x: mx, y: my, w: mw, h: mh });
     const ks = miniT.scale;
     const battles = minimapBattleMarkers(sc, this.app.engagementFx);
     // 军团路线 (虚线: 军团→目标)
@@ -8335,22 +8320,22 @@ export class GameBar {
     const vy = (-view.cam.y / view.cam.scale) * ks;
     const vw = ((innerWidth / view.cam.scale) * ks) / 2;
     const vh = ((innerHeight / view.cam.scale) * ks) / 2;
-    const vrx = mx + vx + vw / 2;
-    const vry = my + vy + vh / 2;
+    const vrx = r.x + vx + vw / 2;
+    const vry = r.y + vy + vh / 2;
     ctx.lineWidth = 1;
     ctx.strokeStyle = "#000000";
     ctx.strokeRect(vrx + 1.5, vry + 1.5, vw, vh);
     ctx.strokeStyle = "#ffffff";
     ctx.strokeRect(vrx + 0.5, vry + 0.5, vw, vh);
     // 底部势力名牌在地图下方: 左红底黄徽(我方), 右蓝底蓝徽(选中势力)
-    const by = my + mh + 1;
-    this._banner(ctx, mx, by, 102, 20, me, "#D00000", "#F0E000", "#D00000");
+    const by = p.bannerY;
+    this._banner(ctx, mx, by, p.bannerWidth, 20, me, "#D00000", "#F0E000", "#D00000");
     const sel = sc.factions.find((f) => f.idx === this.selFaction);
     this._banner(
       ctx,
-      mx + 106,
+      p.secondBannerX,
       by,
-      102,
+      p.bannerWidth,
       20,
       sel,
       "#3040D0",
@@ -8427,17 +8412,13 @@ export class GameBar {
     const p = this.panelRect("mini");
     if (!p) return false;
     // 整个小地图面板（含金框）内点击都消费，避免落到大地图
-    if (px < p.x || py < p.y || px >= p.x + p.w || py >= p.y + p.h)
-      return false;
-    const mx = p.x,
-      my = p.y;
-    const mw = 208,
-      mh = 139;
-    const miniT = minimapTransform(MINIMAP_WORLD, { x: mx, y: my, w: mw, h: mh });
+    if (!insidePanel(p, px, py)) return false;
+    const { x: mx, y: my, w: mw, h: mh } = p.mapBox;
+    const miniT = p.transform;
     // 名牌区: 右名牌点击 → 弹势力列表选择显示势力
-    const by = my + mh + 1;
+    const by = p.bannerY;
     if (py >= by && py < by + 20 && px >= mx && px < mx + mw) {
-      if (px >= mx + 106 && allowFactionPicker) {
+      if (px >= p.secondBannerX && allowFactionPicker) {
         clickSfx();
         this._pickSelFaction();
       }
@@ -8501,8 +8482,8 @@ export class GameBar {
       rowH,
       w,
       h,
-      x: mini.x + 208 - w,
-      y: mini.y + 176, // 内区起点；外框 top=mini.y+168，正好接在小地图金框下缘
+      x: mini.mapBox.x + mini.mapBox.w - w,
+      y: mini.frame.y + mini.frame.h + 8, // list frame attaches below map frame
       onPickCell: (ri, ci) => {
         const idx = rows[ri]?.factionIdxs?.[ci];
         if (idx == null) return;

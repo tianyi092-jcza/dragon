@@ -61,11 +61,14 @@ const mmapMap = await fs.readFile(
   new URL("../web/mmap_map.bin", import.meta.url),
 );
 const oldFetch = globalThis.fetch;
+// Same four original bytes, now addressed by the installed manifest revision.
+// This changes only fixture transport, never the KI certificate or scenario.
+const preloadAssets = createWorldResources().definition.assets;
 const allowedAssets = new Set([
-  "mmap_map.bin",
-  "road_cost.bin",
-  "road_offset.json",
-  "road_graph.json",
+  preloadAssets.terrain,
+  preloadAssets.roadCost,
+  preloadAssets.roadOffset,
+  preloadAssets.roadGraph,
 ]);
 globalThis.fetch = async (name) => {
   assert.equal(typeof name, "string");
@@ -78,8 +81,7 @@ try {
 } finally {
   globalThis.fetch = oldFetch;
 }
-// The world-asset fetch below serves the same four files by bare name
-// (worlddefinition asset URLs are bare filenames).
+// The world-asset fetch below serves exactly the current four trusted URLs.
 const world = createWorldResources();
 {
   const urls = world.definition.assets;

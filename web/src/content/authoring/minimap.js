@@ -4,7 +4,7 @@
 // 显示类别与规则地形分别建模；此处只消费调用方给定的显式地理 grids。
 // 技术合同 §2.4 的参数起点：海岸半径 8 源格、陆地阴影 12/255、纹理 4/255。
 
-export const MINIMAP_STYLE_REVISION = "minimap-style-1";
+export const MINIMAP_STYLE_REVISION = "minimap-style-2-bands-dither";
 export const MINIMAP_SIZES = Object.freeze({
   base: Object.freeze({ w: 208, h: 139 }),
   large: Object.freeze({ w: 250, h: 167 }),
@@ -16,7 +16,7 @@ export const MINIMAP_PALETTE = Object.freeze({
   seaA: [0x00, 0x1e, 0x5a],
   seaB: [0x00, 0x02, 0x05],
   river: [0x40, 0x60, 0x40],
-  road: [0x5a, 0x3a, 0x23],
+  road: [0x40, 0x60, 0x40], // user visual feedback: one ink for roads and visible water
 });
 
 const COAST_RADIUS = 8;
@@ -56,7 +56,29 @@ export function coastalShade(geography, width, height, x, y) {
   return Math.round(LAND_SHADE * (1 - nearest / (COAST_RADIUS + 1)));
 }
 
-// geography: Uint8Array, 0=land, 1=sea, 2=river/lake（调用方已按 Q64/Q66 显式分类）。
+// Web visual bands + indexed-looking stipple, NOT a DOS generator formula.
+// Normalized map coordinates make this shared by all maps; no city/name rules.
+function landPixel(x, y, width, height, ox, oy, seed, shade) {
+  const nx = x / Math.max(1, width - 1), ny = y / Math.max(1, height - 1);
+  const broad = textureNoise(Math.floor(ox / 24), Math.floor(oy / 18), seed) / 30;
+  const cool = Math.max(0, Math.min(0.65, (0.55 - ny) * (1.15 - nx * 0.4) + broad));
+  const warm = Math.max(0, Math.min(0.85, ny * 0.9 + nx * 0.2 + broad));
+  const pale = [242, 222, 156], grey = [175, 189, 180], gold = [230, 222, 64];
+  const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5][(oy & 3) * 4 + (ox & 3)] / 16;
+  const grain = textureNoise(ox, oy, seed);
+  const pixel = [];
+  for (let channel = 0; channel < 3; channel++) {
+    const value = (pale[channel] * (1 - cool) + grey[channel] * cool) * (1 - warm) + gold[channel] * warm - shade;
+    // Finite color steps and sparse cool/olive flecks instead of uniform blur.
+    let speck = 0;
+    if (grain === -4) speck = ny < 0.45 ? -28 : -18;
+    pixel[channel] = Math.max(0, Math.min(255, Math.floor((value + speck) / 16 + bayer) * 16));
+  }
+  return pixel;
+}
+
+// geography: Uint8Array, 0=land, 1=sea, 2=river, 3=lake. River/lake
+// retain separate source classes; this style shares their display color.
 // roadMask: Uint8Array 同尺寸，1=静态路网（水陆不区分显示，调用方保证连续栅格化）。
 export function renderMinimapPixels(geography, roadMask, width, height, outW, outH, seed) {
   const out = new Uint8Array(outW * outH * 3);
@@ -74,7 +96,7 @@ export function renderMinimapPixels(geography, roadMask, width, height, outW, ou
         for (let sx = sx0; sx < sx1; sx++) {
           const g = geography[sy * width + sx];
           if (g === 1) sea = true;
-          else if (g === 2) water = true;
+          else if (g === 2 || g === 3) water = true;
           if (roadMask[sy * width + sx]) road = true;
         }
       }
@@ -100,13 +122,7 @@ export function renderMinimapPixels(geography, roadMask, width, height, outW, ou
         const cx = Math.floor(((sx0 + sx1 - 1) / 2));
         const cy = Math.floor(((sy0 + sy1 - 1) / 2));
         const shade = coastalShade(geography, width, height, cx, cy);
-        const nz = textureNoise(ox, oy, seed);
-        r = MINIMAP_PALETTE.land[0] - shade + nz;
-        g = MINIMAP_PALETTE.land[1] - shade + nz;
-        b = MINIMAP_PALETTE.land[2] - shade + nz;
-        r = Math.max(0, Math.min(255, r));
-        g = Math.max(0, Math.min(255, g));
-        b = Math.max(0, Math.min(255, b));
+        [r, g, b] = landPixel(cx, cy, width, height, ox, oy, seed, shade);
         cls = 0;
       }
       if (road) {

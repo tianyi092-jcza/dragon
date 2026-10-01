@@ -8,12 +8,15 @@ const tlog = (...args) => process.stdout.write(`${format(...args)}
 // verify_save_slots_browser.mjs). Also covers the title empty-slot
 // hover/hit-test/click triple-disable (AGENTS 2.4).
 // Fresh Chromium, isolated profile, self-owned static server, real IndexedDB.
-// No SAVE.DAT read/write (mtime stat only), no user profile, no shared server.
+// No SAVE.DAT access, no user profile, no shared server. All screenshots
+// go to a new explicit round, never overwrite sealed historical evidence.
 // Exit 0: menu write A -> day advance -> menu write B -> isolation ->
 // menu overwrite A -> in-game load to title -> empty-slot disabled x3 ->
 // title load A restores date -> reload -> title load B restores date.
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { startBrowserTestServer } from "./browser_test_server.mjs";
 const require = createRequire(import.meta.url);
@@ -22,8 +25,10 @@ const { chromium } = require(
     "C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright",
 );
 
-const saveDat = new URL("../../Dragon/SAVE.DAT", import.meta.url);
-const { mtimeMs: mtimeBefore } = await fs.stat(saveDat);
+const round = process.argv[2] ?? `menu-save-${Date.now()}`;
+assert.match(round, /^[a-zA-Z0-9-]+$/);
+const output = fileURLToPath(new URL(`../.dragon-analysis/map-migration-2/${round}/`, import.meta.url));
+await fs.mkdir(output);
 
 const server = await startBrowserTestServer();
 let browser;
@@ -103,7 +108,7 @@ try {
     const i = rows.findIndex((r) => r.slot === slotIdx);
     assert.ok(i >= 0, `slot ${slotIdx} row must exist`);
     if (i === 0)
-      await page.screenshot({ path: ".dragon-analysis/map-migration/round2/menu_save_dialog.png" });
+      await page.screenshot({ path: join(output, "menu_save_dialog.png") });
     await page.mouse.click(512, 317 + 50 * i);
     // Repository-level wait (no private-hook dependency).
     await page.waitForFunction(
@@ -202,7 +207,7 @@ try {
     { timeout: 60000 },
   );
   tlog("in-game load confirm returned to title");
-  await page.screenshot({ path: ".dragon-analysis/map-migration/round2/menu_title_load.png" });
+  await page.screenshot({ path: join(output, "menu_title_load.png") });
 
   // ---- Title list clicks (game 640x400 -> client mapping). ----
   async function titleClick(gx, gy) {
@@ -270,7 +275,7 @@ try {
   const restoredA = await dayOf();
   assert.deepEqual(restoredA, dayA2, "title load of slot 0 must restore its date");
   tlog(`title load A restores ${JSON.stringify(restoredA)}`);
-  await page.screenshot({ path: ".dragon-analysis/map-migration/round2/menu_loaded.png" });
+  await page.screenshot({ path: join(output, "menu_loaded.png") });
 
   // Reload in the SAME profile: IndexedDB durability + title load of slot 1.
   await page.reload();
@@ -332,7 +337,5 @@ try {
 } finally {
   tlog(`page errors: ${JSON.stringify(errors.slice(0, 5))}`);
   await browser?.close();
-  server.close();
+  await server.close();
 }
-const { mtimeMs: mtimeAfter } = await fs.stat(saveDat);
-assert.equal(mtimeAfter, mtimeBefore, "SAVE.DAT must be untouched (mtime)");

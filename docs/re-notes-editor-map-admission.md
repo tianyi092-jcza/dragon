@@ -1,5 +1,6 @@
 # MAP-EDITOR-AUDIT-1：地图迁移、创作输入与扩容准入排查
 
+> 历史范围注记（MAP-MIGRATION-2）：本文以下为MAP-EDITOR-AUDIT-1当时的只读快照，代码缺口描述/未实施状态不等于当前进度。此前错误“任务二关闭”判断已撤销；其后用户m1668认可视觉，当前0.6本地采纳与39入口新轮证据见[完成审计](map-migration-completion-audit.md)；本地E-03快照道路接线见[journal](checkpoint-journal.md)与[本地验证清单](editor-local-validation.md)。原证与未知项仍按各专项来源复核，不因工程接线自动解除G门。
 > 范围：用户要求继续排查前三项——分层迁移保真、新道路／城市／章节转换、地图扩容。仅只读分析和文档；未实现迁移、编辑器或新规则，未执行原CPU／游戏回归，未访问SAVE或浏览器档案。
 > 本文维护本批跨模块证据、负例和未闭合项；字段／机制的既有详细源仍为[实体字段](re-notes-entity-fields.md)、[自定义数据](re-notes-custom-data.md)、[道路](re-notes-march-pathfinding.md)、[城池易主与野战地形](re-notes-legion-fate.md)。工程选择回流[工程合同](game-editor-technical-design.md)，执行与验收回流[迁移计划](game-map-migration-plan.md)。
 > 标签：**实锤**只限标出的原指令／原数据；**代码事实**说明当前接缝；**工程方案**不是原机制；没有证书的组合仍为**未知**。本批重新取原字节和进行数据统计，不把静态反汇编或Python统计说成原程序运行。

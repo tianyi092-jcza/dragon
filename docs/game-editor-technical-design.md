@@ -1,8 +1,11 @@
 # 编辑器工程合同（任务一技术分册）
 
-> 状态：供最终确认的工程设计稿，未实施、未通过产品验收。本文中的结构、接口、算法选择均为 **Web 工程方案**，不是新增的原版机制结论。
+> 状态校正（2026-10-01）：设计轮后已实施部分本地E-02/E-03切片，准确支持域／验证／限制见[journal](checkpoint-journal.md)及[本地验证清单](editor-local-validation.md)。下文是完整系统合同，不代表认证／发布／存档隔离事务已交付，不把本地harness等同完整App试运行。
+当前本地接线：[E-02/03工作台切片](editor-current-workspace.md)读取当前不可变源，选择既有组合/持久开关并共用composer/pixels；私有studio-unified-1新增两PNG，不等同完整RuntimeManifest/后台CAS/App试运行。
+
+> 设计编写轮状态（历史）：供最终确认的工程设计稿，当时未实施、未通过产品验收。本文中的结构、接口、算法选择均为 **Web 工程方案**，不是新增的原版机制结论。
 > 产品决定唯一源：[任务一](game-editor-design.md)；术语：[CONTEXT](../CONTEXT.md)；当前游戏的实施顺序、迁移差异与验收：[任务二](game-map-migration-plan.md)。本文唯一维护具体数据结构、接口和竞态合同，其它文档只引用。
-> 本轮授权是补齐设计，不包括产品代码、部署、真实存档、commit或push。未知规则不得用工程默认值补齐；第10节的门槛不是“已支持”声明，也不能在实施时被当作可忽略TODO。
+> 设计编写轮授权是补齐设计，不包括产品代码、部署、真实存档、commit或push。未知规则不得用工程默认值补齐；第10节的门槛不是“已支持”声明，也不能在实施时被当作可忽略TODO。
 
 ## 1. 身份、修订与权威数据
 
@@ -80,7 +83,37 @@ GameSource
 
 `ruleRecipe`不是作者上传的代码。定义须登记输入域、每格写入／保留位、组合前置条件、相关KI地址／资源、输出和后续消费者验证。已取得的原始字节可以保真保留；组合语义未闭合必须报告`UNSUPPORTED_RULE_BINDING`。原图和新图经过同一判断，禁止按`gameId`放行。
 
+#### 2.2.1 MAP-MIGRATION-2原子保真候选合同（非任意组合认证）
+
+本批共享实现见`authoring/maplayers.js`及`atomicmapimport.js`，执行结果与尚缺验收见[任务二完成审计](map-migration-completion-audit.md)。这是上述合同的有限编码，不解除G-MAP、G-ROAD、G-SLOTS或扩容门：
+
+- 受信`ki-byte-stamp-1`只写显式原MMAP图块byte；`footprint/anchor`是整数局部格，`variants[variantRef].tiles`是完整`[dx,dy,byte]`序列，须恰覆盖footprint。`variantRef`默认`original`。视觉绑定仅接受相应`MMAP.MDL:tile-N`或`MMAP.MDL:indexed-footprint`；不执行作者代码、不按名字/颜色猜规则，不静默忽略未支持视觉资源或recipe。
+- 装饰实例`{id,definitionRef,variantRef?,x,y,waterClass?}`按数组顺序合成；道路显式`components`置其上；据点`componentRef`以placement锚点置最上。规则/视觉使用同一显式byte输出；运行时可改规则平面仍唯一归Scenario，静态输出不能独立推进规则。原图导入按实际道路点/据点中心分层，其余格仅作可编辑原子，不冒充已重建山脉等多格对象。
+- `base.terrainRef`允许`null=unknown`，须同时保留`base.unknownUnderlays[cell]={sourceRef,coveringInstanceId}`。覆盖原子保留已知结果；删除后裸露unknown则阻断正式编译，草稿诊断可存。作者明确补当前base才可继续；不从旧截图恢复、补零或补草地，不覆盖其它后续编辑。
+- `base.geography`编码0陆／1海／2河／3湖。水域实例显式`waterClass:sea|river|lake`，可用definition的`geographyMask:[[dx,dy],...]`选footprint子集，缺mask代表全footprint。最上方水域选择与规则byte分离；非水域覆盖不擦除下层水域，隐藏／锁定工作台字段不影响正式结果。原图实际水域导入标注仍需独立依据/审核，不以合成样本或边缘连通启发式销账。
+- `compatibilityAssets={roadCostHex,roadOffsetJson,sourceRole}`可携带既有Web辅助字节，按明确长度/JSON有限元组校验并原样产出。M0-r2确认原兼容cost与“道路点＋节点mask”有15773字节差异；它不是KI原生搜索权重，不造新公式。正式无编辑迁移必须用`source-explicit`及实际字节对照。旧本地harness的无此字段模式明确标为`legacy-trial-derived-mask`，其成功收据不能证明正式辅助资产保真；不会按内置身份放行。
+- 本批编译支持域限制（不放开G-SLOTS，不是“原版不能移城”结论）：`fixedcitybindings.js`将M0已核的192原槽XY作为当前profile受信绑定，所有gameId同门；同时核章城市raw的+08/+0A与节点坐标。不能把placement、业务city和章JSON一起改坐标就绕开“移城未放行”。复制的溯源摘要覆盖map、definition和显式兼容资产，不只world/章目录；兼容资产随副本实际保留。0.4加入上述接缝门；0.5进一步核合成平面的CB..D3扫描集合/顺序恰等于原192槽（原E4CE..E50B逐格调用E57F并计数，M0原图坐标已核）。不能画入额外节点或移除节点后仍编码旧图。此为本批Web支持域拒收，不宣称模拟原版畸形输入后果；历史0.2/0.3/0.4目录/收据保留但不替代新结果。
+- 本批实际支持/验证域是固定384×256、192原槽/端点/原章、原byte保留及列明原子样本；语义分组、任意recipe/拓扑、移动据点、新原机制及未知组合仍不获认证。原消费者/来源索引见准入排查与RE SKILL，当前实测/失败/覆盖边界在审计清单。
+
 现状中`worldresources.loadSeason`把同一个terrain字节布局交给绘图，Scenario又持有可改写的`terrainMemory`。四层创作不能只改画面：需将**静态视觉派生物**与**唯一规则地形权威**明确分开，并保留城池易主引起的图块重着色到绘图脏区的投影。8A1E改变的是中心／角块所属配色，不是修改城市type。当前分块复制初始layout，terrain写接口没有revision／脏格通知，单独叠cityIcon不足以证明角块更新；开局89F0着色也有独立接线缺口，详见[本轮排查§2](re-notes-editor-map-admission.md)。工程方案为权威写入后记录只读变更版本／脏格，失效对应视觉块及非整数DPR整图缓存；恢复、季节切换从同一已保存规则状态重建投影，不重播规则或RNG，不改变原写序／失败前缀。不得增加第二份可独立推进的规则地图，或用静态PNG掩盖攻城后地形变化。未证组合及动态投影列入G-MAP，不自创“上层覆盖就改变通行”的机制。
+
+#### 2.2.2 组合级小地图开关（本轮用户确认，Web显示合同）
+
+`map.waterGroups[]={id,name?,memberIds[],baseCells[],showOnMinimap}`：地图上一个具体拼接组合，不是素材定义或水域类别；memberIds引用装饰实例/道路图块实例，baseCells只引用明确已有水域显示资料的基础格（用于原图道路图块下的显示标注，非隐藏规则底层）。成员引用唯一、一成员至多属于一个组，baseCells不得跨组重复；错引用、重复、非boolean、空组、越界及无水域base格均拒收。多格水域实例整体列入一个组合，不拆成格开关。无组旧源仍全显示；存在组的showOnMinimap必填boolean，默认由创建工具写true。
+
+编译同时输出完整`geography`和显示专用`minimapGeography`；仅在后者过滤关闭组合。合成时取最上方仍参与小地图的水域，非水域不擦下层；道路mask独立、始终保留。规则/大地图仍按原四层完整合成，开关不改terrain/native图/helper/章/通行/RNG。组保留在GameSource及其摘要，不是workspace.hidden。显示摘要不能反写完整地理。
+
+导入原图的语义组合并非DOS实锤；作者初始化可按明确审核分区、主河带及剩余相连片区提出组合，必须持久化实际成员/稳定ID和来源，不能每次渲染重新猜组或据“相连”改水域类别。当前主河带/组合边界是可修改的Web视觉候选，不声明长江/黄河/汉江原对象身份。新风格采用同色道路/水系、区域色带/有限调色板点阵及独立seed，仍须用户审图，不声称原算法。
+
+#### 2.2.3 本地素材／组合编辑切片（E-03-COMPONENT-TOOLS-1）
+
+在当前固定profile内，素材库列出原图块及作者命名的多格素材。作者从装饰层完整实例选择擷取：按原数组顺序保留最上原byte，保留所有选中水域贡献；不同水域类别须分开擷取，不从颜色归类。输出仍是`ComponentDefinition`受信byte-stamp结构，不是整图背景或新规则。当前本地擷取预算256格／素材库1024定义为工程限制，非DOS容量结论。拖放预览整footprint，放置／移动超384×256界完全拒收、不裁切、不扩容；非锚点格也命中完整多格实例。新增素材随草稿保存，已保存定义仅能追加，既有定义不得覆写／删除；服务对未使用新定义的全部variant也用共同composer检查。
+
+组合创建从明确水域成员或base水格转移引用，原组余项保留、空组删除；拆分只取当前组的严格非空子集并继承原flag；合并至少两组且作者明确指定结果flag，不能按true/false猜选。只改group元数据及引用，不改实例／顺序／类别／道路／规则byte。组的身份不再复用。框选选完整装饰实例，不拆分一个多格实例；多格实例拆成单格的工具尚非本批范围。
+
+明确补底一次只写作者选中的base格及0..255原byte、0..3地理，解除这些格的unknown记录并移除其旧base组引用；上层、其它格／后续修改不动。裸露unknown仍阻断正式编译。界面必须解锁base并确认，填陆／海／河／湖是作者显示选择，不证明通行。工作区显隐／锁定仍不写内容。
+
+本地`POST /api/save`可同包传`map`与`componentDefinitions`、expectedRevision，先核旧修订／新增定义，再经共同草稿校验后保存；存储仍是单进程文件harness，不声称耐故障事务／认证。保存期间后续修改保脏，编译仍取准确已保存包。此切片不放开G-ROAD/G-SLOTS/G-CAP、新recipe、任意语义组合可玩、账户／发布／完整App试运行。实测入口／I/O先登记[本地验证](editor-local-validation.md)，交付[工作台说明](editor-current-workspace.md)。
 
 ### 2.3 道路、节点与战术关联
 

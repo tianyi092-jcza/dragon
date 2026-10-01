@@ -3,8 +3,8 @@
 // prepareScenario through the production loader with the EDITED terrain ->
 // 10 days of city ticks. Asserts: draft revision bumps, edited cell is
 // live in the assembled scenario, ticks stay failure-free, nothing else
-// mutates. Memory-only (node has no IndexedDB; the browser trial boot with
-// neutered persistence is the next step, not this tool). No SAVE.DAT.
+// mutates. Memory-only (node has no IndexedDB); companion browser test
+// checks the compiled snapshot URLs too. No SAVE.DAT.
 import assert from "node:assert/strict";
 import { format } from "node:util";
 const tlog = (...args) => process.stdout.write(`${format(...args)}\n`);
@@ -12,14 +12,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startEditorServer } from "./editor_server.mjs";
-import { attachSyntheticNativeFactionSource } from "./native_faction_fixture.mjs";
-import { createContentCatalog } from "../web/src/content/catalog.js";
-import { createWorldResources } from "../web/src/game/worldresources.js";
-import { createNewGameScenario } from "../web/src/game/world.js";
-import {
-  prepareScenario,
-  scenarioNativeRoadContext,
-} from "../web/src/game/scenarioassembly.js";
+import { composeMapLayers } from "../web/src/content/authoring/maplayers.js";
+import { prepareTrialScenario } from "../web/src/content/authoring/trialruntime.js";
+import { scenarioNativeRoadContext } from "../web/src/game/scenarioassembly.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "editor-loop-"));
 const server = await startEditorServer(0, tmp);
@@ -27,7 +22,7 @@ const base = `http://127.0.0.1:${server.address().port}`;
 const call = async (method, path, body) => {
   const r = await fetch(`${base}${path}`, {
     method,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", connection: "close" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await r.json();
@@ -43,7 +38,7 @@ try {
   const draft = await call("GET", "/api/draft?game=loop-1");
   const W = draft.map.bounds.width;
   const H = draft.map.bounds.height;
-  const ref = draft.map.base.terrainRef;
+  const ref = composeMapLayers(draft).terrain;
   const graph = JSON.parse(
     (await import("node:fs")).readFileSync(new URL("../web/road_graph.json", import.meta.url), "utf-8"),
   );
@@ -69,7 +64,8 @@ try {
   }
   assert.ok(cell, "need an isolated grass cell");
   const [ex, ey] = cell;
-  draft.map.base.terrainRef[ey * W + ex] = 0x10;
+  const atom = draft.map.decorations.find((d) => d.x === ex && d.y === ey);
+  assert.ok(atom); atom.definitionRef = "tile-16";
   const saved = await call("POST", "/api/save", { gameId: "loop-1", map: draft.map });
   assert.equal(saved.draftRevision, "2", "edit bumps revision");
   assert.ok((await call("POST", "/api/validate", { gameId: "loop-1" })).valid);
@@ -89,51 +85,15 @@ try {
   const editedByte = Number.parseInt(pack.terrainHex.slice((ey * W + ex) * 2, (ey * W + ex) * 2 + 2), 16);
   assert.equal(editedByte, 0x10, "compiled terrain carries the edit");
 
-  const manifest2 = {
-    schemaVersion: 1,
-    rules: "ki-1995",
-    id: "trial-loop",
-    revision: "1",
-    chapters: [{ id: "chapter", legacyScenarioIndex: 0, official: false }],
-  };
-  const content = createContentCatalog(manifest2, { scenarios: [pack.chapter] });
-  const worldRes = createWorldResources();
-  const raw = createNewGameScenario(pack.chapter);
-  if (!Object.hasOwn(raw, "nativeFactionSlotRaw")) attachSyntheticNativeFactionSource(raw);
-  const realGraph = JSON.parse(
-    (await import("node:fs")).readFileSync(new URL("../web/road_graph.json", import.meta.url), "utf-8"),
-  );
   const oldFetch = globalThis.fetch;
-  const allowed = new Set([
-    worldRes.definition.assets.terrain,
-    worldRes.definition.assets.roadCost,
-    worldRes.definition.assets.roadOffset,
-    worldRes.definition.assets.roadGraph,
-  ]);
-  globalThis.fetch = async (url) => {
+  const allowed = new Set(pack.manifest.assets.map((asset) => asset.url));
+  globalThis.fetch = (url) => {
     assert(allowed.has(String(url)), `Unexpected asset ${url}`);
-    if (String(url) === worldRes.definition.assets.roadGraph) {
-      return { ok: true, json: async () => realGraph };
-    }
-    return {
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(384 * 256),
-      json: async () => ({}),
-    };
+    return oldFetch(`${base}${url}`, { headers: { connection: "close" } });
   };
-  let sc;
+  let sc, worldRes, content;
   try {
-    ({ scenario: sc } = await prepareScenario({
-      raw,
-      idx: 0,
-      content,
-      world: worldRes,
-      mode: "fresh",
-      terrainMemory: { version: 1, spans: [{ address: 0, hex: pack.terrainHex }] },
-      // movementMemory null takes the production fresh synthesis path
-      // (an explicit undersized span would leave city-cache bytes uncovered).
-      movementMemory: null,
-    }));
+    ({ scenario: sc, world: worldRes, content } = await prepareTrialScenario(pack));
   } finally {
     globalThis.fetch = oldFetch;
   }
@@ -166,4 +126,4 @@ try {
 } finally {
   server.close();
 }
-tlog("E-02 loop OK (browser trial boot next)");
+tlog("E-02 loop OK (compiled snapshot assets through production preparation)");

@@ -14,39 +14,42 @@ function imageUrl(url) {
   return imageBust.has(name) ? `${url}?v=original-sprites-1` : url;
 }
 
-export async function loadJSON(url) {
-  if (!cache.has(url))
-    cache.set(
-      url,
-      fetch(url).then((r) => r.json()),
-    );
+// URLs supplied by a world/manifest are immutable revision-scoped keys.
+// Keep successes/single-flight loads, but a failed Promise is not an asset:
+// clear just its own entry so a transient failure can be retried. No world
+// mutation or Scenario/RNG work occurs here.
+function cachedAsset(url, factory) {
+  if (!cache.has(url)) {
+    const pending = factory().catch((error) => {
+      if (cache.get(url) === pending) cache.delete(url);
+      throw error;
+    });
+    cache.set(url, pending);
+  }
   return cache.get(url);
+}
+
+export function loadJSON(url) {
+  return cachedAsset(url, () => fetch(url).then((response) => {
+    if (!response.ok) throw new Error(`加载失败: ${url}`);
+    return response.json();
+  }));
 }
 
 export function loadBytes(url) {
-  if (!cache.has(url))
-    cache.set(
-      url,
-      fetch(url).then(async (response) => {
-        if (!response.ok) throw new Error(`加载失败: ${url}`);
-        return new Uint8Array(await response.arrayBuffer());
-      }),
-    );
-  return cache.get(url);
+  return cachedAsset(url, () => fetch(url).then(async (response) => {
+    if (!response.ok) throw new Error(`加载失败: ${url}`);
+    return new Uint8Array(await response.arrayBuffer());
+  }));
 }
 
 export function loadImage(url) {
-  if (!cache.has(url))
-    cache.set(
-      url,
-      new Promise((res, rej) => {
-        const img = new Image();
-        img.onload = () => res(img);
-        img.onerror = () => rej(new Error("加载失败: " + url));
-        img.src = imageUrl(url);
-      }),
-    );
-  return cache.get(url);
+  return cachedAsset(url, () => new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error("加载失败: " + url));
+    img.src = imageUrl(url);
+  }));
 }
 
 /** 四季战略地图按需加载；标题选单阶段不得提前请求地图位图。 */

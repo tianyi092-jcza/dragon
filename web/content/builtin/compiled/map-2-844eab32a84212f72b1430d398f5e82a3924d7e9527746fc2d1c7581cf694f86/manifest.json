@@ -1,0 +1,336 @@
+{
+  "schemaVersion": 1,
+  "gameId": "wolong-builtin",
+  "contentRevision": "map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86",
+  "worldRevision": "map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86",
+  "sourceDigest": "65ef2263b4587cb3d831e926ce5c9ada97462ce8aa2222bd9fa8c68c1ffcd986",
+  "compilerProfile": "shared-game-source-compiler",
+  "compatibilityAssetMode": "source-explicit",
+  "geographyReview": "APPROVED",
+  "visualReview": "APPROVED",
+  "minimapStyleRevision": "minimap-style-2-bands-dither",
+  "authorDisplayData": {
+    "id": "original-map-water-display-proposal-1",
+    "sha256": "ff306763ef20c12d404382905a03d98c636390f8ce230b7ad376081fc26c3e6f",
+    "status": "APPROVED"
+  },
+  "assets": [
+    {
+      "path": "terrain.bin",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/terrain.bin",
+      "role": "native-initial-terrain-and-visual-layout",
+      "byteLength": 98304,
+      "sha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861"
+    },
+    {
+      "path": "roads.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/roads.json",
+      "role": "native-road-v2",
+      "byteLength": 193289,
+      "sha256": "353a6c706e002f94a861ef515d11342080290cffbcbb0acc7053231413ecadf7"
+    },
+    {
+      "path": "road_cost.bin",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/road_cost.bin",
+      "role": "preserved-legacy-grid-NOT-native-weights",
+      "byteLength": 98304,
+      "sha256": "dcc1ea444ed2d098a9f481bab5cffab713195e9b3b5c304ad993a4533c3ffee6"
+    },
+    {
+      "path": "road_offset.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/road_offset.json",
+      "role": "preserved-visual-offsets",
+      "byteLength": 2881,
+      "sha256": "e317d2d17a98e73826e04c39f2ca3d0fa901dedf768754ed59342df982e2e90b"
+    },
+    {
+      "path": "map_atlas_spring.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/map_atlas_spring.png",
+      "role": "season-tile-atlas",
+      "byteLength": 14913,
+      "sha256": "c1b86ab35d0d0f05918b6c095b2673455fcca2637b141ac9c5efd3d2a6d191e7"
+    },
+    {
+      "path": "map_tiles_spring.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/map_tiles_spring.png",
+      "role": "season-legacy-visual-fallback",
+      "byteLength": 2227071,
+      "sha256": "23dd9958e03abe7e517a895a3d93d3c7a8badba5b80d2cbf54e9c9b5b79d1f7e"
+    },
+    {
+      "path": "map_atlas_summer.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/map_atlas_summer.png",
+      "role": "season-tile-atlas",
+      "byteLength": 14913,
+      "sha256": "5b819cee89a2e10da67553840c22da545ee6a2917ec9374ca7e4b00e862f52be"
+    },
+    {
+      "path": "map_tiles_summer.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/map_tiles_summer.png",
+      "role": "season-legacy-visual-fallback",
+      "byteLength": 2227071,
+      "sha256": "ee1225cd18ef1df879122ac51e200768281a0fc13ca5fce60e58f44543b6a632"
+    },
+    {
+      "path": "map_atlas_autumn.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/map_atlas_autumn.png",
+      "role": "season-tile-atlas",
+      "byteLength": 14913,
+      "sha256": "184abbacd8cfa89cf15039059f2f32fde18e47b83c4e2fd885d790300126fe4b"
+    },
+    {
+      "path": "map_tiles_autumn.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/map_tiles_autumn.png",
+      "role": "season-legacy-visual-fallback",
+      "byteLength": 2227071,
+      "sha256": "6efb86b90f8ce5bc327252590ddc7e8fb2572fccbd21caf50480b9f11486502d"
+    },
+    {
+      "path": "map_atlas_winter.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/map_atlas_winter.png",
+      "role": "season-tile-atlas",
+      "byteLength": 14913,
+      "sha256": "a5bf52dd42af0bb142ddd1373c8712e2798ce49bda388361f8d6c8898f6f1378"
+    },
+    {
+      "path": "map_tiles_winter.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/map_tiles_winter.png",
+      "role": "season-legacy-visual-fallback",
+      "byteLength": 2227071,
+      "sha256": "dcebca42824f195fe26a3c954d2738b3292c14e7d20ecc00ae4eb6998fbde0eb"
+    },
+    {
+      "path": "minimap_base.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/minimap_base.png",
+      "role": "automatic-minimap-UNAPPROVED-display-proposal",
+      "byteLength": 11430,
+      "sha256": "40c3f1d8d29e039eb25789b0b1eb43a02b9b6e8e514e39c0a74acc02dc5eaaf1"
+    },
+    {
+      "path": "minimap_large.png",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/minimap_large.png",
+      "role": "automatic-minimap-UNAPPROVED-display-proposal",
+      "byteLength": 15644,
+      "sha256": "993611df04b0e8d71038738b792f3abffff57ff1af041d75ea73caa503a356f9"
+    },
+    {
+      "path": "world-definition.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/world-definition.json",
+      "role": "fixed-world-definition-new-revision",
+      "byteLength": 1961,
+      "sha256": "121541bd5ec5e8737bbac062dac15423b815dc4c4a923a1fa47e757cdd8147cf"
+    },
+    {
+      "path": "chapters/upper-1.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/upper-1.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 120961,
+      "sha256": "d0fb05964f2c102abf8a44275804558ca0c6d1fb9d9083cb38ac0e46c66beae6"
+    },
+    {
+      "path": "chapters/upper-2.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/upper-2.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 124979,
+      "sha256": "5c4c52ee626d388b0431c858632ceb620d221be3d1ba9ca8473b458f7c26033d"
+    },
+    {
+      "path": "chapters/upper-3.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/upper-3.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 124955,
+      "sha256": "4e80a55eb5895aefe1407cb61b02b0d1c5ca7d0a4fdd5c5ba3dd3b11220a4b23"
+    },
+    {
+      "path": "chapters/upper-4.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/upper-4.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 124965,
+      "sha256": "d708fbe886b9115083a4b061b75f2b4740f896c55778fae9cf827c8db72eedaa"
+    },
+    {
+      "path": "chapters/middle-1.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/middle-1.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 124886,
+      "sha256": "21aecaf55315351a9c79e34a69ada4f85df3e4e49e8d52d7b229efc8666ad416"
+    },
+    {
+      "path": "chapters/middle-2.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/middle-2.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 118057,
+      "sha256": "bbea21f3255fdf0b494db201f137a4e124484d69d59dc2a05f1999ad687f9c31"
+    },
+    {
+      "path": "chapters/middle-3.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/middle-3.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 120602,
+      "sha256": "b256124c47bf4800811dda18c4f6a4f02fd6e9e9730f202997e7ccd2c4cfdad2"
+    },
+    {
+      "path": "chapters/middle-4.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/middle-4.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 119271,
+      "sha256": "69cc474d511742a8d7c8620ce760a584cd5041826b8015bcca0f7f735d7e9d45"
+    },
+    {
+      "path": "chapters/lower-1.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/lower-1.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 115512,
+      "sha256": "13c8d088f4a304732a224d620ce57f27e5fc855444d8da793b02458fc6a40ac4"
+    },
+    {
+      "path": "chapters/lower-2.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/lower-2.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 114913,
+      "sha256": "79b9c83deb3b3dc77273972595473ca252757077df320b860ee4fab73e119912"
+    },
+    {
+      "path": "chapters/lower-3.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/lower-3.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 113717,
+      "sha256": "dd0712e325228601365aa93d192dd79684e5db8bc1b0b9f29053ce635fd9acd4"
+    },
+    {
+      "path": "chapters/lower-4.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/lower-4.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 114308,
+      "sha256": "24d1f810e81372aaa191e98334fcca2046560adf9b4a847ec54a74b9b0788c68"
+    },
+    {
+      "path": "chapters/later-1.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/later-1.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 113220,
+      "sha256": "18876dd0d82aadf3759a49ff69904be0ac0a2da1c7599314f22d3a7bc76a9fcb"
+    },
+    {
+      "path": "chapters/later-2.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/later-2.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 113748,
+      "sha256": "99825180e5cedbd006bd7ab0401a4227e5057d3fe10c65d2cf82a2233e866289"
+    },
+    {
+      "path": "chapters/later-3.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/later-3.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 112134,
+      "sha256": "baae27e742c2d2dbd44074d7face14d265862c84d4262619d66570554987307c"
+    },
+    {
+      "path": "chapters/later-4.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/later-4.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 112413,
+      "sha256": "2dd7e20014b081a21f6beac8f290111b7fb003d49c13816ac04caecb71bc452f"
+    },
+    {
+      "path": "chapters/original-1.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/original-1.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 124898,
+      "sha256": "90b8dd5198823994339d8f7853613a56dc6e60f7301c9e8e2d96d88de39d421d"
+    },
+    {
+      "path": "chapters/original-2.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/original-2.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 117460,
+      "sha256": "978c4f589647321d2a27c96075f272e3173b57d46b6f0e798419bdaea90b52c0"
+    },
+    {
+      "path": "chapters/original-3.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/original-3.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 114427,
+      "sha256": "a2b7195af9d1310182e0a3431fffba9fe8a1c5f65442944dcdd4a2021d9a387e"
+    },
+    {
+      "path": "chapters/original-4.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/chapters/original-4.json",
+      "role": "unchanged-fixed-chapter-template",
+      "byteLength": 113354,
+      "sha256": "2f0d5777a101af9c26e7418ab6f6f554d1eeb1b2f49c84828b4b0b2c81285310"
+    },
+    {
+      "path": "catalog.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/catalog.json",
+      "role": "fixed-chapter-catalog-new-revision",
+      "byteLength": 2007,
+      "sha256": "33c3c0f3b051fae0f2d438b247dce9575aa1084fd4f8cd81786146cf8acdf1e4"
+    },
+    {
+      "path": "data.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/data.json",
+      "role": "unchanged-aggregate-chapter-input",
+      "byteLength": 4287568,
+      "sha256": "07c87416eca84be738b5a744c2e5c75828280b1b183a96b7de614ef3d76059fb"
+    },
+    {
+      "path": "game-source.json",
+      "url": "content/builtin/compiled/map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86/game-source.json",
+      "role": "editable-four-layer-GameSource@1",
+      "byteLength": 43308092,
+      "sha256": "02f90d1455c433854c5e7899550ff28836bd4a5580788f00b3e7f3ff7ff5b95e"
+    }
+  ],
+  "related": [
+    {
+      "url": "battle_maps.json",
+      "role": "unchanged-global-tactical-dependency",
+      "sha256": "ccc1459ee8d1f09600667ff02d9e438d2c6efa7e541667d3aa27845f6ff6e10b"
+    },
+    {
+      "url": "battle_navigation.json",
+      "role": "unchanged-global-tactical-dependency",
+      "sha256": "cf0ed4410c0d79b83e13b2fd22323bc175b3f73e72fdd32e388f80574ea99e80"
+    },
+    {
+      "url": "battle_display.bin",
+      "role": "unchanged-global-tactical-dependency",
+      "sha256": "459276cd90941a6860dac30b3c9a50b60a73ef5d5df05fe20f432de4a4c834e0"
+    },
+    {
+      "url": "battle_rules.json",
+      "role": "unchanged-global-tactical-dependency",
+      "sha256": "9b884783cf1a42331743b9c4ca2b21d37bfa9cc9993ad7f72f229f5594089213"
+    },
+    {
+      "url": "battle_scripts.json",
+      "role": "unchanged-global-tactical-dependency",
+      "sha256": "2b3530f90f1dcf5eefee132c080bf9039825d3101452e55b132aa117cb6eb086"
+    },
+    {
+      "url": "battle_talk.json",
+      "role": "unchanged-global-tactical-dependency",
+      "sha256": "a65b1411b11e7603c216b0887759df9e6b9db631850922ca244fbc3733ec025e"
+    }
+  ],
+  "displayAcceptance": {
+    "schemaVersion": 1,
+    "decision": "APPROVED",
+    "source": "用户m1668",
+    "quote": "很好，效果不错，继续",
+    "categorySource": "此前本轮用户明确认可水域类别，要求修改小地图及实际组合级显示开关",
+    "scope": "采纳本次已展示候选的水域显示资料、组合取舍、统一道路水系线色、渐变/点阵纹理及普通/放大/回退布局；只是Web视觉与本地迁移认可，不是DOS机制、道路清单逐项规则认证、完整编辑器或提交/推送/部署授权",
+    "candidateStage": "explicit-stage-r9",
+    "candidateRevision": "map-2-40da80fbba6764cb95b7da5fbd54187628230639ac766acc71710105e16d6372",
+    "sourceDigest": "65ef2263b4587cb3d831e926ce5c9ada97462ce8aa2222bd9fa8c68c1ffcd986",
+    "styleRevision": "minimap-style-2-bands-dither",
+    "reviewRound": "minimap-groups-review-r2",
+    "reviewHtmlSha256": "73b40bd381c8ab076aa3a3685cbde4d6d3a39cd4c354c5cebc0711ef6e7fe431",
+    "minimapSha256": {
+      "minimap_base.png": "40c3f1d8d29e039eb25789b0b1eb43a02b9b6e8e514e39c0a74acc02dc5eaaf1",
+      "minimap_large.png": "993611df04b0e8d71038738b792f3abffff57ff1af041d75ea73caa503a356f9"
+    },
+    "sha256": "467c54d6a3e2060bfc0f871331d73aa2bb096daf93c6f1b96abf4d3b6109e929"
+  }
+}

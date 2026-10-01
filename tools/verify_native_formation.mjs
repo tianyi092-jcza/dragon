@@ -148,7 +148,14 @@ async function fixture({
     content,
     world,
     mode: "fresh",
-    terrainMemory,
+    // Bounded formation inputs start AFTER loading their synthetic BA plane.
+    // Supply that same plane explicitly; these partial city records deliberately
+    // lack type and do not model 89F0. Fresh opening has its own full-city tests.
+    // Do not add guessed city fields or change any formation/RNG golden.
+    terrainMemory: terrainMemory ?? {
+      version: 1,
+      spans: [{ address: 0, hex: "ba".repeat(384 * 256) }],
+    },
     movementMemory: {
       version: 1,
       spans: [{ address: 3840, hex: "00".repeat(768) }],

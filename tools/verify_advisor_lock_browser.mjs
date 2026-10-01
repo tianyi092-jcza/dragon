@@ -5,9 +5,17 @@ const tlog = (...args) => process.stdout.write(`${format(...args)}
 // Fresh Chromium, isolated profile, self-owned static server. Real clicks:
 // fan opens the advisor bar; selecting 据点 locks the whole big map
 // (drag pans nothing, city click selects nothing); minimap click still
-// navigates (UI, not big-map); right-click rollback restores map input.
+// navigates only when no submenu is selected; right-click restores map input.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+const round = process.argv[2];
+assert.match(round ?? "", /^[a-zA-Z0-9-]+$/);
+const output = fileURLToPath(new URL(`../.dragon-analysis/map-migration-2/${round}/`, import.meta.url));
+mkdirSync(output);
 import { startBrowserTestServer } from "./browser_test_server.mjs";
 const require = createRequire(import.meta.url);
 const { chromium } = require(
@@ -17,12 +25,19 @@ const { chromium } = require(
 
 const server = await startBrowserTestServer();
 let browser;
-const errors = [];
+const errors = [], forbidden = [];
 try {
   const origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1024, height: 768 },
+  });
+  await context.route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin || /save\.dat|\/api\//i.test(url.pathname)) {
+      forbidden.push(url.href); return route.abort();
+    }
+    return route.continue();
   });
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
@@ -57,7 +72,8 @@ try {
   );
   const geom = await page.evaluate(() => {
     const app = window.__app;
-    app.clock.hold = true; // freeze motion; input routing still live
+    // No fake clock hold: this case tests live input routing. Selected menu
+    // and actual mouse movement acquire the product's own applicable holds.
     const bar = app.gamebar;
     bar.layout?.();
     return { bx: bar.bx };
@@ -95,16 +111,15 @@ try {
   }));
   assert.equal(barOpen.open, true);
   assert.equal(barOpen.selected, null);
-  await page.screenshot({ path: "advisor_bar_open.png" });
+  await page.screenshot({ path: join(output, "advisor_bar_open.png") });
   // Minimap navigation with the bar open but nothing selected (baseline).
   const nav = await page.evaluate(() => {
     const bar = window.__app.gamebar;
     const rect = bar.panelRect("mini");
-    // NOTE: panel rect includes the nameplate strip (clicking it opens the
-    // faction picker instead of navigating); aim inside the 208x139 map zone.
+    // Use the actual map box, not the external frame/nameplate dimensions.
     return {
-      x: rect.x + rect.w * 0.6,
-      y: rect.y + rect.h * 0.6,
+      x: rect.mapBox.x + rect.mapBox.w * 0.6,
+      y: rect.mapBox.y + rect.mapBox.h * 0.6,
       cam: { ...window.__app.view.cam },
     };
   });
@@ -124,7 +139,7 @@ try {
     cam: { ...window.__app.view.cam },
   }));
   assert.equal(selected.selected, 5, "據點 must be selected");
-  await page.screenshot({ path: "advisor_selected.png" });
+  await page.screenshot({ path: join(output, "advisor_selected.png") });
 
   // Map lock: drag pans nothing.
   await page.mouse.move(512, 400);
@@ -139,9 +154,13 @@ try {
   // Map lock: clicking a city selects nothing.
   const cityPt = await page.evaluate(() => {
     const app = window.__app;
-    const city = app.scenario.cities[app.scenario.factions[0].capital];
-    const [wxp, wyp] = app.view.cityPixel(city);
-    return { x: app.view.sx(wxp), y: app.view.sy(wyp) };
+    const candidates = app.scenario.cities.map((city) => {
+      const [wxp, wyp] = app.view.cityPixel(city);
+      return { idx: city.idx, x: app.view.sx(wxp), y: app.view.sy(wyp) };
+    });
+    const point = candidates.find((p) => p.x > 16 && p.x < 760 && p.y > 220 && p.y < 600);
+    if (!point) throw new Error("no genuinely visible map city for lock test");
+    return point;
   });
   await page.mouse.click(cityPt.x, cityPt.y);
   const afterCity = await page.evaluate(() => ({
@@ -197,8 +216,21 @@ try {
     "map drag must work after rollback",
   );
   assert.deepEqual(errors, [], "no page/console errors");
+  assert.deepEqual(forbidden, []);
+  const hashes = {};
+  for (const path of ["tools/verify_advisor_lock_browser.mjs", "tools/browser_test_server.mjs", "web/src/ui/gamebar.js", "web/src/ui/mappanellayout.js", "web/src/content/builtinresources.generated.js"]) {
+    hashes[path] = createHash("sha256").update(readFileSync(new URL("../" + path, import.meta.url))).digest("hex");
+  }
+  writeFileSync(join(output, "receipt.json"), JSON.stringify({ caseId: "M-05-advisor-map-lock",
+    contractRevision: "map-panel-layout-1", sourceHashes: hashes, toolHashes: hashes,
+    toolVersion: process.version, fixtureId: "real-click-new-context", expectedSource: "approved menu/map product contract",
+    result: "pass", cityPt, artifactPaths: ["advisor_bar_open.png", "advisor_selected.png"],
+    coverageLimits: "not marching target exception, full battle or user visual approval" }, null, 2) + "\n");
+} catch (error) {
+  writeFileSync(join(output, "failure.json"), JSON.stringify({ error: String(error), errors, forbidden }, null, 2) + "\n");
+  throw error;
 } finally {
   await browser?.close();
-  server.close();
+  await server.close();
 }
 tlog("advisor lock browser: lock + minimap nav + rollback OK");

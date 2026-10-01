@@ -5,7 +5,6 @@
 import assert from "node:assert/strict";
 import { format } from "node:util";
 const tlog = (...args) => process.stdout.write(`${format(...args)}\n`);
-import fs from "node:fs/promises";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,8 +16,6 @@ const { chromium } = require(
     "C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright",
 );
 
-const saveDat = new URL("../../Dragon/SAVE.DAT", import.meta.url);
-const mtimeBefore = (await fs.stat(saveDat)).mtimeMs;
 const tmp = mkdtempSync(join(tmpdir(), "editor-studio-v2-"));
 const server = await startEditorServer(0, tmp);
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -26,7 +23,7 @@ let browser;
 const errors = [];
 try {
   const call = async (method, path, body) => {
-    const init = { method, headers: { "content-type": "application/json" } };
+    const init = { method, headers: { "content-type": "application/json", connection: "close" } };
     if (body !== undefined) init.body = JSON.stringify(body);
     const r = await fetch(`${base}${path}`, init);
     const data = await r.json();
@@ -43,6 +40,9 @@ try {
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
   page.on("pageerror", (error) => errors.push(String(error)));
+  // Explicit author confirmation to reuse the deleted road's original
+  // stamps on exactly the same path; never fabricate hidden underlay.
+  page.on("dialog", (dialog) => dialog.accept());
   page.on("console", (message) => {
     if (message.type() === "error" && message.text().includes("400 (Bad Request)")) return;
     if (message.type() === "error" && !message.location().url?.endsWith("/favicon.ico"))
@@ -87,7 +87,7 @@ try {
     window.__studio.cam.y = 0;
   }, road0.geometry[0]);
   await clickTile(road0.geometry[0].x, road0.geometry[0].y);
-  assert.ok((await status()).includes("locked"), "locked roads refused");
+  assert.ok((await status()).includes("已鎖定"), "locked roads refused");
 
   // Unlock via the lock button, then delete road-0 by clicking its middle.
   await page.click("#lock");
@@ -110,22 +110,22 @@ try {
   await page.evaluate(() => {
     [...document.querySelectorAll('#roadbar button[data-kind="land"]')].at(0)?.click();
   });
-  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("built road-"), null, {
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("已建造 road-"), null, {
     timeout: 15000,
   });
   tlog(await status());
 
   // Save + validate clean + compile passes with the rebuilt road.
   await page.click("#save");
-  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("saved rev "), null, {
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("已保存修訂 "), null, {
     timeout: 15000,
   });
   await page.click("#validate");
-  await page.waitForFunction(() => document.getElementById("status").textContent === "valid", null, {
+  await page.waitForFunction(() => document.getElementById("status").textContent === "校驗通過", null, {
     timeout: 15000,
   });
   await page.click("#compile");
-  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("compiled rev "), null, {
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("已編譯修訂 "), null, {
     timeout: 15000,
   });
   const stored = await call("GET", "/api/draft?game=studio-3");
@@ -142,5 +142,3 @@ try {
   await browser?.close();
   server.close();
 }
-const mtimeAfter = (await fs.stat(saveDat)).mtimeMs;
-assert.equal(mtimeAfter, mtimeBefore, "SAVE.DAT untouched");

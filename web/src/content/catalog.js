@@ -1,6 +1,7 @@
 // 内容身份与旧scenario_idx的边界；不创建运行态、不读写本地存档。
 import { loadJSON } from "../core/assets.js";
 import { ORIGINAL_RULE_PROFILE } from "./ruleprofile.js";
+import { BUILTIN_RESOURCES } from "./builtinresources.generated.js";
 
 export function createContentCatalog(manifest, data) {
   if (
@@ -64,8 +65,8 @@ export function createContentCatalog(manifest, data) {
 export async function loadBuiltinContent() {
   // 这里只读取目录/章模板；图集、地图与战斗资源仍等开局确认后才加载。
   const [manifest, data] = await Promise.all([
-    loadJSON("content/builtin/catalog.json"),
-    loadJSON("data.json"),
+    loadJSON(BUILTIN_RESOURCES.catalogURL),
+    loadJSON(BUILTIN_RESOURCES.dataURL),
   ]);
   return createContentCatalog(manifest, data);
 }

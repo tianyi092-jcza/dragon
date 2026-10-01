@@ -2,6 +2,8 @@
 // 同一结构服务内置迁移与后续编辑副本；同一编译管线产生规则输入与视觉派生。
 // 容量：现行规则 profile 只接受 384x256、192 据点及现有固定槽域；超域明确拒绝。
 
+import { composeMapLayers } from "./maplayers.js";
+
 export const MAP_SCHEMA_VERSION = 1;
 export const RULE_PROFILE = "ki-1995/web-0.1.1";
 export const SUPPORTED_BOUNDS = Object.freeze({ width: 384, height: 256, tileSize: 16 });
@@ -33,11 +35,15 @@ export function validateMapSource(src, options = {}) {
   const base = src.map?.base;
   if (!Array.isArray(base?.terrainRef) || base.terrainRef.length !== W * H) throw new TypeError("base.terrainRef must cover every cell");
   for (let i = 0; i < base.terrainRef.length; i++) {
-    if (!isInt(base.terrainRef[i], 0, 255)) throw new RangeError(`base.terrainRef[${i}] out of range`);
+    if (base.terrainRef[i] === null) {
+      const unknown = base.unknownUnderlays?.[i];
+      if (typeof unknown?.sourceRef !== "string" || !unknown.sourceRef || typeof unknown.coveringInstanceId !== "string" || !unknown.coveringInstanceId)
+        throw new RangeError(`base.terrainRef[${i}] unknown needs source and covering instance`);
+    } else if (!isInt(base.terrainRef[i], 0, 255)) throw new RangeError(`base.terrainRef[${i}] out of range`);
   }
   if (!Array.isArray(base?.geography) || base.geography.length !== W * H) throw new TypeError("base.geography must cover every cell");
   for (let i = 0; i < base.geography.length; i++) {
-    if (!isInt(base.geography[i], 0, 2)) throw new RangeError(`base.geography[${i}] must be 0/1/2`);
+    if (!isInt(base.geography[i], 0, 3)) throw new RangeError(`base.geography[${i}] must be land/sea/river/lake (0/1/2/3)`);
   }
   const decorations = src.map?.decorations;
   if (!Array.isArray(decorations)) throw new TypeError("map.decorations must be an array");
@@ -68,7 +74,11 @@ export function validateMapSource(src, options = {}) {
   let totalPoints = 0;
   const cityIds = new Set(placements.map((p) => p.cityId));
   const cityById = new Map(placements.map((p) => [p.cityId, p]));
-  const tileAt = (x, y) => base.terrainRef[y * W + x];
+  // Port checks consume the composed native plane, never just the lower
+  // base or the water display class. The same composition serves all ids.
+  const layered = composeMapLayers(src, { draft });
+  diagnostics.push(...layered.diagnostics);
+  const tileAt = (x, y) => layered.terrain[y * W + x];
   // A-ROAD-1 disconnect refusal (authoring side): each endpoint must be a
   // D4..DD port tile, cardinally aligned with its endpoint city at
   // distance 1..2 (certified 508/508 on original output). Truncated or
@@ -114,14 +124,15 @@ export function diagnoseMapDraft(src) {
   return validateMapSource(src, { draft: true });
 }
 
-// 编译：规则地形字节（base.terrainRef 直出）＋ 显式地理 ＋ 静态路网掩码。
-// 不猜通行/代价，不改有序道路语义；小地图由同一 minimap.js 核心派生。
+// Four-layer opaque original-byte composition + independent explicit
+// water geography + static road geometry. No guessed movement/cost rule.
 export function compileMapSource(src) {
   validateMapSource(src);
   const W = src.map.bounds.width;
   const H = src.map.bounds.height;
-  const terrainBytes = Uint8Array.from(src.map.base.terrainRef);
-  const geography = Uint8Array.from(src.map.base.geography);
+  const layered = composeMapLayers(src);
+  const terrainBytes = Uint8Array.from(layered.terrain);
+  const geography = layered.geography;
   const roadMask = new Uint8Array(W * H);
   for (const road of src.map.roads) {
     for (const pt of road.geometry) {
@@ -130,5 +141,5 @@ export function compileMapSource(src) {
       roadMask[ly * W + lx] = 1;
     }
   }
-  return Object.freeze({ terrainBytes, geography, roadMask, width: W, height: H });
+  return Object.freeze({ terrainBytes, geography, minimapGeography: layered.minimapGeography, roadMask, width: W, height: H });
 }

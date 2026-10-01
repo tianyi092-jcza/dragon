@@ -31,18 +31,37 @@ export function createPathfinder(definition, roads) {
   let roadCost = null; // Uint8Array(W*H) 0=不可走, 1=可走
   let roadOff = null; // {tileId: [ox,oy]} 道路线质心偏移
 
+  let terrainPromise = null;
   async function loadTerrain() {
-    if (terrain && roadCost) return terrain.slice();
-    const [mapRes, costRes, offRes] = await Promise.all([
-      fetch(definition.assets.terrain),
-      fetch(definition.assets.roadCost),
-      fetch(definition.assets.roadOffset),
-      roads.loadRoadGraph(),
-    ]);
-    terrain = new Uint8Array(await mapRes.arrayBuffer());
-    roadCost = new Uint8Array(await costRes.arrayBuffer());
-    roadOff = await offRes.json();
-    return terrain.slice();
+    if (terrain && roadCost && roadOff) return terrain.slice();
+    if (!terrainPromise) {
+      terrainPromise = (async () => {
+        const [mapRes, costRes, offRes] = await Promise.all([
+          fetch(definition.assets.terrain), fetch(definition.assets.roadCost),
+          fetch(definition.assets.roadOffset), roads.loadRoadGraph(),
+        ]);
+        for (const [response, url] of [[mapRes, definition.assets.terrain], [costRes, definition.assets.roadCost], [offRes, definition.assets.roadOffset]])
+          if (!response.ok) throw new Error(`${url} HTTP ${response.status}`);
+        const [mapBuffer, costBuffer, nextOffsets] = await Promise.all([mapRes.arrayBuffer(), costRes.arrayBuffer(), offRes.json()]);
+        const nextTerrain = new Uint8Array(mapBuffer);
+        const nextCost = new Uint8Array(costBuffer);
+        if (nextTerrain.length !== W * H || nextCost.length !== W * H) throw new RangeError("invalid world grid resource dimensions");
+        if (!nextOffsets || typeof nextOffsets !== "object" || Array.isArray(nextOffsets)) throw new RangeError("invalid visual road offset table");
+        for (const [tile, offset] of Object.entries(nextOffsets)) {
+          if (!/^(?:0|[1-9][0-9]{0,2})$/.test(tile) || Number(tile) > 255 || !Array.isArray(offset) ||
+              offset.length !== 2 || !offset.every((v) => typeof v === "number" && Number.isFinite(v)))
+            throw new RangeError(`invalid visual road offset entry ${tile}`);
+          Object.freeze(offset);
+        }
+        // Resource admission only; no search/field/RNG formula changes.
+        // Failed JSON/HTTP/size checks must not leave a half-installed
+        // terrain+cost cache that silently skips the next retry.
+        terrain = nextTerrain; roadCost = nextCost; roadOff = Object.freeze(nextOffsets);
+        return terrain;
+      })().finally(() => { terrainPromise = null; });
+    }
+    const loaded = await terrainPromise;
+    return loaded.slice();
   }
 
   // Immutable exact resource identity, never a mutable Scenario rules plane.
@@ -66,7 +85,7 @@ export function createPathfinder(definition, roads) {
       return ZERO_OFF;
     return roadOff[terrain[y * W + x]] || ZERO_OFF;
   }
-  const ZERO_OFF = [0, 0];
+  const ZERO_OFF = Object.freeze([0, 0]);
 
   function passable(x, y) {
     if (!roadCost || x < 0 || y < 0 || x >= W || y >= H) return false;

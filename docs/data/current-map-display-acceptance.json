@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "decision": "APPROVED",
+  "source": "用户m1668",
+  "quote": "很好，效果不错，继续",
+  "categorySource": "此前本轮用户明确认可水域类别，要求修改小地图及实际组合级显示开关",
+  "scope": "采纳本次已展示候选的水域显示资料、组合取舍、统一道路水系线色、渐变/点阵纹理及普通/放大/回退布局；只是Web视觉与本地迁移认可，不是DOS机制、道路清单逐项规则认证、完整编辑器或提交/推送/部署授权",
+  "candidateStage": "explicit-stage-r9",
+  "candidateRevision": "map-2-40da80fbba6764cb95b7da5fbd54187628230639ac766acc71710105e16d6372",
+  "sourceDigest": "65ef2263b4587cb3d831e926ce5c9ada97462ce8aa2222bd9fa8c68c1ffcd986",
+  "styleRevision": "minimap-style-2-bands-dither",
+  "reviewRound": "minimap-groups-review-r2",
+  "reviewHtmlSha256": "73b40bd381c8ab076aa3a3685cbde4d6d3a39cd4c354c5cebc0711ef6e7fe431",
+  "minimapSha256": {
+    "minimap_base.png": "40c3f1d8d29e039eb25789b0b1eb43a02b9b6e8e514e39c0a74acc02dc5eaaf1",
+    "minimap_large.png": "993611df04b0e8d71038738b792f3abffff57ff1af041d75ea73caa503a356f9"
+  }
+}

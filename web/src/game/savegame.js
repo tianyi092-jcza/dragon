@@ -210,6 +210,15 @@ export function admitSavedScenario(saved, app) {
   const assembly = readSavedAssembly(saved);
   if (assembly.metadata)
     assertAssemblyIdentity(assembly.metadata, idx, app.content, app.world);
+  // App restore requires a complete checkpoint, not the synthetic defaults
+  // allowed by the lower-level bounded assembly/probe API. Missing planes or
+  // cache must fail before loadState can touch the live scene/RNG. Preserve
+  // the record; never reconstruct lost runtime writes from compiled assets.
+  if (assembly.metadata?.roadVersion === 2) {
+    for (const field of ["movementMemory", "terrainMemory", "cityCache"])
+      if (assembly[field] == null)
+        throw new TypeError(`v2 App restore requires saved ${field}`);
+  }
   assertPlayableScenario(assembly);
   return { raw, idx, ...assembly };
 }
@@ -456,15 +465,14 @@ export function snapshotState(app, slotIdx, label) {
         pendingEnvoyBudgetReports: structuredClone(
           sc.pendingEnvoyBudgetReports ?? [],
         ),
-        ...(nativeRoads
-          ? Object.hasOwn(sc, "strategicEventSlots")
-            ? { strategicEventSlots: structuredClone(sc.strategicEventSlots) }
-            : {}
-          : {
-              strategicEventSlots: structuredClone(
-                sc.strategicEventSlots ?? [],
-              ),
-            }),
+        ...(() => {
+          if (nativeRoads) {
+            if (Object.hasOwn(sc, "strategicEventSlots"))
+              return { strategicEventSlots: structuredClone(sc.strategicEventSlots) };
+            return {};
+          }
+          return { strategicEventSlots: structuredClone(sc.strategicEventSlots ?? []) };
+        })(),
         disasterMapObjects: structuredClone(sc.disasterMapObjects ?? []),
         weatherClouds: structuredClone(sc.weatherClouds ?? []),
         _disasterBounds: structuredClone(sc._disasterBounds ?? null),
@@ -478,11 +486,14 @@ export function snapshotState(app, slotIdx, label) {
         _legionBatchCursor: sc._legionBatchCursor ?? 0,
         _cityTickCursor: sc._cityTickCursor ?? 0,
         _factionTickCursor: sc._factionTickCursor ?? 0,
-        ...(nativeRoads
-          ? Object.hasOwn(sc, "_strategicEventCursor")
-            ? { _strategicEventCursor: sc._strategicEventCursor }
-            : {}
-          : { _strategicEventCursor: sc._strategicEventCursor ?? 0 }),
+        ...(() => {
+          if (nativeRoads) {
+            if (Object.hasOwn(sc, "_strategicEventCursor"))
+              return { _strategicEventCursor: sc._strategicEventCursor };
+            return {};
+          }
+          return { _strategicEventCursor: sc._strategicEventCursor ?? 0 };
+        })(),
         _strategicEventDivider: sc._strategicEventDivider ?? 7,
         _envoyDiplomacyCursor: sc._envoyDiplomacyCursor ?? 0,
         envoys: structuredClone(sc.envoys ?? {}),
@@ -497,20 +508,22 @@ export function snapshotState(app, slotIdx, label) {
           extinctionHandled: faction._extinctionHandled ?? false,
           monthlyReserveUpkeep: faction.monthly_reserve_upkeep ?? 0,
           diplomatIdx: faction.diplomat_idx ?? null,
-          ...(nativeRoads
-            ? {
+          ...(() => {
+            if (nativeRoads) {
+              return {
                 ...(Object.hasOwn(faction, "strategic_city_primary")
                   ? { strategicCityPrimary: faction.strategic_city_primary }
                   : {}),
                 ...(Object.hasOwn(faction, "strategic_city_secondary")
                   ? { strategicCitySecondary: faction.strategic_city_secondary }
                   : {}),
-              }
-            : {
-                strategicCityPrimary: faction.strategic_city_primary ?? null,
-                strategicCitySecondary:
-                  faction.strategic_city_secondary ?? null,
-              }),
+              };
+            }
+            return {
+              strategicCityPrimary: faction.strategic_city_primary ?? null,
+              strategicCitySecondary: faction.strategic_city_secondary ?? null,
+            };
+          })(),
         })),
       },
     },

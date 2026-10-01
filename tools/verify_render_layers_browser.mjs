@@ -11,6 +11,12 @@ try {
   const results = [];
   for (const dpr of [1, 1.25, 2]) {
     const context = await browser.newContext({ viewport: { width: 1024, height: 768 }, deviceScaleFactor: dpr });
+    const origin = `http://127.0.0.1:${server.port}`;
+    await context.route('**/*', route => {
+      const url = new URL(route.request().url());
+      if (url.origin !== origin || /save\.dat|\/api\//i.test(url.pathname)) return route.abort();
+      return route.continue();
+    });
     const page = await context.newPage(), errors = [];
     page.on('pageerror', e => errors.push(String(e)));
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
@@ -23,18 +29,19 @@ try {
       const { WeatherPresentation } = await import('./src/render/weatherpresentation.js');
       const { createChunkedTerrain } = await import('./src/render/chunkedterrain.js');
       const { loadImage } = await import('./src/core/assets.js');
-      const world = { width: 384, height: 256, tileSize: 16 };
+      const { DEFAULT_WORLD } = await import('./src/content/worlddefinition.js');
+      const world = DEFAULT_WORLD;
       const sc = { player_faction: 0, cities: [], factions: [{ idx: 0, name: '測試', monarch: '測試', march_marker_style: 0 }], legions: [], disasterMapObjects: [], weatherClouds: [], factionOf(c) { return this.factions[c.faction] ?? null; } };
       for (let i = 0; i < 192; i++) sc.cities.push({ idx: i, name: `城${i}`, faction: i % 2, x: 2 + (i % 16) * 3, y: 6 + Math.floor(i / 16) * 3 });
       const view = new MapView(document.querySelector('#map'), () => sc, () => world);
-      const app = { gameStarted: true, scenario: sc, view, clock: { year: 196, month: 1, day: 1, hold: true, dayProgress: () => 0.5 }, engagementFx: { frameOf: () => null }, weatherFx: new WeatherPresentation() };
+      const app = { gameStarted: true, scenario: sc, view, world: { definition: world }, clock: { year: 196, month: 1, day: 1, hold: true, dayProgress: () => 0.5 }, engagementFx: { frameOf: () => null }, weatherFx: new WeatherPresentation() };
       view.app = app;
       app.gamebar = new GameBar(app);
       app.gamebar.submenuOpen = true;
       app.gamebar.miniOpen = true;
       let overlayCalls = 0;
       view.overlay = ctx => { overlayCalls++; app.gamebar.draw(ctx); };
-      const atlas = await loadImage('map_atlas_spring.png');
+      const atlas = await loadImage(world.assets.seasonAtlases.spring);
       view.seasonImg = createChunkedTerrain(atlas, new Uint8Array(384 * 256).fill(1), world);
       await Promise.all([app.gamebar._assets, app.weatherFx.preload(), preloadMarchMarkerImages(), preloadDisasterObjectImages(), preloadEngageMarkerImages()]);
       view.draw();

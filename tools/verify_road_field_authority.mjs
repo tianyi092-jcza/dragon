@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { DEFAULT_WORLD } from "../web/src/content/worlddefinition.js";
 import {
   initializeLegionSlotState,
   bindLegionSlotCounter,
@@ -27,7 +28,7 @@ const templates = parseFixtureJSON(
   await readFile(new URL("../web/data.json", import.meta.url)),
 );
 globalThis.fetch = async (url) => {
-  assert.equal(url, "road_graph.json", "only the fixed graph is fetched");
+  assert.equal(url, DEFAULT_WORLD.assets.roadGraph, "only the fixed manifest graph is fetched");
   return { ok: true, json: async () => parseFixtureJSON(graphBytes) };
 };
 const { loadRoadGraph } = await import("../web/src/game/roadgraph.js");

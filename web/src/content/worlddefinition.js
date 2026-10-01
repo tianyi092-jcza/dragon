@@ -1,30 +1,7 @@
-// 当前世界/资源定义。尺寸与槽位限制集中在此，不表示已支持容量扩展。
-// 编辑源位于web/content/builtin/world；地图PNG是离线编译的可重建产物。
-export const DEFAULT_WORLD = Object.freeze({
-  id: "mmap-original",
-  revision: "1",
-  width: 384,
-  height: 256,
-  tileSize: 16,
-  assets: Object.freeze({
-    terrain: "mmap_map.bin",
-    roadGraph: "road_graph.json",
-    roadCost: "road_cost.bin",
-    roadOffset: "road_offset.json",
-    seasonAtlases: Object.freeze({
-      spring: "map_atlas_spring.png",
-      summer: "map_atlas_summer.png",
-      autumn: "map_atlas_autumn.png",
-      winter: "map_atlas_winter.png",
-    }),
-    seasons: Object.freeze({
-      spring: "map_tiles_spring.png",
-      summer: "map_tiles_summer.png",
-      autumn: "map_tiles_autumn.png",
-      winter: "map_tiles_winter.png",
-    }),
-  }),
-});
+// Controlled local unified package; old revision assets remain untouched.
+// Source/manifest share the compiler used by isolated editable copies.
+import { BUILTIN_RESOURCES } from "./builtinresources.generated.js";
+export const DEFAULT_WORLD = BUILTIN_RESOURCES.world;
 
 // KI兼容布局不是任意数组length；扩大世界须逐条审计使用位置与哨兵冲突。
 export const STRATEGIC_LAYOUT = Object.freeze({

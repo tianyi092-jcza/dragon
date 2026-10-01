@@ -44,7 +44,7 @@ const world = createWorldResources();
   ]);
   globalThis.fetch = async (url) => {
     assert(allowed.has(String(url)), `Unexpected asset ${url}`);
-    if (String(url).endsWith("road_graph.json"))
+    if (String(url) === urls.roadGraph)
       return { ok: true, json: async () => graph };
     return {
       ok: true,

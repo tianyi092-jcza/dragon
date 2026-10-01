@@ -38,7 +38,7 @@ try {
   });
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
-    if (/\/api\/|\.dragon-runtime|save\.dat/i.test(url.pathname)) {
+    if (url.origin !== origin || /\/api\/|\.dragon-runtime|save\.dat/i.test(url.pathname)) {
       forbidden.push(url.pathname);
       return route.abort();
     }
@@ -113,7 +113,7 @@ try {
   assert.deepEqual(await panelState(), [true, true, true, null], "new game defaults open without submenu selection");
   const baseline = await page.evaluate(async () => {
     const app = window.__app;
-    app.gamebar._clockHoldRequested = true;
+    app.gamebar.settingsOpen = true; // Real per-frame hold owner.
     app.gamebar.syncClock();
     if (app.saves.slots.some((slot) => slot.played))
       throw new Error("Context was not empty");
@@ -297,7 +297,7 @@ try {
   const restored = await page.evaluate(async () => {
     await window.__returning;
     const app = window.__app;
-    app.gamebar._clockHoldRequested = true;
+    app.gamebar.settingsOpen = true; // Real per-frame hold owner.
     app.gamebar.syncClock();
     const { loadLocalSaveSlots } = await import("/src/core/localstore.js");
     const { scenarioNativeRoadContext } = await import(

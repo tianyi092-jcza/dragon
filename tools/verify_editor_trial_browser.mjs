@@ -12,14 +12,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { startEditorServer } from "./editor_server.mjs";
+import { composeMapLayers } from "../web/src/content/authoring/maplayers.js";
 const require = createRequire(import.meta.url);
 const { chromium } = require(
   process.env.PLAYWRIGHT_MODULE ||
     "C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright",
 );
 
-const saveDat = new URL("../../Dragon/SAVE.DAT", import.meta.url);
-const mtimeBefore = (await fs.stat(saveDat)).mtimeMs;
 const tmp = mkdtempSync(join(tmpdir(), "editor-trial-"));
 const server = await startEditorServer(0, tmp);
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -29,7 +28,7 @@ try {
   const call = async (method, path, body) => {
     const r = await fetch(`${base}${path}`, {
       method,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", connection: "close" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const data = await r.json();
@@ -40,7 +39,7 @@ try {
   const draft = await call("GET", "/api/draft?game=brow-1");
   // Isolated edit cell: current 0x20, clear of roads/cities.
   const W = draft.map.bounds.width;
-  const ref = draft.map.base.terrainRef;
+  const ref = composeMapLayers(draft).terrain;
   const graph = JSON.parse(
     await fs.readFile(new URL("../web/road_graph.json", import.meta.url), "utf-8"),
   );
@@ -65,16 +64,22 @@ try {
   }
   assert.ok(cell, "need an isolated cell");
   const [ex, ey] = cell;
-  draft.map.base.terrainRef[ey * W + ex] = 0x10;
+  const atom = draft.map.decorations.find((d) => d.x === ex && d.y === ey);
+  assert.ok(atom); atom.definitionRef = "tile-16";
   assert.equal((await call("POST", "/api/save", { gameId: "brow-1", map: draft.map })).draftRevision, "2");
   assert.ok((await call("POST", "/api/validate", { gameId: "brow-1" })).valid);
-  await call("POST", "/api/compile", { gameId: "brow-1" });
+  const manifest = await call("POST", "/api/compile", { gameId: "brow-1" });
   const chapter = draft.chapterOrder[1];
 
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1024, height: 768 } });
   const page = await context.newPage();
   page.setDefaultTimeout(120000);
+  const assetRequests = [], unexpectedRequests = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/trial-asset?")) assetRequests.push(request.url());
+    if (/\/(road_graph\.json|mmap_map\.bin)(?:\?|$)/.test(request.url())) unexpectedRequests.push(request.url());
+  });
   page.on("pageerror", (error) => errors.push(String(error)));
   page.on("console", (message) => {
     if (message.type() === "error" && !message.location().url?.endsWith("/favicon.ico"))
@@ -88,6 +93,10 @@ try {
   assert.equal(trial.cities, 192);
   assert.equal(trial.idbOpens, 0, "trial never opens IndexedDB");
   assert.equal(trial.sample, 0x10, "edited cell live in the browser trial");
+  assert.equal(trial.snapshot, manifest.identity.trialSnapshotId);
+  assert.equal(trial.roadAsset, manifest.assets.find((a) => a.assetId === "roadGraph").url);
+  assert.deepEqual(assetRequests.sort(), manifest.assets.map((a) => base + a.url).sort(), "all compiled assets use this snapshot");
+  assert.deepEqual(unexpectedRequests, [], "no built-in terrain/road fallback");
   // Formal save surface absent by construction (no App, no repository).
   const surface = await page.evaluate(() => ({
     hasSave: typeof window.__app?.saveGame === "function",
@@ -103,5 +112,3 @@ try {
   await browser?.close();
   server.close();
 }
-const mtimeAfter = (await fs.stat(saveDat)).mtimeMs;
-assert.equal(mtimeAfter, mtimeBefore, "SAVE.DAT untouched");

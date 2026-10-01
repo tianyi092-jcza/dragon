@@ -15,9 +15,13 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 
 import { join, resolve, sep } from "node:path";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { copyBuiltinGame, validateGameSource } from "../web/src/content/authoring/gamesource.js";
-import { compileMapSource } from "../web/src/content/authoring/mapcompile.js";
+import { StringDecoder } from "node:string_decoder";
+import { canonicalDigest, copyBuiltinGame, validateGameSource } from "../web/src/content/authoring/gamesource.js";
+import { compileTrialSource, TRIAL_COMPILER_REVISION } from "../web/src/content/authoring/trialcompile.js";
 import { renderMinimapPixels, MINIMAP_SIZES } from "../web/src/content/authoring/minimap.js";
+import { readInstalledEditorSource } from "./editor_builtin_source.mjs";
+import { encodeMinimapPNG } from "./minimap_png.mjs";
+import { validateLibraryAdditions } from "../web/src/editor/componenttools.js";
 
 const args = process.argv.slice(2);
 const portArg = args.indexOf("--port");
@@ -30,13 +34,6 @@ if (!Number.isInteger(PORT) || PORT < 1024 || PORT > 65535) throw new RangeError
 
 const sha256hex = (s) => createHash("sha256").update(s, "utf8").digest("hex");
 const repoRoot = new URL("..", import.meta.url);
-const readJSON = (rel) => {
-  try {
-    return JSON.parse(readFileSync(new URL(rel, repoRoot), "utf-8"));
-  } catch (error) {
-    throw new Error(`cannot load service input ${rel}`, { cause: error });
-  }
-};
 
 function gameDir(gameId) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(gameId)) throw new RangeError("bad gameId");
@@ -64,23 +61,40 @@ function storeDraft(game, draft = false) {
   writeFileSync(join(dir, "gamesource.json"), `${JSON.stringify(game)}\n`);
   return { game, diagnostics };
 }
-function builtinSource() {
-  const world = readJSON("web/content/builtin/world/world.json");
-  const catalog = readJSON("web/content/builtin/catalog.json");
-  const dataScenarios = readJSON("web/data.json").scenarios;
-  const mapSource = readJSON(".dragon-analysis/map-migration/unified-a/unified_mapsource.json");
-  return {
-    revision: "1",
-    world,
-    map: mapSource.map,
-    componentDefinitions: mapSource.componentDefinitions ?? {},
-    chapters: catalog.chapters.map((entry) => ({
-      id: entry.id,
-      state: dataScenarios[entry.legacyScenarioIndex],
-    })),
-  };
+function builtinSource() { return readInstalledEditorSource(); }
+
+export const EDITOR_BUILD_FORMAT = "studio-unified-1";
+const BUILD_FILES = { terrain: "terrain.bin", roadGraph: "roads.json", roadCost: "road_cost.bin", roadOffset: "road_offset.json",
+  minimapBase: "minimap_base.png", minimapLarge: "minimap_large.png" };
+function buildDir(gameId, revision) {
+  if (!/^[1-9]\d*$/.test(revision ?? "")) throw new RangeError("bad build revision");
+  return join(gameDir(gameId), "build", revision, TRIAL_COMPILER_REVISION, EDITOR_BUILD_FORMAT);
+}
+function readBuild(gameId, revision) {
+  const dir = buildDir(gameId, revision);
+  if (!existsSync(join(dir, "manifest.json"))) throw new RangeError("compile before trial-pack");
+  let manifest, snapshot;
+  try {
+    manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf-8"));
+    snapshot = JSON.parse(readFileSync(join(dir, "snapshot.json"), "utf-8"));
+  } catch (error) {
+    throw new RangeError("corrupt compiled snapshot", { cause: error });
+  }
+  if (manifest.buildFormat !== EDITOR_BUILD_FORMAT || manifest.compilerRevision !== TRIAL_COMPILER_REVISION ||
+      manifest.identity?.gameId !== gameId || manifest.identity.draftRevision !== revision ||
+      canonicalDigest(snapshot, sha256hex) !== manifest.identity.sourceDigest)
+    throw new RangeError("compiled snapshot identity mismatch");
+  for (const [assetId, path] of Object.entries(BUILD_FILES)) {
+    const asset = [...manifest.assets, ...manifest.minimapAssets].find((a) => a.assetId === assetId);
+    const bytes = readFileSync(join(dir, path));
+    if (asset?.path !== path || asset.byteLength !== bytes.length || asset.sha256 !== sha256hex(bytes))
+      throw new RangeError(`compiled asset integrity mismatch: ${assetId}`);
+  }
+  return { dir, manifest, snapshot };
 }
 
+// Values embedded in HTML scripts must not be able to terminate the script.
+const scriptJSON = (value) => JSON.stringify(value).replaceAll("<", "\\u003c");
 const WEB_ROOT = new URL("../web/", import.meta.url);
 const MIME = {
   ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json",
@@ -108,8 +122,10 @@ async function serveWebFile(pathname, res) {
 }
 
 const routes = {
-  "GET /": (res) => html(res, `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>臥龍傳編輯器（本地）</title></head><body><h1>臥龍傳編輯器（本地 E-02）</h1><div id="games"></div><script>
-fetch("/api/games").then(r=>r.json()).then(g=>{document.getElementById("games").textContent=JSON.stringify(g)});</script></body></html>`),
+  "GET /": (res) => html(res, `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>臥龍傳編輯器（本地）</title></head><body><h1>臥龍傳編輯器（本地限定域）</h1><p>原件唯讀；由當前固定修訂複製。無帳戶／正式發布，僅供本地測試。</p><label>新遊戲ID <input id="new-game" maxlength="128"></label><button id="full-copy">完整測試複製</button><button id="minimal-copy">僅複製地圖及中立據點基礎</button><p id="copy-status"></p><ul id="games"></ul><script>
+async function list(){const r=await fetch("/api/games");const data=await r.json();const ul=document.getElementById("games");ul.replaceChildren();for(const id of data.games){const li=document.createElement("li"),a=document.createElement("a");a.textContent=id;a.href="/studio?game="+encodeURIComponent(id);li.append(a);ul.append(li)}}
+for(const [id,kind] of [["full-copy","full"],["minimal-copy","minimal"]])document.getElementById(id).onclick=async()=>{const buttons=["full-copy","minimal-copy"].map(x=>document.getElementById(x));buttons.forEach(b=>b.disabled=true);try{const r=await fetch("/api/copy",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({gameId:document.getElementById("new-game").value,kind,ownerId:"local-test"})});const data=await r.json();document.getElementById("copy-status").textContent=r.ok?"已複製；請從下方開啟工作台":"複製被拒絕："+data.error;if(r.ok)await list()}catch(e){document.getElementById("copy-status").textContent="請求失敗："+e.message}finally{buttons.forEach(b=>b.disabled=false)}};
+list().catch(e=>{document.getElementById("copy-status").textContent="讀取失敗："+e.message});</script></body></html>`),
   "GET /api/games": (res) => {
     mkdirSync(STORE, { recursive: true });
     const games = readdirSync(STORE, { withFileTypes: true })
@@ -124,15 +140,26 @@ fetch("/api/games").then(r=>r.json()).then(g=>{document.getElementById("games").
   },
   "POST /api/copy": (res, body) => {
     const { gameId, ownerId, kind } = body ?? {};
-    const game = copyBuiltinGame({ gameId, ownerId, kind, source: builtinSource() }, sha256hex);
+    const source = builtinSource();
+    const game = copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex);
+    game.assets.editorVisuals = source.editorAssets;
+    if (kind === "full") game.metadata.name = "測試複製";
+    if (existsSync(join(gameDir(game.gameId), "gamesource.json"))) throw new RangeError("game identity already exists");
     storeDraft(game);
     json(res, { gameId: game.gameId, draftRevision: game.localModel.draftRevision, digest: game.sourceRef.digest });
   },
   "POST /api/save": (res, body) => {
-    const { gameId, map } = body ?? {};
+    const { gameId, map, componentDefinitions } = body ?? {};
     const game = loadDraft(gameId);
+    // Single local process conditional guard, not a durable backend CAS.
+    if (body.expectedRevision !== undefined && body.expectedRevision !== game.localModel.draftRevision)
+      throw new RangeError("草稿修訂衝突：請重新載入後合併修改");
+    if (componentDefinitions !== undefined) {
+      validateLibraryAdditions(game, componentDefinitions);
+      game.componentDefinitions = componentDefinitions;
+    }
     if (map !== undefined) game.map = map;
-    game.localModel.draftRevision = String(Number(game.localModel.draftRevision) + 1);
+    game.localModel.draftRevision = String(BigInt(game.localModel.draftRevision) + 1n);
     // Q14: structural violations still refuse the save; semantic断路
     // diagnostics are stored with the draft (publish/compile stays blocked).
     const { diagnostics } = storeDraft(game, true);
@@ -146,69 +173,94 @@ fetch("/api/games").then(r=>r.json()).then(g=>{document.getElementById("games").
   "POST /api/compile": (res, body) => {
     const game = loadDraft(body?.gameId);
     validateGameSource(game);
-    const compiled = compileMapSource({ schemaVersion: 1, map: game.map, componentDefinitions: game.componentDefinitions ?? {} });
+    const compiled = compileTrialSource(game, sha256hex);
     const rev = game.localModel.draftRevision;
-    const dir = join(gameDir(game.gameId), "build", rev);
+    const dir = buildDir(game.gameId, rev);
+    if (existsSync(join(dir, "manifest.json"))) {
+      const previous = readBuild(game.gameId, rev);
+      if (previous.manifest.identity.sourceDigest !== compiled.sourceDigest)
+        throw new RangeError("cannot overwrite compiled snapshot");
+      json(res, previous.manifest);
+      return;
+    }
     mkdirSync(dir, { recursive: true });
-    const terrainHex = Buffer.from(compiled.terrainBytes).toString("hex");
-    writeFileSync(join(dir, "terrain.hex"), `${terrainHex}\n`);
-    const geo = Buffer.from(compiled.geography);
-    const minimap = {};
-    for (const size of Object.values(MINIMAP_SIZES)) {
-      const { pixels } = renderMinimapPixels(geo, compiled.roadMask, compiled.width, compiled.height, size.w, size.h, 1);
+    const payloads = {
+      terrain: Buffer.from(compiled.terrainBytes),
+      roadGraph: Buffer.from(JSON.stringify(compiled.roadGraph)),
+      roadCost: Buffer.from(compiled.roadCost),
+      // Trusted tile-centroid visual table, fixed at compile; never a
+      // native movement/search input, never inferred from author land/water.
+      roadOffset: compiled.roadOffsetBytes ?? readFileSync(new URL("web/road_offset.json", repoRoot)),
+    };
+    const assets = Object.entries(payloads).map(([assetId, bytes]) => {
+      const path = BUILD_FILES[assetId];
+      writeFileSync(join(dir, path), bytes);
+      let role = "legacy-grid-visual";
+      if (assetId === "terrain") role = "rules-initial-terrain";
+      if (assetId === "roadGraph") role = "native-road-v2";
+      return { assetId, path, sha256: sha256hex(bytes), byteLength: bytes.length, role,
+        url: `/api/trial-asset?game=${encodeURIComponent(game.gameId)}&revision=${rev}&digest=${compiled.sourceDigest}&asset=${assetId}` };
+    });
+    writeFileSync(join(dir, "snapshot.json"), JSON.stringify(game));
+    const minimap = {}, minimapAssets = [];
+    for (const [name, size] of Object.entries(MINIMAP_SIZES)) {
+      const { pixels } = renderMinimapPixels(compiled.minimapGeography, compiled.roadMask, compiled.width, compiled.height, size.w, size.h, 1);
       minimap[`${size.w}x${size.h}`] = sha256hex(Buffer.from(pixels));
+      const assetId = name === "base" ? "minimapBase" : "minimapLarge", path = BUILD_FILES[assetId];
+      const bytes = encodeMinimapPNG(pixels, size.w, size.h);
+      writeFileSync(join(dir, path), bytes);
+      minimapAssets.push({ assetId, path, sha256: sha256hex(bytes), byteLength: bytes.length, role: "automatic-minimap",
+        url: `/api/trial-asset?game=${encodeURIComponent(game.gameId)}&revision=${rev}&digest=${compiled.sourceDigest}&asset=${assetId}` });
     }
     const manifest = {
       schemaVersion: 1,
-      compilerRevision: "editor-local-0.1",
+      compilerRevision: TRIAL_COMPILER_REVISION,
+      buildFormat: EDITOR_BUILD_FORMAT,
+      compatibilityAssetMode: compiled.compatibilityAssetMode,
       ruleProfile: game.ruleProfile,
-      identity: { gameId: game.gameId, draftRevision: rev, sourceDigest: sha256hex(JSON.stringify(game.map)) },
-      world: { width: compiled.width, height: compiled.height },
+      identity: { gameId: game.gameId, draftRevision: rev, sourceDigest: compiled.sourceDigest,
+        trialSnapshotId: `${game.gameId}@${rev}:${compiled.sourceDigest}` },
+      world: { id: `${game.gameId}-world`, revision: compiled.sourceDigest,
+        width: compiled.width, height: compiled.height, tileSize: 16 },
       chapters: game.chapterOrder,
       minimap,
-      assets: [{ assetId: "terrain", path: "terrain.hex", sha256: sha256hex(terrainHex), role: "rules-initial-terrain" }],
+      minimapAssets,
+      assets,
     };
     writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     json(res, manifest);
   },
-  // Trial pack: manifest + first-chapter state + compiled terrain for the
-  // production loader (harness-grade trial entry; browser trial boot with
-  // neutered persistence is the next step, not this route).
+  // Immutable snapshot only: an explicit revision never reads the latest draft.
   "GET /api/trial-pack": (res, _body, query) => {
-    const game = loadDraft(query.get("game"));
-    validateGameSource(game);
-    const rev = game.localModel.draftRevision;
-    const dir = join(gameDir(game.gameId), "build", rev);
-    if (!existsSync(join(dir, "manifest.json")) || !existsSync(join(dir, "terrain.hex"))) {
-      throw new RangeError("compile before trial-pack");
-    }
-    let manifest;
-    try {
-      manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf-8"));
-    } catch (error) {
-      throw new RangeError(`corrupt build manifest for ${game.gameId}`, { cause: error });
-    }
-    const terrainHex = readFileSync(join(dir, "terrain.hex"), "utf-8").trim();
-    const firstChapter = game.chapterOrder[0] ?? null;
-    const wantChapter = query.get("chapter") ?? firstChapter;
-    if (wantChapter != null && !game.chapters[wantChapter]) {
-      throw new RangeError(`unknown trial chapter: ${wantChapter}`);
-    }
-    // Drift note (E-04 semantic): named-vs-raw old-owner drift is original
-    // record content; dead-slot 3F29 writes skip per originalroadarrival.
-    json(res, {
-      manifest,
-      terrainHex,
-      chapter: wantChapter == null ? null : game.chapters[wantChapter].state,
-    });
+    const gameId = query.get("game");
+    const rev = query.get("revision") ?? loadDraft(gameId).localModel.draftRevision;
+    const { dir, manifest, snapshot } = readBuild(gameId, rev);
+    const chapterId = query.get("chapter") || snapshot.chapterOrder[0] || null;
+    if (chapterId != null && !snapshot.chapters[chapterId]) throw new RangeError(`unknown trial chapter: ${chapterId}`);
+    json(res, { manifest, chapterId,
+      terrainHex: readFileSync(join(dir, BUILD_FILES.terrain)).toString("hex"),
+      chapter: chapterId == null ? null : snapshot.chapters[chapterId].state });
+  },
+  "GET /api/trial-asset": (res, _body, query) => {
+    const { dir, manifest } = readBuild(query.get("game"), query.get("revision"));
+    if (query.get("digest") !== manifest.identity.sourceDigest) throw new RangeError("trial asset snapshot mismatch");
+    const assetId = query.get("asset");
+    if (!Object.hasOwn(BUILD_FILES, assetId)) throw new RangeError("unknown trial asset");
+    const bytes = readFileSync(join(dir, BUILD_FILES[assetId]));
+    const media = assetId.startsWith("minimap") ? "image/png" : "application/octet-stream";
+    res.writeHead(200, { "content-type": assetId === "roadGraph" || assetId === "roadOffset" ? "application/json" : media, "cache-control": "no-store" });
+    res.end(bytes);
   },
   // Browser trial boot (harness-grade): same-origin engine, direct
   // prepare (no title, no App), IDB spy, 10 ticked days, report exposed
   // as window.__trial. Full App trial mode with neutered persistence is
   // the next step, not this page.
   "GET /trial": (res, _body, query) => {
-    const game = String(query.get("game") ?? "").replace(/"/g, "");
-    const chapter = String(query.get("chapter") ?? "").replace(/"/g, "");
+    const game = query.get("game");
+    const revision = query.get("revision") ?? loadDraft(game).localModel.draftRevision;
+    const { snapshot } = readBuild(game, revision);
+    const chapter = query.get("chapter") || snapshot.chapterOrder[0];
+    if (!snapshot.chapters[chapter]) throw new RangeError("no compiled trial chapter");
     const sampleParts = String(query.get("sample") ?? "").split(",").map(Number);
     const sampleCell = sampleParts.length === 2 && sampleParts.every((v) => Number.isInteger(v)) ? sampleParts : null;
     html(res, `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Trial</title></head><body><div id="trial">booting</div><script type="module">
@@ -217,32 +269,17 @@ window.__idbOpens = 0;
 const origOpen = window.indexedDB ? window.indexedDB.open.bind(window.indexedDB) : null;
 if (origOpen) window.indexedDB.open = (...a) => { window.__idbOpens++; return origOpen(...a); };
 window.addEventListener("error", (e) => { window.__trial.error = String(e.message ?? e.error); });
-const pack = await (await fetch("/api/trial-pack?game=" + encodeURIComponent(${JSON.stringify(game)}) + "&chapter=" + encodeURIComponent(${JSON.stringify(chapter)}))).json();
+const response = await fetch("/api/trial-pack?game=" + encodeURIComponent(${scriptJSON(game)}) + "&revision=" + ${scriptJSON(revision)} + "&chapter=" + encodeURIComponent(${scriptJSON(chapter)}));
+if (!response.ok) throw new Error("compiled trial pack HTTP " + response.status);
+const pack = await response.json();
 if (!pack.chapter) throw new Error("no trial chapter");
 const assembly = await import("/src/game/scenarioassembly.js");
-const catalog = await import("/src/content/catalog.js");
-const worldRes = await import("/src/game/worldresources.js");
-const worldMod = await import("/src/game/world.js");
-const legions = await import("/src/game/nativelegions.js");
+const trialRuntime = await import("/src/content/authoring/trialruntime.js");
 const ai = await import("/src/game/ai.js");
 const clockMod = await import("/src/game/clock.js");
 const rngMod = await import("/src/game/battle/originalrng.js");
-const manifest = { schemaVersion: 1, rules: "ki-1995", id: "trial-page", revision: "1",
-  chapters: [{ id: "chapter", legacyScenarioIndex: 0, official: false }] };
-const content = catalog.createContentCatalog(manifest, { scenarios: [pack.chapter] });
-const world = worldRes.createWorldResources();
-const raw = worldMod.createNewGameScenario(pack.chapter);
-if (!Object.hasOwn(raw, "nativeFactionSlotRaw")) legions.attachSyntheticNativeFactionSource(raw);
-// Trial-player selection (mirrors the title flow: setScenario picks a
-// faction before loadState binds CFD). First declared faction; advisor
-// fresh-player semantics stay out (covered by A-INIT-1, not boot).
-const trialPlayer = raw.factions?.[0]?.idx ?? 0;
-raw.player_faction = trialPlayer;
-const prepared = await assembly.prepareScenario({ raw, idx: 0, mode: "fresh", content, world,
-  terrainMemory: { version: 1, spans: [{ address: 0, hex: pack.terrainHex }] }, movementMemory: null });
-const sc = prepared.scenario;
-const factions = await import("/src/game/nativefactions.js");
-factions.bindNativePlayerFactionPointer(sc, "trial");
+const { scenario: sc, world, content, player: trialPlayer } = await trialRuntime.prepareTrialScenario(pack);
+window.__trialContext = { sc, world, content }; // isolated harness diagnostics only
 const app = { scenario: sc, scenarioIdx: 0, world, content,
   originalRng: new rngMod.OriginalBattleRng({ ch: 0, cl: 0, dh: 1 }),
   battleView: null, engageTransition: null, gamebar: { syncClock() {} }, hud: { flashEvent() {} } };
@@ -261,6 +298,8 @@ for (let d = 0; d < 10; d++) for (let t = 0; t < 24 * 9; t++) {
 }
 window.__trial = { done: true, date: [app.clock.year, app.clock.month, app.clock.day],
   cities: sc.cities.length, idbOpens: window.__idbOpens, player: trialPlayer,
+  snapshot: pack.manifest.identity.trialSnapshotId,
+  roadAsset: world.definition.assets.roadGraph,
   sample: ${sampleCell ? `assembly.scenarioNativeRoadContext(sc).terrain.readTile(${sampleCell[0]}, ${sampleCell[1]})` : "null"} };
 document.getElementById("trial").textContent = JSON.stringify(window.__trial);
 </script></body></html>`);
@@ -271,6 +310,11 @@ document.getElementById("trial").textContent = JSON.stringify(window.__trial);
   // save draft + validate report. Move/delete/drag, road building and
   // connection validation are later slices, not this page.
   "GET /studio": (res, _body, query) => {
+    res.writeHead(303, { location: "/editor-studio.html?game=" + encodeURIComponent(query.get("game") ?? ""), "cache-control": "no-store" });
+    res.end();
+  },
+  // Historical UI retained for reproducible old evidence, not the current workspace.
+  "GET /studio-v0": (res, _body, query) => {
     const game = String(query.get("game") ?? "").replace(/"/g, "");
     html(res, `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Studio</title></head><body>
 <div><span id="layers"></span><button id="lock">lock</button><span id="tools"><button data-tool="inspect">inspect</button><button data-tool="pan">pan</button><button data-tool="grass">grass</button><button data-tool="move">move</button><button data-tool="del">del</button><button data-tool="road">road</button></span><span id="roadbar" style="display:none"><button data-kind="land">land</button><button data-kind="water">water</button><button id="roadcancel">cancel</button></span><button id="save">save</button><button id="validate">validate</button><button id="compile">compile</button><span id="status"></span></div>
@@ -556,21 +600,26 @@ status("ready");
 };
 
 function html(res, body) {
-  res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
   res.end(body);
 }
 function json(res, value) {
-  res.writeHead(200, { "content-type": "application/json" });
+  res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(value));
 }
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let data = "";
+    let data = "", byteLength = 0, tooLarge = false;
+    const decoder = new StringDecoder("utf8");
     req.on("data", (chunk) => {
-      data += chunk;
-      if (data.length > 8 * 1024 * 1024) reject(new RangeError("body too large"));
+      if (tooLarge) return;
+      byteLength += chunk.length;
+      if (byteLength > 64 * 1024 * 1024) { tooLarge = true; data = ""; reject(new RangeError("body too large")); return; }
+      data += decoder.write(chunk);
     });
     req.on("end", () => {
+      if (tooLarge) return;
+      data += decoder.end();
       try {
         resolve(data ? JSON.parse(data) : null);
       } catch (error) {
@@ -623,11 +672,9 @@ if (!SERVE && process.argv[1] === fileURLToPath(import.meta.url)) {
   const server = await startEditorServer(0, tmp);
   const base = `http://127.0.0.1:${server.address().port}`;
   const call = async (method, path, body) => {
-    const r = await fetch(`${base}${path}`, {
-      method,
-      headers: { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const init = { method, headers: { "content-type": "application/json", connection: "close" } };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const r = await fetch(`${base}${path}`, init);
     const data = await r.json();
     assert.equal(r.status, 200, `${method} ${path}: ${JSON.stringify(data)}`);
     return data;

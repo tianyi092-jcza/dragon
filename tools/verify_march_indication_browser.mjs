@@ -8,9 +8,17 @@ const tlog = (...args) => process.stdout.write(`${format(...args)}
 // after that — advisor 軍團 menu, 行軍指示 list, pick_target drag + minimap
 // nav, city pick, 委任 order, march pump, battle, fate messages, capture —
 // is production code driven by real clicks and the live clock (max speed).
-// No SAVE.DAT, no user profile; screenshots to round2 (moved by runner).
+// No SAVE.DAT/user profile; exclusively writes a new task-two evidence round.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+const round = process.argv[2];
+assert.match(round ?? "", /^[a-zA-Z0-9-]+$/);
+const output = fileURLToPath(new URL(`../.dragon-analysis/map-migration-2/${round}/`, import.meta.url));
+mkdirSync(output);
 import { startBrowserTestServer } from "./browser_test_server.mjs";
 const require = createRequire(import.meta.url);
 const { chromium } = require(
@@ -20,12 +28,19 @@ const { chromium } = require(
 
 const server = await startBrowserTestServer();
 let browser;
-const errors = [];
+const errors = [], forbidden = [];
 try {
   const origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1024, height: 768 },
+  });
+  await context.route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin || /save\.dat|\/api\//i.test(url.pathname)) {
+      forbidden.push(url.href); return route.abort();
+    }
+    return route.continue();
   });
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
@@ -92,7 +107,7 @@ try {
   tlog(`formed: ${JSON.stringify(formed)}`);
   assert.equal(formed.cf, false, "production formation must succeed");
   assert.ok((formed.status & 0xc0) === 0xc0, "legion must be active");
-  await page.screenshot({ path: "march_formed.png" });
+  await page.screenshot({ path: join(output, "march_formed.png") });
 
   // ---- Production clicks: fan bar -> 軍團 cell -> 行軍指示 -> legion row. ----
   await page.mouse.click(bx + 359, 56); // cell 4 軍團
@@ -127,7 +142,7 @@ try {
   }));
   assert.equal(indication.step, "pick_target", "must enter target indication");
   assert.equal(indication.hasLegion, true);
-  await page.screenshot({ path: "march_indication.png" });
+  await page.screenshot({ path: join(output, "march_indication.png") });
 
   // Indication-phase drag still pans (addressing exception).
   await page.mouse.move(512, 400);
@@ -145,8 +160,8 @@ try {
     const bar = window.__app.gamebar;
     const rect = bar.panelRect("mini");
     return {
-      x: rect.x + rect.w * 0.6,
-      y: rect.y + rect.h * 0.6,
+      x: rect.mapBox.x + rect.mapBox.w * 0.6,
+      y: rect.mapBox.y + rect.mapBox.h * 0.6,
       cam: { ...window.__app.view.cam },
     };
   });
@@ -203,7 +218,7 @@ try {
   assert.equal(ordered.step, "choose_order");
   assert.equal(ordered.target, target.idx);
   assert.equal(ordered.menu, true);
-  await page.screenshot({ path: "march_choose_order.png" });
+  await page.screenshot({ path: join(output, "march_choose_order.png") });
 
   // 委任 (row 1 of the 2-row non-capital menu): delegated 速算 path.
   const delegate = await page.evaluate(() => {
@@ -230,7 +245,7 @@ try {
   assert.equal(assigned.targetCity, target.idx);
   assert.equal(assigned.delegated, true, "order must be delegated");
   tlog(`delegated order assigned to city ${target.idx}`);
-  await page.screenshot({ path: "march_ordered.png" });
+  await page.screenshot({ path: join(output, "march_ordered.png") });
 
   // Product rule: 軍團 stays selected after ordering (issue more orders);
   // the clock holds until the workflow is exited via right-click rollback.
@@ -292,8 +307,6 @@ try {
       const sc = app.scenario;
       const log = [];
       const seen = new Set();
-      const startDay = sc.start_day ?? app.clock.day;
-      let days = 0;
       const key = () => `${app.clock.month}/${app.clock.day}`;
       const legion = () => sc.legions.find((l) => l.slot === slot);
       const city = () => sc.cities[cityIdx];
@@ -331,7 +344,7 @@ try {
   for (const line of campaign.log.slice(0, 25)) tlog(`  ${line}`);
   if (campaign.log.length > 25)
     tlog(`  ... (${campaign.log.length - 25} more states)`);
-  await page.screenshot({ path: "march_campaign_end.png" });
+  await page.screenshot({ path: join(output, "march_campaign_end.png") });
 
   const finale = await page.evaluate(async (slot) => {
     const sc = window.__app.scenario;
@@ -359,8 +372,23 @@ try {
   tlog(`finale: ${JSON.stringify(finale)}`);
   assert.equal(finale.failure, false, "no strategic failure may be held");
   assert.deepEqual(errors, [], "no page/console errors");
+  assert.deepEqual(forbidden, []);
+  assert.equal(campaign.end, "CAPTURED", "a day/modal cap must not be reported as successful capture coverage");
+  const hashes = {};
+  for (const path of ["tools/verify_march_indication_browser.mjs", "tools/browser_test_server.mjs", "web/src/ui/gamebar.js", "web/src/ui/mappanellayout.js", "web/src/content/builtinresources.generated.js"]) {
+    hashes[path] = createHash("sha256").update(readFileSync(new URL("../" + path, import.meta.url))).digest("hex");
+  }
+  writeFileSync(join(output, "receipt.json"), JSON.stringify({ caseId: "M-04-M-05-march-indication-capture",
+    contractRevision: "map-panel-layout-1", sourceHashes: hashes, toolHashes: hashes, toolVersion: process.version,
+    fixtureId: "production-6E8F-fixture-then-real-clicks", expectedSource: "approved targeting exception and existing native delegated neutral capture",
+    result: "pass", formed, afterNav, target, campaign, finale,
+    artifactPaths: ["march_formed.png", "march_indication.png", "march_choose_order.png", "march_ordered.png", "march_campaign_end.png"],
+    coverageLimits: "RTC-dependent live scoped campaign; no new original-mechanism certification, enemy fate full-chain or user visual approval" }, null, 2) + "\n");
+} catch (error) {
+  writeFileSync(join(output, "failure.json"), JSON.stringify({ error: String(error), errors, forbidden }, null, 2) + "\n");
+  throw error;
 } finally {
   await browser?.close();
-  server.close();
+  await server.close();
 }
 tlog("march indication + live campaign browser run complete");

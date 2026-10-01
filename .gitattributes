@@ -1,0 +1,6 @@
+# Immutable generated packages are SHA-256 admitted, including original CRLF.
+# Review their semantic/native diffs through the manifest verification tools.
+web/content/builtin/compiled/** binary
+web/src/content/builtinresources.generated.js -text
+# Reviewed author descriptors also bind exact input bytes.
+docs/data/*.json -text

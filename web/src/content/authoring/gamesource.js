@@ -101,7 +101,8 @@ export function copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex) {
   if (typeof revision !== "string" || !revision) throw new TypeError("source revision required");
 
   const digest = sha256hex(
-    canonicalize({ gameId: BUILTIN_GAME_ID, revision, world, chapters }),
+    canonicalize({ gameId: BUILTIN_GAME_ID, revision, world, chapters, map: source.map,
+      componentDefinitions: source.componentDefinitions ?? {}, compatibilityAssets: source.compatibilityAssets ?? null }),
   );
   const game = {
     schemaVersion: GAMESOURCE_SCHEMA,
@@ -139,10 +140,14 @@ export function copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex) {
     }
   }
   game.componentDefinitions = deepClone(source.componentDefinitions ?? {});
-  // Studio v0 decoration vocabulary (E-03 slice): grass only. Shape follows
-  // the tile-N precedent (existence is what mapcompile gates); further
-  // kinds arrive with their recipes, not by free invention here.
-  game.componentDefinitions["deco-grass"] = { id: "deco-grass", kind: "grass", layer: "decor", tile: 0x10 };
+  if (source.compatibilityAssets !== undefined) game.compatibilityAssets = deepClone(source.compatibilityAssets);
+  // Existing studio grass now carries an explicit original-byte recipe;
+  // its name/color never computes rule terrain. Other recipes must be
+  // supplied and validated, not silently ignored by the compiler.
+  game.componentDefinitions["deco-grass"] = { id: "deco-grass", kind: "grass", layer: "decor", tile: 0x10,
+    revision: "original-byte-1", category: "atomic-original", footprint: [[0, 0]], anchor: [0, 0],
+    ruleRecipeRef: "ki-byte-stamp-1", visualRef: "MMAP.MDL:tile-16",
+    variants: { original: { tiles: [[0, 0, 0x10]] } } };
   for (const city of world.cities ?? []) {
     if (!city || typeof city.id !== "string") throw new TypeError("world city needs a stable id");
     game.cities[city.id] = { cityId: city.id, runtimeSlot: city.index, x: city.x, y: city.y };
