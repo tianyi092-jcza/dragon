@@ -21,7 +21,7 @@ function imageUrl(url) {
 function cachedAsset(url, factory) {
   if (!cache.has(url)) {
     const pending = factory().catch((error) => {
-      if (cache.get(url) === pending) cache.delete(url);
+      if (cache.get(url) === pending) { cache.delete(url); }
       throw error;
     });
     cache.set(url, pending);
@@ -31,14 +31,14 @@ function cachedAsset(url, factory) {
 
 export function loadJSON(url) {
   return cachedAsset(url, () => fetch(url).then((response) => {
-    if (!response.ok) throw new Error(`加载失败: ${url}`);
+    if (!response.ok) { throw new Error(`加载失败: ${url}`); }
     return response.json();
   }));
 }
 
 export function loadBytes(url) {
   return cachedAsset(url, () => fetch(url).then(async (response) => {
-    if (!response.ok) throw new Error(`加载失败: ${url}`);
+    if (!response.ok) { throw new Error(`加载失败: ${url}`); }
     return new Uint8Array(await response.arrayBuffer());
   }));
 }

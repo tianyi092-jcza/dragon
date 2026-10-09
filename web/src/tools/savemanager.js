@@ -50,7 +50,7 @@ async function refresh() {
 }
 let busy = false;
 async function run(operation) {
-  if (busy) return;
+  if (busy) { return; }
   busy = true;
   document.querySelectorAll('button').forEach((button) => { button.disabled = true; });
   try { await operation(); }
@@ -64,7 +64,7 @@ async function run(operation) {
 file.onchange = () => { importButton.disabled = busy || !file.files?.length; };
 importButton.onclick = () => run(async () => {
   const chosen = file.files?.[0];
-  if (!chosen || chosen.size > MAX_SAVE_FILE_BYTES) throw new TypeError('請選擇不超過 64 MiB 的 JSON 存檔');
+  if (!chosen || chosen.size > MAX_SAVE_FILE_BYTES) { throw new TypeError('請選擇不超過 64 MiB 的 JSON 存檔'); }
   const saved = await decodeSaveFile(await chosen.text(), await context());
   const created = await repository.add(saved);
   await refresh();
