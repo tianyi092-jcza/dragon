@@ -5,8 +5,8 @@
 
 ## 当前主线状态（2026-10-09，dev HEAD=`1c701a3`，已 push）
 
-- **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8h 全部闭合**。8h 删除级联：`GameDeletionFence.begin()` 同事务级联 trial 行＋资产，链已封存（deletecascade-r1：derive 双向绿→guards 562/269→gate 12/13 真后端→audit 9785→postdoc 9787）。guards **562/269**（④批次新增文件尚未继任）；仍不称 Q69/Q70/Q71 闭包完成。
-- **用户事项队列**：①统一/胜利终局——✅ 关闭（终局属原版规则不管，编辑器只改地图/据点/道路/人物，规则原样，不做实证）；②战术帧实际验证——✅ 8g 闭合；③删除级联——✅ 8h 闭合；④人物头像上传——✅ 机制/壳UI/运行接线/工作台绑定面均落地（残留：浏览器整轮 lane 回归）；⑤commit/push/deploy——✅ 已推送（1c701a3）。
+- **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8h 全部闭合**。8h 删除级联：`GameDeletionFence.begin()` 同事务级联 trial 行＋资产，链已封存（deletecascade-r1：derive 双向绿→guards 562/269→gate 12/13 真后端→audit 9785→postdoc 9787）。guards **564/270**（portrait-r1 已继任封存）；仍不称 Q69/Q70/Q71 闭包完成。
+- **用户事项队列**：①统一/胜利终局——✅ 关闭（终局属原版规则不管，编辑器只改地图/据点/道路/人物，规则原样，不做实证）；②战术帧实际验证——✅ 8g 闭合；③删除级联——✅ 8h 闭合；④人物头像上传——✅ 链已封存（portrait-r1：derive→guards 564/270→gate 4/3→audit 9820→postdoc 9822；残留：浏览器整轮 lane 回归）；⑤commit/push/deploy——✅ 已推送（1c701a3）。
 - **Web 产品决定（用户裁决 2026-10-09，非原版机制）**事项④：尺寸不限 128×128（建议值），只保源矩形裁active→64×64，单文件 ≤100K；只收 JPG/PNG；头像资源不绑定 255 槽位（uuid 级 assetId，数量不限）；落盘走 `trial_assets` 派生机制；试运行走 worker（路径 A）。
 - **其它 open lane**：E-01 GameBar 图像 native 全图/SDK 502 根因 UNKNOWN；浏览器整轮 lane（talk/talkdirect/tactical/endview）未重跑，列下批链；RuntimeManifest/发布/物理删除等 R12-4 属后端线程。任务二（地图改造）已收口。
 - **历史批次一句话**：8g 战术帧实证修两真缺陷（`commands.js` 门面路图→`scenarioNativeRoadContext`；trial web `?v=` 白名单）→561/268；lint 收口（barrel 本地再导出＋tlog 约定）journal 瘦身 883→90 行。
@@ -55,3 +55,5 @@
 - 跨 lane 回归（`fbe0a12`，无代码变更）：路由对等＋真后端冒烟 19/19（三处期望勘误经 `f60ea48` 核对为老行为）＋单元重跑。
 - lint !55W（`4d37f7c`）：括号/模板/const＋`createTrialEnvironment` 拆分；束 216 文件。
 - **当前阻塞**：无。**下一步**：下批链（浏览器整轮＋guards 继任④批次文件）或 Q69/Q70/Q71 新批。
+
+**链封存 portrait-r1（2026-10-09）**：derive 5 authored（doc 全文件置换＋生产 git 锚双向）→ guards 564/270（562/269＋④文件双桶/单桶＋双新入）→ gate PASS 4 检查／3 调用（静态交叉＋头像6景＋级联3景＋自检）→ audit 9820 hash-read／7 新 WX → postdoc 9822 路径／4 链接／syntax 6。`portraitWired:true`。调试：journal marker 随 memory 重组失效→改实际串；old 文件连字符 mismatch；trial-server pair 误判 CRLF→改置换＋标记；run 沿用父 manifest 对变更文件跳过；postdoc 超时 120s→300s。attempt1-4 全保留。
