@@ -100,3 +100,5 @@
 **事项④B 侧运行接线（2026-10-09，路径 A）**：`core/assets.js` 新增试运行级 `portraitOverrides` 注册表（`setPortraitOverrides`＋纯构造子 `buildPortraitOverrides`：章武将 `portraitKey` × `manifest.portraits` 命中即按 byte 覆盖 kao，未命中/非法回落，调用点零改）；`trialruntime.createTrialEnvironment` 装配（无 portraits 置空，本地流不受影响）。门禁零碰（gaps 仍验 byte）、draft 验证零碰（通用 JSON 断言本就透传，投影 structuredClone 全透）。验证：builder/注册表单元（命中/回落/清空/空表）＋node --check＋lint 零告警；束重卷 215 文件（`ee335440…`）。残留：工作台草稿 portraitKey 编辑面、跨 lane 回归。
 
 **事项④工作台绑定面（2026-10-09）**：`generalportrait.js` 纯写器（章武将 portraitKey 绑定/清除，byte 不动，同值返原引用）＋`POST /api/general-portrait`（五键精确形＋修订 CAS＋落盘，自检新增绑定→清除→坏键回归段）＋工作台面（`editor-games.html` portrait-picker 段＋`games.js` 章/将选择＋绑定/清除＋修订跟进，行级“頭像綁定”入口）。验证：纯函数边角＋自检＋node --check＋lint 零告警；另修 open-redirect 误报（内部路径断言，零行为变更）与整文件模板化。draf 验证零碰（通用 JSON 断言透传）。
+
+**跨 lane 回归（2026-10-09，dispatcher 重构后）**：①路由对等审计（旧 handle vs 新分发：路由模式全在＋九叶齐＋GET 保序）；②真 workerd 冒烟 19/19（health／登录×2／改密／session／admin 列表＋建号／games／trial-start 404／status 形误 404＋未知 401／pack 401／asset 未知 401＋形误 404／portraits 未知 401／draft 缺参 422／壳形对 200／注册表 404／logout），三处初期望勘误皆经 `f60ea48` 原码核对为老行为一致；③级联三场景＋头像六场景＋editor 自检重跑全绿。浏览器 lane（talk/talkdirect/tactical/endview 整轮）未重跑，列下批链。
