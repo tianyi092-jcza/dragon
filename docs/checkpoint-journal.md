@@ -98,3 +98,5 @@
 **束重卷（同批）**：`servertrialapp.js` 改动后重卷试玩束（215 文件，sha `1d2a3acd…`），壳不变。
 
 **事项④B 侧运行接线（2026-10-09，路径 A）**：`core/assets.js` 新增试运行级 `portraitOverrides` 注册表（`setPortraitOverrides`＋纯构造子 `buildPortraitOverrides`：章武将 `portraitKey` × `manifest.portraits` 命中即按 byte 覆盖 kao，未命中/非法回落，调用点零改）；`trialruntime.createTrialEnvironment` 装配（无 portraits 置空，本地流不受影响）。门禁零碰（gaps 仍验 byte）、draft 验证零碰（通用 JSON 断言本就透传，投影 structuredClone 全透）。验证：builder/注册表单元（命中/回落/清空/空表）＋node --check＋lint 零告警；束重卷 215 文件（`ee335440…`）。残留：工作台草稿 portraitKey 编辑面、跨 lane 回归。
+
+**事项④工作台绑定面（2026-10-09）**：`generalportrait.js` 纯写器（章武将 portraitKey 绑定/清除，byte 不动，同值返原引用）＋`POST /api/general-portrait`（五键精确形＋修订 CAS＋落盘，自检新增绑定→清除→坏键回归段）＋工作台面（`editor-games.html` portrait-picker 段＋`games.js` 章/将选择＋绑定/清除＋修订跟进，行级“頭像綁定”入口）。验证：纯函数边角＋自检＋node --check＋lint 零告警；另修 open-redirect 误报（内部路径断言，零行为变更）与整文件模板化。draf 验证零碰（通用 JSON 断言透传）。

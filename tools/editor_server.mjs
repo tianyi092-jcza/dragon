@@ -29,6 +29,7 @@ import { validateLibraryAdditions } from "../web/src/editor/componenttools.js";
 import { normalizeGameMetadata, checkLocalDraftName, summarizeLocalDraft } from "../web/src/editor/gamemetadata.js";
 import { projectTrialChapter } from "../web/src/editor/trialscope.js";
 import { editChapterResources } from "../web/src/editor/chapterresources.js";
+import { setGeneralPortrait } from "../web/src/editor/generalportrait.js";
 
 const args = process.argv.slice(2);
 const portArg = args.indexOf("--port");
@@ -94,7 +95,7 @@ function queryChapterScope(query) {
 }
 function trialAssetURL(gameId, revision, digest, assetId, chapterId) {
   const base = `/api/trial-asset?game=${encodeURIComponent(gameId)}&revision=${revision}&digest=${digest}&asset=${assetId}`;
-  return chapterId === null ? base : base + "&scope=chapter&chapter=" + encodeURIComponent(chapterId);
+  return chapterId === null ? base : `${base}&scope=chapter&chapter=${encodeURIComponent(chapterId)}`;
 }
 function readBuild(gameId, revision, chapterId = null) {
   const dir = buildDir(gameId, revision, chapterId);
@@ -144,7 +145,7 @@ function checkedVisuals(snapshot) {
       const asset = visuals[kind][s];
       assert.match(asset?.url ?? "", new RegExp(`^content/builtin/compiled/map-2-[a-f0-9]{64}/map_${stem}_${s}\\.png$`));
       assert.equal(asset.url.split("/")[3], visuals.springAtlas.url.split("/")[3]);
-      const bytes = readFileSync(new URL("../web/" + asset.url, import.meta.url));
+      const bytes = readFileSync(new URL(`../web/${asset.url}`, import.meta.url));
       assert.equal(bytes.length, asset.byteLength); assert.equal(sha256hex(bytes), asset.sha256);
     }
   }
@@ -162,7 +163,7 @@ const MIME = {
 };
 async function serveWebFile(pathname, res) {
   // Same-origin engine + assets for the in-browser trial (contained).
-  let rel = decodeURIComponent(pathname);
+  const rel = decodeURIComponent(pathname);
   if (rel === "/index.html") throw new RangeError("game shell not served here");
   const file = new URL(`.${rel}`, WEB_ROOT);
   const root = new URL("../web/", import.meta.url).pathname;
@@ -225,6 +226,22 @@ const routes = {
       storeDraft(next, true);
     }
     json(res, { gameId: next.gameId, chapterId: body.chapterId, slot: body.slot, draftRevision: next.localModel.draftRevision, changed: next !== game });
+  },
+  // Portrait asset binding for one chapter general (事项④ Web 产品决定): additive
+  // portraitKey only, numeric byte untouched. Same local revision-CAS discipline.
+  "POST /api/general-portrait": (res, body) => {
+    const keys = ["gameId", "expectedRevision", "chapterId", "generalIdx", "portraitKey"];
+    if (!body || Object.keys(body).length !== keys.length || keys.some(key => !Object.hasOwn(body, key))) throw new TypeError("頭像綁定請求格式不符");
+    const game = loadDraft(body.gameId);
+    if (body.expectedRevision !== game.localModel.draftRevision) throw new RangeError("草稿修訂衝突：請重新載入後合併修改");
+    const next = setGeneralPortrait(game, body.chapterId, body.generalIdx, body.portraitKey);
+    if (next !== game) {
+      next.localModel.draftRevision = String(BigInt(game.localModel.draftRevision) + 1n);
+      next.localModel.modifiedAt = new Date().toISOString();
+      storeDraft(next, true);
+    }
+    const record = next.chapters[body.chapterId].state.generals.find((g) => g?.idx === body.generalIdx);
+    json(res, { gameId: next.gameId, chapterId: body.chapterId, generalIdx: body.generalIdx, portraitKey: record?.portraitKey ?? null, draftRevision: next.localModel.draftRevision, changed: next !== game });
   },
   // Read-only draft fetch (editors load-then-save; writes go via /api/save).
   "GET /api/draft": (res, _body, query) => {
@@ -340,7 +357,7 @@ const routes = {
       ruleProfile: game.ruleProfile,
       identity: { gameId: game.gameId, draftRevision: rev, sourceDigest: compiled.sourceDigest,
         ...(projection ? { savedSourceDigest: projection.savedSourceDigest } : {}),
-        trialSnapshotId: `${game.gameId}@${rev}:${compiled.sourceDigest}` + (projection ? `:chapter:${sha256hex(chapterScope)}` : "") },
+        trialSnapshotId: `${game.gameId}@${rev}:${compiled.sourceDigest}${projection ? `:chapter:${sha256hex(chapterScope)}` : ""}` },
       world: { id: `${game.gameId}-world`, revision: compiled.sourceDigest,
         width: compiled.width, height: compiled.height, tileSize: 16 },
       chapters: game.chapterOrder,
@@ -382,7 +399,7 @@ const routes = {
     if (!snapshot.chapters[chapter] || !manifest.visualAssets) throw new RangeError("缺少完整章節或受信四季資源，不能試運行");
     const url = new URLSearchParams({ game, revision, chapter });
     if (scope !== null) url.set("scope", "chapter");
-    res.writeHead(303, { location: "/trial-game?" + url, "cache-control": "no-store" }); res.end();
+    res.writeHead(303, { location: `/trial-game?${url}`, "cache-control": "no-store" }); res.end();
   },
   "GET /trial-game": (res) => {
     const source = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
@@ -450,7 +467,7 @@ document.getElementById("trial").textContent = JSON.stringify(window.__trial);
   // save draft + validate report. Move/delete/drag, road building and
   // connection validation are later slices, not this page.
   "GET /studio": (res, _body, query) => {
-    res.writeHead(303, { location: "/editor-studio.html?game=" + encodeURIComponent(query.get("game") ?? ""), "cache-control": "no-store" });
+    res.writeHead(303, { location: `/editor-studio.html?game=${encodeURIComponent(query.get("game") ?? "")}`, "cache-control": "no-store" });
     res.end();
   },
   // Historical UI retained for reproducible old evidence, not the current workspace.
@@ -853,6 +870,18 @@ if (!SERVE && process.argv[1] === fileURLToPath(import.meta.url)) {
     body: JSON.stringify({ gameId: "svc-test-1", map: { bounds: { width: 385 } } }),
   });
   assert.equal(evil.status, 400, "bad draft refused");
+  const fullDraft = await call("GET", "/api/draft?game=svc-full-1");
+  const portraitChapter = fullDraft.chapterOrder.find((id) => Array.isArray(fullDraft.chapters[id].state?.generals) && fullDraft.chapters[id].state.generals.length);
+  assert.ok(portraitChapter, "full copy has a chapter with generals");
+  const portraitGeneral = fullDraft.chapters[portraitChapter].state.generals[0].idx;
+  const bound = await call("POST", "/api/general-portrait", { gameId: "svc-full-1", expectedRevision: fullDraft.localModel.draftRevision, chapterId: portraitChapter, generalIdx: portraitGeneral, portraitKey: "upSelfCheck" });
+  assert.equal(bound.changed, true);
+  assert.equal(bound.portraitKey, "upSelfCheck");
+  const cleared = await call("POST", "/api/general-portrait", { gameId: "svc-full-1", expectedRevision: bound.draftRevision, chapterId: portraitChapter, generalIdx: portraitGeneral, portraitKey: null });
+  assert.equal(cleared.changed, true);
+  assert.equal(cleared.portraitKey, null);
+  const badKey = await fetch(`${base}/api/general-portrait`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ gameId: "svc-full-1", expectedRevision: cleared.draftRevision, chapterId: portraitChapter, generalIdx: portraitGeneral, portraitKey: "bad key!" }) });
+  assert.equal(badKey.status, 400, "bad portrait key refused");
   server.close();
   process.stdout.write("editor service self-check OK (copy/save/validate/compile/escape/refusals)\n");
 }
