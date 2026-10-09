@@ -5,8 +5,8 @@
 
 ## 当前主线状态（2026-10-09，dev 分支 @20692d7，未 push）
 
-- **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8g 全部闭合**。最新 8g（试玩战术帧实证）：later-4 势力 0 攻南昌(175)，真实 canvas 点击经生产 dispatch 进 4F36 战术挂起 → 1278 帧经真实 `_trialFrames` 边界泵完 → 写回＋排空＋时钟恢复；23 检查／7 调用，receipt `PASS-TRIAL-TACTICAL-Frames-8G-NOT-Q69-CLOSURE`。guards **561/268**；权威 manifest `saved-source-trial-tactical-r1/post-document.json`（9754 路径／301 链接／syntax 7）。
-- **用户事项队列**：①统一/胜利终局——暂缓（裁决 B）；②战术帧实际验证——✅ 8g 闭合；③删除级联——**下一批**（fence INSERT 同事务 UPDATE trial_sessions＋DELETE trial_assets）；④图片资源 native 路径——事项③后讨论；⑤commit/push/deploy——最后，等明确授权。仍不称 Q69/Q70/Q71 闭包完成。
+- **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8h 全部实施，其中 1-7e＋8a-8g 已闭合**。最新 8h（删除级联，事项③）：`GameDeletionFence.begin()` fence INSERT 同一事务内级联 `UPDATE trial_sessions→ended/game-deleting＋DELETE trial_assets`（同 game 精确，异 game 不动，旧库无 trial 表时守卫跳过）；`LIMITS`/注释中华“级联未接线”已更新；worker.js 13 处历史字符串拼接机械模板化（行为等价，git diff 可证）。**状态：已修改待验证**——新工具 `tools/verify_trial_deletion_cascade.mjs` 三场景全绿＋editor_server 自检＋node --check＋lint 零 error；完整 workerd gate/guards 继任链待跑。guards **561/268**（未继任）；仍不称 Q69/Q70/Q71 闭包完成。
+- **用户事项队列**：①统一/胜利终局——暂缓（裁决 B）；②战术帧实际验证——✅ 8g 闭合；③删除级联——**已实施待验证**（8h，fence 同事务级联；完整链待跑）；④图片资源 native 路径——事项③验证完成后讨论；⑤commit/push/deploy——最后，等明确授权。仍不称 Q69/Q70/Q71 闭包完成。
 - **其它 open lane**（详见 local-validation 与各维护源）：E-01 GameBar 图像 native 全图/SDK 502 根因 UNKNOWN；saved-source capture 成本线程（候选未装、fullnative false）；RuntimeManifest/发布/物理删除等 R12-4 属后端线程。任务二（地图改造）已收口（MAP-MIGRATION-2，审计页为准）。
 - **本地提交基线**：dev HEAD=`20692d7`（任务二＋E-02/E-03 基线）。8a-8g 全部改动（server/、tools/ 新工具、docs、.dragon-analysis/）均在工作区未提交；`server/` 不入 git（先例，链以 sha 钉住）。365 个脏改主要是 `.gitattributes` 换行符归一化假象＋未提交批次产物。
 
@@ -65,3 +65,23 @@
 **lint 收口（同批，2026-10-09）**：pi-lens 报告 1E !79W 已清零。`commands.js` L14 barrel `export…from` → 本地再导出（同名公开面不变）；`worker.js` 嵌套三元展开＋`(await …).prop` 解构；三个 harness 工具改走仓库 `tlog` 约定（`node:util format`）、展开嵌套三元、解构 await；journal 整篇重组（883→~90 行）。再封存：derive 7 authored 双向绿 → guards 561/268 → run EXIT=0（浏览器战术门 23/7 再次全绿，兼证 lint 重构未破坏试玩栈）→ audit 9755 → postdoc 9757 路径／301 链接。过程现场 attempt40-45 全保留；`git diff` 证实 L14 非本批改动。
 
 **lint 登记（不阻塞）**：（已收口，见上）
+
+## 会话记录：8h 删除级联（2026-10-09，事项③，已修改待验证）
+
+**缺口实锤**：`trials.js #bound` 只有 lazy 路径（下次观测到 `GAME_DELETING` 才 `#close`），`deletionfence.js begin()` 同一事务内无任何 trial 级联；生产 `worker.js` 尚未实例化 fence（仅各 deletion fixture 用），故改动点落在 fence 类自身事务内、未来接线方自动继承。
+
+**改动**：`server/deletionfence.js`——fence INSERT 后同事务 `UPDATE trial_sessions→ended/game-deleting（WHERE game_id＋state=active）＋DELETE trial_assets（子查询限本 game trial）`，`sqlite_master` 存在性守卫（旧库无 trial 表时跳过）；reason/表列契约镜像 `TrialSessions.#close`。`server/trials.js`——`LIMITS`＋文件头注释更新（级联已接线，Q69 仍未闭）。`server/worker.js`——13 处历史字符串拼接机械模板化（`git diff` 证行为等价）＋注释更新。无构造签名/导入变更，既有 fixture 构造不受影响。新工具 `tools/verify_trial_deletion_cascade.mjs`（node:sqlite 直连真实 `GameDeletionFence` 类，三场景）。
+
+**验证**：三场景全绿（同 game 双 active 全清＋异 game 不动＋已结束行原因不变／无 trial 表旧库 fence 照常／失败 409 路径 trial 行资产无损＋无 fence 残留）；`editor_server.mjs` 自检 OK；三文件 `node --check`；lint 零 error（deletionfence L42 一并模板化；`useBlockStatements`/复杂度警告系全文件既有惯用法未动）。**未跑**：完整 workerd gate（deletion-fence/trial 系）与 guards 继任——`before.json` pin 着旧 `deletionfence.js` hash，重跑对应 gate 时须继任。
+
+**调试结论存档**：①桩 `sql.exec` 起初惰性（`.all()` 延至 `toArray()`）致 INSERT 从未执行、`begin` 报 `GAME_NOT_FOUND`——改为立即执行＋缓存行；②`node:sqlite` 无 `db.transaction()`，改显式 BEGIN/COMMIT/ROLLBACK；③新工具初版 `console.log` 触 `no-console` 告警，改仓库 `tlog` 约定。
+
+**兼容性核查（继续轮）**：fence 构造签名未变——两处 fixture-worker 同参构造不受影响；fence fixture 无 trial 表→守卫跳过→fence 行为与改前一致（仅 `before.json` pin 旧 hash，重跑该 gate 时须继任，属预期）；存活代码无一处 pin `LIMITS` 字串值，trial 系 gate 仅断言 state/trialId/状态码——8h 改动对既有 gate 的行为面零影响。完整 workerd gate 重跑＋guards 继任仍待（可并入下批链）。
+
+**下一步**：完整链（deletion-fence/trial 系 gate 重跑＋guards 继任）或并入下批链；之后按序 ④图片 native 讨论、⑤commit/push 授权。无 commit/push；SAVE.DAT 未触。
+
+## 会话记录：lint 清零＋复杂度重构（2026-10-09，与 8h 同批提交）
+
+**范围**：用户指令清 pi-lens !33W（checkpoint-journal.md／verify_trial_deletion_cascade.mjs／deletionfence.js／worker.js／editor-trial-server.md），md 两文件零告警无需改动。
+**改动（纯机械，零行为变更）**：模板字面量 14 处；单行 if 加括号（biome --unsafe autofix）；`console.log`→`tlog`；复杂度拆分——fence `begin`→`#checkFenceIdempotency/#assertFenceable/#cascadeTrialsForGame`、trials `issue`→`#checkIssueBinding/#checkChapterState`、`trialChapterAssetGaps`→`portraitGaps/cityViewGaps`＋记录构造子、`copyCommand`→`#recordCopyCommand/#cancelCopy`、`handle`(255)→dispatcher 树（`#gateEntry/#postLogin/#getTrialRoutes/#getPrimaryRoutes/#getCollectionRoutes/#getRecordRoutes/#postEntryRoutes/#postTrialStart/#postTrialEnd/#postAuthMutation` 等 20＋方法，严格保序）、`fetch`→模块函数 `staticAsset`、零散小拆（`contentKey` 循环、`trialRegistryBytes` 分块、`#getDraftRead/#getTrialStatusPack/#getManagementCopy/#getAdminAccounts/#postManagement/#postDraftSave/#postLibraryInstall/#buildPasswordMutation/#buildAccountMutation`）。路由优先级与 fail 码逐段核对：GET 链 trial→primary→collection→record、POST 链 entry→trials→mutation 均与原顺序一致；generic 分支保持“先 match 后 admin”（404/403 不漂移）。
+**验证**：`node --check` 全过；级联三场景＋editor 自检全绿；biome 全规则＋复杂度双口径零告警。调试结论：①一次 `#target` 行首误删（即时补回，全文复核）；②`export default {}` 内私方法非法→`staticAsset` 改模块函数；③两处虚构标识（`policyOf`/`userOf`）即时修正——均为提交前自检捕获，未入提交。
