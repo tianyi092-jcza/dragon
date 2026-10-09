@@ -1,0 +1,194 @@
+// Owned viewport UI proof; no real profile/SAVE/IDB or native rule expectations.
+import assert from "node:assert/strict";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { startEditorServer } from "./editor_server.mjs";
+import { BUILTIN_RESOURCES } from "../web/src/content/builtinresources.generated.js";
+const round = process.argv[2]; assert.match(round ?? "", /^[a-zA-Z0-9-]{1,64}$/);
+const output = join(".dragon-analysis/editor-phase", round); mkdirSync(output);
+const sha = (b) => createHash("sha256").update(b).digest("hex");
+function json(b) { try { return JSON.parse(String(b)); } catch (cause) { throw new Error("invalid owned viewport JSON", { cause }); } }
+const prefix = BUILTIN_RESOURCES.sourceURL.replace(/game-source\.json$/, ""), manifest = json(readFileSync("web/" + prefix + "manifest.json"));
+const paths = ["web/src/content/builtinresources.generated.js", "web/" + prefix + "manifest.json", ...manifest.assets.map((a) => "web/" + a.url)];
+const hashes = () => Object.fromEntries(paths.map((p) => [p, sha(readFileSync(p))]));
+const originalHashes = hashes(), store = mkdtempSync(join(tmpdir(), "editor-viewport-")), server = await startEditorServer(0, store);
+const origin = `http://127.0.0.1:${server.address().port}`, errors = [], forbidden = [], checks = [], posts = []; let browser, stage = "copy";
+async function call(path, body) { const init = { headers: { connection: "close" } }; if (body !== undefined) { init.method = "POST"; init.headers["content-type"] = "application/json"; init.body = JSON.stringify(body); } const r = await fetch(origin + path, init); assert.equal(r.status, 200); return r.json(); }
+try {
+  await call("/api/copy", { gameId: "viewport-test", kind: "minimal", ownerId: "owned-viewport" });
+  const initial = await call("/api/draft?game=viewport-test");
+  const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || "C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright");
+  browser = await chromium.launch({ headless: true }); const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await context.route("**/*", (route) => { const u = new URL(route.request().url()); if (u.origin !== origin || /save\.dat|\.dragon-analysis/i.test(u.pathname)) { forbidden.push(u.href); return route.abort(); } return route.continue(); });
+  await context.addInitScript(() => { window.__viewportIDB = 0; indexedDB.open = () => { window.__viewportIDB++; throw new Error("formal storage forbidden"); }; });
+  const page = await context.newPage(); page.setDefaultTimeout(90000);
+  page.on("request", (r) => { if (r.method() === "POST") posts.push(new URL(r.url()).pathname); });
+  page.on("pageerror", (e) => errors.push(String(e))); page.on("console", (m) => { if (m.type() === "error" && !m.location().url?.endsWith("/favicon.ico")) errors.push(m.text()); });
+  await page.goto(origin + "/studio?game=viewport-test"); await page.waitForFunction(() => Boolean(window.__studio));
+  const miniBefore = await page.locator("#mini").evaluate((c) => c.toDataURL());
+  async function point(x, y) { return page.locator("#cv").evaluate((c, cell) => { const r = c.getBoundingClientRect(), v = window.__studio;
+    return { x: r.left + (c.clientLeft + (cell[0] * 16 + 8 - v.cam.x) * v.zoom * c.clientWidth / c.width) * r.width / c.offsetWidth,
+      y: r.top + (c.clientTop + (cell[1] * 16 + 8 - v.cam.y) * v.zoom * c.clientHeight / c.height) * r.height / c.offsetHeight }; }, [x, y]); }
+  const camera = () => page.evaluate(() => ({ ...window.__studio.cam, zoom: window.__studio.zoom }));
+  stage = "cursor-anchored real wheel and whole-cell hit";
+  await page.locator("#cv").scrollIntoViewIfNeeded(); const originalPoint = await point(10, 10), beforeWheel = await camera();
+  await page.mouse.move(originalPoint.x, originalPoint.y); await page.mouse.wheel(0, -120); await page.waitForFunction(() => window.__studio.zoom > 1);
+  const afterWheel = await camera(); assert.ok(afterWheel.zoom > beforeWheel.zoom);
+  await page.mouse.click(originalPoint.x, originalPoint.y);
+  const expected = initial.map.decorations.find((d) => d.x === 10 && d.y === 10).id;
+  assert.deepEqual(await page.evaluate(() => [...window.__studio.selectedIds]), [expected]);
+  await page.click("#zoom-in"); assert.ok((await camera()).zoom > 2);
+  await page.click("#zoom-reset"); assert.equal((await camera()).zoom, 1);
+  await page.click("#zoom-fit"); assert.ok((await camera()).zoom < 0.25);
+  assert.equal(await page.evaluate(() => window.__studio.dirty), false);
+  checks.push("wheel anchored cell hit, button zoom and complete-map fit; navigation leaves source clean");
+  stage = "CSS-scaled canvas inverse transform and background letterbox";
+  await page.locator("#cv").evaluate((c) => { c.style.width = "480px"; });
+  const tinyPoint = await point(10, 10); await page.mouse.click(tinyPoint.x, tinyPoint.y);
+  assert.deepEqual(await page.evaluate(() => [...window.__studio.selectedIds]), [expected]);
+  const box = await page.locator("#cv").boundingBox();
+  // Letterbox orientation follows the actual main-window aspect, not the old whole-page width.
+  // Click a real empty margin, never an in-world left edge disguised as a margin.
+  const letterbox = await camera(); assert.ok(letterbox.x < 0 || letterbox.y < 0);
+  const selectionBefore = await page.evaluate(() => [...window.__studio.selectedIds]);
+  if (letterbox.x < 0) await page.mouse.click(box.x + 1.1, box.y + box.height / 2);
+  else await page.mouse.click(box.x + box.width / 2, box.y + 1.1);
+  assert.deepEqual(await page.evaluate(() => [...window.__studio.selectedIds]), selectionBefore);
+  await page.locator("#cv").evaluate((c) => { c.style.width = ""; }); await page.click("#zoom-reset");
+  checks.push("CSS canvas scaling shares inverse transform; real fitted margins do not pick/edit map");
+  stage = "pointer captured pan and dynamic actual bounds";
+  await page.click('[data-tool="pan"]'); await page.locator("#cv").scrollIntoViewIfNeeded();
+  let canvas = await page.locator("#cv").boundingBox(), old = await camera();
+  await page.mouse.move(canvas.x + 300, canvas.y + 200); await page.mouse.down(); await page.mouse.move(canvas.x + 200, canvas.y + 160, { steps: 5 }); await page.mouse.up();
+  const moved = await camera(); assert.ok(Math.abs(moved.x - old.x - 100) < 1e-7); assert.ok(Math.abs(moved.y - old.y - 40) < 1e-7);
+  stage = "native HTML5 material drag near edge and Escape cancellation";
+  await page.click("#materials summary"); await page.selectOption("#material-select", "deco-grass"); await page.locator("#material-preview").scrollIntoViewIfNeeded();
+  canvas = await page.locator("#cv").boundingBox(); const thumb = await page.locator("#material-preview").boundingBox(); old = await camera();
+  await page.mouse.move(thumb.x + 20, thumb.y + 20); await page.mouse.down(); await page.mouse.move(thumb.x + 10, thumb.y + 25);
+  await page.mouse.move(canvas.x + canvas.width - 5, canvas.y + 200, { steps: 10 });
+  await page.waitForFunction((x) => window.__studio.dragMaterial && window.__studio.cam.x > x + 8, old.x);
+  await page.keyboard.press("Escape"); await page.mouse.up(); await page.waitForFunction(() => !window.__studio.dragMaterial && window.__studio.navPoint === null);
+  const cancelled = await camera();
+  const stable = await page.evaluate(() => new Promise((resolve) => { const before = JSON.stringify(window.__studio.cam); requestAnimationFrame(() => requestAnimationFrame(() => resolve(before === JSON.stringify(window.__studio.cam)))); })); assert.equal(stable, true);
+  assert.deepEqual(await page.evaluate(() => window.__studio.draft), initial); assert.equal(await page.evaluate(() => window.__studio.dirty), false);
+  checks.push("real HTML5 drag auto-pans while held; Escape stops future frames and cancels without source changes");
+  stage = "picked whole-instance move preview, blur cancellation, fit/resize clamp";
+  await page.click("#zoom-fit"); await page.click('[data-tool="move"]'); const picked = await point(10, 10); await page.mouse.click(picked.x, picked.y);
+  assert.equal(await page.evaluate(() => window.__studio.pendingMove), true);
+  await page.click("#zoom-reset"); await page.locator("#cv").scrollIntoViewIfNeeded(); canvas = await page.locator("#cv").boundingBox(); old = await camera();
+  await page.mouse.move(canvas.x + canvas.width - 3, canvas.y + 200); await page.waitForFunction((x) => window.__studio.cam.x > x + 8, old.x);
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  assert.equal(await page.evaluate(() => window.__studio.navPoint), null);
+  await page.keyboard.press("Escape"); assert.equal(await page.evaluate(() => window.__studio.pendingMove), false);
+  await page.setViewportSize({ width: 1024, height: 768 }); await page.waitForFunction(() => document.querySelector("#cv").width === 544);
+  await page.click("#zoom-fit"); const fitted = await camera(); assert.ok(fitted.zoom < 1);
+  assert.deepEqual(await page.evaluate(() => window.__studio.draft), initial); assert.equal(await page.locator("#mini").evaluate((c) => c.toDataURL()), miniBefore);
+  assert.deepEqual(await call("/api/draft?game=viewport-test"), initial);
+  stage = "tool menu: actual non-primary gestures / toolbar parity / no edit";
+  const state = () => page.evaluate(async () => { const u = window.__studio, bytes = new TextEncoder().encode(JSON.stringify(u.draft));
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return { source:[...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,"0")).join(""),dirty:u.dirty,ids:[...u.selectedIds],base:[...u.baseSelection],sel:u.sel,group:u.groupId }; });
+  const untouched = await state();
+  async function openMenu() { await page.locator("#cv").scrollIntoViewIfNeeded(); const p = await point(10,10); await page.mouse.click(p.x,p.y,{ button:"right" }); await page.waitForSelector("#tool-menu",{ state:"visible" }); }
+  for (const tool of ["inspect","pan","select-area","material","grass","move","del","road"]) {
+    await page.click(`#tools [data-tool="${tool}"]`); await openMenu();
+    assert.equal(await page.locator(`#tool-menu [data-tool="${tool}"]`).getAttribute("aria-checked"),"true");
+    assert.equal(await page.locator("#tool-menu button").count(),8);
+    await page.click(`#tool-menu [data-tool="${tool}"]`); assert.equal(await page.evaluate(()=>window.__studio.tool),tool);
+    assert.equal(await page.isVisible("#tool-menu"),false); assert.deepEqual(await state(),untouched);
+  }
+  await page.click('#tools [data-tool="grass"]'); const target = await point(10,10);
+  await page.mouse.click(target.x,target.y,{ button:"middle" }); assert.deepEqual(await state(),untouched);
+  await openMenu(); await page.keyboard.press("Home"); await page.keyboard.press("ArrowUp");
+  assert.equal(await page.evaluate(()=>document.activeElement.dataset.tool),"road");
+  await page.keyboard.press("ArrowDown"); assert.equal(await page.evaluate(()=>document.activeElement.dataset.tool),"inspect");
+  await page.keyboard.press("End"); await page.keyboard.press("Home"); await page.keyboard.press("Enter");
+  assert.equal(await page.evaluate(()=>window.__studio.tool),"inspect"); assert.equal(await page.isVisible("#tool-menu"),false);
+  await page.click('#tools [data-tool="move"]'); await page.mouse.click(target.x,target.y);
+  assert.equal(await page.evaluate(()=>window.__studio.pendingMove),true); const pending = await state();
+  await openMenu(); await page.keyboard.press("Escape");
+  assert.equal(await page.evaluate(()=>window.__studio.pendingMove),true); assert.deepEqual(await state(),pending);
+  assert.equal(await page.evaluate(()=>document.activeElement.id),"cv");
+  await page.keyboard.press("Escape"); assert.equal(await page.evaluate(()=>window.__studio.pendingMove),false);
+  await page.click('#tools [data-tool="grass"]'); await openMenu(); const outside = await page.locator("#cv").boundingBox();
+  await page.mouse.click(outside.x+outside.width-4,outside.y+outside.height-4);
+  assert.equal(await page.isVisible("#tool-menu"),false); assert.deepEqual(await state(),untouched);
+  await openMenu(); await page.evaluate(()=>window.dispatchEvent(new Event("blur"))); assert.equal(await page.isVisible("#tool-menu"),false);
+  await openMenu(); await page.evaluate(()=>{ Object.defineProperty(document,"hidden",{configurable:true,value:true}); document.dispatchEvent(new Event("visibilitychange")); });
+  assert.equal(await page.isVisible("#tool-menu"),false); await page.evaluate(()=>{ delete document.hidden; document.dispatchEvent(new Event("visibilitychange")); });
+  await openMenu(); await page.setViewportSize({ width:1280,height:900 }); await page.waitForFunction(()=>document.querySelector("#tool-menu").hidden);
+  await page.locator("#cv").scrollIntoViewIfNeeded(); const edge = await page.locator("#cv").boundingBox();
+  await page.mouse.click(edge.x+edge.width-2,edge.y+edge.height-2,{ button:"right" });
+  const menuBounds = await page.locator("#tool-menu").boundingBox();
+  assert.ok(menuBounds.x>=0 && menuBounds.y>=0 && menuBounds.x+menuBounds.width<=1280 && menuBounds.y+menuBounds.height<=900);
+  await page.screenshot({ path:join(output,"tool-menu.png") }); await page.keyboard.press("Escape");
+  assert.deepEqual(await state(),untouched); assert.deepEqual(await call("/api/draft?game=viewport-test"),initial);
+  checks.push("eight real menu items reuse toolbar; right/middle never edit; keyboard wrap/Home/End/Enter; menu Escape preserves pending move; canvas outside dismiss consumes; synthetic blur/hidden and real resize; viewport-clamped menu/source/dirty/selection/saved unchanged");
+  stage = "explicit left edits after menu choice / save and reopen";
+  await openMenu(); await page.click('#tool-menu [data-tool="grass"]'); const leftTarget = await point(10,10);
+  await page.click("#lock"); await openMenu(); await page.click('#tool-menu [data-tool="grass"]'); await page.mouse.click(leftTarget.x,leftTarget.y);
+  assert.deepEqual(await state(),untouched); await page.click("#lock");
+  await page.locator("#layers button").filter({hasText:"基本地圖"}).click(); await openMenu(); await page.click('#tool-menu [data-tool="grass"]'); await page.mouse.click(leftTarget.x,leftTarget.y);
+  assert.deepEqual(await state(),untouched); await page.locator("#layers button").filter({hasText:"裝飾"}).click();
+  await page.mouse.click(leftTarget.x,leftTarget.y);
+  assert.equal(await page.evaluate(()=>window.__studio.draft.map.decorations.length),initial.map.decorations.length+1);
+  assert.equal(await page.evaluate(()=>window.__studio.dirty),true);
+  const placed = await state(); await openMenu(); await page.click('#tool-menu [data-tool="del"]');
+  assert.deepEqual(await state(),placed); await openMenu(); await page.keyboard.press("Escape"); assert.deepEqual(await state(),placed);
+  await page.mouse.click(leftTarget.x,leftTarget.y); assert.deepEqual(await page.evaluate(()=>window.__studio.draft.map),initial.map);
+  stage = "owned pending save blocks reload without bypassing beforeunload";
+  let releaseSave, notifySave;
+  const saveGate = new Promise(resolve => { releaseSave = resolve; }), saveRequested = new Promise(resolve => { notifySave = resolve; });
+  await context.route("**/api/save", async route => { notifySave(); await saveGate; await route.continue(); });
+  await page.evaluate(() => { window.__reloadRealm = "pending-save"; });
+  await page.click("#save"); await saveRequested;
+  try {
+    assert.equal(await page.locator("#reload-draft").isDisabled(), true);
+    await page.evaluate(() => document.querySelector("#reload-draft").onclick());
+    assert.equal(await page.evaluate(() => window.__reloadRealm), "pending-save");
+    assert.equal(await page.evaluate(() => window.__studio.busy), true);
+    assert.equal((await call("/api/draft?game=viewport-test")).localModel.draftRevision, "1");
+  } finally { releaseSave(); }
+  await page.waitForFunction(()=>!window.__studio.busy && document.querySelector("#status").textContent.startsWith("已保存修訂"));
+  await context.unroute("**/api/save"); assert.equal(await page.locator("#reload-draft").isDisabled(), false);
+  await page.reload(); await page.waitForFunction(()=>Boolean(window.__studio));
+  assert.deepEqual(await page.evaluate(()=>window.__studio.draft.map),initial.map);
+  assert.equal(await page.evaluate(()=>window.__studio.draft.localModel.draftRevision),"2"); assert.equal(await page.evaluate(()=>window.__studio.dirty),false);
+  assert.equal(await page.locator("#mini").evaluate(c=>c.toDataURL()),miniBefore);
+  checks.push("menu choice does not place/delete or unlock/change layer; subsequent left does; only owned saved draft revision2; reload retains map and clear dirty/menu");
+  stage = "explicit draft reload clean / native dirty cancel and accept / no implicit write";
+  const savedDraft = await call("/api/draft?game=viewport-test"), savedFile = join(store, "viewport-test", "gamesource.json"), savedFileSha = sha(readFileSync(savedFile));
+  const postsBeforeReload = posts.slice(); assert.deepEqual(postsBeforeReload, ["/api/save"]);
+  await page.evaluate(() => { window.__reloadRealm = "clean"; });
+  let loaded = page.waitForEvent("load"); await page.click("#reload-draft"); await loaded; await page.waitForFunction(() => Boolean(window.__studio));
+  assert.equal(await page.evaluate(() => window.__reloadRealm), undefined);
+  assert.deepEqual(await page.evaluate(() => window.__studio.draft), savedDraft);
+  await page.click('#tools [data-tool="grass"]'); const discardPoint = await point(10,10); await page.mouse.click(discardPoint.x, discardPoint.y);
+  assert.equal(await page.evaluate(() => window.__studio.dirty), true);
+  const unsaved = await state(); await page.evaluate(() => { window.__reloadRealm = "unsaved"; });
+  let cancelType = null, acceptType = null;
+  page.once("dialog", async dialog => { cancelType = dialog.type(); await dialog.dismiss(); });
+  await page.click("#reload-draft"); assert.equal(cancelType, "beforeunload");
+  assert.equal(await page.evaluate(() => window.__reloadRealm), "unsaved"); assert.deepEqual(await state(), unsaved);
+  assert.equal(sha(readFileSync(savedFile)), savedFileSha); assert.deepEqual(posts, postsBeforeReload);
+  page.once("dialog", async dialog => { acceptType = dialog.type(); await dialog.accept(); });
+  loaded = page.waitForEvent("load"); await page.click("#reload-draft"); await loaded; await page.waitForFunction(() => Boolean(window.__studio));
+  assert.equal(acceptType, "beforeunload"); assert.equal(await page.evaluate(() => window.__reloadRealm), undefined);
+  assert.deepEqual(await page.evaluate(() => window.__studio.draft), savedDraft);
+  assert.equal(await page.evaluate(() => window.__studio.dirty), false); assert.equal(await page.locator("#current-game").inputValue(), "viewport-test");
+  assert.equal(await page.locator("#mini").evaluate(c => c.toDataURL()), miniBefore);
+  assert.equal(sha(readFileSync(savedFile)), savedFileSha); assert.deepEqual(posts, postsBeforeReload);
+  checks.push("explicit clean reload creates new Realm; dirty native beforeunload cancel preserves exact draft and accept discards only unsaved preview; same game/saved revision2/mini/file byte; pending save blocks reload; no implicit save/compile POST");
+  assert.equal(await page.evaluate(() => window.__viewportIDB), 0); assert.deepEqual(errors, []); assert.deepEqual(forbidden, []); assert.deepEqual(hashes(), originalHashes);
+  await page.screenshot({ path: join(output, "viewport-workspace.png") });
+  const tools = ["web/editor-studio.html", "web/src/editor/studio.js", "web/src/editor/viewport.js", "tools/verify_editor_viewport_browser.mjs", "tools/editor_server.mjs"];
+  writeFileSync(join(output, "receipt.json"), JSON.stringify({ result: "PASS-SCOPED", fixtureId: BUILTIN_RESOURCES.world.revision, toolVersion: process.version,
+    sourceHashes: originalHashes, toolHashes: Object.fromEntries(tools.map((p) => [p, sha(readFileSync(p))])), checks, errors, forbidden, idbOpens: 0, cancelledCamera: cancelled,
+    navigationAndMenuSourceUnchanged: true, nonPrimarySourceUnchanged: true, explicitLeftPlaceDelete: true, savedRevision: "2", minimapPixelsUnchanged: true, explicitReload: { nativeCancel: cancelType, nativeAccept: acceptType, savedFileSha, posts, pendingSaveBlocked: true }, artifactPaths: ["viewport-workspace.png","tool-menu.png"],
+    coverageLimits: "Editor viewport and menu only; synthetic blur lifecycle edge; explicit left edits+save only owned draft, not game rules/native formula. No expansion/topology/auth/backend/visual approval or full desktop browser matrix." }, null, 2) + "\n");
+  process.stdout.write("PASS viewport wheel/CSS hit/fit/captured pan/real HTML5 edge drag/Escape/navigation+menu source unchanged/nonprimary no edit/explicit left save\n");
+} catch (error) { writeFileSync(join(output, "failure.json"), JSON.stringify({ stage, error: String(error), stack: error.stack, errors, forbidden, checks }, null, 2) + "\n"); throw error; }
+finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }

@@ -13,7 +13,15 @@ function freezeDefinition(value) {
   return value;
 }
 
-export function createWorldResources(definition = DEFAULT_WORLD) {
+export function createWorldResources(definition = DEFAULT_WORLD, {
+  fetcher, imageLoader = loadImage, bytesLoader = loadBytes,
+  seasonLoader = loadSeasonTile, assertCurrent = () => {},
+} = {}) {
+  // Trusted local I/O/lifecycle ports, not runtime admission or server authority.
+  if ((fetcher !== undefined && typeof fetcher !== "function") ||
+      [imageLoader, bytesLoader, seasonLoader, assertCurrent].some(port => typeof port !== "function"))
+    throw new TypeError("Invalid world resource ports");
+  assertCurrent();
   // 当前世界仍有固定坐标/槽位/图块语义约束，不能靠修改width就启用扩容。
   if (
     definition.width !== 384 ||
@@ -25,17 +33,23 @@ export function createWorldResources(definition = DEFAULT_WORLD) {
     );
   // Capture identity and URLs before asynchronous loads; never retain caller aliases.
   definition = freezeDefinition(structuredClone(definition));
-  const roads = createRoadGraph(definition.assets.roadGraph);
-  const terrain = createPathfinder(definition, roads);
+  const roads = createRoadGraph(definition.assets.roadGraph, { fetcher, assertCurrent });
+  const terrain = createPathfinder(definition, roads, { fetcher, assertCurrent });
   return Object.freeze({
     definition, roads, terrain,
     // Lazy: constructing a world or displaying the title must not load bitmaps.
     loadSeason: async (season) => {
+      assertCurrent();
       const atlas = definition.assets.seasonAtlases?.[season];
-      if (!atlas) return loadSeasonTile(season, definition);
+      if (!atlas) {
+        const image = await seasonLoader(season, definition);
+        assertCurrent();
+        return image;
+      }
       const [image, layout] = await Promise.all([
-        loadImage(atlas), loadBytes(definition.assets.terrain),
+        imageLoader(atlas), bytesLoader(definition.assets.terrain),
       ]);
+      assertCurrent();
       const chunked = createChunkedTerrain(image, layout, definition);
       // M2：只读投影需要当季图集绘制 8A1E 差分；附加引用，不改规则权威。
       return Object.freeze({ ...chunked, atlasImage: image });

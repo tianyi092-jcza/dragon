@@ -1,0 +1,110 @@
+import { installDraftEditor } from '/draft.js';
+import { installStageJobs } from '/stage.js';
+import { installLibraryBrowser } from '/library.js';
+import { installLibraryRegistration } from '/catalog.js';
+import { installGameManagement } from '/management.js';
+import { installStageAssetBrowser } from '/stage-assets.js';
+let current = null, busy = false, source = null, copyOperation = null, copySummary = null;
+const q = id => document.querySelector('#' + id), status = text => { q('status').textContent = text; };
+const errors = { INVALID_LOGIN: '帳戶或密碼無效。', LOGIN_REQUIRED: '請登入。', SESSION_INVALID: '會話已失效，請重新登入。', PASSWORD_CHANGE_REQUIRED: '請先變更初始密碼。', LOGIN_RATE_LIMIT: '登入過於頻繁，請稍後重試。', ACCOUNT_CHANGED: '帳戶已被修改，請重新載入。', SECRETS_NOT_CONFIGURED: '服務尚未配置初始密碼與安全金鑰。', PASSWORD_LENGTH: '密碼長度須為16至128個字元。', NEW_PASSWORD_REQUIRED: '請使用不同的新密碼。' };
+async function api(path, value, options = {}) {
+  const headers = {}; if (value !== undefined) { headers['Content-Type'] = 'application/json'; headers['Idempotency-Key'] = options.key ?? crypto.randomUUID(); if (options.revision !== undefined) headers['If-Match'] = '"' + options.revision + '"'; if (current) headers['X-CSRF-Token'] = current.csrf; }
+  const response = await fetch(path, { method: value === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers, body: value === undefined ? undefined : JSON.stringify(value) });
+  if (response.ok && (options.binary || options.libraryBinary)) {
+    const limit = options.libraryBinary ? 16 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 1 || options.maxBytes > limit || response.headers.get('Content-Type') !== 'application/octet-stream' || !response.body) throw new Error('產物回應格式無效。');
+    const parts = [], reader = response.body.getReader(); let length = 0;
+    try { while (true) { const part = await reader.read(); if (part.done) break; length += part.value.length; if (length > options.maxBytes) { await reader.cancel(); throw new Error('產物超出固定描述長度。'); } parts.push(part.value); } } finally { reader.releaseLock(); }
+    const bytes = new Uint8Array(length); let offset = 0; for (const part of parts) { bytes.set(part, offset); offset += part.length; }
+    if (options.libraryBinary) return { bytes, sha256: response.headers.get('X-Content-SHA256'), draftRevision: response.headers.get('X-Draft-Revision'), sourceDigest: response.headers.get('X-Source-SHA256'), catalogRoot: response.headers.get('X-Library-Root'), admission: response.headers.get('X-Content-Admission'), disposition: response.headers.get('Content-Disposition') };
+    return { bytes, sha256: response.headers.get('X-Content-SHA256') };
+  }
+  let data; if (response.ok && options.stagePlan) {
+    if (!/^application\/json(?:;|$)/i.test(response.headers.get('Content-Type') ?? '') || !response.body) throw new Error('結構回應格式無效。');
+    const reader = response.body.getReader(), parts = []; let length = 0;
+    try { while (true) { const part = await reader.read(); if (part.done) break; length += part.value.length; if (length > 1024 * 1024) { await reader.cancel(); throw new Error('結構回應超過1MiB展示預算。'); } parts.push(part.value); } } finally { reader.releaseLock(); }
+    const bytes = new Uint8Array(length); let offset = 0; for (const part of parts) { bytes.set(part, offset); offset += part.length; }
+    try { data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { throw new Error('結構回應無效。'); }
+    return data;
+  }
+  try { data = await response.json(); } catch { throw new Error('服務回應無效。'); }
+  if (!response.ok) { if (response.status === 401) { current = null; render(); } const error = new Error(errors[data.error] ?? '操作被拒絕：' + data.error); error.status = response.status; error.code = data.error; throw error; }
+  return data;
+}
+function render() { q('login').hidden = Boolean(current); q('session').hidden = !current; q('admin').hidden = !current || current.user.role !== 'admin' || current.user.mustChangePassword; q('identity').textContent = current ? current.user.account + (current.user.mustChangePassword ? ' — 請先變更密碼' : '') : ''; draftUI.setIdentity(current); stageUI?.setIdentity(current); libraryUI?.setIdentity(current); catalogUI?.setIdentity(current); managementUI?.setIdentity(current); stageAssetUI?.setIdentity(current); }
+async function run(action) {
+  if (busy) return; busy = true; const controls = [...document.querySelectorAll('button,input,select,textarea')]; controls.forEach(node => { node.disabled = true; });
+  try { await action(); status('操作完成。'); } catch (error) { status(error.message); } finally { busy = false; controls.forEach(node => { node.disabled = false; }); draftUI.render(); catalogUI?.render(); managementUI?.render(); stageAssetUI?.render(); }
+}
+async function list() {
+  const data = await api('/api/admin/accounts'); q('accounts').replaceChildren();
+  for (const user of data.accounts) {
+    const row = document.createElement('div'), label = document.createElement('span'); label.textContent = user.account + ' — ' + (user.disabled ? '停用' : '啟用') + (user.mustChangePassword ? '／須改密碼' : ''); row.append(label);
+    if (user.role !== 'admin') for (const kind of ['disable', 'reset']) {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = kind === 'reset' ? '重設密碼' : user.disabled ? '恢復' : '停用';
+      button.onclick = () => run(async () => { if (!confirm(button.textContent + '帳戶 ' + user.account + '？此操作會撤銷它的既有會話。')) return; const value = { expectedVersion: user.version }; if (kind === 'disable') value.disabled = !user.disabled; await api('/api/admin/accounts/' + encodeURIComponent(user.id) + '/' + kind, value); await list(); }); row.append(button);
+    } q('accounts').append(row);
+  }
+}
+let stageUI, libraryUI, catalogUI, managementUI, stageAssetUI;
+const draftUI = installDraftEditor({ api, authority: () => current, work: run, isBusy: () => busy, onContextChanged: () => { stageUI?.render(); libraryUI?.render(); stageAssetUI?.render(); } });
+stageUI = installStageJobs({ api, authority: () => current, work: run, isBusy: () => busy, savedContext: () => draftUI.savedContext() });
+libraryUI = installLibraryBrowser({ api, authority: () => current, work: run, isBusy: () => busy, savedContext: () => draftUI.savedContext() });
+catalogUI = installLibraryRegistration({ api, authority: () => current, work: run, isBusy: () => busy });
+managementUI = installGameManagement({ api, authority: () => current, work: run, isBusy: () => busy });
+stageAssetUI = installStageAssetBrowser({ api, authority: () => current, work: run, isBusy: () => busy, requestContext: () => stageUI.assetContext() });
+const canLeave = () => draftUI.canLeave() && stageUI.canLeave() && catalogUI.canLeave() && managementUI.canLeave();
+q('login').onsubmit = event => { event.preventDefault(); const data = new FormData(event.currentTarget); run(async () => { if (!canLeave()) return; current = await api('/api/auth/login', { account: String(data.get('account')), password: String(data.get('password')) }); q('login').reset(); render(); if (!current.user.mustChangePassword && current.user.role === 'admin') await list(); }); };
+q('password').onsubmit = event => { event.preventDefault(); const data = new FormData(event.currentTarget); run(async () => { if (!canLeave()) return; if (data.get('newPassword') !== data.get('confirmPassword')) throw new Error('兩次新密碼不相同。'); current = await api('/api/auth/password', { oldPassword: String(data.get('oldPassword')), newPassword: String(data.get('newPassword')) }); draftUI.passwordChanged(current); stageUI.passwordChanged(current); q('password').reset(); render(); if (current.user.role === 'admin') await list(); }); };
+q('create').onsubmit = event => { event.preventDefault(); const data = new FormData(event.currentTarget); run(async () => { await api('/api/admin/accounts', { account: String(data.get('account')) }); q('create').reset(); await list(); }); };
+q('logout').onclick = () => run(async () => { if (!canLeave()) return; await api('/api/auth/logout', {}); draftUI.clearForLogout(); current = null; render(); }); q('refresh').onclick = () => run(list);
+try { current = await api('/api/session'); render(); if (current.user.role === 'admin' && !current.user.mustChangePassword) await list(); } catch (error) { render(); status(error.message); }
+
+function savedOperation() {
+  if (!current) return null;
+  try { return sessionStorage.getItem('editor-copy-operation:' + current.user.id); } catch { return null; }
+}
+function rememberOperation(key) {
+  copyOperation = key;
+  try { sessionStorage.setItem('editor-copy-operation:' + current.user.id, key); } catch { status('此瀏覽器無法保留操作鍵；請勿在完成前重新載入。'); }
+}
+function showCopy(data) {
+  copySummary = data;
+  q('copy-state').textContent = data ? '目標 ' + data.gameId + ' — ' + (data.state ?? 'committed') + (data.draftRevision ? '／已保存修訂 ' + data.draftRevision : '／狀態修訂 ' + data.rowRevision) : '尚未預約完整副本。';
+}
+async function ownGames() {
+  const data = await api('/api/games'); q('own-games').replaceChildren();
+  for (const game of data.games) { const row = document.createElement('p'); row.textContent = game.metadata.name + ' — ' + game.gameId + '／草稿 ' + game.draftRevision; q('own-games').append(row); }
+}
+async function queryCopy() {
+  copyOperation = savedOperation();
+  if (!copyOperation) { showCopy(null); return; }
+  try { showCopy(await api('/api/admin/copies/' + encodeURIComponent(copyOperation))); }
+  catch (error) { if (error.status !== 404) throw error; try { sessionStorage.removeItem('editor-copy-operation:' + current.user.id); } catch { /* No credentials in this optional operation-key store. */ } copyOperation = null; showCopy(null); }
+}
+async function sourceState() {
+  source = await api('/api/admin/source');
+  q('source-state').textContent = source.definition.registryId + ' — ' + (source.registered ? '已驗證登記' : source.staged ? '已裝配，尚須驗證登記' : '未裝配；請停止服務後以 --stage-source 啟動');
+  await queryCopy();
+  await ownGames();
+}
+q('source-refresh').onclick = () => run(sourceState);
+q('source-install').onclick = () => run(async () => { await api('/api/admin/source/install', {}); await sourceState(); });
+q('copy-create').onsubmit = event => { event.preventDefault(); const data = new FormData(event.currentTarget); run(async () => {
+  if (!source?.registered) throw new Error('請先查看並驗證登記固定來源。');
+  if (savedOperation() && !copySummary) throw new Error('上次預約回應尚未確認，請先查詢狀態，不另建目標。');
+  if (copySummary && ['pending', 'running'].includes(copySummary.state)) throw new Error('已有未完成複製，請查詢／恢復或取消，不另建目標。');
+  const key = crypto.randomUUID(); rememberOperation(key); showCopy(null);
+  const result = await api('/api/admin/copies', { registryId: source.definition.registryId, name: String(data.get('name')), introduction: String(data.get('introduction')) }, { key }); showCopy(result);
+}); };
+q('copy-refresh').onclick = () => run(async () => { await queryCopy(); await ownGames(); });
+q('copy-run').onclick = () => run(async () => {
+  copyOperation = savedOperation(); if (!copyOperation || !copySummary?.rowRevision) throw new Error('請先查詢未完成複製狀態。');
+  status('正在驗證固定來源、完整複製並寫入獨立草稿；請勿重新提交。');
+  showCopy(await api('/api/admin/copies/' + encodeURIComponent(copyOperation) + '/run', {}, { revision: copySummary.rowRevision })); await ownGames();
+});
+q('copy-cancel').onclick = () => run(async () => {
+  copyOperation = savedOperation(); if (!copyOperation || !copySummary?.rowRevision || !['pending', 'running'].includes(copySummary.state)) throw new Error('請先查詢未完成複製狀態。');
+  if (!confirm('取消此未完成複製？目標ID與操作鍵不再重用；暫存物件只記帳，不代表已物理刪除。')) return;
+  showCopy(await api('/api/admin/copies/' + encodeURIComponent(copyOperation) + '/cancel', {}, { revision: copySummary.rowRevision }));
+});

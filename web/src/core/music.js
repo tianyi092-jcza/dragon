@@ -14,7 +14,19 @@ export class MusicPlayer {
     context,
     onDriverStart = () => {},
     fetcher = (...args) => fetch(...args),
+    resourcePorts = null,
   }) {
+    if (resourcePorts != null &&
+      ![resourcePorts.assertCurrent, resourcePorts.loadManifest, resourcePorts.loadBuffer]
+        .every((value) => typeof value === "function"))
+      throw new TypeError("music resource ports required");
+    // Trusted caller lifecycle ports, NOT authorization or a new loop certificate.
+    this.resourcePorts = resourcePorts == null ? null : Object.freeze({
+      assertCurrent: resourcePorts.assertCurrent,
+      loadManifest: resourcePorts.loadManifest,
+      loadBuffer: resourcePorts.loadBuffer,
+    });
+    this.resourceHandle = null;
     this.context = context;
     this.onDriverStart = onDriverStart;
     this.fetcher = fetcher;
@@ -132,10 +144,25 @@ export class MusicPlayer {
     }
     this.gain?.disconnect();
     this.gain = null;
+    this.releaseResource();
+  }
+
+  releaseResource(handle = this.resourceHandle) {
+    if (handle === this.resourceHandle) this.resourceHandle = null;
+    try { handle?.dispose(); } catch { /* Audio cleanup never drives rules. */ }
+  }
+
+  checkResources(context) {
+    this.resourcePorts.assertCurrent();
+    if (this.context() !== context) throw new Error("music resource context changed");
   }
 
   async ensurePlaying() {
     const context = this.context();
+    if (this.resourcePorts) {
+      try { this.checkResources(context); }
+      catch { this.stopPlayback(false); return; }
+    }
     if (
       !this.enabled ||
       !this.driverActive ||
@@ -150,8 +177,13 @@ export class MusicPlayer {
     const generation = this.generation;
     const track = this.track;
     this.loading = generation;
+    let pendingHandle = null;
     try {
-      if (!this.manifest) {
+      if (this.resourcePorts) {
+        this.checkResources(context);
+        this.manifest = await this.resourcePorts.loadManifest(context);
+        this.checkResources(context);
+      } else if (!this.manifest) {
         const response = await this.fetcher(
           new URL("../../grf/music/playback.json", import.meta.url),
         );
@@ -161,8 +193,18 @@ export class MusicPlayer {
       if (generation !== this.generation) return;
       const item = this.manifest.tracks.find((entry) => entry.index === track);
       if (!item) throw new Error("music track is not certified for playback");
-      let buffer = this.cache?.track === track ? this.cache.buffer : null;
-      if (!buffer) {
+      let buffer;
+      if (this.resourcePorts) {
+        // No private settled cache: each explicit startup re-enters original
+        // authenticated transport. A local assertion cannot renew server rights.
+        this.checkResources(context);
+        pendingHandle = await this.resourcePorts.loadBuffer(item, context);
+        this.checkResources(context);
+        if (!pendingHandle?.buffer || typeof pendingHandle.dispose !== "function")
+          throw new TypeError("music resource handle required");
+        buffer = pendingHandle.buffer;
+      } else buffer = this.cache?.track === track ? this.cache.buffer : null;
+      if (!this.resourcePorts && !buffer) {
         const response = await this.fetcher(
           new URL(`../../grf/music/${item.file}`, import.meta.url),
         );
@@ -187,7 +229,8 @@ export class MusicPlayer {
         )
       )
         throw new Error("invalid music loop certificate");
-      this.cache = { track, buffer };
+      if (this.resourcePorts) this.checkResources(context);
+      else this.cache = { track, buffer };
       const source = context.createBufferSource();
       const gain = context.createGain();
       source.buffer = buffer;
@@ -197,6 +240,9 @@ export class MusicPlayer {
       source.connect(gain).connect(context.destination);
       this.gain = gain;
       this.source = source;
+      const resourceHandle = pendingHandle;
+      this.resourceHandle = resourceHandle;
+      pendingHandle = null;
       this.applyVolume();
       source.onended = () => {
         if (this.source === source) {
@@ -206,6 +252,7 @@ export class MusicPlayer {
         }
         source.disconnect();
         gain.disconnect();
+        this.releaseResource(resourceHandle);
       };
       source.start();
       if (this.fade) source.stop(this.fade.end);
@@ -215,6 +262,7 @@ export class MusicPlayer {
       // Missing/unsupported audio is silent, never an unhandled rejection or a
       // rule-clock dependency. A later user gesture may retry current intent.
     } finally {
+      this.releaseResource(pendingHandle);
       if (this.loading === generation) this.loading = null;
     }
   }

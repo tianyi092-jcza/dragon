@@ -11,7 +11,9 @@ function freezeContent(value) {
   return value;
 }
 
-export function createRoadGraph(url) {
+export function createRoadGraph(url, { fetcher, assertCurrent = () => {} } = {}) {
+  if ((fetcher !== undefined && typeof fetcher !== "function") || typeof assertCurrent !== "function")
+    throw new TypeError("Invalid road resource ports");
   let graph = null;
   let loadPromise = null;
   let nodeByCoord = new Map();
@@ -93,20 +95,24 @@ export function createRoadGraph(url) {
   }
 
   async function loadRoadGraph() {
+    assertCurrent();
     if (graph) return graph;
     if (!loadPromise) {
-      loadPromise = fetch(url)
+      loadPromise = (fetcher ?? globalThis.fetch)(url)
         .then((response) => {
+          assertCurrent();
           if (!response.ok) throw new Error(`${url} HTTP ${response.status}`);
           return response.json();
         })
-        .then(installGraph)
+        .then(raw => { assertCurrent(); return installGraph(raw); })
         .catch((error) => {
           loadPromise = null;
           throw error;
         });
     }
-    return loadPromise;
+    const loaded = await loadPromise;
+    assertCurrent();
+    return loaded;
   }
 
   function roadGraphReady() {

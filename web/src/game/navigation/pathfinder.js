@@ -6,7 +6,9 @@
 // 第三方未开战势力占据的格子视为堵路 (isBlocked 回调)，全堵→佯动。
 
 // 旧格网回退仍保留原算法；道路拓扑是战略主路径，不在本批删除兼容路径。
-export function createPathfinder(definition, roads) {
+export function createPathfinder(definition, roads, { fetcher, assertCurrent = () => {} } = {}) {
+  if ((fetcher !== undefined && typeof fetcher !== "function") || typeof assertCurrent !== "function")
+    throw new TypeError("Invalid terrain resource ports");
   const W = definition.width,
     H = definition.height;
   // 水域 tile: 水路也是路径但代价极高(原版陆路优先: 许昌-舞阳-汝南走陆路,
@@ -33,16 +35,19 @@ export function createPathfinder(definition, roads) {
 
   let terrainPromise = null;
   async function loadTerrain() {
+    assertCurrent();
     if (terrain && roadCost && roadOff) return terrain.slice();
     if (!terrainPromise) {
       terrainPromise = (async () => {
         const [mapRes, costRes, offRes] = await Promise.all([
-          fetch(definition.assets.terrain), fetch(definition.assets.roadCost),
-          fetch(definition.assets.roadOffset), roads.loadRoadGraph(),
+          (fetcher ?? globalThis.fetch)(definition.assets.terrain), (fetcher ?? globalThis.fetch)(definition.assets.roadCost),
+          (fetcher ?? globalThis.fetch)(definition.assets.roadOffset), roads.loadRoadGraph(),
         ]);
+        assertCurrent();
         for (const [response, url] of [[mapRes, definition.assets.terrain], [costRes, definition.assets.roadCost], [offRes, definition.assets.roadOffset]])
           if (!response.ok) throw new Error(`${url} HTTP ${response.status}`);
         const [mapBuffer, costBuffer, nextOffsets] = await Promise.all([mapRes.arrayBuffer(), costRes.arrayBuffer(), offRes.json()]);
+        assertCurrent();
         const nextTerrain = new Uint8Array(mapBuffer);
         const nextCost = new Uint8Array(costBuffer);
         if (nextTerrain.length !== W * H || nextCost.length !== W * H) throw new RangeError("invalid world grid resource dimensions");
@@ -56,11 +61,13 @@ export function createPathfinder(definition, roads) {
         // Resource admission only; no search/field/RNG formula changes.
         // Failed JSON/HTTP/size checks must not leave a half-installed
         // terrain+cost cache that silently skips the next retry.
+        assertCurrent();
         terrain = nextTerrain; roadCost = nextCost; roadOff = Object.freeze(nextOffsets);
         return terrain;
       })().finally(() => { terrainPromise = null; });
     }
     const loaded = await terrainPromise;
+    assertCurrent();
     return loaded.slice();
   }
 

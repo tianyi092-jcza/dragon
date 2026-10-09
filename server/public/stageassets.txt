@@ -1,0 +1,33 @@
+// Display-only client: descriptions/identity are never server authority or runtime admission.
+export function installStageAssetBrowser({api,authority,work,isBusy,requestContext}) {
+  const q=id=>document.getElementById(id), purposes=['data','images','fallback-spring','fallback-summer','fallback-autumn','fallback-winter'];
+  const uuid=v=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v), hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
+  let identity=null,generation=0,shownKey=null,message='六用途須有同一已保存修訂的明確任務ID；只在按鈕操作時GET，不自動預約、執行或重試。';
+  const permitted=()=>identity!==null&&identity===authority()&&identity.user.role==='admin'&&!identity.user.mustChangePassword;
+  function request() { const v=requestContext();if(!v||!uuid(v.gameId)||typeof v.draftRevision!=='string'||! /^[1-9][0-9]{0,63}$/.test(v.draftRevision)||!v.operations||Object.keys(v.operations).length!==6||!purposes.every(p=>uuid(v.operations[p]))||new Set(Object.values(v.operations)).size!==6)return null;return {gameId:v.gameId,draftRevision:v.draftRevision,operations:Object.fromEntries(purposes.map(p=>[p,v.operations[p]]))}; }
+  const key=v=>v?JSON.stringify(v):null;
+  function clear() { shownKey=null;q('stage-assets-summary').textContent='';q('stage-assets-outputs').replaceChildren();q('stage-assets-missing').replaceChildren(); }
+  function render() { const v=request();if(shownKey!==null&&shownKey!==key(v)) {generation++;clear();message='任務關聯已變更，舊顯示已清除；請明確讀取新的精確上下文。';}q('stage-assets-editor').hidden=!permitted();q('stage-assets-load').disabled=!permitted()||isBusy()||!v;q('stage-assets-clear').disabled=!permitted()||isBusy()||shownKey===null;q('stage-assets-context').textContent=v?v.gameId+'／已保存修訂 '+v.draftRevision+'／六個固定用途任務（非目前未保存輸入）':'尚無六用途同遊戲、同修訂的完整任務ID關聯；請逐項預約或明確查詢原任務。';q('stage-assets-status').textContent=message; }
+  function requireValue(value) { if(!value)throw new Error('結構回應無效；不顯示為可運行或可發布。'); }
+  function validate(value,v) {
+    requireValue(value&&Object.keys(value).sort().join(',')==='admission,deleteAllowed,plan,releaseAllowed,runtimeAllowed,trialAllowed'&&value.admission==='stage-plan-collection-not-runtime');
+    const p=value.plan;requireValue(p&&p.schema==='dragon-stage-asset-plan-1'&&p.admission==='structural-stage-plan-not-runtime');for(const flag of ['runtimeAllowed','trialAllowed','releaseAllowed','deleteAllowed'])requireValue(value[flag]===false&&p[flag]===false);
+    const ref=p.reference;requireValue(ref&&ref.gameId===v.gameId&&ref.draftRevision===v.draftRevision&&hash(ref.sourceDigest)&&hash(ref.dependencyDigest)&&typeof ref.rootKey==='string'&&ref.rootKey.length>0&&ref.rootKey.length<=1024);
+    requireValue(Array.isArray(p.artifacts)&&p.artifacts.length===44&&Array.isArray(p.reports)&&p.reports.length===6&&Array.isArray(p.unresolvedReferences)&&p.unresolvedReferences.length===20&&Array.isArray(p.missing)&&p.missing.length===6&&p.missing.every(x=>typeof x==='string'&&x.length<128)&&p.missing.includes('complete-runtime-dependencies')&&p.missing.includes('runtime-manifest-and-loader-binding'));
+    const names=new Set();for(const a of p.artifacts){requireValue(a&&purposes.includes(a.purpose)&&a.operationId===v.operations[a.purpose]&&typeof a.assetId==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(a.assetId)&&hash(a.sha256)&&Number.isSafeInteger(a.byteLength)&&a.byteLength>0&&a.byteLength<=4*1024*1024);const name=a.purpose+':'+a.assetId;requireValue(!names.has(name));names.add(name);}
+    requireValue(p.roles&&Array.isArray(p.roles.shared)&&p.roles.shared.length===398&&Array.isArray(p.roles.chapters)&&p.roles.chapters.length===20);const reports=new Set();for(const r of p.reports){requireValue(r&&purposes.includes(r.purpose)&&!reports.has(r.purpose)&&r.binding&&r.binding.operationId===v.operations[r.purpose]&&r.binding.gameId===ref.gameId&&r.binding.draftRevision===ref.draftRevision&&r.binding.sourceDigest===ref.sourceDigest&&r.binding.dependencyDigest===ref.dependencyDigest);reports.add(r.purpose);}
+    return p;
+  }
+  async function load() {
+    if(!permitted()) return;const v=request();if(!v)return;const serial=++generation,user=identity,tuple=key(v),valid=()=>permitted()&&identity===user&&generation===serial&&key(request())===tuple;
+    clear();message='正在明確重驗實際源與階段產物；此GET不是運行、發布或刪除准入。';render();
+    try { const params=new URLSearchParams({revision:v.draftRevision,...v.operations});const value=await api('/api/games/'+v.gameId+'/stage-assets?'+params,undefined,{stagePlan:true});if(!valid())return;const p=validate(value,v);if(!valid())return;
+      shownKey=tuple;q('stage-assets-summary').textContent='服務傳回結構：44階段描述、398可用庫資源、20章產物、20未閉合引用。來源 '+p.reference.sourceDigest+'。不是RuntimeManifest、bytes下載或運行許可。';
+      for(const a of p.artifacts){const row=document.createElement('p');row.textContent=a.purpose+'／'+a.assetId+'／'+a.byteLength+' bytes／'+a.sha256;q('stage-assets-outputs').append(row);}
+      for(const s of [...p.missing,...p.unresolvedReferences.map(x=>JSON.stringify(x))]){const row=document.createElement('p');row.textContent=s;q('stage-assets-missing').append(row);}message='此時的服務結構描述已顯示；缺項原樣保留，沒有保存、重試、建立任務、試運行或發布。';
+    } catch(error) {if(valid()){clear();message='結構讀取未確認：'+error.message+'。保留原六任務關聯；不自動重試。';}throw error;}finally{render();}
+  }
+  function setIdentity(next){if(identity!==next){generation++;identity=next;clear();message='身份已更新；沒有恢復結構回應或自動讀取。';}render();}
+  q('stage-assets-load').onclick=()=>work(load);q('stage-assets-clear').onclick=()=>{if(!permitted()||isBusy())return;generation++;clear();message='僅清除本頁結構顯示；不取消任務、不刪除SQL或物件。';render();};window.addEventListener('pagehide',()=>{generation++;clear();});
+  render();return {setIdentity,render};
+}

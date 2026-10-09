@@ -12,7 +12,9 @@
 
 新机器轮明确串行AGENTS36入口，并追加组合/seed/批准两目录20章JSON门；不运行通配、不传凭据，逐入口旧I/O白名单仍适用。`approved-machine-suite-r1`已39入口全部exit0，09:39:59.133Z—09:48:23.845Z，固定72源码/39资源前后SHA同；不是旧36与新focused拼接。实际安装`approved-local-install-r1.json`的新修订为`map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86`，38角色＋manifest；上一模块SHA/旧目录保留核签。另`approved-late-world-r1`旧atlas晚到保护过。批准两目录复现及20章JSON/五拒收记录在`approved-stage-repro-r1.json`；安装前原五拒审/六temp转移新轮分别r4/r3过，mock不是批准来源。
 
-### 当前请求完成审计（M-00至M-06，不扩大支持域）
+### 地图迁移完成时审计（M-00至M-06，不扩大支持域）
+
+后续编辑器目标的[日期受控采纳](editor-date-adoption.md)已将默认切至47e358…，仅两章year原纠错/真实作者dataSHA更新，地图/native/mini/其它18章等32角色byte同。原m1668/844e精确认可JSON与旧包均保留；新默认map-only机器继承证书不是新human整屏认可。以下地图迁移完成收据及输入SHA保持历史原样，不冒充后续61门或当前模块SHA。
 
 | 显式要求 | 本轮真实产物/证据 | 结论/边界 |
 | --- | --- | --- |

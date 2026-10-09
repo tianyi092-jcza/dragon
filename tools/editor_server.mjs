@@ -10,7 +10,7 @@
 // verify_gamesource_copy.mjs). Usage: node tools/editor_server.mjs [--port N]
 // [--store <dir>] [--serve] (no --serve runs the self-check and exits).
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { createServer } from "node:http";
@@ -20,8 +20,15 @@ import { canonicalDigest, copyBuiltinGame, validateGameSource } from "../web/src
 import { compileTrialSource, TRIAL_COMPILER_REVISION } from "../web/src/content/authoring/trialcompile.js";
 import { renderMinimapPixels, MINIMAP_SIZES } from "../web/src/content/authoring/minimap.js";
 import { readInstalledEditorSource } from "./editor_builtin_source.mjs";
+import { readInstalledEntitySource, readEntitySourceForDraft } from "./editor_entity_source.mjs";
+import { BUILTIN_ENTITY_SOURCE } from "../web/src/editor/builtinentitysource.generated.js";
+import { copyEntitySourceRecords } from "../web/src/editor/entitycopy.js";
+import { inspectEntitySources } from "../web/src/editor/entityinspection.js";
 import { encodeMinimapPNG } from "./minimap_png.mjs";
 import { validateLibraryAdditions } from "../web/src/editor/componenttools.js";
+import { normalizeGameMetadata, checkLocalDraftName, summarizeLocalDraft } from "../web/src/editor/gamemetadata.js";
+import { projectTrialChapter } from "../web/src/editor/trialscope.js";
+import { editChapterResources } from "../web/src/editor/chapterresources.js";
 
 const args = process.argv.slice(2);
 const portArg = args.indexOf("--port");
@@ -62,16 +69,35 @@ function storeDraft(game, draft = false) {
   return { game, diagnostics };
 }
 function builtinSource() { return readInstalledEditorSource(); }
+function localGameIds() {
+  mkdirSync(STORE, { recursive: true });
+  return readdirSync(STORE, { withFileTypes: true }).filter((e) => e.isDirectory())
+    .map((e) => e.name).filter((name) => existsSync(join(STORE, name, "gamesource.json"))).sort();
+}
+function localRecords() { return localGameIds().map((id) => summarizeLocalDraft(loadDraft(id))); }
 
-export const EDITOR_BUILD_FORMAT = "studio-unified-1";
+export const EDITOR_BUILD_FORMAT = "studio-app-2"; // preserve prior build directories
 const BUILD_FILES = { terrain: "terrain.bin", roadGraph: "roads.json", roadCost: "road_cost.bin", roadOffset: "road_offset.json",
   minimapBase: "minimap_base.png", minimapLarge: "minimap_large.png" };
-function buildDir(gameId, revision) {
+export const EDITOR_CHAPTER_BUILD_FORMAT = "studio-chapter-1";
+function buildDir(gameId, revision, chapterId = null) {
   if (!/^[1-9]\d*$/.test(revision ?? "")) throw new RangeError("bad build revision");
-  return join(gameDir(gameId), "build", revision, TRIAL_COMPILER_REVISION, EDITOR_BUILD_FORMAT);
+  const root = join(gameDir(gameId), "build", revision, TRIAL_COMPILER_REVISION);
+  if (chapterId === null) return join(root, EDITOR_BUILD_FORMAT);
+  if (typeof chapterId !== "string" || !chapterId) throw new RangeError("missing trial scope chapter");
+  return join(root, EDITOR_CHAPTER_BUILD_FORMAT, sha256hex(chapterId));
 }
-function readBuild(gameId, revision) {
-  const dir = buildDir(gameId, revision);
+function queryChapterScope(query) {
+  if (!query.has("scope")) return null; // existing whole-build APIs remain separate
+  if (query.get("scope") !== "chapter" || !query.get("chapter")) throw new RangeError("invalid trial scope");
+  return query.get("chapter");
+}
+function trialAssetURL(gameId, revision, digest, assetId, chapterId) {
+  const base = `/api/trial-asset?game=${encodeURIComponent(gameId)}&revision=${revision}&digest=${digest}&asset=${assetId}`;
+  return chapterId === null ? base : base + "&scope=chapter&chapter=" + encodeURIComponent(chapterId);
+}
+function readBuild(gameId, revision, chapterId = null) {
+  const dir = buildDir(gameId, revision, chapterId);
   if (!existsSync(join(dir, "manifest.json"))) throw new RangeError("compile before trial-pack");
   let manifest, snapshot;
   try {
@@ -80,17 +106,49 @@ function readBuild(gameId, revision) {
   } catch (error) {
     throw new RangeError("corrupt compiled snapshot", { cause: error });
   }
-  if (manifest.buildFormat !== EDITOR_BUILD_FORMAT || manifest.compilerRevision !== TRIAL_COMPILER_REVISION ||
+  const format = chapterId === null ? EDITOR_BUILD_FORMAT : EDITOR_CHAPTER_BUILD_FORMAT;
+  if (manifest.buildFormat !== format || manifest.compilerRevision !== TRIAL_COMPILER_REVISION ||
       manifest.identity?.gameId !== gameId || manifest.identity.draftRevision !== revision ||
       canonicalDigest(snapshot, sha256hex) !== manifest.identity.sourceDigest)
     throw new RangeError("compiled snapshot identity mismatch");
+  if (chapterId !== null) {
+    let saved;
+    try { saved = JSON.parse(readFileSync(join(dir, "saved-source.json"), "utf8")); }
+    catch (cause) { throw new RangeError("corrupt saved trial scope source", { cause }); }
+    const projected = projectTrialChapter(saved, chapterId, sha256hex);
+    if (manifest.scope?.kind !== "chapter" || manifest.scope.chapterId !== chapterId ||
+        manifest.scope.savedSourceDigest !== projected.savedSourceDigest || manifest.identity.savedSourceDigest !== projected.savedSourceDigest ||
+        manifest.scope.selectedSourceDigest !== projected.selectedSourceDigest || manifest.identity.sourceDigest !== projected.selectedSourceDigest ||
+        snapshot.gameId !== gameId || snapshot.localModel.draftRevision !== revision ||
+        canonicalDigest(snapshot, sha256hex) !== projected.selectedSourceDigest ||
+        manifest.identity.trialSnapshotId !== `${gameId}@${revision}:${projected.selectedSourceDigest}:chapter:${sha256hex(chapterId)}`)
+      throw new RangeError("compiled chapter scope identity mismatch");
+    assert.deepEqual(manifest.chapters, [chapterId]);
+  } else if (manifest.scope !== undefined) throw new RangeError("whole build has chapter scope");
   for (const [assetId, path] of Object.entries(BUILD_FILES)) {
     const asset = [...manifest.assets, ...manifest.minimapAssets].find((a) => a.assetId === assetId);
     const bytes = readFileSync(join(dir, path));
-    if (asset?.path !== path || asset.byteLength !== bytes.length || asset.sha256 !== sha256hex(bytes))
+    if (asset?.path !== path || asset.byteLength !== bytes.length || asset.sha256 !== sha256hex(bytes) ||
+        asset.url !== trialAssetURL(gameId, revision, manifest.identity.sourceDigest, assetId, chapterId))
       throw new RangeError(`compiled asset integrity mismatch: ${assetId}`);
   }
+  assert.deepEqual(manifest.visualAssets, checkedVisuals(snapshot));
   return { dir, manifest, snapshot };
+}
+
+function checkedVisuals(snapshot) {
+  const visuals = snapshot.assets?.editorVisuals;
+  if (!visuals?.seasonAtlases || !visuals?.seasons) return null; // older draft cannot enter full App trial
+  for (const [kind, stem] of [["seasonAtlases", "atlas"], ["seasons", "tiles"]]) {
+    for (const s of ["spring", "summer", "autumn", "winter"]) {
+      const asset = visuals[kind][s];
+      assert.match(asset?.url ?? "", new RegExp(`^content/builtin/compiled/map-2-[a-f0-9]{64}/map_${stem}_${s}\\.png$`));
+      assert.equal(asset.url.split("/")[3], visuals.springAtlas.url.split("/")[3]);
+      const bytes = readFileSync(new URL("../web/" + asset.url, import.meta.url));
+      assert.equal(bytes.length, asset.byteLength); assert.equal(sha256hex(bytes), asset.sha256);
+    }
+  }
+  return visuals;
 }
 
 // Values embedded in HTML scripts must not be able to terminate the script.
@@ -122,29 +180,80 @@ async function serveWebFile(pathname, res) {
 }
 
 const routes = {
-  "GET /": (res) => html(res, `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>臥龍傳編輯器（本地）</title></head><body><h1>臥龍傳編輯器（本地限定域）</h1><p>原件唯讀；由當前固定修訂複製。無帳戶／正式發布，僅供本地測試。</p><label>新遊戲ID <input id="new-game" maxlength="128"></label><button id="full-copy">完整測試複製</button><button id="minimal-copy">僅複製地圖及中立據點基礎</button><p id="copy-status"></p><ul id="games"></ul><script>
-async function list(){const r=await fetch("/api/games");const data=await r.json();const ul=document.getElementById("games");ul.replaceChildren();for(const id of data.games){const li=document.createElement("li"),a=document.createElement("a");a.textContent=id;a.href="/studio?game="+encodeURIComponent(id);li.append(a);ul.append(li)}}
-for(const [id,kind] of [["full-copy","full"],["minimal-copy","minimal"]])document.getElementById(id).onclick=async()=>{const buttons=["full-copy","minimal-copy"].map(x=>document.getElementById(x));buttons.forEach(b=>b.disabled=true);try{const r=await fetch("/api/copy",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({gameId:document.getElementById("new-game").value,kind,ownerId:"local-test"})});const data=await r.json();document.getElementById("copy-status").textContent=r.ok?"已複製；請從下方開啟工作台":"複製被拒絕："+data.error;if(r.ok)await list()}catch(e){document.getElementById("copy-status").textContent="請求失敗："+e.message}finally{buttons.forEach(b=>b.disabled=false)}};
-list().catch(e=>{document.getElementById("copy-status").textContent="讀取失敗："+e.message});</script></body></html>`),
-  "GET /api/games": (res) => {
-    mkdirSync(STORE, { recursive: true });
-    const games = readdirSync(STORE, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .filter((name) => existsSync(join(STORE, name, "gamesource.json")));
-    json(res, { games });
+  "GET /": (res) => serveWebFile("/editor-games.html", res),
+  "GET /api/games": (res, _body, query) => {
+    const games = localGameIds();
+    if (query.get("details") !== "1") return json(res, { games }); // keep prior compact API
+    const records = games.map((gameId) => {
+      try { return summarizeLocalDraft(loadDraft(gameId)); }
+      catch (error) { return { gameId, error: error.message, editable: false }; }
+    });
+    json(res, { games, records });
+  },
+  "GET /api/game-info": (res, _body, query) => json(res, summarizeLocalDraft(loadDraft(query.get("game")))),
+  "GET /entities": (res) => serveWebFile("/editor-entities.html", res),
+  "GET /api/entity-inspection": async (res, _body, query) => {
+    const game = loadDraft(query.get("game")); // fixed detached read, never write after await
+    const selected = game.sourceRecords === undefined ? null : await readEntitySourceForDraft(game);
+    json(res, inspectEntitySources(game, selected?.bundle ?? null, selected?.descriptor ?? BUILTIN_ENTITY_SOURCE, query.get("chapter") ?? undefined));
+  },
+  "POST /api/metadata": (res, body) => {
+    if (!body || Object.keys(body).some((key) => !["gameId", "expectedRevision", "metadata"].includes(key)))
+      throw new RangeError("資料保存僅接受遊戲ID、預期修訂、名稱與簡介");
+    if (body.gameId === "wolong-builtin") throw new RangeError("內置原件唯讀，請先複製");
+    const game = loadDraft(body.gameId);
+    if (body.expectedRevision !== game.localModel.draftRevision)
+      throw new RangeError("草稿修訂衝突：請重新載入後合併修改");
+    const metadata = normalizeGameMetadata(body.metadata);
+    checkLocalDraftName(game, metadata, localRecords());
+    game.metadata = { ...game.metadata, ...metadata };
+    game.localModel.draftRevision = String(BigInt(game.localModel.draftRevision) + 1n);
+    game.localModel.modifiedAt = new Date().toISOString();
+    storeDraft(game, true);
+    json(res, summarizeLocalDraft(game));
+  },
+  // Local synchronous write tail only; NOT authentication or durable multi-process CAS.
+  "POST /api/chapter-resources": (res, body) => {
+    const keys = ["gameId", "expectedRevision", "chapterId", "slot", "values"];
+    if (!body || Object.keys(body).length !== keys.length || keys.some(key => !Object.hasOwn(body, key))) throw new TypeError("章節資源請求格式不符");
+    const game = loadDraft(body.gameId);
+    if (body.expectedRevision !== game.localModel.draftRevision) throw new RangeError("草稿修訂衝突：請重新載入後合併修改");
+    const next = editChapterResources(game, body.chapterId, body.slot, body.values);
+    if (next !== game) {
+      next.localModel.draftRevision = String(BigInt(game.localModel.draftRevision) + 1n);
+      next.localModel.modifiedAt = new Date().toISOString();
+      storeDraft(next, true);
+    }
+    json(res, { gameId: next.gameId, chapterId: body.chapterId, slot: body.slot, draftRevision: next.localModel.draftRevision, changed: next !== game });
   },
   // Read-only draft fetch (editors load-then-save; writes go via /api/save).
   "GET /api/draft": (res, _body, query) => {
     json(res, loadDraft(query.get("game")));
   },
-  "POST /api/copy": (res, body) => {
+  "POST /api/copy": async (res, body) => {
     const { gameId, ownerId, kind } = body ?? {};
     const source = builtinSource();
     const game = copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex);
     game.assets.editorVisuals = source.editorAssets;
     if (kind === "full") game.metadata.name = "測試複製";
     if (existsSync(join(gameDir(game.gameId), "gamesource.json"))) throw new RangeError("game identity already exists");
+    // Historical harness calls may still create semantically incomplete names;
+    // the management UI always supplies a validated complete display form.
+    if (body.metadata !== undefined) {
+      game.metadata = normalizeGameMetadata(body.metadata);
+      checkLocalDraftName(game, game.metadata, localRecords());
+    }
+    if (kind === "full") {
+      const entitySource = await readInstalledEntitySource();
+      game.sourceRecords = copyEntitySourceRecords(game, source, entitySource, BUILTIN_ENTITY_SOURCE,
+        () => `source-record-${randomUUID()}`); // identity entropy, never the game's rule RNG
+    }
+    // Await above can let another request finish: recheck in the synchronous
+    // write tail (single local process only; still not a durable multi-process CAS).
+    if (existsSync(join(gameDir(game.gameId), "gamesource.json"))) throw new RangeError("game identity already exists");
+    if (body.metadata !== undefined) checkLocalDraftName(game, game.metadata, localRecords());
+    const createdAt = new Date().toISOString();
+    game.localModel.createdAt = createdAt; game.localModel.modifiedAt = createdAt;
     storeDraft(game);
     json(res, { gameId: game.gameId, draftRevision: game.localModel.draftRevision, digest: game.sourceRef.digest });
   },
@@ -155,11 +264,12 @@ list().catch(e=>{document.getElementById("copy-status").textContent="讀取失�
     if (body.expectedRevision !== undefined && body.expectedRevision !== game.localModel.draftRevision)
       throw new RangeError("草稿修訂衝突：請重新載入後合併修改");
     if (componentDefinitions !== undefined) {
-      validateLibraryAdditions(game, componentDefinitions);
+      validateLibraryAdditions(game, componentDefinitions, map === undefined ? game.map : map);
       game.componentDefinitions = componentDefinitions;
     }
     if (map !== undefined) game.map = map;
     game.localModel.draftRevision = String(BigInt(game.localModel.draftRevision) + 1n);
+    game.localModel.modifiedAt = new Date().toISOString();
     // Q14: structural violations still refuse the save; semantic断路
     // diagnostics are stored with the draft (publish/compile stays blocked).
     const { diagnostics } = storeDraft(game, true);
@@ -171,14 +281,22 @@ list().catch(e=>{document.getElementById("copy-status").textContent="讀取失�
     json(res, { gameId: game.gameId, valid: diagnostics.length === 0, draftRevision: game.localModel.draftRevision, diagnostics });
   },
   "POST /api/compile": (res, body) => {
-    const game = loadDraft(body?.gameId);
+    const saved = loadDraft(body?.gameId);
+    if (body.expectedRevision !== undefined && body.expectedRevision !== saved.localModel.draftRevision)
+      throw new RangeError("編譯修訂衝突：請重新載入");
+    if (body.scope !== undefined && (body.scope?.kind !== "chapter" || typeof body.scope.chapterId !== "string" || !body.scope.chapterId ||
+        Object.keys(body.scope).some((key) => !["kind", "chapterId"].includes(key)))) throw new RangeError("invalid compile chapter scope");
+    const projection = body.scope === undefined ? null : projectTrialChapter(saved, body.scope.chapterId, sha256hex);
+    const game = projection?.selected ?? saved, chapterScope = projection?.chapterId ?? null;
     validateGameSource(game);
+    const visualAssets = checkedVisuals(game);
     const compiled = compileTrialSource(game, sha256hex);
     const rev = game.localModel.draftRevision;
-    const dir = buildDir(game.gameId, rev);
+    const dir = buildDir(game.gameId, rev, chapterScope);
     if (existsSync(join(dir, "manifest.json"))) {
-      const previous = readBuild(game.gameId, rev);
-      if (previous.manifest.identity.sourceDigest !== compiled.sourceDigest)
+      const previous = readBuild(game.gameId, rev, chapterScope);
+      if (previous.manifest.identity.sourceDigest !== compiled.sourceDigest ||
+          (projection && previous.manifest.scope.savedSourceDigest !== projection.savedSourceDigest))
         throw new RangeError("cannot overwrite compiled snapshot");
       json(res, previous.manifest);
       return;
@@ -199,9 +317,10 @@ list().catch(e=>{document.getElementById("copy-status").textContent="讀取失�
       if (assetId === "terrain") role = "rules-initial-terrain";
       if (assetId === "roadGraph") role = "native-road-v2";
       return { assetId, path, sha256: sha256hex(bytes), byteLength: bytes.length, role,
-        url: `/api/trial-asset?game=${encodeURIComponent(game.gameId)}&revision=${rev}&digest=${compiled.sourceDigest}&asset=${assetId}` };
+        url: trialAssetURL(game.gameId, rev, compiled.sourceDigest, assetId, chapterScope) };
     });
     writeFileSync(join(dir, "snapshot.json"), JSON.stringify(game));
+    if (projection) writeFileSync(join(dir, "saved-source.json"), JSON.stringify(saved));
     const minimap = {}, minimapAssets = [];
     for (const [name, size] of Object.entries(MINIMAP_SIZES)) {
       const { pixels } = renderMinimapPixels(compiled.minimapGeography, compiled.roadMask, compiled.width, compiled.height, size.w, size.h, 1);
@@ -210,19 +329,22 @@ list().catch(e=>{document.getElementById("copy-status").textContent="讀取失�
       const bytes = encodeMinimapPNG(pixels, size.w, size.h);
       writeFileSync(join(dir, path), bytes);
       minimapAssets.push({ assetId, path, sha256: sha256hex(bytes), byteLength: bytes.length, role: "automatic-minimap",
-        url: `/api/trial-asset?game=${encodeURIComponent(game.gameId)}&revision=${rev}&digest=${compiled.sourceDigest}&asset=${assetId}` });
+        url: trialAssetURL(game.gameId, rev, compiled.sourceDigest, assetId, chapterScope) });
     }
     const manifest = {
       schemaVersion: 1,
       compilerRevision: TRIAL_COMPILER_REVISION,
-      buildFormat: EDITOR_BUILD_FORMAT,
+      buildFormat: projection ? EDITOR_CHAPTER_BUILD_FORMAT : EDITOR_BUILD_FORMAT,
+      ...(projection ? { scope: { kind: "chapter", chapterId: chapterScope, savedSourceDigest: projection.savedSourceDigest, selectedSourceDigest: projection.selectedSourceDigest } } : {}),
       compatibilityAssetMode: compiled.compatibilityAssetMode,
       ruleProfile: game.ruleProfile,
       identity: { gameId: game.gameId, draftRevision: rev, sourceDigest: compiled.sourceDigest,
-        trialSnapshotId: `${game.gameId}@${rev}:${compiled.sourceDigest}` },
+        ...(projection ? { savedSourceDigest: projection.savedSourceDigest } : {}),
+        trialSnapshotId: `${game.gameId}@${rev}:${compiled.sourceDigest}` + (projection ? `:chapter:${sha256hex(chapterScope)}` : "") },
       world: { id: `${game.gameId}-world`, revision: compiled.sourceDigest,
         width: compiled.width, height: compiled.height, tileSize: 16 },
       chapters: game.chapterOrder,
+      visualAssets,
       minimap,
       minimapAssets,
       assets,
@@ -234,7 +356,7 @@ list().catch(e=>{document.getElementById("copy-status").textContent="讀取失�
   "GET /api/trial-pack": (res, _body, query) => {
     const gameId = query.get("game");
     const rev = query.get("revision") ?? loadDraft(gameId).localModel.draftRevision;
-    const { dir, manifest, snapshot } = readBuild(gameId, rev);
+    const { dir, manifest, snapshot } = readBuild(gameId, rev, queryChapterScope(query));
     const chapterId = query.get("chapter") || snapshot.chapterOrder[0] || null;
     if (chapterId != null && !snapshot.chapters[chapterId]) throw new RangeError(`unknown trial chapter: ${chapterId}`);
     json(res, { manifest, chapterId,
@@ -242,7 +364,7 @@ list().catch(e=>{document.getElementById("copy-status").textContent="讀取失�
       chapter: chapterId == null ? null : snapshot.chapters[chapterId].state });
   },
   "GET /api/trial-asset": (res, _body, query) => {
-    const { dir, manifest } = readBuild(query.get("game"), query.get("revision"));
+    const { dir, manifest } = readBuild(query.get("game"), query.get("revision"), queryChapterScope(query));
     if (query.get("digest") !== manifest.identity.sourceDigest) throw new RangeError("trial asset snapshot mismatch");
     const assetId = query.get("asset");
     if (!Object.hasOwn(BUILD_FILES, assetId)) throw new RangeError("unknown trial asset");
@@ -250,6 +372,24 @@ list().catch(e=>{document.getElementById("copy-status").textContent="讀取失�
     const media = assetId.startsWith("minimap") ? "image/png" : "application/octet-stream";
     res.writeHead(200, { "content-type": assetId === "roadGraph" || assetId === "roadOffset" ? "application/json" : media, "cache-control": "no-store" });
     res.end(bytes);
+  },
+  "GET /trial-wait": (res) => html(res, '<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>草稿試運行</title><p>正在校驗固定快照…若啟動失敗，請返回工作台查看診斷並重新開啟。</p></html>'),
+  "GET /trial-app": (res, _body, query) => {
+    const game = query.get("game"), revision = query.get("revision");
+    const scope = queryChapterScope(query);
+    const { manifest, snapshot } = readBuild(game, revision, scope);
+    const chapter = query.get("chapter");
+    if (!snapshot.chapters[chapter] || !manifest.visualAssets) throw new RangeError("缺少完整章節或受信四季資源，不能試運行");
+    const url = new URLSearchParams({ game, revision, chapter });
+    if (scope !== null) url.set("scope", "chapter");
+    res.writeHead(303, { location: "/trial-game?" + url, "cache-control": "no-store" }); res.end();
+  },
+  "GET /trial-game": (res) => {
+    const source = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
+    const boot = '<script type="module" src="src/boot.js"></script>';
+    if (!source.includes(boot)) throw new Error("trial shell boot marker missing");
+    html(res, source.replace('<title>臥龍傳</title>', '<title>草稿試運行 — 僅記憶體</title>')
+      .replace(boot, '<div id="trial-status" style="position:fixed;left:4px;bottom:4px;z-index:100;color:#fff;background:#141414;pointer-events:none">草稿試運行 — 僅記憶體；正式存讀檔停用（本地無認證）</div><script type="module" src="/src/editor/trialapp.js"></script>'));
   },
   // Browser trial boot (harness-grade): same-origin engine, direct
   // prepare (no title, no App), IDB spy, 10 ticked days, report exposed
@@ -650,7 +790,7 @@ export function startEditorServer(port = PORT, store = STORE) {
         return;
       }
       const body = req.method === "POST" ? await readBody(req) : null;
-      handler(res, body, url.searchParams);
+      await handler(res, body, url.searchParams);
     } catch (error) {
       res.writeHead(error instanceof RangeError || error instanceof TypeError ? 400 : 500, {
         "content-type": "application/json",
@@ -679,7 +819,7 @@ if (!SERVE && process.argv[1] === fileURLToPath(import.meta.url)) {
     assert.equal(r.status, 200, `${method} ${path}: ${JSON.stringify(data)}`);
     return data;
   };
-  assert.ok((await (await fetch(`${base}/`)).text()).includes("編輯器"));
+  assert.ok((await (await fetch(`${base}/`)).text()).includes("本地遊戲管理"));
   assert.deepEqual(await call("GET", "/api/games"), { games: [] });
   const created = await call("POST", "/api/copy", { gameId: "svc-test-1", ownerId: "admin-1", kind: "minimal" });
   assert.equal(created.gameId, "svc-test-1");

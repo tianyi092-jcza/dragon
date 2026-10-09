@@ -1,5 +1,6 @@
 import { PresentationClock } from "./presentationclock.js";
 import { loadImage } from "../core/assets.js";
+import { createPresentationImageResources } from './presentationimages.js';
 
 // 原版完整云雨帧直接绘制；换帧/平滑位置是Web表现，不反写天气规则。
 const FRAME_MS = 100; // Web表现节拍，不是DOS规则周期。
@@ -7,7 +8,9 @@ const SLOTS = 16;
 const WIDTH = 256, HEIGHT = 144;
 
 export class WeatherPresentation {
-  constructor() {
+  constructor(resourcePorts = null) {
+    this.imageResources = resourcePorts === null ? null : createPresentationImageResources(resourcePorts);
+    this.imageLoadGeneration = 0;
     this.clock = new PresentationClock();
     this.scenario = null;
     this.clouds = Array(SLOTS).fill(null);
@@ -15,8 +18,23 @@ export class WeatherPresentation {
   }
 
   async preload() {
+    if (this.imageResources) {
+      const generation = ++this.imageLoadGeneration;
+      this.frames = [];
+      const frames = await this.imageResources.loadImages(Array.from({ length: 8 }, (_, frame) => `grf/weather/cloud_frame_${frame}.png`));
+      this.imageResources.assertCurrent();
+      if (generation !== this.imageLoadGeneration) throw new Error('WEATHER_IMAGES_STALE');
+      this.frames = frames;
+      return;
+    }
     this.frames = await Promise.all(Array.from({ length: 8 }, (_, frame) =>
       loadImage(`grf/weather/cloud_frame_${frame}.png`)));
+  }
+
+  disposeImageResources() {
+    this.imageLoadGeneration++;
+    this.frames = [];
+    this.imageResources?.close();
   }
 
   reset() {
@@ -28,6 +46,7 @@ export class WeatherPresentation {
   pause() { this.clock.pause(); }
 
   update(scenario, now, { enabled = true } = {}) {
+    this.imageResources?.assertCurrent();
     if (scenario !== this.scenario) {
       this.reset();
       this.scenario = scenario;
@@ -73,6 +92,7 @@ export class WeatherPresentation {
 
   /** 原帧已含云体、雨丝及透明区域，不重画、不额外叠加粒子。 */
   draw(ctx, camera, tileSize, viewport) {
+    this.imageResources?.assertCurrent();
     for (const cloud of this.clouds) {
       if (!cloud || cloud.alpha <= 0) continue;
       const image = this.frames[cloud.frame];

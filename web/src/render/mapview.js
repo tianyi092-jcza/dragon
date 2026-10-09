@@ -3,6 +3,7 @@ import { DEFAULT_WORLD } from "../content/worlddefinition.js";
 import { RetainedLayers } from "./retainedlayers.js";
 import { drawTerrainOverlay } from "../content/authoring/terrainview.js";
 import { DisasterPresentation } from "./disasterpresentation.js";
+import { createMapImageResources } from "./mapimages.js";
 export { preloadDisasterObjectImages } from "./disasterpresentation.js";
 
 const MARCH_STYLE_COUNT = 24;
@@ -15,11 +16,14 @@ const _marchMarkerCache = new Map(); // "style:frame" -> {img, ok}
 const _engageMarkerCache = new Map(); // frame -> {img, ok, promise}
 
 /** 原版 MMAP.MCH 军团标识：势力样式槽 × 西/东/北/南/驻止帧。 */
-function getMarchMarkerImage(style, frame, onReady) {
+function getMarchMarkerImage(style, frame, onReady, resources) {
   const safeStyle =
     (((Number(style) || 0) % MARCH_STYLE_COUNT) + MARCH_STYLE_COUNT) %
     MARCH_STYLE_COUNT;
   const safeFrame = Math.max(0, Math.min(MARCH_FRAME_STATIONARY, frame | 0));
+  if (resources) return resources.getImage(
+    `grf/march_markers/style_${String(safeStyle).padStart(2, "0")}_frame_${safeFrame}.png`, onReady,
+  );
   const key = `${safeStyle}:${safeFrame}`;
   let entry = _marchMarkerCache.get(key);
   if (entry) return entry.ok ? entry.img : null;
@@ -79,7 +83,8 @@ function engageMarkerEntry(frame, onReady) {
   return entry;
 }
 
-function getEngageMarkerImage(frame, onReady) {
+function getEngageMarkerImage(frame, onReady, resources) {
+  if (resources) return resources.getImage(`grf/engage/group_0_frame_${frame & 3}.png`, onReady);
   const entry = engageMarkerEntry(frame, onReady);
   return entry.ok ? entry.img : null;
 }
@@ -112,18 +117,24 @@ const CURSOR_RADIUS = 3;
 const SNAP_INTERSECT_RADIUS = 17; // 光标(18×18)与据点/军团图标(16×16) AABB相交半距: (18/2 + 16/2) = 17
 
 // 據點图标 (用户从原版提取): 我方=红心 / 其它势力=蓝 / 空城=土黄
+// Fallback 与 march/engage 标识同款 .ok 守卫：加载中/失败的 Image 返回 null 跳过，失败不重试
+// （draw never retries a failed read）；broken 态 Image 交给 drawImage 会抛 InvalidStateError
+// （7e 强制复现实锤：RetainedLayers 回放命令带每帧抛、终态 returnToTitle 的 draw 亦抛）。
 const cityIcons = {};
-function cityIcon(kind) {
-  if (!cityIcons[kind]) {
-    const im = new Image();
-    im.src = `grf/ui/icon-${kind}_city.png`;
-    cityIcons[kind] = im;
+function cityIcon(kind, resources, onReady) {
+  if (resources) return resources.getImage(`grf/ui/icon-${kind}_city.png`, onReady);
+  let entry = cityIcons[kind];
+  if (!entry) {
+    entry = { img: new Image(), ok: false };
+    entry.img.onload = () => { entry.ok = true; };
+    entry.img.src = `grf/ui/icon-${kind}_city.png`;
+    cityIcons[kind] = entry;
   }
-  return cityIcons[kind];
+  return entry.ok ? entry.img : null;
 }
 
 export class MapView {
-  constructor(canvas, scenarioGetter, worldGetter = () => DEFAULT_WORLD) {
+  constructor(canvas, scenarioGetter, worldGetter = () => DEFAULT_WORLD, resourcePorts = null) {
     this.cv = canvas;
     this.ctx = canvas.getContext("2d");
     this.getScenario = scenarioGetter;
@@ -137,7 +148,26 @@ export class MapView {
     this.selectedCity = null; // 当前选中的据点对象（中心显示正方形光标边框）
     this.selectedFaction = null; // 图例选中的势力 idx 或 null
     this._canvasSize = null;
+    if (resourcePorts !== null) {
+      const { loadImage, assertCurrent } = resourcePorts;
+      if (typeof assertCurrent !== "function") throw new TypeError("MAP_IMAGE_PORTS");
+      const world = worldGetter();
+      this._imageResources = createMapImageResources({ loadImage, assertCurrent: () => {
+        if (this.getWorldDefinition() !== world) throw new Error("MAP_IMAGE_WORLD_STALE");
+        assertCurrent();
+        if (this.getWorldDefinition() !== world) throw new Error("MAP_IMAGE_WORLD_STALE");
+      }});
+    }
   }
+
+  /** Explicit reads replace settled local pixels; draw never retries a failed read. */
+  async loadImageResources(urls) {
+    if (!this._imageResources) throw new Error("MAP_IMAGE_PORTS_REQUIRED");
+    await this._imageResources.loadImages(urls);
+    this._imageResources.assertCurrent();
+  }
+
+  disposeImageResources() { this._imageResources?.close(); }
 
   /**
    * CSS像素仍是全部地图/输入坐标的单位；仅在视口或DPR变化时重置
@@ -545,12 +575,12 @@ export class MapView {
 
   /** 绘制 MMAP.MCH 原版 16×16 军团标识，不旋转、不运行时染色。 */
   _drawMarchingIcon(ctx, x, y, style, frame) {
-    const img = getMarchMarkerImage(style, frame, () => this.draw());
+    const img = getMarchMarkerImage(style, frame, () => this.draw(), this._imageResources);
     if (img) ctx.drawImage(img, Math.round(x) - 8, Math.round(y) - 8);
   }
 
   _drawEngagement(ctx, x, y, countdown) {
-    const img = getEngageMarkerImage(countdown & 3, () => this.draw());
+    const img = getEngageMarkerImage(countdown & 3, () => this.draw(), this._imageResources);
     if (img) ctx.drawImage(img, Math.round(x) - 24, Math.round(y) - 24);
   }
 
@@ -587,6 +617,7 @@ export class MapView {
 
   draw({ uncached = false } = {}) {
     if (this.app && !this.app.gameStarted) return;
+    this._imageResources?.assertCurrent();
     const world = this.getWorldDefinition();
     const { width, height } = this.syncCanvasSize();
     // Keep the direct path for diagnostic pixel comparisons and non-DOM mocks.
@@ -649,7 +680,8 @@ export class MapView {
       if (f) {
         kind = f.idx === sc.player_faction ? "player" : "other";
       }
-      ctx.drawImage(cityIcon(kind), x - 8, y - 8, CITY_SIZE, CITY_SIZE);
+      const icon = cityIcon(kind, this._imageResources, () => this.draw());
+      if (icon) ctx.drawImage(icon, x - 8, y - 8, CITY_SIZE, CITY_SIZE);
 
       const g = this.garrisonOf(c);
       if (g) {

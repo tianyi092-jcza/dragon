@@ -1,0 +1,13 @@
+{
+  "name": "dragon-editor",
+  "main": "worker.js",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "dev": { "ip": "127.0.0.1", "port": 8787, "local_protocol": "https" },
+  "vars": { "EDITOR_ORIGIN": "https://127.0.0.1:8787" },
+  "durable_objects": { "bindings": [{ "name": "EDITOR_METADATA", "class_name": "EditorMetadata" }] },
+  "migrations": [{ "tag": "editor-metadata-v1", "new_sqlite_classes": ["EditorMetadata"] }],
+  "r2_buckets": [{ "binding": "EDITOR_BLOBS", "bucket_name": "dragon-editor-private" }],
+  "rules": [{ "type": "Text", "globs": ["**/*.html", "**/*.css", "**/*.txt"], "fallthrough": true }]
+}

@@ -1,6 +1,8 @@
 # Generated static release and Cloudflare local state
 /dist/
 /.wrangler/
+/server/.wrangler/
+/server/.local/
 /node_modules/
 .env
 .env.*

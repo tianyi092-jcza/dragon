@@ -2,12 +2,17 @@
 // lifetime, 0x2459 timer, 0x2533 -> 0xD51F eight logical frames / 5x5 tiles.
 // This extraction deliberately keeps the authoritative frame and immediate
 // removal: no new visual clock, RNG, fade-out, message callback or Scenario field.
+import { createPresentationImageResources } from './presentationimages.js';
 const cache = new Map();
 const ASSETS = Object.freeze({ 1: 'fire', 2: 'riot' });
-function entryFor(group, frame, onReady) {
+function entryFor(group, frame, onReady, resources = null) {
   const asset = ASSETS[Number(group) | 0];
   if (!asset) return null;
   const phase = frame & 7, key = `${group}:${phase}`;
+  if (resources) {
+    const img = resources.getImage(`grf/disaster/${asset}_frame_${phase}.png`, onReady);
+    return { img, ok: !!img };
+  }
   let entry = cache.get(key);
   if (!entry) {
     let settle;
@@ -29,14 +34,23 @@ export function preloadDisasterObjectImages(onReady) {
   return Promise.all([1, 2].flatMap(group => Array.from({ length: 8 }, (_, frame) => entryFor(group, frame, onReady).promise)));
 }
 export class DisasterPresentation {
-  constructor(onReady) { this.onReady = onReady; }
+  constructor(onReady, resourcePorts = null) {
+    this.onReady = onReady;
+    this.imageResources = resourcePorts === null ? null : createPresentationImageResources(resourcePorts);
+  }
+  preloadImageResources(urls = [1, 2].flatMap(group => Array.from({ length: 8 }, (_, frame) => `grf/disaster/${ASSETS[group]}_frame_${frame}.png`))) {
+    if (!this.imageResources) return preloadDisasterObjectImages(this.onReady);
+    return this.imageResources.loadImages(urls);
+  }
+  disposeImageResources() { this.imageResources?.close(); }
   draw(ctx, scenario, camera, tileSize, viewport) {
+    this.imageResources?.assertCurrent();
     // Slot identity/order is authoritative. Never filter/compact the first 16.
     const slots = scenario.disasterMapObjects ?? [];
     for (let slot = 0; slot < Math.min(16, slots.length); slot++) {
       const object = slots[slot];
       if (!object || object.active === false) continue;
-      const entry = entryFor(object.group ?? object.kind, object.frame ?? 1, this.onReady);
+      const entry = entryFor(object.group ?? object.kind, object.frame ?? 1, this.onReady, this.imageResources);
       if (!entry?.ok) continue;
       const x = camera.x + ((object.x ?? 0) - 2) * tileSize * camera.scale;
       const y = camera.y + ((object.y ?? 0) - 2) * tileSize * camera.scale;

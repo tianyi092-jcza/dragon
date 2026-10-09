@@ -23,6 +23,34 @@ export function componentCells(source, instance) {
 export function hitDecoration(source, x, y) {
   return source.map.decorations.findLastIndex((d) => componentCells(source, d).some(([cx, cy]) => cx === x && cy === y));
 }
+// Display-only snapshot. Rebuild after author changes; preserve last matching footprint,
+// not bounding boxes, geography, visibility or rule terrain. Maps never escape.
+export function createDecorationPicker(source) {
+  const rows = new Map();
+  for (const [index, instance] of source.map.decorations.entries()) {
+    for (const [x, y] of componentCells(source, instance)) {
+      if (Number.isNaN(x) || Number.isNaN(y)) continue; // === never matches NaN.
+      let row = rows.get(y);
+      if (!row) { row = new Map(); rows.set(y, row); }
+      row.set(x, index);
+    }
+  }
+  return Object.freeze({ pick(x, y) { return rows.get(y)?.get(x) ?? -1; } });
+}
+// Rectangle selection includes every intersecting instance, even below another one.
+// Keep array order and real footprint holes; do not use the top-only point picker.
+export function decorationIdsInRect(source, left, right, top, bottom) {
+  const ids = [];
+  for (const instance of source.map.decorations) {
+    const def = source.componentDefinitions[instance?.definitionRef];
+    if (!def) fail("組件定義不存在");
+    if (def.footprint.some(([dx, dy]) => {
+      const x = instance.x + dx - def.anchor[0], y = instance.y + dy - def.anchor[1];
+      return x >= left && x <= right && y >= top && y <= bottom;
+    })) ids.push(instance.id);
+  }
+  return ids;
+}
 function unique(values) { if (!Array.isArray(values) || new Set(values).size !== values.length) fail("選取包含重複項目"); return values; }
 function groupParts(source, memberIds, baseCells) {
   unique(memberIds); unique(baseCells);
@@ -102,6 +130,89 @@ export function placeComponent(source, definitionRef, x, y, id, waterClass, vari
     if (waterClass) next.map.waterGroups.push(newGroup(next, "group-" + id, def.name ?? "新水域組合", [id], [], true));
   });
 }
+// Only decorations: never move cities, road stamps, topology or hidden base.
+export function translateDecorations(source, ids, dx, dy) {
+  unique(ids);
+  if (!ids.length || !Number.isInteger(dx) || !Number.isInteger(dy) || dx === 0 && dy === 0) fail("請選取完整裝飾並輸入非零整數圖格位移");
+  const selected = new Set(ids), instances = source.map.decorations.filter((d) => selected.has(d.id));
+  if (instances.length !== ids.length) fail("批量平移引用不存在的裝飾");
+  for (const d of instances) for (const [x, y] of componentCells(source, d))
+    if (x + dx < 0 || x + dx >= 384 || y + dy < 0 || y + dy >= 256) fail("整批占用範圍超界；全部未提交");
+  return transaction(source, (next) => { next.map.decorations = next.map.decorations.map((d) => selected.has(d.id) ? { ...d, x: d.x + dx, y: d.y + dy } : d); });
+}
+// Q61 author order only: one adjacent unselected neighbour per selected block.
+export function reorderDecorations(source, ids, direction) {
+  unique(ids);
+  if (!ids.length || direction !== 1 && direction !== -1) fail("請選取完整裝飾並指定上移或下移");
+  const selected = new Set(ids), decorations = source.map.decorations;
+  if (decorations.filter((d) => selected.has(d.id)).length !== ids.length) fail("調序引用不存在的裝飾");
+  composeMapLayers(source, { draft: true });
+  const order = decorations.slice();
+  const start = direction === 1 ? order.length - 2 : 1, end = direction === 1 ? -1 : order.length;
+  let moved = false;
+  for (let i = start; i !== end; i -= direction) {
+    const j = i + direction;
+    if (selected.has(order[i].id) && !selected.has(order[j].id)) {
+      [order[i], order[j]] = [order[j], order[i]]; moved = true;
+    }
+  }
+  if (!moved) return source;
+  return transaction(source, (next) => { next.map.decorations = order; });
+}
+export function splitDecoration(source, instanceId, childIds) {
+  unique(childIds);
+  const index = source.map.decorations.findIndex((d) => d.id === instanceId), instance = source.map.decorations[index];
+  if (!instance) fail("只能拆分存在的裝飾實例");
+  const def = source.componentDefinitions[instance.definitionRef];
+  if (def.ruleRecipeRef !== BYTE_STAMP_RECIPE || def.visualRef !== "MMAP.MDL:indexed-footprint") fail("只可拆分已支持的明確多格原圖塊配方");
+  composeMapLayers(source, { draft: true });
+  const tiles = def.variants[instance.variantRef ?? "original"].tiles;
+  if (tiles.length < 2 || tiles.length > 256 || childIds.length !== tiles.length) fail("請選取2至256格的完整裝飾；子實例身份須覆蓋全部格");
+  const existing = new Set([...source.map.decorations, ...source.map.roads.flatMap((r) => r.components ?? []), ...source.map.placements].map((d) => d.id));
+  if (childIds.some((id) => typeof id !== "string" || !id || existing.has(id))) fail("子實例身份缺失或已被使用");
+  const mask = new Set((def.geographyMask ?? def.footprint).map((p) => p.join(",")));
+  const atoms = new Map();
+  for (const [id, entry] of Object.entries(source.componentDefinitions)) {
+    if (entry.ruleRecipeRef === BYTE_STAMP_RECIPE && JSON.stringify(entry.footprint) === "[[0,0]]" && JSON.stringify(entry.anchor) === "[0,0]" &&
+        (entry.geographyMask === undefined || JSON.stringify(entry.geographyMask) === "[[0,0]]")) {
+      const tuple = entry.variants?.original?.tiles;
+      if (tuple?.length === 1 && tuple[0][0] === 0 && tuple[0][1] === 0) atoms.set(tuple[0][2], id);
+    }
+  }
+  const children = tiles.map(([dx, dy, tile], i) => {
+    const definitionRef = atoms.get(tile); if (!definitionRef) fail("缺少受信單格原圖塊；不猜建配方");
+    const child = { ...instance, id: childIds[i], definitionRef, variantRef: "original",
+      x: instance.x + dx - def.anchor[0], y: instance.y + dy - def.anchor[1],
+      splitProvenance: { instanceId, definitionRef: instance.definitionRef, variantRef: instance.variantRef ?? "original", localCell: [dx, dy] } };
+    if (!mask.has(`${dx},${dy}`)) delete child.waterClass;
+    return child;
+  });
+  return transaction(source, (next) => {
+    next.map.decorations.splice(index, 1, ...children);
+    next.map.waterGroups = next.map.waterGroups.map((g) => ({ ...g, memberIds: g.memberIds.flatMap((id) => id === instanceId ? children.filter((d) => d.waterClass).map((d) => d.id) : [id]) }))
+      .filter((g) => g.memberIds.length || g.baseCells.length);
+    for (const child of children) {
+      const at = child.y * 384 + child.x, record = next.map.base.unknownUnderlays[at];
+      if (record?.coveringInstanceId === instanceId) next.map.base.unknownUnderlays[at] = { ...record,
+        priorCoveringInstanceId: record.priorCoveringInstanceId ?? instanceId, coveringInstanceId: child.id };
+    }
+  });
+}
+export function materialReferences(source, id, map = source.map) {
+  return [...map.decorations.filter((d) => d.definitionRef === id).map((d) => `裝飾:${d.id}`),
+    ...map.roads.flatMap((r) => (r.components ?? []).filter((d) => d.definitionRef === id).map((d) => `道路:${r.id}/${d.id}`)),
+    ...map.placements.filter((p) => p.componentRef === id).map((p) => `據點:${p.id}`)];
+}
+function authorMaterial(def) { return def?.category === "author-multicell" && def.revision === "author-byte-stamp-1"; }
+export function renameMaterial(source, id, name) {
+  if (!authorMaterial(source.componentDefinitions[id])) fail("原圖塊配方唯讀；只能更名作者素材");
+  return transaction(source, (next) => { next.componentDefinitions[id] = { ...next.componentDefinitions[id], name: text(name) }; });
+}
+export function removeMaterial(source, id) {
+  if (!authorMaterial(source.componentDefinitions[id])) fail("原圖塊配方唯讀；只能移除作者素材");
+  const refs = materialReferences(source, id); if (refs.length) fail("素材仍被引用：" + refs.join("、"));
+  return transaction(source, (next) => { delete next.componentDefinitions[id]; });
+}
 export function fillBase(source, cells, tile, geography) {
   unique(cells); if (!cells.length) fail("請先選取基礎格或待補底組件");
   if (!Number.isInteger(tile) || tile < 0 || tile > 255 || !Number.isInteger(geography) || geography < 0 || geography > 3) fail("替換圖塊／地理值不在明確支持域");
@@ -112,10 +223,19 @@ export function fillBase(source, cells, tile, geography) {
     for (const cell of cells) { next.map.base.terrainRef[cell] = tile; next.map.base.geography[cell] = geography; delete next.map.base.unknownUnderlays[cell]; }
   });
 }
-// Server-side structural gate for newly added library entries even if unused.
-export function validateLibraryAdditions(source, definitions) {
+// Structural gate: immutable recipes; author names and unused entries only.
+export function validateLibraryAdditions(source, definitions, map = source.map) {
   if (!definitions || Object.getPrototypeOf(definitions) !== Object.prototype || Object.keys(definitions).length > 1024) fail("素材庫結構／數量不合法");
-  for (const [id, old] of Object.entries(source.componentDefinitions)) if (JSON.stringify(old) !== JSON.stringify(definitions[id])) fail("現有素材定義不可覆寫或刪除；請另建素材");
+  for (const [id, old] of Object.entries(source.componentDefinitions)) {
+    if (JSON.stringify(old) === JSON.stringify(definitions[id])) continue;
+    if (!authorMaterial(old)) fail("現有原圖塊定義不可覆寫或刪除");
+    if (!Object.hasOwn(definitions, id)) {
+      const refs = materialReferences(source, id, map); if (refs.length) fail("素材仍被引用：" + refs.join("、"));
+    } else {
+      const name = text(definitions[id]?.name);
+      if (name !== definitions[id].name || JSON.stringify({ ...old, name }) !== JSON.stringify(definitions[id])) fail("現有素材配方不可覆寫；只允許更名");
+    }
+  }
   for (const [id, def] of Object.entries(definitions)) {
     if (Object.hasOwn(source.componentDefinitions, id)) continue;
     if (!def || def.id !== id || typeof def.name !== "string" || !Array.isArray(def.footprint) || !def.footprint.length || def.footprint.length > 256) fail("新增素材定義不合法");

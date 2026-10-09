@@ -1,0 +1,19 @@
+// Target job-selected operations only. Retry preimage/history and orphan ownership UNKNOWN; NOT authorization/delete.
+import {createHash} from 'node:crypto';
+import {canonicalSourceTokens} from '../web/src/content/authoring/sourcejson.js';
+import {fail} from './security.js';
+const uuid=v=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
+const hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
+function rows(sql,q,id){let r;try{r=sql.exec(q,id).toArray();}catch{fail(503,'DELETE_COMPILE_OPERATION_QUERY');}if(!Array.isArray(r)||r.length>10001)fail(503,'DELETE_COMPILE_OPERATION_QUERY');return r;}
+function enqueueDigest(j){let text='';try{for(const t of canonicalSourceTokens({method:'enqueue',gameId:j.game_id,draftRevision:j.draft_revision,scope:j.scope,pipeline:j.pipeline_digest})){text+=t;if(text.length>65536)fail(503,'DELETE_COMPILE_OPERATION_BUDGET');}}catch(error){if(error?.code==='DELETE_COMPILE_OPERATION_BUDGET')throw error;fail(503,'DELETE_COMPILE_OPERATION_ROWS');}if(Buffer.byteLength(text,'utf8')>65536)fail(503,'DELETE_COMPILE_OPERATION_BUDGET');return createHash('sha256').update(text).digest('hex');}
+export function inspectCompileOperationLinks(sql,gameId){if(!uuid(gameId))fail(503,'DELETE_COMPILE_OPERATION_TARGET');let size;try{size=sql.databaseSize;}catch{fail(503,'DELETE_COMPILE_OPERATION_BUDGET');}if(!Number.isSafeInteger(size)||size<0||size>32*1024*1024)fail(503,'DELETE_COMPILE_OPERATION_BUDGET');
+ const jobs=rows(sql,"SELECT job_id,actor_id,game_id,draft_revision,scope,pipeline_digest FROM compile_jobs NOT INDEXED WHERE typeof(game_id)='text' AND game_id COLLATE BINARY=? LIMIT 10001",gameId);
+ const ops=rows(sql,"SELECT actor_id,op_key,method,request_digest,job_id FROM compile_operations NOT INDEXED WHERE EXISTS(SELECT 1 FROM compile_jobs j NOT INDEXED WHERE typeof(j.game_id)='text' AND j.game_id COLLATE BINARY=? AND typeof(j.job_id)='text' AND compile_operations.job_id COLLATE BINARY=j.job_id COLLATE BINARY) LIMIT 10001",gameId);
+ if(jobs.length>10000||ops.length>10000||jobs.length+ops.length>20000)fail(503,'DELETE_COMPILE_OPERATION_BUDGET');
+ // Native equality is authoritative for relational bindings; do not concatenate actor/job keys.
+ const bad=rows(sql,"SELECT 1 AS bad FROM compile_operations o NOT INDEXED JOIN compile_jobs j NOT INDEXED ON o.job_id COLLATE BINARY=j.job_id COLLATE BINARY WHERE typeof(j.game_id)='text' AND j.game_id COLLATE BINARY=? AND (typeof(o.job_id)<>'text' OR typeof(o.actor_id)<>'text' OR o.actor_id COLLATE BINARY<>j.actor_id COLLATE BINARY OR typeof(o.op_key)<>'text' OR typeof(o.method)<>'text' OR o.method NOT IN ('enqueue','retry') OR typeof(o.request_digest)<>'text') LIMIT 1",gameId);if(bad.length)fail(503,'DELETE_COMPILE_OPERATION_ROWS');
+ const linked=new Map();for(const j of jobs){if(!j||Object.keys(j).length!==6||!uuid(j.job_id)||typeof j.actor_id!=='string'||j.game_id!==gameId||typeof j.draft_revision!=='string'||!/^[1-9][0-9]*$/.test(j.draft_revision)||j.scope!=='all'||!hash(j.pipeline_digest)||linked.has(j.job_id))fail(503,'DELETE_COMPILE_OPERATION_ROWS');linked.set(j.job_id,{actor:j.actor_id,digest:enqueueDigest(j),enqueues:0});}
+ for(const o of ops){if(!o||Object.keys(o).length!==5||typeof o.op_key!=='string'||!/^[a-zA-Z0-9_-]{16,128}$/.test(o.op_key)||!hash(o.request_digest))fail(503,'DELETE_COMPILE_OPERATION_ROWS');const j=linked.get(o.job_id);if(!j||o.actor_id!==j.actor||!['enqueue','retry'].includes(o.method))fail(503,'DELETE_COMPILE_OPERATION_ROWS');if(o.method==='enqueue'){if(o.request_digest!==j.digest)fail(503,'DELETE_COMPILE_OPERATION_ROWS');j.enqueues++;}}
+ for(const j of linked.values())if(j.enqueues!==1)fail(503,'DELETE_COMPILE_OPERATION_ROWS');
+ return Object.freeze({compileJobOperationLinksVerified:true,enqueueRequestDigestsVerified:true,retryRequestDigestsVerified:false});
+}

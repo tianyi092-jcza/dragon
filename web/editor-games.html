@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>臥龍傳 — 本地遊戲管理</title>
+<style>body{font:16px sans-serif;background:#f4eddb;color:#24291d;margin:24px}fieldset{margin:16px 0;max-width:960px}label{display:block;margin:8px 0}input{font:inherit;width:280px;max-width:90%}button,a{margin:4px}li{margin:12px 0}dl{overflow-wrap:anywhere}dt{font-weight:bold;margin-top:6px}dd{margin-left:12px}#manager[hidden]{display:none}#status,#copy-status{white-space:pre-wrap;color:#364f25}.error{color:#8b241f}</style></head><body>
+<h1>本地遊戲管理</h1><p>本地限定域，無登入／權限隔離或正式發布；建立者只是資料占位值，不是認證身份。</p>
+<p id="builtin-info">內置原件始終唯讀，不能編輯、下架或刪除；請先複製為獨立副本。</p>
+<fieldset><legend>從當前固定修訂建立副本</legend><label>新遊戲ID <input id="new-game" maxlength="128" required></label><label>名稱（最多8字）<input id="new-name" value="新遊戲" required></label><label>簡介（最多20字）<input id="new-introduction"></label><button id="full-copy">完整測試複製</button><button id="minimal-copy">僅複製地圖及中立據點基礎</button><p id="copy-status"></p></fieldset>
+<button id="refresh">重新整理清單</button><ul id="games"></ul><p id="list-status"></p>
+<fieldset id="trial-picker" hidden><legend>測試已保存章節（無登入的本地工具）</legend><p id="trial-description"></p><label>章節 <select id="trial-chapter-list"></select></label><button id="trial-start" disabled>開啟測試視窗</button><button id="trial-cancel">取消／關閉</button><p>固定已保存修訂，未保存修改不包含在內；正式存讀檔停用。這不是正式發布或登入授權。</p></fieldset>
+<fieldset id="manager" hidden><legend>遊戲資料</legend><dl id="details"></dl><label>名稱（最多8字）<input id="edit-name" required></label><label>簡介（最多20字）<input id="edit-introduction"></label><button id="save-metadata">保存資料</button><button id="reload-metadata">重新載入（放棄本表修改）</button><button id="cancel-metadata">取消／關閉</button><a id="studio-link">開啟地圖工作台</a><a id="entities-link">唯讀人物／章節來源</a><p id="status"></p></fieldset>
+<script type="module" src="/src/editor/games.js"></script></body></html>

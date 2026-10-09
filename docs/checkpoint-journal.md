@@ -1,201 +1,67 @@
 # Checkpoint Journal
 
-> 本轮会话的进展、调试、失败、文件、阻塞与下一步。长期事实、架构、
-> 命令、约定见项目记忆（[`AGENTS.md`](../AGENTS.md) 各 SKILL），机制细节见
-> `re-notes`，版本变更见 [`CHANGELOG.md`](../CHANGELOG.md)。历史发布批次
-> 明细已归档，不在此重复；下文“已验证”均指本机重跑结果，不是全战役认证。
+> 本文件 = 当前主线状态 + 稳定事实/命令/坑点 + 本批会话明细。
+> 逐批历史明细的维护源：批次证据见各 `docs/editor-*.md` 的「维护源」、验证 lane 状态见 [editor-local-validation.md](editor-local-validation.md)、Trial 线程逐轮交接见 `.dragon-analysis/editor-phase/SESSION-RESTART-HANDOFF-TRIAL-SERVER-R*.md`（最新 R17）。早期逐批明细已自本文件移除，旧版在 git 历史中可查。
 
-## 当前主线状态（2026-10-01，dev 分支）
+## 当前主线状态（2026-10-09，dev 分支 @20692d7，未 push）
 
-- **任务二《地图统一改造》已完成本地限定域交付（MAP-MIGRATION-2）**：此前
-  错误“关闭”判断保留更正历史；本次以新完整审计收口，不复用旧结论。用户m1668
-  已认可视觉，正式0.6批准修订844e…已安装，原源/native/图像保留，组合开关
-  不影响完整规则。39入口串行exit0、72源码/39资源前后SHA同，另旧页晚到过。
-  静态通过/LSP不可确认项明确单列；逐项证据见审计，不认证全战役或完整编辑器。
-  本轮用户明确授权任务二本地实现/原证核对/迁移/测试，禁止提交/推送/部署；
-  [收口清单](map-migration-completion-audit.md)逐项记录实际产物与未完成项。
-  G门仅按具体支持域取证，不宣称任意拓扑/空章/变槽/扩容已放行。
-- **编辑器阶段进行中**（本地、无正式后端）：当前844e…源复制／真实预览外，已增加作者多格素材库/拖放/完整实例选择、组合创建拆合和明确补底；原受限道路闭环保留。最新47入口串行exit0、84源码/39资源SHA同；不等于完整任务一。服务8322（游戏静态服8321），详见[本批](editor-current-workspace.md)。
-- **本地已提交基线**：dev HEAD=`6d89b01a5834c8d98212031dd2c5ff49c73c9bf2`，
-  包含此前编辑器切片、诊断分离、槽位回填、道路编码器及3F29/3FBF容限。
-  E-03-ROAD-LOOP开始时工作区干净；本次MAP-MIGRATION-2保留其全部未提交改动。
-  本轮未fetch，远端状态仅有cached github/dev同SHA，
-  不据此宣称本轮push成功。`4b13035`为此前任务二历史提交。
-- **本轮本地未提交**：保留E-03-ROAD-LOOP；追加MAP-MIGRATION-2四层源/共同
-  编译、0.6批准清单/不可变资源与当前游戏接线、读取能力守卫、显示布局/重试、
-  隔离样本及验证；没有commit/push/deploy授权。
-- **生产数据结论**：data.json 具名/旧属分立忠实（原版亲核零差异），
-  首轮重建写是原版行为；官渡等 6 章靠死槽容限正常开局（曾 hold，现通）。
+- **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8g 全部闭合**。最新 8g（试玩战术帧实证）：later-4 势力 0 攻南昌(175)，真实 canvas 点击经生产 dispatch 进 4F36 战术挂起 → 1278 帧经真实 `_trialFrames` 边界泵完 → 写回＋排空＋时钟恢复；23 检查／7 调用，receipt `PASS-TRIAL-TACTICAL-Frames-8G-NOT-Q69-CLOSURE`。guards **561/268**；权威 manifest `saved-source-trial-tactical-r1/post-document.json`（9754 路径／301 链接／syntax 7）。
+- **用户事项队列**：①统一/胜利终局——暂缓（裁决 B）；②战术帧实际验证——✅ 8g 闭合；③删除级联——**下一批**（fence INSERT 同事务 UPDATE trial_sessions＋DELETE trial_assets）；④图片资源 native 路径——事项③后讨论；⑤commit/push/deploy——最后，等明确授权。仍不称 Q69/Q70/Q71 闭包完成。
+- **其它 open lane**（详见 local-validation 与各维护源）：E-01 GameBar 图像 native 全图/SDK 502 根因 UNKNOWN；saved-source capture 成本线程（候选未装、fullnative false）；RuntimeManifest/发布/物理删除等 R12-4 属后端线程。任务二（地图改造）已收口（MAP-MIGRATION-2，审计页为准）。
+- **本地提交基线**：dev HEAD=`20692d7`（任务二＋E-02/E-03 基线）。8a-8g 全部改动（server/、tools/ 新工具、docs、.dragon-analysis/）均在工作区未提交；`server/` 不入 git（先例，链以 sha 钉住）。365 个脏改主要是 `.gitattributes` 换行符归一化假象＋未提交批次产物。
+
+## 稳定架构事实（Trial 栈，实锤）
+
+- 链路：工作台 `draft.txt` 选章 → POST `/api/games/:id/trials`（issue/commit 两阶段）→ 壳 `/api/trial/web/?trial=<uuid>`（会话 cookie Path=/api）→ 束内 `servertrialapp.js` boot（gate 十字段）→ `TrialStrategicClock`（网络 permit＋各 hold 并集）＋ `createTrialBattleFrames` 战术边界（rAF 循环同一函数，evaluate 泵送不绕行）。
+- 私有资源：`/api/trial/web/<path>` 统一只读路由 = 束模块（215 文件）＋`trialRegistryBytes` 两注册表角色；库 398 固定资源 manifest `70acce54`（93632 字节不变），20 条 G127/255 未闭合引用保持登记（`STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE`）。
+- 战术入口：玩家进攻 4F36 必挂起（attacker==player、非委任、真守备）；玩家空城（0x4200 临時守备）被攻走快战 4F06→TALK26 无战术。章数据 20 章全零初始军团（AI 组建）。
+- 权威文档：[editor-trial-server.md](editor-trial-server.md)（设计＋逐批）、[editor-goal-completion.md](editor-goal-completion.md)（最新收口）、[editor-local-validation.md](editor-local-validation.md)（验证清单＋工具表）。
 
 ## 关键命令
 
-- 游戏静态服（常驻，用户终端）：另见 8321 进程；编辑器服务：
-  `node tools/editor_server.mjs --serve --port 8322`（本环境后台不驻留，
-  前台验证过）。
-- 自检：`node tools/editor_server.mjs`；单测：`node --test tools/verify_<x>.mjs`；
-  浏览器脚本直接 `node tools/verify_<x>_browser.mjs`（全新 profile/隔离服务）。
-- Python 工具链：`python`（C:/Python313，非 WindowsApps 垫片）；必要时
-  `python -B tools/verify_road_v2_content.py`。
-- 提交推送分离授权；`.dragon-analysis/` gitignored（报告与隔离输出不入库）。
+- 后端：`node tools/editor_server.mjs --serve --port 8322`（8321 为游戏静态服）；自检 `node tools/editor_server.mjs`。
+- Trial 工具（真实后端/浏览器）：`node tools/verify_editor_trial_<name>.mjs <round>`（gate/asset_gate/sentinel_gate/talk_gate/talkdirect_gate/tactical_frames/endview_defeat）；8g 战术帧实证 `node tools/verify_editor_trial_tactical_frames.mjs <round>`（round 目录需预置 fixture.js，浏览器 75 分钟有界）。
+- 束重卷：`node tools/build_trial_web_bundle.mjs`（215 文件 sha 输出；改 web/src 后必跑）。
+- 证据链（scope 内）：`node <scope>/derive.mjs` → `prepare-guards.mjs` → `run.mjs`（含 dry＋scope 双轮）→ `audit.mjs` → `post-document.mjs`；失败现场移 `attemptN-*` 保留后重跑，不得覆盖。
+- 单测 `node --test tools/verify_<x>.mjs`；Python 用 `python`（C:/Python313，非 WindowsApps 垫片）。
+- Jev 审过：`node tools/jev_assess.mjs <change|failure|reverse-triage> --input -`（先不加 `--send`）。
 
 ## 重要坑点（已验证）
 
-- 画布点击一律经 `getBoundingClientRect` 换算（含 1px 边框＋body 边距）。
-- 章节 id 含 `#`：拼 trial/服务 URL 必须 `encodeURIComponent`。
-- E717 槽纪律：源槽＝种子方向，目标槽＝到达反方向；同城同向无双港
-  （slot-occupied 经几何不可达，守卫仅作纵深）。
-- 走廊紧密度：现图 8006 单格 detour 零可分类——纯几何新路必拒收，
-  有效改路须 tile 重漆 recipe。
-- 开局遍：89F0 调用者＝1BE6 启动链＋1B87 战术归来（读档路无）；fresh
-  合成平面遍 192 城，显式平面（读档/测试）原样。
-- 单平面顺序绘制：后城可见先城写（真图城距远不碰；合成测试城距须 ≥6）。
-- `prepareScenario` 城市/节点门是显式别名 enforcement（恒等或拒收）。
-- `structuredClone` 替代 JSON 深拷贝（lint 门）；verify 脚本输出走 `tlog`
-  （`node:util format` 封装），`console.log` 会触发 pi-lens 告警。
-- pi-lens 误报已裁决：content_pipeline 路径穿越（source_path 收容）、
-  TS2568 Scenario 动态 fixture、await 成员括号式——不管；
-  真告警（未用变量、`0*4`、嵌套三元、`!!`、裸 JSON.parse）修。
+- **roadgraph 门面 vs app.world**：`web/src/game/roadgraph.js` 是默认世界单例门面；试玩壳只装配 `createWorldResources` 自建实例（`scenarioassembly` 只加载注入 world）→ 门面恒未加载，`roadNodeAt/roadNodeRawAddress` 恒 null。任何「当前 world」查询必须走 `scenarioNativeRoadContext(sc).roads`（8g 缺陷①实锤，dispatch 已改）。
+- **TRIAL_QUERY vs bust**：`/api/trial/web/` 对任何 query 一律 422（8g 缺陷②已修：白名单唯一 `?v=original-sprites-1`）；试玩响应全 no-store，缓存戳在试玩壳是死重。
+- **试玩壳画布竞态**：`#cv` 初始 300×150，resize 异步；mapping 探测必须轮询等 width≥1000，否则点击坐标全错（连环误触工具栏）。取 `app.view.cv ?? #cv`。
+- **settings 窗口与观众弹窗**：系统菜单开启阶段不应答任何观众（keypad/reasons 的游戏坐标可落入工具栏带 py<32，连环 toggles）；audience 开着也能点工具栏。
+- **guards 双桶**：同一文件可在 guards 的 inputs 与 imports 两桶——继任时两桶都要写新 hash，否则 merged 时旧值覆盖。
+- **链式 EEXIST**：derive/run/audit/postdoc 均 once-only（flag:'wx'），任何中途失败都会留下 `derive-before-*/source-*/audit-source-*/before.json` 等，重跑前必须移入 attemptN-*（含 q69-*-scope 轮目录）。
+- **gitattributes 假象**：`git status` 大面积脏改常系 `.gitattributes` 换行符归一化（工作字节==封存字节），用字节比对甄别，不吸收无关改动。
+- 画布点击经 `getBoundingClientRect` 换算（含 1px 边框＋body 边距）；章节 id 含 `#`，拼 URL 必须 `encodeURIComponent`。
+- E717 槽纪律：源槽＝种子方向，目标槽＝到达反方向；走廊 8006 单格 detour 零可分类——纯几何新路必拒收，有效改路须 tile 重漆 recipe。
+- `prepareScenario` 城市/节点门是显式别名 enforcement；`structuredClone` 替代 JSON 深拷贝；verify 输出走 `tlog`，`console.log` 触发 pi-lens 告警。
+- 失败断言读玩家可见 DOM（`#edcap`），不读内存对象（8e 教训：caption 误读内存值）。
+- 引擎 fail-closed 是特性非 bug：`originalroadmovement` 的 `Uncovered ...` 系列 = 覆盖缺口信号，修须 RE 证据，禁经验补公式。
 
-## 历史批次（E-03 道路＋漂移定案，已纳入6d89b01）
+## 约定（证据链纪律）
 
-- 新增 `roadedit.js`（建造全认证派生＋精确拒收码、`deriveSlots` 与 v2
-  tag 254/254 一致、`encodeRoadGraphV2` 与 roads.json 逐字节全同）；
-  工作台 road 画线＋land/water 确认＋近线删除。
-- `verify_road_edit.mjs`、`verify_editor_studio_road_browser.mjs` 全绿
-  （exit0；删 road-0→逐格重建→保存校验编译过）。
-- 漂移：先误判数据 bug，后原版亲核纠正——具名/旧属分立忠实；
-  落为 3F29 死槽跳过＋3FBF raw 回退两处产品容限（已纳入6d89b01）。
-  官渡仲裁：hold→18 轮推进；arrival/city/faction/diplomacy/callers/
-  movement＋复制/闭环/menu_save 重跑全绿。
-- 阻塞：无（漂移修复 authority 问题已由证据裁决：不改数据）。
-- 当时待办：v2新边编译接线、漂移报告归档（由下批接续）；正式publish未做。
+- 批次闭环五段：derive（6 authored，provenance/doc-impl/production pair 双向证明）→ guards 继任（prior 谱系登记）→ gate（dry 轮保留＋scope 轮重放）→ 独立 audit → post-document；全部 hash 钉住、不重跑已密封 scope、不追认历史成功。
+- 机制结论只认原始证据（KI.EXE 指令链/原版数据/受控观测）；推断与未知不进正式规则路径；空句/覆盖缺口登记为已知问题不发明绕行。
+- 试玩内容前提（用户批准）：仅据点/道路/武将数据可定制，引擎/规则/AI 不动；自动化禁触 `E:/Dragon/Dragon/SAVE.DAT`。
 
-## E-03-COMPONENT-TOOLS-1（当前素材／组合／明确补底切片）
+## 会话记录：8g 试玩战术帧实证（2026-10-09）
 
-- 用户“继续未完成的任务”后继续当前profile的本地编辑工具，不接真实账户/发布、不扩容。素材列表/搜索/图集预览、完整实例框选/Shift多选、命名多格擷取/拖放/整footprint命中及边界拒绝接通；原byte配方不改。水域组创建/拆分继承flag/合并明选flag只改组引用；补底解锁确认后只写目标base及明确地理，unknown未补仍拒编译。
-- 服务同修订保存map+追加definition，旧定义不可覆写，未使用的新变体也用共同composer核。copy-on-write失败不改本地源；单进程文件存储仍非可靠后台事务/CAS。原件844e…39角色/switch未变，未访问DOS/真实SAVE/profile，未提交/推送/部署或改全局配置。
-- [47门串行收据](../.dragon-analysis/map-migration-2/component-tools-machine-r1/receipt.json)：13:07:08.555Z–13:27:49.331Z全exit0，84源码/39资源前后SHA同；21纯工具检查/12负控，实际浏览器框选/两格擷取/拖放/非锚点整选/拆false/合true/明确补底/保存重开/两PNG/20编辑源fresh及生产JSON过。所有浏览器/存储自有，IDB0/意外错误0。原5退休skip/固定RNG非CPU/非全战役限制保留。
-- 首轮merge缺flag被create默认true吞掉，unit负控失败保留；仅修merge入口后unit及47过，不改期待。7主动LSP6hint/4inconclusive/0confirmed-clean，Markdown/缓存及最终静态限制详见[交付](editor-current-workspace.md)。Jev只发送审过1982B摘要、仅advisory。
-- 任务一仍缺真实后端、完整实体/章节模型、完整App内存试运行、发布/目录/隔离存档和完整E-03工作流/UI验收；下一优先E-05准确snapshot+禁正式保存，不把本地认证模拟当真实后台。
+**目标**：用户事项②——Trial 栈战术帧动态浏览器实证（7e 残留）。**结果**：✅ 闭合。
 
-## E-02/03-CURRENT-WORKSPACE-1（上一轮历史：当前源／组合开关／真实预览）
+**实锤并修复两个真生产缺陷**（验证的目的就是实际跑通，修复属授权内最小必要改动）：
+1. `web/src/game/commands.js`：`dispatch` 原用门面取 `roadEdgeOrNode/targetNode` → 试玩壳恒 null → 首个行军动作 fail-closed 冻泵（dry5/8/9 现场：`Le: undefined`／`target node id: undefined`）。改 `dispatchSourceRoadNode/dispatchTargetNode` 经 `scenarioNativeRoadContext(sc).roads`，非 native 回落门面。
+2. `server/worker.js`：trial web 路由 query 422 与 `imageBust` 冲突 → 战场打不开（battle 从未在试玩跑通故未发现）。白名单唯一 bust 值。
+3. `server/public/trialweb.txt` 重卷（215 文件，commands.js 条目前进）。新工具 `tools/verify_editor_trial_tactical_frames.mjs`（23 检查／7 调用）。
 
-- 用户在任务一审阅后“好，继续”授权上述优先切片；不是完整后台/发布/任意拓扑授权。当前原件844e…39资产未改，完整副本保留20章/原子/161组/兼容helpers，默认来源不再读ignored旧源。
-- 新繁中工作台真实图块绘制、实际组选择/定位/checkbox、即时像素/编译两PNG、保存重开/未保存离开提示接通。原尺寸/槽门不变；未保存不改服务或Scenario。局部43MiB源请求用64MiB字节上限，单本地进程修订比较非可靠CAS，构建另标studio-unified-1，旧产物保留。
-- [新完整45入口](../.dragon-analysis/map-migration-2/current-workspace-machine-r2/receipt.json)串行exit0，81源码/39资源前后SHA同；20fresh/生产JSON、source-explicit字节、两PNG与批准源一致、开关native/geography不变、坏成员/PNG/审核/陈旧修订拒收及实际保存重开过。保留原生改点/晚到身份和UI明确确认原路重建；有关样本改真实覆盖原子，不靠被盖base假编辑。原5退休skip/固定RNG非CPU/非全战役限制仍在。
-- 首次idle Node连接ECONNRESET、校验文案误拼修订、机器r1只跑5门时resize过渡断言失败均保留；connection-close/文案/可观测布局等待后新完整r2通过，无自动重试或规则期待放宽。12主动LSP25hint/4inconclusive/0confirmed-clean；Markdown覆盖不足、session全量见静态记录。Jev1713B仅advisory。
-- [详细交付/剩余任务](editor-current-workspace.md)；组件库/拆分合组/明确补底、实体章节、完整App试运行及真实后台仍待后续。未提交、推送、部署、读取真实档或用户profile。
+**失败尝试（attempt1-11 全保留于 `.dragon-analysis/editor-phase/`）**：import 路径层级→settings 早窗 flake×2→AI 零军团（加 census 等待）→长距行军超时（30min＋军团遥测）→移动覆盖缺口 fail-closed（v1 长距，记 march-engagement 线程残留）→被动防御零战术（dry7，得 0x4200 快战机制红利）→on-road 过滤查错 roadgraph 实例（门面未加载，dry10）→offgraph 冻泵（publish-drops-null 实锤链）→targetNode 第二处门面（dry 后修）→`#cv` 300×150 映射竞态→settings 应答落工具栏。另有 ~25 次链脚本/derive/guards 漂移重登记（均属链纪律清场，非产品问题）。
 
-## WARN-T1-REVIEW-1（历史：任务一状态审阅／截图19W修复）
+**相关文件**：`web/src/game/commands.js`、`server/worker.js`、`server/public/trialweb.txt`、`tools/verify_editor_trial_tactical_frames.mjs`、`docs/editor-trial-server.md`（8g 节）、`docs/editor-goal-completion.md`、`docs/editor-local-validation.md`（工具表）、`.dragon-analysis/editor-phase/SESSION-RESTART-HANDOFF-TRIAL-SERVER-R17.md`。
 
-- 本轮用户更正为“查看任务一”；没有新增完整编辑器实施授权。[状态复核](../.dragon-analysis/editor-phase/warnings-task1-r1/task1-review.md)区分已有地基与E-01～E-11未交付项。当前优先缺口：工作台builtinSource仍导入旧ignored源，compile只取完整geography计算hash，没有新组合开关UI或真实小地图预览；任务二正式生成接线已完成，不能混为一谈。
-- 仅改3文件：asset retry使用专用相对mock命名空间；savegame三处嵌套三元在原表达式位置改if（缺失/own undefined/0/null及求值顺序不变）；历史地理审核工具改类型约束的PIL字节Parser（白名单/hash/尺寸门不变），未关闭规则或改全局配置。
-- 1250旧源码精确SHA分支对照、retry mock通过；Python3负控及3图逐byte与旧审核轮一致。Python checker首轮AST import缺lineno失败已保留，只修checker。新[39入口串行收据](../.dragon-analysis/map-migration-2/warning-fix-machine-suite-r1/receipt.json)全exit0、72源码/39当前资源前后SHA同；原5退休skip/局部RNG非CPU限制仍在。Python审核工具在72之外，另按自身SHA/3输出绑定，不冒充整套成员。
-- session全缓存93文件0warning；3变更路径主动LSP0诊断但均push-only/inconclusive，不称全工作区已认证clean。低级hint不属截图19W。Jev仅发送已审1284B说明摘要作advisory，不是放行或原机制证据。当前地图844e…/原件/旧档均未改，未提交/推送/部署或访问真实SAVE/profile。
+**当前阻塞**：无（8g 已闭合）。**下一步**：事项③删除级联批次（后端 fence 同事务级联）；之后按序 ④图片 native 讨论、⑤commit/push 授权。
 
-## MINIMAP-ADOPTION-1（用户m1668认可后的本地采纳）
+**lint 收口（同批，2026-10-09）**：pi-lens 报告 1E !79W 已清零。`commands.js` L14 barrel `export…from` → 本地再导出（同名公开面不变）；`worker.js` 嵌套三元展开＋`(await …).prop` 解构；三个 harness 工具改走仓库 `tlog` 约定（`node:util format`）、展开嵌套三元、解构 await；journal 整篇重组（883→~90 行）。再封存：derive 7 authored 双向绿 → guards 561/268 → run EXIT=0（浏览器战术门 23/7 再次全绿，兼证 lint 重构未破坏试玩栈）→ audit 9755 → postdoc 9757 路径／301 链接。过程现场 attempt40-45 全保留；`git diff` 证实 L14 非本批改动。
 
-- 已将“很好，效果不错，继续”绑定到已展示40da…候选及七图离线页SHA，[真实验收记录](data/current-map-display-acceptance.json)只批准Web显示/本地迁移，不授权完整编辑器、commit/push/deploy或原机制认证。
-- 两独立批准包explicit-stage-r11/r12保留source/native/图像原byte，仅更新world/catalog URI及批准manifest/规范模块；20章fresh/生产JSON和五错误认可负控过。原installer受控安装后实际修订`map-2-844eab32a84212f72b1430d398f5e82a3924d7e9527746fc2d1c7581cf694f86`；旧目录/已运行世界保留，未热换。
-- approved-machine-suite-r1：原36＋组合/seed/批准stage三门共39入口串行exit0，绑定72源码/39资源。新版实际副本原子20→16/20章恢复、四季×DPR/五格写回、存档拒收且记录保留、真实导航/菜单锁/行军中立捕获均过；另approved-late-world-r1旧页atlas晚到保护过。原5退休skip/固定RNG非CPU/非全战役限制仍在。
-- 安装前原拒审5门r4/temp转移6门r3过，真实m1668认可和mock分开。最终72语法/AST、六文档98链接、当前39/旧39保真及diff通过；checker首次误排Python扩展拒收后只修checker，新轮通过，失败保留。LSP六路径1动态fixture hint/5inconclusive、六Markdown unavailable，session19warning/85hint不可冒称全清。Jev经审1667B摘要仅advisory。任务二必需项已逐项闭合；完整组合选择/拆分/checkbox UI仍属后续，不假称实现，限制由[完成审计](map-migration-completion-audit.md)维护。
-
-## 历史 MAP-MIGRATION-2（认可/采纳前的收口状态）
-
-- 当前候选`map-2-19e2b03991ee4cf77c58ba44ef14313f213f93dbe8984407ff16392cb7748797`。
-  原192槽/XY及可见CB..D3扫描同门，原plane/图/helper/20章不变，旧资源目录保留；
-  非规则展示标签仍PENDING，不把caller颜色/连通启发式当原机制。
-- 92586装饰/5526道路/192据点原子与unknown底层；显式替换、层序/水域调序/删除、
-  workspace显隐锁定不影响编译，四层均真正消费。支持域不是任意组件组合。
-- 28资产完整副本永久样本：原子(10,10)20→16恰一字节，原图/helper不变；
-  相同编译/同引擎20章native16＋JSON恢复过，来源修订/SHA固定。
-- `machine-suite-r1`36个审过入口串行全部exit0：完整AGENTS安全列表、20章、
-  scoped规则/目录、事务失败、真实保存/旧身份和缺三能力拒收且不删记录、
-  三布局/据点锁与行军目标例外、中立活捕获、四季×3DPR/五格只读投影。
-  固定65源码及38角色＋manifest的39资源文件前后SHA无漂移；5退休walker skip
-  不计通过，固定RNG双跑不是CPU等价。另变seed及旧页atlas迟到/新页保持0.5通过。
-- 所有浏览器为自有server/newContext，真实SAVE stat已移除后才执行；无真实档/
-  用户profile访问，无提交/推送/部署/权限变化。失败轮保留；详细I/O、收据、限制
-  及来源维护在[收口审计](map-migration-completion-audit.md)，不复制原证规则。
-- 仍未完成：原地理候选hist85812/9420/3072/0（lake标签缺、旧river/lake混类）；
-  需独立Web展示标注审核，不能由图片批准替代。新旧mini/256索引sprite/初始
-  平面坐标图在`.dragon-analysis/map-migration-2/geography-review-r1/`，三实际布局
-  在`machine-suite-r1-browser/`，M-06等待用户，不代签；全任务goal未标complete。
-- 自动继续轮已制作[显式Web水域/道路作者资料](map-water-display-review.md)，不在
-  正式源里猜Original标签：1外海/13湖区/其余river、35水路/219陆路候选，17显示
-  road标签与旧any-point启发式不同，原flags/cost/geometry不变。23716格/湖707
-  来源和实例明确，lake删除unknown仍拒绝；数据尚需审核，不因707非零算通过。
-- `explicit-water-proposal-r3/review-r3/App-r3`均限定过：Native4资产/roadMask及
-  全20章state/order不变；自含对照/分区/图例/水路4图零网络；隔离38角色清单
-  在真实App独立proposal修订下192城/一章fresh/三布局/懒加载0error。未安装；r3
-  另过Node严格4URI mock的全20章本proposal身份fresh/JSON能力恢复逐字段同。
-  未当CPU/全规则认证，65源码与39当前资源仍同36suite SHA。
-  等待类别资料＋M-06验收；图链接在水域审核页。
-- 后续独立生成入口`stage_explicit_unified_map_game`只读22固定Web/作者输入，
-  不依赖ignored中间源/current编译包；两干净目录38角色/manifest/metadata同，
-  20章新修订fresh/JSON＋7作者数据拒收过。纯显示函数提取后旧候选14产物/digest
-  仍同，四rule/两mini亦同；没有安装、没有复跑未漂移36门。checker首次API误用
-  失败及修正轮收据保留，详见审计/水域审核页，不复制新原规则结论。
-- 独立stage直接真实App（三布局/四规则两mini/192城）过，不复制已装资产重包装。
-  实图发现旧normal/短视口右panel覆盖军师条；只修纯几何碰撞下移，宽屏保留。
-  layout2六个focused入口（pure/direct stage/当前App导航/锁退层/行军/3DPR retained）
-  串行过。原65仅layout/纯测试2变，其余63及39资源不变；不拼成新36整套全绿。
-  M-06现在看portable-stage-App-r2三图，旧图/漏检保留，类别/外观仍待用户。
-- installer追加未审核拒收门：历史PENDING或proposed/缺状态/只改map状态五项
-  实际CLI在独立temp repo角色读取/写目录前拒收，switch不变，真实39资源SHA同。
-  仅防误装，不批准人类验收或完成新stage正式采纳。installer不在旧65快照内，
-  以独立工具SHA核签；原65仍两几何差/其余63同。static首次误算其成员关系失败
-  已保留并仅修checker复验；原规则/装配未改，不重跑无影响规则门、不拼成新36。
-  详细入口/I/O/失败及static/LSP限制维护于审计，等待类别＋M-06，未mark complete。
-- 人工验收未到也继续独立安装接缝：支持explicit-stage-rN及previous同族，不放宽
-  审核/38hash/world/规范module/previous-byte门；补原尺寸及world全部角色同revision。
-  explicit-install-transfer-r2六case在temp：未审/坏terrain/自洽hash但旧world URI/
-  previous不符拒，mock双APPROVED只测38byte复制/原子switch/旧目录保留及immutable
-  重装拒，绝非用户批准。旧五拒审因installer变化重验r3过；实际current39/proposal38/
-  switch原样，旧65仍两几何差。未改规则/生成包/七验收图，未重复未漂移门。
-  真实类别/M-06记录、批准后源描述符及实际正式采纳仍待用户，目标未complete。
-
-## MINIMAP-COMBINATION-1（本轮用户视觉反馈，本地未安装）
-
-- 用户认可水域类别；候选JSON记录CATEGORY_APPROVED_VISUAL_PENDING及准确范围，不扩大为DOS机制/道路逐项批准。组合开关写入共同合同并接maplayers/mapcompile/minimap，完整geography与仅显示minimapGeography分离；关闭不改大图/规则，不隐藏道路。服务共同编译器升0.6，旧build目录保留。
-- 实际组合持久化memberIds/baseCells；审核分区N02不是独立物件，同区不连水片也各自控制。原图Web导入候选161组，51显示/110次要河片隐藏；主河带及拆组不是原DOS语义认证。组合选择/拆分/checkbox工作台UI未实现，不扩展为完整编辑器。
-- 当前新隔离revision为`map-2-40da80fbba6764cb95b7da5fbd54187628230639ac766acc71710105e16d6372`，explicit-stage-r9/r10由23输入/12工具两目录38角色＋manifest同。四native与原候选同，全23716水格/完整类别与20章不变；真实候选所有组合关仍native/roadMask/geography同。
-- focused串行：unit-r2、layered-r2、engine-r1、seed-r3、repro-r4（20fresh/生产JSON+7作者拒收）、App-r3（直接新包/192城/三布局/懒加载/0error/forbidden）通过，未拼新36全套。初轮metadata误留0.5及之后组合拆分/等价清理轮全部保留，当前成绩绑定最终源码，不覆盖旧证据。
-- [新离线对照](../.dragon-analysis/map-migration-2/minimap-groups-review-r2/review.html)：两尺寸旧/新纯底图＋实际App三布局，无脚本/网络。包装核已装39及switch不变；旧65现7差，其余58同；其它工具单独SHA。最终LSP/static限制由[审计](map-migration-completion-audit.md)记载，不称全清。
-- 未安装/提交/推送/部署/访问真实档或profile；类别不再重复索取认可。下一步用户复审主河取舍/新风格，真实认可后再准备规范批准产物/采纳接缝，goal仍active。详细维护源：[水域显示审核](map-water-display-review.md)，不在journal复制原机制。
-
-## E-03-ROAD-LOOP（2026-10-01，本地后续切片，历史验证范围）
-
-- `trialcompile.js`将道路生成器复核＋v2编码接入服务编译：固定runtimeSlot排序、
-  全章城市/节点一致、连续/交叉/port/slot/cost/flags/bbox及生产codec检查。
-  章节raw邻居与编译图端点不符则拒收，避免删/加边后静默保留旧C1C..1F；
-  无章最小副本只编地图，不能以它证明空白章运行。
-  `edgeId`仅导入溯源不当规则binding；移城和失效binding明确阻断，不暗修。
-- `editor-local-0.2`按revision存不可变快照、二进制地形、v2道路和两个辅助资源，
-  manifest核完整GameSource摘要＋各资产长度/hash。重复身份复制拒绝，修订BigInt。
-  包／资产只取固定修订；旧请求与新保存/编译不会串世界。
-- `trialruntime.js`以快照content/world走生产fresh prepare（含89F0），不再显式
-  terrain绕开着色、不再默认内置道路。当前仍是无完整App的内存harness。
-- 登记inventory后重跑7入口全绿（exit0）：服务自检、道路闭环、地形10轮、道路
-  生成器、试运行浏览器10天、工作台删路重建浏览器、漂移原数据核对。
-  道路闭环无编辑图全等；改(252,9)→(252,10)真实原生动作提交；晚到rev2道路
-  在rev3已保存/编译后仍加载rev2；坏路/失效binding/坏摘要/坏资产拒收；原件hash不变。
-  浏览器均新profile/独立store，IDB打开0；两份相关测试真实SAVE文件时间读取已移除。
-- 漂移归档：[E-COPY-DRIFT-DATA-1](re-notes-editor-copy-drift.md)，3840条全raw与
-  现属逐条匹配五组原文件，不改数据；早期“数据bug/致命章必拒”正式标废。
-  本批未复跑容限规则链／官渡，数据身份证据不能认证死槽跳过完整正确。
-- 失败保留：首次compile将binding导入edgeId误作规则字段导致road-0拒收，
-  改为只比规则字段后通过；首次漂移脚本误假设下/SINARIO.DAT尾部长度，
-  改为本次完整城记录覆盖后通过，不补源文件。原日志及最终收据在
-  `.dragon-analysis/editor-phase/road-loop-20261001/`（gitignored）。
-- 工程合同、I/O与覆盖限制详见[本地验证清单](editor-local-validation.md)。
-  仅本地固定槽/受限编辑接线，不宣称任意新图、空章、正式发布或E-05完整App完成。
-- 最终检查：8个变更JS入口/模块`node --check`通过，7份Markdown的80条本地
-  链接路径与冲突标记检查通过（未验证全部锚点），`git diff --check`通过。
-  主动LSP未报JS error/warning，仅18条既有/括号await等hint；3个文件push-only
-  无法确认clean，7份Markdown的marksman/typos不可用，故不写“LSP全清”。
-  已执行`lens_diagnostics mode=all`缓存复核（不替代上述缺失主动覆盖）。
-  未跑完整共享规则/正式存档回归：本批未改共享AI/RNG/保存/装配实现，验证仅
-  覆盖作者服务、受限快照适配与列出的测试，不宣称全战役或完整App认证。
-- 下一切片：完整App的内存trial模式＋明确禁用正式保存入口、独立资源/UI门；
-  工作台完整组件/繁中/离开提示及认证/可靠后端仍待实施。不触动规则未知处或放开G门。
+**lint 登记（不阻塞）**：（已收口，见上）

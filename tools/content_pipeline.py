@@ -168,7 +168,7 @@ def compile_chapter(document, world_cities):
         monarch = state["generals"][faction["monarch_idx"]]
         faction["monarch"] = monarch["name"]
     # 当前规则引擎固定槽约束；这是校验而非容量扩展。
-    for kind, maximum in (("cities", 192), ("factions", 24), ("generals", 128)):
+    for kind, maximum in (("cities", 192), ("factions", 22), ("generals", 128)):
         records = state[kind]
         if not 0 < len(records) <= maximum:
             raise ValueError(f"{kind}: current engine limit is {maximum}")
@@ -232,7 +232,6 @@ def compile_chapter(document, world_cities):
                     ("reserve_inf", 8, 2),
                     ("legion_morale_cap", 0x1D, 1),
                     ("talk_style", 0x1E, 1),
-                    ("money", 0x20, 3),
                     ("n_cities", 0x23, 1),
                     ("bellicosity", 0x28, 1),
                     ("march_marker_style", 0x3E, 1),
@@ -262,7 +261,30 @@ def compile_chapter(document, world_cities):
                     else 0
                 )
                 put(raw, 0x18, record["n_generals"] + advisor_count)
+                # KI 6851/6854/6857: F+20..22 is signed24, not an unsigned word.
+                raw[0x20:0x23] = integer(
+                    record["money"], -0x800000, 0x7FFFFF, "faction money"
+                ).to_bytes(3, "little", signed=True)
                 record["money_hi"] = raw[0x22]
+                # Fresh reads the fixed table: money plus the three u16 reserve pools.
+                # KI 5F85..5F9F reads F+04/+06/+08; preserve all other bytes.
+                native_raw = bytearray.fromhex(
+                    state["nativeFactionSlotRaw"][record["idx"]]
+                )
+                native_raw[0x04:0x0A] = raw[0x04:0x0A]
+                native_raw[0x20:0x23] = raw[0x20:0x23]
+                # These fields are encoded above but fresh reads the fixed source.
+                # Reject divergence; do not invent role/count initialization writes.
+                for offset in (
+                    0, 1, 2, 3, 0x16, 0x17, 0x18, 0x19,
+                    0x1D, 0x1E, 0x23, 0x28, 0x2A, 0x3E,
+                ):
+                    if raw[offset] != native_raw[offset]:
+                        raise ValueError(
+                            f"faction {record['idx']}: encoded/native divergence "
+                            f"at +{offset:02x}; initialization edit unsupported"
+                        )
+                state["nativeFactionSlotRaw"][record["idx"]] = native_raw.hex()
             record["raw"] = raw.hex()
     # P30/P34 native别名读者消费静态章节城记录字节（原 D52:0840..203F=192×32B）。
     # 从已命名编辑字段回写后的raw派生；源文档若手写陈旧副本必须拒绝，防分叉。

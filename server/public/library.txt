@@ -1,0 +1,45 @@
+// Read-only fixed library, no local state/DTO grants server authority or runtime admission.
+export function installLibraryBrowser({ api, authority, work, isBusy, savedContext }) {
+  const q = id => document.getElementById(id), sha = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value), uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value), revision = value => typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value);
+  let identity = null, generation = 0, catalogue = null, message = '先載入自己的精確已保存修訂；本庫只有可用bytes，不代表運行資格。';
+  const urls = new Set(), permitted = () => identity === authority() && identity?.user.role === 'admin' && !identity.user.mustChangePassword;
+  const contextKey = value => value ? value.gameId + ':' + value.draftRevision : null, base = value => '/api/games/' + value.gameId + '/draft/library-assets';
+  function revoke() { for (const url of urls) URL.revokeObjectURL(url); urls.clear(); }
+  function clear() { generation++; catalogue = null; revoke(); q('library-assets').replaceChildren(); q('library-missing').replaceChildren(); }
+  function render() {
+    const context = savedContext(); if (catalogue && (!permitted() || contextKey(context) !== contextKey(catalogue))) { clear(); message = '上下文或會話已變更，舊目錄與下載引用已清除；須明確重新讀取，不跟隨latest。'; }
+    const locked = !permitted() || isBusy(); q('library-editor').hidden = !permitted(); q('library-load').disabled = locked || !context; q('library-filter').disabled = locked || !catalogue;
+    q('library-context').textContent = catalogue ? catalogue.gameId + '／已保存修訂 ' + catalogue.draftRevision + '／可用398／未閉合20' : context ? context.gameId + '／已保存修訂 ' + context.draftRevision + (context.dirty ? '／未保存資料不參與' : '') : '尚無精確已讀取上下文';
+    q('library-status').textContent = message; for (const button of q('library-assets').querySelectorAll('button')) button.disabled = locked || !catalogue;
+  }
+  function ticket(context) { const actor = identity, serial = ++generation, key = contextKey(context); return () => permitted() && identity === actor && serial === generation && key === contextKey(savedContext()); }
+  function accept(data, context) {
+    if (!data || data.gameId !== context.gameId || data.draftRevision !== context.draftRevision || data.registryId !== 'approved-available-library-76cdf28-1' || data.admission !== 'private-available-bytes-only' || data.mode !== 'STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE' || !sha(data.sourceDigest) || !sha(data.catalogRoot) || !Array.isArray(data.assets) || data.assets.length !== 398 || !Array.isArray(data.unresolvedReferences) || data.unresolvedReferences.length !== 20) throw new Error('素材清單身份／固定支持域無效。');
+    const paths = new Set();
+    const assets = data.assets.map((asset,index) => { if (!asset || asset.assetId !== 'library-' + String(index).padStart(3,'0') || !sha(asset.sha256) || !Number.isSafeInteger(asset.byteLength) || asset.byteLength < 1 || asset.byteLength > 16 * 1024 * 1024 || typeof asset.logicalURL !== 'string' || asset.logicalURL.length > 512 || !asset.logicalURL.isWellFormed() || /[\x00-\x1f\x7f-\x9f]/.test(asset.logicalURL) || paths.has(asset.logicalURL) || typeof asset.mime !== 'string' || asset.mime.length > 128) throw new Error('素材描述無效；不建立目錄或任意路徑請求。'); paths.add(asset.logicalURL); return Object.freeze({ assetId: asset.assetId, logicalURL: asset.logicalURL, sha256: asset.sha256, byteLength: asset.byteLength, mime: asset.mime }); });
+    const missing = data.unresolvedReferences.map(item => { if (!item || typeof item.chapterId !== 'string' || item.chapterId.length > 256 || !item.chapterId.isWellFormed() || item.slot !== 127 || item.portrait !== 255 || item.logicalURL !== 'kao/255.png') throw new Error('未閉合引用描述無效。'); return Object.freeze({ chapterId: item.chapterId, slot: item.slot, portrait: item.portrait, logicalURL: item.logicalURL }); });
+    return Object.freeze({ gameId: data.gameId, draftRevision: data.draftRevision, sourceDigest: data.sourceDigest, catalogRoot: data.catalogRoot, assets: Object.freeze(assets), missing: Object.freeze(missing) });
+  }
+  function rows() {
+    q('library-assets').replaceChildren(); if (!catalogue) return; const filter = q('library-filter').value.trim();
+    for (const asset of catalogue.assets) { if (filter && !asset.logicalURL.includes(filter)) continue; const row = document.createElement('p'), label = document.createElement('span'), button = document.createElement('button'); label.textContent = asset.logicalURL + '／' + asset.byteLength + ' bytes／' + asset.mime + ' '; button.type = 'button'; button.dataset.assetId = asset.assetId; button.textContent = '核驗並下載bytes'; const binding = catalogue; button.onclick = () => action(() => download(binding,asset)); row.append(label,button); q('library-assets').append(row); }
+  }
+  async function load() {
+    const context = savedContext(); if (!permitted() || !context || !uuid(context.gameId) || !revision(context.draftRevision)) throw new Error('先載入管理員本人固定副本的明確修訂。');
+    if (context.dirty && !confirm('有未保存資料。只讀已保存修訂，不自動保存；確定讀取素材庫？')) return;
+    clear(); const valid = ticket(context), response = await api(base(context) + '?revision=' + context.draftRevision); if (!valid()) return; const captured = accept(response,context); if (!valid()) return; catalogue = captured; q('library-filter').value = ''; rows();
+    for (const item of captured.missing) { const row = document.createElement('p'); row.textContent = item.chapterId + '／槽 ' + item.slot + '／頭像 ' + item.portrait + '／' + item.logicalURL + '（未閉合，不補圖）'; q('library-missing').append(row); }
+    message = '398可用資源已明確讀取；20個255引用仍未閉合。沒有試運行、發布或任何素材寫回。';
+  }
+  async function download(binding,asset) {
+    if (!permitted() || catalogue !== binding || contextKey(binding) !== contextKey(savedContext())) throw new Error('先重新讀取精確修訂的素材庫。');
+    const valid = ticket(binding), response = await api(base(binding) + '/' + asset.assetId + '?revision=' + binding.draftRevision, undefined, { libraryBinary: true, maxBytes: asset.byteLength }); if (!valid() || catalogue !== binding) return;
+    const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256',response.bytes))].map(byte => byte.toString(16).padStart(2,'0')).join(''); if (!valid() || catalogue !== binding) return;
+    if (response.bytes.length !== asset.byteLength || digest !== asset.sha256 || response.sha256 !== asset.sha256 || response.draftRevision !== binding.draftRevision || response.sourceDigest !== binding.sourceDigest || response.catalogRoot !== binding.catalogRoot || response.admission !== 'private-available-bytes-only' || response.disposition !== 'attachment; filename="' + asset.assetId + '.bin"') throw new Error('下載bytes／長度／SHA或修訂來源回應不符，不建立檔案。');
+    const url = URL.createObjectURL(new Blob([response.bytes], { type: 'application/octet-stream' })); urls.add(url); const anchor = document.createElement('a'); anchor.href = url; anchor.download = asset.assetId + '.bin'; anchor.click(); message = '此資源完整bytes與精確修訂／來源回應已核驗；未播放、執行或授予運行資格。';
+  }
+  function action(callback) { return work(async () => { try { await callback(); } catch (error) { message = '素材讀取未確認：' + error.message; throw error; } finally { render(); } }); }
+  q('library-load').onclick = () => action(load); q('library-filter').oninput = () => { if (!isBusy()) { rows(); render(); } };
+  window.addEventListener('pagehide', () => { clear(); message = '頁面離開已清除本目錄與下載引用；須明確重新讀取。'; render(); }); window.addEventListener('beforeunload', revoke);
+  render(); return { render, setIdentity(next) { if (identity !== next) { clear(); identity = next; message = '目錄與bytes不從前會話恢復；請明確讀取已保存修訂。'; } render(); } };
+}

@@ -42,10 +42,11 @@ def parse_scenario(sc: bytes):
       out = {}
 
       # ---- 头部 ----
-      # 原码头00=day、03=hour、06..07=year word；下方旧start表达式待导入纠错。
-      # 本批仅修证据注释，完整约束见docs/re-notes-custom-data.md。
+      # 原码1D9C/1DD7使用CF0日、03为hour；1DAA/1DB8年为CF6 word。
+      # 8C62读取头+06 word；只纠正离线解码，不覆盖已安装运行资产。
+      # 受控新目录/日期差异见docs/editor-date-import.md。
       out["name"] = big5(sc[0x40:0x60])
-      out["start"] = {"year": sc[6], "month": sc[4], "day": sc[3]}
+      out["start"] = {"year": u16(sc[6:8]), "month": sc[4], "day": sc[0]}
       out["n_factions"] = sc[0x3A]
       # 玩家头部字段 (→ CS:0xCFF玩家势力/0xD00信赖度/0xD08税率, 见 docs/re-notes-custom-data.md)
       out["player_faction"] = sc[0xF]
@@ -93,10 +94,11 @@ def parse_scenario(sc: bytes):
                               "siege": g[0x0E] >> 4,
                               "field": g[0x0F] >> 4,
                               "naval": g[0x10] >> 4,
-                              # KI的11..13为全byte；此处旧&0F有损，见实体字典，待另批改导入。
-                              "force": g[0x11] & 0xF,
-                              "lead": g[0x12] & 0xF,
-                              "politics": g[0x13] & 0xF,
+                              # KI 45D9/52E7/3811/77B6..77D6读11..13全byte。
+                              # 仅离线保真，不证明任意高值运行安全或修改已安装资产。
+                              "force": g[0x11],
+                              "lead": g[0x12],
+                              "politics": g[0x13],
                         },
                         # 0x4C72/0x291A 使用的原始武将战斗/去向修正字节；
                         # 55A6在最终选章/正常DOS读档后、月结和战术返回后重算active 0..126。
@@ -164,8 +166,9 @@ def parse_scenario(sc: bytes):
                                     else 0
                               ),
                         ),
-                        # 原版signed24资金；下方旧unsigned解析不保真负值，待另批纠错。
-                        "money": u16(f[0x20:0x22]) + (f[0x22] << 16),
+                        # KI 6851/6854/6855/6857：高byte CBW扩展，DX:AX为signed24。
+                        # 仅离线解码；不夹限、不改变compiler/默认包或负值运行准入。
+                        "money": int.from_bytes(f[0x20:0x23], "little", signed=True),
                         "money_hi": f[0x22],
                         # KI.EXE 0x2600/0x6F26/0x4483：军团驻止恢复与新编初值的士气上限。
                         "legion_morale_cap": f[0x1D],

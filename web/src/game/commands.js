@@ -11,7 +11,8 @@ export const TAX_MIN = 0,
 import { tickEnvoys } from "./diplomacy.js";
 import { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 // 保留旧命令API；新只读使用方可直接依赖playerqueries，避免外交反向依赖命令。
-export { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
+// 本地再导出（而非 barrel `export…from`）：同名公开面不变，gamebar/hud 的 cmd.xxx 照常。
+export { isPlayerAdvisorGeneral, playerFaction };
 import { createDefaultLegionUnits, ensureLegionSlot } from "./legionunits.js";
 import { applyFactionFundsDelta, factionLegionMoraleCap } from "./economy.js";
 import { roadNodeAt, roadNodeRawAddress } from "./roadgraph.js";
@@ -27,6 +28,33 @@ import { hasNativeLegionSlots, publishLegacyLegionRecord } from "./nativelegions
 function nativeMonthlyMechanics(sc) {
   return !!(scenarioNativeRoadContext(sc) || hasNativeLegionSlots(sc));
 }
+
+/** 出征来源节点的 0x0E（E717 node*8 布局）。剧本自身 world 的路图优先：
+ * scenarioassembly 只加载注入的 world，试玩壳（createTrialEnvironment 自建 world）
+ * 从不加载默认世界门面实例，用门面会恒得 null，随后原生首个行军动作读 0x0E 即
+ * fail-closed 冻泵。非 native（legacy Web）剧本没有 assembly，回落门面——匿名/
+ * 开发服务器路径本来就装配默认世界，行为不变。两个函数必须取自同一实例：
+ * roadNodeRawAddress 也绑各自闭包内的 nodes.length。 */
+function dispatchSourceRoadNode(sc, city) {
+  const context = scenarioNativeRoadContext(sc);
+  const node = context
+    ? context.roads.roadNodeAt(city.x, city.y)
+    : roadNodeAt(city.x, city.y);
+  const raw = context
+    ? context.roads.roadNodeRawAddress(node?.id)
+    : roadNodeRawAddress(node?.id);
+  return raw ?? null;
+}
+
+  /** 目标节点 id（无原生上下文时回落默认世界门面；见 dispatchSourceRoadNode）。 */
+  function dispatchTargetNode(sc, city) {
+    const context = scenarioNativeRoadContext(sc);
+    return (
+      context
+        ? context.roads.roadNodeAt(city.x, city.y)
+        : roadNodeAt(city.x, city.y)
+    )?.id ?? null;
+  }
 
 /** 初始化玩家槽位(原版剧本头 FF=未指定 → 默认势力0/信赖100); 在 setScenario 时调 */
 export function initPlayer(sc) {
@@ -225,11 +253,11 @@ export function dispatch(sc, fromCity, targetCity) {
     morale: factionLegionMoraleCap(f),
     target: targetCity,
     targetCity: targetCity.idx,
-    targetNode: roadNodeAt(targetCity.x, targetCity.y)?.id ?? null,
+    targetNode: dispatchTargetNode(sc, targetCity),
     // 出发即在fromCity节点上（E717 node*8布局；与UI编成同一写法）：缺此字段
-    // 原生首个行军动作读0x0E即fail-closed（实机196年复现）。
-    roadEdgeOrNode:
-      roadNodeRawAddress(roadNodeAt(fromCity.x, fromCity.y)?.id) ?? null,
+    // 原生首个行军动作读0x0E即fail-closed（实机196年复现）。节点取自剧本自身
+    // world 的路图，见 dispatchSourceRoadNode。
+    roadEdgeOrNode: dispatchSourceRoadNode(sc, fromCity),
     commandState: 0,
     status: 0x82,
     delegated: false,

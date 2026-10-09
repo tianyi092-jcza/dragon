@@ -67,6 +67,8 @@ import {
   snapshotState,
 } from "./game/savegame.js";
 import { localSaveRepository } from "./core/localstore.js";
+import { disableTrialPersistence } from "./editor/trialpolicy.js";
+import { TrialStrategicClock } from "./editor/trialruleboundaries.js";
 import {
   normalizeDisasterMapObjectState,
   normalizeWeatherCloudState,
@@ -199,6 +201,7 @@ const app = {
   },
 
   beginNewGame(i, playerFaction, advisor) {
+    if (this.trialEnded) return Promise.reject(new Error("試運行已結束，請開啟新視窗"));
     return this.enterGame(() => this.setScenario(i, playerFaction, advisor));
   },
 
@@ -210,6 +213,7 @@ const app = {
   },
 
   async beginSavedGame(slotIdx) {
+    if (this.canPersist === false) return false;
     // Recheck the current slot before enterGame changes runtime/UI; never trust rows.
     const saved = this.saves?.slots.find((slot) => slot.slot === slotIdx);
     admitSavedScenario(saved, this);
@@ -285,6 +289,13 @@ const app = {
   /** 游戏结束：清理运行态并返回首页开局选单 (YES/NO) */
   async returnToTitle(initialAction) {
     this._gameEntryRequest = null;
+    if (this.canPersist === false) {
+      // Terminate before callbacks/UI cleanup: no late tactical open may revive it.
+      this.trialEnded = true;
+      this.setRuntimeEnabled(false);
+      this._nativeTacticalQueue = [];
+      this.battleView?.discardTrial();
+    }
     this._scenarioAssemblyPending = null;
     this._scenarioAssemblyIncomplete = null;
     cancelLegionSlotBatch(this);
@@ -350,6 +361,14 @@ const app = {
     this.view.seasonImg = null;
     this.scenario = null;
     this.clock = null;
+    if (this.canPersist === false) {
+      this.trialEnded = true;
+      this.originalRng = null;
+      this.activeBattleRng = null;
+      this.setRuntimeEnabled(false);
+      window.dispatchEvent(new Event("dragon-trial-ended"));
+      return;
+    }
     this.setRuntimeEnabled(true);
     try {
       await this.startMenu.show(initialAction);
@@ -446,7 +465,7 @@ const app = {
         if (this.gamebar) this.gamebar.syncClock();
         else if (this.clock === previousClock && previousClock)
           previousClock.hold =
-            !!this._scenarioAssemblyIncomplete || previousHold;
+            Boolean(this._scenarioAssemblyIncomplete) || previousHold;
         this.hud?.flashEvent?.("道路資料載入失敗，無法裝配此局。");
         globalThis.__dragonDebug?.reportError?.(
           "strategic map navigation assets failed to load",
@@ -534,7 +553,7 @@ const app = {
         this.scenario === loadedScenario,
     );
     // 新游戏使用章节起始日；存档使用 parse_save/snapshotState 的 save_date。
-    this.clock = new Clock({
+    const clockOptions = {
       startYear,
       startMonth,
       startDay: Math.max(1, requestedDay | 0),
@@ -593,7 +612,8 @@ const app = {
           runRemainingMonthEndSteps();
       },
       onDay: null,
-    });
+    };
+    this.clock = this.trialGate ? new TrialStrategicClock({ gate: this.trialGate, ...clockOptions }) : new Clock(clockOptions);
     ownedClock = this.clock;
     this.clock.hold = true; // this load owns the hold until its final ready barrier
     this.clock.day = Math.min(this.clock.day, this.clock.daysInMonth);
@@ -641,6 +661,7 @@ const app = {
 
   /** 按调用顺序写入玩家浏览器的 IndexedDB；服务端不接收任何存档。 */
   async saveGame(slotIdx, label) {
+    if (this.canPersist === false) return { saved: "blocked", reason: "trial" };
     if (!this.runtimeEnabled) {
       this.hud?.flashEvent?.("遊戲目前已暫停，無法存檔。");
       return { saved: "blocked" };
@@ -680,6 +701,7 @@ const app = {
 
   /** 读档: 用浏览器本地槽位状态覆盖当前场景 */
   async loadSave(slotIdx) {
+    if (this.canPersist === false) return false;
     const sv = this.saves?.slots.find((s) => s.slot === slotIdx);
     if (!sv?.played || !sv.state) return false;
     // Reject old/invalid phases before changing the scene, RNG or slot.
@@ -920,17 +942,25 @@ window.addEventListener("beforeunload", (e) => {
 });
 
 // 标题阶段只读取章节目录和本机存档；地图/道路/战斗数据在确认进入游戏后加载。
-export async function startApp(opening) {
+export async function startApp(opening, { trial = null } = {}) {
+  if (app._bootStarted) throw new Error("App already started; open a new trial window");
+  app._bootStarted = true;
   app.opening = opening;
   app.runtimeEnabled = false;
-  [app.content, app.saves] = await Promise.all([
-    loadBuiltinContent(),
-    app.saveRepository.load(),
-  ]);
+  if (trial) {
+    disableTrialPersistence(app, trial.identity);
+    app.trialGate = trial.gate ?? null;
+    app.content = trial.content;
+    app.world = trial.world;
+  } else {
+    [app.content, app.saves] = await Promise.all([
+      loadBuiltinContent(), app.saveRepository.load(),
+    ]);
+  }
   app.data = app.content.data;
 
   app.speaker = speaker; // 0xCDE/0xCE7 PC喇叭音效复刻
-  app.startMenu = new StartMenu(app);
+  if (!trial) app.startMenu = new StartMenu(app);
   app.score.title();
   document.addEventListener(
     "pointerdown",
@@ -948,8 +978,11 @@ export async function startApp(opening) {
   });
   // boot.js 取得单实例锁后挂载独立开场；这里不装配默认地图。
   globalThis.__dragonApp = app;
-  await Promise.all([opening?.menuReady, app.startMenu._loadAssets()]);
-  await app.startMenu.show(); // 15秒或提前跳过后显示；弹窗流程独立于开场控制
+  if (trial) await app.beginNewGame(0, trial.player, null);
+  else {
+    await Promise.all([opening?.menuReady, app.startMenu._loadAssets()]);
+    await app.startMenu.show();
+  } // 15秒或提前跳过后显示；弹窗流程独立于开场控制
   window.__aiTick = () => aiTick(app); // 调试句柄
   window.__monthlyAI = () => monthlyAI(app); // 调试句柄
   window.__monthlyAppear = () => monthlyAppear(app); // 调试句柄

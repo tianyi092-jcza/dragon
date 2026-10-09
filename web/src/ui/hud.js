@@ -2,6 +2,7 @@
 import { factionColorEx, SEASONS } from "../game/world.js";
 import { hasPendingStrategicEvent } from "../game/ai.js";
 import { portrait } from "../core/assets.js";
+import { createPortraitCanvas } from "./portraitcanvas.js";
 import * as cmd from "../game/commands.js";
 import { clickSfx, warnSfx, toggleMute, unlockSfx } from "../core/speaker.js";
 import { quoteFor, formatTalkTokens } from "../game/talk.js";
@@ -69,8 +70,19 @@ function h(tag, attrs = {}, ...children) {
 }
 
 export class HUD {
-  constructor(app) {
+  constructor(app, resourcePorts = null) {
     this.app = app; // { setScenario, setSeason, view }
+    this._factionCardPorts = null;
+    if (resourcePorts !== null) {
+      const { loadPortrait, loadQuote, assertCurrent } = resourcePorts;
+      if (![loadPortrait, loadQuote, assertCurrent].every(fn => typeof fn === "function")) {
+        throw new TypeError("HUD_FACTION_CARD_PORTS");
+      }
+      this._factionCardPorts = Object.freeze({ loadPortrait, loadQuote, assertCurrent });
+    }
+    this._factionCardEntry = null;
+    this._factionCardGeneration = 0;
+    this._factionCardClosed = false;
     // 无DOM模态时必须显式为0；主RAF据此决定是否逐帧重绘战略地图。
     // 若保持undefined，规则时钟仍推进但画面只在日期变化时刷新，表现为
     // 军团每日跳格、接战四相瞬间结束。
@@ -1960,7 +1972,90 @@ export class HUD {
       );
   }
 
+  _releaseFactionCardEntry(entry) {
+    if (!entry) return;
+    const handle = entry.handle, node = entry.node;
+    entry.handle = null;
+    entry.node = null;
+    // Unbind before external cleanup: reentrant close cannot release twice.
+    try { if (node?.parentNode === entry.card) node.remove(); } catch { /* Owned DOM cleanup only. */ }
+    try { handle?.dispose(); } catch { /* Preserve the primary load/lifecycle error. */ }
+  }
+
+  _checkFactionCardEntry(entry) {
+    const check = () => {
+      if (this._factionCardClosed) throw new TypeError("HUD_FACTION_CARD_CLOSED");
+      if (this._factionCardEntry !== entry || this._factionCardGeneration !== entry.generation ||
+          this.app.scenario !== entry.scenario || this.card !== entry.card ||
+          this._factionCardPorts !== entry.ports) {
+        throw new TypeError("HUD_FACTION_CARD_STALE");
+      }
+      const factionIndex = entry.faction.idx, capitalIndex = entry.faction.capital,
+        monarch = entry.scenario.monarchOf(entry.faction), portraitIndex = entry.monarch.portrait;
+      if (factionIndex !== entry.factionIndex || capitalIndex !== entry.capitalIndex ||
+          monarch !== entry.monarch || portraitIndex !== entry.portraitIndex ||
+          this.app.scenario !== entry.scenario || this.card !== entry.card ||
+          this._factionCardClosed || this._factionCardEntry !== entry ||
+          this._factionCardGeneration !== entry.generation || this._factionCardPorts !== entry.ports) {
+        throw new TypeError("HUD_FACTION_CARD_STALE");
+      }
+    };
+    check();
+    entry.ports.assertCurrent();
+    check();
+  }
+
+  disposeFactionCardImageResources() {
+    if (!this._factionCardPorts || this._factionCardClosed) return;
+    this._factionCardClosed = true;
+    this._factionCardGeneration++;
+    const entry = this._factionCardEntry;
+    this._factionCardEntry = null;
+    this._releaseFactionCardEntry(entry);
+    if (entry && this.card === entry.card) this.card.style.display = "none";
+  }
+
+  async _showPrivateFactionCard(f) {
+    const generation = ++this._factionCardGeneration;
+    const previous = this._factionCardEntry;
+    this._factionCardEntry = null;
+    this._releaseFactionCardEntry(previous);
+    if (generation !== this._factionCardGeneration) throw new TypeError("HUD_FACTION_CARD_STALE");
+    if (!f) { this.card.style.display = "none"; return; }
+    if (this._factionCardClosed) throw new TypeError("HUD_FACTION_CARD_CLOSED");
+    this.card.style.display = "none";
+    const scenario = this.app.scenario, monarch = scenario.monarchOf(f), portraitIndex = monarch?.portrait;
+    if (!Number.isInteger(portraitIndex) || portraitIndex < 0 || portraitIndex >= 150) {
+      throw new TypeError("HUD_PORTRAIT_ROLE");
+    }
+    const entry = { generation, scenario, monarch, portraitIndex, faction: f,
+      factionIndex: f.idx, capitalIndex: f.capital, card: this.card,
+      ports: this._factionCardPorts, handle: null, node: null };
+    this._factionCardEntry = entry;
+    entry.card.style.display = "none";
+    let installed = false;
+    try {
+      this._checkFactionCardEntry(entry);
+      entry.handle = await entry.ports.loadPortrait(portraitIndex);
+      this._checkFactionCardEntry(entry);
+      entry.node = createPortraitCanvas(entry.handle);
+      this._checkFactionCardEntry(entry);
+      const quote = await entry.ports.loadQuote(monarch);
+      this._checkFactionCardEntry(entry);
+      const capital = scenario.city(entry.capitalIndex);
+      this._installFactionCard(f, capital, quote, entry.node, () => this._checkFactionCardEntry(entry));
+      this._checkFactionCardEntry(entry);
+      installed = true;
+    } finally {
+      if (!installed) {
+        if (this._factionCardEntry === entry) this._factionCardEntry = null;
+        this._releaseFactionCardEntry(entry);
+      }
+    }
+  }
+
   async showFactionCard(f) {
+    if (this._factionCardPorts) return this._showPrivateFactionCard(f);
     if (!f) {
       this.card.style.display = "none";
       return;
@@ -1972,8 +2067,12 @@ export class HUD {
     const cap = sc.city(f.capital);
     // ★隐藏属性提示: 君主自陈特长 (TALK.DAT 558-581, 复刻原版能力确认流)
     const quote = await quoteFor(mon);
-    this.card.replaceChildren(
-      img ? h("img", { src: img.src, alt: "" }) : null,
+    this._installFactionCard(f, cap, quote, img ? h("img", { src: img.src, alt: "" }) : null);
+  }
+
+  _installFactionCard(f, cap, quote, portraitNode, beforeInstall = () => {}) {
+    const children = [
+      portraitNode,
       h(
         "div",
         {},
@@ -1995,7 +2094,10 @@ export class HUD {
           ? h("div", { style: "color:#fd5;margin-top:2px" }, `「${quote}」`)
           : null,
       ),
-    );
+    ];
+    beforeInstall();
+    this.card.replaceChildren(...children);
+    beforeInstall();
     this.card.style.display = "flex";
   }
 }

@@ -48,5 +48,7 @@ export function readInstalledEditorSource(resources = BUILTIN_RESOURCES,
   const atlas = manifest.assets.find((a) => a.path === "map_atlas_spring.png"); assert.ok(atlas);
   return { revision, world: { ...resources.world, cities }, map: source.map, componentDefinitions: source.componentDefinitions,
     compatibilityAssets: source.compatibilityAssets, chapters,
-    editorAssets: { springAtlas: { url: atlas.url, sha256: atlas.sha256, byteLength: atlas.byteLength } } };
+    editorAssets: { springAtlas: { url: atlas.url, sha256: atlas.sha256, byteLength: atlas.byteLength },
+      seasonAtlases: Object.fromEntries(["spring", "summer", "autumn", "winter"].map((s) => [s, manifest.assets.find((a) => a.path === `map_atlas_${s}.png`)])),
+      seasons: Object.fromEntries(["spring", "summer", "autumn", "winter"].map((s) => [s, manifest.assets.find((a) => a.path === `map_tiles_${s}.png`)])) } };
 }

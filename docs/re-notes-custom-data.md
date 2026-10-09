@@ -87,7 +87,7 @@ P37起编译器另从已命名编辑字段回写后的城raw派生`state.nativeC
 
 ### 势力 3.1 资金与财政状态（实锤）
 
-资金解码：`u=loWord+(hiByte<<16); signed=u>=800000h ? u-1000000h : u`。
+资金解码：`u=loWord+(hiByte<<16); signed=u>=800000h ? u-1000000h : u`。后继[离线解码专项](editor-money-import.md)重新固定KI/MZ及10签名，20章440正常物理槽/228公开资金均非负，原输出不变；内存负值只作原三byte保真，不授权任意异常值运行。Capstone16模式把单byte98打印cwde的文字不作证，无66前缀的原16位指令是CBW；签名与原寄存器路径为依据。
 
 - `560B 03 44 20;560E 12 54 22`为24位加；`5611 cmp dl,9`采用有符号JL/JG，再比较低word FE98h，最终上封 `09FE98h=655000`。
 - `563D 29 44 20;5640 18 54 22`为24位减；`5649 cmp dl,F6h`采用有符号JG/JL，低word门槛0168h，最终下封 `F60168h=-655000`。
@@ -98,6 +98,8 @@ P37起编译器另从已命名编辑字段回写后的城raw派生`state.nativeC
 - 3E65保留三池求和进位再右移5；5673累加结果q先u24回绕，仅`655000<=q<800000h`时写655000，否则写q（高byte用signed JL/JG）。常规费用范围仍上封655000，四个异常输入原执行见上述P20，不能据此扩大编辑器域；`5358`逐22槽，活动者先扣旧费用，算收入/征兵时旧费用仍保留，加收入后才清，再5828税后赤字流失。5456从2240h以20h步长扫127个半记录，不是完整军团数组；精确位宽/整月与消费者竞争见[P08](re-notes-ai-fiscal.md)。
 
 ### 势力 3.2 三池及士气（实锤到字段，极端值策略未批准）
+
+[Python三池编译保真](editor-reserve-compile.md)本轮复核固定KI/MZ与5F85/5F88/5F8E/5F90/5F93及5F9B双INC SI六签名，只同步已证六byte进声明槽固定来源，保其余byte/非公开槽。u16表示边界不改变下述65500正常加法或授权极端值运行；不是整章初始化闭包。
 
 - `55EC add ax,dx; carry或ax>FFDC则ax=FFDC`，即预备池正常加法饱和65500单位=655000人。三池显示直接证据：`5F85 add si,4;5F88 mov cx,3;5F8E mov ax,[si];5F90 mov dx,10;5F93 mul dx`，每轮SI+=2后显示，明确三个池均×10。
 - `67F2/6812/6832`原UI征兵输入上限10000人；`67FC/681C/683C mov bx,10;div bx`写三兵word，所以原word为十人单位。`689D..68A8`展示三个征兵word时×10。
@@ -230,7 +232,7 @@ type2/type3/type6/type7谈判入口复用内政/外交Skill §8.1原证索引，
 | 40..5F | 32B Big5 | **实锤**章节/槽显示名称；`8C55`显示章头+40h；静态`8D25`另写标题缓冲 | 不把存档标题等同章节身份；注意32B限制、Big5字符边界/填充 |
 | 60..7F | 32B | **unknown**，原四章零；上述头加载/写出不覆盖 | 全部原样保留 |
 
-日期关键原码：`1D9C A1F00C;1D9F 3AC4;1DD7 FE06F00C`；`1DAA 813EF60CE803;1DB2 C706F60CE603;1DB8 FF06F60C`。现解析器恰因官方初始hour=day=1、year<256而隐藏错误，不代表映射正确。
+日期关键原码：`1D9C A1F00C;1D9F 3AC4;1DD7 FE06F00C`；`1DAA 813EF60CE803;1DB2 C706F60CE603;1DB8 FF06F60C`。旧解析器恰因官方初始hour=day=1、year<256而隐藏错误，不代表映射正确。后续[E-04日期离线纠错](editor-date-import.md)实际重核7签名，`parse_scenario`改为day@00/year word@06；20章date-only新目录仅后库两年改变。当时离线阶段未改已安装包/副本；后续[受控日期采纳](editor-date-adoption.md)已安装新默认264/266，旧包/副本8/10仍固定不改。不能把解码/启动或采纳当全原时序/完整导入认证。
 
 ### 势力 6.1 章节样本与玩家身份不能只改一个byte
 
@@ -259,9 +261,9 @@ type2/type3/type6/type7谈判入口复用内政/外交Skill §8.1原证索引，
 
 | 位置 | 缺漏/风险 | 本批建议 |
 | --- | --- | --- |
-| `tools/parse_sinario.py` start | day=sc[3]实际hour；year=sc[6]漏高byte | 单独批准导入纠错后重导入到新目录比对，不能直接改生成资产 |
-| 同文件money | u16+hi<<16 unsigned，不能代表负signed24 | 未来signed解析/编译需闭合；官方四章正数不足以覆盖负值 |
-| `tools/content_pipeline.py:put` | 所有width都限制unsigned；money3B不能直接接受负金 | 未来明确signed24编码入口；不扩大其它字段signed域 |
+| `tools/parse_sinario.py` start | 旧day=sc[3]/year=sc[6]已在离线API纠正为00/06..07 | [日期隔离overlay](editor-date-import.md)20章/120单变量/原窗SHA通过，后续[受控采纳](editor-date-adoption.md)已换新默认而旧副本不换；缺尾2B不补、不认证全导入 |
+| 同文件money | 历史u16+hi<<16 unsigned已由[离线signed24专项](editor-money-import.md)纠正；money_hi/raw仍原byte | 离线后继[资金编译](editor-money-compile.md)仅signed24/固定来源三byte同步，五库原正数不认证负值运行/全消费者 |
+| `tools/content_pipeline.py:put` | 历史money3B曾走unsigned且声明raw未同步固定来源；后继[编译专项](editor-money-compile.md)独立signed24并同步money三byte | 其它put仍unsigned/原生字段同步另审，不扩大其它字段signed域 |
 | parse n_generals及pipeline约189行 | 所有同属军师均减/加1作为模板规则；KI开局减仅选定玩家 | 原事实与Web化身产品决定拆开，不能宣称原版NPC都减军师 |
 | `web/src/game/legacyrecords.js:13..20` | +18按n_generals加同属advisor重建 | 属现Web兼容别名策略；应审查玩家军师退active后的生命周期，不把它作原始计数证据 |
 | parse talk_style / pipeline f+1E | 以命名权威写回f+1E，但独立势力对话消费者未知 | 降为unknown raw；已证真正对话来自general+1E |

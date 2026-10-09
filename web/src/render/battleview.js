@@ -1,4 +1,5 @@
 import { originalActiveObjectDisplay } from "../game/battle/originalobjectframe.js";
+import { createTrialBattleFrames } from "../editor/trialruleboundaries.js";
 // 战场视图 — BATTLE.MAP/MDL等距地形 + BATTLE.SCH原版对象 + 点选指挥。
 // 地图与对象均只投影OriginalBattleSession；Canvas不得推进规则态。
 import {
@@ -162,6 +163,9 @@ export class BattleView {
 
   /** 开战：暂停战略时钟→A1C5启动→持续9FA0输入/A426/A065主循环。 */
   async open(battle, onFinish) {
+    if (this._trialDiscarded) {
+      throw new Error("ended Trial cannot reopen battle view");
+    }
     const generation = ++this._openGeneration;
     cancelAnimationFrame(this._raf);
     this.active = false;
@@ -255,6 +259,13 @@ export class BattleView {
     this.dialoguePendingStart = true;
     this.syncBattleDialogue();
     this._last = performance.now();
+    // Server-trial tactical boundary (opt-in): network permit gates every rule frame;
+    // anonymous play keeps the null driver and the original loop unchanged.
+    this._trialFrames = this.app.trialGate
+      ? createTrialBattleFrames(this.app.trialGate, this, {
+          isHeld: () => !this.runtimeEnabled || this.app.runtimeEnabled === false,
+        })
+      : null;
     const loop = (now) => {
       if (!this.active || generation !== this._openGeneration) return;
       if (!this.runtimeEnabled || this.app.runtimeEnabled === false) {
@@ -268,7 +279,7 @@ export class BattleView {
           ? elapsedSeconds
           : 0;
       this._last = now;
-      const over = this.updateBattleFrames(dt);
+      const over = this._trialFrames ? this._trialFrames.update(dt) : this.updateBattleFrames(dt);
       if (over) {
         this.draw();
         this.finish();
@@ -384,6 +395,7 @@ export class BattleView {
 
   /** 每逻辑帧严格执行输入队列→A426→A065，直到战斗本身结束。 */
   updateBattleFrames(dt) {
+    if (this._trialDiscarded) { return false; }
     const firstFrameDue = this.firstTacticalFramePending;
     const elapsedSeconds = Number(dt);
     const elapsedMs =
@@ -441,6 +453,53 @@ export class BattleView {
       frames++;
     }
     return this.battle.over;
+  }
+
+  /** Web Trial exit: discard owned progress, never settle or resume native tails. */
+  discardTrial() {
+    if (this.app.canPersist !== false || !this.app.trialIdentity) {
+      throw new Error("battle discard requires an isolated Trial");
+    }
+    if (this._trialDiscarded) { return false; }
+    this._trialDiscarded = true;
+    this._openGeneration++;
+    this.active = false;
+    this.runtimeEnabled = false;
+    this.onFinish = null;
+    this.prevClockState = null;
+    this.battle = null;
+    this.battleScriptVm = null;
+    this.battleStartup = null;
+    // endBattle commits cross-battle scratch; an ended Trial drops that owner.
+    this.originalDisplayProcess = null;
+    this.mapImg = null;
+    this.unitImg = null;
+    this.sceneCanvas = null;
+    this.terrainLayers = [];
+    this.sceneReady = false;
+    this.drag = null;
+    this.scriptAccumulator = 0;
+    this.firstTacticalFramePending = false;
+    this.scriptMessageCount = 0;
+    this._panelSignature = "";
+    const raf = this._raf;
+    this._raf = 0;
+    cancelAnimationFrame(raf);
+    globalThis.removeEventListener?.("resize", this._layoutOnResize);
+    this.clearBattleDialogue();
+    this.dialoguePresentation = null;
+    // battle is already detached, so clear both physical portrait slots explicitly.
+    for (const name of ["atk", "def"]) {
+      const box = document.querySelector(`#bdialogue-${name}`);
+      if (box) { box.dataset.kind = ""; }
+      document.querySelector(`#bdialogue-${name}-face`)?.removeAttribute("src");
+    }
+    this.cv.style.display = "none";
+    for (const id of ["#bctl", "#battle-bottom-bar"]) {
+      const element = document.querySelector(id);
+      if (element) { element.style.display = "none"; }
+    }
+    return true;
   }
 
   /** 结束：战果只来自OriginalBattleSession.settleExit。 */

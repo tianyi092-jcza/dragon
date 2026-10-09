@@ -2,5 +2,11 @@
 # Review their semantic/native diffs through the manifest verification tools.
 web/content/builtin/compiled/** binary
 web/src/content/builtinresources.generated.js -text
+web/src/content/builtinrelease.generated.js -text
+# Author-only raw source packages and descriptor bind exact UTF-8/SHA bytes.
+web/content/builtin/authoring/entities-*/** binary
+web/src/editor/builtinentitysource.generated.js -text
 # Reviewed author descriptors also bind exact input bytes.
 docs/data/*.json -text
+# Worker Text imports retain pinned manifest bytes across Git checkouts.
+server/pinned/*.txt -text

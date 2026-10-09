@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "profile": "ki-fixed-entity-source-1",
+  "mode": "READONLY_IMPORT_INPUT",
+  "runtimeDataSha256": "f819a1a5bb81d8b915a19e8efbaf6a212d8e4516843513869dc1b939ca1ac3af",
+  "resource": {
+    "path": "entity-source.json",
+    "sha256": "086ca8a87e2dafb2b7c9d657a74b70c81b5da3e98776e5d7d8c21dcfc5a982a5",
+    "byteLength": 503775
+  },
+  "originalSources": {
+    "../上/SINARIO.DAT": "6183b6b2883fb1cd9c6d7c7d0def86049b7707a64d9258836940900a09454d73",
+    "../中/SINARIO.DAT": "cf91e4360fa4e9363b5136ba379d58c8b1c8b5b3ca309eca4071b4f7a805ce59",
+    "../下/SINARIO.DAT": "89406f442dad626cea8df87d3c3ffb049a784a97da996caa13ae82622a1e8ffb",
+    "../后/SINARIO.DAT": "3e70ad54e3fc3b9d13a25883098d1ccc53218aafd1a7a461b095c1f1fc9812db",
+    "../原版/SINARIO.DAT": "4ad37ad619649bf9ca2f075ffe483ff67f205fafa1e2d7b4926dc2598ec08c87"
+  }
+}

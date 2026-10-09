@@ -1,0 +1,67 @@
+// Associations and DTOs are UI state only; the authenticated service remains authority.
+export function installStageJobs({ api, authority, work, isBusy, savedContext }) {
+  const q = id => document.getElementById(id), uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value), revision = value => typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value), key = value => typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value);
+  const purposes = Object.freeze(['data', 'images', 'fallback-spring', 'fallback-summer', 'fallback-autumn', 'fallback-winter']), emptyAssociations = () => Object.fromEntries(purposes.map(name => [name, null]));
+  let identity = null, owner = null, generation = 0, purpose = 'data', associations = emptyAssociations(), corrupt = false, message = '先讀取明確已保存修訂；階段產物不代表可運行或已發布。';
+  const urls = new Set(), active = () => associations[purpose], permitted = () => identity === authority() && identity && !identity.user.mustChangePassword;
+  const storeKey = () => 'editor-stage-jobs:' + owner, base = binding => '/api/games/' + binding.gameId + '/stage-jobs/' + binding.purpose;
+  function revokeURLs() { for (const url of urls) URL.revokeObjectURL(url); urls.clear(); }
+  function persist() { try { sessionStorage.setItem(storeKey(), JSON.stringify(Object.fromEntries(Object.entries(associations).map(([name,b]) => [name, b ? { gameId: b.gameId, draftRevision: b.draftRevision, purpose: b.purpose, enqueueKey: b.enqueueKey, id: b.id, command: b.command } : null])))); } catch { message = '操作關聯無法保留；請勿在確認結果前重新載入。'; } }
+  function restore() {
+    try { const text = sessionStorage.getItem(storeKey()); if (!text) return; if (text.length > 4096) throw new Error('association budget'); const records = JSON.parse(text), names = Object.keys(records).sort().join(','); if (names !== 'data,images' && names !== [...purposes].sort().join(',')) throw new Error('association purposes');
+      for (const name of Object.keys(records)) { const b = records[name]; if (b === null) continue; if (!b || Object.keys(b).sort().join(',') !== 'command,draftRevision,enqueueKey,gameId,id,purpose' || !uuid(b.gameId) || !revision(b.draftRevision) || b.purpose !== name || !key(b.enqueueKey) || b.id !== null && !uuid(b.id)) throw new Error('association context'); const cmd = b.command; if (cmd !== null && (!cmd || Object.keys(cmd).sort().join(',') !== 'action,key,revision' || !['run','retry'].includes(cmd.action) || !key(cmd.key) || !revision(cmd.revision))) throw new Error('command context'); }
+      associations = { ...emptyAssociations(), ...records }; message = '已恢復操作關聯，沒有恢復憑據或產物；請明確查詢服務狀態，不自動執行。';
+    } catch { corrupt = true; message = '操作關聯損壞，不發新請求；可明確改密撤銷舊會話後再放棄關聯。'; }
+  }
+  function render() {
+    q('stage-editor').hidden = !permitted(); const binding = active(), context = savedContext(), locked = !permitted() || isBusy() || corrupt, forbidden = purpose !== 'data' && identity?.user.role !== 'admin';
+    q('stage-purpose').disabled = locked; for (const option of q('stage-purpose').options) option.disabled = option.value !== 'data' && identity?.user.role !== 'admin';
+    q('stage-create').disabled = locked || forbidden || !context || Boolean(binding && !binding.revoked && !['ready','failed'].includes(binding.job?.state));
+    q('stage-query').disabled = locked || forbidden || !binding; q('stage-run').disabled = locked || forbidden || !binding?.job || Boolean(binding.command) || binding.revoked || !['queued','running','ready'].includes(binding.job.state);
+    q('stage-retry').disabled = locked || forbidden || !binding?.job || Boolean(binding.command) || binding.revoked || binding.job.state !== 'failed' || !binding.job.retryable;
+    q('stage-context').textContent = context ? '讀取上下文 ' + context.gameId + '／已保存修訂 ' + context.draftRevision + (context.dirty ? '／未保存資料不參與' : '') : '尚無已讀取的精確草稿上下文';
+    q('stage-status').textContent = message; q('stage-task').textContent = binding ? binding.gameId + '／已保存修訂 ' + binding.draftRevision + '／' + purpose + '／' + (binding.job?.state ?? '尚待服務確認') + (binding.job ? '／狀態修訂 ' + binding.job.rowRevision : '') : '此用途尚無操作關聯';
+    for (const button of q('stage-artifacts').querySelectorAll('button')) button.disabled = locked || forbidden || binding?.job?.state !== 'ready' || Boolean(binding.command) || Boolean(binding?.revoked);
+  }
+  function ticket() { const user = authority(), serial = ++generation; return () => user === authority() && user === identity && serial === generation; }
+  function showArtifacts() {
+    revokeURLs(); q('stage-artifacts').replaceChildren(); const binding = active(); if (binding?.job?.state !== 'ready') return;
+    for (const output of binding.job.checkpoint.flatMap(record => record.outputs)) { const row = document.createElement('p'), label = document.createElement('span'), button = document.createElement('button'); label.textContent = output.assetId + '／' + output.byteLength + ' bytes '; button.type = 'button'; button.textContent = '核驗並下載產物'; button.onclick = () => action(() => download(binding, output)); row.append(label, button); q('stage-artifacts').append(row); }
+  }
+  function accept(response, binding) {
+    const job = response?.job; if (response?.admission !== 'stage-only' || response.purpose !== binding.purpose || !job || !uuid(job.operationId) || binding.id && binding.id !== job.operationId || job.gameId !== binding.gameId || job.draftRevision !== binding.draftRevision || job.scope !== 'all' || !revision(job.rowRevision) || !['queued','running','ready','failed'].includes(job.state) || !Number.isSafeInteger(job.stage) || job.stage < 0 || job.stage > 2 || !Array.isArray(job.checkpoint) || job.checkpoint.length !== job.stage) throw new Error('階段回應上下文無效，保留原操作關聯。');
+    const assets = job.checkpoint.flatMap(record => record.outputs); if (assets.length > 128 || assets.some(output => !output || !/^[A-Za-z0-9_-]{1,128}$/.test(output.assetId) || !/^[a-f0-9]{64}$/.test(output.sha256) || !Number.isSafeInteger(output.byteLength) || output.byteLength < 1 || output.byteLength > 4 * 1024 * 1024)) throw new Error('階段產物描述無效。');
+    binding.id = job.operationId; binding.job = job; binding.command = null; persist(); showArtifacts(); message = '服務目前 ' + job.state + '；僅階段事實，不證明原HTTP執行歸屬，也不是運行／發布許可。';
+  }
+  async function reserve(binding) { const valid = ticket(), response = await api(base(binding), { draftRevision: binding.draftRevision, scope: 'all' }, { key: binding.enqueueKey }); if (valid() && active() === binding) accept(response, binding); }
+  async function create() {
+    const context = savedContext(); if (!context) throw new Error('先讀取精確已保存修訂。'); if (context.dirty && !confirm('有未保存資料。只處理已保存修訂，不保存目前輸入；確定預約階段任務？')) return;
+    const old = active(); if (old && !old.revoked && !['ready','failed'].includes(old.job?.state)) throw new Error('先查詢原操作，不另起未知預約。');
+    if (old && !confirm('保留舊任務於服務端，改用新的明確預約關聯？不刪除舊產物。')) return;
+    const binding = { gameId: context.gameId, draftRevision: context.draftRevision, purpose, enqueueKey: crypto.randomUUID(), id: null, command: null }; associations[purpose] = binding; persist(); showArtifacts(); message = '預約尚待確認；失去回應時明確同鍵確認，不另起預約。'; await reserve(binding);
+  }
+  async function query() {
+    const binding = active(); if (!binding) return; if (!binding.id) { if (!confirm('尚無任務ID。以原鍵及原固定完整body明確確認預約？若服務未收過，會建立原請求，不另起鍵。')) return; await reserve(binding); return; }
+    const valid = ticket(), response = await api(base(binding) + '/' + binding.id); if (valid() && active() === binding) accept(response, binding);
+  }
+  async function command(actionName) {
+    const binding = active(); if (!binding?.job || binding.command) throw new Error('先查詢實際任務狀態，不自動重跑。');
+    if (!confirm(actionName === 'retry' ? '按已查狀態明確重試失敗任務？不改已保存源。' : '按已查狀態執行／恢復階段任務？有界租約不保證雲端SLA，這不是試運行。')) return;
+    const command = { action: actionName, key: crypto.randomUUID(), revision: binding.job.rowRevision }; binding.command = command; persist(); const valid = ticket(); message = '命令未確認；失去回應先查服務，不自動重跑。';
+    const response = await api(base(binding) + '/' + binding.id + '/' + command.action, {}, { key: command.key, revision: command.revision }); if (valid() && active() === binding) accept(response, binding);
+  }
+  async function download(binding, output) {
+    if (active() !== binding || binding.revoked || binding.job?.state !== 'ready') throw new Error('先查詢目前階段產物。'); const valid = ticket(), response = await api(base(binding) + '/' + binding.id + '/artifacts/' + output.assetId, undefined, { binary: true, maxBytes: output.byteLength }); if (!valid() || active() !== binding) return;
+    const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', response.bytes))].map(byte => byte.toString(16).padStart(2,'0')).join(''); if (!valid() || active() !== binding) return;
+    if (response.bytes.length !== output.byteLength || digest !== output.sha256 || response.sha256 !== output.sha256) throw new Error('下載實際bytes或回應SHA不符，不建立檔案。');
+    const url = URL.createObjectURL(new Blob([response.bytes], { type: 'application/octet-stream' })); urls.add(url); const anchor = document.createElement('a'); anchor.href = url; anchor.download = output.assetId + '.bin'; anchor.click(); message = '單一產物完整bytes已核驗；不代表全部運行依賴或發布准入。';
+  }
+  function action(callback) { return work(async () => { const binding = active(); try { await callback(); } catch (error) { if (active() === binding && binding) { if (['JOB_AUTH_REVOKED','OPERATION_REVOKED'].includes(error.code)) binding.revoked = true; message = '階段操作未確認：' + error.message + '。保留關聯，先明確查詢，不自動重跑。'; } throw error; } finally { render(); } }); }
+  function setIdentity(next) { if (identity !== next) { generation++; revokeURLs(); identity = next; if (next && owner !== next.user.id) { owner = next.user.id; associations = emptyAssociations(); corrupt = false; restore(); } showArtifacts(); } render(); }
+  const uncertain = () => Object.values(associations).some(binding => binding && (!binding.id || binding.command));
+  q('stage-purpose').onchange = () => { if (isBusy() || !purposes.includes(q('stage-purpose').value) || q('stage-purpose').value !== 'data' && identity?.user.role !== 'admin') { q('stage-purpose').value = purpose; return; } purpose = q('stage-purpose').value; generation++; showArtifacts(); render(); };
+  q('stage-create').onclick = () => action(create); q('stage-query').onclick = () => action(query); q('stage-run').onclick = () => action(() => command('run')); q('stage-retry').onclick = () => action(() => command('retry'));
+  window.addEventListener('beforeunload', event => { revokeURLs(); if (uncertain()) { event.preventDefault(); event.returnValue = ''; } });
+  function assetContext() { const first = associations.data; if (corrupt || !permitted() || !first) return null; const operations = {}; for (const name of purposes) { const b = associations[name]; if (!b || b.revoked || b.command || !uuid(b.id) || b.gameId !== first.gameId || b.draftRevision !== first.draftRevision) return null; operations[name] = b.id; } if (new Set(Object.values(operations)).size !== 6) return null; return { gameId: first.gameId, draftRevision: first.draftRevision, operations }; }
+  render(); return { setIdentity, render, assetContext, canLeave() { return !uncertain() || confirm('有未確認階段請求。離開後仍須查原關聯，不會自動重跑；確定離開？'); }, passwordChanged(next) { if (next !== authority() || next?.user.id !== owner) return; for (const binding of Object.values(associations)) if (binding) { binding.revoked = true; binding.command = null; } corrupt = false; message = '實際改密已撤銷舊會話；舊任務不能新推進，不代表已刪除產物。可明確另約已讀取修訂。'; render(); } };
+}

@@ -1,0 +1,99 @@
+// UI state is not authority. Every read/write uses the authenticated fixed-copy API.
+export function installDraftEditor({ api, authority, work, isBusy, onContextChanged = () => {} }) {
+  const q = id => document.getElementById(id), uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value), revision = value => typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value);
+  let owner = null, identity = null, generation = 0, games = [], loaded = null, attempt = null, chapters = [], message = '請查看自己的遊戲並明確載入已保存修訂。';
+  const input = () => ({ name: q('draft-name').value, introduction: q('draft-introduction').value });
+  const dirty = () => Boolean(loaded && (input().name !== loaded.metadata.name || input().introduction !== loaded.metadata.introduction));
+  const unresolved = () => Boolean(attempt && !['failed', 'revoked'].includes(attempt.state));
+  const permitted = () => Boolean(identity && !identity.user.mustChangePassword);
+  const storageKey = () => 'editor-draft-operation:' + owner;
+  function persist() { try { if (attempt) sessionStorage.setItem(storageKey(), JSON.stringify({ gameId: attempt.gameId, revision: attempt.revision, key: attempt.key })); else sessionStorage.removeItem(storageKey()); } catch { message = '無法保留操作鍵；請勿在保存結果確認前重新載入。'; } }
+  function restore() {
+    try { const text = sessionStorage.getItem(storageKey()); if (!text) return; if (text.length > 512) throw new Error('invalid operation association'); const data = JSON.parse(text); if (!uuid(data.gameId) || !revision(data.revision) || typeof data.key !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(data.key) || Object.keys(data).sort().join(',') !== 'gameId,key,revision') throw new Error('invalid operation association'); attempt = { ...data, state: 'unknown', body: null }; message = '上次保存結果未確認；先查詢原操作。此頁沒有原請求內容，不能重造同鍵請求。'; }
+    catch { message = '操作鍵關聯無法讀取；不視為已保存，也不自動提交。'; }
+  }
+  function render() {
+    q('draft-editor').hidden = !permitted(); const busy = isBusy(), locked = !permitted() || busy;
+    q('draft-games-refresh').disabled = locked; q('draft-game').disabled = locked || Boolean(attempt);
+    q('draft-load').disabled = locked || unresolved(); q('draft-revision').disabled = locked || unresolved();
+    for (const id of ['draft-name', 'draft-introduction']) q(id).disabled = locked || !loaded?.verifiedRead || Boolean(attempt);
+    q('draft-save-button').disabled = locked || !loaded?.verifiedRead || Boolean(attempt); q('draft-operation-query').disabled = locked || !attempt;
+    q('draft-trial-start').disabled = locked || !loaded?.verifiedRead || Boolean(attempt) || chapters.length === 0;
+    { const select = q('draft-trial-chapter'), signature = chapters.map(chapter => chapter.chapterId).join('|'); if (select.dataset.signature !== signature) { select.dataset.signature = signature; select.replaceChildren(); for (const chapter of chapters) { const option = document.createElement('option'); option.value = chapter.chapterId; option.textContent = chapter.name; select.append(option); } } select.disabled = locked || chapters.length === 0; }
+    q('draft-operation-retry').disabled = locked || !attempt?.body || !['failed', 'not-found'].includes(attempt.state);
+    q('draft-status').textContent = message; q('draft-context').textContent = loaded ? loaded.gameId + '／已保存修訂 ' + loaded.draftRevision + (dirty() ? '／有未保存修改' : '') : '未載入私有草稿'; onContextChanged();
+  }
+  function canLeave() { return !(dirty() || attempt) || confirm('有未保存資料或未確認的保存操作。確定離開？未確認操作仍須查詢原鍵，不會自動重試。'); }
+  function setIdentity(next) {
+    if (identity === next) { render(); return; } generation++; identity = next;
+    if (next && owner !== next.user.id) { owner = next.user.id; games = []; loaded = null; attempt = null; chapters = []; q('draft-game').replaceChildren(); q('draft-name').value = ''; q('draft-introduction').value = ''; q('draft-resources').replaceChildren(); restore(); }
+    else if (next && !attempt) restore();
+    // Expiry hides the private panel, not falsely acknowledging or resubmitting input.
+    render();
+  }
+  function ticket() { const user = authority(), serial = ++generation; return () => user === authority() && user === identity && serial === generation; }
+  function metadata(value) { if (!value || typeof value.name !== 'string' || typeof value.introduction !== 'string') throw new Error('資料回應無效。'); return { name: value.name, introduction: value.introduction }; }
+  function summary(result, expected) { if (!result || result.gameId !== expected.gameId || !revision(result.draftRevision) || ![expected.revision, String(BigInt(expected.revision) + 1n)].includes(result.draftRevision)) throw new Error('保存回應身份或修訂無效，請查詢原操作。'); return metadata(result.metadata); }
+  function accept(result) { const fields = summary(result, attempt); loaded = { ...loaded, gameId: result.gameId, draftRevision: result.draftRevision, metadata: fields }; q('draft-name').value = fields.name; q('draft-introduction').value = fields.introduction; q('draft-revision').value = result.draftRevision; attempt = null; persist(); message = '已確認保存修訂 ' + result.draftRevision + '；沒有切換最新版本。'; }
+  async function refreshGames() {
+    const valid = ticket(), response = await api('/api/games'); if (!valid()) return;
+    if (!Array.isArray(response.games) || response.games.some(game => !uuid(game.gameId) || !revision(game.draftRevision))) throw new Error('遊戲清單回應無效。'); games = response.games;
+    const selected = attempt?.gameId ?? loaded?.gameId ?? q('draft-game').value; q('draft-game').replaceChildren();
+    for (const game of games) { const option = document.createElement('option'); option.value = game.gameId; option.textContent = metadata(game.metadata).name + '／清單修訂 ' + game.draftRevision; q('draft-game').append(option); }
+    if (games.some(game => game.gameId === selected)) q('draft-game').value = selected;
+    if (!loaded && !attempt) q('draft-revision').value = games.find(game => game.gameId === q('draft-game').value)?.draftRevision ?? '';
+    message = attempt ? '請先查詢未確認的原保存操作。' : '清單修訂只供選擇，載入前不替換已保存上下文。';
+  }
+  async function load() {
+    if (unresolved()) throw new Error('未確認原保存操作，不能換目標或另起保存。');
+    if (!canLeave()) return; const gameId = q('draft-game').value, requested = q('draft-revision').value;
+    if (!uuid(gameId) || !revision(requested)) throw new Error('請選遊戲並輸入明確已保存修訂。');
+    const valid = ticket(), response = await api('/api/games/' + gameId + '/draft?revision=' + encodeURIComponent(requested)); if (!valid()) return;
+    if (response.gameId !== gameId || response.draftRevision !== requested || response.profileRevision !== 'fixed-copy-resources-1' || !Array.isArray(response.chapters)) throw new Error('草稿回應上下文無效。');
+    const fields = metadata(response.metadata); loaded = { gameId, draftRevision: requested, metadata: fields, verifiedRead: true }; attempt = null; persist(); chapters = response.chapters.map(chapter => { if (typeof chapter.chapterId !== 'string' || !chapter.chapterId) throw new Error('章資料回應無效。'); return { chapterId: chapter.chapterId, name: String(chapter.name || chapter.chapterId) }; }); q('draft-name').value = fields.name; q('draft-introduction').value = fields.introduction; q('draft-resources').replaceChildren();
+    for (const chapter of response.chapters) { const group = document.createElement('details'), label = document.createElement('summary'); label.textContent = String(chapter.name || chapter.chapterId); group.append(label); if (!Array.isArray(chapter.factions)) throw new Error('章資料回應無效。'); for (const faction of chapter.factions) { const row = document.createElement('p'); row.textContent = '槽 ' + faction.slot + '：資金 ' + faction.money + '／騎兵 ' + faction.reserve_cav + '／弓兵 ' + faction.reserve_arc + '／步兵 ' + faction.reserve_inf; group.append(row); } q('draft-resources').append(group); }
+    message = '已載入明確修訂；只有名稱／簡介可編輯，四資源只讀。';
+  }
+  function normalized() { const fields = input(); for (const [name, limit] of [['name', 8], ['introduction', 20]]) { if (!fields[name].isWellFormed() || [...fields[name]].some(c => c.codePointAt(0) < 32 || c.codePointAt(0) >= 127 && c.codePointAt(0) <= 159)) throw new Error('名稱／簡介含無效字元。'); fields[name] = fields[name].trim().normalize('NFC'); if ([...fields[name]].length > limit || name === 'name' && !fields[name].length) throw new Error('名稱最多8字元，簡介最多20字元。'); } return fields; }
+  async function submit(retry = false) {
+    if (!loaded?.verifiedRead || !permitted()) throw new Error('請先載入自己的精確草稿。');
+    if (!retry) { if (attempt) throw new Error('先查詢原保存，不另起鍵。'); attempt = { gameId: loaded.gameId, revision: loaded.draftRevision, key: crypto.randomUUID(), body: { metadata: normalized(), resourceEdits: [] }, state: 'unknown' }; persist(); }
+    if (!attempt?.body || retry && !['failed', 'not-found'].includes(attempt.state)) throw new Error('沒有原請求內容或尚未確認可重試；不重造同鍵內容。');
+    const pending = attempt, valid = ticket(); pending.state = 'unknown'; message = '正在保存；如失去回應，保留原輸入與操作鍵並查詢。'; render();
+    try { const result = await api('/api/games/' + pending.gameId + '/draft/save', pending.body, { key: pending.key, revision: pending.revision }); if (valid() && attempt === pending) accept(result); }
+    catch (error) { if (attempt === pending) { message = '保存未確認：' + error.message + ' 原輸入保留，請查詢原操作；不自動重試。'; } throw error; }
+  }
+  async function query() {
+    if (!attempt) return; const pending = attempt, valid = ticket();
+    try { const response = await api('/api/games/' + pending.gameId + '/draft/operations/' + encodeURIComponent(pending.key)); if (!valid() || attempt !== pending) return;
+      if (response.state === 'committed') accept(response.result);
+      else if (['pending', 'failed'].includes(response.state) && response.gameId === pending.gameId && response.expectedRevision === pending.revision) { pending.state = response.state; message = response.state === 'pending' ? '服務仍pending；保留原鍵，不另起保存。' : '服務已記錄失敗：' + response.error + '。輸入保留，可明確重試原請求或確認放棄後重新載入。'; }
+      else throw new Error('操作回應上下文無效。');
+    } catch (error) { if (valid() && attempt === pending) { if (error.status === 404) { if (pending.state !== 'revoked') pending.state = 'not-found'; message = pending.state === 'revoked' ? '舊會話已由實際改密撤銷；查無原操作仍不宣稱已保存或失敗。可確認放棄後載入明確修訂。' : '目前查無原操作，不保證在途請求已結束；有原內容才可明確重試相同原鍵。不保留原內容時，可明確改密撤銷所有舊會話後再載入，不能重造請求或自動另起鍵。'; } else if (error.code === 'OPERATION_REVOKED') { pending.state = 'revoked'; message = '原操作會話已撤銷，不能復活舊鍵；確認放棄後載入明確修訂。'; } else { message = '查詢未確認：' + error.message; throw error; } } }
+  }
+  function action(callback) { return work(async () => { try { await callback(); } finally { render(); } }); }
+  async function startTrial(child) {
+    if (!loaded?.verifiedRead || attempt) throw new Error('請先載入自己的精確草稿並確認無未確認操作。');
+    const chapterId = q('draft-trial-chapter').value;
+    if (!chapters.some(chapter => chapter.chapterId === chapterId)) throw new Error('請選擇要試運行的章節。');
+    const gameId = loaded.gameId, expected = loaded.draftRevision, valid = ticket();
+    const result = await api('/api/games/' + gameId + '/trials', { expectedRevision: expected, chapterId });
+    if (!valid()) { try { if (!child.closed) child.close(); } catch { /* retain */ } return; }
+    if (child.closed) throw new Error('試運行視窗已關閉，請重新開啟。');
+    if (result?.state !== 'active' || !uuid(result.trialId) || result.gameId !== gameId || result.draftRevision !== expected || result.chapterId !== chapterId || result.ownerId !== identity.user.id || typeof result.manifestDigest !== 'string' || !/^[a-f0-9]{64}$/.test(result.manifestDigest)) throw new Error('試運行回應身份不符。');
+    child.location.replace('/api/trial/web/?trial=' + result.trialId);
+    message = '已開啟草稿試運行視窗；僅記憶體、進度不保存。';
+  }
+  q('draft-trial-start').onclick = () => {
+    const child = window.open('/api/trial/wait', '_blank');
+    if (!child) { message = '瀏覽器攔截了彈出視窗；請允許後再點擊「測試運行本章」重試。'; render(); return; }
+    try { child.opener = null; } catch { /* cross-origin timing */ }
+    return action(async () => { try { await startTrial(child); } catch (error) { try { if (!child.closed) child.close(); } catch { /* retain original failure */ } throw error; } });
+  };
+  q('draft-games-refresh').onclick = () => action(refreshGames); q('draft-load').onclick = () => action(load); q('draft-save').onsubmit = event => { event.preventDefault(); action(() => submit()); };
+  q('draft-operation-query').onclick = () => action(query); q('draft-operation-retry').onclick = () => action(() => submit(true));
+  q('draft-game').onchange = () => { const selected = loaded?.gameId ?? attempt?.gameId; if (isBusy() || attempt || !canLeave()) { if (selected) q('draft-game').value = selected; return; } loaded = null; chapters = []; q('draft-name').value = ''; q('draft-introduction').value = ''; q('draft-resources').replaceChildren(); q('draft-revision').value = games.find(game => game.gameId === q('draft-game').value)?.draftRevision ?? ''; generation++; render(); };
+  for (const id of ['draft-name', 'draft-introduction']) q(id).oninput = render;
+  window.addEventListener('beforeunload', event => { if (dirty() || attempt) { event.preventDefault(); event.returnValue = ''; } });
+  render(); return { setIdentity, render, canLeave, savedContext() { return loaded?.verifiedRead && !attempt ? { gameId: loaded.gameId, draftRevision: loaded.draftRevision, dirty: dirty() } : null; }, passwordChanged(next) { if (next !== authority() || next?.user.id !== owner || !attempt) return; attempt.state = 'revoked'; message = '服務已確認改密並撤銷舊會話。這不代表原保存成功或失敗；確認放棄後載入明確修訂。'; render(); }, clearForLogout() { generation++; loaded = null; attempt = null; chapters = []; q('draft-name').value = ''; q('draft-introduction').value = ''; q('draft-resources').replaceChildren(); render(); } };
+}

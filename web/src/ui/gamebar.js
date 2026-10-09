@@ -138,8 +138,10 @@ const SUBMENU = [
   "勢力",
 ];
 
+import { createGameBarImageResources } from "./gamebarimages.js";
+
 export class GameBar {
-  constructor(app) {
+  constructor(app, resourcePorts = null) {
     this.app = app;
     this.bx = 0; // 工具栏左缘 (窗口宽变化时重算)
     this.miniOpen = false;
@@ -177,6 +179,15 @@ export class GameBar {
     this._clockHoldRequested = false;
     this._legionPortraitImg = null;
     this._legionPortraitKey = null;
+    this._barImageResources = null;
+    this._barImageGeneration = 0;
+    this._barImageLoading = false;
+    if (resourcePorts !== null) {
+      this._barImageResources = createGameBarImageResources(app, resourcePorts);
+      this._assets = this.loadImageResources();
+      void this._assets.catch(() => {}); // Explicit await still receives the failure.
+      return;
+    }
     this._assets = Promise.all([
       loadImage("grf/ui/tool_bar.png"),
       loadImage("grf/ui/tool_ico1.png"),
@@ -244,6 +255,53 @@ export class GameBar {
     );
   }
 
+  loadImageResources() {
+    const resources = this._barImageResources;
+    if (!resources) return this._assets;
+    if (this._barImageLoading) return this._assets;
+    const generation = ++this._barImageGeneration;
+    this._barImageLoading = true;
+    this.imgs = undefined;
+    this._gf = undefined;
+    const current = () => {
+      resources.assertCurrent();
+      if (this._barImageResources !== resources || this._barImageGeneration !== generation) {
+        throw new Error("GAMEBAR_IMAGE_STALE");
+      }
+    };
+    const task = Promise.resolve().then(async () => {
+      current();
+      const [bar, i1, i2, i3, i4, money, cav, arc, inf, cloud, sq, col, cap,
+        mbg, messageNpc, ivent0, ivent1, ivent2, mbgLarge] = await resources.loadImages();
+      current();
+      this.imgs = { bar, i1, i2, i3, i4, money, cav, arc, inf, mbg, mbgLarge,
+        messageNpc, ivent0, ivent1, ivent2 };
+      this._gf = { cloud, sq, col, cap };
+      current();
+      this.app.view.draw();
+      current();
+    }).catch(error => {
+      if (this._barImageResources === resources && this._barImageGeneration === generation) {
+        this.disposeImageResources();
+      }
+      throw error;
+    }).finally(() => {
+      if (this._barImageGeneration === generation) this._barImageLoading = false;
+    });
+    this._assets = task;
+    void task.catch(() => {});
+    return task;
+  }
+
+  disposeImageResources() {
+    if (!this._barImageResources) return;
+    this._barImageGeneration++;
+    this._barImageLoading = false;
+    this.imgs = undefined;
+    this._gf = undefined;
+    this._barImageResources.close();
+  }
+
   _loadMinimapImage(size) {
     const world = this.app.world;
     const url = world?.definition.assets.minimap?.[size];
@@ -256,6 +314,7 @@ export class GameBar {
 
   // ── 金框 + 云纹窗 (与 startmenu prompt 同款, 供右侧面板用) ──
   _frame(ctx, ox, oy, wTiles, hTiles) {
+    this._barImageResources?.assertCurrent();
     const { sq, col, cap } = this._gf;
     const x = ox,
       y = oy,
@@ -271,6 +330,7 @@ export class GameBar {
   }
 
   _cloud(ctx, x, y, w, h) {
+    this._barImageResources?.assertCurrent();
     ctx.fillStyle = ctx.createPattern(this._gf.cloud, "repeat");
     ctx.fillRect(x, y, w, h);
   }
@@ -7501,6 +7561,10 @@ export class GameBar {
 
   settingsClick(i) {
     const hud = this.app.hud;
+    if (this.app.canPersist === false && (i === 0 || i === 1)) {
+      hud?.flashEvent?.("草稿試運行禁止正式存讀檔。");
+      return;
+    }
     if (i === 0) {
       // 資料儲存：打开居中 SAVE DATA 弹窗，保持计时停止
       this.openSystemSaveDialog();
@@ -7589,8 +7653,8 @@ export class GameBar {
 
     const musicType = this.app.music?.type ?? 1;
     const btnTexts = [
-      "OK",
-      "OK",
+      this.app.canPersist === false ? "停用" : "OK",
+      this.app.canPersist === false ? "停用" : "OK",
       MUSIC_TYPE_LABELS[musicType],
       stratText,
       tactText,
@@ -7676,6 +7740,7 @@ export class GameBar {
   }
 
   openSystemLoadConfirmDialog() {
+    if (this.app.canPersist === false) return false;
     clickSfx();
     this.settingsOpen = false;
     this.systemSaveDialog = null;
@@ -7887,6 +7952,7 @@ export class GameBar {
   }
 
   openSystemSaveDialog() {
+    if (this.app.canPersist === false) return false;
     if (!canSnapshotState(this.app)) {
       this.app.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
       warnSfx();
@@ -8118,6 +8184,7 @@ export class GameBar {
 
   /** UI 层绘制 (MapView.draw 末尾回调) */
   draw(ctx) {
+    this._barImageResources?.assertCurrent();
     if (!this.imgs) return;
     this.layout();
     const { bar, i1, i2, i3, i4 } = this.imgs;
@@ -8239,6 +8306,7 @@ export class GameBar {
 
   /** 小地图面板: 金框云窗 + 路网/海域底图 + 据点方块 + 军团路线 */
   drawMini(ctx) {
+    this._barImageResources?.assertCurrent();
     const p = this.panelRect("mini");
     if (!p) return;
     const { x: mx, y: my, w: mw, h: mh } = p.mapBox;
@@ -8496,6 +8564,7 @@ export class GameBar {
 
   /** 资源面板: 君主卡 + 信賴度 + 資金/預備兵 */
   async drawRes(ctx) {
+    this._barImageResources?.assertCurrent();
     const p = this.panelRect("res");
     if (!p) return;
     const sc = this.app.scenario;

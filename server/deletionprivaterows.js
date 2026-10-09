@@ -1,0 +1,27 @@
+// Internal SQL-only current private descriptor/parent links, NOT full references, native bytes or permission.
+// Writer sources: admincopy #put/#execute/cancel, drafts #put/save, data/image/fallback execute; metadata #insertSnapshot.
+import {fail} from './security.js';
+const families=Object.freeze([
+ {table:'copy_objects',states:"'intent','verified','committed','abandoned'",parent:'copy_requests',key:'p.game_id COLLATE BINARY=c.game_id COLLATE BINARY',actor:'p.actor'},
+ {table:'draft_objects',states:"'intent','verified','committed'",parent:'draft_requests',key:'p.actor COLLATE BINARY=c.actor COLLATE BINARY AND p.op_key COLLATE BINARY=c.op_key COLLATE BINARY',actor:'p.actor'},
+ ...['data_compile_objects','image_compile_objects','fallback_compile_objects'].map(table=>({table,states:"'intent','verified'",parent:'compile_jobs',key:'p.job_id COLLATE BINARY=c.operation_id COLLATE BINARY',actor:'p.actor_id'})),
+ {table:'draft_references',parent:'content_snapshots',key:'p.game_id COLLATE BINARY=c.game_id COLLATE BINARY AND p.revision COLLATE BINARY=c.revision COLLATE BINARY',actor:null}
+]);
+function rows(sql,query,values){let result;try{result=sql.exec(query,...values).toArray();}catch{fail(503,'DELETE_PRIVATE_ROW_QUERY');}if(!Array.isArray(result)||result.length>10001||result.some(row=>!row||Object.keys(row).length!==1||row.binding!==1))fail(503,'DELETE_PRIVATE_ROW_QUERY');return result;}
+export function inspectPrivateObjectRowBindings(sql,gameId){
+ if(typeof gameId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(gameId))fail(503,'DELETE_PRIVATE_ROW_TARGET');
+ let size;try{size=sql.databaseSize;}catch{fail(503,'DELETE_PRIVATE_ROW_QUERY');}if(!Number.isSafeInteger(size)||size<0)fail(503,'DELETE_PRIVATE_ROW_QUERY');if(size>32*1024*1024)fail(503,'DELETE_PRIVATE_ROW_BUDGET');
+ if(rows(sql,"SELECT 1 AS binding FROM content_games NOT INDEXED WHERE game_id=? COLLATE BINARY AND typeof(game_id)='text' AND typeof(owner_id)='text' LIMIT 2",[gameId]).length!==1)fail(503,'DELETE_PRIVATE_ROW_ROWS');
+ let total=0;const scopes=new Map();
+ for(const family of families){const scope=family.table==='copy_objects'||family.table==='draft_references'?'c.game_id=? COLLATE BINARY':`(c.game_id=? COLLATE BINARY OR EXISTS(SELECT 1 FROM ${family.parent} AS p NOT INDEXED WHERE ${family.key} AND p.game_id=? COLLATE BINARY))`,values=scope.includes('OR EXISTS')?[gameId,gameId]:[gameId];scopes.set(family.table,{scope,values});const count=rows(sql,`SELECT 1 AS binding FROM ${family.table} AS c NOT INDEXED WHERE ${scope} LIMIT 10001`,values).length;total+=count;if(count>10000||total>20000)fail(503,'DELETE_PRIVATE_ROW_BUDGET');}
+ for(const table of ['copy_requests','draft_requests','compile_jobs','content_snapshots']){const count=rows(sql,`SELECT 1 AS binding FROM ${table} NOT INDEXED WHERE game_id=? COLLATE BINARY LIMIT 10001`,[gameId]).length;total+=count;if(count>10000||total>20000)fail(503,'DELETE_PRIVATE_ROW_BUDGET');}
+ for(const family of families){const {scope,values}=scopes.get(family.table),state=family.states?` OR typeof(c.state)<>'text' OR c.state NOT IN(${family.states})`:" OR typeof(c.revision)<>'text' OR length(c.revision)<1 OR substr(c.revision,1,1) NOT BETWEEN '1' AND '9' OR c.revision GLOB '*[^0-9]*'",parentActor=family.actor?` AND typeof(${family.actor})='text' AND ${family.actor} COLLATE BINARY=g.owner_id COLLATE BINARY`:"",matchActor=family.table.includes('_compile_objects')?' AND p.actor_id COLLATE BINARY=c.actor_id COLLATE BINARY':'';
+  let childActor='';if(family.table==='draft_objects')childActor=" OR typeof(c.actor)<>'text' OR typeof(c.op_key)<>'text'";else if(family.table.includes('_compile_objects'))childActor=" OR typeof(c.actor_id)<>'text' OR typeof(c.operation_id)<>'text'";
+  const invalid=`typeof(c.game_id)<>'text' OR c.game_id<>? COLLATE BINARY OR typeof(c.sha256)<>'text' OR length(c.sha256)<>64 OR c.sha256 GLOB '*[^0-9a-f]*' OR typeof(c.byte_length)<>'integer' OR c.byte_length<1 OR c.byte_length>16777216${state}${childActor} OR NOT EXISTS(SELECT 1 FROM ${family.parent} AS p NOT INDEXED JOIN content_games AS g NOT INDEXED ON g.game_id COLLATE BINARY=p.game_id COLLATE BINARY WHERE ${family.key} AND typeof(p.game_id)='text' AND p.game_id COLLATE BINARY=c.game_id COLLATE BINARY AND g.game_id=? COLLATE BINARY${parentActor}${matchActor})`;
+  if(rows(sql,`SELECT 1 AS binding FROM ${family.table} AS c NOT INDEXED WHERE ${scope} AND (${invalid}) LIMIT 1`,[...values,gameId,gameId]).length)fail(503,'DELETE_PRIVATE_ROW_ROWS');
+ }
+ // Native SDK rejects compound SELECT. Fixed single-table groups and pairwise native equality preserve the SAME rule.
+ for(const {table} of families)if(rows(sql,`SELECT 1 AS binding FROM ${table} NOT INDEXED WHERE game_id=? COLLATE BINARY GROUP BY sha256 COLLATE BINARY HAVING MIN(byte_length)<>MAX(byte_length) LIMIT 1`,[gameId]).length)fail(503,'DELETE_PRIVATE_ROW_LENGTH');
+ for(let i=0;i<families.length;i++)for(let j=i+1;j<families.length;j++)if(rows(sql,`SELECT 1 AS binding FROM ${families[i].table} AS a NOT INDEXED JOIN ${families[j].table} AS b NOT INDEXED ON a.sha256 COLLATE BINARY=b.sha256 COLLATE BINARY WHERE a.game_id=? COLLATE BINARY AND b.game_id=? COLLATE BINARY AND a.byte_length<>b.byte_length LIMIT 1`,[gameId,gameId]).length)fail(503,'DELETE_PRIVATE_ROW_LENGTH');
+ return Object.freeze({privateObjectRowsVerified:true,privateObjectParentLinksVerified:true,draftSnapshotLinksVerified:true,privateObjectLengthBindingsVerified:true});
+}
