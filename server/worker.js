@@ -422,6 +422,7 @@ export class EditorMetadata extends DurableObject {
   }
   async #postTrialStart(rt) {
     const { request, tokenHash, user, policy, url, value, trialStartPath } = rt;
+    if (!trialStartPath) { return null; }
     if (!this.trialSessions) { fail(503, 'TRIAL_NOT_CONFIGURED'); }
     if (url.search) { fail(422, 'TRIAL_QUERY'); }
     fields(value, ['expectedRevision', 'chapterId']);
@@ -437,6 +438,7 @@ export class EditorMetadata extends DurableObject {
   }
   async #postTrialEnd(rt) {
     const { request, tokenHash, user, policy, url, value, trialPath } = rt;
+    if (trialPath?.[2] !== 'end') { return null; }
     if (!this.trialSessions) { fail(503, 'TRIAL_NOT_CONFIGURED'); }
     if (url.search) { fail(422, 'TRIAL_QUERY'); }
     fields(value, []);
