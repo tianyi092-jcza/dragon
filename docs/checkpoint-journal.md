@@ -96,3 +96,5 @@
 **事项④试运行壳上传 UI（2026-10-09，路径 A）**：`servertrialapp.js` 预启动面板新增头像上传区（`mountPortraitUploads`，文件选择＋编号＋上传＋列表预览）：客户端验类型/100K/编号形，FileReader 转 base64，同源 POST `/api/trials/:id/portraits`，成功后重取 pack 刷新列表（`pack` 改 let）；旧快照无 portraits 数组时明示不支持。验证：DOM 桩全流程（初绘／空文件／类型／超限／上传刷新）＋node --check＋lint 零告警；另清 3 处历史拼接。武将数据 portrait 引用键（B 侧）未动。
 
 **束重卷（同批）**：`servertrialapp.js` 改动后重卷试玩束（215 文件，sha `1d2a3acd…`），壳不变。
+
+**事项④B 侧运行接线（2026-10-09，路径 A）**：`core/assets.js` 新增试运行级 `portraitOverrides` 注册表（`setPortraitOverrides`＋纯构造子 `buildPortraitOverrides`：章武将 `portraitKey` × `manifest.portraits` 命中即按 byte 覆盖 kao，未命中/非法回落，调用点零改）；`trialruntime.createTrialEnvironment` 装配（无 portraits 置空，本地流不受影响）。门禁零碰（gaps 仍验 byte）、draft 验证零碰（通用 JSON 断言本就透传，投影 structuredClone 全透）。验证：builder/注册表单元（命中/回落/清空/空表）＋node --check＋lint 零告警；束重卷 215 文件（`ee335440…`）。残留：工作台草稿 portraitKey 编辑面、跨 lane 回归。

@@ -47,7 +47,7 @@ export function loadImage(url) {
   return cachedAsset(url, () => new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => res(img);
-    img.onerror = () => rej(new Error("加载失败: " + url));
+    img.onerror = () => rej(new Error(`加载失败: ${url}`));
     img.src = imageUrl(url);
   }));
 }
@@ -59,7 +59,22 @@ export function loadSeasonTile(season, definition = DEFAULT_WORLD) {
   );
 }
 
-/** 武将头像 (懒加载+缓存) */
+/** 武将头像 (懒加载+缓存；试运行上传覆盖优先，无覆盖回落 kao) */
+let portraitOverrides = null;
+export function setPortraitOverrides(map) { portraitOverrides = map instanceof Map && map.size ? map : null; }
+// 事项④ Web 产品决定（用户裁决 2026-10-09，非原版机制）：章武将 portraitKey ×
+// manifest.portraits 命中即按 portrait byte 覆盖 kao 引用；未命中/非法一律回落，不发明图。
+export function buildPortraitOverrides(generals, portraits) {
+  const map = new Map();
+  if (!Array.isArray(generals) || !Array.isArray(portraits)) { return map; }
+  const byId = new Map(portraits.filter((entry) => entry && typeof entry.assetId === "string").map((entry) => [entry.assetId, entry]));
+  for (const general of generals) {
+    if (!general || typeof general.portraitKey !== "string" || !Number.isInteger(general.portrait)) { continue; }
+    const hit = byId.get(general.portraitKey);
+    if (typeof hit?.url === "string" && hit.url) { map.set(general.portrait, hit.url); }
+  }
+  return map;
+}
 export function portrait(i) {
-  return loadImage(`kao/${i}.png`);
+  return loadImage(portraitOverrides?.get(i) ?? `kao/${i}.png`);
 }
