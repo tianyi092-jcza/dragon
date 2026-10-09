@@ -28,6 +28,98 @@ export function buildServerTrialBinding(pack, sessionId) {
   };
 }
 
+const PORTRAIT_ACCEPT = "image/png,image/jpeg";
+const PORTRAIT_MAX_BYTES = 100 * 1024;
+
+function defaultPortraitId() {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const bytes = new Uint8Array(10);
+  crypto.getRandomValues(bytes);
+  let id = "up";
+  for (const b of bytes) { id += alphabet[b % 52]; }
+  return id;
+}
+
+function pickError(picked) {
+  if (!picked) { return "请先选择图片文件。"; }
+  if (picked.type !== "image/png" && picked.type !== "image/jpeg") { return "只接受 JPG/PNG。"; }
+  if (picked.size === 0 || picked.size > PORTRAIT_MAX_BYTES) { return "文件须 1B..100KB。"; }
+  return null;
+}
+
+// Pre-boot portrait uploads for the running server trial (事项④ Web 产品决定，用户裁决
+// 2026-10-09，非原版机制)：JPG/PNG ≤100KiB，槽位无关编号，落 trial 派生对象。
+export function mountPortraitUploads({ documentTarget, fetchImpl, trialId, getPack, setPack, randomId = defaultPortraitId }) {
+  const section = documentTarget.createElement("div");
+  const title = documentTarget.createElement("p");
+  title.textContent = "人物头像上传（JPG/PNG，≤100KB，建议128×128）：";
+  const file = documentTarget.createElement("input");
+  file.type = "file"; file.accept = PORTRAIT_ACCEPT;
+  const name = documentTarget.createElement("input");
+  name.placeholder = "头像编号（留空自动生成）";
+  const upload = documentTarget.createElement("button");
+  upload.textContent = "上传头像";
+  const note = documentTarget.createElement("p");
+  const list = documentTarget.createElement("div");
+  section.append(title, file, name, upload, note, list);
+  const paint = (portraits) => {
+    list.replaceChildren();
+    for (const entry of portraits) {
+      const img = documentTarget.createElement("img");
+      img.src = entry.url; img.alt = entry.assetId; img.width = 64; img.height = 64;
+      const caption = documentTarget.createElement("span");
+      caption.textContent = ` ${entry.assetId} ${entry.mime} ${Math.round(entry.byteLength / 1024)}KB`;
+      const row = documentTarget.createElement("div");
+      row.append(img, caption);
+      list.append(row);
+    }
+  };
+  const current = () => {
+    const portraits = getPack()?.manifest?.portraits;
+    if (!Array.isArray(portraits)) { note.textContent = "此试运行快照不支持头像上传。"; return []; }
+    return portraits;
+  };
+  paint(current());
+  upload.onclick = async () => {
+    try {
+      upload.disabled = true;
+      note.textContent = "";
+      const picked = file.files?.[0] ?? null;
+      const invalid = pickError(picked);
+      if (invalid) { note.textContent = invalid; return; }
+      const assetId = (name.value || randomId()).trim();
+      if (!/^[A-Za-z]{1,32}$/.test(assetId)) { note.textContent = "编号须为 1..32 个英文字母。"; return; }
+      const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error("读取失败")); reader.readAsDataURL(picked); });
+      const dataBase64 = String(dataUrl).split(",", 2)[1] ?? "";
+      if (!dataBase64) { note.textContent = "读取失败。"; return; }
+      const uploaded = await fetchImpl(`/api/trials/${trialId}/portraits`, {
+        method: "POST", credentials: "same-origin", cache: "no-store",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ assetId, dataBase64 }),
+      });
+      if (!uploaded.ok) {
+        let reason = uploaded.status;
+        try { reason = (await uploaded.json())?.error ?? uploaded.status; } catch { /* keep status */ }
+        note.textContent = `上传失败：${reason}`;
+        return;
+      }
+      const created = await uploaded.json();
+      const packResponse = await fetchImpl(`/api/trials/${trialId}/pack`, { credentials: "same-origin", cache: "no-store" });
+      if (!packResponse.ok) { note.textContent = "已上传但快照刷新失败，请重进。"; return; }
+      setPack(await packResponse.json());
+      paint(current());
+      note.textContent = `已上传 ${created.assetId}。`;
+      name.value = "";
+      file.value = "";
+    } catch (error) {
+      note.textContent = `上传失败：${error?.message ?? String(error)}`;
+    } finally {
+      upload.disabled = false;
+    }
+  };
+  return { element: section, refresh: () => paint(current()) };
+}
+
 export async function bootServerTrialWindow({
   windowTarget = window,
   documentTarget = document,
@@ -58,7 +150,7 @@ export async function bootServerTrialWindow({
     say("試運行快照不可用或已結束；請從工作台重新開啟新視窗。");
     return { result: "pack-unavailable", status: packResponse.status };
   }
-  const pack = await packResponse.json();
+  let pack = await packResponse.json();
   // Explicit faction choice by user click before booting the actual App (same policy as the local trial).
   const panel = documentTarget.createElement("div");
   panel.style.cssText = "position:fixed;left:20px;top:20px;z-index:101;color:white;background:#141414;padding:16px";
@@ -75,7 +167,8 @@ export async function bootServerTrialWindow({
   const button = documentTarget.createElement("button");
   button.id = "start-trial";
   button.textContent = "開始試運行";
-  panel.append(label, select, button);
+  const portraits = mountPortraitUploads({ documentTarget, fetchImpl, trialId, getPack: () => pack, setPack: (next) => { pack = next; } });
+  panel.append(label, select, portraits.element, button);
   documentTarget.body.append(panel);
   const chosen = await new Promise((resolve) => { button.onclick = () => { button.disabled = true; resolve(Number(select.value)); }; });
   panel.remove();
@@ -83,7 +176,7 @@ export async function bootServerTrialWindow({
   try {
     environment = createTrialEnvironment(pack, { fullApp: true, playerFaction: chosen });
   } catch (error) {
-    say("試運行快照身份不符：" + error.message);
+    say(`試運行快照身份不符：${error.message}`);
     return { result: "pack-invalid", error: error.message };
   }
   const gate = createTrialConnectionGate(buildServerTrialBinding(pack, session.csrf));
@@ -99,7 +192,7 @@ export async function bootServerTrialWindow({
     app = await openApp({ ...environment, gate });
   } catch (error) {
     monitor.dispose("window-dispose");
-    say("無法啟動試運行：" + error.message);
+    say(`無法啟動試運行：${error.message}`);
     return { result: "boot-failed", error: error.message };
   }
   // Terminal states never revive: discard window progress and prompt re-login (Q70).
@@ -122,6 +215,6 @@ export async function bootServerTrialWindow({
 if (typeof window !== "undefined" && typeof document !== "undefined" && document.querySelector?.("#trial-status")) {
   bootServerTrialWindow().catch((error) => {
     const status = document.querySelector("#trial-status");
-    if (status) status.textContent = "無法啟動試運行：" + (error?.message ?? String(error));
+    if (status) status.textContent = `無法啟動試運行：${error?.message ?? String(error)}`;
   });
 }
