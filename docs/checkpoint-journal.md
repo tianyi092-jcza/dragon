@@ -3,10 +3,10 @@
 > 本文件 = 当前主线状态 + 稳定事实/命令/坑点 + 本轮会话明细。
 > 逐批历史明细的维护源：批次证据见各 `docs/editor-*.md` 的「维护源」、验证 lane 状态见 [editor-local-validation.md](editor-local-validation.md)、Trial 线程逐轮交接见 `.dragon-analysis/editor-phase/SESSION-RESTART-HANDOFF-TRIAL-SERVER-R*.md`（最新 R17）。早期逐批明细已自本文件移除，旧版在 git 历史中可查。
 
-## 当前主线状态（2026-10-09，dev HEAD=`4d37f7c`，未 push）
+## 当前主线状态（2026-10-09，dev HEAD=`1c701a3`，已 push）
 
 - **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8h 全部闭合**。8h 删除级联：`GameDeletionFence.begin()` 同事务级联 trial 行＋资产，链已封存（deletecascade-r1：derive 双向绿→guards 562/269→gate 12/13 真后端→audit 9785→postdoc 9787）。guards **562/269**（④批次新增文件尚未继任）；仍不称 Q69/Q70/Q71 闭包完成。
-- **用户事项队列**：①统一/胜利终局——暂缓（裁决 B）；②战术帧实际验证——✅ 8g 闭合；③删除级联——✅ 8h 闭合；④人物头像上传——✅ 机制/壳UI/运行接线/工作台绑定面均落地（残留：浏览器整轮 lane 回归）；⑤commit/push/deploy——最后，等明确授权（当前 9 个本地提交未 push）。
+- **用户事项队列**：①统一/胜利终局——✅ 关闭（终局属原版规则不管，编辑器只改地图/据点/道路/人物，规则原样，不做实证）；②战术帧实际验证——✅ 8g 闭合；③删除级联——✅ 8h 闭合；④人物头像上传——✅ 机制/壳UI/运行接线/工作台绑定面均落地（残留：浏览器整轮 lane 回归）；⑤commit/push/deploy——✅ 已推送（1c701a3）。
 - **Web 产品决定（用户裁决 2026-10-09，非原版机制）**事项④：尺寸不限 128×128（建议值），只保源矩形裁active→64×64，单文件 ≤100K；只收 JPG/PNG；头像资源不绑定 255 槽位（uuid 级 assetId，数量不限）；落盘走 `trial_assets` 派生机制；试运行走 worker（路径 A）。
 - **其它 open lane**：E-01 GameBar 图像 native 全图/SDK 502 根因 UNKNOWN；浏览器整轮 lane（talk/talkdirect/tactical/endview）未重跑，列下批链；RuntimeManifest/发布/物理删除等 R12-4 属后端线程。任务二（地图改造）已收口。
 - **历史批次一句话**：8g 战术帧实证修两真缺陷（`commands.js` 门面路图→`scenarioNativeRoadContext`；trial web `?v=` 白名单）→561/268；lint 收口（barrel 本地再导出＋tlog 约定）journal 瘦身 883→90 行。
@@ -43,7 +43,7 @@
 
 - 批次闭环五段全部 hash 钉住、不重跑已密封 scope、不追认历史成功；derive 失败现场如实登记 attempt。
 - 机制结论只认原始证据；推断/未知不进正式规则路径；用户已批准差异另标「Web 产品决定」。
-- 试玩内容前提：仅据点/道路/武将数据可定制；自动化禁触 `E:/Dragon/Dragon/SAVE.DAT`。
+- 试玩内容前提：仅地图/据点/道路/武将数据可定制，引擎/规则/AI（含统一胜利终局）不动；自动化禁触 `E:/Dragon/Dragon/SAVE.DAT`。
 - 提交与推送分别授权；不自动改全局配置/信任策略。
 
 ## 本轮会话记录（2026-10-09，事项④＋回归＋memory 整理）
@@ -54,4 +54,4 @@
 - 工作台绑定面（`6d40cb2`）：`generalportrait.js`＋`POST /api/general-portrait`＋games.js 章/将选择，自检新增回归段。
 - 跨 lane 回归（`fbe0a12`，无代码变更）：路由对等＋真后端冒烟 19/19（三处期望勘误经 `f60ea48` 核对为老行为）＋单元重跑。
 - lint !55W（`4d37f7c`）：括号/模板/const＋`createTrialEnvironment` 拆分；束 216 文件。
-- **当前阻塞**：无（待 push 授权）。**下一步**：事项⑤（你明确说 push 才推）或下批链（浏览器整轮＋guards 继任 ④批次文件）。
+- **当前阻塞**：无。**下一步**：下批链（浏览器整轮＋guards 继任④批次文件）或 Q69/Q70/Q71 新批。
