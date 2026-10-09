@@ -5,8 +5,8 @@
 
 ## 当前主线状态（2026-10-09，dev 分支 @20692d7，未 push）
 
-- **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8h 全部实施，其中 1-7e＋8a-8g 已闭合**。最新 8h（删除级联，事项③）：`GameDeletionFence.begin()` fence INSERT 同一事务内级联 `UPDATE trial_sessions→ended/game-deleting＋DELETE trial_assets`（同 game 精确，异 game 不动，旧库无 trial 表时守卫跳过）；`LIMITS`/注释中华“级联未接线”已更新；worker.js 13 处历史字符串拼接机械模板化（行为等价，git diff 可证）。**状态：已修改待验证**——新工具 `tools/verify_trial_deletion_cascade.mjs` 三场景全绿＋editor_server 自检＋node --check＋lint 零 error；完整 workerd gate/guards 继任链待跑。guards **561/268**（未继任）；仍不称 Q69/Q70/Q71 闭包完成。
-- **用户事项队列**：①统一/胜利终局——暂缓（裁决 B）；②战术帧实际验证——✅ 8g 闭合；③删除级联——**已实施待验证**（8h，fence 同事务级联；完整链待跑）；④图片资源 native 路径——事项③验证完成后讨论；⑤commit/push/deploy——最后，等明确授权。仍不称 Q69/Q70/Q71 闭包完成。
+- **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8h 全部闭合**。最新 8h（删除级联，事项③）：`GameDeletionFence.begin()` fence INSERT 同一事务内级联 trial 行＋资产；链已封存（deletecascade-r1：derive 双向绿→guards 562/269→gate 12/13 真后端→audit 9785→postdoc 9787，`deletionCascadeWired:true`）。guards **562/269**；仍不称 Q69/Q70/Q71 闭包完成。
+- **用户事项队列**：①统一/胜利终局——暂缓（裁决 B）；②战术帧实际验证——✅ 8g 闭合；③删除级联——✅ 8h 闭合（链已封存；dispatcher 跨 lane 全回归待下批链）；④图片资源 native 路径——可讨论；⑤commit/push/deploy——最后，等明确授权。仍不称 Q69/Q70/Q71 闭包完成。
 - **其它 open lane**（详见 local-validation 与各维护源）：E-01 GameBar 图像 native 全图/SDK 502 根因 UNKNOWN；saved-source capture 成本线程（候选未装、fullnative false）；RuntimeManifest/发布/物理删除等 R12-4 属后端线程。任务二（地图改造）已收口（MAP-MIGRATION-2，审计页为准）。
 - **本地提交基线**：dev HEAD=`20692d7`（任务二＋E-02/E-03 基线）。8a-8g 全部改动（server/、tools/ 新工具、docs、.dragon-analysis/）均在工作区未提交；`server/` 不入 git（先例，链以 sha 钉住）。365 个脏改主要是 `.gitattributes` 换行符归一化假象＋未提交批次产物。
 
@@ -87,3 +87,5 @@
 **验证**：`node --check` 全过；级联三场景＋editor 自检全绿；biome 全规则＋复杂度双口径零告警。调试结论：①一次 `#target` 行首误删（即时补回，全文复核）；②`export default {}` 内私方法非法→`staticAsset` 改模块函数；③两处虚构标识（`policyOf`/`userOf`）即时修正——均为提交前自检捕获，未入提交。
 
 **链实捕真回归（2026-10-09，deletecascade-r1 gate）**：dispatcher 重构漏了 `#postTrialStart/#postTrialEnd` 外层路径守卫——trialSessions 在位时劫持全部非 trial POST，改密 `fields` 直接 422（probe 首登后改密步实捕；直连复现定位到 col 251 改密断言）。修法：两方法入口补 `if (!trialStartPath) return null`／`if (trialPath?.[2] !== 'end') return null`；全叶子守卫复核（无条件分发必自守或调用方守）。smoke：login/password/admin-accounts 全 200。修入 commit `7623922`，链锚点跟进（derive diff 仍精确六文件）。
+
+**链封存（2026-10-09，deletecascade-r1）**：derive 6 authored 双向绿 → guards 562/269（561/268＋3 生产改＋新工具双桶）→ gate PASS 12 检查／13 调用（真 workerd＋DO SQLite：静态交叉＋开局＋seed＋fence＋级联＋409＋回放）→ audit 9785 hash-read／7 新 WX → postdoc 9787 路径／5 链接／syntax 7。权威 manifest `saved-source-trial-deletecascade-r1/post-document.json`（`deletionCascadeWired:true/deleteCascade8hProven:true`）。残留：dispatcher 重构跨 lane 全回归（trial/copy/draft/stage 路由）待下批链；Q69/Q70/Q71 仍不称闭包。
