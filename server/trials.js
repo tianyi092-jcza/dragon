@@ -17,6 +17,14 @@ const shaBytes = value => createHash('sha256').update(value).digest('hex');
 const shaText = value => createHash('sha256').update(value, 'utf8').digest('hex');
 const DERIVED_ASSETS = Object.freeze(['manifest', 'chapter', 'terrain', 'roadGraph', 'roadCost', 'roadOffset', 'minimapBase', 'minimapLarge']);
 const SERVED_ASSETS = Object.freeze(DERIVED_ASSETS.slice(2));
+const SERVED_MIME = Object.freeze({ terrain: 'application/octet-stream', roadGraph: 'application/json', roadCost: 'application/octet-stream', roadOffset: 'application/json', minimapBase: 'image/png', minimapLarge: 'image/png' });
+// Web 产品决定（用户裁决 2026-10-09，非原版机制）：编辑器人物头像上传只收 PNG/JPEG（服务端验魔数，尺寸不限、单文件 100KiB 上限，显示沿用 128 源矩形裁active）。
+const PORTRAIT_MAX_BYTES = 100 * 1024;
+export function sniffPortraitMime(bytes) {
+  if (bytes instanceof Uint8Array && bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) { return 'image/png'; }
+  if (bytes instanceof Uint8Array && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) { return 'image/jpeg'; }
+  return null;
+}
 // Q69 batch 8b start gate capture sets, derived from the single fixed-library source of truth (no hardcoded ranges).
 const TRIAL_PORTRAIT_CAPTURE = new Set(), TRIAL_CITY_VIEW_CAPTURE = new Set();
 for (const path of FIXED_TRIAL_ASSET_PATHS) {
@@ -165,7 +173,7 @@ export class TrialSessions {
       identity: { gameId, draftRevision: reference.draftRevision, sourceDigest: projection.selectedSourceDigest, savedSourceDigest: projection.savedSourceDigest,
         trialSnapshotId: `${gameId}@${reference.draftRevision}:${projection.selectedSourceDigest}:chapter:${shaText(chapterId)}` },
       world: { id: `${gameId}-world`, revision: projection.selectedSourceDigest, width: compiled.width, height: compiled.height, tileSize: 16 },
-      chapters: [chapterId], visualAssets, minimap,
+      chapters: [chapterId], visualAssets, minimap, portraits: [],
       minimapAssets: entries.filter(entry => entry.assetId.startsWith('minimap')), assets: entries.filter(entry => !entry.assetId.startsWith('minimap')) };
     const chapterState = this.#checkChapterState(projection, chapterId);
     // Q69 batch 8b start gate: reject the start when any chapter asset reference misses the staged library (422, before insert).
@@ -205,10 +213,45 @@ export class TrialSessions {
   asset(tokenHash, trialId, assetId) {
     if (typeof assetId !== 'string' || !/^[A-Za-z]{1,32}$/.test(assetId)) { fail(422, 'TRIAL_ASSET_ID'); }
     this.authorize(tokenHash, trialId);
-    if (!SERVED_ASSETS.includes(assetId)) { fail(404, 'TRIAL_ASSET_NOT_FOUND'); }
-    const served = this.#serveAsset(trialId, assetId);
-    if (!served) { fail(404, 'TRIAL_ASSET_NOT_FOUND'); }
-    return served;
+    if (SERVED_ASSETS.includes(assetId)) {
+      const served = this.#serveAsset(trialId, assetId);
+      if (!served) { fail(404, 'TRIAL_ASSET_NOT_FOUND'); }
+      return Object.freeze({ ...served, mime: SERVED_MIME[assetId] });
+    }
+    // Uploaded portraits (事项④ Web 产品决定): any non-derived id present in the table, mime sniffed at serve time so no schema migration is needed.
+    if (DERIVED_ASSETS.includes(assetId)) { fail(404, 'TRIAL_ASSET_NOT_FOUND'); }
+    const uploaded = this.#serveAsset(trialId, assetId);
+    if (!uploaded) { fail(404, 'TRIAL_ASSET_NOT_FOUND'); }
+    const mime = sniffPortraitMime(uploaded.bytes);
+    if (!mime) { fail(503, 'TRIAL_ASSET_CORRUPT'); }
+    return Object.freeze({ ...uploaded, mime });
+  }
+  #checkPortraitUpload(tokenHash, trialId, assetId, bytes) {
+    if (typeof assetId !== 'string' || !/^[A-Za-z]{1,32}$/.test(assetId) || DERIVED_ASSETS.includes(assetId)) { fail(422, 'TRIAL_PORTRAIT_ID'); }
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0 || bytes.length > PORTRAIT_MAX_BYTES) { fail(422, 'TRIAL_PORTRAIT_BYTES'); }
+    const mime = sniffPortraitMime(bytes);
+    if (!mime) { fail(422, 'TRIAL_PORTRAIT_TYPE'); }
+    this.authorize(tokenHash, trialId);
+    return { mime, sha256: shaBytes(bytes) };
+  }
+  uploadPreview(tokenHash, trialId, assetId, bytes) {
+    const { mime, sha256 } = this.#checkPortraitUpload(tokenHash, trialId, assetId, bytes);
+    return Object.freeze({ assetId, mime, sha256, byteLength: bytes.length, url: `/api/trials/${trialId}/assets/${assetId}` });
+  }
+  uploadCommit(tokenHash, trialId, assetId, bytes, expected) {
+    const { mime, sha256 } = this.#checkPortraitUpload(tokenHash, trialId, assetId, bytes);
+    if (this.#assetRow(trialId, assetId)) { fail(409, 'TRIAL_PORTRAIT_EXISTS'); }
+    this.#sql.exec('INSERT INTO trial_assets VALUES(?,?,?,?,?)', trialId, assetId, sha256, bytes.length, Buffer.from(bytes));
+    const manifestRow = this.#assetRow(trialId, 'manifest');
+    if (!manifestRow) { fail(503, 'TRIAL_DERIVED_MISSING'); }
+    let manifest; try { manifest = JSON.parse(Buffer.from(manifestRow.bytes).toString('utf8')); } catch { fail(503, 'TRIAL_DERIVED_MISSING'); }
+    if (!manifest || !Array.isArray(manifest.portraits)) { fail(503, 'TRIAL_DERIVED_MISSING'); }
+    const entry = Object.freeze({ assetId, mime, sha256, byteLength: bytes.length, url: `/api/trials/${trialId}/assets/${assetId}` });
+    manifest.portraits.push(entry);
+    const manifestBytes = Buffer.from(JSON.stringify(manifest));
+    this.#sql.exec('UPDATE trial_assets SET sha256=?, byte_length=?, bytes=? WHERE trial_id=? AND asset_id=?', shaBytes(manifestBytes), manifestBytes.length, manifestBytes, trialId, 'manifest');
+    if (!expected || expected.assetId !== entry.assetId || expected.mime !== entry.mime || expected.sha256 !== entry.sha256 || expected.byteLength !== entry.byteLength) { fail(409, 'TRIAL_CHANGED'); }
+    return entry;
   }
   endPreview(tokenHash, trialId) {
     const { row } = this.#bound(tokenHash, trialId);

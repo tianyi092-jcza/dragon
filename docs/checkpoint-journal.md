@@ -6,7 +6,8 @@
 ## 当前主线状态（2026-10-09，dev 分支 @20692d7，未 push）
 
 - **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8h 全部闭合**。最新 8h（删除级联，事项③）：`GameDeletionFence.begin()` fence INSERT 同一事务内级联 trial 行＋资产；链已封存（deletecascade-r1：derive 双向绿→guards 562/269→gate 12/13 真后端→audit 9785→postdoc 9787，`deletionCascadeWired:true`）。guards **562/269**；仍不称 Q69/Q70/Q71 闭包完成。
-- **用户事项队列**：①统一/胜利终局——暂缓（裁决 B）；②战术帧实际验证——✅ 8g 闭合；③删除级联——✅ 8h 闭合（链已封存；dispatcher 跨 lane 全回归待下批链）；④图片资源 native 路径——可讨论；⑤commit/push/deploy——最后，等明确授权。仍不称 Q69/Q70/Q71 闭包完成。
+- **用户事项队列**：①统一/胜利终局——暂缓（裁决 B）；②战术帧实际验证——✅ 8g 闭合；③删除级联——✅ 8h 闭合（链已封存；dispatcher 跨 lane 全回归待下批链）；④图片资源 native 路径——**用户已裁决，实施中**（人物头像上传，见下）；⑤commit/push/deploy——最后，等明确授权。仍不称 Q69/Q70/Q71 闭包完成。
+- **Web 产品决定（用户裁决 2026-10-09，非原版机制）**事项④人物头像上传：①尺寸不限 128×128（建议值；实测 120×120），只保证现有源矩形裁active→64×64 显示不变，上传单文件 ≤100K（性能）；②只收 JPG/PNG（以当前 `new Image()` 解码能力为准）；③头像资源不绑定 255 槽位（uuid 级 assetId，数量不限；武将数据模型槽位解限另案）；④落盘走 `trial_assets` 派生机制（同事务写入＋fence 级联删除复用 8h）。
 - **其它 open lane**（详见 local-validation 与各维护源）：E-01 GameBar 图像 native 全图/SDK 502 根因 UNKNOWN；saved-source capture 成本线程（候选未装、fullnative false）；RuntimeManifest/发布/物理删除等 R12-4 属后端线程。任务二（地图改造）已收口（MAP-MIGRATION-2，审计页为准）。
 - **本地提交基线**：dev HEAD=`20692d7`（任务二＋E-02/E-03 基线）。8a-8g 全部改动（server/、tools/ 新工具、docs、.dragon-analysis/）均在工作区未提交；`server/` 不入 git（先例，链以 sha 钉住）。365 个脏改主要是 `.gitattributes` 换行符归一化假象＋未提交批次产物。
 
@@ -89,3 +90,5 @@
 **链实捕真回归（2026-10-09，deletecascade-r1 gate）**：dispatcher 重构漏了 `#postTrialStart/#postTrialEnd` 外层路径守卫——trialSessions 在位时劫持全部非 trial POST，改密 `fields` 直接 422（probe 首登后改密步实捕；直连复现定位到 col 251 改密断言）。修法：两方法入口补 `if (!trialStartPath) return null`／`if (trialPath?.[2] !== 'end') return null`；全叶子守卫复核（无条件分发必自守或调用方守）。smoke：login/password/admin-accounts 全 200。修入 commit `7623922`，链锚点跟进（derive diff 仍精确六文件）。
 
 **链封存（2026-10-09，deletecascade-r1）**：derive 6 authored 双向绿 → guards 562/269（561/268＋3 生产改＋新工具双桶）→ gate PASS 12 检查／13 调用（真 workerd＋DO SQLite：静态交叉＋开局＋seed＋fence＋级联＋409＋回放）→ audit 9785 hash-read／7 新 WX → postdoc 9787 路径／5 链接／syntax 7。权威 manifest `saved-source-trial-deletecascade-r1/post-document.json`（`deletionCascadeWired:true/deleteCascade8hProven:true`）。残留：dispatcher 重构跨 lane 全回归（trial/copy/draft/stage 路由）待下批链；Q69/Q70/Q71 仍不称闭包。
+
+**事项④人物头像上传机制（2026-10-09，实施＋单元验证通过）**：`trials.js` 新增 `sniffPortraitMime`（PNG/JPEG 魔数）＋`uploadPreview/uploadCommit`（两阶段，id 形＋保留名＋100KiB＋魔数校验，active-only，409 幂等，manifest.portraits 登记）；`asset()` 扩展非派生行 serve（serve 时魔数嗅探 mime，零 schema 迁移，manifest/chapter 仍 404）；`issue` manifest 增 `portraits: []`；`worker.js` 新增 `POST /api/trials/:id/portraits`（base64≤140000＋op 密封幂等）＋资产路由改走 `served.mime`。验证：新工具 `tools/verify_trial_portrait_upload.mjs` 六场景全绿（真 policy＋stub 端口直连 TrialSessions）＋自检＋lint 零告警。调试结论：初版 `uploadCommit` 返回形状与 worker/tools 调用错位（即时对齐为直接返回 entry）；`TRIAL_ID` 先于 `TRIAL_INVALID`（形检优先，改测用合法未知 UUID）。残留：工作台上传 UI＋武将数据 portrait 引用键＋跨 lane 回归待下批。

@@ -367,11 +367,7 @@ export class EditorMetadata extends DurableObject {
     if (url.search) { fail(422, 'TRIAL_QUERY'); }
     this.touch(tokenHash, policy);
     const served = this.trialSessions.asset(tokenHash, trialAssetPath[1], trialAssetPath[2]);
-    const assetName = trialAssetPath[2];
-    let type = 'application/octet-stream';
-    if (assetName === 'roadGraph' || assetName === 'roadOffset') { type = 'application/json'; }
-    else if (assetName.startsWith('minimap')) { type = 'image/png'; }
-    return new Response(served.bytes, { headers: { ...headers, 'Content-Type': type, 'X-Content-SHA256': served.sha256 } });
+    return new Response(served.bytes, { headers: { ...headers, 'Content-Type': served.mime, 'X-Content-SHA256': served.sha256 } });
   }
   async #postManagement(rt) {
     const { request, tokenHash, user, policy, url, value, managementPath } = rt;
@@ -451,6 +447,24 @@ export class EditorMetadata extends DurableObject {
     if (!committed) { const replayed = await this.replay(op, policy); result = { body: replayed.body }; }
     return response(result.body, 200);
   }
+  async #postTrialPortrait(rt) {
+    const { request, tokenHash, user, policy, url, value, trialPortraitPath } = rt;
+    if (!trialPortraitPath) { return null; }
+    if (!this.trialSessions) { fail(503, 'TRIAL_NOT_CONFIGURED'); }
+    if (url.search) { fail(422, 'TRIAL_QUERY'); }
+    fields(value, ['assetId', 'dataBase64']);
+    if (typeof value.dataBase64 !== 'string' || value.dataBase64.length === 0 || value.dataBase64.length > 140000) { fail(422, 'TRIAL_PORTRAIT_BYTES'); }
+    let bytes; try { bytes = Buffer.from(value.dataBase64, 'base64'); } catch { fail(422, 'TRIAL_PORTRAIT_BYTES'); }
+    if (bytes.length === 0) { fail(422, 'TRIAL_PORTRAIT_BYTES'); }
+    this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'auth');
+    const op = await this.operation(request, value, user.id, user.epoch, policy), old = await this.replay(op, policy);
+    if (old) { return response(old.body, 200); }
+    let result = { body: this.trialSessions.uploadPreview(tokenHash, trialPortraitPath[1], value.assetId, bytes) };
+    const sealed = await seal(result, policy.secret, op.aad);
+    const committed = this.ctx.storage.transactionSync(() => { if (!this.canCommit(op)) { return false; } const current = this.principal(tokenHash); if (current.epoch !== user.epoch) { fail(401, 'SESSION_INVALID'); } result = { body: this.trialSessions.uploadCommit(tokenHash, trialPortraitPath[1], value.assetId, bytes, result.body) }; this.touch(tokenHash, policy); this.remember(op, sealed, policy); return true; });
+    if (!committed) { const replayed = await this.replay(op, policy); result = { body: replayed.body }; }
+    return response(result.body, 200);
+  }
   async #buildPasswordMutation(user, value, policy) {
     fields(value, ['oldPassword', 'newPassword']); password(value.newPassword);
     if (value.newPassword === value.oldPassword || value.newPassword === policy.defaultPassword) { fail(422, 'NEW_PASSWORD_REQUIRED'); }
@@ -514,8 +528,9 @@ export class EditorMetadata extends DurableObject {
     const trialStartPath = /^\/api\/games\/([a-f0-9-]{36})\/trials$/.exec(path);
     const trialPath = /^\/api\/trials\/([a-f0-9-]{36})(?:\/(status|end|pack))?$/.exec(path);
     const trialAssetPath = /^\/api\/trials\/([a-f0-9-]{36})\/assets\/([A-Za-z]{1,32})$/.exec(path);
+    const trialPortraitPath = /^\/api\/trials\/([a-f0-9-]{36})\/portraits$/.exec(path);
     const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
-    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, copyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath };
+    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, copyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, trialPortraitPath, draftPath };
     if (method === 'GET') {
       const hit = (await this.#getTrialRoutes(rt)) ?? (await this.#getPrimaryRoutes(rt)) ?? (await this.#getCollectionRoutes(rt)) ?? (await this.#getRecordRoutes(rt));
       if (hit) { return hit; }
@@ -524,7 +539,7 @@ export class EditorMetadata extends DurableObject {
     if (method !== 'POST') { fail(404, 'NOT_FOUND'); }
     if (!equal(request.headers.get('X-CSRF-Token'), csrf)) { fail(403, 'CSRF_REJECTED'); }
     const value = await body(request);
-    return (await this.#postEntryRoutes({ ...rt, value })) ?? (await this.#postTrialStart({ ...rt, value })) ?? (await this.#postTrialEnd({ ...rt, value })) ?? (await this.#postAuthMutation({ ...rt, value }));
+    return (await this.#postEntryRoutes({ ...rt, value })) ?? (await this.#postTrialStart({ ...rt, value })) ?? (await this.#postTrialEnd({ ...rt, value })) ?? (await this.#postTrialPortrait({ ...rt, value })) ?? (await this.#postAuthMutation({ ...rt, value }));
   }
   #checkContentKeyNamespaces(actor, key, namespace) {
     for (const [table, kind, actorColumn] of [['operations', 'auth', 'actor'], ['source_operations', 'source', 'actor'], ['content_reservations', 'copy', 'actor'], ['copy_http_commands', 'command', 'actor'], ['draft_requests', 'draft', 'actor'], ['compile_operations', 'compile', 'actor_id'], ['stage_http_commands', 'stage-command', 'actor']]) {
