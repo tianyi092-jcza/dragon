@@ -46,8 +46,9 @@
 - 试玩内容前提：仅地图/据点/道路/武将数据可定制，引擎/规则/AI（含统一胜利终局）不动；自动化禁触 `E:/Dragon/Dragon/SAVE.DAT`。
 - 提交与推送分别授权；不自动改全局配置/信任策略。
 
-## 本轮会话记录（2026-10-10，Q69-(iii) 批＋goal）
+## 本轮会话记录（2026-10-10，Q69-(ii) 两级门批）
 
-- 裁决 Q69-(iii)（用户批准）：5 进言 audience 点（敌对/停战/协助/迁都/君主亲征）复刻 8EA0 军师 FF 跳过；预算/编成/募兵/开局/军团/战场排除；启动门与 manifest 不动。调用点对应标推断，行为复刻实锤；可见结果与旧 catch-null 一致（消 404 请求＋语义对齐），事项④上传覆盖保留。
-- q69iii-r1 封存：derive 5 authored→guards 564/270（hash 继任）→gate 13/3→audit 9866→postdoc 9868。调试：derive 转义两次返工；第 6 君主点为被动外交（无军师行，正确排除）。attempt 无（现场一次性过）。
-- **当前阻塞**：无。**下一步**：Q69 剩余（i/ii 或完整闭包）、Q70/Q71、E-01，或收尾 push。
+- 立法（用户批准＋修正案 A）：保存门（武将名/头像、据点名必填，缺即拒存）＋active 门（15/14/19 全字段＋闭合交叉＋计数城 192/将 128 dense，章节/势力开放；draft 记诊断、严格＋试玩拒收 TRIAL_CHAPTER_NOT_ACTIVE）。资产门密封契约另立 trialChapterActiveGaps，不混入。
+- 证据修正两处：安装源 city 本无 connections（连接性走 map roads）——立法砍 connections 门；city.faction 同武将 faction 系非外键（slice 截断曾误导，防火墙实捕）。防火墙以安装源 20 章为准零缺口。
+- q69ii-r1 封存：derive 5 authored→guards 564/270（hash 继任）→gate 16/3→audit 9889→postdoc 9891。attempt 无。
+- **当前阻塞**：无。**下一步**：round-trip 实证批、多游戏并行＋启动页下拉，或收尾 push。

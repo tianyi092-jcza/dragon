@@ -9,6 +9,7 @@ import { projectTrialChapter } from '../web/src/editor/trialscope.js';
 import { FIXED_TRIAL_ASSET_PATHS } from '../web/src/editor/trialassetpaths.js';
 import { compileGameSource, TRIAL_COMPILER_REVISION } from '../web/src/content/authoring/trialcompile.js';
 import { renderMinimapPixels, MINIMAP_SIZES } from '../web/src/content/authoring/minimap.js';
+import { chapterActiveGaps } from '../web/src/content/authoring/gamesource.js';
 const revision = value => typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value);
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
 function chapter(value) { if (typeof value !== 'string' || !/^[A-Za-z0-9_#-]{1,64}$/.test(value)) { fail(422, 'TRIAL_CHAPTER');  }return value; }
@@ -63,6 +64,11 @@ function cityViewGaps(cities) {
 }
 export function trialChapterAssetGaps(state) {
   return Object.freeze([...portraitGaps(state.generals), ...cityViewGaps(state.cities)]);
+}
+// (ii) active 门（试玩 issue）：实体 active 缺口（字段/交叉/计数），单源 chapterActiveGaps；
+// trialChapterAssetGaps 保持 8b/8c 密封契约（资产域），新缺口另立 kind，不混入门的旧断言。
+export function trialChapterActiveGaps(state) {
+  return Object.freeze(chapterActiveGaps(state ?? {}).map((gap) => Object.freeze({ kind: gap.code, slot: null, value: null, logicalURL: null, message: gap.message })));
 }
 export class TrialSessions {
   #sql; #principal; #games; #drafts; #catalog; #policy;
@@ -137,6 +143,8 @@ export class TrialSessions {
     if (!chapterState || typeof chapterState !== 'object' || !Array.isArray(chapterState.generals) || !Array.isArray(chapterState.cities)) { fail(422, 'TRIAL_CHAPTER'); }
     // Q69 batch 8b start gate: reject the start when any chapter asset reference misses the staged library (422, before insert).
     if (trialChapterAssetGaps(chapterState).length > 0) { fail(422, 'TRIAL_CHAPTER_ASSET_MISSING'); }
+    // (ii) active 门：实体 active 缺口（字段/交叉/计数）另立拒码，不混入资产门密封契约。
+    if (trialChapterActiveGaps(chapterState).length > 0) { fail(422, 'TRIAL_CHAPTER_NOT_ACTIVE'); }
     return chapterState;
   }
   // Pre-commit DTO with current authority reads; commit() re-verifies the same authority inside the mutation transaction.
