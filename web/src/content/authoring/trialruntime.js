@@ -42,7 +42,7 @@ function buildFullAppVisuals(manifest, binding, scopedAsset) {
   }));
   return { seasonAtlases: seasonURLs("seasonAtlases"), seasons: seasonURLs("seasons"), minimap: miniURLs };
 }
-export function createTrialEnvironment(pack, { fullApp = false, playerFaction = null } = {}) {
+export function createTrialEnvironment(pack, { fullApp = false, playerFaction = null, persistent = false } = {}) {
   const manifest = pack?.manifest;
   const identity = manifest?.identity;
   if (manifest?.compilerRevision !== TRIAL_COMPILER_REVISION || !pack.chapter ||
@@ -95,6 +95,7 @@ export function createTrialEnvironment(pack, { fullApp = false, playerFaction = 
   if (!Number.isInteger(player) || !raw.factions?.some((f) => f.idx === player)) { throw new TypeError("trial chapter has no selected player faction"); }
   raw.player_faction = player;
   return { raw, content, world, player, identity: Object.freeze({ ...identity, chapterId: pack.chapterId }),
+    ...(persistent === true ? { persistent: true } : {}),
     ...(binding === undefined ? {} : { binding: Object.freeze({ ...binding }) }) };
 }
 

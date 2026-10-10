@@ -46,9 +46,8 @@
 - 试玩内容前提：仅地图/据点/道路/武将数据可定制，引擎/规则/AI（含统一胜利终局）不动；自动化禁触 `E:/Dragon/Dragon/SAVE.DAT`。
 - 提交与推送分别授权；不自动改全局配置/信任策略。
 
-## 本轮会话记录（2026-10-10，round-trip 实证批）
+## 本轮会话记录（2026-10-10，多游戏 b2 批）
 
-- 字节同一性：compile(安装源) vs compile(未改复制) 地形/路图/路费/偏移逐字节等同，复制确定性，差异 confinement（身份/来源/＋deco-grass/＋atomicImport 注脚，编译不消费后两者）；工具 tools/verify_roundtrip_byte_identity.mjs 8 检查。
-- 活体 issue：talk 23/11 在复制章上 post-(ii) 全绿（200 active）；(iii) 两 pin 换新 manifest fa0ec91f（93632/398/20 不变）。
-- roundtrip-r1 封存：derive 5 authored→guards 565/271（工具双桶新入）→gate 8/2→audit 9913→postdoc 9915。attempt 无。
-- **当前阻塞**：无。**下一步**：多游戏并行＋启动页下拉，或收尾 push。
+- 发布登记＋/play 壳＋playapp 三段＋persistent 隔离存档＋自检发布段；browser 冒烟 7 检查（真机开玩＋隔离库）。
+- multigame-r1 封存：derive 5 authored→guards 567/272（playapp 单桶＋冒烟双桶新入）→gate 14/3→audit 9940→postdoc 9942。调试：journal pair 漏 manifest 行、marker 锚错 b2（漏 A 块）、guards 桶假设错、probe 选择器断言错；attempt1-5 全保留。
+- **当前阻塞**：无。**下一步**：workerd 对等、Q70/Q71、E-01、城数/将数改造，或收尾 push。

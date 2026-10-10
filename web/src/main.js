@@ -67,7 +67,9 @@ import {
   snapshotState,
 } from "./game/savegame.js";
 import { localSaveRepository } from "./core/localstore.js";
-import { disableTrialPersistence } from "./editor/trialpolicy.js";
+import { createSaveRepository } from "./core/saverepository.js";
+import { createIndexedDbSaveBackend } from "./core/indexeddbsavebackend.js";
+import { disableTrialPersistence, playSaveDatabaseName } from "./editor/trialpolicy.js";
 import { TrialStrategicClock } from "./editor/trialruleboundaries.js";
 import {
   normalizeDisasterMapObjectState,
@@ -948,7 +950,11 @@ export async function startApp(opening, { trial = null } = {}) {
   app.opening = opening;
   app.runtimeEnabled = false;
   if (trial) {
-    disableTrialPersistence(app, trial.identity);
+    if (trial.persistent === true) {
+      // b2 发布玩：持久存档，按游戏隔离库；canPersist 保持非 false 即允许存读。
+      app.saveRepository = createSaveRepository(createIndexedDbSaveBackend({ databaseName: playSaveDatabaseName(trial.identity.gameId) }));
+      app.saves = await app.saveRepository.load();
+    } else disableTrialPersistence(app, trial.identity);
     app.trialGate = trial.gate ?? null;
     app.content = trial.content;
     app.world = trial.world;

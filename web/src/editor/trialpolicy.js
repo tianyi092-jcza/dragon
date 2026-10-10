@@ -1,4 +1,9 @@
 // Web capability boundary, not a game rule. No persistence imports or IO.
+// b2 发布玩（用户裁决 2026-10-10）：localhost 免登持久玩，按游戏隔离存档库名；内置沿用默认库。
+export function playSaveDatabaseName(gameId) {
+  if (gameId === "wolong-builtin" || typeof gameId !== "string" || !gameId) return "wolong-web";
+  return `wolong-web-pub-${encodeURIComponent(gameId)}`;
+}
 export function disableTrialPersistence(app, identity) {
   if (!identity?.gameId || !identity.trialSnapshotId || !identity.sourceDigest) throw new TypeError("invalid trial identity");
   const reject = () => { throw new Error("草稿試運行禁止正式存讀檔"); };

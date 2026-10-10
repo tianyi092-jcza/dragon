@@ -11,12 +11,12 @@
 // [--store <dir>] [--serve] (no --serve runs the self-check and exits).
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { StringDecoder } from "node:string_decoder";
-import { canonicalDigest, copyBuiltinGame, validateGameSource } from "../web/src/content/authoring/gamesource.js";
+import { canonicalDigest, copyBuiltinGame, validateGameSource, checkGameName } from "../web/src/content/authoring/gamesource.js";
 import { compileTrialSource, TRIAL_COMPILER_REVISION } from "../web/src/content/authoring/trialcompile.js";
 import { renderMinimapPixels, MINIMAP_SIZES } from "../web/src/content/authoring/minimap.js";
 import { readInstalledEditorSource } from "./editor_builtin_source.mjs";
@@ -369,6 +369,41 @@ const routes = {
     writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     json(res, manifest);
   },
+  // b2 发布登记（用户裁决 2026-10-10）：发布＝把已编译修订钉为可玩并附展示名；未编译不可发布。
+  // 注册表损坏直接 500（fail-closed，不静默丢弃）。
+  "POST /api/publish": (res, body) => {
+    const { gameId, name } = body ?? {};
+    if (typeof name !== "string" || !name.trim()) throw new RangeError("publish name required");
+    const game = loadDraft(gameId);
+    const display = checkGameName(name, 40);
+    const rev = game.localModel.draftRevision;
+    const { manifest } = readBuild(gameId, rev, null);
+    validateGameSource(game);
+    if (manifest.identity.draftRevision !== rev) throw new RangeError("compiled revision mismatch");
+    const pin = { gameId, name: display, revision: rev, sourceDigest: manifest.identity.sourceDigest, chapters: manifest.chapters, publishedAt: new Date().toISOString() };
+    writeFileSync(join(gameDir(gameId), "publish.json"), `${JSON.stringify(pin)}\n`);
+    json(res, pin);
+  },
+  "POST /api/unpublish": (res, body) => {
+    const { gameId } = body ?? {};
+    const path = join(gameDir(gameId), "publish.json");
+    if (existsSync(path)) rmSync(path);
+    json(res, { gameId, unpublished: true });
+  },
+  "GET /api/published-games": (res) => {
+    const pins = [];
+    for (const gameId of localGameIds()) {
+      let raw;
+      try { raw = readFileSync(join(gameDir(gameId), "publish.json"), "utf-8"); }
+      catch { continue; }
+      let pin;
+      try { pin = JSON.parse(raw); }
+      catch { throw new RangeError(`corrupt publish record: ${gameId}`); }
+      if (pin?.gameId !== gameId || typeof pin.name !== "string" || !/^[1-9]\d*$/.test(pin.revision ?? "") || typeof pin.sourceDigest !== "string" || !Array.isArray(pin.chapters)) throw new RangeError(`corrupt publish record: ${gameId}`);
+      pins.push(pin);
+    }
+    json(res, { games: [{ gameId: "wolong-builtin", name: "卧龙传·制霸天下", builtin: true }, ...pins] });
+  },
   // Immutable snapshot only: an explicit revision never reads the latest draft.
   "GET /api/trial-pack": (res, _body, query) => {
     const gameId = query.get("game");
@@ -400,6 +435,13 @@ const routes = {
     const url = new URLSearchParams({ game, revision, chapter });
     if (scope !== null) url.set("scope", "chapter");
     res.writeHead(303, { location: `/trial-game?${url}`, "cache-control": "no-store" }); res.end();
+  },
+  "GET /play": (res) => {
+    const source = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
+    const boot = '<script type="module" src="src/boot.js"></script>';
+    if (!source.includes(boot)) throw new Error("play shell boot marker missing");
+    html(res, source.replace('<title>臥龍傳</title>', '<title>選擇遊戲 — 臥龍傳</title>')
+      .replace(boot, '<div id="play-status" style="position:fixed;left:4px;bottom:4px;z-index:100;color:#fff;background:#141414;pointer-events:none">載入遊戲列表…</div><script type="module" src="/src/editor/playapp.js"></script>'));
   },
   "GET /trial-game": (res) => {
     const source = readFileSync(new URL("../web/index.html", import.meta.url), "utf8");
@@ -882,6 +924,27 @@ if (!SERVE && process.argv[1] === fileURLToPath(import.meta.url)) {
   assert.equal(cleared.portraitKey, null);
   const badKey = await fetch(`${base}/api/general-portrait`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ gameId: "svc-full-1", expectedRevision: cleared.draftRevision, chapterId: portraitChapter, generalIdx: portraitGeneral, portraitKey: "bad key!" }) });
   assert.equal(badKey.status, 400, "bad portrait key refused");
+  // b2 publish round: compile current revision, publish, list, pinned pack, unpublish, refusals.
+  const pubManifest = await call("POST", "/api/compile", { gameId: "svc-full-1" });
+  const pin = await call("POST", "/api/publish", { gameId: "svc-full-1", name: "自檢發佈" });
+  assert.equal(pin.revision, pubManifest.identity.draftRevision);
+  assert.equal(pin.sourceDigest, pubManifest.identity.sourceDigest);
+  assert.ok(Array.isArray(pin.chapters) && pin.chapters.length > 0);
+  const listed = await call("GET", "/api/published-games");
+  assert.equal(listed.games[0].gameId, "wolong-builtin");
+  assert.equal(listed.games[0].name, "卧龙传·制霸天下");
+  const entry = listed.games.find((g) => g.gameId === "svc-full-1");
+  assert.equal(entry?.revision, pin.revision);
+  const playPack = await fetch(`${base}/api/trial-pack?game=svc-full-1&revision=${pin.revision}&chapter=${encodeURIComponent(pin.chapters[0])}`);
+  assert.equal(playPack.status, 200, "published pack served");
+  const unpub = await call("POST", "/api/unpublish", { gameId: "svc-full-1" });
+  assert.equal(unpub.unpublished, true);
+  assert.equal((await call("GET", "/api/published-games")).games.length, 1, "only builtin remains");
+  await call("POST", "/api/save", { gameId: "svc-test-1" });
+  const uncompiled = await fetch(`${base}/api/publish`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ gameId: "svc-test-1", name: "x" }) });
+  assert.equal(uncompiled.status, 400, "uncompiled publish refused");
+  const badName = await fetch(`${base}/api/publish`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ gameId: "svc-full-1", name: "" }) });
+  assert.equal(badName.status, 400, "empty publish name refused");
   server.close();
-  process.stdout.write("editor service self-check OK (copy/save/validate/compile/escape/refusals)\n");
+  process.stdout.write("editor service self-check OK (copy/save/validate/compile/escape/refusals/publish)\n");
 }
