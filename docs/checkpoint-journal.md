@@ -6,7 +6,7 @@
 ## 当前主线状态（2026-10-09，dev HEAD=`3f8d6eb`，已 push）
 
 - **任务一（编辑器）E-05 Trial 服务端线程：批次 1-7e＋8a-8h 全部闭合**。8h 删除级联：`GameDeletionFence.begin()` 同事务级联 trial 行＋资产，链已封存（deletecascade-r1：derive 双向绿→guards 562/269→gate 12/13 真后端→audit 9785→postdoc 9787）。guards **564/270**（portrait-r1 已继任封存）；仍不称 Q69/Q70/Q71 闭包完成。
-- **用户事项队列**：①统一/胜利终局——✅ 关闭（终局属原版规则不管，编辑器只改地图/据点/道路/人物，规则原样，不做实证）；②战术帧实际验证——✅ 8g 闭合；③删除级联——✅ 8h 闭合；④人物头像上传——✅ 链已封存（portrait-r1：derive→guards 564/270→gate 4/3→audit 9820→postdoc 9822；残留：浏览器整轮 lane 回归）；⑤commit/push/deploy——✅ 已推送（3f8d6eb）。
+- **用户事项队列**：①统一/胜利终局——✅ 关闭（终局属原版规则不管，编辑器只改地图/据点/道路/人物，规则原样，不做实证）；②战术帧实际验证——✅ 8g 闭合；③删除级联——✅ 8h 闭合；④人物头像上传——✅ 链已封存；浏览器整轮 lane 回归——✅ 全绿封存（browser-regres-r1：pin 换新 guards 564/270→gate 17/0→audit 9843→postdoc 9845；talk 23/11＋talkdirect 23/11＋endview 15/7＋tactical 23/7 真浏览器）；⑤commit/push/deploy——✅ 已推送（3f8d6eb）。
 - **Web 产品决定（用户裁决 2026-10-09，非原版机制）**事项④：尺寸不限 128×128（建议值），只保源矩形裁active→64×64，单文件 ≤100K；只收 JPG/PNG；头像资源不绑定 255 槽位（uuid 级 assetId，数量不限）；落盘走 `trial_assets` 派生机制；试运行走 worker（路径 A）。
 - **其它 open lane**：E-01 GameBar 图像 native 全图/SDK 502 根因 UNKNOWN；浏览器整轮 lane（talk/talkdirect/tactical/endview）未重跑，列下批链；RuntimeManifest/发布/物理删除等 R12-4 属后端线程。任务二（地图改造）已收口。
 - **历史批次一句话**：8g 战术帧实证修两真缺陷（`commands.js` 门面路图→`scenarioNativeRoadContext`；trial web `?v=` 白名单）→561/268；lint 收口（barrel 本地再导出＋tlog 约定）journal 瘦身 883→90 行。
@@ -14,7 +14,7 @@
 ## 稳定架构事实（Trial 栈，实锤）
 
 - 链路：工作台选章 → POST `/api/games/:id/trials`（issue/commit 两阶段）→ 壳 `/api/trial/web/?trial=<uuid>`（会话 cookie Path=/api）→ 束内 `servertrialapp.js` boot（gate 十字段）→ 战略时钟 hold 并集＋`createTrialBattleFrames` 战术边界。试玩束 216 文件，改 web/src 后必重卷。
-- 私有资源：`/api/trial/web/<path>` 统一只读＝束＋`trialRegistryBytes` 两注册表角色；库 398 资源 manifest `70acce54` 不变，20 条 G127/255 未闭合保持登记。`trial_assets` 派生表：八行（manifest/章 state/六资产）＋上传头像行（`portraits` 清单记 manifest），结束/ fence 级联删。
+- 私有资源：`/api/trial/web/<path>` 统一只读＝束＋`trialRegistryBytes` 两注册表角色；库 398 资源 manifest `6bee39d9`（93632 字节不变；④批次三消费者 pin 换新，资源/refs 不动），20 条 G127/255 未闭合保持登记。`trial_assets` 派生表：八行（manifest/章 state/六资产）＋上传头像行（`portraits` 清单记 manifest），结束/ fence 级联删。
 - 头像链（事项④）：壳预启动 `mountPortraitUploads` 上传→`POST /api/trials/:id/portraits`→运行 `portraitOverrides` 按 byte 覆盖 kao（未命中回落）→工作台 `POST /api/general-portrait` 写草稿 `portraitKey`（byte 不动，门禁照验 byte）。
 - 战术入口：玩家进攻 4F36 必挂起；玩家空城 0x4200 快战无战术。章数据 20 章全零初始军团。
 - 权威文档：[editor-trial-server.md](editor-trial-server.md)（设计＋逐批）、[editor-goal-completion.md](editor-goal-completion.md)（最新收口）、[editor-local-validation.md](editor-local-validation.md)（验证清单＋工具表）。
@@ -46,8 +46,9 @@
 - 试玩内容前提：仅地图/据点/道路/武将数据可定制，引擎/规则/AI（含统一胜利终局）不动；自动化禁触 `E:/Dragon/Dragon/SAVE.DAT`。
 - 提交与推送分别授权；不自动改全局配置/信任策略。
 
-## 本轮会话记录（2026-10-09，portrait-r1 链＋push＋memory 整理）
+## 本轮会话记录（2026-10-09，浏览器整轮链＋pin 换新）
 
-- portrait-r1 全链封存：derive 5 authored→guards 564/270→gate PASS 4/3（静态交叉＋三现成工具重放）→audit 9820→postdoc 9822，`portraitWired:true`。调试：marker 随 memory 重组失效、old 文件连字符、行尾误判改置换、run 跳过变更文件、postdoc 加时 300s；attempt1-4 全保留。
-- 推送 `1c701a3..3f8d6eb` 到 github/dev；memory 二次瘦身。
-- **当前阻塞**：无。**下一步**：下批链（浏览器整轮 lane）或 Q69/Q70/Q71 新批。
+- pin 换新：④批次三消费者（assets/servertrialapp/trialruntime）指纹漂移→available-library.txt 三 pin＋sourcecatalogpolicy manifestHash 70acce54→6bee39d9（93632 字节/398 资源/20 refs 不变；三文档历史行不动，只同步 journal 现行事实）。
+- 四 lane 真浏览器重跑（新 round trial-regres-r1-*，旧 receipt 未动）：talk 23/11、talkdirect 23/11、endview 15/7、tactical 23/7（1278 帧级泵送，士气 200→99 写回同 8g 签名）。
+- browser-regres-r1 封存：derive 5 authored→guards 564/270（hash 继任无新入）→gate 17/0→audit 9843→postdoc 9845。调试：两文件早已在桶（566 改 564）、derive 后改 authored 违规重钉两次；attempt1-3 全保留。
+- **当前阻塞**：无。**下一步**：Q69/Q70/Q71 新批，或收尾 push。
