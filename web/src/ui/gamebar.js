@@ -10,7 +10,7 @@
 //     (minimap.png 160×107 由 map_full.png 1920×1280 NEAREST 缩出), 城点按势力着色,
 //     点击导航大地图, 遇袭城点闪烁+警示音
 //   - 时钟联动: 仅模态弹窗(進言/列表/存读档)打开时冻结计时, 菜单条/悬停不影响
-import { loadImage, portrait } from "../core/assets.js";
+import { loadImage, portrait, hasPortraitOverride } from "../core/assets.js";
 import { mapPanelLayout, insidePanel } from "./mappanellayout.js";
 // M1 自动小地图：统一正逆变换（实际地图矩形，留边不导航），不再各处手写 208/6144 常量。
 const MINIMAP_WORLD = Object.freeze({ width: 384, height: 256, tileSize: 16 });
@@ -2024,7 +2024,8 @@ export class GameBar {
     const monarchImg = monarch
       ? await portrait(monarch.portrait).catch(() => null)
       : null;
-    const advImg = advGen
+    // Q69-(iii)：8EA0 语境（君主+军师成对显示）军师 FF 跳过 kao 请求，名字照常；有事项④上传覆盖则保留。调用点对应为功能语境对应（推断），行为复刻 8EA0 实锤。
+    const advImg = advGen && (advGen.portrait !== 255 || hasPortraitOverride(advGen.portrait))
       ? await portrait(advGen.portrait).catch(() => null)
       : null;
 
@@ -2145,7 +2146,8 @@ export class GameBar {
     const monarchImg = monarch
       ? await portrait(monarch.portrait).catch(() => null)
       : null;
-    const advImg = advGen
+    // Q69-(iii)：8EA0 语境（君主+军师成对显示）军师 FF 跳过 kao 请求，名字照常；有事项④上传覆盖则保留。调用点对应为功能语境对应（推断），行为复刻 8EA0 实锤。
+    const advImg = advGen && (advGen.portrait !== 255 || hasPortraitOverride(advGen.portrait))
       ? await portrait(advGen.portrait).catch(() => null)
       : null;
 
@@ -2271,7 +2273,8 @@ export class GameBar {
     const monarchImg = monarch
       ? await portrait(monarch.portrait).catch(() => null)
       : null;
-    const advImg = advGen
+    // Q69-(iii)：8EA0 语境（君主+军师成对显示）军师 FF 跳过 kao 请求，名字照常；有事项④上传覆盖则保留。调用点对应为功能语境对应（推断），行为复刻 8EA0 实锤。
+    const advImg = advGen && (advGen.portrait !== 255 || hasPortraitOverride(advGen.portrait))
       ? await portrait(advGen.portrait).catch(() => null)
       : null;
 
@@ -2387,7 +2390,8 @@ export class GameBar {
     const monarchImg = monarch
       ? await portrait(monarch.portrait).catch(() => null)
       : null;
-    const advImg = advGen
+    // Q69-(iii)：8EA0 语境（君主+军师成对显示）军师 FF 跳过 kao 请求，名字照常；有事项④上传覆盖则保留。调用点对应为功能语境对应（推断），行为复刻 8EA0 实锤。
+    const advImg = advGen && (advGen.portrait !== 255 || hasPortraitOverride(advGen.portrait))
       ? await portrait(advGen.portrait).catch(() => null)
       : null;
 
@@ -2494,7 +2498,8 @@ export class GameBar {
     const monarchImg = monarch
       ? await portrait(monarch.portrait).catch(() => null)
       : null;
-    const advImg = advGen
+    // Q69-(iii)：8EA0 语境（君主+军师成对显示）军师 FF 跳过 kao 请求，名字照常；有事项④上传覆盖则保留。调用点对应为功能语境对应（推断），行为复刻 8EA0 实锤。
+    const advImg = advGen && (advGen.portrait !== 255 || hasPortraitOverride(advGen.portrait))
       ? await portrait(advGen.portrait).catch(() => null)
       : null;
 

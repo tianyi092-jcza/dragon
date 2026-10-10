@@ -62,6 +62,8 @@ export function loadSeasonTile(season, definition = DEFAULT_WORLD) {
 /** 武将头像 (懒加载+缓存；试运行上传覆盖优先，无覆盖回落 kao) */
 let portraitOverrides = null;
 export function setPortraitOverrides(map) { portraitOverrides = map instanceof Map && map.size ? map : null; }
+// Q69-(iii) Web 产品决定（用户裁决 2026-10-10，非原版机制）：8EA0 语境调用点跳过 FF 前须保留事项④上传覆盖。
+export function hasPortraitOverride(i) { return portraitOverrides?.has(i) ?? false; }
 // 事项④ Web 产品决定（用户裁决 2026-10-09，非原版机制）：章武将 portraitKey ×
 // manifest.portraits 命中即按 portrait byte 覆盖 kao 引用；未命中/非法一律回落，不发明图。
 export function buildPortraitOverrides(generals, portraits) {
