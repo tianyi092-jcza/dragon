@@ -14,7 +14,7 @@
 ## 稳定架构事实（Trial 栈，实锤）
 
 - 链路：工作台选章 → POST `/api/games/:id/trials`（issue/commit 两阶段）→ 壳 `/api/trial/web/?trial=<uuid>`（会话 cookie Path=/api）→ 束内 `servertrialapp.js` boot（gate 十字段）→ 战略时钟 hold 并集＋`createTrialBattleFrames` 战术边界。试玩束 216 文件，改 web/src 后必重卷。
-- 私有资源：`/api/trial/web/<path>` 统一只读＝束＋`trialRegistryBytes` 两注册表角色；库 398 资源 manifest `6bee39d9`（93632 字节不变；④批次三消费者 pin 换新，资源/refs 不动），20 条 G127/255 未闭合保持登记。`trial_assets` 派生表：八行（manifest/章 state/六资产）＋上传头像行（`portraits` 清单记 manifest），结束/ fence 级联删。
+- 私有资源：`/api/trial/web/<path>` 统一只读＝束＋`trialRegistryBytes` 两注册表角色；库 398 资源 manifest `fa0ec91f`（93632 字节不变；④三 pin＋(iii) 两 pin 先后换新，资源/refs 不动），20 条 G127/255 未闭合保持登记。`trial_assets` 派生表：八行（manifest/章 state/六资产）＋上传头像行（`portraits` 清单记 manifest），结束/ fence 级联删。
 - 头像链（事项④）：壳预启动 `mountPortraitUploads` 上传→`POST /api/trials/:id/portraits`→运行 `portraitOverrides` 按 byte 覆盖 kao（未命中回落）→工作台 `POST /api/general-portrait` 写草稿 `portraitKey`（byte 不动，门禁照验 byte）。
 - 战术入口：玩家进攻 4F36 必挂起；玩家空城 0x4200 快战无战术。章数据 20 章全零初始军团。
 - 权威文档：[editor-trial-server.md](editor-trial-server.md)（设计＋逐批）、[editor-goal-completion.md](editor-goal-completion.md)（最新收口）、[editor-local-validation.md](editor-local-validation.md)（验证清单＋工具表）。
@@ -46,9 +46,9 @@
 - 试玩内容前提：仅地图/据点/道路/武将数据可定制，引擎/规则/AI（含统一胜利终局）不动；自动化禁触 `E:/Dragon/Dragon/SAVE.DAT`。
 - 提交与推送分别授权；不自动改全局配置/信任策略。
 
-## 本轮会话记录（2026-10-10，Q69-(ii) 两级门批）
+## 本轮会话记录（2026-10-10，round-trip 实证批）
 
-- 立法（用户批准＋修正案 A）：保存门（武将名/头像、据点名必填，缺即拒存）＋active 门（15/14/19 全字段＋闭合交叉＋计数城 192/将 128 dense，章节/势力开放；draft 记诊断、严格＋试玩拒收 TRIAL_CHAPTER_NOT_ACTIVE）。资产门密封契约另立 trialChapterActiveGaps，不混入。
-- 证据修正两处：安装源 city 本无 connections（连接性走 map roads）——立法砍 connections 门；city.faction 同武将 faction 系非外键（slice 截断曾误导，防火墙实捕）。防火墙以安装源 20 章为准零缺口。
-- q69ii-r1 封存：derive 5 authored→guards 564/270（hash 继任）→gate 16/3→audit 9889→postdoc 9891。attempt 无。
-- **当前阻塞**：无。**下一步**：round-trip 实证批、多游戏并行＋启动页下拉，或收尾 push。
+- 字节同一性：compile(安装源) vs compile(未改复制) 地形/路图/路费/偏移逐字节等同，复制确定性，差异 confinement（身份/来源/＋deco-grass/＋atomicImport 注脚，编译不消费后两者）；工具 tools/verify_roundtrip_byte_identity.mjs 8 检查。
+- 活体 issue：talk 23/11 在复制章上 post-(ii) 全绿（200 active）；(iii) 两 pin 换新 manifest fa0ec91f（93632/398/20 不变）。
+- roundtrip-r1 封存：derive 5 authored→guards 565/271（工具双桶新入）→gate 8/2→audit 9913→postdoc 9915。attempt 无。
+- **当前阻塞**：无。**下一步**：多游戏并行＋启动页下拉，或收尾 push。
