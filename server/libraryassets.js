@@ -48,10 +48,15 @@ export class PrivateLibraryAssets {
     const assetIndex = path.assetId === undefined ? undefined : Number(path.assetId.slice('library-'.length));
     if (assetIndex !== undefined && (!Number.isInteger(assetIndex) || path.assetId !== 'library-' + String(assetIndex).padStart(3, '0') || assetIndex < 0 || assetIndex >= FIXED_TRIAL_ASSET_PATHS.length)) fail(404, 'LIBRARY_ASSET_NOT_FOUND');
     const context = { actor, gameId: path.gameId, revision, reference: text(reference), origin: this.#origin(path.gameId) };
-    const source = await this.#drafts.captureForCompile(tokenHash, path.gameId, revision); this.#assert(tokenHash, context);
+    let source;
+    try { source = await this.#drafts.captureForCompile(tokenHash, path.gameId, revision); }
+    catch (error) { this.#assert(tokenHash, context); throw error; }
+    this.#assert(tokenHash, context);
     if (source.ownerId !== actor.id || source.authEpoch !== actor.epoch || text(source.reference) !== context.reference) fail(409, 'LIBRARY_SNAPSHOT_CHANGED');
     // Deliberately full-source and all-role verification, not a cached DTO/manifest fast path.
-    context.capture = await this.#catalog.loadFull(tokenHash, definition.registryId); this.#assert(tokenHash, context);
+    try { context.capture = await this.#catalog.loadFull(tokenHash, definition.registryId); }
+    catch (error) { this.#assert(tokenHash, context); throw error; }
+    this.#assert(tokenHash, context);
     const raw = context.capture.readWeb('available-library-manifest.json');
     const manifestRole = this.#policy.roles.find(role => role.path === 'available-library-manifest.json');
     if (raw.length !== manifestRole?.byteLength || sha(raw) !== this.#policy.manifestDigest) fail(503, 'LIBRARY_MANIFEST_CORRUPT');

@@ -1,6 +1,7 @@
 // V1 slice 9: REAL TrialSessions issue/commit/serve/end on VPS ports with
 // a REAL installed-source install (41 pinned roles verified) and the S5
 // draft assembly. Usage: node tools/verify_vps_trial.mjs
+import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +19,7 @@ import { installedSourcePolicy } from '../server/sourcecatalogpolicy.js';
 import { FIXED_COPY_PROFILE } from '../server/copyprofile.js';
 import { TrialSessions } from '../server/trials.js';
 import { encodeSourceChunks, canonicalSourceTokens } from '../web/src/content/authoring/sourcejson.js';
+import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
 import { HttpError, fail } from '../server/security.js';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
 
@@ -72,7 +74,7 @@ const games = new GameMetadataStore({ storage, principal,
 const policy = installedSourcePolicy(
   readFileSync('server/pinned/world-manifest.txt'),
   readFileSync('server/pinned/entity-manifest.txt'));
-check('policy 41 roles', policy.roles.length === 41 && policy.registryId === 'approved-builtin-47e358-entities086-1');
+check('policy 41 roles', policy.roles.length === 41 && policy.registryId === 'approved-builtin-28805f-entities7e7-1');
 const catalog = new InstalledSourceCatalog({ storage, bucket, principal, policy, operationGuard: () => {} });
 const REG = policy.registryId;
 const stageRaw = async bytes => {
@@ -129,9 +131,92 @@ const runtimeAssets = new OwnedRuntimeAssets({ storage, bucket, principal, games
 const trials = new TrialSessions({ storage, principal, games, drafts, runtimeAssets, policy });
 check('construct', !!trials);
 const chapterId = game.chapterOrder[0];
+// Explicit capture/reference fixtures isolate preflight ordering, not authority
+// or persistence of these invalid candidates. The positive lane below uses the
+// actual capture, installed visual bytes and real Trial commit/serve path.
+const originalDigest = canonicalDigest(game, text => createHash('sha256').update(text).digest('hex'));
+const originalReference = games.snapshotReference('h1', GAME, '1');
+const untouched = JSON.stringify(['trial_sessions', 'trial_assets', 'content_games'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray()));
+for (const kind of ['portrait-byte', 'city-view', 'portrait-override']) {
+  const candidate = structuredClone(game), state = candidate.chapters[chapterId].state;
+  if (kind === 'portrait-byte') state.generals[0].portrait = 255;
+  else if (kind === 'city-view') state.cities[0].view = 255;
+  else state.generals[0].portraitKey = '255';
+  const digest = canonicalDigest(candidate, text => createHash('sha256').update(text).digest('hex'));
+  const reference = { ...originalReference, sourceDigest: digest };
+  let visualCaptures = 0;
+  const rejected = new TrialSessions({ storage, principal, policy,
+    games: {
+      assertNotDeleting: id => games.assertNotDeleting(id),
+      snapshotReference(token, id, revision) { games.snapshotReference(token, id, revision); return reference; },
+    },
+    drafts: { async captureForCompile() { return { ownerId: OWNER, authEpoch: actors.h1.epoch, profileRevision: FIXED_COPY_PROFILE, reference, game: candidate }; } },
+    runtimeAssets: {
+      definition: () => runtimeAssets.definition(),
+      async capture() { visualCaptures++; throw new Error('invalid chapter reached visual capture'); },
+    },
+  });
+  await fails(`${kind} preflight rejection`, () => rejected.issue('h1', GAME, '1', chapterId), kind === 'portrait-override' ? 'PLAY_PORTRAIT_CORRUPT' : 'TRIAL_CHAPTER_ASSET_MISSING');
+  check(`${kind} rejects without visuals or Trial rows`, visualCaptures === 0 && untouched === JSON.stringify(['trial_sessions', 'trial_assets', 'content_games'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())));
+  check(`${kind} preserves captured candidate and original source`, canonicalDigest(candidate, text => createHash('sha256').update(text).digest('hex')) === digest && canonicalDigest(game, text => createHash('sha256').update(text).digest('hex')) === originalDigest);
+}
 const issued = await trials.issue('h1', GAME, '1', chapterId);
 check('issue active', issued.trial.state === 'active' && issued.trial.chapterId === chapterId && issued.derived.length > 0);
-trials.commit('h1', issued.trial, issued.derived);
+{
+  // Same explicit capture/reference fixture as above, now with an unrelated
+  // bad chapter. Shared map/visuals are unchanged; delegate their reads using
+  // the actual saved reference, not the fixture's synthetic source digest.
+  const captured = await drafts.captureForCompile('h1', GAME, '1');
+  // Match the persisted JSON's key order for the byte comparison, rather than
+  // the loader object's insertion order; their canonical source is identical.
+  check('captured source equals loader and preserves serialized chapter', canonicalDigest(captured.game, text => createHash('sha256').update(text).digest('hex')) === originalDigest && Buffer.from(JSON.stringify(captured.game.chapters[chapterId].state)).equals(issued.derived.find(row => row.assetId === 'chapter').bytes));
+  const candidate = structuredClone(captured.game), badChapter = game.chapterOrder.at(-1);
+  candidate.chapters[badChapter].state.generals[0].portrait = 255;
+  const digest = canonicalDigest(candidate, text => createHash('sha256').update(text).digest('hex'));
+  const reference = { ...originalReference, sourceDigest: digest };
+  let visualCaptures = 0;
+  const scoped = new TrialSessions({ storage, principal, policy,
+    games: {
+      assertNotDeleting: id => games.assertNotDeleting(id),
+      snapshotReference(token, id, revision) { games.snapshotReference(token, id, revision); return reference; },
+    },
+    drafts: { async captureForCompile() { return { ownerId: OWNER, authEpoch: actors.h1.epoch, profileRevision: FIXED_COPY_PROFILE, reference, game: candidate }; } },
+    runtimeAssets: {
+      definition: () => runtimeAssets.definition(),
+      async capture(token, _reference, paths) { visualCaptures++; return runtimeAssets.capture(token, originalReference, paths); },
+    },
+  });
+  const selected = await scoped.issue('h1', GAME, '1', chapterId);
+  const manifest = JSON.parse(selected.derived.find(row => row.assetId === 'manifest').bytes.toString('utf8'));
+  check('unrelated bad chapter does not block selected Trial', selected.trial.state === 'active' && selected.trial.chapterId === chapterId && visualCaptures === 1);
+  check('selected chapter and six derived payloads retain exact bytes', selected.derived.filter(row => row.assetId !== 'manifest').length === 7 && selected.derived.filter(row => row.assetId !== 'manifest').every(row => row.bytes.equals(issued.derived.find(original => original.assetId === row.assetId).bytes)), JSON.stringify(selected.derived.filter(row => row.assetId !== 'manifest').map(row => ({ assetId: row.assetId, equal: row.bytes.equals(issued.derived.find(original => original.assetId === row.assetId).bytes) }))));
+  check('single chapter manifest binds fixture source and original selected digest', JSON.stringify(manifest.chapters) === JSON.stringify([chapterId]) && manifest.scope.savedSourceDigest === digest && manifest.scope.selectedSourceDigest === issued.trial.manifestDigest);
+  await fails('selecting the bad chapter still refuses', () => scoped.issue('h1', GAME, '1', badChapter), 'TRIAL_CHAPTER_ASSET_MISSING');
+  check('bad selection adds no visual read or rows and preserves sources', visualCaptures === 1 && untouched === JSON.stringify(['trial_sessions', 'trial_assets', 'content_games'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())) && canonicalDigest(candidate, text => createHash('sha256').update(text).digest('hex')) === digest && canonicalDigest(game, text => createHash('sha256').update(text).digest('hex')) === originalDigest);
+}
+storage.transactionSync(() => trials.commit('h1', issued.trial, issued.derived));
+// The application owns the outer transaction around commit and its receipt.
+// Here exercise real SQLite aborts at every asset insert, retaining an already
+// committed Trial. This does not cover HTTP receipt sealing/remember failures.
+{
+  const interrupted = await trials.issue('h1', GAME, '1', chapterId);
+  const before = JSON.stringify(['trial_sessions', 'trial_assets', 'content_games'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray()));
+  const derivedBefore = interrupted.derived.map(item => createHash('sha256').update(item.bytes).digest('hex'));
+  for (const assetId of ['manifest', 'chapter', 'terrain', 'roadGraph', 'roadCost', 'roadOffset', 'minimapBase', 'minimapLarge']) {
+    storage.sql.exec(`CREATE TEMP TRIGGER owned_trial_insert_failure BEFORE INSERT ON trial_assets WHEN NEW.asset_id='${assetId}' BEGIN SELECT RAISE(ABORT, 'OWNED_TRIAL_INSERT_FAILURE'); END`);
+    assert.throws(() => storage.transactionSync(() => trials.commit('h1', interrupted.trial, interrupted.derived)), /OWNED_TRIAL_INSERT_FAILURE/);
+    storage.sql.exec('DROP TRIGGER owned_trial_insert_failure');
+    check(`${assetId} failure rolls back new Trial and preserves existing rows`, before === JSON.stringify(['trial_sessions', 'trial_assets', 'content_games'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())));
+  }
+  storage.transactionSync(() => trials.commit('h1', interrupted.trial, interrupted.derived));
+  const stored = storage.sql.exec('SELECT * FROM trial_assets WHERE trial_id=?', interrupted.trial.trialId).toArray();
+  check('same issued Trial commits after all eight aborted attempts', trials.status('h1', interrupted.trial.trialId).state === 'active' && stored.length === 8 && stored.every(row => {
+    const item = interrupted.derived.find(entry => entry.assetId === row.asset_id);
+    return item && row.sha256 === item.sha256 && row.byte_length === item.byteLength && Buffer.from(row.bytes).equals(item.bytes);
+  }));
+  check('aborted commits retain derived buffers and the older Trial remains active', interrupted.derived.every((item, index) => createHash('sha256').update(item.bytes).digest('hex') === derivedBefore[index]) && trials.status('h1', issued.trial.trialId).state === 'active');
+  trials.endCommit('h1', interrupted.trial.trialId, trials.endPreview('h1', interrupted.trial.trialId));
+}
 const st = trials.status('h1', issued.trial.trialId);
 check('status active', st.state === 'active' && st.trialId === issued.trial.trialId);
 const pack = trials.pack('h1', issued.trial.trialId);
@@ -147,6 +232,52 @@ const served = trials.asset('h1', issued.trial.trialId, '0');
 check('portrait serve', served.mime === 'image/png' && served.url === 'kao/0.png' && served.sha256.length === 64);
 await fails('portrait malformed id 422', async () => trials.asset('h1', issued.trial.trialId, 'no-such-id'), 'TRIAL_ASSET_ID');
 await fails('portrait unknown 404', async () => trials.asset('h1', issued.trial.trialId, '999999'), 'TRIAL_ASSET_NOT_FOUND');
+
+// A prepared Trial stays on its explicit snapshot while a real draft save
+// advances the current revision. No capture/reference substitute in this lane.
+{
+  const prepared = await trials.issue('h1', GAME, '1', chapterId);
+  const beforeRows = JSON.stringify(['trial_sessions', 'trial_assets'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray()));
+  const money = game.chapters[chapterId].state.factions[0].money;
+  assert.ok(Number.isInteger(money) && money < 8388607);
+  const advanced = await drafts.save('h1', GAME, '1', 's9-advance-00000001', 'f'.repeat(64), {
+    metadata: { ...game.metadata }, resourceEdits: [{ chapterId, slot: 0, values: { money: money + 1 } }], chapterEdits: [],
+  });
+  const currentReference = games.snapshotReference('h1', GAME, '2');
+  assert.deepEqual(games.snapshotReference('h1', GAME, '1'), originalReference);
+  check('real resource save advances to distinct revision2 without replacing reference1', advanced.draftRevision === '2' && currentReference.sourceDigest !== originalReference.sourceDigest && currentReference.rootKey !== originalReference.rootKey);
+  check('draft advancement does not change existing Trial rows or bytes', beforeRows === JSON.stringify(['trial_sessions', 'trial_assets'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())));
+  storage.transactionSync(() => trials.commit('h1', prepared.trial, prepared.derived));
+  const preparedPack = trials.pack('h1', prepared.trial.trialId);
+  const stored = storage.sql.exec('SELECT * FROM trial_assets WHERE trial_id=?', prepared.trial.trialId).toArray();
+  check('prepared revision1 commits after revision2 with all eight original assets', preparedPack.binding.draftRevision === '1' && preparedPack.binding.snapshotDigest === originalReference.sourceDigest && stored.length === 8 && stored.every(row => {
+    const asset = prepared.derived.find(item => item.assetId === row.asset_id);
+    return asset && row.sha256 === asset.sha256 && row.byte_length === asset.byteLength && Buffer.from(row.bytes).equals(asset.bytes);
+  }));
+  const fresh = await trials.issue('h1', GAME, '2', chapterId);
+  storage.transactionSync(() => trials.commit('h1', fresh.trial, fresh.derived));
+  const freshPack = trials.pack('h1', fresh.trial.trialId), captured2 = await drafts.captureForCompile('h1', GAME, '2');
+  assert.deepEqual(preparedPack.chapter, pack.chapter);
+  assert.deepEqual(freshPack.chapter, captured2.game.chapters[chapterId].state);
+  check('explicit revision2 Trial has new chapter money and new snapshot binding only', preparedPack.chapter.factions[0].money === money && freshPack.chapter.factions[0].money === money + 1 && freshPack.binding.draftRevision === '2' && freshPack.binding.snapshotDigest === currentReference.sourceDigest && freshPack.binding.manifestDigest !== preparedPack.binding.manifestDigest);
+  assert.deepEqual(trials.pack('h1', issued.trial.trialId), pack);
+  const unchangedAssets = fresh.derived.filter(item => !['manifest', 'chapter'].includes(item.assetId));
+  check('resource-only edit preserves six map assets and the already-running Trial pack', unchangedAssets.length === 6 && unchangedAssets.every(item => item.bytes.equals(prepared.derived.find(old => old.assetId === item.assetId).bytes)));
+  const beforeHistoricalIssue = JSON.stringify(['trial_sessions', 'trial_assets'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray()));
+  // A new visual capture has a separate current-revision gate; preserving an
+  // already prepared Trial does not authorize a new historical capture.
+  await assert.rejects(() => trials.issue('h1', GAME, '1', chapterId), error => error instanceof HttpError && error.status === 409 && error.code === 'SOURCE_RUNTIME_CHANGED');
+  check('new historical issue refuses without following latest or inserting Trial rows', beforeHistoricalIssue === JSON.stringify(['trial_sessions', 'trial_assets'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())));
+  const captured1 = await drafts.captureForCompile('h1', GAME, '1');
+  assert.equal(canonicalDigest(captured1.game, text => createHash('sha256').update(text).digest('hex')), originalDigest);
+  assert.equal(canonicalDigest(game, text => createHash('sha256').update(text).digest('hex')), originalDigest);
+  for (const pending of [prepared, fresh]) {
+    const end = trials.endPreview('h1', pending.trial.trialId);
+    storage.transactionSync(() => trials.endCommit('h1', pending.trial.trialId, end));
+    assert.equal(trials.status('h1', pending.trial.trialId).state, 'ended');
+  }
+  check('old source remains immutable and ending new Trials preserves the original active Trial', trials.status('h1', issued.trial.trialId).state === 'active' && games.snapshotReference('h1', GAME, '2').sourceDigest === currentReference.sourceDigest);
+}
 
 // 5. End + epoch revocation.
 const pv = trials.endPreview('h1', issued.trial.trialId);

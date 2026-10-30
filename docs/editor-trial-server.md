@@ -1,6 +1,24 @@
 # E-05-SERVER-AUTH-1：服务端 Trial 记录与真实会话认证（考证与设计登记）
 
-本页保留初次考证／设计及下方实施批次，不再代表“尚未实施”。服务端1–7e／8a–8h与后继限定lane、App双规则边界及真实浏览器链已接；最新状态／源码漂移与真实剩余见[小范围审计](editor-closeout-audit.md)，不据本页关闭完整Q69/Q70/Q71/E-05。下方“尚未完成／未接线”只指其历史批次。用户已授权本线程方向（"你判定选择，默认同意授权"）；部署平台不自动选择，实施只接本地真实后端栈，不部署、不用假认证。
+本页保留初次考证／设计及下方实施批次，不再代表“尚未实施”。服务端1–7e／8a–8h与后继限定lane、App双规则边界及真实浏览器链已接；当前完整状态与剩余出口见[现行验收清单](editor-completion-audit.md)A20–A22／A32；[小范围审计](editor-closeout-audit.md)只维护其98f0630基线及后继索引，不是当前源码证书。不据本页关闭完整Q69/Q70/Q71/E-05。下方“尚未完成／未接线”只指其历史批次。用户已授权本线程方向（"你判定选择，默认同意授权"）；部署平台不自动选择，实施只接本地真实后端栈，不部署、不用假认证。
+
+## 后继关闭真实编辑页后的独立Trial
+
+既有 `verify_editor_backend_draft_ui.mjs` 新增互斥的 `--trial-close-only --node-service` 范围。自有临时文件SQLite／FileBucket、固定20章副本及登记库、本地HTTPS和全新Chromium；浏览器真实登录后读取修订1，从现行工作台按钮打开子窗口，完成势力选择及实际App的192据点装配。没有成功API替身，也没有用脚本假造opener。
+
+关闭实际编辑页后，子窗口继续收到至少两次真实200状态探测，保同一scenario对象、runtimeEnabled及running gate；关闭期间没有新增Trial POST，原已保存草稿全文保持、浏览器保存请求为0。再用创建Trial的浏览器会话显式结束，子窗口正常清除scenario并显示「已結束」。该3组收据证明这一完整副本及窗口顺序，不替代断网／重登／全部窗口组合、规则步推进或生产环境证明。
+
+首轮已通过关闭后的检查，但末步错误使用Node侧同账号的另一登录会话结束，按既有 `PrivateTrials.#bound` 会话绑定合同返回401；不为测试放宽产品。修为子窗口获取自身会话CSRF并发起结束后，完整r2通过。证据 `.dragon-analysis/editor-completion/trial-editor-close-20261029/` 的 `tests-r1.log`、`tests-r2.log`、`result.json`；603项选定输入SHA前后保持，31项入口指纹及 `ui-r109.png` 摘要核对通过。仅测试及文档变更，未重建束、未重跑默认草稿长链。正式IDB访问与域外请求为0，pageerror为空；本批没有声称所有console／取消资源请求均无错误。工具只关闭自有服务／浏览器，临时资料保留。
+
+语法、diff及链接检查通过。主动LSP脚本仍为push-only未确认；两文档一份clean、一份仅既有摘要／历史标识词典提示。`mode=all`为4条测试风格及3条文档词典hint，缓存不冒clean，未屏蔽或改写正确await语义。
+
+## 后继新草稿保存不替换已运行Trial
+
+同一 `--trial-close-only --node-service` 入口在真实编辑页关闭后，使用已认证的另一会话执行元数据改名保存，实际CAS提交修订1→2；精确读取2确认新名称和原章节全文，读取1仍与原DTO完全相同。子窗口用其创建会话读取Trial状态：保存前后整个状态DTO相同，仍绑定修订1及原快照／manifest，不是只比URL；同一scenario对象保持，没有创建替代Trial或浏览器草稿保存。
+
+首轮在新草稿保存和精确读取后立即要求gate为running失败，未记录当时的详细状态，不能据此归因产品故障。后继完整r2记录该时点 `sameScenario=true / ended=false / runtimeEnabled=true / gate=paused`，随后等待既有monitor自己的有效探测恢复running（30秒预算），再执行原创建会话终止并正常清场。测试没有强行恢复gate、替换场景或放宽身份比较。长同步验证可能延迟探测，但本轮未证明暂停的唯一根因，也不宣称全过程从未暂停；这与新草稿不得热换Trial是不同要求。
+
+完整4组通过，证据 `.dragon-analysis/editor-completion/trial-newer-draft-20261029/`：首轮失败保留于 `tests-r1.log`，最终 `tests-r2.log`／`result.json`，603项选定输入SHA前后相同，31项入口指纹及 `ui-r110.png` 摘要核对通过。沿用自有Node文件SQLite／FileBucket、真实HTTPS登录及全新Chromium；新增写入为真实服务API元数据保存，不冒第二个编辑页表单。未测改动规则资源／全部迟到资源组合、workerd或生产；无产品、原生束、DDL变化，完整A21仍未关闭。语法、diff和链接通过；主动LSP脚本push-only未确认，两文档一clean／一仅词典提示，mode=all为4条既有测试风格与3条文档词典hint，不称全量clean。
 
 ## 真实认证协议考证（实锤，行级来源）
 
@@ -19,7 +37,7 @@
 
 ## 既有 Trial 切片现状（闭合，各自缺口在原文）
 
-投影基础（trialscope）、单章服务/工作台/真实 App（editor-chapter-trial）、本地内存 App 试运行（editor-local-app-trial）、主动退出处置（editor-trial-discard）、资产库存 staging（editor-trial-asset-inventory）、连接核心/events/规则边界（editor-trial-connection）。共同缺口即本线程目标：服务端 Trial 对象、会话 epoch 授权、真实 HTTP status adapter、私有资源逐请求授权、孤儿清理。
+投影基础（trialscope）、单章服务/工作台/真实 App（editor-chapter-trial）、本地内存 App 试运行（editor-local-app-trial）、主动退出处置（editor-trial-discard）、资产库存 staging（editor-trial-asset-inventory）、连接核心/events/规则边界（editor-trial-connection）。上述切片在本页初次设计时的共同缺口是服务端 Trial 对象、会话 epoch 授权、真实 HTTP status adapter、私有资源逐请求授权及孤儿清理；后文实施批次已逐步接入，不能将这份历史缺口清单当作现行未实现清单。当前剩余以页首验收清单为准。
 
 ## 服务端设计（工程合同 §7 落地；均为本地后端实现，不部署）
 
@@ -204,6 +222,120 @@ manifest compilerRevision/buildFormat/identity/scope 精确绑定；四 `assets`
 - `server/trials.js`：`trialChapterAssetGaps` 首行排除哨兵形态（`TRIAL_SENTINEL_SLOT=127`／`TRIAL_SENTINEL_PORTRAIT=255` 常量，`idx===127 && portrait===255` 即 `continue`）；其它缺失（含其它槽位 255）仍入缺口，issue 仍 422 `TRIAL_CHAPTER_ASSET_MISSING`。staged manifest 仍登记 20 条未闭合引用，库仍为 `STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE`（门与库登记的 divergence 系产品决定明示，非闭包证书）。
 - **后果登记**：全部 20 内置派生章缺口清零，issue 放行（200 含 trialId，status active）；8b 的 422 拒收断言成为历史证据（其 scope 已密封，不重放）。7e 浏览器 harness 仍为已密封历史证据。
 - 新工具 `tools/verify_editor_trial_sentinel_gate.mjs <round>`：单元域（合成净态 0 缺口／合成四缺口精确形＋255 已排除／它槽 255 仍缺口／内置 20 章 0 缺口＋20 哨兵计数／库存 398／manifest 未闭合仍 20）＋真实后端（匿名 401 先于资产门、内置章 issue 200 含 trialId 且终态 active、status 200 active）；19 检查／11 实际调用。证据 scope saved-source-trial-sentinel-r1；guards 555/262→556/263。仍不称 Q69 闭包完成：8d TALK 域与终局序列未做；链 seal 待其它线程 guard 漂移消解后自 gate 起重跑，主 goal active，无 commit/push。
+
+## 后继Trial共享画像字节路径
+
+**代码缺口与修复**：`trialPortraits` 给覆盖画像登记 `kao/<assetId>.png`；`createTrialEnvironment` 经 `buildPortraitOverrides` 保留此相对URL，Trial页面位于 `/api/trial/web/`。此前 `EditorMetadata.#getTrialWebFile` 把PNG交给旧固定资源库读取，而 `available-library-8993b360.txt` 的398个resources及supportingFiles均没有 `kao/p0001.png`；编辑器预览／正式玩家的共享画像成功不能证明该路径可用。另核150个数字ID的共享清单SHA／长度与旧固定库逐项一致；不是全621张PNG的新实读证书。
+
+现在配置了既有受信 `readSharedPortrait` 的宿主，Trial的 `kao/<ID>.png` 先经 `GamePortraits.get` 查621张共享清单，再读取固定文件并核长度／SHA，返回image/png、no-store、nosniff及摘要。读取成功或失败后都复核principal，撤销返回401；未知ID在读取前拒绝，损坏字节不退回旧库。URL路径与原查询白名单不放宽。VPS的普通／冻结服务沿既有固定ID→文件Map注入，无新路径参数、上传、远端兜底或图片写入。未配置读取器的宿主保持原注册库路径，不宣称它已支持扩展画像。该共享静态路径沿原登录门，不新增trialId／gameId上下文，也不是新建Trial或全部依赖闭包证明。
+
+复用 `verify_editor_template_root.mjs --portrait-epoch-only`：真实共同Request、会话／CSRF与文件SQLite，真实Node适配器分别读取0和p0001的编辑器预览及Trial相对路径，两路正文逐字节相同并核清单长度／SHA、PNG头和响应头；匿名401。错误查询／未知ID零读取、同长度坏字节503，新增Trial路径成功／抛错两种读取中epoch撤销均401，既有预览、使用标记与删除栅栏回归保留。actor／使用资料／坏读取器及撤销时机为显式夹具；不安装固定资源、不读对象桶、不是真实登录／HTTPS／浏览器或完整App运行。
+
+`trial-shared-portrait-before.log` 在旧路径得到TRIAL_WEB_PATH而非进入共享读取器，负控失败保留；调整后16组通过（原12＋两路字节两组＋Trial撤销两组），shell65通过。产物、固定输入、诊断见 `.dragon-analysis/editor-completion/trial-shared-portrait-final-hashes.json`。本批只改共同服务路由、既有测试及文档，不改画像清单／PNG、Vue、Web引擎、Trial清单格式、DDL或两束；不重复无影响规则／发布长链。该路由批尚未验证实际保存p0001→Trial创建→App显示；后继限定链见下节，全部消费者仍未闭合。
+
+## 后继Trial注册资源迟到响应的会话复核
+
+`server/editorapp.js` 的 `/api/trial/web/` 注册资源出口此前在 `trialRegistryBytes` 异步读取后直接返回字节，与共享画像分支的后置principal检查不一致。现成功返回前重新核会话；读取抛错时也先核权限，已撤销优先401，仍有效则保留原错误。覆盖固定源与可用资源库两种catalog分支，不改变注册资源解码／SHA、资源路径、Trial快照、公开玩家出口或游戏规则。该出口是会话授权的只读共用资源，不新增trialId绑定，也不宣称它证明整个Trial依赖闭包。
+
+复用 `verify_editor_template_root.mjs --portrait-epoch-only`：先行 `before.log` 在epoch于读取中改变时复现 **200而非401**；修后 `after-r2.log` **46组通过**（原28＋16注册读取负控＋2正常权限对照）。四种权限变化（epoch、disabled、absoluteUntil、idleUntil）×两catalog路径×成功／抛错，各迟到响应与随后请求均401，后请求零新增字节读取；显式权限变化及游戏元数据保持。另核有效权限下原字节／SHA／no-store仍200，原读取错误仍503。原画像／使用标记／删除栅栏测试保持。
+
+这是实际共同Request派发与自有文件SQLite，注册字节端口及权限变更时机是明确夹具，没有安装／读取注册blob，不是实网撤销、真实墙钟到期、浏览器或全Trial认证。证据目录 `.dragon-analysis/editor-completion/trial-registry-authority-20261029/`，154项选定源码／资源SHA前后保持；两代码语法、shell65通过。主动LSP两代码push-only未确认，不作clean结论。无Vue、DDL、web/src或束改动，不重建无关程序束、不重复无影响规则／发布长链。A21／A29仍部分。
+
+## 后继共享画像保存至Trial App展示
+
+复用 `tools/verify_trial_app_boot.mjs <round> --node-portrait`，保原workerd默认模式，新增自有Node SQLite／FileBucket＋HTTPS分支；来源暂存使用既有工具及严格条件写适配，不改变产品FileBucket合同。真实登录／初始改密、41来源与固定库安装、完整复制20章、读取修订1之后，以唯一 `portrait` 命令和If-Match1保存首章原槽0的p0001覆盖至修订2。精确读2核全部章节DTO只有该portraitKey改变，旧修订1全文保持，再按已保存修订2实际创建Trial。
+
+沿既有同源代理注入已认证管理员会话，原样转送API正文与资源；本批补透传缓存／摘要／nosniff响应头。新Chromium会话阻止Service Worker、只允许自有origin／Blob，子进程环境显式白名单，任何IndexedDB访问都报错。实际加载现行Trial壳及原生束，选择势力、启动完整App，核192据点与六派生资源到齐。随后直接调用既有 `gamebar.showGeneralCard` 展示方法（不下规则命令、不构造替代Image），核运行人物保原portrait byte和p0001覆盖、真实卡片Image的当前URL及120×120解码尺寸。此调用不是菜单点击导航的验收。
+
+`attempt101` **26项通过**；实际 `/api/trial/web/kao/p0001.png` 一次200，27060B，代理取得的完整响应正文SHA及响应声明均为 `67b13e325fc3adea9e8a74b45d192a83d6d5aebf040b3d7200a9c201a34ba147`，image/png、no-store。`loaded.png` 保留实际卡片画布；结束Trial后页面无异常、正式IDB访问仍0。无成功API回包或图片替换，账号登录发生在Node请求端，浏览器会话由代理注入，不冒浏览器登录UI／原生公网TLS证明。也不冒全621画像、战术／其它显示消费者、完整战役或发布／存档验证。
+
+证据：`.dragon-analysis/editor-phase/trial-app-boot-r1/attempt101/receipt.json`、`traffic.log`及四阶段截图；24个执行前源码／资源SHA在结束时逐项重核。首轮 `attempt100` 在暂存阶段因测试直接传R2条件写选项给FileBucket而失败，`trial-shared-portrait-app-r100.log` 保留；改用现有入口的 `{etagDoesNotMatch:'*'}`→Headers条件写转换后r101通过，没有放宽产品门或断言。最终诊断／指纹见 `trial-shared-portrait-app-final-hashes.json`。
+
+本批仅既有验证入口及文档变化，未改产品、画像、库身份或两束，不重建、不重复无影响工作台／发布／规则长链；原workerd默认模式本批未跑。A16／A20／A21／A32仍按整体审计范围判断，不能由一个图片消费链宣布全部完成。
+
+## 后继当前Trial启动与显式终止完整复验
+
+`node tools/verify_trial_app_boot.mjs 111 --node-portrait` 当前入口 **27项通过**。保留真实登录／改密、固定源与库安装、20章完整副本、p0001保存1→2、精确读取两修订、实际Trial创建及同源代理后的完整App加载链；192据点、六派生资源到齐、p0001正文／声明SHA与120×120图片解码均通过。Node文件SQLite／FileBucket和自有HTTPS处理真实业务，浏览器仍经本地HTTP代理注入已认证会话，不能称浏览器登录UI或公网TLS验证。
+
+本次仅增强既有结束步骤：不再以固定等待15秒且页面无异常代替进度丢弃证明；明确结束后限时等待实际App的`trialEnded=true`、`runtimeEnabled=false`、`scenario=null`与“已結束”提示，并断言`trialGate.state=ended`。结束前资源及页面错误检查、全程正式IndexedDB访问0／域外请求0保持。结束后的网络错误列表未新增零错误断言，不把预期授权失败或未核请求混称全部网络成功；未测试重新登录复活、断网／战术帧或其它关闭原因。
+
+证据：`.dragon-analysis/editor-phase/trial-app-boot-r1/attempt111/`保存24项入口指纹、27项收据、HTTP记录／代理流量和四阶段截图；`.dragon-analysis/editor-completion/trial-current-boot-20261029/`保存日志及557项选定源码／固定内容前后SHA，均保持。自有临时数据库与对象目录不覆盖用户内容；finally关闭本测试服务、浏览器和数据库，原工具保留临时资料，未声称物理回收。
+
+未修改产品、默认源、库身份或束，不重复无影响构建／规则回归。本轮关闭的是当前Node启动至显式终止的限定出口，不能替代全部章节／资源消费者、workerd默认模式、浏览器认证或完整A20–A22／A32验收。
+
+## 后继章节依赖检查先于派生资源生成
+
+`TrialSessions.issue` 保留身份、删除栅栏、精确快照绑定、单章投影及结构编译的原顺序；编译成功后立即执行既有 `#checkChapterState` 和 `trialPortraits`，通过后才分配trialId、生成小地图PNG并读取注册表视觉资源。原先这些章节检查位于视觉资源读取之后，已知缺图章仍会支付无用生成／读取成本。此处只提前现有拒收，不增加允许域、默认画像或新的规则检查；若章节依赖与视觉来源同时异常，现在先报章节依赖错误。合法章的清单、快照、提交复核及原键协议不变。
+
+复用 `tools/verify_vps_trial.mjs`，在既有真实41角色安装、草稿装配及正常Trial issue／commit／serve／end链前增加三种候选：普通槽portrait byte255、city view255、显式portraitKey字符串255。候选捕获及对应sourceDigest是明确内存端口夹具，并非这些非法内容已经通过实际草稿保存；身份／所有权及删除栅栏仍调用实际元数据端口。视觉capture观察口一旦被调用即失败。前两种保持 `TRIAL_CHAPTER_ASSET_MISSING`，第三种保持共同画像收集器的 `PLAY_PORTRAIT_CORRUPT`，均须视觉capture零次、trial_sessions／trial_assets／content_games全文不变、候选与原源摘要不变。
+
+证据位于 `.dragon-analysis/editor-completion/trial-preflight-*.log`：`before.log` 六项失败复现旧路径先到视觉capture；调整后 `after.log` **29项通过**（原20＋9），正常章仍走实际安装资源及创建、读取、终止、会话撤销／跨作者拒绝链。既有章节报告10项、shell65通过。真实SQLite内存库与自有临时FileBucket；principal及三个坏候选是显式夹具，不冒登录／HTTP／浏览器、所有20章Trial或完整依赖闭包。
+
+源码、诊断和最终复核记录见 `trial-preflight-final-hashes.json`。本批没有改Web引擎、画像／城市图资源、Vue、DDL或生成束，不重建两束，不重复无影响规则、浏览器、发布长链。A20／A21／A32及完整编辑器仍未完成。
+
+## 后继单章隔离与坏章拒收联合复核
+
+在上述同一 `verify_vps_trial.mjs` 入口增加反向案例，无产品改动：从实际已保存源捕获副本，仅将末章普通槽画像改为255，选择首章仍成功issue；再选择末章必须 `TRIAL_CHAPTER_ASSET_MISSING` 且不增加视觉读取。首章章数据及六个派生资源与正常源issue结果逐字节相同；manifest仅含首章，savedSourceDigest绑定候选，selectedSourceDigest与正常首章一致。两次issue都不commit，trial_sessions／trial_assets／content_games全文及候选／原源摘要保持。
+
+候选捕获／reference仍是显式端口夹具；由于只改另一章、共享地图和资源未变，视觉读取适配器明确转交原真实已保存reference，实际读取已安装资源。此安排验证单章投影与检查顺序，不能当成坏候选已通过实际草稿保存、真实HTTP授权或完整资源绑定证明。
+
+`trial-scope-ports.log` 首轮及 `trial-scope-ports-r2.log` 失败均保留：第一版从loader对象复制候选，六个派生资源一致但chapter JSON字节不一致；补逐资源诊断后定位章序列化差异。改为从实际 `captureForCompile` 结果复制，并核它与loader源的canonical摘要相同及原章序列化字节与正常issue一致；没有放宽逐字节断言。`trial-scope-ports-r3.log` 最终 **35项通过**（29＋6）。13个测试输入在r3前冻结并事后核同，诊断及范围见 `trial-scope-final-hashes.json`。仅既有测试和本文／审计变更，不重建不变两束，不重复无影响UI、规则、发布或HTTP长链；A20／A32仍部分。
+
+## 后继Trial画像引用拒收的工作台提示
+
+`server/public/draft.txt` 为既有 `PLAY_PORTRAIT_CORRUPT` 增加繁体指导：核对本章原始肖像字段和共享肖像覆盖；缺图报告零缺口不代表所有引用合法，不能自动补图或换图。该码来自共同画像收集器，不把它简单解释为“必定255”，也不暗示已有编辑器能修改所有原始字段。原错误信息仍保留；启动使用已保存修订／章、未保存输入、所属子窗口清理、晚到回应守卫及不自动保存／重读／重试均不变。
+
+复用 `verify_editor_draft_controller.mjs` 原Trial失败循环增加此码，`trial-portrait-guidance-before.log` 一项失败复现缺少指导；修后 `trial-portrait-guidance-controller.log` **106组通过**（原组内增加分支），shell65通过。核typed999仍提交已读修订1／原章，只一条Trial请求，提示包含明确上下文及新指导；保脏name和999、关闭所属子窗口、不导航、不写journal，并保“回应不明不能推定服务端未建立”说明。是明确API／子窗口夹具，不冒实际HTTP或新浏览器错误场景。
+
+语法、TXT实际导入、diff及链接通过，当前输入和诊断见 `trial-portrait-guidance-final-hashes.json`。仅控制器提示、既有测试及文档变化，无Vue／DOM结构、服务准入、Web引擎或资源改变，不重建两束，不重复无影响浏览器、实际Trial、发布、规则长链。完整A20／A21／A32仍未闭合。
+
+## 后继Trial资产提交逐点回滚
+
+核 `EditorRoot.#postTrialStart`：实际请求路径由外层 `storage.transactionSync` 包住会话／八个派生资产提交、touch及remember；`TrialSessions.commit` 本身不另开事务。本批不改产品，只在既有 `verify_vps_trial.mjs` 将正常commit也放入相同平台事务边界，并增加SQLite逐点失败检查。
+
+先正常提交一个真实已生成Trial，再实际issue第二个。在manifest、chapter、terrain、roadGraph、roadCost、roadOffset、minimapBase、minimapLarge八个插入位置分别安装自有临时SQLite触发器，以 `RAISE(ABORT)` 失败；每轮断言抛出精确夹具错误后删除自有触发器，核 `trial_sessions`、`trial_assets`（含旧资产字节）、`content_games` 全文与失败前相同。覆盖新会话行和已插入资产前缀的共同回滚，不以只有空表来掩盖误清旧Trial。
+
+移除故障后直接使用同一份已生成DTO／derived重新提交，八行资产ID／SHA／长度／字节逐项一致，派生buffer摘要保持，旧Trial仍active；新Trial随后通过现有end路径结束。原正常pack／asset／end、跨作者与epoch、三坏候选提前拒收和单章隔离用例同轮保留。`trial-commit-rollback-ports.log` 首轮 **45项通过**（35＋10），15个输入测试前冻结并事后核同。使用实际SQLite内存事务、自有临时FileBucket及固定41角色安装；故障触发器和principal是明确夹具，不是进程崩溃／磁盘持久性、workerd、HTTP幂等收据seal／remember失败或完整并发恢复证明。
+
+仅既有测试和文档改变，语法／diff／链接及诊断记录见 `trial-commit-rollback-final-hashes.json`；不重建未变两束或重复无影响UI、规则、发布、完整HTTP长链。A21及完整编辑器仍部分，后继应用收据回滚见下节，其它恢复边界仍须分别验收。
+
+## 后继共同Request的Trial收据入库回滚
+
+复用 `verify_editor_template_root.mjs --trial-commit-only`，走实际共同Request、会话／CSRF、seal、外层事务、`TrialSessions.commit`、touch、remember及replay。用户／会话、游戏快照元数据和issue产物是明确夹具；issue不编译资源，八个小型派生buffer只是提交边界输入，不是可玩清单。使用自有临时文件SQLite，不启动HTTP服务器、不安装源或访问用户存档。
+
+先通过同一路由正常创建旧Trial。第二次请求在 `operations` INSERT处使用自有临时触发器注入失败；触发条件同时要求该次Trial行和全部八个资产已经存在，避免把提前失败误报为末端回滚。实际响应500／INTERNAL_ERROR后，trial_sessions、trial_assets、operations、content_games、content_snapshots和sessions六表全文与请求前一致，旧会话／资产／收据均保留。删除自有故障触发器后，以同一请求键和正文重试，仅新建一个Trial及八资产；旧失败trialId无行，资产ID／长度／SHA／字节一致，游戏及快照不变。随后同键同正文返回同一解密收据、不再调用issue或插行；同键改章409／IDEMPOTENCY_CONFLICT且六表保持。
+
+`trial-request-rollback-r1.log` 四组通过，补入sessions回滚及旧收据／快照保留断言后，`r2.log` 仍四组通过；六个输入在最终轮前冻结并事后核同。实际issue替身总调用三次（旧成功、失败、重试成功），最终两Trial／十六资产，故不能把整体说成只创建一个Trial。一次编辑因读取覆盖要求被拒、未应用，重读后完成修改；无测试失败。
+
+源码／诊断见 `trial-request-rollback-final-hashes.json`。只改既有测试及文档，无产品、DDL、两束变更；未跑无影响编译、浏览器、发布或规则长链。这里只证明共同Request与文件SQLite内的收据末端回滚和原键恢复，不证明真实登录／网络、seal本身失败、workerd、并发进程、断电持久性或完整A21／A29。
+
+## 后继Trial结束收据回滚
+
+继续复用上节 `--trial-commit-only`，不新建入口或修改产品。对目标Trial的结束请求，在 `operations` INSERT处注入失败；触发器仅在目标已标记ended／explicit且其八个资产全部删除后触发。响应500后六表全文与结束前一致，目标仍active且资产恢复，另一Trial及既有收据不受影响。移除自有触发器，以原结束请求键重试：仅目标状态／end_reason改变，其八资产删除，其它Trial和资产、旧收据、游戏及快照保持；再次同键重放响应相同，六表不再变化。
+
+`trial-end-rollback-r1.log` 保留失败：回滚和重试已经通过，后续期望对象为普通原型而SQLite行是null原型，严格比较失败。只将目标行展开为普通对象进行全字段比较，未减少字段断言或修改产品。最终 `r2.log` **七组通过**（原创建四组＋结束三组），最终两Trial、一个ended／一个active、私有资产从16降为8；issue替身仍只调用三次。六个输入在r2前冻结并事后核同，见 `trial-end-rollback-final-hashes.json`。
+
+边界仍是实际共同Request／会话／CSRF／seal／SQL事务／结束／remember／replay和自有文件SQLite，身份、源元数据及issue产物为明确夹具；删除只发生于临时测试资产，不涉及真实游戏物理删除。未认证实际编译／登录／网络、seal失败、workerd、跨进程或断电恢复。仅测试及文档变化，不构建未变两束或重复无影响游戏／浏览器／发布长链；完整A21／A29仍部分。
+
+## 后继Trial准备返回后的权限复核
+
+同一 `verify_editor_template_root.mjs --trial-commit-only` 增加两个独立游戏的时序用例，保留上述创建／结束回滚。issue替身先用实际principal及snapshotReference取得合法身份和快照，构造原epoch的预备DTO；经过显式await后，分别向自有SQLite插入该游戏删除栅栏、或把另一个作者的用户epoch从1升到2，再返回原DTO／八资产。实际Root完成seal后进入原提交事务：前者由 `TrialSessions.commit` 的删除栅栏复核返回409／GAME_DELETING，后者由Root的principal复核返回401／SESSION_INVALID。
+
+两例各准备一次，trial_sessions、trial_assets、operations、content_games、content_snapshots、sessions六表全文保持，预备trialId未写入；显式注入的栅栏／用户epoch变化仍存在，未靠回改权限制造通过。原派生buffer摘要及其它Trial保持。只验证此准备返回／提交边界，不宣称所有await、真实改密、删除事务或跨进程并发均已覆盖。
+
+`trial-late-authority-r1.log` 九组通过；随后更正日志汇总，把原回滚流程的三次issue与新增两次分开计数。最终 `r2.log` 仍九组通过（原七＋二），`rollbackIssueCalls=3`、总 `issueCalls=5`、最终两Trial／八资产。六个输入在最终轮前冻结并事后核同，诊断和源码摘要见 `trial-late-authority-final-hashes.json`。实际共同Request／文件SQLite与明确身份、元数据、issue及时序夹具边界不变；未改产品或构建两束，未重跑无影响浏览器／编译／发布／规则长链。完整A21／A29仍部分。
+
+## 后继新草稿保存与已准备Trial的固定修订
+
+复用 `verify_vps_trial.mjs` 的实际41角色安装、PrivateDrafts捕获／保存、结构编译及Trial派生资产链。在已运行的修订1 Trial之外，先实际issue另一份修订1 Trial但不提交；随后以已支持的resourceEdits把首章势力槽0资金加1，真实保存1→2，再提交先前的修订1 Trial。此新增时序段没有替换capture、reference或视觉读取；principal及operationGuard仍为既有端口身份夹具，不是HTTP登录或并行进程。
+
+验证旧snapshotReference完整不变，新修订root／sourceDigest不同，草稿保存不改已存在Trial两表全文／BLOB。准备好的旧Trial仍可提交，八资产逐项ID／SHA／长度／字节等于原准备值，pack仍绑定修订1及原资金。按修订2新issue／commit的Trial绑定新摘要，资金加1，完整chapter等于实际捕获的修订2；六种地图派生资产保持原字节，原来运行的Trial完整pack不变。随后只结束新建的两Trial，原Trial仍active；旧修订1再次捕获的完整源摘要及最初loader对象摘要保持。
+
+**两种时点不得混同**：上述是已完成准备的旧快照提交，不代表保存推进后可以重新捕获旧修订的运行资产。`OwnedRuntimeAssets` 既有当前修订门见[VPS就绪§4.2](vps-editor-readiness.md)；新发起旧修订issue仍409／SOURCE_RUNTIME_CHANGED、无新Trial行，也不偷偷改用最新修订。本批不放宽该门。
+
+`trial-draft-advance-ports.log` 前五个新增断言已通过，随后错误假设新申请旧修订也能成功，遇现行409中止；失败日志保留。核对已有明确门槛后只修测试期待，不改产品；一次编辑因read coverage拒绝未应用，重读后修改。最终 `trial-draft-advance-ports-r2.log` **52项通过**（原45＋7），15个相关输入在最终轮前冻结并事后核同，初轮输入摘要另存不覆盖。
+
+实际SQLite内存库、自有临时FileBucket；旧入口的非法候选与故障注入仍保持各自夹具范围，本段资金保存及Trial捕获／编译／提交则使用实际端口。没有新浏览器、App运行、网络并发或断电持久性证明。只改既有测试及文档，语法／diff／链接与主动诊断见 `trial-draft-advance-final-hashes.json`；不重建不变两束或重复无影响UI、发布、规则长链。完整A21仍部分。
 
 ## 批次8d（E-05-Q69-CLOSURE-IMPL-8D）：TALK 固定域锁定＋终局可达考据（已实施，用户裁决 A）
 

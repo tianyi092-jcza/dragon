@@ -74,7 +74,35 @@ try {
    try{const writing=delayed.put(before,(await store.get(0)).token);await ready;retired=true;release();await assert.rejects(writing,/retired/);assert.deepEqual(memory.records(),prior);checks++;}
    finally{release();retired=false;globalThis.fetch=fixture.fetch;}
  }
- retired=true;const opens=memory.stats.opens.length;await assert.rejects(()=>bound.get(0),/retired/);await assert.rejects(()=>bound.put(before),/retired/);await assert.rejects(bound.list,/retired/);assert.equal(memory.stats.opens.length,opens);retired=false;checks++;
+ const backup=await bound.exportBackup(0),sourceRecord=await store.get(0);
+ {
+   const receipt=await bound.importBackup(backup,12),imported=await store.get(12);
+   assert.equal(receipt.committed,true);assert.deepEqual(receipt.snapshot,{...before,slot:12});
+   assert.notEqual(imported.token.recordId,sourceRecord.token.recordId);assert.equal(imported.token.writeRevision,4);
+   assert.deepEqual(await store.get(0),sourceRecord);assert.deepEqual(originalRng.snapshot(),rng);checks++;
+   const prior=memory.records();await assert.rejects(()=>bound.importBackup(backup,12),/changed/);
+   await assert.rejects(()=>bound.importBackup(backup,-1));await assert.rejects(()=>bound.importBackup('{}',13));
+   await assert.rejects(()=>bound.exportBackup(999),/empty/);assert.deepEqual(memory.records(),prior);checks++;
+   memory.configure({failAt:3,outcome:'abort'});await assert.rejects(()=>bound.importBackup(backup,13),/abort/);
+   memory.configure({});assert.deepEqual(memory.records(),prior);checks++;
+ }
+ for(const operation of ['exportBackup','importBackup']) {
+   let release,entered,first=true;const gate=new Promise(resolve=>{release=resolve;}),ready=new Promise(resolve=>{entered=resolve;});
+   const world=fixture.context().world,delayed=createPlayerSaveStore({environment:{...environment,world},store});
+   const prior=memory.records();globalThis.fetch=async input=>{if(first){first=false;entered();await gate;}return fixture.fetch(input);};
+   try {
+     const pending=operation==='exportBackup'?delayed.exportBackup(0):delayed.importBackup(backup,13);
+     await ready;retired=true;release();await assert.rejects(pending,/retired/);assert.deepEqual(memory.records(),prior);checks++;
+   } finally {release();retired=false;globalThis.fetch=fixture.fetch;}
+ }
+ {
+   let finish,entered;const ready=new Promise(resolve=>{entered=resolve;}),gate=new Promise(resolve=>{finish=resolve;});
+   const delayed=createPlayerSaveStore({environment,store:{...store,put:async(input,expected,options)=>{entered();await gate;return store.put(input,expected,options);}}});
+   const importing=delayed.importBackup(backup,13);await ready;retired=true;finish();const receipt=await importing;
+   assert.equal(receipt.committed,true);assert.equal(receipt.snapshot.slot,13);retired=false;
+   assert.deepEqual(await store.get(0),sourceRecord);assert.equal((await store.get(13)).token.recordId,receipt.token.recordId);checks++;
+ }
+ retired=true;const opens=memory.stats.opens.length;await assert.rejects(()=>bound.get(0),/retired/);await assert.rejects(()=>bound.put(before),/retired/);await assert.rejects(bound.list,/retired/);await assert.rejects(()=>bound.exportBackup(0),/retired/);await assert.rejects(()=>bound.importBackup(backup,14),/retired/);assert.equal(memory.stats.opens.length,opens);retired=false;checks++;
  assert.deepEqual(memory.records().find(([key])=>key==='slots'),['slots',{ownedLegacy:true}]);assert.equal(memory.stats.deletes.length,0);assert.deepEqual(originalRng.snapshot(),rng);fixture.verify();checks++;
  process.stdout.write(JSON.stringify({checks,scope:'Bound formal identity and unchanged full snapshot/JSON/detached restore; owned IDB mock CAS/abort/late completion, no real browser or version-deletion permission'})+'\n');
 }finally{globalThis.fetch=nativeFetch;fixture.verify();}

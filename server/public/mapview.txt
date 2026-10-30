@@ -2,8 +2,8 @@
 // from draft read. No editing: placements are 192-locked with frozen cells,
 // road topology is chapter-pinned, tile semantics unaudited. This view is the
 // visual foundation for future editing, not an editor.
-export function installMapViewer({ api, authority, work, isBusy, publish = () => {}, getCanvas = () => null }) {
-  let identity = null, games = [], selected = null, detail = null, topo = null, generation = 0, message = '';
+export function installMapViewer({ api, authority, work, isBusy, publish = () => {}, gameContext, getCanvas = () => null }) {
+  let identity = null, games = [], selected = null, detail = null, topo = null, generation = 0, actionGeneration = 0, message = '';
   const allowed = () => Boolean(identity?.user) && identity === authority() && !identity.user.mustChangePassword;
   function render() {
     const visible = allowed(), lines = [];
@@ -73,14 +73,33 @@ export function installMapViewer({ api, authority, work, isBusy, publish = () =>
       }
     }
   }
+  function adoptGame(value) { if (!allowed() || value === selected) return; generation++; actionGeneration++; selected = value; detail = null; topo = null; message = ''; render(); }
   function ticket() { const actor = identity, serial = ++generation; return () => allowed() && actor === identity && serial === generation; }
   async function refresh() {
     if (!allowed()) throw new Error('請先登入。');
     const valid = ticket(), result = await api('/api/games'); if (!valid()) return;
     const ids = new Set();
     if (!Array.isArray(result.games) || result.games.some(g => !g || typeof g.gameId !== 'string' || ids.has(g.gameId) || !ids.add(g.gameId) || typeof g.metadata?.name !== 'string' || !/^[1-9][0-9]*$/.test(g.draftRevision))) throw new Error('遊戲清單回應無效。');
-    games = result.games.map(g => ({gameId:g.gameId,draftRevision:String(g.draftRevision),metadata:{name:g.metadata.name}})); selected = games[0]?.gameId ?? null; detail = null; topo = null; message = ''; render();
-    if (selected) await inspect();
+    games = result.games.map(g => ({gameId:g.gameId,draftRevision:String(g.draftRevision),metadata:{name:g.metadata.name}}));
+    const next = gameContext?.current() ?? (games.some(game => game.gameId === selected) ? selected : games[0]?.gameId ?? null);
+    if (next && gameContext && !gameContext.select(next)) return;
+    if (!valid()) return;
+    selected = next;
+    detail = null; topo = null; message = ''; render();
+    if (games.some(game => game.gameId === selected)) await inspect();
+    else message = '目前遊戲不在本次清單；沒有切換其他遊戲。';
+  }
+  // This schematic supports only the current fixed rectangle, not map admission.
+  const point = value => Number.isInteger(value?.x) && value.x >= 0 && value.x < 384 && Number.isInteger(value?.y) && value.y >= 0 && value.y < 256;
+  function uniqueRows(rows, key, check) {
+    if (!Array.isArray(rows)) return false;
+    const ids = new Set();
+    for (const row of rows) {
+      const id = row?.[key];
+      if (typeof id !== 'string' || !id || ids.has(id) || !check(row)) return false;
+      ids.add(id);
+    }
+    return true;
   }
   async function inspect() {
     if (!allowed()) throw new Error('請先登入。');
@@ -88,15 +107,17 @@ export function installMapViewer({ api, authority, work, isBusy, publish = () =>
     const valid = ticket(), next = await api('/api/games/' + encodeURIComponent(game.gameId) + '/draft?revision=' + encodeURIComponent(game.draftRevision));
     if (!valid()) return;
     if (next?.gameId !== game.gameId || next.draftRevision !== game.draftRevision || !Array.isArray(next.strongholds) || !Array.isArray(next.map?.roads)) throw new Error('地圖回應身份／修訂無效。');
+    if (!uniqueRows(next.strongholds, 'cityId', point) || !uniqueRows(next.map.roads, 'id', road => Array.isArray(road.geometry) && Array.from(road.geometry).every(point))) throw new Error('地圖幾何回應無效；保留先前已讀示意圖。');
+    const cities = new Set(next.strongholds.map(city => city.cityId)), roads = new Set(next.map.roads.map(road => road.id));
     let overlay = null;
     try { overlay = await api('/api/games/' + encodeURIComponent(game.gameId) + '/topology'); }
     catch { /* Optional read failure is unknown, never an unblocked result. */ }
     if (!valid()) return;
-    if (overlay && (overlay.gameId !== game.gameId || !Array.isArray(overlay.moves) || !Array.isArray(overlay.rebuilds) || typeof overlay.blocked !== 'boolean')) overlay = null;
+    if (overlay && (overlay.gameId !== game.gameId || !uniqueRows(overlay.moves, 'cityId', move => point(move) && cities.has(move.cityId)) || !uniqueRows(overlay.rebuilds, 'roadId', rebuild => roads.has(rebuild.roadId) && ['land', 'water'].includes(rebuild.travelKind)) || overlay.blocked !== (overlay.moves.length > 0))) overlay = null;
     detail = structuredClone(next); topo = structuredClone(overlay);
     message = '示意圖唯讀：放置／道路／圖塊編輯尚未開放（模型鎖定，見 §4.4 缺口）。'; render();
   }
-  const action = callback => work(async () => { const actor = identity; try { await callback(); } catch (error) { if (allowed() && identity === actor) message = error.message; throw error; } finally { render(); } });
-  const actions = Object.freeze({refresh:()=>action(refresh),inspect:()=>action(inspect),select(value) { if (!allowed() || isBusy() || !games.some(g => g.gameId === value) || value === selected) return; generation++; selected = value; detail = null; topo = null; message = ''; render(); }});
-  render(); return Object.freeze({ render, actions, setIdentity(value) { if (identity !== value) { generation++; identity = value; games = []; selected = null; detail = null; topo = null; message = ''; } render(); }, canLeave() { return true; } });
+  const action = callback => work(async () => { const actor = identity, serial = ++actionGeneration; try { await callback(); } catch (error) { if (allowed() && identity === actor && serial === actionGeneration) message = error.message; throw error; } finally { render(); } });
+  const actions = Object.freeze({redraw:render,refresh:()=>action(refresh),inspect:()=>action(inspect),select(value) { if (!allowed() || isBusy() || !games.some(g => g.gameId === value) || value === selected) return; const valid = ticket(); if (gameContext && !gameContext.select(value)) { render(); return; } if (!valid()) return; adoptGame(value); }});
+  render(); return Object.freeze({ render, actions, adoptGame, canAdoptGame: () => allowed(), selectedGame: () => allowed() ? selected : null, setIdentity(value) { if (identity !== value) { generation++; actionGeneration++; identity = value; games = []; selected = gameContext?.current() ?? null; detail = null; topo = null; message = ''; } render(); }, canLeave() { return true; } });
 }

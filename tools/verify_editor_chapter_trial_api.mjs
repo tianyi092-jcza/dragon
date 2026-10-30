@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { startEditorServer, EDITOR_CHAPTER_BUILD_FORMAT } from "./editor_server.mjs";
 import { TRIAL_COMPILER_REVISION } from "../web/src/content/authoring/trialcompile.js";
 import { createTrialEnvironment } from "../web/src/content/authoring/trialruntime.js";
-import { canonicalDigest } from "../web/src/content/authoring/gamesource.js";
+import { canonicalDigest, disbandFaction } from "../web/src/content/authoring/gamesource.js";
 const store = mkdtempSync(join(tmpdir(), "dragon-chapter-api-")), server = await startEditorServer(0, store), origin = `http://127.0.0.1:${server.address().port}`;
 process.stderr.write("OWNED STORE " + store + "\n");
 const sha = b => createHash("sha256").update(b).digest("hex");
@@ -25,6 +25,7 @@ try {
   const gameId = "chapter-api";
   await call("/api/copy", { gameId, ownerId: "local", kind: "full" });
   const draft = await call("/api/draft?game=" + gameId), [first, bad, second] = draft.chapterOrder;
+  const originalBadState = structuredClone(draft.chapters[bad].state);
   const whole = await call("/api/compile", { gameId });
   const path = join(store, gameId, "gamesource.json");
   draft.chapters[bad].state = {}; draft.localModel.draftRevision = "2";
@@ -70,6 +71,76 @@ try {
   const newer = await call("/api/compile", { gameId, expectedRevision: "3", scope: { kind: "chapter", chapterId: first } });
   assert.notEqual(newer.identity.trialSnapshotId, a.identity.trialSnapshotId);
   assert.deepEqual(await call("/api/trial-pack?" + query(first, "3")), { ...pack, manifest: newer });
-  process.stdout.write(JSON.stringify({ result: "PASS-FIXED-CHAPTER-SERVICE", refusals, scopes: [a.identity, b.identity, newer.identity], fullCompilationStillBlocked: true, selectedStateUnchanged: true,
+  // Q40 product gate: complete native records with ONLY the faction list empty.
+  // A bad unrelated chapter must still not contaminate selected-chapter scope.
+  const noFactions = await call('/api/draft?game=' + gameId);
+  noFactions.chapters[bad].state = structuredClone(originalBadState); noFactions.chapters[bad].state.factions = [];
+  noFactions.localModel.draftRevision = '4';
+  const noFactionBytes = Buffer.from(JSON.stringify(noFactions)); writeFileSync(path, noFactionBytes);
+  for (const body of [{gameId,expectedRevision:'4'}, {gameId,expectedRevision:'4',scope:{kind:'chapter',chapterId:bad}}]) {
+    const refusal = await call('/api/compile', body, 400);
+    assert.match(JSON.stringify(refusal), /factions must include at least one entry/);
+  }
+  const healthy = await call('/api/compile', {gameId,expectedRevision:'4',scope:{kind:'chapter',chapterId:first}});
+  assert.deepEqual(healthy.chapters, [first]);
+  for (const asset of [...healthy.assets, ...healthy.minimapAssets]) {
+    assert.equal(asset.sha256, [...whole.assets, ...whole.minimapAssets].find(value => value.assetId === asset.assetId).sha256);
+  }
+  assert.deepEqual(readFileSync(path), noFactionBytes, 'compile refusal/success must not initialize or rewrite the draft');
+  const validationScopes = [];
+  for (const [index, [field, value, max]] of [['force', -1, 255], ['force', 0.5, 255], ['force', 256, 255], ['siege', 16, 15], ['faction', 22, null], ['faction', 'duplicate', null], ['native-advisor', null, null], ['native-raw', null, null], ['native-order', null, null], ['native-resource', 'money', null], ['native-resource', 'reserve_cav', null], ['native-resource', 'reserve_arc', null], ['native-resource', 'reserve_inf', null], ['native-tail-disband', null, null]].entries()) {
+    const invalid = structuredClone(noFactions), revision = String(5 + index);
+    invalid.chapters[bad].state = structuredClone(originalBadState);
+    const state = invalid.chapters[bad].state;
+    assert.ok(state.factions.length > 0, 'field negative must not fail the empty-faction gate first');
+    let expectedError;
+    if (field === 'faction') {
+      if (value === 'duplicate') state.factions.push(structuredClone(state.factions[0]));
+      else state.factions[0].idx = value;
+      expectedError = 'faction idx must be unique 0..21';
+    } else if (field === 'native-advisor') {
+      const faction = state.factions[0]; faction.advisor_idx = faction.advisor_idx === null ? 0 : null;
+      expectedError = `faction slot ${faction.idx} advisor_idx differs from native source`;
+    } else if (field === 'native-resource') {
+      const faction = state.factions[0]; faction[value] = faction[value] === 0 ? 1 : 0;
+      expectedError = `faction slot ${faction.idx} ${value} differs from native source`;
+    } else if (field === 'native-order') {
+      assert.ok(state.factions.length > 1);
+      [state.factions[0], state.factions[1]] = [state.factions[1], state.factions[0]];
+      expectedError = 'native view order required';
+    } else if (field === 'native-tail-disband') {
+      const declared = state.n_factions, raw = [...state.nativeFactionSlotRaw];
+      disbandFaction(invalid, bad, state.factions.at(-1).idx);
+      assert.equal(state.n_factions, declared);
+      assert.equal(state.factions.length, declared - 1);
+      assert.deepEqual(state.nativeFactionSlotRaw, raw);
+      expectedError = 'declared faction count differs from public view length';
+    } else if (field === 'native-raw') {
+      state.nativeFactionSlotRaw = [];
+      expectedError = 'native faction source must contain 22 valid fixed slots';
+    } else {
+      state.generals[0].ability[field] = value;
+      expectedError = `${field} must be an integer in 0..${max}`;
+    }
+    invalid.localModel.draftRevision = revision;
+    const bytes = Buffer.from(JSON.stringify(invalid)); writeFileSync(path, bytes);
+    for (const body of [{ gameId, expectedRevision: revision }, { gameId, expectedRevision: revision, scope: { kind: 'chapter', chapterId: bad } }]) {
+      const refusal = await call('/api/compile', body, 400);
+      assert.ok(JSON.stringify(refusal).includes(expectedError));
+      assert.deepEqual(readFileSync(path), bytes, 'field rejection must not clamp or rewrite source');
+    }
+    const selected = await call('/api/compile', { gameId, expectedRevision: revision, scope: { kind: 'chapter', chapterId: first } });
+    assert.deepEqual(selected.chapters, [first]);
+    assert.equal(selected.scope.savedSourceDigest, canonicalDigest(invalid, sha));
+    for (const asset of [...selected.assets, ...selected.minimapAssets]) {
+      assert.equal(asset.sha256, [...whole.assets, ...whole.minimapAssets].find(old => old.assetId === asset.assetId).sha256);
+    }
+    const selectedPack = await call('/api/trial-pack?' + query(first, revision));
+    assert.deepEqual(selectedPack.chapter, invalid.chapters[first].state);
+    assert.deepEqual(readFileSync(path), bytes);
+    assert.deepEqual(await call('/api/trial-pack?' + query(first)), pack, 'old immutable pack is not replaced by current invalid source');
+    validationScopes.push(selected.identity);
+  }
+  process.stdout.write(JSON.stringify({ result: "PASS-FIXED-CHAPTER-SERVICE", refusals, scopes: [a.identity, b.identity, newer.identity, healthy.identity, ...validationScopes], factionIdentityRejected: true, factionNativeConsistencyRejected: true, tailDisbandCountRejected: true, abilityRepresentationRejected: true, emptyFactionRejected: true, fullCompilationStillBlocked: true, selectedStateUnchanged: true,
     limitations: "local fixed imported scope/cache and shared compiler only; no new initializer/general library/complete asset closure/auth/publication" }) + "\n");
 } finally { process.stderr.write("CLOSING OWNED SERVER\n"); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); rmSync(store, { recursive: true, force: true }); }

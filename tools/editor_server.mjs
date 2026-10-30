@@ -375,11 +375,15 @@ const routes = {
     const { gameId, name } = body ?? {};
     if (typeof name !== "string" || !name.trim()) throw new RangeError("publish name required");
     const game = loadDraft(gameId);
-    const display = checkGameName(name, 40);
+    const display = checkGameName(name.normalize("NFC"), 8);
     const rev = game.localModel.draftRevision;
     const { manifest } = readBuild(gameId, rev, null);
     validateGameSource(game);
+    // Q28 allows an empty draft/map preview, never an empty publication.
+    if (!Array.isArray(game.chapterOrder) || !game.chapterOrder.length) throw new RangeError("publication requires at least one chapter");
+    if (JSON.stringify(manifest.chapters) !== JSON.stringify(game.chapterOrder)) throw new RangeError("compiled chapter list mismatch");
     if (manifest.identity.draftRevision !== rev) throw new RangeError("compiled revision mismatch");
+    if (canonicalDigest(game, sha256hex) !== manifest.identity.sourceDigest) throw new RangeError("compiled source mismatch");
     const pin = { gameId, name: display, revision: rev, sourceDigest: manifest.identity.sourceDigest, chapters: manifest.chapters, publishedAt: new Date().toISOString() };
     writeFileSync(join(gameDir(gameId), "publish.json"), `${JSON.stringify(pin)}\n`);
     json(res, pin);
@@ -902,6 +906,15 @@ if (!SERVE && process.argv[1] === fileURLToPath(import.meta.url)) {
   assert.equal(manifest.identity.gameId, "svc-test-1");
   assert.ok(manifest.minimap["208x139"], "minimap derived");
   assert.equal(manifest.assets[0].role, "rules-initial-terrain");
+  // Q28: an empty template still compiles its map, but is not a publication.
+  assert.deepEqual(manifest.chapters, []);
+  const emptyDraftPath = join(tmp, 'svc-test-1', 'gamesource.json'), emptyDraftBytes = readFileSync(emptyDraftPath);
+  const emptyPublication = await fetch(`${base}/api/publish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ gameId: 'svc-test-1', name: '空章測試' }) });
+  assert.equal(emptyPublication.status, 400, 'compiled empty chapter list cannot publish');
+  assert.match(JSON.stringify(await emptyPublication.json()), /at least one chapter/);
+  assert.equal(existsSync(join(tmp, 'svc-test-1', 'publish.json')), false);
+  assert.deepEqual(readFileSync(emptyDraftPath), emptyDraftBytes);
+  assert.deepEqual((await call('GET', '/api/published-games')).games.map(game => game.gameId), ['wolong-builtin']);
   // Trial-pack serves every known chapter (post-fix: previously fatal
   // chapters boot with reconstruction writes + dead-slot skips).
   await call("POST", "/api/copy", { gameId: "svc-full-1", ownerId: "admin-1", kind: "full" });
@@ -943,6 +956,55 @@ if (!SERVE && process.argv[1] === fileURLToPath(import.meta.url)) {
   assert.equal(entry?.revision, pin.revision);
   const playPack = await fetch(`${base}/api/trial-pack?game=svc-full-1&revision=${pin.revision}&chapter=${encodeURIComponent(pin.chapters[0])}`);
   assert.equal(playPack.status, 200, "published pack served");
+  // New publication names share the approved trim/NFC/eight-code-point rule.
+  // Rejected requests must not replace an existing local pin or touch source.
+  const namePinPath = join(tmp, "svc-full-1", "publish.json");
+  const oldPinBytes = readFileSync(namePinPath);
+  const oldDraftBytes = readFileSync(join(tmp, "svc-full-1", "gamesource.json"));
+  // A same-revision filesystem change is not the compiled snapshot. Exercise
+  // only this owned store, and restore it even when the negative control fails.
+  for (const mutate of [source => { source.metadata.name = '已改資料'; }, source => { source.chapters[source.chapterOrder[0]].name = '已改章名'; }]) {
+    let changedSource;
+    try { changedSource = JSON.parse(oldDraftBytes.toString('utf8')); }
+    catch (cause) { throw new Error('invalid owned source fixture', { cause }); }
+    mutate(changedSource);
+    const changedBytes = Buffer.from(JSON.stringify(changedSource)), sourcePath = join(tmp, 'svc-full-1', 'gamesource.json');
+    writeFileSync(sourcePath, changedBytes);
+    try {
+      const rejected = await fetch(`${base}/api/publish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ gameId: 'svc-full-1', name: '快照負控' }) });
+      assert.equal(rejected.status, 400, 'same-revision changed source cannot publish an earlier build');
+      assert.match(JSON.stringify(await rejected.json()), /compiled source mismatch/);
+      assert.deepEqual(readFileSync(namePinPath), oldPinBytes);
+      assert.deepEqual(readFileSync(sourcePath), changedBytes, 'rejection must not restore or rewrite the draft');
+    } finally { writeFileSync(sourcePath, oldDraftBytes); }
+  }
+  const chapterManifestPath = join(buildDir('svc-full-1', pin.revision), 'manifest.json');
+  const chapterManifestBytes = readFileSync(chapterManifestPath);
+  for (const chapters of [[], pin.chapters.toReversed(), [...pin.chapters, pin.chapters[0]]]) {
+    writeFileSync(chapterManifestPath, JSON.stringify({ ...pubManifest, chapters }));
+    try {
+      const rejected = await fetch(`${base}/api/publish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ gameId: 'svc-full-1', name: '章表負控' }) });
+      assert.equal(rejected.status, 400);
+      assert.match(JSON.stringify(await rejected.json()), /compiled chapter list mismatch/);
+      assert.deepEqual(readFileSync(namePinPath), oldPinBytes);
+    } finally { writeFileSync(chapterManifestPath, chapterManifestBytes); }
+  }
+  for (const name of ["123456789", "𠀀".repeat(9), "é".repeat(9), "bad\u0001name", "bad\ud800"]) {
+    const rejected = await fetch(`${base}/api/publish`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ gameId: "svc-full-1", name }) });
+    assert.equal(rejected.status, 400, "invalid publication name refused");
+    assert.deepEqual(readFileSync(namePinPath), oldPinBytes);
+  }
+  for (const name of ["  " + "e\u0301".repeat(8) + "  ", "𠀀".repeat(8)]) {
+    const named = await call("POST", "/api/publish", { gameId: "svc-full-1", name });
+    assert.equal(named.name, name.trim().normalize("NFC"));
+    assert.equal(named.sourceDigest, pin.sourceDigest); assert.equal(named.revision, pin.revision);
+  }
+  assert.deepEqual(readFileSync(join(tmp, "svc-full-1", "gamesource.json")), oldDraftBytes);
+  // Owned old-format fixture: reads do not rewrite an earlier long name.
+  const legacyPin = JSON.stringify({ ...pin, name: "Legacy published name" });
+  writeFileSync(namePinPath, legacyPin);
+  assert.equal((await call("GET", "/api/published-games")).games.find(game => game.gameId === pin.gameId).name, "Legacy published name");
+  assert.equal(readFileSync(namePinPath, "utf8"), legacyPin);
   const unpub = await call("POST", "/api/unpublish", { gameId: "svc-full-1" });
   assert.equal(unpub.unpublished, true);
   assert.equal((await call("GET", "/api/published-games")).games.length, 1, "only builtin remains");

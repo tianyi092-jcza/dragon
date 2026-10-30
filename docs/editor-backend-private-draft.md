@@ -1,5 +1,7 @@
 # 私有固定副本草稿：精确读取与限定保存
 
+> 下列早期API支持域与验证是 PRIVATE-DRAFT-1 历史切片，不代表现行接口只支持四资源或尚无章节／地图／实体编辑。现行逐项状态见[全量审计](editor-completion-audit.md)；本次所有权及读后epoch复核见[后继端口验证](#后继所有权与读后epoch端口验证)。旧成绩仍只绑定各自源码，不冒当前全矩阵。
+
 ## 范围与权限
 
 `E-01-BACKEND-PRIVATE-DRAFT-1`安装真实Root私有接口，不是完整编辑器／运行／发布完成。原管理员固定来源复制、账户和存储规则不改；新增`server/drafts.js`，Root只装配服务、路由和跨接口永久key检查。409旧声明输入（含375玩家输入）保持字节，根玩家部署未改，无部署／云创建／提交推送。
@@ -8,7 +10,7 @@
 - 服务固定definitionDigest必须同时匹配SQL目录与copy origin。两表自报同值不构成证据。read/save/query在R2读取或结果重放之前检查；每await后复查原actor／epoch，最终SQL再检查固定来源和主体。
 - baseline只来自管理员已提交`copy_origins`、固定目录和实际不可变R2；完整规范JSON、全分块实际SHA、共同结构门、`FixedCopyProfile`品牌和全源差异校验。客户sourceRef／ownerId／valid／root／cap都不能赋权。
 
-## 已安装HTTP接口
+## 早期HTTP接口（历史支持域）
 
 | 接口 | 合同 |
 | --- | --- |
@@ -42,6 +44,90 @@
 
 主动12路径最初0clean/1findings/7MD unavailable/4JS push-only inconclusive：唯一error是ignored夹具对native Request绝对URL的静态误判，按精确文件/行/消息标FP，不改source/inlineignore/规则/cache。随后5source warning probe为1clean/4inconclusive、0显示诊断且FP仍明示隐藏；不冒全clean。session296文件23既有warning保留（此前14logger裁决与9旧sink/duplicate/JSON项），正确await括号不迎合hint改错。适用Node语法与真实执行另外签；Jev4919B人工工程摘要经0redactions preview审阅后发jev-1.13.0，仅advisory，无源码/资源/秘密/存档/完整log。
 
-## 后续
+## 早期后续清单（历史）
 
 后继[资料表单](editor-backend-draft-ui.md)已有失败输入保留／冲突／原key查询和实际改密后的保守恢复证据；完整受权私有工作台仍缺，随后共同compiler、图像/头像、runtime/Q69/Trial/发布及引用删除／备份恢复。精确四资源表示门不扩成角色／地图／新章初始化或中立开局规则。全目标继续见[工作表](editor-goal-completion.md)与[需求索引](editor-requirements-matrix.md)，不关闭E-01或任何未完成全项。
+
+## 后继所有权与读后epoch端口验证
+
+本次只读核 `PrivateDrafts.#owned/#load/#put/save`：所有者及主体epoch在异步读取／写入后重新核对；最终同步事务再核主体、来源、永久键并经 `compareAndSwap` 提交。没有据此新增防御层或修改产品；以下只验证列明边界，不把代码检查当完整异步权限证书。
+
+发现 `tools/verify_vps_draft_save.mjs` 的旧“cross-author 404”标签实际只给了无效令牌 `hx`，期望 `SESSION_INVALID`，不是有效外作者的404证据。现改为准确的无效令牌401标签，另在既有内存SQLite种子中明确加入另一作者及管理员，通过该工具原principal端口提供三个不同有效主体。它们是**明确身份夹具，不是真实登录／会话验证**，底层仍为实际 `PrivateDrafts`／metadata／snapshot verifier／私有写账本、临时FileBucket和固定20章来源；复制来源登记也沿原种子，不冒实际复制HTTP。
+
+- 有效外作者及管理员分别不能read、save、query原收据、captureForCompile，逐项核 `GAME_NOT_FOUND/404`。拒绝集合没有新增草稿blob read／put、保存操作预约或游戏行变化；管理员无跨作者编辑豁免。
+- 在一次实际文件读取返回后，由测试端口将原作者epoch由1改2，同时更新自有users行。正在保存的原操作立即 `SESSION_INVALID/401`，只发生该一次read，无put、无游戏行变更；原pending请求保持epoch1、result为空，不由已失效权限改写错误状态。新epoch查询及重试该原键均 `OPERATION_REVOKED/409`，不再读写blob，也不复活请求。
+- 原正常创建、no-op、资源保存到2、精确读回、旧修订／原键结果、陈旧修订及编译捕获正控保持。该受控读后transition不是实际密码API并发，该批未覆盖put后（后继验证见下）／prepareSnapshot后／最终事务各分支的完整失效矩阵；上述旧真实epoch-r1成绩仍是历史独立证据，未重跑。
+
+`.dragon-analysis/editor-completion/draft-owner-ports-r1.log` 23项通过；后继补HTTP状态和读后epoch边界的最终 `draft-owner-ports-r2.log` 28项通过。本次无失败功能轮；语法／diff与文档链接检查通过，工具主动LSP300秒push-only未确认。仅既有测试及文档变化，无服务／规则／UI／DDL修改，不重建原生或后台壳，不重复无影响浏览器、完整复制HTTP、Trial／发布链。A03／A29的全入口、完整登录与异步提交矩阵仍未关闭。
+
+## 后继对象写入返回后epoch验证
+
+复用同一工具与真实私有写账本／临时FileBucket，在 `putImmutable` 完成写入及摘要读回、尚未返回 `PrivateDrafts.#put` 时，由明确principal夹具将epoch2改3并同步自有users行。输入显式改变简介，确保不是no-op；只触发一次草稿put。blob自身authority仍为该工具原固定端口，本轮验证的是草稿层写后复核，不冒blob内部撤权、真实密码API或完整HTTP认证。
+
+保存返回 `SESSION_INVALID/401`。该原键保持pending、auth_epoch2、无result；唯一draft_objects行保持intent且SHA与真实put返回一致，没有进入verified／committed；游戏行和全部draft_references不变。新epoch查询／重试旧键均409，重试无额外blob读写。新epoch使用独立新键可正常提交修订3，原失权键仍不可查询，不由新成功收据复活。已写对象可能命中既有不可变内容，本测试不要求创建新文件；意向保留，不据此宣称失败回滚删除或物理回收完成。
+
+`.dragon-analysis/editor-completion/draft-put-epoch-r3.log` 35项通过（原28＋7）。保留两轮测试失败：r1错用draft_references的draft_revision列，实际列为revision，发生SQL异常；r2沿用无编辑输入，属于正常no-op，未进入put且新增七项断言失败。纠正测试列名及使用明确简介编辑后重跑通过，没有为迁就断言修改产品或准入。
+
+仅既有测试与文档变化；语法／diff和链接检查通过，工具主动LSP等待300秒仍push-only未确认。未重建不变后台／原生束，不重复无影响浏览器／规则／Trial／发布链。此处是在首次对象写入返回后拒绝，未到最终事务；prepareSnapshot返回后的后继验证见下，其它提交分支仍须独立覆盖，A03／A29／A30与长期目标均未关闭。
+
+## 后继快照准备返回后最终事务撤权
+
+同一既有工具在真实 `GameMetadataStore.prepareSnapshot` 完成不可变内容验证并返回其真实prepared对象之后，将principal夹具epoch3改4、同步自有users行，再把原对象返回 `PrivateDrafts.save`。局部包装在finally中恢复，不伪造快照能力、不替换校验结果或提交函数；产品代码未修改。
+
+最终同步事务入口返回 `SESSION_INVALID/401`。此前该操作的所有draft_objects均已verified，但没有转为committed；原请求仍pending／auth_epoch3／无result，游戏行与全部draft_references不变。新epoch查询／重试旧键409，重试零额外草稿blob I/O；独立新键可正常提交修订4，成功后原撤权键仍409。与上节首次put后的intent状态区别明确：这里验证已完成全部对象写入和快照校验也不能替代提交时权限。
+
+`.dragon-analysis/editor-completion/draft-prepare-epoch-r1.log` 首轮42项通过（原35＋7）。仍为显式principal／复制登记端口夹具及内存SQLite、临时FileBucket，不是实际登录／密码API并发、blob内部authority失效或全入口权限矩阵；也不代表物理删除已写内容。仅测试和文档变化，语法／diff／链接通过；工具主动LSP300秒push-only未确认。不重建未变程序壳或运行无影响浏览器／Trial／发布／规则链。A03／A29仍部分，完整目标未关闭。
+
+## 后继草稿与地图读取的迟到删除栅栏
+
+核读 `PrivateDrafts.#load/#owned/captureForCompile/#readMapProjection/readMinimap/readDecorationSelection` 后，确认既有后置所有权检查包含 `assertNotDeleting`，未新增平行校验或修改产品。复用 `verify_vps_draft_save.mjs`，在真实FileBucket根对象读取成功、尚未返回草稿层时，向自有内存SQLite插入明确栅栏夹具。
+
+六入口分别为精确修订4正文DTO、编译捕获、1×1地图窗口、整图投影、小地图及装饰框选。每项在途调用均409 `GAME_DELETING`，只完成第一次根读取、没有put；同一栅栏下随后再请求仍409且零新增I/O。七张内容／快照／草稿请求／对象／引用／复制登记表逐行保持，栅栏仍在；每案finally仅移除其自有测试栅栏以隔离下一案，不模拟生产解除删除，也不是正式删除事务或物理清理。
+
+完整入口 **66项通过**（原42＋6×4），原保存／读回到修订4、跨主体、读后／写后／准备后epoch失效检查保持。证据 `.dragon-analysis/editor-completion/draft-read-fence-20261029/` 的 `tests-r1.log`、`before.json`／`after.json` 记录551项选定输入SHA前后保持。输入仍为固定Web来源，不访问DOS存档、用户profile或网络；SQLite为内存，FileBucket为原工具自有临时目录，principal及复制来源登记是明确夹具。
+
+该负控只证明首次真实根读取后的拒收及后续请求的前置拒收，不冒每个分块、图集await、HTTP状态分派／真实登录、浏览器或完整权限矩阵；没有执行地图绘制成功路径的新认证。语法／diff／文档链接按本批核验，无产品、DDL、源资源或束变化，不重跑无影响规则／发布／浏览器长链。A29／A30及整体目标仍未完成。
+
+## 后继图集端口返回后的删除栅栏
+
+沿同一工具补充不同的await边界：真实修订4源／profile捕获全部完成后，注入atlas端口接收准确token／registry／spring，在返回前插入本游戏自有栅栏。返回值刻意为null而非图像；既有`readMapAtlas`的`#sameOrigin`必须先返回409 `GAME_DELETING`，不能先检查或解码载荷而产生其它错误。随后重试仍409且源／atlas均零新增读取，七张内容表保持、没有put、栅栏保留；finally仅移除自有测试行。
+
+默认完整入口 **71项通过**（原66＋5），551项选定输入SHA前后保持，证据 `.dragon-analysis/editor-completion/draft-atlas-fence-20261029/`。原根读取、保存、跨主体和epoch矩阵仍执行。只有atlas端口及插栅栏时机为明确夹具，其前面的快照与FileBucket读取是真实路径；不冒实际PNG读取／解码、HTTP登录、四季浏览器或每个分块的权限证明。产品已有后置门，本批仅扩测试，不改服务／DDL／程序束。
+
+## 后继草稿对象读取异常后的权限复核
+
+前两节只验证成功返回后的权限门。本轮复现不同路径：对象读取抛错时，`PrivateDrafts`原先跳过后置`#owned`，使同时发生的epoch变更或删除栅栏被原I/O错误遮蔽。六个正文／编译／地图读取入口共12项反例失败，日志 `draft-failed-read-20261029/before.log` 保留；没有据此声称返回了私有字节或发生越权提交。
+
+修复在复用的`#readBlob`中统一成功及异常后的`#owned`检查，覆盖根索引、内容分块、baseline和stored verifier的对象读取。权限有效时原异常对象原样抛出；失效时返回当前`SESSION_INVALID`／`GAME_DELETING`等权限错误。保留原来源比对、内容解码、预算与提交边界，不增加重试、兜底空数据或新授权策略。
+
+既有 `verify_vps_draft_save.mjs` 对六入口各核三种异常：权限不变、实际FileBucket读取后epoch变化、读取后插栅栏。原异常保留或精确401／409拒收，均只增加一次读取、零put、七张内容表不变。权限与来源仍为显式夹具，异常由读取适配器注入；不是实际磁盘故障、真实登录／HTTP或所有分块位置的故障枚举。独立atlas端口抛错及完整来源变化矩阵不在本次覆盖内；atlas异常的后继限定验证见下一节。
+
+完整入口 **107项通过**（原71＋36）；原保存至修订4、跨主体及成功取数的撤权／栅栏验证保持。证据目录 `.dragon-analysis/editor-completion/draft-failed-read-20261029/`：`before.log`、`after.log`、501项选定源码／策略／固定资源的`before.json`与`after.json`，前后SHA相同。内存SQLite、自有临时FileBucket，无网络／浏览器／DOS存档；沿用工具保留临时目录的行为。两JS语法检查通过；主动LSP两代码push-only未确认，文档一clean、一仅三条既有词典提示。mode=all保留既有boolean参数与测试console两项warning，不屏蔽或称全仓clean。未改Web／DDL／程序束，不将此局部修复称为完整A29验收。
+
+## 后继独立图集异常后的权限与来源复核
+
+独立`#atlas`并不经过`#readBlob`。本轮在真实源／profile捕获之后让该端口抛出固定异常，分别同时改变epoch、插入删除栅栏、改变注册来源root摘要；修前均错误保留原I/O异常，三项失败已记录，不能沿用成功返回时的后置门证明异常路径安全。
+
+`readMapAtlas`现在在异常分支也调用原`#sameOrigin`，复用其所有权／epoch／删除栅栏及捕获来源比对，再抛原错误。有效权限和未变来源的正对照仍严格保留同一个异常对象；三种变化分别401 `SESSION_INVALID`、409 `GAME_DELETING`、409 `DRAFT_SOURCE_CHANGED`。无额外重试、PNG兜底、注册策略或写入行为。
+
+同一默认保存服务入口 **119项通过**（原107＋12），其中四例均先完成真实FileBucket源读取，再进入一次显式atlas故障端口；七张内容表保持、零put。finally仅还原各案自有epoch／栅栏／注册行用于隔离。此为内存SQLite、自有FileBucket与principal／来源／故障时机夹具，不是实际PNG流故障、HTTP认证、浏览器或完整来源变动枚举。
+
+证据 `.dragon-analysis/editor-completion/atlas-failed-read-20261029/` 的`before.log`保留三项失败，`after.log`为最终119项通过，`before.json`／`after.json`重新计算的501项输入SHA保持。两JS语法通过；主动LSP两代码push-only未确认、文档一clean／一仅三条既有词典提示，mode=all保留测试收据console的既有warning，不屏蔽或声称诊断全清。未改Web、DDL、运行资源或程序束，不访问用户存档和生产内容。
+
+## 后继对象异常时的注册来源复核
+
+前述权限修复不等于来源复核已覆盖：首次根读取及校验器再次读取同一根时，注册来源root摘要若在等待期间变化并同时抛错，原异常分支仍只查主体／删除栅栏。新增六入口×两个读取位置的12例，修前全部漏报 `DRAFT_SOURCE_CHANGED`，而保留了原I/O错误；没有发现私有字节返回或写入。
+
+本轮将`#readBlob`和传统校验委托异常分支的`#owned`改为既有`#origin`（内部仍先复核主体与栅栏），stored校验异常出口亦复用原捕获值的`#sameOrigin`，然后才执行原格式错误映射或抛出原异常。正常成功路径、来源策略、写事务及错误预算不变，无新重试或授权。此处补的是异常出口，不宣称所有来源变动时机、baseline字段或跨系统竞态已穷尽。
+
+同一 `verify_vps_draft_save.mjs` 默认完整入口 **179项通过**（原155＋24条断言）。新增每例核实际读取后注册root变化、精确409错误、一次根／第二次根确实到达、零put及原七张内容表保持；注册表变化由测试显式注入，finally仅还原自有注册行。原权限有效时保留同一异常对象、epoch／删除栅栏及图集矩阵继续执行。内存SQLite与自有FileBucket，principal／来源登记及故障时机为夹具，不冒HTTP登录、磁盘故障或完整A29认证；临时目录沿原工具保留。
+
+证据 `.dragon-analysis/editor-completion/draft-source-failure-20261029/`：`before.log`的12项失败、`after.log`完整179项成功，重新计算501项选定输入的`before.json`／`after.json`相同。两JS语法及diff检查通过；无Web／DDL／程序束变化。主动LSP两代码push-only未确认，文档一clean／一仅三条既有词典提示；mode=all保留测试收据console的既有warning及三条词典hint，不屏蔽或称诊断全清。
+
+## 后继快照二次读取异常的权限复核
+
+继续沿实际快照调用核查，而非重复首次根读取：传统正文路径`#readSource`在发现源元数据后委托`GameSnapshotVerifier.verify`重新读取根与内容。该委托原来仍只有成功后的`#owned`；校验器抛错时可遮蔽期间的epoch变化或删除栅栏。编译／地图使用的stored路径已通过受保护对象适配器检查，不应一并误报为缺陷。
+
+既有工具增加六入口×三条件的18个定点故障场景：以精确修订4的根SHA计数，在同一根第二次实际FileBucket读取返回后注入错误，首次根与中间读取照常执行。分别保持权限、变更epoch、插栅栏；每例核第二次根确实到达、无put、七张内容表全文保持。修前只有正文DTO的epoch／栅栏两项失败，其余路径及原异常保留正对照通过。修复仅给传统校验委托增加异常后的原`#owned`复核，不改校验器、结构规则、分块预算或保存语义。
+
+完整默认入口 **155项通过**（原119＋36条断言）。证据 `.dragon-analysis/editor-completion/draft-verifier-failure-20261029/`：`before.log`保留两项失败、`after.log`最终通过，501项重新固定输入的`before.json`／`after.json`保持。故障与principal转变为显式夹具，源索引／内容及文件读取真实；不是每个分块／依赖位置、HTTP登录或实际磁盘故障的穷尽验证。只用自有内存SQLite／临时FileBucket，无网络、用户存档或生产操作；两JS语法通过；主动LSP两代码push-only未确认，文档一clean／一三条既有词典提示。mode=all保留旧boolean参数与测试收据console两项warning，不屏蔽或称全清。无Web／DDL／束变化。

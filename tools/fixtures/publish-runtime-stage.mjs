@@ -1,11 +1,13 @@
-// Owned in-memory R2 + actual tracked public bytes. The application supplies
-// real authority checks; static reads remain a local file port, NOT HTTPS or
+// Owned in-memory R2 + actual tracked public bytes, plus the current default
+// builtin tuple when it exists as uncommitted worktree files (commit needs
+// separate authorization). Static reads remain a local file port, NOT HTTPS or
 // an old-session retention/engine-compatibility certificate.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, copyFileSync, mkdirSync, existsSync, lstatSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { BUILTIN_RELEASE } from '../../web/src/content/builtinrelease.generated.js';
 import { createRuntimeStager } from '../../vps/runtime-stage.mjs';
 import { buildStaticRelease, parseStaticRelease } from '../../vps/static-release.mjs';
 import { createStaticResourceVerifier } from '../../vps/static-resources.mjs';
@@ -15,8 +17,29 @@ export function makePublishRuntimeStage({ root, includePlayerModules = false }) 
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(systemroot|windir|path|pathext|temp|tmp|comspec)$/i.test(key)));
   const listing = spawnSync('git', ['ls-files', '-z', '--', 'web'], { env, encoding: 'utf8', timeout: 30000 });
   assert.ifError(listing.error); assert.equal(listing.status, 0, listing.stderr);
-  const playerPaths = includePlayerModules ? ['playerclient', 'playerenvironment', 'playerpack', 'playerrepository', 'playersaves', 'runtimecontract', 'playercatalog', 'playersessionhost', 'playerstatic', 'playerchapters', 'playernewgame', 'playerrestore', 'playerpublic'].map(name => `web/src/player/${name}.js`) : [];
-  const paths = [...new Set([...listing.stdout.split('\0').filter(Boolean), ...playerPaths])].filter(path => !/(^|\/)\./.test(path) && !/^web\/content\/builtin\/compiled\/[^/]+\/game-source\.json$/.test(path));
+  // Local work may be intentionally uncommitted. Use the already-built program
+  // inventory rather than a stale hand-maintained subset of its JS dependencies.
+  const playerPaths = [];
+  if (includePlayerModules) {
+    let bundle;
+    try { bundle = JSON.parse(readFileSync('server/public/trialweb.txt', 'utf8')); }
+    catch (cause) { throw new Error('owned installed program inventory required', { cause }); }
+    assert.ok(Array.isArray(bundle.files)); assert.equal(bundle.fileCount, bundle.files.length);
+    for (const file of bundle.files) {
+      assert.equal(typeof file.path, 'string');
+      if (!file.path.startsWith('src/') || !file.path.endsWith('.js')) continue;
+      assert.match(file.path, /^src\/[A-Za-z0-9_./-]+\.js$/); assert.ok(!file.path.includes('..'));
+      const path = 'web/' + file.path, bytes = readFileSync(path);
+      assert.equal(bytes.length, file.byteLength); assert.equal(sha(bytes), file.sha256);
+      assert.equal(bytes.toString('utf8'), file.text); playerPaths.push(path);
+    }
+    assert.ok(playerPaths.length > 0);
+  }
+  const dirOf = url => 'web/' + url.slice(0, url.lastIndexOf('/') + 1);
+  const defaultDirs = [dirOf(BUILTIN_RELEASE.resources.catalogURL), dirOf(BUILTIN_RELEASE.entitySource.manifestURL)];
+  const untracked = spawnSync('git', ['ls-files', '-z', '--others', '--exclude-standard', '--', ...defaultDirs], { env, encoding: 'utf8', timeout: 30000 });
+  assert.ifError(untracked.error); assert.equal(untracked.status, 0, untracked.stderr);
+  const paths = [...new Set([...listing.stdout.split('\0').filter(Boolean), ...untracked.stdout.split('\0').filter(Boolean), ...playerPaths])].filter(path => !/(^|\/)\./.test(path) && !/^web\/content\/builtin\/compiled\/[^/]+\/game-source\.json$/.test(path));
   const objects = new Map(), prefix = 'test/owned-publish-root/';
   const entries = paths.map(path => {
     assert.ok(path.startsWith('web/') && !path.includes('..') && !path.includes('\\'));

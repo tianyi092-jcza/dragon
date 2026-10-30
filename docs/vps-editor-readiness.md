@@ -66,7 +66,7 @@
 新增 [OwnedRuntimeAssets](../server/runtimeassets.js)，共同应用的 PublishedPacks／TrialSessions 已使用它读取地图素材，不再借用管理员 `loadFull`：
 
 - 仅接受受信品牌策略和 `visuals` 类型，只允许固定地图 manifest＋四季 atlas／tiles 共9个角色。拒绝创作源、实体源、任意私有key／外链和其它类型；没有库／完整复制的隐式降级。
-- 使用真实游戏端口核所有权、删除栅栏，并另核当前草稿 revision；管理员不是跨所有者豁免。每次桶 get／stream read await 后以及交付 capture／readWeb 时重核主体／epoch、快照 root／digest、注册根／版本和 copy origin。
+- 使用真实游戏端口核所有权、删除栅栏，并另核当前草稿 revision；管理员不是跨所有者豁免。桶 get／stream read成功返回后以及交付 capture／readWeb 时重核主体／epoch、快照 root／digest、注册根／版本和 copy origin；读取抛错路径此前漏核，后继修复见下节，不将旧25组扩大为失败路径证明。
 - 根≤1MiB、chunk≤4MiB、索引描述总量≤64MiB、单返回资源≤25MiB；全索引描述与固定策略对应，只读请求角色，逐chunk和完整角色校验字节／SHA。未消费流在迟到权限失败时取消，返回字节复制；没有 SQL 写、上传或新增表。
 - `sourcecatalog` 的安装／状态／全源加载仍要求管理员；没有改原版复制权限。旧私有固定库 API 的管理员边界保持，不能把这条地图素材通路当作所有作者新建／库／图片功能已闭合。
 - 正式发布提交还增加当前 draftRevision 二次检查，避免保留的历史 snapshot 行让异步准备后的旧草稿重新发版。完整 HTTP 发布竞态验证仍待后继，不以该条件存在替代端到端测试。
@@ -74,6 +74,22 @@
 `.dragon-analysis/release-readiness/owned-runtime-r5/` 为后继最终九个显式入口收据：画像库621文件与清单双向逐SHA；owned reader 25组（含 get/body 两类受控await中的会话／epoch／改密／换owner／改revision／删除栅栏／注册根／origin变化、坏流／坏索引／坏角色、保留管理员门）；发布事务10组；真实41角色安装＋真实编译后的作者发布25项、作者Trial20项；IDOR9项；22源DDL；Node HTTP11组；真实workerd冻结schema。环境白名单，非HTTP/workerd入口禁网络；全为内存或自有临时库／文件，finally清理；不是浏览器或真实云证明。
 
 r2 的旧发布fixture仍写620画像而实际清单／磁盘621，改为核API投影并增加独立全库验证，没有删除画像或降低SHA断言。r3 的旧Trial用非法 `no-such-id` 断言404，实际格式门422；分开保留非法ID422与合法但不存在ID404负例。两次失败日志均保留，未执行的后续入口不冒通过。r4九入口已通过；随后移除未接入／未认证的library分支并加类型／品牌负例，最终r5九入口全部重跑通过，不拼接成绩。
+
+#### 后继运行图素材读取失败后的权限复核
+
+发现 `OwnedRuntimeAssets.#read` 在桶GET或stream read拒绝时绕过了后置复核：读取等待期间若epoch变化、会话失效或游戏进入删除栅栏等，仍向调用方抛原取数错误，而非当前权限／来源失效。没有发现这两条拒绝路径返回素材字节或写入SQL；本次修复的是已约定异步边界及错误优先级，不夸大为已泄露资源。
+
+最小修改：GET异常先调用原有 `#assert`，有效则重新抛原错误；流异常保持取消与releaseLock，取消结束后同样复核，再决定抛权限／来源失效或原错误。未新增策略、源角色、SQL写、重试或全源降级；取消失败不替换读取错误。PublishedPacks／TrialSessions共用此端口，无需各建一套门。
+
+既有 `verify_owned_runtime_assets.mjs` 新增18组：GET／body两处各验证有效权限下原Error对象保持；八种既有状态变化（epoch、会话失效、强制改密、草稿修订、owner、删除栅栏、注册版本、copy origin）各在读取抛错时返回准确拒绝码，且根读取后没有后续对象GET。修前 `before.log` 实际复现原I/O错误穿透；修后完整 **43组**通过。测试用真实元数据端口／内存SQLite、固定策略与已核地图角色，bucket与身份变化为明确内存夹具，不冒真实认证HTTP或云故障。
+
+另运行原 `verify_vps_trial.mjs` 完整 **52项**通过：实际41角色安装、自有FileBucket、内存SQLite、真实草稿／编译／Trial准备提交取数终止，含既有逐资产事务回滚与新旧修订隔离；principal及初始副本配置仍是夹具，非浏览器。该入口finally清理自己的临时目录。未重跑完整发布／HTTP／workerd链，不把共用服务回归当作这些链的新证明。
+
+证据 `.dragon-analysis/editor-completion/runtime-read-failure-authority-20261029/`：`before.log`、最终`after-r2.log`／`trial-r2.log`，552项选定输入SHA在`before.json`／`after.json`中相同。首轮指纹命令误写不存在的`web/kao/manifest.json`，随后测试虽过，不作带指纹交付；改为真实`manifest.js`并使用失败即停命令后全部重跑。仅服务／测试与文档修改，无Web或后台束、DDL、固定库身份变化。两代码语法及diff检查通过；主动LSP两代码仍为push-only未确认，两文档仅四条既有词典hint，mode=all同样四hint且缓存不证明代码clean。完整A29仍未关闭。
+
+**后继实际发布Request拒收。** 在既有 `verify_publish_operations_root.mjs` 默认完整入口增加一组：已发布到1.1后，下一次真实 `/api/publish` 完成私有草稿读取／编译、到达已安装运行素材根GET时，受控hook更新作者epoch并抛I/O错误。共同Request返回401／SESSION_INVALID；再次以已失效会话发送同键，在任何对象读取前401。十二张发布相关表全文摘要保持（含旧pack、序号、名称、公告、永久操作与预留），对象PUT计数不增；仅恢复自有测试epoch后，旧1.0永久收据仍零读取重放，既有后续故障／恢复发布最终正常到1.2。未新增发布、账户或失败处理产品代码。
+
+默认入口 **31组／20章／50表**通过，553项选定输入SHA保持；证据 `.dragon-analysis/editor-completion/publication-runtime-failure-20261029/` 的`tests-r1.log`与`before.json`／`after.json`。这是真实Request分发／认证／编译／内存SQLite及自有FileBucket链，身份为种子会话，失败发生在对象GET边界的明确hook，不冒文件系统故障、TCP/TLS、浏览器、R2 staging或所有流chunk时机。未启用`--save-names`／`--stage-runtime`；各自旧收据不算本轮复跑。finally清理自有临时目录，未读取用户存档。测试语法与diff通过；主动LSP脚本push-only未确认，文档仅四条既有词典hint。mode=all另有十条原await括号提示及一条旧POST Request.clone换body误推GET警告，实际请求与本次执行仍为POST，不改正确语义或声称诊断全清。
 
 ### 4.3 后继：固定库清单与跨平台检出字节（PRIVATE-LIBRARY-MANIFEST-1）
 
@@ -188,7 +204,50 @@ HTTPS仍为严格进程内替身：232对象是当前229份JS、CSS、一项自�
 - 静态预检仍要求独立可信清单／源码树SHA及逐文件全量读回。Workers HTML规范化跳转不能靠放宽重定向门解决；[Nginx片段](../vps/nginx.publication.locations.conf.example)在编辑器域提供版本化、精确MIME的公开构建字节。原始创作源、私有对象、数据库和env不能放进该alias目录。两端核心一致与素材库消费者指纹是不同检查。
 - 可选`EDITOR_INSTALLED_SOURCE_ROOT`／`EDITOR_AVAILABLE_LIBRARY_ROOT`只转交操作员装配的严格描述；共享目录仍校验固定角色／摘要并要求正常管理员API登记，不自动批准。首次部署的五项消费者过期已按[R2§2.71](r2-player-connection.md#271-固定素材库消费者刷新及私有工作台library-refresh-2)逐项审差异，建立独立`f4ba804b`身份并保留旧清单／登记／对象；当前工作台与同引擎Trial已有独立本地验证。是否已生产装配、正常管理员登记及移除两项私有维护门须查[journal§13](checkpoint-journal.md#13-固定库刷新与私有trial接续)，不能由HTTP健康推定。遗留私有端口／Q69完整闭包仍未完成。
 - 同一Nginx片段还关闭发布／上下架／限制解除／删除入口；当前政策联合复验的本地范围见[R2§2.72](r2-player-connection.md#272-当前版本唯一的共同发布联合复验current-publication-1)；资源门后继已最小覆盖部署并在隔离镜像复验，见[journal§16](checkpoint-journal.md#16-当前版本资源门部署与只读巡检补强)。物理清理和作者准入等生产条件未闭合前仍不得移除维护门。它是部署维护门，不是机制、认证替代品或产品放行证；服务原始loopback端口不得另行公开。
-- [`backup-publication.sh`](../vps/backup-publication.sh)仅限root在固定部署目录执行：只停止本项目，等待退出后将SQLite与全部私有对象按同一边界备份，校验tar及独立副本的SQLite完整性，再恢复原先运行的本项目。只读数据库检查允许修改独立恢复副本的SQLite旁文件，不碰在线库。启动重做严格归档预检，不能承诺立即恢复服务。
+- [`backup-publication.sh`](../vps/backup-publication.sh)仅限root在固定部署目录执行：只停止本项目，等待退出后将SQLite与全部私有对象按同一边界备份，校验tar及独立副本的SQLite完整性，再恢复原先运行的本项目。只读数据库检查允许修改独立恢复副本的SQLite旁文件，不碰在线库。源数据库缺失／不是普通文件／是符号链接时在停服前拒绝，解包后的数据库也必须存在且非链接，不能跳过检查后报告备份成功。启动重做严格归档预检，不能承诺立即恢复服务。
 - 备份位于root私有目录，含凭据，**只是同机恢复材料，不是异地灾备、供应商快照或完整删除保留策略**。当前不自动轮转历史草稿备份；后续物理删除必须纳入全部备份引用。真实恢复须先隔离验证并审SQL权威／远端根代次，不倒写R2根、不自动清锁、不覆盖来源不明数据。
 - [`monitor-publication.sh`](../vps/monitor-publication.sh)调用同目录的[stdlib Python巡检器](../vps/monitor-publication.py)，宿主必须具备python3。只读检查当前容器StartedAt之后的白名单事件；同次任一blocked／faulted／生命周期失败都报警，不让后续事件遮盖，不自动重启／解锁。starting最多30分钟（与Compose一致）；日志行／字节预算、损坏／重复字段／未知事件及缺started均保守报错，不把未知写成健康。loopback探针禁用环境代理与跳转，并核HTTP200／JSON类型及服务字段；输出只含固定分类。新[13项fake-port回归](../tools/verify_publication_monitor.py)与实际VPS收据见journal§16；不是生产故障注入。systemd timer的journal记录仍需外部告警接收端，健康也不证明发布就绪、当前根、素材完整或备份新鲜。
 - 反代切换只修改该域upstream，在`nginx -t`通过后reload；保留probe和切换前站点配置可立即回退HTTP入口，**回退入口不回滚SQL／R2／新用户数据**。每次生产状态、恢复验证和未完成项以journal的独立批次收据为准。
+
+本地后继检查：`sh tools/verify_publication_backup_guard.sh` 在自有临时目录通过缺源库、目录冒充库、正常流程、归档漏库、完整性检查失败五种分支；Docker／root身份／锁为替身，只验证脚本拒绝与重启边界，不证明实际SQLite内容、Linux权限或完整应用恢复。Git Bash归档盘符问题仅在测试tar适配器使用 `--force-local` 解决，没有改变生产tar命令或部署脚本。该补丁尚未部署。
+
+链接边界后继：在停服前、停服完成后及解包后，额外检查 `publication-data` 本身是非链接目录，内部只能含普通目录／文件；符号链接、FIFO等特殊节点拒绝，不把指回在线库的“恢复目录”算独立副本。WSL Ubuntu非root用户、自有Linux `/tmp` 上以 `PYTHON=python3 BACKUP_LINK_TESTS=1 sh tools/verify_publication_backup_guard.sh` 通过10种分支，新增真实目录链接／对象链接／FIFO、解包链接及停服阶段插入链接；后两种失败仍触发原重启trap且不运行SQLite检查。Docker／root身份／flock仍是显式替身；不是生产停服、真实数据库完整性、对特权并发攻击的原子隔离或缺失对象闭包证明。Git Bash原5分支同时通过；补丁未部署，详见验收清单。
+
+内容一致性后继：停服后、归档前记录整个 `publication-data` 的目录清单和文件SHA256（分别用NUL分隔目录、sha256sum转义文件名；包含空目录），把源清单纳入备份 `SHA256SUMS`。解包后重新记录并逐byte比较，再执行SQLite检查；任何哈希读取失败直接失败，不通过pipeline掩盖。新增归档漏对象、同长度对象改写、漏空目录及哈希读取失败负控；自有WSL `/tmp` 14分支、Git Bash9分支通过，正常分支包含空格／二进制文件，Linux另含换行文件名。此检查只证明解包数据树等于停服时已存在的数据树，不证明源库引用的对象本来齐全、配置／镜像完整恢复、特权并发安全或删除排除。Docker／身份／锁仍为替身，未部署。收据：`.dragon-analysis/editor-completion/backup-tree-{linux,msys}-r3.log`。
+
+部署配置字节一致性后继：停服前／停止后要求 `publication.env`、`.env`、`docker-compose.yml` 都为非链接普通文件；停止后记录三文件SHA清单并纳入备份总校验。解包后先核文件类型与源清单，再进行数据树／SQLite检查；漏配置、改写任一配置或用指向源配置的链接冒充恢复副本都失败且不报成功，停止后失败仍尝试恢复原服务。负控先复现漏publication.env仍报成功（`backup-config-before.log`），修后自有Git Bash15／WSL Linux22分支通过（`backup-config-{msys,linux}.log`）。只读取生成的测试配置，未读取生产凭据、运行生产脚本或部署。真实tar／SHA，Docker／身份／锁仍为替身；三配置字节一致不证明配置语义、镜像可用、Nginx环境或完整部署恢复，也不闭合删除排除。
+
+恢复检查镜像身份后继：捕获 `docker image inspect` 返回值后，要求单个小写 `sha256:`＋64位十六进制镜像ID，将其写入既有校验材料，并以该ID启动SQLite检查，不再重新解析可变标签。空值、非法前缀／摘要或inspect失败均拒绝，停止后仍执行原重启trap。负控 `backup-image-before.log` 证明旧正常路径没有使用捕获ID；修后Git Bash19／WSL Linux26分支通过（`backup-image-{msys,linux}.log`），Docker替身核对实际run参数及四个新增失败分支。该批仅绑定检查时的镜像身份，未保存镜像层（后继导出见下），未证明镜像可在另一主机恢复；真实Docker执行、完整部署恢复与删除排除仍未闭合。补丁未部署。
+
+重启失败收尾后继：负控复现旧脚本在恢复检查通过后先打印成功、随后EXIT重启失败（`backup-restart-before.log`）。现成功路径先执行一次原项目重启，成功才报告备份检查完成；重启失败明确报错并非零退出，不通过EXIT再暗中重试。异常路径仍尝试恢复原先运行的项目，若备份检查和重启同时失败，保留原检查退出码。原先已停止的项目不启动。Git Bash22／WSL Linux29隔离分支通过（`backup-restart-{msys,linux}.log`），涵盖重启失败、双失败保留退出码7及原先停止三项新负控；Docker仍为替身。compose返回成功不等于服务ready，原独立健康检查要求不变；未部署或操作生产服务。
+
+草稿服务恢复后继：`verify_vps_city_save.mjs` 的自有文件库关闭后复制SQLite与私有对象，独立重建草稿服务，通过完整读取／快照身份／操作收据一致、恢复后保存及再次打开、CAS拒旧、原目录不变和缺对象拒绝等37项（包括原26项）。日志与超时重跑记录见[完整验收清单](editor-completion-audit.md)。这推进了真实服务数据恢复，仍不覆盖生产tar、登录／HTTP、完整冻结发布应用或删除排除；不能据此解除生产门。
+
+权威代次恢复后继：`verify_distribution_restore.mjs` 关闭真实文件SQLite后复制再独立打开，五组通过：当前备份与远端根一致时不写根；落后备份遇到较新根持久锁为`REMOTE_AHEAD`；包含下一代pending记录的备份从有效远端收据恢复确认、不重复CAS；已确认根丢失锁为`REMOTE_GAP`，即使远端根恢复、进程重建也不自动解锁；恢复副本的锁不污染原库。对象端口为自有条件内存R2，资源校验为显式替身且payload为合成数据，不是云R2、完整发布内容或跨系统备份一致性证明。详见完整验收清单本轮记录。
+
+全50表冻结应用数据恢复后继：`verify_frozen_publication_root.mjs` 的r5联合41组通过，保留实际20章编译与8代冻结发布／管理／栅栏链后，关闭文件SQL并复制SQL＋全部私有对象，独立重建共同应用。核全部50表行、对象SHA树、8代永久payload／收据、远端根与不重复CAS；恢复后的实际Request仍可查栅栏收据，不能重新读被栅栏草稿，认证idle续期外权威行不变，原库与原对象不变。静态程序和注入配置沿用自有夹具、R2仍为条件内存端口；**不是完整部署材料灾备或物理删除排除**（历史内容尚未擦除）。旧票升级失效断言已按当前政策纠正，同版下架续取另用新票覆盖；失败轮及完整边界见[验收清单](editor-completion-audit.md)。
+
+### 6.1 本地备份包含已捕获镜像内容
+
+只保存镜像ID不能应对原主机丢失且原镜像不可重新取得的恢复场景。`backup-publication.sh` 现以已经校验的不可变image ID执行 `docker image save --output "$backup/image.tar" "$image_id"`，不重新解析标签；导出必须成功，产物为非链接、非空普通文件，再将image.tar加入原SHA256SUMS生成与检查。原SQLite检查仍直接使用同一image ID，不在备份期间load归档或切换服务镜像。
+
+导出失败或缺失／空文件／链接产物不报告成功、不运行SQLite检查，仍沿原trap尝试恢复原先运行的项目；导出命令退出码7不被重启成功掩盖。部分备份材料保留，不自动清理或轮转。镜像层会增加本地磁盘占用与当前停服备份时间；本地修改**未部署**，没有执行生产停服／导出、读取生产凭据、上传备份或调整保留策略。
+
+复用 `verify_publication_backup_guard.sh`，`.dragon-analysis/editor-completion/backup-export-msys-r2.log` 25分支、`backup-export-linux-r2.log` 自有Linux临时目录／uid1000的33分支通过。新增正常导出参数必须使用捕获ID、非空产物纳入SHA清单，以及导出失败／遗漏／空文件和Linux链接四个负控；真实tar／SHA工具，Docker／id／flock仍为显式替身，模拟导出文件明确不是可load镜像。shell语法、两个脚本主动LSP300秒确认无warning及diff通过。
+
+保留失败：`backup-export-before.log` 负控在旧脚本健康流程缺少image save调用时失败；首次修后MSYS轮因测试只接受SHA清单文本标记而失败，实际MSYS使用二进制星号标记，现仅测试接受两种标准格式。首次Linux调用因WSL跨shell参数传递丢失临时路径而在测试开始前mkdir失败；改为stdin传脚本后通过，未改系统权限或产品路径。上述失败均不记通过。
+
+当前终端未发现Docker命令，本轮没有真实Docker save／load或独立宿主部署恢复证明。后继接续再次只读查询：Windows Git Bash无docker／podman，WSL Ubuntu无docker／podman／nerdctl；未安装工具、启动daemon或连接远端宿主。因此这项真实镜像恢复验证当前有环境依赖，不能用再跑替身测试替代。真实恢复仍需在隔离Docker宿主核SHA清单、load归档、核image-id.txt指定ID与架构，并按已审核的Compose／.env重新建立所需标签；按ID导出的归档不承诺携带原标签。不自动从备份覆盖线上数据／配置、回滚远端根或解恢复锁。镜像可加载、配置与反代环境、完整应用启动及删除备份排除仍须后续验证，A31不据此完成。
+
+### 6.2 独立部署恢复的剩余验收材料
+
+本次只读核对 `backup-publication.sh`，现有产物已经包括 `private.tgz`（SQLite／全部私有对象及三配置）、`editor-nginx.conf`、`image-id.txt`、`image.tar` 与SHA清单。不要重复提出“尚未备份镜像或反代配置”；真正缺的是这些材料脱离原宿主后的恢复证据。
+
+后续验证须使用可用的隔离容器引擎与生成的自有配置／数据，不索取或读取生产凭据：
+
+1. 在没有原镜像的独立容器存储中校验备份SHA，加载image.tar，核实际image ID与架构；不能借原daemon已有镜像证明归档可恢复。
+2. 按归档ID和审核后的Compose重新建立所需标签，验证三配置、挂载权限、固定程序与资源可用。不能只以镜像ID或SQLite integrity_check代表应用就绪。
+3. 用自有账户与内容启动恢复应用，验证认证、草稿、永久发布账本及独立反代路由。远端根只接隔离端口，保持既有REMOTE_AHEAD／REMOTE_GAP不倒写、不自动解锁规则。
+4. TLS证书／宿主反代include依赖、异地接收目标、保留／删除政策及告警接收端仍需明确环境或用户输入；当前单份Nginx站点副本不证明全部宿主配置齐全。
+
+此清单不是生产恢复授权，也不新增自动load／启动／覆盖脚本。Docker环境缺口只限制本项真实恢复验证；编辑器其它独立本地工作不因此停工。物理删除后的备份排除仍依赖A30协议闭合，不能先过滤历史账本或删除备份内容。

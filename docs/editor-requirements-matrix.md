@@ -65,6 +65,18 @@
 
 前一[按游戏存档底层](editor-game-save-store.md)只有显式opt-in v3/CAS/delete primitive：7组59拒/真实IDB六组与六focused；176/77仅声明库存，未装App/版本确认UI，不关闭Q11/Q19。
 
+## 后继政策冲突校正
+
+本次仅校正文档仍以现行口吻列出的三组已撤销要求，不重新制定产品，也不把历史收据当作当前复验：
+
+| 原条款 | 已批准的替代合同 | 验收去向 |
+| --- | --- | --- |
+| Q9作者自行上下架 | [产品§4.1／§5.1](game-editor-design.md#51-发布与上架q25确认)：作者只定版自己的内容，管理员独立上下架，不能替他人编辑／发布 | [完整清单](editor-completion-audit.md)A03／A23／A29；保留全部写入口及晚提交权限矩阵缺口 |
+| Q11／Q19旧档逐档确认删除 | [产品§6](game-editor-design.md#6-玩家入口存档与下架)：确认更新后自动清旧档，新版保存与清旧同事务；未知、损坏、下架或删除不冒充更新，跨页替槽须比较拒删 | 完整清单A28；不是恢复旧确认流程，也不是备份导入与全部恢复已完成 |
+| Q37上传／裁剪和解码扩展 | [产品§4.3](game-editor-design.md#43-武将管理)：禁止上传，只选621共享画像并绑定ID＋SHA；旧上传测试仅为历史 | 完整清单A16／A20／A32；剩余是资源引用／消费者闭包，不再排队上传解码器 |
+
+原Q编号及九个答复映射缺口保持；没有补造缺失答复。下列未涉及行仍含历史阶段定位，完整当前状态以完整清单为入口，不能将本次校正理解为全表实现状态已复验。
+
 ## Q1–Q73逐行矩阵
 
 缺索引的精确情况：产品正文出现的字面编号缺`Q2/Q3/Q4/Q5/Q7/Q8/Q12`；`Q1`只在范围引用，`Q16`只在Q17编号更正，没有独立答复正文。Q6是已更正的误标，不另造功能。下表因此保留九个缺索引行，并另列已明确的非编号要求。
@@ -79,9 +91,9 @@
 | Q6 | Q17已确认该补充误标，应指Q16 | 纠错 / P | 不把误标另算第6项授权；Q16正文映射仍缺。 |
 | Q7 | 当前产品源未单独保留 | 缺索引 / P | 保留缺口；不新增猜测规则。 |
 | Q8 | 当前产品源未单独保留 | 缺索引 / P | 同上。 |
-| Q9 | 作者编辑/校验/发布/上下架自己内容，无审核队列；P§4.1 | 局部 / E2/E9 L/S | 真实owner草稿／发布／上下架已接；完整两作者／管理员提交、限制与竞态矩阵及正式版本合同仍缺。 |
+| Q9 | 原作者上下架权已被后继Q25撤销；作者编辑／校验／发布自己内容，管理员独立上下架；P§4.1/5.1 | 局部 / E2/E9 L/S | 草稿／发布与管理上下架分开验收；当前切片见完整清单A03／A23／A29，全部提交、限制与竞态权限矩阵仍缺，不恢复作者上下架入口。 |
 | Q10 | 仅未更新的同版下架不打断已开局；P§6后继 | 局部 / B、T§8 | 当前政策本地联合链已验证同版下架继续／保存、拒新准入，见[R2§2.72](r2-player-connection.md#272-当前版本唯一的共同发布联合复验current-publication-1)；不是生产发布／物理删除证明。 |
-| Q11 | 正式版本不符不可读；确认后删本档；P§6 | 局部底层 / L、T§8.2 | opt-in同slot隔离/精确本地比较已测；实际受信正式版本/最新核对、提示/取消/共享恢复接线未交付；网络未知不清档。 |
+| Q11 | 原确认后删本档已撤销；确认游戏更新后旧档不可读并自动清理；P§6后继 | 局部 / T§8.2 | 当前恢复／清旧与跨页比较证据见完整清单A28及R2§2.69；完整恢复／导入／失败矩阵仍缺。网络未知、损坏、下架或删除不作为更新清档依据。 |
 | Q12 | 当前产品源未单独保留 | 缺索引 / P | 保留缺口；不以存档附近条款猜编号。 |
 | Q13 | 章节独立势力；换君主保势力，移除须继任/显式解散；P§4.3 | 局部 / E9 S、E3 R | B4c2已接君主／军师／继任／解散，BOOT-1实证两次解散及保存发布；完整跨引用／初始化／所有UI分支仍缺，不开放变槽。 |
 | Q14 | 移城断路显式重连；水陆道路同连接门；P§4.4 | 局部 / E1/E2 L、R | 受限道路工具已接；移城/任意拓扑/战术关联及新缓存原证仍缺，不能自动改路。 |
@@ -89,7 +101,7 @@
 | Q16 | 仅Q17更正提及，独立答复未保留 | 缺索引 / P | 不猜其实体/章节含义；保留现有明确条款。 |
 | Q17 | 澄清此前“Q6”指Q16；产品来源说明 | 纠错 / P | 更正已记录，无新运行机制或额外批准门。 |
 | Q18 | 首次1.0、成功发布整数序号递增；P§5 | 未交付正式序号 / E9 S、T§5 | 发布pin／冻结包已有，但使用草稿revision，不是releaseOrdinal；独立序号／失败不增／1.9→1.10及完整发布事务仍缺。 |
-| Q19 | 只左键确认清本次那档，右键取消保留；P§6 | 局部底层 / L、T§8.2 | opt-in本地token/实际替槽与原生abort保护已测；左确认/右取消/不可加载与受信版本政策、共享App安装仍未交付。 |
+| Q19 | 原左确认／右取消的单档清理流程已撤销；新版保存与同游戏旧档清除同事务；P§6后继 | 局部 / T§8.2 | 失败不得先删旧档，同版其它槽与其它游戏保留，跨窗口替槽不能误删；当前证据及完整恢复矩阵缺口见完整清单A28，不重新建设旧确认流程。 |
 | Q20 | 管理员下架限制，作者发布不能绕过；P§4.1 | 管理状态API/UI局部 / B、T§5–6 | [管理员下架/解除](editor-backend-management.md)actualadmin-author权限/Origin-CSRF/CAS/permanentkeys/whole35SQLrollback/late actualsession-row-key/restart/password/无R2保留键拒，16检查161调用/Node28/原账户7组61有证；只三管理列+audit/minimalreceipt，解除仍下架、historic旧结果不reapply，builtin保护。工程Game不是正常Source/发布。后继[管理操作UI](editor-backend-management-ui.md)fresh actualRoot-browser13检查24控制9POST5GET／fakeDOM26、未知实际commit后断回复与pre-nativeabort/坏200保原key-body-header、explicitGET404人工同键重试、CAS/reload/actualepoch-restart有证；只localforget不取消SQL、author隐藏/publicmeta不泄露draft。真正发布-上架-限制交叉CAS/匿名registry-announcement与完整Q20仍缺。 |
 | Q21 | 无据点路口禁止，水陆同门，无独立桥梁；P§4.4 | 局部 / E1/E2 L、R | 当前固定节点道路门存在；任意新交叉/节点/缓存/规则消费者适配未闭合。 |
 | Q22 | 作者只见自己的草稿，管理员管全局状态；P§4.1 | 局部 / E10 S、B | 真SQL own摘要/admin无私有摘要及R2跨作者/admin拒读取有证；固定副本精确修订私有读／限定保存API及foreign404已接；后继[只读库UI](editor-backend-library-ui.md)限本人管理员固定副本，398／20精确saved目录及byte-SHA-source/revision下载及另标synthetic pagehide最终十组有证，author隐藏／改密清理，不授普通模板资产；后继[运维登记UI](editor-backend-library-register-ui.md)实际GET／永久原key／unknown恢复与restart/epoch/broken十组，只限admin固定库事实、不授作者或runtime；其它资源路由、可写UI与完整IDOR矩阵仍缺，本地旧清单不是认证。 |
@@ -107,7 +119,7 @@
 | Q34 | 只读公告倒序滚动、右键返回、不自动消失/开局；P§6.1 | 未交付 / T§8.3 | 真正玩家公告UI及输入优先级；不套用编辑器关闭按钮。 |
 | Q35 | 首次上线日期排序，两日期，重上不改；P§6.1 | 未交付 / B | 正式时间/游标/稳定排序/重复上架测试。 |
 | Q36 | 公告失败不阻游戏；目录未知自定义暂停、内置就绪可用；P§6.1 | 未交付 / T§8 | 真实失败分类/重试/原局不退出；未知不误报删除或清档。 |
-| Q37 | 游戏库复用／内置共享；后续裁决源尺寸建议128而非强制，裁active显示64；P§4.3 | 局部 / E7 R、E9 S | Trial原图上传与B4e规范128库／发布链已存在；[后继UI小闭环](editor-portrait-ui-fix.md)补清除／源限制／可调裁剪确认／代次，L浏览器16项；后继[运行时身份](editor-portrait-identity.md)修同byte不同key／不同world隔离及消费者接线，L浏览器22项；后继[真实workerd链](editor-portrait-workerd.md) S串行14项上传／保存／发布API／匿名App及全部头像像素；后继[PNG安全切片](editor-portrait-png-safety.md)补游戏库PNG有界解码／规范重编码，54检查及Pillow30图；后继[JPEG有界实现](editor-portrait-jpeg-safety.md)补游戏库JPEG规范PNG输出，S91检查／90 HTTP（工程actor，非真实认证），独立彩色精度不认证；后继[当前SHA真实链](editor-portrait-workerd-safety.md)S串行17项真实账户API／R2／原JPEG规范PNG／UI绑定／发布API／匿名App及三实体全RGBA；后继[Trial PNG切片](editor-trial-portrait-png-safety.md)S66检查／106 HTTP／Pillow33图补有界源矩形规范化及原存储预算、提交前写门（stub权限端口，不冒Root／App）；后继[Trial JPEG切片](editor-trial-portrait-jpeg-safety.md)S58检查／124 HTTP／84图exact，旧16384像素预算内源矩形规范PNG，非Root／App；后继[Trial裁剪切片](editor-trial-portrait-crop.md)补服务端方形裁剪＋规范128输出（opt-in，预算不变），S24检查／45 HTTP／Pillow11图exact＋真实路由5门，非Root／App；后继 Trial 壳作者确认方形裁剪 UI（D切片）补 x/y/side 输入＋128 预览 canvas＋确认门＋代次守卫，源字节＋crop 矩形直发 A 端点，真 Chromium＋fresh profile＋回环静态 web 7检查通过（stub fetch／pack，只证 UI 行为）；后继[预算探针](editor-portrait-decode-budget.md)验上限内最坏解码有界完成＋exact＋无留存（S7检查／33 HTTP，零生产改动，默认预算不动）；后继 C 在当前 SHA 走真实公开 Trial 链（R2 安装＋真实认证＋开局＋裁剪上传／serve／manifest／结束，15检查／1图 exact，无浏览器 boot）；后继[隔离排查](editor-portrait-decode-isolation.md)独立Node探针23检查／5HTTP；后继Windows Job内核探针17检查／15 native jobs，实测提交内存及周期检查的用户CPU限额终止／后代清理，非生产OS隔离、RSS／精确CPU截止或权限沙箱；用户已要隔离，完整格式／独立彩色精度与完整消费者暂缓、旧资产冻结不自动迁移（不是安全认证）。更大JPEG源预算、发布UI、游戏侧并发三项待前项完成后统一决策；生产隔离方向后继改[VPS Node／Linux适配](editor-vps-cloudflare-plan.md)，不再建Containers／解码Worker；现路径未安装隔离，完整消费者仍缺，不补255替代图。 |
+| Q37 | 原上传／裁剪约定已被禁上传政策取代，只选621共享画像并绑定ID＋SHA；P§4.3后继 | 完成（限定选择政策），资源闭包仍部分 / A16、A20、A32 | 当前边界见完整清单及R2§2.60；以下仅保留已退役上传链的历史谱系，其解码／裁剪待办不再排队、不授上传许可：Trial原图上传与B4e规范128库／发布链已存在；[后继UI小闭环](editor-portrait-ui-fix.md)补清除／源限制／可调裁剪确认／代次，L浏览器16项；后继[运行时身份](editor-portrait-identity.md)修同byte不同key／不同world隔离及消费者接线，L浏览器22项；后继[真实workerd链](editor-portrait-workerd.md) S串行14项上传／保存／发布API／匿名App及全部头像像素；后继[PNG安全切片](editor-portrait-png-safety.md)补游戏库PNG有界解码／规范重编码，54检查及Pillow30图；后继[JPEG有界实现](editor-portrait-jpeg-safety.md)补游戏库JPEG规范PNG输出，S91检查／90 HTTP（工程actor，非真实认证），独立彩色精度不认证；后继[当前SHA真实链](editor-portrait-workerd-safety.md)S串行17项真实账户API／R2／原JPEG规范PNG／UI绑定／发布API／匿名App及三实体全RGBA；后继[Trial PNG切片](editor-trial-portrait-png-safety.md)S66检查／106 HTTP／Pillow33图补有界源矩形规范化及原存储预算、提交前写门（stub权限端口，不冒Root／App）；后继[Trial JPEG切片](editor-trial-portrait-jpeg-safety.md)S58检查／124 HTTP／84图exact，旧16384像素预算内源矩形规范PNG，非Root／App；后继[Trial裁剪切片](editor-trial-portrait-crop.md)补服务端方形裁剪＋规范128输出（opt-in，预算不变），S24检查／45 HTTP／Pillow11图exact＋真实路由5门，非Root／App；后继 Trial 壳作者确认方形裁剪 UI（D切片）补 x/y/side 输入＋128 预览 canvas＋确认门＋代次守卫，源字节＋crop 矩形直发 A 端点，真 Chromium＋fresh profile＋回环静态 web 7检查通过（stub fetch／pack，只证 UI 行为）；后继[预算探针](editor-portrait-decode-budget.md)验上限内最坏解码有界完成＋exact＋无留存（S7检查／33 HTTP，零生产改动，默认预算不动）；后继 C 在当前 SHA 走真实公开 Trial 链（R2 安装＋真实认证＋开局＋裁剪上传／serve／manifest／结束，15检查／1图 exact，无浏览器 boot）；后继[隔离排查](editor-portrait-decode-isolation.md)独立Node探针23检查／5HTTP；后继Windows Job内核探针17检查／15 native jobs，实测提交内存及周期检查的用户CPU限额终止／后代清理，非生产OS隔离、RSS／精确CPU截止或权限沙箱；用户已要隔离，完整格式／独立彩色精度与完整消费者暂缓、旧资产冻结不自动迁移（不是安全认证）。更大JPEG源预算、发布UI、游戏侧并发三项待前项完成后统一决策；生产隔离方向后继改[VPS Node／Linux适配](editor-vps-cloudflare-plan.md)，不再建Containers／解码Worker；现路径未安装隔离，完整消费者仍缺，不补255替代图。 |
 | Q38 | 唯一管理员tianyi，账户名不可改，禁用恢复须重登；P§4.6 | 局部 / E9 S、T§6 | 独立真实账户/不可变账号/epoch及恢复重登已测；完整内容资料权限/线上环境仍未接。 |
 | Q39 | 靠边平移；超界预览/确认扩边/未配置阻发布；P§4.4 | 局部 / E4 L、R | 靠边平移已交付；扩边/容量消费者原证与唯一引擎适配未闭合，当前拒扩图。 |
 | Q40 | 所有有效章节势力可选，不加仅AI开关；P§4.5 | 局部 / E5 L | 固定导入章App选择有证；自建势力/无势力拒/所有槽与完整章初始化未闭合。 |
@@ -171,7 +183,7 @@
 | T§3 实体/槽 | E3完整raw/局部字段原证 | 每个可写字段/角色/继承/计数/初始化消费闭包与跨引用；新增将/城/势力/空章不猜。 |
 | T§4 编译/manifest | E5同compiler/投影/双摘要/固定缓存 | 完整章初始化、所有必需资源捕获/loader/脚本引用/CPU规则边界；全量发布不可借单章放行。 |
 | T§5 服务/事务 | E9账户与E10真实SQLite/R2、分块源fixture、持久固定来源byte目录、内部全源复制事务与Job底层（均非生产源运行准入） | 完整受信来源/根与资源依赖/runtime验收/草稿复制、CompileJobs/发布/删除与备份；当前开放管理员固定来源完整复制及既有固定副本owner的限定draft读/save；任意全源写／普通新建／完整编辑仍受门限制；workerd后继publish／冻结包已接，不再记为全关闭。以下仅为基础轮历史，不覆盖当前接线：内部资料与[七图像产物Job](editor-backend-image-jobs.md)分别有真实SQL/R2与重启/epoch证明，仍不完整runtime/Q69许可，不借引用/自报JSON授信；后继[真实阶段API](editor-backend-stage-api.md)已安装限定data/images Job／CAS／私有产物取数，每次重建精确源并核真实checkpoint和bytes；不是完整compiler或runtime；后继[阶段界面](editor-backend-stage-ui.md)八真实浏览器流程，准确已保存修订、原键恢复／CAS显式推进及完整SHA下载已接，不关闭完整运行／发布；后继[固定可用库](editor-backend-available-library.md)400角色真实SQL/R2登记、五组26及当前目录61／阶段API42有证，保20个G127/255未知，不签Q69/runtime；后继[packed索引PNG](editor-backend-indexed-png.md)定位168旧拒，376库图/394正例独立像素对拍与18新拒、当前PNG/Job/Root门有证，版本/pipeline不迁移旧任务；后继[精确修订私有库](editor-backend-library-assets.md)实际管理员本人／旧1-current2／400角色及六类型attachment／末次await认证与SQL核验有证，七组55与当前API/draft另验；不接任意路径或普通作者模板，不改未知255；后继[整图逐行基础](editor-backend-fallback-rows.md)四季／两tile变更／奇数宽12PNG独立像素与stream预算关闭有证，旧437不改，该生成基础轮未接Job／来源许可；后继[单季整图Job](editor-backend-fallback-jobs.md)同一准确source／独立season pipeline与两R2产物、每行lease/epoch及写返回复查，65主／56旧六图／21独立控制有证，443声明440旧保，该内部轮未装Root/UI或统一manifest；后继[固定季节认证API](editor-backend-fallback-api.md)主78及当前data/images42、准确源／四附件／末次snapshot/bytes/password拒有证，444声明441旧保，该API轮UI／全fallback/audio/全部消费者与runtime仍未准入；后继[固定季节界面](editor-backend-fallback-ui.md)新八组／三下载及原data/images当前八组／两下载通过，旧关联保ID/key、saved1-current2／dirty／未知回应恢复／全SHA／author和实际改密有证，445声明442旧保，仍不runtime。 |
-| T§6 安全 | E9真实账户KDF/epoch/强制改密/Origin/CSRF/持久限速期限及两作者权限有证 | 内容IDOR/上传/Trial所有提交与async边界、线上安全配置/完整两作者管理员全矩阵仍缺。 |
+| T§6 安全 | E9真实账户KDF/epoch/强制改密/Origin/CSRF/持久限速期限及两作者权限有证 | 内容IDOR／共享资源读取／Trial所有提交与async边界、线上安全配置／完整两作者管理员全矩阵仍缺；画像上传已退役，不作为现行功能补建。 |
 | T§7 Trial | E5/E6/E7/E9真实服务端与App双边界已接 | 全部输入／async／窗口及Q69依赖闭包的当前SHA整体验收，不能将20项lane当全部出口。 |
 | T§8 玩家/档/公告 | workerd匿名目录／玩壳及按游戏持久存档已接 | 当前版本唯一合同及本地联合链见R2§2.69–2.72；旧局禁存、同版下架继续／明确删除退出已有切片，完整生产放行、旧服务端数据回收及公告事务／分页失败仍缺，不再沿用旧版警告／单档确认清理政策。 |
 | T§9 验收 | M限定域完成；E切片分别有证 | E-01..11各出口、真正空章→发布上架→匿名游玩恢复全链与环境矩阵，不能靠入口数收口。 |

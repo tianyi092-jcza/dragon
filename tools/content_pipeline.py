@@ -161,6 +161,12 @@ def compile_chapter(document, world_cities):
     ):
         raise ValueError("native monthly policy named fields diverge from raw bytes")
     for general in state["generals"]:
+        # Optional imported low nibbles, ordered G0E/G0F/G10. Absence is unknown,
+        # never implicit zero; high bits remain the named ability fields.
+        if "specialty_low_bits" in general:
+            low = general["specialty_low_bits"]
+            if not isinstance(low, str) or len(low) != 3 or any(c not in "0123456789abcdef" for c in low):
+                raise ValueError("general specialty_low_bits: expected three lowercase hex nibbles")
         general["active"] = bool(general["attr"] & 0x80)
         general["is_monarch"] = bool(general["attr"] & 0x40)
     for faction in state["factions"]:

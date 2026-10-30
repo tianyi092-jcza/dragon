@@ -155,7 +155,18 @@ export function createNegotiationIo(sc, rng) {
     missing(`general read ${offset}`);
   };
   return {
-    readFactionAttr: (index) => byte(own(factionAt(index), "attr"), "F00"),
+    readFactionAttr: (index) => {
+      // KI 351A: 18h*40h = DS:0600, the live diplomacy[0][0] byte.
+      // Only the <80h immediate-RET branch is covered (3220/3327/3388).
+      // Active aliases still hit the fixed-slot boundary below; do not
+      // invent a neutral faction or continue into unproven alias fields.
+      // Evidence: re-notes-entity-fields.md#city-defence-type2-activity-boundary.
+      if (index === 0x18) {
+        const attr = nativeDiplomacyAt(sc, 0, 0, "351A inactive neutral alias");
+        if (attr < 0x80) return attr;
+      }
+      return byte(own(factionAt(index), "attr"), "F00");
+    },
     readFactionTarget: (index) => {
       const value = own(factionAt(index), "target_faction");
       return value === null ? 0xff : byte(value, "F19");

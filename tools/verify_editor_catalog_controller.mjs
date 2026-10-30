@@ -12,8 +12,8 @@ function storedRecord(store) {
 function setup(store=new Map()) {
   let actor={user:{id:'admin',role:'admin',version:2,mustChangePassword:false}},model,busy=false,confirm=true,hook=null;
   const calls=[],view=structuredClone(snapshot),storage={getItem:key=>store.get(key)??null,setItem:(key,value)=>store.set(key,value),removeItem:key=>store.delete(key)};
-  const ui=installLibraryRegistration({api:async(path,body,options)=>{calls.push({path,body,options});if(hook){const result=await hook(path,body,options);if(result!==undefined)return result;}return body===undefined?structuredClone(view):{...fact,mode,unresolvedReferences:20};},authority:()=>actor,isBusy:()=>busy,storage,confirm:()=>confirm,publish:value=>{model=value;},work:async fn=>{if(busy)return;busy=true;try{return await fn();}finally{busy=false;ui.render();}}});ui.setIdentity(actor);
-  return {ui,a:ui.actions,view,calls,store,storage,get model(){return model;},set hook(value){hook=value;},set confirm(value){confirm=value;},set identity(value){actor=value;ui.setIdentity(value);}};
+  const ui=installLibraryRegistration({api:async(path,body,options)=>{calls.push({path,body,options});if(hook){const result=await hook(path,body,options);if(result!==undefined)return result;}return body===undefined?structuredClone(view):{...fact,mode,unresolvedReferences:20};},authority:()=>actor,isBusy:()=>busy,storage,confirm:()=>typeof confirm==='function'?confirm():confirm,publish:value=>{model=value;},work:async fn=>{if(busy)return;busy=true;try{return await fn();}finally{busy=false;ui.render();}}});ui.setIdentity(actor);
+  return {ui,a:ui.actions,view,calls,store,storage,get model(){return model;},set hook(value){hook=value;},set confirm(value){confirm=value;},get identity(){return actor;},set identity(value){actor=value;ui.setIdentity(value);}};
 }
 test('explicit read projects strings only, registration is not execution permission; cancel sends no POST',async()=>{
   const s=setup();assert.equal(s.calls.length,0);assert.equal(s.model.installDisabled,true);await s.a.read();assert.equal(s.model.installDisabled,false);assert.ok(!JSON.stringify(s.model).includes(definitionDigest));assert.ok(!JSON.stringify(s.model).includes(rootDigest));s.model.state='changed';s.ui.render();assert.match(s.model.state,/400角色/);s.confirm=false;await s.a.install();assert.equal(s.calls.length,1);assert.equal(s.store.size,0);
@@ -31,6 +31,30 @@ test('corrupt/read-only storage fails closed; only explicit local forget permits
 });
 test('malformed snapshot or wrong receipt retains unknown association and cannot enable another write',async()=>{
   const s=setup();s.view.unresolvedReferences=0;await assert.rejects(s.a.read());assert.equal(s.model.installDisabled,true);s.view.unresolvedReferences=20;await s.a.read();s.hook=async(_path,body)=>body?{...fact,rootDigest:'c'.repeat(64),mode,unresolvedReferences:20}:undefined;await assert.rejects(s.a.install(),/不符/);assert.equal(storedRecord(s.store).state,'unknown');assert.equal(s.model.installDisabled,true);assert.equal(s.model.replayDisabled,true);assert.equal(s.calls.filter(x=>x.body).length,1);
+});
+test('registration/replay/forget confirmations cannot affect a replacement identity or changed view',async()=>{
+  for(const action of ['install','replay','forget','broken-forget']) for(const change of ['other','logout','session','aba','version','pagehide','mutated-id']) {
+    const s=setup();await s.a.read();
+    if(action!=='install') {
+      s.hook=async(_path,body)=>{if(body)throw new Error('lost');};await assert.rejects(s.a.install(),/lost/);s.hook=null;
+      if(action==='broken-forget') {s.store.set('editor-library-registration:admin','{bad');s.identity={user:{...s.identity.user}};}
+      else await s.a.read();
+    }
+    s.store.set('editor-library-registration:other',JSON.stringify({key:'other-original-key-123',userVersion:2,registryId,definitionDigest,root:{sha256:rootDigest,byteLength:123},state:'unknown'}));
+    const before=new Map(s.store), count=s.calls.length, original=s.identity;
+    s.confirm=()=>{
+      if(change==='other')s.identity={user:{...original.user,id:'other'}};
+      if(change==='logout')s.identity=null;
+      if(change==='session')s.identity={user:{...original.user}};
+      if(change==='aba'){s.identity={user:{...original.user,id:'other'}};s.identity=original;}
+      if(change==='version')original.user.version++;
+      if(change==='mutated-id')original.user.id='other';
+      if(change==='pagehide')s.ui.pagehide();
+      return true;
+    };
+    await assert.rejects(s.a[action==='broken-forget'?'forget':action](),/確認|會話|上下文/);
+    assert.equal(s.calls.length,count,action+':'+change);assert.deepEqual(s.store,before,action+':'+change);
+  }
 });
 test('unauthorized actors and late reads/submits after identity/pagehide cannot revive private state',async()=>{
   for(const identity of [null,{user:{id:'a',role:'author',version:1}},{user:{id:'a',role:'admin',version:1,mustChangePassword:true}}]){const s=setup();s.identity=identity;await assert.rejects(s.a.read());await assert.rejects(s.a.install());assert.equal(s.calls.length,0);assert.equal(s.model.state,'');assert.equal(s.model.operation,'');}

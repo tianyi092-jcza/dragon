@@ -51,7 +51,7 @@ def main():
         0xC350: "8a4701", 0xC3B0: "e8a843",
         0xE393: "e84911", 0xE39D: "7306", 0xF4EB: "b8003dcd21",
         0xF4FA: "b80042", 0xF507: "b43f8bd68bcf8b5e00cd21",
-        0xF512: "1f9fb43e8b5e00cd219eb8ffff", 0xF526: "9ec3",
+        0xF512: "1f9fb43e8b5e00cd219eb8ffff8bd09f83c4065d9ec3", 0xF526: "9ec3",
     }
     for cs, hexadecimal in signatures.items():
         expected = bytes.fromhex(hexadecimal)
@@ -112,10 +112,10 @@ def main():
             "C350 loads AL from slot-derived general+1; C39C preserves AX through its font step before C3B0->075B; 075B calls BCD which saves AX at BCD/restores at C12 on normal return, then 079D uses that AL",
             "After conditional normal misses 0,1,2,3 the four labels contain no FF; a subsequent FF at 07D2 misses (not a real UI reachability trace)",
             "0824->E38C->F4DF opens literal filename, seeks CX:AX, asks DI bytes at destination BX:SI",
-            "Normal F510 read return has no AX-versus-DI byte-count branch; CF flows through LAHF/SAHF and E39D JAE",
+            "Normal F510 read return has no AX-versus-DI byte-count branch; F513 LAHF is overwritten by F514 MOV AH,3E. F51B SAHF reconstructs CF from close-return AH bit0; F521/F526 preserve those reconstructed flags for E39D JAE, not the read CF",
             "F505 seek failure skips F512 POP DS; failure stack is not an ordinary successful callback",
         ],
-        "limits": "Initial cache labels do not prove initial pixel memory. Static branch arithmetic only; no DOS read/EOF/CF observation, no CPU execution, no pixel rendering. Cache miss255 conditional is not proof G127 is reached. Full caller/indirect writes/cache lifetime and all temporary127 uses remain unclosed. No placeholder/FF-no-image rule, no runtime binding/Q69 certificate.",
+        "limits": "Initial cache labels do not prove initial pixel memory. Static branch arithmetic only; no DOS read/EOF/CF or close-return AH observation, no CPU execution, no pixel rendering. Cache miss255 conditional is not proof G127 is reached. Full caller/indirect writes/cache lifetime and all temporary127 uses remain unclosed. No placeholder/FF-no-image rule, no runtime binding/Q69 certificate.",
     }
     for name, path in inputs.items():
         require(digest(path.read_bytes()) == report["inputHashes"][name], "primary input changed")

@@ -4,11 +4,15 @@
 // carries actual twenty-chapter staged bytes; default publisher + Node reader.
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, copyFileSync, cpSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createDistributionPublisher } from '../vps/distribution-publisher.mjs';
+import { inspectRuntimeObjectReferences } from '../vps/deletion-runtime-refs.mjs';
+import { inspectFrozenCatalogObjects } from '../vps/deletion-catalog-scan.mjs';
+import { inspectFrozenGameReferences } from '../server/deletionfrozenrefs.js';
+import { parseJSON } from '../reader/runtimecontract.js';
 import reader from '../reader/worker.js';
 register('../vps/text-loader.mjs', import.meta.url);
 const { createEditorApplication } = await import('../server/editorapp.js');
@@ -21,7 +25,8 @@ const { mac } = await import('../server/security.js');
 const { assertDeletionDefinitions } = await import('../server/deletiondefinitions.js');
 const { GameDeletionJobFreeze } = await import('../server/deletionjobfreeze.js');
 const { GameDeletionDraftFreeze } = await import('../server/deletiondraftfreeze.js');
-const scratch = mkdtempSync(join(tmpdir(), 'frozen-publication-root-')), storage = openStorage(':memory:');
+const scratch = mkdtempSync(join(tmpdir(), 'frozen-publication-root-')), storage = openStorage(join(scratch, 'source.sqlite'));
+let sourceClosed = false;
 const ADMIN = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', OWNER = 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb';
 const origin = 'https://owned-editor.invalid', secret = 'c'.repeat(64), token = '1'.repeat(64), adminToken = '2'.repeat(64);
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -45,7 +50,9 @@ try {
   }
   assert.equal(assertDeletionDefinitions(sql).tablesVerified, 50);
   const csrf = await mac(`csrf:${token}`, secret);
-  const call = async (name, key, extra = {}) => {
+  const scenarioNames = { 'Frozen one': 'Frozen1', 'Frozen two': 'Frozen2' };
+  const call = async (label, key, extra = {}) => {
+    const name = scenarioNames[label] ?? label; // Explicit legal names; never truncate arbitrary inputs.
     const started = performance.now();
     const response = await app.fetch(new Request(`${origin}/api/publish`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: `__Secure-dragon-editor=${token}`, 'X-CSRF-Token': csrf, 'Idempotency-Key': key, ...extra }, body: JSON.stringify({ gameId, name }) }));
     const result = { status: response.status, value: await response.json() };
@@ -100,7 +107,7 @@ try {
   });
   const prepared = await app.games.prepareSnapshot(hash, { gameId, draftRevision: '1', metadata: { ...game.metadata }, source: root, allocation });
   app.games.transaction(hash, { key: 'owned-bootstrap-create-01', method: 'create', target: 'new', digest: 'd'.repeat(64) }, api => api.create(allocation, prepared));
-  const tables = ['content_games','content_releases','published_games','published_packs','published_pack_chapters','published_pack_assets','content_operations','content_reservations','content_audits','content_announcements','content_registry','content_distribution_outbox','content_distribution_state','content_distribution_events','content_distribution_chunks','content_deletion_fences','content_deletion_operations'];
+  const tables = ['content_games','content_names','content_releases','published_games','published_packs','published_pack_chapters','published_pack_assets','content_operations','content_reservations','content_audits','content_announcements','content_registry','content_distribution_outbox','content_distribution_state','content_distribution_events','content_distribution_chunks','content_deletion_fences','content_deletion_operations'];
   const fingerprint = () => { const h=createHash('sha256'); for(const table of tables) h.update(JSON.stringify(sql.exec(`SELECT * FROM ${table} ORDER BY rowid`).toArray())); return h.digest('hex'); };
   const publicationStatus = async (key, expected = 200, actorToken = token, target = gameId, suffix = '') => {
     const headers = actorToken ? { Cookie: `__Secure-dragon-editor=${actorToken}` } : {};
@@ -216,7 +223,12 @@ try {
   assert.equal((await player(admissionPath('1.1'))).status,409);await drain(3);
   assert.equal((await publicationStatus('owned-frozen-publish-02')).distribution.visibleAt, '2026-10-15T00:00:03.000Z');
   const announcements=(await player('/play-api/v1/registry')).value.announcements;assert.equal(announcements.length,2);assert.deepEqual(announcements[0],visible.announcements[0]);assert.equal(announcements[1].creatorAccount,'changed_author');
-  assert.equal((await player(admissionPath('1.0'))).status,409);assert.equal((await player(admissionPath('1.1'))).status,200);assert.deepEqual(await player(role,auth),oldChapter);groups++;
+  assert.equal((await player(admissionPath('1.0'))).status,409);
+  const currentAdmission = await player(admissionPath('1.1')); assert.equal(currentAdmission.status,200);
+  const currentAuth = { Authorization: 'Bearer ' + currentAdmission.value.ticket }, currentChapter = await player(role, currentAuth);
+  assert.equal(currentChapter.status,200);
+  const outdated = { status: 409, value: { error: 'RELEASE_CHANGED' } };
+  assert.deepEqual(await player(role,auth),outdated);groups++;
   const recognized=await player('/play-api/v1/releases?'+new URLSearchParams({game:gameId,release:admitted.value.releaseId,ordinal:'1.0'}));
   assert.equal(recognized.status,200,JSON.stringify(recognized));
   assert.deepEqual(recognized.value.saved,{...visible.directory[0],manifestDigest:admitted.value.manifestDigest});
@@ -271,16 +283,153 @@ try {
   assert.equal((await publicationStatus('owned-frozen-publish-01',409)).error, 'GAME_DELETING'); groups++;
   assert.equal((await managementStatus(listingRequest,409)).error,'GAME_DELETING');groups++;
   // Drain old exact envelopes AFTER the mutable SQL packs have been removed.
-  await drain(4);assert.deepEqual((await player('/play-api/v1/registry')).value.announcements,[]);assert.deepEqual(await player(role,auth),oldChapter);
+  await drain(4);assert.deepEqual((await player('/play-api/v1/registry')).value.announcements,[]);assert.deepEqual(await player(role,currentAuth),currentChapter);assert.deepEqual(await player(role,auth),outdated);
   await drain(5);await drain(6);assert.deepEqual((await player('/play-api/v1/registry')).value.announcements,announcements);
-  await drain(7);assert.deepEqual(await player(role,auth),oldChapter);await drain(8);assert.equal((await player(role,auth)).status,410);groups++;
+  await drain(7);assert.deepEqual(await player(role,currentAuth),currentChapter);assert.deepEqual(await player(role,auth),outdated);await drain(8);assert.equal((await player(role,auth)).status,410);assert.equal((await player(role,currentAuth)).status,410);groups++;
   const confirmedDeletion=await deletionStatus();assert.equal(confirmedDeletion.distribution.state,'confirmed');assert.equal(confirmedDeletion.distribution.visibleAt,'2026-10-15T00:00:08.000Z');
   assert.equal(confirmedDeletion.distribution.operationId,pendingDeletion.distribution.operationId);assert.deepEqual(confirmedDeletion.result,deletionResult);groups++;
   assert.equal(writes,8);assert.deepEqual(sql.exec('SELECT kind FROM content_distribution_events ORDER BY generation').toArray().map(r=>r.kind),['publish','listing','publish','restriction','restriction','listing','restriction','delete-fence']);
   assert.equal(sql.exec('SELECT * FROM content_announcements').toArray().length,0);assert.equal(sql.exec('SELECT * FROM content_distribution_outbox').toArray().length,0);
   assert.deepEqual(Buffer.from(app.frozenDistribution.entry(1).payload),frozen1,'historical content remains: this is NOT physical deletion');
   const publicProjection=JSON.parse(staging.objects.get(staging.prefix+`projections/8/${JSON.parse(staging.objects.get(staging.prefix+'control/current.json').bytes).digest}/projection.json`).bytes);
-  assert.equal(Object.hasOwn(publicProjection,'catalog'),false);assert.equal(JSON.stringify(publicProjection).includes('Frozen two'),false);
+  assert.equal(Object.hasOwn(publicProjection,'catalog'),false);assert.equal(JSON.stringify(publicProjection).includes('Frozen2'),false);
   assert.equal(assertDeletionDefinitions(sql).tablesVerified,50);groups++;
-  process.stdout.write(JSON.stringify({scope:'frozen-publication-root',groups,generations:8,chapters:20,privateReads:reads,rootWrites:writes,static:staging.stats(),limits:'actual common Request/SQLite/compiler; in-memory R2 and Node reader, not S3/physical deletion/browser/production'})+'\n');
-} finally { storage.close(); rmSync(scratch,{recursive:true,force:true}); }
+  // Quiescent whole-application restore. These are fenced (not physically
+  // erased) records; preserving them must never be reported as erase closure.
+  const allRows = db => db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").toArray().map(({ name }) => {
+    assert.match(name, /^[a-z_]+$/);
+    return [name, db.exec(`SELECT * FROM ${name}`).toArray().map(value => JSON.stringify(value)).sort()];
+  });
+  const treeHash = dir => {
+    const h = createHash('sha256');
+    const walk = (path, relative = '') => {
+      for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        const next = join(path, entry.name), key = relative + '/' + entry.name;
+        assert.equal(entry.isSymbolicLink(), false);
+        if (entry.isDirectory()) walk(next, key);
+        else { assert.ok(entry.isFile()); h.update(JSON.stringify(key)); h.update(sha(readFileSync(next))); }
+      }
+    };
+    walk(dir); return h.digest('hex');
+  };
+  const rowsBefore = allRows(sql), ledgerBefore = app.frozenDistribution.status();
+  const entriesBefore = Array.from({ length: 8 }, (_, i) => app.frozenDistribution.entry(i + 1));
+  const objectsBefore = treeHash(join(scratch, 'objects'));
+  storage.close(); sourceClosed = true;
+  const sourceFileDigest = sha(readFileSync(join(scratch, 'source.sqlite')));
+  copyFileSync(join(scratch, 'source.sqlite'), join(scratch, 'restored.sqlite'));
+  cpSync(join(scratch, 'objects'), join(scratch, 'restored-objects'), { recursive: true });
+  const restoredStorage = openStorage(join(scratch, 'restored.sqlite'));
+  try {
+    const restoredBucket = new FileBucket({ root: join(scratch, 'restored-objects') });
+    const restoredApp = new (createEditorApplication(class {}, { runtimeStager: staging.stager, frozenPublication: true }))({ storage: restoredStorage }, { ...env, EDITOR_BLOBS: restoredBucket });
+    assert.equal(assertDeletionDefinitions(restoredStorage.sql).tablesVerified, 50);
+    assert.deepEqual(restoredStorage.sql.exec('PRAGMA integrity_check').toArray().map(row => row.integrity_check), ['ok']);
+    assert.deepEqual(allRows(restoredStorage.sql), rowsBefore);
+    assert.equal(treeHash(join(scratch, 'restored-objects')), objectsBefore); groups++;
+    assert.deepEqual(restoredApp.frozenDistribution.status(), ledgerBefore);
+    for (let i = 0; i < 8; i++) assert.deepEqual(restoredApp.frozenDistribution.entry(i + 1), entriesBefore[i]);
+    const restoredPublisher = createDistributionPublisher({ storage: restoredStorage, r2, prefix: staging.prefix, verifyStaticResources: staging.verifyStaticResources });
+    assert.equal((await restoredPublisher.checkHead()).generation, 8);
+    assert.equal((await restoredPublisher.drainOne()).state, 'IDLE'); assert.equal(writes, 8); groups++;
+    // Historical compiled indexes remain referenced after a minimal fence.
+    // The diagnostic receives GET only: no cleanup/provider write capability.
+    const referenceRowsBefore = allRows(restoredStorage.sql);
+    const frozenReferences = inspectFrozenGameReferences(restoredApp.frozenDistribution, gameId);
+    assert.equal(frozenReferences.runtimeReferences.length, 2);
+    assert.equal(frozenReferences.entries.length, 8);
+    assert.equal(frozenReferences.entries.at(-1).containsContent, false);
+    assert.equal(frozenReferences.entries.slice(0, -1).every(row => row.containsContent), true);
+    let indexReads = 0;
+    const runtimeReferences = await inspectRuntimeObjectReferences({ gameId, runtimeReferences: frozenReferences.runtimeReferences, prefix: staging.prefix,
+      r2: { async get(key, options) { indexReads++; return r2.get(key, options); } },
+    });
+    assert.equal(indexReads, 2); assert.equal(runtimeReferences.scannedRuntimes, 2);
+    const expectedKeys = new Set();
+    for (const ref of frozenReferences.runtimeReferences) {
+      expectedKeys.add(ref.key);
+      const index = parseJSON(staging.objects.get(staging.prefix + ref.key).bytes);
+      for (const [role, object] of Object.entries(index.resources)) {
+        expectedKeys.add(object.key);
+        const actual = runtimeReferences.objects.find(row => row.key === object.key);
+        assert.ok(actual);
+        for (const field of ['sha256', 'byteLength', 'contentType']) assert.equal(actual[field], object[field]);
+        assert.ok(actual.references.some(edge => edge.indexKey === ref.key && edge.role === role));
+      }
+    }
+    assert.deepEqual(runtimeReferences.objects.map(row => row.key).sort(), [...expectedKeys].sort());
+    assert.ok(runtimeReferences.objects.some(row => row.sharedLibrary && row.references.length === 2));
+    for (const flag of ['resourceBodiesVerified', 'exclusiveOwnershipProven', 'deleteAllowed', 'physicalCleanupProven']) assert.equal(runtimeReferences[flag], false);
+    assert.deepEqual(allRows(restoredStorage.sql), referenceRowsBefore); assert.equal(writes, 8); groups++;
+    let bodyReads = 0;
+    const bodyPort = { async get(key, options) { bodyReads++; return r2.get(key, options); } };
+    const verifiedBodies = await inspectRuntimeObjectReferences({ gameId, runtimeReferences: frozenReferences.runtimeReferences, prefix: staging.prefix, r2: bodyPort, verifyBodies: true });
+    assert.equal(verifiedBodies.resourceBodiesVerified, true);
+    assert.equal(bodyReads, runtimeReferences.objects.length);
+    assert.equal(verifiedBodies.verifiedBodyBytes, runtimeReferences.objects.reduce((sum, row) => sum + row.byteLength, 0));
+    assert.deepEqual(verifiedBodies.objects, runtimeReferences.objects);
+    for (const flag of ['exclusiveOwnershipProven', 'deleteAllowed', 'physicalCleanupProven']) assert.equal(verifiedBodies[flag], false);
+    assert.deepEqual(allRows(restoredStorage.sql), referenceRowsBefore); assert.equal(writes, 8); groups++;
+    // Use the joint scanner on the restored REAL producer ledger and compiler
+    // indexes, not just synthetic transport catalogs. This fixture has one
+    // game/two versions; cross-game sharing remains covered by its own tests.
+    const providerBefore = [...staging.objects].map(([key, row]) => [key, sha(row.bytes)]).sort();
+    let jointReads = 0;
+    const jointPort = { async get(key, options) { jointReads++; return r2.get(key, options); } };
+    const joint = await inspectFrozenCatalogObjects({ ledger: restoredApp.frozenDistribution, r2: jointPort, gameId, prefix: staging.prefix });
+    assert.deepEqual(joint.head, ledgerBefore);
+    assert.deepEqual(joint.frozenReferences, frozenReferences);
+    assert.equal(joint.resourceReferences.scannedGames, 1); assert.equal(joint.resourceReferences.scannedRuntimes, 2); assert.equal(jointReads, 2);
+    assert.deepEqual(joint.resourceReferences.objects.map(row => row.key).sort(), [...expectedKeys].sort());
+    for (const row of joint.resourceReferences.objects) {
+      assert.deepEqual(row.gameIds, [gameId]); assert.equal(row.sharedAcrossGames, false);
+      assert.deepEqual(row.references.map(({ gameId: owner, ...edge }) => { assert.equal(owner, gameId); return edge; }), runtimeReferences.objects.find(object => object.key === row.key).references);
+    }
+    for (const flag of ['writerLeaseHeld', 'providerSnapshotProven', 'catalogCoverageProven', 'resourceBodiesVerified', 'exclusiveOwnershipProven', 'deleteAllowed', 'physicalCleanupProven']) assert.equal(joint[flag], false);
+    assert.deepEqual(allRows(restoredStorage.sql), referenceRowsBefore); assert.equal(writes, 8); groups++;
+    jointReads = 0;
+    const jointBodies = await inspectFrozenCatalogObjects({ ledger: restoredApp.frozenDistribution, r2: jointPort, gameId, prefix: staging.prefix, verifyBodies: true, maxBodyBytes: verifiedBodies.verifiedBodyBytes });
+    assert.equal(jointBodies.resourceBodiesVerified, true);
+    assert.equal(jointBodies.resourceReferences.verifiedBodyBytes, verifiedBodies.verifiedBodyBytes);
+    assert.equal(jointReads, runtimeReferences.objects.length);
+    assert.deepEqual(jointBodies.resourceReferences.objects, joint.resourceReferences.objects);
+    assert.equal(joint.resourceReferences.staticVisualReferences, null);
+    assert.deepEqual(jointBodies.resourceReferences.staticVisualReferences, verifiedBodies.staticVisualReferences);
+    assert.equal(jointBodies.resourceReferences.staticVisualReferences.length, 8);
+    for (const visual of jointBodies.resourceReferences.staticVisualReferences) {
+      assert.equal(visual.references.length, 2);
+      assert.ok(visual.references.every(ref => ref.gameId === gameId));
+      assert.equal(Object.hasOwn(visual, 'key'), false);
+    }
+    assert.equal(jointBodies.resourceReferences.staticProgramBindingProven, false);
+    assert.equal(jointBodies.resourceReferences.staticResourceBodiesVerified, false);
+    assert.equal(jointBodies.deleteAllowed, false); assert.equal(jointBodies.exclusiveOwnershipProven, false);
+    assert.deepEqual([...staging.objects].map(([key, row]) => [key, sha(row.bytes)]).sort(), providerBefore);
+    assert.deepEqual(allRows(restoredStorage.sql), referenceRowsBefore); assert.equal(writes, 8); groups++;
+    const sharedBody = runtimeReferences.objects.find(row => row.sharedLibrary), sharedKey = staging.prefix + sharedBody.key;
+    const intactShared = staging.objects.get(sharedKey);
+    staging.objects.set(sharedKey, { ...intactShared, bytes: Buffer.alloc(intactShared.bytes.length) });
+    try {
+      await assert.rejects(inspectRuntimeObjectReferences({ gameId, runtimeReferences: frozenReferences.runtimeReferences, prefix: staging.prefix, r2: bodyPort, verifyBodies: true }), /DELETE_RUNTIME_REFERENCE_INVALID/);
+      await assert.rejects(inspectFrozenCatalogObjects({ ledger: restoredApp.frozenDistribution, r2: jointPort, gameId, prefix: staging.prefix, verifyBodies: true }), /DELETE_RUNTIME_REFERENCE_INVALID/);
+    }
+    finally { staging.objects.set(sharedKey, intactShared); }
+    assert.deepEqual(allRows(restoredStorage.sql), referenceRowsBefore); assert.equal(writes, 8); groups++;
+    const restoredStatus = await restoredApp.fetch(new Request(`${origin}/api/games/${gameId}/deletion-operations/owned-frozen-delete-01/distribution`, { headers: { Cookie: `__Secure-dragon-editor=${adminToken}` } }));
+    assert.equal(restoredStatus.status, 200); assert.deepEqual(await restoredStatus.json(), confirmedDeletion);
+    const deniedDraft = await restoredApp.fetch(new Request(`${origin}/api/games/${gameId}/draft?revision=1`, { headers: { Cookie: `__Secure-dragon-editor=${token}` } }));
+    assert.equal(deniedDraft.status, 409); assert.equal((await deniedDraft.json()).error, 'GAME_DELETING');
+    const sessionsBefore = new Map(rowsBefore.find(([name]) => name === 'sessions')[1].map(text => { const row = JSON.parse(text); return [row.token_hash, row]; }));
+    const afterRequests = allRows(restoredStorage.sql).map(([name, rows]) => [name, name === 'sessions' ? rows.map(text => {
+      const row = JSON.parse(text), before = sessionsBefore.get(row.token_hash); assert.ok(before);
+      // Successful authenticated reads legitimately extend the idle deadline;
+      // every other session field and all authority/content tables stay exact.
+      assert.ok(row.idle_until >= before.idle_until && row.idle_until <= row.absolute_until);
+      row.idle_until = before.idle_until; return JSON.stringify(row);
+    }).sort() : rows]);
+    assert.deepEqual(afterRequests, rowsBefore, 'only authenticated session idle renewal may change restore state');
+    assert.equal(treeHash(join(scratch, 'objects')), objectsBefore);
+    assert.equal(sha(readFileSync(join(scratch, 'source.sqlite'))), sourceFileDigest); groups++;
+  } finally { restoredStorage.close(); }
+  process.stdout.write(JSON.stringify({scope:'frozen-publication-root',groups,generations:8,chapters:20,privateReads:reads,rootWrites:writes,restoredTables:50,static:staging.stats(),limits:'actual common Request/file SQLite/compiler and quiescent restore; in-memory R2 and Node reader, not S3/physical deletion/browser/production'})+'\n');
+} finally { if (!sourceClosed) storage.close(); rmSync(scratch,{recursive:true,force:true}); }

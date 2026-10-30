@@ -1,5 +1,5 @@
 import { mountWorkbench, createAccountController, createCopyController } from '/shell-ui.js';
-import { installDraftEditor } from '/draft.js';
+import { installDraftEditor, createAuthoringContext } from '/draft.js';
 import { installStageJobs } from '/stage.js';
 import { installLibraryBrowser } from '/library.js';
 import { installLibraryRegistration } from '/catalog.js';
@@ -36,11 +36,11 @@ async function api(path, value, options = {}) {
   if (!response.ok) { if (response.status === 401 && mark === sessionEpoch) { current = null; sessionEpoch++; render(); } const error = new Error(errors[data.error] ?? '操作被拒絕：' + data.error); error.status = response.status; error.code = data.error; throw error; }
   return data;
 }
-const views = [['draft-editor', '遊戲與章節草稿', false], ['stronghold-editor', '據點管理', false], ['generals-editor', '武將管理', false], ['mapview-editor', '地圖', false], ['stage-editor', '階段任務', false], ['stage-assets-editor', '階段結構', false], ['library-editor', '素材庫', false], ['copy', '完整測試副本', true], ['publish-editor', '發布管理', false], ['deletion-editor', '刪除追蹤', false], ['admin', '創作者帳戶', true], ['management-editor', '上架與限制', true], ['catalog-editor', '固定庫登記', true]];
+const views = [['draft-editor', '遊戲與章節草稿', false], ['stronghold-editor', '據點管理', false], ['generals-editor', '武將管理', false], ['mapview-editor', '地圖', false], ['stage-editor', '階段任務', false], ['stage-assets-editor', '階段結構', false], ['library-editor', '素材庫', false], ['copy', '建立遊戲／完整副本', false], ['publish-editor', '發布管理', false], ['deletion-editor', '刪除追蹤', false], ['admin', '創作者帳戶', true], ['management-editor', '上架與限制', true], ['catalog-editor', '固定庫登記', true]];
 let view = null, displayedOwner = null;
 const accounts = createAccountController({ api, authority: () => current, work: run, publish: model => shell.accounts(model), confirm: text => confirm(text) });
-let mapCanvas = null;
-const managementActions = {}, deletionActions = {}, publicationActions = {}, copyActions = {}, draftActions = {}, stageAssetsActions = {}, stageJobsActions = {}, libraryActions = {}, strongholdActions = {}, generalsActions = {}, catalogActions = {}, mapviewActions = {attachCanvas: canvas => { mapCanvas = canvas; }};
+let mapCanvas = null, minimapCanvas = null, mapWindowCanvas = null;
+const managementActions = {}, deletionActions = {}, publicationActions = {}, copyActions = {}, draftActions = { attachMinimapCanvas: canvas => { minimapCanvas = canvas; }, attachMapWindowCanvas: canvas => { mapWindowCanvas = canvas; } }, stageAssetsActions = {}, stageJobsActions = {}, libraryActions = {}, strongholdActions = {}, generalsActions = {}, catalogActions = {}, mapviewActions = {attachCanvas: canvas => { mapCanvas = canvas; }};
 const shell = mountWorkbench({ root: q('editor-app'), views, navigate, accounts, draft: draftActions, stageAssets: stageAssetsActions, stageJobs: stageJobsActions, library: libraryActions, stronghold: strongholdActions, mapview: mapviewActions, catalog: catalogActions, generals: generalsActions, copy: copyActions, publication: publicationActions, management: managementActions, deletion: deletionActions, logout: () => q('logout').click() });
 function permittedView(next) {
   if (!current || current.user.mustChangePassword) return null;
@@ -61,6 +61,7 @@ window.addEventListener('popstate', () => {
   show(location.hash.slice(1));
 });
 function render() {
+  if (contextIdentity !== current) { authoringContext.reset(); contextIdentity = current; }
   const owner = current?.user.id ?? null;
   if (owner !== displayedOwner) {
     displayedOwner = owner;
@@ -78,9 +79,21 @@ async function run(action) {
 }
 const list = () => accounts.load();
 let stageUI, libraryUI, catalogUI, managementUI, deletionUI, publishUI, stageAssetUI, strongholdUI, generalsUI, mapviewUI;
-const draftUI = installDraftEditor({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.draft(model), onContextChanged: () => { stageUI?.render(); libraryUI?.render(); stageAssetUI?.render(); } });
+let contextIdentity = null;
+const authoringContext = createAuthoringContext({
+  participants: () => ({draft: draftUI, stronghold: strongholdUI, generals: generalsUI, map: mapviewUI, publication: publishUI}),
+  initialGame: () => draftUI.selectedGame(),
+  beforeChange: () => stageUI.canLeave() && catalogUI.canLeave() && managementUI.canLeave() && deletionUI.canLeave() && copyUI.canLeave(),
+});
+const contextFor = source => ({ current: authoringContext.current, select: id => authoringContext.select(id, source) });
+async function openGameView(id, target) {
+  const actor = current, epoch = sessionEpoch;
+  const selected = await draftUI.gotoGame(id);
+  if (selected && current === actor && sessionEpoch === epoch) show(target);
+}
+const draftUI = installDraftEditor({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('draft'), hasLocalMapInputs: () => shell.mapInputs(), getMinimapCanvas: () => minimapCanvas, getMapWindowCanvas: () => mapWindowCanvas, publish: model => shell.draft(model), onContextChanged: () => { stageUI?.render(); libraryUI?.render(); stageAssetUI?.render(); } });
 Object.assign(draftActions, draftUI.actions);
-const copyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.copy(model), gotoGame: async id => { if (!draftUI.canLeave()) return; await draftUI.gotoGame(id); show('draft-editor'); }, openDeletion: () => show('deletion-editor')});
+const copyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.copy(model), gotoGame: id => openGameView(id, 'draft-editor'), openDeletion: id => openGameView(id, 'deletion-editor')});
 Object.assign(copyActions, copyUI.actions);
 stageUI = installStageJobs({ api, authority: () => current, work: run, isBusy: () => busy, savedContext: () => draftUI.savedContext(), publish: model => shell.stageJobs(model) });
 Object.assign(stageJobsActions, stageUI.actions);
@@ -92,13 +105,13 @@ managementUI = installGameManagement({ api, authority: () => current, work: run,
 Object.assign(managementActions, managementUI.actions);
 deletionUI = installGameDeletion({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.deletion(model) });
 Object.assign(deletionActions, deletionUI.actions);
-publishUI = installPublish({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.publication(model) });
+publishUI = installPublish({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('publication'), publish: model => shell.publication(model) });
 Object.assign(publicationActions, publishUI.actions);
-strongholdUI = installStronghold({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.stronghold(model) });
+strongholdUI = installStronghold({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('stronghold'), publish: model => shell.stronghold(model) });
 Object.assign(strongholdActions, strongholdUI.actions);
-generalsUI = installGenerals({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.generals(model) });
+generalsUI = installGenerals({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('generals'), publish: model => shell.generals(model) });
 Object.assign(generalsActions, generalsUI.actions);
-mapviewUI = installMapViewer({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.mapview(model), getCanvas: () => mapCanvas });
+mapviewUI = installMapViewer({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('map'), publish: model => shell.mapview(model), getCanvas: () => mapCanvas });
 Object.assign(mapviewActions, mapviewUI.actions);
 stageAssetUI = installStageAssetBrowser({ api, authority: () => current, work: run, isBusy: () => busy, requestContext: () => stageUI.assetContext(), publish: model => shell.stageAssets(model) });
 Object.assign(stageAssetsActions, stageAssetUI.actions);

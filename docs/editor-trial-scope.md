@@ -18,6 +18,12 @@ Q69产品允许其它章未完成而只测试已完成章，不能跳过共享�
 
 两个新JS语法，active LSP均无剩余诊断但push-only不可确认/0confirmed-clean；4Markdown unavailable，session全181文件仍3旧warning（parser两未调用路径、控制码正则已有意图裁决），新增flag诊断已实际消除而非忽略/清cache。原证不涉及新公式/别名，确定投影步骤不需要Jev分流或发送原数据。session及[独立最终核签](../.dragon-analysis/editor-phase/trial-scope-session-r1/static-receipt-r2.json)单列；原61/134生产/回归源、新current39/作者2保全。没有新增62门全套、service/UI/browser/初始化认证，不复跑未改生产全套或拼历史通过。前批日期静态的docSHA属其封存时刻，本页/新增I/O登记另签。不读写真实SAVE/profile/DOS、默认草稿、Web资产或网络，无commit/push/deploy/全局改动。
 
+## 后继共享兼容资源的双章拒收矩阵
+
+当前 `verify_editor_trial_scope.mjs` 增补六个负控：分别破坏共享roadCost字节、roadOffset JSON及道路nativeBinding flags，对两个不同的完整章各执行一次。每例先确认全源编译按对应错误拒绝，再确认投影原样保留共享兼容资料／地图，所选章编译以相同错误拒绝；请求前后源对象深比较不变。测试只检验现有固定域准入，不为新道路或原版flags添加规则。
+
+完整入口通过，20章、14个负控（其中本批共享矩阵6个）；原“其它章未完成可单章编译”、完整／所选资产相同、有限JSON及其它拒收保持。证据 `.dragon-analysis/editor-completion/trial-shared-scope-20261029/{tests-r1.log,before.json,after.json}`，428项选定源码／Web输入SHA前后相同，语法／diff及锚点检查通过。主动LSP脚本超时未确认，文档仅台账三处既有标识／摘要词典hint；mode=all同样保留代码pending，不冒clean。仅已有Web固定来源及内存副本，无网络、数据库、浏览器、真实SAVE或产品代码改动；未重建不变的程序束。不是画像／TALK／战场全部资源闭包、服务认证或完整Trial启动证明，A20仍部分。
+
 ## 下一实际接线
 
 服务须捕获已保存整源，再形成具体scope投影/manifest，同时核full/selected摘要、game/revision/chapter/snapshot边界；scope缓存不能覆盖旧whole构建或其它章，不允许读取另scope资产。选中坏引用/必需资源或共享地图坏仍禁启动，全源校验不能因单章成功放行。实际UI/App/旧Trial迟到资源、禁存与不回写场景独立验证；不得把本纯函数当这些已完成。

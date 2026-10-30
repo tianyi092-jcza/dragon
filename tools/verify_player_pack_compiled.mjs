@@ -25,8 +25,8 @@ import { snapshotState, admitSavedScenario } from '../web/src/game/savegame.js';
 import { Clock } from '../web/src/game/clock.js';
 import { loadPlayerChapters, admitPlayerChapter } from '../web/src/player/playerchapters.js';
 import { createOriginalBattleRng } from '../web/src/game/battle/originalrng.js';
-const environmentMode=process.argv.includes('--environment'),savesMode=process.argv.includes('--saves'),repositoryMode=process.argv.includes('--repository'),chaptersMode=process.argv.includes('--chapters');
-if(process.argv.slice(2).some(arg=>!['--environment','--saves','--repository','--chapters'].includes(arg))||savesMode&&!environmentMode||repositoryMode&&!savesMode)throw new TypeError('unknown or incomplete arguments');
+const environmentMode=process.argv.includes('--environment'),savesMode=process.argv.includes('--saves'),repositoryMode=process.argv.includes('--repository'),chaptersMode=process.argv.includes('--chapters'),portraitMode=process.argv.includes('--portrait');
+if(process.argv.slice(2).some(arg=>!['--environment','--saves','--repository','--chapters','--portrait'].includes(arg))||savesMode&&!environmentMode||repositoryMode&&!savesMode||portraitMode&&!savesMode)throw new TypeError('unknown or incomplete arguments');
 const own=mkdtempSync(join(tmpdir(),'dragon-player-pack-')),origin='https://owned-editor.invalid',playerOrigin='https://owned-player.invalid';
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 let authority,pack,session,formalSaves,saveReceipt,saveMemory,repository,chapterPreview,checks=0,rootWrites=0,staticReads=0,assetReads=0;
@@ -35,7 +35,19 @@ try {
   authority=await createPublicationBrowserAuthority({root:join(own,'authority'),origin,runtimeStager:staged.stager,nodeService:true});
   const login=await authority.fetch(new Request(origin+'/api/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','Idempotency-Key':'owned-pack-login-001'},body:JSON.stringify({account:authority.account,password:authority.password})}));
   assert.equal(login.status,200);const user=await login.json(),cookie=login.headers.get('set-cookie').split(';')[0];
-  const published=await authority.fetch(new Request(origin+'/api/publish',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie,'X-CSRF-Token':user.csrf,'Idempotency-Key':'owned-pack-publish-001'},body:JSON.stringify({gameId:authority.gameId,name:'Owned pack'})}));
+  if(portraitMode){
+    const headers={Origin:origin,'Content-Type':'application/json',Cookie:cookie,'X-CSRF-Token':user.csrf};
+    const path=origin+'/api/games/'+authority.gameId+'/draft';
+    const initial=await authority.fetch(new Request(path+'?revision=1',{headers}));assert.equal(initial.status,200);
+    const before=await initial.json(),body={metadata:before.metadata,resourceEdits:[],chapterEdits:[{op:'portrait',chapterId:authority.chapters[0],generalIdx:0,portraitKey:'p0001'}]};
+    const saved=await authority.fetch(new Request(path+'/save',{method:'POST',headers:{...headers,'If-Match':'"1"','Idempotency-Key':'owned-pack-portrait-001'},body:JSON.stringify(body)}));
+    assert.equal(saved.status,200,await saved.clone().text());assert.equal((await saved.json()).draftRevision,'2');
+    const current=await authority.fetch(new Request(path+'?revision=2',{headers}));assert.equal(current.status,200);
+    const expected=structuredClone(before.chapters);expected[0].generals.find(row=>row.idx===0).portraitKey='p0001';
+    assert.deepEqual((await current.json()).chapters,expected);
+    const old=await authority.fetch(new Request(path+'?revision=1',{headers}));assert.equal(old.status,200);assert.deepEqual(await old.json(),before);checks++;
+  }
+  const published=await authority.fetch(new Request(origin+'/api/publish',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie,'X-CSRF-Token':user.csrf,'Idempotency-Key':'owned-pack-publish-001'},body:JSON.stringify({gameId:authority.gameId,name:'Own pack'})}));
   assert.equal(published.status,200,await published.clone().text());checks++;
   const headers=object=>({...object.headers,etag:'"'+sha(object.bytes)+'"','last-modified':'Thu, 01 Jan 2037 00:00:00 GMT'});
   const r2={
@@ -60,7 +72,12 @@ try {
   pack=await loadPlayerPack({session,compilerRevision:TRIAL_COMPILER_REVISION,maxTotalBytes:128*1024*1024,readStatic});
   assert.equal(staticReads,8);assert.equal(pack.identity.releaseId,session.identity.releaseId);assert.equal(pack.identity.ordinal,'1.0');assert.equal(pack.manifest.chapters.length,20);
   const sql=authority.storage.sql;assert.equal(JSON.stringify(pack.chapter),sql.exec('SELECT state_json FROM published_pack_chapters WHERE game_id=? AND chapter_id=?',authority.gameId,authority.chapters[0]).toArray()[0].state_json);
-  const declarations=[...pack.manifest.assets,...pack.manifest.minimapAssets,...pack.manifest.portraits];assert.equal(declarations.length,152);assert.equal(Object.keys(pack.resourceURLs).length,160);
+  const declarations=[...pack.manifest.assets,...pack.manifest.minimapAssets,...pack.manifest.portraits];assert.equal(declarations.length,152+(portraitMode?1:0));assert.equal(Object.keys(pack.resourceURLs).length,160+(portraitMode?1:0));
+  if(portraitMode){
+    const declaration=pack.manifest.portraits.find(row=>row.assetId==='p0001');assert.ok(declaration);
+    const bytes=readFileSync('web/kao/p0001.png');assert.equal(declaration.sha256,sha(bytes));assert.equal(declaration.byteLength,bytes.length);
+    assert.equal(pack.chapter.generals.find(row=>row.idx===0).portraitKey,'p0001');checks++;
+  }
   for(const entry of declarations){const response=await fetch(pack.resourceURLs['asset:'+entry.assetId]);const bytes=new Uint8Array(await response.arrayBuffer());assert.equal(sha(bytes),entry.sha256);assert.equal(bytes.length,entry.byteLength);assetReads++;}checks++;
   const assets=Object.fromEntries(['terrain','roadGraph','roadCost','roadOffset'].map(id=>[id,pack.resourceURLs['asset:'+id]]));
   const world=createWorldResources({...pack.manifest.world,assets},{assertCurrent:pack.assertCurrent});
@@ -72,6 +89,11 @@ try {
     assert.equal(environment.raw.player_faction,player);assert.equal(JSON.stringify(pack.chapter),before);
     assert.equal(environment.content.revision,pack.identity.sourceDigest);assert.equal(environment.world.definition.revision,pack.identity.sourceDigest);
     for(const general of environment.raw.generals)if(general.portraitKey)assert.equal(portraitURL(general,environment.world),pack.resourceURLs['asset:'+general.portraitKey]);
+    if(portraitMode){
+      const overridden=environment.raw.generals.filter(general=>general.portraitKey==='p0001');assert.equal(overridden.length,1);assert.equal(overridden[0].idx,0);
+      assert.equal(portraitURL(overridden[0],environment.world),pack.resourceURLs['asset:p0001']);
+      assert.equal(overridden[0].portrait,pack.chapter.generals.find(general=>general.idx===0).portrait);checks++;
+    }
     const prepared=await prepareScenario({raw:environment.raw,idx:0,mode:'fresh',content:environment.content,world:environment.world});
     environment.assertCurrent();assert.equal(prepared.metadata.roadVersion,2);assert.equal(prepared.scenario.cities.length,192);
     assert.deepEqual(prepared.metadata.content.publication,{releaseId:pack.identity.releaseId,ordinal:'1.0'});
@@ -88,9 +110,17 @@ try {
       const saved=snapshotState({data:environment.content.data,content:environment.content,world:environment.world,scenario,scenarioIdx:0,clock,originalRng},0,'正式版存檔');
       const rngBefore=originalRng.snapshot();saveReceipt=await formalSaves.put(saved);assert.equal(saveReceipt.committed,true);
       const reread=await formalSaves.get(0);assert.deepEqual(reread.snapshot,saved);assert.deepEqual(reread.token,saveReceipt.token);
-      const admitted=admitSavedScenario(reread.snapshot,{data:environment.content.data,content:environment.content,world:environment.world});
+      // Actual portable JSON round trip, not structuredClone, before cold admission.
+      const portable=JSON.parse(JSON.stringify(reread.snapshot));
+      assert.deepEqual(portable,reread.snapshot);
+      const admitted=admitSavedScenario(portable,{data:environment.content.data,content:environment.content,world:environment.world});
       const restored=await prepareScenario({...admitted,content:environment.content,world:environment.world,mode:'restore'});
       assert.deepEqual(restored.metadata,prepared.metadata);assert.deepEqual(originalRng.snapshot(),rngBefore);assert.equal((await store.get(0)).record.releaseId,pack.identity.releaseId);checks++;
+      if(portraitMode){
+        const general=restored.scenario.generals.find(row=>row.idx===0);
+        assert.equal(general.portraitKey,'p0001');assert.equal(general.portrait,pack.chapter.generals.find(row=>row.idx===0).portrait);
+        assert.equal(portraitURL(general,environment.world),pack.resourceURLs['asset:p0001']);checks++;
+      }
     }
   }
   const originalURL=pack.resourceURLs['asset:terrain'];await authority.manage('unlist');assert.equal((await publisher.drainOne()).state,'VISIBLE_CONFIRMED');assert.equal((await session.status()).listed,false);pack.assertCurrent();assert.equal((await fetch(originalURL)).status,200);checks++;
@@ -111,5 +141,5 @@ try {
   // A downloaded Blob is not DRM. Explicit owner cleanup, not HTTP410 alone,
   // revokes it; the future engine exit must call close before discarding a pack.
   assert.equal((await fetch(originalURL)).status,200);pack.close();await assert.rejects(fetch(originalURL));pack=null;checks++;
-  process.stdout.write(JSON.stringify({checks,environmentMode,savesMode,repositoryMode,chaptersMode,chapters:20,assetReads,staticReads,rootWrites,scope:savesMode?'actual admitted formal snapshot/owned mock store/common detached restore, unlist-save and explicit-delete refusal; memory R2/fixed time, no browser App/native IDB/version-delete UI':'actual compiler/shared Node authority/default publisher/reader/client and unchanged world road/terrain loaders; memory R2/fixed time, native Node Blob URLs, no browser engine or formal saves'})+'\n');
+  process.stdout.write(JSON.stringify({checks,environmentMode,savesMode,repositoryMode,chaptersMode,portraitMode,chapters:20,assetReads,staticReads,rootWrites,scope:savesMode?'actual admitted formal snapshot/owned mock store/common detached restore, unlist-save and explicit-delete refusal; memory R2/fixed time, no browser App/native IDB/version-delete UI':'actual compiler/shared Node authority/default publisher/reader/client and unchanged world road/terrain loaders; memory R2/fixed time, native Node Blob URLs, no browser engine or formal saves'})+'\n');
 } finally {pack?.close();session?.close();authority?.storage.close();rmSync(own,{recursive:true,force:true});}

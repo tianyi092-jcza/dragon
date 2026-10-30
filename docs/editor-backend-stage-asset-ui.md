@@ -29,3 +29,18 @@ owned `.dragon-analysis/editor-phase/backend-stage-asset-ui-session-r1/`：befor
 Jev人工**3089B**最小说明审preview→固定jev-1.13.0 advisory，禁发源/资源/秘密/私有ID或全日志。内部provider runner白环境名单；本次send外包装spawn未指定env、默认继承，仅调用已有受审内部过滤runner，**不称所有wrapper均白名单**，无环境转储。建议不是SQL/权限/机制/完成oracle。
 
 主动LSP三TEXT unsupported，JS四inconclusive/confirmedClean0；工具convenience“3files confirmedclean”与raw unsupported冲突，以raw结果为准。最终collector/advisory两JS inconclusive2，四MD unavailable（marksman/typos ready0/2），sessionall441文件27继承warning/35hint-info另记，未ignore/禁rule/清cache，不称workspace clean。仍active，不标完成主goal。
+
+## 后继结构缺项分类与实际Trial入口
+
+当前 `stageassetplan.js:assembleFixedStageAssets` 的 `missing` 是六类**本结构报告不提供的证明**：实际权限／fence／epoch、原生字节读回、完整运行依赖、章身份与槽图、profile证书、运行manifest与loader绑定。另有 `unresolvedReferences` 二十条来源未闭合引用。旧界面把两数组串接为26行；它既不是26个缺失文件，也不能与那二十条引用再次相加。某能力在其它链已有实现，不使这个结构报告自动取得相应证明。
+
+本次核读的产品调用链相互分开：结构GET经 `stageassetcollection.js` 调用纯装配器；实际 `editorapp.js` Trial入口调用 `TrialSessions.issue`，其内部走 `captureForCompile → projectTrialChapter → compileGameSource`，生成本次地形／道路／小地图资产，再经 `#visuals` 捕获固定来源视觉资源、`#checkChapterState` 核所选章。发布入口另走 `compileTrialSource → playPacks.prepare`。这只是当前代码接线事实，不是所有运行消费者或G127机制证据。不能靠清空结构页missing或把四个false改true实现Trial闭包，也不应为该页重复建设另一条编译链。
+
+展示层现在将六类证明缺项与二十条引用分栏、分别计数；保留全部原码／引用文字和合计26条，没有隐藏未知、补资源或改变API。无已读报告时不展示零项结论；提示限定为“本页不授予准入”，撤销容易被误读为整个系统没有Trial／发布功能的笼统文字。控制器只有独立只读数组投影，清显示、上下文失效及权限变化同时清两栏；仍无POST、资源下载或自动GET。
+
+验证仅复用既有入口，前缀 `.dragon-analysis/editor-completion/resource-closure-`：
+
+- `controller.log` 六组通过，新增断言原码／全部引用保留、两数组无别名、权限／坏回应及清显示清空；原精确修订、迟到与拒绝门保持。
+- `workbench.log` 新Chromium141项通过，产物 `.dragon-analysis/editor-workbench/run-mRJmIn/`；原结构页用明确API夹具，核6／20分栏且总26条、恶意文字仍转义、清显示零请求。是真实gateway／Vue，不冒实际SQL权限或资源闭包证明。
+- Vue build/check逐字节一致、shell65、三JS与TXT模块语法、diff通过。四代码主动LSP180秒均push-only未确认；TXT无服务，不称clean。两文档主动warning视图clean；mode=all缓存106文件仍32项既有warning，未屏蔽。
+- 本批执行测试首轮通过。无服务／web/src／DDL变更，不重建原生束；未重复无影响的六阶段重任务、真实Trial／发布长链，也未新增独立探针。后续资源工作应以实际Trial／发布消费者的必需依赖为边界，二十条未知引用及完整消费者闭包仍开放。

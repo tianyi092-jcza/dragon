@@ -21,6 +21,16 @@
 
 读取每个产物都会重验完整源及相关对象；这优先保证权限和精确修订，目前没有缓存吞吐、并发公平、Cloudflare CPU／内存／SLA保证。300秒lease是内部有界参数，不是平台承诺。完整回退、全部依赖／消费者、Q69／运行准入、单章scope、完整工作台与资源UI、Trial所有输入／async门、发布／玩家／清理／备份仍缺。阶段操作不更新game.modifiedAt，不物理删除staging，不影响玩家部署。
 
+## 后继产物读取异常后的任务复核
+
+核读现行`StageJobsAPI.read`发现：ready产物的`service.execute`或最终`blobs.read`抛错时，会跳过正常返回后的Job复核。若等待期间会话、归属、快照或Job已改变，调用者仍收到旧I/O异常，而不是当前query应给出的拒绝。此为异常返回边界遗漏，未发现该路径返回私有字节或新增写入；不将错误分类问题夸大为已证数据泄漏。
+
+现仅在这两个await的catch中重新调用原`#job`（沿具体service.query执行原认证／快照／pipeline检查），并与该阶段捕获的完整Job作canonical比较；不同则409 JOB_CHANGED，query已有拒绝直接保留。权限和Job仍相同时重新抛出**同一个**原错误，不吞错、不重试、不替换成成功。正常重建、输出hash及末次issued-response校验保持不变；没有改POST执行／重试、stage集合组装、编译器、DDL或玩家束。
+
+新增聚焦入口`node tools/verify_stage_read_authority.mjs`：实际StageJobsAPI及内存SQLite，明确query／execute／blob端口夹具。两等待位置各覆盖原错误保持、session／owner／fence／snapshot拒绝及Job修订变化，另有健康字节／issued-response正控，**13组通过**。每次执行与对象读取次数精确核对，三个命令关联表全文保持。端口夹具表达下层拒绝合同，不冒真实登录、SQL Job变更、完整编译或provider故障；该13组聚焦批未重跑历史Root HTTPS／完整stage组合链；后继已取得[当前Node默认组合17组](editor-backend-stage-ui.md#后继异常权限修复后的完整https复验)，两类证据不合称实HTTP异常注入矩阵。
+
+证据`.dragon-analysis/editor-completion/stage-read-failure-20261030/`：修前`before.log`复现execute/session返回原I/O而非当前会话拒绝（此前仅原错误正控通过，不冒全部负控均失败）；修后`after.log`完整13组；将测试收据输出改为stdout后，最终`after-r2.log`再次13组通过，`before-r2.json`／`after-r2.json`的338项选定server／vps／Web源码与本测试SHA前后相同。两个JS语法、diff、新文件空白与链接目标检查通过。主动LSP两代码仍push-only未确认；文档仅三条既有词典提示，不能以缓存无代码错误称clean。没有网络、磁盘对象、用户存档或正式数据访问。
+
 ## 实际验证与重复边界修正
 
 先登记[本地I/O](editor-local-validation.md)，旧425输入独立保护，只Root归档后定点装配／路由／namespace，新增服务和测试。`backend-stage-api-session-r1/api-r3`七组42实际未派生Root／HTTPS8787／SQLite／R2请求：

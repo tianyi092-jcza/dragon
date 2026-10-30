@@ -1,5 +1,6 @@
 // Same DO SQLite authority. References alone are NOT blob/compile/runtime admission.
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
+import { checkGameName } from '../web/src/content/authoring/gamesource.js';
 import { fail, fields } from './security.js';
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
 const revision = value => typeof value === 'string' && /^[1-9][0-9]*$/.test(value);
@@ -121,8 +122,9 @@ export class GameMetadataStore {
     if (row.restricted !== 0) { fail(409, 'LISTING_RESTRICTED'); }
     if (row.row_revision !== expectedRowRevision) { fail(409, 'GAME_CHANGED'); }
     if (Number(row.listed) === Number(listed)) { return Object.freeze({ summary: summary(row), changed: false, becameListed: false }); }
-    const time = new Date().toISOString(), next = String(BigInt(row.row_revision) + 1n);
-    const updated = this.#one('UPDATE content_games SET listed=?,row_revision=?,modified_at=? WHERE game_id=? AND row_revision=? RETURNING *', Number(listed), next, time, gameId, row.row_revision);
+    const next = String(BigInt(row.row_revision) + 1n);
+    // Listing is a management event, not an edit of the draft content.
+    const updated = this.#one('UPDATE content_games SET listed=?,row_revision=? WHERE game_id=? AND row_revision=? RETURNING *', Number(listed), next, gameId, row.row_revision);
     if (!updated) { fail(409, 'GAME_CHANGED'); }
     return Object.freeze({ summary: summary(updated), changed: true, becameListed: Number(row.listed) === 0 && Number(listed) === 1 });
   }
@@ -173,9 +175,49 @@ export class GameMetadataStore {
   #snapshot(actor, prepared, gameId, draftRevision) {
     if (!this.#prepared.has(prepared) || prepared.gameId !== gameId || prepared.draftRevision !== draftRevision || prepared.ownerId !== actor.id || prepared.epoch !== actor.epoch) fail(422, 'PREPARED_SNAPSHOT_REQUIRED');
   }
-  #names(actor, gameId, draftName, formalName) {
-    const names = [...new Set([draftName, formalName].filter(name => name !== null))];
+  // Trusted publication coordinator only, inside the SAME transaction as
+  // release allocation, pin, pack and permanent receipt. No content timestamp
+  // or draft revision changes: formal metadata is a snapshot of that revision.
+  setFormalMetadataInTxn(tokenHash, input) {
+    fields(input, ['gameId', 'draftRevision', 'name']);
+    const actor = this.#actor(tokenHash), row = this.#owned(actor, input.gameId);
+    if (!revision(input.draftRevision) || row.draft_revision !== input.draftRevision) fail(409, 'DRAFT_CHANGED');
+    const formal = metadata({ name: input.name, introduction: row.draft_introduction });
+    this.#names(actor, input.gameId, row.draft_name, formal.name);
+    this.#sql.exec('UPDATE content_games SET formal_name=?,formal_introduction=? WHERE game_id=?', formal.name, formal.introduction, input.gameId);
+  }
+  // Old publications may predate formal metadata registration. Resolve only
+  // their CURRENT release/pin identity; never rewrite receipts or infer an
+  // introduction from today's draft. Missing authority is not a free name.
+  #legacyFormalNames(actor) {
+    const names = new Map();
+    const legacy = this.#sql.exec('SELECT game_id,current_release_id FROM content_games WHERE owner_id=? AND current_release_id IS NOT NULL AND formal_name IS NULL', actor.id).toArray();
+    for (const game of legacy) {
+      let row, pin, name;
+      try {
+        row = this.#one('SELECT r.ordinal,r.draft_revision,r.source_digest,p.owner_id,p.pin_json FROM content_releases r LEFT JOIN published_games p ON p.game_id=r.game_id WHERE r.game_id=? AND r.release_id=?', game.game_id, game.current_release_id);
+        pin = JSON.parse(row?.pin_json);
+        name = checkGameName(pin?.name, 40); // Historical write contract only.
+      } catch { fail(503, 'GAME_NAME_STATE_UNKNOWN'); }
+      if (!uuid(game.current_release_id) || row?.owner_id !== actor.id || !name || name !== pin.name || pin.gameId !== game.game_id || pin.ordinal !== row.ordinal || pin.revision !== row.draft_revision || pin.sourceDigest !== row.source_digest || !revision(row.draft_revision) || !/^1\.(0|[1-9][0-9]{0,30})$/.test(row.ordinal) || !/^[a-f0-9]{64}$/.test(row.source_digest)) fail(503, 'GAME_NAME_STATE_UNKNOWN');
+      names.set(game.game_id, name);
+    }
+    return names;
+  }
+  // Trusted creation reservation only: caller supplies normalized metadata and
+  // inserts the reservation in the same synchronous transaction after this check.
+  assertNameAvailableInTxn(tokenHash, name) {
+    const actor = this.#actor(tokenHash);
+    this.#assertNamesAvailable(actor, null, [name], this.#legacyFormalNames(actor));
+  }
+  #assertNamesAvailable(actor, gameId, names, legacy) {
+    for (const [otherGame, name] of legacy) if (otherGame !== gameId && names.includes(name)) fail(409, 'GAME_NAME_OCCUPIED');
     for (const name of names) { const row = this.#one('SELECT game_id FROM content_names WHERE owner_id=? AND name=?', actor.id, name); if (row && row.game_id !== gameId) fail(409, 'GAME_NAME_OCCUPIED'); }
+  }
+  #names(actor, gameId, draftName, formalName) {
+    const legacy = this.#legacyFormalNames(actor);
+    const names = [...new Set([draftName, formalName ?? legacy.get(gameId) ?? null].filter(name => name !== null))];
+    this.#assertNamesAvailable(actor, gameId, names, legacy);
     this.#sql.exec('DELETE FROM content_names WHERE game_id=?', gameId);
     for (const name of names) this.#sql.exec('INSERT INTO content_names VALUES(?,?,?)', actor.id, name, gameId);
   }

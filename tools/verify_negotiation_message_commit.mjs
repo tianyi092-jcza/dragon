@@ -15,9 +15,9 @@ globalThis.fetch = async (url) => {
     const strings = Array.from({ length: 1023 }, () => []);
     for (const index of [43, 44, 45, 47, 48, 49, 57])
       strings[index] = [`TALK${index}`];
-    return { json: async () => ({ strings }) };
+    return { ok: true, json: async () => ({ strings }) };
   }
-  return { json: async () => ({}) };
+  return { ok: true, json: async () => ({}) };
 };
 globalThis.Image = class {
   set src(_value) {
@@ -120,6 +120,8 @@ function fixture() {
   };
   const app = {
     scenario,
+    // This message-only fixture uses the Image stub above, not runtime assets.
+    world: { definition: { assets: { minimap: { base: 'owned-test-minimap-base.png', large: 'owned-test-minimap-large.png' } } } },
     originalRng: { nextByte: () => 0 },
     clock: { setHold() {} },
     view: { draw() {} },

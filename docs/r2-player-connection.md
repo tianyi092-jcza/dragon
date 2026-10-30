@@ -278,6 +278,40 @@ r1保留真实接线错误：写事务插入reservation后再次inspect误报`PU
 
 范围：本地共同应用仍以旧Outbox和本地时间写公告；冻结生产者与§2.19的实际时间引用尚未接入这些权威事务，不能把上述两条测试链拼成生产闭环。仅自有临时SQLite／R2／静态包与显式loopback，无云凭据、真实编辑库／用户档、DOS存档或共享dist。未改schema／规则／游戏／Trial，未commit/push/deploy；物理删除与旧资源保留的完整实现仍待完成。
 
+#### 2.20.1 后继公开公告分页接线审查
+
+接线前的源码审查确认：当时完整公告分页仍是功能缺口，不能用旧SQL服务的分页测试关闭A26。以下为审查基线，后继实现见§2.20.2。
+
+- `server/announcements.js:list` 已有30条／多取一条、`(first_online_at DESC, announcement_id DESC)`及含registry修订的游标；`verify_announcements.mjs`覆盖30＋4条、旧修订重取第一页及坏游标。这是SQL公告路径。冻结模式的共同应用及gateway通过 `isLegacyPlayRoute` 返回 `PLAY_READER_REQUIRED`，不把此旧服务暴露为正式玩家分页后门。
+- 正式入口为 `reader/site.js → reader/worker.js:registry`：按当前上架目录筛选公告、解析§2.19真实首次可见时间，返回完整公告数组；当前函数没有分页或游标响应，保持投影顺序而非在日期解析后执行§8.3的完整排序。`web/src/player/playerclient.js:registry` 白名单复制完整数组，当前公开行不包含SQL的 `announcementId`。不能直接把SQL游标接到冻结读取端，或以数组位置临时充当稳定公告身份。
+- `web/src/player/playercatalog.js` 弹窗逐行显示完整数组，只有重试按钮；`verify_player_catalog_browser.mjs`明确用40条夹具核41个表格行、滚动、右键返回、点击不启动和3.25秒后不消失。它证明历史展示／交互范围，不证明翻页、游标重置或跨页去重。现有失败隔离保留，公告错误不应成为运行资源依赖。
+
+后续实施出口限于现有产品／工程§8.3：冻结公开链提供稳定公告身份、实际首次可见时间与身份的稳定排序、绑定目录代次的游标；每次取页重新执行当前上架过滤，目录变化重取第一页，客户端清旧页并去重。随后接已有弹窗的取页操作及失败重试；不能自动开局、授旧版准入、恢复旧VPS读路由或新增公告编辑权限。生产发布／部署不属于此本地功能接线授权。
+
+本批仅代码／既有测试范围审查和文档更正，没有更改产品或新增探针，也没有重新运行上述历史测试、浏览器或发布长链。A26保留未完成；后续必须验证真正公开链，不能把SQL与浏览器的分离收据拼成端到端分页证明。
+
+#### 2.20.2 冻结公开公告分页与弹窗接线
+
+`reader/worker.js`在原匿名registry增加可选 `?announcementPage=1`，后续页携带原样URL编码的 `cursor`；不启用旧VPS公告路由，无新写权限。每次请求重新读取当前根／投影并按当前上架目录筛选，沿§2.19解析真实首次可见日期后按 `(firstOnlineAt DESC, announcementId DESC)` 排序，30条一页。冻结投影没有SQL行号，公开 `announcementId` 使用已保证唯一、不可复用的 `gameId:ordinal` 运输身份；不是源实体ID或数组下标，同秒时按该ASCII字符串倒序确定顺序，不借发布日期、投影位置或本地时钟排序。
+
+游标为不超过1024字符的JSON `{generation,digest,time,id}`，绑定当前目录根代次／摘要及末行排序键。换代返回第一页和 `announcementPage.reset=true`；同根不存在的键、坏JSON、重复／坏参数只使公告不可用，保留有效目录。响应含 `announcementPage:{reset,nextCursor}`；旧无分页参数调用继续返回原整表DTO，避免改变既有客户端／归档调用合同。本次仍读取完整受预算约束的投影及所需日期回执后取页，不宣称R2读取成本已降为每页30条。
+
+`playerclient.registry({announcementCursor:null|string})`在边界验证页DTO、30条上限、稳定ID和游标长度／不原地循环，失败不损坏有效目录。玩家公告弹窗默认取第一页，以“載入更多”取后页；同根合并按稳定ID去重，换代清旧页，错误清陈旧公告且可重试第一页。原epoch丢弃迟到响应；按钮忙时禁用、Tab在可用按钮间循环，右键仅退公告、无自动关闭／关闭按钮／点击开局。没有修改游戏规则、发布或存档准入。
+
+复用现有验证入口：`verify_reader`77项（真实自有workerd/R2，新增40条30＋10分页、跨页同秒排序／唯一ID、旧调用兼容、坏参数隔离、下架及重上换代）；`verify_first_online`115项（七个真实冻结代次，新增v2分页保持服务时间／历史快照和同秒稳定排序）。后者原“更新后旧票仍读旧章”断言违反已批准当前版唯一政策，已改为409 `RELEASE_CHANGED`，没有为旧测试修改产品准入。`verify_player_client`50项覆盖页DTO拒绝／原地游标／长度前置拒绝；`verify_player_catalog_browser`24项在新Chromium和受控API回包上核30＋10、换代替换、失败／重试、键盘及原只读交互，artifact `release-readiness/player-catalog-browser-KH96ka`。这些是当时的分范围证据；后继真实HTTP联合读取见§2.20.3，仍不冒生产部署证明。
+
+日志在 `.dragon-analysis/editor-completion/announcement-page-*`：reader-r2、first-online-r1、client-r2、browser-r3；首轮reader／browser也通过，后继简化排序表达式、修Shift-Tab初始焦点；缓存检查发现client嵌套三元和浏览器夹具布尔写法告警后作等义简化，再跑client／browser，旧收据保留。最新原生束build-r3／r4两次重建，第二次unchanged：236文件，SHA `0d8fb998f12a02e06d79f30bfbdf051126a5fe9b4f5d4b3baf13d1085db3e9a9`；两壳仍为 `a456d35638594b2bf3e24a94ab7ec9478de6b40ca565d5afb79febf8598f90a0`／`515019f2fc5ac16bb4f0efb238f586a0840a325db57a66fb78c4a48bb7f00ffe`，现库f4ba804b及20项消费者指纹均匹配，未生成新注册表。七个代码文件主动LSP等待300秒均push-only未确认，不能标clean；未重跑无关地图保存／Trial／完整发布／游戏规则长链，未访问真实SAVE或用户profile，未commit/push/deploy。
+
+#### 2.20.3 公告分页真实HTTPS联合读取
+
+复用 `node tools/verify_player_client_workerd.mjs --catalog-browser`，没有另建验证框架或修改产品：既有Node客户端7组之后，在自有workerd／临时R2及全新Chromium上增加7组。实际 `mountPublicCatalog` 默认同源reader／原生fetch通过loopback HTTPS读取registry；Playwright只提供测试HTML和转送现有静态模块，API只continue，不替换回包、fetch或客户端。使用v1不透明运输夹具的40条历史，不冒40次真实作者发布；v2服务时间／历史回执证据仍分别见§2.19及§2.20.2。
+
+浏览器阶段8次真实registry GET均200／no-store，覆盖默认内置与最新通知、30＋10行／唯一序号／同秒倒序、重试第一页、翻页前下架清除旧公告及失效选择、重上恢复原40条全部列值、翻页前根换代回首30而非拼旧页、之后再取得后10条。实际请求游标绑定新根generation／digest；右键返回，点击公告行不请求准入，未调用IDB。页面错误、失败请求、越白名单请求、外网调用均0；Node旧流程另有4次准入及9次文件读取，不能把它们误记为浏览器访问。
+
+最终 `announcement-http-r3.log` 14组，artifact `.dragon-analysis/editor-completion/announcement-http-sOXj0w/result.json` 保留实际请求／响应状态、根、40条DOM列值与7个来源SHA；不带选项的 `announcement-http-default-r1.log` 原7组也通过。r1因辅助CDP `response.json()` 取体失败而中止，不计通过；删除该冗余观察器的取体操作，改以真实HTTP元数据、请求游标和实际DOM验证，既不忽略浏览器错误，也不包装原生fetch。r2已通过，r3只更新入口说明后重跑；失败日志及旧收据保留。
+
+边界：这是公开组件到真实reader的本地联合读取，不是完整App启动、作者／编译／分发生成40版、生产受信TLS或云部署证明。workerd仍输出一次 `CERTIFICATE_UNKNOWN` 自签证书协商日志；仅新测试context允许自签证书，未改全局信任，不能称TLS日志干净。A26的本地公告阅读／分页出口限定关闭；完整发布、公告物理清理分别仍归A23/A30等未闭合项。只改既有验证入口及文档，不重建未变的原生束、不重跑地图／Trial／完整发布长链；代码主动LSP等待300秒仍push-only未确认，不能标clean。
+
 ### 2.21 上架必须已有正式发布身份（LISTING-PUBLICATION-1）
 
 核对全事件生产者接缝时，实际共同Request复现：尚无正式版本的草稿可以被管理员置为listed，随后作者首次发布便可能直接进入目录，违反发布与上架分离。baseline目录保留旧源码SHA及新断言的确定失败：返回200／listed:true／currentReleaseId:null，而应拒绝。
@@ -338,6 +372,24 @@ r1保留真实接线错误：写事务插入reservation后再次inspect误报`PU
 
 保留失败：前两次浏览器探针发现三条beforeunload禁止confirm的console错误，修调用边界而非忽略错误；r1八入口通过后，补账户切换输入断言复现原名称残留，清除后r2完整重跑。r2审计又发现publish.txt未列入递归输入清单：共同入口本身漏了`/publish.js`，而早期浏览器夹具直接提供文件掩盖该缺口。新增实际HTTP负例先复现404，再补唯一静态导入／映射／白名单；r3显式固定全部公共输入、经真实共同静态入口重跑浏览器及八入口；随后只将新测试的嵌套条件表达式改成等价if/else消除warning，r4完整复验。r1历史模块摘要取自当时浏览器结果，不伪造缺失的旧清单pin；失败现场均保留。无权威业务模型／schema／游戏／Trial变更；管理员状态关联、生产装配、旧玩家API收口与完整玩家端仍待完成，未commit/push/deploy。
 
+#### 2.25.1 后继资源拒收的发布提示
+
+`publish.txt` 为 `PLAY_CITY_VIEW_MISSING` 和 `PLAY_PORTRAIT_CORRUPT` 增加繁体说明，分别提示核对章节据点图片／武将画像依赖及已保存草稿，不再只显示内部码。画像错误不被简化成一定是255，也不声称工作台已支持修改所有城图字段。权威拒收分别见[据点图片门](editor-city-definitions.md#后继发布据点图片依赖拒收)与[画像依赖门](re-notes-portrait-reader.md#后继发布画像255依赖拒收)。
+
+只改显示映射，不按422／500清除原操作或自行重试；保留原键、原名称及后续已编辑名称。仍须明确查询，只有原精确404条件允许显式同键／同原正文重送，不推定取消、回滚或未耗版本。
+
+复用 `verify_publish_ui_model.mjs` **15项通过**（新增两错误分支），核提示、无自动GET／POST、原journal不变、未查询重试拒绝、查询404后同键同正文、输入保留。新Chromium既有工作台 **200组通过**，`.dragon-analysis/editor-workbench/run-DtzD1V/result.json`；这是API夹具工作台回归，新两条提示的精确覆盖来自控制器用例，不冒实际HTTP缺图发布或新增DOM错误路径验收。shell65、MJS语法、TXT实际导入及diff通过；测试主动LSP300秒push-only未确认，TXT不支持，诊断与指纹见 `.dragon-analysis/editor-completion/publish-asset-message-final-hashes.json`。无Vue生成壳／web/src／服务端权威或DDL变化，不重建两束，不重复无影响实际发布／Trial／规则长链。完整A20／A23／A32仍未完成。
+
+#### 2.25.2 后继移动意向拒收的发布提示
+
+`publish.txt` 为现有422 `DRAFT_TOPOLOGY_BROKEN` 增加繁体说明：尚有据点移动意向，不能发布，应核对原意向；道路重建记录不代表已完成重连或通过运行检查。不自动撤销意向、不清发布journal、不改键／名称、不改变查询404后才能显式重试的原流程，也不宣称清除意向就满足全部发布条件。
+
+本轮核对 `hasPendingMoves`、草稿保存及Root发布检查，并复核[现行拓扑GET合同](editor-framework-shell.md#后继拓扑覆盖的阻挡与重建摘要一致性)：blocked只表示移动意向是否存在，重建记录独立暂存、没有写入权威地图。不能把这个布尔值当成完整道路准入；审计表原“任何意向仍阻运行”的概括已更正为实际边界。本批不扩大该布尔值、变更重建-only行为或放宽G-ROAD。
+
+复用发布控制器错误分支，`topology-publish-message-before.log` 负控15过／1失败，明确旧界面只显示内部码；修后 `-controller.log` **16项通过**。新增分支核繁体说明、无自动GET／POST、原journal与后改名称保留、未查询不能重试、精确404后原键原正文重送；两个既有资源拒收提示及其余流程保持。shell65通过；全新Chromium既有工作台 **213组通过**，`.dragon-analysis/editor-workbench/run-y0TGsj/result.json`。浏览器为API夹具回归，新提示的精确证据来自控制器，不冒真实拒收HTTP或新增DOM错误路径验证。
+
+MJS语法、TXT实际导入执行、diff、链接及测试前后入口SHA核对通过；主动诊断及当前指纹见 `topology-publish-message-final-hashes.json`。一次打印已有日志遇到GBK输出字符错误，改UTF-8后读取成功，未改原日志或重写测试结果。没有Vue、生成壳、web/src、后台准入、DDL或资源变化，不构建两束、不重复无影响真实发布／Trial／规则长链。A12／A23及完整编辑器仍未完成。
+
 ### 2.26 浏览器与实际本地发布链（PUBLICATION-BROWSER-CHAIN-1）
 
 新增[`verify_publication_chain_browser`](../tools/verify_publication_chain_browser.mjs)将新Chromium页面请求转接到实际共同gateway／密码登录／当前会话／文件SQLite／20章编译及预上传，使用默认publisher、真实自有workerd R2条件写／服务时间／最小回执和实际workerd reader；**不再为此链伪造API响应**。两个虚拟HTTPS origin的运输由Playwright进程内转接，并非Node TCP／TLS／云S3；编辑器cookie不送玩家域，票据只在测试玩家页内存，IDB.open为0。固定完整副本bootstrap与管理员直接认证Request仍是显式测试准备，不冒作者空白新建或管理员UI。
@@ -381,6 +433,36 @@ r1二十入口通过后，补“已配置回调却返回undefined”拒绝，r2�
 证据`.dragon-analysis/release-readiness/deletion-distribution-r1/`十七个显式入口全部通过。新Node／实际workerd共享24组，含原结果与旧JSON、重放不回调、精确关联、损坏／异步／晚期权限和行状态变化回滚、审计失败及workerd持久实例重建。实际20章共同冻结链扩至35组／八代：栅栏事件失败整事务回滚、pending查询、主体／路径／会话负控、旧装配拒绝及排空后历史确认；原包删除后仍可按冻结字节排空。另回归共同旧Root、管理关联双平台、管理员／原浏览器链、作者UI、HTTP两模式和50表／49索引／343列／4FK门。浏览器继续真实本地R2与进程内运输桥，但本批新状态接口的HTTP断言来自共同Request测试，非新增删除状态UI。
 
 没有新DDL／物理删除权限／引擎变化。非空全局分发账本的删除inventory仍明确拒绝，历史payload、旧R2对象、在途写和备份清理均未因此闭合；新回执不是绕开这些门的能力。删除追踪界面、完整玩家接线、Linux／真实云与部署仍待后继，未commit/push/deploy。
+
+#### 2.29.1 后继拓扑意向删除栅栏复核
+
+`DraftTopology` 原共同 `#owned` 只校主体及作者自己的游戏清单，没有检查删除栅栏；清单仍含该游戏，因此栅栏后仍能替换移动／重建意向或撤销记录。现于身份、强制改密、内置保护、ID及所有权检查之后调用既有 `GameMetadataStore.assertNotDeleting`，构造器明确要求该能力。另一作者及管理员的非自有内容仍先404，不借新增检查泄露栅栏；自有栅栏游戏拒409 `GAME_DELETING`。
+
+共同检查覆盖record、rebuild、clear单项／全部、clearRebuild、list、listRebuilds及status。各方法从检查到操作保持同步；Root的异步源捕获返回后仍通过这些方法重新校主体／所有权／栅栏，不在路由层另复制一套门。没有改移动／几何规则、意向表结构、草稿保存门或deleteAllowed；内部hasPendingMoves继续保留原阻断，不为显示失败清意向。
+
+复用 `tools/verify_vps_topology_intent.mjs`，`.dragon-analysis/editor-completion/topology-fence-before.log` 负控在栅栏后的record出现“Missing expected exception”，不是推测风险。修后 `topology-fence-after.log` 及固定入口／依赖SHA后的最终 `topology-fence-after-r2.log` 均 **30项通过**（原21＋9）：原固定源装配、保存阻断／撤销恢复、重建及坏几何检查保留；新增八种服务操作均拒绝，自有作者409、另一作者及管理员404，逐项比较两张意向表及content_games不变；栅栏、pending门及捕获源全文摘要保持。旧“cross-owner 404”用例实际使用无效主体，仅证401，现已更正名字；新的有效跨作者／管理员由明确principal夹具分别验证。
+
+测试使用SQLite内存数据库、独立临时FileBucket和固定源，用户／principal、来源登记及直接插入栅栏时机均为夹具；不是实际删除事务、登录HTTP、跨进程竞态或物理回收证书。shell65、两代码语法／diff／链接通过；源码及主动诊断见 `topology-fence-final-hashes.json`。未改Vue、web/src、DDL或资源，不构建两束，不重复无影响浏览器／规则／Trial／发布长链。A12／A29仍部分、A30物理删除仍未完成。
+
+#### 2.29.2 拓扑意向共同Request路径验证
+
+复用 `verify_editor_template_root.mjs --topology-fence-only`，不安装固定源或运行完整创建长链。共同Root的Request路由、session／CSRF检查与独立文件SQLite是真实实现；用户会话、游戏元数据和小型意向用源为明确夹具，`captureForCompile` 替身在await中插入栅栏后返回原对象。此处验证路由返回后实际进入共同服务门，不冒真实草稿捕获、删除事务或网络并发。
+
+两个作者分别覆盖move／rebuild，共 **4组**：先经路由成功建立两类意向，再在读取期间加栅栏，原本合法的新移动／重建请求均409 `GAME_DELETING`，不能覆盖先前记录。每组随后六条请求（读取、移动、重建、单项撤销、全部移动撤销、重建撤销）对自有作者均409，对另一作者及管理员均404；72次后续拒绝逐项保持两张意向表和content_games全文，捕获源对象及栅栏也保持。没有解除pending门、改道路算法或开放物理删除。
+
+`topology-fence-request-r1.log`、`-r2.log`、最终固定9个入口／依赖SHA后的 `-r3.log` 均4组通过。复跑同工具原画像分支发现旧byte-reader会话撤销夹具使用无条件LIMIT 1，可选到前面新增的栅栏游戏，先返回409而非进入读取后401；`topology-fence-request-portrait-regression.log` 保留失败。仅修测试为明确选择未栅栏游戏，并断言byte-reader实际调用一次，不放宽任何拒绝码；最终 `-portrait-regression-r2.log` **12组通过**。两类入口的会话／捕获时机仍是明确夹具，非真实登录／HTTPS或完整权限矩阵。
+
+语法、diff、链接与最终输入摘要核对通过；当前源码、日志及主动诊断见 `topology-fence-request-final-hashes.json`。本批只改既有测试及文档，没有产品、Vue、web/src、DDL或资源变化，不重建两束、不重复无影响浏览器／Trial／发布／规则长链。A12／A29仍部分，A30仍未完成。
+
+#### 2.29.3 拓扑意向捕获后的会话撤销复核
+
+沿用同一 `verify_editor_template_root.mjs --topology-fence-only`，在原四个删除栅栏场景后增加两条独立、未栅栏游戏的epoch场景：作者的move及另一作者的rebuild。先用真实Request成功建立原移动与重建记录，再由明确的 `captureForCompile` 替身在await内将该用户epoch从1改为2并返回原对象；现有服务复核使在途请求返回401 `SESSION_INVALID`，两张意向表、所有游戏行及源对象保持原样，不需新增产品检查。
+
+每条旧会话随后再次读取、移动、重建、单项／全部移动撤销、重建撤销，六条均401，源捕获计数保持3（两次成功准备加一次在途撤销），不会继续读取或改写意向。用户epoch保持2，不回改epoch或复活旧会话；新游戏未插删除栅栏，不能用409掩盖会话门。原四条栅栏用例及跨作者／管理员404检查一起复验。
+
+`topology-epoch-request-r1.log` **6组通过**（原4＋2），含原72次栅栏后续拒绝及新增12次旧会话拒绝。测试前固定9个入口／依赖摘要，运行后核同。共同Root、session判定与临时文件SQLite是真实实现；会话、元数据、小型源及epoch变更时机是显式夹具，不冒真实登录／改密、完整草稿捕获、网络并发、重登恢复或全部权限矩阵。
+
+仅修改既有测试及文档；语法、diff、链接及主动诊断见 `topology-epoch-request-final-hashes.json`。未改产品、两束、道路规则、DDL或资源，不重复无影响画像分支、浏览器／Trial／发布／规则长链。A29仍部分，完整目标未完成。
 
 ### 2.30 自己的游戏删除请求追踪（DELETION-TRACKING-UI-1）
 
@@ -463,6 +545,16 @@ r1合成章节夹具漏写既有必填faction.n_legions，原共享新局门明�
 证据`.dragon-analysis/release-readiness/player-saves-r2/`八入口全过：新适配30组、实际编译链`--environment --saves`10组、既有仓储7组／59负控、原20章真实快照／80语义拒载、备份20章／148负控，以及环境37、运行包52、客户端43。r1八入口已过，r2新增四种存档头错身份及公共预检中退休不发写，共五组；产品实现不变，完整八入口重跑。共享源／原20章只读，所有保存均自有mock IndexedDB，外部网络拒绝；既有规则／schema／App／Trial束未改。
 
 实际编译链仍为完整副本20章编译中**所选一章fresh 0 tick**：共同密码登录／Node业务／默认publisher／条件内存R2（固定2037服务时间）／reader准入／pack／正式环境→原snapshotState→绑定仓储→原admitSavedScenario及prepareScenario冷恢复；下架后仍按原身份覆写，明确410后新读写拒绝而本地档保留。此链不是原生浏览器IDB、实际App／中途战役或清档UI证书。完整新局／读档入口、最新版本复查、已识别旧release证明与确认compare-delete、晚提交界面归属、保存警告及超大ordinal格式仍待接；未commit/push/deploy。
+
+### 2.37.1 共享扩展画像从实际保存到正式快照恢复
+
+复用 `verify_player_pack_compiled.mjs --environment --saves --portrait`。新参数要求保存模式，不另建入口或绕过保存服务：自有完整副本bootstrap之后，实际作者登录Request，按已读修订1／metadata发送单portrait命令将首章槽0设为p0001，真实CAS保存为2；显式重读核20章投影只有这一portraitKey改变，旧修订1完整保持，然后由共同发布／编译／冻结／默认publisher和reader客户端完成正式准入。
+
+旧测试仅遍历“存在覆盖”的武将，原章没有覆盖时可能零次断言；本模式明确要求且只允许一个p0001覆盖。新增画像使声明角色从152变153（非删除原生byte画像），八张静态图保持，资源URL总数161。实际取出全部153个Blob并逐项重算SHA／长度，包括p0001与固定PNG的27060B及摘要一致；正式世界将该武将解析到本包p0001 Blob，而不是内置相对路径。原生portrait byte保持源值。完整 `snapshotState` 经正式适配器／自有mock IDB保存，再实际JSON.stringify／parse全文往返、原冷恢复准入和 `prepareScenario(restore)` 后，portraitKey、原byte、世界画像URL及正式身份仍保持，RNG未消费。不是仅给测试对象临时塞覆盖或只核sidecar；该JSON往返也用于原保存模式。
+
+初轮 `player-portrait-chain-r1.log` 已通过新增保存，随后旧夹具发布名 `Owned pack` 因10码点被现行8码点门拒绝（PUBLISH_NAME）。仅将测试名改为8码点 `Own pack`，未放宽产品。r2通过；固定16项相关输入后，`player-portrait-chain-r3.log` **14组通过**，`player-portrait-baseline.log` 原无画像参数保存模式 **10组通过**。下架续写、明确删除事件后拒新读写且自有档不删、显式Blob清理等既有检查同轮保留。此处的删除事件和临时目录清理不证明互联网物理删除闭包。
+
+证据及诊断见 `.dragon-analysis/editor-completion/player-portrait-final-hashes.json`。这是共同Node业务／文件SQLite／自有FileBucket、条件内存R2和固定服务时间、Node Blob读取、选定一章fresh零tick与mock存档；业务经Request调用但没有真实网络／浏览器App、原生IDB、战术对白解码或中途战役证书。源／运行算法／服务／UI／两束不变；静态准备只在工具自己的临时包内执行，不重建仓库束、不部署。全621画像、所有显示消费者及A23／A28／A32完整出口仍未完成。
 
 ### 2.38 共享App保存请求归属（APP-SAVE-OWNERSHIP-1）
 
@@ -827,6 +919,26 @@ r1前四入口通过后，六项打包回归因临时目录漏复制新依赖而
 - 复用现有测试：mock仓储9组／65负控、正式适配30组、普通及大序号真实浏览器读档、原生IDB删除成功后abort回滚、仓储／Trial政策／正式App回归通过。原生仓储首次调用遗漏必需轮次参数，在任何浏览器／数据操作前失败；修正调用后通过，日志保留于`.dragon-analysis/release-readiness/current-only-r1/`。未读取用户存档，未新增测试文件。
 - Web三模块变更后重卷230文件Trial束，SHA为`2127a3bbe986038154fdbdc7095ade5e52aea4ff0d90cf4f643c9090e453d549`；两壳不变。本批不宣称真实部署、服务器作废或物理清理完成。
 
+#### 后继读档清理与跨页同槽变更
+
+复用 `verify_player_restore_browser.mjs` 及原fixture，在读档页已读取旧档、清理前的 `reader.status({gameId})` 等待点，用同一全新Chromium context的第二页操作真实原生IDB。分别执行同槽覆写（recordId保持）与删除后重建（recordId改变），随后释放状态回应：选择器按旧token清理被CAS拒绝，显示未删除／可重试，无可选行、不交付恢复结果；新正文、token及目录全文保持，右键退出后也保持。没有为通过测试改变产品清理／冲突行为。
+
+普通模式21组、大序号模式22组通过（各新增2组）；大序号仍精确保留 `9007199254740993` 及原相邻序号拒读检查。最终收据分别为 `.dragon-analysis/release-readiness/player-restore-browser-ltu9bY/result.json` 和 `player-restore-browser-LEwtlE/result.json`，两页均记录错误／请求失败，errors／failed／forbidden为空；数据库白名单仅 `owned-formal-app`，无用户profile或真实存档。当前完整Web快照、原生IDB、共同store和选择器是真实代码；reader身份／版本和等待时机为明确夹具，不冒真实发布或备份导入全链。
+
+日志与241项选定源码／输入前后SHA保存在 `.dragon-analysis/editor-completion/restore-cleanup-cross-page-20261029/`。首轮误把章预览的status也暂停，未到捕获旧token的清理边界，等待重试按钮超时；核读 `playerchapters.js` 后限定清理对象参数，未放宽结果断言，失败保留。r2两模式通过后补齐第二页错误监听并移除测试未用变量，最终r3重跑通过。两测试语法通过；主动代码LSP仍push-only未确认，mode=all仅原await-member风格及文档hash词典提示，不称clean。仅修改既有两个测试与文档，无产品／两束／DDL改动；A28完整备份恢复与跨窗口矩阵仍未闭合。
+
+#### 后继正式备份的显式导入写回
+
+核读发现必须区分三种入口：`saves.html → tools/savemanager.js → localSaveRepository`是既有内置存档管理；`createGameSaveExchange`仅负责固定身份备份编码／解码，自己不写库、不查询最新版本；此前正式App浏览器的大序号备份用例仅做编码／解码，随后恢复的是原slot0，并非从备份新导入的记录。不能据该收据宣称正式游戏已有备份导入界面。
+
+在既有 `verify_formal_app_browser.mjs` 新增显式程序调用链：当前固定环境的完整快照编码→解码→明确选slot12→`createPlayerSaveStore.put`→原生IDB。版本序号`9007199254740993`精确保留，接收仓储分配新recordId／writeRevision3；新档正文及重新导出解码与明确改slot的候选相同。原slot0全文、另一游戏正文及目录不变，当前App的scenario／存档视图／loadedSlot／RNG／战略serial不变；再次以空槽期望写slot12被`GameSaveConflictError`拒绝，已导入正文及完整目录保持。不修改产品、束或数据库结构。
+
+完整入口30组通过，最终收据 `.dragon-analysis/release-readiness/formal-app-browser-ntg6GU/result.json`，errors／failed／forbidden为空；全新Chromium context只使用自有`owned-formal-app`数据库和回环静态服务，无真实存档或外部请求。240项选定源码／输入SHA前后保持，日志在 `.dragon-analysis/editor-completion/formal-backup-import-20261029/`。首轮指纹脚本因路径反斜线转义语法错误未生成before，虽然该轮测试通过，不用它作带指纹交付；修正使用Path.as_posix后完整重跑r2。测试语法通过，主动代码LSP push-only未确认，不称clean。
+
+该30组批次当时剩余明确包括：正式游戏备份文件选择／下载及导入目标界面、当前版本／身份取得与迟到取消的完整接线、导入事务失败与跨窗口恢复矩阵。后继[正式存档端口及独立备份界面](editor-game-save-exchange.md#后继独立页面的正式备份界面)已接`saves.html`的游戏／章节选择、文件下载／输入及新槽CAS，并取得受控reader浏览器26／27组；真实HTTPS联合准入与完整失败矩阵仍待补齐。上述30组只证明显式固定环境中的导入写回及占槽拒绝，不是文件选择、真实远端准入、从导入slot启动App或完整备份恢复证书；A28仍部分。
+
+**后继导入槽冷启动与再保存**：在同一既有入口追加新页面／新Realm，从已导入slot12（而非原slot0）实际启动App，核loadedSlot、备份原标签及完整RNG快照；随后经App保存回slot12成功，recordId保持、writeRevision由3到4、大序号精确保留，原slot0和另一游戏正文／目录保持。完整入口31组通过，收据 `.dragon-analysis/release-readiness/formal-app-browser-xXnSRz/result.json`，errors／failed／forbidden为空。240项选定输入SHA前后保持，日志与指纹在 `.dragon-analysis/editor-completion/formal-backup-restore-20261029/`。首轮用JSON.stringify比较运行RNG对象与规范化存档的字段顺序，误判不等；核`gamesavecodec.saveJSON`按键排序及RNG.snapshot对象后，改用既有严格规范JSON比较全部值，未改规则／产品／预期相等要求，r2完整重跑通过。两测试语法通过，主动代码LSP均push-only未确认。该后继补齐从导入槽启动的限定链，仍非文件选择／下载界面、远端版本准入或全部失败与跨页恢复证书。
+
 ### 2.70 当前版本资源门与旧对局退休（CURRENT-SESSION-1）
 
 按最新用户决定撤销旧版续取，不新增运行协议或第二套引擎：
@@ -847,7 +959,7 @@ r1前四入口通过后，六项打包回归因临时目录漏复制新依赖而
 - 新隔离浏览器：登记UI round127的11组通过（真实SQL／R2、丢200回执、原键重放、改密撤销、native unload保留未知关联、零游戏／IDB／外网／意外错误）；素材UI round126的10组通过（完整复制、固定已保存修订与dirty确认、398描述／20缺口、PNG／11.2MB FLAC／JSON逐字节、七种响应破坏拒绝、上下文／迟到／改密清理及旧data-stage附件）。该素材测试约1314秒；123–125超时保留，不算通过，不因慢而放宽验证。登记UI121的beforeunload console失败亦保留，修复后重跑，而非忽略错误。
 - 实际同引擎Trial round110共22项通过：自有HTTPS workerd／R2、真实改密／来源与库登记／完整复制／Trial签发、真实束／势力选择／192据点／RAF／六派生资产，IDB与外网零调用。它不是浏览器作者全流程、任意空白章初始化或完整战役证明。证据维护于`.dragon-analysis/editor-phase/editor-completion-20261019/`及`trial-app-boot-r1/attempt110/`，五份原字节／diff、生成器候选与输入收据均保留。
 
-生产进度独立记录于[journal §13](checkpoint-journal.md#13-固定库刷新与私有trial接续)，不把本地链拼成已上线。Web／230项Trial束／静态核心均未改；遗留`privatebytes`端口的旧身份仍未迁移，不据当前私有工作台与Trial成功声称完整Q69／作者准入闭包。当前版本唯一政策的公开发布浏览器联合链后继见§2.72；物理回收／备份引用及其它生产放行条件仍待完成。
+生产进度独立记录于[journal §13](checkpoint-journal.md#13-固定库刷新与私有trial接续)，不把本地链拼成已上线。Web／230项Trial束／静态核心均未改；该批次遗留`privatebytes`端口尚钉旧身份；后继已改[显式库tuple绑定](editor-backend-private-byte-context.md#后继精确库身份绑定非运行准入)，并完成[现行库Request取数聚焦](editor-backend-private-byte-context.md#后继现行库实际request联合验证)，及[隔离浏览器字节聚焦](editor-backend-private-byte-context.md#后继现行库隔离浏览器字节协议)，已交付界面／全部消费者链仍待验证，不据私有工作台、模型或Trial局部成功声称完整Q69／作者准入闭包。当前版本唯一政策的公开发布浏览器联合链后继见§2.72；物理回收／备份引用及其它生产放行条件仍待完成。
 
 ### 2.72 当前版本唯一的共同发布联合复验（CURRENT-PUBLICATION-1）
 

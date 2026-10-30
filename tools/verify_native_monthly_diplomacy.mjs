@@ -13,6 +13,9 @@ import {
 } from "../web/src/game/nativediplomacy.js";
 import { initializeNativeStrategicEventWheel } from "../web/src/game/nativeevents.js";
 import { performScenarioMonthlyDiplomacy } from "../web/src/game/navigation/scenariomonthlydiplomacy.js";
+import { aliasStateByte } from "../web/src/game/navigation/scenariowarconsumer.js";
+import { governOriginalCity, damageOriginalCity } from "../web/src/game/navigation/originalcity.js";
+import { beginScenarioAssistanceEvent } from "../web/src/game/navigation/scenarionegotiation.js";
 
 const parseJson = (raw, label) => {
   try {
@@ -160,6 +163,108 @@ test("2E77 target 0x18 reads the city-record alias, gating the type2 queue", () 
     ),
     "alias byte at/above the gate queues the alliance",
   );
+});
+
+test("2E77 player17 aliases live city0 C11, including governance and disaster writes", () => {
+  // Explicit bounded scenario: A0 neighbours P17 and a neutral city, F19=24.
+  // KI 2E33..2E88 / 30CB / 3119 reads 0600+24*24+17 = 0851 (C11).
+  // Divergent views below isolate the live consumer; writer cases start with
+  // matching named/raw bytes. Not an edited-source or full type2-consumer proof.
+  const fixture = (stored, named) => {
+    const sc = initialize(official());
+    sc.player_faction = 17;
+    sc.nativeFactionSlots.records.forEach((faction, slot) => {
+      faction.attr = slot === 0 || slot === 17 ? 0x80 : 0;
+      faction.target_faction = slot === 0 ? 24 : null;
+      faction.money = 0; faction.bellicosity = 0;
+      faction.reserve_cav = 0; faction.reserve_arc = 0; faction.reserve_inf = 0;
+      faction.n_cities = slot === 0 || slot === 17 ? 1 : 0;
+    });
+    sc.cities.forEach(city => { city.faction = null; });
+    sc.cities[0].faction = 0; sc.cities[1].faction = 17;
+    const cityRaw = Buffer.from(sc.cities[0].raw, 'hex');
+    cityRaw[0] = (cityRaw[0] & 0xf0) | 3; cityRaw[0x1c] = 1; cityRaw[0x1d] = 2;
+    cityRaw[0x11] = named; sc.cities[0].raw = cityRaw.toString('hex'); sc.cities[0].defence = named;
+    const playerCity = Buffer.from(sc.cities[1].raw, 'hex'); playerCity[0] &= 0xf0;
+    sc.cities[1].raw = playerCity.toString('hex');
+    const staticRaw = Buffer.from(sc.nativeCityRecordRaw[0], 'hex'); staticRaw[0x11] = stored;
+    sc.nativeCityRecordRaw[0] = staticRaw.toString('hex');
+    writeNativeDiplomacyAt(sc, 0, 17, 180, 'owned C11 alias fixture');
+    return sc;
+  };
+  for (const named of Array.from({ length: 256 }, (_, value) => value)) {
+    const sc = fixture(0, named), records = [...sc.nativeCityRecordRaw], rawCity = sc.cities[0].raw;
+    let calls = 0;
+    const result = performScenarioMonthlyDiplomacy(sc, { nextByte() { calls++; return 255; } });
+    assert.deepEqual(result.rows[0], { empty: true, ordinary: [{ slot: 17, relation: 180, war: false }] });
+    assert.deepEqual(sc.strategicEventSlots.filter(Boolean), named >= 0xa3 ? [event(2, 17, 0, 24)] : []);
+    assert.equal(calls, named >= 0xa3 ? 2 : 1);
+    assert.equal(sc.cities[0].defence, named); assert.equal(sc.cities[0].raw, rawCity);
+    assert.deepEqual(sc.nativeCityRecordRaw, records);
+    // The later KI 2F96/2FAC money gate clears F19 in this zero-money fixture;
+    // it does not erase the type2 already queued with the original target.
+    assert.equal(sc.nativeFactionSlots.records[0].target_faction, null);
+  }
+  for (const stored of [0, 163, 255]) {
+    const sc = fixture(stored, 100);
+    performScenarioMonthlyDiplomacy(sc, { nextByte: () => 255 });
+    assert.deepEqual(sc.strategicEventSlots.filter(Boolean), []);
+    assert.equal(sc.cities[0].defence, 100);
+  }
+  for (const writer of ['governance', 'disaster']) {
+    const start = writer === 'governance' ? 162 : 163, sc = fixture(start, start), city = sc.cities[0];
+    const records = [...sc.nativeCityRecordRaw], rawCity = city.raw;
+    let writerCalls = 0;
+    if (writer === 'governance') {
+      city.troops = city.troops_cap;
+      governOriginalCity(sc, { readCityOwnerByte: address => aliasStateByte(sc, address, 'owned governance owner') }, city, { nextByte() { writerCalls++; return 0; } });
+    } else {
+      city.disaster_event = 1; damageOriginalCity(city);
+    }
+    assert.equal(city.defence, writer === 'governance' ? 163 : 162);
+    assert.equal(writerCalls, writer === 'governance' ? 2 : 0);
+    assert.equal(aliasStateByte(jsonClone(sc, 'owned post-write state'), 0x851, 'owned JSON C11'), city.defence);
+    let calls = 0;
+    performScenarioMonthlyDiplomacy(sc, { nextByte() { calls++; return 255; } });
+    assert.deepEqual(sc.strategicEventSlots.filter(Boolean), writer === 'governance' ? [event(2, 17, 0, 24)] : []);
+    assert.equal(calls, writer === 'governance' ? 2 : 1);
+    if (writer === 'governance') {
+      const queued = sc.strategicEventSlots.find(row => row?.type === 2);
+      const rng = { nextByte() { throw new Error('activity boundary must not consume RNG'); } };
+      assert.ok(nativeDiplomacyAt(sc, 0, 0, 'owned T24 activity') >= 128);
+      const before = structuredClone(sc);
+      assert.throws(() => beginScenarioAssistanceEvent(sc, queued, rng), { name: 'TypeError', message: 'Invalid native faction slot' });
+      assert.deepEqual(sc, before);
+      // Separate explicit inactive-alias control, not a claim about the source diagonal.
+      const inactive = structuredClone(sc);
+      writeNativeDiplomacyAt(inactive, 0, 0, 0, 'owned inactive T24 control');
+      const beforeInactive = structuredClone(inactive);
+      assert.equal(beginScenarioAssistanceEvent(inactive, queued, rng).status, 'ignored-inactive');
+      assert.deepEqual(inactive, beforeInactive);
+    }
+    assert.deepEqual(sc.nativeCityRecordRaw, records); assert.equal(city.raw, rawCity);
+  }
+});
+
+test("C11 alias reads all six supported city slots without a static fallback", () => {
+  const sc = { cities: Array.from({ length: 6 }, (_, idx) => ({ idx, defence: 0 })), nativeCityRecordRaw: Array(192).fill('a3'.repeat(32)) };
+  for (const city of sc.cities) {
+    const address = 0x851 + city.idx * 32;
+    for (let value = 0; value < 256; value++) {
+      city.defence = value; assert.equal(aliasStateByte(sc, address, 'owned C11'), value);
+    }
+    for (const value of [null, undefined, -1, 256, 1.5, NaN, Infinity, '163']) {
+      city.defence = value;
+      assert.throws(() => aliasStateByte(sc, address, 'owned C11'), RangeError);
+    }
+    delete city.defence; assert.throws(() => aliasStateByte(sc, address, 'owned C11'), RangeError);
+    // Neighbouring bytes are outside this repair and retain their old source.
+    assert.equal(aliasStateByte(sc, address - 1, 'owned C10'), 163);
+    assert.equal(aliasStateByte(sc, address + 1, 'owned C12'), 163);
+  }
+  sc.cities[0].defence = 0; delete sc.nativeCityRecordRaw;
+  assert.equal(aliasStateByte(sc, 0x851, 'owned C11'), 0);
+  sc.cities[0].idx = 1; assert.throws(() => aliasStateByte(sc, 0x851, 'owned C11'), RangeError);
 });
 
 test("fixed hidden faction rows produce the same month as a 22-faction public view", () => {

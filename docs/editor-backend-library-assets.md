@@ -29,6 +29,26 @@
 
 主动诊断／session-all、语法／imports、旧Root精确逆差、435旧声明中434未改SHA、文档链接及Q1–Q73另封存；不把unsupported／unavailable／inconclusive或空缓存写成clean。
 
+## 后继异步失败时的游戏级读取边界
+
+底层[共同目录异常复核](editor-backend-available-library.md#后继共同目录异常取数的撤权与来源复核)负责主体与库登记，不拥有游戏归属／精确草稿快照。因此不能用底层修复代替本层检查。本轮在`captureForCompile`及`catalog.loadFull`两个await失败时复查原`#assert`；它仍执行原principal／owner／snapshot／origin／栅栏规则，不增加授权或读取最新草稿。有效上下文继续抛同一个原异常。
+
+复用共同Request工具，新增显式`--library-failure-only`：真实应用分发、认证、GameMetadataStore、PrivateLibraryAssets和文件SQLite参与，身份、游戏／快照／来源登记为种子行；源捕获与库加载是明确失败的异步端口，**不是完整副本、批准登记或有效资源字节**。清单与单资源两条GET路径，在两个端口各覆盖六条件：无变化、owner改变、精确snapshot改变、origin改变、删除栅栏、epoch改变。24个Request分别保持500或准确404／409／401，不返回字节；再有两个直接服务正对照验证原异常对象严格相同。
+
+修前首先复现清单capture阶段owner变化仍500 `INTERNAL_ERROR`而非404 `GAME_NOT_FOUND`，保留`before.log`，不将该轮说成24例均已执行。修后 **26组通过**，capture调用26次、catalog调用13次，对象I/O为0；十张选定业务表在定点恢复夹具变化后全文与基线相同，无操作收据、Trial或发布写入。清理仅自有临时SQLite／目录。没有实际登录HTTP、成功资源读取、编译或浏览器证书，该异常矩阵批当时未重跑完整私有库长链；成功路径未修改。后继当前源码正链复验见下节，不将它冒作历史HTTPS入口重跑。
+
+证据 `.dragon-analysis/editor-completion/library-scope-failure-20261029/`：`before.log`、首轮24组`after.log`及最终`after-r2.log`；`before-r2.json`／`after-r2.json`的126项选定服务源码／策略／入口SHA保持（不是全部传递依赖指纹）。两JS语法和diff检查通过。主动LSP两代码push-only未确认，两文档一clean／一三条既有词典hint；mode=all保留测试中既有console／嵌套三元两项warning及七条风格hint，另有三条词典hint，不屏蔽或冒全仓clean。未改Web、DDL、原生或后台束，不开放普通作者读他人库或任何运行资格。
+
+## 后继当前私有库完整Request链复验
+
+在共同目录、草稿与私有库异常路径修复后，直接执行既有 `node tools/verify_editor_template_root.mjs --private-library-only`，没有增加新矩阵、替换成功端口或放宽断言。**14组完整通过、退出码0**。真实共同Request分发、会话检查、文件SQLite／FileBucket、41来源登记与400角色库staging／登记参与；账户及会话是明确种子身份，不是登录HTTP或浏览器认证。
+
+该入口先走普通作者中立创建／原键恢复、精确读取与保存2、错误profile拒绝、不完整章Trial／发布拒收，再走管理员完整20章复制。随后清单实际给出398项，保存当前修订2后仍按精确旧1读取JSON、PNG、FLAC；字节长度／SHA、响应身份头与客户端固定库绑定均检查。重复GET返回独立字节，错误source头、缺失／错误库身份和另一作者拒收；重新构造应用后仍可读取旧1，真实对象GET期间禁用账户后401。选定草稿对象数、操作记录、当前快照以及无新增Trial／发布保持。库字节上下文的runtime／trial／release／delete四项资格仍全false，不将下载成功升级为运行准入。
+
+证据 `.dragon-analysis/editor-completion/private-library-current-20261029/`：`tests-r1.log`完整收据、独立`exit-r1.txt`为0；955项选定服务／VPS／Web源码、固定资源、策略及工具SHA在`before.json`／`after.json`中前后一致。后台日志在结束前为空，期间没有凭空日志或进程存活判通过；收到最终退出码与收据后才登记结果。测试按原finally关闭SQLite并移除自身临时目录，未访问用户存档、DOS SAVE、生产服务或远端桶；没有修改产品／测试代码、DDL或两类程序束。
+
+这补的是当前共同Request与实际字节成功链，不是重跑封存的本机HTTPS r5，也不含浏览器解码、全部398资源消费者、生产R2／TLS、物理删除或完整编辑器。入口语法、限定diff与文档目标检查通过；文档主动LSP及session-all仅既有词典hint，无错误／警告，不代表全仓诊断清空。
+
 ## 仍缺
 
 全部CSS/loader/audio消费者、整图fallback、G127/255、Q69、RuntimeManifest及实际Trial全部输入／异步／失效屏障；完整实体／章节／普通模板、发布／玩家存档／物理删除／备份仍未完成。主goal保持active；无commit/push、部署／云创建、安装／全局trust、实际profile-IDB／DOS-SAVE或共享清理。

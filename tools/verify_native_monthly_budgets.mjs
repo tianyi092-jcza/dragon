@@ -115,6 +115,31 @@ test("5715 queues amount zero; maintained governors and diplomats consume no RNG
   });
 });
 
+test("5715 all C11 bytes keep positive deficits and bounded word amounts including zero", () => {
+  // KI 5746..576D: zero-extended positive byte differences, word sum,
+  // SHR before MUL 50. These are explicit producer inputs, not new-game defaults.
+  for (const [growth, cap, troops] of [[0, 255, 0], [255, 0, 255], [179, 1, 0]]) {
+    for (let defence = 0; defence < 256; defence++) {
+      const sc = fixture();
+      const city = sc.cities[69];
+      Object.assign(city, { faction: 0, governor: 5, growth, defence, troops_cap: cap, troops });
+      sc.generals[5].assignment_budget = 0;
+      const before = structuredClone(city);
+      const rng = sequence(0);
+      const result = performScenarioMonthlyBudgetProducers(sc, rng);
+      const deficit = Math.max(0, 180 - growth) + Math.max(0, 180 - defence) + Math.max(0, cap - troops);
+      const amount = Math.floor(deficit / 2) * 50;
+      assert.ok(amount >= 0 && amount <= 15350);
+      assert.deepEqual(result.domestic.map(row => row.amount), [amount]);
+      assert.deepEqual(result.envoy, []);
+      assert.equal(rng.calls, 1);
+      assert.deepEqual(sc.strategicEventSlots[0], { type: 4, arg0: 69, arg1: amount & 255, arg2: amount >>> 8 });
+      assert.deepEqual(city, before);
+      assert.equal(sc.generals[5].assignment_budget, 0);
+    }
+  }
+});
+
 test("578F byte subtraction retains 51000 underflow values", () => {
   for (const [raw, expected] of [
     [126, 51000],

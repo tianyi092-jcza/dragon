@@ -315,6 +315,31 @@ test("mode0 original official-byte four outcomes: siege specialty, asymmetric we
   }
 });
 
+test("C11 full-byte values change only their own siege damage writes, not power, teams or RNG", () => {
+  // Raw 51C3..51E7: damage comes from AL ratio, not C11. Use the four
+  // already-evidenced outcomes above; this is synthetic IO, not a CPU run.
+  for (const [a, d, ratio] of [[0, 0, 9], [0, 1, 11], [1, 0, 12], [1, 1, 8]]) {
+    const baseline = fixture();
+    baseline.bytes[0] = a; baseline.bytes[1] = d; baseline.city.defence = 0;
+    const result = resolveOriginalSiegeQuickBattle(baseline.io);
+    const damage = ((63 - ratio) & 255) >>> 2;
+    const otherTrace = baseline.trace.filter(row => !(row[0] === 'writeCityByte' && row[2] === 0x11));
+    for (let defence = 0; defence < 256; defence++) {
+      const f = fixture();
+      f.bytes[0] = a; f.bytes[1] = d; f.city.defence = defence;
+      assert.deepEqual(resolveOriginalSiegeQuickBattle(f.io), result);
+      assert.equal(f.city.defence, Math.max(0, defence - damage));
+      assert.deepEqual({ ...f.city, defence: 0 }, baseline.city);
+      assert.deepEqual(f.records, baseline.records); assert.deepEqual(f.globals, baseline.globals);
+      assert.equal(f.calls(), 14);
+      const writes = [['writeCityByte', 0x860, 0x11, (defence - damage) & 255, '51E2']];
+      if (defence < damage) writes.push(['writeCityByte', 0x860, 0x11, 0, '51E7']);
+      assert.deepEqual(f.trace.filter(row => row[0] === 'writeCityByte' && row[2] === 0x11), writes);
+      assert.deepEqual(f.trace.filter(row => !(row[0] === 'writeCityByte' && row[2] === 0x11)), otherTrace);
+    }
+  }
+});
+
 test("city SUB/borrow commits before separate clamp; every IO fault preserves prefix and prevents later RNG/writes", () => {
   const baseline = fixture();
   baseline.city.troops = 1;

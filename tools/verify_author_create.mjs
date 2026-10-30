@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { openStorage } from '../vps/sqlite-port.mjs';
 import { AdminFullCopy } from '../server/admincopy.js';
+import { FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
 import { PublishedGames } from '../server/published.js';
 import { HttpError, fail } from '../server/security.js';
 
@@ -42,10 +43,17 @@ const principal = h => { if (!actors[h]) { fail(401, 'SESSION_INVALID'); } retur
 const PINNED = 'approved-builtin-47e358-entities086-1';
 const catalog = {
   status: (_h, id) => { if (id !== PINNED) { fail(404, 'SOURCE_NOT_REGISTERED'); } return { definitionDigest: 'd'.repeat(64), rootDigest: 'e'.repeat(64) }; },
-  definition: () => ({ registryId: PINNED, profileRevision: 'profile-rev-1' }),
+  definition: () => ({ registryId: PINNED, profileRevision: FIXED_COPY_PROFILE }),
   loadFull: () => fail(503, 'COPY_NOT_CONFIGURED'),
 };
-const gamesStub = { recoverGameId: () => fail(503, 'COPY_NOT_CONFIGURED') };
+// This role-gate fixture only models indexed claims; the real metadata port and
+// legacy formal-name reservations are covered by verify_formal_name_occupancy.
+const gamesStub = {
+  recoverGameId: () => fail(503, 'COPY_NOT_CONFIGURED'),
+  assertNameAvailableInTxn(token, name) {
+    if (storage.sql.exec('SELECT game_id FROM content_names WHERE owner_id=? AND name=?', principal(token).id, name).toArray().length) fail(409, 'GAME_NAME_OCCUPIED');
+  },
+};
 const blobsStub = { putImmutable: () => fail(503, 'COPY_NOT_CONFIGURED'), read: () => fail(503, 'COPY_NOT_CONFIGURED') };
 const opts = roles => ({ storage, principal, catalog, games: gamesStub, blobs: blobsStub, roles });
 
@@ -53,7 +61,7 @@ const opts = roles => ({ storage, principal, catalog, games: gamesStub, blobs: b
 const adminCopies = new AdminFullCopy(opts(undefined));
 await fails('default-rejects-author', () => adminCopies.reserve('ha', 'k'.repeat(16), { registryId: PINNED, name: '名', introduction: '' }), 'FULL_COPY_ADMIN_REQUIRED');
 // 2. Author instance: author OK, admin rejected.
-const authorCopies = new AdminFullCopy(opts(['author']));
+const authorCopies = new AdminFullCopy({ ...opts(['author']), profileRevision: FIXED_TEMPLATE_PROFILE });
 await fails('author-instance-rejects-admin', () => authorCopies.reserve('hadmin', 'k'.repeat(16), { registryId: PINNED, name: '名', introduction: '' }), 'FULL_COPY_ADMIN_REQUIRED');
 // 3. Bad roles rejected at construction.
 await fails('bad-roles', () => new AdminFullCopy(opts(['ghost'])), 'COPY_ROLE_POLICY');
@@ -61,6 +69,7 @@ await fails('empty-roles', () => new AdminFullCopy(opts([])), 'COPY_ROLE_POLICY'
 // 4. Author reserve pins template; registry stored server-side value.
 const r1 = authorCopies.reserve('ha', 'a1'.padEnd(16, '0'), { registryId: PINNED, name: '三國志', introduction: '自建' });
 check('author-reserve-state', r1.state === 'pending' && r1.registryId === PINNED, r1.state);
+check('author-template-profile', storage.sql.exec('SELECT profile_revision FROM copy_requests WHERE game_id=?', r1.gameId).toArray()[0].profile_revision === FIXED_TEMPLATE_PROFILE);
 // 5. Unknown registry rejected (client cannot smuggle a template).
 await fails('unknown-registry', () => authorCopies.reserve('ha', 'a2'.padEnd(16, '0'), { registryId: 'evil-template', name: 'X', introduction: '' }), 'SOURCE_NOT_REGISTERED');
 // 6. Intra-author duplicate name 409; cross-author same name OK (重名允许).
@@ -74,7 +83,7 @@ const c = authorCopies.cancel('ha', 'a1'.padEnd(16, '0'), q.rowRevision);
 check('author-cancel', c.state === 'canceled');
 // 8. Worker route surface (static): POST /api/games + author create path exist,
 // admin copies path untouched.
-const workerSrc = readFileSync('server/worker.js', 'utf8');
+const workerSrc = readFileSync('server/editorapp.js', 'utf8');
 check('route-post-games', workerSrc.includes("if (path === '/api/games')"));
 check('route-author-create-path', workerSrc.includes('authorCopyPath'));
 check('route-pinned-registry', workerSrc.includes('installedSources.definition().registryId'));

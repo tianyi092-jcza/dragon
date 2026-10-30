@@ -88,8 +88,8 @@ export async function verifyDistributionSchema(storage, ledger) {
   sql.exec("INSERT INTO content_games VALUES(?,?,'schema game','',NULL,NULL,'1','2',NULL,'0',0,0,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')",game,owner);
   sql.exec('INSERT INTO content_used_ids VALUES(?)',game);
   sql.exec("INSERT INTO content_deletion_fences VALUES(?,?,?,'1','2','2026-01-01T00:00:00.000Z')",game,owner,owner);
-  let lists = 0, mutate = false;
-  const inventory = new GameDeletionInventory({storage,principal:()=>({id:owner,epoch:1,role:'author',must_change:false}),bucket:{async list(){lists++;if(mutate){mutate=false;enqueue();}return{objects:[],truncated:false};}}});
+  let lists = 0, mutate = false, changeTopology = null;
+  const inventory = new GameDeletionInventory({storage,principal:()=>({id:owner,epoch:1,role:'author',must_change:false}),bucket:{async list(){lists++;if(mutate){mutate=false;enqueue();}if(changeTopology){const change=changeTopology;changeTopology=null;change();}return{objects:[],truncated:false};}}});
   const empty = await inventory.observe('owned',game);
   assert.equal(empty.deleteAllowed,false); assert.equal(lists,2);
   assert.ok(!JSON.stringify(empty).includes('other-game-name'));
@@ -99,9 +99,40 @@ export async function verifyDistributionSchema(storage, ledger) {
   rollback(() => { sql.exec('DELETE FROM content_distribution_state'); rejected(()=>inventory.referenceSummary('owned',game),'DELETE_DISTRIBUTION_UNSUPPORTED'); });
   rollback(() => { sql.exec('DROP TABLE content_distribution_chunks'); rejected(()=>inventory.referenceSummary('owned',game),'DELETE_INVENTORY_SCHEMA'); });
   checks.push('missing singleton/table cannot masquerade as empty distribution');
-  mutate = true;
+  // Existing intent rows belong to the fenced game even though no object-byte
+  // reference is introduced. Foreign-game intent rows are not its inventory.
+  const geometry = JSON.stringify([{x:1,y:1},{x:2,y:1}]);
+  for (const id of [game, other]) {
+    sql.exec('INSERT INTO draft_topology_moves VALUES(?,?,?,?,?)',id,'city-owned',10,20,'2026-01-01T00:00:00.000Z');
+    sql.exec('INSERT INTO draft_topology_rebuilds VALUES(?,?,?,?,?)',id,'road-owned',geometry,'land','2026-01-01T00:00:00.000Z');
+  }
+  const topologyRows = () => ['draft_topology_moves','draft_topology_rebuilds'].map(table=>rows(`SELECT * FROM ${table} ORDER BY game_id`));
+  const beforeTopology = topologyRows(), tracked = await inventory.observe('owned',game);
+  assert.equal(tracked.associatedRows,empty.associatedRows+2);
+  assert.notEqual(tracked.sqlDigest,empty.sqlDigest);
+  assert.equal(tracked.referencedHashes,empty.referencedHashes);
+  assert.equal(tracked.privateListed,0); assert.equal(tracked.deleteAllowed,false);
+  assert.deepEqual(topologyRows(),beforeTopology);
+  sql.exec('UPDATE draft_topology_moves SET x=11 WHERE game_id=?',other);
+  sql.exec("UPDATE draft_topology_rebuilds SET travel_kind='water' WHERE game_id=?",other);
+  const changedForeign = topologyRows();
+  assert.deepEqual(await inventory.observe('owned',game),tracked);
+  assert.deepEqual(topologyRows(),changedForeign);
+  checks.push('target move/rebuild rows counted and hashed without adding object references; foreign intents excluded and observations do not write');
+  for (const [change,restore] of [
+    [()=>sql.exec('UPDATE draft_topology_moves SET x=11 WHERE game_id=?',game),()=>sql.exec('UPDATE draft_topology_moves SET x=10 WHERE game_id=?',game)],
+    [()=>sql.exec("UPDATE draft_topology_rebuilds SET travel_kind='water' WHERE game_id=?",game),()=>sql.exec("UPDATE draft_topology_rebuilds SET travel_kind='land' WHERE game_id=?",game)],
+  ]) {
+    const beforeLists = lists; changeTopology = change;
+    await assert.rejects(()=>inventory.observe('owned',game),error=>error.code==='DELETE_INVENTORY_CHANGED'&&error.status===409);
+    assert.equal(lists,beforeLists+1); assert.equal(changeTopology,null);
+    restore(); assert.deepEqual(await inventory.observe('owned',game),tracked);
+    assert.deepEqual(topologyRows(),changedForeign);
+  }
+  checks.push('either target intent table changing during list rejects at first await; explicit fixture restoration permits fresh observation, never deletion');
+  const beforeDistributionLists = lists; mutate = true;
   await assert.rejects(()=>inventory.observe('owned',game),error=>error.code==='DELETE_DISTRIBUTION_UNSUPPORTED'&&error.status===503);
-  assert.equal(lists,3); assert.equal(ledger.status().tailGeneration,1);
+  assert.equal(lists,beforeDistributionLists+1); assert.equal(ledger.status().tailGeneration,1);
   checks.push('cross-game enqueue during list is rejected at await boundary, no second list');
   assert.equal(assertDeletionDefinitions(sql).schemaDigest,facts.schemaDigest);
   return {checks,groups:checks.length,tables:50,indexes:49,columns:343,foreignKeys:4,scope:'owned SQL and deletion observation only; populated global ledger deliberately unsupported, no producer/drain/physical deletion proof'};

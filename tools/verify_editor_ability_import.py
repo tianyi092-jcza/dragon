@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 
+from content_pipeline import compile_chapter, source_chapter
 from parse_sinario import parse_scenario
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +62,7 @@ def masked_reference(parsed):
 
 
 chapters, records, missing_tail, fixture = 0, 0, [], b''
+compiled_chapters, compiled_records, compiled_nonzero_low, compile_rejections = 0, 0, [], []
 for name, digest in SOURCES.items():
     raw = read(PARENT / name / 'SINARIO.DAT')
     require(sha(raw) == digest, 'SINARIO SHA')
@@ -77,12 +79,53 @@ for name, digest in SOURCES.items():
                 original = chunk[0x42C0 + slot * 32 + offset]
                 require(general['ability'][field] == original, 'full byte original')
                 require(original <= 15, 'fixed source distributions, not a runtime bound')
+            expected_low = ''.join(f'{chunk[0x42C0 + slot * 32 + offset] & 15:x}' for offset in (14, 15, 16))
+            require(general.get('specialty_low_bits') == expected_low, 'original specialty low bits retained')
             records += 1
         require(parsed == masked_reference(parsed), 'actual20samples have no affected high bits')
+        # Whole fixed-source coverage, still in memory: do not pad the known
+        # short event tail or install a new source/profile to make it compile.
+        parsed_before = copy.deepcopy(parsed)
+        document = source_chapter(parsed, f'{name}-{ordinal}')
+        source_json = json.dumps(document)
+        roundtrip = json.loads(source_json)
+        positions = [{'index': city['idx'], 'x': city['x'], 'y': city['y']} for city in parsed['cities']]
+        if len(chunk) != 0x56C0:
+            try:
+                compile_chapter(roundtrip, positions)
+            except ValueError as error:
+                require(str(error) == 'native strategic event wheel must contain 0x400 bytes', 'short source must fail at known event-tail boundary')
+                compile_rejections.append({'source': name, 'chapter': ordinal, 'reason': str(error)})
+            else:
+                raise ValueError('short source unexpectedly compiled without complete event tail')
+        else:
+            compiled = compile_chapter(roundtrip, positions)
+            legacy_document = copy.deepcopy(roundtrip)
+            for general in legacy_document['state']['generals']:
+                del general['specialty_low_bits']
+            legacy_compiled = compile_chapter(legacy_document, positions)
+            without_low = copy.deepcopy(compiled)
+            for slot, general in enumerate(compiled['generals']):
+                low = general['specialty_low_bits']
+                reconstructed = bytes(general['ability'][key] * 16 + int(nibble, 16)
+                                      for key, nibble in zip(('siege', 'field', 'naval'), low, strict=True))
+                start = 0x42C0 + slot * 32 + 0x0E
+                require(reconstructed == chunk[start:start + 3], 'full-source compile preserves original specialty bytes')
+                require(general['ability'] == parsed['generals'][slot]['ability'], 'full-source compile preserves all named abilities')
+                del without_low['generals'][slot]['specialty_low_bits']
+                if low != '000':
+                    compiled_nonzero_low.append({'source': name, 'chapter': ordinal, 'slot': slot, 'bytes': reconstructed.hex()})
+                compiled_records += 1
+            require(without_low == legacy_compiled, 'optional low bits change no other compiled field')
+            compiled_chapters += 1
+        require(parsed == parsed_before, 'source conversion must not mutate parsed input')
+        require(json.dumps(roundtrip) == source_json, 'full-source compile must not mutate source document')
         chapters += 1
         if not fixture:
             fixture = chunk
 
+require(compiled_chapters == 19 and compiled_records == 2432 and len(compile_rejections) == 1, 'nineteen complete chapters; one known short event tail remains rejected')
+require(len(compiled_nonzero_low) == 5, 'all five nonzero specialty low-bit records survive compilation')
 require(bool(fixture), 'required fixed synthetic base')
 baseline = parse_scenario(fixture)
 single_checks = joint_checks = specialty_checks = 0
@@ -112,13 +155,45 @@ for offset, field in [(0x0E, 'siege'), (0x0F, 'field'), (0x10, 'naval')]:
         raw[0x42C0 + offset] = value
         expected = copy.deepcopy(baseline)
         expected['generals'][0]['ability'][field] = value >> 4
+        low = list(expected['generals'][0]['specialty_low_bits'])
+        low[offset - 14] = f'{value & 15:x}'
+        expected['generals'][0]['specialty_low_bits'] = ''.join(low)
         require(parse_scenario(bytes(raw)) == expected, 'specialty high nibble unchanged')
         specialty_checks += 1
+# Real JSON through the existing offline source/compiler, not runtime admission.
+positions = [{'index': city['idx'], 'x': city['x'], 'y': city['y']} for city in baseline['cities']]
+raw = bytearray(fixture)
+raw[0x42CE:0x42D1] = bytes([0x82, 0x81, 0x06])
+retained = parse_scenario(bytes(raw))
+document = source_chapter(retained, 'specialty-retention')
+roundtrip = json.loads(json.dumps(document))
+compiled = compile_chapter(roundtrip, positions)
+require(compiled['generals'][0]['specialty_low_bits'] == '216', 'compiler retained low bits')
+require([compiled['generals'][0]['ability'][key] * 16 + int(low, 16)
+         for key, low in zip(('siege', 'field', 'naval'), '216', strict=True)] == [0x82, 0x81, 0x06], 'lossless original three bytes')
+require(roundtrip == document, 'compile must not mutate source')
+legacy = copy.deepcopy(roundtrip)
+for general in legacy['state']['generals']:
+    del general['specialty_low_bits']
+require(all('specialty_low_bits' not in general for general in compile_chapter(legacy, positions)['generals']), 'legacy absence stays unknown')
+for invalid in [None, '', '00', '0000', '00G', '00F', [0, 0, 0], 0]:
+    bad = copy.deepcopy(roundtrip)
+    bad['state']['generals'][0]['specialty_low_bits'] = invalid
+    try:
+        compile_chapter(bad, positions)
+    except ValueError as error:
+        require('specialty_low_bits' in str(error), 'specific low-bit boundary error')
+    else:
+        raise ValueError('invalid specialty low bits accepted')
+read(ROOT / 'tools/content_pipeline.py')
 read(ROOT / 'tools/verify_editor_ability_import.py')
 for path, digest in inputs.items():
     require(sha((PARENT / path).read_bytes()) == digest, 'input drift')
 print(json.dumps({'result': 'PASS-OFFLINE-FULL-BYTE-ABILITY-NOT-RUNTIME-ADMISSION', 'inputHashes': inputs,
                   'signatures': {f'{va:04X}': value for va, value in SIGNATURES.items()}, 'chapters': chapters,
-                  'records': records, 'unchangedOriginalParsedChapters': chapters, 'singleByteChecks': single_checks,
+                  'records': records, 'originalNamedAbilityChapters': chapters, 'singleByteChecks': single_checks,
                   'jointByteChecks': joint_checks, 'specialtyNibbleChecks': specialty_checks, 'missingTail': missing_tail,
-                  'limits': 'Offline three named-byte decode only; high values are input-preservation fixtures, not legal initialization/all-consumer/CPU/runtime range certification. No installed data, copy, identity, rule or live/save change; other parser omissions retained.'}, indent=2))
+                  'specialtyLowBitSourceCompileChecks': 12,
+                  'fixedSourceCompiledChapters': compiled_chapters, 'fixedSourceCompiledRecords': compiled_records,
+                  'compiledNonzeroLowBits': compiled_nonzero_low, 'fixedSourceCompileRejections': compile_rejections,
+                  'limits': 'Offline named-byte decode and explicit low-bit preservation only; high values are input-preservation fixtures, not legal initialization/all-consumer/CPU/runtime range certification. No installed data, copy, identity, rule or live/save change; other parser omissions retained.'}, indent=2))

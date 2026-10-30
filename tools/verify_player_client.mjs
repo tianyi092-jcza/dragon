@@ -84,4 +84,15 @@ for(const headers of [{'content-type':'image/png','x-content-sha256':digest},{'c
  f.set(()=>Response.json({error:'RELEASE_CHANGED'},{status:409}));await rejectCode(()=>s.read('manifest'),'RELEASE_CHANGED');assert.equal(s.state(),'outdated');
  const count=f.calls.length;await rejectCode(s.status,'RELEASE_CHANGED');await rejectCode(()=>s.read('manifest'),'RELEASE_CHANGED');assert.equal(f.calls.length,count);checks++;
 }
+{
+ const f=fixture(),notice={gameId:G,ordinal:'1.0',announcementId:G+':1.0',name:'Owned',creatorAccount:'owner',publishedAt:admission.publishedAt,firstOnlineAt:admission.publishedAt};
+ const page={generation:1,digest:'c'.repeat(64),directory:[admission],announcements:[notice],announcementPage:{reset:false,nextCursor:'owned-next'}};
+ f.set(()=>Response.json(page));const first=await f.client.registry({announcementCursor:null});
+ assert.equal(first.announcementsError,null);assert.equal(first.announcements[0].announcementId,notice.announcementId);assert.ok(Object.isFrozen(first.announcementPage));assert.equal(urlOf(f.calls.at(-1).url).searchParams.get('announcementPage'),'1');checks++;
+ for(const bad of [{...page,announcementPage:{reset:false,nextCursor:'owned-next'}},{...page,announcementPage:null},{...page,announcementPage:{reset:false,nextCursor:null},announcements:[{...notice,announcementId:'position-0'}]}]){
+  f.set(()=>Response.json(bad));const result=await f.client.registry({announcementCursor:'owned-next'});
+  assert.equal(result.directory.length,1);assert.equal(result.announcementsError,'ANNOUNCEMENTS_UNAVAILABLE');assert.equal(result.announcementPage,null);assert.deepEqual(result.announcements,[]);checks++;
+ }
+ const count=f.calls.length;await assert.rejects(()=>f.client.registry({announcementCursor:'x'.repeat(1025)}),TypeError);assert.equal(f.calls.length,count);checks++;
+}
 process.stdout.write(JSON.stringify({checks,scope:'Owned transport and streams; no browser, engine, storage or network proof'})+'\n');

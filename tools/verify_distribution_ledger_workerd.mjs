@@ -50,7 +50,7 @@ export default { fetch(request, env) { return env.OWNED.get(env.OWNED.idFromName
   response = await mf.dispatchFetch('https://owned.test/status');
   assert.equal(response.status, 200, await response.clone().text());
   const before = await response.json();
-  assert.equal(before.tables, 3); assert.equal(before.columns, 25); assert.equal(before.foreignKeys, 1);
+  assert.equal(before.tables, 6); assert.equal(before.columns, 38); assert.equal(before.foreignKeys, 1);
   assert.equal(before.tailGeneration, 1); assert.equal(before.confirmedGeneration, 0); assert.equal(before.blockedReason, 'REMOTE_AHEAD');
   await mf.dispose(); mf = null;
   mf = new Miniflare(options);
@@ -58,5 +58,5 @@ export default { fetch(request, env) { return env.OWNED.get(env.OWNED.idFromName
   assert.equal(response.status, 200, await response.clone().text());
   assert.deepEqual(await response.json(), before);
   assert.equal(outbound, 0);
-  process.stdout.write('frozen distribution workerd: 30 shared groups plus actual instance restart; 3 standalone tables / 25 columns / 1 FK; no outbound\n');
+  process.stdout.write('frozen distribution workerd: 30 shared groups plus actual instance restart; 6 standalone tables / 38 columns / 1 FK; no outbound\n');
 } finally { await mf?.dispose(); rmSync(own, { recursive: true, force: true }); }

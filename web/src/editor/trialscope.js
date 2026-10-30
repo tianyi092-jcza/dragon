@@ -2,7 +2,9 @@
 // Keep every shared field and every slot in the selected state; no IO/RNG.
 import { validateGameSource, canonicalDigest } from "../content/authoring/gamesource.js";
 export function projectTrialChapter(game, chapterId, sha256hex) {
-  validateGameSource(game); // global JSON/IDs/map safety is never skipped
+  // Q69 chapter scope: unrelated incomplete chapters are not active gates.
+  // Draft structural/save checks still cover the complete captured source.
+  validateGameSource(game, { draft: true });
   if (typeof chapterId !== "string" || !chapterId || !Array.isArray(game.chapterOrder) ||
       new Set(game.chapterOrder).size !== game.chapterOrder.length ||
       !game.chapterOrder.includes(chapterId) || !Object.hasOwn(game.chapters, chapterId) || typeof sha256hex !== "function")
@@ -11,6 +13,9 @@ export function projectTrialChapter(game, chapterId, sha256hex) {
   const selected = structuredClone(game);
   selected.chapterOrder = [chapterId];
   selected.chapters = Object.fromEntries([[chapterId, selected.chapters[chapterId]]]);
+  // Keep every shared field and strictly validate the selected chapter plus
+  // the unchanged shared map before granting a compilation projection.
+  validateGameSource(selected);
   // No general/asset/shared compatibility pruning: unused slots may be read by
   // native scripts. Source-record metadata is preserved, not an initializer.
   return { mode: "FIXED_IMPORTED_CHAPTER_PROJECTION", chapterId, savedSourceDigest,

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { HttpError, fail } from './security.js';
 import { FIXED_COPY_PROFILE } from './copyprofile.js';
 import { encodePNG } from './pngio.js';
-import { GamePortraits } from './portraits.js';
+import { GamePortraits, collectPortraitIds } from './portraits.js';
 import { isInstalledSourcePolicy } from './sourcecatalogpolicy.js';
 import { projectTrialChapter } from '../web/src/editor/trialscope.js';
 import { FIXED_TRIAL_ASSET_PATHS } from '../web/src/editor/trialassetpaths.js';
@@ -50,14 +50,10 @@ function portraitGaps(generals) {
   return gaps;
 }
 function trialPortraits(state) {
-  const ids = [];
-  for (const general of state?.generals ?? []) {
-    if (Number.isSafeInteger(general?.portrait)) { ids.push(String(general.portrait)); }
-    if (typeof general?.portraitKey === 'string') { ids.push(general.portraitKey); }
-  }
+  const ids = collectPortraitIds(state?.generals);
   return Object.freeze(new GamePortraits().forPublish(ids).map(row => Object.freeze({ assetId: row.assetId, sha256: row.sha256, byteLength: row.byteLength, mime: row.mime, url: `kao/${row.assetId}.png` })));
 }
-function cityViewGaps(cities) {
+export function cityViewGaps(cities) {
   const gaps = [];
   for (const city of cities) {
     const view = city?.view;
@@ -164,6 +160,10 @@ export class TrialSessions {
     let projection; try { projection = projectTrialChapter(snapshot.game, chapterId, shaText); } catch { fail(422, 'TRIAL_CHAPTER'); }
     if (projection.savedSourceDigest !== reference.sourceDigest) { fail(503, 'TRIAL_SOURCE_BINDING'); }
     let compiled; try { compiled = compileGameSource(projection.selected, shaBytes); } catch { fail(422, 'TRIAL_CHAPTER_UNSUPPORTED'); }
+    // Reject chapter dependencies before generating derived pixels or reading
+    // registry visuals; keep the existing structural compiler gate first.
+    const chapterState = this.#checkChapterState(projection, chapterId);
+    const portraits = trialPortraits(chapterState);
     // Derived objects are computed once at issue (async compile), carried by the route and stored in commit; replays return the sealed small DTO only.
     const trialId = crypto.randomUUID(), payloads = {
       terrain: Uint8Array.from(compiled.terrainBytes),
@@ -179,14 +179,13 @@ export class TrialSessions {
     const roles = { terrain: 'rules-initial-terrain', roadGraph: 'native-road-v2', roadCost: 'legacy-grid-visual', roadOffset: 'legacy-grid-visual', minimapBase: 'automatic-minimap', minimapLarge: 'automatic-minimap' };
     const entries = Object.entries(payloads).map(([assetId, data]) => ({ assetId, sha256: shaBytes(data), byteLength: data.length, role: roles[assetId], url: `/api/trials/${trialId}/assets/${assetId}` }));
     const visualAssets = await this.#visuals(tokenHash, reference);
-    const chapterState = this.#checkChapterState(projection, chapterId);
     const manifest = { schemaVersion: 1, compilerRevision: TRIAL_COMPILER_REVISION, buildFormat: 'studio-chapter-1',
       scope: { kind: 'chapter', chapterId, savedSourceDigest: projection.savedSourceDigest, selectedSourceDigest: projection.selectedSourceDigest },
       compatibilityAssetMode: compiled.compatibilityAssetMode, ruleProfile: projection.selected.ruleProfile,
       identity: { gameId, draftRevision: reference.draftRevision, sourceDigest: projection.selectedSourceDigest, savedSourceDigest: projection.savedSourceDigest,
         trialSnapshotId: `${gameId}@${reference.draftRevision}:${projection.selectedSourceDigest}:chapter:${shaText(chapterId)}` },
       world: { id: `${gameId}-world`, revision: projection.selectedSourceDigest, width: compiled.width, height: compiled.height, tileSize: 16 },
-      chapters: [chapterId], visualAssets, minimap, portraits: trialPortraits(chapterState),
+      chapters: [chapterId], visualAssets, minimap, portraits,
       minimapAssets: entries.filter(entry => entry.assetId.startsWith('minimap')), assets: entries.filter(entry => !entry.assetId.startsWith('minimap')) };
     // Q69 batch 8b start gate: reject the start when any chapter asset reference misses the staged library (422, before insert).
     const derived = Object.freeze([['manifest', Buffer.from(JSON.stringify(manifest))], ['chapter', Buffer.from(JSON.stringify(chapterState))], ...Object.entries(payloads).map(([assetId, data]) => [assetId, Buffer.from(data)])]

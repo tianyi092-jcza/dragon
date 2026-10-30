@@ -30,6 +30,26 @@ function group(name, fn) {
   try { fn(f); passed++; console.log(`ok ${name}`); }
   finally { f.storage.close(); }
 }
+for (const mode of ['prepared', 'legacy']) group(`${mode} release records event time without changing content modification time`, f => {
+  const contentTime = '2001-02-03T04:05:06.007Z';
+  f.sql.exec('UPDATE content_games SET created_at=?,modified_at=? WHERE game_id=?', contentTime, contentTime, G);
+  const issued = mode === 'prepared' ? f.issue(f.prepare()) : f.ledger.issue('owned', G, '5', D);
+  const summary = f.games.listOwn('owned')[0];
+  assert.equal(summary.createdAt, contentTime); assert.equal(summary.modifiedAt, contentTime);
+  assert.equal(new Date(issued.createdAt).toISOString(), issued.createdAt);
+  assert.equal(f.ledger.current('owned', G).createdAt, issued.createdAt);
+  assert.notEqual(issued.createdAt, contentTime);
+});
+group('legacy listing helper preserves content timestamps through list, unlist and rollback', f => {
+  const before = f.games.listOwn('owned')[0];
+  const listed = f.storage.transactionSync(() => f.games.setListedInTxn('owned', G, true, before.rowRevision));
+  assert.equal(listed.changed, true); assert.equal(listed.summary.modifiedAt, before.modifiedAt);
+  const afterList = f.state();
+  assert.throws(() => f.storage.transactionSync(() => { f.games.setListedInTxn('owned', G, false, listed.summary.rowRevision); throw new Error('late listing failure'); }), /late listing failure/);
+  assert.equal(f.state(), afterList);
+  const unlisted = f.storage.transactionSync(() => f.games.setListedInTxn('owned', G, false, listed.summary.rowRevision));
+  assert.equal(unlisted.summary.modifiedAt, before.modifiedAt); assert.equal(unlisted.summary.createdAt, before.createdAt);
+});
 group('preparation writes nothing and isolates same-ordinal candidates', f => {
   const before = f.state(), a = f.prepare(), b = f.prepare();
   assert.equal(f.state(), before); assert.equal(a.identity.ordinal, '1.0');

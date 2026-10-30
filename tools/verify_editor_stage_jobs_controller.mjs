@@ -14,7 +14,7 @@ function harness(storage=new Map()) {
   let user={user:{id:'admin',role:'admin',mustChangePassword:false}}, context={gameId:uuid(1),draftRevision:'7',dirty:false}, model,busy=false,confirm=true;
   const calls=[],files=[],prompts=[];let handler=async()=>reply();
   const controller=installStageJobs({authority:()=>user,savedContext:()=>context,isBusy:()=>busy,publish:v=>{model=v;},
-    storage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},confirm:text=>{prompts.push(text);return confirm;},saveFile:(...args)=>files.push(args),
+    storage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},confirm:text=>{prompts.push(text);return typeof confirm === 'function' ? confirm(text) : confirm;},saveFile:(...args)=>files.push(args),
     api:async(...args)=>{calls.push(args);return handler(...args);},
     work:async action=>{if(busy)return;busy=true;try{return await action();}finally{busy=false;controller.render();}},
   });controller.setIdentity(user);
@@ -71,6 +71,64 @@ test('six-purpose structural context requires same exact revision, distinct IDs 
 test('corrupt stored association blocks API; actual password acknowledgement permits explicit new reservation',async()=>{
   const h=harness(new Map([['editor-stage-jobs:admin','{broken']]));assert.equal(h.model.locked,true);await h.controller.actions.create();assert.equal(h.calls.length,0);
   h.controller.passwordChanged(h.user);await h.controller.actions.create();assert.equal(h.calls.length,1);
+});
+test('confirmation cannot transfer reservation or command into another identity or session',async()=>{
+  for(const action of ['dirty-create','replace-create','query','run','retry']) for(const change of ['other','logout','session','aba','password','mutated-id','version']) {
+    const h=harness();
+    if(action==='dirty-create') h.context={gameId:uuid(1),draftRevision:'7',dirty:true};
+    else {
+      if(action==='query') h.handler=async()=>{throw new Error('lost');};
+      else {
+        let state='queued';
+        if(action==='retry') state='failed';
+        else if(action==='replace-create') state='ready';
+        h.handler=async()=>reply('data',state);
+      }
+      if(action==='query') await assert.rejects(h.controller.actions.create(),/lost/); else await h.controller.actions.create();
+    }
+    const previous=new Map(h.storage), count=h.calls.length, original=h.user;
+    h.confirm=()=>{
+      if(change==='other') h.user={user:{id:'other',role:'admin'}};
+      if(change==='logout') h.user=null;
+      if(change==='session') h.user={user:{...original.user}};
+      if(change==='aba'){h.user={user:{id:'other',role:'admin'}};h.user=original;}
+      if(change==='password') h.controller.passwordChanged(h.user);
+      if(change==='mutated-id') original.user.id='other';
+      if(change==='version') original.user.version=3;
+      return true;
+    };
+    h.handler=async()=>reply();
+    await assert.rejects(h.controller.actions[action.endsWith('create')?'create':action](),/確認|上下文|會話/);
+    assert.equal(h.calls.length,count,action+':'+change); assert.deepEqual(h.storage,previous,action+':'+change);
+  }
+});
+test('reservation confirmation pins saved game/revision and dirty state across both dialogs',async()=>{
+  for(const replacement of [false,true]) for(const context of [{gameId:uuid(9),draftRevision:'7',dirty:true},{gameId:uuid(1),draftRevision:'8',dirty:true},{gameId:uuid(1),draftRevision:'7',dirty:false}]) {
+    const h=harness(); if(replacement){h.handler=async()=>reply('data','ready');await h.controller.actions.create();}
+    h.context={gameId:uuid(1),draftRevision:'7',dirty:true};const previous=new Map(h.storage), count=h.calls.length;let dialogs=0;
+    h.confirm=()=>{dialogs++;if(dialogs===(replacement?2:1))h.context=context;return true;};
+    await assert.rejects(h.controller.actions.create(),/確認|上下文/);assert.equal(h.calls.length,count);assert.deepEqual(h.storage,previous);
+  }
+});
+test('failed journal writes prevent reservation/replay/command POST and recover only original association',async()=>{
+  const store=new Map();let blocked=true;
+  store.set=function(k,v){if(blocked)throw new Error('quota');return Map.prototype.set.call(this,k,v);};
+  const h=harness(store);
+  await assert.rejects(h.controller.actions.create(),/關聯/);assert.equal(h.calls.length,0);assert.equal(h.controller.canLeave(true),false);
+  await assert.rejects(h.controller.actions.query(),/關聯/);assert.equal(h.calls.length,0);
+  blocked=false;h.handler=async()=>{throw new Error('lost');};
+  await assert.rejects(h.controller.actions.query(),/lost/);const original=structuredClone(h.calls[0]), previous=new Map(store);
+  blocked=true;await assert.rejects(h.controller.actions.query(),/關聯/);assert.equal(h.calls.length,1);assert.deepEqual(new Map(store),previous);
+  blocked=false;h.handler=async()=>reply();await h.controller.actions.query();assert.deepEqual(h.calls[1],original);
+  const reserved=new Map(store);blocked=true;await assert.rejects(h.controller.actions.run(),/關聯/);assert.equal(h.calls.length,2);assert.deepEqual(new Map(store),reserved);
+  blocked=false;await h.controller.actions.query();assert.equal(h.calls[2][1],undefined);
+  await h.controller.actions.run();assert.ok(h.calls[3][0].endsWith('/run'));assert.equal(h.calls[3][2].revision,'3');
+});
+test('password acknowledgement invalidates an already pending response',async()=>{
+  const h=harness();let resolve;h.handler=()=>new Promise(r=>{resolve=r;});
+  const pending=h.controller.actions.create(), previous=new Map(h.storage);
+  h.controller.passwordChanged(h.user);resolve(reply('data','ready'));await pending;
+  assert.deepEqual(h.storage,previous);assert.equal(h.model.artifacts.length,0);assert.equal(h.model.runDisabled,true);
 });
 test('malformed response keeps original association; retry restricted to confirmed retryable failure',async()=>{
   const h=harness();h.handler=async()=>({...reply(),admission:'runtime'});await assert.rejects(h.controller.actions.create(),/上下文/);assert.equal(h.controller.canLeave(true),false);

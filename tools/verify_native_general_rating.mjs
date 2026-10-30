@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { processMonthlyGeneralRatings } from "../web/src/game/ai.js";
 import { originalRefreshGeneralRatings55A6 } from "../web/src/game/navigation/originalgeneralrating.js";
 import { performScenarioGeneralRatingRefresh } from "../web/src/game/navigation/scenariogeneralrating.js";
@@ -47,6 +48,60 @@ test("55A6 production matches all 256 actual-instruction vectors and excludes G1
     );
     assert.equal(records[127].rating, 0x5a, `G127 v${value}`);
     assert.equal(writes.length, value >= 0x80 ? 2 : 1);
+  }
+});
+
+test("55A6 full-byte arithmetic: all force/lead pairs and all specialty sums", () => {
+  // Recheck the original leaf, not a document/test as authority. This is an
+  // arithmetic equivalence test, NOT 3,014,656 CPU runs or editor admission.
+  const ki = fs.readFileSync(new URL("../../Dragon/KI.EXE", import.meta.url));
+  const digest = bytes => createHash("sha256").update(bytes).digest("hex");
+  assert.equal(ki.length, 67099);
+  assert.equal(digest(ki), "fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868");
+  assert.equal(digest(ki.subarray(0x200 + 0x55a6, 0x200 + 0x55ec)), "02cdbf0d15bd8b42736fcf248f786d502a0a62d2d0de9b8068e684488915b293");
+  const total = 256 * 256 * 46;
+  let checked = 0;
+  for (let base = 0; base < total; base += 127) {
+    const count = Math.min(127, total - base);
+    const writes = originalRefreshGeneralRatings55A6({
+      readGeneralAttr: slot => slot < count ? 0x80 : 0x7f,
+      readGeneralSpecialty(slot, field) {
+        const sum = (base + slot) % 46;
+        if (field === "siege") return Math.min(sum, 15);
+        if (field === "field") return Math.min(Math.max(sum - 15, 0), 15);
+        assert.equal(field, "naval"); return Math.max(sum - 30, 0);
+      },
+      readGeneralAbility(slot, field) {
+        const pair = Math.floor((base + slot) / 46);
+        if (field === "force") return pair >>> 8;
+        assert.equal(field, "lead"); return pair & 255;
+      },
+      writeGeneralRating(slot, rating) {
+        assert.equal(slot, checked - base);
+        const index = base + slot, pair = Math.floor(index / 46);
+        // Algebraic modulo equivalent of the checked SHR/ADD/SHL leaf.
+        const expected = (index % 46 + 2 * (pair >>> 8) + 2 * (pair & 255)) % 256;
+        assert.equal(rating, expected, `pair ${pair}, specialty sum ${index % 46}`);
+        checked++;
+      },
+    });
+    assert.equal(writes.length, count);
+  }
+  assert.equal(checked, 3014656);
+});
+
+test("55A6 all 4096 specialty triples reduce to their sum, without reading politics", () => {
+  for (let packed = 0; packed < 4096; packed++) {
+    const specialties = { siege: packed >>> 8, field: (packed >>> 4) & 15, naval: packed & 15 };
+    const reads = [], output = [];
+    originalRefreshGeneralRatings55A6({
+      readGeneralAttr: slot => slot === 126 ? 0xff : 0,
+      readGeneralSpecialty(slot, field) { assert.equal(slot, 126); reads.push(field); return specialties[field]; },
+      readGeneralAbility(slot, field) { assert.equal(slot, 126); reads.push(field); if (field === "force") return 255; assert.equal(field, "lead"); return 128; },
+      writeGeneralRating(slot, rating) { output.push({ slot, rating }); },
+    });
+    assert.deepEqual(reads, ["siege", "field", "naval", "force", "lead"]);
+    assert.deepEqual(output, [{ slot: 126, rating: (specialties.siege + specialties.field + specialties.naval + 766) % 256 }]);
   }
 });
 

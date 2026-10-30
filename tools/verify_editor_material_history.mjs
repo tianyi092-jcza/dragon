@@ -1,0 +1,73 @@
+// Pinned Web inputs and pure trusted history only; no HTTP or runtime grant.
+import assert from 'node:assert/strict';
+import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
+import { FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
+import { editChapterResources } from '../web/src/editor/chapterresources.js';
+import { captureComponent, renameMaterial, removeMaterial, renameWaterGroup } from '../web/src/editor/componenttools.js';
+import { composeMapLayers } from '../web/src/content/authoring/maplayers.js';
+import { encodeSourceChunks, decodeSourceChunks } from '../web/src/content/authoring/sourcejson.js';
+const profile = new FixedCopyProfile({ loadCopy: createPinnedCopyLoader({ kind: 'minimal' }), profileRevision: FIXED_TEMPLATE_PROFILE });
+const captured = await profile.capture({ gameId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', ownerId: 'owned-material-history' });
+const base = captured.game, memberId = base.map.decorations[0].id;
+const materialId = base.gameId + '#material-' + 'a'.repeat(64);
+const create = { op: 'material-capture', materialId, memberIds: [memberId], name: '作者素材' };
+const rename = { op: 'material-rename', materialId, name: '另一名稱' };
+const remove = { op: 'material-remove', materialId };
+const step = mapEdits => ({ chapterEdits: [], generalEdits: [], peopleEdits: [], mapEdits });
+const verify = (game, steps) => profile.verifyOrderedTemplate(captured.capability, game, steps);
+const rejects = (game, steps) => assert.throws(() => verify(game, steps));
+let groups = 0;
+const created = captureComponent(base, [memberId], materialId, create.name);
+verify(created, [step([create])]);
+assert.deepEqual(created.map, base.map); assert.deepEqual(created.chapters, base.chapters);
+assert.deepEqual(composeMapLayers(created, { draft: true }), composeMapLayers(base, { draft: true }));
+assert.equal(Object.hasOwn(base.componentDefinitions, materialId), false);
+verify(decodeSourceChunks(encodeSourceChunks(created)), [step([create])]); groups++;
+const renamed = renameMaterial(created, materialId, rename.name);
+verify(renamed, [step([create]), step([rename])]);
+verify(renamed, [step([create, rename])]);
+const removed = removeMaterial(renamed, materialId);
+verify(removed, [step([create]), step([rename, remove])]);
+assert.deepEqual(removed, base);
+rejects(created, [step([create, remove, create])]); // IDs cannot be reused in ordered history.
+groups++;
+for (const edit of [{ ...create, materialId: 'foreign' }, { ...create, memberIds: [] }, { ...create, memberIds: ['missing'] }, { ...create, memberIds: [memberId, memberId] }, { ...create, extra: 1 }, { ...create, name: '' }, { ...rename, materialId: base.map.decorations[0].definitionRef }, { ...remove, materialId: base.map.decorations[0].definitionRef }]) rejects(base, [step([edit])]);
+rejects(created, [step([])]); rejects(renamed, [step([rename, create])]); groups++;
+for (const mutate of [g => { g.componentDefinitions[materialId].variants.original.tiles[0][2] ^= 1; }, g => { g.map.decorations[0].x++; }, g => { g.componentDefinitions[materialId].name = '夾帶名稱'; }]) {
+  const bad = structuredClone(created); mutate(bad); rejects(bad, [step([create])]);
+}
+let getters = 0;
+const accessor = { ...create }; Object.defineProperty(accessor, 'name', { enumerable: true, get() { getters++; return 'bad'; } });
+rejects(base, [step([accessor])]); assert.equal(getters, 0);
+verify(created, [step([create])]); groups++;
+const full = new FixedCopyProfile({ loadCopy: createPinnedCopyLoader() });
+const fullCaptured = await full.capture({ gameId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', ownerId: 'owned-material-history' });
+const fullId = fullCaptured.game.gameId + '#material-' + 'b'.repeat(64), fullMember = fullCaptured.game.map.decorations[0].id;
+const fullCandidate = captureComponent(fullCaptured.game, [fullMember], fullId, '完整副本素材');
+const fullCreate = { ...create, materialId: fullId, memberIds: [fullMember], name: '完整副本素材' };
+const fullRename = { ...rename, materialId: fullId }, fullRemove = { ...remove, materialId: fullId };
+const fullVerify = (candidate, edits) => full.verify(fullCaptured.capability, candidate, [], [], edits);
+fullVerify(fullCandidate, [fullCreate]);
+fullVerify(decodeSourceChunks(encodeSourceChunks(fullCandidate)), [fullCreate]);
+assert.deepEqual(fullCandidate.map, fullCaptured.game.map); assert.deepEqual(fullCandidate.chapters, fullCaptured.game.chapters);
+const fullRenamed = renameMaterial(fullCandidate, fullId, fullRename.name);
+fullVerify(fullRenamed, [fullCreate, fullRename]);
+fullVerify(removeMaterial(fullRenamed, fullId), [fullCreate, fullRename, fullRemove]);
+assert.throws(() => fullVerify(fullCandidate, [fullCreate, fullRemove, fullCreate]), error => error.code === 'COPY_MAP_DELTA');
+assert.throws(() => fullVerify(fullCandidate, []), error => error.code === 'COPY_PROTECTED_DELTA'); groups++;
+for (const mutate of [g => { g.componentDefinitions[fullId].variants.original.tiles[0][2] ^= 1; }, g => { g.map.decorations[0].x++; }, g => { g.chapters[g.chapterOrder[0]].state.cities[0].troops++; }]) {
+  const bad = structuredClone(fullCandidate); mutate(bad);
+  assert.throws(() => fullVerify(bad, [fullCreate]), error => error.code === 'COPY_PROTECTED_DELTA');
+}
+for (const command of [{ ...fullCreate, materialId }, { ...fullCreate, memberIds: ['missing'] }, { ...fullCreate, arbitrary: true }]) assert.throws(() => fullVerify(fullCandidate, [command]));
+const badAccessor = { ...fullCreate }; Object.defineProperty(badAccessor, 'name', { enumerable: true, get() { getters++; return 'bad'; } });
+assert.throws(() => fullVerify(fullCandidate, [badAccessor])); assert.equal(getters, 0); groups++;
+const groupId = fullCaptured.game.map.waterGroups[0].id;
+const waterEdit = { op: 'water-rename', groupId, name: '水域名' };
+let compound = renameWaterGroup(fullRenamed, groupId, waterEdit.name);
+const chapterId = compound.chapterOrder[0], faction = compound.chapters[chapterId].state.factions[0];
+compound = editChapterResources(compound, chapterId, faction.idx, { money: faction.money === 0 ? 1 : 0 });
+fullVerify(compound, [fullCreate, waterEdit, fullRename]);
+assert.deepEqual(compound.map.decorations, fullCaptured.game.map.decorations);
+assert.equal(fullCaptured.game.componentDefinitions[fullId], undefined); groups++;
+process.stdout.write(JSON.stringify({ groups, inputHashes: Object.keys(captured.provenance.inputHashes).length, getters, scope: 'neutral and full-copy trusted material capture/name/remove history; no placement, HTTP or runtime grant' }) + '\n');

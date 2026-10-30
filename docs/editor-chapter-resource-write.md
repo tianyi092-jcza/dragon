@@ -1,6 +1,24 @@
 # E-04：既有副本章节资源写入（限定本地API）
 
+## 后继：解散后的原槽身份
+
+以下历史收据之后，互联网草稿资源表单已接入。修复编辑器组合路径：解散会缩短公开 `factions` 数组，但原有 `idx` 与22条 `nativeFactionSlotRaw` 的对应不应变成新的数组位置。写入器现在在唯一、合法的公开idx中寻找目标，同时仍只改同一原槽的具名／raw／native九byte；不存在的公开槽、重复idx、缺固定来源和分歧继续拒绝。不编辑已移除势力残存raw，不重排／扩展槽，不改变原版数值规则或允许非完整初始化运行。
+
+`PrivateDrafts.read` 的资源DTO使用 `slot=f.idx`；固定副本校验重编码资源也使用可信来源idx，不从显示位置选槽。固定源负控先复现“公開勢力槽不符”（`compacted-resources-before-r2.log`，首轮120秒超时不计通过）。修后资源写入器193检查／71拒绝通过；全固定副本profile通过，覆盖原章解散后的资源更新、复制非密排章后的更新、JSON往返，以及已移除槽原始字节篡改拒绝。实际自有文件SQLite／FileBucket服务63项通过，新增解散后独立副本资源DTO、保存至rev14、完整源精确比对和已移除槽拒写；使用显式principal夹具，不是HTTP授权或运行机制证明。日志均在 `.dragon-analysis/editor-completion/compacted-resources-{writer,profile,service}.log`。
+
 本阶段补共同JS创作路径，而非重复Python编译修复。`compileGameSource`保存章state，生产native初始化从固定22槽raw建立唯一表并覆盖具名视图；只改具名值会丢掉修改。底层宽度来源复用[资金原证](editor-money-import.md)与[三池原证/编译](editor-reserve-compile.md)，不添加规则公式或异常值可玩许可。
+
+## 后继：资源修改后解散的保护比较
+
+固定来源负控 `funded-disband-before.log` 复现先改资源再解散被422拒绝：profile重新插入仅供比较的势力记录时采用初始资源，和保留的已修改native槽发生分歧。现从候选固定槽读取既有四资源表示，复用原writer在可信基线记录上重建，仅用于比较克隆；不把候选任意raw拷入基准、不复活实际已解散势力，也不允许API编辑已移除槽。新增 `readFactionResources` 复用同文件既有偏移／解码，不新增规则或值域。
+
+完整固定源profile通过（`funded-disband-profile.log`），包含先修改后解散、JSON往返及夹带F18字节修改仍拒绝；资源writer193检查／71拒绝、shell65项重跑通过。实际隔离文件SQLite／FileBucket服务66项通过（`funded-disband-service.log`），新增同批资源修改→解散保存rev15、完整源等于已有写入器输出、旧修订14完整保留。测试使用显式principal，不是HTTP认证／浏览器／运行初始化证明；更复杂复制时点的已移除槽资源组合未由本批完整覆盖。日志均在 `.dragon-analysis/editor-completion/`。
+
+## 后继：复制保留解散前的资源
+
+`funded-disband-copy-before.log` 复现上述已保存章再复制时仍被422拒绝：复制比较只重编码当前公开势力，遗漏已解散原槽保存的四资源。现复制比较对可信原章曾有、复制时已移除的公开槽，也用原记录及既有writer重建四资源九byte；仅替换比较用native数组，不将势力加回实际草稿，不开放API写已移除槽，不处理原章从未公开的槽。其余原生字节仍全量比较。
+
+完整固定来源profile通过（`funded-disband-copy-after.log`），新增修改资源→解散→复制、JSON往返／完整state一致及复制原槽F18、F23夹带修改拒绝。实际自有文件SQLite／FileBucket服务72项通过（`funded-disband-copy-service.log`）：保存复制到rev17、完整源等于独立既有writer输出、复制state与原章完全一致、旧修订16不变；原有恢复／原数据树不变负控保留。shell65、语法与diff通过。使用显式principal，不冒HTTP认证／浏览器／Trial或原版解散初始化证明；没有新增规则或数值域。日志在 `.dragon-analysis/editor-completion/`。
 
 ## 产物与边界
 

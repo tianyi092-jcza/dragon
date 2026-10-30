@@ -6,7 +6,7 @@ import { signR2 } from '../vps/r2sign.mjs';
 import { issueAdmission, verifyAdmission } from '../reader/admission.js';
 import { buildPayload, uploadRelease } from '../vps/publish_to_r2.mjs';
 import { publication, OTHER_GAME, sha } from './fixtures/publication.mjs';
-import { GamePortraits } from '../server/portraits.js';
+import { GamePortraits, collectPortraitIds } from '../server/portraits.js';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
 let n = 0;
 const payload = publication(), reference = payload.releases[0].runtime;
@@ -71,7 +71,29 @@ for (const cs of [chapters, chapters.toReversed()]) for (const as of [orderedAss
 const orderedIndex = parseJSON(ordered.files.find(file => file.key === ordered.reference.key).bytes);
 assert.deepEqual(Object.keys(orderedIndex.resources), Object.keys(orderedIndex.resources).sort());
 assert.deepEqual(orderedIndex.chapters, pin.chapters, 'semantic chapter order is not canonicalized away'); n++;
-const allPortraits = new GamePortraits().forPublish(KAO_MANIFEST.map(entry => entry.id));
+const portraitLibrary = new GamePortraits();
+const generalReferences = [{ portrait: 1, portraitKey: '2' }, { portrait: 0, portraitKey: null }, {}];
+assert.deepEqual(collectPortraitIds(generalReferences), [1, '2', 0]);
+assert.deepEqual(generalReferences, [{ portrait: 1, portraitKey: '2' }, { portrait: 0, portraitKey: null }, {}]); n++;
+for (const invalid of [null, undefined, false, {}, [null], [[]], [{ portrait: null }], [{ portrait: '1' }], [{ portrait: -0 }], [{ portrait: 1.5 }], [{ portrait: NaN }], [{ portraitKey: false }], [{ portraitKey: undefined }], [{ portraitKey: ['1'] }]]) {
+  assert.throws(() => collectPortraitIds(invalid), error => error.code === 'PLAY_PORTRAIT_CORRUPT'); n++;
+}
+assert.deepEqual(portraitLibrary.forPublish(collectPortraitIds(generalReferences)), [portraitLibrary.get('1'), portraitLibrary.get('2'), portraitLibrary.get('0')]); n++;
+for (const invalid of [null, undefined, false, true, {}, [], ['1'], NaN, Infinity, -1, -0, 1.5, 1n]) {
+  assert.throws(() => portraitLibrary.forPublish(['1', invalid]), error => error.code === 'PLAY_PORTRAIT_CORRUPT', 'invalid references must not disappear from the dependency list'); n++;
+}
+for (const general of [{ idx: 0, portrait: 255 }, { idx: 126, portrait: 255 }, { portrait: 255 }, { idx: '127', portrait: 255 }, { idx: 0, portrait: 255, portraitKey: '1' }, { idx: 127, portrait: 255, portraitKey: '255' }]) {
+  assert.throws(() => collectPortraitIds([general]), error => error.code === 'PLAY_PORTRAIT_CORRUPT'); n++;
+}
+const sentinelReferences = [{ idx: 127, portrait: 255, portraitKey: '1' }];
+assert.deepEqual(collectPortraitIds(sentinelReferences), [255, '1']);
+assert.deepEqual(portraitLibrary.forPublish(collectPortraitIds(sentinelReferences)), [portraitLibrary.get('1')]);
+assert.deepEqual(sentinelReferences, [{ idx: 127, portrait: 255, portraitKey: '1' }]); n++;
+const portraitIds = [1, '1', '2', 2];
+assert.deepEqual(portraitLibrary.forPublish(portraitIds), [portraitLibrary.get('1'), portraitLibrary.get('2')]);
+assert.deepEqual(portraitIds, [1, '1', '2', 2]); n++;
+assert.throws(() => portraitLibrary.forPublish(['missing']), error => error.code === 'PORTRAIT_NOT_FOUND'); n++;
+const allPortraits = portraitLibrary.forPublish(KAO_MANIFEST.map(entry => entry.id));
 const allManifest = parseJSON(manifestFile.bytes);
 allManifest.portraits = allPortraits.map(entry => ({ ...entry, role: 'game-portrait', url: `kao/${entry.assetId}.png` }));
 const allBuilt = build({ ...pack, manifest_json: JSON.stringify(allManifest) });

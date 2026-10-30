@@ -102,6 +102,31 @@ test("2286 below-threshold first gate falls through to the second gate without q
   assert.equal(rng.calls, 386);
 });
 
+test("2286 all C11 bytes respect masked-roll boundaries and skip the second gate even on a full page", () => {
+  for (const roll of [0, 63]) {
+    for (let defence = 0; defence < 256; defence++) {
+      for (const full of [false, true]) {
+        const sc = scenario();
+        sc.cities[0].defence = defence;
+        if (full) sc.strategicEventSlots = Array.from({ length: 64 }, () => ({ type: 99, arg0: 1, arg1: 2, arg2: 3 }));
+        const before = structuredClone(sc.strategicEventSlots);
+        // 22DB skips the area event; first city passes the first chance gate.
+        // The fourth byte is either queue RNG or the second chance gate.
+        const rng = sequence(2, 0, roll, 8);
+        const result = performScenarioMonthlyWeatherEvents(sc, rng);
+        const fire = roll >= defence;
+        assert.equal(result.areaQueued, false);
+        assert.equal(result.cityQueued, Number(fire && !full));
+        assert.equal(rng.calls, fire ? 386 : 387);
+        assert.equal(sc.cities[0].defence, defence);
+        assert.equal(sc.cities[0].growth, 255);
+        if (fire && !full) before[2] = { type: 12, arg0: 1, arg1: 0x40, arg2: 0x08 };
+        assert.deepEqual(sc.strategicEventSlots, before);
+      }
+    }
+  }
+});
+
 test("native adapter stops at the actual missing bound/event reads and retains prefixes", () => {
   const missingBound = scenario();
   missingBound._disasterBounds = { minX: 0 };

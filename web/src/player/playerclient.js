@@ -73,29 +73,42 @@ export function createPlayerReader({ origin, fetch: transport = globalThis.fetch
     check(jsonType(result.type));
     try { return parseJSON(result.bytes); } catch { fail('PLAYER_RESPONSE_INVALID'); }
   }
-  async function registry() {
-    const value = await json('/play-api/v1/registry');
+  async function registry({ announcementCursor } = {}) {
+    const paged = announcementCursor !== undefined;
+    if (paged && announcementCursor !== null && (typeof announcementCursor !== 'string' || !announcementCursor || announcementCursor.length > 1024)) throw new TypeError('announcement cursor required');
+    const params = {};
+    if (paged) {
+      params.announcementPage = '1';
+      if (announcementCursor !== null) params.cursor = announcementCursor;
+    }
+    const value = await json('/play-api/v1/registry', params);
     check(Number.isSafeInteger(value?.generation) && value.generation > 0 && isDigest(value.digest) && Array.isArray(value.directory));
     const directory = value.directory.map(entry), listed = new Map();
     for (const row of directory) { check(!listed.has(row.gameId)); listed.set(row.gameId, row.ordinal); }
-    let announcements = [], announcementsError = null;
+    let announcements = [], announcementsError = null, announcementPage = null;
     // Announcement corruption is independent of a valid directory (Q36).
     // Whitelist public fields; never turn absent/hidden rows into deletion facts.
     try {
       check(!Object.hasOwn(value, 'announcementsError') && Array.isArray(value.announcements));
+      if (paged) {
+        const page = value.announcementPage;
+        check(page && typeof page.reset === 'boolean' && (page.nextCursor === null || typeof page.nextCursor === 'string' && page.nextCursor.length > 0 && page.nextCursor.length <= 1024 && page.nextCursor !== announcementCursor) && value.announcements.length <= 30);
+        announcementPage = Object.freeze({ reset: page.reset, nextCursor: page.nextCursor });
+      }
       const seen = new Set();
       for (const row of value.announcements) {
         if (!listed.has(row?.gameId)) continue;
         check(isOrdinal(row.ordinal) && BigInt(row.ordinal.slice(2)) <= BigInt(listed.get(row.gameId).slice(2)));
         const key = row.gameId + ':' + row.ordinal;
         check(!seen.has(key) && ['name', 'creatorAccount', 'publishedAt', 'firstOnlineAt'].every(field => typeof row[field] === 'string'));
+        if (paged) check(row.announcementId === key);
         seen.add(key);
-        announcements.push(Object.freeze({ gameId: row.gameId, ordinal: row.ordinal, name: row.name,
+        announcements.push(Object.freeze({ ...(paged ? { announcementId: key } : {}), gameId: row.gameId, ordinal: row.ordinal, name: row.name,
           creatorAccount: row.creatorAccount, publishedAt: row.publishedAt, firstOnlineAt: row.firstOnlineAt }));
       }
-    } catch { announcements = []; announcementsError = 'ANNOUNCEMENTS_UNAVAILABLE'; }
+    } catch { announcements = []; announcementPage = null; announcementsError = 'ANNOUNCEMENTS_UNAVAILABLE'; }
     return Object.freeze({ generation: value.generation, digest: value.digest, directory: Object.freeze(directory),
-      announcements: Object.freeze(announcements), announcementsError });
+      announcements: Object.freeze(announcements), announcementsError, ...(paged ? { announcementPage } : {}) });
   }
   async function status(gameId, guard) {
     if (!isGameId(gameId)) throw new TypeError('game ID required');

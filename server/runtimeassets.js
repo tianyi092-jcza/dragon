@@ -56,7 +56,9 @@ export class OwnedRuntimeAssets {
   }
   async #read(tokenHash, context, descriptor) {
     part(descriptor); this.#assert(tokenHash, context);
-    const object = await this.#bucket.get(`installed/${this.#policy.registryId}/${descriptor.sha256}`);
+    let object;
+    try { object = await this.#bucket.get(`installed/${this.#policy.registryId}/${descriptor.sha256}`); }
+    catch (error) { this.#assert(tokenHash, context); throw error; }
     try { this.#assert(tokenHash, context); }
     catch (error) { try { await object?.body?.cancel(); } catch { /* Preserve authority failure. */ } throw error; }
     if (!object) fail(404, 'SOURCE_OBJECT_MISSING');
@@ -76,7 +78,11 @@ export class OwnedRuntimeAssets {
         const bytes = Uint8Array.from(value); digest.update(bytes); pieces.push(bytes);
       }
       if (length !== descriptor.byteLength || digest.digest('hex') !== descriptor.sha256) fail(503, 'SOURCE_OBJECT_CORRUPT');
-    } catch (error) { try { await reader.cancel(); } catch { /* Preserve first failure. */ } throw error; }
+    } catch (error) {
+      try { await reader.cancel(); } catch { /* Cancellation must not replace the read failure. */ }
+      this.#assert(tokenHash, context);
+      throw error;
+    }
     finally { reader.releaseLock(); }
     this.#assert(tokenHash, context);
     const result = new Uint8Array(length); let at = 0;

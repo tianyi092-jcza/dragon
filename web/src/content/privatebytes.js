@@ -8,11 +8,13 @@ function fields(value,keys){need(value&&typeof value==='object'&&!Array.isArray(
  * Headers/hash are byte/context checks ONLY. No resource is installed in an engine.
  * Concurrent same-locator reads share one in-flight GET but never a settled cache.
  */
-export function createPrivateByteContext(reference,{fetcher=globalThis.fetch,subtle=globalThis.crypto?.subtle,assertCurrent}={}){
+export function createPrivateByteContext(reference,{fetcher=globalThis.fetch,subtle=globalThis.crypto?.subtle,assertCurrent,libraryIdentity}={}){
   const ref=Object.freeze(fields(reference,['gameId','draftRevision','sourceDigest','dependencyDigest']));
   need(typeof ref.gameId==='string'&&uuid.test(ref.gameId)&&typeof ref.draftRevision==='string'&&/^[1-9][0-9]{0,63}$/.test(ref.draftRevision),'REFERENCE');
   for(const k of ['sourceDigest','dependencyDigest'])need(typeof ref[k]==='string'&&hash.test(ref[k]),'REFERENCE');
   need(typeof fetcher==='function'&&typeof subtle?.digest==='function'&&typeof assertCurrent==='function','PORTS');
+  const library=libraryIdentity===undefined?null:Object.freeze(fields(libraryIdentity,['registryId','catalogRoot']));
+  if(library)need(typeof library.registryId==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(library.registryId)&&typeof library.catalogRoot==='string'&&hash.test(library.catalogRoot),'LIBRARY_IDENTITY');
   const pending=new Map();let closed=false;
   function check(){need(!closed,'CLOSED');assertCurrent();need(!closed,'CLOSED');}
   function locator(value){
@@ -22,7 +24,7 @@ export function createPrivateByteContext(reference,{fetcher=globalThis.fetch,sub
     const x=fields(value,keys);for(const k of ['gameId','draftRevision','sourceDigest'])need(x[k]===ref[k],'CONTEXT');
     need(typeof x.sha256==='string'&&hash.test(x.sha256)&&Number.isSafeInteger(x.byteLength)&&x.byteLength>0,'DESCRIPTOR');
     if(x.kind==='private-stage'){need(typeof x.purpose==='string'&&purposes.includes(x.purpose)&&typeof x.operationId==='string'&&uuid.test(x.operationId)&&typeof x.assetId==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(x.assetId)&&x.byteLength<=4*1024*1024,'DESCRIPTOR');}
-    else{need(typeof x.assetId==='string'&&/^library-[0-9]{3}$/.test(x.assetId)&&Number(x.assetId.slice(8))<398&&x.registryId==='approved-available-library-76cdf28-1'&&typeof x.catalogRoot==='string'&&hash.test(x.catalogRoot)&&typeof x.logicalURL==='string'&&/^[A-Za-z0-9_/-]+\.(bin|json|png|flac|wav|woff2)$/.test(x.logicalURL)&&!x.logicalURL.startsWith('/')&&!x.logicalURL.includes('//')&&typeof x.mime==='string'&&x.byteLength<=16*1024*1024,'DESCRIPTOR');}
+    else{need(library&&x.registryId===library.registryId&&x.catalogRoot===library.catalogRoot,'LIBRARY_CONTEXT');need(typeof x.assetId==='string'&&/^library-[0-9]{3}$/.test(x.assetId)&&Number(x.assetId.slice(8))<398&&typeof x.logicalURL==='string'&&/^[A-Za-z0-9_/-]+\.(bin|json|png|flac|wav|woff2)$/.test(x.logicalURL)&&!x.logicalURL.startsWith('/')&&!x.logicalURL.includes('//')&&typeof x.mime==='string'&&x.byteLength<=16*1024*1024,'DESCRIPTOR');}
     return Object.freeze(x);
   }
   function path(x){if(x.kind==='private-stage')return `/api/games/${ref.gameId}/stage-jobs/${x.purpose}/${x.operationId}/artifacts/${x.assetId}`;return `/api/games/${ref.gameId}/draft/library-assets/${x.assetId}?revision=${ref.draftRevision}`;}

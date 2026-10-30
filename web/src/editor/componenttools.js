@@ -74,6 +74,29 @@ export function createWaterGroup(source, memberIds, baseCells, id, name, visible
     next.map.waterGroups.push(group);
   });
 }
+// Content display flag, not workspace visibility or a rule-terrain edit.
+export function setWaterGroupMinimapVisibility(source, groupId, visible) {
+  if (typeof groupId !== "string" || !groupId || typeof visible !== "boolean") fail("水域組合身份及顯示狀態無效");
+  const groups = source?.map?.waterGroups;
+  if (!Array.isArray(groups)) fail("水域組合資料未配置");
+  const matches = groups.filter(group => group?.id === groupId);
+  if (matches.length !== 1 || typeof matches[0].showOnMinimap !== "boolean") fail("水域組合身份或原顯示狀態無效");
+  return transaction(source, next => {
+    next.map.waterGroups.find(group => group.id === groupId).showOnMinimap = visible;
+  });
+}
+// Author-facing label only. Do not replace the stable group identity or members.
+export function renameWaterGroup(source, groupId, name) {
+  if (typeof groupId !== "string" || !groupId || typeof name !== "string" || [...name].some(char => {
+    const code = char.codePointAt(0);
+    return code >= 128 && code <= 159 || code >= 0xd800 && code <= 0xdfff;
+  })) fail("水域組合身份或名稱字元無效");
+  const label = text(name), groups = source?.map?.waterGroups;
+  if (!Array.isArray(groups) || groups.filter(group => group?.id === groupId).length !== 1) fail("水域組合身份不存在或重複");
+  return transaction(source, next => {
+    next.map.waterGroups.find(group => group.id === groupId).name = label;
+  });
+}
 export function splitWaterGroup(source, groupId, memberIds, baseCells, id, name) {
   const old = source.map.waterGroups.find((g) => g.id === groupId);
   if (!old || memberIds.some((v) => !old.memberIds.includes(v)) || baseCells.some((v) => !old.baseCells.includes(v))) fail("拆分選取不屬於目前組合");
@@ -148,6 +171,19 @@ export function previewTranslateOutOfBounds(source, ids, dx, dy) {
 export function requestMapExpansion() {
   fail("MAP_EXPANSION_CLOSED：地圖固定 384x256，不開放擴邊；容量原證未閉合");
 }
+// Remove complete decoration instances only. Keep unknown-underlay provenance:
+// exposing it is a draft diagnostic, never permission to invent a replacement.
+export function removeDecorations(source, ids) {
+  unique(ids);
+  const selected = new Set(ids);
+  if (!ids.length || source.map.decorations.filter(row => selected.has(row.id)).length !== ids.length) fail("請選取存在的完整裝飾實例");
+  return transaction(source, next => {
+    next.map.decorations = next.map.decorations.filter(row => !selected.has(row.id));
+    next.map.waterGroups = next.map.waterGroups.map(group => ({ ...group, memberIds: group.memberIds.filter(id => !selected.has(id)) }))
+      .filter(group => group.memberIds.length || group.baseCells.length);
+  });
+}
+
 // Only decorations: never move cities, road stamps, topology or hidden base.
 export function translateDecorations(source, ids, dx, dy) {
   unique(ids);
@@ -190,7 +226,10 @@ export function splitDecoration(source, instanceId, childIds) {
   if (childIds.some((id) => typeof id !== "string" || !id || existing.has(id))) fail("子實例身份缺失或已被使用");
   const mask = new Set((def.geographyMask ?? def.footprint).map((p) => p.join(",")));
   const atoms = new Map();
-  for (const [id, entry] of Object.entries(source.componentDefinitions)) {
+  // Source JSON canonicalization reorders object keys. Pick equivalent atoms
+  // in stable ID order so live saves and captured-history replay agree.
+  for (const id of Object.keys(source.componentDefinitions).sort()) {
+    const entry = source.componentDefinitions[id];
     if (entry.ruleRecipeRef === BYTE_STAMP_RECIPE && JSON.stringify(entry.footprint) === "[[0,0]]" && JSON.stringify(entry.anchor) === "[0,0]" &&
         (entry.geographyMask === undefined || JSON.stringify(entry.geographyMask) === "[[0,0]]")) {
       const tuple = entry.variants?.original?.tiles;

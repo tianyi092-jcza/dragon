@@ -748,7 +748,7 @@ registry及状态读取`no-store`，不使用`stale-while-revalidate`把已下�
 - 远端目录和本地IDB不能组成跨网络事务：网络核验先完成，IDB事务内只做本地比较。成功发布版本单调、无回滚、gameId不复用，因此已确认的旧版不会被后续发布重新变成最新版；若复查信息不完整一律不删。删除事务失败保留原记录并报错。
 - 恢复准入固定正式修订后仍先detached验证、等资源ready再安装；期间槽被改写不改变已捕获的本次快照，但后续覆盖该槽必须检测writeRevision冲突。既有禁存守卫、RNG／原生表／能力内存全部保持，不以版本检查代替。
 
-限定底层实现见[opt-in游戏仓储](editor-game-save-store.md)：v1/saves内编码game键、格式3正文/目录、外部SHA＋事务内精确CAS、单调writeRevision/ABA与两页真实IDB原生abort已测。必须显式注入db名/工厂；原v2/App/Trial不导入它。元数据语法不是正式版本认证，compareDelete仅本地primitive；本节最新/已识别版本/左确认/取消、完整snapshot/共同恢复与导入备份仍待接线，没有授权清理原存档。后续[真实快照兼容验证](editor-game-save-snapshot.md)已补当前20章snapshotState/严格仓储/公共detached、native RAM及RNG continuation和80坏能力/索引拒载保档；仅fresh0tick切片，不代完整运行态/正式版本确认或App安装。
+底层实现历史批次见[opt-in游戏仓储](editor-game-save-store.md)：v1/saves内编码game键、格式3正文/目录、外部SHA＋事务内精确CAS、单调writeRevision/ABA与两页真实IDB原生abort已测。必须显式注入db名/工厂；原v2/App/Trial不导入它。元数据语法不是正式版本认证，compareDelete仅本地primitive；该底层批次当时尚未接正式版本、完整恢复及备份，不代表现行集成状态；旧「左确认／取消」已撤销，已确认过期档按本节现行政策自动清理。后继正式版本与共同发布链见[R2§2.72](r2-player-connection.md#272-当前版本唯一的共同发布联合复验current-publication-1)，独立只读目录管理见[当前复核](editor-local-save-catalogs.md#后继当前源码复核与验收范围澄清)；均保留各自覆盖边界，不替代完整恢复与备份验收。后续[真实快照兼容验证](editor-game-save-snapshot.md)已补当前20章snapshotState/严格仓储/公共detached、native RAM及RNG continuation和80坏能力/索引拒载保档；仅fresh0tick切片，不代完整运行态/正式版本确认或App安装。
 
 后续[游戏绑定备份输入](editor-game-save-exchange.md)只opt-in完整v3/显式预期tuple/文件SHA与原规则profile及公共detached门；decode不写库，显式另存由仓储生成自己的ID/counter，旧format1/UI/App不改。当前20章/148拒、八focused有证，不证明正式release/latest权限或完成备份UI，不能绕本节版本/删档政策。
 
@@ -757,6 +757,8 @@ registry及状态读取`no-store`，不使用`stale-while-revalidate`把已下�
 ### 8.3 发布公告
 
 公告事务采用唯一`(gameId,releaseId)`；name/version/creatorAccount及publishedAt为生成时快照，firstOnlineAt首次可玩时产生。排序键`(firstOnlineAt DESC, announcementId DESC)`；游标包含这个键及registryRevision。每页建议30条，当前上架过滤始终重新执行；期间目录修订变更返回重新取第一页，客户端按announcementId去重，不能翻页漏出已下架公告。
+
+冻结公开运输不共享SQL行号：其 `announcementId` 是已唯一的 `gameId:ordinal` 稳定公开键，同秒按该ASCII字符串倒序；目录修订由当前根 `{generation,digest}` 承担。原无分页调用兼容保留，新玩家弹窗使用30条页及换代重取；接口与分范围验证见[R2分页接线](r2-player-connection.md#2202-冻结公开公告分页与弹窗接线)，后继本地真实HTTPS联合读取见[§2.20.3](r2-player-connection.md#2203-公告分页真实https联合读取)，不替代完整发布或公告物理清理。此运输键不改变公告事务唯一性、正式版本或实体身份。
 
 重新上架旧版恢复原公告及日期，不置顶；下架期间未公开的中间发布不补公告。物理删除清理该游戏公告内容。空列表显示“暫無發布資訊”；单独失败显示“通知暫不可用”及重试，不阻断成功取得的游戏目录。标题刷新同时刷新最新一条，打开弹窗再取历史；右键只退弹窗，保留原游戏选择，不增加关闭按钮／自动消失／点击直接开局。
 

@@ -18,8 +18,8 @@ import PublishPanel from './PublishPanel.vue';
 import ManagementPanel from './ManagementPanel.vue';
 import DeletionPanel from './DeletionPanel.vue';
 const props = defineProps({ state: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, mapviewModel: Object, mapview: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, publicationModel: Object, publication: Object, managementModel: Object, management: Object, deletionModel: Object, deletion: Object, navigate: Function, logout: Function });
-const accountsPanel = ref(null);
-defineExpose({ accountDirty: () => accountsPanel.value?.dirty() ?? false });
+const accountsPanel = ref(null), mapPanel = ref(null);
+defineExpose({ accountDirty: () => accountsPanel.value?.dirty() ?? false, mapInputs: () => Boolean(ready.value && mapPanel.value?.hasInputs()) });
 const userMenu = ref(null);
 const ready = computed(() => props.state.authenticated && !props.state.mustChange);
 const menu = computed(() => props.state.views.filter(item => !item[2] || props.state.admin));
@@ -66,14 +66,14 @@ function go(view) { if (userMenu.value) userMenu.value.open = false; props.navig
         <StageJobsPanel :model="stageJobsModel" :actions="stageJobs" :busy="state.busy" :hidden="!ready || state.view !== 'stage-editor'" />
         <StageAssetsPanel :model="stageAssetsModel" :actions="stageAssets" :busy="state.busy" :hidden="!ready || state.view !== 'stage-assets-editor'" />
         <LibraryPanel :model="libraryModel" :actions="library" :busy="state.busy" :hidden="!ready || state.view !== 'library-editor'" />
-        <StrongholdPanel :model="strongholdModel" :actions="stronghold" :busy="state.busy" :hidden="!ready || state.view !== 'stronghold-editor'" />
-        <MapPanel :model="mapviewModel" :actions="mapview" :busy="state.busy" :hidden="!ready || state.view !== 'mapview-editor'" />
+        <StrongholdPanel :model="strongholdModel" :actions="stronghold" :draft-model="draftModel" :draft-actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'stronghold-editor'" />
+        <MapPanel ref="mapPanel" :model="mapviewModel" :actions="mapview" :draft-model="draftModel" :draft-actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'mapview-editor'" />
         <CatalogPanel :model="catalogModel" :actions="catalog" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'catalog-editor'" />
-        <GeneralsPanel :model="generalsModel" :actions="generals" :busy="state.busy" :hidden="!ready || state.view !== 'generals-editor'" />
-        <CopyPanel :model="copyModel" :actions="copy" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'copy'" />
+        <GeneralsPanel :model="generalsModel" :actions="generals" :draft-model="draftModel" :draft-actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'generals-editor'" />
+        <CopyPanel :model="copyModel" :actions="copy" :busy="state.busy" :hidden="!ready || state.view !== 'copy'" />
         <PublishPanel :model="publicationModel" :actions="publication" :busy="state.busy" :hidden="!ready || state.view !== 'publish-editor'" />
-        <ManagementPanel :model="managementModel" :actions="management" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'management-editor'" />
-        <DeletionPanel :model="deletionModel" :actions="deletion" :busy="state.busy" :hidden="!ready || state.view !== 'deletion-editor'" />
+        <ManagementPanel :model="managementModel" :current-game="ready ? draftModel.fields.gameId : null" :actions="management" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'management-editor'" />
+        <DeletionPanel :model="deletionModel" :current-game="ready ? draftModel.fields.gameId : null" :actions="deletion" :busy="state.busy" :hidden="!ready || state.view !== 'deletion-editor'" />
       </section>
     </main>
   </div>

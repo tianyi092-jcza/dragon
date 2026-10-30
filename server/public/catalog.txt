@@ -38,9 +38,17 @@ export function installLibraryRegistration({ api, authority, work, isBusy, publi
     try { const result = snapshot(await api('/api/admin/library')); if (!valid(t)) return; view = result; queried = true; message = op && !bound() ? '服務描述或帳戶版本與原關聯不同，不能重放；請保留原鍵並明確處理。' : '已明確查看庫事實；registered不證明原鍵曾執行，亦不是Q69／Trial／發布。'; }
     catch (error) { if (valid(t)) message = '查看未確認：' + error.message; throw error; } finally { render(); }
   }
+  function confirmationGuard() {
+    const t = ticket(), userId = actor?.user.id, version = actor?.user.version, savedView = view, savedOp = op, savedState = op?.state, savedBroken = broken, savedQueried = queried;
+    return () => {
+      if (!valid(t) || actor.user.id !== userId || actor.user.version !== version || view !== savedView || op !== savedOp || op?.state !== savedState || broken !== savedBroken || queried !== savedQueried) throw new Error('確認期間會話、固定目錄或原操作關聯已改變，請重新查看。');
+    };
+  }
   async function submit(replay) {
     if (!permitted() || broken || !view?.staged || (replay ? !queried || !bound() : Boolean(op) || !queried)) throw new Error('請先明確查看完整固定目錄與原關聯；不另鍵替代未知操作。');
+    const check = confirmationGuard();
     if (!confirm(replay ? '明確以原鍵及固定空body重放驗證登記？若服務尚未收過，可能建立原請求；將重新核驗全部實際R2物件，不是運行准入。' : '明確建立固定庫驗證登記請求？只核驗操作員裝配的固定目錄；不改遊戲或批准運行。')) return;
+    check();
     const t = ticket();
     if (!replay) op = association({ key: crypto.randomUUID(), userVersion: actor.user.version, registryId: view.definition.registryId, definitionDigest: view.definition.definitionDigest, root: view.staged, state: 'unknown' });
     const captured = op; op.state = 'unknown'; queried = false; persist(op); message = '原請求已綁定；驗證中或回應未確認，勿另建鍵。'; render();
@@ -54,7 +62,7 @@ export function installLibraryRegistration({ api, authority, work, isBusy, publi
     } catch (error) { if (valid(t) && op === captured) message = '原鍵回應未確認；保留關聯，請先明確查看事實：' + error.message; throw error; } finally { render(); }
   }
   const actions = Object.freeze({read:() => work(readState), install:() => work(() => submit(false)), replay:() => work(() => submit(true)),
-    forget:() => work(async () => { if (!permitted() || (!op && !broken)) return; if (!confirm('只放棄本機原鍵關聯？服務操作不會取消、回滾或刪除；未知回應不能因此視為失敗，新請求必須重新明確建立。')) return; try { storage.removeItem(storeKey()); } catch { throw new Error('無法移除本機關聯；不另起鍵。'); } op = null; broken = false; queried = false; message = '僅已放棄本機關聯；服務登記與操作保留，須重新明確查看。'; render(); })});
+    forget:() => work(async () => { if (!permitted() || (!op && !broken)) return; const check = confirmationGuard(); if (!confirm('只放棄本機原鍵關聯？服務操作不會取消、回滾或刪除；未知回應不能因此視為失敗，新請求必須重新明確建立。')) return; check(); try { storage.removeItem(storeKey()); } catch { throw new Error('無法移除本機關聯；不另起鍵。'); } op = null; broken = false; queried = false; message = '僅已放棄本機關聯；服務登記與操作保留，須重新明確查看。'; render(); })});
   function pagehide() { generation++; view = null; queried = false; message = '頁面離開已清除本次狀態；保留原鍵關聯但不自動請求或重放。'; render(); }
   render();
   return Object.freeze({ render, actions, pagehide, setIdentity(next) { if (actor === next) return render(); generation++; actor = next; view = null; queried = false; message = '會話已更換；須明確查看，原關聯不是權限。'; restore(); render(); }, canLeave(forUnload = false) { return !permitted() || (!broken && op?.state !== 'unknown') || (!forUnload && confirm('固定庫原鍵回應未確認。離開只保留關聯，不自動提交或取消服務操作；仍要離開？')); } });

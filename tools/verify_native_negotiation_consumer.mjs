@@ -5,11 +5,14 @@ import fs from "node:fs";
 import { tickStrategicWarEvents } from "../web/src/game/ai.js";
 import {
   beginScenarioAssistanceEvent,
+  beginScenarioTruceEnvoyResult,
+  beginScenarioAssistanceEnvoyResult,
   beginScenarioTruceEvent,
   commitScenarioTruceEvent,
   settleScenarioAssistanceEvent,
 } from "../web/src/game/navigation/scenarionegotiation.js";
 import { commitScenarioWarEvent } from "../web/src/game/navigation/scenariowarconsumer.js";
+import { originalBeginAssistanceEvent3220 } from "../web/src/game/navigation/originalassistanceconsumer.js";
 
 const ki = fs.readFileSync("E:/Dragon/Dragon/KI.EXE");
 assert.equal(
@@ -116,6 +119,173 @@ function trucePaidFixture() {
   f.rows[0][2] = 0x94;
   return f;
 }
+
+test("T24 assistance activity alias: original inactive return and supported adapter prefix", () => {
+  // KI 351A..3525: SI = AH*40h, CMP byte [SI],80h. T=24 reads
+  // DS:0600 = diplomacy[0][0], not city0 C11 used by the producer.
+  // Only inactive aliases are supported; active alias continuation stays closed.
+  assert.equal(raw(0x351a, 12), '32c0d1e8d1e88bf0803c80c3');
+  assert.equal(createHash('sha256').update(Buffer.from(raw(0x3220, 0x42), 'hex')).digest('hex'), '855724b3eddb944a52b3d1bed8e2cf5fce3da734ca447e8c14378067e6b44d4a');
+  const event = { type: 2, arg0: 17, arg1: 0, arg2: 24 };
+  for (let value = 0; value < 128; value++) {
+    const reads = [];
+    const result = originalBeginAssistanceEvent3220({
+      readFactionAttr(index) { reads.push(index); return index === 24 ? value : 128; },
+    }, event);
+    assert.deepEqual(reads, [17, 0, 24]);
+    assert.deepEqual(result, { phase: 'return', status: 'ignored-inactive', invited: 17, target: 0, payer: 24 });
+    const f = fixture({ player: 17 }); f.rows[0][0] = value;
+    const before = JSON.stringify(f.scenario);
+    assert.deepEqual(beginScenarioAssistanceEvent(f.scenario, event, f.rng), result);
+    assert.equal(f.rngCalls(), 0); assert.equal(JSON.stringify(f.scenario), before);
+  }
+  for (const inactive of [17, 0]) {
+    const f = fixture({ player: 17 }); f.factions[inactive].attr = 127;
+    const before = JSON.stringify(f.scenario);
+    assert.equal(beginScenarioAssistanceEvent(f.scenario, event, f.rng).status, 'ignored-inactive');
+    assert.equal(f.rngCalls(), 0); assert.equal(JSON.stringify(f.scenario), before);
+  }
+  // At/above 80h the core reaches 3712 -> 3771. Stop at the first
+  // representative read; do not invent alias F2A, payment or player return.
+  for (const value of [128, 255]) {
+    const reads = [], boundary = new Error('owned representative boundary');
+    assert.throws(() => originalBeginAssistanceEvent3220({
+      readFactionAttr(index) { reads.push(index); return index === 24 ? value : 128; },
+      readFactionDiplomat(index) { assert.equal(index, 17); throw boundary; },
+    }, event), error => error === boundary);
+    assert.deepEqual(reads, [17, 0, 24]);
+  }
+});
+
+test("inactive neutral alias is bounded across all six negotiation activity positions", () => {
+  assert.equal(raw(0x3387, 1), 'c3');
+  assert.equal(raw(0x33e9, 1), 'c3');
+  assert.equal(raw(0x3327, 5), 'e8f001725b');
+  assert.equal(raw(0x3388, 14), 'e88f01725c8bde8ae2e886017253');
+  const cases = [
+    [beginScenarioAssistanceEvent, { type: 2, arg0: 24, arg1: 0, arg2: 17 }],
+    [beginScenarioAssistanceEvent, { type: 2, arg0: 17, arg1: 24, arg2: 0 }],
+    [beginScenarioAssistanceEvent, { type: 2, arg0: 17, arg1: 0, arg2: 24 }],
+    [beginScenarioTruceEnvoyResult, { type: 6, arg0: 24 }],
+    [beginScenarioAssistanceEnvoyResult, { type: 7, arg0: 24, arg1: 0 }],
+    [beginScenarioAssistanceEnvoyResult, { type: 7, arg0: 17, arg1: 24 }],
+  ];
+  for (const [begin, event] of cases) {
+    for (let value = 0; value < 256; value++) {
+      const f = fixture({ player: 17 }); f.rows[0][0] = value;
+      const before = JSON.stringify(f.scenario);
+      if (value < 128) assert.equal(begin(f.scenario, event, f.rng).status, 'ignored-inactive');
+      else assert.throws(() => begin(f.scenario, event, f.rng), { name: 'TypeError', message: 'Invalid native faction slot' });
+      assert.equal(f.rngCalls(), 0); assert.equal(JSON.stringify(f.scenario), before);
+    }
+  }
+  const f = fixture({ player: 17 }); delete f.scenario.nativeDiplomacyMatrix;
+  assert.throws(() => beginScenarioAssistanceEvent(f.scenario, cases[2][1], f.rng));
+  assert.equal(f.rngCalls(), 0);
+  // Earlier inactive gates must not require the alias capability at all.
+  f.factions[17].attr = 0;
+  assert.equal(beginScenarioAssistanceEvent(f.scenario, cases[2][1], f.rng).status, 'ignored-inactive');
+});
+
+test("inactive neutral events consume only the normal event cursor prefix", () => {
+  for (const event of [
+    { type: 2, arg0: 17, arg1: 0, arg2: 24 },
+    { type: 6, arg0: 24, arg1: 0, arg2: 0 },
+    { type: 7, arg0: 17, arg1: 24, arg2: 0 },
+  ]) {
+    const f = fixture({ player: 17 }); f.rows[0][0] = 127; f.slots[0] = event;
+    const expected = structuredClone(f.scenario);
+    expected._strategicEventCursor = 1; expected._strategicEventDivider = 10; // Scenario slot index; original D20 advances four bytes.
+    assert.equal(tickStrategicWarEvents(f.app), true);
+    assert.deepEqual(f.scenario, expected);
+    assert.equal(f.rngCalls(), 0); assert.deepEqual(f.messages, []); assert.equal(f.app.clock.hold, false);
+  }
+});
+
+test("fixed SINARIO initial bytes separate active T24 name aliases from reachable consumer prefixes", () => {
+  // A supplied event, not proof the original producer creates it at startup.
+  // Read only these five non-save sources; do not infer DS name RAM from file tails.
+  const sources = [
+    ['上', '6183b6b2883fb1cd9c6d7c7d0def86049b7707a64d9258836940900a09454d73', [183, 183, 183, 183]],
+    ['中', 'cf91e4360fa4e9363b5136ba379d58c8b1c8b5b3ca309eca4071b4f7a805ce59', [183, 169, 169, 150]],
+    ['下', '89406f442dad626cea8df87d3c3ffb049a784a97da996caa13ae82622a1e8ffb', [154, 188, 188, 179]],
+    ['后', '3e70ad54e3fc3b9d13a25883098d1ccc53218aafd1a7a461b095c1f1fc9812db', [179, 183, 170, 170]],
+    ['原版', '4ad37ad619649bf9ca2f075ffe483ff67f205fafa1e2d7b4926dc2598ec08c87', [183, 150, 188, 179]],
+  ];
+  const counts = { inactive: 0, noRepresentative: 0, outsideNameDomain: 0 };
+  const event = { type: 2, arg0: 17, arg1: 0, arg2: 24 };
+  for (const [source, sha256, names] of sources) {
+    const bytes = fs.readFileSync(`E:/Dragon/${source}/SINARIO.DAT`);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), sha256);
+    assert.equal(bytes.length, source === '下' ? 88830 : 88832);
+    for (let ordinal = 0; ordinal < 4; ordinal++) {
+      const chapter = bytes.subarray(ordinal * 0x56c0, (ordinal + 1) * 0x56c0);
+      assert.ok(chapter.length >= 0x52c0); // Complete faction/matrix/general records; no tail padding.
+      assert.equal(chapter[0x680], 255);
+      assert.equal(chapter[0x681], names[ordinal]);
+      assert.ok(chapter[0x681] >= 128);
+      counts.outsideNameDomain++;
+      assert.equal(chapter[0x80 + 17 * 64 + 0x2a], 255);
+      assert.equal(chapter[0x80 + 0x19], 255);
+      assert.equal(chapter[0x8c0 + 0x11], 100);
+      assert.ok(Array.from({ length: 127 }, (_, slot) => chapter[0x42c0 + slot * 32 + 0x1c]).every(owner => owner !== 24));
+      const reads = [];
+      const result = originalBeginAssistanceEvent3220({
+        readFactionAttr(index) {
+          reads.push(['attr', index]); assert.ok([17, 0, 24].includes(index));
+          return chapter[0x80 + index * 64];
+        },
+        readFactionDiplomat(index) {
+          reads.push(['diplomat', index]); assert.equal(index, 17);
+          return chapter[0x80 + index * 64 + 0x2a];
+        },
+        readGeneralFaction(slot) {
+          reads.push(['owner', slot]); assert.ok(Number.isInteger(slot) && slot >= 0 && slot < 127);
+          return chapter[0x42c0 + slot * 32 + 0x1c];
+        },
+        // No other ports: status/politics, relation, RNG, player or writes must not be reached.
+      }, event);
+      const inactive = chapter[0x80 + 17 * 64] < 128;
+      assert.deepEqual(result, { phase: 'return', status: inactive ? 'ignored-inactive' : 'qualification-failed', invited: 17, target: 0, payer: 24 });
+      assert.deepEqual(reads, inactive ? [['attr', 17]] : [
+        ['attr', 17], ['attr', 0], ['attr', 24], ['diplomat', 17],
+        ...Array.from({ length: 127 }, (_, slot) => ['owner', slot]),
+      ]);
+      counts[inactive ? 'inactive' : 'noRepresentative']++;
+    }
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), sha256);
+  }
+  assert.deepEqual(counts, { inactive: 14, noRepresentative: 6, outsideNameDomain: 20 });
+});
+
+test("active T24 without an eligible first representative returns before relation, RNG or player IO", () => {
+  // Static KI chain: 3779 fallthrough -> 37F5(DI=0600) -> 382E STC ->
+  // 3780/3718/323F carry returns. This core-only audit does not open the
+  // Scenario adapter's active-24 boundary or certify the other branches.
+  for (const [start, end, digest] of [
+    [0x3712, 0x3771, 'd85f410cb2a9d59bfa1d3ed0354285d060ded067781cc3820c999d4228188b4d'],
+    [0x3771, 0x37d8, '2a40d14e17cd9bd65c61abc7890b3c7c98e50e479e31b3b9a0fa0833048195fc'],
+    [0x37f5, 0x3830, 'f9e581d8a3480c96da49d40333fe70086bde8c591fe32049ecb6a7ff6a347422'],
+  ]) assert.equal(createHash('sha256').update(Buffer.from(raw(start, end - start), 'hex')).digest('hex'), digest);
+  for (const reason of ['different-owner', 'assigned', 'zero-politics']) {
+    const reads = [];
+    const result = originalBeginAssistanceEvent3220({
+      readFactionAttr(slot) { reads.push(['attr', slot]); return 128; },
+      readFactionDiplomat(slot) { reads.push(['diplomat', slot]); return 255; },
+      readGeneralFaction(slot) { reads.push(['owner', slot]); return slot === 126 && reason !== 'different-owner' ? 24 : 0; },
+      readGeneralStatus(slot) { reads.push(['status', slot]); return reason === 'assigned' ? 1 : 0; },
+      readGeneralPolitics(slot) { reads.push(['politics', slot]); return 0; },
+      // All other ports deliberately absent: any later read/write fails.
+    }, { type: 2, arg0: 17, arg1: 0, arg2: 24 });
+    assert.deepEqual(result, { phase: 'return', status: 'qualification-failed', invited: 17, target: 0, payer: 24 });
+    assert.deepEqual(reads, [
+      ['attr', 17], ['attr', 0], ['attr', 24], ['diplomat', 17],
+      ...Array.from({ length: 127 }, (_, slot) => ['owner', slot]),
+      ...(reason === 'different-owner' ? [] : [['status', 126]]),
+      ...(reason === 'zero-politics' ? [['politics', 126]] : []),
+    ]);
+  }
+});
 
 test("fixed KI type2/type3 handlers, fee, representative and commit bytes", () => {
   assert.equal(raw(0x31f2, 6), "0c3220326232", "type1/2/3 jump table");

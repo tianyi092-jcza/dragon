@@ -182,6 +182,63 @@ export function createPublicPlayerBrowserProbe({ browser, origin, gameId, chapte
       assert.deepEqual(await page.evaluate(()=>window.__app.saveGame(0,'public player save')),{saved:'local'});
       const first=await record(); savedDigest=first.token.bodyDigest; assert.equal(first.record.releaseId,releaseId);
       observations.push({first:initialMetadata,releaseId,savedDigest}); checks.push('production title/current catalog/notice/native YES/chapter/faction/shared App/native game-local save');
+      // Unmodified saves.html uses the actual signed reader and compiled pack,
+      // sharing only this fresh context's database with the running App.
+      const backupPage = await context.newPage(); backupPage.setDefaultTimeout(90000);
+      await backupPage.goto(origin + '/saves.html');
+      const backup = backupPage.locator('#formal-backups');
+      await backup.getByRole('button', { name: '更新上架遊戲', exact: true }).click();
+      await backup.getByLabel('備份遊戲', { exact: true }).selectOption(gameId);
+      await backup.getByRole('button', { name: '讀取章節', exact: true }).click();
+      await backup.getByLabel('備份章節', { exact: true }).selectOption(chapterId);
+      await backup.getByRole('button', { name: '讀取本機目錄', exact: true }).click();
+      const download = backupPage.waitForEvent('download');
+      await backup.getByRole('button', { name: '匯出目前槽 JSON', exact: true }).click();
+      const stream = await (await download).createReadStream(), chunks = [];
+      for await (const chunk of stream) chunks.push(chunk);
+      const backupBytes = Buffer.concat(chunks);
+      await backup.getByLabel('正式遊戲備份檔', { exact: true }).setInputFiles({ name: 'owned-backup.json', mimeType: 'application/json', buffer: backupBytes });
+      await backup.getByRole('button', { name: '驗證並另存新槽', exact: true }).click();
+      await backupPage.waitForFunction(() => document.querySelector('#formal-backups [role=status]').textContent.includes('匯入已提交為槽5'));
+      const imported = await backupPage.evaluate(async gameId => {
+        const { createGameSaveStore } = await import('/src/core/gamesavestore.js');
+        return createGameSaveStore({ gameId, databaseName: 'wolong-web', getIndexedDB: () => indexedDB }).get(4);
+      }, gameId);
+      assert.deepEqual(imported.record.snapshot, { ...first.record.snapshot, slot: 4 });
+      assert.notEqual(imported.token.recordId, first.token.recordId);
+      assert.deepEqual(await record(), first); assert.deepEqual(await metadata(), initialMetadata);
+      assert.equal(await backupPage.evaluate(() => !!window.__app), false);
+      observations.push({ backupImport: { slot: imported.record.slot, recordId: imported.token.recordId, releaseId: imported.record.releaseId, bodyDigest: imported.token.bodyDigest } });
+      checks.push('unmodified saves.html/current signed reader/20 chapter previews/fresh pack/file download and import/native new-slot CAS; original record and live App unchanged');
+      // Corrupt imports must refuse without creating slots or touching the
+      // live App: truncated bytes fail decode, a foreign gameId fails the
+      // explicit identity/admission path. Both leave catalog and records intact.
+      const catalogBefore = await backupPage.evaluate(async gameId => {
+        const { createGameSaveStore } = await import('/src/core/gamesavestore.js');
+        return (await createGameSaveStore({ gameId, databaseName: 'wolong-web', getIndexedDB: () => indexedDB }).list()).map(entry => entry.slot);
+      }, gameId);
+      let parsedBackup;
+      try { parsedBackup = JSON.parse(backupBytes.toString('utf8')); }
+      catch (cause) { assert.fail('owned backup export must be JSON: ' + cause.message); }
+      const foreign = Buffer.from(JSON.stringify({ ...parsedBackup, saved: { ...parsedBackup.saved, gameId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' } }));
+      for (const [name, buffer] of [['truncated', backupBytes.subarray(0, Math.floor(backupBytes.length / 2))], ['foreign-game', foreign]]) {
+        await backup.getByLabel('正式遊戲備份檔', { exact: true }).setInputFiles({ name: `owned-${name}.json`, mimeType: 'application/json', buffer });
+        await backup.getByRole('button', { name: '驗證並另存新槽', exact: true }).click();
+        await backupPage.waitForFunction(() => document.querySelector('#formal-backups [role=status]').textContent.includes('操作未完成'));
+        const after = await backupPage.evaluate(async gameId => {
+          const { createGameSaveStore } = await import('/src/core/gamesavestore.js');
+          const store = createGameSaveStore({ gameId, databaseName: 'wolong-web', getIndexedDB: () => indexedDB });
+          return { slots: (await store.list()).map(entry => entry.slot), kept: await store.get(4), extra: await store.get(5) };
+        }, gameId);
+        assert.deepEqual(after.slots, catalogBefore, name + ': corrupt import must not add slots');
+        assert.equal(after.extra, null, name + ': no slot 5 may exist');
+        assert.deepEqual(after.kept.record.snapshot, { ...first.record.snapshot, slot: 4 }, name + ': good import intact');
+        assert.equal(after.kept.token.recordId, imported.token.recordId, name + ': good import identity intact');
+      }
+      assert.deepEqual(await record(), first); assert.deepEqual(await metadata(), initialMetadata);
+      assert.equal(await backupPage.evaluate(() => !!window.__app), false);
+      checks.push('unmodified saves.html refuses truncated and foreign-game backup imports without new slots; good import, original record and live App unchanged');
+      await backupPage.close();
       if (programPaths) {
         const latePaths = ['grf/battle_terrain_0.png', 'grf/battle_terrain_1.png', 'grf/battle_terrain_2.png', 'grf/battle_units.png', 'battle_talk.json', 'battle_display.bin', 'grf/music/loops/BGM_07.flac'];
         for (const path of latePaths) assert.ok(!programRequests.some(row => row.path === programBase + path), 'cold late resource: ' + path);
@@ -218,6 +275,21 @@ export function createPublicPlayerBrowserProbe({ browser, origin, gameId, chapte
       await page.locator('[data-save-slot="0"]').click();await ready();
       assert.deepEqual(await metadata(),initialMetadata);assert.equal((await record()).token.bodyDigest,savedDigest);
       checks.push('in-game load exits old App and actually reloads current title-phase restore before installing a captured archive');
+      await Promise.all([page.waitForEvent('domcontentloaded'),page.evaluate(()=>{void window.__app.returnToTitle('load');})]);
+      await page.locator('[data-save-slot="4"]').click();await ready();
+      assert.equal(await page.evaluate(()=>window.__app.loadedSaveSlot),4);
+      assert.deepEqual(await metadata(),initialMetadata);assert.deepEqual(await record(),first);
+      const restoredImport = await page.evaluate(async ({ base, gameId }) => {
+        const { createGameSaveStore } = await import(base + 'src/core/gamesavestore.js');
+        const { saveJSON } = await import(base + 'src/core/gamesavecodec.js');
+        const app = window.__app;
+        const stored = await createGameSaveStore({ gameId, databaseName: 'wolong-web', getIndexedDB: () => indexedDB }).get(4);
+        return { stored, rng: saveJSON(app.originalRng.snapshot()) };
+      }, { base: await moduleBase(), gameId });
+      assert.deepEqual(restoredImport.stored, imported);
+      const { saveJSON } = await import('../../web/src/core/gamesavecodec.js');
+      assert.equal(restoredImport.rng, saveJSON(imported.record.snapshot.webMeta.originalRng));
+      checks.push('actual title-phase chooser restores the page-imported slot4 through signed admission into a fresh App; full RNG and stored record retained, original slot0 unchanged');
     },
     async unavailable() {
       // All required pack bytes are already resident. The independent original

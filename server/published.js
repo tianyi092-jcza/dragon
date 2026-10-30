@@ -31,7 +31,7 @@ export class PublishedGames {
   }
   #displayName(name) {
     if (typeof name !== 'string' || !name.trim()) { fail(422, 'PUBLISH_NAME'); }
-    try { return checkGameName(name, 40); }
+    try { return checkGameName(name.normalize('NFC'), 8); }
     catch { fail(422, 'PUBLISH_NAME'); }
   }
   // Read-path shape check mirrors the node published-games handler; any

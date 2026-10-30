@@ -32,10 +32,11 @@ try {
   const outbox = new DistributionOutbox({ storage });
   const announcements = new AnnouncementStore({ storage });
   const visualBytes = new Map();
-  let pause = null;
+  let pause = null, captures = 0;
   const runtimeAssets = {
     definition: () => ({ definitionDigest: 'd'.repeat(64) }),
     async capture(token, reference, paths) {
+      captures++;
       assert.equal(token, 'owned-token'); assert.equal(reference.gameId, G);
       assert.equal(paths.length, 8);
       assert.ok(paths.every(path => visualBytes.has(path)));
@@ -53,7 +54,7 @@ try {
   storage.sql.exec('CREATE TABLE copy_origins (game_id TEXT PRIMARY KEY, registry_id TEXT NOT NULL, profile_revision TEXT NOT NULL, definition_digest TEXT NOT NULL)');
   storage.sql.exec('INSERT INTO copy_origins VALUES(?,?,?,?)', G, packs.policy.registryId, packs.policy.profileRevision, runtimeAssets.definition().definitionDigest);
   const input = revision => ({
-    game: { gameId: G, map: { bounds: { minX: 0, minY: 0, width: 384, height: 256 } }, chapterOrder: ['c1'], chapters: { c1: { state: { marker: revision, generals: [] } } }, ruleProfile: { fixture: revision } },
+    game: { gameId: G, map: { bounds: { minX: 0, minY: 0, width: 384, height: 256 } }, chapterOrder: ['c1'], chapters: { c1: { state: { marker: revision, generals: [], cities: [{ idx: 0, view: 0 }] } } }, ruleProfile: { fixture: revision } },
     reference: { gameId: G, draftRevision: String(revision), sourceDigest: (revision === 1 ? 'a' : 'b').repeat(64) },
     compiled: { width: 384, height: 256, compatibilityAssetMode: 'fixture-only', terrainBytes: new Uint8Array([revision]), roadGraph: { marker: revision }, roadCost: new Uint8Array([revision]), roadOffsetBytes: new TextEncoder().encode('{}'), minimapGeography: new Uint8Array(384 * 256).fill(1), roadMask: new Uint8Array(384 * 256) },
   });
@@ -93,6 +94,13 @@ try {
   assert.equal(packs.pack(G).chapter.marker, 1);
   const old = snapshot();
   groups++;
+  for (const [cities, code] of [[null, 'PLAY_SNAPSHOT'], [[{ idx: 0, view: 255 }], 'PLAY_CITY_VIEW_MISSING']]) {
+    const bad = input(2), before = captures;
+    bad.game.chapters.c1.state.cities = cities;
+    await assert.rejects(packs.prepare('owned-token', bad), error => error.code === code);
+    assert.equal(captures, before, 'bad city dependency rejects before visual I/O');
+    assert.deepEqual(snapshot(), old, 'bad city dependency preserves live pack and all publication tables'); groups++;
+  }
 
   // Every failure is after preparation; some occur after pack replacement,
   // ordinal consumption, pruning or pin replacement inside the transaction.
@@ -119,6 +127,7 @@ try {
   const mutable = input(2);
   pause = async () => {
     mutable.game.chapters.c1.state.marker = 999;
+    mutable.game.chapters.c1.state.cities[0].view = 255;
     mutable.game.ruleProfile.fixture = 999;
     mutable.game.chapterOrder.push('other');
     mutable.reference.gameId = 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb';
@@ -133,6 +142,7 @@ try {
   assert.equal(r2.ordinal, '1.1', 'failed commits consume no ordinal');
   const current = packs.pack(G);
   assert.equal(current.chapter.marker, 2);
+  assert.equal(current.chapter.cities[0].view, 0, 'late caller mutation cannot replace checked city reference');
   assert.equal(current.manifest.ruleProfile.fixture, 2);
   assert.equal(current.manifest.world.width, 384);
   assert.deepEqual(current.manifest.chapters, ['c1']);

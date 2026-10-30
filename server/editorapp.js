@@ -10,6 +10,7 @@ import { OwnedRuntimeAssets } from './runtimeassets.js';
 import { installedSourcePolicy, installedAvailableLibraryPolicy } from './sourcecatalogpolicy.js';
 import availableLibraryManifest from './available-library.txt';
 import { AdminFullCopy } from './admincopy.js';
+import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
 import { GameSnapshotVerifier } from './snapshots.js';
 import { PrivateDrafts } from './drafts.js';
 import { FixedCopyDataCompiler } from './datacompiler.js';
@@ -120,7 +121,8 @@ function cookie(request) {
   if (values.length !== 1 || !/^[a-f0-9]{64}$/.test(values[0].slice(COOKIE.length + 1))) { fail(401, 'LOGIN_REQUIRED'); }
   return values[0].slice(COOKIE.length + 1);
 }
-export function createEditorApplication(PlatformBase, { runtimeStager, frozenPublication = false } = {}) {
+export function createEditorApplication(PlatformBase, { runtimeStager, frozenPublication = false, readSharedPortrait } = {}) {
+  if (readSharedPortrait !== undefined && typeof readSharedPortrait !== 'function') throw new TypeError('trusted shared portrait reader required');
   if (typeof frozenPublication !== 'boolean' || frozenPublication && !runtimeStager) { throw new TypeError('frozen publication requires trusted runtime staging'); }
   // Trusted platform injection only, never an HTTP/env-selected capability.
   // Unconfigured legacy adapters do not claim R2 staging or visibility.
@@ -145,7 +147,16 @@ return class EditorMetadata extends PlatformBase {
     let copies, runtimeAssets = null;
     this.games = new GameMetadataStore({ storage: ctx.storage, principal: hash => this.principal(hash),
       verifySnapshot: env.EDITOR_BLOBS ? context => new GameSnapshotVerifier({ blobs: this.blobs }).verify(context.tokenHash, context) : undefined,
-      recoverAllocation: (hash, cap) => { if (!copies) { fail(503, 'COPY_NOT_CONFIGURED');  }return copies.resolveAllocation(hash, cap); } });
+      recoverAllocation: (hash, cap) => {
+        if (!copies) { fail(503, 'COPY_NOT_CONFIGURED'); }
+        try { return copies.resolveAllocation(hash, cap); }
+        catch (error) {
+          // Only an unrecognized private capability may try the other owner.
+          // Never hide a recognized lease's revocation, expiry or role failure.
+          if (!(error instanceof HttpError) || error.code !== 'COPY_LEASE_REQUIRED' || !this.authorCopies) throw error;
+          return this.authorCopies.resolveAllocation(hash, cap);
+        }
+      } });
     // Reuses permanent content reservation slots; historical 'copy' namespace name is not a copy capability.
     this.management = new GameManagement({ storage: ctx.storage, principal: hash => this.principal(hash), operationGuard: (actor, key) => this.contentKey(actor, key, 'copy') });
     // §4.1 game-list deletion: fence-only backend (no physical-delete API).
@@ -181,10 +192,19 @@ return class EditorMetadata extends PlatformBase {
       const libraryPolicy = installedAvailableLibraryPolicy(new TextEncoder().encode(availableLibraryManifest));
       this.availableLibrary = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy: libraryPolicy, operationGuard: (actor, key) => this.contentKey(actor.id, key, 'source') });
       copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000 });
-      this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['author'] });
+      const authorSource = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, readRole: 'author' });
+      this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['author'], profileRevision: FIXED_TEMPLATE_PROFILE });
       this.commandTargets = new HttpCommandTargets(ctx.storage, env.EDITOR_REQUEST_KEY);
       ctx.storage.transactionSync(() => this.sql.exec('CREATE TABLE IF NOT EXISTS copy_http_commands (actor TEXT NOT NULL, op_key TEXT NOT NULL, request_digest TEXT NOT NULL, auth_epoch INTEGER NOT NULL, PRIMARY KEY(actor,op_key))'));
-      this.privateDrafts = new PrivateDrafts({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, blobs: this.blobs, definition: () => this.installedSources.definition(), operationGuard: (actor, key) => this.contentKey(actor, key, 'draft') });
+      this.privateDrafts = new PrivateDrafts({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, blobs: this.blobs, definition: () => this.installedSources.definition(), operationGuard: (actor, key) => this.contentKey(actor, key, 'draft'),
+        atlas: async (tokenHash, registryId, season) => {
+          const catalog = this.principal(tokenHash).role === 'admin' ? this.installedSources : authorSource;
+          const source = await catalog.loadFull(tokenHash, registryId);
+          const path = `content/builtin/compiled/${policy.revision}/map_atlas_${season}.png`;
+          const role = policy.roles.find(row => row.path === path);
+          if (!role) fail(503, 'DRAFT_ATLAS_NOT_CONFIGURED');
+          return { registryId: source.registryId, definitionDigest: source.definitionDigest, rootDigest: source.rootDigest, sha256: role.sha256, bytes: source.readWeb(path) };
+        } });
       // Draft Trial sessions with support-domain chapter projection, private derived resources, registry visuals and fence-begin deletion cascade.
       this.trialSessions = new TrialSessions({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, drafts: this.privateDrafts, runtimeAssets, policy });
       this.libraryAssets = new PrivateLibraryAssets({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, drafts: this.privateDrafts, catalog: this.availableLibrary, policy: libraryPolicy });
@@ -415,6 +435,7 @@ return class EditorMetadata extends PlatformBase {
       this.playPacks.installPreparedInTxn(tokenHash, prepared);
       const issued = this.releases.issuePreparedInTxn(tokenHash, candidate.ticket);
       const pin = this.publishedGames.publishInTxn(tokenHash, { gameId, name, revision: ref2.draftRevision, sourceDigest: ref2.sourceDigest, chapters: captured.game.chapterOrder, ordinal: issued.ordinal });
+      this.games.setFormalMetadataInTxn(tokenHash, { gameId, draftRevision: ref2.draftRevision, name: pin.name });
       this.releases.pruneExceptInTxn(tokenHash, gameId, issued.releaseId);
       if (this.#recordPublication('publish', gameId, staged?.runtime)) {
         // The exact projection/catalog joins the permanent operation receipt.
@@ -492,10 +513,25 @@ return class EditorMetadata extends PlatformBase {
     this.touch(tokenHash, policy);
     const rel = path.slice('/api/trial/web/'.length);
     if (!/^[A-Za-z0-9_][A-Za-z0-9_/.-]{0,255}$/.test(rel) || rel.includes('..') || rel.includes('\\') || rel.endsWith('/')) { fail(404, 'TRIAL_WEB_PATH'); }
+    // Trial portrait overrides resolve relative to this directory. The shared
+    // 621-image manifest is distinct from the older fixed runtime library.
+    const portraitPath = /^kao\/([A-Za-z0-9]{1,32})\.png$/.exec(rel);
+    if (portraitPath && readSharedPortrait) {
+      const descriptor = this.portraits.get(portraitPath[1]);
+      let bytes;
+      try { bytes = await readSharedPortrait(descriptor); }
+      catch (error) { this.principal(tokenHash); throw error; }
+      this.principal(tokenHash);
+      if (!(bytes instanceof Uint8Array) || bytes.byteLength !== descriptor.byteLength || createHash('sha256').update(bytes).digest('hex') !== descriptor.sha256) fail(503, 'PORTRAIT_BYTES_CORRUPT');
+      return new Response(bytes, { headers: { ...trialHeaders, 'Content-Type': 'image/png', 'Content-Length': String(bytes.byteLength), 'X-Content-SHA256': descriptor.sha256 } });
+    }
     const bundled = trialWebFiles.get(rel);
     if (bundled) { return new Response(bundled.text, { headers: { ...trialHeaders, 'Content-Type': `${trialWebType(rel)}; charset=utf-8`, 'X-Content-SHA256': bundled.sha256 } }); }
     if (!this.installedSources || !this.availableLibrary) { fail(503, 'TRIAL_WEB_NOT_CONFIGURED'); }
-    const bytes = await this.trialRegistryBytes(rel.startsWith('content/builtin/compiled/') ? this.installedSources : this.availableLibrary, rel);
+    let bytes;
+    try { bytes = await this.trialRegistryBytes(rel.startsWith('content/builtin/compiled/') ? this.installedSources : this.availableLibrary, rel); }
+    catch (error) { this.principal(tokenHash); throw error; }
+    this.principal(tokenHash);
     return new Response(bytes, { headers: { ...trialHeaders, 'Content-Type': trialWebType(rel), 'X-Content-SHA256': createHash('sha256').update(bytes).digest('hex') } });
   }
   async #getAdminAccounts(rt) {
@@ -504,11 +540,11 @@ return class EditorMetadata extends PlatformBase {
     this.touch(tokenHash, policy); return response({ accounts: this.sql.exec('SELECT * FROM users ORDER BY account').toArray().map(dto) });
   }
   async #getManagementCopy(rt) {
-    const { method, url, tokenHash, managementQuery, copyPath, authorCopyPath } = rt;
+    const { method, url, tokenHash, policy, managementQuery, copyPath, authorCopyPath } = rt;
     const publicationQuery = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/publish-operations\/([A-Za-z0-9_-]{16,128})$/.exec(url.pathname);
     if (method === 'GET' && publicationQuery) {
       if (url.search) { fail(422, 'PUBLISH_QUERY'); }
-      return response(this.ctx.storage.transactionSync(() => {
+      const result = this.ctx.storage.transactionSync(() => {
         const receipt = this.publishOperations.query(tokenHash, { gameId: publicationQuery[1], key: publicationQuery[2] });
         if (!this.publicationProducer) { fail(503, 'DISTRIBUTION_NOT_CONFIGURED'); }
         let distribution;
@@ -519,12 +555,13 @@ return class EditorMetadata extends PlatformBase {
         }
         if (distribution.kind !== 'publish') { fail(503, 'DISTRIBUTION_STATUS_CORRUPT'); }
         return { ...receipt, distribution };
-      }));
+      });
+      this.touch(tokenHash, policy); return response(result);
     }
     const managementDistribution = /^\/api\/admin\/games\/([a-f0-9-]{36}|wolong-builtin)\/management-operations\/([A-Za-z0-9_-]{16,128})\/distribution$/.exec(url.pathname);
     if (method === 'GET' && managementDistribution) {
       if (url.search) { fail(422, 'MANAGEMENT_QUERY'); }
-      return response(this.ctx.storage.transactionSync(() => {
+      const result = this.ctx.storage.transactionSync(() => {
         const [, gameId, key] = managementDistribution;
         this.management.query(tokenHash, gameId, key);
         if (!this.publicationProducer) { fail(503, 'DISTRIBUTION_NOT_CONFIGURED'); }
@@ -532,37 +569,40 @@ return class EditorMetadata extends PlatformBase {
         const distribution = receipt.distribution === null ? null : this.frozenDistribution.operationStatus(gameId, receipt.distribution.operationId);
         if (distribution && distribution.generation !== receipt.distribution.generation) { fail(503, 'DISTRIBUTION_STATUS_CORRUPT'); }
         return { version: 1, gameId, result: receipt.result, distribution };
-      }));
+      });
+      this.touch(tokenHash, policy); return response(result);
     }
-    if (method === 'GET' && managementQuery) { if (url.search) { fail(422, 'MANAGEMENT_QUERY'); } return response(this.management.query(tokenHash, managementQuery[1], managementQuery[2])); }
-    if (method === 'GET' && copyPath && !copyPath[2]) { this.copyAccess(tokenHash); return response(this.adminCopies.query(tokenHash, copyPath[1])); }
-    if (method === 'GET' && authorCopyPath && !authorCopyPath[2]) { this.authorCopyAccess(tokenHash); return response(this.authorCopies.query(tokenHash, authorCopyPath[1])); }
+    if (method === 'GET' && managementQuery) { if (url.search) { fail(422, 'MANAGEMENT_QUERY'); } const result = this.management.query(tokenHash, managementQuery[1], managementQuery[2]); this.touch(tokenHash, policy); return response(result); }
+    if (method === 'GET' && copyPath && !copyPath[2]) { this.copyAccess(tokenHash); const result = this.adminCopies.query(tokenHash, copyPath[1]); this.touch(tokenHash, policy); return response(result); }
+    if (method === 'GET' && authorCopyPath && !authorCopyPath[2]) { this.authorCopyAccess(tokenHash); const result = this.authorCopies.query(tokenHash, authorCopyPath[1]); this.touch(tokenHash, policy); return response(result); }
     return null;
   }
   async #getPrimaryRoutes(rt) {
     const { method, path, tokenHash, policy, user, csrf, url, releasesPath } = rt;
     if (method === 'GET' && path === '/api/session') { this.touch(tokenHash, policy); return response({ user: dto(user), csrf }); }
     if (method === 'GET' && path === '/api/admin/accounts') { return this.#getAdminAccounts(rt); }
-    if (method === 'GET' && path === '/api/games') { return response({ games: this.games.listOwn(tokenHash) }); }
-    if (method === 'GET' && path === '/api/admin/games') { return response({ games: this.games.managementSummaries(tokenHash) }); }
+    if (method === 'GET' && path === '/api/games') { const games = this.games.listOwn(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
+    if (method === 'GET' && path === '/api/admin/games') { const games = this.games.managementSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/admin/source') { return this.#getAdminSource(rt); }
     if (method === 'GET' && path === '/api/admin/library') { return this.#getAdminLibrary(rt); }
     if (method === 'GET' && releasesPath) { if (url.search) { fail(422, 'RELEASE_QUERY'); } this.touch(tokenHash, policy); return response({ releases: this.releases.history(tokenHash, releasesPath[1]) }); }
     return (await this.#getManagementCopy(rt)) ?? null;
   }
   async #getAdminSource(rt) {
-    const { tokenHash } = rt;
+    const { tokenHash, policy } = rt;
     this.copyAccess(tokenHash); let staged = null;
     if (this.env.EDITOR_INSTALLED_SOURCE_ROOT) { try { staged = JSON.parse(this.env.EDITOR_INSTALLED_SOURCE_ROOT); } catch { fail(503, 'SOURCE_BOOTSTRAP_CONFIG'); } }
     let registered = null; try { registered = this.installedSources.status(tokenHash, this.installedSources.definition().registryId); } catch (error) { if (!(error instanceof HttpError) || error.code !== 'SOURCE_NOT_REGISTERED') { throw error; } }
-    return response({ definition: this.installedSources.definition(), staged, registered });
+    const result = { definition: this.installedSources.definition(), staged, registered };
+    this.touch(tokenHash, policy); return response(result);
   }
   async #getAdminLibrary(rt) {
-    const { url, tokenHash } = rt;
+    const { url, tokenHash, policy } = rt;
     this.copyAccess(tokenHash); if (url.search) { fail(422, 'LIBRARY_QUERY'); }
     let staged = null; if (this.env.EDITOR_AVAILABLE_LIBRARY_ROOT) { try { staged = JSON.parse(this.env.EDITOR_AVAILABLE_LIBRARY_ROOT); } catch { fail(503, 'LIBRARY_BOOTSTRAP_CONFIG'); } }
     let registered = null; try { registered = this.availableLibrary.status(tokenHash, this.availableLibrary.definition().registryId); } catch (error) { if (!(error instanceof HttpError) || error.code !== 'SOURCE_NOT_REGISTERED') { throw error; } }
-    return response({ definition: this.availableLibrary.definition(), mode: 'STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE', unresolvedReferences: 20, staged, registered });
+    const result = { definition: this.availableLibrary.definition(), mode: 'STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE', unresolvedReferences: 20, staged, registered };
+    this.touch(tokenHash, policy); return response(result);
   }
   async #getCollectionRoutes(rt) {
     const { method, stageAssetsPath, libraryPath, stagePath } = rt;
@@ -584,7 +624,7 @@ return class EditorMetadata extends PlatformBase {
     return { draftRevision, operations };
   }
   async #getStageAssets(rt) {
-    const { method, url, tokenHash, stageAssetsPath } = rt;
+    const { method, url, tokenHash, policy, stageAssetsPath } = rt;
     if (method !== 'GET') { fail(404, 'NOT_FOUND'); }
     const actor = this.principal(tokenHash);
     if (actor.must_change) { fail(403, 'PASSWORD_CHANGE_REQUIRED'); }
@@ -592,6 +632,7 @@ return class EditorMetadata extends PlatformBase {
     const gameId = stageAssetsPath[1];
     const { draftRevision, operations } = this.#checkStageCollectionQuery(url, gameId);
     if (!this.stageApi || !this.libraryAssets) { fail(503, 'STAGE_COLLECTION_NOT_CONFIGURED'); }
+    this.touch(tokenHash, policy);
     let result;
     try { result = await collectFixedStageAssets(tokenHash, { gameId, draftRevision, operations }, { games: this.games, stageApi: this.stageApi, libraryAssets: this.libraryAssets }); }
     catch (error) {
@@ -608,8 +649,9 @@ return class EditorMetadata extends PlatformBase {
     return reply;
   }
   async #getLibraryAsset(rt) {
-    const { url, tokenHash, user, libraryPath } = rt;
+    const { url, tokenHash, user, policy, libraryPath } = rt;
     if ([...url.searchParams.keys()].join(',') !== 'revision') { fail(422, 'DRAFT_REVISION'); }
+    this.touch(tokenHash, policy);
     const result = await this.libraryAssets.read(tokenHash, libraryPath, url.searchParams.get('revision'));
     result.assertCurrent();
     if (result.artifact) {
@@ -621,8 +663,9 @@ return class EditorMetadata extends PlatformBase {
     return response(result.body);
   }
   async #getStageRead(rt) {
-    const { url, tokenHash, user, stagePath } = rt;
+    const { url, tokenHash, user, policy, stagePath } = rt;
     if (url.search) { fail(422, 'STAGE_QUERY'); }
+    this.touch(tokenHash, policy);
     const result = await this.stageApi.read(tokenHash, stagePath);
     this.stageApi.assertCurrent(tokenHash, stagePath, result);
     if (result.artifact) {
@@ -635,10 +678,36 @@ return class EditorMetadata extends PlatformBase {
     return response(result.body);
   }
   async #getDraftRead(rt) {
-    const { url, tokenHash, draftPath } = rt;
+    const { url, tokenHash, policy, draftPath } = rt;
     if (!this.privateDrafts) { fail(503, 'DRAFT_NOT_CONFIGURED'); }
-    if (!draftPath[2]) { if ([...url.searchParams.keys()].join(',') !== 'revision') { fail(422, 'DRAFT_REVISION'); } return response(await this.privateDrafts.read(tokenHash, draftPath[1], url.searchParams.get('revision'))); }
-    if (draftPath[3]) { return response(this.privateDrafts.query(tokenHash, draftPath[1], draftPath[3])); }
+    if (draftPath[2] === 'map-atlas') {
+      if ([...url.searchParams.keys()].sort().join(',') !== 'revision,season') fail(422, 'DRAFT_MAP_ATLAS');
+      this.touch(tokenHash, policy);
+      return response(await this.privateDrafts.readMapAtlas(tokenHash, draftPath[1], url.searchParams.get('revision'), url.searchParams.get('season')));
+    }
+    if (draftPath[2] === 'map-scene') {
+      if ([...url.searchParams.keys()].sort().join(',') !== 'layers,revision') fail(422, 'DRAFT_MAP_WINDOW');
+      this.touch(tokenHash, policy);
+      return response(await this.privateDrafts.readMapScene(tokenHash, draftPath[1], url.searchParams.get('revision'), url.searchParams.get('layers')));
+    }
+    if (['map-window', 'map-layer-window', 'decoration-selection'].includes(draftPath[2])) {
+      const layered = draftPath[2] === 'map-layer-window';
+      const error = draftPath[2] === 'decoration-selection' ? 'DRAFT_DECORATION_SELECTION' : 'DRAFT_MAP_WINDOW';
+      const keys = layered ? 'height,layers,revision,width,x,y' : 'height,revision,width,x,y';
+      if ([...url.searchParams.keys()].sort().join(',') !== keys) fail(422, error);
+      const rectangle = {};
+      for (const key of ['x', 'y', 'width', 'height']) {
+        const value = url.searchParams.get(key);
+        if (!/^(0|[1-9][0-9]{0,2})$/.test(value)) fail(422, error);
+        rectangle[key] = Number(value);
+      }
+      this.touch(tokenHash, policy);
+      if (draftPath[2] === 'decoration-selection') return response(await this.privateDrafts.readDecorationSelection(tokenHash, draftPath[1], url.searchParams.get('revision'), rectangle));
+      return response(await this.privateDrafts.readMapWindow(tokenHash, draftPath[1], url.searchParams.get('revision'), rectangle, layered ? url.searchParams.get('layers') : undefined));
+    }
+    if (draftPath[2] === 'minimap') { if ([...url.searchParams.keys()].join(',') !== 'revision') { fail(422, 'DRAFT_REVISION'); } this.touch(tokenHash, policy); return response(await this.privateDrafts.readMinimap(tokenHash, draftPath[1], url.searchParams.get('revision'))); }
+    if (!draftPath[2]) { if ([...url.searchParams.keys()].join(',') !== 'revision') { fail(422, 'DRAFT_REVISION'); } this.touch(tokenHash, policy); return response(await this.privateDrafts.read(tokenHash, draftPath[1], url.searchParams.get('revision'))); }
+    if (draftPath[3]) { this.touch(tokenHash, policy); return response(this.privateDrafts.query(tokenHash, draftPath[1], draftPath[3])); }
     return null;
   }
   async #getTrialStatusPack(rt) {
@@ -661,7 +730,7 @@ return class EditorMetadata extends PlatformBase {
     if (url.search) { fail(422, 'TRIAL_QUERY'); }
     this.touch(tokenHash, policy);
     const served = this.trialSessions.asset(tokenHash, trialAssetPath[1], trialAssetPath[2]);
-    // 共用画像（B）：无字节落库，返回 kao 引用描述，客户端经 R2 取数。
+    // 共用画像（B）：无字节落库，返回 kao 引用描述；Trial同源路径按共享画像清单取数。
     if (!served.bytes) { return new Response(JSON.stringify(served), { headers: { ...headers, 'Content-Type': 'application/json', 'X-Content-SHA256': served.sha256 } }); }
     return new Response(served.bytes, { headers: { ...headers, 'Content-Type': served.mime, 'X-Content-SHA256': served.sha256 } });
   }
@@ -766,26 +835,44 @@ return class EditorMetadata extends PlatformBase {
       const owned = this.games.listOwn(tokenHash).find(entry => entry.gameId === gameId);
       if (!owned) { return []; }
       const receipt = await this.privateDrafts.read(tokenHash, gameId, owned.draftRevision);
-      const keys = [];
-      for (const chapter of receipt.chapters ?? []) {
-        for (const general of chapter.generals ?? []) {
-          if (typeof general?.portraitKey === 'string' && !keys.includes(general.portraitKey)) { keys.push(general.portraitKey); }
-        }
-      }
-      return keys;
-    } catch { return []; }
+      // Author references only: the public draft DTO does not expose native
+      // portrait bytes. Inactive chapter configurations still retain references.
+      return [...new Set([
+        ...(receipt.chapters ?? []).flatMap(chapter => (chapter.generals ?? []).map(general => general.portraitKey)),
+        ...(receipt.generalDefinitions ?? []).map(definition => definition.portraitRef?.assetId),
+        ...(receipt.chapterPeople ?? []).flatMap(chapter => chapter.people.map(person => person.values.portraitRef?.assetId)),
+      ].filter(id => typeof id === 'string'))];
+    } catch (error) {
+      this.principal(tokenHash);
+      throw error;
+    }
   }
   async #getPortraits(rt) {
     const { tokenHash, policy, url, portraitPath } = rt;
     if (!portraitPath) { return null; }
-    if (url.search) { fail(422, 'PORTRAIT_QUERY'); }
+    if (url.search && !portraitPath[3]) { fail(422, 'PORTRAIT_QUERY'); }
     this.touch(tokenHash, policy);
     this.games.assertNotDeleting(portraitPath[1]);
+    if (portraitPath[3]) {
+      const descriptor = this.portraits.get(portraitPath[2]);
+      if ([...url.searchParams.keys()].join(',') !== 'sha256' || !/^[a-f0-9]{64}$/.test(url.searchParams.get('sha256') ?? '')) fail(422, 'PORTRAIT_QUERY');
+      if (url.searchParams.get('sha256') !== descriptor.sha256) fail(409, 'PORTRAIT_CHANGED');
+      if (!readSharedPortrait) fail(503, 'PORTRAIT_BYTES_NOT_CONFIGURED');
+      let bytes;
+      try { bytes = await readSharedPortrait(descriptor); }
+      catch (error) { this.principal(tokenHash); throw error; }
+      this.principal(tokenHash);
+      this.games.assertNotDeleting(portraitPath[1]);
+      if (!(bytes instanceof Uint8Array) || bytes.byteLength !== descriptor.byteLength || createHash('sha256').update(bytes).digest('hex') !== descriptor.sha256) fail(503, 'PORTRAIT_BYTES_CORRUPT');
+      return new Response(bytes, { headers: { 'Content-Type': 'image/png', 'Content-Length': String(bytes.byteLength), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Content-SHA256': descriptor.sha256 } });
+    }
     if (portraitPath[2]) {
       return response(this.portraits.get(portraitPath[2]));
     }
     const list = this.portraits.list();
     const used = await this.#portraitUsedKeys(tokenHash, portraitPath[1]);
+    this.principal(tokenHash);
+    this.games.assertNotDeleting(portraitPath[1]);
     return response({ gameId: portraitPath[1], portraits: list.map(entry => ({ ...entry, inUse: used.includes(entry.assetId) })) });
   }
   async #topologyGame(tokenHash, gameId) {
@@ -831,6 +918,9 @@ return class EditorMetadata extends PlatformBase {
     if (!this.privateDrafts) { fail(503, 'DRAFT_NOT_CONFIGURED'); }
     this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'draft');
     const expected = /^"([1-9][0-9]{0,63})"$/.exec(request.headers.get('If-Match') ?? ''); if (!expected) { fail(428, 'IF_MATCH_REQUIRED'); }
+    // Authenticated editing is activity, like the other editor routes. Touch
+    // before asynchronous work, never revive an expired/revoked session after it.
+    this.touch(tokenHash, policy);
     const op = await this.operation(request, [value, expected[1]], user.id, user.epoch, policy);
     return response(await this.privateDrafts.save(tokenHash, draftPath[1], expected[1], op.key, op.digest, value));
   }
@@ -982,7 +1072,7 @@ return class EditorMetadata extends PlatformBase {
     const managementQuery = /^\/api\/admin\/games\/([a-f0-9-]{36}|wolong-builtin)\/management-operations\/([A-Za-z0-9_-]{16,128})$/.exec(path);
     const managementPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/(listing|restriction\/clear)$/.exec(path);
     const deletionPath = /^\/api\/games\/([a-f0-9-]{36})\/deletion(-operations\/([A-Za-z0-9_-]{16,128})(\/distribution)?)?$/.exec(path);
-    const portraitPath = /^\/api\/games\/([a-f0-9-]{36})\/portraits(?:\/([A-Za-z0-9]{1,32}))?$/.exec(path);
+    const portraitPath = /^\/api\/games\/([a-f0-9-]{36})\/portraits(?:\/([A-Za-z0-9]{1,32})(?:\/(bytes))?)?$/.exec(path);
     const topologyPath = /^\/api\/games\/([a-f0-9-]{36})\/topology(?:\/(move|rebuild)(?:\/(clear))?)?$/.exec(path);
     const copyPath = /^\/api\/admin\/copies\/([A-Za-z0-9_-]{16,128})(?:\/(run|cancel))?$/.exec(path);
     const authorCopyPath = /^\/api\/games\/create\/([A-Za-z0-9_-]{16,128})(?:\/(run|cancel))?$/.exec(path);
@@ -992,7 +1082,7 @@ return class EditorMetadata extends PlatformBase {
     const trialStartPath = /^\/api\/games\/([a-f0-9-]{36})\/trials$/.exec(path);
     const trialPath = /^\/api\/trials\/([a-f0-9-]{36})(?:\/(status|end|pack))?$/.exec(path);
     const trialAssetPath = /^\/api\/trials\/([a-f0-9-]{36})\/assets\/([A-Za-z0-9]{1,32})$/.exec(path);
-    const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
+    const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|minimap|map-window|map-layer-window|map-scene|map-atlas|decoration-selection|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
     const releasesPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/releases$/.exec(path);
     const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, deletionPath, portraitPath, copyPath, authorCopyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath, releasesPath, topologyPath };
     if (method === 'GET') {

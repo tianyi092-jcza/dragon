@@ -32,6 +32,15 @@ function captureVisuals(manifest) {
   return entries;
 }
 
+// Read-only declared references, not resolved program archive keys or verified
+// asset bodies. Reuse exactly the binding checks used by the static verifier.
+export function captureStaticVisualReferences(manifest) {
+  return captureVisuals(manifest).map((entry, index) => ({
+    role: `${index < seasons.length ? 'seasonAtlases' : 'seasons'}:${seasons[index % seasons.length]}`,
+    path: entry.path, sha256: entry.sha256, byteLength: entry.byteLength,
+  }));
+}
+
 /** readStatic is a trusted, bounded path-only byte port, never a client URL. */
 export function createStaticResourceVerifier({ readStatic, expectedDigest, sourceTreeDigest } = {}) {
   if (typeof readStatic !== 'function' || !digest(expectedDigest) || !digest(sourceTreeDigest)) throw new TypeError('trusted byte port and build/source pins required');

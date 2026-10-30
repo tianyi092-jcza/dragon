@@ -20,7 +20,7 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "web", "data.json")
 SC_SIZE = 22208
 N_SCENARIO = 4
 OFF_FACTION = 0x80  # 势力区 24×64B
-OFF_CITY = 0x8C0  # 原版城池区192×32B；下方旧200上界待另批修正
+OFF_CITY = 0x8C0  # 原版城池区192×32B，止于地图对象区20C0h
 # 战略雨云：文件 +0x21C0 = 运行时状态段 DS:0x2140，16×16B。
 # 前一半 DS:0x2040..0x213F 是运行期火灾/暴动对象空槽，不在新剧本中预置。
 OFF_WEATHER_CLOUD = 0x21C0
@@ -80,7 +80,8 @@ def parse_scenario(sc: bytes):
             g = sc[OFF_GENERAL + i * 32 : OFF_GENERAL + (i + 1) * 32]
             name = big5(g[2:8])
             if not name:
-                  break
+                  # Unsupported named projection: never silently drop later slots.
+                  raise ValueError(f"general slot {i}: empty decoded name; fixed-table projection unsupported")
             generals.append(
                   {
                         "idx": i,
@@ -90,7 +91,10 @@ def parse_scenario(sc: bytes):
                         "portrait": g[1],
                         "name": name,
                         "hao": big5(g[8:14]),
-                        "ability": {  # 0E..10高四位为专长；低四位仍未知需保留
+                        # KI 638F..63B2 compares full 0E..10 bytes for dialogue.
+                        # Preserve low nibbles separately; no duplicate high-bit authority.
+                        "specialty_low_bits": "".join(f"{g[offset] & 15:x}" for offset in (14, 15, 16)),
+                        "ability": {  # 0E..10高四位为专长；低位保留，不命名新属性
                               "siege": g[0x0E] >> 4,
                               "field": g[0x0F] >> 4,
                               "naval": g[0x10] >> 4,
@@ -129,7 +133,8 @@ def parse_scenario(sc: bytes):
       # 2BD9/3E8E按状态段0600h的完整24×24有向矩阵读取；
       # 公开势力数只控制UI视图，不能截掉声明外行列。
       out["nativeDiplomacyRaw"] = sc[0x680:0x8C0].hex()
-      # D56:0000..03FF事件轮；官方20章当前全零，仍保留原始初始化来源。
+      # D56:0000..03FF事件轮；19章完整全零，下库第4章缺2B。
+      # 局部解码保留实有字节，不补尾；完整导入另受精确长度门限制。
       out["nativeStrategicEventRaw"] = sc[0x52C0:0x56C0].hex()
 
       # ---- 势力 (24 × 64B) ----
@@ -198,13 +203,15 @@ def parse_scenario(sc: bytes):
             )
       out["factions"] = factions
 
-      # ---- 城池（原版192×32B；旧循环靠空名结束，暂不改逻辑）----
+      # ---- 城池：KI 89FB..8A07固定192×32B，文件8C0..20C0 ----
+      # 后续为地图对象，不凭其名称位置的偶然零字节决定城市表上界。
+      # 空名不能作为表尾；无法表示时明确拒绝，不补名或开放新增城市。
       cities = []
-      for i in range(200):
+      for i in range(192):
             c = sc[OFF_CITY + i * 32 : OFF_CITY + (i + 1) * 32]
             name = big5(c[2:8])
             if not name:
-                  break
+                  raise ValueError(f"city slot {i}: empty decoded name; fixed-table projection unsupported")
             fac = c[1]
             t = c[0x16] & 0x0F
             cities.append(
@@ -275,17 +282,18 @@ def read_scenarios(base=BASE):
       for src_dir in SOURCES:
             path = (base_dir / src_dir / "SINARIO.DAT").resolve()
             if not path.is_relative_to(base_dir):
-                  continue
+                  raise SystemExit(f"SINARIO source escapes base: {path}")
             try:
                   with open(str(path), "rb") as fh:  # nosec
                         d = fh.read()
             except OSError as e:
                   raise SystemExit(f"无法读取源文件 {path}: {e}") from e
             if len(d) != N_SCENARIO * SC_SIZE:
-                  # 容错: 尾部截断(如「下」少2字节)补零, 超长则报错
-                  if len(d) > N_SCENARIO * SC_SIZE:
-                        raise SystemExit(f"意外的大小 {len(d)}: {path}")
-                  d = d + b"\x00" * (N_SCENARIO * SC_SIZE - len(d))
+                  # Missing bytes are unknown, including the lower archive's
+                  # two-byte event tail. Never synthesize initializer evidence.
+                  raise SystemExit(
+                        f"SINARIO incomplete or oversized: expected={N_SCENARIO * SC_SIZE} actual={len(d)}: {path}"
+                  )
             for i in range(N_SCENARIO):
                   sc = parse_scenario(d[i * SC_SIZE : (i + 1) * SC_SIZE])
                   sc["_src"] = src_dir

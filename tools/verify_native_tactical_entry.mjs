@@ -161,6 +161,52 @@ test("native queued return refreshes before tail, rejects stale/repeated exits, 
   }
 });
 
+test("native siege handle keeps C13 byte scale through wall initialization and exit projection", async () => {
+  // 9CF9 reads C13 as u8; 9D04 multiplies (C13+50) by 10 only for
+  // the wall metric. 9FF8 divides that metric by 10, not the city fields.
+  // Controlled entry/wall fixtures; no tactical frames or 474A tail execution.
+  for (const kind of ["siege-attack", "siege-defence"]) {
+    for (const [troops, growth, defence] of [[0, 0, 0], [87, 104, 100], [255, 255, 255]]) {
+      const { app, talks } = appFixture(), sides = sidesFixture();
+      Object.assign(sides.city, { troops, growth, defence, sim: { troops } });
+      Object.assign(app.scenario, {
+        player_faction: kind === "siege-attack" ? 0 : 1,
+        generals: ratingGenerals(), factions: [{ idx: 0 }, { idx: 1 }], diplomacy: [[], []],
+      });
+      app.originalRng = app.activeBattleRng = new OriginalBattleRng({ ch: 3, cl: 4, dh: 5 });
+      const tiles = Array(4096).fill(0); tiles[10 * 64 + 20] = 0xd0;
+      app.battleMaps = {
+        layouts: { 1: tiles },
+        directory: Array.from({ length: 4 }, (_, idx) => ({ idx, layout: 1, theme: 0 })),
+        navigation: { layouts: { 1: { tiles, attributes: Array(0xf800).fill(0), schedule: Array(0x100).fill(0) } } },
+      };
+      let handle;
+      app.battleView.open = async value => { handle = value; };
+      const before = structuredClone(sides.city);
+      suspendNativeTacticalBattle(app, app.scenario, requestFixture(kind, kind === "siege-attack" ? 28 : 27, sides));
+      await talks[0].onClose();
+      assert.ok(handle, app._strategicBattleFailure?.error?.message);
+      assert.equal(handle.city, sides.city);
+      assert.equal(handle.exitContext.city, sides.city);
+      const walls = handle.session.wallRecords();
+      assert.equal(walls.filter(wall => wall.kind === 1).length, 1);
+      assert.equal(walls.find(wall => wall.kind === 1).metric, (troops + 50) * 10);
+      handle.session.finished = true; handle.session.winner = 0;
+      const rng = handle.session.rng.snapshot();
+      const intact = handle.session.settleExit(handle.exitContext).cityDamage;
+      assert.deepEqual([intact.damage, intact.troops, intact.growth, intact.defence], [0, troops, growth, defence]);
+      // Explicit zero-metric fixture models the local exit input, not combat.
+      const damagedWalls = walls.map(wall => wall.kind === 1 ? { ...wall, metric: 0 } : wall);
+      const damaged = handle.session.settleExit({ ...handle.exitContext, wallRecords: damagedWalls }).cityDamage;
+      const damage = Math.floor((troops + 50) / 8);
+      assert.deepEqual([damaged.damage, damaged.troops, damaged.growth, damaged.defence],
+        [damage, Math.max(0, troops - damage), Math.max(0, growth - damage), Math.max(0, defence - damage)]);
+      assert.deepEqual(handle.session.rng.snapshot(), rng);
+      assert.deepEqual(sides.city, before);
+    }
+  }
+});
+
 test("tactical suspend validates shape loudly without side effects", () => {
   const sides = sidesFixture();
   const cases = [

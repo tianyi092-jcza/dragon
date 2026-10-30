@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 KI_SHA = "fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868"
 WINDOWS = [(0x3C99, 0x3D08), (0x5E60, 0x5EE3), (0x6DFD, 0x6E2F),
            (0x807B, 0x80B0), (0x8810, 0x88B0), (0x8EA0, 0x8EE6),
-           (0x8FC9, 0x900D), (0x915B, 0x9165), (0x01B4, 0x01D5), (0x9796, 0x97C3)]
+           (0x8FC9, 0x900D), (0x915B, 0x9165), (0x01B4, 0x01D5), (0x9796, 0x97C3),
+           (0x3C3D, 0x3C99)]
 
 
 def require(condition, message):
@@ -56,6 +57,10 @@ def main():
         0x915B: "56a02152bb1a2d", 0x9162: "e86d76",
         0x01B4: "9c50535152", 0x01D2: "589dc3", 0x9796: "0650535257",
         0x97C0: "5807c3",
+        0x3C3D: "5053515657", 0x3C42: "b3932e3b36fd0c7411",
+        0x3C4B: "8a7c2a32dbd1ebd1ebd1eb8a9f41428bfe",
+        0x3C6C: "8ac3e89f4b", 0x3C75: "3c03741222e474163c027412",
+        0x3C81: "83c11db093e8874b", 0x3C93: "5f5e595b58c3",
     }
     for cs, hex_bytes in signatures.items():
         expected = bytes.fromhex(hex_bytes)
@@ -77,7 +82,7 @@ def main():
     decoder = Cs(CS_ARCH_X86, CS_MODE_16)
     lines = [f"KI SHA256 {KI_SHA}", "CS=file offset-0200; E8 is near16",
              "Bounded prefixes only; no DOS/CPU/pixel execution or full graph assertion"]
-    hashes, calls = {}, {}
+    hashes, calls, boundaries = {}, {}, set()
     for start, end in WINDOWS:
         block = at(start, end - start)
         hashes[f"{start:04X}..{end:04X}"] = digest(block)
@@ -85,6 +90,7 @@ def main():
         consumed = 0
         for instruction in decoder.disasm(block, start):
             consumed += instruction.size
+            boundaries.add(instruction.address)
             operand = instruction.op_str
             if instruction.bytes[0] == 0xE8 and instruction.size == 3:
                 target = (instruction.address + 3 + int.from_bytes(
@@ -93,6 +99,9 @@ def main():
                 operand = f"{target:04X} (near16)"
             lines.append(f"{instruction.address:04X} {instruction.bytes.hex()} {instruction.mnemonic} {operand}")
         require(consumed == len(block), "incomplete prefix decode")
+    require(all(address in boundaries for address in signatures), "signature not at decoded boundary")
+    require(calls.get("3C6E") == "8810" and calls.get("3C86") == "8810",
+            "upstream portrait calls changed")
     for target, sites in expected_candidates.items():
         for site in sites:
             if site not in (0x079D, 0xC3B0):
@@ -120,6 +129,8 @@ def main():
             "6E2C": "AL=G01 indexed by incoming legion SLOT pointer, not legion+2",
             "80AD": "AL=G01 indexed by incoming legion+2 commander (7F90/7F9B); old faction/advisor label withdrawn by portrait-domains audit",
             "882D": "entry AX restored at8823;01B4 saves/restoresAX on normal balanced far return, so AL=input portrait byte in that domain",
+            "3C6E->8810": "SI==CS:CFD selects constant93h; otherwise AL=G01 indexed by DS:[SI+2A]. No local FF check. Incoming SI/record domain remains unproved.",
+            "3C86->8810": "optional second call uses constant93h after restoring AX; reached only for incoming AL!=3, AH!=0 and AL!=2, on normal balanced first helper return.",
             "887C": "AL=93h restored from savedAX; CX=FFFF skips this message",
             "8899": "9796 saves/restoresAX at9797/97C0 on normal balanced FAC2 return; AL=input portrait byte in that domain",
             "8EE3": "8EDC/8EDE skip AL=FF locally, not universal helper policy",

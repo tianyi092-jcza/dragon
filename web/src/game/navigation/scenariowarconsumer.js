@@ -29,8 +29,10 @@ const resourceWord = (money) => {
  * table on the original fixed state regions (re-notes §39):
  *   0x580..0x5FF  faction slots 22/23 — all four official chapters all-zero;
  *   0x600..0x83F  the live 24x24 diplomacy matrix bytes;
- *   0x840..0x8FF  city records 0..5; byte +1 is the live owner, every other
- *                 read offset is static chapter bytes via nativeCityRecordRaw.
+ *   0x840..0x8FF  city records 0..5; +1 owner and +11 defence use live fields.
+ *                 Other offsets retain static nativeCityRecordRaw (not a
+ *                 claim that every remaining byte has no runtime writer).
+ * C11 provenance: re-notes-entity-fields.md#city-defence-live-alias.
  * T >= 0x24 never reaches 3091 (35C3 `80 FC 24` / jae writes directly).
  */
 export const aliasStateByte = (sc, absolute, at) => {
@@ -45,12 +47,20 @@ export const aliasStateByte = (sc, absolute, at) => {
   }
   const slot = (absolute - 0x840) >>> 5;
   const offset = (absolute - 0x840) & 0x1f;
-  if (offset === 1) {
+  if (offset === 1 || offset === 0x11) {
     const city = sc?.cities?.[slot];
     if (!city || city.idx !== slot)
       throw new RangeError(
         `Web engineering Uncovered native type1 alias city at ${at}`,
       );
+    if (offset === 0x11) {
+      const defence = own(city, "defence", at);
+      if (!Number.isInteger(defence) || defence < 0 || defence > 0xff)
+        throw new RangeError(
+          `Web engineering Uncovered native type1 alias city defence at ${at}`,
+        );
+      return defence;
+    }
     if (city.faction === null) return 0x18;
     if (
       !Number.isInteger(city.faction) ||

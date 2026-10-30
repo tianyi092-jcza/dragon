@@ -60,7 +60,7 @@ try {
   assert.match(facts.schemaDigest, /^[a-f0-9]{64}$/);
   assert.equal(outbound, 0);
   if (process.argv.includes('--rows')) {
-    assert.equal(facts.rowChecks.groups, 16);
+    assert.equal(facts.rowChecks.groups, 18);
     process.stdout.write(JSON.stringify(facts.rowChecks, null, 2) + '\n');
   }
   process.stdout.write('distribution schema: actual Root 50 tables / 49 indexes / 343 columns; declarations, columns, FK and index attributes match frozen gate\n');

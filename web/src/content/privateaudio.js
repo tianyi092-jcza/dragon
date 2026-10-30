@@ -38,11 +38,11 @@ function wav(bytes,targetRate){
  * owned bookkeeping. No settled decode cache, source nodes, automatic playback or loops.
  * PCM budget is a metadata/postdecode bound, NOT browser heap/CPU allocation enforcement.
  */
-export function createPrivateAudioContext(reference,{audioContext,fetcher,subtle,assertCurrent}={}){
+export function createPrivateAudioContext(reference,{audioContext,fetcher,subtle,assertCurrent,libraryIdentity}={}){
   need(typeof assertCurrent==='function'&&audioContext&&typeof audioContext.decodeAudioData==='function'&&Number.isInteger(audioContext.sampleRate)&&audioContext.sampleRate>=8000&&audioContext.sampleRate<=192000,'PORTS');
   const targetRate=audioContext.sampleRate;let closed=false,pending=false;const owned=new Set();
   function check(){need(!closed,'CLOSED');assertCurrent();need(!closed,'CLOSED');need(audioContext.sampleRate===targetRate&&audioContext.state!=='closed','CONTEXT');}
-  const bytes=createPrivateByteContext(reference,{fetcher,subtle,assertCurrent:check});
+  const bytes=createPrivateByteContext(reference,{fetcher,subtle,assertCurrent:check,libraryIdentity});
   async function readAudio(value){
     check();const x=capture(value);need(x.kind==='private-library'&&typeof x.logicalURL==='string'&&((x.mime==='audio/flac'&&x.logicalURL.endsWith('.flac'))||(x.mime==='audio/wav'&&x.logicalURL.endsWith('.wav'))),'FORMAT');need(!pending&&owned.size===0,'OWNED_BUDGET');pending=true;
     try{

@@ -10,10 +10,12 @@ function exact(value, keys) { if (!value || Array.isArray(value) || typeof value
 function descriptor(value, max = 4 * 1024 * 1024) { exact(value, ['sha256', 'byteLength']); if (typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256) || !Number.isSafeInteger(value.byteLength) || value.byteLength < 1) fail(422, 'SOURCE_DESCRIPTOR'); if (value.byteLength > max) fail(413, 'SOURCE_OBJECT_TOO_LARGE'); }
 function summary(row) { return { registryId: row.registry_id, definitionDigest: row.definition_digest, rootDigest: row.root_digest, rootByteLength: row.root_byte_length, rowRevision: row.row_revision, registeredAt: row.registered_at }; }
 export class InstalledSourceCatalog {
-  #storage; #sql; #bucket; #principal; #policy; #operationGuard; #definitionDigest; #captures = new WeakMap();
-  constructor({ storage, bucket, principal, policy, operationGuard }) {
+  #storage; #sql; #bucket; #principal; #policy; #operationGuard; #definitionDigest; #readRole; #captures = new WeakMap();
+  constructor({ storage, bucket, principal, policy, operationGuard, readRole = 'admin' }) {
     if (!storage?.sql || typeof bucket?.get !== 'function' || typeof principal !== 'function' || !isInstalledSourcePolicy(policy)) throw new TypeError('actual SQLite/R2/principal and branded pinned policy required');
     if (operationGuard !== undefined && typeof operationGuard !== 'function') throw new TypeError('trusted source operation guard required');
+    if (!['admin', 'author'].includes(readRole)) throw new TypeError('trusted source read role required');
+    this.#readRole = readRole;
     this.#operationGuard = operationGuard;
     this.#storage = storage; this.#sql = storage.sql; this.#bucket = bucket; this.#principal = principal; this.#policy = policy; this.#definitionDigest = hash(Buffer.from(text(policy)));
     storage.transactionSync(() => {
@@ -22,7 +24,7 @@ export class InstalledSourceCatalog {
     });
   }
   #actor(tokenHash, previous) {
-    const actor = this.#principal(tokenHash); if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED'); if (actor.role !== 'admin') fail(403, 'FULL_COPY_SOURCE_ADMIN_REQUIRED');
+    const actor = this.#principal(tokenHash); if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED'); if (actor.role !== this.#readRole) fail(403, 'FULL_COPY_SOURCE_ADMIN_REQUIRED');
     if (previous && (actor.id !== previous.id || actor.epoch !== previous.epoch)) fail(401, 'SESSION_INVALID'); return actor;
   }
   #id(id) { if (typeof id !== 'string' || id !== this.#policy.registryId) fail(404, 'SOURCE_NOT_REGISTERED'); }
@@ -33,7 +35,9 @@ export class InstalledSourceCatalog {
   }
   async #object(tokenHash, actor, id, part, registered) {
     descriptor(part); this.#check(tokenHash, actor, registered);
-    const object = await this.#bucket.get(`installed/${id}/${part.sha256}`);
+    let object;
+    try { object = await this.#bucket.get(`installed/${id}/${part.sha256}`); }
+    catch (error) { this.#check(tokenHash, actor, registered); throw error; }
     try { this.#check(tokenHash, actor, registered); } catch (error) { try { await object?.body?.cancel(); } catch { /* Preserve authority failure. */ } throw error; }
     if (!object) fail(404, 'SOURCE_OBJECT_MISSING');
     if (!object.body || object.size !== part.byteLength) { try { await object.body?.cancel(); } catch { /* Preserve integrity failure. */ } fail(503, 'SOURCE_OBJECT_CORRUPT'); }
@@ -41,7 +45,7 @@ export class InstalledSourceCatalog {
     try {
       for (;;) { const { done, value } = await reader.read(); this.#check(tokenHash, actor, registered); if (done) break; if (!(value instanceof Uint8Array)) fail(503, 'SOURCE_OBJECT_CORRUPT'); length += value.length; if (length > part.byteLength) fail(503, 'SOURCE_OBJECT_CORRUPT'); h.update(value); pieces.push(value); }
       if (length !== part.byteLength || h.digest('hex') !== part.sha256) fail(503, 'SOURCE_OBJECT_CORRUPT');
-    } catch (error) { try { await reader.cancel(); } catch { /* Preserve first error. */ } throw error; } finally { reader.releaseLock(); }
+    } catch (error) { try { await reader.cancel(); } catch { /* Preserve authority or original read failure. */ } this.#check(tokenHash, actor, registered); throw error; } finally { reader.releaseLock(); }
     this.#check(tokenHash, actor, registered); const bytes = new Uint8Array(length); let at = 0; for (const piece of pieces) { bytes.set(piece, at); at += piece.length; } return bytes;
   }
   async #verify(tokenHash, actor, id, root, registered, materialize) {
@@ -62,6 +66,9 @@ export class InstalledSourceCatalog {
     this.#check(tokenHash, actor, registered); return result;
   }
   async install(tokenHash, registryId, input, operationKey) {
+    // Author materialization is a trusted read-only port over an already
+    // administrator-installed fixed registry, never installation authority.
+    if (this.#readRole !== 'admin') fail(403, 'FULL_COPY_SOURCE_ADMIN_REQUIRED');
     const actor = this.#actor(tokenHash); this.#id(registryId); const root = capture(input); descriptor(root, 1024 * 1024);
     if (typeof operationKey !== 'string' || !/^[a-zA-Z0-9_-]{16,128}$/.test(operationKey)) fail(422, 'SOURCE_OPERATION_KEY');
     const requestDigest = hash(Buffer.from(text({ registryId, root, definitionDigest: this.#definitionDigest })));

@@ -2,13 +2,18 @@
 // Only the configured editor Host is accepted. Proxy/source headers are never
 // trusted: rate identity comes from the socket (shared behind a local proxy).
 import { register } from 'node:module';
+import { readFile } from 'node:fs/promises';
+import { KAO_MANIFEST } from '../web/kao/manifest.js';
 import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { config, HttpError } from '../server/security.js';
 register('./text-loader.mjs', import.meta.url);
 const { createEditorApplication, createEditorGateway } = await import('../server/editorapp.js');
-const EditorApplication = createEditorApplication(class NodeApplicationBase {});
+const portraitFiles = new Map(KAO_MANIFEST.map(entry => [entry.id, new URL(`../web/kao/${entry.file}`, import.meta.url)]));
+// Only the common application's manifest-validated descriptor reaches this port.
+const readSharedPortrait = descriptor => readFile(portraitFiles.get(descriptor.assetId));
+const EditorApplication = createEditorApplication(class NodeApplicationBase {}, { readSharedPortrait });
 const LIMIT = 16384; // Same bounded JSON request contract as server/security.js.
 const errorReply = (status, error) => Response.json({ error }, { status, headers: {
   'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
@@ -19,7 +24,7 @@ export function createEditorService({ storage, bucket, env, runtimeStager, froze
   if (!storage?.sql || !bucket) throw new TypeError('SQLite and private bucket ports required');
   const bindings = { ...env, EDITOR_BLOBS: bucket };
   // Trusted startup option only; the shared factory validates it before SQL.
-  const Application = runtimeStager === undefined && frozenPublication === false ? EditorApplication : createEditorApplication(class NodeApplicationBase {}, { runtimeStager, frozenPublication });
+  const Application = runtimeStager === undefined && frozenPublication === false ? EditorApplication : createEditorApplication(class NodeApplicationBase {}, { runtimeStager, frozenPublication, readSharedPortrait });
   const entry = createEditorGateway({ frozenPublication });
   const application = new Application({ storage }, bindings);
   bindings.EDITOR_METADATA = {

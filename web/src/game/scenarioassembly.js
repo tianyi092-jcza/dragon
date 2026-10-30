@@ -358,9 +358,11 @@ export async function prepareScenario({
   // 89F0 opening pass (G-完结): the original 1BE6 startup chain repaints
   // all 192 cities through the SAME 8A1E body production captures use
   // (centers + corners per owner; 89FB..8A07 loop re-read this round).
-  // Fresh initial plane only: restores carry their own plane (no 89F0
-  // caller exists on the load path: callers are 1B87 tactical-return +
-  // 1BE6 startup), and explicit test planes are used as planted. The
+  // Web fresh initial plane only: restores retain their saved plane,
+  // and explicit test planes are used as planted. DOS load DOES join the
+  // common 0067 -> 1BE0 -> 1BE6 -> 89F0 path after 1ADE -> 1B2C;
+  // it is not evidence for this Web snapshot policy. See the initialization
+  // evidence note's shared new/load paint-entry section. The
   // tactical-return pass is idempotent (same owners, no other writers)
   // and stays out of scope. City coords are gate-validated above, so the
   // y<2 segment-alias stop cannot fire on admitted scenarios.

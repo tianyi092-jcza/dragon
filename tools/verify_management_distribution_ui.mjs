@@ -18,10 +18,11 @@ function setup(action='list') {
  const observed={version:1,gameId:G,result,distribution:{gameId:G,operationId:R,generation:2,kind:action==='list'?'listing':'restriction',state:'pending',visibleAt:null,recoveryRequired:false}};
  let post=async()=>structuredClone(result),get=async()=>structuredClone(result),status=async()=>structuredClone(observed);
  const storage={getItem:k=>journal.get(k)??null,setItem(k,v){if(storeMode==='throw')throw new Error('owned quota');if(storeMode!=='silent')journal.set(k,v);},removeItem:k=>journal.delete(k)};
- const confirm=text=>{prompts.push(text);return consent;};
+ let confirmHook=()=>{};
+ const confirm=text=>{prompts.push(text);confirmHook();return consent;};
  const api=async(path,value,options)=>{calls.push({path,value:structuredClone(value),options:structuredClone(options)});if(value!==undefined)return post();if(path==='/api/admin/games')return {games:[g]};if(path.endsWith('/distribution'))return status();if(path.includes('/management-operations/'))return get();throw new Error('unexpected UI path');};
  let ui;const mount=()=>{ui=installGameManagement({api,authority:()=>identity,work:fn=>fn(),isBusy:()=>false,storage,confirm,publish:value=>{model=value;}});ui.setIdentity(identity);};mount();
- return {nodes,get model(){return model;},journal,calls,prompts,result,observed,g,mount,get ui(){return ui;},load:()=>ui.actions.refresh(),start:()=>ui.actions.start(model.games[0].gameId,model.games[0].rowRevision,action),query:()=>ui.actions.query(),retry:()=>ui.actions.retry(),forget:()=>ui.actions.forget(),text:()=>nodes['management-result'].textContent,posts:()=>calls.filter(c=>c.value!==undefined),post:fn=>{post=fn;},get:fn=>{get=fn;},status:fn=>{status=fn;},consent:v=>{consent=v;},storeMode:v=>{storeMode=v;},identity:v=>{identity=v;ui.setIdentity(v);}};
+ return {nodes,get model(){return model;},journal,calls,prompts,result,observed,g,mount,get ui(){return ui;},load:()=>ui.actions.refresh(),start:()=>ui.actions.start(model.games[0].gameId,model.games[0].rowRevision,action),query:()=>ui.actions.query(),retry:()=>ui.actions.retry(),forget:()=>ui.actions.forget(),text:()=>nodes['management-result'].textContent,posts:()=>calls.filter(c=>c.value!==undefined),post:fn=>{post=fn;},get:fn=>{get=fn;},status:fn=>{status=fn;},confirmHook:fn=>{confirmHook=fn;},consent:v=>{consent=v;},storeMode:v=>{storeMode=v;},identity:v=>{identity=v;ui.setIdentity(v);}};
 }
 for(const action of ['list','unlist','clear-restriction']){
  const f=setup(action);await f.load();f.post(async()=>{assert.ok(f.journal.has(key),'journal before POST');return structuredClone(f.result);});await f.start();
@@ -64,5 +65,26 @@ for(const role of ['author','admin']){const f=setup();f.identity({user:{...actor
 {
  const f=setup();await f.load();const n=f.calls.length;f.model.games[0].gameId=R;f.model.games[0].actions[0].disabled=true;f.ui.render();assert.equal(f.model.games[0].gameId,G);assert.equal(f.model.games[0].actions[0].disabled,false);assert.doesNotMatch(JSON.stringify(f.model),/metadata|sourceDigest|csrf/);assert.equal(f.calls.length,n);checks++;
  await assert.rejects(f.ui.actions.start(R,'4','list'));await assert.rejects(f.ui.actions.start(G,'999','list'));f.consent(false);await f.start();assert.equal(f.posts().length,0);assert.equal(f.journal.size,0);checks++;
+}
+// Confirmation callbacks model invalidation while a native dialog is open.
+for (const transition of ['other', 'version', 'logout', 'aba']) {
+ const f=setup(); await f.load();
+ const next={user:{...actor.user,id:transition==='other'?R:A,version:transition==='version'?2:1}};
+ f.confirmHook(()=>{if(transition==='logout'||transition==='aba')f.identity(null);if(transition!=='logout')f.identity(next);});
+ await assert.rejects(f.start()); assert.equal(f.posts().length,0); assert.equal(f.journal.size,0); checks++;
+}
+for (const operation of ['forget','retry']) {
+ const f=setup();await f.load();f.post(async()=>{throw failure(503,'LOST');});await assert.rejects(f.start());
+ f.get(async()=>{throw failure(404,'MANAGEMENT_OPERATION_NOT_FOUND');});await assert.rejects(f.query());
+ const original=f.journal.get(key),otherKey='editor-management-operation:'+R;
+ const other={...parse(original),actorId:R,key:'owned-other-management-key'};f.journal.set(otherKey,JSON.stringify(other));
+ f.confirmHook(()=>f.identity({user:{...actor.user,id:R}}));
+ await assert.rejects(f[operation]());assert.equal(f.journal.get(key),original);assert.equal(f.journal.get(otherKey),JSON.stringify(other));assert.equal(f.posts().length,1);checks++;
+}
+{
+ const f=setup();await f.load();f.post(async()=>{throw failure(503,'LOST');});await assert.rejects(f.start());
+ f.get(async()=>{throw failure(404,'MANAGEMENT_OPERATION_NOT_FOUND');});await assert.rejects(f.query());
+ let query,release;f.get(()=>new Promise(r=>{release=r;}));f.confirmHook(()=>{query=f.query();});
+ await assert.rejects(f.retry());assert.equal(f.posts().length,1);release(f.result);await query;checks++;
 }
 process.stdout.write(JSON.stringify({checks,scope:'Actual management controller with owned display/session/transport seams; no server authority proof'})+'\n');

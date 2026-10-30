@@ -3,6 +3,7 @@
 // (moveCityIntent/brokenRoads) + gate integration on VPS ports. Usage:
 // node tools/verify_vps_topology_intent.mjs
 import { mkdtempSync } from 'node:fs';
+import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -59,13 +60,19 @@ check('broken derived', broken.includes('road-0') && broken.every(id => {
 check('empty moves none broken', brokenRoads(probe, []).length === 0);
 
 // (b) Gate integration: record -> save refused -> clear -> save works.
-const OWNER = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaa01';
+const OWNER = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaa01', FOREIGN = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaa02', ADMIN = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaa03';
 const storage = openStorage(':memory:');
 storage.transactionSync(() => {
   storage.sql.exec("CREATE TABLE users (id TEXT PRIMARY KEY, account TEXT UNIQUE NOT NULL, role TEXT NOT NULL, password_hash TEXT NOT NULL, disabled INTEGER NOT NULL, must_change INTEGER NOT NULL, epoch INTEGER NOT NULL, version INTEGER NOT NULL)");
   storage.sql.exec('INSERT INTO users VALUES(?,?,?,?,?,?,?,?)', OWNER, 'author_topo', 'author', '{}', 0, 0, 1, 1);
+  storage.sql.exec('INSERT INTO users VALUES(?,?,?,?,?,?,?,?)', FOREIGN, 'other_topo', 'author', '{}', 0, 0, 1, 1);
+  storage.sql.exec('INSERT INTO users VALUES(?,?,?,?,?,?,?,?)', ADMIN, 'admin_topo', 'admin', '{}', 0, 0, 1, 1);
 });
-const principal = h => { if (h !== 'h1') { fail(401, 'SESSION_INVALID'); } return { id: OWNER, role: 'author', epoch: 1, must_change: 0 }; };
+const principal = h => {
+  const id = { h1: OWNER, hf: FOREIGN, ha: ADMIN }[h];
+  if (!id) fail(401, 'SESSION_INVALID');
+  return { id, role: id === ADMIN ? 'admin' : 'author', epoch: 1, must_change: 0 };
+};
 const bucket = new FileBucket({ root: join(mkdtempSync(join(tmpdir(), 'vps-topo-')), 'data') });
 const journal = new PrivateWriteJournal({ storage, bucket });
 const authority = () => ({ ownerId: OWNER, epoch: 1 });
@@ -107,7 +114,7 @@ await fails('save blocked 422', async () => drafts.save('h1', GAME, '1', 'topo-s
 check('clear one', topo.clear('h1', GAME, 'city-000') === 1 && !hasPendingMoves(storage, GAME));
 const saved = await drafts.save('h1', GAME, '1', 'topo-save-0000000002', 'e'.repeat(64), input1);
 check('save works after clear', saved.draftRevision === '1');
-await fails('cross-owner record 404', async () => topo.record('hx', game, { cityId: 'city-000', x: 250, y: 9 }), 'SESSION_INVALID');
+await fails('invalid principal record 401', async () => topo.record('hx', game, { cityId: 'city-000', x: 250, y: 9 }), 'SESSION_INVALID');
 
 // (c) B-2 rebuild recording + status display (gate stays red).
 const rec2 = topo.record('h1', game, { cityId: 'city-000', x: 250, y: 9 });
@@ -125,4 +132,29 @@ await fails('bad geometry 422', async () => topo.rebuild('h1', game, { roadId: r
 await fails('bad kind 422', async () => topo.rebuild('h1', game, { roadId: road0.id, geometry: geo, travelKind: 'air' }), 'TOPOLOGY_TRAVEL_KIND');
 await fails('unknown road 404', async () => topo.rebuild('h1', game, { roadId: 'road-zzz', geometry: geo, travelKind: 'land' }), 'TOPOLOGY_ROAD_NOT_FOUND');
 
+// A durable fence must freeze both intent tables, including clear operations.
+// This is an explicit SQLite fence fixture, not a physical deletion transaction.
+topo.rebuild('h1', game, { roadId: road0.id, geometry: geo, travelKind: road0.travelKind });
+const snapshot = () => ['draft_topology_moves', 'draft_topology_rebuilds', 'content_games'].map(table => storage.sql.exec(`SELECT * FROM ${table} ORDER BY rowid`).toArray());
+const frozen = snapshot(), gameDigest = createHash('sha256').update(JSON.stringify(game)).digest('hex');
+storage.sql.exec('INSERT INTO content_deletion_fences VALUES(?,?,?,?,?,?)', GAME, OWNER, OWNER, '1', '2', new Date().toISOString());
+for (const [name, operation] of [
+  ['record', token => topo.record(token, game, { cityId: 'city-000', x: 251, y: 9 })],
+  ['rebuild', token => topo.rebuild(token, game, { roadId: road0.id, geometry: geo, travelKind: 'water' })],
+  ['clear one', token => topo.clear(token, GAME, 'city-000')],
+  ['clear all', token => topo.clear(token, GAME)],
+  ['clear rebuild', token => topo.clearRebuild(token, GAME, road0.id)],
+  ['list', token => topo.list(token, GAME)],
+  ['list rebuilds', token => topo.listRebuilds(token, GAME)],
+  ['status', token => topo.status(token, game, GAME)],
+]) {
+  assert.throws(() => operation('h1'), error => error instanceof HttpError && error.code === 'GAME_DELETING', name);
+  for (const token of ['hf', 'ha']) assert.throws(() => operation(token), error => error instanceof HttpError && error.code === 'GAME_NOT_FOUND', `${name}: foreign author/admin`);
+  assert.deepEqual(snapshot(), frozen);
+  check(`fenced ${name} rejected without changing either intent table or game metadata`, true);
+}
+assert.equal(createHash('sha256').update(JSON.stringify(game)).digest('hex'), gameDigest);
+assert.equal(hasPendingMoves(storage, GAME), true);
+assert.equal(storage.sql.exec('SELECT * FROM content_deletion_fences WHERE game_id=?', GAME).toArray().length, 1);
+check('fence and pending gate retained; captured source unchanged', true);
 console.log(`passed ${passed} checks`);

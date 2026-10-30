@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { readInstalledEditorSource } from "./editor_builtin_source.mjs";
-import { copyBuiltinGame } from "../web/src/content/authoring/gamesource.js";
+import { copyBuiltinGame, disbandFaction } from "../web/src/content/authoring/gamesource.js";
 import { editChapterResources } from "../web/src/editor/chapterresources.js";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex"), inputs = {}, tools = {};
 const priorIDB = Object.getOwnPropertyDescriptor(globalThis, "indexedDB"); let implicitIDB = 0;
@@ -14,7 +14,7 @@ try {
   const game = copyBuiltinGame({ gameId: "resource-memory", ownerId: "fixture-not-auth", kind: "full", source }, sha), original = JSON.stringify(game);
   const fields = { money: [0x20, 3, -0x800000, 0x7fffff], reserve_cav: [4, 2, 0, 65535], reserve_arc: [6, 2, 0, 65535], reserve_inf: [8, 2, 0, 65535] };
   function expected(base, chapterId, slot, changes) {
-    const next = structuredClone(base), state = next.chapters[chapterId].state, row = state.factions[slot];
+    const next = structuredClone(base), state = next.chapters[chapterId].state, row = state.factions.find(faction => faction.idx === slot);
     for (const [name, value] of Object.entries(changes)) {
       if (value === row[name]) continue;
       const [offset, size] = fields[name], b = Buffer.alloc(size); if (name === "money") b.writeIntLE(value, 0, size); else b.writeUIntLE(value, 0, size);
@@ -32,6 +32,17 @@ try {
     assert.equal(editChapterResources(game, id, 0, { money: rows[0].money }), game); checks++;
   }
   const id = game.chapterOrder[0], slot = 0;
+  const compacted = structuredClone(game), removedSlot = compacted.chapters[id].state.factions[0].idx;
+  disbandFaction(compacted, id, removedSlot);
+  const survivingSlot = compacted.chapters[id].state.factions[0].idx;
+  assert.notEqual(survivingSlot, 0);
+  const compactedBefore = JSON.stringify(compacted);
+  for (const name of Object.keys(fields)) {
+    const patch = { [name]: compacted.chapters[id].state.factions[0][name] + 1 };
+    assert.deepEqual(editChapterResources(compacted, id, survivingSlot, patch), expected(compacted, id, survivingSlot, patch)); checks++;
+  }
+  assert.equal(JSON.stringify(compacted), compactedBefore);
+  assert.throws(() => editChapterResources(compacted, id, removedSlot, { money: 1 })); negatives++;
   for (const [name, [, , min, max]] of Object.entries(fields)) for (const value of [min, max]) { assert.deepEqual(editChapterResources(game, id, slot, { [name]: value }), expected(game, id, slot, { [name]: value })); checks++; }
   const unknown = structuredClone(game); unknown.chapters[id].state.factions[slot].raw = unknown.chapters[id].state.factions[slot].raw.slice(0, 22) + "aa" + unknown.chapters[id].state.factions[slot].raw.slice(24);
   unknown.chapters[id].state.nativeFactionSlotRaw[slot] = unknown.chapters[id].state.nativeFactionSlotRaw[slot].slice(0, 22) + "bb" + unknown.chapters[id].state.nativeFactionSlotRaw[slot].slice(24);

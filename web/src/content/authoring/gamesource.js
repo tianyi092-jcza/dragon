@@ -9,16 +9,20 @@
 // Rule profile: ki-1995/web-0.1.1 (shared, never renamed per game).
 import { validateMapSource } from "./mapcompile.js";
 import { deriveSlots } from "./roadedit.js";
+import { captureChapterCities } from "./cityrecords.js";
+import { factionNativeConsistencyGaps } from "./factionconsistency.js";
 
 export const GAMESOURCE_SCHEMA = 1;
 export const GAME_RULE_PROFILE = "ki-1995/web-0.1.1";
 export const BUILTIN_GAME_ID = "wolong-builtin";
 
 // (ii) 立法＋修正案 A（用户批准 2026-10-10，非原版机制）：保存门（必填＋连接性）与 active 门
-// （全字段＋交叉＋计数）。类型只断言 typeof 级别（内置 20 章实测值域），不发明数值范围；武将
+// （全字段＋交叉＋计数）。一般数值不猜规则范围；能力另核已证存储表示，非可玩值域。
 // faction/join_faction 经内置章反例证非严格外键，不验；将数暂锁 128 dense、城数 192 锁，章节/势力开放。
 const GENERAL_NUMBER_FIELDS = ["idx","attr","portrait","battle_rating","assignment_budget","battle_formation","status","talk_idx","captive_flag","appear_months"];
-const ABILITY_FIELDS = ["siege","field","naval","force","lead","politics"];
+// KI G+0E..10 high nibble; G+11..13 full byte. See editor-ability-import.md.
+// Reject impossible representations without granting high-value author/runtime admission.
+const ABILITY_LIMITS = Object.freeze({ siege: 15, field: 15, naval: 15, force: 255, lead: 255, politics: 255 });
 const CITY_NUMBER_FIELDS = ["idx","max_prod","prod","growth","defence","troops","troops_cap","type","view"];
 const FACTION_NUMBER_FIELDS = ["idx","attr","monarch_idx","capital","n_generals","money","legion_morale_cap","reserve_cav","reserve_arc","reserve_inf","n_cities","bellicosity","talk_style","march_marker_style"];
 const FACTION_NULLABLE_NUMBER_FIELDS = ["advisor_idx","diplomat_idx","target_faction","strategic_city_primary","strategic_city_secondary"];
@@ -26,13 +30,18 @@ const isFiniteNumber = (v) => typeof v === "number" && Number.isFinite(v);
 function pushNumberFields(record, fields, label, gaps, code) {
   for (const f of fields) if (!isFiniteNumber(record?.[f])) gaps.push({ code, subject: label, message: `${label}.${f} must be a finite number` });
 }
-// 保存门：缺即拒存（草稿亦不存）。只验必填存在，不验 active；连接性由 map roads 既有校验覆盖。
+// 保存门：必填缺失或已提供的保真字段格式错误均拒存；不验 active。
+// 连接性由 map roads 既有校验覆盖。
 export function chapterSaveGaps(state, chapterId = "?") {
   const gaps = [];
   for (const [i, g] of (state?.generals ?? []).entries()) {
     const label = `chapter ${chapterId} general[${i}]`;
     if (typeof g?.name !== "string" || !g.name.trim()) gaps.push({ code: "entity-save", subject: label, message: `${label}.name is required` });
     if (!Number.isInteger(g?.portrait)) gaps.push({ code: "entity-save", subject: label, message: `${label}.portrait is required` });
+    // Optional imported G0E/G0F/G10 low nibbles; never infer zero for old sources.
+    if (g != null && Object.hasOwn(g, "specialty_low_bits") &&
+        (typeof g.specialty_low_bits !== "string" || !/^[0-9a-f]{3}$/.test(g.specialty_low_bits)))
+      gaps.push({ code: "entity-save", subject: label, message: `${label}.specialty_low_bits must be three lowercase hex nibbles` });
   }
   for (const [i, c] of (state?.cities ?? []).entries()) {
     const label = `chapter ${chapterId} city[${i}]`;
@@ -49,6 +58,9 @@ export function chapterActiveGaps(state, chapterId = "?") {
   const factions = Array.isArray(state?.factions) ? state.factions : [];
   if (generals.length !== 128) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} generals must be 128 dense (locked)` });
   if (cities.length !== 192) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} cities must be 192 (locked)` });
+  // Web product Q40 (game-editor-design §4.5), not an original-game formula:
+  // incomplete drafts may have no factions, but cannot enter Trial/publication.
+  if (!factions.length) gaps.push({ code: "chapter-factions", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} factions must include at least one entry` });
   const gidx = new Set(), cidx = new Set(), fids = new Set();
   for (const g of generals) {
     if (!Number.isInteger(g?.idx) || g.idx < 0 || g.idx > 127 || gidx.has(g.idx)) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `general idx must be unique 0..127` });
@@ -58,13 +70,23 @@ export function chapterActiveGaps(state, chapterId = "?") {
     if (!Number.isInteger(c?.idx) || c.idx < 0 || c.idx > 191 || cidx.has(c.idx)) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `city idx must be unique 0..191` });
     else cidx.add(c.idx);
   }
-  for (const fa of factions) { if (Number.isInteger(fa?.idx)) fids.add(fa.idx); }
+  // Fixed-profile public identities: KI 3E4C..3E55 steps 40h to 580h.
+  // Physical slots 22/23 stay in native data, not this public faction list.
+  // Uniqueness is the authoring identity contract, not a new rule formula.
+  for (const fa of factions) {
+    if (!Number.isInteger(fa?.idx) || fa.idx < 0 || fa.idx > 21 || fids.has(fa.idx)) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: "faction idx must be unique 0..21" });
+    else fids.add(fa.idx);
+  }
   for (const [i, g] of generals.entries()) {
     const label = `chapter ${chapterId} general[${i}]`;
     pushNumberFields(g, GENERAL_NUMBER_FIELDS, label, gaps, "entity-field");
     if (typeof g?.name !== "string" || typeof g?.hao !== "string") gaps.push({ code: "entity-field", subject: label, message: `${label}.name/hao must be strings` });
-    if (isPlainObject(g?.ability)) pushNumberFields(g.ability, ABILITY_FIELDS, `${label}.ability`, gaps, "entity-field");
-    else gaps.push({ code: "entity-field", subject: label, message: `${label}.ability must be an object` });
+    if (isPlainObject(g?.ability)) {
+      for (const [field, max] of Object.entries(ABILITY_LIMITS)) {
+        const value = g.ability[field];
+        if (!Number.isInteger(value) || value < 0 || value > max) gaps.push({ code: "entity-field", subject: `${label}.ability`, message: `${label}.ability.${field} must be an integer in 0..${max}` });
+      }
+    } else gaps.push({ code: "entity-field", subject: label, message: `${label}.ability must be an object` });
     for (const f of ["join_faction","faction"]) if (g?.[f] !== null && g?.[f] !== undefined && !Number.isInteger(g[f])) gaps.push({ code: "entity-field", subject: label, message: `${label}.${f} must be an integer or null` });
   }
   for (const [i, c] of cities.entries()) {
@@ -83,6 +105,7 @@ export function chapterActiveGaps(state, chapterId = "?") {
     if (fa?.advisor_idx !== null && fa?.advisor_idx !== undefined && !gidx.has(fa.advisor_idx)) gaps.push({ code: "entity-ref", subject: label, message: `${label} advisor ${fa.advisor_idx} is unknown` });
     if (!cidx.has(fa?.capital)) gaps.push({ code: "entity-ref", subject: label, message: `${label} capital ${fa?.capital} is unknown` });
   }
+  gaps.push(...factionNativeConsistencyGaps(state, chapterId));
   return gaps;
 }
 
@@ -362,11 +385,12 @@ export function deleteChapter(game, chapterId) {
 export function renameChapter(game, chapterId, name) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   chapterEntry(game, chapterId);
-  // No invented length rule: chapter display names carry no engine limit in
-  // the model; only control characters are refused (mirrors checkGameName).
+  // Normalize before applying the existing display-name budget and text
+  // checks. This budget is not an original-engine field limit.
   if (typeof name !== "string" || !name.trim()) throw new RangeError("chapter name required");
-  checkGameName(name.trim(), 40);
-  game.chapters[chapterId].name = name.trim().normalize("NFC");
+  const normalized = name.trim().normalize("NFC");
+  checkGameName(normalized, 40);
+  game.chapters[chapterId].name = normalized;
 }
 // Stronghold references (§4.2): placement status and reference lists are
 // derived, never stored. Base cities are 192-locked with frozen slots/coords
@@ -378,11 +402,25 @@ export function cityReferences(game, cityId) {
   if (!isPlainObject(city) || city.cityId !== cityId) throw new RangeError(`unknown city: ${cityId}`);
   const placed = (game.map?.placements ?? []).some(place => place?.cityId === cityId);
   const roads = (game.map?.roads ?? []).filter(road => road?.fromCityId === cityId || road?.toCityId === cityId).map(road => road.id);
-  const slot = city.runtimeSlot, chapters = [];
+  const slot = city.runtimeSlot, chapters = [], references = [];
   for (const chapterId of game.chapterOrder ?? []) {
-    if (game.chapters?.[chapterId]?.state?.cities?.[slot] !== undefined) chapters.push(chapterId);
+    const chapter = game.chapters?.[chapterId], state = chapter?.state;
+    // Explicit authoring references are separate from native slot records.
+    // Validate the whole present configuration; unknown shapes are not empty.
+    const configured = chapter && Object.hasOwn(chapter, 'cities') ? captureChapterCities(game, chapter) : null;
+    const authoringReference = configured !== null && Object.hasOwn(configured, cityId);
+    const record = state?.cities?.find(row => row?.idx === slot);
+    if (record || authoringReference) chapters.push(chapterId);
+    if (authoringReference) references.push({ chapterId, code: "CITY_AUTHORING_REF", detail: "本章中立據點配置" });
+    if (record) {
+      if (record.faction !== null && record.faction !== undefined) references.push({ chapterId, code: "CITY_FACTION_REF", detail: `所屬勢力：#${record.faction}` });
+      if (record.governor !== null && record.governor !== undefined) references.push({ chapterId, code: "CITY_GOVERNOR_REF", detail: `太守武將：#${record.governor}` });
+    }
+    for (const faction of state?.factions ?? []) {
+      if (faction?.capital === slot) references.push({ chapterId, code: "CITY_CAPITAL_REF", detail: `勢力 #${faction.idx} 首都` });
+    }
   }
-  return { cityId, runtimeSlot: slot, x: city.x, y: city.y, placed, roads, chapters };
+  return { cityId, runtimeSlot: slot, x: city.x, y: city.y, placed, roads, chapters, references };
 }
 export function checkCityDeletable(game, cityId) {
   const refs = cityReferences(game, cityId);
@@ -390,6 +428,7 @@ export function checkCityDeletable(game, cityId) {
   if (refs.placed) blockers.push({ code: "CITY_PLACED", detail: "据点已放入地图，须先从地图移除" });
   for (const roadId of refs.roads) blockers.push({ code: "CITY_ROAD_REF", detail: `道路引用：${roadId}` });
   for (const chapterId of refs.chapters) blockers.push({ code: "CITY_CHAPTER_REF", detail: `章节引用：${chapterId}` });
+  for (const reference of refs.references) blockers.push({ code: reference.code, detail: `${reference.chapterId}：${reference.detail}` });
   // Certified model lock: base cities are exactly 192 with frozen bindings.
   blockers.push({ code: "CITY_COUNT_LOCKED", detail: "基础据点锁定 192 座，不开放增删" });
   return { cityId, deletable: false, blockers };
@@ -442,6 +481,37 @@ export function editChapterCity(game, chapterId, cityIdx, values) {
   }
   return next;
 }
+// Separate from legacy `city` history: only explicitly requested fields update
+// the static initial-city source used by native alias reads (e.g. C0F at 084F).
+// No implicit repair of other legacy fields; HTTP/history admission is separate.
+export function editChapterCityNative(game, chapterId, cityIdx, values) {
+  const next = editChapterCity(game, chapterId, cityIdx, values);
+  const state = game.chapters[chapterId].state, records = state.nativeCityRecordRaw;
+  if (!Number.isSafeInteger(cityIdx) || cityIdx < 0 || cityIdx >= 192 || !Array.isArray(records) || records.length !== 192 ||
+      Array.from(records).some(raw => typeof raw !== "string" || !/^[a-f0-9]{64}$/i.test(raw)))
+    throw new RangeError("完整靜態城市來源必須為192筆32B記錄");
+  const record = state.cities.find(city => city.idx === cityIdx);
+  const original = records[cityIdx];
+  // Old city operations may leave only C0E/C0F/C13 different. Other divergence
+  // is not an initialization recipe and must not be hidden by this operation.
+  for (let offset = 0; offset < 32; offset++) {
+    if (offset === 0x0E || offset === 0x0F || offset === 0x13) continue;
+    if (original.slice(offset * 2, offset * 2 + 2).toLowerCase() !== record.raw.slice(offset * 2, offset * 2 + 2).toLowerCase())
+      throw new RangeError("靜態城市來源的受保護位元組分歧");
+  }
+  const target = next.chapters[chapterId].state.cities.find(city => city.idx === cityIdx);
+  let encoded = original;
+  for (const key of Object.keys(values)) {
+    const [offset, size] = CITY_EDIT_FIELDS[key], start = offset * 2, end = (offset + size) * 2;
+    const bytes = target.raw.slice(start, end);
+    if (encoded.slice(start, end).toLowerCase() !== bytes.toLowerCase()) encoded = encoded.slice(0, start) + bytes + encoded.slice(end);
+  }
+  if (encoded === original) return next;
+  const result = next === game ? deepClone(game) : next;
+  result.chapters[chapterId].state.nativeCityRecordRaw[cityIdx] = encoded;
+  return result;
+}
+
 // General field edits (§4.3 B4c1): chapter-scoped name/hao only. Person
 // add/delete is 128-locked (certified), so deletion is check-only.
 function chapterGeneral(game, chapterId, generalIdx) {
@@ -460,14 +530,36 @@ export function renameGeneral(game, chapterId, generalIdx, values) {
   const keys = Object.keys(values);
   if (!keys.length || keys.some(k => !GENERAL_TEXT_FIELDS.includes(k))) throw new RangeError("general edit allows name/hao only");
   const record = chapterGeneral(game, chapterId, generalIdx);
+  const normalized = {};
   for (const key of keys) {
     const text = values[key];
-    // Mirror chapter-name rule: no invented length limit, only control
-    // characters refused; name must be non-empty, hao may be empty.
-    if (typeof text !== "string" || [...text].some(c => { const n = c.codePointAt(0); return n < 32 || n >= 127 && n <= 159; })) throw new RangeError(`general ${key} has control characters`);
+    // No invented length limit. Reject controls and unpaired surrogates;
+    // valid supplementary characters remain intact. Hao may be empty.
+    if (typeof text !== "string" || [...text].some(c => { const n = c.codePointAt(0); return n < 32 || n >= 127 && n <= 159 || n >= 0xd800 && n <= 0xdfff; })) throw new RangeError(`general ${key} has invalid characters`);
     if (key === "name" && !text.trim()) throw new RangeError("general name required");
-    record[key] = key === "name" ? text.trim().normalize("NFC") : text.normalize("NFC");
+    normalized[key] = key === "name" ? text.trim().normalize("NFC") : text.normalize("NFC");
   }
+  // Rejected edits must not leave an earlier field changed in the source.
+  Object.assign(record, normalized);
+}
+// Source diagnostics only: a chapter/slot pair is not a cross-chapter person ID.
+// These references do not certify native initialization or authorize deletion.
+export function generalChapterReferences(game, chapterId, generalIdx) {
+  const general = chapterGeneral(game, chapterId, generalIdx);
+  const state = game.chapters[chapterId].state, references = [];
+  const add = (code, detail) => references.push({ code, detail });
+  add("GENERAL_CHAPTER_REF", `章節 ${chapterId}／武將槽 #${generalIdx}`);
+  for (const faction of state.factions ?? []) {
+    if (faction?.monarch_idx === generalIdx) add("GENERAL_MONARCH_REF", `勢力 #${faction.idx} 的君主`);
+    if (faction?.advisor_idx === generalIdx) add("GENERAL_ADVISOR_REF", `勢力 #${faction.idx} 的軍師`);
+  }
+  for (const city of state.cities ?? []) {
+    if (city?.governor === generalIdx) add("GENERAL_GOVERNOR_REF", `據點 #${city.idx} 的太守`);
+  }
+  if (general.faction != null) add("GENERAL_FACTION_REF", `所屬勢力 #${general.faction}`);
+  if (general.join_faction != null) add("GENERAL_JOIN_REF", `登場加入勢力欄位 #${general.join_faction}`);
+  if (Object.hasOwn(general, "appear_months")) add("GENERAL_APPEARANCE_STATE", `登場等待欄位 ${general.appear_months}`);
+  return references;
 }
 export function checkGeneralDeletable(game, generalIdx) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
@@ -476,7 +568,9 @@ export function checkGeneralDeletable(game, generalIdx) {
   for (const chapterId of game.chapterOrder ?? []) {
     if ((game.chapters?.[chapterId]?.state?.generals ?? []).some(g => g?.idx === generalIdx)) chapters.push(chapterId);
   }
-  const blockers = chapters.map(chapterId => ({ code: "GENERAL_CHAPTER_REF", detail: `章節引用：${chapterId}` }));
+  const blockers = chapters.flatMap(chapterId => generalChapterReferences(game, chapterId, generalIdx).map(reference => ({
+    ...reference, chapterId, detail: `${chapterId}：${reference.detail}`,
+  })));
   blockers.push({ code: "GENERAL_COUNT_LOCKED", detail: "武將鎖定 128 密排，不開放增刪" });
   return { generalIdx, deletable: false, blockers };
 }
@@ -500,6 +594,8 @@ function factionEntry(game, chapterId, factionIdx) {
   return record;
 }
 function generalByIdx(game, chapterId, generalIdx) {
+  // Authoring slot contract (§3.2): G127 is reserved, not an ordinary post candidate.
+  if (!Number.isInteger(generalIdx) || Object.is(generalIdx, -0) || generalIdx < 0 || generalIdx >= 127) throw new RangeError("ordinary general slot 0..126 required");
   return chapterGeneral(game, chapterId, generalIdx);
 }
 function postsHeld(game, chapterId, generalIdx) {
@@ -515,7 +611,7 @@ export function setMonarch(game, chapterId, factionIdx, generalIdx) {
   const faction = factionEntry(game, chapterId, factionIdx);
   const general = generalByIdx(game, chapterId, generalIdx);
   // A new lord must be free: no membership and no post anywhere.
-  if (general.faction !== null && general.faction !== undefined) throw new RangeError("lord must be a free general");
+  if (general.faction !== null) throw new RangeError("lord must be a free general");
   if (postsHeld(game, chapterId, generalIdx).length) throw new RangeError("lord must hold no post");
   general.faction = factionIdx;
   faction.monarch_idx = generalIdx;
@@ -523,7 +619,10 @@ export function setMonarch(game, chapterId, factionIdx, generalIdx) {
 export function setStrategist(game, chapterId, factionIdx, generalIdx) {
   const faction = factionEntry(game, chapterId, factionIdx);
   if (generalIdx === null) { faction.advisor_idx = null; return { replaced: null }; }
-  generalByIdx(game, chapterId, generalIdx);
+  const general = generalByIdx(game, chapterId, generalIdx);
+  // Authoring contract §3.3, not a native initialization rule. An unchanged
+  // imported exception remains intact; a new appointment cannot migrate a general.
+  if (generalIdx !== faction.advisor_idx && general.faction !== faction.idx) throw new RangeError("strategist must belong to chapter faction");
   const other = postsHeld(game, chapterId, generalIdx).filter(p => !(p.faction === factionIdx && p.post === "strategist"));
   if (other.length) throw new RangeError("strategist holds another post");
   const replaced = faction.advisor_idx ?? null;

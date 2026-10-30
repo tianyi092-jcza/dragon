@@ -84,6 +84,22 @@ export function createDistributionReceipts({ r2, prefix = '' }) {
     const c = capture(record), value = await persisted(c);
     return value === null ? null : issue(value);
   }
+  // Payload-free recovery for a retired generation: the receipt object is an
+  // independent immutable object that stage-1 never cleans. Validates the exact
+  // stored receipt against the ledger's own metadata identity, without any
+  // content rebuild. Retained paths keep using capture(); no format is changed.
+  async function recoverRetired(record) {
+    requireValue(record?.retired === true && isGameId(record.authorityId) && isGameId(record.operationId) && Number.isSafeInteger(record.generation) && record.generation > 0 && isDigest(record.operationDigest) && isDigest(record.payloadDigest) && isDigest(record.checkpointDigest));
+    const stored = await r2.get(`${prefix}control/receipts/${record.authorityId}/${record.generation}/${record.operationDigest}.json`, { maxBytes: 4096 });
+    if (stored === null) return null;
+    requireValue(stored?.bytes instanceof Uint8Array && stored.bytes.byteLength > 0 && stored.bytes.byteLength <= 4096);
+    jsonType(stored);
+    const value = parseJSON(stored.bytes);
+    requireValue(value && !Array.isArray(value) && value.authorityId === record.authorityId && value.generation === record.generation && value.operationId === record.operationId && value.operationDigest === record.operationDigest && value.payloadDigest === record.payloadDigest && isDigest(value.rootDigest) && etag(value.rootETag) && iso(value.visibleAt));
+    // Reject injected fields and alternative encodings, same as persisted().
+    requireValue(Buffer.from(stored.bytes).equals(Buffer.from(JSON.stringify(value))));
+    return issue(value);
+  }
   async function observe(record) {
     const c = capture(record);
     const old = await persisted(c);
@@ -105,5 +121,5 @@ export function createDistributionReceipts({ r2, prefix = '' }) {
     const c = capture(record);
     return { root: { key: rootKey, bytes: new Uint8Array(c.root), contentType: 'application/json' }, rootArchive: { key: prefix + publicationRootArchiveKey(c.control), bytes: new Uint8Array(c.root), contentType: 'application/json' }, projection: { key: `${prefix}projections/${c.control.generation}/${c.control.digest}/projection.json`, bytes: new Uint8Array(c.projection), contentType: 'application/json' }, receiptKey: receiptKey(c) };
   }
-  return Object.freeze({ observe, recover, verifyReceipt, expectedObjects });
+  return Object.freeze({ observe, recover, recoverRetired, verifyReceipt, expectedObjects });
 }

@@ -16,7 +16,7 @@ const initial = (randomBytes(24).toString('hex') + 'Aa1!'), password = (randomBy
 const sha = b => createHash('sha256').update(b).digest('hex');
 function json(text) { try { return JSON.parse(text); } catch (cause) { throw new Error('invalid owned catalog JSON', { cause }); } }
 function canonical(value) { return Buffer.concat(encodeSourceChunks(value)); }
-const r = 'map-2-47e35876cd32ff3b7eee27da3be95eaa1b52a6d108a6f94c1f5989bc68861d23', e = '086ca8a87e2dafb2b7c9d657a74b70c81b5da3e98776e5d7d8c21dcfc5a982a5';
+const r = 'map-2-28805fc52a1c79910a949fb32b242323777c1741245724b8c346fd8e7a567bfe', e = '7e7fad151010a33fd455b81971c8e976c99d2fd265bd6c31625a68326c6de00c';
 const world = readFileSync(`web/content/builtin/compiled/${r}/manifest.json`), entities = readFileSync(`web/content/builtin/authoring/entities-${e}/manifest.json`), policy = installedSourcePolicy(world, entities), inputHashes = {};
 const definitionDigest = sha(Buffer.from([...canonicalSourceTokens(policy)].join(''))), registryId = policy.registryId;
 let getterHits = 0; const fake = { ...policy }; Object.defineProperty(fake, 'roles', { enumerable: true, get() { getterHits++; return policy.roles; } });
@@ -41,7 +41,7 @@ try {
   await reopen(); let admin = await login('tianyi'); assert.equal((await call('/api/admin/accounts', { account: 'author_a' }, admin)).status, 200); const author = await login('author_a');
   const roles = []; let totalBytes = 0;
   for (const role of policy.roles) { const bytes = readFileSync('web/' + role.path); assert.equal(bytes.length, role.byteLength); assert.equal(sha(bytes), role.sha256); inputHashes['web/' + role.path] = sha(bytes); totalBytes += bytes.length; const chunks = []; for (let offset = 0; offset < bytes.length; offset += 1024 * 1024) chunks.push(await put(bytes.subarray(offset, offset + 1024 * 1024))); roles.push({ ...role, chunks }); }
-  assert.equal(roles.length, 41); assert.equal(totalBytes, 57943821);
+  assert.equal(roles.length, 41); assert.equal(totalBytes, 58143656);
   const index = { schema: 'dragon-installed-source-index-1', registryId, definitionDigest, roles }, root = await put(canonical(index));
   const before = await ok({ action: 'count' }, admin), request = { action: 'install', root, key: randomUUID() };
   assert.equal((await fixture(request, author)).status, 403); assert.equal((await fixture(request, admin, { Origin: 'http://127.0.0.1:8787' })).status, 403); assert.equal((await fixture(request, admin, { 'X-CSRF-Token': 'wrong' })).status, 403); assert.equal((await ok({ action: 'count' }, admin)).reads, before.reads);
@@ -49,7 +49,7 @@ try {
   checks.push('actual fixed two manifest anchors mint branded41role policy; DTO/getter/author/Origin/CSRF never register or read R2 before authority');
   await ok({ action: 'fault', enabled: true }, admin); assert.equal((await fixture(request, admin)).status, 500); await ok({ action: 'fault', enabled: false }, admin); assert.equal((await ok({ action: 'count' }, admin)).rows, 0);
   const race = await Promise.all([fixture(request, admin), fixture(request, admin)]); for (const result of race) assert.equal(result.status, 200, result.data.error); assert.deepEqual(race[0].data, race[1].data); assert.equal((await ok({ action: 'count' }, admin)).rows, 1); assert.equal((await ok({ action: 'count' }, admin)).operations, 1); assert.equal((await ok(request, admin)).rootDigest, root.sha256);
-  checks.push('actual57,943,821bytes in immutable1MiB R2 chunks fully read/hash, sameSQLite registration/permanent-key race single row+receipt; trigger failure rolls both back');
+  checks.push('actual58,143,656bytes in immutable1MiB R2 chunks fully read/hash, sameSQLite registration/permanent-key race single row+receipt; trigger failure rolls both back');
   const copied = await ok({ action: 'copy' }, admin); assert.equal(copied.chapters, 20); assert.equal(copied.sourceRecords, 2540); assert.equal(copied.inputs, 41); assert.equal((await ok({ action: 'assert', ticket: copied.ticket }, admin)).registryId, registryId); assert.equal((await fixture({ action: 'copy' }, author)).status, 403); assert.equal((await ok({ action: 'read-capture', ticket: copied.ticket, path: roles[0].path }, admin)).byteLength, roles[0].byteLength); assert.equal((await fixture({ action: 'read-capture', ticket: copied.ticket, path: '../escape' }, admin)).status, 404);
   checks.push('materialized actual registered R2 roles feed unchanged shared installed-source/entity/copy loader inside real Worker; twenty chapters2540records, no arbitrary fs or client baseline grant');
   async function rejectedIndex(modified, status = 422) { const badRoot = await put(canonical(modified)); assert.equal((await fixture({ ...request, root: badRoot, key: randomUUID() }, admin)).status, status); }

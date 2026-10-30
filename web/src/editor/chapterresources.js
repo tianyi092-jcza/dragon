@@ -7,23 +7,38 @@ function decoded(raw, offset, size, signed) {
   let value = 0; for (let i = 0; i < size; i++) value += Number.parseInt(raw.slice((offset + i) * 2, (offset + i + 1) * 2), 16) * 256 ** i;
   return signed && value >= 0x800000 ? value - 0x1000000 : value;
 }
+// Representation-only reader for protected-delta comparison, not permission
+// to initialize a faction or to edit a non-public slot.
+export function readFactionResources(raw) {
+  rawRecord(raw);
+  return Object.fromEntries(Object.entries(fields).map(([name, [offset, size]]) => [name, decoded(raw, offset, size, name === 'money')]));
+}
 function locate(game, chapterId, slot) {
   if (game?.gameId === BUILTIN_GAME_ID || game?.sourceRef?.kind !== "builtin-copy" || game.sourceRef.sourceId !== BUILTIN_GAME_ID) throw new RangeError("僅可編輯獨立完整副本的既有章節資源");
   if (typeof chapterId !== "string" || !game.chapterOrder?.includes(chapterId) || !Object.hasOwn(game.chapters ?? {}, chapterId) || game.chapters[chapterId].chapterId !== chapterId) throw new RangeError("章節身份不符");
   const state = game.chapters[chapterId].state;
-  if (!Array.isArray(state?.factions) || state.factions.length > 22 || !Number.isInteger(slot) || slot < 0 || slot >= state.factions.length || state.factions[slot]?.idx !== slot) throw new RangeError("公開勢力槽不符");
+  if (!Array.isArray(state?.factions) || state.factions.length > 22 || !Number.isInteger(slot) || slot < 0 || slot >= 22) throw new RangeError("公開勢力槽不符");
+  // A chapter's public list may shrink after a faction is removed. Its idx
+  // still selects the original native slot; array position is not identity.
+  const ids = new Set();
+  for (const row of state.factions) {
+    if (!Number.isInteger(row?.idx) || row.idx < 0 || row.idx >= 22 || ids.has(row.idx)) throw new RangeError("公開勢力槽不符");
+    ids.add(row.idx);
+  }
+  const position = state.factions.findIndex(row => row.idx === slot);
+  if (position < 0) throw new RangeError("公開勢力槽不符");
   if (!Array.isArray(state.nativeFactionSlotRaw) || state.nativeFactionSlotRaw.length !== 22) throw new TypeError("缺少固定勢力來源");
   for (let i = 0; i < 22; i++) rawRecord(state.nativeFactionSlotRaw[i]);
-  const faction = state.factions[slot], raw = rawRecord(faction.raw), native = state.nativeFactionSlotRaw[slot];
+  const faction = state.factions[position], raw = rawRecord(faction.raw), native = state.nativeFactionSlotRaw[slot];
   for (const [name, [offset, size]] of Object.entries(fields)) {
     const value = decoded(raw, offset, size, name === "money");
     if (faction[name] !== value || decoded(native, offset, size, name === "money") !== value) throw new RangeError("章節資源具名／原生來源分歧：" + name);
   }
   if (faction.money_hi !== decoded(raw, 0x22, 1, false)) throw new RangeError("章節資金高位來源分歧");
-  return { state, faction };
+  return { state, faction, position };
 }
 export function editChapterResources(game, chapterId, slot, values) {
-  const { faction } = locate(game, chapterId, slot);
+  const { faction, position } = locate(game, chapterId, slot);
   if (!values || typeof values !== "object" || ![Object.prototype, null].includes(Object.getPrototypeOf(values))) throw new TypeError("資源修改格式不符");
   const descriptors = Object.getOwnPropertyDescriptors(values), names = Reflect.ownKeys(descriptors);
   if (!names.length || names.some(name => typeof name !== "string" || !Object.hasOwn(fields, name) || !descriptors[name].enumerable || !Object.hasOwn(descriptors[name], "value"))) throw new TypeError("僅支援資金與三種預備兵池");
@@ -34,7 +49,7 @@ export function editChapterResources(game, chapterId, slot, values) {
     captured[name] = value;
   }
   if (names.every(name => faction[name] === captured[name])) return game;
-  const next = structuredClone(game), state = next.chapters[chapterId].state, record = state.factions[slot];
+  const next = structuredClone(game), state = next.chapters[chapterId].state, record = state.factions[position];
   for (const name of names) {
     const value = captured[name]; if (value === record[name]) continue;
     const [offset, size] = fields[name], unsigned = value < 0 ? value + 0x1000000 : value;

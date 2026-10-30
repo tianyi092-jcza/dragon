@@ -74,7 +74,7 @@ check("general-ops", readFileSync("web/src/content/authoring/gamesource.js", "ut
 check("generals-section", htmlIds.has("generals-editor") && htmlIds.has("generals-chapters") && client.includes("installGenerals") && application.includes("/general.js"));
 // B4c2 (§4.3): faction post ops + faction panel.
 check("faction-ops", readFileSync("web/src/content/authoring/gamesource.js", "utf-8").includes("export function setMonarch") && readFileSync("web/src/content/authoring/gamesource.js", "utf-8").includes("export function setStrategist") && readFileSync("web/src/content/authoring/gamesource.js", "utf-8").includes("export function removeMonarch") && readFileSync("web/src/content/authoring/gamesource.js", "utf-8").includes("export function disbandFaction") && readFileSync("server/drafts.js", "utf-8").includes("'set-monarch'") && readFileSync("server/drafts.js", "utf-8").includes("'disband-faction'"));
-check("faction-panel", ['set-monarch','set-strategist','remove-monarch','disband-faction'].every(op => generalsView.includes("actions.faction('" + op + "'") && readFileSync("server/public/general.txt", "utf-8").includes("'" + op + "'")));
+check("faction-panel", !generalsView.includes('actions.faction(') && generalsView.includes('data-native-faction-disband') && generalsView.includes('draftActions.disbandFaction(') && readFileSync('server/public/draft.txt', 'utf-8').includes('disbandFaction:') && generalsView.includes('data-native-advisor-assign') && generalsView.includes('draftActions.assignStrategist(') && readFileSync('server/public/draft.txt', 'utf-8').includes('assignStrategist:') && generalsView.includes('data-native-monarch-assign') && generalsView.includes('draftActions.assignMonarch(') && readFileSync('server/public/draft.txt', 'utf-8').includes('assignMonarch:') && generalsView.includes('data-native-monarch-succeed') && generalsView.includes('draftActions.succeedMonarch(') && readFileSync('server/public/draft.txt', 'utf-8').includes('succeedMonarch:'));
 // B4d1 (§4.4): read-only schematic map viewer wiring.
 check("mapview-section", htmlIds.has("mapview-editor") && htmlIds.has("mapview-canvas") && client.includes("installMapViewer") && application.includes("/mapview.js"));
 // BOOT-1: draft read receipt carries rosters + map for the list UIs.
@@ -87,19 +87,19 @@ check("listing-gate", (() => { const w = application; const mgmt = w.slice(w.ind
 check("unlist-regex", (() => { const w = application; const admin = w.slice(w.indexOf("async #postAdminUnlist")); return admin.includes('/^"([1-9][0-9]*)"$/') && !admin.includes('$"/'); })());
 check("profile-status", htmlIds.has("profile-status"));
 // B決策：共用画像庫（manifest 唯讀，無上傳／刪除／逐遊戲表）。
-check("portrait-routes", (() => { const w = application; return w.includes("portraits(?:\\/([A-Za-z0-9]{1,32}))?") && w.includes("#getPortraits") && !w.includes("#postPortraitUpload") && !w.includes("#postPortraitDelete"); })());
+check("portrait-routes", (() => { const w = application; return w.includes("portraits(?:\\/([A-Za-z0-9]{1,32})(?:\\/(bytes))?)?") && w.includes("#getPortraits") && !w.includes("#postPortraitUpload") && !w.includes("#postPortraitDelete"); })());
 check("portrait-pack", (() => { const p = readFileSync("server/playpacks.js", "utf-8"); return p.includes("#freezePortraits") && p.includes("manifest.portraits") && p.includes("role: 'game-portrait'") && p.includes("kao/${row.assetId}.png"); })());
 check("portrait-ui", htmlIds.has("portrait-pick") && htmlIds.has("portrait-library") && !htmlIds.has("portrait-file") && generalsView.includes('id="portrait-pick"') && readFileSync("server/public/general.txt", "utf-8").includes('selectPortrait(value)'));
 // BOOT-1 truth: disband revert inserts by baseline relative order (not baseline
 // index — history-compacted arrays misalign); copy-match is order-insensitive.
 check("disband-order", (() => { const c = readFileSync("server/copyprofile.js", "utf-8"); const fn = c.slice(c.indexOf("const revertDisband")); return fn.includes("order.indexOf(factionIdx)") && !fn.includes("findIndex(f => f?.idx === factionIdx)"); })());
-check("copy-order-free", (() => { const c = readFileSync("server/copyprofile.js", "utf-8"); const seg = c.slice(c.indexOf("// Order-insensitive")); return seg.includes("compare(baseRest, rest, new WeakMap())"); })());
+check("copy-order-free", (() => { const c = readFileSync("server/copyprofile.js", "utf-8"); const seg = c.slice(c.indexOf("// Order-insensitive")); return seg.includes("compare(baseRest, rest, replacements)") && seg.includes("editChapterResources(shell, e.chapterId, oldState.factions[slot].idx, requested)"); })());
 // B4a (§4.5): chapter CRUD fns + save-pipeline ops + gaps receipt + no-chapter publish gate + UI.
 const gamesource = readFileSync("web/src/content/authoring/gamesource.js", "utf-8");
 const drafts = readFileSync("server/drafts.js", "utf-8");
 const draft = readFileSync("server/public/draft.txt", "utf-8");
 check("chapter-fns", gamesource.includes("export function addBlankChapter") && gamesource.includes("export function copyChapterInGame") && gamesource.includes("export function deleteChapter") && gamesource.includes("export function renameChapter") && gamesource.includes("export function chapterGapCounts"));
-check("chapter-edits-pipe", drafts.includes("DRAFT_CHAPTER_EDITS") && drafts.includes("DRAFT_CHAPTER_EDIT") && drafts.includes("chapterGapCounts"));
+check("chapter-edits-pipe", drafts.includes("DRAFT_CHAPTER_EDITS") && drafts.includes("DRAFT_CHAPTER_EDIT") && drafts.includes("gaps: chapterGapReport(st, id)") && readFileSync("server/chaptergapreport.js", "utf-8").includes("chapterActiveGaps(state, chapterId)"));
 check("no-chapter-gate", application.includes("!captured.game.chapterOrder.length"));
 check("chapter-ui", htmlIds.has("draft-chapters") && draft.includes("submitChapters") && draftView.includes('actions.chapter') && draft.includes("chapterAction"));
 check('draft-vue-owned', !html.includes('id="draft-editor"') && !draft.includes('document.') && !draft.includes('createElement') && draftView.includes('@submit.prevent="actions.save()"'));

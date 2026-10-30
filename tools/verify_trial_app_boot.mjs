@@ -6,9 +6,9 @@
 // true trial shell page (?trial=<uuid>, auto-boot on #trial-status), picks the
 // first faction, starts the run, and boots the real engine via openApp.
 // Asserts: faction panel, running status line, live rAF loop, zero page errors;
-// then the trial is ended via API and the page must tolerate it without errors
-// (probe 401s handled by the monitor). NOT covered: login/session UI in the
-// browser, save/load (disabled in trials by design), post-end display wording,
+// then the trial is ended via API: the monitor must retire the actual App,
+// discard its scenario and show the terminal message without page errors.
+// NOT covered: login/session UI in the browser, save/load (disabled by design),
 // game-side App, publish UI, concurrency.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
@@ -21,13 +21,14 @@ import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { stageInstalledEditorSource } from './editor_stage_source.mjs';
 import { stageInstalledAvailableLibrary } from './editor_stage_library.mjs';
-const round = process.argv[2];
-assert.match(round ?? '', /^[1-9][0-9]{0,2}$/); assert.equal(process.argv.length, 3);
+const round = process.argv[2], nodePortrait = process.argv[3] === '--node-portrait';
+assert.match(round ?? '', /^[1-9][0-9]{0,2}$/); assert.ok(process.argv.length === 3 || process.argv.length === 4 && nodePortrait);
 const base = '.dragon-analysis/editor-phase/trial-app-boot-r1'; mkdirSync(base, { recursive: true });
 const out = `${base}/attempt${round}`; mkdirSync(out);
 const sha = b => createHash('sha256').update(b).digest('hex');
 const parse = text => { try { return JSON.parse(text); } catch (cause) { throw new Error('owned boot JSON', { cause }); } };
 const inputs = ['server/worker.js', 'server/trials.js', 'server/public/trialapp.txt', 'server/public/trialweb.txt', 'web/src/editor/servertrialapp.js', 'web/src/editor/trialconnection.js', 'web/src/editor/trialconnectionmonitor.js', 'web/src/editor/trialstatusadapter.js', 'tools/verify_trial_app_boot.mjs', 'tools/editor_stage_source.mjs', 'tools/editor_stage_library.mjs'];
+if (nodePortrait) inputs.push('server/editorapp.js', 'server/portraits.js', 'server/drafts.js', 'server/public/draft.txt', 'vps/editor-server.mjs', 'vps/sqlite-port.mjs', 'vps/file-bucket.mjs', 'tools/editor_local_https.mjs', 'web/src/content/authoring/trialruntime.js', 'web/src/core/assets.js', 'web/src/ui/gamebar.js', 'web/kao/manifest.js', 'web/kao/p0001.png');
 const pins = {};
 for (const [i, name] of inputs.entries()) { const bytes = readFileSync(name); pins[name] = sha(bytes); writeFileSync(`${out}/input-${i}.txt`, bytes, { flag: 'wx' }); }
 writeFileSync(`${out}/inputs.json`, JSON.stringify(pins, null, 2), { flag: 'wx' });
@@ -36,7 +37,8 @@ const check = name => { checks.push(name); writeFileSync(`${out}/partial.json`, 
 const port = 18981, origin = `https://127.0.0.1:${port}`;
 const own = mkdtempSync(join(tmpdir(), 'trial-boot-'));
 const initial = (randomBytes(16).toString('hex') + 'Aa1!'), password = (randomBytes(16).toString('hex') + 'Aa1!');
-let mf = null, server = null;
+let mf = null, server = null, nodeStorage = null, nodeTransport = null;
+const portraitResponses = [];
 function req(path, value, session, extra = {}, timeoutMs = 120000) {
   return new Promise((done, reject) => {
     const started = Date.now();
@@ -52,6 +54,23 @@ function req(path, value, session, extra = {}, timeoutMs = 120000) {
   });
 }
 try {
+  if (nodePortrait) {
+    const { openStorage } = await import('../vps/sqlite-port.mjs');
+    const { FileBucket } = await import('../vps/file-bucket.mjs');
+    const { createEditorService } = await import('../vps/editor-server.mjs');
+    const { createEditorHTTPS } = await import('./editor_local_https.mjs');
+    nodeStorage = openStorage(join(own, 'authority.sqlite'));
+    const bucket = new FileBucket({ root: join(own, 'bucket') });
+    const operatorBucket = { get: key => bucket.get(key), put(key, bytes, options) {
+      assert.deepEqual(options, { onlyIf: { etagDoesNotMatch: '*' } });
+      return bucket.put(key, bytes, { onlyIf: new Headers({ 'If-None-Match': '*' }) });
+    } };
+    const source = await stageInstalledEditorSource(operatorBucket), library = await stageInstalledAvailableLibrary(operatorBucket);
+    writeFileSync(`${out}/staged.json`, JSON.stringify({ source, library }, null, 2), { flag: 'wx' });
+    check('fresh-approved-source-and-library-staged');
+    const service = createEditorService({ storage: nodeStorage, bucket, env: { EDITOR_ORIGIN: origin, EDITOR_REQUEST_KEY: randomBytes(32).toString('hex'), EDITOR_DEFAULT_PASSWORD: initial, EDITOR_INSTALLED_SOURCE_ROOT: JSON.stringify(source), EDITOR_AVAILABLE_LIBRARY_ROOT: JSON.stringify(library) } });
+    nodeTransport = await createEditorHTTPS({ dispatchFetch: (url, init) => service.fetch(new Request(url, init)) }, { port });
+  } else {
   const location = process.env.MINIFLARE_MODULE || 'C:/Users/fczll/AppData/Roaming/npm/node_modules/wrangler/node_modules/miniflare/dist/src/index.js';
   const { Miniflare } = await import(pathToFileURL(location).href);
   let stage = new Miniflare({ modules: true, script: 'export default {fetch(){return new Response("stage")}}', compatibilityDate: '2026-01-01', compatibilityFlags: ['nodejs_compat'], r2Buckets: ['EDITOR_BLOBS'], r2Persist: own });
@@ -62,6 +81,7 @@ try {
   check('fresh-approved-source-and-library-staged');
   mf = new Miniflare({ modules: true, scriptPath: resolve('server/worker.js'), rootPath: resolve('server'), modulesRules: [{ type: 'ESModule', include: ['**/*.js', '**/*.mjs'] }, { type: 'Text', include: ['**/*.txt', '**/*.html', '**/*.css'] }], compatibilityDate: '2026-01-01', compatibilityFlags: ['nodejs_compat'], durableObjects: { EDITOR_METADATA: { className: 'EditorMetadata', useSQLite: true } }, r2Buckets: ['EDITOR_BLOBS'], r2Persist: own, durableObjectsPersist: own, bindings: { EDITOR_ORIGIN: origin, EDITOR_REQUEST_KEY: randomBytes(32).toString('hex'), EDITOR_DEFAULT_PASSWORD: initial, EDITOR_INSTALLED_SOURCE_ROOT: JSON.stringify(source), EDITOR_AVAILABLE_LIBRARY_ROOT: JSON.stringify(library) }, https: true, port, host: '127.0.0.1' });
   await mf.ready;
+  }
   const ok = async (name, path, value, session, status = 200, extra, timeoutMs) => {
     const r = await req(path, value, session, extra, timeoutMs);
     writeFileSync(`${out}/http-${checks.length}.json`, JSON.stringify({ path, status: r.status, ms: r.ms, shaHeader: r.shaHeader ?? null, body: (r.mime ?? '').includes('json') ? r.bytes.toString('utf8').slice(0, 400) : `<${r.bytes.length} bytes>` }, null, 2), { flag: 'wx' });
@@ -79,7 +99,21 @@ try {
   await ok('real-copy-reserve', '/api/admin/copies', { registryId: def.registryId, name: '启动验证', introduction: '' }, admin, 202, { 'Idempotency-Key': key });
   const copied = parse((await ok('real-copy-run', `/api/admin/copies/${key}/run`, {}, admin, 200, { 'If-Match': '"1"' }, 600000)).bytes.toString('utf8'));
   const draft = parse((await ok('real-draft-read', `/api/games/${copied.gameId}/draft?revision=1`, undefined, admin, 200, {}, 600000)).bytes.toString('utf8'));
-  const trial = parse((await ok('real-trial-start', `/api/games/${copied.gameId}/trials`, { expectedRevision: draft.draftRevision, chapterId: draft.chapters[0].chapterId }, admin, 200, {}, 600000)).bytes.toString('utf8'));
+  let trialRevision = draft.draftRevision, portraitDeclaration = null;
+  if (nodePortrait) {
+    const { KAO_MANIFEST } = await import('../web/kao/manifest.js');
+    portraitDeclaration = KAO_MANIFEST.find(row => row.id === 'p0001');
+    const portraitBytes = readFileSync('web/kao/p0001.png');
+    assert.equal(sha(portraitBytes), portraitDeclaration.sha256); assert.equal(portraitBytes.length, portraitDeclaration.bytes);
+    const saved = parse((await ok('real-shared-portrait-save', `/api/games/${copied.gameId}/draft/save`, { metadata: draft.metadata, resourceEdits: [], chapterEdits: [{ op: 'portrait', chapterId: draft.chapters[0].chapterId, generalIdx: 0, portraitKey: 'p0001' }] }, admin, 200, { 'If-Match': `"${draft.draftRevision}"` }, 600000)).bytes.toString('utf8'));
+    trialRevision = saved.draftRevision; assert.equal(trialRevision, '2');
+    const current = parse((await ok('real-shared-portrait-read2', `/api/games/${copied.gameId}/draft?revision=2`, undefined, admin, 200, {}, 600000)).bytes.toString('utf8'));
+    const expected = structuredClone(draft.chapters); expected[0].generals.find(row => row.idx === 0).portraitKey = 'p0001';
+    assert.deepEqual(current.chapters, expected);
+    const old = parse((await ok('real-original-read1', `/api/games/${copied.gameId}/draft?revision=1`, undefined, admin, 200, {}, 600000)).bytes.toString('utf8'));
+    assert.deepEqual(old, draft);
+  }
+  const trial = parse((await ok('real-trial-start', `/api/games/${copied.gameId}/trials`, { expectedRevision: trialRevision, chapterId: draft.chapters[0].chapterId }, admin, 200, {}, 600000)).bytes.toString('utf8'));
   assert.match(trial.trialId, /^[a-f0-9-]{36}$/);
   check('bootstrap-trial-issued');
   const jar = { cookie: admin.cookie, csrf: admin.csrf };
@@ -104,8 +138,10 @@ try {
           upstream.on('end', () => {
             logTraffic(request.method, url.pathname + url.search, upstream.statusCode);
             if (upstream.statusCode !== 200 && upstream.statusCode !== 201 && upstream.statusCode !== 202) { writeFileSync(`${out}/fail-${traffic.length}.json`, JSON.stringify({ method: request.method, path: url.pathname + url.search, status: upstream.statusCode, body: Buffer.concat(chunks).toString('utf8').slice(0, 500) }, null, 2)); }
-            response.writeHead(upstream.statusCode, { 'Content-Type': upstream.headers['content-type'] ?? 'application/octet-stream' });
-            response.end(Buffer.concat(chunks));
+            const bytes = Buffer.concat(chunks);
+            if (nodePortrait && url.pathname === '/api/trial/web/kao/p0001.png') portraitResponses.push({ path: url.pathname, status: upstream.statusCode, byteLength: bytes.length, sha256: sha(bytes), declaredSha256: upstream.headers['x-content-sha256'], mime: upstream.headers['content-type'], cache: upstream.headers['cache-control'] });
+            response.writeHead(upstream.statusCode, { 'Content-Type': upstream.headers['content-type'] ?? 'application/octet-stream', ...Object.fromEntries(['cache-control', 'x-content-type-options', 'x-content-sha256'].filter(name => upstream.headers[name]).map(name => [name, upstream.headers[name]])) });
+            response.end(bytes);
           });
           upstream.on('error', () => { response.writeHead(502); response.end(); });
         });
@@ -123,8 +159,8 @@ try {
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   const pageOrigin = `http://127.0.0.1:${server.address().port}`;
-  const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright');
-  const browser = await chromium.launch(), page = await browser.newPage();
+  const { chromium } = process.env.PLAYWRIGHT_MODULE ? await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href) : createRequire(import.meta.url)('C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright');
+  const browser = await chromium.launch({ env: Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(systemroot|windir|path|pathext|temp|tmp|comspec|appdata|localappdata)$/i.test(key))) }), page = await browser.newPage({ serviceWorkers: 'block' });
   const errors = [], failedRequests = [], forbidden = [];
   await page.addInitScript(() => {
     window.__ownedIdbReads = 0;
@@ -182,9 +218,28 @@ try {
     assert.equal(await page.evaluate(() => window.__ownedIdbReads), 0); assert.deepEqual(forbidden, []);
     assert.ok(!traffic.some(line => /^POST .*\/portraits/.test(line)));
     check('actual App active with 192 cities; no save access, outside traffic or portrait upload');
+    if (nodePortrait) {
+      // Invoke the existing presentation consumer, not a synthetic Image or a
+      // rule command. This is not a certificate for menu navigation to the card.
+      const card = await page.evaluate(async () => {
+        const app = window.__app, general = app.scenario.generals.find(row => row.idx === 0);
+        await app.gamebar.showGeneralCard(general);
+        const image = app.gamebar.generalCard.img;
+        return { portrait: general.portrait, portraitKey: general.portraitKey, src: image?.currentSrc, width: image?.naturalWidth, height: image?.naturalHeight };
+      });
+      assert.equal(card.portrait, draft.chapters[0].generals.find(row => row.idx === 0).portrait);
+      assert.equal(card.portraitKey, 'p0001'); assert.equal(card.src, pageOrigin + '/api/trial/web/kao/p0001.png');
+      assert.equal(card.width, 120); assert.equal(card.height, 120);
+      assert.ok(portraitResponses.length > 0);
+      for (const response of portraitResponses) { assert.equal(response.status, 200); assert.equal(response.sha256, portraitDeclaration.sha256); assert.equal(response.declaredSha256, portraitDeclaration.sha256); assert.equal(response.byteLength, portraitDeclaration.bytes); assert.equal(response.mime, 'image/png'); assert.equal(response.cache, 'no-store'); }
+      assert.deepEqual(errors, []); assert.deepEqual(failedRequests, []);
+      check('saved p0001 loads through real Trial App general-card consumer with exact bytes, hash and decoded dimensions');
+    }
     await page.screenshot({ path: `${out}/loaded.png` });
     await ok('real-trial-end', `/api/trials/${trial.trialId}/end`, {}, admin);
-    await page.waitForTimeout(15000);
+    await page.waitForFunction(() => window.__app?.trialEnded === true && window.__app?.runtimeEnabled === false && window.__app?.scenario === null && document.querySelector('#trial-status')?.textContent.includes('已結束'), null, { timeout: 30000 });
+    assert.equal(await page.evaluate(() => window.__app.trialGate.state), 'ended');
+    check('explicit end retires the actual App, clears its scenario and displays the terminal message');
     assert.deepEqual(errors, []);
     assert.equal(await page.evaluate(() => window.__ownedIdbReads), 0); assert.deepEqual(forbidden, []);
     check('page-tolerates-end-without-errors');
@@ -198,6 +253,6 @@ try {
     throw cause;
   } finally { await browser.close(); }
   for (const name of inputs) { assert.equal(sha(readFileSync(name)), pins[name], name); }
-  writeFileSync(`${out}/receipt.json`, JSON.stringify({ checks, pins, gameId: copied.gameId, trialId: trial.trialId, limits: 'Real Chromium boots the true trial shell + engine against loopback workerd with proven admin session proxied server-side. No in-browser login/session UI, no save/load (disabled by trial design), no post-end display wording claim, no game-side App/publish/concurrency.' }, null, 2), { flag: 'wx' });
+  writeFileSync(`${out}/receipt.json`, JSON.stringify({ checks, pins, gameId: copied.gameId, trialId: trial.trialId, trialRevision, portraitResponses, platform: nodePortrait ? 'Node SQLite/FileBucket + owned HTTPS' : 'workerd SQLite/R2', limits: 'Real Chromium boots the true trial shell + engine against the selected owned backend with proven admin session proxied server-side. No in-browser login/session UI, no save/load (disabled by trial design), no game-side App/publish/concurrency; terminal App disposal and ended message checked.' }, null, 2), { flag: 'wx' });
   process.stdout.write(`Trial app boot H PASS ${checks.length} checks\n`);
-} finally { writeFileSync(`${out}/partial.json`, JSON.stringify({ checks }, null, 2)); server?.close(); await mf?.dispose(); }
+} finally { writeFileSync(`${out}/partial.json`, JSON.stringify({ checks }, null, 2)); server?.close(); await mf?.dispose(); await nodeTransport?.close(); nodeStorage?.close(); }

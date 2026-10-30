@@ -10,6 +10,7 @@ import { createPlayerSaveStore } from './playersaves.js';
 import { createPlayerSaveRepository } from './playerrepository.js';
 import { createPlayerSessionHost } from './playersessionhost.js';
 import { createGameSaveStore } from '../core/gamesavestore.js';
+import { readGameSaveCatalogs } from '../core/gamesavecatalogs.js';
 import { TRIAL_COMPILER_REVISION } from '../content/authoring/trialcompile.js';
 import { isGameId } from './runtimecontract.js';
 
@@ -36,7 +37,9 @@ export function mountPublicCatalog(root, { selectionVisible = true } = {}) {
   const node = root.ownerDocument.createElement('div'); node.className = 'player-public-catalog';
   Object.assign(node.style, { position: 'fixed', top: '8px', left: 'max(16px, calc((100vw - 560px) / 2))', width: 'min(560px, calc(100vw - 32px))', zIndex: '10000', fontSize: '14px', color: '#201800' });
   root.append(node);
-  const view = mountPlayerCatalog({ root: node, reader, selectionVisible });
+  const view = mountPlayerCatalog({ root: node, reader, selectionVisible,
+    readLocalCatalogs: selectionVisible ? () => readGameSaveCatalogs({ databaseName: 'wolong-web', getIndexedDB: () => indexedDB }) : undefined,
+  });
   void view.refresh();
   return Object.freeze({ node, view, close() { view.close(); node.remove(); } });
 }

@@ -80,8 +80,8 @@ export class ReleaseLedger {
     if (actor.id !== prepared.actorId || actor.epoch !== prepared.epoch) fail(401, 'SESSION_INVALID');
     if (Object.keys(prior).some(key => row[key] !== prior[key])) fail(409, 'RELEASE_CONFLICT');
     const time = new Date().toISOString();
-    this.#sql.exec('UPDATE content_games SET next_ordinal=?,current_release_id=?,modified_at=? WHERE game_id=? AND next_ordinal=? AND current_release_id IS ? AND row_revision=? AND draft_revision=? AND owner_id=?',
-      identity.ordinal, identity.releaseId, time, identity.gameId, prior.next_ordinal, prior.current_release_id, prior.row_revision, prior.draft_revision, actor.id);
+    this.#sql.exec('UPDATE content_games SET next_ordinal=?,current_release_id=? WHERE game_id=? AND next_ordinal=? AND current_release_id IS ? AND row_revision=? AND draft_revision=? AND owner_id=?',
+      identity.ordinal, identity.releaseId, identity.gameId, prior.next_ordinal, prior.current_release_id, prior.row_revision, prior.draft_revision, actor.id);
     if (this.#one('SELECT changes() AS n')?.n !== 1) fail(409, 'RELEASE_CONFLICT');
     this.#sql.exec('INSERT INTO content_releases VALUES(?,?,?,?,?,?)', identity.gameId, identity.releaseId, identity.ordinal, identity.draftRevision, identity.sourceDigest, time);
     return Object.freeze({ ...identity, createdAt: time });
@@ -100,8 +100,8 @@ export class ReleaseLedger {
     if (!row) fail(404, 'GAME_NOT_FOUND');
     const ordinal = bumpOrdinal(row.next_ordinal);
     const releaseId = crypto.randomUUID(), time = new Date().toISOString();
-    this.#sql.exec('UPDATE content_games SET next_ordinal=?,current_release_id=?,modified_at=? WHERE game_id=? AND next_ordinal=?',
-      ordinal, releaseId, time, gameId, row.next_ordinal);
+    this.#sql.exec('UPDATE content_games SET next_ordinal=?,current_release_id=? WHERE game_id=? AND next_ordinal=?',
+      ordinal, releaseId, gameId, row.next_ordinal);
     const check = this.#one('SELECT next_ordinal FROM content_games WHERE game_id=?', gameId);
     if (!check || check.next_ordinal !== ordinal) fail(409, 'RELEASE_CONFLICT');
     this.#sql.exec('INSERT INTO content_releases VALUES(?,?,?,?,?,?)', gameId, releaseId, ordinal, draftRevision, sourceDigest, time);

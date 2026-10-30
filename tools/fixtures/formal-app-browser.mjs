@@ -21,7 +21,8 @@ await blob('asset:minimapBase',builtin.world.assets.minimap.base);await blob('as
 for(const group of ['seasons','seasonAtlases'])for(const season of ['spring','summer','autumn','winter'])await blob(group+':'+season,builtin.world.assets[group][season]);
 const identity=Object.freeze({gameId:G,releaseId:R,ordinal,revision:'1',sourceDigest:digest,chapterId,manifestDigest:'c'.repeat(64)});
 const pack={assertCurrent:current,identity,chapter:data.scenarios[0],resourceURLs,manifest:{buildFormat:'studio-app-2',compilerRevision:TRIAL_COMPILER_REVISION,identity:{gameId:G,draftRevision:'1',sourceDigest:digest},chapters:[chapterId],world:{id:G+'-world',revision:digest,width:384,height:256,tileSize:16},portraits:[]}};
-const environment=createPlayerEnvironment(pack,{playerFaction:pack.chapter.factions[0].idx});
+const factionPosition=params.has('alternate-faction')?1:0;
+const environment=createPlayerEnvironment(pack,{playerFaction:pack.chapter.factions[factionPosition].idx});
 const store=createGameSaveStore({gameId:G,databaseName:'owned-formal-app',getIndexedDB:()=>indexedDB});
 const saves=createPlayerSaveStore({environment,store}), repository=createPlayerSaveRepository({saves,assertCurrent:current});
 const control=window.__ownedFormal={environment,store,saves,repository,exits:[],retire(){ended=true;},ready:false};
@@ -36,6 +37,7 @@ for(const options of [{formal:false},{formal:0},{formal:''},{formal:{}},{formal:
   control.rejectedOptions++;
 }
 if(params.has('restore'))formal.savedSlot=0;
+if(params.has('restore-import'))formal.savedSlot=12;
 const failure=params.get('failure');
 if(['repository','null','delete-code'].includes(failure))formal.saveRepository={...repository,async load(){
   if(failure==='null')throw null;

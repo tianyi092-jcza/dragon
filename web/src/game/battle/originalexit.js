@@ -35,8 +35,10 @@ export function calculateOriginalWallMetric(records) {
 /** 9FF8：damageWord=u16(base+50-floor(metric/10))>>3，只取DL低字节饱和扣三属性。
  *  P49现刷窗9FF8..A036：call A65D取原始AX→除10（余数弃）；DS=[D52]、BX=[D32]，
  *  DX=u8(city+0x13)+50-AX后三次shr（16位回绕，中间下溢不钳0）；三次SUB byte,DL
- *  分别扣+0x10/+0x11/+0x13，JAE保留、借位则钳0。Web城池字段为战略尺度，base取原值
- *  （推断：与原战术记录字节的尺度映射未证）；回绕/移位/取DL/饱和扣按指令原样实现。 */
+ *  分别扣+0x10/+0x11/+0x13，JAE保留、借位则钳0。正常原生入口把同一城市对象传入
+ *  exitContext，troops对应C13 byte、不换算人数；9CE2的×10只作用于墙metric。
+ *  此映射不认证缺字段兼容输入、sim分歧或A037后完整返回链。
+ *  来源：docs/re-notes-entity-fields.md#city-exit-byte-scale；回绕/移位/取DL保持原指令。 */
 export function applyOriginalBattleCityDamage(city, wallMetric) {
   if (!city || !wallMetric) return null;
   const troops = city.troops ?? city.soldiers ?? city.garrison ?? 0;

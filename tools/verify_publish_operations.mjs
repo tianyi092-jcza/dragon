@@ -1,6 +1,7 @@
 // Real SQLite + metadata/release/pin stores. Principal/namespace are explicit
 // test ports: this is NOT an HTTP, compiler, R2 or complete publication proof.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { openStorage } from '../vps/sqlite-port.mjs';
 import { PublishOperations } from '../server/publishoperations.js';
 import { GameMetadataStore } from '../server/metadata.js';
@@ -27,12 +28,38 @@ function fixture() {
     releases.pruneExceptInTxn('owned-token', G, issued.releaseId);
     return { version: 1, gameId: G, releaseId: issued.releaseId, pin };
   };
-  return { storage, sql, actor, ops, make, input, snapshot, produce, calls: () => calls, blockNamespace: () => { guardFailure = true; } };
+  return { storage, sql, actor, ops, pins, make, input, snapshot, produce, calls: () => calls, blockNamespace: () => { guardFailure = true; } };
 }
 function check(fn) { const f = fixture(); try { fn(f); groups++; } finally { f.storage.close(); } }
 const code = expected => error => error.code === expected;
 const capture = f => f.ops.capture('owned-token', f.input).ticket;
 const commit = (f, ticket = capture(f)) => f.ops.commit('owned-token', ticket, f.produce);
+check(f => {
+  const before = f.snapshot();
+  for (const name of ['123456789', '𠀀'.repeat(9), 'é'.repeat(9)]) {
+    assert.throws(() => f.ops.capture('owned-token', { ...f.input, name }), code('PUBLISH_NAME'));
+    assert.throws(() => f.pins.publish('owned-token', { gameId: G, name, revision: '1', sourceDigest: 'a'.repeat(64), chapters: ['c1'], ordinal: '1.0' }), code('PUBLISH_NAME'));
+  }
+  assert.deepEqual(f.snapshot(), before);
+  for (const name of ['  12345678  ', '𠀀'.repeat(8), 'e\u0301'.repeat(8)]) {
+    assert.ok(f.ops.capture('owned-token', { ...f.input, name }).ticket);
+    const pin = f.pins.publish('owned-token', { gameId: G, name, revision: '1', sourceDigest: 'a'.repeat(64), chapters: ['c1'], ordinal: '1.0' });
+    assert.equal(pin.name, name.trim().normalize('NFC'));
+  }
+});
+check(f => {
+  // Seed the former legal wire format, not a new long-name publication.
+  const receipt = structuredClone(commit(f)), name = 'Legacy publication';
+  receipt.pin.name = name;
+  const digest = createHash('sha256').update(JSON.stringify(['publish', G, name])).digest('hex');
+  f.sql.exec('UPDATE content_operations SET result_json=?,request_digest=?', JSON.stringify(receipt), digest);
+  f.sql.exec('UPDATE content_reservations SET request_digest=?', digest);
+  const before = f.snapshot();
+  assert.deepEqual(f.ops.query('owned-token', { key: f.input.key, gameId: G }), receipt);
+  assert.deepEqual(f.ops.capture('owned-token', { ...f.input, name }).replay, receipt);
+  assert.throws(() => f.ops.capture('owned-token', { ...f.input, key: 'new-long-publish-key', name }), code('PUBLISH_NAME'));
+  assert.deepEqual(f.snapshot(), before);
+});
 check(f => {
   const before = f.snapshot(), a = capture(f), b = capture(f);
   assert.equal(f.ops.inspect('owned-token', a), null);

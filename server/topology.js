@@ -23,7 +23,7 @@ export function hasPendingMoves(storage, gameId) {
 export class DraftTopology {
   #sql; #principal; #games;
   constructor({ storage, principal, games }) {
-    if (!storage?.sql || typeof principal !== 'function' || typeof games?.listOwn !== 'function') {
+    if (!storage?.sql || typeof principal !== 'function' || typeof games?.listOwn !== 'function' || typeof games?.assertNotDeleting !== 'function') {
       throw new TypeError('actual SQL, principal and game directory required');
     }
     this.#sql = storage.sql; this.#principal = principal; this.#games = games;
@@ -39,6 +39,7 @@ export class DraftTopology {
     if (!uuid(gameId)) fail(422, 'TOPOLOGY_GAME_ID');
     const entry = this.#games.listOwn(tokenHash).find(g => g.gameId === gameId);
     if (!entry) fail(404, 'GAME_NOT_FOUND');
+    this.#games.assertNotDeleting(gameId);
     return actor;
   }
   record(tokenHash, game, { cityId, x, y }) {

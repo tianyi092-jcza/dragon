@@ -9,6 +9,8 @@
 // season visuals stay registry-relative (served anonymously under /content/).
 import { createHash } from 'node:crypto';
 import { fail } from './security.js';
+import { collectPortraitIds } from './portraits.js';
+import { cityViewGaps } from './trials.js';
 import { MINIMAP_SIZES, renderMinimapPixels } from '../web/src/content/authoring/minimap.js';
 import { encodePNG } from './pngio.js';
 import { TRIAL_COMPILER_REVISION } from '../web/src/content/authoring/trialcompile.js';
@@ -79,10 +81,7 @@ export class PublishedPacks {
     if (!this.#portraits) { return []; }
     const ids = [];
     for (const state of Object.values(states)) {
-      for (const general of state?.generals ?? []) {
-        if (Number.isSafeInteger(general?.portrait)) { ids.push(String(general.portrait)); }
-        if (typeof general?.portraitKey === 'string') { ids.push(general.portraitKey); }
-      }
+      ids.push(...collectPortraitIds(state?.generals));
     }
     const rows = this.#portraits.forPublish(ids);
     if (!Array.isArray(rows)) { fail(500, 'PLAY_PORTRAIT_CORRUPT'); }
@@ -103,7 +102,10 @@ export class PublishedPacks {
     for (const chapterId of game.chapterOrder) {
       if (typeof chapterId !== 'string' || !chapterId) { fail(422, 'PLAY_SNAPSHOT'); }
       const state = game.chapters?.[chapterId]?.state;
-      if (!state || typeof state !== 'object') { fail(422, 'PLAY_SNAPSHOT'); }
+      if (!state || typeof state !== 'object' || !Array.isArray(state.cities)) { fail(422, 'PLAY_SNAPSHOT'); }
+      // Use the same fixed-library reference gate as Trial, not a numeric range
+      // or a claim that structural compilation proves every image exists.
+      if (cityViewGaps(state.cities).length) { fail(422, 'PLAY_CITY_VIEW_MISSING'); }
       states[chapterId] = structuredClone(state);
     }
     const payloads = {

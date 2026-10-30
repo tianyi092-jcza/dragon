@@ -1,21 +1,22 @@
-// Editor presentation only. Existing chapter edits and shared portrait catalogue;
+// Read-only editor projection and shared portrait catalogue;
 // no upload, person creation/deletion or new faction/game rules.
-export function installGenerals({ api, authority, work, isBusy, publish = () => {}, prompt = (...args) => globalThis.prompt(...args), confirm = text => globalThis.confirm(text) }) {
-  let identity = null, generation = 0, actionGeneration = 0, games = [], selected = null, detail = null, chapterId = null, library = [], portraitId = '', message = '', needsRead = false;
+export function installGenerals({ api, authority, work, isBusy, publish = () => {}, gameContext }) {
+  let identity = null, generation = 0, actionGeneration = 0, games = [], selected = null, detail = null, chapterId = null, library = [], portraitId = '', message = '';
   const allowed = () => Boolean(identity?.user) && identity === authority() && !identity.user.mustChangePassword;
   const revision = value => typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value);
   const chapter = () => detail?.chapters.find(c => c.chapterId === chapterId);
   function ticket() { const actor = identity, serial = ++generation; return () => allowed() && identity === actor && generation === serial; }
   function resetPicker() { library = []; portraitId = ''; }
+  function adoptGame(value) { if (!allowed() || value === selected) return; generation++; actionGeneration++; selected = value; detail = null; chapterId = null; resetPicker(); message = ''; render(); }
   function render() {
     const visible = allowed(), locked = !visible || isBusy(), current = visible ? chapter() : null;
-    publish({locked,saveDisabled:locked || !detail || needsRead,selected:visible ? selected : null,chapterId:visible ? chapterId : null,portraitId:visible ? portraitId : '',
+    publish({locked,draftRevision:visible ? detail?.draftRevision ?? null : null,saveDisabled:locked || !detail,selected:visible ? selected : null,chapterId:visible ? chapterId : null,portraitId:visible ? portraitId : '',
       games:visible ? games.map(g => ({gameId:g.gameId,label:g.metadata.name + '／草稿 ' + g.draftRevision})) : [],
       chapters:visible ? (detail?.chapters ?? []).map(c => ({chapterId:c.chapterId,name:c.name || c.chapterId})) : [],
-      generals:(current?.generals ?? []).map(g => ({idx:g.idx,name:g.name,hao:g.hao ?? '',portraitKey:g.portraitKey ?? null})),
+      generals:(current?.generals ?? []).map(g => ({idx:g.idx,name:g.name,hao:g.hao ?? '',sourceRecordId:g.sourceRecordId ?? null,originalPortraitId:g.portrait == null ? null : String(g.portrait),portraitKey:g.portraitKey ?? null,ability:g.ability == null ? null : {...g.ability},specialtyLowBits:g.specialtyLowBits ?? null})),
       factions:(current?.factions ?? []).map(f => ({idx:f.idx,monarch:f.monarch_idx,advisor:f.advisor_idx ?? null,capital:f.capital})),
       library:visible ? library.map(p => ({...p})) : [],message:visible ? message : '',
-      context:visible && detail ? detail.gameId + '／已讀取修訂 ' + detail.draftRevision + (needsRead ? '／須明確重讀後再操作' : '') : ''});
+      context:visible && detail ? detail.gameId + '／已讀取修訂 ' + detail.draftRevision : ''});
   }
   function acceptGames(data) {
     if (!Array.isArray(data?.games)) throw new Error('遊戲清單回應無效。');
@@ -29,79 +30,58 @@ export function installGenerals({ api, authority, work, isBusy, publish = () => 
       if (typeof c?.chapterId !== 'string' || c.name != null && typeof c.name !== 'string' || ids.has(c.chapterId) || !Array.isArray(c.generals) || !Array.isArray(c.factions)) throw new Error('章節清單無效。'); ids.add(c.chapterId);
       for (const rows of [c.generals,c.factions]) { const slots = new Set(); for (const r of rows) { if (!Number.isSafeInteger(r?.idx) || slots.has(r.idx)) throw new Error('章節槽位無效。'); slots.add(r.idx); } }
       for (const f of c.factions) if (!Number.isSafeInteger(f.monarch_idx) || !Number.isSafeInteger(f.capital) || f.advisor_idx != null && !Number.isSafeInteger(f.advisor_idx)) throw new Error('勢力顯示資料無效。');
-      for (const g of c.generals) if (typeof g.name !== 'string' || g.hao != null && typeof g.hao !== 'string' || g.portraitKey != null && typeof g.portraitKey !== 'string') throw new Error('武將顯示資料無效。');
+      for (const g of c.generals) if (typeof g.name !== 'string' || g.hao != null && typeof g.hao !== 'string' || g.portraitKey != null && typeof g.portraitKey !== 'string' || g.portrait != null && (!Number.isInteger(g.portrait) || Object.is(g.portrait, -0) || g.portrait < 0 || g.portrait > 255) || g.sourceRecordId != null && (typeof g.sourceRecordId !== 'string' || !g.sourceRecordId || g.idx === 127)) throw new Error('武將顯示資料無效。');
+    }
+    for (const c of data.chapters) for (const g of c.generals) {
+      if (g.ability != null && (typeof g.ability !== 'object' || Array.isArray(g.ability) || [['force',255],['lead',255],['politics',255],['siege',15],['field',15],['naval',15]].some(([key,max]) => !Number.isInteger(g.ability[key]) || Object.is(g.ability[key], -0) || g.ability[key] < 0 || g.ability[key] > max))) throw new Error('武將能力顯示資料無效。');
+      if (g.specialtyLowBits != null && (typeof g.specialtyLowBits !== 'string' || g.specialtyLowBits.length !== 3 || !/^[0-9a-f]{3}$/.test(g.specialtyLowBits))) throw new Error('武將專長低位顯示資料無效。');
+      if (g.references !== undefined && (!Array.isArray(g.references) || g.references.some(r => typeof r?.code !== 'string' || typeof r.detail !== 'string'))) throw new Error('武將引用報告無效。');
     }
     return structuredClone(data);
   }
   function gameOf() { const game = games.find(g => g.gameId === selected); if (!allowed() || !game) throw new Error('請先登入並選擇遊戲。'); return game; }
   async function inspect() {
     const target = {...gameOf()}, valid = ticket(), result = await api('/api/games/' + encodeURIComponent(target.gameId) + '/draft?revision=' + encodeURIComponent(target.draftRevision));
-    if (!valid()) return; const next = acceptDetail(result,target); detail = next; needsRead = false;
+    if (!valid()) return; const next = acceptDetail(result,target); detail = next;
     if (!detail.chapters.some(c => c.chapterId === chapterId)) chapterId = detail.chapters[0]?.chapterId ?? null;
     message = '武將增刪鎖定 128 密排；改名／字與頭像綁定經草稿保存寫入。頭像只取自共用庫，不開放上傳或刪除。';
   }
   async function refresh() {
     if (!allowed()) throw new Error('請先登入。'); const valid = ticket(), result = await api('/api/games'); if (!valid()) return;
-    games = acceptGames(result); selected = games[0]?.gameId ?? null; detail = null; chapterId = null; needsRead = false; resetPicker();
-    if (selected) await inspect();
-  }
-  async function saveEdits(chapterEdits) {
-    const target = {...gameOf()}, valid = ticket();
-    const draft = await api('/api/games/' + encodeURIComponent(target.gameId) + '/draft?revision=' + encodeURIComponent(target.draftRevision));
-    if (!valid()) return; const checked = acceptDetail(draft,target);
-    // Keep the original fresh-key, explicit-revision workflow. No automatic replay.
-    needsRead = true; render();
-    await api('/api/games/' + encodeURIComponent(target.gameId) + '/draft/save',{metadata:checked.metadata,resourceEdits:[],chapterEdits},{key:crypto.randomUUID(),revision:target.draftRevision});
-    if (!valid()) return;
-    const result = await api('/api/games'); if (!valid()) return;
-    const entry = acceptGames(result).find(g => g.gameId === target.gameId);
-    if (!entry || BigInt(entry.draftRevision) !== BigInt(target.draftRevision) + 1n) throw new Error('保存未確認：修訂未推進或已變動，不重試；請重讀清單後再試。');
-    games.find(g => g.gameId === target.gameId).draftRevision = entry.draftRevision;
-    await inspect();
+    games = acceptGames(result);
+    const next = gameContext?.current() ?? (games.some(game => game.gameId === selected) ? selected : games[0]?.gameId ?? null);
+    if (next && gameContext && !gameContext.select(next)) return;
+    if (next !== selected) { selected = next; chapterId = null; }
+    detail = null; resetPicker();
+    if (games.some(game => game.gameId === selected)) await inspect();
+    else message = '目前遊戲不在本次清單；沒有切換其他遊戲。';
   }
   function rowFor(id, idx, field) {
-    if (!allowed() || needsRead || id !== chapterId) throw new Error('請重新讀取並選擇章節。');
+    if (!allowed() || id !== chapterId) throw new Error('請重新讀取並選擇章節。');
     const row = chapter()?.[field].find(r => r.idx === idx); if (!row) throw new Error('原目標已不存在，請重讀。'); return row;
-  }
-  async function rename(id, idx) {
-    const general = rowFor(id,idx,'generals'), name = prompt('名（留空取消）：',general.name); if (name === null) return;
-    const hao = prompt('字（可空）：',general.hao ?? ''); if (hao === null) return;
-    await saveEdits([{op:'rename-general',chapterId:id,generalIdx:idx,values:{name,hao}}]);
-  }
-  async function portrait(id, idx) {
-    const general = rowFor(id,idx,'generals'); let key = null;
-    if (!general.portraitKey) { if (!library.some(p => p.assetId === portraitId)) { message = '請先在頭像資源庫下拉選擇。'; return; } key = portraitId; }
-    await saveEdits([{op:'portrait',chapterId:id,generalIdx:idx,portraitKey:key}]);
-  }
-  function generalNumber(raw) { const value = Number(raw); if (raw.trim() === '' || !Number.isSafeInteger(value)) throw new Error('武將編號須為整數；清空或解散須明確輸入 q。'); return value; }
-  async function faction(kind, id, idx) {
-    const f = rowFor(id,idx,'factions'); let edit;
-    if (kind === 'set-monarch') { const raw = prompt('新君主武將編號（0..127，須自由武將）：'); if (raw === null || raw === '') return; edit = {generalIdx:generalNumber(raw)}; }
-    else if (kind === 'set-strategist') {
-      const raw = prompt(`新軍師武將編號（0..127；清空請輸 q）。${f.advisor_idx != null ? `現任 #${f.advisor_idx} 將被替换。` : ''}`); if (raw === null || raw === '') return;
-      const target = raw === 'q' ? null : generalNumber(raw);
-      if (raw !== 'q' && f.advisor_idx != null && target !== f.advisor_idx && !confirm(`替换現任軍師 #${f.advisor_idx}？`)) return;
-      edit = {generalIdx:target};
-    } else if (kind === 'remove-monarch') {
-      const raw = prompt('繼任君主編號（0..127）；解散請輸 q：'); if (raw === null || raw === '') return;
-      if (raw === 'q' && !confirm(`解散勢力 ${idx}？成員轉自由、據點轉中立，只作用於本章。`)) return;
-      edit = {resolution:raw === 'q' ? {disband:true} : {successor:generalNumber(raw)}};
-    } else if (kind === 'disband-faction') { if (!confirm(`解散勢力 ${idx}？成員轉自由、據點轉中立，只作用於本章。`)) return; edit = {confirm:true}; }
-    else throw new Error('未知勢力操作。');
-    await saveEdits([{op:kind,chapterId:id,factionIdx:idx,...edit}]);
   }
   async function listPortraits() {
     const target = {...gameOf()}, valid = ticket(), result = await api('/api/games/' + encodeURIComponent(target.gameId) + '/portraits'); if (!valid()) return;
     if (!Array.isArray(result?.portraits)) throw new Error('頭像清單回應無效。'); const ids = new Set();
-    const next = result.portraits.map(p => { if (typeof p?.assetId !== 'string' || !p.assetId || ids.has(p.assetId) || typeof p.mime !== 'string' || !Number.isSafeInteger(p.byteLength) || p.byteLength < 0 || typeof p.inUse !== 'boolean') throw new Error('頭像清單回應無效。'); ids.add(p.assetId); return {assetId:p.assetId,mime:p.mime,byteLength:p.byteLength,inUse:p.inUse}; });
+    const next = result.portraits.map(p => { if (typeof p?.assetId !== 'string' || !p.assetId || ids.has(p.assetId) || Object.hasOwn(p, 'sha256') && (typeof p.sha256 !== 'string' || p.sha256.length !== 64 || !/^[a-f0-9]{64}$/.test(p.sha256)) || typeof p.mime !== 'string' || !Number.isSafeInteger(p.byteLength) || p.byteLength < 0 || typeof p.inUse !== 'boolean') throw new Error('頭像清單回應無效。'); ids.add(p.assetId); return {assetId:p.assetId,mime:p.mime,byteLength:p.byteLength,inUse:p.inUse,...(Object.hasOwn(p, 'sha256') ? {sha256:p.sha256} : {})}; });
     library = next; portraitId = library[0]?.assetId ?? ''; message = `共用庫 ${library.length} 張（唯讀）。`;
   }
   function action(callback, label = '操作未完成') { return work(async () => { const actor = identity, serial = ++actionGeneration; try { await callback(); } catch (error) { if (allowed() && actor === identity && serial === actionGeneration) message = label + '：' + error.message + '；請重讀後重做。'; throw error; } finally { render(); } }); }
-  const actions = Object.freeze({refresh:() => action(refresh),inspect:() => action(inspect),listPortraits:() => action(listPortraits),rename:(id,idx) => action(() => rename(id,idx),'保存失敗'),portrait:(id,idx) => action(() => portrait(id,idx),'保存失敗'),faction:(kind,id,idx) => action(() => faction(kind,id,idx),'保存失敗'),
-    blockers:(id,idx) => action(async () => { rowFor(id,idx,'generals'); message = `#${idx} 不可刪除：武將鎖定 128 密排，不開放增刪。`; }),
-    selectGame(value) { if (!allowed() || isBusy() || !games.some(g => g.gameId === value) || value === selected) return; generation++; selected = value; detail = null; chapterId = null; needsRead = false; resetPicker(); message = ''; render(); },
+  const actions = Object.freeze({refresh:() => action(refresh),inspect:() => action(inspect),listPortraits:() => action(listPortraits),
+    blockers:(id,idx) => action(async () => {
+      rowFor(id,idx,'generals');
+      const lines = [`#${idx} 不可刪除：武將鎖定 128 密排，不開放增刪。`, '以下依章節分列同編號槽位，不代表各章為同一人物；不構成完整刪除准入。'];
+      for (const c of detail.chapters) {
+        const g = c.generals.find(value => value.idx === idx); if (!g) continue;
+        lines.push(`【${c.name || c.chapterId}／${c.chapterId}】${g.name}：`);
+        if (!g.references?.length) lines.push('引用資料未提供，不能視為無引用。');
+        else for (const reference of g.references) lines.push(reference.detail);
+      }
+      message = lines.join('\n');
+    }),
+    selectGame(value) { if (!allowed() || isBusy() || !games.some(g => g.gameId === value) || value === selected) return; if (gameContext && !gameContext.select(value)) { render(); return; } adoptGame(value); },
     selectChapter(value) { if (!allowed() || isBusy() || !detail?.chapters.some(c => c.chapterId === value)) return; chapterId = value; render(); },
     selectPortrait(value) { if (!allowed() || isBusy() || !library.some(p => p.assetId === value)) return; portraitId = value; render(); }});
   render();
-  return Object.freeze({render,actions,setIdentity(next) { if (identity !== next) { identity = next; generation++; games = []; selected = null; detail = null; chapterId = null; needsRead = false; resetPicker(); message = ''; } render(); },canLeave() { return true; }});
+  return Object.freeze({render,actions,adoptGame,canAdoptGame: () => allowed(),selectedGame: () => allowed() ? selected : null,setIdentity(next) { if (identity !== next) { identity = next; generation++; games = []; selected = gameContext?.current() ?? null; detail = null; chapterId = null; resetPicker(); message = ''; } render(); },canLeave() { return true; }});
 }

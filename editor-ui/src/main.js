@@ -11,7 +11,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const state = reactive({ authenticated: false, mustChange: false, admin: false, account: '', view: null, busy: false, views });
   const accountsModel = reactive({ rows: [], loaded: false, stale: false, message: '', generation: 0 });
   const draftModel = reactive({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: true });
-  const stageAssetsModel = reactive({ loadDisabled: true, clearDisabled: true, context: '', message: '', summary: '', outputs: [], missing: [] });
+  const stageAssetsModel = reactive({ loadDisabled: true, clearDisabled: true, context: '', message: '', summary: '', outputs: [], missing: [], unresolved: [] });
   const stageJobsModel = reactive({ purpose: 'data', locked: true, artifacts: [] });
   const libraryModel = reactive({ assets: [], missing: [], loadDisabled: true, filterDisabled: true, downloadDisabled: true, serial: 0 });
   const strongholdModel = reactive({ games: [], chapters: [], cities: [], locked: true, saveDisabled: true });
@@ -39,6 +39,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
     management: model => Object.assign(managementModel, model),
     deletion: model => Object.assign(deletionModel, model),
     accountDirty: () => instance.accountDirty(),
+    mapInputs: () => instance.mapInputs(),
     sync({ current, view, busy }) {
       Object.assign(state, {
         authenticated: Boolean(current), mustChange: Boolean(current?.user.mustChangePassword),

@@ -35,7 +35,7 @@ test("fixed KI 38C7/38E6 wrappers, 3902 gate, keypad cap and 3C3D/3DC9 penalty b
     raw(0x38c7, 0x1f),
     "535156e8324f81c340428bf3b96801bbffffe89ce7e82300e8f4e75e595bc3",
   );
-  // 38E6：CX=0x175(373)，BX 保持 DI（A 攻击目标）。
+  // 38E6：CX=0x175(373)，BX 保持入口的 A 攻击目标指针；DI 另为 T 付款方。
   assert.equal(
     raw(0x38e6, 0x1c),
     "515653e8134f81c340428bf35bb97501e87fe7e80600e8d7e75e59c3",

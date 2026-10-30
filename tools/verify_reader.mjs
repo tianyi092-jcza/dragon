@@ -179,6 +179,29 @@ try {
   response = await getFile(`chapter:${scopedChapter}`, scopedTicket);
   check('scoped old ticket is invalid after update and unlist', response.status === 409 && (await data(response)).error === 'RELEASE_CHANGED');
   await commit(publication(3, GAME, [scopedChapter, scopedOther]));
+  // Public frozen reader pagination, not the retired SQL announcement route.
+  const history = publication(39);
+  history.announcements = Array.from({ length: 40 }, (_, i) => ({ ...history.announcements[0], ordinal: `1.${i}`, firstOnlineAt: new Date(Date.UTC(2037, 0, 1 + i % 5)).toISOString() }));
+  await commit(history);
+  const firstPage = await data(await call('/play-api/v1/registry?announcementPage=1'));
+  check('public first page is bounded with a cursor', firstPage.announcements.length === 30 && typeof firstPage.announcementPage.nextCursor === 'string' && firstPage.announcementPage.reset === false);
+  const pagePath = `/play-api/v1/registry?announcementPage=1&cursor=${encodeURIComponent(firstPage.announcementPage.nextCursor)}`;
+  const secondPage = await data(await call(pagePath));
+  const all = [...firstPage.announcements, ...secondPage.announcements];
+  check('public second page contains remainder exactly once', secondPage.announcements.length === 10 && secondPage.announcementPage.nextCursor === null && new Set(all.map(row => row.announcementId)).size === 40);
+  check('resolved dates and stable IDs sort descending across page boundary', all.every((row, i) => !i || all[i - 1].firstOnlineAt > row.firstOnlineAt || all[i - 1].firstOnlineAt === row.firstOnlineAt && all[i - 1].announcementId > row.announcementId));
+  check('public identity is stable public pair, not SQL position', all.every(row => row.announcementId === `${row.gameId}:${row.ordinal}`));
+  check('unpaged callers retain complete legacy response', (await data(await call('/play-api/v1/registry'))).announcements.length === 40);
+  for (const query of ['cursor=%7B', 'announcementPage=1', `cursor=${encodeURIComponent(JSON.stringify({ ...JSON.parse(firstPage.announcementPage.nextCursor), id: 'missing' }))}`]) {
+    const bad = await data(await call(`/play-api/v1/registry?announcementPage=1&${query}`));
+    check('bad cursor/page input is isolated from valid directory', bad.directory.length === 1 && bad.announcementsError === 'ANNOUNCEMENTS_UNAVAILABLE');
+  }
+  await commit(unlisted(false, history.directory[0]));
+  const hiddenPage = await data(await call(pagePath));
+  check('directory change restarts paging and filters newly unlisted history', hiddenPage.announcementPage.reset === true && hiddenPage.announcements.length === 0 && hiddenPage.announcementPage.nextCursor === null && hiddenPage.directory.length === 0);
+  await commit(history);
+  const restartedPage = await data(await call(pagePath));
+  check('relist with stale cursor returns first page with unchanged snapshots', restartedPage.announcementPage.reset === true && JSON.stringify(restartedPage.announcements) === JSON.stringify(firstPage.announcements));
   const root = await r2.get('control/current.json');
   let rootValue; try { rootValue = JSON.parse(root.bytes); } catch { throw new Error('bad fixture root'); }
   await bucket.put(`projections/${rootValue.generation}/${rootValue.digest}/projection.json`, '{}');

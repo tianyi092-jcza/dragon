@@ -14,7 +14,7 @@
 
 ## 实际持久链与权限
 
-复用未改`InstalledSourceCatalog`的固定策略品牌、规范分块索引、真实R2条件创建/逐段长度SHA、完整角色SHA、实际principal/逐await和提交epoch复查、SQLite登记+永久key收据。400角色使用独立registry，在同`installed_sources/source_operations`表及原source操作命名空间；不同registry同key实际409。库不能替代管理员完整复制的41角色来源；Root仍把复制器/草稿profile接到原目录实例。
+复用未改`InstalledSourceCatalog`的固定策略品牌、规范分块索引、真实R2条件创建/逐段长度SHA、完整角色SHA、实际principal/成功await及提交epoch复查、SQLite登记+永久key收据。异常await的后继修复见下节，不能以本初始批次成绩代替。400角色使用独立registry，在同`installed_sources/source_operations`表及原source操作命名空间；不同registry同key实际409。库不能替代管理员完整复制的41角色来源；Root仍把复制器/草稿profile接到原目录实例。
 
 Root新增：
 
@@ -26,6 +26,18 @@ Root新增：
 `tools/editor_stage_library.mjs`在首次await前捕获全部固定角色，并核当前19程序指纹；1MiB切块、R2条件写、真实读回完整SHA，不覆盖坏同key对象。启动器新增明确`--stage-library`及独立`.local/library-root.json`（存在则精确同值，否则wx）；host staging不等SQL批准，仍须真实管理员调用安装。原`--stage-source`默认行为保持。各次实际重启不跟latest，不靠进程Map恢复权限。
 
 64MiB目录总byte等原有限运维界限不是Cloudflare CPU/内存/吞吐SLA；库登记不代物理GC/备份删除保障。没有运行资格的全库捕获不能声称已完成完整E-01/E-06。
+
+## 后继共同目录异常取数的撤权与来源复核
+
+本轮从私有库下载调用追到共同`InstalledSourceCatalog`：对象GET直接抛错时跳过后置`#check`，流读取抛错后只有取消／释放、也未复核当前权限及捕获登记。先在既有`verify_library_refresh.mjs`实际目录入口复现GET期间epoch改变仍抛原I/O错误，`before.log`保留失败；不据此声称已返回私有字节或写入越权收据。
+
+修复仅在对象GET异常和流异常清理后调用已有`#check`，有效权限／来源保留同一个原异常；权限变化返回`SESSION_INVALID`，完整读取捕获的登记变化返回`SOURCE_CHANGED`。成功校验、角色品牌、摘要／预算、永久key及提交事务不变，没有空数据兜底、新权限或重试。
+
+既有工具新增14组：loadFull的GET／body各覆盖原异常、actor epoch改变、principal明确撤销、注册row_revision变化；install的两个读取点各覆盖前三种。install读取前尚未捕获登记行，不能冒称同样的登记快照合同。故障由显式适配器在真实GET或真实流read之后注入；每组核只读取一次、零put、无SQL收据变化，body取消和releaseLock各一次。注册变化用自有测试行注入并在finally定点复原，其余SQL全文保持。
+
+默认内存对象桶与`--workerd`本地持久R2两模式均 **22组通过**（原8＋14），实际400角色stager／固定策略／文件SQLite／共同目录参与；432个旧对象、旧登记和永久key保留，真实关闭重开SQLite后可读，旧进程capture拒复用，两模式outbound均0。workerd仅为对象存储模式，不是共同业务运行在workerd、真实HTTP登录或生产R2；两模式principal仍为明确端口夹具。上层私有库下载的游戏归属／快照变化与每个角色分块异常组合并未因此全部闭合。
+
+证据 `.dragon-analysis/editor-completion/library-catalog-read-failure-20261029/`：`before.log`、`after.log`、`workerd.log`，763项选定源码／资源／策略的`before.json`／`after.json`保持。只用独立临时目录，finally关闭自有SQLite／Miniflare并删除自身目录，无真实存档、生产登记或部署。两JS语法及diff检查通过（LF／CRLF提示未归一化）。主动LSP两代码均push-only未确认，两文档一clean／一仅三条既有词典hint；mode=all亦仅这三条hint，不把代码空缓存当clean。没有Web／DDL／程序束修改；保留`sourcecatalog.js`此前已有的author只读端口等改动，本批不改变角色策略。
 
 ## 本轮实际验证
 

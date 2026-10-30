@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {readInstalledEditorSource} from './editor_builtin_source.mjs';
 import {readInstalledEntitySource} from './editor_entity_source.mjs';
 import {BUILTIN_ENTITY_SOURCE} from '../web/src/editor/builtinentitysource.generated.js';
-import {copyBuiltinGame} from '../web/src/content/authoring/gamesource.js';
+import {copyBuiltinGame, copyChapterInGame, chapterSaveGaps, validateGameSource} from '../web/src/content/authoring/gamesource.js';
 import {copyEntitySourceRecords} from '../web/src/editor/entitycopy.js';
 const sha=b=>createHash('sha256').update(b).digest('hex'),source=readInstalledEditorSource(),bundle=await readInstalledEntitySource();
 const make=id=>copyBuiltinGame({gameId:id,ownerId:'owned-test',kind:'full',source},sha);
@@ -26,4 +26,31 @@ reject(g=>g.chapters[g.chapterOrder[0]].sourceChapterId='wrong');
 reject(g=>g.chapterOrder.pop());
 reject(()=>{},()=> 'same-record-id');
 assert.equal(JSON.stringify({chapters:game.chapters,generals:game.generals,compatibility:game.compatibility,source}),before);assert.equal(JSON.stringify(bundle),bundleBefore);
-process.stdout.write(JSON.stringify({result:'PASS-COPY-SOURCE-RECORD-DTO-NOT-SERVER-UI',chapters:20,ordinarySourceRecords:2540,reservedRecords:20,independentGames:2,negativeControls:negatives,nativeNamedSourceUnchanged:true,limits:'Not installed in service/drafts yet; legacy general dictionary and native state unchanged; source-record identity is not historical person merge/edit/init'})+'\n');
+// Explicit installed-source low-bit fixture (post-adoption); missing stays missing, not a migration of installed records.
+const retained=structuredClone(game), chapterId=retained.chapterOrder[0];
+const state=retained.chapters[chapterId].state, general=state.generals[0];
+const originalLow=game.chapters[chapterId].state.generals[0].specialty_low_bits;
+assert.ok(source.chapters.every(chapter=>chapter.state.generals.every(row=>Object.hasOwn(row,'specialty_low_bits') && /^[0-9a-f]{3}$/.test(row.specialty_low_bits))));
+assert.equal(source.chapters.flatMap(chapter=>chapter.state.generals).filter(row=>row.specialty_low_bits!=='000').length,5);
+for(const value of [null,undefined,'','00','0000','00G','00F','abc\n','abc\r\n',[0,0,0],0]){
+  general.specialty_low_bits=value;
+  assert.ok(chapterSaveGaps(state,chapterId).some(gap=>gap.code==='entity-save'&&gap.message.includes('specialty_low_bits')));
+  for(const draft of [true,false]) assert.throws(()=>validateGameSource(retained,{draft}),/specialty_low_bits/);
+  assert.deepEqual(general.specialty_low_bits,value);
+}
+for(const value of ['000','216','abc','fff']){
+  general.specialty_low_bits=value;
+  assert.ok(!chapterSaveGaps(state,chapterId).some(gap=>gap.message.includes('specialty_low_bits')));
+  validateGameSource(retained,{draft:true});
+}
+general.specialty_low_bits='216';
+const copiedId=copyChapterInGame(retained,chapterId);
+assert.equal(retained.chapters[copiedId].state.generals[0].specialty_low_bits,'216');
+assert.equal(JSON.parse(JSON.stringify(retained)).chapters[copiedId].state.generals[0].specialty_low_bits,'216');
+delete general.specialty_low_bits;
+validateGameSource(retained,{draft:true});
+assert.equal(Object.hasOwn(general,'specialty_low_bits'),false);
+assert.equal(game.chapters[chapterId].state.generals[0].specialty_low_bits, originalLow);
+assert.ok(/^[0-9a-f]{3}$/.test(game.chapters[chapterId].state.generals[0].specialty_low_bits));
+assert.equal(JSON.stringify({chapters:game.chapters,generals:game.generals,compatibility:game.compatibility,source}),before);
+process.stdout.write(JSON.stringify({specialtyInvalidInputs:11,specialtyValidInputs:4,specialtyCopyAndJson:true,result:'PASS-COPY-SOURCE-RECORD-DTO-NOT-SERVER-UI',chapters:20,ordinarySourceRecords:2540,reservedRecords:20,independentGames:2,negativeControls:negatives,nativeNamedSourceUnchanged:true,limits:'Not installed in service/drafts yet; legacy general dictionary and native state unchanged; source-record identity is not historical person merge/edit/init'})+'\n');

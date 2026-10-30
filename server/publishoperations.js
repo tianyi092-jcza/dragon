@@ -86,13 +86,16 @@ export class PublishOperations {
     if (input.gameId === 'wolong-builtin') { fail(403, 'BUILTIN_PROTECTED'); }
     if (!isGameId(input.gameId)) { fail(422, 'PUBLISH_GAME_ID'); }
     let name;
-    try { name = checkGameName(input.name, 40); } catch { fail(422, 'PUBLISH_NAME'); }
+    try { name = checkGameName(typeof input.name === 'string' ? input.name.normalize('NFC') : input.name, 40); } catch { fail(422, 'PUBLISH_NAME'); }
     if (!name) { fail(422, 'PUBLISH_NAME'); }
     // Bind the exact request, not a digest recomputed from a later draft.
     const operation = { key: input.key, gameId: input.gameId, name, digest: createHash('sha256').update(JSON.stringify(['publish', input.gameId, input.name])).digest('hex') };
     return this.#storage.transactionSync(() => {
       const { actor, row } = this.#authority(tokenHash, operation), replay = this.#replay(actor, operation);
       if (replay) { return Object.freeze({ replay, ticket: null }); }
+      // Keep permanent pre-limit results replayable, but never issue a new
+      // ticket outside the approved eight-code-point name contract.
+      try { checkGameName(name, 8); } catch { fail(422, 'PUBLISH_NAME'); }
       if (!isRevision(row.draft_revision) || !isRevision(row.row_revision) || row.current_release_id !== null && !isGameId(row.current_release_id)) { fail(503, 'PUBLISH_AUTHORITY_CORRUPT'); }
       const ticket = Object.freeze({});
       this.#tickets.set(ticket, Object.freeze({ ...operation, actor: actor.id, epoch: actor.epoch, draftRevision: row.draft_revision, rowRevision: row.row_revision, releaseId: row.current_release_id }));

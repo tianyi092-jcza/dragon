@@ -4,6 +4,7 @@
 import { validateIdentity, isChapterId, isDigest } from './runtimecontract.js';
 import { saveInput, checkSaveToken, saveReleaseOrdinalFromVersion } from '../core/gamesavecodec.js';
 import { encodeSaveFile } from '../core/saveexchange.js';
+import { createGameSaveExchange } from '../core/gamesaveexchange.js';
 import { readSavedAssembly, assertAssemblyIdentity } from '../game/scenarioassembly.js';
 
 export function createPlayerSaveStore({ environment, store }) {
@@ -32,6 +33,18 @@ export function createPlayerSaveStore({ environment, store }) {
     await encodeSaveFile(input.snapshot, context);
     current();
   }
+  const exchange = createGameSaveExchange({ identity, context });
+  async function put(snapshot, expected = null) {
+    current(); const input = capture(snapshot);
+    const token = expected === null ? null : checkSaveToken(expected, identity.gameId);
+    if (token && token.slot !== input.slot) throw new TypeError('formal save token slot mismatch');
+    await validate(input);
+    const saved = await store.put(input, token, { discardOlderReleases: true });
+    // Once dispatched, the local transaction may commit even if the session
+    // retires. Return its commit receipt, never claim the old record survived.
+    // The owner must reject late live installation; this adapter installs none.
+    return Object.freeze({ committed: true, snapshot: saved.record.snapshot, token: saved.token });
+  }
   return Object.freeze({ identity,
     async list() {
       current(); const rows = await store.list(); current();
@@ -47,16 +60,19 @@ export function createPlayerSaveStore({ environment, store }) {
       await validate(input);
       return Object.freeze({ snapshot: input.snapshot, token: saved.token });
     },
-    async put(snapshot, expected = null) {
-      current(); const input = capture(snapshot);
-      const token = expected === null ? null : checkSaveToken(expected, identity.gameId);
-      if (token && token.slot !== input.slot) throw new TypeError('formal save token slot mismatch');
-      await validate(input);
-      const saved = await store.put(input, token, { discardOlderReleases: true });
-      // Once dispatched, the local transaction may commit even if the session
-      // retires. Return its commit receipt, never claim the old record survived.
-      // The owner must reject late live installation; this adapter installs none.
-      return Object.freeze({ committed: true, snapshot: saved.record.snapshot, token: saved.token });
+    put,
+    async exportBackup(slot) {
+      current(); const saved = await store.get(slot); current();
+      if (saved === null) throw new TypeError('backup save slot is empty');
+      capture(saved.record.snapshot);
+      const text = await exchange.encode(saved.record); current();
+      return text;
+    },
+    async importBackup(text, slot) {
+      current(); const decoded = await exchange.decode(text); current();
+      // Explicit destination, new-slot CAS only. Foreign recordId/revision and
+      // source slot never authorize overwriting a local archive or live App.
+      return put({ ...decoded.input.snapshot, slot });
     },
   });
 }

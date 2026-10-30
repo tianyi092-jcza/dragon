@@ -1,7 +1,8 @@
 // Pure author contract fixtures, no files/network/profile/DOS or rule goldens.
 import assert from "node:assert/strict";
+import { encodeSourceChunks, decodeSourceChunks } from '../web/src/content/authoring/sourcejson.js';
 import { composeMapLayers, BYTE_STAMP_RECIPE } from "../web/src/content/authoring/maplayers.js";
-import { captureComponent, placeComponent, componentCells, hitDecoration, createDecorationPicker, decorationIdsInRect, fillBase, createWaterGroup, splitWaterGroup, mergeWaterGroups, validateLibraryAdditions, splitDecoration, translateDecorations, reorderDecorations, materialReferences, renameMaterial, removeMaterial } from "../web/src/editor/componenttools.js";
+import { renameWaterGroup, setWaterGroupMinimapVisibility, captureComponent, placeComponent, componentCells, hitDecoration, createDecorationPicker, decorationIdsInRect, fillBase, createWaterGroup, splitWaterGroup, mergeWaterGroups, validateLibraryAdditions, splitDecoration, translateDecorations, reorderDecorations, materialReferences, renameMaterial, removeMaterial } from "../web/src/editor/componenttools.js";
 const def = { id: "atom", revision: "1", category: "explicit-fixture", footprint: [[0, 0]], anchor: [0, 0],
   visualRef: "MMAP.MDL:tile-32", ruleRecipeRef: BYTE_STAMP_RECIPE, variants: { original: { tiles: [[0, 0, 32]] } } };
 const source = { localModel: { draftRevision: "1" }, componentDefinitions: { atom: def }, map: {
@@ -21,6 +22,53 @@ const split = splitWaterGroup(joined, "whole", ["a"], [], "part", "拆出部分"
 assert.equal(split.map.waterGroups.length, 2); assert.ok(split.map.waterGroups.every((g) => !g.showOnMinimap)); sameNative(joined, split);
 const merged = mergeWaterGroups(split, ["whole", "part"], "merged", "合併河段", true); sameNative(split, merged);
 assert.equal(merged.map.waterGroups.length, 1); assert.deepEqual(new Set(merged.map.waterGroups[0].memberIds), new Set(["a", "b"]));
+const hiddenWater = setWaterGroupMinimapVisibility(merged, 'merged', false);
+sameNative(merged, hiddenWater);
+assert.equal(composeMapLayers(hiddenWater).minimapGeography[10 * 384 + 10], 0);
+assert.equal(composeMapLayers(merged).minimapGeography[10 * 384 + 10], 2);
+assert.deepEqual(setWaterGroupMinimapVisibility(hiddenWater, 'merged', true), merged);
+assert.deepEqual(setWaterGroupMinimapVisibility(merged, 'merged', true), merged);
+for (const [groupId, flag] of [['missing', false], ['', true], ['merged', null], ['merged', 0], ['merged', 'false']]) assert.throws(() => setWaterGroupMinimapVisibility(merged, groupId, flag));
+for (const mode of ['duplicate', 'missing-flag', 'bad-member']) {
+  const bad = structuredClone(merged);
+  if (mode === 'duplicate') bad.map.waterGroups.push(structuredClone(bad.map.waterGroups[0]));
+  if (mode === 'missing-flag') delete bad.map.waterGroups[0].showOnMinimap;
+  if (mode === 'bad-member') bad.map.waterGroups[0].memberIds.push('missing');
+  const before = JSON.stringify(bad);
+  assert.throws(() => setWaterGroupMinimapVisibility(bad, 'merged', false));
+  assert.equal(JSON.stringify(bad), before);
+}
+// Group names are author labels, never identities or geography. Reuse the
+// existing component-name budget and preserve author Unicode (no conversion).
+const groupSnapshot = JSON.stringify(merged);
+const renamedGroup = renameWaterGroup(merged, 'merged', '  e\u0301河𠀀  ');
+const expectedGroup = structuredClone(merged); expectedGroup.map.waterGroups[0].name = 'e\u0301河𠀀';
+assert.deepEqual(renamedGroup, expectedGroup);
+assert.deepEqual(parse(JSON.stringify(renamedGroup)), renamedGroup);
+assert.deepEqual(composeMapLayers(renamedGroup), composeMapLayers(merged));
+assert.equal(JSON.stringify(merged), groupSnapshot); checks++;
+assert.deepEqual(renameWaterGroup(renamedGroup, 'merged', '合併河段'), merged);
+assert.deepEqual(renameWaterGroup(merged, 'merged', '合併河段'), merged); checks++;
+assert.equal(renameWaterGroup(merged, 'merged', '𠀀'.repeat(64)).map.waterGroups[0].name, '𠀀'.repeat(64));
+for (const name of [null, 4, '', '   ', '𠀀'.repeat(65), 'bad\u0001', 'bad\u007f', 'bad\u0085', 'bad\ud800', 'bad\udfff']) {
+  assert.throws(() => renameWaterGroup(merged, 'merged', name));
+  assert.equal(JSON.stringify(merged), groupSnapshot);
+}
+checks++;
+for (const mode of ['missing', 'duplicate', 'bad-member']) {
+  const bad = structuredClone(merged);
+  if (mode === 'duplicate') bad.map.waterGroups.push(structuredClone(bad.map.waterGroups[0]));
+  if (mode === 'bad-member') bad.map.waterGroups[0].memberIds.push('missing');
+  const before = JSON.stringify(bad);
+  assert.throws(() => renameWaterGroup(bad, mode === 'missing' ? 'missing' : 'merged', '新名稱'));
+  assert.equal(JSON.stringify(bad), before);
+}
+checks++;
+renamedGroup.map.waterGroups[0].memberIds.push('detached-name-output');
+assert.equal(JSON.stringify(merged), groupSnapshot); checks++;
+const originalMembers = [...merged.map.waterGroups[0].memberIds];
+hiddenWater.map.waterGroups[0].memberIds.push('detached-output');
+assert.deepEqual(merged.map.waterGroups[0].memberIds, originalMembers); checks++;
 const unknown = structuredClone(source), cell = 10 * 384 + 10;
 unknown.map.base.terrainRef[cell] = null; unknown.map.base.unknownUnderlays[cell] = { sourceRef: "explicit fixture unknown", coveringInstanceId: "a" };
 const covered = composeMapLayers(unknown); unknown.map.decorations.shift();
@@ -40,6 +88,10 @@ masked.map.waterGroups[0].showOnMinimap = false;
 masked.map.base.terrainRef[20 * 384 + 20] = null;
 masked.map.base.unknownUnderlays[20 * 384 + 20] = { sourceRef: "explicit split unknown", coveringInstanceId: "pair-instance" };
 masked.map.decorations.push({ id: "later-cover", x: 20, y: 20, definitionRef: "atom" });
+const duplicateAtoms = structuredClone(masked);
+duplicateAtoms.componentDefinitions['aaa-duplicate'] = { ...structuredClone(def), id: 'aaa-duplicate' };
+const serializedAtoms = decodeSourceChunks(encodeSourceChunks(duplicateAtoms));
+assert.deepEqual(splitDecoration(duplicateAtoms, 'pair-instance', ['stable-a', 'stable-b']), splitDecoration(serializedAtoms, 'pair-instance', ['stable-a', 'stable-b'])); checks++;
 const atomized = splitDecoration(masked, "pair-instance", ["child-a", "child-b"]); sameNative(masked, atomized);
 assert.deepEqual(composeMapLayers(masked).minimapGeography, composeMapLayers(atomized).minimapGeography);
 assert.deepEqual(atomized.map.waterGroups[0].memberIds, ["child-a"]); assert.equal(atomized.map.waterGroups[0].showOnMinimap, false);

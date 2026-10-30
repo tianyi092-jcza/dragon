@@ -11,6 +11,7 @@ function urlOf(value){try{return new URL(value);}catch{throw new Error('invalid 
 const parent='.dragon-analysis/release-readiness';await mkdir(parent,{recursive:true});const artifact=await mkdtemp(join(parent,'formal-app-browser-'));
 const server=await startBrowserTestServer();let browser,releaseAsset;
 const errors=[],failed=[],forbidden=[],sources={};let checks=0;
+const alternateFaction=process.argv.includes('--alternate-faction');
 try {
  const origin=`http://127.0.0.1:${server.port}`;
  const bootPath='tools/fixtures/formal-app-browser.mjs',boot=await readFile(bootPath);sources[bootPath]=sha(boot);
@@ -31,7 +32,7 @@ try {
  const page=await context.newPage();page.setDefaultTimeout(90000);
  page.on('pageerror',e=>errors.push(String(e)));page.on('console',m=>{if(m.type()==='error'&&!m.location().url?.endsWith('/favicon.ico'))errors.push(m.text());});
  page.on('requestfailed',r=>failed.push({path:urlOf(r.url()).pathname,error:r.failure()?.errorText}));
- async function ready(path){await page.goto(origin+path);await page.waitForFunction(()=>window.__ownedFormal?.ready||window.__ownedFormal?.bootError);assert.equal(await page.evaluate(()=>window.__ownedFormal.bootError??null),null);}
+ async function ready(path){const target=new URL(path,origin);if(alternateFaction&&target.searchParams.has('large'))target.searchParams.set('alternate-faction','1');await page.goto(target.href);await page.waitForFunction(()=>window.__ownedFormal?.ready||window.__ownedFormal?.bootError);assert.equal(await page.evaluate(()=>window.__ownedFormal.bootError??null),null);}
  await ready('/index.html');
  const initial=await page.evaluate(async()=>{
   const a=window.__app,c=window.__ownedFormal;
@@ -186,6 +187,14 @@ try {
  assert.equal(capturedRestore.result,'failed');assert.equal(capturedRestore.unchanged,true);assert.equal(capturedRestore.secondLoadRejected,true);checks++;
  const smallArchive=await page.evaluate(()=>window.__ownedFormal.store.get(0));
  await ready('/index.html?large=1');
+ const factionIdentity=await page.evaluate(()=>{
+  const a=window.__app,c=window.__ownedFormal;
+  return{selected:c.environment.player,live:a.scenario.player_faction,first:a.content.chapter(0).template.factions[0].idx};
+ });
+ assert.equal(factionIdentity.live,factionIdentity.selected);
+ if(alternateFaction)assert.notEqual(factionIdentity.selected,factionIdentity.first);
+ else assert.equal(factionIdentity.selected,factionIdentity.first);
+ checks++;
  const largeSaved=await page.evaluate(async()=>{
   const a=window.__app,c=window.__ownedFormal;
   const saved=await a.saveGame(0,'large exact ordinal'),record=await c.store.get(0);
@@ -206,9 +215,57 @@ try {
   return{saved,label:a._lastLoadedSaveLabel,ordinal:record.record.releaseOrdinal,revision:record.record.writeRevision,smallDigest:small.token.bodyDigest};
  });
  assert.deepEqual(largeRestored,{saved:{saved:'local'},label:'large exact ordinal',ordinal:'9007199254740993',revision:2,smallDigest:smallArchive.token.bodyDigest});checks++;
+ // Explicit programmatic backup import, not a file-picker or latest-version UI.
+ await ready('/index.html?large=1&restore=1');
+ const backupImport=await page.evaluate(async()=>{
+  const a=window.__app,c=window.__ownedFormal;
+  const {createGameSaveExchange}=await import('/src/core/gamesaveexchange.js');
+  const {createGameSaveStore}=await import('/src/core/gamesavestore.js');
+  const other=createGameSaveStore({gameId:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',databaseName:'owned-formal-app',getIndexedDB:()=>indexedDB});
+  const source=await c.store.get(0),otherBefore=await other.get(0),otherCatalog=await other.list();
+  const scenario=a.scenario,liveSaves=a.saves,loadedSlot=a.loadedSaveSlot,rng=JSON.stringify(a.originalRng.snapshot()),serial=a.clock.strategicTickSerial;
+  const exchange=createGameSaveExchange({identity:c.saves.identity,context:{data:a.data,content:a.content,world:a.world}});
+  const text=await c.saves.exportBackup(0),decoded=await exchange.decode(text);
+  const candidate={...decoded.input.snapshot,slot:12};
+  const receipt=await c.saves.importBackup(text,12),imported=await c.store.get(12);
+  const roundtrip=await exchange.decode(await c.saves.exportBackup(12));
+  const catalog=await c.store.list();let conflict=null;
+  try{await c.saves.importBackup(text,12);}catch(error){conflict=error.name;}
+  const result={committed:receipt.committed,ordinal:imported.record.releaseOrdinal,slot:imported.record.slot,
+   freshRecordId:imported.record.recordId!==decoded.origin.recordId,revision:imported.record.writeRevision,
+   snapshotEqual:JSON.stringify(imported.record.snapshot)===JSON.stringify(candidate),
+   roundtripEqual:JSON.stringify(roundtrip.input.snapshot)===JSON.stringify(candidate),
+   sourceUnchanged:JSON.stringify(await c.store.get(0))===JSON.stringify(source),
+   otherUnchanged:JSON.stringify(await other.get(0))===JSON.stringify(otherBefore)&&JSON.stringify(await other.list())===JSON.stringify(otherCatalog),
+   liveUnchanged:a.scenario===scenario&&a.saves===liveSaves&&a.loadedSaveSlot===loadedSlot&&JSON.stringify(a.originalRng.snapshot())===rng&&a.clock.strategicTickSerial===serial,
+   conflict,occupiedUnchanged:JSON.stringify(await c.store.get(12))===JSON.stringify(imported)&&JSON.stringify(await c.store.list())===JSON.stringify(catalog)};
+  await a.returnToTitle();return result;
+ });
+ assert.deepEqual(backupImport,{committed:true,ordinal:'9007199254740993',slot:12,freshRecordId:true,revision:3,snapshotEqual:true,roundtripEqual:true,
+  sourceUnchanged:true,otherUnchanged:true,liveUnchanged:true,conflict:'GameSaveConflictError',occupiedUnchanged:true});checks++;
+ // New page/Realm: restore the imported record, not the original slot0.
+ await ready('/index.html?large=1&restore-import=1');
+ const importedRestore=await page.evaluate(async()=>{
+  const a=window.__app,c=window.__ownedFormal;
+  const {createGameSaveStore}=await import('/src/core/gamesavestore.js');
+  const other=createGameSaveStore({gameId:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',databaseName:'owned-formal-app',getIndexedDB:()=>indexedDB});
+  const source=await c.store.get(0),imported=await c.store.get(12),otherBefore=await other.get(0),otherCatalog=await other.list();
+  const {saveJSON}=await import('/src/core/gamesavecodec.js');
+  const slot=a.loadedSaveSlot,label=a._lastLoadedSaveLabel,rngEqual=saveJSON(a.originalRng.snapshot())===saveJSON(imported.record.snapshot.webMeta.originalRng);
+  const saved=await a.saveGame(12,'restored from imported backup'),after=await c.store.get(12);
+  const result={slot,label,rngEqual,saved,ordinal:after.record.releaseOrdinal,revision:after.record.writeRevision,
+   player:a.scenario.player_faction,environmentPlayer:c.environment.player,importedPlayer:imported.record.snapshot.state.player_faction,savedPlayer:after.record.snapshot.state.player_faction,
+   sameRecordId:after.record.recordId===imported.record.recordId,savedLabel:after.record.snapshot.label,
+   sourceUnchanged:JSON.stringify(await c.store.get(0))===JSON.stringify(source),
+   otherUnchanged:JSON.stringify(await other.get(0))===JSON.stringify(otherBefore)&&JSON.stringify(await other.list())===JSON.stringify(otherCatalog)};
+  await a.returnToTitle();return result;
+ });
+ assert.deepEqual(importedRestore,{slot:12,label:'large restored overwrite',rngEqual:true,saved:{saved:'local'},ordinal:'9007199254740993',revision:4,
+  sameRecordId:true,savedLabel:'restored from imported backup',sourceUnchanged:true,otherUnchanged:true,
+  player:factionIdentity.selected,environmentPlayer:factionIdentity.selected,importedPlayer:factionIdentity.selected,savedPlayer:factionIdentity.selected});checks++;
  assert.deepEqual(errors,[]);assert.deepEqual(forbidden,[]);assert.deepEqual(failed,[]);checks++;
  for(const path of ['web/src/main.js','web/src/ui/gamebar.js','web/src/render/battleview.js','web/src/app/battleflow.js','web/src/core/savecatalog.js',...['playerclient','playerenvironment','playerpack','playerrepository','playersaves','runtimecontract'].map(name=>'web/src/player/'+name+'.js')])sources[path]=sha(await readFile(path));
- const result={checks,initial,choices,restored,statusChecks,statusRetired,retired,stale,frameRetired,startupFailures,capturedRestore,largeSaved,largeRestored,errors,failed,forbidden,sources,screenshotSHA:sha(await readFile(join(artifact,'retired.png'))),scope:'Actual shared App fresh/restore/native IDB and retirement; trusted current-Web full-copy pack seam; ordinary static Web module routes, no import map or reader module alias. No signed admission, public title, deletion-confirmation UI or cloud proof.'};
+ const result={checks,alternateFaction,factionIdentity,initial,choices,restored,statusChecks,statusRetired,retired,stale,frameRetired,startupFailures,capturedRestore,largeSaved,largeRestored,backupImport,importedRestore,errors,failed,forbidden,sources,screenshotSHA:sha(await readFile(join(artifact,'retired.png'))),scope:'Actual shared App fresh/restore/native IDB and retirement; trusted current-Web full-copy pack seam; ordinary static Web module routes, no import map or reader module alias. No signed admission, public title, deletion-confirmation UI or cloud proof.'};
  await writeFile(join(artifact,'result.json'),JSON.stringify(result,null,2));process.stdout.write(JSON.stringify({checks,artifact:relative('.',artifact)})+'\n');
 } catch(error){await writeFile(join(artifact,'failure.json'),JSON.stringify({error:String(error),errors,failed,forbidden},null,2));throw error;}
 finally{releaseAsset?.();await browser?.close();await server.close();}

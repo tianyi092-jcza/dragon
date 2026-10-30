@@ -142,7 +142,7 @@ try {
   check('new snapshot does not rename old snapshot', history[0].name === '新版名稱' && history[0].creatorAccount === 'renamed-account' && history[0].ordinal === '1.1');
   check('historical notice grants no old-version admission', (await call(admission)).status === 409 && (await call(admission.replace('1.0', '1.1'))).status === 200);
   const oldResponse = await call('/play-api/v1/file?role=chapter%3Ac1', ticket);
-  check('old admitted session still reads old chapter', oldResponse.status === 200 && (await oldResponse.json()).fixture === '0:c1');
+  check('current-version-only policy rejects obsolete admitted session', oldResponse.status === 409 && (await oldResponse.json()).error === 'RELEASE_CHANGED');
   if (releaseHistory) checks += await exerciseReleaseHistory({ call, bucket, bindings, source, newer, ref: fixed, authority: AUTHORITY });
   enqueue(project(unlisted()));
   check('unlist hides the complete public history', (await publisher.drainOne()).state === 'VISIBLE_CONFIRMED' && (await registry()).announcements.length === 0);
@@ -155,6 +155,9 @@ try {
   enqueue(restored);
   check('relist restores all snapshots without retiming', (await publisher.drainOne()).state === 'VISIBLE_CONFIRMED');
   assert.deepEqual((await registry()).announcements, history); checks++;
+  const page = await (await call('/play-api/v1/registry?announcementPage=1')).json();
+  check('v2 paged history preserves real receipt dates and snapshots', page.announcementPage.nextCursor === null && page.announcementPage.reset === false && page.announcements.length === 2 && page.announcements.every(row => history.some(old => old.gameId === row.gameId && old.ordinal === row.ordinal && old.firstOnlineAt === row.firstOnlineAt && old.name === row.name)));
+  check('v2 equal service-second dates use stable public identity tie break', page.announcements[0].firstOnlineAt > page.announcements[1].firstOnlineAt || page.announcements[0].firstOnlineAt === page.announcements[1].firstOnlineAt && page.announcements[0].announcementId > page.announcements[1].announcementId);
   const last = publisher.ledger.entry(7), root = JSON.parse(new TextDecoder().decode((await r2.get(rootKey)).bytes));
   // After the final publisher action only: controlled owned projections exercise
   // reader negatives. The private production writer is never bypassed in use.

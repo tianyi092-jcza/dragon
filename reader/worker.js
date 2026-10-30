@@ -62,7 +62,7 @@ async function snapshot(env, archived = null) {
   requireValue(directory.length === releaseMap.size, 'REGISTRY_CORRUPT');
   return { control, rootDigest, states, directory, releases: releaseMap, announcementRows: projection.announcements, runtimeVersion: projection.runtimeVersion, uploaded: object.uploaded };
 }
-async function registry(env, state) {
+async function registry(env, state, params) {
   const result = { generation: state.control.generation, digest: state.control.digest, directory: state.directory };
   // Q36: announcements are not an admission or running-resource dependency.
   // Keep a failed announcement result distinct from a valid empty list. The
@@ -95,7 +95,34 @@ async function registry(env, state) {
       requireValue(typeof firstOnlineAt === 'string', 'ANNOUNCEMENTS_UNAVAILABLE');
       announcements.push({ gameId: row.gameId, ordinal: row.ordinal, name: row.name, creatorAccount: row.creatorAccount, publishedAt: row.publishedAt, firstOnlineAt });
     }
-    return json({ ...result, announcements });
+    if (!params.has('announcementPage')) return json({ ...result, announcements });
+    requireValue(params.getAll('announcementPage').length === 1 && params.get('announcementPage') === '1' && params.getAll('cursor').length <= 1 && [...params.keys()].every(key => ['announcementPage', 'cursor'].includes(key)), 'ANNOUNCEMENTS_UNAVAILABLE');
+    // Frozen projections have no SQL row ID. The already-unique public pair is
+    // a stable transport identity, not an array index or a new source entity.
+    const ordered = announcements.map(row => {
+      requireValue(new Date(row.firstOnlineAt).toISOString() === row.firstOnlineAt, 'ANNOUNCEMENTS_UNAVAILABLE');
+      return { ...row, announcementId: `${row.gameId}:${row.ordinal}` };
+    }).sort((a, b) => {
+      if (a.firstOnlineAt !== b.firstOnlineAt) return a.firstOnlineAt < b.firstOnlineAt ? 1 : -1;
+      if (a.announcementId === b.announcementId) return 0;
+      return a.announcementId < b.announcementId ? 1 : -1;
+    });
+    let start = 0, reset = false;
+    if (params.has('cursor')) {
+      const raw = params.get('cursor');
+      requireValue(raw.length <= 1024, 'ANNOUNCEMENTS_UNAVAILABLE');
+      const cursor = JSON.parse(raw);
+      requireValue(cursor && Object.keys(cursor).length === 4 && Number.isSafeInteger(cursor.generation) && cursor.generation > 0 && typeof cursor.digest === 'string' && /^[a-f0-9]{64}$/.test(cursor.digest) && typeof cursor.time === 'string' && typeof cursor.id === 'string', 'ANNOUNCEMENTS_UNAVAILABLE');
+      reset = cursor.generation !== result.generation || cursor.digest !== result.digest;
+      if (!reset) {
+        const index = ordered.findIndex(row => row.firstOnlineAt === cursor.time && row.announcementId === cursor.id);
+        requireValue(index !== -1, 'ANNOUNCEMENTS_UNAVAILABLE');
+        start = index + 1;
+      }
+    }
+    const page = ordered.slice(start, start + 30), last = page.at(-1);
+    const nextCursor = start + page.length < ordered.length ? JSON.stringify({ generation: result.generation, digest: result.digest, time: last.firstOnlineAt, id: last.announcementId }) : null;
+    return json({ ...result, announcements: page, announcementPage: { reset, nextCursor } });
   } catch {
     return json({ ...result, announcements: [], announcementsError: 'ANNOUNCEMENTS_UNAVAILABLE' });
   }
@@ -204,7 +231,7 @@ export default {
       if (url.pathname === '/play-api/v1/admissions') { return await admit(url, env); }
       if (url.pathname === '/play-api/v1/releases') { return await releaseHistory(url, env); }
       const state = await snapshot(env);
-      if (url.pathname === '/play-api/v1/registry') { return await registry(env, state); }
+      if (url.pathname === '/play-api/v1/registry') { return await registry(env, state, url.searchParams); }
       const gameId = url.searchParams.get('game');
       if (!isGameId(gameId)) { return json({ error: 'GAME_REQUIRED' }, 422); }
       if (state.states.get(gameId)?.deleted) { return json({ error: 'GAME_DELETED', gameId }, 410); }

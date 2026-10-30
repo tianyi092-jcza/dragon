@@ -127,6 +127,34 @@ const registry = new PublishedGames({ storage, principal });
 const compiled = compileTrialSource(game, bytes => createHash('sha256').update(bytes).digest('hex'));
 const reference = games.snapshotReference('h1', GAME, '1');
 await fails('full-copy source remains admin-only', async () => catalog.loadFull('h1', REG), 'FULL_COPY_SOURCE_ADMIN_REQUIRED');
+// Internal prepared-state corruption must not be filtered into a smaller,
+// apparently complete portrait manifest. No package is committed on rejection.
+for (const field of ['portrait', 'portraitKey', 'generals']) {
+  const corrupt = structuredClone(game), state = corrupt.chapters[corrupt.chapterOrder[0]].state;
+  if (field === 'generals') state.generals = null;
+  else state.generals[0][field] = false;
+  await fails(`malformed ${field} cannot disappear from dependency collection`, () => packs.prepare('h1', { game: corrupt, reference, compiled }), 'PLAY_PORTRAIT_CORRUPT');
+}
+for (const field of ['ordinary255', 'override255', 'last-chapter255']) {
+  const corrupt = structuredClone(game);
+  const chapterId = field === 'last-chapter255' ? corrupt.chapterOrder.at(-1) : corrupt.chapterOrder[0];
+  const general = corrupt.chapters[chapterId].state.generals[0];
+  if (field === 'override255') general.portraitKey = '255';
+  else general.portrait = 255;
+  // Full compilation is structural, not proof that portrait dependencies exist.
+  const candidate = compileTrialSource(corrupt, bytes => createHash('sha256').update(bytes).digest('hex'));
+  check(`${field} still reaches the separate asset boundary`, candidate.sourceDigest !== compiled.sourceDigest);
+  await fails(`${field} cannot silently disappear during whole-game portrait freeze`, () => packs.prepare('h1', { game: corrupt, reference, compiled: candidate }), 'PLAY_PORTRAIT_CORRUPT');
+  check(`${field} installs no publication rows`, ['published_packs', 'published_pack_chapters', 'published_pack_assets'].every(table => storage.sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).toArray()[0].n === 0));
+}
+for (const chapterId of [game.chapterOrder[0], game.chapterOrder.at(-1)]) {
+  const corrupt = structuredClone(game);
+  corrupt.chapters[chapterId].state.cities[0].view = 255;
+  const candidate = compileTrialSource(corrupt, bytes => createHash('sha256').update(bytes).digest('hex'));
+  check(`missing city view compiles structurally in ${chapterId}`, candidate.sourceDigest !== compiled.sourceDigest);
+  await fails(`missing city view rejects pack preparation in ${chapterId}`, () => packs.prepare('h1', { game: corrupt, reference, compiled: candidate }), 'PLAY_CITY_VIEW_MISSING');
+  check(`missing city view installs no rows in ${chapterId}`, ['published_packs', 'published_pack_chapters', 'published_pack_assets'].every(table => storage.sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).toArray()[0].n === 0));
+}
 const manifest = await packs.buildAndStore('h1', { game, reference, compiled });
 check('freeze manifest', manifest.chapters.length === 20 && manifest.portraits.every(p => p.url.startsWith('kao/')) && manifest.identity.sourceDigest === sourceDigest);
 const pin = registry.publish('h1', { gameId: GAME, name: 'S10發布', revision: '1', sourceDigest, chapters: [...game.chapterOrder], ordinal: '1.0' });

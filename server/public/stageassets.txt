@@ -6,15 +6,15 @@ export function installStageAssetBrowser({api,authority,work,isBusy,requestConte
   const permitted=()=>identity!==null&&identity===authority()&&identity.user.role==='admin'&&!identity.user.mustChangePassword;
   function request() { const v=requestContext();if(!v||!uuid(v.gameId)||typeof v.draftRevision!=='string'||! /^[1-9][0-9]{0,63}$/.test(v.draftRevision)||!v.operations||Object.keys(v.operations).length!==6||!purposes.every(p=>uuid(v.operations[p]))||new Set(Object.values(v.operations)).size!==6)return null;return {gameId:v.gameId,draftRevision:v.draftRevision,operations:Object.fromEntries(purposes.map(p=>[p,v.operations[p]]))}; }
   const key=v=>v?JSON.stringify(v):null;
-  let summary='',outputs=[],missing=[];
-  function clear() { shownKey=null;summary='';outputs=[];missing=[]; }
+  let summary='',outputs=[],missing=[],unresolved=[];
+  function clear() { shownKey=null;summary='';outputs=[];missing=[];unresolved=[]; }
   function render() {
     const v=request();
     if(shownKey!==null&&shownKey!==key(v)) {generation++;clear();message='任務關聯已變更，舊顯示已清除；請明確讀取新的精確上下文。';}
     const allowed=permitted();
     publish({loadDisabled:!allowed||isBusy()||!v,clearDisabled:!allowed||isBusy()||shownKey===null,
       context:allowed?(v?v.gameId+'／已保存修訂 '+v.draftRevision+'／六個固定用途任務（非目前未保存輸入）':'尚無六用途同遊戲、同修訂的完整任務ID關聯；請逐項預約或明確查詢原任務。'):'',
-      message:allowed?message:'',summary:allowed?summary:'',outputs:allowed?[...outputs]:[],missing:allowed?[...missing]:[]});
+      message:allowed?message:'',summary:allowed?summary:'',outputs:allowed?[...outputs]:[],missing:allowed?[...missing]:[],unresolved:allowed?[...unresolved]:[]});
   }
   function requireValue(value) { if(!value)throw new Error('結構回應無效；不顯示為可運行或可發布。'); }
   function validate(value,v) {
@@ -30,9 +30,9 @@ export function installStageAssetBrowser({api,authority,work,isBusy,requestConte
     if(!permitted()) return;const v=request();if(!v)return;const serial=++generation,user=identity,tuple=key(v),valid=()=>permitted()&&identity===user&&generation===serial&&key(request())===tuple;
     clear();message='正在明確重驗實際源與階段產物；此GET不是運行、發布或刪除准入。';render();
     try { const params=new URLSearchParams({revision:v.draftRevision,...v.operations});const value=await api('/api/games/'+v.gameId+'/stage-assets?'+params,undefined,{stagePlan:true});if(!valid())return;const p=validate(value,v);if(!valid())return;
-      shownKey=tuple;summary='服務傳回結構：44階段描述、398可用庫資源、20章產物、20未閉合引用。來源 '+p.reference.sourceDigest+'。不是RuntimeManifest、bytes下載或運行許可。';
+      shownKey=tuple;summary='服務傳回結構：44階段描述、398可用庫資源、20章產物、6類本報告未提供的准入證明、20條來源未閉合引用（不是缺失檔案數）。來源 '+p.reference.sourceDigest+'。不是RuntimeManifest、bytes下載或運行許可。';
       outputs=p.artifacts.map(a=>a.purpose+'／'+a.assetId+'／'+a.byteLength+' bytes／'+a.sha256);
-      missing=[...p.missing,...p.unresolvedReferences.map(x=>JSON.stringify(x))];message='此時的服務結構描述已顯示；缺項原樣保留，沒有保存、重試、建立任務、試運行或發布。';
+      missing=[...p.missing];unresolved=p.unresolvedReferences.map(x=>JSON.stringify(x));message='此時的服務結構描述已顯示；缺項原樣保留，沒有保存、重試、建立任務、試運行或發布。';
     } catch(error) {if(valid()){clear();message='結構讀取未確認：'+error.message+'。保留原六任務關聯；不自動重試。';}throw error;}finally{render();}
   }
   function setIdentity(next){if(identity!==next){generation++;identity=next;clear();message='身份已更新；沒有恢復結構回應或自動讀取。';}render();}

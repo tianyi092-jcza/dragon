@@ -2,6 +2,11 @@ import { localSaveRepository as repository } from '../core/localstore.js';
 import { decodeSaveFile, encodeSaveFile, MAX_SAVE_FILE_BYTES } from '../core/saveexchange.js';
 import { loadBuiltinContent } from '../content/catalog.js';
 import { createWorldResources } from '../game/worldresources.js';
+import { mountFormalBackup } from './formalbackup.js';
+import { createPlayerReader } from '../player/playerclient.js';
+import { createPlayerStaticReader } from '../player/playerstatic.js';
+import { createGameSaveStore } from '../core/gamesavestore.js';
+import { TRIAL_COMPILER_REVISION } from '../content/authoring/trialcompile.js';
 
 const status = document.querySelector('#status');
 const rows = document.querySelector('#rows');
@@ -52,12 +57,12 @@ let busy = false;
 async function run(operation) {
   if (busy) { return; }
   busy = true;
-  document.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+  document.querySelectorAll('#builtin-backups button').forEach((button) => { button.disabled = true; });
   try { await operation(); }
   catch (error) { status.textContent = `操作失敗，未覆蓋現有存檔：${error.message}`; }
   finally {
     busy = false;
-    document.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+    document.querySelectorAll('#builtin-backups button').forEach((button) => { button.disabled = false; });
     importButton.disabled = !file.files?.length;
   }
 }
@@ -72,3 +77,14 @@ importButton.onclick = () => run(async () => {
 });
 document.querySelector('#refresh').onclick = () => run(refresh);
 void run(refresh);
+const formalRoot = document.querySelector('#formal-backups');
+try {
+  const view = mountFormalBackup({ root: formalRoot, reader: createPlayerReader({ origin: location.origin }),
+    createStore: gameId => createGameSaveStore({ gameId, databaseName: 'wolong-web', getIndexedDB: () => indexedDB }),
+    compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 256 * 1024 * 1024,
+    readStatic: createPlayerStaticReader({ origin: location.origin, basePath: new URL('../../', import.meta.url).pathname }),
+  });
+  window.addEventListener('pagehide', () => view.close(), { once: true });
+} catch {
+  formalRoot.textContent = '正式自建遊戲備份需要同源 HTTPS 服務；內置遊戲備份仍可使用。';
+}

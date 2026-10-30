@@ -3,6 +3,7 @@ import './formal-app-browser.mjs';
 import { BUILTIN_RESOURCES as builtin } from '/src/content/builtinresources.generated.js';
 import { TRIAL_COMPILER_REVISION } from '/src/content/authoring/trialcompile.js';
 import { mountPlayerRestore } from '/src/player/playerrestore.js';
+import { mountFormalBackup } from '/src/tools/formalbackup.js';
 import { sha256 } from '/src/player/runtimecontract.js';
 const base = window.__ownedFormal;
 if (!base.ready) throw new Error('owned base App failed');
@@ -36,10 +37,11 @@ async function json(value) { const data = new TextEncoder().encode(JSON.stringif
 values.set('manifest',await json(manifest)); values.set('chapter:'+C,await json((await (await fetch(builtin.dataURL)).json()).scenarios[0]));
 const selection = {gameId:G,releaseId:R,ordinal:base.environment.identity.ordinal,revision:'1',sourceDigest:builtin.sourceDigest,name:'Owned restore',publishedAt:'2037-01-01T00:00:00.000Z',chapters:[C]};
 const header = {...base.saves.identity,manifestDigest:values.get('manifest').sha256};
-const control = window.__restore = {sessions:[],gets:[],calls:0,view:null,chosen:null,settled:false,hold:false,release:null,holdGet:false,releaseGet:null,changed:false,staticFailure:false,statusFailure:false};
+const control = window.__restore = {sessions:[],gets:[],calls:0,view:null,chosen:null,settled:false,hold:false,release:null,holdGet:false,releaseGet:null,changed:false,staticFailure:false,statusFailure:false,holdStatus:false,releaseStatus:null};
 const store = {...base.store,async get(slot){control.gets.push(slot);if(control.holdGet)await new Promise(done=>{control.releaseGet=done;});return base.store.get(slot);}};
 const reader = {
-  async status(){if(control.statusFailure)throw new Error('owned status unavailable');return {...selection,listed:true};},
+  async registry(){return {directory:[structuredClone(selection)]};},
+  async status(request){if(control.holdStatus && request?.gameId===G)await new Promise(done=>{control.releaseStatus=done;});if(control.statusFailure)throw new Error('owned status unavailable');return {...selection,listed:true};},
   async admit({chapterId,ordinal}) {
     control.calls++;
     if (ordinal !== selection.ordinal || chapterId !== C || control.changed) throw new Error('owned current release changed');
@@ -59,12 +61,17 @@ control.seed = async (slot=0, changes={}) => {
   return base.store.put({...header,slot,snapshot:{...original.record.snapshot,slot},...changes},prior?.token??null);
 };
 control.reset = async () => {
-  control.view?.close(); control.release?.(); control.releaseGet?.(); control.release=null; control.releaseGet=null; control.hold=false;control.holdGet=false;
+  control.view?.close(); control.release?.(); control.releaseGet?.(); control.releaseStatus?.(); control.release=null; control.releaseGet=null; control.releaseStatus=null; control.hold=false;control.holdGet=false;control.holdStatus=false;
   control.chosen?.session.close(); control.chosen?.pack.close(); control.chosen=null;
   for(const row of await base.store.list()){const value=await base.store.get(row.slot);await base.store.compareDelete(value.token);}
   selection.releaseId=R;selection.ordinal=base.environment.identity.ordinal;control.statusFailure=false;
   control.changed=false;control.staticFailure=false;control.gets=[];control.sessions=[];control.calls=0;
   await control.seed();
+};
+control.mountBackup = () => {
+  control.backup?.close();document.querySelector('#owned-backup')?.remove();
+  const root=document.createElement('section');root.id='owned-backup';document.body.append(root);
+  control.backup=mountFormalBackup({...options,root,createStore:gameId=>{if(gameId!==G)throw new Error('wrong owned game');return store;}});
 };
 control.mount = () => {control.gets=[];control.settled=false;control.chosen=null;control.view=mountPlayerRestore(options);control.view.result.then(value=>{control.chosen=value;control.settled=true;});};
 control.bad = () => {

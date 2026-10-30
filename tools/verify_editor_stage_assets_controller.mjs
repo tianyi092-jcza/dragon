@@ -34,15 +34,18 @@ test('explicit GET only; six exact IDs, display-only projection, clear never wri
   assert.equal(h.calls.length,1);const [path,body,options]=h.calls[0];assert.equal(body,undefined);assert.deepEqual(options,{stagePlan:true});
   const url=new URL(path,'https://test.invalid');assert.equal(url.searchParams.get('revision'),'7');
   for(const p of purposes)assert.equal(url.searchParams.get(p),h.tuple.operations[p]);
-  assert.equal(h.model.outputs.length,44);assert.equal(h.model.missing.length,26);
+  assert.equal(h.model.outputs.length,44);assert.deepEqual(h.model.missing,response(h.tuple).plan.missing);
+  assert.deepEqual(h.model.unresolved,response(h.tuple).plan.unresolvedReferences.map(value=>JSON.stringify(value)));
+  assert.match(h.model.summary,/6類.*20條.*不是缺失檔案數/);
   assert.ok(!JSON.stringify(h.model).includes('private-root-not-for-display'));
-  h.model.outputs.push('local');h.controller.render();assert.equal(h.model.outputs.length,44);
-  h.controller.actions.clear();assert.equal(h.model.outputs.length,0);assert.equal(h.calls.length,1);
+  h.model.outputs.push('local');h.model.missing.push('local');h.model.unresolved.push('local');
+  h.controller.render();assert.equal(h.model.outputs.length,44);assert.equal(h.model.missing.length,6);assert.equal(h.model.unresolved.length,20);
+  h.controller.actions.clear();assert.equal(h.model.outputs.length,0);assert.deepEqual(h.model.missing,[]);assert.deepEqual(h.model.unresolved,[]);assert.equal(h.calls.length,1);
 });
 test('author, anonymous and forced-password cannot read or retain display',async()=>{
   const h=harness();await h.controller.actions.load();
   for(const user of [null,{user:{id:'author',role:'author'}},{user:{id:'admin',role:'admin',mustChangePassword:true}}]){
-    h.user=user;await h.controller.actions.load();assert.equal(h.model.outputs.length,0);assert.equal(h.model.context,'');assert.equal(h.model.loadDisabled,true);
+    h.user=user;await h.controller.actions.load();assert.equal(h.model.outputs.length,0);assert.equal(h.model.context,'');assert.equal(h.model.loadDisabled,true);assert.deepEqual(h.model.missing,[]);assert.deepEqual(h.model.unresolved,[]);
   }
   assert.equal(h.calls.length,1);
 });
@@ -59,7 +62,7 @@ test('late result cannot cross identity or exact tuple boundary',async()=>{
 test('invalid admission and GET error clear display, preserve association, never retry',async()=>{
   const h=harness(), original=structuredClone(h.tuple);await h.controller.actions.load();
   h.handler=async()=>({...response(h.tuple),runtimeAllowed:true});await assert.rejects(h.controller.actions.load(),/結構回應無效/);
-  assert.equal(h.model.outputs.length,0);assert.deepEqual(h.tuple,original);assert.equal(h.calls.length,2);
+  assert.equal(h.model.outputs.length,0);assert.deepEqual(h.model.missing,[]);assert.deepEqual(h.model.unresolved,[]);assert.deepEqual(h.tuple,original);assert.equal(h.calls.length,2);
   h.handler=async()=>{throw new Error('offline');};await assert.rejects(h.controller.actions.load(),/offline/);assert.equal(h.calls.length,3);
 });
 test('pagehide invalidates pending result and clears projection',async()=>{

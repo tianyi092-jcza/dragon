@@ -41,3 +41,19 @@ browser-r1：newcollector `p.context().cookies(origin)`按根path `/`过滤实�
 静态原生产谱系SHA/三个旧源正逆delta/Root只Text服务及整个既有类body等值、actual source/import关闭图/9syntax含两TXT module解析、577links/73唯一Q/固定35-243-70已r3独立核；r1 collector误把第10个失败密码场景当10个完成，实际failedreport9，r2 collector猜ctx变量而actualp.context()，onlycollector修数量/字面量，旧failed source/log/meta/分析保，originalpostnote partial10计数以新erratum明确撤错。新helper/native/source/权限-budget不改。最终code9路径raw unsupported2/inconclusive7，MD7 unavailable；collector单独inconclusive，confirmedClean0。session-all429文件27继承warnings35显示hint-info，非workspace clean，全部证据另签。TXT无LSP，不把语法/browser替成clean；初probe7raw clean0/findings1/unsupported2/inconclusive4，即使便捷文本称2clean也不采用。新flagwarning已修，旧cache/warnings不禁rule/清cache。6014B人工最小摘要→preview审→固定jev1.13.0advisory，无源码/游戏bytes/密码/userdata/完整log，非oracle。
 
 完整Q20仍需正常自建Game路径、发布/上架/限制/registry-announcement交叉CAS和匿名资源；此界面不提前授完整工作台/Trial/RuntimeManifest/所有实体初始化，完整refs/native-read-body-providerCPUlegacy闭包/physicaldelete/readback-scrub410/cacheactualbackup隔离restore及其它73Q仍open，goal active。无commit/push/deploy/cloud/install/trust/共享清理，不触真实SAVE或用户browserprofile。
+
+## 后继管理与删除确认失效边界
+
+本节为现行 `server/public/management.txt` 两控制器的客户端补强，不改管理API、栅栏API或物理回收权限。历史回执继续保留、与当前状态分开；以下确认重核不赋予浏览器服务权限。
+
+- 发起管理／删除时，确认返回后先重核原身份及generation、原已读清单对象、未被其它操作占用的journal，再持久化原键／正文关联。身份切换、同身份改版本、注销再登入（即使公共身份值相同）都不能将旧意向写进新身份记录。
+- 管理员删除预览的await返回后还须保留原清单对象；期间明确重读过清单，即使显示修订相同，也不能将旧预览直接带入确认。
+- 原键重试确认同时绑定原pending对象和查询序号，确认期间发生重新查询／失效时不得继续POST；原键、原body和原修订不变。
+- 停止本地追踪的确认同样绑定身份、generation、pending与查询序号，旧确认不能删除新身份或新操作的sessionStorage记录。取消仍无副作用，旧记录不被自动迁移或丢弃。
+
+隔离证据在 `.dragon-analysis/editor-completion/`：
+
+1. `management-confirm-before.log`、`deletion-confirm-before.log` 均先复现：切换身份后虽然发送门拒绝POST，旧意向已经错误写入另一身份journal，记录数1而期望0。不把服务端未写入当客户端安全通过。
+2. `management-confirm-after.log` 55项、`deletion-confirm-after.log` 62项通过。新增负控涵盖确认后其它身份／版本／注销／同身份重新登入、停止追踪不删另一身份原记录、重试期间另一次查询使确认失效、删除预览期间重读清单；保留既有原键恢复、权限显示、损坏journal、错误回执、确认取消及迟到回应测试。模型注入端口不冒真实浏览器多会话／服务权限证明。
+3. `management-confirm-browser.log`：全新隔离Chromium的工作台80项通过，报告 `editor-workbench/run-hB47HO/result.json`，真实gateway／Vue和显式API夹具；不是实际管理后端／删除生产链。本批没有新服务权限、原生／Vue源码或DDL，未重跑无关重型后端、Trial、发布或物理删除入口，也不重建两束。
+4. shell65、两测试及TXT模块语法通过；首次diff发现本节末尾新增空行，定点移除后复核，失败日志保留。两测试主动LSP push-only未确认，TXT无服务。两文档主动warning视图无问题，mode=all的24文件缓存仍有drafts.js既有flag参数warning，未屏蔽；不以无诊断称clean。修改限上述控制器、负控与维护文档，不commit／push／部署，不访问真实SAVE／用户profile或生产内容。

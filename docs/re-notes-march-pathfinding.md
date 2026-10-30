@@ -405,7 +405,7 @@ C18>1：4155以DL=1、DH=C18−1从2240逐40h扫描，先L0E再status>=80，不�
 
 **4194逐读/字宽（实锤）**：AI/中立CL8、DL4，不读内政官。玩家CL5、DL1；C19非FF才读G1A，预算非0先--，然后CL=u8(5+politics)，DL=u8(1+force)>>1。预算1→0本次仍加成；缺能力保先扣预算。CH=CL>15?CL−15:1。无条件R1，(R1&15)<=CL才读growth，写min(200,u8(growth+CH))；无条件R2，命中才读defence、CH=(CH>>1)+1，写min(200,u8(defence+CH))。420B同时取得cap/兵；兵>=cap直接回写cap（超cap也缩减），不耗R3。未满才R3，>=18h真RET不写兵/growth；低于18h先growth饱和减DL，再兵byte加DL有carry置FF，最后mincap。政治251令CL0，武力255令DL0；高CL下增长先byte回绕，不能数学min后截断。RNG和字段逐次立即提交，不等整段成功才更新。
 
-**4269持续灾害（实锤，0 RNG）**：先读C15再防灾，足够只写防灾差并RET；不足先防灾0，d=C15−旧防灾，再growth饱和减d。随后读prod高byte乘d，16位积>>2，以4297 word SUB写prod，不添加下限钳制；最后兵饱和减(d>>1)。不清C15，不写cap/max_prod/owner。生产力正常byte域虽不下溢，也不能把指令合同改成泛饱和助手。上游23CF/34BD/34F2沿既有灾害写者，本批不重写天气事件生产。
+**4269持续灾害（实锤，0 RNG）**：先读C15再防灾，足够只写防灾差并RET；不足先防灾0，d=C15−旧防灾，再growth饱和减d。随后读prod高byte乘d，16位积>>2，以4297 word SUB写prod，不添加下限钳制；最后兵饱和减(d>>1)。不清C15，不写cap/max_prod/owner。合法u8强度／防災与u16生产力域内不会下溢（[同一生产力高字节的完整边界证明](re-notes-entity-fields.md#city-defence-damage-domain)），但不能把指令合同改成泛饱和助手或据此开放字段编辑。上游23CF/34BD/34F2沿既有灾害写者，本批不重写天气事件生产。
 
 **2459天气尾（边界已推进）**：32固定16B槽顺序、status/timer/interval/dirty逐写规则不变；旧“后16到247C→248A停止、0 RNG”边界已由[§3.14.1](#native-weather-movement)的真实248A/24FF移动与每朵到期云2 RNG接线取代。前16定点对象仍不调用248A、0 RNG且不改frame；缺记录/字段仍在实际读取处停止。完整月度边界写者与日期/月界仍未因此闭合。
 

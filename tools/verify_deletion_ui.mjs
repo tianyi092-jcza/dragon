@@ -19,10 +19,11 @@ function setup(){
  let post=async()=>structuredClone(result),get=async()=>structuredClone(result),status=async()=>structuredClone(observed),preview=async()=>({gameId:G,rowRevision:'4',confirmationName:'測試'});
  const managed={gameId:G,rowRevision:'4',listed:false,name:null,creatorAccount:'other-author'};
  const storage={getItem:k=>journal.get(k)??null,setItem(k,v){if(mode==='throw')throw new Error('quota');if(mode!=='silent')journal.set(k,v);},removeItem:k=>journal.delete(k)};
- const prompt=text=>{dialogs.push(text);return name;},confirm=text=>{dialogs.push(text);return consent;};
+ let dialogHook=()=>{};
+ const prompt=text=>{dialogs.push(text);dialogHook();return name;},confirm=text=>{dialogs.push(text);dialogHook();return consent;};
  const api=async(path,value,options)=>{calls.push({path,value:structuredClone(value),options:structuredClone(options)});if(value!==undefined)return post();if(path==='/api/games')return {games:[game]};if(path==='/api/admin/games')return {games:[managed]};if(path.endsWith('/deletion-preview'))return preview();if(path.endsWith('/distribution'))return status();if(path.includes('/deletion-operations/'))return get();throw new Error('unexpected route');};
  let ui;const mount=()=>{ui=installGameDeletion({api,authority:()=>identity,work:fn=>fn(),isBusy:()=>false,storage,confirm,prompt,publish:value=>{model=value;}});ui.setIdentity(identity);};mount();
- return {nodes,get model(){return model;},journal,calls,dialogs,game,result,observed,mount,managed,preview:fn=>{preview=fn;},adminLoad:()=>ui.actions.managed(),get ui(){return ui;},load:()=>ui.actions.refresh(),start:()=>ui.actions.start(model.games[0].gameId,model.games[0].rowRevision),query:()=>ui.actions.query(),retry:()=>ui.actions.retry(),forget:()=>ui.actions.forget(),text:()=>nodes['deletion-result'].textContent,posts:()=>calls.filter(c=>c.value!==undefined),post:fn=>{post=fn;},get:fn=>{get=fn;},status:fn=>{status=fn;},mode:v=>{mode=v;},name:v=>{name=v;},consent:v=>{consent=v;},identity:v=>{identity=v;ui.setIdentity(v);}};
+ return {nodes,get model(){return model;},journal,calls,dialogs,game,result,observed,mount,managed,preview:fn=>{preview=fn;},adminLoad:()=>ui.actions.managed(),get ui(){return ui;},load:()=>ui.actions.refresh(),start:()=>ui.actions.start(model.games[0].gameId,model.games[0].rowRevision),query:()=>ui.actions.query(),retry:()=>ui.actions.retry(),forget:()=>ui.actions.forget(),text:()=>nodes['deletion-result'].textContent,posts:()=>calls.filter(c=>c.value!==undefined),post:fn=>{post=fn;},get:fn=>{get=fn;},status:fn=>{status=fn;},mode:v=>{mode=v;},dialogHook:fn=>{dialogHook=fn;},name:v=>{name=v;},consent:v=>{consent=v;},identity:v=>{identity=v;ui.setIdentity(v);}};
 }
 {
  const f=setup();await f.load();f.post(async()=>{assert.ok(f.journal.has(key));return f.result;});await f.start();const saved=parse(f.journal.get(key));assert.deepEqual(f.posts()[0],{path:'/api/games/'+G+'/deletion',value:{gameId:G,expectedRowRevision:'4',confirmationName:'測試'},options:{key:saved.key}});assert.match(f.text(),/非物理清理完成.*分發待確認/);assert.equal(f.nodes['deletion-retry'].disabled,true);checks++;
@@ -77,5 +78,31 @@ for(const bad of [{gameId:R,rowRevision:'4',confirmationName:'測試'},{gameId:G
 {
  const f=setup();await f.load();const n=f.calls.length;f.model.games[0].gameId=R;f.model.games[0].disabled=true;f.ui.render();assert.equal(f.model.games[0].gameId,G);assert.equal(f.model.games[0].disabled,false);assert.doesNotMatch(JSON.stringify(f.model),/confirmationName|metadata|csrf/);assert.equal(f.calls.length,n);checks++;
  await assert.rejects(f.ui.actions.start(R,'4'));await assert.rejects(f.ui.actions.start(G,'999'));assert.equal(f.posts().length,0);assert.equal(f.dialogs.length,0);assert.equal(f.journal.size,0);checks++;
+}
+for (const transition of ['other','version','logout','aba']) {
+ const f=setup();await f.load();
+ const next={user:{...actor.user,id:transition==='other'?R:A,version:transition==='version'?2:1}};
+ f.dialogHook(()=>{if(transition==='logout'||transition==='aba')f.identity(null);if(transition!=='logout')f.identity(next);});
+ await assert.rejects(f.start());assert.equal(f.posts().length,0);assert.equal(f.journal.size,0);checks++;
+}
+for (const operation of ['forget','retry']) {
+ const f=setup();await f.load();f.post(async()=>{throw error(503,'LOST');});await assert.rejects(f.start());
+ f.get(async()=>{throw error(404,'DELETE_OPERATION_NOT_FOUND');});await assert.rejects(f.query());
+ const original=f.journal.get(key),otherKey='editor-deletion-operation:'+R;
+ const other={...parse(original),actorId:R,key:'owned-other-deletion-key'};f.journal.set(otherKey,JSON.stringify(other));
+ f.dialogHook(()=>f.identity({user:{...actor.user,id:R}}));
+ await assert.rejects(f[operation]());assert.equal(f.journal.get(key),original);assert.equal(f.journal.get(otherKey),JSON.stringify(other));assert.equal(f.posts().length,1);checks++;
+}
+{
+ const f=setup();f.identity({user:{...actor.user,role:'admin'}});await f.adminLoad();
+ let release;f.preview(()=>new Promise(r=>{release=r;}));const running=f.start();
+ await f.adminLoad();release({gameId:G,rowRevision:'4',confirmationName:'測試'});
+ await assert.rejects(running);assert.equal(f.posts().length,0);assert.equal(f.dialogs.length,0);assert.equal(f.journal.size,0);checks++;
+}
+{
+ const f=setup();await f.load();f.post(async()=>{throw error(503,'LOST');});await assert.rejects(f.start());
+ f.get(async()=>{throw error(404,'DELETE_OPERATION_NOT_FOUND');});await assert.rejects(f.query());
+ let query,release;f.get(()=>new Promise(r=>{release=r;}));f.dialogHook(()=>{query=f.query();});
+ await assert.rejects(f.retry());assert.equal(f.posts().length,1);release(f.result);await query;checks++;
 }
 process.stdout.write(JSON.stringify({checks,scope:'Actual deletion controller with owned display/session/transport seams; not physical purge or authority proof'})+'\n');

@@ -26,7 +26,8 @@ catch (cause) { throw new Error('owned previous manifest JSON invalid', { cause 
 const previousPolicy = { ...policy, registryId: previousLibraryId, manifestDigest: previousLibraryDigest,
   programHashes: oldJSON.programHashes,
   roles: policy.roles.map(role => role.path === 'available-library-manifest.json' ? { ...role, sha256: previousLibraryDigest } : role) };
-let storage, mf, bucket, checks = 0, outbound = 0, writes = 0, hook;
+let storage, mf, bucket, checks = 0, outbound = 0, writes = 0, hook, readFailure;
+let reads = 0;
 const check = label => { checks++; process.stdout.write('ok ' + label + '\n'); };
 const objects = new Map(), keys = new Set();
 const key = (id, digest) => `installed/${id}/${digest}`;
@@ -49,13 +50,25 @@ try {
   }
   const r2 = {
     async get(path) {
-      allowed(path); let result;
+      allowed(path); reads++; let result;
       if (bucket) result = await bucket.get(path);
       else if (objects.has(path)) {
         const bytes = Buffer.from(objects.get(path));
         result = { size: bytes.length, body: new Response(bytes).body, arrayBuffer: async () => Uint8Array.from(bytes).buffer };
       }
-      hook?.(path); return result ?? null;
+      hook?.(path);
+      const failure = readFailure;
+      if (failure?.point === 'get') { failure.transition(); throw failure.error; }
+      if (failure?.point === 'body') {
+        assert.ok(result?.body);
+        const reader = result.body.getReader();
+        return { size: result.size, body: { getReader: () => ({
+          async read() { await reader.read(); failure.transition(); throw failure.error; },
+          async cancel() { failure.cancels++; await reader.cancel(); },
+          releaseLock() { failure.releases++; reader.releaseLock(); },
+        }) } };
+      }
+      return result ?? null;
     },
     async put(path, bytes, options) {
       allowed(path); writes++; keys.add(path);
@@ -125,6 +138,42 @@ try {
     if (revoked) throw new HttpError(401, 'SESSION_INVALID'); return principal();
   } }).loadFull('owned', policy.registryId).finally(() => { hook = undefined; }), 'SESSION_INVALID');
   check('real object await followed by session revocation denies capture');
+  // Actual catalog/install paths, with failure injected after the owned GET or
+  // first real stream read. Actor/source transitions are explicit port fixtures.
+  for (const operation of ['load', 'install']) for (const point of ['get', 'body']) {
+    const transitions = operation === 'load' ? ['unchanged', 'epoch', 'revoked', 'source'] : ['unchanged', 'epoch', 'revoked'];
+    for (const transition of transitions) {
+      const actor = principal(), original = new Error('owned catalog IO failure');
+      let sessionRevoked = false, transitionsSeen = 0;
+      const guarded = new InstalledSourceCatalog({ storage, bucket: r2, policy, principal: () => {
+        if (sessionRevoked) throw new HttpError(401, 'SESSION_INVALID');
+        return { ...actor };
+      } });
+      const rows = () => JSON.stringify(['installed_sources', 'source_operations'].map(table => storage.sql.exec(`SELECT * FROM ${table} ORDER BY rowid`).toArray()));
+      const beforeRows = rows(), beforeReads = reads, beforeWrites = writes;
+      const failure = { point, error: original, cancels: 0, releases: 0, transition() {
+        transitionsSeen++;
+        if (transition === 'epoch') actor.epoch++;
+        if (transition === 'revoked') sessionRevoked = true;
+        if (transition === 'source') storage.sql.exec("UPDATE installed_sources SET row_revision='2' WHERE registry_id=?", policy.registryId);
+      } };
+      readFailure = failure;
+      try {
+        const action = () => operation === 'load' ? guarded.loadFull('owned', policy.registryId)
+          : guarded.install('owned', policy.registryId, staged.root, 'owned-failure-' + point + '-' + transition);
+        if (transition === 'unchanged') await assert.rejects(action, error => error === original);
+        else await reject(action, transition === 'source' ? 'SOURCE_CHANGED' : 'SESSION_INVALID');
+        assert.equal(transitionsSeen, 1); assert.equal(reads, beforeReads + 1); assert.equal(writes, beforeWrites);
+        assert.equal(failure.cancels, point === 'body' ? 1 : 0);
+        assert.equal(failure.releases, point === 'body' ? 1 : 0);
+      } finally {
+        readFailure = undefined;
+        storage.sql.exec('UPDATE installed_sources SET row_revision=? WHERE registry_id=?', newRow.row_revision, policy.registryId);
+      }
+      assert.equal(rows(), beforeRows);
+      check(`${operation} ${point} failure rechecks ${transition}, no extra IO/SQL receipt; stream cleanup retained`);
+    }
+  }
   const part = currentIndex.roles[0].chunks[0], partKey = key(policy.registryId, part.sha256);
   const before = new Uint8Array(await (await r2.get(partKey)).arrayBuffer()), broken = Uint8Array.from(before); broken[0] ^= 1;
   await r2.put(partKey, broken);

@@ -9,10 +9,10 @@ function freezeJSON(value,depth=0,budget={nodes:0}){need(depth<=32&&++budget.nod
  * assertCurrent is caller-owned lifecycle, NOT actual server authority. Images remain
  * caller-readable after exposure: dispose/close are ownership cleanup, not DRM/revocation.
  */
-export function createPrivateResourceContext(reference,{fetcher,subtle,assertCurrent,decodeBitmap=globalThis.createImageBitmap,BlobType=globalThis.Blob}={}){
+export function createPrivateResourceContext(reference,{fetcher,subtle,assertCurrent,libraryIdentity,decodeBitmap=globalThis.createImageBitmap,BlobType=globalThis.Blob}={}){
   need(typeof assertCurrent==='function','PORTS');let closed=false,pendingImages=0;const images=new Set();
   function check(){need(!closed,'CLOSED');assertCurrent();need(!closed,'CLOSED');}
-  const bytes=createPrivateByteContext(reference,{fetcher,subtle,assertCurrent:check});
+  const bytes=createPrivateByteContext(reference,{fetcher,subtle,assertCurrent:check,libraryIdentity});
   async function readJSON(value){check();const x=capture(value);need(Number.isSafeInteger(x.byteLength)&&x.byteLength>0&&x.byteLength<=MAX_JSON,'JSON_BUDGET');if(x.kind==='private-library')need(x.mime==='application/json'&&typeof x.logicalURL==='string'&&x.logicalURL.endsWith('.json'),'FORMAT');const raw=await bytes.read(x);check();let result;try{const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(raw);result=JSON.parse(text);}catch(cause){throw new TypeError('PRIVATE_RESOURCE_JSON',{cause});}result=freezeJSON(result);check();return result;}
   async function readPNG(value){
     check();need(typeof decodeBitmap==='function'&&typeof BlobType==='function','PNG_PORTS');const x=capture(value);if(x.kind==='private-library')need(x.mime==='image/png'&&typeof x.logicalURL==='string'&&x.logicalURL.endsWith('.png'),'FORMAT');need(images.size+pendingImages<8,'IMAGE_BUDGET');pendingImages++;let image,delivered=false;

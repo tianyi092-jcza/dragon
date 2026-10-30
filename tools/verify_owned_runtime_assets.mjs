@@ -115,6 +115,23 @@ try {
     if (stageName === 'get') assert.ok(cancelled > cancellationBefore, 'unconsumed stream cancelled on late authority failure');
     groups++;
   }
+  // Failed I/O must not bypass the same captured authority/source boundary.
+  const ioFailure = new Error('owned runtime I/O failed');
+  for (const stageName of ['get', 'body']) {
+    hook = async seen => { if (seen === stageName) { hook = null; throw ioFailure; } };
+    try { await assert.rejects(capture, error => error === ioFailure); }
+    finally { hook = null; }
+    groups++;
+    for (const change of changes) {
+      const readsBefore = reads.length;
+      hook = async seen => { if (seen === stageName) { hook = null; change.change(); throw ioFailure; } };
+      try {
+        await reject(capture, change.code);
+        assert.equal(reads.length, readsBefore + 1, 'no follow-up object read after failed root I/O');
+      } finally { hook = null; change.restore(); }
+      groups++;
+    }
+  }
   actors.owner.epoch++;
   assert.throws(() => first.readWeb(allowed[0]), error => error.code === 'SESSION_INVALID');
   actors.owner.epoch--;

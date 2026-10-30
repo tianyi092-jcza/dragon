@@ -29,7 +29,7 @@ try:
     world = json.loads(captured(ROOT / 'server/pinned/world-manifest.txt'))
 except (ValueError, UnicodeError) as cause:
     raise ValueError('fixed manifest JSON') from cause
-if digest(captured(ROOT / 'server/pinned/world-manifest.txt')) != 'bde6dfc8a82da5597ef22786e46681c87f2fe21cd55dd23921b32e346efa95e9':
+if digest(captured(ROOT / 'server/pinned/world-manifest.txt')) != '807e2d3bb6b35965771edf7ff2dee30d19733bd6e63f8cb3bca4267df30a210f':
     raise ValueError('fixed manifest binding')
 roles = {row['path']: row for row in world['assets']}
 def fixed(name):

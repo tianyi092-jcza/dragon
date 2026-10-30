@@ -41,10 +41,14 @@ export class StageJobsAPI {
     if (!path.assetId) return this.#issue(tokenHash, path.purpose, job, { body: this.#dto(job, path.purpose) });
     if (job.state !== 'ready') fail(409, 'JOB_NOT_READY');
     // Rebuild from the exact source and reverify every persisted output, not a DTO grant.
-    const checked = await service.execute(tokenHash, path.id, job.rowRevision);
+    let checked;
+    try { checked = await service.execute(tokenHash, path.id, job.rowRevision); }
+    catch (error) { if (canonical(this.#job(tokenHash, path)) !== canonical(job)) fail(409, 'JOB_CHANGED'); throw error; }
     if (canonical(checked) !== canonical(job)) fail(409, 'JOB_CHANGED');
     const output = checked.checkpoint.flatMap(record => record.outputs).find(record => record.assetId === path.assetId); if (!output) fail(404, 'OUTPUT_NOT_FOUND');
-    const actual = await this.#blobs.read(tokenHash, { gameId: checked.gameId, sha256: output.sha256, byteLength: output.byteLength });
+    let actual;
+    try { actual = await this.#blobs.read(tokenHash, { gameId: checked.gameId, sha256: output.sha256, byteLength: output.byteLength }); }
+    catch (error) { if (canonical(this.#job(tokenHash, path)) !== canonical(checked)) fail(409, 'JOB_CHANGED'); throw error; }
     if (actual.bytes.length !== output.byteLength || sha(actual.bytes) !== output.sha256) fail(503, 'STAGE_OUTPUT_CORRUPT');
     if (canonical(this.#job(tokenHash, path)) !== canonical(checked)) fail(409, 'JOB_CHANGED');
     return this.#issue(tokenHash, path.purpose, checked, { artifact: { bytes: actual.bytes, assetId: output.assetId, sha256: output.sha256 } });

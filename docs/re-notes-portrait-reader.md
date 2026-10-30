@@ -1,6 +1,33 @@
 # E-05-PORTRAIT-READER-1：075B / 四缓存 / KAOGRF 读取边界
 
-本轮只读原证，**未实现FF无图规则、补图、缺依赖策略或Q69运行绑定**。详细维护源在本页；[库存](editor-trial-asset-inventory.md)只引用摘要。既有64门、离线398库或单次App成功不构成原版可达性证明。
+本文各原证批只读核查，**未据此实现FF无图规则、补图、缺依赖策略或Q69运行绑定**。详细原证维护源在本页；[库存](editor-trial-asset-inventory.md)只引用摘要。既有64门、离线398库或单次App成功不构成原版可达性证明。
+
+## 现行Web准入与原证边界
+
+**Web产品决定（非原版机制）**：[Trial服务端批次8c](editor-trial-server.md)记录用户2026-10-08选项B裁决：仅 `idx===127 && portrait===255` 从Trial启动资源缺口中排除，其它槽位255仍报缺口。固定库仍登记20条未闭合引用，不因此补 `kao/255.png`、声称FF为空图或认证全部消费者。下文各历史批“未授Trial／发布准入”指这些原证批本身不提供准入证书，**不撤销该产品决定，也不能据此将现行Trial一律判为应返回422**。
+
+本次按当前源码区分三层（工程事实，不是新的原始机制结论）：
+
+- `server/trials.js` 的 `portraitGaps`／`trialChapterAssetGaps` 执行上述窄判据；`chapterGapReport` 的assets报告复用此门。结构stage清单的20条未闭合引用与启动门报告不是同一集合，不能把结构页6类证明缺项＋20条引用当26个缺文件或26个启动阻断。
+- `server/portraits.js` 的 `collectPortraitIds` 保留原byte及可选portraitKey；后继收窄为非idx127的原byte255及显式portraitKey字符串255均拒收，见下节。`GamePortraits.forPublish` 对ID字符串255仍沿既有省略；Trial的 `trialPortraits` 和正式包的 `PublishedPacks.#freezePortraits` 均先经过共同收集器。无槽位helper的省略本身不构成准入证明，也不能从Trial窄例外推导全部发布资格或完整消费者闭包。
+- `web/src/core/assets.js` 的 `portraitURL` 仍在没有对应覆盖时构造 `kao/${byte}.png`，`portrait` 调用 `loadImage`；`Scenario.portraitOf` 也不是FF专用门。因此启动门排除／manifest省略不证明每个显示caller不会请求255，原证可达性与实际消费者覆盖仍保持未闭合。
+
+前一文档复核批复用既有 `verify_editor_chapter_gap_reports.mjs`，仅运行名为“asset report reuses the existing Trial gate”的用例，当前窄判据、其它槽255仍缺、未知值不补及显示截断检查通过，日志 `.dragon-analysis/editor-completion/portrait-admission-review-test.log`。这是内存报告边界检查，不是新的真实issue／发布／浏览器或20章全链成绩。本批仅纠正文档状态层次，不改产品、资源、原证、程序束或任何门。
+
+## 后继发布画像255依赖拒收
+
+工程链核对：`EditorRoot.#publishPin` 先执行 `validateGameSource`／全量 `compileTrialSource`，再 `PublishedPacks.prepare`→`#freezePortraits`→`collectPortraitIds`→`GamePortraits.forPublish`。实体／地图编译不检查画像文件存在；此前普通槽的255可以通过编译，在最后无槽位helper中被静默省略。现只在拥有原记录上下文的共同收集边界拒绝 `portrait===255 && idx!==127`，并拒绝显式 `portraitKey==='255'`（该共享ID不存在）；沿既有坏依赖错误 `PLAY_PORTRAIT_CORRUPT`，不悄悄丢依赖。普通槽原byte255即使另有合法override也拒，不能用覆盖掩盖原依赖。
+
+保留现有idx127／原byte255的收集与后续省略，以及合法画像覆盖，不新增默认值、不修改草稿保存门、历史请求、源文件或共享库。该保留不是新增发布豁免、FF空图或全资源闭包证书；缺idx及字符串idx127不得借用此形态。Trial启动窄门没有改动，共同收集器的正常127路径保持。
+
+复用现有入口，前缀 `.dragon-analysis/editor-completion/portrait-publish-gate-`：
+
+- `before.log` 新普通槽255负控复现Missing expected exception；修后 `contract.log` runtime contract **104项通过**，增加六个拒收和一组127＋合法覆盖／输入不变正控，无新辅助脚本。
+- `vps.log` **37项通过**：自有临时SQLite／FileBucket、真实固定源安装及全量编译，首章普通255、显式覆盖255、末章普通255三例都仍通过结构编译，但实际PublishedPacks准备在画像边界拒绝，三张发布包表保持零行；正常20章冻结、pin、读包／资产、重发及陈旧／损坏拒绝旧用例继续通过。坏例是在prepare端口注入的内存候选，不是经HTTP保存／发布协调器成功构造的坏草稿；principal为端口夹具，不冒真实登录、完整发布事务或生产放行。
+- `trial-report.log` 仅既有“asset report reuses the existing Trial gate”一项通过，不称整个文件或新实际Trial issue。未运行需预置独立fixture的旧sentinel HTTPS长入口。
+- 三代码语法／diff通过；主动LSP300秒一项返回clean、两项push-only未确认，返回另提示两处已有disposition／规则过滤，不将其当全文件无问题。最终文档检查、指纹、缓存诊断与未跑范围见 `portrait-publish-gate-final-hashes.json`。
+
+只有服务端共同画像依赖收集器、既有测试及文档变化，无web/src／Vue／DDL或资产变化，不重建两束，不重复无影响浏览器／规则／Trial／发布长链。20条原始未闭合引用及实际显示消费者审计仍保留；A20／A32及完整编辑器目标不因此完成。
 
 ## 原始输入与复核
 
@@ -19,7 +46,7 @@
 | 07EC..07FE | miss按CS:0845选标签并**先写新AL**，游标`(index+1)&3`；不是读取成功后才填标签。原移位把该cache索引换成目标SI=`index*0800h`。 |
 | 0802..0824 | DX=0D79，指向原`KAOGRF.DAT\0`；BX=CS:D40目的段，AX起始`AL输入<<8`，CX=0，三轮SHL AX/RCL CX生成32位offset=`portraitByte*0800h`，DI=0800h。0824 near目标E38C。全256个byte演算只验证这组指令算式，非CPU/原运行轨迹。 |
 | E38C..E3A5→F4DF | wrapper保寄存器，正常reader返回CF清才通过E39D；CF置位经int50后重试路径。不能把设备错误当正常消息回调。 |
-| F4DF..F527 | DOS `3D00`打开、`4200`按CX:AX绝对seek，`3F`以DS:SI/DI请求字节；F510返回后没有AX与DI的长度比较。LAHF/SAHF保存CF，关闭后AX被写FFFF，原读数不作为外层short-read门。此处没实测DOS EOF的AX/CF，不据此断言某个版本DOS一定短读成功。F505 seek失败还跳过F512 POP DS，原失败栈不按成功返回理解。 |
+| F4DF..F527 | DOS `3D00`打开、`4200`按CX:AX绝对seek，`3F`以DS:SI/DI请求字节；F510返回后没有AX与DI的长度比较。F513的LAHF随后被F514 `MOV AH,3E`覆盖，F51B SAHF从关闭返回AH的bit0重建CF；F521/F526才保留该重建标志。关闭后AX被写FFFF，原读数不作为外层short-read门。详细维护于[共享读取器勘误](editor-neutral-initialization-evidence.md)。此处没实测DOS EOF的AX/CF或关闭返回AH，不据此断言某个版本DOS一定短读成功。F505 seek失败还跳过F512 POP DS，原失败栈不按成功返回理解。 |
 
 有界伪代码：
 
@@ -34,6 +61,14 @@ loadPortrait(AL, destination):
 ```
 
 **条件反例，不是原运行记录：** 若07D2按正常miss返回依次输入0/1/2/3，四标签成为0/1/2/3；下一次AL=FF不能命中。这撤销“缓存初值FF所以任何FF永不读文件”的推断。FF miss请求offset=522240、length=2048，已签KAOGRF文件没有该记录。不能因此造blank PNG、套别人头像、推断缓存像素为0或把FF正式解释为无图。
+
+## 共享F4DF读取器CF解释勘误
+
+此前画像审计工具及本页旧表曾写“CF经LAHF/SAHF保留”，未将[章节读取原证](editor-neutral-initialization-evidence.md)的AH覆盖勘误回流。该旧解释现明确作废；早期reader r3/r4等收据与窗口保留，不修改历史文件，也不再用其中旧CF说明作机制证据。没有新增或改变读取器原始指令结论，详细F4DF解释以章节读取维护源为准。
+
+`audit_editor_portrait_reader.py` 同步更正报告说明，并将F512签名延至F527，明确覆盖关闭返回、第二组LAHF/SAHF及栈清理。新[正常收据](../.dragon-analysis/editor-phase/portrait-reader-flags-r1/receipt.json)／[优化收据](../.dragon-analysis/editor-phase/portrait-reader-flags-r2/receipt.json)与七个原窗口逐byte相同；[复核记录](../.dragon-analysis/editor-completion/portrait-reader-flags-repro.json)核两固定输入SHA、与重新执行章节审计的两个共享窗口SHA相等、六个flags指令起点及五CLI拒收／旧输出不变。固定KAO仍150个完整2048B记录、无尾；FF miss偏移522240无对应完整记录的条件结论不变。
+
+实际DOS关闭返回AH、短读及像素缓冲前史仍未知；不能把重建CF当成读取CF或关闭操作自身的CF，也不能据此补空白画像、删255依赖或放开Trial／发布。只更正审计与证据说明，没有产品、资源或程序束改动。Python AST语法、正常／优化运行及diff通过；主动LSP两文档warning视图clean、Python push-only未确认，mode=all缓存85文件仍30项既有warning，未屏蔽。未跑无关游戏／浏览器或重建束。初始定位检索误含不存在的`re-notes-portrait-custom.md`，已改查本维护源；该检索错误不计验证通过。
 
 ## 随后caller窗口：只在明确语境跳过FF
 
@@ -97,6 +132,122 @@ loadPortrait(AL, destination):
 - `8450`的CALL CS:[8459+BX]实际引用 **五word DATA** `[8458,8463,84DD,851A,8546]`，不是五段连续指令。早期探索性线性输出把这10B当指令（含无意义x87解码），只作已废弃探索文本，正式窗明确跳过DATA并从实际handler8463解码，目标均在边界。没有故障producer／产品重试，也没放宽完整解码。
 
 **完整条件仍缺，不能称820E全入口闭合。** `21E7`本地只显式存AX／BX，调用far1000:0后没有本地SI／BP保留；其正常分支CLC／STC并不证明设备handler保存这些寄存器。索引DL的比较早于21E7及后续far1000调用，最终读取没有再比较AL。所有graphics／registered renderer的SS/BP/SI／候选存储保留、E453输入命中和sort描述合法域、自修改后的代码完整路径尚未核。前述成员保真需要这些前提；不能拿临时品牌或数学排列提升为实际权限／可达证明。G127完整初始化／写者、其它人物消息、FF缓存／像素与255缺资产继续未知。下一步优先实际影响这些返回的helper／输入域或独立已授权后台工作，不再重复07D2叶及本地builder扫描。
+
+## E-05-PORTRAIT-MOUSE-1：MZ第二段与选择返回的SI保留
+
+本轮新增 `tools/audit_editor_portrait_mouse.py`，固定同一KI文件和完整SHA，**没有运行DOS、读取SAVE或安装模拟器**。[正常r1](../.dragon-analysis/editor-completion/portrait-mouse-r1/receipt.json)和[优化r2](../.dragon-analysis/editor-completion/portrait-mouse-r2/receipt.json)的receipt及[六原窗口](../.dragon-analysis/editor-completion/portrait-mouse-r1/windows.txt)逐byte一致；[复现记录](../.dragon-analysis/editor-completion/portrait-mouse-repro.json)保留五个优化模式CLI拒收和既有输出不变校验。这里补的是原指令／MZ重定位链，不是输入设备运行态证明。
+
+**局部实锤：**
+
+- MZ头大小0200、初始CS=0。`21EF/21FD/2209/84B2` 的 `9A 0000 0010` 段字分别在MZ重定位表；加载基址L下目标为 `(L+1000):0000`，对应文件 `10200`。因此它不是KI之外的未知代码起点；原先仅截首64KiB的审查遗漏了可直接核对的第二段。新窗用加载模块偏移 `10000+offset` 标注，不能把它当主CS的16位IP。
+- 第二段 `0000 CLI;0001 PUSH SI;0002 MOV SI,AX;0004 SHL SI,1;0006 CALL CS:[SI+000E];000B POP SI;000C STI;000D RETF`。在helper正常平衡返回、保存的栈未被破坏前提下，**入口SI有显式恢复**。`000E..002E` 是16个word分发表，不按线性指令解释。
+- `21E7`使用AX=5、AX=3，表项均为第二段`00BD INT33;00BF RET`；`84B2`用AX=1，表项`0070`可调用INT33 AX=3，并保存／恢复BX/CX/DX。外层仍执行上述SI恢复。因此前批“21E7自身没有SI保存”保持为局部事实，但不能继续据此称整个1000:0缺少SI保存；**SI这一个条件已缩小**。
+- 第二段`0059..0066`把本段`0101`注册为INT33 callback。`0101`保存flags，条件分支`0119 SUB SP,8;011C MOV BP,SP`，没有本地入口BP保存；退出调整SP并POPF/RETF。这不能证明原驱动破坏BP：驱动是否在调用callback外侧保存／恢复寄存器仍未知。AX3/5的00BD同样无本地BP保留，所以不以标准鼠标API惯例替代实际驱动证据。
+
+**仍未知／不放行：** 实际INT33驱动、异步callback ABI、SS/BP及候选表内容保留、其它显示renderer与G127所有写者／肖像参数域。即使SI恢复成立，也不足以把820E全流程、G127不可达或FF无图判为实锤；20个255缺资源和所有Trial／发布门保持原状。没有补图、删依赖或改运行规则。此前selection工具的局部窗口／原receipt不改写；本节明确补充它尚未审到的第二段边界。
+
+## E-05-PORTRAIT-CUSTOM-1：自定入口、重置与画像切换写者
+
+新增 `tools/audit_editor_portrait_custom.py` 只读取同一已签KI，不读SAVE、鼠标驱动或运行DOS。[正常r1](../.dragon-analysis/editor-completion/portrait-custom-r1/receipt.json)与[优化r2](../.dragon-analysis/editor-completion/portrait-custom-r2/receipt.json)的四窗口及receipt逐byte一致；[原窗口](../.dragon-analysis/editor-completion/portrait-custom-r1/windows.txt)、[五CLI拒收／既有证据保全](../.dragon-analysis/editor-completion/portrait-custom-repro.json)可复核。这里缩小的是G127写者范围，不是所有调用者或资源准入。
+
+**局部实锤（进入相关handler且DS为场景段、外部helper正常返回的前提）**：
+
+- `8FF3`显式载DS=CS:D52；`8FF8..9004`仅当`[5221]==FF`才写91h。随后显示入口915B读取该byte，9162的near16目标为07D2。不能把91h扩为所有缺图的默认值。
+- `8F7C..8F96`重置helper先把`[SI+3F]`还原到`[SI+2]`，**8F82明确写`[5221]=FF`**，并填六个名字word。自定窗口取消分支9041调用此helper；确认分支9046恢复入口BX并写`[BX+2]=7F`。SI／BX的全部上游对象域及外部调用保留仍须另审，不能单凭+2断言整个任官生命周期闭合。FF不只是文件初值，也有这个明确的局部写入点。
+- `912D..9143`向前切换：AL逐byte减1，若结果≥93h则置92h；`9144..915A`向后切换：逐byte加1，若结果≥93h则置0。两者调用92F5，CF置位则继续，清位才分别在913D／9154写回`[5221]`并调用915B显示。两handler均将候选限制为**0..146**，不是共享Web库621项域。
+- `92F5..9309`用CX=007E、BX=4240，逐记录只比较`[BX+1]`，每步加20h。因此扫描**G0..125共126项**，不含G126／G127，且没有attr活动过滤。匹配返回STC，否则126项后CLC。不能把这个特定画像冲突检查当普通武将容量或所有UI候选范围。
+- `8F97..8FA7`为八word分发表DATA，末两项912D／9144；工具不把它按指令解释。16位near回绕另核六站点，包括9162→07D2。探索时92F5后9309开始的字节只作数据／未知区，未纳入正式解码窗。
+
+**推导，不是CPU轨迹**：候选环147值而比较表至多126个不同值；在上述固定局部循环及有效内存前提下，至多127次候选检查可找到空缺。工具1536组算式对照（所有256初值×两方向×三组占用集合，最长127）核边界，不冒所有占用组合的穷举或实际点击观测。没有调用RNG、写Web规则或把画像选择域扩大为可玩认证。
+
+**仍未知**：所有自定入口／重置caller及DS／SI／BX生命周期、其它G127间接写者、所有通用画像caller、缓存像素与设备返回。20个255缺依赖仍保留，不补图、不跳过G127、不放开Trial／发布；本轮未更改固定库或程序资源身份。
+
+## E-05-PORTRAIT-CUSTOM-ENTRY-1：选择确认、重置及开局回接
+
+同一审计工具新增两个窗口 `1AE0..1B2C`／`8E5A..8EA0`，保留前四窗口。固定KI的[正常r3收据](../.dragon-analysis/editor-completion/portrait-custom-r3/receipt.json)、[六原窗口](../.dragon-analysis/editor-completion/portrait-custom-r3/windows.txt)与[优化r4](../.dragon-analysis/editor-completion/portrait-custom-r4/receipt.json)逐byte相同；[五CLI拒收复现](../.dragon-analysis/editor-completion/portrait-custom-entry-repro.json)验证旧输出不变。新增入口／near16签名与前批算式案例分开，不把1536个画像环算式算作这些新入口的CPU测试。旧r1/r2四窗口证据仍保留，不冒充本版工具输出。
+
+**局部实锤，仍以有效入口对象及外部helper正常平衡返回为条件：**
+
+- `1AEA→8E5A`后，CF置位回到`1AE5→7B3C`选择步骤；CF清且AL=0才进入`1AF8`，非零AL在`1AF3→8FC9`后重新进入`1AEA`。因此自定编辑返回不是直接进入开局字段写入，还有一次选择确认。
+- `8E5A`先保存DS／BX／SI，`8E5D`令DS=D52、`8E62`令SI=入口BX。显示之后轮询`21E7`；CF置位走`8E91→8F7C`重置，再置CF。`8E95..8E9F`保存AX／flags绕过收尾显示后恢复入口SI／BX／DS。这里证明显式保存／恢复，不宣称被调用显示和设备函数均不破坏SI或栈。
+- `8E75→E453`后AL减20h；小于20h重试，大于20h以非零值返回。恰20h时，若`[SI+2]==7F`且`[5222]`首名字word为D0A1，则在`8E8C`强制AL=1，再CF清返回。它是这段输入／记录条件下重进自定编辑的门，不把D0A1扩大成全部姓名合法性校验，也不据此断言所有G127+FF路径不可达。
+- `1AF8`重新载DS=D52；`1AFD`读`[BX+2]`到AH，只有AH=7F跳过`1B05 DEC byte [BX+18]`。随后清AL并三次右移，`1B12`清所选G记录attr；普通军师与G127两分支都经过该写入。`1B17`存BX到CFD，再将BX左移两次、BH存CFF。这与已有[开局军师原证](re-notes-entity-fields.md#g1f-advisor-initialization)交叉吻合，不新增规则、不把正常军师缓存扣减施加到G127。
+
+**随后缩小7B3C候选域，仍非完整选择回传证明：** 工具再补 `7B3C..7B90`，形成[正常r5七窗口](../.dragon-analysis/editor-completion/portrait-custom-r5/windows.txt)／[收据](../.dragon-analysis/editor-completion/portrait-custom-r5/receipt.json)，与[优化r6](../.dragon-analysis/editor-completion/portrait-custom-r6/receipt.json)逐byte相同，[五拒收复现](../.dragon-analysis/editor-completion/portrait-custom-factions-repro.json)保旧输出。`1AE5→7B3C`中先存DS/ES/AX/CX/DX/SI/DI/BP，`7B50`载DS=D52、注册AX=7B6F的builder，`7B63→820E`；返回后只有POP与RET，BX未保存且作为选择输出保留，CF不被这段收尾改写。builder `7B72..7B8F`从SI=0、DI=0、AH=0开始，逐记录仅检查attr≥80h，合格就把SI写SS:[BP+DI]、AH加1、DI加2；SI步40h直到580h，故只检查**22个势力槽0..21**，不是全部24物理槽，也不按声明势力数截断。这个扫描及注册实锤不消除820E内renderer／排序／鼠标返回对栈与候选表保留的缺口；不能直接宣布最终BX一定是这些候选之一。
+
+**仍未知：** 完整820E回传／renderer、E453输入域、所有外部helper对DS／SI／栈的保留及其它进入／写入路径；本次E8字面扫描只定位到`1AF3`与两个reset站点，不能作为不存在间接caller的证明。未执行DOS或读取SAVE；未改Web custom初始化、原NPC／G127、画像库、255准入或运行公式。20个255缺引用仍未解除。
+
+## E-05-PORTRAIT-UPSTREAM-1：3C3D至8810的两个画像参数分支
+
+同一 `audit_editor_portrait_callers.py` 补入完整 `3C3D..3C99` 窗口，并对全部签名增加解码指令边界检查。[正常收据](../.dragon-analysis/editor-phase/portrait-callers-upstream-r1/receipt.json)／[十一原窗口](../.dragon-analysis/editor-phase/portrait-callers-upstream-r1/windows.txt)与[优化收据](../.dragon-analysis/editor-phase/portrait-callers-upstream-r2/receipt.json)逐byte一致；[五CLI拒收与旧输出保全](../.dragon-analysis/editor-completion/portrait-upstream-repro.json)。仍只读取固定SHA的KI，不执行DOS、读取SAVE或改变资源准入。原256／128个地址算式检查沿用旧项，不冒充新增路径的CPU测试。
+
+**局部实锤，限入口DS／SI有效且helper正常平衡返回：**
+
+- `3C42`先置BL=93h，`3C44`比较SI与CS:CFD，相等则直接走`3C5C`。不相等时，`3C4B`取`DS:[SI+2A]`，清BL并三次SHR BX，`3C56`读取对应G01到BL。`3C6C`令AL=BL，`3C6E`实际near16调用8810。因此这个caller有“常量93h”及“入口记录+2A索引的G01”两条参数路径，**不能概括所有8810调用都使用固定NPC画像**。此窗口没有针对画像FF的检查。
+- `3C5C..3C5F`保存AX/CX/DX/DI，调用后`3C71..3C74`恢复。恢复的AL=3走另一处理分支；否则AH=0或AL=2跳过第二次消息；其余分支在`3C84`明确置AL=93h，`3C86`再次调用8810。与已证8810保存／恢复传入AX的条件链相接，但不新增任何运行规则或画像替代品。
+- 此处只以原偏移描述入口对象；尚未核实所有上游SI对象域、+2A合法值及间接写者，**不据此断言G127实际进入该路径或永不进入**。探索性E8／word候选扫描不纳入完整调用图证明，也不把无直接候选的3CC0判为死代码。
+
+20个255缺引用、缓存／像素与设备返回仍未闭合；所有运行／Trial／发布准入保持不变。
+
+## E-05-PORTRAIT-FACTION-RENDER-1：7B90登记renderer的局部读取
+
+在已核7B3C登记 `BX=7B90` 的基础上，`audit_editor_portrait_custom.py` 新增完整 `7B90..7C6E` 窗口、11个指令边界签名及8个near16调用目标。原件仍是上述固定KI SHA，未读取SAVE或运行DOS。正常[r7窗口](../.dragon-analysis/editor-completion/portrait-custom-r7/windows.txt)／[收据](../.dragon-analysis/editor-completion/portrait-custom-r7/receipt.json)与优化[r8收据](../.dragon-analysis/editor-completion/portrait-custom-r8/receipt.json)逐byte一致；[五项CLI拒收与旧输出保全](../.dragon-analysis/editor-completion/portrait-custom-renderer-repro.json)。共8窗口，1536算式案例仍为旧画像循环算式，不冒充renderer执行测试。
+
+- **局部指令实锤**：7B90保存AX/BX/DX/SI，先调用8607。7BA7在该调用返回后的AL上清AH、乘2到SI；AX=10，循环7BB0调用7BC0十次，每次SI+=2。当批未核准8607输入输出；后继[显示调用子链](re-notes-custom-data.md#势力-44-8607显示调用不重建默认军师)在正常返回条件下证实其AX保留，且明确不推定CX不变，不再将8607本地返回列作未查。
+- 7BC0保存AX/BX/CX/DX/SI/DI/BP；7BC7先读默认SS的 `[BP+SI]`，FFFF走显式空文字分支（CS:7AEB→F6DC），其它值在7BE0载入DI。两支汇合7C66..7C6D逐一POP并RET；正常平衡helper返回且保存栈未被改写时，row返回恢复入口BP等寄存器。
+- 窗内非空路径依次出现 `[DI+1]`、`[DI+2]` 经byte×20h＋4242h，以及 `[DI+3]` 经byte×20h＋0842h，调用0701；之后 `[SI+18]`／`[SI+23]` 调062F显示。**将所有这些读取解释为同一势力的君主／军师／首都及F18/F23，仍以DS、DI、SI在嵌套调用中正确保留为条件**；当批没有闭合0701／062F／8607及设备行为；8607及其直接调用后继见上述显示子链，0701后继见下，062F已有[能力显示专项](re-notes-entity-fields.md)的限定窗口核对，两者都不闭合设备返回。局部没有索引值域拒绝、计数重算或直接CALL07D2，不等于嵌套调用没有画像、写入或副作用。
+
+本轮先核读的820E／8412候选池与选择返回窗口已在SELECTION-1覆盖，未作为新成果重复计数。新增范围只缩小登记renderer本地未知；所有helper／候选表内容保留、G127完整前史、FF缓存像素及20个255缺依赖仍未知。没有修改规则、资源、固定库身份或放开任何准入。
+
+## E-05-PORTRAIT-TEXT-1
+
+0701固定名字读取与字体包装返回：
+
+`audit_editor_portrait_custom.py` 在同一固定KI原件上新增三个完整窗口 `0701..075B`、`F75E..F7A1`、`F878..F888`，12个签名／起始指令边界及7个near16调用目标。`F7A1..F7A4`为被读写数据，本批不连续误解码为指令。原来源仍为长度67099、上述KI SHA及MZ偏移0200；未读SAVE或运行DOS。
+
+- **局部指令实锤**：0701保存AX/CX/DI/BP，0705／0709／070D将入口AX写入CS:071F／0736／074D的三个MOV立即数字段。0711保存DX到DI、BX到BP；分别读DS:[SI]、[SI+2]、[SI+4]，交换高低字节，再调用F878和F75E。后三站点near16回绕分别为0721／0738／074F→F75E，三个字的位置为入口DX、DX+10h、DX+20h。不是按Unicode长度处理，也不是遇零提前结束的字符串扫描。
+- F878无嵌套调用，只改AX／flags：AH≥80h时AX不改、CF=0；AH<80h时AL=原AH、AH=0、CF=1；统一F887 RET。DS／SI／DI／BP未被本地指令改写。这里只记录转换指令，不把它独立当完整字符编码合同。
+- F75E保存DS/ES/SI/DI/BP，分配20h栈字节并以SS设DS/ES；DX无符号大于0270h或BX大于0180h直接到F798恢复。正常绘制分支有F789／F790两个far调用（磁盘操作数均0000:0000；装配写者后继见FONT-BINDING-1，实际服务目标仍未追闭），随后F795→F7A4。F798统一释放20h、恢复所存寄存器并RET。**所有嵌套调用正常平衡返回且保存栈完整是保留成立的前提**，未证明字体载入缓冲区或中断一定满足此前提。
+- 在上述前提下，0701从DI/BP还原DX/BX并POP其余保存值；F878不动SI／DS，F75E恢复SI／DS，因此三个固定名字读取及返回可保持调用者的这些寄存器。没有由此证明完整820E、8607、字体调用、F7A4绘制体／设备、候选栈或G127／FF画像可达链。也不据六字节名字读取给编辑器Unicode文本新增截断或长度上限。
+
+两个正常 `python -X utf8 -B` 运行[r9窗口／收据](../.dragon-analysis/editor-completion/portrait-custom-r9/receipt.json)、[r10收据](../.dragon-analysis/editor-completion/portrait-custom-r10/receipt.json)逐byte一致；[复核记录](../.dragon-analysis/editor-completion/portrait-text-repro.json)含11窗口、5项CLI拒收／旧输出不变及AST语法通过。1536画像循环算式仍是旧范围，不冒充本次字体CPU执行。没有补图、删依赖、修改代码规则／固定库／程序束或放开任何运行、Trial、发布门。主动LSP在warning阈值两份文档clean、Python push-only未确认；session全量116文件仍19项既有warning、23项hint/info，未屏蔽或称全仓clean。语法及diff检查通过，不跑未改动的游戏／浏览器回归。
+
+## E-05-PORTRAIT-FONT-BINDING-1
+
+字体far调用操作数的局部装配边界（不是字体服务实现证明）：
+
+- **原始指令实锤**：固定KI的MZ头为0200h字节、入口CS:IP=0:0；完整窗口0000..0082内003A→006B，006B路径007A→F720。此前helper正常返回是达到这些调用的前提，不以字面E8扫描证明没有其它caller。F720返回后为007D `MOV AL,0`、007F `CALL 09AF`，中间没有条件分支；09AF是否使用CF及完整启动失败处理未在本批闭合。
+- F720..F75E保存ES/AX/BX/DX/BP。第一次 `INT 15h` 输入AX=5000h、BX=0000h、DX=0810h、BP=0；CF=1跳F758直接恢复返回，不写本窗的任一调用指针。CF=0则F734／F739把返回BX／ES分别写CS:F791／F793，即F790 far调用的offset／segment。
+- 第二次中断输入AX=5000h、BX=0100h、DX=1010h、BP=0；CF=1仍直接到F758，**不撤销第一次已经写入的指针**。CF=0才在F74D／F752写CS:F78A／F78C（F789 far调用），F757显式CLC后恢复返回。MOV／POP／RET不改这里的CF；没有本地零指针或代码域校验。失败不意味着清零旧指针，也不保证之前未曾初始化。
+- **当批未知**：实际INT15服务提供者、返回指针落点／代码、未显式保存寄存器的中断ABI、字体载入对32B缓冲及外层栈的影响、完整启动helper和后续失败处理。后继STR安装候选及返回帧区别见FONT-PROVIDER-1，仍不是实际运行环境证明。不得仅凭接口号或惯例认定某个DOS中文系统，也不把指针装配等同于字体／画像缓存生命周期闭合。
+
+审计工具新增0000..0082与F720..F75E两完整窗口、MZ入口断言、11个边界签名及3个near16目标；正常 `-B` 的[r13收据](../.dragon-analysis/editor-completion/portrait-custom-r13/receipt.json)／[r14收据](../.dragon-analysis/editor-completion/portrait-custom-r14/receipt.json)共13窗口逐byte一致，[复核记录](../.dragon-analysis/editor-completion/font-binding-repro.json)验证5项CLI拒收／旧输出保持和AST语法。中间r11/r12仅12窗口，不冒作最终源码证明。旧1536画像算式未新增CPU覆盖；没有访问SAVE、执行原DOS、补图或改变任何程序束／固定库／Trial／发布准入。
+
+## E-05-PORTRAIT-FONT-PROVIDER-1
+
+新增只读原证：`STR.EXE` 916B／SHA256 `6d7d709c173ae530faa86f2474f2b312c76597fb15623e82a3c93072fa6379fb`、`YNVSHELL.COM` 979B／`629d5c71c96b2502cd9d256b2fabd74e7275b7014f0a0743cd0dd07a8204a6b8`、`PLAY.BAT` 25B／`fc48ce984d193ecc1c8579e73bcfb7b129cf2eb636e0fe682cae39347e622e7e`，以及原固定KI。`audit_editor_font_provider.py` 逐次读前后核SHA；只核静态指令，不执行这些程序。
+
+- **启动候选链实锤**：PLAY调用YNVSHELL。COM以0100为地址基准，011C传AX=033B给01AC脚本解释器；每条8B，opcode4经表01F9调用0223，使用AX文件名、CX命令尾配置DOS `INT21 AX=4B00`。数据033B开始前三条依次为LOGO、STR、YNFONT。这里证明声明的调用次序，不证明当前机器实际安装成功或所有返回／后续脚本。发现YNFONT文件名本身不构成它提供INT15的证明。
+- **STR安装路径实锤**：MZ入口0000:011E，重定位项为011F／0161的段word。安装代码先 `INT21 AX=3515`，检查旧vector段ES:0的DOSV标记；不匹配才保存原ES:BX到CS:4／6，以重定位后的DS和DX=002C执行 `AX=2515`，随后 `AX=3100` 留驻。匹配标记则走016A的还原vector／释放内存分支，不能将重复运行STR当成总是安装新handler。数据0000..002C不是指令。
+- **处理入口实锤**：002C比较AH=50h；其它值0058 far-jump旧vector。匹配时先PUSHF／far-call旧vector，再STI；只有返回AL=0且BH≤1才将ES设为本CS，并选择BH=0→BX=00DF、BH=1→BX=005D。故这两个地址是满足上述前提时的字体函数候选，不是任意DOS环境固定的绝对地址。
+- **CF与返回帧必须分开**：0054清AH、0056 CLC，拒绝分支也有STC，但0057是IRET，窗内没有改外层中断FLAGS槽。若嵌套旧handler没有越界改写外层帧，最终CF来自外层进入时FLAGS，不来自这些live CLC/STC。KI两次INT15前的XOR BP,BP均令CF=0；不能用STR内部STC证明KI会收到CF=1。此结论不假设旧handler或真实DOS中断ABI已闭合。
+- **字体文件读取局部实锤**：005D函数以DS:0014的 `END_S10.DAT` 打开／计算偏移／seek，向ES:SI请求30B，再显式写 `[ES:SI+1E]=0` word；00DF以DS:0020的 `END_S11.DAT` 请求15B，再写 `[ES:SI+0F]=0` byte。两者保存并恢复DS/DX/BX/CX，末尾AX清零、RETF；本地不写SI/DI/BP/ES，但仍经过DOS INT21，不能以此替代中断寄存器保留证明。打开／seek／read之后没有本地CF或返回字节数拒绝；尾零不代表短读时整个缓冲已初始化。ASCII偏移路径00F1只MOV AL,CL，不清AH，不能脱离此前打开返回的AX直接宣称始终为字符号×15。
+
+两个正常 `-B` 运行[font-provider-r2](../.dragon-analysis/editor-completion/font-provider-r2/receipt.json)／[r3](../.dragon-analysis/editor-completion/font-provider-r3/receipt.json)的7个完整窗口逐byte一致；[复核](../.dragon-analysis/editor-completion/font-provider-repro.json)含4个固定输入、5项CLI拒收／旧输出保持和AST语法。r1未包含PLAY的输入钉，不冒最终源码证明。字体文件正文、旧INT15服务／实际安装状态、DOS短读与寄存器ABI、完整启动以及画像缓存／G127链仍未知；本批未读字体正文或SAVE，不补图、不改规则／程序束／库身份或准入。主动LSP两份文档clean、Python push-only未确认；session全量117文件保留19项既有warning／23项hint/info，无屏蔽。语法与diff检查通过，未跑无关游戏或浏览器回归。
+
+## E-05-PORTRAIT-FONT-RANGES-1
+
+这里的STR及启动文件是 `E:/Dragon/Dragon` 随包候选，固定SHA证明本次读到的字节，不证明这些辅助文件的原厂年代／出处或真实运行时仍为当前INT15服务。不能由存在YNFONT／STR就跳过中断链、后续安装及实际DOS返回核验。
+
+新增固定输入为STR代码中实际写明的两个文件：`END_S10.DAT` 40806B／SHA256 `19d565b225482cc255decd78cbbbbabf03df5a38d05e14dd7eb566ebdaae4643`，`END_S11.DAT` 10637B／`c0f68f59d4449fce077984a14e5c4b0396df51b50b1a8dd89bb8929ece9dd401`。本批只核全文SHA、长度及条件读取区间，不将文件名或头字节当成已解码的字体格式／有效字形证明。
+
+工具按已钉STR窗口作**非CPU算式枚举**：
+
+- 对006F处显式给定的全部65536个post-open CX，按CH的A4／C9／FA无符号分支、byte减法、word加法和末尾×30计算seek位置；完整30B区间3786个、仅剩6B的区间1个、已过文件末尾61749个。例A140→0、A440→12240、C940→174270、FAFF→2580；AA4A→40800只剩6B。它们是寄存器模式，不是65536个合法字符，更不是这些值均可到达的证明。
+- 对00F1处给定的post-open AH和CL的65536种组合，MOV AL,CL后按word×15计算；完整15B区间709个、只剩2B的区间1个、已过末尾64826个。例AH=02／CL=C5→10635只剩2B。没有擅自把AH清零或假定所有DOS句柄小于256。
+- 两文件长度分别余6B／2B，不能因此补齐整条字形、合成空白或裁剪作者输入。区间有足够字节也不保证open／seek／read成功、字符有意义或调用者寄存器保持；“pastEnd／partial”仅描述这次固定文件的静态可用区间，不是实际DOS短读观测。
+
+最终[r4收据](../.dragon-analysis/editor-completion/font-provider-r4/receipt.json)／[r5收据](../.dragon-analysis/editor-completion/font-provider-r5/receipt.json)逐byte一致；[复核记录](../.dragon-analysis/editor-completion/font-ranges-repro.json)含6输入钉、131072条件算式、5CLI拒收／旧输出保持及AST语法。前节r2/r3未覆盖文件正文，不拿旧收据冒充新源码。仍未解释字形、执行DOS、访问SAVE或关闭画像缓存／G127／255资源缺口；没有任何游戏规则／资产／程序束或准入变更。
 
 ## 未知与下一边界
 

@@ -5,8 +5,10 @@
 <h1>存檔管理</h1>
 <p>存檔只保存在本瀏覽器。匯入會建立新檔，不覆蓋現有檔案；遊戲中讀檔仍須返回標題。如遊戲已開啟，請先保存進度並返回標題，再重新整理以更新目錄。</p>
 <p><a href="./">回到遊戲</a> · <a href="editor.html">內容編輯器</a></p>
+<section id="builtin-backups"><h2>內置遊戲備份</h2>
 <label>匯入 Web 存檔（非 DOS SAVE.DAT）<input id="file" type="file" accept=".json,application/json"></label>
 <button id="import" disabled>驗證並另存新檔</button><button id="refresh">重新讀取目錄</button>
 <p id="status" role="status">載入目錄中…</p>
 <table><thead><tr><th>編號</th><th>名稱</th><th>遊戲日期</th><th>備份</th></tr></thead><tbody id="rows"></tbody></table>
+</section><section id="formal-backups"></section>
 <script type="module" src="src/tools/savemanager.js"></script></html>

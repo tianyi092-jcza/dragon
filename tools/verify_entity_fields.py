@@ -91,6 +91,9 @@ SIGNATURES = {
     0x8D22: "bf2000",
     0x8D34: "bf4052",
     0x8D46: "bf0004",
+    # City table: fixed C0h records from DS:0840h, stride20h. This
+    # bounds the offline parser before map objects at file20C0h.
+    0x89FB: "b9c000be4008e81a0083c620e2f8",
     0x8A09: "b97f00",
     0x8B08: "89441c895c1a",
     0x8C2E: "bd0400",
@@ -115,6 +118,8 @@ SIGNATURES = {
     0xE7AE: "886504",
     0x4A3D: "02570480d600",
     0x49DC: "83c204",
+    # Normal faction cursor uses 22 physical 40h slots; hidden 22/23 are not public identities.
+    0x3E4C: "83c64081fe8005720233f6",
     # RNG is CS state outside serialized CS:CF0..D2A, not a DOS slot field.
     0x0077: "e808ec",
     0xECE2: "8cc88ed8",
@@ -283,6 +288,22 @@ def main():
     for va, hex_bytes in SIGNATURES.items():
         expected = bytes.fromhex(hex_bytes)
         require(ki[va + 512 : va + 512 + len(expected)] == expected, f"KI VA {va:04X}")
+    # re-notes-entity-fields.md#specialty-dialogue-byte: retain the complete
+    # reviewed selection/caller/display/return windows, not just isolated reads.
+    # Hashes bind static evidence only; this does not execute KI or open editing.
+    specialty_windows = [
+        (0x6366, 0x63BF, "dcd5e24d11779fb7fa705e1ce0439ce5bf1b9f6846aa089bfc9d613eb52b34bd"),
+        (0x75FA, 0x7663, "0308b2dfa909ce133df59a32810fff53099bdd19c88c12b8cf5f49de89534178"),
+        (0x820E, 0x828F, "2e38545f7699f68d243e0bb2e95ba98c44329a452d6723322981209ff041c32b"),
+        (0x8810, 0x8853, "85f9f617952a00de9c81a4a0a1a54f67b4d65c08330ce8dadc30e52273b91f06"),
+        (0x075B, 0x07D2, "c23b9668631802d7a10ce2f38473a5d6057e38314973f108a534af4c916f0d79"),
+        (0x222B, 0x2286, "5541a3914fa62722ab025475408b0c6a7a0b9e5af3012f8dc9f8d8f8f2ea8a21"),
+    ]
+    for start, end, digest in specialty_windows:
+        require(
+            hashlib.sha256(ki[start + 512 : end + 512]).hexdigest() == digest,
+            f"specialty dialogue window {start:04X}..{end:04X}",
+        )
     scenario = raw["原版/SINARIO.DAT"]
     require(len(scenario) == 4 * 0x56C0, "four complete chapters, no extra tail")
     tiles = decode_map(raw["Dragon/MMAP.MAP"])
@@ -395,6 +416,10 @@ def main():
             {
                 "result": "PASS",
                 "signaturesChecked": len(SIGNATURES),
+                "specialtyDialogueWindows": [
+                    {"startVA": f"{start:04X}", "endVAExclusive": f"{end:04X}", "sha256": digest}
+                    for start, end, digest in specialty_windows
+                ],
                 "sources": SOURCES,
                 "chapters": result,
                 "cityRecordsChecked": 768,

@@ -26,7 +26,7 @@ export function exerciseDistributionLedger(createStorage) {
     finally { storage.close?.(); }
   }
   use(({ ledger, storage, verifyReceipt }) => {
-    assert.deepEqual(ledger.status(), { authorityId: AUTHORITY, tailGeneration: 0, tailDigest: null, confirmedGeneration: 0, confirmedDigest: null, blockedReason: null });
+    assert.deepEqual(ledger.status(), { authorityId: AUTHORITY, tailGeneration: 0, tailDigest: null, confirmedGeneration: 0, confirmedDigest: null, blockedReason: null, enqueuePaused: false });
     assert.equal(ledger.next(), null); assert.equal(ledger.pendingForGame(GAME), false);
     assert.throws(() => new FrozenDistributionLedger({ storage }), /synchronous trusted receipt verifier/);
     assert.throws(() => new FrozenDistributionLedger({ storage, authorityId: OTHER, verifyReceipt }), /DISTRIBUTION_AUTHORITY_CHANGED/);

@@ -60,10 +60,18 @@ export function createDistributionPublisher({ storage, r2, prefix = '', authorit
       if (root?.version !== 2) blocked('LEGACY_PENDING');
       if (!isGameId(root.authorityId) || !Number.isSafeInteger(root.generation) || root.generation < 1) blocked('REMOTE_GAP');
       if (root.authorityId !== after.authorityId) blocked('AUTHORITY_MISMATCH');
-      if (root.generation < before.confirmedGeneration) blocked('REMOTE_GAP');
-      if (root.generation < after.confirmedGeneration) continue;
       if (root.generation > after.tailGeneration || root.generation > after.confirmedGeneration + 1) blocked('REMOTE_AHEAD');
       const record = ledger.entry(root.generation);
+      // Retired history cannot be rebuilt from payload. Compare the remote root
+      // against the metadata identity the checkpoint pin covers. Backend-assigned
+      // etag/visibleAt are deliberately not gated: a restored backend assigns new
+      // ones for identical bytes, and idle checkHead must keep working there.
+      if (record.retired === true) {
+        if (root.operationId !== record.operationId || root.operationDigest !== record.operationDigest || root.payloadDigest !== record.payloadDigest || root.previousOperationDigest !== record.previousDigest) blocked('REMOTE_GAP');
+        return { generation: root.generation, etag: observed.etag, record };
+      }
+      if (root.generation < before.confirmedGeneration) blocked('REMOTE_GAP');
+      if (root.generation < after.confirmedGeneration) continue;
       const expected = proof.expectedObjects(record);
       if (!Buffer.from(stored.bytes).equals(Buffer.from(expected.root.bytes))) blocked('REMOTE_GAP');
       if (record.state === 'confirmed' && (record.receipt.rootDigest !== sha(stored.bytes) || record.receipt.rootETag !== observed.etag || record.receipt.visibleAt !== observed.visibleAt)) blocked('REMOTE_GAP');
@@ -75,6 +83,15 @@ export function createDistributionPublisher({ storage, r2, prefix = '', authorit
     if (head.generation === record.generation) return;
     requireValue(head.generation === record.generation - 1);
     if (head.record === null) return;
+    // A retired head keeps its persisted receipt object (stage-1 never cleans
+    // receipts). Verify it payload-free against the ledger's own metadata.
+    if (head.record.retired === true) {
+      const ticket = await proof.recoverRetired(head.record);
+      if (!ticket) throw new Error('DISTRIBUTION_PREDECESSOR_RECEIPT');
+      const saved = proof.verifyReceipt(ticket, head.record);
+      requireValue(JSON.stringify(saved) === JSON.stringify(head.record.receipt));
+      return;
+    }
     const ticket = await proof.recover(head.record);
     if (!ticket) throw new Error('DISTRIBUTION_PREDECESSOR_RECEIPT');
     const saved = proof.verifyReceipt(ticket, head.record);

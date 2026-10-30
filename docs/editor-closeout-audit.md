@@ -1,5 +1,7 @@
 # 编辑器小范围收口审计（基线 98f0630）
 
+**历史基线，不是当前工作清单**：本页“当前／本轮／未接线”均相对于98f0630审计及标明的后继批次。当前完整编辑器状态唯一汇总入口为[验收清单](editor-completion-audit.md)。特别是下文旧上传／裁剪政策、只读地图、未有中立创建／继承界面、旧pin发布形态，不得据此重复实施或否认后继已交付的限定能力；可玩初始化、完整实体／资源闭包及物理清理仍按现行清单独立开放。
+
 > 后继实施：用户再次要求「按建议执行」后，头像清除／源限制／裁剪确认／预览代次已修并补当前SHA聚焦验证，详见[PORTRAIT-UI-FIX-1](editor-portrait-ui-fix.md)。随后[PORTRAIT-IDENTITY-1](editor-portrait-identity.md)修正全局byte覆盖及消费者接线，聚焦浏览器22项通过。随后[PORTRAIT-WORKERD-1](editor-portrait-workerd.md)补真实上传／保存／发布API／匿名App串行14项，并修壳可见性／匿名资源路径。本文以下为前轮只读审计基线，不再以当时「未修」作当前UI／运行时身份状态；随后[PORTRAIT-PNG-SAFETY-1](editor-portrait-png-safety.md)补游戏库PNG有界解码／规范重编码。随后[JPEG有界实现](editor-portrait-jpeg-safety.md)补游戏库JPEG解码／规范PNG输出。后继[当前SHA真实链](editor-portrait-workerd-safety.md)补串行17项，含原JPEG公开API规范PNG／UI绑定／发布／匿名App三实体全部RGBA；后继[Trial PNG切片](editor-trial-portrait-png-safety.md)补源矩形有界规范化／存储预算及提交前写门；后继[Trial JPEG切片](editor-trial-portrait-jpeg-safety.md)补旧16384像素预算内矩形解码／规范PNG，58项内部SQLite检查；后继[Trial裁剪切片](editor-trial-portrait-crop.md)补服务端方形裁剪＋规范128输出（opt-in，24检查／45 HTTP／11图exact＋真实路由5门）；后继[预算探针](editor-portrait-decode-budget.md)验上限内最坏解码有界完成＋exact＋无留存（7检查／33 HTTP，零生产改动）；后继 C 在当前 SHA 走真实公开 Trial 链裁剪接续（15检查／1图 exact，无浏览器 boot）；更大源接受／OS隔离／完整格式与独立彩色精度、浏览器 App 运行、同时游玩／保存及完整消费者组合仍open；Trial 壳作者确认裁剪 UI（D切片）真浏览器 7检查通过，不称完整workerd验收。
 >
 > 后继隔离排查：[PORTRAIT-DECODE-ISOLATION-1](editor-portrait-decode-isolation.md)独立Node child探针23检查／5HTTP通过；后继Windows Job探针attempt5为17检查／15 native jobs，实测提交内存及周期检查的用户CPU quota终止／整组清理，不是RSS、精确CPU截止或权限沙箱。临时生产接线因Worker不能spawn及静默回退不满足合同而撤回；OS硬内存／CPU／权限隔离仍未安装。用户已要隔离，#3格式认证／#4旧资产自动迁移／#7消费者整体按建议暂缓或冻结；JPEG源预算、发布UI、游戏侧并发三项按用户最新要求待前项完成后统一决策，不提前实施。原255未知引用不等同旧上传对象，冻结不是旧图安全证明。
@@ -12,7 +14,7 @@
 
 - 本地 `dev HEAD=98f0630a2ebae4bcad884bfe3087f0e96a3eb160`，开始时工作区干净；相对本地 `github/dev` ahead 4。四提交依次为 `640ee09`（workerd 对等）、`dba2210`（壳及 BOOT-1）、`965dc06`（头像及战术浏览器）、`98f0630`（lint）。未 fetch，不据此证明实时远端或部署状态。
 - `VERSION=0.1.5`，本地最新版本标签 `v0.1.5`。journal 原「v0.1.6 已发布／ebd4d52 已推送」只保留为历史叙述，当前本地文件不能支持该版本或实时发布结论；本轮不改版本号。
-- `.dragon-analysis/editor-phase/SESSION-RESTART-HANDOFF-TRIAL-SERVER-R17.md` 是旧交接，不再是当前待办源。当前状态使用本页与[逐项索引](editor-requirements-matrix.md)；原批次保留自己的时间、源码与覆盖限制。
+- `.dragon-analysis/editor-phase/SESSION-RESTART-HANDOFF-TRIAL-SERVER-R17.md` 是旧交接，不再是当前待办源。该审计轮状态使用本页与[逐项索引](editor-requirements-matrix.md)；后继当前状态转由[完整验收清单](editor-completion-audit.md)维护；原批次保留自己的时间、源码与覆盖限制。
 
 本轮只读核对以下本地原收据（路径均位于 `.dragon-analysis/editor-phase/`，不将本机产物纳入版本库）：
 
