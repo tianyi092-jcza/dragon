@@ -221,3 +221,11 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 - **完成门评估＋备份清除机制（本轮，未提交，resume 1和2的可执行部分）**：新`tools/fixtures/deletion-completion-readiness.mjs`（`assessDeletionCompletion`：十要件逐项实证——writer排空/SQL清理/私有清除/名称释放/缓存清除/恢复排除为证据槽（缺即关），ledger退役覆盖验真pin＋`completeRetiredCleanupInTxn`收据形状，他游级联查活，备份清除验收据链；全过才开，无一默开）＋新`tools/verify_deletion_completion_readiness.mjs` 5组绿（现状门关＋缺件清单精确、篡改收据仍关、合成全证据对照开且标synthetic、既有`deleteAllowed:false`断言未动）；新`tools/fixtures/backup-purge.mjs`（清单核对＋删后读回验证＋冻结收据）＋新`tools/verify_backup_purge_local.mjs` 3组绿（篡改/多余文件拒清、删净验证、清后不可恢复；仅自有测试文件）。410/名称释放面不建（无实证开则为伪报，门控保持）。LSP四文件0 findings（push-only未确认）。
 - **pi-lens stale-flag留证**：delta层反复报`server/distributionledger.js:184/211 state未使用`＋备份测试`sha未使用`，经sed行级核对（两处皆裸`this.#state();`调用、无声明）、全文件`const state`六处皆被读（25处使用点）、备份文件全文无`sha`标识、`node --check`双过——实锤快照误报。本轮真问题（`cleaned`绑定、`rmSync`重导入、`code`断言）均即时修绿；误报文件正确代码一律不碰。
 - **证据矩阵清理竞态（本轮，未提交）**：新`tools/verify_distribution_ledger_cleanup_races.mjs` 6组绿（部分清理[1]/续清[2]并集收敛＋重复幂等；未删先关INCOMPLETE且态留in-progress；清理中他游新发布落地且保留、close-out计入；旧writer晚回放最小dedupe且零复活、tail不变；屏障下清理照常、新enqueue照停、resume后恢复；双pin交错独立关闭且entry取新pin）。实现中修测试两处（op4先用后声明致幽灵新代；gen4未确认致退役409——皆产品行为正确、测试编排错）。回归：retirement18/node31/catalog22/producer24全绿。LSP单文件0 findings（push-only未确认）。
+
+
+## 41. v0.1.9 完整提交与 Release（已推送 GitHub）
+
+- **授权**：用户明确要求审查全部已改动与未跟踪文件，保留产品代码／测试／迁移／必要文档，排除本地代理／运行产物，创建完整提交和 Release 并推送；Gitea 镜像不在本次目标内。
+- **审查**：347 项逐项分类（252 M＋95 ??），产品／测试／迁移／必要文档全留；排除项为空集（.dragon-analysis、editor-ui/node_modules 本就 ignored，无日志／截图／凭据混入）。240 份 JS/MJS node --check 全过；敏感值扫描仅命中 UI 标签，无凭据。
+- **版本**：VERSION 0.1.8→0.1.9，README／CHANGELOG 同步，新增 docs/release-v0.1.9.md。提交 278dc1b（335 文件，+46163/-6840，含新默认 28805 内容 56M＋entities-7e7fad），tag v0.1.9 已推 github main＋tag；gh 创建 Release 完成。不推 Gitea origin，不做线上部署验证。
+- **门控保持**：发布／管理／删除门 503，deleteAllowed false，410 不开；A30 阶段 2／A31 外部／跨窗口矩阵／fallback_ui（他人 WIP）仍阻塞。
