@@ -87,6 +87,20 @@ export class InstalledSourceCatalog {
       const result = summary(row); this.#sql.exec('INSERT INTO source_operations VALUES(?,?,?,?,?,?)', actor.id, operationKey, requestDigest, actor.epoch, registryId, JSON.stringify(result)); return result;
     });
   }
+  // Pinned role metadata for the read-only built-in resource browser.
+  // Metadata only: no blob access, no registration side effects.
+  resourceRoles() { return Object.freeze(this.#policy.roles.map(role => Object.freeze({ path: role.path, sha256: role.sha256, byteLength: role.byteLength }))); }
+  // Single-role bytes for browsing/preview. Still authenticated and hash-checked;
+  // never materializes the whole registry.
+  async readRole(tokenHash, path) {
+    const actor = this.#actor(tokenHash);
+    if (actor.must_change) fail(403, "PASSWORD_CHANGE_REQUIRED");
+    const role = this.#policy.roles.find(row => row.path === path);
+    if (!role) fail(404, "SOURCE_ROLE_NOT_REGISTERED");
+    const registered = this.#row(this.#policy.registryId);
+    const bytes = await this.#object(tokenHash, actor, this.#policy.registryId, { sha256: role.sha256, byteLength: role.byteLength }, registered);
+    return Object.freeze({ path: role.path, sha256: role.sha256, byteLength: role.byteLength, bytes });
+  }
   definition() { return Object.freeze({ registryId: this.#policy.registryId, definitionDigest: this.#definitionDigest, roleCount: this.#policy.roles.length, profileRevision: this.#policy.profileRevision }); }
   status(tokenHash, registryId) { this.#actor(tokenHash); this.#id(registryId); return summary(this.#row(registryId)); }
   async loadFull(tokenHash, registryId) {

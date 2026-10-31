@@ -248,3 +248,16 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 - **未动**：47e 旧源行保留（读它报 409 是正确的退役语义，不伪造可用性）；`source_operations` 历史不动；R2/对象存储零写入（对象早已存在，且 `put-if-absent` 语义永不覆盖）。
 - **遗留**：本次未重启容器（SQLite 行更新对进行中的实例立即可见），下次自然重启后同样成立；UI 侧“完整副本”页若仍选中旧 47e 源需手动切换，属陈旧选择噪音而非故障。
 - **验收（生产，用户实际操作）**：库行迁移后刷新页面，「完整副本」页 `驗證並登記固定來源` → **操作完成**，源显示 `approved-builtin-28805f-entities7e7-1 — 已驗證登記`；「固定库登记」页 `建立本次驗證登記請求` → **操作完成**，库 `approved-available-library-f4ba804b-1 / 400角色 / 20未閉合引用 — 服務已登記`，原键 `24fedf02-ed25-47fe-86cc-55f36ad8f73` 已核对回应。container `healthy`、重启 0；DB 三行齐备（库 `def=1c0fbd17/root=dcf0883b/98515`、源 28805 `def=8f06cee7/root=c9b26619/18835`、旧 47e 保留）。用户已自行完成强制改密（`must_change=0`、epoch 3→4）。
+
+## 44. 新建游戏与游戏资源重构（Web 产品决定）
+
+- **用户决定**：菜单「建立遊戲／完整副本」→ **「新建遊戲」**，不分管理员/作者，填名称+简介(≤100字)点击一次即产出原游戏完整 20 章副本；废弃中立空壳模板。「固定庫登記」→ **「遊戲資源」**，去掉登记语义，改为只读分类浏览 + 音频试听，所有用户可看；库由服务启动时自动登记。
+- **产品决定记录**：[新建游戏与游戏资源](editor-create-and-resources.md)。原版无「空白新建」也无「资源库登记」，故全部标注为 Web 产品决定，不作原版机制声明。
+- **实现**：`gamemetadata.js` 简介 20→100；`editorapp` 作者创建改走 `FIXED_COPY_PROFILE`（`roles:['admin','author']`）、新增 `#bootstrapLibrary`（env 为准自愈摘要）、新增 `GET /api/resources` 与 `GET /api/resources/asset?path=`；`sourcecatalog` 增 `resourceRoles()`/`readRole()`；`admincopy` 增 `gameLimit`（同事务配额，默认 0=不限，生产未启用）；`catalog.txt` 重写为资源浏览控制器；`CopyPanel.vue`/`CatalogPanel.vue` 重写；`client.txt` 菜单改名并解除 catalog 管理员限定；`style.css` 补资源列表样式。
+- **部署事故与修复（如实记录）**：
+  1. 首次换镜像 `startup-failed` —— 改 `web/src/editor/gamemetadata.js` 使源码树摘要变化，但 Trial 束 `trialweb.txt` 仍内嵌旧哈希，`verifyInstalledProgram` 立即拒绝。修复：重跑 `tools/build_trial_web_bundle.mjs` 并上传束。
+  2. 第二次仍失败 —— `ReferenceError: FIXED_COPY_PROFILE is not defined`（`editorapp.js:204`）。改 `authorCopies` 时用了该常量但未 import。修复：import 由 `FIXED_TEMPLATE_PROFILE` 换为 `FIXED_COPY_PROFILE`。
+  3. **严重失误**：定位上述错误时用了一个未设内存上限的诊断容器，把 3.8G 内存的 VPS 打爆触发 OOM 重启（其它容器自愈恢复）。此后所有容器操作都带 `--memory`。
+  4. 摘要变更需重传 1437 个对象到 R2，且归档在监听之前完成 → 直接切换会造成约 8–40 分钟停机。改为**独立预归档**（`/root/prestage.mjs`，只写 R2 不可变对象、不碰 DB/端口，内存上限 900m），生产持续服务；预归档 7 分钟完成后切换镜像，启动自检通过。
+- **生产结果**：镜像 `20261031-cr3` healthy、重启 0、首页 200；菜单 `新建遊戲`/`遊戲資源`；库注册行摘要 `1c0fbd17…`（启动自登记）；源 `28805f`；游戏数 0。
+- **未做**：真实登录后的功能冒烟需管理员口令（用户持有）；`verify_editor_backend_stage_ui.mjs` 的 `--copy-only` 仍引用已删除的 `#source-*`/`#copy-run` 等旧按钮 ID，待更新。

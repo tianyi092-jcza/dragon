@@ -36,7 +36,7 @@ async function api(path, value, options = {}) {
   if (!response.ok) { if (response.status === 401 && mark === sessionEpoch) { current = null; sessionEpoch++; render(); } const error = new Error(errors[data.error] ?? '操作被拒絕：' + data.error); error.status = response.status; error.code = data.error; throw error; }
   return data;
 }
-const views = [['draft-editor', '遊戲與章節草稿', false], ['stronghold-editor', '據點管理', false], ['generals-editor', '武將管理', false], ['mapview-editor', '地圖', false], ['stage-editor', '階段任務', false], ['stage-assets-editor', '階段結構', false], ['library-editor', '素材庫', false], ['copy', '建立遊戲／完整副本', false], ['publish-editor', '發布管理', false], ['deletion-editor', '刪除追蹤', false], ['admin', '創作者帳戶', true], ['management-editor', '上架與限制', true], ['catalog-editor', '固定庫登記', true]];
+const views = [['draft-editor', '遊戲與章節草稿', false], ['stronghold-editor', '據點管理', false], ['generals-editor', '武將管理', false], ['mapview-editor', '地圖', false], ['stage-editor', '階段任務', false], ['stage-assets-editor', '階段結構', false], ['library-editor', '素材庫', false], ['copy', '新建遊戲', false], ['publish-editor', '發布管理', false], ['deletion-editor', '刪除追蹤', false], ['admin', '創作者帳戶', true], ['management-editor', '上架與限制', true], ['catalog-editor', '遊戲資源', false]];
 let view = null, displayedOwner = null;
 const accounts = createAccountController({ api, authority: () => current, work: run, publish: model => shell.accounts(model), confirm: text => confirm(text) });
 let mapCanvas = null, minimapCanvas = null, mapWindowCanvas = null;

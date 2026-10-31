@@ -16,9 +16,9 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const libraryModel = reactive({ assets: [], missing: [], loadDisabled: true, filterDisabled: true, downloadDisabled: true, serial: 0 });
   const strongholdModel = reactive({ games: [], chapters: [], cities: [], locked: true, saveDisabled: true });
   const mapviewModel = reactive({games:[],lines:[],locked:true});
-  const catalogModel = reactive({readDisabled:true,installDisabled:true,replayDisabled:true,forgetDisabled:true});
+  const catalogModel = reactive({categories:[],category:'portrait',filter:'',rows:[],total:0,loaded:false,message:'',loading:false});
   const generalsModel = reactive({games:[],chapters:[],generals:[],factions:[],library:[],locked:true,saveDisabled:true});
-  const copyModel = reactive({games:[],locked:true,createDisabled:true,runDisabled:true,cancelDisabled:true});
+  const copyModel = reactive({name:'',introduction:'',games:[],locked:true,createDisabled:true,resume:false,message:''});
   const publicationModel = reactive({games:[],versions:[],locked:true,publishDisabled:true,readDisabled:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
   const managementModel = reactive({games:[],locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
   const deletionModel = reactive({games:[],admin:false,locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});

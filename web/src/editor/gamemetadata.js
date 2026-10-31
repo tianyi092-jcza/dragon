@@ -7,7 +7,8 @@ export function normalizeGameMetadata(input) {
     if (typeof value !== "string") throw new RangeError("名稱與簡介必須為文字");
     return checkGameName(value.trim().normalize("NFC"), limit);
   };
-  const name = text(input.name, 8), introduction = text(input.introduction, 20);
+  // Web 产品决定 2026-10-31：简介上限 20 -> 100 码点。
+  const name = text(input.name, 8), introduction = text(input.introduction, 100);
   if (!name) throw new RangeError("遊戲名稱不可空白");
   return { name, introduction };
 }

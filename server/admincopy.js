@@ -18,12 +18,14 @@ function request(input) {
 }
 function key(value) { if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value)) fail(422, 'COPY_OPERATION_KEY'); }
 export class AdminFullCopy {
-  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #leaseMs; #roles; #profileRevision; #caps = new WeakMap(); #executing = new WeakSet();
-  constructor({ storage, principal, catalog, games, blobs, leaseMs = 60000, roles = ['admin'], profileRevision = FIXED_COPY_PROFILE }) {
+  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #leaseMs; #roles; #profileRevision; #gameLimit; #caps = new WeakMap(); #executing = new WeakSet();
+  constructor({ storage, principal, catalog, games, blobs, leaseMs = 60000, roles = ['admin'], profileRevision = FIXED_COPY_PROFILE, gameLimit = 0 }) {
     if (!storage?.sql || typeof principal !== 'function' || typeof catalog?.loadFull !== 'function' || typeof games?.recoverGameId !== 'function' || typeof games?.assertNameAvailableInTxn !== 'function' || typeof blobs?.putImmutable !== 'function') throw new TypeError('actual same-domain stores and principal required');
     if (!Array.isArray(roles) || roles.length === 0 || !roles.every(role => role === 'admin' || role === 'author')) fail(503, 'COPY_ROLE_POLICY');
     if (![FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE].includes(profileRevision)) fail(503, 'COPY_PROFILE_POLICY');
     this.#profileRevision = profileRevision;
+    if (!Number.isSafeInteger(gameLimit) || gameLimit < 0) fail(503, 'COPY_QUOTA_POLICY');
+    this.#gameLimit = gameLimit;
     if (!Number.isSafeInteger(leaseMs) || leaseMs < 1 || leaseMs > 300000) fail(503, 'COPY_LEASE_POLICY');
     this.#storage = storage; this.#sql = storage.sql; this.#principal = principal; this.#catalog = catalog; this.#games = games; this.#blobs = blobs; this.#leaseMs = leaseMs; this.#roles = Object.freeze([...roles]); this.#verifier = new GameSnapshotVerifier({ blobs });
     storage.transactionSync(() => {
@@ -51,6 +53,12 @@ export class AdminFullCopy {
       const id = crypto.randomUUID(); if (this.#one('SELECT game_id FROM content_used_ids WHERE game_id=?', id)) fail(409, 'GAME_ID_USED');
       this.#sql.exec('INSERT INTO content_reservations VALUES(?,?,?,?,?,?)', actor.id, operationKey, 'create', 'new', digest, actor.epoch);
       this.#sql.exec('INSERT INTO content_names VALUES(?,?,?)', actor.id, values.metadata.name, id);
+      // Web product decision 2026-10-31: per-owner game quota, checked inside the
+      // same transaction as the reservation so concurrent creates cannot exceed it.
+      if (this.#gameLimit > 0) {
+        const owned = this.#sql.exec('SELECT COUNT(*) AS n FROM content_games WHERE owner_id=?', actor.id).toArray()[0];
+        if (owned && owned.n >= this.#gameLimit) fail(429, 'GAME_QUOTA_EXCEEDED');
+      }
       this.#sql.exec("INSERT INTO copy_requests VALUES(?,?,?,?,?,?,?,?,?,?,'pending',0,NULL,0,'1',?,NULL)", actor.id, operationKey, digest, actor.epoch, id, values.registryId, source.definitionDigest, source.rootDigest, this.#profileRevision, text(values.metadata), new Date().toISOString());
       return this.#summary(this.#row(actor, operationKey));
     });

@@ -181,7 +181,7 @@ export class FrozenDistributionLedger {
   // production procedure still runs cleanup under the barrier. Ambient txn.
   cleanRetiredChunksInTxn({ checkpointDigest, generations }) {
     if (!digest(checkpointDigest) || !Array.isArray(generations) || generations.length < 1 || !generations.every(g => Number.isSafeInteger(g) && g >= 1) || new Set(generations).size !== generations.length) fail(422, 'DISTRIBUTION_CLEANUP');
-    this.#state(); // Validate the full chain before mutating retired history.
+    void this.#state(); // Validate the full chain before mutating retired history.
     const pin = this.#one('SELECT retired_generations FROM content_distribution_checkpoints WHERE checkpoint_digest=?', checkpointDigest);
     if (!pin) fail(404, 'DISTRIBUTION_CHECKPOINT');
     let retired;
@@ -208,7 +208,7 @@ export class FrozenDistributionLedger {
   // a damaged retained body fails loud as corruption, never as complete.
   completeRetiredCleanupInTxn({ checkpointDigest }) {
     if (!digest(checkpointDigest)) fail(422, 'DISTRIBUTION_CLEANUP');
-    this.#state(); // Validate the full chain before closing out retired history.
+    void this.#state(); // Validate the full chain before closing out retired history.
     const pin = this.#one('SELECT retired_generations FROM content_distribution_checkpoints WHERE checkpoint_digest=?', checkpointDigest);
     if (!pin) fail(404, 'DISTRIBUTION_CHECKPOINT');
     let retired;

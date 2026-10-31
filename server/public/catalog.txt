@@ -1,69 +1,66 @@
-// Fixed operator inventory registration UI. DTO/storage association is NEVER authority.
-const REGISTRY = 'approved-available-library-f4ba804b-1', PROFILE = 'fixed-available-web-library-1', MODE = 'STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE';
-const sha = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-const positive = value => typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value);
-function exact(value, keys) { return value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key)); }
-function root(value) { if (!exact(value, ['sha256', 'byteLength']) || !sha(value.sha256) || !Number.isSafeInteger(value.byteLength) || value.byteLength < 1 || value.byteLength > 1024 * 1024) throw new Error('固定目錄描述無效。'); return Object.freeze({ sha256: value.sha256, byteLength: value.byteLength }); }
-function definition(value) { if (!exact(value, ['registryId', 'definitionDigest', 'roleCount', 'profileRevision']) || value.registryId !== REGISTRY || !sha(value.definitionDigest) || value.roleCount !== 400 || value.profileRevision !== PROFILE) throw new Error('固定庫策略描述無效。'); return Object.freeze({ ...value }); }
-function registered(value, def) { if (!exact(value, ['registryId', 'definitionDigest', 'rootDigest', 'rootByteLength', 'rowRevision', 'registeredAt']) || value.registryId !== def.registryId || value.definitionDigest !== def.definitionDigest || !positive(value.rowRevision) || typeof value.registeredAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value.registeredAt)) throw new Error('登記事實描述無效。'); root({ sha256: value.rootDigest, byteLength: value.rootByteLength }); return Object.freeze({ ...value }); }
-function snapshot(value) { if (!exact(value, ['definition', 'mode', 'unresolvedReferences', 'staged', 'registered']) || value.mode !== MODE || value.unresolvedReferences !== 20) throw new Error('固定庫狀態無效；不是運行資格。'); const def = definition(value.definition); let staged = null; if (value.staged !== null) { if (!exact(value.staged, ['registryId', 'root']) || value.staged.registryId !== REGISTRY) throw new Error('運維裝配關聯無效。'); staged = root(value.staged.root); } const fact = value.registered === null ? null : registered(value.registered, def); return Object.freeze({ definition: def, staged, registered: fact }); }
-function association(value) { if (!exact(value, ['key', 'userVersion', 'registryId', 'definitionDigest', 'root', 'state']) || typeof value.key !== 'string' || !/^[a-zA-Z0-9_-]{16,128}$/.test(value.key) || !Number.isSafeInteger(value.userVersion) || value.userVersion < 1 || value.registryId !== REGISTRY || !sha(value.definitionDigest) || !['unknown', 'confirmed'].includes(value.state)) throw new Error('原操作關聯損壞；不能新起鍵或重造請求。'); return { key: value.key, userVersion: value.userVersion, registryId: value.registryId, definitionDigest: value.definitionDigest, root: root(value.root), state: value.state }; }
-export function installLibraryRegistration({ api, authority, work, isBusy, publish = () => {}, storage = globalThis.sessionStorage, confirm = text => globalThis.confirm(text) }) {
-  let actor = null, generation = 0, view = null, op = null, broken = false, queried = false, message = '尚未明確查看固定素材庫；裝配不是登記或運行許可。';
-  const permitted = () => actor && authority() === actor && actor.user.role === 'admin' && !actor.user.mustChangePassword;
-  const storeKey = () => 'editor-library-registration:' + actor.user.id;
-  function restore() { op = null; broken = false; if (!permitted()) return; try { const text = storage.getItem(storeKey()); if (text !== null) { if (text.length > 2048) throw new Error('操作關聯過大。'); let value; try { value = JSON.parse(text); } catch { throw new Error('操作關聯JSON無效。'); } op = association(value); } } catch { broken = true; message = '原關聯損壞或儲存不可讀；只可明確放棄本機關聯，不自動另鍵。'; } }
-  function persist(value) { try { storage.setItem(storeKey(), JSON.stringify(value)); } catch { broken = true; throw new Error('無法保留原鍵；本次未提交，請明確處理本機關聯。'); } }
+// Built-in read-only resource browser (Web product decision 2026-10-31).
+// Lists the pinned library roles so authors can look at what ships with the
+// game. There is no registration, upload, replacement or deletion here, and
+// the list is NEVER an execution/publication permission.
+const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const CATEGORIES = [['portrait', '頭像'], ['image', '圖像／圖塊'], ['audio', '音樂與音效'], ['font', '字體'], ['data', '其他']];
+const CATEGORY_IDS = new Set(CATEGORIES.map(([id]) => id));
+function accept(data) {
+  if (!data || data.mode !== 'BUILTIN_READONLY' || !Array.isArray(data.resources)) throw new Error('資源清單回應無效。');
+  if (data.resources.length > 4096) throw new Error('資源清單過大。');
+  const out = [], seen = new Set();
+  for (const row of data.resources) {
+    if (!row || typeof row.path !== 'string' || !row.path || row.path.length > 512 || seen.has(row.path)) throw new Error('資源條目無效。');
+    if (!Number.isSafeInteger(row.byteLength) || row.byteLength < 1 || !digest(row.sha256) || !CATEGORY_IDS.has(row.category)) throw new Error('資源條目無效。');
+    seen.add(row.path);
+    out.push(Object.freeze({ path: row.path, byteLength: row.byteLength, category: row.category, label: row.path.replace(/^.*\//, '') }));
+  }
+  return out;
+}
+export function installLibraryRegistration({ api, authority, work, isBusy, publish = () => {} }) {
+  let actor = null, generation = 0, rows = [], loaded = false, filter = '', category = 'portrait', message = '';
+  const permitted = () => actor && authority() === actor && !actor.user.mustChangePassword;
   const ticket = () => ({ actor, generation });
   const valid = item => permitted() && item.actor === actor && item.generation === generation;
-  const bound = () => op && view?.staged && op.userVersion === actor.user.version && op.registryId === view.definition.registryId && op.definitionDigest === view.definition.definitionDigest && op.root.sha256 === view.staged.sha256 && op.root.byteLength === view.staged.byteLength;
+  function visible() {
+    const needle = filter.trim().toLowerCase();
+    return rows.filter(row => row.category === category && (!needle || row.path.toLowerCase().includes(needle)));
+  }
   function render() {
-    const visible = permitted(), enabled = visible && !isBusy();
-    let state = '尚無本次會話明確查得的固定庫狀態。', operation = '尚無本機原操作關聯。';
-    if (view) {
-      let fact = '未裝配；操作員須停止服務後以 --stage-library 明確裝配';
-      if (view.staged) fact = '已裝配，尚未登記';
-      if (view.registered) fact = '服務已登記（僅庫事實，非原鍵成功或運行許可）';
-      state = view.definition.registryId + '／400角色／20未閉合引用 — ' + fact;
-    }
-    if (op) operation = '原鍵 ' + op.key + ' — ' + (op.state === 'confirmed' ? '已收到並核對該次登記回應；非運行准入' : '回應未確認；先查看事實，再明確同鍵重放') + (op.userVersion !== actor?.user.version ? '／帳戶版本已變，禁止重放；這不是SQL取消' : '');
-    if (broken) operation = '原操作關聯不可用；沒有權限或成功保證。';
-    publish({state:visible ? state : '',operation:visible ? operation : '',message:visible ? message : '',
-      readDisabled:!enabled,installDisabled:!enabled || broken || Boolean(op) || !queried || !view?.staged,
-      replayDisabled:!enabled || broken || !queried || !bound(),forgetDisabled:!enabled || (!op && !broken)});
+    const allowed = permitted(), counts = Object.create(null);
+    for (const row of rows) counts[row.category] = (counts[row.category] || 0) + 1;
+    publish({
+      categories: CATEGORIES.map(([id, label]) => ({ id, label, count: counts[id] || 0 })),
+      category: allowed ? category : 'portrait',
+      filter: allowed ? filter : '',
+      rows: allowed ? visible().map(row => Object.freeze({ ...row, url: '/api/resources/asset?path=' + encodeURIComponent(row.path) })) : [],
+      total: allowed ? rows.length : 0,
+      loaded: allowed && loaded,
+      message: allowed ? message : '',
+      loading: Boolean(isBusy()),
+    });
   }
-  async function readState() {
-    if (!permitted()) throw new Error('請以管理員登入並完成改密。');
-    const t = ticket(); view = null; queried = false; render();
-    try { const result = snapshot(await api('/api/admin/library')); if (!valid(t)) return; view = result; queried = true; message = op && !bound() ? '服務描述或帳戶版本與原關聯不同，不能重放；請保留原鍵並明確處理。' : '已明確查看庫事實；registered不證明原鍵曾執行，亦不是Q69／Trial／發布。'; }
-    catch (error) { if (valid(t)) message = '查看未確認：' + error.message; throw error; } finally { render(); }
-  }
-  function confirmationGuard() {
-    const t = ticket(), userId = actor?.user.id, version = actor?.user.version, savedView = view, savedOp = op, savedState = op?.state, savedBroken = broken, savedQueried = queried;
-    return () => {
-      if (!valid(t) || actor.user.id !== userId || actor.user.version !== version || view !== savedView || op !== savedOp || op?.state !== savedState || broken !== savedBroken || queried !== savedQueried) throw new Error('確認期間會話、固定目錄或原操作關聯已改變，請重新查看。');
-    };
-  }
-  async function submit(replay) {
-    if (!permitted() || broken || !view?.staged || (replay ? !queried || !bound() : Boolean(op) || !queried)) throw new Error('請先明確查看完整固定目錄與原關聯；不另鍵替代未知操作。');
-    const check = confirmationGuard();
-    if (!confirm(replay ? '明確以原鍵及固定空body重放驗證登記？若服務尚未收過，可能建立原請求；將重新核驗全部實際R2物件，不是運行准入。' : '明確建立固定庫驗證登記請求？只核驗操作員裝配的固定目錄；不改遊戲或批准運行。')) return;
-    check();
+  async function load() {
+    if (!permitted()) return;
     const t = ticket();
-    if (!replay) op = association({ key: crypto.randomUUID(), userVersion: actor.user.version, registryId: view.definition.registryId, definitionDigest: view.definition.definitionDigest, root: view.staged, state: 'unknown' });
-    const captured = op; op.state = 'unknown'; queried = false; persist(op); message = '原請求已綁定；驗證中或回應未確認，勿另建鍵。'; render();
-    try {
-      const result = await api('/api/admin/library/install', {}, { key: captured.key });
-      if (!valid(t) || op !== captured) return;
-      if (result.mode !== MODE || result.unresolvedReferences !== 20) throw new Error('登記回應資格描述無效。');
-      const { mode, unresolvedReferences, ...facts } = result, fact = registered(facts, { registryId: captured.registryId, definitionDigest: captured.definitionDigest });
-      if (fact.rootDigest !== captured.root.sha256 || fact.rootByteLength !== captured.root.byteLength) throw new Error('登記回應目錄與原請求關聯不符。');
-      op.state = 'confirmed'; persist(op); view = Object.freeze({ ...view, registered: fact }); message = '已收到並核對原鍵登記回應；400角色的可用庫事實，不是完整運行／Q69／Trial／發布。';
-    } catch (error) { if (valid(t) && op === captured) message = '原鍵回應未確認；保留關聯，請先明確查看事實：' + error.message; throw error; } finally { render(); }
+    message = '正在讀取內置資源清單…'; render();
+    const data = await api('/api/resources');
+    if (!valid(t)) return;
+    rows = accept(data); loaded = true;
+    message = '共 ' + rows.length + ' 個內置資源；只可查看與使用，不可上傳、替換或刪除。';
   }
-  const actions = Object.freeze({read:() => work(readState), install:() => work(() => submit(false)), replay:() => work(() => submit(true)),
-    forget:() => work(async () => { if (!permitted() || (!op && !broken)) return; const check = confirmationGuard(); if (!confirm('只放棄本機原鍵關聯？服務操作不會取消、回滾或刪除；未知回應不能因此視為失敗，新請求必須重新明確建立。')) return; check(); try { storage.removeItem(storeKey()); } catch { throw new Error('無法移除本機關聯；不另起鍵。'); } op = null; broken = false; queried = false; message = '僅已放棄本機關聯；服務登記與操作保留，須重新明確查看。'; render(); })});
-  function pagehide() { generation++; view = null; queried = false; message = '頁面離開已清除本次狀態；保留原鍵關聯但不自動請求或重放。'; render(); }
+  const actions = Object.freeze({
+    load: () => work(load),
+    selectCategory(id) { if (!permitted() || !CATEGORY_IDS.has(id)) return; category = id; render(); },
+    setFilter(value) { if (!permitted() || typeof value !== 'string' || value.length > 128) return; filter = value; render(); },
+  });
   render();
-  return Object.freeze({ render, actions, pagehide, setIdentity(next) { if (actor === next) return render(); generation++; actor = next; view = null; queried = false; message = '會話已更換；須明確查看，原關聯不是權限。'; restore(); render(); }, canLeave(forUnload = false) { return !permitted() || (!broken && op?.state !== 'unknown') || (!forUnload && confirm('固定庫原鍵回應未確認。離開只保留關聯，不自動提交或取消服務操作；仍要離開？')); } });
+  return Object.freeze({ render, actions,
+    setIdentity(next) {
+      if (actor === next) return render();
+      generation++; actor = next; rows = []; loaded = false; filter = ''; category = 'portrait'; message = ''; render();
+    },
+    pagehide() { generation++; render(); },
+    canLeave() { return true; },
+  });
 }

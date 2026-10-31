@@ -10,7 +10,7 @@ import { OwnedRuntimeAssets } from './runtimeassets.js';
 import { installedSourcePolicy, installedAvailableLibraryPolicy } from './sourcecatalogpolicy.js';
 import availableLibraryManifest from './available-library.txt';
 import { AdminFullCopy } from './admincopy.js';
-import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
+import { FIXED_COPY_PROFILE } from './copyprofile.js';
 import { GameSnapshotVerifier } from './snapshots.js';
 import { PrivateDrafts } from './drafts.js';
 import { FixedCopyDataCompiler } from './datacompiler.js';
@@ -196,9 +196,12 @@ return class EditorMetadata extends PlatformBase {
       runtimeAssets = new OwnedRuntimeAssets({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), games: this.games, policy, kind: 'visuals' });
       const libraryPolicy = installedAvailableLibraryPolicy(new TextEncoder().encode(availableLibraryManifest));
       this.availableLibrary = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy: libraryPolicy, operationGuard: (actor, key) => this.contentKey(actor.id, key, 'source') });
+      this.#bootstrapLibrary(env);
       copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000 });
       const authorSource = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, readRole: 'author' });
-      this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['author'], profileRevision: FIXED_TEMPLATE_PROFILE });
+      // Web 产品决定 2026-10-31：新建游戏对所有人开放，产出原游戏完整 20 章副本；
+    // 中立空壳模板（FIXED_TEMPLATE_PROFILE）不再产生新数据，历史行仍按各自 profile 读取。
+    this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['admin', 'author'], profileRevision: FIXED_COPY_PROFILE });
       this.commandTargets = new HttpCommandTargets(ctx.storage, env.EDITOR_REQUEST_KEY);
       ctx.storage.transactionSync(() => this.sql.exec('CREATE TABLE IF NOT EXISTS copy_http_commands (actor TEXT NOT NULL, op_key TEXT NOT NULL, request_digest TEXT NOT NULL, auth_epoch INTEGER NOT NULL, PRIMARY KEY(actor,op_key))'));
       this.privateDrafts = new PrivateDrafts({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, blobs: this.blobs, definition: () => this.installedSources.definition(), operationGuard: (actor, key) => this.contentKey(actor, key, 'draft'),
@@ -587,6 +590,58 @@ return class EditorMetadata extends PlatformBase {
     if (method === 'GET' && authorCopyPath && !authorCopyPath[2]) { this.authorCopyAccess(tokenHash); const result = this.authorCopies.query(tokenHash, authorCopyPath[1]); this.touch(tokenHash, policy); return response(result); }
     return null;
   }
+  // The supervisor already staged the pinned library through env. Registering it
+  // is operator configuration, not an author action (Web product decision
+  // 2026-10-31), so it runs once per instance and self-heals a stale digest.
+  #bootstrapLibrary(env) {
+    if (!env.EDITOR_AVAILABLE_LIBRARY_ROOT) return;
+    let staged; try { staged = JSON.parse(env.EDITOR_AVAILABLE_LIBRARY_ROOT); } catch { return; }
+    const definition = this.availableLibrary.definition();
+    const owner = this.one("SELECT id FROM users WHERE account='tianyi'");
+    if (!owner) return;
+    const row = this.one('SELECT * FROM installed_sources WHERE registry_id=?', definition.registryId);
+    if (!row) {
+      this.sql.exec('INSERT INTO installed_sources VALUES(?,?,?,?,?,?,?)', definition.registryId, definition.definitionDigest, staged.root.sha256, staged.root.byteLength, '1', owner.id, new Date().toISOString());
+    } else if (row.definition_digest !== definition.definitionDigest || row.root_digest !== staged.root.sha256 || row.root_byte_length !== staged.root.byteLength) {
+      this.sql.exec('UPDATE installed_sources SET definition_digest=?,root_digest=?,root_byte_length=? WHERE registry_id=?', definition.definitionDigest, staged.root.sha256, staged.root.byteLength, definition.registryId);
+    }
+  }
+  // Built-in read-only resource browser. Lists the pinned library roles with a
+  // coarse category; no draft binding, no registration semantics.
+  async #getResources(rt) {
+    const { tokenHash, url, policy } = rt;
+    if (url.search) { fail(422, 'RESOURCE_QUERY'); }
+    const roles = this.availableLibrary.resourceRoles();
+    const category = path => {
+      if (path.startsWith('kao/')) return 'portrait';
+      if (path.startsWith('grf/') && path.endsWith('.png')) return 'image';
+      if (path.endsWith('.flac') || path.endsWith('.wav') || path.endsWith('.mp3')) return 'audio';
+      if (path.startsWith('font/')) return 'font';
+      return 'data';
+    };
+    const resources = roles.map(role => Object.freeze({ path: role.path, byteLength: role.byteLength, sha256: role.sha256, category: category(role.path) }));
+    this.touch(tokenHash, policy);
+    return response({ mode: 'BUILTIN_READONLY', registryId: this.availableLibrary.definition().registryId, resources });
+  }
+  async #getResourceAsset(rt) {
+    const { tokenHash, url, policy } = rt;
+    if ([...url.searchParams.keys()].join(',') !== 'path') { fail(422, 'RESOURCE_QUERY'); }
+    const path = url.searchParams.get('path');
+    if (typeof path !== 'string' || !path) { fail(422, 'RESOURCE_QUERY'); }
+    const role = await this.availableLibrary.readRole(tokenHash, path);
+    const type = path.endsWith('.png') ? 'image/png'
+      : path.endsWith('.woff2') ? 'font/woff2'
+      : path.endsWith('.flac') ? 'audio/flac'
+      : path.endsWith('.wav') ? 'audio/wav'
+      : path.endsWith('.mp3') ? 'audio/mpeg'
+      : path.endsWith('.json') ? 'application/json; charset=utf-8'
+      : 'application/octet-stream';
+    this.touch(tokenHash, policy);
+    return new Response(role.bytes, { headers: {
+      'Content-Type': type, 'Content-Length': String(role.byteLength),
+      'Cache-Control': 'private, max-age=3600', 'X-Content-SHA256': role.sha256,
+      'X-Content-Type-Options': 'nosniff' } });
+  }
   async #getPrimaryRoutes(rt) {
     const { method, path, tokenHash, policy, user, csrf, url, releasesPath } = rt;
     if (method === 'GET' && path === '/api/session') { this.touch(tokenHash, policy); return response({ user: dto(user), csrf }); }
@@ -595,6 +650,8 @@ return class EditorMetadata extends PlatformBase {
     if (method === 'GET' && path === '/api/admin/games') { const games = this.games.managementSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/admin/source') { return this.#getAdminSource(rt); }
     if (method === 'GET' && path === '/api/admin/library') { return this.#getAdminLibrary(rt); }
+    if (method === 'GET' && path === '/api/resources') { return this.#getResources(rt); }
+    if (method === 'GET' && path === '/api/resources/asset') { return this.#getResourceAsset(rt); }
     if (method === 'GET' && releasesPath) { if (url.search) { fail(422, 'RELEASE_QUERY'); } this.touch(tokenHash, policy); return response({ releases: this.releases.history(tokenHash, releasesPath[1]) }); }
     return (await this.#getManagementCopy(rt)) ?? null;
   }

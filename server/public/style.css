@@ -10,3 +10,20 @@ form{margin:18px 0}label{display:block;margin:16px 0;color:#53665a;font-size:13p
 .entity-table-wrap{max-height:65vh;overflow:auto;border:1px solid #e6ebe7;border-radius:8px}.entity-table-wrap:focus-visible{outline:2px solid #7ba990;outline-offset:3px}.entity-table{width:100%;min-width:730px;border-collapse:collapse;font-size:13px}.entity-table th,.entity-table td{text-align:left;padding:12px;border-bottom:1px solid #e6ebe7;vertical-align:middle}.entity-table th{position:sticky;top:0;z-index:1;background:#f3f6f4;color:#617568}.entity-table tr:hover td{background:#fafcfb}.entity-table input{width:115px}.entity-table label{margin:0}.entity-table .account-row-actions{min-width:160px}
 #generals-message{white-space:pre-wrap;max-height:24rem;overflow:auto}
 @media(max-width:1050px){.workbench{grid-template-columns:190px minmax(0,1fr)}.auth-layout{grid-template-columns:1fr}.workbench-main{padding:24px}.workbench-header{padding:0 20px}.account-actions{gap:8px}}
+/* 遊戲資源（Web 產品決定 2026-10-31）：只讀內置資源瀏覽 */
+.resource-categories{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 12px}
+.resource-categories button{font:inherit;font-size:13px;padding:7px 14px;border:1px solid #d5e0d8;border-radius:999px;background:#fff;color:#4d6b58;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.resource-categories button:hover:not(:disabled){border-color:#8fbd9f;background:#f3f8f4}
+.resource-categories button.on{border-color:#4a7828;background:#4a7828;color:#fff}
+.resource-categories button .count{font-size:11px;opacity:.75}
+.resource-filter{margin:6px 0 14px}
+.resource-filter input{width:100%;max-width:320px}
+.resource-list{display:flex;flex-direction:column;gap:2px;max-height:62vh;overflow:auto;border:1px solid #e6ebe7;border-radius:8px}
+.resource-row{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid #f0f4f1;font-size:13px}
+.resource-row:last-child{border-bottom:0}
+.resource-row .name{flex:1;min-width:0;overflow-wrap:anywhere;color:#33473c}
+.resource-row .muted{flex-shrink:0;font-size:12px}
+.resource-row .thumb{width:44px;height:44px;object-fit:contain;flex-shrink:0;border:1px solid #e0e8e2;border-radius:6px;background:#f7faf8}
+.resource-row audio{max-width:260px;height:32px}
+.module-card .hint{font-size:12px;color:#86948a;margin:-4px 0 12px}
+#own-games>div{padding:12px 0;border-top:1px solid #e6ebe7}
