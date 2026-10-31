@@ -132,6 +132,11 @@ export function createEditorApplication(PlatformBase, { runtimeStager, frozenPub
 return class EditorMetadata extends PlatformBase {
   constructor(ctx, env) {
     super(ctx, env); this.ctx = ctx; this.env = env; this.sql = ctx.storage.sql;
+    // Single-seat login gate (整站单用户在线), same semantics as vps/auth-server:
+    // a live session rejects any new login with 409 SINGLE_USER_ONLINE.
+    // Default off to preserve existing multi-session harnesses and dev flows;
+    // production enables it with EDITOR_SINGLE_USER=1 (user decision 2026-10-30).
+    this.singleUser = env.EDITOR_SINGLE_USER === '1';
     ctx.storage.transactionSync(() => {
       this.sql.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY CHECK(version=1))');
       this.sql.exec('INSERT OR IGNORE INTO schema_version VALUES(1)');
@@ -477,6 +482,11 @@ return class EditorMetadata extends PlatformBase {
     this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'auth');
     const op = await this.operation(request, value, user.id, user.epoch, policy);
     const old = await this.replay(op, policy); if (old) { this.principal(await sha(old.token)); return response(old.body, 200, old.token); }
+    if (this.singleUser) {
+      const now = Date.now();
+      const occupant = this.one('SELECT token_hash FROM sessions WHERE absolute_until>? AND idle_until>?', now, now);
+      if (occupant) { fail(409, 'SINGLE_USER_ONLINE'); }
+    }
     const s = await this.sessionData(user, policy), result = { body: { user: dto(user), csrf: s.csrf }, token: s.token };
     const sealed = await seal(result, policy.secret, op.aad);
     const committed = this.ctx.storage.transactionSync(() => {

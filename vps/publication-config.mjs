@@ -22,6 +22,13 @@ export function parsePublicationEnvironment(input) {
   for (const key of ['EDITOR_SESSION_MS', 'EDITOR_IDLE_MS', 'EDITOR_RATE_MS', 'EDITOR_ACCOUNT_LIMIT', 'EDITOR_SOURCE_LIMIT']) {
     if (input[key] !== undefined) env[key] = String(integer(key, Number.MAX_SAFE_INTEGER));
   }
+  // Optional single-seat login gate. Passed through verbatim when present so
+  // the production Node path honors the same EDITOR_SINGLE_USER contract as
+  // the auth sidecar and the workerd harness; absent means multi-session (dev).
+  if (input.EDITOR_SINGLE_USER !== undefined) {
+    if (input.EDITOR_SINGLE_USER !== '0' && input.EDITOR_SINGLE_USER !== '1') throw new TypeError('invalid EDITOR_SINGLE_USER');
+    env.EDITOR_SINGLE_USER = input.EDITOR_SINGLE_USER;
+  }
   // Optional operator-staged, private fixed-source roots. These are not author
   // uploads or approvals: the shared catalogs still verify every pinned byte
   // and require an authenticated admin to register them through the normal API.

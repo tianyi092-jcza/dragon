@@ -230,3 +230,21 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 - **审查**：347 项逐项分类（252 M＋95 ??），产品／测试／迁移／必要文档全留；排除项为空集（.dragon-analysis、editor-ui/node_modules 本就 ignored，无日志／截图／凭据混入）。240 份 JS/MJS node --check 全过；敏感值扫描仅命中 UI 标签，无凭据。
 - **版本**：VERSION 0.1.8→0.1.9，README／CHANGELOG 同步，新增 docs/release-v0.1.9.md。提交 278dc1b（335 文件，+46163/-6840，含新默认 28805 内容 56M＋entities-7e7fad），tag v0.1.9 已推 github main＋tag；gh 创建 Release 完成。不推 Gitea origin，不做线上部署验证。
 - **门控保持**：发布／管理／删除门 503，deleteAllowed false，410 不开；A30 阶段 2／A31 外部／跨窗口矩阵仍阻塞（fallback_ui r8 已通，不再列阻塞）。
+
+## 42. 生产全量替换部署（2026-10-31，v0.1.9＋单席位门）
+
+- **授权与范围**：用户明确要求把编辑器部署整个替换掉。范围＝应用代码全量（server/vps/reader/web/tools子集/VERSION）；**不动**数据卷、env凭据（只改5个已知键）、nginx其它站点、probe/panel。旧库保留作审计，不删。
+- **单席位门落地**：生产实际走`editorapp`（vps sidecar未启用），其登录本无门；按用户要求在`editorapp.#postLogin`加与vps同语义的409门（默认关闭，`EDITOR_SINGLE_USER=1`开启），并补`publication-config`白名单透传（此前Node链静默丢弃该变量，workerd直通故测试曾过）。workerd auth测试补门覆盖＋must_change过期夹具修正，全绿。
+- **部署实录（只读核验＋幂等写入）**：443M tarball分片上传、SHA对版；staging与线上逐字节比对；R2只做put-if-absent预置；STATIC_*两摘要本地重算（bd0019df…/d5c1f278…，曾手误截断，已纠正并回归）；nginx新增static-v1/<新> location（复制旧块，曾误嵌套致-t失败，已回退重做）；env更新5键（pins＋单席位）；镜像`20261030-v019-singleseat`；首启完整归档约40分钟后healthy，零重启。
+- **冒烟（生产）**：首页200；登录200且mustChangePassword=true；第二登录409 SINGLE_USER_ONLINE且零新会话；登出→重登200→清场零残留。source/library安装留待用户改密后做（must_change下管理接口403是预期行为）。
+- **口令**：用户给定新默认口令，已按scrypt-32768-8-3重算hash并UPDATE（epoch/version+1，must_change=1，清全部旧会话，DB已先备份）。用户登录后必须自行改成正式口令；改密前不要做除登录外的管理操作。
+- **回滚**：`/root/dragon-editor-backups/publication-20261030T172654Z-full`＋`app-old-20261030T175017Z`；旧static目录与旧镜像保留。已删：传输分片、诊断脚本、重复备份目录。
+## 43. library 注册行摘要迁移（生产库写，用户批准）
+
+- **现象**：部署后「固定库登记」页任何操作报 `SOURCE_PROFILE_CHANGED`，「完整副本」页同码红字；但来源 28805 新行当日已正确注册。
+- **根因（生产实物取证）**：B-解耦把 `installedAvailableLibraryPolicy` 的 `revision` 从 47e 改到 28805，导致 policy 对象的 `definitionDigest` 由 `dbafe65e…` 变为 `1c0fbd17…`；而 `installed_sources` 里库行仍是 10-19 注册时的 `dbafe65e…`。`sourcecatalog.#row`／`runtimeassets.#row` 严格比对 definition_digest，不等即 409。产品无“覆盖式重登记”分支（install 只能 INSERT 新行、已存在且摘要不符即 409 SOURCE_ALREADY_REGISTERED），故无法从 UI 自愈。
+- **一致性证据（只读，先于写库）**：扫描生产 `private-objects/installed/approved-available-library-f4ba804b-1/` 下全部（433 个）对象，按 `schema === 'dragon-installed-source-index-1'` 筛出两份索引；两份除 `definitionDigest` 字段外**逐字节相同**，400 roles 完全一致（`roles identical: True`）。即内容零差异，差异仅在信封摘要。
+- **执行（用户批准）**：先备份 `editor.sqlite` 到 `/root/dragon-editor-backups/librarystmt-<TS>/`；`UPDATE installed_sources SET definition_digest='1c0fbd17…', root_digest='dcf0883b…', root_byte_length=98515 WHERE registry_id='approved-available-library-f4ba804b-1' AND definition_digest='dbafe65e…'`（带旧值守卫，`rowcount===1` 断言，否则中止）。结果 1 行更新，`row_revision` 保持 1。
+- **未动**：47e 旧源行保留（读它报 409 是正确的退役语义，不伪造可用性）；`source_operations` 历史不动；R2/对象存储零写入（对象早已存在，且 `put-if-absent` 语义永不覆盖）。
+- **遗留**：本次未重启容器（SQLite 行更新对进行中的实例立即可见），下次自然重启后同样成立；UI 侧“完整副本”页若仍选中旧 47e 源需手动切换，属陈旧选择噪音而非故障。
+- **验收（生产，用户实际操作）**：库行迁移后刷新页面，「完整副本」页 `驗證並登記固定來源` → **操作完成**，源显示 `approved-builtin-28805f-entities7e7-1 — 已驗證登記`；「固定库登记」页 `建立本次驗證登記請求` → **操作完成**，库 `approved-available-library-f4ba804b-1 / 400角色 / 20未閉合引用 — 服務已登記`，原键 `24fedf02-ed25-47fe-86cc-55f36ad8f73` 已核对回应。container `healthy`、重启 0；DB 三行齐备（库 `def=1c0fbd17/root=dcf0883b/98515`、源 28805 `def=8f06cee7/root=c9b26619/18835`、旧 47e 保留）。用户已自行完成强制改密（`must_change=0`、epoch 3→4）。
