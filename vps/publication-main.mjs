@@ -5,6 +5,7 @@ import { join, parse, sep } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { verifyInstalledProgram } from './installed-program.mjs';
 import { registerStaticProgram } from './program-registration.mjs';
+import { registerPinnedSource } from './register-pinned-source.mjs';
 import { parsePublicationEnvironment } from './publication-config.mjs';
 import { openStorage } from './sqlite-port.mjs';
 import { FileBucket } from './file-bucket.mjs';
@@ -71,7 +72,12 @@ export async function startConfiguredPublication(environment, { signal } = {}) {
   const storage = openStorage(path);
   let service;
   try {
-    service = await startPublicationServer({ ...options, storage, bucket, r2: remote });
+    // Opt-in: registers the operator-staged fixed source through the real install
+    // path before the port opens. A drifted pin fails closed with startup-failed.
+    const prepare = options.env.EDITOR_REGISTER_SOURCE === '1'
+      ? async ({ storage: sql, bucket: objects, env }) => { await registerPinnedSource({ storage: sql, bucket: objects, env }); }
+      : undefined;
+    service = await startPublicationServer({ ...options, storage, bucket, r2: remote, prepare });
   } catch (error) {
     // An aggregate means service cleanup itself failed: never close SQL behind
     // potentially active requests. Operator intervention is required in that case.

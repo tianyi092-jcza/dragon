@@ -29,6 +29,14 @@ export function parsePublicationEnvironment(input) {
     if (input.EDITOR_SINGLE_USER !== '0' && input.EDITOR_SINGLE_USER !== '1') throw new TypeError('invalid EDITOR_SINGLE_USER');
     env.EDITOR_SINGLE_USER = input.EDITOR_SINGLE_USER;
   }
+  // Optional startup registration of the operator-staged fixed source. Off by
+  // default: when on, the real install path runs before the port opens, so a
+  // fresh database can create games without a human click.
+  if (input.EDITOR_REGISTER_SOURCE !== undefined) {
+    if (input.EDITOR_REGISTER_SOURCE !== '0' && input.EDITOR_REGISTER_SOURCE !== '1') throw new TypeError('invalid EDITOR_REGISTER_SOURCE');
+    env.EDITOR_REGISTER_SOURCE = input.EDITOR_REGISTER_SOURCE;
+  }
+  if (env.EDITOR_REGISTER_SOURCE === '1' && env.EDITOR_INSTALLED_SOURCE_ROOT === undefined) throw new TypeError('EDITOR_REGISTER_SOURCE requires EDITOR_INSTALLED_SOURCE_ROOT');
   // Optional operator-staged, private fixed-source roots. These are not author
   // uploads or approvals: the shared catalogs still verify every pinned byte
   // and require an authenticated admin to register them through the normal API.

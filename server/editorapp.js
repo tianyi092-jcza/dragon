@@ -137,6 +137,9 @@ return class EditorMetadata extends PlatformBase {
     // Default off to preserve existing multi-session harnesses and dev flows;
     // production enables it with EDITOR_SINGLE_USER=1 (user decision 2026-10-30).
     this.singleUser = env.EDITOR_SINGLE_USER === '1';
+    // Set once the available-library row exists; a virgin database has no owner
+    // yet at construction time, so the first request retries (see handle()).
+    this.libraryBootstrapped = false;
     ctx.storage.transactionSync(() => {
       this.sql.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY CHECK(version=1))');
       this.sql.exec('INSERT OR IGNORE INTO schema_version VALUES(1)');
@@ -189,6 +192,10 @@ return class EditorMetadata extends PlatformBase {
     this.blobs = null; this.installedSources = null; this.adminCopies = null; this.authorCopies = null; this.privateDrafts = null; this.stageApi = null; this.availableLibrary = null; this.libraryAssets = null;
     if (env.EDITOR_BLOBS) {
       const maxBytes = env.EDITOR_BLOB_MAX_BYTES === undefined ? 16 * 1024 * 1024 : Number(env.EDITOR_BLOB_MAX_BYTES);
+      // Optional per-owner game cap; unset keeps the historical unlimited behaviour.
+      // AdminFullCopy rejects a malformed value (COPY_QUOTA_POLICY) instead of
+      // silently treating it as unlimited.
+      const gameLimit = env.EDITOR_GAME_LIMIT === undefined ? 0 : Number(env.EDITOR_GAME_LIMIT);
       this.privateWrites = new PrivateWriteJournal({ storage: ctx.storage, bucket: env.EDITOR_BLOBS });
       this.blobs = new ImmutableBlobStore({ bucket: this.privateWrites, authority: (hash, context) => this.games.blobAuthority(hash, context), storage:ctx.storage, maxBytes });
       const policy = installedSourcePolicy(new TextEncoder().encode(worldManifest), new TextEncoder().encode(entityManifest));
@@ -197,11 +204,11 @@ return class EditorMetadata extends PlatformBase {
       const libraryPolicy = installedAvailableLibraryPolicy(new TextEncoder().encode(availableLibraryManifest));
       this.availableLibrary = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy: libraryPolicy, operationGuard: (actor, key) => this.contentKey(actor.id, key, 'source') });
       this.#bootstrapLibrary(env);
-      copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000 });
-      const authorSource = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, readRole: 'author' });
+      copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, gameLimit });
+      const authorSource = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, readRole: ['admin', 'author'] });
       // Web 产品决定 2026-10-31：新建游戏对所有人开放，产出原游戏完整 20 章副本；
     // 中立空壳模板（FIXED_TEMPLATE_PROFILE）不再产生新数据，历史行仍按各自 profile 读取。
-    this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['admin', 'author'], profileRevision: FIXED_COPY_PROFILE });
+    this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['admin', 'author'], profileRevision: FIXED_COPY_PROFILE, gameLimit });
       this.commandTargets = new HttpCommandTargets(ctx.storage, env.EDITOR_REQUEST_KEY);
       ctx.storage.transactionSync(() => this.sql.exec('CREATE TABLE IF NOT EXISTS copy_http_commands (actor TEXT NOT NULL, op_key TEXT NOT NULL, request_digest TEXT NOT NULL, auth_epoch INTEGER NOT NULL, PRIMARY KEY(actor,op_key))'));
       this.privateDrafts = new PrivateDrafts({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, blobs: this.blobs, definition: () => this.installedSources.definition(), operationGuard: (actor, key) => this.contentKey(actor, key, 'draft'),
@@ -598,10 +605,12 @@ return class EditorMetadata extends PlatformBase {
   // is operator configuration, not an author action (Web product decision
   // 2026-10-31), so it runs once per instance and self-heals a stale digest.
   #bootstrapLibrary(env) {
-    if (!env.EDITOR_AVAILABLE_LIBRARY_ROOT) return;
+    if (this.libraryBootstrapped) return;
+    if (!env.EDITOR_AVAILABLE_LIBRARY_ROOT) { this.libraryBootstrapped = true; return; }
     let staged; try { staged = JSON.parse(env.EDITOR_AVAILABLE_LIBRARY_ROOT); } catch { return; }
     const definition = this.availableLibrary.definition();
     const owner = this.one("SELECT id FROM users WHERE account='tianyi'");
+    // No owner yet (fresh install): stay unset so the first request retries.
     if (!owner) return;
     const row = this.one('SELECT * FROM installed_sources WHERE registry_id=?', definition.registryId);
     if (!row) {
@@ -609,6 +618,7 @@ return class EditorMetadata extends PlatformBase {
     } else if (row.definition_digest !== definition.definitionDigest || row.root_digest !== staged.root.sha256 || row.root_byte_length !== staged.root.byteLength) {
       this.sql.exec('UPDATE installed_sources SET definition_digest=?,root_digest=?,root_byte_length=? WHERE registry_id=?', definition.definitionDigest, staged.root.sha256, staged.root.byteLength, definition.registryId);
     }
+    this.libraryBootstrapped = true;
   }
   // Built-in read-only resource browser. Lists the pinned library roles with a
   // coarse category; no draft binding, no registration semantics.
@@ -648,7 +658,7 @@ return class EditorMetadata extends PlatformBase {
     // to play even though the bytes are fine.
     const range = request.headers.get('Range');
     if (range) {
-      const match = /^bytes=(d*)-(d*)$/.exec(range.trim());
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
       if (match && (match[1] !== '' || match[2] !== '')) {
         let from = match[1] === '' ? null : Number(match[1]);
         let to = match[2] === '' ? null : Number(match[2]);
@@ -1154,6 +1164,9 @@ return class EditorMetadata extends PlatformBase {
     // current-root gates, never through live VPS pins or local announcements.
     if (frozenPublication && this.#isPlayRoute(method, path)) { fail(503, 'PLAY_READER_REQUIRED'); }
     this.seed(policy);
+    // The owner row exists only after seed(), so a fresh install registers the
+    // available library here instead of never (self-healing, one-shot).
+    if (this.availableLibrary) this.#bootstrapLibrary(this.env);
     if (method === 'POST' && path === '/api/auth/login') { return this.#postLogin(request, policy); }
     // Dual-domain split: on the play domain only the anonymous play routes
     // exist; the editor domain keeps every route with its own auth.

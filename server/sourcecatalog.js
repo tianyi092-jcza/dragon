@@ -7,6 +7,8 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 function text(value) { let result = ''; try { for (const token of canonicalSourceTokens(value)) result += token; } catch { fail(422, 'SOURCE_DESCRIPTOR'); } if (new TextEncoder().encode(result).length > 1024 * 1024) fail(413, 'SOURCE_INDEX_TOO_LARGE'); return result; }
 function capture(value) { const captured = text(value); try { return JSON.parse(captured); } catch { fail(422, 'SOURCE_DESCRIPTOR'); } }
 function exact(value, keys) { if (!value || Array.isArray(value) || typeof value !== 'object' || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) fail(422, 'SOURCE_DESCRIPTOR'); }
+// A staged object is one 1 MiB chunk, so this bound covers every chunk; a whole
+// role (an 11 MB audio track) is stitched from its chunks in #roleBytes.
 function descriptor(value, max = 4 * 1024 * 1024) { exact(value, ['sha256', 'byteLength']); if (typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256) || !Number.isSafeInteger(value.byteLength) || value.byteLength < 1) fail(422, 'SOURCE_DESCRIPTOR'); if (value.byteLength > max) fail(413, 'SOURCE_OBJECT_TOO_LARGE'); }
 function summary(row) { return { registryId: row.registry_id, definitionDigest: row.definition_digest, rootDigest: row.root_digest, rootByteLength: row.root_byte_length, rowRevision: row.row_revision, registeredAt: row.registered_at }; }
 export class InstalledSourceCatalog {
@@ -14,8 +16,12 @@ export class InstalledSourceCatalog {
   constructor({ storage, bucket, principal, policy, operationGuard, readRole = 'admin' }) {
     if (!storage?.sql || typeof bucket?.get !== 'function' || typeof principal !== 'function' || !isInstalledSourcePolicy(policy)) throw new TypeError('actual SQLite/R2/principal and branded pinned policy required');
     if (operationGuard !== undefined && typeof operationGuard !== 'function') throw new TypeError('trusted source operation guard required');
-    if (!['admin', 'author'].includes(readRole)) throw new TypeError('trusted source read role required');
-    this.#readRole = readRole;
+    // A trusted role list, not a single role: the author-facing catalog must
+    // serve admins too (Web product decision 2026-10-31 opens 新建遊戲 to every
+    // logged-in account, and the production owner account is an admin).
+    const readRoles = Array.isArray(readRole) ? readRole : [readRole];
+    if (readRoles.length === 0 || !readRoles.every(role => role === 'admin' || role === 'author')) throw new TypeError('trusted source read role required');
+    this.#readRole = Object.freeze([...readRoles]);
     this.#operationGuard = operationGuard;
     this.#storage = storage; this.#sql = storage.sql; this.#bucket = bucket; this.#principal = principal; this.#policy = policy; this.#definitionDigest = hash(Buffer.from(text(policy)));
     storage.transactionSync(() => {
@@ -24,7 +30,7 @@ export class InstalledSourceCatalog {
     });
   }
   #actor(tokenHash, previous) {
-    const actor = this.#principal(tokenHash); if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED'); if (actor.role !== this.#readRole) fail(403, 'FULL_COPY_SOURCE_ADMIN_REQUIRED');
+    const actor = this.#principal(tokenHash); if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED'); if (!this.#readRole.includes(actor.role)) fail(403, 'FULL_COPY_SOURCE_ADMIN_REQUIRED');
     if (previous && (actor.id !== previous.id || actor.epoch !== previous.epoch)) fail(401, 'SESSION_INVALID'); return actor;
   }
   #id(id) { if (typeof id !== 'string' || id !== this.#policy.registryId) fail(404, 'SOURCE_NOT_REGISTERED'); }
@@ -68,8 +74,11 @@ export class InstalledSourceCatalog {
   async install(tokenHash, registryId, input, operationKey) {
     // Author materialization is a trusted read-only port over an already
     // administrator-installed fixed registry, never installation authority.
-    if (this.#readRole !== 'admin') fail(403, 'FULL_COPY_SOURCE_ADMIN_REQUIRED');
-    const actor = this.#actor(tokenHash); this.#id(registryId); const root = capture(input); descriptor(root, 1024 * 1024);
+    // Installation is the administrator's act regardless of which roles may
+    // read this catalog, so the guard is on the actor, not the read policy.
+    const actor = this.#actor(tokenHash);
+    if (actor.role !== 'admin') fail(403, 'FULL_COPY_SOURCE_ADMIN_REQUIRED');
+    this.#id(registryId); const root = capture(input); descriptor(root, 1024 * 1024);
     if (typeof operationKey !== 'string' || !/^[a-zA-Z0-9_-]{16,128}$/.test(operationKey)) fail(422, 'SOURCE_OPERATION_KEY');
     const requestDigest = hash(Buffer.from(text({ registryId, root, definitionDigest: this.#definitionDigest })));
     await this.#verify(tokenHash, actor, registryId, root, null, false);
@@ -90,6 +99,27 @@ export class InstalledSourceCatalog {
   // Pinned role metadata for the read-only built-in resource browser.
   // Metadata only: no blob access, no registration side effects.
   resourceRoles() { return Object.freeze(this.#policy.roles.map(role => Object.freeze({ path: role.path, sha256: role.sha256, byteLength: role.byteLength }))); }
+  // One role's bytes stitched from its chunks. Roles are staged as 1 MiB chunks,
+  // so a role above one chunk has no whole-role object at all: the pinned index
+  // is the only place that names its chunk descriptors.
+  async #roleBytes(tokenHash, actor, registered, role) {
+    const id = this.#policy.registryId;
+    const raw = await this.#object(tokenHash, actor, id, { sha256: registered.root_digest, byteLength: registered.root_byte_length }, registered);
+    let index;
+    try { index = decodeSourceChunks([raw]); } catch { fail(422, 'SOURCE_INDEX_JSON'); }
+    exact(index, ['schema', 'registryId', 'definitionDigest', 'roles']);
+    if (index.schema !== 'dragon-installed-source-index-1' || index.registryId !== id || index.definitionDigest !== this.#definitionDigest || !Array.isArray(index.roles)) fail(422, 'SOURCE_INDEX_IDENTITY');
+    const entry = index.roles.find(row => row?.path === role.path);
+    if (!entry) fail(404, 'SOURCE_ROLE_NOT_REGISTERED');
+    exact(entry, ['path', 'sha256', 'byteLength', 'chunks']);
+    if (entry.sha256 !== role.sha256 || entry.byteLength !== role.byteLength || !Array.isArray(entry.chunks) || entry.chunks.length < 1 || entry.chunks.length > 64) fail(422, 'SOURCE_ROLE_MISMATCH');
+    let length = 0; for (const part of entry.chunks) { descriptor(part); length += part.byteLength; }
+    if (length !== role.byteLength) fail(422, 'SOURCE_ROLE_LENGTH');
+    const bytes = new Uint8Array(length), h = createHash('sha256'); let at = 0;
+    for (const part of entry.chunks) { const chunk = await this.#object(tokenHash, actor, id, part, registered); bytes.set(chunk, at); h.update(chunk); at += chunk.length; }
+    if (h.digest('hex') !== role.sha256) fail(503, 'SOURCE_ROLE_CORRUPT');
+    return bytes;
+  }
   // Single-role bytes for browsing/preview. Still authenticated and hash-checked;
   // never materializes the whole registry.
   async readRole(tokenHash, path) {
@@ -98,7 +128,7 @@ export class InstalledSourceCatalog {
     const role = this.#policy.roles.find(row => row.path === path);
     if (!role) fail(404, "SOURCE_ROLE_NOT_REGISTERED");
     const registered = this.#row(this.#policy.registryId);
-    const bytes = await this.#object(tokenHash, actor, this.#policy.registryId, { sha256: role.sha256, byteLength: role.byteLength }, registered);
+    const bytes = await this.#roleBytes(tokenHash, actor, registered, role);
     return Object.freeze({ path: role.path, sha256: role.sha256, byteLength: role.byteLength, bytes });
   }
   definition() { return Object.freeze({ registryId: this.#policy.registryId, definitionDigest: this.#definitionDigest, roleCount: this.#policy.roles.length, profileRevision: this.#policy.profileRevision }); }

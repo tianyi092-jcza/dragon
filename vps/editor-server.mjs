@@ -67,9 +67,13 @@ function capture(request) {
   });
 }
 
-export async function startEditorServer({ storage, bucket, env, runtimeStager, frozenPublication = false, host = '127.0.0.1', port = 8787 }) {
+export async function startEditorServer({ storage, bucket, env, runtimeStager, frozenPublication = false, host = '127.0.0.1', port = 8787, prepare }) {
   if (!['127.0.0.1', '0.0.0.0'].includes(host) || !Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('listen address');
+  if (prepare !== undefined && typeof prepare !== 'function') throw new TypeError('trusted startup preparation required');
   const service = createEditorService({ storage, bucket, env, runtimeStager, frozenPublication });
+  // Schema and the library row exist by now; optional operator startup steps run
+  // before the port opens so no request can observe a half-configured database.
+  if (prepare) await prepare({ storage, bucket, env });
   let authority;
   try { authority = new URL(service.origin).host; }
   catch { throw new TypeError('configured editor origin'); }

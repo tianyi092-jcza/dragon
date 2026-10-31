@@ -6,7 +6,7 @@ import { createDistributionPublisher } from './distribution-publisher.mjs';
 import { createDistributionDrainer } from './distribution-drainer.mjs';
 import { startEditorServer } from './editor-server.mjs';
 
-export async function startPublicationServer({ storage, bucket, env, r2, verifyStaticResources, intervalMs, prefix = '', host = '127.0.0.1', port = 8787 }) {
+export async function startPublicationServer({ storage, bucket, env, r2, verifyStaticResources, intervalMs, prefix = '', host = '127.0.0.1', port = 8787, prepare }) {
   const environment = { ...env };
   config(environment);
   if (typeof storage?.sql?.exec !== 'function' || typeof storage?.transactionSync !== 'function' ||
@@ -41,7 +41,7 @@ export async function startPublicationServer({ storage, bucket, env, r2, verifyS
     return closing;
   }
   try {
-    server = await startEditorServer({ storage, bucket, env: environment, runtimeStager, frozenPublication: true, host, port });
+    server = await startEditorServer({ storage, bucket, env: environment, runtimeStager, frozenPublication: true, host, port, prepare });
     if (!drainer.start()) throw new Error('DISTRIBUTION_SCHEDULER_UNAVAILABLE');
     state = 'running';
   } catch (error) {

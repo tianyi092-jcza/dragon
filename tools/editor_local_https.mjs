@@ -5,7 +5,9 @@ import { mkdtempSync, readFileSync, existsSync, unlinkSync, rmdirSync, chmodSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-const allowedHeaders = new Set(['accept', 'content-type', 'origin', 'cookie', 'x-csrf-token', 'idempotency-key', 'if-match']);
+// 'range' carries the audio preview contract (`<audio>` sends Range and needs
+// 206/416); dropping it here would hide a real defect from local testing.
+const allowedHeaders = new Set(['accept', 'content-type', 'origin', 'cookie', 'x-csrf-token', 'idempotency-key', 'if-match', 'range']);
 const maxJSONBytes = 16384;
 function capture(incoming) {
   return new Promise((done, reject) => {
@@ -27,15 +29,17 @@ function certificate(directory) {
   chmodSync(key, 0o600);
   return { key: readFileSync(key), cert: readFileSync(cert), minVersion: 'TLSv1.2' };
 }
-export async function createEditorHTTPS(mf, { port = 8787 } = {}) {
+export async function createEditorHTTPS(mf, { port = 8787, tls } = {}) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid local backend port');
-  const directory = mkdtempSync(join(tmpdir(), 'dragon-editor-tls-'));
-  const cleanup = () => { for (const name of ['engineering.key', 'engineering.crt']) { const path = join(directory,name); if (existsSync(path)) unlinkSync(path); } rmdirSync(directory); };
+  // Verifiers regenerate a throwaway certificate. A long-lived development
+  // service passes its own pair so the browser keeps trusting one identity.
+  const directory = tls ? null : mkdtempSync(join(tmpdir(), 'dragon-editor-tls-'));
+  const cleanup = () => { if (!directory) return; for (const name of ['engineering.key', 'engineering.crt']) { const path = join(directory,name); if (existsSync(path)) unlinkSync(path); } rmdirSync(directory); };
   const origin = 'https://127.0.0.1:' + port; let server, closing;
   const sockets = new Set();
   const errorResponse = (outgoing, code, status) => { if (outgoing.headersSent) { outgoing.destroy(); return; } outgoing.writeHead(status, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' }); outgoing.end(JSON.stringify({ error:code })); };
   try {
-    server = createServer(certificate(directory), async (incoming, outgoing) => {
+    server = createServer(directory ? certificate(directory) : tls, async (incoming, outgoing) => {
       try {
         if (incoming.headers.host !== '127.0.0.1:' + port) { incoming.resume(); errorResponse(outgoing,'LOCAL_HOST',400); return; }
         const url = new URL(incoming.url, origin);
