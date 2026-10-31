@@ -27,3 +27,4 @@ form{margin:18px 0}label{display:block;margin:16px 0;color:#53665a;font-size:13p
 .resource-row audio{max-width:260px;height:32px}
 .module-card .hint{font-size:12px;color:#86948a;margin:-4px 0 12px}
 #own-games>div{padding:12px 0;border-top:1px solid #e6ebe7}
+.resource-row .index{flex-shrink:0;width:34px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px;color:#9aa8a0}

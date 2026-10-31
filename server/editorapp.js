@@ -624,7 +624,7 @@ return class EditorMetadata extends PlatformBase {
     return response({ mode: 'BUILTIN_READONLY', registryId: this.availableLibrary.definition().registryId, resources });
   }
   async #getResourceAsset(rt) {
-    const { tokenHash, url, policy } = rt;
+    const { tokenHash, url, policy, request } = rt;
     if ([...url.searchParams.keys()].join(',') !== 'path') { fail(422, 'RESOURCE_QUERY'); }
     const path = url.searchParams.get('path');
     if (typeof path !== 'string' || !path) { fail(422, 'RESOURCE_QUERY'); }
@@ -636,11 +636,32 @@ return class EditorMetadata extends PlatformBase {
       : path.endsWith('.mp3') ? 'audio/mpeg'
       : path.endsWith('.json') ? 'application/json; charset=utf-8'
       : 'application/octet-stream';
-    this.touch(tokenHash, policy);
-    return new Response(role.bytes, { headers: {
-      'Content-Type': type, 'Content-Length': String(role.byteLength),
+    const total = role.byteLength;
+    const common = { 'Content-Type': type, 'Accept-Ranges': 'bytes',
       'Cache-Control': 'private, max-age=3600', 'X-Content-SHA256': role.sha256,
-      'X-Content-Type-Options': 'nosniff' } });
+      'X-Content-Type-Options': 'nosniff' };
+    // Browsers stream media with byte ranges; without 206 support <audio> refuses
+    // to play even though the bytes are fine.
+    const range = request.headers.get('Range');
+    if (range) {
+      const match = /^bytes=(d*)-(d*)$/.exec(range.trim());
+      if (match && (match[1] !== '' || match[2] !== '')) {
+        let from = match[1] === '' ? null : Number(match[1]);
+        let to = match[2] === '' ? null : Number(match[2]);
+        if (from === null) { from = Math.max(0, total - to); to = total - 1; }
+        else if (to === null || to >= total) { to = total - 1; }
+        if (Number.isSafeInteger(from) && Number.isSafeInteger(to) && from >= 0 && from <= to && from < total) {
+          const slice = role.bytes.subarray(from, to + 1);
+          this.touch(tokenHash, policy);
+          return new Response(slice, { status: 206, headers: { ...common,
+            'Content-Range': 'bytes ' + from + '-' + to + '/' + total, 'Content-Length': String(slice.length) } });
+        }
+        this.touch(tokenHash, policy);
+        return new Response(null, { status: 416, headers: { ...common, 'Content-Range': 'bytes */' + total } });
+      }
+    }
+    this.touch(tokenHash, policy);
+    return new Response(role.bytes, { headers: common });
   }
   async #getPrimaryRoutes(rt) {
     const { method, path, tokenHash, policy, user, csrf, url, releasesPath } = rt;

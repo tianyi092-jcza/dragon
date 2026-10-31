@@ -22,7 +22,8 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       games: allowed ? games.map(row => ({ ...row })) : [],
       message: allowed ? message : '', locked,
       resume: allowed && resumable(),
-      createDisabled: locked || broken || needsQuery || (Boolean(operation) && !summary),
+      // Resumable operations must stay clickable: the button then reads 確認新建（續）.
+      createDisabled: locked || broken || needsQuery,
     });
   }
   function restore() {

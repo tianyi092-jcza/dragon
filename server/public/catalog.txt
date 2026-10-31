@@ -18,7 +18,7 @@ function accept(data) {
   return out;
 }
 export function installLibraryRegistration({ api, authority, work, isBusy, publish = () => {} }) {
-  let actor = null, generation = 0, rows = [], loaded = false, filter = '', category = 'portrait', message = '';
+  let actor = null, generation = 0, rows = [], loaded = false, autoStarted = false, filter = '', category = 'portrait', message = '';
   const permitted = () => actor && authority() === actor && !actor.user.mustChangePassword;
   const ticket = () => ({ actor, generation });
   const valid = item => permitted() && item.actor === actor && item.generation === generation;
@@ -39,6 +39,12 @@ export function installLibraryRegistration({ api, authority, work, isBusy, publi
       message: allowed ? message : '',
       loading: Boolean(isBusy()),
     });
+    // The list is built into the game, so it loads by itself the first time an
+    // authenticated session renders this view; no manual button needed.
+    if (permitted() && !loaded && !autoStarted && !isBusy()) {
+      autoStarted = true;
+      queueMicrotask(() => { void work(load); });
+    }
   }
   async function load() {
     if (!permitted()) return;
@@ -58,7 +64,7 @@ export function installLibraryRegistration({ api, authority, work, isBusy, publi
   return Object.freeze({ render, actions,
     setIdentity(next) {
       if (actor === next) return render();
-      generation++; actor = next; rows = []; loaded = false; filter = ''; category = 'portrait'; message = ''; render();
+      generation++; actor = next; rows = []; loaded = false; autoStarted = false; filter = ''; category = 'portrait'; message = ''; render();
     },
     pagehide() { generation++; render(); },
     canLeave() { return true; },

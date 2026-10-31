@@ -14122,76 +14122,48 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
 }, Ay = /* @__PURE__ */ jl(Py, [["__scopeId", "data-v-945214c9"]]), Oy = {
   id: "catalog-editor",
   class: "module-card"
-}, Ty = { class: "module-toolbar" }, Dy = {
-  key: 0,
-  class: "muted"
-}, Ry = {
+}, Ty = {
   id: "catalog-message",
   role: "status"
-}, Ey = {
+}, Dy = {
   key: 0,
   class: "resource-categories"
-}, Ly = ["data-category", "disabled", "onClick"], jy = { class: "count" }, Fy = {
+}, Ry = ["data-category", "disabled", "onClick"], Ey = { class: "count" }, Ly = {
   key: 1,
   class: "resource-filter"
-}, Ny = ["value", "disabled"], Vy = {
+}, jy = ["value", "disabled"], Fy = { class: "muted" }, Ny = {
   key: 2,
   class: "resource-list"
-}, Wy = {
+}, Vy = {
   key: 0,
   class: "muted"
-}, By = ["data-path"], Hy = ["src", "alt"], Uy = { class: "name" }, qy = { class: "muted" }, zy = { class: "name" }, Ky = { class: "muted" }, Gy = ["src"], Yy = { class: "name" }, Xy = { class: "muted" }, Jy = {
+}, Wy = ["data-path"], By = { class: "index" }, Hy = ["src", "alt"], Uy = { class: "name" }, qy = { class: "muted" }, zy = { class: "name" }, Ky = ["src"], Gy = { class: "name" }, Yy = { class: "muted" }, Xy = {
   __name: "CatalogPanel",
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
     return (t, l) => (m(), h("section", Oy, [
-      l[3] || (l[3] = a(
+      l[2] || (l[2] = a(
         "h2",
         null,
         "遊戲資源",
         -1
         /* CACHED */
       )),
-      l[4] || (l[4] = a(
+      l[3] || (l[3] = a(
         "p",
         null,
         "系統內置的只讀共享素材：頭像、圖像／圖塊、音樂、音效、字體。可查看與使用，不可上傳、替換或刪除。",
         -1
         /* CACHED */
       )),
-      a("div", Ty, [
-        C(I(T), {
-          id: "catalog-load",
-          type: "primary",
-          disabled: e.busy || e.model.loading,
-          onClick: l[0] || (l[0] = (n) => e.actions.load())
-        }, {
-          default: P(() => [
-            b(
-              f(e.model.loaded ? "重新整理清單" : "讀取資源清單"),
-              1
-              /* TEXT */
-            )
-          ]),
-          _: 1
-          /* STABLE */
-        }, 8, ["disabled"]),
-        e.model.loaded ? (m(), h(
-          "span",
-          Dy,
-          "共 " + f(e.model.total) + " 個資源",
-          1
-          /* TEXT */
-        )) : J("v-if", !0)
-      ]),
       a(
         "p",
-        Ry,
+        Ty,
         f(e.model.message),
         1
         /* TEXT */
       ),
-      e.model.loaded ? (m(), h("div", Ey, [
+      e.model.loaded ? (m(), h("div", Dy, [
         (m(!0), h(
           B,
           null,
@@ -14209,19 +14181,19 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             ),
             a(
               "span",
-              jy,
+              Ey,
               f(n.count),
               1
               /* TEXT */
             )
-          ], 10, Ly))),
+          ], 10, Ry))),
           128
           /* KEYED_FRAGMENT */
         ))
       ])) : J("v-if", !0),
-      e.model.loaded ? (m(), h("div", Fy, [
+      e.model.loaded ? (m(), h("div", Ly, [
         a("label", null, [
-          l[2] || (l[2] = b(
+          l[1] || (l[1] = b(
             "篩選",
             -1
             /* CACHED */
@@ -14231,20 +14203,34 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             maxlength: "128",
             disabled: e.busy,
             placeholder: "依檔名篩選",
-            onInput: l[1] || (l[1] = (n) => e.actions.setFilter(n.target.value))
-          }, null, 40, Ny)
-        ])
+            onInput: l[0] || (l[0] = (n) => e.actions.setFilter(n.target.value))
+          }, null, 40, jy)
+        ]),
+        a(
+          "span",
+          Fy,
+          "此分類 " + f(e.model.rows.length) + " 項",
+          1
+          /* TEXT */
+        )
       ])) : J("v-if", !0),
-      e.model.loaded ? (m(), h("div", Vy, [
-        e.model.rows.length ? J("v-if", !0) : (m(), h("p", Wy, "此分類沒有符合條件的資源。")),
+      e.model.loaded ? (m(), h("div", Ny, [
+        e.model.rows.length ? J("v-if", !0) : (m(), h("p", Vy, "此分類沒有符合條件的資源。")),
         (m(!0), h(
           B,
           null,
-          te(e.model.rows, (n) => (m(), h("div", {
+          te(e.model.rows, (n, i) => (m(), h("div", {
             key: n.path,
             class: "resource-row",
             "data-path": n.path
           }, [
+            a(
+              "span",
+              By,
+              f(i + 1),
+              1
+              /* TEXT */
+            ),
             n.category === "portrait" || n.category === "image" ? (m(), h(
               B,
               { key: 0 },
@@ -14283,18 +14269,11 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                   1
                   /* TEXT */
                 ),
-                a(
-                  "span",
-                  Ky,
-                  f(n.byteLength) + " bytes",
-                  1
-                  /* TEXT */
-                ),
                 a("audio", {
                   src: n.url,
                   controls: "",
-                  preload: "none"
-                }, null, 8, Gy)
+                  preload: "metadata"
+                }, null, 8, Ky)
               ],
               64
               /* STABLE_FRAGMENT */
@@ -14304,14 +14283,14 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               [
                 a(
                   "span",
-                  Yy,
+                  Gy,
                   f(n.path),
                   1
                   /* TEXT */
                 ),
                 a(
                   "span",
-                  Xy,
+                  Yy,
                   f(n.byteLength) + " bytes",
                   1
                   /* TEXT */
@@ -14320,17 +14299,17 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               64
               /* STABLE_FRAGMENT */
             ))
-          ], 8, By))),
+          ], 8, Wy))),
           128
           /* KEYED_FRAGMENT */
         ))
       ])) : J("v-if", !0)
     ]));
   }
-}, Zy = { class: "portrait-preview" }, Qy = {
+}, Jy = { class: "portrait-preview" }, Zy = {
   role: "status",
   "data-portrait-preview-status": ""
-}, _y = ["src", "hidden", "alt"], e0 = {
+}, Qy = ["src", "hidden", "alt"], _y = {
   __name: "PortraitPreview",
   props: { gameId: String, portrait: Object, disabled: Boolean },
   setup(e) {
@@ -14350,7 +14329,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
     function u(c, y) {
       c.currentTarget !== l.value || n.value?.identity !== o.value || (i.value = y);
     }
-    return we(o, d, { flush: "sync" }), (c, y) => (m(), h("div", Zy, [
+    return we(o, d, { flush: "sync" }), (c, y) => (m(), h("div", Jy, [
       C(I(T), {
         "data-portrait-preview": "",
         disabled: !o.value || i.value === "loading",
@@ -14381,7 +14360,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         _: 1
         /* STABLE */
       }, 8, ["disabled"]),
-      a("p", Qy, [
+      a("p", Zy, [
         i.value === "loading" ? (m(), h(
           B,
           { key: 0 },
@@ -14431,40 +14410,40 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         height: "128",
         onLoad: y[0] || (y[0] = (D) => u(D, "ready")),
         onError: y[1] || (y[1] = (D) => u(D, "error"))
-      }, null, 40, _y)) : J("v-if", !0)
+      }, null, 40, Qy)) : J("v-if", !0)
     ]));
   }
-}, jn = /* @__PURE__ */ jl(e0, [["__scopeId", "data-v-2d11dfbd"]]), t0 = {
+}, jn = /* @__PURE__ */ jl(_y, [["__scopeId", "data-v-2d11dfbd"]]), e0 = {
   key: 0,
   id: "general-definitions"
-}, l0 = { class: "module-toolbar" }, n0 = ["value", "disabled"], i0 = { id: "definition-context" }, s0 = { key: 0 }, a0 = {
+}, t0 = { class: "module-toolbar" }, l0 = ["value", "disabled"], n0 = { id: "definition-context" }, i0 = { key: 0 }, s0 = {
   id: "definition-status",
   role: "status"
-}, o0 = {
+}, a0 = {
   key: 0,
   id: "definition-unavailable"
-}, d0 = { class: "module-toolbar" }, r0 = { class: "module-toolbar" }, u0 = ["disabled"], f0 = {
+}, o0 = { class: "module-toolbar" }, d0 = { class: "module-toolbar" }, r0 = ["disabled"], u0 = {
   id: "definition-portrait-filter-status",
   role: "status"
-}, c0 = { id: "definition-selected" }, m0 = ["value", "disabled"], v0 = ["value", "disabled"], b0 = { class: "module-toolbar" }, g0 = ["value", "disabled"], h0 = ["value"], y0 = ["value"], p0 = { key: 0 }, w0 = {
+}, f0 = { id: "definition-selected" }, c0 = ["value", "disabled"], m0 = ["value", "disabled"], v0 = { class: "module-toolbar" }, b0 = ["value", "disabled"], g0 = ["value"], h0 = ["value"], y0 = { key: 0 }, p0 = {
   key: 0,
   id: "definition-references"
-}, k0 = {
+}, w0 = {
   key: 0,
   id: "definition-references-unknown"
-}, $0 = { id: "definition-references-count" }, x0 = {
+}, k0 = { id: "definition-references-count" }, $0 = {
   key: 0,
   class: "entity-table-wrap"
-}, C0 = { class: "entity-table" }, I0 = ["data-definition-reference"], S0 = { class: "entity-table-wrap" }, M0 = {
+}, x0 = { class: "entity-table" }, C0 = ["data-definition-reference"], I0 = { class: "entity-table-wrap" }, S0 = {
   id: "definition-table",
   class: "entity-table"
-}, P0 = ["data-definition-id"], A0 = { id: "chapter-people" }, O0 = { key: 0 }, T0 = ["disabled"], D0 = ["value", "disabled"], R0 = ["value"], E0 = {
+}, M0 = ["data-definition-id"], P0 = { id: "chapter-people" }, A0 = { key: 0 }, O0 = ["disabled"], T0 = ["value", "disabled"], D0 = ["value"], R0 = {
   id: "people-library",
   class: "entity-table-wrap"
-}, L0 = { class: "entity-table" }, j0 = ["data-person-id"], F0 = { class: "entity-table-wrap" }, N0 = {
+}, E0 = { class: "entity-table" }, L0 = ["data-person-id"], j0 = { class: "entity-table-wrap" }, F0 = {
   id: "people-table",
   class: "entity-table"
-}, V0 = ["data-person-id"], W0 = ["disabled", "onChange"], B0 = ["value"], H0 = {
+}, N0 = ["data-person-id"], V0 = ["disabled", "onChange"], W0 = ["value"], B0 = {
   __name: "GeneralDefinitionsPanel",
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
@@ -14488,7 +14467,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       const u = o.currentTarget.value;
       return o.currentTarget.value = "", t.actions.person("portrait", d, r, void 0, u);
     }
-    return (o, d) => e.model.definitions ? (m(), h("section", t0, [
+    return (o, d) => e.model.definitions ? (m(), h("section", e0, [
       d[51] || (d[51] = a(
         "h3",
         null,
@@ -14510,7 +14489,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         -1
         /* CACHED */
       )),
-      a("div", l0, [
+      a("div", t0, [
         C(I(T), {
           id: "definition-refresh",
           disabled: e.busy || e.model.locked,
@@ -14538,7 +14517,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             disabled: e.busy || e.model.loadLocked,
             inputmode: "numeric",
             onInput: d[1] || (d[1] = (r) => e.actions.setField("revision", r.target.value))
-          }, null, 40, n0)
+          }, null, 40, l0)
         ]),
         C(I(T), {
           id: "definition-load",
@@ -14586,17 +14565,17 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           /* STABLE */
         }, 8, ["disabled"])
       ]),
-      a("p", i0, [
+      a("p", n0, [
         b(
           "遊戲：" + f(e.model.fields.gameId || "尚未選擇") + "／已載入修訂：" + f(e.model.context?.draftRevision ?? "未載入"),
           1
           /* TEXT */
         ),
-        e.model.context && !e.model.context.verified ? (m(), h("strong", s0, "／須重新明確載入")) : J("v-if", !0)
+        e.model.context && !e.model.context.verified ? (m(), h("strong", i0, "／須重新明確載入")) : J("v-if", !0)
       ]),
       a(
         "p",
-        a0,
+        s0,
         f(e.model.message),
         1
         /* TEXT */
@@ -14605,7 +14584,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         B,
         { key: 1 },
         [
-          a("div", d0, [
+          a("div", o0, [
             C(I(T), {
               id: "definition-new",
               disabled: e.busy || e.model.definitions.locked,
@@ -14622,7 +14601,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               /* STABLE */
             }, 8, ["disabled"])
           ]),
-          a("div", r0, [
+          a("div", d0, [
             a("label", null, [
               d[24] || (d[24] = b(
                 "共用頭像ID篩選",
@@ -14635,7 +14614,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                 type: "search",
                 maxlength: "32",
                 disabled: e.busy || e.model.definitions.locked || !e.model.definitions.library.length
-              }, null, 8, u0), [
+              }, null, 8, r0), [
                 [Ne, l.value]
               ])
             ]),
@@ -14657,7 +14636,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           ]),
           a(
             "p",
-            f0,
+            u0,
             "符合 " + f(i.value.length) + "／" + f(e.model.definitions.library.length) + " 項。基表與章節共用此ID篩選，不分大小寫；不改已選引用、不讀取或保存。",
             1
             /* TEXT */
@@ -14671,7 +14650,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             [
               a(
                 "p",
-                c0,
+                f0,
                 f(e.model.definitions.form.generalId ?? "新增模式：保存後由服務分配ID"),
                 1
                 /* TEXT */
@@ -14687,7 +14666,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                   value: e.model.definitions.form.name,
                   disabled: e.busy || e.model.definitions.locked,
                   onInput: d[8] || (d[8] = (r) => e.actions.setDefinitionField("name", r.target.value))
-                }, null, 40, m0)
+                }, null, 40, c0)
               ]),
               a("label", null, [
                 d[27] || (d[27] = b(
@@ -14700,9 +14679,9 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                   value: e.model.definitions.form.hao,
                   disabled: e.busy || e.model.definitions.locked,
                   onInput: d[9] || (d[9] = (r) => e.actions.setDefinitionField("hao", r.target.value))
-                }, null, 40, v0)
+                }, null, 40, m0)
               ]),
-              a("div", b0, [
+              a("div", v0, [
                 C(I(T), {
                   id: "definition-portraits",
                   disabled: e.busy || e.model.definitions.locked,
@@ -14741,18 +14720,18 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                       key: 0,
                       value: e.model.definitions.form.portraitRef.assetId,
                       disabled: ""
-                    }, f(e.model.definitions.form.portraitRef.assetId) + "（目前引用／篩選外）", 9, h0)) : J("v-if", !0),
+                    }, f(e.model.definitions.form.portraitRef.assetId) + "（目前引用／篩選外）", 9, g0)) : J("v-if", !0),
                     (m(!0), h(
                       B,
                       null,
                       te(i.value, (r) => (m(), h("option", {
                         key: r.assetId,
                         value: r.assetId
-                      }, f(r.assetId), 9, y0))),
+                      }, f(r.assetId), 9, h0))),
                       128
                       /* KEYED_FRAGMENT */
                     ))
-                  ], 40, g0)
+                  ], 40, b0)
                 ]),
                 C(I(T), {
                   id: "definition-save",
@@ -14785,12 +14764,12 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                   /* STABLE */
                 }, 8, ["disabled"])
               ]),
-              e.model.definitions.dirty ? (m(), h("p", p0, "此人物表有未保存輸入。保存回應不明時先查原鍵；確認保存後仍須載入回應修訂，不自動改讀最新修訂。")) : J("v-if", !0)
+              e.model.definitions.dirty ? (m(), h("p", y0, "此人物表有未保存輸入。保存回應不明時先查原鍵；確認保存後仍須載入回應修訂，不自動改讀最新修訂。")) : J("v-if", !0)
             ],
             32
             /* NEED_HYDRATION */
           ),
-          e.model.definitions.form.generalId ? (m(), h("section", w0, [
+          e.model.definitions.form.generalId ? (m(), h("section", p0, [
             d[33] || (d[33] = a(
               "h4",
               null,
@@ -14811,13 +14790,13 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               [
                 a(
                   "p",
-                  $0,
+                  k0,
                   "共 " + f(n.value.length) + " 章引用。刪除前須逐章明確移除配置；服務仍會重新校驗。",
                   1
                   /* TEXT */
                 ),
-                n.value.length ? (m(), h("div", x0, [
-                  a("table", C0, [
+                n.value.length ? (m(), h("div", $0, [
+                  a("table", x0, [
                     d[32] || (d[32] = a(
                       "thead",
                       null,
@@ -14868,7 +14847,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                             1
                             /* TEXT */
                           )
-                        ], 8, I0))),
+                        ], 8, C0))),
                         128
                         /* KEYED_FRAGMENT */
                       ))
@@ -14878,7 +14857,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               ],
               64
               /* STABLE_FRAGMENT */
-            )) : (m(), h("p", k0, "此修訂未提供完整章節人物投影，引用未知；不視為無引用。"))
+            )) : (m(), h("p", w0, "此修訂未提供完整章節人物投影，引用未知；不視為無引用。"))
           ])) : J("v-if", !0),
           C(jn, {
             id: "definition-portrait-preview",
@@ -14886,8 +14865,8 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             portrait: e.model.definitions.form.portraitRef,
             disabled: e.busy || e.model.definitions.locked
           }, null, 8, ["game-id", "portrait", "disabled"]),
-          a("div", S0, [
-            a("table", M0, [
+          a("div", I0, [
+            a("table", S0, [
               d[36] || (d[36] = a(
                 "thead",
                 null,
@@ -14955,14 +14934,14 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                         /* STABLE */
                       }, 8, ["disabled", "onClick"])
                     ])
-                  ], 8, P0))),
+                  ], 8, M0))),
                   128
                   /* KEYED_FRAGMENT */
                 ))
               ])
             ])
           ]),
-          a("section", A0, [
+          a("section", P0, [
             d[49] || (d[49] = a(
               "h4",
               null,
@@ -15008,7 +14987,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                     type: "search",
                     maxlength: "32",
                     disabled: e.busy || e.model.people.locked || !e.model.definitions.library.length
-                  }, null, 8, T0), [
+                  }, null, 8, O0), [
                     [Ne, l.value]
                   ])
                 ]),
@@ -15045,14 +15024,14 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                       te(e.model.chapters, (r) => (m(), h("option", {
                         key: r.chapterId,
                         value: r.chapterId
-                      }, f(r.name) + "／" + f(r.chapterId), 9, R0))),
+                      }, f(r.name) + "／" + f(r.chapterId), 9, D0))),
                       128
                       /* KEYED_FRAGMENT */
                     ))
-                  ], 40, D0)
+                  ], 40, T0)
                 ]),
-                a("div", E0, [
-                  a("table", L0, [
+                a("div", R0, [
+                  a("table", E0, [
                     d[43] || (d[43] = a(
                       "thead",
                       null,
@@ -15110,15 +15089,15 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                               /* STABLE */
                             }, 8, ["disabled", "onClick"])
                           ])
-                        ], 8, j0))),
+                        ], 8, L0))),
                         128
                         /* KEYED_FRAGMENT */
                       ))
                     ])
                   ])
                 ]),
-                a("div", F0, [
-                  a("table", N0, [
+                a("div", j0, [
+                  a("table", F0, [
                     d[48] || (d[48] = a(
                       "thead",
                       null,
@@ -15206,11 +15185,11 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                                   te(i.value, (u) => (m(), h("option", {
                                     key: u.assetId,
                                     value: u.assetId
-                                  }, f(u.assetId), 9, B0))),
+                                  }, f(u.assetId), 9, W0))),
                                   128
                                   /* KEYED_FRAGMENT */
                                 ))
-                              ], 40, W0)
+                              ], 40, V0)
                             ]),
                             C(I(T), {
                               "data-portrait-clear": "",
@@ -15286,7 +15265,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                               /* STABLE */
                             }, 8, ["disabled", "onClick"])
                           ])
-                        ], 8, V0))),
+                        ], 8, N0))),
                         128
                         /* KEYED_FRAGMENT */
                       ))
@@ -15296,42 +15275,42 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               ],
               64
               /* STABLE_FRAGMENT */
-            )) : (m(), h("p", O0, "此修訂未提供完整章節人物投影，不能編輯；不將未知當成空清單。"))
+            )) : (m(), h("p", A0, "此修訂未提供完整章節人物投影，不能編輯；不將未知當成空清單。"))
           ])
         ],
         64
         /* STABLE_FRAGMENT */
-      )) : (m(), h("p", o0, "尚未載入支援的中立模板人物庫；完整原章副本仍使用下方槽位資料，不自動轉成人物基礎定義。"))
+      )) : (m(), h("p", a0, "尚未載入支援的中立模板人物庫；完整原章副本仍使用下方槽位資料，不自動轉成人物基礎定義。"))
     ])) : J("v-if", !0);
   }
-}, U0 = {
+}, H0 = {
   id: "generals-editor",
   class: "module-card"
-}, q0 = {
+}, U0 = {
   key: 1,
   class: "module-toolbar"
-}, z0 = ["value", "disabled"], K0 = {
+}, q0 = ["value", "disabled"], z0 = {
   id: "native-general-message",
   role: "status"
-}, G0 = { class: "module-toolbar" }, Y0 = ["value", "disabled"], X0 = ["value"], J0 = ["value"], Z0 = ["value", "disabled"], Q0 = ["value"], _0 = { id: "generals-context" }, ep = {
+}, K0 = { class: "module-toolbar" }, G0 = ["value", "disabled"], Y0 = ["value"], X0 = ["value"], J0 = ["value", "disabled"], Z0 = ["value"], Q0 = { id: "generals-context" }, _0 = {
   id: "generals-message",
   role: "status"
-}, tp = { class: "module-toolbar" }, lp = ["disabled"], np = ["value", "disabled"], ip = ["value"], sp = ["value"], ap = {
+}, ep = { class: "module-toolbar" }, tp = ["disabled"], lp = ["value", "disabled"], np = ["value"], ip = ["value"], sp = {
   id: "portrait-filter-status",
   role: "status"
-}, op = { id: "portrait-library" }, dp = { id: "generals-chapters" }, rp = { class: "entity-table-wrap" }, up = { class: "entity-table" }, fp = ["data-faction-idx"], cp = { class: "module-toolbar" }, mp = ["disabled"], vp = {
+}, ap = { id: "portrait-library" }, op = { id: "generals-chapters" }, dp = { class: "entity-table-wrap" }, rp = { class: "entity-table" }, up = ["data-faction-idx"], fp = { class: "module-toolbar" }, cp = ["disabled"], mp = {
   id: "general-filter-status",
   role: "status"
-}, bp = {
+}, vp = {
   key: 0,
   id: "general-filter-empty"
-}, gp = { class: "entity-table-wrap" }, hp = { class: "entity-table" }, yp = ["data-general-idx"], pp = { "data-native-general-portrait-id": "" }, wp = { "data-native-general-preview": "" }, kp = { "data-native-general-ability": "" }, $p = {
+}, bp = { class: "entity-table-wrap" }, gp = { class: "entity-table" }, hp = ["data-general-idx"], yp = { "data-native-general-portrait-id": "" }, pp = { "data-native-general-preview": "" }, wp = { "data-native-general-ability": "" }, kp = {
   key: 0,
   "data-native-ability-unknown": ""
-}, xp = {
+}, $p = {
   key: 1,
   "data-native-ability-values": ""
-}, Cp = { "data-native-specialty-low": "" }, Ip = {
+}, xp = { "data-native-specialty-low": "" }, Cp = {
   __name: "GeneralsPanel",
   props: { model: Object, actions: Object, draftModel: Object, draftActions: Object, busy: Boolean },
   setup(e) {
@@ -15393,7 +15372,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       const g = t.model;
       t.draftActions.portraitNativeGeneral({ gameId: g.selected, draftRevision: g.draftRevision, chapterId: g.chapterId, generalIdx: S.idx, portraitKey: S.portraitKey ? null : g.portraitId });
     }
-    return (S, g) => (m(), h("section", U0, [
+    return (S, g) => (m(), h("section", H0, [
       g[45] || (g[45] = a(
         "h2",
         null,
@@ -15401,7 +15380,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         -1
         /* CACHED */
       )),
-      e.draftModel && e.draftActions ? (m(), Ke(H0, {
+      e.draftModel && e.draftActions ? (m(), Ke(B0, {
         key: 0,
         model: e.draftModel,
         actions: e.draftActions,
@@ -15414,7 +15393,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         -1
         /* CACHED */
       )),
-      e.draftModel && e.draftActions ? (m(), h("div", q0, [
+      e.draftModel && e.draftActions ? (m(), h("div", U0, [
         a("label", null, [
           g[14] || (g[14] = b(
             "共用明確修訂",
@@ -15426,7 +15405,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             value: e.draftModel.fields.revision,
             disabled: e.busy || e.draftModel.loadLocked,
             onInput: g[0] || (g[0] = (k) => e.draftActions.setField("revision", k.target.value))
-          }, null, 40, z0)
+          }, null, 40, q0)
         ]),
         C(I(T), {
           id: "native-general-load",
@@ -15476,7 +15455,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       ])) : J("v-if", !0),
       a(
         "p",
-        K0,
+        z0,
         f(e.draftModel?.message),
         1
         /* TEXT */
@@ -15495,7 +15474,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         -1
         /* CACHED */
       )),
-      a("div", G0, [
+      a("div", K0, [
         C(I(T), {
           id: "generals-refresh",
           disabled: e.busy || e.model.locked,
@@ -15527,18 +15506,18 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               key: 0,
               value: e.model.selected,
               disabled: ""
-            }, "目前遊戲：" + f(e.model.selected) + "（本面板未列出，請讀取清單）", 9, X0)) : J("v-if", !0),
+            }, "目前遊戲：" + f(e.model.selected) + "（本面板未列出，請讀取清單）", 9, Y0)) : J("v-if", !0),
             (m(!0), h(
               B,
               null,
               te(e.model.games, (k) => (m(), h("option", {
                 key: k.gameId,
                 value: k.gameId
-              }, f(k.label), 9, J0))),
+              }, f(k.label), 9, X0))),
               128
               /* KEYED_FRAGMENT */
             ))
-          ], 40, Y0)
+          ], 40, G0)
         ]),
         C(I(T), {
           id: "generals-inspect",
@@ -15573,23 +15552,23 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               te(e.model.chapters, (k) => (m(), h("option", {
                 key: k.chapterId,
                 value: k.chapterId
-              }, f(k.name), 9, Q0))),
+              }, f(k.name), 9, Z0))),
               128
               /* KEYED_FRAGMENT */
             ))
-          ], 40, Z0)
+          ], 40, J0)
         ])
       ]),
       a(
         "p",
-        _0,
+        Q0,
         f(e.model.context),
         1
         /* TEXT */
       ),
       a(
         "p",
-        ep,
+        _0,
         f(e.model.message),
         1
         /* TEXT */
@@ -15608,7 +15587,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         -1
         /* CACHED */
       )),
-      a("div", tp, [
+      a("div", ep, [
         C(I(T), {
           id: "portrait-list",
           disabled: e.busy || e.model.locked || !e.model.selected,
@@ -15636,7 +15615,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             type: "search",
             maxlength: "32",
             disabled: e.busy || e.model.locked || !e.model.library.length
-          }, null, 8, lp), [
+          }, null, 8, tp), [
             [Ne, N.value]
           ])
         ]),
@@ -15671,23 +15650,23 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               key: 0,
               value: e.model.portraitId,
               disabled: ""
-            }, "已選：" + f(e.model.portraitId) + "（篩選外）", 9, ip)) : J("v-if", !0),
+            }, "已選：" + f(e.model.portraitId) + "（篩選外）", 9, np)) : J("v-if", !0),
             (m(!0), h(
               B,
               null,
               te(O.value, (k) => (m(), h("option", {
                 key: k.assetId,
                 value: k.assetId
-              }, f(k.assetId), 9, sp))),
+              }, f(k.assetId), 9, ip))),
               128
               /* KEYED_FRAGMENT */
             ))
-          ], 40, np)
+          ], 40, lp)
         ])
       ]),
       a(
         "p",
-        ap,
+        sp,
         "符合 " + f(O.value.length) + "／" + f(e.model.library.length) + " 項；已選：" + f($.value ? e.model.portraitId : "無") + "。篩選不分大小寫，只改顯示，不改已選頭像、不讀取或保存。",
         1
         /* TEXT */
@@ -15700,7 +15679,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           1
           /* TEXT */
         ),
-        a("div", op, [
+        a("div", ap, [
           (m(!0), h(
             B,
             null,
@@ -15724,7 +15703,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         portrait: e.model.library.find((k) => k.assetId === e.model.portraitId),
         disabled: e.busy || e.model.locked
       }, null, 8, ["game-id", "portrait", "disabled"]),
-      a("div", dp, [
+      a("div", op, [
         g[42] || (g[42] = a(
           "h3",
           null,
@@ -15732,8 +15711,8 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           -1
           /* CACHED */
         )),
-        a("div", rp, [
-          a("table", up, [
+        a("div", dp, [
+          a("table", rp, [
             g[31] || (g[31] = a(
               "thead",
               null,
@@ -15862,7 +15841,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                       /* STABLE */
                     }, 8, ["disabled", "onClick"])
                   ])
-                ], 8, fp))),
+                ], 8, up))),
                 128
                 /* KEYED_FRAGMENT */
               ))
@@ -15883,7 +15862,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           -1
           /* CACHED */
         )),
-        a("div", cp, [
+        a("div", fp, [
           a("label", null, [
             g[32] || (g[32] = b(
               "查找槽號／名／字／來源ID",
@@ -15896,7 +15875,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               type: "search",
               maxlength: "1024",
               disabled: e.busy || e.model.saveDisabled
-            }, null, 8, mp), [
+            }, null, 8, cp), [
               [Ne, D.value]
             ])
           ]),
@@ -15918,14 +15897,14 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         ]),
         a(
           "p",
-          vp,
+          mp,
           "符合 " + f(W.value.length) + "／" + f(e.model.generals.length) + " 項。只篩選目前已讀章，不改槽號、任官資格或保存目標；切章保留查找文字，換遊戲清除。",
           1
           /* TEXT */
         ),
-        e.model.generals.length && !W.value.length ? (m(), h("p", bp, "目前已讀章沒有符合的武將；可清除篩選檢視全部。")) : J("v-if", !0),
-        a("div", gp, [
-          a("table", hp, [
+        e.model.generals.length && !W.value.length ? (m(), h("p", vp, "目前已讀章沒有符合的武將；可清除篩選檢視全部。")) : J("v-if", !0),
+        a("div", bp, [
+          a("table", gp, [
             g[41] || (g[41] = a(
               "thead",
               null,
@@ -15982,12 +15961,12 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                   a("td", null, [
                     a(
                       "span",
-                      pp,
+                      yp,
                       f(k.portraitKey ?? (k.originalPortraitId === null ? "原圖ID未知" : `原圖 #${k.originalPortraitId}`)),
                       1
                       /* TEXT */
                     ),
-                    a("details", wp, [
+                    a("details", pp, [
                       g[34] || (g[34] = a(
                         "summary",
                         null,
@@ -16004,7 +15983,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                     ])
                   ]),
                   a("td", null, [
-                    a("details", kp, [
+                    a("details", wp, [
                       g[37] || (g[37] = a(
                         "summary",
                         null,
@@ -16019,7 +15998,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                         -1
                         /* CACHED */
                       )),
-                      k.ability === null ? (m(), h("p", $p, "未提供能力數值，不補零。")) : (m(), h("dl", xp, [
+                      k.ability === null ? (m(), h("p", kp, "未提供能力數值，不補零。")) : (m(), h("dl", $p, [
                         g[35] || (g[35] = a(
                           "dt",
                           null,
@@ -16051,7 +16030,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                       ])),
                       a(
                         "p",
-                        Cp,
+                        xp,
                         "專長低四位（攻城／野戰／水戰）：" + f(k.specialtyLowBits === null ? "未提供；未知不等於000" : k.specialtyLowBits) + "。不由高位推回原字節。",
                         1
                         /* TEXT */
@@ -16104,7 +16083,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                       /* STABLE */
                     }, 8, ["disabled", "onClick"])
                   ])
-                ], 8, yp))),
+                ], 8, hp))),
                 128
                 /* KEYED_FRAGMENT */
               ))
@@ -16114,20 +16093,20 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       ])
     ]));
   }
-}, Sp = {
+}, Ip = {
   id: "copy",
   class: "module-card"
-}, Mp = ["value", "disabled"], Pp = ["value", "disabled"], Ap = {
+}, Sp = ["value", "disabled"], Mp = ["value", "disabled"], Pp = {
   id: "copy-message",
   role: "status"
-}, Op = {
+}, Ap = {
   key: 0,
   class: "muted"
-}, Tp = { id: "own-games" }, Dp = ["data-game-id"], Rp = {
+}, Op = { id: "own-games" }, Tp = ["data-game-id"], Dp = {
   __name: "CopyPanel",
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
-    return (t, l) => (m(), h("section", Sp, [
+    return (t, l) => (m(), h("section", Ip, [
       l[9] || (l[9] = a(
         "h3",
         null,
@@ -16162,7 +16141,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               value: e.model.name,
               disabled: e.busy || e.model.locked,
               onInput: l[0] || (l[0] = (n) => e.actions.setField("name", n.target.value))
-            }, null, 40, Mp)
+            }, null, 40, Sp)
           ]),
           l[5] || (l[5] = a(
             "p",
@@ -16183,7 +16162,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               value: e.model.introduction,
               disabled: e.busy || e.model.locked,
               onInput: l[1] || (l[1] = (n) => e.actions.setField("introduction", n.target.value))
-            }, null, 40, Pp)
+            }, null, 40, Mp)
           ]),
           l[6] || (l[6] = a(
             "p",
@@ -16213,7 +16192,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       ),
       a(
         "p",
-        Ap,
+        Pp,
         f(e.model.message),
         1
         /* TEXT */
@@ -16225,8 +16204,8 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         -1
         /* CACHED */
       )),
-      e.model.games.length ? J("v-if", !0) : (m(), h("p", Op, "尚無遊戲。填入名稱後按「確認新建」即可建立第一份完整副本。")),
-      a("div", Tp, [
+      e.model.games.length ? J("v-if", !0) : (m(), h("p", Ap, "尚無遊戲。填入名稱後按「確認新建」即可建立第一份完整副本。")),
+      a("div", Op, [
         (m(!0), h(
           B,
           null,
@@ -16269,20 +16248,20 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               _: 1
               /* STABLE */
             }, 8, ["disabled", "onClick"])
-          ], 8, Dp))),
+          ], 8, Tp))),
           128
           /* KEYED_FRAGMENT */
         ))
       ])
     ]));
   }
-}, Ep = {
+}, Rp = {
   id: "publish-editor",
   class: "module-card"
-}, Lp = ["value", "disabled"], jp = ["value"], Fp = ["value"], Np = { id: "publish-versions" }, Vp = { key: 0 }, Wp = ["value", "disabled"], Bp = { id: "publish-operation" }, Hp = { id: "publish-result" }, Up = { key: 0 }, qp = {
+}, Ep = ["value", "disabled"], Lp = ["value"], jp = ["value"], Fp = { id: "publish-versions" }, Np = { key: 0 }, Vp = ["value", "disabled"], Wp = { id: "publish-operation" }, Bp = { id: "publish-result" }, Hp = { key: 0 }, Up = {
   id: "publish-message",
   role: "status"
-}, zp = { id: "publish-announcement" }, Kp = { key: 0 }, Gp = {
+}, qp = { id: "publish-announcement" }, zp = { key: 0 }, Kp = {
   __name: "PublishPanel",
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
@@ -16290,7 +16269,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
     function l(n) {
       t.actions.select(n.target.value), n.target.value = t.model.selected ?? "";
     }
-    return (n, i) => (m(), h("section", Ep, [
+    return (n, i) => (m(), h("section", Rp, [
       i[17] || (i[17] = a(
         "h3",
         null,
@@ -16336,18 +16315,18 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             key: 0,
             value: e.model.selected,
             disabled: ""
-          }, "目前遊戲：" + f(e.model.selected) + "（本面板未列出，請讀取清單）", 9, jp)) : J("v-if", !0),
+          }, "目前遊戲：" + f(e.model.selected) + "（本面板未列出，請讀取清單）", 9, Lp)) : J("v-if", !0),
           (m(!0), h(
             B,
             null,
             te(e.model.games, (s) => (m(), h("option", {
               key: s.gameId,
               value: s.gameId
-            }, f(s.label), 9, Fp))),
+            }, f(s.label), 9, jp))),
             128
             /* KEYED_FRAGMENT */
           ))
-        ], 40, Lp)
+        ], 40, Ep)
       ]),
       C(I(T), {
         id: "publish-versions-refresh",
@@ -16364,8 +16343,8 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         _: 1
         /* STABLE */
       }, 8, ["disabled"]),
-      a("div", Np, [
-        e.model.versions.length ? J("v-if", !0) : (m(), h("p", Vp, "尚未讀取或尚無正式版本。")),
+      a("div", Fp, [
+        e.model.versions.length ? J("v-if", !0) : (m(), h("p", Np, "尚未讀取或尚無正式版本。")),
         (m(!0), h(
           B,
           null,
@@ -16399,7 +16378,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               value: e.model.name,
               disabled: e.busy || e.model.locked,
               onInput: i[2] || (i[2] = (s) => e.actions.setName(s.target.value))
-            }, null, 40, Wp)
+            }, null, 40, Vp)
           ]),
           C(I(T), {
             id: "publish-button",
@@ -16422,7 +16401,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       ),
       a(
         "p",
-        Bp,
+        Wp,
         f(e.model.operation),
         1
         /* TEXT */
@@ -16479,10 +16458,10 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         -1
         /* CACHED */
       )),
-      a("div", Hp, [
+      a("div", Bp, [
         e.model.result ? (m(), h(
           "p",
-          Up,
+          Hp,
           f(e.model.result),
           1
           /* TEXT */
@@ -16490,7 +16469,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       ]),
       a(
         "p",
-        qp,
+        Up,
         f(e.model.message),
         1
         /* TEXT */
@@ -16517,10 +16496,10 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         _: 1
         /* STABLE */
       }, 8, ["disabled"]),
-      a("div", zp, [
+      a("div", qp, [
         e.model.announcement ? (m(), h(
           "p",
-          Kp,
+          zp,
           f(e.model.announcement),
           1
           /* TEXT */
@@ -16528,23 +16507,23 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       ])
     ]));
   }
-}, Yp = {
+}, Gp = {
   id: "management-editor",
   class: "module-card"
-}, Xp = { id: "management-current-game" }, Jp = ["disabled"], Zp = {
+}, Yp = { id: "management-current-game" }, Xp = ["disabled"], Jp = {
   key: 0,
   id: "management-current-missing"
-}, Qp = { id: "management-games" }, _p = ["data-game-id"], ew = { id: "management-operation" }, tw = { id: "management-result" }, lw = {
+}, Zp = { id: "management-games" }, Qp = ["data-game-id"], _p = { id: "management-operation" }, ew = { id: "management-result" }, tw = {
   id: "management-message",
   role: "status"
-}, nw = {
+}, lw = {
   __name: "ManagementPanel",
   props: { model: Object, actions: Object, busy: Boolean, currentGame: String },
   setup(e) {
     const t = e, l = /* @__PURE__ */ Q(!1), n = q(() => l.value ? t.model.games.filter((i) => i.gameId === t.currentGame) : t.model.games);
     return we(() => t.currentGame, (i) => {
       i || (l.value = !1);
-    }), (i, s) => (m(), h("section", Yp, [
+    }), (i, s) => (m(), h("section", Gp, [
       s[10] || (s[10] = a(
         "h3",
         null,
@@ -16576,7 +16555,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       }, 8, ["disabled"]),
       a(
         "p",
-        Xp,
+        Yp,
         "目前編輯遊戲：" + f(e.currentGame || "未選擇") + "。僅用於定位清單，不提供編輯權限，也不更換原管理操作目標或修訂。",
         1
         /* TEXT */
@@ -16587,7 +16566,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           "onUpdate:modelValue": s[1] || (s[1] = (o) => l.value = o),
           type: "checkbox",
           disabled: e.busy || e.model.locked || !e.currentGame
-        }, null, 8, Jp), [
+        }, null, 8, Xp), [
           [jt, l.value]
         ]),
         s[6] || (s[6] = b(
@@ -16596,8 +16575,8 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           /* CACHED */
         ))
       ]),
-      l.value && !n.value.length ? (m(), h("p", Zp, "已讀清單沒有此遊戲；請明確讀取管理清單，不據此判定已刪除。")) : J("v-if", !0),
-      a("div", Qp, [
+      l.value && !n.value.length ? (m(), h("p", Jp, "已讀清單沒有此遊戲；請明確讀取管理清單，不據此判定已刪除。")) : J("v-if", !0),
+      a("div", Zp, [
         (m(!0), h(
           B,
           null,
@@ -16633,14 +16612,14 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               128
               /* KEYED_FRAGMENT */
             ))
-          ], 8, _p))),
+          ], 8, Qp))),
           128
           /* KEYED_FRAGMENT */
         ))
       ]),
       a(
         "p",
-        ew,
+        _p,
         f(e.model.operation),
         1
         /* TEXT */
@@ -16692,14 +16671,14 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       }, 8, ["disabled"]),
       a(
         "p",
-        tw,
+        ew,
         f(e.model.result),
         1
         /* TEXT */
       ),
       a(
         "p",
-        lw,
+        tw,
         f(e.model.message),
         1
         /* TEXT */
@@ -16713,23 +16692,23 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       ))
     ]));
   }
-}, iw = {
+}, nw = {
   id: "deletion-editor",
   class: "module-card"
-}, sw = { id: "deletion-current-game" }, aw = ["disabled"], ow = {
+}, iw = { id: "deletion-current-game" }, sw = ["disabled"], aw = {
   key: 0,
   id: "deletion-current-missing"
-}, dw = { id: "deletion-games" }, rw = ["data-game-id"], uw = { id: "deletion-operation" }, fw = { id: "deletion-result" }, cw = {
+}, ow = { id: "deletion-games" }, dw = ["data-game-id"], rw = { id: "deletion-operation" }, uw = { id: "deletion-result" }, fw = {
   id: "deletion-message",
   role: "status"
-}, mw = {
+}, cw = {
   __name: "DeletionPanel",
   props: { model: Object, actions: Object, busy: Boolean, currentGame: String },
   setup(e) {
     const t = e, l = /* @__PURE__ */ Q(!1), n = q(() => l.value ? t.model.games.filter((i) => i.gameId === t.currentGame) : t.model.games);
     return we(() => t.currentGame, (i) => {
       i || (l.value = !1);
-    }), (i, s) => (m(), h("section", iw, [
+    }), (i, s) => (m(), h("section", nw, [
       s[13] || (s[13] = a(
         "h3",
         null,
@@ -16777,7 +16756,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       }, 8, ["hidden", "disabled"]),
       a(
         "p",
-        sw,
+        iw,
         "目前編輯遊戲：" + f(e.currentGame || "未選擇") + "。僅用於定位清單，不更換原刪除請求的目標、確認名稱或修訂。",
         1
         /* TEXT */
@@ -16788,7 +16767,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           "onUpdate:modelValue": s[2] || (s[2] = (o) => l.value = o),
           type: "checkbox",
           disabled: e.busy || e.model.locked || !e.currentGame
-        }, null, 8, aw), [
+        }, null, 8, sw), [
           [jt, l.value]
         ]),
         s[8] || (s[8] = b(
@@ -16797,8 +16776,8 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           /* CACHED */
         ))
       ]),
-      l.value && !n.value.length ? (m(), h("p", ow, "已讀清單沒有此遊戲；請明確讀取有權查看的清單，不據此判定已刪除。")) : J("v-if", !0),
-      a("div", dw, [
+      l.value && !n.value.length ? (m(), h("p", aw, "已讀清單沒有此遊戲；請明確讀取有權查看的清單，不據此判定已刪除。")) : J("v-if", !0),
+      a("div", ow, [
         (m(!0), h(
           B,
           null,
@@ -16828,14 +16807,14 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               _: 1
               /* STABLE */
             }, 8, ["disabled", "title", "onClick"])
-          ], 8, rw))),
+          ], 8, dw))),
           128
           /* KEYED_FRAGMENT */
         ))
       ]),
       a(
         "p",
-        uw,
+        rw,
         f(e.model.operation),
         1
         /* TEXT */
@@ -16887,14 +16866,14 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       }, 8, ["disabled"]),
       a(
         "p",
-        fw,
+        uw,
         f(e.model.result),
         1
         /* TEXT */
       ),
       a(
         "p",
-        cw,
+        fw,
         f(e.model.message),
         1
         /* TEXT */
@@ -16908,7 +16887,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
       ))
     ]));
   }
-}, vw = { class: "workbench-header" }, bw = ["hidden"], gw = { id: "identity" }, hw = ["hidden"], yw = { class: "user-menu-items" }, pw = ["hidden"], ww = { class: "workbench-main" }, kw = ["hidden"], $w = ["hidden"], xw = { key: 0 }, Cw = { key: 0 }, Iw = { key: 1 }, Sw = { key: 2 }, Mw = { key: 1 }, Pw = ["hidden"], Aw = {
+}, mw = { class: "workbench-header" }, vw = ["hidden"], bw = { id: "identity" }, gw = ["hidden"], hw = { class: "user-menu-items" }, yw = ["hidden"], pw = { class: "workbench-main" }, ww = ["hidden"], kw = ["hidden"], $w = { key: 0 }, xw = { key: 0 }, Cw = { key: 1 }, Iw = { key: 2 }, Sw = { key: 1 }, Mw = ["hidden"], Pw = {
   __name: "Workbench",
   props: { state: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, mapviewModel: Object, mapview: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, publicationModel: Object, publication: Object, managementModel: Object, management: Object, deletionModel: Object, deletion: Object, navigate: Function, logout: Function },
   setup(e, { expose: t }) {
@@ -16924,7 +16903,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         class: We(["workbench", { "auth-layout": !o.value }])
       },
       [
-        a("header", vw, [
+        a("header", mw, [
           a("a", {
             class: "brand",
             href: "#draft-editor",
@@ -16968,7 +16947,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             }, 8, ["type"]),
             a(
               "span",
-              gw,
+              bw,
               f(e.state.account) + f(e.state.mustChange ? " — 請先變更密碼" : ""),
               1
               /* TEXT */
@@ -16986,7 +16965,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                 -1
                 /* CACHED */
               )),
-              a("div", yw, [
+              a("div", hw, [
                 C(I(T), {
                   text: "",
                   onClick: y[1] || (y[1] = (D) => u("profile")),
@@ -17033,7 +17012,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
                   /* STABLE */
                 }, 8, ["disabled"])
               ])
-            ], 8, hw),
+            ], 8, gw),
             C(I(T), {
               id: "logout",
               disabled: e.state.busy
@@ -17048,7 +17027,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               _: 1
               /* STABLE */
             }, 8, ["disabled"])
-          ], 8, bw)
+          ], 8, vw)
         ]),
         a("aside", {
           id: "menu",
@@ -17104,8 +17083,8 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
             -1
             /* CACHED */
           ))
-        ], 8, pw),
-        a("main", ww, [
+        ], 8, yw),
+        a("main", pw, [
           a("div", {
             class: "page-heading",
             hidden: !o.value
@@ -17124,22 +17103,22 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               1
               /* TEXT */
             )
-          ], 8, kw),
+          ], 8, ww),
           a("div", {
             id: "workspace-context",
             class: "workspace-context",
             hidden: !o.value
           }, [
-            e.draftModel.context ? (m(), h("span", xw, [
+            e.draftModel.context ? (m(), h("span", $w, [
               b(
                 "目前草稿：" + f(e.draftModel.context.name) + "／" + f(e.draftModel.context.gameId) + "／修訂 " + f(e.draftModel.context.draftRevision),
                 1
                 /* TEXT */
               ),
-              e.draftModel.context.dirty ? (m(), h("strong", Cw, "／有未保存修改")) : J("v-if", !0),
-              e.draftModel.context.pending ? (m(), h("strong", Iw, "／原操作未確認")) : J("v-if", !0),
-              e.draftModel.context.verified ? J("v-if", !0) : (m(), h("strong", Sw, "／尚須明確載入"))
-            ])) : (m(), h("span", Mw, "目前未載入草稿；請在「遊戲與章節草稿」選擇明確修訂。")),
+              e.draftModel.context.dirty ? (m(), h("strong", xw, "／有未保存修改")) : J("v-if", !0),
+              e.draftModel.context.pending ? (m(), h("strong", Cw, "／原操作未確認")) : J("v-if", !0),
+              e.draftModel.context.verified ? J("v-if", !0) : (m(), h("strong", Iw, "／尚須明確載入"))
+            ])) : (m(), h("span", Sw, "目前未載入草稿；請在「遊戲與章節草稿」選擇明確修訂。")),
             y[12] || (y[12] = a(
               "small",
               null,
@@ -17147,7 +17126,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               -1
               /* CACHED */
             ))
-          ], 8, $w),
+          ], 8, kw),
           y[13] || (y[13] = a(
             "p",
             {
@@ -17221,13 +17200,13 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "mapview-editor"
             }, null, 8, ["model", "actions", "draft-model", "draft-actions", "busy", "hidden"]),
-            C(Jy, {
+            C(Xy, {
               model: e.catalogModel,
               actions: e.catalog,
               busy: e.state.busy,
               hidden: !o.value || !e.state.admin || e.state.view !== "catalog-editor"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            C(Ip, {
+            C(Cp, {
               model: e.generalsModel,
               actions: e.generals,
               "draft-model": e.draftModel,
@@ -17235,33 +17214,33 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "generals-editor"
             }, null, 8, ["model", "actions", "draft-model", "draft-actions", "busy", "hidden"]),
-            C(Rp, {
+            C(Dp, {
               model: e.copyModel,
               actions: e.copy,
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "copy"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            C(Gp, {
+            C(Kp, {
               model: e.publicationModel,
               actions: e.publication,
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "publish-editor"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            C(nw, {
+            C(lw, {
               model: e.managementModel,
               "current-game": o.value ? e.draftModel.fields.gameId : null,
               actions: e.management,
               busy: e.state.busy,
               hidden: !o.value || !e.state.admin || e.state.view !== "management-editor"
             }, null, 8, ["model", "current-game", "actions", "busy", "hidden"]),
-            C(mw, {
+            C(cw, {
               model: e.deletionModel,
               "current-game": o.value ? e.draftModel.fields.gameId : null,
               actions: e.deletion,
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "deletion-editor"
             }, null, 8, ["model", "current-game", "actions", "busy", "hidden"])
-          ], 8, Pw)
+          ], 8, Mw)
         ])
       ],
       2
@@ -17269,7 +17248,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
     ));
   }
 };
-function Ow({ api: e, authority: t, work: l, publish: n, confirm: i }) {
+function Aw({ api: e, authority: t, work: l, publish: n, confirm: i }) {
   let s = null, o = 0, d = 0, r = [], u = !1, c = !1, y = "";
   const D = () => s && s === t() && s.user.role === "admin" && !s.user.mustChangePassword, W = () => n({ rows: r, loaded: u, stale: c, message: y, generation: o });
   function N() {
@@ -17349,7 +17328,7 @@ function Ow({ api: e, authority: t, work: l, publish: n, confirm: i }) {
     mutate: V
   });
 }
-function Tw({ api: e, authority: t, work: l, isBusy: n, publish: i, gotoGame: s, openDeletion: o, storage: d = globalThis.sessionStorage, confirm: r = (u) => globalThis.confirm(u) }) {
+function Ow({ api: e, authority: t, work: l, isBusy: n, publish: i, gotoGame: s, openDeletion: o, storage: d = globalThis.sessionStorage, confirm: r = (u) => globalThis.confirm(u) }) {
   let u = null, c = 0, y = null, D = null, W = [], N = !1, O = !1, x = "", $ = "", A = "";
   const V = () => u && u === t() && ["admin", "author"].includes(u.user.role) && !u.user.mustChangePassword, S = () => "editor-copy-operation:" + u.user.id, g = (_) => typeof _ == "string" && /^[A-Za-z0-9_-]{16,128}$/.test(_), k = (_) => typeof _ == "string" && /^[1-9][0-9]{0,63}$/.test(_), X = () => ({ actor: u, generation: c }), ae = (_) => V() && _.actor === u && _.generation === c, le = () => ["pending", "running"].includes(D?.state), ce = () => !!y && (!D || O || le());
   function me() {
@@ -17361,7 +17340,8 @@ function Tw({ api: e, authority: t, work: l, isBusy: n, publish: i, gotoGame: s,
       message: _ ? A : "",
       locked: re,
       resume: _ && ce(),
-      createDisabled: re || N || O || !!y && !D
+      // Resumable operations must stay clickable: the button then reads 確認新建（續）.
+      createDisabled: re || N || O
     });
   }
   function K() {
@@ -17502,8 +17482,8 @@ function Tw({ api: e, authority: t, work: l, isBusy: n, publish: i, gotoGame: s,
     }
   });
 }
-function Dw({ root: e, views: t, navigate: l, logout: n, accounts: i, draft: s, stageAssets: o, stageJobs: d, library: r, stronghold: u, mapview: c, catalog: y, generals: D, copy: W, publication: N, management: O, deletion: x }) {
-  const $ = /* @__PURE__ */ qe({ authenticated: !1, mustChange: !1, admin: !1, account: "", view: null, busy: !1, views: t }), A = /* @__PURE__ */ qe({ rows: [], loaded: !1, stale: !1, message: "", generation: 0 }), V = /* @__PURE__ */ qe({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: !0 }), S = /* @__PURE__ */ qe({ loadDisabled: !0, clearDisabled: !0, context: "", message: "", summary: "", outputs: [], missing: [], unresolved: [] }), g = /* @__PURE__ */ qe({ purpose: "data", locked: !0, artifacts: [] }), k = /* @__PURE__ */ qe({ assets: [], missing: [], loadDisabled: !0, filterDisabled: !0, downloadDisabled: !0, serial: 0 }), X = /* @__PURE__ */ qe({ games: [], chapters: [], cities: [], locked: !0, saveDisabled: !0 }), ae = /* @__PURE__ */ qe({ games: [], lines: [], locked: !0 }), le = /* @__PURE__ */ qe({ categories: [], category: "portrait", filter: "", rows: [], total: 0, loaded: !1, message: "", loading: !1 }), ce = /* @__PURE__ */ qe({ games: [], chapters: [], generals: [], factions: [], library: [], locked: !0, saveDisabled: !0 }), me = /* @__PURE__ */ qe({ name: "", introduction: "", games: [], locked: !0, createDisabled: !0, resume: !1, message: "" }), K = /* @__PURE__ */ qe({ games: [], versions: [], locked: !0, publishDisabled: !0, readDisabled: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), ee = /* @__PURE__ */ qe({ games: [], locked: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), ke = /* @__PURE__ */ qe({ games: [], admin: !1, locked: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), ve = Su(Aw, { state: $, accountsModel: A, accounts: i, draftModel: V, draft: s, stageAssetsModel: S, stageAssets: o, stageJobsModel: g, stageJobs: d, libraryModel: k, library: r, strongholdModel: X, stronghold: u, mapviewModel: ae, mapview: c, catalogModel: le, catalog: y, generalsModel: ce, generals: D, copyModel: me, copy: W, publicationModel: K, publication: N, managementModel: ee, management: O, deletionModel: ke, deletion: x, navigate: l, logout: n }).mount(e);
+function Tw({ root: e, views: t, navigate: l, logout: n, accounts: i, draft: s, stageAssets: o, stageJobs: d, library: r, stronghold: u, mapview: c, catalog: y, generals: D, copy: W, publication: N, management: O, deletion: x }) {
+  const $ = /* @__PURE__ */ qe({ authenticated: !1, mustChange: !1, admin: !1, account: "", view: null, busy: !1, views: t }), A = /* @__PURE__ */ qe({ rows: [], loaded: !1, stale: !1, message: "", generation: 0 }), V = /* @__PURE__ */ qe({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: !0 }), S = /* @__PURE__ */ qe({ loadDisabled: !0, clearDisabled: !0, context: "", message: "", summary: "", outputs: [], missing: [], unresolved: [] }), g = /* @__PURE__ */ qe({ purpose: "data", locked: !0, artifacts: [] }), k = /* @__PURE__ */ qe({ assets: [], missing: [], loadDisabled: !0, filterDisabled: !0, downloadDisabled: !0, serial: 0 }), X = /* @__PURE__ */ qe({ games: [], chapters: [], cities: [], locked: !0, saveDisabled: !0 }), ae = /* @__PURE__ */ qe({ games: [], lines: [], locked: !0 }), le = /* @__PURE__ */ qe({ categories: [], category: "portrait", filter: "", rows: [], total: 0, loaded: !1, message: "", loading: !1 }), ce = /* @__PURE__ */ qe({ games: [], chapters: [], generals: [], factions: [], library: [], locked: !0, saveDisabled: !0 }), me = /* @__PURE__ */ qe({ name: "", introduction: "", games: [], locked: !0, createDisabled: !0, resume: !1, message: "" }), K = /* @__PURE__ */ qe({ games: [], versions: [], locked: !0, publishDisabled: !0, readDisabled: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), ee = /* @__PURE__ */ qe({ games: [], locked: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), ke = /* @__PURE__ */ qe({ games: [], admin: !1, locked: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), ve = Su(Pw, { state: $, accountsModel: A, accounts: i, draftModel: V, draft: s, stageAssetsModel: S, stageAssets: o, stageJobsModel: g, stageJobs: d, libraryModel: k, library: r, strongholdModel: X, stronghold: u, mapviewModel: ae, mapview: c, catalogModel: le, catalog: y, generalsModel: ce, generals: D, copyModel: me, copy: W, publicationModel: K, publication: N, managementModel: ee, management: O, deletionModel: ke, deletion: x, navigate: l, logout: n }).mount(e);
   return Object.freeze({
     accounts: (ie) => Object.assign(A, ie),
     draft: (ie) => Object.assign(V, ie),
@@ -17533,7 +17513,7 @@ function Dw({ root: e, views: t, navigate: l, logout: n, accounts: i, draft: s, 
   });
 }
 export {
-  Ow as createAccountController,
-  Tw as createCopyController,
-  Dw as mountWorkbench
+  Aw as createAccountController,
+  Ow as createCopyController,
+  Tw as mountWorkbench
 };

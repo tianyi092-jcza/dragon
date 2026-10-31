@@ -261,3 +261,4 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
   4. 摘要变更需重传 1437 个对象到 R2，且归档在监听之前完成 → 直接切换会造成约 8–40 分钟停机。改为**独立预归档**（`/root/prestage.mjs`，只写 R2 不可变对象、不碰 DB/端口，内存上限 900m），生产持续服务；预归档 7 分钟完成后切换镜像，启动自检通过。
 - **生产结果**：镜像 `20261031-cr3` healthy、重启 0、首页 200；菜单 `新建遊戲`/`遊戲資源`；库注册行摘要 `1c0fbd17…`（启动自登记）；源 `28805f`；游戏数 0。
 - **未做**：真实登录后的功能冒烟需管理员口令（用户持有）；`verify_editor_backend_stage_ui.mjs` 的 `--copy-only` 仍引用已删除的 `#source-*`/`#copy-run` 等旧按钮 ID，待更新。
+- **用户实测反馈后的修正（§44 续）**：①「確認新建」在恢复态被禁用 —— `createDisabled` 误含 `Boolean(operation) && !summary`，已移除，恢复态按钮现在可点且文案为「確認新建（續）」；②游戏资源改为**进入即自动加载**（`catalog.txt` 内 `autoStarted` + `queueMicrotask`，身份切换后允许重载），不再需要手动按钮；③音频无法播放 —— `<audio>` 会发 HTTP Range 请求，而资源端点只返回 200 全文且无 `Accept-Ranges`，已补 206/416 与 `Content-Range`（含后缀式 `bytes=-N`）；④资源列表加序号（`.resource-row .index`）。分类实测：頭像 150、圖像／圖塊 226、音樂與音效 13、字體 2（含 OFL 许可证）、其他 9，合计 400。
