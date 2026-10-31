@@ -1,0 +1,11 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+const p = 'server/public/client.txt';
+let s = readFileSync(p, 'utf8');
+const before = s;
+const target = "function show(next) {\n  view = permittedView(next);\n  shell.sync({ current, view, busy });\n}";
+const repl = "function show(next) {\n  view = permittedView(next);\n  shell.sync({ current, view, busy });\n  // 資源頁是純查詢頁，不顯示上一操作的殘留提示\n  if (view === 'catalog-editor') status('');\n}";
+if (!s.includes(target)) throw new Error('show() not found');
+s = s.replace(target, repl);
+if (s === before) throw new Error('no change');
+writeFileSync(p, s);
+console.log('ok client show');

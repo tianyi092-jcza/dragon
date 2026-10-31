@@ -52,7 +52,7 @@ function go(view) { if (userMenu.value) userMenu.value.open = false; props.navig
     </aside>
     <main class="workbench-main">
       <div class="page-heading" :hidden="!ready"><span>編輯後台 / {{ title }}</span><h1>{{ title }}</h1></div>
-      <div id="workspace-context" class="workspace-context" :hidden="!ready">
+      <div id="workspace-context" class="workspace-context" :hidden="!ready || state.view === 'catalog-editor'">
         <span v-if="draftModel.context">目前草稿：{{ draftModel.context.name }}／{{ draftModel.context.gameId }}／修訂 {{ draftModel.context.draftRevision }}<strong v-if="draftModel.context.dirty">／有未保存修改</strong><strong v-if="draftModel.context.pending">／原操作未確認</strong><strong v-if="!draftModel.context.verified">／尚須明確載入</strong></span>
         <span v-else>目前未載入草稿；請在「遊戲與章節草稿」選擇明確修訂。</span>
         <small>僅顯示草稿上下文；其它模組已選的精確目標不會自動替換。</small>

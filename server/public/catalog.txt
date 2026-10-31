@@ -18,7 +18,7 @@ function accept(data) {
   return out;
 }
 export function installLibraryRegistration({ api, authority, work, isBusy, publish = () => {} }) {
-  let actor = null, generation = 0, rows = [], loaded = false, autoStarted = false, filter = '', category = 'portrait', message = '';
+  let actor = null, generation = 0, rows = [], loaded = false, autoInFlight = false, autoAttempts = 0, filter = '', category = 'portrait', message = '';
   const permitted = () => actor && authority() === actor && !actor.user.mustChangePassword;
   const ticket = () => ({ actor, generation });
   const valid = item => permitted() && item.actor === actor && item.generation === generation;
@@ -39,11 +39,24 @@ export function installLibraryRegistration({ api, authority, work, isBusy, publi
       message: allowed ? message : '',
       loading: Boolean(isBusy()),
     });
-    // The list is built into the game, so it loads by itself the first time an
-    // authenticated session renders this view; no manual button needed.
-    if (permitted() && !loaded && !autoStarted && !isBusy()) {
-      autoStarted = true;
-      queueMicrotask(() => { void work(load); });
+    // The list is built into the game, so it loads itself once a session is
+    // ready. It bypasses the busy/status wrapper so a background fetch never
+    // reports "操作完成" or blocks the user, and it retries a few times instead of
+    // latching on a stale ticket.
+    if (permitted() && !loaded && !autoInFlight && autoAttempts < 3) {
+      autoInFlight = true; autoAttempts += 1;
+      queueMicrotask(() => { void autoLoad(); });
+    }
+  }
+  async function autoLoad() {
+    try {
+      const data = await api('/api/resources');
+      if (!permitted()) return;
+      rows = accept(data); loaded = true; message = '';
+    } catch (error) {
+      if (permitted()) message = '讀取資源清單失敗：' + (error && error.message ? error.message : error);
+    } finally {
+      autoInFlight = false; render();
     }
   }
   async function load() {
@@ -52,7 +65,7 @@ export function installLibraryRegistration({ api, authority, work, isBusy, publi
     message = '正在讀取內置資源清單…'; render();
     const data = await api('/api/resources');
     if (!valid(t)) return;
-    rows = accept(data); loaded = true;
+    rows = accept(data); loaded = true; autoAttempts = 0;
     message = '共 ' + rows.length + ' 個內置資源；只可查看與使用，不可上傳、替換或刪除。';
   }
   const actions = Object.freeze({
@@ -64,7 +77,7 @@ export function installLibraryRegistration({ api, authority, work, isBusy, publi
   return Object.freeze({ render, actions,
     setIdentity(next) {
       if (actor === next) return render();
-      generation++; actor = next; rows = []; loaded = false; autoStarted = false; filter = ''; category = 'portrait'; message = ''; render();
+      generation++; actor = next; rows = []; loaded = false; autoInFlight = false; autoAttempts = 0; filter = ''; category = 'portrait'; message = ''; render();
     },
     pagehide() { generation++; render(); },
     canLeave() { return true; },

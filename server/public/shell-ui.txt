@@ -14121,20 +14121,13 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
   }
 }, Ay = /* @__PURE__ */ jl(Py, [["__scopeId", "data-v-945214c9"]]), Oy = {
   id: "catalog-editor",
-  class: "module-card"
+  class: "module-card resources-card"
 }, Ty = {
-  id: "catalog-message",
-  role: "status"
-}, Dy = {
   key: 0,
-  class: "resource-categories"
-}, Ry = ["data-category", "disabled", "onClick"], Ey = { class: "count" }, Ly = {
-  key: 1,
-  class: "resource-filter"
-}, jy = ["value", "disabled"], Fy = { class: "muted" }, Ny = {
-  key: 2,
-  class: "resource-list"
-}, Vy = {
+  id: "catalog-message",
+  role: "status",
+  class: "muted"
+}, Dy = { class: "resource-categories" }, Ry = ["data-category", "disabled", "onClick"], Ey = { class: "count" }, Ly = { class: "resource-filter" }, jy = ["value", "disabled"], Fy = { class: "muted" }, Ny = { class: "resource-list" }, Vy = {
   key: 0,
   class: "muted"
 }, Wy = ["data-path"], By = { class: "index" }, Hy = ["src", "alt"], Uy = { class: "name" }, qy = { class: "muted" }, zy = { class: "name" }, Ky = ["src"], Gy = { class: "name" }, Yy = { class: "muted" }, Xy = {
@@ -14142,168 +14135,162 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
     return (t, l) => (m(), h("section", Oy, [
-      l[2] || (l[2] = a(
-        "h2",
-        null,
-        "遊戲資源",
-        -1
-        /* CACHED */
-      )),
-      l[3] || (l[3] = a(
-        "p",
-        null,
-        "系統內置的只讀共享素材：頭像、圖像／圖塊、音樂、音效、字體。可查看與使用，不可上傳、替換或刪除。",
-        -1
-        /* CACHED */
-      )),
-      a(
+      e.model.loaded ? J("v-if", !0) : (m(), h(
         "p",
         Ty,
-        f(e.model.message),
+        f(e.model.message || "正在讀取內置資源…"),
         1
         /* TEXT */
-      ),
-      e.model.loaded ? (m(), h("div", Dy, [
-        (m(!0), h(
-          B,
-          null,
-          te(e.model.categories, (n) => (m(), h("button", {
-            key: n.id,
-            "data-category": n.id,
-            class: We({ on: e.model.category === n.id }),
-            disabled: e.busy,
-            onClick: (i) => e.actions.selectCategory(n.id)
-          }, [
-            b(
-              f(n.label),
-              1
-              /* TEXT */
-            ),
+      )),
+      e.model.loaded ? (m(), h(
+        B,
+        { key: 1 },
+        [
+          a("div", Dy, [
+            (m(!0), h(
+              B,
+              null,
+              te(e.model.categories, (n) => (m(), h("button", {
+                key: n.id,
+                "data-category": n.id,
+                class: We({ on: e.model.category === n.id }),
+                disabled: e.busy,
+                onClick: (i) => e.actions.selectCategory(n.id)
+              }, [
+                b(
+                  f(n.label),
+                  1
+                  /* TEXT */
+                ),
+                a(
+                  "span",
+                  Ey,
+                  f(n.count),
+                  1
+                  /* TEXT */
+                )
+              ], 10, Ry))),
+              128
+              /* KEYED_FRAGMENT */
+            ))
+          ]),
+          a("div", Ly, [
+            a("label", null, [
+              l[1] || (l[1] = b(
+                "篩選",
+                -1
+                /* CACHED */
+              )),
+              a("input", {
+                value: e.model.filter,
+                maxlength: "128",
+                disabled: e.busy,
+                placeholder: "依檔名篩選",
+                onInput: l[0] || (l[0] = (n) => e.actions.setFilter(n.target.value))
+              }, null, 40, jy)
+            ]),
             a(
               "span",
-              Ey,
-              f(n.count),
+              Fy,
+              "此分類 " + f(e.model.rows.length) + " 項",
               1
               /* TEXT */
             )
-          ], 10, Ry))),
-          128
-          /* KEYED_FRAGMENT */
-        ))
-      ])) : J("v-if", !0),
-      e.model.loaded ? (m(), h("div", Ly, [
-        a("label", null, [
-          l[1] || (l[1] = b(
-            "篩選",
-            -1
-            /* CACHED */
-          )),
-          a("input", {
-            value: e.model.filter,
-            maxlength: "128",
-            disabled: e.busy,
-            placeholder: "依檔名篩選",
-            onInput: l[0] || (l[0] = (n) => e.actions.setFilter(n.target.value))
-          }, null, 40, jy)
-        ]),
-        a(
-          "span",
-          Fy,
-          "此分類 " + f(e.model.rows.length) + " 項",
-          1
-          /* TEXT */
-        )
-      ])) : J("v-if", !0),
-      e.model.loaded ? (m(), h("div", Ny, [
-        e.model.rows.length ? J("v-if", !0) : (m(), h("p", Vy, "此分類沒有符合條件的資源。")),
-        (m(!0), h(
-          B,
-          null,
-          te(e.model.rows, (n, i) => (m(), h("div", {
-            key: n.path,
-            class: "resource-row",
-            "data-path": n.path
-          }, [
-            a(
-              "span",
-              By,
-              f(i + 1),
-              1
-              /* TEXT */
-            ),
-            n.category === "portrait" || n.category === "image" ? (m(), h(
+          ]),
+          a("div", Ny, [
+            e.model.rows.length ? J("v-if", !0) : (m(), h("p", Vy, "此分類沒有符合條件的資源。")),
+            (m(!0), h(
               B,
-              { key: 0 },
-              [
-                a("img", {
-                  src: n.url,
-                  alt: n.label,
-                  loading: "lazy",
-                  class: "thumb"
-                }, null, 8, Hy),
+              null,
+              te(e.model.rows, (n, i) => (m(), h("div", {
+                key: n.path,
+                class: "resource-row",
+                "data-path": n.path
+              }, [
                 a(
                   "span",
-                  Uy,
-                  f(n.path),
+                  By,
+                  f(i + 1),
                   1
                   /* TEXT */
                 ),
-                a(
-                  "span",
-                  qy,
-                  f(n.byteLength) + " bytes",
-                  1
-                  /* TEXT */
-                )
-              ],
-              64
-              /* STABLE_FRAGMENT */
-            )) : n.category === "audio" ? (m(), h(
-              B,
-              { key: 1 },
-              [
-                a(
-                  "span",
-                  zy,
-                  f(n.path),
-                  1
-                  /* TEXT */
-                ),
-                a("audio", {
-                  src: n.url,
-                  controls: "",
-                  preload: "metadata"
-                }, null, 8, Ky)
-              ],
-              64
-              /* STABLE_FRAGMENT */
-            )) : (m(), h(
-              B,
-              { key: 2 },
-              [
-                a(
-                  "span",
-                  Gy,
-                  f(n.path),
-                  1
-                  /* TEXT */
-                ),
-                a(
-                  "span",
-                  Yy,
-                  f(n.byteLength) + " bytes",
-                  1
-                  /* TEXT */
-                )
-              ],
-              64
-              /* STABLE_FRAGMENT */
+                n.category === "portrait" || n.category === "image" ? (m(), h(
+                  B,
+                  { key: 0 },
+                  [
+                    a("img", {
+                      src: n.url,
+                      alt: n.label,
+                      loading: "lazy",
+                      class: "thumb"
+                    }, null, 8, Hy),
+                    a(
+                      "span",
+                      Uy,
+                      f(n.path),
+                      1
+                      /* TEXT */
+                    ),
+                    a(
+                      "span",
+                      qy,
+                      f(n.byteLength) + " bytes",
+                      1
+                      /* TEXT */
+                    )
+                  ],
+                  64
+                  /* STABLE_FRAGMENT */
+                )) : n.category === "audio" ? (m(), h(
+                  B,
+                  { key: 1 },
+                  [
+                    a(
+                      "span",
+                      zy,
+                      f(n.path),
+                      1
+                      /* TEXT */
+                    ),
+                    a("audio", {
+                      src: n.url,
+                      controls: "",
+                      preload: "metadata"
+                    }, null, 8, Ky)
+                  ],
+                  64
+                  /* STABLE_FRAGMENT */
+                )) : (m(), h(
+                  B,
+                  { key: 2 },
+                  [
+                    a(
+                      "span",
+                      Gy,
+                      f(n.path),
+                      1
+                      /* TEXT */
+                    ),
+                    a(
+                      "span",
+                      Yy,
+                      f(n.byteLength) + " bytes",
+                      1
+                      /* TEXT */
+                    )
+                  ],
+                  64
+                  /* STABLE_FRAGMENT */
+                ))
+              ], 8, Wy))),
+              128
+              /* KEYED_FRAGMENT */
             ))
-          ], 8, Wy))),
-          128
-          /* KEYED_FRAGMENT */
-        ))
-      ])) : J("v-if", !0)
+          ])
+        ],
+        64
+        /* STABLE_FRAGMENT */
+      )) : J("v-if", !0)
     ]));
   }
 }, Jy = { class: "portrait-preview" }, Zy = {
@@ -17107,7 +17094,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           a("div", {
             id: "workspace-context",
             class: "workspace-context",
-            hidden: !o.value
+            hidden: !o.value || e.state.view === "catalog-editor"
           }, [
             e.draftModel.context ? (m(), h("span", $w, [
               b(
