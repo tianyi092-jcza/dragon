@@ -7,12 +7,12 @@
 | 项 | 决定 | 取代 |
 | --- | --- | --- |
 | 菜单「建立遊戲／完整副本」 | 改名 **「新建遊戲」**，单一入口，不分角色 | 原双流（作者中立模板／管理员完整副本） |
-| 新建行为 | 填名称＋简介 → 点一次「確認新建」→ 直接产出**原游戏完整 20 章副本**，结束 | 原「預約→執行→查詢→取消」四步 |
+| 新建行为 | 填名称＋简介 → 点一次「確認新建」→ **只複製底層地圖（含據點）**；不複製章節、不複製武將（見 §2.5） | 原「產出完整 20 章副本」 |
 | 名称长度 | 8 码点（不变） | — |
 | 简介长度 | **100 码点** | 原 20 码点 |
 | 配额 | 每用户最多 **3** 个游戏 | 无限制 |
 | 中立空壳模板 | **废弃** | `FIXED_TEMPLATE_PROFILE` 作者路径 |
-| 菜单「固定庫登記」 | 改名 **「遊戲資源」**，去掉登记语义，所有用户可看 | 管理员专属运维登记页 |
+| 菜单「固定庫登記」 | 改名 **「系統資源」**，去掉登记语义，所有用户可看 | 管理员专属运维登记页 |
 | 游戏资源内容 | 400 个内置只读素材，分类浏览；音频可试听 | 「建立本次驗證登記請求」等四按钮 |
 | 库登记动作 | 服务启动时**自动完成**，用户不可见 | 操作员手动点登记 |
 
@@ -45,7 +45,18 @@
 
 ### 2.4 配额
 
-新增环境变量 `EDITOR_GAME_LIMIT`（默认 3）。在 `AdminFullCopy.reserve` 事务内校验：该 owner 现有 `content_games` 行数 ≥ 限额时 `fail(429, 'GAME_QUOTA_EXCEEDED')`。该检查与插入同事务，避免并发穿透。
+环境变量 `EDITOR_GAME_LIMIT`（**默认 0＝不限**）。在 `AdminFullCopy.reserve` 事务内校验：该 owner 现有 `content_games` 行数 ≥ 限额时 `fail(429, 'GAME_QUOTA_EXCEEDED')`；检查与插入同事务，避免并发穿透。限额按 owner 计，不按站点总量，也不限制素材／章节／并发；值非法时构造直接 `503 COPY_QUOTA_POLICY`（不静默当不限）。
+
+默认不限是当前产品决定，原因：删除与名称释放（A30 阶段 2）尚未开放，`deleteAllowed` 恒 false。若现在收紧到一个较小值，账号建满后既不能删也无法复用名称，直接卡死。删除路径开放后再评估上线具体数值（改 env 即生效，无需改代码）。验证见 `tools/verify_editor_game_quota.mjs`。
+
+### 2.5 新建遊戲複製範圍（2026-11 用戶決定）
+
+| 動作 | 複製內容 |
+|---|---|
+| 新建遊戲（所有人） | **只複製底層地圖（含據點）**；章節為空、武將庫為空（武將可在「武將管理」自建或「從底層資源導入」） |
+| 複製遊戲（管理員專屬） | 地圖＋章節＋武將＝當前遊戲全套複製 |
+
+新建後狀態為**草稿**，版本號顯示「—」；上架流程與狀態機見 [工作台結構 §4](editor-workbench-structure.md)。
 
 ## 3. 游戏资源
 
@@ -59,10 +70,12 @@
 | --- | --- | --- |
 | 頭像 | `kao/*.png` | 150 |
 | 圖像／圖塊 | `grf/*.png` | 226 |
-| 音樂 | `grf/*.flac` | 11 |
-| 音效 | `grf/*.wav` | 2 |
-| 字體 | `font/*.woff2` | 1 |
-| 其他 | 根目录 json／bin 配置数据 | 7 |
+| 音樂與音效 | `grf/music/loops/*.flac` 11 ＋ `grf/sfx/*.wav` 2 | 13 |
+| 字體 | `font/Oswald-Light.woff2` ＋ `font/OFL-Oswald.txt`（OFL 许可证文本） | 2 |
+| 其他 | 清单与配置数据：`available-library-manifest.json`、`battle_display.bin`、`battle_maps.json`、`battle_navigation.json`、`battle_rules.json`、`battle_scripts.json`、`battle_talk.json`、`grf/music/playback.json`、`talk.json` | 9 |
+| **合计** | | **400** |
+
+分类由 `editorapp.#getResources` 按路径判定：`kao/` → portrait，`grf/*.png` → image，`.flac/.wav/.mp3` → audio，`font/` → font，其余 → data。因此「其他」是清单与战斗／对话配置数据，不含任何图片或音频；「字體」含 OFL 许可证文本，因为它也在 `font/` 下。
 
 ### 3.3 能力
 
@@ -71,16 +84,15 @@
 - 音频类（13 个）：点击试听（`<audio controls>`）
 - 不标注"当前游戏是否使用"，保持纯资源浏览
 
-### 3.4 与既有「素材庫」页的区别（不得合并）
+### 3.4 与已取消「素材庫」页的关系
 
-| 页 | 作用 | 数据范围 |
-| --- | --- | --- |
-| **素材庫**（`library-editor`，保留不动） | 核验"我这个已保存修订用到了哪些素材"，可核验下载 | 绑定某个 draftRevision |
-| **遊戲資源**（`catalog-editor`，本次改造） | 浏览系统内置全部 400 素材 | 全局，与草稿无关 |
+用户 2026-11 决定：原**素材庫**页**取消**（界面删除），因其职责与本页（现名**系統資源**）重叠。
+原素材庫的“已保存修訂用了哪些素材”需求不再单独成页；服务端能力保留，不删除接口。
+菜单最终结构见 [编辑器工作台结构](editor-workbench-structure.md)。
 
 ### 3.5 自动登记
 
-`vps/publication-main.mjs` 启动路径在 `startPublicationServer` 之后、监听之前，用已装配的 library 描述符调用与 `/api/admin/library/install` 相同的内部登记逻辑（`InstalledSourceCatalog.install` 需要一个 authenticated actor，故改为内部直调 `#verify` + INSERT，或复用 bootstrap 逻辑）。失败则启动失败（fail-closed），不静默降级。
+`server/editorapp.js#bootstrapLibrary` 在 DO 构造期按 `EDITOR_AVAILABLE_LIBRARY_ROOT` 自愈 `installed_sources` 的库行：缺行 INSERT，摘要／root 变化则 UPDATE。构造期尚无 `tianyi` 行（全新库）时留待首个请求——`handle()` 在 `seed()` 之后重试一次，成功后置 `libraryBootstrapped` 不再重复。未配置该 env 时彻底不登记：资源列表仍可按 pinned policy 列出，但 `GET /api/resources/asset` 返回 404 `SOURCE_NOT_REGISTERED`，不伪造可用性。
 
 ## 4. 废弃中立模板的范围
 
@@ -92,8 +104,8 @@
 ## 5. 验证要求
 
 - 真实 HTTPS：新建游戏一次点击 → 20 章副本落库 → 草稿可读；
-- 幂等：同键重放不建第二个；配额第 4 个返回 429；
-- 游戏资源：分类计数与 `available-library.txt` 一致（150/226/11/2/1/7）；音频可播放；所有已登录用户可访问；
+- 幂等：同键重放不建第二个；配额在 `EDITOR_GAME_LIMIT` 未设时不生效，设为 1 时第二个 owner 内游戏返回 429 `GAME_QUOTA_EXCEEDED`（`node tools/verify_editor_game_quota.mjs`）；
+- 游戏资源：分类计数与 `GET /api/resources` 实测一致（150/226/13/2/9＝400）；音频可播放（支持 Range 206／416）；所有已登录用户可访问；
 - 素材庫页行为完全不变（回归）；
 - 不读真实 `SAVE.DAT`、不碰用户存档。
 

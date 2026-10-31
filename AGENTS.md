@@ -86,11 +86,13 @@
 
 ## 5. 常用命令与验证
 
-仓库根执行，先审I/O与依赖；以下是入口索引，不是整批运行或部署授权。详细专项命令／范围见[R2接线](docs/r2-player-connection.md)、[VPS就绪](docs/vps-editor-readiness.md)和[部署指南](docs/deployment.md)，不在长期记忆复制逐批成绩。
+仓库根执行，先审I/O与依赖；以下是入口索引，不是整批运行或部署授权。工作台菜单与模块职责见[编辑器工作台结构](docs/editor-workbench-structure.md)、基础资料与章节属性归属见[城池据点与章节属性](docs/chapter-and-base-resources.md)。详细专项命令／范围见[R2接线](docs/r2-player-connection.md)、[VPS就绪](docs/vps-editor-readiness.md)和[部署指南](docs/deployment.md)，不在长期记忆复制逐批成绩。
 
 ```bash
 python -m http.server 8321 --directory web
 node tools/editor_server.mjs --serve --port 8322
+node tools/dev_editor.mjs  # 本地开发服务：同上服务端跑 Node SQLite／文件桶，改源码自动重建重启
+node tools/verify_pinned_source_registration.mjs  # 固定源启动登记（空库开箱可建游戏）
 python -B tools/compile_content.py --output /path/to/new-generated
 node tools/build_trial_web_bundle.mjs  # 修改web/src后重建，并核两壳／库指纹
 node tools/verify_start_flow.mjs

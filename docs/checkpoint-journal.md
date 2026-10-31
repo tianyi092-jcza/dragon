@@ -7,7 +7,8 @@
 ### A1. 主线状态与门控（2026-10-31）
 
 - **生产**：`https://dragon-editor.720108.xyz`；镜像 `20261031-cr8`（应用代码全量替换），healthy、重启 0。发布／管理／删除维护门仍 503；公开 registry `REGISTRY_EMPTY`；`control/current.json` 404；monitor timer active。
-- **Git**：`bb8023a` 已推 github main，工作树干净；v0.1.9 Release 已发（`278dc1b`）；不推 Gitea。
+- **Git**：`bb35302` 已推 github main，工作树干净（另有本轮未提交的本地开发服务与三处修复）；v0.1.9 Release 已发（`278dc1b`）；不推 Gitea。
+- **本地开发服务（2026-10-31 起为标准测试入口）**：`node tools/dev_editor.mjs`（默认 8443／`.dragon-analysis/dev`），同一 `createEditorService` 跑在 Node SQLite＋文件桶上，改源码自动重建并重启；不再靠改生产或起 workerd 验证功能。详见 §45。
 - **默认身份**：源 `approved-builtin-28805f-entities7e7-1`（41 roles／58143656 B）；库 `approved-available-library-f4ba804b-1`（400 角色／98515 B）。旧 47e 源已从生产删除（DB 行＋87 blob），web 内旧 47e 内容字节保留。
 - **本轮交付**：新建游戏（一键产出原游戏完整 20 章副本，所有登录用户可用）、游戏资源（只读分类浏览＋音频试听，启动自动登记）、单席位改「最新登录胜出」。
 - **A30 阶段 1**：ledger 保留／退休分支＋检查点 `retirement-checkpoint` v1＋屏障＋清理执行＋publisher／receipts／scan 消费者迁移＋证据矩阵场景 1–5 已交付；`deleteAllowed` 恒 false。
@@ -21,11 +22,13 @@
 - 产品行为：五档提速 6.5/5.0/4.8/1.8/1.0ms、预算 16/帧，Trial 束 230 项；密码 9–128 码点、ASCII 大小写＋数字＋符号；Vue 后台 13 页迁移完成（构建逐字节，audit 0）；备份页 slot4 导入＋损坏拒收（主链 10 项／公开 App 12 项）。
 
 - **创建路径**：`POST /api/games` → `AdminFullCopy` 走 `FIXED_COPY_PROFILE`，roles 含 admin 与 author，产出完整 20 章副本；配额 `gameLimit`（默认 0＝不限）。中立模板 `FIXED_TEMPLATE_PROFILE` 不再产生新数据，历史行按各自 `profile_revision` 读取。
-- **资源浏览**：`GET /api/resources`（400 角色＋分类 portrait/image/audio/font/data）＋ `GET /api/resources/asset?path=`（支持 HTTP Range → 206/416）。库注册行由 `editorapp.#bootstrapLibrary` 启动时按 env 自愈。
+- **资源浏览**：`GET /api/resources`（400 角色＋分类 portrait/image/audio/font/data）＋ `GET /api/resources/asset?path=`（支持 HTTP Range → 206/416）。角色字节按 pinned 索引分块取回拼接（单块 sha≠角色 sha，不能按整角色对象取）；库注册行由 `editorapp.#bootstrapLibrary` 在首个请求内自愈（构造期时尚无 owner 行）。
 - **单席位**：`EDITOR_SINGLE_USER=1` 开启，语义为「最新登录胜出」——登录事务内删过期行、删该用户全部活会话、再插新会话，同一时刻仅 1 个有效会话。
 - **CSP**：主后台 CSP 必须含 `media-src 'self'`；`default-src 'none'` 下缺失会静默拦截 `<audio>`（服务器日志看不到请求）。
 
 ### A3. 常用命令
+
+- 本地开发服务：`node tools/dev_editor.mjs [--port 8443] [--store .dragon-analysis/dev] [--no-watch]` → 编辑器 `https://127.0.0.1:8443/`；玩家静态 `python -m http.server 8321 --directory web`。状态目录自带 sqlite／私有桶／TLS，删掉即重置。
 
 - 环境：`MINIFLARE_MODULE=/c/Users/fczll/AppData/Roaming/npm/node_modules/wrangler/node_modules/miniflare/dist/src/index.js`；`PLAYWRIGHT_MODULE=$PWD/.dragon-analysis/pw-chrome-shim.mjs`（借系统 Chrome，无 bundled Chromium）；`EDITOR_TEST_NODE=1` 走 Node/SQLite/FileBucket（免 workerd）。
 - 回放号用新号（产物全 `wx` 写）：stage_ui r73 PASS；fallback_rows r4／api r4／jobs r2；trial boot attempt120／session attempt12；source_catalog／admin_copy／library_policy／vps_trial 已重定 pin。
@@ -254,3 +257,46 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 - **单席位改为「最新登录胜出」（用户决定 2026-10-31）**：原实现在有活会话时直接 409 `SINGLE_USER_ONLINE`，导致「关浏览器未登出 → 30 分钟内无法再登录」。实测当时表里有一条空闲已过期 211 分钟、绝对期限尚存的僵尸会话，加一条 11 分钟空闲的活会话。改为：登录提交事务内先删过期行，再删该用户全部活会话，然后插入新会话——同一时刻仍只有 1 个有效会话（满足"不能同时多端"），但最新登录必定成功，永不锁死。`verify_editor_backend_auth.mjs` 断言同步改为「新登录 200、旧会话 401、再登录再踢」。
 - **资源音频与新游戏权限修正**：①音乐试听无声——后台主 CSP 为 `default-src 'none'` 且无 `media-src`，浏览器在发请求前即拦截（nginx 日志无任何 `.flac` 请求可证）。已补 `media-src 'self'`（原有 `img-src 'self' blob:` 保留）。②「新建遊戲」报 `FULL_COPY_ADMIN_REQUIRED`——`authorCopyAccess` 仍只放行 `role === 'author'`，管理员反而被拒；已放宽为 `admin || author`（与页面所有人可见一致）。
 - **页面精简（新建游戏页）**：去掉卡片内重复的 `新建遊戲` 标题与说明；该页隐藏「未載入草稿」上下文提示（`Workbench.vue` 的 hidden 条件加 `state.view === 'copy'`）；进入该页清空全局状态行（`client.txt` 同 `catalog-editor` 处理）。
+
+## 45. 本地开发服务与三处资源读取缺陷（2026-10-31）
+
+- **用户决定（长期有效）**：测试改为启动本地开发环境服务；无明示不 push／不部署；功能需求由用户口述，与产品合同冲突时以其为准并反向修改合同文档。
+- **新增 `tools/dev_editor.mjs`（未提交）**：`createEditorService`＋`vps/sqlite-port`＋`vps/file-bucket`＋`tools/editor_local_https`，即生产同一套 `server/editorapp.js`，不是模拟实现。监视 `editor-ui/src`（重建 Vue 壳）、`web/src`（重建 Trial 束）、`server`、`vps`，变更后重建并重启子进程（壳约 4s、束 0.2s、重启 1–2s）；`web/` 顶层与 `web/intro` 回车手动重启。pinned staging 按三份 manifest 指纹缓存 `staged.json`（首次约 40s，之后 0）。监视先比对 size/mtime 指纹，Windows 递归监听的空事件不再触发无意义重启。
+- **开发态偏差（仅本地，不入生产契约）**：`EDITOR_RATE_MS=1000`（生产 10 分钟会锁死连续测试登录）；本地 TLS 传输白名单放行 `range`（否则本地测不出 206）；`createEditorHTTPS(mf,{port,tls})` 支持复用稳定自签证书，避免每次重启重新信任。
+- **修复 1：超过 1MiB 的单个角色无法读取**。`sourcecatalog.readRole` 原按 `installed/<id>/<role sha>` 取「整角色对象」，但 staging 只写 1MiB 分块且分块 sha≠角色 sha，因此除「恰好单块且哈希相同」的小文件外都取不到：13 个音频中 8 个、`battle_maps.json`／`battle_navigation.json` 共 10 个角色 404（此前被 4MiB `descriptor` 上限先挡成 413 `SOURCE_OBJECT_TOO_LARGE`，看起来像「文件太大」）。改为 `#roleBytes()`：读 pinned 索引→定位该 role→逐 chunk 取回拼接→校验总长与 sha。实测 `BGM_00` 9310062B／`BGM_09` 11196244B／`battle_maps.json` 2142364B 全 200 且字节数对齐。
+- **修复 2：Range 恒不生效**。`editorapp.#getResourceAsset` 的正则写成 `^bytes=(d*)-(d*)$`（少反斜杠，`d*` 只匹配字面 d），永不匹配 → 只回 200 全文；§44 记的「已补 206/416」实际未成立，只是 200 能播掩盖了它。改为 `\d*`。实测 `bytes=0-1023`→206 `content-range: bytes 0-1023/9310062`；`bytes=-500`→206 尾段；越界→416 `bytes */119348`；浏览器 `<audio>` 载入 `BGM_09` 后 `duration=332.33`、`seekable.end=duration`、`readyState=4`。
+- **修复 3：全新库首启永不登记库行**。`#bootstrapLibrary` 在 DO 构造期执行且要求已存在 `tianyi` 行，而该行由首个请求里的 `seed()` 创建 → 空库时直接 return，资源列表能列（policy 直读）但 asset 一律 404 `SOURCE_NOT_REGISTERED`，只有重启才恢复。改为 `libraryBootstrapped` 一次性标记＋在 `handle()` 的 `seed()` 之后重试。实测新库（仅复制 `private/`＋`staged.json`、无 sqlite）：登录＋改密后**未重启**即 200 且登记行出现。
+- **观察（已更正）**：`/api/resources` 实测 400 项（portrait 150／image 226／audio 13／font 2／data 9）；`docs/editor-create-and-resources.md §3.2` 表原合计 397，已按实测改为五行 150/226/13（11 flac＋2 wav）/2/9，并把 §5 验证行的计数改同；同时把 §3.5「自动登记」从已不存在的 `publication-main` 描述改回 `editorapp.#bootstrapLibrary` 实际路径。
+- **验证**：`node --check` 四个改动文件；`git diff --check`；`editor-ui/build.mjs --check` 通过（578995B／37733B／8 包）；`build_trial_web_bundle` `unchanged` 237 文件 sha `db65431…`；浏览器整页仅有登录前一条 `401 /api/session`；修复后无自触发重启。LSP 对这四个 JS 为 push-only 未确认（无 finding）。
+
+### 45.1 配额接线、admin 建游戏 403、验证器（同日续）
+
+- **用户决定**：`EDITOR_GAME_LIMIT` 采用「默认 0＝不限＋按 env 可收紧」，不现在收紧到 3（删除与名称释放未开放，满额会永久卡死）。文档 `§2.4`／`§5` 已按此改写并写明理由。
+- **接线**：`server/editorapp.js` 构造期读 `env.EDITOR_GAME_LIMIT`（未设＝0），同时传给 `adminCopies` 与 `authorCopies`；非法值由 `AdminFullCopy` 直接 `503 COPY_QUOTA_POLICY`，不会被静默当作不限。
+- **修复 4：admin 无法「新建遊戲」（403 `FULL_COPY_SOURCE_ADMIN_REQUIRED`）**。§44 只放宽了 `authorCopyAccess`（admin||author），内层 `authorSource` 仍是 `InstalledSourceCatalog{readRole:'author'}`，`#actor` 严格比对单角色 → 生产主账号（admin）点新建必 403。改为 `readRole` 接受角色数组（`['admin','author']`），`install` 的守卫改为按 `actor.role !== 'admin'` 判定，保持「只有管理员能安装固定源」。dev 实测：同一 admin 会话从 403 变 202。
+- **新增 `tools/verify_editor_game_quota.mjs`**（Node SQLite/FileBucket＋自签 HTTPS，无浏览器）：限额 1 → 首个游戏 202/200；第二个 429 `GAME_QUOTA_EXCEEDED` 且不留 `copy_requests` 行（用 `GET /api/games/create/<key>` 断言 404）、`/api/games` 仍 1 条；另一账号仍可 202（按 owner 计）；重启去掉 env 后同一会话再建成功（默认不限，2 条）；`EDITOR_GAME_LIMIT=three` 构造期 `COPY_QUOTA_POLICY`。结果 `PASS-EDITOR-GAME-QUOTA`，5 项全绿。
+- **附带观察（未改）**：全新部署只会自愈 **library** 行，`source` 行仍需管理员 `POST /api/admin/source/install`；在此之前「新建遊戲」返回 404 `SOURCE_NOT_REGISTERED`。dev 环境已用该接口注册 `approved-builtin-28805f-entities7e7-1`（`8f06cee7…`/`c9b26619…`/18835）。
+
+### 45.2 固定源启动登记（方案 C，用户选择）
+
+- **背景**：全新库只自愈 library 行，`source` 行必须管理员手动 `POST /api/admin/source/install`；在此之前「新建遊戲」404 `SOURCE_NOT_REGISTERED`。用户否决「照库静默自愈」（丢收据、降校验），选择保留审计与全量校验的启动登记。
+- **新增 `vps/register-pinned-source.mjs`**：`registerPinnedSource({storage,bucket,env})` → 确保 `tianyi` 存在（与 `editorapp.seed` 同列同默认口令，`must_change=1`）→ 走**真实** `InstalledSourceCatalog.install`（逐 role/逐 chunk 重算 SHA + 写 `source_operations` 收据，actor=该管理员）→ 幂等键 `startup-<root.sha 前 32>`，同 root 重放不叠加收据。
+- **失败关闭**：已登记且 root/definition 一致 → `already-registered` 快速返回（不重复 58 MB 校验）；已登记但 pinned 字节变化 → `SOURCE_REGISTRATION_CONFLICT`，交给 §43 式人工迁移，绝不自动覆盖。
+- **接线**：`EDITOR_REGISTER_SOURCE=1`（`publication-config` 校验，要求同时给 `EDITOR_INSTALLED_SOURCE_ROOT`）→ `publication-main` 传 `prepare` → `publication-server` → `startEditorServer`，在 `createEditorService`（建表＋库行自愈）之后、**listen 之前**执行，端口不会暴露半配置状态。`vps/publication.env.example` 已写说明。生产未开启该开关（源行已存在），属下次部署时才生效的 opt-in。
+- **验证** `tools/verify_pinned_source_registration.mjs`（Node SQLite/FileBucket＋自签 HTTPS，无浏览器）：空库 → `registered`（1 条收据、`registered_by`=管理员、root 对齐）→ 重跑 `already-registered`（收据仍 1）→ 篡改 root 得 `SOURCE_REGISTRATION_CONFLICT` → 恢复后起服务，默认口令登录 200 且强制改密、改密后 `POST /api/games` **202**（无需手动登记）、取消后 `content_games`=0。结果 `PASS-PINNED-SOURCE-REGISTRATION`。
+
+## B3 编辑器工作台结构重构（2026-11，用户批准，代码未动）
+
+**用户定案**（原话要点）：编辑器工作台与玩家端两个端独立；编辑器产出游戏数据、玩家端加载运行；「游戏剧本＝底层资源（地图＋武将资料）＋多个独立章节」；章节之间无推进/继承/结局/存档槽传递；地图与武将是**引用**不是复制，改属性自动传导、删了才报错；势力属章节定义（由君主决定）。
+
+- **三级结构**：底层資源（工作台級）→ 遊戲（遊戲級）→ 遊戲章節（章節級）。菜单**拉平一级 + 顶部「當前遊戲」选择器**（原 Q/A 三选一，用户选 A）。
+- **菜单终版**：工作台級＝新建遊戲、遊戲管理（原「遊戲與章節草稿」改名）、用戶管理（原「創作者帳戶」）、系統資源（原「遊戲資源」）；遊戲級＝城池據點（原「基礎資料／據點管理」）、地圖管理、武將管理、遊戲章節（「章節」两字不好看，用户改名）、上架管理；管理員專屬＝上架審核（跨创作者）。
+- **取消 4 项**：階段任務、階段結構（只能用不能改）、素材庫（与系统资源重复）、刪除追蹤（并入上架管理）。服务端能力保留，只删界面。
+- **状态机**：草稿 →（点「上架」，整游戏校验，无错则版本号自动 +1）→ 待上架 →（管理员同意）→ 已上架；管理员拒绝→回待上架并标「已驳回」。**只有上架需管理员同意**；无「发布」按钮（原发布按钮文字改「上架」）。
+- **删除**：任何状态、任何人（作者删自己／管理员删任意）可删，无需对方或管理员同意，**立即且不可恢复**，弹窗须强提醒「删除整个游戏（含所有章节与已上架版本），不是删除单个版本」。
+- **列表字段**：作者侧＝游戏名称/说明/版本号/状态/创建时间/状态时间＋上架、删除；管理员侧另加「作者」列＋同意上架、拒绝、删除。
+- **复制范围**：新建遊戲只复制**地图（含据点）**，不复制章节、不复制武将（武将库默认空，提供「從底層資源導入」）；管理员「複製遊戲」才整套复制（地图＋章节＋武将）。
+- **游戏章节**：开放开始年代编辑（纪年标签 公元前/公元后 ＋ 年/月/日，原 `chapter.startDate` 只读）；据点章节属性（所属势力/中立/是否首都）、武将章节属性（所属势力/身份/职务）；单章「章節運行測試」；游戏级「試運行測試」＝全章汇总校验（主要防据点/武将删除后引用不到）。
+- **玩家端存档校验**：新增「游戏是否仍存在」+ 既有版本标识；不符时弹窗「…存档不可用，是否删除？」，确认即删本地存档，取消不动。
+- **新增/更新的产品文档**：`docs/editor-workbench-structure.md`（结构、菜单、状态机、批次验收）、`docs/chapter-and-base-resources.md`（基础资料 vs 章节属性字段归属，按用户命名改为「城池据点」）、`docs/editor-create-and-resources.md` §2.5 复制范围与 §3.4 素材库取消。
+- **待执行批次** B1 菜单重构 → B2 上架管理 → B3 上架審核 → B4 游戏章节（年代＋据点/武将章节属性）→ B5 武将导入 → B6 新建/复制范围 → B7 玩家端存档校验 → B8 全章汇总校验＋启动解耦。均未开工。
