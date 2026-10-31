@@ -4,9 +4,6 @@ defineProps({ model: Object, actions: Object, busy: Boolean });
 </script>
 <template>
   <section id="copy" class="module-card">
-    <h3>新建遊戲</h3>
-    <p>建立一份內置遊戲的完整副本（20 個章節）。副本歸你所有，可自由編輯；內置原件永遠不會被修改。</p>
-
     <form id="copy-create" @submit.prevent="actions.create()">
       <label>遊戲名稱<input name="name" required maxlength="1024" :value="model.name"
              :disabled="busy || model.locked" @input="actions.setField('name', $event.target.value)"></label>

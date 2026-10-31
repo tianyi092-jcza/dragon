@@ -16094,20 +16094,6 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
     return (t, l) => (m(), h("section", Ip, [
-      l[9] || (l[9] = a(
-        "h3",
-        null,
-        "新建遊戲",
-        -1
-        /* CACHED */
-      )),
-      l[10] || (l[10] = a(
-        "p",
-        null,
-        "建立一份內置遊戲的完整副本（20 個章節）。副本歸你所有，可自由編輯；內置原件永遠不會被修改。",
-        -1
-        /* CACHED */
-      )),
       a(
         "form",
         {
@@ -16184,7 +16170,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
         1
         /* TEXT */
       ),
-      l[11] || (l[11] = a(
+      l[9] || (l[9] = a(
         "h4",
         null,
         "我的遊戲",
@@ -17094,7 +17080,7 @@ const Ah = { class: "module-toolbar" }, Oh = ["value", "disabled"], Th = { class
           a("div", {
             id: "workspace-context",
             class: "workspace-context",
-            hidden: !o.value || e.state.view === "catalog-editor"
+            hidden: !o.value || e.state.view === "catalog-editor" || e.state.view === "copy"
           }, [
             e.draftModel.context ? (m(), h("span", $w, [
               b(

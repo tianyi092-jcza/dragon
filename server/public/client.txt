@@ -52,7 +52,7 @@ function show(next) {
   view = permittedView(next);
   shell.sync({ current, view, busy });
   // 資源頁是純查詢頁，不顯示上一操作的殘留提示
-  if (view === 'catalog-editor') status('');
+  if (view === 'catalog-editor' || view === 'copy') status('');
 }
 function navigate(next) {
   if (busy || !current || current.user.mustChangePassword || next === view || !canLeave()) return;
