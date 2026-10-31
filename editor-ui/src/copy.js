@@ -38,6 +38,10 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     if (!['pending', 'running', 'canceled'].includes(data.state) || !revision(data.rowRevision)) throw new Error('新建狀態回應無效。');
     return { gameId: data.gameId, state: data.state, rowRevision: data.rowRevision };
   }
+  function listingState(game) {
+    if (game.listed) return '已上架';
+    return game.restricted ? '下架（管理限制，須管理員解除）' : '下架';
+  }
   async function ownGames(t) {
     const data = await api('/api/games'); if (!valid(t)) return;
     const ids = new Set();
@@ -47,7 +51,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
           typeof game.metadata?.name !== 'string' || typeof game.metadata.introduction !== 'string' ||
           typeof game.createdAt !== 'string' || typeof game.modifiedAt !== 'string') throw new Error('遊戲清單回應無效。');
       ids.add(game.gameId);
-      const state = game.listed ? '已上架' : '下架' + (game.restricted ? '（管理限制，須管理員解除）' : '');
+      const state = listingState(game);
       return { gameId: game.gameId, label: game.metadata.name + ' — ' + (game.metadata.introduction || '無簡介') + '／草稿 ' + game.draftRevision + '／' + state };
     });
   }

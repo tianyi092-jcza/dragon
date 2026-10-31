@@ -88,6 +88,7 @@
 ## 6. 发布主线阻塞与下一步
 
 - 已并入 A1。R2§2.72／VPS§6 细节见对应维护源。
+
 ## 7. 本次记忆整理
 
 - 2026-08 方法说明（历史）：AGENTS 只留长期事实，本页当时 Slim 一次。后续整理沿用 A 部分增量更新，不再另起方法节。
@@ -109,74 +110,97 @@
 - 连接：`root@166.88.160.23:5522`＋本机 `E:/Dragon/dartnode.key`（ED25519 指纹 `SHA256:ahYPBa0NV/Tr7X3j9HgEfGpZk9s07cHg`，用户已独立核对）；临时 known_hosts＋严格校验，不改全局 SSH。
 - 只读结论：Debian 6.12／Docker 29.6；VPS 与本机 GET `https://dragon-editor.720108.xyz/` 均 200；R2 只读（`dragon`桶 `control/current.json` 404，`kao/`前缀 LIST 成功）；注册表 `REGISTRY_EMPTY`。
 - 未核验：供应商快照位置、存量迁移、异地备份、告警接收端（→A1 外部缺口）。正式私有数据目录 0700 合同保留。
+
 ## 12. 受限编辑器容器部署
 
 - vps2 上线：独立项目 `/srv/dragon-editor/publication`（原 probe/panel 保留，切换前备份 `deploy-20261019T103943Z`）；静态清单 1390 项与玩家站逐字节相同；镜像 `dragon-editor-publication:20261019-b4177c8-vps2`；收据在 VPS `deployment-final.json`。
 - R2 小对象 GET404 错误信封预算＋装配修正（tools 适配器／MIME／显式 Host）随本次落地；维护门保留，未初始化 production 根，未碰 kao 对象。
+
 ## 13. 固定库刷新与私有Trial接续
 
 - 新库 `approved-available-library-f4ba804b-1`（400 角色/20 消费者全匹配；255 缺口不冒 Q69 闭包，见 A2）；vps3/vps4 两步上线，私有库＋Trial 门开放。细则见 R2§2.71。
+
 ## 14. 当前政策联合发布复验
 
 - 联合链通过（Node/workerd 资源门各 45 组＋两条 20 章浏览器链，进程内 bridge，不冒云发布）；失败轮 r1–r4 未算通过。细则见 R2§2.72。
+
 ## 15. 密码强度调整与线上同步
 
 - 9–128 码点、四类字符（见 A2；细则见[认证合同](editor-backend-auth.md#已实现的账户api边界)），vps5 上线；不改 scrypt／会话，不重设账户。
+
 ## 16. 当前版本资源门部署与只读巡检补强
 
 - 资源门 vps6 上线＋只读巡检（fault 遮盖／30 分钟 preflight／异常脱敏）；外部告警＋异地备份仍未配（→A1）。细则见 VPS§6。
+
 ## 17. 编辑器与受限部署提交整理
 
 - `a11e448`：113 文件已提交、未 push；63 个 M 保留。授权不沿用到后轮（→A4）。
+
 ## 18. 下个对话接续摘要（a11e448之后）
 
 - 本节目标／决策／失败／文件／阻塞已分别并入 A1–A5；原文备查 Git 历史。
 - 维护源索引：[产品设计](game-editor-design.md)、[工程合同](game-editor-technical-design.md)、[迁移计划](game-map-migration-plan.md)、[准入原证](re-notes-editor-map-admission.md)、[需求矩阵](editor-requirements-matrix.md)、[R2接线](r2-player-connection.md)、[VPS就绪](vps-editor-readiness.md)。机制实现仍须加载相关 SKILL 及原始证据，journal 不代替它们。
+
 ## 19. 后台框架壳（EDITOR-UI-1）
 
 Vue 3＋Element Plus 独立展示层落地（登录/侧栏/个人资料，CSP/忙门/离开守卫），构建逐字节一致，audit 0。收据：`.dragon-analysis/editor-workbench/`（最终壳 run-kg2ubG）。未改引擎／Trial／数据库／部署。
+
 ## 20. 账户管理组件化（EDITOR-UI-2）
 
 账户页迁为 Vue 表格／创建表单（转义/409锁定/脏离开/会话清空），真实 workerd 浏览器通过创建／停用／恢复／重设／CAS。收据：壳 run-CTRH3Q，真实账户 ui2-real-accounts-2。
+
 ## 21. 草稿与章节组件化（EDITOR-UI-3）
 
 Vue 草稿页＋章动作＋只读草稿栏（CAS/原键重试/失效清理），真实 HTTPS 通过保存丢包/412/重载恢复/作者隔离。收据：壳 run-KTpaS1，真实 ui-r35。
+
 ## 22. 阶段任务与结构展示（EDITOR-UI-4）
 
 StageJobs/StageAssets 页迁移；结构 GET 固定库身份缺口（旧 76cdf28 vs 现行 f4ba804b，后由§32修复）如实保留，未放宽。收据：壳 run-5EOzkG，真实 ui-r48。
+
 ## 23. 只读素材库组件化（EDITOR-UI-5）
 
 LibraryPanel 只读页（目录代际＋稳定 assetId＋本地筛选），真实轮 50 通过目录 398/缺项 20/下载 SHA。收据：壳 run-G5R3ht，真实 ui-r50＋library-r50。
+
 ## 24. 据点表格组件化（EDITOR-UI-6）
 
 StrongholdPanel 语义表格（192 锁定／越界无 POST／竞争 412 保留输入），真实轮 54 通过。收据：壳 run-xBAah0，真实 ui-r54＋stronghold-r54。
+
 ## 25. 只读地图展示（EDITOR-UI-7）
 
 MapPanel 迁移（Canvas 仍原生绘制，几何不进响应式树），真实轮 55 通过。收据：壳 run-JayK4r，真实 ui-r55＋map-r55。
+
 ## 26. 固定库登记展示（EDITOR-UI-8）
 
 CatalogPanel 登记页（空 body 重放／本机放弃），真实轮 56 通过。收据：壳 run-5DNOZA，真实 ui-r56＋catalog-r56。
+
 ## 27. 武将与势力展示（EDITOR-UI-9）
 
 GeneralsPanel（128 行／画像绑定／非法编号不 POST／412 锁定），真实轮 61（--generals-only）通过。收据：壳 run-8FqyfR，真实 ui-r61＋generals-r61。
+
 ## 28. 完整测试副本组件化（EDITOR-UI-10）
 
 CopyPanel＋无框架 copy.js（预约 202/执行 200 提交后丢回包／重载无 POST／原键恢复），真实轮 63（--copy-only）通过。收据：壳 run-mId67d，真实 ui-r63＋copy-r63。
+
 ## 29. 发布管理组件化（EDITOR-UI-11）
 
 PublishPanel 接管（tuple/回执校验／GET404 同键重试），真实发布链 10 组通过（进程内 bridge，不冒云发布）。收据：壳 run-iNwSBJ，真实链 publication-chain-browser-qiNFZu。
+
 ## 30. 上架限制与删除追踪组件化（EDITOR-UI-12）
 
 Management/DeletionPanel（上架／下架／解除限制／跨作者删除），真实链 11 组通过（管理 POST3／删除 POST1／确认 6 代）。收据：壳 run-yhB8LT，真实链 publication-chain-browser-hm8F6b。
+
 ## 31. 共同收尾与逐项审计（EDITOR-UI-13）
 
 移除无消费者兼容代码；13 页 Vue 独占 DOM。完整审计见[最终审计](editor-ui-final-audit.md)。收据：壳 run-UTh7HX，真实链 publication-chain-browser-MsfdUZ。
+
 ## 32. 固定库身份合同授权修复与目标闭合（EDITOR-UI-14）
 
 用户授权后定点修复：policy 导出 AVAILABLE_LIBRARY_REGISTRY_ID，stageassetplan 换掉旧 76cdf28。r64 真实 combined 链 17 组通过（structuralGetChecked:true）。收据：ui-r64.json＋stage-plan-input-r64.json。
+
 ## 33. 后台迁移提交、推送与受限上线
 
 用户另行明确提交并推送部署：73 文件提交 8fb4d6c 并推 main（CRLF 逐文件比对后覆盖）；Cloudflare 自动构建成功；VPS 最小覆盖 ui-8fb4d6c 上线冒烟通过。发布／管理／删除门仍 503。
+
 ## B. 会话台账
 
 > B1 为已归档批次摘要（内容已在 v0.1.9 发布）；§42–44 为本轮（2026-10-31 生产替换、库行迁移、新建游戏与游戏资源重构）的详细进展、调试与阻塞。更早批次见 A 部分或 Git 历史。
@@ -200,6 +224,7 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 - **冒烟（生产）**：首页200；登录200且mustChangePassword=true；第二登录409 SINGLE_USER_ONLINE且零新会话；登出→重登200→清场零残留。source/library安装留待用户改密后做（must_change下管理接口403是预期行为）。
 - **口令**：用户给定新默认口令，已按scrypt-32768-8-3重算hash并UPDATE（epoch/version+1，must_change=1，清全部旧会话，DB已先备份）。用户登录后必须自行改成正式口令；改密前不要做除登录外的管理操作。
 - **回滚**：`/root/dragon-editor-backups/publication-20261030T172654Z-full`＋`app-old-20261030T175017Z`；旧static目录与旧镜像保留。已删：传输分片、诊断脚本、重复备份目录。
+
 ## 43. library 注册行摘要迁移（生产库写，用户批准）
 
 - **现象**：部署后「固定库登记」页任何操作报 `SOURCE_PROFILE_CHANGED`，「完整副本」页同码红字；但来源 28805 新行当日已正确注册。
@@ -216,10 +241,12 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 - **产品决定记录**：[新建游戏与游戏资源](editor-create-and-resources.md)。原版无「空白新建」也无「资源库登记」，故全部标注为 Web 产品决定，不作原版机制声明。
 - **实现**：`gamemetadata.js` 简介 20→100；`editorapp` 作者创建改走 `FIXED_COPY_PROFILE`（`roles:['admin','author']`）、新增 `#bootstrapLibrary`（env 为准自愈摘要）、新增 `GET /api/resources` 与 `GET /api/resources/asset?path=`；`sourcecatalog` 增 `resourceRoles()`/`readRole()`；`admincopy` 增 `gameLimit`（同事务配额，默认 0=不限，生产未启用）；`catalog.txt` 重写为资源浏览控制器；`CopyPanel.vue`/`CatalogPanel.vue` 重写；`client.txt` 菜单改名并解除 catalog 管理员限定；`style.css` 补资源列表样式。
 - **部署事故与修复（如实记录）**：
+
   1. 首次换镜像 `startup-failed` —— 改 `web/src/editor/gamemetadata.js` 使源码树摘要变化，但 Trial 束 `trialweb.txt` 仍内嵌旧哈希，`verifyInstalledProgram` 立即拒绝。修复：重跑 `tools/build_trial_web_bundle.mjs` 并上传束。
   2. 第二次仍失败 —— `ReferenceError: FIXED_COPY_PROFILE is not defined`（`editorapp.js:204`）。改 `authorCopies` 时用了该常量但未 import。修复：import 由 `FIXED_TEMPLATE_PROFILE` 换为 `FIXED_COPY_PROFILE`。
   3. **严重失误**：定位上述错误时用了一个未设内存上限的诊断容器，把 3.8G 内存的 VPS 打爆触发 OOM 重启（其它容器自愈恢复）。此后所有容器操作都带 `--memory`。
   4. 摘要变更需重传 1437 个对象到 R2，且归档在监听之前完成 → 直接切换会造成约 8–40 分钟停机。改为**独立预归档**（`/root/prestage.mjs`，只写 R2 不可变对象、不碰 DB/端口，内存上限 900m），生产持续服务；预归档 7 分钟完成后切换镜像，启动自检通过。
+
 - **生产结果**：镜像 `20261031-cr3` healthy、重启 0、首页 200；菜单 `新建遊戲`/`遊戲資源`；库注册行摘要 `1c0fbd17…`（启动自登记）；源 `28805f`；游戏数 0。
 - **未做**：真实登录后的功能冒烟需管理员口令（用户持有）；`verify_editor_backend_stage_ui.mjs` 的 `--copy-only` 仍引用已删除的 `#source-*`/`#copy-run` 等旧按钮 ID，待更新。
 - **用户实测反馈后的修正（§44 续）**：①「確認新建」在恢复态被禁用 —— `createDisabled` 误含 `Boolean(operation) && !summary`，已移除，恢复态按钮现在可点且文案为「確認新建（續）」；②游戏资源改为**进入即自动加载**（`catalog.txt` 内 `autoStarted` + `queueMicrotask`，身份切换后允许重载），不再需要手动按钮；③音频无法播放 —— `<audio>` 会发 HTTP Range 请求，而资源端点只返回 200 全文且无 `Accept-Ranges`，已补 206/416 与 `Content-Range`（含后缀式 `bytes=-N`）；④资源列表加序号（`.resource-row .index`）。分类实测：頭像 150、圖像／圖塊 226、音樂與音效 13、字體 2（含 OFL 许可证）、其他 9，合计 400。
