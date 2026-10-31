@@ -62,7 +62,7 @@ import { decodeSourceChunks } from '../web/src/content/authoring/sourcejson.js';
 const COOKIE = '__Secure-dragon-editor';
 function requestURL(request) { try { return new URL(request.url); } catch { fail(400, 'INVALID_URL'); } }
 // Management previews use local object URLs; scripts remain self-only, no remote/data image sources.
-const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" };
+const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; media-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" };
 // Trial-window shell/bundle routes: same policy plus the image/media/font sources the App actually needs.
 // style-src allows inline: the App applies element.style inline (faction panel cssText, in-document styles);
 // script-src stays strict 'self' (no inline script, no eval).
@@ -1201,7 +1201,7 @@ return class EditorMetadata extends PlatformBase {
   copyAccess(tokenHash) { const actor = this.principal(tokenHash); if (actor.must_change) { fail(403, 'PASSWORD_CHANGE_REQUIRED');  }if (actor.role !== 'admin') { fail(403, 'FULL_COPY_ADMIN_REQUIRED');  }if (!this.installedSources || !this.adminCopies) { fail(503, 'COPY_NOT_CONFIGURED');  }return actor; }
   // Q26 author self-service creation: same fixed pipeline as admin copies,
   // pinned to the installed source server-side (no client registry choice).
-  authorCopyAccess(tokenHash) { const actor = this.principal(tokenHash); if (actor.must_change) { fail(403, 'PASSWORD_CHANGE_REQUIRED');  }if (actor.role !== 'author') { fail(403, 'FULL_COPY_ADMIN_REQUIRED');  }if (!this.installedSources || !this.authorCopies) { fail(503, 'COPY_NOT_CONFIGURED');  }return actor; }
+  authorCopyAccess(tokenHash) { const actor = this.principal(tokenHash); if (actor.must_change) { fail(403, 'PASSWORD_CHANGE_REQUIRED');  }if (actor.role !== 'admin' && actor.role !== 'author') { fail(403, 'FULL_COPY_ADMIN_REQUIRED');  }if (!this.installedSources || !this.authorCopies) { fail(503, 'COPY_NOT_CONFIGURED');  }return actor; }
   #recordCopyCommand(tokenHash, prior, op, target, action) {
     const actor = this.copyAccess(tokenHash); if (actor.epoch !== prior.epoch) { fail(401, 'SESSION_INVALID'); }
     this.contentKey(actor.id, op.key, 'command');
