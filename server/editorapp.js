@@ -485,16 +485,20 @@ return class EditorMetadata extends PlatformBase {
     this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'auth');
     const op = await this.operation(request, value, user.id, user.epoch, policy);
     const old = await this.replay(op, policy); if (old) { this.principal(await sha(old.token)); return response(old.body, 200, old.token); }
-    if (this.singleUser) {
-      const now = Date.now();
-      const occupant = this.one('SELECT token_hash FROM sessions WHERE absolute_until>? AND idle_until>?', now, now);
-      if (occupant) { fail(409, 'SINGLE_USER_ONLINE'); }
-    }
     const s = await this.sessionData(user, policy), result = { body: { user: dto(user), csrf: s.csrf }, token: s.token };
     const sealed = await seal(result, policy.secret, op.aad);
     const committed = this.ctx.storage.transactionSync(() => {
       if (!this.canCommit(op)) { return false; }
       const current = this.one('SELECT * FROM users WHERE id=?', user.id); if (current.epoch !== user.epoch || current.disabled) { fail(401, 'SESSION_INVALID'); }
+      // Single-seat with last-login-wins (user decision 2026-10-31): purge
+      // expired rows, then evict every live session so the newest login always
+      // succeeds. Only one session stays valid at any moment, and closing a
+      // browser without logging out can never lock the account out.
+      if (this.singleUser) {
+        const stamp = Date.now();
+        this.sql.exec('DELETE FROM sessions WHERE absolute_until<=? OR idle_until<=?', stamp, stamp);
+        this.sql.exec('DELETE FROM sessions WHERE user_id<>?', current.id);
+      }
       this.insertSession(s, current); this.remember(op, sealed, policy); return true;
     });
     const chosen = committed ? result : await this.replay(op, policy); this.principal(await sha(chosen.token)); return response(chosen.body, 200, chosen.token);
