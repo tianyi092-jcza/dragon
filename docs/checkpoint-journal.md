@@ -4,13 +4,14 @@
 
 ## A. 项目记忆（长期有效）
 
-### A1. 主线状态与门控（2026-10-30）
+### A1. 主线状态与门控（2026-10-31）
 
-- 专长采纳已生效：新默认 `map-2-28805…`/source `19ef…`/entities `7e7fad`（证书 `a65127…`）；server pinned 已跟进 28805（B-解耦）；画像库冻结 47e 锚 `approved-available-library-f4ba804b-1`（生产注册，混合态如实记录）；web 旧 47e 字节保留（删文件改玩家静态包清单，涉部署不动）。
-- A30 阶段 1 已交付未提交：ledger 保留/退休分支＋检查点 `retirement-checkpoint` v1＋屏障＋清理执行，publisher/receipts/scan 消费者迁移，证据矩阵场景 1–5、完成门评估（fail-closed）、备份清除、清理竞态全绿。`deleteAllowed` 恒 false；410/名称释放无删除目标、无闭包实证不开；阶段 2 为独立外部依赖。
-- 阻塞（目标 blocked，等 `/goal resume`＋任一输入）：commit/push 明示授权（工作树约 350 项未提交，混他人 WIP）；A31 外部（异地备份目标／保留政策／告警接收端）；`fallback_ui` 待他人 UI WIP 合入后重跑；A28 跨窗口恢复矩阵未定义。证据缺口（G-INIT／道路／扩容／配方）按铁律不得猜测实现。
-- Git：`8fb4d6c` 已推 main（后台迁移＋ui 上线）；其后本地 300+ 项未提交，无 push/Release。
-- 生产快照（末次收据，非实时保证）：vps6（`20261019-current-only-vps6`）＋ `ui-8fb4d6c` 在线；发布／管理／删除门 503；公开 registry `REGISTRY_EMPTY`，`control/current.json` 404；monitor timer active。
+- **生产**：`https://dragon-editor.720108.xyz`；镜像 `20261031-cr8`（应用代码全量替换），healthy、重启 0。发布／管理／删除维护门仍 503；公开 registry `REGISTRY_EMPTY`；`control/current.json` 404；monitor timer active。
+- **Git**：`bb8023a` 已推 github main，工作树干净；v0.1.9 Release 已发（`278dc1b`）；不推 Gitea。
+- **默认身份**：源 `approved-builtin-28805f-entities7e7-1`（41 roles／58143656 B）；库 `approved-available-library-f4ba804b-1`（400 角色／98515 B）。旧 47e 源已从生产删除（DB 行＋87 blob），web 内旧 47e 内容字节保留。
+- **本轮交付**：新建游戏（一键产出原游戏完整 20 章副本，所有登录用户可用）、游戏资源（只读分类浏览＋音频试听，启动自动登记）、单席位改「最新登录胜出」。
+- **A30 阶段 1**：ledger 保留／退休分支＋检查点 `retirement-checkpoint` v1＋屏障＋清理执行＋publisher／receipts／scan 消费者迁移＋证据矩阵场景 1–5 已交付；`deleteAllowed` 恒 false。
+- **阻塞**：A30 阶段 2（410／名称释放，无删除目标与闭包实证）；A31 外部（异地备份目标／保留政策／告警接收端）；A28 跨窗口恢复矩阵；原证缺口（G-INIT／道路／扩容／配方）按铁律不得猜测实现。
 
 ### A2. 架构与关键身份
 
@@ -18,6 +19,11 @@
 - Ledger 库表（workerd 断言 6 表/38 列/1FK）：`content_distribution_events/chunks`＋`checkpoints`（5列）＋`enqueue_barrier`（2列）＋`cleanup`（6列）。退休读只返最小身份（无 payload 键）；保留缺块一律 `DISTRIBUTION_LEDGER_CORRUPT`；旧键重放不返 payload（只校验）。检查点是新对象新摘要，不沿用操作摘要。
 - 画像库 `f4ba804b`/93632 字节/400 角色/20 消费者；`LIBRARY_BASE_REVISION` 冻结 47e；255 缺口不冒 Q69 闭包。
 - 产品行为：五档提速 6.5/5.0/4.8/1.8/1.0ms、预算 16/帧，Trial 束 230 项；密码 9–128 码点、ASCII 大小写＋数字＋符号；Vue 后台 13 页迁移完成（构建逐字节，audit 0）；备份页 slot4 导入＋损坏拒收（主链 10 项／公开 App 12 项）。
+
+- **创建路径**：`POST /api/games` → `AdminFullCopy` 走 `FIXED_COPY_PROFILE`，roles 含 admin 与 author，产出完整 20 章副本；配额 `gameLimit`（默认 0＝不限）。中立模板 `FIXED_TEMPLATE_PROFILE` 不再产生新数据，历史行按各自 `profile_revision` 读取。
+- **资源浏览**：`GET /api/resources`（400 角色＋分类 portrait/image/audio/font/data）＋ `GET /api/resources/asset?path=`（支持 HTTP Range → 206/416）。库注册行由 `editorapp.#bootstrapLibrary` 启动时按 env 自愈。
+- **单席位**：`EDITOR_SINGLE_USER=1` 开启，语义为「最新登录胜出」——登录事务内删过期行、删该用户全部活会话、再插新会话，同一时刻仅 1 个有效会话。
+- **CSP**：主后台 CSP 必须含 `media-src 'self'`；`default-src 'none'` 下缺失会静默拦截 `<audio>`（服务器日志看不到请求）。
 
 ### A3. 常用命令
 
@@ -46,6 +52,13 @@
 - Docker 验证记得显式 tmpfs（漏了 EROFS）；Node fetch 丢自定义 Host 时改原生 HTTP 显式 Host；远端 CRLF vs Git LF：覆盖前逐文件比对并保存原 SHA，不批量重写。
 - Workers 静态单文件 25MiB 上限：创作源超限时排除创作源、保留运行资产。
 - 月结保留 day0（消息期间不推进日期）；道路夹具读 `DEFAULT_WORLD.assets.roadGraph`，不把 `{}` 当无阻挡。
+
+- **改 `web/src/**` 任何文件都会改变源码树摘要**：`verifyInstalledProgram` 同时校验 web 根与 Trial 束 `server/public/trialweb.txt`；改了 src 必须重跑 `tools/build_trial_web_bundle.mjs`，否则启动即 `startup-failed`（错误被吞，用一次性脚本直调 `startConfiguredPublication` 打印栈定位）。
+- **静态摘要变更必须重新归档**：`STATIC_RELEASE_SHA256`／`STATIC_SOURCE_SHA256`／`STATIC_PATH_PREFIX` 三处同改，且归档在监听之前完成——直接切换会停机 8–40 分钟。正确做法：先跑独立预归档（只写 R2 不可变对象、不碰 DB／端口、带 `--memory`），完成后再切镜像。
+- **容器一律带内存上限**：本项目 VPS 仅 3.8G；曾用无 `--memory` 的诊断容器触发 OOM 整机重启。
+- **`<audio>` 播放依赖 CSP `media-src` 与 Range 206**：缺一即控件灰、时长为 0:00，且服务器日志看不到请求。
+- **静态包可不重传全部对象**：新 release 只差少数文件时，用 `cp -al` 硬链接克隆旧 static 目录再替换其中变更文件（先 `rm` 再放，避免写穿共享 inode 污染旧版本）。
+- **`node -e`／heredoc 里做多行中文替换易被引号打断**：改用「写临时脚本文件 → node 执行 → 删除」，或把替换内容放独立文件再拼接。
 
 ## 1. 接续状态
 
@@ -164,72 +177,20 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 ## 33. 后台迁移提交、推送与受限上线
 
 用户另行明确提交并推送部署：73 文件提交 8fb4d6c 并推 main（CRLF 逐文件比对后覆盖）；Cloudflare 自动构建成功；VPS 最小覆盖 ui-8fb4d6c 上线冒烟通过。发布／管理／删除门仍 503。
-## B. 会话台账（近期详细，2026-10-30前后）
+## B. 会话台账
 
-> 以下保留近期会话的详细进展、调试、收据与阻塞，供接续查证。更早批次已压缩为 A 部分或归档 Git 历史。
+> B1 为已归档批次摘要（内容已在 v0.1.9 发布）；§42–44 为本轮（2026-10-31 生产替换、库行迁移、新建游戏与游戏资源重构）的详细进展、调试与阻塞。更早批次见 A 部分或 Git 历史。
 
-## 34. 专长低位本地采纳切换（E-04-SPECIALTY-ADOPTION-1）
+### B1. 已归档批次摘要（§34–41，均已含入 v0.1.9 发布）
 
-- **身份**：父`map-2-47e35876cd32ff3b7eee27da3be95eaa1b52a6d108a6f94c1f5989bc68861d23`/source `87742af76b54a13711541eefbb2dd2066ba06d30602027b9bfcf9ae43bf9f2b1`/manifest `bde6dfc8a82da5597ef22786e46681c87f2fe21cd55dd23921b32e346efa95e9`；候选`map-2-28805fc52a1c79910a949fb32b242323777c1741245724b8c346fd8e7a567bfe`/source `19ef2ce35a92d4fad10d75610818f8113ff9b711480e45d7a009cd582c7b4d6b`，r1/r2逐byte一致，2560条5非零（200/006/100/100/500），24改14不变。
-- **安装**：`tools/install_editor_specialty_adoption.mjs`原子切换，`SWITCHED-COHERENT-RELEASE`；PENDING候选经正式证书生成APPROVED最终manifest（合同SHA `a651273e8c770a4593f5f040f7cd7c468e72a493525ec34e86156913da4328fc`），新默认已生效并经trusted reader与installed entity source验证。父immutable目录保留作审计，不作可读回退。
-- **验证**：copy/inspection按已采纳低位更新后通过；installed entity source通过；installed program在重建Trial束后36项通过（237文件）；player saves 36项通过；entity history沿用既有fixture通过。trial-app-boot需传轮次参数，未传参失败属调用形状错误，未跑重型浏览器链。
-- **旧副本**：不保留、不迁移、不做兼容分派；清理核归属与引用、共享不删。live仓库内除审计保留父目录、分析归档证据及未动的server pinned生产文件外，无可删live草稿；server pinned未动（生产登记不在本次授权内）。14地图资源分属不同revision前缀键，不按hash合并删除。
-- **收据**：`.dragon-analysis/editor-completion/specialty-adoption-install-20261030.json`（安装收据）与`specialty-adoption-certificate-20261030.json`（证书）。LSP四路径1 hint已清（installer未使用导入）。未提交／推送／部署。
-
-## 35. A30历史退休消费者负控补强（E-01-BACKEND-DELETION-INVENTORY-1）
-
-- **内容**：`tools/verify_deletion_catalog_scan.mjs`在独立待发单代账本上新增一组负控并移除其chunks：头部不变，但空闲`checkHead`的`entry(1)`、待发`drainOne`的`next()`、旧键`enqueueInTxn`幂等重放三者均报`DISTRIBUTION_LEDGER_CORRUPT`，不返回旧记录或去重成功。只加测试负控，未改产品、DDL、HTTP、PUT／DELETE能力或运行束。
-- **验证**：22组通过（原21＋1），收据`.dragon-analysis/editor-completion/deletion-retained-history-20261029/tests-consumer-r1.log`；维护源`editor-backend-deletion-inventory.md`内21组记述已同步为22组并说明三条存活读取路径须连同迁移。A30仍未完成，退休协议实现与验收仍待后续按候选顺序推进。
-
-## 36. A30退休实施送审包（E-01-BACKEND-DELETION-INVENTORY-1）
-
-- **内容**：`docs/editor-backend-deletion-inventory.md`新增“后继退休实施送审包”节：触及清单（ledger五处／publisher三处／receipts四函数／联合扫描）、屏障代价（只暂停新enqueue、不新增解锁、跨进程排空条件尚未设计、检查点不可撤回）、分阶段（阶段0夹具原型不需审阅；阶段1产品分支与检查点kind需批准；阶段2生产410／备份清除为独立外部依赖）及三项送审问题。只加文档，未改产品、DDL、锁或DELETE能力。
-- **状态**：~~A30产品实施待用户审阅批复前不启动；~~三问已批复（用户20261030）：①屏障语义接受（只暂停新enqueue、不新增解锁，失败沿用REMOTE_AHEAD/REMOTE_GAP）；②检查点kind命名先做阶段0夹具原型再定；③阶段2维持外部依赖口径，A30完成出口不等备份实证。阶段0原型已交付（见§38）；stage_ui走法B（server pinned跟进28805，旧副本不再使用）随后启动；其余独立台账项继续推进，不以送审代替实施。
-
-## 37. 备份页损坏导入拒收＋专长采纳测试跟进（A28部分）
-
-- **备份页负控**：`tools/fixtures/public-player-browser.mjs`在成功导入slot4后追加两例损坏导入（截半字节／异gameId有效信封），均报“操作未完成”，目录slot集合不变、`get(5)`为空、slot4与slot0及live App保持。完整入口`verify_publication_chain_browser.mjs --node-service --player-client --player-app --public-player`通过，主链10项／公开App12项，结果`.dragon-analysis/release-readiness/publication-chain-browser-869N1n/result.json`。只加夹具断言，无产品改动；跨窗口恢复矩阵与原生TCP/TLS仍未证明，A28仍部分。
-- **采纳回归修复（只改测试）**：新默认28805落地后，`editor_trusted_copy.mjs`重注册新默认元组（manifest 807e2d3b/14268、entity 7e7fad／775／runtime 537e6af、provenance新registryId，均经磁盘byte核对）；`editor_stage_source.mjs`改直读pinned字节逐role验sha（server pinned保持47e）；`publish-runtime-stage.mjs`对当前默认两目录补未跟踪豁免文件（game-source.json仍排除）。`stageInstalledEditorSource`冒烟恢复`approved-builtin-47e358-entities086-1`／87对象。维护源`editor-game-save-exchange.md`已同步。loader消费者抽查`chapter_city_history` 7组／`chapter_people` 13组通过（inputHashes 41，新元组）。
-- **stage_ui红（根因已锁定，待用户拍板A/B）**：`verify_editor_backend_stage_ui.mjs` r70/r71均在复制run步404。已复现并定位：`server/admincopy.js:98`用默认loader从已暂存47e字节执行复制，loader门已跟新默认28805 → `SOURCE_ROLE_NOT_REGISTERED`（reserve 202/GET 200/run 404；`COPY_NOT_FOUND`系调试夹具键不一致误报，已排除）。loader已恢复到通过copy_profile／主链的28805工作态。走法A（loader加显式tuple、server传47e）与“旧副本不再使用”相悖；走法B（server pinned跟进28805及policy/verifier重定pin）属pinned身份变更，需用户明确授权。未擅动，待决。（后续：用户选走法B，已由§39解决，r73 PASS。）
-
-## 38. A30阶段0退休原型交付（E-01-BACKEND-DELETION-INVENTORY-1）
-
-- **交付**：新建`tools/fixtures/retirement-prototype.mjs`（检查点校验＋显式保留／退休分支读取器，fixture-only）与`tools/verify_deletion_retirement_prototype.mjs`，7组通过，收据`.dragon-analysis/deletion-retirement-prototype/result.json`。无产品代码、DDL、锁、收据格式、屏障或DELETE能力改动。
-- **覆盖**：退休代删chunks后仍返回同一最小身份凭证（operationDigest由事件行重算，不读chunks）；同态下保留路径entry/next/幂等重放三处均报`DISTRIBUTION_LEDGER_CORRUPT`；退休分支拒非退休代（无静默穿透）；保护代（GAME_B）读写不受影响；旧键重放仍去重；篡改检查点（未知代／空集／异authority／未知锚／复用操作摘要）全拒；退休集是数据（换退代2的检查点同样生效），非硬编码。只读路径前后SQL快照一致。
-- **未覆盖**：检查点kind命名（待阶段0评审后定）、阶段1产品分支、阶段2外部依赖。A30仍未完成。
-
-## 39. server pinned跟进28805（B-解耦，stage_ui复绿）
-
-- **动因**：采纳后server pinned仍47e，`admincopy`用默认loader（28805）从47e暂存复制→`SOURCE_ROLE_NOT_REGISTERED`，stage_ui r70/r71 run步404。用户确认走法B（旧副本不再使用，server pinned跟进）。
-- **library耦合（已披露）**：`installedAvailableLibraryPolicy`绑`baseRevision===revision`＋086 runtimeData；library（`approved-available-library-f4ba804b-1`，已生产注册）按47e/086构建，整体跟进需新库注册＋生产登记（越权），故B-解耦：源→28805，library冻结，policy拆出`LIBRARY_BASE_REVISION='47e…'`常量；library文件/注册/行为逐字节不变。library policy对象的revision字段跟源代（被`libraryassets`外无人消费；`library_policy`测试借它定位源字节，仍正确）。混合态如实记录，非隐藏。
-- **改动（本地可逆，未提交；无部署、无生产注册、无commit）**：`server/pinned/world-manifest.txt`→28805字节（14268/sha `807e2d3b…`，与loader常量交叉核对）、`entity-manifest.txt`→7e7fad清单（775/`76eaca3e…`）；`sourcecatalogpolicy.js`源常量组＋注册`approved-builtin-28805f-entities7e7-1`＋LIBRARY_BASE_REVISION拆分；verifier重定pin：`source_catalog`（r/e＋totalBytes 57943821→58143656，逐role sha复核推导）、`admin_copy`（r/e＋收据字面量同步）、`library_policy`（entities＋注册断言）、`fallback_rows`（before.json 437条目按当前磁盘重基线＋oracle清单绑定改28805；该fixture早已陈旧190项，非本次打破，地图字节未变r1像素证仍有效）、`vps_trial:77`。web旧47e字节保留（删文件改玩家静态包清单，涉部署，不动）。
-- **验证**：policy冒烟source 28805/41 roles＋library f4ba804b/400 roles；`source_catalog`通过；`admin_copy`通过（41 roles/20章/2540 records）；`library_policy`通过；`vps_trial` 52项通过；`fallback_rows` r4通过（oracle像素一致）；loader消费者此前已绿。`stage_ui` r73 `PASS-REAL-ROOT-STAGE-UI-SCOPED`（errors/outside双空，ui-r73.png落盘；r72已走完全部阶段无404，r73为完整收据）。
-- **fallback回归 sweep**：`fallback_rows` r4、`fallback_api` r4、`fallback_jobs` r2 全绿（api/jobs/ui三处before.json化石（各~200项stale）已按当前磁盘重基线，fixture-only；三处oracle/收据像素证仍有效，地图字节未变）。`fallback_ui` r3/r4均卡在浏览器登录（`#stage-editor`不现身；同轮API调用source install 200＋copy run 200，服务层绿）。当时记阻塞待UI WIP合入（见下条——后证伪：实为夹具默认视图问题，与他人WIP无关）。
-- **fallback_ui解阻塞（本轮，只改测试）**：探针定位——登录本身成功（菜单/tianyi/登出全现身），Vue壳默认落地草稿视图，`#stage-editor`需显式导航（与stage_ui的`/#stage-editor`哈希路由一致）；且`canLeave()`脏时弹原生confirm，无handler则Playwright自动dismiss→导航被拒（stage_ui靠accept守卫才过）。修测试脚手架：登录改走`/#stage-editor`、加无handler的`navigate()`（菜单`data-view`显式切视图）、脏填后导航顺序（导航→再布`once-dismiss`，防误吃）、密码流加accept守卫（视图导航＋submit两处confirm）。r8 `PASS-ACTUAL-ROOT-FIXED-FALLBACK-UI-SCOPED`（8组，errors/outside双空，posts 5）。产品代码未动，他人WIP未碰；before.json未pin该测试文件，无需同步。
-- **trial重验（staged字节47e→28805的直接影响面）**：`trial_app_boot` attempt120（23 checks）与`trial_session` attempt12（169 checks）全绿。LSP五文件0 findings（1条`f4ba804b`内`ba`拼写误报，历史行未动）。`author_create`为mock注册表，无需改。
-
-## 40. A30阶段1-ledger分支（产品，kind已定）
-
-- **依据**：§36三问20261030已批复（屏障接受／kind先原型再定／阶段2外部口径）；阶段0原型（§38）已确立检查点语义，本轮定产品kind为`retirement-checkpoint` v1（本地可逆）。跨进程旧writer排空条件仍为生产前置 gate，单进程语义已按批复实现，文档 gate 保留。
-- **改动（`server/distributionledger.js`，未提交）**：新增`content_distribution_checkpoints`（5列）＋`content_distribution_enqueue_barrier`（2列）两表（CREATE IF NOT EXISTS）；`retireCheckpointInTxn`（仅已确认可退：未确认409、坏输入422、锚缺失／摘要碰撞／重复pin 409）；`entry`退休分支（最小身份凭证＋retired/checkpointDigest，不读chunks；保留分支逐字节严格不变）；`enqueueInTxn`重放遇退休返回最小deduped（不读chunks）＋屏障期间新enqueue 503（`DISTRIBUTION_ENQUEUE_PAUSED`，blocked优先）；`pauseEnqueue`／`resumeEnqueue`（只停新enqueue，next/confirm/锁不变）；`status`增`enqueuePaused`。`operationStatus`／`pendingForGame`／`confirmInTxn`（已确认走收据dedupe，无payload读）无需改。
-- **测试**：新`tools/verify_distribution_ledger_retirement.mjs` 11组绿（退役读chunk删除后仍返最小凭证、保留缺块仍CORRUPT、重放分支、双pin取新、屏障开关、blocked优先、22组外）；`distribution-ledger.mjs`夹具status期望补`enqueuePaused:false`；workerd schema断言重定5表/32列（+2表+7列，无新FK）；node 31组、workerd 30组+重启、`catalog_scan` 22组、stage-0原型、`publication_producer` 24组、`publication_server` 18组全绿。LSP四文件0 findings（push-only未确认，不称clean）。publisher/receipts/scan消费者迁移下轮。
-- **消费者迁移（本轮，未提交）**：`vps/distribution-receipts.mjs`新增`recoverRetired`——退休代收据验证：身份四字段＋payloadDigest＋rootDigest/ETag/visibleAt逐项核对，不读、无payload回传，旧收据验证路径保留；`vps/distribution-publisher.mjs`：`checkHead`退休分支（远端根摘要与pin锚四字段比对通过即确认，不门远端ETag；保留代沿原payload路径）、`predecessor`退休分支（返回最小凭证，不回退、不重建内容）；`vps/deletion-catalog-scan.mjs`（`inspectFrozenCatalogObjects`）：退休代只列最小身份（generation/operationId/kind/gameId/operationDigest/previousDigest/retired/checkpointDigest），不读不重建正文，`retiredGenerations`单独成段，跨游戏分区只由保留代current-runtime构成（空分区不建、不删改headRuntimeReferences），仍不授删除资格；`operationStatus`语义不变。
-- **消费者测试**：新`tools/verify_distribution_publisher_retirement.mjs` 6组绿（远端H=retired pin确认／篡改根拒／保留代原路径／predecessor最小凭证／旧键重放退休分支／屏障下drainOne暂停）；新`tools/verify_deletion_scan_retirement.mjs` 4组绿（双pin下retiredGenerations并集排序、跨游戏分区仅保留代构成、退休钥匙零贡献、零删除资格）；`catalog_scan` 22组、`producer` 24组回归绿。LSP七文件0 findings（push-only未确认）。证据矩阵交错/远端领先/检查点丢回执/清理竞态等场景与真实清理执行待后续轮次（清理退休正文本体、410/名称释放仍须闭包验证后开放，按既定门控）。
-- **证据矩阵场景2＋场景1（本轮，未提交）**：`retireCheckpointInTxn`增恢复锁门（blocked≠null一律503拒绝退休，屏障暂停不挡检查点写入；远端领先／缺失／外authority保既有锁不绕行），退休测试补被锁实例用例（11组仍绿）。交错场景：scan-retirement改三代交错（gen1 A旧／gen2 A进+OTHER现／gen3两游戏原样结转），退gen1后断言：分区仅保留代构成（GAME头K1经gen2+gen3结转、OTHER头K2，历史空），retained payload逐字节可解析且OTHER条目runtime键保持，旧键重放gen1走退休最小、gen2走保留全验证（5组绿）；运行时刻证明跨游戏同key在合法目录中不存在（runtime key按合同嵌入gameId/ordinal/releaseId），退休相关的共享是同一key被多个保留代引用。publisher-retirement补退休head的gameId/kind断言（6组绿）。回归：ledger31组、catalog22组、producer24组全绿；LSP三文件0 findings（push-only未确认）。
-- **证据矩阵场景3（本轮，未提交）**：退休测试补文件库重启段（13组绿）：pin随库持久，close/reopen后退休读/重放/摘要逐值可读；模糊提交重试同pin报409且pin表仅一行，恢复按实际读回推进。LSP单文件0 findings（push-only未确认）。剩余矩阵（清理竞态/备份恢复）须等真实清理执行；清理本体（退休正文删除+持久进度+幂等续清）与410/名称释放仍按门控排后。
-- **证据矩阵场景4-清理执行（本轮，未提交）**：`cleanRetiredChunksInTxn`（未知pin 404／坏输入422／非退休代409；幂等并集收敛，`deleted/remaining`进度）＋`completeRetiredCleanupInTxn`（逐代缺失读回＋非pin退休代豁免＋保留代逐代完整校验，缺块INCOMPLETE 409／保留损坏CORRUPT 503；重复关闭重验时间单调）。新库表`content_distribution_cleanup`（6列）；workerd schema断言重定6表/38列。退休测试18组绿；node31、workerd30+重启、catalog22、stage-0、producer24、server18全绿。LSP三文件0 findings（push-only未确认）。pi-lens delta层报184/211 `state`未使用×8次，经grep/sed/awk+cat -A/read工具/node --check六重取证为裸`this.#state();`调用、无声明残留（注释编辑后行号零漂移），系`#state`私有方法名误判＋快照冻结，实锤误报，不改正确代码。
-- **证据矩阵场景5-备份恢复（本轮，未提交）**：新`tools/verify_distribution_ledger_backup_restore.mjs` 7组绿（文件拷贝即备份；恢复后退役读仍最小凭证、保留代payload完整、他游戏完好、新enqueue+confirm可继续；缺pin／篡改pin均报CORRUPT拒绝复活）。实现中修复三处测试bug（同game连续publish致GAME_PENDING、先补clean/complete实参、deepEqual数组断言）；finally掩盖真实断言教训：调试改用catch透出真实错后再清场。LSP单文件0 findings（push-only未确认）。
-- **完成门评估＋备份清除机制（本轮，未提交，resume 1和2的可执行部分）**：新`tools/fixtures/deletion-completion-readiness.mjs`（`assessDeletionCompletion`：十要件逐项实证——writer排空/SQL清理/私有清除/名称释放/缓存清除/恢复排除为证据槽（缺即关），ledger退役覆盖验真pin＋`completeRetiredCleanupInTxn`收据形状，他游级联查活，备份清除验收据链；全过才开，无一默开）＋新`tools/verify_deletion_completion_readiness.mjs` 5组绿（现状门关＋缺件清单精确、篡改收据仍关、合成全证据对照开且标synthetic、既有`deleteAllowed:false`断言未动）；新`tools/fixtures/backup-purge.mjs`（清单核对＋删后读回验证＋冻结收据）＋新`tools/verify_backup_purge_local.mjs` 3组绿（篡改/多余文件拒清、删净验证、清后不可恢复；仅自有测试文件）。410/名称释放面不建（无实证开则为伪报，门控保持）。LSP四文件0 findings（push-only未确认）。
-- **pi-lens stale-flag留证**：delta层反复报`server/distributionledger.js:184/211 state未使用`＋备份测试`sha未使用`，经sed行级核对（两处皆裸`this.#state();`调用、无声明）、全文件`const state`六处皆被读（25处使用点）、备份文件全文无`sha`标识、`node --check`双过——实锤快照误报。本轮真问题（`cleaned`绑定、`rmSync`重导入、`code`断言）均即时修绿；误报文件正确代码一律不碰。
-- **证据矩阵清理竞态（本轮，未提交）**：新`tools/verify_distribution_ledger_cleanup_races.mjs` 6组绿（部分清理[1]/续清[2]并集收敛＋重复幂等；未删先关INCOMPLETE且态留in-progress；清理中他游新发布落地且保留、close-out计入；旧writer晚回放最小dedupe且零复活、tail不变；屏障下清理照常、新enqueue照停、resume后恢复；双pin交错独立关闭且entry取新pin）。实现中修测试两处（op4先用后声明致幽灵新代；gen4未确认致退役409——皆产品行为正确、测试编排错）。回归：retirement18/node31/catalog22/producer24全绿。LSP单文件0 findings（push-only未确认）。
-
-
-## 41. v0.1.9 完整提交与 Release（已推送 GitHub）
-
-- **授权**：用户明确要求审查全部已改动与未跟踪文件，保留产品代码／测试／迁移／必要文档，排除本地代理／运行产物，创建完整提交和 Release 并推送；Gitea 镜像不在本次目标内。
-- **审查**：347 项逐项分类（252 M＋95 ??），产品／测试／迁移／必要文档全留；排除项为空集（.dragon-analysis、editor-ui/node_modules 本就 ignored，无日志／截图／凭据混入）。240 份 JS/MJS node --check 全过；敏感值扫描仅命中 UI 标签，无凭据。
-- **版本**：VERSION 0.1.8→0.1.9，README／CHANGELOG 同步，新增 docs/release-v0.1.9.md。提交 278dc1b（335 文件，+46163/-6840，含新默认 28805 内容 56M＋entities-7e7fad），tag v0.1.9 已推 github main＋tag；gh 创建 Release 完成。不推 Gitea origin，不做线上部署验证。
-- **门控保持**：发布／管理／删除门 503，deleteAllowed false，410 不开；A30 阶段 2／A31 外部／跨窗口矩阵仍阻塞（fallback_ui r8 已通，不再列阻塞）。
+- **§34 专长低位采纳**：父 `47e358…` → 新默认 `28805…`／`19ef…`／`7e7fad`；`tools/install_editor_specialty_adoption.mjs` 原子切换（`SWITCHED-COHERENT-RELEASE`），正式证书 `a65127…`；2560 条 5 非零、24 改 14 不变；旧副本不迁移、不做兼容分派。
+- **§35 A30 消费者负控**：`verify_deletion_catalog_scan` 在待发单代账本上补 entry／next／enqueue 重放三路径负控，均报 `DISTRIBUTION_LEDGER_CORRUPT`，22 组。
+- **§36 A30 送审三问已批复**：①屏障只停新 enqueue、不新增解锁；②检查点 kind 先做阶段 0 原型再定；③阶段 2 为独立外部依赖。
+- **§37 备份页拒收＋采纳回归**：`public-player-browser` 补截半字节／异 gameId 两例拒收（主链 10／公开 App 12 项）；`editor_trusted_copy` 重注册 28805 元组、`editor_stage_source` 改直读 pinned 字节；stage_ui 走法比较后由 §39 解决，r73 PASS。
+- **§38 A30 阶段 0 原型**：`tools/fixtures/retirement-prototype.mjs`＋`verify_deletion_retirement_prototype`，7 组；确立「退休读只返最小身份、缺 chunks 不自动视为已退休」。
+- **§39 server pinned 跟进 28805（B-解耦）**：源→28805，library 冻结 47e 锚（`LIBRARY_BASE_REVISION`）；verifier 重定 pin（source_catalog／admin_copy／library_policy／fallback_rows／vps_trial）；`fallback_ui` r8 解阻塞（实为夹具默认视图问题，非他人 WIP）；trial boot 120／session 12 全绿。
+- **§40 A30 阶段 1**：`retirement-checkpoint` v1；`retireCheckpointInTxn`／`entry` 退休分支／重放退休分支／`pauseEnqueue`／`resumeEnqueue`／`cleanRetiredChunksInTxn`／`completeRetiredCleanupInTxn`；库表 6 表 38 列；证据矩阵场景 1–5（交错、恢复锁门、文件库重启、清理执行、备份恢复）＋清理竞态 6 组；完成门评估 10 要件 fail-closed＋备份清除。退休 18／node 31／workerd 30／catalog 22／producer 24／server 18 全绿。
+- **§41 v0.1.9 发布**：347 项分类审查、240 份语法、敏感值零命中；`278dc1b`（335 文件）＋tag v0.1.9 推 github；Gitea 不推。
 
 ## 42. 生产全量替换部署（2026-10-31，v0.1.9＋单席位门）
 
