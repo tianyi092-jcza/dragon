@@ -20,7 +20,11 @@ assert.equal(chapterCitiesProjection(configured)[0].cities[0].values.name, null)
 assert.deepEqual(configured.chapters[chapterId].state, base.chapters[chapterId].state);
 assert.deepEqual(chapterActiveGaps(configured.chapters[chapterId].state), chapterActiveGaps(base.chapters[chapterId].state));
 assert.equal(Object.keys(configured.cities).length, 192);
-assert.equal(Object.hasOwn(base.chapters[chapterId], 'cities'), false); groups++;
+// D1 materialize: a chapter always references all 192 game-level 据点 neutrally,
+// so the captured blank chapter now carries the key (was absent before D1).
+assert.equal(Object.hasOwn(base.chapters[chapterId], 'cities'), true);
+assert.equal(Object.keys(base.chapters[chapterId].cities).length, 192);
+assert.deepEqual(Object.values(base.chapters[chapterId].cities), Array.from({ length: 192 }, () => ({ factionId: null, overrides: {} }))); groups++;
 
 const rename = { op: 'rename', cityId, name: ' e\u0301𠀀 ' };
 const named = setCityDefinitionName(configured, cityId, rename.name);
@@ -37,7 +41,9 @@ const copyStep = step([], [{ op: 'copy', chapterId }]);
 copied = applyChapterCityEdit(copied, remove());
 const copyHistory = [step([set()]), step([], [], [rename]), copyStep, step([remove()])];
 verify(copied, copyHistory);
-assert.deepEqual(chapterCitiesProjection(copied).map(row => row.cities.length), [0, 1]);
+// copyChapterInGame deep-clones the source chapter, so the副本 inherits the full
+// 192-reference baseline while the源 chapter has one reference removed (D1).
+assert.deepEqual(chapterCitiesProjection(copied).map(row => row.cities.length), [191, 192]);
 assert.deepEqual(cityDefinitionChangeImpact(copied, cityId, '新名').affectedChapters, [{ chapterId: child, fields: ['name'] }]);
 const detached = structuredClone(copied); deleteChapter(detached, chapterId);
 verify(detached, [...copyHistory, step([], [{ op: 'delete', chapterId }])]);
@@ -46,9 +52,17 @@ assert.equal(chapterCitiesProjection(detached)[0].cities[0].cityId, cityId); gro
 const cleared = applyChapterCityEdit(configured, remove());
 verify(cleared, [step([set(), remove()])]);
 verify(applyChapterCityEdit(cleared, set()), [step([set(), remove(), set()])]);
-reject(cleared, [step([remove(), set()])]);
-reject(configured, [step()], 'COPY_PROTECTED_DELTA');
-reject(configured, [{ chapterEdits: [], generalEdits: [], peopleEdits: [] }], 'COPY_PROTECTED_DELTA');
+// D1: remove-then-set now replays to the neutral 192-reference baseline instead of
+// failing as an invalid history (the pre-D1 blank chapter had no cities key, so
+// `remove` was not configured). The rejection therefore surfaces as a
+// candidate-vs-replay delta, which is the more precise code.
+reject(cleared, [step([remove(), set()])], 'COPY_PROTECTED_DELTA');
+// D1: a neutral chapter-city set now equals the captured baseline (all 192
+// references are already present with factionId null), so it needs no step at
+// all. Keep the unprotected-delta coverage on a real game-level definition edit.
+verify(configured, [step()]);
+reject(named, [step()], 'COPY_PROTECTED_DELTA');
+reject(named, [{ chapterEdits: [], generalEdits: [], peopleEdits: [] }], 'COPY_PROTECTED_DELTA');
 const legacy = [{ chapterEdits: [], generalEdits: [], peopleEdits: [] }], oldBody = JSON.stringify(legacy);
 verify(base, legacy); assert.equal(JSON.stringify(legacy), oldBody); groups++;
 
@@ -58,7 +72,7 @@ for (const mutate of [g => { g.cities[cityId].x++; }, g => { g.chapters[chapterI
 const wrongTime = structuredClone(copied); wrongTime.chapters[child].cities = {};
 reject(wrongTime, copyHistory, 'COPY_PROTECTED_DELTA'); groups++;
 
-for (const command of [{ ...set(), cityId: 'missing' }, { ...set(), chapterId: 'missing' }, { ...set(), op: 'move' }, { ...set(), values: { factionId: null, overrides: { troops: 0 } } }, { ...set(), name: 'extra' }, { ...remove(), values: {} }]) reject(base, [step([command])]);
+for (const command of [{ ...set(), cityId: 'missing' }, { ...set(), chapterId: 'missing' }, { ...set(), op: 'move' }, { ...set(), values: { factionId: null, overrides: { troops: 0 } } }, { ...set(), name: 'extra' }, { ...remove(), values: {} }]) { reject(base, [step([command])]); }
 reject(base, [step(Array.from({ length: 17 }, () => set()))]);
 const sparse = []; sparse.length = 1;
 assert.throws(() => verify(base, [step(sparse)]));
@@ -76,4 +90,4 @@ for (const where of ['step', 'command', 'values', 'overrides']) {
 assert.equal(getters, 0);
 assert.throws(() => verify(base, [step([Object.assign(() => {}, set())])]));
 verify(configured, [step([set()])]); groups++;
-process.stdout.write(JSON.stringify({ groups, inputHashes: Object.keys(captured.provenance.inputHashes ?? {}).length, getters, scope: 'captured neutral chapter city history only; no HTTP, confirmation, native initialization or runtime grant' }) + '\n');
+process.stdout.write(`${JSON.stringify({ groups, inputHashes: Object.keys(captured.provenance.inputHashes ?? {}).length, getters, scope: 'captured neutral chapter city history only; no HTTP, confirmation, native initialization or runtime grant' })}\n`);
