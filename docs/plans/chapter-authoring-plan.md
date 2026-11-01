@@ -22,10 +22,10 @@
 
 | 项 | 状态 |
 |---|---|
-| 仓库 | `E:/Dragon/web-port`，HEAD `4995c8a`（据点属性归属收紧）＋`e5c158e`（§47.3 文档） |
-| 工作树 | 本计划落盘时提交，应保持干净 |
-| 已 PASS 的验证 | `verify_copy_publish_parity.mjs`（复制→上架→编译产物等价：terrain/roadCost/roadOffset 逐字节、roadGraph 语义一致、3840 格游戏级字段 0 漂移）、`verify_editor_city_definitions.mjs` 4/4、`verify_editor_game_quota.mjs`、`verify_pinned_source_registration.mjs` |
-| **已知红门** | `node tools/verify_editor_chapter_city_history.mjs` 在 HEAD 失败（D1 materialize 后 3 处口径过期）→ **第 1 步就是修它** |
+| 仓库 | `E:/Dragon/web-port`，HEAD `b2f9d84`（第 1–3 步已落地：`451a211` 修绿 chapter_city_history、`bb283dc` 章節 materialize、`b2f9d84` 新增章節） |
+| 工作树 | 应保持干净；本计划只记录范围/批次状态 |
+| 已 PASS 的验证 | `verify_copy_publish_parity.mjs`（复制→上架→编译产物等价）、`verify_editor_city_definitions.mjs` 4/4、`verify_editor_game_quota.mjs`、`verify_pinned_source_registration.mjs`、`verify_editor_chapter_materialize.mjs`（7 组）、`verify_editor_chapter_create.mjs`（4 组）、`verify_editor_copy_profile.mjs`、`verify_editor_template_profile.mjs`、`verify_editor_people_history.mjs`、`verify_editor_chapter_city_history.mjs`、`verify_editor_draft_controller.mjs` |
+| **已知红门（非本计划引入，未修）** | ① `verify_editor_chapter_cities.mjs`：「`sourceRef.kind='builtin-copy'` 应拒绝」一例不再抛错（`citydefinitions.js` 现无 profile 闸，属模型 C 后遗留口径）；② `verify_editor_authoring_context.mjs`：`installPublish` 未导出 `selectedGame`；③ `verify_editor_workbench_browser.mjs`：登录改密后 `#management-editor` 不可见（未走到章節段） |
 | 模板游戏形状 | `kind:'minimal'` 基线的空白章是**空壳**：`state.cities` 0 条、`state.factions` 0、`state.generals` 0、`state.start` 不存在；但 `chapters[cid].cities` 已有 192 条中立引用（D1） |
 | 五写在策略层 | `server/copyprofile.js` 的 `replayTemplateHistory` **尚未**接受 `start-date`／`city-faction`／`set-capital`／`general-faction`／`set-diplomat`；写入器本体已在 `gamesource.js` 存在（`setChapterStart`／`setChapterCityFaction`／`setFactionCapital`／`setChapterGeneralFaction`／`setFactionDiplomat`） |
 | 内置 20 章 | `original-1..4` ＋ 上／中／下／后 各 4 章；任何校验**不得**改写或阻断它们 |
