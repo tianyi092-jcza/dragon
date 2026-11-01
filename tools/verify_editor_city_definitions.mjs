@@ -26,7 +26,9 @@ test('invalid text, missing identity and unsupported chapter/native scope refuse
   const game = fixture(), before = structuredClone(game);
   for (const value of [null, undefined, 1, '', '   ', '\u0000', 'a\u007f', 'a\u0085', 'a\ud800']) assert.throws(() => setCityDefinitionName(game, 'city-0', value));
   for (const id of ['unknown', '__proto__', null]) assert.throws(() => setCityDefinitionName(game, id, '名'));
-  for (const mutate of [g => { g.sourceRef.kind = 'builtin-copy'; }, g => { g.gameId = 'wolong-builtin'; }, g => { g.chapters.first.state.cities.push({ idx: 0 }); }, g => { g.chapters.first.cities = { unknown: { factionId: null, overrides: {} } }; }, g => { g.cities['city-1'].runtimeSlot = 0; }, g => { g.cities['city-1'].x = 384; }, g => { g.cities['city-0'].force = 9; }, g => { g.cities['city-0'].name = ' e\u0301 '; }]) {
+  // `sourceRef.kind = 'builtin-copy'` 是合法状态（generaldefinitions.js:67 同时接受两种 builtin kind，
+  // 目标形态是工作台统一发布），不再列为拒绝用例；保留确实非法的 gameId／范围变异。
+  for (const mutate of [g => { g.gameId = 'wolong-builtin'; }, g => { g.chapters.first.state.cities.push({ idx: 0 }); }, g => { g.chapters.first.cities = { unknown: { factionId: null, overrides: {} } }; }, g => { g.cities['city-1'].runtimeSlot = 0; }, g => { g.cities['city-1'].x = 384; }, g => { g.cities['city-0'].force = 9; }, g => { g.cities['city-0'].name = ' e\u0301 '; }]) {
     const bad = structuredClone(game); mutate(bad); const copy = structuredClone(bad); assert.throws(() => setCityDefinitionName(bad, 'city-0', '名')); assert.deepEqual(bad, copy);
   }
   assert.deepEqual(game, before);
@@ -46,7 +48,7 @@ test('descriptor checks do not invoke getters; no hidden fields or prototype wri
   const result = setCityDefinitionName(own, '__proto__', '名'); assert.equal(Object.getPrototypeOf(result.cities), Object.prototype); assert.equal(Object.hasOwn(result.cities, '__proto__'), true); assert.equal(result.cities.__proto__.name, '名');
   assert.equal(reads, 0);
 });
-test('actual fixed template retains all 192 bindings/map/chapters and remains denied by existing save profile', async () => {
+test('actual fixed template retains all 192 bindings/map/chapters and still denies unrecorded content writes', async () => {
   const context = { gameId: G, ownerId: 'owned-fixture' };
   const loaded = await createPinnedCopyLoader({ kind: 'minimal' })(context), game = loaded.game;
   assert.equal(Object.keys(loaded.provenance.inputHashes).length, 41);
@@ -67,7 +69,13 @@ test('actual fixed template retains all 192 bindings/map/chapters and remains de
   const edit = { op: 'rename', cityId: id, name: '作者據點' };
   profile.verifyOrderedTemplate(captured.capability, named, [step([edit])]);
   const configured = applyChapterCityEdit(named, { op: 'set', chapterId: named.chapterOrder[0], cityId: id, values: { factionId: null, overrides: {} } });
-  assert.throws(() => profile.verifyOrderedTemplate(captured.capability, configured, [step([edit])]), error => error.code === 'COPY_PROTECTED_DELTA');
+  // D1（用户 2026-11）：新章创建即 materialize 全部据点引用为中立，因此重复写入同一中立值是
+  // 幂等而不是"未记录写入"，有序模板校验应当接受。
+  assert.equal(Object.keys(configured.chapters[named.chapterOrder[0]].cities).length, Object.keys(named.cities).length);
+  profile.verifyOrderedTemplate(captured.capability, configured, [step([edit])]);
+  // 真正改变内容、且没有对应历史步骤的章节据点操作仍必须拒绝（fail-closed 覆盖保留）。
+  const removed = applyChapterCityEdit(configured, { op: 'remove', chapterId: named.chapterOrder[0], cityId: id });
+  assert.throws(() => profile.verifyOrderedTemplate(captured.capability, removed, [step([edit])]), error => error.code === 'COPY_PROTECTED_DELTA');
   profile.verifyOrderedTemplate(captured.capability, decodeSourceChunks(encodeSourceChunks(named)), [step([edit])]);
   const later = setCityDefinitionName(named, id, '後續名稱');
   profile.verifyOrderedTemplate(captured.capability, later, [step([edit]), step([{ ...edit, name: '後續名稱' }])]);

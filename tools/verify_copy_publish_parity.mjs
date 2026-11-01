@@ -7,6 +7,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { register } from 'node:module';
+import { copyBuiltinGame } from '../web/src/content/authoring/gamesource.js';
+import { CITY_BASE_NUMBERS, CITY_CHAPTER_NUMBERS } from '../web/src/content/authoring/cityrecords.js';
+import { readInstalledEditorSource } from './editor_builtin_source.mjs';
 register('../vps/text-loader.mjs', import.meta.url);
 const { openStorage } = await import('../vps/sqlite-port.mjs');
 const { FileBucket } = await import('../vps/file-bucket.mjs');
@@ -144,6 +147,46 @@ try {
     }
   }
   checks.push({ check: 'compiledAssetsMatchBuiltin', compared });
+
+  // 游戏级基础资料（用户 2026-11）：据点固定属性跨章完全相同，章节不再各存一份。
+  const pure = copyBuiltinGame({ gameId: 'definitions-check', ownerId: 'local-fixture', kind: 'full', source: readInstalledEditorSource() }, sha);
+  const definitions = Object.values(pure.cities);
+  assert.equal(definitions.length, 192);
+  for (const city of definitions) {
+    assert.equal(typeof city.name === 'string' && city.name.length > 0, true, `据点 ${city.cityId} 缺少名称`);
+    for (const name of CITY_BASE_NUMBERS) assert.equal(Number.isSafeInteger(city[name]), true, `据点 ${city.cityId} 缺少 ${name}`);
+    for (const runtime of ['prod', 'troops']) assert.equal(Object.hasOwn(city, runtime), false, `定义不得存运行时值 ${runtime}`);
+  }
+  const bySlot = new Map(definitions.map((city) => [city.runtimeSlot, city]));
+  // 模型 C（用户 2026-11）：游戏级只保留原版 20 章完全一致的 max_prod/type/view；
+  // growth/defence/troops_cap 逐章不同，属章节初始化值，必须原样保留。
+  const slots = new Map(definitions.map((city) => [city.runtimeSlot, city]));
+  const chapterDrift = {}, baseDrift = {}, driftChapters = {};
+  let cellsCompared = 0;
+  for (const chapterId of pure.chapterOrder) {
+    let cells = 0;
+    for (const record of pure.chapters[chapterId].state.cities) {
+      const definition = slots.get(record.idx);
+      assert.ok(definition, `章 ${chapterId} 据点 ${record.idx} 无游戏级定义`);
+      for (const name of CITY_BASE_NUMBERS) {
+        if (Object.hasOwn(definition, name) && record[name] !== definition[name]) {
+          baseDrift[name] = (baseDrift[name] ?? 0) + 1;
+          cells += 1;
+        }
+      }
+      for (const name of CITY_CHAPTER_NUMBERS) {
+        if (Object.hasOwn(definition, name)) chapterDrift[name] = (chapterDrift[name] ?? 0) + 1;
+        else if (Object.hasOwn(record, name)) chapterDrift[name] = chapterDrift[name] ?? 0;
+      }
+      cellsCompared += 1;
+    }
+    if (cells) driftChapters[chapterId] = cells;
+  }
+  assert.deepEqual(baseDrift, {}, '游戏级字段必须跨章一致');
+  assert.deepEqual(driftChapters, {}, '不得有任何章改写游戏级字段');
+  assert.deepEqual(chapterDrift, { growth: 0, defence: 0, troops_cap: 0 },
+    '章节初始化值不得提升到游戏级定义');
+  checks.push({ check: 'cityDefinitionsAreGameLevel', cities: definitions.length, chapters: pure.chapterOrder.length, cellsCompared, baseNumbers: CITY_BASE_NUMBERS, chapterNumbers: CITY_CHAPTER_NUMBERS });
 
   process.stdout.write(JSON.stringify({ result: 'PASS-COPY-PUBLISH-PARITY', checks, calls }, null, 2) + '\n');
 } catch (error) {

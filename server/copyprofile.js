@@ -12,6 +12,9 @@ import { fail } from './security.js';
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
 export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
 export const FIXED_TEMPLATE_PROFILE = 'fixed-template-authoring-1';
+// Chapter-attribute writes a newly created chapter accepts (2026-11 user scope:
+// 年代／据点所属／首都／武将所属／职务). Everything else stays fail-closed.
+const BLANK_CHAPTER_WRITES = Object.freeze(['start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat']);
 function view(value) {
   if (!value || typeof value !== 'object') fail(422, 'COPY_STRUCTURE');
   const array = Array.isArray(value), proto = Object.getPrototypeOf(value);
@@ -247,7 +250,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         }
         lifetimes.delete(edit.chapterId);
       } else if (lifetime) {
-        if (edit?.op === 'rename' || lifetime.kind === 'copy' && ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op)) lifetime.indices.push(index);
+        if (edit?.op === 'rename' || ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op) && (lifetime.kind === 'copy' || BLANK_CHAPTER_WRITES.includes(edit.op))) lifetime.indices.push(index);
         else lifetime.blocked = true; // Unknown operations stay fail-closed.
       }
       if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op)) {
@@ -288,7 +291,10 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
   if (!revChapters || typeof revChapters !== 'object' || Array.isArray(revChapters)) fail(422, 'COPY_PROTECTED_DELTA');
   if (libraryRoots) normalizeLibraryRoots(baseline, reverted, libraryRoots);
   const baseChapter = (id) => {
-    const c = baseline.chapters?.[id];
+    // Chapters created inside this history have no pinned baseline entry. Their
+    // trusted creation-time snapshot is the revert base (never a copy of the
+    // candidate), so recorded authoring writes can be reversed exactly.
+    const c = baseline.chapters?.[id] ?? lineage.get(id);
     if (!c || typeof c !== 'object' || c.chapterId !== id) fail(422, 'COPY_PROTECTED_DELTA');
     return c;
   };

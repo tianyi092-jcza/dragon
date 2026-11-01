@@ -10,6 +10,7 @@
 import { validateMapSource } from "./mapcompile.js";
 import { deriveSlots } from "./roadedit.js";
 import { captureChapterCities } from "./cityrecords.js";
+import { CITY_BASE_NUMBERS } from "./cityrecords.js";
 import { factionNativeConsistencyGaps } from "./factionconsistency.js";
 
 export const GAMESOURCE_SCHEMA = 1;
@@ -250,6 +251,35 @@ export function copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex) {
   }
 
   if (kind === "full") {
+    // 游戏级基础资料（用户 2026-11 定 C，依原版证据）：只有 max_prod/type/view
+    // 在 20 章里完全一致，因此只有这三项归游戏级 `cities[]`；growth/defence/
+    // troops_cap 逐章不同，留在 chapter.state 作为章节初始化值，与 AI／经济引擎
+    // 逐章取值相关，不在这里拉平。取值来自原版第一章的原生记录，不发明默认值。
+    const base = chapters[0]?.state?.cities ?? [];
+    const bySlot = new Map(base.map((city) => [city.idx, city]));
+    for (const city of world.cities ?? []) {
+      const record = bySlot.get(city.index);
+      const definition = game.cities[city.id];
+      if (!record) throw new TypeError(`source chapter 1 lacks city slot ${city.index}`);
+      if (typeof record.name === "string" && record.name) definition.name = record.name;
+      for (const name of CITY_BASE_NUMBERS) {
+        if (!Object.hasOwn(record, name)) continue;
+        if (!Number.isSafeInteger(record[name]) || record[name] < 0 || record[name] > 65535)
+          throw new RangeError(`source city ${city.index} ${name} is out of range`);
+        definition[name] = record[name];
+      }
+    }
+    // 游戏级字段必须是章节无关常量：新固定源若在某章另有取值，必须停下核对，
+    // 而不是静默取第一章把差异抹平。
+    for (const chapter of chapters.slice(1)) {
+      for (const record of chapter.state.cities ?? []) {
+        const definition = game.cities[world.cities[record.idx].id];
+        for (const name of CITY_BASE_NUMBERS) {
+          if (Object.hasOwn(definition, name) && record[name] !== definition[name])
+            throw new RangeError(`source ${name} differs by chapter: ${chapter.id} slot ${record.idx}`);
+        }
+      }
+    }
     for (const chapter of chapters) {
       const newId = `${gameId}#${chapter.id}`;
       game.compatibility.idMap.chapters[chapter.id] = newId;
@@ -407,6 +437,13 @@ export function addBlankChapter(game) {
   if (!isPlainObject(game) || !isPlainObject(game.chapters) || !Array.isArray(game.chapterOrder)) throw new TypeError("game source required");
   const chapterId = freshChapterId(game, "custom");
   game.chapters[chapterId] = { chapterId, name: "新章节", state: { factions: [], generals: [], cities: [] } };
+  // D1 materialize: a new chapter references every game-level 据点 definition
+  // neutrally. Fixed attributes stay game-level; only ownership is per chapter.
+  if (isPlainObject(game.cities)) {
+    const cities = {};
+    for (const cityId of Object.keys(game.cities)) cities[cityId] = { factionId: null, overrides: {} };
+    if (Object.keys(cities).length) game.chapters[chapterId].cities = cities;
+  }
   game.chapterOrder.push(chapterId);
   return chapterId;
 }
