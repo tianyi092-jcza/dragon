@@ -10,6 +10,7 @@
 import { validateMapSource } from "./mapcompile.js";
 import { deriveSlots } from "./roadedit.js";
 import { captureChapterCities } from "./cityrecords.js";
+import { materializeChapterState } from "./chaptermaterialize.js";
 import { CITY_BASE_NUMBERS } from "./cityrecords.js";
 import { factionNativeConsistencyGaps } from "./factionconsistency.js";
 
@@ -433,7 +434,10 @@ function freshChapterId(game, stem) {
   while (game.chapters?.[id]) { n += 1; id = `${game.gameId}#${stem}-${n}`; }
   return id;
 }
-export function addBlankChapter(game) {
+// options { name, start }: 章節創作（Web 作者層）——帶 start 時一併產生章節態
+// （chaptermaterialize：固定源第 1 章同槽值），使新章立即可寫入據點／人物；
+// 不帶 options 時保持原「空殼」形狀，供固定副本結構回放等內部投影使用。
+export function addBlankChapter(game, options = {}) {
   if (!isPlainObject(game) || !isPlainObject(game.chapters) || !Array.isArray(game.chapterOrder)) throw new TypeError("game source required");
   const chapterId = freshChapterId(game, "custom");
   game.chapters[chapterId] = { chapterId, name: "新章节", state: { factions: [], generals: [], cities: [] } };
@@ -445,6 +449,8 @@ export function addBlankChapter(game) {
     if (Object.keys(cities).length) game.chapters[chapterId].cities = cities;
   }
   game.chapterOrder.push(chapterId);
+  if (options.start !== undefined) materializeChapterState(game, chapterId, options.start);
+  if (options.name !== undefined) renameChapter(game, chapterId, options.name);
   return chapterId;
 }
 export function copyChapterInGame(game, chapterId) {
@@ -546,7 +552,7 @@ export function editChapterCity(game, chapterId, cityIdx, values) {
   const captured = {};
   for (const key of keys) {
     const value = values[key], cap = key === "troops" ? record.troops_cap : record.max_prod;
-    if (typeof value !== "number" || !Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > cap) throw new RangeError("章節據點數值範圍不符：" + key);
+    if (typeof value !== "number" || !Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > cap) throw new RangeError(`章節據點數值範圍不符：${key}`);
     captured[key] = value;
   }
   if (keys.every(key => record[key] === captured[key])) return game;
@@ -729,7 +735,7 @@ function patchByte(raw, offset, value) {
 }
 // Patch the same byte in the declared record and in the fixed slot table. A
 // present but malformed source is refused rather than left silently stale.
-function writeSlotByte(state, table, index, record, offset, value) {
+function writeSlotByte(table, index, record, offset, value) {
   if (typeof record.raw === "string") record.raw = patchByte(record.raw, offset, value);
   if (!Array.isArray(table)) return;
   const raw = table[index];
@@ -740,7 +746,7 @@ function writeSlotByte(state, table, index, record, offset, value) {
 function writeFactionField(state, faction, field, value) {
   const [offset, sentinel] = FACTION_SLOT_BYTES[field];
   faction[field] = value;
-  writeSlotByte(state, state.nativeFactionSlotRaw, faction.idx, faction, offset, value === null ? sentinel : value);
+  writeSlotByte(state.nativeFactionSlotRaw, faction.idx, faction, offset, value === null ? sentinel : value);
 }
 export function setChapterStart(game, chapterId, values) {
   if (!isPlainObject(values)) throw new TypeError("chapter start values required");
@@ -754,7 +760,7 @@ export function setChapterStart(game, chapterId, values) {
       captured.era = value;
       continue;
     }
-    const max = key === "year" ? 0xffff : key === "month" ? 12 : 31;
+    const max = { year: 0xffff, month: 12, day: 31 }[key];
     if (!Number.isInteger(value) || Object.is(value, -0) || value < 1 || value > max) throw new RangeError(`chapter ${key} must be an integer in 1..${max}`);
     captured[key] = value;
   }
@@ -765,7 +771,7 @@ export function setChapterStart(game, chapterId, values) {
 export function setChapterCityFaction(game, chapterId, cityIdx, factionId) {
   const state = chapterState(game, chapterId), city = chapterCityRow(state, cityIdx);
   city.faction = factionValue(state, factionId);
-  writeSlotByte(state, state.nativeCityRecordRaw, cityIdx, city, CITY_OWNER_BYTE, city.faction === null ? CITY_NEUTRAL_BYTE : city.faction);
+  writeSlotByte(state.nativeCityRecordRaw, cityIdx, city, CITY_OWNER_BYTE, city.faction === null ? CITY_NEUTRAL_BYTE : city.faction);
 }
 // A faction keeps exactly one capital (chapterActiveGaps requires it to resolve),
 // so "not the capital" is expressed by marking another city, never by clearing.
@@ -835,7 +841,7 @@ export function disbandFaction(game, chapterId, factionIdx) {
     if (c?.faction !== factionIdx) continue;
     c.faction = null;
     // Same native owner byte as setChapterCityFaction; members stay neutral.
-    writeSlotByte(state, state.nativeCityRecordRaw, c.idx, c, CITY_OWNER_BYTE, CITY_NEUTRAL_BYTE);
+    writeSlotByte(state.nativeCityRecordRaw, c.idx, c, CITY_OWNER_BYTE, CITY_NEUTRAL_BYTE);
   }
   factions.splice(at, 1);
   // The dropped faction keeps its fixed slot bytes; only the declared view and

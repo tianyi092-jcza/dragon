@@ -62,7 +62,7 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
     const keys = ['op', 'instanceId', 'childIds'];
     if (!usedInstanceIds || Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
     view(edit.childIds);
-    const prefix = source.gameId + '#decoration-';
+    const prefix = `${source.gameId}#decoration-`;
     if (typeof edit.instanceId !== 'string' || !Array.isArray(edit.childIds) || edit.childIds.length < 2 || edit.childIds.length > 256 || new Set(edit.childIds).size !== edit.childIds.length || edit.childIds.some(id => typeof id !== 'string' || !id.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(id.slice(prefix.length)) || usedInstanceIds.has(id))) fail(422, 'COPY_MAP_DELTA');
     // The shared writer owns atom recipes, masks, water membership and exact
     // unknown-underlay covering references. Removed parent IDs stay reserved.
@@ -73,12 +73,12 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
   if (edit.op === 'decoration-place') {
     const keys = ['op', 'instanceId', 'materialId', 'variantRef', 'x', 'y', 'waterClass'];
     if (!usedInstanceIds || Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
-    const prefix = source.gameId + '#decoration-';
+    const prefix = `${source.gameId}#decoration-`;
     if (typeof edit.instanceId !== 'string' || !edit.instanceId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(edit.instanceId.slice(prefix.length)) || usedInstanceIds.has(edit.instanceId)) fail(422, 'COPY_MAP_DELTA');
     if (typeof edit.materialId !== 'string' || typeof edit.variantRef !== 'string' || !edit.variantRef || !Number.isSafeInteger(edit.x) || !Number.isSafeInteger(edit.y) || Object.is(edit.x, -0) || Object.is(edit.y, -0) || edit.waterClass !== null && (typeof edit.waterClass !== 'string' || !edit.waterClass)) fail(422, 'COPY_MAP_DELTA');
     // The common writer owns footprint, classification and group creation.
     // Track its generated group identity as well as all instance identities.
-    const groupId = 'group-' + edit.instanceId;
+    const groupId = `group-${edit.instanceId}`;
     if (edit.waterClass !== null && usedGroupIds.has(groupId)) fail(422, 'COPY_MAP_DELTA');
     const next = placeComponent(source, edit.materialId, edit.x, edit.y, edit.instanceId, edit.waterClass, edit.variantRef);
     usedInstanceIds.add(edit.instanceId);
@@ -115,7 +115,7 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
     if (edit.op === 'material-capture') keys = [...keys, 'memberIds', 'name'];
     else if (edit.op === 'material-rename') keys.push('name');
     if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
-    const prefix = source.gameId + '#material-';
+    const prefix = `${source.gameId}#material-`;
     if (typeof edit.materialId !== 'string' || !edit.materialId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(edit.materialId.slice(prefix.length))) fail(422, 'COPY_MAP_DELTA');
     let next;
     if (edit.op === 'material-capture') {
@@ -145,7 +145,8 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
     const splitting = edit.op === 'water-split';
     const keys = splitting ? ['op', 'sourceGroupId', 'groupId', 'memberIds', 'baseCells', 'name'] : ['op', 'groupIds', 'groupId', 'name', 'showOnMinimap'];
     if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
-    if (typeof edit.groupId !== 'string' || !edit.groupId.startsWith(source.gameId + '#water-') || !/^[a-f0-9]{64}$/.test(edit.groupId.slice((source.gameId + '#water-').length)) || usedGroupIds.has(edit.groupId)) fail(422, 'COPY_MAP_DELTA');
+    const waterPrefix = `${source.gameId}#water-`;
+    if (typeof edit.groupId !== 'string' || !edit.groupId.startsWith(waterPrefix) || !/^[a-f0-9]{64}$/.test(edit.groupId.slice(waterPrefix.length)) || usedGroupIds.has(edit.groupId)) fail(422, 'COPY_MAP_DELTA');
     let changed;
     if (splitting) {
       view(edit.memberIds); view(edit.baseCells);
@@ -193,6 +194,16 @@ function normalizeLibraryRoots(baseline, reverted, libraryRoots) {
   }
   reverted.generals = structuredClone(baseline.generals);
 }
+// 新增章節的未編輯內容（Web 作者層）：帶 start 的 add-blank 會一併產生章節態，
+// 「未經編輯的空白章」不再是空殼。期望值一律由同一個 writer 產生（含據點中立引用），
+// 否則形狀稍有差異就會誤判為越權內容。舊歷史（僅 op）只差沒有章節態。
+function blankChapterExpectation(baseline, chapterId, edit) {
+  const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, cities: baseline.cities, chapters: {}, chapterOrder: [] };
+  const generated = addBlankChapter(shell, edit?.start === undefined ? {} : { name: edit.name, start: edit.start });
+  const expected = shell.chapters[generated];
+  expected.chapterId = chapterId;
+  return expected;
+}
 function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = null) {
   let edits = Array.isArray(applied) ? applied : [];
   if (!edits.length) {
@@ -207,6 +218,8 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
   // Reversal below must not erase unauthorized ordering or generated-ID edits.
   // Reuse the authoring writers rather than invent another ID allocation rule.
   const createdNames = new Map(), copyOrigins = new Map(), lifetimes = new Map(), cancelled = new Set();
+  // add-blank 產生的章節 id → 其原始命令（判斷是舊空殼還是帶章節態的新章）。
+  const blankEdits = new Map();
   // Capture existing authoring writers at the instant of a copy.
   // Never derive this authority from the candidate or its provenance fields.
   const lineage = new Map(Object.entries(baseline.chapters)), copyBases = new Map(), nativeCities = new Map();
@@ -228,6 +241,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         }
         const id = edit.op === 'add-blank' ? addBlankChapter(structure) : copyChapterInGame(structure, edit.chapterId);
         createdNames.set(id, { name: structure.chapters[id].name });
+        if (edit.op === 'add-blank') blankEdits.set(id, edit);
         nativeCities.delete(id);
         if (edit.op === 'copy') {
           copyOrigins.set(id, copyOrigins.get(edit.chapterId) ?? edit.chapterId);
@@ -237,7 +251,9 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
           copyBases.set(id, copied); lineage.set(id, copied);
         } else {
           copyOrigins.delete(id); copyBases.delete(id);
-          lineage.set(id, { chapterId: id, name: '新章节', state: { factions: [], generals: [], cities: [] } });
+          lineage.set(id, edit.start === undefined
+            ? { chapterId: id, name: '新章节', state: { factions: [], generals: [], cities: [] } }
+            : blankChapterExpectation(baseline, id, edit));
         }
         lifetimes.set(id, { indices: [index], blocked: false, kind: edit.op });
       } else if (edit?.op === 'delete') {
@@ -543,7 +559,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     let isBlank = false;
     if (blanksRemaining > 0) {
       try {
-        compare({ chapterId: id, name: '新章节', state: { factions: [], generals: [], cities: [] } }, chapter, new WeakMap());
+        compare(blankChapterExpectation(baseline, id, blankEdits.get(id)), chapter, new WeakMap());
         isBlank = true;
         blanksRemaining--;
       } catch { /* Not the exact authorized empty authoring structure. */ }
@@ -651,7 +667,11 @@ function replayTemplateHistory(baseline, steps) {
       // A trusted history field does not by itself enable an HTTP command.
       for (const edit of step.chapterEdits) {
         view(edit); // Reject non-records before reading op (including functions).
-        if (edit.op === 'add-blank') { exact(edit, ['op']); addBlankChapter(expected); }
+        if (edit.op === 'add-blank') {
+          const editKeys = Object.keys(view(edit)).sort().join(',');
+          if (editKeys !== 'op' && editKeys !== 'name,op,start') fail(422, 'COPY_TEMPLATE_HISTORY');
+          addBlankChapter(expected, { name: edit.name, start: edit.start });
+        }
         else if (edit.op === 'copy' || edit.op === 'delete') {
           exact(edit, ['op', 'chapterId']);
           if (edit.op === 'copy') copyChapterInGame(expected, edit.chapterId);

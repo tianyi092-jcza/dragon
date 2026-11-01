@@ -13,7 +13,13 @@ const profile = new FixedCopyProfile({ loadCopy, profileRevision: FIXED_TEMPLATE
 const captured = await profile.capture(context), base = captured.game, first = base.chapterOrder[0];
 assert.equal(base.sourceRef.kind, 'builtin-template');
 assert.equal(base.chapterOrder.length, 1);
-assert.deepEqual(base.chapters[first], { chapterId: first, name: '第一章', state: { factions: [], generals: [], cities: [] } });
+// 模板基線的單一「第一章」由 addBlankChapter 產生：除章節態空殼外還帶 192 條中立
+// 據點引用（D1）。逐欄斷言而不整體比字面量，避免 writer 形狀擴充時失去意圖。
+assert.equal(base.chapters[first].name, '第一章');
+assert.deepEqual(Object.keys(base.chapters[first]).sort(), ['chapterId', 'cities', 'name', 'state']);
+assert.deepEqual(base.chapters[first].state, { factions: [], generals: [], cities: [] });
+assert.equal(Object.keys(base.chapters[first].cities).length, 192);
+assert.ok(Object.values(base.chapters[first].cities).every(ref => ref.factionId === null && Object.keys(ref.overrides).length === 0));
 assert.equal(Object.keys(base.cities).length, 192);
 assert.deepEqual(base.generals, {}); assert.equal(Object.hasOwn(base, 'sourceRecords'), false);
 assert.deepEqual(base.compatibility.slotBindings.generals, {});
@@ -59,11 +65,17 @@ const full = await createPinnedCopyLoader({ allocateEntityId: (() => { let n = 0
 assert.equal(full.game.sourceRef.kind, 'builtin-copy'); assert.equal(full.game.chapterOrder.length, 20);
 assert.ok(full.game.sourceRecords);
 assert.deepEqual(base.map, full.game.map);
-assert.deepEqual(base.cities, full.game.cities);
+// 模型 C：完整副本的 cities[] 另帶 name/max_prod/type/view（取自第 1 章原生記錄）；
+// 中立模板沒有章節原值可推導，只共享 cityId/runtimeSlot/x/y。因此比共同欄位，
+// 並斷言模板未被寫入任何基礎數值（chaptermaterialize 會回退到固定源同槽值）。
+const sharedCity = city => ({ cityId: city.cityId, runtimeSlot: city.runtimeSlot, x: city.x, y: city.y });
+assert.deepEqual(Object.values(base.cities).map(sharedCity), Object.values(full.game.cities).map(sharedCity));
+assert.ok(Object.values(base.cities).every(city => !['name', 'max_prod', 'type', 'view'].some(key => Object.hasOwn(city, key))));
+assert.ok(Object.values(full.game.cities).every(city => ['name', 'max_prod', 'type', 'view'].every(key => Object.hasOwn(city, key))));
 assert.deepEqual(base.componentDefinitions, full.game.componentDefinitions);
 assert.equal(Object.hasOwn(base, 'compatibilityAssets'), Object.hasOwn(full.game, 'compatibilityAssets'));
 assert.deepEqual(Object.getOwnPropertyDescriptor(base, 'compatibilityAssets')?.value, Object.getOwnPropertyDescriptor(full.game, 'compatibilityAssets')?.value);
 assert.deepEqual(captured.provenance.inputHashes, full.provenance.inputHashes);
 await assert.rejects(new FixedCopyProfile({ loadCopy: async () => full, profileRevision: FIXED_TEMPLATE_PROFILE }).capture(context), error => error.code === 'COPY_TEMPLATE_BASELINE'); checks++;
 await assert.rejects(new FixedCopyProfile({ loadCopy: async () => ({ game: base, provenance: captured.provenance }) }).capture(context), error => error.code === 'COPY_PROFILE_BASELINE'); checks++;
-process.stdout.write(JSON.stringify({ checks, inputs: 41, chapters: base.chapterOrder.length, scope: 'neutral authoring projection only; HTTP service tested separately; no native initializer/runtime admission' }) + '\n');
+process.stdout.write(`${JSON.stringify({ checks, inputs: 41, chapters: base.chapterOrder.length, scope: 'neutral authoring projection only; HTTP service tested separately; no native initializer/runtime admission' })}\n`);

@@ -36,7 +36,18 @@ function capture(input) {
   if (!Array.isArray(value.chapterEdits) || value.chapterEdits.length > 16) fail(422, 'DRAFT_CHAPTER_EDITS');
   for (const edit of value.chapterEdits) {
     if (!edit || typeof edit !== 'object' || Array.isArray(edit)) fail(422, 'DRAFT_CHAPTER_EDITS');
-    if (edit.op === 'add-blank') fields(edit, ['op']);
+    // §5 章節創作：add-blank 可攜章名與開始年代（一併產生章節態）；舊請求僅 op。
+    if (edit.op === 'add-blank') {
+      const keys = Object.keys(edit).sort().join(',');
+      if (keys !== 'op' && keys !== 'name,op,start') fail(422, 'DRAFT_CHAPTER_EDITS');
+      if (Object.hasOwn(edit, 'name') && (typeof edit.name !== 'string' || !edit.name.trim() || edit.name.length > 1024)) fail(422, 'DRAFT_CHAPTER_EDITS');
+      if (Object.hasOwn(edit, 'start')) {
+        const start = edit.start, startKeys = start && typeof start === 'object' && !Array.isArray(start) ? Object.keys(start) : null;
+        if (!startKeys?.length || startKeys.some(key => !['era', 'year', 'month', 'day'].includes(key))) fail(422, 'DRAFT_CHAPTER_EDITS');
+        for (const [key, max] of [['year', 0xffff], ['month', 12], ['day', 31]]) if (!Number.isInteger(start[key]) || Object.is(start[key], -0) || start[key] < 1 || start[key] > max) fail(422, 'DRAFT_CHAPTER_EDITS');
+        if (start.era !== undefined && !['bc', 'ad'].includes(start.era)) fail(422, 'DRAFT_CHAPTER_EDITS');
+      }
+    }
     else if (edit.op === 'copy' || edit.op === 'delete') { fields(edit, ['op', 'chapterId']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'rename') { fields(edit, ['op', 'chapterId', 'name']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || typeof edit.name !== 'string') fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'rename-general') { fields(edit, ['op', 'chapterId', 'generalIdx', 'values']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || !edit.values || typeof edit.values !== 'object' || Array.isArray(edit.values)) fail(422, 'DRAFT_CHAPTER_EDITS'); }
@@ -168,7 +179,7 @@ function capture(input) {
   for (const edit of value.resourceEdits) {
     fields(edit, ['chapterId', 'slot', 'values']);
     if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isSafeInteger(edit.slot) || edit.slot < 0 || edit.slot > 21) fail(422, 'DRAFT_RESOURCE_EDITS');
-    const k = edit.chapterId + ':' + edit.slot; if (seen.has(k)) fail(422, 'DRAFT_RESOURCE_EDITS'); seen.add(k);
+    const k = `${edit.chapterId}:${edit.slot}`; if (seen.has(k)) fail(422, 'DRAFT_RESOURCE_EDITS'); seen.add(k);
     if (!edit.values || Array.isArray(edit.values)) fail(422, 'DRAFT_RESOURCE_EDITS');
     const keys = Object.keys(edit.values); if (!keys.length || keys.some(k => !['money', 'reserve_cav', 'reserve_arc', 'reserve_inf'].includes(k) || !Number.isSafeInteger(edit.values[k]) || Object.is(edit.values[k], -0))) fail(422, 'DRAFT_RESOURCE_EDITS');
   }
@@ -179,7 +190,7 @@ function capture(input) {
 // without changing old request bodies or adding another persistent allocator.
 function resolveGeneralEdits(gameId, actorId, operationKey, edits = []) {
   return edits.map((edit, index) => {
-    if (edit.op === 'create') return { ...edit, generalId: gameId + '#general-' + hash(JSON.stringify(['dragon-general-definition-1', gameId, actorId, operationKey, index])) };
+    if (edit.op === 'create') return { ...edit, generalId: `${gameId}#general-${hash(JSON.stringify(['dragon-general-definition-1', gameId, actorId, operationKey, index]))}` };
     if (edit.op === 'update') return { op: edit.op, generalId: edit.generalId, values: edit.values };
     return edit;
   });
@@ -191,10 +202,10 @@ function resolveMapEdits(gameId, actorId, operationKey, edits = []) {
   return edits.map((edit, index) => {
     // Count is only an assertion: the common writer requires the exact variant
     // tile count. Every child identity is server-derived, also during replay.
-    if (edit.op === 'decoration-split') return { op: edit.op, instanceId: edit.instanceId, childIds: Array.from({ length: edit.childCount }, (_, childIndex) => gameId + '#decoration-' + hash(JSON.stringify(['dragon-decoration-child-1', gameId, actorId, operationKey, index, childIndex]))) };
-    if (edit.op === 'decoration-place') return { ...edit, instanceId: gameId + '#decoration-' + hash(JSON.stringify(['dragon-decoration-instance-1', gameId, actorId, operationKey, index])) };
-    if (edit.op === 'material-capture') return { ...edit, materialId: gameId + '#material-' + hash(JSON.stringify(['dragon-material-definition-1', gameId, actorId, operationKey, index])) };
-    if (['water-create', 'water-merge', 'water-split'].includes(edit.op)) return { ...edit, groupId: gameId + '#water-' + hash(JSON.stringify(['dragon-water-group-1', gameId, actorId, operationKey, index])) };
+    if (edit.op === 'decoration-split') return { op: edit.op, instanceId: edit.instanceId, childIds: Array.from({ length: edit.childCount }, (_, childIndex) => `${gameId}#decoration-${hash(JSON.stringify(['dragon-decoration-child-1', gameId, actorId, operationKey, index, childIndex]))}`) };
+    if (edit.op === 'decoration-place') return { ...edit, instanceId: `${gameId}#decoration-${hash(JSON.stringify(['dragon-decoration-instance-1', gameId, actorId, operationKey, index]))}` };
+    if (edit.op === 'material-capture') return { ...edit, materialId: `${gameId}#material-${hash(JSON.stringify(['dragon-material-definition-1', gameId, actorId, operationKey, index]))}` };
+    if (['water-create', 'water-merge', 'water-split'].includes(edit.op)) return { ...edit, groupId: `${gameId}#water-${hash(JSON.stringify(['dragon-water-group-1', gameId, actorId, operationKey, index]))}` };
     return edit;
   });
 }
@@ -229,7 +240,7 @@ export class PrivateDrafts {
     return origin;
   }
   #descriptor(gameId, reference) {
-    const prefix = 'private/' + gameId + '/', digest = reference.rootKey?.slice(prefix.length);
+    const prefix = `private/${gameId}/`, digest = reference.rootKey?.slice(prefix.length);
     if (typeof reference.rootKey !== 'string' || !reference.rootKey.startsWith(prefix) || !hex(digest)) fail(503, 'DRAFT_REFERENCE_CORRUPT');
     const object = this.#one("SELECT byte_length FROM copy_objects WHERE game_id=? AND sha256=? AND state='committed'", gameId, digest) ?? this.#one("SELECT byte_length FROM draft_objects WHERE game_id=? AND sha256=? AND state='committed'", gameId, digest);
     if (!object || !Number.isSafeInteger(object.byte_length)) fail(503, 'DRAFT_REFERENCE_CORRUPT');
@@ -264,7 +275,9 @@ export class PrivateDrafts {
     const parser = new CanonicalSourceParser(), decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }); let total = 0;
     for (const part of index.chunks) {
       fields(part, ['sha256', 'byteLength']);
-      if (!hex(part.sha256) || !Number.isSafeInteger(part.byteLength) || part.byteLength < 1 || part.byteLength > 4 * 1024 * 1024 || (total += part.byteLength) > 64 * 1024 * 1024) fail(503, 'DRAFT_REFERENCE_CORRUPT');
+      if (!hex(part.sha256) || !Number.isSafeInteger(part.byteLength) || part.byteLength < 1 || part.byteLength > 4 * 1024 * 1024) fail(503, 'DRAFT_REFERENCE_CORRUPT');
+      total += part.byteLength;
+      if (total > 64 * 1024 * 1024) fail(503, 'DRAFT_REFERENCE_CORRUPT');
       const actual = await this.#readBlob(tokenHash, gameId, part, actor);
       try { parser.feed(decoder.decode(actual.bytes, { stream: true })); } catch { fail(503, 'DRAFT_REFERENCE_CORRUPT'); }
     }
@@ -560,7 +573,7 @@ export class PrivateDrafts {
       // §4.5 chapter edits apply before verification (save-gate gaps refuse).
       for (const edit of value.chapterEdits) {
         try {
-          if (edit.op === 'add-blank') addBlankChapter(candidate);
+          if (edit.op === 'add-blank') addBlankChapter(candidate, { name: edit.name, start: edit.start });
           else if (edit.op === 'copy') copyChapterInGame(candidate, edit.chapterId);
           else if (edit.op === 'delete') deleteChapter(candidate, edit.chapterId);
           else if (edit.op === 'rename') renameChapter(candidate, edit.chapterId, edit.name);

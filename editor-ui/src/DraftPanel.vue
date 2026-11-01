@@ -92,7 +92,19 @@ function choose(event, actions, model) {
         </div>
       </div>
       <p v-if="!model.chapters.length" class="empty-state">尚未載入章節，或此修訂沒有章節。</p>
-      <ElButton :disabled="busy || model.editLocked" @click="actions.chapter('add-blank')">新增空白章節</ElButton>
+      <form id="draft-chapter-create" class="module-form" @submit.prevent="actions.createChapter()">
+        <h4>新增章節</h4>
+        <p id="draft-chapter-create-hint">{{ model.chapterCreate?.hint ?? '未提供新增章節狀態，不能視為可新增。' }}</p>
+        <label>章名<input id="draft-chapter-create-name" required maxlength="40" :value="model.chapterCreate?.name ?? ''" :disabled="busy || model.editLocked || !model.chapterCreate?.ready" @input="actions.setChapterCreateField('name', $event.target.value)"></label>
+        <label>紀年<select id="draft-chapter-create-era" :value="model.chapterCreate?.era ?? 'ad'" :disabled="busy || model.editLocked || !model.chapterCreate?.ready" @change="actions.setChapterCreateField('era', $event.target.value)"><option value="ad">公元</option><option value="bc">公元前</option></select></label>
+        <label>年<input id="draft-chapter-create-year" inputmode="numeric" maxlength="5" :value="model.chapterCreate?.year ?? ''" :disabled="busy || model.editLocked || !model.chapterCreate?.ready" @input="actions.setChapterCreateField('year', $event.target.value)"></label>
+        <label>月<input id="draft-chapter-create-month" inputmode="numeric" maxlength="2" :value="model.chapterCreate?.month ?? ''" :disabled="busy || model.editLocked || !model.chapterCreate?.ready" @input="actions.setChapterCreateField('month', $event.target.value)"></label>
+        <label>日<input id="draft-chapter-create-day" inputmode="numeric" maxlength="2" :value="model.chapterCreate?.day ?? ''" :disabled="busy || model.editLocked || !model.chapterCreate?.ready" @input="actions.setChapterCreateField('day', $event.target.value)"></label>
+        <ElButton id="draft-chapter-create-submit" type="primary" native-type="submit" :disabled="busy || model.editLocked || !model.chapterCreate?.ready">新增章節</ElButton>
+        <p>章名 trim／NFC 後最多 40 個碼點；年代只接受整數（年 1～65535、月 1～12、日 1～31）。
+          新增章節會帶入固定源第 1 章同槽據點記錄與 128 個武將槽，所屬勢力為空；地圖與據點基礎資料共用本遊戲，不另建地圖。
+          保存成功後清單才出現新章；缺口計數隨下次讀取更新。</p>
+      </form>
     </div>
     <ChapterRolesPanel :model="model" :actions="actions" :busy="busy" />
     <h3>章與四資源</h3>

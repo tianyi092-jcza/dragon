@@ -41,6 +41,9 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   // §7 chapter attributes: staged start-date text per chapter, saved as one
   // start-date command so a half-typed year is never persisted.
   const startInputs = new Map();
+  // §5 章節創作：新增章節表單（章名＋開始年代）。只存在本頁記憶體，保存時成為
+  // 一筆 add-blank 命令；章節 id 仍由服務端配置，前端不建立身份。
+  const chapterCreateInputs = { name: '', era: 'ad', year: '', month: '', day: '' };
   const nativeCitiesVisible = () => permitted() && nativeCities?.identity === identity && nativeCities.userId === identity.user.id && nativeCities.version === identity.version;
   const nativeCitiesReady = () => nativeCitiesVisible() && !badJournal && !attempt && loaded?.verifiedRead && nativeCities.source === loaded;  let baseTerrain = null, baseUnlocked = false, basePage = 0, decorLocked = false, mapLayer = 'decor';
   const basePageSize = 24;
@@ -50,6 +53,9 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   let minimap = null, mapWindow = null, mapScene = null, mapAtlas = null, decorationSelection = null;
   const currentFactionRoles = () => permitted() && !badJournal && !attempt && loaded?.verifiedRead && factionRoles?.source === loaded && factionRoles.identity === identity && factionRoles.userId === identity.user.id && factionRoles.version === identity.version;
   const attributesReady = () => currentFactionRoles() && nativeCitiesReady();
+  // 新章要帶入固定源第 1 章同槽據點記錄，因此需要本遊戲的基礎據點資料已就緒：
+  // 中立模板看 cityDefinitions/chapterCities，固定副本看 attributesReady 的兩份投影。
+  const chapterCreateReady = () => !badJournal && !attempt && loaded?.verifiedRead && (cityReady() || attributesReady());
   const selectionReady = () => minimapReady() && materialsReady();
   const currentSelection = () => selectionReady() && decorationSelection?.source === loaded && decorationSelection.identity === identity && decorationSelection.userId === identity.user.id && decorationSelection.version === identity.version;
   async function readDecorationSelection(x, y, width, height, mode = 'replace') {
@@ -347,6 +353,13 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
             generals: roles.generals.map(row => ({ slot: row.slot, name: row.name, hao: row.hao, factionSlot: row.factionSlot ?? null, reserved: row.reserved, posts: heldPosts(roles, row.slot) })),
             cities: cities.map(city => ({ idx: city.idx, name: city.name, faction: city.faction ?? null, governor: city.governor ?? null })) };
         }) : [],
+      },
+      chapterCreate: {
+        name: chapterCreateInputs.name, era: chapterCreateInputs.era, year: chapterCreateInputs.year, month: chapterCreateInputs.month, day: chapterCreateInputs.day,
+        ready: allowed && chapterCreateReady(), locked: locked || Boolean(attempt) || !chapterCreateReady(),
+        hint: chapterCreateReady()
+          ? '新增章節會帶入固定源第 1 章同槽的據點記錄（192 座中立、內政官空）與 128 個武將槽，所屬勢力為空；地圖與據點基礎資料共用本遊戲。'
+          : '需先載入含基礎據點資料（地圖／據點／武將）的精確修訂，才能新增章節。',
       },
       cities: { supported: allowed && cityDefinitions !== null, referencesKnown: allowed && chapterCities !== null, chapters: allowed && chapterCities ? structuredClone(chapterCities) : [], rows: allowed && cityDefinitions ? structuredClone(cityDefinitions) : [], locked: locked || !cityReady() || Boolean(attempt) },
       people: { supported: allowed && chapterPeople !== null, chapters: allowed && chapterPeople ? structuredClone(chapterPeople) : [], locked: locked || !definitionReady() || chapterPeople === null || Boolean(attempt) },
@@ -1423,10 +1436,40 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   }
   async function chapterAction(edit) {
     const actor = identity;
-    if (!await submitChapters([edit])) return;
+    if (!await submitChapters([edit])) return false;
     await load();
     if (identity === actor && permitted()) await refreshGames();
+    return true;
   }
+  function resetChapterCreate() { Object.assign(chapterCreateInputs, { name: '', era: 'ad', year: '', month: '', day: '' }); }
+  function setChapterCreateField(field, text) {
+    if (isBusy() || typeof text !== 'string' || !['name', 'era', 'year', 'month', 'day'].includes(field)) return;
+    if (field === 'era' && !['ad', 'bc'].includes(text)) return;
+    chapterCreateInputs[field] = text; generation++; render();
+  }
+  // 只在送出前組一次命令：名稱沿用章節改名同一套 trim＋NFC，年代只接受整數。
+  function chapterCreateRequest() {
+    const name = chapterCreateInputs.name.trim().normalize('NFC');
+    if (!name) throw new Error('請輸入章節名稱。');
+    const start = { era: chapterCreateInputs.era }, labels = { year: '年', month: '月', day: '日' }, limits = { year: 0xffff, month: 12, day: 31 };
+    for (const key of ['year', 'month', 'day']) {
+      const text = chapterCreateInputs[key].trim();
+      if (!/^[0-9]{1,5}$/.test(text)) throw new Error(`請以整數輸入開始${labels[key]}。`);
+      start[key] = Number(text);
+      if (start[key] < 1 || start[key] > limits[key]) throw new Error(`開始${labels[key]}須在 1～${limits[key]}。`);
+    }
+    return { op: 'add-blank', name, start };
+  }
+  function createChapter() {
+    return action(async () => {
+      if (!chapterCreateReady()) throw new Error('請先載入含基礎據點資料的精確修訂，才能新增章節。');
+      const edit = chapterCreateRequest();
+      if (!await chapterAction(edit)) return;
+      resetChapterCreate();
+      message = '已新增章節「' + edit.name + '」；據點與武將槽為固定源同槽值、所屬勢力為空，須自行設定勢力後才可試運行。';
+    });
+  }
+  // 舊呼叫路徑（僅 op）保留給既有歷史與相容測試；實際介面一律走 createChapter。
   function chapter(op, chapterId) {
     return action(async () => {
       if (op === 'add-blank') return chapterAction({ op });
@@ -1459,7 +1502,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       decorationSelection = null;
       message = '已清除窗口選取；素材勾選、位移錨點與輸入保持。';
       render();
-    }, takeDecorationSelection, decorationPick: (x, y) => action(() => readDecorationSelection(x, y, 1, 1, 'top')), decorationSelection: (x, y, width, height, mode) => action(() => readDecorationSelection(x, y, width, height, mode)), mapWindowStep: (dx, dy) => action(() => moveMapWindow(dx, dy, 'window')), mapWindowPan: (dx, dy) => action(() => moveMapWindow(dx, dy, 'tile')), locateInstance: instanceId => action(() => locateInstance(instanceId)), locateMinimapCell: (x, y) => action(() => locateMinimapCell(x, y)), redrawMapWindow: drawMapWindow, previewMapWindowPan, drawMaterialPreview, drawPlacementPreview, drawShiftPreview, mapAtlas: season => action(() => readMapAtlas(season)), mapScene: (x, y, width, height) => action(() => readMapWindow(x, y, width, height, '1111', true)), mapWindow: (x, y, width, height) => action(() => readMapWindow(x, y, width, height)), mapLayer: setMapLayer, decorLock: setDecorLocked, baseUnlock: setBaseUnlocked, basePage: setBasePage, baseFill: (cells, tile, geography) => action(() => submitBaseFill(cells, tile, geography)), removeInstances: selection => action(() => submitMaterial('decoration-remove', selection)), split: instanceId => action(() => submitMaterial('decoration-split', instanceId)), place: (materialId, variantRef, x, y, waterClass) => action(() => submitMaterial('decoration-place', materialId, { variantRef, x, y, waterClass })), reorder: (selection, direction) => action(() => submitMaterial('decoration-reorder', selection, { direction })), translate: (selection, dx, dy) => action(() => submitMaterial('decoration-translate', selection, { dx, dy })), material: (op, selection) => action(() => submitMaterial(op, selection)), chapterCity: (op, chapterId, cityId) => action(() => submitChapterCity(op, chapterId, cityId)), cityRename: cityId => action(() => renameCity(cityId)), minimap: () => action(readMinimap), redrawMinimap: drawMinimap, waterCreate: (memberIds, baseCells, visible) => action(() => submitWaterChange('water-create', null, visible, { memberIds, baseCells })), waterSplit: (groupId, memberIds, baseCells) => action(() => submitWaterChange('water-split', groupId, undefined, { memberIds, baseCells })), waterMerge: (groupIds, visible) => action(() => submitWaterChange('water-merge', groupIds, visible)), waterRename: groupId => action(() => submitWaterChange('water-rename', groupId)), waterVisibility: (groupId, visible) => action(() => submitWaterChange('water-visibility', groupId, visible)), person: (op, chapterId, generalId, included, field) => action(() => submitPerson(op, chapterId, generalId, included, field)), refresh: () => action(refreshGames), load: () => action(load), cancelEdits, save: () => action(() => submit()), query: () => action(query), retry: () => action(() => submit(true)), chooseGame, setField, setResource, chapter, trial, selectDefinition, setDefinitionField, chooseDefinitionPortrait, toggleImport, clearImportSelection, importGenerals: () => action(importGenerals), definitionPortraits: () => action(readDefinitionPortraits), saveDefinition: () => action(() => submitDefinition()), deleteDefinition: () => action(() => submitDefinition(true)) },
+    }, takeDecorationSelection, decorationPick: (x, y) => action(() => readDecorationSelection(x, y, 1, 1, 'top')), decorationSelection: (x, y, width, height, mode) => action(() => readDecorationSelection(x, y, width, height, mode)), mapWindowStep: (dx, dy) => action(() => moveMapWindow(dx, dy, 'window')), mapWindowPan: (dx, dy) => action(() => moveMapWindow(dx, dy, 'tile')), locateInstance: instanceId => action(() => locateInstance(instanceId)), locateMinimapCell: (x, y) => action(() => locateMinimapCell(x, y)), redrawMapWindow: drawMapWindow, previewMapWindowPan, drawMaterialPreview, drawPlacementPreview, drawShiftPreview, mapAtlas: season => action(() => readMapAtlas(season)), mapScene: (x, y, width, height) => action(() => readMapWindow(x, y, width, height, '1111', true)), mapWindow: (x, y, width, height) => action(() => readMapWindow(x, y, width, height)), mapLayer: setMapLayer, decorLock: setDecorLocked, baseUnlock: setBaseUnlocked, basePage: setBasePage, baseFill: (cells, tile, geography) => action(() => submitBaseFill(cells, tile, geography)), removeInstances: selection => action(() => submitMaterial('decoration-remove', selection)), split: instanceId => action(() => submitMaterial('decoration-split', instanceId)), place: (materialId, variantRef, x, y, waterClass) => action(() => submitMaterial('decoration-place', materialId, { variantRef, x, y, waterClass })), reorder: (selection, direction) => action(() => submitMaterial('decoration-reorder', selection, { direction })), translate: (selection, dx, dy) => action(() => submitMaterial('decoration-translate', selection, { dx, dy })), material: (op, selection) => action(() => submitMaterial(op, selection)), chapterCity: (op, chapterId, cityId) => action(() => submitChapterCity(op, chapterId, cityId)), cityRename: cityId => action(() => renameCity(cityId)), minimap: () => action(readMinimap), redrawMinimap: drawMinimap, waterCreate: (memberIds, baseCells, visible) => action(() => submitWaterChange('water-create', null, visible, { memberIds, baseCells })), waterSplit: (groupId, memberIds, baseCells) => action(() => submitWaterChange('water-split', groupId, undefined, { memberIds, baseCells })), waterMerge: (groupIds, visible) => action(() => submitWaterChange('water-merge', groupIds, visible)), waterRename: groupId => action(() => submitWaterChange('water-rename', groupId)), waterVisibility: (groupId, visible) => action(() => submitWaterChange('water-visibility', groupId, visible)), person: (op, chapterId, generalId, included, field) => action(() => submitPerson(op, chapterId, generalId, included, field)), refresh: () => action(refreshGames), load: () => action(load), cancelEdits, save: () => action(() => submit()), query: () => action(query), retry: () => action(() => submit(true)), chooseGame, setField, setResource, chapter, createChapter, setChapterCreateField, trial, selectDefinition, setDefinitionField, chooseDefinitionPortrait, toggleImport, clearImportSelection, importGenerals: () => action(importGenerals), definitionPortraits: () => action(readDefinitionPortraits), saveDefinition: () => action(() => submitDefinition()), deleteDefinition: () => action(() => submitDefinition(true)) },
     setIdentity, render, canLeave, gotoGame, selectedGame, adoptGame,
     canAdoptGame(gameId) { return permitted() && !badJournal && (!attempt || attempt.gameId === gameId); },
     savedContext() { return permitted() && loaded?.verifiedRead && !attempt && !badJournal ? { gameId: loaded.gameId, draftRevision: loaded.draftRevision, dirty: dirty() } : null; },
