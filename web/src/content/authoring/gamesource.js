@@ -109,14 +109,19 @@ export function chapterActiveGaps(state, chapterId = "?") {
     if (fa?.advisor_idx !== null && fa?.advisor_idx !== undefined && !gidx.has(fa.advisor_idx)) gaps.push({ code: "entity-ref", subject: label, message: `${label} advisor ${fa.advisor_idx} is unknown` });
     if (!cidx.has(fa?.capital)) gaps.push({ code: "entity-ref", subject: label, message: `${label} capital ${fa?.capital} is unknown` });
   }
-  // 首都必須屬本勢力（Web 作者層，2026-11 用戶裁決：「不可能把首都設置在別人據點」）。
-  // 內置章不套：原版有 8 個內置勢力的首都據點 +01 並不屬於該勢力，屬原始內容；
-  // 以 state._src（內置章來源標記，複製章沿用）豁免，不用遊戲身份判別。
+  // 首都必須屬本勢力，且一個據點只能被一個勢力當首都（Web 作者層，2026-11 用戶裁決：
+  // 「不可能把首都設置在別人據點」「一個首都據點只能被一個勢力所有，不共用」）。
+  // 內置章不套：原版 8 個內置勢力的首都據點 +01 並不屬於該勢力，且多個勢力共用
+  // 同一首都據點，屬原始內容；以 state._src（內置章來源標記，複製章沿用）豁免。
   if (!Object.hasOwn(state ?? {}, "_src")) {
     const owner = new Map(cities.map(c => [c?.idx, c?.faction ?? null]));
+    const claimed = new Map();
     for (const [i, fa] of factions.entries()) {
       if (fa?.capital === null || fa?.capital === undefined) continue;
-      if (owner.get(fa.capital) !== fa.idx) gaps.push({ code: "entity-ref", subject: `chapter ${chapterId} faction[${i}]`, message: `chapter ${chapterId} faction[${i}] capital ${fa.capital} is not owned by this faction` });
+      const label = `chapter ${chapterId} faction[${i}]`;
+      if (owner.get(fa.capital) !== fa.idx) gaps.push({ code: "entity-ref", subject: label, message: `${label} capital ${fa.capital} is not owned by this faction` });
+      if (claimed.has(fa.capital)) gaps.push({ code: "entity-ref", subject: label, message: `${label} capital ${fa.capital} is already the capital of faction[${claimed.get(fa.capital)}]` });
+      else claimed.set(fa.capital, i);
     }
   }
   gaps.push(...factionNativeConsistencyGaps(state, chapterId));

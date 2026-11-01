@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
-import { addBlankChapter, chapterActiveGaps, createFaction, disbandFaction, setChapterCityFaction, setFactionCapital } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, chapterActiveGaps, createFaction, disbandFaction, setChapterCityFaction, setFactionCapital, setFactionDiplomat, setMonarch, setStrategist } from '../web/src/content/authoring/gamesource.js';
 import { factionNativeConsistencyGaps } from '../web/src/content/authoring/factionconsistency.js';
 
 const START = { era: 'ad', year: 208, month: 11, day: 1 };
@@ -167,7 +167,17 @@ test('首都必須屬本勢力（2026-11 用戶裁決）：作者章強制、內
   // 把該據點歸給本勢力後缺口消失。
   setChapterCityFaction(game, chapterId, 12, 0);
   assert.deepEqual(chapterActiveGaps(state, chapterId), []);
-  // 內置章（state._src）不套此規則：原版 8 個內置勢力首都據點 +01 不屬於本勢力。
+  // 一個據點只能被一個勢力當首都（同批用戶裁決，不共用）：兩個作者勢力宣告同一首都 → 缺口。
+  const shared = blank();
+  createFaction(shared.game, shared.chapterId, { monarchIdx: 5 });
+  createFaction(shared.game, shared.chapterId, { monarchIdx: 6 });
+  setChapterCityFaction(shared.game, shared.chapterId, 12, 1);
+  setFactionCapital(shared.game, shared.chapterId, 0, 12);
+  setFactionCapital(shared.game, shared.chapterId, 1, 12);
+  const duplicated = chapterActiveGaps(shared.state, shared.chapterId).filter(gap => /already the capital/.test(gap.message));
+  assert.equal(duplicated.length, 1);
+  assert.match(duplicated[0].message, /capital 12 is already the capital of faction\[0\]/);
+  // 內置章（state._src）不套此規則：原版 8 個內置勢力首都據點 +01 不屬於本勢力，且多個勢力共用同一首都。
   const builtin = structuredClone(baseline), builtinId = builtin.chapterOrder[0];
   assert.equal(Object.hasOwn(builtin.chapters[builtinId].state, '_src'), true);
   const tampered = structuredClone(builtin);
@@ -175,4 +185,49 @@ test('首都必須屬本勢力（2026-11 用戶裁決）：作者章強制、內
   assert.deepEqual(chapterActiveGaps(tampered.chapters[builtinId].state, builtinId).filter(gap => /not owned/.test(gap.message)), []);
 });
 
-process.stdout.write(`${JSON.stringify({ tests: 6, scope: 'pinned full copy + minimal template only; no HTTP, save, native initialization or runtime grant' })}\n`);
+
+test('先驗後還原：職務命令只認「操作前快照＋同一 writer」或操作前原值', () => {
+  const id = baseline.chapterOrder[0], state = baseline.chapters[id].state;
+  const factionIdx = state.factions[0].idx;
+  const freeGeneral = state.generals.find(g => g.faction === null && g.idx !== 127);
+  assert.ok(freeGeneral);
+  const member = state.generals.find(g => g.faction === factionIdx && g.idx !== state.factions[0].monarch_idx);
+  assert.ok(member);
+  const flip = (raw, offset) => raw.slice(0, offset * 2) + (readByte(raw, offset) ^ 1).toString(16).padStart(2, '0') + raw.slice(offset * 2 + 2);
+  const verify = candidate => copyProfile.verify(captured.capability, candidate, ops);
+  const cases = [
+    { op: 'set-capital', keys: ['chapterId', 'factionIdx', 'cityIdx'], apply: g => setFactionCapital(g, id, factionIdx, 100),
+      tamper: g => { g.chapters[id].state.factions[0].capital = 101; }, byte: 3 },
+    { op: 'set-monarch', keys: ['chapterId', 'factionIdx', 'generalIdx'], apply: g => setMonarch(g, id, factionIdx, freeGeneral.idx),
+      tamper: g => { g.chapters[id].state.generals.find(x => x.idx === freeGeneral.idx).faction = state.factions[1].idx; }, byte: 1 },
+    { op: 'set-strategist', keys: ['chapterId', 'factionIdx', 'generalIdx'], apply: g => setStrategist(g, id, factionIdx, member.idx),
+      tamper: g => { g.chapters[id].state.factions[0].advisor_idx = null; }, byte: 2 },
+    { op: 'set-diplomat', keys: ['chapterId', 'factionIdx', 'generalIdx'], apply: g => setFactionDiplomat(g, id, factionIdx, member.idx),
+      tamper: g => { g.chapters[id].state.factions[0].diplomat_idx = state.factions[0].monarch_idx; }, byte: 0x2a },
+  ];
+  for (const item of cases) {
+    const edit = { op: item.op, chapterId: id, factionIdx, [item.keys[2]]: item.op === 'set-capital' ? 100 : (item.op === 'set-monarch' ? freeGeneral.idx : member.idx) };
+    const applied = structuredClone(baseline);
+    item.apply(applied);
+    // ① 同一 writer 的結果可回放
+    assert.equal(typeof copyProfile.verify(captured.capability, applied, [edit]).sourceDigest, 'string', item.op);
+    // ② 宣告了但未生效（仍是操作前原值）同樣可回放
+    assert.equal(typeof copyProfile.verify(captured.capability, structuredClone(baseline), [edit]).sourceDigest, 'string', `${item.op} no-op`);
+    // ③ 宣告欄位被改成第三種值 → 拒
+    const divergent = structuredClone(applied);
+    item.tamper(divergent);
+    assert.throws(() => copyProfile.verify(captured.capability, divergent, [edit]), e => e.code === 'COPY_PROTECTED_DELTA', `${item.op} field`);
+    // ④ 同一勢力的其他原生位元組被夾帶改動 → 拒（盲還原會吸收這種改動）
+    const smuggled = structuredClone(applied);
+    const table = smuggled.chapters[id].state.nativeFactionSlotRaw;
+    table[factionIdx] = flip(table[factionIdx], 0x20);
+    assert.throws(() => copyProfile.verify(captured.capability, smuggled, [edit]), e => e.code === 'COPY_PROTECTED_DELTA', `${item.op} byte`);
+    // ⑤ 記錄自身的位元組被夾帶改動 → 拒
+    const recordRaw = structuredClone(applied);
+    const record = recordRaw.chapters[id].state.factions.find(f => f.idx === factionIdx);
+    record.raw = flip(record.raw, 0x28);
+    assert.throws(() => copyProfile.verify(captured.capability, recordRaw, [edit]), e => e.code === 'COPY_PROTECTED_DELTA', `${item.op} record byte`);
+  }
+});
+
+process.stdout.write(`${JSON.stringify({ tests: 7, scope: 'pinned full copy + minimal template only; no HTTP, save, native initialization or runtime grant' })}\n`);

@@ -103,8 +103,8 @@ test('固定副本與模板歷史：登場／身份可回放，篡改與未知 o
     game => { game.chapters[chapterId].state.generals[4].status = 3; },
     game => { game.chapters[chapterId].state.generals[9].attr |= 0x80; },
   ];
-  // 已知共通限制（本次不改）：general-faction 等單欄 op 的回退是盲還原，
-  // 「宣告但未生效」與「未改動」不可區分；因此這裡不拿它當覆蓋證據。
+  // general-faction 現在走先驗後還原（見下一個 test）：宣告欄位必須整體等於
+  // 「操作前快照＋同一 writer」或操作前原值，第三種值一律拒。
   for (const tamper of tampers) {
     const broken = structuredClone(candidate);
     tamper(broken);
@@ -127,4 +127,25 @@ test('固定副本與模板歷史：登場／身份可回放，篡改與未知 o
   assert.throws(() => templateProfile.verify(template.capability, closed,
     [{ op: 'add-blank', name: '模板武將', start: START },
       { op: 'city-native', chapterId: closedId, cityIdx: 0, values: { troops: 1 } }]), error => error.code === 'COPY_PROTECTED_DELTA');
+});
+
+test('所屬勢力變更的先驗後還原：第三種值與夾帶改動都被拒', () => {
+  const id = baseline.chapterOrder[0], state = baseline.chapters[id].state;
+  const [from, to] = [state.factions[0].idx, state.factions[1].idx];
+  const mover = state.generals.find(g => g.faction === from && g.idx !== state.factions[0].monarch_idx);
+  assert.ok(mover);
+  const edit = { op: 'general-faction', chapterId: id, generalIdx: mover.idx, factionId: to };
+  const applied = structuredClone(baseline);
+  setChapterGeneralFaction(applied, id, mover.idx, to);
+  // ① 同一 writer 的結果可回放；② 宣告了但未生效（仍是原值）同樣可回放。
+  assert.equal(typeof copyProfile.verify(captured.capability, applied, [edit]).sourceDigest, 'string');
+  assert.equal(typeof copyProfile.verify(captured.capability, structuredClone(baseline), [edit]).sourceDigest, 'string');
+  // ③ 改成第三個勢力（既非期望值也非原值）→ 拒。
+  const divergent = structuredClone(applied);
+  divergent.chapters[id].state.generals.find(g => g.idx === mover.idx).faction = state.factions[2].idx;
+  assert.throws(() => copyProfile.verify(captured.capability, divergent, [edit]), e => e.code === 'COPY_PROTECTED_DELTA');
+  // ④ 同一武將的其他欄位被夾帶改動 → 拒。
+  const smuggled = structuredClone(applied);
+  smuggled.chapters[id].state.generals.find(g => g.idx === mover.idx).status = 3;
+  assert.throws(() => copyProfile.verify(captured.capability, smuggled, [edit]), e => e.code === 'COPY_PROTECTED_DELTA');
 });

@@ -223,6 +223,9 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
   // Capture existing authoring writers at the instant of a copy.
   // Never derive this authority from the candidate or its provenance fields.
   const lineage = new Map(Object.entries(baseline.chapters)), copyBases = new Map(), nativeCities = new Map();
+  // 每條命令的操作前快照（引用，不複製）：還原與「先驗後還原」都必須以它為基準，
+  // 不能拿固定基線冒充——同一批裡先前的命令（如解散勢力）已經改變過狀態。
+  const preOp = new Map();
   const structure = { gameId: baseline.gameId, chapterOrder: [...baseline.chapterOrder],
     chapters: Object.fromEntries(baseline.chapterOrder.map(chapterId => [chapterId, { chapterId }])) };
   try {
@@ -272,6 +275,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'set-diplomat'].includes(edit?.op)) {
         const chapter = lineage.get(edit.chapterId);
         if (!chapter) fail(422, 'COPY_PROTECTED_DELTA');
+        preOp.set(index, chapter);
         let shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [edit.chapterId], chapters: { [edit.chapterId]: structuredClone(chapter) } };
         if (edit.op === 'rename') renameChapter(shell, edit.chapterId, edit.name);
         else if (edit.op === 'rename-general') renameGeneral(shell, edit.chapterId, edit.generalIdx, edit.values);
@@ -389,35 +393,42 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     const origin = copyBases.get(chapterId) ?? baseChapter(chapterId);
     chapter.state.nativeCityRecordRaw = clone(origin.state.nativeCityRecordRaw);
   }
-  // Narrow field restore for one general / one faction post.
-  const revertGeneralFields = (chapterId, idx, keys) => {
-    const rec = revGeneral(revChapter(chapterId), idx), base = baseGeneral(chapterId, idx);
+  // Narrow field restore for one general / one faction post. `origin` is the
+  // state as of just before the operation (per-op snapshot), so an earlier op in
+  // the same batch cannot be mistaken for baseline content.
+  const originState = (chapterId, origin) => origin ?? copyBases.get(chapterId) ?? baseChapter(chapterId);
+  const revertGeneralFields = (chapterId, idx, keys, origin = null) => {
+    const rec = revGeneral(revChapter(chapterId), idx);
+    const source = originState(chapterId, origin);
+    const base = (source.state?.generals ?? []).find(g => g?.idx === idx) ?? baseGeneral(chapterId, idx);
     for (const key of keys) {
       if (base[key] === undefined) { delete rec[key]; }
       else rec[key] = clone(base[key]);
     }
   };
   // 盲還原會把未申報的改動一併吸收（與 create-faction 的驗證口徑對齊）。
-  // 一組欄位必須整體等於「建立時快照＋同一 writer」或整體等於建立時快照，
+  // 一組欄位必須整體等於「操作前快照＋同一 writer」或整體等於操作前快照，
   // 否則就是第三種值：拒。已被後續回退還原的欄位屬於第二種，因此重複操作仍可回放。
-  const revertGeneralWrite = (chapterId, generalIdx, keys, write) => {
-    const base = baseGeneral(chapterId, generalIdx), rec = revGeneral(revChapter(chapterId), generalIdx);
+  const revertGeneralWrite = (chapterId, generalIdx, keys, write, origin = null) => {
+    const source = originState(chapterId, origin);
+    const base = (source.state?.generals ?? []).find(g => g?.idx === generalIdx) ?? baseGeneral(chapterId, generalIdx);
+    const rec = revGeneral(revChapter(chapterId), generalIdx);
     const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId],
-      chapters: { [chapterId]: { chapterId, state: { generals: [clone(base)], factions: [] } } } };
-    write(shell);
+      chapters: { [chapterId]: { chapterId, state: { generals: [clone(base)], factions: clone(source.state?.factions ?? []) } } } };
+    try { write(shell); } catch { fail(422, 'COPY_PROTECTED_DELTA'); }
     const expected = shell.chapters[chapterId].state.generals[0];
     const matches = ref => keys.every(key => rec[key] === ref[key]);
     if (!matches(expected) && !matches(base)) fail(422, 'COPY_PROTECTED_DELTA');
-    revertGeneralFields(chapterId, generalIdx, keys);
+    revertGeneralFields(chapterId, generalIdx, keys, origin);
   };
   // Chapter attribute edits (§7) move one named field together with its fixed
   // native slot byte, so the reversal has to restore both. Byte offsets follow
   // nativefactions.decodeSlot (faction) and the city record +01 owner byte.
   const slotByte = (raw, offset) => typeof raw === 'string' ? Number.parseInt(raw.slice(offset * 2, offset * 2 + 2), 16) : null;
   const restoreByte = (raw, offset, value) => raw.slice(0, offset * 2) + value.toString(16).padStart(2, '0') + raw.slice(offset * 2 + 2);
-  const revertFactionByte = (chapterId, factionIdx, offset) => {
+  const revertFactionByte = (chapterId, factionIdx, offset, origin = null) => {
     const chapter = revChapter(chapterId), faction = revFaction(chapter, factionIdx);
-    const base = copyBases.get(chapterId) ?? baseChapter(chapterId);
+    const base = originState(chapterId, origin);
     const record = base.state?.factions?.find(f => f?.idx === factionIdx);
     if (!record || typeof record !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
     if (typeof faction.raw === 'string' && typeof record.raw === 'string') {
@@ -434,37 +445,89 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
   const FACTION_POST_BYTES = { monarch_idx: 1, advisor_idx: 2, capital: 3, diplomat_idx: 0x2a };
   // 同一段历史里新建的势力在原始快照中不存在：它的职务引用由 create-faction 自己写入，
   // 回放按逆序会把整条记录删掉，所以这些 op 不需要（也不能）从快照里找原值。
+  // 建立時快照裡不存在的勢力＝本歷史新建的：它的記錄由 create-faction 自己的回退
+  // 整條比對（含後續已申報的 set-capital），所以這裡刻意不看操作前快照。
   const baseHasFaction = (chapterId, factionIdx) => {
-    const base = copyBases.get(chapterId) ?? baseChapter(chapterId);
+    const base = originState(chapterId);
     return (base.state?.factions ?? []).some(f => f?.idx === factionIdx);
   };
-  const revertFactionPost = (chapterId, factionIdx, generalIdx, post) => {
-    const faction = revFaction(revChapter(chapterId), factionIdx);
-    const origin = copyBases.get(chapterId) ?? baseChapter(chapterId);
-    const base = origin.state?.factions?.find(f => f?.idx === factionIdx);
+  // 先驗後還原（與 create-faction／武將寫入同口徑）：命令擁有的宣告欄位、該勢力
+  // 記錄自身的原生位元組、以及 22 槽表的同位元組，都必須整體落在「操作前快照
+  // ＋同一 writer」或整體落在操作前快照上。第三種值一律拒，否則盲還原會把未申報
+  // 的改動一併吸收（宣告了但沒生效也無法區分）。
+  const revertFactionWrite = (chapterId, factionIdx, keys, write, generalIdxs = [], membership = null, origin = null) => {
+    const source = originState(chapterId, origin);
+    const base = source.state?.factions?.find(f => f?.idx === factionIdx);
     if (!base || typeof base !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
-    faction[post] = base[post] ?? null;
-    revertFactionByte(chapterId, factionIdx, FACTION_POST_BYTES[post]);
-    if (generalIdx !== null && generalIdx !== undefined) revertGeneralFields(chapterId, generalIdx, ['faction']);
+    const chapter = revChapter(chapterId), faction = revFaction(chapter, factionIdx), baseTable = source.state?.nativeFactionSlotRaw;
+    const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId],
+      chapters: { [chapterId]: { chapterId, state: { factions: [clone(base)], nativeFactionSlotRaw: clone(baseTable),
+        cities: clone(source.state?.cities ?? []),
+        generals: generalIdxs.map(idx => clone((source.state?.generals ?? []).find(g => g?.idx === idx) ?? baseGeneral(chapterId, idx))) } } } };
+    try { write(shell); } catch { fail(422, 'COPY_PROTECTED_DELTA'); }
+    const expected = shell.chapters[chapterId].state.factions[0], expectedTable = shell.chapters[chapterId].state.nativeFactionSlotRaw;
+    const offsets = keys.map(key => FACTION_POST_BYTES[key]);
+    const sameBytes = (left, right) => typeof left !== 'string' || typeof right !== 'string'
+      ? left === right : offsets.every(offset => left.slice(offset * 2, offset * 2 + 2) === right.slice(offset * 2, offset * 2 + 2));
+    const table = chapter.state?.nativeFactionSlotRaw;
+    const matches = (record, tableSource) => keys.every(key => (faction[key] ?? null) === (record[key] ?? null))
+      && sameBytes(faction.raw, record.raw)
+      && (!Array.isArray(table) || sameBytes(table[factionIdx], tableSource?.[factionIdx]));
+    if (!matches(expected, expectedTable) && !matches(base, baseTable)) fail(422, 'COPY_PROTECTED_DELTA');
+    // 君主同時把該武將納入勢力，那一欄也要落在期望值或原值上。
+    if (membership !== null) {
+      const general = revGeneral(chapter, membership);
+      const baseFaction = (source.state?.generals ?? []).find(g => g?.idx === membership)?.faction ?? null;
+      const expectedFaction = shell.chapters[chapterId].state.generals[0]?.faction ?? null;
+      if ((general.faction ?? null) !== expectedFaction && (general.faction ?? null) !== baseFaction) fail(422, 'COPY_PROTECTED_DELTA');
+    }
+    for (const key of keys) { if (base[key] === undefined) { delete faction[key]; } else { faction[key] = clone(base[key]); } }
+    for (const offset of offsets) revertFactionByte(chapterId, factionIdx, offset, origin);
+    if (membership !== null) revertGeneralFields(chapterId, membership, ['faction'], origin);
+  };
+  // 所屬勢力變更：只擁有 general.faction 一欄，但要先驗後還原——同一 writer 在
+  // 操作前快照上重建期望值，並用快照的勢力宣告讓 factionValue 照常把關。
+  const revertGeneralFaction = (chapterId, generalIdx, factionId, origin = null) => {
+    const source = originState(chapterId, origin);
+    const base = (source.state?.generals ?? []).find(g => g?.idx === generalIdx) ?? baseGeneral(chapterId, generalIdx);
+    const rec = revGeneral(revChapter(chapterId), generalIdx);
+    const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId],
+      chapters: { [chapterId]: { chapterId, state: { generals: [clone(base)], factions: clone(source.state?.factions ?? []) } } } };
+    try { setChapterGeneralFaction(shell, chapterId, generalIdx, factionId); } catch { fail(422, 'COPY_PROTECTED_DELTA'); }
+    const expected = shell.chapters[chapterId].state.generals[0].faction ?? null, baseFaction = base.faction ?? null;
+    if ((rec.faction ?? null) !== expected && (rec.faction ?? null) !== baseFaction) fail(422, 'COPY_PROTECTED_DELTA');
+    revertGeneralFields(chapterId, generalIdx, ['faction'], origin);
   };
   // Restore one city's chapter affiliation and its owner byte. +1A (old owner)
   // is original content and is never touched.
-  const revertCityFaction = (chapterId, idx) => {
-    const chapter = revChapter(chapterId), rec = revCity(chapter, idx), base = baseCity(chapterId, idx);
+  const revertCityFaction = (chapterId, idx, factionId, origin = null) => {
+    const source = originState(chapterId, origin);
+    const base = (source.state?.cities ?? []).find(c => c?.idx === idx) ?? baseCity(chapterId, idx);
+    const chapter = revChapter(chapterId), rec = revCity(chapter, idx);
+    // 先驗後還原：城記錄 +01 與兩份原生位元組必須整體落在「操作前快照＋同一
+    // writer」或整體落在操作前快照上，否則拒——盲還原會吸收未申報的改屬。
+    const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId],
+      chapters: { [chapterId]: { chapterId, state: { cities: [clone(base)], factions: clone(source.state?.factions ?? []) } } } };
+    try { setChapterCityFaction(shell, chapterId, idx, factionId); } catch { fail(422, 'COPY_PROTECTED_DELTA'); }
+    const expected = shell.chapters[chapterId].state.cities[0];
+    const table = chapter.state?.nativeCityRecordRaw, baseTable = source.state?.nativeCityRecordRaw;
+    const matches = (ref, refTable) => (rec.faction ?? null) === (ref.faction ?? null)
+      && (typeof rec.raw !== 'string' || typeof ref.raw !== 'string' ? rec.raw === ref.raw : rec.raw.slice(2, 4) === ref.raw.slice(2, 4))
+      && (!Array.isArray(table) || typeof table[idx] !== 'string' || typeof refTable?.[idx] !== 'string' ? table?.[idx] === refTable?.[idx] : table[idx].slice(2, 4) === refTable[idx].slice(2, 4));
+    if (!matches(expected, shell.chapters[chapterId].state.nativeCityRecordRaw) && !matches(base, baseTable)) fail(422, 'COPY_PROTECTED_DELTA');
     rec.faction = clone(base.faction ?? null);
     const byte = base.faction === null || base.faction === undefined ? 0x18 : base.faction;
     if (typeof base.raw === 'string' && slotByte(base.raw, 1) !== byte) fail(422, 'COPY_PROTECTED_DELTA');
     if (typeof rec.raw === 'string') rec.raw = restoreByte(rec.raw, 1, byte);
-    const table = chapter.state?.nativeCityRecordRaw;
     if (Array.isArray(table) && typeof table[idx] === 'string') table[idx] = restoreByte(table[idx], 1, byte);
   };
   // Disband revert: re-add the faction record (resource fields overlaid from
   // the candidate so same-batch resource edits keep flowing) and restore
   // only this faction's cleared membership from baseline. Never overwrite
   // unrelated affiliations: that would conceal an unauthorized transfer.
-  const revertDisband = (chapterId, factionIdx) => {
+  const revertDisband = (chapterId, factionIdx, origin = null) => {
     const chapter = revChapter(chapterId);
-    const base = copyBases.get(chapterId) ?? baseChapter(chapterId);
+    const base = originState(chapterId, origin);
     const record = base.state?.factions?.find(f => f?.idx === factionIdx);
     if (!record || typeof record !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
     if (!chapter.state.factions.some(f => f?.idx === factionIdx)) {
@@ -484,6 +547,13 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       } catch { fail(422, 'COPY_PROTECTED_DELTA'); }
       if (at < 0) chapter.state.factions.push(clone(restored));
       else chapter.state.factions.splice(at, 0, clone(restored));
+      // 先驗後還原：固定槽位元組必須整組等於「操作前快照＋期間保留的四項資源值」。
+      // 相等才復原（讓後續命令看到一致的記錄與位元組），否則就是未申報的改動。
+      const table = chapter.state.nativeFactionSlotRaw;
+      if (Array.isArray(table) && typeof table[factionIdx] === 'string' && typeof restored.raw === 'string') {
+        if (table[factionIdx] !== restored.raw) fail(422, 'COPY_PROTECTED_DELTA');
+        table[factionIdx] = clone(restored.raw);
+      }
     }
     const baseGenerals = new Map((base.state?.generals ?? []).map(g => [g?.idx, g]));
     for (const g of chapter.state?.generals ?? []) {
@@ -560,26 +630,30 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       if (base.portraitKey === undefined) { delete rec.portraitKey; }
       else rec.portraitKey = clone(base.portraitKey);
     } else if (op === 'set-monarch') {
-      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionPost(chapterId, edit.factionIdx, edit.generalIdx, 'monarch_idx');
+      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionWrite(chapterId, edit.factionIdx, ['monarch_idx'],
+        shell => setMonarch(shell, chapterId, edit.factionIdx, edit.generalIdx), [edit.generalIdx], edit.generalIdx, preOp.get(i));
     } else if (op === 'set-strategist') {
-      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionPost(chapterId, edit.factionIdx, null, 'advisor_idx');
+      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionWrite(chapterId, edit.factionIdx, ['advisor_idx'],
+        shell => setStrategist(shell, chapterId, edit.factionIdx, edit.generalIdx), edit.generalIdx === null ? [] : [edit.generalIdx], null, preOp.get(i));
     } else if (op === 'set-diplomat') {
-      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionPost(chapterId, edit.factionIdx, null, 'diplomat_idx');
+      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionWrite(chapterId, edit.factionIdx, ['diplomat_idx'],
+        shell => setFactionDiplomat(shell, chapterId, edit.factionIdx, edit.generalIdx), edit.generalIdx === null ? [] : [edit.generalIdx], null, preOp.get(i));
     } else if (op === 'set-capital') {
-      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionPost(chapterId, edit.factionIdx, null, 'capital');
+      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionWrite(chapterId, edit.factionIdx, ['capital'],
+        shell => setFactionCapital(shell, chapterId, edit.factionIdx, edit.cityIdx), [], null, preOp.get(i));
     } else if (op === 'city-faction') {
       if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191 || !('factionId' in edit)) fail(422, 'COPY_PROTECTED_DELTA');
-      revertCityFaction(chapterId, edit.cityIdx);
+      revertCityFaction(chapterId, edit.cityIdx, edit.factionId, preOp.get(i));
     } else if (op === 'general-faction') {
       if (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || !('factionId' in edit)) fail(422, 'COPY_PROTECTED_DELTA');
-      revertGeneralFields(chapterId, edit.generalIdx, ['faction']);
+      revertGeneralFaction(chapterId, edit.generalIdx, edit.factionId, preOp.get(i));
     } else if (op === 'general-active') {
       // 登場旗標是 attr 的 bit7，作者層視圖 active 同步回退；兩者永遠成對。
       if (typeof edit.active !== 'boolean') fail(422, 'COPY_PROTECTED_DELTA');
-      revertGeneralWrite(chapterId, edit.generalIdx, ['attr', 'active'], shell => setGeneralActive(shell, chapterId, edit.generalIdx, edit.active));
+      revertGeneralWrite(chapterId, edit.generalIdx, ['attr', 'active'], shell => setGeneralActive(shell, chapterId, edit.generalIdx, edit.active), preOp.get(i));
     } else if (op === 'general-status') {
       if (!Number.isInteger(edit.status)) fail(422, 'COPY_PROTECTED_DELTA');
-      revertGeneralWrite(chapterId, edit.generalIdx, ['status'], shell => setGeneralStatus(shell, chapterId, edit.generalIdx, edit.status));
+      revertGeneralWrite(chapterId, edit.generalIdx, ['status'], shell => setGeneralStatus(shell, chapterId, edit.generalIdx, edit.status), preOp.get(i));
     } else if (op === 'start-date') {
       const keys = Object.keys(edit.values ?? {});
       if (!keys.length || keys.some(k => k !== 'era' && k !== 'year' && k !== 'month' && k !== 'day')) fail(422, 'COPY_PROTECTED_DELTA');
@@ -592,13 +666,14 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     } else if (op === 'remove-monarch') {
       const resolution = edit.resolution;
       if (!resolution || typeof resolution !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
-      if (resolution.disband === true) { revertDisband(chapterId, edit.factionIdx); }
+      if (resolution.disband === true) { revertDisband(chapterId, edit.factionIdx, preOp.get(i)); }
       else {
         if (!Number.isInteger(resolution.successor)) fail(422, 'COPY_PROTECTED_DELTA');
-        revertFactionPost(chapterId, edit.factionIdx, resolution.successor, 'monarch_idx');
+        revertFactionWrite(chapterId, edit.factionIdx, ['monarch_idx'],
+          shell => setMonarch(shell, chapterId, edit.factionIdx, resolution.successor), [resolution.successor], resolution.successor, preOp.get(i));
       }
     } else if (op === 'disband-faction') {
-      revertDisband(chapterId, edit.factionIdx);
+      revertDisband(chapterId, edit.factionIdx, preOp.get(i));
     } else if (op === 'create-faction') {
       if (!Number.isInteger(edit.monarchIdx) || edit.monarchIdx < 0 || edit.monarchIdx > 127) fail(422, 'COPY_PROTECTED_DELTA');
       revertCreateFaction(chapterId, edit.monarchIdx);
