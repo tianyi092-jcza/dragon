@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { canonicalSourceTokens, encodeSourceChunks, decodeSourceChunks, CanonicalSourceParser } from '../web/src/content/authoring/sourcejson.js';
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
-import { addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setFactionDiplomat, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
 import { chapterGapReport } from './chaptergapreport.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionChangeImpact, chapterPeopleProjection, generalLibrarySupported } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit, chapterCitiesProjection, cityDefinitionChangeImpact } from '../web/src/content/authoring/citydefinitions.js';
@@ -63,6 +63,8 @@ function capture(input) {
     else if (edit.op === 'city-faction') { fields(edit, ['op', 'chapterId', 'cityIdx', 'factionId']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191 || edit.factionId !== null && (!Number.isInteger(edit.factionId) || edit.factionId < 0 || edit.factionId > 255)) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'set-capital') { fields(edit, ['op', 'chapterId', 'factionIdx', 'cityIdx']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21 || !Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'general-faction') { fields(edit, ['op', 'chapterId', 'generalIdx', 'factionId']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || edit.factionId !== null && (!Number.isInteger(edit.factionId) || edit.factionId < 0 || edit.factionId > 255)) fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    else if (edit.op === 'general-active') { fields(edit, ['op', 'chapterId', 'generalIdx', 'active']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || typeof edit.active !== 'boolean') fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    else if (edit.op === 'general-status') { fields(edit, ['op', 'chapterId', 'generalIdx', 'status']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || !Number.isInteger(edit.status) || Object.is(edit.status, -0) || edit.status < 0 || edit.status > 4) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'set-diplomat') { fields(edit, ['op', 'chapterId', 'factionIdx', 'generalIdx']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21 || (edit.generalIdx !== null && (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127))) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else fail(422, 'DRAFT_CHAPTER_EDITS');
   }
@@ -590,6 +592,8 @@ export class PrivateDrafts {
           else if (edit.op === 'city-faction') setChapterCityFaction(candidate, edit.chapterId, edit.cityIdx, edit.factionId);
           else if (edit.op === 'set-capital') setFactionCapital(candidate, edit.chapterId, edit.factionIdx, edit.cityIdx);
           else if (edit.op === 'general-faction') setChapterGeneralFaction(candidate, edit.chapterId, edit.generalIdx, edit.factionId);
+          else if (edit.op === 'general-active') setGeneralActive(candidate, edit.chapterId, edit.generalIdx, edit.active);
+          else if (edit.op === 'general-status') setGeneralStatus(candidate, edit.chapterId, edit.generalIdx, edit.status);
           else if (edit.op === 'set-diplomat') setFactionDiplomat(candidate, edit.chapterId, edit.factionIdx, edit.generalIdx);
           else disbandFaction(candidate, edit.chapterId, edit.factionIdx);
         } catch { fail(422, 'DRAFT_CHAPTER_EDIT'); }

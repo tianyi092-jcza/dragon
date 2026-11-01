@@ -7,14 +7,14 @@ import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
-import { addBlankChapter, copyChapterInGame, deleteChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setFactionDiplomat } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, copyChapterInGame, deleteChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat } from '../web/src/content/authoring/gamesource.js';
 import { fail } from './security.js';
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
 export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
 export const FIXED_TEMPLATE_PROFILE = 'fixed-template-authoring-1';
 // Chapter-attribute writes a newly created chapter accepts (2026-11 user scope:
 // 年代／势力（君主＋首都）／据点所属／武将所属／职务). Everything else stays fail-closed.
-const BLANK_CHAPTER_WRITES = Object.freeze(['start-date', 'create-faction', 'set-monarch', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat']);
+const BLANK_CHAPTER_WRITES = Object.freeze(['start-date', 'create-faction', 'set-monarch', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'set-diplomat']);
 function view(value) {
   if (!value || typeof value !== 'object') fail(422, 'COPY_STRUCTURE');
   const array = Array.isArray(value), proto = Object.getPrototypeOf(value);
@@ -266,10 +266,10 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         }
         lifetimes.delete(edit.chapterId);
       } else if (lifetime) {
-        if (edit?.op === 'rename' || ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op) && (lifetime.kind === 'copy' || BLANK_CHAPTER_WRITES.includes(edit.op))) lifetime.indices.push(index);
+        if (edit?.op === 'rename' || ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'set-diplomat'].includes(edit?.op) && (lifetime.kind === 'copy' || BLANK_CHAPTER_WRITES.includes(edit.op))) lifetime.indices.push(index);
         else lifetime.blocked = true; // Unknown operations stay fail-closed.
       }
-      if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op)) {
+      if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'set-diplomat'].includes(edit?.op)) {
         const chapter = lineage.get(edit.chapterId);
         if (!chapter) fail(422, 'COPY_PROTECTED_DELTA');
         let shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [edit.chapterId], chapters: { [edit.chapterId]: structuredClone(chapter) } };
@@ -285,6 +285,8 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         else if (edit.op === 'city-faction') setChapterCityFaction(shell, edit.chapterId, edit.cityIdx, edit.factionId);
         else if (edit.op === 'set-capital') setFactionCapital(shell, edit.chapterId, edit.factionIdx, edit.cityIdx);
         else if (edit.op === 'general-faction') setChapterGeneralFaction(shell, edit.chapterId, edit.generalIdx, edit.factionId);
+        else if (edit.op === 'general-active') setGeneralActive(shell, edit.chapterId, edit.generalIdx, edit.active);
+        else if (edit.op === 'general-status') setGeneralStatus(shell, edit.chapterId, edit.generalIdx, edit.status);
         else if (edit.op === 'set-diplomat') setFactionDiplomat(shell, edit.chapterId, edit.factionIdx, edit.generalIdx);
         else if (edit.op === 'city-native') {
           shell = editChapterCityNative(shell, edit.chapterId, edit.cityIdx, edit.values);
@@ -394,6 +396,19 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       if (base[key] === undefined) { delete rec[key]; }
       else rec[key] = clone(base[key]);
     }
+  };
+  // 盲還原會把未申報的改動一併吸收（與 create-faction 的驗證口徑對齊）。
+  // 一組欄位必須整體等於「建立時快照＋同一 writer」或整體等於建立時快照，
+  // 否則就是第三種值：拒。已被後續回退還原的欄位屬於第二種，因此重複操作仍可回放。
+  const revertGeneralWrite = (chapterId, generalIdx, keys, write) => {
+    const base = baseGeneral(chapterId, generalIdx), rec = revGeneral(revChapter(chapterId), generalIdx);
+    const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId],
+      chapters: { [chapterId]: { chapterId, state: { generals: [clone(base)], factions: [] } } } };
+    write(shell);
+    const expected = shell.chapters[chapterId].state.generals[0];
+    const matches = ref => keys.every(key => rec[key] === ref[key]);
+    if (!matches(expected) && !matches(base)) fail(422, 'COPY_PROTECTED_DELTA');
+    revertGeneralFields(chapterId, generalIdx, keys);
   };
   // Chapter attribute edits (§7) move one named field together with its fixed
   // native slot byte, so the reversal has to restore both. Byte offsets follow
@@ -558,6 +573,13 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     } else if (op === 'general-faction') {
       if (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || !('factionId' in edit)) fail(422, 'COPY_PROTECTED_DELTA');
       revertGeneralFields(chapterId, edit.generalIdx, ['faction']);
+    } else if (op === 'general-active') {
+      // 登場旗標是 attr 的 bit7，作者層視圖 active 同步回退；兩者永遠成對。
+      if (typeof edit.active !== 'boolean') fail(422, 'COPY_PROTECTED_DELTA');
+      revertGeneralWrite(chapterId, edit.generalIdx, ['attr', 'active'], shell => setGeneralActive(shell, chapterId, edit.generalIdx, edit.active));
+    } else if (op === 'general-status') {
+      if (!Number.isInteger(edit.status)) fail(422, 'COPY_PROTECTED_DELTA');
+      revertGeneralWrite(chapterId, edit.generalIdx, ['status'], shell => setGeneralStatus(shell, chapterId, edit.generalIdx, edit.status));
     } else if (op === 'start-date') {
       const keys = Object.keys(edit.values ?? {});
       if (!keys.length || keys.some(k => k !== 'era' && k !== 'year' && k !== 'month' && k !== 'day')) fail(422, 'COPY_PROTECTED_DELTA');
@@ -730,6 +752,11 @@ function replayTemplateHistory(baseline, steps) {
           exact(edit, ['op', 'chapterId', 'factionIdx', 'generalIdx']); setMonarch(expected, edit.chapterId, edit.factionIdx, edit.generalIdx);
         } else if (edit.op === 'set-capital') {
           exact(edit, ['op', 'chapterId', 'factionIdx', 'cityIdx']); setFactionCapital(expected, edit.chapterId, edit.factionIdx, edit.cityIdx);
+        } else if (edit.op === 'general-active') {
+          // 登场旗標＝attr bit7，与身份同为已批准的章節属性；其余原生位元组仍 closed。
+          exact(edit, ['op', 'chapterId', 'generalIdx', 'active']); setGeneralActive(expected, edit.chapterId, edit.generalIdx, edit.active);
+        } else if (edit.op === 'general-status') {
+          exact(edit, ['op', 'chapterId', 'generalIdx', 'status']); setGeneralStatus(expected, edit.chapterId, edit.generalIdx, edit.status);
         } else fail(422, 'COPY_TEMPLATE_HISTORY'); // Native fields remain closed.
       }
       for (const edit of step.generalEdits) {

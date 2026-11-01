@@ -784,6 +784,21 @@ export function setFactionCapital(game, chapterId, factionIdx, cityIdx) {
   chapterCityRow(state, cityIdx);
   writeFactionField(state, chapterFactionRow(state, factionIdx), "capital", cityIdx);
 }
+// 登場旗標是原版 G+00 attr 的 bit7（chapter-and-base-resources §2，实锤）；
+// `active` 只是同一事實的作者層視圖。兩者必須同步，否則會出現「宣告登場但原生
+// 位元組沒登場」的雙來源；attr 其餘位元保留原值（含 bit6 君主），不重算。
+export function setGeneralActive(game, chapterId, generalIdx, active) {
+  if (typeof active !== "boolean") throw new TypeError("general active flag must be boolean");
+  const general = generalByIdx(game, chapterId, generalIdx);
+  general.attr = active ? general.attr | 0x80 : general.attr & 0x7f;
+  general.active = active;
+}
+// G+17 身份：0 待命／1 軍團長／2 內政官／3 外交官／4 被俘。0–4 是作者輸入限制，
+// 不是 KI 值域推導；本寫入器不動所屬、任職、計數或任何原生位元組。
+export function setGeneralStatus(game, chapterId, generalIdx, status) {
+  if (!Number.isInteger(status) || Object.is(status, -0) || status < 0 || status > 4) throw new RangeError("general status must be an integer in 0..4");
+  generalByIdx(game, chapterId, generalIdx).status = status;
+}
 export function setChapterGeneralFaction(game, chapterId, generalIdx, factionId) {
   // generalByIdx keeps the reserved G127 slot out of ordinary affiliation, as
   // for the post writers; the reserved slot carries no chapter identity.

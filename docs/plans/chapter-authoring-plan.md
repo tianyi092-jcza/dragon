@@ -88,6 +88,16 @@
 - 需新增 `setGeneralStatus`（`+0x17`）写入器；128 槽分配策略先按「已出场武将按勾选顺序占槽」，并**写进合同**（这是 Web 决定，不是原版规则）。
 - 验收：`tools/verify_editor_chapter_generals.mjs` PASS（含 129 名超额拒绝、未定义势力拒绝、身份越界拒绝）。
 
+状态（2026-11）：写入器＋回放＋验证器已落地，槽位分配与 UI 待决。
+
+- 已交付：`setGeneralActive`（`attr` bit7＝登场，与作者层视图 `active` 同步）、`setGeneralStatus`（`G+17` 限 `0–4`）、
+  既有 `setChapterGeneralFaction` 复用；`general-active`／`general-status` 进入两条 profile 的章節属性白名单，
+  回退为「先验后还原」。`tools/verify_editor_chapter_generals.mjs` 5 组 PASS（含 G127 保留槽、非整数／越界、
+  未定义势力、任職中武将被拒、篡改拒绝）。
+- **未落地**：`128 槽按勾选顺序占槽`（§5.2 已拍板）与选君主／勾选出场 UI。原因：现槽内容是固定源第 1 章骨架，
+  真落槽要写姓名／头像／能力，且未勾选槽必须允许空姓名——`chapterSaveGaps` 目前要求 128 槽姓名非空。
+  需先裁决「未勾选槽可否空姓名」，否则只能保留骨架幽灵名字。因此验收清单里的「129 名超额拒绝」暂无可测对象。
+
 ### 第 6 步：据点章节属性＋试运行全量校验
 
 - 据点面：所属势力／中立／首都；首都只能有一个且必须属本势力。
