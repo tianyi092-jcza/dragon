@@ -25,7 +25,6 @@ export class GameDeletionFence {
   #assertFenceable(actor, captured) {
     const row = this.#target(actor, captured.gameId);
     if (this.#one('SELECT game_id FROM content_deletion_fences WHERE game_id=?', row.game_id)) { fail(409, 'GAME_DELETING'); }
-    if (row.listed !== 0) { fail(409, 'GAME_LISTED'); }
     if (row.row_revision !== captured.expectedRowRevision) { fail(409, 'GAME_CHANGED'); }
     if (captured.confirmationName !== row.draft_name) { fail(409, 'DELETE_CONFIRMATION'); }
     if (!this.#one('SELECT game_id FROM content_used_ids WHERE game_id=?', row.game_id)) { fail(503, 'DELETE_ID_CORRUPT'); }
@@ -106,7 +105,7 @@ export class GameDeletionFence {
       if (replayed) { return replayed; }
       const row = this.#assertFenceable(actor, captured);
       const next = String(BigInt(row.row_revision) + 1n), time = new Date().toISOString();
-      const updated = this.#one('UPDATE content_games SET row_revision=? WHERE game_id=? AND row_revision=? AND listed=0 RETURNING game_id', next, row.game_id, row.row_revision);
+      const updated = this.#one('UPDATE content_games SET row_revision=?, listed=0 WHERE game_id=? AND row_revision=? RETURNING game_id', next, row.game_id, row.row_revision);
       if (!updated) { fail(409, 'GAME_CHANGED'); }
       this.#sql.exec('INSERT INTO content_deletion_fences VALUES(?,?,?,?,?,?)', row.game_id, row.owner_id, actor.id, row.row_revision, next, time);
       this.#cascadeTrialsForGame(row.game_id);
@@ -127,8 +126,7 @@ export class GameDeletionFence {
       if (current.id !== actor.id || current.epoch !== actor.epoch || current.role !== actor.role) { fail(401, 'SESSION_INVALID'); }
       this.#guard(current.id, operationKey);
       const finalRow = this.#target(current, row.game_id);
-      if (finalRow.owner_id !== row.owner_id || finalRow.row_revision !== next || finalRow.listed !== 0) { fail(503, 'DELETE_RECEIPT_CORRUPT'); }
-      return this.#receipt(current, this.#one('SELECT * FROM content_deletion_operations WHERE actor=? AND op_key=?', actor.id, operationKey));
+      if (finalRow.owner_id !== row.owner_id || finalRow.row_revision !== next || finalRow.listed !== 0) { fail(503, 'DELETE_RECEIPT_CORRUPT'); }      return this.#receipt(current, this.#one('SELECT * FROM content_deletion_operations WHERE actor=? AND op_key=?', actor.id, operationKey));
     });
   }
   query(tokenHash, operationKey) {

@@ -292,7 +292,14 @@ try {
   check('advisor edit and captured copy commit as rev10', saved10.draftRevision === '10');
   const advisor10 = (await reopened.service.captureForCompile('h1', GAME, '10')).game;
   const expectedState = structuredClone(copy8.chapters[gch].state);
-  expectedState.factions.find(row => row.idx === advisorFaction.idx).advisor_idx = null;
+  const expectedFaction = expectedState.factions.find(row => row.idx === advisorFaction.idx);
+  expectedFaction.advisor_idx = null;
+  // The shared writer also writes the +02 advisor byte (0x7F sentinel) into the
+  // declared record and the fixed slot table, so the copy taken at that moment
+  // holds the synced raw, not only the named view.
+  const cleared = raw => raw.slice(0, 4) + '7f' + raw.slice(6);
+  if (typeof expectedFaction.raw === 'string') expectedFaction.raw = cleared(expectedFaction.raw);
+  if (typeof expectedState.nativeFactionSlotRaw?.[advisorFaction.idx] === 'string') expectedState.nativeFactionSlotRaw[advisorFaction.idx] = cleared(expectedState.nativeFactionSlotRaw[advisorFaction.idx]);
   check('copy retains complete state at advisor-edit time', [...canonicalSourceTokens(advisor10.chapters[advisor10.chapterOrder.at(-1)].state)].join('') === [...canonicalSourceTokens(expectedState)].join(''));
   check('restoring source advisor does not alter captured copy', [...canonicalSourceTokens(advisor10.chapters[gch])].join('') === [...canonicalSourceTokens(copy8.chapters[gch])].join(''));
   const roleChapter = advisor10.chapterOrder.at(-1), roleState = advisor10.chapters[roleChapter].state;

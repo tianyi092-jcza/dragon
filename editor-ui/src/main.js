@@ -1,5 +1,6 @@
 import { createApp, reactive } from 'vue';
 import 'element-plus/es/components/button/style/css';
+import 'element-plus/es/components/message-box/style/css';
 import 'element-plus/es/components/tag/style/css';
 import Workbench from './Workbench.vue';
 export { createAccountController } from './accounts.js';
@@ -7,7 +8,7 @@ export { createCopyController } from './copy.js';
 
 // The shell receives display facts only, never CSRF tokens, passwords, source
 // objects or live game state. Server permissions remain the authority.
-export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, mapview, catalog, generals, copy, publication, management, deletion }) {
+export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, mapview, catalog, generals, copy, fullCopy, publication, management, review, deletion }) {
   const state = reactive({ authenticated: false, mustChange: false, admin: false, account: '', view: null, busy: false, views });
   const accountsModel = reactive({ rows: [], loaded: false, stale: false, message: '', generation: 0 });
   const draftModel = reactive({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: true });
@@ -19,10 +20,13 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const catalogModel = reactive({categories:[],category:'portrait',filter:'',rows:[],total:0,loaded:false,message:'',loading:false});
   const generalsModel = reactive({games:[],chapters:[],generals:[],factions:[],library:[],locked:true,saveDisabled:true});
   const copyModel = reactive({name:'',introduction:'',games:[],locked:true,createDisabled:true,resume:false,message:''});
-  const publicationModel = reactive({games:[],versions:[],locked:true,publishDisabled:true,readDisabled:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
+  // B6 管理員「複製遊戲」：獨立控制器與模型，不與「新建遊戲」共用輸入或追蹤鍵。
+  const fullCopyModel = reactive({visible:false,name:'',introduction:'',message:'',locked:true,createDisabled:true,resume:false});
+  const publicationModel = reactive({rows:[],locked:true,refreshDisabled:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true,operation:'',result:'',message:''});
   const managementModel = reactive({games:[],locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
+  const reviewModel = reactive({ rows: [], message: '', result: '', locked: true, refreshDisabled: true });
   const deletionModel = reactive({games:[],admin:false,locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
-  const app = createApp(Workbench, { state, accountsModel, accounts, draftModel, draft, stageAssetsModel, stageAssets, stageJobsModel, stageJobs, libraryModel, library, strongholdModel, stronghold, mapviewModel, mapview, catalogModel, catalog, generalsModel, generals, copyModel, copy, publicationModel, publication, managementModel, management, deletionModel, deletion, navigate, logout });
+  const app = createApp(Workbench, { state, accountsModel, accounts, draftModel, draft, stageAssetsModel, stageAssets, stageJobsModel, stageJobs, libraryModel, library, strongholdModel, stronghold, mapviewModel, mapview, catalogModel, catalog, generalsModel, generals, copyModel, copy, fullCopyModel, fullCopy, publicationModel, publication, managementModel, management, reviewModel, review, deletionModel, deletion, navigate, logout });
   const instance = app.mount(root);
   return Object.freeze({
     accounts: model => Object.assign(accountsModel, model),
@@ -35,8 +39,10 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
     catalog: model => Object.assign(catalogModel, model),
     generals: model => Object.assign(generalsModel, model),
     copy: model => Object.assign(copyModel, model),
+    fullCopy: model => Object.assign(fullCopyModel, model),
     publication: model => Object.assign(publicationModel, model),
     management: model => Object.assign(managementModel, model),
+    review: model => Object.assign(reviewModel, model),
     deletion: model => Object.assign(deletionModel, model),
     accountDirty: () => instance.accountDirty(),
     mapInputs: () => instance.mapInputs(),

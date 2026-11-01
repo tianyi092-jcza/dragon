@@ -28,3 +28,9 @@ form{margin:18px 0}label{display:block;margin:16px 0;color:#53665a;font-size:13p
 .module-card .hint{font-size:12px;color:#86948a;margin:-4px 0 12px}
 #own-games>div{padding:12px 0;border-top:1px solid #e6ebe7}
 .resource-row .index{flex-shrink:0;width:34px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px;color:#9aa8a0}
+/* 工作台三層分組標籤與頂部「當前遊戲」選擇器（Web 產品決定 2026-11） */
+#menu .nav-label{margin:16px 18px 6px}
+#menu .nav-label:first-child{margin-top:0}
+.current-game{display:flex;align-items:center;gap:10px;margin-left:auto;font-size:13px;color:#5b6d62}
+.current-game select{min-height:34px;padding:6px 10px;max-width:300px}
+.current-game .el-button{margin:0}

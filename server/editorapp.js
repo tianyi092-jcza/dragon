@@ -10,7 +10,7 @@ import { OwnedRuntimeAssets } from './runtimeassets.js';
 import { installedSourcePolicy, installedAvailableLibraryPolicy } from './sourcecatalogpolicy.js';
 import availableLibraryManifest from './available-library.txt';
 import { AdminFullCopy } from './admincopy.js';
-import { FIXED_COPY_PROFILE } from './copyprofile.js';
+import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
 import { GameSnapshotVerifier } from './snapshots.js';
 import { PrivateDrafts } from './drafts.js';
 import { FixedCopyDataCompiler } from './datacompiler.js';
@@ -33,7 +33,7 @@ import { FrozenPublicationProducer } from './publicationproducer.js';
 import { PublishedPacks, RESERVED_ASSET_IDS } from './playpacks.js';
 import { GamePortraits } from './portraits.js';
 import { DraftTopology } from './topology.js';
-import { validateGameSource } from '../web/src/content/authoring/gamesource.js';
+import { validateGameSource, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
 import { compileTrialSource } from '../web/src/content/authoring/trialcompile.js';
 import worldManifest from './pinned/world-manifest.txt';
 import entityManifest from './pinned/entity-manifest.txt';
@@ -47,6 +47,7 @@ import libraryClient from './public/library.txt';
 import catalogClient from './public/catalog.txt';
 import managementClient from './public/management.txt';
 import publishClient from './public/publish.txt';
+import reviewClient from './public/review.txt';
 import strongholdClient from './public/stronghold.txt';
 import generalsClient from './public/general.txt';
 import mapviewClient from './public/mapview.txt';
@@ -98,6 +99,7 @@ function staticAsset(pathname) {
   if (pathname === '/catalog.js') { return { content: catalogClient, type: 'text/javascript' }; }
   if (pathname === '/management.js') { return { content: managementClient, type: 'text/javascript' }; }
   if (pathname === '/publish.js') { return { content: publishClient, type: 'text/javascript' }; }
+  if (pathname === '/review.js') { return { content: reviewClient, type: 'text/javascript' }; }
   if (pathname === '/stronghold.js') { return { content: strongholdClient, type: 'text/javascript' }; }
   if (pathname === '/general.js') { return { content: generalsClient, type: 'text/javascript' }; }
   if (pathname === '/mapview.js') { return { content: mapviewClient, type: 'text/javascript' }; }
@@ -109,6 +111,14 @@ function response(value, status = 200, token) {
   const h = new Headers(headers); h.set('Content-Type', 'application/json; charset=utf-8');
   if (token !== undefined) { h.set('Set-Cookie', `${COOKIE}=${token}; Path=/api; Secure; HttpOnly; SameSite=Strict${token ? '' : '; Max-Age=0'}`); }
   return new Response(JSON.stringify(value), { status, headers: h });
+}
+// 错误封包：结构化拒绝理由（detail，目前仅上架的全章引用清单）只随同类错误返回，
+// 成功响应与既有无 detail 的错误形状不变。
+function errorResponse(error) {
+  const status = error instanceof HttpError ? error.status : 500;
+  const code = error instanceof HttpError ? error.code : 'INTERNAL_ERROR';
+  const detail = error instanceof HttpError ? error.detail : undefined;
+  return response(detail === undefined ? { error: code } : { error: code, detail }, status);
 }
 function dto(user) { return { id: user.id, account: user.account, role: user.role, disabled: Boolean(user.disabled), mustChangePassword: Boolean(user.must_change), version: user.version, displayName: user.display_name ?? '', email: user.email ?? '', phone: user.phone ?? '', note: user.note ?? '' }; }
 // §4.6 optional profile fields: interface-length bounds only, content untouched.
@@ -189,7 +199,7 @@ return class EditorMetadata extends PlatformBase {
     // the canonical game object; any pending move blocks save/publish).
     this.topology = new DraftTopology({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games });
     this.trialSessions = null;
-    this.blobs = null; this.installedSources = null; this.adminCopies = null; this.authorCopies = null; this.privateDrafts = null; this.stageApi = null; this.availableLibrary = null; this.libraryAssets = null;
+    this.blobs = null; this.installedSources = null; this.adminCopies = null; this.authorCopies = null; this.privateDrafts = null; this.stageApi = null; this.availableLibrary = null; this.libraryBrowser = null; this.libraryAssets = null;
     if (env.EDITOR_BLOBS) {
       const maxBytes = env.EDITOR_BLOB_MAX_BYTES === undefined ? 16 * 1024 * 1024 : Number(env.EDITOR_BLOB_MAX_BYTES);
       // Optional per-owner game cap; unset keeps the historical unlimited behaviour.
@@ -203,12 +213,19 @@ return class EditorMetadata extends PlatformBase {
       runtimeAssets = new OwnedRuntimeAssets({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), games: this.games, policy, kind: 'visuals' });
       const libraryPolicy = installedAvailableLibraryPolicy(new TextEncoder().encode(availableLibraryManifest));
       this.availableLibrary = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy: libraryPolicy, operationGuard: (actor, key) => this.contentKey(actor.id, key, 'source') });
+      // 工作台級「系統資源」是唯讀瀏覽，合約上不限定管理員（沿用「新建遊戲」對
+      // admin／author 都開放的口徑）。單獨的唯讀目錄實例讓作者也能讀角色位元組，
+      // 而不放寬 availableLibrary 的安裝／登記權限（install 另有 admin 守衛）。
+      this.libraryBrowser = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy: libraryPolicy, readRole: ['admin', 'author'] });
       this.#bootstrapLibrary(env);
       copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, gameLimit });
       const authorSource = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, readRole: ['admin', 'author'] });
-      // Web 产品决定 2026-10-31：新建游戏对所有人开放，产出原游戏完整 20 章副本；
-    // 中立空壳模板（FIXED_TEMPLATE_PROFILE）不再产生新数据，历史行仍按各自 profile 读取。
-    this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['admin', 'author'], profileRevision: FIXED_COPY_PROFILE, gameLimit });
+      // Web 產品決定 2026-11（工作台結構合同 §2／批次 B6，取代 2026-10-31 的
+      // 「新建遊戲產出完整 20 章副本」）：工作台級「新建遊戲」只複製底層地圖
+      // （含據點），章節與武將庫為空（FIXED_TEMPLATE_PROFILE）；管理員「複製遊戲」
+      // 才整套複製（地圖＋章節＋武將），走既有 /api/admin/copies 完整副本管線。
+      // 兩種 profile 的歷史行仍各自按其 profile 讀取。
+      this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['admin', 'author'], profileRevision: FIXED_TEMPLATE_PROFILE, gameLimit });
       this.commandTargets = new HttpCommandTargets(ctx.storage, env.EDITOR_REQUEST_KEY);
       ctx.storage.transactionSync(() => this.sql.exec('CREATE TABLE IF NOT EXISTS copy_http_commands (actor TEXT NOT NULL, op_key TEXT NOT NULL, request_digest TEXT NOT NULL, auth_epoch INTEGER NOT NULL, PRIMARY KEY(actor,op_key))'));
       this.privateDrafts = new PrivateDrafts({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, blobs: this.blobs, definition: () => this.installedSources.definition(), operationGuard: (actor, key) => this.contentKey(actor, key, 'draft'),
@@ -292,7 +309,7 @@ return class EditorMetadata extends PlatformBase {
   insertSession(s, user) { this.sql.exec('INSERT INTO sessions VALUES(?,?,?,?,?)', s.hash, user.id, user.epoch, s.absolute, s.idle); }
   async fetch(request) {
     try { return await this.handle(request); }
-    catch (error) { return response({ error: error instanceof HttpError ? error.code : 'INTERNAL_ERROR' }, error instanceof HttpError ? error.status : 500); }
+    catch (error) { return errorResponse(error); }
   }
   #gateEntry(request, policy, url, method, path) {
     // Dual-domain: the bound play origin is welcome wherever the editor
@@ -401,6 +418,10 @@ return class EditorMetadata extends PlatformBase {
     const reference = this.games.snapshotReference(tokenHash, gameId, owned.draftRevision);
     const captured = await this.privateDrafts.captureForCompile(tokenHash, gameId, owned.draftRevision);
     if (captured.reference.rootKey !== reference.rootKey || captured.reference.sourceDigest !== reference.sourceDigest) { fail(503, 'PUBLISH_REFERENCE_CORRUPT'); }
+    // B8 全章匯總校驗：先列出「哪些章因基礎資料缺失而引用不到」，再跑結構／active 門。
+    // 順序必須先清單後通用錯誤，否則單一的 192 據點鎖訊息會蓋掉逐章原因。
+    const references = chapterReferenceReport(captured.game);
+    if (references.length) { fail(422, 'PUBLISH_CHAPTER_REFERENCES', { chapters: references }); }
     try { validateGameSource(captured.game); }
     catch { fail(422, 'PUBLISH_NOT_COMPILED'); }
     let compiled;
@@ -625,7 +646,7 @@ return class EditorMetadata extends PlatformBase {
   async #getResources(rt) {
     const { tokenHash, url, policy } = rt;
     if (url.search) { fail(422, 'RESOURCE_QUERY'); }
-    const roles = this.availableLibrary.resourceRoles();
+    const roles = this.libraryBrowser.resourceRoles();
     const category = path => {
       if (path.startsWith('kao/')) return 'portrait';
       if (path.startsWith('grf/') && path.endsWith('.png')) return 'image';
@@ -635,14 +656,14 @@ return class EditorMetadata extends PlatformBase {
     };
     const resources = roles.map(role => Object.freeze({ path: role.path, byteLength: role.byteLength, sha256: role.sha256, category: category(role.path) }));
     this.touch(tokenHash, policy);
-    return response({ mode: 'BUILTIN_READONLY', registryId: this.availableLibrary.definition().registryId, resources });
+    return response({ mode: 'BUILTIN_READONLY', registryId: this.libraryBrowser.definition().registryId, resources });
   }
   async #getResourceAsset(rt) {
     const { tokenHash, url, policy, request } = rt;
     if ([...url.searchParams.keys()].join(',') !== 'path') { fail(422, 'RESOURCE_QUERY'); }
     const path = url.searchParams.get('path');
     if (typeof path !== 'string' || !path) { fail(422, 'RESOURCE_QUERY'); }
-    const role = await this.availableLibrary.readRole(tokenHash, path);
+    const role = await this.libraryBrowser.readRole(tokenHash, path);
     const type = path.endsWith('.png') ? 'image/png'
       : path.endsWith('.woff2') ? 'font/woff2'
       : path.endsWith('.flac') ? 'audio/flac'
@@ -682,7 +703,9 @@ return class EditorMetadata extends PlatformBase {
     if (method === 'GET' && path === '/api/session') { this.touch(tokenHash, policy); return response({ user: dto(user), csrf }); }
     if (method === 'GET' && path === '/api/admin/accounts') { return this.#getAdminAccounts(rt); }
     if (method === 'GET' && path === '/api/games') { const games = this.games.listOwn(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
+    if (method === 'GET' && path === '/api/games/submissions') { const games = this.games.submissionSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/admin/games') { const games = this.games.managementSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
+    if (method === 'GET' && path === '/api/admin/reviews') { const games = this.games.adminSubmissionSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/admin/source') { return this.#getAdminSource(rt); }
     if (method === 'GET' && path === '/api/admin/library') { return this.#getAdminLibrary(rt); }
     if (method === 'GET' && path === '/api/resources') { return this.#getResources(rt); }
@@ -808,6 +831,16 @@ return class EditorMetadata extends PlatformBase {
       return response(await this.privateDrafts.readMapWindow(tokenHash, draftPath[1], url.searchParams.get('revision'), rectangle, layered ? url.searchParams.get('layers') : undefined));
     }
     if (draftPath[2] === 'minimap') { if ([...url.searchParams.keys()].join(',') !== 'revision') { fail(422, 'DRAFT_REVISION'); } this.touch(tokenHash, policy); return response(await this.privateDrafts.readMinimap(tokenHash, draftPath[1], url.searchParams.get('revision'))); }
+    // B8 全章匯總校驗的唯讀入口：修訂由服務端取當前已保存值，客戶端不能挑版本；
+    // 與上架共用同一 captureForCompile，因此摘要與 profile 口徑一致。不改資料、
+    // 不發 Trial、不寫收據，只回逐章問題清單。
+    if (draftPath[2] === 'chapter-references') {
+      if (url.search) { fail(422, 'DRAFT_REVISION'); }
+      const owned = this.games.listOwn(tokenHash).find(entry => entry.gameId === draftPath[1]);
+      if (!owned) { fail(404, 'GAME_NOT_FOUND'); }
+      this.touch(tokenHash, policy);
+      return response(await this.privateDrafts.chapterReferences(tokenHash, draftPath[1], owned.draftRevision));
+    }
     if (!draftPath[2]) { if ([...url.searchParams.keys()].join(',') !== 'revision') { fail(422, 'DRAFT_REVISION'); } this.touch(tokenHash, policy); return response(await this.privateDrafts.read(tokenHash, draftPath[1], url.searchParams.get('revision'))); }
     if (draftPath[3]) { this.touch(tokenHash, policy); return response(this.privateDrafts.query(tokenHash, draftPath[1], draftPath[3])); }
     return null;
@@ -891,6 +924,20 @@ return class EditorMetadata extends PlatformBase {
       return result;
     }));
   }
+  // B3 上架審核 (Web product decision 2026-11): 同意 goes through the existing
+  // admin listing route; this route records the rejection decision only.
+  async #postReview(rt) {
+    const { request, tokenHash, user, policy, url, value, reviewPath } = rt;
+    if (url.search) { fail(422, 'REVIEW_QUERY'); }
+    fields(value, ['action', 'expectedRowRevision']);
+    if (value.action !== 'reject') { fail(422, 'REVIEW_ACTION'); }
+    if (user.role !== 'admin') { fail(403, 'ADMIN_REQUIRED'); }
+    // Key format and cross-namespace conflicts are enforced by GameManagement#keySpace
+    // (the same guard every admin management operation uses); no second namespace here.
+    this.touch(tokenHash, policy);
+    const op = await this.operation(request, value, user.id, user.epoch, policy);
+    return response(this.management.reject(tokenHash, op, { gameId: reviewPath[1], expectedRowRevision: value.expectedRowRevision }));
+  }
   // §4.1/Q43 game deletion (fence-only): begin needs name confirmation;
   // listed games refuse (GAME_LISTED); builtin and others' games refused.
   async #postDeletion(rt) {
@@ -901,9 +948,13 @@ return class EditorMetadata extends PlatformBase {
     this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'delete');
     return response(this.ctx.storage.transactionSync(() => {
       const gameId = deletionPath[1], before = this.one('SELECT game_id FROM content_deletion_fences WHERE game_id=?', gameId);
+      // B3 §6 任何狀態可刪：已上架的刪除同時將 listed 置 0（deletionfence 內），
+      // 公告讀取按 listed 過濾，但仍需推進 registry revision 讓玩家端重讀目錄。
+      const listed = Number(this.one('SELECT listed FROM content_games WHERE game_id=?', gameId)?.listed) === 1;
       const recordDistribution = this.publicationProducer ? () => this.#recordPublication('delete-fence', gameId) : undefined;
       const result = this.deletionFence.begin(tokenHash, request.headers.get('Idempotency-Key'), { gameId, expectedRowRevision: value?.expectedRowRevision, confirmationName: value?.confirmationName }, recordDistribution);
       if (!this.publicationProducer && !before) { this.#recordPublication('delete-fence', gameId); }
+      if (listed && result.state === 'fenced') { this.announcements.bumpRegistryInTxn(); }
       return result;
     }));
   }
@@ -1034,8 +1085,9 @@ return class EditorMetadata extends PlatformBase {
     return response({ ...(await this.availableLibrary.install(tokenHash, staged.registryId, staged.root, request.headers.get('Idempotency-Key'))), mode: 'STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE', unresolvedReferences: 20 });
   }
   async #postEntryRoutes(rt) {
-    const { request, tokenHash, user, policy, url, path, value, managementPath, deletionPath, stagePath, copyPath, authorCopyPath, draftPath } = rt;
+    const { request, tokenHash, user, policy, url, path, value, managementPath, reviewPath, deletionPath, stagePath, copyPath, authorCopyPath, draftPath } = rt;
     if (managementPath) { return this.#postManagement(rt); }
+    if (reviewPath) { return this.#postReview(rt); }
     if (deletionPath) { return this.#postDeletion(rt); }
     if (stagePath) {
       if (url.search) { fail(422, 'STAGE_QUERY'); }
@@ -1176,6 +1228,7 @@ return class EditorMetadata extends PlatformBase {
     this.#assertPasswordCurrent(user, path);
     const managementQuery = /^\/api\/admin\/games\/([a-f0-9-]{36}|wolong-builtin)\/management-operations\/([A-Za-z0-9_-]{16,128})$/.exec(path);
     const managementPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/(listing|restriction\/clear)$/.exec(path);
+    const reviewPath = /^\/api\/admin\/games\/([a-f0-9-]{36}|wolong-builtin)\/review$/.exec(path);
     const deletionPath = /^\/api\/games\/([a-f0-9-]{36})\/deletion(-operations\/([A-Za-z0-9_-]{16,128})(\/distribution)?)?$/.exec(path);
     const portraitPath = /^\/api\/games\/([a-f0-9-]{36})\/portraits(?:\/([A-Za-z0-9]{1,32})(?:\/(bytes))?)?$/.exec(path);
     const topologyPath = /^\/api\/games\/([a-f0-9-]{36})\/topology(?:\/(move|rebuild)(?:\/(clear))?)?$/.exec(path);
@@ -1187,9 +1240,9 @@ return class EditorMetadata extends PlatformBase {
     const trialStartPath = /^\/api\/games\/([a-f0-9-]{36})\/trials$/.exec(path);
     const trialPath = /^\/api\/trials\/([a-f0-9-]{36})(?:\/(status|end|pack))?$/.exec(path);
     const trialAssetPath = /^\/api\/trials\/([a-f0-9-]{36})\/assets\/([A-Za-z0-9]{1,32})$/.exec(path);
-    const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|minimap|map-window|map-layer-window|map-scene|map-atlas|decoration-selection|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
+    const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|minimap|map-window|map-layer-window|map-scene|map-atlas|decoration-selection|chapter-references|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
     const releasesPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/releases$/.exec(path);
-    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, deletionPath, portraitPath, copyPath, authorCopyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath, releasesPath, topologyPath };
+    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, reviewPath, deletionPath, portraitPath, copyPath, authorCopyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath, releasesPath, topologyPath };
     if (method === 'GET') {
       const hit = (await this.#getTrialRoutes(rt)) ?? (await this.#getPrimaryRoutes(rt)) ?? (await this.#getDeletion(rt)) ?? (await this.#getPortraits(rt)) ?? (await this.#getTopology(rt)) ?? (await this.#getCollectionRoutes(rt)) ?? (await this.#getRecordRoutes(rt));
       if (hit) { return hit; }
@@ -1313,7 +1366,7 @@ export function createEditorGateway({ frozenPublication = false } = {}) {
       // Only this shell allows its generated base; Trial/management retain base-uri 'none'.
       return new Response(playAppPage, { headers: { ...trialHeaders, 'Content-Security-Policy': trialHeaders['Content-Security-Policy'].replace("base-uri 'none'", "base-uri 'self'"), 'Content-Type': 'text/html; charset=utf-8' } });
     }
-    if (request.method === 'GET' && ['/', '/client.js', '/draft.js', '/stage.js', '/library.js', '/catalog.js', '/management.js', '/publish.js', '/stronghold.js', '/general.js', '/mapview.js', '/stage-assets.js', '/style.css', '/shell-ui.js', '/shell-ui.css', '/shell-ui-licenses.txt'].includes(url.pathname)) {
+    if (request.method === 'GET' && ['/', '/client.js', '/draft.js', '/stage.js', '/library.js', '/catalog.js', '/management.js', '/publish.js', '/review.js', '/stronghold.js', '/general.js', '/mapview.js', '/stage-assets.js', '/style.css', '/shell-ui.js', '/shell-ui.css', '/shell-ui-licenses.txt'].includes(url.pathname)) {
       const asset = staticAsset(url.pathname);
       return new Response(asset.content, { headers: { ...headers, 'Content-Type': `${asset.type}; charset=utf-8` } });
     }
@@ -1329,7 +1382,7 @@ export function createEditorGateway({ frozenPublication = false } = {}) {
       forwarded.headers.delete('Content-Length');
       forwarded.headers.set('X-Editor-Source', request.headers.get('CF-Connecting-IP') ?? 'local-shared');
       return await env.EDITOR_METADATA.get(env.EDITOR_METADATA.idFromName('editor-authority-v1')).fetch(forwarded);
-    } catch (error) { return response({ error: error instanceof HttpError ? error.code : 'INTERNAL_ERROR' }, error instanceof HttpError ? error.status : 500); }
+    } catch (error) { return errorResponse(error); }
   }
 };
 }

@@ -1,0 +1,132 @@
+// B3 上架審核 controller（Web 產品決定 2026-11）：管理員跨創作者審核已提交版本。
+// 同意上架＝既有管理員 listing 介面（含公告／registry／分發）；拒絕＝記錄一次
+// 審核決定，把該已提交版本退回「待上架」並標示「已駁回」；刪除＝不可逆刪除
+// 柵欄，任何狀態都可刪（已上架者同一個 fence 事務內撤下 listed）。
+// 本檔只做展示與操作追蹤，服務端仍是唯一權限。三個動作在服務端天然收斂
+// （同鍵重複＝原回執；換鍵重複＝GAME_CHANGED／changed:false／GAME_DELETING），
+// 因此每次點擊只用一個新鍵、失敗後一律先重新整理清單核對，不做自動重送。
+export function installReview({ api, authority, work, isBusy, publish: emit = () => {} }) {
+ const uuid = v => typeof v === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
+ const revision = v => typeof v === 'string' && /^[1-9][0-9]{0,30}$/.test(v);
+ const ordinal = v => typeof v === 'string' && /^1\.(0|[1-9][0-9]{0,30})$/.test(v);
+ const iso = v => typeof v === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString() === v;
+ const fields = (v, keys) => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).sort().join(',') === [...keys].sort().join(',');
+ const name = v => typeof v === 'string' && v.isWellFormed() && [...v].length >= 1 && [...v].length <= 8;
+ const states = { draft: '草稿', pending: '待上架', listed: '已上架' };
+ const errors = {
+  ADMIN_REQUIRED: '只有管理員可以審核上架申請。',
+  GAME_CHANGED: '清單已被其他人變更（或重複操作）；請重新整理後再決定。',
+  REVIEW_LISTED: '此版本已上架；審核只處理待上架的提交。',
+  REVIEW_NOT_SUBMITTED: '此遊戲還沒有可審核的提交版本。',
+  GAME_DELETING: '遊戲已進入刪除流程，不能繼續此操作。',
+  BUILTIN_PROTECTED: '內建遊戲不可審核或刪除。',
+  DELETE_CONFIRMATION: '刪除確認名稱與目前遊戲名稱不符，請重新整理清單。',
+  DELETE_INPUT: '刪除請求格式無效；請重新整理清單。',
+  LISTING_RESTRICTED: '此遊戲處於管理限制，不能同意上架。',
+  DISTRIBUTION_NOT_CONFIGURED: '服務尚未配置分發狀態；不推定已公開。',
+  DISTRIBUTION_GAME_PENDING: '此遊戲仍有待確認分發，不能上架下一版。',
+  DISTRIBUTION_STATUS_UNAVAILABLE: '原上架缺少可核對的分發關聯；不推定成功或失敗。',
+  MANAGEMENT_RECEIPT_CORRUPT: '原審核回執無效；不推定成功或失敗。',
+  IDEMPOTENCY_CONFLICT: '此操作鍵已被其它請求使用；請重新整理後再試。',
+  SESSION_INVALID: '會話已失效，請重新登入。',
+ };
+ let identity = null, generation = 0, rows = [], messageText = '', resultText = '', sending = false;
+ const allowed = () => Boolean(identity?.user) && !identity.user.mustChangePassword && identity.user.role === 'admin';
+ const message = text => { messageText = text; };
+ function current(ctx) { const live = authority(); return allowed() && live?.user?.id === ctx.id && live.user.version === ctx.version && !live.user.mustChangePassword && generation === ctx.generation; }
+ function capture() { const ctx = { id: identity?.user.id, version: identity?.user.version, generation }; if (!current(ctx)) throw new Error('請重新核對登入的帳戶。'); return ctx; }
+ function rowList(value) {
+  if (!value || !Array.isArray(value.games) || value.games.length > 10000) throw new Error('審核清單格式無效。');
+  const seen = new Set();
+  return value.games.map(row => {
+   if (!row || typeof row !== 'object' || Array.isArray(row) || !uuid(row.gameId) || seen.has(row.gameId)) throw new Error('審核清單欄位無效。');
+   if (!Object.hasOwn(states, row.state) || !name(row.name) || typeof row.author !== 'string' || [...row.author].length < 1 || [...row.author].length > 32) throw new Error('審核清單欄位無效。');
+   if (typeof row.introduction !== 'string' || row.introduction.length > 4096 || (row.version !== null && !ordinal(row.version)) || (row.state === 'draft') !== (row.version === null)) throw new Error('審核清單欄位無效。');
+   if ((row.stateTime !== null && !iso(row.stateTime)) || !iso(row.createdAt) || typeof row.rejected !== 'boolean' || !revision(row.rowRevision)) throw new Error('審核清單欄位無效。');
+   // 「已駁回」只對已提交、未上架的版本成立；服務端由審核 audit 精確推導。
+   if (row.rejected && row.state !== 'pending') throw new Error('審核清單欄位無效。');
+   seen.add(row.gameId); return Object.freeze({ ...row });
+  });
+ }
+ function listingReceipt(value, row) {
+  if (!value || typeof value !== 'object' || value.gameId !== row.gameId || value.listed !== true || !revision(value.rowRevision)) throw new Error('上架回執格式無效；請重新整理清單。');
+  return value;
+ }
+ function rejectReceipt(value, row) {
+  if (!fields(value, ['action', 'gameId', 'ordinal', 'rejectedAt', 'rowRevision']) || value.gameId !== row.gameId || value.action !== 'reject' || value.ordinal !== row.version || !iso(value.rejectedAt) || !revision(value.rowRevision)) throw new Error('拒絕回執格式無效；請重新整理清單。');
+  return value;
+ }
+ function deleteReceipt(value, row) {
+  if (!fields(value, ['createdAt', 'gameId', 'rowRevision', 'state']) || value.gameId !== row.gameId || value.state !== 'fenced' || !iso(value.createdAt) || !revision(value.rowRevision) || BigInt(value.rowRevision) !== BigInt(row.rowRevision) + 1n) throw new Error('刪除回執格式無效；請重新整理清單。');
+  return value;
+ }
+ function render() {
+  const visible = current({ id: identity?.user?.id, version: identity?.user?.version, generation }), disabled = !visible || isBusy() || sending;
+  const list = visible ? rows.map(row => ({
+   gameId: row.gameId, name: row.name, author: row.author, introduction: row.introduction || '（無說明）',
+   version: row.version ?? '—', stateKey: row.state, state: states[row.state], rejected: row.rejected,
+   createdAt: row.createdAt, stateTime: row.stateTime ?? '—', rowRevision: row.rowRevision,
+   approveDisabled: disabled || row.state !== 'pending', rejectDisabled: disabled || row.state !== 'pending' || row.rejected, deleteDisabled: disabled,
+   rejectHint: row.rejected ? '此版本已駁回；作者重新提交後才可再審核' : '拒絕後回到待上架並標記已駁回',
+   deleteHint: '刪除整個遊戲（含所有章節與已上架版本），不是刪除單個版本；立即生效且不可恢復',
+  })) : [];
+  emit({ rows: list, message: visible ? messageText : '', result: visible ? resultText : '', locked: disabled, refreshDisabled: !visible || isBusy() || sending });
+ }
+ async function load(ctx) {
+  const value = await api('/api/admin/reviews');
+  if (!current(ctx)) return;
+  rows = rowList(value);
+ }
+ async function refresh() { const ctx = capture(); message(''); resultText = ''; await load(ctx); render(); }
+ // 每個動作：新鍵、CASA 由伺服器判定、無論成敗都重讀清單（狀態只在伺服器成立）。
+ async function execute(row, request, verify, done) {
+  const ctx = capture();
+  if (!rows.includes(row)) throw new Error('審核清單已變，請重新整理。');
+  sending = true; message(''); resultText = ''; render();
+  try {
+   verify(await request(), row);
+   resultText = done;
+  } catch (error) {
+   if (current(ctx)) message(errors[error.code] ?? error.message);
+   throw error;
+  } finally {
+   sending = false;
+   if (current(ctx)) { try { await load(ctx); } catch { /* 清單保持舊值，直到明確重新整理 */ } }
+   render();
+  }
+ }
+ const rowFor = (gameId, rowRevision) => {
+  const row = rows.find(entry => entry.gameId === gameId && entry.rowRevision === rowRevision);
+  if (!row) throw new Error('審核目標已變，請重新整理清單。');
+  return row;
+ };
+ async function approve(gameId, rowRevision) {
+  const row = rowFor(gameId, rowRevision);
+  if (row.state !== 'pending') throw new Error('只有待上架的提交可以同意。');
+  await execute(row, () => api('/api/games/' + row.gameId + '/listing', { action: 'list', expectedRowRevision: row.rowRevision }, { key: crypto.randomUUID(), revision: row.rowRevision }), listingReceipt, '已同意上架版本 ' + row.version + '；公告與分發由服務端流程處理。');
+ }
+ async function reject(gameId, rowRevision) {
+  const row = rowFor(gameId, rowRevision);
+  if (row.state !== 'pending') throw new Error('只有待上架的提交可以拒絕。');
+  await execute(row, () => api('/api/admin/games/' + row.gameId + '/review', { action: 'reject', expectedRowRevision: row.rowRevision }, { key: crypto.randomUUID() }), rejectReceipt, '已拒絕版本 ' + row.version + '；它回到待上架並標記已駁回。');
+ }
+ async function remove(gameId, rowRevision) {
+  const row = rowFor(gameId, rowRevision);
+  await execute(row, () => api('/api/games/' + row.gameId + '/deletion', { gameId: row.gameId, expectedRowRevision: row.rowRevision, confirmationName: row.name }, { key: crypto.randomUUID() }), deleteReceipt, '已建立不可逆刪除柵欄（' + row.name + '）；該遊戲不再出現在清單，物理清理與線上入口由服務端流程處理，不刪玩家本地存檔。');
+ }
+ const actions = Object.freeze({
+  refresh: () => work(async () => { const ctx = capture(); try { return await refresh(); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
+  approve: (gameId, rowRevision) => work(async () => { const ctx = capture(); try { return await approve(gameId, rowRevision); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
+  reject: (gameId, rowRevision) => work(async () => { const ctx = capture(); try { return await reject(gameId, rowRevision); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
+  remove: (gameId, rowRevision) => work(async () => { const ctx = capture(); try { return await remove(gameId, rowRevision); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
+ });
+ return Object.freeze({ actions, render,
+  setIdentity(value) {
+   const next = value?.user ? { user: { id: value.user.id, version: value.user.version, role: value.user.role, mustChangePassword: value.user.mustChangePassword } } : null;
+   const changed = JSON.stringify(identity) !== JSON.stringify(next); identity = next;
+   if (changed) { generation++; rows = []; message(''); resultText = ''; }
+   render();
+  },
+  // 本頁只有明確伺服器操作，沒有本機待核對的原鍵，因此離開不需要提示。
+  canLeave() { return true; } });
+}

@@ -4,6 +4,12 @@ import { computed, ref, watch } from 'vue';
 import PortraitPreview from './PortraitPreview.vue';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
 const portraitFilter = ref('');
+const importFilter = ref('');
+const filteredImportRows = computed(() => {
+  const query = importFilter.value.trim().toLowerCase();
+  const rows = props.model.importSource?.rows ?? [];
+  return rows.filter(row => !query || [row.chapterName, row.chapterId, String(row.slot), row.name, row.hao].some(value => value.toLowerCase().includes(query)));
+});
 const selectedReferences = computed(() => {
   const generalId = props.model.definitions?.form.generalId;
   if (!generalId || !props.model.people?.supported) return [];
@@ -19,7 +25,7 @@ const filteredPortraits = computed(() => {
   const query = portraitFilter.value.trim().toLowerCase();
   return (props.model.definitions?.library ?? []).filter(row => row.assetId.toLowerCase().includes(query));
 });
-watch(() => props.model.fields.gameId, () => { portraitFilter.value = ''; });
+watch(() => props.model.fields.gameId, () => { portraitFilter.value = ''; importFilter.value = ''; });
 function chooseChapterPortrait(event, chapterId, generalId) {
   const choice = event.currentTarget.value;
   // This is a command picker, not an unsaved form. Cancellation must not leave
@@ -30,8 +36,8 @@ function chooseChapterPortrait(event, chapterId, generalId) {
 </script>
 <template>
   <section v-if="model.definitions" id="general-definitions">
-    <h3>全遊戲人物基礎定義與章節配置</h3>
-    <p>目前只開放中立模板的姓名、字及共用頭像。ID由服務產生，不是原章槽位、來源記錄ID或跨章同名人物的合併依據。下方可建立章節配置，但不建立原生武將，也不代表可試運行。</p>
+    <h3>本遊戲武將庫（默認空）</h3>
+    <p>武將庫是遊戲級基礎資料，默認空；章節只引用它，不複製。目前開放姓名、字及共用頭像（能力仍屬章節原生欄位，只讀）。ID由服務產生，不是原章槽位、來源記錄ID或跨章同名人物的合併依據。下方可建立章節人物配置，但不建立原生武將，也不代表可試運行。</p>
     <p>使用「遊戲資料」同一份明確載入的草稿與保存操作追蹤。人物保存只使用已保存的遊戲名稱／簡介，不會保存另一表尚未提交的資料或資源。</p>
     <div class="module-toolbar">
       <ElButton id="definition-refresh" :disabled="busy || model.locked" @click="actions.refresh()">更新遊戲清單</ElButton>
@@ -42,8 +48,22 @@ function chooseChapterPortrait(event, chapterId, generalId) {
     </div>
     <p id="definition-context">遊戲：{{ model.fields.gameId || '尚未選擇' }}／已載入修訂：{{ model.context?.draftRevision ?? '未載入' }}<strong v-if="model.context && !model.context.verified">／須重新明確載入</strong></p>
     <p id="definition-status" role="status">{{ model.message }}</p>
-    <p v-if="!model.definitions.supported" id="definition-unavailable">尚未載入支援的中立模板人物庫；完整原章副本仍使用下方槽位資料，不自動轉成人物基礎定義。</p>
+    <p v-if="!model.definitions.supported" id="definition-unavailable">此修訂沒有遊戲自有武將庫（例如舊槽位字典或未載入），不把未知當成空庫；完整原章副本仍使用下方槽位資料，不自動轉成武將庫條目。</p>
     <template v-else>
+      <section v-if="model.importSource?.supported" id="general-import">
+        <h4>從底層資源導入</h4>
+        <p>來源是本遊戲固定源武將記錄（每章 127 個非保留槽），逐條導入；不做跨章人物身份合併，也不推測缺失原圖。一次最多 {{ model.importSource.limit }} 名，導入後可在下方「章節人物配置」引用。</p>
+        <div class="module-toolbar">
+          <label>查找章節／槽／名／字<input id="import-filter" v-model="importFilter" type="search" maxlength="1024" :disabled="busy || model.importSource.locked"></label>
+          <ElButton id="import-filter-clear" :disabled="busy || model.importSource.locked || !importFilter" @click="importFilter = ''">清除查找</ElButton>
+          <ElButton id="import-clear" :disabled="busy || model.importSource.locked || !model.importSource.selectedCount" @click="actions.clearImportSelection()">清除選擇</ElButton>
+          <ElButton id="import-run" :disabled="busy || model.importSource.locked || !model.importSource.selectedCount" @click="actions.importGenerals()">導入已選（{{ model.importSource.selectedCount }}／{{ model.importSource.limit }}）</ElButton>
+        </div>
+        <p id="import-status" role="status">符合 {{ filteredImportRows.length }}／{{ model.importSource.rows.length }} 條；已選 {{ model.importSource.selectedCount }}。已導入標記按姓名／字／頭像比對，僅供對照，不阻止重複導入。</p>
+        <div class="entity-table-wrap"><table id="import-table" class="entity-table"><thead><tr><th>選</th><th>章節</th><th>槽</th><th>名</th><th>字</th><th>頭像</th><th>狀態</th></tr></thead><tbody>
+          <tr v-for="row in filteredImportRows" :key="row.key" :data-import-key="row.key"><td><input type="checkbox" :data-import-toggle="row.key" :checked="row.selected" :disabled="busy || model.importSource.locked" @change="actions.toggleImport(row.key, $event.target.checked)"></td><td>{{ row.chapterName }}</td><td>{{ row.slot }}</td><td>{{ row.name }}</td><td>{{ row.hao || '無' }}</td><td>{{ row.portraitRef ? row.portraitRef.assetId : row.portraitKey ?? row.portrait ?? '無' }}</td><td>{{ row.imported ? '庫中已有同名同字' : '未導入' }}</td></tr>
+        </tbody></table></div>
+      </section>
       <div class="module-toolbar"><ElButton id="definition-new" :disabled="busy || model.definitions.locked" @click="actions.selectDefinition(null)">清空本表／準備新增</ElButton></div>
       <div class="module-toolbar">
         <label>共用頭像ID篩選<input id="definition-portrait-filter" v-model="portraitFilter" type="search" maxlength="32" :disabled="busy || model.definitions.locked || !model.definitions.library.length"></label>
@@ -64,11 +84,11 @@ function chooseChapterPortrait(event, chapterId, generalId) {
           <ElButton id="definition-save" native-type="submit" :disabled="busy || model.definitions.locked">{{ model.definitions.form.generalId ? '保存人物修改' : '新增人物' }}</ElButton>
           <ElButton id="definition-delete" :disabled="busy || model.definitions.locked || !model.definitions.form.generalId" @click="actions.deleteDefinition()">刪除此無章節引用的定義</ElButton>
         </div>
-        <p v-if="model.definitions.dirty">此人物表有未保存輸入。保存回應不明時先查原鍵；確認保存後仍須載入回應修訂，不自動改讀最新修訂。</p>
+        <p v-if="model.definitions.dirty">此武將庫表有未保存輸入。保存回應不明時先查原鍵；確認保存後仍須載入回應修訂，不自動改讀最新修訂。</p>
       </form>
       <section v-if="model.definitions.form.generalId" id="definition-references">
-        <h4>所選人物的已讀章節引用</h4>
-        <p>僅顯示目前明確載入修訂的中立人物配置；未加入仍是引用。不受目前章節選擇影響，也不是原生任職／事件引用或刪除許可。</p>
+        <h4>所選武將的已讀章節引用</h4>
+        <p>僅顯示目前明確載入修訂的章節人物配置；未加入仍是引用。不受目前章節選擇影響，也不是原生任職／事件引用或刪除許可。</p>
         <p v-if="!model.people?.supported" id="definition-references-unknown">此修訂未提供完整章節人物投影，引用未知；不視為無引用。</p>
         <template v-else>
           <p id="definition-references-count">共 {{ selectedReferences.length }} 章引用。刪除前須逐章明確移除配置；服務仍會重新校驗。</p>

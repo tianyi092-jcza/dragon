@@ -50,7 +50,8 @@ const proof = verify(first, start);
 assert.equal(proof.profileRevision, FIXED_TEMPLATE_PROFILE); assert.notEqual(proof.sourceDigest, captured.baselineDigest);
 assert.deepEqual(generalDefinitionReferences(first, id).map(row => [row.chapterId, row.included]), [[chapterId, false]]);
 assert.deepEqual(first, firstSnapshot); assert.deepEqual(start, startSnapshot); assert.deepEqual(base, baseSnapshot);
-assert.throws(() => profile.verify(captured.capability, first, [], [create]), error => error.code === 'COPY_PROTECTED_DELTA'); groups++;
+// B5：扁平端口现在重放库层；候选多出的、未记录的人物引用仍 fail-closed。
+assert.throws(() => profile.verify(captured.capability, first, [], [create]), error => error.code === 'COPY_PEOPLE_DELTA'); groups++;
 const copy = { op: 'copy', chapterId }, copiedStage = candidate([...start, step([copy])]), copyId = copiedStage.chapterOrder.at(-1);
 const update = { op: 'update', generalId: id, values: { name: '基表乙', hao: '新字', portraitRef: null } };
 const ordered = [...start, step([copy], [], [set(chapterId, { name: '章乙' })]), step([], [update])];

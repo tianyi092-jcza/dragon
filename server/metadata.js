@@ -102,6 +102,44 @@ export class GameMetadataStore {
     const actor = this.#actor(tokenHash);
     return this.#sql.exec('SELECT * FROM content_games WHERE owner_id=? ORDER BY created_at,game_id', actor.id).toArray().map(summary);
   }
+  // B2 上架管理 / B3 上架審核 (Web product decision 2026-11): display states are
+  // derived from existing rows, never a second stored state machine. No new
+  // schema: version = the current release ordinal, stateTime = the event that
+  // set the current state (listing audit / release creation). Fenced games are
+  // already logically deleted, so they no longer appear in either list.
+  // 「已駁回」 derives from one audit row written by the reject action whose
+  // before_revision is the REJECTED release ordinal: re-submitting allocates a
+  // new ordinal, so the mark clears itself and two events in the same
+  // millisecond can never be confused (no timestamp comparison).
+  #submissionState(row) {
+    const release = row.current_release_id === null ? undefined : this.#one('SELECT ordinal,created_at FROM content_releases WHERE game_id=? AND release_id=?', row.game_id, row.current_release_id);
+    if (row.current_release_id !== null && (!release || !/^1\.(0|[1-9][0-9]{0,30})$/.test(release.ordinal) || typeof release.created_at !== 'string')) fail(503, 'SUBMISSION_ROW_CORRUPT');
+    if (!revision(row.row_revision)) fail(503, 'SUBMISSION_ROW_CORRUPT');
+    const listed = Number(row.listed) === 1, state = listed ? 'listed' : release ? 'pending' : 'draft';
+    const lastListing = listed ? this.#one("SELECT created_at FROM content_audits WHERE game_id=? AND action='admin-list' ORDER BY created_at DESC LIMIT 1", row.game_id) : undefined;
+    const rejected = Boolean(!listed && release && this.#one("SELECT event_id FROM content_audits WHERE game_id=? AND action='admin-reject' AND before_revision=?", row.game_id, release.ordinal));
+    return { release, state, rejected, stateTime: listed ? lastListing?.created_at ?? null : release ? release.created_at : null };
+  }
+  submissionSummaries(tokenHash) {
+    const actor = this.#actor(tokenHash);
+    return this.#sql.exec('SELECT * FROM content_games WHERE owner_id=? ORDER BY created_at,game_id', actor.id).toArray()
+      .filter(row => !this.#one('SELECT game_id FROM content_deletion_fences WHERE game_id=?', row.game_id))
+      .map(row => {
+        const derived = this.#submissionState(row);
+        return Object.freeze({ gameId: row.game_id, name: row.draft_name, introduction: row.draft_introduction, version: derived.release ? derived.release.ordinal : null, state: derived.state, stateTime: derived.stateTime, rejected: derived.rejected, restricted: Number(row.restricted) === 1, rowRevision: row.row_revision, createdAt: row.created_at });
+      });
+  }
+  // 上架審核 list: every creator's game (cross-creator), same derivation plus
+  // the author account. Administration only; no draft content or receipt data.
+  adminSubmissionSummaries(tokenHash) {
+    const actor = this.#actor(tokenHash); if (actor.role !== 'admin') fail(403, 'ADMIN_REQUIRED');
+    return this.#sql.exec('SELECT g.*,u.account FROM content_games g JOIN users u ON u.id=g.owner_id ORDER BY g.created_at,g.game_id').toArray()
+      .filter(row => !this.#one('SELECT game_id FROM content_deletion_fences WHERE game_id=?', row.game_id))
+      .map(row => {
+        const derived = this.#submissionState(row);
+        return Object.freeze({ gameId: row.game_id, author: row.account, name: row.draft_name, introduction: row.draft_introduction, version: derived.release ? derived.release.ordinal : null, state: derived.state, stateTime: derived.stateTime, rejected: derived.rejected, rowRevision: row.row_revision, createdAt: row.created_at });
+      });
+  }
   // §4.1 creator/admin listing: 上架/下架 own games (admin: any). Restricted
   // blocks everyone (admin clears via management first); builtin excluded.
   // Single conditional UPDATE: naturally idempotent per expectedRowRevision.

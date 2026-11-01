@@ -1,14 +1,19 @@
 // Presentation adapter only. The service owns source validation, copy leases and CAS.
-// Web product decision 2026-10-31: one "確認新建" action creates a complete
-// 20-chapter copy of the built-in game. The old neutral shell template, the
-// admin-only source registration and the visible propose/execute/query/cancel
-// protocol are gone. The service still keeps leases and idempotency keys, so a
-// retry reuses the original key instead of creating a second game.
-export function createCopyController({ api, authority, work, isBusy, publish, gotoGame, openDeletion, storage = globalThis.sessionStorage, confirm = text => globalThis.confirm(text) }) {
+// B6（工作台結構合同 §2）：兩條既有伺服器管線共用這一份協議實現。
+//   mode 'minimal'（工作台級「新建遊戲」）：POST /api/games，只複製底層地圖
+//     （含據點），章節與武將庫為空。
+//   mode 'full'（管理員「複製遊戲」）：POST /api/admin/copies，地圖＋章節＋武將
+//     全套複製；registryId 由 GET /api/admin/source 讀取，使用者不選來源。
+// 兩者都保留租約與冪等鍵：失去回應時只查詢原鍵，不另建第二份。
+export function createCopyController({ api, authority, work, isBusy, publish, gotoGame, storage = globalThis.sessionStorage, confirm = text => globalThis.confirm(text), mode = 'minimal' }) {
+  const full = mode === 'full';
+  const label = full ? '完整副本' : '新遊戲';
+  const reservePath = full ? '/api/admin/copies' : '/api/games';
+  const operationPath = key => full ? '/api/admin/copies/' + encodeURIComponent(key) : '/api/games/create/' + encodeURIComponent(key);
   let actor = null, generation = 0, operation = null, summary = null, games = [], broken = false, needsQuery = false;
   let name = '', introduction = '', message = '';
-  const permitted = () => actor && actor === authority() && ['admin', 'author'].includes(actor.user.role) && !actor.user.mustChangePassword;
-  const storeKey = () => 'editor-copy-operation:' + actor.user.id;
+  const permitted = () => actor && actor === authority() && (full ? actor.user.role === 'admin' : ['admin', 'author'].includes(actor.user.role)) && !actor.user.mustChangePassword;
+  const storeKey = () => (full ? 'editor-fullcopy-operation:' : 'editor-copy-operation:') + actor.user.id;
   const validKey = value => typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value);
   const revision = value => typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value);
   const ticket = () => ({ actor, generation });
@@ -18,6 +23,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
   function render() {
     const allowed = permitted(), locked = !allowed || isBusy();
     publish({
+      visible: allowed,
       name: allowed ? name : '', introduction: allowed ? introduction : '',
       games: allowed ? games.map(row => ({ ...row })) : [],
       message: allowed ? message : '', locked,
@@ -59,7 +65,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     if (!operation) { summary = null; return; }
     const key = operation; needsQuery = true;
     try {
-      const data = await api('/api/games/create/' + encodeURIComponent(key));
+      const data = await api(operationPath(key));
       if (!valid(t) || operation !== key) return;
       summary = decodeSummary(data, summary?.gameId); needsQuery = false;
     } catch (error) {
@@ -70,6 +76,13 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       if (!valid(t) || operation !== key) return;
       storage.removeItem(storeKey()); operation = null; summary = null; needsQuery = false;
     }
+  }
+  // full 模式的來源註冊識別由服務端已登記的底層資源決定；客戶端不選來源。
+  async function fullBody() {
+    const data = await api('/api/admin/source');
+    const registryId = data?.definition?.registryId;
+    if (typeof registryId !== 'string' || !registryId || registryId.length > 128) throw new Error('底層資源登記回應無效；本次未提交。');
+    return { registryId, name, introduction };
   }
   async function create() {
     if (broken || needsQuery || (operation && !summary)) throw new Error('請先明確查詢原操作，不另建未知目標。');
@@ -84,12 +97,12 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     // Resume: an existing uncommitted operation keeps its own name/introduction.
     if (operation && pending()) { await runExisting(t); return; }
 
-    const body = { name, introduction }, key = crypto.randomUUID();
+    const body = full ? await fullBody() : { name, introduction }, key = crypto.randomUUID();
     operation = key; summary = null; needsQuery = true;
     try { storage.setItem(storeKey(), key); } catch { broken = true; throw new Error('無法保留原鍵；本次未提交。'); }
-    name = ''; introduction = ''; message = '正在建立完整副本，請勿重複提交…'; render();
+    name = ''; introduction = ''; message = '正在建立' + label + '，請勿重複提交…'; render();
     if (!valid(t) || operation !== key) return;
-    const created = await api('/api/games', body, { key });
+    const created = await api(reservePath, body, { key });
     if (!valid(t) || operation !== key) return;
     summary = decodeSummary(created); needsQuery = false;
     await runExisting(t);
@@ -100,18 +113,24 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     if (!created || !summary?.gameId) {
       // Lost the create reply: ask the service first, never mint a new key.
       needsQuery = true; render();
-      const data = await api('/api/games/create/' + encodeURIComponent(key));
+      const data = await api(operationPath(key));
       if (!valid(t) || operation !== key) return;
       summary = decodeSummary(data); needsQuery = false;
     }
-    if (summary.draftRevision) { message = '完整副本已建立。'; await ownGames(t); render(); return; }
+    if (summary.draftRevision) { message = label + '已建立。'; if (!full) await ownGames(t); render(); return; }
     if (!pending()) { message = '此原操作已結束，未產生副本。'; render(); return; }
-    needsQuery = true; message = '正在寫入完整副本，請勿重複提交…'; render();
-    const done = await api('/api/games/create/' + encodeURIComponent(key) + '/run', {}, { revision: summary.rowRevision });
+    needsQuery = true; message = '正在寫入' + label + '，請勿重複提交…'; render();
+    const done = await api(operationPath(key) + '/run', {}, { revision: summary.rowRevision });
     if (!valid(t) || operation !== key) return;
     summary = decodeSummary(done, summary.gameId); needsQuery = false;
-    message = '完整副本已建立，可在下方「我的遊戲」中編輯。';
-    await ownGames(t);
+    // 只有已保存修訂才是已建立；回應停在 pending／running 不推定成功。
+    if (!summary.draftRevision) {
+      needsQuery = true;
+      message = label + '尚未確認完成（' + summary.state + '）；請先查詢原鍵，不另建第二份。';
+      render(); return;
+    }
+    message = full ? '完整副本已建立；請按上方「重新整理」載入清單，再到「當前遊戲」選擇。' : '新遊戲已建立，可在下方「我的遊戲」中編輯。';
+    if (!full) await ownGames(t);
   }
   const action = callback => (...args) => work(async () => {
     if (!permitted()) return;
@@ -119,10 +138,10 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     try { return await callback(...args); } catch (error) { if (valid(t)) message = '操作未確認：' + error.message; throw error; } finally { render(); }
   });
   function canLeave(forUnload = false) {
-    return !(name || introduction || resumable()) || !forUnload && confirm('新建輸入或原操作尚未完成。離開不會自動保存或取消服務操作；仍要離開？');
+    return !(name || introduction || resumable()) || !forUnload && confirm((full ? '複製遊戲' : '新建輸入') + '或原操作尚未完成。離開不會自動保存或取消服務操作；仍要離開？');
   }
   const actions = Object.freeze({
-    refresh: action(async () => { const t = ticket(); await queryCopy(t); if (valid(t)) await ownGames(t); }),
+    refresh: action(async () => { const t = ticket(); await queryCopy(t); if (valid(t) && !full) await ownGames(t); }),
     create: action(create),
     setField(key, value) {
       if (!permitted() || isBusy() || !['name', 'introduction'].includes(key) || typeof value !== 'string') return;
@@ -130,7 +149,6 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       render();
     },
     gotoGame: action(async id => { const t = ticket(); if (games.some(game => game.gameId === id) && canLeave() && valid(t)) await gotoGame(id); }),
-    openDeletion: action(async id => { const t = ticket(); if (games.some(game => game.gameId === id) && canLeave() && valid(t)) await openDeletion(id); }),
   });
   return Object.freeze({ actions, render, canLeave,
     setIdentity(next) {

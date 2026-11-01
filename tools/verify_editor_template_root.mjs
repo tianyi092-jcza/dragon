@@ -619,7 +619,10 @@ try {
   assert.equal(profileOf(reserved.gameId), FIXED_TEMPLATE_PROFILE);
   assert.deepEqual(await ok('author', '/api/games', input, { 'Idempotency-Key': operationKey }, 202), reserved);
   assert.equal((await call('author', '/api/games', { ...input, profileRevision: FIXED_COPY_PROFILE })).status, 422);
-  assert.equal((await call('admin', '/api/games', input)).status, 403);
+  // B6（工作台結構合同 §2）：工作台級「新建遊戲」不限定管理員；管理員經同路徑
+  // 建立同樣只是空章遊戲，整套複製走 /api/admin/copies。
+  const adminDraft = await call('admin', '/api/games', { ...input, name: '管理員新建' });
+  assert.equal(adminDraft.status, 202); assert.equal(profileOf(adminDraft.data.gameId), FIXED_TEMPLATE_PROFILE);
   assert.equal((await call('author', '/api/admin/copies', copyInput('越權'))).status, 403);
   assert.equal((await call('other', '/api/games/create/' + operationKey)).status, 404); groups++;
   const commandKey = 'owned-template-run-001';

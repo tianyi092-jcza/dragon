@@ -16,6 +16,7 @@ const shell = readFileSync('editor-ui/src/Workbench.vue', 'utf-8');
 const application = readFileSync('server/editorapp.js', 'utf-8');
 const accountViews = ['LoginPage', 'AccountPages', 'AccountsPanel'].map(name => readFileSync(`editor-ui/src/${name}.vue`, 'utf-8')).join('\n');
 const draftView = readFileSync('editor-ui/src/DraftPanel.vue', 'utf-8');
+const chaptersView = readFileSync('editor-ui/src/ChaptersPanel.vue', 'utf-8');
 const stageAssetsView = readFileSync('editor-ui/src/StageAssetsPanel.vue', 'utf-8') + readFileSync('editor-ui/src/StageJobsPanel.vue', 'utf-8');
 const libraryView = readFileSync('editor-ui/src/LibraryPanel.vue', 'utf-8');
 const strongholdView = readFileSync('editor-ui/src/StrongholdPanel.vue', 'utf-8');
@@ -25,16 +26,24 @@ const generalsView = readFileSync('editor-ui/src/GeneralsPanel.vue', 'utf-8');
 const copyView = readFileSync('editor-ui/src/CopyPanel.vue', 'utf-8');
 const publishView = readFileSync('editor-ui/src/PublishPanel.vue', 'utf-8');
 const managementViews = ['ManagementPanel','DeletionPanel'].map(name => readFileSync('editor-ui/src/'+name+'.vue','utf-8')).join('\n');
-const htmlIds = new Set([...(managementViews + publishView + copyView + html + shell + accountViews + draftView + stageAssetsView + libraryView + strongholdView + mapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
+const htmlIds = new Set([...(managementViews + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + mapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
 // Login home: login form + hidden session/menu; no business content outside.
 check("login-form", accountViews.includes('<form id="login">'));
 check("menu-nav", shell.includes('<aside id="menu"') && shell.includes(':hidden="!ready"'));
 check("shell-layout", html.includes('id="editor-app"') && !html.includes('id="main"') && !shell.includes('business-host'));
 check("session-hidden", shell.includes('<section id="session" :hidden="!state.authenticated">'));
-// Every menu view maps to a real section id.
-for (const id of ["draft-editor", "stage-editor", "stage-assets-editor", "library-editor", "copy", "admin"]) {
+// Every menu view maps to a real section id. The UI list follows the approved
+// three-level workbench structure; cancelled modules keep server capability.
+for (const id of ["copy", "draft-editor", "admin", "catalog-editor", "stronghold-editor", "mapview-editor", "generals-editor", "chapters-editor", "publish-editor", "management-editor"]) {
 	check(`view-section:${id}`, htmlIds.has(id) && client.includes(`'${id}'`));
 }
+// Menu labels are fixed by the product contract.
+for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "系統資源", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架管理", "上架審核"]) {
+	check(`view-label:${label}`, client.includes(`'${label}'`));
+}
+check("menu-groups", ["workbench", "game", "admin"].every(group => client.includes(`'${group}'`)) && shell.includes("'工作台級'") && shell.includes("'遊戲級'"));
+check("cancelled-views-absent", !["stage-editor", "stage-assets-editor", "library-editor", "deletion-editor"].some(id => client.includes(`'${id}'`)) && !shell.includes("stage-assets-editor") && !shell.includes('id="library-editor"'));
+check("current-game-selector", shell.includes('id="current-game"') && shell.includes("props.draft.chooseGame(event.target.value)") && readFileSync("server/public/draft.txt", "utf-8").includes("function chooseGame"));
 // Role gate: admin view withheld from non-admin/must-change; menu hidden anon.
 check("role-gate", client.includes("!current || current.user.mustChangePassword") && client.includes("!item[2] || current.user.role === 'admin'"));
 check("session-gate", shell.includes('state.authenticated && !props.state.mustChange') && shell.includes(':hidden="!ready || !state.admin || state.view'));
@@ -52,6 +61,11 @@ check('accounts-controller', client.includes('createAccountController({ api, aut
 check('accounts-dirty', client.includes('shell.accountDirty()'));
 check('copy-vue-owned', !html.includes('id="copy"') && copyView.includes('id="own-games"') && !client.includes("q('copy-state')"));
 check('copy-controller', client.includes('createCopyController({api') && client.includes('copyUI.canLeave(forUnload)') && copyView.includes('game.gameId'));
+// B6（工作台結構合同 §2）：工作台級「新建遊戲」只複製地圖（章節與武將庫空），
+// 管理員「複製遊戲」才走既有 /api/admin/copies 整套複製；兩者共用一份協議實現。
+check("copy-create-map-only", copyView.includes('只複製底層地圖') && readFileSync('server/editorapp.js', 'utf-8').includes('profileRevision: FIXED_TEMPLATE_PROFILE'));
+check("copy-mode-split", (() => { const c = readFileSync('editor-ui/src/copy.js', 'utf-8'); return c.includes("mode = 'minimal'") && c.includes("reservePath = full ? '/api/admin/copies' : '/api/games'") && c.includes("'/api/admin/source'") && c.includes('editor-fullcopy-operation:'); })());
+check("admin-fullcopy-ui", draftView.includes('id="draft-full-copy"') && draftView.includes('id="full-copy-create"') && shell.includes(':copy-model="fullCopyModel"') && client.includes("mode: 'full'") && client.includes('shell.fullCopy') && client.includes('fullCopyUI.canLeave(forUnload)') && client.includes('fullCopyUI.pagehide()'));
 // Menu CSS present.
 check("menu-css", css.includes("#menu") && css.includes(".workbench") && css.includes('.workbench [hidden]') && !css.includes('#main'));
 // B2 (§4.6): profile route + last-admin guard + dto fields.
@@ -107,6 +121,13 @@ check('draft-display-projection', draft.includes('publish({') && client.includes
 check('workspace-context', shell.includes('id="workspace-context"') && shell.includes('其它模組已選的精確目標不會自動替換'));
 check('stage-vue-owned', !html.includes('id="stage-editor"') && !readFileSync('server/public/stage.txt', 'utf-8').includes('getElementById') && stageAssetsView.includes('actions.choosePurpose'));
 check('stage-assets-vue-owned', !html.includes('id="stage-assets-editor"') && !readFileSync('server/public/stageassets.txt', 'utf-8').includes('document.') && stageAssetsView.includes('model.outputs'));
-check('publish-vue-owned', !html.includes('id="publish-editor"') && !readFileSync('server/public/publish.txt', 'utf-8').includes('document.') && publishView.includes('actions.publish()'));
+check('publish-vue-owned', !html.includes('id="publish-editor"') && !readFileSync('server/public/publish.txt', 'utf-8').includes('document.') && publishView.includes('actions.publish(row.gameId)') && publishView.includes('actions.remove(row.gameId, row.rowRevision)'));
 check('management-deletion-vue-owned', !html.includes('<section') && !readFileSync('server/public/management.txt','utf-8').includes('document.') && managementViews.includes('game.rowRevision'));
+// B4 (§7): chapter attributes — start date era + city affiliation/capital +
+// general affiliation/diplomat, each with its own save-pipeline op and revert.
+check("chapter-attribute-writers", ["setChapterStart", "setChapterCityFaction", "setFactionCapital", "setChapterGeneralFaction", "setFactionDiplomat"].every(name => gamesource.includes(`export function ${name}`)));
+check("chapter-attribute-pipe", ["'start-date'", "'city-faction'", "'set-capital'", "'general-faction'", "'set-diplomat'"].every(op => drafts.includes(op)) && drafts.includes("era: st.start.era ?? null") && drafts.includes("diplomat_idx: f.diplomat_idx ?? null"));
+check("chapter-attribute-revert", (() => { const c = readFileSync("server/copyprofile.js", "utf-8"); return ["'start-date'", "'city-faction'", "'set-capital'", "'general-faction'", "'set-diplomat'"].every(op => c.includes(op)) && c.includes("revertCityFaction") && c.includes("revertFactionByte"); })());
+check("chapter-attribute-controller", ["saveChapterStart:", "cityFaction:", "setCapital:", "generalFaction:", "setDiplomat:", "setStartInput"].every(name => draft.includes(name)) && draft.includes("attributes: {") && draft.includes("heldPosts(") && draft.includes("startInputs"));
+check("chapter-attributes-ui", htmlIds.has("chapters-editor") && ["data-start-era", "data-start-save", "data-start-cancel", "data-city-faction", "data-city-capital", "data-general-faction", "data-faction-diplomat"].every(name => chaptersView.includes(name)) && !chaptersView.includes('document.'));
 process.stdout.write(`editor shell matrix PASS ${checks.length} checks\n`);

@@ -4,6 +4,7 @@ import { createPlayerReader } from './playerclient.js';
 import { mountPlayerCatalog } from './playercatalog.js';
 import { mountPlayerNewGame } from './playernewgame.js';
 import { mountPlayerRestore } from './playerrestore.js';
+import { confirmGameDeleted, mountDeletedSavePrompt } from './playerdeletedgame.js';
 import { createPlayerStaticReader } from './playerstatic.js';
 import { createPlayerEnvironment } from './playerenvironment.js';
 import { createPlayerSaveStore } from './playersaves.js';
@@ -69,9 +70,21 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
   let choice, host, selected;
   try {
     const reader = createPlayerReader({ origin: location.origin });
+    // Same browser origin/store as the built-in player; disjoint game keys. No
+    // legacy migration, fallback database, or remote save transport.
+    const store = createGameSaveStore({ gameId, databaseName: 'wolong-web', getIndexedDB: () => indexedDB });
     const registry = await reader.registry();
     const selection = registry.directory.find(entry => entry.gameId === gameId);
-    if (!selection) throw new Error('current listed game unavailable');
+    if (!selection) {
+      // Only the reader's explicit fact proves deletion, and only a load request
+      // is about local saves; an unlisted or new-game request keeps the generic page.
+      if (mode === 'load' && await confirmGameDeleted({ reader, gameId })) {
+        catalog.close();
+        mountDeletedSavePrompt({ root, store, onExit: initialPage });
+        return;
+      }
+      throw new Error('current listed game unavailable');
+    }
     await opening?.menuReady;
     // Bind to this loaded module, never a query parameter, mutable <base>, or
     // a fresh current-program lookup that could hot-swap an admitted session.
@@ -79,9 +92,6 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
     if (programBase.origin !== location.origin) throw new Error('same-origin program required');
     const policy = { compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 256 * 1024 * 1024,
       readStatic: createPlayerStaticReader({ origin: location.origin, basePath: programBase.pathname }) };
-    // Same browser origin/store as the built-in player; disjoint game keys. No
-    // legacy migration, fallback database, or remote save transport.
-    const store = createGameSaveStore({ gameId, databaseName: 'wolong-web', getIndexedDB: () => indexedDB });
     choice = mode === 'load'
       ? mountPlayerRestore({ root, reader, selection, store, ...policy })
       : mountPlayerNewGame({ root, reader, selection, ...policy });

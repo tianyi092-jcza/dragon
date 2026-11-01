@@ -1,5 +1,8 @@
-// Web authoring definitions and chapter references only. No native slots,
-// rule fields, initial records or runtime admission are created here.
+// Web authoring definitions (the game-level general library) and chapter
+// references only. No native slots, rule fields, initial records or runtime
+// admission are created here. The library starts empty for every new game
+// (B5); its entries are imported/copied from the bottom-layer general records
+// and are not a cross-chapter person identity.
 import { KAO_MANIFEST } from '../../../kao/manifest.js';
 import { BUILTIN_GAME_ID } from './gamesource.js';
 import { captureChapterCities } from './cityrecords.js';
@@ -54,9 +57,34 @@ function person(values, saved = false) {
   }
   return { included: values.included, factionId: null, overrides };
 }
+const GENERAL_ID_PREFIX = '#general-';
+// A neutral template carries no native chapter records; a full copy carries the
+// fixed-source native state that this library layer never reads or rewrites.
+// Only the library roots (game.generals, chapter.people) are understood here.
+function libraryGame(game) {
+  const kind = game?.sourceRef?.kind;
+  if (typeof game?.gameId !== 'string' || !game.gameId || game.gameId === BUILTIN_GAME_ID ||
+      (kind !== 'builtin-template' && kind !== 'builtin-copy') || game.sourceRef.sourceId !== BUILTIN_GAME_ID) throw new RangeError('game-owned authoring library required');
+  return kind === 'builtin-copy';
+}
+// Read gate: the stored library must already contain only game-owned definition
+// identities. Legacy slot dictionaries (`{0:{slot,name}}`) are not a library and
+// are never reinterpreted as one.
+function libraryIdentities(game) {
+  const libraries = game?.generals;
+  const prefix = typeof game?.gameId === 'string' ? game.gameId + GENERAL_ID_PREFIX : null;
+  if (!prefix || !libraries || typeof libraries !== 'object' || Array.isArray(libraries)) return false;
+  return Object.keys(libraries).every(id => id.startsWith(prefix) && /^[a-f0-9]{64}$/.test(id.slice(prefix.length)));
+}
+export function generalLibrarySupported(game) {
+  const kind = game?.sourceRef?.kind;
+  if ((kind !== 'builtin-template' && kind !== 'builtin-copy') || game.sourceRef.sourceId !== BUILTIN_GAME_ID) return false;
+  return libraryIdentities(game);
+}
 function captureScope(game) {
   plain(game); plain(game.sourceRef); plain(game.generals); plain(game.chapters);
-  if (typeof game.gameId !== 'string' || !game.gameId || game.gameId === BUILTIN_GAME_ID || game.sourceRef.kind !== 'builtin-template' || game.sourceRef.sourceId !== BUILTIN_GAME_ID) throw new RangeError('neutral authoring template required');
+  const native = libraryGame(game);
+  if (!libraryIdentities(game)) throw new RangeError('game-owned general library required');
   const generals = {};
   for (const [id, value] of Object.entries(game.generals)) {
     identity(game.gameId, id);
@@ -74,11 +102,13 @@ function captureScope(game) {
     if (typeof chapterId !== 'string' || !chapterId || !Object.hasOwn(game.chapters, chapterId)) throw new RangeError('chapter identity required');
     const chapter = plain(game.chapters[chapterId]);
     if (chapter.chapterId !== chapterId || Object.keys(chapter).some(key => !['chapterId', 'sourceChapterId', 'name', 'state', 'people', 'cities'].includes(key)) || ['name', 'sourceChapterId'].some(key => Object.hasOwn(chapter, key) && typeof chapter[key] !== 'string')) throw new RangeError('chapter references are not understood');
-    plain(chapter.state, ['factions', 'generals', 'cities']);
-    if (['factions', 'generals', 'cities'].some(key => {
-      const rows = chapter.state[key];
-      return !Array.isArray(rows) || Object.getPrototypeOf(rows) !== Array.prototype || rows.length !== 0 || Reflect.ownKeys(rows).length !== 1;
-    })) throw new RangeError('chapter references are not understood');
+    if (!native) {
+      plain(chapter.state, ['factions', 'generals', 'cities']);
+      if (['factions', 'generals', 'cities'].some(key => {
+        const rows = chapter.state[key];
+        return !Array.isArray(rows) || Object.getPrototypeOf(rows) !== Array.prototype || rows.length !== 0 || Reflect.ownKeys(rows).length !== 1;
+      })) throw new RangeError('chapter references are not understood');
+    }
     captureChapterCities(game, chapter);
     const people = {};
     if (Object.hasOwn(chapter, 'people')) {

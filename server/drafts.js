@@ -2,9 +2,9 @@
 import { createHash } from 'node:crypto';
 import { canonicalSourceTokens, encodeSourceChunks, decodeSourceChunks, CanonicalSourceParser } from '../web/src/content/authoring/sourcejson.js';
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
-import { addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setFactionDiplomat, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
 import { chapterGapReport } from './chaptergapreport.js';
-import { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionChangeImpact, chapterPeopleProjection } from '../web/src/content/authoring/generaldefinitions.js';
+import { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionChangeImpact, chapterPeopleProjection, generalLibrarySupported } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit, chapterCitiesProjection, cityDefinitionChangeImpact } from '../web/src/content/authoring/citydefinitions.js';
 import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { componentCells, decorationIdsInRect, fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, materialReferences, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
@@ -46,6 +46,12 @@ function capture(input) {
     else if (edit.op === 'remove-monarch') { fields(edit, ['op', 'chapterId', 'factionIdx', 'resolution']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.factionIdx) || !edit.resolution || typeof edit.resolution !== 'object' || Array.isArray(edit.resolution)) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'disband-faction') { fields(edit, ['op', 'chapterId', 'factionIdx', 'confirm']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.factionIdx) || edit.confirm !== true) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'city' || edit.op === 'city-native') { fields(edit, ['op', 'chapterId', 'cityIdx', 'values']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || !edit.values || typeof edit.values !== 'object' || Array.isArray(edit.values)) fail(422, 'DRAFT_CHAPTER_EDITS'); const cityKeys = Object.keys(edit.values); if (!cityKeys.length || cityKeys.some(k => (k !== 'troops' && k !== 'prod') || typeof edit.values[k] !== 'number' || !Number.isInteger(edit.values[k]) || Object.is(edit.values[k], -0))) fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    // §7 chapter attributes: named field plus its fixed native slot byte.
+    else if (edit.op === 'start-date') { fields(edit, ['op', 'chapterId', 'values']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !edit.values || typeof edit.values !== 'object' || Array.isArray(edit.values)) fail(422, 'DRAFT_CHAPTER_EDITS'); const keys = Object.keys(edit.values); if (!keys.length || keys.some(k => k !== 'era' && k !== 'year' && k !== 'month' && k !== 'day')) fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    else if (edit.op === 'city-faction') { fields(edit, ['op', 'chapterId', 'cityIdx', 'factionId']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191 || edit.factionId !== null && (!Number.isInteger(edit.factionId) || edit.factionId < 0 || edit.factionId > 255)) fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    else if (edit.op === 'set-capital') { fields(edit, ['op', 'chapterId', 'factionIdx', 'cityIdx']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21 || !Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191) fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    else if (edit.op === 'general-faction') { fields(edit, ['op', 'chapterId', 'generalIdx', 'factionId']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || edit.factionId !== null && (!Number.isInteger(edit.factionId) || edit.factionId < 0 || edit.factionId > 255)) fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    else if (edit.op === 'set-diplomat') { fields(edit, ['op', 'chapterId', 'factionIdx', 'generalIdx']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21 || (edit.generalIdx !== null && (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127))) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else fail(422, 'DRAFT_CHAPTER_EDITS');
   }
   // Preserve absence for old request_json receipts. New definitions are not
@@ -332,10 +338,13 @@ export class PrivateDrafts {
     // The source kind comes from the captured, profile-checked trusted baseline,
     // never the request/candidate. Full copies cannot hide people in history.
     if (captured.game.sourceRef.kind === 'builtin-template') return profile.verifyOrderedTemplate(captured.capability, candidate, history.steps);
-    if (history.steps.some(step => step.peopleEdits.length)) fail(422, 'DRAFT_PEOPLE_PROFILE');
+    // B5: the game-level general library belongs to every game-owned source, so
+    // its person references are no longer a template-only command. A baseline
+    // without a game-owned library（旧槽位字典）仍拒绝，不把字典当庫。
+    if (history.steps.some(step => step.peopleEdits.length) && !generalLibrarySupported(captured.game)) fail(422, 'DRAFT_PEOPLE_PROFILE');
     if (history.steps.some(step => step.cityEdits.length)) fail(422, 'DRAFT_CITY_PROFILE');
     if (history.steps.some(step => step.chapterCityEdits.length)) fail(422, 'DRAFT_CHAPTER_CITY_PROFILE');
-    return profile.verify(captured.capability, candidate, history.chapters, history.definitions, history.steps.flatMap(step => step.mapEdits));
+    return profile.verify(captured.capability, candidate, history.chapters, history.definitions, history.steps.flatMap(step => step.mapEdits), history.steps.flatMap(step => step.peopleEdits));
   }
   async captureForCompile(tokenHash, gameId, requested) {
     const { actor } = this.#owned(tokenHash, gameId); this.#origin(tokenHash, gameId, actor);
@@ -346,6 +355,14 @@ export class PrivateDrafts {
     const reference = this.#games.snapshotReference(tokenHash, gameId, requested);
     if (reference.rootKey !== loaded.reference.rootKey || reference.sourceDigest !== loaded.reference.sourceDigest || reference.dependencyDigest !== loaded.reference.dependencyDigest || content.sourceDigest !== reference.sourceDigest) fail(503, 'DRAFT_REFERENCE_CORRUPT');
     return Object.freeze({ game: loaded.proof.game, reference: Object.freeze({ ...reference }), ownerId: actor.id, authEpoch: actor.epoch, profileRevision: content.profileRevision });
+  }
+  // B8 全章匯總校驗（上架前的唯讀入口）：與 publish 共用同一 captureForCompile，
+  // 所以 revision／sourceDigest／profile 口徑與上架門完全一致；不改資料、不寫收據、
+  // 不授予 Trial 或發布資格，只回「哪些章因基礎資料缺失而引用不到」。
+  async chapterReferences(tokenHash, gameId, requested) {
+    const { game, reference } = await this.captureForCompile(tokenHash, gameId, requested);
+    return { version: 1, gameId, draftRevision: reference.draftRevision, sourceDigest: reference.sourceDigest,
+      chapterCount: (game.chapterOrder ?? []).length, chapters: chapterReferenceReport(game) };
   }
   // Display-only projection of an authenticated immutable revision, not Trial
   // compilation/admission. Never fetch latest or persist a preview artifact.
@@ -436,12 +453,14 @@ export class PrivateDrafts {
     const loaded = await this.#load(tokenHash, gameId, requested, actor), { profile, captured } = await this.#profile(tokenHash, gameId, actor);
     const history = this.#editHistory(gameId, requested);
     const content = this.#verifyHistory(profile, captured, loaded.proof.game, history); this.#origin(tokenHash, gameId, actor);
+    // B5 武將庫：是否為遊戲自有庫看真實資料形狀，不看 profile 名稱。
+    const library = generalLibrarySupported(loaded.proof.game);
     return { gameId, draftRevision: requested, sourceDigest: loaded.reference.sourceDigest, profileRevision: content.profileRevision, metadata: loaded.proof.game.metadata,
-      chapters: loaded.proof.game.chapterOrder.map(id => { const st = loaded.proof.game.chapters[id].state; return { chapterId: id, name: loaded.proof.game.chapters[id].name ?? '', startDate: st.start ? { year: st.start.year, month: st.start.month, day: st.start.day } : null, factions: st.factions.map(f => ({ slot: f.idx, idx: f.idx, monarch_idx: f.monarch_idx, advisor_idx: f.advisor_idx ?? null, capital: f.capital, money: f.money, reserve_cav: f.reserve_cav, reserve_arc: f.reserve_arc, reserve_inf: f.reserve_inf })), generals: st.generals.map(g => ({ idx: g.idx, name: g.name, hao: g.hao, sourceRecordId: loaded.proof.game.sourceRecords?.bindings?.[id]?.slotMap?.[g.idx] ?? null, portrait: g.portrait ?? null, portraitKey: g.portraitKey ?? null, ability: g.ability ? { ...g.ability } : null, specialtyLowBits: g.specialty_low_bits ?? null, faction: g.faction ?? null, references: generalChapterReferences(loaded.proof.game, id, g.idx) })), cities: st.cities.map(c => ({ idx: c.idx, name: c.name, typeCode: c.type ?? null, faction: c.faction ?? null, governor: c.governor ?? null, troops: c.troops ?? null, prod: c.prod ?? null, troopsCap: c.troops_cap ?? null, maxProd: c.max_prod ?? null, growth: c.growth ?? null, defence: c.defence ?? null })), gaps: chapterGapReport(st, id) }; }),
+      chapters: loaded.proof.game.chapterOrder.map(id => { const st = loaded.proof.game.chapters[id].state; return { chapterId: id, name: loaded.proof.game.chapters[id].name ?? '', startDate: st.start ? { year: st.start.year, month: st.start.month, day: st.start.day, era: st.start.era ?? null } : null, factions: st.factions.map(f => ({ slot: f.idx, idx: f.idx, monarch_idx: f.monarch_idx, advisor_idx: f.advisor_idx ?? null, diplomat_idx: f.diplomat_idx ?? null, capital: f.capital, money: f.money, reserve_cav: f.reserve_cav, reserve_arc: f.reserve_arc, reserve_inf: f.reserve_inf })), generals: st.generals.map(g => ({ idx: g.idx, name: g.name, hao: g.hao, sourceRecordId: loaded.proof.game.sourceRecords?.bindings?.[id]?.slotMap?.[g.idx] ?? null, portrait: g.portrait ?? null, portraitKey: g.portraitKey ?? null, ability: g.ability ? { ...g.ability } : null, specialtyLowBits: g.specialty_low_bits ?? null, faction: g.faction ?? null, references: generalChapterReferences(loaded.proof.game, id, g.idx) })), cities: st.cities.map(c => ({ idx: c.idx, name: c.name, typeCode: c.type ?? null, faction: c.faction ?? null, governor: c.governor ?? null, troops: c.troops ?? null, prod: c.prod ?? null, troopsCap: c.troops_cap ?? null, maxProd: c.max_prod ?? null, growth: c.growth ?? null, defence: c.defence ?? null })), gaps: chapterGapReport(st, id) }; }),
       cityDefinitions: content.profileRevision === FIXED_TEMPLATE_PROFILE ? Object.entries(loaded.proof.game.cities).map(([cityId, definition]) => ({ cityId, name: definition.name ?? null })) : null,
       chapterCities: content.profileRevision === FIXED_TEMPLATE_PROFILE ? chapterCitiesProjection(loaded.proof.game) : null,
-      generalDefinitions: content.profileRevision === FIXED_TEMPLATE_PROFILE ? Object.entries(loaded.proof.game.generals).map(([generalId, definition]) => ({ generalId, ...structuredClone(definition) })) : null,
-      ...(content.profileRevision === FIXED_TEMPLATE_PROFILE ? chapterPeopleProjection(loaded.proof.game) : { generalReferences: null, chapterPeople: null }),
+      generalDefinitions: library ? Object.entries(loaded.proof.game.generals).map(([generalId, definition]) => ({ generalId, ...structuredClone(definition) })) : null,
+      ...(library ? chapterPeopleProjection(loaded.proof.game) : { generalReferences: null, chapterPeople: null }),
       waterGroups: loaded.proof.game.map.waterGroups.map(group => {
         let name = null;
         if (typeof group.name === 'string') name = group.name;
@@ -552,6 +571,11 @@ export class PrivateDrafts {
           else if (edit.op === 'remove-monarch') removeMonarch(candidate, edit.chapterId, edit.factionIdx, edit.resolution);
           else if (edit.op === 'city') candidate = editChapterCity(candidate, edit.chapterId, edit.cityIdx, edit.values);
           else if (edit.op === 'city-native') candidate = editChapterCityNative(candidate, edit.chapterId, edit.cityIdx, edit.values);
+          else if (edit.op === 'start-date') setChapterStart(candidate, edit.chapterId, edit.values);
+          else if (edit.op === 'city-faction') setChapterCityFaction(candidate, edit.chapterId, edit.cityIdx, edit.factionId);
+          else if (edit.op === 'set-capital') setFactionCapital(candidate, edit.chapterId, edit.factionIdx, edit.cityIdx);
+          else if (edit.op === 'general-faction') setChapterGeneralFaction(candidate, edit.chapterId, edit.generalIdx, edit.factionId);
+          else if (edit.op === 'set-diplomat') setFactionDiplomat(candidate, edit.chapterId, edit.factionIdx, edit.generalIdx);
           else disbandFaction(candidate, edit.chapterId, edit.factionIdx);
         } catch { fail(422, 'DRAFT_CHAPTER_EDIT'); }
       }

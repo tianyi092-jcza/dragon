@@ -1,6 +1,8 @@
 import { scryptSync, timingSafeEqual } from 'node:crypto';
-export class HttpError extends Error { constructor(status, code) { super(code); this.status = status; this.code = code; } }
-export const fail = (status, code) => { throw new HttpError(status, code); };
+// detail 只承载已授权的结构化拒绝理由（目前仅上架的全章引用清單），由 fetch 的
+// JSON 错误封包原样转交；不携带请求内容，也不构成新的成功响应形状。
+export class HttpError extends Error { constructor(status, code, detail) { super(code); this.status = status; this.code = code; if (detail !== undefined) this.detail = detail; } }
+export const fail = (status, code, detail) => { throw new HttpError(status, code, detail); };
 export const hex = bytes => Array.from(bytes, n => n.toString(16).padStart(2, '0')).join('');
 export const randomToken = () => hex(crypto.getRandomValues(new Uint8Array(32)));
 const unhex = text => Uint8Array.from(text.match(/../g), s => Number.parseInt(s, 16));

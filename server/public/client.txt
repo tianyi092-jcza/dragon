@@ -5,6 +5,7 @@ import { installLibraryBrowser } from '/library.js';
 import { installLibraryRegistration } from '/catalog.js';
 import { installGameManagement, installGameDeletion } from '/management.js';
 import { installPublish } from '/publish.js';
+import { installReview } from '/review.js';
 import { installStronghold } from '/stronghold.js';
 import { installGenerals } from '/general.js';
 import { installMapViewer } from '/mapview.js';
@@ -33,15 +34,27 @@ async function api(path, value, options = {}) {
     return data;
   }
   try { data = await response.json(); } catch { throw new Error('服務回應無效。'); }
-  if (!response.ok) { if (response.status === 401 && mark === sessionEpoch) { current = null; sessionEpoch++; render(); } const error = new Error(errors[data.error] ?? '操作被拒絕：' + data.error); error.status = response.status; error.code = data.error; throw error; }
+  if (!response.ok) { if (response.status === 401 && mark === sessionEpoch) { current = null; sessionEpoch++; render(); } const error = new Error(errors[data.error] ?? '操作被拒絕：' + data.error); error.status = response.status; error.code = data.error; if (data.detail !== undefined) error.detail = data.detail; throw error; }
   return data;
 }
-const views = [['draft-editor', '遊戲與章節草稿', false], ['stronghold-editor', '據點管理', false], ['generals-editor', '武將管理', false], ['mapview-editor', '地圖', false], ['stage-editor', '階段任務', false], ['stage-assets-editor', '階段結構', false], ['library-editor', '素材庫', false], ['copy', '新建遊戲', false], ['publish-editor', '發布管理', false], ['deletion-editor', '刪除追蹤', false], ['admin', '創作者帳戶', true], ['management-editor', '上架與限制', true], ['catalog-editor', '遊戲資源', false]];
+// 三層：工作台級（底層資源）→ 遊戲級（遊戲章節）→ 管理員專屬；第二欄為選單顯示名，第三欄為管理員限定。
+const views = [
+  ['copy', '新建遊戲', false, 'workbench'],
+  ['draft-editor', '遊戲管理', false, 'workbench'],
+  ['admin', '用戶管理', true, 'workbench'],
+  ['catalog-editor', '系統資源', false, 'workbench'],
+  ['stronghold-editor', '城池據點', false, 'game'],
+  ['mapview-editor', '地圖管理', false, 'game'],
+  ['generals-editor', '武將管理', false, 'game'],
+  ['chapters-editor', '遊戲章節', false, 'game'],
+  ['publish-editor', '上架管理', false, 'game'],
+  ['management-editor', '上架審核', true, 'admin'],
+];
 let view = null, displayedOwner = null;
 const accounts = createAccountController({ api, authority: () => current, work: run, publish: model => shell.accounts(model), confirm: text => confirm(text) });
 let mapCanvas = null, minimapCanvas = null, mapWindowCanvas = null;
-const managementActions = {}, deletionActions = {}, publicationActions = {}, copyActions = {}, draftActions = { attachMinimapCanvas: canvas => { minimapCanvas = canvas; }, attachMapWindowCanvas: canvas => { mapWindowCanvas = canvas; } }, stageAssetsActions = {}, stageJobsActions = {}, libraryActions = {}, strongholdActions = {}, generalsActions = {}, catalogActions = {}, mapviewActions = {attachCanvas: canvas => { mapCanvas = canvas; }};
-const shell = mountWorkbench({ root: q('editor-app'), views, navigate, accounts, draft: draftActions, stageAssets: stageAssetsActions, stageJobs: stageJobsActions, library: libraryActions, stronghold: strongholdActions, mapview: mapviewActions, catalog: catalogActions, generals: generalsActions, copy: copyActions, publication: publicationActions, management: managementActions, deletion: deletionActions, logout: () => q('logout').click() });
+const managementActions = {}, deletionActions = {}, publicationActions = {}, reviewActions = {}, copyActions = {}, fullCopyActions = {}, draftActions = { attachMinimapCanvas: canvas => { minimapCanvas = canvas; }, attachMapWindowCanvas: canvas => { mapWindowCanvas = canvas; } }, stageAssetsActions = {}, stageJobsActions = {}, libraryActions = {}, strongholdActions = {}, generalsActions = {}, catalogActions = {}, mapviewActions = {attachCanvas: canvas => { mapCanvas = canvas; }};
+const shell = mountWorkbench({ root: q('editor-app'), views, navigate, accounts, draft: draftActions, stageAssets: stageAssetsActions, stageJobs: stageJobsActions, library: libraryActions, stronghold: strongholdActions, mapview: mapviewActions, catalog: catalogActions, generals: generalsActions, copy: copyActions, fullCopy: fullCopyActions, publication: publicationActions, management: managementActions, deletion: deletionActions, review: reviewActions, logout: () => q('logout').click() });
 function permittedView(next) {
   if (!current || current.user.mustChangePassword) return null;
   if (['profile', 'password'].includes(next)) return next;
@@ -70,17 +83,17 @@ function render() {
     q('profile-status').replaceChildren();
     q('profile').reset(); q('password').reset();
   }
-  accounts.setIdentity(current); copyUI.setIdentity(current);
+  accounts.setIdentity(current); copyUI.setIdentity(current); fullCopyUI.setIdentity(current);
   if (current) fillProfile();
-  draftUI.setIdentity(current); stageUI?.setIdentity(current); libraryUI?.setIdentity(current); catalogUI?.setIdentity(current); managementUI?.setIdentity(current); deletionUI?.setIdentity(current); publishUI?.setIdentity(current); stageAssetUI?.setIdentity(current); strongholdUI?.setIdentity(current); generalsUI?.setIdentity(current); mapviewUI?.setIdentity(current);
+  draftUI.setIdentity(current); stageUI?.setIdentity(current); libraryUI?.setIdentity(current); catalogUI?.setIdentity(current); managementUI?.setIdentity(current); deletionUI?.setIdentity(current); publishUI?.setIdentity(current); reviewUI?.setIdentity(current); stageAssetUI?.setIdentity(current); strongholdUI?.setIdentity(current); generalsUI?.setIdentity(current); mapviewUI?.setIdentity(current);
   show(view ?? location.hash.slice(1));
 }
 async function run(action) {
   if (busy) return; busy = true; shell.sync({ current, view, busy }); const controls = [...document.querySelectorAll('#login input,#profile input,#password input')]; controls.forEach(node => { node.disabled = true; });
-  try { const result = await action(); status('操作完成。'); return result; } catch (error) { status(error.message); } finally { busy = false; controls.forEach(node => { node.disabled = false; }); draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); deletionUI?.render(); publishUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); mapviewUI?.render(); copyUI.render(); show(view); }
+  try { const result = await action(); status('操作完成。'); return result; } catch (error) { status(error.message); } finally { busy = false; controls.forEach(node => { node.disabled = false; }); draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); deletionUI?.render(); publishUI?.render(); reviewUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); mapviewUI?.render(); copyUI.render(); fullCopyUI.render(); show(view); }
 }
 const list = () => accounts.load();
-let stageUI, libraryUI, catalogUI, managementUI, deletionUI, publishUI, stageAssetUI, strongholdUI, generalsUI, mapviewUI;
+let stageUI, libraryUI, catalogUI, managementUI, deletionUI, publishUI, reviewUI, stageAssetUI, strongholdUI, generalsUI, mapviewUI;
 let contextIdentity = null;
 const authoringContext = createAuthoringContext({
   participants: () => ({draft: draftUI, stronghold: strongholdUI, generals: generalsUI, map: mapviewUI, publication: publishUI}),
@@ -95,8 +108,11 @@ async function openGameView(id, target) {
 }
 const draftUI = installDraftEditor({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('draft'), hasLocalMapInputs: () => shell.mapInputs(), getMinimapCanvas: () => minimapCanvas, getMapWindowCanvas: () => mapWindowCanvas, publish: model => shell.draft(model), onContextChanged: () => { stageUI?.render(); libraryUI?.render(); stageAssetUI?.render(); } });
 Object.assign(draftActions, draftUI.actions);
-const copyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.copy(model), gotoGame: id => openGameView(id, 'draft-editor'), openDeletion: id => openGameView(id, 'deletion-editor')});
+const copyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.copy(model), gotoGame: id => openGameView(id, 'draft-editor')});
 Object.assign(copyActions, copyUI.actions);
+// B6 管理員「複製遊戲」：地圖＋章節＋武將全套複製，入口在「遊戲管理」。
+const fullCopyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, mode: 'full', publish: model => shell.fullCopy(model), gotoGame: id => openGameView(id, 'draft-editor')});
+Object.assign(fullCopyActions, fullCopyUI.actions);
 stageUI = installStageJobs({ api, authority: () => current, work: run, isBusy: () => busy, savedContext: () => draftUI.savedContext(), publish: model => shell.stageJobs(model) });
 Object.assign(stageJobsActions, stageUI.actions);
 libraryUI = installLibraryBrowser({ api, authority: () => current, work: run, isBusy: () => busy, savedContext: () => draftUI.savedContext(), publish: model => shell.library(model) });
@@ -109,6 +125,8 @@ deletionUI = installGameDeletion({ api, authority: () => current, work: run, isB
 Object.assign(deletionActions, deletionUI.actions);
 publishUI = installPublish({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('publication'), publish: model => shell.publication(model) });
 Object.assign(publicationActions, publishUI.actions);
+reviewUI = installReview({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.review(model) });
+Object.assign(reviewActions, reviewUI.actions);
 strongholdUI = installStronghold({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('stronghold'), publish: model => shell.stronghold(model) });
 Object.assign(strongholdActions, strongholdUI.actions);
 generalsUI = installGenerals({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('generals'), publish: model => shell.generals(model) });
@@ -117,12 +135,12 @@ mapviewUI = installMapViewer({ api, authority: () => current, work: run, isBusy:
 Object.assign(mapviewActions, mapviewUI.actions);
 stageAssetUI = installStageAssetBrowser({ api, authority: () => current, work: run, isBusy: () => busy, requestContext: () => stageUI.assetContext(), publish: model => shell.stageAssets(model) });
 Object.assign(stageAssetsActions, stageAssetUI.actions);
-window.addEventListener('pagehide', () => { stageAssetUI.pagehide(); libraryUI.pagehide(); catalogUI.pagehide(); copyUI.pagehide(); });
+window.addEventListener('pagehide', () => { stageAssetUI.pagehide(); libraryUI.pagehide(); catalogUI.pagehide(); copyUI.pagehide(); fullCopyUI.pagehide(); });
 function accountDirty(includePassword = true) {
   if (!current) return false;
   return shell.accountDirty() || ['displayName', 'email', 'phone', 'note'].some(key => q('profile').elements.namedItem(key).value !== (current.user[key] ?? '')) || includePassword && [...q('password').querySelectorAll('input')].some(input => input.value);
 }
-const canLeave = (forUnload = false, includePassword = true) => (!accountDirty(includePassword) || !forUnload && confirm('帳戶建立、個人資料或密碼尚未提交；此操作不會自動保存這些輸入。確定繼續？')) && draftUI.canLeave(forUnload) && stageUI.canLeave(forUnload) && catalogUI.canLeave(forUnload) && managementUI.canLeave(forUnload) && deletionUI.canLeave(forUnload) && publishUI.canLeave(forUnload) && strongholdUI.canLeave(forUnload) && copyUI.canLeave(forUnload);
+const canLeave = (forUnload = false, includePassword = true) => (!accountDirty(includePassword) || !forUnload && confirm('帳戶建立、個人資料或密碼尚未提交；此操作不會自動保存這些輸入。確定繼續？')) && draftUI.canLeave(forUnload) && stageUI.canLeave(forUnload) && catalogUI.canLeave(forUnload) && managementUI.canLeave(forUnload) && deletionUI.canLeave(forUnload) && publishUI.canLeave(forUnload) && strongholdUI.canLeave(forUnload) && copyUI.canLeave(forUnload) && fullCopyUI.canLeave(forUnload);
 window.addEventListener('beforeunload', event => { stageUI.revokeURLs(); libraryUI.revokeURLs(); if (!canLeave(true)) { event.preventDefault(); event.returnValue = ''; } });
 q('login').onsubmit = event => { event.preventDefault(); const data = new FormData(event.currentTarget); run(async () => { if (!canLeave()) return; current = await api('/api/auth/login', { account: String(data.get('account')), password: String(data.get('password')) }); sessionEpoch++; q('login').reset(); render(); if (!current.user.mustChangePassword && current.user.role === 'admin') await list(); }); };
 q('password').onsubmit = event => { event.preventDefault(); const data = new FormData(event.currentTarget); run(async () => { if (!canLeave(false, false)) return; if (data.get('newPassword') !== data.get('confirmPassword')) throw new Error('兩次新密碼不相同。'); current = await api('/api/auth/password', { oldPassword: String(data.get('oldPassword')), newPassword: String(data.get('newPassword')) }); sessionEpoch++; draftUI.passwordChanged(current); stageUI.passwordChanged(current); q('password').reset(); render(); if (current.user.role === 'admin') await list(); }); };

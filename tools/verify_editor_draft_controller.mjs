@@ -30,10 +30,19 @@ test('chapter start dates are read-only detached values; unknown stays unknown a
   const data = receipt(); data.chapters[0].startDate = { year: 264, month: 2, day: 3 };
   h.response(() => data); await h.actions.load();
   assert.deepEqual(h.model().chapters[0].startDate, { year: 264, month: 2, day: 3 });
+  // §7 era label: unlabelled chapters read as null, an explicit label travels
+  // with the pinned year, and any other value refuses the whole read.
+  for (const era of [null, 'ad', 'bc']) {
+    const labelled = receipt('2'); labelled.chapters[0].startDate = { era, year: 264, month: 2, day: 3 };
+    h.actions.setField('revision', '2'); h.response(() => labelled); await h.actions.load();
+    assert.deepEqual(h.model().chapters[0].startDate, { era, year: 264, month: 2, day: 3 });
+    h.actions.setField('revision', '1'); h.response(() => receipt()); await h.actions.load();
+    h.response(() => data); await h.actions.load();
+  }
   data.chapters[0].startDate.year = 999;
   h.model().chapters[0].startDate.month = 99; h.controller.render();
   assert.deepEqual(h.model().chapters[0].startDate, { year: 264, month: 2, day: 3 });
-  for (const startDate of [[], '264', {}, { year: 264, month: 2 }, { year: 264, month: 2, day: '3' }, { year: -0, month: 2, day: 3 }, { year: 264.5, month: 2, day: 3 }, { year: 264, month: 2, day: 3, extra: 1 }]) {
+  for (const startDate of [[], '264', {}, { year: 264, month: 2 }, { year: 264, month: 2, day: '3' }, { year: -0, month: 2, day: 3 }, { year: 264.5, month: 2, day: 3 }, { year: 264, month: 2, day: 3, extra: 1 }, { era: 'xx', year: 264, month: 2, day: 3 }]) {
     const invalid = receipt('2'); invalid.chapters[0].startDate = startDate;
     h.actions.setField('revision', '2'); h.response(() => invalid); await h.actions.load();
     assert.match(h.errors.at(-1).message, /開局日期/);
@@ -355,7 +364,7 @@ test('local map inputs join leave, reread and Trial consent without joining save
 });
 const roleDTO = (revision = '1') => {
   const value = receipt(revision), chapter = value.chapters[0];
-  Object.assign(chapter.factions[0], { monarch_idx: 0, advisor_idx: 126 });
+  Object.assign(chapter.factions[0], { monarch_idx: 0, advisor_idx: 126, diplomat_idx: null, capital: 0 });
   chapter.generals = [0, 126, 127].map(idx => ({ idx, name: `<將${idx}>`, hao: '', faction: idx === 127 ? null : 0 }));
   return value;
 };
@@ -363,7 +372,7 @@ test('role display uses exact chapter slots, marks reserved G127 and owns its pr
   const h = harness(); await h.load(); assert.equal(h.model().roles.known, false);
   const dto = roleDTO(); h.response(() => dto); await h.actions.load();
   assert.equal(h.model().roles.known, true); assert.equal(h.model().roles.locked, false);
-  assert.deepEqual(h.model().roles.chapters[0].factions, [{ slot: 0, monarchSlot: 0, advisorSlot: 126 }]);
+  assert.deepEqual(h.model().roles.chapters[0].factions, [{ slot: 0, monarchSlot: 0, advisorSlot: 126, diplomatSlot: null, capital: 0 }]);
   assert.deepEqual(h.model().roles.chapters[0].generals.map(g => [g.slot,g.reserved]), [[0,false],[126,false],[127,true]]);
   dto.chapters[0].generals[0].name = 'external mutation'; h.model().roles.chapters[0].generals.length = 0;
   h.controller.render(); assert.equal(h.model().roles.chapters[0].generals[0].name, '<將0>');
@@ -378,7 +387,7 @@ test('missing role data stays unknown while malformed known data refuses atomic 
     const errors = h.errors.length; await h.actions.load(); assert.equal(h.errors.length, errors + 1);
     assert.equal(h.model().context.draftRevision, '1'); assert.equal(h.model().roles.known, true);
   }
-  for (const change of [d => { delete d.chapters[0].generals; }, d => { delete d.chapters[0].factions[0].advisor_idx; }, d => { d.profileRevision = 'fixed-template-authoring-1'; }]) {
+  for (const change of [d => { delete d.chapters[0].generals; }, d => { delete d.chapters[0].factions[0].advisor_idx; }, d => { delete d.chapters[0].factions[0].diplomat_idx; }, d => { d.chapters[0].factions[0].capital = 192; }, d => { d.profileRevision = 'fixed-template-authoring-1'; }]) {
     const unknown = roleDTO('2'); change(unknown); h.response(() => unknown); await h.actions.load();
     assert.equal(h.model().roles.known, false); assert.equal(h.model().roles.locked, true); assert.deepEqual(h.model().roles.chapters, []);
   }

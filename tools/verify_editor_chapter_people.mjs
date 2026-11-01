@@ -7,7 +7,7 @@ import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
 import { FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
 import { chapterActiveGaps, copyChapterInGame, deleteChapter, validateGameSource } from '../web/src/content/authoring/gamesource.js';
 import { encodeSourceChunks, decodeSourceChunks } from '../web/src/content/authoring/sourcejson.js';
-const { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionReferences, effectiveChapterPerson, generalDefinitionChangeImpact, chapterPeopleProjection } = authoring;
+const { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionReferences, effectiveChapterPerson, generalDefinitionChangeImpact, chapterPeopleProjection, generalLibrarySupported } = authoring;
 for (const fn of [applyChapterPersonEdit, generalDefinitionReferences, effectiveChapterPerson, generalDefinitionChangeImpact, chapterPeopleProjection]) assert.equal(typeof fn, 'function', 'chapter people authoring port required');
 const G = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const id = G + '#general-' + 'a'.repeat(64), id2 = G + '#general-' + 'b'.repeat(64);
@@ -102,11 +102,19 @@ for (const mutate of [
   game => { game.chapterOrder.push('missing'); },
   game => { delete game.chapterOrder[0]; },
   game => { game.chapterOrder.reference = 'one'; },
-  game => { game.sourceRef.kind = 'builtin-copy'; },
 ]) {
   const invalid = structuredClone(first); mutate(invalid); const snapshot = structuredClone(invalid);
   for (const action of [() => generalDefinitionReferences(invalid, id), () => effectiveChapterPerson(invalid, 'one', id), () => applyChapterPersonEdit(invalid, bind('one')), () => applyGeneralDefinitionEdit(invalid, { op: 'delete', generalId: id })]) assert.throws(action);
   assert.deepEqual(invalid, snapshot);
+}
+// B5：完整副本（builtin-copy）同样可以使用游戏自有武將庫与章節人物引用；
+// 它只是多了原生 chapter.state，不改变库层的读写规则。
+{
+  const copyKind = structuredClone(first); copyKind.sourceRef.kind = 'builtin-copy';
+  const bound = applyChapterPersonEdit(copyKind, bind('one'));
+  assert.deepEqual(bound.chapters.one.people[id], { included: true, factionId: null, overrides: {} });
+  assert.deepEqual(generalDefinitionReferences(bound, id).map(row => row.chapterId), ['one']);
+  assert.equal(generalLibrarySupported(copyKind), true);
 }
 groups++;
 let getters = 0;
@@ -159,8 +167,8 @@ assert.throws(() => chapterPeopleProjection(badProjection));
 assert.deepEqual(chapterPeopleProjection(base).chapterPeople, [{ chapterId: 'one', people: [] }, { chapterId: 'two', people: [] }]);
 assert.equal(getters, 0); groups++;
 // A real pinned template establishes protected-map/empty-state boundaries.
-// The legacy flat-history port still cannot authorize people. The separate
-// ordered content port is covered by verify_editor_people_history.mjs.
+// B5：庫层（definitions + people）由重放校验，不再按 profile 拒绝；候选多出的
+// 人物引用仍 fail-closed。有序内容端口另见 verify_editor_people_history.mjs。
 const profile = new FixedCopyProfile({ loadCopy: createPinnedCopyLoader({ kind: 'minimal' }), profileRevision: FIXED_TEMPLATE_PROFILE });
 const captured = await profile.capture({ gameId: G, ownerId: 'owned-chapter-people' });
 const defined = applyGeneralDefinitionEdit(captured.game, create), chapterId = defined.chapterOrder[0];
@@ -171,7 +179,8 @@ assert.deepEqual(chapterActiveGaps(candidate.chapters[chapterId].state).map(row 
 assert.deepEqual(candidate.map, captured.game.map); assert.deepEqual(candidate.cities, captured.game.cities);
 assert.deepEqual(candidate.compatibility, captured.game.compatibility);
 assert.deepEqual(candidate.chapters[chapterId].state, captured.game.chapters[chapterId].state);
-assert.throws(() => profile.verify(captured.capability, candidate, [], [create]), error => error.code === 'COPY_PROTECTED_DELTA');
-assert.throws(() => profile.verify(captured.capability, candidate, [], [create, bind(chapterId)]), error => error.code === 'COPY_DEFINITION_DELTA');
+assert.throws(() => profile.verify(captured.capability, candidate, [], [create]), error => error.code === 'COPY_PEOPLE_DELTA');
+assert.equal(typeof profile.verify(captured.capability, candidate, [], [create], [], [bind(chapterId)]).sourceDigest, 'string');
+assert.throws(() => profile.verify(captured.capability, candidate, [], [create], [], []), error => error.code === 'COPY_PEOPLE_DELTA');
 assert.equal(typeof profile.verify(captured.capability, defined, [], [create]).sourceDigest, 'string'); groups++;
 process.stdout.write(JSON.stringify({ groups, inputHashes: Object.keys(captured.provenance.inputHashes).length, getters, scope: 'neutral chapter people content/inheritance/reference and impact projections; legacy flat-history denial, no HTTP or native initialization proof' }) + '\n');

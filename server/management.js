@@ -6,6 +6,8 @@ const uuid=v=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab]
 const revision=v=>typeof v==='string'&&v.length<=8192&&/^[1-9][0-9]*$/.test(v);
 const key=v=>typeof v==='string'&&/^[A-Za-z0-9_-]{16,128}$/.test(v);
 const methods=Object.freeze({'unlist':'admin-unlist','clear-restriction':'admin-clear-restriction'});
+// B3 上架審核: rejection is its own receipt method (no distribution, no registry).
+const rejectMethod='admin-reject';
 function synchronous(callback) { if (callback !== undefined && (typeof callback !== 'function' || callback.constructor?.name === 'AsyncFunction')) throw new TypeError('synchronous trusted distribution callback required'); }
 // Exact legacy listing-response shape; receipts are snapshots, not current state.
 function listingSummary(row) {
@@ -36,6 +38,59 @@ export class GameManagement {
   if(changed){this.#sql.exec('UPDATE content_registry SET revision=revision+1 WHERE id=1');}
   this.#keySpace(a.id,op.key);const current=this.#target(v.gameId);if(current.row_revision!==next||current.listed!==0||current.restricted!==restricted)fail(409,'GAME_CHANGED');this.#session(h,a);return Object.freeze(result);
  });}
+ // B3 上架審核 (Web product decision 2026-11): 拒絕 returns the submitted
+ // version to 待上架 and marks it 已駁回. The mark is exactly one audit row whose
+ // before_revision is the rejected release ordinal (see
+ // GameMetadataStore#submissionState); nothing public changes, so there is no
+ // distribution event and no registry bump. Same CAS/epoch/idempotency rules
+ // as unlisting; a repeat with the same key replays and a repeat with a new key
+ // fails GAME_CHANGED because row_revision advanced.
+ reject(h,operation,input) {
+  fields(input,['gameId','expectedRowRevision']);
+  const id=input.gameId, expected=input.expectedRowRevision;
+  const op=Object.freeze({actor:operation?.actor,key:operation?.key,digest:operation?.digest,epoch:operation?.epoch});
+  if (!revision(expected) || !key(op.key) || typeof op.digest!=='string' || !/^[a-f0-9]{64}$/.test(op.digest)) fail(422,'MANAGEMENT_INPUT');
+  return this.#storage.transactionSync(()=>{
+   const a=this.#actor(h);
+   if (a.id!==op.actor || a.epoch!==op.epoch) fail(401,'SESSION_INVALID');
+   this.#keySpace(a.id,op.key); this.#session(h,a);
+   const row=this.#target(id);
+   const old=this.#one('SELECT * FROM content_operations WHERE actor=? COLLATE BINARY AND op_key=? COLLATE BINARY',a.id,op.key);
+   const reservation=this.#one('SELECT * FROM content_reservations WHERE actor=? COLLATE BINARY AND op_key=? COLLATE BINARY',a.id,op.key);
+   for (const prior of [old,reservation]) {
+    if (prior && (prior.method!==rejectMethod || prior.target!==id || prior.request_digest!==op.digest)) fail(409,'IDEMPOTENCY_CONFLICT');
+    if (prior && prior.auth_epoch!==a.epoch) fail(409,'OPERATION_REVOKED');
+   }
+   if (old) { const result=this.#rejectReceipt(a,id,old); this.#session(h,a); return result; }
+   if (reservation) fail(503,'MANAGEMENT_RECEIPT_CORRUPT');
+   // #target already refused builtin/fence/unknown rows.
+   const game=this.#one('SELECT current_release_id FROM content_games WHERE game_id=? COLLATE BINARY',id);
+   const release=game?.current_release_id===null?undefined:this.#one('SELECT ordinal FROM content_releases WHERE game_id=? AND release_id=?',id,game?.current_release_id);
+   if (!release || typeof release.ordinal!=='string' || !/^1\.(0|[1-9][0-9]{0,30})$/.test(release.ordinal)) fail(409,'REVIEW_NOT_SUBMITTED');
+   if (row.listed!==0) fail(409,'REVIEW_LISTED');
+   if (row.row_revision!==expected) fail(409,'GAME_CHANGED');
+   const next=String(BigInt(row.row_revision)+1n), time=new Date().toISOString();
+   if (next.length>8192) fail(503,'MANAGEMENT_REVISION_BUDGET');
+   const result={gameId:id,action:'reject',ordinal:release.ordinal,rowRevision:next,rejectedAt:time};
+   this.#sql.exec('INSERT INTO content_reservations VALUES(?,?,?,?,?,?)',a.id,op.key,rejectMethod,id,op.digest,a.epoch);
+   const updated=this.#one('UPDATE content_games SET row_revision=? WHERE game_id=? COLLATE BINARY AND row_revision=? COLLATE BINARY AND listed=0 RETURNING game_id',next,id,row.row_revision);
+   if (!updated) fail(409,'GAME_CHANGED');
+   this.#sql.exec('INSERT INTO content_operations VALUES(?,?,?,?,?,?,?,?)',a.id,op.key,rejectMethod,id,op.digest,a.epoch,JSON.stringify(result),time);
+   this.#sql.exec('INSERT INTO content_audits VALUES(?,?,?,?,?,?,?)',crypto.randomUUID(),a.id,rejectMethod,id,release.ordinal,next,time);
+   this.#keySpace(a.id,op.key); const current=this.#target(id);
+   if (current.row_revision!==next || current.listed!==0) fail(409,'GAME_CHANGED');
+   this.#session(h,a); return Object.freeze(result);
+  });
+ }
+ #rejectReceipt(a,id,row) {
+  if (row.auth_epoch!==a.epoch) fail(409,'OPERATION_REVOKED');
+  if (row.actor!==a.id || row.target!==id || row.method!==rejectMethod || typeof row.result_json!=='string' || Buffer.byteLength(row.result_json)>16384) fail(503,'MANAGEMENT_RECEIPT_CORRUPT');
+  const reserved=this.#one('SELECT * FROM content_reservations WHERE actor=? COLLATE BINARY AND op_key=? COLLATE BINARY',a.id,row.op_key);
+  if (!reserved || reserved.method!==row.method || reserved.target!==id || reserved.request_digest!==row.request_digest || reserved.auth_epoch!==row.auth_epoch) fail(503,'MANAGEMENT_RECEIPT_CORRUPT');
+  let value; try { value=JSON.parse(row.result_json); } catch { fail(503,'MANAGEMENT_RECEIPT_CORRUPT'); }
+  if (!value || Array.isArray(value) || Object.keys(value).sort().join(',')!=='action,gameId,ordinal,rejectedAt,rowRevision' || value.gameId!==id || value.action!=='reject' || typeof value.ordinal!=='string' || !/^1\.(0|[1-9][0-9]{0,30})$/.test(value.ordinal) || !revision(value.rowRevision) || typeof value.rejectedAt!=='string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value.rejectedAt)) fail(503,'MANAGEMENT_RECEIPT_CORRUPT');
+  return Object.freeze(value);
+ }
  #listingReceipt(a,id,row) {
   if (row.auth_epoch !== a.epoch) fail(409,'OPERATION_REVOKED');
   if (row.actor !== a.id || row.target !== id || row.method !== 'admin-list' || typeof row.result_json !== 'string' || Buffer.byteLength(row.result_json) > 65536) fail(503,'MANAGEMENT_RECEIPT_CORRUPT');

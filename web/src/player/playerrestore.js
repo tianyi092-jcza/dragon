@@ -4,6 +4,7 @@ import { loadPlayerChapters, admitPlayerChapter } from './playerchapters.js';
 import { loadPlayerPack } from './playerpack.js';
 import { createPlayerEnvironment } from './playerenvironment.js';
 import { createPlayerSaveStore } from './playersaves.js';
+import { GAME_DELETED_SAVE_NOTICE, discardLocalSaves, isGameDeletedFailure } from './playerdeletedgame.js';
 import { capturePlayerSaveRepository } from './playerrepository.js';
 import { saveJSON, saveReleaseOrdinal, saveReleaseOrdinalFromVersion } from '../core/gamesavecodec.js';
 
@@ -59,6 +60,36 @@ export function mountPlayerRestore({ root, reader, selection, store, compilerRev
     phase = 'error'; heading.textContent = '讀檔暫不可用';
     message.textContent = `資料、版本或存檔檢查未完成，沒有載入存檔。${cleared ? `已清除${cleared}個確認過期的存檔。` : '沒有刪除存檔。'}可重試；版本已變更時請返回重新選擇遊戲。`;
     rows.replaceChildren(); button('重試', () => { void refresh(); });
+  }
+  // The reader's explicit deletion fact ends this game, not the local archive:
+  // deleting it stays a separate confirmation and never an automatic cleanup.
+  function deleted(ticket) {
+    if (closed || epoch !== ticket) return;
+    phase = 'deleted'; heading.textContent = '存檔不可用';
+    message.textContent = GAME_DELETED_SAVE_NOTICE;
+    rows.replaceChildren();
+    button('刪除本機存檔', () => { void purge(ticket); });
+    button('保留存檔', () => { close(); });
+  }
+  async function purge(ticket) {
+    if (closed || phase !== 'deleted' || epoch !== ticket) return;
+    const own = ++epoch;
+    phase = 'deleting'; heading.textContent = '存檔不可用';
+    message.textContent = '正在刪除本機存檔…'; rows.replaceChildren();
+    try {
+      const summary = await discardLocalSaves({ store });
+      if (closed || epoch !== own) return;
+      phase = 'deleted-done';
+      message.textContent = `已刪除${summary.deleted}個本機存檔${summary.kept ? `；另有${summary.kept}個無法核對的存檔保留未動` : ''}。`;
+      rows.replaceChildren(); button('關閉', () => { close(); });
+    } catch {
+      if (closed || epoch !== own) return;
+      phase = 'deleted';
+      message.textContent = `${GAME_DELETED_SAVE_NOTICE}（刪除未完成，本機存檔保留未動）`;
+      rows.replaceChildren();
+      button('重試刪除', () => { void purge(own); });
+      button('保留存檔', () => { close(); });
+    }
   }
   function listing() {
     phase = 'list'; heading.textContent = '讀取存檔'; message.textContent = `${preview.selection.name} ${preview.selection.ordinal}${cleared ? `：遊戲版本已更新，舊版存檔不能載入，已自動清除${cleared}個。` : ''}`; rows.replaceChildren();
@@ -119,7 +150,10 @@ export function mountPlayerRestore({ root, reader, selection, store, compilerRev
         finally { if (owner) release(owner); }
       }
       current(ticket); choices = next; listing(); return true;
-    } catch { failed(ticket); return false; }
+    } catch (error) {
+      if (isGameDeletedFailure(error)) { deleted(ticket); return false; }
+      failed(ticket); return false;
+    }
   }
   async function choose(choice) {
     if (closed || phase !== 'list' || !choice.token || !choices.includes(choice)) return;
@@ -136,7 +170,10 @@ export function mountPlayerRestore({ root, reader, selection, store, compilerRev
       // chooser epoch; bind only the pack after the transfer succeeds.
       transferred = true; closed = true; epoch++; owners.delete(owner); host.remove();
       resolve(Object.freeze({ session: owner.session, pack: owner.pack, environment, saveRepository: repository, savedSlot: choice.slot, chapters: preview.chapters }));
-    } catch { if (owner) { try { release(owner); } catch { /* Retain for retry. */ } } failed(ticket); }
+    } catch (error) {
+      if (owner) { try { release(owner); } catch { /* Retain for retry. */ } }
+      if (isGameDeletedFailure(error)) deleted(ticket); else failed(ticket);
+    }
   }
   function close() {
     if (closed) return true;

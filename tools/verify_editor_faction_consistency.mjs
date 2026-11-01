@@ -109,21 +109,34 @@ test('present declared count is compared without deriving or filling absent coun
   assert.deepEqual(factionNativeConsistencyGaps(absent, id), []);
   assert.equal(Object.hasOwn(absent, 'n_factions'), false); // Comparison-only, not missing-dependency admission.
 });
-test('existing draft role writer cannot compile a view that fresh would overwrite; other complete chapter remains independent', () => {
+test('draft role writers keep named views and fixed native slots in one command', () => {
   const edited = structuredClone(game), [bad, healthy] = edited.chapterOrder, state = edited.chapters[bad].state;
   const faction = state.factions.find(row => row.advisor_idx !== null); assert.ok(faction);
-  const save = chapterSaveGaps(state, bad), raw = [...state.nativeFactionSlotRaw];
-  setStrategist(edited, bad, faction.idx, null);
+  const slot = faction.idx, save = chapterSaveGaps(state, bad), raw = [...state.nativeFactionSlotRaw];
+  setStrategist(edited, bad, slot, null);
   const before = structuredClone(edited);
-  assert.ok(chapterActiveGaps(state, bad).some(gap => gap.code === 'entity-native-mismatch'));
+  // +02 is the advisor byte: clearing writes the 0x7F sentinel into both the
+  // declared record and the fixed slot table, so a fresh read cannot overwrite
+  // the saved view with the previous incumbent.
+  assert.equal(state.factions.find(row => row.idx === slot).raw.slice(4, 6), '7f');
+  assert.equal(state.nativeFactionSlotRaw[slot].slice(4, 6), '7f');
+  assert.deepEqual(chapterActiveGaps(state, bad).filter(gap => gap.code === 'entity-native-mismatch'), []);
   assert.deepEqual(chapterSaveGaps(state, bad), save);
-  assert.ok(validateGameSource(edited, { draft: true }).some(gap => gap.code === 'entity-native-mismatch'));
-  assert.throws(() => validateGameSource(edited), /advisor_idx differs from native source/);
+  assert.deepEqual(validateGameSource(edited, { draft: true }), []);
+  assert.deepEqual(validateGameSource(edited), []);
   const sha = text => createHash('sha256').update(text).digest('hex');
-  assert.throws(() => projectTrialChapter(edited, bad, sha), /advisor_idx differs from native source/);
-  const selected = projectTrialChapter(edited, healthy, sha);
-  assert.deepEqual(selected.selected.chapters[healthy], edited.chapters[healthy]);
-  const report = chapterGapReport(state, bad);
+  const selected = projectTrialChapter(edited, bad, sha);
+  assert.deepEqual(selected.selected.chapters[bad], edited.chapters[bad]);
+  const healthySelected = projectTrialChapter(edited, healthy, sha);
+  assert.deepEqual(healthySelected.selected.chapters[healthy], edited.chapters[healthy]);
+  // A view changed outside the writer still refuses: the raw slot is authority.
+  const forged = structuredClone(game);
+  forged.chapters[bad].state.factions.find(row => row.idx === slot).advisor_idx = (faction.advisor_idx + 1) % 127;
+  assert.ok(chapterActiveGaps(forged.chapters[bad].state, bad).some(gap => gap.code === 'entity-native-mismatch'));
+  assert.throws(() => validateGameSource(forged), /advisor_idx differs from native source/);
+  assert.throws(() => projectTrialChapter(forged, bad, sha), /advisor_idx differs from native source/);
+  const report = chapterGapReport(forged.chapters[bad].state, bad);
   assert.ok(report.details.active.some(row => row.code === 'entity-native-mismatch' && row.recognized && row.description.includes('advisor_idx')));
-  assert.deepEqual(state.nativeFactionSlotRaw, raw); assert.deepEqual(edited, before);
+  assert.deepEqual(before.chapters[bad].state.nativeFactionSlotRaw, raw.map((value, index) => index === slot ? value.slice(0, 4) + '7f' + value.slice(6) : value));
+  assert.deepEqual(edited, before);
 });

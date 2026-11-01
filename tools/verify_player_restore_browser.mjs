@@ -122,6 +122,86 @@ try{
   assert.deepEqual(await page.evaluate(()=>window.__restore.before()),replaced.catalog);checks++;
  }
  assert.ok(await peer.evaluate(()=>window.__ownedDatabases.every(name=>name==='owned-formal-app')));await peer.close();
+ // B7 (user-approved): a deleted game is the reader's explicit 410 fact, never a
+ // directory miss. The load-time notice must precede any local body read, cancel
+ // must keep every save, and a confirmed deletion removes only verified slots.
+ const rawSaves=({gameId,slot,rewriteCatalog})=>page.evaluate(async({gameId,slot,rewriteCatalog})=>{
+  const {gameSaveKeys}=await import('/src/core/gamesavecodec.js');
+  const keys=gameSaveKeys(gameId,slot);
+  const db=await new Promise((resolve,reject)=>{const open=indexedDB.open('owned-formal-app',1);open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});
+  try{
+   await new Promise((resolve,reject)=>{
+    const tx=db.transaction('saves','readwrite'),store=tx.objectStore('saves');
+    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);
+    // Either drop one body (catalog row survives, pair no longer verifiable) or
+    // drop its summary (owned store returns to an empty catalog).
+    if(rewriteCatalog)store.get(keys.catalog).onsuccess=event=>{const catalog=event.target.result;store.put({...catalog,rows:catalog.rows.filter(row=>row.slot!==slot)},keys.catalog);};
+    else store.delete(keys.record);
+   });
+  }finally{db.close();}
+ },{gameId,slot,rewriteCatalog});
+ await reset();await page.evaluate(()=>{const c=window.__restore;c.deleted=true;c.mount();});
+ await root.getByRole('button',{name:'保留存檔',exact:true}).waitFor();
+ assert.match(await root.textContent(),/該遊戲已被刪除，存檔不可用，是否刪除？/);
+ assert.equal(await page.locator('[data-save-slot]').count(),0);
+ assert.equal(await page.locator('[data-unavailable-slot]').count(),0);
+ assert.deepEqual(await page.evaluate(()=>window.__restore.gets),[]);
+ assert.deepEqual((await page.evaluate(()=>window.__restore.before())).map(value=>value.slot),[0]);checks++;
+ await root.getByRole('button',{name:'保留存檔',exact:true}).click();
+ await page.waitForFunction(()=>window.__restore.settled);
+ assert.equal(await page.evaluate(()=>window.__restore.chosen),null);
+ assert.deepEqual((await page.evaluate(()=>window.__restore.before())).map(value=>value.slot),[0]);
+ assert.equal(await root.count(),0);checks++;
+ await page.evaluate(()=>window.__restore.mount());
+ await root.getByRole('button',{name:'刪除本機存檔',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.player-restore').textContent.includes('已刪除1個本機存檔'));
+ assert.deepEqual(await page.evaluate(()=>window.__restore.before()),[]);
+ assert.equal(await page.evaluate(()=>window.__restore.settled),false);
+ await root.getByRole('button',{name:'關閉',exact:true}).click();
+ await page.waitForFunction(()=>window.__restore.settled);
+ assert.equal(await page.evaluate(()=>window.__restore.chosen),null);checks++;
+ // A body-less row is not a deletable proof: it is retained and reported.
+ await page.evaluate(()=>window.__restore.seed());
+ await page.evaluate(()=>window.__restore.seed(2));
+ assert.deepEqual((await page.evaluate(()=>window.__restore.before())).map(value=>value.slot),[0,2]);
+ const ownedGame=await page.evaluate(()=>window.__ownedFormal.store.gameId);
+ await rawSaves({gameId:ownedGame,slot:0,rewriteCatalog:false});
+ await page.evaluate(()=>window.__restore.mount());
+ await root.getByRole('button',{name:'刪除本機存檔',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.player-restore').textContent.includes('另有1個無法核對的存檔保留未動'));
+ assert.deepEqual((await page.evaluate(()=>window.__restore.before())).map(value=>value.slot),[0]);
+ await root.getByRole('button',{name:'關閉',exact:true}).click();
+ await page.waitForFunction(()=>window.__restore.settled);checks++;
+ await rawSaves({gameId:ownedGame,slot:0,rewriteCatalog:true});
+ // The standalone load-entry prompt shares the same policy and message.
+ await page.evaluate(()=>window.__restore.seed());
+ await page.evaluate(()=>window.__restore.mountDeletedPrompt());
+ const prompt=page.locator('#owned-deleted .player-save-deleted');
+ await prompt.waitFor();
+ assert.match(await prompt.textContent(),/該遊戲已被刪除，存檔不可用，是否刪除？/);
+ await prompt.click({button:'right'});
+ await page.waitForFunction(()=>window.__restore.promptExit==='kept');
+ assert.deepEqual((await page.evaluate(()=>window.__restore.before())).map(value=>value.slot),[0]);
+ assert.equal(await page.locator('.player-save-deleted').count(),0);checks++;
+ await page.evaluate(()=>window.__restore.mountDeletedPrompt());
+ await prompt.getByRole('button',{name:'保留存檔',exact:true}).click();
+ await page.waitForFunction(()=>window.__restore.promptExit==='kept');
+ assert.deepEqual((await page.evaluate(()=>window.__restore.before())).map(value=>value.slot),[0]);checks++;
+ await page.evaluate(()=>window.__restore.mountDeletedPrompt({listFailure:true}));
+ await prompt.getByRole('button',{name:'刪除本機存檔',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.player-save-deleted')?.textContent.includes('刪除未完成，本機存檔保留未動'));
+ assert.deepEqual((await page.evaluate(()=>window.__restore.before())).map(value=>value.slot),[0]);
+ await prompt.getByRole('button',{name:'保留存檔',exact:true}).click();
+ await page.waitForFunction(()=>window.__restore.promptExit==='kept');checks++;
+ await page.evaluate(()=>window.__restore.mountDeletedPrompt());
+ await prompt.getByRole('button',{name:'刪除本機存檔',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.player-save-deleted')?.textContent.includes('已刪除1個本機存檔'));
+ assert.deepEqual(await page.evaluate(()=>window.__restore.before()),[]);
+ assert.equal(await page.evaluate(()=>window.__restore.promptExit),null);
+ assert.equal(await prompt.getByRole('button',{name:'刪除本機存檔',exact:true}).count(),0);
+ await prompt.getByRole('button',{name:'返回首頁',exact:true}).click();
+ await page.waitForFunction(()=>window.__restore.promptExit==='deleted');
+ assert.equal(await page.locator('.player-save-deleted').count(),0);checks++;
  await reset();await page.evaluate(()=>{window.__restore.advance();window.__restore.statusFailure=true;window.__restore.mount();});
  await root.getByRole('button',{name:'重試',exact:true}).waitFor();assert.equal((await page.evaluate(()=>window.__restore.before())).length,1);checks++;
  await page.evaluate(()=>{window.__restore.statusFailure=false;});await root.getByRole('button',{name:'重試',exact:true}).click();

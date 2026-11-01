@@ -7,7 +7,7 @@ import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
-import { addBlankChapter, copyChapterInGame, deleteChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, copyChapterInGame, deleteChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setFactionDiplomat } from '../web/src/content/authoring/gamesource.js';
 import { fail } from './security.js';
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
 export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
@@ -172,9 +172,34 @@ function digest(game) { const h = createHash('sha256'); for (const token of cano
 // baseline values on a clone; the final compare then proves nothing else
 // changed. Resource fields (money/reserves) are never touched here, so the
 // resource path below keeps working. Any structural surprise fails closed.
-function revertAppliedChapterEdits(baseline, candidate, applied) {
+// B5 general library: compare the replayed library and every chapter person
+// reference exactly, then normalize this comparison clone back to the pinned
+// shape so the protected native comparison stays untouched. A chapter with no
+// reference must not gain an empty `people` key.
+function normalizeLibraryRoots(baseline, reverted, libraryRoots) {
+  try { compare(libraryRoots.generals, value(reverted, 'generals'), new WeakMap()); }
+  catch { fail(422, 'COPY_DEFINITION_DELTA'); }
+  const chapters = value(reverted, 'chapters');
+  for (const chapterId of Object.keys(chapters)) {
+    const expected = libraryRoots.people.get(chapterId), chapter = value(chapters, chapterId);
+    if (expected === undefined ? Object.hasOwn(chapter, 'people') : !Object.hasOwn(chapter, 'people')) fail(422, 'COPY_PEOPLE_DELTA');
+    if (expected !== undefined) { try { compare(expected, value(chapter, 'people'), new WeakMap()); } catch { fail(422, 'COPY_PEOPLE_DELTA'); } }
+    const pinned = baseline.chapters?.[chapterId];
+    if (pinned && Object.hasOwn(pinned, 'people')) chapter.people = structuredClone(pinned.people);
+    else delete chapter.people;
+  }
+  reverted.generals = structuredClone(baseline.generals);
+}
+function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = null) {
   let edits = Array.isArray(applied) ? applied : [];
-  if (!edits.length) return candidate;
+  if (!edits.length) {
+    // No chapter edit: only the B5 library roots need normalizing, so the
+    // verified structure is cloned once before it is touched.
+    if (!libraryRoots) return candidate;
+    const only = structuredClone(candidate);
+    normalizeLibraryRoots(baseline, only, libraryRoots);
+    return only;
+  }
   // Replay only the structural identity/order on a content-free projection.
   // Reversal below must not erase unauthorized ordering or generated-ID edits.
   // Reuse the authoring writers rather than invent another ID allocation rule.
@@ -222,10 +247,10 @@ function revertAppliedChapterEdits(baseline, candidate, applied) {
         }
         lifetimes.delete(edit.chapterId);
       } else if (lifetime) {
-        if (edit?.op === 'rename' || lifetime.kind === 'copy' && ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction'].includes(edit?.op)) lifetime.indices.push(index);
+        if (edit?.op === 'rename' || lifetime.kind === 'copy' && ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op)) lifetime.indices.push(index);
         else lifetime.blocked = true; // Unknown operations stay fail-closed.
       }
-      if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction'].includes(edit?.op)) {
+      if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op)) {
         const chapter = lineage.get(edit.chapterId);
         if (!chapter) fail(422, 'COPY_PROTECTED_DELTA');
         let shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [edit.chapterId], chapters: { [edit.chapterId]: structuredClone(chapter) } };
@@ -236,6 +261,11 @@ function revertAppliedChapterEdits(baseline, candidate, applied) {
         else if (edit.op === 'set-monarch') setMonarch(shell, edit.chapterId, edit.factionIdx, edit.generalIdx);
         else if (edit.op === 'remove-monarch') removeMonarch(shell, edit.chapterId, edit.factionIdx, edit.resolution);
         else if (edit.op === 'disband-faction') disbandFaction(shell, edit.chapterId, edit.factionIdx);
+        else if (edit.op === 'start-date') setChapterStart(shell, edit.chapterId, edit.values);
+        else if (edit.op === 'city-faction') setChapterCityFaction(shell, edit.chapterId, edit.cityIdx, edit.factionId);
+        else if (edit.op === 'set-capital') setFactionCapital(shell, edit.chapterId, edit.factionIdx, edit.cityIdx);
+        else if (edit.op === 'general-faction') setChapterGeneralFaction(shell, edit.chapterId, edit.generalIdx, edit.factionId);
+        else if (edit.op === 'set-diplomat') setFactionDiplomat(shell, edit.chapterId, edit.factionIdx, edit.generalIdx);
         else if (edit.op === 'city-native') {
           shell = editChapterCityNative(shell, edit.chapterId, edit.cityIdx, edit.values);
           if (!nativeCities.has(edit.chapterId)) nativeCities.set(edit.chapterId, new Set());
@@ -256,6 +286,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied) {
   const clone = (v) => structuredClone(v);
   const revChapters = reverted.chapters, restoredCopies = new Set();
   if (!revChapters || typeof revChapters !== 'object' || Array.isArray(revChapters)) fail(422, 'COPY_PROTECTED_DELTA');
+  if (libraryRoots) normalizeLibraryRoots(baseline, reverted, libraryRoots);
   const baseChapter = (id) => {
     const c = baseline.chapters?.[id];
     if (!c || typeof c !== 'object' || c.chapterId !== id) fail(422, 'COPY_PROTECTED_DELTA');
@@ -337,13 +368,47 @@ function revertAppliedChapterEdits(baseline, candidate, applied) {
       else rec[key] = clone(base[key]);
     }
   };
+  // Chapter attribute edits (§7) move one named field together with its fixed
+  // native slot byte, so the reversal has to restore both. Byte offsets follow
+  // nativefactions.decodeSlot (faction) and the city record +01 owner byte.
+  const slotByte = (raw, offset) => typeof raw === 'string' ? Number.parseInt(raw.slice(offset * 2, offset * 2 + 2), 16) : null;
+  const restoreByte = (raw, offset, value) => raw.slice(0, offset * 2) + value.toString(16).padStart(2, '0') + raw.slice(offset * 2 + 2);
+  const revertFactionByte = (chapterId, factionIdx, offset) => {
+    const chapter = revChapter(chapterId), faction = revFaction(chapter, factionIdx);
+    const base = copyBases.get(chapterId) ?? baseChapter(chapterId);
+    const record = base.state?.factions?.find(f => f?.idx === factionIdx);
+    if (!record || typeof record !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
+    if (typeof faction.raw === 'string' && typeof record.raw === 'string') {
+      const byte = slotByte(record.raw, offset);
+      if (byte === null) fail(422, 'COPY_PROTECTED_DELTA');
+      faction.raw = restoreByte(faction.raw, offset, byte);
+    }
+    const table = chapter.state?.nativeFactionSlotRaw, baseTable = base.state?.nativeFactionSlotRaw;
+    if (!Array.isArray(table) || !Array.isArray(baseTable) || table[factionIdx] === undefined) return;
+    const byte = slotByte(baseTable[factionIdx], offset);
+    if (byte === null || typeof table[factionIdx] !== 'string') fail(422, 'COPY_PROTECTED_DELTA');
+    table[factionIdx] = restoreByte(table[factionIdx], offset, byte);
+  };
+  const FACTION_POST_BYTES = { monarch_idx: 1, advisor_idx: 2, capital: 3, diplomat_idx: 0x2a };
   const revertFactionPost = (chapterId, factionIdx, generalIdx, post) => {
     const faction = revFaction(revChapter(chapterId), factionIdx);
     const origin = copyBases.get(chapterId) ?? baseChapter(chapterId);
     const base = origin.state?.factions?.find(f => f?.idx === factionIdx);
     if (!base || typeof base !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
     faction[post] = base[post] ?? null;
+    revertFactionByte(chapterId, factionIdx, FACTION_POST_BYTES[post]);
     if (generalIdx !== null && generalIdx !== undefined) revertGeneralFields(chapterId, generalIdx, ['faction']);
+  };
+  // Restore one city's chapter affiliation and its owner byte. +1A (old owner)
+  // is original content and is never touched.
+  const revertCityFaction = (chapterId, idx) => {
+    const chapter = revChapter(chapterId), rec = revCity(chapter, idx), base = baseCity(chapterId, idx);
+    rec.faction = clone(base.faction ?? null);
+    const byte = base.faction === null || base.faction === undefined ? 0x18 : base.faction;
+    if (typeof base.raw === 'string' && slotByte(base.raw, 1) !== byte) fail(422, 'COPY_PROTECTED_DELTA');
+    if (typeof rec.raw === 'string') rec.raw = restoreByte(rec.raw, 1, byte);
+    const table = chapter.state?.nativeCityRecordRaw;
+    if (Array.isArray(table) && typeof table[idx] === 'string') table[idx] = restoreByte(table[idx], 1, byte);
   };
   // Disband revert: re-add the faction record (resource fields overlaid from
   // the candidate so same-batch resource edits keep flowing) and restore
@@ -380,7 +445,13 @@ function revertAppliedChapterEdits(baseline, candidate, applied) {
     const baseCities = new Map((base.state?.cities ?? []).map(c => [c?.idx, c]));
     for (const c of chapter.state?.cities ?? []) {
       const b = baseCities.get(c?.idx);
-      if (b?.faction === factionIdx && c.faction === null) c.faction = clone(b.faction);
+      if (b?.faction === factionIdx && c.faction === null) {
+        c.faction = clone(b.faction);
+        // Disband wrote the neutral owner byte; restore this faction's byte.
+        if (typeof b.raw === 'string' && typeof c.raw === 'string') c.raw = restoreByte(c.raw, 1, slotByte(b.raw, 1));
+        const table = chapter.state?.nativeCityRecordRaw;
+        if (Array.isArray(table) && typeof table[c.idx] === 'string') table[c.idx] = restoreByte(table[c.idx], 1, slotByte(b.raw, 1));
+      }
     }
   };
   for (let i = edits.length - 1; i >= 0; i--) {
@@ -413,6 +484,25 @@ function revertAppliedChapterEdits(baseline, candidate, applied) {
       revertFactionPost(chapterId, edit.factionIdx, edit.generalIdx, 'monarch_idx');
     } else if (op === 'set-strategist') {
       revertFactionPost(chapterId, edit.factionIdx, null, 'advisor_idx');
+    } else if (op === 'set-diplomat') {
+      revertFactionPost(chapterId, edit.factionIdx, null, 'diplomat_idx');
+    } else if (op === 'set-capital') {
+      revertFactionPost(chapterId, edit.factionIdx, null, 'capital');
+    } else if (op === 'city-faction') {
+      if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191 || !('factionId' in edit)) fail(422, 'COPY_PROTECTED_DELTA');
+      revertCityFaction(chapterId, edit.cityIdx);
+    } else if (op === 'general-faction') {
+      if (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || !('factionId' in edit)) fail(422, 'COPY_PROTECTED_DELTA');
+      revertGeneralFields(chapterId, edit.generalIdx, ['faction']);
+    } else if (op === 'start-date') {
+      const keys = Object.keys(edit.values ?? {});
+      if (!keys.length || keys.some(k => k !== 'era' && k !== 'year' && k !== 'month' && k !== 'day')) fail(422, 'COPY_PROTECTED_DELTA');
+      const rec = revChapter(chapterId).state?.start, base = (copyBases.get(chapterId) ?? baseChapter(chapterId)).state?.start;
+      if (!rec || typeof rec !== 'object' || !base || typeof base !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
+      for (const key of keys) {
+        if (base[key] === undefined) delete rec[key];
+        else rec[key] = clone(base[key]);
+      }
     } else if (op === 'remove-monarch') {
       const resolution = edit.resolution;
       if (!resolution || typeof resolution !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
@@ -615,7 +705,7 @@ export class FixedCopyProfile {
     const sourceDigest = digest(candidate);
     return Object.freeze({ profileRevision: this.#profileRevision, baselineDigest, sourceDigest, provenance, changes: Object.freeze([]), limits: 'Captured neutral authoring history only; no native initialization, runtime, principal or persistent grant.' });
   }
-  verify(capability, candidate, appliedEdits = [], definitionEdits = [], mapEdits = []) {
+  verify(capability, candidate, appliedEdits = [], definitionEdits = [], mapEdits = [], peopleEdits = []) {
     const captured = this.#captures.get(capability); if (!captured) fail(403, 'COPY_CAPTURE_REQUIRED');
     const { baseline, baselineDigest, provenance } = captured, replacements = new WeakMap(), changes = [];
     // These operations commute with legacy chapter/resource writers: none
@@ -642,10 +732,17 @@ export class FixedCopyProfile {
     }
     if (!Array.isArray(definitionEdits)) fail(422, 'COPY_DEFINITION_DELTA');
     checkCloneDescriptors(definitionEdits);
-    if (definitionEdits.length) {
-      if (this.#profileRevision !== FIXED_TEMPLATE_PROFILE) fail(422, 'COPY_DEFINITION_PROFILE');
-      let expected = baseline;
-      const usedIds = new Set(Object.keys(baseline.generals));
+    if (!Array.isArray(peopleEdits)) fail(422, 'COPY_PEOPLE_DELTA');
+    checkCloneDescriptors(peopleEdits);
+    // B5 general library: the game-level definition library and its chapter
+    // person references are the authoring layer's own roots. They are replayed
+    // from the pinned baseline and compared exactly; the native 128-slot records
+    // below stay protected. A baseline without a game-owned library (legacy
+    // slot dictionary) is rejected by the shared writer, never reinterpreted.
+    let library = null;
+    if (definitionEdits.length || peopleEdits.length) {
+      let expected = structuredClone(baseline);
+      const usedIds = new Set(Object.keys(baseline.generals ?? {}));
       try {
         for (const edit of definitionEdits) {
           // A deleted person's identity cannot be assigned to a new person.
@@ -653,8 +750,9 @@ export class FixedCopyProfile {
           expected = applyGeneralDefinitionEdit(expected, edit);
           if (edit.op === 'create') usedIds.add(edit.generalId);
         }
-      } catch { fail(422, 'COPY_DEFINITION_DELTA'); }
-      replacements.set(baseline.generals, expected.generals);
+        for (const edit of peopleEdits) expected = applyChapterPersonEdit(expected, edit);
+      } catch { fail(422, definitionEdits.length ? 'COPY_DEFINITION_DELTA' : 'COPY_PEOPLE_DELTA'); }
+      library = { generals: expected.generals, people: new Map(Object.entries(expected.chapters).map(([chapterId, chapter]) => [chapterId, chapter.people])) };
     }
     // No getters execute: validate descriptors before reading any candidate field.
     const metadata = value(candidate, 'metadata'); view(metadata);
@@ -662,7 +760,7 @@ export class FixedCopyProfile {
     if (metadata.name !== normalized.name || metadata.introduction !== normalized.introduction) fail(422, 'COPY_METADATA');
     replacements.set(baseline.metadata, normalized);
     const chapters = value(candidate, 'chapters'); view(chapters);
-    const reverted = revertAppliedChapterEdits(baseline, candidate, appliedEdits);
+    const reverted = revertAppliedChapterEdits(baseline, candidate, appliedEdits, library);
     const revertedChapters = value(reverted, 'chapters'); view(revertedChapters);
     for (const chapterId of baseline.chapterOrder) {
       const oldState = baseline.chapters[chapterId].state, state = value(value(revertedChapters, chapterId), 'state');

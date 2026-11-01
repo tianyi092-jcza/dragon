@@ -21,7 +21,7 @@ const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const listing = spawnSync('git', ['ls-files', '-z', '--', 'web'], { cwd: root, env, encoding: 'utf8', timeout: 30000 });
 assert.ifError(listing.error); assert.equal(listing.status, 0, listing.stderr);
-const playerModules = ['playerclient', 'playerenvironment', 'playerpack', 'playerrepository', 'playersaves', 'runtimecontract', 'playercatalog', 'playersessionhost', 'playerstatic', 'playerchapters', 'playernewgame', 'playerrestore', 'playerpublic'].map(name => `web/src/player/${name}.js`);
+const playerModules = ['playerclient', 'playerenvironment', 'playerpack', 'playerrepository', 'playersaves', 'runtimecontract', 'playercatalog', 'playersessionhost', 'playerstatic', 'playerchapters', 'playernewgame', 'playerrestore', 'playerpublic', 'playerdeletedgame'].map(name => `web/src/player/${name}.js`);
 const inputs = [...new Set([...listing.stdout.split('\0').filter(Boolean), ...playerModules])].filter(path =>
   !/(^|\/)\./.test(path) && !/^web\/content\/builtin\/compiled\/[^/]+\/game-source\.json$/.test(path));
 assert.ok(inputs.length > 1000, 'actual tracked public tree, not a transport fixture');

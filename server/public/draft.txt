@@ -38,15 +38,18 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   let resourceInputs = [], definitions = null, definitionReferences = null, chapterPeople = null, definitionLibrary = [], waterGroups = null, waterMembers = null, waterCandidates = null;
   let cityDefinitions = null, chapterCities = null, materials = null, factionRoles = null, nativeCities = null;
   const nativeCityInputs = new Map();
+  // §7 chapter attributes: staged start-date text per chapter, saved as one
+  // start-date command so a half-typed year is never persisted.
+  const startInputs = new Map();
   const nativeCitiesVisible = () => permitted() && nativeCities?.identity === identity && nativeCities.userId === identity.user.id && nativeCities.version === identity.version;
-  const nativeCitiesReady = () => nativeCitiesVisible() && !badJournal && !attempt && loaded?.verifiedRead && nativeCities.source === loaded;
-  let baseTerrain = null, baseUnlocked = false, basePage = 0, decorLocked = false, mapLayer = 'decor';
+  const nativeCitiesReady = () => nativeCitiesVisible() && !badJournal && !attempt && loaded?.verifiedRead && nativeCities.source === loaded;  let baseTerrain = null, baseUnlocked = false, basePage = 0, decorLocked = false, mapLayer = 'decor';
   const basePageSize = 24;
   const baseReady = () => !badJournal && loaded?.verifiedRead && ['fixed-template-authoring-1', 'fixed-copy-resources-1'].includes(loaded.profileRevision) && baseTerrain !== null;
   const materialsReady = () => !badJournal && loaded?.verifiedRead && ['fixed-template-authoring-1', 'fixed-copy-resources-1'].includes(loaded.profileRevision) && materials !== null;
   const cityReady = () => !badJournal && loaded?.verifiedRead && loaded.profileRevision === 'fixed-template-authoring-1' && cityDefinitions !== null && chapterCities !== null;
   let minimap = null, mapWindow = null, mapScene = null, mapAtlas = null, decorationSelection = null;
   const currentFactionRoles = () => permitted() && !badJournal && !attempt && loaded?.verifiedRead && factionRoles?.source === loaded && factionRoles.identity === identity && factionRoles.userId === identity.user.id && factionRoles.version === identity.version;
+  const attributesReady = () => currentFactionRoles() && nativeCitiesReady();
   const selectionReady = () => minimapReady() && materialsReady();
   const currentSelection = () => selectionReady() && decorationSelection?.source === loaded && decorationSelection.identity === identity && decorationSelection.userId === identity.user.id && decorationSelection.version === identity.version;
   async function readDecorationSelection(x, y, width, height, mode = 'replace') {
@@ -296,14 +299,16 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   const waterReady = () => !badJournal && loaded?.verifiedRead && ['fixed-template-authoring-1', 'fixed-copy-resources-1'].includes(loaded.profileRevision) && waterGroups !== null;
   const emptyDefinition = () => ({ generalId: null, name: '', hao: '', portraitRef: null });
   let definitionForm = emptyDefinition();
-  const definitionReady = () => !badJournal && loaded?.verifiedRead && loaded.profileRevision === 'fixed-template-authoring-1' && definitions !== null;
+  // B5 武將庫導入：已選來源記錄（chapterId:slot）。只存在本頁記憶體，不進保存請求。
+  let importSelection = new Set();
+  const definitionReady = () => !badJournal && loaded?.verifiedRead && definitions !== null;
   const definitionDirty = () => {
     if (definitions === null) return false;
     const saved = definitions.find(row => row.generalId === definitionForm.generalId) ?? emptyDefinition();
     return ['name', 'hao'].some(key => definitionForm[key] !== saved[key]) || JSON.stringify(definitionForm.portraitRef) !== JSON.stringify(saved.portraitRef);
   };
   const draftInputsDirty = () => Boolean(loaded && (resourceInputs.length || fields.name !== loaded.metadata.name || fields.introduction !== loaded.metadata.introduction));
-  const dirty = () => Boolean(loaded && (definitionDirty() || draftInputsDirty() || nativeCityInputs.size));
+  const dirty = () => Boolean(loaded && (definitionDirty() || draftInputsDirty() || nativeCityInputs.size || startInputs.size));
   const unresolved = () => badJournal || Boolean(attempt && !['failed', 'revoked'].includes(attempt.state));
   const permitted = () => Boolean(identity && identity === authority() && !identity.user.mustChangePassword);
   const storageKey = () => 'editor-draft-operation:' + owner;
@@ -321,10 +326,28 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       games: allowed ? games.map(game => ({ gameId: game.gameId, name: game.metadata.name, introduction: game.metadata.introduction, creator: game.ownerId === identity.user.id && typeof identity.user.account === 'string' ? identity.user.account : null, draftRevision: game.draftRevision, createdAt: game.createdAt, modifiedAt: game.modifiedAt })) : [],
       chapters: allowed ? chapters.map(chapter => ({ ...chapter, startDate: chapter.startDate === null ? null : { ...chapter.startDate }, gaps: structuredClone(chapter.gaps) })) : [],
       resources: allowed ? resources.map(chapter => ({ ...chapter, factions: chapter.factions.map(faction => ({ ...faction, inputs: { ...Object.fromEntries(Object.keys(resourceLimits).map(key => [key, String(faction[key])])), ...resourceInputs.find(edit => edit.chapterId === chapter.chapterId && edit.slot === faction.slot)?.values } })) })) : [],
-      definitions: { rows: allowed && definitions ? structuredClone(definitions) : [], form: allowed ? structuredClone(definitionForm) : emptyDefinition(), library: allowed ? structuredClone(definitionLibrary) : [], supported: allowed && definitions !== null && loaded?.profileRevision === 'fixed-template-authoring-1', locked: locked || !definitionReady() || Boolean(attempt), dirty: allowed && definitionDirty() },
+      definitions: { rows: allowed && definitions ? structuredClone(definitions) : [], form: allowed ? structuredClone(definitionForm) : emptyDefinition(), library: allowed ? structuredClone(definitionLibrary) : [], supported: allowed && definitions !== null, locked: locked || !definitionReady() || Boolean(attempt), dirty: allowed && definitionDirty() },
+      importSource: { supported: allowed && definitions !== null && Boolean(currentFactionRoles()), limit: 16, rows: allowed && definitions !== null && currentFactionRoles() ? importRows().map(row => ({ ...row, selected: importSelection.has(row.key), portraitRef: importPortraitRef(row) })) : [], selectedCount: allowed ? importSelection.size : 0, locked: locked || !definitionReady() || Boolean(attempt) },
       nativeCities: { known: Boolean(nativeCitiesVisible()), locked: locked || !nativeCitiesReady(), draftRevision: nativeCitiesVisible() ? nativeCities.source.draftRevision : null,
         chapters: nativeCitiesVisible() ? nativeCities.chapters.map(chapter => ({ ...chapter, cities: chapter.cities.map(city => ({ ...city, dirty: nativeCityInputs.has(JSON.stringify([chapter.chapterId, city.idx])), inputs: { troops: String(city.troops ?? ''), prod: String(city.prod ?? ''), ...nativeCityInputs.get(JSON.stringify([chapter.chapterId, city.idx])) } })) })) : [] },
       roles: { known: Boolean(currentFactionRoles()), locked: locked || !currentFactionRoles(), chapters: currentFactionRoles() ? structuredClone(factionRoles.chapters) : [] },
+      attributes: {
+        supported: loaded?.profileRevision === 'fixed-copy-resources-1',
+        known: Boolean(currentFactionRoles() && nativeCitiesVisible()),
+        locked: locked || !loaded?.verifiedRead || Boolean(attempt) || !attributesReady(),
+        chapters: allowed && attributesReady() ? chapters.map(chapter => {
+          // attributesReady() already proves both projections belong to this exact
+          // revision; a chapter row that is missing stays empty instead of invented.
+          const roles = factionRoles.chapters.find(row => row.chapterId === chapter.chapterId) ?? { factions: [], generals: [] };
+          const cities = nativeCities.chapters.find(row => row.chapterId === chapter.chapterId)?.cities ?? [];
+          const staged = startInputs.get(chapter.chapterId) ?? {}, saved = chapter.startDate;
+          return { chapterId: chapter.chapterId, name: chapter.name, startMissing: saved === null, startDirty: startInputs.has(chapter.chapterId),
+            start: { era: staged.era ?? (saved?.era ?? 'ad'), year: staged.year ?? (saved === null ? '' : String(saved.year)), month: staged.month ?? (saved === null ? '' : String(saved.month)), day: staged.day ?? (saved === null ? '' : String(saved.day)) },
+            factions: roles.factions.map(row => ({ slot: row.slot, monarchSlot: row.monarchSlot, advisorSlot: row.advisorSlot, diplomatSlot: row.diplomatSlot, capital: row.capital ?? null })),
+            generals: roles.generals.map(row => ({ slot: row.slot, name: row.name, hao: row.hao, factionSlot: row.factionSlot ?? null, reserved: row.reserved, posts: heldPosts(roles, row.slot) })),
+            cities: cities.map(city => ({ idx: city.idx, name: city.name, faction: city.faction ?? null, governor: city.governor ?? null })) };
+        }) : [],
+      },
       cities: { supported: allowed && cityDefinitions !== null, referencesKnown: allowed && chapterCities !== null, chapters: allowed && chapterCities ? structuredClone(chapterCities) : [], rows: allowed && cityDefinitions ? structuredClone(cityDefinitions) : [], locked: locked || !cityReady() || Boolean(attempt) },
       people: { supported: allowed && chapterPeople !== null, chapters: allowed && chapterPeople ? structuredClone(chapterPeople) : [], locked: locked || !definitionReady() || chapterPeople === null || Boolean(attempt) },
       workspace: { layer: mapLayer, locked: !allowed || isBusy() || !loaded?.verifiedRead || badJournal },
@@ -342,24 +365,24 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       selectionMissing: allowed && Boolean(fields.gameId) && !games.some(game => game.gameId === fields.gameId),
       context: allowed && loaded ? { gameId: loaded.gameId, name: loaded.metadata.name, draftRevision: loaded.draftRevision, readGeneration: loaded.readGeneration, dirty: dirty(), verified: Boolean(loaded.verifiedRead), pending: Boolean(attempt) } : null,
       locked, gameLocked: locked || Boolean(attempt), loadLocked: locked || unresolved(), editLocked: locked || !loaded?.verifiedRead || Boolean(attempt),
-      cancelLocked: locked || !loaded?.verifiedRead || Boolean(attempt) || !draftInputsDirty(),
+      cancelLocked: locked || !loaded?.verifiedRead || Boolean(attempt) || (!draftInputsDirty() && !startInputs.size),
       trialLocked: locked || !loaded?.verifiedRead || Boolean(attempt) || chapters.length === 0,
       queryLocked: locked || !attempt, retryLocked: locked || !attempt?.body || !['failed', 'not-found'].includes(attempt.state),
     });
     onContextChanged(); drawMinimap(); drawMapWindow();
   }
   function cancelEdits() {
-    if (!permitted() || isBusy() || badJournal || attempt || !loaded?.verifiedRead || !draftInputsDirty()) return false;
+    if (!permitted() || isBusy() || badJournal || attempt || !loaded?.verifiedRead || (!draftInputsDirty() && !startInputs.size)) return false;
     const source = loaded, valid = ticket();
-    if (!confirm('放棄本頁名稱、簡介及所有章節四資源的未保存輸入，恢復已讀修訂 ' + source.draftRevision + '？不重新讀取、不保存，也不清除人物表單或地圖準備。')) return false;
+    if (!confirm('放棄本頁名稱、簡介、章節開始年代及所有章節四資源的未保存輸入，恢復已讀修訂 ' + source.draftRevision + '？不重新讀取、不保存，也不清除人物表單或地圖準備。')) return false;
     if (!valid() || !permitted() || isBusy() || badJournal || attempt || loaded !== source || !source.verifiedRead) return false;
-    fields.name = source.metadata.name; fields.introduction = source.metadata.introduction; resourceInputs = [];
-    message = '已恢復名稱、簡介及四資源到已讀修訂 ' + source.draftRevision + '；沒有讀取或保存，其他表單保持。';
+    fields.name = source.metadata.name; fields.introduction = source.metadata.introduction; resourceInputs = []; startInputs.clear();
+    message = '已恢復名稱、簡介、開始年代及四資源到已讀修訂 ' + source.draftRevision + '；沒有讀取或保存，其他表單保持。';
     render(); return true;
   }
   function canLeave(forUnload = false) { return !(dirty() || hasLocalMapInputs() || attempt || badJournal) || (!forUnload && confirm('有未保存資料或未確認的保存操作。確定離開？未確認操作仍須查詢原鍵，不會自動重試。')); }
-  function clearDefinitions() { nativeCities = null; nativeCityInputs.clear(); factionRoles = null; decorLocked = false; mapLayer = 'decor'; decorationSelection = null; mapAtlas = null; mapWindow = null; mapScene = null; baseTerrain = null; baseUnlocked = false; basePage = 0; materials = null; cityDefinitions = null; chapterCities = null; minimap = null; waterGroups = null; waterMembers = null; waterCandidates = null; definitions = null; definitionReferences = null; chapterPeople = null; definitionLibrary = []; definitionForm = emptyDefinition(); }
-  function clearFields() { resourceInputs = []; clearDefinitions(); Object.assign(fields, { gameId: '', revision: '', name: '', introduction: '', chapterId: '' }); }
+  function clearDefinitions() { nativeCities = null; nativeCityInputs.clear(); factionRoles = null; decorLocked = false; mapLayer = 'decor'; decorationSelection = null; mapAtlas = null; mapWindow = null; mapScene = null; baseTerrain = null; baseUnlocked = false; basePage = 0; materials = null; cityDefinitions = null; chapterCities = null; minimap = null; waterGroups = null; waterMembers = null; waterCandidates = null; definitions = null; definitionReferences = null; chapterPeople = null; definitionLibrary = []; definitionForm = emptyDefinition(); importSelection.clear(); }
+  function clearFields() { resourceInputs = []; startInputs.clear(); clearDefinitions(); Object.assign(fields, { gameId: '', revision: '', name: '', introduction: '', chapterId: '' }); }
   function setIdentity(next) {
     if (identity === next) { render(); return; } generation++; decorLocked = false; baseUnlocked = false; minimap = null; mapAtlas = null; mapWindow = null; mapScene = null; decorationSelection = null; identity = next;
     if (next && owner !== next.user.id) { owner = next.user.id; games = []; loaded = null; attempt = null; badJournal = false; chapters = []; resources = []; clearFields(); restore(); }
@@ -375,9 +398,12 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     const peopleSave = Boolean(attempt.body?.peopleEdits?.length), mapSave = Boolean(attempt.body?.mapEdits?.length);
     const citySave = Boolean(attempt.body?.cityEdits?.length || attempt.body?.chapterCityEdits?.length || attempt.body?.chapterEdits?.some(edit => edit.op === 'city-native'));
     const isolatedGeneral = attempt.body?.chapterEdits?.length === 1 && ['rename-general', 'portrait'].includes(attempt.body.chapterEdits[0].op) && attempt.body.resourceEdits.length === 0;
-    const postEdit = attempt.body?.chapterEdits?.length === 1 && ['set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction'].includes(attempt.body.chapterEdits[0].op) && attempt.body.resourceEdits.length === 0;
+    const postEdit = attempt.body?.chapterEdits?.length === 1 && ['set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'set-diplomat', 'set-capital', 'city-faction', 'general-faction', 'start-date'].includes(attempt.body.chapterEdits[0].op) && attempt.body.resourceEdits.length === 0;
     const needsRead = definitionSave || peopleSave || mapSave || citySave || Boolean(attempt.body?.chapterEdits?.length);
-    for (const edit of attempt.body?.chapterEdits ?? []) if (edit.op === 'city-native') nativeCityInputs.delete(JSON.stringify([edit.chapterId, edit.cityIdx]));
+    for (const edit of attempt.body?.chapterEdits ?? []) {
+      if (edit.op === 'city-native') nativeCityInputs.delete(JSON.stringify([edit.chapterId, edit.cityIdx]));
+      if (edit.op === 'start-date') startInputs.delete(edit.chapterId);
+    }
     if (definitionSave) definitionForm = emptyDefinition();
     else if (!peopleSave && !mapSave && !citySave && !postEdit && !isolatedGeneral) {
       for (const edit of attempt.body?.resourceEdits ?? []) { const row = resources.find(chapter => chapter.chapterId === edit.chapterId)?.factions.find(faction => faction.slot === edit.slot); if (row) Object.assign(row, edit.values); }
@@ -435,7 +461,14 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     const nextChapters = response.chapters.map(chapter => {
       if (typeof chapter.chapterId !== 'string' || !chapter.chapterId || !chapter.gaps || !Number.isSafeInteger(chapter.gaps.saveGaps) || chapter.gaps.saveGaps < 0 || !Number.isSafeInteger(chapter.gaps.activeGaps) || chapter.gaps.activeGaps < 0 || !Array.isArray(chapter.factions)) throw new Error('章資料回應無效。');
       const startDate = chapter.startDate ?? null;
-      if (startDate !== null && (typeof startDate !== 'object' || Array.isArray(startDate) || Object.keys(startDate).sort().join(',') !== 'day,month,year' || ['year', 'month', 'day'].some(key => !Number.isSafeInteger(startDate[key]) || Object.is(startDate[key], -0)))) throw new Error('章節開局日期讀取值格式無效。');
+      if (startDate !== null) {
+        const keys = typeof startDate === 'object' && !Array.isArray(startDate) ? Object.keys(startDate).sort().join(',') : '';
+        if (keys !== 'day,month,year' && keys !== 'day,era,month,year') throw new Error('章節開局日期讀取值格式無效。');
+        if (['year', 'month', 'day'].some(key => !Number.isSafeInteger(startDate[key]) || Object.is(startDate[key], -0))) throw new Error('章節開局日期讀取值格式無效。');
+        // era is an authoring label; the server sends null when the chapter has
+        // never been labelled, which the panel shows as the 公元后 default.
+        if (startDate.era != null && !['bc', 'ad'].includes(startDate.era)) throw new Error('章節開局日期紀年標籤讀取值格式無效。');
+      }
       const assets = chapter.gaps.assets;
       if (assets != null) {
         if (!Number.isSafeInteger(assets.total) || assets.total < 0 || !Number.isSafeInteger(assets.omitted) || assets.omitted < 0 || !Array.isArray(assets.items) || assets.items.length > 100 || assets.items.length + assets.omitted !== assets.total) throw new Error('章節資源檢查數量與明細不符。');
@@ -473,7 +506,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     const nextRoles = checkedFactionRoles(response.chapters, response.profileRevision);
     const nextCities = checkedCityDefinitions(response.cityDefinitions, response.profileRevision);
     const nextChapterCities = checkedChapterCities(response.chapterCities, nextCities, nextChapters);
-    const nextDefinitions = checkedDefinitions(response.generalDefinitions, response.profileRevision, gameId);
+    const nextDefinitions = checkedDefinitions(response.generalDefinitions, gameId);
     const nextReferences = checkedDefinitionReferences(response.generalReferences, nextDefinitions, nextChapters);
     const nextPeople = checkedChapterPeople(response.chapterPeople, nextDefinitions, nextReferences, nextChapters);
     const nextWater = checkedWaterGroups(response.waterGroups, response.profileRevision);
@@ -484,7 +517,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (response.sourceDigest !== undefined && !hexDigest(response.sourceDigest)) throw new Error('草稿來源摘要無效。');
     minimap = null;
     loaded = { gameId, draftRevision: requested, sourceDigest: response.sourceDigest ?? null, metadata: value, profileRevision: response.profileRevision, verifiedRead: true, readGeneration: ++readGeneration }; attempt = null; persist(); chapters = nextChapters; resources = nextResources; resourceInputs = [];
-    nativeCities = nextNativeCities === null ? null : { source: loaded, identity, userId: identity.user.id, version: identity.version, chapters: nextNativeCities }; nativeCityInputs.clear();
+    nativeCities = nextNativeCities === null ? null : { source: loaded, identity, userId: identity.user.id, version: identity.version, chapters: nextNativeCities }; nativeCityInputs.clear(); startInputs.clear();
     factionRoles = nextRoles === null ? null : { source: loaded, identity, userId: identity.user.id, version: identity.version, chapters: nextRoles };
     baseTerrain = nextBase; baseUnlocked = false; basePage = 0;
     materials = nextMaterials; cityDefinitions = nextCities; chapterCities = nextChapterCities; waterGroups = nextWater; waterMembers = nextWaterMembers; waterCandidates = nextWaterCandidates; definitions = nextDefinitions; definitionReferences = nextReferences; chapterPeople = nextPeople; definitionForm = emptyDefinition(); definitionLibrary = [];
@@ -600,20 +633,24 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   function checkedFactionRoles(rows, profile) {
     // Legacy DTOs can lack these fields. Missing information is not an empty
     // catalogue or permission to invent ordinary candidates from source slots.
-    if (profile !== 'fixed-copy-resources-1' || rows.some(chapter => !Object.hasOwn(chapter, 'generals') || chapter.factions.some(f => !Object.hasOwn(f, 'monarch_idx') || !Object.hasOwn(f, 'advisor_idx')))) return null;
+    if (profile !== 'fixed-copy-resources-1' || rows.some(chapter => !Object.hasOwn(chapter, 'generals') || chapter.factions.some(f => !Object.hasOwn(f, 'monarch_idx') || !Object.hasOwn(f, 'advisor_idx') || !Object.hasOwn(f, 'diplomat_idx') || !Object.hasOwn(f, 'capital')))) return null;
     return rows.map(chapter => {
       if (!Array.isArray(chapter.generals)) throw new Error('章武將清單回應無效。');
       const seen = new Set();
       const generals = Array.from(chapter.generals, general => {
         if (!general || !Number.isInteger(general.idx) || Object.is(general.idx, -0) || general.idx < 0 || general.idx > 127 || seen.has(general.idx) || typeof general.name !== 'string' || typeof general.hao !== 'string' || general.faction !== null && (!Number.isInteger(general.faction) || Object.is(general.faction, -0) || general.faction < 0 || general.faction > 255)) throw new Error('章武將槽資料回應無效。');
+        // 导入来源只是已读修訂的原圖／綁定投影，不重建共用頭像庫。
+        if (general.portrait != null && (!Number.isInteger(general.portrait) || Object.is(general.portrait, -0) || general.portrait < 0 || general.portrait > 255)) throw new Error('章武將原圖ID回應無效。');
+        if (general.portraitKey != null && (typeof general.portraitKey !== 'string' || !/^p?[0-9]{1,6}$/.test(general.portraitKey))) throw new Error('章武將頭像綁定回應無效。');
         seen.add(general.idx);
-        return { slot: general.idx, name: general.name, hao: general.hao, factionSlot: general.faction, reserved: general.idx === 127 };
+        return { slot: general.idx, name: general.name, hao: general.hao, factionSlot: general.faction, reserved: general.idx === 127, portrait: general.portrait ?? null, portraitKey: general.portraitKey ?? null };
       });
       const factions = chapter.factions.map(faction => {
-        for (const value of [faction.monarch_idx, faction.advisor_idx]) if (value !== null && (!Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > 127)) throw new Error('章勢力角色引用回應無效。');
+        for (const value of [faction.monarch_idx, faction.advisor_idx, faction.diplomat_idx]) if (value !== null && (!Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > 127)) throw new Error('章勢力角色引用回應無效。');
+        if (faction.capital !== null && (!Number.isInteger(faction.capital) || Object.is(faction.capital, -0) || faction.capital < 0 || faction.capital > 191)) throw new Error('章勢力首都引用回應無效。');
         // Faction slots already passed the resources boundary above. A source
         // reference is display data, not proof of post eligibility or raw sync.
-        return { slot: faction.slot, monarchSlot: faction.monarch_idx, advisorSlot: faction.advisor_idx };
+        return { slot: faction.slot, monarchSlot: faction.monarch_idx, advisorSlot: faction.advisor_idx, diplomatSlot: faction.diplomat_idx, capital: faction.capital };
       });
       return { chapterId: chapter.chapterId, factions, generals };
     });
@@ -692,9 +729,9 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!name.trim()) throw new Error('人物姓名不可空白。');
     return { name: name.trim().normalize('NFC'), hao: hao.normalize('NFC') };
   }
-  function checkedDefinitions(rows, profile, gameId) {
+  function checkedDefinitions(rows, gameId) {
     if (rows === undefined || rows === null) return null; // Older/unsupported DTO is not an empty library.
-    if (profile !== 'fixed-template-authoring-1' || !Array.isArray(rows)) throw new Error('人物定義回應不符來源。');
+    if (!Array.isArray(rows)) throw new Error('人物定義回應不符來源。');
     const seen = new Set(), prefix = gameId + '#general-';
     return rows.map(row => {
       if (!row || Object.keys(row).sort().join(',') !== 'generalId,hao,name,portraitRef' || typeof row.generalId !== 'string' || !row.generalId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(row.generalId.slice(prefix.length)) || seen.has(row.generalId)) throw new Error('人物定義身份回應無效。');
@@ -1032,7 +1069,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     return sendAttempt('正在保存水域修改；回應不明時先查詢原鍵。');
   }
   async function submitPerson(op, chapterId, generalId, included, field) {
-    if (!definitionReady() || chapterPeople === null || attempt || !permitted()) throw new Error('請先載入完整中立章節人物資料。');
+    if (!definitionReady() || chapterPeople === null || attempt || !permitted()) throw new Error('請先載入可編輯的武將庫與完整章節人物資料。');
     const source = loaded, form = definitionForm, valid = ticket(), selected = fields.chapterId;
     const chapter = chapters.find(row => row.chapterId === chapterId), base = definitions.find(row => row.generalId === generalId);
     const current = chapterPeople.find(row => row.chapterId === chapterId)?.people.find(row => row.generalId === generalId);
@@ -1088,7 +1125,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     definitionForm = { ...definitionForm, [key]: value }; render();
   }
   async function readDefinitionPortraits() {
-    if (!definitionReady() || attempt) throw new Error('請先載入可編輯的中立模板修訂。');
+    if (!definitionReady() || attempt) throw new Error('請先載入可編輯的武將庫修訂。');
     const valid = ticket(), gameId = loaded.gameId, result = await api('/api/games/' + gameId + '/portraits');
     if (!valid()) return;
     if (result?.gameId !== gameId || !Array.isArray(result.portraits)) throw new Error('共用頭像清單回應無效。');
@@ -1102,8 +1139,55 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (ref === undefined) return;
     definitionForm = { ...definitionForm, portraitRef: ref === null ? null : { ...ref } }; render();
   }
+  // B5 從底層資源導入：來源是本遊戲已讀修訂的固定源武將記錄（每章 127 個非保留槽）。
+  // 每條記錄各自生成一個武將庫條目，不做跨章人物身份合併、不推測缺失的原圖。
+  function importRows() {
+    if (!definitionReady() || !factionRoles || chapterPeople === null) return [];
+    return factionRoles.chapters.flatMap(chapter => chapter.generals.filter(row => !row.reserved).map(row => ({
+      key: chapter.chapterId + ':' + row.slot, chapterId: chapter.chapterId,
+      chapterName: chapters.find(item => item.chapterId === chapter.chapterId)?.name ?? chapter.chapterId,
+      slot: row.slot, name: row.name, hao: row.hao, portrait: row.portrait ?? null, portraitKey: row.portraitKey ?? null,
+      imported: definitions.some(definition => definition.name === row.name && definition.hao === row.hao && JSON.stringify(definition.portraitRef) === JSON.stringify(importPortraitRef(row))),
+    })));
+  }
+  // 原圖字節不是共用頭像庫資產：只有已讀取的共用清單命中時才帶 assetId／SHA。
+  function importPortraitRef(row) {
+    const key = row.portraitKey ?? (row.portrait === null || row.portrait === undefined ? null : String(row.portrait));
+    const ref = key === null ? undefined : definitionLibrary.find(item => item.assetId === key);
+    return ref ? { ...ref } : null;
+  }
+  function toggleImport(key, selected) {
+    if (!permitted() || isBusy() || attempt || !definitionReady()) return;
+    if (typeof key !== 'string' || typeof selected !== 'boolean' || !importRows().some(row => row.key === key)) return;
+    if (selected) { if (importSelection.size >= 16) { message = '一次最多導入 16 名武將；已達上限，請先取消其它選擇。'; render(); return; } importSelection.add(key); }
+    else importSelection.delete(key);
+    render();
+  }
+  function clearImportSelection() {
+    if (!permitted() || isBusy() || attempt) return;
+    importSelection.clear(); render();
+  }
+  async function importGenerals() {
+    if (!definitionReady() || chapterPeople === null || attempt || badJournal || !permitted()) throw new Error('請先載入可編輯的武將庫修訂並確認原保存。');
+    if (definitionLibrary.length === 0) await readDefinitionPortraits();
+    const source = loaded, valid = ticket();
+    const rows = importRows().filter(row => importSelection.has(row.key));
+    if (!rows.length) throw new Error('請先選擇要導入的底層武將記錄。');
+    if (rows.length > 16) throw new Error('一次最多導入 16 名武將；請分批導入。');
+    const edits = Array.from(rows, row => ({ op: 'create', values: { name: row.name, hao: row.hao, portraitRef: importPortraitRef(row) } }));
+    const missing = rows.filter(row => importPortraitRef(row) === null).length;
+    const details = rows.map(row => '・' + row.chapterName + '／槽 #' + row.slot + ' ' + row.name + (row.hao && row.hao !== row.name ? '（' + row.hao + '）' : '')).join('\n');
+    if (!confirm('從底層資源導入 ' + rows.length + ' 名武將到本遊戲武將庫？\n' + details + '\n' + (missing ? '其中 ' + missing + ' 名的原圖不在共用頭像庫，頭像留空。\n' : '') + '只新增武將庫條目（姓名／字／頭像），不改章節原生槽位、不建立跨章人物身份；本次導入了則不能再重試。')) return;
+    if (!valid() || !permitted() || loaded !== source || attempt || !definitionReady() || JSON.stringify(rows.map(row => row.key)) !== JSON.stringify(importRows().filter(row => importSelection.has(row.key)).map(row => row.key))) return;
+    const body = { metadata: { ...source.metadata }, resourceEdits: [], generalEdits: edits };
+    if (new TextEncoder().encode(JSON.stringify(body)).byteLength > 16384) throw new Error('導入請求超過16KiB；請減少本次批次。');
+    importSelection = new Set();
+    attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
+    if (!persist()) { attempt = null; throw new Error('導入未發送：無法保留原操作鍵。'); }
+    return sendAttempt('正在導入武將庫條目；回應不明時先查詢原鍵，不重複導入。');
+  }
   async function submitDefinition(remove = false) {
-    if (!definitionReady() || attempt || badJournal || !permitted()) throw new Error('請先載入可編輯的中立模板修訂並確認原保存。');
+    if (!definitionReady() || attempt || badJournal || !permitted()) throw new Error('請先載入可編輯的武將庫修訂並確認原保存。');
     const source = loaded, form = definitionForm, valid = ticket();
     let edit;
     if (remove) {
@@ -1209,6 +1293,127 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!persist()) { attempt = null; throw new Error('武將保存未發送：無法保留原操作鍵。'); }
     await sendAttempt('正在保存武將修改；失去回應時查詢原鍵，不另起保存。');
   }
+  // §7 chapter attributes (§7 of docs/editor-workbench-structure.md): one
+  // command per field, each with its own confirmation, operation key and
+  // readback. The era is an authoring label beside the year, never inside it.
+  function chapterRow(chapterId) {
+    const row = chapters.find(chapter => chapter.chapterId === chapterId);
+    if (!row) throw new Error('請選擇已讀取的章節。');
+    return row;
+  }
+  function roleRow(chapterId) {
+    // currentFactionRoles() is the eligibility predicate; the catalogue itself
+    // is factionRoles, whose readiness the predicate has already proved.
+    const row = factionRoles?.chapters.find(chapter => chapter.chapterId === chapterId);
+    if (!row) throw new Error('請先載入完整副本的章節勢力角色資料。');
+    return row;
+  }
+  function nativeCityRow(chapterId, cityIdx) {
+    const row = nativeCities?.chapters.find(chapter => chapter.chapterId === chapterId)?.cities.find(city => city.idx === cityIdx);
+    if (!row) throw new Error('該據點不在已讀的本章據點清單。');
+    return row;
+  }
+  const postNames = { monarch: '君主', strategist: '軍師', diplomat: '外交官' };
+  function heldPosts(roles, generalIdx) {
+    const posts = [];
+    for (const faction of roles.factions) {
+      if (faction.monarchSlot === generalIdx) posts.push(postNames.monarch);
+      if (faction.advisorSlot === generalIdx) posts.push(postNames.strategist);
+      if (faction.diplomatSlot === generalIdx) posts.push(postNames.diplomat);
+    }
+    return posts;
+  }
+  function savedStartText(chapter, field) {
+    const saved = chapter.startDate;
+    if (field === 'era') return saved?.era ?? 'ad';
+    return saved === null || saved === undefined ? '' : String(saved[field]);
+  }
+  function setStartInput(chapterId, field, text) {
+    if (isBusy() || !attributesReady() || typeof text !== 'string' || !['era', 'year', 'month', 'day'].includes(field)) return;
+    const chapter = chapters.find(row => row.chapterId === chapterId);
+    if (!chapter) return;
+    const staged = { ...(startInputs.get(chapterId) ?? {}) };
+    if (text === savedStartText(chapter, field)) delete staged[field]; else staged[field] = text;
+    if (Object.keys(staged).length) startInputs.set(chapterId, staged); else startInputs.delete(chapterId);
+    generation++; render();
+  }
+  function cancelStartInput(chapterId) {
+    if (isBusy() || !startInputs.has(chapterId)) return;
+    startInputs.delete(chapterId); generation++; message = '已放棄本章年代輸入；未讀取、未保存。'; render();
+  }
+  async function submitChapterField(edit, description, clearLocal = () => {}) {
+    if (!chapters.some(chapter => chapter.chapterId === edit.chapterId)) throw new Error('請選擇已讀取的章節。');
+    if (!attributesReady()) throw new Error('請先載入完整副本的精確修訂，並確認沒有未確認的保存操作。');
+    const source = loaded, valid = ticket();
+    const body = { metadata: { ...source.metadata }, resourceEdits: [], chapterEdits: [edit] };
+    if (new TextEncoder().encode(JSON.stringify(body)).byteLength > 16384) throw new Error('章節屬性請求超過16KiB。');
+    if (!confirm(description + '？\n只保存本次章節屬性命令，不保存其它表單輸入；保存後自動重讀該修訂，不開放初始化或運行准入。')) return false;
+    if (!valid() || !permitted() || badJournal || attempt || loaded !== source || !attributesReady()) return false;
+    clearLocal();
+    attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
+    if (!persist()) { attempt = null; throw new Error('章節屬性未發送：無法保留原操作鍵。'); }
+    const sent = await sendAttempt('正在保存章節屬性；回應不明時先查詢原鍵，不另起保存。');
+    if (sent) await load();
+    return sent;
+  }
+  async function saveChapterStart(chapterId) {
+    const chapter = chapterRow(chapterId), staged = startInputs.get(chapterId);
+    if (!staged) { message = '本章沒有待保存的開始年代輸入。'; render(); return; }
+    const values = {};
+    for (const [field, text] of Object.entries(staged)) {
+      if (field === 'era') { if (!['bc', 'ad'].includes(text)) throw new Error('紀年只能是公元前（bc）或公元后（ad）。'); values.era = text; continue; }
+      const value = Number(text.trim() === '' ? NaN : text), max = field === 'year' ? 65535 : field === 'month' ? 12 : 31;
+      if (!Number.isSafeInteger(value) || Object.is(value, -0) || value < 1 || value > max) throw new Error((field === 'year' ? '年' : field === 'month' ? '月' : '日') + '須為 1 至 ' + max + ' 的整數。');
+      values[field] = value;
+    }
+    if (chapter.startDate === null) throw new Error('本章沒有已讀的開始日期物件；本頁不補預設日期。');
+    const label = [values.era === undefined ? null : values.era === 'bc' ? '公元前' : '公元后', values.year === undefined ? chapter.startDate.year + '年' : values.year + '年', values.month === undefined ? chapter.startDate.month + '月' : values.month + '月', values.day === undefined ? chapter.startDate.day + '日' : values.day + '日'].filter(Boolean).join(' ');
+    await submitChapterField({ op: 'start-date', chapterId, values }, '將章節「' + chapter.name + '」的開始年代設為 ' + label + '（只加／改這些欄位，紀年標籤不改年份）', () => startInputs.delete(chapterId));
+  }
+  async function assignCityFaction(chapterId, cityIdx, factionId) {
+    const chapter = chapterRow(chapterId), city = nativeCityRow(chapterId, cityIdx), roles = roleRow(chapterId);
+    if (factionId !== null && !roles.factions.some(faction => faction.slot === factionId)) throw new Error('所屬勢力必須是本章已宣告的勢力槽，或中立。');
+    if ((city.faction ?? null) === factionId) { message = '據點所屬與已讀資料相同；沒有保存。'; render(); return; }
+    const label = factionId === null ? '中立' : '勢力槽 ' + factionId;
+    await submitChapterField({ op: 'city-faction', chapterId, cityIdx, factionId }, '將章節「' + chapter.name + '」據點 #' + cityIdx + '「' + city.name + '」的所屬改為 ' + label + '（原 ' + (city.faction == null ? '中立' : '勢力槽 ' + city.faction) + '；同步原生城主位，不改舊所屬位）');
+  }
+  async function assignCapital(chapterId, factionIdx, cityIdx) {
+    const chapter = chapterRow(chapterId), roles = roleRow(chapterId), city = nativeCityRow(chapterId, cityIdx);
+    const faction = roles.factions.find(row => row.slot === factionIdx);
+    if (!faction) throw new Error('請選擇本章已宣告的勢力槽。');
+    if (faction.capital === cityIdx) { message = '該據點已是此勢力首都；沒有保存。'; render(); return; }
+    await submitChapterField({ op: 'set-capital', chapterId, factionIdx, cityIdx }, '將章節「' + chapter.name + '」勢力槽 ' + factionIdx + ' 的首都設為據點 #' + cityIdx + '「' + city.name + '」（原 ' + (faction.capital == null ? '無' : '#' + faction.capital) + '）。首都唯一且不要求該據點屬於此勢力；取消首都只能改設另一據點');
+  }
+  async function assignGeneralFaction(chapterId, generalIdx, factionId) {
+    const chapter = chapterRow(chapterId), roles = roleRow(chapterId);
+    const general = roles.generals.find(row => row.slot === generalIdx);
+    if (!general) throw new Error('請選擇本章已讀取的武將槽。');
+    if (general.reserved) throw new Error('保留槽不能指派所屬勢力。');
+    const posts = heldPosts(roles, generalIdx);
+    if (posts.length) throw new Error('此武將目前擔任' + posts.join('、') + '；請先清空該職務，再改所屬勢力。');
+    if (factionId !== null && !roles.factions.some(row => row.slot === factionId)) throw new Error('所屬勢力必須是本章已宣告的勢力槽，或自由。');
+    if ((general.factionSlot ?? null) === factionId) { message = '武將所屬與已讀資料相同；沒有保存。'; render(); return; }
+    const label = factionId === null ? '自由' : '勢力槽 ' + factionId;
+    await submitChapterField({ op: 'general-faction', chapterId, generalIdx, factionId }, '將章節「' + chapter.name + '」武將 #' + generalIdx + '「' + general.name + '」的所屬改為 ' + label + '（原 ' + (general.factionSlot == null ? '自由' : '勢力槽 ' + general.factionSlot) + '；不改職務、不搬兵力）');
+  }
+  async function assignDiplomat(chapterId, factionIdx, generalSlot) {
+    const chapter = chapterRow(chapterId), roles = roleRow(chapterId);
+    const faction = roles.factions.find(row => row.slot === factionIdx);
+    if (!faction) throw new Error('請選擇本章已宣告的勢力槽。');
+    if (generalSlot === null) {
+      if (faction.diplomatSlot === null) { message = '此勢力沒有外交官；沒有保存。'; render(); return; }
+      await submitChapterField({ op: 'set-diplomat', chapterId, factionIdx, generalIdx: null }, '清空章節「' + chapter.name + '」勢力槽 ' + factionIdx + ' 的外交官職務（原槽 ' + faction.diplomatSlot + '）');
+      return;
+    }
+    const general = roles.generals.find(row => row.slot === generalSlot);
+    if (!general) throw new Error('請選擇本章已讀取的武將槽。');
+    if (general.reserved || generalSlot === 127) throw new Error('外交官必須是本章的普通武將槽。');
+    if ((general.factionSlot ?? null) !== factionIdx) throw new Error('外交官必須先屬於該勢力；請先在武將面設定所屬勢力。');
+    const other = heldPosts(roles, generalSlot).filter(post => !(post === postNames.diplomat && faction.diplomatSlot === generalSlot));
+    if (other.length) throw new Error('此武將已擔任' + other.join('、') + '；請先清空該職務。');
+    if (faction.diplomatSlot === generalSlot) { message = '此武將已是該勢力外交官；沒有保存。'; render(); return; }
+    await submitChapterField({ op: 'set-diplomat', chapterId, factionIdx, generalIdx: generalSlot }, '將章節「' + chapter.name + '」勢力槽 ' + factionIdx + ' 的外交官設為武將 #' + generalSlot + '「' + general.name + '」（原槽 ' + (faction.diplomatSlot ?? '無') + '；不改所屬與其它職務）');
+  }
   async function submitChapters(edits) {
     if (!loaded?.verifiedRead || !permitted() || badJournal) throw new Error('請先載入自己的精確草稿。');
     if (attempt) throw new Error('先查詢原保存，不另起鍵。');
@@ -1240,7 +1445,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       if (!currentMapWindow() || typeof layerMask !== 'string') throw new Error('請先讀取窗口並明確指定四層顯示狀態。');
       const view = mapWindow.value;
       return readMapWindow(view.x, view.y, view.width, view.height, layerMask, Boolean(mapScene));
-    }), setNativeCityInput, saveNativeCityInputs: (chapterId, idx) => action(() => saveNativeCityInputs(chapterId, idx)), cancelNativeCityInputs(chapterId, idx) { if (nativeCitiesReady() && !isBusy()) { nativeCityInputs.delete(JSON.stringify([chapterId, idx])); generation++; render(); } }, cityNative: request => action(() => submitNativeCity(request)), renameNativeGeneral: request => action(() => submitNativeGeneral(request, 'rename-general')), portraitNativeGeneral: request => action(() => submitNativeGeneral(request, 'portrait')), clearStrategist: (chapterId, factionSlot) => action(() => submitFactionPost('set-strategist', chapterId, factionSlot, null)), assignStrategist: (chapterId, factionSlot, generalSlot) => action(() => {
+    }), setNativeCityInput, saveNativeCityInputs: (chapterId, idx) => action(() => saveNativeCityInputs(chapterId, idx)), cancelNativeCityInputs(chapterId, idx) { if (nativeCitiesReady() && !isBusy()) { nativeCityInputs.delete(JSON.stringify([chapterId, idx])); generation++; render(); } }, cityNative: request => action(() => submitNativeCity(request)), setStartInput, cancelStartInput, saveChapterStart: chapterId => action(() => saveChapterStart(chapterId)), cityFaction: (chapterId, cityIdx, factionId) => action(() => assignCityFaction(chapterId, cityIdx, factionId)), setCapital: (chapterId, factionIdx, cityIdx) => action(() => assignCapital(chapterId, factionIdx, cityIdx)), generalFaction: (chapterId, generalIdx, factionId) => action(() => assignGeneralFaction(chapterId, generalIdx, factionId)), setDiplomat: (chapterId, factionIdx, generalSlot) => action(() => assignDiplomat(chapterId, factionIdx, generalSlot)), renameNativeGeneral: request => action(() => submitNativeGeneral(request, 'rename-general')), portraitNativeGeneral: request => action(() => submitNativeGeneral(request, 'portrait')), clearStrategist: (chapterId, factionSlot) => action(() => submitFactionPost('set-strategist', chapterId, factionSlot, null)), assignStrategist: (chapterId, factionSlot, generalSlot) => action(() => {
       if (!Number.isSafeInteger(generalSlot) || Object.is(generalSlot, -0) || generalSlot < 0 || generalSlot >= 127) throw new Error('請明確選擇普通武將槽0至126；清空須使用獨立清空動作。');
       return submitFactionPost('set-strategist', chapterId, factionSlot, generalSlot);
     }), assignMonarch: (chapterId, factionSlot, generalSlot) => action(() => {
@@ -1254,7 +1459,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       decorationSelection = null;
       message = '已清除窗口選取；素材勾選、位移錨點與輸入保持。';
       render();
-    }, takeDecorationSelection, decorationPick: (x, y) => action(() => readDecorationSelection(x, y, 1, 1, 'top')), decorationSelection: (x, y, width, height, mode) => action(() => readDecorationSelection(x, y, width, height, mode)), mapWindowStep: (dx, dy) => action(() => moveMapWindow(dx, dy, 'window')), mapWindowPan: (dx, dy) => action(() => moveMapWindow(dx, dy, 'tile')), locateInstance: instanceId => action(() => locateInstance(instanceId)), locateMinimapCell: (x, y) => action(() => locateMinimapCell(x, y)), redrawMapWindow: drawMapWindow, previewMapWindowPan, drawMaterialPreview, drawPlacementPreview, drawShiftPreview, mapAtlas: season => action(() => readMapAtlas(season)), mapScene: (x, y, width, height) => action(() => readMapWindow(x, y, width, height, '1111', true)), mapWindow: (x, y, width, height) => action(() => readMapWindow(x, y, width, height)), mapLayer: setMapLayer, decorLock: setDecorLocked, baseUnlock: setBaseUnlocked, basePage: setBasePage, baseFill: (cells, tile, geography) => action(() => submitBaseFill(cells, tile, geography)), removeInstances: selection => action(() => submitMaterial('decoration-remove', selection)), split: instanceId => action(() => submitMaterial('decoration-split', instanceId)), place: (materialId, variantRef, x, y, waterClass) => action(() => submitMaterial('decoration-place', materialId, { variantRef, x, y, waterClass })), reorder: (selection, direction) => action(() => submitMaterial('decoration-reorder', selection, { direction })), translate: (selection, dx, dy) => action(() => submitMaterial('decoration-translate', selection, { dx, dy })), material: (op, selection) => action(() => submitMaterial(op, selection)), chapterCity: (op, chapterId, cityId) => action(() => submitChapterCity(op, chapterId, cityId)), cityRename: cityId => action(() => renameCity(cityId)), minimap: () => action(readMinimap), redrawMinimap: drawMinimap, waterCreate: (memberIds, baseCells, visible) => action(() => submitWaterChange('water-create', null, visible, { memberIds, baseCells })), waterSplit: (groupId, memberIds, baseCells) => action(() => submitWaterChange('water-split', groupId, undefined, { memberIds, baseCells })), waterMerge: (groupIds, visible) => action(() => submitWaterChange('water-merge', groupIds, visible)), waterRename: groupId => action(() => submitWaterChange('water-rename', groupId)), waterVisibility: (groupId, visible) => action(() => submitWaterChange('water-visibility', groupId, visible)), person: (op, chapterId, generalId, included, field) => action(() => submitPerson(op, chapterId, generalId, included, field)), refresh: () => action(refreshGames), load: () => action(load), cancelEdits, save: () => action(() => submit()), query: () => action(query), retry: () => action(() => submit(true)), chooseGame, setField, setResource, chapter, trial, selectDefinition, setDefinitionField, chooseDefinitionPortrait, definitionPortraits: () => action(readDefinitionPortraits), saveDefinition: () => action(() => submitDefinition()), deleteDefinition: () => action(() => submitDefinition(true)) },
+    }, takeDecorationSelection, decorationPick: (x, y) => action(() => readDecorationSelection(x, y, 1, 1, 'top')), decorationSelection: (x, y, width, height, mode) => action(() => readDecorationSelection(x, y, width, height, mode)), mapWindowStep: (dx, dy) => action(() => moveMapWindow(dx, dy, 'window')), mapWindowPan: (dx, dy) => action(() => moveMapWindow(dx, dy, 'tile')), locateInstance: instanceId => action(() => locateInstance(instanceId)), locateMinimapCell: (x, y) => action(() => locateMinimapCell(x, y)), redrawMapWindow: drawMapWindow, previewMapWindowPan, drawMaterialPreview, drawPlacementPreview, drawShiftPreview, mapAtlas: season => action(() => readMapAtlas(season)), mapScene: (x, y, width, height) => action(() => readMapWindow(x, y, width, height, '1111', true)), mapWindow: (x, y, width, height) => action(() => readMapWindow(x, y, width, height)), mapLayer: setMapLayer, decorLock: setDecorLocked, baseUnlock: setBaseUnlocked, basePage: setBasePage, baseFill: (cells, tile, geography) => action(() => submitBaseFill(cells, tile, geography)), removeInstances: selection => action(() => submitMaterial('decoration-remove', selection)), split: instanceId => action(() => submitMaterial('decoration-split', instanceId)), place: (materialId, variantRef, x, y, waterClass) => action(() => submitMaterial('decoration-place', materialId, { variantRef, x, y, waterClass })), reorder: (selection, direction) => action(() => submitMaterial('decoration-reorder', selection, { direction })), translate: (selection, dx, dy) => action(() => submitMaterial('decoration-translate', selection, { dx, dy })), material: (op, selection) => action(() => submitMaterial(op, selection)), chapterCity: (op, chapterId, cityId) => action(() => submitChapterCity(op, chapterId, cityId)), cityRename: cityId => action(() => renameCity(cityId)), minimap: () => action(readMinimap), redrawMinimap: drawMinimap, waterCreate: (memberIds, baseCells, visible) => action(() => submitWaterChange('water-create', null, visible, { memberIds, baseCells })), waterSplit: (groupId, memberIds, baseCells) => action(() => submitWaterChange('water-split', groupId, undefined, { memberIds, baseCells })), waterMerge: (groupIds, visible) => action(() => submitWaterChange('water-merge', groupIds, visible)), waterRename: groupId => action(() => submitWaterChange('water-rename', groupId)), waterVisibility: (groupId, visible) => action(() => submitWaterChange('water-visibility', groupId, visible)), person: (op, chapterId, generalId, included, field) => action(() => submitPerson(op, chapterId, generalId, included, field)), refresh: () => action(refreshGames), load: () => action(load), cancelEdits, save: () => action(() => submit()), query: () => action(query), retry: () => action(() => submit(true)), chooseGame, setField, setResource, chapter, trial, selectDefinition, setDefinitionField, chooseDefinitionPortrait, toggleImport, clearImportSelection, importGenerals: () => action(importGenerals), definitionPortraits: () => action(readDefinitionPortraits), saveDefinition: () => action(() => submitDefinition()), deleteDefinition: () => action(() => submitDefinition(true)) },
     setIdentity, render, canLeave, gotoGame, selectedGame, adoptGame,
     canAdoptGame(gameId) { return permitted() && !badJournal && (!attempt || attempt.gameId === gameId); },
     savedContext() { return permitted() && loaded?.verifiedRead && !attempt && !badJournal ? { gameId: loaded.gameId, draftRevision: loaded.draftRevision, dirty: dirty() } : null; },

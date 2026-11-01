@@ -1,7 +1,7 @@
 // Authoring definitions and protected deltas; not native initialization,
 // chapter inclusion, persistent API authorization, Trial or publication proof.
 import assert from 'node:assert/strict';
-import { applyGeneralDefinitionEdit } from '../web/src/content/authoring/generaldefinitions.js';
+import { applyGeneralDefinitionEdit, generalLibrarySupported } from '../web/src/content/authoring/generaldefinitions.js';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
 import { FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
@@ -39,7 +39,13 @@ for (const edit of [
   { op: 'delete', generalId: id }, { op: 'update', generalId: id, values },
 ]) { assert.throws(() => applyGeneralDefinitionEdit(base, edit)); assert.deepEqual(base, before); }
 assert.throws(() => applyGeneralDefinitionEdit(created, create));
-assert.throws(() => applyGeneralDefinitionEdit({ ...base, sourceRef: { ...base.sourceRef, kind: 'builtin-copy' } }, create)); groups++;
+// B5：遊戲自有武將庫對完整副本同樣開放（庫層只管 generals/people）；舊槽位字典仍不被當成庫。
+const copyKind = structuredClone(base); copyKind.sourceRef.kind = 'builtin-copy';
+assert.equal(generalLibrarySupported(copyKind), true);
+assert.deepEqual(applyGeneralDefinitionEdit(copyKind, create).generals[id], { name: 'é', hao: '𠮷é', portraitRef: values.portraitRef });
+const slotDictionary = structuredClone(base); slotDictionary.generals = { 0: { slot: 0, name: '舊' } };
+assert.equal(generalLibrarySupported(slotDictionary), false);
+assert.throws(() => applyGeneralDefinitionEdit(slotDictionary, { ...create, generalId: id2 })); groups++;
 for (const mutate of [
   game => { game.chapters.chapter.people = { [id]: { included: true } }; },
   game => { game.chapters.chapter.state.generals.push({ idx: 0 }); },
@@ -92,6 +98,13 @@ assert.equal(getters, 0);
 assert.throws(() => profile.verify(captured.capability, candidate, [], null), error => error.code === 'COPY_DEFINITION_DELTA'); groups++;
 const full = new FixedCopyProfile({ loadCopy: createPinnedCopyLoader() });
 const fullCapture = await full.capture({ gameId: G, ownerId: 'owned-definition-author' });
-assert.throws(() => full.verify(fullCapture.capability, fullCapture.game, [], history), error => error.code === 'COPY_DEFINITION_PROFILE');
-assert.equal(fullCapture.game.chapterOrder.length, 20); groups++;
+// B5：完整副本的武將庫默認空；庫層命令現对兩種來源開放，但候選必須等於重放結果。
+assert.equal(fullCapture.game.chapterOrder.length, 20);
+assert.deepEqual(fullCapture.game.generals, {});
+assert.equal(typeof full.verify(fullCapture.capability, applyGeneralDefinitionEdit(fullCapture.game, create), [], history).sourceDigest, 'string');
+assert.throws(() => full.verify(fullCapture.capability, fullCapture.game, [], history), error => error.code === 'COPY_DEFINITION_DELTA');
+// 舊槽位字典仍不是庫：任何定義寫入在該基線上 fail-closed。
+const legacy = structuredClone(fullCapture.game); legacy.generals = { 0: { slot: 0, name: '舊' } };
+assert.throws(() => full.verify(fullCapture.capability, legacy, [], history), error => error.code === 'COPY_DEFINITION_DELTA');
+assert.throws(() => applyGeneralDefinitionEdit(legacy, create), /game-owned general library/); groups++;
 process.stdout.write(JSON.stringify({ groups, inputHashes: Object.keys(captured.provenance.inputHashes).length, scope: 'unassigned neutral general definitions only; no API/native/runtime grant' }) + '\n');

@@ -19,11 +19,13 @@ export function installedStaticHTTPS(prefix) {
   const objects = new Map(), events = [], registrations = new Map(), registrationEvents = [];
   const registrationURL = `https://${'a'.repeat(32)}.r2.cloudflarestorage.com/dragon/${prefix}${programRegistrationKey(release.sha256)}`;
   const registrationBytes = Buffer.from(programRegistrationBytes(release.sha256, release.manifest.sourceTreeDigest));
-  const state = { missingSource: false, missingReadback: false, losePut: false, missingRegistration: false, loseRegistrationPut: false };
+  // `unreachable` 模拟传输层不可达（连不上／被重置），不是权威事实不符。
+  const state = { missingSource: false, missingReadback: false, losePut: false, missingRegistration: false, loseRegistrationPut: false, unreachable: false };
   function reply(status, bytes = Buffer.alloc(0), mime = 'application/octet-stream') {
     return { status, bytes: Buffer.from(bytes), headers: { 'content-length': String(bytes.length), 'content-type': mime } };
   }
   function handle(url, options, body) {
+    if (state.unreachable) throw Object.assign(new Error('owned fixture transport unreachable'), { code: 'ECONNRESET' });
     if (url.startsWith('https://owned-static.invalid/release/')) {
       const path = url.slice('https://owned-static.invalid/release/'.length);
       assert.ok(files.has(path), 'unexpected static path'); assert.equal(options.method, 'GET');

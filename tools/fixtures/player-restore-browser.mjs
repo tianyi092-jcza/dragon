@@ -3,6 +3,8 @@ import './formal-app-browser.mjs';
 import { BUILTIN_RESOURCES as builtin } from '/src/content/builtinresources.generated.js';
 import { TRIAL_COMPILER_REVISION } from '/src/content/authoring/trialcompile.js';
 import { mountPlayerRestore } from '/src/player/playerrestore.js';
+import { PlayerReaderError } from '/src/player/playerclient.js';
+import { mountDeletedSavePrompt } from '/src/player/playerdeletedgame.js';
 import { mountFormalBackup } from '/src/tools/formalbackup.js';
 import { sha256 } from '/src/player/runtimecontract.js';
 const base = window.__ownedFormal;
@@ -37,13 +39,14 @@ async function json(value) { const data = new TextEncoder().encode(JSON.stringif
 values.set('manifest',await json(manifest)); values.set('chapter:'+C,await json((await (await fetch(builtin.dataURL)).json()).scenarios[0]));
 const selection = {gameId:G,releaseId:R,ordinal:base.environment.identity.ordinal,revision:'1',sourceDigest:builtin.sourceDigest,name:'Owned restore',publishedAt:'2037-01-01T00:00:00.000Z',chapters:[C]};
 const header = {...base.saves.identity,manifestDigest:values.get('manifest').sha256};
-const control = window.__restore = {sessions:[],gets:[],calls:0,view:null,chosen:null,settled:false,hold:false,release:null,holdGet:false,releaseGet:null,changed:false,staticFailure:false,statusFailure:false,holdStatus:false,releaseStatus:null};
+const control = window.__restore = {sessions:[],gets:[],calls:0,view:null,chosen:null,settled:false,hold:false,release:null,holdGet:false,releaseGet:null,changed:false,staticFailure:false,statusFailure:false,holdStatus:false,releaseStatus:null,deleted:false,prompt:null,promptExit:null};
 const store = {...base.store,async get(slot){control.gets.push(slot);if(control.holdGet)await new Promise(done=>{control.releaseGet=done;});return base.store.get(slot);}};
 const reader = {
   async registry(){return {directory:[structuredClone(selection)]};},
-  async status(request){if(control.holdStatus && request?.gameId===G)await new Promise(done=>{control.releaseStatus=done;});if(control.statusFailure)throw new Error('owned status unavailable');return {...selection,listed:true};},
+  async status(request){const id=typeof request==='string'?request:request?.gameId;if(control.deleted&&id===G)throw new PlayerReaderError('GAME_DELETED',410);if(control.holdStatus && request?.gameId===G)await new Promise(done=>{control.releaseStatus=done;});if(control.statusFailure)throw new Error('owned status unavailable');return {...selection,listed:true};},
   async admit({chapterId,ordinal}) {
     control.calls++;
+    if (control.deleted) throw new PlayerReaderError('GAME_DELETED',410);
     if (ordinal !== selection.ordinal || chapterId !== C || control.changed) throw new Error('owned current release changed');
     let state = 'active';
     const session = {identity:{...selection,chapterId:C,manifestDigest:header.manifestDigest},state:()=>state,close(){state='closed';},async read(role){if(state!=='active')throw new Error('owned closed');return structuredClone(values.get(role));}};
@@ -66,7 +69,14 @@ control.reset = async () => {
   for(const row of await base.store.list()){const value=await base.store.get(row.slot);await base.store.compareDelete(value.token);}
   selection.releaseId=R;selection.ordinal=base.environment.identity.ordinal;control.statusFailure=false;
   control.changed=false;control.staticFailure=false;control.gets=[];control.sessions=[];control.calls=0;
+  control.deleted=false;control.promptExit=null;
   await control.seed();
+};
+control.mountDeletedPrompt = ({listFailure=false}={}) => {
+  control.prompt?.close();document.querySelector('#owned-deleted')?.remove();control.promptExit=null;
+  const root=document.createElement('section');root.id='owned-deleted';document.body.append(root);
+  const scoped=listFailure?{...base.store,async list(){throw new Error('owned catalog unavailable');}}:base.store;
+  control.prompt=mountDeletedSavePrompt({root,store:scoped,onExit:action=>{control.promptExit=action;}});
 };
 control.mountBackup = () => {
   control.backup?.close();document.querySelector('#owned-backup')?.remove();

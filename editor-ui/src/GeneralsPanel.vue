@@ -78,7 +78,7 @@ function portrait(general) {
 </script>
 <template>
   <section id="generals-editor" class="module-card">
-    <h2>人物基礎資料與章節武將</h2>
+    <h2>武將庫與章節武將</h2>
     <GeneralDefinitionsPanel v-if="draftModel && draftActions" :model="draftModel" :actions="draftActions" :busy="busy" />
     <h3>原章武將槽位（128 密排鎖定）</h3>
     <div v-if="draftModel && draftActions" class="module-toolbar">

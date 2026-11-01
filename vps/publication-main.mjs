@@ -11,6 +11,7 @@ import { openStorage } from './sqlite-port.mjs';
 import { FileBucket } from './file-bucket.mjs';
 import { r2client } from './r2client.mjs';
 import { startPublicationServer } from './publication-server.mjs';
+import { isRemoteUnreachable } from './r2reachability.mjs';
 
 function stat(path) {
   try { return lstatSync(path); }
@@ -49,17 +50,26 @@ export async function startConfiguredPublication(environment, { signal } = {}) {
   const remote = r2client(options.r2);
   // Preserve the independently pinned software bytes before opening authority or
   // listening. A partial archive is neither a publication nor admission authority.
-  const archived = await options.archiveStaticProgram(remote, current);
-  current();
-  // The archive involved awaits: recheck both installation and private paths.
-  verifyInstalledProgram({ webRoot: fileURLToPath(new URL('../web/', import.meta.url)),
-    bundlePath: fileURLToPath(new URL('../server/public/trialweb.txt', import.meta.url)),
-    expectedSourceTreeDigest: options.sourceTreeDigest });
-  databasePath(options.dataRoot);
-  // The operator-only record is separate from uncommitted archive objects and
-  // game publication roots. It neither selects a program nor admits a game.
-  await registerStaticProgram({ r2: remote, releaseDigest: archived.releaseDigest,
-    sourceTreeDigest: options.sourceTreeDigest, prefix: options.prefix, assertCurrent: current });
+  // B8（Web 產品決定 2026-11）：R2 不是開機條件。傳輸層不可達時降級啟動——本次
+  // 不做程式位元組歸檔／登記，工作台仍可編輯，下一次啟動以同一條件寫入冪等重試；
+  // 權威事實不符（非不可達）照舊在監聽前失敗。
+  let staticArchive = 'complete', registration = 'complete';
+  try {
+    const archived = await options.archiveStaticProgram(remote, current);
+    current();
+    // The archive involved awaits: recheck both installation and private paths.
+    verifyInstalledProgram({ webRoot: fileURLToPath(new URL('../web/', import.meta.url)),
+      bundlePath: fileURLToPath(new URL('../server/public/trialweb.txt', import.meta.url)),
+      expectedSourceTreeDigest: options.sourceTreeDigest });
+    databasePath(options.dataRoot);
+    // The operator-only record is separate from uncommitted archive objects and
+    // game publication roots. It neither selects a program nor admits a game.
+    await registerStaticProgram({ r2: remote, releaseDigest: archived.releaseDigest,
+      sourceTreeDigest: options.sourceTreeDigest, prefix: options.prefix, assertCurrent: current });
+  } catch (error) {
+    if (!isRemoteUnreachable(error)) throw error;
+    staticArchive = 'unreachable'; registration = 'skipped';
+  }
   current();
   verifyInstalledProgram({ webRoot: fileURLToPath(new URL('../web/', import.meta.url)),
     bundlePath: fileURLToPath(new URL('../server/public/trialweb.txt', import.meta.url)),
@@ -87,7 +97,8 @@ export async function startConfiguredPublication(environment, { signal } = {}) {
   let closing;
   return Object.freeze({
     address: service.address,
-    status: service.status,
+    // startup 只陳述本次啟動跳過了哪些遠端步驟；不是分發、上架或可見性證明。
+    status: () => Object.freeze({ ...service.status(), startup: Object.freeze({ staticArchive, registration }) }),
     close() {
       if (!closing) closing = service.close().then(() => storage.close());
       return closing;

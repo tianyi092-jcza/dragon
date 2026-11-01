@@ -5,6 +5,7 @@ import { createRuntimeStager } from './runtime-stage.mjs';
 import { createDistributionPublisher } from './distribution-publisher.mjs';
 import { createDistributionDrainer } from './distribution-drainer.mjs';
 import { startEditorServer } from './editor-server.mjs';
+import { isRemoteUnreachable } from './r2reachability.mjs';
 
 export async function startPublicationServer({ storage, bucket, env, r2, verifyStaticResources, intervalMs, prefix = '', host = '127.0.0.1', port = 8787, prepare }) {
   const environment = { ...env };
@@ -22,7 +23,16 @@ export async function startPublicationServer({ storage, bucket, env, r2, verifyS
   const drainer = createDistributionDrainer({ publisher, intervalMs });
   // A restored/foreign/legacy remote authority must be rejected before listening.
   // This may persist a recovery lock; startup failure is not a SQL rollback.
-  await publisher.checkHead();
+  // B8：R2 不是開機條件。只有「傳輸層不可達」才降級啟動（工作台仍可編輯），
+  // 且分發狀態照舊由同一 publisher 判定（上架/分發一律待確認）；任何已觀測到的
+  // 權威事實（REMOTE_AHEAD／REMOTE_GAP／LEGACY_PENDING／AUTHORITY_MISMATCH…）
+  // 仍舊 fail-closed，不降級、不繼續寫。
+  let remote = 'verified';
+  try { await publisher.checkHead(); }
+  catch (error) {
+    if (!isRemoteUnreachable(error)) throw error;
+    remote = 'unreachable';
+  }
   let server, closing, state = 'starting';
   function close() {
     if (closing) return closing;
@@ -51,7 +61,8 @@ export async function startPublicationServer({ storage, bucket, env, r2, verifyS
   }
   return Object.freeze({
     address: server.address,
-    status: () => Object.freeze({ state, distribution: drainer.status() }),
+    // remote 只說「開機時有沒有讀到遠端根」，不是公開可見性或已確認分發。
+    status: () => Object.freeze({ state, remote, distribution: drainer.status() }),
     close,
   });
 }

@@ -22,7 +22,7 @@ catch (cause) { throw new Error('owned test requires the installed Trial bundle'
 const installedSource = buildStaticRelease(installedBundle.files.filter(f => f.path.startsWith('src/') && f.path.endsWith('.js')).map(({ path, byteLength, sha256 }) => ({ path, byteLength, sha256 }))).manifest.sourceTreeDigest;
 const own = mkdtempSync(join(tmpdir(), 'dragon-publication-main-'));
 const env = { EDITOR_ORIGIN: 'https://owned-editor.invalid', EDITOR_REQUEST_KEY: 'c'.repeat(64), EDITOR_DEFAULT_PASSWORD: 'Owned password only secret marker 1!', EDITOR_DATA_DIR: join(own, 'not-created'), EDITOR_LISTEN_HOST: '127.0.0.1', EDITOR_LISTEN_PORT: '8788', EDITOR_DRAIN_INTERVAL_MS: '20', R2_ACCOUNT_ID: 'a'.repeat(32), R2_ACCESS_KEY_ID: 'b'.repeat(32), R2_SECRET_ACCESS_KEY: 'd'.repeat(64), R2_BUCKET: 'dragon', R2_PREFIX: 'test/owned-cli/', STATIC_ORIGIN: 'https://owned-static.invalid', STATIC_PATH_PREFIX: 'release/', STATIC_RELEASE_SHA256: archive.release.sha256, STATIC_SOURCE_SHA256: installedSource };
-const original = https.request; let checks = 0, calls = 0, pending, hold = false, holdArchive = false, holdRegistration = false, broken = false, outage = false, service, boot;
+const original = https.request; let checks = 0, calls = 0, pending, hold = false, holdArchive = false, holdRegistration = false, broken = false, outage = null, service, boot;
 https.request = (url, options, callback) => {
   assert.equal(options.rejectUnauthorized, true);
   const staticRequest = url.startsWith('https://owned-static.invalid/release/');
@@ -42,7 +42,9 @@ https.request = (url, options, callback) => {
   req.destroy = () => { req.destroyed = true; }; res.destroy = () => { res.destroyed = true; };
   req.end = (body = Buffer.alloc(0)) => {
     const deliver = () => {
-      if (outage && controlRequest) { req.emit('error', new Error('owned transport private-secret')); return; }
+      // B8：只有传输层失败才可降级；未分类的错误仍必须 start-failed。
+      if (outage === 'network' && controlRequest) { req.emit('error', Object.assign(new Error('owned transport'), { code: 'ECONNRESET' })); return; }
+      if (outage === 'unknown' && controlRequest) { req.emit('error', new Error('owned transport private-secret')); return; }
       let stored;
       try { stored = archive.handle(url, options, body); }
       catch (error) { req.emit('error', error); return; }
@@ -127,21 +129,52 @@ try {
   await assert.rejects(startConfiguredPublication({ ...env, EDITOR_DATA_DIR: linked }), /unsafe data directory/); assert.equal(existsSync(join(actual, 'editor.sqlite')), false); check();
   const hardRoot = join(own, 'hard'); mkdirSync(hardRoot, { mode: 0o700 }); const source = join(own, 'owned-file'); writeFileSync(source, '', { mode: 0o600 }); linkSync(source, join(hardRoot, 'editor.sqlite'));
   await assert.rejects(startConfiguredPublication({ ...env, EDITOR_DATA_DIR: hardRoot }), /unsafe database file/); check();
-  const failRoot = join(own, 'failed'); mkdirSync(failRoot, { mode: 0o700 }); const failedHost = new EventEmitter(), failedLog = [];
-  outage = true; archive.state.losePut = true; archive.state.loseRegistrationPut = true;
-  assert.equal(await runPublicationCommand({ argv: [], env: { ...env, EDITOR_DATA_DIR: failRoot, EDITOR_LISTEN_PORT: await port() }, processHost: failedHost, report: v => failedLog.push(v) }), null);
-  outage = false; archive.state.losePut = false; archive.state.loseRegistrationPut = false;
+  // B8：R2 不是開機條件。遠端根讀取遇到「傳輸層不可達」時降級啟動，工作台可編輯，
+  // 但分發狀態仍由同一 publisher 判定（不宣稱可見性）；權威事實不符照舊 fail-closed。
+  const degradedRoot = join(own, 'degraded'); mkdirSync(degradedRoot, { mode: 0o700 });
+  outage = 'network'; archive.state.losePut = true; archive.state.loseRegistrationPut = true;
+  service = await startConfiguredPublication({ ...env, EDITOR_DATA_DIR: degradedRoot, EDITOR_LISTEN_PORT: await port() });
+  outage = null; archive.state.losePut = false; archive.state.loseRegistrationPut = false;
+  assert.equal(service.status().remote, 'unreachable');
+  assert.deepEqual(service.status().startup, { staticArchive: 'complete', registration: 'complete' });
+  assert.equal((await get(service.address, '/api/health')).status, 200, '編輯入口仍可啟動');
+  assert.equal((await get(service.address, '/play')).status, 503);
   assert.deepEqual(archive.registrations.get(archive.registrationURL), archive.registrationBytes);
   assert.deepEqual(archive.registrationEvents, ['GET', 'PUT', 'GET']); check();
   assert.equal(archive.events.filter(e => e.type === 'PUT').length, archive.files.size);
   assert.equal(archive.objects.size, archive.files.size); // Every lost PUT response recovered only by readback.
   check();
+  await service.close(); service = null; check();
+  // 連程式位元組歸檔都不可達：跳過歸檔／登記但照舊啟動，下一次啟動冪等重試。
+  const archiveDownRoot = join(own, 'archive-down'); mkdirSync(archiveDownRoot, { mode: 0o700 });
+  archive.state.unreachable = true;
+  service = await startConfiguredPublication({ ...env, EDITOR_DATA_DIR: archiveDownRoot, EDITOR_LISTEN_PORT: await port() });
+  archive.state.unreachable = false;
+  assert.deepEqual(service.status().startup, { staticArchive: 'unreachable', registration: 'skipped' });
+  assert.equal(service.status().remote, 'unreachable');
+  assert.equal((await get(service.address, '/api/health')).status, 200);
+  await service.close(); service = null;
+  const archiveDownPuts = archive.events.filter(e => e.type === 'PUT').length;
+  service = await startConfiguredPublication({ ...env, EDITOR_DATA_DIR: archiveDownRoot, EDITOR_LISTEN_PORT: await port() });
+  assert.deepEqual(service.status().startup, { staticArchive: 'complete', registration: 'complete' });
+  assert.equal(archive.events.filter(e => e.type === 'PUT').length, archiveDownPuts, '已完成的不可變物件不重傳');
+  await service.close(); service = null; check();
+  // 未分類的傳輸錯誤不是「不可達」：維持監聽前失敗，且不建立 auth schema。
+  const failRoot = join(own, 'failed'); mkdirSync(failRoot, { mode: 0o700 }); const failedHost = new EventEmitter(), failedLog = [];
+  outage = 'unknown';
+  assert.equal(await runPublicationCommand({ argv: [], env: { ...env, EDITOR_DATA_DIR: failRoot, EDITOR_LISTEN_PORT: await port() }, processHost: failedHost, report: v => failedLog.push(v) }), null);
+  outage = null;
   assert.equal(failedHost.exitCode, 1); assert.equal(failedHost.listenerCount('SIGTERM'), 0); assert.equal(failedHost.listenerCount('SIGINT'), 0);
   assert.deepEqual(failedLog, [{ event: 'startup-failed' }]);
-  assert.equal(existsSync(join(failRoot, 'editor.sqlite')), true, 'original outage reached publisher preflight after archiving');
+  assert.equal(existsSync(join(failRoot, 'editor.sqlite')), true, 'unknown outage reached publisher preflight after archiving');
   const failedDB = openStorage(join(failRoot, 'editor.sqlite'));
   try { assert.equal(failedDB.sql.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").toArray().length, 0); } finally { failedDB.close(); }
   check();
+  // 已觀測到的權威事實（舊協議根）仍是 fail-closed，不因 R2 可達而放寬。
+  const legacyRoot = join(own, 'legacy'); mkdirSync(legacyRoot, { mode: 0o700 });
+  broken = true;
+  await assert.rejects(startConfiguredPublication({ ...env, EDITOR_DATA_DIR: legacyRoot, EDITOR_LISTEN_PORT: await port() }), /DISTRIBUTION_RECOVERY_REQUIRED|REMOTE_GAP|LEGACY_PENDING/);
+  broken = false; check();
   const wrongProgramRoot = join(own, 'wrong-program'); mkdirSync(wrongProgramRoot, { mode: 0o700 });
   const beforeWrongProgram = calls, wrongProgram = { ...env, EDITOR_DATA_DIR: wrongProgramRoot, STATIC_SOURCE_SHA256: '0'.repeat(64) };
   await assert.rejects(startConfiguredPublication(wrongProgram), /INSTALLED_PROGRAM_INVALID/);
@@ -235,5 +268,5 @@ try {
   await until(() => pending); earlyHost.emit('SIGTERM'); hold = false; const finish = pending; pending = null; finish();
   service = await boot; assert.ok(service); assert.equal(service.status().state, 'stopped'); await service.close(); service = null;
   assert.deepEqual(earlyLog, [{ event: 'stopped' }]); assert.equal(earlyHost.listenerCount('SIGTERM'), 0); check();
-  process.stdout.write(JSON.stringify({ checks, scope: 'pure configuration, redacted child CLI check, owned filesystem/HTTP/SQLite and simulated process signals; real signed HTTPS clients intercepted, no TLS/cloud/deployment proof' }) + '\n');
+  process.stdout.write(JSON.stringify({ checks, scope: 'pure configuration, redacted child CLI check, owned filesystem/HTTP/SQLite and simulated process signals, degraded startup on transport unreachability; real signed HTTPS clients intercepted, no TLS/cloud/deployment proof' }) + '\n');
 } finally { hold = false; pending?.(); pending = null; await service?.close(); const late = await boot; await late?.close(); https.request = original; syncBuiltinESMExports(); rmSync(own, { recursive: true, force: true }); }
