@@ -423,3 +423,10 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 - **决定**：游戏级只保留 `max_prod`／`type`／`view`（＋`name`、`runtimeSlot`、`x`/`y`）；`growth`／`defence`／`troops_cap` 归**章节初始化值**，原样保留，不拉平——用户判读为与 AI／经济引擎逐章取值相关，强改会破坏原游戏行为。
 - **代码**：`cityrecords.js` 的 `CITY_BASE_NUMBERS = ['max_prod','type','view']`，新增 `CITY_CHAPTER_NUMBERS = ['growth','defence','troops_cap']`；`copyBuiltinGame` full 分支从第 1 章原生记录提取游戏级三项，并对后续章同名字段不一致 `RangeError`（新固定源若漂移必须停下核对，而不是静默取第一章）。
 - **验证**：`verify_copy_publish_parity.mjs` 的 `cityDefinitionsAreGameLevel` 断言 3840 格游戏级字段 0 漂移、章节初始化值不得提升到定义层；`PASS-COPY-PUBLISH-PARITY`（terrain／roadCost／roadOffset 逐字节、roadGraph 语义一致）；`verify_editor_city_definitions.mjs` 4/4；Trial 束 238 文件重建（`0c64524a…`）。
+
+### 47.4 建立章节规格与二级资料差异核对（2026-11）
+
+- 用户设计定稿：章節序號 1–10 下拉（显示第一章…，**Web 产品决定**）、標題 ≤16 码点必填、紀元標籤、年 ≤4 位＋月 1–12＋日 1–31（不做日历校验）；保存后第一章同时带入章节态；前置门控为游戏级「地图→据点→武将」三件事。规格写入 `docs/chapter-and-base-resources.md` §7。
+- 势力＝君主：**定义势力时必须指定首都**，试运行／上架再校验「每势力 ≥1 据点、恰 1 个自动首都、多个必须选 1 个」；内置 20 章不套此校验。
+- 二级资料核对（社区 HEX 说明，非原证）：外交官偏移链接写 `+3A`，我们 `+2A`，228 势力全空无法判别 → 以我们为准标「推断」，测试时在章节定义预先指定内政官／外交官再核；城池 `type`/`view` 链接 `+17` 与我们不符（`raw[0x17]` 恒 0）→ 以当前实现为准；容量维持 16 势力／192 据点；剧本结构 4 章/文件 × 5 组 = 20 章与「16 章为改版」一致；首都不属本势力 8 例全在改版章节（`upper-1` 5、`middle-2` 1、`lower-3` 2），`original-1..4` 为 0。
+- 职务归属澄清：军团长 `legion+2`、六阵位 `legion+0x28..0x3F`，**不是武将字段**；武将章节字段为 `0x17` 身份／`0x1C` 所属／`0x19` 投奔／`0x1D` 被俘／`attr` bit7 登场。
