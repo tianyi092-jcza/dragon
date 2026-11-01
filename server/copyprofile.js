@@ -7,14 +7,14 @@ import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
-import { addBlankChapter, copyChapterInGame, deleteChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setFactionDiplomat } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, copyChapterInGame, deleteChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setFactionDiplomat } from '../web/src/content/authoring/gamesource.js';
 import { fail } from './security.js';
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
 export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
 export const FIXED_TEMPLATE_PROFILE = 'fixed-template-authoring-1';
 // Chapter-attribute writes a newly created chapter accepts (2026-11 user scope:
-// 年代／据点所属／首都／武将所属／职务). Everything else stays fail-closed.
-const BLANK_CHAPTER_WRITES = Object.freeze(['start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat']);
+// 年代／势力（君主＋首都）／据点所属／武将所属／职务). Everything else stays fail-closed.
+const BLANK_CHAPTER_WRITES = Object.freeze(['start-date', 'create-faction', 'set-monarch', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat']);
 function view(value) {
   if (!value || typeof value !== 'object') fail(422, 'COPY_STRUCTURE');
   const array = Array.isArray(value), proto = Object.getPrototypeOf(value);
@@ -266,10 +266,10 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         }
         lifetimes.delete(edit.chapterId);
       } else if (lifetime) {
-        if (edit?.op === 'rename' || ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op) && (lifetime.kind === 'copy' || BLANK_CHAPTER_WRITES.includes(edit.op))) lifetime.indices.push(index);
+        if (edit?.op === 'rename' || ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op) && (lifetime.kind === 'copy' || BLANK_CHAPTER_WRITES.includes(edit.op))) lifetime.indices.push(index);
         else lifetime.blocked = true; // Unknown operations stay fail-closed.
       }
-      if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op)) {
+      if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'set-diplomat'].includes(edit?.op)) {
         const chapter = lineage.get(edit.chapterId);
         if (!chapter) fail(422, 'COPY_PROTECTED_DELTA');
         let shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [edit.chapterId], chapters: { [edit.chapterId]: structuredClone(chapter) } };
@@ -280,6 +280,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         else if (edit.op === 'set-monarch') setMonarch(shell, edit.chapterId, edit.factionIdx, edit.generalIdx);
         else if (edit.op === 'remove-monarch') removeMonarch(shell, edit.chapterId, edit.factionIdx, edit.resolution);
         else if (edit.op === 'disband-faction') disbandFaction(shell, edit.chapterId, edit.factionIdx);
+        else if (edit.op === 'create-faction') createFaction(shell, edit.chapterId, { monarchIdx: edit.monarchIdx });
         else if (edit.op === 'start-date') setChapterStart(shell, edit.chapterId, edit.values);
         else if (edit.op === 'city-faction') setChapterCityFaction(shell, edit.chapterId, edit.cityIdx, edit.factionId);
         else if (edit.op === 'set-capital') setFactionCapital(shell, edit.chapterId, edit.factionIdx, edit.cityIdx);
@@ -309,8 +310,12 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
   const baseChapter = (id) => {
     // Chapters created inside this history have no pinned baseline entry. Their
     // trusted creation-time snapshot is the revert base (never a copy of the
-    // candidate), so recorded authoring writes can be reversed exactly.
-    const c = baseline.chapters?.[id] ?? lineage.get(id);
+    // candidate), so recorded authoring writes can be reversed exactly. `lineage`
+    // is NOT that snapshot: every replayed write overwrites it with the
+    // post-edit state, so a blank chapter must be rebuilt from its creation
+    // command by the same writer that created it.
+    const c = baseline.chapters?.[id] ?? copyBases.get(id) ??
+      (blankEdits.has(id) ? blankChapterExpectation(baseline, id, blankEdits.get(id)) : lineage.get(id));
     if (!c || typeof c !== 'object' || c.chapterId !== id) fail(422, 'COPY_PROTECTED_DELTA');
     return c;
   };
@@ -412,6 +417,12 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     table[factionIdx] = restoreByte(table[factionIdx], offset, byte);
   };
   const FACTION_POST_BYTES = { monarch_idx: 1, advisor_idx: 2, capital: 3, diplomat_idx: 0x2a };
+  // 同一段历史里新建的势力在原始快照中不存在：它的职务引用由 create-faction 自己写入，
+  // 回放按逆序会把整条记录删掉，所以这些 op 不需要（也不能）从快照里找原值。
+  const baseHasFaction = (chapterId, factionIdx) => {
+    const base = copyBases.get(chapterId) ?? baseChapter(chapterId);
+    return (base.state?.factions ?? []).some(f => f?.idx === factionIdx);
+  };
   const revertFactionPost = (chapterId, factionIdx, generalIdx, post) => {
     const faction = revFaction(revChapter(chapterId), factionIdx);
     const origin = copyBases.get(chapterId) ?? baseChapter(chapterId);
@@ -476,6 +487,37 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       }
     }
   };
+  // 建势力回退：移除该命令新增的势力槽，把被纳入的君主放回自由身分，并在原始快照
+  // 没有固定槽表时一并删掉（否则与 pristine 空白章不再相等）。势力槽只能接在末尾，
+  // 所以反序回放时每次移除「快照里没有的最大 idx」就是该命令建的那一个。
+  const revertCreateFaction = (chapterId, monarchIdx) => {
+    const chapter = revChapter(chapterId);
+    const base = copyBases.get(chapterId) ?? baseChapter(chapterId);
+    const factions = chapter.state?.factions;
+    if (!Array.isArray(factions)) fail(422, 'COPY_PROTECTED_DELTA');
+    const known = new Set((base.state?.factions ?? []).map(f => f?.idx));
+    const created = factions.filter(f => !known.has(f?.idx));
+    if (created.length !== 1) fail(422, 'COPY_PROTECTED_DELTA');
+    const factionIdx = created[0].idx;
+    if (created[0].monarch_idx !== monarchIdx) fail(422, 'COPY_PROTECTED_DELTA');
+    // 期望值由同一个 writer 在建立时快照上重建，只叠加已申报的 set-capital；
+    // 逐栏比较（含原生槽位元组）后才移除，避免未申报的改动被「整条删掉」吸收。
+    const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId], chapters: { [chapterId]: structuredClone(base) } };
+    createFaction(shell, chapterId, { monarchIdx });
+    for (const edit of edits) if (edit?.op === 'set-capital' && edit.chapterId === chapterId && edit.factionIdx === factionIdx) setFactionCapital(shell, chapterId, factionIdx, edit.cityIdx);
+    compare(shell.chapters[chapterId].state.factions[0], created[0], new WeakMap());
+    compare(shell.chapters[chapterId].state.nativeFactionSlotRaw[factionIdx], chapter.state?.nativeFactionSlotRaw?.[factionIdx], new WeakMap());
+    const generals = chapter.state?.generals ?? [];
+    if (generals.some(g => g?.faction === factionIdx && g.idx !== monarchIdx)) fail(422, 'COPY_PROTECTED_DELTA');
+    if ((chapter.state?.cities ?? []).some(c => c?.faction === factionIdx)) fail(422, 'COPY_PROTECTED_DELTA');
+    factions.splice(factions.findIndex(f => f?.idx === factionIdx), 1);
+    const baseGenerals = new Map((base.state?.generals ?? []).map(g => [g?.idx, g]));
+    const monarch = generals.find(g => g?.idx === monarchIdx);
+    if (monarch) monarch.faction = clone(baseGenerals.get(monarchIdx)?.faction ?? null);
+    if (!Object.hasOwn(base.state ?? {}, 'nativeFactionSlotRaw')) delete chapter.state.nativeFactionSlotRaw;
+    if (Object.hasOwn(base.state ?? {}, 'n_factions')) chapter.state.n_factions = base.state.n_factions;
+    else if (Object.hasOwn(chapter.state ?? {}, 'n_factions')) delete chapter.state.n_factions;
+  };
   for (let i = edits.length - 1; i >= 0; i--) {
     const edit = edits[i];
     if (!edit || typeof edit !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
@@ -503,13 +545,13 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       if (base.portraitKey === undefined) { delete rec.portraitKey; }
       else rec.portraitKey = clone(base.portraitKey);
     } else if (op === 'set-monarch') {
-      revertFactionPost(chapterId, edit.factionIdx, edit.generalIdx, 'monarch_idx');
+      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionPost(chapterId, edit.factionIdx, edit.generalIdx, 'monarch_idx');
     } else if (op === 'set-strategist') {
-      revertFactionPost(chapterId, edit.factionIdx, null, 'advisor_idx');
+      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionPost(chapterId, edit.factionIdx, null, 'advisor_idx');
     } else if (op === 'set-diplomat') {
-      revertFactionPost(chapterId, edit.factionIdx, null, 'diplomat_idx');
+      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionPost(chapterId, edit.factionIdx, null, 'diplomat_idx');
     } else if (op === 'set-capital') {
-      revertFactionPost(chapterId, edit.factionIdx, null, 'capital');
+      if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionPost(chapterId, edit.factionIdx, null, 'capital');
     } else if (op === 'city-faction') {
       if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191 || !('factionId' in edit)) fail(422, 'COPY_PROTECTED_DELTA');
       revertCityFaction(chapterId, edit.cityIdx);
@@ -535,6 +577,9 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       }
     } else if (op === 'disband-faction') {
       revertDisband(chapterId, edit.factionIdx);
+    } else if (op === 'create-faction') {
+      if (!Number.isInteger(edit.monarchIdx) || edit.monarchIdx < 0 || edit.monarchIdx > 127) fail(422, 'COPY_PROTECTED_DELTA');
+      revertCreateFaction(chapterId, edit.monarchIdx);
     } else if (op === 'delete') {
       // Restore only the comparison clone. A descendant owns its captured
       // copy-time content; deleting its source must not remove that snapshot.
@@ -678,6 +723,13 @@ function replayTemplateHistory(baseline, steps) {
           else deleteChapter(expected, edit.chapterId);
         } else if (edit.op === 'rename') {
           exact(edit, ['op', 'chapterId', 'name']); renameChapter(expected, edit.chapterId, edit.name);
+        } else if (edit.op === 'create-faction') {
+          // 势力（君主＋首都）是 2026-11 用户批准的章節屬性范围；其余原生位元组仍 closed。
+          exact(edit, ['op', 'chapterId', 'monarchIdx']); createFaction(expected, edit.chapterId, { monarchIdx: edit.monarchIdx });
+        } else if (edit.op === 'set-monarch') {
+          exact(edit, ['op', 'chapterId', 'factionIdx', 'generalIdx']); setMonarch(expected, edit.chapterId, edit.factionIdx, edit.generalIdx);
+        } else if (edit.op === 'set-capital') {
+          exact(edit, ['op', 'chapterId', 'factionIdx', 'cityIdx']); setFactionCapital(expected, edit.chapterId, edit.factionIdx, edit.cityIdx);
         } else fail(422, 'COPY_TEMPLATE_HISTORY'); // Native fields remain closed.
       }
       for (const edit of step.generalEdits) {

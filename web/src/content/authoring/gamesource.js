@@ -11,6 +11,8 @@ import { validateMapSource } from "./mapcompile.js";
 import { deriveSlots } from "./roadedit.js";
 import { captureChapterCities } from "./cityrecords.js";
 import { materializeChapterState } from "./chaptermaterialize.js";
+import { CHAPTER_BASE } from "./chapterbase.generated.js";
+import { decodeFactionSlot } from "../../game/nativefactions.js";
 import { CITY_BASE_NUMBERS } from "./cityrecords.js";
 import { factionNativeConsistencyGaps } from "./factionconsistency.js";
 
@@ -830,6 +832,37 @@ export function removeMonarch(game, chapterId, factionIdx, resolution) {
   if (resolution.disband === true) { disbandFaction(game, chapterId, factionIdx); return; }
   if (!Number.isInteger(resolution.successor)) throw new RangeError("successor or disband required");
   setMonarch(game, chapterId, factionIdx, resolution.successor);
+}
+const FACTION_SLOT_LIMIT = 22;
+// 新建势力槽（Web 作者层，非原版初始化规则）：作者选一名自由武將作君主，首都留空
+// 由 setFactionCapital 指定——「没有首都的势力不能保存」由 chapterActiveGaps 的
+// capital 引用检查承担，不另立第二套门槛。宣告顺序＝原生槽序（
+// initializeNativeFactionSlots 要求 factions[slot].idx === slot），所以新势力只能
+// 接在末尾；原生位元组沿用固定源同槽，只改本函数拥有的栏位（君主／空内政官／
+// 空外交官／空首都／派生计数），其余未证实位元组保持原值。
+export function createFaction(game, chapterId, options) {
+  if (!isPlainObject(options)) throw new TypeError("create faction options required");
+  const keys = Object.keys(options);
+  if (keys.length !== 1 || keys[0] !== "monarchIdx") throw new RangeError("create faction allows monarchIdx only");
+  const state = chapterState(game, chapterId), { factions } = chapterFactions(game, chapterId);
+  if (factions.length >= FACTION_SLOT_LIMIT) throw new RangeError("chapter faction slots are full");
+  const monarch = generalByIdx(game, chapterId, options.monarchIdx);
+  // 与 setMonarch 同一资格口径：君主必须自由且无任何任职。
+  if (monarch.faction !== null) throw new RangeError("lord must be a free general");
+  if (postsHeld(game, chapterId, options.monarchIdx).length) throw new RangeError("lord must hold no post");
+  const slot = factions.length;
+  if (!Array.isArray(state.nativeFactionSlotRaw)) state.nativeFactionSlotRaw = [...CHAPTER_BASE.factionSlots];
+  const table = state.nativeFactionSlotRaw;
+  if (typeof table[slot] !== "string") throw new RangeError("fixed native faction slot missing");
+  let raw = table[slot];
+  for (const [offset, value] of [[1, monarch.idx], [2, 0x7f], [3, 0xff], [0x23, 0]]) raw = patchByte(raw, offset, value);
+  table[slot] = raw;
+  // n_cities／n_generals 是原版存储字段（运行期由占城／编成维护），建势力时按本章
+  // 现况取值：新势力 0 个据点、1 名武將（内政官不计入 n_generals）。
+  factions.push({ ...decodeFactionSlot(raw, slot), n_generals: 1 });
+  monarch.faction = slot;
+  if (Object.hasOwn(state, "n_factions")) state.n_factions = factions.length;
+  return { factionIdx: slot };
 }
 export function disbandFaction(game, chapterId, factionIdx) {
   const { chapter, factions } = chapterFactions(game, chapterId, factionIdx);

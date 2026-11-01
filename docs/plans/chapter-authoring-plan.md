@@ -22,12 +22,12 @@
 
 | 项 | 状态 |
 |---|---|
-| 仓库 | `E:/Dragon/web-port`，HEAD `b2f9d84`（第 1–3 步已落地：`451a211` 修绿 chapter_city_history、`bb283dc` 章節 materialize、`b2f9d84` 新增章節） |
+| 仓库 | `E:/Dragon/web-port`，第 1–4 步写入器已落地：`451a211` 修绿 chapter_city_history、`bb283dc` 章節 materialize、`b2f9d84` 新增章節、第 4 步建势力槽（`createFaction`） |
 | 工作树 | 应保持干净；本计划只记录范围/批次状态 |
-| 已 PASS 的验证 | `verify_copy_publish_parity.mjs`（复制→上架→编译产物等价）、`verify_editor_city_definitions.mjs` 4/4、`verify_editor_game_quota.mjs`、`verify_pinned_source_registration.mjs`、`verify_editor_chapter_materialize.mjs`（7 组）、`verify_editor_chapter_create.mjs`（4 组）、`verify_editor_copy_profile.mjs`、`verify_editor_template_profile.mjs`、`verify_editor_people_history.mjs`、`verify_editor_chapter_city_history.mjs`、`verify_editor_draft_controller.mjs` |
+| 已 PASS 的验证 | `verify_copy_publish_parity.mjs`（复制→上架→编译产物等价）、`verify_editor_city_definitions.mjs` 4/4、`verify_editor_game_quota.mjs`、`verify_pinned_source_registration.mjs`、`verify_editor_chapter_materialize.mjs`（7 组）、`verify_editor_chapter_create.mjs`（4 组）、`verify_editor_chapter_factions.mjs`（5 组：建势力／首都门／拒绝面／原生 17 欄一致／固定副本回放与篡改）、`verify_editor_copy_profile.mjs`、`verify_editor_template_profile.mjs`、`verify_editor_people_history.mjs`、`verify_editor_chapter_city_history.mjs`、`verify_editor_draft_controller.mjs` |
 | **已知红门（非本计划引入，未修）** | ① `verify_editor_chapter_cities.mjs`：「`sourceRef.kind='builtin-copy'` 应拒绝」一例不再抛错（`citydefinitions.js` 现无 profile 闸，属模型 C 后遗留口径）；② `verify_editor_authoring_context.mjs`：`installPublish` 未导出 `selectedGame`；③ `verify_editor_workbench_browser.mjs`：登录改密后 `#management-editor` 不可见（未走到章節段） |
 | 模板游戏形状 | `kind:'minimal'` 基线的空白章是**空壳**：`state.cities` 0 条、`state.factions` 0、`state.generals` 0、`state.start` 不存在；但 `chapters[cid].cities` 已有 192 条中立引用（D1） |
-| 五写在策略层 | `server/copyprofile.js` 的 `replayTemplateHistory` **尚未**接受 `start-date`／`city-faction`／`set-capital`／`general-faction`／`set-diplomat`；写入器本体已在 `gamesource.js` 存在（`setChapterStart`／`setChapterCityFaction`／`setFactionCapital`／`setChapterGeneralFaction`／`setFactionDiplomat`） |
+| 五写在策略层 | `replayTemplateHistory` 已接受 `create-faction`／`set-monarch`／`set-capital`；`start-date`／`city-faction`／`general-faction`／`set-diplomat` 仍只对「本章新建的空白章」开放（`BLANK_CHAPTER_WRITES`），模板持久历史侧尚未放开——第 5、6 步按需对齐 |
 | 内置 20 章 | `original-1..4` ＋ 上／中／下／后 各 4 章；任何校验**不得**改写或阻断它们 |
 
 ## 2. 已定事实（不得重新讨论，除非新原始证据）
@@ -77,6 +77,9 @@
 - 需要新增写入器：创建势力槽（选一名武将作君主）＋现有 `setFactionCapital`。作者层守则：**没有首都的势力不能保存**（用户口径：有首都⇒至少一个据点）。
 - 在 `server/copyprofile.js` 的 `replayTemplateHistory` 中放开对应 op（`set-monarch`／`set-capital`／新增的 `create-faction`），其余仍 fail-closed。
 - 验收：新增 `tools/verify_editor_chapter_factions.mjs`（模板章建势力→选君主→设首都→拒绝无首都势力→拒绝首都非本势力），PASS；文档 §3 校验表同步。
+- **落地状态**：写入器 `createFaction`＋回放＋验证器（5 组）已交付；「无首都」由 `chapterActiveGaps` 的 `entity-field`＋`entity-ref` 承担。两项未完成：
+  1. **`首都非本势力` 未实施**：原版 8 个内置势力的首都据点 `+01` 不等于本势力，属原始反例；这条只能是已标记的 Web 产品决定，需先定内置章豁免口径 → 归第 6 步。
+  2. **选君主 UI 未接**：空白章 128 槽在「勾选出场」落地前全是未登场骨架，候选集会变成 128 个幽灵名字；表单留到第 5 步之后接（届时候选＝已登场且自由的武将）。
 
 ### 第 5 步：武将章节属性（勾选出场＋身份＋所属势力）
 

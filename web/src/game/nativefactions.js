@@ -52,6 +52,9 @@ function decodeSlot(encoded, slot) {
 }
 
 export const hasNativeFactionSlots = (sc) => has(sc, "nativeFactionSlots");
+// Authoring writers need the same decode as initialization; reusing this one
+// keeps a single offset table instead of a second copy in the editor layer.
+export const decodeFactionSlot = (encoded, slot) => decodeSlot(encoded, slot);
 
 function records(sc, at) {
   const table = sc?.nativeFactionSlots;

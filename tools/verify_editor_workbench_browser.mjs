@@ -125,7 +125,13 @@ try {
       if (edit.op === 'copy') { assert.ok(index >= 0); draftChapters.push(chapterRow('chapter#copy', draftChapters[index].name)); }
       else if (edit.op === 'rename') { assert.ok(index >= 0); draftChapters[index].name = edit.name; }
       else if (edit.op === 'delete') { assert.ok(index >= 0); draftChapters.splice(index, 1); }
-      else { assert.equal(edit.op, 'add-blank'); draftChapters.push(chapterRow('chapter#blank', '空白章')); }
+      else {
+        assert.equal(edit.op, 'add-blank');
+        // 新增章節一律帶章名與開始年代；章節 id 仍由服務端配置。
+        assert.deepEqual(Object.keys(edit).sort(), ['name', 'op', 'start']);
+        assert.deepEqual(edit.start, { era: 'ad', year: 264, month: 2, day: 3 });
+        draftChapters.push(chapterRow('chapter#blank', edit.name));
+      }
       draftRevision++; return reply({ gameId, draftRevision: String(draftRevision), metadata: body.metadata });
     }
     unexpected.push(request.method() + ' ' + path); return reply({ error: 'UNEXPECTED' }, 500);
@@ -686,8 +692,16 @@ try {
   assert.match(await chapter('chapter#copy').textContent(), /<新章>/); checks++;
   page.once('dialog', dialog => dialog.accept()); await chapter('chapter#first').getByRole('button', { name: '刪除本章' }).click(); await idle();
   assert.equal(await chapter('chapter#first').count(), 0); checks++;
-  await page.locator('#draft-chapters').getByRole('button', { name: '新增空白章節' }).click(); await idle();
+  await page.locator('#draft-chapter-create-name').fill('空白章');
+  await page.locator('#draft-chapter-create-era').selectOption('ad');
+  await page.locator('#draft-chapter-create-year').fill('264');
+  await page.locator('#draft-chapter-create-month').fill('2');
+  await page.locator('#draft-chapter-create-day').fill('3');
+  await page.locator('#draft-chapter-create-submit').click(); await idle();
   assert.equal(await chapter('chapter#blank').count(), 1); assert.equal(await page.locator('#draft-trial-chapter').inputValue(), 'chapter#second'); checks++;
+  assert.deepEqual(calls.filter(([, path, body]) => path.endsWith('/draft/save') && body?.chapterEdits?.some(edit => edit.op === 'add-blank')).at(-1)[2].chapterEdits, [{ op: 'add-blank', name: '空白章', start: { era: 'ad', year: 264, month: 2, day: 3 } }]); checks++;
+  // 保存成功後表單清空，避免同一章被重複送出。
+  assert.equal(await page.locator('#draft-chapter-create-name').inputValue(), ''); checks++;
   await page.screenshot({ path: join(output, 'draft-loaded.png'), fullPage: true });
   await page.locator('#draft-name').fill('未保存');
   const contextBeforeListRefresh = await page.locator('#draft-context').textContent();

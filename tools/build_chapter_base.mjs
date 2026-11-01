@@ -17,10 +17,18 @@ const GENERAL_FIELDS = Object.freeze(['idx', 'attr', 'portrait', 'name', 'hao', 
 
 // City slots keep the whole 32-byte record verbatim (unknown bytes must never be
 // invented) plus the display name, which is not inside the record.
+// Faction slots keep the 22 fixed 64-byte records verbatim for the same reason:
+// create-faction reuses the same-slot bytes and only rewrites the fields the
+// author owns, so unproven bytes stay original content.
 export function buildChapterBase(source) {
   const chapter = source.chapters[0];
   if (!chapter || chapter.state?.cities?.length !== 192 || chapter.state.generals?.length !== 128)
     throw new RangeError('fixed source chapter 1 must carry 192 cities and 128 generals');
+  const factionSlots = chapter.state.nativeFactionSlotRaw;
+  if (!Array.isArray(factionSlots) || factionSlots.length !== 22)
+    throw new RangeError('fixed source chapter 1 must carry the 22-slot native faction source');
+  for (const [slot, raw] of factionSlots.entries())
+    if (typeof raw !== 'string' || !/^[0-9a-f]{128}$/.test(raw)) throw new RangeError(`faction slot ${slot} needs a 64-byte record`);
   const cities = chapter.state.cities.map((city, slot) => {
     if (city.idx !== slot) throw new RangeError(`city slot order: ${city.idx}`);
     if (typeof city.name !== 'string' || !city.name.trim()) throw new RangeError(`city slot ${slot} needs a name`);
@@ -33,7 +41,7 @@ export function buildChapterBase(source) {
     for (const field of GENERAL_FIELDS) record[field] = general[field];
     return record;
   });
-  return { revision: source.revision, chapterId: chapter.id, cities, generals };
+  return { revision: source.revision, chapterId: chapter.id, cities, generals, factionSlots };
 }
 
 export function renderChapterBaseModule(base) {
