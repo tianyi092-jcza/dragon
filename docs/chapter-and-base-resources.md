@@ -27,7 +27,8 @@
 | 势力基本面 | `capital`、`money`、`legion_morale_cap`、`reserve_cav/arc/inf`、`bellicosity`、`talk_style`、`march_marker_style`、`n_generals`、`n_cities`、`target_faction`、`strategic_city_*` | 章节 | `gamesource.js:27-28` |
 | 据点引用 | `cities[cityId].factionId` + `overrides` | 章节 | 归属势力属**章节**；数值（max_prod/prod/growth/defence/troops/troops_cap/type/view）在原生状态层属章节 |
 | 武将引用 | `people[generalId].included` / `factionId` / `overrides` | 章节 | 所属势力属**章节**；`gamesource.js:90` 校验 `faction`/`join_faction` |
-| 章节时间 | `startDate.{era,year,month,day}` | 章节 | 用户 2026-11 决定开放编辑：纪年标签（公元前／公元后）＋年/月/日，作为本章计时起点；现值只读（`DraftPanel.vue:56`） |
+| 章节时间 | `state.start.{era,year,month,day}` | 章节 | 用户 2026-11 决定开放编辑：`era` 是**作者层纪年标签**（`bc`／`ad`，缺省视同 `ad`），与原生 `day`／`month` 字节、`year` u16 并列，**绝不把年份取负**，所以切换纪年不会重编号或丢失既有年份；年 1–65535、月 1–12、日 1–31 只是编辑器输入范围（非 KI 规则）。B4 起在 `#chapters-editor` 可写，`DraftPanel` 仍只读展示 |
+| 章节属性写入口径 | 势力槽 `raw@1/2/3/0x2A`、据点 `raw+0x01`、`nativeFactionSlotRaw`／`nativeCityRecordRaw` | 章节 | B4 统一为「**命名视图＋固定 raw 槽同步**」：只改命名值会在试玩／发布被 `factionNativeConsistencyGaps` 以 `entity-native-mismatch` 拒绝（`initializeNativeFactionSlots` 用 raw 覆盖命名视图）。势力槽 offset／空值哨兵：`monarch_idx@1`（null→`0xFF`）、`advisor_idx@2`（null→`0x7F`）、`capital@3`（null→`0xFF`）、`diplomat_idx@0x2A`（null→`0xFF`）；据点 `+0x01`＝**当前所属**（null→`0x18`），而 `+0x1A` 是**原版旧所属，绝不能改**。外交官与内政官在 20 章内置初态全为 null；**内政官（`city.governor`，须联动 `general+0x17=2` 与预算 `general+0x1A`，KI `6A9B..6B70`）本批只读、未开放**。首都不要求该据点属于该势力（内置资料自有 8 例） |
 
 ## 3. 校验规则（发布前试运行的口径）
 
@@ -54,10 +55,28 @@
 2. **两层表示并存**：作者层用 id 键（`cities[cityId]`、`people[generalId]`），原生状态用定长数组
    （`cities[192]`、`generals[128]`、`factions[]`）。两者之间的唯一转换点尚未在文档中声明，
    与「契约方言统一」属同一件事。
+   B5（2026-11）已让作者层对**游戏自有来源**（`builtin-template` 与 `builtin-copy`）可读写：
+   `game.generals` 是默认空的武將庫、`chapter.people` 是章節引用，命令只改这两个根；库 → 原生
+   128 槽的 materialize **仍未做、未裁決**，因此导入不等于可試玩（见 `checkpoint-journal.md`
+   「B5 武將庫」節）。舊槽位字典不是庫，读写都 fail-closed。
+
+## 5.1 B6（2026-11）之後的新遊戲形狀（實作現狀，非新機制）
+
+- 工作台級「新建遊戲」產出 **空殼作者檔案**（`sourceRef.kind='builtin-template'`）：地圖（含道路／放置物）＋192 據點定義＋一個空白首章（`state.factions/generals/cities` 皆空），`generals`（遊戲級武將庫）為空。基地圖與據點是**複製**，不是引用底層資源。管理員「複製遊戲」才產出完整副本（`builtin-copy`：20 章＋原生 128 武將／192 據點）。
+- 因此 §1／§2 的「章節引用基礎資料」目前只對**完整副本**成立：空殼檔案的 B4 章節屬性面、B5「從底層資源導入」都尚未開放（`replayTemplateHistory` 只允許結構操作；導入來源取自本遊戲章節原生武將記錄）。這是待裁決缺口，不是已實作行為。
 
 ## 6. 玩家端存档校验（用户决定）
 
-覆盖发布后：旧版本在玩家端不可选；加载存档时校验 ①**游戏是否仍存在** ②版本标识，任一不符即弹窗提示并可删除本地存档。
-现状：`web/src/player/playersaves.js:15,20` 已把存档绑定到
-`releaseId / releaseOrdinal / manifestDigest / sourceDigest`，不符时抛 `TypeError`。
-→ 需要补的是**面向玩家的明确提示**（当前为内部错误类型），不是新的版本机制。
+覆盖发布后：旧版本在玩家端不可选；加载存档时校验 ①**游戏是否仍存在** ②版本标识。
+`web/src/player/playersaves.js:15,20` 把存档绑定到
+`releaseId / releaseOrdinal / manifestDigest / sourceDigest`，不符时抛 `TypeError`；不需要新版本机制。
+
+B7（2026-11）已实现面向玩家的结果，两者口径不同：
+
+| 情况 | 判定 | 面向玩家 |
+|---|---|---|
+| 游戏已不存在 | 仅 reader 明确 `410 GAME_DELETED` | 「該遊戲已被刪除，存檔不可用，是否刪除？」→ **确认**才逐槽 `compareDelete`（无法核对的槽保留并按数报告），**取消／右键**保留 |
+| 版本不符 | 既有身份字段比对 | 旧版存档不能载入并**自动清除**（已批准政策，不逐档确认）；无法判定为旧版的行保留且不载入 |
+
+维护源：`web/src/player/playerdeletedgame.js`；接线在 `playerpublic.js`（载入入口）与 `playerrestore.js`（读档选择器）。
+细节与证据见 [R2 接线 §2.73](r2-player-connection.md) 与 `checkpoint-journal.md`「B7」節。

@@ -906,8 +906,9 @@ KYOGRF使用运行资源目录，不能把目录来源冒称官方剧本文件�
 |1E|有序邻接槽2|同上；00.bit2|实锤|
 |1F|有序邻接槽3|同上；00.bit3|实锤|
 
-### 据点 2.1 `+00`所有bit
+Web 写入契约（B4，非新机制）：命名视图（`cities[].faction`）与固定槽 `nativeCityRecordRaw[idx]` 的 `+01` 必须同时写（`gamesource.js#setChapterCityFaction`／`disbandFaction`），只改命名值会在试玩／发布被 `factionNativeConsistencyGaps` 以 `entity-native-mismatch` 拒绝；`+1A` 是原版旧所属，任何编辑路径都不写它。实测 20 章 3840 条城市 `raw[+01] === cities[].faction`（null→18h）且与固定槽表一致，已由 `tools/verify_chapter_attributes.mjs` 锁定。势力槽同名口径（`monarch_idx@1`／`advisor_idx@2`(7Fh)／`capital@3`(FFh)／`diplomat_idx@2A`(FFh)）同测试覆盖。
 
+### 据点 2.1 `+00`所有bit
 |bit|本轮确认的准确意义/边界|
 |---|---|
 |0|有序邻接槽+1C所指据点与本城**所属不同**时的边界位；包括和平异属、中立异属，不等于交战|
