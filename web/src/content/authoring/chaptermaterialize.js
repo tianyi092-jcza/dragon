@@ -33,7 +33,7 @@ function captureStart(start) {
     if (!ERA_LABELS.includes(start.era)) { throw new RangeError('chapter era must be bc|ad'); }
     captured.era = start.era;
   }
-  for (const [key, max] of [['year', 0xffff], ['month', 12], ['day', 31]]) {
+  for (const [key, max] of [['year', 9999], ['month', 12], ['day', 31]]) {
     const value = start[key];
     if (!Number.isInteger(value) || Object.is(value, -0) || value < 1 || value > max) {
       throw new RangeError(`chapter ${key} must be an integer in 1..${max}`);

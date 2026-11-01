@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
-import { addBlankChapter, chapterActiveGaps, createFaction, disbandFaction, setFactionCapital } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, chapterActiveGaps, createFaction, disbandFaction, setChapterCityFaction, setFactionCapital } from '../web/src/content/authoring/gamesource.js';
 import { factionNativeConsistencyGaps } from '../web/src/content/authoring/factionconsistency.js';
 
 const START = { era: 'ad', year: 208, month: 11, day: 1 };
@@ -63,6 +63,8 @@ test('首都：指定後缺口清空，且只改首都欄位與 +03 位元組', 
   // 只有 +03 變化，其餘位元組仍是固定源原值。
   assert.equal(state.nativeFactionSlotRaw[0].slice(0, 6), before.slice(0, 6));
   assert.equal(state.nativeFactionSlotRaw[0].slice(8), before.slice(8));
+  // 首都據點必須屬本勢力（2026-11 用戶裁決），所以先歸屬再要求零缺口。
+  setChapterCityFaction(game, chapterId, 12, 0);
   assert.deepEqual(chapterActiveGaps(state, chapterId), []);
   assert.deepEqual(factionNativeConsistencyGaps(state, chapterId), []);
   // 首都引用越界由現有 writer 拒絕，不新增第二套門檻。
@@ -154,4 +156,23 @@ test('固定副本歷史：add-blank→create-faction→set-capital 可回放，
   error => error.code === 'COPY_PROTECTED_DELTA');
 });
 
-process.stdout.write(`${JSON.stringify({ tests: 5, scope: 'pinned full copy + minimal template only; no HTTP, save, native initialization or runtime grant' })}\n`);
+test('首都必須屬本勢力（2026-11 用戶裁決）：作者章強制、內置章以 _src 豁免', () => {
+  const { game, chapterId, state } = blank();
+  createFaction(game, chapterId, { monarchIdx: 5 });
+  setFactionCapital(game, chapterId, 0, 12);
+  // 據點 #12 仍中立：首都引用可解析，但不屬於本勢力 → 缺口。
+  const foreign = chapterActiveGaps(state, chapterId).filter(gap => /not owned by this faction/.test(gap.message));
+  assert.equal(foreign.length, 1);
+  assert.match(foreign[0].message, /capital 12 is not owned/);
+  // 把該據點歸給本勢力後缺口消失。
+  setChapterCityFaction(game, chapterId, 12, 0);
+  assert.deepEqual(chapterActiveGaps(state, chapterId), []);
+  // 內置章（state._src）不套此規則：原版 8 個內置勢力首都據點 +01 不屬於本勢力。
+  const builtin = structuredClone(baseline), builtinId = builtin.chapterOrder[0];
+  assert.equal(Object.hasOwn(builtin.chapters[builtinId].state, '_src'), true);
+  const tampered = structuredClone(builtin);
+  tampered.chapters[builtinId].state.factions[0].capital = 191;
+  assert.deepEqual(chapterActiveGaps(tampered.chapters[builtinId].state, builtinId).filter(gap => /not owned/.test(gap.message)), []);
+});
+
+process.stdout.write(`${JSON.stringify({ tests: 6, scope: 'pinned full copy + minimal template only; no HTTP, save, native initialization or runtime grant' })}\n`);

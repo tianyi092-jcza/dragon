@@ -1375,7 +1375,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     const values = {};
     for (const [field, text] of Object.entries(staged)) {
       if (field === 'era') { if (!['bc', 'ad'].includes(text)) throw new Error('紀年只能是公元前（bc）或公元后（ad）。'); values.era = text; continue; }
-      const value = Number(text.trim() === '' ? NaN : text), max = field === 'year' ? 65535 : field === 'month' ? 12 : 31;
+      const value = Number(text.trim() === '' ? NaN : text), max = field === 'year' ? 9999 : field === 'month' ? 12 : 31;
       if (!Number.isSafeInteger(value) || Object.is(value, -0) || value < 1 || value > max) throw new Error((field === 'year' ? '年' : field === 'month' ? '月' : '日') + '須為 1 至 ' + max + ' 的整數。');
       values[field] = value;
     }
@@ -1451,7 +1451,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   function chapterCreateRequest() {
     const name = chapterCreateInputs.name.trim().normalize('NFC');
     if (!name) throw new Error('請輸入章節名稱。');
-    const start = { era: chapterCreateInputs.era }, labels = { year: '年', month: '月', day: '日' }, limits = { year: 0xffff, month: 12, day: 31 };
+    const start = { era: chapterCreateInputs.era }, labels = { year: '年', month: '月', day: '日' }, limits = { year: 9999, month: 12, day: 31 };
     for (const key of ['year', 'month', 'day']) {
       const text = chapterCreateInputs[key].trim();
       if (!/^[0-9]{1,5}$/.test(text)) throw new Error(`請以整數輸入開始${labels[key]}。`);

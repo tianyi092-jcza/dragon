@@ -109,6 +109,16 @@ export function chapterActiveGaps(state, chapterId = "?") {
     if (fa?.advisor_idx !== null && fa?.advisor_idx !== undefined && !gidx.has(fa.advisor_idx)) gaps.push({ code: "entity-ref", subject: label, message: `${label} advisor ${fa.advisor_idx} is unknown` });
     if (!cidx.has(fa?.capital)) gaps.push({ code: "entity-ref", subject: label, message: `${label} capital ${fa?.capital} is unknown` });
   }
+  // 首都必須屬本勢力（Web 作者層，2026-11 用戶裁決：「不可能把首都設置在別人據點」）。
+  // 內置章不套：原版有 8 個內置勢力的首都據點 +01 並不屬於該勢力，屬原始內容；
+  // 以 state._src（內置章來源標記，複製章沿用）豁免，不用遊戲身份判別。
+  if (!Object.hasOwn(state ?? {}, "_src")) {
+    const owner = new Map(cities.map(c => [c?.idx, c?.faction ?? null]));
+    for (const [i, fa] of factions.entries()) {
+      if (fa?.capital === null || fa?.capital === undefined) continue;
+      if (owner.get(fa.capital) !== fa.idx) gaps.push({ code: "entity-ref", subject: `chapter ${chapterId} faction[${i}]`, message: `chapter ${chapterId} faction[${i}] capital ${fa.capital} is not owned by this faction` });
+    }
+  }
   gaps.push(...factionNativeConsistencyGaps(state, chapterId));
   return gaps;
 }
@@ -473,10 +483,11 @@ export function renameChapter(game, chapterId, name) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   chapterEntry(game, chapterId);
   // Normalize before applying the existing display-name budget and text
-  // checks. This budget is not an original-engine field limit.
+  // checks. 16 碼點是 2026-11 用戶裁決的章節標題上限（游戲名仍用各自上限），
+  // 不是原版引擎欄位限制。
   if (typeof name !== "string" || !name.trim()) throw new RangeError("chapter name required");
   const normalized = name.trim().normalize("NFC");
-  checkGameName(normalized, 40);
+  checkGameName(normalized, 16);
   game.chapters[chapterId].name = normalized;
 }
 // Stronghold references (§4.2): placement status and reference lists are
@@ -762,7 +773,7 @@ export function setChapterStart(game, chapterId, values) {
       captured.era = value;
       continue;
     }
-    const max = { year: 0xffff, month: 12, day: 31 }[key];
+    const max = { year: 9999, month: 12, day: 31 }[key];
     if (!Number.isInteger(value) || Object.is(value, -0) || value < 1 || value > max) throw new RangeError(`chapter ${key} must be an integer in 1..${max}`);
     captured[key] = value;
   }

@@ -101,7 +101,7 @@ function choose(event, actions, model) {
         <label>月<input id="draft-chapter-create-month" inputmode="numeric" maxlength="2" :value="model.chapterCreate?.month ?? ''" :disabled="busy || model.editLocked || !model.chapterCreate?.ready" @input="actions.setChapterCreateField('month', $event.target.value)"></label>
         <label>日<input id="draft-chapter-create-day" inputmode="numeric" maxlength="2" :value="model.chapterCreate?.day ?? ''" :disabled="busy || model.editLocked || !model.chapterCreate?.ready" @input="actions.setChapterCreateField('day', $event.target.value)"></label>
         <ElButton id="draft-chapter-create-submit" type="primary" native-type="submit" :disabled="busy || model.editLocked || !model.chapterCreate?.ready">新增章節</ElButton>
-        <p>章名 trim／NFC 後最多 40 個碼點；年代只接受整數（年 1～65535、月 1～12、日 1～31）。
+        <p>章名 trim／NFC 後最多 16 個碼點；年代只接受整數（年 1～9999、月 1～12、日 1～31）。
           新增章節會帶入固定源第 1 章同槽據點記錄與 128 個武將槽，所屬勢力為空；地圖與據點基礎資料共用本遊戲，不另建地圖。
           保存成功後清單才出現新章；缺口計數隨下次讀取更新。</p>
       </form>

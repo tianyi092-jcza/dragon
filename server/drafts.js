@@ -44,7 +44,7 @@ function capture(input) {
       if (Object.hasOwn(edit, 'start')) {
         const start = edit.start, startKeys = start && typeof start === 'object' && !Array.isArray(start) ? Object.keys(start) : null;
         if (!startKeys?.length || startKeys.some(key => !['era', 'year', 'month', 'day'].includes(key))) fail(422, 'DRAFT_CHAPTER_EDITS');
-        for (const [key, max] of [['year', 0xffff], ['month', 12], ['day', 31]]) if (!Number.isInteger(start[key]) || Object.is(start[key], -0) || start[key] < 1 || start[key] > max) fail(422, 'DRAFT_CHAPTER_EDITS');
+        for (const [key, max] of [['year', 9999], ['month', 12], ['day', 31]]) if (!Number.isInteger(start[key]) || Object.is(start[key], -0) || start[key] < 1 || start[key] > max) fail(422, 'DRAFT_CHAPTER_EDITS');
         if (start.era !== undefined && !['bc', 'ad'].includes(start.era)) fail(422, 'DRAFT_CHAPTER_EDITS');
       }
     }

@@ -8,6 +8,7 @@ import { readInstalledEditorSource } from './editor_builtin_source.mjs';
 import { CHAPTER_BASE_OUTPUT, readPinnedChapterBase, renderChapterBaseModule } from './build_chapter_base.mjs';
 import { CHAPTER_BASE } from '../web/src/content/authoring/chapterbase.generated.js';
 import { materializeChapterState } from '../web/src/content/authoring/chaptermaterialize.js';
+import { setChapterCityFaction, setFactionCapital } from '../web/src/content/authoring/gamesource.js';
 import { chapterActiveGaps, validateGameSource } from '../web/src/content/authoring/gamesource.js';
 import { compileTrialSource } from '../web/src/content/authoring/trialcompile.js';
 
@@ -83,6 +84,14 @@ const completed = structuredClone(game), done = completed.chapters[chapterId].st
 done.factions = structuredClone(baseState.factions);
 done.nativeFactionSlotRaw = structuredClone(baseState.nativeFactionSlotRaw);
 done.n_factions = baseState.n_factions;
+// 借用的內置勢力仍帶原版「首都據點 +01 不屬本勢力」的 8 個反例；作者章沒有 state._src
+// 豁免，所以必須先把首都據點歸給該勢力，才可能零缺口（2026-11 用戶裁決）。
+assert.ok(chapterActiveGaps(done).some(gap => /not owned by this faction/.test(gap.message)));
+for (const [i, faction] of done.factions.entries()) {
+  // 原版多個勢力共用同一首都據點，逐一改到互斥據點才能同時滿足「屬本勢力」。
+  setFactionCapital(completed, chapterId, faction.idx, i);
+  setChapterCityFaction(completed, chapterId, i, faction.idx);
+}
 assert.deepEqual(chapterActiveGaps(done), []);
 const compiled = compileTrialSource(completed, sha);
 assert.equal(compiled.roadGraph.nodes.length, 192);
@@ -108,7 +117,7 @@ const twice = structuredClone(game);
 assert.throws(() => materializeChapterState(twice, chapterId, { year: 196, month: 4, day: 1 }), /already materialized/);
 const unknown = await template();
 assert.throws(() => materializeChapterState(unknown, 'missing', { year: 196, month: 4, day: 1 }), /unknown chapter/);
-for (const start of [{ year: 196, month: 13, day: 1 }, { year: 196, month: 4, day: 32 }, { year: 0, month: 4, day: 1 },
+for (const start of [{ year: 196, month: 13, day: 1 }, { year: 196, month: 4, day: 32 }, { year: 0, month: 4, day: 1 }, { year: 10000, month: 4, day: 1 },
   { year: 196, month: 4, day: 1, era: 'ce' }, { year: 196.5, month: 4, day: 1 }, { month: 4, day: 1 }]) {
   const candidate = await template();
   assert.throws(() => materializeChapterState(candidate, chapterId, start), RangeError);
