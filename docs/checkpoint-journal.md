@@ -381,3 +381,45 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 - **证据**：`tools/verify_chapter_references.mjs` 8 checks；`tools/verify_publish_ui_model.mjs` 14/14（＋2 個 B8 用例）；`tools/verify_publication_main.mjs` 93 checks（原「遠端中斷即 startup-failed」改判降級啟動；新增歸檔不可達仍啟動＋下次啟動不重傳已完成物件；新增未分類錯誤與舊協議根仍 fail-closed）；`tools/verify_review_backend.mjs`、`verify_editor_shell.mjs` 90 checks、`verify_static_release_package.mjs`、`verify_editor_chapter_people.mjs`、`verify_editor_general_definitions.mjs`、`verify_editor_faction_consistency.mjs` 全綠；`node editor-ui/build.mjs --check`、`node --check`（含 `.txt` 模組以副本檢查）、`git diff --check` 通過；改動 `web/src` 後已重建 `server/public/trialweb.txt|trialapp.txt|playapp.txt`。
 - **本地真機流程**（`node tools/dev_editor.mjs --store .dragon-analysis/b8-dev --port 8443`，全新 store ＋全新 Playwright profile，禁 IDB，腳本在 `/tmp/b8/walk.mjs`）：10 個一級模組逐一可見；`POST /api/admin/source/install`＋`/api/admin/library/install` 200；上架管理「校驗整遊戲」→ 真實後端回 `整遊戲校驗（修訂 1，共 1 章）：全部章節引用完整。`（另有一次 422 `GAME_NAME_OCCUPIED` 的重複新建，屬預期拒絕）。
 - **未做／待辦**：① **作者介面無法製造懸空引用**（`generaldefinitions.js` 拒絕刪除被引用定義；據點 192 鎖且無刪除 op），所以「上架被阻止並列出受影響章」只在 Node／controller 層以受控刪除變體驗證，**不做**可從 UI 觸發的假承諾；② 據點／地圖檔案層的刪除入口仍不存在，等於本檢查目前只能攔「來源漂移／外部導入」造成的缺口；③ 降級啟動下「上架」仍可本地提交（既有語義：本地提交、分發確認、管理員同意是不同事實），未新增發布閘，也未在 UI 標示 `remote=unreachable`；④ R2 恢復後不自動補做本次跳過的歸檔／登記，需下一次啟動；⑤ 既有的 `tools/verify_editor_workbench_browser.mjs` 自 B3 重排選單後即失效（腳本仍期待 `#stage-editor`／`#library-editor`／`#deletion-editor` 與 `#management-editor` 面板，而 `Workbench.vue` 只用 `ReviewPanel` 渲染 `management-editor` 視圖、`ManagementPanel.vue` 已無引用），本批未修；`tools/verify_editor_template_root.mjs` 預設長模式在 HEAD 就有 `ad.generalDefinitions` 期望 `null` 的過期斷言（`copyBuiltinGame` 自帶 `generals:{}`），同屬既有失敗，本批未改。
+
+### 46 S1 现状与依赖（未完成，下批接续）
+
+三项 S1 待做，实测代码位置与**依赖顺序**如下（先 2 再 1）：
+
+1. **template 档案放开 B4 原生写入**
+   `server/copyprofile.js:250` 的 lifetime 白名单：`edit.op === 'rename' || (lifetime.kind === 'copy' && [13 ops].includes(edit.op))`。新建空章（`add-blank`）的 lifetime 只允许 `rename`，其余操作一律 `blocked → 422 COPY_PROTECTED_DELTA`。
+   即便放开，回滚用的 `baseGeneral/baseCity`（`copyprofile.js` 内 `copyBases.get(id) ?? baseChapter(id)`）对空章无原生记录可回滚，因此**必须先有 materialize**。
+2. **materialize（D1＋D2，前置）**
+   **产品缺口（2026-11 实查）**：`web/src/content/authoring/cityrecords.js:13 captureCityDefinitions` 只允许据点定义含 `['cityId','runtimeSlot','x','y','name']`，**没有任何数值字段**；而章节原生记录需要 `max_prod/prod/growth/defence/troops/troops_cap/type/view` 与 `+0x1A` 旧所属（文档明记「绝不能改」）。所以「由地图定义 materialize 192 条记录」目前无合法数值来源，按证据铁律不得自造默认值。可行方案：(a) 扩展据点基础资料加入数值字段（需定默认值与章节覆盖规则）；(b) 从底层 pinned 固定源取原版初态（与 D3 同源，零发明，推荐）；(c) 只能靠「复制整游戏」产出可玩游戏。
+   `web/src/content/authoring/gamesource.js:406 addBlankChapter` 只建 `state:{factions:[],generals:[],cities:[]}`；整套复制靠 `copyChapterInGame` 克隆源章的原生记录，所以新游戏章节没有任何原生记录，是「死壳」。
+   需按 D1 由地图定义生成 192 条章节据点记录、按 D2 把当前游戏武将库全部复制到 128 槽，仍走既有编码器（`editChapterCity`／`editChapterCityNative`／`editChapterResources`），不得自造字节。
+3. **导入源改底层 pinned 固定源（D3）**
+   现为「本游戏固定源记录」，新游戏不存在该记录；应改为与游戏无关的底层 pinned 固定源（`InstalledSourceCatalog` + `EDITOR_INSTALLED_SOURCE_ROOT`），与 §45.2 的启动登记同源。
+
+验证口径（未跑）：模板游戏→新建章→设 开始年代／据点所属／首都／武将所属／职务→保存 200→全章汇总校验通过→试运行可启动；另需与「复制整游戏」路径的 `PASS-COPY-PUBLISH-PARITY` 基线不冲突。
+
+### 47 据点基础属性归游戏级（用户 2026-11 口径）与 S1 进度
+
+- **模型更正**：据点固定属性（位置、`max_prod` 生产力上限、`growth`、`defence`、`troops_cap` 城兵数上限、`type` 类别、`view`）跨章**完全相同**，归游戏级基础资料；章节只给**所属势力**（含中立/首都）+ 初始化引用。`prod`／`troops` 是引擎运行时动态值，**不得写入定义**。此前「各章保留自己数值」的说法已废。
+- 字典：`web/src/game/world.js:81 CITY_TYPES`（0大都市 1中都市 2小都市 3關卡 4戰場 5港都，KI 0x7EDB 查表 0x7df5 实锤）即现成只读字典，编辑器引用即可，无值不猜。
+- 已改：`web/src/content/authoring/cityrecords.js` 增 `CITY_BASE_NUMBERS`（max_prod/growth/defence/troops_cap/type/view）+ `cityBaseNumbers()` 校验（0..65535 safe int，属数据形状守卫，非机制规则）；`citydefinitions.js` 增 `setCityDefinitionNumbers()`，投影按基础值传导；`gamesource.js addBlankChapter` 按 D1 materialize 全部据点引用（`{factionId:null, overrides:{}}`）；`server/copyprofile.js` 新章 lifetime 放开 `start-date/city-faction/set-capital/general-faction/set-diplomat` 五写，且 `baseChapter` 回退到创建时快照作为回滚基准。
+- **未跑通/待修**：`tools/verify_editor_city_definitions.mjs` 现 2 失败（4 中 2 通过）：①`第49测试 line70`「remains denied by existing save profile」——被本次有意放开，需改测试口径；②`第25测试 line30` mutate 循环有某项不再抛错，待定位。另 `verify_copy_publish_parity.mjs` 未重跑。
+
+### 47.1 失败归因（已用 git stash 逐文件二分，2026-11）
+
+- `tools/verify_editor_city_definitions.mjs`「invalid text …」失败：**改动前即存在**（stash 四个改动文件后同样 Missing expected exception，具体是 `g.sourceRef.kind='builtin-copy'` 不再被拒；`generaldefinitions.js:67-68` 本就同时接受 `builtin-template`/`builtin-copy`，测试口径与实现不一致）。属既有红，不是本次引入。
+- 「actual fixed template … remains denied by existing save profile」失败：**本次引入**。只回退 `server/copyprofile.js` 仍失败；回退 `cityrecords.js + citydefinitions.js + gamesource.js` 则通过 → 原因在作者层这三个文件，尚未继续二分到具体文件/行为。该断言涉及「未记录的章节据点配置应被拒」的安全面，定性前不得当作等价放宽。
+
+### 47.2 定案：工作台统一发布（用户 2026-11「即使影响当前游戏也在所不惜」）
+
+- 失败归因结论：`tools/verify_editor_city_definitions.mjs`「remains denied」失败由 **`gamesource.js addBlankChapter` 的 D1 materialize** 引起——`tools/editor_trusted_copy.mjs` 用 `addBlankChapter` 构建模板章，materialize 后基线章自带 192 条中立据点引用（实测 `cityRefs 192`，`cities` 成为章键之一），于是「把某据点设回中立」成为幂等写入而非未记录写入。
+- 按目标形态（工作台统一发布游戏）**修测试口径而非回退代码**：中立重复写入改为必须接受；新增「未记录的据点**删除**仍须 `COPY_PROTECTED_DELTA`」用例保留 fail-closed 覆盖；`sourceRef.kind='builtin-copy'` 是合法状态（`generaldefinitions.js:67` 两种 builtin kind 都接受），移除该过期拒绝用例。
+- 结果：`tools/verify_editor_city_definitions.mjs` **4/4 通过**（此前 2 红，其中 1 红为改动前即存在）；`PASS-COPY-PUBLISH-PARITY` 复跑通过；`build_trial_web_bundle` → `unchanged:true`，238 文件 `4b0517aa…`。
+- 未完成：复制整游戏时「固定属性取第 1 章一次、各章只搬势力」尚未落到 `admincopy` 路径。
+
+### 47.3 据点属性归属按原版证据收紧（模型 C，用户 2026-11 定）
+
+- **证据**：20 章 × 192 据点对照第 1 章，`max_prod`／`type`／`view` **0 差异**；`defence` 1 格（`upper-4` 槽 58：100→0）；`growth` **2189** 格、`troops_cap` **2328** 格逐章不同（`prod`/`troops` 运行时值 2301 格不同，符合预期）。分布：`upper-4` 仅 2 格，`middle-2`～`later-4` 各 140–358 格，即后半剧本按章重算过城兵上限与增长。
+- **决定**：游戏级只保留 `max_prod`／`type`／`view`（＋`name`、`runtimeSlot`、`x`/`y`）；`growth`／`defence`／`troops_cap` 归**章节初始化值**，原样保留，不拉平——用户判读为与 AI／经济引擎逐章取值相关，强改会破坏原游戏行为。
+- **代码**：`cityrecords.js` 的 `CITY_BASE_NUMBERS = ['max_prod','type','view']`，新增 `CITY_CHAPTER_NUMBERS = ['growth','defence','troops_cap']`；`copyBuiltinGame` full 分支从第 1 章原生记录提取游戏级三项，并对后续章同名字段不一致 `RangeError`（新固定源若漂移必须停下核对，而不是静默取第一章）。
+- **验证**：`verify_copy_publish_parity.mjs` 的 `cityDefinitionsAreGameLevel` 断言 3840 格游戏级字段 0 漂移、章节初始化值不得提升到定义层；`PASS-COPY-PUBLISH-PARITY`（terrain／roadCost／roadOffset 逐字节、roadGraph 语义一致）；`verify_editor_city_definitions.mjs` 4/4；Trial 束 238 文件重建（`0c64524a…`）。
