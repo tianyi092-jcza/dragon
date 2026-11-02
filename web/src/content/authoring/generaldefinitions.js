@@ -121,11 +121,23 @@ function captureScope(game) {
     const chapter = plain(game.chapters[chapterId]);
     if (chapter.chapterId !== chapterId || Object.keys(chapter).some(key => !['chapterId', 'sourceChapterId', 'name', 'state', 'people', 'cities'].includes(key)) || ['name', 'sourceChapterId'].some(key => Object.hasOwn(chapter, key) && typeof chapter[key] !== 'string')) throw new RangeError('chapter references are not understood');
     if (!native) {
-      plain(chapter.state, ['factions', 'generals', 'cities']);
-      if (['factions', 'generals', 'cities'].some(key => {
+      // 模板游戏的章節態只能由作者層寫入器產生（2026-11 用戶裁決 (a)）：允許
+      // materialize 後的 192 中性據點／128 空槽，但拒絕只有固定副本才有的原生欄位
+      // （_src、原生勢力表、軍團、外交等），以及殘缺或超量的槽位陣列。
+      plain(chapter.state);
+      const allowed = ['start', 'generals', 'cities', 'factions', 'nativeCityRecordRaw'];
+      if (Object.keys(chapter.state).some(key => !allowed.includes(key))) throw new RangeError('chapter references are not understood');
+      for (const [key, lengths] of Object.entries({ generals: [0, 128], cities: [0, 192], nativeCityRecordRaw: [0, 192] })) {
+        if (!Object.hasOwn(chapter.state, key)) continue;
         const rows = chapter.state[key];
-        return !Array.isArray(rows) || Object.getPrototypeOf(rows) !== Array.prototype || rows.length !== 0 || Reflect.ownKeys(rows).length !== 1;
-      })) throw new RangeError('chapter references are not understood');
+        if (!Array.isArray(rows) || Object.getPrototypeOf(rows) !== Array.prototype || !lengths.includes(rows.length) ||
+            Reflect.ownKeys(rows).length !== rows.length + 1) throw new RangeError('chapter references are not understood');
+      }
+      if (Object.hasOwn(chapter.state, 'factions')) {
+        const rows = chapter.state.factions;
+        if (!Array.isArray(rows) || Object.getPrototypeOf(rows) !== Array.prototype || rows.length > 22 ||
+            Reflect.ownKeys(rows).length !== rows.length + 1) throw new RangeError('chapter references are not understood');
+      }
     }
     captureChapterCities(game, chapter);
     const people = {};

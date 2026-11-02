@@ -57,4 +57,20 @@ assert.throws(() => applyGeneralDefinitionEdit(withFaction, { op: 'delete', gene
 assert.ok(withFaction.generals[id], 'the refusal leaves the library intact');
 groups++;
 
+// ⑤ 模板 profile 也接受 materialize 后的中性章節态（2026-11 用户裁决 (a)），
+// 但只属于完整副本的原生字段仍被拒。
+const id2 = `${G}#general-${'b'.repeat(64)}`;
+const { game: templateGame } = await createPinnedCopyLoader({ kind: 'minimal', readWeb: path => readFileSync(new URL(`../web/${path}`, import.meta.url)) })({ gameId: G, ownerId: 'library-probe' });
+const templateChapter = addBlankChapter(templateGame, { name: '模板章', start: START });
+const templateCreated = applyGeneralDefinitionEdit(templateGame, { op: 'create', generalId: id, values: { name: '模板', hao: '', portraitRef: portrait, ability } });
+assignChapterGeneral(templateCreated, templateChapter, { generalId: id, name: '模板', hao: '', portrait: 1, ability });
+assert.equal(templateCreated.chapters[templateChapter].state.generals[0].generalId, id);
+const templateDeleted = applyGeneralDefinitionEdit(templateCreated, { op: 'delete', generalId: id });
+assert.deepEqual(templateDeleted.generals, {});
+assert.equal(templateDeleted.chapters[templateChapter].state.generals[0].generalId, null);
+const withNativeField = structuredClone(templateCreated);
+withNativeField.chapters[templateChapter].state._src = 'builtin';
+assert.throws(() => applyGeneralDefinitionEdit(withNativeField, { op: 'create', generalId: id2, values: { name: '外來', hao: '', portraitRef: null } }), /not understood/);
+groups++;
+
 process.stdout.write(`${JSON.stringify({ groups, scope: 'pinned fixed copy + in-memory objects only; no HTTP, save, native init or runtime grant' })}\n`);
