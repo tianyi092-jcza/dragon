@@ -19,6 +19,16 @@ test('empty chapter reports locked entity counts without pretending it is playab
   assert.match(report.details.active[0].description, /128/); assert.match(report.details.active[1].description, /192/);
   assert.deepEqual(state, before);
 });
+test('未登场槽是空位：保存门只管已登场槽（2026-11 用户裁决）', () => {
+  const empty = { generals: Array.from({ length: 128 }, (_, idx) => ({ idx })), cities: [], factions: [] };
+  const report = chapterGapReport(empty, 'blank');
+  assert.equal(report.saveGaps, 0);
+  const active = structuredClone(empty);
+  active.generals[7] = { idx: 7, attr: 0x80 };
+  const named = chapterGapReport(active, 'one');
+  assert.equal(named.saveGaps, 2); // 已登场但缺姓名与头像
+  assert.ok(named.details.save.every(row => row.subject.includes('general[7]')));
+});
 test('asset report reuses the existing Trial gate, preserves unknowns and bounds display only', () => {
   const state = { generals: [{ idx: 0, portrait: 255 }, { idx: 127, portrait: 255 }, { portrait: '1' }], cities: [{ idx: 2, view: 999 }], factions: [] };
   const before = structuredClone(state), expected = trialChapterAssetGaps(state);
@@ -33,7 +43,7 @@ test('asset report reuses the existing Trial gate, preserves unknowns and bounds
   assert.deepEqual(chapterGapReport({ generals: [], cities: [], factions: [] }, 'empty').assets, { total: 0, items: [], omitted: 0 });
 });
 test('missing fields and cross-references retain exact validator locations, not source mutation', () => {
-  const state = { generals: [{ idx: 0 }], cities: [{ idx: 0, governor: 9 }], factions: [{ idx: 0, monarch_idx: 9, advisor_idx: 8, capital: 7 }] };
+  const state = { generals: [{ idx: 0, attr: 0x80 }], cities: [{ idx: 0, governor: 9 }], factions: [{ idx: 0, monarch_idx: 9, advisor_idx: 8, capital: 7 }] };
   const before = structuredClone(state), report = chapterGapReport(state, '<img src=x>');
   assert.ok(report.details.save.some(row => /name：必填/.test(row.description)));
   assert.ok(report.details.active.some(row => /太守引用 9/.test(row.description)));
@@ -43,7 +53,7 @@ test('missing fields and cross-references retain exact validator locations, not 
   assert.deepEqual(state, before);
 });
 test('bounded presentation preserves full counts and does not claim omitted diagnostics are absent', () => {
-  const state = { generals: Array.from({ length: 128 }, (_, idx) => ({ idx })), cities: [], factions: [] };
+  const state = { generals: Array.from({ length: 128 }, (_, idx) => ({ idx, attr: 0x80 })), cities: [], factions: [] };
   const report = chapterGapReport(state, 'many');
   assert.equal(report.details.save.length, 100); assert.ok(report.details.omittedSave > 0);
   assert.equal(report.details.active.length, 100); assert.ok(report.details.omittedActive > 0);

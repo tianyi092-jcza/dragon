@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { canonicalSourceTokens, encodeSourceChunks, decodeSourceChunks, CanonicalSourceParser } from '../web/src/content/authoring/sourcejson.js';
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
-import { addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
 import { chapterGapReport } from './chaptergapreport.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionChangeImpact, chapterPeopleProjection, generalLibrarySupported } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit, chapterCitiesProjection, cityDefinitionChangeImpact } from '../web/src/content/authoring/citydefinitions.js';
@@ -65,6 +65,24 @@ function capture(input) {
     else if (edit.op === 'general-faction') { fields(edit, ['op', 'chapterId', 'generalIdx', 'factionId']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || edit.factionId !== null && (!Number.isInteger(edit.factionId) || edit.factionId < 0 || edit.factionId > 255)) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'general-active') { fields(edit, ['op', 'chapterId', 'generalIdx', 'active']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || typeof edit.active !== 'boolean') fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'general-status') { fields(edit, ['op', 'chapterId', 'generalIdx', 'status']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || !Number.isInteger(edit.status) || Object.is(edit.status, -0) || edit.status < 0 || edit.status > 4) fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    // 武将指派／取消出场：身份由 generalId 承载，槽位由写入器取本章最小空槽。
+    else if (edit.op === 'general-assign') {
+      fields(edit, ['op', 'chapterId', 'values']);
+      if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !edit.values || typeof edit.values !== 'object' || Array.isArray(edit.values)) fail(422, 'DRAFT_CHAPTER_EDITS');
+      const keys = Object.keys(edit.values);
+      if (keys.some(k => !['generalId', 'name', 'hao', 'portrait', 'ability'].includes(k))) fail(422, 'DRAFT_CHAPTER_EDITS');
+      const { generalId, name, hao, portrait, ability } = edit.values;
+      if (typeof generalId !== 'string' || !generalId.length || generalId.length > 128) fail(422, 'DRAFT_CHAPTER_EDITS');
+      if (typeof name !== 'string' || !name.trim() || name.length > 64) fail(422, 'DRAFT_CHAPTER_EDITS');
+      if (hao !== undefined && (typeof hao !== 'string' || hao.length > 64)) fail(422, 'DRAFT_CHAPTER_EDITS');
+      if (!Number.isInteger(portrait) || Object.is(portrait, -0) || portrait < 0 || portrait > 255) fail(422, 'DRAFT_CHAPTER_EDITS');
+      if (ability !== undefined) {
+        if (!ability || typeof ability !== 'object' || Array.isArray(ability)) fail(422, 'DRAFT_CHAPTER_EDITS');
+        const abilityKeys = ['siege', 'field', 'naval', 'force', 'lead', 'politics'];
+        if (Object.keys(ability).length !== abilityKeys.length || abilityKeys.some(k => !Number.isInteger(ability[k]) || Object.is(ability[k], -0) || ability[k] < 0 || ability[k] > 255)) fail(422, 'DRAFT_CHAPTER_EDITS');
+      }
+    }
+    else if (edit.op === 'general-clear') { fields(edit, ['op', 'chapterId', 'generalId']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || typeof edit.generalId !== 'string' || !edit.generalId.length || edit.generalId.length > 128) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'set-diplomat') { fields(edit, ['op', 'chapterId', 'factionIdx', 'generalIdx']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21 || (edit.generalIdx !== null && (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127))) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else fail(422, 'DRAFT_CHAPTER_EDITS');
   }
@@ -594,6 +612,8 @@ export class PrivateDrafts {
           else if (edit.op === 'general-faction') setChapterGeneralFaction(candidate, edit.chapterId, edit.generalIdx, edit.factionId);
           else if (edit.op === 'general-active') setGeneralActive(candidate, edit.chapterId, edit.generalIdx, edit.active);
           else if (edit.op === 'general-status') setGeneralStatus(candidate, edit.chapterId, edit.generalIdx, edit.status);
+          else if (edit.op === 'general-assign') assignChapterGeneral(candidate, edit.chapterId, edit.values);
+          else if (edit.op === 'general-clear') clearChapterGeneral(candidate, edit.chapterId, edit.generalId);
           else if (edit.op === 'set-diplomat') setFactionDiplomat(candidate, edit.chapterId, edit.factionIdx, edit.generalIdx);
           else disbandFaction(candidate, edit.chapterId, edit.factionIdx);
         } catch { fail(422, 'DRAFT_CHAPTER_EDIT'); }

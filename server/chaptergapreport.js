@@ -25,6 +25,11 @@ function describe(gap) {
   if (nativeView) description = `原生勢力視圖位置 ${nativeView[2]} 卻指向槽 ${nativeView[1]}；固定槽映射未閉合，不自動重排。`;
   const nativeMismatch = /^faction slot (\d+) ([a-z_]+) differs from native source; initialization edit unsupported$/.exec(rest);
   if (nativeMismatch) description = `勢力槽 ${nativeMismatch[1]} 的 ${nativeMismatch[2]} 與固定原生來源不一致；任免／初始化編輯尚未閉合，不能試運行或發布。`;
+  // 2026-11 用户裁决：作者章首都必须属本势力，且一个据点只能被一个势力当首都。
+  const capitalOwner = /^ capital (\d+) is not owned by this faction$/.exec(rest);
+  if (capitalOwner) description = `首都 ${capitalOwner[1]} 不屬於本勢力；作者章要求首都必須是本勢力據點（內置章以原始內容豁免）。`;
+  const capitalShared = /^ capital (\d+) is already the capital of faction\[(\d+)\]$/.exec(rest);
+  if (capitalShared) description = `首都 ${capitalShared[1]} 已被勢力 ${capitalShared[2]} 佔用；一個據點只能被一個勢力當首都。`;
   const reference = /^ (governor|monarch|advisor|capital) (.+) is unknown$/.exec(rest);
   if (reference) description = `${({ governor: '太守', monarch: '君主', advisor: '軍師', capital: '首都' })[reference[1]]}引用 ${reference[2]} 未命中本章實體。`;
   return { code: gap.code, subject: gap.subject, description: description ?? '尚未識別的校驗診斷；請保留代碼與位置供核查。', recognized: description !== undefined };

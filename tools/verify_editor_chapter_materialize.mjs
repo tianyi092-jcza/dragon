@@ -21,7 +21,7 @@ const readWord = (raw, offset) => readByte(raw, offset) + readByte(raw, offset +
 assert.equal(readFileSync(CHAPTER_BASE_OUTPUT, 'utf8'), renderChapterBaseModule(readPinnedChapterBase()));
 assert.equal(CHAPTER_BASE.revision, readPinnedChapterBase().revision);
 assert.equal(CHAPTER_BASE.cities.length, 192);
-assert.equal(CHAPTER_BASE.generals.length, 128); groups++;
+assert.equal(Object.hasOwn(CHAPTER_BASE, 'generals'), false); groups++;
 
 // ② 空白模板：materialize 後形狀與位元組。
 const template = async () => (await createPinnedCopyLoader({ kind: 'minimal' })({ gameId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', ownerId: 'materialize-probe' })).game;
@@ -57,19 +57,22 @@ for (const [slot, city] of state.cities.entries()) {
   assert.equal(city.y, readWord(city.raw, 0x0a));
   assert.equal(city.name, CHAPTER_BASE.cities[slot][0]);
 }
+// 128 槽是空位，不是身份：不帶姓名／頭像／能力，也沒有 generalId。
 for (const [slot, general] of state.generals.entries()) {
-  const base = CHAPTER_BASE.generals[slot];
   assert.equal(general.idx, slot);
-  assert.equal(general.attr, base.attr & 0x7f);
+  assert.equal(general.generalId, null);
+  assert.equal(general.attr, 0);
   assert.equal(general.active, false);
-  assert.equal(general.is_monarch, (base.attr & 0x40) !== 0);
+  assert.equal(general.is_monarch, false);
   assert.equal(general.status, 0);
   assert.equal(general.captive_flag, 0xff);
   assert.equal(general.appear_months, 0);
   assert.equal(general.join_faction, null);
   assert.equal(general.faction, null);
-  assert.deepEqual(general.ability, base.ability);
-  assert.equal(general.name, base.name);
+  assert.equal(general.name, '');
+  assert.equal(general.hao, '');
+  assert.equal(general.portrait, 0);
+  assert.deepEqual(general.ability, { siege: 0, field: 0, naval: 0, force: 0, lead: 0, politics: 0 });
 } groups++;
 
 // ③ 保存／active 門：空白章只欠「至少一個勢力」，其餘欄位全部齊備。

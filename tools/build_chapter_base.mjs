@@ -9,12 +9,8 @@ import { readInstalledEditorSource } from './editor_builtin_source.mjs';
 
 export const CHAPTER_BASE_OUTPUT = fileURLToPath(new URL('../web/src/content/authoring/chapterbase.generated.js', import.meta.url));
 
-// Only the fields a blank chapter's slot skeleton keeps. attr survives because
-// the materializer clears bit7 (登場) on it; the appearance/faction fields are
-// neutralized there, not copied.
-const GENERAL_FIELDS = Object.freeze(['idx', 'attr', 'portrait', 'name', 'hao', 'ability',
-  'battle_rating', 'assignment_budget', 'battle_formation', 'talk_idx', 'specialty_low_bits']);
-
+// 武將槽不再是身份（2026-11 用戶裁決）：空白章的 128 槽由 emptyGeneralSlot 產生，
+// 所以基座不再保存固定源的武將骨架欄位。
 // City slots keep the whole 32-byte record verbatim (unknown bytes must never be
 // invented) plus the display name, which is not inside the record.
 // Faction slots keep the 22 fixed 64-byte records verbatim for the same reason:
@@ -35,13 +31,7 @@ export function buildChapterBase(source) {
     if (typeof city.raw !== 'string' || !/^[0-9a-f]{64}$/.test(city.raw)) throw new RangeError(`city slot ${slot} needs a 32-byte record`);
     return [city.name, city.raw];
   });
-  const generals = chapter.state.generals.map((general, slot) => {
-    if (general.idx !== slot) throw new RangeError(`general slot order: ${general.idx}`);
-    const record = {};
-    for (const field of GENERAL_FIELDS) record[field] = general[field];
-    return record;
-  });
-  return { revision: source.revision, chapterId: chapter.id, cities, generals, factionSlots };
+  return { revision: source.revision, chapterId: chapter.id, cities, factionSlots };
 }
 
 export function renderChapterBaseModule(base) {

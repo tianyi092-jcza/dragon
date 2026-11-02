@@ -50,18 +50,16 @@ function cityConstant(definition, name, max) {
   if (!Number.isInteger(value) || value < 0 || value > max) { throw new RangeError(`city ${name} is out of range`); }
   return value;
 }
-// 128 槽骨架：固定源第 1 章記錄，清 attr bit7（登場）並把出場／所屬欄位歸零，
-// 使槽位在作者勾選落地前完全惰性。attr 其餘位元組原樣保留，不擅自重算。
-function generalSkeleton(record, slot) {
-  const attr = record.attr & 0x7f;
-  return { idx: slot, attr, portrait: record.portrait, name: record.name, hao: record.hao,
-    ability: { ...record.ability }, battle_rating: record.battle_rating,
-    assignment_budget: record.assignment_budget, battle_formation: record.battle_formation,
-    status: 0, talk_idx: record.talk_idx, captive_flag: 0xff, appear_months: 0,
-    join_faction: null, faction: null, active: false, is_monarch: (attr & 0x40) !== 0,
-    specialty_low_bits: record.specialty_low_bits };
+// 空槽（Web 作者層）：槽位只是原生 128 條表的編碼位，不是身份。未登場槽不帶
+// 姓名／頭像／能力，避免偽造身份；數值取 0 以滿足既有欄位域校驗。
+const EMPTY_ABILITY = Object.freeze({ siege: 0, field: 0, naval: 0, force: 0, lead: 0, politics: 0 });
+export function emptyGeneralSlot(idx) {
+  if (!Number.isInteger(idx) || Object.is(idx, -0) || idx < 0 || idx > 127) throw new RangeError("general slot 0..127 required");
+  return { idx, generalId: null, attr: 0, portrait: 0, name: "", hao: "", ability: { ...EMPTY_ABILITY },
+    battle_rating: 0, assignment_budget: 0, battle_formation: 0, status: 0, talk_idx: 0,
+    captive_flag: 0xff, appear_months: 0, join_faction: null, faction: null, active: false,
+    is_monarch: false, specialty_low_bits: "000" };
 }
-
 export function materializeChapterState(game, chapterId, start) {
   if (!isPlainObject(game) || !isPlainObject(game.chapters)) { throw new TypeError('game source required'); }
   const chapter = game.chapters[chapterId];
@@ -92,7 +90,8 @@ export function materializeChapterState(game, chapterId, start) {
       x: readWord(raw, FIELD_BYTES.x[0]), y: readWord(raw, FIELD_BYTES.y[0]), raw };
   });
   state.start = captured;
-  state.generals = CHAPTER_BASE.generals.map(generalSkeleton);
+  // 128 槽是空位（不是身份）：空白章不伪造 128 个武將，身份由 generalId 承载。
+  state.generals = Array.from({ length: 128 }, (_, slot) => emptyGeneralSlot(slot));
   state.factions = [];
   state.cities = cities;
   // fresh 的城記錄輸入（P37）就是同一批位元組，兩者必須逐槽一致。

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
-import { addBlankChapter, chapterActiveGaps, createFaction, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setMonarch } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, assignChapterGeneral, chapterActiveGaps, createFaction, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setMonarch } from '../web/src/content/authoring/gamesource.js';
 import { CHAPTER_BASE } from '../web/src/content/authoring/chapterbase.generated.js';
 
 const START = { era: 'ad', year: 208, month: 11, day: 1 };
@@ -20,13 +20,18 @@ const blank = (name = '武將測試') => {
   return { game, chapterId, state: game.chapters[chapterId].state };
 };
 
+// 空槽不是身份：測試需要真實武將時先指派（佔最小空槽，序號即 0..count-1）。
+const seed = (game, chapterId, count) => {
+  for (let n = 0; n < count; n += 1) assignChapterGeneral(game, chapterId, { generalId: `seed-${n}`, name: `武將${n}`, hao: `字${n}`, portrait: n });
+};
+
 test('登場旗標：bit7 與 active 同步，attr 其餘位元組原樣保留', () => {
   const { game, chapterId, state } = blank();
-  // materialize 出來的 128 槽一律未登場，且 attr 只清 bit7。
+  // materialize 出來的 128 槽一律是空位（attr 0），不是身份。
   for (const [slot, general] of state.generals.entries()) {
-    assert.equal(general.attr & 0x80, 0, `slot ${slot} must start undebuted`);
+    assert.equal(general.attr, 0, `slot ${slot} must start empty`);
     assert.equal(general.active, false);
-    assert.equal(general.attr, CHAPTER_BASE.generals[slot].attr & 0x7f);
+    assert.equal(general.generalId, null);
   }
   const before = state.generals[3].attr;
   setGeneralActive(game, chapterId, 3, true);
@@ -37,7 +42,7 @@ test('登場旗標：bit7 與 active 同步，attr 其餘位元組原樣保留',
   assert.equal(state.generals[3].attr, before);
   assert.equal(state.generals[3].active, false);
   // 只動目標槽：相鄰槽與其它章節欄位不受影響。
-  assert.equal(state.generals[4].attr, CHAPTER_BASE.generals[4].attr & 0x7f);
+  assert.equal(state.generals[4].attr, 0);
   assert.throws(() => setGeneralActive(game, chapterId, 3, 1), TypeError);
   assert.throws(() => setGeneralActive(game, chapterId, 3, null), TypeError);
 });
@@ -61,6 +66,7 @@ test('身份 G+17：0–4 可寫，越界、非整數、保留槽一律拒絕', 
 
 test('所屬勢力：未定義勢力、任職中武將被拒；本章已定義勢力與自由可寫', () => {
   const { game, chapterId, state } = blank();
+  seed(game, chapterId, 13);
   assert.throws(() => setChapterGeneralFaction(game, chapterId, 11, 0), RangeError);
   setGeneralActive(game, chapterId, 11, true);
   createFaction(game, chapterId, { monarchIdx: 5 });
@@ -76,6 +82,7 @@ test('所屬勢力：未定義勢力、任職中武將被拒；本章已定義�
 
 test('缺口面：登場與身份不是新門檻，只保留既有 chapter-factions', () => {
   const { game, chapterId, state } = blank();
+  seed(game, chapterId, 1);
   setGeneralActive(game, chapterId, 0, true);
   setGeneralStatus(game, chapterId, 0, 4);
   assert.deepEqual(chapterActiveGaps(state, chapterId).map(gap => gap.code), ['chapter-factions']);
@@ -88,6 +95,11 @@ test('固定副本與模板歷史：登場／身份可回放，篡改與未知 o
   const candidate = structuredClone(baseline);
   const edits = [{ op: 'add-blank', name: '回放武將', start: START }];
   const chapterId = addBlankChapter(candidate, { name: '回放武將', start: START });
+  for (let n = 0; n < 7; n += 1) {
+    const values = { generalId: `seed-${n}`, name: `武將${n}`, hao: `字${n}`, portrait: n };
+    edits.push({ op: 'general-assign', chapterId, values });
+    assignChapterGeneral(candidate, chapterId, values);
+  }
   edits.push({ op: 'general-active', chapterId, generalIdx: 4, active: true });
   setGeneralActive(candidate, chapterId, 4, true);
   edits.push({ op: 'general-status', chapterId, generalIdx: 4, status: 2 });

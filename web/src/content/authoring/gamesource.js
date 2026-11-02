@@ -10,7 +10,7 @@
 import { validateMapSource } from "./mapcompile.js";
 import { deriveSlots } from "./roadedit.js";
 import { captureChapterCities } from "./cityrecords.js";
-import { materializeChapterState } from "./chaptermaterialize.js";
+import { emptyGeneralSlot, materializeChapterState } from "./chaptermaterialize.js";
 import { CHAPTER_BASE } from "./chapterbase.generated.js";
 import { decodeFactionSlot } from "../../game/nativefactions.js";
 import { CITY_BASE_NUMBERS } from "./cityrecords.js";
@@ -40,6 +40,9 @@ export function chapterSaveGaps(state, chapterId = "?") {
   const gaps = [];
   for (const [i, g] of (state?.generals ?? []).entries()) {
     const label = `chapter ${chapterId} general[${i}]`;
+    // 未登場槽是空位，不是身份（2026-11 用戶裁決）：只有已登場槽必須有姓名／頭像。
+    // 登場旗標以原生 attr bit7 為準，作者層 active 由同一寫入器同步。
+    if (((g?.attr ?? 0) & 0x80) === 0) continue;
     if (typeof g?.name !== "string" || !g.name.trim()) gaps.push({ code: "entity-save", subject: label, message: `${label}.name is required` });
     if (!Number.isInteger(g?.portrait)) gaps.push({ code: "entity-save", subject: label, message: `${label}.portrait is required` });
     // Optional imported G0E/G0F/G10 low nibbles; never infer zero for old sources.
@@ -803,6 +806,44 @@ export function setFactionCapital(game, chapterId, factionIdx, cityIdx) {
 // 登場旗標是原版 G+00 attr 的 bit7（chapter-and-base-resources §2，实锤）；
 // `active` 只是同一事實的作者層視圖。兩者必須同步，否則會出現「宣告登場但原生
 // 位元組沒登場」的雙來源；attr 其餘位元保留原值（含 bit6 君主），不重算。
+// 指派一名武将到本章：身份由 generalId（游戏级武将库）承载，槽位取本章最小空槽。
+// 128 是原生表上限；G127 保留（generalByIdx 同样拒绝），故可用槽为 0..126。
+// 取消出场只清空该槽并留洞，不重排其它武将（2026-11 用戶裁決）。
+export function assignChapterGeneral(game, chapterId, values) {
+  if (!isPlainObject(values)) throw new TypeError("general values required");
+  const keys = Object.keys(values);
+  if (!keys.length || keys.some(key => !["generalId", "name", "hao", "portrait", "ability"].includes(key))) throw new RangeError("chapter general allows generalId/name/hao/portrait/ability only");
+  if (typeof values.generalId !== "string" || !values.generalId) throw new RangeError("general identity required");
+  if (typeof values.name !== "string" || !values.name.trim()) throw new RangeError("general name required");
+  if (!Number.isInteger(values.portrait) || Object.is(values.portrait, -0) || values.portrait < 0 || values.portrait > 255) throw new RangeError("general portrait 0..255 required");
+  const state = chapterState(game, chapterId), generals = state.generals ?? [];
+  if (generals.some(g => g?.generalId === values.generalId)) throw new RangeError("general is already assigned to this chapter");
+  const slot = generals.find(g => g?.generalId === null || g?.generalId === undefined);
+  if (!slot) throw new RangeError("chapter general slots are full (128)");
+  if (slot.idx > 126) throw new RangeError("reserved general slot 127 is not assignable");
+  const record = { ...emptyGeneralSlot(slot.idx), generalId: values.generalId, name: values.name.trim(), hao: values.hao ?? "", portrait: values.portrait };
+  if (values.ability !== undefined) {
+    if (!isPlainObject(values.ability)) throw new TypeError("general ability required");
+    for (const [field, max] of Object.entries(ABILITY_LIMITS)) {
+      const value = values.ability[field];
+      if (!Number.isInteger(value) || value < 0 || value > max) throw new RangeError(`general ability.${field} must be an integer in 0..${max}`);
+    }
+    record.ability = { ...values.ability };
+  }
+  record.attr = 0x80;
+  record.active = true;
+  generals[slot.idx] = record;
+  return { slot: slot.idx };
+}
+// 取消本章出场：只清空该槽（留洞），不动其它武将，也不改游戏级武将库。
+export function clearChapterGeneral(game, chapterId, generalId) {
+  const state = chapterState(game, chapterId), generals = state.generals ?? [];
+  const slot = generals.find(g => g?.generalId === generalId);
+  if (!slot) throw new RangeError(`unknown chapter general: ${generalId}`);
+  if (postsHeld(game, chapterId, slot.idx).length) throw new RangeError("general holds a chapter post; clear it first");
+  generals[slot.idx] = emptyGeneralSlot(slot.idx);
+  return { slot: slot.idx };
+}
 export function setGeneralActive(game, chapterId, generalIdx, active) {
   if (typeof active !== "boolean") throw new TypeError("general active flag must be boolean");
   const general = generalByIdx(game, chapterId, generalIdx);
@@ -878,6 +919,8 @@ export function createFaction(game, chapterId, options) {
   const state = chapterState(game, chapterId), { factions } = chapterFactions(game, chapterId);
   if (factions.length >= FACTION_SLOT_LIMIT) throw new RangeError("chapter faction slots are full");
   const monarch = generalByIdx(game, chapterId, options.monarchIdx);
+  // 君主必须是本章已指派的武将：槽位本身不是身份（2026-11 用戶裁決）。
+  if (!monarch.generalId) throw new RangeError("lord must be an assigned chapter general");
   // 与 setMonarch 同一资格口径：君主必须自由且无任何任职。
   if (monarch.faction !== null) throw new RangeError("lord must be a free general");
   if (postsHeld(game, chapterId, options.monarchIdx).length) throw new RangeError("lord must hold no post");

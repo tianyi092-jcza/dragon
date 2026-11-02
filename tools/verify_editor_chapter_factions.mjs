@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
-import { addBlankChapter, chapterActiveGaps, createFaction, disbandFaction, setChapterCityFaction, setFactionCapital, setFactionDiplomat, setMonarch, setStrategist } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, assignChapterGeneral, chapterActiveGaps, createFaction, disbandFaction, setChapterCityFaction, setFactionCapital, setFactionDiplomat, setMonarch, setStrategist } from '../web/src/content/authoring/gamesource.js';
 import { factionNativeConsistencyGaps } from '../web/src/content/authoring/factionconsistency.js';
 
 const START = { era: 'ad', year: 208, month: 11, day: 1 };
@@ -16,6 +16,10 @@ const templateProfile = new FixedCopyProfile({ loadCopy: loader('minimal'), prof
 const captured = await copyProfile.capture(context), baseline = captured.game;
 const template = await templateProfile.capture(context);
 const readByte = (raw, offset) => Number.parseInt(raw.slice(offset * 2, offset * 2 + 2), 16);
+// 空槽不是身份：先指派武将，槽号即指派顺序 0..count-1。
+const seed = (game, chapterId, count) => {
+  for (let n = 0; n < count; n += 1) assignChapterGeneral(game, chapterId, { generalId: `seed-${n}`, name: `武將${n}`, hao: `字${n}`, portrait: n });
+};
 const blank = (name = '勢力測試') => {
   const game = structuredClone(baseline), chapterId = addBlankChapter(game, { name, start: START });
   return { game, chapterId, state: game.chapters[chapterId].state };
@@ -23,6 +27,7 @@ const blank = (name = '勢力測試') => {
 
 test('建勢力：君主入列、空內政官／外交官／首都、原生槽位元組與派生計數', () => {
   const { game, chapterId, state } = blank();
+  seed(game, chapterId, 8);
   assert.deepEqual(state.factions, []);
   assert.equal(Object.hasOwn(state, 'nativeFactionSlotRaw'), false);
   assert.deepEqual(createFaction(game, chapterId, { monarchIdx: 5 }), { factionIdx: 0 });
@@ -55,6 +60,7 @@ test('建勢力：君主入列、空內政官／外交官／首都、原生槽�
 
 test('首都：指定後缺口清空，且只改首都欄位與 +03 位元組', () => {
   const { game, chapterId, state } = blank();
+  seed(game, chapterId, 4);
   createFaction(game, chapterId, { monarchIdx: 3 });
   const before = state.nativeFactionSlotRaw[0];
   setFactionCapital(game, chapterId, 0, 12);
@@ -74,6 +80,7 @@ test('首都：指定後缺口清空，且只改首都欄位與 +03 位元組', 
 
 test('拒絕面：君主非自由／持職／G127／未知槽、多餘欄位、22 槽上限', () => {
   const { game, chapterId, state } = blank();
+  seed(game, chapterId, 27);
   createFaction(game, chapterId, { monarchIdx: 5 });
   assert.throws(() => createFaction(game, chapterId, { monarchIdx: 5 }), /free general/);
   assert.throws(() => createFaction(game, chapterId, { monarchIdx: 127 }), /ordinary general slot 0\.\.126/);
@@ -95,6 +102,7 @@ test('拒絕面：君主非自由／持職／G127／未知槽、多餘欄位、2
 
 test('原生一致性：欄位或位元組任一方向改動都被指出，不自動修復', () => {
   const { game, chapterId, state } = blank();
+  seed(game, chapterId, 10);
   createFaction(game, chapterId, { monarchIdx: 9 });
   setFactionCapital(game, chapterId, 0, 4);
   const view = structuredClone(state);
@@ -115,6 +123,11 @@ test('固定副本歷史：add-blank→create-faction→set-capital 可回放，
   const candidate = structuredClone(baseline);
   const edits = [{ op: 'add-blank', name: '回放勢力', start: START }];
   const chapterId = addBlankChapter(candidate, { name: '回放勢力', start: START });
+  for (let n = 0; n < 8; n += 1) {
+    const values = { generalId: `seed-${n}`, name: `武將${n}`, hao: `字${n}`, portrait: n };
+    edits.push({ op: 'general-assign', chapterId, values });
+    assignChapterGeneral(candidate, chapterId, values);
+  }
   edits.push({ op: 'create-faction', chapterId, monarchIdx: 7 });
   createFaction(candidate, chapterId, { monarchIdx: 7 });
   edits.push({ op: 'set-capital', chapterId, factionIdx: 0, cityIdx: 12 });
@@ -141,13 +154,20 @@ test('固定副本歷史：add-blank→create-faction→set-capital 可回放，
   // 两个 profile 走同一套 writer；未知 op 仍 fail-closed。
   const templateCandidate = structuredClone(template.game);
   const templateId = addBlankChapter(templateCandidate, { name: '模板勢力', start: START });
+  const templateEdits = [{ op: 'add-blank', name: '模板勢力', start: START }];
+  for (let n = 0; n < 8; n += 1) {
+    const values = { generalId: `seed-${n}`, name: `武將${n}`, hao: `字${n}`, portrait: n };
+    templateEdits.push({ op: 'general-assign', chapterId: templateId, values });
+    assignChapterGeneral(templateCandidate, templateId, values);
+  }
   createFaction(templateCandidate, templateId, { monarchIdx: 7 });
   setFactionCapital(templateCandidate, templateId, 0, 3);
   assert.equal(typeof templateProfile.verify(template.capability, templateCandidate,
-    [{ op: 'add-blank', name: '模板勢力', start: START }, { op: 'create-faction', chapterId: templateId, monarchIdx: 7 },
+    [...templateEdits, { op: 'create-faction', chapterId: templateId, monarchIdx: 7 },
       { op: 'set-capital', chapterId: templateId, factionIdx: 0, cityIdx: 3 }]).sourceDigest, 'string');
   const unopened = structuredClone(template.game);
   const unopenedId = addBlankChapter(unopened, { name: '模板勢力', start: START });
+  for (let n = 0; n < 8; n += 1) assignChapterGeneral(unopened, unopenedId, { generalId: `seed-${n}`, name: `武將${n}`, hao: `字${n}`, portrait: n });
   createFaction(unopened, unopenedId, { monarchIdx: 7 });
   disbandFaction(unopened, unopenedId, 0);
   assert.throws(() => templateProfile.verify(template.capability, unopened,
@@ -158,6 +178,7 @@ test('固定副本歷史：add-blank→create-faction→set-capital 可回放，
 
 test('首都必須屬本勢力（2026-11 用戶裁決）：作者章強制、內置章以 _src 豁免', () => {
   const { game, chapterId, state } = blank();
+  seed(game, chapterId, 27);
   createFaction(game, chapterId, { monarchIdx: 5 });
   setFactionCapital(game, chapterId, 0, 12);
   // 據點 #12 仍中立：首都引用可解析，但不屬於本勢力 → 缺口。
@@ -169,6 +190,7 @@ test('首都必須屬本勢力（2026-11 用戶裁決）：作者章強制、內
   assert.deepEqual(chapterActiveGaps(state, chapterId), []);
   // 一個據點只能被一個勢力當首都（同批用戶裁決，不共用）：兩個作者勢力宣告同一首都 → 缺口。
   const shared = blank();
+  seed(shared.game, shared.chapterId, 8);
   createFaction(shared.game, shared.chapterId, { monarchIdx: 5 });
   createFaction(shared.game, shared.chapterId, { monarchIdx: 6 });
   setChapterCityFaction(shared.game, shared.chapterId, 12, 1);
