@@ -22,12 +22,12 @@
 
 | 项 | 状态 |
 |---|---|
-| 仓库 | `E:/Dragon/web-port`；第 1–7 步写入器已落地（`451a211`／`bb283dc`／`b2f9d84`／`ba1f190`／`239f7d3`／`8bd82c0`／`b46ed75`／`0ecae2c`／`6369131`／`dc7e4b7`／`18b8af8`／`6b19b53`＋本批第 7 步内政官） |
-| 工作树 | 应保持干净；本计划只记录范围/批次状态 |
-| 已 PASS 的验证 | `verify_copy_publish_parity.mjs`（复制→上架→编译产物等价）、`verify_editor_city_definitions.mjs` 4/4、`verify_editor_game_quota.mjs`、`verify_pinned_source_registration.mjs`、`verify_editor_chapter_materialize.mjs`（7 组）、`verify_editor_chapter_create.mjs`（4 组）、`verify_editor_chapter_factions.mjs`（5 组：建势力／首都门／拒绝面／原生 17 欄一致／固定副本回放与篡改）、`verify_editor_copy_profile.mjs`、`verify_editor_template_profile.mjs`、`verify_editor_people_history.mjs`、`verify_editor_chapter_city_history.mjs`、`verify_editor_draft_controller.mjs` |
+| 仓库 | `E:/Dragon/web-port`，HEAD `1a2369d`（docs）／`fa0261a`（第 7 步内政官代码）。**第 1–7 步全部落地**：`451a211` 修绿 chapter_city_history、`bb283dc` materialize、`b2f9d84` 新增章節、`ba1f190` 势力=君主+必填首都、`239f7d3` 武将章节属性、`8bd82c0` 职务回退先验后还原+首都唯一性、`b46ed75` 首都须属本势力+年份4位+标题16码点、`0ecae2c` 槽位降级为编码位、`6369131` 武将库承担身份与能力基准、`dc7e4b7`+`18b8af8`+`6b19b53` 模板章節态放宽与测试口径、`fa0261a` 内政官（太守）开放 |
+| 工作树 | **干净（`1a2369d` 之后无未提交改动）**；本计划只记录范围/批次状态 |
+| 已 PASS 的验证 | `verify_copy_publish_parity.mjs`（复制→上架→编译产物等价）、`verify_editor_city_definitions.mjs` 4/4、`verify_editor_game_quota.mjs`、`verify_pinned_source_registration.mjs`、`verify_editor_chapter_materialize.mjs`（7 组）、`verify_editor_chapter_create.mjs`（4 组）、`verify_editor_chapter_factions.mjs`（5 组：建势力／首都门／拒绝面／原生 17 欄一致／固定副本回放与篡改）、`verify_editor_copy_profile.mjs`、`verify_editor_template_profile.mjs`、`verify_editor_people_history.mjs`、`verify_editor_chapter_city_history.mjs`、`verify_editor_draft_controller.mjs`、**`verify_editor_chapter_officers.mjs`（4/4，第 7 步新增）**、**`verify_chapter_attributes.mjs`（4/4，本批修绿）**、`verify_editor_chapter_generals`／`verify_editor_chapter_materialize`／`verify_editor_chapter_people`／`verify_editor_faction_consistency`／`verify_editor_template_profile`／`verify_editor_chapter_gap_reports`／`verify_chapter_references`／`verify_editor_general_library`／`verify_editor_chapter_cities`（5/5） |
 | **已知红门（非本计划引入，未修）** | ① ~~`verify_editor_chapter_cities.mjs`「`builtin-copy` 应拒绝」~~ → 已按 §47.2 裁决改口径，**5/5 通过**；④ `verify_editor_shell.mjs` 的 `disband-order`：`revertDisband` 内既有 `factions.splice(factions.findIndex(...))` 命中「不得出现 findIndex」规则（HEAD 即红，需重新界定检查目标片段）；② `verify_editor_authoring_context.mjs`：`installPublish` 未导出 `selectedGame`；③ `verify_editor_workbench_browser.mjs`：登录改密后 `#management-editor` 不可见（未走到章節段） |
 | 模板游戏形状 | `kind:'minimal'` 基线的空白章是**空壳**：`state.cities` 0 条、`state.factions` 0、`state.generals` 0、`state.start` 不存在；但 `chapters[cid].cities` 已有 192 条中立引用（D1） |
-| 五写在策略层 | `replayTemplateHistory` 已接受 `create-faction`／`set-monarch`／`set-capital`；`start-date`／`city-faction`／`general-faction`／`set-diplomat` 仍只对「本章新建的空白章」开放（`BLANK_CHAPTER_WRITES`），模板持久历史侧尚未放开——第 5、6 步按需对齐 |
+| 五写在策略层 | `replayTemplateHistory` 已接受 `create-faction`／`set-monarch`／`set-capital`；`start-date`／`city-faction`／`general-faction`／`set-diplomat`／**`city-governor`** 只对「本章新建的空白章」开放（`BLANK_CHAPTER_WRITES`），模板持久历史侧未放开——如需对模板持久历史生效须另开一批 |
 | 内置 20 章 | `original-1..4` ＋ 上／中／下／后 各 4 章；任何校验**不得**改写或阻断它们 |
 
 ## 2. 已定事实（不得重新讨论，除非新原始证据）
