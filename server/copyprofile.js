@@ -14,7 +14,41 @@ export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
 export const FIXED_TEMPLATE_PROFILE = 'fixed-template-authoring-1';
 // Chapter-attribute writes a newly created chapter accepts (2026-11 user scope:
 // 年代／势力（君主＋首都）／据点所属／武将所属／职务). Everything else stays fail-closed.
-const BLANK_CHAPTER_WRITES = Object.freeze(['chapter-reorder', 'start-date', 'create-faction', 'set-monarch', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor']);
+// 章節編輯 op 表＝單一真相：blank＝空白章可寫、apply＝回放寫入器、structural＝只動
+// chapterOrder。回退分派另在下方（先驗後還原需要操作前快照），但成員資格只看這張表。
+// op 名來自持久歷史與 HTTP：用 Object.create(null) 防原型污染，白名單一律 hasOwn，
+// 不得用 optional chaining 靜默跳過（那等於放寬 fail-closed）。
+export const CHAPTER_EDIT_OPS = Object.freeze(Object.assign(Object.create(null), {
+  rename: { blank: false, apply: (shell, edit) => { renameChapter(shell, edit.chapterId, edit.name); return shell; } },
+  'rename-general': { blank: false, apply: (shell, edit) => { renameGeneral(shell, edit.chapterId, edit.generalIdx, edit.values); return shell; } },
+  portrait: { blank: false, apply: (shell, edit) => setGeneralPortrait(shell, edit.chapterId, edit.generalIdx, edit.portraitKey) },
+  'set-strategist': { blank: false, apply: (shell, edit) => { setStrategist(shell, edit.chapterId, edit.factionIdx, edit.generalIdx); return shell; } },
+  'set-monarch': { blank: false, apply: (shell, edit) => { setMonarch(shell, edit.chapterId, edit.factionIdx, edit.generalIdx); return shell; } },
+  'remove-monarch': { blank: false, apply: (shell, edit) => { removeMonarch(shell, edit.chapterId, edit.factionIdx, edit.resolution); return shell; } },
+  'disband-faction': { blank: false, apply: (shell, edit) => { disbandFaction(shell, edit.chapterId, edit.factionIdx); return shell; } },
+  'create-faction': { blank: true, apply: (shell, edit) => { createFaction(shell, edit.chapterId, { monarchIdx: edit.monarchIdx }); return shell; } },
+  'start-date': { blank: true, apply: (shell, edit) => { setChapterStart(shell, edit.chapterId, edit.values); return shell; } },
+  'city-faction': { blank: true, apply: (shell, edit) => { setChapterCityFaction(shell, edit.chapterId, edit.cityIdx, edit.factionId); return shell; } },
+  'set-capital': { blank: true, apply: (shell, edit) => { setFactionCapital(shell, edit.chapterId, edit.factionIdx, edit.cityIdx); return shell; } },
+  'general-faction': { blank: true, apply: (shell, edit) => { setChapterGeneralFaction(shell, edit.chapterId, edit.generalIdx, edit.factionId); return shell; } },
+  'general-active': { blank: true, apply: (shell, edit) => { setGeneralActive(shell, edit.chapterId, edit.generalIdx, edit.active); return shell; } },
+  'general-status': { blank: true, apply: (shell, edit) => { setGeneralStatus(shell, edit.chapterId, edit.generalIdx, edit.status); return shell; } },
+  'general-assign': { blank: true, apply: (shell, edit) => { assignChapterGeneral(shell, edit.chapterId, edit.values); return shell; } },
+  'general-clear': { blank: true, apply: (shell, edit) => { clearChapterGeneral(shell, edit.chapterId, edit.generalId); return shell; } },
+  'set-diplomat': { blank: true, apply: (shell, edit) => { setFactionDiplomat(shell, edit.chapterId, edit.factionIdx, edit.generalIdx); return shell; } },
+  'city-governor': { blank: true, apply: (shell, edit) => { setCityGovernor(shell, edit.chapterId, edit.cityIdx, edit.generalIdx); return shell; } },
+  city: { blank: false, apply: (shell, edit) => editChapterCity(shell, edit.chapterId, edit.cityIdx, edit.values) },
+  'city-native': { blank: false, apply: (shell, edit, context) => {
+    const next = editChapterCityNative(shell, edit.chapterId, edit.cityIdx, edit.values);
+    if (!context.nativeCities.has(edit.chapterId)) context.nativeCities.set(edit.chapterId, new Set());
+    context.nativeCities.get(edit.chapterId).add(edit.cityIdx);
+    return next;
+  } },
+  'chapter-reorder': { blank: true, structural: true },
+}));
+// 空白章可寫集合由表推導，不再另立第二份清單。
+const BLANK_CHAPTER_WRITES = Object.freeze(Object.keys(CHAPTER_EDIT_OPS).filter(op => CHAPTER_EDIT_OPS[op].blank === true));
+const chapterEditOp = op => (typeof op === 'string' && Object.hasOwn(CHAPTER_EDIT_OPS, op) ? CHAPTER_EDIT_OPS[op] : null);
 function view(value) {
   if (!value || typeof value !== 'object') fail(422, 'COPY_STRUCTURE');
   const array = Array.isArray(value), proto = Object.getPrototypeOf(value);
@@ -269,42 +303,21 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         }
         lifetimes.delete(edit.chapterId);
       } else if (lifetime) {
-        if (edit?.op === 'rename' || ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor'].includes(edit?.op) && (lifetime.kind === 'copy' || BLANK_CHAPTER_WRITES.includes(edit.op))) lifetime.indices.push(index);
+        const spec = chapterEditOp(edit?.op);
+        if (edit?.op === 'rename' || spec !== null && (lifetime.kind === 'copy' || spec.blank === true)) lifetime.indices.push(index);
         else lifetime.blocked = true; // Unknown operations stay fail-closed.
       }
-      if (edit?.op === 'chapter-reorder') {
+      const spec = chapterEditOp(edit?.op);
+      if (spec?.structural) {
         // 序号＝chapterOrder 位置（2026-11 用户裁决：允许重排）。只改顺序，不动章节内容；
         // 章节存在性与位置范围由同一个写出器校验。
         if (!Number.isInteger(edit.toIndex)) fail(422, 'COPY_PROTECTED_DELTA');
         moveChapter(structure, edit.chapterId, edit.toIndex);
-      } else if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor'].includes(edit?.op)) {
+      } else if (spec) {
         const chapter = lineage.get(edit.chapterId);
         if (!chapter) fail(422, 'COPY_PROTECTED_DELTA');
         preOp.set(index, chapter);
-        let shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [edit.chapterId], chapters: { [edit.chapterId]: structuredClone(chapter) } };
-        if (edit.op === 'rename') renameChapter(shell, edit.chapterId, edit.name);
-        else if (edit.op === 'rename-general') renameGeneral(shell, edit.chapterId, edit.generalIdx, edit.values);
-        else if (edit.op === 'portrait') shell = setGeneralPortrait(shell, edit.chapterId, edit.generalIdx, edit.portraitKey);
-        else if (edit.op === 'set-strategist') setStrategist(shell, edit.chapterId, edit.factionIdx, edit.generalIdx);
-        else if (edit.op === 'set-monarch') setMonarch(shell, edit.chapterId, edit.factionIdx, edit.generalIdx);
-        else if (edit.op === 'remove-monarch') removeMonarch(shell, edit.chapterId, edit.factionIdx, edit.resolution);
-        else if (edit.op === 'disband-faction') disbandFaction(shell, edit.chapterId, edit.factionIdx);
-        else if (edit.op === 'create-faction') createFaction(shell, edit.chapterId, { monarchIdx: edit.monarchIdx });
-        else if (edit.op === 'start-date') setChapterStart(shell, edit.chapterId, edit.values);
-        else if (edit.op === 'city-faction') setChapterCityFaction(shell, edit.chapterId, edit.cityIdx, edit.factionId);
-        else if (edit.op === 'set-capital') setFactionCapital(shell, edit.chapterId, edit.factionIdx, edit.cityIdx);
-        else if (edit.op === 'general-faction') setChapterGeneralFaction(shell, edit.chapterId, edit.generalIdx, edit.factionId);
-        else if (edit.op === 'general-active') setGeneralActive(shell, edit.chapterId, edit.generalIdx, edit.active);
-        else if (edit.op === 'general-status') setGeneralStatus(shell, edit.chapterId, edit.generalIdx, edit.status);
-        else if (edit.op === 'set-diplomat') setFactionDiplomat(shell, edit.chapterId, edit.factionIdx, edit.generalIdx);
-        else if (edit.op === 'city-governor') setCityGovernor(shell, edit.chapterId, edit.cityIdx, edit.generalIdx);
-        else if (edit.op === 'general-assign') assignChapterGeneral(shell, edit.chapterId, edit.values);
-        else if (edit.op === 'general-clear') clearChapterGeneral(shell, edit.chapterId, edit.generalId);
-        else if (edit.op === 'city-native') {
-          shell = editChapterCityNative(shell, edit.chapterId, edit.cityIdx, edit.values);
-          if (!nativeCities.has(edit.chapterId)) nativeCities.set(edit.chapterId, new Set());
-          nativeCities.get(edit.chapterId).add(edit.cityIdx);
-        } else shell = editChapterCity(shell, edit.chapterId, edit.cityIdx, edit.values);
+        const shell = spec.apply({ gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [edit.chapterId], chapters: { [edit.chapterId]: structuredClone(chapter) } }, edit, { nativeCities });
         lineage.set(edit.chapterId, shell.chapters[edit.chapterId]);
       }
     }

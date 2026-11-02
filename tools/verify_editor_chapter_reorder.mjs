@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
-import { FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
+import { CHAPTER_EDIT_OPS, FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
 import { addBlankChapter, moveChapter } from '../web/src/content/authoring/gamesource.js';
 const context = { gameId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', ownerId: 'reorder-author' };
 const loader = (kind, extra = {}) => createPinnedCopyLoader({ kind, readWeb: path => readFileSync(new URL(`../web/${path}`, import.meta.url)), ...extra });
@@ -14,6 +14,22 @@ const template = await templateProfile.capture(context);
 const START = { era: 'ad', year: 208, month: 11, day: 1 };
 const error = code => candidate => candidate.code === code;
 let groups = 0;
+// 章节编辑 op 表是分派与白名单的单一真相：集合漂移必须在这里被抓住。
+const EXPECTED_OPS = ['rename', 'rename-general', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch',
+  'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction',
+  'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor',
+  'city', 'city-native', 'chapter-reorder'];
+assert.deepEqual(Object.keys(CHAPTER_EDIT_OPS).sort(), [...EXPECTED_OPS].sort());
+for (const [op, spec] of Object.entries(CHAPTER_EDIT_OPS)) {
+  if (spec.structural === true) { assert.equal(op, 'chapter-reorder'); continue; }
+  assert.equal(typeof spec.apply, 'function', `${op} needs a replay writer`);
+  assert.equal(typeof spec.blank, 'boolean', `${op} needs an explicit blank-chapter decision`);
+}
+// 原型污染与静默跳过都不成立：op 名只认自有属性。
+assert.equal(Object.getPrototypeOf(CHAPTER_EDIT_OPS), null);
+for (const hostile of ['__proto__', 'constructor', 'prototype', 'toString', '']) assert.equal(Object.hasOwn(CHAPTER_EDIT_OPS, hostile), false);
+groups++;
+
 
 // ① 写出器：只改顺序，不动章节内容；越界与未知章拒绝。
 const reordered = structuredClone(baseline), order = [...reordered.chapterOrder];
