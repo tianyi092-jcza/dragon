@@ -489,6 +489,20 @@ export function copyChapterInGame(game, chapterId) {
   game.chapterOrder.push(id);
   return id;
 }
+// 章节序号＝chapterOrder 里的位置（2026-11 用户裁决：允许重排，不新增 ordinal 字段）。
+// 只改顺序，不动章节内容；toIndex 是重排后的位置。
+export function moveChapter(game, chapterId, toIndex) {
+  if (!isPlainObject(game) || !Array.isArray(game.chapterOrder)) throw new TypeError("game source required");
+  chapterEntry(game, chapterId);
+  const order = game.chapterOrder, from = order.indexOf(chapterId);
+  if (!Number.isInteger(toIndex) || Object.is(toIndex, -0) || toIndex < 0 || toIndex >= order.length)
+    throw new RangeError(`chapter position 0..${order.length - 1} required`);
+  if (from < 0 || from === toIndex) return { from, toIndex: from };
+  const next = order.filter(id => id !== chapterId);
+  next.splice(toIndex, 0, chapterId);
+  game.chapterOrder = next;
+  return { from, toIndex };
+}
 export function deleteChapter(game, chapterId) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   chapterEntry(game, chapterId);

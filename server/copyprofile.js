@@ -7,14 +7,14 @@ import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
-import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, moveChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor } from '../web/src/content/authoring/gamesource.js';
 import { fail } from './security.js';
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
 export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
 export const FIXED_TEMPLATE_PROFILE = 'fixed-template-authoring-1';
 // Chapter-attribute writes a newly created chapter accepts (2026-11 user scope:
 // 年代／势力（君主＋首都）／据点所属／武将所属／职务). Everything else stays fail-closed.
-const BLANK_CHAPTER_WRITES = Object.freeze(['start-date', 'create-faction', 'set-monarch', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor']);
+const BLANK_CHAPTER_WRITES = Object.freeze(['chapter-reorder', 'start-date', 'create-faction', 'set-monarch', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor']);
 function view(value) {
   if (!value || typeof value !== 'object') fail(422, 'COPY_STRUCTURE');
   const array = Array.isArray(value), proto = Object.getPrototypeOf(value);
@@ -272,7 +272,12 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         if (edit?.op === 'rename' || ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor'].includes(edit?.op) && (lifetime.kind === 'copy' || BLANK_CHAPTER_WRITES.includes(edit.op))) lifetime.indices.push(index);
         else lifetime.blocked = true; // Unknown operations stay fail-closed.
       }
-      if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor'].includes(edit?.op)) {
+      if (edit?.op === 'chapter-reorder') {
+        // 序号＝chapterOrder 位置（2026-11 用户裁决：允许重排）。只改顺序，不动章节内容；
+        // 章节存在性与位置范围由同一个写出器校验。
+        if (!Number.isInteger(edit.toIndex)) fail(422, 'COPY_PROTECTED_DELTA');
+        moveChapter(structure, edit.chapterId, edit.toIndex);
+      } else if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor'].includes(edit?.op)) {
         const chapter = lineage.get(edit.chapterId);
         if (!chapter) fail(422, 'COPY_PROTECTED_DELTA');
         preOp.set(index, chapter);
@@ -758,6 +763,11 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       const copied = copyBases.get(chapterId);
       revChapters[chapterId] = clone(copied ?? baseChapter(chapterId));
       if (copied) restoredCopies.add(chapterId);
+    } else if (op === 'chapter-reorder') {
+      // 顺序在内容回退完成后统一重放（见下方 reorder 回放），这里只做形状校验：
+      // 未知栏位一律拒绝，与其它命令同一口径。
+      if (Object.keys(edit).sort().join(',') !== 'chapterId,op,toIndex' || typeof edit.chapterId !== 'string'
+        || !edit.chapterId || !Number.isInteger(edit.toIndex) || Object.is(edit.toIndex, -0) || edit.toIndex < 0) fail(422, 'COPY_PROTECTED_DELTA');
     } else if (op !== 'add-blank' && op !== 'copy') {
       fail(422, 'COPY_PROTECTED_DELTA');
     }
@@ -835,6 +845,16 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     reverted.chapterOrder = reverted.chapterOrder.filter(entry => entry !== id);
   }
   if (blanksRemaining !== 0) fail(422, 'COPY_PROTECTED_DELTA');
+  // 重排只影响顺序：内容回退到基线后，按已申报命令重放，序列与候选一致。
+  for (const edit of edits) {
+    if (edit?.op !== 'chapter-reorder') continue;
+    const order = reverted.chapterOrder, from = order.indexOf(edit.chapterId);
+    if (from < 0) continue;
+    const target = Math.min(edit.toIndex, order.length - 1);
+    if (from === target) continue;
+    order.splice(from, 1);
+    order.splice(target, 0, edit.chapterId);
+  }
   return reverted;
 }
 function freezeGraph(root) {
@@ -894,6 +914,10 @@ function replayTemplateHistory(baseline, steps) {
           else deleteChapter(expected, edit.chapterId);
         } else if (edit.op === 'rename') {
           exact(edit, ['op', 'chapterId', 'name']); renameChapter(expected, edit.chapterId, edit.name);
+        } else if (edit.op === 'chapter-reorder') {
+          exact(edit, ['op', 'chapterId', 'toIndex']);
+          if (!Number.isInteger(edit.toIndex) || Object.is(edit.toIndex, -0) || edit.toIndex < 0) fail(422, 'COPY_TEMPLATE_HISTORY');
+          moveChapter(expected, edit.chapterId, edit.toIndex);
         } else if (edit.op === 'general-assign') {
           exact(edit, ['op', 'chapterId', 'values']);
           const values = Object.keys(view(edit.values)).sort().join(',');

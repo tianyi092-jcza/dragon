@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { canonicalSourceTokens, encodeSourceChunks, decodeSourceChunks, CanonicalSourceParser } from '../web/src/content/authoring/sourcejson.js';
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
-import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, moveChapter, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
 import { chapterGapReport } from './chaptergapreport.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionChangeImpact, chapterPeopleProjection, generalLibrarySupported } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit, chapterCitiesProjection, cityDefinitionChangeImpact } from '../web/src/content/authoring/citydefinitions.js';
@@ -65,6 +65,11 @@ function capture(input) {
     else if (edit.op === 'general-faction') { fields(edit, ['op', 'chapterId', 'generalIdx', 'factionId']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || edit.factionId !== null && (!Number.isInteger(edit.factionId) || edit.factionId < 0 || edit.factionId > 255)) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'general-active') { fields(edit, ['op', 'chapterId', 'generalIdx', 'active']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || typeof edit.active !== 'boolean') fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'general-status') { fields(edit, ['op', 'chapterId', 'generalIdx', 'status']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || !Number.isInteger(edit.status) || Object.is(edit.status, -0) || edit.status < 0 || edit.status > 4) fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    // 序号＝chapterOrder 位置（2026-11 用户裁决：允许重排）。
+    else if (edit.op === 'chapter-reorder') {
+      fields(edit, ['op', 'chapterId', 'toIndex']);
+      if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.toIndex) || Object.is(edit.toIndex, -0) || edit.toIndex < 0 || edit.toIndex > 4096) fail(422, 'DRAFT_CHAPTER_EDITS');
+    }
     // 武将指派／取消出场：身份由 generalId 承载，槽位由写入器取本章最小空槽。
     else if (edit.op === 'general-assign') {
       fields(edit, ['op', 'chapterId', 'values']);
@@ -615,6 +620,7 @@ export class PrivateDrafts {
           else if (edit.op === 'general-status') setGeneralStatus(candidate, edit.chapterId, edit.generalIdx, edit.status);
           else if (edit.op === 'general-assign') assignChapterGeneral(candidate, edit.chapterId, edit.values);
           else if (edit.op === 'general-clear') clearChapterGeneral(candidate, edit.chapterId, edit.generalId);
+          else if (edit.op === 'chapter-reorder') moveChapter(candidate, edit.chapterId, edit.toIndex);
           else if (edit.op === 'set-diplomat') setFactionDiplomat(candidate, edit.chapterId, edit.factionIdx, edit.generalIdx);
           else if (edit.op === 'city-governor') setCityGovernor(candidate, edit.chapterId, edit.cityIdx, edit.generalIdx);
           else disbandFaction(candidate, edit.chapterId, edit.factionIdx);
