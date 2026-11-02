@@ -6,6 +6,7 @@
 import { KAO_MANIFEST } from '../../../kao/manifest.js';
 import { ABILITY_LIMITS, BUILTIN_GAME_ID } from './gamesource.js';
 import { emptyGeneralSlot } from './chaptermaterialize.js';
+import { assignGeneralToChapterState, clearGeneralFromChapterState } from './gamesource.js';
 import { captureChapterCities } from './cityrecords.js';
 
 const portraits = new Map(KAO_MANIFEST.map(row => [row.id, row.sha256]));
@@ -247,6 +248,36 @@ export function applyGeneralDefinitionEdit(game, edit) {
   generals[edit.generalId] = definition(edit.values);
   return { ...game, generals };
 }
+// 人物層（people）是作者面的身份引用，原生 128 槽是它的編碼：兩者必須一起變。
+// 只對作者章生效——原生記錄沒有 generalId 鍵（內置章），這層不得改寫它們。
+function syncChapterSlot(chapter, generalId, included, values) {
+  const generals = chapter.state?.generals;
+  if (!Array.isArray(generals) || generals.length !== 128) return chapter;
+  if (!generals.every(g => g && Object.hasOwn(g, 'generalId'))) return chapter;
+  const state = { ...chapter.state, generals: structuredClone(generals) };
+  const slot = state.generals.find(g => g?.generalId === generalId);
+  if (included) {
+    const assetId = values.portraitRef === null ? null : values.portraitRef.assetId;
+    const portrait = assetId === null ? 0 : Number.parseInt(assetId.replace(/^p?0*/, ''), 10);
+    if (slot) {
+      slot.name = values.name;
+      slot.hao = values.hao;
+      slot.portrait = portrait;
+      if (values.ability !== undefined) slot.ability = { ...values.ability };
+      return { ...chapter, state };
+    }
+    assignGeneralToChapterState(state, { generalId, name: values.name, hao: values.hao, portrait,
+      ...(values.ability === undefined ? {} : { ability: values.ability }) });
+    return { ...chapter, state };
+  }
+  if (!slot) return chapter;
+  // 在任时不隐式免职：与库级删除同一口径（势力职务＋太守）。
+  const held = (state.factions ?? []).some(fa => fa?.monarch_idx === slot.idx || fa?.advisor_idx === slot.idx || fa?.diplomat_idx === slot.idx)
+    || (state.cities ?? []).some(city => city?.governor === slot.idx);
+  if (held) throw new RangeError('general holds a chapter post; clear it first');
+  clearGeneralFromChapterState(state, generalId);
+  return { ...chapter, state };
+}
 export function applyChapterPersonEdit(game, edit) {
   plain(edit);
   if (edit.op !== 'set' && edit.op !== 'remove') throw new RangeError('chapter person operation required');
@@ -259,5 +290,8 @@ export function applyChapterPersonEdit(game, edit) {
     if (!Object.hasOwn(people, edit.generalId)) throw new RangeError('chapter person is not configured');
     delete people[edit.generalId];
   } else people[edit.generalId] = person(edit.values);
-  return { ...game, chapters: { ...game.chapters, [edit.chapterId]: { ...chapter, people } } };
+  const record = people[edit.generalId];
+  const effective = { ...scope.generals[edit.generalId], ...(record?.overrides ?? {}) };
+  const next = syncChapterSlot({ ...chapter, people }, edit.generalId, record !== undefined && record.included, effective);
+  return { ...game, chapters: { ...game.chapters, [edit.chapterId]: next } };
 }

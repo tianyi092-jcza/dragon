@@ -94,4 +94,27 @@ setCityGovernor(governed, chapterId, 3, null);
 assert.equal(Object.hasOwn(applyGeneralDefinitionEdit(governed, { op: 'delete', generalId: id2 }).generals, id2), false);
 groups++;
 
+// ⑤ 人物层勾选＝原生槽位编码：勾选占最小空槽，取消清空留洞，内置章不被改写。
+const bridgeBase = applyGeneralDefinitionEdit(game, { op: 'create', generalId: id, values: { name: '測試', hao: '字', portraitRef: portrait, ability } });
+const includedOnce = applyChapterPersonEdit(bridgeBase, { op: 'set', chapterId, generalId: id, values: { included: true, factionId: null, overrides: {} } });
+const slotRecord = includedOnce.chapters[chapterId].state.generals[0];
+assert.equal(slotRecord.generalId, id);
+assert.equal(slotRecord.name, '測試');
+assert.equal(slotRecord.attr, 0x80);
+assert.equal(slotRecord.portrait, 1, 'portraitRef p0001 maps to native portrait 1');
+assert.deepEqual(slotRecord.ability, ability);
+assert.equal(includedOnce.chapters[chapterId].state.generals.length, 128);
+const excludedAgain = applyChapterPersonEdit(includedOnce, { op: 'set', chapterId, generalId: id, values: { included: false, factionId: null, overrides: {} } });
+assert.equal(excludedAgain.chapters[chapterId].state.generals[0].generalId, null, 'cancel clears the slot and leaves a hole');
+assert.equal(excludedAgain.chapters[chapterId].state.generals.length, 128);
+// 再次勾選復用同一個最小空槽，不重排其它武將。
+const reIncluded = applyChapterPersonEdit(excludedAgain, { op: 'set', chapterId, generalId: id, values: { included: true, factionId: null, overrides: {} } });
+assert.equal(reIncluded.chapters[chapterId].state.generals[0].generalId, id);
+// 內置章的原生記錄沒有 generalId 鍵：人物層不得改寫它們。
+const builtinChapter = game.chapterOrder.find(entry => Object.hasOwn(game.chapters[entry].state, '_src'));
+const builtinBefore = structuredClone(game.chapters[builtinChapter].state.generals);
+const builtinTouched = applyChapterPersonEdit(bridgeBase, { op: 'set', chapterId: builtinChapter, generalId: id, values: { included: true, factionId: null, overrides: {} } });
+assert.deepEqual(builtinTouched.chapters[builtinChapter].state.generals, builtinBefore);
+groups++;
+
 process.stdout.write(`${JSON.stringify({ groups, scope: 'pinned fixed copy + in-memory objects only; no HTTP, save, native init or runtime grant' })}\n`);

@@ -823,13 +823,17 @@ export function setFactionCapital(game, chapterId, factionIdx, cityIdx) {
 // 128 是原生表上限；G127 保留（generalByIdx 同样拒绝），故可用槽为 0..126。
 // 取消出场只清空该槽并留洞，不重排其它武将（2026-11 用戶裁決）。
 export function assignChapterGeneral(game, chapterId, values) {
+  return assignGeneralToChapterState(chapterState(game, chapterId), values);
+}
+// 同一個寫入器的狀態層版本：人物層（people）勾選出場時直接同步原生槽位。
+export function assignGeneralToChapterState(state, values) {
   if (!isPlainObject(values)) throw new TypeError("general values required");
   const keys = Object.keys(values);
   if (!keys.length || keys.some(key => !["generalId", "name", "hao", "portrait", "ability"].includes(key))) throw new RangeError("chapter general allows generalId/name/hao/portrait/ability only");
   if (typeof values.generalId !== "string" || !values.generalId) throw new RangeError("general identity required");
   if (typeof values.name !== "string" || !values.name.trim()) throw new RangeError("general name required");
   if (!Number.isInteger(values.portrait) || Object.is(values.portrait, -0) || values.portrait < 0 || values.portrait > 255) throw new RangeError("general portrait 0..255 required");
-  const state = chapterState(game, chapterId), generals = state.generals ?? [];
+  const generals = state.generals ?? [];
   if (generals.some(g => g?.generalId === values.generalId)) throw new RangeError("general is already assigned to this chapter");
   const slot = generals.find(g => g?.generalId === null || g?.generalId === undefined);
   if (!slot) throw new RangeError("chapter general slots are full (128)");
@@ -850,10 +854,15 @@ export function assignChapterGeneral(game, chapterId, values) {
 }
 // 取消本章出场：只清空该槽（留洞），不动其它武将，也不改游戏级武将库。
 export function clearChapterGeneral(game, chapterId, generalId) {
-  const state = chapterState(game, chapterId), generals = state.generals ?? [];
-  const slot = generals.find(g => g?.generalId === generalId);
+  const state = chapterState(game, chapterId), slot = (state.generals ?? []).find(g => g?.generalId === generalId);
   if (!slot) throw new RangeError(`unknown chapter general: ${generalId}`);
   if (postsHeld(game, chapterId, slot.idx).length) throw new RangeError("general holds a chapter post; clear it first");
+  return clearGeneralFromChapterState(state, generalId);
+}
+export function clearGeneralFromChapterState(state, generalId) {
+  const generals = state.generals ?? [];
+  const slot = generals.find(g => g?.generalId === generalId);
+  if (!slot) throw new RangeError(`unknown chapter general: ${generalId}`);
   generals[slot.idx] = emptyGeneralSlot(slot.idx);
   return { slot: slot.idx };
 }
