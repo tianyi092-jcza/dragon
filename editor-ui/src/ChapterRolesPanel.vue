@@ -22,6 +22,20 @@ function describe(generals, slot) {
   if (general.reserved) return `保留槽 ${slot}／${general.name}（非普通任官）`;
   return `槽 ${slot}／${general.name}${general.hao ? `／${general.hao}` : ''}`;
 }
+const createChapters = computed(() => (props.model.factionCreate?.chapters ?? []).map(chapter => ({ chapterId: chapter.chapterId, name: chapter.name, full: chapter.full })));
+const createSelection = computed(() => props.model.factionCreate?.chapters?.find(chapter => chapter.chapterId === (props.model.factionCreate?.chapterId ?? '')) ?? null);
+const createCandidates = computed(() => createSelection.value?.candidates ?? []);
+const canCreateFaction = computed(() => !locked.value && Boolean(props.model.factionCreate?.ready) && Boolean(createSelection.value) && !createSelection.value.full && createCandidates.value.some(candidate => String(candidate.slot) === (props.model.factionCreate?.generalSlot ?? '')));
+function pickChapter(value) {
+  if (locked.value) return;
+  props.actions.setFactionCreateField('chapterId', value);
+  props.actions.setFactionCreateField('generalSlot', '');
+}
+function pickMonarch(value) { if (!locked.value) props.actions.setFactionCreateField('generalSlot', value); }
+function submitCreate() {
+  if (!canCreateFaction.value) return;
+  props.actions.createFaction(createSelection.value.chapterId, Number(props.model.factionCreate.generalSlot));
+}
 const chapters = computed(() => (props.model.roles?.chapters ?? []).map(chapter => {
   const generals = new Map(chapter.generals.map(general => [general.slot, general]));
   return { chapterId: chapter.chapterId, name: props.model.chapters.find(row => row.chapterId === chapter.chapterId)?.name ?? chapter.chapterId,
@@ -47,6 +61,14 @@ const chapters = computed(() => (props.model.roles?.chapters ?? []).map(chapter 
     <p>此操作獨立確認，不保存其它表單輸入；回應不明使用上方原鍵查詢／重試，成功後須明確重讀修訂。</p>
     <p v-if="!model.roles?.known" id="draft-role-unknown">角色資料未知或尚未精確重讀；中立定義模式不提供此原槽操作。</p>
     <template v-else>
+      <form id="faction-create" class="module-form" @submit.prevent="submitCreate">
+        <h4>新建勢力（選君主）</h4>
+        <p id="faction-create-hint">{{ model.factionCreate?.hint ?? '未提供新建勢力狀態，不能視為可建立。' }}</p>
+        <label>章節<select id="faction-create-chapter" :value="model.factionCreate?.chapterId ?? ''" :disabled="locked || !model.factionCreate?.ready" @change="pickChapter($event.target.value)"><option value="">請選擇章節</option><option v-for="chapter in createChapters" :key="chapter.chapterId" :value="chapter.chapterId">{{ chapter.name }}{{ chapter.full ? '（勢力槽已滿）' : '' }}</option></select></label>
+        <label>君主<select id="faction-create-monarch" :value="model.factionCreate?.generalSlot ?? ''" :disabled="locked || !model.factionCreate?.ready || !createSelection" @change="pickMonarch($event.target.value)"><option value="">請選擇武將</option><option v-for="candidate in createCandidates" :key="candidate.slot" :value="String(candidate.slot)">槽 {{ candidate.slot }}／{{ candidate.name }}</option></select></label>
+        <ElButton id="faction-create-submit" type="primary" native-type="submit" :disabled="!canCreateFaction">建立勢力</ElButton>
+        <p>候選只列本章已出場（已勾選）且無任職的普通武將；G127 保留槽不列入。建立後還必須指定首都才可保存——沒有首都的勢力保存與試運行都會被拒。</p>
+      </form>
       <p v-if="!chapters.length">此已讀修訂沒有章節。</p>
       <details v-for="chapter in chapters" :key="chapter.chapterId" :data-role-chapter="chapter.chapterId">
         <summary>{{ chapter.name }}／{{ chapter.chapterId }}</summary>

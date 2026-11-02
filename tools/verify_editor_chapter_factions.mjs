@@ -252,4 +252,23 @@ test('先驗後還原：職務命令只認「操作前快照＋同一 writer」�
   }
 });
 
+test('新建勢力 UI 綁定：控制器只送 create-faction，面板候選只列已出場自由武將', () => {
+  const draft = readFileSync(new URL('../server/public/draft.txt', import.meta.url), 'utf8');
+  const panel = readFileSync(new URL('../editor-ui/src/ChapterRolesPanel.vue', import.meta.url), 'utf8');
+  const shell = readFileSync(new URL('../server/public/shell-ui.txt', import.meta.url), 'utf8');
+  // 命令形狀必須與 writer 的 {monarchIdx} 口徑一致，且受理清單含新 op。
+  assert.ok(draft.includes("chapterEdits: [{ op: 'create-faction', chapterId, monarchIdx: generalSlot }]"));
+  assert.ok(draft.includes("'remove-monarch', 'create-faction', 'disband-faction'"));
+  assert.ok(draft.includes('createFaction, setFactionCreateField'));
+  // 候選集＝已出場（有姓名）＋無任職＋非保留槽；面板與控制器同名。
+  assert.ok(draft.includes("general.factionSlot === null && typeof general.name === 'string' && general.name.trim()"));
+  assert.ok(draft.includes('!general.reserved'));
+  for (const id of ['faction-create', 'faction-create-chapter', 'faction-create-monarch', 'faction-create-submit'])
+    assert.ok(panel.includes(`id="${id}"`), id);
+  assert.ok(panel.includes('props.actions.createFaction('));
+  assert.ok(panel.includes('props.actions.setFactionCreateField('));
+  // 生成物必須已重建，否则面板不会出现在工作台里。
+  assert.ok(shell.includes('faction-create-chapter'));
+});
+
 process.stdout.write(`${JSON.stringify({ tests: 7, scope: 'pinned full copy + minimal template only; no HTTP, save, native initialization or runtime grant' })}\n`);
