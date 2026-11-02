@@ -29,7 +29,7 @@
 | 据点游戏级常量 | `cities[cityId].max_prod`／`type`／`view`（＋`name`、`runtimeSlot`、`x`/`y`） | 游戏级 | **模型 C（用户 2026-11，依原版证据）**：20 章 × 192 格对照第 1 章，仅此三项 0 差异；`growth` 2189 格、`troops_cap` 2328 格、`defence` 1 格逐章不同，属章节初始化值，与 AI／经济引擎逐章取值相关，**不得拉平**。`prod`／`troops` 是运行时动态值，**任何层都不写定义**。`copyBuiltinGame` full 分支从第 1 章原生记录提取这三项进 `game.cities[]`，并对后续章的同名字段不一致 fail-closed |
 | 武将引用 | `people[generalId].included` / `factionId` / `overrides` | 章节 | 所属势力属**章节**；`gamesource.js:90` 校验 `faction`/`join_faction` |
 | 章节时间 | `state.start.{era,year,month,day}` | 章节 | 用户 2026-11 决定开放编辑：`era` 是**作者层纪年标签**（`bc`／`ad`，缺省视同 `ad`），与原生 `day`／`month` 字节、`year` u16 并列，**绝不把年份取负**，所以切换纪年不会重编号或丢失既有年份；年 1–65535、月 1–12、日 1–31 只是编辑器输入范围（非 KI 规则）。B4 起在 `#chapters-editor` 可写，`DraftPanel` 仍只读展示 |
-| 章节属性写入口径 | 势力槽 `raw@1/2/3/0x2A`、据点 `raw+0x01`、`nativeFactionSlotRaw`／`nativeCityRecordRaw` | 章节 | B4 统一为「**命名视图＋固定 raw 槽同步**」：只改命名值会在试玩／发布被 `factionNativeConsistencyGaps` 以 `entity-native-mismatch` 拒绝（`initializeNativeFactionSlots` 用 raw 覆盖命名视图）。势力槽 offset／空值哨兵：`monarch_idx@1`（null→`0xFF`）、`advisor_idx@2`（null→`0x7F`）、`capital@3`（null→`0xFF`）、`diplomat_idx@0x2A`（null→`0xFF`）；据点 `+0x01`＝**当前所属**（null→`0x18`），而 `+0x1A` 是**原版旧所属，绝不能改**。外交官与内政官在 20 章内置初态全为 null；**内政官（`city.governor`，须联动 `general+0x17=2` 与预算 `general+0x1A`，KI `6A9B..6B70`）本批只读、未开放**。首都不要求该据点属于该势力（内置资料自有 8 例） |
+| 章节属性写入口径 | 势力槽 `raw@1/2/3/0x2A`、据点 `raw+0x01`、`nativeFactionSlotRaw`／`nativeCityRecordRaw` | 章节 | B4 统一为「**命名视图＋固定 raw 槽同步**」：只改命名值会在试玩／发布被 `factionNativeConsistencyGaps` 以 `entity-native-mismatch` 拒绝（`initializeNativeFactionSlots` 用 raw 覆盖命名视图）。势力槽 offset／空值哨兵：`monarch_idx@1`（null→`0xFF`）、`advisor_idx@2`（null→`0x7F`）、`capital@3`（null→`0xFF`）、`diplomat_idx@0x2A`（null→`0xFF`）；据点 `+0x01`＝**当前所属**（null→`0x18`），而 `+0x1A` 是**原版旧所属，绝不能改**。外交官与内政官在 20 章内置初态全为 null。**内政官（`city.governor`，据点 `+0x19`，`0xFF`＝空）已开放**（2026-11）：原版任命 `0x6AD8..0x6AEA` 只写 `general[+0x17]=2` 与 `city[+0x19]`、**不改** `general[+0x1A]`；手动解任 `0x6B08→0x6B4F` 另清 `general[+0x1A]`。作者层按此顺序写：任命要求该武将登场、属本城势力、非君主、无其他职务（`general[+0x17]` 是单一身份字段），并同步写 `nativeCityRecordRaw` 的 `+0x19`（`content_pipeline` 会以「native city record raw diverges」拒绝命名值与 raw 不一致）；清空时同时把该武将身份写回 0、旧预算写 0。首都不要求该据点属于该势力（内置资料自有 8 例） |
 
 ## 3. 校验规则（发布前试运行的口径）
 
@@ -123,7 +123,7 @@ B7（2026-11）已实现面向玩家的结果，两者口径不同：
 ### 7.3 章节三面的顺序
 
 1. **势力＝勾选本章君主**（武将 `attr` bit6）→ 生成势力槽；**定义势力时必须指定首都**，首都所属据点随之归属该势力（用户口径：君主即势力，必须有据点，否则所属武将没有出场落脚点；只有武将可以随时登场加入）。
-2. 军师／外交官／内政官：章节定义可预先指定以便测试（开局为空、运行后委派是原版行为）。
+2. 军师／外交官／内政官：章节定义可预先指定以便测试（开局为空、运行后委派是原版行为）。**军师（`faction.advisor_idx`）、外交官（`faction.diplomat_idx`）、内政官（`city.governor`）三者均已可写**；内政官在「游戏章节」的据点面设定。
 3. **据点章节属性**：所属势力／中立／首都。
 4. **武将章节属性**：勾选本章出场武将（来源＝游戏级武將庫，仅基础信息）＋身份（`general+0x17`：0 待命／1 军团长／2 内政官／3 外交官／4 被俘）＋所属势力（`+0x1C`，`FF`＝自由）。**职务不属于武将**：军团长在军团 `+2`，主将／先锋／左翼／右翼／左备／右备在军团 `+0x28..0x3F`。
 
