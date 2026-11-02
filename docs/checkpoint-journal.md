@@ -450,3 +450,57 @@ Management/DeletionPanel（上架／下架／解除限制／跨作者删除）�
 - **下一个大件（未开始）**：把当前游戏用工作台重新产出一遍 → 上架 → 管理员同意 → 再删掉旧游戏，此後所有游戏统一由工作台发布（用户长期目标）。端到端要核：新建章 → 三面设定（年代／据点所属／首都／武将所属／内政官）→ 保存 200 → 全章汇总校验 → 试运行可启动 → 上架 → 同意 → 玩家端可运行。
 - **既有红门（非本批引入，未修，另有会话在处理）**：① `verify_editor_shell.mjs` 的 `disband-order`（`revertDisband` 内既有 `factions.splice(factions.findIndex(...))` 命中「不得出现 findIndex」规则，需重新界定检查目标片段）；② `verify_editor_authoring_context.mjs`（`installPublish` 未导出 `selectedGame`）；③ `verify_editor_workbench_browser.mjs`（改密后 `#management-editor` 不可见）；④ `verify_editor_copy_profile.mjs` 属重入口，400 秒未跑完，需单独长超时。
 - **并行会话风险（实录）**：`6b19b53` 由另一会话提交，把本会话的 `gamesource.js`（含 `setCityGovernor`）／`copyprofile.js`／`drafts.js` 改动一并打包，提交说明未提内政官。代码未被改坏（验证器 4/4 复跑通过），但日志归属不准。**多会话共用同一工作树时务必串行，或各自用独立 worktree。**
+
+## 49. 章節創作：槽位降級／武將庫／序號重排／端到端 headless（2026-11 本會話）
+
+本會話在 §48 之後連續交付 11 批，全部**未 push、未部署**。工作樹乾淨，HEAD `45f5a78`。
+
+### 49.1 交付批次（按提交順序）
+
+| commit | 內容 |
+|---|---|
+| `0ecae2c` | **槽位降級為編碼位**：`chaptermaterialize` 的 128 槽改為 `emptyGeneralSlot`（無姓名／頭像／能力／`generalId`），固定源基座不再保存武將骨架（49,590B→18,392B）；新增 `assignChapterGeneral`／`clearChapterGeneral`；保存門只管已登場槽（`attr` bit7） |
+| `6369131` | **武將庫承擔身份與能力基準**：`game.generals[id]` 增 `ability`（章節可覆寫、舊記錄可缺省）；取消勾選＝刪庫記錄並級聯清空各章 `people` 引用與原生槽位；在任時拒絕隱式免職 |
+| `bf6371d` | **在任太守阻止庫級刪除**：並行會話開放太守後 `city.governor` 亦是在任引用，庫級刪除級聯必須同口徑判定 |
+| `447400a` | **人物層勾選直通原生槽位**：`people.included` 勾選→佔本章最小空槽（身份／頭像／能力取庫基準＋本章覆寫）；取消→清空留洞；只對作者章生效（原生記錄沒有 `generalId` 鍵，內置 20 章不被改寫） |
+| `9785edf` | **新建勢力（選君主）表單**：`factionCreate` 投影＋`createFaction` 命令；候選＝已出場且無任職的非保留槽 |
+| `09fedcb` | **章節序號重排**：`moveChapter(game, chapterId, toIndex)`（序號＝`chapterOrder` 位置，允許重排，不新增欄位）＋`chapter-reorder` 回放／回退（內容回退後按已申報命令重放） |
+| `e56856a` | **`CHAPTER_EDIT_OPS` 表驅動**：17→21 條操作集中為表（`blank`／`apply`／`structural`），白名單改由表推導並保持 fail-closed（`Object.hasOwn`＋null-proto＋freeze） |
+| `93209f0` | **序號下拉 UI**：`chapterOrderInputs` 暫存＋`moveChapter` 動作＋面板下拉與套用按鈕 |
+| `43a8670` | 上架面暴露 `selectedGame()`，跟隨共享選擇 |
+| `b015562` | 上架面按 B2 口徑改寫測試（清單＋跟隨選擇），14/14 |
+| `45f5a78` | **職務口徑修正＋端到端 headless**：`set-strategist` 回到 `blank` 白名單；軍師須本勢力、`appear_months===0`、非俘虜；`revertCreateFaction` 期望值疊加同批 `set-strategist`／`set-diplomat`／`general-faction`／`city-faction`；新增 `verify_editor_workbench_end_to_end.mjs`（7 組） |
+
+### 49.2 用戶裁決（長期有效）
+
+1. 序號＝`chapterOrder` 裡的位置，**允許重排**，不新增 ordinal 欄位。
+2. 未勾選槽**允許空姓名**；取消勾選＝只清空該槽（留洞不重排）。
+3. 武將「身份證號」＝`generalId`；勾選＝庫記錄存在（不新增 `enabled`）；取消勾選＝刪記錄並級聯清理。
+4. 能力值是**遊戲級資料庫**的基本屬性，與章節無關；章節只能覆寫。
+5. 內置 20 章的 467 個武將暫不遷庫（實測：登場行 2309、distinct 姓名 465、姓名＋字 466、姓名＋字＋頭像 472）。
+6. 「章節設置裡沒有內政官和外交官」：內政官掛據點、外交官掛勢力，屬運行期；建章階段一律不設。軍師可設可空。
+7. 模板 profile 也接受 materialize 後的中性章節態（庫／people 與 materialize 必須共存）。
+8. 上架面是「整份遊戲清單＋跟隨共享選擇」，不另設自己的選擇入口。
+
+### 49.3 新增／改動的驗證器
+
+`verify_editor_workbench_end_to_end.mjs`（新，7 組：複製→建章→三面→保存回放→全章校驗→試運行編譯→確定性→職務口徑）、`verify_editor_chapter_reorder.mjs`（新，5 組）、`verify_editor_general_library.mjs`（新，7 組）、`verify_editor_chapter_generals`（6 組）、`verify_editor_chapter_factions`（8 組）；`verify_editor_authoring_context`（14/14）。
+
+### 49.4 端到端整鏈現狀
+
+| 段 | 狀態 |
+|---|---|
+| 重產（複製→建章→三面→保存回放） | ✅ headless 已驗（e2e 腳本） |
+| 全章校驗＋試運行編譯 | ✅ headless 已驗（新章零缺口、路網 192 節點座標閉合） |
+| 上架（`POST /api/publish`） | 分片已驗（`verify_editor_authoring_context` 14/14），未串入腳本 |
+| 管理員同意 | 分片已驗（`verify_editor_backend_admin_copy` 等），未串入腳本 |
+| 刪舊遊戲 | 分片已驗（12 個 `verify_editor_backend_deletion_*`），未串入腳本 |
+| 玩家端可啟動 | `verify_trial_app_boot` 等，需 dev server |
+
+### 49.5 既有紅門（非本批引入）
+
+① `verify_editor_shell.mjs` 僅紅 `disband-order`（`revertDisband` 內既有 `factions.splice(findIndex)` 命中舊規則，需重新界定檢查目標片段）；② `verify_editor_workbench_browser.mjs`（改密後 `#management-editor` 不可見，需 dev server）；③ `verify_editor_roles_browser.mjs`（手動 harness，需 `round`＋`EDITOR_TEST_PORT`）；④ `verify_editor_backend_draft_ui.mjs` 環境依賴。
+
+### 49.6 並行會話協作
+
+與另一會話共用同一工作樹時發生過兩次歸屬錯位：`6b19b53` 打包了本會話的 `gamesource`／`copyprofile`／`drafts` 改動；`dc7e4b7` 收走了本會話的 `captureScope` 放寬。代碼未受損（25 個驗證器復跑通過），但**教訓**：多會話必須串行或各自獨立 worktree；提交只使用**顯式路徑** `git add`，不用 `-A`。
