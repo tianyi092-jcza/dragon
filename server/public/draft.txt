@@ -31,6 +31,7 @@ export function createAuthoringContext({ participants, initialGame = () => null,
 // Vue receives display projections only; credentials and operation bodies stay here.
 export function installDraftEditor({ api, authority, work, isBusy, publish, gameContext, hasLocalMapInputs = () => false, onContextChanged = () => {}, getMinimapCanvas = () => null, getMapWindowCanvas = () => null, digestPixels = async bytes => Array.from(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join(''), storage = globalThis.sessionStorage, confirm = globalThis.confirm, prompt = globalThis.prompt, openTrial = () => window.open('/api/trial/wait', '_blank') }) {
   const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value), revision = value => typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value);
+  const chapterOrderInputs = new Map();
   let owner = null, identity = null, generation = 0, readGeneration = 0, games = [], loaded = null, attempt = null, badJournal = false, chapters = [], resources = [], message = '請查看自己的遊戲並明確載入已保存修訂。';
   const fields = { gameId: '', revision: '', name: '', introduction: '', chapterId: '' };
   const input = () => ({ name: fields.name, introduction: fields.introduction });
@@ -356,13 +357,13 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
         supported: loaded?.profileRevision === 'fixed-copy-resources-1',
         known: Boolean(currentFactionRoles() && nativeCitiesVisible()),
         locked: locked || !loaded?.verifiedRead || Boolean(attempt) || !attributesReady(),
-        chapters: allowed && attributesReady() ? chapters.map(chapter => {
+        chapters: allowed && attributesReady() ? chapters.map((chapter, position) => {
           // attributesReady() already proves both projections belong to this exact
           // revision; a chapter row that is missing stays empty instead of invented.
           const roles = factionRoles.chapters.find(row => row.chapterId === chapter.chapterId) ?? { factions: [], generals: [] };
           const cities = nativeCities.chapters.find(row => row.chapterId === chapter.chapterId)?.cities ?? [];
           const staged = startInputs.get(chapter.chapterId) ?? {}, saved = chapter.startDate;
-          return { chapterId: chapter.chapterId, name: chapter.name, startMissing: saved === null, startDirty: startInputs.has(chapter.chapterId),
+          return { chapterId: chapter.chapterId, name: chapter.name, position, orderStaged: chapterOrderInputs.get(chapter.chapterId) ?? String(position + 1), startMissing: saved === null, startDirty: startInputs.has(chapter.chapterId),
             start: { era: staged.era ?? (saved?.era ?? 'ad'), year: staged.year ?? (saved === null ? '' : String(saved.year)), month: staged.month ?? (saved === null ? '' : String(saved.month)), day: staged.day ?? (saved === null ? '' : String(saved.day)) },
             factions: roles.factions.map(row => ({ slot: row.slot, monarchSlot: row.monarchSlot, advisorSlot: row.advisorSlot, diplomatSlot: row.diplomatSlot, capital: row.capital ?? null })),
             generals: roles.generals.map(row => ({ slot: row.slot, name: row.name, hao: row.hao, factionSlot: row.factionSlot ?? null, reserved: row.reserved, posts: heldPosts(roles, row.slot) })),
@@ -426,7 +427,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     const peopleSave = Boolean(attempt.body?.peopleEdits?.length), mapSave = Boolean(attempt.body?.mapEdits?.length);
     const citySave = Boolean(attempt.body?.cityEdits?.length || attempt.body?.chapterCityEdits?.length || attempt.body?.chapterEdits?.some(edit => edit.op === 'city-native'));
     const isolatedGeneral = attempt.body?.chapterEdits?.length === 1 && ['rename-general', 'portrait'].includes(attempt.body.chapterEdits[0].op) && attempt.body.resourceEdits.length === 0;
-    const postEdit = attempt.body?.chapterEdits?.length === 1 && ['set-strategist', 'set-monarch', 'remove-monarch', 'create-faction', 'disband-faction', 'set-diplomat', 'set-capital', 'city-faction', 'general-faction', 'start-date'].includes(attempt.body.chapterEdits[0].op) && attempt.body.resourceEdits.length === 0;
+    const postEdit = attempt.body?.chapterEdits?.length === 1 && ['set-strategist', 'set-monarch', 'remove-monarch', 'create-faction', 'disband-faction', 'set-diplomat', 'set-capital', 'city-faction', 'general-faction', 'start-date', 'chapter-reorder'].includes(attempt.body.chapterEdits[0].op) && attempt.body.resourceEdits.length === 0;
     const needsRead = definitionSave || peopleSave || mapSave || citySave || Boolean(attempt.body?.chapterEdits?.length);
     for (const edit of attempt.body?.chapterEdits ?? []) {
       if (edit.op === 'city-native') nativeCityInputs.delete(JSON.stringify([edit.chapterId, edit.cityIdx]));
@@ -545,7 +546,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (response.sourceDigest !== undefined && !hexDigest(response.sourceDigest)) throw new Error('草稿來源摘要無效。');
     minimap = null;
     loaded = { gameId, draftRevision: requested, sourceDigest: response.sourceDigest ?? null, metadata: value, profileRevision: response.profileRevision, verifiedRead: true, readGeneration: ++readGeneration }; attempt = null; persist(); chapters = nextChapters; resources = nextResources; resourceInputs = [];
-    nativeCities = nextNativeCities === null ? null : { source: loaded, identity, userId: identity.user.id, version: identity.version, chapters: nextNativeCities }; nativeCityInputs.clear(); startInputs.clear();
+    nativeCities = nextNativeCities === null ? null : { source: loaded, identity, userId: identity.user.id, version: identity.version, chapters: nextNativeCities }; nativeCityInputs.clear(); startInputs.clear(); chapterOrderInputs.clear();
     factionRoles = nextRoles === null ? null : { source: loaded, identity, userId: identity.user.id, version: identity.version, chapters: nextRoles };
     baseTerrain = nextBase; baseUnlocked = false; basePage = 0;
     materials = nextMaterials; cityDefinitions = nextCities; chapterCities = nextChapterCities; waterGroups = nextWater; waterMembers = nextWaterMembers; waterCandidates = nextWaterCandidates; definitions = nextDefinitions; definitionReferences = nextReferences; chapterPeople = nextPeople; definitionForm = emptyDefinition(); definitionLibrary = [];
@@ -1420,6 +1421,25 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     const label = [values.era === undefined ? null : values.era === 'bc' ? '公元前' : '公元后', values.year === undefined ? chapter.startDate.year + '年' : values.year + '年', values.month === undefined ? chapter.startDate.month + '月' : values.month + '月', values.day === undefined ? chapter.startDate.day + '日' : values.day + '日'].filter(Boolean).join(' ');
     await submitChapterField({ op: 'start-date', chapterId, values }, '將章節「' + chapter.name + '」的開始年代設為 ' + label + '（只加／改這些欄位，紀年標籤不改年份）', () => startInputs.delete(chapterId));
   }
+  // 章節序號＝chapterOrder 裡的位置（用戶裁決：允許重排，不新增 ordinal 欄位）。
+  function setChapterOrderInput(chapterId, value) {
+    if (!attributesReady() || attempt) return;
+    const index = chapters.findIndex(chapter => chapter.chapterId === chapterId);
+    if (index < 0 || !/^[1-9][0-9]{0,3}$/.test(String(value ?? ''))) return;
+    const next = Number(value);
+    if (!Number.isInteger(next) || next < 1 || next > chapters.length) return;
+    chapterOrderInputs.set(chapterId, String(next));
+    generation++; render();
+  }
+  async function moveChapter(chapterId, toIndex) {
+    const chapter = chapters.find(row => row.chapterId === chapterId);
+    const from = chapters.findIndex(row => row.chapterId === chapterId);
+    if (!chapter || !Number.isInteger(toIndex) || toIndex < 0 || toIndex >= chapters.length) throw new Error('請選擇有效章節與目標序號。');
+    if (toIndex === from) return false;
+    await submitChapterField({ op: 'chapter-reorder', chapterId, toIndex },
+      '將章節「' + chapter.name + '」由第 ' + (from + 1) + ' 位移到第 ' + (toIndex + 1) + ' 位（只改順序，不動內容）',
+      () => chapterOrderInputs.delete(chapterId));
+  }
   async function assignCityFaction(chapterId, cityIdx, factionId) {
     const chapter = chapterRow(chapterId), city = nativeCityRow(chapterId, cityIdx), roles = roleRow(chapterId);
     if (factionId !== null && !roles.factions.some(faction => faction.slot === factionId)) throw new Error('所屬勢力必須是本章已宣告的勢力槽，或中立。');
@@ -1546,7 +1566,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       if (!currentMapWindow() || typeof layerMask !== 'string') throw new Error('請先讀取窗口並明確指定四層顯示狀態。');
       const view = mapWindow.value;
       return readMapWindow(view.x, view.y, view.width, view.height, layerMask, Boolean(mapScene));
-    }), setNativeCityInput, saveNativeCityInputs: (chapterId, idx) => action(() => saveNativeCityInputs(chapterId, idx)), cancelNativeCityInputs(chapterId, idx) { if (nativeCitiesReady() && !isBusy()) { nativeCityInputs.delete(JSON.stringify([chapterId, idx])); generation++; render(); } }, cityNative: request => action(() => submitNativeCity(request)), setStartInput, cancelStartInput, saveChapterStart: chapterId => action(() => saveChapterStart(chapterId)), cityFaction: (chapterId, cityIdx, factionId) => action(() => assignCityFaction(chapterId, cityIdx, factionId)), setCapital: (chapterId, factionIdx, cityIdx) => action(() => assignCapital(chapterId, factionIdx, cityIdx)), generalFaction: (chapterId, generalIdx, factionId) => action(() => assignGeneralFaction(chapterId, generalIdx, factionId)), setDiplomat: (chapterId, factionIdx, generalSlot) => action(() => assignDiplomat(chapterId, factionIdx, generalSlot)), cityGovernor: (chapterId, cityIdx, generalSlot) => action(() => assignGovernor(chapterId, cityIdx, generalSlot)), renameNativeGeneral: request => action(() => submitNativeGeneral(request, 'rename-general')), portraitNativeGeneral: request => action(() => submitNativeGeneral(request, 'portrait')), clearStrategist: (chapterId, factionSlot) => action(() => submitFactionPost('set-strategist', chapterId, factionSlot, null)), assignStrategist: (chapterId, factionSlot, generalSlot) => action(() => {
+    }), setNativeCityInput, saveNativeCityInputs: (chapterId, idx) => action(() => saveNativeCityInputs(chapterId, idx)), cancelNativeCityInputs(chapterId, idx) { if (nativeCitiesReady() && !isBusy()) { nativeCityInputs.delete(JSON.stringify([chapterId, idx])); generation++; render(); } }, cityNative: request => action(() => submitNativeCity(request)), setStartInput, cancelStartInput, saveChapterStart: chapterId => action(() => saveChapterStart(chapterId)), setChapterOrderInput: (chapterId, value) => { setChapterOrderInput(chapterId, value); }, moveChapter: (chapterId, toIndex) => action(() => moveChapter(chapterId, toIndex)), cityFaction: (chapterId, cityIdx, factionId) => action(() => assignCityFaction(chapterId, cityIdx, factionId)), setCapital: (chapterId, factionIdx, cityIdx) => action(() => assignCapital(chapterId, factionIdx, cityIdx)), generalFaction: (chapterId, generalIdx, factionId) => action(() => assignGeneralFaction(chapterId, generalIdx, factionId)), setDiplomat: (chapterId, factionIdx, generalSlot) => action(() => assignDiplomat(chapterId, factionIdx, generalSlot)), cityGovernor: (chapterId, cityIdx, generalSlot) => action(() => assignGovernor(chapterId, cityIdx, generalSlot)), renameNativeGeneral: request => action(() => submitNativeGeneral(request, 'rename-general')), portraitNativeGeneral: request => action(() => submitNativeGeneral(request, 'portrait')), clearStrategist: (chapterId, factionSlot) => action(() => submitFactionPost('set-strategist', chapterId, factionSlot, null)), assignStrategist: (chapterId, factionSlot, generalSlot) => action(() => {
       if (!Number.isSafeInteger(generalSlot) || Object.is(generalSlot, -0) || generalSlot < 0 || generalSlot >= 127) throw new Error('請明確選擇普通武將槽0至126；清空須使用獨立清空動作。');
       return submitFactionPost('set-strategist', chapterId, factionSlot, generalSlot);
     }), assignMonarch: (chapterId, factionSlot, generalSlot) => action(() => {

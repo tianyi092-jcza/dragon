@@ -68,5 +68,17 @@ assert.throws(() => templateProfile.verify(template.capability, templateCandidat
   candidate => /^COPY_/.test(candidate.code));
 groups++;
 
+// ④ 序號下拉 UI 的靜態綁定：命令只送 {op,chapterId,toIndex}，序號＝列表位置。
+const draftText = readFileSync('server/public/draft.txt', 'utf-8');
+const shellText = readFileSync('server/public/shell-ui.txt', 'utf-8');
+assert.match(draftText, /op: 'chapter-reorder', chapterId, toIndex/);
+assert.match(draftText, /setChapterOrderInput: \(chapterId, value\)/);
+assert.match(draftText, /moveChapter: \(chapterId, toIndex\) => action/);
+assert.match(draftText, /'start-date', 'chapter-reorder'\]/, 'postEdit 需受理 chapter-reorder');
+assert.match(draftText, /position, orderStaged:/, '投影需带列表位置与暂存序號');
+assert.match(shellText, /data-chapter-order-select/, '面板需有序號下拉');
+assert.match(shellText, /data-chapter-order-submit/, '面板需有套用按钮');
+groups++;
+
 process.stdout.write(`${JSON.stringify({ groups, chapters: baseline.chapterOrder.length,
   scope: 'pinned fixed copy + neutral template, in-memory only; no HTTP, save, native init or runtime grant' })}\n`);

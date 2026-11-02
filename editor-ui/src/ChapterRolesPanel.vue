@@ -36,9 +36,21 @@ function submitCreate() {
   if (!canCreateFaction.value) return;
   props.actions.createFaction(createSelection.value.chapterId, Number(props.model.factionCreate.generalSlot));
 }
+const orderRows = computed(() => new Map((props.model.attributes?.chapters ?? []).map(row => [row.chapterId, row])));
+function pickOrder(chapterId, value) { if (!locked.value) props.actions.setChapterOrderInput(chapterId, value); }
+function applyOrder(chapterId) {
+  if (locked.value) return;
+  const chapter = chapters.value.find(row => row.chapterId === chapterId);
+  if (!chapter) return;
+  const target = Number(chapter.orderStaged) - 1;
+  if (!Number.isInteger(target) || target < 0 || target >= chapters.value.length) return;
+  if (chapter.orderStaged === String(chapter.position + 1)) return;
+  props.actions.moveChapter(chapterId, target);
+}
 const chapters = computed(() => (props.model.roles?.chapters ?? []).map(chapter => {
   const generals = new Map(chapter.generals.map(general => [general.slot, general]));
-  return { chapterId: chapter.chapterId, name: props.model.chapters.find(row => row.chapterId === chapter.chapterId)?.name ?? chapter.chapterId,
+  const order = orderRows.value.get(chapter.chapterId) ?? { position: 0, orderStaged: '1' };
+  return { chapterId: chapter.chapterId, position: order.position, orderStaged: order.orderStaged, name: props.model.chapters.find(row => row.chapterId === chapter.chapterId)?.name ?? chapter.chapterId,
     ordinaryGenerals: chapter.generals.filter(general => !general.reserved).map(general => ({
       ...general,
       affiliation: general.factionSlot === null ? '無所屬' : `勢力槽 ${general.factionSlot}${chapter.factions.some(faction => faction.slot === general.factionSlot) ? '' : '（本章未列出）'}`,
@@ -72,6 +84,15 @@ const chapters = computed(() => (props.model.roles?.chapters ?? []).map(chapter 
       <p v-if="!chapters.length">此已讀修訂沒有章節。</p>
       <details v-for="chapter in chapters" :key="chapter.chapterId" :data-role-chapter="chapter.chapterId">
         <summary>{{ chapter.name }}／{{ chapter.chapterId }}</summary>
+        <div class="chapter-order" :data-chapter-order="chapter.chapterId">
+          <label>章節序號（第幾章）
+            <select :data-chapter-order-select="chapter.chapterId" :value="chapter.orderStaged" :disabled="locked" @change="pickOrder(chapter.chapterId, $event.target.value)">
+              <option v-for="n in chapters.length" :key="n" :value="String(n)">第 {{ n }} 章</option>
+            </select>
+          </label>
+          <ElButton :data-chapter-order-submit="chapter.chapterId" :disabled="locked || chapter.orderStaged === String(chapter.position + 1)" @click="applyOrder(chapter.chapterId)">套用序號</ElButton>
+          <span class="chapter-order-hint">當前第 {{ chapter.position + 1 }} 章；序號＝章節列表位置，只改順序，不動內容。</span>
+        </div>
         <div data-role-roster>
           <h4>普通武將槽位索引（{{ chapter.ordinaryGenerals.length }}）</h4>
           <p>已讀修訂 {{ model.context?.draftRevision ?? '未知' }}；所屬與君主／軍師引用只取自本次已讀資料，不代表自由身或任官資格。未見角色引用不等於沒有其它任職；本章未列出的所屬仍保留原槽號，不改成無所屬。G127不列入；請在任命提示中明確輸入槽號，仍由服務校驗。</p>
@@ -97,4 +118,6 @@ const chapters = computed(() => (props.model.roles?.chapters ?? []).map(chapter 
 
 <style scoped>
 .chapter-role-roster { max-height: 12rem; overflow: auto; }
+.chapter-order { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.5rem 0; }
+.chapter-order-hint { color: #666; font-size: 0.85em; }
 </style>
