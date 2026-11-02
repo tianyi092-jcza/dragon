@@ -7,14 +7,14 @@ import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
-import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor } from '../web/src/content/authoring/gamesource.js';
 import { fail } from './security.js';
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
 export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
 export const FIXED_TEMPLATE_PROFILE = 'fixed-template-authoring-1';
 // Chapter-attribute writes a newly created chapter accepts (2026-11 user scope:
 // 年代／势力（君主＋首都）／据点所属／武将所属／职务). Everything else stays fail-closed.
-const BLANK_CHAPTER_WRITES = Object.freeze(['start-date', 'create-faction', 'set-monarch', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat']);
+const BLANK_CHAPTER_WRITES = Object.freeze(['start-date', 'create-faction', 'set-monarch', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor']);
 function view(value) {
   if (!value || typeof value !== 'object') fail(422, 'COPY_STRUCTURE');
   const array = Array.isArray(value), proto = Object.getPrototypeOf(value);
@@ -269,10 +269,10 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         }
         lifetimes.delete(edit.chapterId);
       } else if (lifetime) {
-        if (edit?.op === 'rename' || ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat'].includes(edit?.op) && (lifetime.kind === 'copy' || BLANK_CHAPTER_WRITES.includes(edit.op))) lifetime.indices.push(index);
+        if (edit?.op === 'rename' || ['rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor'].includes(edit?.op) && (lifetime.kind === 'copy' || BLANK_CHAPTER_WRITES.includes(edit.op))) lifetime.indices.push(index);
         else lifetime.blocked = true; // Unknown operations stay fail-closed.
       }
-      if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat'].includes(edit?.op)) {
+      if (['rename', 'rename-general', 'city', 'city-native', 'portrait', 'set-strategist', 'set-monarch', 'remove-monarch', 'disband-faction', 'create-faction', 'start-date', 'city-faction', 'set-capital', 'general-faction', 'general-active', 'general-status', 'general-assign', 'general-clear', 'set-diplomat', 'city-governor'].includes(edit?.op)) {
         const chapter = lineage.get(edit.chapterId);
         if (!chapter) fail(422, 'COPY_PROTECTED_DELTA');
         preOp.set(index, chapter);
@@ -292,6 +292,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         else if (edit.op === 'general-active') setGeneralActive(shell, edit.chapterId, edit.generalIdx, edit.active);
         else if (edit.op === 'general-status') setGeneralStatus(shell, edit.chapterId, edit.generalIdx, edit.status);
         else if (edit.op === 'set-diplomat') setFactionDiplomat(shell, edit.chapterId, edit.factionIdx, edit.generalIdx);
+        else if (edit.op === 'city-governor') setCityGovernor(shell, edit.chapterId, edit.cityIdx, edit.generalIdx);
         else if (edit.op === 'general-assign') assignChapterGeneral(shell, edit.chapterId, edit.values);
         else if (edit.op === 'general-clear') clearChapterGeneral(shell, edit.chapterId, edit.generalId);
         else if (edit.op === 'city-native') {
@@ -522,8 +523,12 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     const chapter = revChapter(chapterId), rec = revCity(chapter, idx);
     // 先驗後還原：城記錄 +01 與兩份原生位元組必須整體落在「操作前快照＋同一
     // writer」或整體落在操作前快照上，否則拒——盲還原會吸收未申報的改屬。
+    // shell 必須帶完整的固定槽表：候選章有 nativeCityRecordRaw 時，缺少這張表會
+    // 讓「+01 落在期望值」的比對永遠失敗（table[idx] 對 undefined），
+    // 於是合法的 city-faction 回退被誤判成 COPY_PROTECTED_DELTA。
     const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId],
-      chapters: { [chapterId]: { chapterId, state: { cities: [clone(base)], factions: clone(source.state?.factions ?? []) } } } };
+      chapters: { [chapterId]: { chapterId, state: { cities: [clone(base)], factions: clone(source.state?.factions ?? []),
+        nativeCityRecordRaw: Array.isArray(source.state?.nativeCityRecordRaw) ? clone(source.state.nativeCityRecordRaw) : undefined } } } };
     try { setChapterCityFaction(shell, chapterId, idx, factionId); } catch { fail(422, 'COPY_PROTECTED_DELTA'); }
     const expected = shell.chapters[chapterId].state.cities[0];
     const table = chapter.state?.nativeCityRecordRaw, baseTable = source.state?.nativeCityRecordRaw;
@@ -536,6 +541,43 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     if (typeof base.raw === 'string' && slotByte(base.raw, 1) !== byte) fail(422, 'COPY_PROTECTED_DELTA');
     if (typeof rec.raw === 'string') rec.raw = restoreByte(rec.raw, 1, byte);
     if (Array.isArray(table) && typeof table[idx] === 'string') table[idx] = restoreByte(table[idx], 1, byte);
+  };
+  // 太守（內政官）：命令同時寫 city.governor／城記錄 +0x19 與該武將的 status／
+  // 舊預算，三者必須整體落在「操作前快照＋同一 writer」或操作前快照上，
+  // 否則就是未申報的第三種值，拒。
+  const CITY_GOVERNOR_BYTE = 0x19, CITY_NO_GOVERNOR = 0xff;
+  const revertCityGovernor = (chapterId, cityIdx, generalIdx, origin = null) => {
+    const source = originState(chapterId, origin);
+    const base = (source.state?.cities ?? []).find(c => c?.idx === cityIdx) ?? baseCity(chapterId, cityIdx);
+    if (!base || typeof base !== 'object') fail(422, 'COPY_PROTECTED_DELTA');
+    // 撤任時受影響的武將是操作前的太守；任命時就是被任命者。
+    const affected = generalIdx === null ? (base.governor ?? null) : generalIdx;
+    const baseRecord = affected === null ? null : ((source.state?.generals ?? []).find(g => g?.idx === affected) ?? baseGeneral(chapterId, affected));
+    const chapter = revChapter(chapterId), rec = revCity(chapter, cityIdx);
+    const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId],
+      chapters: { [chapterId]: { chapterId, state: { cities: [clone(base)],
+        nativeCityRecordRaw: Array.isArray(source.state?.nativeCityRecordRaw) ? clone(source.state.nativeCityRecordRaw) : undefined,
+        generals: affected === null ? [] : [clone(baseRecord)],
+        factions: clone(source.state?.factions ?? []) } } } };
+    try { setCityGovernor(shell, chapterId, cityIdx, generalIdx); } catch { fail(422, 'COPY_PROTECTED_DELTA'); }
+    const expected = shell.chapters[chapterId].state.cities[0], expectedTable = shell.chapters[chapterId].state.nativeCityRecordRaw;
+    const table = chapter.state?.nativeCityRecordRaw, baseTable = source.state?.nativeCityRecordRaw;
+    const governorByte = raw => typeof raw === 'string' ? raw.slice(CITY_GOVERNOR_BYTE * 2, CITY_GOVERNOR_BYTE * 2 + 2) : raw;
+    const matches = (ref, refTable) => (rec.governor ?? null) === (ref.governor ?? null)
+      && governorByte(rec.raw) === governorByte(ref.raw)
+      && (!Array.isArray(table) || governorByte(table[cityIdx]) === governorByte(refTable?.[cityIdx]));
+    if (!matches(expected, expectedTable) && !matches(base, baseTable)) fail(422, 'COPY_PROTECTED_DELTA');
+    if (affected !== null) {
+      const general = revGeneral(chapter, affected), expectedRecord = shell.chapters[chapterId].state.generals[0];
+      const sameRecord = ref => (general.status ?? null) === (ref.status ?? null)
+        && (general.assignment_budget ?? null) === (ref.assignment_budget ?? null);
+      if (!sameRecord(expectedRecord) && !sameRecord(baseRecord)) fail(422, 'COPY_PROTECTED_DELTA');
+    }
+    rec.governor = clone(base.governor ?? null);
+    const byte = base.governor === null || base.governor === undefined ? CITY_NO_GOVERNOR : base.governor;
+    if (typeof rec.raw === 'string') rec.raw = restoreByte(rec.raw, CITY_GOVERNOR_BYTE, byte);
+    if (Array.isArray(table) && typeof table[cityIdx] === 'string') table[cityIdx] = restoreByte(table[cityIdx], CITY_GOVERNOR_BYTE, byte);
+    if (affected !== null) revertGeneralFields(chapterId, affected, ['status', 'assignment_budget'], origin);
   };
   // Disband revert: re-add the faction record (resource fields overlaid from
   // the candidate so same-batch resource edits keep flowing) and restore
@@ -682,6 +724,10 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     } else if (op === 'general-status') {
       if (!Number.isInteger(edit.status)) fail(422, 'COPY_PROTECTED_DELTA');
       revertGeneralWrite(chapterId, edit.generalIdx, ['status'], shell => setGeneralStatus(shell, chapterId, edit.generalIdx, edit.status), preOp.get(i));
+    } else if (op === 'city-governor') {
+      if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191) fail(422, 'COPY_PROTECTED_DELTA');
+      if (edit.generalIdx !== null && (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127)) fail(422, 'COPY_PROTECTED_DELTA');
+      revertCityGovernor(chapterId, edit.cityIdx, edit.generalIdx, preOp.get(i));
     } else if (op === 'start-date') {
       const keys = Object.keys(edit.values ?? {});
       if (!keys.length || keys.some(k => k !== 'era' && k !== 'year' && k !== 'month' && k !== 'day')) fail(422, 'COPY_PROTECTED_DELTA');
@@ -867,6 +913,9 @@ function replayTemplateHistory(baseline, steps) {
           exact(edit, ['op', 'chapterId', 'generalIdx', 'active']); setGeneralActive(expected, edit.chapterId, edit.generalIdx, edit.active);
         } else if (edit.op === 'general-status') {
           exact(edit, ['op', 'chapterId', 'generalIdx', 'status']); setGeneralStatus(expected, edit.chapterId, edit.generalIdx, edit.status);
+        } else if (edit.op === 'city-governor') {
+          // 太守同時寫 city[+0x19] 與該武將的身份舊預算，屬已批准的章節屬性。
+          exact(edit, ['op', 'chapterId', 'cityIdx', 'generalIdx']); setCityGovernor(expected, edit.chapterId, edit.cityIdx, edit.generalIdx);
         } else fail(422, 'COPY_TEMPLATE_HISTORY'); // Native fields remain closed.
       }
       for (const edit of step.generalEdits) {

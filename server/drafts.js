@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { canonicalSourceTokens, encodeSourceChunks, decodeSourceChunks, CanonicalSourceParser } from '../web/src/content/authoring/sourcejson.js';
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
-import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
 import { chapterGapReport } from './chaptergapreport.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionChangeImpact, chapterPeopleProjection, generalLibrarySupported } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, applyChapterCityEdit, chapterCitiesProjection, cityDefinitionChangeImpact } from '../web/src/content/authoring/citydefinitions.js';
@@ -83,6 +83,7 @@ function capture(input) {
       }
     }
     else if (edit.op === 'general-clear') { fields(edit, ['op', 'chapterId', 'generalId']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || typeof edit.generalId !== 'string' || !edit.generalId.length || edit.generalId.length > 128) fail(422, 'DRAFT_CHAPTER_EDITS'); }
+    else if (edit.op === 'city-governor') { fields(edit, ['op', 'chapterId', 'cityIdx', 'generalIdx']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191 || (edit.generalIdx !== null && (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127))) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else if (edit.op === 'set-diplomat') { fields(edit, ['op', 'chapterId', 'factionIdx', 'generalIdx']); if (typeof edit.chapterId !== 'string' || !edit.chapterId.length || edit.chapterId.length > 256 || !Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21 || (edit.generalIdx !== null && (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127))) fail(422, 'DRAFT_CHAPTER_EDITS'); }
     else fail(422, 'DRAFT_CHAPTER_EDITS');
   }
@@ -615,6 +616,7 @@ export class PrivateDrafts {
           else if (edit.op === 'general-assign') assignChapterGeneral(candidate, edit.chapterId, edit.values);
           else if (edit.op === 'general-clear') clearChapterGeneral(candidate, edit.chapterId, edit.generalId);
           else if (edit.op === 'set-diplomat') setFactionDiplomat(candidate, edit.chapterId, edit.factionIdx, edit.generalIdx);
+          else if (edit.op === 'city-governor') setCityGovernor(candidate, edit.chapterId, edit.cityIdx, edit.generalIdx);
           else disbandFaction(candidate, edit.chapterId, edit.factionIdx);
         } catch { fail(422, 'DRAFT_CHAPTER_EDIT'); }
       }

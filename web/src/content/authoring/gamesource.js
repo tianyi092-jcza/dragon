@@ -127,6 +127,14 @@ export function chapterActiveGaps(state, chapterId = "?") {
       else claimed.set(fa.capital, i);
     }
   }
+  // 太守與身份必須一致：原版任命（0x6AD8..0x6AEA）同時寫 city[+0x19] 與
+  // general[+0x17]=2，所以「據點有太守但該武將身份不是內政官（2）」是作者層的
+  // 不一致宣告，必須報出而不是靜默接受。內置 20 章此欄全為空，不衝突。
+  for (const [i, c] of cities.entries()) {
+    if (c?.governor === null || c?.governor === undefined) continue;
+    const holder = generals.find(g => g?.idx === c.governor);
+    if (holder && holder.status !== 2) gaps.push({ code: "entity-field", subject: `chapter ${chapterId} city[${i}]`, message: `chapter ${chapterId} city[${i}] governor ${c.governor} has status ${holder.status ?? null}, expected 2` });
+  }
   gaps.push(...factionNativeConsistencyGaps(state, chapterId));
   return gaps;
 }
@@ -691,7 +699,7 @@ function chapterFactions(game, chapterId) {
   if (!isPlainObject(chapter) || chapter.chapterId !== chapterId) throw new RangeError(`unknown chapter: ${chapterId}`);
   const factions = chapter.state?.factions;
   if (!Array.isArray(factions)) throw new TypeError("chapter factions required");
-  return { chapter, factions };
+  return { chapter, factions, state: chapter.state };
 }
 function factionEntry(game, chapterId, factionIdx) {
   const { factions } = chapterFactions(game, chapterId);
@@ -705,13 +713,16 @@ function generalByIdx(game, chapterId, generalIdx) {
   return chapterGeneral(game, chapterId, generalIdx);
 }
 function postsHeld(game, chapterId, generalIdx) {
-  const { factions } = chapterFactions(game, chapterId);
+  const { factions, state } = chapterFactions(game, chapterId);
   const posts = [];
   for (const f of factions) {
     if (f?.monarch_idx === generalIdx) posts.push({ faction: f.idx, post: "monarch" });
     if (f?.advisor_idx === generalIdx) posts.push({ faction: f.idx, post: "strategist" });
     if (f?.diplomat_idx === generalIdx) posts.push({ faction: f.idx, post: "diplomat" });
   }
+  // 太守（內政官）也是原版 `general[+0x17]` 的同一个单一身份字段，因此与
+  // 君主／軍師／外交官互斥；不将据点职务排除会在界面制造两个职务共存。
+  for (const c of state?.cities ?? []) if (c?.governor === generalIdx) posts.push({ faction: c.faction ?? null, post: "governor" });
   return posts;
 }
 // §7 chapter attributes (docs/editor-workbench-structure.md): start date, city
@@ -727,6 +738,8 @@ const CHAPTER_ERAS = Object.freeze(["bc", "ad"]);
 // nativefactions.decodeSlot and verify_editor_faction_consistency.mjs.
 const FACTION_SLOT_BYTES = Object.freeze({ monarch_idx: [1, 0xff], advisor_idx: [2, 0x7f], capital: [3, 0xff], diplomat_idx: [0x2a, 0xff] });
 const CITY_OWNER_BYTE = 1, CITY_NEUTRAL_BYTE = 0x18;
+// 城記錄 +0x19＝太守槽（0xFF＝空），與 materialize／content_pipeline 同一組位元組。
+const GOVERNOR_BYTE = 0x19, NO_GOVERNOR = 0xff;
 function chapterState(game, chapterId) {
   const state = chapterEntry(game, chapterId).state;
   if (!isPlainObject(state)) throw new RangeError(`state required for chapter ${chapterId}`);
@@ -874,6 +887,45 @@ export function setFactionDiplomat(game, chapterId, factionIdx, generalIdx) {
   if (other.length) throw new RangeError("diplomat holds another post");
   const replaced = faction.diplomat_idx ?? null;
   writeFactionField(state, faction, "diplomat_idx", general.idx);
+  return { replaced: replaced === generalIdx ? null : replaced };
+}
+// 太守（內政官）：原版任命 `0x6AD8..0x6AEA` 只寫 `general[+0x17]=2` 與
+// `city[+0x19]`，**不改 `general[+0x1A]` 舊預算**；手動解任 `0x6B08→0x6B4F` 另
+// 清 `general[+0x1A]`。候選篩選 `0x7663/0x76A0` 要求活動、同屬本勢力、
+// `general[+0x17]==0`、非君主。本寫入器照這個順序寫，不新增規則；預算數值本身
+// 不在本寫入器範圍（月結 type4 才產生）。
+export function setCityGovernor(game, chapterId, cityIdx, generalIdx) {
+  const state = chapterState(game, chapterId), city = chapterCityRow(state, cityIdx);
+  if (generalIdx === null) {
+    const replaced = city.governor ?? null;
+    city.governor = null;
+    writeSlotByte(state.nativeCityRecordRaw, cityIdx, city, GOVERNOR_BYTE, NO_GOVERNOR);
+    if (replaced !== null) {
+      const prior = chapterGeneral(game, chapterId, replaced);
+      // 手動解任會一併清身份與舊預算（0x6B08→0x6B4F）；城破返回（0x4D63）不清
+      // 預算，那條路徑不在作者層編輯範圍。
+      prior.status = 0;
+      prior.assignment_budget = 0;
+    }
+    return { replaced };
+  }
+  const general = generalByIdx(game, chapterId, generalIdx);
+  if (city.faction === null || city.faction === undefined) throw new RangeError("neutral city cannot have a governor");
+  if (generalIdx !== city.governor) {
+    if (general.faction !== city.faction) throw new RangeError("governor must belong to the city faction");
+    if (general.active !== true) throw new RangeError("governor must be active");
+    if (general.is_monarch === true) throw new RangeError("monarch cannot be governor");
+    // 已持有任何職務（含其他城的太守）的武將不能再兼任；general[+0x17] 是
+    // 單一身份欄位，同一武將不得同時是兩城太守。
+    if (postsHeld(game, chapterId, generalIdx).length) throw new RangeError("governor holds another post");
+  }
+  const replaced = city.governor ?? null;
+  city.governor = general.idx;
+  // 編譯管線由命名欄位重算 +0x19，但 nativeCityRecordRaw 必須與命名值一致，
+  // 否則 content_pipeline 以「native city record raw diverges」拒絕。
+  writeSlotByte(state.nativeCityRecordRaw, cityIdx, city, GOVERNOR_BYTE, general.idx);
+  // 任命只寫身份；不清、也不寫入舊預算（原版實錘）。
+  general.status = 2;
   return { replaced: replaced === generalIdx ? null : replaced };
 }
 export function setMonarch(game, chapterId, factionIdx, generalIdx) {
