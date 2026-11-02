@@ -1409,6 +1409,27 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     const label = factionId === null ? '自由' : '勢力槽 ' + factionId;
     await submitChapterField({ op: 'general-faction', chapterId, generalIdx, factionId }, '將章節「' + chapter.name + '」武將 #' + generalIdx + '「' + general.name + '」的所屬改為 ' + label + '（原 ' + (general.factionSlot == null ? '自由' : '勢力槽 ' + general.factionSlot) + '；不改職務、不搬兵力）');
   }
+  // 太守（內政官）：原版任命 0x6AD8..0x6AEA 只寫 general[+0x17]=2 與 city[+0x19]，
+  // 手動解任 0x6B08→0x6B4F 另清 general[+0x1A] 舊預算。畫面只送一條命令，
+  // 由服務端寫入器保證兩處同步。
+  async function assignGovernor(chapterId, cityIdx, generalSlot) {
+    const chapter = chapterRow(chapterId), roles = roleRow(chapterId);
+    const city = roles.cities.find(row => row.idx === cityIdx);
+    if (!city) throw new Error('請選擇本章已讀取的據點。');
+    if (city.faction === null || city.faction === undefined) throw new Error('中立據點不能指派內政官；請先設定該據點的所屬勢力。');
+    if (generalSlot === null) {
+      if (city.governor === null || city.governor === undefined) { message = '此據點沒有內政官；沒有保存。'; render(); return; }
+      await submitChapterField({ op: 'city-governor', chapterId, cityIdx, generalIdx: null }, '清空章節「' + chapter.name + '」據點 #' + cityIdx + ' 的內政官（原槽 ' + city.governor + '；同時清該武將身份與舊預算）');
+      return;
+    }
+    const general = roles.generals.find(row => row.slot === generalSlot);
+    if (!general) throw new Error('請選擇本章已讀取的武將槽。');
+    if (general.reserved || generalSlot === 127) throw new Error('內政官必須是本章的普通武將槽。');
+    if ((general.factionSlot ?? null) !== city.faction) throw new Error('內政官必須先屬於該據點的勢力；請先在武將面設定所屬勢力。');
+    if (city.governor === generalSlot) { message = '內政官與已讀資料相同；沒有保存。'; render(); return; }
+    const label = '槽 ' + generalSlot + '／' + general.name;
+    await submitChapterField({ op: 'city-governor', chapterId, cityIdx, generalIdx: generalSlot }, '將章節「' + chapter.name + '」據點 #' + cityIdx + ' 的內政官改為 ' + label + '（原 ' + (city.governor == null ? '無' : '槽 ' + city.governor) + '；不改兵力、不改舊預算）');
+  }
   async function assignDiplomat(chapterId, factionIdx, generalSlot) {
     const chapter = chapterRow(chapterId), roles = roleRow(chapterId);
     const faction = roles.factions.find(row => row.slot === factionIdx);
@@ -1488,7 +1509,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       if (!currentMapWindow() || typeof layerMask !== 'string') throw new Error('請先讀取窗口並明確指定四層顯示狀態。');
       const view = mapWindow.value;
       return readMapWindow(view.x, view.y, view.width, view.height, layerMask, Boolean(mapScene));
-    }), setNativeCityInput, saveNativeCityInputs: (chapterId, idx) => action(() => saveNativeCityInputs(chapterId, idx)), cancelNativeCityInputs(chapterId, idx) { if (nativeCitiesReady() && !isBusy()) { nativeCityInputs.delete(JSON.stringify([chapterId, idx])); generation++; render(); } }, cityNative: request => action(() => submitNativeCity(request)), setStartInput, cancelStartInput, saveChapterStart: chapterId => action(() => saveChapterStart(chapterId)), cityFaction: (chapterId, cityIdx, factionId) => action(() => assignCityFaction(chapterId, cityIdx, factionId)), setCapital: (chapterId, factionIdx, cityIdx) => action(() => assignCapital(chapterId, factionIdx, cityIdx)), generalFaction: (chapterId, generalIdx, factionId) => action(() => assignGeneralFaction(chapterId, generalIdx, factionId)), setDiplomat: (chapterId, factionIdx, generalSlot) => action(() => assignDiplomat(chapterId, factionIdx, generalSlot)), renameNativeGeneral: request => action(() => submitNativeGeneral(request, 'rename-general')), portraitNativeGeneral: request => action(() => submitNativeGeneral(request, 'portrait')), clearStrategist: (chapterId, factionSlot) => action(() => submitFactionPost('set-strategist', chapterId, factionSlot, null)), assignStrategist: (chapterId, factionSlot, generalSlot) => action(() => {
+    }), setNativeCityInput, saveNativeCityInputs: (chapterId, idx) => action(() => saveNativeCityInputs(chapterId, idx)), cancelNativeCityInputs(chapterId, idx) { if (nativeCitiesReady() && !isBusy()) { nativeCityInputs.delete(JSON.stringify([chapterId, idx])); generation++; render(); } }, cityNative: request => action(() => submitNativeCity(request)), setStartInput, cancelStartInput, saveChapterStart: chapterId => action(() => saveChapterStart(chapterId)), cityFaction: (chapterId, cityIdx, factionId) => action(() => assignCityFaction(chapterId, cityIdx, factionId)), setCapital: (chapterId, factionIdx, cityIdx) => action(() => assignCapital(chapterId, factionIdx, cityIdx)), generalFaction: (chapterId, generalIdx, factionId) => action(() => assignGeneralFaction(chapterId, generalIdx, factionId)), setDiplomat: (chapterId, factionIdx, generalSlot) => action(() => assignDiplomat(chapterId, factionIdx, generalSlot)), cityGovernor: (chapterId, cityIdx, generalSlot) => action(() => assignGovernor(chapterId, cityIdx, generalSlot)), renameNativeGeneral: request => action(() => submitNativeGeneral(request, 'rename-general')), portraitNativeGeneral: request => action(() => submitNativeGeneral(request, 'portrait')), clearStrategist: (chapterId, factionSlot) => action(() => submitFactionPost('set-strategist', chapterId, factionSlot, null)), assignStrategist: (chapterId, factionSlot, generalSlot) => action(() => {
       if (!Number.isSafeInteger(generalSlot) || Object.is(generalSlot, -0) || generalSlot < 0 || generalSlot >= 127) throw new Error('請明確選擇普通武將槽0至126；清空須使用獨立清空動作。');
       return submitFactionPost('set-strategist', chapterId, factionSlot, generalSlot);
     }), assignMonarch: (chapterId, factionSlot, generalSlot) => action(() => {

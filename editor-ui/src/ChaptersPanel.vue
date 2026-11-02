@@ -4,7 +4,7 @@ import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 // 遊戲章節（章節級）：章節開始年代、據點章節屬性、武將章節屬性。
 // 三面只送單一命令，保存後自動重讀；君主／軍師仍在「遊戲管理」的章節角色區，
-// 內政官需要聯動原生職務與預算欄位，本批只讀展示。
+// 內政官（太守）在本頁據點面設定，寫入器同時維護身份與舊預算。
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
 const attributes = computed(() => props.model.attributes ?? {});
 const locked = computed(() => Boolean(props.busy) || !attributes.value.known || attributes.value.locked !== false);
@@ -41,6 +41,12 @@ function setGeneralFaction(general, event) {
   props.actions.generalFaction(chapter.value.chapterId, general.slot, value);
   event.target.value = general.factionSlot === null || general.factionSlot === undefined ? '' : String(general.factionSlot);
 }
+// 太守（內政官）只能從該據點勢力的成員中選；空值＝清空（同時清該武將身份與舊預算）。
+function setGovernor(city, event) {
+  const value = event.target.value === '' ? null : Number(event.target.value);
+  props.actions.cityGovernor(chapter.value.chapterId, city.idx, value);
+  event.target.value = city.governor === null || city.governor === undefined ? '' : String(city.governor);
+}
 function setDiplomat(faction, event) {
   const value = event.target.value === '' ? null : Number(event.target.value);
   props.actions.setDiplomat(chapter.value.chapterId, faction.slot, value);
@@ -73,7 +79,7 @@ function setDiplomat(faction, event) {
         <ElButton data-start-cancel :disabled="locked || !chapter?.startDirty" @click="actions.cancelStartInput(chapter.chapterId)">取消年代輸入</ElButton>
       </div>
       <h3>據點章節屬性</h3>
-      <p>所屬勢力可設為中立；中立寫中立城主位。首都唯一且不要求該據點屬於此勢力（原版資料自有此情形）；取消首都只能改設另一據點。內政官需要聯動原生職務與預算欄位，本批只讀。</p>
+      <p>所屬勢力可設為中立；中立寫中立城主位。首都唯一且不要求該據點屬於此勢力（原版資料自有此情形）；取消首都只能改設另一據點。內政官（太守）只能選該據點所屬勢力的武將：任命同時把該武將身份寫成內政官，清空時一併清身份與舊預算。</p>
       <div class="entity-table-wrap"><table class="entity-table"><thead><tr><th>勢力槽</th><th>君主</th><th>軍師</th><th>外交官</th><th>首都</th></tr></thead><tbody>
         <tr v-for="faction in factionRows" :key="faction.slot" :data-faction-slot="faction.slot">
           <td>勢力槽 {{ faction.slot }}</td>
@@ -84,7 +90,7 @@ function setDiplomat(faction, event) {
         </tr>
         <tr v-if="!factionRows.length"><td colspan="5">本章沒有已宣告的勢力。</td></tr>
       </tbody></table></div>
-      <div class="entity-table-wrap"><table class="entity-table"><thead><tr><th>據點</th><th>名稱</th><th>所屬勢力</th><th>首都</th><th>內政官（未開放）</th></tr></thead><tbody>
+      <div class="entity-table-wrap"><table class="entity-table"><thead><tr><th>據點</th><th>名稱</th><th>所屬勢力</th><th>首都</th><th>內政官</th></tr></thead><tbody>
         <tr v-for="city in chapter?.cities ?? []" :key="city.idx" :data-city-idx="city.idx">
           <td>#{{ city.idx }}</td>
           <td>{{ city.name }}</td>
@@ -94,7 +100,12 @@ function setDiplomat(faction, event) {
             <ElButton v-else-if="city.faction !== null" data-city-capital :disabled="locked" @click="actions.setCapital(chapter.chapterId, city.faction, city.idx)">設為首都</ElButton>
             <span v-else>—</span>
           </td>
-          <td>{{ city.governor === null ? '未配置' : generalName(city.governor) }}</td>
+          <td>
+            <select data-city-governor :value="city.governor ?? ''" :disabled="locked || city.faction === null" :title="city.faction === null ? '中立據點沒有內政官' : undefined" @change="setGovernor(city, $event)">
+              <option value="">未配置（清空）</option>
+              <option v-for="general in (factionRows.find(row => row.slot === city.faction)?.members ?? [])" :key="general.slot" :value="general.slot">槽 {{ general.slot }}／{{ general.name }}{{ general.posts.length ? `（${general.posts.join('、')}）` : '' }}</option>
+            </select>
+          </td>
         </tr>
         <tr v-if="!(chapter?.cities ?? []).length"><td colspan="5">本章沒有據點。</td></tr>
       </tbody></table></div>
