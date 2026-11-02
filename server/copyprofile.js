@@ -22,7 +22,7 @@ export const CHAPTER_EDIT_OPS = Object.freeze(Object.assign(Object.create(null),
   rename: { blank: false, apply: (shell, edit) => { renameChapter(shell, edit.chapterId, edit.name); return shell; } },
   'rename-general': { blank: false, apply: (shell, edit) => { renameGeneral(shell, edit.chapterId, edit.generalIdx, edit.values); return shell; } },
   portrait: { blank: false, apply: (shell, edit) => setGeneralPortrait(shell, edit.chapterId, edit.generalIdx, edit.portraitKey) },
-  'set-strategist': { blank: false, apply: (shell, edit) => { setStrategist(shell, edit.chapterId, edit.factionIdx, edit.generalIdx); return shell; } },
+  'set-strategist': { blank: true, apply: (shell, edit) => { setStrategist(shell, edit.chapterId, edit.factionIdx, edit.generalIdx); return shell; } },
   'set-monarch': { blank: false, apply: (shell, edit) => { setMonarch(shell, edit.chapterId, edit.factionIdx, edit.generalIdx); return shell; } },
   'remove-monarch': { blank: false, apply: (shell, edit) => { removeMonarch(shell, edit.chapterId, edit.factionIdx, edit.resolution); return shell; } },
   'disband-faction': { blank: false, apply: (shell, edit) => { disbandFaction(shell, edit.chapterId, edit.factionIdx); return shell; } },
@@ -35,8 +35,8 @@ export const CHAPTER_EDIT_OPS = Object.freeze(Object.assign(Object.create(null),
   'general-status': { blank: true, apply: (shell, edit) => { setGeneralStatus(shell, edit.chapterId, edit.generalIdx, edit.status); return shell; } },
   'general-assign': { blank: true, apply: (shell, edit) => { assignChapterGeneral(shell, edit.chapterId, edit.values); return shell; } },
   'general-clear': { blank: true, apply: (shell, edit) => { clearChapterGeneral(shell, edit.chapterId, edit.generalId); return shell; } },
-  'set-diplomat': { blank: true, apply: (shell, edit) => { setFactionDiplomat(shell, edit.chapterId, edit.factionIdx, edit.generalIdx); return shell; } },
-  'city-governor': { blank: true, apply: (shell, edit) => { setCityGovernor(shell, edit.chapterId, edit.cityIdx, edit.generalIdx); return shell; } },
+  'set-diplomat': { blank: false, apply: (shell, edit) => { setFactionDiplomat(shell, edit.chapterId, edit.factionIdx, edit.generalIdx); return shell; } },
+  'city-governor': { blank: false, apply: (shell, edit) => { setCityGovernor(shell, edit.chapterId, edit.cityIdx, edit.generalIdx); return shell; } },
   city: { blank: false, apply: (shell, edit) => editChapterCity(shell, edit.chapterId, edit.cityIdx, edit.values) },
   'city-native': { blank: false, apply: (shell, edit, context) => {
     const next = editChapterCityNative(shell, edit.chapterId, edit.cityIdx, edit.values);
@@ -667,7 +667,15 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     // 逐栏比较（含原生槽位元组）后才移除，避免未申报的改动被「整条删掉」吸收。
     const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId], chapters: { [chapterId]: structuredClone(base) } };
     createFaction(shell, chapterId, { monarchIdx });
-    for (const edit of edits) if (edit?.op === 'set-capital' && edit.chapterId === chapterId && edit.factionIdx === factionIdx) setFactionCapital(shell, chapterId, factionIdx, edit.cityIdx);
+    // 同批已申报的后续命令也属期望值：首都、内政官、外交官与本势力成员（据点／武将）。
+    for (const edit of edits) {
+      if (edit?.chapterId !== chapterId) continue;
+      if (edit.op === 'set-capital' && edit.factionIdx === factionIdx) setFactionCapital(shell, chapterId, factionIdx, edit.cityIdx);
+      else if (edit.op === 'set-strategist' && edit.factionIdx === factionIdx) setStrategist(shell, chapterId, factionIdx, edit.generalIdx);
+      else if (edit.op === 'set-diplomat' && edit.factionIdx === factionIdx) setFactionDiplomat(shell, chapterId, factionIdx, edit.generalIdx);
+      else if (edit.op === 'general-faction' && edit.factionId === factionIdx) setChapterGeneralFaction(shell, chapterId, edit.generalIdx, edit.factionId);
+      else if (edit.op === 'city-faction' && edit.factionId === factionIdx) setChapterCityFaction(shell, chapterId, edit.cityIdx, edit.factionId);
+    }
     compare(shell.chapters[chapterId].state.factions[0], created[0], new WeakMap());
     compare(shell.chapters[chapterId].state.nativeFactionSlotRaw[factionIdx], chapter.state?.nativeFactionSlotRaw?.[factionIdx], new WeakMap());
     const generals = chapter.state?.generals ?? [];

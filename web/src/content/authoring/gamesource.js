@@ -967,6 +967,10 @@ export function setStrategist(game, chapterId, factionIdx, generalIdx) {
   // Authoring contract §3.3, not a native initialization rule. An unchanged
   // imported exception remains intact; a new appointment cannot migrate a general.
   if (generalIdx !== faction.advisor_idx && general.faction !== faction.idx) throw new RangeError("strategist must belong to chapter faction");
+  // 章节设置里的军师（2026-11 用户裁决）：必须是本章开局即到场的本势力武将，
+  // 登场时间 +0x18 是倒计时月数，0 表示开局就在；被俘（+0x17=4）不能受任。
+  if (generalIdx !== faction.advisor_idx && general.appear_months !== 0) throw new RangeError("strategist must appear at chapter start");
+  if (generalIdx !== faction.advisor_idx && (general.status === 4 || general.captive_flag === 0)) throw new RangeError("captive general cannot be strategist");
   const other = postsHeld(game, chapterId, generalIdx).filter(p => !(p.faction === factionIdx && p.post === "strategist"));
   if (other.length) throw new RangeError("strategist holds another post");
   const replaced = faction.advisor_idx ?? null;
