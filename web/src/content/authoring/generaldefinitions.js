@@ -232,7 +232,10 @@ export function applyGeneralDefinitionEdit(game, edit) {
       }
       const slot = (next.state?.generals ?? []).find(row => row?.generalId === edit.generalId);
       if (slot) {
-        const held = (next.state.factions ?? []).some(fa => fa?.monarch_idx === slot.idx || fa?.advisor_idx === slot.idx || fa?.diplomat_idx === slot.idx);
+        // 势力职务与据点太守都算「仍在任」：原版任命同时写 general[+0x17]=2 与
+        // city[+0x19]，清空槽位会让太守引用悬空，所以要求先解任。
+        const held = (next.state.factions ?? []).some(fa => fa?.monarch_idx === slot.idx || fa?.advisor_idx === slot.idx || fa?.diplomat_idx === slot.idx) ||
+          (next.state.cities ?? []).some(city => city?.governor === slot.idx);
         if (held) throw new RangeError('general holds a chapter post; clear it first');
         next = { ...next, state: { ...next.state, generals: next.state.generals.map(row => row?.idx === slot.idx ? emptyGeneralSlot(slot.idx) : row) } };
       }

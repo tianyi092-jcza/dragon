@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
-import { addBlankChapter, assignChapterGeneral, createFaction, setFactionCapital } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, assignChapterGeneral, createFaction, setChapterCityFaction, setChapterGeneralFaction, setCityGovernor, setFactionCapital } from '../web/src/content/authoring/gamesource.js';
 import { applyChapterPersonEdit, applyGeneralDefinitionEdit, generalDefinitionChangeImpact } from '../web/src/content/authoring/generaldefinitions.js';
 const G = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const id = `${G}#general-${'a'.repeat(64)}`;
@@ -71,6 +71,27 @@ assert.equal(templateDeleted.chapters[templateChapter].state.generals[0].general
 const withNativeField = structuredClone(templateCreated);
 withNativeField.chapters[templateChapter].state._src = 'builtin';
 assert.throws(() => applyGeneralDefinitionEdit(withNativeField, { op: 'create', generalId: id2, values: { name: '外來', hao: '', portraitRef: null } }), /not understood/);
+groups++;
+
+// ⑥ 在任太守也算「在任」：库级删除必须拒绝并保持库完好（原版任命同时写
+// general[+0x17]=2 与 city[+0x19]，清空槽位会让太守引用悬空）。
+const governed = applyGeneralDefinitionEdit(structuredClone(created), {
+  op: 'create', generalId: id2, values: { name: '太守', hao: '', portraitRef: portrait, ability },
+});
+assignChapterGeneral(governed, chapterId, { generalId: id, name: '君主', hao: '', portrait: 1 });
+assignChapterGeneral(governed, chapterId, { generalId: id2, name: '太守', hao: '', portrait: 2 });
+createFaction(governed, chapterId, { monarchIdx: 0 });
+setFactionCapital(governed, chapterId, 0, 3);
+setChapterCityFaction(governed, chapterId, 3, 0);
+setChapterGeneralFaction(governed, chapterId, 1, 0);
+setCityGovernor(governed, chapterId, 3, 1);
+assert.equal(governed.chapters[chapterId].state.cities[3].governor, 1);
+assert.equal(governed.chapters[chapterId].state.generals[1].status, 2);
+assert.throws(() => applyGeneralDefinitionEdit(governed, { op: 'delete', generalId: id2 }), /holds a chapter post/);
+assert.ok(governed.generals[id2], 'the refusal leaves the library intact');
+// 解任后即可删除，且槽位回到空位。
+setCityGovernor(governed, chapterId, 3, null);
+assert.equal(Object.hasOwn(applyGeneralDefinitionEdit(governed, { op: 'delete', generalId: id2 }).generals, id2), false);
 groups++;
 
 process.stdout.write(`${JSON.stringify({ groups, scope: 'pinned fixed copy + in-memory objects only; no HTTP, save, native init or runtime grant' })}\n`);
