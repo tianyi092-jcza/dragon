@@ -10,6 +10,9 @@ const { installMapViewer } = await load('mapview');
 const { installPublish } = await load('publish');
 const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
 const game = id => ({ gameId: id, draftRevision: id === A ? '1' : '2', listed: false, metadata: { name: id === A ? '甲' : '乙', introduction: '' } });
+// 上架清單（B2）列形狀：state/version 必須互斥，rowRevision 與 createdAt 必須有效。
+const submission = id => ({ gameId: id, name: id === A ? '甲' : '乙', introduction: '', state: 'draft', version: null,
+  stateTime: null, createdAt: '2026-11-01T00:00:00.000Z', restricted: false, rejected: false, rowRevision: '1' });
 const detail = id => ({ ...game(id), profileRevision: 'fixed-copy-resources-1', strongholds: [], map: { roads: [], placements: 0 }, chapters: [{
   chapterId: id + '#one', name: '章', gaps: { saveGaps: 0, activeGaps: 1 },
   factions: [{ slot: 0, idx: 0, monarch_idx: 0, advisor_idx: null, capital: 0, money: 1, reserve_cav: 0, reserve_arc: 0, reserve_inf: 0 }],
@@ -24,6 +27,7 @@ function harness() {
     calls.push({ path, body, options });
     if (handler) { const value = handler(path, body, options); if (value !== undefined) return value; }
     if (path === '/api/games') return { games: ids.map(game) };
+    if (path === '/api/games/submissions') return { games: ids.map(submission) };
     const id = path.split('/')[3];
     if (path.endsWith('/topology')) return { gameId: id, moves: [], rebuilds: [], blocked: false };
     if (body) throw new Error('owned lost response');
@@ -71,11 +75,11 @@ test('all consent checks precede clearing any dirty input, including an external
   assert.equal(h.calls.length, before); assert.equal(h.models.draft.context, null); assert.deepEqual(h.models.stronghold.cities, []);
 });
 test('map-only preparation participates in every shared game selector and unload veto without requests', async () => {
-  for (const source of ['draft', 'stronghold', 'generals', 'map', 'publication']) {
+  for (const source of ['draft', 'stronghold', 'generals', 'map']) {
     const h = harness(), m = h.members;
     await m.draft.actions.refresh(); await m.draft.actions.load();
     for (const key of ['stronghold', 'generals', 'map', 'publication']) await m[key].actions.refresh();
-    const choose = { draft: m.draft.actions.chooseGame, stronghold: m.stronghold.actions.selectGame, generals: m.generals.actions.selectGame, map: m.map.actions.select, publication: m.publication.actions.select }[source];
+    const choose = { draft: m.draft.actions.chooseGame, stronghold: m.stronghold.actions.selectGame, generals: m.generals.actions.selectGame, map: m.map.actions.select }[source];
     const before = h.calls.length, context = structuredClone(h.models.draft.context);
     assert.equal(context.dirty, false);
     h.consent.mapInputs = true; h.consent.draft = false;
@@ -88,6 +92,13 @@ test('map-only preparation participates in every shared game selector and unload
     assert.equal(h.models.draft.context, null); assert.equal(h.calls.length, before);
     assert.equal(h.confirmations.length, 2); assert.equal(h.storage.size, 0);
   }
+  // 上架面（B2）不是选择源：清单是整份游戏，当前游戏由共享选择决定。
+  const h = harness(), m = h.members;
+  assert.equal(Object.hasOwn(m.publication.actions, 'select'), false);
+  assert.equal(typeof m.publication.selectedGame, 'function');
+  await m.draft.actions.refresh(); h.all(A);
+  m.draft.actions.chooseGame(B); h.all(B);
+  assert.equal(h.calls.length, 1);
 });
 test('an unresolved draft operation cannot be retargeted even after leave confirmation', async () => {
   const h = harness(), m = h.members;
@@ -128,33 +139,26 @@ test('late read failures do not attach an old-game error to any switched entity 
     h.all(B); assert.equal(h.models[key].message, '', key);
   }
 });
-test('publication can establish shared selection; dirty publication veto preserves every panel', async () => {
+test('publication follows the shared selection instead of owning one; a pending operation vetoes leaving', async () => {
   const h = harness(), m = h.members;
-  await m.publication.actions.refresh(); h.all(A); assert.equal(h.calls.length, 1); assert.equal(h.models.publication.name, '甲');
-  await m.draft.actions.refresh(); m.publication.actions.setName('未提交'); const n = h.calls.length;
-  h.consent.publication = false; m.draft.actions.chooseGame(B); h.all(A); assert.equal(h.models.publication.name, '未提交');
-  h.consent.publication = true; m.draft.actions.chooseGame(B); h.all(B); assert.equal(h.models.publication.name, '乙'); assert.equal(h.calls.length, n);
-  m.publication.actions.select(A); h.all(A); assert.equal(h.calls.length, n);
+  await m.draft.actions.refresh();
+  assert.deepEqual(Object.keys(m.publication.actions).sort(), ['check', 'forget', 'publish', 'query', 'refresh', 'remove', 'retry']);
+  await m.publication.actions.refresh(); h.all(A);
+  assert.deepEqual(h.models.publication.rows.map(row => row.name), ['甲', '乙']);
+  m.draft.actions.chooseGame(B); h.all(B);
+  assert.deepEqual(h.models.publication.rows.map(row => row.name), ['甲', '乙'], '整份清單不隨當前遊戲縮小');
+  assert.equal(m.publication.canLeave(true), true);
 });
-test('publication retains its original operation after shared selection switches to a different game', async () => {
+test('the publication list never replaces the shared selection', async () => {
   const h = harness(), m = h.members;
-  await m.draft.actions.refresh(); await m.publication.actions.refresh(); await m.publication.actions.publish();
-  const post = h.calls.at(-1), stored = [...h.storage.entries()];
-  assert.equal(post.path, '/api/publish'); assert.equal(post.body.gameId, A);
-  m.draft.actions.chooseGame(B); h.all(B); assert.deepEqual([...h.storage.entries()], stored);
-  assert.match(h.models.publication.operation, new RegExp(A)); assert.equal(h.models.publication.publishDisabled, true);
-  h.response(path => { if (path.includes('/publish-operations/')) throw Object.assign(new Error('not found'), {status:404,code:'PUBLISH_OPERATION_NOT_FOUND'}); });
-  await m.publication.actions.query(); assert.equal(h.calls.at(-1).path, '/api/games/' + A + '/publish-operations/' + post.options.key);
-  await m.publication.actions.retry(); assert.deepEqual(h.calls.at(-1), post); h.all(B);
-  await m.publication.actions.forget(); assert.equal(h.storage.size, 0); h.all(B);
-});
-test('publication primes a newly read target name but does not replace an omitted shared selection', async () => {
-  const h = harness(), m = h.members;
-  await m.draft.actions.refresh(); m.draft.actions.chooseGame(B);
-  assert.equal(h.models.publication.publishDisabled, true); assert.equal(h.models.publication.name, '');
-  await m.publication.actions.refresh(); assert.equal(h.models.publication.name, '乙'); h.all(B);
+  await m.draft.actions.refresh(); m.draft.actions.chooseGame(B); h.all(B);
+  assert.deepEqual(h.models.publication.rows, [], '未整理前不顯示任何清單項');
+  await m.publication.actions.refresh(); h.all(B);
+  assert.deepEqual(h.models.publication.rows.map(row => row.name), ['甲', '乙']);
   h.list([A]); const n = h.calls.length; await m.publication.actions.refresh();
-  h.all(B); assert.equal(h.calls.length, n + 1); assert.equal(h.models.publication.publishDisabled, true);
+  h.all(B); assert.equal(h.calls.length, n + 1);
+  assert.deepEqual(h.models.publication.rows.map(row => row.name), ['甲']);
+  assert.equal(h.models.publication.locked, false);
 });
 test('coordinator stops both readiness passes immediately when a readiness callback resets', () => {
   for (const resetAt of [1, 2]) {
