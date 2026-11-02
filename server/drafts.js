@@ -100,7 +100,7 @@ function capture(input) {
           const chapters = new Set();
           for (const impact of edit.confirmedImpacts) {
             fields(impact, ['chapterId', 'fields']);
-            if (typeof impact.chapterId !== 'string' || !impact.chapterId.length || impact.chapterId.length > 256 || chapters.has(impact.chapterId) || !Array.isArray(impact.fields) || !impact.fields.length || impact.fields.length > 3 || new Set(impact.fields).size !== impact.fields.length || impact.fields.some(key => !['name', 'hao', 'portraitRef'].includes(key))) fail(422, 'DRAFT_GENERAL_IMPACTS');
+            if (typeof impact.chapterId !== 'string' || !impact.chapterId.length || impact.chapterId.length > 256 || chapters.has(impact.chapterId) || !Array.isArray(impact.fields) || !impact.fields.length || impact.fields.length > 4 || new Set(impact.fields).size !== impact.fields.length || impact.fields.some(key => !['name', 'hao', 'portraitRef', 'ability'].includes(key))) fail(422, 'DRAFT_GENERAL_IMPACTS');
             chapters.add(impact.chapterId);
           }
         }

@@ -26,15 +26,19 @@ assert.deepEqual(first.chapters.one.people[id], { included: true, factionId: nul
 assert.deepEqual(first.chapters.one.state, before.chapters.one.state);
 assert.deepEqual(first.generals, before.generals); assert.deepEqual(first.map, before.map);
 assert.equal(Object.hasOwn(first, 'slotMap'), false);
-assert.deepEqual(effectiveChapterPerson(first, 'one', id), { generalId: id, included: true, factionId: null, values: definition, inheritedFields: ['name', 'hao', 'portraitRef'], overriddenFields: [] });
+assert.deepEqual(effectiveChapterPerson(first, 'one', id), { generalId: id, included: true, factionId: null, values: definition, inheritedFields: ['name', 'hao', 'portraitRef', 'ability'], overriddenFields: [] });
 assert.deepEqual(generalDefinitionReferences(base, id), []); groups++;
 const second = applyChapterPersonEdit(first, bind('two', { name: ' e\u0301 ', hao: '𠮷e\u0301', portraitRef: null }, false));
 assert.deepEqual(second.chapters.two.people[id].overrides, { name: 'é', hao: '𠮷é', portraitRef: null });
 assert.deepEqual(generalDefinitionReferences(second, id), [
-  { chapterId: 'one', included: true, inheritedFields: ['name', 'hao', 'portraitRef'], overriddenFields: [] },
-  { chapterId: 'two', included: false, inheritedFields: [], overriddenFields: ['name', 'hao', 'portraitRef'] },
+  { chapterId: 'one', included: true, inheritedFields: ['name', 'hao', 'portraitRef', 'ability'], overriddenFields: [] },
+  { chapterId: 'two', included: false, inheritedFields: ['ability'], overriddenFields: ['name', 'hao', 'portraitRef'] },
 ]);
-assert.throws(() => applyGeneralDefinitionEdit(second, { op: 'delete', generalId: id }), /referenced/);
+const cascaded = applyGeneralDefinitionEdit(second, { op: 'delete', generalId: id });
+assert.deepEqual(cascaded.generals, {});
+assert.equal(cascaded.chapters.one.people?.[id], undefined, 'chapter references are cleared, not kept dangling');
+assert.equal(cascaded.chapters.two.people?.[id], undefined);
+assert.deepEqual(second.chapters.one.people[id], { included: true, factionId: null, overrides: {} }, 'the source is untouched');
 const nextBase = applyGeneralDefinitionEdit(second, { op: 'update', generalId: id, values: { name: '新甲', hao: '新字', portraitRef } });
 assert.deepEqual(effectiveChapterPerson(nextBase, 'one', id).values, { name: '新甲', hao: '新字', portraitRef });
 assert.deepEqual(effectiveChapterPerson(nextBase, 'two', id).values, { name: 'é', hao: '𠮷é', portraitRef: null });
@@ -42,7 +46,7 @@ assert.deepEqual(effectiveChapterPerson(second, 'one', id).values, definition); 
 // Deleting override keys restores inheritance from the current definition;
 // null clears only portraitRef and never means inheritance.
 const restored = applyChapterPersonEdit(nextBase, bind('two', { portraitRef: null }, false));
-assert.deepEqual(effectiveChapterPerson(restored, 'two', id), { generalId: id, included: false, factionId: null, values: { name: '新甲', hao: '新字', portraitRef: null }, inheritedFields: ['name', 'hao'], overriddenFields: ['portraitRef'] });
+assert.deepEqual(effectiveChapterPerson(restored, 'two', id), { generalId: id, included: false, factionId: null, values: { name: '新甲', hao: '新字', portraitRef: null }, inheritedFields: ['name', 'hao', 'ability'], overriddenFields: ['portraitRef'] });
 const inherited = applyChapterPersonEdit(restored, bind('two', {}, false));
 assert.deepEqual(effectiveChapterPerson(inherited, 'two', id).values, nextBase.generals[id]);
 assert.deepEqual(inherited.chapters.two.people[id].overrides, {}); groups++;
@@ -50,7 +54,10 @@ const sibling = applyGeneralDefinitionEdit(inherited, { ...create, generalId: id
 const withSibling = applyChapterPersonEdit(sibling, bind('one', {}, true, id2));
 const removedOne = applyChapterPersonEdit(withSibling, { op: 'remove', chapterId: 'one', generalId: id });
 assert.deepEqual(generalDefinitionReferences(removedOne, id).map(row => [row.chapterId, row.included]), [['two', false]]);
-assert.throws(() => applyGeneralDefinitionEdit(removedOne, { op: 'delete', generalId: id }), /referenced/);
+const cascadedTwo = applyGeneralDefinitionEdit(removedOne, { op: 'delete', generalId: id });
+assert.equal(Object.hasOwn(cascadedTwo.generals, id), false);
+assert.deepEqual(Object.keys(cascadedTwo.generals), [id2], 'sibling definitions are untouched');
+assert.equal(cascadedTwo.chapters.two.people?.[id], undefined);
 const removedBoth = applyChapterPersonEdit(removedOne, { op: 'remove', chapterId: 'two', generalId: id });
 const deleted = applyGeneralDefinitionEdit(removedBoth, { op: 'delete', generalId: id });
 assert.deepEqual(Object.keys(deleted.generals), [id2]);
@@ -156,7 +163,7 @@ assert.equal(isolatedProjection.chapterPeople[1].people[0].values.portraitRef.sh
 isolatedProjection.chapterPeople[0].people[0].values.portraitRef.sha256 = '0'.repeat(64);
 assert.equal(isolatedProjection.chapterPeople[1].people[0].values.portraitRef.sha256, portraitRef.sha256);
 isolatedProjection.generalReferences[0].chapters[0].inheritedFields.length = 0;
-assert.deepEqual(isolatedProjection.chapterPeople[0].people[0].inheritedFields, ['name', 'hao', 'portraitRef']);
+assert.deepEqual(isolatedProjection.chapterPeople[0].people[0].inheritedFields, ['name', 'hao', 'portraitRef', 'ability']);
 assert.deepEqual(chapterPeopleProjection(twoInherited).chapterPeople[0].people[0].values.portraitRef, portraitRef); groups++;
 const badImpactValues = { ...definition };
 Object.defineProperty(badImpactValues, 'name', { enumerable: true, get() { getters++; throw new Error('must not read impact getter'); } });

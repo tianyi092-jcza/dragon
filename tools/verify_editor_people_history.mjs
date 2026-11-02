@@ -73,7 +73,10 @@ const retired = [...withoutOriginal, step([{ op: 'delete', chapterId: copyId }],
 const retiredSource = candidate(retired); verify(retiredSource, retired);
 assert.deepEqual(retiredSource.generals, {});
 assert.deepEqual(retiredSource.chapters[chapterId].people, {});
-refused(retiredSource, [...withoutOriginal, step([], [removeGeneral]), step([{ op: 'delete', chapterId: copyId }])]);
+// 取消勾选＝删除库记录并级联清空各章引用（2026-11 用户裁决 B）：被引用的定义
+// 不再 fail-closed，回放时级联清理必须与声明顺序一致才通过比对。
+verify(retiredSource, [...withoutOriginal, step([], [removeGeneral]), step([{ op: 'delete', chapterId: copyId }])]);
+// 同一步内先删章再改该章 people 仍非法（章已不存在），与定义级联无关。
 refused(retiredSource, [...ordered, step([{ op: 'delete', chapterId: copyId }], [removeGeneral], [remove(chapterId)])]);
 // Removing the last reference in a prior step, then deleting, is valid.
 const removeAll = [...withoutOriginal, step([], [], [remove(copyId)]), step([], [removeGeneral])];

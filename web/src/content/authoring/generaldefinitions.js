@@ -4,7 +4,8 @@
 // (B5); its entries are imported/copied from the bottom-layer general records
 // and are not a cross-chapter person identity.
 import { KAO_MANIFEST } from '../../../kao/manifest.js';
-import { BUILTIN_GAME_ID } from './gamesource.js';
+import { ABILITY_LIMITS, BUILTIN_GAME_ID } from './gamesource.js';
+import { emptyGeneralSlot } from './chaptermaterialize.js';
 import { captureChapterCities } from './cityrecords.js';
 
 const portraits = new Map(KAO_MANIFEST.map(row => [row.id, row.sha256]));
@@ -22,7 +23,19 @@ function text(value) {
   }
   return value.normalize('NFC');
 }
-const definitionFields = ['name', 'hao', 'portraitRef'];
+// 能力值是游戏级资料库的基本属性（2026-11 用户裁决 A），章节只能覆写；
+// 旧记录可以没有 ability（不补默认值，缺省＝尚未录入）。
+const definitionFields = ['name', 'hao', 'portraitRef', 'ability'];
+function abilityValue(value) {
+  plain(value, Object.keys(ABILITY_LIMITS));
+  const captured = {};
+  for (const [field, max] of Object.entries(ABILITY_LIMITS)) {
+    const current = value[field];
+    if (!Number.isInteger(current) || Object.is(current, -0) || current < 0 || current > max) throw new RangeError(`general ability ${field} out of range`);
+    captured[field] = current;
+  }
+  return captured;
+}
 function fieldValue(key, value) {
   if (key === 'name') {
     const name = text(value).trim();
@@ -30,6 +43,7 @@ function fieldValue(key, value) {
     return name;
   }
   if (key === 'hao') return text(value);
+  if (key === 'ability') return abilityValue(value);
   if (value === null) return null;
   plain(value, ['assetId', 'sha256']);
   const { assetId, sha256 } = value;
@@ -37,8 +51,12 @@ function fieldValue(key, value) {
   return { assetId, sha256 };
 }
 function definition(values) {
-  plain(values, definitionFields);
-  return Object.fromEntries(definitionFields.map(key => [key, fieldValue(key, values[key])]));
+  plain(values);
+  const keys = Object.keys(values), required = ['name', 'hao', 'portraitRef'];
+  if (required.some(key => !Object.hasOwn(values, key)) || keys.some(key => !definitionFields.includes(key))) throw new TypeError('general definition fields required');
+  const captured = Object.fromEntries(required.map(key => [key, fieldValue(key, values[key])]));
+  if (Object.hasOwn(values, 'ability')) captured.ability = fieldValue('ability', values.ability);
+  return captured;
 }
 function identity(gameId, generalId) {
   const prefix = gameId + '#general-';
@@ -189,9 +207,29 @@ export function applyGeneralDefinitionEdit(game, edit) {
   const exists = Object.hasOwn(generals, edit.generalId);
   if (edit.op === 'create' ? exists : !exists) throw new RangeError('general definition identity conflict');
   if (edit.op === 'delete') {
-    if (references(scope, edit.generalId).length) throw new RangeError('general definition is referenced by chapters');
+    // 取消勾选＝游戏级不可用（2026-11 用户裁决 B）：删除库记录并清空各章对该身份的
+    // 引用（people 与原生槽位）。仍担任本章职务的槽位必须先解除，不做隐式免职。
+    const chapters = { ...game.chapters };
+    for (const [chapterId, { chapter }] of scope.chapters) {
+      let next = chapter;
+      if (Object.hasOwn(next, 'people') && Object.hasOwn(next.people, edit.generalId)) {
+        const kept = Object.fromEntries(Object.entries(next.people).filter(([id]) => id !== edit.generalId));
+        next = { ...next };
+        if (Object.keys(kept).length) next.people = kept;
+        else delete next.people;
+      }
+      const slot = (next.state?.generals ?? []).find(row => row?.generalId === edit.generalId);
+      if (slot) {
+        const held = (next.state.factions ?? []).some(fa => fa?.monarch_idx === slot.idx || fa?.advisor_idx === slot.idx || fa?.diplomat_idx === slot.idx);
+        if (held) throw new RangeError('general holds a chapter post; clear it first');
+        next = { ...next, state: { ...next.state, generals: next.state.generals.map(row => row?.idx === slot.idx ? emptyGeneralSlot(slot.idx) : row) } };
+      }
+      if (next !== chapter) chapters[chapterId] = next;
+    }
     delete generals[edit.generalId];
-  } else generals[edit.generalId] = definition(edit.values);
+    return { ...game, generals, chapters };
+  }
+  generals[edit.generalId] = definition(edit.values);
   return { ...game, generals };
 }
 export function applyChapterPersonEdit(game, edit) {
