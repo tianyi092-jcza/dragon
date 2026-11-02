@@ -205,6 +205,9 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  const actions = Object.freeze({ refresh: action(refresh), check: action(check), publish: action(submit), remove: action(remove), query: action(query), retry: action(retry), forget: action(forget) });
  return Object.freeze({ actions, render,
   setIdentity(value) { const next = value?.user ? { user: { id: value.user.id, version: value.user.version, role: value.user.role, mustChangePassword: value.user.mustChangePassword } } : null; const changed = JSON.stringify(identity) !== JSON.stringify(next); identity = next; if (changed) { generation++; rows = []; message(''); references = null; restore(); } render(); },
+  // 上架面是整遊戲清單，沒有自己的「當前遊戲」；它跟隨共享選擇（gameContext），
+  // 這樣五個面板對「現在處理哪個遊戲」永遠同一個答案。
+  selectedGame: () => (allowed() ? gameContext?.current() ?? null : null),
   canAdoptGame(id) { return uuid(id) && current({ id: identity?.user.id, version: identity?.user.version, generation }); },
   adoptGame(id) { if (!uuid(id)) return; render(); },
   canLeave(forUnload = false) { return (!pending && !badJournal) || (!forUnload && confirm('原上架或刪除操作仍保留在本分頁。離開不取消請求；返回後須明確查詢。')); } });
