@@ -50,7 +50,10 @@ test('unknown roles, overrides, IDs and operations refuse atomically, including 
   const game = fixture(), before = structuredClone(game);
   for (const value of [null, {}, { factionId: null }, { factionId: 'f', overrides: {} }, { factionId: 255, overrides: {} }, { factionId: null, overrides: { name: '章名' } }, { factionId: null, overrides: { troops: 0 } }, { factionId: null, overrides: {}, governor: null }]) assert.throws(() => applyChapterCityEdit(game, { ...edit(), values: value }));
   for (const change of [{ op: 'move' }, { chapterId: 'missing' }, { cityId: 'missing' }, { x: 1 }]) assert.throws(() => applyChapterCityEdit(game, { ...edit(), ...change }));
-  for (const mutate of [g => { g.sourceRef.kind = 'builtin-copy'; }, g => { g.chapters.two.state.cities.push({ idx: 0 }); }, g => { g.chapters.two.cities = { missing: { factionId: null, overrides: {} } }; }, g => { g.cities.b.runtimeSlot = 0; }]) {
+  // 2026-11 裁定（journal §47.2）：`builtin-copy` 与 `builtin-template` 都是合法来源种类
+  // （`generaldefinitions.js#captureScope`），因此“改成 builtin-copy 应被拒”的旧用例已过期。
+  // 这里换成真正的失闭环：**未知**来源种类仍必须被拒。
+  for (const mutate of [g => { g.sourceRef.kind = 'builtin-unknown'; }, g => { g.chapters.two.state.cities.push({ idx: 0 }); }, g => { g.chapters.two.cities = { missing: { factionId: null, overrides: {} } }; }, g => { g.cities.b.runtimeSlot = 0; }]) {
     const bad = structuredClone(game); mutate(bad); const prior = structuredClone(bad);
     assert.throws(() => applyChapterCityEdit(bad, edit())); assert.throws(() => chapterCitiesProjection(bad)); assert.deepEqual(bad, prior);
   }
