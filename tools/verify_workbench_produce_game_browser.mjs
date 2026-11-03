@@ -101,15 +101,13 @@ try {
 
   stage = '作者看不到「複製遊戲」：整套複製是管理員能力';
   await login(authority.account, authority.password);
-  await page.click('#menu button[data-view="draft-editor"]'); await page.waitForSelector('#draft-editor');
-  assert.equal(await page.locator('#draft-full-copy').count(), 0, '作者不得有整套複製入口');
+  assert.equal(await page.locator('#menu button[data-view="copy-game-editor"]').count(), 0, '作者不得有整套複製入口');
   checks.push(stage);
 
   stage = '管理員「複製遊戲」真實產出：20 章，不使用預先寫入的 SQL bootstrap';
   await page.context().clearCookies();
   await login('tianyi', authority.password);
-  await page.click('#menu button[data-view="draft-editor"]'); await page.waitForSelector('#draft-editor');
-  await page.waitForSelector('#draft-full-copy');
+  await page.click('#menu button[data-view="copy-game-editor"]'); await page.waitForSelector('#copy-game-editor');
   await page.fill('#full-copy-name', producedName);
   await page.fill('#full-copy-introduction', '工作台量產驗證');
   const copyPosts = calls.length;
@@ -124,6 +122,7 @@ try {
   produced = sql.exec('SELECT game_id, draft_name, row_revision FROM content_games WHERE draft_name=? ORDER BY created_at DESC LIMIT 1', producedName).toArray()[0];
   assert.ok(produced?.game_id, '真實 DB 必須出現新遊戲');
   assert.notEqual(produced.game_id, previousProductId, '必須是新的 gameId，不是就地改寫');
+  await page.click('#menu button[data-view="draft-editor"]'); await page.waitForSelector('#draft-editor');
   await page.click('#draft-games-refresh');
   await page.waitForSelector(`#draft-list-times tr[data-game-id="${produced.game_id}"]`);
   await page.selectOption('#draft-game', produced.game_id);

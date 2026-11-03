@@ -56,7 +56,6 @@ function setDiplomat(faction, event) {
 
 <template>
   <section id="chapters-editor" class="module-card">
-    <h2>遊戲章節</h2>
     <p>章節屬遊戲級：每章各自有開始年代、據點所屬／首都與武將所屬／職務；地圖與武將基礎資料由底層資源共用。三面都只送一條命令，保存後自動重讀該修訂，不開放初始化或運行准入。</p>
     <p v-if="!attributes.supported" class="module-notice">本修訂屬封閉原生的作者檔案：章節屬性只能改章名與章節結構，原生勢力／據點／武將欄位保持封閉，請改用完整副本再編輯。</p>
     <p v-else-if="!attributes.known" class="module-notice">尚未取得完整章節屬性投影：請先載入完整副本的明確修訂並確認沒有未確認的保存操作。</p>

@@ -29,7 +29,8 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       message: allowed ? message : '', locked,
       resume: allowed && resumable(),
       // Resumable operations must stay clickable: the button then reads 確認新建（續）.
-      createDisabled: locked || broken || needsQuery,
+      // 結果未知但原鍵仍在＝可續查：按鈕必須可點（讀作「（續）」），不能把人鎖死。
+      createDisabled: locked || broken || (needsQuery && !operation),
     });
   }
   function restore() {
@@ -85,7 +86,11 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     return { registryId, name, introduction };
   }
   async function create() {
-    if (broken || needsQuery || (operation && !summary)) throw new Error('請先明確查詢原操作，不另建未知目標。');
+    if (broken) throw new Error('本機原鍵不可讀，不能另建；請先恢復原關聯儲存。');
+    // 有原鍵但結果未知（reload 後 summary 遺失、或回應被代理層切斷）：只能續用同一個原鍵，
+    // 先依原鍵查詢再決定；不另建第二份。
+    if (operation && (needsQuery || !summary)) { await runExisting(ticket()); return; }
+    if (needsQuery) throw new Error('請先明確查詢原操作，不另建未知目標。');
     const validText = (text, limit, required) => {
       const normalized = text.trim().normalize('NFC');
       return (!required || normalized.length > 0) && normalized.isWellFormed() && [...normalized].length <= limit &&
@@ -120,7 +125,15 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     if (summary.draftRevision) { message = label + '已建立。'; if (!full) await ownGames(t); render(); return; }
     if (!pending()) { message = '此原操作已結束，未產生副本。'; render(); return; }
     needsQuery = true; message = '正在寫入' + label + '，請勿重複提交…'; render();
-    const done = await api(operationPath(key) + '/run', {}, { revision: summary.rowRevision });
+    // 迴路可能被代理層切斷（長請求：Cloudflare 約 100 秒、nginx 499）：回應遺失不等於未執行。
+    // 依既有原則「不另建第二份」，先用同一個原鍵查詢實際結果，再決定訊息。
+    let done;
+    try { done = await api(operationPath(key) + '/run', {}, { revision: summary.rowRevision }); }
+    catch (error) {
+      if (!valid(t) || operation !== key) throw error;
+      message = '回應中斷，正在依原鍵查詢實際結果…'; render();
+      try { done = await api(operationPath(key)); } catch { throw error; }
+    }
     if (!valid(t) || operation !== key) return;
     summary = decodeSummary(done, summary.gameId); needsQuery = false;
     // 只有已保存修訂才是已建立；回應停在 pending／running 不推定成功。

@@ -26,7 +26,6 @@ async function remove(row) {
 </script>
 <template>
   <section id="review-editor" class="module-card">
-    <h3>上架審核</h3>
     <p>管理員專屬，跨創作者列出所有遊戲。狀態只有三種：草稿（未提交過）／待上架（已提交，等待審核）／已上架；被拒絕的待上架版本另標「已駁回」。</p>
     <p>「同意上架」讓該版本成為公開版本；「拒絕」把它退回待上架並標記已駁回，作者需重新提交新版本；「刪除」刪的是整個遊戲（所有章節與所有版本），任何狀態都可刪，立即生效且不可恢復。</p>
     <div class="module-toolbar">

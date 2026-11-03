@@ -2,7 +2,7 @@
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 import ChapterRolesPanel from './ChapterRolesPanel.vue';
-defineProps({ model: Object, actions: Object, busy: Boolean, copyModel: Object, copyActions: Object });
+defineProps({ model: Object, actions: Object, busy: Boolean });
 const resourceFields = [['money', '資金'], ['reserve_cav', '騎兵'], ['reserve_arc', '弓兵'], ['reserve_inf', '步兵']];
 function choose(event, actions, model) {
   actions.chooseGame(event.target.value);
@@ -13,7 +13,6 @@ function choose(event, actions, model) {
 
 <template>
   <section id="draft-editor" class="module-card">
-    <h2>遊戲管理</h2>
     <p>先選遊戲並載入明確已保存修訂；清單刷新不會替換正在編輯的資料。</p>
     <div class="module-toolbar">
       <ElButton id="draft-games-refresh" :disabled="busy || model.locked" @click="actions.refresh()">查看自己的遊戲</ElButton>
@@ -28,14 +27,6 @@ function choose(event, actions, model) {
         <tr v-for="game in model.games" :key="game.gameId" :data-game-id="game.gameId"><td>{{ game.name }}／{{ game.draftRevision }}</td><td>{{ game.createdAt ?? '未記錄' }}</td><td>{{ game.modifiedAt ?? '未記錄' }}</td><td>{{ game.introduction }}</td><td>{{ game.creator ?? '未記錄' }}</td></tr>
       </tbody></table></div>
     </details>
-    <section v-if="copyModel?.visible" id="draft-full-copy" class="module-form">
-      <h3>複製遊戲（管理員）</h3>
-      <p>地圖＋章節＋武將全套複製，產生原章完整副本；與「新建遊戲」只複製地圖不同。來源固定為已登記的底層資源，不選 registry。</p>
-      <label>名稱<input id="full-copy-name" maxlength="1024" :value="copyModel.name" :disabled="busy || copyModel.locked" @input="copyActions.setField('name', $event.target.value)"></label>
-      <label>簡介<input id="full-copy-introduction" maxlength="1024" :value="copyModel.introduction" :disabled="busy || copyModel.locked" @input="copyActions.setField('introduction', $event.target.value)"></label>
-      <ElButton id="full-copy-create" type="primary" :disabled="busy || copyModel.createDisabled" @click="copyActions.create()">{{ copyModel.resume ? '複製遊戲（續）' : '複製遊戲' }}</ElButton>
-      <p id="full-copy-message" role="status">{{ copyModel.message }}</p>
-    </section>
     <p id="draft-context">{{ model.context ? `${model.context.gameId}／已保存修訂 ${model.context.draftRevision}${model.context.dirty ? '／有未保存修改' : ''}` : '未載入私有草稿' }}</p>
     <p id="draft-status" class="module-notice" role="status">{{ model.message }}</p>
     <form id="draft-save" class="module-form" @submit.prevent="actions.save()">

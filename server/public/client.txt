@@ -49,6 +49,7 @@ const views = [
   ['chapters-editor', '遊戲章節', false, 'game'],
   ['publish-editor', '上架管理', false, 'game'],
   ['management-editor', '上架審核', true, 'admin'],
+  ['copy-game-editor', '複製遊戲', true, 'admin'],
 ];
 let view = null, displayedOwner = null;
 const accounts = createAccountController({ api, authority: () => current, work: run, publish: model => shell.accounts(model), confirm: text => confirm(text) });

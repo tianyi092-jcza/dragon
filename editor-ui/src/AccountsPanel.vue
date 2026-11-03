@@ -20,7 +20,7 @@ defineExpose({ dirty: () => Boolean(newAccount.value) });
 
 <template>
   <section id="admin" class="accounts-panel module-card" aria-label="創作者帳戶" :aria-busy="busy">
-    <div class="accounts-intro"><div><h2>帳戶管理</h2><p class="muted">管理創作者的存取權限；停用帳戶不會自動下架其遊戲。</p></div><ElButton id="refresh" :disabled="busy" @click="actions.refresh()">重載清單</ElButton></div>
+    <div class="accounts-intro"><div><h2>帳戶清單</h2><p class="muted">管理創作者的存取權限；停用帳戶不會自動下架其遊戲。</p></div><ElButton id="refresh" :disabled="busy" @click="actions.refresh()">重載清單</ElButton></div>
     <form id="create" class="account-create" @submit.prevent="create">
       <label for="new-account">新創作者帳戶<input id="new-account" v-model="newAccount" name="account" required maxlength="32" autocomplete="off" :disabled="busy || model.stale" aria-describedby="account-password-note"></label>
       <ElButton type="primary" native-type="submit" :disabled="busy || model.stale">建立</ElButton>

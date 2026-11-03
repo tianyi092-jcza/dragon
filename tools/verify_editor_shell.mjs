@@ -28,7 +28,8 @@ const publishView = readFileSync('editor-ui/src/PublishPanel.vue', 'utf-8');
 // 已取消界面的孤立組件（ManagementPanel／DeletionPanel／Stage*／Library）不再供給任何 id：
 // 它們不在出貨殼內，讀它們只會製造「面板存在」的假通過。
 const reviewView = readFileSync('editor-ui/src/ReviewPanel.vue', 'utf-8');
-const htmlIds = new Set([...(reviewView + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + mapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
+const copyGameView = readFileSync('editor-ui/src/CopyGamePanel.vue', 'utf-8');
+const htmlIds = new Set([...(reviewView + copyGameView + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + mapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
 // Login home: login form + hidden session/menu; no business content outside.
 check("login-form", accountViews.includes('<form id="login">'));
 check("menu-nav", shell.includes('<aside id="menu"') && shell.includes(':hidden="!ready"'));
@@ -38,12 +39,12 @@ check("session-hidden", shell.includes('<section id="session" :hidden="!state.au
 // three-level workbench structure; cancelled modules keep server capability.
 	// 視圖 id 與面板根節點 id 不是同一件事（歷史名 management-editor 渲染 ReviewPanel 的 review-editor），
 	// 因此逐項登記面板組件，並要求出貨殼真的 import 該組件、且用同一視圖 id 控制顯示。
-	const viewPanels = { "copy": ["CopyPanel", "copy"], "draft-editor": ["DraftPanel", "draft-editor"], "admin": ["AccountsPanel", "admin"], "catalog-editor": ["CatalogPanel", "catalog-editor"], "stronghold-editor": ["StrongholdPanel", "stronghold-editor"], "mapview-editor": ["MapPanel", "mapview-editor"], "generals-editor": ["GeneralsPanel", "generals-editor"], "chapters-editor": ["ChaptersPanel", "chapters-editor"], "publish-editor": ["PublishPanel", "publish-editor"], "management-editor": ["ReviewPanel", "review-editor"] };
+	const viewPanels = { "copy": ["CopyPanel", "copy"], "draft-editor": ["DraftPanel", "draft-editor"], "admin": ["AccountsPanel", "admin"], "catalog-editor": ["CatalogPanel", "catalog-editor"], "stronghold-editor": ["StrongholdPanel", "stronghold-editor"], "mapview-editor": ["MapPanel", "mapview-editor"], "generals-editor": ["GeneralsPanel", "generals-editor"], "chapters-editor": ["ChaptersPanel", "chapters-editor"], "publish-editor": ["PublishPanel", "publish-editor"], "management-editor": ["ReviewPanel", "review-editor"], "copy-game-editor": ["CopyGamePanel", "copy-game-editor"] };
 	for (const [id, [component, root]] of Object.entries(viewPanels)) {
 		check(`view-section:${id}`, htmlIds.has(root) && client.includes(`'${id}'`) && shell.includes(`import ${component} from './${component}.vue'`) && shell.includes(`state.view !== '${id}'`));
 	}
 // Menu labels are fixed by the product contract.
-for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "系統資源", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架管理", "上架審核"]) {
+for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "系統資源", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架管理", "上架審核", "複製遊戲"]) {
 	check(`view-label:${label}`, client.includes(`'${label}'`));
 }
 check("menu-groups", ["workbench", "game", "admin"].every(group => client.includes(`'${group}'`)) && shell.includes("'工作台級'") && shell.includes("'遊戲級'"));
@@ -70,7 +71,7 @@ check('copy-controller', client.includes('createCopyController({api') && client.
 // 管理員「複製遊戲」才走既有 /api/admin/copies 整套複製；兩者共用一份協議實現。
 check("copy-create-map-only", copyView.includes('只複製底層地圖') && readFileSync('server/editorapp.js', 'utf-8').includes('profileRevision: FIXED_TEMPLATE_PROFILE'));
 check("copy-mode-split", (() => { const c = readFileSync('editor-ui/src/copy.js', 'utf-8'); return c.includes("mode = 'minimal'") && c.includes("reservePath = full ? '/api/admin/copies' : '/api/games'") && c.includes("'/api/admin/source'") && c.includes('editor-fullcopy-operation:'); })());
-check("admin-fullcopy-ui", draftView.includes('id="draft-full-copy"') && draftView.includes('id="full-copy-create"') && shell.includes(':copy-model="fullCopyModel"') && client.includes("mode: 'full'") && client.includes('shell.fullCopy') && client.includes('fullCopyUI.canLeave(forUnload)') && client.includes('fullCopyUI.pagehide()'));
+check("admin-fullcopy-ui", copyGameView.includes('id="copy-game-editor"') && copyGameView.includes('id="full-copy-create"') && !draftView.includes('id="draft-full-copy"') && shell.includes(':model="fullCopyModel" :actions="fullCopy"') && client.includes("mode: 'full'") && client.includes('shell.fullCopy') && client.includes('fullCopyUI.canLeave(forUnload)') && client.includes('fullCopyUI.pagehide()'));
 // Menu CSS present.
 check("menu-css", css.includes("#menu") && css.includes(".workbench") && css.includes('.workbench [hidden]') && !css.includes('#main'));
 // B2 (§4.6): profile route + last-admin guard + dto fields.

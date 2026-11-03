@@ -12,6 +12,7 @@ import MapPanel from './MapPanel.vue';
 import CatalogPanel from './CatalogPanel.vue';
 import GeneralsPanel from './GeneralsPanel.vue';
 import CopyPanel from './CopyPanel.vue';
+import CopyGamePanel from './CopyGamePanel.vue';
 import PublishPanel from './PublishPanel.vue';
 import ReviewPanel from './ReviewPanel.vue';
 const props = defineProps({ state: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, mapviewModel: Object, mapview: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
@@ -80,7 +81,7 @@ function go(view) { if (userMenu.value) userMenu.value.open = false; props.navig
       <section id="session" :hidden="!state.authenticated">
         <AccountPages :state="state" :ready="ready" />
         <AccountsPanel ref="accountsPanel" :model="accountsModel" :actions="accounts" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'admin'" />
-        <DraftPanel :model="draftModel" :actions="draft" :busy="state.busy" :copy-model="fullCopyModel" :copy-actions="fullCopy" :hidden="!ready || state.view !== 'draft-editor'" />
+        <DraftPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'draft-editor'" />
         <ChaptersPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'chapters-editor'" />
         <StrongholdPanel :model="strongholdModel" :actions="stronghold" :draft-model="draftModel" :draft-actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'stronghold-editor'" />
         <MapPanel ref="mapPanel" :model="mapviewModel" :actions="mapview" :draft-model="draftModel" :draft-actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'mapview-editor'" />
@@ -89,6 +90,7 @@ function go(view) { if (userMenu.value) userMenu.value.open = false; props.navig
         <CopyPanel :model="copyModel" :actions="copy" :busy="state.busy" :hidden="!ready || state.view !== 'copy'" />
         <PublishPanel :model="publicationModel" :actions="publication" :busy="state.busy" :hidden="!ready || state.view !== 'publish-editor'" />
         <ReviewPanel :model="reviewModel" :actions="review" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'management-editor'" />
+        <CopyGamePanel :model="fullCopyModel" :actions="fullCopy" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'copy-game-editor'" />
       </section>
     </main>
   </div>

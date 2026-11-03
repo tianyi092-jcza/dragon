@@ -161,7 +161,7 @@ try {
   // 選單本身就是出貨真相：視圖 id 來自 client.txt，面板根節點 id 另表映射。
   // 歷史名 management-editor 實際渲染 ReviewPanel 的 review-editor；
   // 階段任務／階段結構／素材庫／刪除追蹤為已取消界面（工作台結構 §3），不在選單內。
-  const panelRoot = { copy: 'copy', 'draft-editor': 'draft-editor', admin: 'admin', 'catalog-editor': 'catalog-editor', 'stronghold-editor': 'stronghold-editor', 'mapview-editor': 'mapview-editor', 'generals-editor': 'generals-editor', 'chapters-editor': 'chapters-editor', 'publish-editor': 'publish-editor', 'management-editor': 'review-editor' };
+  const panelRoot = { copy: 'copy', 'draft-editor': 'draft-editor', admin: 'admin', 'catalog-editor': 'catalog-editor', 'stronghold-editor': 'stronghold-editor', 'mapview-editor': 'mapview-editor', 'generals-editor': 'generals-editor', 'chapters-editor': 'chapters-editor', 'publish-editor': 'publish-editor', 'management-editor': 'review-editor', 'copy-game-editor': 'copy-game-editor' };
   const menuViews = await page.locator('#menu button[data-view]').evaluateAll(nodes => nodes.map(node => node.dataset.view));
   assert.deepEqual(menuViews, Object.keys(panelRoot), 'menu follows the approved workbench structure');
   const beforeNavigation = calls.length;

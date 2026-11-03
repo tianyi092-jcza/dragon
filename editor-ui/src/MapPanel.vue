@@ -26,7 +26,6 @@ function choose(event) { props.actions.select(event.target.value); event.target.
 </script>
 <template>
   <section id="mapview-editor" class="module-card">
-    <h2>地圖與水域顯示</h2>
     <label v-if="draftModel?.workspace">目前編輯層<select id="map-current-layer" :value="draftModel.workspace.layer" :disabled="busy || draftModel.workspace.locked" @change="draftActions.mapLayer($event.target.value)"><option value="base">基本地圖</option><option value="decor">裝飾</option><option value="roads">道路（目前唯讀）</option><option value="cities">據點（目前唯讀）</option></select></label>
     <p>只在目前層執行補底或裝飾實例操作；換層不改顯隱、鎖定、已存內容或其它表單，也不自動保存。道路／據點尚未開放寫入。素材庫與水域組資料管理獨立。</p>
     <MapWindowPanel :model="draftModel" :actions="draftActions" :busy="busy" :placement-ready="placementReady" :placement-footprint="placementFootprint" :placement-drag="placementDrag" :shift-anchor="shiftAnchor" :shift-preview="shiftPreview" @shift-candidate="shiftCandidate = $event" @shift-point="materialPanel?.useShiftPoint($event)" @placement-drag-end="placementDrag = null" @placement-point="materialPanel?.useWindowPoint($event)" @base-cells="basePanel?.useWindowCells($event)" />

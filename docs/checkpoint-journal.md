@@ -193,13 +193,37 @@
   key id 用 wrangler.jsonc 的 PLAYER_ADMISSION_ACTIVE_KEY=primary。/play-api/v1/registry 仍 503 REGISTRY_EMPTY＝尚无上架游戏，属预期。
 - **回滚材料**：`app-old-*`、镜像 20261031-cr8／ui-8fb4d6c、`.env.before-*`、`publication.env.before-*`、nginx 备份、`/root/dragon-editor-backups/publication-20261103T123009Z`。
 
+### 4.8 生产可用性修复：复制长请求丢回复 + 复制游戏独立模块 + 去重标题
+
+- **「复制失败」其实是成功**：`copy_requests` 该行 `state=committed`、`copy_objects` 49 个 chunk 全 committed，
+  但 nginx access log 里 `POST /api/admin/copies/<key>/run` 是 **499**（上游客户端先断开）。整套复制是单个长请求，
+  超过 Cloudflare 对源站的约 100 秒上限 → CF 掐断 → 应用回 HTML 错误页 → 前端 `response.json()` 失败 → 「服務回應無效。」
+- **修复 1（客户端）**：`editor-ui/src/copy.js` 的 `/run` 失败时，先用**同一个原键**查一次（`GET /api/admin/copies/<key>`）再决定提示；
+  仍失败才报错。判据不变：只有 `draftRevision` 存在才算已建立。
+- **修复 2（真 bug）**：`create()` 原守卫 `(operation && !summary)` 抢在「续用原键」之前抛错。刷新后 `summary` 只在内存，
+  于是「複製遊戲（續）」按钮点了只会报「請先明確查詢原操作，不另建未知目標。」，永远走不出死路。
+  改为：有原键且结果未知（`needsQuery || !summary`）直接走 `runExisting()`（先查原键）；`needsQuery` 不再禁用按钮
+  （`createDisabled: locked || broken || (needsQuery && !operation)`）。
+- **修复 3（基础设施）**：线上 vhost 的 api location 补 `proxy_read_timeout/proxy_send_timeout 600s`（备份 `/root/dragon-editor.nginx-before-timeout-*.conf`）。
+- **产品重构（用户要求）**：新增管理员模块「複製遊戲」（`editor-ui/src/CopyGamePanel.vue`，根节点 `#copy-game-editor`，
+  菜单 view id `copy-game-editor`，`admin` 分组、仅管理员可见），位置在「上架審核」之后；`#full-copy-*` 元素 id 保持不变，
+  但已整体搬离 `DraftPanel.vue`（`#draft-full-copy` 不复存在），「遊戲管理」恢复简洁。
+- **去重标题（用户要求）**：页面顶部已有「編輯後台 / X」+ `<h1>X</h1>`，各面板又重复一遍。删除重复的模块级标题：
+  遊戲管理、遊戲章節、武將管理（原「武將庫與章節武將」）、地圖管理（原「地圖與水域顯示」）、上架管理、上架審核；
+  「帳戶管理」改「帳戶清單」避免与菜单名重复。小节标题（章節定義／據點數值／勢力…）保留。
+- **验证**：`verify_editor_shell` **92 checks**（新增 copy-game-editor 视图段 + 标签 + `htmlIds` 纳入 CopyGamePanel）、
+  `verify_editor_workbench_browser` **219 checks**（菜单派生 11 项）、`verify_workbench_produce_game_browser` **7 checks**（改从新模块入口驱动）。
+- **部署**：工作树快照（`git write-tree`＋`git commit-tree` 生成临时树，不动 refs）→ tgz → VPS 解包/构建/换目录；
+  保持同一 `EDITOR_DEPLOYMENT_ID` 可避免重新播种静态发布，但即便如此首启仍要约 20 分钟才 healthy（期间 nginx 502 属正常）。
+  线上 `/shell-ui.js` = 本地构建字节数（689470）。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。
 2. **已封存／已退役，都不是现行门**：`verify_editor_backend_deletion_definitions`（`pinned/worker.js` 世代快照）、`verify_editor_fullcopy_water_browser`（水域面板未挂载＋旧壳 id）。
 3. **手动 harness（非 CI 级门）**：`verify_editor_roles_browser`、`verify_trial_app_boot`、`verify_editor_backend_admin_copy`（需 `MINIFLARE_MODULE`）。
 4. ~~产品侧待办~~：维护闸门已解除、PLAYER_ADMISSION_KEYS 已配置（见 §4.7）；剩下就是用户在 `dragon-editor.720108.xyz` 以管理员做「複製遊戲 → 上架 → 同意」。
-5. 本轮改动（`trialweb.txt` LF 重建已提交 `8efcc99`；§4.7 文档待提交）。
+5. 复制长请求仍受 Cloudflare 约 100 秒上限约束：现在靠「丢回复→按原键查询」兜底；若仍嫌慢，下一步改成后台任务＋前端轮询。
 
 ## 6. 下一步（建议顺序）
 
