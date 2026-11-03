@@ -153,6 +153,15 @@ export function createPublicPlayerBrowserProbe({ browser, origin, gameId, chapte
       await page.goto(origin + '/'); await title();
       await page.locator('.player-catalog option').filter({hasText:'1.0'}).first().waitFor({state:'attached'});
       assert.equal(await page.locator('.player-catalog select').inputValue(), 'wolong-builtin');
+      // 現行產品口徑（2026-11）：內置仍是默認首項，量產遊戲上架後只是多一個可選項；
+      // 兩者必須同時出現在下拉框，且選中量產遊戲要真的開那一局（而不是回落到內置）。
+      const catalogOptions = await page.locator('.player-catalog select option').evaluateAll(nodes => nodes.map(node => ({ value: node.value, label: node.textContent })));
+      assert.equal(catalogOptions.length, 2);
+      assert.equal(catalogOptions[0].value, 'wolong-builtin');
+      assert.match(catalogOptions[0].label, /（内置）$/);
+      assert.equal(catalogOptions[1].value, gameId);
+      assert.match(catalogOptions[1].label, /（自建） 1.0$/);
+      checks.push('builtin stays the default first option while the published own game is a second selectable entry labelled （自建） <ordinal>');
       await page.locator('.player-catalog-notice').click();
       const announcements = page.getByRole('dialog',{name:'發布資訊'}); await announcements.waitFor();
       assert.equal(await page.locator('.player-catalog select').isDisabled(),true);

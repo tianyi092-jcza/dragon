@@ -154,19 +154,37 @@
   与链 lane 的 `dispatchFetch(request.url(), init)` 一致；②reader 需要 `PLAYER_ORIGIN`／`PLAYER_ADMISSION_ACTIVE_KEY`／`PLAYER_ADMISSION_KEYS`
   三个绑定，缺一个就是 `ADMISSION_NOT_CONFIGURED`；③publisher 会写 `control/roots/`，`putImmutable` 的 key 断言必须含 `control/(receipts|roots)/`。
 
+### 4.7 玩家端目录口径：内置保默认、量产只增选项（用户 2026-11 决定）
+
+- **用户口径**：现阶段玩家端下拉框**保持内置为默认首项**；工作台量产的游戏上架后应作为**额外可选项**出现在同一列表；
+  等量产游戏在玩家端确认能玩，再执行 C 方案删内置（届时只删 `wolong-web` 里 `gameId='wolong-builtin'` 命名空间的存档与目录条目，
+  `web/content/builtin/**` 仍保留为 installed source 与量产复制的上游）。
+- **现有产品代码已满足该口径，无需改动（实锤）**：`web/src/player/playercatalog.js:24` 下拉 = `[BUILTIN, ...published]`；
+  `:20`／`:29`／`:85`／`:169` 四处回落都把选择拉回 `wolong-builtin`，所以默认永远是内置；`:173` `selection()` = `entries.get(select.value) ?? BUILTIN`；
+  `web/src/ui/startmenu.js:673-676` 开局时读 `selection()` → `navigatePlayerGame(gameId, mode)` → `?formalGame=<id>&mode=new|load` → `boot.js` → `launchPublicPlayer`。
+- **新增断言**（`tools/fixtures/public-player-browser.mjs`）：内置换默认为默认后，下拉**恰好 2 项**——第 1 项 `wolong-builtin`、label 以「（内置）」结尾且为默认选中值；
+  第 2 项是量产 gameId、label 以「（自建） 1.0」结尾。实跑 `--player-client --player-app --public-player` 绿：10 checks、App **13**（+1）、trace 2211。
+  注：label 是简体「（内置）」，断言写成繁体会被正则打回（实测一次失败后修正）。
+- **生产现状（只读核查，2026-11）**：`GET https://dragon.720108.xyz/play-api/v1/registry` → `503 REGISTRY_EMPTY`（reader 通、无任何上架游戏）；
+  `GET https://dragon-editor.720108.xyz/api/published-games` → `503 PLAY_READER_REQUIRED`。因此「量产可选」还需要在产品侧真实操作：
+  管理員 `https://dragon-editor.720108.xyz` → 遊戲管理 → 「複製遊戲」 → 上架 → 同意。另外按 `docs/r2-player-connection.md:655`，
+  生产尚未配置 `PLAYER_ADMISSION_KEYS`，准入未配置前玩家端选到量产游戏也开不了局。
+
 ## 5. 当前阻塞
 
-1. **产品口径已定**：「旧游戏」＝上一份工作台产物；**只剩内置条目退出的顺序**待确认（§6 第 3 条）。
+1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。
 2. **已封存／已退役，都不是现行门**：`verify_editor_backend_deletion_definitions`（`pinned/worker.js` 世代快照）、`verify_editor_fullcopy_water_browser`（水域面板未挂载＋旧壳 id）。
 3. **手动 harness（非 CI 级门）**：`verify_editor_roles_browser`、`verify_trial_app_boot`、`verify_editor_backend_admin_copy`（需 `MINIFLARE_MODULE`）。
-4. 本轮改动**未提交**：1 个新 lane（`verify_workbench_produce_game_browser.mjs`）＋2 份文档，commit 需另行授权。
+4. **产品侧待办（需用户执行，不在代码里）**：生产 `GET /play-api/v1/registry` 仍是 `REGISTRY_EMPTY`；需要在 `dragon-editor.720108.xyz` 以管理员完成「複製遊戲 → 上架 → 同意」，并按 `r2-player-connection.md:655` 配 `PLAYER_ADMISSION_KEYS`，玩家端才能选到并开局。
+5. 本轮改动（§4.7 断言 + journal）**未提交**：commit 需另行授权。
 
 ## 6. 下一步（建议顺序）
 
-1. ~~重产→上架→同意→删上一份产物~~：**已打通**（`verify_workbench_produce_game_browser`，§4.5）。
-2. ~~把玩家端接进同一条流程~~：**已完成**（量产 lane 第 5 段直连真 publisher／reader，见 §4.6）。
-3. **内置条目退出计划**（需用户确认顺序）：玩家端目录与默认选择切到量产 → 撤 `playercatalog.js` 的 `BUILTIN` 条目与约 20 处 `BUILTIN_PROTECTED` → 最后评估 `BUILTIN_RELEASE` 静态引导是否还有用途（`web/content/builtin/**` 作为 installed source 必须保留）。
-4. 顺手补：`--program-paths` 变体、`verify_player_deleted_saves`（按需）。
+1. ~~工作台量产→上架→同意→玩家端→删上一份产物~~：**已打通并提交**（`d132411`，7 checks）。
+2. ~~玩家端「内置默认 + 量产可选」口径~~：**代码本就满足，已加断言锁住**（App 13，见 §4.7）。
+3. **等用户在生产的四步操作**：複製遊戲 → 上架 → 管理员同意 → 配 `PLAYER_ADMISSION_KEYS`；之后我按真机表现补/修验证（准入、目录、开局、存档命名空间）。
+4. **C 方案（撤内置）落地顺序**（等第 3 步确认能玩后）：玩家目录去掉内置条目 → 清 `wolong-web` 的 `wolong-builtin` 存档命名空间 → 撤约 20 处 `BUILTIN_PROTECTED` → 最后评估 `BUILTIN_RELEASE` 静态引导；`web/content/builtin/**` 不动。
+5. 顺手补：`--program-paths` 变体、`verify_player_deleted_saves`（按需）。
 
 ## 7. 归档锚点（仍被外部文档引用）
 
