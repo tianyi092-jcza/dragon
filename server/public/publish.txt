@@ -127,7 +127,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   if (!current(ctx)) return;
   if (value?.gameId !== gameId) throw new Error('全章校驗回應的遊戲不符。');
   references = referenceReceipt(value);
-  message(references.chapters.length ? '整遊戲校驗未通過；受影響的章與原因見下方。' : '整遊戲校驗通過：全部 ' + references.chapterCount + ' 章引用完整，可以上架（仍須管理員同意）。');
+  message(references.chapters.length ? '校驗失敗！' : '校驗成功！全部 ' + references.chapterCount + ' 章引用完整，可以上架（仍須管理員同意）。');
   render();
  }
  async function query() {
@@ -174,6 +174,10 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   const ctx = capture(), row = rows.find(entry => entry.gameId === gameId);
   if (!row) throw new Error('上架清單已變，請重新整理。');
   if (pending || badJournal) throw new Error('請先核對原操作，不另起鍵。');
+  // 產品決定（2026-11）：上架前必須先校驗通過；未通過就不送鍵、不寫任何東西。
+  await check(gameId);
+  if (!current(ctx)) return;
+  if (!references || references.chapters.length) { message('校驗未成功，無法上架。請先修正下方列出的章節問題。'); render(); return; }
   const t = Object.freeze({ actorId: ctx.id, kind: 'publish', version: ctx.version, gameId: row.gameId, key: crypto.randomUUID(), name: row.name });
   if (!tuple(t)) throw new Error(errors.PUBLISH_NAME);
   if (!current(ctx) || pending || badJournal || !rows.includes(row)) throw new Error('上架期間帳戶或清單已變；請重新整理。');

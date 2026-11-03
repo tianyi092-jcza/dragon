@@ -5,7 +5,7 @@
 //   mode 'full'（管理員「複製遊戲」）：POST /api/admin/copies，地圖＋章節＋武將
 //     全套複製；registryId 由 GET /api/admin/source 讀取，使用者不選來源。
 // 兩者都保留租約與冪等鍵：失去回應時只查詢原鍵，不另建第二份。
-export function createCopyController({ api, authority, work, isBusy, publish, gotoGame, storage = globalThis.sessionStorage, confirm = text => globalThis.confirm(text), mode = 'minimal' }) {
+export function createCopyController({ api, authority, work, isBusy, publish, gotoGame, onCreated = () => {}, storage = globalThis.sessionStorage, confirm = text => globalThis.confirm(text), mode = 'minimal' }) {
   const full = mode === 'full';
   const label = full ? '完整副本' : '新遊戲';
   const reservePath = full ? '/api/admin/copies' : '/api/games';
@@ -31,6 +31,8 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       // Resumable operations must stay clickable: the button then reads 確認新建（續）.
       // 結果未知但原鍵仍在＝可續查：按鈕必須可點（讀作「（續）」），不能把人鎖死。
       createDisabled: locked || broken || (needsQuery && !operation),
+      forgetDisabled: locked || !operation,
+      canForget: allowed && Boolean(operation),
     });
   }
   function restore() {
@@ -71,11 +73,29 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       summary = decodeSummary(data, summary?.gameId); needsQuery = false;
     } catch (error) {
       if (!valid(t) || operation !== key) return;
-      if (error.status !== 404 && error.code !== 'COPY_OPERATION_REVOKED') throw error;
-      message = error.code === 'COPY_OPERATION_REVOKED' ? '原操作已隨帳戶版本失效；本機追蹤不提供權限。' : '服務未找到此原鍵；這不是取消或回滾的證明。';
-      if (!confirm(message + '只清除本機追蹤？這不取消或回滾可能在途的請求。')) return;
-      if (!valid(t) || operation !== key) return;
-      storage.removeItem(storeKey()); operation = null; summary = null; needsQuery = false;
+      if (!absent(error)) throw error;
+      // 服務端沒有這條原鍵（或已隨帳戶版本失效）＝**沒有建立過任何東西**，
+      // 留著本機追蹤只會讓使用者被卡在「（續）」上；直接清掉，不留殘骸。
+      forgetLocal(error.code === 'COPY_OPERATION_REVOKED'
+        ? '原操作已隨帳戶版本失效；本機追蹤已清除。'
+        : '服務端沒有這條原操作；本機追蹤已清除，可直接重新建立。');
+    }
+  }
+  // 「服務端沒有這條原鍵」的兩種形態：404（含 COPY_NOT_FOUND）與帳戶版本失效。
+  const absent = error => error.status === 404 || error.code === 'COPY_NOT_FOUND' || error.code === 'COPY_OPERATION_REVOKED';
+  function forgetLocal(text) {
+    try { storage.removeItem(storeKey()); } catch { broken = true; }
+    operation = null; summary = null; needsQuery = false; message = text; render();
+  }
+  async function resolveUnknown(t, key) {
+    try { return await api(operationPath(key)); }
+    catch (error) {
+      if (!valid(t) || operation !== key) return null;
+      if (!absent(error)) throw error;
+      forgetLocal(error.code === 'COPY_OPERATION_REVOKED'
+        ? '原操作已隨帳戶版本失效；本機追蹤已清除。'
+        : '服務端沒有這條原操作；本機追蹤已清除，可直接重新建立。');
+      return null;
     }
   }
   // full 模式的來源註冊識別由服務端已登記的底層資源決定；客戶端不選來源。
@@ -98,6 +118,15 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     };
     if (!validText(name, 8, true) || !validText(introduction, 100, false)) throw new Error('名稱去掉首尾空白後須為 1–8 個字，簡介最多 100 個字；不能含控制字元。');
     const t = ticket();
+    // 名稱先驗（full 模式）：先與自己的遊戲清單比對，重複就不發任何請求，
+    // 直接在上方訊息區說明；服務端仍是唯一權威（其它擁有者的名稱由 409 兜底）。
+    if (full) {
+      const wanted = name.trim().normalize('NFC');
+      let list = null;
+      try { list = await api('/api/games'); } catch { list = null; }
+      const taken = Array.isArray(list?.games) && list.games.some(game => typeof game?.metadata?.name === 'string' && game.metadata.name.normalize('NFC') === wanted);
+      if (taken) { message = '名稱「' + wanted + '」已被另一份遊戲使用；請換一個名稱。'; render(); return; }
+    }
 
     // Resume: an existing uncommitted operation keeps its own name/introduction.
     if (operation && pending()) { await runExisting(t); return; }
@@ -107,7 +136,16 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     try { storage.setItem(storeKey(), key); } catch { broken = true; throw new Error('無法保留原鍵；本次未提交。'); }
     name = ''; introduction = ''; message = '正在建立' + label + '，請勿重複提交…'; render();
     if (!valid(t) || operation !== key) return;
-    const created = await api(reservePath, body, { key });
+    let created;
+    try { created = await api(reservePath, body, { key }); }
+    catch (error) {
+      // 明確 4xx 拒絕＝本次未提交：清掉原鍵，換名稱或稍後重試，不把人卡在「（續）」。
+      if (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500) {
+        try { storage.removeItem(storeKey()); } catch { broken = true; }
+        operation = null; summary = null; needsQuery = false;
+      }
+      throw error;
+    }
     if (!valid(t) || operation !== key) return;
     summary = decodeSummary(created); needsQuery = false;
     await runExisting(t);
@@ -118,8 +156,8 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     if (!created || !summary?.gameId) {
       // Lost the create reply: ask the service first, never mint a new key.
       needsQuery = true; render();
-      const data = await api(operationPath(key));
-      if (!valid(t) || operation !== key) return;
+      const data = await resolveUnknown(t, key);
+      if (data === null || !valid(t) || operation !== key) return;
       summary = decodeSummary(data); needsQuery = false;
     }
     if (summary.draftRevision) { message = label + '已建立。'; if (!full) await ownGames(t); render(); return; }
@@ -136,14 +174,34 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     }
     if (!valid(t) || operation !== key) return;
     summary = decodeSummary(done, summary.gameId); needsQuery = false;
-    // 只有已保存修訂才是已建立；回應停在 pending／running 不推定成功。
+    // 只有已保存修訂才是已建立。回應停在 pending／running（長請求被代理層切斷、
+    // 或服務仍在校驗）時不推定成功也不推定失敗：以原鍵為準，有界自動核對，
+    // 讓使用者不必自己猜「到底成沒成」。
     if (!summary.draftRevision) {
-      needsQuery = true;
-      message = label + '尚未確認完成（' + summary.state + '）；請先查詢原鍵，不另建第二份。';
-      render(); return;
+      for (let i = 0; i < 20 && valid(t) && operation === key; i++) {
+        message = label + '仍在處理（' + (summary.state ?? 'pending') + '）；正在核對原鍵（' + (i + 1) + '/20）…';
+        render();
+        await new Promise(done => setTimeout(done, 3000));
+        if (!valid(t) || operation !== key) return;
+        let data;
+        try { data = await api(operationPath(key)); }
+        catch (error) {
+          if (!absent(error)) throw error;
+          forgetLocal('服務端已無此原操作；本機追蹤已清除，可直接重新建立。');
+          return;
+        }
+        if (!valid(t) || operation !== key) return;
+        summary = decodeSummary(data, summary.gameId); needsQuery = false;
+        if (summary.draftRevision) break;
+      }
+      if (!summary.draftRevision) {
+        needsQuery = true;
+        message = label + '尚未確認完成（' + summary.state + '）；已自動核對 60 秒仍未完成，可稍後再按「（續）」核對原鍵，不另建第二份。';
+        render(); return;
+      }
     }
-    message = full ? '完整副本已建立；請按上方「重新整理」載入清單，再到「當前遊戲」選擇。' : '新遊戲已建立，可在下方「我的遊戲」中編輯。';
-    if (!full) await ownGames(t);
+    message = full ? '完整副本已建立；遊戲清單已自動更新，可在「遊戲管理」直接載入。' : '新遊戲已建立，可在下方「我的遊戲」中編輯。';
+    if (!full) await ownGames(t); else onCreated();
   }
   const action = callback => (...args) => work(async () => {
     if (!permitted()) return;
@@ -156,6 +214,12 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
   const actions = Object.freeze({
     refresh: action(async () => { const t = ticket(); await queryCopy(t); if (valid(t) && !full) await ownGames(t); }),
     create: action(create),
+    forget: action(async () => {
+      // 明確逃生口：只清掉本機追蹤，不取消、不回滾服務端任何請求。
+      try { storage.removeItem(storeKey()); } catch { broken = true; }
+      operation = null; summary = null; needsQuery = false;
+      message = '已清除本機追蹤；未取消或回滾任何在途請求，服務端結果仍以原鍵查詢為準。';
+    }),
     setField(key, value) {
       if (!permitted() || isBusy() || !['name', 'introduction'].includes(key) || typeof value !== 'string') return;
       if (key === 'name') name = value; else introduction = value;

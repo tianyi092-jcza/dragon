@@ -67,6 +67,11 @@ try {
    if (!records.has(key) || statusMode === 'absent') { expectedErrors.push(404); return json({ error: 'PUBLISH_OPERATION_NOT_FOUND' }, 404); }
    return json({ version: 1, gameId, releaseId: R, pin: records.get(key), distribution: { gameId, operationId: R, generation: 1, kind: 'publish', state: statusMode, visibleAt: statusMode === 'confirmed' ? time : null, recoveryRequired: false } });
   }
+  if (/^\/api\/games\/[a-f0-9-]+\/draft\/chapter-references$/.test(url.pathname)) {
+   const gameId = url.pathname.split('/')[3];
+   // 上架前必先校驗（產品決定 2026-11）：這裡回報「全部章引用完整」。
+   return json({ version: 1, gameId, draftRevision: '1', sourceDigest: 'd'.repeat(64), chapterCount: 1, chapters: [] });
+  }
   if (/^\/api\/games\/[a-f0-9-]+\/deletion$/.test(url.pathname)) {
    assert.equal(request.method(), 'POST'); const body = parsed(request.postData()), gameId = url.pathname.split('/')[3], target = rows.find(entry => entry.gameId === gameId);
    deletes.push({ key: request.headers()['idempotency-key'], body });

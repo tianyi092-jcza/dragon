@@ -1,10 +1,12 @@
 <script setup>
+import { ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
 const stateTags = { draft: 'info', pending: 'warning', listed: 'success' };
 const time = value => value === '—' ? value : new Date(value).toLocaleString();
+const checking = ref(false), percent = ref(0), phase = ref('');
 async function publish(row) {
   try {
     await ElMessageBox.confirm(`上架會先校驗整個遊戲（全部章節與跨章引用）。通過後版本號自動 +1（本次 ${row.nextVersion}）並提交管理員審核；校驗失敗則狀態不變並列出錯誤。`, `上架「${row.name}」`, { type: 'warning', confirmButtonText: '上架', cancelButtonText: '取消' });
@@ -12,7 +14,15 @@ async function publish(row) {
   props.actions.publish(row.gameId);
 }
 async function check(row) {
-  props.actions.check(row.gameId);
+  if (props.busy || props.model.checkDisabled) return;
+  checking.value = true; percent.value = 15; phase.value = `正在校驗「${row.name}」的全部章節…`;
+  const timer = setInterval(() => { percent.value = Math.min(92, percent.value + 3); }, 700);
+  try { await props.actions.check(row.gameId); }
+  catch { /* 失敗摘要由 #publish-message 顯示 */ }
+  finally {
+    clearInterval(timer); percent.value = 100;
+    setTimeout(() => { checking.value = false; percent.value = 0; phase.value = ''; }, 500);
+  }
 }
 async function remove(row) {
   try {
@@ -21,16 +31,15 @@ async function remove(row) {
   props.actions.remove(row.gameId, row.rowRevision);
 }
 </script>
+
 <template>
   <section id="publish-editor" class="module-card">
-    <p>一個遊戲一行。狀態只有三種：草稿（未提交過，版本號顯示「—」）／待上架（已提交，等待管理員同意）／已上架。任何人都可以刪除自己的遊戲，刪除立即生效且不可恢復，彈窗會再次確認刪除的是整個遊戲而不是單個版本。</p>
-    <p>「上架」不是即時公開：它先校驗整個遊戲，通過後自動把版本號 +1 並提交審核，只有管理員同意後才變成已上架；被拒絕的提交會標記「已駁回」，重新上架即產生新版本。刪除在任何狀態都可用（含已上架），不需要對方同意。</p>
     <div class="module-toolbar">
-      <ElButton id="publish-refresh" :disabled="busy || model.refreshDisabled" @click="actions.refresh()">重新整理</ElButton>
+      <ElButton id="publish-refresh" :disabled="busy || model.refreshDisabled" @click="actions.refresh()">刷新</ElButton>
     </div>
     <p id="publish-message" role="status">{{ model.message }}</p>
     <p id="publish-references" role="status">{{ model.referencesText }}</p>
-    <ul id="publish-reference-list" class="empty-state">
+    <ul v-if="model.references?.length" id="publish-reference-list" class="empty-state">
       <li v-for="chapter in model.references" :key="chapter.chapterId" :data-chapter-id="chapter.chapterId">
         {{ chapter.name }}：{{ chapter.problems.join('；') }}
       </li>
@@ -47,14 +56,14 @@ async function remove(row) {
             <td data-field="created">{{ time(row.createdAt) }}</td>
             <td data-field="state-time">{{ time(row.stateTime) }}</td>
             <td class="account-row-actions">
-              <ElButton data-action="check" title="只讀：遍歷全部章節，列出引用不到基礎資料的章；不提交上架" :disabled="busy || model.checkDisabled" @click="check(row)">校驗整遊戲</ElButton>
+              <ElButton data-action="check" :disabled="busy || model.checkDisabled" @click="check(row)">校驗</ElButton>
               <ElButton data-action="publish" :title="row.publishTitle" :disabled="busy || row.publishDisabled" @click="publish(row)">上架</ElButton>
               <ElButton data-action="delete" :title="row.deleteHint" :disabled="busy || row.deleteDisabled" @click="remove(row)">刪除</ElButton>
             </td>
           </tr>
         </tbody>
       </table>
-      <p v-if="!model.rows.length" class="empty-state">尚未讀取清單，或此帳戶沒有可上架的遊戲。請在「新建遊戲」建立，或按「重新整理」。</p>
+      <p v-if="!model.rows.length" class="empty-state">尚未讀取清單，或此帳戶沒有可上架的遊戲。請在「新建遊戲」建立，或按「刷新」。</p>
     </div>
     <p id="publish-operation">{{ model.operation }}</p>
     <div class="module-toolbar">
@@ -63,7 +72,12 @@ async function remove(row) {
       <ElButton id="publish-forget" :disabled="busy || model.forgetDisabled" @click="actions.forget()">只停止本機追蹤</ElButton>
     </div>
     <p id="publish-result">{{ model.result }}</p>
-    <p>未知回應保留原操作者、遊戲、鍵、內容及原修訂；重載不自動重送或查詢，404 不表示請求已取消。本地提交、分發確認、管理員同意與目前遠端狀態是不同事實。</p>
-    <p>「校驗整遊戲」只讀：它遍歷全部章節，列出因基礎資料（據點、武將庫）被刪除而引用不到的章；不改資料、不發試玩、不提交上架。上架本身仍由服務端重跑同一校驗，未通過時版本號與狀態都不變。</p>
+    <div v-if="checking" id="publish-overlay" class="progress-overlay" role="alertdialog" aria-busy="true">
+      <div class="progress-card">
+        <p id="publish-overlay-text">{{ phase }}</p>
+        <div class="progress-track"><div class="progress-fill" :style="{ width: percent + '%' }"></div></div>
+        <small>{{ percent }}%（只讀校驗，不修改資料、不提交上架）</small>
+      </div>
+    </div>
   </section>
 </template>
