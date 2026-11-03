@@ -170,13 +170,36 @@
   管理員 `https://dragon-editor.720108.xyz` → 遊戲管理 → 「複製遊戲」 → 上架 → 同意。另外按 `docs/r2-player-connection.md:655`，
   生产尚未配置 `PLAYER_ADMISSION_KEYS`，准入未配置前玩家端选到量产游戏也开不了局。
 
+### 4.7 生产部署（2026-11-03，已执行）：Cloudflare 玩家端 + VPS 工作台
+
+- **Cloudflare**：玩家端由 Workers Builds 从 GitHub main 自动部署。最新 deployment `2026-11-03T12:07:48Z`（push 12:06:28Z）；
+  线上 static-release.json 的 sourceTreeDigest = `6ef15d39…` = 用部署树重建 HEAD 的结果 → 线上内容确为 HEAD。
+- **VPS 工作台**：`ssh dartnode`，目录 `/srv/dragon-editor/publication`（root）。可复用部署步骤：
+  1. 本地 `git archive HEAD server vps reader tools web VERSION .gitattributes` 出 tgz，scp 上去并校验 sha256；
+  2. 解包到 `app-new-<ts>`，**在服务器上用 node 容器跑 `node tools/prepare_deploy.mjs`** 得到静态发布（dist/）；
+  3. 静态发布必须放到 `/home/web/html/dragon-editor-bootstrap/<sha256(static-release.json)>/`：nginx 容器的 /var/www/html 挂的是宿主 /home/web/html，
+     不是宿主 /var/www/html；同时在 `/home/web/conf.d/dragon-editor.720108.xyz.conf` 里照既有块复制一个 `location ^~ /deployment-assets/static-v1/<digest>/`；
+  4. `publication.env` 三处 pin：STATIC_PATH_PREFIX 与 STATIC_RELEASE_SHA256 用该 digest，STATIC_SOURCE_SHA256 用构建输出的 source tree digest；
+  5. `./backup-publication.sh` → 换 app 目录 → `.env` 改 EDITOR_DEPLOYMENT_ID → `docker build` → `docker compose up -d --force-recreate`。
+  首次启动会把整份静态发布（1441 文件／164MB）写进 R2，**约 10–15 分钟**后才监听端口，期间 health: starting 属正常。
+- **踩坑 1（真 bug，已修 `8efcc99`）**：`server/public/trialweb.txt` 用本地 CRLF 工作副本生成，而 git archive／Linux 是 LF
+  （generaldefinitions.js 18652 vs 18355 字节），启动即 INSTALLED_PROGRAM_INVALID，容器日志只有 `{"event":"startup-failed"}`。
+  修法：按 .gitattributes（web/src/** text eol=lf）重新检出该文件后重建包；现在 local／VPS／Cloudflare 三处 sourceTreeDigest 均为 `6ef15d39…`，包 sha `35472643…`。
+- **踩坑 2**：旧镜像标签与实际运行不一致（.env 写 ui-8fb4d6c，容器却在跑 20261031-cr8）——回滚要按 `docker ps` 的实际镜像，不要只信 .env。
+- **已解除的生产闸门**：vhost 里原有两块维护 location，对 `/api/publish`、`/api/unpublish`、
+  `/api/games/<id>/(listing|restriction/clear|deletion*)` 直接 `503 PUBLICATION_NOT_READY`（上架／同意／删除全被挡）。
+  按用户「按建议执行」已删除（备份 `/root/dragon-editor.nginx-before-gates-*.conf`），`nginx -t` 通过并 reload；同样请求现在返回 403（应用层鉴权）而非 503。
+- **玩家准入密钥已配置**：`wrangler secret put PLAYER_ADMISSION_KEYS --name dragon`（值只存运维本地 `~/.dragon-secrets/player-admission-keys.json`，0600，不入 Git）；
+  key id 用 wrangler.jsonc 的 PLAYER_ADMISSION_ACTIVE_KEY=primary。/play-api/v1/registry 仍 503 REGISTRY_EMPTY＝尚无上架游戏，属预期。
+- **回滚材料**：`app-old-*`、镜像 20261031-cr8／ui-8fb4d6c、`.env.before-*`、`publication.env.before-*`、nginx 备份、`/root/dragon-editor-backups/publication-20261103T123009Z`。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。
 2. **已封存／已退役，都不是现行门**：`verify_editor_backend_deletion_definitions`（`pinned/worker.js` 世代快照）、`verify_editor_fullcopy_water_browser`（水域面板未挂载＋旧壳 id）。
 3. **手动 harness（非 CI 级门）**：`verify_editor_roles_browser`、`verify_trial_app_boot`、`verify_editor_backend_admin_copy`（需 `MINIFLARE_MODULE`）。
-4. **产品侧待办（需用户执行，不在代码里）**：生产 `GET /play-api/v1/registry` 仍是 `REGISTRY_EMPTY`；需要在 `dragon-editor.720108.xyz` 以管理员完成「複製遊戲 → 上架 → 同意」，并按 `r2-player-connection.md:655` 配 `PLAYER_ADMISSION_KEYS`，玩家端才能选到并开局。
-5. 本轮改动（§4.7 断言 + journal）**未提交**：commit 需另行授权。
+4. ~~产品侧待办~~：维护闸门已解除、PLAYER_ADMISSION_KEYS 已配置（见 §4.7）；剩下就是用户在 `dragon-editor.720108.xyz` 以管理员做「複製遊戲 → 上架 → 同意」。
+5. 本轮改动（`trialweb.txt` LF 重建已提交 `8efcc99`；§4.7 文档待提交）。
 
 ## 6. 下一步（建议顺序）
 

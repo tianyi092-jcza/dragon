@@ -652,7 +652,7 @@ r1回归中目录测试只记录了失败URL，不能据此判断中止原因，
 
 新增[站点入口](../reader/site.js)复用原只读reader，不导入编辑器／发布服务。根[Wrangler配置](../wrangler.jsonc)保留项目名、兼容日期、构建命令、静态目录和404策略；新增`ASSETS`、私有`PUBLISH_BUCKET`→`dragon`绑定及仅`/play-api`、`/play-api/*`的Worker-first路由，其余仍按Static Assets默认asset-first处理。保留前缀下的未知路径／方法由reader拒绝，不能落到同名静态文件或HTML重定向；非API缺页由原Assets绑定处理。依据[Cloudflare Worker与静态资源路由合同](https://developers.cloudflare.com/workers/static-assets/routing/worker-script/)配置，未引入SPA兜底、编辑器写API或公网桶。
 
-配置只写非秘密`PLAYER_ORIGIN=https://dragon.720108.xyz`与active key ID `primary`，不改玩家origin或本地存储。**没有配置生产`PLAYER_ADMISSION_KEYS`或实施云变更**；密钥、当前公开根／authority和实际绑定须在整体验证具备后受控核验／配置，不能把本地配置视为云上已可准入。非此audience（例如workers.dev别名）不因此获得签发权限；静态内置页面仍独立于准入密钥／R2目录成功。旧key保留及轮换仍遵循§2.2，测试固定key不进入部署配置。
+配置只写非秘密`PLAYER_ORIGIN=https://dragon.720108.xyz`与active key ID `primary`，不改玩家origin或本地存储。**2026-11-03 已配置**生产`PLAYER_ADMISSION_KEYS`（`wrangler secret put`，值仅存运维本地 0600 文件、不入 Git；active key 仍为`primary`）；以下登记的是此前**没有配置**的历史事实；密钥、当前公开根／authority和实际绑定须在整体验证具备后受控核验／配置，不能把本地配置视为云上已可准入。非此audience（例如workers.dev别名）不因此获得签发权限；静态内置页面仍独立于准入密钥／R2目录成功。旧key保留及轮换仍遵循§2.2，测试固定key不进入部署配置。
 
 证据`.dragon-analysis/release-readiness/player-site-r1/`八显式入口全部通过：新18组、原reader66、实际workerd客户端7、公告107＋32客户端对拍、实际发布到App／原无App两种浏览器链、隔离打包器及runtime合同。新测试使用真实本地Miniflare Static Assets router／worker／R2与最小自有静态文件／opaque运行包：核GET／HEAD／404、近似但非API前缀、同名API静态遮蔽与重定向拦截、空目录503、不配置密钥拒准入但静态可读、配置后签发、更新／下架旧票续取、缺资源503不冒删除及410；外网为零，没有读取生产凭据或用户profile。
 
