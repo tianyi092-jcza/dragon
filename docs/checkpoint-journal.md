@@ -108,21 +108,65 @@
   重建快照等于改写历史证据，属另一项决定；同一事实由 `verify_editor_schema_sources`、`verify_distribution_schema` 与链里真实 SQLite 的
   `assertDeletionDefinitions` 覆盖。已写文件头封存说明，`tablesVerified` 的 53 标注「未重跑验证」。
 
+### 4.4 本会话续四：产品流程（重产→上架→同意→删除）现状盘点
+
+- **已提交** `8bc0b7d`（上一批 17 文件：六表冻结、串链接现网面板、Trial 程序包重建、trace settle、封存标注）。
+- **「重产当前游戏 → 上架」HTTP 层已实锤**：`tools/verify_copy_publish_parity.mjs` 实跑绿，走真实
+  `POST /api/admin/copies`（202 预留）→ `POST …/run`（`If-Match: "1"`）→ 轮询 → `GET /api/games/<id>/draft?revision=1`（20 章）
+  → `POST /api/publish` → `GET /api/games/submissions` → `POST …/listing list` → `GET /api/published-games` → `GET /api/trial-pack`，
+  并断言副本与内置游戏数据等价。全程真实 editor application（Node SQLite＋私有文件桶），无成功夹具。
+- **「删旧游戏」撞到产品级事实**：`wolong-builtin` 在约 20 处入口硬性 `403 BUILTIN_PROTECTED`（含 `server/deletionfence.js:56`／`:99`），
+  而玩家端当前正式游戏正是它（`--public-player` 模式的选择器默认 `wolong-builtin`）。因此**若「旧游戏」指内置当前游戏，现行产品明确禁止删除**；
+  可删的是工作台产出的旧游戏（链 lane 的删除段已覆盖 fence→退役→玩家端仍可启动）。这一条需要产品决定，不由实现猜测。
+- **「用工作台重产」的 UI 证据当前是缺口**：唯一驱动副本 UI 的 `verify_editor_fullcopy_water_browser.mjs` 是手动 rN harness
+  （需 `round`＋`EDITOR_TEST_PORT`＋`PLAYWRIGHT_MODULE`，且后者要 `.mjs` 入口，写 `index.js` 会 `ERR_UNSUPPORTED_DIR_IMPORT`／named export undefined），
+  全篇旧壳 id：`#copy h3`（现为 `h4`「我的遊戲」）、`#copy-run`／`#copy-state`、`#source-install`／`#source-refresh`、`#water-*`；
+  实跑在 `#copy h3` 超时 240 秒，且 `WaterCreatePanel.vue`／`WaterGroupsPanel.vue` 根本不在 `Workbench.vue` 的 10 个面板内。
+  已在该文件头标退役，并把退役 id／未挂载组件／退役 lane 登记进[工作台结构](editor-workbench-structure.md) §3.1。
+- **仍未覆盖的唯一缺口**：`draft-editor` 的「複製遊戲」（`#full-copy-name`／`#full-copy-introduction`／`#full-copy-create`，管理員可见）没有任何可跑 lane，
+  HTTP 等价物只有 parity lane。下一步应补这一条小 lane，并把它的产物接进链上架／同意／删除。
+
+### 4.5 产品流程：工作台量产 → 上架 → 同意 → 删上一份产物（已打通）
+
+- **用户确认的产品口径**：「旧游戏」＝**上一份工作台产物**（不是内置游戏）；长期目标是等量产游戏完全可用后**删掉内置游戏条目**，统一用工作台量产的游戏。
+- **新增 lane** `tools/verify_workbench_produce_game_browser.mjs`（6 checks，实跑绿）：真实 gateway／auth／SQLite／私有文件桶＋真实共享静态包，页面请求 in-process 桥接。
+  1. 作者登录看不到 `#draft-full-copy`（整套复制是管理员能力）；
+  2. 管理员在「游戏管理」填 `#full-copy-name` 点 `#full-copy-create` → 真实 `POST /api/admin/copies`（202，只有一次）＋同键轮询 → `#full-copy-message` 「完整副本已建立」，DB 出现新 `game_id`（≠来源），`#draft-load` 后 20 章且章序沿用来源；
+  3. 上架管理 `[data-action=publish]` → 版本 1.0、状态待上架；
+  4. 上架审核 `[data-action=approve]` → 已上架 1.0；
+  5. 删除**上一份产物** `[data-action=delete]` → 真实 fence 行且 `fence_revision = before_revision + 1`，新产物 `listed` 仍为 1（互不影响）；
+  6. 收银：零 pageerror／零逃逸请求／console 只有两次「未登入引导 401」。
+- **夹具教训（这次真正踩到）**：上架第一步曾稳定 `INTERNAL_ERROR`——因为我把 `verifyStaticResources` 写成 `async () => true`，而上架要把运行时包写入 R2 并用静态发布清单核对这个证据；换成 `makePublishRuntimeStage()` 的真 `verifyStaticResources` 后立即通过。**禁止为了跑通而用固定返回顶替证据门**。
+- **数据模型结论（回答「内置与量产数据组织是否不同」）**：游戏**数据模型与引擎同一套**——复制按 `installedSourcePolicy` 从同一份 builtin 源取数，引擎吃同一个 game-source（20 章／192 据点／128 武将槽），`verify_copy_publish_parity` 已断言副本与内置等价。不同的是**承载与生命周期**：内置＝`playercatalog.js:4` 的常量条目＋构建期 `BUILTIN_RELEASE` 指向 `web/content/builtin/compiled/**` 静态文件，无 DB 行、无 release pin／ordinal、无 reader 准入、不可编辑；量产＝`content_games`／`content_releases`／`published_games`＋`copy_objects`/`copy_origins`＋R2 `artifacts|projections|control`，经 `/play-api/v1/admissions` 准入，可上架／审核／删除。
+- **删内置的边界（重要）**：`web/content/builtin/**` 同时是工作台的 **installed source（基础资源库）**，不能跟着内置游戏条目一起删；要撤的是「内置游戏条目」：`playercatalog.js` 的 `BUILTIN` 常量与默认选择、约 20 处 `BUILTIN_PROTECTED`、以及玩家端对 `BUILTIN_RELEASE` 的静态引导。顺序必须是先让量产游戏上架且玩家端确认可用，再切默认，最后撤条目。
+
+### 4.6 本会话续五：玩家端接进量产流程（已打通，7 checks 连跑两遍绿）
+
+- **lane**：`tools/verify_workbench_produce_game_browser.mjs` 现有 **7 checks**，新增第 5 段「玩家端」。流程仍是真 editor
+  gateway／auth／SQLite／私有 FileBucket ＋ 真 Miniflare R2；玩家侧走真 `reader/site.js`（owned workerd）与真 distribution publisher。
+- **必须排空到 IDLE**：上架与管理员同意**各排入一笔分发修订**，只 `drainOne()` 一次会把「同意前」的投影快照确认成可见，
+  表现为 `VISIBLE_CONFIRMED` 却拿到空目录。修法＝循环 drain 直到 `IDLE`（上限 20 次），并断言过程中至少出现一次 `VISIBLE_CONFIRMED`。
+- **玩家端断言（第 5 段）**：`/play-api/v1/registry` → 目录恰 1 笔、gameId＝量产 id、ordinal＝1.0、name＝量产名、chapters.length＝20；
+  `control/current.json` 的 `uploaded` 经 `rootVisibleAt` 得到上线时间；`/play-api/v1/admissions?game&ordinal&chapter=<首章>` → 200 且拿到 ticket；
+  `/play-api/v1/file?role=chapter:<首章>` 带 Bearer → 200，且字节 sha 等于 `published_pack_chapters.state_json` 的 sha。
+- **删除后不变**：删掉上一份产物（fence）后再读一次 registry，目录仍恰 1 笔且是量产游戏，说明旧产物删除不影响玩家端可用性。
+- **两个实测坑**：①`mf.dispatchFetch` 在这个 Miniflare 版本只吃 **url 字符串**（传 `Request` 会 `ERR_INVALID_URL`），
+  与链 lane 的 `dispatchFetch(request.url(), init)` 一致；②reader 需要 `PLAYER_ORIGIN`／`PLAYER_ADMISSION_ACTIVE_KEY`／`PLAYER_ADMISSION_KEYS`
+  三个绑定，缺一个就是 `ADMISSION_NOT_CONFIGURED`；③publisher 会写 `control/roots/`，`putImmutable` 的 key 断言必须含 `control/(receipts|roots)/`。
+
 ## 5. 当前阻塞
 
-1. ~~工作台浏览器门／壳矩阵／三段串链／旧壳 UI 门／player 段~~：**全部已解**（218／90／10×3／7／6／6／10 各段绿）。
-2. **已封存，不是现行门**：`verify_editor_backend_deletion_definitions`（`pinned/worker.js` 世代证据快照，见 §4.3）。
-3. **手动 harness（非 CI 级门）**：`verify_editor_roles_browser`（`round`＋`EDITOR_TEST_PORT`）、`verify_trial_app_boot`（`round` 参数＋`attemptN` 目录，无参启动会死于 `assert.match(round)`）。
-4. 本轮改动（含 `trialweb.txt` 重建）**未提交**：commit 需另行授权。
+1. **产品口径已定**：「旧游戏」＝上一份工作台产物；**只剩内置条目退出的顺序**待确认（§6 第 3 条）。
+2. **已封存／已退役，都不是现行门**：`verify_editor_backend_deletion_definitions`（`pinned/worker.js` 世代快照）、`verify_editor_fullcopy_water_browser`（水域面板未挂载＋旧壳 id）。
+3. **手动 harness（非 CI 级门）**：`verify_editor_roles_browser`、`verify_trial_app_boot`、`verify_editor_backend_admin_copy`（需 `MINIFLARE_MODULE`）。
+4. 本轮改动**未提交**：1 个新 lane（`verify_workbench_produce_game_browser.mjs`）＋2 份文档，commit 需另行授权。
 
 ## 6. 下一步（建议顺序）
 
-1. ~~把旧壳 UI 门改到现网面板~~：**无需改动**（本就是现网选择器，实测绿）。
-2. ~~决定 `verify_editor_backend_deletion_definitions`~~：**已决定封存**。
-3. ~~「删旧游戏后玩家端仍可启动」~~：**已有证据链**（链 player 段 ＋ deleted-entry lane），见 §4.3。
-4. **下一件大活**：用工作台重产当前游戏 → 上架 → 管理员同意 → 删旧游戏，走真实产品流程（不是夹具链）；
-   并把过程中新撞出的漂移按 §4.2／§4.3 的方式补声明或补夹具，不要只对齐数字。
-5. 若还要更严的证据：`--program-paths` 变体与 `verify_player_deleted_saves` 可按需补跑。
+1. ~~重产→上架→同意→删上一份产物~~：**已打通**（`verify_workbench_produce_game_browser`，§4.5）。
+2. ~~把玩家端接进同一条流程~~：**已完成**（量产 lane 第 5 段直连真 publisher／reader，见 §4.6）。
+3. **内置条目退出计划**（需用户确认顺序）：玩家端目录与默认选择切到量产 → 撤 `playercatalog.js` 的 `BUILTIN` 条目与约 20 处 `BUILTIN_PROTECTED` → 最后评估 `BUILTIN_RELEASE` 静态引导是否还有用途（`web/content/builtin/**` 作为 installed source 必须保留）。
+4. 顺手补：`--program-paths` 变体、`verify_player_deleted_saves`（按需）。
 
 ## 7. 归档锚点（仍被外部文档引用）
 

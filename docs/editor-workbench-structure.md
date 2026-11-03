@@ -63,7 +63,10 @@
 | `management-editor` | 上架審核 | `ReviewPanel.vue` | `review-editor` |
 
 - **孤立組件（檔案仍在，`Workbench.vue` 不 import、不渲染，因此不進任何 DOM 判據）**：`ManagementPanel.vue`、`DeletionPanel.vue`、`StageJobsPanel.vue`、`StageAssetsPanel.vue`、`LibraryPanel.vue`。是否物理刪除是另一個決定（多條 backend lane 以檔案 hash 固定輸入），不得為了讓測試變綠而就地補 id。
-- **已退役的元素 id**（舊殼或已取消模塊，現行驗證不得斷言）：`#library-editor`、`#stage-editor`、`#stage-assets-editor`、`#deletion-editor`、`#stage-*`、`#stage-assets-*`、`#publish-game`、`#publish-name`、`#publish-games-refresh`、`#publish-button`、`#source-install`、`#source-refresh`、`#management-*`、`#deletion-*`、`#main`。
+- **已退役的元素 id**（舊殼或已取消模塊，現行驗證不得斷言）：`#library-editor`、`#stage-editor`、`#stage-assets-editor`、`#deletion-editor`、`#stage-*`、`#stage-assets-*`、`#publish-game`、`#publish-name`、`#publish-games-refresh`、`#publish-button`、`#source-install`、`#source-refresh`、`#management-*`、`#deletion-*`、`#main`、`#copy h3`（現為 `h4`「我的遊戲」）、`#copy-run`、`#copy-state`、`#draft-load`（遊戲管理現用 `#full-copy-*` 與 `#draft-*`）、`#water-*`（`WaterCreatePanel.vue`／`WaterGroupsPanel.vue` 未掛載）。
+- **未掛載組件（判據同樣不成立）**：`WaterCreatePanel.vue`、`WaterGroupsPanel.vue`——水域分組／新建界面不在 `Workbench.vue` 的 10 個面板內。
+- **已退役的驗證 lane（手動 rN harness，全篇舊殼 id，不得當現行門）**：`verify_editor_fullcopy_water_browser.mjs`（實跑死於 `#copy h3`；水域面板未掛載、`#source-install`／`#copy-run` 均已退役）。
+- **「複製遊戲」（`#full-copy-create`）的現行覆蓋**：`tools/verify_workbench_produce_game_browser.mjs`（6 checks，真實 gateway／auth／SQLite／私有桶＋共享靜態包）驅動 `draft-editor` → `#full-copy-name`／`#full-copy-introduction`／`#full-copy-create` → 20 章 → `[data-action=publish]` → `[data-action=approve]` → 刪除上一份產物；資料等價另由 `verify_copy_publish_parity.mjs` 斷言。
 - **職責仍存、覆蓋搬家**：階段任務／階段結構／素材庫的控制器仍由 `verify_editor_stage_jobs_controller.mjs`、`verify_editor_stage_assets_controller.mjs`、`verify_editor_library_controller.mjs` 直接覆蓋（不依賴 DOM）；上架／審核／刪除的深流程歸 `verify_publication_ui_browser.mjs`、`verify_review_ui_browser.mjs`、`verify_publication_chain_browser.mjs`。工作台殼本身的選單派生、單例可見與零請求由 `verify_editor_workbench_browser.mjs` 與 `verify_editor_shell.mjs` 守住。
 
 ## 4. 遊戲狀態機（三個顯示態）

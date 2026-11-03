@@ -1,3 +1,9 @@
+// 已退役（2026-11 標註）：本 lane 是手動 rN harness（需 round＋EDITOR_TEST_PORT＋PLAYWRIGHT_MODULE），
+// 且全篇斷言舊殼 id：#copy h3（現為 h4「我的遊戲」）、#copy-run/#copy-state、#source-install/#source-refresh、
+// #water-*（WaterCreatePanel.vue／WaterGroupsPanel.vue 未掛載）。實跑會先死於 #copy h3，r7 亦已刪除。
+// 現行覆蓋：HTTP 層的完整副本＋上架＝tools/verify_copy_publish_parity.mjs；上架／審核／刪除＝
+// tools/verify_publication_chain_browser.mjs；工作台殼＝tools/verify_editor_workbench_browser.mjs。
+// 保留檔案是為了歷史證據可追溯，不得當現行門，也不得為了變綠就地補 id。
 // Owned HTTPS/real authentication/SQLite/FileBucket/fresh Chromium. No success fixtures.
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
