@@ -18,9 +18,9 @@ import { createPlayerClientBrowserProbe, assertCompletedStreamObservation } from
 import { createPublishedAppBrowserProbe } from './fixtures/published-app-browser.mjs';
 import { createPublicPlayerBrowserProbe } from './fixtures/public-player-browser.mjs';
 const nodeService = process.argv.includes('--node-service');
-const managementUI = process.argv.includes('--management-ui');
-const deletionUI = process.argv.includes('--deletion-ui');
-const adminDeletionUI = process.argv.includes('--admin-deletion-ui');
+const reviewUI = process.argv.includes('--review-ui');
+const deleteUI = process.argv.includes('--delete-ui');
+const adminDeleteUI = process.argv.includes('--admin-delete-ui');
 const playerClient = process.argv.includes('--player-client');
 const playerApp = process.argv.includes('--player-app');
 const publicPlayer = process.argv.includes('--public-player');
@@ -28,8 +28,9 @@ const programPaths = process.argv.includes('--program-paths');
 assert.ok(!programPaths || publicPlayer, 'program paths require public entry mode');
 assert.ok(!publicPlayer || playerApp, 'public production entry requires App mode');
 assert.ok(!playerApp || playerClient, 'App stream observations require the player-client mode');
-assert.ok(!adminDeletionUI || managementUI && deletionUI, 'admin deletion requires both UI modes');
-assert.ok(process.argv.slice(2).every(arg => ['--node-service','--management-ui','--deletion-ui','--admin-deletion-ui','--player-client','--player-app','--public-player','--program-paths'].includes(arg)), 'unknown test option');
+assert.ok(!adminDeleteUI || deleteUI, 'admin deletion requires the deletion UI mode');
+assert.ok(!adminDeleteUI || reviewUI, 'admin deletion drives the review panel');
+assert.ok(process.argv.slice(2).every(arg => ['--node-service','--review-ui','--delete-ui','--admin-delete-ui','--player-client','--player-app','--public-player','--program-paths'].includes(arg)), 'unknown test option');
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright');
 let modulePath;
@@ -96,10 +97,10 @@ try {
     page.on('pageerror', error => errors.push(String(error)));
     page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     page.on('requestfailed', request => { const path = new URL(request.url()).pathname; failed.push(path); failedDetails.push({ path, error: request.failure()?.errorText, sequence: request.headers()['x-owned-client-request'] ?? null }); });
-    page.on('dialog', dialog => { if (deletionUI && dialog.type() === 'prompt') return dialog.accept(sql.exec('SELECT draft_name FROM content_games WHERE game_id=?', gameId).toArray()[0].draft_name); return dialog.accept(); });
+    page.on('dialog', dialog => dialog.accept());
   });
   observeContext(context);
-  const managementPosts = [], deletionPosts = []; let lostManagement = false, playerProbe, appProbe;
+  const reviewPosts = [], deletionPosts = []; let lostDeletion = false, playerProbe, appProbe;
   const bridge = async route => {
     const request = route.request(), url = new URL(request.url());
     if (![origin, playerOrigin].includes(url.origin)) { outside.push(url.href); return route.abort(); }
@@ -121,15 +122,16 @@ try {
       assert.equal(response.status, 200, await response.clone().text());
       if (!lost) { lost = true; return route.abort('failed'); } // Only drop transport AFTER real commit.
     }
-    if (managementUI && request.method() === 'POST' && /\/api\/games\/[^/]+\/(listing|restriction\/clear)$/.test(url.pathname)) {
-      managementPosts.push({ key: headers['idempotency-key'], revision: headers['if-match'], body: request.postData() });
+    if (reviewUI && request.method() === 'POST' && /\/api\/(games\/[^/]+\/listing|admin\/games\/[^/]+\/review)$/.test(url.pathname)) {
+      reviewPosts.push({ key: headers['idempotency-key'], revision: headers['if-match'], body: request.postData() });
       assert.equal(response.status, 200, await response.clone().text());
-      if (!lostManagement) { lostManagement = true; return route.abort('failed'); }
     }
-    if (deletionUI && request.method() === 'POST' && url.pathname === '/api/games/' + gameId + '/deletion') {
+    if (deleteUI && request.method() === 'POST' && url.pathname === '/api/games/' + gameId + '/deletion') {
       deletionPosts.push({ key: headers['idempotency-key'], body: request.postData() });
       assert.equal(response.status, 200, await response.clone().text());
-      assert.equal(deletionPosts.length, 1, 'no repeated deletion POST'); return route.abort('failed');
+      assert.equal(deletionPosts.length, 1, 'no repeated deletion POST');
+      // Author panel: drop the transport only AFTER the real commit; the admin panel keeps its receipt.
+      if (!adminDeleteUI && !lostDeletion) { lostDeletion = true; return route.abort('failed'); }
     }
     const body = Buffer.from(await response.arrayBuffer()); call.bytes = body.length;
     return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body });
@@ -137,19 +139,29 @@ try {
   await context.route('**/*', bridge);
   const page = await context.newPage(); page.setDefaultTimeout(30000);
   const show = async () => { await page.waitForSelector('#menu button[data-view="publish-editor"]'); await page.click('#menu button[data-view="publish-editor"]'); };
-  const idle = () => page.waitForFunction(() => !document.querySelector('#publish-games-refresh').disabled, null, { timeout: 180000 });
-  const journal = () => page.evaluate(key => sessionStorage.getItem(key), 'editor-publication-operation:' + ownerId);
+  const idle = () => page.waitForFunction(() => !document.querySelector('#publish-refresh').disabled, null, { timeout: 180000 });
+  const confirm = async (scope, label) => { await scope.locator('.el-message-box__btns button').filter({ hasText: label }).first().click(); };
+  const journal = () => page.evaluate(key => sessionStorage.getItem(key), 'editor-submission-operation:' + ownerId);
+  const draftName = sql.exec('SELECT draft_name FROM content_games WHERE game_id=?', gameId).toArray()[0].draft_name;
+  const row = page.locator(`#publish-table tr[data-game-id="${gameId}"]`);
   stage = 'real browser password login and real game list';
   await page.goto(origin); await page.waitForSelector('#login');
   await page.fill('#login [name="account"]', authority.account); await page.fill('#login [name="password"]', authority.password); await page.locator('#login').getByRole('button', { name: '登入', exact: true }).click();
-  await show(); await page.click('#publish-games-refresh'); await idle();
-  assert.equal(await page.locator('#publish-game').inputValue(), gameId); checks.push(stage);
+  await show(); await page.click('#publish-refresh'); await idle();
+  // The list arrives after the refresh settles; the panel keeps no busy flag for it.
+  await row.waitFor({ state: 'attached', timeout: 180000 });
+  assert.equal(await row.count(), 1, 'the author list holds exactly this game');
+  assert.equal(await row.getAttribute('data-state'), 'draft');
+  assert.equal((await row.locator('[data-field="version"]').textContent()).trim(), '—');
+  assert.equal((await row.locator('[data-field="name"]').textContent()).trim(), draftName);
+  checks.push(stage);
   stage = 'lost browser response after actual compile, R2 stage and SQL commit';
-  await page.fill('#publish-name', '  瀏覽器首版  '); await page.click('#publish-button'); await idle();
+  await row.locator('[data-action="publish"]').click(); await confirm(page, '上架'); await idle();
   assert.equal(posts.length, 1); assert.equal(tail(), 1); assert.equal(confirmed(), 0); assert.equal(roots, 0);
   assert.equal(sql.exec('SELECT COUNT(*) AS n FROM published_pack_chapters').toArray()[0].n, 20);
   let saved; try { saved = JSON.parse(await journal()); } catch (cause) { throw new Error('bad browser journal', { cause }); }
-  assert.equal(saved.key, posts[0].key); assert.equal(saved.name, posts[0].body.name); assert.equal(saved.name, '  瀏覽器首版  ');
+  assert.equal(saved.key, posts[0].key); assert.equal(saved.name, posts[0].body.name);
+  assert.equal(saved.name, draftName, 'the panel publishes the stored draft name, not a typed one');
   assert.equal(await page.isDisabled('#publish-retry'), true); checks.push(stage);
   stage = 'reload queries the actual permanent request without reposting';
   const beforeReload = calls.length; await page.reload(); await show();
@@ -162,7 +174,7 @@ try {
   const firstRoot = await bucket.get('control/current.json'), firstTime = rootVisibleAt(firstRoot.uploaded);
   failReceipt = false; await drain(); assert.equal(roots, 1); assert.equal(confirmed(), 1);
   await page.click('#publish-query'); await idle(); assert.ok((await page.locator('#publish-result').textContent()).includes(firstTime));
-  assert.match(await page.locator('#publish-result').textContent(), /不是目前上架/); await page.locator('#publish-editor').screenshot({ path: join(artifact, 'confirmed.png') }); checks.push(stage);
+  assert.match(await page.locator('#publish-result').textContent(), /上架與否仍以管理員同意為準/); await page.locator('#publish-editor').screenshot({ path: join(artifact, 'confirmed.png') }); checks.push(stage);
   const player = await context.newPage(); player.setDefaultTimeout(30000);
   if (playerClient) playerProbe = createPlayerClientBrowserProbe({ page: player, context, origin: playerOrigin, gameId, chapters: authority.chapters });
   await player.goto(playerOrigin + '/play-api/v1/registry');
@@ -170,36 +182,33 @@ try {
   const registry = async () => { const result = await playerJSON('/play-api/v1/registry'); assert.equal(result.status, 200); return result.body; };
   stage = 'hidden publish confirmed, actual reader directory still empty';
   assert.deepEqual((await registry()).directory, []); checks.push(stage);
-  stage = 'actual administrator listing, then current admission and all 20 chapters';
+  stage = 'actual administrator review panel approves the submitted version';
   let adminPage;
-  const adminIdle = () => adminPage.waitForFunction(() => !document.querySelector('#management-load').disabled);
+  const adminIdle = () => adminPage.waitForFunction(() => !document.querySelector('#review-refresh').disabled, null, { timeout: 180000 });
   const adminShow = async () => { await adminPage.waitForSelector('#menu button[data-view="management-editor"]'); await adminPage.click('#menu button[data-view="management-editor"]'); };
-  const adminQuery = async () => { await adminPage.click('#management-query'); await adminIdle(); };
-  const adminAction = async name => {
-    await adminPage.click('#management-forget'); await adminIdle();
-    await adminPage.click('#management-load'); await adminIdle();
-    await adminPage.locator('#management-games').getByRole('button', { name, exact: true }).click(); await adminIdle();
-  };
-  if (managementUI) {
+  const adminRow = () => adminPage.locator(`#review-table tr[data-game-id="${gameId}"]`);
+  if (reviewUI) {
     const adminContext = await browser.newContext({ viewport: { width: 1280, height: 1000 }, serviceWorkers: 'block' });
     await adminContext.addInitScript(() => { window.__ownedIDB = 0; indexedDB.open = () => { window.__ownedIDB++; throw new Error('IDB forbidden'); }; });
     observeContext(adminContext); await adminContext.route('**/*', bridge); adminPage = await adminContext.newPage(); adminPage.setDefaultTimeout(30000);
     await adminPage.goto(origin); await adminPage.fill('#login [name="account"]', 'tianyi'); await adminPage.fill('#login [name="password"]', authority.password);
     await adminPage.locator('#login').getByRole('button', { name: '登入', exact: true }).click(); await adminShow();
-    await adminPage.click('#management-load'); await adminIdle();
-    await adminPage.locator('#management-games').getByRole('button', { name: '上架正式版本', exact: true }).click(); await adminIdle();
-    assert.equal(managementPosts.length, 1); assert.equal(await adminPage.isDisabled('#management-retry'), true);
-    const before = calls.length; await adminPage.reload(); await adminShow();
-    assert.equal(calls.slice(before).some(row => row.path.includes('/management-operations/')), false); assert.equal(managementPosts.length, 1);
-    await adminQuery(); assert.match(await adminPage.locator('#management-result').textContent(), /本地已提交.*分發待確認/);
-    assert.equal(await adminPage.isDisabled('#management-retry'), true);
-    await adminPage.locator('#management-editor').screenshot({ path: join(artifact, 'management-pending.png') });
+    await adminPage.click('#review-refresh'); await adminIdle();
+    assert.equal(await adminRow().count(), 1, 'the admin list holds the submitted game');
+    assert.equal(await adminRow().getAttribute('data-state'), 'pending');
+    assert.equal((await adminRow().locator('[data-field="version"]').textContent()).trim(), '1.0');
+    const submitted = sql.exec('SELECT row_revision FROM content_games WHERE game_id=?', gameId).toArray()[0].row_revision;
+    await adminRow().locator('[data-action="approve"]').click(); await confirm(adminPage, '同意上架'); await adminIdle();
+    assert.equal(reviewPosts.length, 1, 'one approve POST from the panel');
+    assert.equal(JSON.parse(reviewPosts[0].body).action, 'list');
+    assert.equal(JSON.parse(reviewPosts[0].revision), submitted, 'the panel pins the row revision it confirmed');
+    assert.match(await adminPage.locator('#review-result').textContent(), /已同意上架版本 1\.0/);
+    assert.equal(await adminPage.evaluate(() => window.__ownedIDB), 0);
+    assert.equal(await adminRow().getAttribute('data-state'), 'listed', 'the reload shows the approved state');
   } else await authority.manage('list');
   assert.equal(tail(), 2); assert.deepEqual((await registry()).directory, []); await drain();
-  if (managementUI) {
-    await adminQuery(); assert.match(await adminPage.locator('#management-result').textContent(), /此次分發曾於.*不是目前上架/);
-    await adminPage.locator('#management-editor').screenshot({ path: join(artifact, 'management-confirmed.png') });
-  }
+  // The approved version is public only after the drain: the reader directory is
+  // the authority, not the review panel receipt.
   let publicState = await registry(); assert.equal(publicState.directory.length, 1); assert.equal(publicState.directory[0].ordinal, '1.0'); assert.equal(publicState.directory[0].chapters.length, 20);
   assert.equal(publicState.announcements[0].firstOnlineAt, rootVisibleAt((await bucket.get('control/current.json')).uploaded));
   const chapterId = authority.chapters[0], admissionPath = ordinal => `/play-api/v1/admissions?game=${gameId}&ordinal=${ordinal}&chapter=${encodeURIComponent(chapterId)}`;
@@ -241,10 +250,15 @@ try {
     await playerProbe.recovered();
   }
   stage = 'second browser publish invalidates the old release; only explicit new admission can continue';
-  await page.click('#publish-forget'); await idle(); await page.click('#publish-games-refresh'); await idle(); await page.fill('#publish-name', '瀏覽器新版'); await page.click('#publish-button'); await idle();
+  await page.click('#publish-forget'); await idle(); await page.click('#publish-refresh'); await idle();
+  await row.waitFor({ state: 'attached', timeout: 180000 });
+  await row.locator('[data-action="publish"]').click(); await confirm(page, '上架'); await idle();
   assert.equal(posts.length, 2); assert.notEqual(posts[1].key, posts[0].key); assert.equal(tail(), 3); assert.equal(confirmed(), 2);
   assert.equal((await registry()).directory[0].ordinal, '1.0'); assert.equal((await playerJSON(admissionPath('1.1'))).status, 409);
-  await drain(); await page.click('#publish-query'); await idle(); assert.match(await page.locator('#publish-result').textContent(), /版本 1.1.*此次分發曾於/);
+  await drain();
+  // A committed publish releases its tracking key, so the receipt stays on screen
+  // without a query round trip; the drain above is what makes it confirmed.
+  assert.match(await page.locator('#publish-result').textContent(), /版本 1\.1／修訂 1/);
   publicState = await registry(); assert.equal(publicState.directory[0].ordinal, '1.1'); assert.equal(publicState.announcements.length, 2);
   assert.equal((await playerJSON(admissionPath('1.0'))).status, 409);
   assert.equal((await readRole('chapter:' + chapterId)).status, 409, 'old admitted ticket cannot read after a newer release becomes current');
@@ -262,46 +276,45 @@ try {
   if (playerProbe) await playerProbe.observe(true, currentIndex, currentChapter);
   if (appProbe) await appProbe.observe(true, currentIndex, currentChapter);
   stage = 'unlist denies new admissions; current 1.1 ticket continues, retired 1.0 remains invalid';
-  if (managementUI) {
-    await adminQuery(); assert.match(await adminPage.locator('#management-result').textContent(), /此次分發曾於/);
-    await adminAction('管理下架並限制'); assert.match(await adminPage.locator('#management-result').textContent(), /分發待確認/);
-  } else await authority.manage('unlist');
+  await authority.manage('unlist');
   await drain(); assert.equal(confirmed(), 4); assert.deepEqual((await registry()).directory, []);
   assert.equal((await playerJSON(admissionPath('1.1'))).status, 403); assert.deepEqual(await readRole('chapter:' + chapterId), currentChapter);
   assert.equal((await readRole('chapter:' + chapterId, true)).status, 409, 'unlisting cannot revive a retired release'); checks.push(stage);
   if (playerProbe) await playerProbe.observe(false);
   if (appProbe) await appProbe.observe(false);
-  if (managementUI) {
-    stage = 'administrator clear restriction remains down, with its own distribution status';
-    await adminQuery(); assert.match(await adminPage.locator('#management-result').textContent(), /此次分發曾於/);
-    await adminAction('解除管理限制（不自動上架）'); assert.equal(tail(), 5); assert.equal(confirmed(), 4);
-    assert.match(await adminPage.locator('#management-result').textContent(), /分發待確認/);
-    await drain(); await adminQuery(); assert.match(await adminPage.locator('#management-result').textContent(), /此次分發曾於/);
-    assert.deepEqual((await registry()).directory, []); assert.equal(sql.exec('SELECT listed FROM content_games WHERE game_id=?', gameId).toArray()[0].listed, 0);
-    assert.equal(managementPosts.length, 3); assert.equal(new Set(managementPosts.map(row => row.key)).size, 3);
-    assert.equal(await adminPage.evaluate(() => window.__ownedIDB), 0); checks.push(stage);
-  }
-  const generations = managementUI ? 6 : 5;
-  const deletionPage = adminDeletionUI ? adminPage : page;
-  const deletionActor = adminDeletionUI ? sql.exec("SELECT id FROM users WHERE account='tianyi'").toArray()[0].id : ownerId;
+  const generations = 5;
+  const deletionPage = adminDeleteUI ? adminPage : page;
+  const deletionActor = adminDeleteUI ? sql.exec("SELECT id FROM users WHERE account='tianyi'").toArray()[0].id : ownerId;
   stage = 'explicit deletion fence returns 410, not physical purge';
-  if (deletionUI) {
+  if (deleteUI) {
     const before = sql.exec('SELECT row_revision,draft_name FROM content_games WHERE game_id=?', gameId).toArray()[0];
-    await deletionPage.click('#menu button[data-view="deletion-editor"]'); await deletionPage.click(adminDeletionUI ? '#deletion-admin-load' : '#deletion-load');
-    await deletionPage.waitForFunction(() => !document.querySelector('#deletion-load').disabled);
-    await deletionPage.locator('#deletion-games').getByRole('button', {name:'提出刪除請求',exact:true}).click();
-    await deletionPage.waitForFunction(() => !document.querySelector('#deletion-load').disabled);
-    assert.equal(deletionPosts.length, 1); assert.equal(tail(), generations); assert.equal(confirmed(), generations-1);
-    let savedDeletion; try { savedDeletion = JSON.parse(await deletionPage.evaluate(key => sessionStorage.getItem(key), 'editor-deletion-operation:'+deletionActor)); } catch (cause) { throw new Error('owned deletion journal', {cause}); }
-    assert.equal(savedDeletion.key, deletionPosts[0].key); assert.equal(savedDeletion.expectedRowRevision,before.row_revision); assert.equal(savedDeletion.confirmationName,before.draft_name);
-    assert.equal(deletionPosts[0].body, JSON.stringify({gameId,expectedRowRevision:before.row_revision,confirmationName:before.draft_name}));
-    assert.equal(savedDeletion.actorId,deletionActor);
-    if(adminDeletionUI){assert.notEqual(deletionActor,ownerId);assert.equal(calls.filter(row=>row.path.endsWith('/deletion-preview')).length,1);assert.equal(sql.exec('SELECT actor_id FROM content_deletion_fences WHERE game_id=?',gameId).toArray()[0].actor_id,deletionActor);}
-    const reloadMark=calls.length; await deletionPage.reload(); await deletionPage.waitForSelector('#menu button[data-view="deletion-editor"]'); await deletionPage.click('#menu button[data-view="deletion-editor"]');
-    assert.equal(deletionPosts.length,1); assert.equal(calls.slice(reloadMark).some(row=>row.path.includes('/deletion-operations/')||row.path.endsWith('/deletion-preview')),false);
-    await deletionPage.click('#deletion-query'); await deletionPage.waitForFunction(() => !document.querySelector('#deletion-load').disabled);
-    assert.match(await deletionPage.locator('#deletion-result').textContent(),/非物理清理完成.*分發待確認/); assert.equal(await deletionPage.isDisabled('#deletion-retry'),true);
-    await deletionPage.locator('#deletion-editor').screenshot({path:join(artifact,'deletion-pending.png')});
+    if (adminDeleteUI) {
+      await adminPage.click('#menu button[data-view="management-editor"]'); await adminPage.click('#review-refresh'); await adminIdle();
+      await adminRow().locator('[data-action="delete"]').click(); await confirm(adminPage, '刪除整個遊戲'); await adminIdle();
+      assert.match(await adminPage.locator('#review-result').textContent(), /已建立不可逆刪除柵欄/);
+    } else {
+      await page.click('#publish-refresh'); await idle();
+      await row.locator('[data-action="delete"]').click(); await confirm(page, '刪除整個遊戲'); await idle();
+      let savedDeletion; try { savedDeletion = JSON.parse(await journal()); } catch (cause) { throw new Error('owned deletion journal', { cause }); }
+      assert.equal(savedDeletion.kind, 'delete'); assert.equal(savedDeletion.key, deletionPosts[0].key);
+      assert.equal(savedDeletion.expectedRowRevision, before.row_revision);
+      assert.equal(savedDeletion.confirmationName, before.draft_name);
+      assert.equal(savedDeletion.actorId, deletionActor);
+      assert.match(await page.locator('#publish-message').textContent(), /原鍵保留|重新整理/, 'lost response keeps the confirmed key, never a silent retry');
+    }
+    assert.equal(deletionPosts.length, 1);
+    assert.equal(tail(), generations);
+    assert.equal(deletionPosts[0].body, JSON.stringify({ gameId, expectedRowRevision: before.row_revision, confirmationName: before.draft_name }));
+    if (adminDeleteUI) {
+      assert.notEqual(deletionActor, ownerId);
+      assert.equal(sql.exec('SELECT actor_id FROM content_deletion_fences WHERE game_id=?', gameId).toArray()[0].actor_id, deletionActor);
+      assert.equal(calls.filter(entry => entry.path.endsWith('/deletion-preview')).length, 0, 'the review panel posts the fence directly, no preview round trip');
+    }
+    const reloadMark = calls.length; await deletionPage.reload();
+    if (adminDeleteUI) await adminShow(); else await show();
+    assert.equal(deletionPosts.length, 1, 'a reload never reposts the deletion');
+    assert.equal(calls.slice(reloadMark).some(entry => entry.path.includes('/deletion-operations/') || entry.path.endsWith('/deletion-preview')), false);
+    await deletionPage.locator(adminDeleteUI ? '#review-editor' : '#publish-editor').screenshot({ path: join(artifact, 'deletion-pending.png') });
   } else await authority.manage('delete');
   await drain(); assert.equal(confirmed(), generations); assert.equal((await readRole('chapter:' + chapterId)).status, 410);
   if (playerProbe) {
@@ -321,10 +334,11 @@ try {
     }
     await appProbe.screenshot(join(artifact, 'published-app-retired.png'));
   }
-  if (deletionUI) {
-    await deletionPage.click('#deletion-query'); await deletionPage.waitForFunction(() => !document.querySelector('#deletion-load').disabled);
-    const text=await deletionPage.locator('#deletion-result').textContent(); assert.match(text,/此柵欄分發曾於.*不證明歷史內容/); assert.ok(text.includes(rootVisibleAt((await bucket.get('control/current.json')).uploaded)));
-    assert.equal(deletionPosts.length,1); await deletionPage.locator('#deletion-editor').screenshot({path:join(artifact,'deletion-confirmed.png')});
+  if (deleteUI && !adminDeleteUI) {
+    await page.click('#publish-query'); await idle();
+    assert.match(await page.locator('#publish-message').textContent(), /已核對原刪除柵欄；物理清理仍未獲完成證明/);
+    assert.equal(deletionPosts.length, 1);
+    await page.locator('#publish-editor').screenshot({ path: join(artifact, 'deletion-confirmed.png') });
   }
   assert.ok(await bucket.get(oldRuntimeKey), 'retained bytes make this explicitly NOT physical deletion');
   assert.equal(sql.exec("SELECT COUNT(*) AS n FROM content_operations WHERE method='publish'").toArray()[0].n, 2);
@@ -339,14 +353,16 @@ try {
     if (programPaths && event.path.startsWith('/program-assets/')) completedStreamFailures.push(appProbe.completedProgramStream(event));
     else completedStreamFailures.push(assertCompletedStreamObservation(event, traces, calls, playerOrigin));
   }
-  assert.deepEqual(errors, []); assert.deepEqual(outside, []); assert.deepEqual(unexpectedFailures, ['/api/publish', ...(managementUI ? ['/api/games/' + gameId + '/listing'] : []), ...(deletionUI ? ['/api/games/' + gameId + '/deletion'] : [])]); assert.equal(outbound, 0);
+  assert.deepEqual(errors, []); assert.deepEqual(outside, []);
+  assert.deepEqual(unexpectedFailures, ['/api/publish', ...(deleteUI && !adminDeleteUI ? ['/api/games/' + gameId + '/deletion'] : [])]);
   const expectedHTTP = calls.filter(row => row.status >= 400);
   const appStatuses = publicPlayer ? [410] : [503,410];
-  const expectedStatuses = [...(managementUI ? [401,401,403,409,409,409,409,410] : [401,403,409,409,409,409,410]), ...(playerClient ? [503,409,409,403,410] : []), ...(playerApp ? appStatuses : [])];
+  // A separate admin browser context probes /api/session before it logs in: one more 401.
+  const expectedStatuses = [...[401, ...(reviewUI ? [401] : []), 403,409,409,409,409,410], ...(playerClient ? [503,409,409,403,410] : []), ...(playerApp ? appStatuses : [])];
   assert.deepEqual(expectedHTTP.map(row => row.status).sort((a,b) => a-b), expectedStatuses.sort((a,b) => a-b));
-  assert.equal(consoleErrors.length, expectedHTTP.length + (managementUI ? 2 : 1) + (deletionUI ? 1 : 0));
-  for (const message of consoleErrors) assert.match(message, playerClient ? /Failed to load resource: (net::ERR_FAILED|the server responded with a status of (401|403|409|410|503))/ : /Failed to load resource: (net::ERR_FAILED|the server responded with a status of (401|403|409|410))/);
-  assert.equal(calls.filter(row => row.path === '/api/auth/login').length, managementUI ? 2 : 1);
+  assert.equal(consoleErrors.length, expectedHTTP.length + 1 + (deleteUI && !adminDeleteUI ? 1 : 0));
+  for (const message of consoleErrors) assert.match(message, playerClient ? /Failed to load resource: (net::ERR_FAILED|the server responded with a status of (401|403|409|410|503))/ : /Failed to load resource: (net::ERR_FAILED|the server responded with a status of (401|403|409|410|503))/);
+  assert.equal(calls.filter(row => row.path === '/api/auth/login').length, reviewUI ? 2 : 1);
   for (const path of ['/client.js','/publish.js','/draft.js','/management.js']) assert.ok(calls.some(row => row.path === path && row.status === 200));
   const authorityId = app.frozenDistribution.status().authorityId;
   for (let generation = 1; generation <= generations; generation++) {
@@ -357,7 +373,11 @@ try {
   await browser.close(); browser = null; storage.close(); authority.storage = null;
   reopened = openStorage(authority.dbPath); const afterRestart = createDistributionPublisher({ storage: reopened, r2, verifyStaticResources });
   assert.equal((await afterRestart.drainOne()).state, 'IDLE'); assert.equal(roots, generations); assert.equal(afterRestart.ledger.status().confirmedGeneration, generations); checks.push(stage);
-  const result = { checks, publicPlayer, playerApp: appProbe ? appProbe.report() : null, playerClient: playerProbe ? { ...playerProbe.report(), traces, completedStreamFailures } : null, nodeService, managementUI, managementPosts, deletionUI, adminDeletionUI, deletionPosts, browser: browserVersion, posts: posts.length, roots, confirmed: generations, chapters: authority.chapters.length, r2: { gets, puts, outbound }, static: { ...packaged.stats(), checks: staticChecks }, expectedHTTP: expectedHTTP.map(row => ({ path: row.path, status: row.status })), expectedLostResponses: (managementUI ? 2 : 1) + (deletionUI ? 1 : 0), sources, screenshots: Object.fromEntries(['pending.png','confirmed.png', ...(managementUI ? ['management-pending.png','management-confirmed.png'] : []), ...(deletionUI ? ['deletion-pending.png','deletion-confirmed.png'] : []), ...(playerApp ? ['published-app-retired.png'] : [])].map(name => [name, sha(readFileSync(join(artifact,name)))])), scope: 'Actual browser UI/password login/gateway/SQLite/20-chapter compile/guarded immutable stage/default publisher/owned workerd R2 and reader, via in-process browser transport bridge. Full-copy bootstrap; optional managementUI mode uses an independent admin browser login and listing/unlist/clear UI (optional deletionUI exercises the author-owned deletion journal, or adminDeletionUI the cross-author confirmation preview and journal, with real post-fence status; otherwise deletion is a direct authenticated Request). Otherwise admin actions are direct authenticated Requests. Optional playerApp joins real admission to the same App, owned native IDB and real lifecycle host (update/deletion retirement and explicit confirmation), with test startup and a recording navigation port; without it the engine is not executed. The additional publicPlayer mode uses unmodified production HTML/boot and real title/chooser/page navigation instead of that test startup/recording port. Not author blank creation, Node TCP/TLS/cloud S3, full campaign, static-retention or physical-delete proof.' };
+  const deletionShots = !deleteUI ? [] : adminDeleteUI
+    ? ['deletion-pending.png']
+    : ['deletion-pending.png', 'deletion-confirmed.png'];
+  const result = {
+ checks, publicPlayer, playerApp: appProbe ? appProbe.report() : null, playerClient: playerProbe ? { ...playerProbe.report(), traces, completedStreamFailures } : null, nodeService, reviewUI, reviewPosts: reviewPosts.length, deleteUI, adminDeleteUI, deletionPosts: deletionPosts.length, browser: browserVersion, posts: posts.length, roots, confirmed: generations, chapters: authority.chapters.length, r2: { gets, puts, outbound }, static: { ...packaged.stats(), checks: staticChecks }, expectedHTTP: expectedHTTP.map(row => ({ path: row.path, status: row.status })), expectedLostResponses: 1 + (deleteUI && !adminDeleteUI ? 1 : 0), sources, screenshots: Object.fromEntries(['pending.png','confirmed.png', ...deletionShots, ...(playerApp ? ['published-app-retired.png'] : [])].map(name => [name, sha(readFileSync(join(artifact,name)))])), scope: 'Actual browser UI/password login/gateway/SQLite/20-chapter compile/guarded immutable stage/default publisher/owned workerd R2 and reader, via in-process browser transport bridge. Full-copy bootstrap; optional reviewUI mode drives the live review panel with an independent admin browser login (optional deleteUI exercises the live publish-panel deletion journal, or adminDeletionUI the cross-author confirmation preview and journal, with real post-fence status; otherwise deletion is a direct authenticated Request). Otherwise admin actions are direct authenticated Requests. Optional playerApp joins real admission to the same App, owned native IDB and real lifecycle host (update/deletion retirement and explicit confirmation), with test startup and a recording navigation port; without it the engine is not executed. The additional publicPlayer mode uses unmodified production HTML/boot and real title/chooser/page navigation instead of that test startup/recording port. Not author blank creation, Node TCP/TLS/cloud S3, full campaign, static-retention or physical-delete proof.' };
   writeFileSync(join(artifact, 'result.json'), JSON.stringify(result, null, 2), { flag: 'wx' });
   process.stdout.write(JSON.stringify({ ...result, sources: 'in artifact', artifact }) + '\n');
 } catch (error) {

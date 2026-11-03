@@ -1,3 +1,8 @@
+// 封存快照（2026-11 标注）：本 lane 属于 `pinned/worker.js` 世代的证据记录，不是现行门。
+// 它从固定会话目录读取 before.json/generation.json 的 21 个源文件 hash，那些 hash 已随源码演进全部 drift，
+// 因此脚本现在连启动断言都过不了；重建快照等于改写历史证据，需单独决定。
+// 覆盖同一事实的现行门：`verify_editor_schema_sources`（声明面计数）、`verify_distribution_schema`（真 workerd）、
+// 以及 `verify_publication_chain_browser` 里用真实 SQLite 跑的 assertDeletionDefinitions／DELETE_SCHEMA_DEFINITION 拒绝面。
 // Actual owned Root/SQLite metadata only; no staged bytes, gameplay or DELETE admission.
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,mkdtempSync} from 'node:fs';
@@ -42,7 +47,7 @@ async function login(account){
 async function observed(input,session){
  const x=(await action({action:'observe',input},session)).result;
  assert.deepEqual(Object.keys(x).sort(),['gameId','rowRevision','schemaDigest','tablesVerified','indexesVerified','foreignKeyDeclarationsVerified','definitionsVerified','rowIntegrityVerified','nativeDrainVerified','deleteAllowed','mode'].sort());
- assert.equal(x.gameId,input.gameId);assert.equal(x.rowRevision,input.expectedRowRevision);assert.match(x.schemaDigest,/^[a-f0-9]{64}$/);assert.equal(x.tablesVerified,50);assert.equal(x.definitionsVerified,true);assert.equal(x.rowIntegrityVerified,false);assert.equal(x.nativeDrainVerified,false);assert.equal(x.deleteAllowed,false);assert.equal(x.mode,'CURRENT_DECLARED_SQL_DEFINITIONS_ONLY_LEGACY_UNKNOWN');
+ assert.equal(x.gameId,input.gameId);assert.equal(x.rowRevision,input.expectedRowRevision);assert.match(x.schemaDigest,/^[a-f0-9]{64}$/);assert.equal(x.tablesVerified,53); // 2026-11 随六表冻结改为 53；封存快照未重跑验证assert.equal(x.definitionsVerified,true);assert.equal(x.rowIntegrityVerified,false);assert.equal(x.nativeDrainVerified,false);assert.equal(x.deleteAllowed,false);assert.equal(x.mode,'CURRENT_DECLARED_SQL_DEFINITIONS_ONLY_LEGACY_UNKNOWN');
  observations.push(x);return x;
 }
 try{

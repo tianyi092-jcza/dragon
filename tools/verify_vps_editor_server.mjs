@@ -62,9 +62,8 @@ try {
   const client = await http('/client.js');
   assert.equal(client.status, 200);
   const modules = [...client.text.matchAll(/^import .* from '(\/[^']+\.js)';$/gm)].map(match => match[1]);
-  assert.equal(modules.length, 11);
-  assert.ok(modules.includes('/shell-ui.js'));
-  assert.ok(modules.includes('/publish.js'));
+  assert.deepEqual([...modules].sort(), ['/catalog.js','/draft.js','/general.js','/library.js','/management.js','/mapview.js','/publish.js','/review.js','/shell-ui.js','/stage-assets.js','/stage.js','/stronghold.js'],
+    'client.js imports exactly the shipped controller modules (management-editor renders review.js)');
   for (const path of ['/client.js', ...modules]) {
     const asset = await http(path);
     assert.equal(asset.status, 200, path);
@@ -125,7 +124,7 @@ try {
   const options = { storage, principal: () => { throw new Error('unused owned principal'); }, requestKey: env.EDITOR_REQUEST_KEY };
   new GameDeletionJobFreeze(options); new GameDeletionDraftFreeze(options);
   const facts = assertDeletionDefinitions(storage.sql);
-  assert.equal(facts.tablesVerified, 50); assert.equal(facts.indexesVerified, 49);
+  assert.equal(facts.tablesVerified, 53); assert.equal(facts.indexesVerified, 51);
   assert.equal(facts.foreignKeyDeclarationsVerified, 4);
   check('real Node application has exact additive frozen SQLite declarations and constraints');
   await server.close(); server = null; storage.close(); storage = null;

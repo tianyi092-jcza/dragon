@@ -234,7 +234,7 @@ r1保留真实接线错误：写事务插入reservation后再次inspect误报`PU
 
 共同editorapp现在在同一storage构造`frozenDistribution`，仅初始化持久authority及空账本；默认回执验证拒绝`DISTRIBUTION_NOT_CONFIGURED`，没有因此接入生产者、排空器或公开API。旧Outbox／发布事务暂不迁移，不能把初始化当作冻结发布完成。
 
-冻结基线为**23源／50表／49索引／99对象／343列／4FK**。原47表字面声明保持，新增[`distributiondeclarations`](../server/distributiondeclarations.js)只含明确三表的固定CREATE／列／索引／外键并合入各严格门；不从运行数据库推导可接受结构。两处UNIQUE／索引投影扫描和共同冻结计数同步为49，外键扫描分别检查三个TEXT用户ID边及INTEGER正安全代次边；未知表／索引／trigger、缺新表／新列、同列而删除CHECK及延期外键仍拒绝。
+冻结基线为**23源／53表／51索引／104对象／356列／4FK**（本节原记50表／49索引／99对象／343列，为`d2acb08`时点；`d301c49` 新增账本退休检查点、清理与入队闸门三张表未同步声明，2026-11 已补齐，见 checkpoint-journal §4.2）。原47表字面声明保持，[`distributiondeclarations`](../server/distributiondeclarations.js)以固定CREATE／列／索引／外键声明全部六张账本表并合入各严格门；不从运行数据库推导可接受结构。两处UNIQUE／索引投影扫描和共同冻结计数同步为49，外键扫描分别检查三个TEXT用户ID边及INTEGER正安全代次边；未知表／索引／trigger、缺新表／新列、同列而删除CHECK及延期外键仍拒绝。
 
 **删除引用缺口没有被白名单掩盖**：全局payload可能包含其它游戏，inventory不能只筛`game_id`。暂仅允许严格空账本的原有限观察，将authority状态摘要纳入SQL观察；有任何事件／块、恢复锁或异常singleton即`DELETE_DISTRIBUTION_UNSUPPORTED`，缺表拒绝。await期间其它游戏入队同样拒绝。仍返回`deleteAllowed:false`；完整全局引用、在途R2写入、payload清理／备份删除未完成，不能据此物理删除。
 

@@ -52,10 +52,10 @@ try {
   const response = await mf.dispatchFetch('https://schema.test/');
   assert.equal(response.status, 200, await response.clone().text());
   const facts = await response.json();
-  assert.equal(facts.tablesVerified, 50);
-  assert.equal(facts.indexesVerified, 49);
+  assert.equal(facts.tablesVerified, 53);
+  assert.equal(facts.indexesVerified, 51);
   assert.equal(facts.foreignKeyDeclarationsVerified, 4);
-  assert.equal(facts.columns, 343);
+  assert.equal(facts.columns, 356);
   assert.equal(facts.pending, 0);
   assert.match(facts.schemaDigest, /^[a-f0-9]{64}$/);
   assert.equal(outbound, 0);
@@ -63,7 +63,7 @@ try {
     assert.equal(facts.rowChecks.groups, 18);
     process.stdout.write(JSON.stringify(facts.rowChecks, null, 2) + '\n');
   }
-  process.stdout.write('distribution schema: actual Root 50 tables / 49 indexes / 343 columns; declarations, columns, FK and index attributes match frozen gate\n');
+  process.stdout.write('distribution schema: actual Root 53 tables / 51 indexes / 356 columns; declarations, columns, FK and index attributes match frozen gate\n');
 } finally {
   await mf?.dispose();
   rmSync(own, { recursive: true, force: true });

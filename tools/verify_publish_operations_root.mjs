@@ -43,7 +43,7 @@ try {
     sql.exec('INSERT INTO users VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', id, account, role, '{}', 0, 0, 1, 1, '', '', '', '');
     sql.exec('INSERT INTO sessions VALUES(?,?,?,?,?)', tokenHash, id, 1, Date.now() + 3600000, Date.now() + 3600000);
   }
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 50);
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 53);
   const csrf = await mac(`csrf:${token}`, secret);
   // Scenario labels are not product names. Keep explicit, legal wire names
   // (no truncation or normalization of arbitrary test input).
@@ -465,6 +465,6 @@ try {
   assert.throws(() => app.contentKey(OWNER, 'owned-publish-request-01', 'auth'), error => error.code === 'IDEMPOTENCY_CONFLICT'); groups++;
   sql.exec('UPDATE users SET disabled=1 WHERE id=?', OWNER);
   assert.equal((await call('HTTP proof', 'owned-publish-request-01')).status, 401); groups++;
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 50); groups++;
-  process.stdout.write(JSON.stringify({ groups, chapters: 20, schemaTables: 50, staging: staging?.stats() ?? null, scope: staging ? 'actual common Request/compiler/SQLite -> immutable staging with real current authority; actual tracked static bytes via local file port and owned memory R2, no durable distribution producer/visibility/network/browser/blank-author proof' : 'actual common Request dispatcher/compiler/owned installed assets and SQLite, same-key concurrent replay; seeded sessions/full-copy bootstrap, no network/R2/browser/blank-author creation proof' }) + '\n');
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 53); groups++;
+  process.stdout.write(JSON.stringify({ groups, chapters: 20, schemaTables: 53, staging: staging?.stats() ?? null, scope: staging ? 'actual common Request/compiler/SQLite -> immutable staging with real current authority; actual tracked static bytes via local file port and owned memory R2, no durable distribution producer/visibility/network/browser/blank-author proof' : 'actual common Request dispatcher/compiler/owned installed assets and SQLite, same-key concurrent replay; seeded sessions/full-copy bootstrap, no network/R2/browser/blank-author creation proof' }) + '\n');
 } finally { storage.close(); rmSync(scratch, { recursive: true, force: true }); }

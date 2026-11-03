@@ -35,11 +35,11 @@ try {
     }
   }
   for (const sql of indexes) storage.sql.exec(sql);
-  assert.equal(modules.length, 23); assert.equal(tables.size, 50);
+  assert.equal(modules.length, 23); assert.equal(tables.size, 53);
   const result = assertDeletionDefinitions(storage.sql);
-  assert.equal(result.tablesVerified, 50); assert.equal(result.indexesVerified, 49);
+  assert.equal(result.tablesVerified, 53); assert.equal(result.indexesVerified, 51);
   assert.equal(result.foreignKeyDeclarationsVerified, 4);
   const columns = [...tables].reduce((sum, name) => sum + storage.sql.exec(`PRAGMA table_xinfo(${name})`).toArray().length, 0);
-  assert.equal(columns, 343);
-  process.stdout.write('schema sources: 23 owners / 50 tables / 49 indexes / 343 columns / 4 FK; exact additive frozen gates\n');
+  assert.equal(columns, 356);
+  process.stdout.write('schema sources: 23 owners / 53 tables / 51 indexes / 356 columns / 4 FK; exact additive frozen gates\n');
 } finally { storage.close(); }

@@ -137,7 +137,7 @@ export function createPublicPlayerBrowserProbe({ browser, origin, gameId, chapte
           const pinnedBase = pinnedBases.find(base => path.startsWith(base));
           const season = pinnedBase && /^content\/builtin\/compiled\/map-2-[a-f0-9]{64}\/(?:map_atlas_|map_tiles_)(?:spring|summer|autumn|winter)\.png$/.test(path.slice(pinnedBase.length));
           if (!path.startsWith('/play-api/') && !season) return transport(url, options);
-          const trace = { sequence:await window.__ownedNextRequest(), completed:false, cancelled:false, bytes:0, status:null };
+          const trace = { sequence:await window.__ownedNextRequest(), path, completed:false, cancelled:false, bytes:0, status:null };
           await window.__ownedTrace(trace);
           const response = await transport(url, {...options,headers:{...options?.headers,'X-Owned-Client-Request':trace.sequence}});
           trace.status = response.status;
@@ -355,7 +355,13 @@ export function createPublicPlayerBrowserProbe({ browser, origin, gameId, chapte
     },
     completedProgramStream(event) { assert.equal(programPaths, true); const basePath = [...programFiles.keys()].find(base => event.path.startsWith(base)); assert.ok(basePath);
       return assertCompletedProgramStream(event, [...traces.values()], programRequests, { origin, basePath, files: programFiles.get(basePath) }); },
-    async traces(){const rows=[...traces.values()];assert.ok(rows.length>0&&rows.every(row=>row.completed&&!row.cancelled&&row.bytes>0));return rows;},
+    async traces(){
+      // A fetch still in flight when the report is written is not evidence either way; give it a
+      // bounded settle window, then assert. A real resolved-but-unread body still fails below.
+      for(let i=0;i<50&&[...traces.values()].some(row=>row.status===null);i++)await new Promise(done=>setTimeout(done,100));
+      const rows=[...traces.values()],bad=rows.filter(row=>!row.completed||row.cancelled||!(row.bytes>0));
+      assert.ok(rows.length>0&&bad.length===0,JSON.stringify(bad.slice(0,5)));return rows;
+    },
     async screenshot(path){await page.screenshot({path});},
     report(){assert.equal(programPuts,installedPuts);return{checks,observations,sources,program:programPaths?{archive,nextArchive,lateResources,programDigest,requests:programRequests,puts:programPuts,scope:'Two owned memory software archives, current-deployment manifest switch, actual late image/data loaders and MusicPlayer decoding, then new-program restore. Only an inert boot comment differs: actual site dispatch; not changed-engine compatibility, BattleView/Session execution or real cloud deployment.'}:null,sourceTreeDigest:manifest.sourceTreeDigest,scope:'Unmodified production HTML/boot/title/new/restore/status/confirmation/navigation, own native IDB and real publisher/reader through controlled transport. Startup intro uses owned seen marker; clock held by polling after assembly. Not real TLS/cloud, old-resource retention, author blank creation or full campaign.'};},
   };

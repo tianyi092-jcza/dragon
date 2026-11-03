@@ -64,19 +64,65 @@
 - **孤立组件保留**：5 个 `.vue` 已不在出壳内，但删除会牵动多条以文件 hash 固定输入的 backend lane（属另一项退役决定），本轮只解除它们对判据的影响，不做删除。
 
 
+### 4.2 本会话续：三段串链打通，以及它撞出的仓库级 schema 漂移
+
+- **三段串链已通**：`verify_publication_chain_browser.mjs` 现在用现网面板跑「作者上架 → 管理員上架審核同意 → 删除」，
+  后端仍是同一套真实夹具（共同 Request／文件 SQLite／20 章编译／guarded 不可变 stage／默认 publisher／owned workerd R2／reader），
+  无 API 桩。三种模式实跑全绿：基础 10 组、`--review-ui --delete-ui` 10 组、再加 `--admin-delete-ui` 10 组。
+- **根因 1（真 bug，影响面最大）**：`server/distributionledger.js` 自 `d301c49` 起另建 `content_distribution_checkpoints`／
+  `_cleanup`／`_enqueue_barrier` 三张表，但 `server/distributiondeclarations.js` 的冻结声明只到 `d2acb08` 的三表。
+  于是任何 `assertDeletionDefinitions` 入口一律 503 `DELETE_SCHEMA_DEFINITION`：`verify_publication_chain_browser` 死在第 44 行夹具启动、
+  `verify_distribution_schema`（真 workerd）同错、`verify_editor_schema_sources` 报 `53 !== 50`。修法是补齐冻结声明（对象／列／索引／外键全量），
+  不是放宽比较：这些表被 `verify_distribution_ledger_retirement`（18 组）与 `verify_distribution_ledger_backup_restore`（7 组）实际读写。
+- **受影响 lane 清单（必须一起改，不能只改期望值）**：`distributiondeclarations`（6 张账本表）、`deletionschema` 列布局、
+  `deletioninventory` 的 `knownTables`（否则 `DELETE_INVENTORY_SCHEMA`）、以及四处计数门：53 表／51 索引／104 对象／356 列／4 FK。
+  已同步 `verify_editor_schema_sources`、`verify_distribution_schema`、`tools/fixtures/distribution-schema`、`verify_vps_editor_server`、
+  `verify_frozen_publication_root`、`verify_publish_operations_root`、`tools/fixtures/publication-browser-authority`，以及 `AGENTS.md`／`r2-player-connection.md` 的基线句。
+- **根因 2**：`verify_publication_chain_browser` 全篇写的是退役旧壳 id（`#publish-games-refresh`／`#publish-name`／`#publish-button`／`#management-*`／`#deletion-*`）与原生 `prompt`。
+  现网是 `PublishPanel`（`#publish-refresh`／`#publish-table` 行内 `data-action`／ElMessageBox 确认／`editor-submission-operation:` 日志键）与
+  `ReviewPanel`（`#review-refresh`／`#review-table` 行内 `data-action`／`#review-result`）。上架名来自服务端 `row.name`，不再有输入框，所以断言改为比对库里 `draft_name`。
+- **根因 3**：`verify_frozen_publication_root` 的「listed=1 → 预览 409」负控已被 B1-B8 产品决定撤销（任何状态都可删，`begin` 里 `listed && fenced` 会顺带撤下 listed）。
+  改为断言 200 且返回当前 rowRevision／draft_name，并保留只读指纹不变。`restoredTables` 一并由 50 改 53。
+- **根因 4**：`verify_vps_editor_server` 断言 `client.js` 恰好 import 11 个模块，现网是 12（`management→review` 更名后新增 `review.js`）。
+  改为断言精确集合，避免下次再靠数字漂移。
+- **失败尝试（记录教训）**：第一版补丁脚本用「第一个 `if (managementUI) {`」当锚点，误把审核段到删除段之间约 20 行的阅读端断言整段删掉；
+  发现后 `git checkout -- tools/verify_publication_chain_browser.mjs` 回退，改为「唯一文本锚点＋行数校验＋自底向上替换」重做，并逐段核对 diff。
+- **仍属封存、不能当现行门**：`verify_editor_backend_deletion_definitions` 需要 `round` 参数且把 21 个源文件 hash 钉在 `pinned/worker.js` 时代的快照里（21/21 已 drift），
+  本轮只把它里面的 `tablesVerified` 由 50 改 53，未重建快照；`verify_editor_roles_browser` 仍是手动 harness。
+
+### 4.3 本会话续三：两条 UI 门本就是现网面板；Trial 程序包漂移；player 段收尾
+
+- **两条 UI 门不需要迁移**：`verify_publication_ui_browser`（7 checks）与 `verify_review_ui_browser`（6 checks）早已改用现网
+  `PublishPanel`／`ReviewPanel` 选择器（`#publish-refresh`／`#publish-table`／`[data-action=…]`／`ElMessageBox`／`#review-*`），实跑全绿。
+  之前 §5 记「仍写旧壳 id」是压缩摘要里的陈旧判断，本会话实测后更正，不做任何代码改动。
+- **新漂移（根因 5）**：`server/public/trialweb.txt` 自 `45f5a78`（建章阶段只开放军师）后没有重建，
+  `web/src/content/authoring/gamesource.js` 实际 67581 字节 vs 包内 67066。只有 `--player-client`／`--player-app` 模式会查这条
+  （`makePublishRuntimeStage` 逐文件比对 byteLength＋sha256），base 模式不查，所以长期未暴露；`verify_installed_program` 同因恒红（`INSTALLED_PROGRAM_INVALID`）。
+  修法＝`node tools/build_trial_web_bundle.mjs` 重建（只改 `trialweb.txt` 一行），随后 `verify_installed_program` 36 checks 绿。
+- **player 段证据（「删旧游戏后玩家端仍可启动」）**：`verify_player_deleted_entry_browser` 6 checks；
+  链 `--player-client --player-app` 10 checks（App 8）；`--player-client --player-app --public-player` 10 checks（App 12、trace ≈2211）。
+- **一次偶发红（非行为回退）**：`public-player-browser.mjs` 的 `traces()` 在仍有 `/play-api/` fetch 未返回（`status===null`）时就断言，
+  重跑两次皆绿。修法＝断言前给未返回的 trace 最多 5 秒 settle 窗口（50×100ms），超时仍 fail 才算真漏读；同时把 `path` 写进 trace，
+  让失败信息能指到具体请求。**没有**放宽 completed／cancelled／bytes>0 的判据。
+- **`verify_editor_backend_deletion_definitions` 决定封存**：它是 `pinned/worker.js` 世代的证据快照（21/21 源 hash drift，连启动断言都过不了），
+  重建快照等于改写历史证据，属另一项决定；同一事实由 `verify_editor_schema_sources`、`verify_distribution_schema` 与链里真实 SQLite 的
+  `assertDeletionDefinitions` 覆盖。已写文件头封存说明，`tablesVerified` 的 53 标注「未重跑验证」。
+
 ## 5. 当前阻塞
 
-1. ~~`verify_editor_workbench_browser` 红~~ / ~~`verify_editor_shell` 的 `disband-order`~~：**已解**（218／90 checks）。
-2. **仍红或需人工的旧壳 lane**：`verify_editor_roles_browser`（手动 harness，需 `round` ＋ `EDITOR_TEST_PORT`）、`verify_publication_chain_browser`、`verify_review_ui_browser`、`verify_editor_backend_stage_ui`、`verify_editor_backend_management_ui` 等按旧壳 id 或真实 wrangler 夹具运行，未在本轮范围内复核。
-3. **端到端三段串链未开始**：上架／管理员同意／删旧游戏各有分片验证，但夹具形态不同（内存 journal harness vs 真实 D1/wrangler），需先抽适配层。
-4. 本会话环境无法跑真实数据库/浏览器点击级验证，只能用 pinned 固定源＋内存对象。
+1. ~~工作台浏览器门／壳矩阵／三段串链／旧壳 UI 门／player 段~~：**全部已解**（218／90／10×3／7／6／6／10 各段绿）。
+2. **已封存，不是现行门**：`verify_editor_backend_deletion_definitions`（`pinned/worker.js` 世代证据快照，见 §4.3）。
+3. **手动 harness（非 CI 级门）**：`verify_editor_roles_browser`（`round`＋`EDITOR_TEST_PORT`）、`verify_trial_app_boot`（`round` 参数＋`attemptN` 目录，无参启动会死于 `assert.match(round)`）。
+4. 本轮改动（含 `trialweb.txt` 重建）**未提交**：commit 需另行授权。
 
 ## 6. 下一步（建议顺序）
 
-1. ~~拆分 `verify_editor_workbench_browser`~~：**已完成**（菜单派生＋映射＋死段退役）。
-2. 把本轮退役结论落到[工作台结构](editor-workbench-structure.md) §3：登记「孤立组件清单＋退役 lane 清单」，让后人不再把旧壳 id 当现行契约；随后再决定是否物理删除 5 个孤立 `.vue`（需同步改 backend lane 的 hash 输入）。
-3. 把 `verify_editor_workbench_end_to_end.mjs`（7 组已绿）作为骨架，逐段接入上架→同意→删除（先统一后端夹具）。
-4. 之后再做「删旧游戏后玩家端仍可启动」这一段。
+1. ~~把旧壳 UI 门改到现网面板~~：**无需改动**（本就是现网选择器，实测绿）。
+2. ~~决定 `verify_editor_backend_deletion_definitions`~~：**已决定封存**。
+3. ~~「删旧游戏后玩家端仍可启动」~~：**已有证据链**（链 player 段 ＋ deleted-entry lane），见 §4.3。
+4. **下一件大活**：用工作台重产当前游戏 → 上架 → 管理员同意 → 删旧游戏，走真实产品流程（不是夹具链）；
+   并把过程中新撞出的漂移按 §4.2／§4.3 的方式补声明或补夹具，不要只对齐数字。
+5. 若还要更严的证据：`--program-paths` 变体与 `verify_player_deleted_saves` 可按需补跑。
 
 ## 7. 归档锚点（仍被外部文档引用）
 

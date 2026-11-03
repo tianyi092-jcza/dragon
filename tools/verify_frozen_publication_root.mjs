@@ -48,7 +48,7 @@ try {
     sql.exec('INSERT INTO users VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', id, account, role, '{}', 0, 0, 1, 1, '', '', '', '');
     sql.exec('INSERT INTO sessions VALUES(?,?,?,?,?)', tokenHash, id, 1, Date.now() + 3600000, Date.now() + 3600000);
   }
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 50);
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 53);
   const csrf = await mac(`csrf:${token}`, secret);
   const scenarioNames = { 'Frozen one': 'Frozen1', 'Frozen two': 'Frozen2' };
   const call = async (label, key, extra = {}) => {
@@ -255,7 +255,9 @@ try {
   const privateBefore=reads;const forbiddenDraft=await app.fetch(new Request(`${origin}/api/games/${gameId}/draft?revision=1`,{headers:{Cookie:`__Secure-dragon-editor=${adminToken}`}}));assert.equal(forbiddenDraft.status,404);assert.equal(reads,privateBefore);
   await previewDeletion(403,token);await previewDeletion(401,null);await previewDeletion(403,adminToken,'wolong-builtin');await previewDeletion(404,adminToken,ADMIN);await previewDeletion(422,adminToken,gameId,'?extra=1');
   for(const [field,status]of [['disabled',401],['must_change',403]]){sql.exec(`UPDATE users SET ${field}=1 WHERE id=?`,ADMIN);try{await previewDeletion(status);}finally{sql.exec(`UPDATE users SET ${field}=0 WHERE id=?`,ADMIN);}}
-  sql.exec('UPDATE content_games SET listed=1 WHERE game_id=?',gameId);try{await previewDeletion(409);}finally{sql.exec('UPDATE content_games SET listed=0 WHERE game_id=?',gameId);}assert.equal(fingerprint(),beforePreview);groups++;
+  // B1-B8 product decision: an administrator may delete the whole game in any
+  // state, listed included, so a listed target is a valid preview and never a refusal.
+  sql.exec('UPDATE content_games SET listed=1 WHERE game_id=?',gameId);try{assert.deepEqual(await previewDeletion(200),{gameId,rowRevision:sql.exec('SELECT row_revision FROM content_games WHERE game_id=?',gameId).toArray()[0].row_revision,confirmationName:sql.exec('SELECT draft_name FROM content_games WHERE game_id=?',gameId).toArray()[0].draft_name});}finally{sql.exec('UPDATE content_games SET listed=0 WHERE game_id=?',gameId);}assert.equal(fingerprint(),beforePreview);groups++;
   const deletion=new Request(`${origin}/api/games/${gameId}/deletion`,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:`__Secure-dragon-editor=${adminToken}`,'X-CSRF-Token':adminCsrf,'Idempotency-Key':'owned-frozen-delete-01'},body:JSON.stringify({expectedRowRevision:row.row_revision,confirmationName:row.draft_name})});
   const beforeDeletion=fingerprint();sql.exec("CREATE TRIGGER owned_abort BEFORE INSERT ON content_distribution_events WHEN NEW.kind='delete-fence' BEGIN SELECT RAISE(ABORT,'owned fence failure'); END");
   try { await managementRequest(deletion,500); } finally { sql.exec('DROP TRIGGER owned_abort'); }
@@ -293,7 +295,7 @@ try {
   assert.deepEqual(Buffer.from(app.frozenDistribution.entry(1).payload),frozen1,'historical content remains: this is NOT physical deletion');
   const publicProjection=JSON.parse(staging.objects.get(staging.prefix+`projections/8/${JSON.parse(staging.objects.get(staging.prefix+'control/current.json').bytes).digest}/projection.json`).bytes);
   assert.equal(Object.hasOwn(publicProjection,'catalog'),false);assert.equal(JSON.stringify(publicProjection).includes('Frozen2'),false);
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified,50);groups++;
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified,53);groups++;
   // Quiescent whole-application restore. These are fenced (not physically
   // erased) records; preserving them must never be reported as erase closure.
   const allRows = db => db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").toArray().map(({ name }) => {
@@ -323,7 +325,7 @@ try {
   try {
     const restoredBucket = new FileBucket({ root: join(scratch, 'restored-objects') });
     const restoredApp = new (createEditorApplication(class {}, { runtimeStager: staging.stager, frozenPublication: true }))({ storage: restoredStorage }, { ...env, EDITOR_BLOBS: restoredBucket });
-    assert.equal(assertDeletionDefinitions(restoredStorage.sql).tablesVerified, 50);
+    assert.equal(assertDeletionDefinitions(restoredStorage.sql).tablesVerified, 53);
     assert.deepEqual(restoredStorage.sql.exec('PRAGMA integrity_check').toArray().map(row => row.integrity_check), ['ok']);
     assert.deepEqual(allRows(restoredStorage.sql), rowsBefore);
     assert.equal(treeHash(join(scratch, 'restored-objects')), objectsBefore); groups++;
@@ -431,5 +433,5 @@ try {
     assert.equal(treeHash(join(scratch, 'objects')), objectsBefore);
     assert.equal(sha(readFileSync(join(scratch, 'source.sqlite'))), sourceFileDigest); groups++;
   } finally { restoredStorage.close(); }
-  process.stdout.write(JSON.stringify({scope:'frozen-publication-root',groups,generations:8,chapters:20,privateReads:reads,rootWrites:writes,restoredTables:50,static:staging.stats(),limits:'actual common Request/file SQLite/compiler and quiescent restore; in-memory R2 and Node reader, not S3/physical deletion/browser/production'})+'\n');
+  process.stdout.write(JSON.stringify({scope:'frozen-publication-root',groups,generations:8,chapters:20,privateReads:reads,rootWrites:writes,restoredTables:53,static:staging.stats(),limits:'actual common Request/file SQLite/compiler and quiescent restore; in-memory R2 and Node reader, not S3/physical deletion/browser/production'})+'\n');
 } finally { if (!sourceClosed) storage.close(); rmSync(scratch,{recursive:true,force:true}); }

@@ -29,10 +29,10 @@ export async function verifyDistributionSchema(storage, ledger) {
   assert.ok(Number.isSafeInteger(sql.databaseSize) && sql.databaseSize > 0);
   checks.push('actual provider consuming cursor and finite logical database byte count');
   const facts = assertDeletionDefinitions(sql);
-  assert.equal(facts.tablesVerified, 50); assert.equal(facts.indexesVerified, 49); assert.equal(facts.foreignKeyDeclarationsVerified, 4);
-  assert.equal(rows("SELECT name FROM sqlite_master WHERE type='table'").reduce((n,t)=>n+rows(`PRAGMA table_xinfo(${t.name})`).length,0),343);
+  assert.equal(facts.tablesVerified, 53); assert.equal(facts.indexesVerified, 51); assert.equal(facts.foreignKeyDeclarationsVerified, 4);
+  assert.equal(rows("SELECT name FROM sqlite_master WHERE type='table'").reduce((n,t)=>n+rows(`PRAGMA table_xinfo(${t.name})`).length,0),356);
   const original = rows('SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name');
-  checks.push('exact 50 tables / 49 indexes / 343 columns / four FK declarations');
+  checks.push('exact 53 tables / 51 indexes / 356 columns / four FK declarations');
   assert.equal(inspectDeclaredForeignKeyRows(sql).edgesVerified, 4);
   assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified, 49);
   assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared, 49);
@@ -135,5 +135,5 @@ export async function verifyDistributionSchema(storage, ledger) {
   assert.equal(lists,beforeDistributionLists+1); assert.equal(ledger.status().tailGeneration,1);
   checks.push('cross-game enqueue during list is rejected at await boundary, no second list');
   assert.equal(assertDeletionDefinitions(sql).schemaDigest,facts.schemaDigest);
-  return {checks,groups:checks.length,tables:50,indexes:49,columns:343,foreignKeys:4,scope:'owned SQL and deletion observation only; populated global ledger deliberately unsupported, no producer/drain/physical deletion proof'};
+  return {checks,groups:checks.length,tables:53,indexes:51,columns:356,foreignKeys:4,scope:'owned SQL and deletion observation only; populated global ledger deliberately unsupported, no producer/drain/physical deletion proof'};
 }

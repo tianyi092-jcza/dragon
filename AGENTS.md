@@ -32,7 +32,7 @@
 - 世界384×256格、16px图块、192据点节点；128军团槽、22正常势力、24×24外交矩阵、256×4B事件轮；逻辑界面640×400。哨兵／别名／排除槽不能用数组长度泛化。
 - `web/content/builtin/`编译20章；图集、布局、拓扑与规则地形分离，画道路不等于建通路。实际资源路径取世界定义，不硬编码旧`road_graph.json`。命名state字段为权威，未知字节不补零；解析纠错导入新目录，不手改生成物。
 - IndexedDB为同源`wolong-web/saves`，目录与正文同事务；不是DOS存档或服务端API。恢复先回标题，detached校验／资源ready后安装，await后重核所属scenario／world／clock／票据。战斗、未完续段、装配或故障均禁存。
-- 编辑器schema：**50表／49索引／99对象／343列／4FK，23个DDL源**。权威含`server/deletiondefinitions.js`、`deletionschema.js`、`distributiondeclarations.js`；旧22源生成器不再覆盖全量，不能直接覆盖当前冻结门。
+- 编辑器schema：**53表／51索引／104对象／356列／4FK，23个DDL源**（`d301c49` 起分发账本另有退休检查点／清理／入队闸门三表，已补冻结；见 checkpoint-journal §4.2）。权威含`server/deletiondefinitions.js`、`deletionschema.js`、`distributiondeclarations.js`；旧22源生成器不再覆盖全量，不能直接覆盖当前冻结门。
 - VPS负责账户、草稿、私有Trial和编译；Cloudflare负责玩家程序及私有R2 `dragon`桶只读投影。桶布局`kao/`、`artifacts/`、`projections/`、`control/`；画像共用`web/kao`的621 PNG＋清单，禁用户上传。游戏数据发布不经Git、不重启程序。
 - 发布请求永久幂等，准确release／pin／冻结事件同事务；预上传不等于公开可见，远端根CAS与读回收据后才确认，未知响应不伪造回滚。删除栅栏不等于物理清理。
 - `/play-api`交给游戏reader；`/program-assets/<digest>/…`交给登记／清单／SHA门；正式根页请求由当前部署选择程序壳，普通首页走ASSETS。程序选择不是用户提供的历史摘要；八季节图基址来自模块URL。游戏版本作废与软件归档身份是不同概念。
