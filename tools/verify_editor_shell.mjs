@@ -25,8 +25,10 @@ const catalogView = readFileSync('editor-ui/src/CatalogPanel.vue', 'utf-8');
 const generalsView = readFileSync('editor-ui/src/GeneralsPanel.vue', 'utf-8');
 const copyView = readFileSync('editor-ui/src/CopyPanel.vue', 'utf-8');
 const publishView = readFileSync('editor-ui/src/PublishPanel.vue', 'utf-8');
-const managementViews = ['ManagementPanel','DeletionPanel'].map(name => readFileSync('editor-ui/src/'+name+'.vue','utf-8')).join('\n');
-const htmlIds = new Set([...(managementViews + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + mapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
+// 已取消界面的孤立組件（ManagementPanel／DeletionPanel／Stage*／Library）不再供給任何 id：
+// 它們不在出貨殼內，讀它們只會製造「面板存在」的假通過。
+const reviewView = readFileSync('editor-ui/src/ReviewPanel.vue', 'utf-8');
+const htmlIds = new Set([...(reviewView + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + mapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
 // Login home: login form + hidden session/menu; no business content outside.
 check("login-form", accountViews.includes('<form id="login">'));
 check("menu-nav", shell.includes('<aside id="menu"') && shell.includes(':hidden="!ready"'));
@@ -34,9 +36,12 @@ check("shell-layout", html.includes('id="editor-app"') && !html.includes('id="ma
 check("session-hidden", shell.includes('<section id="session" :hidden="!state.authenticated">'));
 // Every menu view maps to a real section id. The UI list follows the approved
 // three-level workbench structure; cancelled modules keep server capability.
-for (const id of ["copy", "draft-editor", "admin", "catalog-editor", "stronghold-editor", "mapview-editor", "generals-editor", "chapters-editor", "publish-editor", "management-editor"]) {
-	check(`view-section:${id}`, htmlIds.has(id) && client.includes(`'${id}'`));
-}
+	// 視圖 id 與面板根節點 id 不是同一件事（歷史名 management-editor 渲染 ReviewPanel 的 review-editor），
+	// 因此逐項登記面板組件，並要求出貨殼真的 import 該組件、且用同一視圖 id 控制顯示。
+	const viewPanels = { "copy": ["CopyPanel", "copy"], "draft-editor": ["DraftPanel", "draft-editor"], "admin": ["AccountsPanel", "admin"], "catalog-editor": ["CatalogPanel", "catalog-editor"], "stronghold-editor": ["StrongholdPanel", "stronghold-editor"], "mapview-editor": ["MapPanel", "mapview-editor"], "generals-editor": ["GeneralsPanel", "generals-editor"], "chapters-editor": ["ChaptersPanel", "chapters-editor"], "publish-editor": ["PublishPanel", "publish-editor"], "management-editor": ["ReviewPanel", "review-editor"] };
+	for (const [id, [component, root]] of Object.entries(viewPanels)) {
+		check(`view-section:${id}`, htmlIds.has(root) && client.includes(`'${id}'`) && shell.includes(`import ${component} from './${component}.vue'`) && shell.includes(`state.view !== '${id}'`));
+	}
 // Menu labels are fixed by the product contract.
 for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "系統資源", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架管理", "上架審核"]) {
 	check(`view-label:${label}`, client.includes(`'${label}'`));
@@ -106,7 +111,7 @@ check("portrait-pack", (() => { const p = readFileSync("server/playpacks.js", "u
 check("portrait-ui", htmlIds.has("portrait-pick") && htmlIds.has("portrait-library") && !htmlIds.has("portrait-file") && generalsView.includes('id="portrait-pick"') && readFileSync("server/public/general.txt", "utf-8").includes('selectPortrait(value)'));
 // BOOT-1 truth: disband revert inserts by baseline relative order (not baseline
 // index — history-compacted arrays misalign); copy-match is order-insensitive.
-check("disband-order", (() => { const c = readFileSync("server/copyprofile.js", "utf-8"); const fn = c.slice(c.indexOf("const revertDisband")); return fn.includes("order.indexOf(factionIdx)") && !fn.includes("findIndex(f => f?.idx === factionIdx)"); })());
+check("disband-order", (() => { const c = readFileSync("server/copyprofile.js", "utf-8"); const from = c.indexOf("const revertDisband"), to = c.indexOf("const revertCreateFaction", from + 1); const fn = c.slice(from, to > from ? to : undefined); return fn.includes("order.indexOf(factionIdx)") && !fn.includes("findIndex(f => f?.idx === factionIdx)"); })());
 check("copy-order-free", (() => { const c = readFileSync("server/copyprofile.js", "utf-8"); const seg = c.slice(c.indexOf("// Order-insensitive")); return seg.includes("compare(baseRest, rest, replacements)") && seg.includes("editChapterResources(shell, e.chapterId, oldState.factions[slot].idx, requested)"); })());
 // B4a (§4.5): chapter CRUD fns + save-pipeline ops + gaps receipt + no-chapter publish gate + UI.
 const gamesource = readFileSync("web/src/content/authoring/gamesource.js", "utf-8");
@@ -122,7 +127,8 @@ check('workspace-context', shell.includes('id="workspace-context"') && shell.inc
 check('stage-vue-owned', !html.includes('id="stage-editor"') && !readFileSync('server/public/stage.txt', 'utf-8').includes('getElementById') && stageAssetsView.includes('actions.choosePurpose'));
 check('stage-assets-vue-owned', !html.includes('id="stage-assets-editor"') && !readFileSync('server/public/stageassets.txt', 'utf-8').includes('document.') && stageAssetsView.includes('model.outputs'));
 check('publish-vue-owned', !html.includes('id="publish-editor"') && !readFileSync('server/public/publish.txt', 'utf-8').includes('document.') && publishView.includes('actions.publish(row.gameId)') && publishView.includes('actions.remove(row.gameId, row.rowRevision)'));
-check('management-deletion-vue-owned', !html.includes('<section') && !readFileSync('server/public/management.txt','utf-8').includes('document.') && managementViews.includes('game.rowRevision'));
+// 刪除動作已併入「上架管理／上架審核」（工作台結構 §3），孤立組件不再參與這條判據。
+check('management-deletion-vue-owned', !html.includes('<section') && !readFileSync('server/public/management.txt','utf-8').includes('document.') && (reviewView + publishView).includes('row.rowRevision'));
 // B4 (§7): chapter attributes — start date era + city affiliation/capital +
 // general affiliation/diplomat, each with its own save-pipeline op and revert.
 check("chapter-attribute-writers", ["setChapterStart", "setChapterCityFaction", "setFactionCapital", "setChapterGeneralFaction", "setFactionDiplomat"].every(name => gamesource.includes(`export function ${name}`)));

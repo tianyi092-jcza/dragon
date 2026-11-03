@@ -9,7 +9,8 @@
 - **章節創作七步全部落地**：`451a211` 修绿 chapter_city_history → `bb283dc` materialize → `b2f9d84` 新建章節 → `ba1f190` 势力=君主+必填首都 → `239f7d3` 武将章节属性 → `8bd82c0` 职务先验后还原+首都唯一性 → `b46ed75` 首都须属本势力+年份4位+标题16码点 → `fa0261a` 内政官（太守）开放。
 - **本轮（本会话）主线**：把「槽位」从身份降级为编码位，让武将库承担身份与能力基准，补齐序号重排，并把这条链做成可端到端验证的骨架。
 - **下一个大件（未完成）**：把当前游戏用工作台重新产出一遍 → 上架 → 管理员同意 → 删旧游戏，此后所有游戏统一由工作台发布（用户长期目标）。
-- 仓库 HEAD `207b5a7`，**工作树干净，未 push、未部署**。
+- 仓库 HEAD `7b18c6e`（`207b5a7` 之后的记忆重整），**工作树有未提交的验证修复、未 push、未部署**。
+- **本会话续（验证门归因）**：两颗长期红的验证门已修绿——`verify_editor_workbench_browser` 218 checks、`verify_editor_shell` 90 checks（含长期 red 的 `disband-order`）。改动只在 `tools/`，未触产品代码。
 
 ## 2. 本轮交付批次（按提交顺序）
 
@@ -49,17 +50,33 @@
   - 二层真因：测试仍残留旧壳模块断言（`library-editor`/`stage-editor`/`stage-assets-editor`/`deletion-editor`），而 `grep -c "stage-assets-editor" server/public/stageassets.txt server/public/shell-ui.txt` 两处均为 **0** —— 这些 id 在已出货壳里根本不存在，那段断言早已是死代码。结论：必须**搬家**到独立页测试（或按退役决定删除），不能就地打补丁。
 - **失败尝试记录**：曾把测试循环改为「从实际菜单派生＋核心 9 模块断言」，能推进到 `stage-assets-editor` 才失败；因未跑通整条脚本，按「未跑通不得提交」回退，工作树保持干净。
 
+### 4.1 本会话续：两颗红门的最终归因（已修绿）
+
+- **`management-editor` 是历史名**：菜单 view id 由 `server/public/client.txt` 的 `views` 决定（10 项），但该视图渲染的是 `ReviewPanel.vue` 的 `id="review-editor"`。测试改为**从 `#menu button[data-view]` 派生**菜单集合，并用显式「view → 面板根节点」映射表断言「恰好一个可见 section」，同时断言菜单集合等于已批准结构（含 `chapters-editor`，原列表漏了它）。
+- **原测试后半段从未真正执行过**：它一直死在旧的第 180 行，所以 180 行之后的断言都是纸面覆盖。逐 id 比对可达组件后，死指标为 `#stage-*`、`#stage-assets-*`、`#publish-game/#publish-name/#publish-games-refresh/#publish-button`、`#source-install/#source-refresh`、`#management-*`、`#deletion-*`、`#copy h3`、`#main`。它们全部属于[工作台结构 §3 已取消模块](editor-workbench-structure.md) 或重构前的旧壳，处置是**退役**而不是改选择器：
+  - 阶段任务／阶段结构／素材库：界面取消，控制器仍由 `verify_editor_stage_jobs_controller` / `verify_editor_stage_assets_controller` / `verify_editor_library_controller` 三条 lane 独立覆盖（本次已跑，全绿，均不依赖 DOM）。
+  - 删除追踪：已并入「上架管理／上架审核」（`PublishPanel`/`ReviewPanel` 的 `data-action="delete"`），深流程归 `verify_publication_ui_browser` / `verify_review_ui_browser` / `verify_publication_chain_browser`。
+  - 上架面改为按现网面板断言：`/api/games/submissions` 两行（草稿／已上架）、版本列 `—`、`data-action="delete"` 标题含「刪除整個遊戲」、只读全章校验打 `/draft/chapter-references`。
+- **夹具缺口（不是产品 bug）**：章節 `factions` 行缺 `diplomat_idx`，而 `draft.txt` 的 `checkedFactionRoles` 要求 copy profile 下每行含 `monarch_idx/advisor_idx/diplomat_idx/capital` 且各章含 `generals`；缺一个字段就整表返回 `null`，表现为「角色面永远是未知」「新增章節永远锁定」。补夹具字段即可，**不放宽校验**。这条同时解释了先前的误判（曾以为存盘后 `factionRoles.source` 陈旧导致锁定，实测补字段后无需重载即可新增）。
+- **夹具缺口**：`catalog.txt`（系統資源）在会话就绪后**自动** `GET /api/resources`，与当前视图无关；夹具没这一条就会进 `unexpected`，让末尾 `assert.deepEqual(unexpected, [])` 失败。已补 `{mode:'BUILTIN_READONLY', resources: []}`；隔离上下文同样需要。
+- **`verify_editor_shell` 的 `disband-order` 是测试自身 bug**：`c.slice(c.indexOf("const revertDisband"))` 没有右界，把后一个函数 `revertCreateFaction` 里合法的 `factions.splice(factions.findIndex(f => f?.idx === factionIdx), 1)` 也当成「revertDisband 用了旧规则」。按下一个顶层声明 `const revertCreateFaction` 截断即转绿，**没有改 `server/copyprofile.js`**。
+- **`view-section:management-editor` 曾是假绿**：该 id 只由**从未被 Workbench 渲染**的 `ManagementPanel.vue` 提供。`verify_editor_shell` 现在从 id 采集里剔除 5 个孤立组件（`ManagementPanel`/`DeletionPanel`/`StageAssetsPanel`/`StageJobsPanel`/`LibraryPanel`），改为逐项登记「视图 id → 组件 → 根节点 id」，并要求 `Workbench.vue` 真的 `import` 且用同一视图 id 控制显示。
+- **孤立组件保留**：5 个 `.vue` 已不在出壳内，但删除会牵动多条以文件 hash 固定输入的 backend lane（属另一项退役决定），本轮只解除它们对判据的影响，不做删除。
+
+
 ## 5. 当前阻塞
 
-1. **`verify_editor_workbench_browser` 仍红**（需拆分测试，见上）；`verify_editor_roles_browser` 是手动 harness（需 `round` ＋ `EDITOR_TEST_PORT`）；`verify_editor_shell` 只剩既有的 `disband-order`（`revertDisband` 内 `findIndex` 命中旧规则）。
-2. **端到端三段串链未开始**：上架／管理员同意／删旧游戏各有分片验证，但夹具形态不同（内存 journal harness vs 真实 D1/wrangler），需先抽适配层。
-3. 本会话环境无法跑真实数据库/浏览器点击级验证，只能用 pinned 固定源＋内存对象。
+1. ~~`verify_editor_workbench_browser` 红~~ / ~~`verify_editor_shell` 的 `disband-order`~~：**已解**（218／90 checks）。
+2. **仍红或需人工的旧壳 lane**：`verify_editor_roles_browser`（手动 harness，需 `round` ＋ `EDITOR_TEST_PORT`）、`verify_publication_chain_browser`、`verify_review_ui_browser`、`verify_editor_backend_stage_ui`、`verify_editor_backend_management_ui` 等按旧壳 id 或真实 wrangler 夹具运行，未在本轮范围内复核。
+3. **端到端三段串链未开始**：上架／管理员同意／删旧游戏各有分片验证，但夹具形态不同（内存 journal harness vs 真实 D1/wrangler），需先抽适配层。
+4. 本会话环境无法跑真实数据库/浏览器点击级验证，只能用 pinned 固定源＋内存对象。
 
 ## 6. 下一步（建议顺序）
 
-1. 拆分 `verify_editor_workbench_browser`：工作台段（菜单派生＋核心 9 模块＋单例可见＋零请求）与原旧壳段（独立页测试）分离；处置孤立组件 `ManagementPanel.vue`（删除或改 id 接进菜单）。
-2. 把 `verify_editor_workbench_end_to_end.mjs`（7 组已绿）作为骨架，逐段接入上架→同意→删除（先统一后端夹具）。
-3. 之后再做「删旧游戏后玩家端仍可启动」这一段。
+1. ~~拆分 `verify_editor_workbench_browser`~~：**已完成**（菜单派生＋映射＋死段退役）。
+2. 把本轮退役结论落到[工作台结构](editor-workbench-structure.md) §3：登记「孤立组件清单＋退役 lane 清单」，让后人不再把旧壳 id 当现行契约；随后再决定是否物理删除 5 个孤立 `.vue`（需同步改 backend lane 的 hash 输入）。
+3. 把 `verify_editor_workbench_end_to_end.mjs`（7 组已绿）作为骨架，逐段接入上架→同意→删除（先统一后端夹具）。
+4. 之后再做「删旧游戏后玩家端仍可启动」这一段。
 
 ## 7. 归档锚点（仍被外部文档引用）
 

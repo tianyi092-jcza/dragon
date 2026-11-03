@@ -28,26 +28,12 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 origin = `http://127.0.0.1:${server.address().port}`;
 const gameId = '11111111-1111-4111-8111-111111111111', otherGameId = '22222222-2222-4222-8222-222222222222';
-const stagePurposes = ['data', 'images', 'fallback-spring', 'fallback-summer', 'fallback-autumn', 'fallback-winter'];
-const stageOperations = Object.fromEntries(stagePurposes.map((purpose, index) => [purpose, `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`]));
-function stagePlan() {
-  const flags = { runtimeAllowed: false, trialAllowed: false, releaseAllowed: false, deleteAllowed: false };
-  const reference = { gameId, draftRevision: '1', sourceDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64), rootKey: 'fixture-private-root' };
-  return { admission: 'stage-plan-collection-not-runtime', ...flags, plan: {
-    schema: 'dragon-stage-asset-plan-1', admission: 'structural-stage-plan-not-runtime', ...flags, reference,
-    artifacts: Array.from({ length: 44 }, (_, index) => ({ purpose: 'data', operationId: stageOperations.data, assetId: `asset-${index}`, byteLength: 1, sha256: 'c'.repeat(64) })),
-    reports: stagePurposes.map(purpose => ({ purpose, binding: { ...reference, operationId: stageOperations[purpose] } })),
-    roles: { shared: Array(398).fill(null), chapters: Array(20).fill(null) },
-    unresolvedReferences: Array.from({ length: 20 }, () => ({ note: '<img src=x onerror=alert(1)>' })),
-    missing: ['complete-runtime-dependencies', 'runtime-manifest-and-loader-binding', 'a', 'b', 'c', 'd'],
-  } };
-}
 const waterGroups = [
   { groupId: 'river-alpha', name: '甲e\u0301<img>', showOnMinimap: true, memberCount: 2, baseCellCount: 0 },
   { groupId: 'lake-beta', name: '乙湖', showOnMinimap: false, memberCount: 1, baseCellCount: 0 },
 ];
 let draftRevision = 1, omitLoadedGame = false;
-const chapterRow = (chapterId, name) => ({ chapterId, name, ...(chapterId === 'chapter#first' ? { startDate: { year: 264, month: 2, day: 3 } } : {}), cities: [{idx:0,name:'據點',faction:0,troops:1,prod:2,troopsCap:3,maxProd:4,...(chapterId === 'chapter#first' ? {growth:0,defence:0,typeCode:0,governor:0} : {})}], gaps: { saveGaps: 0, activeGaps: 2, ...(chapterId === 'chapter#first' ? { details: { save: [], active: [{ code: 'entity-count', subject: '<img src=x>', description: '據點槽數不符', recognized: true }], omittedSave: 0, omittedActive: 1 }, assets: { total: 3, items: [{ kind: 'kao', slot: 4, value: 255, logicalURL: '<img src=x>' }, { kind: 'kyo', slot: null, value: null, logicalURL: null }], omitted: 1 } } : {}) }, factions: [{ slot: 0, idx: 0, monarch_idx: 0, advisor_idx: null, capital: 0, money: 100, reserve_cav: 2, reserve_arc: 3, reserve_inf: 4 }], generals: [{ idx: 0, name: '<img src=x>', hao: '', faction: 0, portrait: 0, ...(chapterId === 'chapter#first' ? { ability: { force: 0, lead: 255, politics: 128, siege: 0, field: 15, naval: 8 }, specialtyLowBits: '216' } : {}), portraitKey: chapterId === 'chapter#second' ? 'p3' : null, sourceRecordId: chapterId === 'chapter#first' ? 'source-<img src=x>' : null, references: Array.from({length:20}, (_, idx) => ({ code: 'GENERAL_GOVERNOR_REF', detail: `據點 #${idx} 的太守 <img src=x>` })) }, {idx:127,name:'保留槽',hao:'索引字',faction:null,sourceRecordId:null,...(chapterId === 'chapter#second' ? {portrait:255} : {})}] });
+const chapterRow = (chapterId, name) => ({ chapterId, name, ...(chapterId === 'chapter#first' ? { startDate: { year: 264, month: 2, day: 3 } } : {}), cities: [{idx:0,name:'據點',faction:0,troops:1,prod:2,troopsCap:3,maxProd:4,...(chapterId === 'chapter#first' ? {growth:0,defence:0,typeCode:0,governor:0} : {})}], gaps: { saveGaps: 0, activeGaps: 2, ...(chapterId === 'chapter#first' ? { details: { save: [], active: [{ code: 'entity-count', subject: '<img src=x>', description: '據點槽數不符', recognized: true }], omittedSave: 0, omittedActive: 1 }, assets: { total: 3, items: [{ kind: 'kao', slot: 4, value: 255, logicalURL: '<img src=x>' }, { kind: 'kyo', slot: null, value: null, logicalURL: null }], omitted: 1 } } : {}) }, factions: [{ slot: 0, idx: 0, monarch_idx: 0, advisor_idx: null, diplomat_idx: null, capital: 0, money: 100, reserve_cav: 2, reserve_arc: 3, reserve_inf: 4 }], generals: [{ idx: 0, name: '<img src=x>', hao: '', faction: 0, portrait: 0, ...(chapterId === 'chapter#first' ? { ability: { force: 0, lead: 255, politics: 128, siege: 0, field: 15, naval: 8 }, specialtyLowBits: '216' } : {}), portraitKey: chapterId === 'chapter#second' ? 'p3' : null, sourceRecordId: chapterId === 'chapter#first' ? 'source-<img src=x>' : null, references: Array.from({length:20}, (_, idx) => ({ code: 'GENERAL_GOVERNOR_REF', detail: `據點 #${idx} 的太守 <img src=x>` })) }, {idx:127,name:'保留槽',hao:'索引字',faction:null,sourceRecordId:null,...(chapterId === 'chapter#second' ? {portrait:255} : {})}] });
 const draftChapters = [chapterRow('chapter#first', '<img src=x>'), chapterRow('chapter#second', '第二章')];
 const user = (role, forced = false) => ({ id: role, account: role === 'admin' ? 'tianyi' : 'author', role, disabled: false, version: 1, mustChangePassword: forced, displayName: '', email: '', phone: '', note: '' });
 let session = null, role = 'admin', forced = true, checks = 0, gamesBarrier = null;
@@ -96,16 +82,13 @@ try {
       assert.equal(request.method(), 'POST');
       return reply({ error: 'TRIAL_CHAPTER_ASSET_MISSING' }, 422);
     }
-    if (path === `/api/games/${gameId}/stage-jobs/data`) {
-      assert.equal(request.method(), 'POST'); assert.deepEqual(request.postDataJSON(), { draftRevision: '1', scope: 'all' });
-      return reply({ admission: 'stage-only', purpose: 'data', job: { operationId: stageOperations.data, gameId, draftRevision: '1', scope: 'all', rowRevision: '1', state: 'queued', retryable: false, stage: 0, checkpoint: [] } });
-    }
-    if (path === `/api/games/${gameId}/stage-assets`) {
-      assert.equal(request.method(), 'GET'); assert.equal(session.user.role, 'admin');
-      assert.equal(url.searchParams.get('revision'), '1');
-      for (const purpose of stagePurposes) assert.equal(url.searchParams.get(purpose), stageOperations[purpose]);
-      return reply(stagePlan());
-    }
+    // 系統資源清單在會話就緒後自動讀一次（catalog.txt），與目前視圖無關。
+    if (path === '/api/resources') return reply({ mode: 'BUILTIN_READONLY', resources: [] });
+    if (path === '/api/games/submissions') return reply({ games: [
+      { gameId, name: '測試遊戲', introduction: '<img src=x>', state: 'draft', version: null, stateTime: null, createdAt: '2026-01-02T03:04:05.006Z', restricted: false, rejected: false, rowRevision: '3' },
+      { gameId: otherGameId, name: '乙遊戲', introduction: '', state: 'listed', version: '1.2', stateTime: '2026-02-03T04:05:06.007Z', createdAt: '2026-01-02T03:04:05.006Z', restricted: false, rejected: false, rowRevision: '4' },
+    ] });
+    if (path === `/api/games/${gameId}/draft/chapter-references`) return reply({ version: 1, gameId, draftRevision: '1', sourceDigest: 'd'.repeat(64), chapterCount: 1, chapters: [] });
     if (path === '/api/games') { if (gamesBarrier) await gamesBarrier; return reply({ games: [{ gameId, listed: false, draftRevision: String(draftRevision), ownerId: session.user.id, createdAt: '2026-01-02T03:04:05.006Z', modifiedAt: '2026-02-03T04:05:06.007Z', metadata: { name: '測試遊戲', introduction: '<img src=x>' } }, { gameId: otherGameId, listed: false, draftRevision: '1', metadata: { name: '另一遊戲', introduction: '' } }].filter(game => !omitLoadedGame || game.gameId !== gameId) }); }
     if (path === `/api/games/${gameId}/topology`) return reply({gameId,moves:[],rebuilds:[],blocked:false});
     if (path === `/api/games/${gameId}/draft`) { assert.equal(url.searchParams.get('revision'), String(draftRevision)); return reply({ gameId, draftRevision: String(draftRevision), profileRevision: 'fixed-copy-resources-1', metadata: { name: '測試遊戲', introduction: '' }, chapters: draftChapters, waterGroups, map:{placements:1,roads:[]}, strongholds: [{x:10,y:20,runtimeSlot:0,cityId:'city-<img src=x>',placed:true,roads:['r0'],chapters:draftChapters.map(c=>c.chapterId),references:draftChapters.map(c=>({chapterId:c.chapterId,code:'CITY_CAPITAL_REF',detail:'勢力 #0 首都 <img src=x>'}))}] }); }
@@ -175,14 +158,20 @@ try {
   assert.equal(await page.locator('#password').isVisible(), false);
   assert.equal(await page.locator('#login [name=password]').inputValue(), '');
   assert.equal(await page.locator('#draft-editor:visible').count(), 1); checks++;
+  // 選單本身就是出貨真相：視圖 id 來自 client.txt，面板根節點 id 另表映射。
+  // 歷史名 management-editor 實際渲染 ReviewPanel 的 review-editor；
+  // 階段任務／階段結構／素材庫／刪除追蹤為已取消界面（工作台結構 §3），不在選單內。
+  const panelRoot = { copy: 'copy', 'draft-editor': 'draft-editor', admin: 'admin', 'catalog-editor': 'catalog-editor', 'stronghold-editor': 'stronghold-editor', 'mapview-editor': 'mapview-editor', 'generals-editor': 'generals-editor', 'chapters-editor': 'chapters-editor', 'publish-editor': 'publish-editor', 'management-editor': 'review-editor' };
+  const menuViews = await page.locator('#menu button[data-view]').evaluateAll(nodes => nodes.map(node => node.dataset.view));
+  assert.deepEqual(menuViews, Object.keys(panelRoot), 'menu follows the approved workbench structure');
   const beforeNavigation = calls.length;
-  for (const id of ['admin', 'management-editor', 'catalog-editor', 'mapview-editor', 'stronghold-editor', 'generals-editor', 'copy', 'library-editor', 'stage-editor', 'stage-assets-editor', 'publish-editor', 'deletion-editor', 'draft-editor']) {
-    await nav(id).click(); await page.locator(`#${id}`).waitFor({ state: 'visible' });
+  for (const id of menuViews) {
+    await nav(id).click(); await page.locator(`#${panelRoot[id]}`).waitFor({ state: 'visible' });
     assert.equal(await page.locator('#session > section:visible').count(), 1);
     assert.equal(await page.locator('#profile').isVisible(), false);
     assert.equal(await page.locator('#password').isVisible(), false); checks++;
   }
-  assert.equal(calls.length, beforeNavigation, 'all thirteen module navigations perform no API request'); checks++;
+  assert.equal(calls.length, beforeNavigation, 'every shipped module navigation performs no API request'); checks++;
   // Native typing must not truncate a valid NFC value at a UTF-16 guess.
   // Each Hangul syllable composes from three code points to one under NFC.
   async function composedInput(selector, count) {
@@ -197,52 +186,10 @@ try {
   await nav('copy').click();
   await composedInput('#copy-create [name=name]', 8);
   await composedInput('#copy-create [name=introduction]', 20);
-  await nav('stage-assets-editor').click();
-  assert.equal(await page.locator('#stage-assets-load').isDisabled(), true);
-  assert.equal(await page.locator('#stage-assets-clear').isDisabled(), true);
-  assert.equal(calls.some(([, path]) => path.includes('/stage-assets')), false); checks++;
-  await page.screenshot({ path: join(output, 'stage-assets-empty.png'), fullPage: true });
-  // Actual Vue/native controller, explicit API fixture. Failed local journal
-  // storage must stop the reservation before any network POST.
+  // 階段任務／階段結構面板已隨界面取消移出出貨殼（工作台結構 §3），其控制器由
+  // verify_editor_stage_jobs_controller.mjs 與 verify_editor_stage_assets_controller.mjs 直接覆蓋。
   await nav('draft-editor').click(); await page.locator('#draft-games-refresh').click(); await idle();
-  await page.locator('#draft-load').click(); await idle(); await nav('stage-editor').click();
-  const beforeStage = calls.length;
-  await page.evaluate(() => {
-    globalThis.__stageSetItem = Storage.prototype.setItem;
-    Storage.prototype.setItem = function(key, value) { if (key === 'editor-stage-jobs:admin') throw new DOMException('owned quota fixture', 'QuotaExceededError'); return globalThis.__stageSetItem.call(this, key, value); };
-  });
-  await page.locator('#stage-create').click(); await idle();
-  assert.equal(calls.length, beforeStage); assert.match(await page.locator('#stage-status').textContent(), /操作關聯無法保留/);
-  assert.equal(await page.locator('#stage-create').isDisabled(), true); assert.equal(await page.locator('#stage-query').isDisabled(), false);
-  assert.equal(await page.evaluate(() => sessionStorage.getItem('editor-stage-jobs:admin')), null); checks++;
-  await page.evaluate(() => { Storage.prototype.setItem = globalThis.__stageSetItem; delete globalThis.__stageSetItem; });
-  page.once('dialog', dialog => dialog.accept()); await page.locator('#stage-query').click(); await idle();
-  assert.equal(calls.length, beforeStage + 1); assert.equal(await page.locator('#stage-run').isDisabled(), false);
-  const recoveredStage = await page.evaluate(() => JSON.parse(sessionStorage.getItem('editor-stage-jobs:admin')).data);
-  assert.equal(recoveredStage.gameId, gameId); assert.equal(recoveredStage.draftRevision, '1'); assert.equal(recoveredStage.id, stageOperations.data); checks++;
-  await nav('stage-assets-editor').click();
-  // Seed only explicit operation associations in this isolated profile. No job is executed.
-  await page.evaluate(({ gameId, operations }) => {
-    sessionStorage.setItem('editor-stage-jobs:admin', JSON.stringify(Object.fromEntries(Object.entries(operations).map(([purpose, id]) => [purpose, { gameId, draftRevision: '1', purpose, enqueueKey: 'fixture-original-key-123', id, command: null }]))));
-  }, { gameId, operations: stageOperations });
-  await page.reload(); await page.locator('#stage-assets-editor').waitFor({ state: 'visible' }); await idle();
-  assert.equal(calls.some(([, path]) => path.includes('/stage-assets')), false);
-  await page.locator('#stage-assets-load').click(); await idle();
-  assert.equal(await page.locator('#stage-assets-outputs p').count(), 44);
-  assert.equal(await page.locator('#stage-assets-missing p').count(), 26);
-  assert.equal(await page.locator('#stage-assets-proof-gaps p').count(), 6);
-  assert.equal(await page.locator('#stage-assets-unresolved p').count(), 20);
-  assert.match(await page.locator('#stage-assets-summary').textContent(), /不是缺失檔案數/);
-  assert.match(await page.locator('#stage-assets-editor').textContent(), /本頁不授予Trial／發布／刪除准入/);
-  assert.equal(await page.locator('#stage-assets-editor img').count(), 0);
-  assert.match(await page.locator('#stage-assets-missing').textContent(), /<img src=x/);
-  assert.equal((await page.locator('#stage-assets-editor').textContent()).includes('fixture-private-root'), false); checks++;
-  await page.screenshot({ path: join(output, 'stage-assets-loaded.png'), fullPage: true });
-  const stageCalls = calls.length; await page.locator('#stage-assets-clear').click();
-  assert.equal(await page.locator('#stage-assets-outputs p').count(), 0);
-  assert.equal(await page.locator('#stage-assets-proof-gaps p').count(), 0);
-  assert.equal(await page.locator('#stage-assets-unresolved p').count(), 0);
-  assert.equal(calls.length, stageCalls); checks++;
+  await page.locator('#draft-load').click(); await idle();
   await nav('mapview-editor').click();
   assert.equal(await page.locator('#mapview-zoom-in').isDisabled(),true);
   await page.locator('#mapview-refresh').click(); await idle();
@@ -555,25 +502,23 @@ try {
   await nav('draft-editor').click(); assert.equal(await page.locator('#draft-game').inputValue(), gameId);
   assert.equal(calls.length, beforeSharedSelection); checks++;
   const beforePublicationContext = calls.length;
+  // 上架管理是作者視角一行一遊戲（工作台結構 §5）；舊的遊戲選擇器與「發布名」輸入
+  // 屬已退役舊殼。深層上架／同意流程由 verify_publication_ui_browser.mjs 與
+  // verify_review_ui_browser.mjs 覆蓋，這裡只核對面板接線與唯讀全章校驗。
   await nav('publish-editor').click();
-  assert.equal(await page.locator('#publish-game').inputValue(), gameId);
-  assert.equal(await page.locator('#publish-game option:checked').evaluate(option => option.disabled), true);
-  assert.equal(await page.locator('#publish-button').isDisabled(), true);
-  await page.locator('#publish-games-refresh').click(); await idle();
-  assert.equal(await page.locator('#publish-name').inputValue(), '測試遊戲');
-  assert.equal(calls.length, beforePublicationContext + 1); assert.equal(calls.at(-1)[1], '/api/games'); checks++;
-  await page.locator('#publish-name').fill('未提交發布名');
-  page.once('dialog', dialog => dialog.accept()); await nav('stronghold-editor').click();
-  page.once('dialog', dialog => dialog.dismiss()); await page.locator('#stronghold-games').selectOption(otherGameId);
-  assert.equal(await page.locator('#stronghold-games').inputValue(), gameId);
-  page.once('dialog', dialog => dialog.accept()); await nav('publish-editor').click();
-  assert.equal(await page.locator('#publish-name').inputValue(), '未提交發布名');
-  await page.locator('#publish-name').fill('測試遊戲'); checks++;
-  await page.locator('#publish-game').selectOption(otherGameId);
-  await nav('draft-editor').click(); assert.equal(await page.locator('#draft-game').inputValue(), otherGameId);
-  await nav('publish-editor').click(); await page.locator('#publish-game').selectOption(gameId);
-  await nav('draft-editor').click(); assert.equal(await page.locator('#draft-game').inputValue(), gameId);
-  assert.equal(calls.length, beforePublicationContext + 1); checks++;
+  assert.equal(await page.locator('#publish-table tbody tr').count(), 0);
+  await page.locator('#publish-refresh').click(); await idle();
+  assert.equal(calls.length, beforePublicationContext + 1); assert.equal(calls.at(-1)[1], '/api/games/submissions');
+  const publishRows = page.locator('#publish-table tbody tr[data-game-id]');
+  assert.equal(await publishRows.count(), 2); assert.equal(await page.locator('#publish-table img').count(), 0);
+  assert.equal(await publishRows.nth(0).getAttribute('data-state'), 'draft');
+  assert.equal(await publishRows.nth(0).locator('[data-field=version]').textContent(), '—');
+  assert.equal(await publishRows.nth(1).locator('[data-field=state]').textContent(), '已上架');
+  assert.match(await publishRows.nth(0).locator('[data-action=delete]').getAttribute('title'), /刪除整個遊戲/);
+  assert.match(await page.locator('#publish-table').textContent(), /<img src=x/);
+  await publishRows.nth(0).locator('[data-action=check]').click(); await idle();
+  assert.equal(calls.length, beforePublicationContext + 2); assert.equal(calls.at(-1)[1], `/api/games/${gameId}/draft/chapter-references`);
+  assert.match(await page.locator('#publish-message').textContent(), /全部 1 章引用完整/); checks++;
   await page.screenshot({ path: join(output, 'workspace.png'), fullPage: true });
   await nav('admin').click();
   const rows = page.locator('#accounts tbody tr[data-account-id]');
@@ -692,6 +637,7 @@ try {
   assert.match(await chapter('chapter#copy').textContent(), /<新章>/); checks++;
   page.once('dialog', dialog => dialog.accept()); await chapter('chapter#first').getByRole('button', { name: '刪除本章' }).click(); await idle();
   assert.equal(await chapter('chapter#first').count(), 0); checks++;
+  assert.equal(await page.locator('#draft-chapter-create-name').isEnabled(), true);
   await page.locator('#draft-chapter-create-name').fill('空白章');
   await page.locator('#draft-chapter-create-era').selectOption('ad');
   await page.locator('#draft-chapter-create-year').fill('264');
@@ -778,9 +724,10 @@ try {
   assert.equal(await nav('admin').count(), 0); assert.equal(await nav('copy').count(), 1);
   assert.equal(await nav('management-editor').count(), 0); checks++;
   const beforeAuthorCreateView = calls.length; await nav('copy').click(); await page.locator('#copy').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('#copy h3').textContent(), '建立中立遊戲');
-  assert.equal(await page.locator('#source-refresh').isDisabled(), true); assert.equal(await page.locator('#source-install').isDisabled(), true);
+  // 新建遊戲只填遊戲屬性；舊「建立中立遊戲」標題與來源安裝區已退役（職責歸系統資源）。
+  assert.equal(await page.locator('#copy-create [name=name]').inputValue(), '');
   assert.equal(await page.locator('#copy-create button').isDisabled(), false);
+  assert.equal(await page.locator('#copy h3, #source-install').count(), 0);
   assert.equal(calls.length, beforeAuthorCreateView); checks++;
   await page.goto(origin + '/#admin'); await page.locator('#draft-editor').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#admin').isVisible(), false); checks++;
@@ -2314,7 +2261,7 @@ try {
     assert.equal(url.searchParams.get('revision'), String(draftRevision));
     roleReads++;
     const chapter = { chapterId: 'role-chapter', name: '角色章<img>', gaps: { saveGaps: 0, activeGaps: 2 },
-      factions: [advisorSlot, null, 127, 42].map((advisor_idx, slot) => ({ slot, idx: slot, capital: 0, money: 100, reserve_cav: 2, reserve_arc: 3, reserve_inf: 4, monarch_idx: slot === 0 ? monarchSlot : 0, advisor_idx })).filter(faction => !factionDisbanded || faction.slot !== 0),
+      factions: [advisorSlot, null, 127, 42].map((advisor_idx, slot) => ({ slot, idx: slot, capital: 0, money: 100, reserve_cav: 2, reserve_arc: 3, reserve_inf: 4, monarch_idx: slot === 0 ? monarchSlot : 0, advisor_idx, diplomat_idx: null })).filter(faction => !factionDisbanded || faction.slot !== 0),
       generals: [{ idx: 0, name: '君主', hao: '', faction: 0 }, { idx: 8, name: '自由候選八', hao: '', faction: monarchSlot === 0 ? null : 0 }, { idx: 9, name: '自由繼任九', hao: '', faction: monarchSlot === 9 ? 0 : null }, { idx: 7, name: '候選七', hao: '', faction: 0 }, { idx: 126, name: '<img src=x>', hao: '字', faction: 0 }, { idx: 127, name: '保留', hao: '', faction: null }],
     };
     if (!rolesKnown) delete chapter.generals;
@@ -2527,73 +2474,9 @@ try {
   const expiredUnload = new Promise((resolve, reject) => page.once('dialog', async dialog => { try { assert.equal(dialog.type(), 'beforeunload'); await dialog.dismiss(); resolve(); } catch (error) { reject(error); } }));
   await page.evaluate(() => location.reload()); await expiredUnload;
   assert.equal(await page.locator('#login').isVisible(), true); checks++;
-  // Read-only current-game focus; independent pending deletion remains bound to A.
-  const focusContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
-  const actorId = '33333333-3333-4333-8333-333333333333', originalKey = '44444444-4444-4444-8444-444444444444';
-  const pendingDeletion = { actorId, version: 1, gameId, key: originalKey, expectedRowRevision: '5', confirmationName: '甲' };
-  await focusContext.addInitScript(({ actorId, pendingDeletion }) => {
-    indexedDB.open = () => { throw new Error('Formal storage forbidden'); };
-    sessionStorage.setItem('editor-deletion-operation:' + actorId, JSON.stringify(pendingDeletion));
-  }, { actorId, pendingDeletion });
-  const focusCalls = [], time = '2026-01-02T03:04:05.006Z';
-  const fence = { gameId, rowRevision: '6', state: 'fenced', createdAt: time };
-  const operationPath = `/api/games/${gameId}/deletion-operations/${originalKey}`;
-  await focusContext.route('**/*', async route => {
-    const request = route.request(), url = new URL(request.url());
-    if (url.origin !== origin) { unexpected.push(url.origin); return route.abort(); }
-    if (!url.pathname.startsWith('/api/')) return route.continue();
-    assert.equal(request.method(), 'GET'); focusCalls.push(url.pathname); calls.push(['GET', url.pathname, null]);
-    const reply = data => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
-    if (url.pathname === '/api/session') return reply({ user: { ...user('admin'), id: actorId }, csrf: 'focus-fixture' });
-    if (url.pathname === '/api/admin/accounts') return reply({ accounts: [] });
-    if (url.pathname === '/api/games') return reply({ games: [gameId, otherGameId].map((id, index) => ({ gameId: id, ownerId: actorId, listed: false, rowRevision: '5', draftRevision: '1', createdAt: time, modifiedAt: time, metadata: { name: index ? '乙' : '甲', introduction: '' } })) });
-    if (url.pathname === '/api/admin/games') return reply({ games: [gameId, otherGameId].map((id, index) => ({ gameId: id, name: index ? '乙' : '甲', introduction: '', creatorAccount: 'tianyi', currentReleaseId: null, listed: false, restricted: false, rowRevision: '5', createdAt: time, modifiedAt: time })) });
-    if (url.pathname === operationPath) return reply(fence);
-    if (url.pathname === operationPath + '/distribution') return reply({ version: 1, gameId, result: fence, distribution: { gameId, kind: 'delete-fence', generation: 1, operationId: originalKey, state: 'confirmed', visibleAt: time, recoveryRequired: false } });
-    throw new Error('Unexpected focus fixture request: ' + url.pathname);
-  });
-  const focusPage = await focusContext.newPage(); focusPage.on('pageerror', error => errors.push(error.message));
-  let allowFocusNavigation = true;
-  focusPage.on('dialog', async dialog => { assert.equal(dialog.type(), 'confirm'); assert.match(dialog.message(), /刪除原鍵/); if (allowFocusNavigation) await dialog.accept(); else await dialog.dismiss(); });
-  await focusPage.goto(origin); await focusPage.locator('#menu').waitFor({ state: 'visible' });
-  const focusIdle = () => focusPage.waitForFunction(() => !document.querySelector('#logout').disabled);
-  const focusNav = id => focusPage.locator(`#menu [data-view="${id}"]`).click();
-  await focusIdle(); await focusNav('management-editor');
-  assert.equal(await focusPage.locator('#management-current-only').isDisabled(), true);
-  await focusNav('draft-editor'); await focusPage.locator('#draft-games-refresh').click(); await focusIdle();
-  assert.equal(await focusPage.locator('#draft-game').inputValue(), gameId);
-  await focusNav('management-editor'); const beforeFocus = focusCalls.length;
-  await focusPage.locator('#management-current-only').check();
-  assert.equal(await focusPage.locator('#management-current-missing').count(), 1); assert.equal(focusCalls.length, beforeFocus);
-  await focusPage.locator('#management-load').click(); await focusIdle();
-  assert.equal(await focusPage.locator('#management-games [data-game-id]').count(), 1);
-  assert.equal(await focusPage.locator('#management-games [data-game-id]').getAttribute('data-game-id'), gameId); checks++;
-  await focusNav('deletion-editor'); await focusPage.locator('#deletion-load').click(); await focusIdle();
-  await focusPage.locator('#deletion-current-only').check();
-  assert.equal(await focusPage.locator('#deletion-games [data-game-id]').getAttribute('data-game-id'), gameId);
-  await focusNav('copy'); await focusPage.locator('#copy-refresh').click(); await focusIdle();
-  const beforeSwitch = focusCalls.length;
-  const jumpDeletion = focusPage.locator(`#own-games [data-game-id="${otherGameId}"]`).getByRole('button', { name: '查看刪除追蹤' });
-  allowFocusNavigation = false; await jumpDeletion.click(); await focusIdle();
-  assert.equal(await focusPage.locator('#copy').isVisible(), true);
-  assert.equal(await focusPage.locator('#draft-game').inputValue(), gameId); assert.equal(focusCalls.length, beforeSwitch); checks++;
-  allowFocusNavigation = true; await jumpDeletion.click(); await focusIdle();
-  assert.equal(await focusPage.locator('#deletion-editor').isVisible(), true);
-  assert.equal(await focusPage.locator('#draft-game').inputValue(), otherGameId);
-  await focusNav('management-editor');
-  assert.match(await focusPage.locator('#management-current-game').textContent(), new RegExp(otherGameId));
-  assert.equal(await focusPage.locator('#management-games [data-game-id]').getAttribute('data-game-id'), otherGameId);
-  await focusNav('deletion-editor');
-  assert.equal(await focusPage.locator('#deletion-games [data-game-id]').getAttribute('data-game-id'), otherGameId);
-  assert.match(await focusPage.locator('#deletion-operation').textContent(), new RegExp(gameId));
-  assert.equal(focusCalls.length, beforeSwitch);
-  assert.deepEqual(await focusPage.evaluate(id => JSON.parse(sessionStorage.getItem('editor-deletion-operation:' + id)), actorId), pendingDeletion); checks++;
-  await focusPage.locator('#deletion-query').click(); await focusIdle();
-  assert.deepEqual(focusCalls.slice(beforeSwitch), [operationPath, operationPath + '/distribution']);
-  assert.match(await focusPage.locator('#deletion-result').textContent(), /非物理清理完成/);
-  await focusPage.locator('#deletion-current-only').uncheck();
-  assert.equal(await focusPage.locator('#deletion-games [data-game-id]').count(), 2); checks++;
-  await focusContext.close();
+  // 已退役：刪除追蹤面板（工作台結構 §3 併入「上架管理／上架審核」）。管理員上架審核
+  // 由 verify_review_ui_browser.mjs 與 verify_publication_chain_browser.mjs 覆蓋；
+  // 本檔只在 menu-derived 迴圈核對它以 review-editor 渲染且不發請求。
   // Independent neutral DTO fixture: no full-copy-to-template migration claim.
   const definitionContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
   await definitionContext.addInitScript(() => { indexedDB.open = () => { throw new Error('Formal storage forbidden'); }; });
@@ -2621,6 +2504,7 @@ try {
     assert.equal(request.method(), 'GET'); definitionCalls.push(url.pathname); calls.push(['GET', url.pathname, null]);
     const reply = data => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
     if (url.pathname === '/api/session') return reply({ user: user('author'), csrf: 'neutral-fixture' });
+    if (url.pathname === '/api/resources') return reply({ mode: 'BUILTIN_READONLY', resources: [] });
     if (url.pathname === '/api/games') return reply({ games: [{ gameId, draftRevision: '1', metadata: definitionDTO.metadata }] });
     if (url.pathname === `/api/games/${gameId}/draft`) return reply(definitionDTO);
     if (url.pathname === `/api/games/${gameId}/portraits`) return reply({ gameId, portraits: ['0', 'p0001', 'p0002'].map(assetId => ({ assetId, sha256: portraitSHA, mime: 'image/png' })) });

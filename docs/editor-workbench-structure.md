@@ -45,6 +45,27 @@
 | 素材庫 | 與「遊戲資源／系統資源」重複 | 界面取消，職責歸「系統資源」 |
 | 刪除追蹤 | 併入「上架管理」 | 界面取消，刪除動作移入上架管理與上架審核 |
 
+### 3.1 已取消界面的落地清單（供驗證引用，不是新產品決定）
+
+**視圖 id ≠ 面板根節點 id**：選單視圖 id 由 `server/public/client.txt` 的 `views` 決定，面板根節點 id 由各自的 `.vue` 決定。兩者不是同一個名字，驗證不得用「有沒有 `#<viewId>`」當成面板存在。現行對照：
+
+| 視圖 id（`data-view`） | 選單名 | 面板組件 | 根節點 id |
+|---|---|---|---|
+| `copy` | 新建遊戲 | `CopyPanel.vue` | `copy` |
+| `draft-editor` | 遊戲管理 | `DraftPanel.vue` | `draft-editor` |
+| `admin` | 用戶管理 | `AccountsPanel.vue` | `admin` |
+| `catalog-editor` | 系統資源 | `CatalogPanel.vue` | `catalog-editor` |
+| `stronghold-editor` | 城池據點 | `StrongholdPanel.vue` | `stronghold-editor` |
+| `mapview-editor` | 地圖管理 | `MapPanel.vue` | `mapview-editor` |
+| `generals-editor` | 武將管理 | `GeneralsPanel.vue` | `generals-editor` |
+| `chapters-editor` | 遊戲章節 | `ChaptersPanel.vue` | `chapters-editor` |
+| `publish-editor` | 上架管理 | `PublishPanel.vue` | `publish-editor` |
+| `management-editor` | 上架審核 | `ReviewPanel.vue` | `review-editor` |
+
+- **孤立組件（檔案仍在，`Workbench.vue` 不 import、不渲染，因此不進任何 DOM 判據）**：`ManagementPanel.vue`、`DeletionPanel.vue`、`StageJobsPanel.vue`、`StageAssetsPanel.vue`、`LibraryPanel.vue`。是否物理刪除是另一個決定（多條 backend lane 以檔案 hash 固定輸入），不得為了讓測試變綠而就地補 id。
+- **已退役的元素 id**（舊殼或已取消模塊，現行驗證不得斷言）：`#library-editor`、`#stage-editor`、`#stage-assets-editor`、`#deletion-editor`、`#stage-*`、`#stage-assets-*`、`#publish-game`、`#publish-name`、`#publish-games-refresh`、`#publish-button`、`#source-install`、`#source-refresh`、`#management-*`、`#deletion-*`、`#main`。
+- **職責仍存、覆蓋搬家**：階段任務／階段結構／素材庫的控制器仍由 `verify_editor_stage_jobs_controller.mjs`、`verify_editor_stage_assets_controller.mjs`、`verify_editor_library_controller.mjs` 直接覆蓋（不依賴 DOM）；上架／審核／刪除的深流程歸 `verify_publication_ui_browser.mjs`、`verify_review_ui_browser.mjs`、`verify_publication_chain_browser.mjs`。工作台殼本身的選單派生、單例可見與零請求由 `verify_editor_workbench_browser.mjs` 與 `verify_editor_shell.mjs` 守住。
+
 ## 4. 遊戲狀態機（三個顯示態）
 
 ```text
