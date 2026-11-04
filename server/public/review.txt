@@ -60,6 +60,12 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
   if (!fields(value, ['createdAt', 'gameId', 'rowRevision', 'state']) || value.gameId !== row.gameId || value.state !== 'fenced' || !iso(value.createdAt) || !revision(value.rowRevision) || BigInt(value.rowRevision) !== BigInt(row.rowRevision) + 1n) throw new Error('刪除回執格式無效；請重新整理清單。');
   return value;
  }
+ // 用戶決定（2026-11）：刪除＝徹底清除。柵欄成立後立刻物理刪除資料庫列；
+ // 物理刪除失敗只降級成「已柵欄、尚未徹底刪除」，不推翻已成立的事實。
+ function purgeReceipt(value, row) {
+  if (!fields(value, ['gameId', 'purgedAt', 'removed', 'state', 'tables', 'version']) || value.version !== 1 || value.state !== 'purged' || value.gameId !== row.gameId || !iso(value.purgedAt) || !Number.isSafeInteger(value.tables) || !value.removed || typeof value.removed !== 'object' || value.removed.content_games !== 1) throw new Error('徹底刪除回執格式無效；柵欄已成立，可稍後重試。');
+  return value;
+ }
  function render() {
   const visible = current({ id: identity?.user?.id, version: identity?.user?.version, generation }), disabled = !visible || isBusy() || sending;
   const list = visible ? rows.map(row => ({
@@ -68,7 +74,7 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
    createdAt: row.createdAt, stateTime: row.stateTime ?? '—', rowRevision: row.rowRevision,
    approveDisabled: disabled || row.state !== 'pending', rejectDisabled: disabled || row.state !== 'pending' || row.rejected, deleteDisabled: disabled,
    rejectHint: row.rejected ? '此版本已駁回；作者重新提交後才可再審核' : '拒絕後回到待上架並標記已駁回',
-   deleteHint: '刪除整個遊戲（含所有章節與已上架版本），不是刪除單個版本；立即生效且不可恢復',
+   deleteHint: '刪除整個遊戲（含所有章節與已上架版本，含資料庫列），不是刪除單個版本，徹底清除且不可恢復',
   })) : [];
   emit({ rows: list, message: visible ? messageText : '', result: visible ? resultText : '', locked: disabled, refreshDisabled: !visible || isBusy() || sending });
  }
@@ -84,8 +90,9 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
   if (!rows.includes(row)) throw new Error('審核清單已變，請重新整理。');
   sending = true; message(''); resultText = ''; render();
   try {
-   verify(await request(), row);
-   resultText = done;
+   const value = await request();
+   verify(value, row);
+   resultText = typeof done === 'function' ? done(value) : done;
   } catch (error) {
    if (current(ctx)) message(errors[error.code] ?? error.message);
    throw error;
@@ -112,7 +119,13 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
  }
  async function remove(gameId, rowRevision) {
   const row = rowFor(gameId, rowRevision);
-  await execute(row, () => api('/api/games/' + row.gameId + '/deletion', { gameId: row.gameId, expectedRowRevision: row.rowRevision, confirmationName: row.name }, { key: crypto.randomUUID() }), deleteReceipt, '已建立不可逆刪除柵欄（' + row.name + '）；該遊戲不再出現在清單，物理清理與線上入口由服務端流程處理，不刪玩家本地存檔。');
+  await execute(row, async () => {
+   const fence = deleteReceipt(await api('/api/games/' + row.gameId + '/deletion', { gameId: row.gameId, expectedRowRevision: row.rowRevision, confirmationName: row.name }, { key: crypto.randomUUID() }), row);
+   try { return { fence, purge: purgeReceipt(await api('/api/admin/games/' + row.gameId + '/purge', { confirmationName: row.name, expectedRowRevision: fence.rowRevision }, { key: crypto.randomUUID() }), row) }; }
+   catch (error) { return { fence, purgeError: errors[error.code] ?? (error.message || error.code || '原因未回報') }; }
+  }, value => value.fence, value => value.purge
+   ? '已徹底刪除（不可恢復）：資料庫已移除 ' + row.name + ' 的所有列，玩家端目錄不再列出它；分發帳本與 R2 位元組由既有退役清理回收，不刪玩家本地存檔。'
+   : '已建立不可逆刪除柵欄，但物理刪除尚未完成：' + value.purgeError);
  }
  const actions = Object.freeze({
   refresh: () => work(async () => { const ctx = capture(); try { return await refresh(); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),

@@ -18,7 +18,7 @@ const files = { '/shell-ui.js': 'shell-ui.txt', '/shell-ui.css': 'shell-ui.css',
 const payloads = new Map(Object.entries(files).map(([url, file]) => [url, readFileSync('server/public/' + file)]));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(systemroot|windir|path|pathext|temp|tmp|comspec|appdata|localappdata)$/i.test(k)));
-const errors = [], outside = [], failed = [], posts = [], deletes = [], calls = [], expectedErrors = [], checks = [], consoleErrors = [];
+const errors = [], outside = [], failed = [], posts = [], deletes = [], purges = [], calls = [], expectedErrors = [], checks = [], consoleErrors = [];
 let browser, stage = 'launch', rejectMode = 'success', sessionRole = 'admin', rowRevisionSerial = 1;
 const row = (gameId, name, state, version, stateTime, rejected = false) => ({ gameId, author: 'creator_a', name, introduction: name + ' 的說明', version, state, stateTime, rejected, rowRevision: '4', createdAt: EARLIER });
 let rows = [row(DG, '草稿遊戲', 'draft', null, null), row(PG, '待審核遊戲', 'pending', '1.0', EARLIER), row(RG, '被拒遊戲', 'pending', '1.0', EARLIER, true), row(LG, '已上架遊戲', 'listed', '1.0', TIME)];
@@ -72,6 +72,12 @@ try {
    assert.equal(request.headers()['if-match'], '"' + target.rowRevision + '"');
    rows = rows.map(entry => entry.gameId === gameId ? { ...entry, state: 'listed', stateTime: TIME, rejected: false, rowRevision: '5' } : entry);
    return json({ gameId, listed: true, rowRevision: '5' });
+  }
+  if (/^\/api\/admin\/games\/[a-f0-9-]+\/purge$/.test(url.pathname)) {
+   assert.equal(request.method(), 'POST'); const gameId = url.pathname.split('/')[4], body = parsed(request.postData());
+   purges.push({ gameId, body });
+   rows = rows.filter(entry => entry.gameId !== gameId);
+   return json({ version: 1, gameId, state: 'purged', tables: 31, removed: { content_games: 1 }, purgedAt: TIME });
   }
   if (/^\/api\/games\/[a-f0-9-]+\/deletion$/.test(url.pathname)) {
    assert.equal(request.method(), 'POST'); const body = parsed(request.postData()), gameId = url.pathname.split('/')[3], target = rows.find(entry => entry.gameId === gameId);
@@ -156,7 +162,7 @@ try {
  assert.equal(deletes.length, 1);
  assert.deepEqual(deletes[0].body, { gameId: LG, expectedRowRevision: '4', confirmationName: '已上架遊戲' });
  assert.equal(await page.locator(`#review-table tr[data-game-id="${LG}"]`).count(), 0);
- assert.match(await page.locator('#review-result').textContent(), /不可逆刪除柵欄/);
+ assert.match(await page.locator('#review-result').textContent(), /已徹底刪除（不可恢復）/);
  checks.push(stage);
  stage = '創作者身份看不到審核頁';
  sessionRole = 'author';

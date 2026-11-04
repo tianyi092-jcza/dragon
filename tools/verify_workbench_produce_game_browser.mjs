@@ -211,10 +211,12 @@ try {
   assert.equal((await previousRow.locator('[data-field="name"]').textContent()).trim(), previousName);
   await previousRow.locator('[data-action="delete"]').click();
   await confirmBox('刪除');
-  await page.waitForFunction(() => /不可逆刪除柵欄/.test(document.querySelector('#review-result')?.textContent ?? ''), null, { timeout: 180000 });
-  const fence = sql.exec('SELECT game_id, actor_id, before_revision, fence_revision FROM content_deletion_fences WHERE game_id=?', previousProductId).toArray()[0];
-  assert.equal(fence?.game_id, previousProductId, '刪除必須落成真實 fence 行');
-  assert.equal(BigInt(fence.fence_revision), BigInt(fence.before_revision) + 1n, 'fence 修訂必須精確 +1');
+  await page.waitForFunction(() => /已徹底刪除（不可恢復）/.test(document.querySelector('#review-result')?.textContent ?? ''), null, { timeout: 180000 });
+  // 用戶決定（2026-11）：刪除＝徹底清除。柵欄成立後立刻物理刪除，因此這裡看到的是
+  // 「柵欄與資料庫列都已經不在」，而不是留著一行 fence 當紀念。
+  assert.equal(sql.exec('SELECT COUNT(*) AS n FROM content_deletion_fences WHERE game_id=?', previousProductId).toArray()[0].n, 0, '物理刪除後不得留下 fence 行');
+  const previousLeft = ['content_games', 'content_snapshots', 'copy_objects', 'copy_origins', 'content_names'].filter(table => sql.exec(`SELECT COUNT(*) AS n FROM ${table} WHERE game_id=?`, previousProductId).toArray()[0].n !== 0);
+  assert.deepEqual(previousLeft, [], '舊產物必須徹底清除：' + previousLeft.join(','));
   const survivor = sql.exec('SELECT game_id, listed FROM content_games WHERE game_id=?', produced.game_id).toArray()[0];
   assert.equal(survivor?.listed, 1, '刪舊產物不得影響新產品的上架狀態');
   const afterDelete = JSON.parse((await readerGet('/play-api/v1/registry')).text).directory;

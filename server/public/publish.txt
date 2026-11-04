@@ -15,7 +15,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  const nextVersion = v => v === null ? '1.0' : v.slice(0, v.lastIndexOf('.')) + '.' + String(BigInt(v.slice(v.lastIndexOf('.') + 1)) + 1n);
  const errors = { DRAFT_TOPOLOGY_BROKEN: '仍有據點移動意向，不能上架；請先核對並處理原意向。', PLAY_CITY_VIEW_MISSING: '章節引用了固定資源庫未提供的據點圖片；請核對章節資源與已保存草稿，未補齊前不能上架。', PLAY_PORTRAIT_CORRUPT: '武將畫像引用無效或缺少可凍結的依賴；請核對已保存章節的畫像資料。', PUBLISH_STALE: '草稿已變更，請重新整理清單後再上架。', PUBLISH_NAME: '遊戲名稱無效（去除首尾空白及NFC正規化後，須為1至8個Unicode碼點）。', DISTRIBUTION_GAME_PENDING: '此遊戲仍有待確認分發，不能上架下一版。', DISTRIBUTION_NOT_CONFIGURED: '服務尚未配置分發狀態；不推定已公開。', DISTRIBUTION_STATUS_UNAVAILABLE: '原上架缺少可核對的分發關聯；不推定成功或失敗。', GAME_DELETING: '遊戲已進入刪除流程，不能繼續此操作。', DELETE_CONFIRMATION: '刪除確認名稱與目前遊戲名稱不符，請重新整理清單。', PUBLISH_CHAPTER_REFERENCES: '整遊戲校驗未通過：有章節引用不到已刪除的基礎資料（據點或武將庫）；下方列出受影響的章。' };
  let identity = null, generation = 0, rows = [], messageText = '', references = null;
- let pending = null, badJournal = false, checked = false, result = null, distribution = null, sending = false, querySerial = 0;
+ let pending = null, badJournal = false, checked = false, result = null, distribution = null, sending = false, querySerial = 0, purgeOutcomes = new Map();
  const allowed = () => Boolean(identity?.user) && !identity.user.mustChangePassword && ['author', 'admin'].includes(identity.user.role);
  const message = text => { messageText = text; };
  const journalKey = id => 'editor-submission-operation:' + id;
@@ -52,6 +52,11 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  function publishReceipt(value, t) {
   if (!fields(value, ['gameId', 'name', 'revision', 'sourceDigest', 'chapters', 'publishedAt', 'ordinal']) || value.gameId !== t.gameId || value.name !== t.name || !ordinal(value.ordinal) || !revision(value.revision) || !digest(value.sourceDigest) || !iso(value.publishedAt) || !Array.isArray(value.chapters) || !value.chapters.length || value.chapters.some(id => typeof id !== 'string' || !id.length) || new Set(value.chapters).size !== value.chapters.length) throw new Error('上架回執格式無效；保留原鍵。');
   return Object.freeze({ ...value, chapters: Object.freeze([...value.chapters]) });
+ }
+ function purgeReceipt(value) {
+  if (!fields(value, ['gameId', 'purgedAt', 'removed', 'state', 'tables', 'version']) || value.version !== 1 || value.state !== 'purged' || !uuid(value.gameId) || !Number.isSafeInteger(value.tables) || typeof value.purgedAt !== 'string' || !value.removed || typeof value.removed !== 'object') throw new Error('徹底刪除回執無效。');
+  if (Number(value.removed.content_games) !== 1) throw new Error('徹底刪除回執無效：遊戲列數不符。');
+  return Object.freeze({ ...value });
  }
  function deleteReceipt(value, t) {
   if (!fields(value, ['createdAt', 'gameId', 'rowRevision', 'state']) || value.gameId !== t.gameId || value.state !== 'fenced' || !iso(value.createdAt) || !revision(value.rowRevision) || BigInt(value.rowRevision) !== BigInt(t.expectedRowRevision) + 1n) throw new Error('刪除回執無效；保留原鍵。');
@@ -95,7 +100,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
    gameId: row.gameId, name: row.name, introduction: row.introduction || '（無說明）', version: row.version ?? '—', nextVersion: nextVersion(row.version),
    state: stateLabels[row.state] + (row.restricted ? '／管理限制' : ''), stateKey: row.state, rejected: row.rejected, createdAt: row.createdAt, stateTime: row.stateTime ?? '—', rowRevision: row.rowRevision,
    publishDisabled: disabled || blocked, deleteDisabled: disabled || blocked,
-   deleteHint: '刪除整個遊戲（含所有章節與已上架版本），不是刪除單個版本，不可恢復',
+   deleteHint: '刪除整個遊戲（含所有章節與已上架版本，含資料庫列），不是刪除單個版本，徹底清除且不可恢復',
    publishTitle: row.state === 'draft' ? '校驗整個遊戲；通過後版本號自動為 1.0 並提交審核' : '校驗整個遊戲；通過後版本號自動 +1 並提交審核',
   })) : [];
   let tracking = '沒有追蹤中的上架或刪除操作。';
@@ -106,7 +111,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
    text = '本地已提交上架：版本 ' + result.receipt.ordinal + '／修訂 ' + result.receipt.revision + '。';
    text += distribution?.state === 'confirmed' ? ' 此次分發曾於 ' + distribution.visibleAt + ' 確認；上架與否仍以管理員同意為準。' : ' 分發待確認；尚未經管理員同意。';
    if (distribution?.recoveryRequired) text += ' 分發處於恢復鎖，須由管理者核對；本頁不解除。';
-  } else if (result?.kind === 'delete') text = '本地已建立不可逆刪除柵欄（' + result.receipt.createdAt + '）；該遊戲不再出現在清單，物理清理與線上入口由服務端流程處理，不刪玩家本地存檔。';
+  } else if (result?.kind === 'delete') text = result.purge ? '已徹底刪除（不可恢復）：資料庫已移除 ' + result.purge.tables + ' 張表內該遊戲的所有列，玩家端目錄不再列出它；分發帳本與 R2 位元組由既有退役清理回收，不刪玩家本地存檔。' : '本地已建立不可逆刪除柵欄（' + result.receipt.createdAt + '）；物理刪除尚未完成' + (result.purgeError ? '：' + result.purgeError : '（原因未回報）') + '。不刪玩家本地存檔。';
   emit({ rows: list, operation: visible ? tracking : '', result: visible ? text : '', message: visible ? messageText : '', references: visible ? referenceRows() : [], referencesText: visible ? referenceText() : '', locked: disabled,
    refreshDisabled: !visible || isBusy(), checkDisabled: !visible || isBusy() || sending,
    queryDisabled: disabled || !pending || badJournal,
@@ -140,9 +145,26 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
    const value = await api(path);
    if (!live()) return;
    if (t.kind === 'publish') { const found = statusReceipt(value, t); result = { kind: 'publish', receipt: found.receipt }; distribution = found.distribution; message('已核對原上架；本地提交、分發確認與管理員同意是不同事實。'); }
-   else { result = { kind: 'delete', receipt: deleteReceipt(value, t) }; message('已核對原刪除柵欄；物理清理仍未獲完成證明。'); }
+   else {
+    // 查詢只回柵欄收據。若原刪除回應遺失，物理刪除那一步從未執行：這裡不能用同一個原鍵
+    // 補跑（柵欄已成立），而是用 -purge 後綴鍵冪等重放，讓「徹底刪除」不會停在柵欄。
+    const receipt = deleteReceipt(value, t), known = purgeOutcomes.get(t.key);
+    if (known) { result = { kind: 'delete', receipt, ...known }; }
+    else {
+      try {
+        const purge = purgeReceipt(await api('/api/admin/games/' + t.gameId + '/purge', { confirmationName: t.confirmationName, expectedRowRevision: receipt.rowRevision }, { key: t.key + '-purge' }));
+        purgeOutcomes.set(t.key, { purge }); result = { kind: 'delete', receipt, purge };
+      } catch (error) {
+        const purgeError = errors[error.code] ?? String((error && (error.code || error.message)) || error || '原因未回報');
+        purgeOutcomes.set(t.key, { purgeError }); result = { kind: 'delete', receipt, purgeError };
+      }
+    }
+    message('已核對原刪除柵欄；物理刪除的完成證明看下方回執。');
+   }
    render();
   } catch (error) {
+   // 徹底刪除會連同刪除紀錄一起清除：查不到不是取消或回滾的證明。
+   if (live() && t.kind === 'delete' && error.code === 'DELETE_OPERATION_NOT_FOUND') { message('原刪除紀錄已隨物理刪除清除；不推定取消或回滾，也不另建第二份。'); render(); throw error; }
    if (live()) { if (!result && (error.code === 'PUBLISH_OPERATION_NOT_FOUND' || error.code === 'DELETE_OPERATION_NOT_FOUND')) checked = true; message((errors[error.code] ?? error.message) + ' 保留原鍵；不推定成功、失敗或取消。'); render(); }
    throw error;
   }
@@ -155,7 +177,14 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
     ? await api('/api/publish', { gameId: t.gameId, name: t.name }, { key: t.key })
     : await api('/api/games/' + t.gameId + '/deletion', { gameId: t.gameId, expectedRowRevision: t.expectedRowRevision, confirmationName: t.confirmationName }, { key: t.key });
    if (!current(ctx) || pending !== t) return;
-   result = t.kind === 'publish' ? { kind: 'publish', receipt: publishReceipt(value, t) } : { kind: 'delete', receipt: deleteReceipt(value, t) };
+   if (t.kind === 'publish') { result = { kind: 'publish', receipt: publishReceipt(value, t) }; }
+   else {
+    const fence = deleteReceipt(value, t); result = { kind: 'delete', receipt: fence };
+    // 用戶決定（2026-11）：刪除＝徹底清除。柵欄成立後立刻物理刪除資料庫列；
+    // 物理刪除失敗只降級成「已柵欄、尚未徹底刪除」，不推翻已成立的事實。
+    try { const purge = purgeReceipt(await api('/api/admin/games/' + t.gameId + '/purge', { confirmationName: t.confirmationName, expectedRowRevision: fence.rowRevision }, { key: t.key + '-purge' })); purgeOutcomes.set(t.key, { purge }); result = { kind: 'delete', receipt: fence, purge }; }
+    catch (error) { result = { kind: 'delete', receipt: fence, purgeError: errors[error.code] ?? String((error && (error.code || error.message)) || error || '原因未回報') }; }
+   }
    distribution = null; message('本地已提交，正在重新讀取清單。'); render();
    // A failed reload or observation never turns a committed local operation into failure.
    try { await load(ctx); } catch { /* list stays stale until the next explicit refresh */ }

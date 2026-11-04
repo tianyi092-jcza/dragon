@@ -21,10 +21,13 @@ function setup(customStorage) {
  const storage = customStorage ?? { getItem: key => journal.get(key) ?? null, setItem: (key, value) => journal.set(key, value), removeItem: key => journal.delete(key) };
  let response = async path => {
   if (path === '/api/games/submissions') return { games: structuredClone(games) };
+  // 上架前的整遊戲校驗（ae8416f）：全部章引用完整時 chapters 為空。
+  if (path.includes('/draft/chapter-references')) return { version: 1, gameId: GAME, draftRevision: '4', sourceDigest: 'd'.repeat(64), chapterCount: 1, chapters: [] };
   if (path === '/api/publish') return pin();
   if (path.includes('/publish-operations/')) return receipt('pending');
   if (path.endsWith('/deletion')) { games = games.filter(entry => entry.gameId !== GAME); return fence(); }
   if (path.includes('/deletion-operations/')) return fence();
+  if (path.endsWith('/purge')) return { version: 1, gameId: GAME, state: 'purged', tables: 33, removed: { content_games: 1 }, purgedAt: '2026-10-15T00:00:00.000Z' };
   throw new Error(path);
  };
  const ui = installPublish({ api: async (...args) => { calls.push(args); return response(...args); }, authority: () => identity, isBusy: () => busy, work: async fn => { if (busy) return; busy = true; try { return await fn(); } finally { busy = false; ui.render(); } }, publish: value => { model = value; }, storage, confirm: () => typeof allow === 'function' ? allow() : allow });
@@ -86,7 +89,8 @@ test('刪除 posts the fresh revision and name; the row disappears only after th
  const post = h.calls.find(call => call[0] === '/api/games/' + GAME + '/deletion');
  assert.deepEqual(post[1], { gameId: GAME, expectedRowRevision: '4', confirmationName: '臥龍傳' });
  assert.match(post[2].key, /^[A-Za-z0-9_-]{16,128}$/); assert.equal(h.journal.size, 0);
- assert.match(h.model.result, /不可逆刪除柵欄/); assert.match(h.model.result, /不刪玩家本地存檔/);
+ assert.match(h.model.result, /已徹底刪除（不可恢復）/); assert.match(h.model.result, /不刪玩家本地存檔/);
+ assert.ok(h.calls.some(call => call[0] === '/api/admin/games/' + GAME + '/purge'), '柵欄成立後必須真的發物理刪除請求');
  assert.deepEqual(h.model.rows.map(entry => entry.gameId), [OTHER]);
 });
 test('B3 §6 任何狀態都可刪：已上架也直接送出，過期修訂仍不送', async () => {

@@ -291,7 +291,7 @@ try {
     if (adminDeleteUI) {
       await adminPage.click('#menu button[data-view="management-editor"]'); await adminPage.click('#review-refresh'); await adminIdle();
       await adminRow().locator('[data-action="delete"]').click(); await confirm(adminPage, '刪除整個遊戲'); await adminIdle();
-      assert.match(await adminPage.locator('#review-result').textContent(), /已建立不可逆刪除柵欄/);
+      assert.match(await adminPage.locator('#review-result').textContent(), /已徹底刪除（不可恢復）/);
     } else {
       await page.click('#publish-refresh'); await idle();
       await row.locator('[data-action="delete"]').click(); await confirm(page, '刪除整個遊戲'); await idle();
@@ -335,8 +335,14 @@ try {
     await appProbe.screenshot(join(artifact, 'published-app-retired.png'));
   }
   if (deleteUI && !adminDeleteUI) {
+    // 物理刪除後刪除紀錄本身也被清除：查詢必須說清楚，不得推成取消或回滾。
     await page.click('#publish-query'); await idle();
-    assert.match(await page.locator('#publish-message').textContent(), /已核對原刪除柵欄；物理清理仍未獲完成證明/);
+    // 查詢可能命中既有冪等回執（柵欄收據），也可能因物理刪除而 404；兩者都不能被推成取消或回滾。
+    assert.match(await page.locator('#publish-message').textContent(), /已隨物理刪除清除|已核對原刪除柵欄/);
+    // 面板文字允許「已徹底刪除」或「柵欄成立但物理刪除未完成」；真正的判據在資料庫。
+    assert.match(await page.locator('#publish-result').textContent(), /已徹底刪除（不可恢復）|物理刪除尚未完成/);
+    assert.equal(sql.exec('SELECT COUNT(*) AS n FROM content_deletion_fences WHERE game_id=?', gameId).toArray()[0].n, 0, '刪除後不得留下柵欄列');
+    assert.equal(sql.exec('SELECT COUNT(*) AS n FROM content_games WHERE game_id=?', gameId).toArray()[0].n, 0, '刪除後不得留下遊戲列');
     assert.equal(deletionPosts.length, 1);
     await page.locator('#publish-editor').screenshot({ path: join(artifact, 'deletion-confirmed.png') });
   }

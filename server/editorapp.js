@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { GameMetadataStore } from './metadata.js';
 import { GameDeletionFence } from './deletionfence.js';
+import { GamePurge } from './gamepurge.js';
 import { GameManagement } from './management.js';
 import { ImmutableBlobStore } from './blobs.js';
 import { InstalledSourceCatalog } from './sourcecatalog.js';
@@ -179,6 +180,7 @@ return class EditorMetadata extends PlatformBase {
     this.management = new GameManagement({ storage: ctx.storage, principal: hash => this.principal(hash), operationGuard: (actor, key) => this.contentKey(actor, key, 'copy') });
     // §4.1 game-list deletion: fence-only backend (no physical-delete API).
     this.deletionFence = new GameDeletionFence({ storage: ctx.storage, principal: hash => this.principal(hash), operationGuard: (actor, key) => this.contentKey(actor, key, 'delete'), requestKey: env.EDITOR_REQUEST_KEY });
+    this.gamePurge = new GamePurge({ storage: ctx.storage, principal: hash => this.principal(hash) });
     // Published-game registry (node publish.json counterpart); pure SQLite, no blob dependency.
     this.publishedGames = new PublishedGames({ storage: ctx.storage, principal: hash => this.principal(hash) });
     // Formal release ordinals (Q18/Q24) + history (Q23), no rollback (Q42).
@@ -958,6 +960,18 @@ return class EditorMetadata extends PlatformBase {
       return result;
     }));
   }
+  // 物理刪除（用戶決定 2026-11）：只接在既有 fence 之後，把遊戲從資料庫徹底移除。
+  // 這裡不刪內置遊戲、不做 R2 位元組清理（那是 distribution ledger 的 retired 清理職責），
+  // 但必須讓玩家端目錄立刻不再列出它。
+  #postPurge(rt) {
+    const { request, tokenHash, user, policy, url, purgePath, value } = rt;
+    if (url.search) { fail(422, 'PURGE_QUERY'); }
+    this.touch(tokenHash, policy);
+    this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'delete');
+    const result = this.gamePurge.purge(tokenHash, purgePath[1], value ?? {});
+    this.ctx.storage.transactionSync(() => this.announcements.bumpRegistryInTxn());
+    return response(result);
+  }
   // §4.1/Q43 deletion query (GET fence receipt).
   async #getDeletion(rt) {
     const { tokenHash, policy, url, deletionPath } = rt;
@@ -1085,8 +1099,9 @@ return class EditorMetadata extends PlatformBase {
     return response({ ...(await this.availableLibrary.install(tokenHash, staged.registryId, staged.root, request.headers.get('Idempotency-Key'))), mode: 'STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE', unresolvedReferences: 20 });
   }
   async #postEntryRoutes(rt) {
-    const { request, tokenHash, user, policy, url, path, value, managementPath, reviewPath, deletionPath, stagePath, copyPath, authorCopyPath, draftPath } = rt;
+    const { request, tokenHash, user, policy, url, path, value, managementPath, reviewPath, deletionPath, purgePath, stagePath, copyPath, authorCopyPath, draftPath } = rt;
     if (managementPath) { return this.#postManagement(rt); }
+    if (purgePath) { return this.#postPurge(rt); }
     if (reviewPath) { return this.#postReview(rt); }
     if (deletionPath) { return this.#postDeletion(rt); }
     if (stagePath) {
@@ -1230,6 +1245,8 @@ return class EditorMetadata extends PlatformBase {
     const managementPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/(listing|restriction\/clear)$/.exec(path);
     const reviewPath = /^\/api\/admin\/games\/([a-f0-9-]{36}|wolong-builtin)\/review$/.exec(path);
     const deletionPath = /^\/api\/games\/([a-f0-9-]{36})\/deletion(-operations\/([A-Za-z0-9_-]{16,128})(\/distribution)?)?$/.exec(path);
+    // 內置也在這條 pattern 內，才能回 403 BUILTIN_PROTECTED 而不是 404 假裝不存在。
+    const purgePath = /^\/api\/admin\/games\/([a-f0-9-]{36}|wolong-builtin)\/purge$/.exec(path);
     const portraitPath = /^\/api\/games\/([a-f0-9-]{36})\/portraits(?:\/([A-Za-z0-9]{1,32})(?:\/(bytes))?)?$/.exec(path);
     const topologyPath = /^\/api\/games\/([a-f0-9-]{36})\/topology(?:\/(move|rebuild)(?:\/(clear))?)?$/.exec(path);
     const copyPath = /^\/api\/admin\/copies\/([A-Za-z0-9_-]{16,128})(?:\/(run|cancel))?$/.exec(path);
@@ -1242,7 +1259,7 @@ return class EditorMetadata extends PlatformBase {
     const trialAssetPath = /^\/api\/trials\/([a-f0-9-]{36})\/assets\/([A-Za-z0-9]{1,32})$/.exec(path);
     const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|minimap|map-window|map-layer-window|map-scene|map-atlas|decoration-selection|chapter-references|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
     const releasesPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/releases$/.exec(path);
-    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, reviewPath, deletionPath, portraitPath, copyPath, authorCopyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath, releasesPath, topologyPath };
+    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, reviewPath, deletionPath, purgePath, portraitPath, copyPath, authorCopyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath, releasesPath, topologyPath };
     if (method === 'GET') {
       const hit = (await this.#getTrialRoutes(rt)) ?? (await this.#getPrimaryRoutes(rt)) ?? (await this.#getDeletion(rt)) ?? (await this.#getPortraits(rt)) ?? (await this.#getTopology(rt)) ?? (await this.#getCollectionRoutes(rt)) ?? (await this.#getRecordRoutes(rt));
       if (hit) { return hit; }

@@ -131,7 +131,7 @@ test('刪除：任何狀態都用同一個 fence 請求（含已上架），確�
     const post = h.posts()[0];
     assert.equal(post[0], '/api/games/' + GAME + '/deletion');
     assert.deepEqual(post[1], { gameId: GAME, expectedRowRevision: '4', confirmationName: '臥龍傳' }, state);
-    assert.match(h.model.result, /不可逆刪除柵欄/);
+    assert.match(h.model.result, /已徹底刪除（不可恢復）|物理刪除尚未完成/);
     assert.deepEqual(h.model.rows, [], state);
   }
 });

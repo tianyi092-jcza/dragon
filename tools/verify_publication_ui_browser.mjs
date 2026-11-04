@@ -17,7 +17,7 @@ const files = { '/shell-ui.js':'shell-ui.txt', '/shell-ui.css':'shell-ui.css', '
 const payloads = new Map(Object.entries(files).map(([url, file]) => [url, readFileSync('server/public/' + file)]));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(systemroot|windir|path|pathext|temp|tmp|comspec|appdata|localappdata)$/i.test(k)));
-const errors = [], outside = [], failed = [], posts = [], deletes = [], calls = [], expectedErrors = [], checks = [], consoleErrors = [];
+const errors = [], outside = [], failed = [], posts = [], deletes = [], purges = [], calls = [], expectedErrors = [], checks = [], consoleErrors = [];
 let browser, stage = 'launch', publishMode = 'success', statusMode = 'pending', sessionId = A, sessionVersion = 1, queryCount = 0;
 const records = new Map(), row = (gameId, name, state, version, stateTime, rejected = false) => ({ gameId, name, introduction: name + ' 的說明', version, state, stateTime, restricted: false, rejected, rowRevision: '1', createdAt: earlier });
 const RG = '55555555-5555-4555-8555-555555555555';
@@ -71,6 +71,12 @@ try {
    const gameId = url.pathname.split('/')[3];
    // 上架前必先校驗（產品決定 2026-11）：這裡回報「全部章引用完整」。
    return json({ version: 1, gameId, draftRevision: '1', sourceDigest: 'd'.repeat(64), chapterCount: 1, chapters: [] });
+  }
+  if (/^\/api\/admin\/games\/[a-f0-9-]+\/purge$/.test(url.pathname)) {
+   assert.equal(request.method(), 'POST'); const gameId = url.pathname.split('/')[4], body = parsed(request.postData());
+   purges.push({ gameId, body });
+   rows = rows.filter(entry => entry.gameId !== gameId);
+   return json({ version: 1, gameId, state: 'purged', tables: 31, removed: { content_games: 1 }, purgedAt: time });
   }
   if (/^\/api\/games\/[a-f0-9-]+\/deletion$/.test(url.pathname)) {
    assert.equal(request.method(), 'POST'); const body = parsed(request.postData()), gameId = url.pathname.split('/')[3], target = rows.find(entry => entry.gameId === gameId);
@@ -129,7 +135,7 @@ try {
  await act(PG, 'delete').click(); await box().waitFor(); await box().locator('.el-message-box__btns .el-button--primary').click(); await idle();
  assert.equal(deletes.length, 1); assert.deepEqual(deletes[0].body, { gameId: PG, expectedRowRevision: '1', confirmationName: '待上架遊戲' });
  assert.equal(await page.locator(`#publish-table tr[data-game-id="${PG}"]`).count(), 0);
- assert.match(await page.locator('#publish-result').textContent(), /不可逆刪除柵欄/); assert.match(await page.locator('#publish-result').textContent(), /不刪玩家本地存檔/);
+ assert.match(await page.locator('#publish-result').textContent(), /已徹底刪除（不可恢復）/); assert.equal(purges.length, 1); assert.deepEqual(purges[0].body, { confirmationName: '待上架遊戲', expectedRowRevision: '2' }); assert.match(await page.locator('#publish-result').textContent(), /不刪玩家本地存檔/);
  await page.locator('#publish-editor').screenshot({ path: join(out, 'deleted.png') }); checks.push(stage);
  stage = '帳戶版本改變後不得以原鍵重送';
  publishMode = 'lost'; await page.reload(); await show();

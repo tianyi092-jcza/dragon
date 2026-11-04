@@ -90,6 +90,6 @@ export async function createPublicationBrowserAuthority({ root, origin, runtimeS
       const reply = await fetch(new Request(`${origin}/api/games/${gameId}/${path}`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: `__Secure-dragon-editor=${adminToken}`, 'X-CSRF-Token': adminCsrf, 'Idempotency-Key': `owned-browser-management-${++serial}`, 'If-Match': `"${row.row_revision}"` }, body: JSON.stringify(body) }));
       const value = await reply.json(); assert.equal(reply.status, 200, JSON.stringify(value)); return value;
     }
-    return { storage, dbPath, app, fetch, manage, gameId, ownerId: OWNER, account: 'owned_author', password, chapters: [...game.chapterOrder] };
+    return { storage, dbPath, sql, app, fetch, manage, gameId, ownerId: OWNER, account: 'owned_author', password, chapters: [...game.chapterOrder], adminToken, adminCsrf, ownerToken: token, csrfFor: async value => mac(`csrf:${value}`, secret) };
   } catch (error) { storage.close(); throw error; }
 }
