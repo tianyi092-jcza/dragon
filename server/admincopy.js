@@ -44,11 +44,23 @@ export class AdminFullCopy {
   // 進度只報客觀事實：copy_objects 裡這筆操作已暫存的物件數（去重後的實際檔案數）。
   // 不報百分比：總數要等兩份文件都編碼完才知道，臆造比例會誤導。
   #objects(gameId) { return Number(this.#one('SELECT COUNT(*) AS n FROM copy_objects WHERE game_id=?', gameId)?.n ?? 0); }
-  #summary(row) { return { gameId: row.game_id, state: row.state, rowRevision: row.row_revision, generation: row.generation, leaseUntil: row.lease_until, registryId: row.registry_id, objects: this.#objects(row.game_id) }; }
+  // 失敗原因只放在既有 result_json 裡（不新增欄位，不動 schema 與計數門）。
+  // 已 commit 的 result_json 走 #result() 嚴格校驗；failed 的行永遠不會進那條路徑。
+  #failedCode(row) {
+    if (row.state !== 'failed' || typeof row.result_json !== 'string') return null;
+    try { const value = JSON.parse(row.result_json); return typeof value?.code === 'string' && /^[A-Z][A-Z0-9_]{2,63}$/.test(value.code) ? value.code : 'COPY_FAILED'; }
+    catch { return 'COPY_FAILED'; }
+  }
+  #summary(row) {
+    const failedCode = this.#failedCode(row);
+    return { gameId: row.game_id, state: row.state, rowRevision: row.row_revision, generation: row.generation, leaseUntil: row.lease_until, registryId: row.registry_id, objects: this.#objects(row.game_id), ...(failedCode ? { failedCode } : {}) };
+  }
   // 未完成的複製不得留下任何東西（用戶回報：沒複製成功卻佔住名稱）。
   // 收回＝終止狀態＋歸還名稱＋把半成品物件標成 abandoned；已 commit 的一律不動。
-  #abandonInTxn(row, state) {
-    this.#sql.exec("UPDATE copy_requests SET state=?,lease_hash=NULL,lease_until=0,row_revision=? WHERE actor=? AND op_key=?", state, String(BigInt(row.row_revision) + 1n), row.actor, row.op_key);
+  // code 只為“讓使用者看得到失敗原因”而記（用戶要求：沒成功不得靜默消失）。
+  #abandonInTxn(row, state, code = null) {
+    const reason = state === 'failed' ? JSON.stringify({ version: 1, code: typeof code === 'string' && /^[A-Z][A-Z0-9_]{2,63}$/.test(code) ? code : 'COPY_FAILED' }) : null;
+    this.#sql.exec('UPDATE copy_requests SET state=?,lease_hash=NULL,lease_until=0,row_revision=?,result_json=? WHERE actor=? AND op_key=?', state, String(BigInt(row.row_revision) + 1n), reason, row.actor, row.op_key);
     this.#sql.exec('DELETE FROM content_names WHERE game_id=?', row.game_id);
     this.#sql.exec("UPDATE copy_objects SET state='abandoned' WHERE game_id=?", row.game_id);
   }
@@ -58,19 +70,20 @@ export class AdminFullCopy {
     const now = Date.now();
     for (const row of this.#sql.exec("SELECT * FROM copy_requests WHERE actor=? AND state IN ('pending','running')", actor.id).toArray()) {
       const dead = row.state === 'running' ? Number(row.lease_until) <= now : Date.parse(row.created_at) <= now - STALE_PENDING_MS;
-      if (dead) this.#abandonInTxn(row, 'failed');
+      if (dead) this.#abandonInTxn(row, 'failed', 'COPY_INTERRUPTED');
     }
   }
   // 執行失敗（來源變更、租約失效、物件衝突…）：立刻收回，使用者可用同一個名稱重試。
-  #abandonFailed(cap) {
+  #abandonFailed(cap, error) {
     try {
       const known = this.#caps.get(cap);
       if (!known) return;
+      const code = typeof error?.code === 'string' && /^[A-Z][A-Z0-9_]{2,63}$/.test(error.code) ? error.code : 'COPY_FAILED';
       this.#storage.transactionSync(() => {
         const row = this.#one('SELECT * FROM copy_requests WHERE actor=? AND op_key=?', known.actor.id, known.operationKey);
         // 只收回自己這次 lease 那份：別人已重新 claim 或已 commit 的不動。
         if (!row || row.state !== 'running' || row.generation !== known.generation || row.lease_hash !== known.leaseHash) return;
-        this.#abandonInTxn(row, 'failed');
+        this.#abandonInTxn(row, 'failed', code);
       });
     } catch { /* 收回失敗不得掩蓋原始錯誤；仍有 reserve 前的 stale 清掃兵底 */ }
   }
@@ -136,7 +149,7 @@ export class AdminFullCopy {
   async execute(tokenHash, cap) {
     this.#lease(tokenHash, cap); if (this.#executing.has(cap)) fail(409, 'COPY_ALREADY_RUNNING'); this.#executing.add(cap);
     try { return await this.#execute(tokenHash, cap); }
-    catch (error) { this.#abandonFailed(cap); throw error; }
+    catch (error) { this.#abandonFailed(cap, error); throw error; }
     finally { this.#executing.delete(cap); }
   }
   async #execute(tokenHash, cap) {

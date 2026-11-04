@@ -34,6 +34,8 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       message: allowed ? message : '', locked,
       // 追蹤期間面板會顯示自動核對的進度；不需要任何「續」按鈕（用戶要求）。
       tracking: allowed && tracking(),
+      // 失敗不得靜默消失（用戶要求）：彈窗留著並列出原因，使用者按「確認」才關。
+      failed: allowed && !tracking() && summary?.state === 'failed',
       // 還在自動核對時不能重送；原鍵不可讀或已在追蹤才鎖住建立。
       createDisabled: locked || broken || tracking(),
       forgetDisabled: locked || !operation,
@@ -46,13 +48,31 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     try { const value = storage.getItem(storeKey()); if (value !== null && !validKey(value)) throw new Error('原鍵格式無效'); operation = value; }
     catch { broken = true; message = '本機原鍵不可讀，不能另建；請先恢復原關聯儲存。'; }
   }
+  // 失敗原因由服務端回報（copy_requests.result_json 的 code），這裡只負責把它翻成人看得懂的句子。
+  // 未知 code 一律保留原樣：編造原因比沒有原因更壞。
+  const reasons = Object.freeze({
+    COPY_INTERRUPTED: '複製中斷（頁面關閉或服務重啟）',
+    COPY_FAILED: '複製失敗（服務端未回報具體原因）',
+    COPY_SOURCE_CHANGED: '底層資源已變更，需要管理員重新登記來源',
+    COPY_PROFILE_CHANGED: '複製模板已變更，請重新整理後再試',
+    COPY_OBJECT_CONFLICT: '暫存檔案與既有內容衝突',
+    COPY_OBJECT_NOT_VERIFIED: '暫存檔案校驗未通過',
+    COPY_LEASE_LOST: '複製階段逾時（單次執行超過 5 分鐘）',
+    COPY_BASELINE_PROOF: '來源基準校驗未通過',
+    COPY_RECEIPT_CORRUPT: '複製回執校驗未通過',
+  });
+  const reasonText = code => typeof code === 'string' && code.length > 0
+    ? (reasons[code] ?? '複製失敗（' + code + '）')
+    : reasons.COPY_FAILED;
   function decodeSummary(data, expectedGame = null) {
     if (!data || typeof data.gameId !== 'string' || !data.gameId || expectedGame && data.gameId !== expectedGame) throw new Error('新建回應無效。');
     // 檔案數與租約到期只作展示與排程用：缺欄位或格式不合時不猜，退回預設。
     const objects = Number.isSafeInteger(data.objects) && data.objects >= 0 ? data.objects : null;
     const leaseUntil = Number.isSafeInteger(data.leaseUntil) && data.leaseUntil >= 0 ? data.leaseUntil : 0;
+    const failedCode = typeof data.failedCode === 'string' && /^[A-Z][A-Z0-9_]{2,63}$/.test(data.failedCode) ? data.failedCode : null;
     if (revision(data.draftRevision)) return { gameId: data.gameId, draftRevision: data.draftRevision, objects, leaseUntil };
     if (!['pending', 'running', 'canceled', 'failed'].includes(data.state) || !revision(data.rowRevision)) throw new Error('新建狀態回應無效。');
+    return { gameId: data.gameId, state: data.state, rowRevision: data.rowRevision, objects, leaseUntil, failedCode };
     return { gameId: data.gameId, state: data.state, rowRevision: data.rowRevision, objects, leaseUntil };
   }
   function listingState(game) {
@@ -173,7 +193,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     if (summary.draftRevision) { message = label + '已建立。'; release(); if (!full) await ownGames(t); render(); return; }
     if (summary.state === 'canceled') { message = '此原操作已取消，未產生副本。'; render(); return; }
     // 失敗＝服務端已收回這筆操作（名稱也退回了），不保存任何東西；清掉本機原鍵讓名稱可直接重用。
-    if (summary.state === 'failed') { message = label + '未完成，服務端已丟棄這次的資料（名稱已釋放），可修改後直接重新複製。'; release(); render(); return; }
+    if (summary.state === 'failed') { message = label + '失敗：' + reasonText(summary.failedCode) + '。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。'; release(); render(); return; }
     if (!pending()) { message = '此原操作已結束，未產生副本。'; render(); return; }
     needsQuery = false;
     await track(t, key);
@@ -195,7 +215,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       if (!valid(t) || operation !== key) return;
       if (summary?.draftRevision) return;
       if (summary?.state === 'canceled') { message = '此原操作已取消，未產生副本。'; render(); return; }
-      if (summary?.state === 'failed') { message = label + '未完成，服務端已丟棄這次的資料（名稱已釋放），可修改後直接重新複製。'; release(); render(); return; }
+      if (summary?.state === 'failed') { message = label + '失敗：' + reasonText(summary.failedCode) + '。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。'; release(); render(); return; }
       if (Date.now() - started > TRACK_MS || mode === 'run' && runs >= MAX_RUNS) {
         needsQuery = true;
         message = label + '仍在處理（' + (summary?.state ?? 'pending') + '）；' + stagedText() + '。伺服器尚未回報完成，重新載入本頁會自動接著核對，不必按任何按鈕。';
@@ -248,6 +268,8 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     create: action(create),
     // 重新載入後接著跑完手上那一筆原鍵（不建立第二份）。
     resume: action(async () => { if (!operation) return; await runExisting(ticket()); }),
+    // 失敗彈窗的「確認」：只關掉這筆結果，不改服務端任何事。
+    dismiss() { if (!permitted() || isBusy()) return; summary = null; message = ''; render(); },
     forget: action(async () => {
       // 明確逃生口：只清掉本機追蹤，不取消、不回滾服務端任何請求。
       try { storage.removeItem(storeKey()); } catch { broken = true; }

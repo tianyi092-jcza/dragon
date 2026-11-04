@@ -19,12 +19,21 @@ async function create() {
       <ElButton id="full-copy-create" type="primary" :disabled="busy || model.createDisabled" @click="create()">複製遊戲</ElButton>
       <ElButton v-if="model.canForget" id="full-copy-forget" :disabled="busy || model.forgetDisabled" @click="actions.forget()">清除本機追蹤</ElButton>
     </form>
-    <div v-if="model.tracking" id="full-copy-overlay" class="progress-overlay" role="alertdialog" aria-busy="true">
+    <div v-if="model.tracking || model.failed" id="full-copy-overlay" class="progress-overlay" role="alertdialog" aria-busy="true">
       <div class="progress-card">
-        <!-- 标题与背景面板同一句话：只有一套进度说法，不用百分比。 -->
+        <!-- 标题与背景面板同一句话：只有一套进度说法，不用百分比。
+             失败时弹窗不自动消失（用户要求）：列出原因，按「確認」才关。 -->
         <p id="full-copy-overlay-text">{{ model.message }}</p>
-        <div class="progress-track"><div class="progress-fill indeterminate"></div></div>
-        <small>進度以實際寫入的檔案數計算；完成後會自動載入遊戲清單，不必再按任何按鈕。</small>
+        <template v-if="model.failed">
+          <div class="module-toolbar">
+            <ElButton id="full-copy-dismiss" type="primary" :disabled="busy" @click="actions.dismiss()">確認</ElButton>
+          </div>
+          <small>這次沒有產生副本；服務端已釋放名稱，可修改後重新複製。</small>
+        </template>
+        <template v-else>
+          <div class="progress-track"><div class="progress-fill indeterminate"></div></div>
+          <small>進度以實際寫入的檔案數計算；複製成功後會自動載入遊戲清單並更新頂部的「當前遊戲」，不必再按任何按鈕。</small>
+        </template>
       </div>
     </div>
   </section>

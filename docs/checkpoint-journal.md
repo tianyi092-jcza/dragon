@@ -407,6 +407,34 @@ LSP：3 clean、1 个 lane 的 console.log 风格警告（与既有 lane 同款�
   **不含**「正在核對原鍵」「複製遊戲（續）」（旧 60 秒循环与「續」已下线）；工作台 `/` 200；
   玩家端 `/play-api/v1/registry` → **503 REGISTRY_EMPTY**（未上架状态未变）。
 
+### 4.19 生产「复制必定失败」的真因与失败语义（2026-11-04，未提交）
+
+用户回報：「点击复制游戏后，弹出这个窗口，然后快速消失，什么提示都没有。游戏也没复制成功」；
+随后追加要求（原話）：「这个弹窗要保证复制完全成功后再隐藏，隐藏关闭后，应该自动刷新顶部的“当前游戏”下拉列表框」。
+
+**真因（生产实测，已修）**：生产 SQLite 的 `copy_requests` 三行全是 `failed`，`content_names`/`copy_objects` 均 0 行 ——
+上一批的 abandon 逻辑把每次尝试都收尾了，不是占名问题。继续查：**`publication-data/private-objects` 是空的**。
+即 §4.15 「生产清空到 generation 0」时把 196MB private-objects 当孤儿 blob 删了，里面其实有
+`private-objects/installed/approved-{available-library-f4ba804b-1,builtin-28805f-entities7e7-1}` —— 已安装底层资源的字节。
+所以 `reserve()`（只查 SQLite）成功、`execute()` 第一次 `loadFull` 读源字节就失败。本地 lane 全绿是因为本地有这些字节。
+
+- **恢复**：从清空前的备份 `publication-20261104T082754Z/private.tgz` 只解出 `publication-data/private-objects/installed/`
+  （520 文件 / 104MB，不动 `private/` 里的旧草稿与副本字节）。校验：两个 `installed_sources.root_digest`
+  对应文件大小与 sha256 前缀均相符（98515 / 18835）。blob 按请求读取，不需要重启容器。
+- **弹窗语义**：`failed` 不再静默关闭 —— `model.failed` 让弹窗留着，写明原因，只有「確認」能关（`actions.dismiss()`）；
+  成功（`draftRevision`）才自动隐。
+- **失败原因**：`#abandonInTxn(row, state, code)` 把 code 写进既有 `copy_requests.result_json`
+  （`{version:1,code}`，不新增列、不动 schema 与计数门）；`#summary` 在 failed 时回 `failedCode`；
+  客户端 `copy.js` 用 `reasons` 表翻成中文（如 `COPY_SOURCE_CHANGED` → 「底層資源已變更，需要管理員重新登記來源」），
+  未知 code 保留原文（不編造原因）。`#abandonStaleInTxn` 記 `COPY_INTERRUPTED`，其余失敗記原始 code 或 `COPY_FAILED`。
+- **顶下拉框刷新**：已核實链路 `client.txt:115 onCreated: () => draftUI.actions.refresh()` → `draft.txt` 的
+  `refresh: () => action(refreshGames)` → 重載 `draftModel.games` → `Workbench.vue` 的 `<select id="current-game">`。
+  即「複製成功後自動刷新頂部當前遊戲」本就存在，本批只把它在彈窗文案裡說明白。
+
+**驗證**：`tools/verify_copy_tracking.mjs` **8/8**（新增：失敗留彈窗 + 「確認」才關 + 成功不標失敗；失敗訊息測已知/未知 code）；
+`tools/verify_copy_abandon.mjs` **14/14**；`verify_workbench_produce_game_browser` **7/7**（真实浏览器复制→上架→同意→删除旧产物）；
+`editor-ui` 重建：shell-ui.js **697562** bytes / shell-ui.css 54698 bytes。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。

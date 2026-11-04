@@ -135,17 +135,38 @@ test('已取消的原操作只回報結果，不建立副本也不重跑', async
   assert.equal(paths(h, '/run').length, 0);
 });
 
-test('服務端判定失敗時直接結束：訊息說明已丟棄、本機原鍵釋放、同名可直接重試', async () => {
+test('服務端判定失敗時直接結束：訊息說出原因與已丟棄、本機原鍵釋放、同名可直接重試', async () => {
   const journal = new Map([['editor-fullcopy-operation:admin-1', 'existing-key-1234567890']]);
   let replied = false;
   const h = setup({ journal, reply: async path => {
     if (path === '/api/games') return { games: [] };
     if (!replied) { replied = true; return pending({ state: 'running', leaseUntil: Date.now() + 60000, objects: 12 }); }
-    return pending({ state: 'failed', rowRevision: '2' });
+    return pending({ state: 'failed', rowRevision: '2', failedCode: 'COPY_SOURCE_CHANGED' });
   } });
-  assert.equal(await waitFor(() => /未完成，服務端已丟棄/.test(h.model.message)), true, '失敗要明確說已丟棄');
+  assert.equal(await waitFor(() => /失敗：底層資源已變更/.test(h.model.message)), true, '失敗要把服務端回的 code 翻成人看得懂的原因');
+  assert.match(h.model.message, /這次的資料已由服務端丟棄（名稱已釋放）/);
   assert.doesNotMatch(h.model.message, /續|仍在處理/);
   assert.equal(h.model.tracking, false, '失敗是終點，不再追蹤');
   assert.equal(h.journal.size, 0, '失敗後釋放本機原鍵，名稱可直接重用');
   assert.equal(paths(h, '/run').length, 0, '載入後只讀核對，不自動重跑');
+});
+
+test('失敗不得靜默消失：model.failed 留住彈窗，按「確認」才關；成功時不會標成失敗', async () => {
+  const journal = new Map([['editor-fullcopy-operation:admin-1', 'existing-key-1234567890']]);
+  const h = setup({ journal, reply: async path => {
+    if (path === '/api/games') return { games: [] };
+    return pending({ state: 'failed', rowRevision: '2', failedCode: 'COPY_INTERRUPTED' });
+  } });
+  assert.equal(await waitFor(() => h.model.failed === true), true, '失敗後彈窗要留著');
+  assert.match(h.model.message, /複製中斷/);
+  h.ui.actions.dismiss();
+  assert.equal(h.model.failed, false, '按「確認」才關掉');
+  assert.equal(h.model.tracking, false);
+  assert.equal(h.model.message, '', '關掉後不留殘留訊息');
+
+  const ok = setup({ reply: script() });
+  ok.ui.actions.setField('name', '副本');
+  await ok.ui.actions.create();
+  assert.equal(ok.model.failed, false, '成功不得標成失敗');
+  assert.match(ok.model.message, /已建立/);
 });
