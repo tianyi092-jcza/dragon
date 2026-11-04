@@ -63,7 +63,7 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
  // 用戶決定（2026-11）：刪除＝徹底清除。柵欄成立後立刻物理刪除資料庫列；
  // 物理刪除失敗只降級成「已柵欄、尚未徹底刪除」，不推翻已成立的事實。
  function purgeReceipt(value, row) {
-  if (!fields(value, ['gameId', 'purgedAt', 'removed', 'state', 'tables', 'version']) || value.version !== 1 || value.state !== 'purged' || value.gameId !== row.gameId || !iso(value.purgedAt) || !Number.isSafeInteger(value.tables) || !value.removed || typeof value.removed !== 'object' || value.removed.content_games !== 1) throw new Error('徹底刪除回執格式無效；柵欄已成立，可稍後重試。');
+  if ((!fields(value, ['gameId', 'purgedAt', 'removed', 'state', 'tables', 'version']) && !fields(value, ['gameId', 'purgedAt', 'removed', 'retirement', 'state', 'tables', 'version'])) || value.version !== 1 || value.state !== 'purged' || value.gameId !== row.gameId || !iso(value.purgedAt) || !Number.isSafeInteger(value.tables) || !value.removed || typeof value.removed !== 'object' || value.removed.content_games !== 1) throw new Error('徹底刪除回執格式無效；柵欄已成立，可稍後重試。');
   return value;
  }
  function render() {

@@ -54,7 +54,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   return Object.freeze({ ...value, chapters: Object.freeze([...value.chapters]) });
  }
  function purgeReceipt(value) {
-  if (!fields(value, ['gameId', 'purgedAt', 'removed', 'state', 'tables', 'version']) || value.version !== 1 || value.state !== 'purged' || !uuid(value.gameId) || !Number.isSafeInteger(value.tables) || typeof value.purgedAt !== 'string' || !value.removed || typeof value.removed !== 'object') throw new Error('徹底刪除回執無效。');
+  if ((!fields(value, ['gameId', 'purgedAt', 'removed', 'state', 'tables', 'version']) && !fields(value, ['gameId', 'purgedAt', 'removed', 'retirement', 'state', 'tables', 'version'])) || value.version !== 1 || value.state !== 'purged' || !uuid(value.gameId) || !Number.isSafeInteger(value.tables) || typeof value.purgedAt !== 'string' || !value.removed || typeof value.removed !== 'object') throw new Error('徹底刪除回執無效。');
   if (Number(value.removed.content_games) !== 1) throw new Error('徹底刪除回執無效：遊戲列數不符。');
   return Object.freeze({ ...value });
  }

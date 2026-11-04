@@ -343,6 +343,12 @@ try {
     assert.match(await page.locator('#publish-result').textContent(), /已徹底刪除（不可恢復）|物理刪除尚未完成/);
     assert.equal(sql.exec('SELECT COUNT(*) AS n FROM content_deletion_fences WHERE game_id=?', gameId).toArray()[0].n, 0, '刪除後不得留下柵欄列');
     assert.equal(sql.exec('SELECT COUNT(*) AS n FROM content_games WHERE game_id=?', gameId).toArray()[0].n, 0, '刪除後不得留下遊戲列');
+    // ③ 帳本退役：檢查點 + chunks 清理 + 收尾都必須真的完成，不能只是寫了一張 pending 表。
+    const cleanup = sql.exec('SELECT state FROM content_distribution_cleanup ORDER BY started_at DESC LIMIT 1').toArray()[0];
+    assert.equal(cleanup?.state, 'completed', '本遊戲的 distribution generations 必須完成退役：' + JSON.stringify(cleanup));
+    assert.ok(sql.exec('SELECT COUNT(*) AS n FROM content_distribution_checkpoints').toArray()[0].n >= 1, '退役必須留下檢查點');
+    const retiredChunks = sql.exec('SELECT COUNT(*) AS n FROM content_distribution_chunks WHERE generation IN (SELECT generation FROM content_distribution_events WHERE game_id=?)', gameId).toArray()[0].n;
+    assert.equal(retiredChunks, 0, '退役世代不得留下 chunks');
     assert.equal(deletionPosts.length, 1);
     await page.locator('#publish-editor').screenshot({ path: join(artifact, 'deletion-confirmed.png') });
   }

@@ -180,7 +180,7 @@ return class EditorMetadata extends PlatformBase {
     this.management = new GameManagement({ storage: ctx.storage, principal: hash => this.principal(hash), operationGuard: (actor, key) => this.contentKey(actor, key, 'copy') });
     // §4.1 game-list deletion: fence-only backend (no physical-delete API).
     this.deletionFence = new GameDeletionFence({ storage: ctx.storage, principal: hash => this.principal(hash), operationGuard: (actor, key) => this.contentKey(actor, key, 'delete'), requestKey: env.EDITOR_REQUEST_KEY });
-    this.gamePurge = new GamePurge({ storage: ctx.storage, principal: hash => this.principal(hash) });
+    this.gamePurge = new GamePurge({ storage: ctx.storage, principal: hash => this.principal(hash), distribution: () => this.frozenDistribution });
     // Published-game registry (node publish.json counterpart); pure SQLite, no blob dependency.
     this.publishedGames = new PublishedGames({ storage: ctx.storage, principal: hash => this.principal(hash) });
     // Formal release ordinals (Q18/Q24) + history (Q23), no rollback (Q42).

@@ -101,6 +101,7 @@ assert.equal(receipt.tables, TABLES.length);
 assert.equal(receipt.removed.content_games, 1);
 assert.equal(receipt.removed.content_deletion_fences, 1);
 assert.match(receipt.purgedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+assert.ok(['completed', 'not-applicable', 'pending'].includes(receipt.retirement?.state), '回執必須回報帳本退役狀態：' + JSON.stringify(receipt.retirement));
 
 const after = counts();
 const residue = Object.entries(after).filter(([, n]) => n !== 0);

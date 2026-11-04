@@ -46,10 +46,29 @@ const TABLES = Object.freeze([
 const revision = value => typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value);
 
 export class GamePurge {
-  #storage; #sql; #principal;
-  constructor({ storage, principal }) {
+  #storage; #sql; #principal; #distribution;
+  constructor({ storage, principal, distribution = () => null }) {
     if (typeof principal !== 'function') throw new Error('principal port required');
     this.#storage = storage; this.#sql = storage.sql; this.#principal = principal;
+    // 分發帳本的退役流程（檢查點→清 chunks→收尾）由 ledger 自己擁有；
+    // 這裡只當呼叫端，不重寫它的不變量。R2 位元組回收是另一批（見 journal §4.9）。
+    this.#distribution = distribution;
+  }
+
+  // 退役本遊戲的 distribution generations：先打檢查點、再清 chunks、最後核驗收尾。
+  // 三步都在刪資料庫列「之前」做完，帳本才看得到完整鏈；失敗只降級，不推翻已刪事實。
+  #retire(generations, anchorDigest) {
+    const ledger = this.#distribution();
+    if (generations.length === 0) return Object.freeze({ state: 'not-applicable', generations: 0 });
+    if (!ledger || typeof ledger.retireCheckpointInTxn !== 'function') return Object.freeze({ state: 'pending', code: 'LEDGER_UNAVAILABLE', generations: generations.length });
+    try {
+      const checkpoint = this.#storage.transactionSync(() => ledger.retireCheckpointInTxn({ retiredGenerations: generations, anchorDigest }));
+      const cleaned = this.#storage.transactionSync(() => ledger.cleanRetiredChunksInTxn({ checkpointDigest: checkpoint.checkpointDigest, generations }));
+      const closed = this.#storage.transactionSync(() => ledger.completeRetiredCleanupInTxn({ checkpointDigest: checkpoint.checkpointDigest }));
+      return Object.freeze({ state: 'completed', checkpointDigest: checkpoint.checkpointDigest, generations: closed.retiredGenerations.length, deletedGenerations: cleaned.deletedGenerations.length });
+    } catch (error) {
+      return Object.freeze({ state: 'pending', code: String((error && (error.code || error.message)) || error || 'RETIREMENT_FAILED'), generations: generations.length });
+    }
   }
 
   #one(text, ...values) { return this.#sql.exec(text, ...values).toArray()[0]; }
@@ -66,6 +85,10 @@ export class GamePurge {
     const actor = this.#actor(tokenHash);
     const confirmationName = value?.confirmationName, expectedRowRevision = value?.expectedRowRevision;
     if (typeof confirmationName !== 'string' || !revision(expectedRowRevision)) { fail(422, 'PURGE_INPUT'); }
+    // 帳本位置必須在刪列前取：events 表不在 purge 範圍，但它們就是退役的選擇依據。
+    const generations = this.#sql.exec('SELECT generation FROM content_distribution_events WHERE game_id=? ORDER BY generation', gameId).toArray().map(row => Number(row.generation));
+    const anchorDigest = this.#one('SELECT operation_digest FROM content_distribution_events WHERE game_id=? ORDER BY generation DESC LIMIT 1', gameId)?.operation_digest ?? null;
+    const retirement = generations.length === 0 ? Object.freeze({ state: 'not-applicable', generations: 0 }) : this.#retire(generations, anchorDigest);
     return this.#storage.transactionSync(() => {
       // 刪除順序不等於 FK 圖的拓樸順序，且最終每張表都是 0 行：把 FK 檢查延到 commit，
       // 任何真實殘留都會在 commit 時失敗（不會被吞掉）。
@@ -94,7 +117,7 @@ export class GamePurge {
       }
       if (removed.content_games !== 1) { fail(503, 'PURGE_INCOMPLETE'); }
       if (removed.content_deletion_fences !== 1) { fail(503, 'PURGE_INCOMPLETE'); }
-      return Object.freeze({ version: 1, gameId, state: 'purged', removed: Object.freeze({ ...removed }), tables: TABLES.length, purgedAt: new Date().toISOString() });
+      return Object.freeze({ version: 1, gameId, state: 'purged', removed: Object.freeze({ ...removed }), tables: TABLES.length, purgedAt: new Date().toISOString(), retirement });
     });
   }
 }
