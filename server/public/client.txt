@@ -51,7 +51,7 @@ const views = [
   ['management-editor', '上架審核', true, 'admin'],
   ['copy-game-editor', '複製遊戲', true, 'admin'],
 ];
-let view = null, displayedOwner = null;
+let view = null, displayedOwner = null, draftRefreshPending = false;
 const accounts = createAccountController({ api, authority: () => current, work: run, publish: model => shell.accounts(model), confirm: text => confirm(text) });
 let mapCanvas = null, minimapCanvas = null, mapWindowCanvas = null;
 const managementActions = {}, deletionActions = {}, publicationActions = {}, reviewActions = {}, copyActions = {}, fullCopyActions = {}, draftActions = { attachMinimapCanvas: canvas => { minimapCanvas = canvas; }, attachMapWindowCanvas: canvas => { mapWindowCanvas = canvas; } }, stageAssetsActions = {}, stageJobsActions = {}, libraryActions = {}, strongholdActions = {}, generalsActions = {}, catalogActions = {}, mapviewActions = {attachCanvas: canvas => { mapCanvas = canvas; }};
@@ -62,11 +62,24 @@ function permittedView(next) {
   const item = views.find(([id]) => id === next);
   return item && (!item[2] || current.user.role === 'admin') ? next : 'draft-editor';
 }
+// 進入清單型模組就自動載入一次（用戶要求）：刪除、上架等操作做完後直接切過去，
+// 看到的就是當下真實清單，不必先看到舊資料再按「重新整理」。
+const autoLoad = {
+  'management-editor': () => reviewUI?.actions.refresh(),
+  'publish-editor': () => publishUI?.actions.refresh(),
+  admin: () => accounts.load(),
+};
+let shownView = null, autoLoading = false;
 function show(next) {
-  view = permittedView(next);
+  const target = permittedView(next), entered = target !== shownView;
+  view = target; shownView = target;
   shell.sync({ current, view, busy });
   // 資源頁是純查詢頁，不顯示上一操作的殘留提示
   if (view === 'catalog-editor' || view === 'copy') status('');
+  if (entered && current && !busy && !autoLoading) {
+    const load = autoLoad[view];
+    if (load) { autoLoading = true; Promise.resolve(load()).catch(() => {}).finally(() => { autoLoading = false; }); }
+  }
 }
 function navigate(next) {
   if (busy || !current || current.user.mustChangePassword || next === view || !canLeave()) return;
@@ -91,7 +104,12 @@ function render() {
 }
 async function run(action) {
   if (busy) return; busy = true; shell.sync({ current, view, busy }); const controls = [...document.querySelectorAll('#login input,#profile input,#password input')]; controls.forEach(node => { node.disabled = true; });
-  try { const result = await action(); status('操作完成。'); return result; } catch (error) { status(error.message); } finally { busy = false; controls.forEach(node => { node.disabled = false; }); draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); deletionUI?.render(); publishUI?.render(); reviewUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); mapviewUI?.render(); copyUI.render(); fullCopyUI.render(); show(view); }
+  // 動作若能說清楚自己完成了什麼（例如「複製完成。」「檢驗完成。」），就在上方提示那句話；
+  // 才退回仍有的中性提示，不再讓所有操作都顯示成「操作完成」。
+  try { const result = await action(); status(typeof result === 'string' && result ? result : '操作完成。'); return result; } catch (error) { status(error.message); } finally { busy = false; controls.forEach(node => { node.disabled = false; }); draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); deletionUI?.render(); publishUI?.render(); reviewUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); mapviewUI?.render(); copyUI.render(); fullCopyUI.render();
+    // 複製完成後要刷新頂部「當前遊戲」下拉框；不能直接調用，因為此刻 busy 還是 true。
+    if (draftRefreshPending) { draftRefreshPending = false; void draftUI.actions.refresh(); }
+    show(view); }
 }
 const list = () => accounts.load();
 let stageUI, libraryUI, catalogUI, managementUI, deletionUI, publishUI, reviewUI, stageAssetUI, strongholdUI, generalsUI, mapviewUI;
@@ -112,7 +130,7 @@ Object.assign(draftActions, draftUI.actions);
 const copyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.copy(model), gotoGame: id => openGameView(id, 'draft-editor')});
 Object.assign(copyActions, copyUI.actions);
 // B6 管理員「複製遊戲」：地圖＋章節＋武將全套複製，入口在「遊戲管理」。
-const fullCopyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, mode: 'full', publish: model => shell.fullCopy(model), gotoGame: id => openGameView(id, 'draft-editor'), onCreated: () => draftUI.actions.refresh()});
+const fullCopyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, mode: 'full', publish: model => shell.fullCopy(model), gotoGame: id => openGameView(id, 'draft-editor'), onCreated: () => { draftRefreshPending = true; }});
 Object.assign(fullCopyActions, fullCopyUI.actions);
 stageUI = installStageJobs({ api, authority: () => current, work: run, isBusy: () => busy, savedContext: () => draftUI.savedContext(), publish: model => shell.stageJobs(model) });
 Object.assign(stageJobsActions, stageUI.actions);

@@ -157,7 +157,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     }
 
     // Resume: an existing uncommitted operation keeps its own name/introduction.
-    if (operation && pending()) { await runExisting(t); return; }
+    if (operation && pending()) { return await runExisting(t); }
 
     const body = full ? await fullBody() : { name, introduction }, key = crypto.randomUUID();
     operation = key; summary = null; needsQuery = true;
@@ -176,7 +176,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     }
     if (!valid(t) || operation !== key) return;
     summary = decodeSummary(created); needsQuery = false;
-    await runExisting(t);
+    return await runExisting(t);
   }
   // 一筆追蹤真正結案（已建立或已失效）：釋放本機原鍵，下一次載入不會再自動核對。
   function release() { try { storage.removeItem(storeKey()); } catch { /* 清除失敗只影響下一筆追蹤 */ } operation = null; }
@@ -202,6 +202,8 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     release();
     message = full ? '完整副本已建立；遊戲清單已自動更新，可在「遊戲管理」直接載入。' : '新遊戲已建立，可在下方「我的遊戲」中編輯。';
     if (!full) await ownGames(t); else onCreated();
+    // 回傳給外層：頁面上方的提示要說清楚是什麼完成了，而不是一律「操作完成」。
+    return full ? '複製完成。' : '新遊戲已建立。';
   }
   // 一次到底的自動追蹤（用戶要求：不要再按「續」）。伺服器把 /run 跑在同一個請求裡
   // （5 分鐘租約），代理層會切斷回應但不會中止執行；這裡只依原鍵查詢與重跑，永不另建
@@ -209,34 +211,45 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
   const POLL_MS = 2000, TRACK_MS = 15 * 60 * 1000, MAX_RUNS = 3;
   async function track(t, key) {
     const started = Date.now();
-    let runs = 0, mode = summary?.state === 'running' && Number(summary.leaseUntil ?? 0) > Date.now() ? 'poll' : 'run';
+    let runs = 0, post = null, settled = null;
     const busyText = () => label + '仍在處理（' + (summary?.state ?? 'pending') + '）；' + stagedText() + '…';
+    const park = () => {
+      needsQuery = true;
+      message = label + '仍在處理（' + (summary?.state ?? 'pending') + '）；' + stagedText() + '。伺服器尚未回報完成，重新載入本頁會自動接著核對，不必按任何按鈕。';
+      render();
+    };
+    // 送出 /run 但**不等它**：伺服器在同一個請求裡跑完整份複製（可長達 5 分鐘，代理層約 100 秒就
+    // 切斷回應），等它回來才輪詢的話整個過程都看不到檔案數。所以寫入請求與只讀查詢並行。
+    const start = () => {
+      runs++;
+      post = api(operationPath(key) + '/run', {}, { revision: summary.rowRevision })
+        .then(data => { settled = { data }; }, error => { settled = { error }; });
+    };
     for (;;) {
       if (!valid(t) || operation !== key) return;
       if (summary?.draftRevision) return;
       if (summary?.state === 'canceled') { message = '此原操作已取消，未產生副本。'; render(); return; }
       if (summary?.state === 'failed') { message = label + '失敗：' + reasonText(summary.failedCode) + '。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。'; release(); render(); return; }
-      if (Date.now() - started > TRACK_MS || mode === 'run' && runs >= MAX_RUNS) {
-        needsQuery = true;
-        message = label + '仍在處理（' + (summary?.state ?? 'pending') + '）；' + stagedText() + '。伺服器尚未回報完成，重新載入本頁會自動接著核對，不必按任何按鈕。';
-        render(); return;
-      }
-      if (mode === 'run') {
-        runs++;
-        message = busyText(); render();
-        try { summary = decodeSummary(await api(operationPath(key) + '/run', {}, { revision: summary.rowRevision }), summary.gameId); }
-        catch (error) {
-          if (!valid(t) || operation !== key) throw error;
-          if (absent(error)) { forgetLocal('服務端已無此原操作；本機追蹤已清除，可直接重新建立。'); return; }
-          // 已在執行、租約被別的請求持有、或回應被代理層切斷：都不是失敗，改為只讀核對。
-          message = '回應中斷，正在依原鍵核對實際結果…'; render();
-        }
-        mode = 'poll'; needsQuery = false;
-        continue;
+      if (Date.now() - started > TRACK_MS) { park(); return; }
+      // 沒有本頁在跑的請求、也沒有別的請求持着租約 → 用同一個原鍵再跑一次。
+      const leased = summary?.state === 'running' && Number(summary.leaseUntil ?? 0) > Date.now();
+      if (!post && !leased) {
+        if (runs >= MAX_RUNS) { park(); return; }
+        start(); needsQuery = false;
       }
       message = busyText(); render();
       await new Promise(done => setTimeout(done, POLL_MS));
       if (!valid(t) || operation !== key) return;
+      // /run 若已結束，先收它的結果：成功就以它為準，失敗（含被代理層切斷、已被別人跑）
+      // 都不推翻事實，下、後の査詢再判。
+      if (settled) {
+        const outcome = settled; settled = null; post = null;
+        if (outcome.error) {
+          if (absent(outcome.error)) { forgetLocal('服務端已無此原操作；本機追蹤已清除，可直接重新建立。'); return; }
+          message = '回應中斷，正在依原鍵核對實際結果…'; render();
+        } else summary = decodeSummary(outcome.data, summary.gameId);
+        continue;
+      }
       let data = null, failures = 0;
       for (;;) {
         try { data = await api(operationPath(key)); break; }
@@ -250,9 +263,6 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       }
       if (!valid(t) || operation !== key) return;
       summary = decodeSummary(data, summary.gameId); needsQuery = false;
-      // 租約未過＝那個請求還在執行，只讀等待；租約過了代表它已不再執行（執行中的請求
-      // 不可能超出自已的租約範圍），才允許用同一個原鍵自動再跑一次。
-      mode = summary.state === 'running' && Number(summary.leaseUntil ?? 0) > Date.now() ? 'poll' : 'run';
     }
   }
   const action = callback => (...args) => work(async () => {
