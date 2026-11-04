@@ -4,7 +4,7 @@ import { createPlayerReader } from './playerclient.js';
 import { mountPlayerCatalog } from './playercatalog.js';
 import { mountPlayerNewGame } from './playernewgame.js';
 import { mountPlayerRestore } from './playerrestore.js';
-import { confirmGameDeleted, mountDeletedSavePrompt } from './playerdeletedgame.js';
+import { confirmGameDeleted, discardLocalSaves, mountDeletedGameNotice } from './playerdeletedgame.js';
 import { createPlayerStaticReader } from './playerstatic.js';
 import { createPlayerEnvironment } from './playerenvironment.js';
 import { createPlayerSaveStore } from './playersaves.js';
@@ -80,7 +80,7 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
       // is about local saves; an unlisted or new-game request keeps the generic page.
       if (mode === 'load' && await confirmGameDeleted({ reader, gameId })) {
         catalog.close();
-        mountDeletedSavePrompt({ root, store, onExit: initialPage });
+        mountDeletedGameNotice({ root, store, onExit: initialPage });
         return;
       }
       throw new Error('current listed game unavailable');
@@ -94,11 +94,13 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
       readStatic: createPlayerStaticReader({ origin: location.origin, basePath: programBase.pathname }) };
     choice = mode === 'load'
       ? mountPlayerRestore({ root, reader, selection, store, ...policy })
-      : mountPlayerNewGame({ root, reader, selection, ...policy });
+      : mountPlayerNewGame({ root, reader, selection, store, ...policy });
     selected = await choice.result;
     catalog.close();
     if (!selected) { initialPage(); return; }
     host = createPlayerSessionHost({ session: selected.session, pack: selected.pack, root,
+      // 用户 m262：运行中被删同样清本机进度；只在玩家确认后执行，且仍逐槽核对比对。
+      discardSaves: () => discardLocalSaves({ store }),
       navigate({ reason, initialAction }) {
         // The host calls this only after required deletion/error confirmation.
         if (reason === 'title' && initialAction === 'load') navigatePlayerGame(gameId, 'load');

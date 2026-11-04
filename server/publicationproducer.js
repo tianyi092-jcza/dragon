@@ -39,7 +39,12 @@ export class FrozenPublicationProducer {
     for (const game of catalog.games) for (const row of game.announcements) {
       if (row.firstOnline.generation === previous.generation) row.firstOnline = { generation: previous.generation, operationId: previous.operationId, operationDigest: previous.operationDigest, payloadDigest: previous.payloadDigest };
     }
-    return catalog;
+    // 已物理刪除（purge）的遊戲在資料庫裡沒有任何列，所以它不能再留在在架集合裡：
+    // 墓碑是給「fence 了但還沒 purge」的遊戲用的，purge 之後連墓碑都要消失，否則
+    // 下一次發布會被 #assertCatalogAuthority 判成 DISTRIBUTION_AUTHORITY_CORRUPT。
+    // 這不改變任何玩家可見事實：墓碑與缺席對讀者都是 410 GAME_DELETED。
+    const games = catalog.games.filter(game => !!this.#one('SELECT game_id FROM content_games WHERE game_id=?', game.gameId));
+    return games.length === catalog.games.length ? catalog : { version: catalog.version, games };
   }
   #assertCatalogAuthority(catalog) {
     const known = new Map(catalog.games.map(game => [game.gameId, game]));

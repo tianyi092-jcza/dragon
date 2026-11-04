@@ -232,6 +232,15 @@
   `artifacts/` 1000+ = 共享程序包；`games/ test/ tmp/ drafts/` 全 0。删这三个 live 对象会让读者拿不到根（玩家端直接 502），因此不动。
 - **下一步**：A 批（上架并行写新布局，可回滚）→ B 批（读者改读 SQLite 目录）→ C 批（删除简化 + 下线 6 张 `content_distribution_*` + 新增 `game_releases`）。
 
+### 4.12 游戏存储布局（方案 B）B 批：读侧切指针 + 玩家删除提示改为阻塞告知（未提交）
+
+- **用户决定**（m256/m262/m272）：读者查不到 gameId 即 `410 GAME_DELETED`；玩家端弹窗改为繁体告知「該遊戲已刪除！」，**只有一个「確認」**，确认即清本机进度并回到游戏开始的选择页；右键无效，弹窗是阻塞项。
+- **读者**：`reader/worker.js` 先读 `control/directory.json`（同代次 + authorityId + body digest 校验），不合格或旧 v1 根回落到该代次投影；查不到 gameId 的 `admit`/`file`/`status` 三条路径统一 410。已验证「已知但未上架」游戏的既有旧能力不被削减。
+- **语义反转已记录**：`tools/verify_reader.mjs` 三条旧断言（unknown→403、unknown status→200、missing state→503）改为 410 + `GAME_DELETED`；这是用户批准的产品语义变更，不是放宽校验。
+- **玩家侧**：`playerdeletedgame.js` 的 `mountDeletedGameNotice`/`GAME_DELETED_NOTICE` 取代旧双按钮入口；四条触发面（加载入口、新局选章、读档面板、运行期状态检查）共用同一阻塞弹窗；清档失败仍只有同一个确认按钮。
+- **验证**：新增 `verify_reader_directory_pointer` 16 checks；`verify_reader` 77、`verify_reader_announcements` 107、`verify_player_client_workerd` 7、`verify_player_deleted_saves` 12、`verify_player_deleted_entry_browser` 5、`verify_player_restore_browser` 36、`verify_player_new_game_browser` 20、`verify_player_session_host_browser` 21、`verify_player_chapters` 42、`verify_player_client` 50、`verify_player_pack_compiled` 6 全绿。
+- **未做**：用户验收①（两个相同内容游戏删 A 后 B 仍可开局）与③（删除后 31 表 0 行 + R2 无该 gameId + 指针不含该 gameId）依赖 C 批「库行 purge + 重写指针」；验收②在 B 层用「指针代次超前回落旧投影、字节等于旧 digest」证明，C 批下线投影读取后需重新证明。未 push、未部署。
+
 ### 4.11 游戏存储布局（方案 B）A 批：上架并行写游戏级目录指针（已落地，未提交）
 
 - **基线（改动前）已跑绿**：`verify_game_purge` 8 checks、`verify_distribution_ledger_retirement` 18 组、
@@ -258,6 +267,27 @@
   方案 B 的「删除即移除」原则上不给墓碑——A/B 两批不动这个行为。
 - **状态**：A 批代码 + 验证完成，**未 commit、未部署**。B 批（读者改读指针）、C 批（purge + 移出在架集合 + 下线
   `content_distribution_*` + `game_releases`）尚未实施；C 批改 schema 必须同步两个计数门与 `server/deletiondefinitions.js`。
+
+### 4.13 游戏存储布局（方案 B）C 批：删除 = 库行 purge + 指针移除 + 前缀回收（已落地，未提交）
+
+- **范围裁定（本轮只做删除语义）**：调研确认 `content_distribution_state/events/chunks/checkpoints/cleanup/enqueue_barrier`
+  不是「只管退役的账本」——`chunks` 是**入队时冻结的 payload**（异步发布的基础），`events` 被 `server/management.js`
+  的管理回执回查（`#distributionRow`）。下线这 6 张表等于改发布协议 + 管理回执格式，涉及已验收形状与 20+ 条 lane，
+  不能塞进这一批。`game_releases` 是 `events` 的替代日志，与协议改版同批落地（现在加会是一张没有消费者的表）。
+  详细裁定与两条后续路线见 `docs/game-storage-layout.md` §11.2。
+- **C 批内容**：新增 `vps/game-reclaimer.mjs`（读指针 → digest 复核 → 过滤该 gameId → 按读到的 etag CAS 写回 → 回读确认；
+  然后按 `artifacts/<gameId>/` 前缀 list+remove）。**不推进代次**（这是已提交目录的修补，不是新发布），不碰共享程序包、
+  画像与 receipts/roots。`#postPurge` 变 async 并在库行 purge 之后调用注入的 `purgeReclaimer`，回执新增
+  `reclamation`（completed / pending+code；未注入端口 = `RECLAIMER_UNCONFIGURED`）。`vps/publication-server.mjs` 只在
+  `r2.list`/`r2.remove` 都在时装配回收器。`server/publicationproducer.js#catalog` 在冻结复核之后丢弃 `content_games`
+  已无行的 gameId——修「purge 后残留墓碑让下一次发布 503 DISTRIBUTION_AUTHORITY_CORRUPT」的预存缺陷。
+- **验证**：新增 `verify_game_purge_reclaim` **9 checks**；`verify_game_purge` 8→**11**（回执 completed + 本游戏前缀 0 字节
+  + 指针不含该 gameId + 同内容另一游戏与共享位元组不动）；`verify_publication_producer` 24→**25 组**（purge 后重建目录丢墓碑）；
+  `verify_publication_server` 18、`verify_reader_directory_pointer` 16、`verify_editor_shell` 92、
+  `verify_publication_chain_browser` 10、`verify_editor_schema_sources` 53/51/356/4（本轮无 schema 改动）全绿。
+- **未验证**：验收①的全栈版本（真 workerd 读者把 B 从 registry→admit→逐章读到开局）还没有 lane；验收③的 R2 部分用
+  注入式 in-memory 物件埠（与生产同一份回收代码，但不是真实 R2 桶）；验收②仍依赖「回落旧投影」因为投影读取没下线。
+- **状态**：C 批代码 + 验证完成，**未 commit、未部署**。
 
 ## 5. 当前阻塞
 

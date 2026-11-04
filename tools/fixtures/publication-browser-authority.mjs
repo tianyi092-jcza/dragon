@@ -18,7 +18,7 @@ const { mac, passwordHash } = await import('../../server/security.js');
 const { assertDeletionDefinitions } = await import('../../server/deletiondefinitions.js');
 const { GameDeletionJobFreeze } = await import('../../server/deletionjobfreeze.js');
 const { GameDeletionDraftFreeze } = await import('../../server/deletiondraftfreeze.js');
-export async function createPublicationBrowserAuthority({ root, origin, runtimeStager, nodeService = false }) {
+export async function createPublicationBrowserAuthority({ root, origin, runtimeStager, nodeService = false, purgeReclaimer }) {
   const dbPath = join(root, 'editor.sqlite'); assert.equal(existsSync(dbPath), false);
   const storage = openStorage(dbPath), sql = storage.sql;
   const ADMIN = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', OWNER = 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb';
@@ -28,7 +28,7 @@ export async function createPublicationBrowserAuthority({ root, origin, runtimeS
   try {
     const bucket = new FileBucket({ root: join(root, 'private-objects') });
     const bindings = { EDITOR_ORIGIN: origin, EDITOR_REQUEST_KEY: secret, EDITOR_DEFAULT_PASSWORD: password, EDITOR_BLOBS: bucket };
-    const Application = createEditorApplication(class {}, { runtimeStager, frozenPublication: true });
+    const Application = createEditorApplication(class {}, { runtimeStager, frozenPublication: true, purgeReclaimer });
     const app = new Application({ storage }, bindings);
     bindings.EDITOR_METADATA = {
       idFromName(name) { assert.equal(name, 'editor-authority-v1'); return name; },
@@ -78,7 +78,7 @@ export async function createPublicationBrowserAuthority({ root, origin, runtimeS
     const adminCsrf = await mac(`csrf:${adminToken}`, secret); let serial = 0;
     let fetch = request => gateway.fetch(request, bindings);
     if (nodeService) {
-      const service = createEditorService({ storage, bucket, env: { EDITOR_ORIGIN: origin, EDITOR_REQUEST_KEY: secret, EDITOR_DEFAULT_PASSWORD: password }, runtimeStager, frozenPublication: true });
+      const service = createEditorService({ storage, bucket, env: { EDITOR_ORIGIN: origin, EDITOR_REQUEST_KEY: secret, EDITOR_DEFAULT_PASSWORD: password }, runtimeStager, frozenPublication: true, purgeReclaimer });
       fetch = request => service.fetch(request);
     }
     async function manage(action) {

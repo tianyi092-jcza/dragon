@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createPublicationBrowserAuthority } from './fixtures/publication-browser-authority.mjs';
+import { createGameReclaimer } from '../vps/game-reclaimer.mjs';
+import { DIRECTORY_POINTER_KEY, directoryPointerBody } from '../reader/directorypointer.js';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const origin = 'https://owned-editor.invalid';
@@ -22,8 +24,51 @@ const before = Object.fromEntries(builtinFiles.map(path => [path, digestOf(path)
 // 本 lane 不上架，但 app 要求同步證明埠：形狀必須正確，方法本身只用來擋誤用。
 const unused = () => { throw new Error('purge lane never stages runtime bytes'); };
 const stubStager = { stage: unused, verifyStaged: unused };
-const authority = await createPublicationBrowserAuthority({ root: own, origin, runtimeStager: stubStager, nodeService: false });
+// 刪除後的 R2 回收（方案 B）：owned in-memory 物件埠，不連任何雲端。
+// 這裡求的是路由/埠真的被呼叫、且只清本遊戲，不是真實 R2/S3/TLS 證據。
+const reclaimObjects = new Map();
+let reclaimRemoves = 0;
+const storeObject = (key, bytes) => reclaimObjects.set(key, { bytes: Buffer.from(bytes), headers: { etag: '"' + sha(Buffer.from(bytes)) + '"', 'content-type': 'application/json' } });
+const reclaimR2 = Object.freeze({
+  async get(key, options) {
+    assert.ok(options?.maxBytes > 0, '有界讀取是埠合約');
+    const value = reclaimObjects.get(key);
+    return value ? { bytes: new Uint8Array(value.bytes), headers: { ...value.headers } } : null;
+  },
+  async putControl(key, bytes, etag) {
+    assert.equal(arguments.length, 3, 'CAS 必須顯式帶 etag');
+    const prior = reclaimObjects.get(key), current = prior ? prior.headers.etag : null;
+    if (etag === null ? current !== null : current !== etag) { return false; }
+    storeObject(key, bytes); return true;
+  },
+  async list(prefix, maxKeys) { assert.equal(maxKeys, 1000); return [...reclaimObjects.keys()].filter(key => key.startsWith(prefix)).sort(); },
+  async remove(key) { reclaimRemoves++; reclaimObjects.delete(key); return 204; },
+});
+const parseOwned = text => { try { return JSON.parse(text); } catch (cause) { assert.fail('owned pointer must stay parseable: ' + cause.message); } };
+const authority = await createPublicationBrowserAuthority({ root: own, origin, runtimeStager: stubStager, nodeService: false, purgeReclaimer: createGameReclaimer({ r2: reclaimR2 }) });
 const { storage, sql, gameId, adminToken, adminCsrf, ownerToken, csrfFor } = authority;
+
+// 一個與被刪遊戲「內容完全相同」的遊戲：同一份內容摘要，共用同一組程序包與畫像位元組。
+const twinGameId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const sharedDigest = sha(Buffer.from('purge-lane-identical-content'));
+const programKey = 'artifacts/programs/' + sha(Buffer.from('purge-lane-shared-program')) + '/program.js';
+const entryFor = (id, releaseId) => ({ gameId: id, listed: true,
+  release: { releaseId, ordinal: '1.0', revision: '1', sourceDigest: sharedDigest, runtime: { key: `artifacts/${id}/1.0/${releaseId}/runtime-${sharedDigest}.json`, sha256: sharedDigest, byteLength: 32 } },
+  directory: { name: 'purge-lane-' + id.slice(0, 4), publishedAt: '2026-11-01T00:00:00.000Z', chapters: [`${id}#chapter-1`] },
+  announcements: [] });
+const laneAuthority = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const sealed = games => {
+  const body = directoryPointerBody({ version: 1, authorityId: laneAuthority, generation: 4, games });
+  const digest = sha(Buffer.from(JSON.stringify(body)));
+  return Buffer.from(JSON.stringify({ version: 1, authorityId: laneAuthority, generation: 4, digest, games: body.games }));
+};
+const ownEntry = entryFor(gameId, 'release-purgelane'), twinEntry = entryFor(twinGameId, 'release-twinlane');
+const ownKeys = [ownEntry.release.runtime.key, `artifacts/${gameId}/1.0/release-purgelane/manifest.json`];
+const twinKeys = [twinEntry.release.runtime.key, `artifacts/${twinGameId}/1.0/release-twinlane/manifest.json`];
+for (const key of [...ownKeys, ...twinKeys]) { storeObject(key, 'bytes:' + key); }
+storeObject(programKey, 'shared-program-bytes');
+storeObject('kao/17.png', 'shared-portrait-bytes');
+storeObject(DIRECTORY_POINTER_KEY, sealed([ownEntry, twinEntry].sort((a, b) => a.gameId < b.gameId ? -1 : 1)));
 
 async function post(path, body, { token = adminToken, csrf = adminCsrf, key = `purge-lane-${randomUUID()}` } = {}) {
   const response = await authority.fetch(new Request(origin + path, {
@@ -103,6 +148,29 @@ assert.equal(receipt.removed.content_deletion_fences, 1);
 assert.match(receipt.purgedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
 assert.ok(['completed', 'not-applicable', 'pending'].includes(receipt.retirement?.state), '回執必須回報帳本退役狀態：' + JSON.stringify(receipt.retirement));
 
+// ④′ R2 回收：回執必須說 completed，指針不含該 gameId，本遊戲前綴 0 位元組，
+// 而內容完全相同的另一個遊戲與共享程序包／畫像一個位元組都不能少。
+{
+  assert.equal(receipt.reclamation?.state, 'completed', '回執必須回報 R2 回收完成：' + JSON.stringify(receipt.reclamation));
+  assert.equal(receipt.reclamation.pointer, 'removed');
+  assert.equal(receipt.reclamation.objects, ownKeys.length, '必須只刪本遊戲的物件');
+  assert.equal(reclaimRemoves, ownKeys.length);
+  const stored = reclaimObjects.get(DIRECTORY_POINTER_KEY);
+  assert.ok(stored, '在架指針必須还存在（只是少了一條）');
+  assert.equal(stored.bytes.toString().includes(gameId), false, '在架指針不得再含已刪遊戲的 gameId');
+  const pointer = parseOwned(stored.bytes.toString());
+  assert.equal(pointer.generation, 4, '回收是已提交目錄的修補，不得推進代次');
+  assert.deepEqual(pointer.games.map(entry => entry.gameId), [twinGameId]);
+  assert.equal(pointer.games[0].release.runtime.key, twinEntry.release.runtime.key);
+  assert.deepEqual([...reclaimObjects.keys()].filter(key => key.startsWith(`artifacts/${gameId}/`)), [], '本遊戲前綴必須 0 位元組');
+  assert.deepEqual([...reclaimObjects.keys()].filter(key => key.startsWith(`artifacts/${twinGameId}/`)).sort(), [...twinKeys].sort(), '同內容的另一個遊戲位元組不得被連帶刪除');
+  assert.equal(reclaimObjects.get(programKey).bytes.toString(), 'shared-program-bytes', '共享程序包不得被刪');
+  assert.equal(reclaimObjects.get('kao/17.png').bytes.toString(), 'shared-portrait-bytes', '共享畫像不得被刪');
+  checks.push('purge 回執回報 R2 回收 completed：指針刪掉本遊戲條目、本遊戲前綴 0 位元組');
+  checks.push('內容完全相同的另一個遊戲、共享程序包與畫像逐位元組不動（刪 A 不影響 B）');
+  checks.push('回收是修補而非新發布：指針代次不變，且只寫一次 CAS');
+}
+
 const after = counts();
 const residue = Object.entries(after).filter(([, n]) => n !== 0);
 assert.deepEqual(residue, [], '物理刪除後 31 張表都必須 0 行');
@@ -143,5 +211,5 @@ checks.push(`purge 回執宣告 ${receipt.tables} 張表；實查 ${TABLES.lengt
 }
 
 storage.close();
-const result = { checks, calls: calls.length, purgedTables: receipt.tables, removed: receipt.removed, sources: { 'server/gamepurge.js': sha(readFileSync('server/gamepurge.js')), 'server/editorapp.js': sha(readFileSync('server/editorapp.js')) }, scope: 'real editor gateway/auth/SQLite/FileBucket; database-row purge only — R2 byte reclamation (distribution retired generations) and player-side 404 are out of scope' };
+const result = { checks, calls: calls.length, purgedTables: receipt.tables, removed: receipt.removed, sources: { 'server/gamepurge.js': sha(readFileSync('server/gamepurge.js')), 'server/editorapp.js': sha(readFileSync('server/editorapp.js')) }, scope: 'real editor gateway/auth/SQLite/FileBucket + owned in-memory R2 object port; database-row purge and per-game R2 reclamation — no real S3/R2/TLS deployment, no distribution-ledger retirement path, no player-side play-through' };
 process.stdout.write(`${JSON.stringify(result)}` + '\n');

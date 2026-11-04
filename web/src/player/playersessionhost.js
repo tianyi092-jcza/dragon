@@ -1,10 +1,12 @@
 // Formal-session presentation/lifetime owner, not a rule clock or Trial gate.
 // Navigation is an explicit host port; no storage or automatic re-admission.
+import { GAME_DELETED_NOTICE } from './playerdeletedgame.js';
 import { validateIdentity, isChapterId, isDigest, isId, isOrdinal } from './runtimecontract.js';
-export function createPlayerSessionHost({ session, pack, root, navigate }) {
+export function createPlayerSessionHost({ session, pack, root, navigate, discardSaves = null }) {
   if (typeof session?.status !== 'function' || typeof session?.state !== 'function' ||
       typeof session?.close !== 'function' || typeof pack?.close !== 'function' ||
-      !root?.ownerDocument || typeof root.append !== 'function' || typeof navigate !== 'function')
+      !root?.ownerDocument || typeof root.append !== 'function' || typeof navigate !== 'function' ||
+      (discardSaves !== null && typeof discardSaves !== 'function'))
     throw new TypeError('formal session, owned pack, DOM root and navigation port required');
   validateIdentity(session.identity); validateIdentity(pack.identity);
   const { gameId, releaseId, ordinal, chapterId, manifestDigest } = session.identity;
@@ -77,7 +79,8 @@ export function createPlayerSessionHost({ session, pack, root, navigate }) {
     const dialog = document.createElement('section'), message = document.createElement('p');
     const confirm = document.createElement('button'), failure = document.createElement('p');
     dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', '遊戲結束');
-    message.textContent = deleted ? '遊戲已刪除。確認後返回初始載入頁面，本機存檔保留。' : '遊戲無法繼續。確認後返回初始載入頁面，本機存檔保留。';
+    message.textContent = deleted ? GAME_DELETED_NOTICE : '遊戲無法繼續。確認後返回初始載入頁面，本機存檔保留。';
+    if (deleted) message.textContent = `${GAME_DELETED_NOTICE}確認後清除本機進度並返回遊戲開始頁面。`;
     if (updated && !deleted) message.textContent = '遊戲版本已更新，舊版本已作廢，不能繼續或保存。確認後返回初始載入頁面。';
     confirm.type = 'button'; confirm.textContent = '確認'; failure.setAttribute('role', 'status');
     Object.assign(dialog.style, { position: 'fixed', inset: '25% 15%', zIndex: '10003', background: '#f0d090', color: '#201800', border: '4px solid #806020', padding: '24px' });
@@ -88,10 +91,12 @@ export function createPlayerSessionHost({ session, pack, root, navigate }) {
       navigating = true; confirm.disabled = true;
       try {
         if (!disposed) dispose();
+        // 用户 m362：运行中被删同样在确认后清除本机进度（逐槽 compare-delete，未核上的保留）。
+        if (exitReason === 'deleted' && discardSaves) await discardSaves();
         await navigate(result);
         host.remove(); resolveExit(result);
       } catch {
-        failure.textContent = '無法返回載入頁面，請重試。';
+        failure.textContent = exitReason === 'deleted' ? '本機進度尚未清除，請再確認一次。' : '無法返回載入頁面，請重試。';
         navigating = false; confirm.disabled = false;
         if (!dialog.isConnected) host.append(dialog);
         confirm.focus();

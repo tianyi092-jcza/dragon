@@ -1,6 +1,10 @@
 // Read-only publication worker. Never deploy the old prefix-only file API.
 // Signed capabilities remain bound to the current formal release. Updating a
-// game invalidates older capabilities; missing state is NOT physical deletion.
+// game invalidates older capabilities.
+// 方案 B：在架目录读 control/directory.json（游戏级指针），冻结投影只作同代次回落。
+// 游戏不在指针里就答 410 GAME_DELETED（用户 m256/m262 的产品决定）：purge 后读者
+// 没有任何墓碑可查，「玩到一半被删」与「删完再开局」必须走同一个阻塞提示。
+import { DIRECTORY_POINTER_KEY, DIRECTORY_POINTER_LIMIT, directoryPointerBody, directoryState, validateDirectoryPointer } from './directorypointer.js';
 import { issueAdmission, verifyAdmission } from './admission.js';
 import { validatePublicationRoot, publicationRootArchiveKey } from './publicationroot.js';
 import { validateFirstOnlineReference, firstOnlineReceiptKey, rootVisibleAt, receiptVisibleAt } from './firstonline.js';
@@ -23,12 +27,34 @@ async function readChecked(env, ref) {
   return bytes;
 }
 const releaseIdentity = row => ({ gameId: row.game_id, releaseId: row.release_id, ordinal: row.ordinal, revision: row.draft_revision, sourceDigest: row.source_digest });
+// The pointer is the running-layout view, accepted only for the generation the
+// frozen root names. A pointer written ahead of a pending root CAS, or one left by
+// an older publisher, is not this root's view; the reader then keeps that
+// generation's frozen projection instead of answering from an uncommitted list.
+async function pointerView(env, control) {
+  // Only frozen (v2) roots ever carry a pointer: the publisher writes it after a
+  // runtimeVersion 2 projection is verified. A legacy root falls back to its own
+  // projection instead of being answered from a list it never committed.
+  if (control.version !== 2) return null;
+  const object = await env.PUBLISH_BUCKET.get(DIRECTORY_POINTER_KEY);
+  if (!object) return null;
+  const bytes = await bytesFrom(object, DIRECTORY_POINTER_LIMIT, 'REGISTRY_CORRUPT');
+  const pointer = validateDirectoryPointer(parseJSON(bytes));
+  if (pointer.generation !== control.generation) return null;
+  requireValue(pointer.authorityId === control.authorityId, 'REGISTRY_CORRUPT');
+  const body = new TextEncoder().encode(JSON.stringify(directoryPointerBody(pointer)));
+  requireValue(await sha256(body) === pointer.digest, 'REGISTRY_CORRUPT');
+  return pointer;
+}
 async function snapshot(env, archived = null) {
   const object = archived ?? await env.PUBLISH_BUCKET.get('control/current.json');
   if (!object) { stop('REGISTRY_EMPTY'); }
   const rootBytes = await bytesFrom(object, 4096, 'REGISTRY_CORRUPT');
   const control = validatePublicationRoot(parseJSON(rootBytes));
   const rootDigest = await sha256(rootBytes);
+  const pointer = await pointerView(env, control);
+  // Same reader view the frozen projection produced, without an R2 projection.
+  if (pointer) return { control, rootDigest, ...directoryState(pointer), runtimeVersion: 2, uploaded: object.uploaded };
   const bytes = await bytesFrom(await env.PUBLISH_BUCKET.get(`projections/${control.generation}/${control.digest}/projection.json`), MAX_METADATA_BYTES, 'REGISTRY_MISSING');
   requireValue(await sha256(bytes) === control.digest, 'REGISTRY_CORRUPT');
   const projection = parseJSON(bytes);
@@ -130,8 +156,11 @@ async function registry(env, state, params) {
 function checkRunningState(state, gameId, identity = null) {
   const row = state.states.get(gameId);
   if (row?.deleted === true) { stop('GAME_DELETED', 410); }
-  // Unknown/missing state is an outage, not deletion or permission to guess.
-  if (!row) { stop('GAME_STATE_UNAVAILABLE'); }
+  // A game the frozen view does not know is answered as deleted, not as an outage:
+  // after a purge no tombstone is left to tell them apart, and the player must get
+  // the same blocking notice either way. A known but unlisted game still serves
+  // capabilities issued before it left the shelf.
+  if (!row) { stop('GAME_DELETED', 410); }
   if (identity) {
     const current = row.currentRelease ?? state.releases.get(gameId);
     if (!current) stop('GAME_STATE_UNAVAILABLE');
@@ -148,7 +177,8 @@ async function admit(url, env) {
   const gameId = url.searchParams.get('game'), ordinal = url.searchParams.get('ordinal'), chapterId = url.searchParams.get('chapter');
   if (!isGameId(gameId) || !isOrdinal(ordinal) || !isChapterId(chapterId, gameId)) { stop('ADMISSION_INPUT', 422); }
   const state = await snapshot(env);
-  if (state.states.get(gameId)?.deleted) { stop('GAME_DELETED', 410); }
+  const known = state.states.get(gameId);
+  if (!known || known.deleted) { stop('GAME_DELETED', 410); }
   const entry = state.directory.find(row => row.gameId === gameId);
   if (!entry) { stop('GAME_NOT_LISTED', 403); }
   if (entry.ordinal !== ordinal) { stop('RELEASE_CHANGED', 409); }
@@ -234,10 +264,11 @@ export default {
       if (url.pathname === '/play-api/v1/registry') { return await registry(env, state, url.searchParams); }
       const gameId = url.searchParams.get('game');
       if (!isGameId(gameId)) { return json({ error: 'GAME_REQUIRED' }, 422); }
-      if (state.states.get(gameId)?.deleted) { return json({ error: 'GAME_DELETED', gameId }, 410); }
+      const known = state.states.get(gameId);
+      if (!known || known.deleted) { return json({ error: 'GAME_DELETED', gameId }, 410); }
       const entry = state.directory.find(row => row.gameId === gameId);
       if (entry) return json({ ...entry, listed: true });
-      const result = { gameId, listed: false }, currentRelease = state.states.get(gameId)?.currentRelease;
+      const result = { gameId, listed: false }, currentRelease = known.currentRelease;
       if (currentRelease) result.currentRelease = currentRelease;
       return json(result);
     } catch (error) {

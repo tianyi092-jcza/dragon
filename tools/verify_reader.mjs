@@ -90,7 +90,11 @@ try {
   }
   check('cross-game parameter refused', (await call(`/play-api/v1/file?role=manifest&game=${OTHER_GAME}`, oldTicket)).status === 403);
   check('duplicate role refused', (await call('/play-api/v1/file?role=manifest&role=asset:0', oldTicket)).status === 403);
-  check('unknown game cannot obtain ticket', (await call(admitPath(0, OTHER_GAME))).status === 403);
+  // 语义反转（用户 m256/m262 产品决定）：purge 后读者没有任何墓碑可查，所以「指针里没有
+  // 这个 gameId」一律答 410 GAME_DELETED，与显式 deleted 走同一个玩家阻塞提示。已知但
+  // 未上架的游戏仍是 403 GAME_NOT_LISTED（下一段的 unlisted 断言），二者不再相同。
+  const unknownAdmit = await call(admitPath(0, OTHER_GAME));
+  check('unknown game is answered as deleted, not merely unlisted', unknownAdmit.status === 410 && (await data(unknownAdmit)).error === 'GAME_DELETED');
   check('unknown chapter cannot obtain ticket', (await call(admitPath(0, GAME, 'other'))).status === 422);
   check('missing expected version cannot obtain ticket', (await call(`/play-api/v1/admissions?game=${GAME}&chapter=c1`)).status === 422);
 
@@ -148,10 +152,11 @@ try {
   check('deletion observed after await suppresses late bytes', (await nodeCall('/play-api/v1/file?role=chapter:c1', duringFile, newTicket)).status === 410 && raced);
   check('explicit deletion denies existing capability', (await getFile('chapter:c1', oldTicket)).status === 410);
   check('explicit deletion status', (await call(`/play-api/v1/status?game=${GAME}`)).status === 410);
-  check('unknown ID is never falsely deleted', (await call(`/play-api/v1/status?game=${OTHER_GAME}`)).status === 200);
+  const unknownStatus = await call(`/play-api/v1/status?game=${OTHER_GAME}`);
+  check('unknown ID is answered as deleted', unknownStatus.status === 410 && (await data(unknownStatus)).error === 'GAME_DELETED');
   // Fixture rollback below is test setup, never a production restore procedure.
   await commit({ ...unlisted(), gameStates: [] });
-  check('missing state fails closed, not deletion', (await getFile('chapter:c1', oldTicket)).status === 503);
+  check('state the frozen view does not know is answered as deleted', (await getFile('chapter:c1', oldTicket)).status === 410);
   await commit(v2);
   const oldBytes = await r2.get(oldChapterKey);
   await bucket.put(oldChapterKey, Buffer.from('{'));

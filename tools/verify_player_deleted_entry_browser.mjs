@@ -51,47 +51,35 @@ try{
   errors.push(text);
  });
  page.on('requestfailed',request=>failed.push({path:new URL(request.url()).pathname,error:request.failure()?.errorText}));
- // Scenario 1: the game is gone but the local saves are not; cancel keeps them.
+ // Scenario 1: the game is gone; the notice is告知 and blocking, right click cannot leave it.
  await page.goto(origin+'/index.html?formalGame='+G+'&mode=load');
  await page.waitForFunction(()=>window.__entry?.ready===true);
- const prompt=page.locator('.player-save-deleted');
+ const prompt=page.locator('.player-game-deleted');
  await prompt.waitFor();
- assert.match(await prompt.textContent(),/該遊戲已被刪除，存檔不可用，是否刪除？/);
+ assert.match(await prompt.textContent(),/該遊戲已刪除！/);
+ assert.equal(await prompt.getByRole('button').count(),1,'the notice offers exactly one control');
+ assert.equal(await prompt.getByRole('button',{name:'確認',exact:true}).count(),1,'the only control is 確認');
  assert.equal(await page.locator('.player-public-failure').count(),0,'the deletion notice replaces the generic failure page');
  assert.deepEqual(await page.evaluate(()=>window.__entry.before().then(rows=>rows.map(row=>row.slot))),[0]);
  assert.equal(await page.evaluate(()=>window.__entry.failure),undefined);
  assert.ok(statusCalls.includes(G));
  await page.screenshot({path:join(artifact,'deleted-notice.png')});checks++;
- await prompt.getByRole('button',{name:'保留存檔',exact:true}).click();
- await page.waitForURL(origin+'/');
- assert.match(await page.textContent('body'),/owned initial page/);
- const kept=await page.evaluate(async gameId=>{const {createGameSaveStore}=await import('/src/core/gamesavestore.js');const store=createGameSaveStore({gameId,databaseName:'wolong-web',getIndexedDB:()=>indexedDB});return (await store.list()).map(row=>row.slot);},G);
- assert.deepEqual(kept,[0],'cancel keeps every local save');checks++;
- // Scenario 2: the same entry, then the confirmed irreversible deletion.
- await page.goto(origin+'/index.html?formalGame='+G+'&mode=load');
- await page.waitForFunction(()=>window.__entry?.ready===true);
- await prompt.waitFor();
- await prompt.getByRole('button',{name:'刪除本機存檔',exact:true}).click();
- await page.waitForFunction(()=>document.querySelector('.player-save-deleted')?.textContent.includes('已刪除1個本機存檔'));
- assert.deepEqual(await page.evaluate(()=>window.__entry.before()),[]);
- assert.equal(await prompt.getByRole('button',{name:'刪除本機存檔',exact:true}).count(),0,'no second deletion control after the purge');
- await page.screenshot({path:join(artifact,'deleted-purged.png')});
- await prompt.getByRole('button',{name:'返回首頁',exact:true}).click();
+ // 用户 m272：弹窗是阻塞项。右键与 Esc 不关闭、不后退、也不当作回答。
+ await prompt.click({button:'right'});
+ await page.keyboard.press('Escape');
+ await page.waitForTimeout(150);
+ assert.equal(await prompt.count(),1,'right click never closes the blocking notice');
+ assert.equal(await page.evaluate(()=>location.pathname),'/index.html','the entry page is not left by right click or Escape');
+ assert.deepEqual(await page.evaluate(()=>window.__entry.before().then(rows=>rows.map(row=>row.slot))),[0],'nothing is deleted before confirmation');checks++;
+ // Scenario 2: one confirmation clears the local row and returns to the chooser.
+ await prompt.getByRole('button',{name:'確認',exact:true}).click();
  await page.waitForURL(origin+'/');
  const purged=await page.evaluate(async gameId=>{const {createGameSaveStore}=await import('/src/core/gamesavestore.js');const store=createGameSaveStore({gameId,databaseName:'wolong-web',getIndexedDB:()=>indexedDB});return (await store.list()).length;},G);
  assert.equal(purged,0,'confirmed deletion removes the verified local row only');checks++;
- // Scenario 3: right click is the keep answer and never deletes implicitly.
- await page.goto(origin+'/index.html?formalGame='+G+'&mode=load');
- await page.waitForFunction(()=>window.__entry?.ready===true);
- await prompt.waitFor();
- await prompt.click({button:'right'});
- await page.waitForURL(origin+'/');
- const keptAgain=await page.evaluate(async gameId=>{const {createGameSaveStore}=await import('/src/core/gamesavestore.js');const store=createGameSaveStore({gameId,databaseName:'wolong-web',getIndexedDB:()=>indexedDB});return (await store.list()).length;},G);
- assert.equal(keptAgain,1);checks++;
  assert.deepEqual(errors,[]);assert.deepEqual(failed,[]);assert.deepEqual(outside,[]);assert.deepEqual(missing,[]);
  assert.ok(await page.evaluate(()=>window.__ownedDatabases.every(name=>name==='wolong-web')));checks++;
- for(const path of ['web/src/player/playerpublic.js','web/src/player/playerdeletedgame.js','web/src/player/playerclient.js'])sources[path]=sha(await readFile(path));
- await writeFile(join(artifact,'result.json'),JSON.stringify({checks,statusCalls,kept,keptAgain,purged,errors,failed,outside,missing,sources,scope:'Actual public load entry and real Chromium IndexedDB for the deleted-game save notice: reader /play-api responses are route-fulfilled fixtures (no production reader, admission or signed ticket), one store-level row with a synthetic snapshot is seeded only to test the prompt/purge, and the initial-page navigation is a fulfilled placeholder. No real user save, SAVE.DAT, cloud service or deployment.'},null,2));
+ for(const path of ['web/src/player/playerpublic.js','web/src/player/playerdeletedgame.js','web/src/player/playerclient.js','web/src/player/playersessionhost.js'])sources[path]=sha(await readFile(path));
+ await writeFile(join(artifact,'result.json'),JSON.stringify({checks,statusCalls,purged,errors,failed,outside,missing,sources,scope:'Actual public load entry and real Chromium IndexedDB for the deleted-game blocking notice: reader /play-api responses are route-fulfilled fixtures (no production reader, admission or signed ticket), one store-level row with a synthetic snapshot is seeded only to test the notice/purge, and the initial-page navigation is a fulfilled placeholder. The notice is告知-only with a single 確認; right click and Escape are refused. No real user save, SAVE.DAT, cloud service or deployment.'},null,2));
  process.stdout.write(JSON.stringify({checks,artifact:relative('.',artifact)})+'\n');
 }catch(error){await writeFile(join(artifact,'failure.json'),JSON.stringify({error:String(error),errors,failed,outside,missing,statusCalls},null,2));throw error;}
 finally{await browser?.close();}

@@ -1,9 +1,10 @@
 // Formal new-game chooser. Only an explicit faction click transfers a newly
 // admitted session/pack to the caller; this view never installs an App or saves.
 import { loadPlayerChapters, admitPlayerChapter } from './playerchapters.js';
+import { isGameDeletedFailure, mountDeletedGameNotice } from './playerdeletedgame.js';
 import { loadPlayerPack } from './playerpack.js';
 
-export function mountPlayerNewGame({ root, reader, selection, compilerRevision, maxTotalBytes, readStatic }) {
+export function mountPlayerNewGame({ root, reader, selection, store, compilerRevision, maxTotalBytes, readStatic }) {
   if (!root?.ownerDocument || typeof root.append !== 'function' ||
       typeof reader?.admit !== 'function' || typeof reader?.status !== 'function' ||
       typeof compilerRevision !== 'string' || !compilerRevision ||
@@ -43,6 +44,14 @@ export function mountPlayerNewGame({ root, reader, selection, compilerRevision, 
     message.textContent = '資料取得或版本檢查未完成，沒有開始對局。可重試；版本已變更時請返回重新選擇遊戲。';
     rows.replaceChildren(); button('重試', () => { void refresh(); });
   }
+  // 用户 m256/m262：新局流程中被告知删除时同样只有確認；确认即清本机进度并回选择页。
+  let notice = null;
+  function deleted(ticket) {
+    if (closed || ticket !== epoch) return;
+    phase = 'deleted'; heading.textContent = ''; message.textContent = ''; rows.replaceChildren();
+    if (notice) return;
+    notice = mountDeletedGameNotice({ root, store, onExit: () => { notice = null; close(); } });
+  }
   function chapters() {
     phase = 'chapters'; heading.textContent = '選擇章節'; message.textContent = `${preview.selection.name} ${preview.selection.ordinal}`;
     rows.replaceChildren();
@@ -57,7 +66,7 @@ export function mountPlayerNewGame({ root, reader, selection, compilerRevision, 
       release(owned);
       const value = await loadPlayerChapters({ reader, selection: selected, assertCurrent: () => current(ticket) });
       current(ticket); preview = value; chapters(); return true;
-    } catch { failed(ticket); return false; }
+    } catch (error) { if (isGameDeletedFailure(error)) deleted(ticket); else failed(ticket); return false; }
   }
   async function choose(chapterId) {
     if (closed || phase !== 'chapters' || !preview.chapters.some(row => row.chapterId === chapterId)) return;
@@ -83,9 +92,9 @@ export function mountPlayerNewGame({ root, reader, selection, compilerRevision, 
         closed = true; epoch++; owned = null; host.remove();
         resolve(Object.freeze({ session: owner.session, pack: owner.pack, playerFaction: faction.idx, chapters: preview.chapters }));
       }, 'factionSlot', faction.idx);
-    } catch {
+    } catch (error) {
       try { release(owner); } catch { /* Keep the owned handle for explicit retry. */ }
-      failed(ticket);
+      if (isGameDeletedFailure(error)) deleted(ticket); else failed(ticket);
     }
   }
   function close() {

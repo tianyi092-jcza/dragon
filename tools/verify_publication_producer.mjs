@@ -121,7 +121,24 @@ try{
   }finally{isolated.close();}
  }
  groups++;
+ // C 批（方案 B）：物理刪除之後，catalog 裡的墓碑必須一起消失。以前 purge 完
+ // #assertCatalogAuthority 會因為「墓碑還在、行不見了」讓下一次發布 503。
+ storage.transactionSync(()=>{
+  sql.exec('DELETE FROM published_games WHERE game_id=?',G);
+  sql.exec('DELETE FROM content_releases WHERE game_id=?',G);
+  sql.exec('DELETE FROM content_deletion_fences WHERE game_id=?',G);
+  sql.exec('DELETE FROM content_games WHERE game_id=?',G);
+  sql.exec('UPDATE content_games SET listed=1 WHERE game_id=?',H);
+  producer.recordInTxn('listing',H);
+ });
+ const pruned=payload(ledger.status().tailGeneration);
+ assert.equal(pruned.catalog.games.some(game=>game.gameId===G),false,'已 purge 的遊戲不得留在在架集合裡');
+ assert.equal(pruned.projection.gameStates.some(row=>row.gameId===G),false);
+ assert.equal(pruned.projection.releases.some(row=>row.game_id===G),false);
+ assert.deepEqual(pruned.projection.directory.map(row=>row.gameId),[H]);
+ assert.equal(JSON.stringify(pruned).includes(G),false,'冷凍 payload 不得再引用已刪遊戲');
+ groups++;
  ledger.block('REMOTE_AHEAD');assert.throws(()=>producer.assertPublishable(H),e=>e.code==='DISTRIBUTION_RECOVERY_REQUIRED');assert.throws(()=>storage.transactionSync(()=>producer.recordInTxn('restriction',G)),e=>e.code==='DISTRIBUTION_RECOVERY_REQUIRED');groups++;
- assert.equal(ledger.status().tailGeneration,6);assert.equal(ledger.status().confirmedGeneration,0);assert.deepEqual(Buffer.from(ledger.entry(1).payload),first);
+ assert.equal(ledger.status().tailGeneration,7);assert.equal(ledger.status().confirmedGeneration,0);assert.deepEqual(Buffer.from(ledger.entry(1).payload),first);
  process.stdout.write(`publication producer: ${groups} groups passed (two-game SQL seams, no R2)\n`);
 }finally{storage.close();}

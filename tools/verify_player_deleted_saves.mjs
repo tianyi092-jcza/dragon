@@ -2,10 +2,11 @@
 // a directory miss, and local saves are removed per verified slot. No browser,
 // no real IndexedDB, no user saves and no network.
 import assert from 'node:assert/strict';
-import { GAME_DELETED_SAVE_NOTICE, confirmGameDeleted, discardLocalSaves, isGameDeletedFailure } from '../web/src/player/playerdeletedgame.js';
+import { GAME_DELETED_NOTICE, confirmGameDeleted, discardLocalSaves, isGameDeletedFailure } from '../web/src/player/playerdeletedgame.js';
 const failure = (code, status) => Object.assign(new Error(code), { code, status });
 let checks = 0;
-assert.equal(GAME_DELETED_SAVE_NOTICE, '該遊戲已被刪除，存檔不可用，是否刪除？');checks++;
+// 用户 m262：告知而非询问；文案固定为繁体告知句。
+assert.equal(GAME_DELETED_NOTICE, '該遊戲已刪除！');checks++;
 assert.equal(isGameDeletedFailure(failure('GAME_DELETED', 410)), true);
 for (const other of [failure('GAME_DELETED', 0), failure('PLAYER_REQUEST_FAILED', 410), failure('RELEASE_CHANGED', 409),
   Object.assign(new Error('deleted'), { code: 'GAME_DELETED' }), new Error('deleted'), null, undefined, 'GAME_DELETED']) {
@@ -65,4 +66,12 @@ for (const bad of [{}, { list: async () => [] }, { list: async () => [], get: as
   else await assert.rejects(() => discardLocalSaves({ store: bad }), TypeError);
 }
 await assert.rejects(() => discardLocalSaves({ store: { list: async () => null, get: async () => null, compareDelete: async () => true } }), TypeError);checks++;
-process.stdout.write(JSON.stringify({ checks, scope: 'Actual Web player deletion policy module: explicit 410 fact only, directory miss/unlisted/other failures never delete, per-slot verified compare-delete with every unverifiable row retained. No browser prompt, real IndexedDB, user save, network or production reader.' }) + '\n');
+// 阻塞弹窗的模块契约：旧的双按钮入口不再导出，端口缺失即拒绝（DOM 行为由
+// verify_player_deleted_entry_browser 在真 Chromium 里锁住）。
+const promptModule = await import('../web/src/player/playerdeletedgame.js');
+assert.equal(typeof promptModule.mountDeletedGameNotice, 'function');
+assert.equal(promptModule.mountDeletedSavePrompt, undefined, 'the two-answer prompt is gone');checks++;
+const fakeRoot = { ownerDocument: {}, append() {} };
+await assert.rejects(async () => promptModule.mountDeletedGameNotice({ root: fakeRoot, store: {} }), TypeError);
+await assert.rejects(async () => promptModule.mountDeletedGameNotice({ root: null, store: { list: async () => [], get: async () => null, compareDelete: async () => true } }), TypeError);checks++;
+process.stdout.write(JSON.stringify({ checks, scope: 'Actual Web player deletion policy module: explicit 410 fact only, directory miss/unlisted/other failures never delete, per-slot verified compare-delete with every unverifiable row retained, fixation on the告知-only single-確認 notice (its DOM behaviour is locked in a real browser lane). No real IndexedDB, user save, network or production reader.' }) + '\n');

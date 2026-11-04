@@ -19,12 +19,12 @@ const errorReply = (status, error) => Response.json({ error }, { status, headers
   'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
 } });
 
-export function createEditorService({ storage, bucket, env, runtimeStager, frozenPublication = false }) {
+export function createEditorService({ storage, bucket, env, runtimeStager, frozenPublication = false, purgeReclaimer }) {
   const policy = config(env);
   if (!storage?.sql || !bucket) throw new TypeError('SQLite and private bucket ports required');
   const bindings = { ...env, EDITOR_BLOBS: bucket };
   // Trusted startup option only; the shared factory validates it before SQL.
-  const Application = runtimeStager === undefined && frozenPublication === false ? EditorApplication : createEditorApplication(class NodeApplicationBase {}, { runtimeStager, frozenPublication, readSharedPortrait });
+  const Application = runtimeStager === undefined && frozenPublication === false && purgeReclaimer === undefined ? EditorApplication : createEditorApplication(class NodeApplicationBase {}, { runtimeStager, frozenPublication, readSharedPortrait, purgeReclaimer });
   const entry = createEditorGateway({ frozenPublication });
   const application = new Application({ storage }, bindings);
   bindings.EDITOR_METADATA = {
@@ -67,10 +67,11 @@ function capture(request) {
   });
 }
 
-export async function startEditorServer({ storage, bucket, env, runtimeStager, frozenPublication = false, host = '127.0.0.1', port = 8787, prepare }) {
+export async function startEditorServer({ storage, bucket, env, runtimeStager, frozenPublication = false, purgeReclaimer, host = '127.0.0.1', port = 8787, prepare }) {
   if (!['127.0.0.1', '0.0.0.0'].includes(host) || !Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('listen address');
   if (prepare !== undefined && typeof prepare !== 'function') throw new TypeError('trusted startup preparation required');
-  const service = createEditorService({ storage, bucket, env, runtimeStager, frozenPublication });
+  if (purgeReclaimer !== undefined && typeof purgeReclaimer !== 'function') throw new TypeError('trusted purge reclaimer required');
+  const service = createEditorService({ storage, bucket, env, runtimeStager, frozenPublication, purgeReclaimer });
   // Schema and the library row exist by now; optional operator startup steps run
   // before the port opens so no request can observe a half-configured database.
   if (prepare) await prepare({ storage, bucket, env });

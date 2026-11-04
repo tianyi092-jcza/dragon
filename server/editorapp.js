@@ -132,8 +132,10 @@ function cookie(request) {
   if (values.length !== 1 || !/^[a-f0-9]{64}$/.test(values[0].slice(COOKIE.length + 1))) { fail(401, 'LOGIN_REQUIRED'); }
   return values[0].slice(COOKIE.length + 1);
 }
-export function createEditorApplication(PlatformBase, { runtimeStager, frozenPublication = false, readSharedPortrait } = {}) {
+export function createEditorApplication(PlatformBase, { runtimeStager, frozenPublication = false, readSharedPortrait, purgeReclaimer } = {}) {
   if (readSharedPortrait !== undefined && typeof readSharedPortrait !== 'function') throw new TypeError('trusted shared portrait reader required');
+  // 刪除後的 R2 回收埠（方案 B）：只清本遊戲的位元組與在架指針條目，不是刪除權限。
+  if (purgeReclaimer !== undefined && typeof purgeReclaimer !== 'function') throw new TypeError('trusted purge reclaimer required');
   if (typeof frozenPublication !== 'boolean' || frozenPublication && !runtimeStager) { throw new TypeError('frozen publication requires trusted runtime staging'); }
   // Trusted platform injection only, never an HTTP/env-selected capability.
   // Unconfigured legacy adapters do not claim R2 staging or visibility.
@@ -960,17 +962,25 @@ return class EditorMetadata extends PlatformBase {
       return result;
     }));
   }
-  // 物理刪除（用戶決定 2026-11）：只接在既有 fence 之後，把遊戲從資料庫徹底移除。
-  // 這裡不刪內置遊戲、不做 R2 位元組清理（那是 distribution ledger 的 retired 清理職責），
-  // 但必須讓玩家端目錄立刻不再列出它。
-  #postPurge(rt) {
+  // 物理刪除（用戶決定 2026-11）：只接在既有 fence 之後，把遊戲從資料庫徹底移除，
+  // 再（注入了回收埠時）把 R2 上屬於它的位元組與在架指針條目一併移除。庫行 purge
+  // 是一個交易；R2 回收在交易之後才做，失敗只降級成 pending 回報，不推翻已提交的
+  // 刪除事實，也不假裝已清理（回執沒說 completed 就是沒完成）。
+  async #postPurge(rt) {
     const { request, tokenHash, user, policy, url, purgePath, value } = rt;
     if (url.search) { fail(422, 'PURGE_QUERY'); }
     this.touch(tokenHash, policy);
     this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'delete');
     const result = this.gamePurge.purge(tokenHash, purgePath[1], value ?? {});
     this.ctx.storage.transactionSync(() => this.announcements.bumpRegistryInTxn());
-    return response(result);
+    if (purgeReclaimer === undefined) { return response({ ...result, reclamation: { state: 'pending', code: 'RECLAIMER_UNCONFIGURED', objects: 0 } }); }
+    try {
+      const facts = await purgeReclaimer(result.gameId);
+      return response({ ...result, reclamation: { state: 'completed', pointer: facts.pointer, objects: facts.objects } });
+    } catch (error) {
+      const code = String(error?.code || error?.message || 'RECLAIM_FAILED');
+      return response({ ...result, reclamation: { state: 'pending', code, objects: 0 } });
+    }
   }
   // §4.1/Q43 deletion query (GET fence receipt).
   async #getDeletion(rt) {

@@ -4,7 +4,7 @@ import { BUILTIN_RESOURCES as builtin } from '/src/content/builtinresources.gene
 import { TRIAL_COMPILER_REVISION } from '/src/content/authoring/trialcompile.js';
 import { mountPlayerRestore } from '/src/player/playerrestore.js';
 import { PlayerReaderError } from '/src/player/playerclient.js';
-import { mountDeletedSavePrompt } from '/src/player/playerdeletedgame.js';
+import { mountDeletedGameNotice } from '/src/player/playerdeletedgame.js';
 import { mountFormalBackup } from '/src/tools/formalbackup.js';
 import { sha256 } from '/src/player/runtimecontract.js';
 const base = window.__ownedFormal;
@@ -76,7 +76,7 @@ control.mountDeletedPrompt = ({listFailure=false}={}) => {
   control.prompt?.close();document.querySelector('#owned-deleted')?.remove();control.promptExit=null;
   const root=document.createElement('section');root.id='owned-deleted';document.body.append(root);
   const scoped=listFailure?{...base.store,async list(){throw new Error('owned catalog unavailable');}}:base.store;
-  control.prompt=mountDeletedSavePrompt({root,store:scoped,onExit:action=>{control.promptExit=action;}});
+  control.prompt=mountDeletedGameNotice({root,store:scoped,onExit:action=>{control.promptExit=action;}});
 };
 control.mountBackup = () => {
   control.backup?.close();document.querySelector('#owned-backup')?.remove();
