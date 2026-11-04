@@ -11,10 +11,12 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
  const ordinal = v => typeof v === 'string' && /^1\.(0|[1-9][0-9]{0,30})$/.test(v);
  const iso = v => typeof v === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString() === v;
  const fields = (v, keys) => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).sort().join(',') === [...keys].sort().join(',');
+ const hex = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
  const name = v => typeof v === 'string' && v.isWellFormed() && [...v].length >= 1 && [...v].length <= 8;
  const states = { draft: '草稿', pending: '待上架', listed: '已上架' };
  const errors = {
   ADMIN_REQUIRED: '只有管理員可以審核上架申請。',
+  RELEASE_HISTORY_QUERY: '發布歷史查詢格式無效；請重新整理清單。',
   GAME_CHANGED: '清單已被其他人變更（或重複操作）；請重新整理後再決定。',
   REVIEW_LISTED: '此版本已上架；審核只處理待上架的提交。',
   REVIEW_NOT_SUBMITTED: '此遊戲還沒有可審核的提交版本。',
@@ -31,6 +33,10 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
   SESSION_INVALID: '會話已失效，請重新登入。',
  };
  let identity = null, generation = 0, rows = [], messageText = '', resultText = '', sending = false;
+ // 發布歷史（A 路線日誌）：admin 唯讀，且只在按「發布歷史」時讀一次；
+ // 不進 client 的自動載入，免得每次進審核頁都多打一筆請求。
+ const releaseStates = { pending: '待確認', confirmed: '已公開' };
+ let historyGameId = null, historyRows = [], historyText = '', historyLoading = false;
  const allowed = () => Boolean(identity?.user) && !identity.user.mustChangePassword && identity.user.role === 'admin';
  const message = text => { messageText = text; };
  function current(ctx) { const live = authority(); return allowed() && live?.user?.id === ctx.id && live.user.version === ctx.version && !live.user.mustChangePassword && generation === ctx.generation; }
@@ -76,6 +82,16 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
   if ((!fields(value, ['gameId', 'purgedAt', 'reclamation', 'removed', 'state', 'tables', 'version']) && !fields(value, ['gameId', 'purgedAt', 'reclamation', 'removed', 'retirement', 'state', 'tables', 'version'])) || value.version !== 1 || value.state !== 'purged' || value.gameId !== row.gameId || !iso(value.purgedAt) || !Number.isSafeInteger(value.tables) || !value.removed || typeof value.removed !== 'object' || value.removed.content_games !== 1 || !reclaimed(value.reclamation)) throw new Error('徹底刪除回執格式無效；柵欄已成立，可稍後重試。');
   return value;
  }
+ function releaseHistory(value, gameId) {
+  if (!fields(value, ['gameId', 'releases']) || value.gameId !== gameId || !Array.isArray(value.releases) || value.releases.length > 1000) throw new Error('發布歷史格式無效。');
+  const seen = new Set();
+  return value.releases.map(entry => {
+   if (!fields(entry, ['digest', 'gameId', 'publishedAt', 'state', 'version']) || entry.gameId !== gameId || !ordinal(entry.version) || !hex(entry.digest) || !Object.hasOwn(releaseStates, entry.state) || seen.has(entry.version)) throw new Error('發布歷史格式無效。');
+   // 「待確認」不得帶時間，「已公開」必須帶可核對的時間；兩者不能互相冒充。
+   if ((entry.state === 'pending') !== (entry.publishedAt === null) || (entry.publishedAt !== null && !iso(entry.publishedAt))) throw new Error('發布歷史格式無效。');
+   seen.add(entry.version); return Object.freeze({ ...entry });
+  });
+ }
  function render() {
   const visible = current({ id: identity?.user?.id, version: identity?.user?.version, generation }), disabled = !visible || isBusy() || sending;
   const list = visible ? rows.map(row => ({
@@ -83,10 +99,19 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
    version: row.version ?? '—', stateKey: row.state, state: states[row.state], rejected: row.rejected,
    createdAt: row.createdAt, stateTime: row.stateTime ?? '—', rowRevision: row.rowRevision,
    approveDisabled: disabled || row.state !== 'pending', rejectDisabled: disabled || row.state !== 'pending' || row.rejected, deleteDisabled: disabled,
+   historyDisabled: disabled, historyOpen: historyGameId === row.gameId && visible,
    rejectHint: row.rejected ? '此版本已駁回；作者重新提交後才可再審核' : '拒絕後回到待上架並標記已駁回',
    deleteHint: '刪除整個遊戲（含所有章節與已上架版本，含資料庫列），不是刪除單個版本，徹底清除且不可恢復',
   })) : [];
-  emit({ rows: list, message: visible ? messageText : '', result: visible ? resultText : '', locked: disabled, refreshDisabled: !visible || isBusy() || sending });
+  const history = {
+   gameId: visible ? historyGameId : null, loading: visible && historyLoading, message: visible ? historyText : '',
+   rows: visible && historyGameId !== null ? historyRows.map(entry => ({
+    version: entry.version, state: entry.state, stateText: releaseStates[entry.state], publishedAt: entry.publishedAt ?? '—',
+    // 只用前 8 位作摘要，整串留在 title；不把機器串塞進句子裡。
+    digest: entry.digest, shortDigest: entry.digest.slice(0, 8),
+   })) : [],
+  };
+  emit({ rows: list, history, message: visible ? messageText : '', result: visible ? resultText : '', locked: disabled, refreshDisabled: !visible || isBusy() || sending });
  }
  async function load(ctx) {
   const value = await api('/api/admin/reviews');
@@ -137,7 +162,29 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
    ? '已徹底刪除（不可恢復）：資料庫已移除 ' + row.name + ' 的所有列，玩家端目錄不再列出它；分發帳本與 R2 位元組由既有退役清理回收，不刪玩家本地存檔。' + reclaimText(value.purge?.reclamation)
    : '已建立不可逆刪除柵欄，但物理刪除尚未完成：' + value.purgeError);
  }
+ async function history(gameId) {
+  const row = rows.find(entry => entry.gameId === gameId);
+  if (!row) throw new Error('審核目標已變，請重新整理清單。');
+  // 再按一次就收起：本頁沒有本機待核對的狀態，收起不影響任何伺服器事實。
+  if (historyGameId === gameId) { historyGameId = null; historyRows = []; historyText = ''; resultText = '已收起發布歷史。'; render(); return resultText; }
+  const ctx = capture();
+  historyGameId = gameId; historyRows = []; historyText = ''; historyLoading = true; message(''); resultText = ''; render();
+  try {
+   const list = releaseHistory(await api('/api/admin/games/' + gameId + '/releases'), gameId);
+   if (current(ctx) && historyGameId === gameId) historyRows = list;
+   resultText = list.length ? '已讀取「' + row.name + '」的 ' + list.length + ' 筆發布記錄。' : '「' + row.name + '」還沒有發布記錄：發布日誌從這次上線之後才開始記，不會回填舊版本。';
+   return resultText;
+  } catch (error) {
+   // 失敗要看得見、說得清，並保持展開讓使用者可以再試一次。
+   if (current(ctx) && historyGameId === gameId) historyText = (errors[error.code] ?? (error.message || error.code || '原因未回報')) + ' 可以再按一次「發布歷史」重試；若一直失敗，請把這句話告訴管理員。';
+   throw error;
+  } finally {
+   historyLoading = false;
+   if (current(ctx)) render();
+  }
+ }
  const actions = Object.freeze({
+  history: gameId => work(async () => { const ctx = capture(); try { return await history(gameId); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
   refresh: () => work(async () => { const ctx = capture(); try { return await refresh(); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
   approve: (gameId, rowRevision) => work(async () => { const ctx = capture(); try { return await approve(gameId, rowRevision); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
   reject: (gameId, rowRevision) => work(async () => { const ctx = capture(); try { return await reject(gameId, rowRevision); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
@@ -147,7 +194,7 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
   setIdentity(value) {
    const next = value?.user ? { user: { id: value.user.id, version: value.user.version, role: value.user.role, mustChangePassword: value.user.mustChangePassword } } : null;
    const changed = JSON.stringify(identity) !== JSON.stringify(next); identity = next;
-   if (changed) { generation++; rows = []; message(''); resultText = ''; }
+   if (changed) { generation++; rows = []; message(''); resultText = ''; historyGameId = null; historyRows = []; historyText = ''; historyLoading = false; }
    render();
   },
   // 本頁只有明確伺服器操作，沒有本機待核對的原鍵，因此離開不需要提示。

@@ -24,7 +24,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const fullCopyModel = reactive({visible:false,name:'',introduction:'',message:'',locked:true,createDisabled:true,tracking:false});
   const publicationModel = reactive({rows:[],locked:true,refreshDisabled:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true,operation:'',result:'',message:''});
   const managementModel = reactive({games:[],locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
-  const reviewModel = reactive({ rows: [], message: '', result: '', locked: true, refreshDisabled: true });
+  const reviewModel = reactive({ rows: [], message: '', result: '', locked: true, refreshDisabled: true, history: { gameId: null, loading: false, message: '', rows: [] } });
   const deletionModel = reactive({games:[],admin:false,locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
   const app = createApp(Workbench, { state, accountsModel, accounts, draftModel, draft, stageAssetsModel, stageAssets, stageJobsModel, stageJobs, libraryModel, library, strongholdModel, stronghold, mapviewModel, mapview, catalogModel, catalog, generalsModel, generals, copyModel, copy, fullCopyModel, fullCopy, publicationModel, publication, managementModel, management, reviewModel, review, deletionModel, deletion, navigate, logout });
   const instance = app.mount(root);

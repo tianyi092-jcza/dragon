@@ -759,13 +759,14 @@ return class EditorMetadata extends PlatformBase {
     return new Response(role.bytes, { headers: common });
   }
   async #getPrimaryRoutes(rt) {
-    const { method, path, tokenHash, policy, user, csrf, url, releasesPath } = rt;
+    const { method, path, tokenHash, policy, user, csrf, url, releasesPath, releaseHistoryPath } = rt;
     if (method === 'GET' && path === '/api/session') { this.touch(tokenHash, policy); return response({ user: dto(user), csrf }); }
     if (method === 'GET' && path === '/api/admin/accounts') { return this.#getAdminAccounts(rt); }
     if (method === 'GET' && path === '/api/games') { const games = this.games.listOwn(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/games/submissions') { const games = this.games.submissionSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/admin/games') { const games = this.games.managementSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/admin/reviews') { const games = this.games.adminSubmissionSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
+    if (method === 'GET' && releaseHistoryPath) { return this.#getReleaseHistory(rt); }
     if (method === 'GET' && path === '/api/admin/source') { return this.#getAdminSource(rt); }
     if (method === 'GET' && path === '/api/admin/library') { return this.#getAdminLibrary(rt); }
     if (method === 'GET' && path === '/api/resources') { return this.#getResources(rt); }
@@ -788,6 +789,17 @@ return class EditorMetadata extends PlatformBase {
     let registered = null; try { registered = this.availableLibrary.status(tokenHash, this.availableLibrary.definition().registryId); } catch (error) { if (!(error instanceof HttpError) || error.code !== 'SOURCE_NOT_REGISTERED') { throw error; } }
     const result = { definition: this.availableLibrary.definition(), mode: 'STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE', unresolvedReferences: 20, staged, registered };
     this.touch(tokenHash, policy); return response(result);
+  }
+  // A 路線發布日誌的唯讀入口（第 2 檔）：管理員看某個遊戲的發布歷史。日誌只覆蓋
+  // A 路線之後的上架，不回填舊版本，所以空清單是常態而不是故障。
+  // 內建遊戲不可發布，也回 403 而不是 404 假裝不存在（與 purge／review 一致）。
+  async #getReleaseHistory(rt) {
+    const { url, tokenHash, policy, user, releaseHistoryPath } = rt;
+    if (user.role !== 'admin') { fail(403, 'ADMIN_REQUIRED'); }
+    if (releaseHistoryPath[1] === 'wolong-builtin') { fail(403, 'BUILTIN_PROTECTED'); }
+    if (url.search) { fail(422, 'RELEASE_HISTORY_QUERY'); }
+    this.touch(tokenHash, policy);
+    return response({ gameId: releaseHistoryPath[1], releases: this.frozenDistribution.releaseLog(releaseHistoryPath[1]) });
   }
   async #getCollectionRoutes(rt) {
     const { method, stageAssetsPath, libraryPath, stagePath } = rt;
@@ -1329,7 +1341,10 @@ return class EditorMetadata extends PlatformBase {
     const trialAssetPath = /^\/api\/trials\/([a-f0-9-]{36})\/assets\/([A-Za-z0-9]{1,32})$/.exec(path);
     const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|minimap|map-window|map-layer-window|map-scene|map-atlas|decoration-selection|chapter-references|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
     const releasesPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/releases$/.exec(path);
-    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, reviewPath, deletionPath, purgePath, portraitPath, copyPath, authorCopyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath, releasesPath, topologyPath };
+    // 發布歷史（game_releases 日誌）與上面 content_releases 的 /releases 是兩件事：
+    // 前者是「上架歷史」（admin 唯讀、A 路線之後才有），後者是內容修訂清單。
+    const releaseHistoryPath = /^\/api\/admin\/games\/([a-f0-9-]{36}|wolong-builtin)\/releases$/.exec(path);
+    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, reviewPath, deletionPath, purgePath, portraitPath, copyPath, authorCopyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath, releasesPath, releaseHistoryPath, topologyPath };
     if (method === 'GET') {
       const hit = (await this.#getTrialRoutes(rt)) ?? (await this.#getPrimaryRoutes(rt)) ?? (await this.#getDeletion(rt)) ?? (await this.#getPortraits(rt)) ?? (await this.#getTopology(rt)) ?? (await this.#getCollectionRoutes(rt)) ?? (await this.#getRecordRoutes(rt));
       if (hit) { return hit; }

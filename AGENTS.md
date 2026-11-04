@@ -8,7 +8,7 @@
 - 仓库`E:/Dragon/web-port`；原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。自动化禁止访问真实`SAVE.DAT`、用户存档/profile；只用内存、mock或新隔离profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏正式版本`1.n`与软件版本、source修订、程序摘要相互独立。
 - fresh／restore走v2原生道路与固定表，生产v1路径已退役；未知消费点fail-closed，保已提交前缀、hold和禁存。不凭现代码、体验或测试补公式，不宣称完整战役已经认证。
-- 当前主线：**工作台统一发布＋游戏级存储**。软件版本 `0.1.10`（已推 GitHub、已上生产）。游戏存储方案 B 的 A/B/C 三批已全部上线：上架并行写游戏级在架指针 `control/directory.json`，读者只按指针出目录，删除 = 库行 purge + 指针移除 + `artifacts/<gameId>/` 前缀回收。生产上「复制→全面检验→上架→管理员同意→玩家端加载游玩→删旧产物」已跑通。下一步是 C 批剩余（下线 6 张 `content_distribution_*` 与退役流程、新增 `game_releases`），它等于发布协议改版，需先选「同步发布」或「新队列」。维护源：[R2接线](docs/r2-player-connection.md)、[VPS就绪](docs/vps-editor-readiness.md)、[存储布局](docs/game-storage-layout.md)；本轮修改、提交／部署状态与阻塞只记[checkpoint journal](docs/checkpoint-journal.md)，不在此复制。
+- 当前主线：**工作台统一发布＋游戏级存储**。软件版本 `0.1.10`（已推 GitHub、已上生产，主线另有两个未推 `github` 的提交）。游戏存储方案 B 的 A/B/C 三批已全部上线：上架并行写游戏级在架指针 `control/directory.json`，读者只按指针出目录，删除 = 库行 purge + 指针移除 + `artifacts/<gameId>/` 前缀回收。生产上「复制→全面检验→上架→管理员同意→玩家端加载游玩→删旧产物」已跑通。发布协议已选 **A 路線（同步发布）**：上架／同意在同一请求内把分发推到可见（`EDITOR_SYNC_PUBLISH=0` 即回旧协议），并新增审计日志 `game_releases` 与管理员「发布历史」面板（`GET /api/admin/games/<id>/releases`）。剩余：下线 7 张 `content_distribution_*` 与退役流程（前置＝生产实测一次 20 章上架端到端耗时）、通用系统审计仍未立项。维护源：[R2接线](docs/r2-player-connection.md)、[VPS就绪](docs/vps-editor-readiness.md)、[存储布局](docs/game-storage-layout.md)；本轮修改、提交／部署状态与阻塞只记[checkpoint journal](docs/checkpoint-journal.md)，不在此复制。
 - 优先最小修改、复用现有验证，不堆框架或辅助测试。保留他人改动；commit／push分别需明确授权，推送显式使用GitHub `github`，不误推Gitea `origin`。不提交秘密、缓存、临时报告、截图或本地运行数据。
 
 ## 2. 架构与数据流

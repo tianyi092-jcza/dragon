@@ -187,3 +187,78 @@ test('錯誤碼映射：管理限制、未提交、刪除中、確認名稱、�
     assert.equal(h.model.rows.length, 1);
   }
 });
+const release = (over = {}) => ({ gameId: GAME, version: '1.0', digest: 'a'.repeat(64), state: 'confirmed', publishedAt: TIME, ...over });
+test('發布歷史：按了才讀、一次 GET、再按收起，摘要只露前 8 位', async () => {
+  const h = setup();
+  h.setReply(async path => {
+    if (path === '/api/admin/reviews') return h.listReply();
+    if (path === '/api/admin/games/' + GAME + '/releases') return { gameId: GAME, releases: [release(), release({ version: '1.1', state: 'pending', publishedAt: null })] };
+    throw new Error('unexpected ' + path);
+  });
+  await h.ui.actions.refresh();
+  assert.equal(h.model.history.gameId, null, '重新整理清單不得順便讀發布歷史');
+  assert.equal(h.model.history.rows.length, 0);
+  assert.equal(h.calls.filter(entry => /\/releases$/.test(entry[0])).length, 0);
+  await h.ui.actions.history(GAME);
+  const reads = h.calls.filter(entry => /\/releases$/.test(entry[0]));
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0][1], undefined, '發布歷史必須是 GET');
+  assert.equal(h.model.history.gameId, GAME);
+  assert.deepEqual(h.model.history.rows.map(entry => [entry.version, entry.state, entry.stateText]), [['1.0', 'confirmed', '已公開'], ['1.1', 'pending', '待確認']]);
+  assert.equal(h.model.history.rows[0].shortDigest, 'aaaaaaaa');
+  assert.equal(h.model.history.rows[0].digest, 'a'.repeat(64), '整串只留在 title，不在句子裡');
+  assert.equal(h.model.history.rows[1].publishedAt, '—');
+  assert.equal(h.model.rows.find(entry => entry.gameId === GAME).historyOpen, true);
+  await h.ui.actions.history(GAME);
+  assert.equal(h.model.history.gameId, null, '再按一次收起');
+  assert.equal(h.model.rows.find(entry => entry.gameId === GAME).historyOpen, false);
+  assert.equal(h.calls.filter(entry => /\/releases$/.test(entry[0])).length, 1, '收起不得再發請求');
+});
+test('發布歷史：空清單不是錯誤，且格式無效整批拒絕、失敗留在展開裡可重試', async () => {
+  const empty = setup();
+  empty.setReply(async path => {
+    if (path === '/api/admin/reviews') return empty.listReply();
+    if (path === '/api/admin/games/' + GAME + '/releases') return { gameId: GAME, releases: [] };
+    throw new Error('unexpected ' + path);
+  });
+  await empty.ui.actions.refresh();
+  await empty.ui.actions.history(GAME);
+  assert.deepEqual(empty.model.history.rows, []);
+  assert.equal(empty.model.history.message, '');
+  assert.equal(empty.model.history.gameId, GAME);
+
+  const broken = [
+    { gameId: GAME, releases: 'nope' },
+    { gameId: OTHER, releases: [] },
+    { gameId: GAME, releases: [release({ version: '2.0' })] },
+    { gameId: GAME, releases: [release({ digest: 'abc' })] },
+    { gameId: GAME, releases: [release({ state: 'listed' })] },
+    { gameId: GAME, releases: [release({ state: 'pending' })] },
+    { gameId: GAME, releases: [release({ publishedAt: null })] },
+    { gameId: GAME, releases: [release({ gameId: OTHER })] },
+    { gameId: GAME, releases: [release(), release()] },
+    { gameId: GAME, releases: [{ ...release(), extra: 1 }] },
+  ];
+  for (const value of broken) {
+    const h = setup();
+    h.setReply(async path => {
+      if (path === '/api/admin/reviews') return h.listReply();
+      if (path === '/api/admin/games/' + GAME + '/releases') return value;
+      throw new Error('unexpected ' + path);
+    });
+    await h.ui.actions.refresh();
+    await assert.rejects(() => h.ui.actions.history(GAME), /發布歷史格式無效/, JSON.stringify(value));
+    assert.deepEqual(h.model.history.rows, [], JSON.stringify(value));
+  }
+
+  const failing = setup();
+  failing.setReply(async path => {
+    if (path === '/api/admin/reviews') return failing.listReply();
+    throw failure(422, 'RELEASE_HISTORY_QUERY');
+  });
+  await failing.ui.actions.refresh();
+  await assert.rejects(() => failing.ui.actions.history(GAME));
+  assert.equal(failing.model.history.gameId, GAME, '失敗仍保持展開，方便再按一次');
+  assert.match(failing.model.history.message, /發布歷史查詢格式無效.*再按一次/);
+  assert.equal(failing.model.history.loading, false);
+});

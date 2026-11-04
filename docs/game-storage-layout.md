@@ -486,3 +486,16 @@ control/current.json                                全站在架列表 + 根版�
 - 生产库尚未建这张表：本次**未部署**（需用户授权）。首次部署会在既有库上 `CREATE TABLE IF NOT EXISTS`，纯 additive。
 - 日志不会回填历史（只有部署后的第一次发布才有行）；`releaseDigest` 在管理回执里的语义只是「这次发布的账本摘要」，不改可见性与审核流程。
 - drainer 退役与 7 张表退场仍未做（本轮明确不做）。
+
+### 14.7 读侧：管理员「发布历史」面板（第 2 档，additive）
+
+`releaseLog(gameId)` 此前零调用方，所以日志只有运维登服务器查库时才看得到。现在有一条只读路由与一个界面入口：
+
+- `GET /api/admin/games/<id>/releases`（`server/editorapp.js#getReleaseHistory`），顺序为 **admin 门 → 内建 403 `BUILTIN_PROTECTED` → 查询串 422 `RELEASE_HISTORY_QUERY` → 200 `{gameId, releases}`**。
+  与既有 `GET /api/games/<id>/releases`（`content_releases` 内容修订清单，作者可见，且 `pruneExceptInTxn` 只留当前一版）**是两件事**。
+- 客户端在 `server/public/review.txt`（上架审核模块，admin 专属）里：`history(gameId)` 动作 + 严格校验（键集合精确、`1.n`、digest 64 hex、`pending` 必 `publishedAt: null`、`confirmed` 必带时间、同版本不重复），
+  `ReviewPanel.vue` 行内展开「版本／上架时间／分发状态／摘要」。摘要只显示前 8 位，整串只在 `title`。
+- **点击才加载**（不进 `client.txt` 的 `autoLoad`），因为发布历史是逐游戏的可选查询，不是页面基线；同时只展开一列。
+- 空态是常态：日志不回溯回填，A 路线之前上架的版本永远没有行。**不是故障**。
+- 验证：`tools/verify_release_history.mjs` 7 组（真 editor application 代码 + 真 ledger 写行）、`verify_review_ui_model` 11/11、`verify_review_ui_browser` 7/7（新增第 7 条）。
+- schema 不变：仍 54 表／52 索引／361 列／50 索引投影／4 FK。
