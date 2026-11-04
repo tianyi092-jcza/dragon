@@ -409,7 +409,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     message = '已恢復名稱、簡介、開始年代及四資源到已讀修訂 ' + source.draftRevision + '；沒有讀取或保存，其他表單保持。';
     render(); return true;
   }
-  function canLeave(forUnload = false) { return !(dirty() || hasLocalMapInputs() || attempt || badJournal) || (!forUnload && confirm('有未保存資料或未確認的保存操作。確定離開？未確認操作仍須查詢原鍵，不會自動重試。')); }
+  function canLeave(forUnload = false) { return !(dirty() || hasLocalMapInputs() || attempt || badJournal) || (!forUnload && confirm('有未保存資料或未確認的保存操作。確定離開？未確認的操作仍須查詢同一個請求，不會自動重試。')); }
   function clearDefinitions() { nativeCities = null; nativeCityInputs.clear(); factionRoles = null; decorLocked = false; mapLayer = 'decor'; decorationSelection = null; mapAtlas = null; mapWindow = null; mapScene = null; baseTerrain = null; baseUnlocked = false; basePage = 0; materials = null; cityDefinitions = null; chapterCities = null; minimap = null; waterGroups = null; waterMembers = null; waterCandidates = null; definitions = null; definitionReferences = null; chapterPeople = null; definitionLibrary = []; definitionForm = emptyDefinition(); importSelection.clear(); }
   function clearFields() { resourceInputs = []; startInputs.clear(); clearDefinitions(); Object.assign(fields, { gameId: '', revision: '', name: '', introduction: '', chapterId: '' }); }
   function setIdentity(next) {
@@ -563,8 +563,8 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     await sendAttempt('正在保存；如失去回應，保留原輸入與操作鍵並查詢。');
   }
   async function sendAttempt(progress) {
-    if (attempt.body.mapEdits?.some(edit => edit.op === 'base-fill' ? mapLayer !== 'base' : edit.op.startsWith('decoration-') && mapLayer !== 'decor')) throw new Error('請切回原操作所屬的編輯層再重試；原鍵與內容保持，可先查詢結果。');
-    if (decorLocked && attempt.body.mapEdits?.some(edit => edit.op.startsWith('decoration-'))) throw new Error('裝飾層已鎖定；保留原操作，可查詢結果，解鎖後才能重試原鍵。');
+    if (attempt.body.mapEdits?.some(edit => edit.op === 'base-fill' ? mapLayer !== 'base' : edit.op.startsWith('decoration-') && mapLayer !== 'decor')) throw new Error('請切回原操作所屬的編輯層再重試；同一個請求與內容都保持，可先查詢結果。');
+    if (decorLocked && attempt.body.mapEdits?.some(edit => edit.op.startsWith('decoration-'))) throw new Error('裝飾層已鎖定；保留原操作，可查詢結果，解鎖後才能重試同一個請求。');
     const pending = attempt, valid = ticket(); pending.state = 'unknown'; message = progress; render();
     try { const result = await api('/api/games/' + pending.gameId + '/draft/save', pending.body, { key: pending.key, revision: pending.revision }); if (valid() && attempt === pending) { accept(result); return true; } }
     catch (error) { if (valid() && attempt === pending) message = '保存未確認：' + error.message + ' 原輸入保留，請查詢原操作；不自動重試。'; throw error; }
@@ -573,9 +573,9 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!attempt) return; const pending = attempt, valid = ticket();
     try { const response = await api('/api/games/' + pending.gameId + '/draft/operations/' + encodeURIComponent(pending.key)); if (!valid() || attempt !== pending) return;
       if (response.state === 'committed') accept(response.result);
-      else if (['pending', 'failed'].includes(response.state) && response.gameId === pending.gameId && response.expectedRevision === pending.revision) { pending.state = response.state; message = response.state === 'pending' ? '服務仍pending；保留原鍵，不另起保存。' : '服務已記錄失敗：' + response.error + '。輸入保留，可明確重試原請求或確認放棄後重新載入。'; }
+      else if (['pending', 'failed'].includes(response.state) && response.gameId === pending.gameId && response.expectedRevision === pending.revision) { pending.state = response.state; message = response.state === 'pending' ? '服務端還在處理中；保留同一個請求，不另起一次保存。' : '服務已記錄失敗：' + response.error + '。輸入保留，可明確重試原請求或確認放棄後重新載入。'; }
       else throw new Error('操作回應上下文無效。');
-    } catch (error) { if (valid() && attempt === pending) { if (error.status === 404) { if (pending.state !== 'revoked') pending.state = 'not-found'; message = pending.state === 'revoked' ? '舊會話已由實際改密撤銷；查無原操作仍不宣稱已保存或失敗。可確認放棄後載入明確修訂。' : '目前查無原操作，不保證在途請求已結束；有原內容才可明確重試相同原鍵。不保留原內容時，可明確改密撤銷所有舊會話後再載入，不能重造請求或自動另起鍵。'; } else if (error.code === 'OPERATION_REVOKED') { pending.state = 'revoked'; message = '原操作會話已撤銷，不能復活舊鍵；確認放棄後載入明確修訂。'; } else { message = '查詢未確認：' + error.message; throw error; } } }
+    } catch (error) { if (valid() && attempt === pending) { if (error.status === 404) { if (pending.state !== 'revoked') pending.state = 'not-found'; message = pending.state === 'revoked' ? '舊會話已由實際改密撤銷；查無原操作仍不宣稱已保存或失敗。可確認放棄後載入明確修訂。' : '目前查無原操作，不保證在途請求已結束；有原內容才可明確重送同一個請求。不保留原內容時，可明確改密撤銷所有舊會話後再載入，不能重造請求，也不會自動另起一個請求。'; } else if (error.code === 'OPERATION_REVOKED') { pending.state = 'revoked'; message = '原操作會話已撤銷，不能復活舊鍵；確認放棄後載入明確修訂。'; } else { message = '查詢未確認：' + error.message; throw error; } } }
   }
   function action(callback) { return work(async () => { if (!permitted()) throw new Error('請先登入並完成改密。'); try { return await callback(); } finally { render(); } }); }
   async function startTrial(child) {
@@ -725,7 +725,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!valid() || !permitted() || loaded !== source || attempt || !cityReady()) return;
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('章節據點未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在保存章節據點配置；回應不明時先查詢原鍵。');
+    return sendAttempt('正在保存章節據點配置；回應不明時先查詢同一個請求。');
   }
   async function renameCity(cityId) {
     if (!cityReady() || attempt || !permitted()) throw new Error('請先載入中立模板的明確據點修訂。');
@@ -746,7 +746,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!confirm('據點 [' + cityId + ']：將「' + (row.name ?? '未配置') + '」改為「' + name + '」？只保存此名稱，不保存其它表單。' + impacts) || !current()) return;
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('據點名稱未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在保存據點基礎名稱；回應不明時先查詢原鍵。');
+    return sendAttempt('正在保存據點基礎名稱；回應不明時先查詢同一個請求。');
   }
   function checkedPortrait(value) {
     if (value === null) return null;
@@ -923,7 +923,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!valid() || !currentFactionRoles() || loaded !== source || factionRoles !== catalogue) return;
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('新建勢力未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在保存新建勢力；回應不明時先查詢原鍵，成功後仍須精確重讀。');
+    return sendAttempt('正在保存新建勢力；回應不明時先查詢同一個請求，成功後仍須精確重讀。');
   }
   async function submitFactionPost(op, chapterId, factionSlot, generalSlot) {
     if (!currentFactionRoles()) throw new Error('請先載入完整副本的確切章角色資料。');
@@ -949,7 +949,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!valid() || !currentFactionRoles() || loaded !== source || factionRoles !== catalogue) return;
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('角色保存未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在保存角色引用；回應不明時先查詢原鍵，成功後仍須精確重讀。');
+    return sendAttempt('正在保存角色引用；回應不明時先查詢同一個請求，成功後仍須精確重讀。');
   }
   async function submitBaseFill(cells, tile, geography) {
     if (mapLayer !== 'base' || !permitted() || !baseReady() || !baseUnlocked || attempt) throw new Error('請選擇基礎層，載入精確基礎格投影並明確解鎖。');
@@ -962,7 +962,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     baseUnlocked = false;
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('補底保存未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在保存明確補底；回應不明時先查詢原鍵。');
+    return sendAttempt('正在保存明確補底；回應不明時先查詢同一個請求。');
   }
   function setDecorLocked(value) {
     if (value === true) decorLocked = true;
@@ -1027,7 +1027,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (new TextEncoder().encode(JSON.stringify(body)).byteLength > 16384) throw new Error('素材請求超過16KiB。');
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('素材保存未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在保存素材或裝飾操作；回應不明時先查詢原鍵。');
+    return sendAttempt('正在保存素材或裝飾操作；回應不明時先查詢同一個請求。');
   }
   function checkedWaterGroups(rows, profile) {
     if (rows === undefined || rows === null) return null;
@@ -1117,7 +1117,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (new TextEncoder().encode(JSON.stringify(body)).byteLength > 16384) throw new Error('水域修改請求超過16KiB。');
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('水域修改未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在保存水域修改；回應不明時先查詢原鍵。');
+    return sendAttempt('正在保存水域修改；回應不明時先查詢同一個請求。');
   }
   async function submitPerson(op, chapterId, generalId, included, field) {
     if (!definitionReady() || chapterPeople === null || attempt || !permitted()) throw new Error('請先載入可編輯的武將庫與完整章節人物資料。');
@@ -1154,7 +1154,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (new TextEncoder().encode(JSON.stringify(body)).byteLength > 16384) throw new Error('章節人物請求超過16KiB；不截斷覆蓋資料。');
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('章節人物未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在保存章節人物；回應不明時先查詢原鍵。');
+    return sendAttempt('正在保存章節人物；回應不明時先查詢同一個請求。');
   }
   function definitionReferenceRows(generalId) {
     if (definitionReferences === null) throw new Error('此修訂未提供完整人物引用清單，請重新讀取後再修改或刪除。');
@@ -1235,7 +1235,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     importSelection = new Set();
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('導入未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在導入武將庫條目；回應不明時先查詢原鍵，不重複導入。');
+    return sendAttempt('正在導入武將庫條目；回應不明時先查詢同一個請求，不重複導入。');
   }
   async function submitDefinition(remove = false) {
     if (!definitionReady() || attempt || badJournal || !permitted()) throw new Error('請先載入可編輯的武將庫修訂並確認原保存。');
@@ -1268,7 +1268,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (new TextEncoder().encode(JSON.stringify(body)).byteLength > 16384) throw new Error('人物保存請求超過16KiB；請減少輸入，不會截斷文字。');
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('人物保存未發送：無法保留原操作鍵。'); }
-    return sendAttempt('正在保存人物定義；回應不明時只能查詢原鍵，不另建人物。');
+    return sendAttempt('正在保存人物定義；回應不明時只能查詢同一個請求，不另建人物。');
   }
   async function gotoGame(gameId) {
     if (!permitted()) return false;
@@ -1316,7 +1316,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!valid() || !permitted() || badJournal || attempt || loaded !== source || !source.verifiedRead || JSON.stringify(request) !== original) return;
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('據點保存未發送：無法保留原操作鍵。'); }
-    await sendAttempt('正在保存據點原生數值；失去回應時查詢原鍵，不另起保存。');
+    await sendAttempt('正在保存據點原生數值；失去回應時查詢同一個請求，不另起保存。');
   }
   async function submitNativeGeneral(request, op) {
     if (!permitted() || badJournal || attempt || !loaded?.verifiedRead || loaded.profileRevision !== 'fixed-copy-resources-1') throw new Error('請先載入完整副本的精確修訂並確認原保存操作。');
@@ -1342,7 +1342,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!valid() || !permitted() || badJournal || attempt || loaded !== source || !source.verifiedRead || JSON.stringify(request) !== original) return;
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('武將保存未發送：無法保留原操作鍵。'); }
-    await sendAttempt('正在保存武將修改；失去回應時查詢原鍵，不另起保存。');
+    await sendAttempt('正在保存武將修改；失去回應時查詢同一個請求，不另起保存。');
   }
   // §7 chapter attributes (§7 of docs/editor-workbench-structure.md): one
   // command per field, each with its own confirmation, operation key and
@@ -1403,7 +1403,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     clearLocal();
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('章節屬性未發送：無法保留原操作鍵。'); }
-    const sent = await sendAttempt('正在保存章節屬性；回應不明時先查詢原鍵，不另起保存。');
+    const sent = await sendAttempt('正在保存章節屬性；回應不明時先查詢同一個請求，不另起保存。');
     if (sent) await load();
     return sent;
   }

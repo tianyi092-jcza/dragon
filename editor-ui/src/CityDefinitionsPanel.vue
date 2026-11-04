@@ -15,7 +15,7 @@ const chapterName = chapterId => props.model.chapters.find(chapter => chapter.ch
       <label>明確草稿修訂<input id="city-definition-revision" :value="model.fields.revision" :disabled="busy || model.loadLocked" inputmode="numeric" @input="actions.setField('revision', $event.target.value)"></label>
       <ElButton id="city-definition-load" :disabled="busy || model.loadLocked || !model.fields.gameId" @click="actions.load()">載入此修訂的據點名稱</ElButton>
       <ElButton id="city-definition-query" :disabled="busy || model.queryLocked" @click="actions.query()">查詢原保存操作</ElButton>
-      <ElButton id="city-definition-retry" :disabled="busy || model.retryLocked" @click="actions.retry()">重試相同原鍵／內容</ElButton>
+      <ElButton id="city-definition-retry" :disabled="busy || model.retryLocked" @click="actions.retry()">重試同一個請求／內容</ElButton>
     </div>
     <p>遊戲：{{ model.fields.gameId || '尚未選擇' }}／已載入修訂：{{ model.context?.draftRevision ?? '未載入' }}<strong v-if="model.context && !model.context.verified">／須重新明確載入</strong></p>
     <p id="city-definition-status" role="status">{{ model.message }}</p>

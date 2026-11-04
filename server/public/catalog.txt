@@ -54,7 +54,7 @@ export function installLibraryRegistration({ api, authority, work, isBusy, publi
       if (!permitted()) return;
       rows = accept(data); loaded = true; message = '';
     } catch (error) {
-      if (permitted()) message = '讀取資源清單失敗：' + (error && error.message ? error.message : error);
+      if (permitted()) message = '讀取資源清單失敗：' + (error && error.message ? error.message : error) + '（請確認連線後重試；仍失敗就把這句話告訴管理員）';
     } finally {
       autoInFlight = false; render();
     }

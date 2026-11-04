@@ -36,6 +36,12 @@ export function parsePublicationEnvironment(input) {
     if (input.EDITOR_REGISTER_SOURCE !== '0' && input.EDITOR_REGISTER_SOURCE !== '1') throw new TypeError('invalid EDITOR_REGISTER_SOURCE');
     env.EDITOR_REGISTER_SOURCE = input.EDITOR_REGISTER_SOURCE;
   }
+  // 可選同步發布開關（A 路線第一版）：未設定＝開，'0' 明確回到舊的非同步分發。
+  // 只降不升：關閉只讓 HTTP 回應回到舊協議，不影響帳本、排程器或既有代次。
+  if (input.EDITOR_SYNC_PUBLISH !== undefined) {
+    if (input.EDITOR_SYNC_PUBLISH !== '0' && input.EDITOR_SYNC_PUBLISH !== '1') throw new TypeError('invalid EDITOR_SYNC_PUBLISH');
+    env.EDITOR_SYNC_PUBLISH = input.EDITOR_SYNC_PUBLISH;
+  }
   if (env.EDITOR_REGISTER_SOURCE === '1' && env.EDITOR_INSTALLED_SOURCE_ROOT === undefined) throw new TypeError('EDITOR_REGISTER_SOURCE requires EDITOR_INSTALLED_SOURCE_ROOT');
   // Optional operator-staged, private fixed-source roots. These are not author
   // uploads or approvals: the shared catalogs still verify every pinned byte

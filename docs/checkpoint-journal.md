@@ -12,6 +12,8 @@
 - **游戏级存储（方案 B）A+B+C 三批已全部上线**：上架时并行写 `control/directory.json`（游戏级在架指针，R2 唯一与游戏相关的对象）；读者只按指针出目录；删除 = 库行 purge + 指针移除该 gameId + `artifacts/<gameId>/` 前缀回收。
 - **产品主流程在生产上已跑通**：複製遊戲（20 章全量）→ 全面檢驗 → 上架（版本 +1、状态「待上架」）→ 管理员同意（「已上架」）→ 玩家端能加载并正常游玩；删除旧产物走同一 fence→purge 链。
 - **工作台回馈**：複製一次跑到完成（无「續」、真实文件数进度）；上架/检验有阻塞遮罩 + 分步状态；全站提示改成「在做什么／做成了什么／失败能怎么办」；每请求有超时（只读 60s／写 600s），UI 不再可能被一个请求永久锁死。
+- **v0.1.10 发布后补记批（未提交）**：补齐版本记录（`docs/release-v0.1.10.md`、`CHANGELOG 0.1.10`）、给出 C 批剩余两条路线的对比与实测数据（`drainMs=7041`）、把提示文案规范落到剩余面板，并修好两条自 ui4／ui5 起就陈旧的浏览器门。详见 §4.24–§4.27。
+- **A 路線第一版（同步發布，可回滚，未提交、未上生产）**：上架／同意提交后在本次 HTTP 内把分发推到可见，回执多带一个可選 `distribution`；schema 未动、drainer 仍在；`EDITOR_SYNC_PUBLISH=0` 即回到旧协议。详见 §4.28 与 [game-storage-layout](game-storage-layout.md) §12.0。
 
 ## 2. 本轮交付批次（按提交顺序）
 
@@ -47,18 +49,122 @@
 - **失败尝试（不要重做）**：曾猜测「服务端挂起在 `captureForCompile`／`playPacks.prepare`」，靠 `ss`/`docker stats`/nginx access.log 逐项排除；host nginx access.log 为空（编辑器不走它），容器 rootfs 只读使 `docker cp` 不可用（查库要 `docker run --rm -v .../publication-data:/data:ro ... node:22-bookworm-slim node /q.cjs`）。最终结论是客户端锁而不是服务端阻塞；因此后来在 `vps/editor-server.mjs` 加了 `request-slow` / `request-failed` 事件日志，下一次真失败直接可查。
 - **`verify_editor_copy_modes` 曾 3/5 红**：它把「本机原键在操作完成後仍存在」当契约；改为「完成即释放、命名空间由 run 路径证明」后 5/5。`verify_editor_copy_controller.mjs`（测旧控制器 API）与 `verify_editor_backend_admin_copy.mjs`（`pathToFileURL(undefined)` 崩溃）是既有红，未修。
 
+### 4.24 发布后补记：0.1.10 的版本记录缺口（2026-11-04 晚，未提交）
+
+`CHANGELOG` 最新只到 `0.1.9`，`docs/release-v0.1.10.md` 不存在，`docs/deployment.md` 也只覆盖玩家端静态站。
+补法是**以 git 为范围事实**：`git diff v0.1.9 v0.1.10` = 74 提交 / 149 文件（+22104 −9195，50 新文件），分七组写入发布审阅。
+
+- 新增 `docs/release-v0.1.10.md`：范围（七组主题 + 按目录的纳入清单）、排除（本地代理产物／凭据／生产备份）、
+  验证（分「本次补记复跑」与「发布当时记录、本次未重跑」两类）、生产状态（只读实测）、限制（C 批剩余、同步复制长请求、三按钮待定、验收①③缺口、账本遗留、封存门）。
+- `CHANGELOG.md` 新增 `0.1.10` 段；`docs/deployment.md` 加一行交叉链接（该文件只管玩家端静态站，不复制发布历史）。
+- 本次第一手复跑：`verify_copy_tracking` 8/8、`verify_copy_abandon` 14/14（`PASS-COPY-ABANDON`）、
+  `verify_editor_schema_sources` 23 owners／53 表／51 索引／356 列／4 FK、`editor-ui/build.mjs --check`（698189/54698）。
+- 生产只读实测：工作台 `/` 200、`/shell-ui.js` 698189、`/publish.js` 28401、`/client.js` 20931（＝本地 20739 ＋ 192 行换行）；
+  玩家端 `/play-api/v1/registry` 200／generation 3，列出「卧龙传·重构版」1.0／20 章（`publishedAt 2026-11-04T12:16:11.962Z`）。
+
+### 4.25 C 批剩余：两条发布路线的实测依据（2026-11-04 晚，待用户裁决）
+
+- **新增诊断**：`tools/verify_workbench_produce_game_browser.mjs` 的收款对象加 `drainStates` 与 `drainMs`——
+  每次跑这条 lane 都量「一次 20 章上架的分发排空耗时」，因为发布协议改版的决策取决于这段是否稳定低于代理层约 100 秒上限。
+- **实测（连跑两遍绿）**：`drainMs = 7041`（≈3.5 s/代次）、`drainStates = [VISIBLE_CONFIRMED, VISIBLE_CONFIRMED]`、
+  `r2Objects = 34`、lane 全程 3m23s（绝大部分是 20 章**複製**那笔同步长请求，不是分发）。
+- **结论**：分发本身不是同步发布的硬阻塞，距 100 秒有两个数量级余量；真正的长请求是複製，与发布协议无关。
+- 两条路线的影响面、收益、风险与前置保险已写入 [game-storage-layout](game-storage-layout.md) §11.5（含「生产实测一次」与「可回滚并存一代」两道保险）。
+- **建议**：选 A（同步发布），前置＝生产实测一次 20 章上架端到端耗时（<60 秒则成立，接近或超 100 秒退回 B）。
+
+### 4.26 提示文案规范落到剩余面板（2026-11-04 晚，未提交）
+
+- **「原鍵」是内部术语，全部从面向用户的句子里清掉**：`server/public/draft.txt` 18 处（→「同一個請求」，
+  `服務仍pending` → 「服務端還在處理中」）、`client.txt` 3 处（→「查詢上一次操作」）、`publish.txt` 5 处（→「同一個請求」）、
+  `editor-ui/src/copy.js` 3 处、以及 `BaseTerrainPanel.vue`／`CityDefinitionsPanel.vue`／`ChapterRolesPanel.vue` 的按钮与说明。
+- **补「你能做什么」的尾巴**：`catalog.txt`（讀取資源清單失敗）与 `library.txt`（素材讀取未確認）原本只抛原始 message，
+  现补「請確認連線後重試；仍失敗就把這句話告訴管理員」。`general.txt`／`stage.txt`／`draft.txt` 原本已有引导，未动。
+- **发现并修掉一个真缺陷（`publish.txt` 里的裸 NUL 字节）**：C 批加的 `reclamation` 校验正则 `/[\x00-\x1f\x7f]/`
+  在文件里是一个**真实的 0x00 字节**而不是转义文本，导致 git 把 `publish.txt` 当二进制（`Bin 27627 -> 28401`），
+  diff 审阅与文本工具都看不到它。行为等价（`[NUL-\x1f]`），但已改为转义文本，文件恢复为可 diff 的 UTF-8。
+- **顺手修掉重复标点**：删除失败提示 `'：' + result.purgeError` 会在错误自带「。」时出现「。。」，改为先去掉尾部句号。
+- **验证**：`verify_editor_shell` 92、`verify_copy_tracking` 8/8、`verify_editor_copy_modes` 5/5、
+  `verify_publication_chain_browser` 10（2m26s）、`verify_publication_ui_browser` 7（见 §4.27）、
+  `verify_editor_workbench_browser` 219（见 §4.27）；`editor-ui/build.mjs` 重建 `shell-ui.js` 698276／`shell-ui.css` 54698
+  （`.vue` 模板文字变了，scoped 样式 hash 随之变化，属预期）。
+- **未改**：`tools/verify_editor_copy_controller.mjs` 的 `nested-ternary` 风格警告（该 lane 测的是旧控制器 API，本就是既知红）。
+
+### 4.27 两条浏览器门自 ui4／ui5 起就陈旧：根因与重修（2026-11-04 晚）
+
+两条门在 v0.1.10 发布时**没有被跑**，因此把 ui4（「進入即載入」）与 ui5（「機器標識不出現在使用者句子裡」）的产品变更留在了断言之外。
+它们的失败都是断言陈旧，不是产品回退；修法是一律把断言改成新的产品契约，并保留原有的「不得 POST／不得自动重送」判据。
+
+- **`verify_publication_ui_browser`（7 checks，现全绿）三处陈旧**：
+  1. 「開頁不自動發請求」→ ui4 之后应断言「進入時恰好 1 次 GET、0 次 POST」；
+  2. 追踪行断言包含 `lost.key`（原键）→ ui5 之后应断言包含「還沒拿到確定結果」且**不含** `lost.key`；
+  3. **删除段真的红了**：夹具 `purge` 回执没有 `reclamation`，而 C 批之后 `publish.txt#purgeReceipt` 严格按键集合校验，
+     于是页面一直显示「徹底刪除回執無效」。这是 §4.16 同一类缺陷的另一处：夹具补齐 `{state:'completed',pointer:'rewritten',objects:3}` 后转绿。
+     **教训：服务端新增必填回执字段时，必须同时搜「所有 mock 回执」**（`grep reclamation tools/`）。
+- **`verify_editor_workbench_browser`（219 checks，现全绿）两处陈旧**：
+  1. 「每个模块导航都不发 API 请求」→ ui4 之后应断言恰好三条自动加载：
+     `GET /api/admin/accounts`、`GET /api/admin/reviews`、`GET /api/games/submissions`（各 1 次、且都不是 POST）；
+  2. 上架面断言「进入时表格 0 行、按重新整理后才 1 次请求」→ 改为「进入即已有 2 行、以已自动载入为基線，之后每次请求计数恢复原值」；
+     并把 `/api/admin/reviews` 补进夹具路由（原缺失 → 500 → 末尾 `errors` 断言红）。
+- **两条门现在都绿**：`verify_publication_ui_browser` 7（`unexpectedErrors:[]`、`outside:[]`、`failed:[]`）、
+  `verify_editor_workbench_browser` 219（1m24s）。
+- **`verify_publish_ui_model` 基线校正**：把 `/保留原鍵/` 改成 `/（保留原鍵|保留同一個請求）/` 后是 **7 pass／8 fail**；
+  实测 HEAD 本体的同一 lane 是 **6 pass／9 fail**——即旧日志里的「7/8 既有红」是在已带容错断言的树上量的，本次改动净修好 1 条。
+- **同一根因还波及第三条门**：`verify_review_ui_browser`（6 checks）也是「開頁不得自行讀取或提交」＋夹具 purge 回执缺 `reclamation`，
+  同样改成「进入即 1 次 GET、0 次 POST」＋补回执后转绿。
+- **`review.txt` 也有裸 NUL**：与 `publish.txt` 同一批引入的 `reclamation` 校验正则，两个文件都含真实 0x00/0x1f/0x7f。
+  已一并改成转义文本（`/[\x00-\x1f\x7f]/`），语义不变、两个文件恢复为可 diff 的 UTF-8。
+  **教训：写正则转义时用字符串拼接或 raw 源，不要让编辑器/脚本把它变成真实控制字符；此后 `git diff --stat` 出现 `Bin` 就要查。**
+- **全局复查**：`grep -rn "state: 'purged'" tools/ server/ | grep -v reclamation` 已无遗漏；生产 `server/editorapp.js#postPurge`
+  三个分支都会带 `reclamation`，所以「回执必带」的严格校验是对的，错的是 mock。
+- **`verify_publish_ui_model` 再进一步**：把它的 mock purge 回执补 `reclamation` 后是 **8 pass／7 fail**（HEAD 本体 6/9，本会话累计净修 2 条）。
+  剩余 7 条是行为断言（`retryDisabled` 门、B3 §6 任何状态可删、B8 全章校验前置）早于后续产品变更，属另一项 re-baseline，本轮不追。
+- **LSP**：7 个改动 JS 文件 1 条 ast-grep 风格警告（`verify_editor_copy_controller.mjs:12` nested-ternary，既有），
+  6 个 push-only 服务无法确认 clean → 记为**未确认**，不是 0 诊断。
+
+### 4.28 发布协议改版：A 路線第一版（同步發布、可回滚）已落地（2026-11-04 晚，未提交）
+
+用户裁定「按 A 路線开始做发布协议改版的可回滚第一版」。本批只把**分发推进搬进 HTTP**，schema 一行未动，
+删 7 张 `content_distribution_*` 表与以 `game_releases` 当日志、回执改存 `releaseDigest` 留待下一批。
+
+**做法**（每一处都能单独回滚）：
+
+- `server/editorapp.js`：新增可信注入卵 `distributionDrain`（非函式或非 frozen 模式在动 SQL 前 `TypeError`）；
+  `#advanceDistribution()` 一步一代次、上限 8 步／25 秒，只依据 `frozenDistribution.status()` 判定；
+  任何抛错只降级为 pending，**绝不把已提交的操作判成失败**；同一实例内用 `distributionDrainTail` 串行化。
+- `POST /api/publish`：只有注入 drain **且非重放**时推进，回执多带一个**可選** `distribution`（与 GET 状态同构）；
+  重放只观测、不再推进（否则每次幂等重送都会多写一次远端）。
+- `POST /api/games/<id>/listing`（同意上架）：提交后推进，**管理回执形状不变**。
+- `server/public/publish.txt`：`fieldsOptional` 放行那一个可選键；`publishReceipt` 逆写回原 pin 入栏位，
+  描述子不混进永久回执；抽出 `distributionStatus()` 让 GET 与新回执共用一套核验；已确认就不再补查。
+- `vps/publication-server.mjs` 注入 `() => publisher.drainOne()`；drainer 照旧在跑（两条路径共存一代）；
+  `vps/publication-config.mjs` 新增可選 `EDITOR_SYNC_PUBLISH`（`0`＝旧协议，未设＝开）——只降不升。
+
+**回归捉到一个真缺陷**：`verify_frozen_publication_root.mjs`（46 组）先红了——并发同键发布走的另一条
+`#publishPin` 回放分支（`catch` 里 `inspect` 后 `return replay.pin`）漏改返回形状，导致 HTTP 200 空 body。
+已改成与另两处一致的 `{pin,gameId,releaseId,replayed}`，重跑转绿。**教训：改一个函数返回形状时，`grep` 全函数名找每一个 `return`。**
+
+**验证**：新 lane `tools/verify_publish_sync.mjs` **11 组绿**（构造门、回滚态无 `distribution` 键且仍 pending、排程器路可、同步态 confirmed、**重放零推进**、推进抛错→200＋pending 且排程器随后补上、同意上架同步推进且形状不变、**并发同键两请求回执一致且推进 peak=1、帳本只多一代**、**回滚并存态下 pending 代次仍能被排程器补齐且代次连续不重复**）；`verify_frozen_publication_root` 46、`verify_publish_operations_root` 31、`verify_publication_producer` 25、`verify_vps_frozen_service` 14、`verify_publication_main` 93 checks 均绿；`verify_publish_ui_model` 新增 1 条 client 测试通过，总计 **9 通过／7 失败，7 条与 HEAD 基线同名相同**。
+
+**又一个行为决定**：并发同键的败者走回放分支不推进，但若不等已排队的推进，同一请求的两个并发调用会拿到 pending／confirmed 两种答案；现改为回放时 `await this.distributionDrainTail`（只等不推进），并发请求的回执因此一致。跨进程仍各等自己的队列（客户端补查兜底）。
+
+**未做**：未上生产（部署需单独授权）；生产端到端时长（真 R2／代理链）未实测，§11.5 前置①仍未满足；未删表、未换回执。
+
 ## 5. 当前阻塞
 
 1. **无阻塞项**：v0.1.10 已上线，主流程（复制→检验→上架→同意→玩家加载→删旧产物）在生产可用。
+1.1 **A 路線第一版已落地（§4.28）**；下一批是「生产实测 → 删 7 张账本表 + `game_releases` 日志 + `releaseDigest` 回执」，仍需用户对「删表 + 回执形状变更」单独拍板。
+1.2 **待授权**：`87a0b9e`（记忆重整）尚未推 `github`；本批改动（含 §4.28 的同步发布）亦未提交（提交与推送各需明确授权）；上生产也未授权。
 2. **账本剩 2 条历史事件 + 1 条 cleanup 行**属惰性遗留；直接删会触发 `DISTRIBUTION_LEDGER_CORRUPT`，等整表下线时一起清。
 3. **上架面板那三个按钮**（查詢原操作／以原鍵重試／只停止本機追蹤）是否删除待用户决定；若删需同时把 `submit`/`remove` 改成「重按同一动作即重用原键重送」，否则会出现「有原键但没有完成手段」的死锁。
 4. 複製仍是同请求同步跑（租约 5 分钟），受 Cloudflare 约 100 秒切回复限制；现靠「丢回复→按原键查询/自动轮询」兜底。
 
 ## 6. 下一步（建议顺序）
 
-1. **C 批剩余**：下线 6 张 `content_distribution_*` 与退役流程 + 新增 `game_releases(game_id,version,digest,state,published_at)`。这等于发布协议改版，需先在「同步发布」与「新队列」里选一条（当前 `chunks` 表冻结 payload 是异步发布的基础）。
-2. 把「提示文案规范」（§3.7）落到其余面板：错误码映射补全、机器标识从用户句子里清干净。
-3. 复制改后台任务 + 前端轮询（可选，彻底摆脱代理层 100 秒限制）。
+1. **C 批剩余（A 路線第一版已做完，§4.28）**：下一批＝生产实测一次 20 章上架端到端耗时 → 下线 7 张 `content_distribution_*` 与 drainer + `game_releases(game_id,version,digest,state,published_at)` 当日志 + 回执改存 `releaseDigest`。
+   实测与路线对比见 §4.25 与 [game-storage-layout](game-storage-layout.md) §11.5／§12.0；这一批要删表并改管理回执形状，需用户单独拍板。
+2. ~~提示文案规范落到其余面板~~：**已做**（§4.26），机器标识已从 `draft/client/publish/catalog/library` 与三个面板的用户句子中清掉。
+3. 复制改后台任务 + 前端轮询（可选，彻底摆脱代理层 100 秒限制）；维度上属优化，不急。
+4. 待授权：提交本批（0.1.10 补记 + 文案 + 两门重修 + A 路線第一版）与推送 `87a0b9e` 到 `github`；以及是否把 `EDITOR_SYNC_PUBLISH` 默认开启随下次部署上生产。
 
 ## 7. 归档锚点（仍被外部文档引用）
 

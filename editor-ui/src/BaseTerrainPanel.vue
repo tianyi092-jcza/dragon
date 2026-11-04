@@ -46,7 +46,7 @@ watch([() => props.model?.fields?.gameId, () => props.model?.context?.draftRevis
       <label>明確草稿修訂<input id="base-revision" :value="model.fields.revision" :disabled="busy || model.loadLocked" inputmode="numeric" @input="actions.setField('revision', $event.target.value)"></label>
       <ElButton id="base-load" :disabled="busy || model.loadLocked || !model.fields.gameId" @click="actions.load()">載入此修訂基礎格</ElButton>
       <ElButton id="base-query" :disabled="busy || model.queryLocked" @click="actions.query()">查詢原保存操作</ElButton>
-      <ElButton id="base-retry" :disabled="busy || model.retryLocked" @click="actions.retry()">重試原鍵／內容</ElButton>
+      <ElButton id="base-retry" :disabled="busy || model.retryLocked" @click="actions.retry()">重試同一個請求／內容</ElButton>
     </div>
     <p id="base-context">遊戲 {{ model.fields.gameId || '未選擇' }}／已讀 {{ model.context?.draftRevision ?? '未知' }}<strong v-if="model.context && !model.context.verified">／須明確重讀</strong></p>
     <p id="base-status" role="status">{{ model.message }}</p>

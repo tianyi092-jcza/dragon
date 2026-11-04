@@ -76,7 +76,7 @@ try {
    assert.equal(request.method(), 'POST'); const gameId = url.pathname.split('/')[4], body = parsed(request.postData());
    purges.push({ gameId, body });
    rows = rows.filter(entry => entry.gameId !== gameId);
-   return json({ version: 1, gameId, state: 'purged', tables: 31, removed: { content_games: 1 }, purgedAt: time });
+   return json({ version: 1, gameId, state: 'purged', tables: 31, removed: { content_games: 1 }, purgedAt: time, reclamation: { state: 'completed', pointer: 'rewritten', objects: 3 } });
   }
   if (/^\/api\/games\/[a-f0-9-]+\/deletion$/.test(url.pathname)) {
    assert.equal(request.method(), 'POST'); const body = parsed(request.postData()), gameId = url.pathname.split('/')[3], target = rows.find(entry => entry.gameId === gameId);
@@ -97,9 +97,11 @@ try {
  const act = (gameId, name) => page.locator(`#publish-table tr[data-game-id="${gameId}"] [data-action="${name}"]`);
  const box = () => page.locator('.el-message-box');
  const journal = () => page.evaluate(k => sessionStorage.getItem(k), journalKey);
- stage = '清單投影：三態、版本、狀態時間與操作可用性；開頁不自動發請求';
+ stage = '清單投影：三態、版本、狀態時間與操作可用性；開頁自動載入一次清單、不發 POST';
  await page.goto(origin); const mark = calls.length; await page.waitForSelector('#menu button[data-view="publish-editor"]'); await page.click('#menu button[data-view="publish-editor"]'); await page.waitForSelector('#publish-editor');
- assert.equal(calls.slice(mark).filter(call => call.path === '/api/games/submissions' || call.method === 'POST').length, 0, 'opening 上架管理 must not read the list or post by itself');
+ assert.equal(calls.slice(mark).filter(call => call.method === 'POST').length, 0, 'opening 上架管理 must not post by itself');
+ // ui4 產品決定：進入模組即自動載入一次（使用者要求「點擊進去就要自動載入」），所以這裡是 1 次 GET、0 次 POST。
+ assert.equal(calls.slice(mark).filter(call => call.path === '/api/games/submissions').length, 1, 'opening 上架管理 auto-loads the list exactly once');
  await page.click('#publish-refresh'); await idle();
  assert.equal(await cell(DG, 'version'), '—'); assert.equal((await cell(DG, 'state')).trim(), '草稿'); assert.equal(await cell(DG, 'state-time'), '—');
  assert.equal(await cell(PG, 'version'), '1.0'); assert.equal((await cell(PG, 'state')).trim(), '待上架');
@@ -117,10 +119,13 @@ try {
  assert.equal(await act(DG, 'publish').isDisabled(), false); await page.locator('#publish-editor').screenshot({ path: join(out, 'rejected.png') }); checks.push(stage);
  stage = '失去回應保留原鍵、reload 只恢復關聯、僅 GET404 允許同鍵重送';
  publishMode = 'lost'; await act(DP, 'publish').click(); await box().waitFor(); await box().locator('.el-message-box__btns .el-button--primary').click(); await idle();
- assert.equal(posts.length, 2); const lost = posts.at(-1); assert.equal(parsed(await journal()).key, lost.key); assert.match(await page.locator('#publish-message').textContent(), /原鍵保留/);
+ assert.equal(posts.length, 2); const lost = posts.at(-1); assert.equal(parsed(await journal()).key, lost.key); assert.match(await page.locator('#publish-message').textContent(), /(原鍵保留|同一個請求保留)/);
  assert.equal(await page.isDisabled('#publish-retry'), true); assert.equal(await act(DG, 'publish').isDisabled(), true);
  const before = calls.length; await page.reload(); await page.waitForSelector('#menu button[data-view="publish-editor"]'); await page.click('#menu button[data-view="publish-editor"]'); await page.waitForSelector('#publish-editor');
- assert.equal(calls.slice(before).some(call => call.path === '/api/publish'), false); assert.match(await page.locator('#publish-operation').textContent(), new RegExp(lost.key)); checks.push(stage);
+ assert.equal(calls.slice(before).some(call => call.path === '/api/publish'), false);
+ // ui5 產品決定：追蹤行不得出現機器標識（原鍵／gameId），只說「哪一次上架、還沒拿到確定結果」。
+ const tracking = await page.locator('#publish-operation').textContent();
+ assert.match(tracking, /還沒拿到確定結果/, tracking); assert.equal(tracking.includes(lost.key), false, '追蹤行不得顯示原鍵：' + tracking); checks.push(stage);
  stage = '只讀查詢：404 才允許重送，distribution kind 錯不推定公開';
  statusMode = 'absent'; await page.click('#publish-query'); await idle(); assert.equal(await page.isDisabled('#publish-retry'), false);
  statusMode = 'pending'; publishMode = 'success'; await page.click('#publish-retry'); await idle(); assert.equal(posts.length, 3); assert.deepEqual(posts[2], lost);

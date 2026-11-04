@@ -46,7 +46,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     operation = null; broken = false;
     if (!permitted()) return;
     try { const value = storage.getItem(storeKey()); if (value !== null && !validKey(value)) throw new Error('原鍵格式無效'); operation = value; }
-    catch { broken = true; message = '本機原鍵不可讀，不能另建；請先恢復原關聯儲存。'; }
+    catch { broken = true; message = '本機保留的上次操作記錄不可讀，不能另建；請先恢復原關聯儲存。'; }
   }
   // 失敗原因由服務端回報（copy_requests.result_json 的 code），這裡只負責把它翻成人看得懂的句子。
   // 未知 code 一律保留原樣：編造原因比沒有原因更壞。
@@ -134,7 +134,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     return { registryId, name, introduction };
   }
   async function create() {
-    if (broken) throw new Error('本機原鍵不可讀，不能另建；請先恢復原關聯儲存。');
+    if (broken) throw new Error('本機保留的上次操作記錄不可讀，不能另建；請先恢復原關聯儲存。');
     // 有原鍵但結果未知（reload 後 summary 遺失、或回應被代理層切斷）：只能續用同一個原鍵，
     // 先依原鍵查詢再決定；不另建第二份。
     if (operation && (needsQuery || !summary)) { await runExisting(ticket()); return; }
@@ -246,7 +246,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
         const outcome = settled; settled = null; post = null;
         if (outcome.error) {
           if (absent(outcome.error)) { forgetLocal('服務端已無此原操作；本機追蹤已清除，可直接重新建立。'); return; }
-          message = '回應中斷，正在依原鍵核對實際結果…'; render();
+          message = '回應中斷，正在核對同一個請求的實際結果…'; render();
         } else summary = decodeSummary(outcome.data, summary.gameId);
         continue;
       }
@@ -284,7 +284,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       // 明確逃生口：只清掉本機追蹤，不取消、不回滾服務端任何請求。
       try { storage.removeItem(storeKey()); } catch { broken = true; }
       operation = null; summary = null; needsQuery = false;
-      message = '已清除本機追蹤；未取消或回滾任何在途請求，服務端結果仍以原鍵查詢為準。';
+      message = '已清除本機追蹤；未取消或回滾任何在途請求，服務端結果仍以查詢同一個請求為準。';
     }),
     setField(key, value) {
       if (!permitted() || isBusy() || !['name', 'introduction'].includes(key) || typeof value !== 'string') return;

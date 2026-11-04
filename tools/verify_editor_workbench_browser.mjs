@@ -84,6 +84,8 @@ try {
     }
     // 系統資源清單在會話就緒後自動讀一次（catalog.txt），與目前視圖無關。
     if (path === '/api/resources') return reply({ mode: 'BUILTIN_READONLY', resources: [] });
+    // ui4 產品決定：進入「上架審核」即自動讀一次待審清單（review.txt 的 refresh）。
+    if (path === '/api/admin/reviews') return reply({ version: 1, games: [] });
     if (path === '/api/games/submissions') return reply({ games: [
       { gameId, name: '測試遊戲', introduction: '<img src=x>', state: 'draft', version: null, stateTime: null, createdAt: '2026-01-02T03:04:05.006Z', restricted: false, rejected: false, rowRevision: '3' },
       { gameId: otherGameId, name: '乙遊戲', introduction: '', state: 'listed', version: '1.2', stateTime: '2026-02-03T04:05:06.007Z', createdAt: '2026-01-02T03:04:05.006Z', restricted: false, rejected: false, rowRevision: '4' },
@@ -171,7 +173,11 @@ try {
     assert.equal(await page.locator('#profile').isVisible(), false);
     assert.equal(await page.locator('#password').isVisible(), false); checks++;
   }
-  assert.equal(calls.length, beforeNavigation, 'every shipped module navigation performs no API request'); checks++;
+  // ui4 產品決定（使用者要求「點擊進去就要自動載入」）：只有這三個模組在進入時各自讀一次清單，
+  // 其餘導航一律不發請求，而且任何導航都不得 POST。
+  const navigated = calls.slice(beforeNavigation).map(call => call[0] + ' ' + call[1]);
+  assert.deepEqual(navigated.sort(), ['GET /api/admin/accounts', 'GET /api/admin/reviews', 'GET /api/games/submissions'], 'only the three auto-load views read their list once; navigation never posts');
+  checks++;
   // Native typing must not truncate a valid NFC value at a UTF-16 guess.
   // Each Hangul syllable composes from three code points to one under NFC.
   async function composedInput(selector, count) {
@@ -501,12 +507,14 @@ try {
   await nav('generals-editor').click(); assert.equal(await page.locator('#generals-games').inputValue(), gameId);
   await nav('draft-editor').click(); assert.equal(await page.locator('#draft-game').inputValue(), gameId);
   assert.equal(calls.length, beforeSharedSelection); checks++;
-  const beforePublicationContext = calls.length;
   // 上架管理是作者視角一行一遊戲（工作台結構 §5）；舊的遊戲選擇器與「發布名」輸入
   // 屬已退役舊殼。深層上架／同意流程由 verify_publication_ui_browser.mjs 與
   // verify_review_ui_browser.mjs 覆蓋，這裡只核對面板接線與唯讀全章校驗。
-  await nav('publish-editor').click();
-  assert.equal(await page.locator('#publish-table tbody tr').count(), 0);
+  // ui4 產品決定：進入模組即自動載入一次（1 次 GET、0 次 POST，見下方導航段），
+  // 所以接下來的請求計數以「已自動載入」為基線。
+  await nav('publish-editor').click(); await idle();
+  assert.equal(await page.locator('#publish-table tbody tr[data-game-id]').count(), 2);
+  const beforePublicationContext = calls.length;
   await page.locator('#publish-refresh').click(); await idle();
   assert.equal(calls.length, beforePublicationContext + 1); assert.equal(calls.at(-1)[1], '/api/games/submissions');
   const publishRows = page.locator('#publish-table tbody tr[data-game-id]');

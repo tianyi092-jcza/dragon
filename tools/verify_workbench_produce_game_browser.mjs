@@ -184,7 +184,11 @@ try {
   const publisher = createDistributionPublisher({ storage, r2, verifyStaticResources });
   // 上架與同意各自排入一筆分發修訂；要排到帳本為空，投影才是「已同意且已上架」的快照。
   const drained = [];
+  // 診断：一次 20 章上架的分發排空耗時。發布協議改版（同步發布 vs 新隊列）的決策取決於
+  // 這段是否穩定低於代理層約 100 秒的上限，所以每次跑這條 lane 都把它量下來。
+  const drainStartedAt = performance.now();
   for (let i = 0; i < 20; i++) { const step = await publisher.drainOne(); if (step.state === 'IDLE') break; drained.push(step.state); }
+  const drainMs = Math.round(performance.now() - drainStartedAt);
   assert.ok(drained.includes('VISIBLE_CONFIRMED'), '分發必須推進到可見確認：' + JSON.stringify(drained));
   // A 批：同一代次還寫了一份遊戲級目錄指標，內容與舊投影指向同一份章節。
   assert.ok(directoryPointer, '上架必須寫出遊戲級目錄指標');
@@ -244,7 +248,7 @@ try {
   await page.screenshot({ path: join(artifact, 'produced.png') });
   checks.push(stage);
 
-  const result = { checks, producedGameId: produced.game_id, producedName, previousProductId, previousName, chapters: chapterCount, posts: calls.filter(call => call.method === 'POST').map(call => ({ path: call.path, status: call.status })), r2Objects: raised.length, browser: browserVersion, sources, screenshotSHA: sha(readFileSync(join(artifact, 'produced.png'))), scope: 'Actual editor gateway/auth/SQLite/private object bucket and shared static modules in a fresh Chromium profile; browser requests bridged in-process. Copy→publish→approve→delete-of-previous-product only. Includes the real distribution publisher drain and the real reader (owned workerd R2) serving the produced-game directory, admission ticket and chapter bytes to the player API; not a player browser boot (see verify_publication_chain_browser --public-player), not cloud/TLS, not blank author creation.' };
+  const result = { checks, producedGameId: produced.game_id, producedName, previousProductId, previousName, chapters: chapterCount, drainStates: drained, drainMs, posts: calls.filter(call => call.method === 'POST').map(call => ({ path: call.path, status: call.status })), r2Objects: raised.length, browser: browserVersion, sources, screenshotSHA: sha(readFileSync(join(artifact, 'produced.png'))), scope: 'Actual editor gateway/auth/SQLite/private object bucket and shared static modules in a fresh Chromium profile; browser requests bridged in-process. Copy→publish→approve→delete-of-previous-product only. Includes the real distribution publisher drain and the real reader (owned workerd R2) serving the produced-game directory, admission ticket and chapter bytes to the player API; not a player browser boot (see verify_publication_chain_browser --public-player), not cloud/TLS, not blank author creation.' };
   writeFileSync(join(artifact, 'result.json'), JSON.stringify(result, null, 2), { flag: 'wx' });
   process.stdout.write(JSON.stringify({ ...result, sources: 'in owned artifact', artifact }) + '\n');
 } catch (error) {

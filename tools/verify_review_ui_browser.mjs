@@ -77,7 +77,7 @@ try {
    assert.equal(request.method(), 'POST'); const gameId = url.pathname.split('/')[4], body = parsed(request.postData());
    purges.push({ gameId, body });
    rows = rows.filter(entry => entry.gameId !== gameId);
-   return json({ version: 1, gameId, state: 'purged', tables: 31, removed: { content_games: 1 }, purgedAt: TIME });
+   return json({ version: 1, gameId, state: 'purged', tables: 31, removed: { content_games: 1 }, purgedAt: TIME, reclamation: { state: 'completed', pointer: 'rewritten', objects: 3 } });
   }
   if (/^\/api\/games\/[a-f0-9-]+\/deletion$/.test(url.pathname)) {
    assert.equal(request.method(), 'POST'); const body = parsed(request.postData()), gameId = url.pathname.split('/')[3], target = rows.find(entry => entry.gameId === gameId);
@@ -98,11 +98,13 @@ try {
  const box = () => page.locator('.el-message-box');
  const idle = () => page.waitForFunction(() => !document.querySelector('#review-refresh').disabled);
  const open = async () => { await page.waitForSelector('#menu button[data-view="management-editor"]'); await page.click('#menu button[data-view="management-editor"]'); await page.waitForSelector('#review-editor'); };
- stage = '開頁不自動發請求；清單只有管理員可見，四個狀態與按鈕可用性正確';
+ stage = '開頁自動載入一次清單、不發 POST；清單只有管理員可見，四個狀態與按鈕可用性正確';
  await page.goto(origin); const mark = calls.length;
  assert.equal(await page.locator('#menu button[data-view="management-editor"]').count(), 1, '管理員選單要有上架審核');
  await open();
- assert.equal(calls.slice(mark).filter(call => call.path === '/api/admin/reviews' || call.method === 'POST').length, 0, '開頁不得自行讀取或提交');
+ // ui4 產品決定（使用者要求「點擊進去就要自動載入」）：進入即自動讀一次，且不得 POST。
+ assert.equal(calls.slice(mark).filter(call => call.method === 'POST').length, 0, '開頁不得提交');
+ assert.equal(calls.slice(mark).filter(call => call.path === '/api/admin/reviews').length, 1, '開頁自動載入一次待審清單');
  await page.click('#review-refresh'); await idle();
  assert.equal(await cell(DG, 'version'), '—');
  assert.equal((await cell(DG, 'state')).trim(), '草稿');

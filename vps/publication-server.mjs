@@ -27,6 +27,10 @@ export async function startPublicationServer({ storage, bucket, env, r2, verifyS
   const runtimeStager = createRuntimeStager({ r2: transport, prefix, verifyStaticResources });
   const publisher = createDistributionPublisher({ storage, r2: transport, prefix, verifyStaticResources });
   const drainer = createDistributionDrainer({ publisher, intervalMs });
+  // A 路線第一版（可回滾）：同一個 publisher 的 drainOne 注入應用，讓上架／同意在
+  // 同一次 HTTP 內推進到可見。EDITOR_SYNC_PUBLISH='0' 不注入＝舊協議；排程器照舊
+  // 執行，兩種路徑並存一代。
+  const distributionDrain = environment.EDITOR_SYNC_PUBLISH === '0' ? undefined : () => publisher.drainOne();
   // A restored/foreign/legacy remote authority must be rejected before listening.
   // This may persist a recovery lock; startup failure is not a SQL rollback.
   // B8：R2 不是開機條件。只有「傳輸層不可達」才降級啟動（工作台仍可編輯），
@@ -57,7 +61,7 @@ export async function startPublicationServer({ storage, bucket, env, r2, verifyS
     return closing;
   }
   try {
-    server = await startEditorServer({ storage, bucket, env: environment, runtimeStager, frozenPublication: true, purgeReclaimer, host, port, prepare });
+    server = await startEditorServer({ storage, bucket, env: environment, runtimeStager, frozenPublication: true, purgeReclaimer, distributionDrain, host, port, prepare });
     if (!drainer.start()) throw new Error('DISTRIBUTION_SCHEDULER_UNAVAILABLE');
     state = 'running';
   } catch (error) {

@@ -81,6 +81,8 @@ Wrangler版本固定为本次实际验证的版本，升级后应先干跑。Nod
 
 不要把本地静态测试通过写成 Cloudflare 已上线；也不要将冒烟测试描述为全部游戏机制或所有浏览器已验证。
 
+本文件只管**玩家端静态站**的部署机制。编辑器工作台与发布器（VPS 镜像、R2 静态发布 pin、回滚点）的部署步骤与坑见[游戏级存储 §12](game-storage-layout.md)，逐次上线与公网实测见[检查点日志](checkpoint-journal.md)，版本沿革与审阅证据见[CHANGELOG](../CHANGELOG.md) 与 `docs/release-v*.md`。
+
 ## 双仓库同步
 
 保留 Gitea `origin`，GitHub 使用独立远程名 `github`。本站自动部署仅监听GitHub，本轮不得推Gitea；不要用强制推送覆盖远端新增提交。

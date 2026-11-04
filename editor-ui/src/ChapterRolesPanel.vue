@@ -70,7 +70,7 @@ const chapters = computed(() => (props.model.roles?.chapters ?? []).map(chapter 
   <section id="draft-role-editor">
     <h3>章節角色引用</h3>
     <p>依章與原槽顯示，不把同槽或同名當成跨章同一人物，也不代表任官資格。任命、指定繼任、清空已知普通軍師引用及解散均沿共用草稿記錄。任官資格由服務校驗；解散只作用於本章，成員轉自由、據點轉中立。不刪人物、不補原生計數或初始化，草稿仍可能無法試運行／發布。</p>
-    <p>此操作獨立確認，不保存其它表單輸入；回應不明使用上方原鍵查詢／重試，成功後須明確重讀修訂。</p>
+    <p>此操作獨立確認，不保存其它表單輸入；回應不明時用上方按鈕查詢同一個請求或重試，成功後須明確重讀修訂。</p>
     <p v-if="!model.roles?.known" id="draft-role-unknown">角色資料未知或尚未精確重讀；中立定義模式不提供此原槽操作。</p>
     <template v-else>
       <form id="faction-create" class="module-form" @submit.prevent="submitCreate">

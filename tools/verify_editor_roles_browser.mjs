@@ -133,7 +133,7 @@ try {
       const leave = dialog => dialog.accept(); page.on('dialog', leave);
       try { await page.reload(); } finally { page.off('dialog', leave); }
       await page.locator('#menu').waitFor({ state: 'visible' }); await idle();
-      const resume = async dialog => { assert.equal(dialog.type(), 'confirm'); assert.match(dialog.message(), /未確認.*原鍵|副本輸入或原操作尚未完成/); await dialog.accept(); };
+      const resume = async dialog => { assert.equal(dialog.type(), 'confirm'); assert.match(dialog.message(), /未確認.*(同一個請求|原鍵)|副本輸入或原操作尚未完成/); await dialog.accept(); };
       page.on('dialog', resume);
       try { await page.locator('#menu [data-view="draft-editor"]').click(); await idle(); } finally { page.off('dialog', resume); }
       assert.equal(new URL(page.url()).hash, '#draft-editor');
@@ -223,7 +223,7 @@ try {
   // Visiting the same view does not require the old shortcut's two leave dialogs.
   await page.locator('#menu').waitFor({ state: 'visible' }); await idle();
   const leaveMessages = []; let leaveError;
-  const acceptLeave = async dialog => { try { assert.match(dialog.message(), /未確認.*原鍵|副本輸入或原操作尚未完成/); leaveMessages.push(dialog.message()); await dialog.accept(); } catch (error) { leaveError = error; await dialog.dismiss(); } };
+  const acceptLeave = async dialog => { try { assert.match(dialog.message(), /未確認.*(同一個請求|原鍵)|副本輸入或原操作尚未完成/); leaveMessages.push(dialog.message()); await dialog.accept(); } catch (error) { leaveError = error; await dialog.dismiss(); } };
   page.on('dialog', acceptLeave);
   try { await page.locator('#menu [data-view="generals-editor"]').click(); await idle(); } finally { page.off('dialog', acceptLeave); }
   if (leaveError) throw leaveError;

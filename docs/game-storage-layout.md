@@ -263,7 +263,86 @@ control/current.json                                全站在架列表 + 根版�
 - 验收②（上架中途失败玩家仍拿旧 digest）B 批是用「指针代次超前 → 回落旧投影」证明的；投影读取还没下线，所以这一条目前仍然依赖投影回落。
 - 6 张账本表、退役流程（retirement 18 组 / backup_restore 7 组）与 `game_releases` 都还在，见 §11.2 待决定项。
 
-## 12. 部署记录：A+B+C 已上生产（2026-11-04）
+### 11.5 发布协议改版：两条路线对比（2026-11-04，待用户裁决）
+
+§11.2 把「下线 6 张表 + 新增 `game_releases`」判为**发布协议改版**。本节补上决策所需的实测数据与两条路线的具体影响面。
+
+#### 决策所需的关键事实（本次实测）
+
+| 量 | 数值 | 来源 |
+|---|---|---|
+| 一次 20 章上架的分发排空耗时（校驗＋上傳＋指标 CAS＋根 CAS＋回讀，2 个代次：上架 1 次、同意 1 次） | **7041 ms**（≈3.5 s/代次） | `tools/verify_workbench_produce_game_browser.mjs` 新增诊断字段 `drainMs`、`drainStates=[VISIBLE_CONFIRMED, VISIBLE_CONFIRMED]` |
+| 该 lane 全程 | 3m23s | 同上（绝大部分是 20 章**複製**那笔同步长请求，不是分发） |
+| 一次上架的 R2 写入物件数 | 34 个（含共享物件） | 同上 `r2Objects` |
+| 代理层对源站的约 100 秒切换上限 | 已知约束 | journal §4.16／§4.19（复制曾被 499 切断，但执行不中止） |
+
+**结论性判断**：分发本身**不是**同步发布的硬阻塞——每次上架约 3.5 秒（本地 Miniflare R2＋真实 verify 闭包），距 100 秒有两个数量级余量。真正的长请求是「20 章複製」，与发布协议无关。生产需一次实测确认（真实 R2 网络延迟、更大章数会线性放大）。
+
+#### 路线 A：同步发布（HTTP 内跑完 verify＋归档＋指针 CAS，drainer 退役）
+
+- **改动**：publish／listing 请求在 HTTP 内依次跑 `producer.expectedObjects` → `verify`（资源闭包）→ 上传 root archive／projection／目录指标 → 根 CAS → 回执；
+  `vps/distribution-publisher.mjs`、`vps/distribution-drainer.mjs` 与 `content_distribution_{state,events,outbox,chunks,checkpoints,cleanup,enqueue_barrier}` **7 张表**退场；
+  `game_releases(game_id,version,digest,state,published_at)` 直接当发布日志；`managementreceipt` 的 `distribution:{operationId,generation}` 改存 `releaseDigest`。
+- **收益**：可见性与回执同一时刻；**删除整个异步骨架**（常驻 drainer 循环、两阶段 outbox、入队时冻结的 chunks payload、入队屏障、退役检查点与清理表）；
+  「已提交但未同步」（`COMMITTED_SYNC_PENDING`）这个中间态消失——它是今天最难向用户解释的状态。
+- **风险**：①请求时长随章数/游戏数线性放大（现测 3.5 s/代次，生产需实测）；②丢回应＝状态未知，需要复制那套「原键查询／幂等重送」；
+  ③原子性从「库内交易＋冪等重放」变成「HTTP 内多步＋CAS」，失败可能留下已上传但未 CAS 的孤儿物件（`vps/game-reclaimer.mjs` 的前缀回收可直接复用）。
+- **影响面**：约 **22 条 lane** ＋ 7 个 fixture ＋ 4 个计数门（53/51/356/4）＋ `server/deletiondefinitions.js`；其中退役类 8 条可整体删除，drainer 类 4 条退场，其余改写。
+
+#### 路线 B：新队列（保留异步，`game_releases`＋新冻结表替代 events/chunks）
+
+- **改动**：drainer 与两阶段保留；`events` → `game_releases`；`chunks` → 新冻结表（或沿用并改名）；`checkpoints/cleanup/enqueue_barrier` 随退役机制删除；回执同样改存 `releaseDigest`。
+- **收益**：玩家可见性语义**不变**（延遲发布），不新增 HTTP 时长风险；改动集中在帐本与回执。
+- **风险**：表少了但**机制没少**（drainer／outbox 仍在），复杂度下降有限；`game_releases` 与 `events` 的语义要重新对齐；lane 改写量仍约 22 条——投入与 A 相当，收益更小。
+
+#### 建议
+
+**选 A（同步发布）**，前置两道保险：
+
+1. **生产实测一次**：在真实 R2／代理链上量一次 20 章上架的端到端耗时；若稳定 <60 秒，A 路线成立；若接近或超过 100 秒，退回 B。
+2. **失败语义先落地**：发布请求沿用複製已经验证过的「丢回应＝状态未知 → 原键查询／幂等重送 → 不重复入队」模式，并且**先做可回滚批**（保留 drainer 与老表，两条路径并存一代），再删表。
+
+#### 待用户裁决（三点）
+
+1. 路线选 **A 同步发布** 还是 **B 新队列**。
+2. 管理回执是否接受 `distribution:{operationId,generation}` → `releaseDigest`（会影响管理 UI 与回执 lane 的已验收形状）。
+3. 是否接受「上架／同意＝立刻可见」的产品语义（即删掉「已提交、尚未同步」这个可见状态）。
+
+
+## 12. A 路線第一版已落地（2026-11-04，可回滾；尚未上生產）
+
+### 12.0 与上一節的關係
+
+上一節§11.5 的三點待裁決已由用戶裁定：**走 A（同步發布）**，先做**可回滾第一版**。本批只做「HTTP 內推進分發」，**不动 schema、不删表、不换回执形状**；删除 7 张账本表改成 `game_releases` 日志与 `releaseDigest` 回执仍是后续批次。
+
+### 12.0.1 本批实际改动
+
+| 位置 | 改动 | 可回滾性 |
+|---|---|---|
+| `server/editorapp.js` | 新增可信注入埠 `distributionDrain`（非函式或非 frozen 模式一律 `TypeError`，且在动 SQL 前拒绝）；`#advanceDistribution()` 一步一代次推进，上限 8 步／25 秒，失败只降级为 pending；`#publishPin` 改为返回 `{pin,gameId,releaseId,replayed}`（三处返回点一致） | 未注入即旧行为 |
+| `POST /api/publish` | 仅当注入 drain **且非重放**时推进，并在回执里**多带一个可選** `distribution` 描述子（与 GET 状态同构）；重放只观测不推进 | 未注入＝回應逐位元相同 |
+| `POST /api/games/<id>/listing`（同意上架） | 提交後在本次請求內推进；**管理回執形状不变** | 同上 |
+| `server/public/publish.txt` | `fieldsOptional` 放行那一个可選键；`publishReceipt` 逆写回原 pin 欄位（描述子不混进永久回执）；抽 `distributionStatus()`，状态 GET 与新回执共用同一套核验；已确认就**不再补查**状态 GET | 缺键＝旧协议，照旧补查 |
+| `vps/publication-server.mjs` | `distributionDrain: () => publisher.drainOne()`；drainer 仍在跑（两条路径并存一代） | `EDITOR_SYNC_PUBLISH=0` 不注入 |
+| `vps/publication-config.mjs` | 可選 `EDITOR_SYNC_PUBLISH`（`0`/`1`，未设＝开），**只降不升**，不影帳本与其他开关 | — |
+
+**为什么它真可回滚**：drain 只是同一 publisher 的 `drainOne()`（幂等、只读寫既有帳本），不發新代次、不改回执、不解除 recovery 锁；关掉注入就回到旧协议，database 里没有任何本批引入的新表或新欄位。
+
+### 12.0.2 验证（本次实跑）
+
+- 新 lane `tools/verify_publish_sync.mjs`：**11 组绿**——构造门（非函式／非 frozen 拒）；回滚态回執**无** `distribution` 鍵且分發仍 pending；排程器路徑照旧可用；+ 注入後回執自带 confirmed 且不需外部排空；**重放不推进**；推进抛错→回執 200 + pending、帳本仍留該代次且排程器随后补上；同意上架在本次请求內推进且回執形状不變；**並发同鍵两個请求得到同一份回執、推进不交叉（peak=1）、帳本只多一代**；**回滾並存态：舊协议实例留下的 pending 代次，与排程器同时工作仍能被补齐，且代次从 1 起连续不重複**。
+- 回归：`verify_frozen_publication_root.mjs` 46 组（真 Request／20 章／8 代账本／50 表恢复）——**它先抓到本轮一个真缺陷**：并发同键发布走的 `#publishPin` 回放分支漏改返回形状，导致回应空 body；已修正并重跑绿。
+- `verify_publish_ui_model.mjs`：新增 1 条 A 路線 client 測試通过（确认/待确认/缺键三種回執）；总 9 通过／7 失败——**7 条失败与 HEAD 基线同名相同**，均为早于 B3 §6／B8 的既存项。
+- `verify_publish_operations_root.mjs` 31 组、`verify_publication_producer.mjs` 25 组、`verify_vps_frozen_service.mjs` 14 组、`verify_publication_main.mjs` 93 checks 均绿；`editor-ui/build.mjs --check` 不受影响（无 `.vue` 改动）。
+
+### 12.0.3 本批未做（未驗證不得声称完成）
+
+1. **未上生產**：部署需单独授权；生产端到端时长（真 R2／代理链）仍未实测，§11.5 的前置条件②仍未满足。
+2. **未删表**：7 张 `content_distribution_*` 与 drainer 仍在；`game_releases` 日志与 `releaseDigest` 回执未做。
+3. **跨实例未同步**：推进串行化只在同一应用实例内（HTTP 并发已覆盖）；两个进程同时推进同一帳本靠 `drainOne` 幂等与 CAS守住语义，但它们各自等自己的队列，回執的 `state` 取的是那一瞬的观测值（客户端仍会补查）；上生产前应保持单实例。
+4. **未重现** `COMMITTED_SYNC_PENDING` 的生产条件（本地 lane 只模拟了「推进抛错」），也没有真实 R2 网络延迟下的耗时样本。
+
+## 13. 部署记录：A+B+C 已上生产（2026-11-04）
 
 这一次部署同时改了两个面：**VPS 工作台/发布器**（`dragon-editor.720108.xyz`）与 **Cloudflare 玩家端 Worker**
 （`dragon.720108.xyz`，`wrangler deploy`）。两者必须落在**同一份静态发布**上，否则玩家端正式入口会 503。

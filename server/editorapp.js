@@ -132,10 +132,18 @@ function cookie(request) {
   if (values.length !== 1 || !/^[a-f0-9]{64}$/.test(values[0].slice(COOKIE.length + 1))) { fail(401, 'LOGIN_REQUIRED'); }
   return values[0].slice(COOKIE.length + 1);
 }
-export function createEditorApplication(PlatformBase, { runtimeStager, frozenPublication = false, readSharedPortrait, purgeReclaimer } = {}) {
+// A 路線第一版（可回滾）：上架／同意提交後在本次 HTTP 內把分發帳本推進到可見。
+// 一步最多推進一代；次數與牆鐘雙重上限，卡死的傳輸層不會把連線拖到 Cloudflare 逾時。
+const DISTRIBUTION_SYNC_STEPS = 8;
+const DISTRIBUTION_SYNC_BUDGET_MS = 25000;
+const DISTRIBUTION_SYNC_STATES = new Set(['IDLE', 'VISIBLE_CONFIRMED', 'COMMITTED_SYNC_PENDING']);
+export function createEditorApplication(PlatformBase, { runtimeStager, frozenPublication = false, readSharedPortrait, purgeReclaimer, distributionDrain } = {}) {
   if (readSharedPortrait !== undefined && typeof readSharedPortrait !== 'function') throw new TypeError('trusted shared portrait reader required');
   // 刪除後的 R2 回收埠（方案 B）：只清本遊戲的位元組與在架指針條目，不是刪除權限。
   if (purgeReclaimer !== undefined && typeof purgeReclaimer !== 'function') throw new TypeError('trusted purge reclaimer required');
+  // 同步分發埠只由可信組裝注入，不接受 HTTP／env 選擇；它只讀寫既有帳本，
+  // 不發新代次、不改回執、不解除 recovery 鎖。未注入＝舊協議（回滾態）。
+  if (distributionDrain !== undefined && (typeof distributionDrain !== 'function' || !frozenPublication)) { throw new TypeError('trusted frozen distribution drain required'); }
   if (typeof frozenPublication !== 'boolean' || frozenPublication && !runtimeStager) { throw new TypeError('frozen publication requires trusted runtime staging'); }
   // Trusted platform injection only, never an HTTP/env-selected capability.
   // Unconfigured legacy adapters do not claim R2 staging or visibility.
@@ -195,6 +203,10 @@ return class EditorMetadata extends PlatformBase {
     // Only an explicitly assembled publisher can authenticate remote receipts.
     this.frozenDistribution = new FrozenDistributionLedger({ storage: ctx.storage, verifyReceipt: () => fail(503, 'DISTRIBUTION_NOT_CONFIGURED') });
     this.publicationProducer = frozenPublication ? new FrozenPublicationProducer({ storage: ctx.storage }) : null;
+    // A 路線第一版（可回滾）：null＝不在 HTTP 內推進，回應與舊協議逐位元相同。
+    // tail 把同一個應用實例內的推進串行化，避免兩筆請求同時 drainOne。
+    this.distributionDrain = distributionDrain ?? null;
+    this.distributionDrainTail = Promise.resolve();
     // Reuse permanent content reservations; historical 'copy' denotes the table family.
     this.publishOperations = new PublishOperations({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, operationGuard: (actor, key) => this.contentKey(actor, key, 'copy') });
     // 共用画像庫（B 決策）：manifest 唯讀，無 SQL 表、無上傳管線。
@@ -402,7 +414,17 @@ return class EditorMetadata extends PlatformBase {
       result = this.publishedGames.unpublish(tokenHash, value.gameId);
       this.playPacks.retire(value.gameId);
     } else {
-      result = await this.#publishPin(tokenHash, value.gameId, value.name, key);
+      const committed = await this.#publishPin(tokenHash, value.gameId, value.name, key);
+      result = committed.pin;
+      // A 路線第一版（可回滾）：只有注入 drain 時才在本次請求內推進分發並多帶
+      // 一個可選分發描述子；未注入＝舊協議回應逐位元相同。
+      if (this.distributionDrain) {
+        // 重放只觀測、不再推進（不多寫一次遠端），但要等同一實例已排隊的推進落地：
+        // 否則同一個請求的兩個並发呼叫會拿到 pending／confirmed 兩種答案。
+        if (committed.replayed) { await this.distributionDrainTail; } else { await this.#advanceDistribution(); }
+        const distribution = this.#distributionDescriptor(committed.gameId, committed.releaseId);
+        if (distribution) { result = { ...result, distribution }; }
+      }
     }
     this.touch(tokenHash, policy);
     return response(result);
@@ -414,7 +436,7 @@ return class EditorMetadata extends PlatformBase {
     if (!this.privateDrafts) { fail(503, 'PUBLISH_NOT_CONFIGURED'); }
     if (typeof name !== 'string' || !name.trim()) { fail(422, 'PUBLISH_NAME'); }
     const operation = this.publishOperations.capture(tokenHash, { key, gameId, name });
-    if (operation.replay) { return operation.replay.pin; }
+    if (operation.replay) { return { pin: operation.replay.pin, gameId: operation.replay.gameId, releaseId: operation.replay.releaseId, replayed: true }; }
     this.publicationProducer?.assertPublishable(gameId);
     const owned = this.games.listOwn(tokenHash).find(entry => entry.gameId === gameId);
     if (!owned) { fail(404, 'GAME_NOT_FOUND'); }
@@ -455,7 +477,7 @@ return class EditorMetadata extends PlatformBase {
         // A sibling may commit while this attempt is awaiting I/O, even when
         // that I/O fails. Reauthenticate before returning the exact old result.
         const replay = this.publishOperations.inspect(tokenHash, operation.ticket);
-        if (replay) { return replay.pin; }
+        if (replay) { return { pin: replay.pin, gameId: replay.gameId, releaseId: replay.releaseId, replayed: true }; }
         throw error;
       }
     }
@@ -495,7 +517,41 @@ return class EditorMetadata extends PlatformBase {
       }
       return { version: 1, gameId, releaseId: issued.releaseId, pin };
     });
-    return result.pin;
+    return { pin: result.pin, gameId: result.gameId, releaseId: result.releaseId, replayed: false };
+  }
+  // A 路線第一版（可回滾）：只呼叫同一個 publisher.drainOne，一步一代次，直到
+  // IDLE／待確認或達到上限。任何失敗都只降級為「待確認」並留給仍在跑的排程器，
+  // 絕不把已提交的本機操作判成失敗，也不改動帳本語意。
+  async #advanceDistribution() {
+    if (!this.distributionDrain) { return null; }
+    const run = this.distributionDrainTail.then(async () => {
+      const startedAt = Date.now(); const states = []; let code = null;
+      for (let step = 0; step < DISTRIBUTION_SYNC_STEPS && Date.now() - startedAt < DISTRIBUTION_SYNC_BUDGET_MS; step += 1) {
+        let outcome;
+        try { outcome = await this.distributionDrain(); }
+        catch (error) { code = typeof error?.code === 'string' ? error.code : 'DISTRIBUTION_SYNC_FAILED'; break; }
+        const state = typeof outcome?.state === 'string' ? outcome.state : '';
+        if (!DISTRIBUTION_SYNC_STATES.has(state)) { code = 'DISTRIBUTION_SYNC_UNKNOWN'; break; }
+        states.push(state);
+        // IDLE＝沒有待推進的代次；COMMITTED_SYNC_PENDING＝已提交但尚未可見，
+        // 兩者都不必立刻再試。只有 VISIBLE_CONFIRMED 才表示可能還有下一件。
+        if (state !== 'VISIBLE_CONFIRMED') { break; }
+      }
+      let status;
+      try { status = this.frozenDistribution.status(); }
+      catch { return Object.freeze({ state: 'pending', code: code ?? 'DISTRIBUTION_STATUS_UNAVAILABLE', states: Object.freeze(states) }); }
+      const drained = status.tailGeneration > 0 && status.confirmedGeneration === status.tailGeneration;
+      return Object.freeze({ state: drained ? 'confirmed' : 'pending', code, states: Object.freeze(states), ms: Date.now() - startedAt });
+    });
+    // 串行化只影響排隊，不把一次失敗帶給下一次請求。
+    this.distributionDrainTail = run.then(() => undefined, () => undefined);
+    return run;
+  }
+  // 觀測單一操作的分發狀態；帳本沒有這筆（例如後續代次已剪枝）時回 null，
+  // 讓回應退回舊協議，而不是把上架偽裝成失敗。
+  #distributionDescriptor(gameId, releaseId) {
+    try { return this.frozenDistribution.operationStatus(gameId, releaseId); }
+    catch { return null; }
   }
   #recordPublication(kind, gameId, runtime) {
     if (this.publicationProducer) { return this.publicationProducer.recordInTxn(kind, gameId, runtime); }
@@ -887,7 +943,7 @@ return class EditorMetadata extends PlatformBase {
       // Flag, announcement/registry, distribution identity and permanent result
       // share one transaction. Replays invoke neither callback.
       let distribution;
-      return response(this.management.list(tokenHash, op, { gameId: managementPath[1], expectedRowRevision: value.expectedRowRevision }, () => {
+      const receipt = this.management.list(tokenHash, op, { gameId: managementPath[1], expectedRowRevision: value.expectedRowRevision }, () => {
         const done = this.games.setListedInTxn(tokenHash, managementPath[1], value.action === 'list', value.expectedRowRevision);
         if (value.action === 'list') { this.publishedGames.assertListableInTxn(managementPath[1]); }
         if (done.changed) { distribution = this.#recordPublication('listing', managementPath[1]); }
@@ -895,7 +951,11 @@ return class EditorMetadata extends PlatformBase {
         else if (done.becameListed) { if (!this.announcements.announceCurrentInTxn(managementPath[1])) { this.announcements.bumpRegistryInTxn(); } }
         else if (done.changed) { this.announcements.bumpRegistryInTxn(); }
         return done.summary;
-      }, this.publicationProducer ? () => distribution ?? null : undefined));
+      }, this.publicationProducer ? () => distribution ?? null : undefined);
+      // A 路線第一版（可回滾）：同意上架提交後在本次請求內推進到可見。回應形狀
+      // 不變（管理回執仍由既有嚴格欄位集校驗），重放不會重跑推進。
+      if (this.distributionDrain && distribution) { await this.#advanceDistribution(); }
+      return response(receipt);
     }
     if (user.role !== 'admin') { fail(403, 'ADMIN_REQUIRED'); }
     fields(value, []);

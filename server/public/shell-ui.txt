@@ -8151,7 +8151,7 @@ const Zt = Gi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
       C[18] || (C[18] = a(
         "p",
         null,
-        "此操作獨立確認，不保存其它表單輸入；回應不明使用上方原鍵查詢／重試，成功後須明確重讀修訂。",
+        "此操作獨立確認，不保存其它表單輸入；回應不明時用上方按鈕查詢同一個請求或重試，成功後須明確重讀修訂。",
         -1
         /* CACHED */
       )),
@@ -8514,7 +8514,7 @@ const Zt = Gi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
       )) : (m(), h("p", ng, "角色資料未知或尚未精確重讀；中立定義模式不提供此原槽操作。"))
     ]));
   }
-}, Sg = /* @__PURE__ */ nl(Ig, [["__scopeId", "data-v-6418f084"]]), Mg = {
+}, Sg = /* @__PURE__ */ nl(Ig, [["__scopeId", "data-v-8c214aa1"]]), Mg = {
   id: "draft-editor",
   class: "module-card"
 }, Eg = { class: "module-toolbar" }, Tg = ["value", "disabled"], Pg = ["value"], Ag = ["value"], Og = ["value", "disabled"], Lg = {
@@ -10087,7 +10087,7 @@ const Zt = Gi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
         }, {
           default: F(() => [...o[10] || (o[10] = [
             w(
-              "重試相同原鍵／內容",
+              "重試同一個請求／內容",
               -1
               /* CACHED */
             )
@@ -13034,7 +13034,7 @@ const fp = {
         }, {
           default: F(() => [...b[21] || (b[21] = [
             w(
-              "重試原鍵／內容",
+              "重試同一個請求／內容",
               -1
               /* CACHED */
             )
@@ -20375,7 +20375,7 @@ function Q$({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
         if (I !== null && !se(I)) throw new Error("原鍵格式無效");
         y = I;
       } catch {
-        $ = !0, q = "本機原鍵不可讀，不能另建；請先恢復原關聯儲存。";
+        $ = !0, q = "本機保留的上次操作記錄不可讀，不能另建；請先恢復原關聯儲存。";
       }
   }
   const pe = Object.freeze({
@@ -20452,7 +20452,7 @@ function Q$({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
     return { registryId: B, name: v, introduction: M };
   }
   async function E() {
-    if ($) throw new Error("本機原鍵不可讀，不能另建；請先恢復原關聯儲存。");
+    if ($) throw new Error("本機保留的上次操作記錄不可讀，不能另建；請先恢復原關聯儲存。");
     if (y && (g || !b)) {
       await H(K());
       return;
@@ -20585,7 +20585,7 @@ function Q$({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
             ze("服務端已無此原操作；本機追蹤已清除，可直接重新建立。");
             return;
           }
-          q = "回應中斷，正在依原鍵核對實際結果…", we();
+          q = "回應中斷，正在核對同一個請求的實際結果…", we();
         } else b = tt(Qe.data, b.gameId);
         continue;
       }
@@ -20641,7 +20641,7 @@ function Q$({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
       } catch {
         $ = !0;
       }
-      y = null, b = null, g = !1, q = "已清除本機追蹤；未取消或回滾任何在途請求，服務端結果仍以原鍵查詢為準。";
+      y = null, b = null, g = !1, q = "已清除本機追蹤；未取消或回滾任何在途請求，服務端結果仍以查詢同一個請求為準。";
     }),
     setField(I, B) {
       !oe() || l() || !["name", "introduction"].includes(I) || typeof B != "string" || (I === "name" ? v = B : M = B, we());

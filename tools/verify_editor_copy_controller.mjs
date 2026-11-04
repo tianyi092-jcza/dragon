@@ -39,7 +39,7 @@ test('revoked epoch never restores authority; stopping local tracking requires c
 });
 test('unwritable/corrupt tracking fails closed before POST',async()=>{
   const h=setup({storage:{getItem:()=>null,setItem:()=>{throw new Error('denied');},removeItem:()=>{}}});await h.ui.actions.refreshSource();h.ui.actions.setField('name','失敗');await h.ui.actions.create();assert.ok(h.calls.every(c=>c[1]===undefined));assert.equal(h.model.createDisabled,true);
-  const b=setup({storage:{getItem:()=>'{broken}',setItem:()=>{},removeItem:()=>{}}});await b.ui.actions.refreshSource();assert.equal(b.model.createDisabled,true);assert.match(b.model.message,/原鍵不可讀/);
+  const b=setup({storage:{getItem:()=>'{broken}',setItem:()=>{},removeItem:()=>{}}});await b.ui.actions.refreshSource();assert.equal(b.model.createDisabled,true);assert.match(b.model.message,/(原鍵|上次操作記錄)不可讀/);
 });
 test('anonymous/forced sessions and author admin-source actions never expose prior private state',async()=>{
   for(const identity of [null,{user:{id:'author',role:'author'}},{user:{id:'admin',role:'admin',mustChangePassword:true}}]){const h=setup();h.identity(identity);await h.ui.actions.refreshSource();await h.ui.actions.installSource();await h.ui.actions.create();assert.equal(h.calls.length,0);assert.deepEqual(h.model.games,[]);}

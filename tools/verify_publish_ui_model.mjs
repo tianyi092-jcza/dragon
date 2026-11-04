@@ -27,7 +27,7 @@ function setup(customStorage) {
   if (path.includes('/publish-operations/')) return receipt('pending');
   if (path.endsWith('/deletion')) { games = games.filter(entry => entry.gameId !== GAME); return fence(); }
   if (path.includes('/deletion-operations/')) return fence();
-  if (path.endsWith('/purge')) return { version: 1, gameId: GAME, state: 'purged', tables: 33, removed: { content_games: 1 }, purgedAt: '2026-10-15T00:00:00.000Z' };
+  if (path.endsWith('/purge')) return { version: 1, gameId: GAME, state: 'purged', tables: 33, removed: { content_games: 1 }, purgedAt: '2026-10-15T00:00:00.000Z', reclamation: { state: 'completed', pointer: 'rewritten', objects: 3 } };
   throw new Error(path);
  };
  const ui = installPublish({ api: async (...args) => { calls.push(args); return response(...args); }, authority: () => identity, isBusy: () => busy, work: async fn => { if (busy) return; busy = true; try { return await fn(); } finally { busy = false; ui.render(); } }, publish: value => { model = value; }, storage, confirm: () => typeof allow === 'function' ? allow() : allow });
@@ -140,7 +140,7 @@ test('deletion receipts must advance the revision by exactly one', async () => {
  for (const broken of [{ ...fence(), rowRevision: '4' }, { ...fence(), state: 'deleted' }, { ...fence(), gameId: RELEASE }, { ...fence(), extra: true }]) {
   const h = setup(); await h.ui.actions.refresh();
   h.reply(async path => path === '/api/games/submissions' ? { games: [row()] } : broken);
-  await assert.rejects(h.ui.actions.remove(GAME, '4'), /刪除回執/); assert.match(h.model.message, /保留原鍵/);
+  await assert.rejects(h.ui.actions.remove(GAME, '4'), /刪除回執/); assert.match(h.model.message, /(保留原鍵|保留同一個請求)/);
  }
 });
 test('a corrupt or unavailable journal blocks new operations without sending', async () => {
@@ -214,4 +214,34 @@ test('B8 上架被全章校驗拒絕時直接顯示被拒清單，且不建立�
  h2.reply(async path => { if (path === '/api/games/submissions') return { games: [row()] }; throw Object.assign(failure(422, 'PUBLISH_CHAPTER_REFERENCES'), { detail: { chapters: [{ chapterId: 'x' }] } }); });
  await assert.rejects(h2.ui.actions.publish(GAME));
  assert.deepEqual(h2.model.references, []);
+});
+test('A 路線：上架回執自帶已確認分發時不再補查狀態，且如實顯示已確認', async () => {
+ const h = setup(); await h.ui.actions.refresh();
+ h.reply(async path => {
+  if (path === '/api/games/submissions') return { games: [row()] };
+  if (path.includes('/draft/chapter-references')) return { version: 1, gameId: GAME, draftRevision: '4', sourceDigest: 'd'.repeat(64), chapterCount: 1, chapters: [] };
+  if (path === '/api/publish') return { ...pin(), distribution: receipt('confirmed').distribution };
+  throw new Error(path);
+ });
+ await h.ui.actions.publish(GAME);
+ assert.equal(h.calls.filter(call => call[0].includes('/publish-operations/')).length, 0, '已確認時不再補查分發狀態');
+ assert.match(h.model.result, /此次分發曾於 .* 確認/);
+ assert.equal(h.journal.size, 0);
+ // 回執帶 pending 時仍照舊補查一次，且不得宣稱可見。
+ const h2 = setup(); await h2.ui.actions.refresh();
+ h2.reply(async path => {
+  if (path === '/api/games/submissions') return { games: [row()] };
+  if (path.includes('/draft/chapter-references')) return { version: 1, gameId: GAME, draftRevision: '4', sourceDigest: 'd'.repeat(64), chapterCount: 1, chapters: [] };
+  if (path === '/api/publish') return { ...pin(), distribution: receipt('pending').distribution };
+  if (path.includes('/publish-operations/')) return receipt('confirmed');
+  throw new Error(path);
+ });
+ await h2.ui.actions.publish(GAME);
+ assert.equal(h2.calls.filter(call => call[0].includes('/publish-operations/')).length, 1, '待確認時仍補查狀態');
+ assert.match(h2.model.result, /此次分發曾於 .* 確認/);
+ // 缺鍵＝舊協議：照舊補查，不把回應當成已確認。
+ const h3 = setup(); await h3.ui.actions.refresh();
+ await h3.ui.actions.publish(GAME);
+ assert.equal(h3.calls.filter(call => call[0].includes('/publish-operations/')).length, 1);
+ assert.match(h3.model.result, /分發待確認/);
 });

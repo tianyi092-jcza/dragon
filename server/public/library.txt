@@ -40,7 +40,7 @@ export function installLibraryBrowser({ api, authority, work, isBusy, savedConte
     else { const url = URL.createObjectURL(new Blob([response.bytes], { type: 'application/octet-stream' })); urls.add(url); const anchor = document.createElement('a'); anchor.href = url; anchor.download = asset.assetId + '.bin'; anchor.click(); }
     message = '此資源完整bytes與精確修訂／來源回應已核驗；未播放、執行或授予運行資格。';
   }
-  function action(callback) { return work(async () => { const actor = identity; let serial = generation; try { const pending = callback(); serial = generation; await pending; } catch (error) { if (identity === actor && serial === generation) message = '素材讀取未確認：' + error.message; throw error; } finally { render(); } }); }
+  function action(callback) { return work(async () => { const actor = identity; let serial = generation; try { const pending = callback(); serial = generation; await pending; } catch (error) { if (identity === actor && serial === generation) message = '素材讀取未確認：' + error.message + '；請重新讀取素材庫再試，仍失敗就把這句話告訴管理員。'; throw error; } finally { render(); } }); }
   const actions = Object.freeze({ load: () => action(load), download: (serial, assetId) => action(() => {
     const asset = catalogue?.assets.find(item => item.assetId === assetId);
     if (serial !== catalogueSerial || !asset) throw new Error('先重新讀取精確修訂的素材庫。');
