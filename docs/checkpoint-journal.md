@@ -515,6 +515,14 @@ LSP：3 clean、1 个 lane 的 console.log 风格警告（与既有 lane 同款�
 
 ## 5. 当前阻塞
 
+0. **v0.1.10 已发布并上线**（2026-11-04）：commit `c5de53d`、tag `v0.1.10`、Release
+   `https://github.com/tianyi092-jcza/dragon/releases/tag/v0.1.10`（只推 `github` 远端，Gitea 镜像按用户指示不在本次发布目标内）。
+   镜像 `dragon-editor-publication:20261104-bc1-ui5`，回滚点 `app-prev12-*`、`.env.before-20261104-bc1-ui5`、
+   备份 `publication-20261104T125224Z`；32 × 15s 轮询后 healthy。公网实测：`/shell-ui.js` 200 / **698189**、
+   `/client.js` 200 / 20931（含「這次沒有完成」「REQUEST_TIMEOUT」）、`/publish.js` 200 / 28401（含「正在校驗全部章節」
+   「正在提交」「還沒拿到確定結果」、phase 6 处）、工作台 `/` 200；玩家端 registry **200 / generation 3**，
+   仍列出「卧龙传·重构版」1.0 / 20 章（部署未影响已上架内容）。
+
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。
 2. **已封存／已退役，都不是现行门**：`verify_editor_backend_deletion_definitions`（`pinned/worker.js` 世代快照）、`verify_editor_fullcopy_water_browser`（水域面板未挂载＋旧壳 id）。
 3. **手动 harness（非 CI 级门）**：`verify_editor_roles_browser`、`verify_trial_app_boot`、`verify_editor_backend_admin_copy`（需 `MINIFLARE_MODULE`）。
