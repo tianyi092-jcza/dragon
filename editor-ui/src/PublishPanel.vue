@@ -6,23 +6,31 @@ import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
 const stateTags = { draft: 'info', pending: 'warning', listed: 'success' };
 const time = value => value === '—' ? value : new Date(value).toLocaleString();
-const checking = ref(false), percent = ref(0), phase = ref('');
+const overlay = ref(null), elapsed = ref(0);
+let ticker = null, closer = null;
+const stop = () => { if (ticker) { clearInterval(ticker); ticker = null; } if (closer) { clearTimeout(closer); closer = null; } };
+// 阻塞遮罩：只針对「正在跑的那一个动作」。不管结果如何，最后都要关掉回到正常页面。
+function open(title) { stop(); overlay.value = { title, line: '', failed: false }; elapsed.value = 0; ticker = setInterval(() => { elapsed.value++; }, 1000); }
+function close() { stop(); overlay.value = null; }
+async function attached(title, run) {
+  open(title);
+  try { await run(); close(); }
+  catch (error) {
+    // 失敗或逾時：先在遮罩第二行說明原因，然後自動關閉；同樣的句子會留在面板訊息裡。
+    overlay.value = { title, line: (error && error.message) || '處理未完成（原因未回報）。', failed: true };
+    if (ticker) { clearInterval(ticker); ticker = null; }
+    closer = setTimeout(() => { closer = null; close(); }, 2500);
+  }
+}
 async function publish(row) {
   try {
     await ElMessageBox.confirm(`上架會先校驗整個遊戲（全部章節與跨章引用）。通過後版本號自動 +1（本次 ${row.nextVersion}）並提交管理員審核；校驗失敗則狀態不變並列出錯誤。`, `上架「${row.name}」`, { type: 'warning', confirmButtonText: '上架', cancelButtonText: '取消' });
   } catch { return; }
-  props.actions.publish(row.gameId);
+  await attached('正在處理上架…', () => props.actions.publish(row.gameId));
 }
 async function check(row) {
   if (props.busy || props.model.checkDisabled) return;
-  checking.value = true; percent.value = 15; phase.value = `正在校驗「${row.name}」的全部章節…`;
-  const timer = setInterval(() => { percent.value = Math.min(92, percent.value + 3); }, 700);
-  try { await props.actions.check(row.gameId); }
-  catch { /* 失敗摘要由 #publish-message 顯示 */ }
-  finally {
-    clearInterval(timer); percent.value = 100;
-    setTimeout(() => { checking.value = false; percent.value = 0; phase.value = ''; }, 500);
-  }
+  await attached(`正在檢驗「${row.name}」…`, () => props.actions.check(row.gameId));
 }
 async function remove(row) {
   try {
@@ -72,11 +80,12 @@ async function remove(row) {
       <ElButton id="publish-forget" :disabled="busy || model.forgetDisabled" @click="actions.forget()">只停止本機追蹤</ElButton>
     </div>
     <p id="publish-result">{{ model.result }}</p>
-    <div v-if="checking" id="publish-overlay" class="progress-overlay" role="alertdialog" aria-busy="true">
+    <div v-if="overlay" id="publish-overlay" class="progress-overlay" role="alertdialog" aria-busy="true">
       <div class="progress-card">
-        <p id="publish-overlay-text">{{ phase }}</p>
-        <div class="progress-track"><div class="progress-fill" :style="{ width: percent + '%' }"></div></div>
-        <small>{{ percent }}%（只讀校驗，不修改資料、不提交上架）</small>
+        <p id="publish-overlay-text">{{ overlay.title }}</p>
+        <!-- 第二行：處理過程；失敗或逾時就在這一行說明原因 -->
+        <p id="publish-overlay-line">{{ overlay.failed ? overlay.line : (model.phase || '正在處理…') }}</p>
+        <small id="publish-overlay-elapsed">{{ overlay.failed ? '上面這句話也會留在面板訊息裡' : '已用 ' + elapsed + ' 秒；完成後會自動關閉，也可以切到別的頁面' }}</small>
       </div>
     </div>
   </section>

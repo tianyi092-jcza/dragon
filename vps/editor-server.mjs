@@ -79,6 +79,10 @@ export async function startEditorServer({ storage, bucket, env, runtimeStager, f
   try { authority = new URL(service.origin).host; }
   catch { throw new TypeError('configured editor origin'); }
   const server = createServer({ maxHeaderSize: 8192, requestTimeout: 30000, headersTimeout: 10000 }, async (request, response) => {
+    // 每個請求都留一條可查證的收據：慢到不合理或抛錯就寫 JSON 事件，方便用 docker logs 對帳。
+    // 不記請求體、cookie、token、idempotency key。
+    const startedAt = Date.now(), route = (request.url ?? '').split('?')[0].slice(0, 200);
+    const elapsed = () => Date.now() - startedAt;
     try {
       if (request.headers.host?.toLowerCase() !== authority) throw new HttpError(403, 'ORIGIN_REJECTED');
       if (!request.url?.startsWith('/') || request.url.startsWith('//') || /[\\#\x00-\x20]/.test(request.url)) throw new HttpError(400, 'INVALID_URL');
@@ -97,7 +101,9 @@ export async function startEditorServer({ storage, bucket, env, runtimeStager, f
       response.writeHead(reply.status);
       if (reply.body) await pipeline(Readable.fromWeb(reply.body), response);
       else response.end();
+      if (elapsed() > 15000 || reply.status >= 500) process.stdout.write(JSON.stringify({ event: 'request-slow', method: request.method, route, status: reply.status, ms: elapsed() }) + '\n');
     } catch (error) {
+      process.stdout.write(JSON.stringify({ event: 'request-failed', method: request.method, route, ms: elapsed(), code: error instanceof HttpError ? error.code : 'INTERNAL_ERROR', message: String(error?.message ?? '').slice(0, 200) }) + '\n');
       if (response.headersSent) { response.destroy(); return; }
       const reply = errorReply(error instanceof HttpError ? error.status : 500, error instanceof HttpError ? error.code : 'INTERNAL_ERROR');
       response.writeHead(reply.status, { ...Object.fromEntries(reply.headers), Connection: 'close' });
