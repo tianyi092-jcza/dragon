@@ -396,6 +396,17 @@ pending 超时清扫、仍持租约不被收、已 committed 不动、模板实�
 `verify_editor_copy_modes` 5/5、`verify_workbench_produce_game_browser` **7/7**；`editor-ui` 重建（shell-ui.txt 694832 bytes）。
 LSP：3 clean、1 个 lane 的 console.log 风格警告（与既有 lane 同款）。
 
+### 4.18 4.17 已提交并部署生产（2026-11-04）
+
+- 提交：`ceb03ad fix(copy): 沒複製成功的副本不再留下名稱與資料`（本地，未 push）。
+- 镜像：`dragon-editor-publication:20261104-bc1-ui2`（用 `cp -a app app-new2` + 解包，保留远端 `dist`，因此没有重新播种）。
+- 备份 `publication-20261104T104200Z`（含隔离恢复校验）；回滚点 `app-prev9-20261104T104210`、`.env.before-20261104-bc1-ui2`；
+  `EDITOR_DEPLOYMENT_ID=20261104-bc1-ui2`。
+- 健康：`up -d --force-recreate` 后约 **4–5 分钟** healthy（启动仍要校验 1439 个程序物件）；日志只有 `started`/`distribution-idle`。
+- 公网实测：`/shell-ui.js` 200 / **694832** 字节，含「已丟棄這次的資料」、「已寫入」；
+  **不含**「正在核對原鍵」「複製遊戲（續）」（旧 60 秒循环与「續」已下线）；工作台 `/` 200；
+  玩家端 `/play-api/v1/registry` → **503 REGISTRY_EMPTY**（未上架状态未变）。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。
