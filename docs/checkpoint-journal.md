@@ -333,6 +333,46 @@
   工作台 200；玩家端 `/play-api/v1/registry` → **503 REGISTRY_EMPTY**（无根，即文档记载的 bootstrap 前状态）；
   玩家首页 200。下一次上架会从 generation 1 重新播种，并由 `drainOne` 写第一份指针。
 
+### 4.16 工作台「複製遊戲」追蹤：一次跑到完成、進度改為檔案數（2026-11-04，未提交）
+
+用户反馈兩件事（原話）：「我按续后，还是60秒未完成」「弹窗的进度提示不要使用百分比进度，不准确，就用背后的文件数量完成
+进度一致表示就可以」「要确认复制完后，不要再有什么续」。
+
+**60 秒与「續」的真實來源**：`editor-ui/src/copy.js` 的 `runExisting()` 在 `/run` 回應被代理層切斷後，用
+`for i<20` + 3 秒輪詢共 60 秒，超時就寫「可稍後再按（續）」。服務端 `POST /api/admin/copies/<key>/run` 是**同一個請求內同步跑完**
+（`await this.adminCopies.execute(...)`，租約 300000ms），Cloudflare 約 100 秒 / nginx 499 會切断回應但不中止執行；
+再按「續」時 `claim` 因 `running` 且租約未過而回 409 `COPY_NOT_CLAIMABLE`，用戶只會看到同一個 60 秒循環。
+**所以 60 秒不是服務端上限，只是前端自動核對的上限。**
+
+- `editor-ui/src/copy.js`：刪掉 20×3s 迴圈，新增 `track(t, key)` —— 依 `leaseUntil` 判斷「仍在執行（只讀輪詢）」或
+  「租約已過/從未 claim（用同一原鍵再跑，最多 3 次）」；`409 COPY_NOT_CLAIMABLE / COPY_ALREADY_RUNNING / COPY_CHANGED`
+  與網絡中斷都不算失敗，改走只讀查核；`TRACK_MS = 15 分種` 到頂也只提示「重新載入會自動接著核對，不必按任何按鈕」。
+  `setIdentity()` 現在會自動 `resume()` 手上那一筆原鍵（用户已按過複製的那一筆，不是新開操作）；完成即 `release()` 本機原鍵。
+  不再輸出 `resume`（即「（續）」）與任何百分比。
+- `server/admincopy.js`：`#summary` 新增 `objects`（`copy_objects` 實際列數），供 UI 報「已寫入 N 個檔案」。
+  不給百分比：總數要等 baseline 與 candidate 兩份文件都編碼完才知道。
+- `editor-ui/src/CopyGamePanel.vue`：彈窗標題直接用 `model.message`（與背景面板同一句話），進度條改無限循环條紋（
+  `.progress-fill.indeterminate`），按鈕永遠是「複製遊戲」；彈窗改由 `model.tracking` 驅動（重新載入後也顯示）。
+
+**順手修掉的 C 批回歸（真實缺陷）**：C 批讓 `#postPurge` 在回執裡加 `reclamation`，但工作台兩個回執驗證器
+（`server/public/review.txt`、`server/public/publish.txt`）用 `fields()` 做**嚴格鍵集合相等**，多一個鍵就丟
+「徹底刪除回執格式無效」→ 瀏覽器上刪除整個遊戲永遠停在「已柵欄、尚未徹底刪除」。
+現在兩處都接受選填 `reclamation` 並校驗形狀（`completed` 必須帶 `pointer`，`pending` 必須帶非空 `code`），
+並在結果文案裡如實報告（已回收 / 未設定 / 未完成）。
+
+**驗證（本輪實跑）**：新增 `tools/verify_copy_tracking.mjs` 6 checks（一次點擊到完成、只用檔案數、重跑被拒不當失敗、
+租約過期才同鍵重跑、重新載入自動接着核對、已取消不重跑）；`verify_editor_copy_modes` 5/5（HEAD 原本 3/5：
+修正兩條把「本機原鍵在完成後仍存在」當契約的舊断言）；`verify_publish_ui_model` 新增 1 組（回收結果四種形狀 + 五種非法形狀），
+該 lane 共 7 pass/8 fail，與 HEAD 基線相同（既有陳舊紅，非本改動）；`verify_workbench_produce_game_browser` **7 checks 全綠**
+（含刪除舊產物 fence→purge 200，即上面那個回歸修好的證據）；`verify_editor_shell` 92、`verify_editor_workbench_browser` 219 全綠；
+`editor-ui/build.mjs --check` 相符（shell-ui.txt 694445 bytes / shell-ui.css 54698 bytes）。
+LSP：7 個改動檔案 5 confirmed clean、1 ast-grep 警告（`verify_publish_ui_model.mjs:82` 既有 nested-ternary）、
+1 個 silent-on-clean 服務無法確認（記為未確認，不是 0 診斷）。
+
+**未做（待用户決定）**：上架/刪除面板那三個按鈕（查詢原操作／以原鍵重試／只停止本機追蹤）是否刪除。
+它們只在有 journal 待核對時可用，正常流程下恒為灰；若要刪除，`publish.txt` 的 `submit`/`remove` 得改成
+「重按同一動作就重用原鍵重送」（幂等）並自動查詢一次，否則會出現「有原鍵但沒有完成手段」的死锁。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。

@@ -39,7 +39,9 @@ test('minimal create stays on /api/games: no registry field, no admin API, own k
   const reserve = h.calls.find(([path, body]) => path === '/api/games' && body !== undefined);
   assert.deepEqual(reserve[1], { name: '新遊戲', introduction: '只複製地圖' });
   const key = reserve[2].key;
-  assert.equal(h.entries.get('editor-copy-operation:author'), key);
+  // 追蹤跑完就釋放本機原鍵（不再留下需要人再按「續」核對的殘骸）；命名空間由 run 路徑證明。
+  assert.equal(h.entries.size, 0);
+  assert.equal(h.entries.has('editor-fullcopy-operation:author'), false);
   const run = h.calls.find(([path]) => String(path).endsWith('/run'));
   assert.equal(run[0], '/api/games/create/' + encodeURIComponent(key) + '/run');
   assert.deepEqual(run[2], { revision: '1' });
@@ -58,16 +60,19 @@ test('full copy stays on /api/admin/copies: server-chosen registry, separate key
   h.ui.actions.setField('introduction', '');
   assert.equal(h.model.visible, true);
   await h.ui.actions.create();
-  assert.equal(h.calls[0][0], '/api/admin/source');
+  // 完整副本的來源登記只能來自 /api/admin/source（名稱先驗的唯讀清單查詢在前，不算來源）。
+  assert.ok(h.calls.some(([path]) => path === '/api/admin/source'));
   const reserve = h.calls.find(([path]) => path === '/api/admin/copies');
   assert.deepEqual(reserve[1], { registryId: 'fixed-source', name: '複製遊戲', introduction: '' });
   const key = reserve[2].key;
-  assert.equal(h.entries.get('editor-fullcopy-operation:admin'), key);
+  // 追蹤跑完就釋放本機原鍵；兩種模式的鍵命名空間不共用。
+  assert.equal(h.entries.size, 0);
   assert.equal(h.entries.has('editor-copy-operation:admin'), false);
   const run = h.calls.find(([path]) => String(path).endsWith('/run'));
   assert.equal(run[0], '/api/admin/copies/' + encodeURIComponent(key) + '/run');
   assert.deepEqual(run[2], { revision: '1' });
-  assert.ok(h.calls.every(([path]) => path !== '/api/games'));
+  // 對 /api/games 的呼叫只能是名稱先驗的唯讀查詢（不得帶 body 提交建立請求）。
+  assert.ok(h.calls.filter(([path]) => path === '/api/games').every(([, body]) => body === undefined));
   assert.doesNotMatch(JSON.stringify(h.model), /private|hidden/);
 });
 
@@ -98,6 +103,7 @@ test('author minimal create never reads the administrator source registry', asyn
   h.ui.actions.setField('name', '作者新建');
   await h.ui.actions.create();
   assert.equal(h.calls.filter(([path]) => path === '/api/admin/source').length, 0);
+  // 未完成的操作保留本機原鍵（可自動接著核對），不是自動建立第二份。
   assert.equal(h.entries.get('editor-copy-operation:author') !== undefined, true);
   assert.equal(h.ui.canLeave(true), false);
   assert.equal(h.model.createDisabled, true);

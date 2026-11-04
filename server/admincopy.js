@@ -38,7 +38,10 @@ export class AdminFullCopy {
   #actor(tokenHash, prior) { const actor = this.#principal(tokenHash); if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED'); if (!this.#roles.includes(actor.role)) fail(403, 'FULL_COPY_ADMIN_REQUIRED'); if (prior && (actor.id !== prior.id || actor.epoch !== prior.epoch)) fail(401, 'SESSION_INVALID'); return actor; }
   #row(actor, operationKey) { key(operationKey); const row = this.#one('SELECT * FROM copy_requests WHERE actor=? AND op_key=?', actor.id, operationKey); if (!row) fail(404, 'COPY_NOT_FOUND'); if (row.auth_epoch !== actor.epoch) fail(409, 'COPY_OPERATION_REVOKED'); return row; }
   #source(tokenHash, row) { const source = this.#catalog.status(tokenHash, row.registry_id), definition = this.#catalog.definition(); if (source.definitionDigest !== row.definition_digest || source.rootDigest !== row.catalog_root || definition.profileRevision !== FIXED_COPY_PROFILE || ![FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE].includes(row.profile_revision)) fail(409, 'COPY_SOURCE_CHANGED'); }
-  #summary(row) { return { gameId: row.game_id, state: row.state, rowRevision: row.row_revision, generation: row.generation, leaseUntil: row.lease_until, registryId: row.registry_id }; }
+  // 進度只報客觀事實：copy_objects 裡這筆操作已暫存的物件數（去重後的實際檔案數）。
+  // 不報百分比：總數要等兩份文件都編碼完才知道，臆造比例會誤導。
+  #objects(gameId) { return Number(this.#one('SELECT COUNT(*) AS n FROM copy_objects WHERE game_id=?', gameId)?.n ?? 0); }
+  #summary(row) { return { gameId: row.game_id, state: row.state, rowRevision: row.row_revision, generation: row.generation, leaseUntil: row.lease_until, registryId: row.registry_id, objects: this.#objects(row.game_id) }; }
   reserve(tokenHash, operationKey, input) {
     const actor = this.#actor(tokenHash), values = request(input); key(operationKey);
     const source = this.#catalog.status(tokenHash, values.registryId), definition = this.#catalog.definition();

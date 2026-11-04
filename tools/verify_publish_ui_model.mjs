@@ -93,6 +93,41 @@ test('刪除 posts the fresh revision and name; the row disappears only after th
  assert.ok(h.calls.some(call => call[0] === '/api/admin/games/' + GAME + '/purge'), '柵欄成立後必須真的發物理刪除請求');
  assert.deepEqual(h.model.rows.map(entry => entry.gameId), [OTHER]);
 });
+test('C 批：刪除回執的 R2 回收結果會被驗證並如實回報（未設定／失敗不得寫成已回收）', async () => {
+ // 生產的 purge 回執多一個 reclamation；工作台必須接受它，且不得因此判定格式無效
+ // （C 批新增此欄位時，review/publish 兩個驗證器都把它當成非法欄位）。
+ const cases = [
+  [{ state: 'completed', pointer: 'rewritten', objects: 12 }, /在架指標與 R2 位元組已回收/],
+  [{ state: 'completed', pointer: 'already-absent', objects: 0 }, /在架指標與 R2 位元組已回收/],
+  [{ state: 'pending', code: 'RECLAIMER_UNCONFIGURED', objects: 0 }, /R2 回收未設定/],
+  [{ state: 'pending', code: 'RECLAIM_FAILED', objects: 0 }, /R2 回收未完成（RECLAIM_FAILED）/],
+ ];
+ for (const [reclamation, pattern] of cases) {
+  const h = setup(); await h.ui.actions.refresh();
+  h.reply(async path => {
+   if (path === '/api/games/submissions') return { games: [row(), row({ gameId: OTHER })] };
+   if (path.endsWith('/deletion')) return fence();
+   if (path.endsWith('/purge')) return { version: 1, gameId: GAME, state: 'purged', tables: 33, removed: { content_games: 1 }, purgedAt: TIME, reclamation };
+   throw new Error(path);
+  });
+  await h.ui.actions.remove(GAME, '4');
+  assert.match(h.model.result, /已徹底刪除（不可恢復）/);
+  assert.match(h.model.result, pattern);
+ }
+ // 形狀不合的回收結果一律當成回執無效，不得靜默接受。
+ for (const broken of [{ state: 'done', objects: 0 }, { state: 'completed', objects: 1 }, { state: 'pending', code: '', objects: 0 }, { state: 'pending', code: 'X', pointer: 'rewritten', objects: 0 }, { state: 'completed', pointer: 'rewritten', objects: 0, extra: 1 }]) {
+  const h = setup(); await h.ui.actions.refresh();
+  h.reply(async path => {
+   if (path === '/api/games/submissions') return { games: [row(), row({ gameId: OTHER })] };
+   if (path.endsWith('/deletion')) return fence();
+   if (path.endsWith('/purge')) return { version: 1, gameId: GAME, state: 'purged', tables: 33, removed: { content_games: 1 }, purgedAt: TIME, reclamation: broken };
+   throw new Error(path);
+  });
+  await h.ui.actions.remove(GAME, '4');
+  assert.doesNotMatch(h.model.result, /已徹底刪除（不可恢復）/, '格式無效的回收結果不得被當成已刪除：' + JSON.stringify(broken));
+  assert.match(h.model.result, /柵欄|格式/);
+ }
+});
 test('B3 §6 任何狀態都可刪：已上架也直接送出，過期修訂仍不送', async () => {
  const h = setup(); h.setGames([row({ state: 'listed', version: '1.0', stateTime: TIME })]); await h.ui.actions.refresh();
  assert.equal(h.model.rows[0].deleteDisabled, false); assert.match(h.model.rows[0].deleteHint, /刪除整個遊戲.*不是刪除單個版本.*不可恢復/);

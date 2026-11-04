@@ -19,9 +19,9 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const mapviewModel = reactive({games:[],lines:[],locked:true});
   const catalogModel = reactive({categories:[],category:'portrait',filter:'',rows:[],total:0,loaded:false,message:'',loading:false});
   const generalsModel = reactive({games:[],chapters:[],generals:[],factions:[],library:[],locked:true,saveDisabled:true});
-  const copyModel = reactive({name:'',introduction:'',games:[],locked:true,createDisabled:true,resume:false,message:''});
+  const copyModel = reactive({name:'',introduction:'',games:[],locked:true,createDisabled:true,tracking:false,message:''});
   // B6 管理員「複製遊戲」：獨立控制器與模型，不與「新建遊戲」共用輸入或追蹤鍵。
-  const fullCopyModel = reactive({visible:false,name:'',introduction:'',message:'',locked:true,createDisabled:true,resume:false});
+  const fullCopyModel = reactive({visible:false,name:'',introduction:'',message:'',locked:true,createDisabled:true,tracking:false});
   const publicationModel = reactive({rows:[],locked:true,refreshDisabled:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true,operation:'',result:'',message:''});
   const managementModel = reactive({games:[],locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
   const reviewModel = reactive({ rows: [], message: '', result: '', locked: true, refreshDisabled: true });
