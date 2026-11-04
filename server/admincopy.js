@@ -7,6 +7,9 @@ import { FixedCopyProfile, FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE } from './
 import { GameSnapshotVerifier } from './snapshots.js';
 import { fail } from './security.js';
 const hash = value => createHash('sha256').update(value).digest('hex');
+// 從未 claim 的 pending 列超過這個寬限期就當成中斷（分頁關了、請求從未到 /run）。
+// 保留 reserve→run 的正常间隙（請求本體很小），又不讓死列永久佔住名稱。
+const STALE_PENDING_MS = 30000;
 function text(value) { let s = ''; try { for (const token of canonicalSourceTokens(value)) { s += token; if (s.length > 8192) fail(413, 'COPY_REQUEST_TOO_LARGE'); } } catch (error) { if (error.status) throw error; fail(422, 'COPY_REQUEST'); } return s; }
 function parsed(s) { try { return JSON.parse(s); } catch { fail(503, 'COPY_RECORD_CORRUPT'); } }
 function request(input) {
@@ -42,6 +45,35 @@ export class AdminFullCopy {
   // 不報百分比：總數要等兩份文件都編碼完才知道，臆造比例會誤導。
   #objects(gameId) { return Number(this.#one('SELECT COUNT(*) AS n FROM copy_objects WHERE game_id=?', gameId)?.n ?? 0); }
   #summary(row) { return { gameId: row.game_id, state: row.state, rowRevision: row.row_revision, generation: row.generation, leaseUntil: row.lease_until, registryId: row.registry_id, objects: this.#objects(row.game_id) }; }
+  // 未完成的複製不得留下任何東西（用戶回報：沒複製成功卻佔住名稱）。
+  // 收回＝終止狀態＋歸還名稱＋把半成品物件標成 abandoned；已 commit 的一律不動。
+  #abandonInTxn(row, state) {
+    this.#sql.exec("UPDATE copy_requests SET state=?,lease_hash=NULL,lease_until=0,row_revision=? WHERE actor=? AND op_key=?", state, String(BigInt(row.row_revision) + 1n), row.actor, row.op_key);
+    this.#sql.exec('DELETE FROM content_names WHERE game_id=?', row.game_id);
+    this.#sql.exec("UPDATE copy_objects SET state='abandoned' WHERE game_id=?", row.game_id);
+  }
+  // 已無執行中請求的舊操作：pending 超過寬限期（從未 claim，例如分頁關了）或 running 而租約已過。
+  // 仍持租約的執行中請求不動它：它會在各自的 #lease 檢查裡失敗或成功。
+  #abandonStaleInTxn(actor) {
+    const now = Date.now();
+    for (const row of this.#sql.exec("SELECT * FROM copy_requests WHERE actor=? AND state IN ('pending','running')", actor.id).toArray()) {
+      const dead = row.state === 'running' ? Number(row.lease_until) <= now : Date.parse(row.created_at) <= now - STALE_PENDING_MS;
+      if (dead) this.#abandonInTxn(row, 'failed');
+    }
+  }
+  // 執行失敗（來源變更、租約失效、物件衝突…）：立刻收回，使用者可用同一個名稱重試。
+  #abandonFailed(cap) {
+    try {
+      const known = this.#caps.get(cap);
+      if (!known) return;
+      this.#storage.transactionSync(() => {
+        const row = this.#one('SELECT * FROM copy_requests WHERE actor=? AND op_key=?', known.actor.id, known.operationKey);
+        // 只收回自己這次 lease 那份：別人已重新 claim 或已 commit 的不動。
+        if (!row || row.state !== 'running' || row.generation !== known.generation || row.lease_hash !== known.leaseHash) return;
+        this.#abandonInTxn(row, 'failed');
+      });
+    } catch { /* 收回失敗不得掩蓋原始錯誤；仍有 reserve 前的 stale 清掃兵底 */ }
+  }
   reserve(tokenHash, operationKey, input) {
     const actor = this.#actor(tokenHash), values = request(input); key(operationKey);
     const source = this.#catalog.status(tokenHash, values.registryId), definition = this.#catalog.definition();
@@ -51,6 +83,8 @@ export class AdminFullCopy {
     return this.#storage.transactionSync(() => {
       this.#actor(tokenHash, actor); const old = this.#one('SELECT * FROM copy_requests WHERE actor=? AND op_key=?', actor.id, operationKey);
       if (old) { if (old.request_digest !== requestDigest(old.profile_revision)) fail(409, 'IDEMPOTENCY_CONFLICT'); this.#row(actor, operationKey); this.#source(tokenHash, old); return this.#summary(old); }
+      // 上一次沒跑完的複製不得佔住名稱：先收回已無執行中請求的舊操作，再檢查名稱。
+      this.#abandonStaleInTxn(actor);
       if (this.#one('SELECT op_key FROM content_operations WHERE actor=? AND op_key=?', actor.id, operationKey) || this.#one('SELECT op_key FROM content_reservations WHERE actor=? AND op_key=?', actor.id, operationKey)) fail(409, 'IDEMPOTENCY_CONFLICT');
       this.#games.assertNameAvailableInTxn(tokenHash, values.metadata.name);
       const id = crypto.randomUUID(); if (this.#one('SELECT game_id FROM content_used_ids WHERE game_id=?', id)) fail(409, 'GAME_ID_USED');
@@ -101,7 +135,9 @@ export class AdminFullCopy {
   }
   async execute(tokenHash, cap) {
     this.#lease(tokenHash, cap); if (this.#executing.has(cap)) fail(409, 'COPY_ALREADY_RUNNING'); this.#executing.add(cap);
-    try { return await this.#execute(tokenHash, cap); } finally { this.#executing.delete(cap); }
+    try { return await this.#execute(tokenHash, cap); }
+    catch (error) { this.#abandonFailed(cap); throw error; }
+    finally { this.#executing.delete(cap); }
   }
   async #execute(tokenHash, cap) {
     const { actor, row } = this.#lease(tokenHash, cap), allocation = this.#games.recoverGameId(tokenHash, cap);

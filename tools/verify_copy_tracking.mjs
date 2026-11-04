@@ -134,3 +134,18 @@ test('已取消的原操作只回報結果，不建立副本也不重跑', async
   assert.equal(await waitFor(() => /已取消/.test(h.model.message)), true);
   assert.equal(paths(h, '/run').length, 0);
 });
+
+test('服務端判定失敗時直接結束：訊息說明已丟棄、本機原鍵釋放、同名可直接重試', async () => {
+  const journal = new Map([['editor-fullcopy-operation:admin-1', 'existing-key-1234567890']]);
+  let replied = false;
+  const h = setup({ journal, reply: async path => {
+    if (path === '/api/games') return { games: [] };
+    if (!replied) { replied = true; return pending({ state: 'running', leaseUntil: Date.now() + 60000, objects: 12 }); }
+    return pending({ state: 'failed', rowRevision: '2' });
+  } });
+  assert.equal(await waitFor(() => /未完成，服務端已丟棄/.test(h.model.message)), true, '失敗要明確說已丟棄');
+  assert.doesNotMatch(h.model.message, /續|仍在處理/);
+  assert.equal(h.model.tracking, false, '失敗是終點，不再追蹤');
+  assert.equal(h.journal.size, 0, '失敗後釋放本機原鍵，名稱可直接重用');
+  assert.equal(paths(h, '/run').length, 0, '載入後只讀核對，不自動重跑');
+});

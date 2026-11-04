@@ -373,6 +373,29 @@ LSP：7 個改動檔案 5 confirmed clean、1 ast-grep 警告（`verify_publish_
 它們只在有 journal 待核對時可用，正常流程下恒為灰；若要刪除，`publish.txt` 的 `submit`/`remove` 得改成
 「重按同一動作就重用原鍵重送」（幂等）並自動查詢一次，否則會出現「有原鍵但沒有完成手段」的死锁。
 
+### 4.17 沒複製成功的副本不得留下任何東西（2026-11-04，未提交）
+
+用户回報（原話）：「上一个没复制成功，但数据还在，重新新建时显示名称重复，这是个bug。没复制成功的，不应该保存下来。」
+
+**原因（读代码定位）**：`server/admincopy.js` 的 `reserve()` 会立刻写 `content_names(owner,name,game_id)` 与 `content_reservations`，
+但 `execute()` 失败时什么都没回收：`copy_requests` 停在 `pending`／`running`，名称列永远占着 →
+同名 reserve 被 `assertNameAvailableInTxn` 判 `GAME_NAME_OCCUPIED`。上一次只取消（`cancel()`）才有清理。
+
+- `#abandonInTxn(row,state)`：终止状态 + `lease_hash=NULL/lease_until=0` + 删该 gameId 的 `content_names` +
+  `copy_objects` 标 `abandoned`。已 `committed` 的行一律不动。
+- `execute()` 失败即 `#abandonFailed(cap)`（只收回仍属自己这次 lease 的那份，别人重新 claim/已 commit 的不动），
+  状态记 **`failed`**；失败信息不掩盖原始错误（内部 catch 全部吞掉，`reserve` 前的清扫兵底）。
+- `reserve()` 在名称检查前跑 `#abandonStaleInTxn(actor)`：`running` 且租约已过，或 `pending` 超过
+  `STALE_PENDING_MS=30000`（从没 claim 过，例如分页被关）→ 当作中断收回。仍持租约的请求不碰。
+- 客户端 `editor-ui/src/copy.js`：`failed` 进 `decodeSummary` 白名单；`track()` 与 `runExisting()` 都把
+  `failed` 当终点 —— 文案「未完成，服務端已丟棄這次的資料（名稱已釋放），可修改後直接重新複製。」+ `release()` 本机原键。
+
+**驗證**：新增 `tools/verify_copy_abandon.mjs` **14 checks**（真实 in-memory SQLite：失败后状态/租约/名称/物件、同名重试成功、
+pending 超时清扫、仍持租约不被收、已 committed 不动、模板实例角色门）；`verify_copy_tracking` **7/7**（新增 failed 终点用例）；
+`verify_author_create` 18 checks、`verify_formal_name_occupancy` 19、`verify_editor_game_quota` PASS（真实复制路径）、
+`verify_editor_copy_modes` 5/5、`verify_workbench_produce_game_browser` **7/7**；`editor-ui` 重建（shell-ui.txt 694832 bytes）。
+LSP：3 clean、1 个 lane 的 console.log 风格警告（与既有 lane 同款）。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。

@@ -52,7 +52,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     const objects = Number.isSafeInteger(data.objects) && data.objects >= 0 ? data.objects : null;
     const leaseUntil = Number.isSafeInteger(data.leaseUntil) && data.leaseUntil >= 0 ? data.leaseUntil : 0;
     if (revision(data.draftRevision)) return { gameId: data.gameId, draftRevision: data.draftRevision, objects, leaseUntil };
-    if (!['pending', 'running', 'canceled'].includes(data.state) || !revision(data.rowRevision)) throw new Error('新建狀態回應無效。');
+    if (!['pending', 'running', 'canceled', 'failed'].includes(data.state) || !revision(data.rowRevision)) throw new Error('新建狀態回應無效。');
     return { gameId: data.gameId, state: data.state, rowRevision: data.rowRevision, objects, leaseUntil };
   }
   function listingState(game) {
@@ -172,6 +172,8 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     }
     if (summary.draftRevision) { message = label + '已建立。'; release(); if (!full) await ownGames(t); render(); return; }
     if (summary.state === 'canceled') { message = '此原操作已取消，未產生副本。'; render(); return; }
+    // 失敗＝服務端已收回這筆操作（名稱也退回了），不保存任何東西；清掉本機原鍵讓名稱可直接重用。
+    if (summary.state === 'failed') { message = label + '未完成，服務端已丟棄這次的資料（名稱已釋放），可修改後直接重新複製。'; release(); render(); return; }
     if (!pending()) { message = '此原操作已結束，未產生副本。'; render(); return; }
     needsQuery = false;
     await track(t, key);
@@ -193,6 +195,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       if (!valid(t) || operation !== key) return;
       if (summary?.draftRevision) return;
       if (summary?.state === 'canceled') { message = '此原操作已取消，未產生副本。'; render(); return; }
+      if (summary?.state === 'failed') { message = label + '未完成，服務端已丟棄這次的資料（名稱已釋放），可修改後直接重新複製。'; release(); render(); return; }
       if (Date.now() - started > TRACK_MS || mode === 'run' && runs >= MAX_RUNS) {
         needsQuery = true;
         message = label + '仍在處理（' + (summary?.state ?? 'pending') + '）；' + stagedText() + '。伺服器尚未回報完成，重新載入本頁會自動接著核對，不必按任何按鈕。';
