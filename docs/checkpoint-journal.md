@@ -30,7 +30,7 @@
 | `c9eaf7a` | 进度即时（写请求与只读轮询并行）、进入即加载、提示写清楚 |
 | `c5de53d` | 上架阻塞遮罩 + 分步状态（`phase`）、全站提示改为可读文案（v0.1.10） |
 | `fbeeca0` | A 路線：发布日志 `game_releases` + 回执 `releaseDigest`（54表／52索引／361列／4FK） |
-| `609151a` | 发布历史面板（第 2 档）：`GET /api/admin/games/<id>/releases` + 审核页行内展开 |
+| `73fbdc6` | 发布历史面板（第 2 档）：`GET /api/admin/games/<id>/releases` + 审核页行内展开 |
 
 ## 3. 本轮技术决定（长期有效）
 
