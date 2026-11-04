@@ -79,7 +79,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  // 分發狀態（A 路線第一版）：GET 狀態與同步上架回執共用同一套欄位與語意，
  // 只有 confirmed 才代表這次代次曾被觀測為公開。releaseId 由呼叫端指定。
  function distributionStatus(d, gameId, releaseId) {
-  if (!fields(d, ['gameId', 'operationId', 'generation', 'kind', 'state', 'visibleAt', 'recoveryRequired']) || d.gameId !== gameId || d.operationId !== releaseId || d.kind !== 'publish' || !Number.isSafeInteger(d.generation) || d.generation < 1 || typeof d.recoveryRequired !== 'boolean' || !['pending', 'confirmed'].includes(d.state) || (d.state === 'pending' ? d.visibleAt !== null : !iso(d.visibleAt))) throw new Error('分發狀態無效；不推定成功。');
+  if (!fields(d, ['gameId', 'operationId', 'generation', 'kind', 'state', 'visibleAt', 'releaseDigest', 'recoveryRequired']) || d.gameId !== gameId || d.operationId !== releaseId || d.kind !== 'publish' || !Number.isSafeInteger(d.generation) || d.generation < 1 || (d.releaseDigest !== null && !digest(d.releaseDigest)) || typeof d.recoveryRequired !== 'boolean' || !['pending', 'confirmed'].includes(d.state) || (d.state === 'pending' ? d.visibleAt !== null : !iso(d.visibleAt))) throw new Error('分發狀態無效；不推定成功。');
   return Object.freeze({ ...d });
  }
  function statusReceipt(value, t) {

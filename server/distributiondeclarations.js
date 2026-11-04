@@ -4,7 +4,8 @@
 // The 3-table baseline (state/events/chunks) landed in d2acb08; retirement
 // checkpoint, cleanup and enqueue-barrier tables are frozen here too because the
 // ledger DDL has owned them since d301c49 (retirement and backup/restore lanes
-// read them). Total: 6 ledger tables, no new foreign key.
+// read them). Total: 6 ledger tables, no new foreign key. game_releases is the
+// A-route publication log: one row per published release, no payload, no FK.
 function freeze(value) {
   if (value && typeof value === 'object') {
     for (const item of Object.values(value)) freeze(item);
@@ -19,10 +20,12 @@ export const DISTRIBUTION_LAYOUTS = freeze({
   content_distribution_checkpoints: [[0,'checkpoint_digest','TEXT',0,null,1,0],[1,'authority_id','TEXT',1,null,0,0],[2,'retired_generations','TEXT',1,null,0,0],[3,'anchor_digest','TEXT',1,null,0,0],[4,'created_at','TEXT',1,null,0,0]],
   content_distribution_cleanup: [[0,'checkpoint_digest','TEXT',0,null,1,0],[1,'retired_generations','TEXT',1,null,0,0],[2,'deleted_generations','TEXT',1,"'[]'",0,0],[3,'state','TEXT',1,null,0,0],[4,'started_at','TEXT',1,null,0,0],[5,'completed_at','TEXT',0,null,0,0]],
   content_distribution_enqueue_barrier: [[0,'singleton','INTEGER',0,null,1,0],[1,'paused','INTEGER',1,null,0,0]],
+  game_releases: [[0,'game_id','TEXT',1,null,1,0],[1,'version','TEXT',1,null,2,0],[2,'digest','TEXT',1,null,0,0],[3,'state','TEXT',1,null,0,0],[4,'published_at','TEXT',0,null,0,0]],
 });
 export const DISTRIBUTION_KEYS = freeze([
   {table:'content_distribution_chunks',index:'sqlite_autoindex_content_distribution_chunks_1',columns:['generation','part']},
   {table:'content_distribution_events',index:'sqlite_autoindex_content_distribution_events_1',columns:['operation_id']},
+  {table:'game_releases',index:'sqlite_autoindex_game_releases_1',columns:['game_id','version']},
 ]);
 const additions = freeze({
   objects: [
@@ -36,10 +39,12 @@ const additions = freeze({
     ['table','content_distribution_checkpoints','content_distribution_checkpoints','CREATE TABLE content_distribution_checkpoints (checkpoint_digest TEXT PRIMARY KEY, authority_id TEXT NOT NULL, retired_generations TEXT NOT NULL, anchor_digest TEXT NOT NULL, created_at TEXT NOT NULL)'],
     ['table','content_distribution_cleanup','content_distribution_cleanup',"CREATE TABLE content_distribution_cleanup (checkpoint_digest TEXT PRIMARY KEY, retired_generations TEXT NOT NULL, deleted_generations TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL CHECK(state IN ('in-progress','completed')), started_at TEXT NOT NULL, completed_at TEXT)"],
     ['table','content_distribution_enqueue_barrier','content_distribution_enqueue_barrier','CREATE TABLE content_distribution_enqueue_barrier (singleton INTEGER PRIMARY KEY CHECK(singleton=1), paused INTEGER NOT NULL CHECK(paused IN (0,1)))'],
+    ['index','sqlite_autoindex_game_releases_1','game_releases',null],
+    ['table','game_releases','game_releases',"CREATE TABLE game_releases (game_id TEXT NOT NULL, version TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','confirmed')), published_at TEXT, PRIMARY KEY(game_id,version))"],
   ],
-  fk: {content_distribution_chunks:[[0,0,'content_distribution_events','generation','generation','NO ACTION','NO ACTION','NONE']],content_distribution_events:[],content_distribution_state:[],content_distribution_checkpoints:[],content_distribution_cleanup:[],content_distribution_enqueue_barrier:[]},
-  indexList: {content_distribution_chunks:[[0,'sqlite_autoindex_content_distribution_chunks_1',1,'pk',0]],content_distribution_events:[[0,'sqlite_autoindex_content_distribution_events_1',1,'u',0]],content_distribution_state:[],content_distribution_checkpoints:[[0,'sqlite_autoindex_content_distribution_checkpoints_1',1,'pk',0]],content_distribution_cleanup:[[0,'sqlite_autoindex_content_distribution_cleanup_1',1,'pk',0]],content_distribution_enqueue_barrier:[]},
-  indexInfo: {sqlite_autoindex_content_distribution_chunks_1:[[0,0,'generation',0,'BINARY',1],[1,1,'part',0,'BINARY',1],[2,-1,null,0,'BINARY',0]],sqlite_autoindex_content_distribution_events_1:[[0,1,'operation_id',0,'BINARY',1],[1,-1,null,0,'BINARY',0]],sqlite_autoindex_content_distribution_checkpoints_1:[[0,0,'checkpoint_digest',0,'BINARY',1],[1,-1,null,0,'BINARY',0]],sqlite_autoindex_content_distribution_cleanup_1:[[0,0,'checkpoint_digest',0,'BINARY',1],[1,-1,null,0,'BINARY',0]]},
+  fk: {content_distribution_chunks:[[0,0,'content_distribution_events','generation','generation','NO ACTION','NO ACTION','NONE']],content_distribution_events:[],content_distribution_state:[],content_distribution_checkpoints:[],content_distribution_cleanup:[],content_distribution_enqueue_barrier:[],game_releases:[]},
+  indexList: {content_distribution_chunks:[[0,'sqlite_autoindex_content_distribution_chunks_1',1,'pk',0]],content_distribution_events:[[0,'sqlite_autoindex_content_distribution_events_1',1,'u',0]],content_distribution_state:[],content_distribution_checkpoints:[[0,'sqlite_autoindex_content_distribution_checkpoints_1',1,'pk',0]],content_distribution_cleanup:[[0,'sqlite_autoindex_content_distribution_cleanup_1',1,'pk',0]],content_distribution_enqueue_barrier:[],game_releases:[[0,'sqlite_autoindex_game_releases_1',1,'pk',0]]},
+  indexInfo: {sqlite_autoindex_content_distribution_chunks_1:[[0,0,'generation',0,'BINARY',1],[1,1,'part',0,'BINARY',1],[2,-1,null,0,'BINARY',0]],sqlite_autoindex_content_distribution_events_1:[[0,1,'operation_id',0,'BINARY',1],[1,-1,null,0,'BINARY',0]],sqlite_autoindex_content_distribution_checkpoints_1:[[0,0,'checkpoint_digest',0,'BINARY',1],[1,-1,null,0,'BINARY',0]],sqlite_autoindex_content_distribution_cleanup_1:[[0,0,'checkpoint_digest',0,'BINARY',1],[1,-1,null,0,'BINARY',0]],sqlite_autoindex_game_releases_1:[[0,0,'game_id',0,'BINARY',1],[1,1,'version',0,'BINARY',1],[2,-1,null,0,'BINARY',0]]},
 });
 export function withDistributionDefinitions(baseline) {
   const compare = (a,b) => { if (a < b) return -1; if (a > b) return 1; return 0; };

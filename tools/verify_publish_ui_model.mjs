@@ -12,7 +12,7 @@ const TIME = '2026-11-01T00:00:00.000Z';
 const author = (version = 1) => ({ user: { id: ACTOR, role: 'author', version, mustChangePassword: false } });
 const row = (over = {}) => ({ gameId: GAME, name: '臥龍傳', introduction: '原文', version: null, state: 'draft', stateTime: null, restricted: false, rejected: false, rowRevision: '4', createdAt: TIME, ...over });
 const pin = () => ({ gameId: GAME, name: '臥龍傳', revision: '4', sourceDigest: 'd'.repeat(64), chapters: [GAME + '#chapter-1'], publishedAt: TIME, ordinal: '1.0' });
-const receipt = state => ({ version: 1, gameId: GAME, releaseId: RELEASE, pin: pin(), distribution: { gameId: GAME, operationId: RELEASE, generation: 1, kind: 'publish', state, visibleAt: state === 'pending' ? null : TIME, recoveryRequired: false } });
+const receipt = state => ({ version: 1, gameId: GAME, releaseId: RELEASE, pin: pin(), distribution: { gameId: GAME, operationId: RELEASE, generation: 1, kind: 'publish', state, visibleAt: state === 'pending' ? null : TIME, recoveryRequired: false, releaseDigest: 'e'.repeat(64) } });
 const fence = (expected = '4') => ({ createdAt: TIME, gameId: GAME, rowRevision: String(BigInt(expected) + 1n), state: 'fenced' });
 const failure = (status, code) => Object.assign(new Error(code), { status, code });
 function setup(customStorage) {

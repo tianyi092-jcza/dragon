@@ -148,12 +148,20 @@ export class GameManagement {
   let reference=null;
   if (changed) {
    if (!record || record.deduped !== false || record.gameId !== result.gameId || record.kind !== kind || !uuid(record.operationId) || !Number.isSafeInteger(record.generation) || record.generation < 1) fail(503,'MANAGEMENT_DISTRIBUTION_CORRUPT');
-   reference={operationId:record.operationId,generation:record.generation};
+   reference={operationId:record.operationId,generation:record.generation,releaseDigest:this.#releaseDigest(result.gameId)};
    this.#distributionRow(result.gameId,kind,reference);
   } else if (record !== null) fail(503,'MANAGEMENT_DISTRIBUTION_CORRUPT');
   const text=encodeManagementReceipt(result,reference);
   if (Buffer.byteLength(text) > (kind === 'listing' ? 65536 : 16384)) fail(503,'MANAGEMENT_RECEIPT_CORRUPT');
   return text;
+ }
+ // 回執記錄的是「哪一個 release」：取該遊戲當前 release 在發布日誌裡的 digest，
+ // 沒上架過（或從未發布）就是 null，不推定也不編造。
+ #releaseDigest(id) {
+  const current=this.#one('SELECT c.ordinal AS version FROM content_games g JOIN content_releases c ON c.game_id=g.game_id AND c.release_id=g.current_release_id WHERE g.game_id=?',id);
+  if (!current) return null;
+  const log=this.#one('SELECT digest FROM game_releases WHERE game_id=? AND version=?',id,current.version);
+  return log ? log.digest : null;
  }
  #distributionRow(id,kind,reference) {
   const row=this.#one('SELECT game_id,kind,generation FROM content_distribution_events WHERE operation_id=?',reference.operationId);

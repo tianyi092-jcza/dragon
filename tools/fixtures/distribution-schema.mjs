@@ -29,14 +29,14 @@ export async function verifyDistributionSchema(storage, ledger) {
   assert.ok(Number.isSafeInteger(sql.databaseSize) && sql.databaseSize > 0);
   checks.push('actual provider consuming cursor and finite logical database byte count');
   const facts = assertDeletionDefinitions(sql);
-  assert.equal(facts.tablesVerified, 53); assert.equal(facts.indexesVerified, 51); assert.equal(facts.foreignKeyDeclarationsVerified, 4);
-  assert.equal(rows("SELECT name FROM sqlite_master WHERE type='table'").reduce((n,t)=>n+rows(`PRAGMA table_xinfo(${t.name})`).length,0),356);
+  assert.equal(facts.tablesVerified, 54); assert.equal(facts.indexesVerified, 52); assert.equal(facts.foreignKeyDeclarationsVerified, 4);
+  assert.equal(rows("SELECT name FROM sqlite_master WHERE type='table'").reduce((n,t)=>n+rows(`PRAGMA table_xinfo(${t.name})`).length,0),361);
   const original = rows('SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name');
-  checks.push('exact 53 tables / 51 indexes / 356 columns / four FK declarations');
+  checks.push('exact 54 tables / 52 indexes / 361 columns / four FK declarations');
   assert.equal(inspectDeclaredForeignKeyRows(sql).edgesVerified, 4);
-  assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified, 49);
-  assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared, 49);
-  checks.push('all four typed edges and 49 native covering index/unique scans');
+  assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified, 50);
+  assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared, 50);
+  checks.push('all four typed edges and 50 native covering index/unique scans');
   rollback(() => { sql.exec('CREATE TABLE future_ledger (id INTEGER)'); rejected(()=>assertDeletionDefinitions(sql),'DELETE_SCHEMA_DEFINITION'); });
   rollback(() => { sql.exec('CREATE INDEX future_index ON content_distribution_events(game_id)'); rejected(()=>assertDeletionDefinitions(sql),'DELETE_SCHEMA_DEFINITION'); });
   rollback(() => { sql.exec("CREATE TRIGGER future_trigger AFTER INSERT ON content_distribution_events BEGIN SELECT 1; END"); rejected(()=>assertDeletionDefinitions(sql),'DELETE_SCHEMA_DEFINITION'); });
@@ -64,8 +64,8 @@ export async function verifyDistributionSchema(storage, ledger) {
   rollback(() => {
     enqueue();
     assert.equal(inspectDeclaredForeignKeyRows(sql).rowsChecked,1);
-    assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified,49);
-    assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared,49);
+    assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified,50);
+    assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared,50);
     assert.throws(()=>sql.exec('INSERT INTO content_distribution_chunks SELECT * FROM content_distribution_chunks'));
     assert.throws(()=>sql.exec('INSERT INTO content_distribution_events SELECT generation+1,operation_id,kind,game_id,previous_digest,operation_digest,payload_digest,payload_length,chunk_count,created_at,state,attempts,confirmed_at,receipt_json FROM content_distribution_events'));
   }); checks.push('actual integer generation edge and both native UNIQUE constraints');
@@ -135,5 +135,5 @@ export async function verifyDistributionSchema(storage, ledger) {
   assert.equal(lists,beforeDistributionLists+1); assert.equal(ledger.status().tailGeneration,1);
   checks.push('cross-game enqueue during list is rejected at await boundary, no second list');
   assert.equal(assertDeletionDefinitions(sql).schemaDigest,facts.schemaDigest);
-  return {checks,groups:checks.length,tables:53,indexes:51,columns:356,foreignKeys:4,scope:'owned SQL and deletion observation only; populated global ledger deliberately unsupported, no producer/drain/physical deletion proof'};
+  return {checks,groups:checks.length,tables:54,indexes:52,columns:361,foreignKeys:4,scope:'owned SQL and deletion observation only; populated global ledger deliberately unsupported, no producer/drain/physical deletion proof'};
 }

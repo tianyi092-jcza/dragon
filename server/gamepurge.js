@@ -16,6 +16,7 @@ const TABLES = Object.freeze([
   'content_announcements',
   'content_snapshots',
   'content_releases',
+  'game_releases',
   'published_games',
   'published_packs',
   'published_pack_chapters',

@@ -342,6 +342,32 @@ control/current.json                                全站在架列表 + 根版�
 3. **跨实例未同步**：推进串行化只在同一应用实例内（HTTP 并发已覆盖）；两个进程同时推进同一帳本靠 `drainOne` 幂等与 CAS守住语义，但它们各自等自己的队列，回執的 `state` 取的是那一瞬的观测值（客户端仍会补查）；上生产前应保持单实例。
 4. **未重现** `COMMITTED_SYNC_PENDING` 的生产条件（本地 lane 只模拟了「推进抛错」），也没有真实 R2 网络延迟下的耗时样本。
 
+## 12.1 上生产记录：A 路線第一版（2026-11-04，镜像 `20261104-bc1-ui6`）
+
+| 项 | 值 |
+| --- | --- |
+| 提交 | `b8d62b0`（A 路線第一版 + 文案/门重修 + 版本记录） |
+| 镜像 tag | `dragon-editor-publication:20261104-bc1-ui6`（`sha256:f19ef5b7…`） |
+| 回滚点 | 容器 dir：`app-prev13-<ts>`；数据：`/root/dragon-editor-backups/publication-20261104T153126Z` |
+| 静态发布 digest | **未变**（本轮只改 `server/`、`vps/`，未动 `web/` 与 `trialweb.txt`，`git archive` 内的安装校验输入不变） |
+| 首次健康 | 9 分钟（首启归档静态程序 1439 个物件，与 §12.2 坑 3 同形） |
+
+步骤（较上一轮省了两步）：`git archive HEAD server vps reader tools web VERSION .gitattributes | gzip -1`（161 MB）
+→ `scp` 到 `dartnode:/srv/dragon-editor/publication/app-wip-ui6.tgz`（48 s）
+→ 解包 `app-new13` → `docker build -f app-new13/vps/Dockerfile.publication -t dragon-editor-publication:20261104-bc1-ui6 app-new13`
+→ `./backup-publication.sh` → `mv app app-prev13-<ts>` → `mv app-new13 app` → `.env` 改 `EDITOR_DEPLOYMENT_ID` → `docker compose up -d --force-recreate` → 轮询 health。
+**没有动 nginx、没有动 `publication.env` 的三处静态 pin、没有 `wrangler deploy`**——本轮没有玩家端字节变化，`/play-api/v1/registry` 仍是 `generation 3`。
+
+上线后只读实测：`/` 200、`/api/health` 200（`accounts-sessions`、`initialized:true`）、
+`/shell-ui.js` **698276**（＝本地构建产物）、`/publish.js` **30121**（＝本地 29839 加换行转换）、玩家端 `registry` 200／generation 3。
+
+**开关与回滚**：`EDITOR_SYNC_PUBLISH` 未设＝开（上架／同意在本次请求内推进）。要退回旧协议：在 `publication.env` 加
+`EDITOR_SYNC_PUBLISH=0` 并 `docker compose up -d --force-recreate`，**不必换镜像、不必回滚数据**（本批没有 schema 变更）。
+要整镜像回滚：`docker compose down` → `mv app app-ui6-failed && mv app-prev13-<ts> app` → `.env` 改回 `20261104-bc1-ui5` → `up -d`。
+
+**未验证**：生产环境没有做一次真实上架，所以「真 R2 网络下的同步耗时」与「上架后立刻对玩家可见」仍只有本地证据
+（`verify_publish_sync` 11 组＋`verify_frozen_publication_root` 46 组，内存 R2）。这一步要管理员在生产点一次上架才能量到。
+
 ## 13. 部署记录：A+B+C 已上生产（2026-11-04）
 
 这一次部署同时改了两个面：**VPS 工作台/发布器**（`dragon-editor.720108.xyz`）与 **Cloudflare 玩家端 Worker**
@@ -410,3 +436,53 @@ control/current.json                                全站在架列表 + 根版�
 - 结果：53 张表 0 行（除平台行）、`foreign_key_check` 0、`integrity_check` ok；容器 healthy；工作台 200；
   玩家端 registry `503 REGISTRY_EMPTY`、首页 200。
 - **注意**：清空后首次启动仍要读 1439 个程序物件做核准核对，healthy 需要约 **6–8 分钟**。
+
+## 14. 发布日志 `game_releases`（additive，2026-11-04）
+
+用户选择方案 **A**：只做「新增审计日志 + 回执带 digest」，**不动** 7 张 `content_distribution_*` 表与 drainer。理由是实测阻塞（不是偏好）：
+
+- `content_distribution_chunks` 是崩溃一致性**唯一载体**：payload 是累积 catalog，`firstOnline.generation` 自引用，`publicationproducer.#catalog` 从 `ledger.entry(tail).payload` 反序列化。删表等于删掉恢复能力。
+- 远端头对账以 events 代次为锚；`EDITOR_SYNC_PUBLISH=0` 回滚路径就是 drainer。
+- 生产库里已有真实数据（generation 3），删表批是不可回滚的单向操作。
+
+### 14.1 语义
+
+`game_releases(game_id, version, digest, state, published_at)`：
+
+| 列 | 含义 | 来源 |
+|---|---|---|
+| `game_id`、`version` | 哪一次发布 | `payload.runtime.ordinal`（`^1\.(0\|[1-9][0-9]*)$`） |
+| `digest` | 该次发布的 operation digest | `distribution_events.operation_digest` |
+| `state` | `pending` → `confirmed` | 入账时 pending，`confirmInTxn` 时转 confirmed |
+| `published_at` | 可见时间 | `saved.visibleAt` |
+
+- 只在 `kind === 'publish'` 且信封里真有 `runtime.ordinal` 时写行；合成/纯传输 publish（无 runtime）不写。
+- `runtime` 存在但 ordinal 非法 → 422 `DISTRIBUTION_OPERATION`，且不落半行（写行在 chunks 之前、同事务）。
+- 主键 `(game_id, version)`：同版本重放走 `requireRecord` 校验，不同 operation digest 抢同一版本 → 503 `DISTRIBUTION_LEDGER_CORRUPT`；不静默覆盖。
+- 管理回执 `distribution.releaseDigest` 只是**镜像**（`managementreceipt` version 2），权威仍是 ledger；旧 version 1 回执逐字节兼容。
+- `releaseLog(gameId)` 是只读旁路，按 rowid 升序返回冻结数组。
+
+### 14.2 改动清单
+
+`server/distributionledger.js`（DDL + `releaseVersionOf` + `payloadBytes` 返回 `{bytes,envelope}` + `enqueueInTxn`/`confirmInTxn` 写日志 + `operationStatus.releaseDigest` + `releaseLog`）、`server/management.js`（回执带 digest）、`server/managementreceipt.js`（v1/v2 双版本逐版本重序列化校验）、`server/deletionfence.js`（v1/v2 回执都接受，仍校验 `result_json` 逐字节一致）、`server/public/publish.txt`（`distributionStatus` 加 `releaseDigest` 校验）、`server/distributiondeclarations.js`（layout/keys/additions/fk/indexList/indexInfo）、`server/deletioninventory.js`、`server/gamepurge.js`（purge 一并删日志行）。
+
+### 14.3 计数门新基线
+
+表 **53 → 54**、索引 **51 → 52**、列 **356 → 361**、唯一键/索引投影 **49 → 50**、FK 仍 **4**。
+同步点：`tools/fixtures/distribution-schema.mjs`、`tools/fixtures/publication-browser-authority.mjs`、`tools/verify_{distribution_schema,editor_schema_sources,frozen_publication_root,publish_operations_root,vps_editor_server}.mjs`。
+
+### 14.4 归档证据门故意不回改
+
+`tools/verify_editor_backend_{bound_sql_freeze,declared_fk_rows,declared_unique_rows,deletion_definitions,index_projections,name_bindings,sql_check_rows,management}.mjs` 是**归档证据门**：需要 `process.argv[2]` 轮次号 + `before.json` 里的源码哈希快照，其 fixture-worker 是当初冻结的副本。把里面的 53 改成 54 只会让文件与自己的快照自相矛盾，所以保持原样；现行 schema 由上面 14.3 的活门（54/52/361）与新 lane `tools/verify_release_log.mjs` 负责。
+
+### 14.5 验证（本次实跑）
+
+新 lane `verify_release_log` **11 组绿**；`verify_distribution_ledger` 31、`verify_distribution_schema`（workerd 54/52/361）、`verify_distribution_schema_rows` 18、`verify_publication_producer` 25、`verify_publish_sync` 11、`verify_frozen_publication_root` 46、`verify_publish_operations_root` 31、`verify_vps_editor_server` 12、`verify_publication_server` 18、`verify_publication_main` 93、`verify_publication_catalog` 35、`verify_deletion_catalog_scan` 22、`verify_directory_pointer` 22、`verify_publication_chain_browser` 10（真浏览器）、`verify_editor_workbench_browser` 219、`verify_publication_ui_browser` 7、`verify_review_ui_browser` 6、`verify_editor_shell` 92、`verify_publish_ui_model` 9 通过／7 失败（7 条与改动前基线同名同数）、`verify_distribution_{drainer 35,outbox 10,receipts 23,receipts_workerd 23,restore 5,resources 45,resources_workerd 45,publisher 37,publisher_workerd 37,ledger_backup_restore 7,ledger_cleanup_races 6,ledger_retirement 18,ledger_workerd 30}`、`verify_deletion_{scan_retirement 5,retirement_prototype 7,completion_readiness 5}`、`verify_publish_atomicity` 15、`verify_frozen_player_surface` 13、`verify_vps_frozen_service` 14。
+
+既有失败（用 `git worktree add /tmp/wt-head HEAD` 在 HEAD 上复现，与本批无关）：`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution`(+`_workerd`)、`verify_publish_ui_model` 的 7 条。
+
+### 14.6 仍未做
+
+- 生产库尚未建这张表：本次**未部署**（需用户授权）。首次部署会在既有库上 `CREATE TABLE IF NOT EXISTS`，纯 additive。
+- 日志不会回填历史（只有部署后的第一次发布才有行）；`releaseDigest` 在管理回执里的语义只是「这次发布的账本摘要」，不改可见性与审核流程。
+- drainer 退役与 7 张表退场仍未做（本轮明确不做）。

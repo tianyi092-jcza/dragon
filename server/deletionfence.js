@@ -63,8 +63,8 @@ export class GameDeletionFence {
     const value = parse(operation.result_json);
     if (!value || typeof value !== 'object' || Array.isArray(value)) { fail(503, 'DELETE_RECEIPT_CORRUPT'); }
     if (!Object.hasOwn(value, 'version')) { return { result: value, distribution: undefined }; }
-    const ref = value.distribution;
-    if (value.version !== 1 || Object.keys(value).sort().join(',') !== 'distribution,result,version' || !ref || Array.isArray(ref) || Object.keys(ref).sort().join(',') !== 'generation,operationId' || !uuid(ref.operationId) || !Number.isSafeInteger(ref.generation) || ref.generation < 1 || JSON.stringify({ version: 1, result: value.result, distribution: ref }) !== operation.result_json) { fail(503, 'DELETE_RECEIPT_CORRUPT'); }
+    const ref = value.distribution, logged = value.version === 2;
+    if ((value.version !== 1 && value.version !== 2) || Object.keys(value).sort().join(',') !== 'distribution,result,version' || !ref || Array.isArray(ref) || Object.keys(ref).sort().join(',') !== (logged ? 'generation,operationId,releaseDigest' : 'generation,operationId') || !uuid(ref.operationId) || !Number.isSafeInteger(ref.generation) || ref.generation < 1 || (logged && ref.releaseDigest !== null && !/^[a-f0-9]{64}$/.test(ref.releaseDigest)) || JSON.stringify({ version: value.version, result: value.result, distribution: ref }) !== operation.result_json) { fail(503, 'DELETE_RECEIPT_CORRUPT'); }
     this.#distribution(operation.game_id, ref);
     return { result: value.result, distribution: Object.freeze({ ...ref }) };
   }

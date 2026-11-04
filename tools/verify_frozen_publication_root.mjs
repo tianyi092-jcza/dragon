@@ -48,7 +48,7 @@ try {
     sql.exec('INSERT INTO users VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', id, account, role, '{}', 0, 0, 1, 1, '', '', '', '');
     sql.exec('INSERT INTO sessions VALUES(?,?,?,?,?)', tokenHash, id, 1, Date.now() + 3600000, Date.now() + 3600000);
   }
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 53);
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 54);
   const csrf = await mac(`csrf:${token}`, secret);
   const scenarioNames = { 'Frozen one': 'Frozen1', 'Frozen two': 'Frozen2' };
   const call = async (label, key, extra = {}) => {
@@ -137,7 +137,7 @@ try {
   const statusBefore = fingerprint(), pendingStatus = await publicationStatus('owned-frozen-publish-01');
   assert.deepEqual(pendingStatus.pin, first.value);
   assert.equal(pendingStatus.releaseId, app.frozenDistribution.entry(1).operationId);
-  assert.deepEqual(pendingStatus.distribution, { gameId, operationId: pendingStatus.releaseId, generation: 1, kind: 'publish', state: 'pending', visibleAt: null, recoveryRequired: false });
+  assert.deepEqual(pendingStatus.distribution, { gameId, operationId: pendingStatus.releaseId, generation: 1, kind: 'publish', state: 'pending', visibleAt: null, releaseDigest: app.frozenDistribution.entry(1).operationDigest, recoveryRequired: false });
   assert.equal((await publicationStatus('owned-frozen-publish-01', 404, adminToken)).error, 'GAME_NOT_FOUND');
   await publicationStatus('owned-frozen-publish-01', 401, null);
   await publicationStatus('owned-frozen-publish-01', 404, token, ADMIN);
@@ -195,7 +195,10 @@ try {
   assert.deepEqual(await managementRequest(listingRequest),listed);assert.equal(tail(),2);
   const beforeManagementStatus=fingerprint(), pendingManagement=await managementStatus(listingRequest);
   assert.deepEqual(pendingManagement.result,listed);assert.equal(pendingManagement.version,1);assert.equal(pendingManagement.gameId,gameId);
-  assert.deepEqual(pendingManagement.distribution,{gameId,operationId:app.frozenDistribution.entry(2).operationId,generation:2,kind:'listing',state:'pending',visibleAt:null,recoveryRequired:false});
+  assert.deepEqual(pendingManagement.distribution,{gameId,operationId:app.frozenDistribution.entry(2).operationId,generation:2,kind:'listing',state:'pending',visibleAt:null,releaseDigest:null,recoveryRequired:false});
+  // 非發布事件不在狀態回執裡冒充 release 身分；定格的那一份在管理回執（v2 外殼）。
+  { const stored=JSON.parse(sql.exec('SELECT result_json FROM content_operations WHERE op_key=?',listingRequest.headers.get('Idempotency-Key')).toArray()[0].result_json);
+    assert.equal(stored.version,2); assert.equal(stored.distribution.releaseDigest,app.frozenDistribution.releaseLog(gameId)[0].digest); }
   await managementStatus(listingRequest,403,token);await managementStatus(listingRequest,401,null);await managementStatus(listingRequest,404,adminToken,ADMIN);
   await managementStatus('owned-unknown-management',404);await managementStatus(listingRequest,422,adminToken,gameId,'?extra=1');
   assert.equal(fingerprint(),beforeManagementStatus);groups++;
@@ -302,7 +305,7 @@ try {
   assert.deepEqual(Buffer.from(app.frozenDistribution.entry(1).payload),frozen1,'historical content remains: this is NOT physical deletion');
   const publicProjection=JSON.parse(staging.objects.get(staging.prefix+`projections/8/${JSON.parse(staging.objects.get(staging.prefix+'control/current.json').bytes).digest}/projection.json`).bytes);
   assert.equal(Object.hasOwn(publicProjection,'catalog'),false);assert.equal(JSON.stringify(publicProjection).includes('Frozen2'),false);
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified,53);groups++;
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified,54);groups++;
   // Quiescent whole-application restore. These are fenced (not physically
   // erased) records; preserving them must never be reported as erase closure.
   const allRows = db => db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").toArray().map(({ name }) => {
@@ -332,7 +335,7 @@ try {
   try {
     const restoredBucket = new FileBucket({ root: join(scratch, 'restored-objects') });
     const restoredApp = new (createEditorApplication(class {}, { runtimeStager: staging.stager, frozenPublication: true }))({ storage: restoredStorage }, { ...env, EDITOR_BLOBS: restoredBucket });
-    assert.equal(assertDeletionDefinitions(restoredStorage.sql).tablesVerified, 53);
+    assert.equal(assertDeletionDefinitions(restoredStorage.sql).tablesVerified, 54);
     assert.deepEqual(restoredStorage.sql.exec('PRAGMA integrity_check').toArray().map(row => row.integrity_check), ['ok']);
     assert.deepEqual(allRows(restoredStorage.sql), rowsBefore);
     assert.equal(treeHash(join(scratch, 'restored-objects')), objectsBefore); groups++;
@@ -440,5 +443,5 @@ try {
     assert.equal(treeHash(join(scratch, 'objects')), objectsBefore);
     assert.equal(sha(readFileSync(join(scratch, 'source.sqlite'))), sourceFileDigest); groups++;
   } finally { restoredStorage.close(); }
-  process.stdout.write(JSON.stringify({scope:'frozen-publication-root',groups,generations:8,chapters:20,privateReads:reads,rootWrites:writes,restoredTables:53,static:staging.stats(),limits:'actual common Request/file SQLite/compiler and quiescent restore; in-memory R2 and Node reader, not S3/physical deletion/browser/production'})+'\n');
+  process.stdout.write(JSON.stringify({scope:'frozen-publication-root',groups,generations:8,chapters:20,privateReads:reads,rootWrites:writes,restoredTables:54,static:staging.stats(),limits:'actual common Request/file SQLite/compiler and quiescent restore; in-memory R2 and Node reader, not S3/physical deletion/browser/production'})+'\n');
 } finally { if (!sourceClosed) storage.close(); rmSync(scratch,{recursive:true,force:true}); }

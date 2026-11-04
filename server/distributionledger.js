@@ -10,6 +10,7 @@ const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 const iso = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+const ordinal = value => typeof value === 'string' && /^1\.(0|[1-9][0-9]*)$/.test(value);
 const sha = value => createHash('sha256').update(value).digest('hex');
 const kinds = new Set(['publish', 'listing', 'restriction', 'delete-fence', 'bootstrap']);
 const blocks = new Set(['REMOTE_AHEAD', 'AUTHORITY_MISMATCH', 'REMOTE_GAP', 'LEGACY_PENDING']);
@@ -21,11 +22,21 @@ function payloadBytes(value) {
   try { parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
   catch { fail(422, 'DISTRIBUTION_PAYLOAD'); }
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object' || parsed.version !== 1) fail(422, 'DISTRIBUTION_PAYLOAD');
-  return bytes;
+  return { bytes, envelope: parsed };
 }
 function receiptFields(value, identity, operationDigest) {
   if (!value || typeof value.then === 'function' || value.authorityId !== identity.authorityId || value.generation !== identity.generation || value.operationId !== identity.operationId || value.operationDigest !== operationDigest || value.payloadDigest !== identity.payloadDigest || !digest(value.rootDigest) || typeof value.rootETag !== 'string' || !value.rootETag || value.rootETag.length > 256 || /[\r\n]/.test(value.rootETag) || !iso(value.visibleAt)) fail(503, 'DISTRIBUTION_RECEIPT');
   return { authorityId: value.authorityId, generation: value.generation, operationId: value.operationId, operationDigest: value.operationDigest, payloadDigest: value.payloadDigest, rootDigest: value.rootDigest, rootETag: value.rootETag, visibleAt: value.visibleAt };
+}
+// The release a publish payload describes is part of that same frozen payload
+// (envelope.runtime.ordinal), so the log row needs no second caller-supplied
+// identity. Absent runtime means a synthetic/transport-only publish and writes
+// no log row; a present but malformed runtime is rejected, never guessed.
+function releaseVersionOf(envelope) {
+  const runtime = envelope.runtime;
+  if (runtime === undefined) return null;
+  if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime) || !ordinal(runtime.ordinal)) fail(422, 'DISTRIBUTION_OPERATION');
+  return runtime.ordinal;
 }
 function descriptor(authorityId, row) {
   return { version: 1, authorityId, generation: row.generation, operationId: row.operation_id, kind: row.kind, gameId: row.game_id, payloadDigest: row.payload_digest, previousDigest: row.previous_digest, createdAt: row.created_at };
@@ -50,6 +61,9 @@ export class FrozenDistributionLedger {
       this.#sql.exec("CREATE TABLE IF NOT EXISTS content_distribution_checkpoints (checkpoint_digest TEXT PRIMARY KEY, authority_id TEXT NOT NULL, retired_generations TEXT NOT NULL, anchor_digest TEXT NOT NULL, created_at TEXT NOT NULL)");
       this.#sql.exec("CREATE TABLE IF NOT EXISTS content_distribution_cleanup (checkpoint_digest TEXT PRIMARY KEY, retired_generations TEXT NOT NULL, deleted_generations TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL CHECK(state IN ('in-progress','completed')), started_at TEXT NOT NULL, completed_at TEXT)");
       this.#sql.exec("CREATE TABLE IF NOT EXISTS content_distribution_enqueue_barrier (singleton INTEGER PRIMARY KEY CHECK(singleton=1), paused INTEGER NOT NULL CHECK(paused IN (0,1)))");
+      // 發布日誌（A 路線）：每次上架一条，digest 就是該代次的 operation digest。
+      // 只記錄、不參與 ledger 的尾/確認代次不變量，也不是任何可見性證明。
+      this.#sql.exec("CREATE TABLE IF NOT EXISTS game_releases (game_id TEXT NOT NULL, version TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('pending','confirmed')), published_at TEXT, PRIMARY KEY(game_id,version))");
       if (!this.#one('SELECT singleton FROM content_distribution_enqueue_barrier WHERE singleton=1')) this.#sql.exec('INSERT INTO content_distribution_enqueue_barrier(singleton,paused) VALUES(1,0)');
       const existing = this.#one('SELECT authority_id FROM content_distribution_state WHERE singleton=1');
       if (existing && authorityId !== undefined && existing.authority_id !== authorityId) fail(503, 'DISTRIBUTION_AUTHORITY_CHANGED');
@@ -126,8 +140,20 @@ export class FrozenDistributionLedger {
         try { receipt = JSON.parse(row.receipt_json); }
         catch { fail(503, 'DISTRIBUTION_LEDGER_CORRUPT'); }
       }
-      return Object.freeze({ gameId, operationId, generation: row.generation, kind: row.kind, state: row.state, visibleAt: receipt?.visibleAt ?? null, recoveryRequired: state.blocked_reason !== null });
+      return Object.freeze({ gameId, operationId, generation: row.generation, kind: row.kind, state: row.state, visibleAt: receipt?.visibleAt ?? null, releaseDigest: row.kind === 'publish' ? this.#releaseDigestOf(row.game_id, row.operation_digest) : null, recoveryRequired: state.blocked_reason !== null });
     });
+  }
+  // publish 對應的 release 身分：用同一個 operation digest 精確匹對。listing／
+  // restriction 等不想發布 release 的事件回 null——該代次的 release 身分寫在
+  // 管理回執裡（提交時定格），不隨後來的新 release 遷移。
+  #releaseDigestOf(gameId, operationDigest) {
+    const log = this.#one('SELECT digest FROM game_releases WHERE game_id=? AND digest=?', gameId, operationDigest);
+    return log ? log.digest : null;
+  }
+  // 運维/管理側發佈日誌（唯讀）：每次上架一条，最新的在最後。
+  releaseLog(gameId) {
+    if (!uuid(gameId)) fail(422, 'DISTRIBUTION_GAME');
+    return this.#storage.transactionSync(() => this.#state() && Object.freeze(this.#sql.exec('SELECT game_id,version,digest,state,published_at FROM game_releases WHERE game_id=? ORDER BY rowid', gameId).toArray().map(row => Object.freeze({ gameId: row.game_id, version: row.version, digest: row.digest, state: row.state, publishedAt: row.published_at }))));
   }
   // No automatic unblock API: a remote-ahead/foreign/missing root needs recovery.
   block(reason) {
@@ -246,7 +272,8 @@ export class FrozenDistributionLedger {
   // Ambient transaction required to join release/pin/ordinal/current snapshot.
   enqueueInTxn({ operationId, kind, gameId = null, payload }) {
     if (!uuid(operationId) || !kinds.has(kind) || (kind === 'bootstrap' ? gameId !== null : !uuid(gameId))) fail(422, 'DISTRIBUTION_OPERATION');
-    const bytes = payloadBytes(payload), payloadDigest = sha(bytes), state = this.#state();
+    const parsed = payloadBytes(payload), bytes = parsed.bytes, payloadDigest = sha(bytes), state = this.#state();
+    const releaseVersion = kind === 'publish' ? releaseVersionOf(parsed.envelope) : null;
     if (state.blocked_reason !== null) fail(503, 'DISTRIBUTION_RECOVERY_REQUIRED');
     if (this.#barrierPaused()) fail(503, 'DISTRIBUTION_ENQUEUE_PAUSED');
     const prior = this.#one('SELECT * FROM content_distribution_events WHERE operation_id=?', operationId);
@@ -263,6 +290,13 @@ export class FrozenDistributionLedger {
     const row = { generation: state.tail_generation + 1, operation_id: operationId, kind, game_id: gameId, previous_digest: state.tail_digest, payload_digest: payloadDigest, created_at: new Date().toISOString() };
     const identity = descriptor(state.authority_id, row), operationDigest = sha(JSON.stringify(identity));
     const count = Math.ceil(bytes.length / DISTRIBUTION_CHUNK_BYTES);
+    if (releaseVersion !== null) {
+      // One release, one durable log row. A different operation claiming the same
+      // (game,version) is a replay/identity conflict, never a silent overwrite.
+      const logged = this.#one('SELECT digest,state,published_at FROM game_releases WHERE game_id=? AND version=?', gameId, releaseVersion);
+      if (logged) requireRecord(logged.digest === operationDigest && logged.state === 'pending' && logged.published_at === null);
+      else this.#sql.exec("INSERT INTO game_releases(game_id,version,digest,state,published_at) VALUES(?,?,?,'pending',NULL)", gameId, releaseVersion, operationDigest);
+    }
     this.#sql.exec("INSERT INTO content_distribution_events(generation,operation_id,kind,game_id,previous_digest,operation_digest,payload_digest,payload_length,chunk_count,created_at,state,attempts,confirmed_at,receipt_json) VALUES(?,?,?,?,?,?,?,?,?,?,'pending',0,NULL,NULL)", row.generation, operationId, kind, gameId, state.tail_digest, operationDigest, payloadDigest, bytes.length, count, row.created_at);
     for (let part = 0; part < count; part++) this.#sql.exec('INSERT INTO content_distribution_chunks(generation,part,bytes) VALUES(?,?,?)', row.generation, part, new Uint8Array(bytes.subarray(part * DISTRIBUTION_CHUNK_BYTES, (part + 1) * DISTRIBUTION_CHUNK_BYTES)));
     this.#sql.exec('UPDATE content_distribution_state SET tail_generation=?,tail_digest=? WHERE singleton=1 AND tail_generation=? AND tail_digest IS ?', row.generation, operationDigest, state.tail_generation, state.tail_digest);
@@ -344,6 +378,14 @@ export class FrozenDistributionLedger {
     requireRecord(this.#one('SELECT changes() AS n').n === 1);
     this.#sql.exec('UPDATE content_distribution_state SET confirmed_generation=?,confirmed_digest=? WHERE singleton=1 AND confirmed_generation=? AND confirmed_digest IS ?', row.generation, row.operation_digest, state.confirmed_generation, state.confirmed_digest);
     requireRecord(this.#one('SELECT changes() AS n').n === 1);
+    // The log row follows its publishing generation: confirmed only here, and
+    // only with the readback time the receipt itself carries.
+    const logged = row.kind === 'publish' ? this.#one("SELECT state FROM game_releases WHERE game_id=? AND digest=?", row.game_id, row.operation_digest) : null;
+    if (logged) {
+      requireRecord(logged.state === 'pending');
+      this.#sql.exec("UPDATE game_releases SET state='confirmed',published_at=? WHERE game_id=? AND digest=? AND state='pending'", saved.visibleAt, row.game_id, row.operation_digest);
+      requireRecord(this.#one('SELECT changes() AS n').n === 1);
+    }
     return Object.freeze({ ...saved, deduped: false });
   }
 }

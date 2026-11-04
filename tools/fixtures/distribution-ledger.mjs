@@ -149,7 +149,7 @@ export function exerciseDistributionLedger(createStorage) {
   });
   use(({ ledger, enqueue, ticket, tx, snapshot, storage, verifyReceipt }) => {
     const first = enqueue(1), before = snapshot();
-    const pending = { gameId: GAME, operationId: op(1), generation: 1, kind: 'publish', state: 'pending', visibleAt: null, recoveryRequired: false };
+    const pending = { gameId: GAME, operationId: op(1), generation: 1, kind: 'publish', state: 'pending', visibleAt: null, releaseDigest: null, recoveryRequired: false };
     assert.deepEqual(ledger.operationStatus(GAME, op(1)), pending);
     assert.throws(() => ledger.operationStatus(OTHER, op(1)), /DISTRIBUTION_UNKNOWN/);
     assert.throws(() => ledger.operationStatus(GAME, op(99)), /DISTRIBUTION_UNKNOWN/);
