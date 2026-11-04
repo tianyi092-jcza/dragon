@@ -217,6 +217,21 @@
   保持同一 `EDITOR_DEPLOYMENT_ID` 可避免重新播种静态发布，但即便如此首启仍要约 20 分钟才 healthy（期间 nginx 502 属正常）。
   线上 `/shell-ui.js` = 本地构建字节数（689470）。
 
+### 4.10 会话续：存储布局改为「游戏级独立」（方案 B 已定稿）
+
+- **产品口径（用户确认）**：目录投影是**游戏级**数据。管理员「复制游戏」拿到的是内置游戏那份目录，作者自建游戏拿到的是自己建的目录，
+  只是来源不同、性质相同。基础资源（`artifacts/programs/<programDigest>/`，引擎＋621 画像＋站点）全站共享，任何游戏删除都不碰。
+- **方案 B 定稿**：投影存 SQLite（按需由 `published_packs`/`published_pack_chapters` 生成），R2 只留基础资源 + 极小在架指针；
+  删除 = 删库行 + 移出在架指针，**不做引用计数、不做退役账本**。文档：[game-storage-layout.md](game-storage-layout.md) §4／§5／§8／§8.1；
+  交接提示词：[session-handoff-game-storage.md](session-handoff-game-storage.md)。
+- **生产清理（已执行）**：两份测试游戏（`149b67be…`「卧龙传[重构版]」、`4040fa50…`「卧龙传·重构版」）走「栅栏 → purge(31 表)」彻底清除；
+  结果 `games=0 fences=0 packs=0 chapters=0 chunks=0`，账号保留。`149b67be…` 的账本退役返回 `pending: DISTRIBUTION_CHECKPOINT_CONFLICT`
+  （该游戏唯一的世代是 delete-fence 事件，没有可用作 anchor 的 `operation_digest`），遗留 2 条历史事件 + 1 条 cleanup 行；
+  这些行惰性且方案 B 会整表下线，**不得直接删**（会导致 `DISTRIBUTION_LEDGER_CORRUPT`，chain lane 已实锤复现过）。
+- **R2 盘点（实测，无孤儿）**：`projections/` 1 个对象 = 当前空目录投影；`control/receipts/` 1、`control/roots/` 1 = 当前根所需；
+  `artifacts/` 1000+ = 共享程序包；`games/ test/ tmp/ drafts/` 全 0。删这三个 live 对象会让读者拿不到根（玩家端直接 502），因此不动。
+- **下一步**：A 批（上架并行写新布局，可回滚）→ B 批（读者改读 SQLite 目录）→ C 批（删除简化 + 下线 6 张 `content_distribution_*` + 新增 `game_releases`）。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。
