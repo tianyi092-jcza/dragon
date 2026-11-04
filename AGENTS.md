@@ -8,7 +8,7 @@
 - 仓库`E:/Dragon/web-port`；原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。自动化禁止访问真实`SAVE.DAT`、用户存档/profile；只用内存、mock或新隔离profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏正式版本`1.n`与软件版本、source修订、程序摘要相互独立。
 - fresh／restore走v2原生道路与固定表，生产v1路径已退役；未知消费点fail-closed，保已提交前缀、hold和禁存。不凭现代码、体验或测试补公式，不宣称完整战役已经认证。
-- 当前主线：**章節創作与工作台统一发布**。七步章節創作（建章、三面属性、势力/首都、武将、内政官）已落地；槽位已降级为原生表编码位、身份由游戏级武将库承载。下一步是把当前游戏用工作台重产一遍→上架→管理员同意→删旧游戏，此后所有游戏统一由工作台发布。作为背景：自建游戏发布、当前版本唯一政策及VPS落地已接线但**完整发布仍未就绪**（政策联合验证见R2§2.72；尚需物理回收／作者准入审计）。维护源：[R2接线](docs/r2-player-connection.md)、[VPS就绪](docs/vps-editor-readiness.md)；本轮修改、提交／部署状态与阻塞只记[checkpoint journal](docs/checkpoint-journal.md)，不在此复制。
+- 当前主线：**工作台统一发布＋游戏级存储**。软件版本 `0.1.10`（已推 GitHub、已上生产）。游戏存储方案 B 的 A/B/C 三批已全部上线：上架并行写游戏级在架指针 `control/directory.json`，读者只按指针出目录，删除 = 库行 purge + 指针移除 + `artifacts/<gameId>/` 前缀回收。生产上「复制→全面检验→上架→管理员同意→玩家端加载游玩→删旧产物」已跑通。下一步是 C 批剩余（下线 6 张 `content_distribution_*` 与退役流程、新增 `game_releases`），它等于发布协议改版，需先选「同步发布」或「新队列」。维护源：[R2接线](docs/r2-player-connection.md)、[VPS就绪](docs/vps-editor-readiness.md)、[存储布局](docs/game-storage-layout.md)；本轮修改、提交／部署状态与阻塞只记[checkpoint journal](docs/checkpoint-journal.md)，不在此复制。
 - 优先最小修改、复用现有验证，不堆框架或辅助测试。保留他人改动；commit／push分别需明确授权，推送显式使用GitHub `github`，不误推Gitea `origin`。不提交秘密、缓存、临时报告、截图或本地运行数据。
 
 ## 2. 架构与数据流
@@ -33,8 +33,8 @@
 - `web/content/builtin/`编译20章；图集、布局、拓扑与规则地形分离，画道路不等于建通路。实际资源路径取世界定义，不硬编码旧`road_graph.json`。命名state字段为权威，未知字节不补零；解析纠错导入新目录，不手改生成物。
 - IndexedDB为同源`wolong-web/saves`，目录与正文同事务；不是DOS存档或服务端API。恢复先回标题，detached校验／资源ready后安装，await后重核所属scenario／world／clock／票据。战斗、未完续段、装配或故障均禁存。
 - 编辑器schema：**53表／51索引／104对象／356列／4FK，23个DDL源**（`d301c49` 起分发账本另有退休检查点／清理／入队闸门三表，已补冻结；见 checkpoint-journal §4.2）。权威含`server/deletiondefinitions.js`、`deletionschema.js`、`distributiondeclarations.js`；旧22源生成器不再覆盖全量，不能直接覆盖当前冻结门。
-- VPS负责账户、草稿、私有Trial和编译；Cloudflare负责玩家程序及私有R2 `dragon`桶只读投影。桶布局`kao/`、`artifacts/`、`projections/`、`control/`；画像共用`web/kao`的621 PNG＋清单，禁用户上传。游戏数据发布不经Git、不重启程序。
-- 发布请求永久幂等，准确release／pin／冻结事件同事务；预上传不等于公开可见，远端根CAS与读回收据后才确认，未知响应不伪造回滚。删除栅栏不等于物理清理。
+- VPS负责账户、草稿、私有Trial和编译；Cloudflare负责玩家程序及私有R2 `dragon`桶只读投影。桶布局`kao/`（621张共享画像）、`artifacts/programs/<programDigest>/`（共享程序包）、`artifacts/<gameId>/…`（游戏级不可变发布字节）、`control/current.json`（冻结根）、`control/directory.json`（**游戏级在架指针：唯一与游戏相关的可写对象**）、`control/programs|roots|receipts/`。禁用户上传画像。游戏数据发布不经Git、不重启程序。
+- 发布请求永久幂等，准确release／pin／冻结事件同事务；预上传不等于公开可见，远端根CAS与读回收据后才确认，未知响应不伪造回滚。删除栅栏不等于物理清理；真正删除＝库行purge＋在架指针移除该gameId＋按`artifacts/<gameId>/`前缀回收，读者查不到即`410 GAME_DELETED`（墓碑与缺席等价，purge后不留墓碑）。
 - `/play-api`交给游戏reader；`/program-assets/<digest>/…`交给登记／清单／SHA门；正式根页请求由当前部署选择程序壳，普通首页走ASSETS。程序选择不是用户提供的历史摘要；八季节图基址来自模块URL。游戏版本作废与软件归档身份是不同概念。
 
 ### 2.1 编辑器与统一地图的文档职责
@@ -56,7 +56,7 @@
 - 作者仅编辑／发布自己的内容；管理员全局上下架、限制及删除，但不能替他人编辑／发布。停用账户不自动下架。编辑器桌面繁体界面，不转换用户文本，允许常规保存／取消／关闭；玩家界面仍遵循游戏交互。
 - 内置／正式自建／Trial共享源合同、编译及规则／AI／地图引擎，稳定实体ID与原运行槽分开。VPS／Cloudflare两端分别验证；引擎版本不同步时不开放新Trial／发布，不热换运行数据。
 - 草稿可不完整；试玩／发布必须验证所需依赖，发布绑定精确已保存修订，陈旧写入拒绝。发布与上架分离；版本`1.0、1.1…1.10`按整数序号递增，不回滚／复用。公开公告历史不授历史游戏准入。
-- **新版上线，旧游戏版本全部作废**：已确认更新的旧对局停止且禁存；旧档提示不能加载并自动清除，新版保存与同游戏旧档清除同事务，失败不先删旧档。同版其它槽／其它游戏保留；缺身份、损坏、网络失败、下架、删除不能冒充版本更新。仅下架且未更新的会话可继续；明确整游戏删除后提示并确认回初始页。加载存档时只有 reader 明确 `410 GAME_DELETED` 才提示「該遊戲已被刪除，存檔不可用，是否刪除？」，确认才逐槽 CAS 删除、取消／右键保留，公开目录缺行或未上架都不是删除事实。旧“选择A续玩／单档确认清理”政策已撤销。
+- **新版上线，旧游戏版本全部作废**：已确认更新的旧对局停止且禁存；旧档提示不能加载并自动清除，新版保存与同游戏旧档清除同事务，失败不先删旧档。同版其它槽／其它游戏保留；缺身份、损坏、网络失败、下架、删除不能冒充版本更新。仅下架且未更新的会话可继续。整游戏被删后玩家端弹繁体告知「該遊戲已刪除！」，只有一个「確認」按钮、右键无效（阻塞项），确认即无条件清除本机该游戏进度并回跳开局选择页；触发面包括开局加载与运行期换章，判定一律以 reader 的 `410 GAME_DELETED` 为准。旧「是否刪除？」问句与「取消／右键保留」政策已撤销。
 - Trial固定已保存、校验过的草稿快照，仅窗口内存，不读写正式存档／回写草稿／发布；可选完整章但不能跳过共享依赖。断网暂停，认证明确失效终止，重新登录须新开Trial；新窗口不等于安全隔离。
 
 ## 3. 当前Web产品约定
@@ -78,6 +78,8 @@
 - 恢复贯穿road／movement／terrain／cityCache能力，不重新合成掩盖缺失。真实JSON会丢undefined／将非有限数变null，structuredClone不能替代往返测试；内部十人单位≠显示人数，MMAP索引0不必透明，见[数据技能](../.agents/skills/re-data-formats/SKILL.md)。
 - Trial的旧roadgraph门面恒null，查询用`scenarioNativeRoadContext`。链路为issue／commit→`/api/trial/web/?trial=<uuid>`→束内`servertrialapp.js`；cookie Path=/api。POST分发必须在调用方或被调用方守权限，不能无条件漏门。等待真实画布尺寸再做浏览器操作。
 - schema变更同步冻结声明／UNIQUE投影／所有计数及受影响lane，不能只改期望值祝福旧结果。全局分发payload／在途／备份引用未闭合时，非空账本删除inventory应拒绝，不能只过滤game_id假装完整清理。
+- **工作台阻塞与文案约定**：阻塞只在「当前动作」上表达（先确认→遮罩写明正在做什么→分步状态→完成自动关闭）；等待说「在做什么」、结束说「做成了什么」、失败说「发生了什么＋能做什么＋怎么回报」，面向用户的句子不贴原键／gameId；不得用定时器假装百分比（要么真实计数，要么只说步骤）。每个请求必须有上限（只读60s／写600s），`run()`的`finally`先解锁再渲染，单面板渲染异常不得扩散。
+- **生产数据清理坑**：`publication-data/private-objects/installed` 是「已安装底层资源」字节，不是孤儿blob；删了它复制会在`loadFull`读源时必失败（reserve只查SQLite，所以预约仍成功）。清空前先看备份体积（有字节约256M，清空后只剩几百K）。R2操作习惯：`r2client.list(prefix,maxKeys)`返回key字符串数组（无分页token），`get` 404返回null；容器rootfs只读使`docker cp`不可用，查库走`docker run --rm -v …/publication-data:/data:ro node:22-bookworm-slim node /q.cjs`。
 - S3 SigV4保留空canonical query行；桶私有、凭据仓库外env。源章ID含`#`时R2保字面key、HTTP只编码一次。固定库消费者指纹改变需审差异／新身份，不覆写旧注册表或放宽SHA；画像索引硬编码与库指纹须共同核查。
 - 按`.gitattributes`保持字节；Windows工作树与云Git检出清单可能因换行不同，先核Git blob及明确eol例外，不能改预期hash掩盖差异。`git status`标M不必有真实差异，不批量reset／renormalize。
 - Workers单文件25MiB限制：静态部署排除大型创作源`game-source.json`，保留运行资产；使用显式构建，不依赖custom build hook的跨版本行为。BGM为软件OPL3输出，不是实机录音；版权／分发边界见[README](README.md)。
@@ -111,6 +113,12 @@ node tools/verify_player_restore_browser.mjs
 node tools/verify_formal_app_browser.mjs
 node tools/verify_trial_app_boot.mjs <新整数轮次>
 node tools/verify_publication_main.mjs
+node tools/verify_directory_pointer.mjs        # 指针整形/CAS/幂等/根先于指针语义
+node tools/verify_reader_directory_pointer.mjs # 读者按指针出目录，与旧投影逐字等价
+node tools/verify_game_purge.mjs               # 31表逐表0行复查
+node tools/verify_game_purge_reclaim.mjs       # 指针移除+artifacts前缀回收
+node tools/verify_copy_tracking.mjs            # 复制一次跑到完成/档案数进度/失败可见
+node tools/verify_copy_abandon.mjs             # 失败不留下名称与数据
 node tools/verify_vps_linux.mjs  # 非root Linux、原生临时文件系统、Node>=22.13
 node --check <变更JS或MJS>
 git diff --check
