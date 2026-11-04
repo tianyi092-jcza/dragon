@@ -435,6 +435,20 @@ LSP：3 clean、1 个 lane 的 console.log 风格警告（与既有 lane 同款�
 `tools/verify_copy_abandon.mjs` **14/14**；`verify_workbench_produce_game_browser` **7/7**（真实浏览器复制→上架→同意→删除旧产物）；
 `editor-ui` 重建：shell-ui.js **697562** bytes / shell-ui.css 54698 bytes。
 
+### 4.20 4.19 已提交并部署生产（2026-11-04）
+
+- 提交：`aa795a8 fix(copy): 失敗要看得到原因，不能靜默關掉彈窗`（本地，未 push）。
+- 镜像 `dragon-editor-publication:20261104-bc1-ui3`（`cp -a app app-new3` + 解包，保留远端 `dist`，未重新播种）。
+- 备份 `publication-20261104T111557Z`（含隔离恢复校验）；回滚点 `app-prev10-20261104T111622`、`.env.before-20261104-bc1-ui3`。
+- 健康：约 **12 分钟**才 healthy（启动要校验 1439 个程序物件；比上批的 5 分钟长，日志仍只有 started/distribution-idle）。
+- 公网验收：`/shell-ui.js` 200 / **697562** 字节，含「這次的資料已由服務端丟棄」（2）、`full-copy-dismiss`（1）、
+  「這次沒有產生副本」（1）、「已寫入」（1），**不含**「正在核對原鍵」；工作台 `/` 200；
+  玩家端 `/play-api/v1/registry` → **503 REGISTRY_EMPTY**（未上架状态未变）。
+- 源字节未被部署影响：`publication-data/private-objects/installed` 仍为 2 项 / 104M（在 `app` 之外，只换 app 目录不会动它）。
+
+**教训**：批量“清空到 generation 0”时不要按体积猜孤儿 —— `private-objects/installed/` 是“已安装底层资源”的字节，
+删掉不报错，但会让下一次复制一定在 `loadFull` 失败。现在的失败会被看见（弹窗不再静默关闭），而不是静默消失。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。
