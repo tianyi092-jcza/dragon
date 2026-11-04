@@ -8,7 +8,7 @@
 
 ## 1. 当前主线状态
 
-- **软件版本 `0.1.10`**，已推 GitHub（`c5de53d` / tag `v0.1.10` / Release）。**主线已前进到 `fbeeca0`＋本批**（A 路線＋发布日志＋发布历史面板），已上生产的是 **`b8d62b0`**（镜像 `20261104-bc1-ui6`，healthy）；`b8d62b0` 之后的两个提交尚未推 `github`（push 需单独授权）。Gitea `origin` 仍未推。
+- **软件版本 `0.1.11`**（本次发布）：已推 `github`（`main` = 本提交 / tag `v0.1.11` / Release），**未部署**。上一版 `0.1.10`（`c5de53d` / tag `v0.1.10`）已推 GitHub 并已上生产。生产当前跑的是 **`b8d62b0`**（镜像 `20261104-bc1-ui6`，healthy）；`fbeeca0` 之后的发布日志与发布历史面板**只在仓库里**。Gitea `origin` 仍未推（不在发布目标内）。
 - **游戏级存储（方案 B）A+B+C 三批已全部上线**：上架时并行写 `control/directory.json`（游戏级在架指针，R2 唯一与游戏相关的对象）；读者只按指针出目录；删除 = 库行 purge + 指针移除该 gameId + `artifacts/<gameId>/` 前缀回收。
 - **产品主流程在生产上已跑通**：複製遊戲（20 章全量）→ 全面檢驗 → 上架（版本 +1、状态「待上架」）→ 管理员同意（「已上架」）→ 玩家端能加载并正常游玩；删除旧产物走同一 fence→purge 链。
 - **工作台回馈**：複製一次跑到完成（无「續」、真实文件数进度）；上架/检验有阻塞遮罩 + 分步状态；全站提示改成「在做什么／做成了什么／失败能怎么办」；每请求有超时（只读 60s／写 600s），UI 不再可能被一个请求永久锁死。
@@ -31,6 +31,8 @@
 | `c5de53d` | 上架阻塞遮罩 + 分步状态（`phase`）、全站提示改为可读文案（v0.1.10） |
 | `fbeeca0` | A 路線：发布日志 `game_releases` + 回执 `releaseDigest`（54表／52索引／361列／4FK） |
 | `73fbdc6` | 发布历史面板（第 2 档）：`GET /api/admin/games/<id>/releases` + 审核页行内展开 |
+| `3651299` | docs：校正上一行的提交号 |
+| 本提交 | **v0.1.11 发布**：`VERSION` 0.1.11、`CHANGELOG` 0.1.11 段、`docs/release-v0.1.11.md`（含全量审阅：51 文件分类／排除项／本次复跑与未重跑／既有红） |
 
 ## 3. 本轮技术决定（长期有效）
 
@@ -264,22 +266,48 @@
 **未做**：未部署（生产无表，面板上去就是空态）；未开放作者自查；未做分页（`releaseLog` 无 LIMIT，单游戏版本数是有限增长，
 目前最多十几个，上限 1000 的校验在客户端）；未在浏览器门里锁“真实 R2 + 生产数据”的表现。
 
+### 4.34 v0.1.11 发布释出：全量审阅 + Release（2026-11-05）
+
+用户要求「审查全部已改动与未跟踪文件，保留产品代码／测试／迁移／必要文档，排除本地代理／运行产物，再创建一个完整提交和 Release 并推送更新；Gitea 不推」。
+
+**审阅口径与结果（不是重跑，是分类）**
+
+- 范围 `c5de53d..HEAD`：6 提交／51 文件／+2801−1720／4 新文件；扩展名分布 22 mjs、10 js、7 txt、7 md、4 vue、1 css，**无 PNG／log／sqlite／zip／pem／env 之类产物**。
+- `git status --ignored` 有 **156 条忽略项**（`.dragon-analysis/` 本轮 4 轮 browser 运行目录、`.pi/`、`.codegraph/`、`.playwright-cli/`、`.wrangler/`、`.dragon-runtime/`、根目录截图、`tools/*.log|*.txt`、`tmp_crop/`），全部 gitignored，51 个纳入文件里没有一条属于此类。
+- 敏感值扫描只命中两处且都不是秘密：`shell-ui.txt` 的界面文案「變更密碼」、`tools/fixtures/publication-browser-authority.mjs` 里既有的受控测试口令（本范围只改了它的表数断言 53→54）。
+- 语法：范围 32 个 `.js`／`.mjs` 全部 `node --check` 通过。**踩坑**：曾用一个「把每个 `server/public/*.txt` 当 ES module import」的循环，
+  对 `client.txt`（裸 import specifier）、`playapp/trialapp/trialweb.txt`、`shell-ui-licenses.txt` 当然会报错，还把整段 base64 倒进输出——
+  `.txt` 的正确验证入口是 `build.mjs` 与各自 lane，**下次不要用 import 探测这些文件**。
+
+**本次复跑（为 Release 拿第一手证据）**
+
+`verify_publish_sync` 11、`verify_release_log` 11、`verify_release_history` 7、`verify_review_ui_model` 11/11、
+`verify_review_ui_browser` 7/7、`verify_editor_workbench_browser` 219、`verify_publication_chain_browser` 10、
+`verify_workbench_produce_game_browser` 7、`verify_frozen_publication_root` 46、`verify_publish_operations_root` 31（`schemaTables:54`）、
+`verify_publication_producer` 25、`verify_vps_frozen_service` 14、`verify_review_backend` 6、`verify_editor_shell` 92、
+`verify_distribution_schema`（54/52/361）、`verify_editor_schema_sources`（23/54/52/361/4FK）、`build.mjs --check`（705343/54698）。
+**未重跑**：`verify_copy_tracking` 8、`verify_copy_abandon` 14、`verify_copy_modes` 5、`verify_publication_main` 93、`verify_publication_ui_browser` 7（沿用 §4.24–§4.27 记录，已在发布审阅里标为未重跑）。
+既有红复跑确认：`verify_publish_ui_model` **9 pass／7 fail**（与基线同名相同）。
+
+**发布包**：`VERSION` 0.1.11、`CHANGELOG` 0.1.11 段、`docs/release-v0.1.11.md`（版本范围／按目录纳入／排除／验证两类／生产状态／六条限制）。
+**tag 与 Release**：`v0.1.11` 打在发布提交上、推送 `github`，Release 正文由 `docs/release-v0.1.11.md` 派生。
+**不部署**：代码 Release 不等于上线，生产仍是 `20261104-bc1-ui6`。
+
 ## 5. 当前阻塞
 
-1. **待授权：部署**。`game_releases` 与发布历史面板都已提交（`fbeeca0` + 本批），但**未部署**：生产库还没有这张表，所以生产上查不到任何发布历史（面板会显示空态，这是预期的，不是故障）。
-2. **待授权：推送**。`b8d62b0`、`fbeeca0` 与本批都还没推 `github`（Gitea `origin` 仍不推）。
-3. **仍是既有红，不阻塞但不许写成「全绿」**：`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution`（＋`_workerd`）在 HEAD 上就失败；`verify_publish_ui_model` 9 pass / 7 fail（7 条早于 B3 §6／B8 的产品变更）。
-4. **账本剩 2 条历史事件 + 1 条 cleanup 行**属惰性遗留；直接删会触发 `DISTRIBUTION_LEDGER_CORRUPT`，等整表下线时一起清。
-5. **7 张 `content_distribution_*` 与 drainer 仍在**。真要删，前置仍是生产实测一次 20 章上架端到端耗时（§11.5 前置①未满足）。
-6. 上架面板那三个按钮（查詢原操作／以原鍵重試／只停止本機追蹤）是否删除仍待用户决定。
+1. **待授权：部署**。`game_releases` 与发布历史面板都已随 v0.1.11 发布，但**未部署**：生产库还没有这张表，所以生产上查不到任何发布历史（面板会显示空态，这是预期的，不是故障）。
+2. **仍是既有红，不阻塞但不许写成「全绿」**：`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution`（＋`_workerd`）在 HEAD 上就失败；`verify_publish_ui_model` 9 pass / 7 fail（7 条早于 B3 §6／B8 的产品变更）。
+3. **账本剩 2 条历史事件 + 1 条 cleanup 行**属惰性遗留；直接删会触发 `DISTRIBUTION_LEDGER_CORRUPT`，等整表下线时一起清。
+4. **7 张 `content_distribution_*` 与 drainer 仍在**。真要删，前置仍是生产实测一次 20 章上架端到端耗时（§11.5 前置①未满足）。
+5. 上架面板那三个按钮（查詢原操作／以原鍵重試／只停止本機追蹤）是否删除仍待用户决定。
 
 ## 6. 下一步（建议顺序）
 
-1. **部署本轮两个提交**（需明确授权）：不部署则面板永远空态，`game_releases` 也只存在本地。部署后请管理员在生产点一次真实上架，顺便量出 20 章上架的端到端耗时（C 批前置①）。
+1. **部署 v0.1.11**（需明确授权）：不部署则面板永远空态。部署后请管理员在生产点一次真实上架，顺便量出 20 章上架的端到端耗时（C 批前置①）。
 2. 通用系统审计（`audit_events` 覆盖审核／删除／账号变更）仍未立项；建议用 `game_releases` 的真实字段与用法反推其结构，不先设计。
 3. 复制改后台任务 + 前端轮询（可选，彻底摆脱代理层 100 秒限制）。
 4. C 批剩余（下线 7 张 `content_distribution_*`）仍等前置①；`verify_publish_ui_model` 的 7 条行为断言 re-baseline 也还挂着。
-5. 待授权：推送 `b8d62b0`、`fbeeca0` 与本批到 `github`。
+5. 作者自助看发布历史（若产品要）应是另一条作者自查路由，不是放宽现有 admin 门。
 
 ## 7. 归档锚点（仍被外部文档引用）
 

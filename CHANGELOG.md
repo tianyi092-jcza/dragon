@@ -1,5 +1,17 @@
 # 版本日志
 
+## 0.1.11
+
+汇总`v0.1.10`后6个提交（51文件／+2801−1720，4个新文件）的发布协议改版与发布审计；独立规则基线`web-0.1.1`不变。本次是代码Release：**不部署、不改玩家端字节**，生产仍是上一版镜像。
+
+- **发布协议选 A 路线（同步发布）**：上架与「同意上架」在同一 HTTP 请求内把分发推进到可见（一步一代次、上限8步／25秒），只依据账本状态判定；推进抛错只降级为 pending，绝不把已提交的操作判成失败；重放只观测不推进。`EDITOR_SYNC_PUBLISH=0` 即回旧协议（drainer 并存一代），无 schema 变更、不必回滚数据。理由与实测依据见[存储布局](docs/game-storage-layout.md) §11.5：实测一次20章上架的分发排空 `drainMs=7041`（≈3.5s/代次），真正的长请求是複製，与发布协议无关。
+- **发布审计日志 `game_releases`**：与业务写**同一事务**写 pending／confirmed 行（`(game_id,version)` 主键，同版本不同 digest → 503 不静默覆盖），管理回执升 version 2 带 `releaseDigest`（v1 逐字节兼容）。只在 publish 且信封带 `runtime.ordinal` 时写行；不做旁路收集，避免「发布了但没记」与「记了但没发布」两种裂缝。计数门新基线 **54表／52索引／361列／50索引投影／4FK**。
+- **发布历史面板**：`GET /api/admin/games/<id>/releases`（admin 门 → 内建403 → 查询串422），审核页每行「發布歷史」行内展开版本／时间／分发状态／摘要（摘要只露前8位）。点击才加载、同时只展开一列；空态说明日志不回填旧版本。与既有 `GET /api/games/<id>/releases`（`content_releases` 内容修订，只留当前一版）是两件事。
+- **提示文案与陈旧门**：面向用户的句子里清掉原鍵／pending／gameId 等机器标识；`publish.txt`／`review.txt` 的 `reclamation` 校验正则原本含真实 0x00/0x1f/0x7f（git 当二进制），改回转义文本；三条自 ui4／ui5 起陈旧的浏览器门（publication_ui 7、review_ui 7、workbench 219）按现行契约重修，并给 mock purge 回执补 `reclamation`。
+- **审阅与验证**：新增 `verify_publish_sync` 11、`verify_release_log` 11、`verify_release_history` 7 三条 lane；本次复跑 `verify_review_ui_model` 11/11、`verify_review_ui_browser` 7/7、`verify_editor_workbench_browser` 219、`verify_publication_chain_browser` 10、`verify_workbench_produce_game_browser` 7、`verify_frozen_publication_root` 46、`verify_publish_operations_root` 31、`verify_publication_producer` 25、`verify_vps_frozen_service` 14、`verify_review_backend` 6、`verify_editor_shell` 92、`verify_distribution_schema`（54/52/361）、`verify_editor_schema_sources`（23/54/52/361/4FK）、`editor-ui/build.mjs --check`（705343／54698）、范围32个JS/MJS语法检查。既有红照抄：`verify_publish_ui_model` 9/7、`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution(±_workerd)`、`verify_editor_copy_controller`、`verify_editor_backend_admin_copy`。未重跑项在发布审阅里明确标注，不冒充通过。
+
+完整纳入范围、排除项、验证与限制见[v0.1.11发布审阅](docs/release-v0.1.11.md)。
+
 ## 0.1.10
 
 汇总`v0.1.9`后74个提交（149文件／+22104−9195）的章節創作、工作台量产发布与游戏级存储改造；独立规则基线`web-0.1.1`不变。本次已上线生产（镜像`20261104-bc1-ui5`）并完成公网验收。
