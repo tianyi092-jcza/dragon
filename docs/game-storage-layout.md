@@ -262,3 +262,57 @@ control/current.json                                全站在架列表 + 根版�
 - 验收③的「31 张表 0 行」用真 SQLite 验了；「R2 无残留 / 指针不含该 gameId」用的是注入式 in-memory 物件埠（与生产同一份回收代码，但不是真实 R2 桶）。
 - 验收②（上架中途失败玩家仍拿旧 digest）B 批是用「指针代次超前 → 回落旧投影」证明的；投影读取还没下线，所以这一条目前仍然依赖投影回落。
 - 6 张账本表、退役流程（retirement 18 组 / backup_restore 7 组）与 `game_releases` 都还在，见 §11.2 待决定项。
+
+## 12. 部署记录：A+B+C 已上生产（2026-11-04）
+
+这一次部署同时改了两个面：**VPS 工作台/发布器**（`dragon-editor.720108.xyz`）与 **Cloudflare 玩家端 Worker**
+（`dragon.720108.xyz`，`wrangler deploy`）。两者必须落在**同一份静态发布**上，否则玩家端正式入口会 503。
+
+### 12.1 本次用的具体值
+
+| 项 | 值 |
+| --- | --- |
+| 提交 | `af21e37`（A 批）→ `e4bbca3`（B+C 批）→ `4f8e1c3`（重建 trialweb 束） |
+| 静态发布 digest | `b93d19e87fc834fc340fc6094d93f9bacb8e7c685bed339b0623217447c76ab0`（1441 文件 / 164.30 MiB） |
+| source tree digest | `260cc9b4fcbb838da0c89ab3764c6a3b09ab10fb211220ff0421dadb63ebab7d` |
+| 镜像 tag | `dragon-editor-publication:20261104-bc1` |
+| 回滚点 | `app-prev7-20261104T082827`、`/root/dragon-editor-backups/publication-20261104T082754Z`、nginx conf `.before-b93d19…`、`publication.env.before-b93d19…` |
+
+### 12.2 步骤（含这次踩到的坑）
+
+1. `git archive HEAD server vps reader tools web VERSION .gitattributes` → 上传 → 解包 `app-new7`。
+2. 服务器上 `docker run … node tools/prepare_deploy.mjs` 产出静态发布，digest `b93d19…`。
+3. 静态发布放 `/home/web/html/dragon-editor-bootstrap/<digest>/`，并在 nginx conf 里加同形状的
+   `location ^~ /deployment-assets/static-v1/<digest>/`，`nginx -t` + reload。
+4. `publication.env` 三处 pin（`STATIC_PATH_PREFIX`/`STATIC_RELEASE_SHA256`/`STATIC_SOURCE_SHA256`）、`.env` 换 `EDITOR_DEPLOYMENT_ID`。
+5. `docker build` → `backup-publication.sh` → `mv app app-prev7-…` → `mv app-new7 app` → `compose up -d --force-recreate` → 轮询 health（**7.5 分钟** healthy）。
+6. **坑 1：`server/public/trialweb.txt` 陈旧**。B 批改了 `web/src/player/*.js` 却没重建束，不重建就会对外提供旧客户端。
+   现在已用 `node tools/build_trial_web_bundle.mjs` 补齐（`4f8e1c3`，sha256 `e4185662…`、files 240）。
+7. **坑 2：工作树是 CRLF，`git archive` 出来是 LF**。本地 `prepare_deploy`（CRLF）得 `a2eed7c9…`，服务器（LF）得 `b93d19e8…`；
+   **source tree digest 两者相同**，只有逐文件 sha 不同。所以玩家端 Worker 必须用 **LF** 构建产物部署，否则
+   `/static-release.json` 的 digest 在 R2 里没有对应程序包，正式入口必然 503。做法：`git archive` 到临时目录 →
+   在那里 `prepare_deploy.mjs` → 把 `dist/` 拷回来 → 用一份**去掉 `build.command`** 的临时 wrangler 配置
+   （`main`/`assets.directory` 用绝对路径）执行 `wrangler deploy -c <临时配置>`。仓库里的 `wrangler.jsonc` 不动。
+8. **坑 3：程序归档会在首启时超时并降级启动（B8 语义）**。首启上传 1439 个物件约 18 分钟才完成，容器启动那次
+   只写了 545 个就按「传输层不可达」降级（服务照旧 healthy，`staticArchive='unreachable'`）。随后在容器里用同一份
+   `createStaticArchiver`（幂等跳过已存在物件）跑完 `stage()`，再用 `registerStaticProgram` 补 `control/programs/<digest>.json`，
+   最后强制重建容器，健康 2 分钟，归档/登记都已是幂等命中。
+9. **坑 4：生产 R2 有 v2 根但没有 `control/directory.json`**（A 批上线前根就已存在）。旧读者靠投影回落照旧 200，
+   新读者一旦指针缺失会 503 `REGISTRY_MISSING`。因此上生产时用 `directoryPointerFromProjection` +`writeDirectoryPointer`
+   按当前根代次补写了一次指针（空目录 + 1 条 `deleted` 墓碑），补写前后 `registry` 响应字节完全相同。
+
+### 12.3 上线后实测
+
+- `https://dragon.720108.xyz/static-release.json` 的 sha256 = `b93d19…`（与 VPS pin、R2 程序包一致）。
+- `GET /play-api/v1/registry` → 200，`{"generation":1,…,"directory":[]}`（与补写指针前逐字节相同）。
+- `GET /play-api/v1/status?game=<任意未知 UUID>` → **410 GAME_DELETED**（B 批语义已在生产生效）；
+  墓碑游戏 `149b67be-…` 同样 410。
+- `artifacts/programs/b93d19…/static-release.json` 在 R2 存在（223449 字节，digest 自证）+ 登记物件存在。
+- 工作台 `https://dragon-editor.720108.xyz/` → 200；容器 `20261104-bc1` healthy，日志 `{"event":"started"}` + `{"event":"distribution-idle"}`。
+
+### 12.4 仍未验证（部署面）
+
+- 生产上**还没有任何上架游戏**，所以「玩家真正开局」这条端到端仍未在现网跑过；正式入口对已删除游戏返回 503
+  「遊戲暫不可用」属预期（没有程序可用的一次性入口，不是发行链缺陷）。
+- 验收①的全栈形态（两个真实上架游戏，删 A 后 B 仍能开局）与验收③的真实 R2 桶版本仍未补 lane（§11.4 同一条）。
+- 生产指针是**手写补的**，不是发布器写的；下一次真实上架会由 `drainOne` 用同一整形函数覆盖它，两条路径产出同一形状。

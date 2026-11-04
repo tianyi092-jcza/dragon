@@ -287,7 +287,31 @@
   `verify_publication_chain_browser` 10、`verify_editor_schema_sources` 53/51/356/4（本轮无 schema 改动）全绿。
 - **未验证**：验收①的全栈版本（真 workerd 读者把 B 从 registry→admit→逐章读到开局）还没有 lane；验收③的 R2 部分用
   注入式 in-memory 物件埠（与生产同一份回收代码，但不是真实 R2 桶）；验收②仍依赖「回落旧投影」因为投影读取没下线。
-- **状态**：C 批代码 + 验证完成，**未 commit、未部署**。
+- **状态**：C 批代码 + 验证完成，已随 B 批提交（`e4bbca3`）并上生产（见 §4.14）。
+
+### 4.14 方案 B（A+B+C）已提交并部署生产（2026-11-04）
+
+- **提交**：`af21e37`（A 批）→ `e4bbca3`（B+C 批，23 个显式路径）→ `4f8e1c3`（重建 `server/public/trialweb.txt`）。**未 push**（未授权）。
+- **提交前补的一步**：B 批改了 `web/src/player/*.js` 但没重建 Trial 束，`trialweb.txt` 一度陈旧；
+  已跑 `node tools/build_trial_web_bundle.mjs`（sha256 `e4185662…`、files 240、shell `a456d356…`、play `515019f2…`），
+  重跑 `verify_player_pack_compiled`（6）与 `verify_installed_program`（36，source tree `260cc9b4…`）确认。
+- **部署两个面**：
+  1. **VPS 工作台/发布器**：静态发布 digest `b93d19e8…`（1441 文件/164.30 MiB）→ 放 `/home/web/html/dragon-editor-bootstrap/<digest>/`
+     + nginx 新增同形状 `location`（reload）→ `publication.env` 三处 pin + `.env` `EDITOR_DEPLOYMENT_ID=20261104-bc1` → 构建 →
+     `backup-publication.sh`（`publication-20261104T082754Z`）→ `app` → `app-prev7-20261104T082827` → 强制重建 → **7.5 分钟 healthy**。
+  2. **Cloudflare 玩家端 Worker**（`dragon.720108.xyz`）：`wrangler deploy`，版本 `0c951544-03ed-4e73-b522-72700e285bfd`。
+- **坑（已写进 game-storage-layout §12.2，后续部署必须照做）**：
+  - 工作树 CRLF / `git archive` LF —— 本地 `prepare_deploy` 得 `a2eed7c9…`，服务器 LF 得 `b93d19e8…`，**source tree digest 相同**、
+    文件 sha 不同。玩家端 Worker 必须用 LF 产物部署（否则 R2 里没有对应程序包，正式入口 503）。本轮做法：`git archive` 到临时目录 →
+    在那里 `prepare_deploy` → 拷 `dist/` 回来 → 用去掉 `build.command` 的临时 wrangler 配置（绝对路径）`wrangler deploy -c`。
+  - 首启程序归档会超时降级（B8 语义）：上传 1439 个物件约 18 分钟，容器只写 545 个就降级启动；随后用同一份
+    `createStaticArchiver` 幂等补完 + `registerStaticProgram` 补登记，再强制重建，这次 2 分钟 healthy。
+  - 生产 R2 有 v2 根但**没有 `control/directory.json`**（A 批上线前根已在）——新读者会 503 `REGISTRY_MISSING`，
+    所以按当前根代次用 `directoryPointerFromProjection`+`writeDirectoryPointer` 补写了一次（空目录 + 1 条墓碑）。
+- **上线实测**：`/static-release.json` sha256 `b93d19…`；`/play-api/v1/registry` 200 且与补写前逐字节相同；
+  未知 gameId 的状态接口 **410 GAME_DELETED**（B 批语义已生效）；工作台 200；容器日志 `started` + `distribution-idle`。
+- **仍未做**：生产尚无上架游戏，所以「玩家真正开局」在现网未跑过；验收①全栈版本、验收③真实 R2 桶版本仍未补 lane；
+  6 张账本表与 `game_releases` 等发布协议改版（§4.13 / game-storage-layout §11.2）；push 未授权。
 
 ## 5. 当前阻塞
 
@@ -295,7 +319,8 @@
 2. **已封存／已退役，都不是现行门**：`verify_editor_backend_deletion_definitions`（`pinned/worker.js` 世代快照）、`verify_editor_fullcopy_water_browser`（水域面板未挂载＋旧壳 id）。
 3. **手动 harness（非 CI 级门）**：`verify_editor_roles_browser`、`verify_trial_app_boot`、`verify_editor_backend_admin_copy`（需 `MINIFLARE_MODULE`）。
 4. ~~产品侧待办~~：维护闸门已解除、PLAYER_ADMISSION_KEYS 已配置（见 §4.7）；剩下就是用户在 `dragon-editor.720108.xyz` 以管理员做「複製遊戲 → 上架 → 同意」。
-5. 复制长请求仍受 Cloudflare 约 100 秒上限约束：现在靠「丢回复→按原键查询」兜底；若仍嫌慢，下一步改成后台任务＋前端轮询。
+5. ~~本轮 B/C 批提交与部署~~：已完成（§4.14）；剩下 `game_releases` + 下线 6 张账本表需要先在「同步发布」与「新队列」里选一条路线。
+6. 复制长请求仍受 Cloudflare 约 100 秒上限约束：现在靠「丢回复→按原键查询」兜底；若仍嫌慢，下一步改成后台任务＋前端轮询。
 
 ## 6. 下一步（建议顺序）
 
