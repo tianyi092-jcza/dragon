@@ -316,3 +316,18 @@ control/current.json                                全站在架列表 + 根版�
   「遊戲暫不可用」属预期（没有程序可用的一次性入口，不是发行链缺陷）。
 - 验收①的全栈形态（两个真实上架游戏，删 A 后 B 仍能开局）与验收③的真实 R2 桶版本仍未补 lane（§11.4 同一条）。
 - 生产指针是**手写补的**，不是发布器写的；下一次真实上架会由 `drainOne` 用同一整形函数覆盖它，两条路径产出同一形状。
+
+### 12.5 上线后又按用户要求清空到 generation 0（2026-11-04）
+
+用户指示「所有产生的数据都可以清除，保持干净」后，把生产回到**无根、帐本 gen 0** 的 bootstrap 前状态，
+以便重新走一遍「複製遊戲 → 上架 → 同意」。
+
+- 清空前的备份：`/root/dragon-editor-backups/publication-20261104T091229Z`。
+- 删：帐本历史（events/checkpoints/cleanup/chunks/outbox 全清，`state` 重置为 gen 0 且 digest/blocked 为 NULL）、
+  重放日志（`operations`/`content_operations`/`content_reservations`/`copy_http_commands`）、`private-objects` 196MB 孤儿 blob、
+  R2 的 `control/current.json`、`control/directory.json`、`control/roots/…`、`control/receipts/…`、`projections/…`。
+- 留：`users`（登录）、`sessions`、`login_rates`、`installed_sources`、`content_registry`（複製遊戲靠它）、
+  R2 `artifacts/programs/**`（共享程序包）、`control/programs/**`（程序登记）、`kao/**`（621 张共享画像）。
+- 结果：53 张表 0 行（除平台行）、`foreign_key_check` 0、`integrity_check` ok；容器 healthy；工作台 200；
+  玩家端 registry `503 REGISTRY_EMPTY`、首页 200。
+- **注意**：清空后首次启动仍要读 1439 个程序物件做核准核对，healthy 需要约 **6–8 分钟**。

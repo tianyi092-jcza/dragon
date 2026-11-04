@@ -313,6 +313,26 @@
 - **仍未做**：生产尚无上架游戏，所以「玩家真正开局」在现网未跑过；验收①全栈版本、验收③真实 R2 桶版本仍未补 lane；
   6 张账本表与 `game_releases` 等发布协议改版（§4.13 / game-storage-layout §11.2）；push 未授权。
 
+### 4.15 生产数据清空到 generation 0（准备重新做复制→上架→同意）
+
+用户指示：「所有产生的数据都可以清除，保持干净」。清空前先跑 `backup-publication.sh`（`publication-20261104T091229Z`）。
+
+- **SQLite（单交易，`defer_foreign_keys=ON`）**：清 `content_distribution_{cleanup,checkpoints,chunks,events,outbox}` + 重置
+  `state` 回 `tail=0/confirmed=0/两个 digest NULL/blocked NULL` 和 `enqueue_barrier.paused=0`；另清重放日志
+  `operations`(9)、`content_operations`(2)、`content_reservations`(2)、`copy_http_commands`(2) 与空表的 `content_audits`。
+  结果：53 张表全部 0 行，只剩平台行 —— `users`(1)、`sessions`(2)、`login_rates`(3)、`installed_sources`(2)、
+  `content_registry`(1)、`content_schema`/`schema_version`、帐本 `state`+`enqueue_barrier` 的单调行。`PRAGMA foreign_key_check` 0 条、
+  `integrity_check` ok。
+- **私有物件**：`publication-data/private-objects` 196MB → 0（行已全无，这些是孤儿 blob）。
+- **R2**：删 `control/current.json`、`control/directory.json`、`control/roots/…`、`control/receipts/…`、`projections/1/…`；
+  **保留**基础资源：`artifacts/programs/**`（共享程序包）、`control/programs/**`（5 份程序登记）、`kao/**`（621 张画像）。
+  `artifacts/` 首页 1000 个键全部在 `programs/` 下，无任何 per-game 残留。
+- **为什么没删 `users`/`installed_sources`/`content_registry`**：登录与「複製遊戲」要靠它们（不是测试产物）；
+  帐本 `state` 行也不能删（ledger 构造时会自己插回，删行等于把 authority 换掉）。
+- **清空后实测**：容器 healthy（启动要读 1439 个程序物件做校验，约 **6–8 分钟**才健康，不是卡死）；
+  工作台 200；玩家端 `/play-api/v1/registry` → **503 REGISTRY_EMPTY**（无根，即文档记载的 bootstrap 前状态）；
+  玩家首页 200。下一次上架会从 generation 1 重新播种，并由 `drainOne` 写第一份指针。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。
