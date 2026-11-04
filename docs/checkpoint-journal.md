@@ -293,6 +293,13 @@
 **tag 与 Release**：`v0.1.11` 打在发布提交上、推送 `github`，Release 正文由 `docs/release-v0.1.11.md` 派生。
 **不部署**：代码 Release 不等于上线，生产仍是 `20261104-bc1-ui6`。
 
+**推送踩坑（下次直接用）**：`git fetch`／`ls-remote` 连续三次 `Failed to connect to github.com port 443` 或 `OpenSSL SSL_read: Connection was reset, errno 10054`，
+而同一时刻 `curl https://github.com/` 200（1.3s）、`gh api repos/tianyi092-jcza/dragon` 正常、`nslookup` 解析到 20.205.243.166 —— 是 git 的 HTTP/2 通道被重置，不是网络不通。
+用 `git -c http.version=HTTP/1.1 push github main` 与 `... push github v0.1.11` 一次成功；不必改全局配置，也不必开代理。
+（`gh release create v0.1.11 --notes-file` 走 api.github.com，本来就不受影响。）
+
+**最终状态**：`github/main` = `fc1c84d`，tag `v0.1.11`（annotated `d634e0c`），Release 已建并标 Latest；Gitea `origin` 未动；工作树干净、`VERSION` 0.1.11。
+
 ## 5. 当前阻塞
 
 1. **待授权：部署**。`game_releases` 与发布历史面板都已随 v0.1.11 发布，但**未部署**：生产库还没有这张表，所以生产上查不到任何发布历史（面板会显示空态，这是预期的，不是故障）。
