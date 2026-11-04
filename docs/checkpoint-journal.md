@@ -476,6 +476,20 @@ LSP：3 clean、1 个 lane 的 console.log 风格警告（与既有 lane 同款�
 
 **未做**：上架面板那三个按钮（查詢原操作／以原鍵重試／只停止本機追蹤）仍待用户决定。
 
+### 4.22 ui4 已提交并部署生产（2026-11-04）
+
+- 提交：`c9eaf7a fix(workbench): 進度即時、進入即載入、提示寫清楚`（本地，未 push）。
+- 镜像 `dragon-editor-publication:20261104-bc1-ui4`；回滚点 `app-prev11-20261104T115347`、`.env.before-20261104-bc1-ui4`；
+  备份 `publication-20261104T115314Z`（含隔离恢复校验）。
+- 健康：`--force-recreate` 后约 **11 分钟** healthy（45 × 15s 轮询；启动校验 1439 个程序物件，日志只有 `started`/`distribution-idle`）。
+- 公网实测（模块是分开服务的，不要只看 shell-ui.js）：
+  `/shell-ui.js` 200 / **697739** 字节，含「複製完成。」、不含「正在核對原鍵」；
+  `/client.js` 200 / 18874 字节（含 `draftRefreshPending` 三分处与「操作完成。」兼底文案）；
+  `/publish.js` 200 / 27627 字节（含「上架清單已更新。」「檢驗完成。」）；`/review.js` 200 / 13692 字节（含「上架清單已更新。」）；
+  工作台 `/` 200；源字节仍在：`publication-data/private-objects/installed` 104M。
+- 玩家端状态变化（不是本次部署引起）：`/play-api/v1/registry` 现在 **200** `{generation:1,directory:[],announcements:[]}`
+  （上一批还是 503 `REGISTRY_EMPTY`）——即清空后又跑过至少一次发布，当前目录为空（复制/上架/删除测试的残留）。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。
