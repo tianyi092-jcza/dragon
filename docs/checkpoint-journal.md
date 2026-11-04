@@ -232,6 +232,33 @@
   `artifacts/` 1000+ = 共享程序包；`games/ test/ tmp/ drafts/` 全 0。删这三个 live 对象会让读者拿不到根（玩家端直接 502），因此不动。
 - **下一步**：A 批（上架并行写新布局，可回滚）→ B 批（读者改读 SQLite 目录）→ C 批（删除简化 + 下线 6 张 `content_distribution_*` + 新增 `game_releases`）。
 
+### 4.11 游戏存储布局（方案 B）A 批：上架并行写游戏级目录指针（已落地，未提交）
+
+- **基线（改动前）已跑绿**：`verify_game_purge` 8 checks、`verify_distribution_ledger_retirement` 18 组、
+  `verify_distribution_ledger_backup_restore` 7 组、`verify_editor_shell` 92、`verify_publication_chain_browser` 10、
+  `verify_workbench_produce_game_browser` 7。
+- **A 批内容**：新增 `reader/directorypointer.js`（`control/directory.json`，每个 gameId 一条 entry，digest 覆盖不含 digest 的 body）
+  与 `vps/directory-pointer.mjs`（由已冻结投影整形 + 自有 etag CAS + 回读）；`vps/distribution-resources.mjs` 在资源闭包末尾
+  背书这份目录（仅 `runtimeVersion === 2`），`vps/distribution-publisher.mjs` 只写被背书的那份，且**在根 CAS 之前**写。
+  旧 `projections/<gen>/<digest>/projection.json` 与根逻辑一行未改 → 整批可回滚。
+- **新增 lane** `tools/verify_directory_pointer.mjs` **22 checks**：整形保真、9 类投影偏差与 6 类指针形状拒绝、
+  CAS/幂等/冲突/回读不一致、指针先于根、**中途失败根不动且恢复后补写同一指针**。
+- **既有 lane 全部保持绿**（都在改后复跑）：chain browser 10（新增「每推进一代一份指针 + 指针条目与旧投影逐字段一致」）、
+  workbench produce 7（新增指针含量产 gameId/20 章/1.0）、first online 116（新增「指针先于根、重试不重复写」）、
+  frozen publication root 46 组、distribution publisher 37+37+13+6、resources 45+45、static_resources 35、static_batch 36、
+  publication catalog 35、player_pack_compiled 6、reader 77、drainer 35、restore 5、publication_server 18、publish_to_r2 29、
+  schema sources 53 表/51 索引/356 列/4 FK、distribution schema 53/51/356。
+- **实测教训（重要）**：浏览器 lane 与多个 Miniflare lane **不能并发跑**——同一台机器上并行会互相踩到 scratch/端口，
+  出现与本改动无关的红（本次 `retirement`/`restore`/两个 schema lane 并行时红、单独跑全绿）。
+- **读代码发现的两处事实（写进 `docs/game-storage-layout.md` §9.1）**：①读者是 Cloudflare Worker，读不到 VPS SQLite，
+  所以 `artifacts/<gameId>/…` 必须继续留在 R2（gameId 独占前缀，删除仍不需要引用计数）；②未上架但未删除的游戏
+  今天就已经取不到 runtime（503），所以指针不需要携带它们的 runtime。
+- **C 批待用户确认的一处产品语义**：purge 之后 `content_games`/fence 行都没了，指针重写时该 gameId 会整条消失，
+  玩家端由 `410 GAME_DELETED` 变成 `503 GAME_STATE_UNAVAILABLE`。保留 410 需要墓碑（每条 36 字节、永久增长），
+  方案 B 的「删除即移除」原则上不给墓碑——A/B 两批不动这个行为。
+- **状态**：A 批代码 + 验证完成，**未 commit、未部署**。B 批（读者改读指针）、C 批（purge + 移出在架集合 + 下线
+  `content_distribution_*` + `game_releases`）尚未实施；C 批改 schema 必须同步两个计数门与 `server/deletiondefinitions.js`。
+
 ## 5. 当前阻塞
 
 1. **口径已定（§4.7）**：现阶段内置保默认、量产只作为额外可选项；撤内置（C 方案）在量产于玩家端确认能玩之后再做。

@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { FrozenDistributionLedger } from '../server/distributionledger.js';
 import { createDistributionReceipts } from './distribution-receipts.mjs';
 import { createDistributionResourceVerifier } from './distribution-resources.mjs';
+import { writeDirectoryPointer } from './directory-pointer.mjs';
 import { isGameId, parseJSON } from '../reader/runtimecontract.js';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 function requireValue(condition) { if (!condition) throw new Error('DISTRIBUTION_READBACK'); }
@@ -109,7 +110,11 @@ export function createDistributionPublisher({ storage, r2, prefix = '', authorit
       await predecessor(head, record);
       // Pass a disposable copy: neither asynchronous verifier code nor its caller
       // can change the exact retained operation selected for this attempt.
-      await verify(Object.freeze({ ...record, payload: new Uint8Array(record.payload) }));
+      const facts = await verify(Object.freeze({ ...record, payload: new Uint8Array(record.payload) }));
+      // 游戏级目录指针（方案 B）：只写本次资源闭包证明过的那份目录，不另取 SQL、
+      // 不取当前时间。必须在根 CAS 之前落地——指针写不成功时根仍指旧代次，玩家
+      // 看不到半套。旧投影写入不变，因此这一批完全可回滚。
+      if (facts?.directory) await writeDirectoryPointer(r2, prefix, facts.directory);
       // Persist the exact frozen root descriptor even when recovering an already
       // visible CAS. This is NOT visibility proof: only the separately observed
       // immutable receipt can establish that this candidate became public.

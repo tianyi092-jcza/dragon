@@ -24,7 +24,7 @@ const { Miniflare } = await import(pathToFileURL(modulePath).href);
 const own = mkdtempSync(join(tmpdir(), 'dragon-first-online-'));
 const bindings = { PLAYER_ORIGIN: 'https://reader.test', PLAYER_ADMISSION_ACTIVE_KEY: 'owned', PLAYER_ADMISSION_KEYS: JSON.stringify({ owned: '11'.repeat(32) }) };
 const rootKey = 'control/current.json';
-let mf, storage, bucket, publisher, outbound = 0, checks = 0, serial = 0, roots = 0, gets = 0, failReceipt = true;
+let mf, storage, bucket, publisher, outbound = 0, checks = 0, serial = 0, roots = 0, directories = 0, gets = 0, failReceipt = true;
 const check = (name, value) => { assert.ok(value, name); checks++; };
 const project = (source, firstOnline) => ({ runtimeVersion: 2, directory: source.directory, releases: source.releases, gameStates: source.gameStates, announcements: source.announcements.map(({ firstOnlineAt: _firstOnlineAt, ...row }) => ({ ...row, firstOnline })) });
 try {
@@ -53,7 +53,10 @@ try {
       return await bucket.put(key, bytes, { onlyIf: { etagDoesNotMatch: '*' }, httpMetadata: { contentType } }) !== null;
     },
     async putControl(key, bytes, etag) {
-      assert.equal(arguments.length, 3); assert.equal(key, rootKey); roots++;
+      // 游戏级目录指针与根共用条件写端口，但它是另一个 key，不能计入根代次。
+      assert.equal(arguments.length, 3);
+      if (key === 'control/directory.json') { directories++; return await bucket.put(key, bytes, { httpMetadata: { contentType: 'application/json' } }) !== null; }
+      assert.equal(key, rootKey); roots++;
       return await bucket.put(key, bytes, { onlyIf: etag === null ? { etagDoesNotMatch: '*' } : { etagMatches: etag.slice(1, -1) }, httpMetadata: { contentType: 'application/json' } }) !== null;
     },
   };
@@ -72,6 +75,8 @@ try {
   const first = enqueue(project(source, { generation: 1 }));
   check('queue has no public root or invented visibility', (await call('/play-api/v1/registry')).status === 503);
   check('root visible but missing receipt remains pending', (await publisher.drainOne()).state === 'COMMITTED_SYNC_PENDING' && roots === 1 && publisher.ledger.status().confirmedGeneration === 0);
+  // A 批：同一代次的游戏级目录指针在根 CAS 之前落地，且只落一次，不随重试重复写。
+  check('game-level directory pointer precedes the root and is not rewritten by retries', directories === 1 && roots === 1);
   const initialRoot = await bucket.get(rootKey), visibleAt = rootVisibleAt(initialRoot.uploaded);
   let body = await registry();
   const originalAnnouncement = structuredClone(body.announcements[0]);
@@ -83,7 +88,7 @@ try {
   enqueue(project(unlisted()));
   check('queued later root cannot pass unknown predecessor', (await publisher.drainOne()).state === 'COMMITTED_SYNC_PENDING' && roots === 1);
   failReceipt = false;
-  check('retry confirms same root without retiming', (await publisher.drainOne()).state === 'VISIBLE_CONFIRMED' && roots === 1);
+  check('retry confirms same root without retiming', (await publisher.drainOne()).state === 'VISIBLE_CONFIRMED' && roots === 1 && directories === 1);
   const receiptKey = firstOnlineReceiptKey(fixed, { authorityId: AUTHORITY, generation: 3 });
   const receiptObject = await bucket.get(receiptKey), receiptBytes = new Uint8Array(await receiptObject.arrayBuffer());
   const receipt = JSON.parse(new TextDecoder().decode(receiptBytes));

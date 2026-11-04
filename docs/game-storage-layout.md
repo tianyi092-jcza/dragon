@@ -148,3 +148,33 @@ control/current.json                                全站在架列表 + 根版�
 | 删除 | DB 行 purge（已实现）+ 从在架指针移除；**不再需要** ledger 退役链、chunks 清理、R2 前缀删除 |
 | schema | 删 `content_distribution_{events,outbox,chunks,checkpoints,cleanup,enqueue_barrier}`；新增 `game_releases(game_id, version, digest, state, published_at)` 作为发布日志 |
 | 保留 | 栅栏（防误删/并发）、不可变写 + 指针 CAS、读者 digest 校验、准入票 |
+
+## 9. 实施记录：A 批已落地（2026-11-04）
+
+### 9.1 现状事实（读代码实测，影响设计落地方式）
+
+| 事实 | 出处 | 对方案 B 的影响 |
+|---|---|---|
+| R2 上每个游戏还有 `artifacts/<gameId>/<ordinal>/<releaseId>/…`（runtime index、`manifest.json`、`chapters/<id>.json`、生成素材） | `web/src/player/runtimecontract.js:32` `runtimeBase()`；`vps/runtime-index.mjs:7` | 「R2 只留基础资源」在字面上做不到：玩家端 reader 是 Cloudflare Worker，**读不到 VPS 的 SQLite**，章节/素材字节必须仍在 R2。该前缀以 `gameId` 独占（不与他人共享），所以删除时按前缀删即可，**仍然不需要引用计数** |
+| 未上架但未删除的游戏：`projectPublicationCatalog` 只为 `listed` 的游戏写 `releases`（`server/publicationcatalog.js:53`），reader 的 `checkRunningState` 因此拿不到 runtime | `server/publicationcatalog.js:50-57`、`reader/worker.js:145` | 「已签发旧客户端在游戏下架后仍可取数」当前**并未实现**（503 `GAME_STATE_UNAVAILABLE`）。所以指针不需要携带未上架游戏的 runtime，按现状搬迁不会减少任何既有能力 |
+| 删除后 `content_games` 与 fence 行都被 purge，`gameStates` 里不再有该 gameId | `server/gamepurge.js:19-51` | 指针里那份墓碑（`deleted: true`）在 C 批之后会随 pointer 重写消失，玩家端从 `410 GAME_DELETED` 变成 `503 GAME_STATE_UNAVAILABLE`。**这是 C 批要用户确认的一处产品可见语义**，A/B 两批保持 410 不变 |
+
+### 9.2 A 批做了什么（可回滚）
+
+- 新增 [reader/directorypointer.js](../reader/directorypointer.js)：游戏级目录指针的**唯一契约**（`control/directory.json`，每个 gameId 一条 entry；`digest` 覆盖不含 digest 的 body）。上架游戏携带 `release`（含 runtime 引用）、`directory`（名称/发布时间/章节序）、`announcements`；未上架只留状态；墓碑只留 `deleted: true`。
+- 新增 [vps/directory-pointer.mjs](../vps/directory-pointer.mjs)：由**已冻结的投影**整形（不读 SQL、不取当前时间、不补默认值），并用自有 etag 做 CAS + 回读确认。
+- `vps/distribution-resources.mjs` 在资源闭包末尾把这份目录作为**背书事实**返回（`runtimeVersion === 2` 时才有；v1 旧投影没有游戏级目录）；`vps/distribution-publisher.mjs` 只写被背书的那份，且**在根 CAS 之前**写——指针写不成功时根仍指旧代次，玩家看不到半套。
+- 旧 `projections/<generation>/<digest>/projection.json` 与 `control/current.json` 逻辑**一行未改**，所以整批可回滚。
+
+### 9.3 验证
+
+| lane | 结果 |
+|---|---|
+| `node tools/verify_directory_pointer.mjs`（新增） | **22 checks**：整形保真（2 上架 + 1 未上架 + 1 墓碑，旧五列视图可回放）、9 类投影偏差拒绝、6 类指针形状拒绝、CAS/幂等/冲突/回读不一致、指针先于根、**中途失败根不动 + 恢复后同一操作补写**、注入式校验端口不背书时不写指针 |
+| `node tools/verify_publication_chain_browser.mjs` | 10 checks 绿；新增断言：每推进一代写一份指针，`pointer.generation === root.generation`，且指针条目与旧 `projections/<gen>/<digest>/projection.json` 的同一 gameId **逐字段相同** |
+| `node tools/verify_workbench_produce_game_browser.mjs` | 7 checks 绿；新增断言：上架写出指针，`games` 恰为量产的 gameId、20 章、`1.0` |
+| `node tools/verify_first_online.mjs` | 116 checks 绿（新增「指针先于根、重试不重复写」） |
+| `node tools/verify_frozen_publication_root.mjs` | 46 groups 绿（新增指针代次/digest 断言） |
+| `verify_distribution_publisher{,_workerd,_r2client,_retirement}` / `verify_distribution_resources{,_workerd}` / `verify_static_resources` / `verify_static_batch` / `verify_publication_catalog` / `verify_player_pack_compiled` / `verify_reader` / `verify_distribution_drainer` / `verify_distribution_restore` / `verify_publication_server` / `verify_publish_to_r2` | 全绿（注入式 resource-verifier 端口不背书目录，因此这些 lane 的端口只需放行新 key） |
+
+未跑/未改：B 批（读者改读指针）、C 批（库行 purge + 移出在架集合 + 下线 `content_distribution_*` + 新增 `game_releases`）。C 批改 schema 必须同步 `tools/verify_editor_schema_sources.mjs`（53/51/356/4）、`tools/verify_distribution_schema.mjs`（53/51/356）与 `server/deletiondefinitions.js` 的冻结声明。

@@ -53,7 +53,7 @@ try {
   const r2={
     async get(key,{maxBytes}){const object=staged.objects.get(key);if(!object)return null;assert.ok(object.bytes.length<=maxBytes);return{bytes:Buffer.from(object.bytes),headers:headers(object)};},
     async putImmutable(key,bytes,type){assert.ok(key.startsWith(staged.prefix+'projections/')||key.startsWith(staged.prefix+'control/roots/')||key.startsWith(staged.prefix+'control/receipts/'));if(!staged.objects.has(key))staged.objects.set(key,{bytes:Buffer.from(bytes),headers:{'content-type':type}});},
-    async putControl(key,bytes,etag){assert.equal(key,staged.prefix+'control/current.json');const old=staged.objects.get(key);if((old?headers(old).etag:null)!==etag)return false;rootWrites++;staged.objects.set(key,{bytes:Buffer.from(bytes),headers:{'content-type':'application/json'}});return true;}
+    async putControl(key,bytes,etag){if(key===staged.prefix+'control/directory.json'){staged.objects.set(key,{bytes:Buffer.from(bytes),headers:{'content-type':'application/json'}});return true;}assert.equal(key,staged.prefix+'control/current.json');const old=staged.objects.get(key);if((old?headers(old).etag:null)!==etag)return false;rootWrites++;staged.objects.set(key,{bytes:Buffer.from(bytes),headers:{'content-type':'application/json'}});return true;}
   };
   const publisher=createDistributionPublisher({storage:authority.storage,r2,prefix:staged.prefix,verifyStaticResources:staged.verifyStaticResources});
   assert.equal((await publisher.drainOne()).state,'VISIBLE_CONFIRMED');await authority.manage('list');assert.equal((await publisher.drainOne()).state,'VISIBLE_CONFIRMED');assert.equal(rootWrites,2);checks++;

@@ -165,14 +165,21 @@ try {
   const r2={
     async get(key,{maxBytes}) { assert.ok(key.startsWith(staging.prefix));const value=staging.objects.get(key);if(!value)return null;assert.ok(value.bytes.length<=maxBytes);return {bytes:Buffer.from(value.bytes),headers:{...value.headers}}; },
     async putImmutable(key,bytes,type) { assert.ok(key.startsWith(staging.prefix+'control/roots/')||key.startsWith(staging.prefix+'control/receipts/')||key.startsWith(staging.prefix+'projections/'));if(failReceipt && key.startsWith(staging.prefix+'control/receipts/'))throw new Error('owned receipt unavailable');if(!staging.objects.has(key))staging.objects.set(key,{bytes:Buffer.from(bytes),headers:{'content-type':type,etag:'"immutable-'+sha(bytes)+'"','last-modified':'Thu, 15 Oct 2026 00:00:00 GMT'}}); },
-    async putControl(key,bytes,etag) { assert.equal(key,staging.prefix+'control/current.json');const previous=staging.objects.get(key);if((previous?.headers.etag??null)!==(etag??null))return false;writes++;staging.objects.set(key,{bytes:Buffer.from(bytes),headers:{'content-type':'application/json',etag:'"root-'+writes+'"','last-modified':new Date(Date.UTC(2026,9,15,0,0,writes)).toUTCString()}});return true; },
+    async putControl(key,bytes,etag) { if(key===staging.prefix+'control/directory.json'){directories++;staging.objects.set(key,{bytes:Buffer.from(bytes),headers:{'content-type':'application/json',etag:'"directory-'+directories+'"','last-modified':'Thu, 15 Oct 2026 00:00:00 GMT'}});return true;} assert.equal(key,staging.prefix+'control/current.json');const previous=staging.objects.get(key);if((previous?.headers.etag??null)!==(etag??null))return false;writes++;staging.objects.set(key,{bytes:Buffer.from(bytes),headers:{'content-type':'application/json',etag:'"root-'+writes+'"','last-modified':new Date(Date.UTC(2026,9,15,0,0,writes)).toUTCString()}});return true; },
   };
+  let directories=0;
   let publisher=createDistributionPublisher({storage,r2,prefix:staging.prefix,verifyStaticResources:staging.verifyStaticResources});
   const drain=async generation=>{const value=await publisher.drainOne();assert.equal(app.frozenDistribution.status().confirmedGeneration,generation,JSON.stringify(value));return value;};
   const playerOrigin='https://owned-player.invalid';
   const readerEnv={PLAYER_ORIGIN:playerOrigin,PLAYER_ADMISSION_ACTIVE_KEY:'owned',PLAYER_ADMISSION_KEYS:JSON.stringify({owned:'a'.repeat(64)}),PUBLISH_BUCKET:{async get(key){const value=staging.objects.get(staging.prefix+key);if(!value)return null;const bytes=Buffer.from(value.bytes);return {size:bytes.length,uploaded:new Date(value.headers['last-modified']),httpMetadata:{contentType:value.headers['content-type']},arrayBuffer:async()=>Uint8Array.from(bytes).buffer};}}};
   const player=async(path,headers)=>{const response=await reader.fetch(new Request(playerOrigin+path,{headers}),readerEnv);return {status:response.status,value:await response.json()};};
   await publisher.drainOne(); assert.equal(writes,1); assert.equal(app.frozenDistribution.status().confirmedGeneration,0);
+  // A 批：指针在根 CAS 之前落地，所以「根可见但收据缺失」时指针已经指向这一代次，
+  // 而玩家端仍以根为准（不可见），两者不能互相冒充。
+  assert.equal(directories,1);
+  { const pointer=JSON.parse(Buffer.from(staging.objects.get(staging.prefix+'control/directory.json').bytes));
+    assert.equal(pointer.version,1); assert.equal(pointer.generation,1);
+    assert.equal(sha(Buffer.from(JSON.stringify({version:pointer.version,authorityId:pointer.authorityId,generation:pointer.generation,games:pointer.games}))),pointer.digest); }
   assert.deepEqual(await publicationStatus('owned-frozen-publish-01'), pendingStatus, 'remote root without a durable confirmation still reports pending');
   failReceipt=false;
   await drain(1);assert.equal(writes,1);assert.deepEqual((await player('/play-api/v1/registry')).value.directory,[]);groups++;

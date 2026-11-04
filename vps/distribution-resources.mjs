@@ -5,6 +5,7 @@ import { DISTRIBUTION_PAYLOAD_LIMIT } from '../server/distributionledger.js';
 import { projectPublicationCatalog } from '../server/publicationcatalog.js';
 import { validateFirstOnlineReference, firstOnlineReceiptKey, receiptVisibleAt } from '../reader/firstonline.js';
 import { ASSET_TYPES, MAX_METADATA_BYTES, isGameId, isId, isChapterId, isOrdinal, parseJSON, sameIdentity, validateIndex, validateRuntimeReference } from '../reader/runtimecontract.js';
+import { directoryPointerFromProjection } from './directory-pointer.mjs';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -163,6 +164,11 @@ export function createDistributionResourceVerifier({ r2, prefix = '', verifyStat
       for (const [role, ref] of Object.entries(index.resources)) if (role !== 'manifest') await verify(ref);
     }
     if (staticManifests.length) await staticBatch({ manifests: staticManifests });
-    return Object.freeze({ runtimes: entries.length, objects: checked.size + receipts.size, reads });
+    // Attested, not re-derived later: the transport writes the game-level
+    // directory this closure just proved, so it can never publish a directory for
+    // bytes it did not verify. Pure reshaping of the frozen projection. A legacy
+    // runtimeVersion 1 projection carries no game-level directory to attest.
+    const directory = payload.projection.runtimeVersion === 2 ? directoryPointerFromProjection(payload.projection, context) : null;
+    return Object.freeze({ runtimes: entries.length, objects: checked.size + receipts.size, reads, ...(directory ? { directory } : {}) });
   };
 }

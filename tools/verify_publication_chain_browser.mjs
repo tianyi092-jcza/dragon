@@ -61,6 +61,7 @@ try {
     await bucket.put(path, row.bytes, { httpMetadata: { contentType: 'image/png' } });
   }
   assert.equal(packaged.objects.size, 621);
+  let directories = 0;
   const r2 = {
     async get(key, { maxBytes }) {
       assert.match(key, /^(artifacts|kao|projections|control)\//); gets++;
@@ -74,7 +75,10 @@ try {
       puts++; return await bucket.put(key, bytes, { onlyIf: { etagDoesNotMatch: '*' }, httpMetadata: { contentType } }) !== null;
     },
     async putControl(key, bytes, etag) {
-      assert.equal(arguments.length, 3); assert.equal(key, 'control/current.json');
+      // 游戏级目录指针（A 批）与根共用一个条件写端口，它是独立的 key，不计入根代次。
+      assert.equal(arguments.length, 3);
+      if (key === 'control/directory.json') { directories++; return await bucket.put(key, bytes, { httpMetadata: { contentType: 'application/json' } }) !== null; }
+      assert.equal(key, 'control/current.json');
       const value = await bucket.put(key, bytes, { onlyIf: etag === null ? { etagDoesNotMatch: '*' } : { etagMatches: etag.slice(1, -1) }, httpMetadata: { contentType: 'application/json' } });
       if (value !== null) roots++; return value !== null;
     },
@@ -209,6 +213,26 @@ try {
   assert.equal(tail(), 2); assert.deepEqual((await registry()).directory, []); await drain();
   // The approved version is public only after the drain: the reader directory is
   // the authority, not the review panel receipt.
+  // A 批：同一份冻结投影并行写出的游戏级目录指针，与根同代次、且每个 gameId 一条。
+  {
+    const pointerBytes = new Uint8Array(await (await bucket.get('control/directory.json')).arrayBuffer());
+    const pointer = JSON.parse(new TextDecoder().decode(pointerBytes));
+    const root = JSON.parse(new TextDecoder().decode(new Uint8Array(await (await bucket.get('control/current.json')).arrayBuffer())));
+    assert.equal(directories, root.generation, 'one directory pointer per advanced generation');
+    assert.equal(pointer.version, 1); assert.equal(pointer.authorityId, root.authorityId);
+    assert.equal(pointer.generation, root.generation);
+    const listed = pointer.games.filter(entry => entry.listed);
+    assert.deepEqual(listed.map(entry => entry.gameId), [gameId]);
+    assert.equal(listed[0].directory.chapters.length, 20);
+    // 新老两处投影一致：指针条目与旧 projections/<gen>/<digest>/projection.json
+    // 的同一 gameId 逐字段相同（老逻辑仍然写，A 批完全可回滚）。
+    const legacy = JSON.parse(new TextDecoder().decode(new Uint8Array(await (await bucket.get(`projections/${root.generation}/${root.digest}/projection.json`)).arrayBuffer())));
+    const legacyDirectory = legacy.directory.find(row => row.gameId === gameId);
+    const legacyRelease = legacy.releases.find(row => row.game_id === gameId);
+    assert.deepEqual(listed[0].directory, { name: legacyDirectory.name, publishedAt: legacyDirectory.publishedAt, chapters: legacyDirectory.chapters });
+    assert.deepEqual(listed[0].release, { releaseId: legacyRelease.release_id, ordinal: legacyRelease.ordinal, revision: legacyRelease.draft_revision, sourceDigest: legacyRelease.source_digest, runtime: legacyRelease.runtime });
+    assert.deepEqual(listed[0].announcements.map(row => row.ordinal), legacy.announcements.filter(row => row.gameId === gameId).map(row => row.ordinal));
+  }
   let publicState = await registry(); assert.equal(publicState.directory.length, 1); assert.equal(publicState.directory[0].ordinal, '1.0'); assert.equal(publicState.directory[0].chapters.length, 20);
   assert.equal(publicState.announcements[0].firstOnlineAt, rootVisibleAt((await bucket.get('control/current.json')).uploaded));
   const chapterId = authority.chapters[0], admissionPath = ordinal => `/play-api/v1/admissions?game=${gameId}&ordinal=${ordinal}&chapter=${encodeURIComponent(chapterId)}`;

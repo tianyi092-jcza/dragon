@@ -39,6 +39,7 @@ try {
   mf = new Miniflare({ modules: true, modulesRules: [{ type: 'ESModule', include: ['**/*.js'] }], scriptPath: resolve('reader/site.js'), compatibilityDate: '2024-01-01', host: '127.0.0.1', port: 0, r2Buckets: ['PUBLISH_BUCKET'], bindings: { PLAYER_ORIGIN: playerOrigin, PLAYER_ADMISSION_ACTIVE_KEY: 'owned', PLAYER_ADMISSION_KEYS: JSON.stringify({ owned: '11'.repeat(32) }) } });
   await mf.ready; bucket = await mf.getR2Bucket('PUBLISH_BUCKET');
   const raised = [];
+  let directoryPointer = null;
   const r2 = {
     async get(key, { maxBytes }) {
       assert.match(key, /^(artifacts|kao|projections|control)\//);
@@ -51,6 +52,8 @@ try {
       return await bucket.put(key, bytes, { onlyIf: { etagDoesNotMatch: '*' }, httpMetadata: { contentType } }) !== null;
     },
     async putControl(key, bytes, etag) {
+      // 游戏级目录指针（A 批）是独立 key，与根共用条件写端口。
+      if (key === 'control/directory.json') { directoryPointer = JSON.parse(await new Response(bytes).text()); return await bucket.put(key, bytes, { httpMetadata: { contentType: 'application/json' } }) !== null; }
       assert.equal(key, 'control/current.json');
       return await bucket.put(key, bytes, { onlyIf: etag === null ? { etagDoesNotMatch: '*' } : { etagMatches: etag.slice(1, -1) }, httpMetadata: { contentType: 'application/json' } }) !== null;
     },
@@ -183,6 +186,12 @@ try {
   const drained = [];
   for (let i = 0; i < 20; i++) { const step = await publisher.drainOne(); if (step.state === 'IDLE') break; drained.push(step.state); }
   assert.ok(drained.includes('VISIBLE_CONFIRMED'), '分發必須推進到可見確認：' + JSON.stringify(drained));
+  // A 批：同一代次還寫了一份遊戲級目錄指標，內容與舊投影指向同一份章節。
+  assert.ok(directoryPointer, '上架必須寫出遊戲級目錄指標');
+  const pointerGames = directoryPointer.games.filter(entry => entry.listed);
+  assert.deepEqual(pointerGames.map(entry => entry.gameId), [produced.game_id]);
+  assert.equal(pointerGames[0].directory.chapters.length, 20);
+  assert.equal(pointerGames[0].release.ordinal, '1.0');
   const readerGet = async (path, headers = {}) => {
     const response = await mf.dispatchFetch(playerOrigin + path, { headers });
     const bytes = new Uint8Array(await response.arrayBuffer());
