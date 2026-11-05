@@ -206,9 +206,10 @@ export class StartMenu {
     this._sortedScenarios = sorted;
     return sorted.map((s) => {
       // 仅在新游戏列表标注合集章节；内部 scenario.name 仍保留原始标题。
+      // 前缀用繁体（使用者 m904）：[重製]（[原版] 繁简同形，无需处理）。
       const name = s.name.replace(/(章[．.])　　/, "$1 ");
       return {
-        name: origIndices.includes(s._origIdx) ? name : `[重制]${name}`,
+        name: origIndices.includes(s._origIdx) ? name : `[重製]${name}`,
         date: s.start,
       };
     });
