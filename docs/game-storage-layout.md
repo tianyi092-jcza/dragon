@@ -499,3 +499,82 @@ control/current.json                                全站在架列表 + 根版�
 - 空态是常态：日志不回溯回填，A 路线之前上架的版本永远没有行。**不是故障**。
 - 验证：`tools/verify_release_history.mjs` 7 组（真 editor application 代码 + 真 ledger 写行）、`verify_review_ui_model` 11/11、`verify_review_ui_browser` 7/7（新增第 7 条）。
 - schema 不变：仍 54 表／52 索引／361 列／50 索引投影／4 FK。
+
+## 15. 部署配方（现行：服务器侧浅取 + 26 文件校验 + 镜像替换）
+
+### 15.1 为什么不再从本机传 tgz
+
+2026-11-05 实测：本机到 `dartnode`（IPv6）与 `dartnode4`（IPv4）的上行都已崩溃——5 MB 探针 **316 s（≈16 KB/s）**，
+168 MB 的 `git archive` 包 3 分钟内只走 540 KB 就断连；而同一时刻**服务器到 GitHub 是通的且快**
+（`curl https://github.com` 0.38 s、`git ls-remote ... main` 命中目标提交）。所以包的来源改成 GitHub：
+
+```bash
+# 服务器上（/srv/dragon-editor/publication）
+rm -rf ui7-src app-new14 && mkdir ui7-src && cd ui7-src
+git init -q && git remote add origin https://github.com/tianyi092-jcza/dragon.git
+git fetch --depth 1 origin main            # 先 git ls-remote 确认 = 本机 HEAD
+git rev-parse FETCH_HEAD                   # 必须等于本地 `git rev-parse HEAD`
+mkdir -p ../app-new14
+git archive FETCH_HEAD server vps reader tools web VERSION .gitattributes | tar -x -C ../app-new14
+```
+
+- 上下文：`vps/Dockerfile.publication` 只 COPY `server/ vps/ reader/ web/` 与四个 `tools/*.mjs`，`web/` 必须在包里
+  （启动的静态程序归档要读它），所以路径清单不能省。
+- 白拿一个好处：GitHub blob 是 LF，和自己 `git archive` 的字节一致，天然绕开「工作树 CRLF → 服务器 LF」的 digest 假差。
+
+### 15.2 完整性校验（不要靠「看起来对」）
+
+上机前在本地对**本次变更文件**算清单，服务器侧逐条校验：
+
+```bash
+# 本地
+{ git diff --name-only <上一个已部署提交>..HEAD | grep -E '^(server|vps|reader|tools|web)/'; echo VERSION; echo .gitattributes; } \
+  | sort -u > /tmp/files
+while read -r f; do echo "$(git show "HEAD:$f" | sha256sum | cut -d' ' -f1)  $f"; done < /tmp/files > /tmp/sums
+# 服务器
+cd app-new14 && sha256sum -c /tmp/sums
+```
+
+用 `git show`（而不是读工作树文件）算哈希，否则 CRLF 会让每个文件都对不上。2026-11-05 那一批 26/26 OK。
+
+### 15.3 替换与回滚
+
+```bash
+docker build -f app-new14/vps/Dockerfile.publication -t dragon-editor-publication:<tag> app-new14
+./backup-publication.sh                       # 停止容器→备份 publication-data/.env/compose→独立容器 integrity_check→trap 拉起
+ts=$(date -u +%Y%m%dT%H%M%SZ); mv app "app-prev-<ts>"; mv app-new14 app
+sed -i 's/^EDITOR_DEPLOYMENT_ID=.*/EDITOR_DEPLOYMENT_ID=<tag>/' .env
+docker compose up -d --force-recreate
+```
+
+- **不要**在这里改 `publication.env` 的三处静态 pin：只有当 `web/`／`reader/` 变了、静态发布 digest 才需要换；
+  判断方法是 `git diff --stat <上次部署提交>..HEAD -- web reader` 为空即不动。
+- **首启健康要等**：核对静态程序 1440 个物件，2026-11-05 实测第一个 200 在 405 s、healthy 在 420 s；期间 `http=000` 正常。
+- 回滚两级：`EDITOR_SYNC_PUBLISH=0` + recreate 回旧发布协议（无 schema 回滚，additive 新表可留）；
+  整镜像回滚用 `app-prev-<ts>` + `.env` 改回旧 tag。
+
+### 15.4 上线后最小只读核对（每次照做）
+
+1. `/`、`/api/health` 200，且 health body 的 `initialized:true`。
+2. `/shell-ui.js`、`/shell-ui.css`、各自定义模块的字节数**与 `git show HEAD:<path>` 相等**（不是与工作树相等）。
+3. 复制生产库快照到 `/tmp`，用容器内 `node:sqlite` 只读打开：`54 表／52 索引／361 列／4 FK` + `integrity_check ok`
+   （`pragma_table_xinfo(?)`／`pragma_foreign_key_list(?)` 要传参数，双引号会被当标识符报错）。
+4. 账本 `tail_generation` / `confirmed_generation` / `blocked_reason` 未被动过。
+5. 玩家端 `/play-api/v1/registry` 的 generation 与 `static-release.json` 的 `sourceTreeDigest`（＝`publication.env` 的 `STATIC_SOURCE_SHA256`）不变。
+6. 容器日志除 `started` / `distribution-idle` 外无 `error|failed|unreachable`。
+
+### 15.5 2026-11-05 上线记录（v0.1.11）
+
+| 项 | 值 |
+| --- | --- |
+| 提交 | `62b1329`（v0.1.11 发布 + 记忆补记） |
+| 镜像（当前生产） | `dragon-editor-publication:20261105-bc1-ui7c`（`sha256:211882f3…`）；同一提交先上过 `ui7`（`sha256:f73a5a9c…`），三者 RootFS 层摘要逐层相同 |
+| 回滚点 | 目录 `app-prev15-20261105T131520Z`（前一份 `app-prev14-20261105T125158Z`）；数据 `/root/dragon-editor-backups/publication-20261105T131446Z`（前一份 `…T125131Z`） |
+| 取源与校验 | 服务器侧浅取 → `FETCH_HEAD=62b1329`；`app-new*` 解包后 **26/26 sha256 OK**；镜像内运行期文件 **11/11 OK** |
+| 静态发布 | **未变**（`web/`／`reader/` 自 `b8d62b0` 零改动；digest 仍 `b93d19…`，玩家端 223449 字节／1440 文件／`260cc9…`） |
+| 首启健康 | 两次分别 405 s／435 s 首个 200，healthy 紧随；日志 `started`+`distribution-idle`，0 错误 |
+| schema | 54 表／52 索引／361 列／4 FK；`game_releases` 首启建表、0 行；`integrity_check ok`；账本 `3/3/null` 未动 |
+| 新路由 | `GET /api/admin/games/<id>/releases` 匿名 401 `LOGIN_REQUIRED`；POST 该路径 415 |
+
+**仍未验证**：生产上没有真实上架过一次 → 「真 R2／代理链下 20 章上架端到端耗时」与「上架后立刻对玩家可见」仍只有本地证据（§11.5 前置①），
+发布历史面板也还没见过真实行。

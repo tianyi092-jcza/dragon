@@ -8,13 +8,13 @@
 
 ## 1. 当前主线状态
 
-- **软件版本 `0.1.11`**（本次发布）：已推 `github`（`main` = 本提交 / tag `v0.1.11` / Release），**未部署**。上一版 `0.1.10`（`c5de53d` / tag `v0.1.10`）已推 GitHub 并已上生产。生产当前跑的是 **`b8d62b0`**（镜像 `20261104-bc1-ui6`，healthy）；`fbeeca0` 之后的发布日志与发布历史面板**只在仓库里**。Gitea `origin` 仍未推（不在发布目标内）。
+- **软件版本 `0.1.11` 已上生产**（2026-11-05）：`github/main` = `62b1329`、tag `v0.1.11`、Release 已建；生产镜像 **`20261105-bc1-ui7c`**（healthy，见 §4.37）。生产库已建 `game_releases` 表（0 行），发布历史面板可访问、**显示空态属预期**（日志不回填历史）。回滚点：对冲镜像 `20261104-bc1-ui6`、目录 `app-prev15-20261105T131520Z`、数据 `/root/dragon-editor-backups/publication-20261105T131446Z`。Gitea `origin` 仍未推（不在发布目标内）。
 - **游戏级存储（方案 B）A+B+C 三批已全部上线**：上架时并行写 `control/directory.json`（游戏级在架指针，R2 唯一与游戏相关的对象）；读者只按指针出目录；删除 = 库行 purge + 指针移除该 gameId + `artifacts/<gameId>/` 前缀回收。
 - **产品主流程在生产上已跑通**：複製遊戲（20 章全量）→ 全面檢驗 → 上架（版本 +1、状态「待上架」）→ 管理员同意（「已上架」）→ 玩家端能加载并正常游玩；删除旧产物走同一 fence→purge 链。
 - **工作台回馈**：複製一次跑到完成（无「續」、真实文件数进度）；上架/检验有阻塞遮罩 + 分步状态；全站提示改成「在做什么／做成了什么／失败能怎么办」；每请求有超时（只读 60s／写 600s），UI 不再可能被一个请求永久锁死。
 - **v0.1.10 发布后补记批（已随 `b8d62b0` 提交并上生产）**：补齐版本记录（`docs/release-v0.1.10.md`、`CHANGELOG 0.1.10`）、给出 C 批剩余两条路线的对比与实测数据（`drainMs=7041`）、把提示文案规范落到剩余面板，并修好两条自 ui4／ui5 起就陈旧的浏览器门。详见 §4.24–§4.27。
-- **A 路線第一版（同步發布，可回滚）已上生产**：镜像 `20261104-bc1-ui6`，`EDITOR_SYNC_PUBLISH=0` 即回旧协议。详见 §4.28／§4.29。
-- **发布日志 `game_releases`（审计）已提交`fbeeca0`，未部署**：与发布同一事务写 pending/confirmed 行，管理回执带 `releaseDigest`；纯 additive，7 张 `content_distribution_*` 与 drainer 未动。面板（第 2 档）已随本批完成，见 §4.33。
+- **A 路線（同步發布，可回滚）已在生产**：`EDITOR_SYNC_PUBLISH=0` 即回旧协议（不必换镜像、不必回滚数据）。详见 §4.28／§4.29／§4.35。
+- **发布日志 `game_releases`（审计）与发布历史面板已上生产**：与发布同一事务写 pending/confirmed 行，管理回执带 `releaseDigest`；纯 additive，7 张 `content_distribution_*` 与 drainer 未动。面板（第 2 档）见 §4.33，上线实测见 §4.35。
 
 ## 2. 本轮交付批次（按提交顺序）
 
@@ -300,9 +300,63 @@
 
 **最终状态**：`github/main` = `fc1c84d`，tag `v0.1.11`（annotated `d634e0c`），Release 已建并标 Latest；Gitea `origin` 未动；工作树干净、`VERSION` 0.1.11。
 
+### 4.35 v0.1.11 上生产（2026-11-05，镜像 `20261105-bc1-ui7`）
+
+用户下令「按建议顺序执行」，第一步即部署 v0.1.11（§6 第 1 项，需明确授权——该指令即授权）。执行配方与验证证据同步写进 [game-storage-layout](game-storage-layout.md) §15。
+
+**传输方式换了（重要，下次直接用）**：本机到 `dartnode` 的上行此时已崩溃——5 MB 探针 316 秒（≈16 KB/s），scp 168 MB 在 3 分钟内只走 540 KB 就断；`dartnode4`（IPv4）同样慢。而**服务器到 GitHub 是通的且快**（`curl https://github.com` 0.38s、`git ls-remote` 命中 `62b1329`）。所以放弃上传 tgz，改为**服务器侧浅取**：
+`git init` + `git remote add origin https://github.com/tianyi092-jcza/dragon.git` + `git fetch --depth 1 origin main` → `git archive FETCH_HEAD server vps reader tools web VERSION .gitattributes | tar -x -C app-new14`。
+顺带绕掉 CRLF 坑（GitHub 侧的 blob 就是 LF，与自己 `git archive` 的字节一致）。
+
+**完整性不靠「看起来对」**：上机前本地对 26 个变更文件算 `git show HEAD:<path> | sha256sum` 清单，服务器 `sha256sum -c` **26/26 OK**（含 `shell-ui.txt` 705343、`publish.txt` 29914、`review.txt` 17500）。
+
+**步骤**：`docker build -f app-new14/vps/Dockerfile.publication -t dragon-editor-publication:20261105-bc1-ui7 app-new14`（50.7s）→ `./backup-publication.sh`（备份 `/root/dragon-editor-backups/publication-20261105T125131Z`，含独立容器 SQLite integrity_check OK）→ `mv app app-prev14-20261105T125158Z` → `mv app-new14 app` → `.env` 改 `EDITOR_DEPLOYMENT_ID` → `docker compose up -d --force-recreate` → 轮询 health。
+
+**首启时间**：405 秒第一个 200，420 秒 healthy（与 §12.1 的 9 分钟同量级，全部是静态程序 1440 物件核对）。日志只有 4 行、`error|failed|unreachable` **0 条**。
+
+**上线后只读实测**（全部第一手）
+
+| 项 | 结果 |
+|---|---|
+| `/`、`/api/health` | 200；`{"service":"dragon-editor","stage":"accounts-sessions","initialized":true}` |
+| 工作台模块字节 | `/shell-ui.js` **705343**、`/shell-ui.css` **54698**、`/publish.js` **29914**、`/review.js` **17500**、`/client.js` **20766**——与 `git show HEAD:` 字节逐一相等（以前记录里的「本地字节 + 换行」是本地 CRLF 工作树造成的假差，现在以 git 字节为准） |
+| schema | 生产库 **54 表／52 索引／361 列／4 FK**、`integrity_check ok`；`game_releases` 由首启 `CREATE TABLE IF NOT EXISTS` 建出，**0 行** |
+| 账本 | `tail_generation=3`、`confirmed_generation=3`、`blocked_reason=null`——未被动过 |
+| 新路由 | `GET /api/admin/games/<id>/releases` 匿名 **401 `LOGIN_REQUIRED`**（路由已活）；POST 该路径 **415**（不是路由） |
+| 玩家端 | `/play-api/v1/registry` 200／**generation 3**／仍是「卧龙传·重构版」1.0；`static-release.json` 仍 **223449 字节／1440 文件／sourceTreeDigest 260cc9…**（＝`publication.env` 的 `STATIC_SOURCE_SHA256`）；未知 uuid `status` **410** |
+
+**没动的**：`web/`、`reader/` 自 `b8d62b0` 起零改动，所以静态发布 digest 不变 → 没动 nginx、没改 `publication.env` 三处 pin、没跑 `wrangler deploy`。`/srv/.../ui7-src`（101 MB）与临时 dbcopy 已清。
+
+**回滚**：`EDITOR_SYNC_PUBLISH=0` 回旧发布协议（无 schema 变更，新表纯 additive 可留）；整镜像回滚 `mv app app-ui7-failed && mv app-prev14-20261105T125158Z app` + `.env` 改回 `20261104-bc1-ui6` + `up -d`。
+
+**仍未验证**：生产上没有真实上架过一次，所以「真 R2／代理链下 20 章上架的端到端耗时」「上架后立刻对玩家可见」仍只有本地证据（C 批前置①）；发布历史面板在浏览器里仍未见真实行（只有 lane 与模型证据）。
+
+### 4.36 复验与第二次独立取源（2026-11-05，用户要求「再试一次部署」）
+
+用户的担心是「刚才没用代理，访问 GitHub 可能会有问题」。实测结论：出问题的不是 GitHub，是**本机→VPS 的上行**。环境事实：本机 `HTTP(S)_PROXY`／`ALL_PROXY=http://127.0.0.1:10808`，`git` 走代理、`ssh`／`scp` **不走**——这正好解释 §4.34 的 HTTP/2 重置；已写进 [AGENTS.md](../AGENTS.md) §2.5 那条推送约定。
+
+- **生产复验**：容器 `20261105-bc1-ui7` Up (healthy)、`/api/health` 200、`.env` 指向该 tag、镜像创建于 2026-11-05T20:50。
+- **镜像内逐条校验**：`/app` 与本地 `git show HEAD:` 比对，**11 个运行期文件全部 OK**（`server/*.js` 8 个＋`server/public/{publish,review,shell-ui}.txt`）；缺的 15 个是 Dockerfile 只 COPY 四个 `tools/*.mjs` 造成的（`VERSION`／`.gitattributes`／测试 lane 本就不进镜像，与 ui6 相同）。
+- **第二次独立取源**：全新 `git init` + `fetch --depth 1` → 仍为 `62b1329`，解包 **26/26 sha256 OK**；重建 tag `20261105-bc1-ui7b`，**RootFS 层摘要与 ui7 逐层相同**（均 11 层）→ 两份产物内容一致，构建缓存全命中（2.0 s）。
+- **决定不重启生产**：零差异内容换来 ≈7 分钟编辑器启动窗口不值得；`ui7b` 留作随时可切的等价产物，`app-new14b`、`ui7-src`、`ui7b-src` 已清。
+
+### 4.37 按用户要求完成一次真实部署（最终状态 `20261105-bc1-ui7c`）
+
+用户回报「我现在就是要最新的代码部署完成」，所以把「取源→校验→构建→换目录→强制重建→逐项验收」**真的跑完了一遍**（不是只验证已有产物）。
+
+- 取源：全新 `git init` + `fetch --depth 1` → `FETCH_HEAD=62b1329`；解包 `app-new15` → **26/26 sha256 OK**；`VERSION` 0.1.11。
+- 构建：`dragon-editor-publication:20261105-bc1-ui7c`（`sha256:211882f3…`，层缓存全命中 0.3 s——与 ui7/ui7b 内容完全相同）。
+- 备份：`./backup-publication.sh` → `/root/dragon-editor-backups/publication-20261105T131446Z`（含独立容器 `integrity_check ok`）。
+- 替换：`mv app app-prev15-20261105T131520Z` → `mv app-new15 app` → `.env` 改 `ui7c` → `docker compose up -d --force-recreate`。
+- **首启健康 435 s**（与 §4.35 的 420 s、§12.1 的 9 分钟同量级，全是 1440 个静态程序物件核对）；日志 `started` + `distribution-idle`，`error|failed|unreachable` **0 条**。
+
+验收（全部第一手）：`/` 200、`/api/health` 200；模块字节 `/shell-ui.js` 705343、`/shell-ui.css` 54698、`/publish.js` 29914、`/review.js` 17500、`/client.js` 20766（与 `git show HEAD:` 相等）；镜像内 11 个运行期文件 sha256 **11/11 OK**；生产库 **54 表/52 索引/361 列/4 FK**、`integrity_check ok`、`game_releases` 0 行、账本 `3/3/null` 未动；`GET /api/admin/games/<id>/releases` 匿名 **401 `LOGIN_REQUIRED`**；玩家端 `registry` 200/generation 3、`static-release.json` 223449 字节/1440 文件/`260cc9…`、未知 uuid **410**。
+
+清理：`app-new15` 已切为 `app`，`ui7c-src`、`ui7.sha256`、未部署过的 `ui7b` 镜像已删。
+
 ## 5. 当前阻塞
 
-1. **待授权：部署**。`game_releases` 与发布历史面板都已随 v0.1.11 发布，但**未部署**：生产库还没有这张表，所以生产上查不到任何发布历史（面板会显示空态，这是预期的，不是故障）。
+1. **生产真实上架一次仍未做**（只能由管理员在浏览器里点）：所以「真 R2／代理链下 20 章上架的端到端耗时」与「上架后立刻对玩家可见」仍只有本地证据，C 批前置①未满足。部署面本身已完成（§4.35）。
 2. **仍是既有红，不阻塞但不许写成「全绿」**：`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution`（＋`_workerd`）在 HEAD 上就失败；`verify_publish_ui_model` 9 pass / 7 fail（7 条早于 B3 §6／B8 的产品变更）。
 3. **账本剩 2 条历史事件 + 1 条 cleanup 行**属惰性遗留；直接删会触发 `DISTRIBUTION_LEDGER_CORRUPT`，等整表下线时一起清。
 4. **7 张 `content_distribution_*` 与 drainer 仍在**。真要删，前置仍是生产实测一次 20 章上架端到端耗时（§11.5 前置①未满足）。
@@ -310,7 +364,7 @@
 
 ## 6. 下一步（建议顺序）
 
-1. **部署 v0.1.11**（需明确授权）：不部署则面板永远空态。部署后请管理员在生产点一次真实上架，顺便量出 20 章上架的端到端耗时（C 批前置①）。
+1. ~~部署 v0.1.11~~ 已完成（§4.35，镜像 `20261105-bc1-ui7`）。剩下的半步：**请管理员在生产点一次真实上架**，同时量出 20 章上架的端到端耗时（C 批前置①），并顺便确认发布历史面板出现第一行真实日志。
 2. 通用系统审计（`audit_events` 覆盖审核／删除／账号变更）仍未立项；建议用 `game_releases` 的真实字段与用法反推其结构，不先设计。
 3. 复制改后台任务 + 前端轮询（可选，彻底摆脱代理层 100 秒限制）。
 4. C 批剩余（下线 7 张 `content_distribution_*`）仍等前置①；`verify_publish_ui_model` 的 7 条行为断言 re-baseline 也还挂着。
