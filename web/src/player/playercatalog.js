@@ -141,23 +141,23 @@ export function mountPlayerCatalog({ root, reader, selectionVisible = true, read
   }
   function showLocalSaves() {
     if (closed || modal || !selectionVisible || !readLocalCatalogs) return;
-    // 與中央「新游戏」彈窗同一套雲紋金框，尺寸取它的一半（448×368 → 224×184）；
+    // 與中央「新游戏」彈窗同一套雲紋金框，尺寸與它同大（448×368，使用者 m950 要求放大 2 倍）；
     // 打開就自動檢查，底部不再放「重新檢查」按鈕。
-    const W = 224, H = 184;
+    const W = 448, H = 368;
     const node = make('section'), backdrop = make('canvas'), content = make('div'), body = make('div');
     node.setAttribute('role', 'dialog'); node.setAttribute('aria-modal', 'true'); node.setAttribute('aria-label', '不可用存檔');
     node.tabIndex = -1;
     Object.assign(node.style, { position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: '10001', width: `${W}px`, height: `${H}px`, background: '#12233c', color: '#ffffff', display: 'flex', flexDirection: 'column' });
     backdrop.width = W; backdrop.height = H;
     Object.assign(backdrop.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', imageRendering: 'pixelated', pointerEvents: 'none' });
-    Object.assign(content.style, { position: 'relative', zIndex: '1', flex: '1', minHeight: '0', display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px 12px 8px' });
-    Object.assign(body.style, { flex: '1', minHeight: '0', overflow: 'auto', overflowWrap: 'anywhere', fontSize: '12px', lineHeight: '1.5' });
+    Object.assign(content.style, { position: 'relative', zIndex: '1', flex: '1', minHeight: '0', display: 'flex', flexDirection: 'column', gap: '10px', padding: '20px 22px 14px' });
+    Object.assign(body.style, { flex: '1', minHeight: '0', overflow: 'auto', overflowWrap: 'anywhere', fontSize: '15px', lineHeight: '1.6' });
     const heading = make('h2', '不可用存檔');
-    Object.assign(heading.style, { margin: '0', fontSize: '16px', fontWeight: 'normal', textAlign: 'center', color: '#ffffff' });
+    Object.assign(heading.style, { margin: '0', fontSize: '20px', fontWeight: 'normal', textAlign: 'center', color: '#ffffff' });
     const legend = make('p', '只讀顯示本機目錄，不會清除或改寫存檔。');
     legend.style.margin = '0';
     const hint = make('p', '右鍵返回');
-    Object.assign(hint.style, { margin: '0', fontSize: '11px', textAlign: 'right', opacity: '.8' });
+    Object.assign(hint.style, { margin: '0', fontSize: '12px', textAlign: 'right', opacity: '.8' });
     content.append(heading, legend, body, hint);
     node.append(backdrop, content);
     const owner = { kind: 'local', node, content: body }; modal = owner;
