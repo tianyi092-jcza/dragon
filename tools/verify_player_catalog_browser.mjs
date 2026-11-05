@@ -68,7 +68,7 @@ try{
  assert.equal(await page.evaluate(()=>window.__catalog.refresh()),true);
  const select=page.getByRole('combobox',{name:'選擇遊戲'}),notice=page.locator('.player-catalog-notice');
  assert.equal(await page.getByRole('combobox').count(),1);
- assert.equal(await select.locator('option').first().textContent(),'卧龙传·三国制霸之计（内置）');
+ assert.equal(await select.locator('option').first().textContent(),'臥龍傳·三國制霸之計（內置）');
  assert.equal(await select.locator('option').nth(1).textContent(),row.name);
  assert.equal(await select.inputValue(),'wolong-builtin');
  assert.equal(await select.locator('option').count(),2);await select.selectOption(game);
@@ -137,15 +137,15 @@ try{
  assert.equal(await page.getByRole('button',{name:'重試',exact:true}).count(),0);
  await page.screenshot({path:join(artifact,'catalog.png')});checks++;
  assert.equal(await page.evaluate(()=>window.__idb),0,'mount and remote failure must not inspect local storage');
- const localEntry=page.getByRole('button',{name:'不可用存檔管理',exact:true});await localEntry.click();
- const localPanel=page.getByRole('dialog',{name:'不可用存檔管理',exact:true});
- await page.waitForFunction(()=>document.querySelector('[aria-label="不可用存檔管理"]')?.textContent.includes('不能判定為沒有存檔'));
+ const localEntry=page.getByRole('button',{name:'不可用存檔',exact:true});await localEntry.click();
+ const localPanel=page.getByRole('dialog',{name:'不可用存檔',exact:true});
+ await page.waitForFunction(()=>document.querySelector('[role="dialog"][aria-label="不可用存檔"]')?.textContent.includes('不能判定為沒有存檔'));
  assert.equal(await page.evaluate(()=>window.__idb),1,'explicit click reaches the real public-wrapper read-only port');
  assert.equal(await page.evaluate(()=>window.__public.view.selection()),null);
  await localPanel.click({button:'right'});assert.equal(await localPanel.count(),0);
  await page.evaluate(()=>window.__public.close());checks++;
  await page.evaluate(async()=>{const {mountPublicCatalog}=await import('/src/player/playerpublic.js');window.__formalCatalog=mountPublicCatalog(document.body,{selectionVisible:false});});
- assert.equal(await page.getByRole('button',{name:'不可用存檔管理',exact:true}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'不可用存檔',exact:true}).count(),0);
  assert.equal(await page.evaluate(()=>window.__idb),1);await page.evaluate(()=>window.__formalCatalog.close());checks++;
  await page.waitForFunction(()=>window.__catalogTraces.every(trace=>trace.completed));
  const traces=await page.evaluate(()=>window.__catalogTraces),completedStreamFailures=[];

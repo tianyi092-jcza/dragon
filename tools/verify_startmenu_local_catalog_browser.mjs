@@ -90,12 +90,12 @@ try {
   });
   const before = await page.evaluate(() => window.__snapshot());
   await page.evaluate(() => { window.__inspectOnly = true; });
-  await page.getByRole('button', { name: '不可用存檔管理', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '不可用存檔管理', exact: true });
-  await page.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('槽3　版本序號：9'));
-  assert.match(await dialog.textContent(), /目錄損壞或不完整/);
+  await page.getByRole('button', { name: '不可用存檔', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '不可用存檔', exact: true });
+  await page.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('槽3　版本序號 9'));
+  assert.match(await dialog.textContent(), /目錄損壞/);
   assert.equal(await page.evaluate(() => window.__app.startMenu.publicCatalog.view.selection()), null);
-  assert.equal(await dialog.locator('button').count(), 1);
+  assert.equal(await dialog.locator('button').count(), 0);
   assert.deepEqual(await page.evaluate(() => window.__catalogReads.toSorted()), ['game:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa:catalog-v3', 'game:broken:catalog-v3']);
   const clickCanvas = async (x, y) => {
     const box = await page.locator('#startv').boundingBox();

@@ -429,6 +429,27 @@
 
 **未跑**：浏览器级 verify 脚本（同上）；编辑器后台的人工点击流程留给用户手测。
 
+### 4.41 玩家标题页四项视觉收口＋内置游戏名繁体（2026-11-05，用户 m722/m824）
+
+用户按截图提出四项：①「不可用存檔管理」改成带「!」的图标钮，放在右上三颗图标钮下面；②悬停显示「不可用存檔」，弹窗改用中央「新游戏」那套云纹金框、缩半、标题改「不可用存檔」、说明精简、去掉底部重查按钮（打开即自动刷新）；③删掉左侧竖排「三國制霸之計」；④点「新游戏」后，把上一页选择框里的游戏名显示在章节窗上方（同宽、距页顶 40px、同云纹样式）。另：内置游戏名应是繁体。
+
+**实现要点**：
+
+- 新增 `web/src/player/cloudframe.js`：`loadCloudFrameImages()`（`grf/ui/{cloud,frame_sq,frame_col,frame_cap}.png`，失败不留坏缓存）＋`paintCloudWindow(ctx, images, w, h)`（16px 格、上下 `frame_sq` 逐 8px、左右 `frame_cap`+`frame_col`、内部 32×32 云纹平铺）。弹窗与游戏名标签共用这一份。
+- `web/src/player/playercatalog.js`：manage 钮改 40×40 圆钮（`position:fixed; right:max(20px,env(...)); top:170px`，即三颗图标钮 20/70/120 之后的第四个位），`aria-label="不可用存檔"`，悬停/聚焦才显示左侧药丸文字。弹窗改 224×184（＝新游戏窗 448×368 的一半）＋canvas 云纹底，打开即 `inspect()`，不再有「重新檢查本機目錄」按钮；文案精简为「只讀顯示本機目錄，不會清除或改寫存檔。」＋逐目录 `槽N　版本序號 M`。
+- `web/src/ui/startmenu.js`：`_gameNameBanner(name)` 用 DOM canvas（`#startv` 是页面居中的 640×400，画在 canvas 内落不到页顶 40px），`left = startv.left + 88*scale`、宽 464（448 内容 + 左右 8px 金框）、`top:40px`；`_chooseChapter()` 用 `finally` 保证退出章节窗/右键取消都会移除标签。
+- `web/intro/intro.config.js`：`subtitle.text` 置空——**节点与淡入时序保留**，`timeline.js` 的 `subtitleOpacity ≥ 1` 放出菜单的门不变。
+- 内置名改繁体：`臥龍傳·三國制霸之計（內置）`（`playercatalog.js` 的 `BUILTIN`）。章节行里的 `[原版]`／`[重制]` 仍是用户未点名的简体，本轮未动。
+
+**两个踩到的坑（决定测试口径）**：
+
+1. 内联 `style.display` 会盖掉 `[hidden]`：manage 钮带内联 `display:grid` 时 `manage.hidden=true` 不生效，`verify_player_catalog_browser` 里 `selectionVisible:false` 的「按钮数 0」断言变成 1。修法：隐藏时同时写 `display:none`。
+2. 钮的 `aria-label` 与弹窗同名后，`document.querySelector('[aria-label="不可用存檔"]')` 会先命中按钮（文本是悬停提示）→ 该测试的等待选择器改成 `[role="dialog"][aria-label="不可用存檔"]`。
+
+**验证**：`node tools/build_trial_web_bundle.mjs` 重建 `trialweb.txt`（241 文件，含新增 cloudframe.js）；`verify_player_catalog_browser.mjs` **24 checks pass**；`verify_startmenu_local_catalog_browser.mjs <round>` **3 checks pass**（该脚本必须传 round 参数，否则第 9 行就报 2!==3）；`verify_opening_browser.mjs` pass。真实标题页 Playwright 截图核对：`!` 钮位置、悬停药丸文字、224×184 云纹弹窗、标签落在 `top:40px` 且与章节窗同宽（1440×900 下 488..952 vs 章节窗 490..950）。
+
+**未覆盖**：正式上架（`?formalGame=&mode=new`）走的是另一页 DOM 章节选择（米黄底，`playernewgame.js`），本轮云纹标签只覆盖内置流程；需要统一风格再另开一轮。
+
 
 ## 5. 当前阻塞
 

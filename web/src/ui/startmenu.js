@@ -8,6 +8,7 @@
 import { runStartFlow } from "../app/startflow.js";
 import { admitSavedScenario } from "../game/savegame.js";
 import { mountPublicCatalog, navigatePlayerGame } from "../player/playerpublic.js";
+import { paintCloudWindow } from "../player/cloudframe.js";
 
 const COLORS = {
   0: "#000000",
@@ -117,17 +118,59 @@ export class StartMenu {
   }
 
   async _chooseChapter() {
-    const sortedIdx = await this.prompt({
-      x: "center",
-      y: "center",
-      w: 448,
-      h: 368,
-      title: "新游戏",
-      rowH: 28,
-      rows: this._chapterRows(),
+    // 上一頁選擇框裡的遊戲名顯示在章節窗上方（同寬、距頁頂 40px、同雲紋金框）。
+    const dropBanner = this._gameNameBanner(this.selectedGame?.name ?? "");
+    try {
+      const sortedIdx = await this.prompt({
+        x: "center",
+        y: "center",
+        w: 448,
+        h: 368,
+        title: "新游戏",
+        rowH: 28,
+        rows: this._chapterRows(),
+      });
+      if (sortedIdx < 0) return sortedIdx;
+      return this._sortedScenarios?.[sortedIdx]?._origIdx ?? sortedIdx;
+    } finally {
+      dropBanner();
+    }
+  }
+
+  // 遊戲名標籤：與章節窗同寬（448 內容 + 左右各 8px 金框），距頁面頂 40px。
+  // 章節窗畫在居中的 canvas 上，只有 DOM 層能落在頁面頂部，所以回傳移除函式。
+  _gameNameBanner(name) {
+    if (!name) return () => {};
+    const W = 464,
+      H = 48;
+    const cv = document.createElement("canvas");
+    cv.width = W;
+    cv.height = H;
+    const r = this.cv.getBoundingClientRect();
+    const sx = (r.width || 640) / 640,
+      sy = (r.height || 400) / 400;
+    Object.assign(cv.style, {
+      position: "fixed",
+      left: `${r.left + 88 * sx}px`,
+      top: "40px",
+      width: `${W * sx}px`,
+      height: `${H * sy}px`,
+      zIndex: "61",
+      pointerEvents: "none",
+      imageRendering: "pixelated",
     });
-    if (sortedIdx < 0) return sortedIdx;
-    return this._sortedScenarios?.[sortedIdx]?._origIdx ?? sortedIdx;
+    const ctx = cv.getContext("2d");
+    paintCloudWindow(ctx, this._imgs, W, H);
+    ctx.font = FONT;
+    ctx.fillStyle = COLORS[15];
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    let text = name;
+    while ([...text].length > 2 && ctx.measureText(text).width > W - 40)
+      text = `${[...text].slice(0, -2).join("")}…`;
+    ctx.fillText(text, W / 2, H / 2 + 1);
+    document.body.append(cv);
+    return () => cv.remove();
   }
 
   async _chooseSave() {
