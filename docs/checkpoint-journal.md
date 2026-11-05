@@ -396,6 +396,40 @@
 
 **验证（本轮真跑过）**：`tools/verify_editor_draft_controller.mjs` 110 pass / 0 fail（新增 forgetGame 用例）；`tools/verify_review_ui_model.mjs` 11 pass / 0 fail；`editor-ui npm run build` → `shell-ui.js` 708397 字节，`npm run check` 通过；`review.txt`／`draft.txt`／`client.txt` `node --check` 通过。测试同步改口径：`verify_review_ui_browser.mjs`（遮罩层三段流程）、`verify_publication_ui_browser.mjs`（改断言「上架管理无删除动作、不发删除/清扫请求」）、`verify_publication_chain_browser.mjs`（`--delete-ui` 必须与 `--review-ui --admin-delete-ui` 搭配）、`verify_player_catalog_browser.mjs` 与 `tools/fixtures/public-player-browser.mjs`（按 option value 等待、断言名称不含「自建」）。**未跑**：上述浏览器级脚本（需要自带 HTTPS/authority 剂量，本轮只做了语法与模型级验证）。
 
+### 4.40 部署 ui8 ＋ 静态发布对齐（玩家站 503 已修，2026-11-05）
+
+提交 `ff37768`（github/main 已推送）后完成一次完整部署。**服务器侧浅取**（§15.1）：`FETCH_HEAD=ff37768e5f28b582d4f495b442d0df20d5f2a44d` → `app-new17`。
+
+**校验口径补正**：本次校验 2515 个文件（不只是 26 个运行期文件）。`git show HEAD:<path>` 给的是 blob 字节，而 `.gitattributes` 里 `web/index.html`、`web/src/content/authoring/gamesource.js`、`web/src/game/navigation/originalroadarrival.js` 是 **`eol=crlf`**，`git archive` 会转成 CRLF → 用裸 blob sha 会假失败 3 项。正确口径是 `git archive HEAD <path> | tar -xO | sha256sum`（与服务器实际落地字节一致），修正后 **2515/2515 OK**。
+
+**镜像**：`dragon-editor-publication:20261105-bc1-ui8`（`sha256:c3376df5d11f…`，构建 1 m 46 s）→ `./backup-publication.sh`（`publication-20261105T143426Z`）→ `app` → `app-prev16-*`，`app-new17` → `app`，`.env` tag = ui8 → `docker compose up -d --force-recreate`（StartedAt 14:35:09Z）。
+
+**启动变慢的原因（实锤观测）**：新 digest 首次启动要把 168 MB 静态发布从 `STATIC_ORIGIN` 全量拉下来归档进 R2（容器 `NetIO ≈ 525 MB / 181 MB`），`/api/health` 约 20 分钟后才 200；前几次 435 s 是因为 R2 里已有那个 digest 的归档。另：镜像 healthcheck 的 `StartPeriod` 是 1800 s，所以 `docker ps` 会长时间显示 `health: starting`，不能当失败。
+
+**静态发布对齐（修 503）**：
+
+- 服务器上（Linux）`node tools/prepare_deploy.mjs` → digest `b41ffe54a8fc5e96ac8700a2b2450b8a2bf911757d04f71e3814b9595448174f`、sourceTree `fe245d9bb7846873dce3766c68c48c666c8c918abad9e7eddac876c47ccd518a`、1441 文件 / 163.87 MiB；`dist` 落到 `/home/web/html/dragon-editor-bootstrap/<D2>/`。
+- nginx：`/home/web/conf.d/dragon-editor.720108.xyz.conf` 追加 `location ^~ /deployment-assets/static-v1/<D2>/`（别名到上面目录，类型/Cache 与旧块一致；备份 `.bak-ui8-*`），`nginx -t` 通过后 reload；公网取 `static-release.json` 得 200、sha256 = D2。
+- `publication.env` 三处 pin 更新（备份 `publication.env.bak-ui7c-*`）：`STATIC_PATH_PREFIX=deployment-assets/static-v1/<D2>/`、`STATIC_RELEASE_SHA256=<D2>`、`STATIC_SOURCE_SHA256=<S2>`。
+- 启动后 R2 自动 archive＋register：`control/programs/<D2>.json` 211 字节、`artifacts/programs/<D2>/static-release.json` 223449、`…/files/index.html` 33114；登记总数 5 → 6。
+
+**玩家端同步（同一份 dist）**：本机 Windows 工作树是 CRLF，直接 `prepare_deploy` 会得到 **`456a7beb…`**（36 个文件字节不同，如 `battle_talk.json`、`content/builtin/chapters/*.json`），不能用。改用 `git -c core.autocrlf=false -c core.eol=lf worktree add --detach <tmp> HEAD` 的 LF 检出重建，得到与 Linux **完全相同**的 `b41ffe54…`（同 sourceTreeDigest、1441 文件、163.87 MiB），说明清单顺序在这次两平台恰好一致。然后用临时 `wrangler.deploy.jsonc`（去掉 `build.command`，否则 wrangler 会用 CRLF 工作树重新生成 dist）`npx wrangler deploy` → 版本 `c63547e0-6a1b-4ace-822c-d7528a0682f1`；玩家站 `/static-release.json` sha256 = **`b41ffe54…`**（与编辑器 pin 同一份）。
+
+**验收（真实公网）**：
+
+| 项 | 结果 |
+| --- | --- |
+| `GET /api/health`（编辑器） | 200 `{"service":"dragon-editor","stage":"accounts-sessions","initialized":true}` |
+| 编辑器模块字节/hash | `/shell-ui.js` 708397 `118750a1…`、`/shell-ui.css` 54698 `8bea0fa4…`、`/review.js` `98ab896f…`、`/client.js` `d5de5612…`（与本地 HEAD 一致） |
+| 玩家正式入口 | `GET /?formalGame=<uuid>&mode=new` → **200**、`X-Program-Digest: b41ffe54…`、`<base href="/program-assets/<D2>/"`（修复前是 503「目前無法取得一致的遊戲程式」） |
+| 程序资源 | `/program-assets/<D2>/data.json` 200、`grf/battle_terrain_0.png` 200；`index.html` 不在允许类型内（故意 404） |
+| 玩家 registry | `generation 5`、`directory: []` |
+
+**registry 为什么是空的（不是部署回退）**：R2 `control/directory.json` generation 5 ＝ `{"gameId":"079d3d67-…","listed":false,"deleted":true}`，`control/current.json` 的 `previousOperationDigest=be50525b…`（＝§4.38 那次 1.1 上架）。即**用户自己刚才的删除测试**把那个已上架游戏物理删掉了，所以目录为空；程序登记与具体游戏无关，**重新上架一个新版本即可继续测开局**。
+
+**未跑**：浏览器级 verify 脚本（同上）；编辑器后台的人工点击流程留给用户手测。
+
+
 ## 5. 当前阻塞
 
 1. ~~生产真实上架一次~~ **已做（2026-11-05，§4.38）：内容侧成功、端到端实测 212 s，但浏览器侧收到错误（Cloudflare 100 s 上限，推断）**。C 批前置①的「耗时数据」已拿到；剩下一个真缺陷：超过前端等待上限会被报失败而实际已上线。
@@ -406,11 +440,12 @@
 
 ## 6. 下一步（建议顺序）
 
-1. ~~部署 v0.1.11~~ 已完成（§4.35／§4.37，镜像 `20261105-bc1-ui7c`）。~~请管理员在生产点一次真实上架~~ 已做（§4.38）：版本 1.1 上线、registry generation 4，端到端 212 s。**新立项：修「上架超时上报失败」**（见下条）。
-2. 通用系统审计（`audit_events` 覆盖审核／删除／账号变更）仍未立项；建议用 `game_releases` 的真实字段与用法反推其结构，不先设计。
-3. 复制改后台任务 + 前端轮询（可选，彻底摆脱代理层 100 秒限制）。
-4. C 批剩余（下线 7 张 `content_distribution_*`）仍等前置①；`verify_publish_ui_model` 的 7 条行为断言 re-baseline 也还挂着。
-5. 作者自助看发布历史（若产品要）应是另一条作者自查路由，不是放宽现有 admin 门。
+1. ~~部署 v0.1.11~~ 已完成（§4.35／§4.37，镜像 `20261105-bc1-ui7c`；后又在 §4.40 升到 `20261105-bc1-ui8`＋静态发布对齐 `b41ffe54…`）。~~请管理员在生产点一次真实上架~~ 已做（§4.38）：版本 1.1 上线、registry generation 4，端到端 212 s。**新立项：修「上架超时上报失败」**（见下条）。
+2. **等用户手测（§4.40 后）**：玩家 registry 当前为空（之前那个游戏被用户自己的删除测试物理删掉了），需要重新上架一个版本才能在玩家端开局；编辑器侧的三项改动（删除入口收口／物理删除遮罩层／幽灵项清理）也要人工点一遍。
+3. 通用系统审计（`audit_events` 覆盖审核／删除／账号变更）仍未立项；建议用 `game_releases` 的真实字段与用法反推其结构，不先设计。
+4. 复制改后台任务 + 前端轮询（可选，彻底摆脱代理层 100 秒限制）。
+5. C 批剩余（下线 7 张 `content_distribution_*`）仍等前置①；`verify_publish_ui_model` 的 7 条行为断言 re-baseline 也还挂着。
+6. 作者自助看发布历史（若产品要）应是另一条作者自查路由，不是放宽现有 admin 门。
 
 ## 7. 归档锚点（仍被外部文档引用）
 
