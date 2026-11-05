@@ -2,6 +2,8 @@
 // admits a session, navigates, or turns a missing row into deletion. Local
 // summary inspection uses an explicit read-only port, only after a user click.
 import { loadCloudFrameImages, paintCloudWindow } from './cloudframe.js';
+// 標題頁字級規格與 canvas 彈窗一致（startmenu.js 的 FONT）：16px Noto Serif TC。
+const FONT = '16px "Noto Serif TC", "PMingLiU", serif';
 const BUILTIN = Object.freeze({ kind: 'builtin', gameId: 'wolong-builtin', name: '臥龍傳·三國制霸之計（內置）' });
 export function mountPlayerCatalog({ root, reader, selectionVisible = true, readLocalCatalogs }) {
   if (typeof selectionVisible !== 'boolean' || readLocalCatalogs !== undefined && typeof readLocalCatalogs !== 'function' || !root?.ownerDocument || typeof root.append !== 'function' || typeof reader?.registry !== 'function')
@@ -147,17 +149,18 @@ export function mountPlayerCatalog({ root, reader, selectionVisible = true, read
     const node = make('section'), backdrop = make('canvas'), content = make('div'), body = make('div');
     node.setAttribute('role', 'dialog'); node.setAttribute('aria-modal', 'true'); node.setAttribute('aria-label', '不可用存檔');
     node.tabIndex = -1;
-    Object.assign(node.style, { position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: '10001', width: `${W}px`, height: `${H}px`, background: '#12233c', color: '#ffffff', display: 'flex', flexDirection: 'column' });
+    Object.assign(node.style, { position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: '10001', width: `${W}px`, height: `${H}px`, background: '#12233c', color: '#ffffff', font: FONT, lineHeight: '1.5', display: 'flex', flexDirection: 'column' });
     backdrop.width = W; backdrop.height = H;
     Object.assign(backdrop.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', imageRendering: 'pixelated', pointerEvents: 'none' });
     Object.assign(content.style, { position: 'relative', zIndex: '1', flex: '1', minHeight: '0', display: 'flex', flexDirection: 'column', gap: '10px', padding: '20px 22px 14px' });
-    Object.assign(body.style, { flex: '1', minHeight: '0', overflow: 'auto', overflowWrap: 'anywhere', fontSize: '15px', lineHeight: '1.6' });
+    Object.assign(body.style, { flex: '1', minHeight: '0', overflow: 'auto', overflowWrap: 'anywhere' });
     const heading = make('h2', '不可用存檔');
-    Object.assign(heading.style, { margin: '0', fontSize: '20px', fontWeight: 'normal', textAlign: 'center', color: '#ffffff' });
-    const legend = make('p', '只讀顯示本機目錄，不會清除或改寫存檔。');
-    legend.style.margin = '0';
+    Object.assign(heading.style, { margin: '0', fontSize: 'inherit', fontWeight: 'normal', textAlign: 'center', color: '#ffffff' });
+    // 正文行統一：同字級、同行距、段距 8px（不再逐行調字號）。
+    const line = text => { const node = make('p', text); node.style.margin = '0 0 8px'; return node; };
+    const legend = line('只讀顯示本機目錄，不會清除或改寫存檔。');
     const hint = make('p', '右鍵返回');
-    Object.assign(hint.style, { margin: '0', fontSize: '12px', textAlign: 'right', opacity: '.8' });
+    Object.assign(hint.style, { margin: '0', textAlign: 'right', opacity: '.8' });
     content.append(heading, legend, body, hint);
     node.append(backdrop, content);
     const owner = { kind: 'local', node, content: body }; modal = owner;
@@ -165,7 +168,7 @@ export function mountPlayerCatalog({ root, reader, selectionVisible = true, read
     let localEpoch = 0;
     async function inspect() {
       if (closed || modal !== owner) return;
-      const ticket = ++localEpoch; body.replaceChildren(make('p', '正在檢查本機目錄…'));
+      const ticket = ++localEpoch; body.replaceChildren(line('正在檢查本機目錄…'));
       try {
         const report = await readLocalCatalogs();
         if (closed || modal !== owner || ticket !== localEpoch) return;
@@ -173,19 +176,19 @@ export function mountPlayerCatalog({ root, reader, selectionVisible = true, read
         const fragment = document.createDocumentFragment(), seen = new Set();
         for (const catalog of report.catalogs) {
           if (typeof catalog?.gameId !== 'string' || !catalog.gameId || seen.has(catalog.gameId) || !['summary-only', 'corrupt-summary'].includes(catalog.state) || !Array.isArray(catalog.rows)) throw new TypeError('invalid local catalog');
-          seen.add(catalog.gameId); fragment.append(make('p', `遊戲 ${catalog.gameId}`));
-          if (catalog.state === 'corrupt-summary') { fragment.append(make('p', '目錄損壞，保留原資料。')); continue; }
-          if (!catalog.rows.length) fragment.append(make('p', '沒有槽摘要。'));
+          seen.add(catalog.gameId); fragment.append(line(`遊戲 ${catalog.gameId}`));
+          if (catalog.state === 'corrupt-summary') { fragment.append(line('目錄損壞，保留原資料。')); continue; }
+          if (!catalog.rows.length) fragment.append(line('沒有槽摘要。'));
           for (const row of catalog.rows) {
             if (!Number.isSafeInteger(row?.slot) || row.slot < 0 || !['string', 'number'].includes(typeof row.releaseOrdinal)) throw new TypeError('invalid local summary');
-            fragment.append(make('p', `槽${row.slot + 1}　版本序號 ${row.releaseOrdinal}`));
+            fragment.append(line(`槽${row.slot + 1}　版本序號 ${row.releaseOrdinal}`));
           }
         }
-        if (!report.catalogs.length) fragment.append(make('p', '沒有此格式的本機遊戲目錄。'));
-        if (report.otherKeyCount) fragment.append(make('p', `另有 ${report.otherKeyCount} 個鍵未讀取，全部保留。`));
+        if (!report.catalogs.length) fragment.append(line('沒有此格式的本機遊戲目錄。'));
+        if (report.otherKeyCount) fragment.append(line(`另有 ${report.otherKeyCount} 個鍵未讀取，全部保留。`));
         body.replaceChildren(fragment);
       } catch {
-        if (!closed && modal === owner && ticket === localEpoch) body.replaceChildren(make('p', '檢查未完成，不能判定為沒有存檔；沒有刪除或改寫任何資料。'));
+        if (!closed && modal === owner && ticket === localEpoch) body.replaceChildren(line('檢查未完成，不能判定為沒有存檔；沒有刪除或改寫任何資料。'));
       }
     }
     node.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); dismiss(); });

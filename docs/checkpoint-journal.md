@@ -436,7 +436,7 @@
 **实现要点**：
 
 - 新增 `web/src/player/cloudframe.js`：`loadCloudFrameImages()`（`grf/ui/{cloud,frame_sq,frame_col,frame_cap}.png`，失败不留坏缓存）＋`paintCloudWindow(ctx, images, w, h)`（16px 格、上下 `frame_sq` 逐 8px、左右 `frame_cap`+`frame_col`、内部 32×32 云纹平铺）。弹窗与游戏名标签共用这一份。
-- `web/src/player/playercatalog.js`：manage 钮改 40×40 圆钮（`position:fixed; right:max(20px,env(...)); top:170px`，即三颗图标钮 20/70/120 之后的第四个位），`aria-label="不可用存檔"`，悬停/聚焦才显示左侧药丸文字。弹窗改 224×184（＝新游戏窗 448×368 的一半；用户 m950 反馈太小，改为与章节窗同大 448×368，字号 20/15/12）＋canvas 云纹底，打开即 `inspect()`，不再有「重新檢查本機目錄」按钮；文案精简为「只讀顯示本機目錄，不會清除或改寫存檔。」＋逐目录 `槽N　版本序號 M`。
+- `web/src/player/playercatalog.js`：manage 钮改 40×40 圆钮（`position:fixed; right:max(20px,env(...)); top:170px`，即三颗图标钮 20/70/120 之后的第四个位），`aria-label="不可用存檔"`，悬停/聚焦才显示左侧药丸文字。弹窗改 224×184（＝新游戏窗 448×368 的一半；用户 m950 反馈太小，改为与章节窗同大 448×368；字号统一按 canvas 规格 16px Noto Serif TC，标题/正文同行距，段距 8px）＋canvas 云纹底，打开即 `inspect()`，不再有「重新檢查本機目錄」按钮；文案精简为「只讀顯示本機目錄，不會清除或改寫存檔。」＋逐目录 `槽N　版本序號 M`。
 - `web/src/ui/startmenu.js`：`_gameNameBanner(name)` 用 DOM canvas（`#startv` 是页面居中的 640×400，画在 canvas 内落不到页顶 40px），`left = startv.left + 88*scale`、宽 464（448 内容 + 左右 8px 金框）、`top:40px`；`_chooseChapter()` 用 `finally` 保证退出章节窗/右键取消都会移除标签。
 - `web/intro/intro.config.js`：`subtitle.text` 置空——**节点与淡入时序保留**，`timeline.js` 的 `subtitleOpacity ≥ 1` 放出菜单的门不变。
 - 内置名改繁体：`臥龍傳·三國制霸之計（內置）`（`playercatalog.js` 的 `BUILTIN`）。章节行里的 `[原版]`／`[重制]` 仍是用户未点名的简体，本轮未动。
