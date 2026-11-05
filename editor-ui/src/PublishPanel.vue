@@ -32,12 +32,6 @@ async function check(row) {
   if (props.busy || props.model.checkDisabled) return;
   await attached(`正在檢驗「${row.name}」…`, () => props.actions.check(row.gameId));
 }
-async function remove(row) {
-  try {
-    await ElMessageBox.confirm('刪除整個遊戲（含所有章節與已上架版本），不是刪除單個版本；刪除立即生效且不可恢復。遊戲、章節與線上入口都會消失，玩家端讀取視為「遊戲不存在」。此操作沒有復原入口。', `刪除「${row.name}」`, { type: 'error', confirmButtonText: '刪除整個遊戲', cancelButtonText: '取消', distinguishCancelAndClose: true });
-  } catch { return; }
-  props.actions.remove(row.gameId, row.rowRevision);
-}
 </script>
 
 <template>
@@ -66,7 +60,6 @@ async function remove(row) {
             <td class="account-row-actions">
               <ElButton data-action="check" :disabled="busy || model.checkDisabled" @click="check(row)">校驗</ElButton>
               <ElButton data-action="publish" :title="row.publishTitle" :disabled="busy || row.publishDisabled" @click="publish(row)">上架</ElButton>
-              <ElButton data-action="delete" :title="row.deleteHint" :disabled="busy || row.deleteDisabled" @click="remove(row)">刪除</ElButton>
             </td>
           </tr>
         </tbody>

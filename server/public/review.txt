@@ -5,7 +5,7 @@
 // 本檔只做展示與操作追蹤，服務端仍是唯一權限。三個動作在服務端天然收斂
 // （同鍵重複＝原回執；換鍵重複＝GAME_CHANGED／changed:false／GAME_DELETING），
 // 因此每次點擊只用一個新鍵、失敗後一律先重新整理清單核對，不做自動重送。
-export function installReview({ api, authority, work, isBusy, publish: emit = () => {} }) {
+export function installReview({ api, authority, work, isBusy, onPurged = () => {}, publish: emit = () => {} }) {
  const uuid = v => typeof v === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
  const revision = v => typeof v === 'string' && /^[1-9][0-9]{0,30}$/.test(v);
  const ordinal = v => typeof v === 'string' && /^1\.(0|[1-9][0-9]{0,30})$/.test(v);
@@ -154,13 +154,18 @@ export function installReview({ api, authority, work, isBusy, publish: emit = ()
  }
  async function remove(gameId, rowRevision) {
   const row = rowFor(gameId, rowRevision);
+  let purged = false;
   await execute(row, async () => {
    const fence = deleteReceipt(await api('/api/games/' + row.gameId + '/deletion', { gameId: row.gameId, expectedRowRevision: row.rowRevision, confirmationName: row.name }, { key: crypto.randomUUID() }), row);
-   try { return { fence, purge: purgeReceipt(await api('/api/admin/games/' + row.gameId + '/purge', { confirmationName: row.name, expectedRowRevision: fence.rowRevision }, { key: crypto.randomUUID() }), row) }; }
+   try { const purge = purgeReceipt(await api('/api/admin/games/' + row.gameId + '/purge', { confirmationName: row.name, expectedRowRevision: fence.rowRevision }, { key: crypto.randomUUID() }), row); purged = true; return { fence, purge }; }
    catch (error) { return { fence, purgeError: errors[error.code] ?? (error.message || error.code || '原因未回報') }; }
   }, value => value.fence, value => value.purge
    ? '已徹底刪除（不可恢復）：資料庫已移除 ' + row.name + ' 的所有列，玩家端目錄不再列出它；分發帳本與 R2 位元組由既有退役清理回收，不刪玩家本地存檔。' + reclaimText(value.purge?.reclamation)
    : '已建立不可逆刪除柵欄，但物理刪除尚未完成：' + value.purgeError);
+  // 只有拿到物理刪除回執才回報 true：柵欄成立但清掃失敗不算乾淨刪除。
+  // 同時告知其他工作頁：這個遊戲是真的被刪了（不是清單遺漏），應丟掉對它的上下文。
+  if (purged) { try { onPurged(row.gameId); } catch { /* 提示失敗不影響已成立的刪除事實。 */ } }
+  return purged;
  }
  async function history(gameId) {
   const row = rows.find(entry => entry.gameId === gameId);

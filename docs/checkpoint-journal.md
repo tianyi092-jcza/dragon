@@ -354,9 +354,51 @@
 
 清理：`app-new15` 已切为 `app`，`ui7c-src`、`ui7.sha256`、未部署过的 `ui7b` 镜像已删。
 
+### 4.38 生产首次真实上架（版本 1.1）：内容成功、浏览器报错（2026-11-05）
+
+用户在后台点了上架；服务器侧全程打点（1 s 采样 SQLite + `docker logs -f --timestamps`），得到第一批真 R2／真链路数据。
+
+**结果：内容侧成功**。`game_releases` 第一行 = `079d3d67…`／**1.1**／`digest be50525b…`／`state confirmed`；账本 `tail 4 / confirmed 4 / blocked null`；`content_distribution_events` generation 4（`kind=publish`，`payload_length 6469`，`chunk_count 1`，**`attempts 2`**，receipt `visibleAt 2026-11-05T13:34:07Z`、`rootETag "0de0b7b1…"`）；玩家端 `registry` generation **3 → 4**、digest `21084a3e… → 506a1711…`、目录 `ordinal 1.1`、`releaseId 84533f11…`、`publishedAt 13:33:12.407Z`、章节列表含 `#upper-1/#upper-2/…`；`static-release.json` 不变（223449 字节／1440 文件／`260cc9b4…`），未知 uuid 仍 410。
+
+**时间线（UTC）**：
+
+| 时刻 | 事件 |
+| --- | --- |
+| 13:30:41（推定） | `POST /api/publish` 开始（= 13:34:09.703 − 207587 ms） |
+| 13:33:12.4 | 发布提交完成，`game_releases` 行 + event 落库（≈152 s，编译+上传+prepare） |
+| 13:33:13 | 采样首次看到 `releases=1 / ledger 4/3` |
+| 13:34:07 | R2/远端可见 `visibleAt` |
+| 13:34:09.703 | 服务端记 `request-failed`：`POST /api/publish` `ms=207587` `code=INTERNAL_ERROR` `message="Premature close"` |
+| 13:34:12.876 | `confirmed_at`；账本 `4/4`（`attempts=2`，即首次尝试断连后重试成功） |
+| — | **内容端到端 ≈ 212 s（3 分 32 秒）** |
+
+**缺陷（实锤现象 + 推断原因）**：同步 A 路线下上架要 212 s，而入口是 Cloudflare（`server: cloudflare`、CF 边缘 IP），其源站等待上限 100 s → 浏览器在 ~100 s 即被切断（很可能 524），服务端直到 212 s 写响应时才抛 `Premature close`（`vps/editor-server.mjs` 的 `pipeline(Readable.fromWeb(reply.body), response)`）。后果：管理员看到「失败」而内容已上线，可能重复上架（每次都是真实分发，generation 会再 +1）。根因属于 §6.3 早先记的「代理层 100 秒限制」。
+
+**待验证/待修（未实施，需用户决定）**：①让浏览器侧确认当时显示的码（524？）；②修法两选一——（a）上架改异步受理（立即 202 + releaseId，前端轮询发布历史），（b）把同步路径压到 100 s 内；③无论哪种，UI 失败后应先查发布历史再提示，避免误导。
+
+### 4.39 玩家站开局 503 根因、删除入口收口、玩家端命名（2026-11-05）
+
+**「開始新遊戲」失败＝玩家站的程序没装进 R2，与该具体游戏无关**（实锤，服务器侧只读探测：生产 `publication.env` ＋ `vps/r2client.mjs`，容器内一次性 node 脚本）：
+
+- 玩家站 `https://dragon.720108.xyz/static-release.json` ＝ `3362058070140c9ed5ba7ee0401df23d132a0b4578990fce07d50b5c6e148462`（223449 字节、1440 文件、`sourceTreeDigest 260cc9b4…`）。
+- R2（bucket `dragon`、`R2_PREFIX=""`）`control/programs/` 只有 5 个登记：`3e75f45d…`／`602a5111…`／`6b8f190d…`／`b93d19e8…`／`bd0019df…`，**没有 `33620580…`**。
+- `control/programs/33620580….json`、`artifacts/programs/33620580…/static-release.json`、`…/files/index.html` 全部 404；`reader/programentry.js` 读不到「已登记程序」→ 503 页「目前無法取得一致的遊戲程式」。
+- 编辑器 pin 是 `b93d19e8…`（`deployment-assets/static-v1/b93d19e8…/`，从编辑器源站可取到，sha256 与 pin 相符），与玩家站**不是同一份构建**：两份清单长度相同但 45 个文件不同（`404.html` 263↔255、`_headers` 144↔140、`content/builtin/catalog.json` 与全部 `chapters/*.json` 等；`src/` 源码树摘要相同）。
+
+结论：这正是 `docs/game-storage-layout.md:374`「编辑器和玩家端必须落在同一份静态发布，否则正式入口 503」。修法＝玩家端部署与编辑器 pin 用同一份 `prepare_deploy` 产物；编辑器启动会自己 archive＋register（登记键按清单 SHA），所以对齐后玩家站就有登记。未验证部分：部署后手动开局能否进游戏。
+
+**本轮产品改动（用户 2026-11-05 决定）**：
+
+1. 「上架管理」去掉「刪除」按钮；删除只在管理员「上架审核」（`editor-ui/src/PublishPanel.vue` 删按钮与 `remove()`；`server/public/review.txt` 的 `remove` action 保留，仅暂无作者侧 UI 入口）。
+2. 「上架审核」删除改自定义遮罩层（`#review-overlay`）：确认（写明物理删除、不可恢复、不删玩家本地存档）→「正在刪除，請等待…」→「刪除完成」→ 3 秒自动收起；失败/部分完成停在弹窗内说明原因。
+3. 删除是物理删除（既有 `server/gamepurge.js` 逐表 `DELETE FROM … WHERE game_id=?`，生产注入 `purgeReclaimer` 回收 R2 位元组）；拿到 purge 回执后 `installReview` 新增 `onPurged` 端口 → `client.txt` 接 `draftUI.forgetGame(gameId)`，把该游戏的保留上下文清空（未确认的原操作仍保留以便查询/重试），顶栏「當前遊戲」只剩可选游戏。同时删掉两个下拉框里的「保留上下文：<uuid>」幽灵项（`Workbench.vue`／`DraftPanel.vue`；`selectionMissing` 仅用于占位文字「原遊戲已不在清單，請重新選擇」）。
+4. 玩家端下拉不再自动拼「（自建）」：`web/src/player/playercatalog.js` 选项只用游戏原名（`tools/build_trial_web_bundle.mjs` 已重建 `server/public/trialweb.txt`）。
+
+**验证（本轮真跑过）**：`tools/verify_editor_draft_controller.mjs` 110 pass / 0 fail（新增 forgetGame 用例）；`tools/verify_review_ui_model.mjs` 11 pass / 0 fail；`editor-ui npm run build` → `shell-ui.js` 708397 字节，`npm run check` 通过；`review.txt`／`draft.txt`／`client.txt` `node --check` 通过。测试同步改口径：`verify_review_ui_browser.mjs`（遮罩层三段流程）、`verify_publication_ui_browser.mjs`（改断言「上架管理无删除动作、不发删除/清扫请求」）、`verify_publication_chain_browser.mjs`（`--delete-ui` 必须与 `--review-ui --admin-delete-ui` 搭配）、`verify_player_catalog_browser.mjs` 与 `tools/fixtures/public-player-browser.mjs`（按 option value 等待、断言名称不含「自建」）。**未跑**：上述浏览器级脚本（需要自带 HTTPS/authority 剂量，本轮只做了语法与模型级验证）。
+
 ## 5. 当前阻塞
 
-1. **生产真实上架一次仍未做**（只能由管理员在浏览器里点）：所以「真 R2／代理链下 20 章上架的端到端耗时」与「上架后立刻对玩家可见」仍只有本地证据，C 批前置①未满足。部署面本身已完成（§4.35）。
+1. ~~生产真实上架一次~~ **已做（2026-11-05，§4.38）：内容侧成功、端到端实测 212 s，但浏览器侧收到错误（Cloudflare 100 s 上限，推断）**。C 批前置①的「耗时数据」已拿到；剩下一个真缺陷：超过前端等待上限会被报失败而实际已上线。
 2. **仍是既有红，不阻塞但不许写成「全绿」**：`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution`（＋`_workerd`）在 HEAD 上就失败；`verify_publish_ui_model` 9 pass / 7 fail（7 条早于 B3 §6／B8 的产品变更）。
 3. **账本剩 2 条历史事件 + 1 条 cleanup 行**属惰性遗留；直接删会触发 `DISTRIBUTION_LEDGER_CORRUPT`，等整表下线时一起清。
 4. **7 张 `content_distribution_*` 与 drainer 仍在**。真要删，前置仍是生产实测一次 20 章上架端到端耗时（§11.5 前置①未满足）。
@@ -364,7 +406,7 @@
 
 ## 6. 下一步（建议顺序）
 
-1. ~~部署 v0.1.11~~ 已完成（§4.35，镜像 `20261105-bc1-ui7`）。剩下的半步：**请管理员在生产点一次真实上架**，同时量出 20 章上架的端到端耗时（C 批前置①），并顺便确认发布历史面板出现第一行真实日志。
+1. ~~部署 v0.1.11~~ 已完成（§4.35／§4.37，镜像 `20261105-bc1-ui7c`）。~~请管理员在生产点一次真实上架~~ 已做（§4.38）：版本 1.1 上线、registry generation 4，端到端 212 s。**新立项：修「上架超时上报失败」**（见下条）。
 2. 通用系统审计（`audit_events` 覆盖审核／删除／账号变更）仍未立项；建议用 `game_releases` 的真实字段与用法反推其结构，不先设计。
 3. 复制改后台任务 + 前端轮询（可选，彻底摆脱代理层 100 秒限制）。
 4. C 批剩余（下线 7 张 `content_distribution_*`）仍等前置①；`verify_publish_ui_model` 的 7 条行为断言 re-baseline 也还挂着。

@@ -1,8 +1,15 @@
 <script setup>
+import { ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
+// 物理刪除走自己的遮罩層：確認 → 正在刪除 → 完成後延遲 3 秒收起。
+// 不用 ElMessageBox，因為那只能顯示靜態文字，不能在同一個彈窗裡走完三步。
+const overlay = ref(null);
+let closer = null;
+const stopCloser = () => { if (closer) { clearTimeout(closer); closer = null; } };
+const closeOverlay = () => { stopCloser(); overlay.value = null; };
 const stateTags = { draft: 'info', pending: 'warning', listed: 'success' };
 const time = value => value === '—' ? value : new Date(value).toLocaleString();
 async function approve(row) {
@@ -17,11 +24,24 @@ async function reject(row) {
   } catch { return; }
   props.actions.reject(row.gameId, row.rowRevision);
 }
-async function remove(row) {
-  try {
-    await ElMessageBox.confirm('刪除整個遊戲（含所有章節與已上架版本），不是刪除單個版本；立即生效且不可恢復。遊戲、章節與線上入口都會消失，玩家端讀取視為「遊戲不存在」。此操作沒有復原入口。', `刪除「${row.name}」`, { type: 'error', confirmButtonText: '刪除整個遊戲', cancelButtonText: '取消', distinguishCancelAndClose: true });
-  } catch { return; }
-  props.actions.remove(row.gameId, row.rowRevision);
+function askDelete(row) {
+  if (props.busy || row.deleteDisabled) return;
+  stopCloser();
+  overlay.value = { phase: 'confirm', gameId: row.gameId, rowRevision: row.rowRevision, name: row.name, line: '' };
+}
+async function confirmDelete() {
+  const target = overlay.value;
+  if (!target || target.phase !== 'confirm') return;
+  stopCloser();
+  overlay.value = { ...target, phase: 'running' };
+  let purged = false, reason = '';
+  try { purged = await props.actions.remove(target.gameId, target.rowRevision) === true; }
+  catch (error) { reason = (error && error.message) || '原因未回報'; }
+  if (reason) { overlay.value = { ...target, phase: 'failed', line: reason }; return; }
+  overlay.value = purged
+    ? { ...target, phase: 'done', line: `「${target.name}」的所有資料列已從資料庫物理刪除，玩家端目錄與正式入口已在同一事務撤下；R2 位元組與分發帳本由既有退役清理回收，不刪玩家本地存檔。這段提示 3 秒後自動關閉。` }
+    : { ...target, phase: 'partial', line: '不可逆刪除柵欄已成立，但物理刪除尚未完成；清單會保留它，請依上方面板訊息稍後重試。這段提示 3 秒後自動關閉。' };
+  closer = setTimeout(closeOverlay, 3000);
 }
 </script>
 <template>
@@ -49,7 +69,7 @@ async function remove(row) {
               <td class="account-row-actions">
                 <ElButton data-action="approve" :disabled="busy || row.approveDisabled" @click="approve(row)">同意上架</ElButton>
                 <ElButton data-action="reject" :title="row.rejectHint" :disabled="busy || row.rejectDisabled" @click="reject(row)">拒絕</ElButton>
-                <ElButton data-action="delete" :title="row.deleteHint" :disabled="busy || row.deleteDisabled" @click="remove(row)">刪除</ElButton>
+                <ElButton data-action="delete" :title="row.deleteHint" :disabled="busy || row.deleteDisabled" @click="askDelete(row)">刪除</ElButton>
                 <ElButton data-action="history" :disabled="busy || row.historyDisabled" @click="actions.history(row.gameId)">{{ row.historyOpen ? '收起發布歷史' : '發布歷史' }}</ElButton>
               </td>
             </tr>
@@ -84,5 +104,23 @@ async function remove(row) {
     </div>
     <p id="review-result">{{ model.result }}</p>
     <p>審核只改變上架狀態；不修改作者草稿內容。已上架的遊戲被刪除時，公開入口與公告同一個刪除事務內撤下。</p>
+    <!-- 物理刪除遮罩：確認（紅字警告）→ 正在刪除 → 完成／部分完成／失敗；完成後 3 秒自動收起。 -->
+    <div v-if="overlay" id="review-overlay" class="progress-overlay" role="alertdialog" :aria-busy="overlay.phase === 'running'">
+      <div class="progress-card">
+        <template v-if="overlay.phase === 'confirm'">
+          <p id="review-overlay-title">物理刪除「{{ overlay.name }}」？</p>
+          <p id="review-overlay-line">這是<b>物理刪除</b>：整個遊戲、所有章節與所有已上架版本都會從資料庫刪除，線上入口與公告同一事務撤下，R2 位元組與分發帳本由退役清理回收。不可恢復，也沒有復原入口；玩家本機存檔不受影響。</p>
+          <div class="module-toolbar">
+            <ElButton id="review-overlay-cancel" @click="closeOverlay()">取消</ElButton>
+            <ElButton id="review-overlay-confirm" type="danger" @click="confirmDelete()">確認物理刪除</ElButton>
+          </div>
+        </template>
+        <template v-else>
+          <p id="review-overlay-title">{{ overlay.phase === 'running' ? '正在刪除，請等待…' : (overlay.phase === 'done' ? '刪除完成' : (overlay.phase === 'partial' ? '刪除未完全完成' : '刪除失敗')) }}</p>
+          <p id="review-overlay-line">{{ overlay.phase === 'running' ? '正在刪除資料列並撤下線上入口，請不要關閉頁面。' : overlay.line }}</p>
+          <ElButton v-if="overlay.phase !== 'running'" id="review-overlay-close" @click="closeOverlay()">關閉</ElButton>
+        </template>
+      </div>
+    </div>
   </section>
 </template>

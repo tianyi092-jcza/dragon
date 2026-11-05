@@ -69,7 +69,7 @@ try{
  const select=page.getByRole('combobox',{name:'選擇遊戲'}),notice=page.locator('.player-catalog-notice');
  assert.equal(await page.getByRole('combobox').count(),1);
  assert.equal(await select.locator('option').first().textContent(),'卧龙传·三国制霸之计（内置）');
- assert.equal(await select.locator('option').nth(1).textContent(),row.name+'（自建） 1.39');
+ assert.equal(await select.locator('option').nth(1).textContent(),row.name);
  assert.equal(await select.inputValue(),'wolong-builtin');
  assert.equal(await select.locator('option').count(),2);await select.selectOption(game);
  assert.equal((await selection()).releaseId,release);assert.equal((await selection()).ordinal,'1.39');checks++;

@@ -1592,5 +1592,18 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       message = '服務已確認改密並撤銷舊會話。這不代表原保存成功或失敗；確認放棄後載入明確修訂。'; render();
     },
     clearForLogout() { generation++; loaded = null; attempt = null; chapters = []; resources = []; games = []; clearFields(); render(); },
+    // 服務端已回執的物理刪除（不是清單遺漏）：丟掉對它的保留上下文，頂部「當前遊戲」只剩可選的遊戲。
+    // 未確認的原操作仍保留──那個要能查詢或重試，不能被一次 UI 通知抹掉。
+    forgetGame(gameId) {
+      if (!uuid(gameId)) return false;
+      games = games.filter(game => game.gameId !== gameId);
+      if (attempt && attempt.gameId === gameId) { render(); return false; }
+      if (fields.gameId !== gameId && loaded?.gameId !== gameId && gameContext?.current() !== gameId) { render(); return false; }
+      generation++; loaded = null; chapters = []; resources = []; badJournal = false;
+      clearFields(); persist();
+      if (gameContext?.current() === gameId) { try { gameContext.reset?.(); } catch { /* 選取清除失敗不推翻已成立的刪除。 */ } }
+      message = '該遊戲已被物理刪除，已清空它的編輯上下文；請重新選擇要編輯的遊戲。';
+      render(); return true;
+    },
   };
 }

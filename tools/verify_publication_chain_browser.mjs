@@ -29,6 +29,7 @@ assert.ok(!programPaths || publicPlayer, 'program paths require public entry mod
 assert.ok(!publicPlayer || playerApp, 'public production entry requires App mode');
 assert.ok(!playerApp || playerClient, 'App stream observations require the player-client mode');
 assert.ok(!adminDeleteUI || deleteUI, 'admin deletion requires the deletion UI mode');
+assert.ok(!deleteUI || adminDeleteUI, 'Web 產品決定（2026-11）：「上架管理」不再有刪除入口，刪除只在管理員「上架審核」，因此必須 --review-ui --delete-ui --admin-delete-ui 一起用');
 assert.ok(!adminDeleteUI || reviewUI, 'admin deletion drives the review panel');
 assert.ok(process.argv.slice(2).every(arg => ['--node-service','--review-ui','--delete-ui','--admin-delete-ui','--player-client','--player-app','--public-player','--program-paths'].includes(arg)), 'unknown test option');
 const require = createRequire(import.meta.url);

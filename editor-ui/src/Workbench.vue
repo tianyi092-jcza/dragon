@@ -42,8 +42,7 @@ function go(view) { if (userMenu.value) userMenu.value.open = false; props.navig
       <div class="current-game" :hidden="!ready">
         <span>當前遊戲</span>
         <select id="current-game" :value="draftModel.fields.gameId" :disabled="state.busy || draftModel.gameLocked" @change="switchGame">
-          <option value="" disabled>{{ draftModel.games.length ? '請選擇遊戲' : '尚未載入遊戲清單' }}</option>
-          <option v-if="draftModel.selectionMissing" :value="draftModel.fields.gameId" disabled>保留上下文：{{ draftModel.fields.gameId }}（本次清單未列出）</option>
+          <option value="" disabled>{{ draftModel.selectionMissing ? '原遊戲已不在清單，請重新選擇' : (draftModel.games.length ? '請選擇遊戲' : '尚未載入遊戲清單') }}</option>
           <option v-for="game in draftModel.games" :key="game.gameId" :value="game.gameId">{{ game.name }}／修訂 {{ game.draftRevision }}</option>
         </select>
         <ElButton :disabled="state.busy || draftModel.locked" @click="draft.refresh()">重新整理</ElButton>

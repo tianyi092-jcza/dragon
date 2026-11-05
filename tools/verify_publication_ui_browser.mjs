@@ -106,8 +106,8 @@ try {
  assert.equal(await cell(DG, 'version'), '—'); assert.equal((await cell(DG, 'state')).trim(), '草稿'); assert.equal(await cell(DG, 'state-time'), '—');
  assert.equal(await cell(PG, 'version'), '1.0'); assert.equal((await cell(PG, 'state')).trim(), '待上架');
  assert.equal((await cell(LG, 'state')).trim(), '已上架'); assert.match((await cell(LG, 'state-time')).trim(), /^\d{4}\/\d\d\/\d\d \d\d:\d\d:\d\d$/);
- assert.equal(await act(LG, 'delete').isDisabled(), false); assert.match(await act(LG, 'delete').getAttribute('title'), /刪除整個遊戲.*不是刪除單個版本.*不可恢復/);
- assert.equal((await page.locator(`#publish-table tr[data-game-id="${RG}"] [data-field="rejected"]`).textContent()).trim(), '已駁回'); assert.equal(await act(RG, 'delete').isDisabled(), false);
+ assert.equal(await page.locator('#publish-table [data-action="delete"]').count(), 0, '刪除入口只在管理員上架審核，不在上架管理');
+ assert.equal((await page.locator(`#publish-table tr[data-game-id="${RG}"] [data-field="rejected"]`).textContent()).trim(), '已駁回');
  assert.match(await act(DG, 'publish').getAttribute('title'), /1\.0/); assert.equal(posts.length, 0); checks.push(stage);
  stage = '上架前強提醒版本號 +1 並提交管理員審核；4xx 明確拒絕不改狀態且解除追蹤';
  publishMode = 'rejected'; await act(DG, 'publish').click(); await box().waitFor();
@@ -131,16 +131,10 @@ try {
  statusMode = 'pending'; publishMode = 'success'; await page.click('#publish-retry'); await idle(); assert.equal(posts.length, 3); assert.deepEqual(posts[2], lost);
  assert.match(await page.locator('#publish-result').textContent(), /本地已提交上架：版本 1\.0.*分發待確認/); assert.equal(await journal(), null);
  assert.equal((await cell(DP, 'state')).trim(), '待上架'); assert.equal(await cell(DP, 'version'), '1.0'); checks.push(stage);
- stage = '刪除：強提醒、取消不動、確認後行消失';
- await act(PG, 'delete').click(); await box().waitFor();
- const deleting = await box().textContent(); for (const phrase of ['刪除整個遊戲', '不是刪除單個版本', '不可恢復']) assert.ok(deleting.includes(phrase), deleting);
- await box().locator('.el-message-box__btns .el-button').first().click(); await page.waitForTimeout(200);
- assert.equal(await page.locator(`#publish-table tr[data-game-id="${PG}"]`).count(), 1); assert.equal(deletes.length, 0);
- await page.screenshot({ path: join(out, 'delete-warning.png') });
- await act(PG, 'delete').click(); await box().waitFor(); await box().locator('.el-message-box__btns .el-button--primary').click(); await idle();
- assert.equal(deletes.length, 1); assert.deepEqual(deletes[0].body, { gameId: PG, expectedRowRevision: '1', confirmationName: '待上架遊戲' });
- assert.equal(await page.locator(`#publish-table tr[data-game-id="${PG}"]`).count(), 0);
- assert.match(await page.locator('#publish-result').textContent(), /已徹底刪除（不可恢復）/); assert.equal(purges.length, 1); assert.deepEqual(purges[0].body, { confirmationName: '待上架遊戲', expectedRowRevision: '2' }); assert.match(await page.locator('#publish-result').textContent(), /不刪玩家本地存檔/);
+ stage = '刪除入口已移出上架管理：面板不得再有刪除動作，也不得發出刪除／清掃請求';
+ assert.equal(await page.locator('#publish-table [data-action="delete"]').count(), 0);
+ assert.equal(await page.locator(`#publish-table tr[data-game-id="${PG}"]`).count(), 1);
+ assert.equal(deletes.length, 0); assert.equal(purges.length, 0);
  await page.locator('#publish-editor').screenshot({ path: join(out, 'deleted.png') }); checks.push(stage);
  stage = '帳戶版本改變後不得以原鍵重送';
  publishMode = 'lost'; await page.reload(); await show();
@@ -154,7 +148,7 @@ try {
  assert.equal(await page.evaluate(() => window.__ownedIDB), 0); assert.deepEqual(errors, []); assert.deepEqual(outside, []); assert.deepEqual(failed, []);
  assert.equal(consoleErrors.length, expectedErrors.length); for (const text of consoleErrors) assert.match(text, /Failed to load resource: the server responded with a status of (404|409|422|503)/);
  await page.screenshot({ path: join(out, 'submissions.png') });
- const result = { checks, posts: posts.length, deletes: deletes.length, queryCount, expectedHTTPFailures: expectedErrors.length, unexpectedErrors: errors, outside, failed, browser: browser.version(), sources: Object.fromEntries(Object.entries(files).map(([url, name]) => ['server/public/' + name, sha(payloads.get(url))])), screenshotSHA: sha(readFileSync(join(out, 'submissions.png'))), stateScreenshots: Object.fromEntries(['rejected.png','delete-warning.png','deleted.png'].map(name => [name, sha(readFileSync(join(out, name)))])), staticRoutes: payloads.size, scope: 'actual common static routing/headers/HTML/client in fresh browser; API responses controlled, no authority/compiler/R2/player-visibility claim' };
+ const result = { checks, posts: posts.length, deletes: deletes.length, queryCount, expectedHTTPFailures: expectedErrors.length, unexpectedErrors: errors, outside, failed, browser: browser.version(), sources: Object.fromEntries(Object.entries(files).map(([url, name]) => ['server/public/' + name, sha(payloads.get(url))])), screenshotSHA: sha(readFileSync(join(out, 'submissions.png'))), stateScreenshots: Object.fromEntries(['rejected.png','deleted.png'].map(name => [name, sha(readFileSync(join(out, name)))])), staticRoutes: payloads.size, scope: 'actual common static routing/headers/HTML/client in fresh browser; API responses controlled, no authority/compiler/R2/player-visibility claim' };
  writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, 2), { flag: 'wx' }); process.stdout.write(JSON.stringify({ ...result, sources: 'in owned artifact', artifact: out }) + '\n');
 } catch (error) { writeFileSync(join(out, 'failure.json'), JSON.stringify({ stage, error: String(error), stack: error.stack, errors, consoleErrors, outside, failed, posts: posts.length, deletes: deletes.length }, null, 2), { flag: 'wx' }); throw error; }
 finally { await browser?.close(); }

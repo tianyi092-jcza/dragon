@@ -142,7 +142,7 @@ const authoringContext = createAuthoringContext({
   initialGame: () => draftUI.selectedGame(),
   beforeChange: () => stageUI.canLeave() && catalogUI.canLeave() && managementUI.canLeave() && deletionUI.canLeave() && copyUI.canLeave(),
 });
-const contextFor = source => ({ current: authoringContext.current, select: id => authoringContext.select(id, source) });
+const contextFor = source => ({ current: authoringContext.current, select: id => authoringContext.select(id, source), reset: () => authoringContext.reset() });
 async function openGameView(id, target) {
   const actor = current, epoch = sessionEpoch;
   const selected = await draftUI.gotoGame(id);
@@ -167,7 +167,7 @@ deletionUI = installGameDeletion({ api, authority: () => current, work: run, isB
 Object.assign(deletionActions, deletionUI.actions);
 publishUI = installPublish({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('publication'), publish: model => shell.publication(model) });
 Object.assign(publicationActions, publishUI.actions);
-reviewUI = installReview({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.review(model) });
+reviewUI = installReview({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.review(model), onPurged: gameId => { draftUI.forgetGame(gameId); } });
 Object.assign(reviewActions, reviewUI.actions);
 strongholdUI = installStronghold({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('stronghold'), publish: model => shell.stronghold(model) });
 Object.assign(strongholdActions, strongholdUI.actions);

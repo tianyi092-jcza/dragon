@@ -23,7 +23,7 @@ export function mountPlayerCatalog({ root, reader, selectionVisible = true, read
   function options() {
     select.replaceChildren();
     for (const entry of [BUILTIN, ...entries.values()]) {
-      const option = make('option', entry.kind === 'builtin' ? entry.name : `${entry.name}（自建） ${entry.ordinal}`);
+      const option = make('option', entry.name);
       option.value = entry.gameId; select.append(option);
     }
     select.value = entries.has(wanted) ? wanted : BUILTIN.gameId;

@@ -866,6 +866,22 @@ test('list omission cannot retarget a loaded dirty draft or restored operation',
   assert.equal(restored.model().fields.gameId, gameId); assert.equal(restored.model().gameLocked, true);
   assert.equal(restored.model().selectionMissing, true); assert.equal(restored.model().context, null);
 });
+test('confirmed physical deletion drops the retained context; a list omission still does not', async () => {
+  const h = harness(); await h.load();
+  assert.equal(h.model().context.gameId, gameId);
+  assert.equal(h.controller.forgetGame('not-a-uuid'), false);
+  assert.equal(h.controller.forgetGame(otherId), false);
+  assert.equal(h.controller.forgetGame(gameId), true);
+  const model = h.model();
+  assert.equal(model.fields.gameId, ''); assert.equal(model.context, null); assert.equal(model.chapters.length, 0);
+  assert.equal(model.games.some(game => game.gameId === gameId), false);
+  assert.equal(model.selectionMissing, false); assert.match(model.message, /物理刪除/);
+  // 未確認的原操作不能被一次刪除通知抹掉：保留它才能查詢／重試。
+  const restored = harness({ stored: new Map([['editor-draft-operation:author', JSON.stringify({ gameId, revision: '1', key: 'original_operation_key' })]]) });
+  restored.response(() => ({ games: [game(gameId)] })); await restored.actions.refresh();
+  assert.equal(restored.controller.forgetGame(gameId), false);
+  assert.equal(restored.model().fields.gameId, gameId); assert.equal(restored.model().gameLocked, true);
+});
 test('duplicate list identities reject atomically rather than selecting an ambiguous revision', async () => {
   const h = harness(); await h.load(); const before = structuredClone(h.model());
   h.response(() => ({ games: [game(), { ...game(), draftRevision: '99' }] })); await h.actions.refresh();
