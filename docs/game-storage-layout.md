@@ -563,6 +563,15 @@ docker compose up -d --force-recreate
 5. 玩家端 `/play-api/v1/registry` 的 generation 与 `static-release.json` 的 `sourceTreeDigest`（＝`publication.env` 的 `STATIC_SOURCE_SHA256`）不变。
 6. 容器日志除 `started` / `distribution-idle` 外无 `error|failed|unreachable`。
 
+**玩家端字节变化时的配套（2026-11-05 实锤，见 checkpoint-journal §4.42）**：
+
+- 玩家站 `/static-release.json` 的 digest 必须等于 `publication.env` 的 `STATIC_RELEASE_SHA256`：编辑器启动时把该 digest 的完整程序归档＋登记进 R2（`artifacts/programs/<digest>/`、`control/programs/<digest>.json`）。玩家端一改动，先按 §15.1–15.3 把编辑器 pin／nginx／镜像一起换到新 digest，否则 `?formalGame=` 入口与 `/program-assets/<新digest>/…` 一律 503，连内置游戏都开不了。
+- **pin 与镜像必须同源**：`vps/publication-main.mjs` 在监听前用 `verifyInstalledProgram` 比对镜像内 `web/` ＋ `server/public/trialweb.txt` 与 `STATIC_SOURCE_SHA256`。只改 pin 不重建镜像＝pin drift，容器会以 `{"event":"startup-failed"}` 立即崩溃重启（本次实测踩到，回滚 pin 后 11 分钟恢复）。换 pin 前可先在镜像里验证：`docker run --rm --entrypoint node <image> -e "const m = await import('/app/vps/installed-program.mjs'); ..."`。
+- **登记可能被跳过**：归档阶段的传输错误被判成 `unreachable`（B8 决定「R2 不是开机条件」），服务照常起但 `control/programs/<digest>.json` 缺失 → 玩家侧 503。判据：容器内用 `r2client` 列 `control/programs/<digest>`（空＝未登记）。修法是**再重启一次**容器让它幂等重跑归档＋登记（第二次约 11 分钟）。
+- `/program-assets/<digest>/<path>`：503 ＝ 登记缺失/无效，404 ＝ 文件缺失。带查询串只允许 `?v=original-sprites-1` 且仅限四张 `grf/battle_terrain_{0,1,2}.png`／`grf/battle_units.png`，其余一律 404 —— 所以不要用 `?cb=…` 做缓存穿透验证（会给假 404）。
+- nginx 跑在 `nginx` 容器里：改完 conf 要 `docker exec nginx nginx -t` ＋ `docker exec nginx nginx -s reload`；宿主机 `nginx -s reload` 会报 `invalid PID number`。用正则复制既有 `location ^~ /deployment-assets/static-v1/<digest>/` 块时，必须**按花括号深度**找块尾：块内有嵌套 `types { }`，非贪婪匹配会停在嵌套的 `}`，把新块插进旧块内部，`nginx -t` 报 outside location。
+
+
 ### 15.5 2026-11-05 上线记录（v0.1.11）
 
 | 项 | 值 |

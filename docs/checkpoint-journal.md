@@ -451,6 +451,27 @@
 **未覆盖**：正式上架（`?formalGame=&mode=new`）走的是另一页 DOM 章节选择（米黄底，`playernewgame.js`），本轮云纹标签只覆盖内置流程；需要统一风格再另开一轮。
 
 
+### 4.42 存档弹窗放大＋字号统一、章节前缀繁体，以及随之而来的 digest 锁步部署（2026-11-05）
+
+用户 m950「弹窗太小了，高和宽扩大2倍」、m967「要统一字号规格，标题、正文要规范」、m904「章节行前缀还是简体 [原版]／[重制]，要一并改繁体」：
+
+- 弹窗 224×184 → **448×368**（与「新游戏」章节窗同大）；字号改成与 canvas 弹窗同一规格：`FONT = 16px "Noto Serif TC"`，标题/正文统一继承、`lineHeight 1.5`、段距 8px（新增 `line()` 统一正文行），不再逐元素调字号。
+- 章节列表合集前缀 `[重制]` → `[重製]`（`startmenu.js` 的 `_chapterRows()`；`[原版]` 繁简同形）。
+- 内置名繁体已在 §4.41 落地。
+
+**Cloudflare 自动部署观察（实锤）**：push → **约 2.5–3 分钟**上线。整轮 digest 轨迹：`b41ffe54`（部署 ui8 时的 D2）→ `a9438b77`（第一轮四项改动）→ `7909bb66`（448×368）→ **`7ccef941…`**（字号统一，最终，1441 文件／sourceTree `b268ef7e…`）。判据：`/src/player/cloudframe.js` 由 404 转 200、`/src/ui/startmenu.js` 命中 `重製`、`/static-release.json` 摘要变化，三者与 `wrangler deployments list` 的 `Created` 时间对得上（16:01:44 push → 16:04:14 部署 → 16:04:47 生效）。
+
+**随之出现的配对断裂**：玩家站换成新 digest 后，`/program-assets/<新digest>/data.json` 立刻 503（旧 `b41ffe54` 仍 200）——正是 §4.39 记的规则：编辑器 pin 没跟上，`control/programs/<新digest>.json` 不存在。**每次玩家端字节变化都必须锁步改编辑器 pin**，否则连内置游戏都开不了。
+
+**这轮踩到的两个坑（已写入 `docs/game-storage-layout.md` §15.4 配套段）**：
+
+1. **只改 pin 不重建镜像＝pin drift＝崩溃循环**：`vps/publication-main.mjs` 监听前用 `verifyInstalledProgram` 比对镜像内 `web/`＋`server/public/trialweb.txt` 与 `STATIC_SOURCE_SHA256`。第一次直接把 `publication.env` 三 pin 换成 D3 而镜像仍是 ui8（ff37768），容器 `{"event":"startup-failed"}` 反复重启、编辑器 502 约 35 分钟（16:23–16:57）。用备份 `publication.env.bak-pins-20261105T162255Z` 回滚 pin 后 11 分钟恢复（17:07:53 healthy）。正确做法：先从同 commit 建镜像，再在镜像里跑一次 `verifyInstalledProgram` 确认 sourceTreeDigest 相符（本次 `VERIFY_OK`，240 源文件／241 bundle 文件），最后才换 pin＋镜像。
+2. **登记可能被静默跳过**：B8 决定「R2 不是开机条件」，归档阶段任何传输错误都会判成 `unreachable` → 服务照常起、日志只有 `started`＋`distribution-idle`，但 `control/programs/<digest>.json` 缺失。本次 17:37 health 200 后玩家侧仍 503，容器内 `r2client.list("control/programs/<D3>")` 返回空数组，而 `artifacts/programs/<D3>/` 已有 ≥1000 个对象 → 再重启一次，17:59:28 登记完成、`/program-assets/<D3>/data.json` 200。
+
+**nginx 的坑**：`nginx` 跑在容器里，宿主机 `nginx -s reload` 报 `invalid PID number`，必须 `docker exec nginx nginx -t` ＋ `docker exec nginx nginx -s reload`。另外用正则复制既有 `location ^~ /deployment-assets/static-v1/<digest>/` 块时，块内还有嵌套 `types { }`，非贪婪匹配会停在嵌套的 `}`，把新块插进旧块内部 → `nginx -t` 报 `outside location`；改成按花括号深度找块尾后修复（期间 nginx 有约 5 分钟配置不一致，编辑器 502 另有其因，见上条）。
+
+**最终状态（2026-11-05 18:00Z 实测）**：镜像 `dragon-editor-publication:20261105-bc1-ui9`（`9085eb95…`，从 `d8526cf` 建）；`.env` `EDITOR_DEPLOYMENT_ID=20261105-bc1-ui9`；`publication.env` 三 pin = `7ccef941…`／`7ccef941…`／`b268ef7e…`；`dist` 已放 `/home/web/html/dragon-editor-bootstrap/<7ccef941…>/`（1442 文件／168 MB）＋ nginx 新 location；备份 `publication-20261105T171109Z`、旧 app 目录 `app-prev18-20261105T171226Z`。验收：玩家 `?formalGame=…&mode=new` → **200 ＋ `x-program-digest: 7ccef941…`**；`/program-assets/<7ccef941…>/data.json` 200；`/src/player/cloudframe.js` 200、`playercatalog.js` 14692 B、`startmenu.js` 39855 B、`static-release.json` 223594 B；编辑器 `/` 200、模块 hash 与 ui8 一致（`shell-ui.js 118750a1…`、`shell-ui.css 8bea0fa4…`、`review.js 98ab896f…`、`client.js d5de5612…`，editor-ui 未改）；库 `integrity ok`、54 表／52 索引、`game_releases` 0 行（用户已物理删除那个游戏）。
+
 ## 5. 当前阻塞
 
 1. ~~生产真实上架一次~~ **已做（2026-11-05，§4.38）：内容侧成功、端到端实测 212 s，但浏览器侧收到错误（Cloudflare 100 s 上限，推断）**。C 批前置①的「耗时数据」已拿到；剩下一个真缺陷：超过前端等待上限会被报失败而实际已上线。
