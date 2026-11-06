@@ -527,11 +527,11 @@ function ku(e, t) {
   return n && n.get(t);
 }
 function qn(e) {
-  const t = /* @__PURE__ */ Le(e);
+  const t = /* @__PURE__ */ Re(e);
   return t === e || (ft(t, "iterate", Cl), /* @__PURE__ */ Tt(e)) ? t : /* @__PURE__ */ en(e) ? /* @__PURE__ */ $n(e) ? t.map((n) => xn(Dt(n))) : t.map(xn) : t.map(Dt);
 }
 function Oi(e) {
-  return ft(e = /* @__PURE__ */ Le(e), "iterate", Cl), e;
+  return ft(e = /* @__PURE__ */ Re(e), "iterate", Cl), e;
 }
 function qt(e, t) {
   return /* @__PURE__ */ en(e) ? xn(/* @__PURE__ */ $n(e) ? Dt(t) : t) : Dt(t);
@@ -701,14 +701,14 @@ function Es(e, t, n, l) {
   return r ? qt(e, c) : c;
 }
 function ea(e, t, n) {
-  const l = /* @__PURE__ */ Le(e);
+  const l = /* @__PURE__ */ Re(e);
   ft(l, "iterate", Cl);
   const i = l[t](...n);
-  return (i === -1 || i === !1) && /* @__PURE__ */ Ai(n[0]) ? (n[0] = /* @__PURE__ */ Le(n[0]), l[t](...n)) : i;
+  return (i === -1 || i === !1) && /* @__PURE__ */ Ai(n[0]) ? (n[0] = /* @__PURE__ */ Re(n[0]), l[t](...n)) : i;
 }
 function al(e, t, n = []) {
   Qt(), Ka();
-  const l = (/* @__PURE__ */ Le(e))[t].apply(e, n);
+  const l = (/* @__PURE__ */ Re(e))[t].apply(e, n);
   return qa(), _t(), l;
 }
 const Cu = /* @__PURE__ */ Ha("__proto__,__v_isRef,__isVue"), ur = new Set(
@@ -716,7 +716,7 @@ const Cu = /* @__PURE__ */ Ha("__proto__,__v_isRef,__isVue"), ur = new Set(
 );
 function xu(e) {
   Pt(e) || (e = String(e));
-  const t = /* @__PURE__ */ Le(this);
+  const t = /* @__PURE__ */ Re(this);
   return ft(t, "has", e), t.hasOwnProperty(e);
 }
 class cr {
@@ -733,7 +733,7 @@ class cr {
     if (n === "__v_isShallow")
       return s;
     if (n === "__v_raw")
-      return l === (i ? s ? Ru : br : s ? vr : mr).get(t) || // receiver is not the reactive proxy, but has the same prototype
+      return l === (i ? s ? Lu : br : s ? vr : mr).get(t) || // receiver is not the reactive proxy, but has the same prototype
       // this means the receiver is a user proxy of the reactive proxy
       Object.getPrototypeOf(t) === Object.getPrototypeOf(l) ? t : void 0;
     const o = ue(t);
@@ -770,7 +770,7 @@ class fr extends cr {
     const o = ue(t) && Si(n);
     if (!this._isShallow) {
       const d = /* @__PURE__ */ en(s);
-      if (!/* @__PURE__ */ Tt(l) && !/* @__PURE__ */ en(l) && (s = /* @__PURE__ */ Le(s), l = /* @__PURE__ */ Le(l)), !o && /* @__PURE__ */ Je(s) && !/* @__PURE__ */ Je(l))
+      if (!/* @__PURE__ */ Tt(l) && !/* @__PURE__ */ en(l) && (s = /* @__PURE__ */ Re(s), l = /* @__PURE__ */ Re(l)), !o && /* @__PURE__ */ Je(s) && !/* @__PURE__ */ Je(l))
         return d || (s.value = l), !0;
     }
     const r = o ? Number(n) < t.length : Te(t, n), c = Reflect.set(
@@ -779,7 +779,7 @@ class fr extends cr {
       l,
       /* @__PURE__ */ Je(t) ? t : i
     );
-    return t === /* @__PURE__ */ Le(i) && c && (r ? Xt(l, s) && rn(t, "set", n, l) : rn(t, "add", n, l)), c;
+    return t === /* @__PURE__ */ Re(i) && c && (r ? Xt(l, s) && rn(t, "set", n, l) : rn(t, "add", n, l)), c;
   }
   deleteProperty(t, n) {
     const l = Te(t, n);
@@ -814,7 +814,7 @@ const Su = /* @__PURE__ */ new fr(), Mu = /* @__PURE__ */ new Iu(), Eu = /* @__P
 const $a = (e) => e, Hl = (e) => Reflect.getPrototypeOf(e);
 function Tu(e, t, n) {
   return function(...l) {
-    const i = this.__v_raw, s = /* @__PURE__ */ Le(i), o = kn(s), r = e === "entries" || e === Symbol.iterator && o, c = e === "keys" && o, d = i[e](...l), u = n ? $a : t ? xn : Dt;
+    const i = this.__v_raw, s = /* @__PURE__ */ Re(i), o = kn(s), r = e === "entries" || e === Symbol.iterator && o, c = e === "keys" && o, d = i[e](...l), u = n ? $a : t ? xn : Dt;
     return !t && ft(
       s,
       "iterate",
@@ -843,7 +843,7 @@ function zl(e) {
 function Pu(e, t) {
   const n = {
     get(i) {
-      const s = this.__v_raw, o = /* @__PURE__ */ Le(s), r = /* @__PURE__ */ Le(i);
+      const s = this.__v_raw, o = /* @__PURE__ */ Re(s), r = /* @__PURE__ */ Re(i);
       e || (Xt(i, r) && ft(o, "get", i), ft(o, "get", r));
       const { has: c } = Hl(o), d = t ? $a : e ? xn : Dt;
       if (c.call(o, i))
@@ -854,14 +854,14 @@ function Pu(e, t) {
     },
     get size() {
       const i = this.__v_raw;
-      return !e && ft(/* @__PURE__ */ Le(i), "iterate", Hn), i.size;
+      return !e && ft(/* @__PURE__ */ Re(i), "iterate", Hn), i.size;
     },
     has(i) {
-      const s = this.__v_raw, o = /* @__PURE__ */ Le(s), r = /* @__PURE__ */ Le(i);
+      const s = this.__v_raw, o = /* @__PURE__ */ Re(s), r = /* @__PURE__ */ Re(i);
       return e || (Xt(i, r) && ft(o, "has", i), ft(o, "has", r)), i === r ? s.has(i) : s.has(i) || s.has(r);
     },
     forEach(i, s) {
-      const o = this, r = o.__v_raw, c = /* @__PURE__ */ Le(r), d = t ? $a : e ? xn : Dt;
+      const o = this, r = o.__v_raw, c = /* @__PURE__ */ Re(r), d = t ? $a : e ? xn : Dt;
       return !e && ft(c, "iterate", Hn), r.forEach((u, k) => i.call(s, d(u), d(k), o));
     }
   };
@@ -874,26 +874,26 @@ function Pu(e, t) {
       clear: zl("clear")
     } : {
       add(i) {
-        const s = /* @__PURE__ */ Le(this), o = Hl(s), r = /* @__PURE__ */ Le(i), c = !t && !/* @__PURE__ */ Tt(i) && !/* @__PURE__ */ en(i) ? r : i;
+        const s = /* @__PURE__ */ Re(this), o = Hl(s), r = /* @__PURE__ */ Re(i), c = !t && !/* @__PURE__ */ Tt(i) && !/* @__PURE__ */ en(i) ? r : i;
         return o.has.call(s, c) || Xt(i, c) && o.has.call(s, i) || Xt(r, c) && o.has.call(s, r) || (s.add(c), rn(s, "add", c, c)), this;
       },
       set(i, s) {
-        !t && !/* @__PURE__ */ Tt(s) && !/* @__PURE__ */ en(s) && (s = /* @__PURE__ */ Le(s));
-        const o = /* @__PURE__ */ Le(this), { has: r, get: c } = Hl(o);
+        !t && !/* @__PURE__ */ Tt(s) && !/* @__PURE__ */ en(s) && (s = /* @__PURE__ */ Re(s));
+        const o = /* @__PURE__ */ Re(this), { has: r, get: c } = Hl(o);
         let d = r.call(o, i);
-        d || (i = /* @__PURE__ */ Le(i), d = r.call(o, i));
+        d || (i = /* @__PURE__ */ Re(i), d = r.call(o, i));
         const u = c.call(o, i);
         return o.set(i, s), d ? Xt(s, u) && rn(o, "set", i, s) : rn(o, "add", i, s), this;
       },
       delete(i) {
-        const s = /* @__PURE__ */ Le(this), { has: o, get: r } = Hl(s);
+        const s = /* @__PURE__ */ Re(this), { has: o, get: r } = Hl(s);
         let c = o.call(s, i);
-        c || (i = /* @__PURE__ */ Le(i), c = o.call(s, i)), r && r.call(s, i);
+        c || (i = /* @__PURE__ */ Re(i), c = o.call(s, i)), r && r.call(s, i);
         const d = s.delete(i);
         return c && rn(s, "delete", i, void 0), d;
       },
       clear() {
-        const i = /* @__PURE__ */ Le(this), s = i.size !== 0, o = i.clear();
+        const i = /* @__PURE__ */ Re(this), s = i.size !== 0, o = i.clear();
         return s && rn(
           i,
           "clear",
@@ -923,10 +923,10 @@ const Ou = {
   get: /* @__PURE__ */ Xa(!1, !1)
 }, Au = {
   get: /* @__PURE__ */ Xa(!1, !0)
-}, Lu = {
+}, Ru = {
   get: /* @__PURE__ */ Xa(!0, !1)
 };
-const mr = /* @__PURE__ */ new WeakMap(), vr = /* @__PURE__ */ new WeakMap(), br = /* @__PURE__ */ new WeakMap(), Ru = /* @__PURE__ */ new WeakMap();
+const mr = /* @__PURE__ */ new WeakMap(), vr = /* @__PURE__ */ new WeakMap(), br = /* @__PURE__ */ new WeakMap(), Lu = /* @__PURE__ */ new WeakMap();
 function Fu(e) {
   switch (e) {
     case "Object":
@@ -967,7 +967,7 @@ function oi(e) {
     e,
     !0,
     Mu,
-    Lu,
+    Ru,
     br
   );
 }
@@ -1003,9 +1003,9 @@ function Ai(e) {
   return e ? !!e.__v_raw : !1;
 }
 // @__NO_SIDE_EFFECTS__
-function Le(e) {
+function Re(e) {
   const t = e && e.__v_raw;
-  return t ? /* @__PURE__ */ Le(t) : e;
+  return t ? /* @__PURE__ */ Re(t) : e;
 }
 function xl(e) {
   return !Te(e, "__v_skip") && Object.isExtensible(e) && Xo(e, "__v_skip", !0), e;
@@ -1028,14 +1028,14 @@ function hr(e, t) {
 }
 class Nu {
   constructor(t, n) {
-    this.dep = new Ya(), this.__v_isRef = !0, this.__v_isShallow = !1, this._rawValue = n ? t : /* @__PURE__ */ Le(t), this._value = n ? t : Dt(t), this.__v_isShallow = n;
+    this.dep = new Ya(), this.__v_isRef = !0, this.__v_isShallow = !1, this._rawValue = n ? t : /* @__PURE__ */ Re(t), this._value = n ? t : Dt(t), this.__v_isShallow = n;
   }
   get value() {
     return this.dep.track(), this._value;
   }
   set value(t) {
     const n = this._rawValue, l = this.__v_isShallow || /* @__PURE__ */ Tt(t) || /* @__PURE__ */ en(t);
-    t = l ? t : /* @__PURE__ */ Le(t), Xt(t, n) && (this._rawValue = t, this._value = l ? t : Dt(t), this.dep.trigger());
+    t = l ? t : /* @__PURE__ */ Re(t), Xt(t, n) && (this._rawValue = t, this._value = l ? t : Dt(t), this.dep.trigger());
   }
 }
 function x(e) {
@@ -1063,7 +1063,7 @@ function Bu(e) {
 }
 class Vu {
   constructor(t, n, l) {
-    this._object = t, this._defaultValue = l, this.__v_isRef = !0, this._value = void 0, this._key = Pt(n) ? n : String(n), this._raw = /* @__PURE__ */ Le(t);
+    this._object = t, this._defaultValue = l, this.__v_isRef = !0, this._value = void 0, this._key = Pt(n) ? n : String(n), this._raw = /* @__PURE__ */ Re(t);
     let i = !0, s = t;
     if (!ue(t) || Pt(this._key) || !Si(this._key))
       do
@@ -1247,14 +1247,14 @@ function Nl(e, t, n, l) {
   try {
     return l ? e(...l) : e();
   } catch (i) {
-    Li(i, t, n);
+    Ri(i, t, n);
   }
 }
 function Nt(e, t, n, l) {
   if (ye(e)) {
     const i = Nl(e, t, n, l);
     return i && qo(i) && i.catch((s) => {
-      Li(s, t, n);
+      Ri(s, t, n);
     }), i;
   }
   if (ue(e)) {
@@ -1264,7 +1264,7 @@ function Nt(e, t, n, l) {
     return i;
   }
 }
-function Li(e, t, n, l = !0) {
+function Ri(e, t, n, l = !0) {
   const i = t ? t.vnode : null, { errorHandler: s, throwUnhandledErrorInProduction: o } = t && t.appContext.config || De;
   if (t) {
     let r = t.parent;
@@ -1452,7 +1452,7 @@ function On(e, t, n, l) {
     ]), _t());
   }
 }
-function Ri(e, t) {
+function Li(e, t) {
   if (vt) {
     let n = vt.provides;
     const l = vt.parent && vt.parent.provides;
@@ -1739,25 +1739,25 @@ function lc() {
     e.isUnmounting = !0;
   }), e;
 }
-const Lt = [Function, Array], Er = {
+const Rt = [Function, Array], Er = {
   mode: String,
   appear: Boolean,
   persisted: Boolean,
   // enter
-  onBeforeEnter: Lt,
-  onEnter: Lt,
-  onAfterEnter: Lt,
-  onEnterCancelled: Lt,
+  onBeforeEnter: Rt,
+  onEnter: Rt,
+  onAfterEnter: Rt,
+  onEnterCancelled: Rt,
   // leave
-  onBeforeLeave: Lt,
-  onLeave: Lt,
-  onAfterLeave: Lt,
-  onLeaveCancelled: Lt,
+  onBeforeLeave: Rt,
+  onLeave: Rt,
+  onAfterLeave: Rt,
+  onLeaveCancelled: Rt,
   // appear
-  onBeforeAppear: Lt,
-  onAppear: Lt,
-  onAfterAppear: Lt,
-  onAppearCancelled: Lt
+  onBeforeAppear: Rt,
+  onAppear: Rt,
+  onAfterAppear: Rt,
+  onAppearCancelled: Rt
 }, ic = {
   name: "BaseTransition",
   props: Er,
@@ -1771,7 +1771,7 @@ const Lt = [Function, Array], Er = {
       );
       if (!s)
         return;
-      const o = /* @__PURE__ */ Le(e), { mode: r } = o;
+      const o = /* @__PURE__ */ Re(e), { mode: r } = o;
       if (l.isLeaving)
         return na(s);
       const c = fi(s);
@@ -1892,8 +1892,8 @@ function Ia(e, t, n, l, i) {
         else
           return;
       let Z = !1;
-      ie[sl] = (Re) => {
-        Z || (Z = !0, Re ? T(K, [ie]) : T(he, [ie]), oe.delayedLeave && oe.delayedLeave(), ie[sl] = void 0);
+      ie[sl] = (Le) => {
+        Z || (Z = !0, Le ? T(K, [ie]) : T(he, [ie]), oe.delayedLeave && oe.delayedLeave(), ie[sl] = void 0);
       };
       const xe = ie[sl].bind(null, !1);
       se ? q(se, [ie, xe]) : xe();
@@ -2015,7 +2015,7 @@ function yl(e, t, n, l, i = !1) {
     l.shapeFlag & 512 && l.type.__asyncResolved && l.component.subTree.component && yl(e, t, n, l.component.subTree);
     return;
   }
-  const s = l.shapeFlag & 4 ? Bi(l.component) : l.el, o = i ? null : s, { i: r, r: c } = e, d = t && t.r, u = r.refs === De ? r.refs = {} : r.refs, k = r.setupState, A = /* @__PURE__ */ Le(k), P = k === De ? Ko : (M) => Os(u, M) ? !1 : Te(A, M), I = (M, g) => !(g && Os(u, g));
+  const s = l.shapeFlag & 4 ? Bi(l.component) : l.el, o = i ? null : s, { i: r, r: c } = e, d = t && t.r, u = r.refs === De ? r.refs = {} : r.refs, k = r.setupState, A = /* @__PURE__ */ Re(k), P = k === De ? Ko : (M) => Os(u, M) ? !1 : Te(A, M), I = (M, g) => !(g && Os(u, g));
   if (d != null && d !== c) {
     if (As(t), Pe(d))
       u[d] = null, P(d) && (k[d] = null);
@@ -2062,12 +2062,12 @@ Pi().requestIdleCallback;
 Pi().cancelIdleCallback;
 const Jn = (e) => !!e.type.__asyncLoader, Di = (e) => e.type.__isKeepAlive;
 function sc(e, t) {
-  Lr(e, "a", t);
+  Rr(e, "a", t);
 }
 function oc(e, t) {
-  Lr(e, "da", t);
+  Rr(e, "da", t);
 }
-function Lr(e, t, n = vt) {
+function Rr(e, t, n = vt) {
   const l = e.__wdc || (e.__wdc = () => {
     let i = n;
     for (; i; ) {
@@ -2117,13 +2117,13 @@ const mn = (e) => (t, n = vt) => {
 function bc(e, t = vt) {
   Ni("ec", e, t);
 }
-const Rr = "components";
+const Lr = "components";
 function ol(e, t) {
-  return Dr(Rr, e, !0, t) || e;
+  return Dr(Lr, e, !0, t) || e;
 }
 const Fr = /* @__PURE__ */ Symbol.for("v-ndc");
 function Ct(e) {
-  return Pe(e) ? Dr(Rr, e, !1) || e : e || Fr;
+  return Pe(e) ? Dr(Lr, e, !1) || e : e || Fr;
 }
 function Dr(e, t, n = !0, l = !1) {
   const i = rt || vt;
@@ -2140,13 +2140,13 @@ function Dr(e, t, n = !0, l = !1) {
     const o = (
       // local registration
       // check instance[type] first which is resolved for options API
-      Ls(i[e] || s[e], t) || // global registration
-      Ls(i.appContext[e], t)
+      Rs(i[e] || s[e], t) || // global registration
+      Rs(i.appContext[e], t)
     );
     return !o && l ? s : o;
   }
 }
-function Ls(e, t) {
+function Rs(e, t) {
   return e && (e[t] || e[bt(t)] || e[Ei(bt(t))]);
 }
 function ae(e, t, n, l) {
@@ -2195,7 +2195,7 @@ function mt(e, t, n, l, i, s) {
     return t !== "default" && (d.name = t), m(), $e(
       z,
       null,
-      [L("slot", d, l && l())],
+      [R("slot", d, l && l())],
       u ? -2 : 64
     );
   }
@@ -2321,7 +2321,7 @@ function Br(e) {
   const t = xt();
   return t.setupContext || (t.setupContext = rd(t));
 }
-function Rs(e) {
+function Ls(e) {
   return ue(e) ? e.reduce(
     (t, n) => (t[n] = null, t),
     {}
@@ -2392,7 +2392,7 @@ function yc(e) {
   if (c) {
     const de = ye(c) ? c.call(n) : c;
     Reflect.ownKeys(de).forEach((ve) => {
-      Ri(ve, de[ve]);
+      Li(ve, de[ve]);
     });
   }
   u && Fs(u, e, "c");
@@ -2534,8 +2534,8 @@ function fl(e, t) {
 function Ns(e, t) {
   return e ? ue(e) && ue(t) ? [.../* @__PURE__ */ new Set([...e, ...t])] : et(
     /* @__PURE__ */ Object.create(null),
-    Rs(e),
-    Rs(t ?? {})
+    Ls(e),
+    Ls(t ?? {})
   ) : t;
 }
 function $c(e, t) {
@@ -2600,7 +2600,7 @@ function xc(e, t) {
       },
       mount(u, k, A) {
         if (!c) {
-          const P = d._ceVNode || L(l, i);
+          const P = d._ceVNode || R(l, i);
           return P.appContext = s, A === !0 ? A = "svg" : A === !1 && (A = void 0), e(P, u, A), c = !0, d._container = u, u.__vue_app__ = d, Bi(P.component);
         }
       },
@@ -2725,7 +2725,7 @@ function js(e) {
       ), C = t.props ? r : Ec(r);
     }
   } catch (h) {
-    un.length = 0, Li(h, e, 1), w = L(dt);
+    un.length = 0, Ri(h, e, 1), w = R(dt);
   }
   let $ = w;
   if (C && M !== !1) {
@@ -2821,12 +2821,12 @@ function Ac(e, t, n, l = !1) {
     o in i || (i[o] = void 0);
   n ? e.props = l ? i : /* @__PURE__ */ Du(i) : e.type.props ? e.props = i : e.props = s, e.attrs = s;
 }
-function Lc(e, t, n, l) {
+function Rc(e, t, n, l) {
   const {
     props: i,
     attrs: s,
     vnode: { patchFlag: o }
-  } = e, r = /* @__PURE__ */ Le(i), [c] = e.propsOptions;
+  } = e, r = /* @__PURE__ */ Re(i), [c] = e.propsOptions;
   let d = !1;
   if (
     // always force full diff in dev
@@ -2894,7 +2894,7 @@ function Xr(e, t, n, l) {
       i && Te(i, u = bt(c)) ? !s || !s.includes(u) ? n[u] = d : (r || (r = {}))[u] = d : ji(e.emitsOptions, c) || (!(c in l) || d !== l[c]) && (l[c] = d, o = !0);
     }
   if (s) {
-    const c = /* @__PURE__ */ Le(n), d = r || De;
+    const c = /* @__PURE__ */ Re(n), d = r || De;
     for (let u = 0; u < s.length; u++) {
       const k = s[u];
       n[k] = Ta(
@@ -2940,9 +2940,9 @@ function Ta(e, t, n, l, i, s) {
   }
   return l;
 }
-const Rc = /* @__PURE__ */ new WeakMap();
+const Lc = /* @__PURE__ */ new WeakMap();
 function Jr(e, t, n = !1) {
-  const l = n ? Rc : t.propsCache, i = l.get(e);
+  const l = n ? Lc : t.propsCache, i = l.get(e);
   if (i)
     return i;
   const s = e.props, o = {}, r = [];
@@ -3052,25 +3052,25 @@ function Bc(e, t) {
     nextSibling: A,
     setScopeId: P = Xe,
     insertStaticContent: I
-  } = e, M = (O, R, H, Q = null, G = null, Y = null, J = void 0, le = null, W = !!R.dynamicChildren) => {
-    if (O === R)
+  } = e, M = (O, L, H, Q = null, G = null, Y = null, J = void 0, le = null, W = !!L.dynamicChildren) => {
+    if (O === L)
       return;
-    O && !jn(O, R) && (Q = He(O), Fe(O, G, Y, !0), O = null), R.patchFlag === -2 && (W = !1, R.dynamicChildren = null), R.dynamicChildren && O && O.dynamicChildren && O.dynamicChildren.hasOnce && (R.dynamicChildren === Bn && (R.dynamicChildren = []), R.dynamicChildren.hasOnce = !0);
-    const { type: p, ref: S, shapeFlag: B } = R;
+    O && !jn(O, L) && (Q = He(O), Fe(O, G, Y, !0), O = null), L.patchFlag === -2 && (W = !1, L.dynamicChildren = null), L.dynamicChildren && O && O.dynamicChildren && O.dynamicChildren.hasOnce && (L.dynamicChildren === Bn && (L.dynamicChildren = []), L.dynamicChildren.hasOnce = !0);
+    const { type: p, ref: S, shapeFlag: B } = L;
     switch (p) {
       case jl:
-        g(O, R, H, Q);
+        g(O, L, H, Q);
         break;
       case dt:
-        w(O, R, H, Q);
+        w(O, L, H, Q);
         break;
       case li:
-        O == null && C(R, H, Q, J);
+        O == null && C(L, H, Q, J);
         break;
       case z:
         K(
           O,
-          R,
+          L,
           H,
           Q,
           G,
@@ -3083,7 +3083,7 @@ function Bc(e, t) {
       default:
         B & 1 ? v(
           O,
-          R,
+          L,
           H,
           Q,
           G,
@@ -3093,7 +3093,7 @@ function Bc(e, t) {
           W
         ) : B & 6 ? Z(
           O,
-          R,
+          L,
           H,
           Q,
           G,
@@ -3103,7 +3103,7 @@ function Bc(e, t) {
           W
         ) : (B & 64 || B & 128) && p.process(
           O,
-          R,
+          L,
           H,
           Q,
           G,
@@ -3114,47 +3114,47 @@ function Bc(e, t) {
           ct
         );
     }
-    S != null && G ? yl(S, O && O.ref, Y, R || O, !R) : S == null && O && O.ref != null && yl(O.ref, null, Y, O, !0);
-  }, g = (O, R, H, Q) => {
+    S != null && G ? yl(S, O && O.ref, Y, L || O, !L) : S == null && O && O.ref != null && yl(O.ref, null, Y, O, !0);
+  }, g = (O, L, H, Q) => {
     if (O == null)
       l(
-        R.el = r(R.children),
+        L.el = r(L.children),
         H,
         Q
       );
     else {
-      const G = R.el = O.el;
-      R.children !== O.children && d(G, R.children);
+      const G = L.el = O.el;
+      L.children !== O.children && d(G, L.children);
     }
-  }, w = (O, R, H, Q) => {
+  }, w = (O, L, H, Q) => {
     O == null ? l(
-      R.el = c(R.children || ""),
+      L.el = c(L.children || ""),
       H,
       Q
-    ) : R.el = O.el;
-  }, C = (O, R, H, Q) => {
+    ) : L.el = O.el;
+  }, C = (O, L, H, Q) => {
     [O.el, O.anchor] = I(
       O.children,
-      R,
+      L,
       H,
       Q,
       O.el,
       O.anchor
     );
-  }, $ = ({ el: O, anchor: R }, H, Q) => {
+  }, $ = ({ el: O, anchor: L }, H, Q) => {
     let G;
-    for (; O && O !== R; )
+    for (; O && O !== L; )
       G = A(O), l(O, H, Q), O = G;
-    l(R, H, Q);
-  }, h = ({ el: O, anchor: R }) => {
+    l(L, H, Q);
+  }, h = ({ el: O, anchor: L }) => {
     let H;
-    for (; O && O !== R; )
+    for (; O && O !== L; )
       H = A(O), i(O), O = H;
-    i(R);
-  }, v = (O, R, H, Q, G, Y, J, le, W) => {
-    if (R.type === "svg" ? J = "svg" : R.type === "math" && (J = "mathml"), O == null)
+    i(L);
+  }, v = (O, L, H, Q, G, Y, J, le, W) => {
+    if (L.type === "svg" ? J = "svg" : L.type === "math" && (J = "mathml"), O == null)
       T(
-        R,
+        L,
         H,
         Q,
         G,
@@ -3168,7 +3168,7 @@ function Bc(e, t) {
       try {
         p && p._beginPatch(), ie(
           O,
-          R,
+          L,
           G,
           Y,
           J,
@@ -3179,7 +3179,7 @@ function Bc(e, t) {
         p && p._endPatch();
       }
     }
-  }, T = (O, R, H, Q, G, Y, J, le) => {
+  }, T = (O, L, H, Q, G, Y, J, le) => {
     let W, p;
     const { props: S, shapeFlag: B, transition: te, dirs: ee } = O;
     if (W = O.el = o(
@@ -3203,19 +3203,19 @@ function Bc(e, t) {
     }
     ee && On(O, null, Q, "beforeMount");
     const fe = Vc(G, te);
-    fe && te.beforeEnter(W), l(W, R, H), ((p = S && S.onVnodeMounted) || fe || ee) && pt(() => {
+    fe && te.beforeEnter(W), l(W, L, H), ((p = S && S.onVnodeMounted) || fe || ee) && pt(() => {
       try {
         p && Ut(p, Q, O), fe && te.enter(W), ee && On(O, null, Q, "mounted");
       } finally {
       }
     }, G);
-  }, q = (O, R, H, Q, G) => {
+  }, q = (O, L, H, Q, G) => {
     if (H && P(O, H), Q)
       for (let Y = 0; Y < Q.length; Y++)
         P(O, Q[Y]);
     if (G) {
       let Y = G.subTree;
-      if (R === Y || td(Y.type) && (Y.ssContent === R || Y.ssFallback === R)) {
+      if (L === Y || td(Y.type) && (Y.ssContent === L || Y.ssFallback === L)) {
         const J = G.vnode;
         q(
           O,
@@ -3226,13 +3226,13 @@ function Bc(e, t) {
         );
       }
     }
-  }, oe = (O, R, H, Q, G, Y, J, le, W = 0) => {
+  }, oe = (O, L, H, Q, G, Y, J, le, W = 0) => {
     for (let p = W; p < O.length; p++) {
       const S = O[p] = le ? on(O[p]) : Yt(O[p]);
       M(
         null,
         S,
-        R,
+        L,
         H,
         Q,
         G,
@@ -3241,13 +3241,13 @@ function Bc(e, t) {
         le
       );
     }
-  }, ie = (O, R, H, Q, G, Y, J) => {
-    const le = R.el = O.el;
-    let { patchFlag: W, dynamicChildren: p, dirs: S } = R;
+  }, ie = (O, L, H, Q, G, Y, J) => {
+    const le = L.el = O.el;
+    let { patchFlag: W, dynamicChildren: p, dirs: S } = L;
     W |= O.patchFlag & 16;
-    const B = O.props || De, te = R.props || De;
+    const B = O.props || De, te = L.props || De;
     let ee;
-    if (H && An(H, !1), (ee = te.onVnodeBeforeUpdate) && Ut(ee, H, R, O), S && On(R, O, H, "beforeUpdate"), H && An(H, !0), // #6385 the old vnode may be a user-wrapped non-isomorphic block
+    if (H && An(H, !1), (ee = te.onVnodeBeforeUpdate) && Ut(ee, H, L, O), S && On(L, O, H, "beforeUpdate"), H && An(H, !0), // #6385 the old vnode may be a user-wrapped non-isomorphic block
     // Force full diff when block metadata is unstable.
     p && (!O.dynamicChildren || O.dynamicChildren.length !== p.length) && (W = 0, J = !1, p = null), (B.innerHTML && te.innerHTML == null || B.textContent && te.textContent == null) && u(le, ""), p ? se(
       O.dynamicChildren,
@@ -3255,36 +3255,36 @@ function Bc(e, t) {
       le,
       H,
       Q,
-      ia(R, G),
+      ia(L, G),
       Y
     ) : J || ve(
       O,
-      R,
+      L,
       le,
       null,
       H,
       Q,
-      ia(R, G),
+      ia(L, G),
       Y,
       !1
     ), W > 0) {
       if (W & 16)
         he(le, B, te, H, G);
       else if (W & 2 && B.class !== te.class && s(le, "class", null, te.class, G), W & 4 && s(le, "style", B.style, te.style, G), W & 8) {
-        const fe = R.dynamicProps;
+        const fe = L.dynamicProps;
         for (let be = 0; be < fe.length; be++) {
           const re = fe[be], Oe = B[re], Me = te[re];
           (Me !== Oe || re === "value") && s(le, re, Oe, Me, G, H);
         }
       }
-      W & 1 && O.children !== R.children && u(le, R.children);
+      W & 1 && O.children !== L.children && u(le, L.children);
     } else !J && p == null && he(le, B, te, H, G);
     ((ee = te.onVnodeUpdated) || S) && pt(() => {
-      ee && Ut(ee, H, R, O), S && On(R, O, H, "updated");
+      ee && Ut(ee, H, L, O), S && On(L, O, H, "updated");
     }, Q);
-  }, se = (O, R, H, Q, G, Y, J) => {
-    for (let le = 0; le < R.length; le++) {
-      const W = O[le], p = R[le], S = W.el || Pa(W), B = (
+  }, se = (O, L, H, Q, G, Y, J) => {
+    for (let le = 0; le < L.length; le++) {
+      const W = O[le], p = L[le], S = W.el || Pa(W), B = (
         // oldVNode may be an errored async setup() component inside Suspense
         // which will not have a mounted element
         S && // - In the case of a Fragment, we need to provide the actual parent
@@ -3310,34 +3310,34 @@ function Bc(e, t) {
         !0
       );
     }
-  }, he = (O, R, H, Q, G) => {
-    if (R !== H) {
-      if (R !== De)
-        for (const Y in R)
+  }, he = (O, L, H, Q, G) => {
+    if (L !== H) {
+      if (L !== De)
+        for (const Y in L)
           !vl(Y) && !(Y in H) && s(
             O,
             Y,
-            R[Y],
+            L[Y],
             null,
             G,
             Q
           );
       for (const Y in H) {
         if (vl(Y)) continue;
-        const J = H[Y], le = R[Y];
+        const J = H[Y], le = L[Y];
         J !== le && Y !== "value" && s(O, Y, le, J, G, Q);
       }
-      "value" in H && s(O, "value", R.value, H.value, G);
+      "value" in H && s(O, "value", L.value, H.value, G);
     }
-  }, K = (O, R, H, Q, G, Y, J, le, W) => {
-    const p = R.el = O ? O.el : r(""), S = R.anchor = O ? O.anchor : r("");
-    let { patchFlag: B, dynamicChildren: te, slotScopeIds: ee } = R;
+  }, K = (O, L, H, Q, G, Y, J, le, W) => {
+    const p = L.el = O ? O.el : r(""), S = L.anchor = O ? O.anchor : r("");
+    let { patchFlag: B, dynamicChildren: te, slotScopeIds: ee } = L;
     ee && (le = le ? le.concat(ee) : ee), O == null ? (l(p, H, Q), l(S, H, Q), oe(
       // #10007
       // such fragment like `<></>` will be compiled into
       // a fragment which doesn't have a children.
       // In this case fallback to an empty array
-      R.children || [],
+      L.children || [],
       H,
       S,
       G,
@@ -3359,14 +3359,14 @@ function Bc(e, t) {
     //  get moved around. Make sure all root level vnodes inherit el.
     // #2134 or if it's a component root, it may also get moved around
     // as the component is being moved.
-    (R.key != null || G && R === G.subTree) && ns(
+    (L.key != null || G && L === G.subTree) && ns(
       O,
-      R,
+      L,
       !0
       /* shallow */
     )) : ve(
       O,
-      R,
+      L,
       H,
       S,
       G,
@@ -3375,23 +3375,23 @@ function Bc(e, t) {
       le,
       W
     );
-  }, Z = (O, R, H, Q, G, Y, J, le, W) => {
-    R.slotScopeIds = le, O == null ? R.shapeFlag & 512 ? G.ctx.activate(
-      R,
+  }, Z = (O, L, H, Q, G, Y, J, le, W) => {
+    L.slotScopeIds = le, O == null ? L.shapeFlag & 512 ? G.ctx.activate(
+      L,
       H,
       Q,
       J,
       W
     ) : xe(
-      R,
+      L,
       H,
       Q,
       G,
       Y,
       J,
       W
-    ) : Re(O, R, W);
-  }, xe = (O, R, H, Q, G, Y, J) => {
+    ) : Le(O, L, W);
+  }, xe = (O, L, H, Q, G, Y, J) => {
     const le = O.component = Gc(
       O,
       Q,
@@ -3404,30 +3404,30 @@ function Bc(e, t) {
         J,
         Y
       ), !O.el) {
-        const W = le.subTree = L(dt);
-        w(null, W, R, H), O.placeholder = W.el;
+        const W = le.subTree = R(dt);
+        w(null, W, L, H), O.placeholder = W.el;
       }
     } else
       ce(
         le,
         O,
-        R,
+        L,
         H,
         G,
         Y,
         J
       );
-  }, Re = (O, R, H) => {
-    const Q = R.component = O.component;
-    if (Pc(O, R, H))
+  }, Le = (O, L, H) => {
+    const Q = L.component = O.component;
+    if (Pc(O, L, H))
       if (Q.asyncDep && !Q.asyncResolved) {
-        R.el = O.el, R.placeholder = O.placeholder, de(Q, R, H);
+        L.el = O.el, L.placeholder = O.placeholder, de(Q, L, H);
         return;
       } else
-        Q.next = R, Q.update();
+        Q.next = L, Q.update();
     else
-      R.el = O.el, R.placeholder = O.placeholder, Q.vnode = R;
-  }, ce = (O, R, H, Q, G, Y, J) => {
+      L.el = O.el, L.placeholder = O.placeholder, Q.vnode = L;
+  }, ce = (O, L, H, Q, G, Y, J) => {
     const le = () => {
       if (O.isMounted) {
         let { next: B, bu: te, u: ee, parent: fe, vnode: be } = O;
@@ -3461,8 +3461,8 @@ function Bc(e, t) {
         );
       } else {
         let B;
-        const { el: te, props: ee } = R, { bm: fe, m: be, parent: re, root: Oe, type: Me } = O, je = Jn(R);
-        An(O, !1), fe && ni(fe), !je && (B = ee && ee.onVnodeBeforeMount) && Ut(B, re, R), An(O, !0);
+        const { el: te, props: ee } = L, { bm: fe, m: be, parent: re, root: Oe, type: Me } = O, je = Jn(L);
+        An(O, !1), fe && ni(fe), !je && (B = ee && ee.onVnodeBeforeMount) && Ut(B, re, L), An(O, !0);
         {
           Oe.ce && Oe.ce._hasShadowRoot() && Oe.ce._injectChildStyle(
             Me,
@@ -3477,16 +3477,16 @@ function Bc(e, t) {
             O,
             G,
             Y
-          ), R.el = Se.el;
+          ), L.el = Se.el;
         }
         if (be && pt(be, G), !je && (B = ee && ee.onVnodeMounted)) {
-          const Se = R;
+          const Se = L;
           pt(
             () => Ut(B, re, Se),
             G
           );
         }
-        (R.shapeFlag & 256 || re && Jn(re.vnode) && re.vnode.shapeFlag & 256) && O.a && pt(O.a, G), O.isMounted = !0, R = H = Q = null;
+        (L.shapeFlag & 256 || re && Jn(re.vnode) && re.vnode.shapeFlag & 256) && O.a && pt(O.a, G), O.isMounted = !0, L = H = Q = null;
       }
     };
     O.scope.on();
@@ -3494,12 +3494,12 @@ function Bc(e, t) {
     O.scope.off();
     const p = O.update = W.run.bind(W), S = O.job = W.runIfDirty.bind(W);
     S.i = O, S.id = O.uid, W.scheduler = () => Za(S), An(O, !0), p();
-  }, de = (O, R, H) => {
-    R.component = O;
+  }, de = (O, L, H) => {
+    L.component = O;
     const Q = O.vnode.props;
-    O.vnode = R, O.next = null, Lc(O, R.props, Q, H), Nc(O, R.children, H), Qt(), kr(O), _t();
-  }, ve = (O, R, H, Q, G, Y, J, le, W = !1) => {
-    const p = O && O.children, S = O ? O.shapeFlag : 0, B = R.children, { patchFlag: te, shapeFlag: ee } = R;
+    O.vnode = L, O.next = null, Rc(O, L.props, Q, H), Nc(O, L.children, H), Qt(), kr(O), _t();
+  }, ve = (O, L, H, Q, G, Y, J, le, W = !1) => {
+    const p = O && O.children, S = O ? O.shapeFlag : 0, B = L.children, { patchFlag: te, shapeFlag: ee } = L;
     if (te > 0) {
       if (te & 128) {
         Be(
@@ -3549,12 +3549,12 @@ function Bc(e, t) {
       le,
       W
     ));
-  }, we = (O, R, H, Q, G, Y, J, le, W) => {
-    O = O || Bn, R = R || Bn;
-    const p = O.length, S = R.length, B = Math.min(p, S);
+  }, we = (O, L, H, Q, G, Y, J, le, W) => {
+    O = O || Bn, L = L || Bn;
+    const p = O.length, S = L.length, B = Math.min(p, S);
     let te;
     for (te = 0; te < B; te++) {
-      const ee = R[te] = W ? on(R[te]) : Yt(R[te]);
+      const ee = L[te] = W ? on(L[te]) : Yt(L[te]);
       M(
         O[te],
         ee,
@@ -3575,7 +3575,7 @@ function Bc(e, t) {
       !1,
       B
     ) : oe(
-      R,
+      L,
       H,
       Q,
       G,
@@ -3585,12 +3585,12 @@ function Bc(e, t) {
       W,
       B
     );
-  }, Be = (O, R, H, Q, G, Y, J, le, W) => {
+  }, Be = (O, L, H, Q, G, Y, J, le, W) => {
     let p = 0;
-    const S = R.length;
+    const S = L.length;
     let B = O.length - 1, te = S - 1;
     for (; p <= B && p <= te; ) {
-      const ee = O[p], fe = R[p] = W ? on(R[p]) : Yt(R[p]);
+      const ee = O[p], fe = L[p] = W ? on(L[p]) : Yt(L[p]);
       if (jn(ee, fe))
         M(
           ee,
@@ -3608,7 +3608,7 @@ function Bc(e, t) {
       p++;
     }
     for (; p <= B && p <= te; ) {
-      const ee = O[B], fe = R[te] = W ? on(R[te]) : Yt(R[te]);
+      const ee = O[B], fe = L[te] = W ? on(L[te]) : Yt(L[te]);
       if (jn(ee, fe))
         M(
           ee,
@@ -3627,11 +3627,11 @@ function Bc(e, t) {
     }
     if (p > B) {
       if (p <= te) {
-        const ee = te + 1, fe = ee < S ? R[ee].el : Q;
+        const ee = te + 1, fe = ee < S ? L[ee].el : Q;
         for (; p <= te; )
           M(
             null,
-            R[p] = W ? on(R[p]) : Yt(R[p]),
+            L[p] = W ? on(L[p]) : Yt(L[p]),
             H,
             fe,
             G,
@@ -3647,7 +3647,7 @@ function Bc(e, t) {
     else {
       const ee = p, fe = p, be = /* @__PURE__ */ new Map();
       for (p = fe; p <= te; p++) {
-        const j = R[p] = W ? on(R[p]) : Yt(R[p]);
+        const j = L[p] = W ? on(L[p]) : Yt(L[p]);
         j.key != null && be.set(j.key, p);
       }
       let re, Oe = 0;
@@ -3666,13 +3666,13 @@ function Bc(e, t) {
           E = be.get(j.key);
         else
           for (re = fe; re <= te; re++)
-            if (ot[re - fe] === 0 && jn(j, R[re])) {
+            if (ot[re - fe] === 0 && jn(j, L[re])) {
               E = re;
               break;
             }
         E === void 0 ? Fe(j, G, Y, !0) : (ot[E - fe] = p + 1, E >= Se ? Se = E : je = !0, M(
           j,
-          R[E],
+          L[E],
           H,
           null,
           G,
@@ -3684,7 +3684,7 @@ function Bc(e, t) {
       }
       const Qe = je ? Wc(ot) : Bn;
       for (re = Qe.length - 1, p = Me - 1; p >= 0; p--) {
-        const j = fe + p, E = R[j], D = R[j + 1], X = j + 1 < S ? (
+        const j = fe + p, E = L[j], D = L[j + 1], X = j + 1 < S ? (
           // #13559, #14173 fallback to el placeholder for unresolved async component
           D.el || Pa(D)
         ) : Q;
@@ -3701,37 +3701,37 @@ function Bc(e, t) {
         ) : je && (re < 0 || p !== Qe[re] ? pe(E, H, X, 2) : re--);
       }
     }
-  }, pe = (O, R, H, Q, G = null) => {
+  }, pe = (O, L, H, Q, G = null) => {
     const { el: Y, type: J, transition: le, children: W, shapeFlag: p } = O;
     if (p & 6) {
-      pe(O.component.subTree, R, H, Q);
+      pe(O.component.subTree, L, H, Q);
       return;
     }
     if (p & 128) {
-      O.suspense.move(R, H, Q);
+      O.suspense.move(L, H, Q);
       return;
     }
     if (p & 64) {
-      J.move(O, R, H, ct);
+      J.move(O, L, H, ct);
       return;
     }
     if (J === z) {
-      l(Y, R, H);
+      l(Y, L, H);
       for (let B = 0; B < W.length; B++)
-        pe(W[B], R, H, Q);
-      l(O.anchor, R, H);
+        pe(W[B], L, H, Q);
+      l(O.anchor, L, H);
       return;
     }
     if (J === li) {
-      $(O, R, H);
+      $(O, L, H);
       return;
     }
     if (Q !== 2 && p & 1 && le)
       if (Q === 0)
-        le.persisted && !Y[Ft] ? l(Y, R, H) : (le.beforeEnter(Y), l(Y, R, H), pt(() => le.enter(Y), G));
+        le.persisted && !Y[Ft] ? l(Y, L, H) : (le.beforeEnter(Y), l(Y, L, H), pt(() => le.enter(Y), G));
       else {
         const { leave: B, delayLeave: te, afterLeave: ee } = le, fe = () => {
-          O.ctx.isUnmounted ? i(Y) : l(Y, R, H);
+          O.ctx.isUnmounted ? i(Y) : l(Y, L, H);
         }, be = () => {
           const re = Y._isLeaving || !!Y[Ft];
           Y._isLeaving && Y[Ft](
@@ -3744,8 +3744,8 @@ function Bc(e, t) {
         te ? te(Y, fe, be) : be();
       }
     else
-      l(Y, R, H);
-  }, Fe = (O, R, H, Q = !1, G = !1) => {
+      l(Y, L, H);
+  }, Fe = (O, L, H, Q = !1, G = !1) => {
     const {
       type: Y,
       props: J,
@@ -3758,22 +3758,22 @@ function Bc(e, t) {
       cacheIndex: ee,
       memo: fe
     } = O;
-    if ((B === -2 || p && p.hasOnce) && (G = !1), le != null && (Qt(), yl(le, null, H, O, !0), _t()), ee != null && (!O.ctx || O.ctx === R) && (R.renderCache[ee] = void 0), S & 256) {
-      R.ctx.deactivate(O);
+    if ((B === -2 || p && p.hasOnce) && (G = !1), le != null && (Qt(), yl(le, null, H, O, !0), _t()), ee != null && (!O.ctx || O.ctx === L) && (L.renderCache[ee] = void 0), S & 256) {
+      L.ctx.deactivate(O);
       return;
     }
     const be = S & 1 && te, re = !Jn(O);
     let Oe;
-    if (re && (Oe = J && J.onVnodeBeforeUnmount) && Ut(Oe, R, O), S & 6)
+    if (re && (Oe = J && J.onVnodeBeforeUnmount) && Ut(Oe, L, O), S & 6)
       ht(O.component, H, Q);
     else {
       if (S & 128) {
         O.suspense.unmount(H, Q);
         return;
       }
-      be && On(O, null, R, "beforeUnmount"), S & 64 ? O.type.remove(
+      be && On(O, null, L, "beforeUnmount"), S & 64 ? O.type.remove(
         O,
-        R,
+        L,
         H,
         ct,
         Q
@@ -3785,23 +3785,23 @@ function Bc(e, t) {
       !p.hasOnce && // #1153: fast path should not be taken for non-stable (v-for) fragments
       (Y !== z || B > 0 && B & 64) ? nt(
         p,
-        R,
+        L,
         H,
         !1,
         !0
-      ) : (Y === z && B & 384 || !G && S & 16) && nt(W, R, H), Q && tt(O);
+      ) : (Y === z && B & 384 || !G && S & 16) && nt(W, L, H), Q && tt(O);
     }
     const Me = fe != null && ee == null;
     (re && (Oe = J && J.onVnodeUnmounted) || be || Me) && pt(() => {
-      Oe && Ut(Oe, R, O), be && On(O, null, R, "unmounted"), Me && (O.el = null);
+      Oe && Ut(Oe, L, O), be && On(O, null, L, "unmounted"), Me && (O.el = null);
     }, H);
   }, tt = (O) => {
-    const { type: R, el: H, anchor: Q, transition: G } = O, Y = R === z;
+    const { type: L, el: H, anchor: Q, transition: G } = O, Y = L === z;
     if (Y && !G) {
       Ze(H, Q);
       return;
     }
-    if (R === li) {
+    if (L === li) {
       h(O), G && !G.persisted && G.afterLeave && G.afterLeave();
       return;
     }
@@ -3813,38 +3813,38 @@ function Bc(e, t) {
       p ? p(S, le, B) : B();
     } else
       le();
-  }, Ze = (O, R) => {
+  }, Ze = (O, L) => {
     let H;
-    for (; O !== R; )
+    for (; O !== L; )
       H = A(O), i(O), O = H;
-    i(R);
-  }, ht = (O, R, H) => {
+    i(L);
+  }, ht = (O, L, H) => {
     const { bum: Q, scope: G, job: Y, subTree: J, um: le, m: W, a: p } = O;
-    Ws(W), Ws(p), Q && ni(Q), G.stop(), Y ? (Y.flags |= 8, Fe(J, O, R, H)) : O.vnode.el && J && (J.transition = O.vnode.transition, Fe(J, O, R, H)), le && pt(le, R), pt(() => {
+    Ws(W), Ws(p), Q && ni(Q), G.stop(), Y ? (Y.flags |= 8, Fe(J, O, L, H)) : O.vnode.el && J && (J.transition = O.vnode.transition, Fe(J, O, L, H)), le && pt(le, L), pt(() => {
       O.isUnmounted = !0;
-    }, R);
-  }, nt = (O, R, H, Q = !1, G = !1, Y = 0) => {
+    }, L);
+  }, nt = (O, L, H, Q = !1, G = !1, Y = 0) => {
     for (let J = Y; J < O.length; J++)
-      Fe(O[J], R, H, Q, G);
+      Fe(O[J], L, H, Q, G);
   }, He = (O) => {
     if (O.shapeFlag & 6)
       return He(O.component.subTree);
     if (O.shapeFlag & 128)
       return O.suspense.next();
-    const R = A(O.anchor || O.el), H = R && R[Mr];
-    return H ? A(H) : R;
-  }, ze = (O, R, H) => {
-    const Q = O && R._vnode ? void 0 : O && O.component ? O.component.uid : qc();
+    const L = A(O.anchor || O.el), H = L && L[Mr];
+    return H ? A(H) : L;
+  }, ze = (O, L, H) => {
+    const Q = O && L._vnode ? void 0 : O && O.component ? O.component.uid : qc();
     Xu(() => {
-      O == null ? R._vnode && Fe(R._vnode, null, null, !0) : M(
-        R._vnode || null,
+      O == null ? L._vnode && Fe(L._vnode, null, null, !0) : M(
+        L._vnode || null,
         O,
-        R,
+        L,
         null,
         null,
         null,
         H
-      ), R._vnode = O;
+      ), L._vnode = O;
     }, Q);
   }, ct = {
     p: M,
@@ -3952,7 +3952,7 @@ function b(e, t, n, l, i, s) {
 }
 function $e(e, t, n, l, i) {
   return nd(
-    L(
+    R(
       e,
       t,
       n,
@@ -4013,7 +4013,7 @@ function a(e, t = null, n = null, l = 0, i = null, s = e === z ? 0 : 1, o = !1, 
   // vnode should not be considered dynamic due to handler caching.
   c.patchFlag !== 32 && Et.push(c), c;
 }
-const L = zc;
+const R = zc;
 function zc(e, t = null, n = null, l = 0, i = null, s = !1) {
   if ((!e || e === Fr) && (e = dt), In(e)) {
     const r = Sn(
@@ -4096,22 +4096,22 @@ function Sn(e, t, n = !1, l = !1) {
   ), u;
 }
 function y(e = " ", t = 0) {
-  return L(jl, null, e, t);
+  return R(jl, null, e, t);
 }
 function Uc(e, t) {
-  const n = L(li, null, e);
+  const n = R(li, null, e);
   return n.staticCount = t, n;
 }
 function U(e = "", t = !1) {
-  return t ? (m(), $e(dt, null, e)) : L(dt, null, e);
+  return t ? (m(), $e(dt, null, e)) : R(dt, null, e);
 }
 function Yt(e) {
-  return e == null || typeof e == "boolean" ? L(dt) : ue(e) ? L(
+  return e == null || typeof e == "boolean" ? R(dt) : ue(e) ? R(
     z,
     null,
     // #3666, avoid reference pollution when reusing vnode
     e.slice()
-  ) : In(e) ? on(e) : L(jl, null, String(e));
+  ) : In(e) ? on(e) : R(jl, null, String(e));
 }
 function on(e) {
   return e.el === null && e.patchFlag !== -1 || e.memo ? e : Sn(e);
@@ -4313,7 +4313,7 @@ function Xc(e, t) {
             Tl(!1);
           }
         }).catch((c) => {
-          Li(c, e, 0);
+          Ri(c, e, 0);
         });
       e.asyncDep = o;
     } else
@@ -4377,7 +4377,7 @@ function dd(e, t, n) {
   try {
     bi(-1);
     const l = arguments.length;
-    return l === 2 ? Ee(t) && !ue(t) ? In(t) ? L(e, null, [t]) : L(e, t) : L(e, null, t) : (l > 3 ? n = Array.prototype.slice.call(arguments, 2) : l === 3 && In(n) && (n = [n]), L(e, t, n));
+    return l === 2 ? Ee(t) && !ue(t) ? In(t) ? R(e, null, [t]) : R(e, t) : R(e, null, t) : (l > 3 ? n = Array.prototype.slice.call(arguments, 2) : l === 3 && In(n) && (n = [n]), R(e, t, n));
   } finally {
     bi(1);
   }
@@ -4475,7 +4475,7 @@ const ud = Oa ? (e) => Oa.createHTML(e) : (e) => e, tf = "http://www.w3.org/2000
   cd
 ), sf = (e) => (e.displayName = "Transition", e.props = af, e), fd = /* @__PURE__ */ sf(
   (e, { slots: t }) => dd(ac, of(e), t)
-), Ln = (e, t = []) => {
+), Rn = (e, t = []) => {
   ue(e) ? e.forEach((n) => n(...t)) : e && e(...t);
 }, qs = (e) => e ? ue(e) ? e.some((t) => t.length > 1) : e.length > 1 : !1;
 function of(e) {
@@ -4506,22 +4506,22 @@ function of(e) {
     onBeforeAppear: T = w,
     onAppear: q = C,
     onAppearCancelled: oe = $
-  } = t, ie = (K, Z, xe, Re) => {
-    K._enterCancelled = Re, Rn(K, Z ? u : r), Rn(K, Z ? d : o), xe && xe();
+  } = t, ie = (K, Z, xe, Le) => {
+    K._enterCancelled = Le, Ln(K, Z ? u : r), Ln(K, Z ? d : o), xe && xe();
   }, se = (K, Z) => {
-    K._isLeaving = !1, Rn(K, k), Rn(K, P), Rn(K, A), Z && Z();
+    K._isLeaving = !1, Ln(K, k), Ln(K, P), Ln(K, A), Z && Z();
   }, he = (K) => (Z, xe) => {
-    const Re = K ? q : C, ce = () => ie(Z, K, xe);
-    Ln(Re, [Z, ce]), Gs(() => {
-      Rn(Z, K ? c : s), an(Z, K ? u : r), qs(Re) || Ys(Z, l, M, ce);
+    const Le = K ? q : C, ce = () => ie(Z, K, xe);
+    Rn(Le, [Z, ce]), Gs(() => {
+      Ln(Z, K ? c : s), an(Z, K ? u : r), qs(Le) || Ys(Z, l, M, ce);
     });
   };
   return et(t, {
     onBeforeEnter(K) {
-      Ln(w, [K]), an(K, s), an(K, o);
+      Rn(w, [K]), an(K, s), an(K, o);
     },
     onBeforeAppear(K) {
-      Ln(T, [K]), an(K, c), an(K, d);
+      Rn(T, [K]), an(K, c), an(K, d);
     },
     onEnter: he(!1),
     onAppear: he(!0),
@@ -4529,17 +4529,17 @@ function of(e) {
       K._isLeaving = !0;
       const xe = () => se(K, Z);
       an(K, k), K._enterCancelled ? (an(K, A), Zs(K)) : (Zs(K), an(K, A)), Gs(() => {
-        K._isLeaving && (Rn(K, k), an(K, P), qs(h) || Ys(K, l, g, xe));
-      }), Ln(h, [K, xe]);
+        K._isLeaving && (Ln(K, k), an(K, P), qs(h) || Ys(K, l, g, xe));
+      }), Rn(h, [K, xe]);
     },
     onEnterCancelled(K) {
-      ie(K, !1, void 0, !0), Ln($, [K]);
+      ie(K, !1, void 0, !0), Rn($, [K]);
     },
     onAppearCancelled(K) {
-      ie(K, !0, void 0, !0), Ln(oe, [K]);
+      ie(K, !0, void 0, !0), Rn(oe, [K]);
     },
     onLeaveCancelled(K) {
-      se(K), Ln(v, [K]);
+      se(K), Rn(v, [K]);
     }
   });
 }
@@ -4559,7 +4559,7 @@ function aa(e) {
 function an(e, t) {
   t.split(/\s+/).forEach((n) => n && e.classList.add(n)), (e[Ol] || (e[Ol] = /* @__PURE__ */ new Set())).add(t);
 }
-function Rn(e, t) {
+function Ln(e, t) {
   t.split(/\s+/).forEach((l) => l && e.classList.remove(l));
   const n = e[Ol];
   n && (n.delete(t), n.size || (e[Ol] = void 0));
@@ -5021,14 +5021,14 @@ const Pf = ["ctrl", "shift", "alt", "meta"], Of = {
     ))
       return e(i);
   }));
-}, Lf = /* @__PURE__ */ et({ patchProp: If }, lf);
+}, Rf = /* @__PURE__ */ et({ patchProp: If }, lf);
 let oo;
 function bd() {
-  return oo || (oo = jc(Lf));
+  return oo || (oo = jc(Rf));
 }
 const hd = ((...e) => {
   bd().render(...e);
-}), Rf = ((...e) => {
+}), Lf = ((...e) => {
   const t = bd().createApp(...e), { mount: n } = t;
   return t.mount = (l) => {
     const i = Df(l);
@@ -5227,10 +5227,10 @@ function wd(e, t, n) {
 function kd(e, t) {
   return e === t || e !== e && t !== t;
 }
-var Am = Object.prototype, Lm = Am.hasOwnProperty;
-function Rm(e, t, n) {
+var Am = Object.prototype, Rm = Am.hasOwnProperty;
+function Lm(e, t, n) {
   var l = e[t];
-  (!(Lm.call(e, t) && kd(l, n)) || n === void 0 && !(t in e)) && wd(e, t, n);
+  (!(Rm.call(e, t) && kd(l, n)) || n === void 0 && !(t in e)) && wd(e, t, n);
 }
 var vo = Math.max;
 function Fm(e, t, n) {
@@ -5268,9 +5268,9 @@ function Um(e, t) {
   var n = typeof e;
   return n == "number" || n == "symbol" || n == "boolean" || e == null || Hi(e) ? !0 : zm.test(e) || !Hm.test(e) || t != null && e in Object(t);
 }
-var Ll = as(Object, "create");
+var Rl = as(Object, "create");
 function Km() {
-  this.__data__ = Ll ? Ll(null) : {}, this.size = 0;
+  this.__data__ = Rl ? Rl(null) : {}, this.size = 0;
 }
 function qm(e) {
   var t = this.has(e) && delete this.__data__[e];
@@ -5279,7 +5279,7 @@ function qm(e) {
 var Gm = "__lodash_hash_undefined__", Ym = Object.prototype, Xm = Ym.hasOwnProperty;
 function Jm(e) {
   var t = this.__data__;
-  if (Ll) {
+  if (Rl) {
     var n = t[e];
     return n === Gm ? void 0 : n;
   }
@@ -5288,12 +5288,12 @@ function Jm(e) {
 var Zm = Object.prototype, Qm = Zm.hasOwnProperty;
 function _m(e) {
   var t = this.__data__;
-  return Ll ? t[e] !== void 0 : Qm.call(t, e);
+  return Rl ? t[e] !== void 0 : Qm.call(t, e);
 }
 var ev = "__lodash_hash_undefined__";
 function tv(e, t) {
   var n = this.__data__;
-  return this.size += this.has(e) ? 0 : 1, n[e] = Ll && t === void 0 ? ev : t, this;
+  return this.size += this.has(e) ? 0 : 1, n[e] = Rl && t === void 0 ? ev : t, this;
 }
 function zn(e) {
   var t = -1, n = e == null ? 0 : e.length;
@@ -5462,15 +5462,15 @@ function Mv(e) {
 function Ev(e) {
   return Tm(Fm(e, void 0, Mv), e + "");
 }
-var Tv = Wm(Object.getPrototypeOf, Object), Pv = "[object Object]", Ov = Function.prototype, Av = Object.prototype, Id = Ov.toString, Lv = Av.hasOwnProperty, Rv = Id.call(Object);
+var Tv = Wm(Object.getPrototypeOf, Object), Pv = "[object Object]", Ov = Function.prototype, Av = Object.prototype, Id = Ov.toString, Rv = Av.hasOwnProperty, Lv = Id.call(Object);
 function Fv(e) {
   if (!Wi(e) || Vi(e) != Pv)
     return !1;
   var t = Tv(e);
   if (t === null)
     return !0;
-  var n = Lv.call(t, "constructor") && t.constructor;
-  return typeof n == "function" && n instanceof n && Id.call(n) == Rv;
+  var n = Rv.call(t, "constructor") && t.constructor;
+  return typeof n == "function" && n instanceof n && Id.call(n) == Lv;
 }
 function Dv(e, t, n) {
   return e === e && (n !== void 0 && (e = e <= n ? e : n), t !== void 0 && (e = e >= t ? e : t)), e;
@@ -5516,7 +5516,7 @@ function Vv(e, t, n, l) {
       var u = r[c];
       d = void 0, d === void 0 && (d = el(u) ? u : pd(t[i + 1]) ? [] : {});
     }
-    Rm(r, c, d), r = r[c];
+    Lm(r, c, d), r = r[c];
   }
   return e;
 }
@@ -5677,7 +5677,7 @@ var Xv = /* @__PURE__ */ st({
       })
     ]));
   }
-}), La = nb, lb = /* @__PURE__ */ st({
+}), Ra = nb, lb = /* @__PURE__ */ st({
   name: "Loading",
   __name: "loading",
   setup(e) {
@@ -5741,15 +5741,15 @@ const kl = wt([
 ]), rb = {
   Close: Aa,
   SuccessFilled: Td,
-  InfoFilled: La,
+  InfoFilled: Ra,
   WarningFilled: Pd,
   CircleCloseFilled: Ed
 }, wo = {
-  primary: La,
+  primary: Ra,
   success: Td,
   warning: Pd,
   error: Ed,
-  info: La
+  info: Ra
 }, db = {
   validating: ki,
   success: Jv,
@@ -5779,7 +5779,7 @@ const kl = wt([
   "button",
   "submit",
   "reset"
-], Ra = Kn({
+], La = Kn({
   /**
   * @description button size
   */
@@ -5888,11 +5888,11 @@ const kl = wt([
     type: wt([String, Object]),
     default: "button"
   }
-}), mb = { click: (e) => e instanceof MouseEvent }, Ld = Symbol("buttonGroupContextKey"), vb = "is-", Fn = (e, t, n, l, i) => {
+}), mb = { click: (e) => e instanceof MouseEvent }, Rd = Symbol("buttonGroupContextKey"), vb = "is-", Fn = (e, t, n, l, i) => {
   let s = `${e}-${t}`;
   return n && (s += `-${n}`), l && (s += `__${l}`), i && (s += `--${i}`), s;
-}, Rd = Symbol("namespaceContextKey"), Fd = (e) => {
-  const t = e || (xt() ? at(Rd, /* @__PURE__ */ _("el")) : /* @__PURE__ */ _("el"));
+}, Ld = Symbol("namespaceContextKey"), Fd = (e) => {
+  const t = e || (xt() ? at(Ld, /* @__PURE__ */ _("el")) : /* @__PURE__ */ _("el"));
   return V(() => x(t) || "el");
 }, tn = (e, t) => {
   const n = Fd(t);
@@ -6060,9 +6060,9 @@ const Pb = "utils/dom/style", Bd = (e = "") => e.split(" ").filter((t) => !!t.tr
   return e.classList.contains(t);
 }, Ab = (e, t) => {
   !e || !t.trim() || e.classList.add(...Bd(t));
-}, Lb = (e, t) => {
-  !e || !t.trim() || e.classList.remove(...Bd(t));
 }, Rb = (e, t) => {
+  !e || !t.trim() || e.classList.remove(...Bd(t));
+}, Lb = (e, t) => {
   if (!Ot || !e || !t || gb(e)) return "";
   let n = bt(t);
   n === "float" && (n = "cssFloat");
@@ -6393,7 +6393,7 @@ function Gb(e, t) {
   };
 }
 const Yb = (e, t, n = !1) => {
-  const l = !!xt(), i = l ? hs() : void 0, s = l ? Ri : void 0;
+  const l = !!xt(), i = l ? hs() : void 0, s = l ? Li : void 0;
   if (!s) {
     Pn("provideGlobalConfig", "provideGlobalConfig() can only be used inside setup().");
     return;
@@ -6402,7 +6402,7 @@ const Yb = (e, t, n = !1) => {
     const r = x(e);
     return i?.value ? Xb(i.value, r) : r;
   });
-  return s(qd, o), s(zd, V(() => o.value.locale)), s(Rd, V(() => o.value.namespace)), s(Kd, V(() => o.value.zIndex)), s(Ad, { size: V(() => o.value.size || "") }), s(qb, V(() => ({
+  return s(qd, o), s(zd, V(() => o.value.locale)), s(Ld, V(() => o.value.namespace)), s(Kd, V(() => o.value.zIndex)), s(Ad, { size: V(() => o.value.size || "") }), s(qb, V(() => ({
     emptyValues: o.value.emptyValues,
     valueOnClear: o.value.valueOnClear
   }))), (n || !$i.value) && ($i.value = o.value), o;
@@ -6418,7 +6418,7 @@ const Yb = (e, t, n = !1) => {
     scope: "props",
     ref: "https://element-plus.org/en-US/component/button.html#button-attributes"
   }, V(() => e.type === "text"));
-  const n = at(Ld, void 0), l = hs("button"), { form: i } = Hd(), s = ms(V(() => n?.size)), o = vs(), r = /* @__PURE__ */ _(), c = jr(), d = V(() => e.type || n?.type || l.value?.type || ""), u = V(() => e.autoInsertSpace ?? l.value?.autoInsertSpace ?? !1), k = V(() => e.plain ?? l.value?.plain ?? !1), A = V(() => e.round ?? l.value?.round ?? !1), P = V(() => e.text ?? l.value?.text ?? !1), I = V(() => e.dashed ?? l.value?.dashed ?? !1), M = V(() => e.tag === "button" ? {
+  const n = at(Rd, void 0), l = hs("button"), { form: i } = Hd(), s = ms(V(() => n?.size)), o = vs(), r = /* @__PURE__ */ _(), c = jr(), d = V(() => e.type || n?.type || l.value?.type || ""), u = V(() => e.autoInsertSpace ?? l.value?.autoInsertSpace ?? !1), k = V(() => e.plain ?? l.value?.plain ?? !1), A = V(() => e.round ?? l.value?.round ?? !1), P = V(() => e.text ?? l.value?.text ?? !1), I = V(() => e.dashed ?? l.value?.dashed ?? !1), M = V(() => e.tag === "button" ? {
     ariaDisabled: o.value || e.loading,
     disabled: o.value || e.loading,
     autofocus: e.autofocus,
@@ -7219,7 +7219,7 @@ function u1(e) {
 var c1 = /* @__PURE__ */ st({
   name: "ElButton",
   __name: "button",
-  props: Ra,
+  props: La,
   emits: mb,
   setup(e, { expose: t, emit: n }) {
     const l = e, i = n, s = u1(l), o = tn("button"), { _ref: r, _size: c, _type: d, _disabled: u, _props: k, _plain: A, _round: P, _text: I, _dashed: M, shouldAddSpace: g, handleClick: w } = Jb(l, i), C = V(() => [
@@ -7280,11 +7280,11 @@ const m1 = {
   /**
   * @description control the size of buttons in this button-group
   */
-  size: Ra.size,
+  size: La.size,
   /**
   * @description control the type of buttons in this button-group
   */
-  type: Ra.type,
+  type: La.type,
   /**
   * @description display direction
   */
@@ -7300,7 +7300,7 @@ var v1 = /* @__PURE__ */ st({
   props: m1,
   setup(e) {
     const t = e;
-    Ri(Ld, /* @__PURE__ */ Ye({
+    Li(Rd, /* @__PURE__ */ Ye({
       size: /* @__PURE__ */ ri(t, "size"),
       type: /* @__PURE__ */ ri(t, "type")
     }));
@@ -7403,8 +7403,8 @@ var p1 = /* @__PURE__ */ st({
       class: me(x(o).e("close")),
       type: "button",
       onClick: We(c, ["stop"])
-    }, [L(x(Wt), null, {
-      default: F(() => [L(x(Aa))]),
+    }, [R(x(Wt), null, {
+      default: F(() => [R(x(Aa))]),
       _: 1
     })], 10, g1)) : U("v-if", !0)], 6)) : (m(), $e(fd, {
       key: 1,
@@ -7422,8 +7422,8 @@ var p1 = /* @__PURE__ */ st({
         class: me(x(o).e("close")),
         type: "button",
         onClick: We(c, ["stop"])
-      }, [L(x(Wt), null, {
-        default: F(() => [L(x(Aa))]),
+      }, [R(x(Wt), null, {
+        default: F(() => [R(x(Aa))]),
         _: 1
       })], 10, y1)) : U("v-if", !0)], 6)]),
       _: 3
@@ -7488,7 +7488,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
           -1
           /* CACHED */
         )),
-        L(x(N), {
+        R(x(N), {
           type: "primary",
           "native-type": "submit",
           loading: e.busy
@@ -7587,7 +7587,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               -1
               /* CACHED */
             )),
-            L(x(N), {
+            R(x(N), {
               type: "primary",
               "native-type": "submit",
               loading: e.state.busy
@@ -7671,7 +7671,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               -1
               /* CACHED */
             )),
-            L(x(N), {
+            R(x(N), {
               type: "primary",
               "native-type": "submit",
               loading: e.state.busy
@@ -7703,7 +7703,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
       /* STABLE_FRAGMENT */
     ));
   }
-}, O1 = ["aria-busy"], A1 = { class: "accounts-intro" }, L1 = { for: "new-account" }, R1 = ["disabled"], F1 = {
+}, O1 = ["aria-busy"], A1 = { class: "accounts-intro" }, R1 = { for: "new-account" }, L1 = ["disabled"], F1 = {
   key: 0,
   id: "accounts-message",
   class: "account-warning",
@@ -7756,7 +7756,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
           -1
           /* CACHED */
         )),
-        L(x(N), {
+        R(x(N), {
           id: "refresh",
           disabled: e.busy,
           onClick: d[0] || (d[0] = (u) => e.actions.refresh())
@@ -7780,7 +7780,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
           onSubmit: We(r, ["prevent"])
         },
         [
-          a("label", L1, [
+          a("label", R1, [
             d[6] || (d[6] = y(
               "新創作者帳戶",
               -1
@@ -7795,11 +7795,11 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               autocomplete: "off",
               disabled: e.busy || e.model.stale,
               "aria-describedby": "account-password-note"
-            }, null, 8, R1), [
+            }, null, 8, L1), [
               [Ke, l.value]
             ])
           ]),
-          L(x(N), {
+          R(x(N), {
             type: "primary",
             "native-type": "submit",
             disabled: e.busy || e.model.stale
@@ -7946,7 +7946,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 ]),
                 a("td", null, [
                   a("div", G1, [
-                    L(x(Zt), {
+                    R(x(Zt), {
                       type: u.role === "admin" ? "success" : "info",
                       effect: "plain"
                     }, {
@@ -7960,7 +7960,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                       _: 2
                       /* DYNAMIC */
                     }, 1032, ["type"]),
-                    L(x(Zt), {
+                    R(x(Zt), {
                       type: u.disabled ? "danger" : "success"
                     }, {
                       default: F(() => [
@@ -8014,7 +8014,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 ),
                 a("td", null, [
                   u.role === "author" ? (m(), b("div", J1, [
-                    L(x(N), {
+                    R(x(N), {
                       disabled: e.busy || e.model.stale,
                       onClick: (k) => e.actions.mutate(u.id, "disable")
                     }, {
@@ -8028,7 +8028,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                       _: 2
                       /* DYNAMIC */
                     }, 1032, ["disabled", "onClick"]),
-                    L(x(N), {
+                    R(x(N), {
                       disabled: e.busy || e.model.stale,
                       onClick: (k) => e.actions.mutate(u.id, "reset")
                     }, {
@@ -8243,7 +8243,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                   ))
                 ], 40, sh)
               ]),
-              L(x(N), {
+              R(x(N), {
                 id: "faction-create-submit",
                 type: "primary",
                 "native-type": "submit",
@@ -8313,7 +8313,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                     ))
                   ], 40, ch)
                 ]),
-                L(x(N), {
+                R(x(N), {
                   "data-chapter-order-submit": $.chapterId,
                   disabled: n.value || $.orderStaged === String($.position + 1),
                   onClick: (h) => M($.chapterId)
@@ -8446,7 +8446,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                           (m(), b(
                             z,
                             null,
-                            ae(l, (v) => L(x(N), {
+                            ae(l, (v) => R(x(N), {
                               key: v.action,
                               "data-role-action": v.action,
                               disabled: n.value,
@@ -8465,7 +8465,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                             64
                             /* STABLE_FRAGMENT */
                           )),
-                          L(x(N), {
+                          R(x(N), {
                             "data-role-clear": "",
                             disabled: n.value || !h.canClear,
                             onClick: (v) => e.actions.clearStrategist($.chapterId, h.slot)
@@ -8480,7 +8480,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                             _: 1
                             /* STABLE */
                           }, 8, ["disabled", "onClick"]),
-                          L(x(N), {
+                          R(x(N), {
                             "data-role-disband": "",
                             disabled: n.value,
                             onClick: (v) => e.actions.disbandFaction($.chapterId, h.slot)
@@ -8520,10 +8520,10 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
 }, Eh = { class: "module-toolbar" }, Th = ["value", "disabled"], Ph = {
   value: "",
   disabled: ""
-}, Oh = ["value"], Ah = ["value", "disabled"], Lh = {
+}, Oh = ["value"], Ah = ["value", "disabled"], Rh = {
   id: "draft-list-times",
   open: ""
-}, Rh = { class: "entity-table-wrap" }, Fh = { class: "entity-table" }, Dh = ["data-game-id"], Nh = { id: "draft-context" }, jh = {
+}, Lh = { class: "entity-table-wrap" }, Fh = { class: "entity-table" }, Dh = ["data-game-id"], Nh = { id: "draft-context" }, jh = {
   id: "draft-status",
   class: "module-notice",
   role: "status"
@@ -8547,7 +8547,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
         /* CACHED */
       )),
       a("div", Eh, [
-        L(x(N), {
+        R(x(N), {
           id: "draft-games-refresh",
           disabled: e.busy || e.model.locked,
           onClick: i[0] || (i[0] = (s) => e.actions.refresh())
@@ -8608,7 +8608,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
             onInput: i[2] || (i[2] = (s) => e.actions.setField("revision", s.target.value))
           }, null, 40, Ah)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "draft-load",
           disabled: e.busy || e.model.loadLocked,
           onClick: i[3] || (i[3] = (s) => e.actions.load())
@@ -8624,7 +8624,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
           /* STABLE */
         }, 8, ["disabled"])
       ]),
-      a("details", Lh, [
+      a("details", Rh, [
         i[23] || (i[23] = a(
           "summary",
           null,
@@ -8639,7 +8639,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
           -1
           /* CACHED */
         )),
-        a("div", Rh, [
+        a("div", Lh, [
           a("table", Fh, [
             i[22] || (i[22] = a(
               "thead",
@@ -8765,7 +8765,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
             -1
             /* CACHED */
           )),
-          L(x(N), {
+          R(x(N), {
             id: "draft-save-button",
             type: "primary",
             "native-type": "submit",
@@ -8781,7 +8781,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
             _: 1
             /* STABLE */
           }, 8, ["disabled"]),
-          L(x(N), {
+          R(x(N), {
             id: "draft-cancel-edits",
             disabled: e.busy || e.model.cancelLocked,
             onClick: i[6] || (i[6] = (s) => e.actions.cancelEdits())
@@ -8808,7 +8808,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
         /* NEED_HYDRATION */
       ),
       a("div", Wh, [
-        L(x(N), {
+        R(x(N), {
           id: "draft-operation-query",
           disabled: e.busy || e.model.queryLocked,
           onClick: i[8] || (i[8] = (s) => e.actions.query())
@@ -8823,7 +8823,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "draft-operation-retry",
           disabled: e.busy || e.model.retryLocked,
           onClick: i[9] || (i[9] = (s) => e.actions.retry())
@@ -8871,7 +8871,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
             ))
           ], 40, zh)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "draft-trial-start",
           disabled: e.busy || e.model.trialLocked,
           onClick: i[11] || (i[11] = (s) => e.actions.trial())
@@ -8932,7 +8932,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 1
                 /* TEXT */
               ),
-              L(
+              R(
                 x(Zt),
                 { effect: "plain" },
                 {
@@ -9093,7 +9093,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               ])
             ]),
             a("div", sg, [
-              L(x(N), {
+              R(x(N), {
                 "data-chapter-trial": "",
                 disabled: e.busy || e.model.trialLocked,
                 onClick: (o) => e.actions.trial(s.chapterId)
@@ -9108,7 +9108,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 _: 1
                 /* STABLE */
               }, 8, ["disabled", "onClick"]),
-              L(x(N), {
+              R(x(N), {
                 disabled: e.busy || e.model.editLocked,
                 onClick: (o) => e.actions.chapter("copy", s.chapterId)
               }, {
@@ -9122,7 +9122,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 _: 1
                 /* STABLE */
               }, 8, ["disabled", "onClick"]),
-              L(x(N), {
+              R(x(N), {
                 disabled: e.busy || e.model.editLocked,
                 onClick: (o) => e.actions.chapter("rename", s.chapterId)
               }, {
@@ -9136,7 +9136,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 _: 1
                 /* STABLE */
               }, 8, ["disabled", "onClick"]),
-              L(x(N), {
+              R(x(N), {
                 disabled: e.busy || e.model.editLocked,
                 onClick: (o) => e.actions.chapter("delete", s.chapterId)
               }, {
@@ -9266,7 +9266,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 onInput: i[16] || (i[16] = (s) => e.actions.setChapterCreateField("day", s.target.value))
               }, null, 40, mg)
             ]),
-            L(x(N), {
+            R(x(N), {
               id: "draft-chapter-create-submit",
               type: "primary",
               "native-type": "submit",
@@ -9294,7 +9294,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
           /* NEED_HYDRATION */
         )
       ]),
-      L(Sh, {
+      R(Sh, {
         model: e.model,
         actions: e.actions,
         busy: e.busy
@@ -9389,7 +9389,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
 }, Cg = { class: "module-toolbar" }, xg = ["value", "disabled"], Ig = ["value"], Sg = {
   key: 0,
   class: "module-notice"
-}, Mg = { class: "module-toolbar" }, Eg = ["value", "disabled"], Tg = ["value"], Pg = ["value", "disabled"], Og = ["value", "disabled"], Ag = ["value", "disabled"], Lg = { class: "entity-table-wrap" }, Rg = { class: "entity-table" }, Fg = ["data-faction-slot"], Dg = ["value", "disabled", "onChange"], Ng = ["value"], jg = { key: 0 }, Bg = { class: "entity-table-wrap" }, Vg = { class: "entity-table" }, Wg = ["data-city-idx"], Hg = ["value", "disabled", "onChange"], zg = ["value"], Ug = { key: 2 }, Kg = ["value", "disabled", "title", "onChange"], qg = ["value"], Gg = { key: 0 }, Yg = { class: "entity-table-wrap" }, Xg = { class: "entity-table" }, Jg = ["data-general-slot"], Zg = ["value", "disabled", "title", "onChange"], Qg = ["value"], _g = { key: 0 }, ey = {
+}, Mg = { class: "module-toolbar" }, Eg = ["value", "disabled"], Tg = ["value"], Pg = ["value", "disabled"], Og = ["value", "disabled"], Ag = ["value", "disabled"], Rg = { class: "entity-table-wrap" }, Lg = { class: "entity-table" }, Fg = ["data-faction-slot"], Dg = ["value", "disabled", "onChange"], Ng = ["value"], jg = { key: 0 }, Bg = { class: "entity-table-wrap" }, Vg = { class: "entity-table" }, Wg = ["data-city-idx"], Hg = ["value", "disabled", "onChange"], zg = ["value"], Ug = { key: 2 }, Kg = ["value", "disabled", "title", "onChange"], qg = ["value"], Gg = { key: 0 }, Yg = { class: "entity-table-wrap" }, Xg = { class: "entity-table" }, Jg = ["data-general-slot"], Zg = ["value", "disabled", "title", "onChange"], Qg = ["value"], _g = { key: 0 }, ey = {
   id: "chapters-status",
   class: "module-notice",
   role: "status"
@@ -9468,7 +9468,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 ))
               ], 40, xg)
             ]),
-            L(x(Zt), { effect: "plain" }, {
+            R(x(Zt), { effect: "plain" }, {
               default: F(() => [
                 y(
                   f(s.value?.chapterId),
@@ -9580,7 +9580,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 onInput: $[4] || ($[4] = (h) => P("day", h))
               }, null, 40, Ag)
             ]),
-            L(x(N), {
+            R(x(N), {
               "data-start-save": "",
               disabled: l.value || !s.value?.startDirty,
               onClick: $[5] || ($[5] = (h) => e.actions.saveChapterStart(s.value.chapterId))
@@ -9595,7 +9595,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               "data-start-cancel": "",
               disabled: l.value || !s.value?.startDirty,
               onClick: $[6] || ($[6] = (h) => e.actions.cancelStartInput(s.value.chapterId))
@@ -9625,8 +9625,8 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
             -1
             /* CACHED */
           )),
-          a("div", Lg, [
-            a("table", Rg, [
+          a("div", Rg, [
+            a("table", Lg, [
               $[17] || ($[17] = a(
                 "thead",
                 null,
@@ -10026,7 +10026,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
         /* CACHED */
       )),
       a("div", ly, [
-        L(x(N), {
+        R(x(N), {
           id: "city-definition-refresh",
           disabled: e.busy || e.model.locked,
           onClick: o[0] || (o[0] = (r) => e.actions.refresh())
@@ -10055,7 +10055,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
             onInput: o[1] || (o[1] = (r) => e.actions.setField("revision", r.target.value))
           }, null, 40, iy)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "city-definition-load",
           disabled: e.busy || e.model.loadLocked || !e.model.fields.gameId,
           onClick: o[2] || (o[2] = (r) => e.actions.load())
@@ -10070,7 +10070,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "city-definition-query",
           disabled: e.busy || e.model.queryLocked,
           onClick: o[3] || (o[3] = (r) => e.actions.query())
@@ -10085,7 +10085,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "city-definition-retry",
           disabled: e.busy || e.model.retryLocked,
           onClick: o[4] || (o[4] = (r) => e.actions.retry())
@@ -10196,7 +10196,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                   /* TEXT */
                 ),
                 a("td", null, [
-                  L(x(N), {
+                  R(x(N), {
                     "data-city-rename": "",
                     disabled: e.busy || e.model.cities.locked,
                     onClick: (c) => e.actions.cityRename(r.cityId)
@@ -10220,7 +10220,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                     1
                     /* TEXT */
                   ),
-                  L(x(N), {
+                  R(x(N), {
                     "data-chapter-city": "",
                     disabled: e.busy || e.model.cities.locked || !e.model.fields.chapterId,
                     onClick: (c) => e.actions.chapterCity(n(r.cityId) ? "remove" : "set", e.model.fields.chapterId, r.cityId)
@@ -10285,7 +10285,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
 }, Py = {
   id: "native-city-table",
   class: "entity-table"
-}, Oy = ["data-native-city"], Ay = { "data-native-type": "" }, Ly = { "data-native-faction": "" }, Ry = { "data-native-governor": "" }, Fy = ["max", "value", "disabled", "onInput"], Dy = ["max", "value", "disabled", "onInput"], Ny = { "data-native-growth": "" }, jy = { "data-native-defence": "" }, By = { class: "module-toolbar" }, Vy = ["value", "disabled"], Wy = ["value"], Hy = ["value"], zy = ["value", "disabled"], Uy = ["value"], Ky = { key: 0 }, qy = {
+}, Oy = ["data-native-city"], Ay = { "data-native-type": "" }, Ry = { "data-native-faction": "" }, Ly = { "data-native-governor": "" }, Fy = ["max", "value", "disabled", "onInput"], Dy = ["max", "value", "disabled", "onInput"], Ny = { "data-native-growth": "" }, jy = { "data-native-defence": "" }, By = { class: "module-toolbar" }, Vy = ["value", "disabled"], Wy = ["value"], Hy = ["value"], zy = ["value", "disabled"], Uy = ["value"], Ky = { key: 0 }, qy = {
   id: "stronghold-message",
   role: "status"
 }, Gy = {
@@ -10305,7 +10305,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
       t.actions.selectChapter(s.target.value), s.target.value = t.model.chapterId ?? "";
     }
     return (s, o) => (m(), b("section", ky, [
-      L(wy, {
+      R(wy, {
         model: e.draftModel,
         actions: e.draftActions,
         busy: e.busy
@@ -10342,7 +10342,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 onInput: o[0] || (o[0] = (r) => e.draftActions.setField("revision", r.target.value))
               }, null, 40, Cy)
             ]),
-            L(x(N), {
+            R(x(N), {
               id: "native-city-load",
               disabled: e.busy || e.draftModel.loadLocked || !e.draftModel.fields.gameId,
               onClick: o[1] || (o[1] = (r) => e.draftActions.load())
@@ -10357,7 +10357,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "native-city-query",
               disabled: e.busy || e.draftModel.queryLocked,
               onClick: o[2] || (o[2] = (r) => e.draftActions.query())
@@ -10372,7 +10372,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "native-city-retry",
               disabled: e.busy || e.draftModel.retryLocked,
               onClick: o[3] || (o[3] = (r) => e.draftActions.retry())
@@ -10492,14 +10492,14 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                     a("td", null, [
                       a(
                         "div",
-                        Ly,
+                        Ry,
                         "歸屬欄位：" + f(r.faction === null ? "未提供／無" : "#" + r.faction),
                         1
                         /* TEXT */
                       ),
                       a(
                         "div",
-                        Ry,
+                        Ly,
                         "太守欄位：" + f(r.governor === null ? "未提供／無" : "#" + r.governor),
                         1
                         /* TEXT */
@@ -10572,7 +10572,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                       /* TEXT */
                     ),
                     a("td", null, [
-                      L(x(N), {
+                      R(x(N), {
                         "data-native-save": "",
                         disabled: e.busy || e.draftModel.nativeCities.locked || !r.dirty,
                         onClick: (c) => e.draftActions.saveNativeCityInputs(n.value.chapterId, r.idx)
@@ -10587,7 +10587,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                         _: 1
                         /* STABLE */
                       }, 8, ["disabled", "onClick"]),
-                      L(x(N), {
+                      R(x(N), {
                         "data-native-cancel": "",
                         disabled: e.busy || e.draftModel.nativeCities.locked || !r.dirty,
                         onClick: (c) => e.draftActions.cancelNativeCityInputs(n.value.chapterId, r.idx)
@@ -10629,7 +10629,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
         /* CACHED */
       )),
       a("div", By, [
-        L(x(N), {
+        R(x(N), {
           id: "stronghold-refresh",
           disabled: e.busy || e.model.locked,
           onClick: o[5] || (o[5] = (r) => e.actions.refresh())
@@ -10673,7 +10673,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
             ))
           ], 40, Vy)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "stronghold-inspect",
           disabled: e.busy || e.model.locked || !e.model.selected,
           onClick: o[6] || (o[6] = (r) => e.actions.inspect())
@@ -10805,7 +10805,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 ]),
                 a("td", null, [
                   a("div", Zy, [
-                    L(x(N), {
+                    R(x(N), {
                       disabled: e.busy || e.model.locked,
                       onClick: (c) => e.actions.blockers(r.idx)
                     }, {
@@ -10937,7 +10937,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
                 [Mn, i.value]
               ])
             ]),
-            L(x(N), {
+            R(x(N), {
               id: "water-create-clear",
               disabled: I.value || !l.value.length,
               onClick: w[2] || (w[2] = (C) => l.value = [])
@@ -10952,7 +10952,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "water-create-cancel",
               disabled: I.value || !i.value && !l.value.length,
               onClick: w[3] || (w[3] = (C) => {
@@ -10969,7 +10969,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "water-create-save",
               disabled: I.value || !l.value.length || !i.value,
               onClick: M
@@ -10993,7 +10993,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
             /* TEXT */
           ),
           a("div", ap, [
-            L(x(N), {
+            R(x(N), {
               id: "water-create-prev",
               disabled: I.value || k.value === 0,
               onClick: w[4] || (w[4] = (C) => o.value = k.value - 1)
@@ -11015,7 +11015,7 @@ const Zt = qi(w1), k1 = { class: "auth-card" }, $1 = { id: "login" }, C1 = {
               1
               /* TEXT */
             ),
-            L(x(N), {
+            R(x(N), {
               id: "water-create-next",
               disabled: I.value || k.value + 1 >= u.value,
               onClick: w[5] || (w[5] = (C) => o.value = k.value + 1)
@@ -11112,7 +11112,7 @@ const fp = {
   class: "entity-table-wrap",
   tabindex: "0",
   "aria-label": "原組完整成員選擇"
-}, Ap = ["value", "disabled"], Lp = ["value", "disabled"], Rp = { class: "module-toolbar" }, Fp = ["disabled"], Dp = {
+}, Ap = ["value", "disabled"], Rp = ["value", "disabled"], Lp = { class: "module-toolbar" }, Fp = ["disabled"], Dp = {
   id: "water-filter-summary",
   role: "status"
 }, Np = {
@@ -11175,7 +11175,7 @@ const fp = {
         /* CACHED */
       )),
       a("div", mp, [
-        L(x(N), {
+        R(x(N), {
           id: "water-refresh",
           disabled: e.busy || e.model.locked,
           onClick: v[0] || (v[0] = (T) => e.actions.refresh())
@@ -11204,7 +11204,7 @@ const fp = {
             onInput: v[1] || (v[1] = (T) => e.actions.setField("revision", T.target.value))
           }, null, 40, vp)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "water-load",
           disabled: e.busy || e.model.loadLocked || !e.model.fields.gameId,
           onClick: v[2] || (v[2] = (T) => e.actions.load())
@@ -11219,7 +11219,7 @@ const fp = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "water-query",
           disabled: e.busy || e.model.queryLocked,
           onClick: v[3] || (v[3] = (T) => e.actions.query())
@@ -11234,7 +11234,7 @@ const fp = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "water-retry",
           disabled: e.busy || e.model.retryLocked,
           onClick: v[4] || (v[4] = (T) => e.actions.retry())
@@ -11273,7 +11273,7 @@ const fp = {
           -1
           /* CACHED */
         )),
-        L(x(N), {
+        R(x(N), {
           id: "water-preview",
           disabled: e.busy || e.model.minimap.locked,
           onClick: v[5] || (v[5] = (T) => e.actions.minimap())
@@ -11340,7 +11340,7 @@ const fp = {
           /* CLASS */
         )
       ])) : U("v-if", !0),
-      L(up, {
+      R(up, {
         ref_key: "createPanel",
         ref: o,
         model: e.model,
@@ -11389,7 +11389,7 @@ const fp = {
               [Mn, s.value]
             ])
           ]),
-          L(x(N), {
+          R(x(N), {
             id: "water-merge-cancel",
             disabled: e.busy || e.model.water.locked || !s.value && !i.value.length,
             onClick: v[7] || (v[7] = (T) => {
@@ -11406,7 +11406,7 @@ const fp = {
             _: 1
             /* STABLE */
           }, 8, ["disabled"]),
-          L(x(N), {
+          R(x(N), {
             id: "water-merge",
             disabled: e.busy || e.model.water.locked || i.value.length < 2 || !s.value,
             onClick: v[8] || (v[8] = (T) => e.actions.waterMerge([...i.value], s.value === "yes"))
@@ -11474,7 +11474,7 @@ const fp = {
               [Mn, A.value]
             ])
           ]),
-          L(x(N), {
+          R(x(N), {
             id: "water-split",
             disabled: e.busy || e.model.water.splitLocked || !C.value || $.value === 0 || $.value >= C.value.memberIds.length + C.value.baseCells.length,
             onClick: v[10] || (v[10] = (T) => e.actions.waterSplit(A.value, [...P.value], [...I.value]))
@@ -11537,7 +11537,7 @@ const fp = {
                   type: "checkbox",
                   value: T,
                   disabled: e.busy || e.model.water.splitLocked
-                }, null, 8, Lp), [
+                }, null, 8, Rp), [
                   [Cn, I.value]
                 ]),
                 y(
@@ -11551,7 +11551,7 @@ const fp = {
             /* KEYED_FRAGMENT */
           ))
         ])) : U("v-if", !0),
-        a("div", Rp, [
+        a("div", Lp, [
           a("label", null, [
             v[31] || (v[31] = y(
               "篩選組合名稱／身份",
@@ -11567,7 +11567,7 @@ const fp = {
               [Ke, M.value]
             ])
           ]),
-          L(x(N), {
+          R(x(N), {
             id: "water-clear-selection",
             disabled: e.busy || e.model.water.locked || i.value.length === 0,
             onClick: v[14] || (v[14] = (T) => i.value = [])
@@ -11659,7 +11659,7 @@ const fp = {
                   /* TEXT */
                 ),
                 a("td", null, [
-                  L(x(N), {
+                  R(x(N), {
                     "data-water-rename": "",
                     disabled: e.busy || e.model.water.locked,
                     onClick: (q) => e.actions.waterRename(T.groupId)
@@ -11674,7 +11674,7 @@ const fp = {
                     _: 1
                     /* STABLE */
                   }, 8, ["disabled", "onClick"]),
-                  L(x(N), {
+                  R(x(N), {
                     "data-water-toggle": "",
                     disabled: e.busy || e.model.water.locked,
                     onClick: (q) => e.actions.waterVisibility(T.groupId, !T.showOnMinimap)
@@ -11714,7 +11714,7 @@ const fp = {
 }, u0 = ["data-instance-id"], c0 = ["value", "disabled"], f0 = { "data-instance-variant": "" }, m0 = ["aria-label"], v0 = { "data-layer-order": "" }, b0 = { "data-instance-coordinates": "" }, h0 = { "data-split-count": "" }, g0 = { key: 0 }, y0 = { class: "module-toolbar" }, p0 = {
   key: 1,
   id: "material-placement-unknown"
-}, w0 = { id: "material-placement-selection" }, k0 = { class: "module-toolbar" }, $0 = ["disabled"], C0 = ["value"], x0 = ["disabled"], I0 = ["disabled"], S0 = ["disabled"], M0 = ["value"], E0 = { id: "material-picture-context" }, T0 = { class: "module-toolbar" }, P0 = ["disabled"], O0 = ["disabled"], A0 = { id: "material-count" }, L0 = { class: "entity-table-wrap" }, R0 = {
+}, w0 = { id: "material-placement-selection" }, k0 = { class: "module-toolbar" }, $0 = ["disabled"], C0 = ["value"], x0 = ["disabled"], I0 = ["disabled"], S0 = ["disabled"], M0 = ["value"], E0 = { id: "material-picture-context" }, T0 = { class: "module-toolbar" }, P0 = ["disabled"], O0 = ["disabled"], A0 = { id: "material-count" }, R0 = { class: "entity-table-wrap" }, L0 = {
   id: "material-table",
   class: "entity-table"
 }, F0 = ["data-material-id"], D0 = ["aria-label"], N0 = { "data-material-picture-variant": "" }, j0 = { key: 3 }, B0 = { class: "module-toolbar" }, V0 = {
@@ -11728,7 +11728,7 @@ const fp = {
     }
     const he = V(() => [P.value, I.value].every((W) => Number.isSafeInteger(W) && !Object.is(W, -0)) && (P.value !== 0 || I.value !== 0)), K = V(() => l.busy || l.model?.materials?.locked), Z = V(() => K.value || l.model?.materials?.decorationLocked || l.model?.workspace?.layer !== "decor"), xe = V(() => !Z.value && !!l.model?.context?.verified && T.value.includes(w.value) && Number.isInteger(h.value) && h.value >= 0 && h.value < v.value.waterClasses.length);
     ke(xe, (W) => i("placement-ready", W), { immediate: !0 }), ke([xe, q, g, w], () => i("placement-footprint", xe.value && q.value ? { materialId: g.value, variantRef: w.value, offsets: q.value } : null), { immediate: !0 });
-    function Re(W) {
+    function Le(W) {
       const p = l.model?.mapWindow;
       !xe.value || !p?.ready || W.gameId !== l.model.fields.gameId || W.draftRevision !== l.model.context.draftRevision || W.sourceDigest !== p.value.sourceDigest || (C.value = W.x, $.value = W.y);
     }
@@ -11783,7 +11783,7 @@ const fp = {
         tiles: Me ? [] : [...re].filter(([, Se]) => Se !== null).map(([Se, ot]) => [Se % 384 - B.x, Math.floor(Se / 384) - B.y, ot])
       };
     });
-    ke(we, (W) => i("shift-preview", W), { immediate: !0 }), t({ useWindowPoint: Re, useShiftPoint: ve, hasInputs: () => g.value !== "" || P.value !== "" || I.value !== "" });
+    ke(we, (W) => i("shift-preview", W), { immediate: !0 }), t({ useWindowPoint: Le, useShiftPoint: ve, hasInputs: () => g.value !== "" || P.value !== "" || I.value !== "" });
     const Be = V(() => {
       const W = l.model?.mapWindow, p = l.model?.mapAtlas;
       if (!xe.value || !q.value || !W?.ready || !p?.ready) return null;
@@ -11818,7 +11818,7 @@ const fp = {
       const p = gt.value.get(W);
       return p == null ? "非多格候選" : `${p} 格候選`;
     }
-    const R = V(() => new Map((l.model?.materials?.instances ?? []).map((W, p) => [W.instanceId, p + 1]))), H = V(() => He.value.slice(u.value * A, (u.value + 1) * A)), Q = V(() => ze.value.slice(k.value * A, (k.value + 1) * A)), G = V(() => {
+    const L = V(() => new Map((l.model?.materials?.instances ?? []).map((W, p) => [W.instanceId, p + 1]))), H = V(() => He.value.slice(u.value * A, (u.value + 1) * A)), Q = V(() => ze.value.slice(k.value * A, (k.value + 1) * A)), G = V(() => {
       const W = new Set(s.value);
       return H.value.filter((p) => W.has(p.instanceId)).length;
     });
@@ -11873,7 +11873,7 @@ const fp = {
             onInput: p[0] || (p[0] = (S) => e.actions.setField("revision", S.target.value))
           }, null, 40, Kp)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "material-load",
           disabled: e.busy || e.model.loadLocked || !e.model.fields.gameId,
           onClick: p[1] || (p[1] = (S) => e.actions.load())
@@ -11888,7 +11888,7 @@ const fp = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "material-query",
           disabled: e.busy || e.model.queryLocked,
           onClick: p[2] || (p[2] = (S) => e.actions.query())
@@ -11903,7 +11903,7 @@ const fp = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "material-retry",
           disabled: e.busy || e.model.retryLocked,
           onClick: p[3] || (p[3] = (S) => e.actions.retry())
@@ -11939,7 +11939,7 @@ const fp = {
         { key: 1 },
         [
           a("div", Jp, [
-            L(x(N), {
+            R(x(N), {
               id: "material-decoration-lock",
               disabled: e.busy || !e.model.context?.verified,
               "aria-pressed": e.model.materials.decorationLocked,
@@ -12015,7 +12015,7 @@ const fp = {
                 /* CACHED */
               ))
             ]),
-            L(x(N), {
+            R(x(N), {
               id: "material-capture",
               disabled: K.value || !s.value.length,
               onClick: p[7] || (p[7] = (S) => e.actions.material("material-capture", [...s.value]))
@@ -12030,7 +12030,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "material-remove-instances",
               disabled: Z.value || !s.value.length,
               onClick: p[8] || (p[8] = (S) => e.actions.removeInstances([...s.value]))
@@ -12045,7 +12045,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "material-use-window-selection",
               disabled: !Fe.value,
               onClick: tt
@@ -12060,7 +12060,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "material-use-window-anchor",
               disabled: !Ze.value,
               onClick: ht
@@ -12075,7 +12075,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "material-clear-window-selection",
               disabled: K.value || !e.model.decorationSelection?.ready,
               onClick: p[9] || (p[9] = (S) => e.actions.clearDecorationSelection())
@@ -12090,7 +12090,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "material-clear",
               disabled: K.value || !s.value.length,
               onClick: p[10] || (p[10] = (S) => s.value = [])
@@ -12207,7 +12207,7 @@ const fp = {
                 ]
               ])
             ]),
-            L(x(N), {
+            R(x(N), {
               id: "material-translate",
               disabled: Z.value || !s.value.length || !he.value,
               onClick: p[14] || (p[14] = (S) => e.actions.translate([...s.value], P.value, I.value))
@@ -12222,7 +12222,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "material-shift-clear",
               disabled: K.value || P.value === "" && I.value === "",
               onClick: p[15] || (p[15] = (S) => {
@@ -12241,7 +12241,7 @@ const fp = {
             }, 8, ["disabled"])
           ]),
           a("div", o0, [
-            L(x(N), {
+            R(x(N), {
               id: "material-order-up",
               disabled: Z.value || !s.value.length,
               onClick: p[16] || (p[16] = (S) => e.actions.reorder([...s.value], 1))
@@ -12256,7 +12256,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "material-order-down",
               disabled: Z.value || !s.value.length,
               onClick: p[17] || (p[17] = (S) => e.actions.reorder([...s.value], -1))
@@ -12362,7 +12362,7 @@ const fp = {
                     a(
                       "td",
                       v0,
-                      f(R.value.get(S.instanceId)),
+                      f(L.value.get(S.instanceId)),
                       1
                       /* TEXT */
                     ),
@@ -12381,7 +12381,7 @@ const fp = {
                         -1
                         /* CACHED */
                       )),
-                      L(x(N), {
+                      R(x(N), {
                         "data-instance-locate": "",
                         disabled: K.value || !e.model.mapWindow?.ready,
                         onClick: (B) => e.actions.locateInstance(S.instanceId)
@@ -12396,7 +12396,7 @@ const fp = {
                         _: 1
                         /* STABLE */
                       }, 8, ["disabled", "onClick"]),
-                      L(x(N), {
+                      R(x(N), {
                         "data-instance-shift-anchor": "",
                         disabled: Z.value || !s.value.includes(S.instanceId),
                         onClick: (B) => M.value = S.instanceId
@@ -12413,7 +12413,7 @@ const fp = {
                       }, 8, ["disabled", "onClick"])
                     ]),
                     a("td", null, [
-                      L(x(N), {
+                      R(x(N), {
                         "data-decoration-split": "",
                         disabled: Z.value || gt.value.get(S.instanceId) == null,
                         onClick: (B) => e.actions.split(S.instanceId)
@@ -12452,7 +12452,7 @@ const fp = {
           )),
           He.value.length ? U("v-if", !0) : (m(), b("p", g0, "沒有符合篩選的實例；不代表其它引用不存在。")),
           a("div", y0, [
-            L(x(N), {
+            R(x(N), {
               id: "material-instance-prev",
               disabled: K.value || u.value === 0,
               onClick: p[19] || (p[19] = (S) => u.value--)
@@ -12474,7 +12474,7 @@ const fp = {
               1
               /* TEXT */
             ),
-            L(x(N), {
+            R(x(N), {
               id: "material-instance-next",
               disabled: K.value || (u.value + 1) * A >= He.value.length,
               onClick: p[20] || (p[20] = (S) => u.value++)
@@ -12625,7 +12625,7 @@ const fp = {
                     [Mn, h.value]
                   ])
                 ]),
-                L(x(N), {
+                R(x(N), {
                   id: "material-place",
                   disabled: Z.value || !ie.value,
                   onClick: p[25] || (p[25] = (S) => e.actions.place(g.value, w.value, C.value, $.value, v.value.waterClasses[h.value]))
@@ -12640,7 +12640,7 @@ const fp = {
                   _: 1
                   /* STABLE */
                 }, 8, ["disabled"]),
-                L(x(N), {
+                R(x(N), {
                   id: "material-place-clear",
                   disabled: K.value || !g.value,
                   onClick: p[26] || (p[26] = (S) => se())
@@ -12713,8 +12713,8 @@ const fp = {
             1
             /* TEXT */
           ),
-          a("div", L0, [
-            a("table", R0, [
+          a("div", R0, [
+            a("table", L0, [
               p[77] || (p[77] = a(
                 "thead",
                 null,
@@ -12819,7 +12819,7 @@ const fp = {
                       ])
                     ]),
                     a("td", null, [
-                      L(x(N), {
+                      R(x(N), {
                         "data-material-place": "",
                         disabled: K.value || !v.value,
                         onClick: (B) => se(S.materialId)
@@ -12834,7 +12834,7 @@ const fp = {
                         _: 1
                         /* STABLE */
                       }, 8, ["disabled", "onClick"]),
-                      L(x(N), {
+                      R(x(N), {
                         "data-material-drag": "",
                         disabled: !Be.value || S.materialId !== g.value,
                         draggable: !!Be.value && S.materialId === g.value,
@@ -12851,7 +12851,7 @@ const fp = {
                         _: 1
                         /* STABLE */
                       }, 8, ["disabled", "draggable", "onDragstart"]),
-                      L(x(N), {
+                      R(x(N), {
                         "data-material-rename": "",
                         disabled: K.value || !S.authorEditable,
                         onClick: (B) => e.actions.material("material-rename", S.materialId)
@@ -12866,7 +12866,7 @@ const fp = {
                         _: 1
                         /* STABLE */
                       }, 8, ["disabled", "onClick"]),
-                      L(x(N), {
+                      R(x(N), {
                         "data-material-remove": "",
                         disabled: K.value || !S.authorEditable || S.references.length > 0,
                         onClick: (B) => e.actions.material("material-remove", S.materialId)
@@ -12891,7 +12891,7 @@ const fp = {
           ]),
           ze.value.length ? U("v-if", !0) : (m(), b("p", j0, "沒有符合篩選的素材。")),
           a("div", B0, [
-            L(x(N), {
+            R(x(N), {
               id: "material-prev",
               disabled: K.value || k.value === 0,
               onClick: p[30] || (p[30] = (S) => k.value--)
@@ -12913,7 +12913,7 @@ const fp = {
               1
               /* TEXT */
             ),
-            L(x(N), {
+            R(x(N), {
               id: "material-next",
               disabled: K.value || (k.value + 1) * A >= ze.value.length,
               onClick: p[31] || (p[31] = (S) => k.value++)
@@ -13002,7 +13002,7 @@ const fp = {
             onInput: w[0] || (w[0] = (C) => e.actions.setField("revision", C.target.value))
           }, null, 40, U0)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "base-load",
           disabled: e.busy || e.model.loadLocked || !e.model.fields.gameId,
           onClick: w[1] || (w[1] = (C) => e.actions.load())
@@ -13017,7 +13017,7 @@ const fp = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "base-query",
           disabled: e.busy || e.model.queryLocked,
           onClick: w[2] || (w[2] = (C) => e.actions.query())
@@ -13032,7 +13032,7 @@ const fp = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "base-retry",
           disabled: e.busy || e.model.retryLocked,
           onClick: w[3] || (w[3] = (C) => e.actions.retry())
@@ -13150,7 +13150,7 @@ const fp = {
                 ]
               ])
             ]),
-            L(x(N), {
+            R(x(N), {
               id: "base-fill",
               disabled: d.value || !l.value.length || !r.value,
               onClick: w[8] || (w[8] = (C) => e.actions.baseFill([...l.value], i.value, s.value))
@@ -13165,7 +13165,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "base-clear",
               disabled: d.value || !l.value.length,
               onClick: w[9] || (w[9] = (C) => l.value = [])
@@ -13180,7 +13180,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "base-cancel-inputs",
               disabled: u.value || i.value === "" && s.value === "",
               onClick: w[10] || (w[10] = (C) => {
@@ -13284,7 +13284,7 @@ const fp = {
             ])
           ]),
           a("div", s2, [
-            L(x(N), {
+            R(x(N), {
               id: "base-prev",
               disabled: u.value || e.model.base.page === 0,
               onClick: w[12] || (w[12] = (C) => e.actions.basePage(e.model.base.page - 1))
@@ -13299,7 +13299,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "base-selected-prev",
               disabled: u.value || P.value.previous === null,
               onClick: w[13] || (w[13] = (C) => e.actions.basePage(P.value.previous))
@@ -13321,7 +13321,7 @@ const fp = {
               1
               /* TEXT */
             ),
-            L(x(N), {
+            R(x(N), {
               id: "base-selected-next",
               disabled: u.value || P.value.next === null,
               onClick: w[14] || (w[14] = (C) => e.actions.basePage(P.value.next))
@@ -13336,7 +13336,7 @@ const fp = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"]),
-            L(x(N), {
+            R(x(N), {
               id: "base-next",
               disabled: u.value || e.model.base.page + 1 >= e.model.base.pages,
               onClick: w[15] || (w[15] = (C) => e.actions.basePage(e.model.base.page + 1))
@@ -13374,7 +13374,7 @@ const fp = {
                 ]
               ])
             ]),
-            L(x(N), {
+            R(x(N), {
               id: "base-page-go",
               disabled: u.value || !c.value,
               onClick: w[17] || (w[17] = (C) => e.actions.basePage(o.value - 1))
@@ -13443,7 +13443,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
 }, M2 = {
   key: 1,
   id: "map-window-atlas-context"
-}, E2 = { key: 2 }, T2 = { id: "map-window-inspection" }, P2 = ["data-cell"], O2 = { id: "map-window-picked-tile" }, A2 = { id: "map-window-placement-feedback" }, L2 = ["data-outside"], R2 = { key: 1 }, F2 = ["value", "disabled"], D2 = ["value"], N2 = ["value", "disabled"], j2 = {
+}, E2 = { key: 2 }, T2 = { id: "map-window-inspection" }, P2 = ["data-cell"], O2 = { id: "map-window-picked-tile" }, A2 = { id: "map-window-placement-feedback" }, R2 = ["data-outside"], L2 = { key: 1 }, F2 = ["value", "disabled"], D2 = ["value"], N2 = ["value", "disabled"], j2 = {
   key: 3,
   id: "map-window-base-selection"
 }, B2 = { key: 4 }, V2 = ["data-edge-x", "data-edge-y"], W2 = {
@@ -13500,7 +13500,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
       const j = i.value.getBoundingClientRect(), E = s.value.getBoundingClientRect(), D = Math.max(j.left, E.left + s.value.clientLeft, 0), X = Math.max(j.top, E.top + s.value.clientTop, 0), ne = Math.min(j.right, E.left + s.value.clientLeft + s.value.clientWidth, window.innerWidth), ge = Math.min(j.bottom, E.top + s.value.clientTop + s.value.clientHeight, window.innerHeight);
       return { left: D, top: X, right: ne, bottom: ge, width: ne - D, height: ge - X };
     }
-    function Re(j, E = "reject") {
+    function Le(j, E = "reject") {
       if (!Z.value || !i.value) return;
       const D = i.value.getBoundingClientRect(), X = n.model.mapWindow.value;
       if (D.width <= 0 || D.height <= 0 || E === "reject" && (j.clientX < D.left || j.clientX >= D.right || j.clientY < D.top || j.clientY >= D.bottom)) return;
@@ -13581,7 +13581,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             edgeY: 0
           };
         }
-        g.value.point = { clientX: j.clientX, clientY: j.clientY }, P.value = Re(j) ?? null, g.value.end = P.value, n.model.mapWindow.localNavigation && ee === null && (g.value.edgeTime = null, ee = requestAnimationFrame(fe));
+        g.value.point = { clientX: j.clientX, clientY: j.clientY }, P.value = Le(j) ?? null, g.value.end = P.value, n.model.mapWindow.localNavigation && ee === null && (g.value.edgeTime = null, ee = requestAnimationFrame(fe));
       }
     }
     function He() {
@@ -13591,7 +13591,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
       if (!ce.value || !n.placementDrag || j.dataTransfer?.getData("application/x-wolong-material-placement") !== n.placementDrag) return;
       j.preventDefault();
       const E = g.value;
-      P.value = Re(j) ?? null, I.value = P.value;
+      P.value = Le(j) ?? null, I.value = P.value;
       const D = ht();
       re(), E?.preview && (I.value = null, D && n.actions.mapWindowPan(E.dx, E.dy));
     }
@@ -13601,23 +13601,23 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
     function ct(j) {
       if (j.button === 0) {
         if (M.value === "pick") {
-          const E = O.value ? Re(j) : null;
+          const E = O.value ? Le(j) : null;
           E && n.actions.decorationPick(E.x, E.y);
           return;
         }
-        M.value === "inspect" && (I.value = Re(j) ?? null);
+        M.value === "inspect" && (I.value = Le(j) ?? null);
       }
     }
-    const gt = V(() => Z.value && !!n.model?.decorationSelection && !n.model.decorationSelection.locked), O = V(() => gt.value && !n.model?.materials?.decorationLocked && v.value.decor), R = V(() => {
+    const gt = V(() => Z.value && !!n.model?.decorationSelection && !n.model.decorationSelection.locked), O = V(() => gt.value && !n.model?.materials?.decorationLocked && v.value.decor), L = V(() => {
       if (!Fe.value || !O.value) return null;
       const j = n.model.materials.instances.find((E) => E.instanceId === n.shiftAnchor.instanceId);
       return n.model.materials.placement?.materials.find((E) => E.materialId === j?.materialId)?.offsets ?? null;
     });
-    ke(R, () => {
+    ke(L, () => {
       g.value?.grabOffset && re();
     });
     const H = V(() => {
-      const j = n.model?.decorationSelection, E = M.value === "grab" ? R.value ? [n.shiftAnchor.instanceId] : [] : j?.ready ? j.selectedIds : [];
+      const j = n.model?.decorationSelection, E = M.value === "grab" ? L.value ? [n.shiftAnchor.instanceId] : [] : j?.ready ? j.selectedIds : [];
       if (!["pick", "select", "grab"].includes(M.value) || !O.value || g.value || n.placementDrag || !E.length) return null;
       const D = new Set(E), X = /* @__PURE__ */ new Set(), ne = n.model.mapWindow.value, ge = new Map((n.model.materials.placement?.materials ?? []).map((Ae) => [Ae.materialId, Ae]));
       let Ce = 0, lt = 0;
@@ -13646,7 +13646,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
       ["base-select", "框選基礎格（只預覽選取）", !we.value],
       ["shift", "拖動位移目標（只填表單）", !Fe.value],
       ["pick", "讀取最上完整裝飾", !O.value],
-      ["grab", "抓住已選錨點占格位移（只填表單）", !R.value]
+      ["grab", "抓住已選錨點占格位移（只填表單）", !L.value]
     ]), G = /* @__PURE__ */ _(null), Y = /* @__PURE__ */ _(null);
     function J() {
       G.value = null;
@@ -13707,7 +13707,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           re();
           return;
         }
-        E.end = Re(X, ["place", "shift"].includes(E.kind) ? "reject" : "clamp") ?? null, E.library && (P.value = E.end);
+        E.end = Le(X, ["place", "shift"].includes(E.kind) ? "reject" : "clamp") ?? null, E.library && (P.value = E.end);
       }
       ee = requestAnimationFrame(fe);
     }
@@ -13720,11 +13720,11 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
       be(), n.placementDrag && l("placement-drag-end");
     }
     function Oe(j) {
-      if (!["select", "base-select", "pan", "place", "shift", "grab"].includes(M.value) || M.value === "grab" && !R.value || M.value === "shift" && !Fe.value || !Z.value || M.value === "select" && !gt.value || M.value === "base-select" && !we.value || M.value === "place" && !ce.value || j.button !== 0 || !j.isPrimary || g.value) return;
-      const E = Re(j);
+      if (!["select", "base-select", "pan", "place", "shift", "grab"].includes(M.value) || M.value === "grab" && !L.value || M.value === "shift" && !Fe.value || !Z.value || M.value === "select" && !gt.value || M.value === "base-select" && !we.value || M.value === "place" && !ce.value || j.button !== 0 || !j.isPrimary || g.value) return;
+      const E = Le(j);
       if (!E) return;
       const D = M.value === "grab" ? { x: E.x - n.shiftAnchor.x, y: E.y - n.shiftAnchor.y } : null;
-      if (D && !R.value.some(([ge, Ce]) => ge === D.x && Ce === D.y)) return;
+      if (D && !L.value.some(([ge, Ce]) => ge === D.x && Ce === D.y)) return;
       j.preventDefault(), I.value = null, C.value = null;
       const X = i.value.getBoundingClientRect(), ne = n.model.mapWindow.value;
       g.value = {
@@ -13757,7 +13757,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           }));
           return;
         }
-        g.value.point = { clientX: j.clientX, clientY: j.clientY }, g.value.end = Re(j, ["place", "shift"].includes(g.value.kind) ? "reject" : "clamp") ?? null, n.model.mapWindow.localNavigation && ee === null && (g.value.edgeTime = null, ee = requestAnimationFrame(fe));
+        g.value.point = { clientX: j.clientX, clientY: j.clientY }, g.value.end = Le(j, ["place", "shift"].includes(g.value.kind) ? "reject" : "clamp") ?? null, n.model.mapWindow.localNavigation && ee === null && (g.value.edgeTime = null, ee = requestAnimationFrame(fe));
       }
     }
     function je(j) {
@@ -13853,7 +13853,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
               onInput: E[0] || (E[0] = (D) => e.actions.setField("revision", D.target.value))
             }, null, 40, b2)
           ]),
-          L(x(N), {
+          R(x(N), {
             id: "map-window-load",
             disabled: e.busy || e.model.loadLocked || !e.model.fields.gameId,
             onClick: E[1] || (E[1] = (D) => e.actions.load())
@@ -13868,7 +13868,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             _: 1
             /* STABLE */
           }, 8, ["disabled"]),
-          L(x(N), {
+          R(x(N), {
             id: "map-window-query",
             disabled: e.busy || e.model.queryLocked,
             onClick: E[2] || (E[2] = (D) => e.actions.query())
@@ -13977,7 +13977,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
               ]
             ])
           ]),
-          L(x(N), {
+          R(x(N), {
             id: "map-window-read",
             disabled: e.busy || e.model.mapWindow.locked || !k.value,
             onClick: E[7] || (E[7] = (D) => e.actions.mapWindow(o.value, r.value, c.value, d.value))
@@ -13992,7 +13992,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             _: 1
             /* STABLE */
           }, 8, ["disabled"]),
-          L(x(N), {
+          R(x(N), {
             id: "map-scene-read",
             disabled: e.busy || e.model.mapWindow.locked || !k.value,
             onClick: E[8] || (E[8] = (D) => e.actions.mapScene(o.value, r.value, c.value, d.value))
@@ -14023,7 +14023,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
               [Mn, u.value]
             ])
           ]),
-          L(x(N), {
+          R(x(N), {
             id: "map-window-atlas",
             disabled: e.busy || e.model.mapAtlas.locked || !A.value,
             onClick: E[10] || (E[10] = (D) => e.actions.mapAtlas(u.value))
@@ -14047,7 +14047,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           /* TEXT */
         ),
         a("div", C2, [
-          L(x(N), {
+          R(x(N), {
             id: "map-window-left",
             disabled: !K.value || e.model.mapWindow.value.x === 0,
             onClick: E[11] || (E[11] = (D) => e.actions.mapWindowStep(-1, 0))
@@ -14062,7 +14062,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             _: 1
             /* STABLE */
           }, 8, ["disabled"]),
-          L(x(N), {
+          R(x(N), {
             id: "map-window-right",
             disabled: !K.value || e.model.mapWindow.value.x + e.model.mapWindow.value.width === e.model.mapWindow.value.worldWidth,
             onClick: E[12] || (E[12] = (D) => e.actions.mapWindowStep(1, 0))
@@ -14077,7 +14077,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             _: 1
             /* STABLE */
           }, 8, ["disabled"]),
-          L(x(N), {
+          R(x(N), {
             id: "map-window-up",
             disabled: !K.value || e.model.mapWindow.value.y === 0,
             onClick: E[13] || (E[13] = (D) => e.actions.mapWindowStep(0, -1))
@@ -14092,7 +14092,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             _: 1
             /* STABLE */
           }, 8, ["disabled"]),
-          L(x(N), {
+          R(x(N), {
             id: "map-window-down",
             disabled: !K.value || e.model.mapWindow.value.y + e.model.mapWindow.value.height === e.model.mapWindow.value.worldHeight,
             onClick: E[14] || (E[14] = (D) => e.actions.mapWindowStep(0, 1))
@@ -14119,7 +14119,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           (m(), b(
             z,
             null,
-            ae(h, (D) => L(x(N), {
+            ae(h, (D) => R(x(N), {
               key: D[0],
               "data-map-layer": D[0],
               "aria-pressed": e.model.mapWindow.ready && v.value[D[0]],
@@ -14251,7 +14251,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             ])
           ], 8, P2)) : U("v-if", !0)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "map-window-use-base",
           disabled: !Be.value.length,
           onClick: pe
@@ -14266,7 +14266,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "map-window-use-shift",
           disabled: !Z.value || !e.shiftAnchor || !I.value,
           onClick: Ze
@@ -14281,7 +14281,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "map-window-use-placement",
           disabled: !Z.value || !e.placementReady || !I.value || !!ve.value?.outside,
           onClick: ht
@@ -14308,7 +14308,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             key: 0,
             id: "map-window-placement-status",
             "data-outside": ve.value.outside
-          }, "占用 " + f(ve.value.cells.length) + " 格；超出固定地圖 " + f(ve.value.outside) + " 格／窗口外 " + f(ve.value.offWindow) + " 格。輪廓表示占用範圍；已知配方與圖集可疊加半透明貼圖，缺資料保持空白，不代表運行准入。窗口外部分不畫，越界不可取用落點，不裁切保存。", 9, L2)) : e.placementReady && I.value ? (m(), b("p", R2, "占用格預覽未知，不能從格數猜形狀；保存仍由服務核驗完整範圍。")) : U("v-if", !0)
+          }, "占用 " + f(ve.value.cells.length) + " 格；超出固定地圖 " + f(ve.value.outside) + " 格／窗口外 " + f(ve.value.offWindow) + " 格。輪廓表示占用範圍；已知配方與圖集可疊加半透明貼圖，缺資料保持空白，不代表運行准入。窗口外部分不畫，越界不可取用落點，不裁切保存。", 9, R2)) : e.placementReady && I.value ? (m(), b("p", L2, "占用格預覽未知，不能從格數猜形狀；保存仍由服務核驗完整範圍。")) : U("v-if", !0)
         ]),
         a("label", null, [
           E[37] || (E[37] = y(
@@ -14916,7 +14916,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         -1
         /* CACHED */
       )),
-      L(tw, {
+      R(tw, {
         model: e.draftModel,
         actions: e.draftActions,
         busy: e.busy,
@@ -14931,14 +14931,14 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         onPlacementPoint: $[4] || ($[4] = (h) => o.value?.useWindowPoint(h)),
         onBaseCells: $[5] || ($[5] = (h) => r.value?.useWindowCells(h))
       }, null, 8, ["model", "actions", "busy", "placement-ready", "placement-footprint", "placement-drag", "shift-anchor", "shift-preview"]),
-      L(Hp, {
+      R(Hp, {
         ref_key: "waterPanel",
         ref: c,
         model: e.draftModel,
         actions: e.draftActions,
         busy: e.busy
       }, null, 8, ["model", "actions", "busy"]),
-      L(W0, {
+      R(W0, {
         ref_key: "materialPanel",
         ref: o,
         "shift-candidate": I.value,
@@ -14951,7 +14951,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         onShiftAnchor: $[9] || ($[9] = (h) => A.value = h),
         onShiftPreview: $[10] || ($[10] = (h) => P.value = h)
       }, null, 8, ["shift-candidate", "model", "actions", "busy"]),
-      L(d2, {
+      R(d2, {
         ref_key: "basePanel",
         ref: r,
         model: e.draftModel,
@@ -14973,7 +14973,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         /* CACHED */
       )),
       a("div", aw, [
-        L(x(N), {
+        R(x(N), {
           id: "mapview-refresh",
           disabled: e.busy || e.model.locked,
           onClick: $[11] || ($[11] = (h) => e.actions.refresh())
@@ -15017,7 +15017,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             ))
           ], 40, sw)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "mapview-inspect",
           disabled: e.busy || e.model.locked || !e.model.selected,
           onClick: $[12] || ($[12] = (h) => e.actions.inspect())
@@ -15041,7 +15041,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         /* TEXT */
       ),
       a("div", dw, [
-        L(x(N), {
+        R(x(N), {
           id: "mapview-zoom-out",
           disabled: e.busy || e.model.locked || !e.model.context || s.value === 1,
           onClick: $[13] || ($[13] = (h) => g(s.value / 2))
@@ -15063,7 +15063,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           1
           /* TEXT */
         ),
-        L(x(N), {
+        R(x(N), {
           id: "mapview-zoom-in",
           disabled: e.busy || e.model.locked || !e.model.context || s.value === 4,
           onClick: $[14] || ($[14] = (h) => g(s.value * 2))
@@ -15078,7 +15078,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "mapview-reset",
           disabled: e.busy || e.model.locked || !e.model.context,
           onClick: $[15] || ($[15] = (h) => g(1))
@@ -15174,7 +15174,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
 }, Aw = {
   key: 0,
   class: "muted"
-}, Lw = ["data-path"], Rw = { class: "index" }, Fw = ["src", "alt"], Dw = { class: "name" }, Nw = { class: "muted" }, jw = { class: "name" }, Bw = ["src"], Vw = { class: "name" }, Ww = { class: "muted" }, Hw = {
+}, Rw = ["data-path"], Lw = { class: "index" }, Fw = ["src", "alt"], Dw = { class: "name" }, Nw = { class: "muted" }, jw = { class: "name" }, Bw = ["src"], Vw = { class: "name" }, Ww = { class: "muted" }, Hw = {
   __name: "CatalogPanel",
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
@@ -15300,7 +15300,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
               }, [
                 a(
                   "span",
-                  Rw,
+                  Lw,
                   f(i + 1),
                   1
                   /* TEXT */
@@ -15373,7 +15373,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                   64
                   /* STABLE_FRAGMENT */
                 ))
-              ], 8, Lw))),
+              ], 8, Rw))),
               128
               /* KEYED_FRAGMENT */
             ))
@@ -15408,7 +15408,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
       u.currentTarget !== n.value || l.value?.identity !== o.value || (i.value = k);
     }
     return ke(o, r, { flush: "sync" }), (u, k) => (m(), b("div", zw, [
-      L(x(N), {
+      R(x(N), {
         "data-portrait-preview": "",
         disabled: !o.value || i.value === "loading",
         onClick: c
@@ -15423,7 +15423,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         _: 1
         /* STABLE */
       }, 8, ["disabled"]),
-      L(x(N), {
+      R(x(N), {
         "data-portrait-preview-clear": "",
         disabled: !l.value,
         onClick: r
@@ -15524,7 +15524,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
 }, xk = { class: "entity-table" }, Ik = ["data-definition-reference"], Sk = { class: "entity-table-wrap" }, Mk = {
   id: "definition-table",
   class: "entity-table"
-}, Ek = ["data-definition-id"], Tk = { id: "chapter-people" }, Pk = { key: 0 }, Ok = ["disabled"], Ak = ["value", "disabled"], Lk = ["value"], Rk = {
+}, Ek = ["data-definition-id"], Tk = { id: "chapter-people" }, Pk = { key: 0 }, Ok = ["disabled"], Ak = ["value", "disabled"], Rk = ["value"], Lk = {
   id: "people-library",
   class: "entity-table-wrap"
 }, Fk = { class: "entity-table" }, Dk = ["data-person-id"], Nk = { class: "entity-table-wrap" }, jk = {
@@ -15580,7 +15580,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         /* CACHED */
       )),
       a("div", Yw, [
-        L(x(N), {
+        R(x(N), {
           id: "definition-refresh",
           disabled: e.busy || e.model.locked,
           onClick: d[0] || (d[0] = (u) => e.actions.refresh())
@@ -15609,7 +15609,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             onInput: d[1] || (d[1] = (u) => e.actions.setField("revision", u.target.value))
           }, null, 40, Xw)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "definition-load",
           disabled: e.busy || e.model.loadLocked || !e.model.fields.gameId,
           onClick: d[2] || (d[2] = (u) => e.actions.load())
@@ -15624,7 +15624,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "definition-query",
           disabled: e.busy || e.model.queryLocked,
           onClick: d[3] || (d[3] = (u) => e.actions.query())
@@ -15639,7 +15639,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "definition-retry",
           disabled: e.busy || e.model.retryLocked,
           onClick: d[4] || (d[4] = (u) => e.actions.retry())
@@ -15706,7 +15706,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                   [Ke, l.value]
                 ])
               ]),
-              L(x(N), {
+              R(x(N), {
                 id: "import-filter-clear",
                 disabled: e.busy || e.model.importSource.locked || !l.value,
                 onClick: d[6] || (d[6] = (u) => l.value = "")
@@ -15721,7 +15721,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                 _: 1
                 /* STABLE */
               }, 8, ["disabled"]),
-              L(x(N), {
+              R(x(N), {
                 id: "import-clear",
                 disabled: e.busy || e.model.importSource.locked || !e.model.importSource.selectedCount,
                 onClick: d[7] || (d[7] = (u) => e.actions.clearImportSelection())
@@ -15736,7 +15736,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                 _: 1
                 /* STABLE */
               }, 8, ["disabled"]),
-              L(x(N), {
+              R(x(N), {
                 id: "import-run",
                 disabled: e.busy || e.model.importSource.locked || !e.model.importSource.selectedCount,
                 onClick: d[8] || (d[8] = (u) => e.actions.importGenerals())
@@ -15846,7 +15846,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             ])
           ])) : U("v-if", !0),
           a("div", rk, [
-            L(x(N), {
+            R(x(N), {
               id: "definition-new",
               disabled: e.busy || e.model.definitions.locked,
               onClick: d[9] || (d[9] = (u) => e.actions.selectDefinition(null))
@@ -15879,7 +15879,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                 [Ke, n.value]
               ])
             ]),
-            L(x(N), {
+            R(x(N), {
               id: "definition-portrait-filter-clear",
               disabled: e.busy || e.model.definitions.locked || !n.value,
               onClick: d[11] || (d[11] = (u) => n.value = "")
@@ -15943,7 +15943,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                 }, null, 40, vk)
               ]),
               a("div", bk, [
-                L(x(N), {
+                R(x(N), {
                   id: "definition-portraits",
                   disabled: e.busy || e.model.definitions.locked,
                   onClick: d[14] || (d[14] = (u) => e.actions.definitionPortraits())
@@ -15994,7 +15994,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                     ))
                   ], 40, hk)
                 ]),
-                L(x(N), {
+                R(x(N), {
                   id: "definition-save",
                   "native-type": "submit",
                   disabled: e.busy || e.model.definitions.locked
@@ -16009,7 +16009,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                   _: 1
                   /* STABLE */
                 }, 8, ["disabled"]),
-                L(x(N), {
+                R(x(N), {
                   id: "definition-delete",
                   disabled: e.busy || e.model.definitions.locked || !e.model.definitions.form.generalId,
                   onClick: d[16] || (d[16] = (u) => e.actions.deleteDefinition())
@@ -16120,7 +16120,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
               /* STABLE_FRAGMENT */
             )) : (m(), b("p", kk, "此修訂未提供完整章節人物投影，引用未知；不視為無引用。"))
           ])) : U("v-if", !0),
-          L(Ci, {
+          R(Ci, {
             id: "definition-portrait-preview",
             "game-id": e.model.fields.gameId,
             portrait: e.model.definitions.form.portraitRef,
@@ -16180,7 +16180,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                       /* TEXT */
                     ),
                     a("td", null, [
-                      L(x(N), {
+                      R(x(N), {
                         disabled: e.busy || e.model.definitions.locked,
                         onClick: (k) => e.actions.selectDefinition(u.generalId)
                       }, {
@@ -16221,7 +16221,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
               z,
               { key: 1 },
               [
-                L(x(N), {
+                R(x(N), {
                   id: "people-portraits",
                   disabled: e.busy || e.model.people.locked,
                   onClick: d[18] || (d[18] = (u) => e.actions.definitionPortraits())
@@ -16252,7 +16252,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                     [Ke, n.value]
                   ])
                 ]),
-                L(x(N), {
+                R(x(N), {
                   id: "people-portrait-filter-clear",
                   disabled: e.busy || e.model.people.locked || !n.value,
                   onClick: d[20] || (d[20] = (u) => n.value = "")
@@ -16285,13 +16285,13 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                       ae(e.model.chapters, (u) => (m(), b("option", {
                         key: u.chapterId,
                         value: u.chapterId
-                      }, f(u.name) + "／" + f(u.chapterId), 9, Lk))),
+                      }, f(u.name) + "／" + f(u.chapterId), 9, Rk))),
                       128
                       /* KEYED_FRAGMENT */
                     ))
                   ], 40, Ak)
                 ]),
-                a("div", Rk, [
+                a("div", Lk, [
                   a("table", Fk, [
                     d[52] || (d[52] = a(
                       "thead",
@@ -16321,7 +16321,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                             /* TEXT */
                           ),
                           a("td", null, [
-                            L(x(N), {
+                            R(x(N), {
                               disabled: e.busy || e.model.people.locked || !e.model.fields.chapterId,
                               onClick: (k) => e.actions.person("set", e.model.fields.chapterId, u.generalId, !0)
                             }, {
@@ -16335,7 +16335,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                               _: 1
                               /* STABLE */
                             }, 8, ["disabled", "onClick"]),
-                            L(x(N), {
+                            R(x(N), {
                               disabled: e.busy || e.model.people.locked || !e.model.fields.chapterId,
                               onClick: (k) => e.actions.person("set", e.model.fields.chapterId, u.generalId, !1)
                             }, {
@@ -16452,7 +16452,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                                 ))
                               ], 40, Vk)
                             ]),
-                            L(x(N), {
+                            R(x(N), {
                               "data-portrait-clear": "",
                               disabled: e.busy || e.model.people.locked,
                               onClick: (k) => e.actions.person("portrait", e.model.fields.chapterId, u.generalId, void 0, null)
@@ -16470,7 +16470,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                             (m(), b(
                               z,
                               null,
-                              ae(["name", "hao"], (k) => L(x(N), {
+                              ae(["name", "hao"], (k) => R(x(N), {
                                 key: "override-" + k,
                                 "data-override-field": k,
                                 disabled: e.busy || e.model.people.locked,
@@ -16511,7 +16511,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                               128
                               /* KEYED_FRAGMENT */
                             )),
-                            L(x(N), {
+                            R(x(N), {
                               disabled: e.busy || e.model.people.locked,
                               onClick: (k) => e.actions.person("remove", e.model.fields.chapterId, u.generalId)
                             }, {
@@ -16661,7 +16661,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             onInput: v[0] || (v[0] = (T) => e.draftActions.setField("revision", T.target.value))
           }, null, 40, Kk)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "native-general-load",
           disabled: e.busy || e.draftModel.loadLocked || !e.draftModel.fields.gameId,
           onClick: v[1] || (v[1] = (T) => e.draftActions.load())
@@ -16676,7 +16676,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "native-general-query",
           disabled: e.busy || e.draftModel.queryLocked,
           onClick: v[2] || (v[2] = (T) => e.draftActions.query())
@@ -16691,7 +16691,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "native-general-retry",
           disabled: e.busy || e.draftModel.retryLocked,
           onClick: v[3] || (v[3] = (T) => e.draftActions.retry())
@@ -16729,7 +16729,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         /* CACHED */
       )),
       a("div", Gk, [
-        L(x(N), {
+        R(x(N), {
           id: "generals-refresh",
           disabled: e.busy || e.model.locked,
           onClick: v[4] || (v[4] = (T) => e.actions.refresh())
@@ -16773,7 +16773,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             ))
           ], 40, Yk)
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "generals-inspect",
           disabled: e.busy || e.model.locked || !e.model.selected,
           onClick: v[6] || (v[6] = (T) => e.actions.inspect())
@@ -16842,7 +16842,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         /* CACHED */
       )),
       a("div", t8, [
-        L(x(N), {
+        R(x(N), {
           id: "portrait-list",
           disabled: e.busy || e.model.locked || !e.model.selected,
           onClick: v[8] || (v[8] = (T) => e.actions.listPortraits())
@@ -16873,7 +16873,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             [Ke, I.value]
           ])
         ]),
-        L(x(N), {
+        R(x(N), {
           id: "portrait-filter-clear",
           disabled: e.busy || e.model.locked || !I.value,
           onClick: v[10] || (v[10] = (T) => I.value = "")
@@ -16951,7 +16951,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
           ))
         ])
       ]),
-      L(Ci, {
+      R(Ci, {
         id: "native-portrait-preview",
         "game-id": e.model.selected,
         portrait: e.model.library.find((T) => T.assetId === e.model.portraitId),
@@ -17019,7 +17019,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                     /* TEXT */
                   ),
                   a("td", null, [
-                    L(x(N), {
+                    R(x(N), {
                       "data-native-monarch-assign": "",
                       disabled: !r.value.has(T.idx),
                       onClick: (q) => c(T)
@@ -17034,7 +17034,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                       _: 1
                       /* STABLE */
                     }, 8, ["disabled", "onClick"]),
-                    L(x(N), {
+                    R(x(N), {
                       "data-native-advisor-assign": "",
                       disabled: !s.value.has(T.idx),
                       onClick: (q) => o(T)
@@ -17049,7 +17049,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                       _: 1
                       /* STABLE */
                     }, 8, ["disabled", "onClick"]),
-                    L(x(N), {
+                    R(x(N), {
                       "data-native-advisor-clear": "",
                       disabled: !k.value.has(T.idx),
                       onClick: (q) => k.value.has(T.idx) && e.draftActions.clearStrategist(e.model.chapterId, T.idx)
@@ -17064,7 +17064,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                       _: 1
                       /* STABLE */
                     }, 8, ["disabled", "onClick"]),
-                    L(x(N), {
+                    R(x(N), {
                       "data-native-monarch-succeed": "",
                       disabled: !r.value.has(T.idx),
                       onClick: (q) => d(T)
@@ -17079,7 +17079,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                       _: 1
                       /* STABLE */
                     }, 8, ["disabled", "onClick"]),
-                    L(x(N), {
+                    R(x(N), {
                       "data-native-faction-disband": "",
                       disabled: !u.value.has(T.idx),
                       onClick: (q) => u.value.has(T.idx) && e.draftActions.disbandFaction(e.model.chapterId, T.idx)
@@ -17133,7 +17133,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
               [Ke, A.value]
             ])
           ]),
-          L(x(N), {
+          R(x(N), {
             id: "general-filter-clear",
             disabled: e.busy || e.model.saveDisabled || !A.value,
             onClick: v[13] || (v[13] = (T) => A.value = "")
@@ -17292,7 +17292,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                     ])
                   ]),
                   a("td", null, [
-                    L(x(N), {
+                    R(x(N), {
                       "data-native-general-rename": "",
                       disabled: !l.value,
                       onClick: (q) => i(T)
@@ -17307,7 +17307,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                       _: 1
                       /* STABLE */
                     }, 8, ["disabled", "onClick"]),
-                    L(x(N), {
+                    R(x(N), {
                       "data-native-general-portrait": "",
                       disabled: !l.value || !T.portraitKey && !w.value,
                       onClick: (q) => $(T)
@@ -17322,7 +17322,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
                       _: 2
                       /* DYNAMIC */
                     }, 1032, ["disabled", "onClick"]),
-                    L(x(N), {
+                    R(x(N), {
                       disabled: e.busy || e.model.saveDisabled,
                       onClick: (q) => e.actions.blockers(e.model.chapterId, T.idx)
                     }, {
@@ -17356,7 +17356,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
 }, P8 = {
   key: 0,
   class: "muted"
-}, O8 = { id: "own-games" }, A8 = ["data-game-id"], L8 = {
+}, O8 = { id: "own-games" }, A8 = ["data-game-id"], R8 = {
   __name: "CopyPanel",
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
@@ -17418,7 +17418,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             -1
             /* CACHED */
           )),
-          L(x(N), {
+          R(x(N), {
             "native-type": "submit",
             type: "primary",
             disabled: e.busy || e.model.createDisabled
@@ -17467,7 +17467,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
               1
               /* TEXT */
             ),
-            L(x(N), {
+            R(x(N), {
               disabled: e.busy || e.model.locked,
               onClick: (i) => e.actions.gotoGame(l.gameId)
             }, {
@@ -17488,7 +17488,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
       ])
     ]));
   }
-}, R8 = {
+}, L8 = {
   id: "copy-game-editor",
   class: "module-card"
 }, F8 = {
@@ -17512,7 +17512,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
         } catch {
         }
     }
-    return (l, i) => (m(), b("section", R8, [
+    return (l, i) => (m(), b("section", L8, [
       U(" 唯一訊息區：複製期間、成功、失敗都在這一處顯示 "),
       a(
         "p",
@@ -17564,7 +17564,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
               onInput: i[1] || (i[1] = (s) => e.actions.setField("introduction", s.target.value))
             }, null, 40, N8)
           ]),
-          L(x(N), {
+          R(x(N), {
             id: "full-copy-create",
             type: "primary",
             disabled: e.busy || e.model.createDisabled,
@@ -17616,7 +17616,7 @@ const v2 = { class: "module-toolbar" }, b2 = ["value", "disabled"], h2 = { class
             { key: 0 },
             [
               a("div", W8, [
-                L(x(N), {
+                R(x(N), {
                   id: "full-copy-dismiss",
                   type: "primary",
                   disabled: e.busy,
@@ -17735,7 +17735,7 @@ const q8 = (e) => {
   let i = 0, s = !1, o = "0", r = !1;
   const c = () => {
     r || (r = !0, setTimeout(() => {
-      typeof document > "u" || s && document && (document.body.style.width = o, Lb(document.body, l.value));
+      typeof document > "u" || s && document && (document.body.style.width = o, Rb(document.body, l.value));
     }, 200));
   };
   ke(e, (d) => {
@@ -17744,7 +17744,7 @@ const q8 = (e) => {
       return;
     }
     r = !1, s = !Ob(document.body, l.value), s && (o = document.body.style.width, Ab(document.body, l.value)), i = q8(n.namespace.value);
-    const u = document.documentElement.clientHeight < document.body.scrollHeight, k = Rb(document.body, "overflowY");
+    const u = document.documentElement.clientHeight < document.body.scrollHeight, k = Lb(document.body, "overflowY");
     i > 0 && (u || k === "scroll") && s && (document.body.style.width = `calc(100% - ${i}px)`);
   }), er(() => c());
 }, Qd = (e) => {
@@ -17771,7 +17771,7 @@ const q8 = (e) => {
 }, X8 = {
   cancelable: !0,
   bubbles: !1
-}, Lo = "focusAfterTrapped", Ro = "focusAfterReleased", J8 = Symbol("elFocusTrap"), gs = /* @__PURE__ */ _(), Gi = /* @__PURE__ */ _(0), ys = /* @__PURE__ */ _(0);
+}, Ro = "focusAfterTrapped", Lo = "focusAfterReleased", J8 = Symbol("elFocusTrap"), gs = /* @__PURE__ */ _(), Gi = /* @__PURE__ */ _(0), ys = /* @__PURE__ */ _(0);
 let _l = 0;
 const _d = (e) => {
   const t = [], n = document.createTreeWalker(e, NodeFilter.SHOW_ELEMENT, { acceptNode: (l) => {
@@ -17833,7 +17833,7 @@ const e4 = () => {
 }), ti = (e) => new CustomEvent(Y8, {
   ...X8,
   detail: e
-}), Rl = {
+}), Ll = {
   tab: "Tab",
   enter: "Enter",
   space: "Space",
@@ -17853,10 +17853,10 @@ const e4 = () => {
   if (e.code && e.code !== "Unidentified") return e.code;
   const t = i4(e);
   if (t) {
-    if (Object.values(Rl).includes(t)) return t;
+    if (Object.values(Ll).includes(t)) return t;
     switch (t) {
       case " ":
-        return Rl.space;
+        return Ll.space;
       default:
         return "";
     }
@@ -17872,7 +17872,7 @@ const e4 = () => {
 };
 let Yn = [];
 const Bo = (e) => {
-  ps(e) === Rl.esc && Yn.forEach((t) => t(e));
+  ps(e) === Ll.esc && Yn.forEach((t) => t(e));
 }, a4 = (e) => {
   jt(() => {
     Yn.length === 0 && document.addEventListener("keydown", Bo), Ot && Yn.push(e);
@@ -17893,8 +17893,8 @@ var s4 = /* @__PURE__ */ st({
     }
   },
   emits: [
-    Lo,
     Ro,
+    Lo,
     "focusin",
     "focusout",
     "focusout-prevented",
@@ -17917,7 +17917,7 @@ var s4 = /* @__PURE__ */ st({
       }
     }, r = (I) => {
       if (!e.loop && !e.trapped || o.paused) return;
-      const { altKey: M, ctrlKey: g, metaKey: w, currentTarget: C, shiftKey: $ } = I, { loop: h } = e, v = ps(I) === Rl.tab && !M && !g && !w, T = document.activeElement;
+      const { altKey: M, ctrlKey: g, metaKey: w, currentTarget: C, shiftKey: $ } = I, { loop: h } = e, v = ps(I) === Ll.tab && !M && !g && !w, T = document.activeElement;
       if (v && T) {
         const q = C, [oe, ie] = Q8(q);
         if (oe && ie) {
@@ -17934,7 +17934,7 @@ var s4 = /* @__PURE__ */ st({
         }
       }
     };
-    Ri(J8, {
+    Li(J8, {
       focusTrapRef: n,
       onKeydown: r
     }), ke(() => e.focusTrapEl, (I) => {
@@ -17943,8 +17943,8 @@ var s4 = /* @__PURE__ */ st({
       I && (I.addEventListener("keydown", r), I.addEventListener("focusin", u), I.addEventListener("focusout", k)), M && (M.removeEventListener("keydown", r), M.removeEventListener("focusin", u), M.removeEventListener("focusout", k));
     });
     const c = (I) => {
-      t(Lo, I);
-    }, d = (I) => t(Ro, I), u = (I) => {
+      t(Ro, I);
+    }, d = (I) => t(Lo, I), u = (I) => {
       const M = x(n);
       if (!M) return;
       const g = I.target, w = I.relatedTarget, C = g && M.contains(g);
@@ -18299,7 +18299,7 @@ function w4({ afterComposition: e, emit: t }) {
     handleCompositionEnd: s
   };
 }
-let Rt;
+let Lt;
 const k4 = {
   height: "0",
   visibility: "hidden",
@@ -18339,17 +18339,17 @@ function C4(e) {
   };
 }
 function Ho(e, t = 1, n) {
-  if (!Rt) {
-    Rt = document.createElement("textarea");
+  if (!Lt) {
+    Lt = document.createElement("textarea");
     let u = document.body;
-    !Nd() && e.parentNode && (u = e.parentNode), u.appendChild(Rt);
+    !Nd() && e.parentNode && (u = e.parentNode), u.appendChild(Lt);
   }
   const { paddingSize: l, borderSize: i, boxSizing: s, contextStyle: o } = C4(e);
-  o.forEach(([u, k]) => Rt?.style.setProperty(u, k)), Object.entries(k4).forEach(([u, k]) => Rt?.style.setProperty(u, k, "important")), Rt.value = e.value || e.placeholder || "";
-  let r = Rt.scrollHeight;
+  o.forEach(([u, k]) => Lt?.style.setProperty(u, k)), Object.entries(k4).forEach(([u, k]) => Lt?.style.setProperty(u, k, "important")), Lt.value = e.value || e.placeholder || "";
+  let r = Lt.scrollHeight;
   const c = {};
-  s === "border-box" ? r = r + i : s === "content-box" && (r = r - l), Rt.value = "";
-  const d = Rt.scrollHeight - l;
+  s === "border-box" ? r = r + i : s === "content-box" && (r = r - l), Lt.value = "";
+  const d = Lt.scrollHeight - l;
   if (wi(t)) {
     let u = d * t;
     s === "border-box" && (u = u + l + i), r = Math.max(u, r), c.minHeight = `${u}px`;
@@ -18358,7 +18358,7 @@ function Ho(e, t = 1, n) {
     let u = d * n;
     s === "border-box" && (u = u + l + i), r = Math.min(u, r);
   }
-  return c.height = `${r}px`, Rt.parentNode?.removeChild(Rt), Rt = void 0, c;
+  return c.height = `${r}px`, Lt.parentNode?.removeChild(Lt), Lt = void 0, c;
 }
 const x4 = [
   "id",
@@ -18413,9 +18413,9 @@ var E4 = /* @__PURE__ */ st({
         [g.b("hidden")]: l.type === "hidden"
       },
       s.class
-    ]), c = V(() => [g.e("wrapper"), g.is("focus", Re.value)]), d = g4(), u = V(() => l.maxlength?.toString()), { form: k, formItem: A } = Hd(), { inputId: P } = Vb(l, { formItemContext: A }), I = ms(), M = vs(), g = tn("input"), w = tn("textarea"), { t: C } = bs(), $ = /* @__PURE__ */ Xn(), h = /* @__PURE__ */ Xn(), v = /* @__PURE__ */ _(!1), T = /* @__PURE__ */ _(!1), q = /* @__PURE__ */ _(), oe = /* @__PURE__ */ _(), ie = /* @__PURE__ */ Xn(l.inputStyle), se = /* @__PURE__ */ _("");
+    ]), c = V(() => [g.e("wrapper"), g.is("focus", Le.value)]), d = g4(), u = V(() => l.maxlength?.toString()), { form: k, formItem: A } = Hd(), { inputId: P } = Vb(l, { formItemContext: A }), I = ms(), M = vs(), g = tn("input"), w = tn("textarea"), { t: C } = bs(), $ = /* @__PURE__ */ Xn(), h = /* @__PURE__ */ Xn(), v = /* @__PURE__ */ _(!1), T = /* @__PURE__ */ _(!1), q = /* @__PURE__ */ _(), oe = /* @__PURE__ */ _(), ie = /* @__PURE__ */ Xn(l.inputStyle), se = /* @__PURE__ */ _("");
     let he;
-    const K = /* @__PURE__ */ _(), Z = V(() => $.value || h.value), { wrapperRef: xe, isFocused: Re, handleFocus: ce, handleBlur: de } = p4(Z, {
+    const K = /* @__PURE__ */ _(), Z = V(() => $.value || h.value), { wrapperRef: xe, isFocused: Le, handleFocus: ce, handleBlur: de } = p4(Z, {
       disabled: M,
       afterFocus() {
         l.showPassword && (he = Z.value?.value);
@@ -18436,10 +18436,10 @@ var E4 = /* @__PURE__ */ st({
       ie.value,
       { resize: l.resize },
       K.value ? { height: K.value } : void 0
-    ]), Ze = V(() => wl(l.modelValue) ? "" : String(l.modelValue)), ht = V(() => l.clearable && !M.value && !l.readonly), nt = V(() => ht.value && !!Ze.value && (Re.value || v.value)), He = V(() => l.showPassword && !M.value && !!Ze.value), ze = V(() => l.showWordLimit && !!u.value && (l.type === "text" || l.type === "textarea") && !M.value && !l.readonly && !l.showPassword), ct = V(() => l.countGraphemes && l.showWordLimit ? l.countGraphemes(Ze.value) : Ze.value.length), gt = V(() => C("el.input.characters", {
+    ]), Ze = V(() => wl(l.modelValue) ? "" : String(l.modelValue)), ht = V(() => l.clearable && !M.value && !l.readonly), nt = V(() => ht.value && !!Ze.value && (Le.value || v.value)), He = V(() => l.showPassword && !M.value && !!Ze.value), ze = V(() => l.showWordLimit && !!u.value && (l.type === "text" || l.type === "textarea") && !M.value && !l.readonly && !l.showPassword), ct = V(() => l.countGraphemes && l.showWordLimit ? l.countGraphemes(Ze.value) : Ze.value.length), gt = V(() => C("el.input.characters", {
       count: ct.value,
       max: u.value ?? ""
-    })), O = V(() => !!ze.value && ct.value > Number(u.value)), R = V(() => !!o.suffix || !!l.suffixIcon || l.clearable || l.showPassword || ze.value || !!we.value && ve.value), H = V(() => !!Object.keys(l.modelModifiers).length), [Q, G] = y4($);
+    })), O = V(() => !!ze.value && ct.value > Number(u.value)), L = V(() => !!o.suffix || !!l.suffixIcon || l.clearable || l.showPassword || ze.value || !!we.value && ve.value), H = V(() => !!Object.keys(l.modelModifiers).length), [Q, G] = y4($);
     let Y;
     Mb(h, (D) => {
       if (W(), !ze.value && !ht.value || l.resize !== "both" && l.resize !== "horizontal") return;
@@ -18652,7 +18652,7 @@ var E4 = /* @__PURE__ */ st({
           onKeydown: Qe
         }), null, 16, x4),
         U(" suffix slot "),
-        R.value ? (m(), b("span", {
+        L.value ? (m(), b("span", {
           key: 1,
           class: me(x(g).e("suffix"))
         }, [a("span", { class: me(x(g).e("suffix-inner")) }, [
@@ -18723,7 +18723,7 @@ var E4 = /* @__PURE__ */ st({
         ref: h,
         class: [
           x(w).e("inner"),
-          x(g).is("focus", x(Re)),
+          x(g).is("focus", x(Le)),
           x(w).is("clearable", e.clearable)
         ]
       }, x(d), {
@@ -18778,7 +18778,7 @@ var E4 = /* @__PURE__ */ st({
 const P4 = qi(T4), Va = "_trap-focus-children", Wn = [], Uo = (e) => {
   if (Wn.length === 0) return;
   const t = ps(e), n = Wn[Wn.length - 1][Va];
-  if (n.length > 0 && t === Rl.tab) {
+  if (n.length > 0 && t === Ll.tab) {
     if (n.length === 1) {
       e.preventDefault(), document.activeElement !== n[0] && n[0].focus();
       return;
@@ -18814,16 +18814,16 @@ const P4 = qi(T4), Va = "_trap-focus-children", Wn = [], Uo = (e) => {
     default: void 0
   },
   zIndex: { type: wt([String, Number]) }
-}), L4 = { click: (e) => e instanceof MouseEvent }, R4 = "overlay";
+}), R4 = { click: (e) => e instanceof MouseEvent }, L4 = "overlay";
 var F4 = /* @__PURE__ */ st({
   name: "ElOverlay",
   props: A4,
-  emits: L4,
+  emits: R4,
   setup(e, { slots: t, emit: n }) {
-    const l = tn(R4), i = (c) => {
+    const l = tn(L4), i = (c) => {
       n("click", c);
     }, { onClick: s, onMousedown: o, onMouseup: r } = Qd(e.customMaskEvent ? void 0 : i);
-    return () => e.mask ? L("div", {
+    return () => e.mask ? R("div", {
       class: [l.b(), e.overlayClass],
       style: { zIndex: e.zIndex },
       onClick: s,
@@ -18992,10 +18992,10 @@ var N4 = /* @__PURE__ */ st({
     }, xe = () => {
       const de = C.value?.$refs;
       return de?.input ?? de?.textarea;
-    }, Re = () => {
+    }, Le = () => {
       K("close");
     }, ce = () => {
-      e.closeOnPressEscape && Re();
+      e.closeOnPressEscape && Le();
     };
     return e.lockScroll && G8(c, { ns: i }), {
       .../* @__PURE__ */ Bu(d),
@@ -19016,7 +19016,7 @@ var N4 = /* @__PURE__ */ st({
       isDragging: q,
       confirmRef: $,
       doClose: oe,
-      handleClose: Re,
+      handleClose: Le,
       onCloseRequested: ce,
       handleWrapperClick: ie,
       handleInputEnter: he,
@@ -19033,7 +19033,7 @@ function W4(e, t, n, l, i, s) {
     onAfterLeave: t[11] || (t[11] = (k) => e.$emit("vanish")),
     persisted: ""
   }, {
-    default: F(() => [Ie(L(u, {
+    default: F(() => [Ie(R(u, {
       "z-index": e.zIndex,
       "overlay-class": [e.ns.is("message-box"), e.modalClass],
       mask: e.modal
@@ -19047,7 +19047,7 @@ function W4(e, t, n, l, i, s) {
         onClick: t[8] || (t[8] = (...k) => e.overlayEvent.onClick && e.overlayEvent.onClick(...k)),
         onMousedown: t[9] || (t[9] = (...k) => e.overlayEvent.onMousedown && e.overlayEvent.onMousedown(...k)),
         onMouseup: t[10] || (t[10] = (...k) => e.overlayEvent.onMouseup && e.overlayEvent.onMouseup(...k))
-      }, [L(d, {
+      }, [R(d, {
         loop: "",
         trapped: e.visible,
         "focus-trap-el": e.rootRef,
@@ -19085,7 +19085,7 @@ function W4(e, t, n, l, i, s) {
             "aria-label": e.t("el.messagebox.close"),
             onClick: t[0] || (t[0] = (k) => e.handleAction(e.distinguishCancelAndClose ? "close" : "cancel")),
             onKeydown: t[1] || (t[1] = Yl(We((k) => e.handleAction(e.distinguishCancelAndClose ? "close" : "cancel"), ["prevent"]), ["enter"]))
-          }, [L(o, { class: me(e.ns.e("close")) }, {
+          }, [R(o, { class: me(e.ns.e("close")) }, {
             default: F(() => [(m(), $e(Ct(e.closeIcon || "close")))]),
             _: 1
           }, 8, ["class"])], 42, B4)) : U("v-if", !0)], 2)) : U("v-if", !0),
@@ -19109,7 +19109,7 @@ function W4(e, t, n, l, i, s) {
             key: 0,
             for: e.showInput ? e.inputId : void 0,
             textContent: f(e.message)
-          }, null, 8, ["for", "textContent"]))])], 2)) : U("v-if", !0)], 2), Ie(a("div", { class: me(e.ns.e("input")) }, [L(r, {
+          }, null, 8, ["for", "textContent"]))])], 2)) : U("v-if", !0)], 2), Ie(a("div", { class: me(e.ns.e("input")) }, [R(r, {
             id: e.inputId,
             ref: "inputRef",
             modelValue: e.inputValue,
@@ -19156,7 +19156,7 @@ function W4(e, t, n, l, i, s) {
             "class",
             "round",
             "size"
-          ])) : U("v-if", !0), Ie(L(c, {
+          ])) : U("v-if", !0), Ie(R(c, {
             ref: "confirmRef",
             type: e.confirmButtonType === "text" ? "" : e.confirmButtonType,
             text: e.confirmButtonType === "text",
@@ -19206,7 +19206,7 @@ const Fl = /* @__PURE__ */ new Map(), z4 = (e) => {
   const n = e.component?.proxy;
   return () => n.handleAction(t);
 }, U4 = (e, t, n = null) => {
-  const l = L(H4, e, ye(e.message) || In(e.message) ? { default: ye(e.message) ? () => e.message({
+  const l = R(H4, e, ye(e.message) || In(e.message) ? { default: ye(e.message) ? () => e.message({
     confirm: pa(l, "confirm"),
     cancel: pa(l, "cancel"),
     close: pa(l, "close")
@@ -19287,28 +19287,33 @@ const Wa = gn, J4 = {
   id: "publish-message",
   role: "status"
 }, _4 = {
+  key: 0,
+  id: "publish-blocked",
+  role: "status",
+  class: "module-notice"
+}, e$ = {
   id: "publish-references",
   role: "status"
-}, e$ = {
-  key: 0,
+}, t$ = {
+  key: 1,
   id: "publish-reference-list",
   class: "empty-state"
-}, t$ = ["data-chapter-id"], n$ = {
+}, n$ = ["data-chapter-id"], l$ = {
   class: "entity-table-wrap",
   tabindex: "0"
-}, l$ = {
+}, i$ = {
   id: "publish-table",
   class: "entity-table"
-}, i$ = ["data-game-id", "data-state"], a$ = { "data-field": "name" }, s$ = { "data-field": "introduction" }, o$ = { "data-field": "version" }, r$ = { "data-field": "created" }, d$ = { "data-field": "state-time" }, u$ = { class: "account-row-actions" }, c$ = {
+}, a$ = ["data-game-id", "data-state"], s$ = { "data-field": "name" }, o$ = { "data-field": "introduction" }, r$ = { "data-field": "version" }, d$ = { "data-field": "created" }, u$ = { "data-field": "state-time" }, c$ = { class: "account-row-actions" }, f$ = {
   key: 0,
   class: "empty-state"
-}, f$ = { id: "publish-operation" }, m$ = { class: "module-toolbar" }, v$ = { id: "publish-result" }, b$ = {
-  key: 1,
+}, m$ = { id: "publish-operation" }, v$ = { class: "module-toolbar" }, b$ = { id: "publish-result" }, h$ = {
+  key: 2,
   id: "publish-overlay",
   class: "progress-overlay",
   role: "alertdialog",
   "aria-busy": "true"
-}, h$ = { class: "progress-card" }, g$ = { id: "publish-overlay-text" }, y$ = { id: "publish-overlay-line" }, p$ = { id: "publish-overlay-elapsed" }, w$ = {
+}, g$ = { class: "progress-card" }, y$ = { id: "publish-overlay-text" }, p$ = { id: "publish-overlay-line" }, w$ = { id: "publish-overlay-elapsed" }, k$ = {
   __name: "PublishPanel",
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
@@ -19348,7 +19353,7 @@ const Wa = gn, J4 = {
     }
     return (I, M) => (m(), b("section", J4, [
       a("div", Z4, [
-        L(x(N), {
+        R(x(N), {
           id: "publish-refresh",
           disabled: e.busy || e.model.refreshDisabled,
           onClick: M[0] || (M[0] = (g) => e.actions.refresh())
@@ -19371,27 +19376,34 @@ const Wa = gn, J4 = {
         1
         /* TEXT */
       ),
-      a(
+      e.model.blockedReason ? (m(), b(
         "p",
         _4,
+        f(e.model.blockedReason),
+        1
+        /* TEXT */
+      )) : U("v-if", !0),
+      a(
+        "p",
+        e$,
         f(e.model.referencesText),
         1
         /* TEXT */
       ),
-      e.model.references?.length ? (m(), b("ul", e$, [
+      e.model.references?.length ? (m(), b("ul", t$, [
         (m(!0), b(
           z,
           null,
           ae(e.model.references, (g) => (m(), b("li", {
             key: g.chapterId,
             "data-chapter-id": g.chapterId
-          }, f(g.name) + "：" + f(g.problems.join("；")), 9, t$))),
+          }, f(g.name) + "：" + f(g.problems.join("；")), 9, n$))),
           128
           /* KEYED_FRAGMENT */
         ))
       ])) : U("v-if", !0),
-      a("div", n$, [
-        a("table", l$, [
+      a("div", l$, [
+        a("table", i$, [
           M[8] || (M[8] = a(
             "thead",
             null,
@@ -19420,21 +19432,21 @@ const Wa = gn, J4 = {
               }, [
                 a(
                   "td",
-                  a$,
+                  s$,
                   f(g.name),
                   1
                   /* TEXT */
                 ),
                 a(
                   "td",
-                  s$,
+                  o$,
                   f(g.introduction),
                   1
                   /* TEXT */
                 ),
                 a(
                   "td",
-                  o$,
+                  r$,
                   f(g.version),
                   1
                   /* TEXT */
@@ -19474,20 +19486,20 @@ const Wa = gn, J4 = {
                 ),
                 a(
                   "td",
-                  r$,
+                  d$,
                   f(l(g.createdAt)),
                   1
                   /* TEXT */
                 ),
                 a(
                   "td",
-                  d$,
+                  u$,
                   f(l(g.stateTime)),
                   1
                   /* TEXT */
                 ),
-                a("td", u$, [
-                  L(x(N), {
+                a("td", c$, [
+                  R(x(N), {
                     "data-action": "check",
                     disabled: e.busy || e.model.checkDisabled,
                     onClick: (w) => P(g)
@@ -19502,9 +19514,9 @@ const Wa = gn, J4 = {
                     _: 1
                     /* STABLE */
                   }, 8, ["disabled", "onClick"]),
-                  L(x(N), {
+                  R(x(N), {
                     "data-action": "publish",
-                    title: g.publishTitle,
+                    title: g.publishHint,
                     disabled: e.busy || g.publishDisabled,
                     onClick: (w) => A(g)
                   }, {
@@ -19519,23 +19531,23 @@ const Wa = gn, J4 = {
                     /* STABLE */
                   }, 8, ["title", "disabled", "onClick"])
                 ])
-              ], 8, i$))),
+              ], 8, a$))),
               128
               /* KEYED_FRAGMENT */
             ))
           ])
         ]),
-        e.model.rows.length ? U("v-if", !0) : (m(), b("p", c$, "尚未讀取清單，或此帳戶沒有可上架的遊戲。請在「新建遊戲」建立，或按「刷新」。"))
+        e.model.rows.length ? U("v-if", !0) : (m(), b("p", f$, "尚未讀取清單，或此帳戶沒有可上架的遊戲。請在「新建遊戲」建立，或按「刷新」。"))
       ]),
       a(
         "p",
-        f$,
+        m$,
         f(e.model.operation),
         1
         /* TEXT */
       ),
-      a("div", m$, [
-        L(x(N), {
+      a("div", v$, [
+        R(x(N), {
           id: "publish-query",
           disabled: e.busy || e.model.queryDisabled,
           onClick: M[1] || (M[1] = (g) => e.actions.query())
@@ -19550,7 +19562,7 @@ const Wa = gn, J4 = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "publish-retry",
           disabled: e.busy || e.model.retryDisabled,
           onClick: M[2] || (M[2] = (g) => e.actions.retry())
@@ -19565,7 +19577,7 @@ const Wa = gn, J4 = {
           _: 1
           /* STABLE */
         }, 8, ["disabled"]),
-        L(x(N), {
+        R(x(N), {
           id: "publish-forget",
           disabled: e.busy || e.model.forgetDisabled,
           onClick: M[3] || (M[3] = (g) => e.actions.forget())
@@ -19583,16 +19595,16 @@ const Wa = gn, J4 = {
       ]),
       a(
         "p",
-        v$,
+        b$,
         f(e.model.result),
         1
         /* TEXT */
       ),
-      i.value ? (m(), b("div", b$, [
-        a("div", h$, [
+      i.value ? (m(), b("div", h$, [
+        a("div", g$, [
           a(
             "p",
-            g$,
+            y$,
             f(i.value.title),
             1
             /* TEXT */
@@ -19600,14 +19612,14 @@ const Wa = gn, J4 = {
           U(" 第二行：處理過程；失敗或逾時就在這一行說明原因 "),
           a(
             "p",
-            y$,
+            p$,
             f(i.value.failed ? i.value.line : e.model.phase || "正在處理…"),
             1
             /* TEXT */
           ),
           a(
             "small",
-            p$,
+            w$,
             f(i.value.failed ? "上面這句話也會留在面板訊息裡" : "已用 " + s.value + " 秒；完成後會自動關閉，也可以切到別的頁面"),
             1
             /* TEXT */
@@ -19616,31 +19628,31 @@ const Wa = gn, J4 = {
       ])) : U("v-if", !0)
     ]));
   }
-}, k$ = {
+}, $$ = {
   id: "review-editor",
   class: "module-card"
-}, $$ = { class: "module-toolbar" }, C$ = {
+}, C$ = { class: "module-toolbar" }, x$ = {
   id: "review-message",
   role: "status"
-}, x$ = {
+}, I$ = {
   class: "entity-table-wrap",
   tabindex: "0"
-}, I$ = {
+}, S$ = {
   id: "review-table",
   class: "entity-table"
-}, S$ = ["data-game-id", "data-state"], M$ = { "data-field": "name" }, E$ = { "data-field": "author" }, T$ = { "data-field": "introduction" }, P$ = { "data-field": "version" }, O$ = { "data-field": "created" }, A$ = { "data-field": "state-time" }, L$ = { class: "account-row-actions" }, R$ = ["data-history-for"], F$ = { colspan: "8" }, D$ = {
+}, M$ = ["data-game-id", "data-state"], E$ = { "data-field": "name" }, T$ = { "data-field": "author" }, P$ = { "data-field": "introduction" }, O$ = { "data-field": "version" }, A$ = { "data-field": "created" }, R$ = { "data-field": "state-time" }, L$ = { class: "account-row-actions" }, F$ = ["data-history-for"], D$ = { colspan: "8" }, N$ = {
   key: 0,
   role: "status"
-}, N$ = ["id"], j$ = {
+}, j$ = ["id"], B$ = {
   key: 1,
   class: "entity-table-wrap"
-}, B$ = ["id"], V$ = ["data-version", "data-state"], W$ = { "data-field": "version" }, H$ = { "data-field": "published-at" }, z$ = { "data-field": "distribution" }, U$ = ["title"], K$ = {
+}, V$ = ["id"], W$ = ["data-version", "data-state"], H$ = { "data-field": "version" }, z$ = { "data-field": "published-at" }, U$ = { "data-field": "distribution" }, K$ = ["title"], q$ = {
   key: 2,
   class: "empty-state"
-}, q$ = {
+}, G$ = {
   key: 0,
   class: "empty-state"
-}, G$ = { id: "review-result" }, Y$ = ["aria-busy"], X$ = { class: "progress-card" }, J$ = { id: "review-overlay-title" }, Z$ = { class: "module-toolbar" }, Q$ = { id: "review-overlay-title" }, _$ = { id: "review-overlay-line" }, eC = {
+}, Y$ = { id: "review-result" }, X$ = ["aria-busy"], J$ = { class: "progress-card" }, Z$ = { id: "review-overlay-title" }, Q$ = { class: "module-toolbar" }, _$ = { id: "review-overlay-title" }, eC = { id: "review-overlay-line" }, tC = {
   __name: "ReviewPanel",
   props: { model: Object, actions: Object, busy: Boolean },
   setup(e) {
@@ -19686,7 +19698,7 @@ const Wa = gn, J4 = {
       }
       n.value = P ? { ...A, phase: "done", line: `「${A.name}」的所有資料列已從資料庫物理刪除，玩家端目錄與正式入口已在同一事務撤下；R2 位元組與分發帳本由既有退役清理回收，不刪玩家本地存檔。這段提示 3 秒後自動關閉。` } : { ...A, phase: "partial", line: "不可逆刪除柵欄已成立，但物理刪除尚未完成；清單會保留它，請依上方面板訊息稍後重試。這段提示 3 秒後自動關閉。" }, l = setTimeout(s, 3e3);
     }
-    return (A, P) => (m(), b("section", k$, [
+    return (A, P) => (m(), b("section", $$, [
       P[16] || (P[16] = a(
         "p",
         null,
@@ -19708,8 +19720,8 @@ const Wa = gn, J4 = {
         -1
         /* CACHED */
       )),
-      a("div", $$, [
-        L(x(N), {
+      a("div", C$, [
+        R(x(N), {
           id: "review-refresh",
           disabled: e.busy || e.model.refreshDisabled,
           onClick: P[0] || (P[0] = (I) => e.actions.refresh())
@@ -19727,13 +19739,13 @@ const Wa = gn, J4 = {
       ]),
       a(
         "p",
-        C$,
+        x$,
         f(e.model.message),
         1
         /* TEXT */
       ),
-      a("div", x$, [
-        a("table", I$, [
+      a("div", I$, [
+        a("table", S$, [
           P[11] || (P[11] = a(
             "thead",
             null,
@@ -19768,28 +19780,28 @@ const Wa = gn, J4 = {
                   }, [
                     a(
                       "td",
-                      M$,
+                      E$,
                       f(I.name),
                       1
                       /* TEXT */
                     ),
                     a(
                       "td",
-                      E$,
+                      T$,
                       f(I.author),
                       1
                       /* TEXT */
                     ),
                     a(
                       "td",
-                      T$,
+                      P$,
                       f(I.introduction),
                       1
                       /* TEXT */
                     ),
                     a(
                       "td",
-                      P$,
+                      O$,
                       f(I.version),
                       1
                       /* TEXT */
@@ -19829,20 +19841,20 @@ const Wa = gn, J4 = {
                     ),
                     a(
                       "td",
-                      O$,
+                      A$,
                       f(r(I.createdAt)),
                       1
                       /* TEXT */
                     ),
                     a(
                       "td",
-                      A$,
+                      R$,
                       f(r(I.stateTime)),
                       1
                       /* TEXT */
                     ),
                     a("td", L$, [
-                      L(x(N), {
+                      R(x(N), {
                         "data-action": "approve",
                         disabled: e.busy || I.approveDisabled,
                         onClick: (M) => c(I)
@@ -19857,7 +19869,7 @@ const Wa = gn, J4 = {
                         _: 1
                         /* STABLE */
                       }, 8, ["disabled", "onClick"]),
-                      L(x(N), {
+                      R(x(N), {
                         "data-action": "reject",
                         title: I.rejectHint,
                         disabled: e.busy || I.rejectDisabled,
@@ -19873,7 +19885,7 @@ const Wa = gn, J4 = {
                         _: 1
                         /* STABLE */
                       }, 8, ["title", "disabled", "onClick"]),
-                      L(x(N), {
+                      R(x(N), {
                         "data-action": "delete",
                         title: I.deleteHint,
                         disabled: e.busy || I.deleteDisabled,
@@ -19889,7 +19901,7 @@ const Wa = gn, J4 = {
                         _: 1
                         /* STABLE */
                       }, 8, ["title", "disabled", "onClick"]),
-                      L(x(N), {
+                      R(x(N), {
                         "data-action": "history",
                         disabled: e.busy || I.historyDisabled,
                         onClick: (M) => e.actions.history(I.gameId)
@@ -19905,17 +19917,17 @@ const Wa = gn, J4 = {
                         /* DYNAMIC */
                       }, 1032, ["disabled", "onClick"])
                     ])
-                  ], 8, S$),
+                  ], 8, M$),
                   U(" 發布歷史：行內展開，不另開頁面；只有按了「發布歷史」才讀一次。 "),
                   I.historyOpen ? (m(), b("tr", {
                     key: 0,
                     "data-history-for": I.gameId,
                     class: "history-row"
                   }, [
-                    a("td", F$, [
+                    a("td", D$, [
                       !e.model.history || e.model.history.loading ? (m(), b(
                         "p",
-                        D$,
+                        N$,
                         "正在讀取「" + f(I.name) + "」的發布歷史…",
                         1
                         /* TEXT */
@@ -19927,8 +19939,8 @@ const Wa = gn, J4 = {
                             key: 0,
                             id: "review-history-message-" + I.gameId,
                             role: "status"
-                          }, f(e.model.history.message), 9, N$)) : U("v-if", !0),
-                          e.model.history.rows.length ? (m(), b("div", j$, [
+                          }, f(e.model.history.message), 9, j$)) : U("v-if", !0),
+                          e.model.history.rows.length ? (m(), b("div", B$, [
                             a("table", {
                               class: "entity-table",
                               id: "review-history-" + I.gameId
@@ -19958,21 +19970,21 @@ const Wa = gn, J4 = {
                                   }, [
                                     a(
                                       "td",
-                                      W$,
+                                      H$,
                                       f(M.version),
                                       1
                                       /* TEXT */
                                     ),
                                     a(
                                       "td",
-                                      H$,
+                                      z$,
                                       f(r(M.publishedAt)),
                                       1
                                       /* TEXT */
                                     ),
                                     a(
                                       "td",
-                                      z$,
+                                      U$,
                                       f(M.stateText),
                                       1
                                       /* TEXT */
@@ -19988,14 +20000,14 @@ const Wa = gn, J4 = {
                                         1
                                         /* TEXT */
                                       )
-                                    ], 8, U$)
-                                  ], 8, V$))),
+                                    ], 8, K$)
+                                  ], 8, W$))),
                                   128
                                   /* KEYED_FRAGMENT */
                                 ))
                               ])
-                            ], 8, B$)
-                          ])) : (m(), b("p", K$, "還沒有發布記錄：發布日誌從這次上線之後才開始記，不會回填更舊的版本。")),
+                            ], 8, V$)
+                          ])) : (m(), b("p", q$, "還沒有發布記錄：發布日誌從這次上線之後才開始記，不會回填更舊的版本。")),
                           P[10] || (P[10] = a(
                             "small",
                             null,
@@ -20008,7 +20020,7 @@ const Wa = gn, J4 = {
                         /* STABLE_FRAGMENT */
                       ))
                     ])
-                  ], 8, R$)) : U("v-if", !0)
+                  ], 8, F$)) : U("v-if", !0)
                 ],
                 64
                 /* STABLE_FRAGMENT */
@@ -20018,11 +20030,11 @@ const Wa = gn, J4 = {
             ))
           ])
         ]),
-        e.model.rows.length ? U("v-if", !0) : (m(), b("p", q$, "尚未讀取清單，或目前沒有遊戲。按「重新整理」讀取全部創作者的遊戲。"))
+        e.model.rows.length ? U("v-if", !0) : (m(), b("p", G$, "尚未讀取清單，或目前沒有遊戲。按「重新整理」讀取全部創作者的遊戲。"))
       ]),
       a(
         "p",
-        G$,
+        Y$,
         f(e.model.result),
         1
         /* TEXT */
@@ -20042,14 +20054,14 @@ const Wa = gn, J4 = {
         role: "alertdialog",
         "aria-busy": n.value.phase === "running"
       }, [
-        a("div", X$, [
+        a("div", J$, [
           n.value.phase === "confirm" ? (m(), b(
             z,
             { key: 0 },
             [
               a(
                 "p",
-                J$,
+                Z$,
                 "物理刪除「" + f(n.value.name) + "」？",
                 1
                 /* TEXT */
@@ -20065,8 +20077,8 @@ const Wa = gn, J4 = {
                 -1
                 /* CACHED */
               )),
-              a("div", Z$, [
-                L(x(N), {
+              a("div", Q$, [
+                R(x(N), {
                   id: "review-overlay-cancel",
                   onClick: P[1] || (P[1] = (I) => s())
                 }, {
@@ -20080,7 +20092,7 @@ const Wa = gn, J4 = {
                   _: 1
                   /* STABLE */
                 }),
-                L(x(N), {
+                R(x(N), {
                   id: "review-overlay-confirm",
                   type: "danger",
                   onClick: P[2] || (P[2] = (I) => k())
@@ -20105,14 +20117,14 @@ const Wa = gn, J4 = {
             [
               a(
                 "p",
-                Q$,
+                _$,
                 f(n.value.phase === "running" ? "正在刪除，請等待…" : n.value.phase === "done" ? "刪除完成" : n.value.phase === "partial" ? "刪除未完全完成" : "刪除失敗"),
                 1
                 /* TEXT */
               ),
               a(
                 "p",
-                _$,
+                eC,
                 f(n.value.phase === "running" ? "正在刪除資料列並撤下線上入口，請不要關閉頁面。" : n.value.line),
                 1
                 /* TEXT */
@@ -20137,13 +20149,13 @@ const Wa = gn, J4 = {
             /* STABLE_FRAGMENT */
           ))
         ])
-      ], 8, Y$)) : U("v-if", !0)
+      ], 8, X$)) : U("v-if", !0)
     ]));
   }
-}, tC = { class: "workbench-header" }, nC = ["hidden"], lC = ["value", "disabled"], iC = {
+}, nC = { class: "workbench-header" }, lC = ["hidden"], iC = ["value", "disabled"], aC = {
   value: "",
   disabled: ""
-}, aC = ["value"], sC = ["hidden"], oC = { id: "identity" }, rC = ["hidden"], dC = { class: "user-menu-items" }, uC = ["hidden"], cC = { class: "nav-label" }, fC = { class: "workbench-main" }, mC = ["hidden"], vC = ["hidden"], bC = { key: 0 }, hC = { key: 0 }, gC = { key: 1 }, yC = { key: 2 }, pC = { key: 1 }, wC = ["hidden"], kC = {
+}, sC = ["value"], oC = ["hidden"], rC = { id: "identity" }, dC = ["hidden"], uC = { class: "user-menu-items" }, cC = ["hidden"], fC = { class: "nav-label" }, mC = { class: "workbench-main" }, vC = ["hidden"], bC = ["hidden"], hC = { key: 0 }, gC = { key: 0 }, yC = { key: 1 }, pC = { key: 2 }, wC = { key: 1 }, kC = ["hidden"], $C = {
   __name: "Workbench",
   props: { state: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, mapviewModel: Object, mapview: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function },
   setup(e, { expose: t }) {
@@ -20163,7 +20175,7 @@ const Wa = gn, J4 = {
         class: me(["workbench", { "auth-layout": !o.value }])
       },
       [
-        a("header", tC, [
+        a("header", nC, [
           a("a", {
             class: "brand",
             href: "#draft-editor",
@@ -20206,7 +20218,7 @@ const Wa = gn, J4 = {
             }, [
               a(
                 "option",
-                iC,
+                aC,
                 f(e.draftModel.selectionMissing ? "原遊戲已不在清單，請重新選擇" : e.draftModel.games.length ? "請選擇遊戲" : "尚未載入遊戲清單"),
                 1
                 /* TEXT */
@@ -20217,12 +20229,12 @@ const Wa = gn, J4 = {
                 ae(e.draftModel.games, (I) => (m(), b("option", {
                   key: I.gameId,
                   value: I.gameId
-                }, f(I.name) + "／修訂 " + f(I.draftRevision), 9, aC))),
+                }, f(I.name) + "／修訂 " + f(I.draftRevision), 9, sC))),
                 128
                 /* KEYED_FRAGMENT */
               ))
-            ], 40, lC),
-            L(x(N), {
+            ], 40, iC),
+            R(x(N), {
               disabled: e.state.busy || e.draftModel.locked,
               onClick: P[1] || (P[1] = (I) => e.draft.refresh())
             }, {
@@ -20236,12 +20248,12 @@ const Wa = gn, J4 = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"])
-          ], 8, nC),
+          ], 8, lC),
           a("div", {
             class: "account-actions",
             hidden: !e.state.authenticated
           }, [
-            L(x(Zt), {
+            R(x(Zt), {
               type: e.state.admin ? "success" : "info",
               effect: "plain"
             }, {
@@ -20257,7 +20269,7 @@ const Wa = gn, J4 = {
             }, 8, ["type"]),
             a(
               "span",
-              oC,
+              rC,
               f(e.state.account) + f(e.state.mustChange ? " — 請先變更密碼" : ""),
               1
               /* TEXT */
@@ -20275,8 +20287,8 @@ const Wa = gn, J4 = {
                 -1
                 /* CACHED */
               )),
-              a("div", dC, [
-                L(x(N), {
+              a("div", uC, [
+                R(x(N), {
                   text: "",
                   onClick: P[2] || (P[2] = (I) => k("profile")),
                   disabled: e.state.busy
@@ -20291,7 +20303,7 @@ const Wa = gn, J4 = {
                   _: 1
                   /* STABLE */
                 }, 8, ["disabled"]),
-                L(x(N), {
+                R(x(N), {
                   text: "",
                   onClick: P[3] || (P[3] = (I) => k("password")),
                   disabled: e.state.busy
@@ -20306,7 +20318,7 @@ const Wa = gn, J4 = {
                   _: 1
                   /* STABLE */
                 }, 8, ["disabled"]),
-                L(x(N), {
+                R(x(N), {
                   text: "",
                   onClick: P[4] || (P[4] = (I) => e.logout()),
                   disabled: e.state.busy
@@ -20322,8 +20334,8 @@ const Wa = gn, J4 = {
                   /* STABLE */
                 }, 8, ["disabled"])
               ])
-            ], 8, rC),
-            L(x(N), {
+            ], 8, dC),
+            R(x(N), {
               id: "logout",
               disabled: e.state.busy
             }, {
@@ -20337,7 +20349,7 @@ const Wa = gn, J4 = {
               _: 1
               /* STABLE */
             }, 8, ["disabled"])
-          ], 8, sC)
+          ], 8, oC)
         ]),
         a("aside", {
           id: "menu",
@@ -20356,7 +20368,7 @@ const Wa = gn, J4 = {
               [
                 a(
                   "p",
-                  cC,
+                  fC,
                   f(I.label),
                   1
                   /* TEXT */
@@ -20409,8 +20421,8 @@ const Wa = gn, J4 = {
             -1
             /* CACHED */
           ))
-        ], 8, uC),
-        a("main", fC, [
+        ], 8, cC),
+        a("main", mC, [
           a("div", {
             class: "page-heading",
             hidden: !o.value
@@ -20429,22 +20441,22 @@ const Wa = gn, J4 = {
               1
               /* TEXT */
             )
-          ], 8, mC),
+          ], 8, vC),
           a("div", {
             id: "workspace-context",
             class: "workspace-context",
             hidden: !o.value || e.state.view === "catalog-editor" || e.state.view === "copy"
           }, [
-            e.draftModel.context ? (m(), b("span", bC, [
+            e.draftModel.context ? (m(), b("span", hC, [
               y(
                 "目前草稿：" + f(e.draftModel.context.name) + "／" + f(e.draftModel.context.gameId) + "／修訂 " + f(e.draftModel.context.draftRevision),
                 1
                 /* TEXT */
               ),
-              e.draftModel.context.dirty ? (m(), b("strong", hC, "／有未保存修改")) : U("v-if", !0),
-              e.draftModel.context.pending ? (m(), b("strong", gC, "／原操作未確認")) : U("v-if", !0),
-              e.draftModel.context.verified ? U("v-if", !0) : (m(), b("strong", yC, "／尚須明確載入"))
-            ])) : (m(), b("span", pC, "目前未載入草稿；請在「遊戲管理」選擇明確修訂。")),
+              e.draftModel.context.dirty ? (m(), b("strong", gC, "／有未保存修改")) : U("v-if", !0),
+              e.draftModel.context.pending ? (m(), b("strong", yC, "／原操作未確認")) : U("v-if", !0),
+              e.draftModel.context.verified ? U("v-if", !0) : (m(), b("strong", pC, "／尚須明確載入"))
+            ])) : (m(), b("span", wC, "目前未載入草稿；請在「遊戲管理」選擇明確修訂。")),
             P[14] || (P[14] = a(
               "small",
               null,
@@ -20452,7 +20464,7 @@ const Wa = gn, J4 = {
               -1
               /* CACHED */
             ))
-          ], 8, vC),
+          ], 8, bC),
           P[15] || (P[15] = a(
             "p",
             {
@@ -20464,7 +20476,7 @@ const Wa = gn, J4 = {
             -1
             /* CACHED */
           )),
-          L(C1, {
+          R(C1, {
             hidden: e.state.authenticated,
             busy: e.state.busy
           }, null, 8, ["hidden", "busy"]),
@@ -20472,11 +20484,11 @@ const Wa = gn, J4 = {
             id: "session",
             hidden: !e.state.authenticated
           }, [
-            L(P1, {
+            R(P1, {
               state: e.state,
               ready: o.value
             }, null, 8, ["state", "ready"]),
-            L(eh, {
+            R(eh, {
               ref_key: "accountsPanel",
               ref: l,
               model: e.accountsModel,
@@ -20484,19 +20496,19 @@ const Wa = gn, J4 = {
               busy: e.state.busy,
               hidden: !o.value || !e.state.admin || e.state.view !== "admin"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            L(yg, {
+            R(yg, {
               model: e.draftModel,
               actions: e.draft,
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "draft-editor"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            L(ty, {
+            R(ty, {
               model: e.draftModel,
               actions: e.draft,
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "chapters-editor"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            L(Qy, {
+            R(Qy, {
               model: e.strongholdModel,
               actions: e.stronghold,
               "draft-model": e.draftModel,
@@ -20504,7 +20516,7 @@ const Wa = gn, J4 = {
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "stronghold-editor"
             }, null, 8, ["model", "actions", "draft-model", "draft-actions", "busy", "hidden"]),
-            L(vw, {
+            R(vw, {
               ref_key: "mapPanel",
               ref: i,
               model: e.mapviewModel,
@@ -20514,13 +20526,13 @@ const Wa = gn, J4 = {
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "mapview-editor"
             }, null, 8, ["model", "actions", "draft-model", "draft-actions", "busy", "hidden"]),
-            L(Hw, {
+            R(Hw, {
               model: e.catalogModel,
               actions: e.catalog,
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "catalog-editor"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            L(I8, {
+            R(I8, {
               model: e.generalsModel,
               actions: e.generals,
               "draft-model": e.draftModel,
@@ -20528,31 +20540,31 @@ const Wa = gn, J4 = {
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "generals-editor"
             }, null, 8, ["model", "actions", "draft-model", "draft-actions", "busy", "hidden"]),
-            L(L8, {
+            R(R8, {
               model: e.copyModel,
               actions: e.copy,
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "copy"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            L(w$, {
+            R(k$, {
               model: e.publicationModel,
               actions: e.publication,
               busy: e.state.busy,
               hidden: !o.value || e.state.view !== "publish-editor"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            L(eC, {
+            R(tC, {
               model: e.reviewModel,
               actions: e.review,
               busy: e.state.busy,
               hidden: !o.value || !e.state.admin || e.state.view !== "management-editor"
             }, null, 8, ["model", "actions", "busy", "hidden"]),
-            L(H8, {
+            R(H8, {
               model: e.fullCopyModel,
               actions: e.fullCopy,
               busy: e.state.busy,
               hidden: !o.value || !e.state.admin || e.state.view !== "copy-game-editor"
             }, null, 8, ["model", "actions", "busy", "hidden"])
-          ], 8, wC)
+          ], 8, kC)
         ])
       ],
       2
@@ -20560,7 +20572,7 @@ const Wa = gn, J4 = {
     ));
   }
 };
-function $C({ api: e, authority: t, work: n, publish: l, confirm: i }) {
+function CC({ api: e, authority: t, work: n, publish: l, confirm: i }) {
   let s = null, o = 0, r = 0, c = [], d = !1, u = !1, k = "";
   const A = () => s && s === t() && s.user.role === "admin" && !s.user.mustChangePassword, P = () => l({ rows: c, loaded: d, stale: u, message: k, generation: o });
   function I() {
@@ -20640,11 +20652,11 @@ function $C({ api: e, authority: t, work: n, publish: l, confirm: i }) {
     mutate: $
   });
 }
-function CC({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s, onCreated: o = () => {
+function xC({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s, onCreated: o = () => {
 }, storage: r = globalThis.sessionStorage, confirm: c = (u) => globalThis.confirm(u), mode: d = "minimal" }) {
   const u = d === "full", k = u ? "完整副本" : "新遊戲", A = u ? "/api/admin/copies" : "/api/games", P = (S) => u ? "/api/admin/copies/" + encodeURIComponent(S) : "/api/games/create/" + encodeURIComponent(S);
   let I = null, M = 0, g = null, w = null, C = [], $ = !1, h = !1, v = "", T = "", q = "";
-  const oe = () => I && I === t() && (u ? I.user.role === "admin" : ["admin", "author"].includes(I.user.role)) && !I.user.mustChangePassword, ie = () => (u ? "editor-fullcopy-operation:" : "editor-copy-operation:") + I.user.id, se = (S) => typeof S == "string" && /^[A-Za-z0-9_-]{16,128}$/.test(S), he = (S) => typeof S == "string" && /^[1-9][0-9]{0,63}$/.test(S), K = () => ({ actor: I, generation: M }), Z = (S) => oe() && S.actor === I && S.generation === M, xe = () => ["pending", "running"].includes(w?.state), Re = () => !!g && (!w || h || xe()), ce = () => !!g && !$ && (h || xe()), de = () => Number.isSafeInteger(w?.objects) && w.objects > 0 ? w.objects : 0, ve = () => "已寫入 " + de() + " 個檔案";
+  const oe = () => I && I === t() && (u ? I.user.role === "admin" : ["admin", "author"].includes(I.user.role)) && !I.user.mustChangePassword, ie = () => (u ? "editor-fullcopy-operation:" : "editor-copy-operation:") + I.user.id, se = (S) => typeof S == "string" && /^[A-Za-z0-9_-]{16,128}$/.test(S), he = (S) => typeof S == "string" && /^[1-9][0-9]{0,63}$/.test(S), K = () => ({ actor: I, generation: M }), Z = (S) => oe() && S.actor === I && S.generation === M, xe = () => ["pending", "running"].includes(w?.state), Le = () => !!g && (!w || h || xe()), ce = () => !!g && !$ && (h || xe()), de = () => Number.isSafeInteger(w?.objects) && w.objects > 0 ? w.objects : 0, ve = () => "已寫入 " + de() + " 個檔案";
   function we() {
     const S = oe(), B = !S || l();
     i({
@@ -20803,7 +20815,7 @@ function CC({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
     if (!(!Z(B) || g !== ee))
       return w = tt(fe), h = !1, await H(B);
   }
-  function R() {
+  function L() {
     try {
       r.removeItem(ie());
     } catch {
@@ -20820,7 +20832,7 @@ function CC({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
       w = tt(ee), h = !1;
     }
     if (w.draftRevision) {
-      q = k + "已建立。", R(), u || await ht(S), we();
+      q = k + "已建立。", L(), u || await ht(S), we();
       return;
     }
     if (w.state === "canceled") {
@@ -20828,7 +20840,7 @@ function CC({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
       return;
     }
     if (w.state === "failed") {
-      q = k + "失敗：" + Fe(w.failedCode) + "。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。", R(), we();
+      q = k + "失敗：" + Fe(w.failedCode) + "。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。", L(), we();
       return;
     }
     if (!xe()) {
@@ -20836,7 +20848,7 @@ function CC({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
       return;
     }
     if (h = !1, await J(S, B), !(!Z(S) || g !== B || !w?.draftRevision))
-      return R(), q = u ? "完整副本已建立；遊戲清單已自動更新，可在「遊戲管理」直接載入。" : "新遊戲已建立，可在下方「我的遊戲」中編輯。", u ? o() : await ht(S), u ? "複製完成。" : "新遊戲已建立。";
+      return L(), q = u ? "完整副本已建立；遊戲清單已自動更新，可在「遊戲管理」直接載入。" : "新遊戲已建立，可在下方「我的遊戲」中編輯。", u ? o() : await ht(S), u ? "複製完成。" : "新遊戲已建立。";
   }
   const Q = 2e3, G = 900 * 1e3, Y = 3;
   async function J(S, B) {
@@ -20858,7 +20870,7 @@ function CC({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
         return;
       }
       if (w?.state === "failed") {
-        q = k + "失敗：" + Fe(w.failedCode) + "。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。", R(), we();
+        q = k + "失敗：" + Fe(w.failedCode) + "。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。", L(), we();
         return;
       }
       if (Date.now() - te > G) {
@@ -20915,7 +20927,7 @@ function CC({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
     }
   });
   function W(S = !1) {
-    return !(v || T || Re()) || !S && c((u ? "複製遊戲" : "新建輸入") + "或原操作尚未完成。離開不會自動保存或取消服務操作；仍要離開？");
+    return !(v || T || Le()) || !S && c((u ? "複製遊戲" : "新建輸入") + "或原操作尚未完成。離開不會自動保存或取消服務操作；仍要離開？");
   }
   const p = Object.freeze({
     refresh: le(async () => {
@@ -20960,8 +20972,8 @@ function CC({ api: e, authority: t, work: n, isBusy: l, publish: i, gotoGame: s,
     }
   });
 }
-function xC({ root: e, views: t, navigate: n, logout: l, accounts: i, draft: s, stageAssets: o, stageJobs: r, library: c, stronghold: d, mapview: u, catalog: k, generals: A, copy: P, fullCopy: I, publication: M, management: g, review: w, deletion: C }) {
-  const $ = /* @__PURE__ */ Ye({ authenticated: !1, mustChange: !1, admin: !1, account: "", view: null, busy: !1, views: t }), h = /* @__PURE__ */ Ye({ rows: [], loaded: !1, stale: !1, message: "", generation: 0 }), v = /* @__PURE__ */ Ye({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: !0 }), T = /* @__PURE__ */ Ye({ loadDisabled: !0, clearDisabled: !0, context: "", message: "", summary: "", outputs: [], missing: [], unresolved: [] }), q = /* @__PURE__ */ Ye({ purpose: "data", locked: !0, artifacts: [] }), oe = /* @__PURE__ */ Ye({ assets: [], missing: [], loadDisabled: !0, filterDisabled: !0, downloadDisabled: !0, serial: 0 }), ie = /* @__PURE__ */ Ye({ games: [], chapters: [], cities: [], locked: !0, saveDisabled: !0 }), se = /* @__PURE__ */ Ye({ games: [], lines: [], locked: !0 }), he = /* @__PURE__ */ Ye({ categories: [], category: "portrait", filter: "", rows: [], total: 0, loaded: !1, message: "", loading: !1 }), K = /* @__PURE__ */ Ye({ games: [], chapters: [], generals: [], factions: [], library: [], locked: !0, saveDisabled: !0 }), Z = /* @__PURE__ */ Ye({ name: "", introduction: "", games: [], locked: !0, createDisabled: !0, tracking: !1, message: "" }), xe = /* @__PURE__ */ Ye({ visible: !1, name: "", introduction: "", message: "", locked: !0, createDisabled: !0, tracking: !1 }), Re = /* @__PURE__ */ Ye({ rows: [], locked: !0, refreshDisabled: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0, operation: "", result: "", message: "" }), ce = /* @__PURE__ */ Ye({ games: [], locked: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), de = /* @__PURE__ */ Ye({ rows: [], message: "", result: "", locked: !0, refreshDisabled: !0, history: { gameId: null, loading: !1, message: "", rows: [] } }), ve = /* @__PURE__ */ Ye({ games: [], admin: !1, locked: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), Be = Rf(kC, { state: $, accountsModel: h, accounts: i, draftModel: v, draft: s, stageAssetsModel: T, stageAssets: o, stageJobsModel: q, stageJobs: r, libraryModel: oe, library: c, strongholdModel: ie, stronghold: d, mapviewModel: se, mapview: u, catalogModel: he, catalog: k, generalsModel: K, generals: A, copyModel: Z, copy: P, fullCopyModel: xe, fullCopy: I, publicationModel: Re, publication: M, managementModel: ce, management: g, reviewModel: de, review: w, deletionModel: ve, deletion: C, navigate: n, logout: l }).mount(e);
+function IC({ root: e, views: t, navigate: n, logout: l, accounts: i, draft: s, stageAssets: o, stageJobs: r, library: c, stronghold: d, mapview: u, catalog: k, generals: A, copy: P, fullCopy: I, publication: M, management: g, review: w, deletion: C }) {
+  const $ = /* @__PURE__ */ Ye({ authenticated: !1, mustChange: !1, admin: !1, account: "", view: null, busy: !1, views: t }), h = /* @__PURE__ */ Ye({ rows: [], loaded: !1, stale: !1, message: "", generation: 0 }), v = /* @__PURE__ */ Ye({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: !0 }), T = /* @__PURE__ */ Ye({ loadDisabled: !0, clearDisabled: !0, context: "", message: "", summary: "", outputs: [], missing: [], unresolved: [] }), q = /* @__PURE__ */ Ye({ purpose: "data", locked: !0, artifacts: [] }), oe = /* @__PURE__ */ Ye({ assets: [], missing: [], loadDisabled: !0, filterDisabled: !0, downloadDisabled: !0, serial: 0 }), ie = /* @__PURE__ */ Ye({ games: [], chapters: [], cities: [], locked: !0, saveDisabled: !0 }), se = /* @__PURE__ */ Ye({ games: [], lines: [], locked: !0 }), he = /* @__PURE__ */ Ye({ categories: [], category: "portrait", filter: "", rows: [], total: 0, loaded: !1, message: "", loading: !1 }), K = /* @__PURE__ */ Ye({ games: [], chapters: [], generals: [], factions: [], library: [], locked: !0, saveDisabled: !0 }), Z = /* @__PURE__ */ Ye({ name: "", introduction: "", games: [], locked: !0, createDisabled: !0, tracking: !1, message: "" }), xe = /* @__PURE__ */ Ye({ visible: !1, name: "", introduction: "", message: "", locked: !0, createDisabled: !0, tracking: !1 }), Le = /* @__PURE__ */ Ye({ rows: [], locked: !0, refreshDisabled: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0, operation: "", result: "", message: "" }), ce = /* @__PURE__ */ Ye({ games: [], locked: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), de = /* @__PURE__ */ Ye({ rows: [], message: "", result: "", locked: !0, refreshDisabled: !0, history: { gameId: null, loading: !1, message: "", rows: [] } }), ve = /* @__PURE__ */ Ye({ games: [], admin: !1, locked: !0, queryDisabled: !0, retryDisabled: !0, forgetDisabled: !0 }), Be = Lf($C, { state: $, accountsModel: h, accounts: i, draftModel: v, draft: s, stageAssetsModel: T, stageAssets: o, stageJobsModel: q, stageJobs: r, libraryModel: oe, library: c, strongholdModel: ie, stronghold: d, mapviewModel: se, mapview: u, catalogModel: he, catalog: k, generalsModel: K, generals: A, copyModel: Z, copy: P, fullCopyModel: xe, fullCopy: I, publicationModel: Le, publication: M, managementModel: ce, management: g, reviewModel: de, review: w, deletionModel: ve, deletion: C, navigate: n, logout: l }).mount(e);
   return Object.freeze({
     accounts: (pe) => Object.assign(h, pe),
     draft: (pe) => Object.assign(v, pe),
@@ -20974,7 +20986,7 @@ function xC({ root: e, views: t, navigate: n, logout: l, accounts: i, draft: s, 
     generals: (pe) => Object.assign(K, pe),
     copy: (pe) => Object.assign(Z, pe),
     fullCopy: (pe) => Object.assign(xe, pe),
-    publication: (pe) => Object.assign(Re, pe),
+    publication: (pe) => Object.assign(Le, pe),
     management: (pe) => Object.assign(ce, pe),
     review: (pe) => Object.assign(de, pe),
     deletion: (pe) => Object.assign(ve, pe),
@@ -20993,7 +21005,7 @@ function xC({ root: e, views: t, navigate: n, logout: l, accounts: i, draft: s, 
   });
 }
 export {
-  $C as createAccountController,
-  CC as createCopyController,
-  xC as mountWorkbench
+  CC as createAccountController,
+  xC as createCopyController,
+  IC as mountWorkbench
 };

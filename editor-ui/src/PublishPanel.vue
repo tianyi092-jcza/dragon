@@ -40,6 +40,7 @@ async function check(row) {
       <ElButton id="publish-refresh" :disabled="busy || model.refreshDisabled" @click="actions.refresh()">刷新</ElButton>
     </div>
     <p id="publish-message" role="status">{{ model.message }}</p>
+    <p v-if="model.blockedReason" id="publish-blocked" role="status" class="module-notice">{{ model.blockedReason }}</p>
     <p id="publish-references" role="status">{{ model.referencesText }}</p>
     <ul v-if="model.references?.length" id="publish-reference-list" class="empty-state">
       <li v-for="chapter in model.references" :key="chapter.chapterId" :data-chapter-id="chapter.chapterId">
@@ -59,7 +60,7 @@ async function check(row) {
             <td data-field="state-time">{{ time(row.stateTime) }}</td>
             <td class="account-row-actions">
               <ElButton data-action="check" :disabled="busy || model.checkDisabled" @click="check(row)">校驗</ElButton>
-              <ElButton data-action="publish" :title="row.publishTitle" :disabled="busy || row.publishDisabled" @click="publish(row)">上架</ElButton>
+              <ElButton data-action="publish" :title="row.publishHint" :disabled="busy || row.publishDisabled" @click="publish(row)">上架</ElButton>
             </td>
           </tr>
         </tbody>

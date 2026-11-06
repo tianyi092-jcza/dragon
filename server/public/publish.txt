@@ -113,6 +113,13 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   if (!references.chapters.length) return head + '全部章節引用完整。';
   return head + '有 ' + references.chapters.length + ' 章引用不到基礎資料：' + references.chapters.map(chapter => (chapter.chapterName ?? chapter.chapterId) + '（' + chapter.problems.map(problem => problem.detail).join('；') + '）').join('／');
  }
+ // 上架/刪除被暫停時要能直接說出原因（用戶 m1389：按鈕灰掉卻不知道為什麼）。
+ function blockedText() {
+  if (badJournal) return '上架暫停：本機記下的原操作已損壞，無法核對。請按「只停止本機追蹤」清掉記錄後再上架（不會影響服務端已成立的事實）。';
+  if (!pending) return '';
+  const what = pending.kind === 'publish' ? '上架「' + pending.name + '」' : '刪除「' + pending.confirmationName + '」';
+  return '上架暫停：上一次' + what + '還沒拿到確定結果（連線可能中斷了）。先按「查詢原操作」核對，再用「只停止本機追蹤」結束這次追蹤，上架按鈕才會恢復。';
+ }
  function render() {
   const visible = current({ id: identity?.user.id, version: identity?.user.version, generation }), disabled = !visible || isBusy() || sending;
   const blocked = Boolean(pending) || badJournal;
@@ -120,6 +127,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
    gameId: row.gameId, name: row.name, introduction: row.introduction || '（無說明）', version: row.version ?? '—', nextVersion: nextVersion(row.version),
    state: stateLabels[row.state] + (row.restricted ? '／管理限制' : ''), stateKey: row.state, rejected: row.rejected, createdAt: row.createdAt, stateTime: row.stateTime ?? '—', rowRevision: row.rowRevision,
    publishDisabled: disabled || blocked, deleteDisabled: disabled || blocked,
+   publishHint: blockedText() || (row.state === 'draft' ? '校驗整個遊戲；通過後版本號自動為 1.0 並提交審核' : '校驗整個遊戲；通過後版本號自動 +1 並提交審核'),
    deleteHint: '刪除整個遊戲（含所有章節與已上架版本，含資料庫列），不是刪除單個版本，徹底清除且不可恢復',
    publishTitle: row.state === 'draft' ? '校驗整個遊戲；通過後版本號自動為 1.0 並提交審核' : '校驗整個遊戲；通過後版本號自動 +1 並提交審核',
   })) : [];
@@ -140,7 +148,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
    text += distribution?.state === 'confirmed' ? ' 此次分發曾於 ' + distribution.visibleAt + ' 確認；上架與否仍以管理員同意為準。' : ' 分發待確認；尚未經管理員同意。';
    if (distribution?.recoveryRequired) text += ' 分發處於恢復鎖，須由管理者核對；本頁不解除。';
   } else if (result?.kind === 'delete') text = result.purge ? '已徹底刪除（不可恢復）：資料庫已移除 ' + result.purge.tables + ' 張表內該遊戲的所有列，玩家端目錄不再列出它；分發帳本與 R2 位元組由既有退役清理回收，不刪玩家本地存檔。' + reclaimText(result.purge.reclamation) : '本地已建立不可逆刪除柵欄（' + result.receipt.createdAt + '）；物理刪除尚未完成' + (result.purgeError ? '：' + String(result.purgeError).replace(/。+$/, '') : '（原因未回報）') + '。不刪玩家本地存檔。';
-  emit({ rows: list, operation: visible ? tracking : '', result: visible ? text : '', message: visible ? messageText : '', references: visible ? referenceRows() : [], referencesText: visible ? referenceText() : '', locked: disabled,
+  emit({ rows: list, blockedReason: visible ? blockedText() : '', operation: visible ? tracking : '', result: visible ? text : '', message: visible ? messageText : '', references: visible ? referenceRows() : [], referencesText: visible ? referenceText() : '', locked: disabled,
    refreshDisabled: !visible || isBusy(), checkDisabled: !visible || isBusy() || sending,
    queryDisabled: disabled || !pending || badJournal,
    phase: visible ? phase : '',
@@ -161,7 +169,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   if (!current(ctx)) return;
   if (value?.gameId !== gameId) throw new Error('全章校驗回應的遊戲不符。');
   references = referenceReceipt(value);
-  message(references.chapters.length ? '校驗失敗！' : '校驗成功！全部 ' + references.chapterCount + ' 章引用完整，可以上架（仍須管理員同意）。');
+  message(references.chapters.length ? '校驗失敗！' : '校驗成功！全部 ' + references.chapterCount + ' 章引用完整' + (blockedText() ? '；但上架按鈕目前暫停，原因見下方說明。' : '，可以上架（仍須管理員同意）。'));
   render();
   // 頁面上方的提示要說清楚是什麼完成了。
   return references.chapters.length ? '檢驗未通過，請看下方清單。' : '檢驗完成。';
