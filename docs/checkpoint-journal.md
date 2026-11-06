@@ -127,6 +127,12 @@ GET  /api/games/<id>/draft/chapter-references  ms=37169 / 38466 / 42652
 - 未做：生产端点的 37–42 s 主体是单线程 event loop 被上架／编译占住（并发 190 s 请求排队），不是算法本身；真要再降得把编译移出主线程，需单独设计批准。
 
 
+**锁步部署已备好的那几步（下次批准后照做）**：
+
+- HEAD（`5799ebc`）在 Linux 侧 LF 检出上跑 `node tools/build_trial_web_bundle.mjs` 得 `unchanged:true`、`sha256=09965b65…`（与本机重建一致：`web/src/**/*.js`、`trialweb.txt` 都是 `eol=lf`，两个 CRLF 固定文件按 `.gitattributes` 一致）——即提交里的束与源码自洽。
+- 用 `buildStaticRelease` 对 `web/src/**/*.js` 逐字节算：新树 `sourceTreeDigest=93faf8d99b2f51166fcf4ab30e491d8fa37bc20f26bde69ea78264d036549873`；对当前**已部署**树同法算得正是现用的 `2ecb54f6…`，说明这个方法与生产 pin 对得上。
+- 因此部署时要改两处：`STATIC_SOURCE_SHA256=93faf8d9…`（`verifyInstalledProgram` 的输入），以及 `STATIC_RELEASE_SHA256`＋`STATIC_PATH_PREFIX`（玩家端清单与 R2 `deployment-assets/static-v1/<新 sha>/` 上传）——后者必须走既有部署流水线重建整份清单，不能用只含 `src/` 的临时计算冒充。
+
 **为什么未部署**：`web/src/**` 属于静态发布树，改它必须同时重建 `server/public/trialweb.txt` 并更新服务器 `STATIC_SOURCE_SHA256`／`STATIC_RELEASE_SHA256`，也就是**编辑器与玩家端锁步发布**（ui10 那一次的做法）。本批只把镜像限制在服务端文件，以免在未获准的情况下重发玩家包。工作区已一并提交重建后的 `trialweb.txt`（保持 HEAD 自洽），待批准后按锁步流程部署。
 
 ## 7. 失败尝试与坑（不要重做）
