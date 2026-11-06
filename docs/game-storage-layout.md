@@ -587,3 +587,46 @@ docker compose up -d --force-recreate
 
 **仍未验证**：生产上没有真实上架过一次 → 「真 R2／代理链下 20 章上架端到端耗时」与「上架后立刻对玩家可见」仍只有本地证据（§11.5 前置①），
 发布历史面板也还没见过真实行。
+
+### 15.6 手动静态发布（用户决定：关闭 CF push 自动构建，2026-11-06）
+
+**为什么关**：`dragon.720108.xyz` 是 Worker `dragon` + Static Assets，由 Cloudflare **Workers Builds 的 Git 集成**在 push 后自动构建部署。
+仓库里没有 `.github/workflows`，所以自动构建不是 GitHub Actions，改仓库文件关不掉。风险已在 2026-11-06 实测暴露：
+自动构建会把新 `web/` 立刻推上玩家端，而 VPS 的 `publication.env` 三处 pin 不跟随 →
+下一次容器重启就 `startup-failed`（本次因此不可用约 28 分钟）。改成手动后，两侧由同一份产物一起推进，pin drift 从根上消失。
+
+**关闭位置（只能在 Cloudflare 侧操作）**：Dashboard → Workers & Pages → `dragon` → Settings → Build → 断开 Git 集成／关闭自动部署。
+本机 wrangler 是 OAuth 登录，`GET /accounts/<acct>/builds/workers` 实测返回 `code 10000 Authentication error`，
+CLI 也没有 `builds` 子命令 → 命令行关不掉；要么面板点，要么提供带 Workers Builds 权限的 API Token。
+
+**构建（本机即可，必须在 LF 下）**：
+
+```bash
+vps/manual-static-build.sh /path/to/out
+# 输出：out/dist/（1442 文件）、out/dist/static-release.json、out/wrangler.deploy.jsonc
+# 末行打印的 static-release.json sha256 就是 STATIC_RELEASE_SHA256
+```
+
+**`core.autocrlf` 是本步唯一的坑（2026-11-06 实锤）**：`git archive` 在 `autocrlf=true` 时会给**未声明 `eol`** 的文本文件补 CRLF
+（本次 45 个文件、+0.43 MiB，`content/builtin/chapters/*.json` 各 +行数字节，例如 `later-1.json` 7693 行 = +7693 字节），
+`sourceTreeDigest` **却不变**（它只覆盖 `.gitattributes` 里显式 `eol=lf` 的 `web/src/**.js` 与 `web/intro/styles.css`）——
+于是「digest 对上了」但 inventory sha 对不上，改 pin 必炸。脚本里固定用 `git -c core.autocrlf=false archive`；
+判据是 `out/dist/static-release.json` 的 sha256 必须与线上 `https://dragon.720108.xyz/static-release.json` 的 sha256 相同（同 digest 时）。
+
+**部署（两侧同一份产物，顺序不要颠倒）**：
+
+```bash
+cd /path/to/out
+env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u all_proxy \
+  npx wrangler deploy -c wrangler.deploy.jsonc     # 只上传 Worker + assets，不再跑 build.command
+```
+
+1. 先 deploy 到 Cloudflare，核对 `static-release.json` 的 sha256／`sourceTreeDigest` 与构建输出一致。
+2. 把 `out/dist/` 放到 VPS `/home/web/html/dragon-editor-bootstrap/<inventory-sha>/`，按 §15.4 的「花括号深度」补 nginx location 并 reload。
+3. **最后**才改 `publication.env` 三处 pin 并换镜像（`app`→`app-prev…`、新目录→`app`、`.env` 换 tag），然后 `docker compose up -d --force-recreate`。
+   ⚠️ 不要先改 pin 再换镜像：`backup-publication.sh` 结尾自己会 `docker compose up -d`，那一步会用旧镜像配新 pin → `startup-failed` 重启循环。
+4. 首启：R2 无该 digest 时约 23 分钟（先下载 1441 文件核 sha 再上传），已有同 digest 时约 7 分钟。等 healthy 再验收。
+5. 验收按 §15.4 六条执行；额外核 `docker logs` 里 error 计数 0。
+
+**仓库里的 `wrangler.jsonc` 不动**：它保留 `build.command` 给「手工 deploy 仓库根」这种场景，
+手动发布一律用脚本生成的、去掉 `build` 段的临时配置，避免 wrangler 在我们控制之外的目录重建 dist。

@@ -154,6 +154,24 @@ GET  /api/games/<id>/draft/chapter-references  ms=37169 / 38466 / 42652
 2. **新静态发布首次启动要 ~23 分钟**（`archiveStaticProgram` 先把 1441 个文件从 `STATIC_ORIGIN` 下载并核 sha，再上传 R2：实测 RX 536 MB／TX 184 MB）。ui12／ui13 只要 7 分钟，是因为 R2 已有同一 digest 的对象。做 web/ 变更时要预留这个窗口；期间服务不可用。
 3. **玩家端会自己追平**：`dragon.720108.xyz/static-release.json` 在本轮部署**之前**就已经是 `72ec1c31…`／`sourceTreeDigest 93faf8d9…`，其 `sourcejson.js` sha 等于我在服务器上用 `prepare_deploy.mjs` 对同一 commit 的产物——推断 CF 侧对 GitHub `main` 有自动构建部署（响应头无 Pages 标识，未见面板证据）。**含义**：push 任何 `web/` 改动会立刻改玩家端 assets，而 VPS pin 不跟随 → VPS 一重启就 `startup-failed`（本次即如此）。要么保持"push 后立刻完成 VPS 侧追平"，要么关掉那个自动构建。
 
+### 6.5 玩家端改手动构建（用户决定，2026-11-06）
+
+用户要求：玩家端（前端）与编辑工作台（后端）同仓，但玩家端由 push 触发的 Cloudflare 自动构建上线；**关掉自动构建，改手动**。
+
+- 仓库侧确认：无 `.github/workflows`；`dragon.720108.xyz` = Worker `dragon` + Static Assets + **Workers Builds Git 集成**。本机 wrangler 是 OAuth 登录，`GET /accounts/<acct>/builds/workers` 返回 `code 10000`，CLI 无 `builds` 子命令 → **命令行关不掉，需面板断开 Git 集成**（或提供带 Workers Builds 权限的 API Token）。
+- 新增 `vps/manual-static-build.sh`：`git -c core.autocrlf=false archive HEAD` → 临时目录跑 `tools/prepare_deploy.mjs` → 打印 `static-release.json` 的 sha256 → 生成去掉 `build.command`、路径为绝对值的 `wrangler.deploy.jsonc`。实测 **11 秒**产出 `72ec1c31…`／1442 文件／167.39 MiB，与线上分发逐位相同；`wrangler deploy --dry-run -c` 通过（Read 1488 files，worker 53.63 KiB）。
+- **关键坑（新，已写入 `docs/game-storage-layout.md` §15.6）**：`core.autocrlf=true` 时 `git archive` 会给未声明 `eol` 的文本文件补 CRLF —— 本次 **45 个文件、+0.43 MiB**（`content/builtin/chapters/*.json` 每行 +1 字节，`later-1.json` 7693 行 = +7693 字节），而 `sourceTreeDigest` **不变**（只覆盖 `.gitattributes` 里显式 `eol=lf` 的 `web/src/**.js` 与 `web/intro/styles.css`）→ 表现为「digest 对上了、inventory sha 对不上（`f1582a85…` vs `72ec1c31…`）」。判据：`dist/static-release.json` 的 sha256 必须等于线上同名文件的 sha256。
+- 顺序（不可颠倒）：本地构建 → `wrangler deploy -c wrangler.deploy.jsonc` → 放 VPS 静态目录 + nginx location → **切镜像** → 最后改 `publication.env` 三处 pin → recreate（§6.4 坑①）。
+
+**用户已于本轮面板断开 Git 集成；手动 deploy 已实测**：`wrangler deploy -c .tmp-build/wrangler.deploy.jsonc` 全程 **14 秒**（内容相同 → `No updated asset files to upload`，只上传 worker 53.63 KiB / gzip 12.49 KiB），新 Version `ba4d2794-d347-4abf-9294-d62754024e9e`。deploy 前后线上逐项相同：`static-release.json` 223595 B／`72ec1c31…`／`etag "433c5d01…"`、`/` 200／33114 B、`registry generation 10`／digest `9071fd5b…` → **重复手动发布是幂等的，不会扰动玩家端**。
+
+**验证自动构建是否真关掉的探针（`gh` CLI 已登录 `tianyi092-jcza`）**：Workers Builds 会给每个被构建的 commit 写一条 check-run `Workers Builds: dragon`（历史 commit `9e09c0b` 有，completed/success，2026-11-06T12:11:30Z）。断开后新 push 的 commit **不应**再出现该 check-run：
+
+```bash
+gh api repos/tianyi092-jcza/dragon/commits/<sha>/check-runs --jq '.check_runs[] | [.name,.status,(.conclusion//"")] | @tsv'
+```
+
+
 ## 7. 失败尝试与坑（不要重做）
 
 - **本机→VPS 上行废了**：5 MB 探针 316 s（≈16 KB/s），168 MB tgz 3 分钟只走 540 KB 后断连。改服务器侧 `git fetch --depth 1`。
