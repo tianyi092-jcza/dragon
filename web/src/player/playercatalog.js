@@ -16,7 +16,8 @@ export function mountPlayerCatalog({ root, reader, selectionVisible = true, read
   select.hidden = !selectionVisible;
   Object.assign(host.style, { display: 'grid', gap: '12px', maxWidth: '100%' });
   Object.assign(notice.style, { height: '28px', padding: '0', border: '0', background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
-  Object.assign(select.style, { width: '70%', height: '28px', justifySelf: 'center', boxSizing: 'border-box' });
+  // 使用者 m1087：上方「發布資訊」保持 14px，這個選擇框自成 16px。
+  Object.assign(select.style, { width: '70%', height: '28px', justifySelf: 'center', boxSizing: 'border-box', fontSize: '16px' });
   // 使用者 m/#722：入口改成右上角三顆圖示鈕底下的圓形「!」圖示，懸停才顯示文字。
   const manage = make('button', '!'), manageHint = make('span', '不可用存檔');
   manage.type = 'button'; manage.className = 'player-catalog-local';
