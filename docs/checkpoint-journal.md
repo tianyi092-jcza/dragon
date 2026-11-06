@@ -101,6 +101,7 @@ GET  /api/games/<id>/draft/chapter-references  ms=37169 / 38466 / 42652
 - 上限 `PUBLISH_POLL_BUDGET_MS = 10 分钟`；超时只回报「结果未知，稍后按查询原操作核对，不要重送」，**不把未知写成失败**，也不清跟踪键。
 - 轮询得回执时 `distribution` 直接取回执里的分发描述子；此时不再多发一次 `query()`（避免重复 GET，也让 `A 路线` 测试的「待确认仍补查一次」仍只算 1 次）。
 - 验证（纯内存 probe，已删）：POST 永掛＋轮询第 2 次命中 → 10.0 s 完成、`/api/publish` 只 1 次、journal 清空；POST 连线层失败＋轮询命中 → 完成；POST 422 → 不轮询、立即拒、清键；轮询 403 → 5 s 内拒绝，不等满 10 分钟。`verify_publish_ui_model` 仍 9 pass／7 fail（与改前逐一同名）。
+- 部署（2026-11-06 08:03Z–08:36Z，镜像 `20261106-bc1-ui12`，ID `55a75da2…`）：服务器侧浅取 `f8f9b1f` → `prepare` 清单核对 `server/public/publish.txt` 字节 `01fa45e2…`（36834 B）→ 新镜像内 `verifyInstalledProgram` 对 `STATIC_SOURCE_SHA256=2ecb54f6…` 得 `VERIFY_OK` → `backup-publication.sh`（隔离库 integrity OK，备份 `publication-20261106T080248Z`）→ `app`→`app-prev21-20261106T080318Z` → `compose up -d --force-recreate` → 约 7 分钟 healthy，日志只有 `started`＋`distribution-idle`。验收：`/api/health` `initialized:true`；`/publish.js` 直连 origin 与经 Cloudflare 都是 36834 B／`01fa45e2…`；玩家 `static-release.json` 仍 `2ecb54f6…`（`web/` 未变 → 无新 pin、无玩家端部署、无 pin drift 风险）。
 - 已知残留：`chapter-references`（校驗）単次也要 37–42 s，与上架同源的 `captureForCompile` 是慢点；本批不碰，但它是下一个值得拆的性能口。
 
 ## 7. 失败尝试与坑（不要重做）
