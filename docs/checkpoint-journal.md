@@ -111,6 +111,24 @@ GET  /api/games/<id>/draft/chapter-references  ms=37169 / 38466 / 42652
 - 验证：新增 `tools/verify_publish_identical_replay.mjs` 6 组；`verify_publish_sync`（同游戏双键＋注入 drain）起初因「复用旧回执却不给新键留记录」而 404 失败，**已改为把回执绑定到新键**后全绿；`verify_publish_operations`／`matrix`／`atomicity`／`operations_root`／`to_r2`／`release_candidates`／`atomic_builtin_release`／`copy_publish_parity`／`frozen_publication_root`／`distribution_publisher*` 均 PASS。
 - 未做：不改前端 10 min 超时文案；不在复用路径重跑全章校驗／结构门（已在 §2.74 记录取舍）；本地未跑真实编译耗时对比。
 
+### 6.3b 部署（镜像 `20261106-bc1-ui13`，ID `d699f9e9…`，2026-11-06 11:21Z）
+
+服务器侧浅取 `b5072af` → `server/publishoperations.js` 字节 `d83ca498…`、`releases.js` `ceeceeb9…`、`editorapp.js` `85a45554…` 逐项核对 → 新镜像内 `verifyInstalledProgram` 对 `STATIC_SOURCE_SHA256=2ecb54f6…` 得 `VERIFY_OK` → `backup-publication.sh`（备份 `publication-20261106T112112Z`）→ `app`→`app-prev22-20261106T112142Z` → recreate → 约 7 分钟 healthy，`{"event":"started"}`／`{"event":"distribution-idle"}`，`docker logs` 无 error／fail。
+
+验收：`/api/health` `initialized:true`；`/publish.js` 仍 36834 B／`01fa45e2…`（本批不碰前端）；玩家 `static-release.json` 仍 `2ecb54f6…`（`web/` 未变 → 无新 pin、无玩家端部署）。回滚：`.env` 改回 `20261106-bc1-ui12` + recreate，或换回 `app-prev22-…`。
+
+### 6.4 校驗／上架共用的源码解析 2.2×（只碰 parser，未部署）
+
+`web/src/content/authoring/sourcejson.js` 的 `CanonicalSourceParser` 改为跳段扫描：字符串内用一次 `stringBreak` 正则定位下一个 `"`／`\\` 并整段 `slice`，scalar 用 sticky `scalarRun` 整段取，结构字符按 charCode 比较；无反斜线的 token 直接 `slice` 去引号，只有整数／`true/false/null` 才直接得值，其余仍走 `JSON.parse` 并校验 `scalar(value)===token`（错误码与顺序不变）。`#value` 用 `frame.value[key]=value` 取代 `Object.defineProperty`（`forbidden()` 已挡原型键）。
+
+- 实测（容器内、真实 45 MB／44 chunk 生产源）：parse **6.46→2.71–3.26 s**；`verifyStored` 预算 8.27→**4.27 s**（parse 3.26＋validate 1.02）。IO 只有 168 ms，不是瓶颈。参照：`JSON.parse` 整份只需 0.6–0.7 s，所以理论下限确实存在，但再去就是 worker 线程级改动，不在本批。
+- 差分验证：新增 `tools/verify_source_parser_equivalence.mjs`（5 tests，均过）内嵌**旧 parser 原文**逐位对比：多 chunk 切分 × canonical 值、40+ 条非规范／恶意文本、预算触发点、400 轮随机＋变异 fuzz、`decodeSourceChunks` 字节路径；断言接受性、错误名＋消息、值、再序列化 token 全等。
+- 回归面：41 个引用 sourcejson 的 `verify_*` 改前／改后 pass／fail 集合完全一致（两个约 2 min 的大类单跑均 PASS，并行扫时只是撞超时）。
+- 未做：生产端点的 37–42 s 主体是单线程 event loop 被上架／编译占住（并发 190 s 请求排队），不是算法本身；真要再降得把编译移出主线程，需单独设计批准。
+
+
+**为什么未部署**：`web/src/**` 属于静态发布树，改它必须同时重建 `server/public/trialweb.txt` 并更新服务器 `STATIC_SOURCE_SHA256`／`STATIC_RELEASE_SHA256`，也就是**编辑器与玩家端锁步发布**（ui10 那一次的做法）。本批只把镜像限制在服务端文件，以免在未获准的情况下重发玩家包。工作区已一并提交重建后的 `trialweb.txt`（保持 HEAD 自洽），待批准后按锁步流程部署。
+
 ## 7. 失败尝试与坑（不要重做）
 
 - **本机→VPS 上行废了**：5 MB 探针 316 s（≈16 KB/s），168 MB tgz 3 分钟只走 540 KB 后断连。改服务器侧 `git fetch --depth 1`。
