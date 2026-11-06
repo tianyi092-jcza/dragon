@@ -32,6 +32,7 @@ export class ReleaseLedger {
     });
   }
   #one(query, ...values) { return this.#sql.exec(query, ...values).toArray()[0]; }
+  #table(name) { return Boolean(this.#one("SELECT name FROM sqlite_master WHERE type='table' AND name=?", name)); }
   #owned(tokenHash, gameId) {
     const actor = this.#principal(tokenHash);
     if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED');
@@ -107,6 +108,22 @@ export class ReleaseLedger {
     this.#sql.exec('INSERT INTO content_releases VALUES(?,?,?,?,?,?)', gameId, releaseId, ordinal, draftRevision, sourceDigest, time);
     void actor;
     return Object.freeze({ gameId, releaseId, ordinal, draftRevision, sourceDigest, createdAt: time });
+  }
+  // 「同一份內容、還在等管理員決定」的既有版本：回執遺失後重送不該再佔一個序號。
+  // 只回答身分與審核狀態，不證明內容可編譯；呼叫端仍要自帶驗證或沿用原回執。
+  // 曾公告過（上架又下架）或已被審核駁回的版本都不是「等待中的同一份」。
+  pendingIdentical(tokenHash, gameId, draftRevision, sourceDigest) {
+    if (!isRevision(draftRevision)) fail(422, 'RELEASE_REVISION');
+    if (!digest(sourceDigest)) fail(422, 'RELEASE_DIGEST');
+    const { entry } = this.#owned(tokenHash, gameId);
+    if (!entry.currentReleaseId || entry.listed) return null;
+    const row = this.#one('SELECT release_id, ordinal, draft_revision, source_digest, created_at FROM content_releases WHERE game_id=? AND release_id=?', gameId, entry.currentReleaseId);
+    if (!row) fail(503, 'RELEASE_POINTER_CORRUPT');
+    if (row.draft_revision !== draftRevision || row.source_digest !== sourceDigest) return null;
+    // 未建表＝這個庫從未上架過任何版本，所以不可能已公告或已駁回。
+    if (this.#table('content_announcements') && this.#one('SELECT release_id FROM content_announcements WHERE game_id=? AND release_id=?', gameId, row.release_id)) return null;
+    if (this.#table('content_audits') && this.#one("SELECT event_id FROM content_audits WHERE game_id=? AND action='admin-reject' AND before_revision=?", gameId, row.ordinal)) return null;
+    return Object.freeze({ gameId, releaseId: row.release_id, ordinal: row.ordinal, draftRevision: row.draft_revision, sourceDigest: row.source_digest, createdAt: row.created_at });
   }
   history(tokenHash, gameId) {
     this.#owned(tokenHash, gameId);

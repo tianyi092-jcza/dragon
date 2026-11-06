@@ -985,6 +985,19 @@ r1前四入口通过后，六项打包回归因临时目录漏复制新依赖而
 - **证据**：`verify_player_deleted_saves.mjs`10组（含目录缺失／未上架／其它410／503都不构成删除事实，失效行全保留）；`verify_player_restore_browser.mjs`37组（原29组保留，新增提示先于正文读取、保留不改目录、确认只清可验证槽、正文缺失槽报「另有1个无法核对」）；`--alternate-faction --large-ordinal`38组；`verify_player_deleted_entry_browser.mjs`6组走真实`index.html?formalGame=..&mode=load`入口、真实Chromium原生IndexedDB与route履行的同源HTTPS reader（不监听端口），核保留／确认／右键三条结局及返回初始页。reader响应与初始页为受控夹具，种子行只有合成snapshot（只证明提示与清除路径），不代替生产reader、真实用户档或云。
 - **未做**：首页「不可用存檔管理」仍只读，未为已删除游戏的本地目录提供删除入口；未上架仍走通用失败页；进行中会话被删仍由`playersessionhost`的「本机存档保留」对话处理（不删档）；真实VPS／Cloudflare reader下的载入入口未跑（本地无`/play-api`）。
 
+### 2.74 回执遗失后重送不再多占一个版本（IDENTICAL-PENDING-1）
+
+生产诊断为「编辑器的上架结果回执没回到浏览器 → 用户停追踪再上架 → 同一个版本号被吃掉两次」。本批只把「同一份内容、仍在等管理员决定」判定为可复用，不改版本号规则、不自动上架、不改公告。
+
+- **账号身份判定**：[
+`ReleaseLedger.pendingIdentical`](../server/releases.js)要求：存在`current_release_id`、`listed=0`、该release的`draft_revision`与`source_digest`与当前完全一致；且`content_announcements` 无此release（从未公告过，下架不删行所以也挡住「上过又下」）、`content_audits` 无`action='admin-reject'` 且 `before_revision=该ordinal`（没被驳回过）。两张表尚未建时按「从未上架过任何版本」处理，不用别处的表冒充。
+- **回执绑定**：[
+`PublishOperations.bindIdentical`](../server/publishoperations.js)在同一事务里先用现有`#replay`把原回执还原成当初写入的**同一字节**，再把它插到新键的`content_reservations`／`content_operations`下（不新增release、不新增序號、不重写`published_games`）。因此`GET /api/games/:id/publish-operations/<新键>`与一般重放拿到的是同一个答案；回执字节不变，所以原有的`#replay`字节校验与`commit`的行完整性校验仍全部适用。找不到原回执、旧回执的`auth_epoch`已过期、或只改了名字（名称决定pin与公告）时一律返回null，调用方照旧走完整流程配新序号；版本号不是当前release时报`PUBLISH_STALE`，不在别的游戏间借用。
+- **接线与取舍**：[
+`#publishPin`](../server/editorapp.js)在`snapshotReference`之后先试此复用，命中即跳过约30秒的验证与约190秒的编译。**取舍**：该路径**不**重跑`chapterReferenceReport`／`validateGameSource`——内容身份由修订号＋源摘要唯一确定，而「同意」仍是管理员的人的门；若后续需要在上架前再拒一次内容，应另建独立门，不要给复出路偷偷加回编译。
+- **证据**：新增`node tools/verify_publish_identical_replay.mjs`六组（真实SQLite＋真实release／pin／operation store）：同内容换键回执字节相等且不增序號、新键可按既有查询取回、修订／摘要／游戏任一不同都不复用、已在架或已公告（下架不删行）或已驳回（含只驳回1.1不影响1.0）都不复用、改名不復用、旧回执epoch过期或已被清除时不冒充、权属与非删除栅栏。`verify_publish_sync`（双键、注入drain、回放不推进）、`verify_publish_operations`、`verify_publish_matrix`、`verify_publish_atomicity`、`verify_publish_operations_root`、`verify_publish_to_r2`、`verify_release_candidates`、`verify_atomic_builtin_release`、`verify_copy_publish_parity`、`verify_frozen_publication_root`、`verify_distribution_publisher*`均通过。
+- **未做**：本地只证SQL层面的复用与回执可复现，不是生产链路、浏览器或编译耗时实测；原回执被物理清掉（目前只在游戏彻底删除时）仍会配新序号；前端10分钟超时后仍提示「不要重送」。
+
 ## 3. 本地验证（不是端到端上线证明）
 
 下列为 RUNTIME-CANONICAL-1 历史验证；后继章节运输见§2.12，候选批重跑见§2.13，后继独立预上传验证见§2.14，共同入口可配置接线见§2.15，后继冻结根读取与新publisher联调见§2.16，共同50表与回归见§2.17，后继公告读取隔离见§2.18，服务时间引用见§2.19，公告历史更正见§2.20，上架正式身份门见§2.21，上架永久幂等见§2.22，可选共同冻结生产者见§2.23，作者发布状态查询见§2.24，作者追踪UI见§2.25，实际本地浏览器发布串接见§2.26，管理员上下架／限制的分发关联见§2.27，管理追踪界面及实际管理员浏览器接线见§2.28，删除栅栏请求的分发关联见§2.29，自己的游戏删除追踪见§2.30，管理员跨作者确认见§2.31，尚未挂载的玩家取数客户端见§2.32，浏览器真实编译资源取数见§2.33，固定运行包与资源URL见§2.34，正式环境与发布引用见§2.35，玩家目录／公告客户端见§2.36，正式身份的本地存档适配见§2.37，共享App保存归属修复见§2.38，正式存档App仓储适配见§2.39，共享App显式正式入口见§2.40，玩家统一静态路径见§2.41，实际发布准入到共享App的联合验证见§2.42，尚未挂标题的目录／公告视图见§2.43，对局版本提示／确认退出宿主见§2.44，正式App保存时状态复查见§2.45，同源玩家站点路由见§2.46，浏览器静态图取数见§2.47，正式启动失败清理见§2.48，当前版章节预览与选择后准入见§2.49，正式新局选择视图见§2.50，正式读档捕获见§2.51，正式存档选择视图见§2.52，公开启动／标题与实际导航见§2.53，已公开正式版本元数据证明见§2.54，客户端识别见§2.55，正式存档大序号见§2.56，受信静态包归档见§2.57，固定归档冷读见§2.58，VPS安装源码检查及素材库失败见§2.59，后继固定库新身份／Trial选边修复见§2.60，单次分发批量静态预检见§2.61，显式启动链程序归档见§2.62，程序不可变登记见§2.63，已登记程序资源HTTP见§2.64，尚未挂载的当前程序入口处理器见§2.65，战术图固定查询别名见§2.66，季节图程序基址及实际浏览器接线见§2.67，正式路由挂载及旧页面迟到资源见§2.68。该批为显式六入口、OS 必需环境白名单、每入口180秒、源码和日志 SHA 前后核对。前五入口无网络预加载守卫；reader 使用新建自有 temp 目录的 Miniflare／workerd／R2、仅 loopback、Worker outboundService 拒绝外网，结束释放实例和本测试目录。无真实桶／凭据／DOS SAVE／用户 profile 或存档。

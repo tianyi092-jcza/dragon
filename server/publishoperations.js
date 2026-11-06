@@ -18,15 +18,23 @@ export class PublishOperations {
     this.#storage = storage; this.#sql = storage.sql; this.#principal = principal; this.#games = games; this.#guard = operationGuard;
   }
   #one(query, ...values) { return this.#sql.exec(query, ...values).toArray()[0]; }
-  #authority(tokenHash, operation) {
+  // 会话与「这個 game 是不是你的」拆开，讓不需要 op_key 的只讀查詢也能復用同一套栅欄。
+  #session(tokenHash) {
     const actor = this.#principal(tokenHash);
     if (actor.must_change) { fail(403, 'PASSWORD_CHANGE_REQUIRED'); }
+    return actor;
+  }
+  #ownership(actor, gameId) {
+    const row = this.#one('SELECT * FROM content_games WHERE game_id=?', gameId);
+    if (!row || row.owner_id !== actor.id) { fail(404, 'GAME_NOT_FOUND'); }
+    this.#games.assertNotDeleting(gameId);
+    return row;
+  }
+  #authority(tokenHash, operation) {
+    const actor = this.#session(tokenHash);
     if (operation.actor !== undefined && (operation.actor !== actor.id || operation.epoch !== actor.epoch)) { fail(401, 'SESSION_INVALID'); }
     this.#guard(actor.id, operation.key);
-    const row = this.#one('SELECT * FROM content_games WHERE game_id=?', operation.gameId);
-    if (!row || row.owner_id !== actor.id) { fail(404, 'GAME_NOT_FOUND'); }
-    this.#games.assertNotDeleting(operation.gameId);
-    return { actor, row };
+    return { actor, row: this.#ownership(actor, operation.gameId) };
   }
   #receipt(value, operation) {
     if (!sameKeys(value, 'gameId,pin,releaseId,version') || value.version !== 1 || value.gameId !== operation.gameId || !isGameId(value.releaseId)) { fail(503, 'PUBLISH_RECEIPT_CORRUPT'); }
@@ -79,6 +87,42 @@ export class PublishOperations {
       if (!name || name !== parsed?.pin?.name) { fail(503, 'PUBLISH_RECEIPT_CORRUPT'); }
       return this.#replay(actor, { ...operation, name, digest: old.request_digest });
     });
+  }
+  // 同一份內容換一把鍵重送時，把既有版本的回執永久綁定到新鍵：不新增版本、不重新編譯。
+  // 回執字節不變，所以查詢新鍵（與連線中斷後的輪詢）拿到的是同一個答案。
+  // 找不到原回執時回傳 null，呼叫端照舊走完整流程。
+  bindIdentical(tokenHash, ticket, releaseId) {
+    const operation = this.#tickets.get(ticket);
+    if (!operation) { fail(409, 'PUBLISH_OPERATION_TICKET'); }
+    if (!isGameId(releaseId)) { fail(422, 'PUBLISH_RELEASE_ID'); }
+    return this.#storage.transactionSync(() => {
+      const { actor, row } = this.#authority(tokenHash, operation), replay = this.#replay(actor, operation);
+      if (replay) { return replay; }
+      if (row.draft_revision !== operation.draftRevision || row.row_revision !== operation.rowRevision || row.current_release_id !== operation.releaseId) { fail(409, 'PUBLISH_STALE'); }
+      if (releaseId !== operation.releaseId) { fail(409, 'PUBLISH_STALE'); }
+      const original = this.#releaseReceipt(actor, operation.gameId, releaseId);
+      if (!original) { return null; }
+      // 同內容但改了名字不是同一份請求：名稱決定 pin 與公告，必須照舊配新序號。
+      if (original.pin.name !== operation.name) { return null; }
+      const serialized = JSON.stringify(original);
+      if (Buffer.byteLength(serialized) > MAX_METADATA_BYTES) { fail(413, 'PUBLISH_RECEIPT_BUDGET'); }
+      this.#sql.exec('INSERT INTO content_reservations VALUES(?,?,?,?,?,?)', actor.id, operation.key, 'publish', operation.gameId, operation.digest, actor.epoch);
+      this.#sql.exec('INSERT INTO content_operations VALUES(?,?,?,?,?,?,?,?)', actor.id, operation.key, 'publish', operation.gameId, operation.digest, actor.epoch, serialized, original.pin.publishedAt);
+      return original;
+    });
+  }
+  // 按版本號找回它原本那份永久回執；一律經 #replay 還原與重校，所以拿到的仍是當初寫入的字節。
+  #releaseReceipt(actor, gameId, releaseId) {
+    // 單個 game 的 publish 紀錄只有寥寥幾條；在 JS 裡比 releaseId 比對 JSON 做 LIKE 可靠。
+    for (const row of this.#sql.exec("SELECT op_key, auth_epoch, request_digest, result_json FROM content_operations WHERE actor=? AND method='publish' AND target=? ORDER BY created_at", actor.id, gameId).toArray()) {
+      if (row.auth_epoch !== actor.epoch) { continue; }
+      if (typeof row.result_json !== 'string' || Buffer.byteLength(row.result_json) > MAX_METADATA_BYTES) { continue; }
+      let parsed;
+      try { parsed = JSON.parse(row.result_json); } catch { continue; }
+      if (parsed?.releaseId !== releaseId || typeof parsed?.pin?.name !== 'string') { continue; }
+      return this.#replay(actor, { gameId, key: row.op_key, name: parsed.pin.name, digest: row.request_digest });
+    }
+    return null;
   }
   capture(tokenHash, input) {
     fields(input, ['key', 'gameId', 'name']);

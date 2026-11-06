@@ -442,6 +442,13 @@ return class EditorMetadata extends PlatformBase {
     if (!owned) { fail(404, 'GAME_NOT_FOUND'); }
     if (hasPendingMoves(this.ctx.storage, gameId)) { fail(422, 'DRAFT_TOPOLOGY_BROKEN'); }
     const reference = this.games.snapshotReference(tokenHash, gameId, owned.draftRevision);
+    // 回執遺失後重送（不同鍵、同一份內容、仍未經審核決定）不該多佔一個序號：
+    // 把那一版原本的永久回執綁定到這把新鍵，不重跑約 4 s 驗證與約 190 s 編譯。內容身分
+    // 由 draftRevision＋sourceDigest 唯一確定（與下方 reference 比對同源），改名則不復用，
+    // 而「同意」仍是管理員的門，所以復用不等於自行上架。
+    const identical = this.releases.pendingIdentical(tokenHash, gameId, owned.draftRevision, reference.sourceDigest);
+    const sameReceipt = identical && this.publishOperations.bindIdentical(tokenHash, operation.ticket, identical.releaseId);
+    if (sameReceipt) { return { pin: sameReceipt.pin, gameId: sameReceipt.gameId, releaseId: sameReceipt.releaseId, replayed: true }; }
     const captured = await this.privateDrafts.captureForCompile(tokenHash, gameId, owned.draftRevision);
     if (captured.reference.rootKey !== reference.rootKey || captured.reference.sourceDigest !== reference.sourceDigest) { fail(503, 'PUBLISH_REFERENCE_CORRUPT'); }
     // B8 全章匯總校驗：先列出「哪些章因基礎資料缺失而引用不到」，再跑結構／active 門。
