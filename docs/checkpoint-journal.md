@@ -21,8 +21,8 @@
 | `027ca99` | 游戏选择下拉框字号 14px→16px |
 | `eb94103` | 编辑器系统资源：头像 621、筛选上提同行、头像改相册（＋两个陈旧门修复） |
 
-生产镜像沿革：`20261105-bc1-ui7c` → `ui8`（`c3376df5…`）→ **`ui9`（`9085eb95…`，当前）**。
-玩家站 static release digest 沿革：`b41ffe54…`(D2，与 pin 对齐)→`a9438b77…`→`7909bb66…`→**`7ccef941…`（当前 pin 值）**→`52be51d2…`→（本次系统资源提交后再变一次，**均未登记 R2**）。
+生产镜像沿革：`20261105-bc1-ui7c` → `ui8`（`c3376df5…`）→ `ui9`（`9085eb95…`）→ **`20261106-bc1-ui10`（`823d54ae…`，当前，从 `579fb23` 构建）**。
+玩家站 static release digest 沿革：`b41ffe54…`(D2，与 pin 对齐)→`a9438b77…`→`7909bb66…`→`7ccef941…`→`52be51d2…`→**`51bb2347a64190971b70564cc840e813f1f05af0d101526e7136f2183828c161`（当前，与编辑器 pin 对齐）**。sourceTree `2ecb54f6af568a554ac22e6f2132143084afa3874a051d81856da2f2189fdca0`。
 
 ## 2. 玩家标题页 UI（用户 m722／m824）
 
@@ -70,26 +70,43 @@
 - **`pragma_table_xinfo(?)` / `pragma_foreign_key_list(?)`** 必须用绑定参数，双引号会被当标识符；不要 grep 单行的 `server/deletiondefinitions.js`。
 - **`Cloudflare 100 秒`**：生产上架端到端 212 s，浏览器侧被切断（`Premature close`／很可能 524），服务端仍成功——「上架超时上报失败」是待修缺陷。
 
-## 7. 当前阻塞
+## 7. 本轮部署交付（2026-11-06，镜像 `ui10`）
 
-1. **玩家站 digest 与编辑器 pin 未对齐 → 开局 503**：pin 仍是 `7ccef941…`，而玩家站已随 push 部署到更新的 digest（`52be51d2…` 起，系统资源提交后又变一次）。`/program-assets/<最新>/data.json` = 503。修法＝按 §3 锁步一次。
-2. **既有红（不阻塞，但不许写成全绿）**：`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution(+_workerd)`；`verify_publish_ui_model` 8 pass／7 fail（7 条早于 B3 §6／B8 的产品变更）；`verify_editor_copy_controller`、`verify_editor_backend_admin_copy`。
-3. **账本**剩 2 条历史事件 + 1 条 cleanup 行属惰性遗留；直接删会触发 `DISTRIBUTION_LEDGER_CORRUPT`，等 7 张 `content_distribution_*` 一起下线时清。
-4. **7 张 `content_distribution_*` 与 drainer 仍在**；下线前置是「生产实测一次 20 章上架端到端耗时」（已拿到 212 s，但伴随上面的超时缺陷）。
-5. 上架面板三个按钮（查詢原操作／以原鍵重試／只停止本機追蹤）是否删除仍待用户裁决。
+一次锁步把 429 阻塞消掉（玩家站 digest `51bb2347…`，编辑器 pin 同步到同一个）：
 
-## 8. 用户指定五档提速
+| 步 | 实测 |
+| --- | --- |
+| 服务器侧浅取 `FETCH_HEAD` | `579fb23`（github/main HEAD） |
+| `node tools/prepare_deploy.mjs` | digest **`51bb2347…`**（**与玩家站现有 digest 相等**，1442 文件／167.39 MiB）、sourceTree `2ecb54f6…` |
+| 镜像 | `dragon-editor-publication:20261106-bc1-ui10`（`sha256:823d54ae4a02…`） |
+| 开机前校验 | 容器内 `verifyInstalledProgram` → **VERIFY_OK**（先验后切，避开 §3 第①坑） |
+| 备份 | `./backup-publication.sh`；旧 app 目录 `app-prev19-20261106T052026Z`；`publication.env.bak-ui10-*`、nginx `.bak-ui10-*` |
+| dist／nginx | `dragon-editor-bootstrap/51bb2347…/`（1442 文件）＋新 `location ^~ /deployment-assets/static-v1/51bb2347…/`（按花括号深度插入），`nginx -t` 通过后 reload |
+| 启动 | `up -d --force-recreate`；**约 25 分钟**才 healthy（05:21→05:46，新 digest 首启要归档 168 MB），日志只有 `started`＋`distribution-idle` |
+| R2 登记 | 首次启动就完成（`/program-assets/<D>/data.json` 直 200），没有触发 §3 第②坑的重启重试 |
+
+**验收（真实公网）**：玩家 `/program-assets/51bb2347…/data.json` **200**（旧阻塞：503）；玩家 `/static-release.json` 摘要 = `51bb2347…`；`?formalGame=…&mode=new` → **200 ＋ `x-program-digest: 51bb2347…`**；编辑器 `/api/health` 200、`/deployment-assets/static-v1/51bb2347…/static-release.json` 200；`/shell-ui.js` 710329 B、sha256 与本地 `server/public/shell-ui.txt` **完全相同**且含 `resource-gallery`；`/style.css` 10561 B 含 `.resource-toolbar`；`/api/resources` 匿名 401。
+
+## 8. 当前阻塞
+
+1. **已有红（不阻塞，但不许写成全绿）**：`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution(+_workerd)`；`verify_publish_ui_model` 8 pass／7 fail（7 条早于 B3 §6／B8 的产品变更）；`verify_editor_copy_controller`、`verify_editor_backend_admin_copy`。
+2. **账本**剩 2 条历史事件 + 1 条 cleanup 行属惰性遗留；直接删会触发 `DISTRIBUTION_LEDGER_CORRUPT`，等 7 张 `content_distribution_*` 一起下线时清。
+3. **7 张 `content_distribution_*` 与 drainer 仍在**；下线前置是「生产实测一次 20 章上架端到端耗时」（已拿到 212 s，但伴随「超过前端等待上限被报失败」缺陷）。
+4. 上架面板三个按钮（查詢原操作／以原鍵重試／只停止本機追蹤）是否删除仍待用户裁决。
+5. **玩家目录为空**（之前那个游戏被用户自己的删除测试物理删掉了），没重新上架前测不到正式开局；内置游戏可直开。
+
+## 9. 用户指定五档提速
 
 （归档摘要）用户指定五档 6.5／5.0／4.8／1.8／1.0ms，每 RAF 最多 16 更新；60Hz 上限约 960 更新/秒、高刷上限 1000；暂停丢规则债但冻结显示相位。现行口径与后续复验见 [战略时序](re-notes-strategic-time.md)。
 
-## 9. 下一步（建议顺序）
+## 10. 下一步（建议顺序）
 
-1. **锁步部署一次**，把玩家站 digest 与编辑器 pin 对齐（含系统资源这批）：服务器取源 → `prepare_deploy` → dist+nginx → 三 pin → 重启（确认 `control/programs/<D>.json` 真登记）→ 玩家端部署 → 验 `?formalGame=…&mode=new` 返回 `x-program-digest` 且 `/program-assets/<D>/data.json` 200。
-2. 修「上架超过前端等待上限被报失败」：把同步发布改为后台任务＋轮询（可选路线），或让前端接受 100 s 以上的结果回执。
-3. 玩家重新上架一个版本，端到端手测开局（registry 目前为空——之前那个游戏被删除测试物理删掉了）。
-4. 通用审计 `audit_events`（覆盖审核／删除／账号变更）仍未立项；建议用 `game_releases` 的真实字段与用法反推结构，不先设计。
-5. C 批剩余：下线 7 张 `content_distribution_*` + drainer；`verify_publish_ui_model` 的 7 条行为断言 re-baseline。
+1. **手测新 UI**：玩家标题页四项（「!」入口、云纹弹窗、无竖排副标题、章节窗上方游戏名）＋编辑器「系統資源」621 头像相册；然后重新上架一个版本把玩家 registry 填充回，端到端测一次开局。
+2. 修「上架超过前端等待上限被报失败」（Cloudflare 100 s）：改为后台任务＋轮询，或让前端接受晚到回执。
+3. 通用审计 `audit_events`（审核／删除／账号变更）仍未立项；建议用 `game_releases` 的真实字段与用法反推结构，不先设计。
+4. C 批剩余：下线 7 张 `content_distribution_*` + drainer；`verify_publish_ui_model` 的 7 条行为断言 re-baseline。
+5. 每次 `web/` 变更后都要锁步（本次 ui10 已把 digest 对齐到 `51bb2347…`）；UI 改动建议攒批部署。
 
-## 10. 归档锚点（仍被外部文档引用）
+## 11. 归档锚点（仍被外部文档引用）
 
 - 外观／行军两个 SKILL 引用 `#8-用户指定五档提速`；其余旧锚点（§26–§49）已无外部引用，需要时用 git 历史追溯。
