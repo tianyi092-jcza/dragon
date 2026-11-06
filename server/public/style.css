@@ -11,13 +11,16 @@ form{margin:18px 0}label{display:block;margin:16px 0;color:#53665a;font-size:13p
 #generals-message{white-space:pre-wrap;max-height:24rem;overflow:auto}
 @media(max-width:1050px){.workbench{grid-template-columns:190px minmax(0,1fr)}.auth-layout{grid-template-columns:1fr}.workbench-main{padding:24px}.workbench-header{padding:0 20px}.account-actions{gap:8px}}
 /* 遊戲資源（Web 產品決定 2026-10-31）：只讀內置資源瀏覽 */
-.resource-categories{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 12px}
+/* 使用者 m1107：分類 TAB 與篩選同一行，篩選靠右上，不再單獨占高度。 */
+.resource-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:16px 0 12px}
+.resource-categories{display:flex;flex-wrap:wrap;gap:8px;margin:0}
 .resource-categories button{font:inherit;font-size:13px;padding:7px 14px;border:1px solid #d5e0d8;border-radius:999px;background:#fff;color:#4d6b58;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
 .resource-categories button:hover:not(:disabled){border-color:#8fbd9f;background:#f3f8f4}
 .resource-categories button.on{border-color:#4a7828;background:#4a7828;color:#fff}
 .resource-categories button .count{font-size:11px;opacity:.75}
-.resource-filter{margin:6px 0 14px}
-.resource-filter input{width:100%;max-width:320px}
+.resource-filter{display:flex;align-items:center;gap:10px;margin:0 0 0 auto;font-size:13px}
+.resource-filter label{display:inline-flex;align-items:center;gap:8px;margin:0;white-space:nowrap}
+.resource-filter input{width:220px;max-width:46vw}
 .resource-list{display:flex;flex-direction:column;gap:2px;max-height:62vh;overflow:auto;border:1px solid #e6ebe7;border-radius:8px}
 .resource-row{display:flex;align-items:center;gap:14px;padding:8px 14px;border-bottom:1px solid #f0f4f1;font-size:13px}
 .resource-row:last-child{border-bottom:0}
@@ -25,6 +28,15 @@ form{margin:18px 0}label{display:block;margin:16px 0;color:#53665a;font-size:13p
 .resource-row .muted{flex-shrink:0;font-size:12px}
 .resource-row .thumb{width:44px;height:44px;object-fit:contain;flex-shrink:0;border:1px solid #e0e8e2;border-radius:6px;background:#f7faf8}
 .resource-row audio{max-width:260px;height:32px}
+/* 頭像相册：序号—头像 一行，路径在下一行，文件大小在路径下再开一行。 */
+.resource-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;padding:12px;align-items:start}
+.resource-gallery>p{margin:0;grid-column:1/-1}
+.resource-card{display:grid;grid-template-columns:auto auto;grid-template-areas:"index thumb" "caption caption";justify-content:start;column-gap:10px;row-gap:6px;margin:0;padding:10px;border:1px solid #e6ebe7;border-radius:8px;background:#fff;font-size:13px}
+.resource-card .index{grid-area:index;align-self:center;font-variant-numeric:tabular-nums;font-size:12px;color:#9aa8a0}
+.resource-card .thumb{grid-area:thumb;width:64px;height:64px;object-fit:contain;border:1px solid #e0e8e2;border-radius:6px;background:#f7faf8;image-rendering:auto}
+.resource-card figcaption{grid-area:caption;display:flex;flex-direction:column;gap:2px;min-width:0}
+.resource-card .name{overflow-wrap:anywhere;color:#33473c}
+.resource-card .size{font-size:12px}
 .module-card .hint{font-size:12px;color:#86948a;margin:-4px 0 12px}
 #own-games>div{padding:12px 0;border-top:1px solid #e6ebe7}
 .resource-row .index{flex-shrink:0;width:34px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px;color:#9aa8a0}

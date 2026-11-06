@@ -522,7 +522,7 @@ try {
   assert.equal(await publishRows.nth(0).getAttribute('data-state'), 'draft');
   assert.equal(await publishRows.nth(0).locator('[data-field=version]').textContent(), '—');
   assert.equal(await publishRows.nth(1).locator('[data-field=state]').textContent(), '已上架');
-  assert.match(await publishRows.nth(0).locator('[data-action=delete]').getAttribute('title'), /刪除整個遊戲/);
+  assert.equal(await publishRows.nth(0).locator('[data-action=delete]').count(), 0, '上架管理不再提供刪除（改由審核頁管理員遮罩層）');
   assert.match(await page.locator('#publish-table').textContent(), /<img src=x/);
   await publishRows.nth(0).locator('[data-action=check]').click(); await idle();
   assert.equal(calls.length, beforePublicationContext + 2); assert.equal(calls.at(-1)[1], `/api/games/${gameId}/draft/chapter-references`);
@@ -664,13 +664,14 @@ try {
   omitLoadedGame = true; const beforeOmittedList = calls.length;
   await page.locator('#draft-games-refresh').click(); await idle();
   assert.equal(calls.length, beforeOmittedList + 1); assert.equal(calls.at(-1)[0], 'GET');
-  assert.equal(await page.locator('#draft-game').inputValue(), gameId);
-  assert.match(await page.locator('#draft-game option:checked').textContent(), /本次清單未列出/);
-  assert.equal(await page.locator('#draft-game option:checked').evaluate(option => option.disabled), true);
+  // 幽靈項已移除（m722）：清單缺少目前載入的遊戲時退回占位選項，不再保留不可達的舊值。
+  assert.equal(await page.locator('#draft-game').inputValue(), '');
+  assert.match(await page.locator('#draft-game').evaluate(el => el.selectedOptions[0]?.textContent ?? ''), /原遊戲已不在清單，請重新選擇/);
+  assert.equal(await page.locator('#draft-game').evaluate(el => el.selectedOptions[0]?.disabled ?? false), true);
   assert.equal(await page.locator('#draft-name').inputValue(), '未保存');
   assert.equal(await page.locator('#draft-context').textContent(), contextBeforeListRefresh);
   omitLoadedGame = false; await page.locator('#draft-games-refresh').click(); await idle();
-  assert.equal(await page.locator('#draft-game option:checked').evaluate(option => option.disabled), false); checks++;
+  assert.match(await page.locator('#draft-game').evaluate(el => el.selectedOptions[0]?.textContent ?? ''), /清單修訂/); checks++;
   const beforeCrossPanelCancel = calls.length;
   page.once('dialog', dialog => dialog.accept()); await nav('stronghold-editor').click();
   page.once('dialog', dialog => dialog.dismiss()); await page.locator('#stronghold-games').selectOption(otherGameId);

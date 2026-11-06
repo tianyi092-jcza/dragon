@@ -16,7 +16,7 @@ function choose(event, actions, model) {
     <p>先選遊戲並載入明確已保存修訂；清單刷新不會替換正在編輯的資料。</p>
     <div class="module-toolbar">
       <ElButton id="draft-games-refresh" :disabled="busy || model.locked" @click="actions.refresh()">查看自己的遊戲</ElButton>
-      <label>遊戲<select id="draft-game" :value="model.fields.gameId" :disabled="busy || model.gameLocked" @change="choose($event, actions, model)"><option value="" disabled>{{ model.selectionMissing ? '原遊戲已不在清單，請重新選擇' : '請選擇遊戲' }}</option><option v-for="game in model.games" :key="game.gameId" :value="game.gameId">{{ game.name }}／清單修訂 {{ game.draftRevision }}</option></select></label>
+      <label>遊戲<select id="draft-game" :value="model.selectionMissing ? '' : model.fields.gameId" :disabled="busy || model.gameLocked" @change="choose($event, actions, model)"><option value="" disabled>{{ model.selectionMissing ? '原遊戲已不在清單，請重新選擇' : '請選擇遊戲' }}</option><option v-for="game in model.games" :key="game.gameId" :value="game.gameId">{{ game.name }}／清單修訂 {{ game.draftRevision }}</option></select></label>
       <label>明確已保存修訂<input id="draft-revision" inputmode="numeric" maxlength="64" :value="model.fields.revision" :disabled="busy || model.loadLocked" @input="actions.setField('revision', $event.target.value)"></label>
       <ElButton id="draft-load" :disabled="busy || model.loadLocked" @click="actions.load()">載入／放棄未保存資料</ElButton>
     </div>

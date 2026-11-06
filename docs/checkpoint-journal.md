@@ -472,6 +472,22 @@
 
 **最终状态（2026-11-05 18:00Z 实测）**：镜像 `dragon-editor-publication:20261105-bc1-ui9`（`9085eb95…`，从 `d8526cf` 建）；`.env` `EDITOR_DEPLOYMENT_ID=20261105-bc1-ui9`；`publication.env` 三 pin = `7ccef941…`／`7ccef941…`／`b268ef7e…`；`dist` 已放 `/home/web/html/dragon-editor-bootstrap/<7ccef941…>/`（1442 文件／168 MB）＋ nginx 新 location；备份 `publication-20261105T171109Z`、旧 app 目录 `app-prev18-20261105T171226Z`。验收：玩家 `?formalGame=…&mode=new` → **200 ＋ `x-program-digest: 7ccef941…`**；`/program-assets/<7ccef941…>/data.json` 200；`/src/player/cloudframe.js` 200、`playercatalog.js` 14692 B、`startmenu.js` 39855 B、`static-release.json` 223594 B；编辑器 `/` 200、模块 hash 与 ui8 一致（`shell-ui.js 118750a1…`、`shell-ui.css 8bea0fa4…`、`review.js 98ab896f…`、`client.js d5de5612…`，editor-ui 未改）；库 `integrity ok`、54 表／52 索引、`game_releases` 0 行（用户已物理删除那个游戏）。
 
+### 4.43 系統資源：頭像合並到 621 項、篩選上提同行、頭像改相册（2026-11-05，用户 m1107）
+
+用户四项要求：①把新增的 471 张头像（`web/kao/p0001..p0471.png`）并入「系統資源」的头像，与原有 150 张共同使用；②筛选标题与输入框同一行、移到右上，与左侧 TAB 同行，不占下方高度；③头像改用相册展示；④卡片布局＝序号-头像-路径（换行）文件大小。
+
+**120→128 是必要的（已实锤）**：`web/src/ui/gamebar.js:5535` 与 `:8619` 都是 `ctx.drawImage(img, 0, 0, 128, 128, x, y, 64, 64)`，源矩形固定 128×128；120×120 的图会被按 120/128 缩小并带空角。所以用 Pillow `LANCZOS` 把 471 张 `p####.png` 放大为 128×128（`web/kao/` 目录内原地替换），再重建 `web/kao/manifest.js`（621 条：150 数字＋471 p；`node tools/verify_kao_library.mjs` 输出「621 files (150 numeric + 471 p), 14.7MB, all PNG, byte-distinct」且 manifest 与磁盘逐条相符）。
+
+**不改任何 pin／不重算 available-library**：`server/editorapp.js` 的 `#getResources` 在钉死的 library roles 之后追加 `this.portraits.list()` 中尚未出现的 `kao/<id>.png`（category `portrait`），共 150→621；`#getResourceAsset` 对 `kao/<id>.png` 改走新增的 `#portraitBytes(id)`（`readSharedPortrait` ＋ sha256/长度核对），失败时若该路径在 library 里则回退图书馆读取；无 shared reader（Workerd 门）或都没命中则 `404 RESOURCE_NOT_FOUND`。这样 `server/available-library.txt`、`STATIC_*` 三 pin、`web/kao` 之外的任何摘要都不动。
+
+**UI**：`editor-ui/src/CatalogPanel.vue` 新增 `.resource-toolbar` 一行（分类 TAB 左、`此分類 N 項`＋`篩選` 右），头像类目走 `.resource-gallery` 相册（`figure.resource-card`＝序号＋头像一行，路径与大小在 caption 两行）；`server/public/style.css` 加 `.resource-toolbar/.resource-filter（行内）/.resource-gallery/.resource-card`，删掉旧 `.resource-filter` 的独占行为。
+
+**顺手修的陈旧门（`ff37768` 遗留）**：`tools/verify_editor_workbench_browser.mjs` 里「上架管理必须有删除按钮」改为「必须没有」（§4.40 产品改动）；draft 下拉幽灵项断言改为「清空选择＋占位提示」，并修真问题：`DraftPanel.vue` 的 `:value` 在游戏不在清单时落空，导致下拉框空白、`原遊戲已不在清單，請重新選擇` 根本不显示 → 改成 `model.selectionMissing ? '' : model.fields.gameId`。改后该门 **219 checks pass**。
+
+**验证**：`tools/dev_editor.mjs --port 8445 --store .dragon-analysis/dev-m1107 --no-watch` ＋ Playwright 实测：分类标签 `頭像 621／圖像圖塊 226／音樂與音效 13／字體 2／其他 9`，卡片 621 个，筛选与 TAB 同一行（top 差 <10px、右侧留 65px 卡片内边距）；`/api/resources/asset` 抽验 `kao/0.png` 200/1573B、`kao/p0001.png` 200/35580B、`kao/p0471.png` 200/33393B、`grf/battle_units.png` 200/31496B；`p0471` 自然尺寸 128×128，滚动后懒加载正常。`editor-ui/build.mjs --check` 一致（`shell-ui.js` 710297 B）。
+
+**未做**：部署（用户说先放着，攒一批再一次性锁步）；`verify_editor_backend_stage_ui` 等重量级后端门未跑。**注意**：`web/kao/manifest.js` 与 471 张图属于 `web/`，会再次改变玩家站 static release digest（本次已有一份未部署的 `52be51d2…`）。
+
 ## 5. 当前阻塞
 
 1. ~~生产真实上架一次~~ **已做（2026-11-05，§4.38）：内容侧成功、端到端实测 212 s，但浏览器侧收到错误（Cloudflare 100 s 上限，推断）**。C 批前置①的「耗时数据」已拿到；剩下一个真缺陷：超过前端等待上限会被报失败而实际已上线。

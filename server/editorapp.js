@@ -715,15 +715,39 @@ return class EditorMetadata extends PlatformBase {
       return 'data';
     };
     const resources = roles.map(role => Object.freeze({ path: role.path, byteLength: role.byteLength, sha256: role.sha256, category: category(role.path) }));
+    // 使用者 m1107：「系統資源」的頭像要與共用畫像庫（`web/kao`，含新增的 471 張
+    // `p####.png`）合為同一份。已釘進 available-library 的 kao 條目保持原樣
+    // （bytes 仍從圖書館讀），只補上尚未收錄的 ID；不重算任何 pin 摘要。
+    const listed = new Set(resources.map(row => row.path));
+    for (const portrait of this.portraits.list()) {
+      const path = `kao/${portrait.assetId}.png`;
+      if (!listed.has(path)) resources.push(Object.freeze({ path, byteLength: portrait.byteLength, sha256: portrait.sha256, category: 'portrait' }));
+    }
     this.touch(tokenHash, policy);
     return response({ mode: 'BUILTIN_READONLY', registryId: this.libraryBrowser.definition().registryId, resources });
+  }
+  // 共用畫像（`kao/<id>.png`）直接從 shared portrait reader 取；未收錄進圖書館
+  // 的 ID 只能走這條路，已收錄的走圖書館或這條都同字節，所以統一先試畫像。
+  async #portraitBytes(assetId) {
+    if (typeof readSharedPortrait !== 'function') return null;
+    const descriptor = this.portraits.get(assetId);
+    const bytes = await readSharedPortrait(descriptor);
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength !== descriptor.byteLength || createHash('sha256').update(bytes).digest('hex') !== descriptor.sha256) fail(503, 'PORTRAIT_BYTES_CORRUPT');
+    return Object.freeze({ bytes, byteLength: descriptor.byteLength, sha256: descriptor.sha256 });
   }
   async #getResourceAsset(rt) {
     const { tokenHash, url, policy, request } = rt;
     if ([...url.searchParams.keys()].join(',') !== 'path') { fail(422, 'RESOURCE_QUERY'); }
     const path = url.searchParams.get('path');
     if (typeof path !== 'string' || !path) { fail(422, 'RESOURCE_QUERY'); }
-    const role = await this.libraryBrowser.readRole(tokenHash, path);
+    const portraitId = /^kao\/([A-Za-z0-9]{1,32})\.png$/.exec(path)?.[1];
+    let role = null;
+    if (portraitId !== undefined && typeof readSharedPortrait === 'function') {
+      try { role = await this.#portraitBytes(portraitId); }
+      catch (error) { if (!this.libraryBrowser.resourceRoles().some(row => row.path === path)) throw error; }
+    }
+    role ??= await this.libraryBrowser.readRole(tokenHash, path);
+    if (!role) fail(404, 'RESOURCE_NOT_FOUND');
     const type = path.endsWith('.png') ? 'image/png'
       : path.endsWith('.woff2') ? 'font/woff2'
       : path.endsWith('.flac') ? 'audio/flac'
