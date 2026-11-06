@@ -70,6 +70,39 @@ Cloudflare 在 push 后自动构建部署（实测 **~50 秒到 3 分钟**）。
 - 本轮改造（`b23f6bc`）：`publish.txt` 新增 `blockedText()`＋模型 `blockedReason`＋每行 `publishHint`；`PublishPanel.vue` 在 message 后显示 `#publish-blocked` 提示块、按钮 `title` 用 `publishHint`。有 pending 时校验成功文案改为「校驗成功！全部 20 章引用完整；但上架按鈕目前暫停，原因見下方說明」。对 pending 建议**先查询原操作再「只停止本機追蹤」**恢复按钮；对 badJournal 建议清掉记录后再上架。**没有改追踪安全逻辑**：未知结果时不应建议盲清重发。
 - 验证：`verify_editor_workbench_browser` 219 checks（两次通过，最后一次 `.dragon-analysis/editor-workbench/run-XQ7Qqq`）；`build --check` `shell-ui.js` 710569 B／`shell-ui.css` 54698 B；`verify_publish_ui_model` 仍 9 pass／7 fail（既有红）。临时纯内存 probe（已删）验证过：pending 时 `publishDisabled=true` 且提示与校验成功并存。probe 早期失败的三个原因：缺 `user.role`、非法 UUID／key、缺 `receipt.version`。
 
+### 6.1 生产实测（2026-11-06 15:5x）：上架其实全部成功，只是回执被切掉
+
+用户问「为何卡 100 秒、能不能延长」，并给了 164 秒遮罩截图。直查 `dartnode4`（只读）得到的实锤：
+
+```
+POST /api/publish  ms=194451 / 203927 / 190417  →  request-failed INTERNAL_ERROR "Premature close"
+POST /api/admin/copies/<id>/run  ms=144108      →  同样 Premature close
+GET  /api/games/<id>/draft/chapter-references  ms=37169 / 38466 / 42652
+```
+
+- nginx 访问日志对这三次上架全部记 `499 0`（客户端先断）；容器内仍把事务跑完并提交。
+- 三处超时都不是我们的 100 秒：`server/public/client.txt` POST 超时 **600 s**；nginx `location /` `proxy_read_timeout/proxy_send_timeout` **600 s**。域名 `dragon-editor.720108.xyz` 确实在 Cloudflare 后面（`server: cloudflare`＋`cf-ray`），非 Enterprise 的 100 s 边缘上限**不能调**；但本次日志显示连接能活到 190 s 以上，所以这里不是 100 s 计时器砍的，而是长连接被链路／边缘静默丢掉。**结论：延长超时无解，唯一可靠做法是不依赖单次长连接（后台任务＋轮询既有 `publish-operations` 查询端点）。**
+- 数据库实况（同一时刻）：`content_games` 只剩 `63803a5e…`（`listed=0`、`current_release_id=6d9cdb0c…`），`content_releases` 版本 **1.0**、`published_packs` 20 章＋6 资产、`content_distribution_state` tail=confirmed=**9**、outbox 空 → 上架、编译、分发**全部已成立**，只差管理员「同意」（`listed` 仍 0，所以玩家目录没有它；`content_announcements` 空也是同一个原因）。此前两次 `415a5f8a…` 的上架也各留下一份 release（06:53、07:02），即每次「看不见回执」的重送都会多一版。
+- 因此「永远循环」的真正成因是：请求 190–205 s → 用户等不下去刷新／重开 → 连接断在响应之前 → 跟踪键保留 → 按钮灰；服务器其实已经成功。
+
+本轮最小改动（`server/public/publish.txt`，仅前端 controller）：
+
+1. 新增 `targetText(t)`／`shortId`：暂停原因、跟踪提示、失败补语统一写成「名称＋清单中创建时间＋当前状态＋编号前 8 码」；目标已不在清单时直说「已不在清单（可能已删除，或不在当前账户）」，不再和同名新副本混在一起。
+2. `stuckHint()` 统一动作失败后的补语：目标不在清单 → 建议「只停止本机追踪」；仍在清单 → 保留同一请求、先查询。
+3. `query()` 命中回执后 `store(null)` 结案＋`load()` 重读清单，避免「查到了、按钮还是灰的」与「状态还显示草稿」；`render()` 的上架结果补一句「下一步：由管理员在审核按同意」。
+4. 验证：`verify_publish_ui_model` 9 pass／7 fail（与改前逐一同名，非新增红）；`verify_chapter_references` 8 checks 通过；`verify_publication_ui` 的 `TypeError` 改前改后一致（既有红）。纯内存 probe 验过：pending+已不在清单、pending+在清单、查询命中后 `blockedReason` 清空／journal 清空／`publishDisabled=false`、查询 404 的补语。
+
+### 6.2 根治循环：上架不再依赖单次长连接（用户批准后实施）
+
+`server/public/publish.txt` 新增 `publishOutcome(t, ctx)`，替换 `send()` 里对 `/api/publish` 的单一等待：
+
+- POST 仍然**只发一次**（同一把 Idempotency key，绝不重送）；同时每 5 秒 `GET /api/games/<id>/publish-operations/<key>`（已有幂等查询端点，无需新协议、不改服务端），**先拿到确定答案的赢**。
+- 只有「没有 HTTP 状态码」的连线层失败才转纯轮询；服务端任何答复（4xx／5xx）照原样抛出，4xx 仍按既有规则解除跟踪键。轮询里的 404（`PUBLISH_OPERATION_NOT_FOUND`＝还在编译）与 5xx／断线继续等；其余 4xx 立即拒绝。
+- 上限 `PUBLISH_POLL_BUDGET_MS = 10 分钟`；超时只回报「结果未知，稍后按查询原操作核对，不要重送」，**不把未知写成失败**，也不清跟踪键。
+- 轮询得回执时 `distribution` 直接取回执里的分发描述子；此时不再多发一次 `query()`（避免重复 GET，也让 `A 路线` 测试的「待确认仍补查一次」仍只算 1 次）。
+- 验证（纯内存 probe，已删）：POST 永掛＋轮询第 2 次命中 → 10.0 s 完成、`/api/publish` 只 1 次、journal 清空；POST 连线层失败＋轮询命中 → 完成；POST 422 → 不轮询、立即拒、清键；轮询 403 → 5 s 内拒绝，不等满 10 分钟。`verify_publish_ui_model` 仍 9 pass／7 fail（与改前逐一同名）。
+- 已知残留：`chapter-references`（校驗）単次也要 37–42 s，与上架同源的 `captureForCompile` 是慢点；本批不碰，但它是下一个值得拆的性能口。
+
 ## 7. 失败尝试与坑（不要重做）
 
 - **本机→VPS 上行废了**：5 MB 探针 316 s（≈16 KB/s），168 MB tgz 3 分钟只走 540 KB 后断连。改服务器侧 `git fetch --depth 1`。

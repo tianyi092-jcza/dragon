@@ -13,8 +13,30 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  // A 路線第一版：上架回執可選擇性多帶一個分發描述子，欄位集只放行這一個額外鍵。
  const fieldsOptional = (v, keys, optional) => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).sort().join(',') === (optional !== undefined && Object.hasOwn(v, optional) ? [...keys, optional] : [...keys]).sort().join(',');
  const stateLabels = { draft: '草稿', pending: '待上架', listed: '已上架' };
+ // 使用者 m2xxx（截圖問詢）：複製出來的同名遊戲讓追蹤提示無法分辨「是哪一款」，
+ // 所以除名稱外再補兩個可核對的事實（清單中的建立時間與目前狀態）與短碼；
+ // 追蹤目標已不在清單時直接說明，不再只說「同名遊戲被鎖」。
+ const shortId = id => (typeof id === 'string' ? id.slice(0, 8) : '????????');
+ function targetText(t) {
+  const row = rows.find(entry => entry.gameId === t.gameId);
+  const name = t.kind === 'publish' ? t.name : t.confirmationName;
+  const what = (t.kind === 'publish' ? '上架「' : '刪除「') + name + '」';
+  const where = row ? '清單中建立於 ' + new Date(row.createdAt).toLocaleString() + '、目前狀態「' + stateLabels[row.state] + '」' : '這款已不在清單（可能已刪除，或不在目前帳戶）';
+  return what + '（' + where + '；編號 ' + shortId(t.gameId) + '）';
+ }
  // 「版本號 +1」只做顯示推導；實際序號由服務端 release 帳本配發。
  const nextVersion = v => v === null ? '1.0' : v.slice(0, v.lastIndexOf('.')) + '.' + String(BigInt(v.slice(v.lastIndexOf('.') + 1)) + 1n);
+ // 上架在生產是 190–205 秒的同步工作（20 章編譯＋凍結＋分發），而這條連線隨時可能被鏈路／邊緣
+ // 靜默丟掉：服務端照舊提交，瀏覽器卻拿不到回執，於是每按一次都成功、面板卻永遠「未確認」。
+ // 所以不再等那一次回應：POST 只送一次（同一把鍵，不重送），同時每 5 秒輪詢既有的幂等查詢端點，
+ // 先拿到確定答案的嬴。查不到就繼續等，超時只回報「結果未知」，不把未知說成失敗。
+ const PUBLISH_POLL_MS = 5000, PUBLISH_POLL_BUDGET_MS = 600000;
+ const wait = ms => new Promise(resolve => { setTimeout(resolve, ms); });
+ // 與 wait 差別：拿到答案就清掉計時器，不把 5 秒的空定時器留在事件圈廓裡。
+ const waitFor = (promise, ms) => new Promise((resolve, reject) => {
+  const id = setTimeout(() => { resolve(null); }, ms);
+  promise.then(value => { clearTimeout(id); resolve(value); }, error => { clearTimeout(id); reject(error); });
+ });
  const errors = { DRAFT_TOPOLOGY_BROKEN: '仍有據點移動意向，不能上架；請先核對並處理原意向。', PLAY_CITY_VIEW_MISSING: '章節引用了固定資源庫未提供的據點圖片；請核對章節資源與已保存草稿，未補齊前不能上架。', PLAY_PORTRAIT_CORRUPT: '武將畫像引用無效或缺少可凍結的依賴；請核對已保存章節的畫像資料。', PUBLISH_STALE: '草稿已變更，請重新整理清單後再上架。', PUBLISH_NAME: '遊戲名稱無效（去除首尾空白及NFC正規化後，須為1至8個Unicode碼點）。', DISTRIBUTION_GAME_PENDING: '此遊戲仍有待確認分發，不能上架下一版。', DISTRIBUTION_NOT_CONFIGURED: '服務尚未配置分發狀態；不推定已公開。', DISTRIBUTION_STATUS_UNAVAILABLE: '原上架缺少可核對的分發關聯；不推定成功或失敗。', GAME_DELETING: '遊戲已進入刪除流程，不能繼續此操作。', DELETE_CONFIRMATION: '刪除確認名稱與目前遊戲名稱不符，請重新整理清單。', PUBLISH_CHAPTER_REFERENCES: '整遊戲校驗未通過：有章節引用不到已刪除的基礎資料（據點或武將庫）；下方列出受影響的章。' };
  let identity = null, generation = 0, rows = [], messageText = '', references = null;
  let pending = null, badJournal = false, checked = false, result = null, distribution = null, sending = false, querySerial = 0, purgeOutcomes = new Map();
@@ -117,8 +139,17 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  function blockedText() {
   if (badJournal) return '上架暫停：本機記下的原操作已損壞，無法核對。請按「只停止本機追蹤」清掉記錄後再上架（不會影響服務端已成立的事實）。';
   if (!pending) return '';
-  const what = pending.kind === 'publish' ? '上架「' + pending.name + '」' : '刪除「' + pending.confirmationName + '」';
-  return '上架暫停：上一次' + what + '還沒拿到確定結果（連線可能中斷了）。先按「查詢原操作」核對，再用「只停止本機追蹤」結束這次追蹤，上架按鈕才會恢復。';
+  const known = rows.some(row => row.gameId === pending.gameId);
+  return '上架暫停：上一次' + targetText(pending) + '還沒拿到確定結果（連線可能中斷了）。'
+    + (known ? '先按「查詢原操作」核對；查不到也不能當成已取消，確定要放棄這筆追蹤時再按「只停止本機追蹤」，上架按鈕才會恢復。'
+      : '這款已不在清單，查詢只會回「沒有紀錄」；直接按「只停止本機追蹤」結束這筆追蹤，上架按鈕就會恢復（不影響服務端已成立的事實）。');
+ }
+ // 動作失敗時接在原因後面的一句話：先說「現在該做什麼」，並且要能認出追蹤的是哪一款。
+ function stuckHint() {
+  if (!pending && !badJournal) return ' 本次未提交；修正後可重新上架。';
+  if (badJournal) return ' 本機記錄已損壞；可按「只停止本機追蹤」清掉記錄。';
+  const gone = !rows.some(row => row.gameId === pending.gameId);
+  return ' 追蹤對象：' + targetText(pending) + (gone ? '；它已不在清單，可按「只停止本機追蹤」結束這筆追蹤。' : '；保留同一個請求，先查詢、不自動重送。');
  }
  function render() {
   const visible = current({ id: identity?.user.id, version: identity?.user.version, generation }), disabled = !visible || isBusy() || sending;
@@ -133,20 +164,22 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   })) : [];
   let tracking = '沒有追蹤中的上架或刪除操作。';
   if (badJournal) tracking = '本機記下的原操作已損壞，無法核對；為了不重複建立，暫時不接受新的上架或刪除（可清除本機追蹤）。';
-  // 用戶要求（2026-11）：提示要讓人看懂現在是什麼狀態。這裡不再貼原鍵與 gameId，
-  // 只說「發生了什麼、你還可以做什麼」；機器識別仍留在日誌與回饋裡。
+  // 用戶要求（2026-11）：提示要讓人看懂現在是什麼狀態。不貼原鍵，但要認得出「是哪一款」。
   else if (pending) {
-    const what = pending.kind === 'publish' ? '上架「' + pending.name + '」' : '刪除「' + pending.confirmationName + '」';
-    tracking = '上一次' + what + '還沒拿到確定結果（連線可能中斷了）。'
+    const known = rows.some(row => row.gameId === pending.gameId);
+    tracking = '上一次' + targetText(pending) + '還沒拿到確定結果（連線可能中斷了）。'
       + (pending.version !== identity?.user.version ? '帳戶已變更，不能重送，請重新登入後再確認。'
         : checked ? '系統剛才查過一次，還沒找到結果，這不代表已取消；稍後可再查詢。'
-        : '可以按「查詢原操作」確認結果；系統不會自動重送，也不會另外建第二份。');
+        : known ? '可以按「查詢原操作」確認結果；系統不會自動重送，也不會另外建第二份。'
+        : '這款已不在清單；可直接按「只停止本機追蹤」結束追蹤，服務端已成立的事實不受影響。');
   }
   let text = '';
   if (result?.kind === 'publish') {
    text = '本地已提交上架：版本 ' + result.receipt.ordinal + '／修訂 ' + result.receipt.revision + '。';
    text += distribution?.state === 'confirmed' ? ' 此次分發曾於 ' + distribution.visibleAt + ' 確認；上架與否仍以管理員同意為準。' : ' 分發待確認；尚未經管理員同意。';
    if (distribution?.recoveryRequired) text += ' 分發處於恢復鎖，須由管理者核對；本頁不解除。';
+   // 上架只是送審：不同步說明這一步，就會被讀成「上架了但玩家端壞了」。
+   text += ' 下一步：由管理員在「審核」按「同意」，玩家端目錄才會出現這款遊戲。';
   } else if (result?.kind === 'delete') text = result.purge ? '已徹底刪除（不可恢復）：資料庫已移除 ' + result.purge.tables + ' 張表內該遊戲的所有列，玩家端目錄不再列出它；分發帳本與 R2 位元組由既有退役清理回收，不刪玩家本地存檔。' + reclaimText(result.purge.reclamation) : '本地已建立不可逆刪除柵欄（' + result.receipt.createdAt + '）；物理刪除尚未完成' + (result.purgeError ? '：' + String(result.purgeError).replace(/。+$/, '') : '（原因未回報）') + '。不刪玩家本地存檔。';
   emit({ rows: list, blockedReason: visible ? blockedText() : '', operation: visible ? tracking : '', result: visible ? text : '', message: visible ? messageText : '', references: visible ? referenceRows() : [], referencesText: visible ? referenceText() : '', locked: disabled,
    refreshDisabled: !visible || isBusy(), checkDisabled: !visible || isBusy() || sending,
@@ -183,7 +216,16 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   try {
    const value = await api(path);
    if (!live()) return;
-   if (t.kind === 'publish') { const found = statusReceipt(value, t); result = { kind: 'publish', receipt: found.receipt }; distribution = found.distribution; message('已核對原上架；本地提交、分發確認與管理員同意是不同事實。'); }
+   if (t.kind === 'publish') {
+    const found = statusReceipt(value, t); result = { kind: 'publish', receipt: found.receipt }; distribution = found.distribution;
+    message('已核對原上架：' + targetText(t) + '；本地提交、分發確認與管理員同意是不同事實。');
+    // 核對到回執就代表清單已變（例如草稿→待上架）：順手重讀，避免畫面仍顯示舊狀態。
+    try { await load(ctx); } catch { /* 清單留待下次手動刷新 */ }
+    if (!live()) return;
+    // 回執已證明這筆請求的結果，追蹤鍵不再有待核對的事實：與上架成功同樣結案，
+    // 不然會停在「查到了、按鈕還是灰的」那一步。
+    try { store(null); } catch { /* 收據已成立；保留追蹤只影響下一筆 */ }
+   }
    else {
     // 查詢只回柵欄收據。若原刪除回應遺失，物理刪除那一步從未執行：這裡不能用同一個原鍵
     // 補跑（柵欄已成立），而是用 -purge 後綴鍵冪等重放，讓「徹底刪除」不會停在柵欄。
@@ -208,15 +250,50 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
    throw error;
   }
  }
+ // 一筆上架只送一次 POST；結果由「先到的確定答案」決定：POST 回執，或同一把鍵的冪等查詢回執。
+ // 只有連線層失敗（沒有 HTTP 狀態碼）才算「未知」而轉入輪詢；服務端任何答覆（含 4xx／5xx）都照原樣拋出。
+ async function publishOutcome(t, ctx) {
+  const path = '/api/games/' + t.gameId + '/publish-operations/' + encodeURIComponent(t.key), started = Date.now();
+  let lost = false;
+  const post = api('/api/publish', { gameId: t.gameId, name: t.name }, { key: t.key }).then(
+   value => ({ kind: 'post', value }),
+   error => { if (Number.isSafeInteger(error?.status)) { throw error; } lost = true; return { kind: 'lost' }; });
+  // 輪詢先行拿到結果後，POST 的成敗不再影響結論；但也不留下未處理的拒絕。
+  post.catch(() => {});
+  while (current(ctx) && pending === t) {
+   if (!lost) {
+    const answer = await waitFor(post, PUBLISH_POLL_MS);
+    if (answer && answer.kind === 'post') return answer;
+   } else { await wait(PUBLISH_POLL_MS); }
+   // POST 還沒有答案：問一下伺服器這把鍵是否已經落地。
+   try { return { kind: 'status', status: statusReceipt(await api(path), t) }; }
+   catch (error) {
+    // 「還沒有紀錄」＝還在編譯；5xx／斷線＝暫時問不到。兩者都繼續等。
+    // 其餘 4xx 是明確拒絕（例如權限已變），照原樣拋出，不能拖到超時。
+    const status = error?.status, code = error?.code;
+    if (Number.isSafeInteger(status) && status >= 400 && status < 500 && code !== 'PUBLISH_OPERATION_NOT_FOUND') throw error;
+   }
+   if (Date.now() - started > PUBLISH_POLL_BUDGET_MS) return { kind: 'unknown' };
+   phase = '伺服器仍在處理上架（已 ' + Math.round((Date.now() - started) / 1000) + ' 秒；拿到結果會自動關閉）…';
+   render();
+  }
+  return { kind: 'unknown' };
+ }
  async function send(t, ctx) {
   if (sending || !current(ctx) || pending !== t || badJournal || t.version !== ctx.version) throw new Error('原操作關聯或帳戶已變。');
   sending = true; checked = false; querySerial++; phase = '正在提交' + (t.kind === 'publish' ? '上架' : '刪除') + '…'; render();
   try {
-   const value = t.kind === 'publish'
-    ? await api('/api/publish', { gameId: t.gameId, name: t.name }, { key: t.key })
-    : await api('/api/games/' + t.gameId + '/deletion', { gameId: t.gameId, expectedRowRevision: t.expectedRowRevision, confirmationName: t.confirmationName }, { key: t.key });
+   const outcome = t.kind === 'publish'
+    ? await publishOutcome(t, ctx)
+    : { kind: 'post', value: await api('/api/games/' + t.gameId + '/deletion', { gameId: t.gameId, expectedRowRevision: t.expectedRowRevision, confirmationName: t.confirmationName }, { key: t.key }) };
    if (!current(ctx) || pending !== t) return;
-   if (t.kind === 'publish') { result = { kind: 'publish', receipt: publishReceipt(value, t) }; }
+   if (outcome.kind === 'unknown') {
+    phase = '';
+    message('上架請求已送出，但 ' + (PUBLISH_POLL_BUDGET_MS / 60000) + ' 分鐘內沒取得確定結果；伺服器可能仍在處理，請稍後按「查詢原操作」核對，不要重送。');
+    render(); return;
+   }
+   const value = outcome.value;
+   if (t.kind === 'publish') { result = { kind: 'publish', receipt: outcome.kind === 'status' ? outcome.status.receipt : publishReceipt(value, t) }; }
    else {
     const fence = deleteReceipt(value, t); result = { kind: 'delete', receipt: fence };
     // 用戶決定（2026-11）：刪除＝徹底清除。柵欄成立後立刻物理刪除資料庫列；
@@ -224,13 +301,15 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
     try { const purge = purgeReceipt(await api('/api/admin/games/' + t.gameId + '/purge', { confirmationName: t.confirmationName, expectedRowRevision: fence.rowRevision }, { key: t.key + '-purge' })); purgeOutcomes.set(t.key, { purge }); result = { kind: 'delete', receipt: fence, purge }; }
     catch (error) { result = { kind: 'delete', receipt: fence, purgeError: errors[error.code] ?? String((error && (error.code || error.message)) || error || '原因未回報') }; }
    }
-   distribution = null; phase = '已提交，正在讀取回執與清單…'; message('本地已提交，正在重新讀取清單。'); render();
+   // 輪詢得來的狀態本身就是回執＋分發描述子；POST 回執則看它有沒有附分發。
+   distribution = outcome.kind === 'status' ? outcome.status.distribution : null;
+   phase = '已提交，正在讀取回執與清單…'; message('本地已提交，正在重新讀取清單。'); render();
    // A 路線第一版：伺服器已在本次請求內推進分發時，回執自帶描述子（與 GET 狀態同構）。
-   if (t.kind === 'publish' && value.distribution !== undefined) distribution = distributionStatus(value.distribution, t.gameId, value.distribution.operationId);
+   if (t.kind === 'publish' && outcome.kind === 'post' && value.distribution !== undefined) distribution = distributionStatus(value.distribution, t.gameId, value.distribution.operationId);
    // A failed reload or observation never turns a committed local operation into failure.
    try { await load(ctx); } catch { /* list stays stale until the next explicit refresh */ }
    // 已確認就不再多走一次狀態查詢；待確認仍照舊查詢。
-   if (t.kind === 'publish' && distribution?.state !== 'confirmed') { try { await query(); } catch { /* query keeps the original operation and reports uncertainty */ } }
+   if (t.kind === 'publish' && outcome.kind === 'post' && distribution?.state !== 'confirmed') { try { await query(); } catch { /* query keeps the original operation and reports uncertainty */ } }
    // 回執已證明本次請求的結果，關聯不再有待核對的事實：釋放追蹤鍵，讓清單可以再上架下一版。
    if (t.kind === 'publish') references = null;
    if (current(ctx) && pending === t) { try { store(null); } catch { /* 收據已成立；保留關聯只影響下一筆，不影響本次結果 */ } }
@@ -277,7 +356,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   if (!current(ctx) || pending !== original || badJournal !== broken) return;
   store(null); result = null; distribution = null; message('已停止本機追蹤；服務原請求不受影響。'); render();
  }
- const action = fn => (...args) => work(async () => { const ctx = capture(); try { return await fn(...args); } catch (error) { if (current(ctx)) message((errors[error.code] ?? error.message) + (pending || badJournal ? ' 同一個請求保留；先查詢，不自動重送。' : ' 本次未提交；修正後可重新上架。')); throw error; } finally { render(); } });
+ const action = fn => (...args) => work(async () => { const ctx = capture(); try { return await fn(...args); } catch (error) { if (current(ctx)) message((errors[error.code] ?? error.message) + stuckHint()); throw error; } finally { render(); } });
  const actions = Object.freeze({ refresh: action(refresh), check: action(check), publish: action(submit), remove: action(remove), query: action(query), retry: action(retry), forget: action(forget) });
  return Object.freeze({ actions, render,
   setIdentity(value) { const next = value?.user ? { user: { id: value.user.id, version: value.user.version, role: value.user.role, mustChangePassword: value.user.mustChangePassword } } : null; const changed = JSON.stringify(identity) !== JSON.stringify(next); identity = next; if (changed) { generation++; rows = []; message(''); references = null; restore(); } render(); },
