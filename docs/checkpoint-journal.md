@@ -117,7 +117,7 @@ GET  /api/games/<id>/draft/chapter-references  ms=37169 / 38466 / 42652
 
 验收：`/api/health` `initialized:true`；`/publish.js` 仍 36834 B／`01fa45e2…`（本批不碰前端）；玩家 `static-release.json` 仍 `2ecb54f6…`（`web/` 未变 → 无新 pin、无玩家端部署）。回滚：`.env` 改回 `20261106-bc1-ui12` + recreate，或换回 `app-prev22-…`。
 
-### 6.4 校驗／上架共用的源码解析 2.2×（只碰 parser，未部署）
+### 6.4 校驗／上架共用的源码解析 2.2×（已锁步部署）
 
 `web/src/content/authoring/sourcejson.js` 的 `CanonicalSourceParser` 改为跳段扫描：字符串内用一次 `stringBreak` 正则定位下一个 `"`／`\\` 并整段 `slice`，scalar 用 sticky `scalarRun` 整段取，结构字符按 charCode 比较；无反斜线的 token 直接 `slice` 去引号，只有整数／`true/false/null` 才直接得值，其余仍走 `JSON.parse` 并校验 `scalar(value)===token`（错误码与顺序不变）。`#value` 用 `frame.value[key]=value` 取代 `Object.defineProperty`（`forbidden()` 已挡原型键）。
 
@@ -127,13 +127,32 @@ GET  /api/games/<id>/draft/chapter-references  ms=37169 / 38466 / 42652
 - 未做：生产端点的 37–42 s 主体是单线程 event loop 被上架／编译占住（并发 190 s 请求排队），不是算法本身；真要再降得把编译移出主线程，需单独设计批准。
 
 
-**锁步部署已备好的那几步（下次批准后照做）**：
+**digest 核对方法（可复现）**：
 
 - HEAD（`5799ebc`）在 Linux 侧 LF 检出上跑 `node tools/build_trial_web_bundle.mjs` 得 `unchanged:true`、`sha256=09965b65…`（与本机重建一致：`web/src/**/*.js`、`trialweb.txt` 都是 `eol=lf`，两个 CRLF 固定文件按 `.gitattributes` 一致）——即提交里的束与源码自洽。
 - 用 `buildStaticRelease` 对 `web/src/**/*.js` 逐字节算：新树 `sourceTreeDigest=93faf8d99b2f51166fcf4ab30e491d8fa37bc20f26bde69ea78264d036549873`；对当前**已部署**树同法算得正是现用的 `2ecb54f6…`，说明这个方法与生产 pin 对得上。
 - 因此部署时要改两处：`STATIC_SOURCE_SHA256=93faf8d9…`（`verifyInstalledProgram` 的输入），以及 `STATIC_RELEASE_SHA256`＋`STATIC_PATH_PREFIX`（玩家端清单与 R2 `deployment-assets/static-v1/<新 sha>/` 上传）——后者必须走既有部署流水线重建整份清单，不能用只含 `src/` 的临时计算冒充。
 
-**为什么未部署**：`web/src/**` 属于静态发布树，改它必须同时重建 `server/public/trialweb.txt` 并更新服务器 `STATIC_SOURCE_SHA256`／`STATIC_RELEASE_SHA256`，也就是**编辑器与玩家端锁步发布**（ui10 那一次的做法）。本批只把镜像限制在服务端文件，以免在未获准的情况下重发玩家包。工作区已一并提交重建后的 `trialweb.txt`（保持 HEAD 自洽），待批准后按锁步流程部署。
+**锁步部署（已完成，2026-11-06 11:45Z→12:09Z，镜像 `20261106-bc1-ui14`）**
+
+| 项 | 值 |
+| --- | --- |
+| 提交 | `f595158` |
+| 静态发布 inventory | `72ec1c31e1a37f7e9f23118ca443cdf6c3500c030650ccfe5074a5683a9b1bb2`（1441 文件 + 清单，167.39 MiB） |
+| source tree digest | `93faf8d99b2f51166fcf4ab30e491d8fa37bc20f26bde69ea78264d036549873` |
+| trialweb 束 | `09965b65…`（Linux LF 检出重建得 `unchanged:true`，与本机一致） |
+| 镜像 | `dragon-editor-publication:20261106-bc1-ui14`（`e68316f8…`），镜像内 `verifyInstalledProgram(93faf8d9…)` → `VERIFY_OK` |
+| 回滚点 | `app-prev23-20261106T114510Z`、`publication.env.before-72ec1c31…`、nginx conf `.before-72ec1c31…`、备份 `publication-20261106T112112Z` |
+
+步骤：服务器 LF 检出跑 `tools/prepare_deploy.mjs` → 复现 inventory `72ec1c31…`（与线上分发**逐位相同**）→ `dist/` 放到 `/home/web/html/dragon-editor-bootstrap/72ec…/`（1442 文件、171 MiB）→ 按花括号深度复制既有 location 块（digest 全替换）插到 conf、`nginx -t`＋reload → 公网直验 `static-release.json` `200`／`72ec1c31…` 与新 `sourcejson.js` `80a7fac5…` → `publication.env` 三处 pin 改写 → 备份 → `app`→`app-prev23-…`＋`app-new24`→`app`＋`.env` 换 ui14 → recreate → **23 分钟** healthy。
+
+验收：`/api/health` `initialized:true`；`/publish.js` 仍 36834 B／`01fa45e2…`；玩家端 `dragon.720108.xyz/static-release.json` `200`／`72ec1c31…`（与 VPS pin 一致）；玩家 `/program-assets/72ec…/data.json` **200**（新程序包已归档 R2 并登记）；`/play-api/v1/registry` `generation 10`、空目录；容器日志只有 `started`＋`distribution-idle`，error／failed 计数 **0**。
+
+**三个坑（务必记住）**：
+
+1. **先切镜像，再改 `publication.env`**。`backup-publication.sh` 结尾自己会 `docker compose up -d`；我这次先改 pin 再跑备份，compose 因 env 变化**用旧镜像（ui13）重建**，旧 `web/` 与新 `STATIC_SOURCE_SHA256` 不匹配 → `{"event":"startup-failed"}` 重启循环，直到我切到 ui14。正确顺序：构建＋镜像内验证 → 切 `app`＋`.env` → 最后改 `publication.env` → recreate。
+2. **新静态发布首次启动要 ~23 分钟**（`archiveStaticProgram` 先把 1441 个文件从 `STATIC_ORIGIN` 下载并核 sha，再上传 R2：实测 RX 536 MB／TX 184 MB）。ui12／ui13 只要 7 分钟，是因为 R2 已有同一 digest 的对象。做 web/ 变更时要预留这个窗口；期间服务不可用。
+3. **玩家端会自己追平**：`dragon.720108.xyz/static-release.json` 在本轮部署**之前**就已经是 `72ec1c31…`／`sourceTreeDigest 93faf8d9…`，其 `sourcejson.js` sha 等于我在服务器上用 `prepare_deploy.mjs` 对同一 commit 的产物——推断 CF 侧对 GitHub `main` 有自动构建部署（响应头无 Pages 标识，未见面板证据）。**含义**：push 任何 `web/` 改动会立刻改玩家端 assets，而 VPS pin 不跟随 → VPS 一重启就 `startup-failed`（本次即如此）。要么保持"push 后立刻完成 VPS 侧追平"，要么关掉那个自动构建。
 
 ## 7. 失败尝试与坑（不要重做）
 
