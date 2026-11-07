@@ -701,3 +701,35 @@ schema 复核（只读快照）：`cp /srv/dragon/data/editor.sqlite* /tmp/q/` �
 - **Cloudflare**：两个域名的 A 记录内容为 `82.158.91.231`（源站），但曾长期保持橙云（对外答 `104.21.88.121`／`172.67.178.181`）。**A 记录填源站 IP ≠ 直连**——云朵开关决定对外发布谁；切灰云（DNS only）后 CF 的 100 s 边缘上限与 Worker CPU 限制才真正消失。TLS 由本机 nginx 的 Let's Encrypt 证书提供（`CN=dragon.720108.xyz`，SAN 覆盖两个域名）。
 - **R2 桶 `dragon`**：迁移后先核「磁盘 13606 键 == R2 13606 键、缺失 0／多余 0、抽样 25 个 sha256 全等」，再逐条删对象、最后 `wrangler r2 bucket delete dragon`（S3 令牌只有对象权限，删桶报 `AccessDenied`，要用 OAuth 的 wrangler）。剩余桶 `agentic-inbox`／`img-box`／`sanguo-gtiles` 与本项目无关。
 - **旧机 `dartnode4`**：容器与 `dragon-editor-publication:*` 镜像已移除，`dragon-editor.720108.xyz` 的 vhost 移到 `/home/web/conf.d-disabled/`；`nginx` 容器**保留**（同时服务 `kpanle.720108.xyz`／`v2ray-dartnode.720108.xyz`）。保留回滚数据 `/srv/dragon-editor/publication/publication-data`（157 MB）与 `/root/dragon-editor-backups`（8.0 GB）。
+
+## 17. 方案 B 第二次搬迁：instabox sandbox（2026-11-07 起，现行生产）
+
+用户决定：「当前的VPS不再使用。资源配置太低」→ 迁到 instabox sandbox（Firecracker VM，4 vCPU / 8 GiB / 16 GiB root + 20 GiB `/data`，Debian 13），对外走 **Cloudflare Tunnel**。
+
+### 17.1 拓扑
+
+| 入口 | 链路 |
+| --- | --- |
+| `https://dragon-editor.720108.xyz` | CF Tunnel → `127.0.0.1:18990`（host-rewriting proxy）→ `8788`（editor 容器） |
+| `https://dragon.720108.xyz` | CF Tunnel → `127.0.0.1:8789`（player 容器，**不需要 proxy**） |
+
+DNS 两条 CNAME → `f5d35af4-bbb8-4abe-9ec4-cbc9ead29866.cfargotunnel.com`（proxied=true）。CF 只做 TLS 反代（响应头 `server: cloudflare`、`cf-cache-status: DYNAMIC`），**不跑 Workers**，所以 2026-11-06 的 Error 1102（免费 Worker CPU 10ms 上限，实测 `/play-api/v1/registry` 单次 cpuTime 11ms）不会再出现。
+
+### 17.2 三个必踩的坑（都实测过）
+
+1. **数据目录必须 `700` 且属主 = 容器 uid**：`vps/publication-main.mjs` 的 `privateOwned()` 要求 `mode & 0o077 === 0`，tar 解包后目录是 755 → 启动即 `private owner permissions required` → `startup-failed` 重启循环。修法 `chmod 700 <dataRoot>`。
+2. **编辑器要求 `Host` 逐字等于配置 origin 的 host**（`vps/editor-server.mjs:88`），而 instabox 的公网代理把 `Host` 改写成 `127.0.0.1:<port>`、真名放 `x-forwarded-host`；Cloudflare Tunnel 则保留原 Host。所以 18990 上有一个 40 行反代（`/data/dragon/proxy.mjs`）：还原 Host + 顺带把 `deployment-assets/static-v1/<digest>/` 从本机 `dist` 供应（编辑器开机的静态归档要读它，content-type 必须与 `vps/static-client.mjs` 白名单逐字相符，含 flac/wav/mid）。玩家端不需要反代：`vps/player-server.mjs` 用 `PLAYER_ORIGIN` 重建请求 URL，与 Host 无关。
+3. **旧隧道的 CNAME 会让域名回 530**：DNS 原本指向已删除的隧道 `fa6929ee-…`，`cloudflared tunnel route dns --overwrite-dns` 不会改写既有 CNAME（它报「already configured」）；要用 API `PATCH /zones/<zone>/dns_records/<id>` 把 content 换成新隧道。
+
+### 17.3 布局与运维
+
+```text
+/data/dragon/{data(700),private-objects(700),bucket(700),dist,env,cloudflared,logs}
+/data/dragon/{docker-compose.yml,proxy.mjs,start.sh,README.md}
+systemd: dragon-editor-proxy.service（proxy.mjs）、dragon-tunnel.service（cloudflared）
+```
+
+- 迁移校验：桶 13606 对象（含 `.meta` 共 27212 档）键集合 `find | LC_ALL=C sort | md5sum` 两边同为 `381524459c4d853f5b86394fe2e2f4b2`；`dist` 1442、`private-objects` 569、`editor.sqlite` 3.4 MB；镜像 `docker save | gzip | ssh docker load` 字节一致。
+- **sandbox stop 后所有进程与隧道连接消失**；start 后跑 `/data/dragon/start.sh`（compose up + 重启 proxy/tunnel）。
+- 换域名只需改 `env/publication.env` 的 `EDITOR_ORIGIN`/`STATIC_ORIGIN`、`env/player.env` 的 `PLAYER_ORIGIN`、`env/proxy.env` 的 `PROXY_PUBLIC_HOST`，代码零改动。
+

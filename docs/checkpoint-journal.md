@@ -83,6 +83,16 @@
 - **dartnode4**：`docker compose down`（编辑器容器＋网络）、`docker rm -f dragon-editor-probe`、所有 `dragon-editor-publication:*` 镜像 `rmi`、`dragon-editor.720108.xyz` 的 vhost 移到 `/home/web/conf.d-disabled/` 后 `nginx -t`＋reload；磁盘 74G→61G（释放约 13G）。`nginx` 容器**保留**（同机还服务 `kpanle.720108.xyz`／`v2ray-dartnode.720108.xyz`，配置未受影响）。
 - **DNS**：用户把两条 A 记录切到灰云后，`nslookup` 直接返回 `82.158.91.231`，响应头 `Server: nginx`（无 `cf-ray`）→ CF 已完全不在链路上，100 s 边缘上限与 Worker CPU 限制都不再适用。
 
+### 1.3 2026-11-07：搬到 instabox sandbox + Cloudflare Tunnel 绑回域名
+
+用户原话：「当前的VPS不再使用。资源配置太低」（指 sadcloud 4C/3.9G）→ 选中「1」（CF Tunnel 方案）。
+
+- **机器**：instabox sandbox `m_agqwqhyt5emm6ckzagrgpj375a`，Firecracker VM，4 vCPU / 8192 MiB / 16 GiB root + 20 GiB `/data`，Debian 13；docker 29.8.2 与 compose v5.6.0 已装；**无公网 IP**（`~/MACHINE.md`：no port is reachable from the internet），只有 `instabox-port publish` 的 `<port>-<id>.instabox.tech` 出口（证书 `*.instabox.tech`，自定义 Host 打边缘回 503）。
+- **迁移**：桶 13606 对象（`.meta` 合计 27212 档）/1.6 GB、dist 1442/171 MB、private-objects 569/150 MB、`editor.sqlite` 3.4 MB，`tar` over ssh（instabox→sadcloud 出网通）；键集合 `LC_ALL=C sort | md5sum` 两边同为 `381524459c4d853f5b86394fe2e2f4b2`；镜像 `docker save | gzip | ssh docker load`。落地 `/data/dragon`，compose 端口仍绑 `127.0.0.1:8788/8789`。
+- **三个坑**：①数据目录必须 `700` 且属主 = 容器 uid（`privateOwned()` 校验），tar 后是 755 → `private owner permissions required` 重启循环；②编辑器要求 `Host` 逐字等于配置 origin 的 host（`vps/editor-server.mjs:88`），instabox 代理把 Host 改写成 `127.0.0.1:<port>` → 18990 上加 40 行 host-rewriting proxy，并顺带从本机 `dist` 供应 `deployment-assets/static-v1/<digest>/`（编辑器开机静态归档要读它，content-type 必须与 `vps/static-client.mjs` 白名单逐字相符）；③旧隧道 `fa6929ee-…` 已删但两条 CNAME 仍指它 → 域名回 **530（Argo 1033）**，`cloudflared tunnel route dns --overwrite-dns` 报「already configured」不改写，必须 API `PATCH /zones/<zone>/dns_records/<id>` 换成新隧道 `f5d35af4-…cfargotunnel.com`。
+- **现状**：`https://dragon.720108.xyz`（player，registry/入口页/`intro/assets/gametitle.png`/`program-assets/src/main.js` 全 200）、`https://dragon-editor.720108.xyz`（`/api/health` 200 `initialized:true`、`/shell-ui.js` 709029 B sha `cb0f822a…`）；CF 只做 TLS 反代（`server: cloudflare`、`cf-cache-status: DYNAMIC`），**不跑 Workers**，1102 不再出现。systemd：`dragon-editor-proxy.service`、`dragon-tunnel.service`；sandbox stop 后跑 `/data/dragon/start.sh`。
+- **待办**：sadcloud 尚未下线（用户未确认）；`proxy.mjs`/compose/start.sh 未入库。
+
 ## 2. 上架管理：190–205 s 回执被链路切断（生产实测，2026-11-06）
 
 用户截图问「校驗成功但上架按鈕暫停／玩家端加载不出来」。直查 `dartnode4`（只读）得到：
