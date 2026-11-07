@@ -38,8 +38,10 @@ export function mountPlayerNewGame({ root, reader, selection, store, compilerRev
     if (key) node.dataset[key] = String(value);
     node.addEventListener('click', action); rows.append(node); return node;
   }
-  function failed(ticket) {
+  function failed(ticket, error) {
     if (closed || ticket !== epoch) return;
+    // 面板只說「暫不可用」，真正的原因（PLAYER_PACK_INVALID 等）只留在 console，否則無從診斷。
+    if (error !== undefined) console.error('[player] new game failed', error?.code ?? error?.message ?? String(error));
     phase = 'error'; heading.textContent = '新局暫不可用';
     message.textContent = '資料取得或版本檢查未完成，沒有開始對局。可重試；版本已變更時請返回重新選擇遊戲。';
     rows.replaceChildren(); button('重試', () => { void refresh(); });
@@ -66,7 +68,7 @@ export function mountPlayerNewGame({ root, reader, selection, store, compilerRev
       release(owned);
       const value = await loadPlayerChapters({ reader, selection: selected, assertCurrent: () => current(ticket) });
       current(ticket); preview = value; chapters(); return true;
-    } catch (error) { if (isGameDeletedFailure(error)) deleted(ticket); else failed(ticket); return false; }
+    } catch (error) { if (isGameDeletedFailure(error)) deleted(ticket); else failed(ticket, error); return false; }
   }
   async function choose(chapterId) {
     if (closed || phase !== 'chapters' || !preview.chapters.some(row => row.chapterId === chapterId)) return;
@@ -94,14 +96,14 @@ export function mountPlayerNewGame({ root, reader, selection, store, compilerRev
       }, 'factionSlot', faction.idx);
     } catch (error) {
       try { release(owner); } catch { /* Keep the owned handle for explicit retry. */ }
-      if (isGameDeletedFailure(error)) deleted(ticket); else failed(ticket);
+      if (isGameDeletedFailure(error)) deleted(ticket); else failed(ticket, error);
     }
   }
   function close() {
     if (closed) return true;
     const ticket = ++epoch;
     try { release(owned); }
-    catch { failed(ticket); return false; }
+    catch (error) { failed(ticket, error); return false; }
     closed = true; host.remove(); resolve(null); return true;
   }
   function back(event) {

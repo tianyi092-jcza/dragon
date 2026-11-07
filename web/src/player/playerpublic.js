@@ -113,7 +113,9 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
     });
     await startApp(opening, { formal: { environment, saveRepository, savedSlot: selected.savedSlot ?? null,
       onExit: host.onExit, checkStatus: host.checkStatus } });
-  } catch {
+  } catch (error) {
+    // 正式入口的失敗一律留下代碼：面板文案是給玩家的，診斷要靠這行。
+    console.error('[player] public entry failed', error?.code ?? error?.message ?? String(error));
     catalog.close();
     if (host) { void host.onExit({ reason: 'unavailable' }); return; }
     // Before App ownership, only this composition owns the selected resources.
