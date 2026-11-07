@@ -225,7 +225,7 @@ control/current.json                                全站在架列表 + 根版�
 
 | 改动 | 内容 | 依据/边界 |
 |---|---|---|
-| 删除后的 R2 回收 | 新增 `vps/game-reclaimer.mjs`：①读 `control/directory.json` → 按 `sha256(JSON.stringify(directoryPointerBody(pointer))) === pointer.digest` 复核 → 过滤掉该 gameId 一条 → 用**读到的 etag** 做 CAS 写回 → 回读逐字节确认；②按 `artifacts/<gameId>/` 前缀 list+remove，直到前缀为空 | 游戏级数据物理独立，所以删除只涉及这两件事。**不推进代次**：这是已提交目录的修补，不是新发布；条目移除与保留墓碑对读者等价（都是 410 `GAME_DELETED`），所以玩家可见语义一个字都没变 |
+| 删除后的 R2 回收 | 新增 `vps/game-reclaimer.mjs`：①读 `control/directory.json` → 按 `sha256(JSON.stringify(directoryPointerBody(pointer))) === pointer.digest` 复核 → 过滤掉该 gameId 一条 → 用**读到的 etag** 做 CAS 写回 → 回读逐字节确认；②按 `artifacts/<gameId>/` 前缀 list+remove，直到前缀为空；③（ui15 补全）按 `private/<gameId>/` 前缀清编辑器私有位元組（`vps/file-bucket.mjs` 的 `remove`，`installed/` 拒绝删除），回执新增 `privateObjects` 档数 | 游戏级数据物理独立，所以删除只涉及这两件事。**不推进代次**：这是已提交目录的修补，不是新发布；条目移除与保留墓碑对读者等价（都是 410 `GAME_DELETED`），所以玩家可见语义一个字都没变 |
 | 不碰的东西 | `artifacts/programs/<programDigest>/`（共享程序包）、`kao/<id>.png`（621 共享画像）、`control/receipts|roots/…`（冻结证明链）一律不动；不做引用计数、不做退役账本 | §8 已确认的决定 |
 | 路由接线 | `server/editorapp.js#postPurge` 变成 async：库行 purge（单交易）→ registry revision bump → 调用注入的 `purgeReclaimer`；回执新增 `reclamation: { state: 'completed', pointer, objects }`；**未注入端口时**报 `{ state: 'pending', code: 'RECLAIMER_UNCONFIGURED' }`，失败时报具体 code——没写 completed 就是没做完 | 库行 purge 是交易，R2 回收在交易之后：失败只降级，不推翻已提交的删除事实，也不假装清理成功 |
 | 端口装配 | `vps/publication-server.mjs` 只在 `r2.list`/`r2.remove` 都存在时才装配回收器（生产 `r2client` 都有）；`vps/editor-server.mjs`、`createEditorApplication` 增加可选 `purgeReclaimer` 并做启动期类型校验 | 可选注入 = 未装配时如实降级，不是「默认假装有 R2 删除能力」 |
@@ -630,3 +630,74 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u al
 
 **仓库里的 `wrangler.jsonc` 不动**：它保留 `build.command` 给「手工 deploy 仓库根」这种场景，
 手动发布一律用脚本生成的、去掉 `build` 段的临时配置，避免 wrangler 在我们控制之外的目录重建 dist。
+
+## 16. 方案 B：现行生产（`sadcloud`，2026-11-06 起）
+
+> §15 及其 §15.1–15.6 描述的是**历史形态**（dartnode4 ＋ Cloudflare Worker ＋ R2 桶）。2026-11-06 起生产整体搬到自有 VPS，本节为准；旧机器与 R2 桶已下线。
+
+### 16.1 为什么搬
+
+- **玩家端 `Error 1102 Worker exceeded resource limits`**：`npx wrangler tail dragon` 实测 `/play-api/v1/registry` 单次 **cpuTime = 11 ms**，而免费 Workers CPU 上限 10 ms —— 冷启动或稍重的 `/play-api/v1/file`（读并 sha256 校验运行时索引与章节）必被打穿。
+- **CF 边缘 100 s 上限**（非 Enterprise 不可调）会静默切断 190–205 s 的上架请求（nginx 记 `499`）。
+- 用户决定（原话）：「能不能改成不部署cloudflare，把玩家端部署到我指定的vps上？」→ 选方案 B：彻底去 CF，字节落 VPS 磁盘。
+
+### 16.2 机器与布局
+
+| 项 | 值 |
+| --- | --- |
+| 主机 | `ssh sadcloud`（sshd **7218**，ufw 已放行 7218/80/443） |
+| 规格 | Debian 13 (trixie)／4 核／3921 MB／50G；docker 29.9.3＋compose v5.7.0、node v22.23.0（`/opt/node22`）、nginx 1.26.3＋`libnginx-mod-stream`、certbot |
+| 代码 | `/srv/dragon/src`（git clone，部署即 `git fetch && git reset --hard origin/main`） |
+| 数据库 | `/srv/dragon/data/editor.sqlite`（`VACUUM INTO` 快照，owner 1000:1000，mode 700/600） |
+| 私有字节 | `/srv/dragon/private-objects`（容器内挂 `/data/private-objects`） |
+| 游戏字节 | `/srv/dragon/bucket`（磁盘桶，容器内 `/bucket`，`PUBLICATION_BUCKET_ROOT=/bucket`） |
+| 静态产物 | `/srv/dragon/dist`（1442 档，挂玩家容器 `/app/dist:ro`） |
+| 编排 | `/srv/dragon/docker-compose.yml`；`publication.env`／`editor.env`／`player.env`／`r2.env`（已无用）／`.env`（`*_DEPLOYMENT_ID`） |
+| 容器 | `dragon-editor-1`（`127.0.0.1:8788`）、`dragon-player-1`（`127.0.0.1:8789`） |
+
+**443 端口分流**：本机原有 x-ui/xray 的 `reality-443` 入站已改为 `127.0.0.1:11443`（DB 备份 `/root/x-ui.db.bak-*`）。nginx `stream` 用 `ssl_preread` 按 SNI 分流：两个 dragon 域名 → `127.0.0.1:8443`，`default` → `11443`。实测 SNI `www.tesla.com` 仍返回 TESLA 证书，**VPN 不受影响**。
+
+### 16.3 磁盘桶契约（不能改，改了收据就废）
+
+`vps/disk-bucket.mjs` 与 `vps/r2client.mjs` 逐方法同形，发布器／指针 CAS／收据／回收器不用改：
+
+- `get(key,{maxBytes}) → { bytes, headers:{ etag, 'content-type', 'last-modified' } } | null`
+- `putImmutable(key,bytes,type) → { sha256, byteLength } | null`、`putControl(key,bytes,ifMatch) → boolean`、`list(prefix,maxKeys) → string[]`、`remove(key) → 204|404`
+- **`etag` 必须是 R2 形状 `"<md5>"`、`last-modified` 必须等于文件 mtime（`toUTCString()`）**：`vps/distribution-publisher.mjs` 的 `headers()` 会把两者写进收据（`rootETag`／`visibleAt`），形状不符即判 `REMOTE_GAP` 封锁账本。从 R2 迁移时保留 Last-Modified 就是为了这一点。
+- content-type 只允许 `application/json`／`application/octet-stream`，落盘在 `.meta/<key>`（`list` 跳过点开头目录）；缺 meta 时按 `.json → application/json`、其余 `octet-stream` 回退。
+- 迁移与回填：`vps/migrate-r2-to-disk.mjs`（可续传、逐条进度、用 `MAX_RESOURCE_BYTES` 作下载预算）、`vps/backfill-bucket-types.mjs`。
+
+### 16.4 部署配方
+
+```bash
+# 1) 服务器取源（服务器到 GitHub 快，本机上行差；务必核对 HEAD）
+ssh sadcloud 'cd /srv/dragon/src && git fetch -q origin main && git reset -q --hard origin/main && git rev-parse --short HEAD'
+# 2) 重建镜像（编辑器／玩家各自独立，改哪个建哪个）
+ssh sadcloud 'cd /srv/dragon && docker build -f src/vps/Dockerfile.publication -t dragon-editor-publication:<tag> src'
+ssh sadcloud 'cd /srv/dragon && docker build -f src/vps/Dockerfile.player -t dragon-player:<tag> src'
+# 3) 改 .env 的 EDITOR_DEPLOYMENT_ID／PLAYER_DEPLOYMENT_ID，然后 recreate
+ssh sadcloud 'cd /srv/dragon && docker compose up -d --force-recreate editor player'
+```
+
+- **镜像内先验 pin**（与 §15 同理）：`docker run --rm --entrypoint node <image> --input-type=module -e "…verifyInstalledProgram({webRoot:'/app/web/',bundlePath:'/app/server/public/trialweb.txt',expectedSourceTreeDigest:'93faf8d9…'})"` 必须 `VERIFY_OK`。
+- `web/`／`reader/` 没变时**不动 `publication.env` 三处 pin**；变了才重建 dist、`certbot` 不动、nginx `alias` 路径随 digest 改（`location ^~ /deployment-assets/static-v1/<digest>/`）。
+- 玩家镜像只带 `reader/`＋`web/src/player/`＋`vps/{player-server,disk-bucket}.mjs`，`dist/` 由 compose 挂载 —— 换静态发布不必重建镜像。
+
+### 16.5 上线后核对（每次照做）
+
+```bash
+curl -s https://dragon-editor.720108.xyz/api/health        # 200 + initialized:true
+curl -s https://dragon-editor.720108.xyz/shell-ui.js | wc -c # 与 git show HEAD:server/public/shell-ui.txt 字节数相等
+curl -s https://dragon.720108.xyz/play-api/v1/registry      # generation／directory 符合预期
+curl -s -o /dev/null -w '%{http_code}' "https://dragon.720108.xyz/?formalGame=<gameId>&mode=new"   # 200
+curl -s -o /dev/null -w '%{http_code}' "https://dragon.720108.xyz/program-assets/<digest>/grf/battle_units.png"  # 200 image/png
+ssh sadcloud 'docker ps --format "{{.Names}} {{.Status}}"'
+```
+
+schema 复核（只读快照）：`cp /srv/dragon/data/editor.sqlite* /tmp/q/` 后用 `docker run --rm -v /tmp/q:/q node:22-bookworm-slim node /q/x.cjs`（`node:sqlite` readOnly），期望 **54 表／52 索引／361 列／4 FK**、`integrity_check ok`、账本 `tail_generation == confirmed_generation` 且 `blocked_reason` 为 null。
+
+### 16.6 已下线（2026-11-06，不可再引用）
+
+- **Cloudflare**：两个域名的 A 记录内容为 `82.158.91.231`（源站），但曾长期保持橙云（对外答 `104.21.88.121`／`172.67.178.181`）。**A 记录填源站 IP ≠ 直连**——云朵开关决定对外发布谁；切灰云（DNS only）后 CF 的 100 s 边缘上限与 Worker CPU 限制才真正消失。TLS 由本机 nginx 的 Let's Encrypt 证书提供（`CN=dragon.720108.xyz`，SAN 覆盖两个域名）。
+- **R2 桶 `dragon`**：迁移后先核「磁盘 13606 键 == R2 13606 键、缺失 0／多余 0、抽样 25 个 sha256 全等」，再逐条删对象、最后 `wrangler r2 bucket delete dragon`（S3 令牌只有对象权限，删桶报 `AccessDenied`，要用 OAuth 的 wrangler）。剩余桶 `agentic-inbox`／`img-box`／`sanguo-gtiles` 与本项目无关。
+- **旧机 `dartnode4`**：容器与 `dragon-editor-publication:*` 镜像已移除，`dragon-editor.720108.xyz` 的 vhost 移到 `/home/web/conf.d-disabled/`；`nginx` 容器**保留**（同时服务 `kpanle.720108.xyz`／`v2ray-dartnode.720108.xyz`）。保留回滚数据 `/srv/dragon-editor/publication/publication-data`（157 MB）与 `/root/dragon-editor-backups`（8.0 GB）。

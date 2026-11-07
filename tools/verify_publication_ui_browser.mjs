@@ -19,7 +19,7 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(systemroot|windir|path|pathext|temp|tmp|comspec|appdata|localappdata)$/i.test(k)));
 const errors = [], outside = [], failed = [], posts = [], deletes = [], purges = [], calls = [], expectedErrors = [], checks = [], consoleErrors = [];
 let browser, stage = 'launch', publishMode = 'success', statusMode = 'pending', sessionId = A, sessionVersion = 1, queryCount = 0;
-const records = new Map(), row = (gameId, name, state, version, stateTime, rejected = false) => ({ gameId, name, introduction: name + ' 的說明', version, state, stateTime, restricted: false, rejected, rowRevision: '1', createdAt: earlier });
+const records = new Map(), row = (gameId, name, state, version, stateTime, rejected = false, draftChanged = true) => ({ gameId, name, introduction: name + ' 的說明', version, state, stateTime, restricted: false, rejected, draftChanged, rowRevision: '1', createdAt: earlier });
 const RG = '55555555-5555-4555-8555-555555555555';
 let rows = [row(DG, '草稿遊戲', 'draft', null, null), row(DP, '待上架遊戲', 'draft', null, null), row(PG, '待上架遊戲', 'pending', '1.0', earlier), row(LG, '已上架遊戲', 'listed', '1.0', time), row(RG, '被拒遊戲', 'pending', '1.0', earlier, true)];
 function parsed(text) { try { return JSON.parse(text); } catch (cause) { throw new Error('bad owned request', { cause }); } }
@@ -129,7 +129,7 @@ try {
  stage = '只讀查詢：404 才允許重送，distribution kind 錯不推定公開';
  statusMode = 'absent'; await page.click('#publish-query'); await idle(); assert.equal(await page.isDisabled('#publish-retry'), false);
  statusMode = 'pending'; publishMode = 'success'; await page.click('#publish-retry'); await idle(); assert.equal(posts.length, 3); assert.deepEqual(posts[2], lost);
- assert.match(await page.locator('#publish-result').textContent(), /本地已提交上架：版本 1\.0.*分發待確認/); assert.equal(await journal(), null);
+ assert.match(await page.locator('#publish-result').textContent(), /本地已提交上架申請：版本 1\.0.*分發待確認/); assert.equal(await journal(), null);
  assert.equal((await cell(DP, 'state')).trim(), '待上架'); assert.equal(await cell(DP, 'version'), '1.0'); checks.push(stage);
  stage = '刪除入口已移出上架管理：面板不得再有刪除動作，也不得發出刪除／清掃請求';
  assert.equal(await page.locator('#publish-table [data-action="delete"]').count(), 0);

@@ -70,8 +70,18 @@ export function parsePublicationEnvironment(input) {
   const host = required('EDITOR_LISTEN_HOST');
   if (!['127.0.0.1', '0.0.0.0'].includes(host)) throw new TypeError('invalid EDITOR_LISTEN_HOST');
   const port = integer('EDITOR_LISTEN_PORT', 65535), intervalMs = integer('EDITOR_DRAIN_INTERVAL_MS', 2147483647);
-  const r2 = { accountId: required('R2_ACCOUNT_ID'), accessKeyId: required('R2_ACCESS_KEY_ID'), secretAccessKey: required('R2_SECRET_ACCESS_KEY'), bucket: required('R2_BUCKET') };
-  if (!/^[a-f0-9]{32}$/.test(r2.accountId) || !/^[A-Za-z0-9_-]{16,128}$/.test(r2.accessKeyId) || !/^[A-Za-z0-9+/=_-]{32,256}$/.test(r2.secretAccessKey) || r2.bucket !== 'dragon') throw new TypeError('invalid R2 configuration');
+  // 方案 B（2026-11 用戶決定）：玩家端與編輯後台都搬到自己的 VPS，字節改存本機磁碟。
+  // PUBLICATION_BUCKET_ROOT 存在時完全不需要 R2 憑證；否則維持原本的 R2 部署（可回滾）。
+  const bucketRootInput = input.PUBLICATION_BUCKET_ROOT;
+  let bucketRoot;
+  if (bucketRootInput !== undefined && bucketRootInput !== '') {
+    if (!isAbsolute(bucketRootInput) || bucketRootInput.startsWith('\\') || normalize(bucketRootInput) !== bucketRootInput || parse(bucketRootInput).root === bucketRootInput) throw new TypeError('private absolute bucket directory required');
+    bucketRoot = bucketRootInput;
+  }
+  const r2 = bucketRoot === undefined
+    ? { accountId: required('R2_ACCOUNT_ID'), accessKeyId: required('R2_ACCESS_KEY_ID'), secretAccessKey: required('R2_SECRET_ACCESS_KEY'), bucket: required('R2_BUCKET') }
+    : null;
+  if (r2 !== null && (!/^[a-f0-9]{32}$/.test(r2.accountId) || !/^[A-Za-z0-9_-]{16,128}$/.test(r2.accessKeyId) || !/^[A-Za-z0-9+/=_-]{32,256}$/.test(r2.secretAccessKey) || r2.bucket !== 'dragon')) throw new TypeError('invalid R2 configuration');
   const prefix = input.R2_PREFIX;
   if (typeof prefix !== 'string' || !(prefix === '' || /^test\/[A-Za-z0-9_-]{1,100}\/$/.test(prefix))) throw new TypeError('explicit R2_PREFIX required');
   const staticOptions = { origin: required('STATIC_ORIGIN'), pathPrefix: input.STATIC_PATH_PREFIX ?? '' };
@@ -82,5 +92,5 @@ export function parsePublicationEnvironment(input) {
   const verifyStaticResources = createStaticResourceVerifier({ readStatic, expectedDigest, sourceTreeDigest });
   const archiveStaticProgram = (bucket, assertCurrent) => createStaticArchiver({ r2: bucket, readStatic,
     expectedDigest, sourceTreeDigest, prefix, maxTotalBytes: 256 * 1024 * 1024 }).stage(assertCurrent);
-  return Object.freeze({ env: Object.freeze(env), dataRoot, host, port, intervalMs, prefix, r2: Object.freeze(r2), sourceTreeDigest, verifyStaticResources, archiveStaticProgram });
+  return Object.freeze({ env: Object.freeze(env), dataRoot, host, port, intervalMs, prefix, r2: r2 === null ? null : Object.freeze(r2), bucketRoot, sourceTreeDigest, verifyStaticResources, archiveStaticProgram });
 }

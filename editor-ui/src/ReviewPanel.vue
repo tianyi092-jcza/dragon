@@ -46,9 +46,6 @@ async function confirmDelete() {
 </script>
 <template>
   <section id="review-editor" class="module-card">
-    <p>管理員專屬，跨創作者列出所有遊戲。狀態只有三種：草稿（未提交過）／待上架（已提交，等待審核）／已上架；被拒絕的待上架版本另標「已駁回」。</p>
-    <p>「同意上架」讓該版本成為公開版本；「拒絕」把它退回待上架並標記已駁回，作者需重新提交新版本；「刪除」刪的是整個遊戲（所有章節與所有版本），任何狀態都可刪，立即生效且不可恢復。</p>
-    <p>「發布歷史」行內展開該遊戲的每一筆上架記錄（版本／時間／分發狀態／摘要），唯讀；日誌從本次上線之後才開始記，舊版本不會回填，所以空清單是正常結果。</p>
     <div class="module-toolbar">
       <ElButton id="review-refresh" :disabled="busy || model.refreshDisabled" @click="actions.refresh()">重新整理</ElButton>
     </div>
@@ -103,7 +100,6 @@ async function confirmDelete() {
       <p v-if="!model.rows.length" class="empty-state">尚未讀取清單，或目前沒有遊戲。按「重新整理」讀取全部創作者的遊戲。</p>
     </div>
     <p id="review-result">{{ model.result }}</p>
-    <p>審核只改變上架狀態；不修改作者草稿內容。已上架的遊戲被刪除時，公開入口與公告同一個刪除事務內撤下。</p>
     <!-- 物理刪除遮罩：確認（紅字警告）→ 正在刪除 → 完成／部分完成／失敗；完成後 3 秒自動收起。 -->
     <div v-if="overlay" id="review-overlay" class="progress-overlay" role="alertdialog" :aria-busy="overlay.phase === 'running'">
       <div class="progress-card">

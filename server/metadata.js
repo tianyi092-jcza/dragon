@@ -112,13 +112,16 @@ export class GameMetadataStore {
   // new ordinal, so the mark clears itself and two events in the same
   // millisecond can never be confused (no timestamp comparison).
   #submissionState(row) {
-    const release = row.current_release_id === null ? undefined : this.#one('SELECT ordinal,created_at FROM content_releases WHERE game_id=? AND release_id=?', row.game_id, row.current_release_id);
-    if (row.current_release_id !== null && (!release || !/^1\.(0|[1-9][0-9]{0,30})$/.test(release.ordinal) || typeof release.created_at !== 'string')) fail(503, 'SUBMISSION_ROW_CORRUPT');
-    if (!revision(row.row_revision)) fail(503, 'SUBMISSION_ROW_CORRUPT');
+    const release = row.current_release_id === null ? undefined : this.#one('SELECT ordinal,created_at,draft_revision FROM content_releases WHERE game_id=? AND release_id=?', row.game_id, row.current_release_id);
+    if (row.current_release_id !== null && (!release || !/^1\.(0|[1-9][0-9]{0,30})$/.test(release.ordinal) || typeof release.created_at !== 'string' || !revision(release.draft_revision))) fail(503, 'SUBMISSION_ROW_CORRUPT');
+    if (!revision(row.row_revision) || !revision(row.draft_revision)) fail(503, 'SUBMISSION_ROW_CORRUPT');
     const listed = Number(row.listed) === 1, state = listed ? 'listed' : release ? 'pending' : 'draft';
     const lastListing = listed ? this.#one("SELECT created_at FROM content_audits WHERE game_id=? AND action='admin-list' ORDER BY created_at DESC LIMIT 1", row.game_id) : undefined;
     const rejected = Boolean(!listed && release && this.#one("SELECT event_id FROM content_audits WHERE game_id=? AND action='admin-reject' AND before_revision=?", row.game_id, release.ordinal));
-    return { release, state, rejected, stateTime: listed ? lastListing?.created_at ?? null : release ? release.created_at : null };
+    // 草稿目前修订与已发布版本绑定的修订不同＝有未发布的新内容；從未發佈时恒为 true。
+    // 上架申請只能在「有東西可送」时开放：待審核中不重複送、已上架但沒改東西不必送下一版。
+    const draftChanged = !release || row.draft_revision !== release.draft_revision;
+    return { release, state, rejected, draftChanged, stateTime: listed ? lastListing?.created_at ?? null : release ? release.created_at : null };
   }
   submissionSummaries(tokenHash) {
     const actor = this.#actor(tokenHash);
@@ -126,7 +129,7 @@ export class GameMetadataStore {
       .filter(row => !this.#one('SELECT game_id FROM content_deletion_fences WHERE game_id=?', row.game_id))
       .map(row => {
         const derived = this.#submissionState(row);
-        return Object.freeze({ gameId: row.game_id, name: row.draft_name, introduction: row.draft_introduction, version: derived.release ? derived.release.ordinal : null, state: derived.state, stateTime: derived.stateTime, rejected: derived.rejected, restricted: Number(row.restricted) === 1, rowRevision: row.row_revision, createdAt: row.created_at });
+        return Object.freeze({ gameId: row.game_id, name: row.draft_name, introduction: row.draft_introduction, version: derived.release ? derived.release.ordinal : null, state: derived.state, stateTime: derived.stateTime, rejected: derived.rejected, draftChanged: derived.draftChanged, restricted: Number(row.restricted) === 1, rowRevision: row.row_revision, createdAt: row.created_at });
       });
   }
   // 上架審核 list: every creator's game (cross-creator), same derivation plus

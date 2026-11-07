@@ -24,9 +24,9 @@ async function attached(title, run) {
 }
 async function publish(row) {
   try {
-    await ElMessageBox.confirm(`上架會先校驗整個遊戲（全部章節與跨章引用）。通過後版本號自動 +1（本次 ${row.nextVersion}）並提交管理員審核；校驗失敗則狀態不變並列出錯誤。`, `上架「${row.name}」`, { type: 'warning', confirmButtonText: '上架', cancelButtonText: '取消' });
+    await ElMessageBox.confirm(`上架申請會先校驗整個遊戲（全部章節與跨章引用）。通過後版本號自動 +1（本次 ${row.nextVersion}）並提交管理員審核；校驗失敗則狀態不變並列出錯誤。`, `上架申請「${row.name}」`, { type: 'warning', confirmButtonText: '送出申請', cancelButtonText: '取消' });
   } catch { return; }
-  await attached('正在處理上架…', () => props.actions.publish(row.gameId));
+  await attached('正在送出上架申請…', () => props.actions.publish(row.gameId));
 }
 async function check(row) {
   if (props.busy || props.model.checkDisabled) return;
@@ -60,7 +60,7 @@ async function check(row) {
             <td data-field="state-time">{{ time(row.stateTime) }}</td>
             <td class="account-row-actions">
               <ElButton data-action="check" :disabled="busy || model.checkDisabled" @click="check(row)">校驗</ElButton>
-              <ElButton data-action="publish" :title="row.publishHint" :disabled="busy || row.publishDisabled" @click="publish(row)">上架</ElButton>
+              <ElButton data-action="publish" :title="row.publishHint" :disabled="busy || row.publishDisabled" @click="publish(row)">上架申請</ElButton>
             </td>
           </tr>
         </tbody>

@@ -8,9 +8,9 @@
 - 仓库`E:/Dragon/web-port`；原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。自动化禁止访问真实`SAVE.DAT`、用户存档/profile；只用内存、mock或新隔离profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏正式版本`1.n`与软件版本、source修订、程序摘要相互独立。
 - fresh／restore走v2原生道路与固定表，生产v1路径已退役；未知消费点fail-closed，保已提交前缀、hold和禁存。不凭现代码、体验或测试补公式，不宣称完整战役已经认证。
-- 当前主线：**工作台统一发布＋游戏级存储**。软件版本 **`0.1.11`** 已发 Release 并上生产（生产镜像 `20261106-bc1-ui14`，static release digest `72ec1c31…`／sourceTree `93faf8d9…` 与玩家站一致）；游戏存储方案 B 的 A/B/C 三批已上线：上架并行写游戏级在架指针 `control/directory.json`，读者只按指针出目录，删除 = 库行 purge + 指针移除 + `artifacts/<gameId>/` 前缀回收。生产上「复制→全面检验→上架→管理员同意→玩家端加载游玩→删旧产物」已跑通。发布协议为 **A 路線（同步发布）**：上架／同意在同一请求内把分发推到可见（`EDITOR_SYNC_PUBLISH=0` 即回旧协议），并新增审计日志 `game_releases` 与管理员「发布历史」面板（`GET /api/admin/games/<id>/releases`）。上架端到端 190–205 s，**前端不再依赖那一次长连接**：POST 只发一次＋每 5 s 轮询 `GET /api/games/<id>/publish-operations/<key>`，先到者胜，超时只报「结果未知」不清追踪键。
-- **玩家站与编辑器必须用同一份 static release（digest 锁步）**：玩家端自 2026-11-06 起改为 **手动构建部署**（Cloudflare Workers Builds 的 Git 集成已断开，push 不再改玩家端）；每次 `web/` 变化都会得到新 digest，而 `reader/programentry.js` 只为 `?formalGame=` 正式入口选程序，只认 R2 `control/programs/` 里已登记的 digest——不锁步时正式入口直接 503「目前無法取得一致的遊戲程式」（普通首页走 ASSETS，不受影响）。手动发布配方与上线后核对清单见 [game-storage-layout](docs/game-storage-layout.md) §15.6、编辑器侧部署见同文 §15。软件版本、玩家站 digest、程序归档摘要三者相互独立，必须分别核对。
-- 剩余：下线 7 张 `content_distribution_*` 与退役流程（前置＝生产实测一次 20 章上架耗时，已有 212 s 数据）、通用系统审计未立项；上架回执已改轮询（不依赖单次长连接），不必再修「超时上报失败」。维护源：[R2接线](docs/r2-player-connection.md)、[VPS就绪](docs/vps-editor-readiness.md)、[存储布局](docs/game-storage-layout.md)；本轮修改、提交／部署状态与阻塞只记 [checkpoint journal](docs/checkpoint-journal.md)，不在此复制。
+- 当前主线：**工作台统一发布＋游戏级存储**。软件版本 **`0.1.11`** 已发 Release 并上生产（**生产已迁到自有 VPS `sadcloud`**：编辑器镜像 `20261107-b2-disk`、玩家镜像 `dragon-player:20261107-b2-disk2`；static release digest `72ec1c31…`／sourceTree `93faf8d9…` 与玩家站一致；**不再依赖 Cloudflare 与 R2**）；游戏存储方案 B 的 A/B/C 三批已上线：上架并行写游戏级在架指针 `control/directory.json`，读者只按指针出目录，删除 = 库行 purge + 指针移除 + `artifacts/<gameId>/` 前缀回收 + 编辑器私有位元組 `private/<gameId>/` 回收（ui15 补全；不回收时每个游戏留 49 檔／46 MB）。生产上「复制→全面检验→上架→管理员同意→玩家端加载游玩→删旧产物」已跑通。发布协议为 **A 路線（同步发布）**：上架／同意在同一请求内把分发推到可见（`EDITOR_SYNC_PUBLISH=0` 即回旧协议），并新增审计日志 `game_releases` 与管理员「发布历史」面板（`GET /api/admin/games/<id>/releases`）。上架端到端 190–205 s，**前端不再依赖那一次长连接**：POST 只发一次＋每 5 s 轮询 `GET /api/games/<id>/publish-operations/<key>`，先到者胜，超时只报「结果未知」不清追踪键。
+- **玩家站与编辑器必须用同一份 static release（digest 锁步）**：两端现在跑在同一台 VPS——编辑器 `dragon-editor-1`（`127.0.0.1:8788`）＋玩家 `dragon-player-1`（`127.0.0.1:8789`，同一份 `reader/*.js` 跑在 Node 上），静态产物挂 `/srv/dragon/dist`（1442 档，digest `72ec1c31…`），程序归档在磁盘桶 `artifacts/programs/<digest>/` 与 `control/programs/<digest>.json`。`web/` 一变就换 digest，而 `reader/programentry.js` 只为 `?formalGame=` 正式入口选程序（`mode` 只接受 `new`／`load`），未登记就 503「目前無法取得一致的遊戲程式」（普通首页走静态资源，不受影响）。重建静态产物用 `vps/manual-static-build.sh`（内部固定 `git -c core.autocrlf=false archive`）；现行生产布局、部署配方与上线核对见 [game-storage-layout](docs/game-storage-layout.md) §16。软件版本、玩家站 digest、程序归档摘要三者相互独立，必须分别核对。
+- 剩余：下线 7 张 `content_distribution_*` 与退役流程（前置＝生产实测一次 20 章上架耗时，已有 212 s 数据）、通用系统审计未立项；上架回执已改轮询（不依赖单次长连接），不必再修「超时上报失败」。维护源：[存储布局](docs/game-storage-layout.md)（§16 为现行生产）、[R2接线](docs/r2-player-connection.md)（历史 CF/R2 形态）、[VPS就绪](docs/vps-editor-readiness.md)；本轮修改、提交／部署状态与阻塞只记 [checkpoint journal](docs/checkpoint-journal.md)，不在此复制。
 - 优先最小修改、复用现有验证，不堆框架或辅助测试。保留他人改动；commit／push分别需明确授权，推送显式使用GitHub `github`，不误推Gitea `origin`。不提交秘密、缓存、临时报告、截图或本地运行数据。**本机对 `github.com:443` 的 git HTTP/2 通道常被重置**（`OpenSSL SSL_read: Connection was reset`／`Failed to connect`），而 `curl`／`gh api`／`ls-remote` 同一时刻可能正常；推送与拉取用 `git -c http.version=HTTP/1.1 push github <ref>` 即通，不必改全局配置。本机还设了 `HTTP(S)_PROXY`／`ALL_PROXY=http://127.0.0.1:10808`：`git` 走代理、`ssh`／`scp` 不走代理（这是上面那条重置的环境原因），而 **`wrangler` 会被代理卡死**，调用前必须 `env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u all_proxy`。**VPS 部署不要从本机传大包**：2026-11-05 实测本机→VPS 上行跌到 ≈16 KB/s，改用服务器侧 `git fetch --depth 1` 取 GitHub（服务器到 GitHub 快且可 hash 校验），配方见 [game-storage-layout](docs/game-storage-layout.md) §15。
 
 ## 2. 架构与数据流
@@ -29,14 +29,14 @@
 | `player/` | 正式目录／准入／资源／存档／宿主；旧`reader/`客户端文件仅再导出 |
 | 仓库`editor-ui/`、`server/public/` | Vue后台外壳及原生业务模块适配；不持有响应式游戏状态、不替代服务端权限 |
 | 仓库`server/editorapp.js`、`vps/` | Node与workerd共用业务／鉴权；VPS SQLite、文件桶、发布CLI和drainer |
-| 仓库`reader/site.js`、`wrangler.jsonc` | Workers同源游戏API、程序归档资源与Static Assets路由 |
+| 仓库`reader/site.js`、`vps/player-server.mjs` | 同源游戏API、程序归档资源与Static Assets路由；同一份 `reader/*.js` 由 `vps/player-server.mjs` 在 Node 上跑（workerd／`wrangler.jsonc` 为历史形态） |
 
 - 世界384×256格、16px图块、192据点节点；128军团槽、22正常势力、24×24外交矩阵、256×4B事件轮；逻辑界面640×400。哨兵／别名／排除槽不能用数组长度泛化。
 - `web/content/builtin/`编译20章；图集、布局、拓扑与规则地形分离，画道路不等于建通路。实际资源路径取世界定义，不硬编码旧`road_graph.json`。命名state字段为权威，未知字节不补零；解析纠错导入新目录，不手改生成物。
 - IndexedDB为同源`wolong-web/saves`，目录与正文同事务；不是DOS存档或服务端API。恢复先回标题，detached校验／资源ready后安装，await后重核所属scenario／world／clock／票据。战斗、未完续段、装配或故障均禁存。
 - 编辑器schema：**54表／52索引／106对象／361列／4FK，23个DDL源**（`d301c49` 起分发账本另有退休检查点／清理／入队闸门三表，已补冻结；`game_releases` 为 A 路線发布审计日志，每次上架一行，无 payload 无外键；见 checkpoint-journal §4.2／§4.30）。权威含`server/deletiondefinitions.js`、`deletionschema.js`、`distributiondeclarations.js`；旧22源生成器不再覆盖全量，不能直接覆盖当前冻结门。
-- VPS负责账户、草稿、私有Trial和编译；Cloudflare负责玩家程序及私有R2 `dragon`桶只读投影。桶布局`kao/`（**621 张共享画像，其中 150 张数字档 0–149 供游戏按 byte 取用，`p####` 471 张供编辑器 portraitKey 挑选；全部必须 128×128**）、`artifacts/programs/<programDigest>/`（共享程序包）、`artifacts/<gameId>/…`（游戏级不可变发布字节）、`control/current.json`（冻结根）、`control/directory.json`（**游戏级在架指针：唯一与游戏相关的可写对象**）、`control/programs|roots|receipts/`。禁用户上传画像。游戏数据发布不经Git、不重启程序。
-- 发布请求永久幂等，准确release／pin／冻结事件同事务；预上传不等于公开可见，远端根CAS与读回收据后才确认，未知响应不伪造回滚。删除栅栏不等于物理清理；真正删除＝库行purge＋在架指针移除该gameId＋按`artifacts/<gameId>/`前缀回收，读者查不到即`410 GAME_DELETED`（墓碑与缺席等价，purge后不留墓碑）。
+- **单一 VPS 承载两端（2026-11-06 方案 B 上线，取代 CF Worker＋R2）**：`sadcloud` 上编辑器负责账户／草稿／私有Trial／编译／发布，玩家服务把 `reader/*.js` 跑在 Node 上；游戏字节放**磁盘桶** `/srv/dragon/bucket`（`vps/disk-bucket.mjs`，与 `vps/r2client.mjs` 逐方法同形：`etag` 用 R2 形状 `"<md5>"`、`last-modified` 取文件 mtime（收据 `visibleAt` 靠它）、content-type 落 `.meta/<key>`）。桶布局`kao/`（**621 张共享画像，其中 150 张数字档 0–149 供游戏按 byte 取用，`p####` 471 张供编辑器 portraitKey 挑选；全部必须 128×128**）、`artifacts/programs/<programDigest>/`（共享程序包）、`artifacts/<gameId>/…`（游戏级不可变发布字节）、`control/current.json`（冻结根）、`control/directory.json`（**游戏级在架指针：唯一与游戏相关的可写对象**）、`control/programs|roots|receipts/`。禁用户上传画像。游戏数据发布不经Git、不重启程序。
+- 发布请求永久幂等，准确release／pin／冻结事件同事务；预上传不等于公开可见，远端根CAS与读回收据后才确认，未知响应不伪造回滚。删除栅栏不等于物理清理；真正删除＝库行purge＋在架指针移除该gameId＋按`artifacts/<gameId>/`前缀回收＋编辑器私有位元組`private/<gameId>/`前缀回收（`FileBucket.remove`，`installed/` 永不删），读者查不到即`410 GAME_DELETED`（墓碑与缺席等价，purge后不留墓碑）。
 - `/play-api`交给游戏reader；`/program-assets/<digest>/…`交给登记／清单／SHA门；正式根页请求由当前部署选择程序壳，普通首页走ASSETS。程序选择不是用户提供的历史摘要；八季节图基址来自模块URL。游戏版本作废与软件归档身份是不同概念。
 
 ### 2.1 编辑器与统一地图的文档职责
@@ -87,7 +87,8 @@
 - S3 SigV4保留空canonical query行；桶私有、凭据仓库外env。源章ID含`#`时R2保字面key、HTTP只编码一次。固定库消费者指纹改变需审差异／新身份，不覆写旧注册表或放宽SHA；画像索引硬编码与库指纹须共同核查。
 - 按`.gitattributes`保持字节；Windows工作树与云Git检出清单可能因换行不同，先核Git blob及明确eol例外，不能改预期hash掩盖差异。`git status`标M不必有真实差异，不批量reset／renormalize。**用`git archive HEAD <path> | tar -xO | sha256sum`做落地字节校验**（`web/index.html`、`web/src/content/authoring/gamesource.js`、`web/src/game/navigation/originalroadarrival.js`是`eol=crlf`，裸blob sha会假失败）；Windows工作树直接跑`prepare_deploy`会得到错digest，必须用`git -c core.autocrlf=false -c core.eol=lf worktree add --detach`的LF检出；而且`core.autocrlf=true`时**`git archive`本身也会**给未声明`eol`的文本文件补CRLF（2026-11-06实测45个文件、+0.43MiB，`content/builtin/chapters/*.json`每行+1字节），但`sourceTreeDigest`不变（只覆盖显式`eol=lf`的`web/src/**.js`与`web/intro/styles.css`）→ 表现为「digest对上了、inventory sha对不上」（`f1582a85…` vs `72ec1c31…`）。归档一律用`git -c core.autocrlf=false archive`（`vps/manual-static-build.sh`已内置），判据是`dist/static-release.json`的sha256等于线上同名文件。
 - **部署锁步的四个坑**（配方见[存储布局](docs/game-storage-layout.md)§15）：①**pin与镜像必须同源**——`vps/publication-main.mjs`开机前用`verifyInstalledProgram`比对镜像内`web/`＋`trialweb.txt`与`STATIC_SOURCE_SHA256`，只改`publication.env`不重建镜像会`startup-failed`崩溃循环；②**R2程序登记可能被静默跳过**——归档传输错误只判`unreachable`，服务照常起、日志只有`started`＋`distribution-idle`，要在容器内查`control/programs/<digest>.json`，缺了就再重启一次（幂等）；③**nginx在容器里**——`docker exec nginx nginx -t|nginx -s reload`，复制`location`块要按花括号深度取块尾（块内有嵌套`types {}`）；④**顺序不可颠倒**——镜像内`VERIFY_OK`→切`app`＋`.env`→**最后**改`publication.env`三处pin→recreate；先改pin再跑`backup-publication.sh`会让它结尾的`compose up -d`用**旧镜像**重建，旧`web/`对新`STATIC_SOURCE_SHA256`→`startup-failed`循环（2026-11-06实测不可用约28分钟）。玩家端每次`web/`变更都会换digest，未锁步就会开局503，所以UI改动可攒一批再一次性部署，不要每次push都重启生产；新digest首启要~23分钟（R2无该digest时要先下载1441文件核sha再上传），已有同digest时7分钟。
-- **Cloudflare 边缘会静默切断百秒级响应**：上架端到端 190–205 s，`client.txt` 与 nginx 都是 600 s、连接能活到 190 s 以上，却常在响应前被丢（`Premature close`，nginx 记 `499`）而服务端事务已提交；非 Enterprise 的 100 s 上限不可调。结论：延长超时无解，客户端只能「写请求只发一次＋轮询幂等查询端点」，后台长任务同理。
+- **方案 B 迁移的三个坑（2026-11-06 实锤，细节见 journal §1.2）**：①玩家端唯讀綁定必须是 Workers 绑定形状 `{ size, httpMetadata.contentType, body: ReadableStream }`——`reader/programarchive.js` 用 `body.getReader()` 分块读、用 `httpMetadata.contentType` 逐字比对，只给 `{ size, arrayBuffer() }` 会让 `/program-assets/*` 全部 **503 `PROGRAM_ASSET_UNAVAILABLE`**（不是 404），`tools/verify_disk_bucket.mjs` 第 8 条已锁定；②Debian 的 `/etc/nginx/mime.types` 缺 `flac/wav/mid` → `vps/static-client.mjs` 的 `STATIC_CONTENT_TYPE` 失败，必须补；③`/program-assets/<digest>/` 的 digest 是**程序包 digest**（`control/programs/<digest>.json`），`static-release.json` 是 manifest 不是 asset（走该路由必 404，正常），`?formalGame=` 的 `mode` 只接受 `new`／`load`。
+- **（历史，2026-11-06 已迁出 CF）Cloudflare 边缘会静默切断百秒级响应**：上架端到端 190–205 s，`client.txt` 与 nginx 都是 600 s、连接能活到 190 s 以上，却常在响应前被丢（`Premature close`，nginx 记 `499`）而服务端事务已提交；非 Enterprise 的 100 s 上限不可调。结论：延长超时无解，客户端只能「写请求只发一次＋轮询幂等查询端点」，后台长任务同理。
 - Workers单文件25MiB限制：静态部署排除大型创作源`game-source.json`，保留运行资产；使用显式构建，不依赖custom build hook的跨版本行为。BGM为软件OPL3输出，不是实机录音；版权／分发边界见[README](README.md)。
 - 重lane的代理502／DO stub失败与产品500分开排查，不凭无日志认定产品错误；测试门闩支持多个waiter，重叠put不能覆盖首个release。可复核补丁见`docs/fixture-patches/`。证据inputs／imports双桶都需固定hash，失败轮保留，不覆盖已封存scope。
 - 原证索引：[AI全链](docs/re-notes-ai-chain.md)、[行军](docs/re-notes-march-pathfinding.md)、[武将去向](docs/re-notes-legion-fate.md)、[财政](docs/re-notes-ai-fiscal.md)、[外交](docs/re-notes-ai-diplomacy.md)。
@@ -103,8 +104,13 @@ node tools/dev_editor.mjs  # 本地开发服务：同上服务端跑 Node SQLite
 node tools/verify_pinned_source_registration.mjs  # 固定源启动登记（空库开箱可建游戏）
 python -B tools/compile_content.py --output /path/to/new-generated
 node tools/build_trial_web_bundle.mjs  # 修改web/src后重建，并核两壳／库指纹
-vps/manual-static-build.sh /path/to/out  # 玩家端手动发布：产dist/与wrangler.deploy.jsonc（LF、印出static-release.json的sha256）
-npx wrangler deploy -c /path/to/out/wrangler.deploy.jsonc  # 需先env -u掉HTTP(S)_PROXY／ALL_PROXY，否则会卡死
+vps/manual-static-build.sh /path/to/out  # 重建静态产物：dist/（LF），末行印出 static-release.json 的 sha256
+ssh sadcloud 'cd /srv/dragon/src && git fetch -q origin main && git reset -q --hard origin/main'  # 生产取源（服务器到 GitHub 快且可校验）
+ssh sadcloud 'cd /srv/dragon && docker build -f src/vps/Dockerfile.publication -t dragon-editor-publication:<tag> src'  # 编辑器镜像
+ssh sadcloud 'cd /srv/dragon && docker build -f src/vps/Dockerfile.player -t dragon-player:<tag> src'  # 玩家镜像
+ssh sadcloud 'cd /srv/dragon && docker compose up -d --force-recreate editor'  # 先改 .env 的 *_DEPLOYMENT_ID 再 recreate
+curl -s https://dragon-editor.720108.xyz/api/health  # 期望 200 + initialized:true
+curl -s https://dragon.720108.xyz/play-api/v1/registry  # 玩家端目录（generation／directory）
 node tools/verify_start_flow.mjs
 node tools/verify_clock_transition.mjs
 node tools/verify_march_navigation.mjs
@@ -124,7 +130,7 @@ node tools/verify_publication_main.mjs
 node tools/verify_directory_pointer.mjs        # 指针整形/CAS/幂等/根先于指针语义
 node tools/verify_reader_directory_pointer.mjs # 读者按指针出目录，与旧投影逐字等价
 node tools/verify_game_purge.mjs               # 31表逐表0行复查
-node tools/verify_game_purge_reclaim.mjs       # 指针移除+artifacts前缀回收
+node tools/verify_game_purge_reclaim.mjs       # 指针移除+artifacts前缀回收+私有位元組回收
 node tools/verify_copy_tracking.mjs            # 复制一次跑到完成/档案数进度/失败可见
 node tools/verify_copy_abandon.mjs             # 失败不留下名称与数据
 node tools/verify_vps_linux.mjs  # 非root Linux、原生临时文件系统、Node>=22.13

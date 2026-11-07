@@ -30,6 +30,26 @@ export function r2client({ accountId, accessKeyId, secretAccessKey, bucket, time
       let match; while ((match = re.exec(r.bytes.toString('utf8'))) !== null) { out.push(match[1]); }
       return out;
     },
+    // 只給遷移／稽核用：跟著 NextContinuationToken 走完整個前綴。list() 的
+    // 單頁語意（回收器依賴它）不變，避免一次改動波及既有呼叫端。
+    async listAll(prefix, maxKeys = 1000) {
+      const out = [];
+      let token = null;
+      for (let page = 0; page < 10000; page++) {
+        const query = { 'list-type': '2', prefix, 'max-keys': String(maxKeys) };
+        if (token !== null) query['continuation-token'] = token;
+        const r = await invoke({ method: 'GET', key: bucket, query });
+        if (r.status !== 200) { throw new Error(`R2 list ${r.status}`); }
+        const text = r.bytes.toString('utf8');
+        const re = /<Key>([^<]*)<\/Key>/g;
+        let match; while ((match = re.exec(text)) !== null) { out.push(match[1]); }
+        if (!/<IsTruncated>true<\/IsTruncated>/.test(text)) { return out; }
+        const next = /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(text);
+        if (next === null) { throw new Error('R2 list continuation missing'); }
+        token = next[1];
+      }
+      throw new Error('R2 list pagination runaway');
+    },
     async get(suffix, { maxBytes = MAX_RESOURCE_BYTES } = {}) {
       const r = await invoke({ method: 'GET', key: key(suffix), maxBytes });
       // Unconditional GET has no precondition: 412 is not proof of absence.

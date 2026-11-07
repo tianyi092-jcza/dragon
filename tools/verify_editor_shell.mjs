@@ -124,10 +124,12 @@ check("no-chapter-gate", application.includes("!captured.game.chapterOrder.lengt
 check("chapter-ui", htmlIds.has("draft-chapters") && draft.includes("submitChapters") && draftView.includes('actions.chapter') && draft.includes("chapterAction"));
 check('draft-vue-owned', !html.includes('id="draft-editor"') && !draft.includes('document.') && !draft.includes('createElement') && draftView.includes('@submit.prevent="actions.save()"'));
 check('draft-display-projection', draft.includes('publish({') && client.includes('publish: model => shell.draft(model)'));
-check('workspace-context', shell.includes('id="workspace-context"') && shell.includes('其它模組已選的精確目標不會自動替換'));
+// 說明小字已按用戶要求移除（2026-11-06）：只保留草稿上下文本身，無草稿時整條不出現。
+check('workspace-context', shell.includes('id="workspace-context"') && shell.includes('目前草稿：') && !shell.includes('其它模組已選的精確目標不會自動替換'));
 check('stage-vue-owned', !html.includes('id="stage-editor"') && !readFileSync('server/public/stage.txt', 'utf-8').includes('getElementById') && stageAssetsView.includes('actions.choosePurpose'));
 check('stage-assets-vue-owned', !html.includes('id="stage-assets-editor"') && !readFileSync('server/public/stageassets.txt', 'utf-8').includes('document.') && stageAssetsView.includes('model.outputs'));
-check('publish-vue-owned', !html.includes('id="publish-editor"') && !readFileSync('server/public/publish.txt', 'utf-8').includes('document.') && publishView.includes('actions.publish(row.gameId)') && publishView.includes('actions.remove(row.gameId, row.rowRevision)'));
+// 物理刪除按鈕已移到「上架審核」（ReviewPanel），上架管理只保留校驗／上架申請。
+check('publish-vue-owned', !html.includes('id="publish-editor"') && !readFileSync('server/public/publish.txt', 'utf-8').includes('document.') && publishView.includes('actions.publish(row.gameId)') && reviewView.includes('actions.remove(target.gameId, target.rowRevision)'));
 // 刪除動作已併入「上架管理／上架審核」（工作台結構 §3），孤立組件不再參與這條判據。
 check('management-deletion-vue-owned', !html.includes('<section') && !readFileSync('server/public/management.txt','utf-8').includes('document.') && (reviewView + publishView).includes('row.rowRevision'));
 // B4 (§7): chapter attributes — start date era + city affiliation/capital +

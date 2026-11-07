@@ -1,0 +1,33 @@
+# 方案 B 的生產編排（2026-11 用戶決定：編輯後台與玩家端都搬到自己的 VPS，
+# 不再依賴 Cloudflare）。與 dartnode4 的差別只有三處：
+#   1) 玩家字節不再放 R2，改成掛載 /srv/dragon/bucket 這個磁碟桶；
+#   2) 多一個 player 服務（原本是 Cloudflare Worker，CPU 上限 10ms 會 1102）；
+#   3) nginx 在宿主機上（certbot --nginx 簽證最省事），容器只綁 127.0.0.1。
+# 密鑰只從 env 檔進來，不寫進 image，也不在本檔裡出現。
+services:
+  editor:
+    image: dragon-editor-publication:${EDITOR_DEPLOYMENT_ID:?tag required}
+    restart: unless-stopped
+    env_file: [publication.env, editor.env]
+    environment:
+      EDITOR_DATA_DIR: /data
+      EDITOR_LISTEN_HOST: 0.0.0.0
+      PUBLICATION_BUCKET_ROOT: /bucket
+    volumes:
+      - /srv/dragon/data:/data
+      # 私有位元組桶住在 dataRoot 之下（vps/publication-main.mjs 用 join(dataRoot,'private-objects')）
+      - /srv/dragon/private-objects:/data/private-objects
+      - /srv/dragon/bucket:/bucket
+    ports:
+      - 127.0.0.1:8788:8788
+    # 健康檢查由 image 自帶（vps/Dockerfile.publication 的 HEALTHCHECK）
+
+  player:
+    image: dragon-player:${PLAYER_DEPLOYMENT_ID:?tag required}
+    restart: unless-stopped
+    env_file: [player.env]
+    volumes:
+      - /srv/dragon/bucket:/bucket:ro
+      - /srv/dragon/dist:/app/dist:ro
+    ports:
+      - 127.0.0.1:8789:8789

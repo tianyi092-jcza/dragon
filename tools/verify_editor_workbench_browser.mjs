@@ -87,8 +87,8 @@ try {
     // ui4 產品決定：進入「上架審核」即自動讀一次待審清單（review.txt 的 refresh）。
     if (path === '/api/admin/reviews') return reply({ version: 1, games: [] });
     if (path === '/api/games/submissions') return reply({ games: [
-      { gameId, name: '測試遊戲', introduction: '<img src=x>', state: 'draft', version: null, stateTime: null, createdAt: '2026-01-02T03:04:05.006Z', restricted: false, rejected: false, rowRevision: '3' },
-      { gameId: otherGameId, name: '乙遊戲', introduction: '', state: 'listed', version: '1.2', stateTime: '2026-02-03T04:05:06.007Z', createdAt: '2026-01-02T03:04:05.006Z', restricted: false, rejected: false, rowRevision: '4' },
+      { gameId, name: '測試遊戲', introduction: '<img src=x>', state: 'draft', version: null, stateTime: null, createdAt: '2026-01-02T03:04:05.006Z', restricted: false, rejected: false, draftChanged: true, rowRevision: '3' },
+      { gameId: otherGameId, name: '乙遊戲', introduction: '', state: 'listed', version: '1.2', stateTime: '2026-02-03T04:05:06.007Z', createdAt: '2026-01-02T03:04:05.006Z', restricted: false, rejected: false, draftChanged: true, rowRevision: '4' },
     ] });
     if (path === `/api/games/${gameId}/draft/chapter-references`) return reply({ version: 1, gameId, draftRevision: '1', sourceDigest: 'd'.repeat(64), chapterCount: 1, chapters: [] });
     if (path === '/api/games') { if (gamesBarrier) await gamesBarrier; return reply({ games: [{ gameId, listed: false, draftRevision: String(draftRevision), ownerId: session.user.id, createdAt: '2026-01-02T03:04:05.006Z', modifiedAt: '2026-02-03T04:05:06.007Z', metadata: { name: '測試遊戲', introduction: '<img src=x>' } }, { gameId: otherGameId, listed: false, draftRevision: '1', metadata: { name: '另一遊戲', introduction: '' } }].filter(game => !omitLoadedGame || game.gameId !== gameId) }); }

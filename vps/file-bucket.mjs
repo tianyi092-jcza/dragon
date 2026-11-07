@@ -5,7 +5,7 @@
 // tolerated only for local verification. Root/ancestors must not be symlinks.
 // This is not a sandbox against another privileged/same-uid filesystem writer:
 // production owns a private directory, and callers still verify bytes/SHA.
-import { constants, openSync, closeSync, writeSync, fsyncSync, mkdirSync, lstatSync, fstatSync, readdirSync, createReadStream, linkSync, unlinkSync } from 'node:fs';
+import { constants, openSync, closeSync, writeSync, fsyncSync, mkdirSync, lstatSync, fstatSync, readdirSync, createReadStream, linkSync, unlinkSync, rmdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve, sep, parse } from 'node:path';
 import { Readable } from 'node:stream';
@@ -118,6 +118,22 @@ export class FileBucket {
       },
       arrayBuffer() { return new Response(this.body).arrayBuffer(); },
     };
+  }
+  // 刪除遊戲後的私有位元組回收（用戶決定 2026-11：刪除＝徹底清除）。只允許 private/：
+  // installed/ 是共享的已安裝底層資源，刪掉會讓之後的複製在讀源時必失敗。
+  async remove(key) {
+    const match = typeof key === 'string' ? KEY.exec(key) : null;
+    if (!match || match[2] === undefined) throw new TypeError('only private objects are removable');
+    const { full, dir } = this.#path(key);
+    if (!directory(dir) || !regularFile(full)) return false;
+    unlinkSync(full); syncDirectory(dir);
+    // 目錄空了就一併移除，否則每刪一個遊戲都留一個 46 MB 的空殼。
+    try {
+      if (readdirSync(dir).length === 0) { rmdirSync(dir); syncDirectory(join(this.#root, 'private')); }
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTEMPTY') throw error;
+    }
+    return true;
   }
   async list({ prefix = '' } = {}) {
     if (typeof prefix !== 'string') throw new TypeError('bucket prefix');

@@ -10,6 +10,7 @@ import { parsePublicationEnvironment } from './publication-config.mjs';
 import { openStorage } from './sqlite-port.mjs';
 import { FileBucket } from './file-bucket.mjs';
 import { r2client } from './r2client.mjs';
+import { createDiskBucket } from './disk-bucket.mjs';
 import { startPublicationServer } from './publication-server.mjs';
 import { isRemoteUnreachable } from './r2reachability.mjs';
 
@@ -47,7 +48,9 @@ export async function startConfiguredPublication(environment, { signal } = {}) {
   verifyInstalledProgram({ webRoot: fileURLToPath(new URL('../web/', import.meta.url)),
     bundlePath: fileURLToPath(new URL('../server/public/trialweb.txt', import.meta.url)),
     expectedSourceTreeDigest: options.sourceTreeDigest });
-  const remote = r2client(options.r2);
+  // 本機磁碟桶與 R2 是同一組方法（get/putImmutable/putControl/list/remove），
+  // 所以發布器、指針 CAS、收據、回收器都不需要知道位元組放在哪裡。
+  const remote = options.bucketRoot === undefined ? r2client(options.r2) : createDiskBucket({ root: options.bucketRoot });
   // Preserve the independently pinned software bytes before opening authority or
   // listening. A partial archive is neither a publication nor admission authority.
   // B8（Web 產品決定 2026-11）：R2 不是開機條件。傳輸層不可達時降級啟動——本次
@@ -149,6 +152,10 @@ export async function runPublicationCommand({ argv = process.argv.slice(2), env 
     }
     clearInterval(monitor);
     if (runtime && !closing) { try { await close(); } catch { /* retain SQL on failed service close */ } }
+    // 預設只報事件（不外洩路徑與設定）；PUBLICATION_DEBUG=1 時把原始錯誤寫到 stderr 供排查。
+    if (process.env.PUBLICATION_DEBUG === '1') {
+      process.stderr.write(JSON.stringify({ event: 'startup-error', message: String(error?.message ?? error), stack: String(error?.stack ?? '').split(String.fromCharCode(10)).slice(0, 6) }) + String.fromCharCode(10));
+    }
     detach(); processHost.exitCode = 1; emit('startup-failed'); return null;
   }
 }

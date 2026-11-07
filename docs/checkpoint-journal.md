@@ -8,7 +8,7 @@
 
 ## 1. 本工作线概览
 
-主题：**上架链路可靠性 + 玩家端发布方式改手动**。生产镜像 `20261105-bc1-ui7c` → `ui8` → `ui9` → `ui10`（`823d54ae…`）→ `ui11`（`12cee783…`）→ `ui12`（`55a75da2…`）→ `ui13`（`d699f9e9…`）→ **`20261106-bc1-ui14`（`e68316f8…`，当前）**。
+主题：**上架链路可靠性 + 玩家端发布方式改手动 + 方案 B 迁到自有 VPS**。编辑器镜像 `20261105-bc1-ui7c` → … → `20261107-bc1-ui15`（`3295ad99…`）→ `20261107-bc1-ui16`（`9a99154`）→ **`20261107-b2-disk`（方案 B，当前）**；玩家镜像 **`dragon-player:20261107-b2-disk2`（当前）**。两端都跑在 `sadcloud`，Cloudflare 与 R2 已下线（§1.2）。
 
 | commit | 内容 |
 | --- | --- |
@@ -18,8 +18,70 @@
 | `5799ebc` | `CanonicalSourceParser` 2.2×（校驗／上架共用）＋重建 trialweb 束 |
 | `f595158`／`9e09c0b` | ui13／ui14 部署记录与部署坑 |
 | `455744e` | `vps/manual-static-build.sh` ＋手动发布手册（§15.6）；CF Git 集成已断开 |
+| `5c0e272` | 上架申請流程收斂（按钮只在有东西可送时开放、目标已删即自動作廢）＋删除＝彻底清除补上 `private/<gameId>/` 回收；ui15 已部署 |
+| `9a99154` | 去掉審核頁三段說明與底部說明、草稿上下文條空態與小字（用戶要求）；ui16 已部署 |
+| `9f60ebd` | 方案 B：磁盘桶落盘 content-type（`.meta/<key>`）＋一次性回填脚本 |
+| `2841cd8` | 玩家端唯讀桶綁定补 Workers 形状（`body` 流串＋`httpMetadata`），`/program-assets/*` 不再 503 |
+| `c763638` | 方案 B 的 journal 记录（§1.2） |
 
-当前 digest：玩家站 `static-release.json` = **`72ec1c31e1a37f7e9f23118ca443cdf6c3500c030650ccfe5074a5683a9b1bb2`**（223595 B、1441 文件、167.39 MiB），sourceTree = `93faf8d99b2f51166fcf4ab30e491d8fa37bc20f26bde69ea78264d036549873`，与 VPS `publication.env` 三处 pin 一致。玩家 Worker 当前 Version `ba4d2794-d347-4abf-9294-d62754024e9e`。
+当前 digest：`static-release.json` = **`72ec1c31e1a37f7e9f23118ca443cdf6c3500c030650ccfe5074a5683a9b1bb2`**（1442 文件、167.39 MiB，`sadcloud` 上 `/srv/dragon/dist`），sourceTree = `93faf8d99b2f51166fcf4ab30e491d8fa37bc20f26bde69ea78264d036549873`，与 `publication.env` 三处 pin 一致。玩家端不再有 Cloudflare Worker（原 Version `ba4d2794…` 随 DNS 切灰云失效），改由 `dragon-player-1` 上的 `vps/player-server.mjs` 提供；两个域名现直接解析到 `82.158.91.231`（响应头 `Server: nginx`，无 `cf-ray`）。
+
+## 1.1 ui15（2026-11-06 22:00Z）：上架申請按鈕永久灰 + 每删一个游戏白占 46 MB
+
+**用户现象**：校驗成功但「上架」按鈕灰，提示「上架暫停：上一次上架「臥龍傳·重構版」…編號 63803a5e…這款已不在清單…按「只停止本機追蹤」」。
+
+**根因（实锤）**：`server/public/publish.txt` 的 `blocked = Boolean(pending) || badJournal` 与校驗结果无关；`pending` 是**浏览器 sessionStorage**（`editor-submission-operation:<userId>`）里上一次未结案的追踪，指向早已 purge 的旧游戏。服务端 purge 触达不到浏览器；跨标签页删除（sessionStorage 按标签页隔离）让本标签页记账滞留。生产库当时 `content_releases`／`game_releases` 0 行、`content_audits` 仅 1 条 create → **上架申请从未发出**，不是服务端拒绝。
+
+**修法**（`5c0e272`）：
+- `submittable(row)`：`draft→可送`；`pending→仅 rejected 可送`；`listed→仅 draftChanged 可送`（`server/metadata.js` 的 `#submissionState` 新增 `draft_revision` 比对得出 `draftChanged`）。按钮文字改「上架申請」，确认框改「送出申請」。
+- 本机追踪自動作廢：`reconcile()`（清單成功读取且 `pending.gameId` 不在其中）＋`query()` 的 `GAME_NOT_FOUND` 权威分支 → `store(null)` 并提示「目標已刪除，本機追蹤已自動作廢」；刷新失败不得误清。目标已不在清單时不再显示无意义的 8 码短码。
+
+**删除＝彻底清除（用户要求 2026-11-06）**：生产实测每删一个游戏留 `publication-data/private-objects/private/<gameId>/` **49 檔／46 MB**（5 个孤儿共 229 MB）。原因：`vps/game-reclaimer.mjs` 只扫 R2 `artifacts/<gameId>/`，`server/gamepurge.js` 不碰 blob 端口，`vps/file-bucket.mjs` 当时无 remove。修法：`FileBucket.remove`（只允许 `private/`，`installed/` 拒绝；目录空了连目录一起删）＋reclaimer 的 `sweepPrivate` 按 `private/<gameId>/` 前缀扫（`objects` 埠可选，缺埠照实报 0）＋回执 `reclamation.privateObjects`（`publish.txt` 的 `reclaimed()` 允许并显示「遊戲私有位元組回收 N 檔」）。已手工清掉 5 个孤儿目录（清單存证 `/srv/dragon-editor/publication/reclaimed-orphan-private-objects-20261106.txt`）。
+
+**残留（设计保留，不干扰复制／上架／审核）**：`content_distribution_events` 每个已删游戏留 1 行 `delete-fence`（append-only digest 链，删会 `DISTRIBUTION_LEDGER_CORRUPT`）；`content_operations` 11 条／`content_reservations` 14 条按 `(actor, op_key)` 寻址，新操作是全新键。`content_names`／`content_used_ids` 清空 → 名称与 id 未占用。
+
+**验证**：`verify_game_purge` **11/11 PASS**（真实 HTTP purge + 真 FileBucket：本游戏私有前缀清空、同内容孪生游戏与 `installed/` 逐字节不动、32 张表 0 行；顺手修掉 TABLES 清单缺 `game_releases` 的既有红 32≠31）；`verify_game_purge_reclaim` 10/10；`verify_publish_ui_model` 12 pass／7 既有红同名不变；`verify_copy_publish_parity` PASS。
+
+**部署（ui15）**：`5c0e272` → 服务器侧浅取（FETCH_HEAD 一致）→ `git archive` 2519 文件 → 变更文件 `sha256sum -c` **13/13 OK**（`editor-ui/src/PublishPanel.vue` 不进镜像，只有 `shell-ui.txt` 进）→ `docker build … 20261107-bc1-ui15`（`3295ad99…`）→ 镜像内 `VERIFY_OK`（sourceTree `93faf8d9…`，240 源文件／241 束文件）→ `backup-publication.sh`（备份 `publication-20261106T144616Z`）→ `app-prev15-20261106T144630Z` → `.env` 换 tag → recreate。`web/`／`reader/` 与线上逐文件相同 → **三处 pin 不动**（digest 仍 `72ec1c31…`）。首启 488 s healthy；`/api/health` 200 `initialized:true`；`/shell-ui.js` 710599 B sha `0509d4b4…` 与提交一致；schema 54 表／52 索引／361 列／4 FK／`integrity_check ok`；账本 11/11/null 未动；玩家 `/play-api/v1/registry` generation 11、`directory:[]` 不变；日志仅 `started`＋`distribution-idle`。
+
+## 1.2 方案 B：玩家端搬離 Cloudflare（2026-11-06 15:00Z–23:40Z，`sadcloud`）
+
+### 1.2.1 现象与根因（实锤）
+
+用户完整走通「复制→校驗→上架申請→審核同意」，玩家端能看到发布资讯与下拉框，但点「新游戏开始」报 `Error 1102 Worker exceeded resource limits`（Ray ID `a56512467b60b98f`，2026-11-06 15:18:32 UTC），控制台无错误；后来又出现「要不报错，要不又跳回到开始加载单独的画面」（失败分支 `location.assign('/')` 回首页）。
+
+`npx wrangler tail dragon --format json` 抓到 `/play-api/v1/registry` 一次请求 **cpuTime = 11 ms**（wallTime 720 ms，outcome ok），而免费 Workers CPU 上限 10 ms → 冷启动或稍重的 `/play-api/v1/file`（要读并 sha256 运行时索引与章节）必被打穿。外部逐段实测（都 200，数据链本身正确）：`/play-api/v1/registry`（generation 13、目录含 `cf369743-8b34-4664-91c2-152c706492f0`「臥龍傳·重構版」1.0、20 章）、`/status`、`/admissions`（ticket 886 B）、`/file?role=chapter:…#upper-1`（122494 B）、`/file?role=manifest`（31781 B）、`/program-assets/<digest>/…`。
+
+### 1.2.2 用户决定
+
+「能不能改成不部署cloudflare，把玩家端部署到我指定的vps上？」→ 方案 A（保留 R2 存字节）／方案 B（彻底去 CF，字节落 VPS 磁盘）对比后：「我想走方案B，新VPS你使用ssh sadcloud连接，部署完后我把两个域名指向这个服务器」；随后「最好使用docker部署」；443 与既有 xray 冲突时选「按A」（nginx `ssl_preread` 按 SNI 分流）。
+
+### 1.2.3 落地（新增／改动文件）
+
+- **新增**：`vps/disk-bucket.mjs`（磁盘桶，与 `r2client` 逐方法同形；etag=`"<md5>"`、`last-modified`=mtime、content-type 落 `.meta/<key>`、`remove` 只许 `private/`）、`vps/player-server.mjs`（`reader/site.js` 跑在 Node：Request/Response 适配、`readOnlyBinding`、`createStaticAssets` 重放 `web/_headers` 与 404 页、`/index.html` 307）、`vps/migrate-r2-to-disk.mjs`、`vps/backfill-bucket-types.mjs`、`vps/Dockerfile.player`、`vps/docker-compose.disk.yml`、`tools/verify_disk_bucket.mjs`。
+- **改动**：`vps/publication-config.mjs`／`publication-main.mjs` 支持 `PUBLICATION_BUCKET_ROOT`（未设仍走 R2，可回滚）；`vps/r2client.mjs` 加 `listAll`（跟 `NextContinuationToken`，只给迁移／审计用）。
+- **迁移**：R2 → 磁盘桶 **13606 键／954 MB**（`written 8981 / skipped 4625 / mismatched 0`；`artifacts 8310 / control 37 / kao 621 / projections 13`），保留 R2 的 Last-Modified（收据 `visibleAt` 靠它）；SQLite（`VACUUM INTO`，3.5 MB）与 `private-objects`（150 MB／569 档）用 tar-over-ssh 从 dartnode4 搬。
+- **静态发布**在服务器上重建：`sh vps/manual-static-build.sh /srv/dragon/build` → digest `72ec1c31…`／sourceTree `93faf8d9…`、1442 档。
+
+### 1.2.4 失败尝试与坑（都实际踩过）
+
+1. **`readOnlyBinding` 少了 Workers 绑定形状** → `/program-assets/*` 全 **503 `PROGRAM_ASSET_UNAVAILABLE`**（不是 404），玩家点「开始」直接掉错误页。`reader/programarchive.js` 的 `read()` 用 `object.httpMetadata.contentType` 逐字比对、用 `object.body.getReader()` 分块读；首版只给 `{ size, arrayBuffer() }`。修法：`{ size, httpMetadata:{ contentType: headers['content-type'] }, body: new Blob([bytes]).stream(), arrayBuffer }`（`2841cd8`），`tools/verify_disk_bucket.mjs` 第 8 条锁定。
+2. **Debian 的 `/etc/nginx/mime.types` 缺 `flac/wav/mid`** → `vps/static-client.mjs` 的 `STATIC_CONTENT_TYPE` 失败，已补三行。
+3. **`/program-assets/<digest>/static-release.json` 404 是正常的**：该路由只发 `kind==='asset'` 的文件，manifest 走注册记录那条路。
+4. **`?formalGame=` 的 `mode` 只接受 `new`／`load`**，传 `mode=formal` 直接 404（我最初据此误判为「入口不通」）。
+5. **删 R2 桶不能只用 S3 令牌**：`DELETE /<bucket>` 回 `403 AccessDenied`（令牌只有对象权限），改用 OAuth 的 `npx wrangler r2 bucket delete dragon`。
+6. **`nohup node … > log` 在 ssh 下看不到进度**（stdout 缓冲到退出才落盘），只能靠另一路 `listAll` 计数确认（13606 → 4884 → 802 → 0）。
+7. **`curl -I` 打 `/play-api/*` 得 404 是设计**：`reader/worker.js` 只接受 GET。
+
+### 1.2.5 切换后的验证（全部 200）
+
+编辑器 `/api/health` 200 `initialized:true`、`/` 200、`/shell-ui.js` **709029 B**（与 `git show HEAD:server/public/shell-ui.txt` 逐字节一致）；玩家 `/play-api/v1/registry` generation 13、`/?formalGame=cf369743…&mode=new` **200／33216 B**（`<base href="/program-assets/72ec1c31…/">`）、`/program-assets/<digest>/{grf/battle_units.png,grf/battle_terrain_0.png,src/main.js,intro/scene.html}` 全 200 且 MIME 正确（png／js／text-plain）、未知路径 404；`docker ps` 两容器 healthy。用户实测：「两个域名试了，可以访问，正常」。
+
+### 1.2.6 下线旧环境（用户授权：「2. 旧 R2 桶 dragon清理。3. 旧机器 dartnode4：容器停掉清除。」）
+
+- **R2 桶 `dragon` 已删除**：删前先证明磁盘副本完整（键集合 **13606==13606**、缺失 0／多余 0、抽样 25 个 sha256 全等），再逐条删 13606 个对象，最后删桶。剩余桶 `agentic-inbox`／`img-box`／`sanguo-gtiles` 未动。删后复测 registry／entry／asset／health 全 200 → 生产已完全不依赖 R2。
+- **dartnode4**：`docker compose down`（编辑器容器＋网络）、`docker rm -f dragon-editor-probe`、所有 `dragon-editor-publication:*` 镜像 `rmi`、`dragon-editor.720108.xyz` 的 vhost 移到 `/home/web/conf.d-disabled/` 后 `nginx -t`＋reload；磁盘 74G→61G（释放约 13G）。`nginx` 容器**保留**（同机还服务 `kpanle.720108.xyz`／`v2ray-dartnode.720108.xyz`，配置未受影响）。
+- **DNS**：用户把两条 A 记录切到灰云后，`nslookup` 直接返回 `82.158.91.231`，响应头 `Server: nginx`（无 `cf-ray`）→ CF 已完全不在链路上，100 s 边缘上限与 Worker CPU 限制都不再适用。
 
 ## 2. 上架管理：190–205 s 回执被链路切断（生产实测，2026-11-06）
 
@@ -65,7 +127,9 @@ GET  /api/games/<id>/draft/chapter-references  ms=37169 / 38466 / 42652
 - 回归面：41 个引用 sourcejson 的 `verify_*` 改前／改后 pass／fail 集合完全一致。
 - 未做：`chapter-references` 单次仍 37–42 s，其主体是单线程 event loop 被上架／编译占住（并发 190 s 请求排队），不是算法本身。
 
-## 6. 玩家端改手动构建（用户决定，2026-11-06）
+## 6. 玩家端改手动构建（用户决定，2026-11-06；**方案 B 后 wrangler 部分作废**）
+
+> 2026-11-06 晚起玩家端改由 `sadcloud` 的 `dragon-player-1` 提供，Cloudflare 已不在链路上（§1.2）。`vps/manual-static-build.sh` 仍是重建 `dist/` 的唯一入口；下面「wrangler deploy」相关段落只作历史。
 
 用户要求：同仓的玩家端原本由 push 触发 Cloudflare 自动构建，**关掉它，改手动**。理由是 pin drift：push 一改 `web/` 就立刻换玩家端 digest，而 VPS pin 不跟随 → VPS 一重启就 `startup-failed`（本次因此不可用约 28 分钟，CST 19:41–20:09）。
 
@@ -99,25 +163,29 @@ ui14 步骤：服务器 LF 检出跑 `prepare_deploy.mjs` 复现 inventory → `
 
 1. **先改 pin 再切镜像 → `startup-failed` 循环**：`backup-publication.sh` 结尾自己跑 `docker compose up -d`，pin 变了 compose 就用**旧镜像**重建，旧 `web/` 与新 `STATIC_SOURCE_SHA256` 不匹配。正确顺序：镜像内 `VERIFY_OK` → 切 `app`＋`.env` → 最后改 `publication.env` → recreate。
 2. **`core.autocrlf=true` 时 `git archive` 会给未声明 `eol` 的文本文件补 CRLF**：45 个文件、+0.43 MiB（`content/builtin/chapters/*.json` 每行 +1 字节，`later-1.json` 7693 行 = +7693 字节），而 `sourceTreeDigest` **不变**（只覆盖 `.gitattributes` 里显式 `eol=lf` 的 `web/src/**.js` 与 `web/intro/styles.css`）→ 表现为「digest 对上了、inventory sha 对不上」（`f1582a85…` vs `72ec1c31…`）。必须 `git -c core.autocrlf=false archive`；判据是 `dist/static-release.json` 的 sha256 等于线上同名文件。
-3. **新 digest 首启要 23 分钟**：`archiveStaticProgram` 先从 `STATIC_ORIGIN` 下载 1441 文件核 sha 再上传 R2（RX 536 MB／TX 184 MB）；R2 已有同 digest 时只需 7 分钟。期间服务不可用。
+3. **（历史，R2 时代）新 digest 首启要 23 分钟**：`archiveStaticProgram` 先从 `STATIC_ORIGIN` 下载 1441 文件核 sha 再上传 R2（RX 536 MB／TX 184 MB）；R2 已有同 digest 时只需 7 分钟。期间服务不可用。
 4. **CF 边缘会静默切断长响应**（190–205 s 的上架请求）：延长超时无解，唯一可靠做法是不依赖单次长连接（§3 的轮询）。
 5. **wrangler 在本机必须去掉代理变量**：`HTTP(S)_PROXY`／`ALL_PROXY` 会让它卡死，用 `env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u all_proxy`。git-bash 下 node 不认 `/e/...`，脚本里用 `pwd -W` 转盘符路径。
 6. **全仓 grep 会超时**：`dist/` 1441 文件／168 MB；限定 `web/src editor-ui/src server/*.js tools/*.mjs`。
+7. **方案 B 迁移的坑**见 §1.2.4（唯讀綁定形状／mime.types／`mode` 值／删桶权限／nohup 缓冲／HEAD 404）。
 
 ## 10. 当前阻塞
 
-1. **既有红（不阻塞，但不许写成全绿）**：`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution(+_workerd)`；`verify_publish_ui_model` 9 pass／7 fail；`verify_editor_copy_controller`、`verify_editor_backend_admin_copy`；`verify_publication_ui` 的 `TypeError`、`verify_editor_shell` 的 `publish-vue-owned`（均改前既有）。
-2. **玩家目录为空**：用户已手动删除「卧龙传·重构版」，库里 `content_games`／`releases`／`published_*`／`announcements`／`audits`／`copy_objects`／`snapshots`／`deletion_fences` 全 0，`registry generation 10`／`directory:[]` → 正式开局与端到端上架都需要先重新造一个游戏。
-3. **惰性残留**：`content_operations` 10 条、`content_reservations` 13 条（target 指向已删 gameId，不会误命中新游戏）；`publication-data/private-objects/private/` 仍有 4 目录 196 文件 191.8 MB 未物理回收；账本剩 2 条历史事件＋1 条 cleanup 行，直删会 `DISTRIBUTION_LEDGER_CORRUPT`。
-4. **7 张 `content_distribution_*` 与 drainer 仍在**；下线前置是生产实测一次 20 章上架端到端耗时（已有 212 s 数据）。
+1. **新 VPS 上还没跑过一轮完整创作链**：`sadcloud` 的 `content_games` 里仍是迁移过来的那个游戏（`cf369743…`，1.0、20 章、generation 13），「复制→校驗→上架申請→審核同意→玩家开局」在**磁盘桶**上还没实测；磁盘桶发布路径目前只有 `tools/verify_disk_bucket.mjs`（8/8）与端口契约证据。
+2. **既有红（不阻塞，但不许写成全绿）**：`verify_first_online`、`verify_reader_distribution`、`verify_deletion_distribution(+_workerd)`；`verify_publish_ui_model` 12 pass／7 fail；`verify_editor_copy_controller`、`verify_editor_backend_admin_copy`；`verify_publication_ui` 的 `TypeError`、`verify_editor_shell` 的 `publish-vue-owned`（均改前既有）。
+3. **惰性残留（设计保留，不干扰新游戏）**：`content_operations` 11 条、`content_reservations` 14 条（按 `(actor, op_key)` 寻址）；`content_distribution_events` 每个已删游戏 1 行 `delete-fence`（append-only digest 链，直删会 `DISTRIBUTION_LEDGER_CORRUPT`）。
+4. **7 张 `content_distribution_*` 与 drainer 仍在**；下线前置是生产实测一次 20 章上架端到端耗时（旧环境已有 212 s 数据，新环境待测）。
+5. **旧环境回滚数据仍在**：`dartnode4` 的 `/srv/dragon-editor/publication/publication-data`（157 MB）与 `/root/dragon-editor-backups`（8.0 GB）——用户尚未决定是否删除。
+6. **`publication.env` 里仍留着 `R2_*` 凭据**（已无用），未清理以免与回滚流程混淆。
 
 ## 11. 下一步（建议顺序）
 
-1. 重新造一个游戏（20 章）走完整链路：复制 → 全面检验 → 上架（现在应 10 s 内拿到轮询回执）→ 管理员同意 → 玩家端开局，端到端测一次耗时与可见性。
-2. 若上架面板仍出现长时间无回执，用 `GET /api/games/<id>/publish-operations/<key>` 直接核对，别再重送。
-3. 校驗 37–42 s：下一步只能把编译移出主线程（worker／子进程），需单独设计批准。
-4. C 批剩余：下线 7 张 `content_distribution_*` + drainer；`verify_publish_ui_model` 的 7 条行为断言 re-baseline。
-5. 通用审计 `audit_events`（审核／删除／账号变更）仍未立项。
+1. **在新 VPS 上跑一轮完整链路**：复制 → 全面检验 → 上架申請 → 審核同意 → 玩家端开新局，确认磁盘桶发布路径（`putImmutable`／CAS／收据 `visibleAt` 依赖 mtime）与端到端耗时；同时观察删除回执是否报「遊戲私有位元組回收 N 檔」（ui15 起）。
+2. 若上架面板长时间无回执，用 `GET /api/games/<id>/publish-operations/<key>` 直接核对，别再重送（§3 的轮询仍在）。
+3. 决定旧环境回滚数据去留（`dartnode4` 的 157 MB ＋ 8.0 GB）；确认稳定几天后可删。
+4. 清理 `sadcloud` 的 `publication.env` 里无用的 `R2_*` 凭据。
+5. C 批剩余：下线 7 张 `content_distribution_*` + drainer；`verify_publish_ui_model` 的 7 条行为断言 re-baseline。
+6. 校驗 37–42 s 仍受限于主线程编译；移出主线程（worker／子进程）需单独设计批准。通用审计 `audit_events`（审核／删除／账号变更）仍未立项。
 
 ## 12. 归档锚点（仍被外部文档引用）
 

@@ -45,7 +45,11 @@ const reclaimR2 = Object.freeze({
   async remove(key) { reclaimRemoves++; reclaimObjects.delete(key); return 204; },
 });
 const parseOwned = text => { try { return JSON.parse(text); } catch (cause) { assert.fail('owned pointer must stay parseable: ' + cause.message); } };
-const authority = await createPublicationBrowserAuthority({ root: own, origin, runtimeStager: stubStager, nodeService: false, purgeReclaimer: createGameReclaimer({ r2: reclaimR2 }) });
+// 遊戲自己的私有位元組（草稿與資源原件）住在同一個 FileBucket 的 private/<gameId>/ 下：
+// 刪除＝徹底清除，所以回收埠也要掃它；installed/ 是共享底層資源，永不在此列。
+const { FileBucket } = await import('../vps/file-bucket.mjs');
+const purgeBucket = new FileBucket({ root: join(own, 'private-objects') });
+const authority = await createPublicationBrowserAuthority({ root: own, origin, runtimeStager: stubStager, nodeService: false, purgeReclaimer: createGameReclaimer({ r2: reclaimR2, objects: purgeBucket }) });
 const { storage, sql, gameId, adminToken, adminCsrf, ownerToken, csrfFor } = authority;
 
 // 一個與被刪遊戲「內容完全相同」的遊戲：同一份內容摘要，共用同一組程序包與畫像位元組。
@@ -63,6 +67,10 @@ const sealed = games => {
   return Buffer.from(JSON.stringify({ version: 1, authorityId: laneAuthority, generation: 4, digest, games: body.games }));
 };
 const ownEntry = entryFor(gameId, 'release-purgelane'), twinEntry = entryFor(twinGameId, 'release-twinlane');
+const ownPrivateKey = `private/${gameId}/${sha('own-private-bytes')}`;
+const twinPrivateKey = `private/${twinGameId}/${sha('twin-private-bytes')}`;
+const installedKey = `installed/runtime/${sha('shared-installed-bytes')}`;
+for (const key of [ownPrivateKey, twinPrivateKey, installedKey]) await purgeBucket.put(key, new Uint8Array([1, 2, 3, 4]));
 const ownKeys = [ownEntry.release.runtime.key, `artifacts/${gameId}/1.0/release-purgelane/manifest.json`];
 const twinKeys = [twinEntry.release.runtime.key, `artifacts/${twinGameId}/1.0/release-twinlane/manifest.json`];
 for (const key of [...ownKeys, ...twinKeys]) { storeObject(key, 'bytes:' + key); }
@@ -82,9 +90,9 @@ async function post(path, body, { token = adminToken, csrf = adminCsrf, key = `p
   return { status: response.status, value };
 }
 
-const TABLES = [ // 與 server/gamepurge.js 一致的 31 張含 game_id 表（分發帳本三表除外）
+const TABLES = [ // 與 server/gamepurge.js 一致的 32 張含 game_id 表（分發帳本三表除外）
   'content_used_ids', 'content_names', 'content_audits',
-  'content_announcements', 'content_snapshots', 'content_releases', 'published_games', 'published_packs',
+  'content_announcements', 'content_snapshots', 'content_releases', 'game_releases', 'published_games', 'published_packs',
   'published_pack_chapters', 'published_pack_assets', 'copy_requests', 'copy_objects', 'copy_origins',
   'content_http_command_targets', 'content_http_command_proofs', 'draft_requests', 'draft_objects', 'draft_references',
   'draft_topology_moves', 'draft_topology_rebuilds', 'trial_sessions', 'compile_jobs', 'fallback_compile_objects',
@@ -155,6 +163,14 @@ assert.ok(['completed', 'not-applicable', 'pending'].includes(receipt.retirement
   assert.equal(receipt.reclamation.pointer, 'removed');
   assert.equal(receipt.reclamation.objects, ownKeys.length, '必須只刪本遊戲的物件');
   assert.equal(reclaimRemoves, ownKeys.length);
+  // 私有位元組：本遊戲清空、另一個遊戲與共享 installed 一個位元組都不動。
+  // 複製與編譯階段本身就會寫入數十個私有位元組（生產實測 49 檔／46 MB），所以這裡
+  // 驗「全部清空＋至少含本 lane 種下的那一筆」，而不是一個寫死的檔數。
+  assert.ok(receipt.reclamation.privateObjects >= 1, '回執必須報出私有位元組回收檔數：' + JSON.stringify(receipt.reclamation));
+  assert.deepEqual((await purgeBucket.list({ prefix: `private/${gameId}/` })).objects, [], '本遊戲的私有前綴不得留位元組');
+  assert.equal(await purgeBucket.get(ownPrivateKey), null, '本遊戲的私有位元組必須刪除');
+  assert.ok(await purgeBucket.get(twinPrivateKey), '另一個遊戲的私有位元組不得被連帶刪除');
+  assert.ok(await purgeBucket.get(installedKey), '共享 installed 底層資源永不刪');
   const stored = reclaimObjects.get(DIRECTORY_POINTER_KEY);
   assert.ok(stored, '在架指針必須还存在（只是少了一條）');
   assert.equal(stored.bytes.toString().includes(gameId), false, '在架指針不得再含已刪遊戲的 gameId');

@@ -1,0 +1,16 @@
+# 玩家端容器（方案 B）：同一份 reader/site.js 跑在 Node 上，字節來自掛載的磁碟桶。
+# 只帶執行期需要的三樣：reader/（路由與准入）、vps/ 的兩個檔案；dist/ 由 compose 掛載
+# 到 /app/dist（171 MiB 靜態資源不必進 image，換靜態發布時不用重建映像）。
+FROM node:22-bookworm-slim
+WORKDIR /app
+COPY reader/ ./reader/
+# reader/runtimecontract.js 直接 import ../web/src/player/runtimecontract.js（同一份
+# 契約兩邊共用），所以玩家映像也要帶這個檔案，否則 ESM 解析在啟動就失敗。
+COPY web/src/player/ ./web/src/player/
+COPY vps/player-server.mjs vps/disk-bucket.mjs ./vps/
+ENV NODE_ENV=production
+USER node
+EXPOSE 8789
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:8789/play-api/v1/registry').then(r=>process.exit(r.status===200?0:1),()=>process.exit(1))"
+CMD ["node", "vps/player-server.mjs"]

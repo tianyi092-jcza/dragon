@@ -10,7 +10,7 @@ const GAME = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', OTHER = 'bbbbbbbb-bbbb-4bbb
 const ACTOR = '11111111-1111-4111-8111-111111111111';
 const TIME = '2026-11-01T00:00:00.000Z';
 const author = (version = 1) => ({ user: { id: ACTOR, role: 'author', version, mustChangePassword: false } });
-const row = (over = {}) => ({ gameId: GAME, name: '臥龍傳', introduction: '原文', version: null, state: 'draft', stateTime: null, restricted: false, rejected: false, rowRevision: '4', createdAt: TIME, ...over });
+const row = (over = {}) => ({ gameId: GAME, name: '臥龍傳', introduction: '原文', version: null, state: 'draft', stateTime: null, restricted: false, rejected: false, draftChanged: true, rowRevision: '4', createdAt: TIME, ...over });
 const pin = () => ({ gameId: GAME, name: '臥龍傳', revision: '4', sourceDigest: 'd'.repeat(64), chapters: [GAME + '#chapter-1'], publishedAt: TIME, ordinal: '1.0' });
 const receipt = state => ({ version: 1, gameId: GAME, releaseId: RELEASE, pin: pin(), distribution: { gameId: GAME, operationId: RELEASE, generation: 1, kind: 'publish', state, visibleAt: state === 'pending' ? null : TIME, recoveryRequired: false, releaseDigest: 'e'.repeat(64) } });
 const fence = (expected = '4') => ({ createdAt: TIME, gameId: GAME, rowRevision: String(BigInt(expected) + 1n), state: 'fenced' });
@@ -55,7 +55,7 @@ test('上架 posts the exact game name under a journaled key and reports version
  await h.ui.actions.publish(GAME);
  const post = h.calls.find(call => call[0] === '/api/publish');
  assert.deepEqual(post[1], { gameId: GAME, name: '臥龍傳' }); assert.equal(h.calls.filter(call => call[0] === '/api/publish').length, 1);
- assert.match(h.model.result, /本地已提交上架：版本 1\.0.*分發待確認.*尚未經管理員同意/);
+ assert.match(h.model.result, /本地已提交上架申請：版本 1\.0.*分發待確認.*尚未經管理員同意/);
  // 回執已證明結果：追蹤鍵結案，才能接著上架下一版。
  assert.equal(h.journal.size, 0); assert.match(h.model.operation, /沒有追蹤中的上架或刪除操作/);
  assert.equal(h.model.retryDisabled, true); assert.equal(h.ui.canLeave(true), true);
@@ -99,6 +99,9 @@ test('C 批：刪除回執的 R2 回收結果會被驗證並如實回報（未�
  const cases = [
   [{ state: 'completed', pointer: 'rewritten', objects: 12 }, /在架指標與 R2 位元組已回收/],
   [{ state: 'completed', pointer: 'already-absent', objects: 0 }, /在架指標與 R2 位元組已回收/],
+  // 刪除＝徹底清除：私有位元組（草稿與資源原件）也一起回收，並如實報出檔數。
+  [{ state: 'completed', pointer: 'rewritten', objects: 3, privateObjects: 49 }, /在架指標與 R2 位元組已回收，遊戲私有位元組回收 49 檔/],
+  [{ state: 'completed', pointer: 'already-absent', objects: 0, privateObjects: 0 }, /私有位元組回收 0 檔/],
   [{ state: 'pending', code: 'RECLAIMER_UNCONFIGURED', objects: 0 }, /R2 回收未設定/],
   [{ state: 'pending', code: 'RECLAIM_FAILED', objects: 0 }, /R2 回收未完成（RECLAIM_FAILED）/],
  ];
@@ -115,7 +118,7 @@ test('C 批：刪除回執的 R2 回收結果會被驗證並如實回報（未�
   assert.match(h.model.result, pattern);
  }
  // 形狀不合的回收結果一律當成回執無效，不得靜默接受。
- for (const broken of [{ state: 'done', objects: 0 }, { state: 'completed', objects: 1 }, { state: 'pending', code: '', objects: 0 }, { state: 'pending', code: 'X', pointer: 'rewritten', objects: 0 }, { state: 'completed', pointer: 'rewritten', objects: 0, extra: 1 }]) {
+ for (const broken of [{ state: 'done', objects: 0 }, { state: 'completed', objects: 1 }, { state: 'pending', code: '', objects: 0 }, { state: 'pending', code: 'X', pointer: 'rewritten', objects: 0 }, { state: 'completed', pointer: 'rewritten', objects: 0, extra: 1 }, { state: 'completed', pointer: 'rewritten', objects: 0, privateObjects: '49' }, { state: 'completed', pointer: 'rewritten', objects: 0, privateObjects: -1 }]) {
   const h = setup(); await h.ui.actions.refresh();
   h.reply(async path => {
    if (path === '/api/games/submissions') return { games: [row(), row({ gameId: OTHER })] };
@@ -166,7 +169,7 @@ test('a successful 上架 whose later observation is missing keeps the local rec
  const h = setup(); await h.ui.actions.refresh();
  h.reply(async path => { if (path.includes('/publish-operations/')) throw failure(404, 'PUBLISH_OPERATION_NOT_FOUND'); if (path.includes('/api/games/')) return { games: [row()] }; return pin(); });
  await h.ui.actions.publish(GAME);
- assert.match(h.model.result, /本地已提交上架：版本 1\.0/);
+ assert.match(h.model.result, /本地已提交上架申請：版本 1\.0/);
  assert.equal(h.journal.size, 0); assert.equal(h.model.queryDisabled, true);
 });
 test('確認狀態回執缺少分發關聯時不推定公開', async () => {
@@ -244,4 +247,42 @@ test('A 路線：上架回執自帶已確認分發時不再補查狀態，且如
  await h3.ui.actions.publish(GAME);
  assert.equal(h3.calls.filter(call => call[0].includes('/publish-operations/')).length, 1);
  assert.match(h3.model.result, /分發待確認/);
+});
+// 用戶要求（2026-11）：在上架審核裡刪掉那個遊戲，就等於那筆追蹤失去對象，
+// 不該再擋住後來新複製／新生成的遊戲上架，也不該讓人去猜「舊遊戲的編號」是什麼。
+test('上架追蹤的目標遊戲已被刪除時，本機記錄自動作廢，不再擋住新遊戲上架', async () => {
+ const stale = { actorId: ACTOR, gameId: GAME, key: 'k'.repeat(32), kind: 'publish', name: '臥龍傳', version: 1 };
+ const seed = h => { h.journal.set('editor-submission-operation:' + ACTOR, JSON.stringify(stale)); h.ui.setIdentity(null); h.ui.setIdentity(author()); };
+ // ① 清單已不含該 gameId（別的分頁或管理員面板刪掉的）→ 刷新即作廢，且說出原因。
+ const h = setup(); seed(h);
+ assert.match(h.model.blockedReason, /上架申請暫停/); assert.doesNotMatch(h.model.blockedReason, /編號/, '目標已不存在時不再顯示無用的短碼');
+ h.setGames([row({ gameId: OTHER })]);
+ await h.ui.actions.refresh();
+ assert.equal(h.journal.size, 0); assert.match(h.model.operation, /沒有追蹤中的上架或刪除操作/);
+ assert.equal(h.model.blockedReason, ''); assert.equal(h.model.rows[0].publishDisabled, false);
+ assert.match(h.model.message, /目標已刪除.*自動作廢/);
+ // ② 清單讀取失敗不得誤清：沒有權威答案就保留原鍵。
+ const h2 = setup(); seed(h2); h2.reply(async () => { throw new Error('network'); });
+ await assert.rejects(h2.ui.actions.refresh()); assert.equal(h2.journal.size, 1); assert.match(h2.model.blockedReason, /上架申請暫停/);
+ // ③ 伺服器答 GAME_NOT_FOUND 也是權威答案：查詢即作廢，不必等清單。
+ const h3 = setup(); seed(h3);
+ h3.reply(async path => { if (path === '/api/games/submissions') return { games: [row()] }; throw failure(404, 'GAME_NOT_FOUND'); });
+ await h3.ui.actions.query();
+ assert.equal(h3.journal.size, 0); assert.match(h3.model.message, /目標已刪除.*自動作廢/);
+});
+// 用戶要求（2026-11）：上架申請＝送出一次審核申請（管理員同意後玩家端才可見可玩）。
+// 所以按鈕只在「有東西可送」時開放：待審核中不重複送、被駁回可重送、已上架需有新修訂。
+test('上架申請只在有東西可送時開放：待審核中禁用、被駁回可重送、已上架需有新修訂', async () => {
+ const view = async over => { const h = setup(); h.setGames([row(over)]); await h.ui.actions.refresh(); return h; };
+ const pending = await view({ state: 'pending', version: '1.0', stateTime: TIME });
+ assert.equal(pending.model.rows[0].publishDisabled, true);
+ assert.match(pending.model.rows[0].publishHint, /等管理員在「審核」按「同意」.*不能重複提交/);
+ await assert.rejects(pending.ui.actions.publish(GAME), /不能重複提交/); assert.equal(pending.posts().length, 0);
+ const rejected = await view({ state: 'pending', version: '1.0', stateTime: TIME, rejected: true });
+ assert.equal(rejected.model.rows[0].publishDisabled, false); assert.match(rejected.model.rows[0].publishHint, /已被駁回.*1\.1/);
+ const unchanged = await view({ state: 'listed', version: '1.0', stateTime: TIME, draftChanged: false });
+ assert.equal(unchanged.model.rows[0].publishDisabled, true); assert.match(unchanged.model.rows[0].publishHint, /沒有新修訂/);
+ await assert.rejects(unchanged.ui.actions.publish(GAME), /沒有新修訂/); assert.equal(unchanged.posts().length, 0);
+ const changed = await view({ state: 'listed', version: '1.0', stateTime: TIME, draftChanged: true });
+ assert.equal(changed.model.rows[0].publishDisabled, false); assert.match(changed.model.rows[0].publishHint, /版本號自動為 1\.1/);
 });

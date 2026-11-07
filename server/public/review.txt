@@ -145,7 +145,7 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
  async function approve(gameId, rowRevision) {
   const row = rowFor(gameId, rowRevision);
   if (row.state !== 'pending') throw new Error('只有待上架的提交可以同意。');
-  await execute(row, () => api('/api/games/' + row.gameId + '/listing', { action: 'list', expectedRowRevision: row.rowRevision }, { key: crypto.randomUUID(), revision: row.rowRevision }), listingReceipt, '已同意上架版本 ' + row.version + '；公告與分發由服務端流程處理。');
+  await execute(row, () => api('/api/games/' + row.gameId + '/listing', { action: 'list', expectedRowRevision: row.rowRevision }, { key: crypto.randomUUID(), revision: row.rowRevision }), listingReceipt, '已同意上架版本 ' + row.version + '。');
  }
  async function reject(gameId, rowRevision) {
   const row = rowFor(gameId, rowRevision);

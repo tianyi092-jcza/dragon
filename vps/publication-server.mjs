@@ -22,7 +22,7 @@ export async function startPublicationServer({ storage, bucket, env, r2, verifyS
   // 刪除遊戲後的 R2 回收需要 list/remove：只有傳入完整物件埠時才裝配，否則
   // purge 仍舊只動庫行並在回執裡報 RECLAIMER_UNCONFIGURED（不假裝已清理）。
   const purgeReclaimer = typeof r2.list === 'function' && typeof r2.remove === 'function'
-    ? createGameReclaimer({ r2: { get: r2.get.bind(r2), putControl: r2.putControl.bind(r2), list: r2.list.bind(r2), remove: r2.remove.bind(r2) }, prefix })
+    ? createGameReclaimer({ r2: { get: r2.get.bind(r2), putControl: r2.putControl.bind(r2), list: r2.list.bind(r2), remove: r2.remove.bind(r2) }, objects: bucket, prefix })
     : undefined;
   const runtimeStager = createRuntimeStager({ r2: transport, prefix, verifyStaticResources });
   const publisher = createDistributionPublisher({ storage, r2: transport, prefix, verifyStaticResources });

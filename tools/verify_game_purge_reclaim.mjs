@@ -199,6 +199,37 @@ const keysUnder = (store, gameId) => [...store.objects.keys()].filter(key => key
   pass('掃描越界就拒絕，不誤刪共享位元組');
 }
 
+// ⑧ 私有位元組（編輯器檔案桶 private/<gameId>/<sha256>）：一起掃，共享 installed/ 不動。
+{
+  const memory = memoryR2();
+  seed(memory);
+  const privates = new Map();
+  const privateKeyOf = (gameId, n) => `private/${gameId}/${String(n).repeat(64)}`;
+  for (const gameId of [gameA, gameB]) for (let n = 1; n <= 3; n++) privates.set(privateKeyOf(gameId, n), Buffer.from('private-' + gameId + n));
+  const installedKey = 'installed/runtime/' + 'f'.repeat(64);
+  privates.set(installedKey, Buffer.from('shared-installed'));
+  const bucket = Object.freeze({
+    async list({ prefix = '' } = {}) { return { objects: [...privates.keys()].filter(key => key.startsWith(prefix)).sort().map(key => ({ key, size: privates.get(key).length })) }; },
+    async remove(key) { return privates.delete(key); },
+  });
+  const reclaim = createGameReclaimer({ r2: memory.r2, objects: bucket });
+  const facts = await reclaim(gameA);
+  assert.equal(facts.privateObjects, 3, 'A 的三個私有物件都要刪掉');
+  assert.deepEqual([...privates.keys()].filter(key => key.startsWith(`private/${gameA}/`)), [], 'A 的私有前綴不得留位元組');
+  assert.equal([...privates.keys()].filter(key => key.startsWith(`private/${gameB}/`)).length, 3, 'B 的私有位元組不得被連帶刪除');
+  assert.ok(privates.has(installedKey), '共享 installed 底層資源永不刪');
+  const again = await reclaim(gameA);
+  assert.equal(again.privateObjects, 0, '重複回收不得再刪');
+  // 沒有私有埠時照實報 0，不假裝清過。
+  assert.equal((await createGameReclaimer({ r2: memory.r2 })(gameB)).privateObjects, 0);
+  assert.throws(() => createGameReclaimer({ r2: memory.r2, objects: { list: () => {} } }), TypeError);
+  // 私有埠回報前綴以外的鍵＝契約被破壞：拒絕，不刪任何東西。
+  const bad = Object.freeze({ async list() { return { objects: [{ key: installedKey, size: 1 }] }; }, async remove(key) { privates.delete(key); } });
+  await assert.rejects(createGameReclaimer({ r2: memory.r2, objects: bad })(gameB), /RECLAIM_LIST/);
+  assert.ok(privates.has(installedKey));
+  pass('私有位元組一起回收：只刪自己、installed 不動、缺埠照實報 0');
+}
+
 const result = {
   checks: checks.length,
   labels: checks,

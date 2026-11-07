@@ -1079,7 +1079,7 @@ return class EditorMetadata extends PlatformBase {
     if (purgeReclaimer === undefined) { return response({ ...result, reclamation: { state: 'pending', code: 'RECLAIMER_UNCONFIGURED', objects: 0 } }); }
     try {
       const facts = await purgeReclaimer(result.gameId);
-      return response({ ...result, reclamation: { state: 'completed', pointer: facts.pointer, objects: facts.objects } });
+      return response({ ...result, reclamation: { state: 'completed', pointer: facts.pointer, objects: facts.objects, privateObjects: facts.privateObjects ?? 0 } });
     } catch (error) {
       const code = String(error?.code || error?.message || 'RECLAIM_FAILED');
       return response({ ...result, reclamation: { state: 'pending', code, objects: 0 } });

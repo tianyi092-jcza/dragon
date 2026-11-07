@@ -2,6 +2,8 @@
 // 只有两件事：把在架指针里这个 gameId 的条目移除、把这个前缀下的字节删掉。
 // 不读 SQL、不写根、不改代次、不做引用计数；共享的程序包（artifacts/programs/）
 // 与画像（kao/）不属于任何单个游戏，一律不碰。
+// 遊戲自己的私有位元組（編輯器的 private/<gameId>/<sha256>，草稿與資源原件）住在
+// 另一個儲存（VPS 檔案桶），不掃它就會每刪一個遊戲留一份孤兒位元組（實測 49 檔 46 MB）。
 //
 // 条目移除与保留墓碑对读者等价：两种情况下读者都答 410 GAME_DELETED（用户 m256
 // 决定「指针里查不到就是已删除」），所以这里删条目而不是写墓碑，也不会改变任何
@@ -30,8 +32,10 @@ function stripEntry(bytes, gameId) {
   return Object.freeze({ bytes: bytes$, digest });
 }
 
-export function createGameReclaimer({ r2, prefix = '' }) {
+export function createGameReclaimer({ r2, objects, prefix = '' }) {
   if (typeof r2?.get !== 'function' || typeof r2?.putControl !== 'function' || typeof r2?.list !== 'function' || typeof r2?.remove !== 'function') throw new TypeError('reclaim requires get/putControl/list/remove ports');
+  // 私有物件埠是可選的：沒有它時只回收 R2，回執照實報 privateObjects 0，不假裝清過。
+  if (objects !== undefined && (typeof objects?.list !== 'function' || typeof objects?.remove !== 'function')) throw new TypeError('reclaim requires list/remove for private objects');
   requireValue(typeof prefix === 'string' && (prefix === '' || /^test\/[A-Za-z0-9_-]{1,100}\/$/.test(prefix)), 'reclaim prefix invalid');
   const pointerKey = prefix + DIRECTORY_POINTER_KEY;
 
@@ -68,11 +72,28 @@ export function createGameReclaimer({ r2, prefix = '' }) {
     throw new Error('RECLAIM_SWEEP_INCOMPLETE');
   }
 
+  // 私有位元組按 private/<gameId>/ 前綴掃；installed/ 是共享底層資源，永不在此列。
+  async function sweepPrivate(gameId) {
+    if (objects === undefined) return 0;
+    const base = `private/${gameId}/`;
+    let removed = 0;
+    for (let page = 0; page < MAX_SWEEPS; page++) {
+      const listed = await objects.list({ prefix: base });
+      requireValue(listed && Array.isArray(listed.objects), 'RECLAIM_LIST');
+      const keys = listed.objects.map(entry => entry?.key);
+      requireValue(keys.every(key => typeof key === 'string' && key.startsWith(base)), 'RECLAIM_LIST');
+      if (keys.length === 0) return removed;
+      for (const key of keys) { await objects.remove(key); removed++; }
+    }
+    throw new Error('RECLAIM_SWEEP_INCOMPLETE');
+  }
+
   // Pointer first: players lose the game before any byte disappears, so a retry
   // after a partial run never has to answer from a half-deleted runtime.
   return async function reclaimGame(gameId) {
     requireValue(isGameId(gameId), 'PURGE_GAME_ID');
     const pointer = await rewritePointer(gameId);
-    return Object.freeze({ gameId, pointer, objects: await sweep(gameId) });
+    const artifacts = await sweep(gameId);
+    return Object.freeze({ gameId, pointer, objects: artifacts, privateObjects: await sweepPrivate(gameId) });
   };
 }

@@ -12,7 +12,7 @@ const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-2
 const game = id => ({ gameId: id, draftRevision: id === A ? '1' : '2', listed: false, metadata: { name: id === A ? '甲' : '乙', introduction: '' } });
 // 上架清單（B2）列形狀：state/version 必須互斥，rowRevision 與 createdAt 必須有效。
 const submission = id => ({ gameId: id, name: id === A ? '甲' : '乙', introduction: '', state: 'draft', version: null,
-  stateTime: null, createdAt: '2026-11-01T00:00:00.000Z', restricted: false, rejected: false, rowRevision: '1' });
+  stateTime: null, createdAt: '2026-11-01T00:00:00.000Z', restricted: false, rejected: false, draftChanged: true, rowRevision: '1' });
 const detail = id => ({ ...game(id), profileRevision: 'fixed-copy-resources-1', strongholds: [], map: { roads: [], placements: 0 }, chapters: [{
   chapterId: id + '#one', name: '章', gaps: { saveGaps: 0, activeGaps: 1 },
   factions: [{ slot: 0, idx: 0, monarch_idx: 0, advisor_idx: null, capital: 0, money: 1, reserve_cav: 0, reserve_arc: 0, reserve_inf: 0 }],
