@@ -13,6 +13,23 @@ export function isChapterId(value, gameId) {
 export const isOrdinal = value => typeof value === 'string' && /^1\.(0|[1-9][0-9]{0,30})$/.test(value);
 export const isRevision = value => typeof value === 'string' && /^[1-9][0-9]{0,30}$/.test(value);
 export const ASSET_TYPES = Object.freeze({ terrain: 'application/octet-stream', roadGraph: 'application/json', roadCost: 'application/octet-stream', roadOffset: 'application/json', minimapBase: 'image/png', minimapLarge: 'image/png' });
+// 有界併發：發布遊戲一章可達 173 個資源、章節列表要逐章換票，全部逐個 await 在長鏈路上
+// 要幾分鐘（服務端本身 3 ms/個）。結果按輸入索引回填，呼叫端仍保有順序語意。
+export async function mapLimited(items, limit, worker) {
+  if (!Array.isArray(items) || typeof worker !== 'function' || !Number.isSafeInteger(limit) || limit < 1 || limit > 32)
+    throw new TypeError('bounded concurrency required');
+  const results = new Array(items.length);
+  let next = 0;
+  const run = async () => {
+    for (let index = next++; index < items.length; index = next++) results[index] = await worker(items[index], index);
+  };
+  // 全部通道都落定才回報失敗：否則一個 worker 出錯時，其他仍在飛的請求（及其 session）
+  // 會在呼叫端看到錯誤之後才收尾，留下「還沒關」的中間態。
+  const outcomes = await Promise.allSettled(Array.from({ length: Math.min(limit, items.length) }, run));
+  const failed = outcomes.find(outcome => outcome.status === 'rejected');
+  if (failed) throw failed.reason;
+  return results;
+}
 export function requireValue(condition, code = 'RUNTIME_CORRUPT') {
   if (!condition) { throw new Error(code); }
 }

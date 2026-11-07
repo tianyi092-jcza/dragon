@@ -1,6 +1,8 @@
 // Immutable formal-session bytes -> owned Blob URLs. No Trial capability, engine
 // execution, storage, latest-release lookup or built-in-resource fallback.
-import { ASSET_TYPES, MAX_METADATA_BYTES, MAX_RESOURCE_BYTES, isDigest, isChapterId, parseJSON, sha256, validateIdentity } from './runtimecontract.js';
+import { ASSET_TYPES, MAX_METADATA_BYTES, MAX_RESOURCE_BYTES, isDigest, isChapterId, mapLimited, parseJSON, sha256, validateIdentity } from './runtimecontract.js';
+// 資源併發上限：鏈路每趟 0.7–1.5 s，6 路剛好把 173 個資源壓到十幾秒且不打爆瀏覽器連線池。
+const PACK_PARALLEL = 6;
 import { PlayerReaderError } from './playerclient.js';
 const seasons = ['spring', 'summer', 'autumn', 'winter'];
 const rules = ['terrain', 'roadGraph', 'roadCost', 'roadOffset'];
@@ -101,12 +103,15 @@ export async function loadPlayerPack({ session, compilerRevision, maxTotalBytes,
     try { chapter = parseJSON(chapterBytes); } catch { fail('PLAYER_PACK_INVALID'); }
     check(object(chapter));
     if (declaredBytes > maxTotalBytes - total) fail('PLAYER_PACK_BUDGET');
-    const resources = [];
-    for (const item of declared) resources.push({ ...item, bytes: await read(item.role, item.type, item.entry) });
-    for (const item of visual) {
+    // 併發抓取：一章可達 173 個資源，逐個 await 在長鏈路上要幾分鐘（服務端 3 ms/個）。
+    // 結果按輸入索引回填，資源順序與逐個版本完全一致；current() 仍在每個請求前後檢查。
+    const declaredReads = await mapLimited(declared, PACK_PARALLEL, item => read(item.role, item.type, item.entry));
+    const visualReads = await mapLimited(visual, PACK_PARALLEL, async item => {
       current(); const value = await readStatic(item.entry.path, { maxBytes: item.entry.byteLength }); current();
-      resources.push({ ...item, bytes: await accept(value, item.type, item.entry) });
-    }
+      return accept(value, item.type, item.entry);
+    });
+    const resources = [...declared.map((item, index) => ({ ...item, bytes: declaredReads[index] })),
+      ...visual.map((item, index) => ({ ...item, bytes: visualReads[index] }))];
     const resourceURLs = {};
     for (const item of resources) {
       current(); const url = createURL(new Blob([item.bytes], { type: item.type }));
