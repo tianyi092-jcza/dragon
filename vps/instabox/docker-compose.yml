@@ -1,0 +1,28 @@
+# instabox 測試環境（2026-11 用戶決定：sadcloud 資源太低，搬到這台 4C/8G 的機器）。
+# 與 sadcloud 的 compose 差別：資料根改成 /data/dragon，端口仍綁 127.0.0.1
+# （公網由 instabox 的代理 + proxy.mjs 提供，本機不需要 nginx/TLS）。
+services:
+  editor:
+    image: dragon-editor-publication:${EDITOR_DEPLOYMENT_ID:?tag required}
+    restart: unless-stopped
+    env_file: [env/publication.env, env/editor.env]
+    environment:
+      EDITOR_DATA_DIR: /data
+      EDITOR_LISTEN_HOST: 0.0.0.0
+      PUBLICATION_BUCKET_ROOT: /bucket
+    volumes:
+      - /data/dragon/data:/data
+      - /data/dragon/private-objects:/data/private-objects
+      - /data/dragon/bucket:/bucket
+    ports:
+      - 127.0.0.1:8788:8788
+
+  player:
+    image: dragon-player:${PLAYER_DEPLOYMENT_ID:?tag required}
+    restart: unless-stopped
+    env_file: [env/player.env]
+    volumes:
+      - /data/dragon/bucket:/bucket:ro
+      - /data/dragon/dist:/app/dist:ro
+    ports:
+      - 127.0.0.1:8789:8789
