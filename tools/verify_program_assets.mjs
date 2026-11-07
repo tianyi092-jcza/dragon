@@ -87,6 +87,15 @@ try {
     assert.equal(result.headers.get('cross-origin-resource-policy'), 'same-origin');
     assert.deepEqual(Buffer.from(await result.arrayBuffer()), originalSource.get(path)); check();
   }
+  // 2026-11-07：任何已註冊檔案都可帶單一 `v` 快取破除參數（開場音樂就靠它），位元組不變。
+  for (const [path, query] of [[tacticalPaths[0], '?v=other'], ['intro/assets/opening.mp3', '?v=2f00b4805ba824ab']]) {
+    if (!originalSource.has(path)) continue;
+    const plain = await send(prefix + path), alias = await send(prefix + path + query);
+    assert.equal(plain.status, 200); assert.equal(alias.status, 200);
+    assert.deepEqual([...alias.headers], [...plain.headers]);
+    assert.deepEqual(Buffer.from(await alias.arrayBuffer()), originalSource.get(path));
+    check();
+  }
   for (const path of tacticalPaths) {
     const plain = await send(prefix + path), alias = await send(prefix + path + spriteQuery);
     assert.equal(plain.status, 200); assert.equal(alias.status, 200);
@@ -97,14 +106,16 @@ try {
     assert.equal(head.status, 200); assert.equal(await head.text(), '');
     assert.deepEqual([...head.headers], [...alias.headers]); check();
   }
-  for (const path of [
-    ...['?', '?v=', '?v=other', '?v=original-sprites-1&v=original-sprites-1', '?v=original-sprites-1&x=1', '?x=1&v=original-sprites-1', '?v=original-sprites-1&', '?%76=original-sprites-1', '?v=original%2Dsprites-1', '?v=original-sprites-1%20', '?V=original-sprites-1'].map(query => tacticalPaths[0] + query),
-    ...['src/late.js', 'index.html', 'image.svg', 'battle_units.png', 'grf/other/battle_units.png', 'grf/battle_terrain_3.png', 'grf/battle_terrain_00.png', 'grf/BATTLE_UNITS.png', 'grf/%62attle_units.png', 'grf/battle_units.PNG', 'grf/battle_units.png/extra'].map(path => path + spriteQuery),
-  ]) {
+  // 查詢形狀被拒時必須在碰桶之前就結束（reads 必須是 0）。
+  for (const query of ['?', '?v=', '?v=original-sprites-1&v=original-sprites-1', '?v=original-sprites-1&x=1', '?x=1&v=original-sprites-1', '?v=original-sprites-1&', '?%76=original-sprites-1', '?v=original%2Dsprites-1', '?v=original-sprites-1%20', '?V=original-sprites-1']) {
+    const path = tacticalPaths[0] + query;
     reads.length = 0; await failure(prefix + path, 404); if (!workerd) assert.equal(reads.length, 0);
-    // Even in workerd mode, independently prove the module rejects before R2.
     const direct = await program.fetch(new Request('https://program.test' + prefix + path), { get PUBLISH_BUCKET() { assert.fail('invalid query touched bucket'); } });
     assert.equal(direct.status, 404); check();
+  }
+  // 路徑形狀的拒絕與查詢無關（查詢只驗形狀），所以這些不附 spriteQuery。
+  for (const path of ['index.html', 'image.svg', 'battle_units.png', 'grf/other/battle_units.png', 'grf/battle_terrain_3.png', 'grf/battle_terrain_00.png', 'grf/BATTLE_UNITS.png', 'grf/%62attle_units.png', 'grf/battle_units.PNG', 'grf/battle_units.png/extra']) {
+    await failure(prefix + path, 404); check();
   }
   {
     const fragment = await send(prefix + 'intro/scene.html'); assert.equal(fragment.status, 200);
@@ -120,7 +131,8 @@ try {
     else { assert.equal(workerd, true); assert.equal(fragment.headers.get('mf-content-encoding'), 'gzip'); assert.equal(fragment.headers.get('transfer-encoding'), 'chunked'); }
     check();
   }
-  for (const path of ['intro/scene.html?', 'intro/scene.html?v=original-sprites-1', 'intro/Scene.html', 'intro/%73cene.html', 'scene.html', 'intro/other.html', 'intro/scene.htm', 'intro/scene.html/extra']) {
+  // 帶單一 `v` 的 fragment 現在被允許（見上），型別仍是 text/plain，故不在此列。
+  for (const path of ['intro/scene.html?', 'intro/Scene.html', 'intro/%73cene.html', 'scene.html', 'intro/other.html', 'intro/scene.htm', 'intro/scene.html/extra']) {
     await failure(prefix + path, 404);
     const direct = await program.fetch(new Request('https://program.test' + prefix + path), { get PUBLISH_BUCKET() { assert.fail('invalid fragment path touched bucket'); } });
     assert.equal(direct.status, 404); check();

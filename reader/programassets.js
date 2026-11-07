@@ -17,10 +17,13 @@ export default { async fetch(request, env) {
     match = /^\/program-assets\/([a-f0-9]{64})\/(.+)$/.exec(url.pathname);
     path = match?.[2];
     if (!staticAssetPath(path)) return error(404, 'PROGRAM_ASSET_NOT_FOUND');
-    // Existing core/assets.js image cache suffix, not a software selector.
-    // Only these four exact paths may alias the same registered file bytes.
-    if (url.href.includes('?') && (url.search !== '?v=original-sprites-1' ||
-        !/^grf\/(?:battle_terrain_[012]|battle_units)\.png$/.test(path))) return error(404, 'PROGRAM_ASSET_NOT_FOUND');
+    // 快取破除參數：只接受單一 `v`（既有 core/assets.js 的 v=original-sprites-1 也在其中），
+    // 其餘查詢一律 404。位元組仍由已註冊的檔案提供，參數不改變內容，只影響快取鍵。
+    // 2026-11-07 實錘：開場音樂寫死 `?v=<hash>`（web/intro/intro.config.js），舊規則讓它
+    // 一律 404 → 開場音樂下載失敗 → 正式入口整頁退回首頁。
+    // 形狀仍然嚴格：只有單一 `v=<1..64 個 [A-Za-z0-9._-]>`，其餘（含空 `?`、重複、尾隨 `&`、
+    // 百分號編碼、`?V=`）一律 404；只是不再限於那四張 grf 圖。
+    if (url.href.includes('?') && !/^\?v=[A-Za-z0-9._-]{1,64}$/.test(url.search)) return error(404, 'PROGRAM_ASSET_NOT_FOUND');
     const extension = path.slice(path.lastIndexOf('.') + 1);
     // The opening module fetches this reviewed fragment as text and parses it
     // locally. Serve no executable HTML document or arbitrary HTML suffix.

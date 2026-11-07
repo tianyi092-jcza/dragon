@@ -68,12 +68,15 @@ export function readOnlyBinding(bucket) {
     async get(key) {
       const object = bucket.get(key);
       if (object === null) return null;
-      const bytes = object.bytes;
+      const bytes = object.bytes, modified = Date.parse(object.headers['last-modified'] ?? '');
       return {
         key, size: bytes.length,
         httpMetadata: { contentType: object.headers['content-type'] },
         body: new Blob([bytes]).stream(),
         arrayBuffer: async () => bytes,
+        // R2 綁定的 uploaded 是 Date；reader/firstonline.js 的 rootVisibleAt() 只接受 Date，
+        // 缺它就讓「首次上線時間」整批變成 ANNOUNCEMENTS_UNAVAILABLE（通知暫不可用）。
+        uploaded: Number.isFinite(modified) ? new Date(modified) : undefined,
       };
     },
     async list(prefix, maxKeys) { return bucket.list(prefix, maxKeys); },
