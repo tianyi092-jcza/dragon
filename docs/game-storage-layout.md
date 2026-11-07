@@ -718,7 +718,7 @@ DNS 两条 CNAME → `f5d35af4-bbb8-4abe-9ec4-cbc9ead29866.cfargotunnel.com`（p
 ### 17.2 三个必踩的坑（都实测过）
 
 1. **数据目录必须 `700` 且属主 = 容器 uid**：`vps/publication-main.mjs` 的 `privateOwned()` 要求 `mode & 0o077 === 0`，tar 解包后目录是 755 → 启动即 `private owner permissions required` → `startup-failed` 重启循环。修法 `chmod 700 <dataRoot>`。
-2. **编辑器要求 `Host` 逐字等于配置 origin 的 host**（`vps/editor-server.mjs:88`），而 instabox 的公网代理把 `Host` 改写成 `127.0.0.1:<port>`、真名放 `x-forwarded-host`；Cloudflare Tunnel 则保留原 Host。所以 18990 上有一个 40 行反代（`/data/dragon/proxy.mjs`）：还原 Host + 顺带把 `deployment-assets/static-v1/<digest>/` 从本机 `dist` 供应（编辑器开机的静态归档要读它，content-type 必须与 `vps/static-client.mjs` 白名单逐字相符，含 flac/wav/mid）。玩家端不需要反代：`vps/player-server.mjs` 用 `PLAYER_ORIGIN` 重建请求 URL，与 Host 无关。
+2. **编辑器要求 `Host` 逐字等于配置 origin 的 host**（`vps/editor-server.mjs:88`），而 instabox 的公网代理把 `Host` 改写成 `127.0.0.1:<port>`、真名放 `x-forwarded-host`；Cloudflare Tunnel 则保留原 Host。所以 18990 上有一个 40 行反代（`/data/dragon/proxy.mjs`，已入库 `vps/instabox/`）：还原 Host + 顺带把 `deployment-assets/static-v1/<digest>/` 从本机 `dist` 供应（编辑器开机的静态归档要读它，content-type 必须与 `vps/static-client.mjs` 白名单逐字相符，含 flac/wav/mid）。玩家端不需要反代：`vps/player-server.mjs` 用 `PLAYER_ORIGIN` 重建请求 URL，与 Host 无关。
 3. **旧隧道的 CNAME 会让域名回 530**：DNS 原本指向已删除的隧道 `fa6929ee-…`，`cloudflared tunnel route dns --overwrite-dns` 不会改写既有 CNAME（它报「already configured」）；要用 API `PATCH /zones/<zone>/dns_records/<id>` 把 content 换成新隧道。
 
 ### 17.3 布局与运维
@@ -732,4 +732,9 @@ systemd: dragon-editor-proxy.service（proxy.mjs）、dragon-tunnel.service（cl
 - 迁移校验：桶 13606 对象（含 `.meta` 共 27212 档）键集合 `find | LC_ALL=C sort | md5sum` 两边同为 `381524459c4d853f5b86394fe2e2f4b2`；`dist` 1442、`private-objects` 569、`editor.sqlite` 3.4 MB；镜像 `docker save | gzip | ssh docker load` 字节一致。
 - **sandbox stop 后所有进程与隧道连接消失**；start 后跑 `/data/dragon/start.sh`（compose up + 重启 proxy/tunnel）。
 - 换域名只需改 `env/publication.env` 的 `EDITOR_ORIGIN`/`STATIC_ORIGIN`、`env/player.env` 的 `PLAYER_ORIGIN`、`env/proxy.env` 的 `PROXY_PUBLIC_HOST`，代码零改动。
+- **部署产物已入库 `vps/instabox/`**（`proxy.mjs`、`docker-compose.yml`、`start.sh`、`README.md`）：机器上 `/data/dragon/` 的这四份以仓库为源；`env/`（含账号与隧道凭据）不入库。改完 `scp` 到机器对应路径并 `./start.sh`。
+
+### 17.4 旧机 sadcloud 已下线（2026-11-07）
+
+`/srv/dragon` 上 `docker compose down`（容器与网络已移除，镜像与 `/srv/dragon` 2.9 GB 保留作回滚）；`/etc/nginx/sites-enabled/dragon-{editor,player}.conf` 两个站点软链已删并 reload（80/8443 不再服务本项目）。**同机的 x-ui/xray 未动**（443 SNI 分流与 `127.0.0.1:11443` 的 reality inbound 照常运行）。回滚 = 恢复软链 + `docker compose up -d` + 把 DNS 指回该机。
 
