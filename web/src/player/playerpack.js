@@ -106,7 +106,9 @@ export async function loadPlayerPack({ session, compilerRevision, maxTotalBytes,
     // 併發抓取：一章可達 173 個資源，逐個 await 在長鏈路上要幾分鐘（服務端 3 ms/個）。
     // 結果按輸入索引回填，資源順序與逐個版本完全一致；current() 仍在每個請求前後檢查。
     const declaredReads = await mapLimited(declared, PACK_PARALLEL, item => read(item.role, item.type, item.entry));
-    const visualReads = await mapLimited(visual, PACK_PARALLEL, async item => {
+    // 靜態視覺資源（季節圖集／地圖磚，每個數百 KB）逐個抓：只有 8 個，但同時 6 路大檔
+    // 會把隧道的長尾放大，實測偶發單個 >60 s 觸發 PLAYER_STATIC_TIMEOUT。
+    const visualReads = await mapLimited(visual, 1, async item => {
       current(); const value = await readStatic(item.entry.path, { maxBytes: item.entry.byteLength }); current();
       return accept(value, item.type, item.entry);
     });
