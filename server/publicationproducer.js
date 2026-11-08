@@ -28,9 +28,21 @@ export class FrozenPublicationProducer {
     if (this.#ledger.pendingForGame(gameId)) fail(409, 'DISTRIBUTION_GAME_PENDING');
     if (state.tailGeneration === 0 && this.#one('SELECT game_id FROM published_games LIMIT 1')) fail(503, 'DISTRIBUTION_BOOTSTRAP_REQUIRED');
   }
+  // 帳本尾巴可能已被退役檢查點取代：退役條目只留身分憑證、沒有 payload（chunks 不再保證存在）。
+  // 基線改用檢查點的錨點世代（最後一個未退役的世代），語義等同「從這一代起算」。
+  #anchor(checkpointDigest) {
+    const pin = this.#one('SELECT anchor_digest FROM content_distribution_checkpoints WHERE checkpoint_digest=?', checkpointDigest);
+    check(pin !== undefined);
+    const row = this.#one('SELECT generation FROM content_distribution_events WHERE operation_digest=?', pin.anchor_digest);
+    check(row !== undefined);
+    const entry = this.#ledger.entry(row.generation);
+    check(entry.retired !== true);
+    return entry;
+  }
   #catalog(state) {
     if (state.tailGeneration === 0) return { version: 1, games: [] };
-    const previous = this.#ledger.entry(state.tailGeneration), envelope = parseJSON(previous.payload);
+    const tail = this.#ledger.entry(state.tailGeneration);
+    const previous = tail.retired === true ? this.#anchor(tail.checkpointDigest) : tail, envelope = parseJSON(previous.payload);
     check(envelope.version === 1 && envelope.catalog);
     const catalog = validatePublicationCatalog(envelope.catalog, previous);
     check(JSON.stringify(projectPublicationCatalog(catalog, previous)) === JSON.stringify(envelope.projection));
