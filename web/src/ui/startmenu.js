@@ -67,6 +67,7 @@ export class StartMenu {
 
   // ── 主流程: 對應 0x1AC3 迴圈 (YES/NO 無取消路徑, 右鍵僅在二級對話框回退) ──
   async show(initialAction) {
+    this._banners = [];
     const hidden = [];
     for (const id of ["panel", "legend", "cmdpanel", "tip"]) {
       const el = document.querySelector(`#${id}`);
@@ -118,6 +119,7 @@ export class StartMenu {
         initialAction,
       );
     } finally {
+      this._clearBanners();
       this._advisorLoadingCleanup?.();
       this._advisorLoadingCleanup = null;
       this.publicCatalog.node.hidden = true;
@@ -127,8 +129,8 @@ export class StartMenu {
   }
 
   async _chooseChapter() {
-    // 上一頁選擇框裡的遊戲名顯示在章節窗上方（同寬、距頁頂 40px、同雲紋金框）。
-    const dropBanner = this._gameNameBanner(this.selectedGame?.name ?? "");
+    // 遊戲名條保留到選完勢力（或整段流程結束）：右鍵從勢力窗回退時它還在。
+    this._pushBanner(this.selectedGame?.name ?? "");
     try {
       const sortedIdx = await this.prompt({
         x: "center",
@@ -139,16 +141,24 @@ export class StartMenu {
         rowH: 28,
         rows: this._chapterRows(),
       });
-      if (sortedIdx < 0) return sortedIdx;
+      if (sortedIdx < 0) { this._popBanner(); return sortedIdx; }
       return this._sortedScenarios?.[sortedIdx]?._origIdx ?? sortedIdx;
-    } finally {
-      dropBanner();
-    }
+    } catch (error) { this._popBanner(); throw error; }
   }
 
   // 遊戲名標籤：與章節窗同寬（448 內容 + 左右各 8px 金框），距頁面頂 40px。
+  // 雲紋標題條栈：自上而下 = 遊戲名、章節名；右鍵逐級返回時由上層依次移除。
+  _pushBanner(name) {
+    const top = 40 + this._banners.length * 56;
+    const remove = this._gameNameBanner(name, top);
+    this._banners.push(remove);
+    return remove;
+  }
+  _popBanner() { this._banners.pop()?.(); }
+  _clearBanners() { while (this._banners.length) this._popBanner(); }
+
   // 章節窗畫在居中的 canvas 上，只有 DOM 層能落在頁面頂部，所以回傳移除函式。
-  _gameNameBanner(name) {
+  _gameNameBanner(name, top = 40) {
     if (!name) return () => {};
     const W = 464,
       H = 48;
@@ -161,7 +171,7 @@ export class StartMenu {
     Object.assign(cv.style, {
       position: "fixed",
       left: `${r.left + 88 * sx}px`,
-      top: "40px",
+      top: `${top}px`,
       width: `${W * sx}px`,
       height: `${H * sy}px`,
       zIndex: "61",
@@ -184,6 +194,8 @@ export class StartMenu {
 
   async _chooseSave() {
     const rows = this._saveRows();
+    this._pushBanner(this.selectedGame?.name ?? "");
+    try {
     const index = await this.prompt({
       x: "center",
       y: "center",
@@ -195,6 +207,7 @@ export class StartMenu {
       rows,
     });
     return index < 0 ? -1 : rows[index].slot;
+    } finally { this._popBanner(); }
   }
 
   _chapterRows() {
@@ -225,6 +238,10 @@ export class StartMenu {
   }
 
   _factionRows(scen) {
+    // 發佈遊戲：勢力行隨章節目錄一起下發（選章前就能開窗，零額外請求）。
+    if (Array.isArray(scen.factionRows) && scen.factionRows.length) {
+      return scen.factionRows.map((row) => ({ cols: [...row.cols] }));
+    }
     // 各势力行: 君主名/军师名(势力记录 byte[2] 指定, 0x7F=无→---)/武将数/据点数/首都名
     return scen.factions
       .filter((f) => f.monarch && f.monarch.trim())
@@ -243,18 +260,22 @@ export class StartMenu {
   }
 
   // ── 势力选择: NEW GAME 选章节后弹出 (通用 prompt 加宽加高版, 无标题) ──
-  _factionDialog(scenIdx) {
+  async _factionDialog(scenIdx) {
     const scen = this.app.data.scenarios[scenIdx];
-    return this.prompt({
+    // 自上而下：遊戲名條（章節窗留下）→ 章節名條 → 勢力列表窗；右鍵只退出本章節名條。
+    this._pushBanner(scen?.name ?? "");
+    try {
+      return await this.prompt({
       x: 96,
       y: 16,
       w: 448,
       h: 368, // 云窗 448×368, 金框 88,8..552,392
       header: ["勢力名", "軍師名", "武将", "據點", "首都"],
       colX: [8, 112, 232, 288, 336],
-      rowH: 16,
-      rows: this._factionRows(scen),
-    });
+        rowH: 16,
+        rows: this._factionRows(scen),
+      });
+    } finally { this._popBanner(); }
   }
 
   // Resolved URL cache is owned by assets; a byte-only menu cache merges entities.

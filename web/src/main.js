@@ -1120,7 +1120,10 @@ export async function startApp(opening, { trial = null, formal = null } = {}) {
   app.runtimeEnabled = false;
   if (formalEntry?.catalog) {
     // 選章之前只要目錄：章節窗顯示名稱與日期，勢力與世界等選完章再載入。
-    const scenarios = formalEntry.catalog.map(row => ({ name: row.name, start: { ...row.start }, factions: [] }));
+    const scenarios = formalEntry.catalog.map(row => ({ name: row.name, start: { ...row.start }, factions: [],
+      // 勢力窗用發佈時寫進索引的清單（選章前就能秒開，不必先讀該章 JSON）。形狀同 _factionRows。
+      factionRows: (row.factions ?? []).map(faction => ({ cols: [faction.monarch, faction.advisor,
+        `${faction.nGenerals}`, `${faction.nCities}`, faction.capital] })) }));
     app.content = Object.freeze({ data: Object.freeze({ scenarios: Object.freeze(scenarios) }),
       chapters: Object.freeze(formalEntry.catalog.map((row, index) => Object.freeze({
         id: row.chapterId, name: row.name, official: row.official, legacyScenarioIndex: index }))),

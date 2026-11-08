@@ -38,10 +38,42 @@ export async function admitPlayerChapter({ reader, selection, chapterId, assertC
     return session;
   } catch (error) { session?.close?.(); throw error; }
 }
-export async function loadPlayerChapters({ reader, selection, assertCurrent = () => {} }) {
+// 公開章節清單（`GET /play-api/v1/chapters`，不需要准入票）只有展示元資料，
+// 所以章節窗與勢力窗都是一次請求。舊發佈沒有這份清單時回 503，這裡退回逐章取。
+function catalogRows(value, expected) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!['gameId', 'releaseId', 'ordinal', 'revision', 'sourceDigest'].every(key => value[key] === expected[key])) return null;
+  const rows = value.chapters;
+  if (!Array.isArray(rows) || rows.length !== expected.chapters.length) return null;
+  const out = [];
+  for (const [index, row] of rows.entries()) {
+    if (row?.chapterId !== expected.chapters[index] || typeof row.name !== 'string' || !row.name.length) return null;
+    if (!['year', 'month', 'day'].every(key => Number.isSafeInteger(row.start?.[key]))) return null;
+    if (!Array.isArray(row.factions)) return null;
+    out.push(Object.freeze({ chapterId: row.chapterId, name: row.name,
+      start: Object.freeze({ year: row.start.year, month: row.start.month, day: row.start.day }),
+      factions: Object.freeze(row.factions.map(faction => Object.freeze({
+        monarch: faction.monarch, advisor: faction.advisor, capital: faction.capital,
+        nGenerals: faction.nGenerals, nCities: faction.nCities }))) }));
+  }
+  return out;
+}
+export async function loadPlayerChapters({ reader, selection, assertCurrent = () => {}, catalog = null }) {
   ports(reader, assertCurrent);
   if (typeof reader.status !== 'function') throw new TypeError('current status reader required');
   const expected = capture(selection), rows = [];
+  if (typeof catalog === 'function') {
+    assertCurrent();
+    const listed = catalogRows(await catalog(expected), expected);
+    if (listed !== null) {
+      assertCurrent();
+      const current = await reader.status(expected.gameId);
+      assertCurrent();
+      if (current?.listed !== true) fail('PLAYER_SELECTION_CHANGED');
+      same({ ...expected, manifestDigest: undefined }, current);
+      return Object.freeze({ selection: expected, chapters: Object.freeze(listed) });
+    }
+  }
   let pinned = expected;
   for (const chapterId of expected.chapters) {
     const session = await admitPlayerChapter({ reader, selection: pinned, chapterId, assertCurrent });

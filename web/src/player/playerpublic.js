@@ -63,6 +63,16 @@ function showFailure(root) {
   });
   retry.focus();
 }
+// 公開章節清單：一個小 JSON（`/play-api/v1/chapters?game=<id>`），不需要准入票。
+// 舊發佈沒有這份清單時回 503／非 200，交給 loadPlayerChapters 退回逐章取。
+async function fetchChapterCatalog(expected) {
+  const url = new URL('/play-api/v1/chapters', location.origin);
+  url.searchParams.set('game', expected.gameId);
+  const response = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' });
+  if (response.status !== 200) return null;
+  try { return await response.json(); } catch { return null; }
+}
+
 export async function launchPublicPlayer({ opening, startApp, request, root = document.body }) {
   if (typeof startApp !== 'function' || !root?.ownerDocument || !isGameId(request?.gameId) || !['new', 'load'].includes(request.mode))
     throw new TypeError('explicit public entry and shared App required');
@@ -97,7 +107,7 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
       // 新遊戲（2026-11-08 用戶決定）：與內置完全同一套——先只拉章節目錄（名稱／日期），
       // 章節窗、勢力窗、逐級右鍵返回全部由程式自己的 StartMenu 畫；選完章才拉該章位元組，
       // 選完勢力才建立環境。到哪一步調哪一步的資料，不再有第二套 DOM 面板。
-      const rows = await loadPlayerChapters({ reader, selection });
+      const rows = await loadPlayerChapters({ reader, selection, catalog: fetchChapterCatalog });
       const chapters = rows.chapters.map(row => Object.freeze({ ...row,
         // 章節 id 的來源家族只決定窗上的 [原版]／[重製] 標籤（#original-N 為原版章）。
         official: /#original-\d+$/.test(row.chapterId) }));
