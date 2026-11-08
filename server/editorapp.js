@@ -121,9 +121,10 @@ function errorResponse(error) {
   // 非 HttpError 一律压成 INTERNAL_ERROR（不泄露内部细节），但把堆栈写到 stderr：
   // 没有它，上架编译阶段的 500 在库里全表无痕，只能靠猜。EDITOR_ERROR_DEBUG=0 可关。
   if (!(error instanceof HttpError) && process.env.EDITOR_ERROR_DEBUG !== '0') {
-    process.stderr.write(JSON.stringify({ event: 'internal-error', code: String(error?.code ?? ''), message: String(error?.message ?? error), stack: String(error?.stack ?? '') }) + '
-');
+    const record = { event: 'internal-error', code: String(error?.code ?? ''), message: String(error?.message ?? error), stack: String(error?.stack ?? '') };
+    process.stderr.write(JSON.stringify(record) + String.fromCharCode(10));
   }
+
   const detail = error instanceof HttpError ? error.detail : undefined;
   return response(detail === undefined ? { error: code } : { error: code, detail }, status);
 }
