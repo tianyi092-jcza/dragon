@@ -91,6 +91,11 @@ export class StartMenu {
             // 全部沿用內置同一套渲染，不再整頁導航回開場音樂。
             if (this.app._formalEntry?.catalog) return this._chooseChapter();
             if (this.selectedGame?.kind === "formal") {
+              // 同頁異步刷新：只換章節目錄與正式會話綁定，不整頁導航、不重播開場音樂。
+              if (typeof this.app.rebindFormalGame === "function") {
+                await this.app.rebindFormalGame(this.selectedGame.gameId);
+                return this._chooseChapter();
+              }
               navigatePlayerGame(this.selectedGame.gameId, "new");
               return -1;
             }
@@ -102,10 +107,10 @@ export class StartMenu {
             return this._factionDialog(idx);
           },
           chooseAdvisor: (idx, faction) => this._advisorDialog(idx, faction),
-          chooseSave: () => {
-            if (this.selectedGame?.kind === "formal") {
-              navigatePlayerGame(this.selectedGame.gameId, "load");
-              return -1;
+          chooseSave: async () => {
+            if (this.selectedGame?.kind === "formal" && !this.app._formalEntry?.catalog) {
+              if (typeof this.app.rebindFormalGame === "function") await this.app.rebindFormalGame(this.selectedGame.gameId);
+              else { navigatePlayerGame(this.selectedGame.gameId, "load"); return -1; }
             }
             return this._chooseSave();
           },

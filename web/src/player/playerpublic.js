@@ -73,6 +73,50 @@ async function fetchChapterCatalog(expected) {
   try { return await response.json(); } catch { return null; }
 }
 
+// 同頁綁定一款已發佈遊戲（2026-11-08 用戶決定）：內置遊戲在標題頁選到發佈遊戲後，
+// 新遊戲／讀取存檔都在本頁完成，不整頁導航、不重播開場音樂。回傳的 formal 物件
+// 與 launchPublicPlayer 的章節窗模式完全同形，由 main.js 的 applyFormalCatalog 安裝。
+export async function bindFormalGame({ gameId }) {
+  if (!isGameId(gameId)) throw new TypeError('game id required');
+  const reader = createPlayerReader({ origin: location.origin });
+  const store = createGameSaveStore({ gameId, databaseName: 'wolong-web', getIndexedDB: () => indexedDB });
+  const registry = await reader.registry();
+  const selection = registry.directory.find(entry => entry.gameId === gameId);
+  if (!selection) throw new Error('current listed game unavailable');
+  const programBase = new URL('../../', import.meta.url);
+  if (programBase.origin !== location.origin) throw new Error('same-origin program required');
+  const policy = { compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 256 * 1024 * 1024,
+    readStatic: createPlayerStaticReader({ origin: location.origin, basePath: programBase.pathname }) };
+  const rows = await loadPlayerChapters({ reader, selection, catalog: fetchChapterCatalog });
+  const chapters = rows.chapters.map(row => Object.freeze({ ...row,
+    official: /#original-\d+$/.test(row.chapterId) }));
+  let ended = false, session = null, pack = null;
+  const assertCurrent = () => { if (ended) throw new DOMException('Formal session ended', 'AbortError'); };
+  const close = () => {
+    try { pack?.close?.(); } catch { /* 離開時釋放本章位元組 */ }
+    try { session?.close?.(); } catch { /* 票在離開時作廢 */ }
+    pack = null; session = null;
+  };
+  return Object.freeze({ gameId, store, close, formal: Object.freeze({
+    catalog: chapters, assertCurrent,
+    async openChapter(index) {
+      const row = chapters[index];
+      if (!row) throw new TypeError('chapter index required');
+      close(); assertCurrent();
+      session = await admitPlayerChapter({ reader, selection: rows.selection, chapterId: row.chapterId, assertCurrent });
+      pack = await loadPlayerPack({ session, ...policy });
+      return pack;
+    },
+    async openEnvironment(currentPack, playerFaction) {
+      const environment = createPlayerEnvironment(currentPack, { playerFaction });
+      const saveRepository = createPlayerSaveRepository({
+        saves: createPlayerSaveStore({ environment, store }), assertCurrent: environment.assertCurrent });
+      return { environment, saveRepository };
+    },
+    async onExit() { ended = true; close(); },
+  }) });
+}
+
 export async function launchPublicPlayer({ opening, startApp, request, root = document.body }) {
   if (typeof startApp !== 'function' || !root?.ownerDocument || !isGameId(request?.gameId) || !['new', 'load'].includes(request.mode))
     throw new TypeError('explicit public entry and shared App required');

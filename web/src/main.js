@@ -1078,8 +1078,58 @@ window.addEventListener("beforeunload", (e) => {
   return msg;
 });
 
+// 章節窗模式（2026-11-08 用戶決定：同頁異步刷新）。啟動時與運行中切換遊戲走同一個入口，
+// 只重建章節目錄與正式會話綁定，不重啟 App、不重播開場音樂。
+function applyFormalCatalog(app, formalEntry) {
+  // 選章之前只要目錄：章節窗顯示名稱與日期，勢力與世界等選完章再載入。
+  const scenarios = formalEntry.catalog.map(row => ({ name: row.name, start: { ...row.start }, factions: [],
+    // 勢力窗用發佈時寫進索引的清單（選章前就能秒開，不必先讀該章 JSON）。形狀同 _factionRows。
+    factionRows: (row.factions ?? []).map(faction => ({ cols: [faction.monarch, faction.advisor,
+      `${faction.nGenerals}`, `${faction.nCities}`, faction.capital] })) }));
+  app.content = Object.freeze({ data: Object.freeze({ scenarios: Object.freeze(scenarios) }),
+    chapters: Object.freeze(formalEntry.catalog.map((row, index) => Object.freeze({
+      id: row.chapterId, name: row.name, official: row.official, legacyScenarioIndex: index }))),
+    chapter: () => null });
+  app.saves = { slots: [] };
+  app.saveRepository = null;
+  // ①選完章：只拉這一章的位元組（城市／武將／勢力），把模板放回目錄的同一格；
+  // ②選完勢力：才建立環境（世界資源、存檔庫）。到哪一步調哪一步的資料。
+  app._formalPrepareChapter = async index => {
+    const pack = await formalEntry.openChapter(index);
+    formalEntry.assertCurrent();
+    const chapter = pack?.chapter;
+    if (!chapter?.template) throw new Error("formal chapter template required");
+    app.data = { scenarios: formalEntry.catalog.map((row, at) => (at === index
+      ? chapter.template : { name: row.name, start: { ...row.start }, factions: [] })) };
+    app.content = Object.freeze({ ...app.content, data: Object.freeze({ scenarios: Object.freeze(app.data.scenarios) }) });
+    formalEntry.pendingPack = pack;
+    formalEntry.pendingIndex = index;
+    return chapter;
+  };
+  app._installFormalChapter = async (index, playerFaction) => {
+    const pack = formalEntry.pendingPack;
+    if (!pack) throw new Error("formal chapter must be loaded first");
+    const loaded = await formalEntry.openEnvironment(pack, playerFaction);
+    formalEntry.assertCurrent();
+    const base = loaded.environment.content, chapter = base.chapter(0);
+    if (!chapter?.template) throw new Error("formal chapter template required");
+    const scenarios = formalEntry.catalog.map((row, at) => (at === index
+      ? chapter.template : { name: row.name, start: { ...row.start }, factions: [] }));
+    app.content = Object.freeze({ ...base, data: Object.freeze({ ...base.data, scenarios: Object.freeze(scenarios) }),
+      chapters: Object.freeze([chapter]),
+      chapter: key => (key === index || key === 0 || key === chapter.id ? chapter : null) });
+    app.data = app.content.data;
+    app.world = loaded.environment.world;
+    app.saveRepository = loaded.saveRepository;
+    app.saves = await loaded.saveRepository.load();
+    formalEntry.chapter = chapter;
+    formalEntry.pendingPack = null;
+    return chapter;
+  };
+}
+
 // 标题阶段只读取章节目录和本机存档；地图/道路/战斗数据在确认进入游戏后加载。
-export async function startApp(opening, { trial = null, formal = null } = {}) {
+export async function startApp(opening, { trial = null, formal = null, formalBinder = null } = {}) {
   let formalEntry = null;
   if (formal !== null) {
     const environment = formal.environment, repository = formal.saveRepository, catalog = formal.catalog ?? null;
@@ -1119,51 +1169,7 @@ export async function startApp(opening, { trial = null, formal = null } = {}) {
   app.opening = opening;
   app.runtimeEnabled = false;
   if (formalEntry?.catalog) {
-    // 選章之前只要目錄：章節窗顯示名稱與日期，勢力與世界等選完章再載入。
-    const scenarios = formalEntry.catalog.map(row => ({ name: row.name, start: { ...row.start }, factions: [],
-      // 勢力窗用發佈時寫進索引的清單（選章前就能秒開，不必先讀該章 JSON）。形狀同 _factionRows。
-      factionRows: (row.factions ?? []).map(faction => ({ cols: [faction.monarch, faction.advisor,
-        `${faction.nGenerals}`, `${faction.nCities}`, faction.capital] })) }));
-    app.content = Object.freeze({ data: Object.freeze({ scenarios: Object.freeze(scenarios) }),
-      chapters: Object.freeze(formalEntry.catalog.map((row, index) => Object.freeze({
-        id: row.chapterId, name: row.name, official: row.official, legacyScenarioIndex: index }))),
-      chapter: () => null });
-    app.saves = { slots: [] };
-    app.saveRepository = null;
-    // ①選完章：只拉這一章的位元組（城市／武將／勢力），把模板放回目錄的同一格；
-    // ②選完勢力：才建立環境（世界資源、存檔庫）。到哪一步調哪一步的資料。
-    app._formalPrepareChapter = async index => {
-      const pack = await formalEntry.openChapter(index);
-      formalEntry.assertCurrent();
-      const chapter = pack?.chapter;
-      if (!chapter?.template) throw new Error("formal chapter template required");
-      app.data = { scenarios: formalEntry.catalog.map((row, at) => (at === index
-        ? chapter.template : { name: row.name, start: { ...row.start }, factions: [] })) };
-      app.content = Object.freeze({ ...app.content, data: Object.freeze({ scenarios: Object.freeze(app.data.scenarios) }) });
-      formalEntry.pendingPack = pack;
-      formalEntry.pendingIndex = index;
-      return chapter;
-    };
-    app._installFormalChapter = async (index, playerFaction) => {
-      const pack = formalEntry.pendingPack;
-      if (!pack) throw new Error("formal chapter must be loaded first");
-      const loaded = await formalEntry.openEnvironment(pack, playerFaction);
-      formalEntry.assertCurrent();
-      const base = loaded.environment.content, chapter = base.chapter(0);
-      if (!chapter?.template) throw new Error("formal chapter template required");
-      const scenarios = formalEntry.catalog.map((row, at) => (at === index
-        ? chapter.template : { name: row.name, start: { ...row.start }, factions: [] }));
-      app.content = Object.freeze({ ...base, data: Object.freeze({ ...base.data, scenarios: Object.freeze(scenarios) }),
-        chapters: Object.freeze([chapter]),
-        chapter: key => (key === index || key === 0 || key === chapter.id ? chapter : null) });
-      app.data = app.content.data;
-      app.world = loaded.environment.world;
-      app.saveRepository = loaded.saveRepository;
-      app.saves = await loaded.saveRepository.load();
-      formalEntry.chapter = chapter;
-      formalEntry.pendingPack = null;
-      return chapter;
-    };
+    applyFormalCatalog(app, formalEntry);
   } else if (formalEntry) {
     app._formalEntry = formalEntry;
     app.content = formalEntry.content;
@@ -1189,6 +1195,14 @@ export async function startApp(opening, { trial = null, formal = null } = {}) {
 
   app.speaker = speaker; // 0xCDE/0xCE7 PC喇叭音效复刻
   if (!trial && (!formalEntry || formalEntry.catalog !== null)) app.startMenu = new StartMenu(app);
+  // 內置遊戲啟動時也帶上「綁定一款已發佈遊戲」的能力：下拉框選到發佈遊戲後，
+  // 新遊戲／讀取存檔都在本頁完成，不再整頁導航回開場音樂。
+  if (typeof formalBinder === "function") app.rebindFormalGame = async gameId => {
+    const bound = await formalBinder({ gameId });
+    applyFormalCatalog(app, bound.formal);
+    app._formalBound = bound;
+    return bound.formal;
+  };
   app.score.title();
   document.addEventListener(
     "pointerdown",
