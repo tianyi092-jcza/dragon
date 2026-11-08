@@ -48,7 +48,31 @@ export function buildRuntimeIndex(pin, release, pack, chapters, assets) {
   // Prepared arrays and SQL cursors need not have the same enumeration order.
   // Canonicalize only this role map, never chapter order or the payload bytes.
   const canonicalResources = Object.fromEntries(Object.keys(resources).sort().map(role => [role, resources[role]]));
-  const index = validateIndex({ version: 1, ...identity, chapters: [...pin.chapters], resources: canonicalResources });
+  // 章節清單（名稱／日期／勢力）：發佈時寫進索引，玩家端章節窗與勢力窗就都是零額外請求，
+  // 不必再逐章換票讀 124 KB 的章節 JSON。欄位語義與 startmenu.js 的 _factionRows 一致。
+  // 只有每章都帶 factions 的完整檔才寫；精簡檔（minimal profile／測試夾具）保持索引位元組不變。
+  const chapterRows = new Map(chapters.map(row => [row.chapter_id, row]));
+  const states = pin.chapters.map(chapterId => {
+    const row = chapterRows.get(chapterId);
+    requireValue(row !== undefined, 'chapter index row missing');
+    const state = parseJSON(Buffer.from(row.state_json));
+    requireValue(state !== null && typeof state === 'object');
+    return { chapterId, state };
+  });
+  const complete = states.every(({ state }) => Array.isArray(state.factions) && state.start && typeof state.start === 'object' && typeof state.name === 'string' && state.name.length > 0);
+  const chapterIndex = complete ? states.map(({ chapterId, state }) => ({
+    chapterId,
+    name: state.name,
+    start: { year: state.start.year, month: state.start.month, day: state.start.day },
+    factions: state.factions.filter(faction => faction?.monarch && faction.monarch.trim()).map(faction => ({
+      monarch: faction.monarch,
+      advisor: state.generals?.[faction.advisor_idx]?.name?.trim() || '－－－',
+      nGenerals: faction.n_generals,
+      nCities: faction.n_cities,
+      capital: state.cities?.[faction.capital]?.name ?? '－－－',
+    })),
+  })) : undefined;
+  const index = validateIndex({ version: 1, ...identity, chapters: [...pin.chapters], ...(chapterIndex === undefined ? {} : { chapterIndex }), resources: canonicalResources });
   const bytes = Buffer.from(JSON.stringify(index)), digest = sha(bytes);
   requireValue(bytes.length <= MAX_METADATA_BYTES);
   const reference = { key: `${base}runtime-${digest}.json`, sha256: digest, byteLength: bytes.length };

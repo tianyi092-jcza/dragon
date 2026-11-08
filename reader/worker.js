@@ -173,6 +173,22 @@ async function runtimeIndex(env, identity, ref) {
   requireValue(sameIdentity(index, identity), 'RUNTIME_CORRUPT');
   return index;
 }
+// 公開章節目錄：只回展示元資料（章節名／日期／勢力名與計數），不需要准入票。
+// 章節窗因此是「一個小 JSON」而不是逐章換票；點章之後才按章准入拉該章位元組。
+async function chapterCatalog(url, env) {
+  const gameId = url.searchParams.get('game');
+  if (!isGameId(gameId) || [...url.searchParams.keys()].some(key => key !== 'game') || url.searchParams.getAll('game').length !== 1) { stop('CHAPTERS_INPUT', 422); }
+  const state = await snapshot(env);
+  const known = state.states.get(gameId);
+  if (!known || known.deleted) { stop('GAME_DELETED', 410); }
+  const entry = state.directory.find(row => row.gameId === gameId);
+  if (!entry) { stop('GAME_NOT_LISTED', 403); }
+  const release = state.releases.get(gameId), index = await runtimeIndex(env, release, release.runtime);
+  // 舊發佈（或精簡檔）沒有清單：明確告知，客戶端退回逐章路徑。
+  if (index.chapterIndex === undefined) { stop('CHAPTERS_UNAVAILABLE', 503); }
+  return json({ gameId, releaseId: entry.releaseId, ordinal: entry.ordinal, revision: entry.revision,
+    sourceDigest: entry.sourceDigest, chapters: index.chapterIndex });
+}
 async function admit(url, env) {
   const gameId = url.searchParams.get('game'), ordinal = url.searchParams.get('ordinal'), chapterId = url.searchParams.get('chapter');
   if (!isGameId(gameId) || !isOrdinal(ordinal) || !isChapterId(chapterId, gameId)) { stop('ADMISSION_INPUT', 422); }
@@ -256,7 +272,8 @@ export default {
       let url;
       try { url = new URL(request.url); } catch { return json({ error: 'NOT_FOUND' }, 404); }
       if (request.method !== 'GET') { return json({ error: 'NOT_FOUND' }, 404); }
-      if (!['/play-api/v1/registry', '/play-api/v1/status', '/play-api/v1/admissions', '/play-api/v1/file', '/play-api/v1/releases'].includes(url.pathname)) { return json({ error: 'NOT_FOUND' }, 404); }
+      if (!['/play-api/v1/registry', '/play-api/v1/status', '/play-api/v1/admissions', '/play-api/v1/file', '/play-api/v1/releases', '/play-api/v1/chapters'].includes(url.pathname)) { return json({ error: 'NOT_FOUND' }, 404); }
+      if (url.pathname === '/play-api/v1/chapters') { return await chapterCatalog(url, env); }
       if (url.pathname === '/play-api/v1/file') { return await file(request, url, env); }
       if (url.pathname === '/play-api/v1/admissions') { return await admit(url, env); }
       if (url.pathname === '/play-api/v1/releases') { return await releaseHistory(url, env); }

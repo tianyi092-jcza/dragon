@@ -60,6 +60,25 @@ export function validateRuntimeReference(identity, ref) {
 export function validateIndex(index) {
   const base = runtimeBase(index);
   requireValue(index.version === 1 && Array.isArray(index.chapters) && index.chapters.length > 0 && index.chapters.every(chapter => isChapterId(chapter, index.gameId)) && new Set(index.chapters).size === index.chapters.length);
+  // 章節清單（名稱／日期／勢力）是可選元資料：發佈時寫進索引，玩家端章節窗與勢力窗都零額外請求。
+  // 舊版本（或精簡檔）沒有這個欄位，客戶端退回逐章取資料。
+  if (index.chapterIndex !== undefined) {
+    requireValue(Array.isArray(index.chapterIndex) && index.chapterIndex.length === index.chapters.length);
+    const seen = new Set();
+    for (const row of index.chapterIndex) {
+      requireValue(row !== null && typeof row === 'object' && !Array.isArray(row));
+      requireValue(isChapterId(row.chapterId, index.gameId) && index.chapters.includes(row.chapterId) && !seen.has(row.chapterId));
+      seen.add(row.chapterId);
+      requireValue(typeof row.name === 'string' && row.name.length > 0 && row.name.length <= 64);
+      requireValue(row.start !== null && typeof row.start === 'object' && ['year', 'month', 'day'].every(key => Number.isSafeInteger(row.start[key])));
+      requireValue(Array.isArray(row.factions) && row.factions.length <= 64);
+      for (const faction of row.factions) {
+        requireValue(faction !== null && typeof faction === 'object');
+        requireValue(['monarch', 'advisor', 'capital'].every(key => typeof faction[key] === 'string' && faction[key].length <= 64));
+        requireValue(Number.isSafeInteger(faction.nGenerals) && faction.nGenerals >= 0 && Number.isSafeInteger(faction.nCities) && faction.nCities >= 0);
+      }
+    }
+  }
   requireValue(index.resources && typeof index.resources === 'object' && !Array.isArray(index.resources));
   const entries = Object.entries(index.resources);
   requireValue(entries.length <= 2048 && Object.hasOwn(index.resources, 'manifest'));
