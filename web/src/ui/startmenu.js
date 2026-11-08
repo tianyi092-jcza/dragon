@@ -84,13 +84,20 @@ export class StartMenu {
         {
           chooseAction: () => this._yesNo(),
           chooseChapter: async () => {
+            // 正式會話（已在發佈遊戲內）就在本頁列章：章節窗、勢力窗、逐級右鍵返回
+            // 全部沿用內置同一套渲染，不再整頁導航回開場音樂。
+            if (this.app._formalEntry?.catalog) return this._chooseChapter();
             if (this.selectedGame?.kind === "formal") {
               navigatePlayerGame(this.selectedGame.gameId, "new");
               return -1;
             }
             return this._chooseChapter();
           },
-          chooseFaction: (idx) => this._factionDialog(idx),
+          chooseFaction: async (idx) => {
+            // 到這一步才拉這一章的位元組（勢力／城市／武將）；章節窗只用目錄。
+            if (this.app._formalPrepareChapter) await this.app._formalPrepareChapter(idx);
+            return this._factionDialog(idx);
+          },
           chooseAdvisor: (idx, faction) => this._advisorDialog(idx, faction),
           chooseSave: () => {
             if (this.selectedGame?.kind === "formal") {

@@ -2,7 +2,8 @@
 // historical admission. The shared App is started exactly once per document.
 import { createPlayerReader } from './playerclient.js';
 import { mountPlayerCatalog } from './playercatalog.js';
-import { mountPlayerNewGame } from './playernewgame.js';
+import { admitPlayerChapter, loadPlayerChapters } from './playerchapters.js';
+import { loadPlayerPack } from './playerpack.js';
 import { mountPlayerRestore } from './playerrestore.js';
 import { confirmGameDeleted, discardLocalSaves, mountDeletedGameNotice } from './playerdeletedgame.js';
 import { createPlayerStaticReader } from './playerstatic.js';
@@ -92,9 +93,46 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
     if (programBase.origin !== location.origin) throw new Error('same-origin program required');
     const policy = { compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 256 * 1024 * 1024,
       readStatic: createPlayerStaticReader({ origin: location.origin, basePath: programBase.pathname }) };
-    choice = mode === 'load'
-      ? mountPlayerRestore({ root, reader, selection, store, ...policy })
-      : mountPlayerNewGame({ root, reader, selection, store, ...policy });
+    if (mode === 'new') {
+      // 新遊戲（2026-11-08 用戶決定）：與內置完全同一套——先只拉章節目錄（名稱／日期），
+      // 章節窗、勢力窗、逐級右鍵返回全部由程式自己的 StartMenu 畫；選完章才拉該章位元組，
+      // 選完勢力才建立環境。到哪一步調哪一步的資料，不再有第二套 DOM 面板。
+      const rows = await loadPlayerChapters({ reader, selection });
+      const chapters = rows.chapters.map(row => Object.freeze({ ...row,
+        // 章節 id 的來源家族只決定窗上的 [原版]／[重製] 標籤（#original-N 為原版章）。
+        official: /#original-\d+$/.test(row.chapterId) }));
+      let ended = false, session = null, pack = null;
+      const assertCurrent = () => { if (ended) throw new DOMException('Formal session ended', 'AbortError'); };
+      catalog.close();
+      await startApp(opening, { formal: {
+        catalog: chapters, assertCurrent,
+        async openChapter(index) {
+          const row = chapters[index];
+          if (!row) throw new TypeError('chapter index required');
+          try { pack?.close?.(); } catch { /* 換章時先釋放上一章的位元組 */ }
+          session?.close?.(); session = null; pack = null;
+          assertCurrent();
+          session = await admitPlayerChapter({ reader, selection: rows.selection, chapterId: row.chapterId, assertCurrent });
+          pack = await loadPlayerPack({ session, ...policy });
+          return pack;
+        },
+        async openEnvironment(currentPack, playerFaction) {
+          const environment = createPlayerEnvironment(currentPack, { playerFaction });
+          const saveRepository = createPlayerSaveRepository({
+            saves: createPlayerSaveStore({ environment, store }), assertCurrent: environment.assertCurrent });
+          return { environment, saveRepository };
+        },
+        async onExit({ reason, initialAction }) {
+          ended = true;
+          try { pack?.close?.(); } catch { /* 離開時釋放本章位元組 */ }
+          try { session?.close?.(); } catch { /* 票在離開時作廢 */ }
+          if (reason === 'title' && initialAction === 'load') navigatePlayerGame(gameId, 'load');
+          else initialPage();
+        },
+      } });
+      return;
+    }
+    choice = mountPlayerRestore({ root, reader, selection, store, ...policy });
     selected = await choice.result;
     catalog.close();
     if (!selected) { initialPage(); return; }

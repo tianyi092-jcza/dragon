@@ -268,7 +268,11 @@ const app = {
 
   beginNewGame(i, playerFaction, advisor) {
     if (this.trialEnded) return Promise.reject(new Error("試運行已結束，請開啟新視窗"));
-    return this.enterGame(() => this.setScenario(i, playerFaction, advisor));
+    return this.enterGame(async () => {
+      // 正式會話：勢力選定後才建立環境（世界資源與存檔庫），然後照內置同一條路開局。
+      if (this._formalEntry?.pendingPack) await this._installFormalChapter(i, playerFaction);
+      return this.setScenario(i, playerFaction, advisor);
+    });
   },
 
   promptExit(action = "reload") {
@@ -1078,25 +1082,86 @@ window.addEventListener("beforeunload", (e) => {
 export async function startApp(opening, { trial = null, formal = null } = {}) {
   let formalEntry = null;
   if (formal !== null) {
-    const environment = formal.environment, repository = formal.saveRepository;
-    if (trial !== null || !environment?.content || !environment.world || !Number.isInteger(environment.player) ||
-        typeof environment.assertCurrent !== "function" || typeof formal.onExit !== "function" ||
+    const environment = formal.environment, repository = formal.saveRepository, catalog = formal.catalog ?? null;
+    if (trial !== null || typeof formal.onExit !== "function" ||
         !(formal.checkStatus == null || typeof formal.checkStatus === "function") ||
-        !["load", "list", "get", "put", "add"].every(key => typeof repository?.[key] === "function") ||
         !(formal.savedSlot == null || Number.isSafeInteger(formal.savedSlot) && formal.savedSlot >= 0))
-      throw new TypeError("Explicit formal environment, repository and exit owner required");
-    environment.assertCurrent();
-    formalEntry = { assertCurrent: environment.assertCurrent.bind(environment), onExit: formal.onExit,
-      checkStatus: formal.checkStatus ?? null,
-      content: environment.content, world: environment.world, player: environment.player,
-      repository, savedSlot: formal.savedSlot ?? null, ended: false, exit: null, failure: null };
+      throw new TypeError("Explicit formal session and exit owner required");
+    if (catalog === null) {
+      if (!environment?.content || !environment.world || !Number.isInteger(environment.player) ||
+          typeof environment.assertCurrent !== "function" ||
+          !["load", "list", "get", "put", "add"].every(key => typeof repository?.[key] === "function"))
+        throw new TypeError("Explicit formal environment, repository and exit owner required");
+      environment.assertCurrent();
+      formalEntry = { assertCurrent: environment.assertCurrent.bind(environment), onExit: formal.onExit,
+        checkStatus: formal.checkStatus ?? null,
+        content: environment.content, world: environment.world, player: environment.player,
+        repository, savedSlot: formal.savedSlot ?? null, ended: false, exit: null, failure: null,
+        catalog: null, openChapter: null, chapter: null };
+    } else {
+      // 章節窗模式（2026-11-08）：正式會話只先拿到「章節目錄」（名稱／日期），
+      // 章節窗與勢力窗由程式自己的 StartMenu 畫（與內置同一套渲染與逐級右鍵返回），
+      // 選完章才載入該章位元組——到哪一步調哪一步的資料。
+      if (!Array.isArray(catalog) || !catalog.length || typeof formal.openChapter !== "function" ||
+          typeof formal.assertCurrent !== "function")
+        throw new TypeError("Formal catalog, chapter loader and current guard required");
+      formal.assertCurrent();
+      formalEntry = { assertCurrent: formal.assertCurrent.bind(formal), onExit: formal.onExit,
+        checkStatus: formal.checkStatus ?? null,
+        content: null, world: null, player: null, repository: null,
+        savedSlot: null, ended: false, exit: null, failure: null,
+        catalog, openChapter: formal.openChapter, chapter: null };
+    }
   }
   if (app._bootStarted) throw new Error("App already started; open a new trial window");
   app._bootStarted = true;
   try {
   app.opening = opening;
   app.runtimeEnabled = false;
-  if (formalEntry) {
+  if (formalEntry?.catalog) {
+    // 選章之前只要目錄：章節窗顯示名稱與日期，勢力與世界等選完章再載入。
+    const scenarios = formalEntry.catalog.map(row => ({ name: row.name, start: { ...row.start }, factions: [] }));
+    app.content = Object.freeze({ data: Object.freeze({ scenarios: Object.freeze(scenarios) }),
+      chapters: Object.freeze(formalEntry.catalog.map((row, index) => Object.freeze({
+        id: row.chapterId, name: row.name, official: row.official, legacyScenarioIndex: index }))),
+      chapter: () => null });
+    app.saves = { slots: [] };
+    app.saveRepository = null;
+    // ①選完章：只拉這一章的位元組（城市／武將／勢力），把模板放回目錄的同一格；
+    // ②選完勢力：才建立環境（世界資源、存檔庫）。到哪一步調哪一步的資料。
+    app._formalPrepareChapter = async index => {
+      const pack = await formalEntry.openChapter(index);
+      formalEntry.assertCurrent();
+      const chapter = pack?.chapter;
+      if (!chapter?.template) throw new Error("formal chapter template required");
+      app.data = { scenarios: formalEntry.catalog.map((row, at) => (at === index
+        ? chapter.template : { name: row.name, start: { ...row.start }, factions: [] })) };
+      app.content = Object.freeze({ ...app.content, data: Object.freeze({ scenarios: Object.freeze(app.data.scenarios) }) });
+      formalEntry.pendingPack = pack;
+      formalEntry.pendingIndex = index;
+      return chapter;
+    };
+    app._installFormalChapter = async (index, playerFaction) => {
+      const pack = formalEntry.pendingPack;
+      if (!pack) throw new Error("formal chapter must be loaded first");
+      const loaded = await formalEntry.openEnvironment(pack, playerFaction);
+      formalEntry.assertCurrent();
+      const base = loaded.environment.content, chapter = base.chapter(0);
+      if (!chapter?.template) throw new Error("formal chapter template required");
+      const scenarios = formalEntry.catalog.map((row, at) => (at === index
+        ? chapter.template : { name: row.name, start: { ...row.start }, factions: [] }));
+      app.content = Object.freeze({ ...base, data: Object.freeze({ ...base.data, scenarios: Object.freeze(scenarios) }),
+        chapters: Object.freeze([chapter]),
+        chapter: key => (key === index || key === 0 || key === chapter.id ? chapter : null) });
+      app.data = app.content.data;
+      app.world = loaded.environment.world;
+      app.saveRepository = loaded.saveRepository;
+      app.saves = await loaded.saveRepository.load();
+      formalEntry.chapter = chapter;
+      formalEntry.pendingPack = null;
+      return chapter;
+    };
+  } else if (formalEntry) {
     app._formalEntry = formalEntry;
     app.content = formalEntry.content;
     app.world = formalEntry.world;
@@ -1120,7 +1185,7 @@ export async function startApp(opening, { trial = null, formal = null } = {}) {
   app.data = app.content.data;
 
   app.speaker = speaker; // 0xCDE/0xCE7 PC喇叭音效复刻
-  if (!trial && !formalEntry) app.startMenu = new StartMenu(app);
+  if (!trial && (!formalEntry || formalEntry.catalog !== null)) app.startMenu = new StartMenu(app);
   app.score.title();
   document.addEventListener(
     "pointerdown",
@@ -1138,13 +1203,13 @@ export async function startApp(opening, { trial = null, formal = null } = {}) {
   });
   // boot.js 取得单实例锁后挂载独立开场；这里不装配默认地图。
   globalThis.__dragonApp = app;
-  if (formalEntry) {
+  if (formalEntry && formalEntry.catalog === null) {
     if (formalEntry.savedSlot === null) await app.beginNewGame(0, formalEntry.player, null);
     else await app.beginSavedGame(formalEntry.savedSlot);
   } else if (trial) await app.beginNewGame(0, trial.player, null);
   else {
     await Promise.all([opening?.menuReady, app.startMenu._loadAssets()]);
-    await app.startMenu.show();
+    await app.startMenu.show(formalEntry ? "new" : undefined);
   } // 15秒或提前跳过后显示；弹窗流程独立于开场控制
   window.__aiTick = () => aiTick(app); // 调试句柄
   window.__monthlyAI = () => monthlyAI(app); // 调试句柄
