@@ -78,8 +78,10 @@ export class StartMenu {
     this.cv.style.display = "block";
     try {
       await this._loadAssets();
-      this.publicCatalog.node.hidden = false;
-      void this.publicCatalog.view.refresh();
+      // 正式會話已綁定一款已發佈遊戲，開局窗不再提供切換遊戲的下拉框（內置才顯示）。
+      const bound = Boolean(this.app._formalEntry?.catalog);
+      this.publicCatalog.node.hidden = bound;
+      if (!bound) void this.publicCatalog.view.refresh();
       await runStartFlow(
         {
           chooseAction: () => this._yesNo(),

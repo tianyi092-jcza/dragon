@@ -1209,7 +1209,8 @@ export async function startApp(opening, { trial = null, formal = null } = {}) {
   } else if (trial) await app.beginNewGame(0, trial.player, null);
   else {
     await Promise.all([opening?.menuReady, app.startMenu._loadAssets()]);
-    await app.startMenu.show(formalEntry ? "new" : undefined);
+    // runStartFlow 只認 0＝新遊戲；傳字串會落到 chooseSave（彈「讀取存檔」）。
+    await app.startMenu.show(formalEntry ? 0 : undefined);
   } // 15秒或提前跳过后显示；弹窗流程独立于开场控制
   window.__aiTick = () => aiTick(app); // 调试句柄
   window.__monthlyAI = () => monthlyAI(app); // 调试句柄
