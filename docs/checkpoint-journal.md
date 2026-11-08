@@ -93,6 +93,19 @@
 - **现状**：`https://dragon.720108.xyz`（player，registry/入口页/`intro/assets/gametitle.png`/`program-assets/src/main.js` 全 200）、`https://dragon-editor.720108.xyz`（`/api/health` 200 `initialized:true`、`/shell-ui.js` 709029 B sha `cb0f822a…`）；CF 只做 TLS 反代（`server: cloudflare`、`cf-cache-status: DYNAMIC`），**不跑 Workers**，1102 不再出现。systemd：`dragon-editor-proxy.service`、`dragon-tunnel.service`；sandbox stop 后跑 `/data/dragon/start.sh`。
 - **待办**：sadcloud 尚未下线（用户未确认）；`proxy.mjs`/compose/start.sh 未入库。
 
+## 1.4 待办：发布游戏与内置是两套启动流程（用户 2026-11-08 决定合并）
+
+**用户原话**：「原来复制游戏的加载不是现在这样的，和内置游戏的完全相同，而且快…难道编辑工作台发布的游戏和内置游戏在加载上是两套不同的方式？」；方向「复制的游戏如果测试没问题，将来是要整个删除内置游戏的，也不存在内置游戏相应的所有特殊代码」。
+
+**事实（git 可查，不是最近回归）**：
+- 内置：`web/src/boot.js` → `startApp(opening)` → `web/src/ui/startmenu.js` 自己画「游戏名标签 + 章節窗（`_chapterRows()` 读 `app.content.chapters`）+ 勢力選擇」。
+- 发布：同一文件里 `publicPlayerRequest(location.search)` 命中时走 `launchPublicPlayer` → `web/src/player/playernewgame.js` 的 **DOM 面板**（纯黄底、无金框、无滚动条），章节列表由 `playerchapters.js` 逐章 admit+读整章 JSON（20 章 × 2 串行请求 ≈ 45–150 s）。`launchPublicPlayer`、`playernewgame.js`、`reader/programentry.js` 均首见于 `d2acb08`（2026-10-18），此前 `boot.js` 只有 `startApp(opening)` 三行。
+- 每次从标题页下拉框选游戏 = 整页导航到 `/?formalGame=<id>&mode=new` → **重跑 boot** → 开场音乐重播、再弹 DOM 面板；内置在同一页面内切菜单，所以不重播。用户看到的「跳回加载音乐页面」就是这个。
+
+**合并方案（阶段 1，已定）**：让程序自己的「新遊戲」窗口处理发布游戏——`?formalGame=` 不再预装环境，改为把 `{ gameId, entry, chapters, open(chapterId, faction) }` 交给 `startApp`；`startmenu.js` 有 formalSource 时用它的章节列表（窗口/字体/金框/滚动条与内置逐像素一致），玩家选章选势力时才 `admit + 装包`（只装选中章，省掉 19 章的预读）。完成后 `playernewgame.js` / `playerchapters.js` / `playercatalog` 的选章路径可删。
+
+**删内置的前置（用户要求最终整删）**：`server/admincopy.js:158` 的 `createPinnedCopyLoader` 读 `web/` 的 pinned 内容当复制上游 → 必须先做「从已上架版本复制」，否则删内置后无法新建游戏。内置足迹：`reader/` 0 处、`web/src` 25 文件、`server` 31 文件、`wolong-builtin` 特例 51 处、`tools` 227 文件夹具。
+
 ## 2. 上架管理：190–205 s 回执被链路切断（生产实测，2026-11-06）
 
 用户截图问「校驗成功但上架按鈕暫停／玩家端加载不出来」。直查 `dartnode4`（只读）得到：
