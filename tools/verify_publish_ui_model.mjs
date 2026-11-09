@@ -192,23 +192,29 @@ test('B8 檢驗整遊戲：POST 落庫，逐章列出受影響的章；通過時
  const base = { version: 1, gameId: GAME, draftRevision: '4', sourceDigest: 'e'.repeat(64), chapterCount: 20, chapters: [] };
  h.reply(async path => path === '/api/games/submissions' ? { games: [row()] } : base);
  await h.ui.actions.check(GAME);
- const call = h.calls.find(entry => entry[0] === `/api/games/${GAME}/draft/chapter-references`);
- assert.ok(call); assert.deepEqual(call[1], {}, '檢驗送出空 body（結果由服務端保存）；不帶 Idempotency-Key');
- assert.equal(call[2], undefined);
+ const calls = h.calls.filter(entry => entry[0] === `/api/games/${GAME}/draft/chapter-references`);
+ assert.deepEqual(calls.map(entry => entry[1]), [{ layer: 'chapter' }, { layer: 'general' }, { layer: 'city' }, { layer: 'slot' }], '逐層各問一次：算完一層才更新一層');
+ assert.ok(calls.every(entry => entry[2] === undefined), '不帶 Idempotency-Key');
  assert.equal(h.calls.filter(entry => entry[0] === '/api/publish').length, 0, '檢驗不會發上架請求'); assert.equal(h.journal.size, 0);
  assert.deepEqual(h.model.references, []); assert.match(h.model.referencesText, /全部章節引用完整/);
  // 四層逐項：沒有對應 code 的層就是 ✓，整份沒有任何章節問題時四層全過。
  assert.equal(h.model.validationChecked, true); assert.equal(h.model.validationPassed, true);
  assert.deepEqual(h.model.validationLayers.map(layer => layer.code), ['CHAPTER_MISSING', 'CHAPTER_GENERAL_MISSING', 'CHAPTER_CITY_MISSING', 'CHAPTER_CITY_SLOT_MISSING']);
  assert.deepEqual(h.model.validationLayers.map(layer => layer.ok), [true, true, true, true]);
- h.reply(async path => path === '/api/games/submissions' ? { games: [row()] } : { ...base, chapters: [
-  { chapterId: `${GAME}#chapter-1`, chapterName: '第一章', problems: [{ code: 'CHAPTER_CITY_SLOT_MISSING', detail: '底層據點已無固定槽 3' }] },
-  { chapterId: `${GAME}#chapter-2`, chapterName: '第二章', problems: [{ code: 'CHAPTER_GENERAL_MISSING', detail: '武將庫已無本章引用的武將：x' }, { code: 'CHAPTER_CITY_MISSING', detail: '據點定義已無本章引用的據點：y' }] },
- ] });
+ const codes = { chapter: 'CHAPTER_MISSING', general: 'CHAPTER_GENERAL_MISSING', city: 'CHAPTER_CITY_MISSING', slot: 'CHAPTER_CITY_SLOT_MISSING' };
+ h.reply(async (path, body) => {
+  if (path === '/api/games/submissions') return { games: [row()] };
+  const all = [
+   { chapterId: `${GAME}#chapter-1`, chapterName: '第一章', problems: [{ code: 'CHAPTER_CITY_SLOT_MISSING', detail: '底層據點已無固定槽 3' }] },
+   { chapterId: `${GAME}#chapter-2`, chapterName: '第二章', problems: [{ code: 'CHAPTER_GENERAL_MISSING', detail: '武將庫已無本章引用的武將：x' }, { code: 'CHAPTER_CITY_MISSING', detail: '據點定義已無本章引用的據點：y' }] },
+  ];
+  return { ...base, chapters: all.map(chapter => ({ ...chapter, problems: chapter.problems.filter(problem => problem.code === codes[body.layer]) })).filter(chapter => chapter.problems.length) };
+ });
  await h.ui.actions.check(GAME);
- assert.deepEqual(h.model.references.map(entry => entry.name), ['第一章', '第二章']);
- assert.equal(h.model.references[1].problems.length, 2);
- assert.match(h.model.referencesText, /第一章（底層據點已無固定槽 3）／第二章/);
+ assert.deepEqual(h.model.references.map(entry => entry.name).sort(), ['第一章', '第二章']);
+ assert.equal(h.model.references.find(entry => entry.name === '第二章').problems.length, 2);
+ assert.match(h.model.referencesText, /第一章（底層據點已無固定槽 3）/);
+ assert.match(h.model.referencesText, /第二章（/);
  assert.match(h.model.message, /檢驗失敗/); assert.equal(h.journal.size, 0);
  // 失敗層只列自己對應的 chapter/detail，通過層不受其他層連坐；章節索引層沒有 code 即維持 ✓。
  assert.equal(h.model.validationPassed, false);

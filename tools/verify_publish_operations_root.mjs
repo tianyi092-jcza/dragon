@@ -53,8 +53,16 @@ try {
     const revision = sql.exec('SELECT draft_revision FROM content_games WHERE game_id=?', gameId).toArray()[0]?.draft_revision;
     const saved = sql.exec('SELECT draft_revision,state FROM content_game_validations WHERE game_id=?', gameId).toArray()[0];
     if (saved && saved.draft_revision === revision && saved.state === 'passed') return;
-    const response = await app.fetch(new Request(`${origin}/api/games/${gameId}/draft/chapter-references`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: `__Secure-dragon-editor=${token}`, 'X-CSRF-Token': csrf }, body: '{}' }));
-    const value = await response.json(); assert.equal(response.status, 200, JSON.stringify(value));
+    // 與畫面同序：逐層各問一次，前三層都不得落庫，四層到齊才算一次完整檢驗。
+    const layerKeys = ['chapter', 'general', 'city', 'slot'];
+    for (const [index, layer] of layerKeys.entries()) {
+      const response = await app.fetch(new Request(`${origin}/api/games/${gameId}/draft/chapter-references`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: `__Secure-dragon-editor=${token}`, 'X-CSRF-Token': csrf }, body: JSON.stringify({ layer }) }));
+      const value = await response.json(); assert.equal(response.status, 200, JSON.stringify(value));
+      assert.equal(value.version, 1); assert.equal(value.gameId, gameId); assert.ok(Array.isArray(value.chapters));
+      if (index < layerKeys.length - 1) { assert.equal(sql.exec('SELECT COUNT(*) AS n FROM content_game_validations WHERE game_id=?', gameId).toArray()[0].n, 0, '四層未到齊前不落庫'); }
+    }
+    const recorded = sql.exec('SELECT state,draft_revision FROM content_game_validations WHERE game_id=?', gameId).toArray()[0];
+    assert.equal(recorded?.state, 'passed');
   };
   const call = async (label, key, extra = {}) => {
     await ensureValidated();

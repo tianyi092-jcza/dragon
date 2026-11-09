@@ -6,13 +6,15 @@ import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
 const stateTags = { draft: 'info', pending: 'warning', listed: 'success' };
 const time = value => value === '—' ? value : new Date(value).toLocaleString();
-const overlay = ref(null), elapsed = ref(0), reveal = ref(0), checking = ref(false);
+const overlay = ref(null), elapsed = ref(0), checking = ref(false);
 let ticker = null, closer = null;
 const stop = () => { if (ticker) { clearInterval(ticker); ticker = null; } if (closer) { clearTimeout(closer); closer = null; } };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // 阻塞遮罩：只針对「正在跑的那一个动作」。不管结果如何，最后都要关掉回到正常页面。
-function open(title) { stop(); overlay.value = { title, line: '', failed: false }; elapsed.value = 0; reveal.value = 0; ticker = setInterval(() => { elapsed.value++; }, 1000); }
-function close() { stop(); overlay.value = null; checking.value = false; reveal.value = 0; }
+function open(title) { stop(); overlay.value = { title, line: '', failed: false }; elapsed.value = 0; ticker = setInterval(() => { elapsed.value++; }, 1000); }
+function close() { stop(); overlay.value = null; checking.value = false; }
+// 第一個還沒算完的層＝畫面上「當前」那一項；不假裝已完成的層是通過。
+const currentLayer = () => (props.model?.validationLayers ?? []).findIndex(layer => !layer.done);
 async function attached(title, run) {
   open(title);
   try { await run(); close(); }
@@ -39,9 +41,7 @@ async function check(row) {
     if (ticker) { clearInterval(ticker); ticker = null; }
     return;
   }
-  // 四層逐項落屏：每一項都只在服務端已回報該層結果後才出現，順序與 code 一一對應。
-  const total = props.model.validationLayers?.length ?? 0;
-  for (let index = 1; index <= total; index += 1) { reveal.value = index; await sleep(220); }
+  // 四層在遮罩裡同步更新（每一層由自己那次請求算完才變 ✓/✗）；全部通過才關窗。
   if (props.model.validationPassed) { await sleep(600); close(); return; }
   // 失敗：視窗留著，紅字原因在下面，按「關閉」或修正後重新檢驗。
   if (ticker) { clearInterval(ticker); ticker = null; }
@@ -72,6 +72,7 @@ async function check(row) {
             <td class="account-row-actions">
               <ElButton data-action="check" :disabled="busy || model.checkDisabled" @click="check(row)">校驗</ElButton>
               <ElButton data-action="publish" :title="row.publishHint" :disabled="busy || row.publishDisabled" @click="publish(row)">上架申請</ElButton>
+              <small v-if="row.publishDisabled && row.publishHint" :data-publish-reason="row.publishHint" class="row-hint">{{ row.publishHint }}</small>
             </td>
           </tr>
         </tbody>
@@ -90,8 +91,8 @@ async function check(row) {
         <p id="publish-overlay-text">{{ overlay.title }}</p>
         <!-- 檢驗四層：只在這一層視窗內逐項出現；沒回報的層不畫、不補 -->
         <ol v-if="checking && model.validationLayers?.length" id="publish-validation-layers" class="validation-layers">
-          <li v-for="layer in model.validationLayers.slice(0, reveal)" :key="layer.key" :data-layer="layer.key" :data-layer-code="layer.code" :data-layer-ok="layer.ok" :class="layer.ok ? 'layer-ok' : 'layer-bad'">
-            <strong>{{ layer.ok ? '✓' : '✗' }} {{ layer.title }}</strong>
+          <li v-for="(layer, index) in model.validationLayers" :key="layer.key" :data-layer="layer.key" :data-layer-code="layer.code" :data-layer-ok="layer.done ? String(layer.ok) : 'pending'" :data-layer-done="layer.done" :class="layer.done ? (layer.ok ? 'layer-ok' : 'layer-bad') : (index === currentLayer() ? 'layer-current' : 'layer-todo')">
+            <strong>{{ layer.done ? (layer.ok ? '✓' : '✗') : (index === currentLayer() ? '▶' : '·') }} {{ layer.title }}</strong>
             <ul v-if="!layer.ok" class="validation-failures">
               <li v-for="failure in layer.failures" :key="failure.chapterId + failure.detail">{{ failure.name }}：{{ failure.detail }}</li>
             </ul>
@@ -114,9 +115,12 @@ async function check(row) {
 
 <style>
 #publish-overlay .progress-card-wide{min-width:520px;max-width:640px}
+#publish-editor .row-hint{display:block;color:#8a6d3b;margin-top:4px;line-height:1.4}
 #publish-validation-layers{margin:0;padding-left:1.2em}
 #publish-validation-layers .layer-ok{color:#3a7d33}
 #publish-validation-layers .layer-bad{color:#c0392b}
+#publish-validation-layers .layer-current{color:#1a5fb4;font-weight:600}
+#publish-validation-layers .layer-todo{color:#888}
 #publish-validation-layers .validation-failures{color:#c0392b;margin:.25em 0 .5em;padding-left:1.1em}
 #publish-steps{margin:.4em 0;padding-left:1.2em;color:#555;line-height:1.6}
 #publish-steps .step-done{color:#3a7d33}

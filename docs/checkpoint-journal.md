@@ -239,3 +239,12 @@ ui14 步骤：服务器 LF 检出跑 `prepare_deploy.mjs` 复现 inventory → `
 - 驗證：`verify_publish_ui_model` 19/19（新增 ①–⑥ 投影與失敗步斷言，並確認已確認分發時不會多查狀態）、`verify_publish_operations_root` 34 組（新增進度端點 done/6、跨 owner 404、換實例後 progress 為 null）、其餘 publication／retirement／atomicity／matrix lane 全綠；schema 仍 24/55/53/369。
 - 上線：`docker builder prune -af` 後建 `dragon-editor-publication:20261109-b3-disk12`（932MB，HEAD `d38e4d0`），改 `env/.env` 的 `EDITOR_DEPLOYMENT_ID` 並 recreate editor；`/api/health` 200、`/publish.js` 與 `/shell-ui.js` 均已含新碼、未登入 `/progress` 回 401。生產庫 55 表（新增 `content_game_validations`，0 行）、帳本仍 (16,16,NULL)、`content_games.listed=1`；`web/`、`static` pin、玩家端鏡像與 `PLAYER_DEPLOYMENT_ID` 均未動。
 - 注意：instabox 於 12:09:34Z 前處於 cooling down（SSH `administratively prohibited`），恢復後才完成建置；期間公網曾短暫 502（隧道未就緒，屬既有現象）。
+
+## 16. 批次 D（2026-11-09 UTC）：檢驗四層改逐層請求、遮罩內同步更新
+
+- 使用者回饋：四項不該等算完才顯示，也不該另開彈窗；檢驗要在同一個遮罩計時裡逐項更新。已改：
+  - 服務端 `POST /draft/chapter-references` 接受 `{layer:'chapter'|'general'|'city'|'slot'}`，每層只回自己的 code；前三層不落庫，四層到齊才寫 `content_game_validations`（避免半套記錄被上架門當通過）。不帶 layer 的舊契約（一次算完）保留。
+  - 客戶端依序發四次、每回一層就更新遮罩；四層全過才自動關窗，失敗留在原處列紅字並可關閉。上架 ①–⑥ 共用同一遮罩。
+  - 移除 Element Plus 對話框（未帶樣式會落在左上角並擋住頁面點擊，是「校驗點不動」的直接原因）。
+  - 已上架且沒有新草稿修訂時，上架按鈕旁直接顯示原因（「已上架且沒有新修訂…」），不再只靠 title。
+- 驗證：`verify_publish_ui_model` 19/19（改為斷言四次逐層 POST 與合併結果）、`verify_publish_operations_root` 34 組（`ensureValidated` 改逐層並斷言前三層不落庫）、`verify_editor_shell` 92、`build --check` 通過。

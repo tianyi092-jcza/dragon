@@ -51,7 +51,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   promise.then(value => { clearTimeout(id); resolve(value); }, error => { clearTimeout(id); reject(error); });
  });
  const errors = { DRAFT_TOPOLOGY_BROKEN: '仍有據點移動意向，不能上架；請先核對並處理原意向。',PLAY_CITY_VIEW_MISSING: '章節引用了固定資源庫未提供的據點圖片；請核對章節資源與已保存草稿，未補齊前不能上架。', PLAY_PORTRAIT_CORRUPT: '武將畫像引用無效或缺少可凍結的依賴；請核對已保存章節的畫像資料。', PUBLISH_STALE: '草稿已變更，請重新整理清單後再送出上架申請。', PUBLISH_NAME: '遊戲名稱無效（去除首尾空白及NFC正規化後，須為1至8個Unicode碼點）。', DISTRIBUTION_GAME_PENDING: '此遊戲仍有待確認分發，不能送出下一版上架申請。', DISTRIBUTION_NOT_CONFIGURED: '服務尚未配置分發狀態；不推定已公開。', DISTRIBUTION_STATUS_UNAVAILABLE: '原上架缺少可核對的分發關聯；不推定成功或失敗。', GAME_NOT_FOUND: '目標遊戲已不存在（已刪除）；本機追蹤已失去對象，重新整理清單後可直接上架。', GAME_DELETING: '遊戲已進入刪除流程，不能繼續此操作。', DELETE_CONFIRMATION: '刪除確認名稱與目前遊戲名稱不符，請重新整理清單。', PUBLISH_CHAPTER_REFERENCES: '整遊戲校驗未通過：有章節引用不到已刪除的基礎資料（據點或武將庫）；下方列出受影響的章。' };
- let identity = null, generation = 0, rows = [], messageText = '', references = null, progressSnapshot = null, progressTicker = null;
+ let identity = null, generation = 0, rows = [], messageText = '', references = null, progressSnapshot = null, progressTicker = null, checkedLayers = new Set();
  let pending = null, badJournal = false, checked = false, result = null, distribution = null, sending = false, querySerial = 0, purgeOutcomes = new Map(), listed = false;
  // 阻塞遮罩的第二行：每個等待點都先寫清楚現在在做什麼，不要讓人只知道「在忙」。
  let phase = '';
@@ -165,7 +165,8 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
    for (const chapter of found)
     for (const problem of chapter.problems)
      if (problem.code === layer.code) failures.push({ chapterId: chapter.chapterId, name: chapter.chapterName ?? chapter.chapterId, detail: problem.detail });
-   return { key: layer.key, code: layer.code, title: layer.title, ok: failures.length === 0, failures };
+   // done 只代表「這一層真的算過了」；還沒算的層不畫成通過。
+   return { key: layer.key, code: layer.code, title: layer.title, done: checkedLayers.has(layer.key), ok: failures.length === 0, failures };
   });
  }
  // 上架申請的 ①–⑥ 進度：服務端每完成一段就寫一次，這裡只讀同一把鍵，不推測也不補步。
@@ -300,11 +301,27 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  async function check(gameId) {
   const ctx = capture(), row = rows.find(entry => entry.gameId === gameId);
   if (!row) throw new Error('上架清單已變，請重新整理。');
-  // 檢驗是服務端動作（POST）：通過與失敗都落庫，刷新後仍看得到狀態與時間。
-  const value = await api('/api/games/' + gameId + '/draft/chapter-references', {});
-  if (!current(ctx)) return;
-  if (value?.gameId !== gameId) throw new Error('全章校驗回應的遊戲不符。');
-  references = referenceReceipt(value);
+  // 檢驗是服務端動作（POST）：逐層各問一次，算完一層才更新一層；四層到齊才落庫。
+  // 因此遮罩裡的計時與四層進度是同時發生的，不是等全部算完才一次顯示。
+  checkedLayers = new Set(); references = null; render();
+  const merged = new Map();
+  let head = null;
+  for (const layer of layers) {
+   const value = await api('/api/games/' + gameId + '/draft/chapter-references', { layer: layer.key });
+   if (!current(ctx)) return;
+   if (value?.gameId !== gameId) throw new Error('全章校驗回應的遊戲不符。');
+   const receipt = referenceReceipt(value);
+   head ??= { draftRevision: receipt.draftRevision, chapterCount: receipt.chapterCount };
+   if (head.draftRevision !== receipt.draftRevision || head.chapterCount !== receipt.chapterCount) throw new Error('全章校驗回應的修訂不一致。');
+   for (const chapter of receipt.chapters) {
+    const bucket = merged.get(chapter.chapterId) ?? { chapterId: chapter.chapterId, chapterName: chapter.chapterName, problems: [] };
+    bucket.problems.push(...chapter.problems);
+    merged.set(chapter.chapterId, bucket);
+   }
+   references = Object.freeze({ draftRevision: head.draftRevision, chapterCount: head.chapterCount, chapters: Object.freeze([...merged.values()]) });
+   checkedLayers.add(layer.key);
+   render();
+  }
   // 結果已由服務端保存，重讀清單才能用同一份事實決定按鈕可用性。
   try { await load(ctx); } catch { /* 清單留待手動刷新；本次檢驗結果仍在下方 */ }
   if (!current(ctx)) return;

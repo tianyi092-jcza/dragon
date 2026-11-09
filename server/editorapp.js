@@ -145,6 +145,9 @@ function cookie(request) {
 // 一步最多推進一代；次數與牆鐘雙重上限，卡死的傳輸層不會把連線拖到 Cloudflare 逾時。
 const DISTRIBUTION_SYNC_STEPS = 8;
 const DISTRIBUTION_SYNC_BUDGET_MS = 25000;
+const VALIDATION_LAYER_CODES = new Map([['chapter', 'CHAPTER_MISSING'], ['general', 'CHAPTER_GENERAL_MISSING'], ['city', 'CHAPTER_CITY_MISSING'], ['slot', 'CHAPTER_CITY_SLOT_MISSING']]);
+const VALIDATION_LAYER_KEYS = new Set(VALIDATION_LAYER_CODES.keys());
+const VALIDATION_JOB_TTL_MS = 120000, VALIDATION_JOB_LIMIT = 8;
 const DISTRIBUTION_SYNC_STATES = new Set(['IDLE', 'VISIBLE_CONFIRMED', 'COMMITTED_SYNC_PENDING']);
 export function createEditorApplication(PlatformBase, { runtimeStager, frozenPublication = false, readSharedPortrait, purgeReclaimer, distributionDrain } = {}) {
   if (readSharedPortrait !== undefined && typeof readSharedPortrait !== 'function') throw new TypeError('trusted shared portrait reader required');
@@ -209,6 +212,7 @@ return class EditorMetadata extends PlatformBase {
     // 上架前整遊戲檢驗的服務端記錄（產品決定 2026-11）：清單與上架門都讀這裡。
     this.validations = new ValidationStore({ storage: ctx.storage });
     this.publishProgress = new PublishProgress();
+    this.validationJobs = new Map();
     // 分发账本 Outbox（V5 前置）：发布事务内 enqueue，同原子。
     this.distribution = new DistributionOutbox({ storage: ctx.storage });
     // Same authority database; no public producer/drainer or receipt trust added.
@@ -1244,17 +1248,50 @@ return class EditorMetadata extends PlatformBase {
   }
   // 校驗＝在服務端跑一次整遊戲引用檢查，並把結果（狀態／時間／逐章問題）落庫，
   // 綁定當下已保存的草稿修訂。回傳形狀與唯讀 GET 相同，客戶端同一套回執驗證。
+  // 檢驗的四層就是 chapterBaseReferenceGaps 的四個 code。逐層各回一次，讓畫面能在
+  // 同一個遮罩裡「算完一層就更新一層」；四層都到齊才落庫，避免半套記錄被上架門當成通過。
+  #validationJob(tokenHash, gameId, draftRevision) {
+    const key = tokenHash + ':' + gameId;
+    const cached = this.validationJobs.get(key);
+    if (cached && cached.draftRevision === draftRevision && Date.now() - cached.at < VALIDATION_JOB_TTL_MS) { return cached; }
+    return this.privateDrafts.chapterReferences(tokenHash, gameId, draftRevision).then(checked => {
+      const job = { draftRevision: checked.draftRevision, sourceDigest: checked.sourceDigest, chapterCount: checked.chapterCount, report: checked.chapters, layers: new Set(), at: Date.now() };
+      this.validationJobs.delete(key);
+      this.validationJobs.set(key, job);
+      while (this.validationJobs.size > VALIDATION_JOB_LIMIT) { this.validationJobs.delete(this.validationJobs.keys().next().value); }
+      return job;
+    });
+  }
+  #recordValidation(tokenHash, gameId, job) {
+    this.ctx.storage.transactionSync(() => this.validations.recordInTxn({ gameId, draftRevision: job.draftRevision, sourceDigest: job.sourceDigest, chapterCount: job.chapterCount, chapters: job.report, checkedAt: new Date().toISOString() }));
+    this.validationJobs.delete(tokenHash + ':' + gameId);
+  }
   async #postValidation(rt) {
     const { tokenHash, policy, url, value, draftPath } = rt;
     if (!this.privateDrafts) { fail(503, 'DRAFT_NOT_CONFIGURED'); }
     if (url.search) { fail(422, 'DRAFT_REVISION'); }
-    fields(value, []);
+    const layered = value !== null && typeof value === 'object' && Object.hasOwn(value, 'layer');
+    if (layered) { fields(value, ['layer']); if (!VALIDATION_LAYER_KEYS.has(value.layer)) { fail(422, 'VALIDATION_LAYER'); } } else { fields(value, []); }
     this.touch(tokenHash, policy);
-    const owned = this.games.listOwn(tokenHash).find(entry => entry.gameId === draftPath[1]);
+    const gameId = draftPath[1];
+    const owned = this.games.listOwn(tokenHash).find(entry => entry.gameId === gameId);
     if (!owned) { fail(404, 'GAME_NOT_FOUND'); }
-    const checked = await this.privateDrafts.chapterReferences(tokenHash, draftPath[1], owned.draftRevision);
-    this.ctx.storage.transactionSync(() => this.validations.recordInTxn({ gameId: draftPath[1], draftRevision: checked.draftRevision, sourceDigest: checked.sourceDigest, chapterCount: checked.chapterCount, chapters: checked.chapters, checkedAt: new Date().toISOString() }));
-    return response(checked);
+    // 不帶 layer＝一次算完四層（既有契約，供程式與回放使用）。
+    if (!layered) {
+      const checked = await this.privateDrafts.chapterReferences(tokenHash, gameId, owned.draftRevision);
+      this.ctx.storage.transactionSync(() => this.validations.recordInTxn({ gameId, draftRevision: checked.draftRevision, sourceDigest: checked.sourceDigest, chapterCount: checked.chapterCount, chapters: checked.chapters, checkedAt: new Date().toISOString() }));
+      return response(checked);
+    }
+    const job = this.#validationJob(tokenHash, gameId, owned.draftRevision);
+    const checked = await job;
+    // 逐層真的只用該層的 code 過濾；未檢查過的層不會被回成通過。
+    const code = VALIDATION_LAYER_CODES.get(value.layer);
+    const chapters = checked.report
+      .filter(chapter => chapter.problems.some(problem => problem.code === code))
+      .map(chapter => ({ chapterId: chapter.chapterId, chapterName: chapter.chapterName, problems: chapter.problems.filter(problem => problem.code === code) }));
+    checked.layers.add(value.layer);
+    if (checked.layers.size === VALIDATION_LAYER_KEYS.size) { this.#recordValidation(tokenHash, gameId, checked); }
+    return response({ version: 1, gameId, draftRevision: checked.draftRevision, sourceDigest: checked.sourceDigest, chapterCount: checked.chapterCount, chapters });
   }
   async #postLibraryInstall(rt) {
     const { tokenHash, url, value, request, user } = rt;
