@@ -213,3 +213,12 @@ ui14 步骤：服务器 LF 检出跑 `prepare_deploy.mjs` 复现 inventory → `
 ## 12. 归档锚点（仍被外部文档引用）
 
 - 外观／行军两个 SKILL 引用 `#8-用户指定五档提速`（见 §8）；其余旧锚点（§26–§49）已无外部引用，需要时用 git 历史追溯。
+
+## 13. 批次 A（2026-11-09 UTC）：上架申請 `DISTRIBUTION_AUTHORITY_CORRUPT` 修復並上線
+
+- 提交：`7590fdc`（目錄基線改按資料庫權威事實重建、退役後 runtime 由 pack 重算、新 lane `tools/verify_publish_after_retirement.mjs`）、`905dffe`（`#anchor()` 不再信任 `anchor_digest`，改用最後一個還讀得到 payload 的世代）。均已推 `github/main`。
+- 根因訂正：生產檢查點把 `anchor_digest` 指在退役範圍內（gen14），`e089e88` 的 `check(entry.retired !== true)` 直接失敗；「錨點目錄缺遊戲」是更下一層的潛伏缺陷。詳見 `docs/handoff-20261110-publish-authority.md` §1。
+- 驗證：`verify_publish_after_retirement` 3 組、`verify_publication_producer` 25 組、`verify_publication_catalog` 35 組、`verify_deletion_scan_retirement`／`verify_deletion_completion_readiness`／`verify_distribution_ledger_retirement`／`verify_distribution_publisher_retirement`／`verify_distribution_ledger_backup_restore`／`verify_publish_atomicity`／`verify_publish_matrix`／`verify_publication_main`／`verify_publication_server`／`verify_publish_operations_root` 全綠；另用生產庫拷貝在**新鏡像**內干跑一次模擬上架（舊碼重現 CORRUPT、新碼產生 gen15）。
+- 部署：`/data/dragon/src` 重新 clone（原目錄已被清），`docker builder prune -af` 後建 `dragon-editor-publication:20261109-b2-disk12`，改 `env/.env` 的 `EDITOR_DEPLOYMENT_ID` 並 recreate editor。公網 `/api/health` 200 `initialized:true`；玩家端鏡像與 static pin 未動；帳本仍 tail=confirmed=14、無 block。
+- 已知殘留：`verify_frozen_publication_root.mjs` 在 `inspectRuntimeObjectReferences` 的 `fields(asset, …)` 回 `DELETE_RUNTIME_REFERENCE_INVALID`（舊碼同樣失敗，本輪未修，屬 fixture／掃描器本身的既有問題）。
+- 待辦：使用者重試「上架申請」（當前是 `937c71ab…「臥龍傳·重构版」` 的首次發布）；之後按用戶既定順序做 ②檢驗結果存服務端＋按鈕可用性 ③四層逐項 ✓/✗ ④上架申請 ①–⑥ 真實進度。

@@ -1,9 +1,9 @@
-# 交接：上架申請卡在 DISTRIBUTION_AUTHORITY_CORRUPT（2026-11-10）
+# 交接：上架申請卡在 DISTRIBUTION_AUTHORITY_CORRUPT（2026-11-10；已修復並上線 2026-11-09 UTC）
 
 > 用途：新会话续接任务的**唯一入口**。读完本文件即可继续，不需要翻历史对话。
 > 长期事实见 `AGENTS.md`，部署配方见 `docs/game-storage-layout.md` §16/§17，进度流水见 `docs/checkpoint-journal.md`。
 
-## 1. 当前唯一阻塞
+## 1. 当前唯一阻塞（已修復，見本節末的訂正）
 
 用户在生产点「上架申請」，约 190–205 s 后返回：
 
@@ -13,46 +13,58 @@
 
 `server/publicationproducer.js:9` 的 `check()` 失败**统一**抛这个码，所以要看是哪一条 `check`。
 
-### 已确认的根因（上一轮修复不完整，不是用户数据问题）
+### 订正后的根因（2026-11-09，在生产库拷贝上实证）
 
-`server/publicationproducer.js` 的 `#catalog(state)` 需要一条「上一条账本世代」做目录基线。我上一轮（提交 `e089e88`）加了 `#anchor(checkpointDigest)`：当账本尾巴被**退役检查点**取代时（退役条目只有身份凭证、没有 payload），改用检查点的 `anchor_digest` 定位那个未退役世代当基线。
-
-生产实际数据（`/data/dragon/data/editor.sqlite`，只读查得）：
+上一轮（`e089e88`）新增的 `#anchor()` 用它自己的 `anchor_digest` 找基線，并以
+`check(entry.retired !== true)` 收尾。**生产唯一的一个检查点把 anchor 指进了退役范围**：
 
 ```
 content_distribution_checkpoints:
-  checkpoint_digest   = 32ba563a4d07f8d016b0b52d5bedd64189361e7ac603e584e9ad377724b586dc
+  checkpoint_digest   = 32ba563a…
   retired_generations = [12,13,14]
   anchor_digest       = ba2714a59963aa535faa24658bbad783003e3bcf53614e912d61d8bc7f263fe8
-  created_at          = 2026-11-08T04:33:26.640Z
-
-content_distribution_events: gen12 publish(cf369743-8b34-4664-91c2-152c706492f0)
-                             gen13 listing(同一游戏)  gen14 delete-fence(同一游戏)
-                             全部 state=confirmed，payload chunks 已被清理
-content_distribution_chunks: 只有 gen 1–11 各 1 行
-content_distribution_state : tail=confirmed=14, blocked_reason=null
+                        ↑ 正是 gen14 自己的 operation_digest（退役条目）
 ```
 
-**关键**：这款游戏是在**被退役的世代里**上架并同意上架的（gen12 publish、gen13 listing）。锚点基线是 gen ≤11 的目录快照，里面**根本没有这款游戏的条目**；而数据库里它现在是「在架」（`content_games.listed<>0`、`current_release_id` 非空）。于是 `#assertCatalogAuthority(catalog)` 拿 DB 的 `required` 集合与目录对比时对不上 → `check()` 失败。
+`retireCheckpointInTxn` 只要求 anchor digest 在 events 里存在，**不保证它未退役**，所以
+`#anchor()` 在 `check(entry.retired !== true)` 就失败 → 每次上架都 503。这是用户实际撞到的
+那一步（旧码在真实拷贝上重现，新码放行到下一世代）。
 
-结论：**账本退役后，不能只靠锚点快照重建当前目录**。
+再往下一层（交接当时推测的那条，真实存在但被上一条盖住）：把基线退回锚点快照当目录内容
+也不成立——「臥龍傳·重構版」（cf369743）是在 gen12 publish／gen13 listing 才上架的，gen11 的
+目录快照里没有它；重新发布 1.1 时「前一版序号」被当成 null → 期望 1.0、实际 1.1 → 同样 503。
 
-## 2. 修复方案（下一轮直接做）
+生产库现状（2026-11-09 08:0xZ 只读拷贝）：tail=confirmed=14、blocked_reason=null、无任何
+`published_games`／`content_releases`／`published_packs` 行；cf369743 已在 gen14 被 fence 并
+purge；`content_games` 只剩一款 **937c71ab-fb5d-4466-866a-f5f82f8fa3b0「臥龍傳·重构版」**
+（next_ordinal=`0`，从未发布过）。也就是说用户删掉了打不开的那款、重建了一款，下一次上架
+申请是它的**首次发布**（下一世代 gen15）。
+
+## 2. 已实施的修复（`7590fdc` + `905dffe`，已上生产）
 
 `server/publicationproducer.js`：
 
-1. `#catalog(state)`：尾巴被退役时，不再「退回锚点快照当目录」，而是**按数据库权威事实重建** `catalog.games`：
-   - 集合与顺序：`content_games` 中 `listed<>0 OR current_release_id IS NOT NULL`，并上 `content_deletion_fences`（墓碑）、`published_games`；
-   - 每条的 `release`：从 `published_games`（当前 pin）取，`current` 为空即 `null`；
-   - `announcements`：沿用现有投影规则（`content_announcements` / `firstOnline` 自引用按现有规则处理）；
-   - 锚点条目仍要读，但**只用作 digest 链起点与自引用降级**，不再当目录内容。
-2. `#assertCatalogAuthority(catalog)`：保持原语义（它本来就是拿 DB 校对目录），重建正确后应自然通过；若仍有 `DISTRIBUTION_BOOTSTRAP_REQUIRED`，说明重建漏了集合成员。
-3. 补回归测试：**退役世代里含有已上架游戏**，退役后仍能发布新版本。现有相关 lane：`tools/verify_deletion_scan_retirement.mjs`、`tools/verify_deletion_completion_readiness.mjs`、`tools/verify_distribution_ledger_backup_restore.mjs`（都用 `retireCheckpointInTxn`），挑一个扩写或新增 `tools/verify_publish_after_retirement.mjs`。
+1. `#anchor(checkpointDigest)`：不再信任 `anchor_digest`。把**所有**检查点的
+   `retired_generations` 取并集，从尾巴往下找第一个没退役、且 `entry()` 确认还能读 payload 的
+   世代当基线（生产上就是 gen11）。全部退役时 fail-closed 回 CORRUPT。
+2. `#catalog(state, kind, gameId)`：尾巴退役时改由 `#rebuild()` 按数据库权威事实重建
+   `catalog.games`——成员集合＝`published_games ∪ content_deletion_fences ∪ content_games`
+   (listed<>0 OR current_release_id 非空)，`listed`／`deleted`／`current` 全部取库里的事实；
+   锚点只保留既有公告列与 digest 链起点。未退役尾巴仍走 `#retained()`（原 payload ＋ purge 过滤，
+   行为不变）。
+3. 基线是「上一世代」的状态：本次操作已经写进库里的那一款显式回到操作前——
+   `listing` 的 `listed` 记 false、`delete-fence` 的墓碑按「尚未记录」处理、`publish` 只用
+   `#previous()` 给出前一版序号（`1.0` 是首版，其余 `1.<n-1>`）。
+4. 当前版本的 `runtime` 索引参考若不在锚点里，由同一份 SQLite pack 用
+   `buildRuntimeIndex` 重算（key 内嵌 sha256，不能臆造占位值）；`#firstOnline()` 用
+   publish／listing／restriction 事件重建首次上架世代。
+5. 回归：`tools/verify_publish_after_retirement.mjs`（三组：退役后第一次发布、退役后
+   上架同意 ＋ runtime 重算、首次上架公告世代与删除墓碑）。旧码在它上面重现
+   `DISTRIBUTION_AUTHORITY_CORRUPT`，新码全绿。
 
-相关代码位置：
-- `server/publicationproducer.js`：`#catalog()`（约 :32）、`#anchor()`（本轮新增）、`#assertCatalogAuthority()`（约 :49）、`check()`（:9）
-- `server/distributionledger.js`：`#retiredPin()`（:82）、`entry()`（:333）、`retireCheckpointInTxn()`（:188）、checkpoints/cleanup 建表（:61-62）
-- `server/deletionfrozenrefs.js:21` 已有 `entry.retired === true` 的处理范式，可参考
+相关代码位置：`#anchor()`、`#catalog()`、`#rebuild()`、`#retained()`、`#pinned()`、`#runtime()`、
+`#previous()`、`#firstOnline()`、`#assertCatalogAuthority()`；`server/distributionledger.js` 的
+`#retiredPin()`／`entry()`／`retireCheckpointInTxn()` 未改。
 
 ## 3. 部署（只动 editor，别动 player）
 
@@ -69,6 +81,16 @@ cd /data/dragon && docker compose --env-file env/.env up -d editor
 curl -s https://dragon-editor.720108.xyz/api/health   # 期望 200 initialized:true（约 20 s）
 ```
 
+补充（2026-11-09 实测）：`src/` 不会一直留着（上一次构建后被删了），没有就
+`git clone --depth 1 --branch main https://github.com/tianyi092-jcza/dragon.git /data/dragon/src`
+（约 551 MB，服务器到 GitHub 很快；Dockerfile 只 COPY server/vps/reader/tools×4/web，无 npm 构建）。构建只要 ~18 s。
+`docker compose up -d editor` 之后隧道要几秒才不再 502，`127.0.0.1:8788` 直接 curl 会因 Origin/Host 检查回 403，
+判据一律用公网 `/api/health`。
+
+切流量前的干跑（本輪用過，建議保留習慣）：`cp` 一份 `data/editor.sqlite`（连 `-wal`/`-shm`）→ `VACUUM INTO` 出单文件
+→ 在**新镜像**里用一份模拟上架脚本跑 `recordInTxn`，确认目录能重建、`projection.directory` 合理，再改 `.env`。
+旧码在同一份拷贝上会停在 `#anchor` 的 `check(entry.retired !== true)`。
+
 失败排查：`docker compose --env-file env/.env logs --tail 60 editor | grep internal-error`
 （`EDITOR_ERROR_DEBUG` 默认开启，非 HttpError 会打 `{"event":"internal-error","code","message","stack"}`；`fail()` 产生的 HttpError 不打栈，只有码）。
 
@@ -79,7 +101,7 @@ curl -s https://dragon-editor.720108.xyz/api/health   # 期望 200 initialized:t
 | 仓库 | `E:/Dragon/web-port`，分支 `main`，远端 `github`（`https://github.com/tianyi092-jcza/dragon.git`） |
 | HEAD | `e089e88`（= github/main） |
 | 生产入口 | `https://dragon-editor.720108.xyz`（编辑器）、`https://dragon.720108.xyz`（玩家），经 Cloudflare Tunnel `f5d35af4-…` 到 instabox 本机端口 18990→8788 / 8789 |
-| 镜像 | `dragon-editor-publication:20261110-b2-disk11`、`dragon-player:20261109-b2-disk9`、`node:22-bookworm-slim` |
+| 镜像 | `dragon-editor-publication:20261109-b2-disk12`（本輪修復）、`dragon-player:20261109-b2-disk9`、`node:22-bookworm-slim` |
 | 静态 pin | `STATIC_RELEASE_SHA256=b5674f4b…`、`STATIC_SOURCE_SHA256=91defffe…`（`env/publication.env` 三处 + `env/proxy.env` 的 `PROXY_STATIC_PREFIX`） |
 | 磁盘 | `/` 16G（docker 全在这，已用 5.1G）、`/data` 20G（已用 4.8G）。**每次重建镜像前先 `docker builder prune -af`** |
 | 数据 | 桶 `/data/dragon/bucket` 2.8G（其中 `artifacts/programs/` 2.7G 是历次静态程序归档、`kao/` 13M 621 张头像、`artifacts/<gameId>/` 约 3M）；`data/editor.sqlite` 3.4M |
@@ -91,7 +113,7 @@ curl -s https://dragon-editor.720108.xyz/api/health   # 期望 200 initialized:t
 
 | # | 内容 | 状态 |
 | --- | --- | --- |
-| ① | 修上架 500（`RUNTIME_STAGE` 桶类型、`RUNTIME_CORRUPT` 账本退役、`DISTRIBUTION_AUTHORITY_CORRUPT` 目录重建） | 前两个已修；**第三个进行中** |
+| ① | 修上架 500（`RUNTIME_STAGE` 桶类型、`RUNTIME_CORRUPT` 账本退役、`DISTRIBUTION_AUTHORITY_CORRUPT` 目录重建） | **已完成并上线**（镜像 `20261109-b2-disk12`；换成用真实生产库拷贝做干跑验证后才切流量） |
 | ② | 检验结果存服务端（状态「草稿/检验成功/检验失败」+ 状态时间；绑定 `draft_revision`，修订一改即失效）+ 上架申請按钮可用性规则 | 未做 |
 | ③ | 检验弹窗四层逐项 ✓/✗（章节结构／城市引用／数量锁定／章节引用），失败项下一行红字写原因（例「城市引用 ✗ → 寿春 未落在地图上」），窗口随内容放大 | 未做 |
 | ④ | 上架申請弹窗 ①–⑥ **真实**进度（待执行→进行中→完成/失败），服务端逐步回调，前端按事件刷新 | 未做 |
