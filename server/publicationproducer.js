@@ -30,15 +30,24 @@ export class FrozenPublicationProducer {
     if (state.tailGeneration === 0 && this.#one('SELECT game_id FROM published_games LIMIT 1')) fail(503, 'DISTRIBUTION_BOOTSTRAP_REQUIRED');
   }
   // 帳本尾巴可能已被退役檢查點取代：退役條目只留身分憑證、沒有 payload（chunks 不再保證存在）。
-  // 基線改用檢查點的錨點世代（最後一個未退役的世代），語義等同「從這一代起算」。
+  // 基線改用「最後一個還讀得到 payload 的世代」。不能用檢查點自己的 anchor_digest：生產既有
+  // 檢查點把 anchor 指在退役範圍內（gen14），它只表示「從這一代算起」，不帶 payload。
+  // 後面世代的目錄內容一律由資料庫權威事實重建（#rebuild）。
   #anchor(checkpointDigest) {
-    const pin = this.#one('SELECT anchor_digest FROM content_distribution_checkpoints WHERE checkpoint_digest=?', checkpointDigest);
-    check(pin !== undefined);
-    const row = this.#one('SELECT generation FROM content_distribution_events WHERE operation_digest=?', pin.anchor_digest);
-    check(row !== undefined);
-    const entry = this.#ledger.entry(row.generation);
-    check(entry.retired !== true);
-    return entry;
+    check(this.#one('SELECT checkpoint_digest FROM content_distribution_checkpoints WHERE checkpoint_digest=?', checkpointDigest) !== undefined);
+    const retired = new Set();
+    for (const pin of this.#sql.exec('SELECT retired_generations FROM content_distribution_checkpoints').toArray()) {
+      let list;
+      try { list = JSON.parse(pin.retired_generations); } catch { return fail(503, 'DISTRIBUTION_LEDGER_CORRUPT'); }
+      check(Array.isArray(list) && list.every(generation => Number.isSafeInteger(generation) && generation > 0));
+      for (const generation of list) retired.add(generation);
+    }
+    for (const row of this.#sql.exec('SELECT generation FROM content_distribution_events ORDER BY generation DESC').toArray()) {
+      if (retired.has(row.generation)) continue;
+      const entry = this.#ledger.entry(row.generation);
+      if (entry.retired !== true) return entry;
+    }
+    return fail(503, 'DISTRIBUTION_AUTHORITY_CORRUPT');
   }
   #catalog(state, kind, gameId) {
     if (state.tailGeneration === 0) return { version: 1, games: [] };
