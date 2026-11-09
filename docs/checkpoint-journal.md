@@ -230,3 +230,12 @@ ui14 步骤：服务器 LF 检出跑 `prepare_deploy.mjs` 复现 inventory → `
 - ③ 四層即服務端 `chapterBaseReferenceGaps` 的四個 code（`CHAPTER_MISSING`／`CHAPTER_GENERAL_MISSING`／`CHAPTER_CITY_MISSING`／`CHAPTER_CITY_SLOT_MISSING`）；`publish.txt` 只按 code 分組輸出 `validationLayers`，`PublishPanel.vue` 以「檢驗結果」彈窗逐層 ✓/✗，失敗層紅字列出「章名：服務端 detail」。不新增判定。
 - 計數門：24 owners / 55 tables / 53 indexes / 369 columns / 4 FK（`verify_editor_schema_sources`、`verify_distribution_schema` 同步）；`gamepurge`、`deletioninventory`、`deletionuniquerows` 一併收新表。
 - 驗證：`verify_publish_ui_model` 18/18（新增四層斷言）、`verify_publish_validation` 7 組、`verify_publication_server` 18、`verify_publication_main` 93、`verify_publish_operations_root` 31（schemaTables 55）；`editor-ui build --check` 通過。
+
+## 15. 批次 C（2026-11-09 UTC）：④ 上架申請 ①–⑥ 真實進度，並把 ②③④ 上線
+
+- ④ `server/publishprogress.js`（`PublishProgress`＋`PUBLISH_STEPS` 六步：讀取草稿修訂與快照／全章引用校驗／檢驗記錄核對／結構驗證與即時編譯／凍結封包與分配版本序號／寫入分發帳本並排隊）。`#publishPin` 只在真正走過的階段 `advance`，失敗由 `#postPublishRoutes` 的 catch 記 `fail(code)`；進度刻意只存記憶體（單次請求的暫時狀態，不是權威；重啟後由「查詢原操作」對帳），不進資料庫、不改帳本、不新增 schema。
+- 端點 `GET /api/games/{id}/publish-operations/{key}/progress`：owner-scoped（別人的遊戲 404、未登入 401），回 `{version,gameId,key,total,steps,progress}`，`progress` 可為 null（沒有在跑或已換實例）。
+- 客戶端：`publish.txt` 每 1.5 s 讀同一把鍵的進度，`PublishPanel.vue` 上架遮罩列出 ①–⑥（✓ 完成／▶ 當前／✗ 失敗／· 未開始）；`validationLayers` 與 `steps` 都由服務端資料投影，客戶端不補步、不推測。
+- 驗證：`verify_publish_ui_model` 19/19（新增 ①–⑥ 投影與失敗步斷言，並確認已確認分發時不會多查狀態）、`verify_publish_operations_root` 34 組（新增進度端點 done/6、跨 owner 404、換實例後 progress 為 null）、其餘 publication／retirement／atomicity／matrix lane 全綠；schema 仍 24/55/53/369。
+- 上線：`docker builder prune -af` 後建 `dragon-editor-publication:20261109-b3-disk12`（932MB，HEAD `d38e4d0`），改 `env/.env` 的 `EDITOR_DEPLOYMENT_ID` 並 recreate editor；`/api/health` 200、`/publish.js` 與 `/shell-ui.js` 均已含新碼、未登入 `/progress` 回 401。生產庫 55 表（新增 `content_game_validations`，0 行）、帳本仍 (16,16,NULL)、`content_games.listed=1`；`web/`、`static` pin、玩家端鏡像與 `PLAYER_DEPLOYMENT_ID` 均未動。
+- 注意：instabox 於 12:09:34Z 前處於 cooling down（SSH `administratively prohibited`），恢復後才完成建置；期間公網曾短暫 502（隧道未就緒，屬既有現象）。
