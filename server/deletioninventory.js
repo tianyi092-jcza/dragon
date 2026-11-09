@@ -5,7 +5,7 @@ import { assertDeletionColumnSchema } from './deletionschema.js';
 import { buildPrivateReferenceEdges } from './deletionreferences.js';
 const sha = value => createHash('sha256').update(value).digest('hex');
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
-const knownTables = new Set(['schema_version','users','sessions','login_rates','operations','content_schema','content_used_ids','content_games','content_snapshots','content_names','content_reservations','content_operations','content_audits','content_deletion_fences','content_deletion_operations','copy_http_commands','copy_requests','copy_objects','copy_origins','installed_sources','source_operations','draft_requests','draft_objects','draft_references','compile_jobs','compile_operations','stage_http_commands','content_http_command_targets','content_http_command_proofs','content_private_writes','content_deletion_job_freezes','data_compile_objects','image_compile_objects','fallback_compile_objects','content_deletion_draft_freezes','content_releases','draft_topology_moves','draft_topology_rebuilds','content_distribution_outbox','content_distribution_state','content_distribution_events','content_distribution_chunks','content_distribution_checkpoints','content_distribution_cleanup','content_distribution_enqueue_barrier','game_releases','published_games','published_pack_assets','published_pack_chapters','published_packs','trial_assets','trial_sessions','content_announcements','content_registry']);
+const knownTables = new Set(['schema_version','users','sessions','login_rates','operations','content_schema','content_used_ids','content_games','content_snapshots','content_names','content_reservations','content_operations','content_audits','content_deletion_fences','content_deletion_operations','copy_http_commands','copy_requests','copy_objects','copy_origins','installed_sources','source_operations','draft_requests','draft_objects','draft_references','compile_jobs','compile_operations','stage_http_commands','content_http_command_targets','content_http_command_proofs','content_private_writes','content_deletion_job_freezes','data_compile_objects','image_compile_objects','fallback_compile_objects','content_deletion_draft_freezes','content_releases','draft_topology_moves','draft_topology_rebuilds','content_distribution_outbox','content_distribution_state','content_distribution_events','content_distribution_chunks','content_distribution_checkpoints','content_distribution_cleanup','content_distribution_enqueue_barrier','game_releases','published_games','published_pack_assets','published_pack_chapters','published_packs','trial_assets','trial_sessions','content_announcements','content_registry','content_game_validations']);
 const scopedTables = ['content_snapshots','content_names','content_audits','content_deletion_operations','copy_requests','copy_objects','copy_origins','draft_requests','draft_objects','draft_references','compile_jobs','content_http_command_proofs','content_private_writes','content_deletion_job_freezes','data_compile_objects','image_compile_objects','fallback_compile_objects','content_deletion_draft_freezes','draft_topology_moves','draft_topology_rebuilds','game_releases'];
 const objectTables = ['copy_objects','draft_objects','draft_references','data_compile_objects','image_compile_objects','fallback_compile_objects'];
 function json(value) { try { return JSON.parse(value); } catch { fail(503, 'DELETE_INVENTORY_RECORD'); } }
@@ -46,12 +46,12 @@ export class GameDeletionInventory {
       assertDeletionColumnSchema(this.#sql,schema);
       const distributionDigest = emptyDistribution(this.#sql);
       const present = new Set(schema.map(r => r.name)), rows = {};
-      for (const table of scopedTables) rows[table] = present.has(table) ? this.#sql.exec('SELECT * FROM '+table+' WHERE game_id=?', gameId).toArray() : [];
+      for (const table of scopedTables) rows[table] = present.has(table) ? this.#sql.exec(`SELECT * FROM ${table} WHERE game_id=?`, gameId).toArray() : [];
       const jobs = new Set(rows.compile_jobs.map(r => r.job_id));
       rows.compile_operations = present.has('compile_operations') ? this.#sql.exec('SELECT * FROM compile_operations').toArray().filter(r => jobs.has(r.job_id)) : [];
       rows.content_operations = this.#sql.exec('SELECT * FROM content_operations').toArray().filter(r => r.target === gameId || json(r.result_json)?.gameId === gameId);
-      const keys = new Set([...rows.content_operations,...rows.copy_requests].map(r => r.actor+'\0'+r.op_key));
-      rows.content_reservations = this.#sql.exec('SELECT * FROM content_reservations').toArray().filter(r => r.target === gameId || keys.has(r.actor+'\0'+r.op_key));
+      const keys = new Set([...rows.content_operations,...rows.copy_requests].map(r => `${r.actor}\0${r.op_key}`));
+      rows.content_reservations = this.#sql.exec('SELECT * FROM content_reservations').toArray().filter(r => r.target === gameId || keys.has(`${r.actor}\0${r.op_key}`));
       rows.content_http_command_targets = present.has('content_http_command_targets') ? this.#sql.exec('SELECT * FROM content_http_command_targets WHERE game_id=?', gameId).toArray() : [];
       rows.copy_http_commands = []; rows.stage_http_commands = [];
       for (const relation of rows.content_http_command_targets) {
@@ -68,8 +68,8 @@ export class GameDeletionInventory {
         if (!command || !target || target.game_id !== gameId) fail(503, 'DELETE_INVENTORY_COMMAND_TARGET');
       }
       // Complete root-key checks across games, never hash-equality-as-sharing.
-      const prefix = 'private/'+gameId+'/', foreignRoots = [];
-      for (const table of ['content_snapshots','compile_jobs']) if (present.has(table)) for (const r of this.#sql.exec('SELECT game_id,root_key FROM '+table).toArray()) if (r.game_id !== gameId && typeof r.root_key === 'string' && r.root_key.startsWith(prefix)) foreignRoots.push([table,r.game_id,r.root_key]);
+      const prefix = `private/${gameId}/`, foreignRoots = [];
+      for (const table of ['content_snapshots','compile_jobs']) if (present.has(table)) for (const r of this.#sql.exec(`SELECT game_id,root_key FROM ${table}`).toArray()) if (r.game_id !== gameId && typeof r.root_key === 'string' && r.root_key.startsWith(prefix)) foreignRoots.push([table,r.game_id,r.root_key]);
       for (const values of Object.values(rows)) values.sort((a,b) => { const x=JSON.stringify(a), y=JSON.stringify(b); if(x<y)return -1; if(x>y)return 1; return 0; });
       foreignRoots.sort(); const text=encode({schema,game,fence,rows,foreignRoots,distributionDigest});
       return { actorId:actor.id, epoch:actor.epoch, gameId, rowRevision:game.row_revision, rows, foreignRoots, sqlDigest:sha(text) };
@@ -81,7 +81,7 @@ export class GameDeletionInventory {
     if (now.sqlDigest !== prior.sqlDigest) fail(409, 'DELETE_INVENTORY_CHANGED');
   }
   async #list(tokenHash, capture) {
-    const prefix='private/'+capture.gameId+'/', seen=new Set(), cursors=new Set(), result=[]; let cursor;
+    const prefix=`private/${capture.gameId}/`, seen=new Set(), cursors=new Set(), result=[]; let cursor;
     for (let page=0; page<128; page++) {
       const options={prefix,limit:1000}; if(cursor)options.cursor=cursor;
       const response=await this.#bucket.list(options); this.#current(tokenHash,capture);

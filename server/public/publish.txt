@@ -1,6 +1,8 @@
 // B2 上架管理 controller（Web 產品決定 2026-11）：一遊戲一行；「上架」＝整遊戲校驗
 // （既有 publish 管線：validateGameSource＋compile）通過後版本號自動 +1 並提交管理員
 // 審核；「刪除」＝不可逆刪除柵欄（不是物理清理，也不刪玩家本地存檔）。
+// 檢驗結果由服務端保存（狀態／時間／失敗項，綁定 draft_revision），本檔只展示它、
+// 不自行宣告已檢驗：清單沒有新鮮的 passed 記錄時，上架申請一律不可用。
 // 三個顯示態由服務端既有資料推導（草稿／待上架／已上架），本檔只做展示與操作追蹤。
 // Browser journals never grant service authority.
 export function installPublish({ api, authority, work, isBusy, publish: emit = () => {}, gameContext, storage = globalThis.sessionStorage, confirm = text => globalThis.confirm(text) }) {
@@ -12,6 +14,16 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  const fields = (v, keys) => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).sort().join(',') === [...keys].sort().join(',');
  // A 路線第一版：上架回執可選擇性多帶一個分發描述子，欄位集只放行這一個額外鍵。
  const fieldsOptional = (v, keys, optional) => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).sort().join(',') === (optional !== undefined && Object.hasOwn(v, optional) ? [...keys, optional] : [...keys]).sort().join(',');
+ // 服務端檢驗記錄（一遊戲一列）：null＝從未檢驗；passed/failed 由回報決定，不從畫面推導。
+ function validationRow(v) {
+  if (v === null) return true;
+  if (!fields(v, ['state', 'checkedAt', 'draftRevision', 'chapterCount', 'failedChapters'])) return false;
+  if (!['passed', 'failed'].includes(v.state) || !iso(v.checkedAt) || !revision(v.draftRevision) || !Number.isSafeInteger(v.chapterCount) || v.chapterCount < 0 || !Number.isSafeInteger(v.failedChapters) || v.failedChapters < 0 || v.failedChapters > v.chapterCount) return false;
+  return (v.state === 'passed') === (v.failedChapters === 0);
+ }
+ // 新鮮＝檢驗綁定的修訂就是目前草稿修訂；草稿一改，舊結果不能再當上架依據。
+ const fresh = row => Boolean(row.validation) && row.validation.draftRevision === row.draftRevision;
+ const validated = row => fresh(row) && row.validation.state === 'passed';
  const stateLabels = { draft: '草稿', pending: '待上架', listed: '已上架' };
  // 使用者 m2xxx（截圖問詢）：複製出來的同名遊戲讓追蹤提示無法分辨「是哪一款」，
  // 所以除名稱外再補兩個可核對的事實（清單中的建立時間與目前狀態）與短碼；
@@ -31,7 +43,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  // 靜默丟掉：服務端照舊提交，瀏覽器卻拿不到回執，於是每按一次都成功、面板卻永遠「未確認」。
  // 所以不再等那一次回應：POST 只送一次（同一把鍵，不重送），同時每 5 秒輪詢既有的幂等查詢端點，
  // 先拿到確定答案的嬴。查不到就繼續等，超時只回報「結果未知」，不把未知說成失敗。
- const PUBLISH_POLL_MS = 5000, PUBLISH_POLL_BUDGET_MS = 600000;
+ const PUBLISH_POLL_MS = 5000, PUBLISH_POLL_BUDGET_MS = 600000, PROGRESS_POLL_MS = 1500;
  const wait = ms => new Promise(resolve => { setTimeout(resolve, ms); });
  // 與 wait 差別：拿到答案就清掉計時器，不把 5 秒的空定時器留在事件圈廓裡。
  const waitFor = (promise, ms) => new Promise((resolve, reject) => {
@@ -39,7 +51,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   promise.then(value => { clearTimeout(id); resolve(value); }, error => { clearTimeout(id); reject(error); });
  });
  const errors = { DRAFT_TOPOLOGY_BROKEN: '仍有據點移動意向，不能上架；請先核對並處理原意向。',PLAY_CITY_VIEW_MISSING: '章節引用了固定資源庫未提供的據點圖片；請核對章節資源與已保存草稿，未補齊前不能上架。', PLAY_PORTRAIT_CORRUPT: '武將畫像引用無效或缺少可凍結的依賴；請核對已保存章節的畫像資料。', PUBLISH_STALE: '草稿已變更，請重新整理清單後再送出上架申請。', PUBLISH_NAME: '遊戲名稱無效（去除首尾空白及NFC正規化後，須為1至8個Unicode碼點）。', DISTRIBUTION_GAME_PENDING: '此遊戲仍有待確認分發，不能送出下一版上架申請。', DISTRIBUTION_NOT_CONFIGURED: '服務尚未配置分發狀態；不推定已公開。', DISTRIBUTION_STATUS_UNAVAILABLE: '原上架缺少可核對的分發關聯；不推定成功或失敗。', GAME_NOT_FOUND: '目標遊戲已不存在（已刪除）；本機追蹤已失去對象，重新整理清單後可直接上架。', GAME_DELETING: '遊戲已進入刪除流程，不能繼續此操作。', DELETE_CONFIRMATION: '刪除確認名稱與目前遊戲名稱不符，請重新整理清單。', PUBLISH_CHAPTER_REFERENCES: '整遊戲校驗未通過：有章節引用不到已刪除的基礎資料（據點或武將庫）；下方列出受影響的章。' };
- let identity = null, generation = 0, rows = [], messageText = '', references = null;
+ let identity = null, generation = 0, rows = [], messageText = '', references = null, progressSnapshot = null, progressTicker = null;
  let pending = null, badJournal = false, checked = false, result = null, distribution = null, sending = false, querySerial = 0, purgeOutcomes = new Map(), listed = false;
  // 阻塞遮罩的第二行：每個等待點都先寫清楚現在在做什麼，不要讓人只知道「在忙」。
  let phase = '';
@@ -71,7 +83,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   if (!value || !Array.isArray(value.games) || value.games.length > 10000) throw new Error('上架清單格式無效。');
   const seen = new Set();
   return value.games.map(row => {
-   if (!row || !uuid(row.gameId) || seen.has(row.gameId) || typeof row.name !== 'string' || !row.name.isWellFormed() || [...row.name].length < 1 || [...row.name].length > 8 || typeof row.introduction !== 'string' || !Object.hasOwn(stateLabels, row.state) || (row.version !== null && !ordinal(row.version)) || (row.state === 'draft') !== (row.version === null) || (row.stateTime !== null && !iso(row.stateTime)) || !iso(row.createdAt) || typeof row.restricted !== 'boolean' || typeof row.rejected !== 'boolean' || typeof row.draftChanged !== 'boolean' || (row.rejected && row.state !== 'pending') || !revision(row.rowRevision)) throw new Error('上架清單欄位無效。');
+   if (!row || !uuid(row.gameId) || seen.has(row.gameId) || typeof row.name !== 'string' || !row.name.isWellFormed() || [...row.name].length < 1 || [...row.name].length > 8 || typeof row.introduction !== 'string' || !Object.hasOwn(stateLabels, row.state) || (row.version !== null && !ordinal(row.version)) || (row.state === 'draft') !== (row.version === null) || (row.stateTime !== null && !iso(row.stateTime)) || !iso(row.createdAt) || typeof row.restricted !== 'boolean' || typeof row.rejected !== 'boolean' || typeof row.draftChanged !== 'boolean' || (row.rejected && row.state !== 'pending') || !revision(row.rowRevision) || !revision(row.draftRevision) || !validationRow(row.validation)) throw new Error('上架清單欄位無效。');
    seen.add(row.gameId); return Object.freeze({ ...row });
   });
  }
@@ -138,6 +150,51 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   if (!references.chapters.length) return head + '全部章節引用完整。';
   return head + '有 ' + references.chapters.length + ' 章引用不到基礎資料：' + references.chapters.map(chapter => (chapter.chapterName ?? chapter.chapterId) + '（' + chapter.problems.map(problem => problem.detail).join('；') + '）').join('／');
  }
+ // 檢驗彈窗的四層：與服務端 chapterBaseReferenceGaps 的四個 code 一一對應。
+ // 只把回應按 code 分組，不新增判定、不推定原因；沒有該 code 的層就是通過。
+ const layers = Object.freeze([
+  { key: 'chapter', code: 'CHAPTER_MISSING', title: '章節索引' },
+  { key: 'general', code: 'CHAPTER_GENERAL_MISSING', title: '武將庫引用' },
+  { key: 'city', code: 'CHAPTER_CITY_MISSING', title: '據點定義引用' },
+  { key: 'slot', code: 'CHAPTER_CITY_SLOT_MISSING', title: '據點固定槽' }
+ ]);
+ function layerRows() {
+  const found = references?.chapters ?? [];
+  return layers.map(layer => {
+   const failures = [];
+   for (const chapter of found)
+    for (const problem of chapter.problems)
+     if (problem.code === layer.code) failures.push({ chapterId: chapter.chapterId, name: chapter.chapterName ?? chapter.chapterId, detail: problem.detail });
+   return { key: layer.key, code: layer.code, title: layer.title, ok: failures.length === 0, failures };
+  });
+ }
+ // 上架申請的 ①–⑥ 進度：服務端每完成一段就寫一次，這裡只讀同一把鍵，不推測也不補步。
+ function progressReceipt(value) {
+  if (!fields(value, ['version', 'gameId', 'key', 'total', 'steps', 'progress']) || value.version !== 1 || !uuid(value.gameId) || typeof value.key !== 'string' || !Number.isSafeInteger(value.total) || !Array.isArray(value.steps) || value.steps.length !== value.total || !value.steps.every(step => typeof step === 'string' && step.length > 0 && step.length <= 64)) throw new Error('上架進度回應格式無效。');
+  const p = value.progress;
+  if (p !== null && (!fields(p, ['step', 'total', 'state', 'failedStep', 'code', 'updatedAt']) || !Number.isSafeInteger(p.step) || p.step < 0 || p.step > value.total || p.total !== value.total || !['running', 'done', 'failed'].includes(p.state) || (p.state === 'failed' ? !Number.isSafeInteger(p.failedStep) : p.failedStep !== null) || (p.code !== null && typeof p.code !== 'string') || !iso(p.updatedAt))) throw new Error('上架進度回應格式無效。');
+  return Object.freeze({ total: value.total, steps: Object.freeze([...value.steps]), progress: p === null ? null : Object.freeze({ step: p.step, state: p.state, failedStep: p.failedStep, code: p.code, updatedAt: p.updatedAt }) });
+ }
+ function stepList() {
+  const steps = progressSnapshot?.steps ?? [], p = progressSnapshot?.progress;
+  return steps.map((title, index) => {
+   let state = 'todo';
+   if (p?.state === 'done') state = 'done';
+   else if (p?.state === 'failed') state = index < p.step ? 'done' : index === p.failedStep ? 'failed' : 'todo';
+   else if (p) state = index < p.step ? 'done' : index === p.step ? 'current' : 'todo';
+   return { index, title, state };
+  });
+ }
+ function stopProgress() { if (progressTicker) { clearInterval(progressTicker); progressTicker = null; } }
+ function startProgress(path, t, ctx) {
+  stopProgress(); progressSnapshot = null;
+  const read = async () => {
+   if (!current(ctx) || pending !== t) { stopProgress(); return; }
+   try { progressSnapshot = progressReceipt(await api(path + '/progress')); render(); } catch { /* 進度取不到就保留上一次顯示，不影響結果輪詢 */ }
+  };
+  read();
+  progressTicker = setInterval(read, PROGRESS_POLL_MS);
+ }
  // 上架/刪除被暫停時要能直接說出原因（用戶 m1389：按鈕灰掉卻不知道為什麼）。
  function blockedText() {
   if (badJournal) return '上架申請暫停：本機記下的原操作已損壞，無法核對。請按「只停止本機追蹤」清掉記錄後再送出上架申請（不會影響服務端已成立的事實）。';
@@ -154,9 +211,23 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   const gone = !rows.some(row => row.gameId === pending.gameId);
   return ' 追蹤對象：' + targetText(pending) + (gone ? '；它已不在清單，按「刷新」自動作廢或按「只停止本機追蹤」。' : '；保留同一個請求，先查詢、不自動重送。');
  }
-// 上架申請＝送出一次審核申請（管理員同意後玩家端才可見）；按鈕只在「有東西可送」时開放：
-// 草稿（從未發佈）→ 可送；待審核中→ 不可重複送；已上架→ 只有草稿有新修訂才需要送下一版；被駁回→ 可修正後重送。
+// 上架申請＝送出一次審核申請（管理員同意後玩家端才可見）；按鈕只在「有東西可送」且「本次修訂
+// 已通過服務端檢驗」时開放：草稿（從未發佈）→ 需先檢驗；待審核中→ 不可重複送；已上架→ 只有
+// 草稿有新修訂才需要送下一版；被駁回→ 可修正後重送。
+// 檢驗列的文案與禁用原因對應同一份服務端記錄，不另外保留「本分頁剛才檢查過」這種弱事實。
+ function validationLabel(row) {
+  if (!row.validation) return '未檢驗';
+  if (!fresh(row)) return '檢驗已過期（草稿已更新）';
+  return row.validation.state === 'passed' ? '檢驗成功' : '檢驗失敗（' + row.validation.failedChapters + ' 章）';
+ }
+ function validationHint(row) {
+  if (!row.validation) return '尚未檢驗：先按「檢驗」跑完整遊戲校驗，通過後才能送出上架申請';
+  if (!fresh(row)) return '上次檢驗是修訂 ' + row.validation.draftRevision + '，目前草稿已是修訂 ' + row.draftRevision + '；請重新檢驗';
+  if (row.validation.state === 'failed') return '上次檢驗未通過（' + row.validation.failedChapters + ' 章引用不到基礎資料）；修正後重新檢驗';
+  return '';
+ }
  function submittable(row) {
+  if (!validated(row)) return false;
   if (row.state === 'draft') return true;
   if (row.state === 'pending') return row.rejected;
   return row.draftChanged;
@@ -173,10 +244,12 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   const list = visible ? rows.map(row => ({
    gameId: row.gameId, name: row.name, introduction: row.introduction || '（無說明）', version: row.version ?? '—', nextVersion: nextVersion(row.version),
    state: stateLabels[row.state] + (row.restricted ? '／管理限制' : ''), stateKey: row.state, rejected: row.rejected, createdAt: row.createdAt, stateTime: row.stateTime ?? '—', rowRevision: row.rowRevision,
+   validation: validationLabel(row), validationTime: row.validation ? new Date(row.validation.checkedAt).toLocaleString() : '—', validationKey: row.validation ? row.validation.state + (fresh(row) ? '' : '-stale') : 'none',
+   validationState: row.validation ? (fresh(row) ? row.validation.state : 'stale') : 'none',
    publishDisabled: disabled || blocked || !submittable(row), deleteDisabled: disabled || blocked,
-   publishHint: blockedText() || submitHint(row),
+   publishHint: blockedText() || validationHint(row) || submitHint(row),
    deleteHint: '刪除整個遊戲（含所有章節與已上架版本，含資料庫列），不是刪除單個版本，徹底清除且不可恢復',
-   publishTitle: submitHint(row),
+   publishTitle: validationHint(row) || submitHint(row),
   })) : [];
   let tracking = '沒有追蹤中的上架或刪除操作。';
   if (badJournal) tracking = '本機記下的原操作已損壞，無法核對；為了不重複建立，暫時不接受新的上架或刪除（可清除本機追蹤）。';
@@ -198,7 +271,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
    // 上架只是送審：不同步說明這一步，就會被讀成「上架了但玩家端壞了」。
    text += ' 下一步：由管理員在「審核」按「同意」，玩家端目錄才會出現這款遊戲。';
   } else if (result?.kind === 'delete') text = result.purge ? '已徹底刪除（不可恢復）：資料庫已移除 ' + result.purge.tables + ' 張表內該遊戲的所有列，玩家端目錄不再列出它；分發帳本與 R2 位元組由既有退役清理回收，不刪玩家本地存檔。' + reclaimText(result.purge.reclamation) : '本地已建立不可逆刪除柵欄（' + result.receipt.createdAt + '）；物理刪除尚未完成' + (result.purgeError ? '：' + String(result.purgeError).replace(/。+$/, '') : '（原因未回報）') + '。不刪玩家本地存檔。';
-  emit({ rows: list, blockedReason: visible ? blockedText() : '', operation: visible ? tracking : '', result: visible ? text : '', message: visible ? messageText : '', references: visible ? referenceRows() : [], referencesText: visible ? referenceText() : '', locked: disabled,
+  emit({ rows: list, blockedReason: visible ? blockedText() : '', operation: visible ? tracking : '', result: visible ? text : '', message: visible ? messageText : '', references: visible ? referenceRows() : [], referencesText: visible ? referenceText() : '', validationLayers: visible ? layerRows() : [], validationChecked: visible && Boolean(references), validationPassed: visible && Boolean(references) && !references.chapters.length, steps: visible ? stepList() : [], stepsFailed: Boolean(progressSnapshot?.progress && progressSnapshot.progress.state === 'failed'), locked: disabled,
    refreshDisabled: !visible || isBusy(), checkDisabled: !visible || isBusy() || sending,
    queryDisabled: disabled || !pending || badJournal,
    phase: visible ? phase : '',
@@ -227,11 +300,15 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  async function check(gameId) {
   const ctx = capture(), row = rows.find(entry => entry.gameId === gameId);
   if (!row) throw new Error('上架清單已變，請重新整理。');
-  const value = await api('/api/games/' + gameId + '/draft/chapter-references');
+  // 檢驗是服務端動作（POST）：通過與失敗都落庫，刷新後仍看得到狀態與時間。
+  const value = await api('/api/games/' + gameId + '/draft/chapter-references', {});
   if (!current(ctx)) return;
   if (value?.gameId !== gameId) throw new Error('全章校驗回應的遊戲不符。');
   references = referenceReceipt(value);
-  message(references.chapters.length ? '校驗失敗！' : '校驗成功！全部 ' + references.chapterCount + ' 章引用完整' + (blockedText() ? '；但上架申請按鈕目前暫停，原因見下方說明。' : '，可以送出上架申請（仍須管理員同意）。'));
+  // 結果已由服務端保存，重讀清單才能用同一份事實決定按鈕可用性。
+  try { await load(ctx); } catch { /* 清單留待手動刷新；本次檢驗結果仍在下方 */ }
+  if (!current(ctx)) return;
+  message(references.chapters.length ? '檢驗失敗！' : '檢驗成功！全部 ' + references.chapterCount + ' 章引用完整' + (blockedText() ? '；但上架申請按鈕目前暫停，原因見下方說明。' : '，可以送出上架申請（仍須管理員同意）。'));
   render();
   // 頁面上方的提示要說清楚是什麼完成了。
   return references.chapters.length ? '檢驗未通過，請看下方清單。' : '檢驗完成。';
@@ -290,6 +367,7 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
  // 只有連線層失敗（沒有 HTTP 狀態碼）才算「未知」而轉入輪詢；服務端任何答覆（含 4xx／5xx）都照原樣拋出。
  async function publishOutcome(t, ctx) {
   const path = '/api/games/' + t.gameId + '/publish-operations/' + encodeURIComponent(t.key), started = Date.now();
+  startProgress(path, t, ctx);
   let lost = false;
   const post = api('/api/publish', { gameId: t.gameId, name: t.name }, { key: t.key }).then(
    value => ({ kind: 'post', value }),
@@ -354,18 +432,22 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
    if (t.kind === 'publish' && error.code === 'PUBLISH_CHAPTER_REFERENCES' && current(ctx)) { try { references = Object.freeze({ draftRevision: null, chapterCount: null, chapters: Object.freeze(chapterIssues(error.detail?.chapters)) }); } catch { references = null; } }
    if (current(ctx) && pending === t) { if (Number.isSafeInteger(error.status) && error.status >= 400 && error.status < 500) { try { store(null); } catch { /* 保留原鍵只影響下一筆，不影響本次結論 */ } } message(errors[error.code] ?? error.message); render(); }
    throw error;
-  } finally { sending = false; phase = ''; render(); }
+  } finally { sending = false; phase = ''; stopProgress(); render(); }
  }
  async function submit(gameId) {
-  const ctx = capture(), row = rows.find(entry => entry.gameId === gameId);
+  const ctx = capture();
+  let row = rows.find(entry => entry.gameId === gameId);
   if (!row) throw new Error('上架清單已變，請重新整理。');
-  if (!submittable(row)) throw new Error(submitHint(row) + '。');
+  if (!submittable(row)) throw new Error(validationHint(row) || submitHint(row));
   if (pending || badJournal) throw new Error('請先核對原操作，不另起鍵。');
-  // 產品決定（2026-11）：上架前必須先校驗通過；未通過就不送鍵、不寫任何東西。
-  phase = '正在校驗全部章節…'; render();
-  await check(gameId);
-  if (!current(ctx)) return;
-  if (!references || references.chapters.length) { message('校驗未成功，無法送出上架申請。請先修正下方列出的章節問題。'); render(); return; }
+  // 清單已有本次修訂的通過記錄就直接送出；沒有才先跑一次服務端檢驗（POST 落庫）。
+  if (!validated(row)) {
+   phase = '正在檢驗全部章節…'; render();
+   await check(gameId);
+   if (!current(ctx)) return;
+   if (!references || references.chapters.length) { message('檢驗未成功，無法送出上架申請。請先修正下方列出的章節問題。'); render(); return; }
+   row = rows.find(entry => entry.gameId === gameId) ?? row;
+  }
   const t = Object.freeze({ actorId: ctx.id, kind: 'publish', version: ctx.version, gameId: row.gameId, key: crypto.randomUUID(), name: row.name });
   if (!tuple(t)) throw new Error(errors.PUBLISH_NAME);
   if (!current(ctx) || pending || badJournal || !rows.includes(row)) throw new Error('上架申請期間帳戶或清單已變；請重新整理。');

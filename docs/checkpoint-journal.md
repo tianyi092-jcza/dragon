@@ -222,3 +222,11 @@ ui14 步骤：服务器 LF 检出跑 `prepare_deploy.mjs` 复现 inventory → `
 - 部署：`/data/dragon/src` 重新 clone（原目錄已被清），`docker builder prune -af` 後建 `dragon-editor-publication:20261109-b2-disk12`，改 `env/.env` 的 `EDITOR_DEPLOYMENT_ID` 並 recreate editor。公網 `/api/health` 200 `initialized:true`；玩家端鏡像與 static pin 未動；帳本仍 tail=confirmed=14、無 block。
 - 已知殘留：`verify_frozen_publication_root.mjs` 在 `inspectRuntimeObjectReferences` 的 `fields(asset, …)` 回 `DELETE_RUNTIME_REFERENCE_INVALID`（舊碼同樣失敗，本輪未修，屬 fixture／掃描器本身的既有問題）。
 - 待辦：使用者重試「上架申請」（當前是 `937c71ab…「臥龍傳·重构版」` 的首次發布）；之後按用戶既定順序做 ②檢驗結果存服務端＋按鈕可用性 ③四層逐項 ✓/✗ ④上架申請 ①–⑥ 真實進度。
+
+## 14. 批次 B（2026-11-09 UTC）：② 檢驗結果落庫＋按鈕規則、③ 四層逐項 ✓/✗
+
+- 生產先證實批次 A 有效：`937c71ab…「臥龍傳·重构版」` 的上架申請成功（gen15 publish，ordinal 1.0），管理員「同意」後 gen16 listing confirmed，玩家 registry generation 16、目錄 1 條；`content_games.listed=1`。gen15 走 `#rebuild`（退役尾巴），gen16 走 `#retained`。
+- ② 新表 `content_game_validations`（8 列、PK game_id）＋`server/validations.js`（`ValidationStore`）＋`server/validationdeclarations.js`；`POST /api/games/{id}/draft/chapter-references` 空 body 落庫並回同一 DTO 形狀；`#publishPin` 在章節引用之後、`validateGameSource` 之前要求「同一 `draft_revision`、同一 `source_digest` 的 passed 記錄」，否則 `409 PUBLISH_VALIDATION_REQUIRED`；`/api/games/submissions` 每行帶 `draftRevision` 與 `validation` 投影（不含 sourceDigest／逐章內容）。UI 增「檢驗」列（未檢驗／檢驗成功／檢驗失敗（N 章）／檢驗已過期＋時間）。
+- ③ 四層即服務端 `chapterBaseReferenceGaps` 的四個 code（`CHAPTER_MISSING`／`CHAPTER_GENERAL_MISSING`／`CHAPTER_CITY_MISSING`／`CHAPTER_CITY_SLOT_MISSING`）；`publish.txt` 只按 code 分組輸出 `validationLayers`，`PublishPanel.vue` 以「檢驗結果」彈窗逐層 ✓/✗，失敗層紅字列出「章名：服務端 detail」。不新增判定。
+- 計數門：24 owners / 55 tables / 53 indexes / 369 columns / 4 FK（`verify_editor_schema_sources`、`verify_distribution_schema` 同步）；`gamepurge`、`deletioninventory`、`deletionuniquerows` 一併收新表。
+- 驗證：`verify_publish_ui_model` 18/18（新增四層斷言）、`verify_publish_validation` 7 組、`verify_publication_server` 18、`verify_publication_main` 93、`verify_publish_operations_root` 31（schemaTables 55）；`editor-ui build --check` 通過。

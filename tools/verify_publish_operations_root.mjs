@@ -43,17 +43,26 @@ try {
     sql.exec('INSERT INTO users VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', id, account, role, '{}', 0, 0, 1, 1, '', '', '', '');
     sql.exec('INSERT INTO sessions VALUES(?,?,?,?,?)', tokenHash, id, 1, Date.now() + 3600000, Date.now() + 3600000);
   }
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 54);
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 55);
   const csrf = await mac(`csrf:${token}`, secret);
   // Scenario labels are not product names. Keep explicit, legal wire names
   // (no truncation or normalization of arbitrary test input).
   const scenarioNames = { 'HTTP proof': 'HTTP證明', 'Race proof': '競態證明', 'Fault proof': '故障證明', 'Revoked during staging': '撤銷測試', 'R2 concurrent replay': '並行重放' };
+  // 產品決定（2026-11）：上架只認服務端保存的本次修訂檢驗記錄；lane 先照真實流程跑一次檢驗。
+  const ensureValidated = async () => {
+    const revision = sql.exec('SELECT draft_revision FROM content_games WHERE game_id=?', gameId).toArray()[0]?.draft_revision;
+    const saved = sql.exec('SELECT draft_revision,state FROM content_game_validations WHERE game_id=?', gameId).toArray()[0];
+    if (saved && saved.draft_revision === revision && saved.state === 'passed') return;
+    const response = await app.fetch(new Request(`${origin}/api/games/${gameId}/draft/chapter-references`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: `__Secure-dragon-editor=${token}`, 'X-CSRF-Token': csrf }, body: '{}' }));
+    const value = await response.json(); assert.equal(response.status, 200, JSON.stringify(value));
+  };
   const call = async (label, key, extra = {}) => {
+    await ensureValidated();
     const name = scenarioNames[label] ?? label;
     const started = performance.now();
     const response = await app.fetch(new Request(`${origin}/api/publish`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: `__Secure-dragon-editor=${token}`, 'X-CSRF-Token': csrf, 'Idempotency-Key': key, ...extra }, body: JSON.stringify({ gameId, name }) }));
     const result = { status: response.status, value: await response.json() };
-    if (staging) process.stdout.write(JSON.stringify({ request: key, status: result.status, milliseconds: Math.round(performance.now() - started) }) + '\n');
+    if (staging) process.stdout.write(`${JSON.stringify({ request: key, status: result.status, milliseconds: Math.round(performance.now() - started) })}\n`);
     return result;
   };
   const reserveName = async (name, key) => {
@@ -212,7 +221,7 @@ try {
     sql.exec(`UPDATE ${table} SET ${column}=?`, value);
     const before = listingState();
     try {
-      assert.equal((await manage('list', status)).error, code, table + '.' + column);
+      assert.equal((await manage('list', status)).error, code, `${table}.${column}`);
       assert.deepEqual(listingState(), before, 'failed listing preserves the whole mutation transaction');
     } finally { sql.exec(`UPDATE ${table} SET ${column}=?`, prior); }
   }
@@ -245,8 +254,18 @@ try {
   assert.deepEqual(await call('HTTP proof', 'owned-publish-request-01'), first);
   assert.deepEqual(staging?.stats(), beforeReplayR2, 'permanent replay performs no staging or static reads');
   assert.equal(reads, beforeReplay, 'replay does not compile or read private objects'); groups++;
+  // ①–⑥ 逐段進度：上架成功後同一把鍵回報六步全完成；步名由服務端給，客戶端不推定。
+  const progressQuery = await app.fetch(new Request(`${origin}/api/games/${gameId}/publish-operations/owned-publish-request-01/progress`, { headers: { Cookie: `__Secure-dragon-editor=${token}` } }));
+  const progressBody = await progressQuery.json();
+  assert.equal(progressQuery.status, 200); assert.equal(progressBody.version, 1); assert.equal(progressBody.total, 6);
+  assert.equal(progressBody.steps.length, 6); assert.equal(progressBody.progress.state, 'done'); assert.equal(progressBody.progress.step, 6);
+  assert.equal(progressBody.progress.failedStep, null); assert.equal(progressBody.progress.code, null); groups++;
+  const foreignProgress = await app.fetch(new Request(`${origin}/api/games/00000000-0000-4000-8000-000000000000/publish-operations/owned-publish-request-01/progress`, { headers: { Cookie: `__Secure-dragon-editor=${token}` } }));
+  assert.equal(foreignProgress.status, 404, '進度只給本遊戲的擁有者讀'); groups++;
   app = makeApp();
-  assert.deepEqual(await managementRequest(firstListingRequest), firstListing);
+  // 進度是單次請求的暫時狀態，不進資料庫：換一個應用實例就不再提供；結果仍以永久回執為準。
+  const progressAfterRestart = await app.fetch(new Request(`${origin}/api/games/${gameId}/publish-operations/owned-publish-request-01/progress`, { headers: { Cookie: `__Secure-dragon-editor=${token}` } }));
+  assert.equal(progressAfterRestart.status, 200); assert.equal((await progressAfterRestart.json()).progress, null); groups++;
   const listingQuery = await app.fetch(new Request(`${origin}/api/admin/games/${gameId}/management-operations/${firstListingRequest.headers.get('Idempotency-Key')}`, { headers: { Cookie: `__Secure-dragon-editor=${adminToken}` } }));
   assert.equal(listingQuery.status, 200); assert.deepEqual(await listingQuery.json(), firstListing); groups++;
   const conflictingListing = new Request(firstListingRequest.clone(), { body: JSON.stringify({ action: 'list', expectedRowRevision: firstListing.rowRevision }) });
@@ -353,7 +372,7 @@ try {
       try { result = await call('Revoked during staging', `owned-stage-revoke-${label}`); }
       finally { restore(); }
       assert.deepEqual(result, { status, value: { error } }, label);
-      assert.deepEqual(fingerprint(), before, 'no formal SQL writes after ' + label);
+      assert.deepEqual(fingerprint(), before, `no formal SQL writes after ${label}`);
       assert.equal(staging.stats().puts, counts.puts + 1, 'stop after the in-flight PUT; no cleanup or further upload');
       groups++;
     }
@@ -465,6 +484,7 @@ try {
   assert.throws(() => app.contentKey(OWNER, 'owned-publish-request-01', 'auth'), error => error.code === 'IDEMPOTENCY_CONFLICT'); groups++;
   sql.exec('UPDATE users SET disabled=1 WHERE id=?', OWNER);
   assert.equal((await call('HTTP proof', 'owned-publish-request-01')).status, 401); groups++;
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 54); groups++;
-  process.stdout.write(JSON.stringify({ groups, chapters: 20, schemaTables: 54, staging: staging?.stats() ?? null, scope: staging ? 'actual common Request/compiler/SQLite -> immutable staging with real current authority; actual tracked static bytes via local file port and owned memory R2, no durable distribution producer/visibility/network/browser/blank-author proof' : 'actual common Request dispatcher/compiler/owned installed assets and SQLite, same-key concurrent replay; seeded sessions/full-copy bootstrap, no network/R2/browser/blank-author creation proof' }) + '\n');
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 55); groups++;
+  process.stdout.write(`${JSON.stringify({ groups, chapters: 20, schemaTables: 55, staging: staging?.stats() ?? null, scope: staging ? 'actual common Request/compiler/SQLite -> immutable staging with real current authority; actual tracked static bytes via local file port and owned memory R2, no durable distribution producer/visibility/network/browser/blank-author proof' : 'actual common Request dispatcher/compiler/owned installed assets and SQLite, same-key concurrent replay; seeded sessions/full-copy bootstrap, no network/R2/browser/blank-author creation proof' })}
+`);
 } finally { storage.close(); rmSync(scratch, { recursive: true, force: true }); }

@@ -7,13 +7,14 @@
 //     清理機制回收（見 §4.8 待辦），不在這個類別裡假裝已刪。
 import { fail } from './security.js';
 
-// 依實際 schema 查出的含 game_id 資料表（31 張，扣除分發帳本三表），子表在前、聚合表在後。
+// 依實際 schema 查出的含 game_id 資料表（32 張，扣除分發帳本三表），子表在前、聚合表在後。
 // 漏任何一張都會在 COMMIT 時以 defer_foreign_keys 的 FK 檢查失敗（不會靜默通過）。
 const TABLES = Object.freeze([
   'content_used_ids',
   'content_names',
   'content_audits',
   'content_announcements',
+  'content_game_validations',
   'content_snapshots',
   'content_releases',
   'game_releases',

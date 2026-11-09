@@ -140,3 +140,10 @@ curl -s https://dragon-editor.720108.xyz/api/health   # 期望 200 initialized:t
 - 改 `web/` 必须走锁步部署（新 REL/SRC digest → 换 dist → 改三处 pin + proxy prefix + 两个 tag → 重建两镜像 → 重启）；只改 `server/`/`vps/` 时只重建对应镜像。
 - 提交与推送分别需要明确授权；本仓库惯例是改完即 commit，推送前确认。
 - 写 JS 字符串里的转义时**不要**经过 python/bash heredoc（曾把 `\n` 写成真实换行导致 `SyntaxError` + 容器 crash-loop）。
+
+## 8. 批次 B／C 進度（2026-11-09 UTC，接 §5 的既定順序）
+
+- 上架申請故障已由上架實證解除：`937c71ab…「臥龍傳·重构版」` gen15 publish（1.0）→ 管理員同意 → gen16 listing，玩家 registry generation 16。
+- ②（檢驗結果存服務端＋按鈕可用性）與 ③（檢驗彈窗四層逐項 ✓/✗＋紅字原因）已完成，見 `docs/checkpoint-journal.md` §14。
+- ④（上架申請彈窗 ①–⑥ 真實進度）：`server/publishprogress.js` 記錄服務端真正執行到的階段，`GET /api/games/{id}/publish-operations/{key}/progress` 回報步名與狀態；進度只放記憶體（單次請求的暫時狀態，重啟後由「查詢原操作」對帳），不進資料庫、不改帳本。
+- 部署方式不變（§3），只重建 editor 鏡像；`web/` 與玩家端未動。

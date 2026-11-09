@@ -23,6 +23,8 @@ import { collectFixedStageAssets } from './stageassetcollection.js';
 import { HttpCommandTargets } from './commandtargets.js';
 import { PrivateWriteJournal } from './privatewrites.js';
 import { PrivateLibraryAssets } from './libraryassets.js';
+import { ValidationStore } from './validations.js';
+import { PublishProgress, PUBLISH_STEPS } from './publishprogress.js';
 import { TrialSessions } from './trials.js';
 import { PublishedGames } from './published.js';
 import { PublishOperations } from './publishoperations.js';
@@ -204,6 +206,9 @@ return class EditorMetadata extends PlatformBase {
     this.releases = new ReleaseLedger({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games });
     // D组公告 (Q31–Q36, §8.3): unique(gameId,releaseId) rows + registry revision.
     this.announcements = new AnnouncementStore({ storage: ctx.storage });
+    // 上架前整遊戲檢驗的服務端記錄（產品決定 2026-11）：清單與上架門都讀這裡。
+    this.validations = new ValidationStore({ storage: ctx.storage });
+    this.publishProgress = new PublishProgress();
     // 分发账本 Outbox（V5 前置）：发布事务内 enqueue，同原子。
     this.distribution = new DistributionOutbox({ storage: ctx.storage });
     // Same authority database; no public producer/drainer or receipt trust added.
@@ -399,7 +404,7 @@ return class EditorMetadata extends PlatformBase {
     if (bundled) { return new Response(bundled.text, { headers: { ...trialHeaders, 'Content-Type': `${trialWebType(rel)}; charset=utf-8`, 'X-Content-SHA256': bundled.sha256 } }); }
     // The generated document base also prefixes registry-relative seasonal art.
     // Reuse the existing exact eight-role public visual gate, not arbitrary source roles.
-    if (rel.startsWith('content/builtin/compiled/')) { return this.#getPlayRegistryFile(url, '/' + rel); }
+    if (rel.startsWith('content/builtin/compiled/')) { return this.#getPlayRegistryFile(url, `/${rel}`); }
     if (!playLibraryPaths.has(rel)) { fail(404, 'PLAY_WEB_PATH'); }
     if (!this.availableLibrary) { fail(503, 'PLAY_NOT_CONFIGURED'); }
     const bytes = await this.trialRegistryBytes(this.availableLibrary, rel);
@@ -421,7 +426,10 @@ return class EditorMetadata extends PlatformBase {
       result = this.publishedGames.unpublish(tokenHash, value.gameId);
       this.playPacks.retire(value.gameId);
     } else {
-      const committed = await this.#publishPin(tokenHash, value.gameId, value.name, key);
+      const committed = await this.#publishPin(tokenHash, value.gameId, value.name, key, user).catch(error => {
+        this.publishProgress.fail(user.id, key, typeof error?.code === 'string' ? error.code : 'PUBLISH_FAILED');
+        throw error;
+      });
       result = committed.pin;
       // A 路線第一版（可回滾）：只有注入 drain 時才在本次請求內推進分發並多帶
       // 一個可選分發描述子；未注入＝舊協議回應逐位元相同。
@@ -436,7 +444,7 @@ return class EditorMetadata extends PlatformBase {
     this.touch(tokenHash, policy);
     return response(result);
   }
-  async #publishPin(tokenHash, gameId, name, key) {
+  async #publishPin(tokenHash, gameId, name, key, actor) {
     // 对标 node publish：owner 当前修订＋快照存在＋严格校验＋即时编译，
     // 任一不满足即拒（未编译/坏草稿 422；空名先于权属判 422，
     // 与 node 先验名后查 draft 的可观察顺序一致）。
@@ -444,6 +452,8 @@ return class EditorMetadata extends PlatformBase {
     if (typeof name !== 'string' || !name.trim()) { fail(422, 'PUBLISH_NAME'); }
     const operation = this.publishOperations.capture(tokenHash, { key, gameId, name });
     if (operation.replay) { return { pin: operation.replay.pin, gameId: operation.replay.gameId, releaseId: operation.replay.releaseId, replayed: true }; }
+    // ①–⑥ 逐段記在服務端：只記真正執行到的階段，客戶端輪詢顯示，不推測進度。
+    this.publishProgress.start({ actorId: actor.id, opKey: key, gameId });
     this.publicationProducer?.assertPublishable(gameId);
     const owned = this.games.listOwn(tokenHash).find(entry => entry.gameId === gameId);
     if (!owned) { fail(404, 'GAME_NOT_FOUND'); }
@@ -458,10 +468,17 @@ return class EditorMetadata extends PlatformBase {
     if (sameReceipt) { return { pin: sameReceipt.pin, gameId: sameReceipt.gameId, releaseId: sameReceipt.releaseId, replayed: true }; }
     const captured = await this.privateDrafts.captureForCompile(tokenHash, gameId, owned.draftRevision);
     if (captured.reference.rootKey !== reference.rootKey || captured.reference.sourceDigest !== reference.sourceDigest) { fail(503, 'PUBLISH_REFERENCE_CORRUPT'); }
+    this.publishProgress.advance(actor.id, key, 1);
     // B8 全章匯總校驗：先列出「哪些章因基礎資料缺失而引用不到」，再跑結構／active 門。
     // 順序必須先清單後通用錯誤，否則單一的 192 據點鎖訊息會蓋掉逐章原因。
     const references = chapterReferenceReport(captured.game);
     if (references.length) { fail(422, 'PUBLISH_CHAPTER_REFERENCES', { chapters: references }); }
+    this.publishProgress.advance(actor.id, key, 2);
+    // 產品決定（2026-11）：檢驗結果存服務端並綁定草稿修訂；上架只認這份記錄，
+    // 客戶端不得自行宣告已檢驗。記錄過期（修訂或摘要不符）與未檢驗同樣拒絕。
+    const validation = this.validations.readFresh(gameId, owned.draftRevision);
+    if (!validation || validation.state !== 'passed' || validation.sourceDigest !== captured.reference.sourceDigest) { fail(409, 'PUBLISH_VALIDATION_REQUIRED'); }
+    this.publishProgress.advance(actor.id, key, 3);
     try { validateGameSource(captured.game); }
     catch { fail(422, 'PUBLISH_NOT_COMPILED'); }
     let compiled;
@@ -469,6 +486,7 @@ return class EditorMetadata extends PlatformBase {
     catch { fail(422, 'PUBLISH_NOT_COMPILED'); }
     if (compiled?.sourceDigest !== reference.sourceDigest) { fail(503, 'PUBLISH_REFERENCE_CORRUPT'); }
     if (!Array.isArray(captured.game.chapterOrder) || !captured.game.chapterOrder.length) { fail(422, 'PUBLISH_NOT_COMPILED'); }
+    this.publishProgress.advance(actor.id, key, 4);
     // Prepare without SQL writes, then commit pack + ordinal + pin atomically.
     // Replacing a game-keyed pack before this transaction would destroy the
     // previous live release if a later authority/issue/outbox step failed.
@@ -531,6 +549,10 @@ return class EditorMetadata extends PlatformBase {
       }
       return { version: 1, gameId, releaseId: issued.releaseId, pin };
     });
+    // ⑤ 封包與版本序號、⑥ 帳本與排隊都在上面同一個事務內完成，完成後才標記。
+    this.publishProgress.advance(actor.id, key, 5);
+    this.publishProgress.advance(actor.id, key, 6);
+    this.publishProgress.finish(actor.id, key);
     return { pin: result.pin, gameId: result.gameId, releaseId: result.releaseId, replayed: false };
   }
   // A 路線第一版（可回滾）：只呼叫同一個 publisher.drainOne，一步一代次，直到
@@ -659,7 +681,16 @@ return class EditorMetadata extends PlatformBase {
     this.touch(tokenHash, policy); return response({ accounts: this.sql.exec('SELECT * FROM users ORDER BY account').toArray().map(dto) });
   }
   async #getManagementCopy(rt) {
-    const { method, url, tokenHash, policy, managementQuery, copyPath, authorCopyPath } = rt;
+    const { method, url, tokenHash, user, policy, managementQuery, copyPath, authorCopyPath } = rt;
+    // 上架申請的逐步進度：只讀本次 op key 的服務端記錄；沒有記錄不代表失敗。
+    const publicationProgress = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/publish-operations\/([A-Za-z0-9_-]{16,128})\/progress$/.exec(url.pathname);
+    if (method === 'GET' && publicationProgress) {
+      if (url.search) { fail(422, 'PUBLISH_QUERY'); }
+      const [, gameId, key] = publicationProgress;
+      if (!this.games.listOwn(tokenHash).some(entry => entry.gameId === gameId)) { fail(404, 'GAME_NOT_FOUND'); }
+      this.touch(tokenHash, policy);
+      return response({ version: 1, gameId, key, total: PUBLISH_STEPS.length, steps: PUBLISH_STEPS, progress: this.publishProgress.read(user.id, gameId, key) });
+    }
     const publicationQuery = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/publish-operations\/([A-Za-z0-9_-]{16,128})$/.exec(url.pathname);
     if (method === 'GET' && publicationQuery) {
       if (url.search) { fail(422, 'PUBLISH_QUERY'); }
@@ -762,13 +793,13 @@ return class EditorMetadata extends PlatformBase {
     }
     role ??= await this.libraryBrowser.readRole(tokenHash, path);
     if (!role) fail(404, 'RESOURCE_NOT_FOUND');
-    const type = path.endsWith('.png') ? 'image/png'
-      : path.endsWith('.woff2') ? 'font/woff2'
-      : path.endsWith('.flac') ? 'audio/flac'
-      : path.endsWith('.wav') ? 'audio/wav'
-      : path.endsWith('.mp3') ? 'audio/mpeg'
-      : path.endsWith('.json') ? 'application/json; charset=utf-8'
-      : 'application/octet-stream';
+    let type = 'application/octet-stream';
+    if (path.endsWith('.png')) type = 'image/png';
+    else if (path.endsWith('.woff2')) type = 'font/woff2';
+    else if (path.endsWith('.flac')) type = 'audio/flac';
+    else if (path.endsWith('.wav')) type = 'audio/wav';
+    else if (path.endsWith('.mp3')) type = 'audio/mpeg';
+    else if (path.endsWith('.json')) type = 'application/json; charset=utf-8';
     const total = role.byteLength;
     const common = { 'Content-Type': type, 'Accept-Ranges': 'bytes',
       'Cache-Control': 'private, max-age=3600', 'X-Content-SHA256': role.sha256,
@@ -787,10 +818,10 @@ return class EditorMetadata extends PlatformBase {
           const slice = role.bytes.subarray(from, to + 1);
           this.touch(tokenHash, policy);
           return new Response(slice, { status: 206, headers: { ...common,
-            'Content-Range': 'bytes ' + from + '-' + to + '/' + total, 'Content-Length': String(slice.length) } });
+            'Content-Range': `bytes ${from}-${to}/${total}`, 'Content-Length': String(slice.length) } });
         }
         this.touch(tokenHash, policy);
-        return new Response(null, { status: 416, headers: { ...common, 'Content-Range': 'bytes */' + total } });
+        return new Response(null, { status: 416, headers: { ...common, 'Content-Range': `bytes */${total}` } });
       }
     }
     this.touch(tokenHash, policy);
@@ -1211,6 +1242,20 @@ return class EditorMetadata extends PlatformBase {
     const op = await this.operation(request, [value, expected[1]], user.id, user.epoch, policy);
     return response(await this.privateDrafts.save(tokenHash, draftPath[1], expected[1], op.key, op.digest, value));
   }
+  // 校驗＝在服務端跑一次整遊戲引用檢查，並把結果（狀態／時間／逐章問題）落庫，
+  // 綁定當下已保存的草稿修訂。回傳形狀與唯讀 GET 相同，客戶端同一套回執驗證。
+  async #postValidation(rt) {
+    const { tokenHash, policy, url, value, draftPath } = rt;
+    if (!this.privateDrafts) { fail(503, 'DRAFT_NOT_CONFIGURED'); }
+    if (url.search) { fail(422, 'DRAFT_REVISION'); }
+    fields(value, []);
+    this.touch(tokenHash, policy);
+    const owned = this.games.listOwn(tokenHash).find(entry => entry.gameId === draftPath[1]);
+    if (!owned) { fail(404, 'GAME_NOT_FOUND'); }
+    const checked = await this.privateDrafts.chapterReferences(tokenHash, draftPath[1], owned.draftRevision);
+    this.ctx.storage.transactionSync(() => this.validations.recordInTxn({ gameId: draftPath[1], draftRevision: checked.draftRevision, sourceDigest: checked.sourceDigest, chapterCount: checked.chapterCount, chapters: checked.chapters, checkedAt: new Date().toISOString() }));
+    return response(checked);
+  }
   async #postLibraryInstall(rt) {
     const { tokenHash, url, value, request, user } = rt;
     this.copyAccess(tokenHash); if (url.search) { fail(422, 'LIBRARY_QUERY'); } fields(value, []); this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'source');
@@ -1246,6 +1291,7 @@ return class EditorMetadata extends PlatformBase {
     if (copyPath?.[2]) { return this.copyCommand(request, tokenHash, user, policy, value, copyPath[1], copyPath[2]); }
     if (authorCopyPath?.[2]) { return this.authorCopyCommand(request, tokenHash, user, policy, value, authorCopyPath[1], authorCopyPath[2]); }
     if (draftPath?.[2] === 'save') { return this.#postDraftSave(rt); }
+    if (draftPath?.[2] === 'chapter-references') { return this.#postValidation(rt); }
     return null;
   }
   async #postTrialStart(rt) {
