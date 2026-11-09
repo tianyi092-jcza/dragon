@@ -1,26 +1,25 @@
 <script setup>
 import { ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
-import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
 const stateTags = { draft: 'info', pending: 'warning', listed: 'success' };
 const time = value => value === '—' ? value : new Date(value).toLocaleString();
-const overlay = ref(null), elapsed = ref(0), validationOpen = ref(false);
+const overlay = ref(null), elapsed = ref(0), reveal = ref(0), checking = ref(false);
 let ticker = null, closer = null;
 const stop = () => { if (ticker) { clearInterval(ticker); ticker = null; } if (closer) { clearTimeout(closer); closer = null; } };
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // 阻塞遮罩：只針对「正在跑的那一个动作」。不管结果如何，最后都要关掉回到正常页面。
-function open(title) { stop(); overlay.value = { title, line: '', failed: false }; elapsed.value = 0; ticker = setInterval(() => { elapsed.value++; }, 1000); }
-function close() { stop(); overlay.value = null; }
+function open(title) { stop(); overlay.value = { title, line: '', failed: false }; elapsed.value = 0; reveal.value = 0; ticker = setInterval(() => { elapsed.value++; }, 1000); }
+function close() { stop(); overlay.value = null; checking.value = false; reveal.value = 0; }
 async function attached(title, run) {
   open(title);
   try { await run(); close(); }
   catch (error) {
-    // 失敗或逾時：先在遮罩第二行說明原因，然後自動關閉；同樣的句子會留在面板訊息裡。
+    // 失敗或逾時：遮罩留在原處說明原因，按「關閉」才收；同樣的句子也會留在面板訊息裡。
     overlay.value = { title, line: (error && error.message) || '處理未完成（原因未回報）。', failed: true };
     if (ticker) { clearInterval(ticker); ticker = null; }
-    closer = setTimeout(() => { closer = null; close(); }, 2500);
   }
 }
 async function publish(row) {
@@ -31,9 +30,22 @@ async function publish(row) {
 }
 async function check(row) {
   if (props.busy || props.model.checkDisabled) return;
-  await attached(`正在檢驗「${row.name}」…`, () => props.actions.check(row.gameId));
-  // 檢驗結束（成功或失敗）都打開四層結果：每一層 ✓/✗，失敗層列出逐章紅字原因。
-  if (props.model.validationChecked) validationOpen.value = true;
+  open(`正在檢驗「${row.name}」…`);
+  checking.value = true;
+  try { await props.actions.check(row.gameId); }
+  catch (error) {
+    // 檢驗沒拿到結果：就地把原因寫在這一層視窗，不另開第二個窗。
+    overlay.value = { title: `正在檢驗「${row.name}」…`, line: (error && error.message) || '檢驗未完成（原因未回報）。', failed: true };
+    if (ticker) { clearInterval(ticker); ticker = null; }
+    return;
+  }
+  // 四層逐項落屏：每一項都只在服務端已回報該層結果後才出現，順序與 code 一一對應。
+  const total = props.model.validationLayers?.length ?? 0;
+  for (let index = 1; index <= total; index += 1) { reveal.value = index; await sleep(220); }
+  if (props.model.validationPassed) { await sleep(600); close(); return; }
+  // 失敗：視窗留著，紅字原因在下面，按「關閉」或修正後重新檢驗。
+  if (ticker) { clearInterval(ticker); ticker = null; }
+  overlay.value = { title: `檢驗「${row.name}」未通過`, line: '請依下方紅字修正章節後重新檢驗；未通過前上架申請按鈕保持不可用。', failed: true };
 }
 </script>
 
@@ -44,17 +56,7 @@ async function check(row) {
     </div>
     <p id="publish-message" role="status">{{ model.message }}</p>
     <p v-if="model.blockedReason" id="publish-blocked" role="status" class="module-notice">{{ model.blockedReason }}</p>
-    <ElDialog v-model="validationOpen" id="publish-validation-dialog" title="檢驗結果" width="640px">
-      <p id="publish-references" role="status">{{ model.referencesText }}</p>
-      <ol id="publish-validation-layers" class="validation-layers">
-        <li v-for="layer in model.validationLayers" :key="layer.key" :data-layer="layer.key" :data-layer-code="layer.code" :data-layer-ok="layer.ok" :class="layer.ok ? 'layer-ok' : 'layer-bad'">
-          <strong>{{ layer.ok ? '✓' : '✗' }} {{ layer.title }}</strong>
-          <ul v-if="!layer.ok" class="validation-failures">
-            <li v-for="failure in layer.failures" :key="failure.chapterId + failure.detail">{{ failure.name }}：{{ failure.detail }}</li>
-          </ul>
-        </li>
-      </ol>
-    </ElDialog>
+    <p id="publish-references" role="status">{{ model.referencesText }}</p>
     <div class="entity-table-wrap" tabindex="0">
       <table id="publish-table" class="entity-table">
         <thead><tr><th>遊戲名稱</th><th>說明</th><th>版本號</th><th>狀態</th><th>檢驗</th><th>創建時間</th><th>狀態時間</th><th>操作</th></tr></thead>
@@ -84,10 +86,19 @@ async function check(row) {
     </div>
     <p id="publish-result">{{ model.result }}</p>
     <div v-if="overlay" id="publish-overlay" class="progress-overlay" role="alertdialog" aria-busy="true">
-      <div class="progress-card">
+      <div class="progress-card progress-card-wide">
         <p id="publish-overlay-text">{{ overlay.title }}</p>
-        <!-- ①–⑥：服務端逐段回報，已完成 ✓、失敗 ✗、尚未開始 · -->
-        <ol v-if="model.steps?.length" id="publish-steps">
+        <!-- 檢驗四層：只在這一層視窗內逐項出現；沒回報的層不畫、不補 -->
+        <ol v-if="checking && model.validationLayers?.length" id="publish-validation-layers" class="validation-layers">
+          <li v-for="layer in model.validationLayers.slice(0, reveal)" :key="layer.key" :data-layer="layer.key" :data-layer-code="layer.code" :data-layer-ok="layer.ok" :class="layer.ok ? 'layer-ok' : 'layer-bad'">
+            <strong>{{ layer.ok ? '✓' : '✗' }} {{ layer.title }}</strong>
+            <ul v-if="!layer.ok" class="validation-failures">
+              <li v-for="failure in layer.failures" :key="failure.chapterId + failure.detail">{{ failure.name }}：{{ failure.detail }}</li>
+            </ul>
+          </li>
+        </ol>
+        <!-- 上架 ①–⑥：服務端逐段回報，已完成 ✓、失敗 ✗、尚未開始 · -->
+        <ol v-if="!checking && model.steps?.length" id="publish-steps">
           <li v-for="step in model.steps" :key="step.index" :data-step-index="step.index" :data-step-state="step.state" :class="'step-' + step.state">
             {{ step.state === 'done' ? '✓' : step.state === 'failed' ? '✗' : step.state === 'current' ? '▶' : '·' }} {{ step.title }}
           </li>
@@ -95,12 +106,14 @@ async function check(row) {
         <!-- 第二行：處理過程；失敗或逾時就在這一行說明原因 -->
         <p id="publish-overlay-line">{{ overlay.failed ? overlay.line : (model.phase || '正在處理…') }}</p>
         <small id="publish-overlay-elapsed">{{ overlay.failed ? '上面這句話也會留在面板訊息裡' : '已用 ' + elapsed + ' 秒；完成後會自動關閉，也可以切到別的頁面' }}</small>
+        <p v-if="overlay.failed"><ElButton id="publish-overlay-close" @click="close">關閉</ElButton></p>
       </div>
     </div>
   </section>
 </template>
 
 <style>
+#publish-overlay .progress-card-wide{min-width:520px;max-width:640px}
 #publish-validation-layers{margin:0;padding-left:1.2em}
 #publish-validation-layers .layer-ok{color:#3a7d33}
 #publish-validation-layers .layer-bad{color:#c0392b}

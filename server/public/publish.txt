@@ -308,7 +308,10 @@ export function installPublish({ api, authority, work, isBusy, publish: emit = (
   // 結果已由服務端保存，重讀清單才能用同一份事實決定按鈕可用性。
   try { await load(ctx); } catch { /* 清單留待手動刷新；本次檢驗結果仍在下方 */ }
   if (!current(ctx)) return;
-  message(references.chapters.length ? '檢驗失敗！' : '檢驗成功！全部 ' + references.chapterCount + ' 章引用完整' + (blockedText() ? '；但上架申請按鈕目前暫停，原因見下方說明。' : '，可以送出上架申請（仍須管理員同意）。'));
+  // 按鈕是否真的可送要用同一份清單事實判斷：已上架且沒有新修訂時要說「先存新修訂」，
+  // 不能一邊說「可以送出上架申請」一邊把按鈕鎖著。
+  const after = rows.find(entry => entry.gameId === gameId), paused = blockedText() || (after && !submittable(after) ? submitHint(after) : '');
+  message(references.chapters.length ? '檢驗失敗！' : '檢驗成功！全部 ' + references.chapterCount + ' 章引用完整' + (paused ? '；' + paused : '，可以送出上架申請（仍須管理員同意）。'));
   render();
   // 頁面上方的提示要說清楚是什麼完成了。
   return references.chapters.length ? '檢驗未通過，請看下方清單。' : '檢驗完成。';

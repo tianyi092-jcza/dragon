@@ -216,6 +216,14 @@ test('B8 檢驗整遊戲：POST 落庫，逐章列出受影響的章；通過時
  assert.deepEqual(h.model.validationLayers[3].failures.map(entry => entry.name), ['第一章']);
  assert.deepEqual(h.model.validationLayers[1].failures.map(entry => entry.detail), ['武將庫已無本章引用的武將：x']);
  assert.deepEqual(h.model.validationLayers[2].failures.map(entry => entry.name), ['第二章']);
+ // 已上架且沒有新修訂：檢驗可以成功，但上架申請按鈕本來就該鎖著；訊息要說清楚下一步。
+ const listed = setup(); listed.setGames([row({ state: 'listed', version: '1.0', draftChanged: false })]);
+ await listed.ui.actions.refresh();
+ listed.reply(async path => path === '/api/games/submissions' ? { games: [row({ state: 'listed', version: '1.0', draftChanged: false })] } : base);
+ await listed.ui.actions.check(GAME);
+ assert.equal(listed.model.rows[0].publishDisabled, true);
+ assert.match(listed.model.message, /已上架且沒有新修訂/);
+ assert.doesNotMatch(listed.model.message, /可以送出上架申請/);
  // 未知形狀的回執不得被當成清單。
  const broken = setup(); await broken.ui.actions.refresh();
  broken.reply(async path => path === '/api/games/submissions' ? { games: [row()] } : { ...base, chapters: [{ chapterId: `${GAME}#chapter-1` }] });
