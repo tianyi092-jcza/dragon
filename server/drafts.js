@@ -5,7 +5,8 @@ import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
 import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, moveChapter, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
 import { chapterGapReport } from './chaptergapreport.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionChangeImpact, chapterPeopleProjection, generalLibrarySupported } from '../web/src/content/authoring/generaldefinitions.js';
-import { setCityDefinitionName, applyChapterCityEdit, chapterCitiesProjection, cityDefinitionChangeImpact } from '../web/src/content/authoring/citydefinitions.js';
+import { setCityDefinitionName, setCityDefinitionNumbers, applyChapterCityEdit, chapterCitiesProjection, cityDefinitionChangeImpact } from '../web/src/content/authoring/citydefinitions.js';
+import { CITY_BASE_NUMBERS, cityName } from '../web/src/content/authoring/cityrecords.js';
 import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { componentCells, decorationIdsInRect, fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, materialReferences, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
 import { compileMapSource } from '../web/src/content/authoring/mapcompile.js';
@@ -180,7 +181,9 @@ function capture(input) {
     if (!Array.isArray(value.cityEdits) || value.cityEdits.length > 16) fail(422, 'DRAFT_CITY_EDITS');
     for (const edit of value.cityEdits) {
       if (!edit || typeof edit !== 'object' || Array.isArray(edit)) fail(422, 'DRAFT_CITY_EDITS');
-      fields(edit, Object.hasOwn(edit, 'confirmedImpacts') ? ['op', 'cityId', 'name', 'confirmedImpacts'] : ['op', 'cityId', 'name']);
+      const renameShape = Object.hasOwn(edit, 'confirmedImpacts') ? 'cityId,confirmedImpacts,name,op' : 'cityId,name,op';
+      if (edit.op === 'numbers') fields(edit, ['op', 'cityId', 'values']);
+      else try { fields(edit, renameShape.split(',')); } catch { fail(422, 'DRAFT_CITY_EDITS'); }
       if (Object.hasOwn(edit, 'confirmedImpacts')) {
         if (!Array.isArray(edit.confirmedImpacts)) fail(422, 'DRAFT_CITY_IMPACTS');
         const chapters = new Set();
@@ -190,7 +193,20 @@ function capture(input) {
           chapters.add(impact.chapterId);
         }
       }
-      if (edit.op !== 'rename' || typeof edit.cityId !== 'string' || !edit.cityId.length || edit.cityId.length > 256 || typeof edit.name !== 'string') fail(422, 'DRAFT_CITY_EDITS');
+      if (typeof edit.cityId !== 'string' || !edit.cityId.length || edit.cityId.length > 256) fail(422, 'DRAFT_CITY_EDITS');
+      // 遊戲級據點數值：只收投影裡存在的三項，整數 0..65535（與 cityrecords 同一上限）。
+      if (edit.op === 'numbers') {
+        if (!edit.values || typeof edit.values !== 'object' || Array.isArray(edit.values)) fail(422, 'DRAFT_CITY_EDITS');
+        const keys = Object.keys(edit.values);
+        if (!keys.length || keys.some(key => !CITY_BASE_NUMBERS.includes(key) || !Number.isSafeInteger(edit.values[key]) || edit.values[key] < 0 || edit.values[key] > 65535)) fail(422, 'DRAFT_CITY_EDITS');
+      } else if (edit.op !== 'rename' || typeof edit.name !== 'string') fail(422, 'DRAFT_CITY_EDITS');
+      else {
+        // 據點名稱：1–12 個 Unicode 碼點，NFKC 之外的份量不變；超長不截斷。
+        let cleaned;
+        try { cleaned = cityName(edit.name); } catch { fail(422, 'DRAFT_CITY_EDITS'); }
+        const points = [...cleaned].length;
+        if (points < 1 || points > 12) fail(422, 'DRAFT_CITY_EDITS');
+      }
     }
   }
   if (Object.hasOwn(value, 'chapterCityEdits')) {
@@ -223,7 +239,7 @@ function resolveGeneralEdits(gameId, actorId, operationKey, edits = []) {
   });
 }
 function resolveCityEdits(edits = []) {
-  return edits.map(({ op, cityId, name }) => ({ op, cityId, name }));
+  return edits.map(({ op, cityId, name, values }) => (op === 'numbers' ? { op, cityId, values } : { op, cityId, name }));
 }
 function resolveMapEdits(gameId, actorId, operationKey, edits = []) {
   return edits.map((edit, index) => {
@@ -497,7 +513,7 @@ export class PrivateDrafts {
     const library = generalLibrarySupported(loaded.proof.game);
     return { gameId, draftRevision: requested, sourceDigest: loaded.reference.sourceDigest, profileRevision: content.profileRevision, metadata: loaded.proof.game.metadata,
       chapters: loaded.proof.game.chapterOrder.map(id => { const st = loaded.proof.game.chapters[id].state; return { chapterId: id, name: loaded.proof.game.chapters[id].name ?? '', startDate: st.start ? { year: st.start.year, month: st.start.month, day: st.start.day, era: st.start.era ?? null } : null, factions: st.factions.map(f => ({ slot: f.idx, idx: f.idx, monarch_idx: f.monarch_idx, advisor_idx: f.advisor_idx ?? null, diplomat_idx: f.diplomat_idx ?? null, capital: f.capital, money: f.money, reserve_cav: f.reserve_cav, reserve_arc: f.reserve_arc, reserve_inf: f.reserve_inf })), generals: st.generals.map(g => ({ idx: g.idx, name: g.name, hao: g.hao, sourceRecordId: loaded.proof.game.sourceRecords?.bindings?.[id]?.slotMap?.[g.idx] ?? null, portrait: g.portrait ?? null, portraitKey: g.portraitKey ?? null, ability: g.ability ? { ...g.ability } : null, specialtyLowBits: g.specialty_low_bits ?? null, faction: g.faction ?? null, references: generalChapterReferences(loaded.proof.game, id, g.idx) })), cities: st.cities.map(c => ({ idx: c.idx, name: c.name, typeCode: c.type ?? null, faction: c.faction ?? null, governor: c.governor ?? null, troops: c.troops ?? null, prod: c.prod ?? null, troopsCap: c.troops_cap ?? null, maxProd: c.max_prod ?? null, growth: c.growth ?? null, defence: c.defence ?? null })), gaps: chapterGapReport(st, id) }; }),
-      cityDefinitions: content.profileRevision === FIXED_TEMPLATE_PROFILE ? Object.entries(loaded.proof.game.cities).map(([cityId, definition]) => ({ cityId, name: definition.name ?? null })) : null,
+      cityDefinitions: content.profileRevision === FIXED_TEMPLATE_PROFILE ? Object.entries(loaded.proof.game.cities).map(([cityId, definition]) => ({ cityId, name: definition.name ?? null, runtimeSlot: definition.runtimeSlot, x: definition.x, y: definition.y, max_prod: definition.max_prod ?? null, type: definition.type ?? null, view: definition.view ?? null })) : null,
       chapterCities: content.profileRevision === FIXED_TEMPLATE_PROFILE ? chapterCitiesProjection(loaded.proof.game) : null,
       generalDefinitions: library ? Object.entries(loaded.proof.game.generals).map(([generalId, definition]) => ({ generalId, ...structuredClone(definition) })) : null,
       ...(library ? chapterPeopleProjection(loaded.proof.game) : { generalReferences: null, chapterPeople: null }),
@@ -673,11 +689,16 @@ export class PrivateDrafts {
       if (cityEdits.length && captured.game.sourceRef.kind !== 'builtin-template') fail(422, 'DRAFT_CITY_PROFILE');
       for (const [index, edit] of cityEdits.entries()) {
         try {
-          const { affectedChapters } = cityDefinitionChangeImpact(candidate, edit.cityId, edit.name);
+          if (edit.op === 'numbers') { candidate = setCityDefinitionNumbers(candidate, edit.cityId, edit.values); continue; }
+          if (edit.op === 'numbers') { candidate = setCityDefinitionNumbers(candidate, edit.cityId, edit.values); continue; }
+          const name = cityName(edit.name);
+          // 名稱在遊戲內唯一（用戶 2026-11 決定）；同名不代表同一據點的原先说明已被取代。
+          if (Object.entries(candidate.cities).some(([id, city]) => id !== edit.cityId && city.name === name)) fail(409, 'DRAFT_CITY_NAME_TAKEN');
+          const { affectedChapters } = cityDefinitionChangeImpact(candidate, edit.cityId, name);
           const acknowledgment = value.cityEdits[index].confirmedImpacts;
           if (affectedChapters.length && acknowledgment === undefined) fail(409, 'DRAFT_CITY_IMPACT_REQUIRED');
           if (acknowledgment !== undefined && JSON.stringify(acknowledgment) !== JSON.stringify(affectedChapters)) fail(409, 'DRAFT_CITY_IMPACT_CHANGED');
-          candidate = setCityDefinitionName(candidate, edit.cityId, edit.name);
+          candidate = setCityDefinitionName(candidate, edit.cityId, name);
         } catch (error) { if (error instanceof HttpError) throw error; fail(422, 'DRAFT_CITY_EDIT'); }
       }
       const chapterCityEdits = value.chapterCityEdits ?? [];

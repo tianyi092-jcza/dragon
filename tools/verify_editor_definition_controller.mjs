@@ -10,7 +10,8 @@ const metadata = { name: '作者草稿', introduction: '已保存' };
 const row = () => ({ generalId: ID, name: '原名', hao: '', portraitRef: null });
 const dto = (revision = '1', definitions = []) => ({ gameId: G, draftRevision: revision, profileRevision: 'fixed-template-authoring-1', metadata, generalDefinitions: definitions, generalReferences: definitions.map(person => ({ generalId: person.generalId, chapters: [] })), chapters: [{ chapterId: 'first', name: '第一章', factions: [], gaps: { saveGaps: 0, activeGaps: 3 } }] });
 const receipt = revision => ({ gameId: G, draftRevision: revision, metadata });
-const cityDto = (revision = '1', rows = [{ cityId: 'city-0', name: null }], ids = []) => ({ ...dto(revision), cityDefinitions: rows, chapterCities: [{ chapterId: 'first', cities: ids.map(cityId => ({ cityId, factionId: null, values: { name: rows.find(row => row.cityId === cityId).name }, overrides: {}, inheritedFields: ['name'], overriddenFields: [] })) }] });
+const cityRow = (over = {}) => ({ cityId: 'city-0', name: null, runtimeSlot: 0, x: 1, y: 2, max_prod: null, type: null, view: null, ...over });
+const cityDto = (revision = '1', rows = [cityRow()], ids = []) => ({ ...dto(revision), cityDefinitions: rows, chapterCities: [{ chapterId: 'first', cities: ids.map(cityId => ({ cityId, factionId: null, values: { name: rows.find(row => row.cityId === cityId).name }, overrides: {}, inheritedFields: ['name'], overriddenFields: [] })) }] });
 function harness({ records = new Map(), definitions = [], failSet = false, minimapCanvas = null, digestPixels } = {}) {
   let identity = { user: { id: 'author', mustChangePassword: false } }, busy = false, model, handler;
   const calls = [], errors = [], h = { calls, errors, records, currentIdentity: () => identity, confirm: true, response(fn) { handler = fn; }, model: () => model };
@@ -339,10 +340,10 @@ test('placement rejects missing or invalid choices, cancellation, changed identi
 test('placement DTO is atomic, complete, detached and missing options do not disable unrelated material operations', async () => {
   const h = harness(); await h.load();
   const dto = placementDto();
-  dto.materialPlacement.materials.forEach(row => {
+  for (const row of dto.materialPlacement.materials) {
     row.offsets = Array.from({ length: dto.materialDefinitions.find(def => def.materialId === row.materialId).cellCount }, (_, x) => [x, 0]);
     row.visualVariants = row.variantRefs.map(variantRef => ({ variantRef, tiles: row.offsets.map(([x, y]) => [x, y, 7]) }));
-  });
+  }
   h.response(() => dto); await h.a.load();
   dto.materialPlacement.materials[0].offsets[0][0] = 999;
   h.model().materials.placement.materials[0].offsets[0][0] = 888; h.c.render();
@@ -551,7 +552,7 @@ test('material refresh restores only key; storage failure and oversized request 
 });
 test('city rename shares exact revision journal, preserves other inputs and requires reread', async () => {
   const h = harness(); await h.load();
-  const rows = [{ cityId: 'city-0', name: null }, { cityId: 'city-1', name: '同名' }];
+  const rows = [cityRow(), cityRow({ cityId: 'city-1', name: '同名', runtimeSlot: 1, x: 3, y: 4 })];
   h.response(() => cityDto('1', rows)); await h.a.load();
   h.model().cities.rows[0].name = 'forged'; h.c.render(); assert.equal(h.model().cities.rows[0].name, null);
   h.a.setField('name', '未保存'); h.a.setDefinitionField('name', '未存人物'); h.a.setField('revision', '99');
@@ -571,7 +572,7 @@ test('city DTO unknown and invalid rows fail closed; cancellation, identity chan
   const h = harness(); await h.load(); assert.equal(h.model().cities.supported, false);
   const good = cityDto();
   h.response(() => good); await h.a.load();
-  for (const cityDefinitions of [[{ cityId: '', name: null }], [{ cityId: 'city-0', name: ' bad ' }], [{ cityId: 'city-0', name: null, slot: 0 }], [good.cityDefinitions[0], good.cityDefinitions[0]]]) {
+  for (const cityDefinitions of [[cityRow({ cityId: '' })], [cityRow({ name: ' bad ' })], [cityRow({ slot: 0 })], [good.cityDefinitions[0], good.cityDefinitions[0]]]) {
     h.response(() => ({ ...good, cityDefinitions })); await h.a.load(); assert.deepEqual(h.model().cities.rows, good.cityDefinitions);
   }
   const before = h.calls.length;

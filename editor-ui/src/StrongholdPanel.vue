@@ -1,62 +1,145 @@
 <script setup>
+import { computed, reactive, ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
-import CityDefinitionsPanel from './CityDefinitionsPanel.vue';
-import { computed } from 'vue';
+// 城池據點（遊戲級）：一頁只做據點清單本身。
+// 據點身份、槽位、座標凍結（用戶 2026-11 決定：先不解除凍結），本頁只改名稱與
+// 遊戲級數值；勢力／首都屬章節級，不在本頁；刪除另議，本版不提供。
 const props = defineProps({ model: Object, actions: Object, draftModel: Object, draftActions: Object, busy: Boolean });
-const nativeChapter = computed(() => props.draftModel?.nativeCities?.chapters.find(chapter => chapter.chapterId === props.draftModel.fields.chapterId));
-function chooseGame(event) { props.actions.selectGame(event.target.value); event.target.value = props.model.selected ?? ''; }
-function chooseChapter(event) { props.actions.selectChapter(event.target.value); event.target.value = props.model.chapterId ?? ''; }
+
+const search = ref('');
+const sort = reactive({ key: 'name', dir: 1 });
+const editing = ref(null);
+const form = reactive({ name: '', max_prod: '', type: '' });
+const rowError = ref('');
+const cityName = value => String(value ?? '').normalize('NFC').trim();
+
+const cities = computed(() => props.draftModel?.cities ?? null);
+const loaded = computed(() => cities.value?.rows ?? []);
+const locked = computed(() => Boolean(props.busy) || !props.draftModel || Boolean(props.draftModel.loadLocked) || Boolean(cities.value?.locked));
+
+// 用戶 2026-11 口徑：坐標（槽位／X／Y）由地圖放置自動寫入，不顯示也不可改；
+// 當前生產力是引擎運行時值，不做定義欄位。上升值／防災值／城兵留在章節級：
+// 新建章節時自動帶上上一章（沒有上一章就取原版第一章）的值，再在各章修改。
+const columns = [
+  { key: 'seq', title: '序號', sortable: false },
+  { key: 'name', title: '據點名稱', sortable: true, type: 'text' },
+  { key: 'max_prod', title: '最大生產力', sortable: true, type: 'number' },
+  { key: 'type', title: '類型', sortable: true, type: 'number' },
+  { key: 'actions', title: '操作', sortable: false },
+];
+
+const visible = computed(() => {
+  const needle = cityName(search.value).toLocaleLowerCase();
+  const list = loaded.value.filter(row => !needle || cityName(row.name).toLocaleLowerCase().includes(needle));
+  const { key, dir } = sort;
+  const column = columns.find(entry => entry.key === key);
+  if (!column?.sortable) return list;
+  const ordered = [...list].sort((a, b) => {
+    if (column.type === 'number') return (a[key] ?? -1) - (b[key] ?? -1);
+    return cityName(a[key]).localeCompare(cityName(b[key]), 'zh-Hant');
+  });
+  return dir > 0 ? ordered : ordered.reverse();
+});
+// 序號跟著「現在看到的順序」重排，不是據點身份或槽位。
+const rows = computed(() => visible.value.map((row, index) => ({ ...row, seq: index + 1 })));
+
+function toggleSort(key) {
+  const column = columns.find(entry => entry.key === key);
+  if (!column?.sortable) return;
+  if (sort.key === key) sort.dir = sort.dir > 0 ? -1 : 1;
+  else { sort.key = key; sort.dir = 1; }
+}
+function sortMark(key) { return sort.key === key ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''; }
+
+function startEdit(row) {
+  if (locked.value) return;
+  editing.value = row.cityId;
+  form.name = row.name ?? '';
+  form.max_prod = row.max_prod ?? '';
+  form.type = row.type ?? '';
+  rowError.value = '';
+}
+function cancelEdit() { editing.value = null; rowError.value = ''; }
+
+// 同一套規則服務端還會再驗一次：這裡只為即時顯示，不代替服務端判定。
+function validate(row) {
+  const name = cityName(form.name);
+  if (!name) return '據點名稱不可空白。';
+  if ([...name].length > 12) return '據點名稱最多 12 個字。';
+  if (loaded.value.some(item => item.cityId !== row.cityId && cityName(item.name) === name)) return '據點名稱「' + name + '」已被其他據點使用。';
+  for (const key of ['max_prod', 'type']) {
+    const raw = String(form[key] ?? '').trim();
+    if (raw === '') { if (row[key] !== null) return key + ' 不可留空；請填 0–65535 的整數。'; continue; }
+    if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > 65535) return key + ' 必須是 0–65535 的整數。';
+  }
+  return '';
+}
+async function save(row) {
+  if (locked.value) return;
+  const problem = validate(row);
+  if (problem) { rowError.value = problem; return; }
+  rowError.value = '';
+  try {
+    await props.actions.citySave(row.cityId, { name: cityName(form.name), max_prod: form.max_prod, type: form.type });
+    editing.value = null;
+  } catch (error) {
+    rowError.value = (error && error.message) || '保存未完成（原因未回報）。';
+  }
+}
 </script>
 
 <template>
   <section id="stronghold-editor" class="module-card">
-    <CityDefinitionsPanel :model="draftModel" :actions="draftActions" :busy="busy" />
-    <template v-if="draftModel?.nativeCities">
-    <h3>章節據點數值（共用草稿保存）</h3>
-    <p>只編輯完整副本既有城市的troops／prod，同步明確欄位的原生來源；不開放其它字段、初始化或運行准入。保存、查詢與原鍵重試使用同一份草稿操作記錄，不捎其它未保存表單。</p>
     <div class="module-toolbar">
-      <label>明確修訂<input id="native-city-revision" :value="draftModel.fields.revision" :disabled="busy || draftModel.loadLocked" @input="draftActions.setField('revision', $event.target.value)"></label>
-      <ElButton id="native-city-load" :disabled="busy || draftModel.loadLocked || !draftModel.fields.gameId" @click="draftActions.load()">載入此修訂</ElButton>
-      <ElButton id="native-city-query" :disabled="busy || draftModel.queryLocked" @click="draftActions.query()">查詢原保存操作</ElButton>
-      <ElButton id="native-city-retry" :disabled="busy || draftModel.retryLocked" @click="draftActions.retry()">以原鍵重試原內容</ElButton>
-      <label>章節<select id="native-city-chapter" :value="draftModel.fields.chapterId" :disabled="busy || draftModel.nativeCities.locked" @change="draftActions.setField('chapterId', $event.target.value)"><option v-for="chapter in draftModel.nativeCities.chapters" :key="chapter.chapterId" :value="chapter.chapterId">{{ chapter.name }}</option></select></label>
+      <span id="stronghold-game">{{ draftModel?.fields.gameId || '未選擇遊戲' }}</span>
+      <label>修訂<input id="stronghold-revision" :value="draftModel?.fields.revision ?? ''" :disabled="busy || draftModel?.loadLocked" inputmode="numeric" @input="draftActions.setField('revision', $event.target.value)"></label>
+      <ElButton id="stronghold-load" :disabled="busy || draftModel?.loadLocked || !draftModel?.fields.gameId || !draftModel?.fields.revision" @click="draftActions.load()">加載</ElButton>
+      <input id="stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱">
     </div>
-    <p>上昇率／防災僅顯示同一已讀修訂：上昇率原值以100為基準，防災不是城壁。缺值保持未知；目前不開放這兩項寫入，也不從原生記錄補值。</p>
-    <p>類型代碼僅顯示已保存來源值，不推定類型名稱或允許編輯的範圍；未知不補零。</p>
-    <p>歸屬／太守僅顯示同章已保存欄位的槽號，不依名稱推定身份或任職資格；空值／舊回應未提供不補零，也不據此修改歸屬或任免。</p>
-    <p id="native-city-message" role="status">{{ draftModel.message }}</p>
-    <p v-if="draftModel.nativeCities.known">以下數值來自已讀修訂 {{ draftModel.nativeCities.draftRevision }}；確認保存後須明確載入收據修訂，才可繼續編輯。取消只清該城本地輸入，不讀取或保存。</p>
-    <p v-else>尚未讀取完整副本的原生據點清單；中立章及舊回應缺資料時不猜值。</p>
-    <div class="entity-table-wrap" tabindex="0"><table id="native-city-table" class="entity-table"><thead><tr><th>據點</th><th>類型代碼（唯讀）</th><th>歸屬／太守（唯讀）</th><th>troops</th><th>prod</th><th>上昇率（唯讀）</th><th>防災（唯讀）</th><th>操作</th></tr></thead><tbody>
-      <tr v-for="city in nativeChapter?.cities ?? []" :key="city.idx" :data-native-city="city.idx">
-        <td>#{{ city.idx }} {{ city.name }}</td>
-        <td data-native-type>{{ city.typeCode ?? '未知' }}</td>
-        <td><div data-native-faction>歸屬欄位：{{ city.faction === null ? '未提供／無' : '#' + city.faction }}</div><div data-native-governor>太守欄位：{{ city.governor === null ? '未提供／無' : '#' + city.governor }}</div></td>
-        <td><label>上限 {{ city.troopsCap ?? '未知' }}<input data-native-field="troops" type="number" min="0" :max="city.troopsCap" :value="city.inputs.troops" :disabled="busy || draftModel.nativeCities.locked || city.troopsCap === null" @input="draftActions.setNativeCityInput(nativeChapter.chapterId, city.idx, 'troops', $event.target.value)"></label></td>
-        <td><label>上限 {{ city.maxProd ?? '未知' }}<input data-native-field="prod" type="number" min="0" :max="city.maxProd" :value="city.inputs.prod" :disabled="busy || draftModel.nativeCities.locked || city.maxProd === null" @input="draftActions.setNativeCityInput(nativeChapter.chapterId, city.idx, 'prod', $event.target.value)"></label></td>
-        <td data-native-growth><template v-if="city.growth !== null">原值 {{ city.growth }}（相對100：{{ city.growth - 100 }}）</template><template v-else>未知</template></td>
-        <td data-native-defence>{{ city.defence ?? '未知' }}</td>
-        <td><ElButton data-native-save :disabled="busy || draftModel.nativeCities.locked || !city.dirty" @click="draftActions.saveNativeCityInputs(nativeChapter.chapterId, city.idx)">保存據點數值</ElButton><ElButton data-native-cancel :disabled="busy || draftModel.nativeCities.locked || !city.dirty" @click="draftActions.cancelNativeCityInputs(nativeChapter.chapterId, city.idx)">取消此城輸入</ElButton></td>
-      </tr>
-    </tbody></table></div>
-    </template>
-    <h3>據點引用檢查（獨立唯讀資料）</h3>
-    <p>基礎據點鎖定192座、槽位與座標凍結，不開放新增／改圖／刪除；此表只供引用檢查，數值編輯使用上方共用草稿表。刪除檢查只列出阻止項，不會刪除據點。定義ID來自已讀地圖資料，不依據名稱或表格位置推算；缺少資料顯示未知。</p>
-    <div class="module-toolbar">
-    <ElButton id="stronghold-refresh" :disabled="busy || model.locked" @click="actions.refresh()">讀取遊戲清單</ElButton>
-    <label>遊戲<select id="stronghold-games" :value="model.selected ?? ''" :disabled="busy || model.locked" @change="chooseGame"><option v-if="model.selected && !model.games.some(g => g.gameId === model.selected)" :value="model.selected" disabled>目前遊戲：{{ model.selected }}（本面板未列出，請讀取清單）</option><option v-for="game in model.games" :key="game.gameId" :value="game.gameId">{{ game.label }}</option></select></label>
-    <ElButton id="stronghold-inspect" :disabled="busy || model.locked || !model.selected" @click="actions.inspect()">讀取據點表</ElButton>
-    <label>章節<select id="stronghold-chapters" :value="model.chapterId ?? ''" :disabled="busy || model.locked" @change="chooseChapter"><option v-for="chapter in model.chapters" :key="chapter.chapterId" :value="chapter.chapterId">{{ chapter.name }}</option></select></label>
+    <p id="stronghold-status" role="status">{{ draftModel?.message }}</p>
+    <p class="module-notice">坐標由地圖放置自動寫入，不顯示也不可改。上升值、防災值、城兵是章節級：新建章節時自動帶上上一章的值，再在章節頁各自修改。勢力與首都在章節頁；刪除待另行討論後才提供。</p>
+    <p v-if="rowError" id="stronghold-row-error" role="alert" class="module-notice">{{ rowError }}</p>
+    <p v-if="!cities?.supported">尚未加載據點清單；請先選擇遊戲與修訂後按「加載」。</p>
+    <div v-else class="entity-table-wrap" tabindex="0">
+      <table id="stronghold-table" class="entity-table">
+        <thead><tr>
+          <th v-for="column in columns" :key="column.key" :data-column="column.key">
+            <button v-if="column.sortable" type="button" class="sort-header" :data-sort="column.key" :aria-pressed="sort.key === column.key" @click="toggleSort(column.key)">{{ column.title }}{{ sortMark(column.key) }}</button>
+            <template v-else>{{ column.title }}</template>
+          </th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="row in rows" :key="row.cityId" :data-city-id="row.cityId" :data-city-seq="row.seq">
+            <td data-field="seq">{{ row.seq }}</td>
+            <td data-field="name">
+              <input v-if="editing === row.cityId" v-model="form.name" data-input="name" maxlength="12" :disabled="busy">
+              <template v-else>{{ row.name ?? '未配置' }}</template>
+            </td>
+            <td data-field="max_prod">
+              <input v-if="editing === row.cityId" v-model="form.max_prod" data-input="max_prod" inputmode="numeric" :disabled="busy">
+              <template v-else>{{ row.max_prod ?? '未知' }}</template>
+            </td>
+            <td data-field="type">
+              <input v-if="editing === row.cityId" v-model="form.type" data-input="type" inputmode="numeric" :disabled="busy">
+              <template v-else>{{ row.type ?? '未知' }}</template>
+            </td>
+            <td class="account-row-actions" data-field="actions">
+              <template v-if="editing === row.cityId">
+                <ElButton data-action="save" :disabled="busy" @click="save(row)">保存</ElButton>
+                <ElButton data-action="cancel" :disabled="busy" @click="cancelEdit()">取消</ElButton>
+              </template>
+              <ElButton v-else data-action="edit" :disabled="locked" @click="startEdit(row)">編輯</ElButton>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="!rows.length" class="empty-state">沒有符合的據點；清空搜尋可看全部。</p>
     </div>
-    <p>{{ model.context }}<strong v-if="model.dirty">／有未保存數值</strong></p>
-    <p id="stronghold-message" role="status">{{ model.message }}</p>
-    <div id="stronghold-cities" class="entity-table-wrap" tabindex="0" aria-label="據點數值表"><table class="entity-table"><thead><tr><th>據點／引用</th><th>troops</th><th>prod</th><th>操作</th></tr></thead><tbody>
-      <tr v-for="city in model.cities" :key="city.idx" :data-city-idx="city.idx">
-        <td>#{{ city.idx }} {{ city.name }}／勢力 {{ city.faction }}<br><span class="city-definition-id">定義ID：{{ city.cityId ?? '未知' }}</span><br>道路 {{ city.roadCount }}／章節 {{ city.chapterCount }}</td>
-        <td><label>上限 {{ city.troopsCap ?? '?' }}：{{ city.troops }}</label></td>
-        <td><label>上限 {{ city.maxProd ?? '?' }}：{{ city.prod }}</label></td>
-        <td><div class="account-row-actions"><ElButton :disabled="busy || model.locked" @click="actions.blockers(city.idx)">刪除檢查</ElButton></div></td>
-      </tr>
-    </tbody></table></div>
   </section>
 </template>
+
+<style>
+#stronghold-editor .sort-header{border:0;background:none;padding:0;font:inherit;cursor:pointer;color:inherit}
+#stronghold-editor .sort-header[aria-pressed="true"]{font-weight:700}
+#stronghold-editor td input{width:100%;min-width:4em;box-sizing:border-box}
+</style>

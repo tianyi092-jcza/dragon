@@ -88,7 +88,7 @@ check("delete-confirm", (() => { const management = readFileSync('server/public/
 check("management-dates", readFileSync("server/public/management.txt", "utf-8").includes("g.createdAt"));
 // B4b (§4.2): city reference helpers + stronghold section wiring.
 check("city-refs", readFileSync("web/src/content/authoring/gamesource.js", "utf-8").includes("export function cityReferences") && readFileSync("web/src/content/authoring/gamesource.js", "utf-8").includes("export function checkCityDeletable") && readFileSync("web/src/content/authoring/gamesource.js", "utf-8").includes("CITY_COUNT_LOCKED"));
-check("stronghold-section", htmlIds.has("stronghold-editor") && htmlIds.has("stronghold-cities") && client.includes("installStronghold") && application.includes("/stronghold.js"));
+check("stronghold-section", htmlIds.has("stronghold-editor") && htmlIds.has("stronghold-table") && htmlIds.has("stronghold-load") && htmlIds.has("stronghold-search") && client.includes("installStronghold") && application.includes("/stronghold.js"));
 // B4c1 (§4.3): general field/portrait ops + generals section wiring.
 check("general-ops", readFileSync("web/src/content/authoring/gamesource.js", "utf-8").includes("export function renameGeneral") && readFileSync("web/src/content/authoring/gamesource.js", "utf-8").includes("export function checkGeneralDeletable") && readFileSync("server/drafts.js", "utf-8").includes("'rename-general'") && readFileSync("server/drafts.js", "utf-8").includes("'portrait'"));
 check("generals-section", htmlIds.has("generals-editor") && htmlIds.has("generals-chapters") && client.includes("installGenerals") && application.includes("/general.js"));

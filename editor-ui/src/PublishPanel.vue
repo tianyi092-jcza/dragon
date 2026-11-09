@@ -72,7 +72,6 @@ async function check(row) {
             <td class="account-row-actions">
               <ElButton data-action="check" :disabled="busy || model.checkDisabled" @click="check(row)">校驗</ElButton>
               <ElButton data-action="publish" :title="row.publishHint" :disabled="busy || row.publishDisabled" @click="publish(row)">上架申請</ElButton>
-              <small v-if="row.publishDisabled && row.publishHint" :data-publish-reason="row.publishHint" class="row-hint">{{ row.publishHint }}</small>
             </td>
           </tr>
         </tbody>
@@ -115,7 +114,6 @@ async function check(row) {
 
 <style>
 #publish-overlay .progress-card-wide{min-width:520px;max-width:640px}
-#publish-editor .row-hint{display:block;color:#8a6d3b;margin-top:4px;line-height:1.4}
 #publish-validation-layers{margin:0;padding-left:1.2em}
 #publish-validation-layers .layer-ok{color:#3a7d33}
 #publish-validation-layers .layer-bad{color:#c0392b}

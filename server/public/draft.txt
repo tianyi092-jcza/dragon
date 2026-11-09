@@ -689,8 +689,12 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (profile !== 'fixed-template-authoring-1' || !Array.isArray(rows)) throw new Error('據點基礎資料回應不符來源。');
     const seen = new Set();
     return Array.from(rows, row => {
-      if (!row || Array.isArray(row) || Object.keys(row).sort().join(',') !== 'cityId,name' || typeof row.cityId !== 'string' || !row.cityId || seen.has(row.cityId) || row.name !== null && cityName(row.name) !== row.name) throw new Error('據點基礎身份／名稱回應無效。');
-      seen.add(row.cityId); return { cityId: row.cityId, name: row.name };
+      if (!row || Array.isArray(row) || Object.keys(row).sort().join(',') !== 'cityId,max_prod,name,runtimeSlot,type,view,x,y' || typeof row.cityId !== 'string' || !row.cityId || seen.has(row.cityId) || row.name !== null && cityName(row.name) !== row.name) throw new Error('據點基礎身份／名稱回應無效。');
+      // 位置與身份只顯示、不可改；數值缺值保持 null，不補零。
+      for (const key of ['runtimeSlot', 'x', 'y']) if (!Number.isSafeInteger(row[key]) || row[key] < 0) throw new Error('據點基礎位置回應無效。');
+      for (const key of ['max_prod', 'type', 'view']) if (row[key] !== null && (!Number.isSafeInteger(row[key]) || row[key] < 0 || row[key] > 65535)) throw new Error('據點基礎數值回應無效。');
+      seen.add(row.cityId);
+      return { cityId: row.cityId, name: row.name, runtimeSlot: row.runtimeSlot, x: row.x, y: row.y, max_prod: row.max_prod, type: row.type, view: row.view };
     });
   }
   function checkedChapterCities(rows, definitions, chapterRows) {
@@ -747,6 +751,41 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
     if (!persist()) { attempt = null; throw new Error('據點名稱未發送：無法保留原操作鍵。'); }
     return sendAttempt('正在保存據點基礎名稱；回應不明時先查詢同一個請求。');
+  }
+  // 新據點頁的保存：同一行可同時改名稱與遊戲級數值。名稱在遊戲內唯一、1–12 字，
+  // 位置／槽位／身份不可從這裡改；比對與錯誤都由這一支給，UI 的預檢不代替服務端。
+  async function saveCity(cityId, patch) {
+    if (!cityReady() || attempt || !permitted()) throw new Error('請先載入中立模板的明確據點修訂。');
+    const row = cityDefinitions.find(item => item.cityId === cityId);
+    if (!row) throw new Error('請選擇已讀取的據點身份。');
+    const source = loaded, valid = ticket();
+    const current = () => valid() && permitted() && loaded === source && !attempt && cityReady();
+    const edit = [];
+    if (patch.name !== undefined && patch.name !== row.name) {
+      const name = cityName(String(patch.name ?? ''));
+      if ([...name].length > 12) throw new Error('據點名稱最多 12 個字。');
+      if (cityDefinitions.some(item => item.cityId !== cityId && item.name === name)) throw new Error('據點名稱「' + name + '」已被其他據點使用。');
+      const confirmedImpacts = chapterCities.filter(chapter => chapter.cities.some(city => city.cityId === cityId)).map(chapter => ({ chapterId: chapter.chapterId, fields: ['name'] }));
+      const rename = { op: 'rename', cityId, name };
+      if (confirmedImpacts.length) rename.confirmedImpacts = confirmedImpacts;
+      edit.push(rename);
+    }
+    const values = {};
+    for (const key of ['max_prod', 'type', 'view']) {
+      if (patch[key] === undefined) continue;
+      const raw = String(patch[key] ?? '').trim();
+      if (raw === '') { if (row[key] !== null) throw new Error(key + ' 不可留空；請填 0–65535 的整數或取消。'); continue; }
+      if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > 65535) throw new Error(key + ' 必須是 0–65535 的整數。');
+      if (Number(raw) !== row[key]) values[key] = Number(raw);
+    }
+    if (Object.keys(values).length) edit.push({ op: 'numbers', cityId, values });
+    if (!edit.length) return '據點沒有變更。';
+    const body = { metadata: { ...source.metadata }, resourceEdits: [], cityEdits: edit };
+    if (new TextEncoder().encode(JSON.stringify(body)).byteLength > 16384) throw new Error('據點保存請求超過16KiB；不截斷文字。');
+    if (!current()) return;
+    attempt = { gameId: source.gameId, revision: source.draftRevision, key: crypto.randomUUID(), body, state: 'unknown' };
+    if (!persist()) { attempt = null; throw new Error('據點未發送：無法保留原操作鍵。'); }
+    return sendAttempt('正在保存據點；回應不明時先查詢同一個請求。');
   }
   function checkedPortrait(value) {
     if (value === null) return null;
@@ -1580,7 +1619,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       decorationSelection = null;
       message = '已清除窗口選取；素材勾選、位移錨點與輸入保持。';
       render();
-    }, takeDecorationSelection, decorationPick: (x, y) => action(() => readDecorationSelection(x, y, 1, 1, 'top')), decorationSelection: (x, y, width, height, mode) => action(() => readDecorationSelection(x, y, width, height, mode)), mapWindowStep: (dx, dy) => action(() => moveMapWindow(dx, dy, 'window')), mapWindowPan: (dx, dy) => action(() => moveMapWindow(dx, dy, 'tile')), locateInstance: instanceId => action(() => locateInstance(instanceId)), locateMinimapCell: (x, y) => action(() => locateMinimapCell(x, y)), redrawMapWindow: drawMapWindow, previewMapWindowPan, drawMaterialPreview, drawPlacementPreview, drawShiftPreview, mapAtlas: season => action(() => readMapAtlas(season)), mapScene: (x, y, width, height) => action(() => readMapWindow(x, y, width, height, '1111', true)), mapWindow: (x, y, width, height) => action(() => readMapWindow(x, y, width, height)), mapLayer: setMapLayer, decorLock: setDecorLocked, baseUnlock: setBaseUnlocked, basePage: setBasePage, baseFill: (cells, tile, geography) => action(() => submitBaseFill(cells, tile, geography)), removeInstances: selection => action(() => submitMaterial('decoration-remove', selection)), split: instanceId => action(() => submitMaterial('decoration-split', instanceId)), place: (materialId, variantRef, x, y, waterClass) => action(() => submitMaterial('decoration-place', materialId, { variantRef, x, y, waterClass })), reorder: (selection, direction) => action(() => submitMaterial('decoration-reorder', selection, { direction })), translate: (selection, dx, dy) => action(() => submitMaterial('decoration-translate', selection, { dx, dy })), material: (op, selection) => action(() => submitMaterial(op, selection)), chapterCity: (op, chapterId, cityId) => action(() => submitChapterCity(op, chapterId, cityId)), cityRename: cityId => action(() => renameCity(cityId)), minimap: () => action(readMinimap), redrawMinimap: drawMinimap, waterCreate: (memberIds, baseCells, visible) => action(() => submitWaterChange('water-create', null, visible, { memberIds, baseCells })), waterSplit: (groupId, memberIds, baseCells) => action(() => submitWaterChange('water-split', groupId, undefined, { memberIds, baseCells })), waterMerge: (groupIds, visible) => action(() => submitWaterChange('water-merge', groupIds, visible)), waterRename: groupId => action(() => submitWaterChange('water-rename', groupId)), waterVisibility: (groupId, visible) => action(() => submitWaterChange('water-visibility', groupId, visible)), person: (op, chapterId, generalId, included, field) => action(() => submitPerson(op, chapterId, generalId, included, field)), refresh: () => action(refreshGames), load: () => action(load), cancelEdits, save: () => action(() => submit()), query: () => action(query), retry: () => action(() => submit(true)), chooseGame, setField, setResource, chapter, createChapter, setChapterCreateField, createFaction, setFactionCreateField, trial, selectDefinition, setDefinitionField, chooseDefinitionPortrait, toggleImport, clearImportSelection, importGenerals: () => action(importGenerals), definitionPortraits: () => action(readDefinitionPortraits), saveDefinition: () => action(() => submitDefinition()), deleteDefinition: () => action(() => submitDefinition(true)) },
+    }, takeDecorationSelection, decorationPick: (x, y) => action(() => readDecorationSelection(x, y, 1, 1, 'top')), decorationSelection: (x, y, width, height, mode) => action(() => readDecorationSelection(x, y, width, height, mode)), mapWindowStep: (dx, dy) => action(() => moveMapWindow(dx, dy, 'window')), mapWindowPan: (dx, dy) => action(() => moveMapWindow(dx, dy, 'tile')), locateInstance: instanceId => action(() => locateInstance(instanceId)), locateMinimapCell: (x, y) => action(() => locateMinimapCell(x, y)), redrawMapWindow: drawMapWindow, previewMapWindowPan, drawMaterialPreview, drawPlacementPreview, drawShiftPreview, mapAtlas: season => action(() => readMapAtlas(season)), mapScene: (x, y, width, height) => action(() => readMapWindow(x, y, width, height, '1111', true)), mapWindow: (x, y, width, height) => action(() => readMapWindow(x, y, width, height)), mapLayer: setMapLayer, decorLock: setDecorLocked, baseUnlock: setBaseUnlocked, basePage: setBasePage, baseFill: (cells, tile, geography) => action(() => submitBaseFill(cells, tile, geography)), removeInstances: selection => action(() => submitMaterial('decoration-remove', selection)), split: instanceId => action(() => submitMaterial('decoration-split', instanceId)), place: (materialId, variantRef, x, y, waterClass) => action(() => submitMaterial('decoration-place', materialId, { variantRef, x, y, waterClass })), reorder: (selection, direction) => action(() => submitMaterial('decoration-reorder', selection, { direction })), translate: (selection, dx, dy) => action(() => submitMaterial('decoration-translate', selection, { dx, dy })), material: (op, selection) => action(() => submitMaterial(op, selection)), chapterCity: (op, chapterId, cityId) => action(() => submitChapterCity(op, chapterId, cityId)), cityRename: cityId => action(() => renameCity(cityId)), citySave: (cityId, patch) => action(() => saveCity(cityId, patch)), minimap: () => action(readMinimap), redrawMinimap: drawMinimap, waterCreate: (memberIds, baseCells, visible) => action(() => submitWaterChange('water-create', null, visible, { memberIds, baseCells })), waterSplit: (groupId, memberIds, baseCells) => action(() => submitWaterChange('water-split', groupId, undefined, { memberIds, baseCells })), waterMerge: (groupIds, visible) => action(() => submitWaterChange('water-merge', groupIds, visible)), waterRename: groupId => action(() => submitWaterChange('water-rename', groupId)), waterVisibility: (groupId, visible) => action(() => submitWaterChange('water-visibility', groupId, visible)), person: (op, chapterId, generalId, included, field) => action(() => submitPerson(op, chapterId, generalId, included, field)), refresh: () => action(refreshGames), load: () => action(load), cancelEdits, save: () => action(() => submit()), query: () => action(query), retry: () => action(() => submit(true)), chooseGame, setField, setResource, chapter, createChapter, setChapterCreateField, createFaction, setFactionCreateField, trial, selectDefinition, setDefinitionField, chooseDefinitionPortrait, toggleImport, clearImportSelection, importGenerals: () => action(importGenerals), definitionPortraits: () => action(readDefinitionPortraits), saveDefinition: () => action(() => submitDefinition()), deleteDefinition: () => action(() => submitDefinition(true)) },
     setIdentity, render, canLeave, gotoGame, selectedGame, adoptGame,
     canAdoptGame(gameId) { return permitted() && !badJournal && (!attempt || attempt.gameId === gameId); },
     savedContext() { return permitted() && loaded?.verifiedRead && !attempt && !badJournal ? { gameId: loaded.gameId, draftRevision: loaded.draftRevision, dirty: dirty() } : null; },

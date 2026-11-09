@@ -657,8 +657,9 @@ try {
   groups++;
   const trial = await call('author', `/api/games/${gameId}/trials`, { expectedRevision: '2', chapterId: first.chapterId });
   assert.equal(trial.status, 409); assert.equal(trial.data.error, 'TRIAL_SNAPSHOT_CHANGED');
+  // 上架門先看服務端檢驗記錄（未檢驗＝409），比逐章／編譯門更早；本測試只斷言「不能上架」。
   const publication = await call('author', '/api/publish', { gameId, name: '未准入' });
-  assert.equal(publication.status, 422); assert.equal(publication.data.error, 'PUBLISH_NOT_COMPILED');
+  assert.equal(publication.status, 409); assert.equal(publication.data.error, 'PUBLISH_VALIDATION_REQUIRED');
   assert.equal(sql.exec('SELECT COUNT(*) AS n FROM trial_sessions').toArray()[0].n, 0);
   assert.equal(sql.exec('SELECT COUNT(*) AS n FROM content_releases').toArray()[0].n, 0); groups++;
   // Real administrator entry still creates the original independent twenty chapters.
