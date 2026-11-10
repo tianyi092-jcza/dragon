@@ -1,25 +1,25 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
-// 城池據點（遊戲級）：一頁只做據點清單本身。
-// 據點身份、槽位、座標凍結（用戶 2026-11 決定：先不解除凍結），本頁只改名稱與
-// 遊戲級數值；勢力／首都屬章節級，不在本頁；刪除另議，本版不提供。
-const props = defineProps({ model: Object, actions: Object, draftModel: Object, draftActions: Object, busy: Boolean });
+// 城池據點（遊戲級）：只做據點清單本身。座標由地圖放置自動寫入，不在此顯示或修改；
+// 上升值／防災值／城兵與勢力／首都屬章節級。加載沿用當前遊戲的明確修訂，不再要一個
+// 修訂號輸入框；完整副本沒有遊戲級據點定義，只留一行說明，不假裝有表格。
+const props = defineProps({ draftModel: Object, draftActions: Object, busy: Boolean });
 
 const search = ref('');
-const sort = reactive({ key: 'name', dir: 1 });
+const sort = reactive({ key: 'seq', dir: 1 });
 const editing = ref(null);
 const form = reactive({ name: '', max_prod: '', type: '' });
-const rowError = ref('');
+const status = ref('');
+const failure = ref('');
 const cityName = value => String(value ?? '').normalize('NFC').trim();
 
 const cities = computed(() => props.draftModel?.cities ?? null);
 const loaded = computed(() => cities.value?.rows ?? []);
+const supported = computed(() => Boolean(cities.value?.supported));
+const canLoad = computed(() => !props.busy && !props.draftModel?.loadLocked && Boolean(props.draftModel?.fields?.gameId) && Boolean(props.draftModel?.fields?.revision));
 const locked = computed(() => Boolean(props.busy) || !props.draftModel || Boolean(props.draftModel.loadLocked) || Boolean(cities.value?.locked));
 
-// 用戶 2026-11 口徑：坐標（槽位／X／Y）由地圖放置自動寫入，不顯示也不可改；
-// 當前生產力是引擎運行時值，不做定義欄位。上升值／防災值／城兵留在章節級：
-// 新建章節時自動帶上上一章（沒有上一章就取原版第一章）的值，再在各章修改。
 const columns = [
   { key: 'seq', title: '序號', sortable: false },
   { key: 'name', title: '據點名稱', sortable: true, type: 'text' },
@@ -51,15 +51,24 @@ function toggleSort(key) {
 }
 function sortMark(key) { return sort.key === key ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''; }
 
+async function load() {
+  if (!canLoad.value) return;
+  status.value = ''; failure.value = ''; editing.value = null;
+  try { await props.draftActions.load(); }
+  catch (error) { failure.value = (error && error.message) || '加載未完成。'; return; }
+  const list = cities.value?.rows ?? [];
+  status.value = cities.value?.supported ? '已加載 ' + list.length + ' 座' : '';
+}
+
 function startEdit(row) {
   if (locked.value) return;
   editing.value = row.cityId;
   form.name = row.name ?? '';
   form.max_prod = row.max_prod ?? '';
   form.type = row.type ?? '';
-  rowError.value = '';
+  failure.value = '';
 }
-function cancelEdit() { editing.value = null; rowError.value = ''; }
+function cancelEdit() { editing.value = null; failure.value = ''; }
 
 // 同一套規則服務端還會再驗一次：這裡只為即時顯示，不代替服務端判定。
 function validate(row) {
@@ -77,13 +86,14 @@ function validate(row) {
 async function save(row) {
   if (locked.value) return;
   const problem = validate(row);
-  if (problem) { rowError.value = problem; return; }
-  rowError.value = '';
+  if (problem) { failure.value = problem; return; }
+  failure.value = ''; status.value = '';
   try {
-    await props.actions.citySave(row.cityId, { name: cityName(form.name), max_prod: form.max_prod, type: form.type });
+    const reply = await props.draftActions.citySave(row.cityId, { name: cityName(form.name), max_prod: form.max_prod, type: form.type });
     editing.value = null;
+    if (typeof reply === 'string') status.value = reply;
   } catch (error) {
-    rowError.value = (error && error.message) || '保存未完成（原因未回報）。';
+    failure.value = (error && error.message) || '保存未完成（原因未回報）。';
   }
 }
 </script>
@@ -91,16 +101,11 @@ async function save(row) {
 <template>
   <section id="stronghold-editor" class="module-card">
     <div class="module-toolbar">
-      <span id="stronghold-game">{{ draftModel?.fields.gameId || '未選擇遊戲' }}</span>
-      <label>修訂<input id="stronghold-revision" :value="draftModel?.fields.revision ?? ''" :disabled="busy || draftModel?.loadLocked" inputmode="numeric" @input="draftActions.setField('revision', $event.target.value)"></label>
-      <ElButton id="stronghold-load" :disabled="busy || draftModel?.loadLocked || !draftModel?.fields.gameId || !draftModel?.fields.revision" @click="draftActions.load()">加載</ElButton>
-      <input id="stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱">
+      <ElButton id="stronghold-load" :disabled="!canLoad" @click="load()">加載</ElButton>
+      <input id="stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱" :disabled="!supported">
+      <span id="stronghold-status" role="status" class="stronghold-status">{{ failure || status }}</span>
     </div>
-    <p id="stronghold-status" role="status">{{ draftModel?.message }}</p>
-    <p class="module-notice">坐標由地圖放置自動寫入，不顯示也不可改。上升值、防災值、城兵是章節級：新建章節時自動帶上上一章的值，再在章節頁各自修改。勢力與首都在章節頁；刪除待另行討論後才提供。</p>
-    <p v-if="rowError" id="stronghold-row-error" role="alert" class="module-notice">{{ rowError }}</p>
-    <p v-if="!cities?.supported">尚未加載據點清單；請先選擇遊戲與修訂後按「加載」。</p>
-    <div v-else class="entity-table-wrap" tabindex="0">
+    <div v-if="supported" class="entity-table-wrap" tabindex="0">
       <table id="stronghold-table" class="entity-table">
         <thead><tr>
           <th v-for="column in columns" :key="column.key" :data-column="column.key">
@@ -133,13 +138,28 @@ async function save(row) {
           </tr>
         </tbody>
       </table>
-      <p v-if="!rows.length" class="empty-state">沒有符合的據點；清空搜尋可看全部。</p>
+      <p v-if="!rows.length" class="empty-state">{{ search ? '沒有符合的據點；清空搜尋可看全部。' : '據點清單是空的。' }}</p>
     </div>
+    <p v-else-if="draftModel?.context?.verified" id="stronghold-unsupported" class="stronghold-note">完整副本沒有遊戲級據點定義；據點名稱與數值請在「遊戲章節」各章檢視。</p>
+    <p v-else class="stronghold-note">先選遊戲，再按「加載」。</p>
   </section>
 </template>
 
 <style>
+#stronghold-editor{padding:16px 18px}
+#stronghold-editor .module-toolbar{gap:8px;margin:0 0 10px;align-items:center}
+#stronghold-editor .module-toolbar .el-button{min-height:32px;padding:0 14px}
+#stronghold-editor #stronghold-search{height:32px;width:200px;padding:0 10px;box-sizing:border-box}
+#stronghold-editor .entity-table-wrap{max-height:calc(100vh - 288px)}
+#stronghold-editor .entity-table{min-width:560px}
+#stronghold-editor .entity-table th,#stronghold-editor .entity-table td{padding:6px 10px}
+#stronghold-editor .entity-table thead th{font-size:12px;letter-spacing:1px}
+#stronghold-editor .entity-table td input{width:100%;min-width:4em;height:28px;box-sizing:border-box}
+#stronghold-editor .entity-table .el-button{min-height:28px;padding:0 10px}
+#stronghold-editor .entity-table .account-row-actions{min-width:120px;white-space:nowrap}
 #stronghold-editor .sort-header{border:0;background:none;padding:0;font:inherit;cursor:pointer;color:inherit}
 #stronghold-editor .sort-header[aria-pressed="true"]{font-weight:700}
-#stronghold-editor td input{width:100%;min-width:4em;box-sizing:border-box}
+#stronghold-editor .stronghold-status{font-size:13px;color:#5b7264}
+#stronghold-editor .stronghold-status:empty{display:none}
+#stronghold-editor .stronghold-note{margin:0;font-size:13px;color:#718077}
 </style>
