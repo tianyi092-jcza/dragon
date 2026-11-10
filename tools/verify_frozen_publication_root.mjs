@@ -48,10 +48,24 @@ try {
     sql.exec('INSERT INTO users VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', id, account, role, '{}', 0, 0, 1, 1, '', '', '', '');
     sql.exec('INSERT INTO sessions VALUES(?,?,?,?,?)', tokenHash, id, 1, Date.now() + 3600000, Date.now() + 3600000);
   }
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 54);
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified, 55);
   const csrf = await mac(`csrf:${token}`, secret);
   const scenarioNames = { 'Frozen one': 'Frozen1', 'Frozen two': 'Frozen2' };
+  // 產品決定（2026-11）：上架只認服務端保存在本次修訂上的檢驗記錄；這條 lane 先照真實畫面流程
+  // 逐層檢驗一次（前四層到齊才落庫），不直接把 passed 寫進表。
+  const ensureValidated = async () => {
+    const revision = sql.exec('SELECT draft_revision FROM content_games WHERE game_id=?', gameId).toArray()[0]?.draft_revision;
+    const saved = sql.exec('SELECT draft_revision,state FROM content_game_validations WHERE game_id=?', gameId).toArray()[0];
+    if (saved && saved.draft_revision === revision && saved.state === 'passed') return;
+    for (const layer of ['chapter', 'general', 'city', 'slot']) {
+      const response = await app.fetch(new Request(`${origin}/api/games/${gameId}/draft/chapter-references`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: `__Secure-dragon-editor=${token}`, 'X-CSRF-Token': csrf }, body: JSON.stringify({ layer }) }));
+      const value = await response.json(); assert.equal(response.status, 200, JSON.stringify(value));
+    }
+    const recorded = sql.exec('SELECT state,draft_revision FROM content_game_validations WHERE game_id=?', gameId).toArray()[0];
+    assert.equal(recorded?.state, 'passed');
+  };
   const call = async (label, key, extra = {}) => {
+    await ensureValidated();
     const name = scenarioNames[label] ?? label; // Explicit legal names; never truncate arbitrary inputs.
     const started = performance.now();
     const response = await app.fetch(new Request(`${origin}/api/publish`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: `__Secure-dragon-editor=${token}`, 'X-CSRF-Token': csrf, 'Idempotency-Key': key, ...extra }, body: JSON.stringify({ gameId, name }) }));
@@ -128,7 +142,7 @@ try {
   assert.equal((await manage('list',409)).error,'GAME_NOT_PUBLISHED'); assert.equal(tail(),0); groups++;
   const unchanged=fingerprint();
   sql.exec("CREATE TRIGGER owned_abort BEFORE INSERT ON content_distribution_chunks BEGIN SELECT RAISE(ABORT,'owned frozen failure'); END");
-  try { assert.equal((await call('Frozen one','owned-frozen-publish-01')).status,500); }
+  try { const aborted = await call('Frozen one','owned-frozen-publish-01'); assert.equal(aborted.status,500,JSON.stringify(aborted.value)); }
   finally { sql.exec('DROP TRIGGER owned_abort'); }
   assert.equal(fingerprint(),unchanged); assert.equal(tail(),0); groups++;
   const first=await call('Frozen one','owned-frozen-publish-01'); assert.equal(first.status,200,JSON.stringify(first.value));assert.equal(first.value.ordinal,'1.0');assert.equal(tail(),1);
@@ -305,7 +319,7 @@ try {
   assert.deepEqual(Buffer.from(app.frozenDistribution.entry(1).payload),frozen1,'historical content remains: this is NOT physical deletion');
   const publicProjection=JSON.parse(staging.objects.get(staging.prefix+`projections/8/${JSON.parse(staging.objects.get(staging.prefix+'control/current.json').bytes).digest}/projection.json`).bytes);
   assert.equal(Object.hasOwn(publicProjection,'catalog'),false);assert.equal(JSON.stringify(publicProjection).includes('Frozen2'),false);
-  assert.equal(assertDeletionDefinitions(sql).tablesVerified,54);groups++;
+  assert.equal(assertDeletionDefinitions(sql).tablesVerified,55);groups++;
   // Quiescent whole-application restore. These are fenced (not physically
   // erased) records; preserving them must never be reported as erase closure.
   const allRows = db => db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").toArray().map(({ name }) => {
@@ -335,7 +349,7 @@ try {
   try {
     const restoredBucket = new FileBucket({ root: join(scratch, 'restored-objects') });
     const restoredApp = new (createEditorApplication(class {}, { runtimeStager: staging.stager, frozenPublication: true }))({ storage: restoredStorage }, { ...env, EDITOR_BLOBS: restoredBucket });
-    assert.equal(assertDeletionDefinitions(restoredStorage.sql).tablesVerified, 54);
+    assert.equal(assertDeletionDefinitions(restoredStorage.sql).tablesVerified, 55);
     assert.deepEqual(restoredStorage.sql.exec('PRAGMA integrity_check').toArray().map(row => row.integrity_check), ['ok']);
     assert.deepEqual(allRows(restoredStorage.sql), rowsBefore);
     assert.equal(treeHash(join(scratch, 'restored-objects')), objectsBefore); groups++;

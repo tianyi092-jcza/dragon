@@ -557,7 +557,7 @@ docker compose up -d --force-recreate
 
 1. `/`、`/api/health` 200，且 health body 的 `initialized:true`。
 2. `/shell-ui.js`、`/shell-ui.css`、各自定义模块的字节数**与 `git show HEAD:<path>` 相等**（不是与工作树相等）。
-3. 复制生产库快照到 `/tmp`，用容器内 `node:sqlite` 只读打开：`54 表／52 索引／361 列／4 FK` + `integrity_check ok`
+3. 复制生产库快照到 `/tmp`，用容器内 `node:sqlite` 只读打开：`55 表／53 索引／369 列／4 FK` + `integrity_check ok`（现行基线，含 `content_game_validations`；2026-11-09 前是 54/52/361/4）
    （`pragma_table_xinfo(?)`／`pragma_foreign_key_list(?)` 要传参数，双引号会被当标识符报错）。
 4. 账本 `tail_generation` / `confirmed_generation` / `blocked_reason` 未被动过。
 5. 玩家端 `/play-api/v1/registry` 的 generation 与 `static-release.json` 的 `sourceTreeDigest`（＝`publication.env` 的 `STATIC_SOURCE_SHA256`）不变。
@@ -694,7 +694,7 @@ curl -s -o /dev/null -w '%{http_code}' "https://dragon.720108.xyz/program-assets
 ssh sadcloud 'docker ps --format "{{.Names}} {{.Status}}"'
 ```
 
-schema 复核（只读快照）：`cp /srv/dragon/data/editor.sqlite* /tmp/q/` 后用 `docker run --rm -v /tmp/q:/q node:22-bookworm-slim node /q/x.cjs`（`node:sqlite` readOnly），期望 **54 表／52 索引／361 列／4 FK**、`integrity_check ok`、账本 `tail_generation == confirmed_generation` 且 `blocked_reason` 为 null。
+schema 复核（只读快照）：`cp /srv/dragon/data/editor.sqlite* /tmp/q/` 后用 `docker run --rm -v /tmp/q:/q node:22-bookworm-slim node /q/x.cjs`（`node:sqlite` readOnly），期望 **55 表／53 索引／369 列／4 FK**（现行基线，见 §14.3 与 journal §2）、`integrity_check ok`、账本 `tail_generation == confirmed_generation` 且 `blocked_reason` 为 null。
 
 ### 16.6 已下线（2026-11-06，不可再引用）
 

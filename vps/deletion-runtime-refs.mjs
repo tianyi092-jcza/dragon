@@ -5,6 +5,7 @@ import { manifestRoles } from './distribution-resources.mjs';
 import { captureStaticVisualReferences } from './static-resources.mjs';
 import { MAX_METADATA_BYTES, isGameId, isId, isOrdinal, parseJSON, validateIndex, validateRuntimeReference } from '../reader/runtimecontract.js';
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const INDEX_KEYS = ['version', 'gameId', 'releaseId', 'ordinal', 'revision', 'sourceDigest', 'chapters', 'resources'];
 function check(value) { if (!value) throw new Error('DELETE_RUNTIME_REFERENCE_INVALID'); }
 function fields(value, keys) {
   check(value !== null && typeof value === 'object' && !Array.isArray(value));
@@ -61,7 +62,7 @@ async function inspectRuntimeReferences({ r2, gameId, runtimeReferences, prefix 
     const index = parseJSON(bytes);
     // Unknown fields/duplicate-key JSON cannot hide extra reference families.
     check(Buffer.from(JSON.stringify(index)).equals(bytes));
-    fields(index, ['version', 'gameId', 'releaseId', 'ordinal', 'revision', 'sourceDigest', 'chapters', 'resources']);
+    fields(index, Object.hasOwn(index, 'chapterIndex') ? [...INDEX_KEYS, 'chapterIndex'] : INDEX_KEYS);
     validateIndex(index); validateRuntimeReference(index, ref); check(index.gameId === gameId);
     add('runtime-index', { ...ref, contentType: 'application/json' }, ref.key);
     for (const [role, asset] of Object.entries(index.resources)) {

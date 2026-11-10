@@ -124,7 +124,7 @@ try {
   const options = { storage, principal: () => { throw new Error('unused owned principal'); }, requestKey: env.EDITOR_REQUEST_KEY };
   new GameDeletionJobFreeze(options); new GameDeletionDraftFreeze(options);
   const facts = assertDeletionDefinitions(storage.sql);
-  assert.equal(facts.tablesVerified, 54); assert.equal(facts.indexesVerified, 52);
+  assert.equal(facts.tablesVerified, 55); assert.equal(facts.indexesVerified, 53);
   assert.equal(facts.foreignKeyDeclarationsVerified, 4);
   check('real Node application has exact additive frozen SQLite declarations and constraints');
   await server.close(); server = null; storage.close(); storage = null;

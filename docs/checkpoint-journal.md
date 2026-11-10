@@ -83,10 +83,23 @@ curl -s https://dragon.720108.xyz/play-api/v1/registry # generation / directory
 
 ## 8. 已知既有紅（不得寫成全綠）
 
-- `tools/verify_frozen_publication_root.mjs`：`vps/deletion-runtime-refs.mjs:64` 的 `fields(asset, …)` 拋 `DELETE_RUNTIME_REFERENCE_INVALID`（HEAD 同樣紅）。
 - `tools/verify_publication_ui.mjs`：legacy DOM 掛載 lane，`nodes['publish-games-refresh']` undefined（HEAD 同樣紅）。
 - `verify_editor_backend_deletion_{inventory,columns,declared_unique_rows}` 等 pinned 歷史 lane 需 round 參數（HEAD 同樣紅）。
 - `verify_editor_template_root`：L1575 期望 `ad.generalDefinitions === null`，實得 `[]`（HEAD 同樣紅）。
+- ~~`tools/verify_frozen_publication_root.mjs`~~：已於 2026-11-10 轉綠，見 §9；本節原先把它記成「`vps/deletion-runtime-refs.mjs:64` 的 `fields(asset, …)` 拋 `DELETE_RUNTIME_REFERENCE_INVALID`」，那只是最下一層，上面還壓着两层過時前置。
+- `tools/verify_vps_editor_server.mjs` 也曾是紅（同一類過時計數 54/52），此前無人登記；現已綠。
+
+## 9. 批次 F：`verify_frozen_publication_root` 轉綠（三个叠加的過時假設，非產品缺陷）
+
+2026-11-10 只讀重跑 HEAD，實際是**三層**依序攔截；§8 原記的 `DELETE_RUNTIME_REFERENCE_INVALID` 只在最後一層。
+
+1. **過時計數（第一層）**：`tools/verify_frozen_publication_root.mjs`（L51／L308／L338）期望 `assertDeletionDefinitions().tablesVerified === 54`，現行是 **55**——`server/validationdeclarations.js` 加了 `content_game_validations`；§2 的計數門當轮同步了 `gamepurge`／`deletioninventory`／`deletionuniquerows`／`deletionschema`，漏了這條 lane。同類：`tools/verify_vps_editor_server.mjs` 的 `54/52` 也漏更（現已 55/53）。
+2. **批次 B 的新前置（第二層）**：產品決定「檢驗結果存服務端，上架硬門＝同修訂 passed」讓這條 lane 的 `POST /api/publish` 直接 `409 PUBLISH_VALIDATION_REQUIRED`（`server/editorapp.js:484`），而它的 `call()` 從不產生檢驗記錄。修法照 `tools/verify_publish_operations_root.mjs` 的既有做法：新增 `ensureValidated()`，在每次上架前按真實畫面流程逐層 `POST /draft/chapter-references`（`chapter`／`general`／`city`／`slot`，四層到齊才落庫），並断言 `content_game_validations.state==='passed'`；不直接把 passed 寫進表。
+3. **過時的索引鍵集（第三層，§8 記的那條）**：`vps/deletion-runtime-refs.mjs` 對 runtime index 用精確 8 鍵鍵集，而 `vps/runtime-index.mjs:75` 之後會寫進**可選** `chapterIndex`（章節／勢力清單），玩家端 `web/src/player/runtimecontract.js#validateIndex` 已校驗其形狀。修法：提出 `INDEX_KEYS`，有 `chapterIndex` 時放行 9 鍵；鍵集仍然精確，未知欄位照舊拒絕，而 `chapterIndex` 不含任何物件引用，故不擴大引用閉包。
+
+- **結論**：這不是刪除引用解析的真缺陷；先前「真缺陷线鎖」的推断被只讀重跑＋堆栈定位推翻。
+- **驗證**：`verify_frozen_publication_root` **46 組**（8 世代、20 章、restore 邊界，`EXIT=0`）、`verify_deletion_runtime_refs` **80 checks**、`verify_vps_editor_server` **12 組**，均綠。
+- 純測試／診斷改動，`web/`／`server/` 行為未變，不需重建鏡像或換 static digest。
 
 ## 归档锚点（外部文档仍在引用；保留原标题以不破链接）
 
