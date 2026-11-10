@@ -156,6 +156,22 @@ curl -s https://dragon.720108.xyz/play-api/v1/registry # generation / directory
 
 **新坑（已記在下文）**：改了 `web/src/**` 就必須跑 `node tools/build_trial_web_bundle.mjs` 重建 `server/public/trialweb.txt`，否則啟動 `verifyInstalledProgram` 拋 `INSTALLED_PROGRAM_INVALID` 並無限重啟——第一次部署就撞上，補 `ec7d1c8` 後重建成。驗證：health 200 `initialized:true`、新靜態 200／舊 404、`control/programs/826b….json` 與 `artifacts/programs/826b…` 已生成、registry 仍 generation 16（revision 1）。
 
+## 13. 批次 I：工作台 UI 对齐与全模块布局规范（2026-11-11）
+
+**用户反馈（截图）**：「按纽和文本框现在同高度，垂直居中对齐很难吗？…工具栏的当前游戏下拉框和‘重新整理’按纽没对齐，下面‘加载’按纽和搜索框没对齐。编辑框下，行内的文本框和保存与取消按纽没对齐」。随后表示「现在好齐了」，并要求把本次所有 UI／布局要求写成**适用于所有模块**的规范。
+
+**根因（不是框架问题）**：编辑器本来就是 Vue 3＋Element Plus，错位来自我们自己的 `server/public/style.css`——全局 `input:not([type=checkbox]):not([type=radio]):not([type=file]),select{display:block;margin-top:7px}` 会推原生输入框，而 EP 按钮是 flex 居中；且该选择器权重（3 个属性选择器）高于 `.module-toolbar input`，后续补丁静默失效。另有表内按钮被写成 `min-height:28px`、`.page-heading>span` 副标题、带边框的「目前草稿」胶囊。
+
+**修法**：`style.css` 去掉全局控件的 `display:block;margin-top:7px`，改 `inline-block;margin:0;vertical-align:middle`；末尾追加统一节奏：`.module-toolbar/.current-game/.account-actions/.page-line{align-items:center}`、按钮 `inline-flex;justify-content:center;height/min-height:34px`、表内 `input/select{margin:0}`、`.el-button+.el-button{margin-left:8px}`；`Workbench.vue` 的 `.page-line` 改为「左 `#status`、右 `#workspace-context`（右对齐、无边框）」；`StrongholdPanel.vue` 类型列改 `ElSelect` 式原生下拉映射 0–4＝大都市／中都市／小都市／關卡／戰場（按 `CS:7DF5` 证据；原版字串为「都市」）。重建 `shell-ui.js` 702194 B／`shell-ui.css` 56774 B。
+
+**规范落地**：新增 `docs/editor-ui-layout-spec.md`（全模块强制：页面骨架／顶部提示行／控件度量／优先 EP 组件／表格／枚举映射／保存后重读／文案密度／自检清单／反例），并在 `web-port/AGENTS.md` §3 与根 `AGENTS.md` §2.3 各加一条指针——后续对话不再逐条确认这些 UI 要求。
+
+**性能（查清但未交付）**：分段计时显示冷读 21 s（解源 3.4＋profile 8.1＋验证 6.2＋DTO 1.3）、保存 17 s、编辑保存 59 s（其中编码 9.3 s、逐块落盘 27 s）。本地试过源/profile/验证三级 LRU、未变区块复用与「保存后种入已验证读缓存」，可到热读 2.8 s／无改动保存 2.9 s／编辑保存 23 s；但 `verify_vps_draft_save` 由 179 全绿变为 168 绿＋11 红（缓存跳过逐请求 blob 读与 epoch 复核，正是这些断言在守的不变量），故**整份回退 `server/drafts.js`**，当前跑原实现。下一步需先决定「改测试为语义断言」还是「只做读取侧缓存」，再动性能。
+
+**交接**：加载／保存性能与副本数据形状的设计取舍见 [draft-performance](re-notes-draft-performance.md)（实测分段、原型优化、11 条契约红的判据、下一轮要回答的五个问题）。
+
+**未做**：本轮 UI 改动未提交／未部署（生产仍是镜像 `20261111-city2`、静态 `826b7c3a…`）；像素级自检需在 `web-port` 安装 `playwright` 模块（当前只有全局 CLI，`import 'playwright'` 抛 `ERR_MODULE_NOT_FOUND`），本次由用户目测确认「好齐了」。
+
 ## 归档锚点（外部文档仍在引用；保留原标题以不破链接）
 
 ### 5. 当前时钟系统逆向与重构本地完成
