@@ -16,22 +16,28 @@ export function cityName(value) {
   return name;
 }
 // Game-level base numbers (user 2026-11: 据点基础属性归游戏级，除所属势力外都要有).
-// Only fixed attributes live here: prod/troops are engine-evolved runtime values
-// and must never be stored as definition data.
-// 用户 2026-11 决定按原版证据收紧（C）：20 章 × 192 格对照第 1 章，只有
-// max_prod／type／view 完全一致（0 差异）；growth／defence／troops_cap 各章不同
-// （growth 2189 格、troops_cap 2328 格、defence 1 格），属章节初始化值，
-// 与 AI／经济引擎逐章取值相关，不得拉平到游戏级。
-// Authoring metadata only: these are the defaults a chapter inherits; the
-// evidence-bound range/encoding checks stay with the native writers.
-export const CITY_BASE_NUMBERS = Object.freeze(['max_prod', 'type', 'view']);
+// 用户 2026-11 决定（原版字段表）：父表保存 名称／坐标／最大生产力／当前生产力／
+// 上升值／防灾值／城兵／类型；其中 当前生产力・上升值・防灾值・城兵 是给章节新建时
+// 用的默认值，一次性从当前游戏第一章的据点记录取回（缺失允许作者自填），章节自身
+// 演化后的取值仍留章内，不拉平到游戏级。
+// 原版证据：20 章 × 192 格对照第 1 章，max_prod／type／view 0 差异；
+// growth／defence／troops_cap 各章不同，因此那三项只作默认值，不做一致性校验。
+// Authoring metadata only: the evidence-bound range/encoding checks stay with the
+// native writers.
+export const CITY_BASE_NUMBERS = Object.freeze(['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']);
+// 只有這三項在原版 20 章 × 192 格對照中 0 差異，導入時可要求「章節無關常量」；
+// prod／growth／defence／troops 逐章演化，只能取第一章作默認值，不得拉平。
+export const CITY_SHARED_INVARIANTS = Object.freeze(['max_prod', 'type', 'view']);
 export const CITY_CHAPTER_NUMBERS = Object.freeze(['growth', 'defence', 'troops_cap']);
+// 原版偏移：0x0c–0x0d 最大生产力（字）、0x0e–0x0f 当前生产力（字）、0x10 上升值、
+// 0x11 防灾值、0x12 城兵、0x17 高 4 位外观／低 4 位类型。
+const CITY_NUMBER_LIMITS = Object.freeze({ max_prod: 0xffff, prod: 0xffff, growth: 0xff, defence: 0xff, troops: 0xff, type: 0xff, view: 0xff });
 export function cityBaseNumbers(value) {
   const numbers = {};
   for (const name of CITY_BASE_NUMBERS) {
     if (!Object.hasOwn(value, name)) continue;
     const number = value[name];
-    if (!Number.isSafeInteger(number) || number < 0 || number > 65535) throw new RangeError('city base number out of range');
+    if (!Number.isSafeInteger(number) || number < 0 || number > CITY_NUMBER_LIMITS[name]) throw new RangeError('city base number out of range');
     numbers[name] = number;
   }
   return numbers;

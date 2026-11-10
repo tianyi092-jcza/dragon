@@ -101,6 +101,20 @@ curl -s https://dragon.720108.xyz/play-api/v1/registry # generation / directory
 - **驗證**：`verify_frozen_publication_root` **46 組**（8 世代、20 章、restore 邊界，`EXIT=0`）、`verify_deletion_runtime_refs` **80 checks**、`verify_vps_editor_server` **12 組**，均綠。
 - 純測試／診斷改動，`web/`／`server/` 行為未變，不需重建鏡像或換 static digest。
 
+## 10. 據點＝遊戲共享資料（父子表合同，2026-11-11 用戶決定；未提交）
+
+**用戶結論（四次澄清的終點）**：城池據點／地圖道路／武將／遊戲章節都是**單款遊戲自己的共享數據**，只有一份，全章共用。`sourceRef.kind='builtin-copy'`、`copy_origins.profile_revision='fixed-copy-resources-1'` 只是「由內置完整源導入」的**來源標籤**，不代表存在第二份據點數據；真正的「副本」只指**編輯期臨時修訂**（加載當前數據→保存延伸修訂號→發布審核通過後成為現行版本）。由此確定：加載讀 head；發布釘提交時凍結的修訂；不保留歷史的可加載性（只暴露「當前修訂＋已發布修訂」）；並發不做特殊處理（單帳號單在線）。
+
+**父表／子表**（原版字段表）：父表＝名稱、坐標（地圖管理寫回）、最大生產力、類型＋給新章用的默認值（當前生產力／上升值／防災值／城兵，一次性從該遊戲第一章取回）；子表＝所屬勢力＋那四項可改，名稱／最大生產力／類型只讀關聯父表；內政官不在章節設置。名稱以父表為準（內置 20 章 70/3840 處按章異名由此覆蓋）。
+
+**測量（內置 20 章 × 192 座）**：`max_prod`／`type` 與父表 0 差異；`name` 70 處不同（每章 3–6，如「中山／常山」「上黨／沾」「北平／北京」）；`x/y` 同槽共享。
+
+**改動**：`cityrecords.js` 的 `CITY_BASE_NUMBERS` 擴為 7 項並按原版字寬限幅，新增 `CITY_SHARED_INVARIANTS`（只 `max_prod/type/view` 要求章節無關）；`gamesource.js` 導入時四項默認值取第一章、只對不變量做跨章比對；`chaptermaterialize.js` 新章優先取父表默認值；`citydefinitions.js` 修 `cityRecord(values,[])` 使任何非空數值保存都拋 `city data fields required` 的真 bug；`server/drafts.js` 的 `cityDefinitions` 不再按 profile 置 null、`cityEdits` 對兩種 builtin kind 開放；`server/copyprofile.js#verify` 新增 `cityEdits` 重放＋整源比對；`server/public/draft.txt` 放開據點讀寫門與 `CITY_NUMBER_LIMITS`；`StrongholdPanel.vue` 移除錯誤說明、改爲 8 欄（名稱／最大生產／當前生產／上升值／防災值／城兵／類型＋操作），重建 `server/public/shell-ui.*`。
+
+**驗證**：`tools/verify_editor_city_profile.mjs` **8 組**（新增：有記錄通過，無記錄／值不符／改別座／改坐標／改槽位均 422）、`verify_editor_city_definitions` **4/4**、`verify_editor_shell` **92 checks**、`verify_native_city` **29/29**、`editor-ui build --check` 通過。`verify_vps_city_save` 跑到 900s 仍未結束（非失敗，未得終態）。
+
+**未做（下一步）**：章節五屬性的寫入通道＋面板；把 70 處異名按父表回寫的 20 章數據遷移；舊修訂回收（只收斂接口、不 GC）；生產遊戲的據點頁實測與可選的一次性默認值回填（需用戶授權寫生產數據）。
+
 ## 归档锚点（外部文档仍在引用；保留原标题以不破链接）
 
 ### 5. 当前时钟系统逆向与重构本地完成

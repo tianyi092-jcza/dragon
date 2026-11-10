@@ -13,7 +13,7 @@ import { captureChapterCities } from "./cityrecords.js";
 import { emptyGeneralSlot, materializeChapterState } from "./chaptermaterialize.js";
 import { CHAPTER_BASE } from "./chapterbase.generated.js";
 import { decodeFactionSlot } from "../../game/nativefactions.js";
-import { CITY_BASE_NUMBERS } from "./cityrecords.js";
+import { CITY_BASE_NUMBERS, CITY_SHARED_INVARIANTS } from "./cityrecords.js";
 import { factionNativeConsistencyGaps } from "./factionconsistency.js";
 
 export const GAMESOURCE_SCHEMA = 1;
@@ -280,10 +280,9 @@ export function copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex) {
   }
 
   if (kind === "full") {
-    // 游戏级基础资料（用户 2026-11 定 C，依原版证据）：只有 max_prod/type/view
-    // 在 20 章里完全一致，因此只有这三项归游戏级 `cities[]`；growth/defence/
-    // troops_cap 逐章不同，留在 chapter.state 作为章节初始化值，与 AI／经济引擎
-    // 逐章取值相关，不在这里拉平。取值来自原版第一章的原生记录，不发明默认值。
+    // 游戏级基础资料（用户 2026-11 定，依原版字段表）：max_prod/type/view 在 20 章
+    // 完全一致，是硬共享属性；prod／growth／defence／troops（当前生产力／上升值／
+    // 防灾值／城兵）逐章演化，只从原版第一章取一次作为新章默认值，不拉平。
     const base = chapters[0]?.state?.cities ?? [];
     const bySlot = new Map(base.map((city) => [city.idx, city]));
     for (const city of world.cities ?? []) {
@@ -298,12 +297,13 @@ export function copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex) {
         definition[name] = record[name];
       }
     }
-    // 游戏级字段必须是章节无关常量：新固定源若在某章另有取值，必须停下核对，
-    // 而不是静默取第一章把差异抹平。
+    // 硬共享字段必须是章节无关常量：新固定源若在某章另有取值，必须停下核对，
+    // 而不是静默取第一章把差异抹平。默认值字段（prod/growth/defence/troops）
+    // 逐章不同属正常，不在此列。
     for (const chapter of chapters.slice(1)) {
       for (const record of chapter.state.cities ?? []) {
         const definition = game.cities[world.cities[record.idx].id];
-        for (const name of CITY_BASE_NUMBERS) {
+        for (const name of CITY_SHARED_INVARIANTS) {
           if (Object.hasOwn(definition, name) && record[name] !== definition[name])
             throw new RangeError(`source ${name} differs by chapter: ${chapter.id} slot ${record.idx}`);
         }

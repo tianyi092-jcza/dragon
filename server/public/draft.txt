@@ -37,6 +37,8 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   const input = () => ({ name: fields.name, introduction: fields.introduction });
   const resourceLimits = { money: [-8388608, 8388607], reserve_cav: [0, 65535], reserve_arc: [0, 65535], reserve_inf: [0, 65535] };
   let resourceInputs = [], definitions = null, definitionReferences = null, chapterPeople = null, definitionLibrary = [], waterGroups = null, waterMembers = null, waterCandidates = null;
+  // 原版據點偏移：0x0c 最大生產力、0x0e 當前生產力（字）、0x10 上升值、0x11 防災值、0x12 城兵、0x17 外觀／類型。
+  const CITY_NUMBER_LIMITS = Object.freeze({ max_prod: 65535, prod: 65535, growth: 255, defence: 255, troops: 255, type: 255, view: 255 });
   let cityDefinitions = null, chapterCities = null, materials = null, factionRoles = null, nativeCities = null;
   const nativeCityInputs = new Map();
   // §7 chapter attributes: staged start-date text per chapter, saved as one
@@ -52,7 +54,8 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   const basePageSize = 24;
   const baseReady = () => !badJournal && loaded?.verifiedRead && ['fixed-template-authoring-1', 'fixed-copy-resources-1'].includes(loaded.profileRevision) && baseTerrain !== null;
   const materialsReady = () => !badJournal && loaded?.verifiedRead && ['fixed-template-authoring-1', 'fixed-copy-resources-1'].includes(loaded.profileRevision) && materials !== null;
-  const cityReady = () => !badJournal && loaded?.verifiedRead && loaded.profileRevision === 'fixed-template-authoring-1' && cityDefinitions !== null && chapterCities !== null;
+  // 據點是遊戲自己的共享資料：任何已驗證修訂只要帶回據點清單就可讀寫；章節據點引用只有中立模板提供。
+  const cityReady = () => !badJournal && loaded?.verifiedRead && ['fixed-template-authoring-1', 'fixed-copy-resources-1'].includes(loaded.profileRevision) && cityDefinitions !== null && (chapterCities !== null || loaded.profileRevision === 'fixed-copy-resources-1');
   let minimap = null, mapWindow = null, mapScene = null, mapAtlas = null, decorationSelection = null;
   const currentFactionRoles = () => permitted() && !badJournal && !attempt && loaded?.verifiedRead && factionRoles?.source === loaded && factionRoles.identity === identity && factionRoles.userId === identity.user.id && factionRoles.version === identity.version;
   const attributesReady = () => currentFactionRoles() && nativeCitiesReady();
@@ -686,15 +689,15 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   }
   function checkedCityDefinitions(rows, profile) {
     if (rows === undefined || rows === null) return null;
-    if (profile !== 'fixed-template-authoring-1' || !Array.isArray(rows)) throw new Error('據點基礎資料回應不符來源。');
+    if (!['fixed-template-authoring-1', 'fixed-copy-resources-1'].includes(profile) || !Array.isArray(rows)) throw new Error('據點基礎資料回應不符來源。');
     const seen = new Set();
     return Array.from(rows, row => {
-      if (!row || Array.isArray(row) || Object.keys(row).sort().join(',') !== 'cityId,max_prod,name,runtimeSlot,type,view,x,y' || typeof row.cityId !== 'string' || !row.cityId || seen.has(row.cityId) || row.name !== null && cityName(row.name) !== row.name) throw new Error('據點基礎身份／名稱回應無效。');
+      if (!row || Array.isArray(row) || Object.keys(row).sort().join(',') !== 'cityId,defence,growth,max_prod,name,prod,runtimeSlot,troops,type,view,x,y' || typeof row.cityId !== 'string' || !row.cityId || seen.has(row.cityId) || row.name !== null && cityName(row.name) !== row.name) throw new Error('據點基礎身份／名稱回應無效。');
       // 位置與身份只顯示、不可改；數值缺值保持 null，不補零。
       for (const key of ['runtimeSlot', 'x', 'y']) if (!Number.isSafeInteger(row[key]) || row[key] < 0) throw new Error('據點基礎位置回應無效。');
-      for (const key of ['max_prod', 'type', 'view']) if (row[key] !== null && (!Number.isSafeInteger(row[key]) || row[key] < 0 || row[key] > 65535)) throw new Error('據點基礎數值回應無效。');
+      for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) if (row[key] !== null && (!Number.isSafeInteger(row[key]) || row[key] < 0 || row[key] > CITY_NUMBER_LIMITS[key])) throw new Error('據點基礎數值回應無效。');
       seen.add(row.cityId);
-      return { cityId: row.cityId, name: row.name, runtimeSlot: row.runtimeSlot, x: row.x, y: row.y, max_prod: row.max_prod, type: row.type, view: row.view };
+      return { cityId: row.cityId, name: row.name, runtimeSlot: row.runtimeSlot, x: row.x, y: row.y, max_prod: row.max_prod, prod: row.prod, growth: row.growth, defence: row.defence, troops: row.troops, type: row.type, view: row.view };
     });
   }
   function checkedChapterCities(rows, definitions, chapterRows) {
@@ -714,7 +717,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     });
   }
   async function submitChapterCity(op, chapterId, cityId) {
-    if (!cityReady() || attempt || !permitted()) throw new Error('請先載入完整中立章節據點資料。');
+    if (!cityReady() || !chapterCities || attempt || !permitted()) throw new Error('請先載入完整中立章節據點資料。');
     const chapter = chapterCities.find(row => row.chapterId === chapterId), definition = cityDefinitions.find(row => row.cityId === cityId);
     if (!chapter || !definition || !['set', 'remove'].includes(op)) throw new Error('請選擇已讀取的章節與據點。');
     const exists = chapter.cities.some(row => row.cityId === cityId);
@@ -732,7 +735,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     return sendAttempt('正在保存章節據點配置；回應不明時先查詢同一個請求。');
   }
   async function renameCity(cityId) {
-    if (!cityReady() || attempt || !permitted()) throw new Error('請先載入中立模板的明確據點修訂。');
+    if (!cityReady() || attempt || !permitted()) throw new Error('請先載入本遊戲的據點資料。');
     const row = cityDefinitions.find(item => item.cityId === cityId);
     if (!row) throw new Error('請選擇已讀取的據點身份。');
     const source = loaded, valid = ticket();
@@ -741,7 +744,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (input === null || !current()) return;
     const name = cityName(input);
     if (name === row.name) return;
-    const confirmedImpacts = chapterCities.filter(chapter => chapter.cities.some(city => city.cityId === cityId)).map(chapter => ({ chapterId: chapter.chapterId, fields: ['name'] }));
+    const confirmedImpacts = (chapterCities ?? []).filter(chapter => chapter.cities.some(city => city.cityId === cityId)).map(chapter => ({ chapterId: chapter.chapterId, fields: ['name'] }));
     const edit = { op: 'rename', cityId, name };
     if (confirmedImpacts.length) edit.confirmedImpacts = confirmedImpacts;
     const body = { metadata: { ...source.metadata }, resourceEdits: [], cityEdits: [edit] };
@@ -755,7 +758,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   // 新據點頁的保存：同一行可同時改名稱與遊戲級數值。名稱在遊戲內唯一、1–12 字，
   // 位置／槽位／身份不可從這裡改；比對與錯誤都由這一支給，UI 的預檢不代替服務端。
   async function saveCity(cityId, patch) {
-    if (!cityReady() || attempt || !permitted()) throw new Error('請先載入中立模板的明確據點修訂。');
+    if (!cityReady() || attempt || !permitted()) throw new Error('請先載入本遊戲的據點資料。');
     const row = cityDefinitions.find(item => item.cityId === cityId);
     if (!row) throw new Error('請選擇已讀取的據點身份。');
     const source = loaded, valid = ticket();
@@ -765,17 +768,17 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       const name = cityName(String(patch.name ?? ''));
       if ([...name].length > 12) throw new Error('據點名稱最多 12 個字。');
       if (cityDefinitions.some(item => item.cityId !== cityId && item.name === name)) throw new Error('據點名稱「' + name + '」已被其他據點使用。');
-      const confirmedImpacts = chapterCities.filter(chapter => chapter.cities.some(city => city.cityId === cityId)).map(chapter => ({ chapterId: chapter.chapterId, fields: ['name'] }));
+      const confirmedImpacts = (chapterCities ?? []).filter(chapter => chapter.cities.some(city => city.cityId === cityId)).map(chapter => ({ chapterId: chapter.chapterId, fields: ['name'] }));
       const rename = { op: 'rename', cityId, name };
       if (confirmedImpacts.length) rename.confirmedImpacts = confirmedImpacts;
       edit.push(rename);
     }
     const values = {};
-    for (const key of ['max_prod', 'type', 'view']) {
+    for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
       if (patch[key] === undefined) continue;
       const raw = String(patch[key] ?? '').trim();
-      if (raw === '') { if (row[key] !== null) throw new Error(key + ' 不可留空；請填 0–65535 的整數或取消。'); continue; }
-      if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > 65535) throw new Error(key + ' 必須是 0–65535 的整數。');
+      if (raw === '') { if (row[key] !== null) throw new Error(key + ' 不可留空；請填 0–' + CITY_NUMBER_LIMITS[key] + ' 的整數或取消。'); continue; }
+      if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > CITY_NUMBER_LIMITS[key]) throw new Error(key + ' 必須是 0–' + CITY_NUMBER_LIMITS[key] + ' 的整數。');
       if (Number(raw) !== row[key]) values[key] = Number(raw);
     }
     if (Object.keys(values).length) edit.push({ op: 'numbers', cityId, values });

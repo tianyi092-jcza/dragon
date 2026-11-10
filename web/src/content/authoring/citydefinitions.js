@@ -20,9 +20,10 @@ export function setCityDefinitionName(game, cityId, name) {
 // come from the copied 原版 first-chapter records, never from an invented default.
 export function setCityDefinitionNumbers(game, cityId, values) {
   const cities = scope(game); existing(cities, cityId);
-  cityRecord(values, []);
+  // 鍵集檢查必須用城市自身欄位，不能傳 []（會要求零欄位，任何非空補丁都拋錯）。
+  cityRecord(values);
   const captured = cityBaseNumbers(values), keys = Object.keys(values);
-  if (keys.some(key => !Object.hasOwn(captured, key))) throw new RangeError('unknown city base number');
+  if (!keys.length || keys.some(key => !Object.hasOwn(captured, key))) throw new RangeError('unknown city base number');
   const city = { ...cities[cityId] };
   for (const key of keys) city[key] = captured[key];
   return { ...game, cities: { ...cities, [cityId]: city } };

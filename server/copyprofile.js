@@ -6,7 +6,7 @@ import { editChapterResources, readFactionResources } from '../web/src/editor/ch
 import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit } from '../web/src/content/authoring/generaldefinitions.js';
-import { setCityDefinitionName, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
+import { setCityDefinitionName, setCityDefinitionNumbers, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
 import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, moveChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor } from '../web/src/content/authoring/gamesource.js';
 import { fail } from './security.js';
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
@@ -46,8 +46,7 @@ export const CHAPTER_EDIT_OPS = Object.freeze(Object.assign(Object.create(null),
   } },
   'chapter-reorder': { blank: true, structural: true },
 }));
-// 空白章可寫集合由表推導，不再另立第二份清單。
-const BLANK_CHAPTER_WRITES = Object.freeze(Object.keys(CHAPTER_EDIT_OPS).filter(op => CHAPTER_EDIT_OPS[op].blank === true));
+// 空白章可寫集合由 CHAPTER_EDIT_OPS 的 blank 旗標表達，不另立第二份清單。
 const chapterEditOp = op => (typeof op === 'string' && Object.hasOwn(CHAPTER_EDIT_OPS, op) ? CHAPTER_EDIT_OPS[op] : null);
 function view(value) {
   if (!value || typeof value !== 'object') fail(422, 'COPY_STRUCTURE');
@@ -920,7 +919,7 @@ function replayTemplateHistory(baseline, steps) {
       for (const edits of [step.chapterEdits, step.generalEdits, step.peopleEdits, mapEdits, cityEdits, chapterCityEdits]) {
         if (!Array.isArray(edits) || edits.length > 16) fail(422, 'COPY_TEMPLATE_HISTORY');
       }
-      // Ordered steps: chapters, definitions, people, map, city names, then chapter cities.
+      // Ordered steps: chapters, definitions, people, map, city names/numbers, then chapter cities.
       // A trusted history field does not by itself enable an HTTP command.
       for (const edit of step.chapterEdits) {
         view(edit); // Reject non-records before reading op (including functions).
@@ -972,9 +971,10 @@ function replayTemplateHistory(baseline, steps) {
       for (const edit of step.peopleEdits) expected = applyChapterPersonEdit(expected, edit);
       for (const edit of mapEdits) expected = applyCapturedMapEdit(expected, edit, usedGroupIds, usedMaterialIds, usedInstanceIds);
       for (const edit of cityEdits) {
-        exact(edit, ['op', 'cityId', 'name']);
-        if (edit.op !== 'rename') fail(422, 'COPY_TEMPLATE_HISTORY');
-        expected = setCityDefinitionName(expected, edit.cityId, edit.name);
+        view(edit);
+        if (edit.op === 'rename') { exact(edit, ['op', 'cityId', 'name']); expected = setCityDefinitionName(expected, edit.cityId, edit.name); }
+        else if (edit.op === 'numbers') { exact(edit, ['op', 'cityId', 'values']); expected = setCityDefinitionNumbers(expected, edit.cityId, edit.values); }
+        else fail(422, 'COPY_TEMPLATE_HISTORY');
       }
       for (const edit of chapterCityEdits) expected = applyChapterCityEdit(expected, edit);
     }
@@ -1014,7 +1014,7 @@ export class FixedCopyProfile {
     const sourceDigest = digest(candidate);
     return Object.freeze({ profileRevision: this.#profileRevision, baselineDigest, sourceDigest, provenance, changes: Object.freeze([]), limits: 'Captured neutral authoring history only; no native initialization, runtime, principal or persistent grant.' });
   }
-  verify(capability, candidate, appliedEdits = [], definitionEdits = [], mapEdits = [], peopleEdits = []) {
+  verify(capability, candidate, appliedEdits = [], definitionEdits = [], mapEdits = [], peopleEdits = [], cityEdits = []) {
     const captured = this.#captures.get(capability); if (!captured) fail(403, 'COPY_CAPTURE_REQUIRED');
     const { baseline, baselineDigest, provenance } = captured, replacements = new WeakMap(), changes = [];
     // These operations commute with legacy chapter/resource writers: none
@@ -1041,6 +1041,23 @@ export class FixedCopyProfile {
     }
     if (!Array.isArray(definitionEdits)) fail(422, 'COPY_DEFINITION_DELTA');
     checkCloneDescriptors(definitionEdits);
+    // 據點是遊戲自己的共享資料（用户 2026-11）：父表改名／改數值屬作者可寫範圍，
+    // 重放後只替換 cities 根，其餘（章節、人員、地圖）仍有完整比對。
+    if (!Array.isArray(cityEdits)) fail(422, 'COPY_CITY_DELTA');
+    checkCloneDescriptors(cityEdits);
+    if (cityEdits.length) {
+      if (this.#profileRevision !== FIXED_COPY_PROFILE) fail(422, 'COPY_CITY_PROFILE');
+      let expected = baseline;
+      try {
+        for (const edit of cityEdits) {
+          view(edit);
+          if (edit.op === 'rename') expected = setCityDefinitionName(expected, edit.cityId, edit.name);
+          else if (edit.op === 'numbers') expected = setCityDefinitionNumbers(expected, edit.cityId, edit.values);
+          else fail(422, 'COPY_CITY_DELTA');
+        }
+      } catch { fail(422, 'COPY_CITY_DELTA'); }
+      replacements.set(baseline.cities, expected.cities);
+    }
     if (!Array.isArray(peopleEdits)) fail(422, 'COPY_PEOPLE_DELTA');
     checkCloneDescriptors(peopleEdits);
     // B5 general library: the game-level definition library and its chapter

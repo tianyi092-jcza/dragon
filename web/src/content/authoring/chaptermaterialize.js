@@ -78,14 +78,24 @@ export function materializeChapterState(game, chapterId, start) {
     const maxProd = cityConstant(definition, 'max_prod', 0xffff) ?? readWord(base, FIELD_BYTES.max_prod[0]);
     const view = cityConstant(definition, 'view', 15) ?? readByte(base, VIEW_TYPE_BYTE) >> 4;
     const type = cityConstant(definition, 'type', 5) ?? readByte(base, VIEW_TYPE_BYTE) & 0x0f;
+    // 用户 2026-11：共享表帶著四項初始化值（原版一次從第一章取回）。父表有就用，
+    // 沒有就退回固定基礎字節；章節之後自己演化，不回寫共享表。
+    const prod = cityConstant(definition, 'prod', 0xffff) ?? readWord(base, FIELD_BYTES.prod[0]);
+    const growth = cityConstant(definition, 'growth', 0xff) ?? readByte(base, FIELD_BYTES.growth[0]);
+    const defence = cityConstant(definition, 'defence', 0xff) ?? readByte(base, FIELD_BYTES.defence[0]);
+    const troops = cityConstant(definition, 'troops', 0xff) ?? readByte(base, FIELD_BYTES.troops[0]);
     let raw = writeField(base, ...FIELD_BYTES.max_prod, maxProd);
+    raw = writeField(raw, ...FIELD_BYTES.prod, prod);
+    raw = writeField(raw, ...FIELD_BYTES.growth, growth);
+    raw = writeField(raw, ...FIELD_BYTES.defence, defence);
+    raw = writeField(raw, ...FIELD_BYTES.troops, troops);
     raw = writeField(raw, VIEW_TYPE_BYTE, 1, view * 16 + type);
     raw = writeField(raw, OWNER_BYTE, 1, NEUTRAL_OWNER);
     raw = writeField(raw, GOVERNOR_BYTE, 1, NO_GOVERNOR);
     return { idx: slot, name: definition.name ?? name, faction: null,
-      max_prod: maxProd, prod: readWord(raw, FIELD_BYTES.prod[0]),
-      growth: readByte(raw, FIELD_BYTES.growth[0]), defence: readByte(raw, FIELD_BYTES.defence[0]),
-      troops: readByte(raw, FIELD_BYTES.troops[0]), troops_cap: readByte(raw, FIELD_BYTES.troops_cap[0]),
+      max_prod: maxProd, prod,
+      growth, defence,
+      troops, troops_cap: readByte(raw, FIELD_BYTES.troops_cap[0]),
       type, view, governor: null,
       x: readWord(raw, FIELD_BYTES.x[0]), y: readWord(raw, FIELD_BYTES.y[0]), raw };
   });

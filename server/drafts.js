@@ -398,9 +398,8 @@ export class PrivateDrafts {
     // its person references are no longer a template-only command. A baseline
     // without a game-owned library（旧槽位字典）仍拒绝，不把字典当庫。
     if (history.steps.some(step => step.peopleEdits.length) && !generalLibrarySupported(captured.game)) fail(422, 'DRAFT_PEOPLE_PROFILE');
-    if (history.steps.some(step => step.cityEdits.length)) fail(422, 'DRAFT_CITY_PROFILE');
     if (history.steps.some(step => step.chapterCityEdits.length)) fail(422, 'DRAFT_CHAPTER_CITY_PROFILE');
-    return profile.verify(captured.capability, candidate, history.chapters, history.definitions, history.steps.flatMap(step => step.mapEdits), history.steps.flatMap(step => step.peopleEdits));
+    return profile.verify(captured.capability, candidate, history.chapters, history.definitions, history.steps.flatMap(step => step.mapEdits), history.steps.flatMap(step => step.peopleEdits), history.steps.flatMap(step => step.cityEdits));
   }
   async captureForCompile(tokenHash, gameId, requested) {
     const { actor } = this.#owned(tokenHash, gameId); this.#origin(tokenHash, gameId, actor);
@@ -513,7 +512,7 @@ export class PrivateDrafts {
     const library = generalLibrarySupported(loaded.proof.game);
     return { gameId, draftRevision: requested, sourceDigest: loaded.reference.sourceDigest, profileRevision: content.profileRevision, metadata: loaded.proof.game.metadata,
       chapters: loaded.proof.game.chapterOrder.map(id => { const st = loaded.proof.game.chapters[id].state; return { chapterId: id, name: loaded.proof.game.chapters[id].name ?? '', startDate: st.start ? { year: st.start.year, month: st.start.month, day: st.start.day, era: st.start.era ?? null } : null, factions: st.factions.map(f => ({ slot: f.idx, idx: f.idx, monarch_idx: f.monarch_idx, advisor_idx: f.advisor_idx ?? null, diplomat_idx: f.diplomat_idx ?? null, capital: f.capital, money: f.money, reserve_cav: f.reserve_cav, reserve_arc: f.reserve_arc, reserve_inf: f.reserve_inf })), generals: st.generals.map(g => ({ idx: g.idx, name: g.name, hao: g.hao, sourceRecordId: loaded.proof.game.sourceRecords?.bindings?.[id]?.slotMap?.[g.idx] ?? null, portrait: g.portrait ?? null, portraitKey: g.portraitKey ?? null, ability: g.ability ? { ...g.ability } : null, specialtyLowBits: g.specialty_low_bits ?? null, faction: g.faction ?? null, references: generalChapterReferences(loaded.proof.game, id, g.idx) })), cities: st.cities.map(c => ({ idx: c.idx, name: c.name, typeCode: c.type ?? null, faction: c.faction ?? null, governor: c.governor ?? null, troops: c.troops ?? null, prod: c.prod ?? null, troopsCap: c.troops_cap ?? null, maxProd: c.max_prod ?? null, growth: c.growth ?? null, defence: c.defence ?? null })), gaps: chapterGapReport(st, id) }; }),
-      cityDefinitions: content.profileRevision === FIXED_TEMPLATE_PROFILE ? Object.entries(loaded.proof.game.cities).map(([cityId, definition]) => ({ cityId, name: definition.name ?? null, runtimeSlot: definition.runtimeSlot, x: definition.x, y: definition.y, max_prod: definition.max_prod ?? null, type: definition.type ?? null, view: definition.view ?? null })) : null,
+      cityDefinitions: Object.keys(loaded.proof.game.cities ?? {}).length ? Object.entries(loaded.proof.game.cities).map(([cityId, definition]) => ({ cityId, name: definition.name ?? null, runtimeSlot: definition.runtimeSlot, x: definition.x, y: definition.y, max_prod: definition.max_prod ?? null, prod: definition.prod ?? null, growth: definition.growth ?? null, defence: definition.defence ?? null, troops: definition.troops ?? null, type: definition.type ?? null, view: definition.view ?? null })) : null,
       chapterCities: content.profileRevision === FIXED_TEMPLATE_PROFILE ? chapterCitiesProjection(loaded.proof.game) : null,
       generalDefinitions: library ? Object.entries(loaded.proof.game.generals).map(([generalId, definition]) => ({ generalId, ...structuredClone(definition) })) : null,
       ...(library ? chapterPeopleProjection(loaded.proof.game) : { generalReferences: null, chapterPeople: null }),
@@ -686,10 +685,9 @@ export class PrivateDrafts {
         catch { fail(422, 'DRAFT_MAP_EDIT'); }
       }
       const cityEdits = resolveCityEdits(value.cityEdits);
-      if (cityEdits.length && captured.game.sourceRef.kind !== 'builtin-template') fail(422, 'DRAFT_CITY_PROFILE');
+      if (cityEdits.length && !['builtin-template', 'builtin-copy'].includes(captured.game.sourceRef.kind)) fail(422, 'DRAFT_CITY_PROFILE');
       for (const [index, edit] of cityEdits.entries()) {
         try {
-          if (edit.op === 'numbers') { candidate = setCityDefinitionNumbers(candidate, edit.cityId, edit.values); continue; }
           if (edit.op === 'numbers') { candidate = setCityDefinitionNumbers(candidate, edit.cityId, edit.values); continue; }
           const name = cityName(edit.name);
           // 名稱在遊戲內唯一（用戶 2026-11 決定）；同名不代表同一據點的原先说明已被取代。
