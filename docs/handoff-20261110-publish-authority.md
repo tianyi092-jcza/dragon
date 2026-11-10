@@ -1,7 +1,7 @@
 # 交接：上架申請卡在 DISTRIBUTION_AUTHORITY_CORRUPT（2026-11-10；已修復並上線 2026-11-09 UTC）
 
 > 用途：新会话续接任务的**唯一入口**。读完本文件即可继续，不需要翻历史对话。
-> 长期事实见 `AGENTS.md`，部署配方见 `docs/game-storage-layout.md` §16/§17，进度流水见 `docs/checkpoint-journal.md`。
+> 长期事实见 `AGENTS.md`，部署配方见 `docs/game-storage-layout.md` §16/§18（§17 的 instabox 已退役），进度流水见 `docs/checkpoint-journal.md`。
 
 ## 1. 当前唯一阻塞（已修復，見本節末的訂正）
 
@@ -66,46 +66,46 @@ purge；`content_games` 只剩一款 **937c71ab-fb5d-4466-866a-f5f82f8fa3b0「�
 `#previous()`、`#firstOnline()`、`#assertCatalogAuthority()`；`server/distributionledger.js` 的
 `#retiredPin()`／`entry()`／`retireCheckpointInTxn()` 未改。
 
-## 3. 部署（只动 editor，别动 player）
+## 3. 部署（只动 editor，别动 player；2026-11-09 UTC 起生产在 `sadcloud`）
 
-生产在 **instabox sandbox**：`ssh -p 2222 ibssh_dkqur7jmhbhhitd5g6xjq3zxfa@ssh.instabox.sh`，目录 `/data/dragon`（`src/` 是 git 克隆，`env/` 放各 env，`bucket/` 磁盘桶，`dist/` 静态发布，`data/editor.sqlite`）。
+生产在 **`ssh sadcloud`**（82.158.91.231:7218，Debian 13），根目录 `/srv/dragon`：`src/`（git 克隆）、`data/editor.sqlite`、`private-objects/`、`bucket/`（磁盘桶）、`dist/`（静态发布）、`docker-compose.yml` 与各 env。**instabox sandbox 与 Cloudflare 隧道均已退役**，旧配方（`ssh -p 2222 …`、`--env-file env/.env`）不再可用，只作历史参考（`game-storage-layout` §17／§18.4）。
 
 本次改动**不涉及 `web/`**，所以静态 digest 不动，只重建 editor 镜像：
 
 ```bash
-cd /data/dragon/src && git fetch --depth 1 origin main && git reset --hard FETCH_HEAD
-docker builder prune -af                      # 根分区只有 16G，先腾空间
-docker build -f src/vps/Dockerfile.publication -t dragon-editor-publication:<新tag> src
-sed -i 's/^EDITOR_DEPLOYMENT_ID=.*/EDITOR_DEPLOYMENT_ID=<新tag>/' /data/dragon/env/.env
-cd /data/dragon && docker compose --env-file env/.env up -d editor
+ssh sadcloud 'cd /srv/dragon/src && git fetch -q origin main && git reset -q --hard origin/main && git rev-parse --short HEAD'
+ssh sadcloud 'cd /srv/dragon && docker builder prune -af'
+ssh sadcloud 'cd /srv/dragon && docker build -f src/vps/Dockerfile.publication -t dragon-editor-publication:<新tag> src'
+ssh sadcloud 'cd /srv/dragon && EDITOR_DEPLOYMENT_ID=<新tag> PLAYER_DEPLOYMENT_ID=<现有玩家tag> docker compose up -d --force-recreate editor'
 curl -s https://dragon-editor.720108.xyz/api/health   # 期望 200 initialized:true（约 20 s）
 ```
 
-补充（2026-11-09 实测）：`src/` 不会一直留着（上一次构建后被删了），没有就
-`git clone --depth 1 --branch main https://github.com/tianyi092-jcza/dragon.git /data/dragon/src`
-（约 551 MB，服务器到 GitHub 很快；Dockerfile 只 COPY server/vps/reader/tools×4/web，无 npm 构建）。构建只要 ~18 s。
-`docker compose up -d editor` 之后隧道要几秒才不再 502，`127.0.0.1:8788` 直接 curl 会因 Origin/Host 检查回 403，
-判据一律用公网 `/api/health`。
+- compose 的 `${EDITOR_DEPLOYMENT_ID}`／`${PLAYER_DEPLOYMENT_ID}` **两个都必须给**，只起 editor 也一样；`editor.env`／`player.env` 里的同名行只是记录、不被插值。
+- 起不来先看属主：`chown -R 1000:1000 /srv/dragon/data /srv/dragon/private-objects`、两目录 700、`data/editor.sqlite*` 600，否则 `private owner permissions required` → `startup-failed`。
+- `127.0.0.1:8788` 直接 curl 会因 Origin/Host 检查回 403，判据一律用公网 `/api/health`。
+- 只有改到 `web/`／`reader/` 才需要静态发布锁步（`vps/manual-static-build.sh` → `rsync` 换 `dist` → `publication.env` 三个 pin ＋ nginx `static-v1/<digest>/` 同 digest），见 `game-storage-layout` §18.2。
 
 切流量前的干跑（本輪用過，建議保留習慣）：`cp` 一份 `data/editor.sqlite`（连 `-wal`/`-shm`）→ `VACUUM INTO` 出单文件
 → 在**新镜像**里用一份模拟上架脚本跑 `recordInTxn`，确认目录能重建、`projection.directory` 合理，再改 `.env`。
 旧码在同一份拷贝上会停在 `#anchor` 的 `check(entry.retired !== true)`。
 
-失败排查：`docker compose --env-file env/.env logs --tail 60 editor | grep internal-error`
+失败排查：`ssh sadcloud 'cd /srv/dragon && docker compose logs --tail 60 editor | grep internal-error'`
 （`EDITOR_ERROR_DEBUG` 默认开启，非 HttpError 会打 `{"event":"internal-error","code","message","stack"}`；`fail()` 产生的 HttpError 不打栈，只有码）。
 
-## 4. 环境现状（2026-11-10）
+## 4. 环境现状（2026-11-10 订正：原表写的是已退役的 instabox）
 
 | 项 | 值 |
 | --- | --- |
 | 仓库 | `E:/Dragon/web-port`，分支 `main`，远端 `github`（`https://github.com/tianyi092-jcza/dragon.git`） |
-| HEAD | `e089e88`（= github/main） |
-| 生产入口 | `https://dragon-editor.720108.xyz`（编辑器）、`https://dragon.720108.xyz`（玩家），经 Cloudflare Tunnel `f5d35af4-…` 到 instabox 本机端口 18990→8788 / 8789 |
-| 镜像 | `dragon-editor-publication:20261109-b2-disk12`（本輪修復）、`dragon-player:20261109-b2-disk9`、`node:22-bookworm-slim` |
-| 静态 pin | `STATIC_RELEASE_SHA256=b5674f4b…`、`STATIC_SOURCE_SHA256=91defffe…`（`env/publication.env` 三处 + `env/proxy.env` 的 `PROXY_STATIC_PREFIX`） |
-| 磁盘 | `/` 16G（docker 全在这，已用 5.1G）、`/data` 20G（已用 4.8G）。**每次重建镜像前先 `docker builder prune -af`** |
-| 数据 | 桶 `/data/dragon/bucket` 2.8G（其中 `artifacts/programs/` 2.7G 是历次静态程序归档、`kao/` 13M 621 张头像、`artifacts/<gameId>/` 约 3M）；`data/editor.sqlite` 3.4M |
-| 在架游戏 | `cf369743-8b34-4664-91c2-152c706492f0`「臥龍傳·重構版」1.0，20 章 |
+| HEAD | `main` 最新提交，与 `github/main` 一致（以 `git log -1` 为准，本文件不再钉哈希） |
+| 生产主机 | `ssh sadcloud`（82.158.91.231:7218，Debian 13，4C/3.9G/50G），根目录 `/srv/dragon` |
+| 生产入口 | `https://dragon-editor.720108.xyz`（编辑器）、`https://dragon.720108.xyz`（玩家）；本机 nginx 443 `ssl_preread` 按 SNI → `8443` → `8788`／`8789`，TLS=Let's Encrypt。**不经 Cloudflare Tunnel**：隧道 `f5d35af4-…` 已随 instabox 退役，两条 A 记录灰云（DNS only）直指源站 |
+| 镜像 | `dragon-editor-publication:20261109-b6-disk12`（含批次 A–E 与據點页）、`dragon-player:20261109-b6-disk`、`node:22-bookworm-slim` |
+| 静态 pin | `STATIC_RELEASE_SHA256=b5674f4b…`、`STATIC_SOURCE_SHA256=91defffe…`、`STATIC_PATH_PREFIX=deployment-assets/static-v1/<digest>/`（`publication.env` 三处与 nginx `dragon-editor.conf` 的 `location ^~` 必须同 digest；旧 instabox 的 `env/proxy.env`／`PROXY_STATIC_PREFIX` 已不适用） |
+| 磁盘 | 50G，docker 与数据同机；**每次重建镜像前先 `docker builder prune -af`** |
+| 数据 | `/srv/dragon/bucket`（`artifacts/programs/<digest>/` 每份 171 MB、按需补；`kao/` 621 张头像；`artifacts/<gameId>/`）、`/srv/dragon/data/editor.sqlite`、`/srv/dragon/private-objects`；属主 `1000:1000`、目录 `700`、DB `600` |
+| 在架游戏 | `937c71ab-fb5d-4466-866a-f5f82f8fa3b0`「臥龍傳·重构版」1.0（gen15 publish → 管理员同意 → gen16 listing，玩家 `registry` generation 16）；旧 `cf369743…` 已 fence＋purge |
+| schema 基线 | 24 owners／**55 表／53 索引／369 列／4 FK**（`content_game_validations` 批次后的现行基线；`game-storage-layout` §16.5 的 54/52/361/4 是旧基线） |
 
 ## 5. 用户已定的后续需求（顺序不可打乱）
 
@@ -113,10 +113,10 @@ curl -s https://dragon-editor.720108.xyz/api/health   # 期望 200 initialized:t
 
 | # | 内容 | 状态 |
 | --- | --- | --- |
-| ① | 修上架 500（`RUNTIME_STAGE` 桶类型、`RUNTIME_CORRUPT` 账本退役、`DISTRIBUTION_AUTHORITY_CORRUPT` 目录重建） | **已完成并上线**（镜像 `20261109-b2-disk12`；换成用真实生产库拷贝做干跑验证后才切流量） |
-| ② | 检验结果存服务端（状态「草稿/检验成功/检验失败」+ 状态时间；绑定 `draft_revision`，修订一改即失效）+ 上架申請按钮可用性规则 | 未做 |
-| ③ | 检验弹窗四层逐项 ✓/✗（章节结构／城市引用／数量锁定／章节引用），失败项下一行红字写原因（例「城市引用 ✗ → 寿春 未落在地图上」），窗口随内容放大 | 未做 |
-| ④ | 上架申請弹窗 ①–⑥ **真实**进度（待执行→进行中→完成/失败），服务端逐步回调，前端按事件刷新 | 未做 |
+| ① | 修上架 500（`RUNTIME_STAGE` 桶类型、`RUNTIME_CORRUPT` 账本退役、`DISTRIBUTION_AUTHORITY_CORRUPT` 目录重建） | **已完成并上线**（`20261109-b2-disk12` 起；后续批次并入 `20261109-b6-disk12`。切流量前先用真实生产库拷贝干跑） |
+| ② | 检验结果存服务端（状态「草稿/检验成功/检验失败」+ 状态时间；绑定 `draft_revision`，修订一改即失效）+ 上架申請按钮可用性规则 | **已完成并上线**（`content_game_validations`；上架硬门要求同修订 passed 且 `sourceDigest` 相同，否则 `409 PUBLISH_VALIDATION_REQUIRED`。详见 journal §2） |
+| ③ | 检验弹窗四层逐项 ✓/✗（章节结构／城市引用／数量锁定／章节引用），失败项下一行红字写原因（例「城市引用 ✗ → 寿春 未落在地图上」），窗口随内容放大 | **已完成并上线**（改逐层请求、在同一个遮罩内逐項 ✓/✗；见 journal §2／§4） |
+| ④ | 上架申請弹窗 ①–⑥ **真实**进度（待执行→进行中→完成/失败），服务端逐步回调，前端按事件刷新 | **已完成并上线**（`server/publishprogress.js` ＋ `GET /api/games/<id>/publish-operations/<key>/progress`，1.5 s 轮询、只放内存；见 journal §3） |
 
 用户的业务规则（原文要点）：
 - 未检验前状态=草稿，申请前无版本号（ordinal 在真正上架时才分配）；
@@ -146,4 +146,5 @@ curl -s https://dragon-editor.720108.xyz/api/health   # 期望 200 initialized:t
 - 上架申請故障已由上架實證解除：`937c71ab…「臥龍傳·重构版」` gen15 publish（1.0）→ 管理員同意 → gen16 listing，玩家 registry generation 16。
 - ②（檢驗結果存服務端＋按鈕可用性）與 ③（檢驗彈窗四層逐項 ✓/✗＋紅字原因）已完成，見 `docs/checkpoint-journal.md` §14。
 - ④（上架申請彈窗 ①–⑥ 真實進度）：`server/publishprogress.js` 記錄服務端真正執行到的階段，`GET /api/games/{id}/publish-operations/{key}/progress` 回報步名與狀態；進度只放記憶體（單次請求的暫時狀態，重啟後由「查詢原操作」對帳），不進資料庫、不改帳本。
-- 部署方式不變（§3），只重建 editor 鏡像；`web/` 與玩家端未動。
+- 部署方式不變（§3，現行 sadcloud 配方），只重建 editor 鏡像；`web/` 與玩家端未動。
+- 本文件 §3／§4／§5 狀態已於 2026-11-10 訂正到 sadcloud 與 `b6` 鏡像；`game-storage-layout` §17 的 instabox 配方只作歷史。

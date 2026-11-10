@@ -78,7 +78,7 @@ curl -s https://dragon.720108.xyz/play-api/v1/registry # generation / directory
 
 1. **使用者要測據點模組**：`https://dragon-editor.720108.xyz` →「城池據點」；對照點見批次 E 之後的交付說明。
 2. **`artifacts/programs/` 有 6 個共享程序包未搬**（各 171 MB，當前目錄不引用）；要用「完整副本／共享程序包」再從退役機補。
-3. **文檔已切 sadcloud**；instabox 上鏡像與 `/data/dragon` 留作回滾，不再部署。
+3. **文檔已切 sadcloud**；instabox 上鏡像與 `/data/dragon` 留作回滾，不再部署。`docs/handoff-20261110-publish-authority.md` 的 §3／§4／§5 已於 2026-11-10 訂正（原本仍寫 instabox＋Cloudflare Tunnel `f5d35af4-…`、`b2` 鏡像、`cf369743` 在架）；遺留待議：`game-storage-layout` §16.5 的 schema 複核基線仍寫 54/52/361/4，現行是 55/53/369/4。
 4. 既有遺留（另案）：`verify_copy_publish_parity` 的 `web/src/main.js` 指紋失配（先前批次改程序碼未重註冊可用庫，重新生成等於重新註冊，未做）。
 
 ## 8. 已知既有紅（不得寫成全綠）
