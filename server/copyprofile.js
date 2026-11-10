@@ -256,6 +256,9 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
   // Capture existing authoring writers at the instant of a copy.
   // Never derive this authority from the candidate or its provenance fields.
   const lineage = new Map(Object.entries(baseline.chapters)), copyBases = new Map(), nativeCities = new Map();
+  // 原生城市表在逐條回退前會被換回基線（見下方 nativeCities 對帳），所以回退函式
+  // 必須保留並使用「對帳前的候選表」，否則 +01／+19 位元組比對永遠落在基線上。
+  const nativeTables = new Map();
   // 每條命令的操作前快照（引用，不複製）：還原與「先驗後還原」都必須以它為基準，
   // 不能拿固定基線冒充——同一批裡先前的命令（如解散勢力）已經改變過狀態。
   const preOp = new Map();
@@ -391,7 +394,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     const rec = revCity(revChapter(chapterId), idx), base = baseCity(chapterId, idx);
     const shell = { gameId: baseline.gameId, sourceRef: baseline.sourceRef, chapterOrder: [chapterId], chapters: { [chapterId]: { chapterId, state: { cities: [base] } } } };
     const encodedRaw = () => {
-      try { return editChapterCity(shell, chapterId, idx, { troops: rec.troops, prod: rec.prod }).chapters[chapterId].state.cities[0].raw; }
+      try { return editChapterCity(shell, chapterId, idx, { troops: rec.troops, prod: rec.prod, growth: rec.growth, defence: rec.defence }).chapters[chapterId].state.cities[0].raw; }
       catch { fail(422, 'COPY_PROTECTED_DELTA'); }
     };
     if (rec.raw !== encodedRaw()) fail(422, 'COPY_PROTECTED_DELTA');
@@ -408,9 +411,10 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
     compare(expected.state.nativeCityRecordRaw, chapter.state.nativeCityRecordRaw, new WeakMap());
     for (const idx of indices) {
       const rec = revCity(chapter, idx), target = revCity(expected, idx);
-      for (const key of ['troops', 'prod', 'raw']) compare(target[key], rec[key], new WeakMap());
+      for (const key of ['troops', 'prod', 'growth', 'defence', 'raw']) compare(target[key], rec[key], new WeakMap());
     }
     const origin = copyBases.get(chapterId) ?? baseChapter(chapterId);
+    if (Array.isArray(chapter.state.nativeCityRecordRaw)) nativeTables.set(chapterId, chapter.state.nativeCityRecordRaw);
     chapter.state.nativeCityRecordRaw = clone(origin.state.nativeCityRecordRaw);
   }
   // Narrow field restore for one general / one faction post. `origin` is the
@@ -548,7 +552,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         nativeCityRecordRaw: Array.isArray(source.state?.nativeCityRecordRaw) ? clone(source.state.nativeCityRecordRaw) : undefined } } } };
     try { setChapterCityFaction(shell, chapterId, idx, factionId); } catch { fail(422, 'COPY_PROTECTED_DELTA'); }
     const expected = shell.chapters[chapterId].state.cities[0];
-    const table = chapter.state?.nativeCityRecordRaw, baseTable = source.state?.nativeCityRecordRaw;
+    const table = nativeTables.get(chapterId) ?? chapter.state?.nativeCityRecordRaw, baseTable = source.state?.nativeCityRecordRaw;
     const matches = (ref, refTable) => (rec.faction ?? null) === (ref.faction ?? null)
       && (typeof rec.raw !== 'string' || typeof ref.raw !== 'string' ? rec.raw === ref.raw : rec.raw.slice(2, 4) === ref.raw.slice(2, 4))
       && (!Array.isArray(table) || typeof table[idx] !== 'string' || typeof refTable?.[idx] !== 'string' ? table?.[idx] === refTable?.[idx] : table[idx].slice(2, 4) === refTable[idx].slice(2, 4));
@@ -578,7 +582,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
         factions: clone(source.state?.factions ?? []) } } } };
     try { setCityGovernor(shell, chapterId, cityIdx, generalIdx); } catch { fail(422, 'COPY_PROTECTED_DELTA'); }
     const expected = shell.chapters[chapterId].state.cities[0], expectedTable = shell.chapters[chapterId].state.nativeCityRecordRaw;
-    const table = chapter.state?.nativeCityRecordRaw, baseTable = source.state?.nativeCityRecordRaw;
+    const table = nativeTables.get(chapterId) ?? chapter.state?.nativeCityRecordRaw, baseTable = source.state?.nativeCityRecordRaw;
     const governorByte = raw => typeof raw === 'string' ? raw.slice(CITY_GOVERNOR_BYTE * 2, CITY_GOVERNOR_BYTE * 2 + 2) : raw;
     const matches = (ref, refTable) => (rec.governor ?? null) === (ref.governor ?? null)
       && governorByte(rec.raw) === governorByte(ref.raw)
@@ -706,7 +710,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       revertGeneralFields(chapterId, edit.generalIdx, keys);
     } else if (op === 'city' || op === 'city-native') {
       const keys = Object.keys(edit.values ?? {});
-      if (!keys.length || keys.some(k => k !== 'troops' && k !== 'prod')) fail(422, 'COPY_PROTECTED_DELTA');
+      if (!keys.length || keys.some(k => !['troops', 'prod', 'growth', 'defence'].includes(k))) fail(422, 'COPY_PROTECTED_DELTA');
       if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0) fail(422, 'COPY_PROTECTED_DELTA');
       revertCityFields(chapterId, edit.cityIdx, keys);
     } else if (op === 'portrait') {

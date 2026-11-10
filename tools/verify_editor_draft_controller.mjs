@@ -227,7 +227,7 @@ test('city type codes are read-only, preserve unknowns and reject malformed proj
     assert.equal(h.model().nativeCities.chapters[0].cities[0].typeCode, 0);
   }
 });
-test('city condition projection preserves byte values and unknowns without opening inputs', async () => {
+test('city condition projection preserves byte values and unknowns; growth/defence are now editable', async () => {
   const h = harness(); await h.load(); const dto = receipt();
   dto.chapters[0].cities = [0, 100, 255, null, undefined].map((value, idx) => ({ idx, name: String(idx), troops: 1, prod: 2, troopsCap: 3, maxProd: 4, ...(value === undefined ? {} : { growth: value, defence: value }) }));
   h.response(() => dto); await h.actions.load();
@@ -235,7 +235,8 @@ test('city condition projection preserves byte values and unknowns without openi
   const count = h.calls.length;
   for (const key of ['growth', 'defence']) h.actions.setNativeCityInput('chapter#1', 0, key, '150');
   await h.actions.saveNativeCityInputs('chapter#1', 0);
-  assert.equal(h.calls.length, count); assert.equal(h.model().context.dirty, false); assert.equal(h.records.size, 0);
+  assert.equal(h.calls.length, count + 1);
+  assert.deepEqual(h.calls.at(-1).body.chapterEdits[0], { op: 'city-native', chapterId: 'chapter#1', cityIdx: 0, values: { growth: 150, defence: 150 } });
   h.model().nativeCities.chapters[0].cities[0].growth = 200;
   h.actions.setField('revision', '999'); assert.equal(h.model().nativeCities.chapters[0].cities[0].growth, 0);
 });
@@ -307,7 +308,7 @@ test('native city rejects mismatched identity and invalid fields before reservin
   const h = harness(); await h.load();
   const request = { gameId, draftRevision: '1', chapterId: 'chapter#1', cityIdx: 0, values: { prod: 12 } };
   const count = h.calls.length;
-  for (const change of [{ gameId: otherId }, { draftRevision: '2' }, { chapterId: 'missing' }, { cityIdx: 192 }, { cityIdx: -0 }, { values: {} }, { values: { defence: 1 } }, { values: { prod: -0 } }, { values: { prod: 1.5 } }]) await h.actions.cityNative({ ...request, ...change });
+  for (const change of [{ gameId: otherId }, { draftRevision: '2' }, { chapterId: 'missing' }, { cityIdx: 192 }, { cityIdx: -0 }, { values: {} }, { values: { growth: -1 } }, { values: { prod: -0 } }, { values: { prod: 1.5 } }]) await h.actions.cityNative({ ...request, ...change });
   assert.equal(h.calls.length, count); assert.equal(h.records.size, 0); assert.equal(h.confirmations.length, 0);
   h.confirmValue = () => { request.values.prod = 13; return true; }; await h.actions.cityNative(request);
   assert.equal(h.calls.length, count); assert.equal(h.records.size, 0);

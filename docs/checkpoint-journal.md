@@ -134,6 +134,24 @@ curl -s https://dragon.720108.xyz/play-api/v1/registry # generation / directory
 
 **未做**：① 玩家端仍 pin revision 1（`content_game_validations` 只有 rev1 的 passed 行），要在工作台重走四層校驗＋上架才會更新玩家目錄（序號會升到 `1.1`）；② 據點頁生產實測待用戶；③ 舊修訂回收。
 
+## 12. 批次 H：章節據點五屬性（所屬勢力＋四項數值）寫入通道與面板（2026-11-11）
+
+**範圍（用戶裁決）**：章節可改的五屬性＝所屬勢力／當前生產力／上升值／防災值／城兵。名稱、座標、最大生產力、類型仍屬遊戲共享父表（§11）。
+
+**證據**：原生城市記錄偏移 `+0x0E-0x0F` 當前生產力（字）、`+0x10` 上升值、`+0x11` 防災值、`+0x12` 城兵上限、`+0x13` 當前城兵、`+0x16` 觀感×16＋類型（`chaptermaterialize.js` 與 `re-notes-entity-fields` 一致）。`cityrecords.js` 舊註釋寫「0x12 城兵／0x17 外觀」是錯的，已改正。growth／defence 是 u8，**0–255 只是編碼寬度**，原版樣本 0–179／0–100 不縮小域，也不另設平衡上限；prod ≤ max_prod、troops ≤ troops_cap 沿用引擎自身語義。
+
+**實現**：
+- `gamesource.js`：`CITY_EDIT_FIELDS` 加 `growth:[0x10,1]`、`defence:[0x11,1]`；新增 `CITY_EDIT_CAPS`（troops→`troops_cap`、prod→`max_prod`、growth/defence→255）；`editChapterCity` 的 raw 一致性檢查擴到 0x10/0x11；`editChapterCityNative` 的受保護位元組改為「0x0E/0F/13 永遠容忍（舊歷史修復）＋本次寫入偏移容忍」。
+- `server/drafts.js`：`city`/`city-native` values 白名單四欄。`server/copyprofile.js`：`revertCityFields` 重算 raw 帶四值、native 對帳鍵集加 growth/defence、回退白名單四欄。
+- `server/public/draft.txt`：`attributes.chapters[].cities` 增 `prod/growth/defence/troops/maxProd/troopsCap`；`setNativeCityInput`/`saveNativeCityInputs`/`submitNativeCity` 支援四欄；新增 `cityNumbers(chapterId, cityIdx, values)`（以當前已讀修訂代填身份，不接受頁面自報修訂）。
+- `editor-ui/src/ChaptersPanel.vue`：「據點章節屬性」表加四列數值＋操作列（編輯／保存／取消，`data-city-number`／`data-number-input`／`data-number-edit|save|cancel`），同列一次保存；所屬勢力仍即時單命令。`editor-ui` 已重建（`shell-ui.js` 700445 B／`shell-ui.css` 56594 B，`build.mjs --check` 通過）。
+
+**順手修掉的既有缺陷（實錘，非本批引入）**：同一據點先 `city-native`（troops/prod）再 `city-faction` 會被判 `COPY_PROTECTED_DELTA`——`revertAppliedChapterEdits` 在逐條回退**之前**就把 `nativeCityRecordRaw` 換回基線表，於是 `revertCityFaction`／`revertCityGovernor` 的 +01／+19 位元組比對永遠落在基線上。修法：對帳時把「對帳前的候選表」存進 `nativeTables`，兩個回退函式優先用它；`city-native`＋`city-faction`、`city-native`＋`city-governor` 現在都能通過，且未申報改動仍被拒。
+
+**驗證**：`verify_editor_city_fields` 48 checks（新增 growth/defence 正例、u8 上限、雙 raw 同步、僅寫入時容忍分歧）；新 lane `tools/verify_editor_chapter_city_attributes.mjs` **5 組 PASS**（四值＋勢力同批重放、未記錄改動／第二座／受保護位元組拒絕、u8 邊界、複製章節後再改）；`verify_editor_copy_profile --city-native-only` PASS；`verify_editor_draft_controller` 110/110；`verify_editor_shell` 92；`verify_editor_city_profile` 8 組；`verify_editor_chapter_cities`、`verify_editor_chapter_reorder`（5 組）、`verify_editor_chapter_generals`（6/6）綠。未跑：HTTP 級 `verify_vps_city_save`（上次 900 s 超時）、瀏覽器 lane、`verify_editor_copy_profile` 全量（僅跑 `--city-native-only`）。
+
+**未做**：① 未提交／未推送；② 生產未重建鏡像；③ 章節數值面板未做瀏覽器實測（需全新 Playwright profile）。
+
 ## 归档锚点（外部文档仍在引用；保留原标题以不破链接）
 
 ### 5. 当前时钟系统逆向与重构本地完成

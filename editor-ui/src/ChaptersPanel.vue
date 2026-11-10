@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 // 遊戲章節（章節級）：章節開始年代、據點章節屬性、武將章節屬性。
@@ -11,6 +11,12 @@ const locked = computed(() => Boolean(props.busy) || !attributes.value.known || 
 const chapters = computed(() => attributes.value.chapters ?? []);
 const chapter = computed(() => chapters.value.find(row => row.chapterId === props.model.fields.chapterId) ?? chapters.value[0] ?? null);
 const eras = [['ad', '公元后'], ['bc', '公元前']];
+// 章節可改的五屬性：所屬勢力（即時單命令）＋四項數值（同列一次保存）。
+// 上限：當前生產 ≤ 最大生產、城兵 ≤ 城兵上限、上升值／防災值是 u8。
+const NUMBER_FIELDS = [['prod', '當前生產', 'maxProd'], ['growth', '上升值', 255], ['defence', '防災值', 255], ['troops', '城兵', 'troopsCap']];
+const numberEdit = ref(null), numberError = ref('');
+const numberForm = reactive({ prod: '', growth: '', defence: '', troops: '' });
+const numberLocked = computed(() => locked.value || !attributes.value.supported);
 const factionSlotLabel = slot => (slot === null || slot === undefined ? '中立' : `勢力槽 ${slot}`);
 const cityName = idx => chapter.value?.cities.find(city => city.idx === idx)?.name ?? (idx === null || idx === undefined ? null : `據點 #${idx}`);
 const generalName = slot => {
@@ -26,6 +32,7 @@ const ordinaryGenerals = computed(() => (chapter.value?.generals ?? []).filter(g
 function switchChapter(event) {
   props.actions.setField('chapterId', event.target.value);
   event.target.value = props.model.fields.chapterId;
+  numberEdit.value = null; numberError.value = '';
 }
 function setEra(event) { if (chapter.value) props.actions.setStartInput(chapter.value.chapterId, 'era', event.target.value); }
 function setStart(field, event) { if (chapter.value) props.actions.setStartInput(chapter.value.chapterId, field, event.target.value); }
@@ -51,6 +58,29 @@ function setDiplomat(faction, event) {
   const value = event.target.value === '' ? null : Number(event.target.value);
   props.actions.setDiplomat(chapter.value.chapterId, faction.slot, value);
   event.target.value = faction.diplomatSlot === null || faction.diplomatSlot === undefined ? '' : String(faction.diplomatSlot);
+}
+function startNumbers(city) {
+  if (numberLocked.value) return;
+  numberError.value = ''; numberEdit.value = city.idx;
+  for (const [key] of NUMBER_FIELDS) numberForm[key] = city[key] === null || city[key] === undefined ? '' : String(city[key]);
+}
+function cancelNumbers() { numberEdit.value = null; numberError.value = ''; }
+// 只在頁面預檢；服務端仍按記錄自身上限與原生位元組再驗一次。
+async function saveNumbers(city) {
+  if (numberLocked.value) return;
+  numberError.value = '';
+  const values = {};
+  for (const [key, label, capKey] of NUMBER_FIELDS) {
+    const text = String(numberForm[key] ?? '').trim();
+    if (text === '') { if (city[key] !== null && city[key] !== undefined) { numberError.value = label + ' 不可留空。'; return; } continue; }
+    const cap = typeof capKey === 'string' ? city[capKey] : capKey;
+    if (!/^[0-9]{1,5}$/.test(text) || cap === null || cap === undefined || Number(text) > cap) { numberError.value = label + ' 必須是 0–' + (cap ?? 255) + ' 的整數。'; return; }
+    const value = Number(text);
+    if (value !== city[key]) values[key] = value;
+  }
+  if (!Object.keys(values).length) { numberError.value = '數值與已讀資料相同；沒有保存。'; return; }
+  try { await props.actions.cityNumbers(chapter.value.chapterId, city.idx, values); numberEdit.value = null; }
+  catch (error) { numberError.value = (error && error.message) || '保存未完成（原因未回報）。'; }
 }
 </script>
 
@@ -78,7 +108,7 @@ function setDiplomat(faction, event) {
         <ElButton data-start-cancel :disabled="locked || !chapter?.startDirty" @click="actions.cancelStartInput(chapter.chapterId)">取消年代輸入</ElButton>
       </div>
       <h3>據點章節屬性</h3>
-      <p>所屬勢力可設為中立；中立寫中立城主位。首都唯一且不要求該據點屬於此勢力（原版資料自有此情形）；取消首都只能改設另一據點。內政官（太守）只能選該據點所屬勢力的武將：任命同時把該武將身份寫成內政官，清空時一併清身份與舊預算。</p>
+      <p>所屬勢力可設為中立；首都唯一且不要求該據點屬於此勢力。四項數值同列一次保存：當前生產 ≤ 最大生產、城兵 ≤ 城兵上限、上升值／防災值為 0–255。名稱與座標屬遊戲共享資料。內政官只能選該據點所屬勢力的武將。</p>
       <div class="entity-table-wrap"><table class="entity-table"><thead><tr><th>勢力槽</th><th>君主</th><th>軍師</th><th>外交官</th><th>首都</th></tr></thead><tbody>
         <tr v-for="faction in factionRows" :key="faction.slot" :data-faction-slot="faction.slot">
           <td>勢力槽 {{ faction.slot }}</td>
@@ -89,11 +119,15 @@ function setDiplomat(faction, event) {
         </tr>
         <tr v-if="!factionRows.length"><td colspan="5">本章沒有已宣告的勢力。</td></tr>
       </tbody></table></div>
-      <div class="entity-table-wrap"><table class="entity-table"><thead><tr><th>據點</th><th>名稱</th><th>所屬勢力</th><th>首都</th><th>內政官</th></tr></thead><tbody>
+      <div class="entity-table-wrap"><table class="entity-table"><thead><tr><th>據點</th><th>名稱</th><th>所屬勢力</th><th>當前生產</th><th>上升值</th><th>防災值</th><th>城兵</th><th>首都</th><th>內政官</th><th>操作</th></tr></thead><tbody>
         <tr v-for="city in chapter?.cities ?? []" :key="city.idx" :data-city-idx="city.idx">
           <td>#{{ city.idx }}</td>
           <td>{{ city.name }}</td>
           <td><select data-city-faction :value="city.faction ?? ''" :disabled="locked" @change="setCityFaction(city, $event)"><option value="">中立</option><option v-for="faction in factionRows" :key="faction.slot" :value="faction.slot">勢力槽 {{ faction.slot }}</option></select></td>
+          <td v-for="[key, label, capKey] in NUMBER_FIELDS" :key="key" :data-city-number="key" :title="label + '（上限 ' + (typeof capKey === 'string' ? city[capKey] : capKey) + '）'">
+            <input v-if="numberEdit === city.idx" v-model="numberForm[key]" :data-number-input="key" inputmode="numeric" maxlength="5" :disabled="busy">
+            <template v-else>{{ city[key] ?? '—' }}</template>
+          </td>
           <td>
             <ElTag v-if="city.faction !== null && factionRows.find(row => row.slot === city.faction)?.capital === city.idx" type="success" effect="plain">首都</ElTag>
             <ElButton v-else-if="city.faction !== null" data-city-capital :disabled="locked" @click="actions.setCapital(chapter.chapterId, city.faction, city.idx)">設為首都</ElButton>
@@ -105,9 +139,17 @@ function setDiplomat(faction, event) {
               <option v-for="general in (factionRows.find(row => row.slot === city.faction)?.members ?? [])" :key="general.slot" :value="general.slot">槽 {{ general.slot }}／{{ general.name }}{{ general.posts.length ? `（${general.posts.join('、')}）` : '' }}</option>
             </select>
           </td>
+          <td class="account-row-actions">
+            <template v-if="numberEdit === city.idx">
+              <ElButton data-number-save :disabled="busy" @click="saveNumbers(city)">保存</ElButton>
+              <ElButton data-number-cancel :disabled="busy" @click="cancelNumbers()">取消</ElButton>
+            </template>
+            <ElButton v-else data-number-edit :disabled="numberLocked" @click="startNumbers(city)">編輯</ElButton>
+          </td>
         </tr>
-        <tr v-if="!(chapter?.cities ?? []).length"><td colspan="5">本章沒有據點。</td></tr>
+        <tr v-if="!(chapter?.cities ?? []).length"><td colspan="10">本章沒有據點。</td></tr>
       </tbody></table></div>
+      <p v-if="numberError" class="module-notice" role="status">{{ numberError }}</p>
       <h3>武將章節屬性</h3>
       <p>所屬勢力可設為自由；持有君主／軍師／外交官職務的武將須先清空職務才能改所屬。君主與軍師請用「遊戲管理」的章節角色工作流；外交官在上一表設定或清空。保留槽不參與任官。</p>
       <div class="entity-table-wrap"><table class="entity-table"><thead><tr><th>槽</th><th>名</th><th>字</th><th>所屬勢力</th><th>身份與職務</th></tr></thead><tbody>

@@ -370,7 +370,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
             start: { era: staged.era ?? (saved?.era ?? 'ad'), year: staged.year ?? (saved === null ? '' : String(saved.year)), month: staged.month ?? (saved === null ? '' : String(saved.month)), day: staged.day ?? (saved === null ? '' : String(saved.day)) },
             factions: roles.factions.map(row => ({ slot: row.slot, monarchSlot: row.monarchSlot, advisorSlot: row.advisorSlot, diplomatSlot: row.diplomatSlot, capital: row.capital ?? null })),
             generals: roles.generals.map(row => ({ slot: row.slot, name: row.name, hao: row.hao, factionSlot: row.factionSlot ?? null, reserved: row.reserved, posts: heldPosts(roles, row.slot) })),
-            cities: cities.map(city => ({ idx: city.idx, name: city.name, faction: city.faction ?? null, governor: city.governor ?? null })) };
+            cities: cities.map(city => ({ idx: city.idx, name: city.name, faction: city.faction ?? null, governor: city.governor ?? null, prod: city.prod ?? null, growth: city.growth ?? null, defence: city.defence ?? null, troops: city.troops ?? null, maxProd: city.maxProd ?? null, troopsCap: city.troopsCap ?? null })) };
         }) : [],
       },
       chapterCreate: {
@@ -1324,7 +1324,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   function setNativeCityInput(chapterId, idx, field, text) {
     if (!nativeCitiesReady() || isBusy()) return;
     const row = nativeCities.chapters.find(chapter => chapter.chapterId === chapterId)?.cities.find(city => city.idx === idx);
-    if (!row || !['troops', 'prod'].includes(field) || typeof text !== 'string') return;
+    if (!row || !['troops', 'prod', 'growth', 'defence'].includes(field) || typeof text !== 'string') return;
     const key = JSON.stringify([chapterId, idx]), patch = { ...nativeCityInputs.get(key) };
     if (text === String(row[field] ?? '')) delete patch[field]; else patch[field] = text;
     if (Object.keys(patch).length) nativeCityInputs.set(key, patch); else nativeCityInputs.delete(key);
@@ -1337,7 +1337,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!row || !patch) return;
     const values = {};
     for (const [key, text] of Object.entries(patch)) {
-      const value = text.trim() === '' ? NaN : Number(text), cap = row[key === 'troops' ? 'troopsCap' : 'maxProd'];
+      const value = text.trim() === '' ? NaN : Number(text), cap = row[key === 'troops' ? 'troopsCap' : key === 'prod' ? 'maxProd' : 255];
       if (!Number.isSafeInteger(value) || Object.is(value, -0) || value < 0 || cap === null || value > cap) throw new Error(key + '須為已知上限內的非負整數。');
       if (value !== row[key]) values[key] = value;
     }
@@ -1350,7 +1350,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     const values = request.values;
     if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('據點數值格式無效。');
     const keys = Object.keys(values);
-    if (!keys.length || keys.some(key => !['troops', 'prod'].includes(key) || !Number.isSafeInteger(values[key]) || values[key] < 0 || Object.is(values[key], -0))) throw new Error('據點只接受明確的troops／prod非負整數；上限仍由保存服務核驗。');
+    if (!keys.length || keys.some(key => !['troops', 'prod', 'growth', 'defence'].includes(key) || !Number.isSafeInteger(values[key]) || values[key] < 0 || Object.is(values[key], -0))) throw new Error('據點只接受明確的 troops／prod／growth／defence 非負整數；上限仍由保存服務核驗。');
     const source = loaded, valid = ticket(), original = JSON.stringify(request);
     const edit = { op: 'city-native', chapterId: request.chapterId, cityIdx: request.cityIdx, values: { ...values } };
     const body = { metadata: { ...source.metadata }, resourceEdits: [], chapterEdits: [edit] };
@@ -1608,7 +1608,12 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       if (!currentMapWindow() || typeof layerMask !== 'string') throw new Error('請先讀取窗口並明確指定四層顯示狀態。');
       const view = mapWindow.value;
       return readMapWindow(view.x, view.y, view.width, view.height, layerMask, Boolean(mapScene));
-    }), setNativeCityInput, saveNativeCityInputs: (chapterId, idx) => action(() => saveNativeCityInputs(chapterId, idx)), cancelNativeCityInputs(chapterId, idx) { if (nativeCitiesReady() && !isBusy()) { nativeCityInputs.delete(JSON.stringify([chapterId, idx])); generation++; render(); } }, cityNative: request => action(() => submitNativeCity(request)), setStartInput, cancelStartInput, saveChapterStart: chapterId => action(() => saveChapterStart(chapterId)), setChapterOrderInput: (chapterId, value) => { setChapterOrderInput(chapterId, value); }, moveChapter: (chapterId, toIndex) => action(() => moveChapter(chapterId, toIndex)), cityFaction: (chapterId, cityIdx, factionId) => action(() => assignCityFaction(chapterId, cityIdx, factionId)), setCapital: (chapterId, factionIdx, cityIdx) => action(() => assignCapital(chapterId, factionIdx, cityIdx)), generalFaction: (chapterId, generalIdx, factionId) => action(() => assignGeneralFaction(chapterId, generalIdx, factionId)), setDiplomat: (chapterId, factionIdx, generalSlot) => action(() => assignDiplomat(chapterId, factionIdx, generalSlot)), cityGovernor: (chapterId, cityIdx, generalSlot) => action(() => assignGovernor(chapterId, cityIdx, generalSlot)), renameNativeGeneral: request => action(() => submitNativeGeneral(request, 'rename-general')), portraitNativeGeneral: request => action(() => submitNativeGeneral(request, 'portrait')), clearStrategist: (chapterId, factionSlot) => action(() => submitFactionPost('set-strategist', chapterId, factionSlot, null)), assignStrategist: (chapterId, factionSlot, generalSlot) => action(() => {
+    }), setNativeCityInput, saveNativeCityInputs: (chapterId, idx) => action(() => saveNativeCityInputs(chapterId, idx)), cancelNativeCityInputs(chapterId, idx) { if (nativeCitiesReady() && !isBusy()) { nativeCityInputs.delete(JSON.stringify([chapterId, idx])); generation++; render(); } }, cityNative: request => action(() => submitNativeCity(request)),
+    // Vue 章節面板直接送具名值：身份固定用當前已讀修訂，不接受頁面自報修訂。
+    cityNumbers: (chapterId, cityIdx, values) => action(() => {
+      if (!loaded) throw new Error('請先載入完整副本的精確修訂。');
+      return submitNativeCity({ gameId: loaded.gameId, draftRevision: loaded.draftRevision, chapterId, cityIdx, values });
+    }), setStartInput, cancelStartInput, saveChapterStart: chapterId => action(() => saveChapterStart(chapterId)), setChapterOrderInput: (chapterId, value) => { setChapterOrderInput(chapterId, value); }, moveChapter: (chapterId, toIndex) => action(() => moveChapter(chapterId, toIndex)), cityFaction: (chapterId, cityIdx, factionId) => action(() => assignCityFaction(chapterId, cityIdx, factionId)), setCapital: (chapterId, factionIdx, cityIdx) => action(() => assignCapital(chapterId, factionIdx, cityIdx)), generalFaction: (chapterId, generalIdx, factionId) => action(() => assignGeneralFaction(chapterId, generalIdx, factionId)), setDiplomat: (chapterId, factionIdx, generalSlot) => action(() => assignDiplomat(chapterId, factionIdx, generalSlot)), cityGovernor: (chapterId, cityIdx, generalSlot) => action(() => assignGovernor(chapterId, cityIdx, generalSlot)), renameNativeGeneral: request => action(() => submitNativeGeneral(request, 'rename-general')), portraitNativeGeneral: request => action(() => submitNativeGeneral(request, 'portrait')), clearStrategist: (chapterId, factionSlot) => action(() => submitFactionPost('set-strategist', chapterId, factionSlot, null)), assignStrategist: (chapterId, factionSlot, generalSlot) => action(() => {
       if (!Number.isSafeInteger(generalSlot) || Object.is(generalSlot, -0) || generalSlot < 0 || generalSlot >= 127) throw new Error('請明確選擇普通武將槽0至126；清空須使用獨立清空動作。');
       return submitFactionPost('set-strategist', chapterId, factionSlot, generalSlot);
     }), assignMonarch: (chapterId, factionSlot, generalSlot) => action(() => {

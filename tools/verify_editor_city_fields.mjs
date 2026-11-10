@@ -1,5 +1,5 @@
-// N3-1: chapter city troops/prod bounded edits (editChapterCity).
-// No backend; pinned builtin copyIMMUTABLE. Usage:
+// 章節據點五屬性（所屬勢力另由 setChapterCityFaction 寫）：當前生產／上升值／防災值／城兵
+// 的有界寫入與靜態原生來源同步。No backend; pinned builtin copyIMMUTABLE. Usage:
 // node tools/verify_editor_city_fields.mjs
 import { editChapterCity, editChapterCityNative } from '../web/src/content/authoring/gamesource.js';
 import { aliasStateByte } from '../web/src/game/navigation/scenariowarconsumer.js';
@@ -28,6 +28,14 @@ check('original intact', game.chapters[ch0].state.cities.find(c => c.idx === rec
 const raw = rec1.raw;
 const byte = o => Number.parseInt(raw.slice(o * 2, o * 2 + 2), 16);
 check('raw patched', byte(0x13) === rec1.troops && byte(0x0E) + byte(0x0F) * 256 === rec1.prod);
+// 上升值 +0x10、防災值 +0x11：單一 byte，值域只由編碼寬度決定。
+const growth = rec0.growth === 255 ? 254 : rec0.growth + 1;
+const morale = editChapterCity(game, ch0, rec0.idx, { growth, defence: 0 });
+const recM = morale.chapters[ch0].state.cities.find(c => c.idx === rec0.idx);
+const byteM = o => Number.parseInt(recM.raw.slice(o * 2, o * 2 + 2), 16);
+check('growth/defence applied', recM.growth === growth && recM.defence === 0);
+check('growth/defence raw patched', byteM(0x10) === growth && byteM(0x11) === 0);
+check('growth/defence u8 ceiling', editChapterCity(game, ch0, rec0.idx, { growth: 255, defence: 255 }).chapters[ch0].state.cities.find(c => c.idx === rec0.idx).defence === 255);
 
 check('no-op same ref', editChapterCity(game, ch0, rec0.idx, { troops: rec0.troops }) === game);
 check('zero troops allowed', editChapterCity(game, ch0, rec0.idx, { troops: 0 }).chapters[ch0].state.cities.find(c => c.idx === rec0.idx).troops === 0);
@@ -66,7 +74,13 @@ check('second explicit field completes static binding', completed.chapters[ch0].
 check('other chapters unchanged', game.chapterOrder.slice(1).every(id => JSON.stringify(native.chapters[id]) === JSON.stringify(game.chapters[id])));
 const zero = editChapterCityNative(game, ch0, rec0.idx, { troops: 0, prod: 0 }).chapters[ch0].state;
 check('native zero fields retain exact byte widths', zero.nativeCityRecordRaw[0] === zero.cities[0].raw && zero.cities[0].raw.slice(0x0e * 2, 0x10 * 2) === '0000' && zero.cities[0].raw.slice(0x13 * 2, 0x14 * 2) === '00');
-for (const values of [{prod:rec0.max_prod + 1}, {troops:-0}, {growth:100}, {defence:100}, {}]) throws('native existing value gate', () => editChapterCityNative(game, ch0, rec0.idx, values));
+const nativeMorale = editChapterCityNative(game, ch0, rec0.idx, { growth, defence: 255 }).chapters[ch0].state;
+check('native growth/defence sync both raw sources', nativeMorale.nativeCityRecordRaw[0] === nativeMorale.cities[0].raw && Number.parseInt(nativeMorale.cities[0].raw.slice(0x10 * 2, 0x10 * 2 + 2), 16) === growth && Number.parseInt(nativeMorale.cities[0].raw.slice(0x11 * 2, 0x11 * 2 + 2), 16) === 255);
+const divergentMorale = structuredClone(game), divergentRaw = divergentMorale.chapters[ch0].state.nativeCityRecordRaw[0];
+divergentMorale.chapters[ch0].state.nativeCityRecordRaw[0] = divergentRaw.slice(0, 0x11 * 2) + 'ff' + divergentRaw.slice(0x11 * 2 + 2);
+const repairedMorale = editChapterCityNative(divergentMorale, ch0, rec0.idx, { defence: rec0.defence }).chapters[ch0].state;
+check('written growth/defence byte may be repaired from named record', repairedMorale.nativeCityRecordRaw[0] === repairedMorale.cities[0].raw);
+for (const values of [{prod:rec0.max_prod + 1}, {troops:-0}, {growth:256}, {defence:-1}, {}]) throws('native existing value gate', () => editChapterCityNative(game, ch0, rec0.idx, values));
 for (const table of [undefined, null, [], Array(192).fill('00'), Array(192)]) {
   const bad = structuredClone(game); bad.chapters[ch0].state.nativeCityRecordRaw = table;
   throws('native missing/malformed table rejected even for no-op', () => editChapterCityNative(bad, ch0, rec0.idx, { prod: rec0.prod }));
@@ -75,6 +89,7 @@ for (const offset of [0, 0x10, 0x11, 0x19, 0x1a]) {
   const bad = structuredClone(game), before = bad.chapters[ch0].state.nativeCityRecordRaw[0];
   const replacement = (Number.parseInt(before.slice(offset * 2, offset * 2 + 2), 16) ^ 1).toString(16).padStart(2, '0');
   bad.chapters[ch0].state.nativeCityRecordRaw[0] = before.slice(0, offset * 2) + replacement + before.slice(offset * 2 + 2);
+  // 0x10／0x11 只在這一次不寫那兩個欄位時才算受保護；其它偏移永遠受保護。
   throws('native protected-byte divergence rejected', () => editChapterCityNative(bad, ch0, rec0.idx, { prod: rec0.prod }));
 }
 console.log(`passed ${passed} checks`);

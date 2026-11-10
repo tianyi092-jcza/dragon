@@ -599,10 +599,14 @@ export function checkCityDeletable(game, cityId) {
 }
 // Chapter city numeric edits (N3-1): troops (+13 byte) and prod (+0E word),
 // gated by the record's own caps (troops_cap/max_prod, re-notes §8 rule 3).
-// owner/governor/name/coords/adjacency stay closed (need attr rebuild,
+// 用户 2026-11 决定的章節五屬性：所属势力（setChapterCityFaction）＋当前生产力
+// +0x0E 字／上升值 +0x10／防灾值 +0x11／城兵 +0x13。growth／defence 是 u8，
+// 0–255 只由编码宽度决定（原版样本 0–179／0–100 不缩小域，也不另设平衡上限）。
+// owner/governor/name/coords/type/view/adjacency stay closed (need attr rebuild,
 // identity sync, Big5 limits, tile evidence). Raw bytes are patched in step
 // with the decoded fields, mirroring editChapterResources.
-const CITY_EDIT_FIELDS = Object.freeze({ troops: [0x13, 1], prod: [0x0E, 2] });
+const CITY_EDIT_FIELDS = Object.freeze({ troops: [0x13, 1], prod: [0x0E, 2], growth: [0x10, 1], defence: [0x11, 1] });
+const CITY_EDIT_CAPS = Object.freeze({ troops: "troops_cap", prod: "max_prod", growth: 255, defence: 255 });
 function chapterCity(game, chapterId, cityIdx) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   if (game.gameId === BUILTIN_GAME_ID || game.sourceRef?.kind !== "builtin-copy" || game.sourceRef.sourceId !== BUILTIN_GAME_ID) throw new RangeError("僅可編輯獨立完整副本的既有章節據點");
@@ -623,14 +627,15 @@ function cityRawWord(raw, offset) {
 export function editChapterCity(game, chapterId, cityIdx, values) {
   if (!isPlainObject(values)) throw new TypeError("city values required");
   const keys = Object.keys(values);
-  if (!keys.length || keys.some(k => !Object.hasOwn(CITY_EDIT_FIELDS, k))) throw new RangeError("city edit allows troops/prod only");
+  if (!keys.length || keys.some(k => !Object.hasOwn(CITY_EDIT_FIELDS, k))) throw new RangeError("city edit allows troops/prod/growth/defence only");
   const record = chapterCity(game, chapterId, cityIdx);
   if (typeof record.raw !== "string" || !/^[a-f0-9]{64}$/i.test(record.raw)) throw new RangeError("chapter city raw record required");
   if (!Number.isSafeInteger(record.troops_cap) || record.troops_cap < 0 || !Number.isSafeInteger(record.max_prod) || record.max_prod < 0) throw new RangeError("chapter city caps required");
-  if (cityRawByte(record.raw, 0x13) !== record.troops || cityRawWord(record.raw, 0x0E) !== record.prod) throw new RangeError("章節據點數值／原生來源分歧");
+  if (cityRawByte(record.raw, 0x13) !== record.troops || cityRawWord(record.raw, 0x0E) !== record.prod ||
+      cityRawByte(record.raw, 0x10) !== record.growth || cityRawByte(record.raw, 0x11) !== record.defence) throw new RangeError("章節據點數值／原生來源分歧");
   const captured = {};
   for (const key of keys) {
-    const value = values[key], cap = key === "troops" ? record.troops_cap : record.max_prod;
+    const value = values[key], spec = CITY_EDIT_CAPS[key], cap = typeof spec === "string" ? record[spec] : spec;
     if (typeof value !== "number" || !Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > cap) throw new RangeError(`章節據點數值範圍不符：${key}`);
     captured[key] = value;
   }
@@ -656,10 +661,15 @@ export function editChapterCityNative(game, chapterId, cityIdx, values) {
     throw new RangeError("完整靜態城市來源必須為192筆32B記錄");
   const record = state.cities.find(city => city.idx === cityIdx);
   const original = records[cityIdx];
-  // Old city operations may leave only C0E/C0F/C13 different. Other divergence
-  // is not an initialization recipe and must not be hidden by this operation.
+  // Old city operations may leave only C0E/C0F/C13 different; growth/defence
+  // divergence is tolerated only for the fields this call writes, because the
+  // sync below overwrites exactly those bytes from the named record.
+  const written = new Set(Object.keys(values).flatMap(key => {
+    const [offset, size] = CITY_EDIT_FIELDS[key];
+    return Array.from({ length: size }, (_, index) => offset + index);
+  }));
   for (let offset = 0; offset < 32; offset++) {
-    if (offset === 0x0E || offset === 0x0F || offset === 0x13) continue;
+    if (offset === 0x0E || offset === 0x0F || offset === 0x13 || written.has(offset)) continue;
     if (original.slice(offset * 2, offset * 2 + 2).toLowerCase() !== record.raw.slice(offset * 2, offset * 2 + 2).toLowerCase())
       throw new RangeError("靜態城市來源的受保護位元組分歧");
   }
