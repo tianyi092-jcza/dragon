@@ -9,6 +9,7 @@
 //     <image> node vps/migrate-shared-cities.mjs [--game <gameId>] [--dry-run]
 // 只寫新修訂；不改 copy_origins、不建立 release、不發布。輸出單行 JSON。
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parsePublicationEnvironment } from './publication-config.mjs';
 import { openStorage } from './sqlite-port.mjs';
@@ -28,11 +29,21 @@ const report = value => process.stdout.write(JSON.stringify(value) + '\n');
 let drafts;
 try {
   const bucket = new FileBucket({ root: join(options.dataRoot, 'private-objects') });
-  const { createEditorApplication } = await import('../server/editorapp.js');
+  const { PrivateWriteJournal } = await import('../server/privatewrites.js');
+  const { ImmutableBlobStore } = await import('../server/blobs.js');
+  const { GameMetadataStore } = await import('../server/metadata.js');
+  const { GameSnapshotVerifier } = await import('../server/snapshots.js');
   const { PrivateDrafts } = await import('../server/drafts.js');
-  const Application = createEditorApplication(class SystemBase {}, { readSharedPortrait: async () => { throw new Error('portrait port unused'); } });
-  // 同一個應用組裝（installed sources / blobs / games / policy），只是不開 HTTP。
-  const application = new Application({ storage }, { ...process.env, EDITOR_BLOBS: bucket });
+  const { InstalledSourceCatalog } = await import('../server/sourcecatalog.js');
+  const { installedSourcePolicy } = await import('../server/sourcecatalogpolicy.js');
+  const journal = new PrivateWriteJournal({ storage, bucket });
+  // 先建大盤的 verifier，再用它的已驗證權威給 blob 存儲（同生產裝配順序）。
+  let games, blobs;
+  blobs = new ImmutableBlobStore({ bucket: journal, storage, authority: (tokenHash, context) => games.blobAuthority(tokenHash, context) });
+  const verifier = new GameSnapshotVerifier({ blobs });
+  const worldManifest = readFileSync(new URL('../server/pinned/world-manifest.txt', import.meta.url));
+  const entityManifest = readFileSync(new URL('../server/pinned/entity-manifest.txt', import.meta.url));
+  const policy = installedSourcePolicy(new Uint8Array(worldManifest), new Uint8Array(entityManifest));
   const rows = storage.sql.exec('SELECT game_id, owner_id, draft_revision FROM content_games ORDER BY created_at, game_id').toArray();
   const targets = rows.filter(row => requestedGame === undefined || row.game_id === requestedGame);
   if (!targets.length) throw new Error('game not found');
@@ -42,16 +53,18 @@ try {
     if (!user) throw new Error('game owner missing');
     // 系統主體只在本進程內有效；不寫 sessions、不簽發 cookie。
     const principal = () => ({ id: user.id, role: user.role, epoch: user.epoch, must_change: 0 });
-    drafts = new PrivateDrafts({ storage, principal, games: application.games, blobs: application.blobs,
-      definition: () => application.installedSources.definition(), operationGuard: () => {} });
+    games = new GameMetadataStore({ storage, principal, verifySnapshot: input => verifier.verify(input.tokenHash, input),
+      recoverAllocation: () => { throw new Error('allocation recovery unavailable'); } });
+    // definition() 只看 pinned policy，不讀 bucket；但 catalog 構造需 fake‐aware 的 get 埠。
+    const catalog = new InstalledSourceCatalog({ storage, principal, policy, operationGuard: () => {},
+      bucket: { get: async () => { throw new Error('unused catalog port'); } } });
+    drafts = new PrivateDrafts({ storage, principal, games, blobs, definition: () => catalog.definition(), operationGuard: () => {} });
     const before = await drafts.read('system', row.game_id, row.draft_revision);
-    const byIdx = new Map(before.cityDefinitions.map(city => [city.runtimeSlot, city]));
-    let mismatches = 0;
-    for (const chapter of before.chapters) for (const city of chapter.cities) if (city.name !== byIdx.get(city.idx).name) mismatches++;
-    const missingDefaults = before.cityDefinitions.filter(city => ['prod', 'growth', 'defence', 'troops'].some(field => !Number.isSafeInteger(city[field]))).length;
+    // 備份件上跑的「非 dry-run」才是真實證據；dry-run 只證明能解開這個修訂（
+    // 投影後的投影是幂等的，讀出來算不出「存檔是否舊」）。
+    if (dryRun) { outcomes.push({ gameId: row.game_id, revision: row.draft_revision, storedDigest: before.sourceDigest, chapters: before.chapters.length, cities: before.cityDefinitions?.length ?? 0 }); continue; }
     const input = { metadata: before.metadata, resourceEdits: [], chapterEdits: [] };
     const digest = createHash('sha256').update(JSON.stringify(input)).digest('hex');
-    if (dryRun) { outcomes.push({ gameId: row.game_id, revision: row.draft_revision, nameMismatches: mismatches, citiesMissingDefaults: missingDefaults, dryRun: true }); continue; }
     const saved = await drafts.save('system', row.game_id, row.draft_revision, 'migrate-shared-city-20261111', digest, input);
     const after = await drafts.read('system', row.game_id, saved.draftRevision);
     const afterIdx = new Map(after.cityDefinitions.map(city => [city.runtimeSlot, city]));
@@ -59,7 +72,7 @@ try {
     for (const chapter of after.chapters) for (const city of chapter.cities) if (city.name !== afterIdx.get(city.idx).name) afterMismatches++;
     const afterMissing = after.cityDefinitions.filter(city => ['prod', 'growth', 'defence', 'troops'].some(field => !Number.isSafeInteger(city[field]))).length;
     outcomes.push({ gameId: row.game_id, from: row.draft_revision, to: saved.draftRevision, changed: saved.draftRevision !== row.draft_revision,
-      sourceDigest: saved.sourceDigest, nameMismatchesBefore: mismatches, nameMismatchesAfter: afterMismatches, citiesMissingDefaultsAfter: afterMissing });
+      sourceDigest: saved.sourceDigest, nameMismatchesAfter: afterMismatches, citiesMissingDefaultsAfter: afterMissing });
   }
   report({ event: 'migration-done', dryRun, games: outcomes });
 } catch (error) {

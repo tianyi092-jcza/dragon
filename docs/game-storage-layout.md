@@ -748,10 +748,10 @@ systemd: dragon-editor-proxy.service（proxy.mjs）、dragon-tunnel.service（cl
 
 | 项 | 值 |
 | --- | --- |
-| 编辑器镜像 | `dragon-editor-publication:20261109-b6-disk12`（HEAD `61b204f`） |
+| 编辑器镜像 | `dragon-editor-publication:20261111-city1`（HEAD `c789d4e`＋迁移命令修订，sha `3a2acaf0…`；含批次 F–G：共享據點投影、70 異名迁移） |
 | 玩家镜像 | `dragon-player:20261109-b6-disk` |
-| static release | 清单 sha256 `b5674f4b3dbe627bf437c83c84f5d0d72ddecf25b212e9ba436455727f8f7050` |
-| sourceTree | `91defffe473eb566f06799e3dddf1bed4804b213c5dcae838eb4d6375d63eeab` |
+| static release | 清单 sha256 `80c9e96b26c363149315aa2255b16b2f8a9b5f3457dc00d0bdad3a2b8ca89362` |
+| sourceTree | `50c4fc95c4ebdedd85b274f1a0c1132f2ba8d190dea4dda059c62ca827f12e4f` |
 | 入口 | `https://dragon-editor.720108.xyz` → nginx 443（`ssl_preread` 按 SNI → `127.0.0.1:8443`）→ `127.0.0.1:8788`；`https://dragon.720108.xyz` → `8789` |
 | DNS | 两条 A 记录 `82.158.91.231`，**灰云（DNS only）**，TLS 由本机 nginx 终止 |
 
@@ -761,6 +761,7 @@ systemd: dragon-editor-proxy.service（proxy.mjs）、dragon-tunnel.service（cl
 2. **静态发布锁步**：`sh src/vps/manual-static-build.sh /srv/dragon/build/static-<tag>` → `rsync -a --delete <out>/dist/ /srv/dragon/dist/`；把清单 sha256 与 `sourceTreeDigest` 写进 `publication.env` 的 `STATIC_RELEASE_SHA256`／`STATIC_SOURCE_SHA256`／`STATIC_PATH_PREFIX=deployment-assets/static-v1/<digest>/`，同时把 nginx `dragon-editor.conf` 里 `location ^~ /deployment-assets/static-v1/<digest>/` 的 digest 换成同一个值。**不换 nginx 那段，编辑器启动会读不到自己的静态归档。**
 3. **数据属主/权限**：从别处 tar 过来的文件是 root，容器要求 `privateOwned()`；`chown -R 1000:1000 /srv/dragon/data /srv/dragon/private-objects && chmod 700` 两个目录、`data/editor.sqlite*` 置 600，否则 `private owner permissions required` → `startup-failed` 重启循环。
 4. **compose 变量**：`docker-compose.yml` 用 `${EDITOR_DEPLOYMENT_ID}`／`${PLAYER_DEPLOYMENT_ID}`，即使只起 editor 也要两个都给：`EDITOR_DEPLOYMENT_ID=<tag> PLAYER_DEPLOYMENT_ID=<tag> docker compose up -d editor`（`editor.env`／`player.env` 里的同名行只是记录，不被 compose 插值）。
+5. **磁盘桶属主**：`/srv/dragon/bucket` 必须是 `1000:1000`。从 tar 中转到 VPS 的目录节点会保留客户端 uid（本机是 `197609`），旧 digest 的 `control/programs/<digest>.json` 已存在时启动只读不报错；一换新 digest，`registerStaticProgram` 要写 `control/programs/<digest>.json` 与 `artifacts/programs/<digest>/` 就直接 `PROGRAM_REGISTRATION_UNAVAILABLE` → `startup-failed` 重启循环（2026-11-11 实测）。`chown -R 1000:1000 /srv/dragon/bucket` 即解。
 
 ### 18.3 从 instabox 迁数据（一次性，迁完即退役）
 

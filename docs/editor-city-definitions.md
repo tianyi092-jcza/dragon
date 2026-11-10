@@ -16,7 +16,9 @@
 
 **实现状态（2026-11-11）**：`CITY_BASE_NUMBERS` 扩为 7 项（`max_prod/prod/growth/defence/troops/type/view`，按原版字节宽度限幅）；导入只把 0 差异的 `max_prod/type/view` 当章节无关常量（`CITY_SHARED_INVARIANTS`），四项默认值取第一章；`materializeChapterState` 优先取父表默认值；草稿 DTO 的 `cityDefinitions` 不再按 profile 置 null；`cityEdits` 对 `builtin-template` 与 `builtin-copy` 都可提交，`FixedCopyProfile.verify` 以重放＋整源比对接受“基线＋已记录据点编辑”；`setCityDefinitionNumbers` 的键集断言真 bug（`cityRecord(values,[])` 使任何非空补丁抛 `city data fields required`）已修正。回归：`tools/verify_editor_city_profile.mjs`、`tools/verify_editor_city_definitions.mjs`、`tools/verify_editor_shell.mjs`、`tools/verify_native_city.mjs`。
 
-**仍未做**：章节五属性（势力／当前生产力／上升值／防灾值／城兵）的写入通道与面板、把 70 处异名按父表回写的现有 20 章数据迁移、旧修订回收（当前只收敛接口，不 GC）。
+**仍未做**：章节五属性（势力／当前生产力／上升值／防灾值／城兵）的写入通道与面板、旧修订回收（当前只收敛接口，不 GC）。
+
+**2026-11-11 追记（70 处异名迁移已上线）**：`gamesource.js#applySharedCityData(game)` 是这条合同的唯一投影：章节名称一律取父表，父表缺的四项默认值从当前游戏第一章同槽回填（已有值不覆盖），幂等。`copyBuiltinGame` 导入时套用；`server/drafts.js` 在 `#load`／`#profile` 读旧存档时套同一投影，所以 rev1 那种旧字节也能按现行合同显示，任何一次保存把投影写成新修订。生产已用 `vps/migrate-shared-cities.mjs`（真实 `PrivateDrafts.save`，只写新修订、不动 `copy_origins`、不发布）把 `937c71ab…` 从 rev1 遷到 rev2：0 异名、0 缺值。回归：`tools/verify_shared_city_migration.mjs`（15 checks）、`verify_editor_city_definitions.mjs`（4/4，原版固定源仍保留 10 个异名槽位）。
 
 这是[工程合同§3](game-editor-technical-design.md#3-人物据点章节与固定槽映射)的Web创作资料切片，不是DOS规则或完整据点编辑证书。当前已实现共同内容写入器、受信中立顺序历史校验、现有草稿API接线与只读DTO；后继据点页已接名称操作，并已取得下述真实后端浏览器联合保存限定证据。章节中立引用已进一步接保存API／DTO、据点页配置／移除与更名影响确认，并取得后继真实后端浏览器限定证据；下述各批历史的关闭入口不代表最新状态。
 

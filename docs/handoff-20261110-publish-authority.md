@@ -100,11 +100,11 @@ curl -s https://dragon-editor.720108.xyz/api/health   # 期望 200 initialized:t
 | HEAD | `main` 最新提交，与 `github/main` 一致（以 `git log -1` 为准，本文件不再钉哈希） |
 | 生产主机 | `ssh sadcloud`（82.158.91.231:7218，Debian 13，4C/3.9G/50G），根目录 `/srv/dragon` |
 | 生产入口 | `https://dragon-editor.720108.xyz`（编辑器）、`https://dragon.720108.xyz`（玩家）；本机 nginx 443 `ssl_preread` 按 SNI → `8443` → `8788`／`8789`，TLS=Let's Encrypt。**不经 Cloudflare Tunnel**：隧道 `f5d35af4-…` 已随 instabox 退役，两条 A 记录灰云（DNS only）直指源站 |
-| 镜像 | `dragon-editor-publication:20261109-b6-disk12`（含批次 A–E 与據點页）、`dragon-player:20261109-b6-disk`、`node:22-bookworm-slim` |
-| 静态 pin | `STATIC_RELEASE_SHA256=b5674f4b…`、`STATIC_SOURCE_SHA256=91defffe…`、`STATIC_PATH_PREFIX=deployment-assets/static-v1/<digest>/`（`publication.env` 三处与 nginx `dragon-editor.conf` 的 `location ^~` 必须同 digest；旧 instabox 的 `env/proxy.env`／`PROXY_STATIC_PREFIX` 已不适用） |
+| 镜像 | `dragon-editor-publication:20261111-city1`（含批次 A–G：共享據點投影＋70 異名迁移）、`dragon-player:20261109-b6-disk`、`node:22-bookworm-slim` |
+| 静态 pin | `STATIC_RELEASE_SHA256=80c9e96b…`、`STATIC_SOURCE_SHA256=50c4fc95…`、`STATIC_PATH_PREFIX=deployment-assets/static-v1/80c9e96b…/`（`publication.env` 三处与 nginx `dragon-editor.conf` 的 `location ^~` 必须同 digest；旧 instabox 的 `env/proxy.env`／`PROXY_STATIC_PREFIX` 已不适用） |
 | 磁盘 | 50G，docker 与数据同机；**每次重建镜像前先 `docker builder prune -af`** |
-| 数据 | `/srv/dragon/bucket`（`artifacts/programs/<digest>/` 每份 171 MB、按需补；`kao/` 621 张头像；`artifacts/<gameId>/`）、`/srv/dragon/data/editor.sqlite`、`/srv/dragon/private-objects`；属主 `1000:1000`、目录 `700`、DB `600` |
-| 在架游戏 | `937c71ab-fb5d-4466-866a-f5f82f8fa3b0`「臥龍傳·重构版」1.0（gen15 publish → 管理员同意 → gen16 listing，玩家 `registry` generation 16）；旧 `cf369743…` 已 fence＋purge |
+| 数据 | `/srv/dragon/bucket`（`artifacts/programs/<digest>/` 每份 171 MB、按需补；`kao/` 621 张头像；`artifacts/<gameId>/`）、`/srv/dragon/data/editor.sqlite`、`/srv/dragon/private-objects`；属主 `1000:1000`、目录 `700`、DB `600`；**`bucket` 也必须 `1000:1000`**（新 static digest 要写 `control/programs/` 与 `artifacts/programs/`，否则 `PROGRAM_REGISTRATION_UNAVAILABLE`） |
+| 在架游戏 | `937c71ab-fb5d-4466-866a-f5f82f8fa3b0`「臥龍傳·重构版」pin 1.0／revision **1**（gen15 publish → 管理员同意 → gen16 listing，玩家 `registry` generation 16）；2026-11-11 已把编辑器 `draft_revision` 遷到 **2**（rev1→rev2：0 異名、四項默認值齐），但玩家端仍是 revision 1，需重走四层校驗＋上架（序號會升到 `1.1`） |
 | schema 基线 | 24 owners／**55 表／53 索引／369 列／4 FK**（`content_game_validations` 批次后的现行基线；`game-storage-layout` §16.5 的 54/52/361/4 是旧基线） |
 
 ## 5. 用户已定的后续需求（顺序不可打乱）

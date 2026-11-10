@@ -11,11 +11,11 @@
 | 项 | 值 |
 | --- | --- |
 | 主机 | `ssh sadcloud`（82.158.91.231:7218，Debian 13，4C/3.9G/50G），根目录 `/srv/dragon` |
-| 镜像 | 编辑器 `dragon-editor-publication:20261109-b6-disk12`（HEAD `61b204f`）；玩家 `dragon-player:20261109-b6-disk` |
-| 静态发布 | 清单 `b5674f4b…`、sourceTree `91defffe…`、1442 檔／165.8 MiB，`publication.env` 三个 pin 与 nginx `deployment-assets/static-v1/<digest>/` 一致 |
+| 镜像 | 编辑器 `dragon-editor-publication:20261111-city1`（HEAD `c789d4e`＋迁移命令修订，sha `3a2acaf0…`）；玩家 `dragon-player:20261109-b6-disk` |
+| 静态发布 | 清单 `80c9e96b…`、sourceTree `50c4fc95…`、1442 檔／165.81 MiB，`publication.env` 三个 pin 与 nginx `deployment-assets/static-v1/<digest>/` 一致 |
 | 入口 | nginx 443 `ssl_preread` 按 SNI → `8443` → `8788`（editor）／`8789`（player）；两域名 A 记录灰云直指源站，TLS=Let's Encrypt（SAN 覆盖两域名） |
 | 数据 | `data/editor.sqlite`（`700`/`600`，uid `1000`）、`private-objects/`、`bucket/`、`dist/` |
-| 线上事实 | 账本 `tail=confirmed=16`；`937c71ab…「臥龍傳·重构版」` `listed=1`、pin `1.0`；玩家 `registry` generation 16 |
+| 线上事实 | 账本 `tail=confirmed=16`；`937c71ab…「臥龍傳·重构版」` `listed=1`、pin `1.0`；玩家目录 revision **1**（编辑器 `draft_revision=2`，见 §11）；玩家 `registry` generation 16 |
 
 部署（改完必须锁步，改 `web/` 才需要重建静态发布）：
 
@@ -113,7 +113,26 @@ curl -s https://dragon.720108.xyz/play-api/v1/registry # generation / directory
 
 **驗證**：`tools/verify_editor_city_profile.mjs` **8 組**（新增：有記錄通過，無記錄／值不符／改別座／改坐標／改槽位均 422）、`verify_editor_city_definitions` **4/4**、`verify_editor_shell` **92 checks**、`verify_native_city` **29/29**、`editor-ui build --check` 通過。`verify_vps_city_save` 跑到 900s 仍未結束（非失敗，未得終態）。
 
-**未做（下一步）**：章節五屬性的寫入通道＋面板；把 70 處異名按父表回寫的 20 章數據遷移；舊修訂回收（只收斂接口、不 GC）；生產遊戲的據點頁實測與可選的一次性默認值回填（需用戶授權寫生產數據）。
+**未做（下一步）**：章節五屬性的寫入通道＋面板；舊修訂回收（只收斂接口、不 GC）。70 處異名遷移與生產部署已於 §11 完成。
+
+## 11. 批次 G：共享據點投影＋70 異名遷移＋部署上線（2026-11-11）
+
+**合同**：名稱歸父表；父表缺的 `prod`/`growth`/`defence`/`troops` 從當前遊戲第一章同槽記錄回填一次。舊存檔（生產 rev1＝舊 `copyBuiltinGame` 輸出）不改位元組也能按現行合同讀；任何一次保存把投影寫成新修訂。
+
+**實現**：
+- `web/src/content/authoring/gamesource.js` 新增 `applySharedCityData(game)`（冪等；192 父表校驗；四值回填不覆蓋已有值；章節名稱一律取父表；不動 `raw`／`nativeCityRecordRaw`），`copyBuiltinGame` 導入時套用；`cityrecords.js` 導出 `CITY_NUMBER_LIMITS`。
+- `server/drafts.js`：`#load` 與 `#profile` 在基線／引用校驗後套同一投影（失敗 → `503 DRAFT_REFERENCE_CORRUPT`／`DRAFT_BASELINE_CORRUPT`），所以讀取、保存、`captureForCompile`、上架都看到同一份父表名稱。
+- `vps/migrate-shared-cities.mjs`：一次性遷移命令。自建最小裝配（`FileBucket`＋`PrivateWriteJournal`＋`ImmutableBlobStore`＋`GameSnapshotVerifier`＋`GameMetadataStore`＋`InstalledSourceCatalog.definition()`），系統主體只存活於進程內、不寫 `sessions`；走真實 `PrivateDrafts.save`，只寫新修訂，不動 `copy_origins`、不建 release、不發布。`--dry-run` 只驗能解開修訂（投影後再度量是冪等的，量不出「存檔是否舊」）。
+
+**驗證（本地）**：新增 `tools/verify_shared_city_migration.mjs` **15 checks**（把已投影副本反推成生產形狀作 rev1 → 讀投影 → 無改動保存 rev2 → `captureForCompile` 0 異名／192 原始章節位元組保留 → 再保存仍 rev2 → 新章用父表名）；`verify_editor_city_definitions` 改為「原版固定源保留 10 個異名槽位、導入副本 0 異名」**4/4**；`verify_editor_city_profile` 8 組、`verify_vps_draft_save` 179 checks、`verify_editor_chapter_cities`、`verify_chapter_attributes` 均綠。`verify_editor_copy_profile` 900 s 超時（未得終態，不算通過）；`verify_editor_backend_copy_profile` 缺 `MINIFLARE_MODULE`（既有環境要求）。
+
+**遷移（生產）**：先用 `cp` 的 sqlite 三件＋`cp -al` 的 `private-objects` 在 `/srv/dragon/build/dryrun` 做完整預演（`1 → 2`、0 異名、0 缺值），再停 editor，對 live `/srv/dragon/data` 跑同一命令：`{"from":"1","to":"2","changed":true,"nameMismatchesAfter":0,"citiesMissingDefaultsAfter":0}`；`content_snapshots` rev1 `b7c9546c…`、rev2 `11b4a595…`。
+
+**部署**：本地 `sh vps/manual-static-build.sh .deploy/static-c789d4e` → 清單 `80c9e96b…`／sourceTree `50c4fc95…`（1442 檔／165.81 MiB）→ tar over ssh 上傳 `/srv/dragon/build/static-c789d4e` → `rsync -a --delete` 到 `dist` → nginx `static-v1/<digest>/` 換新 → `publication.env` 三個 pin 同步 → 起鏡像 `20261111-city1`。
+
+**第五個坑（新，已寫進 game-storage-layout §18.2）**：`/srv/dragon/bucket` 內 26 個 tar 中轉遺留的目錄屬主是 `197609`（非 `1000`）。舊 digest 的 `control/programs/<digest>.json` 早已存在，啟動只讀不寫所以沒暴露；換新 digest 必須寫登記檔與 `artifacts/programs/<digest>/`，`node`（uid 1000）無權 → `PROGRAM_REGISTRATION_UNAVAILABLE` → `startup-failed` 重啟循環。修法 `chown -R 1000:1000 /srv/dragon/bucket`；之後 `/api/health` 200 `initialized:true`、`distribution-idle`，`control/programs/80c9e96b….json` 與 `bucket/artifacts/programs/80c9e96b…`（170 M）已生成。
+
+**未做**：① 玩家端仍 pin revision 1（`content_game_validations` 只有 rev1 的 passed 行），要在工作台重走四層校驗＋上架才會更新玩家目錄（序號會升到 `1.1`）；② 據點頁生產實測待用戶；③ 舊修訂回收。
 
 ## 归档锚点（外部文档仍在引用；保留原标题以不破链接）
 
