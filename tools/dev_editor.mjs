@@ -41,7 +41,9 @@ function operatorPort(bucket) {
 // Staging 58 MiB of pinned source on every restart would dominate the edit loop,
 // so the verified result is cached against the pinned manifest fingerprints.
 // Any pinned byte change invalidates the marker and forces a full restage.
-async function stagedPinned(bucket) {
+// `--no-library` 只给本地实测用：available-library 的消费者指纹是钉死清单，代码改了
+// main.js 之类就会不匹配；城池据点等游戏级模块不依赖素材库，没装也不影响读/存。
+async function stagedPinned(bucket, withLibrary = true) {
   const marker = join(STORE, 'staged.json');
   const inputs = ['../server/pinned/world-manifest.txt', '../server/pinned/entity-manifest.txt', '../server/available-library.txt']
     .map(path => readFileSync(new URL(path, import.meta.url)));
@@ -49,13 +51,20 @@ async function stagedPinned(bucket) {
   if (existsSync(marker)) {
     try {
       const cached = JSON.parse(readFileSync(marker, 'utf8'));
-      if (cached.fingerprint === fingerprint) return cached;
+      if (cached.fingerprint === fingerprint) {
+        if (!withLibrary && cached.library) delete cached.library;
+        else if (withLibrary && !cached.library) { /* 下面的完整 staging 会补齐素材库 */ }
+        else return cached;
+      }
     } catch { /* 损坏的缓存标记只意味着重跑一次 staging */ }
   }
   process.stderr.write('dev: staging pinned source and available library（约 40s，仅 pinned 字节变化时重跑）\n');
   const { stageInstalledEditorSource } = await import('./editor_stage_source.mjs');
-  const { stageInstalledAvailableLibrary } = await import('./editor_stage_library.mjs');
-  const staged = { fingerprint, source: await stageInstalledEditorSource(bucket), library: await stageInstalledAvailableLibrary(bucket) };
+  const staged = { fingerprint, source: await stageInstalledEditorSource(bucket) };
+  if (withLibrary) {
+    const { stageInstalledAvailableLibrary } = await import('./editor_stage_library.mjs');
+    staged.library = await stageInstalledAvailableLibrary(bucket);
+  }
   writeFileSync(marker, `${JSON.stringify(staged, null, 2)}\n`);
   return staged;
 }
@@ -70,7 +79,7 @@ async function serve() {
   const storage = openStorage(join(STORE, 'editor.sqlite'));
   let transport;
   try {
-    const { source, library } = await stagedPinned(operatorPort(bucket));
+    const { source, library } = await stagedPinned(operatorPort(bucket), !argv.includes('--no-library'));
     const wrangler = readFileSync(new URL('../server/wrangler.jsonc', import.meta.url), 'utf8');
     const env = {
       ...JSON.parse(wrangler).vars,
@@ -81,7 +90,8 @@ async function serve() {
       // locks the tester out of a loop of quick re-logins.
       EDITOR_RATE_MS: '1000',
       EDITOR_INSTALLED_SOURCE_ROOT: JSON.stringify(source),
-      EDITOR_AVAILABLE_LIBRARY_ROOT: JSON.stringify(library),
+      ...(process.env.DRAGON_TIMING ? { DRAGON_TIMING: '1' } : {}),
+      ...(library ? { EDITOR_AVAILABLE_LIBRARY_ROOT: JSON.stringify(library) } : {}),
     };
     const service = createEditorService({ storage, bucket, env });
     transport = await createEditorHTTPS(
@@ -177,7 +187,10 @@ async function supervise() {
   }
 
   function start() {
-    child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--child', '--port', String(PORT), '--store', STORE],
+    // 子进程重新执行同一个文件；本地实测开关必须显式传下去。
+    const flags = ['--child', '--port', String(PORT), '--store', STORE];
+    if (argv.includes('--no-library')) flags.push('--no-library');
+    child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...flags],
       { cwd: root, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
     const started = child;
     started.once('exit', (code, signal) => {
