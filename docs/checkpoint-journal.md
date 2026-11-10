@@ -248,3 +248,13 @@ ui14 步骤：服务器 LF 检出跑 `prepare_deploy.mjs` 复现 inventory → `
   - 移除 Element Plus 對話框（未帶樣式會落在左上角並擋住頁面點擊，是「校驗點不動」的直接原因）。
   - 已上架且沒有新草稿修訂時，上架按鈕旁直接顯示原因（「已上架且沒有新修訂…」），不再只靠 title。
 - 驗證：`verify_publish_ui_model` 19/19（改為斷言四次逐層 POST 與合併結果）、`verify_publish_operations_root` 34 組（`ensureValidated` 改逐層並斷言前三層不落庫）、`verify_editor_shell` 92、`build --check` 通過。
+
+## 17. 批次 E（2026-11-09 UTC）：生产迁回 `sadcloud`，instabox 退役
+
+用户原话：「以后就82.158.91.231部署了，不换了，instbox太不稳定了」；随后「改，然后提交一次」（指改部署文档）。背景：instabox 从 14:18Z 起长期回 `machine is cooling down until 2026-11-09T16:27:20Z`（时间戳一字不变），期间只偶发通一次；rsync 不存在、出站 ssh 报 `hostname contains invalid characters`、入站长连接被掐断。
+
+**做了什么**：`/srv/dragon/src` 取到 `61b204f` → 建 `dragon-editor-publication:20261109-b6-disk12` 与 `dragon-player:20261109-b6-disk` → `vps/manual-static-build.sh` 重建静态发布（清单 `b5674f4b…`／sourceTree `91defffe…`，1442 档／165.8 MiB）→ 同步 `dist`、改 `publication.env` 三个 pin、改 nginx 的 `deployment-assets/static-v1/<digest>/` → 经本机中转 tar over ssh 迁 `data`（3.5 M，含账本 16/16、`937c71ab` listed、pin 1.0）＋`private-objects`（196 M）＋`bucket/{control,projections,receipts,roots,artifacts/937c71ab}`（12 M）→ `chown 1000:1000` 并 `chmod 700/600` → 起容器 → health 200、玩家 `registry` generation 16。
+
+**四个坑（已写入 [§18](game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)）**：① `sites-enabled/` 是空的，80/8443 根本没人听（443 SNI 分流全指死端口，外部 TLS reset／CF 525）；② 启动会经公网拉自己的静态归档，digest 与 nginx 路径必须同步换；③ tar 过来的属主是 root，容器 `privateOwned()` 直接 `startup-failed`；④ compose 用 `${EDITOR_DEPLOYMENT_ID}`／`${PLAYER_DEPLOYMENT_ID}` 插值，只起 editor 也要两个都给。
+
+**遗留**：`artifacts/programs/` 有 6 个共享程序包（各 171 MB）未搬，当前目录不引用，用到「完整副本／共享程序包」时再补；`verify_copy_publish_parity` 的 `web/src/main.js` 指纹失配仍是历史遗留（与据点和本批无关）。

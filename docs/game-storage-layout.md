@@ -631,7 +631,7 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u al
 **仓库里的 `wrangler.jsonc` 不动**：它保留 `build.command` 给「手工 deploy 仓库根」这种场景，
 手动发布一律用脚本生成的、去掉 `build` 段的临时配置，避免 wrangler 在我们控制之外的目录重建 dist。
 
-## 16. 方案 B：现行生产（`sadcloud`，2026-11-06 起）
+## 16. 方案 B 首次落地（`sadcloud`，2026-11-06；2026-11-09 起再次成为现行生产，见 §18）
 
 > §15 及其 §15.1–15.6 描述的是**历史形态**（dartnode4 ＋ Cloudflare Worker ＋ R2 桶）。2026-11-06 起生产整体搬到自有 VPS，本节为准；旧机器与 R2 桶已下线。
 
@@ -702,7 +702,7 @@ schema 复核（只读快照）：`cp /srv/dragon/data/editor.sqlite* /tmp/q/` �
 - **R2 桶 `dragon`**：迁移后先核「磁盘 13606 键 == R2 13606 键、缺失 0／多余 0、抽样 25 个 sha256 全等」，再逐条删对象、最后 `wrangler r2 bucket delete dragon`（S3 令牌只有对象权限，删桶报 `AccessDenied`，要用 OAuth 的 wrangler）。剩余桶 `agentic-inbox`／`img-box`／`sanguo-gtiles` 与本项目无关。
 - **旧机 `dartnode4`**：容器与 `dragon-editor-publication:*` 镜像已移除，`dragon-editor.720108.xyz` 的 vhost 移到 `/home/web/conf.d-disabled/`；`nginx` 容器**保留**（同时服务 `kpanle.720108.xyz`／`v2ray-dartnode.720108.xyz`）。保留回滚数据 `/srv/dragon-editor/publication/publication-data`（157 MB）与 `/root/dragon-editor-backups`（8.0 GB）。
 
-## 17. 方案 B 第二次搬迁：instabox sandbox（2026-11-07 起，现行生产）
+## 17. 方案 B 第二次搬迁：instabox sandbox（2026-11-07 ~ 2026-11-09，已被 §18 取代）
 
 用户决定：「当前的VPS不再使用。资源配置太低」→ 迁到 instabox sandbox（Firecracker VM，4 vCPU / 8 GiB / 16 GiB root + 20 GiB `/data`，Debian 13），对外走 **Cloudflare Tunnel**。
 
@@ -737,4 +737,48 @@ systemd: dragon-editor-proxy.service（proxy.mjs）、dragon-tunnel.service（cl
 ### 17.4 旧机 sadcloud 已下线（2026-11-07）
 
 `/srv/dragon` 上 `docker compose down`（容器与网络已移除，镜像与 `/srv/dragon` 2.9 GB 保留作回滚）；`/etc/nginx/sites-enabled/dragon-{editor,player}.conf` 两个站点软链已删并 reload（80/8443 不再服务本项目）。**同机的 x-ui/xray 未动**（443 SNI 分流与 `127.0.0.1:11443` 的 reality inbound 照常运行）。回滚 = 恢复软链 + `docker compose up -d` + 把 DNS 指回该机。
+
+> 2026-11-09 UTC 本条已被 §18 推翻：生产迁回 `sadcloud`，instabox 退役。
+
+## 18. 迁回 `sadcloud`（2026-11-09 UTC 起，现行生产）
+
+用户决定（原话）：「以后就82.158.91.231部署了，不换了，instbox太不稳定了」。sadcloud 上 §16 的基础设施原样保留（`/srv/dragon/src|data|private-objects|bucket|dist`、nginx 443 SNI 分流、Let's Encrypt 证书 SAN 覆盖两域名、`certbot.timer`），本轮只做「取源 → 锁步重建静态发布 → 换镜像 → 迁数据 → 起容器」。
+
+### 18.1 现行镜像与摘要
+
+| 项 | 值 |
+| --- | --- |
+| 编辑器镜像 | `dragon-editor-publication:20261109-b6-disk12`（HEAD `61b204f`） |
+| 玩家镜像 | `dragon-player:20261109-b6-disk` |
+| static release | 清单 sha256 `b5674f4b3dbe627bf437c83c84f5d0d72ddecf25b212e9ba436455727f8f7050` |
+| sourceTree | `91defffe473eb566f06799e3dddf1bed4804b213c5dcae838eb4d6375d63eeab` |
+| 入口 | `https://dragon-editor.720108.xyz` → nginx 443（`ssl_preread` 按 SNI → `127.0.0.1:8443`）→ `127.0.0.1:8788`；`https://dragon.720108.xyz` → `8789` |
+| DNS | 两条 A 记录 `82.158.91.231`，**灰云（DNS only）**，TLS 由本机 nginx 终止 |
+
+### 18.2 必做的四步（少一步就起不来）
+
+1. **`sites-enabled` 软链**：`sites-available/dragon-{editor,player}.conf` 必须在 `sites-enabled/` 有软链，否则 80/8443 根本没人听，443 的 SNI 分流全指到死端口（外部表现为 TLS 握手被 reset / CF 报 525）。`nginx -t && systemctl reload nginx`。
+2. **静态发布锁步**：`sh src/vps/manual-static-build.sh /srv/dragon/build/static-<tag>` → `rsync -a --delete <out>/dist/ /srv/dragon/dist/`；把清单 sha256 与 `sourceTreeDigest` 写进 `publication.env` 的 `STATIC_RELEASE_SHA256`／`STATIC_SOURCE_SHA256`／`STATIC_PATH_PREFIX=deployment-assets/static-v1/<digest>/`，同时把 nginx `dragon-editor.conf` 里 `location ^~ /deployment-assets/static-v1/<digest>/` 的 digest 换成同一个值。**不换 nginx 那段，编辑器启动会读不到自己的静态归档。**
+3. **数据属主/权限**：从别处 tar 过来的文件是 root，容器要求 `privateOwned()`；`chown -R 1000:1000 /srv/dragon/data /srv/dragon/private-objects && chmod 700` 两个目录、`data/editor.sqlite*` 置 600，否则 `private owner permissions required` → `startup-failed` 重启循环。
+4. **compose 变量**：`docker-compose.yml` 用 `${EDITOR_DEPLOYMENT_ID}`／`${PLAYER_DEPLOYMENT_ID}`，即使只起 editor 也要两个都给：`EDITOR_DEPLOYMENT_ID=<tag> PLAYER_DEPLOYMENT_ID=<tag> docker compose up -d editor`（`editor.env`／`player.env` 里的同名行只是记录，不被 compose 插值）。
+
+### 18.3 从 instabox 迁数据（一次性，迁完即退役）
+
+instabox 沙箱限制：无 `rsync`、出站 `ssh` 报 `hostname contains invalid characters`、入站长连接会被 cooling 掐断，且冷却时间戳长时间不刷新。可行路径是**经本机中转的 tar over ssh**：
+
+```sh
+ssh -p 2222 <instabox> 'tar -C /data/dragon -cf - data private-objects' | tar -C /tmp/ibsync -xf -
+tar -C /tmp/ibsync -cf - data private-objects | ssh sadcloud 'tar -C /srv/dragon -xf -'
+ssh -p 2222 <instabox> 'cd /data/dragon/bucket && tar -cf - control projections receipts roots artifacts/<gameId>' \
+  | ssh sadcloud 'tar -C /srv/dragon/bucket -xf -'
+```
+
+- 账本与桶必须成对搬：只搬 `control/` 不搬 `artifacts/<gameId>/`，玩家端会拿不到 runtime 索引。
+- `artifacts/programs/<digest>/` 每个 171 MB；只有「完整副本／共享程序包」才用，按需补。
+- 核对：`data/editor.sqlite` 的 `content_distribution_state.tail_generation == confirmed_generation`、`content_games` 行、`published_games.pin_json.ordinal`；玩家端 `registry` 的 `generation` 必须与 `control/current.json` 一致。
+- 迁移前先 `docker compose stop editor`，避免覆盖正在写的 SQLite。
+
+### 18.4 退役 instabox
+
+镜像与 `/data/dragon` 保留作回滚；DNS 已指向 `82.158.91.231`；`cloudflared` 隧道（`f5d35af4-…`）与 `vps/instabox/` 下的 proxy／compose／start.sh 只作历史参考，不再部署。
 
