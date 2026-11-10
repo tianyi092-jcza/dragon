@@ -31,7 +31,7 @@ export const CITY_SHARED_INVARIANTS = Object.freeze(['max_prod', 'type', 'view']
 export const CITY_CHAPTER_NUMBERS = Object.freeze(['growth', 'defence', 'troops_cap']);
 // 原版偏移：0x0c–0x0d 最大生产力（字）、0x0e–0x0f 当前生产力（字）、0x10 上升值、
 // 0x11 防灾值、0x12 城兵、0x17 高 4 位外观／低 4 位类型。
-const CITY_NUMBER_LIMITS = Object.freeze({ max_prod: 0xffff, prod: 0xffff, growth: 0xff, defence: 0xff, troops: 0xff, type: 0xff, view: 0xff });
+export const CITY_NUMBER_LIMITS = Object.freeze({ max_prod: 0xffff, prod: 0xffff, growth: 0xff, defence: 0xff, troops: 0xff, type: 0xff, view: 0xff });
 export function cityBaseNumbers(value) {
   const numbers = {};
   for (const name of CITY_BASE_NUMBERS) {

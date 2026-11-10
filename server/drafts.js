@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { canonicalSourceTokens, encodeSourceChunks, decodeSourceChunks, CanonicalSourceParser } from '../web/src/content/authoring/sourcejson.js';
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
-import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, moveChapter, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor, chapterReferenceReport } from '../web/src/content/authoring/gamesource.js';
+import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, moveChapter, deleteChapter, renameChapter, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction, createFaction, editChapterCity, editChapterCityNative, cityReferences, generalChapterReferences, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor, chapterReferenceReport, applySharedCityData } from '../web/src/content/authoring/gamesource.js';
 import { chapterGapReport } from './chaptergapreport.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionChangeImpact, chapterPeopleProjection, generalLibrarySupported } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, setCityDefinitionNumbers, applyChapterCityEdit, chapterCitiesProjection, cityDefinitionChangeImpact } from '../web/src/content/authoring/citydefinitions.js';
@@ -307,6 +307,10 @@ export class PrivateDrafts {
     // discovered from those bytes, without using the current row for an old revision.
     const proof = await (single ? this.#readSourceStored(tokenHash, gameId, root, sourceIndex, actor) : this.#readSource(tokenHash, gameId, root, sourceIndex, actor));
     if (proof.sourceDigest !== reference.sourceDigest || proof.dependencyDigest !== reference.dependencyDigest) fail(503, 'DRAFT_REFERENCE_CORRUPT');
+    // 共享據點投影（用戶 2026-11）：存檔年代早於「名稱歸父表／四項預設值」的遊戲，
+    // 讀出來的章節名稱與父表缺項先按現行合同呈現；任何一次保存都會把投影結果寫成
+    // 新修訂（digest 隨之收斂），發佈／試運行讀到的也是投影後內容。
+    try { applySharedCityData(proof.game); } catch { fail(503, 'DRAFT_REFERENCE_CORRUPT'); }
     return { reference, root, proof };
   }
   async #readSource(tokenHash, gameId, root, index, actor) {
@@ -339,6 +343,9 @@ export class PrivateDrafts {
     try { index = decodeSourceChunks([actual.bytes]); } catch { fail(503, 'DRAFT_BASELINE_CORRUPT'); }
     const proof = await (single ? this.#readSourceStored(tokenHash, gameId, root, index, actor) : this.#readSource(tokenHash, gameId, root, index, actor));
     if (proof.sourceDigest !== origin.baseline_digest) fail(503, 'DRAFT_BASELINE_CORRUPT');
+    // 同一投影也套在 pinned baseline 的記憶體副本上，verify 才有可比較的起點；
+    // 儲存位元組與 baseline_digest 不動。
+    try { applySharedCityData(proof.game); } catch { fail(503, 'DRAFT_BASELINE_CORRUPT'); }
     const profile = new FixedCopyProfile({ profileRevision: origin.profile_revision, loadCopy: async () => ({ game: proof.game, provenance: { registryId: origin.registry_id, definitionDigest: origin.definition_digest, rootDigest: origin.catalog_root } }) }), captured = await profile.capture({ gameId, ownerId: actor.id });
     this.#owned(tokenHash, gameId, actor); this.#origin(tokenHash, gameId, actor); if (single) this.#sameOrigin(tokenHash, gameId, actor, origin); return { profile, captured };
   }

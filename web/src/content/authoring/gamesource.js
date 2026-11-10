@@ -13,7 +13,7 @@ import { captureChapterCities } from "./cityrecords.js";
 import { emptyGeneralSlot, materializeChapterState } from "./chaptermaterialize.js";
 import { CHAPTER_BASE } from "./chapterbase.generated.js";
 import { decodeFactionSlot } from "../../game/nativefactions.js";
-import { CITY_BASE_NUMBERS, CITY_SHARED_INVARIANTS } from "./cityrecords.js";
+import { CITY_BASE_NUMBERS, CITY_SHARED_INVARIANTS, CITY_NUMBER_LIMITS } from "./cityrecords.js";
 import { factionNativeConsistencyGaps } from "./factionconsistency.js";
 
 export const GAMESOURCE_SCHEMA = 1;
@@ -319,8 +319,44 @@ export function copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex) {
       for (const general of chapter.state.generals ?? []) game.compatibility.slotBindings.generals[general.idx] = general.idx;
     }
     game.metadata.name = `测试复制`;
+    // 游戏级共享数据投影：名称以父表为准，父表缺的四项默认值从第一章回填。
+    applySharedCityData(game);
   }
   validateGameSource(game);
+  return game;
+}
+
+// 遊戲級共享據點投影（用戶 2026-11 決定，Web 產品行為）： `game.cities` 是名稱與
+// 基礎數值的唯一來源，章節 `state.cities[].name` 只是導入時留下的原版副本，讀取、
+// 保存、編譯、發布前一律投影成父表名稱；父表缺 prod/growth/defence/troops 時，
+// 按決定「從當前遊戲第一章同槽記錄回填一次」補齊，已存在的值永不覆蓋（作者可先
+// 自填）。冪等：投影後的 source 再投影不會改變任何位元組。章節 `raw`／
+// `nativeCityRecordRaw` 是原始記錄內容，不由本函式改寫。
+export function applySharedCityData(game) {
+  const definitions = Object.values(game.cities ?? {});
+  if (definitions.length !== 192) throw new RangeError("game source requires 192 cities");
+  const bySlot = new Map(definitions.map(city => [city.runtimeSlot, city]));
+  const first = game.chapters?.[game.chapterOrder?.[0]]?.state?.cities ?? [];
+  const firstByIdx = new Map(first.map(city => [city.idx, city]));
+  for (const definition of definitions) {
+    const record = firstByIdx.get(definition.runtimeSlot);
+    for (const name of CITY_BASE_NUMBERS) {
+      if (Object.hasOwn(definition, name) || !record || !Object.hasOwn(record, name)) continue;
+      const value = record[name];
+      if (!Number.isSafeInteger(value) || value < 0 || value > CITY_NUMBER_LIMITS[name])
+        throw new RangeError(`source city ${definition.runtimeSlot} ${name} is out of range`);
+      definition[name] = value;
+    }
+  }
+  for (const chapterId of game.chapterOrder ?? []) {
+    const cities = game.chapters?.[chapterId]?.state?.cities;
+    if (!Array.isArray(cities)) continue;
+    for (const record of cities) {
+      const definition = bySlot.get(record.idx);
+      if (!definition) throw new RangeError(`chapter ${chapterId} city slot ${record.idx} has no definition`);
+      if (typeof definition.name === "string" && definition.name) record.name = definition.name;
+    }
+  }
   return game;
 }
 

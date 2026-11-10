@@ -5,6 +5,8 @@ import { setCityDefinitionName, applyChapterCityEdit } from '../web/src/content/
 import { chapterActiveGaps } from '../web/src/content/authoring/gamesource.js';
 import { encodeSourceChunks, decodeSourceChunks } from '../web/src/content/authoring/sourcejson.js';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
+import { readInstalledEditorSource } from './editor_builtin_source.mjs';
+import { BUILTIN_RELEASE } from '../web/src/content/builtinrelease.generated.js';
 import { FixedCopyProfile, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
 const G = '11111111-1111-4111-8111-111111111111';
 function fixture() {
@@ -94,12 +96,18 @@ test('actual fixed template retains all 192 bindings/map/chapters and still deni
   assert.equal(getters, 0);
   profile.verifyOrderedTemplate(captured.capability, game, [step([])]);
   assert.deepEqual(encodeSourceChunks(game), before);
-  // Current fixed chapter names disagree at ten slots: importing the first
-  // chapter as a universal city name would silently discard source distinctions.
-  const full = await createPinnedCopyLoader()(context), names = new Map();
-  for (const chapterId of full.game.chapterOrder) for (const city of full.game.chapters[chapterId].state.cities) {
+  // 原版固定源本身保留逐章異名（原始數據證據）：10 個槽位在不同章有不同名稱。
+  const source = readInstalledEditorSource(BUILTIN_RELEASE.resources), names = new Map();
+  for (const chapter of source.chapters) for (const city of chapter.state.cities ?? []) {
     if (!names.has(city.idx)) names.set(city.idx, new Set()); names.get(city.idx).add(city.name);
   }
   assert.equal(names.size, 192); assert.equal([...names.values()].filter(values => values.size > 1).length, 10);
   assert.deepEqual([...names.get(0)], ['北平', '北京']);
+  // Web 產品決定（用户 2026-11）：名稱以父表為準，導入的遊戲副本 0 處異名。
+  const full = await createPinnedCopyLoader()(context), bySlot = [...Object.values(full.game.cities)].sort((a, b) => a.runtimeSlot - b.runtimeSlot);
+  let mismatches = 0;
+  for (const chapterId of full.game.chapterOrder) for (const [index, city] of full.game.chapters[chapterId].state.cities.entries()) {
+    if (city.name !== bySlot[index].name) mismatches++;
+  }
+  assert.equal(mismatches, 0);
 });
