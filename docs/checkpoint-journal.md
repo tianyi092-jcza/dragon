@@ -11,8 +11,8 @@
 | 项 | 值 |
 | --- | --- |
 | 主机 | `ssh sadcloud`（82.158.91.231:7218，Debian 13，4C/3.9G/50G），根目录 `/srv/dragon` |
-| 镜像 | 编辑器 `dragon-editor-publication:20261111-city1`（HEAD `c789d4e`＋迁移命令修订，sha `3a2acaf0…`）；玩家 `dragon-player:20261109-b6-disk` |
-| 静态发布 | 清单 `80c9e96b…`、sourceTree `50c4fc95…`、1442 檔／165.81 MiB，`publication.env` 三个 pin 与 nginx `deployment-assets/static-v1/<digest>/` 一致 |
+| 镜像 | 编辑器 `dragon-editor-publication:20261111-city2`（HEAD `ec7d1c8`，sha `58d62d5d…`）；玩家 `dragon-player:20261109-b6-disk` |
+| 静态发布 | 清单 `826b7c3a…`、sourceTree `65cbb8d7…`、1442 檔／165.81 MiB，`publication.env` 三个 pin 与 nginx `deployment-assets/static-v1/<digest>/` 一致 |
 | 入口 | nginx 443 `ssl_preread` 按 SNI → `8443` → `8788`（editor）／`8789`（player）；两域名 A 记录灰云直指源站，TLS=Let's Encrypt（SAN 覆盖两域名） |
 | 数据 | `data/editor.sqlite`（`700`/`600`，uid `1000`）、`private-objects/`、`bucket/`、`dist/` |
 | 线上事实 | 账本 `tail=confirmed=16`；`937c71ab…「臥龍傳·重构版」` `listed=1`、pin `1.0`；玩家目录 revision **1**（编辑器 `draft_revision=2`，见 §11）；玩家 `registry` generation 16 |
@@ -151,6 +151,10 @@ curl -s https://dragon.720108.xyz/play-api/v1/registry # generation / directory
 **驗證**：`verify_editor_city_fields` 48 checks（新增 growth/defence 正例、u8 上限、雙 raw 同步、僅寫入時容忍分歧）；新 lane `tools/verify_editor_chapter_city_attributes.mjs` **5 組 PASS**（四值＋勢力同批重放、未記錄改動／第二座／受保護位元組拒絕、u8 邊界、複製章節後再改）；`verify_editor_copy_profile --city-native-only` PASS；`verify_editor_draft_controller` 110/110；`verify_editor_shell` 92；`verify_editor_city_profile` 8 組；`verify_editor_chapter_cities`、`verify_editor_chapter_reorder`（5 組）、`verify_editor_chapter_generals`（6/6）綠。未跑：HTTP 級 `verify_vps_city_save`（上次 900 s 超時）、瀏覽器 lane、`verify_editor_copy_profile` 全量（僅跑 `--city-native-only`）。
 
 **未做**：① 未提交／未推送；② 生產未重建鏡像；③ 章節數值面板未做瀏覽器實測（需全新 Playwright profile）。
+
+**上線（2026-11-10 UTC）**：提交 `80486ae`＋`ec7d1c8` 已 push `github/main`；靜態 `826b7c3a…`／sourceTree `65cbb8d7…`（1442 檔 165.81 MiB）上傳 `/srv/dragon/build/static-80486ae` → `rsync -a --delete` 到 `dist` → nginx `static-v1/826b…` → `publication.env` 三 pin；鏡像 `20261111-city2`（sha `58d62d5d…`），`.env` 同步 `EDITOR_DEPLOYMENT_ID=20261111-city2`、`PLAYER_DEPLOYMENT_ID=20261109-b6-disk`（避免把 player 回到舊 tag）。
+
+**新坑（已記在下文）**：改了 `web/src/**` 就必須跑 `node tools/build_trial_web_bundle.mjs` 重建 `server/public/trialweb.txt`，否則啟動 `verifyInstalledProgram` 拋 `INSTALLED_PROGRAM_INVALID` 並無限重啟——第一次部署就撞上，補 `ec7d1c8` 後重建成。驗證：health 200 `initialized:true`、新靜態 200／舊 404、`control/programs/826b….json` 與 `artifacts/programs/826b…` 已生成、registry 仍 generation 16（revision 1）。
 
 ## 归档锚点（外部文档仍在引用；保留原标题以不破链接）
 
