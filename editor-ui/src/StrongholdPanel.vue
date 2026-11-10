@@ -7,6 +7,10 @@ const props = defineProps({ draftModel: Object, draftActions: Object, busy: Bool
 
 const NUMBERS = { max_prod: 65535, prod: 65535, growth: 255, defence: 255, troops: 255, type: 255 };
 const FIELDS = ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type'];
+// 類型存的是低 4 位索引：原版 CS:7DF5 七條×6B，0 大都市、1 中都市、2 小都市、
+// 3 關卡、4 戰場；5 首都／6 中立是同一表後續項，不是合法存儲 type。
+const CITY_TYPES = [['0', '大都市'], ['1', '中都市'], ['2', '小都市'], ['3', '關卡'], ['4', '戰場']];
+const typeLabel = value => CITY_TYPES.find(([key]) => Number(key) === value)?.[1] ?? (value === null || value === undefined ? '—' : String(value) + '（未知）');
 
 const search = ref('');
 const sort = reactive({ key: 'seq', dir: 1 });
@@ -99,6 +103,8 @@ async function save(row) {
     const reply = await props.draftActions.citySave(row.cityId, patch);
     editing.value = null;
     if (typeof reply === 'string') status.value = reply;
+    // 保存後立即重讀該修訂：行回到只讀時顯示新值，按鈕也重新可用。
+    await props.draftActions.load();
   } catch (error) {
     failure.value = (error && error.message) || '保存未完成（原因未回報）。';
   }
@@ -127,9 +133,16 @@ async function save(row) {
               <input v-if="editing === row.cityId" v-model="form.name" data-input="name" maxlength="12" :disabled="busy">
               <template v-else>{{ row.name ?? '未配置' }}</template>
             </td>
-            <td v-for="key in ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type']" :key="key" :data-field="key">
+            <td v-for="key in ['max_prod', 'prod', 'growth', 'defence', 'troops']" :key="key" :data-field="key">
               <input v-if="editing === row.cityId" v-model="form[key]" :data-input="key" inputmode="numeric" :disabled="busy">
               <template v-else>{{ row[key] ?? '—' }}</template>
+            </td>
+            <td data-field="type">
+              <select v-if="editing === row.cityId" v-model="form.type" data-input="type" :disabled="busy">
+                <option v-for="[value, label] in CITY_TYPES" :key="value" :value="value">{{ label }}</option>
+                <option v-if="!CITY_TYPES.some(([value]) => Number(value) === Number(form.type))" :value="form.type">{{ form.type }}（未知）</option>
+              </select>
+              <template v-else>{{ typeLabel(row.type) }}</template>
             </td>
             <td class="account-row-actions" data-field="actions">
               <template v-if="editing === row.cityId">
@@ -150,14 +163,15 @@ async function save(row) {
 <style>
 #stronghold-editor{padding:16px 18px}
 #stronghold-editor .module-toolbar{gap:8px;margin:0 0 10px;align-items:center}
-#stronghold-editor .module-toolbar .el-button{min-height:32px;padding:0 14px}
-#stronghold-editor #stronghold-search{height:32px;width:200px;padding:0 10px;box-sizing:border-box}
+#stronghold-editor .module-toolbar .el-button{min-height:var(--control-height);padding:0 14px}
+#stronghold-editor #stronghold-search{height:var(--control-height);width:200px;padding:0 10px;box-sizing:border-box}
 #stronghold-editor .entity-table-wrap{max-height:calc(100vh - 288px)}
 #stronghold-editor .entity-table{min-width:720px}
 #stronghold-editor .entity-table th,#stronghold-editor .entity-table td{padding:6px 8px}
 #stronghold-editor .entity-table thead th{font-size:12px;letter-spacing:1px}
-#stronghold-editor .entity-table td input{width:100%;min-width:3.4em;height:28px;box-sizing:border-box}
-#stronghold-editor .entity-table .el-button{min-height:28px;padding:0 10px}
+#stronghold-editor .entity-table td input{width:100%;min-width:3.4em;height:var(--control-height);box-sizing:border-box}
+#stronghold-editor .entity-table td select{width:100%;min-width:5.4em;margin-top:0;height:var(--control-height)}
+#stronghold-editor .entity-table .el-button{min-height:var(--control-height);padding:0 10px}
 #stronghold-editor .entity-table .account-row-actions{min-width:112px;white-space:nowrap}
 #stronghold-editor .sort-header{border:0;background:none;padding:0;font:inherit;cursor:pointer;color:inherit}
 #stronghold-editor .sort-header[aria-pressed="true"]{font-weight:700}

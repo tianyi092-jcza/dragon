@@ -79,7 +79,7 @@ async function saveNumbers(city) {
     if (value !== city[key]) values[key] = value;
   }
   if (!Object.keys(values).length) { numberError.value = '數值與已讀資料相同；沒有保存。'; return; }
-  try { await props.actions.cityNumbers(chapter.value.chapterId, city.idx, values); numberEdit.value = null; }
+  try { await props.actions.cityNumbers(chapter.value.chapterId, city.idx, values); numberEdit.value = null; await props.actions.load(); }
   catch (error) { numberError.value = (error && error.message) || '保存未完成（原因未回報）。'; }
 }
 </script>

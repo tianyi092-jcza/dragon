@@ -69,11 +69,13 @@ function go(view) { if (userMenu.value) userMenu.value.open = false; props.navig
       <p class="nav-note">草稿與正式版本分離<br>遊戲規則共用同一引擎<br><a href="/shell-ui-licenses.txt" target="_blank" rel="noopener">第三方授權</a></p>
     </aside>
     <main class="workbench-main">
-      <div class="page-heading" :hidden="!ready"><span>編輯後台 / {{ title }}</span><h1>{{ title }}</h1></div>
-      <div id="workspace-context" class="workspace-context" :hidden="!ready || !draftModel.context || state.view === 'catalog-editor' || state.view === 'copy'">
-        <span v-if="draftModel.context">目前草稿：{{ draftModel.context.name }}／{{ draftModel.context.gameId }}／修訂 {{ draftModel.context.draftRevision }}<strong v-if="draftModel.context.dirty">／有未保存修改</strong><strong v-if="draftModel.context.pending">／原操作未確認</strong><strong v-if="!draftModel.context.verified">／尚須明確載入</strong></span>
+      <div class="page-heading" :hidden="!ready"><h1>{{ title }}</h1></div>
+      <div class="page-line" :hidden="!ready">
+        <p id="status" role="status" aria-live="polite"></p>
+        <div id="workspace-context" class="workspace-context" :hidden="!draftModel.context || state.view === 'catalog-editor' || state.view === 'copy'">
+          <span v-if="draftModel.context">目前草稿：{{ draftModel.context.name }}／{{ draftModel.context.gameId }}／修訂 {{ draftModel.context.draftRevision }}<strong v-if="draftModel.context.dirty">／有未保存修改</strong><strong v-if="draftModel.context.pending">／原操作未確認</strong><strong v-if="!draftModel.context.verified">／尚須明確載入</strong></span>
+        </div>
       </div>
-      <p id="status" role="status" aria-live="polite"></p>
       <LoginPage :hidden="state.authenticated" :busy="state.busy" />
       <section id="session" :hidden="!state.authenticated">
         <AccountPages :state="state" :ready="ready" />
