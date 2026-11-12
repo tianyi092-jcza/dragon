@@ -20,13 +20,10 @@ export function collectPortraitIds(generals) {
     if (Object.hasOwn(general, 'portrait')) {
       const id = general.portrait;
       if (!Number.isSafeInteger(id) || id < 0 || Object.is(id, -0)) { fail(500, 'PLAY_PORTRAIT_CORRUPT'); }
-      // Preserve the existing reserved-record omission, not a blanket missing
-      // asset exemption for ordinary generals (or an original FF certificate).
-      if (id === 255 && general.idx !== 127) { fail(500, 'PLAY_PORTRAIT_CORRUPT'); }
       ids.push(id);
     }
     if (Object.hasOwn(general, 'portraitKey') && general.portraitKey !== null) {
-      if (typeof general.portraitKey !== 'string' || general.portraitKey === '255') { fail(500, 'PLAY_PORTRAIT_CORRUPT'); }
+      if (typeof general.portraitKey !== 'string') { fail(500, 'PLAY_PORTRAIT_CORRUPT'); }
       ids.push(general.portraitKey);
     }
   }
@@ -55,10 +52,7 @@ export class GamePortraits {
       // silently omit them when constructing an immutable publication list.
       if (typeof rawId !== 'string' && (typeof rawId !== 'number' || !Number.isSafeInteger(rawId) || rawId < 0 || Object.is(rawId, -0))) { fail(500, 'PLAY_PORTRAIT_CORRUPT'); }
       const assetId = typeof rawId === 'number' ? String(rawId) : rawId;
-      // Preserve the existing 255 omission here, not a certificate that the
-      // original game treats G127/255 as blank. Full admission must still
-      // resolve those references (docs/re-notes-portrait-reader.md).
-      if (assetId === '255') { continue; }
+      // Resource decision: 255 is an ordinary shared ID, not an omitted dependency.
       if (seen.has(assetId)) { continue; }
       seen.add(assetId);
       rows.push(this.get(assetId));

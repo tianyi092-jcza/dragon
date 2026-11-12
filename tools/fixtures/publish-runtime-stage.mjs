@@ -8,6 +8,7 @@ import { readFileSync, copyFileSync, mkdirSync, existsSync, lstatSync } from 'no
 import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { BUILTIN_RELEASE } from '../../web/src/content/builtinrelease.generated.js';
+import { KAO_MANIFEST } from '../../web/kao/manifest.js';
 import { createRuntimeStager } from '../../vps/runtime-stage.mjs';
 import { buildStaticRelease, parseStaticRelease } from '../../vps/static-release.mjs';
 import { createStaticResourceVerifier } from '../../vps/static-resources.mjs';
@@ -39,7 +40,10 @@ export function makePublishRuntimeStage({ root, includePlayerModules = false }) 
   const defaultDirs = [dirOf(BUILTIN_RELEASE.resources.catalogURL), dirOf(BUILTIN_RELEASE.entitySource.manifestURL)];
   const untracked = spawnSync('git', ['ls-files', '-z', '--others', '--exclude-standard', '--', ...defaultDirs], { env, encoding: 'utf8', timeout: 30000 });
   assert.ifError(untracked.error); assert.equal(untracked.status, 0, untracked.stderr);
-  const paths = [...new Set([...listing.stdout.split('\0').filter(Boolean), ...untracked.stdout.split('\0').filter(Boolean), ...playerPaths])].filter(path => !/(^|\/)\./.test(path) && !/^web\/content\/builtin\/compiled\/[^/]+\/game-source\.json$/.test(path));
+  // Shared portraits may be renamed but intentionally unstaged. Enumerate only
+  // that directory through its checked manifest, not deleted Git index names.
+  const tracked = listing.stdout.split('\0').filter(path => path && !/^web\/kao\/[^/]+\.png$/.test(path));
+  const paths = [...new Set([...tracked, ...KAO_MANIFEST.map(row => `web/kao/${row.file}`), ...untracked.stdout.split('\0').filter(Boolean), ...playerPaths])].filter(path => !/(^|\/)\./.test(path) && !/^web\/content\/builtin\/compiled\/[^/]+\/game-source\.json$/.test(path));
   const objects = new Map(), prefix = 'test/owned-publish-root/';
   const entries = paths.map(path => {
     assert.ok(path.startsWith('web/') && !path.includes('..') && !path.includes('\\'));

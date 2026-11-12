@@ -286,20 +286,25 @@ function syncChapterSlot(chapter, generalId, included, values) {
   const slot = state.generals.find(g => g?.generalId === generalId);
   if (included) {
     const assetId = values.portraitRef === null ? null : values.portraitRef.assetId;
-    const portrait = assetId === null ? 0 : Number.parseInt(assetId.replace(/^p?0*/, ''), 10);
+    const portrait = assetId === null ? 0 : Number(assetId);
+    // Shared resource IDs are not DOS bytes. Large IDs bind through portraitKey;
+    // keep an existing native byte, or the established empty-slot byte for a new slot.
+    const nativePortrait = portrait <= 255 ? portrait : slot?.portrait ?? 0;
     if (slot) {
       slot.name = values.name;
       slot.hao = values.hao;
-      slot.portrait = portrait;
+      slot.portrait = nativePortrait;
+      slot.portraitKey = assetId;
       if (values.ability !== undefined) slot.ability = { ...values.ability };
       // 自杀旗按位并入槽 attr bit4，同字节其余位保留（bit7 登场／bit6 君主等）。
       slot.attr = values.suicideOnCapture === true ? slot.attr | 0x10 : slot.attr & ~0x10;
       return { ...chapter, state };
     }
-    const assignment = { generalId, name: values.name, hao: values.hao, portrait };
+    const assignment = { generalId, name: values.name, hao: values.hao, portrait: nativePortrait };
     if (values.ability !== undefined) assignment.ability = values.ability;
     if (values.suicideOnCapture !== undefined) assignment.suicideOnCapture = values.suicideOnCapture;
-    assignGeneralToChapterState(state, assignment);
+    const assigned = assignGeneralToChapterState(state, assignment);
+    state.generals[assigned.slot].portraitKey = assetId;
     return { ...chapter, state };
   }
   if (!slot) return chapter;

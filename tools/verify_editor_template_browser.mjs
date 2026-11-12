@@ -31,7 +31,7 @@ sourcePaths.push('editor-ui/src/CityDefinitionsPanel.vue', 'editor-ui/src/Strong
 sourcePaths.push('editor-ui/src/MaterialsPanel.vue', 'editor-ui/src/BaseTerrainPanel.vue', 'editor-ui/src/WaterCreatePanel.vue', 'web/src/editor/componenttools.js');
 sourcePaths.push('editor-ui/src/MapWindowPanel.vue', 'server/pngio.js', 'server/sourcecatalogpolicy.js', 'web/src/content/authoring/tilepixels.js', 'web/src/content/authoring/maplayers.js', 'web/src/editor/viewport.js', 'web/src/editor/mapdisplay.js');
 sourcePaths.push('server/public/shell-ui.css');
-if (portraitPreviewOnly) sourcePaths.push('editor-ui/src/PortraitPreview.vue', 'server/public/general.txt', 'server/portraits.js', 'web/kao/manifest.js', 'web/kao/0.png', 'web/kao/p0001.png');
+if (portraitPreviewOnly) sourcePaths.push('editor-ui/src/PortraitPreview.vue', 'server/public/general.txt', 'server/portraits.js', 'web/kao/manifest.js', 'web/kao/0.png', 'web/kao/150.png');
 const sourceHashes = Object.fromEntries(sourcePaths.map(path => [path, sha(readFileSync(path))]));
 const calls = [], checks = [], errors = [], outside = [], expected = [], browserWrites = [], definitionWrites = [], peopleWrites = [], chapterWrites = [], waterWrites = [], previewReads = [], adminRequests = [];
 let server, browser, page;
@@ -156,7 +156,7 @@ try {
     assert.equal(await page.locator('#definition-portrait option').count(), 622);
     assert.equal(await page.locator('#portrait-pick option').count(), 621);
     const dimensions = [];
-    for (const assetId of ['0', 'p0001']) {
+    for (const assetId of ['0', '150']) {
       const row = KAO_MANIFEST.find(entry => entry.id === assetId), bytes = readFileSync(join('web/kao', row.file));
       assert.equal(sha(bytes), row.sha256); assert.equal(bytes.length, row.bytes);
       const path = `/api/games/${gameId}/portraits/${assetId}/bytes?sha256=${row.sha256}`;
@@ -200,7 +200,7 @@ try {
     await page.locator('#definition-save').click(); await idle();
     await page.locator('#definition-revision').fill('3'); await page.locator('#definition-load').click(); await idle();
     const third = await exact('3'), person = third.generalDefinitions[0];
-    assert.equal(person.name, '預覽人物'); assert.equal(person.portraitRef.assetId, 'p0001');
+    assert.equal(person.name, '預覽人物'); assert.equal(person.portraitRef.assetId, '150');
     assert.equal(chapterSetupWrites.length, 1); assert.equal(chapterSetupWrites[0].revision, '"2"');
     assert.deepEqual(chapterSetupWrites[0].body.generalEdits, [{ op: 'create', values: { name: '預覽人物', hao: '', portraitRef: person.portraitRef } }]);
     page.once('dialog', async dialog => { assert.equal(dialog.type(), 'confirm'); await dialog.accept(); });
@@ -215,7 +215,7 @@ try {
     assert.equal(await chapterPreview.locator('img').count(), 0);
     await chapterPreview.locator('[data-portrait-preview]').click();
     await page.waitForFunction(() => document.querySelector('[data-person-portrait-preview] img')?.naturalWidth > 0);
-    assert.equal(await chapterPreview.locator('img').getAttribute('src'), `/api/games/${gameId}/portraits/p0001/bytes?sha256=${person.portraitRef.sha256}`);
+    assert.equal(await chapterPreview.locator('img').getAttribute('src'), `/api/games/${gameId}/portraits/150/bytes?sha256=${person.portraitRef.sha256}`);
     assert.deepEqual(await chapterPreview.locator('img').evaluate(image => [image.naturalWidth, image.naturalHeight]), dimensions[1].size);
     assert.equal(await page.locator('[data-portrait-choice]').inputValue(), '');
     await chapterPreview.locator('[data-portrait-preview-clear]').click(); assert.equal(await chapterPreview.locator('img').count(), 0);
@@ -235,7 +235,7 @@ try {
     page.off('request', observeSetup); page.on('request', observePreview);
     assert.deepEqual(await exact('4'), fourth); assert.deepEqual(await exact('5'), fifth);
     checks.push('actual definition2→3 and inactive inherited configuration3→4 support chapter preview; preview/clear keep exact3/4 unchanged; explicit null4→5 disables preview without falling back to the base image');
-    await page.locator('#portrait-list').click(); await idle(); await page.locator('#portrait-pick').selectOption('p0001');
+    await page.locator('#portrait-list').click(); await idle(); await page.locator('#portrait-pick').selectOption('150');
     await page.locator('#native-portrait-preview [data-portrait-preview]').click();
     await page.waitForFunction(() => document.querySelector('#native-portrait-preview img')?.naturalWidth > 0);
     assert.ok(traffic.every(row => row.method === 'GET'));
@@ -248,8 +248,8 @@ try {
     await page.locator('#login').waitFor({ state: 'visible' });
     assert.equal(await page.locator('.portrait-preview img').count(), 0);
     assert.deepEqual(logoutTraffic, ['/api/auth/logout']);
-    const lastPortrait = KAO_MANIFEST.find(row => row.id === 'p0001');
-    assert.equal((await page.request.get(`${origin}/api/games/${gameId}/portraits/p0001/bytes?sha256=${lastPortrait.sha256}`)).status(), 401);
+    const lastPortrait = KAO_MANIFEST.find(row => row.id === '150');
+    assert.equal((await page.request.get(`${origin}/api/games/${gameId}/portraits/150/bytes?sha256=${lastPortrait.sha256}`)).status(), 401);
     assert.equal(await page.evaluate(() => globalThis.__idbAccess ?? 0), 0); assert.deepEqual(errors, []); assert.deepEqual(outside, []);
     checks.push('actual logout while preview is displayed clears every preview node; same browser cookie jar cannot read portrait afterward (401), no automatic draft save');
     for (const [path, digest] of Object.entries(sourceHashes)) assert.equal(sha(readFileSync(path)), digest);

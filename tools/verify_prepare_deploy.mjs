@@ -54,7 +54,7 @@ test('exclude only unified-map authoring source, preserve runtime bytes and shar
   }
   const runtime = ['index.html', '404.html', '_headers', 'src/main.js',
     'src/editor/trialpolicy.js', 'src/editor/trialruleboundaries.js',
-    'src/content/builtinrelease.generated.js', 'kao/0.png', 'kao/p0001.png',
+    'src/content/builtinrelease.generated.js', 'kao/0.png', 'kao/150.png', 'kao/255.png', 'kao/620.png',
     ...['catalog.json', 'data.json', 'terrain.bin', 'roads.json', 'road_cost.bin',
       'road_offset.json', 'map_atlas_spring.png', 'map_tiles_winter.png',
       'minimap_base.png', 'minimap_large.png'].map(p => `content/builtin/compiled/map-2-current/${p}`)];

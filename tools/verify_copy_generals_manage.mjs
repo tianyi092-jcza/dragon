@@ -38,14 +38,14 @@ const copyData = (over = {}) => ({
 
 function harness() {
   let identity = { user: { id: 'author', mustChangePassword: false }, csrf: 'token' }, busy = false, model;
-  const calls = [], errors = [];
+  const calls = [], errors = [], workOptions = [], progress = [];
   let response = null;
-  const h = { calls, errors, response: handler => { response = handler; }, model: () => model };
+  const h = { calls, errors, workOptions, progress, response: handler => { response = handler; }, model: () => model };
   const controller = installDraftEditor({
-    api: async (path, body) => { calls.push({ path, body }); if (response) return response(path, body); if (path === '/api/games') return { games: [{ gameId, draftRevision: '1', metadata: { name: '舊', introduction: '稿' } }] }; throw new Error('unexpected api: ' + path); },
+    api: async (path, body, options) => { calls.push({ path, body, options }); if (response) return response(path, body); if (path === '/api/games') return { games: [{ gameId, draftRevision: '1', metadata: { name: '舊', introduction: '稿' } }] }; throw new Error('unexpected api: ' + path); },
     authority: () => identity, isBusy: () => busy,
-    publish: value => { model = value; },
-    work: async fn => { if (busy) return; busy = true; try { return await fn(); } catch (error) { errors.push(error); } finally { busy = false; controller.render(); } },
+    publish: value => { model = value; if (value.copy?.page?.import) progress.push(structuredClone(value.copy.page.import)); },
+    work: async (fn, options) => { if (busy) return; workOptions.push(options); busy = true; try { return await fn(); } catch (error) { errors.push(error); } finally { busy = false; controller.render(); } },
     storage: { getItem: () => undefined, setItem: () => {}, removeItem: () => {} },
     confirm: () => true, prompt: () => null,
   });
@@ -122,17 +122,19 @@ test('generalCopySave rejects duplicate names and out-of-range abilities client-
   assert.deepEqual(posts(h), []);
 });
 
-test('loadCopyPortraits loads the shared album for the copy page', async () => {
+test('loadCopyPortraits requests descriptors without unused draft usage statistics', async () => {
   const h = harness(); await selectGame(h); loadOk(h);
   await h.actions.loadCopy();
   assert.equal(h.model().copy.page.portraits, null);
   h.response(path => {
     if (path === `/api/games/${gameId}/copy`) return { gameId, copyDigest: DIGEST_A, updatedAt: null, data: copyData() };
-    if (path === `/api/games/${gameId}/portraits`) return { gameId, portraits: [{ assetId: 'p7', sha256: SHA, mime: 'image/png', byteLength: 10, inUse: true }] };
+    if (path === `/api/games/${gameId}/portraits?usage=0`) return { gameId, portraits: [{ assetId: 'p7', sha256: SHA, mime: 'image/png', byteLength: 10 }] };
     throw new Error('unexpected api: ' + path);
   });
   await h.actions.loadCopyPortraits();
   assert.deepEqual(h.model().copy.page.portraits, [{ assetId: 'p7', sha256: SHA }]);
+  assert.deepEqual(h.workOptions.at(-1), { feedback: 'local' });
+  assert.deepEqual(h.calls.at(-1).options, { feedback: 'local' });
   assert.equal(h.errors.length, 0);
 });
 
@@ -284,7 +286,7 @@ test('generalCopyImport splits into 16KiB-safe batches and reports progress', as
     cities: [{ idx: 0, name: '城甲', faction: 0, governor: 1, troops: 10, prod: 20, troops_cap: 100, max_prod: 50, growth: 3, defence: 4 }] } });
   h.response(() => ({ gameId, copyDigest: DIGEST_A, updatedAt: null, data: { ...copyData({ generals: {} }), chapterOrder: ['ch1', 'ch2'], chapters: { ch1: chapter('ch1', 0), ch2: chapter('ch2', 65) } } }));
   await h.actions.loadCopy();
-  const seen = [];
+  const beforeImport = h.calls.length;
   const original = h.actions.generalCopySave;
   assert.equal(typeof original, 'function');
   const reply = await h.actions.generalCopyImport();
@@ -298,7 +300,33 @@ test('generalCopyImport splits into 16KiB-safe batches and reports progress', as
   assert.equal(h.model().copy.page.import.total, 130);
   assert.equal(h.model().copy.page.import.batches, 3);
   assert.equal(h.errors.length, 0);
-  void seen;
+  assert.deepEqual(h.workOptions.at(-1), { feedback: 'progress' });
+  assert.ok(h.calls.slice(beforeImport).every(call => call.options?.feedback === 'progress'), 'all batches AND the final reread are progress-only');
+  assert.deepEqual([...new Set(h.progress.map(item => item.done))], [0, 64, 128, 130], 'progress reports actual committed batches');
+});
+
+test('failed native import retains the committed count and never switches to global loading', async () => {
+  const h = harness(); await selectGame(h);
+  const data = copyData({ generals: {} });
+  data.chapters.ch1.state.generals = Array.from({ length: 65 }, (_, idx) => ({ idx, name: `新將${idx}`, hao: '', faction: null }));
+  h.response(() => ({ gameId, copyDigest: DIGEST_A, data }));
+  await h.actions.loadCopy();
+  const beforeImport = h.calls.length;
+  let committed = 0;
+  h.response((path, body) => {
+    if (body && committed === 0) { committed = body.patch.import.length; return { gameId, copyDigest: DIGEST_A }; }
+    throw new Error('fixture second batch failed');
+  });
+  await h.actions.generalCopyImport();
+  assert.equal(committed, 64);
+  assert.equal(h.model().copy.page.import.state, 'failed');
+  assert.equal(h.model().copy.page.import.done, 64);
+  assert.match(h.model().copy.page.import.message, /second batch failed/);
+  assert.ok(h.calls.slice(beforeImport).every(call => call.options?.feedback === 'progress'));
+  assert.deepEqual(h.workOptions.at(-1), { feedback: 'progress' });
+  assert.equal(h.errors.length, 1);
+  await h.actions.clearCopyImport();
+  assert.equal(h.model().copy.page.import, null);
 });
 
 test('generalCopyImport skips names already in the library and refuses an empty set', async () => {

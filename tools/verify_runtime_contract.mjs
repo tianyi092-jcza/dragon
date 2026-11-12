@@ -83,11 +83,12 @@ for (const invalid of [null, undefined, false, true, {}, [], ['1'], NaN, Infinit
   assert.throws(() => portraitLibrary.forPublish(['1', invalid]), error => error.code === 'PLAY_PORTRAIT_CORRUPT', 'invalid references must not disappear from the dependency list'); n++;
 }
 for (const general of [{ idx: 0, portrait: 255 }, { idx: 126, portrait: 255 }, { portrait: 255 }, { idx: '127', portrait: 255 }, { idx: 0, portrait: 255, portraitKey: '1' }, { idx: 127, portrait: 255, portraitKey: '255' }]) {
-  assert.throws(() => collectPortraitIds([general]), error => error.code === 'PLAY_PORTRAIT_CORRUPT'); n++;
+  const refs = collectPortraitIds([general]);
+  assert.ok(portraitLibrary.forPublish(refs).some(row => row.assetId === '255'), '255 must be declared regardless of slot'); n++;
 }
 const sentinelReferences = [{ idx: 127, portrait: 255, portraitKey: '1' }];
 assert.deepEqual(collectPortraitIds(sentinelReferences), [255, '1']);
-assert.deepEqual(portraitLibrary.forPublish(collectPortraitIds(sentinelReferences)), [portraitLibrary.get('1')]);
+assert.deepEqual(portraitLibrary.forPublish(collectPortraitIds(sentinelReferences)), [portraitLibrary.get('255'), portraitLibrary.get('1')]);
 assert.deepEqual(sentinelReferences, [{ idx: 127, portrait: 255, portraitKey: '1' }]); n++;
 const portraitIds = [1, '1', '2', 2];
 assert.deepEqual(portraitLibrary.forPublish(portraitIds), [portraitLibrary.get('1'), portraitLibrary.get('2')]);

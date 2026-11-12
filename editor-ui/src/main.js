@@ -34,7 +34,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   document.querySelector('link[rel="stylesheet"][href="/style.css"]')?.remove();
   // Dialogs/popovers are teleported outside the workbench root.
   Object.assign(document.body.style, { fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)' });
-  const state = reactive({ authenticated: false, mustChange: false, admin: false, account: '', view: null, busy: false, loading: false, views });
+  const state = reactive({ authenticated: false, mustChange: false, admin: false, account: '', view: null, busy: false, feedback: 'global', loading: false, views });
   const accountsModel = reactive({ rows: [], loaded: false, stale: false, message: '', generation: 0 });
   const draftModel = reactive({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: true });
   const stageAssetsModel = reactive({ loadDisabled: true, clearDisabled: true, context: '', message: '', summary: '', outputs: [], missing: [], unresolved: [] });
@@ -72,10 +72,10 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
     loading: value => { state.loading = value; },
     accountDirty: () => instance.accountDirty(),
     mapInputs: () => instance.mapInputs(),
-    sync({ current, view, busy }) {
+    sync({ current, view, busy, feedback = 'global' }) {
       Object.assign(state, {
         authenticated: Boolean(current), mustChange: Boolean(current?.user.mustChangePassword),
-        admin: current?.user.role === 'admin', account: current?.user.account ?? '', view, busy,
+        admin: current?.user.role === 'admin', account: current?.user.account ?? '', view, busy, feedback,
       });
     },
   });

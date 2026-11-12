@@ -11,7 +11,7 @@ const { applyGeneralDefinitionEdit, applyChapterPersonEdit, generalDefinitionRef
 for (const fn of [applyChapterPersonEdit, generalDefinitionReferences, effectiveChapterPerson, generalDefinitionChangeImpact, chapterPeopleProjection]) assert.equal(typeof fn, 'function', 'chapter people authoring port required');
 const G = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const id = G + '#general-' + 'a'.repeat(64), id2 = G + '#general-' + 'b'.repeat(64);
-const image = KAO_MANIFEST.find(row => row.id.startsWith('p'));
+const image = KAO_MANIFEST.find(row => row.id === '150');
 assert.ok(image);
 const portraitRef = { assetId: image.id, sha256: image.sha256 };
 const definition = { name: '甲', zi: '字', hao: '', portraitRef, suicideOnCapture: false };

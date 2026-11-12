@@ -66,6 +66,28 @@ test('HTTP, network, timeout and invalid JSON failures all stop loading and reta
   }
 });
 
+test('local and progress requests never mutate the global loading counter', async () => {
+  const body = deferred();
+  const f = fixture(async path => path === '/global' ? { ok: true, json: () => body.promise } : Response.json({ ok: true }));
+  const global = f.api('/global');
+  await f.api('/album', undefined, { feedback: 'local' });
+  await f.api('/import', {}, { feedback: 'progress', key: 'batch-key' });
+  assert.deepEqual(f.states, [true]);
+  body.resolve({ ok: true });
+  await global;
+  assert.deepEqual(f.states, [true, false]);
+  await f.api('/album', undefined, { feedback: 'local' });
+  assert.deepEqual(f.states, [true, false], 'local-only activity never opens a full-screen mask');
+});
+
+test('local and progress failures retain transport errors without changing global loading', async () => {
+  for (const feedback of ['local', 'progress']) {
+    const f = fixture(async () => { throw new TypeError('offline'); });
+    await assert.rejects(f.api('/owned', undefined, { feedback }), /連線中斷/);
+    assert.deepEqual(f.states, []);
+  }
+});
+
 test('a failed parallel request does not hide the animation for a pending request', async () => {
   const body = deferred();
   const f = fixture(async path => {

@@ -4,17 +4,19 @@
 
 ## 现行Web准入与原证边界
 
-**Web产品决定（非原版机制）**：[Trial服务端批次8c](editor-trial-server.md)记录用户2026-10-08选项B裁决：仅 `idx===127 && portrait===255` 从Trial启动资源缺口中排除，其它槽位255仍报缺口。固定库仍登记20条未闭合引用，不因此补 `kao/255.png`、声称FF为空图或认证全部消费者。下文各历史批“未授Trial／发布准入”指这些原证批本身不提供准入证书，**不撤销该产品决定，也不能据此将现行Trial一律判为应返回422**。
+**Web 产品决定（非原版机制；用户在 journal §48 的兼容风险说明后明确批准，实施收据见 [§49](checkpoint-journal.md#49-共享头像文件及资产id数字重编号)）**：新增画像的文件名与资产 ID 一起续编，`p0001..p0471 → 150..620`（新编号＝旧数字部分＋149）。原生 `0..149` 不变；621 张均为原 PNG 字节、128×128，无增图、重采样或上传。`255` 是普通共享资源 ID，不能再拒收或从依赖清单省略。该决定替代下节旧发布门及 Trial 批次8c的资源特判，**不说明 DOS FF 是无图、有效人物或任何原版规则**。
 
-本次按当前源码区分三层（工程事实，不是新的原始机制结论）：
+- `web/kao/manifest.js` 按数字 `0..620` 升序，ID、数字文件名、SHA 和长度一对一；`tools/build_kao_manifest.mjs --check` 只比较，`verify_kao_library.mjs` 双向核磁盘、连续编号与固定重编号摘要。画像字节未变，引用身份（ID＋SHA／URL）改变，不能把它当纯显示排序。
+- `server/portraits.js::collectPortraitIds` 仍同时收集原 `portrait` 与可选 `portraitKey`，包括255；`GamePortraits.forPublish` 查真实清单、按ID去重并保留255。错误类型、负值、负零和不存在的 ID 仍拒绝；不存在的621不是新图，也没有缺图兜底。`PublishedPacks.#freezePortraits` 沿共同入口冻结精确SHA，prepare不是公开提交证明。
+- `generaldefinitions.js::syncChapterSlot` 显式写 `portraitKey`。共享 ID 与原生byte分开：0..255可进入既有byte；大于255依靠已有覆盖绑定，已有槽保留原byte，新槽沿既有空槽0，不截断／取模。`buildPortraitOverrides`／`bindPortraitOverrides`→`portraitURL` 消费共享覆盖，JSON往返保该键；不改变其它字段的FF、字宽或规则。
+- `server/trials.js` 保留引擎的画像缺口报告改按共享清单，不再对slot127/255豁免；据点图仍查固定库。**编辑器 `/api/trial/*` 仍退役410**，不因资源调整重开。历史固定源与staged manifest的20条G127/255引用、398库存身份及原证全部保留；那些历史清单不能代替当前共享目录，也不能据新255图片关闭原始可达性未知。
+- 本地测试覆盖真实清单0／150／255／256／620的父表→空白章出场→依赖→覆盖→URL与JSON往返，以及实际壳／真实PNG的排序、分页、255／620选择及保存重读（API为隔离内存夹具）。真实持久化 copy／publish／formal、旧冻结包及生产桶**未检查、未迁移**；不重算旧pin、静默改旧引用或承诺旧p路径可用。实际迁移／部署须另获授权。
 
-- `server/trials.js` 的 `portraitGaps`／`trialChapterAssetGaps` 执行上述窄判据；`chapterGapReport` 的assets报告复用此门。结构stage清单的20条未闭合引用与启动门报告不是同一集合，不能把结构页6类证明缺项＋20条引用当26个缺文件或26个启动阻断。
-- `server/portraits.js` 的 `collectPortraitIds` 保留原byte及可选portraitKey；后继收窄为非idx127的原byte255及显式portraitKey字符串255均拒收，见下节。`GamePortraits.forPublish` 对ID字符串255仍沿既有省略；Trial的 `trialPortraits` 和正式包的 `PublishedPacks.#freezePortraits` 均先经过共同收集器。无槽位helper的省略本身不构成准入证明，也不能从Trial窄例外推导全部发布资格或完整消费者闭包。
-- `web/src/core/assets.js` 的 `portraitURL` 仍在没有对应覆盖时构造 `kao/${byte}.png`，`portrait` 调用 `loadImage`；`Scenario.portraitOf` 也不是FF专用门。因此启动门排除／manifest省略不证明每个显示caller不会请求255，原证可达性与实际消费者覆盖仍保持未闭合。
-
-前一文档复核批复用既有 `verify_editor_chapter_gap_reports.mjs`，仅运行名为“asset report reuses the existing Trial gate”的用例，当前窄判据、其它槽255仍缺、未知值不补及显示截断检查通过，日志 `.dragon-analysis/editor-completion/portrait-admission-review-test.log`。这是内存报告边界检查，不是新的真实issue／发布／浏览器或20章全链成绩。本批仅纠正文档状态层次，不改产品、资源、原证、程序束或任何门。
+历史文档复核收据 `.dragon-analysis/editor-completion/portrait-admission-review-test.log` 只证明当时的窄判据，不是本次成绩；原始FF与显示caller的未闭合项仍见下方原证。
 
 ## 后继发布画像255依赖拒收
+
+> **已被上节 Web 资源决定替代的历史工程门**：本节所有“现／保留／拒收／省略255”均指当时实现与收据，不再是现行规则。原日志与原始FF证据保留，不将旧负控成绩冒充新资源测试。
 
 工程链核对：`EditorRoot.#publishPin` 先执行 `validateGameSource`／全量 `compileTrialSource`，再 `PublishedPacks.prepare`→`#freezePortraits`→`collectPortraitIds`→`GamePortraits.forPublish`。实体／地图编译不检查画像文件存在；此前普通槽的255可以通过编译，在最后无槽位helper中被静默省略。现只在拥有原记录上下文的共同收集边界拒绝 `portrait===255 && idx!==127`，并拒绝显式 `portraitKey==='255'`（该共享ID不存在）；沿既有坏依赖错误 `PLAY_PORTRAIT_CORRUPT`，不悄悄丢依赖。普通槽原byte255即使另有合法override也拒，不能用覆盖掩盖原依赖。
 

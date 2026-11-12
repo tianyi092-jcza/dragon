@@ -6,7 +6,7 @@ import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs'
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 import { ElForm } from 'element-plus/es/components/form/index.mjs';
 import ChapterRolesPanel from './ChapterRolesPanel.vue';
-defineProps({ model: Object, actions: Object, busy: Boolean });
+defineProps({ model: Object, actions: Object, busy: Boolean, active: { type: Boolean, default: true } });
 const resourceFields = [['money', '資金'], ['reserve_cav', '騎兵'], ['reserve_arc', '弓兵'], ['reserve_inf', '步兵']];
 const page = model => model.copy?.page ?? null;
 function choose(value, actions) { actions.chooseGame(value); }
@@ -18,6 +18,8 @@ function gapText(chapter) {
 
 <template>
   <section id="draft-editor" class="module-card">
+    <!-- 保留控制器輸入；非當前面板不掛載全章資源表單，避免拖慢其它模組。 -->
+    <template v-if="active">
     <p>先選遊戲並載入副本；清單刷新不會替換正在編輯的資料。</p>
     <div class="module-toolbar">
       <ElButton id="draft-games-refresh" :disabled="busy || model.locked" @click="actions.refresh()">查看自己的遊戲</ElButton>
@@ -83,5 +85,6 @@ function gapText(chapter) {
         <label v-for="[key, label] in resourceFields" :key="label">{{ label }}<ElInput form="draft-save" :name="key" inputmode="numeric" :model-value="faction.inputs[key]" @input="actions.setCopyResource(chapter.chapterId, faction.slot, key, $event)" /></label>
       </ElForm>
     </details></div>
+    </template>
   </section>
 </template>

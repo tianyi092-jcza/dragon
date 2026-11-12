@@ -608,7 +608,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       else throw new Error('操作回應上下文無效。');
     } catch (error) { if (valid() && attempt === pending) { if (error.status === 404) { if (pending.state !== 'revoked') pending.state = 'not-found'; message = pending.state === 'revoked' ? '舊會話已由實際改密撤銷；查無原操作仍不宣稱已保存或失敗。可確認放棄後載入明確修訂。' : '目前查無原操作，不保證在途請求已結束；有原內容才可明確重送同一個請求。不保留原內容時，可明確改密撤銷所有舊會話後再載入，不能重造請求，也不會自動另起一個請求。'; } else if (error.code === 'OPERATION_REVOKED') { pending.state = 'revoked'; message = '原操作會話已撤銷，不能復活舊鍵；確認放棄後載入明確修訂。'; } else { message = '查詢未確認：' + error.message; throw error; } } }
   }
-  function action(callback) { return work(async () => { if (!permitted()) throw new Error('請先登入並完成改密。'); try { return await callback(); } finally { render(); } }); }
+  function action(callback, options) { return work(async () => { if (!permitted()) throw new Error('請先登入並完成改密。'); try { return await callback(); } finally { render(); } }, options); }
   // F6 副本链（加法）：模块覆盖写 + 上架状态读。服务端为唯一校验者；成功换摘要即作废本地旧 submission 快照。
   async function saveCopyModule(module, patch) {
     if (isBusy() || !permitted() || !uuid(fields.gameId)) return null;
@@ -807,13 +807,13 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   }
   // 首建兜底：读不到副本行（新游戏从未来过副本页）就地 ensure（幂等，只种一次），再读一次。
   // ensure 自带 POST 空对象体（api 无 body 即发 GET，会 404）。
-  async function readCopyOrEnsure(gameId) {
+  async function readCopyOrEnsure(gameId, options) {
     try {
-      return await api('/api/games/' + gameId + '/copy');
+      return await api('/api/games/' + gameId + '/copy', undefined, options);
     } catch (error) {
       if (error?.code !== 'COPY_NOT_FOUND') throw error;
-      await api('/api/games/' + gameId + '/copy/ensure', {});
-      return await api('/api/games/' + gameId + '/copy');
+      await api('/api/games/' + gameId + '/copy/ensure', {}, options);
+      return await api('/api/games/' + gameId + '/copy', undefined, options);
     }
   }
   async function loadCopy() {
@@ -874,16 +874,16 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     });
   }
   // saveCopyModule 的内联版：同一次保存按模块顺序送多次 PUT，成功才重读。
-  async function saveCopyModuleInner(gameId, valid, module, patch) {
-    const result = await api('/api/games/' + gameId + '/copy', { module, patch });
+  async function saveCopyModuleInner(gameId, valid, module, patch, options) {
+    const result = await api('/api/games/' + gameId + '/copy', { module, patch }, options);
     if (!valid() || fields.gameId !== gameId) return null;
     if (!result || result.gameId !== gameId || !hexDigest(result.copyDigest)) throw new Error('副本保存回應無效。');
     copyGameId = gameId; copyDigest = result.copyDigest; copyUpdatedAt = typeof result.updatedAt === 'string' ? result.updatedAt : null; copySubmission = null;
     if (copyValidationDigest !== copyDigest) { copyValidation = null; copyTicket = null; copyValidationDigest = null; }
     return result;
   }
-  async function loadCopyInner(gameId, valid) {
-    const response = await readCopyOrEnsure(gameId);
+  async function loadCopyInner(gameId, valid, options) {
+    const response = await readCopyOrEnsure(gameId, options);
     if (!valid() || fields.gameId !== gameId) return;
     if (!response || response.gameId !== gameId || !hexDigest(response.copyDigest) || !response.data) throw new Error('副本讀取回應無效。');
     copyData = checkedCopyData(response.data, gameId);
@@ -929,12 +929,12 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       try {
         for (let at = 0; at < rows.length; at += COPY_GENERAL_IMPORT_BATCH) {
           const batch = rows.slice(at, at + COPY_GENERAL_IMPORT_BATCH);
-          await saveCopyModuleInner(gameId, valid, 'generals', { import: batch });
+          await saveCopyModuleInner(gameId, valid, 'generals', { import: batch }, { feedback: 'progress' });
           if (!valid() || fields.gameId !== gameId) { copyImportProgress = null; return; }
           copyImportProgress = { done: at + batch.length, total: rows.length, state: 'running', batches };
           render();
         }
-        await loadCopyInner(gameId, valid);
+        await loadCopyInner(gameId, valid, { feedback: 'progress' });
         copyImportProgress = { done: rows.length, total: rows.length, state: 'done', batches };
         render();
         return '已導入 ' + rows.length + ' 名武將並重讀副本。';
@@ -943,14 +943,14 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
         render();
         throw error;
       }
-    });
+    }, { feedback: 'progress' });
   }
   function clearCopyImport() { if (isBusy()) return; copyImportProgress = null; render(); }
   async function loadCopyPortraits() {
     if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本資料。');
     const gameId = fields.gameId, valid = ticket();
     return action(async () => {
-      const result = await api('/api/games/' + encodeURIComponent(gameId) + '/portraits');
+      const result = await api('/api/games/' + encodeURIComponent(gameId) + '/portraits?usage=0', undefined, { feedback: 'local' });
       if (!valid() || fields.gameId !== gameId) return;
       if (result?.gameId !== gameId || !Array.isArray(result.portraits)) throw new Error('共用頭像清單回應無效。');
       const seen = new Set();
@@ -960,7 +960,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
         seen.add(ref.assetId);
         return ref;
       });
-    });
+    }, { feedback: 'local' });
   }
   async function copyChapter(op, chapterId) {
     if (isBusy() || !permitted() || !copyLoadedForGame() || !['copy', 'rename', 'delete'].includes(op)) return null;

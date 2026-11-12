@@ -22,18 +22,13 @@ const SERVED_ASSETS = Object.freeze(DERIVED_ASSETS.slice(2));
 const SERVED_MIME = Object.freeze({ terrain: 'application/octet-stream', roadGraph: 'application/json', roadCost: 'application/octet-stream', roadOffset: 'application/json', minimapBase: 'image/png', minimapLarge: 'image/png' });
 // Web product: trial portraits resolve from the shared kao manifest (B), no upload.
 // Q69 batch 8b start gate capture sets, derived from the single fixed-library source of truth (no hardcoded ranges).
-const TRIAL_PORTRAIT_CAPTURE = new Set(), TRIAL_CITY_VIEW_CAPTURE = new Set();
+const TRIAL_PORTRAIT_CAPTURE = new Set(new GamePortraits().list().map(row => Number(row.assetId))), TRIAL_CITY_VIEW_CAPTURE = new Set();
 for (const path of FIXED_TRIAL_ASSET_PATHS) {
-  let match = /^kao\/(\d+)\.png$/.exec(path); if (match) { TRIAL_PORTRAIT_CAPTURE.add(Number(match[1])); continue; }
-  match = /^grf\/kyo_(\d+)\.png$/.exec(path); if (match) { TRIAL_CITY_VIEW_CAPTURE.add(Number(match[1])); }
+  const match = /^grf\/kyo_(\d+)\.png$/.exec(path); if (match) { TRIAL_CITY_VIEW_CAPTURE.add(Number(match[1])); }
 }
-// Q69 batch 8c: Web 产品决定（非原版机制，用户裁决 2026-10-08 选项 B 哨兵排除）：
-// 章 state 中 slot 127 且 portrait byte 255 的记录按 staged manifest 已登记形态
-// （slot 127 / portrait 255 / kao/255.png，全 20 章逐字节一致）从启动门缺口中排除，
-// 不再 422；其它缺失（含其它槽位 255）仍拒。原版 FF/255 语义未知（14 caller 域未闭合），
-// 此排除不是原版规则断言；staged manifest 仍登记 20 条未闭合引用，库仍为
-// STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE。
-const TRIAL_SENTINEL_SLOT = 127, TRIAL_SENTINEL_PORTRAIT = 255;
+// Resource-only product decision: the shared catalog now contains 0..620,
+// including 255. Historical fixed-source inventories are not rewritten.
+// This does not reopen the retired Trial HTTP API or certify DOS FF semantics.
 function kaoGap(general, portrait) {
   return Object.freeze({ kind: 'kao', slot: Number.isInteger(general?.idx) ? general.idx : null, value: Number.isInteger(portrait) ? portrait : null, logicalURL: Number.isInteger(portrait) ? `kao/${portrait}.png` : null });
 }
@@ -44,7 +39,6 @@ function portraitGaps(generals) {
   const gaps = [];
   for (const general of generals) {
     const portrait = general?.portrait;
-    if (general?.idx === TRIAL_SENTINEL_SLOT && portrait === TRIAL_SENTINEL_PORTRAIT) { continue; }
     if (!Number.isInteger(portrait) || !TRIAL_PORTRAIT_CAPTURE.has(portrait)) { gaps.push(kaoGap(general, portrait)); }
   }
   return gaps;

@@ -39,11 +39,11 @@ try {
     const headers={Origin:origin,'Content-Type':'application/json',Cookie:cookie,'X-CSRF-Token':user.csrf};
     const path=origin+'/api/games/'+authority.gameId+'/draft';
     const initial=await authority.fetch(new Request(path+'?revision=1',{headers}));assert.equal(initial.status,200);
-    const before=await initial.json(),body={metadata:before.metadata,resourceEdits:[],chapterEdits:[{op:'portrait',chapterId:authority.chapters[0],generalIdx:0,portraitKey:'p0001'}]};
+    const before=await initial.json(),body={metadata:before.metadata,resourceEdits:[],chapterEdits:[{op:'portrait',chapterId:authority.chapters[0],generalIdx:0,portraitKey:'150'}]};
     const saved=await authority.fetch(new Request(path+'/save',{method:'POST',headers:{...headers,'If-Match':'"1"','Idempotency-Key':'owned-pack-portrait-001'},body:JSON.stringify(body)}));
     assert.equal(saved.status,200,await saved.clone().text());assert.equal((await saved.json()).draftRevision,'2');
     const current=await authority.fetch(new Request(path+'?revision=2',{headers}));assert.equal(current.status,200);
-    const expected=structuredClone(before.chapters);expected[0].generals.find(row=>row.idx===0).portraitKey='p0001';
+    const expected=structuredClone(before.chapters);expected[0].generals.find(row=>row.idx===0).portraitKey='150';
     assert.deepEqual((await current.json()).chapters,expected);
     const old=await authority.fetch(new Request(path+'?revision=1',{headers}));assert.equal(old.status,200);assert.deepEqual(await old.json(),before);checks++;
   }
@@ -74,9 +74,9 @@ try {
   const sql=authority.storage.sql;assert.equal(JSON.stringify(pack.chapter),sql.exec('SELECT state_json FROM published_pack_chapters WHERE game_id=? AND chapter_id=?',authority.gameId,authority.chapters[0]).toArray()[0].state_json);
   const declarations=[...pack.manifest.assets,...pack.manifest.minimapAssets,...pack.manifest.portraits];assert.equal(declarations.length,152+(portraitMode?1:0));assert.equal(Object.keys(pack.resourceURLs).length,160+(portraitMode?1:0));
   if(portraitMode){
-    const declaration=pack.manifest.portraits.find(row=>row.assetId==='p0001');assert.ok(declaration);
-    const bytes=readFileSync('web/kao/p0001.png');assert.equal(declaration.sha256,sha(bytes));assert.equal(declaration.byteLength,bytes.length);
-    assert.equal(pack.chapter.generals.find(row=>row.idx===0).portraitKey,'p0001');checks++;
+    const declaration=pack.manifest.portraits.find(row=>row.assetId==='150');assert.ok(declaration);
+    const bytes=readFileSync('web/kao/150.png');assert.equal(declaration.sha256,sha(bytes));assert.equal(declaration.byteLength,bytes.length);
+    assert.equal(pack.chapter.generals.find(row=>row.idx===0).portraitKey,'150');checks++;
   }
   for(const entry of declarations){const response=await fetch(pack.resourceURLs['asset:'+entry.assetId]);const bytes=new Uint8Array(await response.arrayBuffer());assert.equal(sha(bytes),entry.sha256);assert.equal(bytes.length,entry.byteLength);assetReads++;}checks++;
   const assets=Object.fromEntries(['terrain','roadGraph','roadCost','roadOffset'].map(id=>[id,pack.resourceURLs['asset:'+id]]));
@@ -90,8 +90,8 @@ try {
     assert.equal(environment.content.revision,pack.identity.sourceDigest);assert.equal(environment.world.definition.revision,pack.identity.sourceDigest);
     for(const general of environment.raw.generals)if(general.portraitKey)assert.equal(portraitURL(general,environment.world),pack.resourceURLs['asset:'+general.portraitKey]);
     if(portraitMode){
-      const overridden=environment.raw.generals.filter(general=>general.portraitKey==='p0001');assert.equal(overridden.length,1);assert.equal(overridden[0].idx,0);
-      assert.equal(portraitURL(overridden[0],environment.world),pack.resourceURLs['asset:p0001']);
+      const overridden=environment.raw.generals.filter(general=>general.portraitKey==='150');assert.equal(overridden.length,1);assert.equal(overridden[0].idx,0);
+      assert.equal(portraitURL(overridden[0],environment.world),pack.resourceURLs['asset:150']);
       assert.equal(overridden[0].portrait,pack.chapter.generals.find(general=>general.idx===0).portrait);checks++;
     }
     const prepared=await prepareScenario({raw:environment.raw,idx:0,mode:'fresh',content:environment.content,world:environment.world});
@@ -118,8 +118,8 @@ try {
       assert.deepEqual(restored.metadata,prepared.metadata);assert.deepEqual(originalRng.snapshot(),rngBefore);assert.equal((await store.get(0)).record.releaseId,pack.identity.releaseId);checks++;
       if(portraitMode){
         const general=restored.scenario.generals.find(row=>row.idx===0);
-        assert.equal(general.portraitKey,'p0001');assert.equal(general.portrait,pack.chapter.generals.find(row=>row.idx===0).portrait);
-        assert.equal(portraitURL(general,environment.world),pack.resourceURLs['asset:p0001']);checks++;
+        assert.equal(general.portraitKey,'150');assert.equal(general.portrait,pack.chapter.generals.find(row=>row.idx===0).portrait);
+        assert.equal(portraitURL(general,environment.world),pack.resourceURLs['asset:150']);checks++;
       }
     }
   }

@@ -7,8 +7,11 @@ import { addBlankChapter, assignChapterGeneral, createFaction, setChapterCityFac
 import { applyChapterPersonEdit, applyGeneralDefinitionEdit, generalDefinitionChangeImpact } from '../web/src/content/authoring/generaldefinitions.js';
 const G = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const id = `${G}#general-${'a'.repeat(64)}`;
-const portrait = { assetId: 'p0001', sha256: (await import('../web/kao/manifest.js')).KAO_MANIFEST.find(row => row.id === 'p0001').sha256 };
-const ability = { siege: 3, field: 4, naval: 0, force: 88, lead: 77, politics: 66 };
+import { KAO_MANIFEST } from '../web/kao/manifest.js';
+import { GamePortraits, collectPortraitIds } from '../server/portraits.js';
+import { bindPortraitOverrides, buildPortraitOverrides, portraitURL } from '../web/src/core/assets.js';
+const portrait = { assetId: '150', sha256: KAO_MANIFEST.find(row => row.id === '150').sha256 };
+const ability = { siege: 3, field: 4, naval: 0, force: 11, lead: 12, politics: 13 };
 const START = { era: 'ad', year: 208, month: 11, day: 1 };
 const loader = createPinnedCopyLoader({ kind: 'full', readWeb: path => readFileSync(new URL(`../web/${path}`, import.meta.url)) });
 const { game } = await loader({ gameId: G, ownerId: 'library-probe' });
@@ -17,10 +20,10 @@ let groups = 0;
 
 // ① 能力值是游戏级资料库字段：可建库、可读回、旧记录缺省不补默认值。
 const created = applyGeneralDefinitionEdit(game, { op: 'create', generalId: id, values: { name: '測試', hao: '字', portraitRef: portrait, ability } });
-assert.deepEqual(created.generals[id], { name: '測試', hao: '字', portraitRef: portrait, ability });
+assert.deepEqual(created.generals[id], { name: '測試', zi: '', hao: '字', portraitRef: portrait, suicideOnCapture: false, ability });
 assert.deepEqual(game.generals, {}, 'the source game is never mutated');
 const legacy = applyGeneralDefinitionEdit(game, { op: 'create', generalId: id, values: { name: '舊記錄', hao: '', portraitRef: null } });
-assert.deepEqual(legacy.generals[id], { name: '舊記錄', hao: '', portraitRef: null });
+assert.deepEqual(legacy.generals[id], { name: '舊記錄', zi: '', hao: '', portraitRef: null, suicideOnCapture: false });
 assert.equal(Object.hasOwn(legacy.generals[id], 'ability'), false);
 for (const bad of [{ ...ability, force: 256 }, { ...ability, siege: 16 }, { ...ability, naval: -1 }])
   assert.throws(() => applyGeneralDefinitionEdit(game, { op: 'create', generalId: id, values: { name: '壞', hao: '', portraitRef: null, ability: bad } }), RangeError);
@@ -34,7 +37,7 @@ const { slot } = assignChapterGeneral(work, chapterId, { generalId: id, name: '�
 assert.equal(slot, 0);
 assert.deepEqual(work.chapters[chapterId].state.generals[0].ability, ability);
 const people = applyChapterPersonEdit(work, { op: 'set', chapterId, generalId: id, values: { included: true, factionId: null, overrides: {} } });
-const impact = generalDefinitionChangeImpact(people, id, { name: '測試', hao: '字', portraitRef: portrait, ability: { ...ability, force: 90 } });
+const impact = generalDefinitionChangeImpact(people, id, { name: '測試', hao: '字', portraitRef: portrait, ability: { ...ability, force: 14 } });
 assert.deepEqual(impact.changedFields, ['ability']);
 assert.deepEqual(impact.affectedChapters, [{ chapterId, fields: ['ability'] }]);
 groups++;
@@ -101,7 +104,8 @@ const slotRecord = includedOnce.chapters[chapterId].state.generals[0];
 assert.equal(slotRecord.generalId, id);
 assert.equal(slotRecord.name, '測試');
 assert.equal(slotRecord.attr, 0x80);
-assert.equal(slotRecord.portrait, 1, 'portraitRef p0001 maps to native portrait 1');
+assert.equal(slotRecord.portrait, 150, 'numeric resource 150 fits the native byte');
+assert.equal(slotRecord.portraitKey, '150');
 assert.deepEqual(slotRecord.ability, ability);
 assert.equal(includedOnce.chapters[chapterId].state.generals.length, 128);
 const excludedAgain = applyChapterPersonEdit(includedOnce, { op: 'set', chapterId, generalId: id, values: { included: false, factionId: null, overrides: {} } });
@@ -116,5 +120,33 @@ const builtinBefore = structuredClone(game.chapters[builtinChapter].state.genera
 const builtinTouched = applyChapterPersonEdit(bridgeBase, { op: 'set', chapterId: builtinChapter, generalId: id, values: { included: true, factionId: null, overrides: {} } });
 assert.deepEqual(builtinTouched.chapters[builtinChapter].state.generals, builtinBefore);
 groups++;
+
+// Web resource IDs span 0..620; never truncate large IDs into the DOS byte.
+for (const assetId of ['0', '150', '255', '256', '620']) {
+  const entry = KAO_MANIFEST.find(row => row.id === assetId);
+  const portraitRef = { assetId, sha256: entry.sha256 };
+  const base = applyGeneralDefinitionEdit(game, { op: 'create', generalId: id, values: { name: '綁定', hao: '', portraitRef, ability } });
+  const included = applyChapterPersonEdit(base, { op: 'set', chapterId, generalId: id, values: { included: true, factionId: null, overrides: {} } });
+  const record = included.chapters[chapterId].state.generals[0];
+  assert.equal(record.portrait, Number(assetId) <= 255 ? Number(assetId) : 0);
+  assert.equal(record.portraitKey, assetId);
+  const rows = new GamePortraits().forPublish(collectPortraitIds([record])).map(row => ({ ...row, url: `kao/${row.assetId}.png` }));
+  assert.ok(rows.some(row => row.assetId === assetId && row.sha256 === entry.sha256));
+  const world = {};
+  bindPortraitOverrides(world, buildPortraitOverrides([record], rows));
+  assert.equal(portraitURL(record, world), `kao/${assetId}.png`);
+  let restored;
+  try { restored = JSON.parse(JSON.stringify(record)); }
+  catch (cause) { throw new Error('portrait record JSON round trip failed', { cause }); }
+  assert.deepEqual(restored, record);
+  if (Number(assetId) > 255) {
+    const existing = applyChapterPersonEdit(includedOnce, { op: 'set', chapterId, generalId: id, values: { included: true, factionId: null, overrides: { portraitRef } } });
+    assert.equal(existing.chapters[chapterId].state.generals[0].portrait, 150, 'existing byte survives a large-ID override');
+    assert.equal(existing.chapters[chapterId].state.generals[0].portraitKey, assetId);
+    const clearedPortrait = applyChapterPersonEdit(existing, { op: 'set', chapterId, generalId: id, values: { included: true, factionId: null, overrides: { portraitRef: null } } });
+    assert.equal(clearedPortrait.chapters[chapterId].state.generals[0].portraitKey, null);
+  }
+  groups++;
+}
 
 process.stdout.write(`${JSON.stringify({ groups, scope: 'pinned fixed copy + in-memory objects only; no HTTP, save, native init or runtime grant' })}\n`);

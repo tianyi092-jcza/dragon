@@ -32,9 +32,9 @@ test('未登场槽是空位：保存门只管已登场槽（2026-11 用户裁决
 test('asset report reuses the existing Trial gate, preserves unknowns and bounds display only', () => {
   const state = { generals: [{ idx: 0, portrait: 255 }, { idx: 127, portrait: 255 }, { portrait: '1' }], cities: [{ idx: 2, view: 999 }], factions: [] };
   const before = structuredClone(state), expected = trialChapterAssetGaps(state);
-  assert.equal(expected.length, 3); // Existing sentinel exclusion is not changed or certified here.
-  assert.deepEqual(chapterGapReport(state, 'assets').assets, { total: 3, items: expected, omitted: 0 });
-  assert.deepEqual(expected[1], { kind: 'kao', slot: null, value: null, logicalURL: null });
+  assert.equal(expected.length, 2); // 255 exists in the numeric shared catalog at every slot.
+  assert.deepEqual(chapterGapReport(state, 'assets').assets, { total: 2, items: expected, omitted: 0 });
+  assert.deepEqual(expected[0], { kind: 'kao', slot: null, value: null, logicalURL: null });
   assert.deepEqual(state, before);
   const many = { generals: Array.from({ length: 128 }, (_, idx) => ({ idx })), cities: [], factions: [] };
   const report = chapterGapReport(many, 'many').assets;

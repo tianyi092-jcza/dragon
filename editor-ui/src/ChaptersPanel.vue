@@ -9,7 +9,7 @@ import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.m
 // 三面只送單一命令，保存後控制器自動重讀副本；君主／軍師仍在「遊戲管理」的章節角色區，
 // 內政官（太守）在本頁據點面設定，寫入器同時維護身份與舊預算。
 // 資料走副本頁 attributes 投影，不再經過修訂。
-const props = defineProps({ model: Object, actions: Object, busy: Boolean });
+const props = defineProps({ model: Object, actions: Object, busy: Boolean, active: { type: Boolean, default: true } });
 const page = computed(() => props.model?.copy?.page ?? null);
 const attributes = computed(() => page.value?.attributes ?? null);
 const locked = computed(() => Boolean(props.busy) || !attributes.value || attributes.value.locked);
@@ -85,7 +85,8 @@ async function saveNumbers(city) {
     <p>章節屬遊戲級：每章各自有開始年代、據點所屬／首都與武將所屬／職務；地圖與武將基礎資料由底層資源共用。三面都只送一條命令，保存後控制器自動重讀副本，不開放初始化或運行准入。</p>
     <p v-if="!attributes" class="module-notice">尚未載入副本：請先載入本遊戲的副本再查看章節屬性。</p>
     <p v-if="!chapters.length" class="empty-state">沒有可顯示的章節屬性；載入副本後再查看。</p>
-    <template v-else>
+    <!-- 組件與 numberForm 保留；隱藏時不掛載數百個選單及其選項。 -->
+    <template v-else-if="active">
       <div class="module-toolbar">
         <label>章節<ElSelect id="chapters-select" :model-value="chapter?.chapterId" :disabled="busy || !attributes" @change="switchChapter($event)"><ElOption v-for="row in chapters" :key="row.chapterId" :value="row.chapterId" :label="row.name" /></ElSelect></label>
         <ElTag effect="plain">{{ chapter?.chapterId }}</ElTag>

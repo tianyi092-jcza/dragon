@@ -28,7 +28,7 @@ const out = `${base}/attempt${round}`; mkdirSync(out);
 const sha = b => createHash('sha256').update(b).digest('hex');
 const parse = text => { try { return JSON.parse(text); } catch (cause) { throw new Error('owned boot JSON', { cause }); } };
 const inputs = ['server/worker.js', 'server/trials.js', 'server/public/trialapp.txt', 'server/public/trialweb.txt', 'web/src/editor/servertrialapp.js', 'web/src/editor/trialconnection.js', 'web/src/editor/trialconnectionmonitor.js', 'web/src/editor/trialstatusadapter.js', 'tools/verify_trial_app_boot.mjs', 'tools/editor_stage_source.mjs', 'tools/editor_stage_library.mjs'];
-if (nodePortrait) inputs.push('server/editorapp.js', 'server/portraits.js', 'server/drafts.js', 'server/public/draft.txt', 'vps/editor-server.mjs', 'vps/sqlite-port.mjs', 'vps/file-bucket.mjs', 'tools/editor_local_https.mjs', 'web/src/content/authoring/trialruntime.js', 'web/src/core/assets.js', 'web/src/ui/gamebar.js', 'web/kao/manifest.js', 'web/kao/p0001.png');
+if (nodePortrait) inputs.push('server/editorapp.js', 'server/portraits.js', 'server/drafts.js', 'server/public/draft.txt', 'vps/editor-server.mjs', 'vps/sqlite-port.mjs', 'vps/file-bucket.mjs', 'tools/editor_local_https.mjs', 'web/src/content/authoring/trialruntime.js', 'web/src/core/assets.js', 'web/src/ui/gamebar.js', 'web/kao/manifest.js', 'web/kao/150.png');
 const pins = {};
 for (const [i, name] of inputs.entries()) { const bytes = readFileSync(name); pins[name] = sha(bytes); writeFileSync(`${out}/input-${i}.txt`, bytes, { flag: 'wx' }); }
 writeFileSync(`${out}/inputs.json`, JSON.stringify(pins, null, 2), { flag: 'wx' });
@@ -102,13 +102,13 @@ try {
   let trialRevision = draft.draftRevision, portraitDeclaration = null;
   if (nodePortrait) {
     const { KAO_MANIFEST } = await import('../web/kao/manifest.js');
-    portraitDeclaration = KAO_MANIFEST.find(row => row.id === 'p0001');
-    const portraitBytes = readFileSync('web/kao/p0001.png');
+    portraitDeclaration = KAO_MANIFEST.find(row => row.id === '150');
+    const portraitBytes = readFileSync('web/kao/150.png');
     assert.equal(sha(portraitBytes), portraitDeclaration.sha256); assert.equal(portraitBytes.length, portraitDeclaration.bytes);
-    const saved = parse((await ok('real-shared-portrait-save', `/api/games/${copied.gameId}/draft/save`, { metadata: draft.metadata, resourceEdits: [], chapterEdits: [{ op: 'portrait', chapterId: draft.chapters[0].chapterId, generalIdx: 0, portraitKey: 'p0001' }] }, admin, 200, { 'If-Match': `"${draft.draftRevision}"` }, 600000)).bytes.toString('utf8'));
+    const saved = parse((await ok('real-shared-portrait-save', `/api/games/${copied.gameId}/draft/save`, { metadata: draft.metadata, resourceEdits: [], chapterEdits: [{ op: 'portrait', chapterId: draft.chapters[0].chapterId, generalIdx: 0, portraitKey: '150' }] }, admin, 200, { 'If-Match': `"${draft.draftRevision}"` }, 600000)).bytes.toString('utf8'));
     trialRevision = saved.draftRevision; assert.equal(trialRevision, '2');
     const current = parse((await ok('real-shared-portrait-read2', `/api/games/${copied.gameId}/draft?revision=2`, undefined, admin, 200, {}, 600000)).bytes.toString('utf8'));
-    const expected = structuredClone(draft.chapters); expected[0].generals.find(row => row.idx === 0).portraitKey = 'p0001';
+    const expected = structuredClone(draft.chapters); expected[0].generals.find(row => row.idx === 0).portraitKey = '150';
     assert.deepEqual(current.chapters, expected);
     const old = parse((await ok('real-original-read1', `/api/games/${copied.gameId}/draft?revision=1`, undefined, admin, 200, {}, 600000)).bytes.toString('utf8'));
     assert.deepEqual(old, draft);
@@ -139,7 +139,7 @@ try {
             logTraffic(request.method, url.pathname + url.search, upstream.statusCode);
             if (upstream.statusCode !== 200 && upstream.statusCode !== 201 && upstream.statusCode !== 202) { writeFileSync(`${out}/fail-${traffic.length}.json`, JSON.stringify({ method: request.method, path: url.pathname + url.search, status: upstream.statusCode, body: Buffer.concat(chunks).toString('utf8').slice(0, 500) }, null, 2)); }
             const bytes = Buffer.concat(chunks);
-            if (nodePortrait && url.pathname === '/api/trial/web/kao/p0001.png') portraitResponses.push({ path: url.pathname, status: upstream.statusCode, byteLength: bytes.length, sha256: sha(bytes), declaredSha256: upstream.headers['x-content-sha256'], mime: upstream.headers['content-type'], cache: upstream.headers['cache-control'] });
+            if (nodePortrait && url.pathname === '/api/trial/web/kao/150.png') portraitResponses.push({ path: url.pathname, status: upstream.statusCode, byteLength: bytes.length, sha256: sha(bytes), declaredSha256: upstream.headers['x-content-sha256'], mime: upstream.headers['content-type'], cache: upstream.headers['cache-control'] });
             response.writeHead(upstream.statusCode, { 'Content-Type': upstream.headers['content-type'] ?? 'application/octet-stream', ...Object.fromEntries(['cache-control', 'x-content-type-options', 'x-content-sha256'].filter(name => upstream.headers[name]).map(name => [name, upstream.headers[name]])) });
             response.end(bytes);
           });
@@ -228,12 +228,12 @@ try {
         return { portrait: general.portrait, portraitKey: general.portraitKey, src: image?.currentSrc, width: image?.naturalWidth, height: image?.naturalHeight };
       });
       assert.equal(card.portrait, draft.chapters[0].generals.find(row => row.idx === 0).portrait);
-      assert.equal(card.portraitKey, 'p0001'); assert.equal(card.src, pageOrigin + '/api/trial/web/kao/p0001.png');
-      assert.equal(card.width, 120); assert.equal(card.height, 120);
+      assert.equal(card.portraitKey, '150'); assert.equal(card.src, pageOrigin + '/api/trial/web/kao/150.png');
+      assert.equal(card.width, 128); assert.equal(card.height, 128);
       assert.ok(portraitResponses.length > 0);
       for (const response of portraitResponses) { assert.equal(response.status, 200); assert.equal(response.sha256, portraitDeclaration.sha256); assert.equal(response.declaredSha256, portraitDeclaration.sha256); assert.equal(response.byteLength, portraitDeclaration.bytes); assert.equal(response.mime, 'image/png'); assert.equal(response.cache, 'no-store'); }
       assert.deepEqual(errors, []); assert.deepEqual(failedRequests, []);
-      check('saved p0001 loads through real Trial App general-card consumer with exact bytes, hash and decoded dimensions');
+      check('saved 150 loads through real Trial App general-card consumer with exact bytes, hash and decoded dimensions');
     }
     await page.screenshot({ path: `${out}/loaded.png` });
     await ok('real-trial-end', `/api/trials/${trial.trialId}/end`, {}, admin);

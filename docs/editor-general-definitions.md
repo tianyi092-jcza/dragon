@@ -1,5 +1,13 @@
 # 中立草稿人物基础定义、API与表单
 
+## copy头像目录轻量读取（现行）
+
+当前 copy 武将页的头像弹窗请求 `GET /api/games/:gameId/portraits?usage=0`，返回 `{gameId, portraits:[{assetId,sha256,byteLength,mime}]}`。它仅列共享资源描述，不调用 `#portraitUsedKeys`、`games.listOwn` 或 `privateDrafts.read`，不为未显示的“正在使用”标记加载／校验整份旧草稿。响应不含 `inUse`，不是把未知使用情况伪装成false。完整目录一次读取并缓存；PNG仍只挂当前页25张、原生懒加载，翻页不重新读取目录。
+
+无查询的旧 `/portraits` 保持原合同：返回boolean `inUse`，使用标记读取失败仍拒绝，await后仍复核会话和删除栅栏；旧 `general.txt` 与草稿画像选择入口不改用轻量模式。仅目录接受精确的单个 `usage=0`；错误值、重复／多余参数、单项描述上的此参数仍返回422 `PORTRAIT_QUERY`。认证、强制改密、epoch／删除栅栏及图片字节SHA校验不放宽；单项描述与PNG入口不变。下文关于使用标记await的历史原证和收据，适用于仍执行该读取的旧模式。
+
+回归入口：`verify_editor_portrait_catalog.mjs` 用实际Request／会话／临时SQLite、显式旧草稿适配器验证轻量零读取及旧模式；`verify_copy_generals_manage.mjs` 验控制器请求；`verify_editor_generals_browser.mjs` 验实际构建壳、真实共享PNG及目录缓存／分页，API仍为隔离内存夹具。首次线上耗时占比未经测量，本地绕过无用链路不等于生产延迟SLA。
+
 ## 已批准的模型边界
 
 工程合同§1.2／§3的 `generals { generalId: GeneralDefinition }` 是全游戏人物基础资料；`generalId` 是人物身份，不是章节槽、来源记录ID、姓名或头像。不同人物可以同名、同画像。章节 `people[generalId]` 的加入／归属／覆盖和原生槽分配是另一层，不能用创建基础资料冒充完成新将初始化。
@@ -163,7 +171,9 @@ build/check逐byte一致（JS538544B、CSS37287B、8包许可）、shell65、三
 
 ## 后继共享扩展画像ID真实保存与恢复
 
-核对现行621项manifest：扩展画像使用 `p0001` 至 `p0471`，不是大于255的数字ID；原生 `portrait` 和共享 `portraitKey` 不能据数量混用。本轮未复现扩展数字绕入原生字段的路径，不因此新增数值校验或改准入。原 `r97` 的实际绑定ID为数字字符串0，不能代替扩展ID证据。
+> 历史HTTP收据：下文p编号是当时身份，不是当前目录。用户后来批准文件／资产ID续编150..620，现行0..620与255处理见[画像资源决定](re-notes-portrait-reader.md#现行web准入与原证边界)；本次没有重跑本节HTTP长链，也未迁移旧持久化引用。
+
+核对当时621项manifest：扩展画像使用 `p0001` 至 `p0471`，不是大于255的数字ID；原生 `portrait` 和共享 `portraitKey` 不能据数量混用。本轮未复现扩展数字绕入原生字段的路径，不因此新增数值校验或改准入。原 `r97` 的实际绑定ID为数字字符串0，不能代替扩展ID证据。
 
 复用 `verify_editor_backend_stage_ui.mjs --generals-only`，明确从真实资源库选 `p0001`，核返回ID／SHA／长度与当前manifest同项一致，并将manifest、画像收集器及共同画像写者纳入源码指纹。绑定2→3、清除3→4后分别读准确修订，全20章投影只允许目标将的 `portraitKey` 改为p0001／null，其它章字段与引用不变；旧2／3完整DTO保持。该HTTP投影不暴露原生portrait／raw，不能将此比较夸大为原生字节全写集证明。既有共同写者仅设置／删除portraitKey的代码边界不变。
 

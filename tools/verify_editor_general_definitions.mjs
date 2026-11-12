@@ -9,7 +9,7 @@ import { encodeSourceChunks, decodeSourceChunks } from '../web/src/content/autho
 import { validateGameSource, chapterActiveGaps } from '../web/src/content/authoring/gamesource.js';
 const G = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const id = G + '#general-' + 'a'.repeat(64), id2 = G + '#general-' + 'b'.repeat(64);
-const portrait = KAO_MANIFEST.find(row => row.id.startsWith('p'));
+const portrait = KAO_MANIFEST.find(row => row.id === '150');
 assert.ok(portrait);
 const values = { name: ' e\u0301 ', hao: '𠮷e\u0301', portraitRef: { assetId: portrait.id, sha256: portrait.sha256 } };
 const fixture = () => ({ gameId: G, sourceRef: { kind: 'builtin-template', sourceId: 'wolong-builtin' }, generals: {}, chapters: { chapter: { chapterId: 'chapter', state: { factions: [], generals: [], cities: [] } } }, chapterOrder: ['chapter'], map: { retained: true } });
@@ -17,14 +17,15 @@ const create = { op: 'create', generalId: id, values };
 let groups = 0;
 const base = fixture(), before = structuredClone(base), created = applyGeneralDefinitionEdit(base, create);
 assert.deepEqual(base, before);
-assert.deepEqual(created.generals[id], { name: 'é', hao: '𠮷é', portraitRef: values.portraitRef });
+assert.deepEqual(created.generals[id], { name: 'é', zi: '', hao: '𠮷é', portraitRef: values.portraitRef, suicideOnCapture: false });
 assert.deepEqual(created.chapters, before.chapters); assert.deepEqual(created.map, before.map);
 assert.equal(Object.hasOwn(created.generals[id], 'idx'), false); groups++;
-const sameName = applyGeneralDefinitionEdit(created, { ...create, generalId: id2 });
+assert.throws(() => applyGeneralDefinitionEdit(created, { ...create, generalId: id2 }), /name is already used/);
+const sameName = applyGeneralDefinitionEdit(created, { ...create, generalId: id2, values: { ...values, name: '別名' } });
 assert.equal(Object.keys(sameName.generals).length, 2);
 const changed = applyGeneralDefinitionEdit(sameName, { op: 'update', generalId: id, values: { name: '新名', hao: '', portraitRef: null } });
 assert.deepEqual(sameName.generals[id], created.generals[id]);
-assert.deepEqual(changed.generals[id2], created.generals[id]);
+assert.deepEqual(changed.generals[id2], sameName.generals[id2]);
 const deleted = applyGeneralDefinitionEdit(changed, { op: 'delete', generalId: id });
 assert.deepEqual(Object.keys(deleted.generals), [id2]); assert.ok(changed.generals[id]); groups++;
 for (const edit of [
@@ -42,7 +43,7 @@ assert.throws(() => applyGeneralDefinitionEdit(created, create));
 // B5：遊戲自有武將庫對完整副本同樣開放（庫層只管 generals/people）；舊槽位字典仍不被當成庫。
 const copyKind = structuredClone(base); copyKind.sourceRef.kind = 'builtin-copy';
 assert.equal(generalLibrarySupported(copyKind), true);
-assert.deepEqual(applyGeneralDefinitionEdit(copyKind, create).generals[id], { name: 'é', hao: '𠮷é', portraitRef: values.portraitRef });
+assert.deepEqual(applyGeneralDefinitionEdit(copyKind, create).generals[id], created.generals[id]);
 const slotDictionary = structuredClone(base); slotDictionary.generals = { 0: { slot: 0, name: '舊' } };
 assert.equal(generalLibrarySupported(slotDictionary), false);
 assert.throws(() => applyGeneralDefinitionEdit(slotDictionary, { ...create, generalId: id2 })); groups++;

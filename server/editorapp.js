@@ -724,8 +724,8 @@ return class EditorMetadata extends PlatformBase {
       return 'data';
     };
     const resources = roles.map(role => Object.freeze({ path: role.path, byteLength: role.byteLength, sha256: role.sha256, category: category(role.path) }));
-    // 使用者 m1107：「系統資源」的頭像要與共用畫像庫（`web/kao`，含新增的 471 張
-    // `p####.png`）合為同一份。已釘進 available-library 的 kao 條目保持原樣
+    // 使用者 m1107：「系統資源」的頭像要與共用畫像庫（`web/kao`，現為數字
+    // `0..620.png`，含新增471張）合為同一份。已釘進 available-library 的 kao 條目保持原樣
     // （bytes 仍從圖書館讀），只補上尚未收錄的 ID；不重算任何 pin 摘要。
     const listed = new Set(resources.map(row => row.path));
     for (const portrait of this.portraits.list()) {
@@ -1198,7 +1198,8 @@ return class EditorMetadata extends PlatformBase {
   async #getPortraits(rt) {
     const { tokenHash, policy, url, portraitPath } = rt;
     if (!portraitPath) { return null; }
-    if (url.search && !portraitPath[3]) { fail(422, 'PORTRAIT_QUERY'); }
+    const catalogOnly = !portraitPath[2] && url.searchParams.get('usage') === '0' && [...url.searchParams.keys()].join(',') === 'usage';
+    if (url.search && !portraitPath[3] && !catalogOnly) { fail(422, 'PORTRAIT_QUERY'); }
     this.touch(tokenHash, policy);
     this.games.assertNotDeleting(portraitPath[1]);
     if (portraitPath[3]) {
@@ -1218,6 +1219,9 @@ return class EditorMetadata extends PlatformBase {
       return response(this.portraits.get(portraitPath[2]));
     }
     const list = this.portraits.list();
+    // The copy picker needs resource descriptors only; do not load/validate a
+    // whole legacy draft just to compute an unused inUse flag.
+    if (catalogOnly) { return response({ gameId: portraitPath[1], portraits: list }); }
     const used = await this.#portraitUsedKeys(tokenHash, portraitPath[1]);
     this.principal(tokenHash);
     this.games.assertNotDeleting(portraitPath[1]);

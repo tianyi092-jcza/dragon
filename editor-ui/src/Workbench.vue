@@ -22,8 +22,8 @@ import CopyGamePanel from './CopyGamePanel.vue';
 import PublishPanel from './PublishPanel.vue';
 import ReviewPanel from './ReviewPanel.vue';
 const props = defineProps({ state: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, mapviewModel: Object, mapview: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
-// 使用者指定的四圓點圖形；尺寸、主色、遮罩與旋轉沿用 Element Plus Loading。
-const loadingSvg = '<g fill="var(--el-color-primary)"><circle cx="25" cy="11" r="5"/><circle cx="39" cy="25" r="5" opacity=".75"/><circle cx="25" cy="39" r="5" opacity=".5"/><circle cx="11" cy="25" r="5" opacity=".25"/></g>';
+import { loadingSvg } from './loading.js';
+const globalLoading = computed(() => props.state.loading || props.state.busy && props.state.feedback === 'global');
 const accountsPanel = ref(null), mapPanel = ref(null);
 defineExpose({ accountDirty: () => accountsPanel.value?.dirty() ?? false, mapInputs: () => Boolean(ready.value && mapPanel.value?.hasInputs()) });
 const userMenu = ref(false);
@@ -42,7 +42,7 @@ function go(view) { userMenu.value = false; props.navigate(view); }
 
 <template>
   <ElConfigProvider :locale="zhTw" size="default" :empty-values="[null, undefined]">
-  <div v-loading.fullscreen="state.busy || state.loading" :element-loading-svg="loadingSvg" element-loading-custom-class="workbench-loading" :aria-busy="Boolean(state.busy || state.loading)" class="workbench" :class="{ 'auth-layout': !ready }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
+  <div v-loading.fullscreen="globalLoading" :element-loading-svg="loadingSvg" element-loading-custom-class="workbench-loading" :aria-busy="Boolean(state.busy || state.loading)" class="workbench" :class="{ 'auth-layout': !ready }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
     <header class="workbench-header">
       <ElLink class="brand" href="#draft-editor" @click.prevent="go('draft-editor')"><span class="brand-mark">臥</span><span>臥龍傳<span class="brand-caption">創作工作台</span></span></ElLink>
       <div class="current-game" :hidden="!ready">
@@ -86,8 +86,8 @@ function go(view) { userMenu.value = false; props.navigate(view); }
       <section id="session" :hidden="!state.authenticated">
         <AccountPages :state="state" :ready="ready" />
         <AccountsPanel ref="accountsPanel" :model="accountsModel" :actions="accounts" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'admin'" />
-        <DraftPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'draft-editor'" />
-        <ChaptersPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'chapters-editor'" />
+        <DraftPanel :active="ready && state.view === 'draft-editor'" :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'draft-editor'" />
+        <ChaptersPanel :active="ready && state.view === 'chapters-editor'" :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'chapters-editor'" />
         <StrongholdPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'stronghold-editor'" />
         <MapPanel ref="mapPanel" :model="mapviewModel" :actions="mapview" :draft-model="draftModel" :draft-actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'mapview-editor'" />
         <CatalogPanel :model="catalogModel" :actions="catalog" :busy="state.busy" :hidden="!ready || state.view !== 'catalog-editor'" />

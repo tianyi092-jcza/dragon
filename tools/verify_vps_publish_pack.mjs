@@ -136,16 +136,24 @@ for (const field of ['portrait', 'portraitKey', 'generals']) {
   await fails(`malformed ${field} cannot disappear from dependency collection`, () => packs.prepare('h1', { game: corrupt, reference, compiled }), 'PLAY_PORTRAIT_CORRUPT');
 }
 for (const field of ['ordinary255', 'override255', 'last-chapter255']) {
-  const corrupt = structuredClone(game);
-  const chapterId = field === 'last-chapter255' ? corrupt.chapterOrder.at(-1) : corrupt.chapterOrder[0];
-  const general = corrupt.chapters[chapterId].state.generals[0];
+  const updated = structuredClone(game);
+  const chapterId = field === 'last-chapter255' ? updated.chapterOrder.at(-1) : updated.chapterOrder[0];
+  const general = updated.chapters[chapterId].state.generals[0];
   if (field === 'override255') general.portraitKey = '255';
   else general.portrait = 255;
-  // Full compilation is structural, not proof that portrait dependencies exist.
-  const candidate = compileTrialSource(corrupt, bytes => createHash('sha256').update(bytes).digest('hex'));
+  // Explicit prepare-port candidates, not persisted copy/formal migrations.
+  const candidate = compileTrialSource(updated, bytes => createHash('sha256').update(bytes).digest('hex'));
   check(`${field} still reaches the separate asset boundary`, candidate.sourceDigest !== compiled.sourceDigest);
-  await fails(`${field} cannot silently disappear during whole-game portrait freeze`, () => packs.prepare('h1', { game: corrupt, reference, compiled: candidate }), 'PLAY_PORTRAIT_CORRUPT');
-  check(`${field} installs no publication rows`, ['published_packs', 'published_pack_chapters', 'published_pack_assets'].every(table => storage.sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).toArray()[0].n === 0));
+  const prepared = await packs.prepare('h1', { game: updated, reference, compiled: candidate });
+  const snapshot = JSON.parse(packs.snapshotPrepared('h1', prepared).pack.manifest_json);
+  check(`${field} retains shared 255 with the manifest SHA`, snapshot.portraits.some(row => row.assetId === '255' && row.sha256 === portraits.get('255').sha256));
+  check(`${field} preparation installs no publication rows`, ['published_packs', 'published_pack_chapters', 'published_pack_assets'].every(table => storage.sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).toArray()[0].n === 0));
+}
+{
+  const missing = structuredClone(game);
+  missing.chapters[missing.chapterOrder[0]].state.generals[0].portraitKey = '621';
+  const candidate = compileTrialSource(missing, bytes => createHash('sha256').update(bytes).digest('hex'));
+  await fails('missing shared portrait still rejects preparation', () => packs.prepare('h1', { game: missing, reference, compiled: candidate }), 'PORTRAIT_NOT_FOUND');
 }
 for (const chapterId of [game.chapterOrder[0], game.chapterOrder.at(-1)]) {
   const corrupt = structuredClone(game);

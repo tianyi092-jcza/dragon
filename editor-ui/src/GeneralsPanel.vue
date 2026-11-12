@@ -11,6 +11,8 @@ import { ElCheckbox } from 'element-plus/es/components/checkbox/index.mjs';
 import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
 import { ElProgress } from 'element-plus/es/components/progress/index.mjs';
 import { ElTooltip } from 'element-plus/es/components/tooltip/index.mjs';
+import { vLoading } from 'element-plus/es/components/loading/index.mjs';
+import { loadingSvg } from './loading.js';
 // 武將庫＝這款遊戲的共享武將資料（父表，全章共用）：頭像、姓名、字、
 // 勢力被滅被俘（自殺旗，原版 attr bit4）、六項能力。章節經人物層繼承共享屬性，
 // 章節自有欄位（所屬／出場／職務等）不在本頁；增刪另議。加載走副本頁。
@@ -70,13 +72,13 @@ const importPercent = computed(() => {
 const albumReady = computed(() => Array.isArray(portraits.value));
 
 const columns = [
-  { key: 'seq', title: '序號', sortable: false },
-  { key: 'portrait', title: '头像', sortable: false },
-  { key: 'name', title: '姓名', sortable: true, type: 'text' },
-  { key: 'zi', title: '字', sortable: true, type: 'text' },
-  { key: 'hao', title: '号', sortable: true, type: 'text' },
-  { key: 'suicide', title: '势力被灭被俘', sortable: true, type: 'bool' },
-  ...ABILITIES.map(item => ({ key: item.key, title: item.title, sortable: true, type: 'number' })),
+  { key: 'seq', title: '序號', sortable: false, width: 60 },
+  { key: 'portrait', title: '头像', sortable: false, width: 80 },
+  { key: 'name', title: '姓名', sortable: true, type: 'text', width: 120 },
+  { key: 'zi', title: '字', sortable: true, type: 'text', width: 100 },
+  { key: 'hao', title: '号', sortable: true, type: 'text', width: 100 },
+  { key: 'suicide', title: '势力被灭被俘', sortable: true, type: 'bool', width: 140 },
+  ...ABILITIES.map(item => ({ key: item.key, title: item.title, sortable: true, type: 'number', width: 120 })),
   { key: 'actions', title: '操作', sortable: false },
 ];
 
@@ -219,7 +221,8 @@ function confirmAlbum() {
 }
 const albumRows = computed(() => {
   const needle = albumSearch.value.trim().toLowerCase();
-  return (portraits.value ?? []).filter(item => !needle || item.assetId.toLowerCase().includes(needle));
+  return (portraits.value ?? []).filter(item => !needle || item.assetId.toLowerCase().includes(needle))
+    .sort((a, b) => a.assetId.localeCompare(b.assetId, 'zh-Hant', { numeric: true }));
 });
 const { currentPage: albumPage, pageSize: albumPageSize, total: albumTotal, pagedRows: albumPageRows } = usePagination(albumRows);
 const albumGrid = ref(null);
@@ -237,7 +240,7 @@ watch([albumPage, albumSearch], () => { if (albumGrid.value) albumGrid.value.scr
     </div>
     <div v-if="supported && libraryReady" class="table-region" tabindex="0">
     <ElTable id="generals-table" ref="table" :data="pagedRows" height="100%" row-key="generalId" @sort-change="onSortChange">
-      <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="({ portrait: '頭像', hao: '號', suicide: '勢力被滅被俘' })[column.key] ?? column.title" :sortable="column.sortable ? 'custom' : false" :min-width="column.key === 'actions' ? 180 : column.type === 'number' ? 180 : column.key === 'seq' ? 80 : 140">
+      <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="({ portrait: '頭像', hao: '號', suicide: '勢力被滅被俘' })[column.key] ?? column.title" :sortable="column.sortable ? 'custom' : false" :width="column.width" :min-width="column.key === 'actions' ? 180 : undefined">
         <template #header="{ column: tableColumn }"><span :data-column="column.key" :data-sort="column.sortable ? column.key : undefined">{{ tableColumn.label }}</span></template>
         <template #default="{ row }">
           <div :data-field="column.key" :data-general-id="row.generalId">
@@ -248,7 +251,7 @@ watch([albumPage, albumSearch], () => { if (albumGrid.value) albumGrid.value.scr
             </template>
             <template v-else-if="column.key === 'actions'"><ListRowActions :editing="editing === row.generalId" :busy="busy" :locked="locked" @save="save(row)" @cancel="cancelEdit()" @edit="startEdit(row)" /></template>
             <template v-else-if="column.key === 'suicide'"><ElCheckbox v-if="editing === row.generalId" v-model="form.suicide" data-input="suicide" :disabled="busy" /><span v-else>{{ suicideLabel(row.suicideOnCapture) }}</span></template>
-            <template v-else-if="column.type === 'number'"><ElInputNumber v-if="editing === row.generalId" v-model="form.ability[column.key]" :data-input="column.key" :min="0" :max="15" :step="1" :disabled="busy" /><span v-else>{{ row.ability?.[column.key] ?? '—' }}</span></template>
+            <template v-else-if="column.type === 'number'"><ElInputNumber v-if="editing === row.generalId" v-model="form.ability[column.key]" controls-position="right" :data-input="column.key" :min="0" :max="15" :step="1" :disabled="busy" /><span v-else>{{ row.ability?.[column.key] ?? '—' }}</span></template>
             <template v-else><ElInput v-if="editing === row.generalId" v-model="form[column.key]" :data-input="column.key" :disabled="busy" /><span v-else>{{ column.key === 'name' ? (row.name ?? '未配置') : (row[column.key] || '—') }}</span></template>
           </div>
         </template>
@@ -270,7 +273,7 @@ watch([albumPage, albumSearch], () => { if (albumGrid.value) albumGrid.value.scr
         </div>
     </ElDialog>
     <ElDialog v-if="albumOpen" id="generals-portrait-dialog" class="generals-portrait-dialog" :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" width="min(900px, 94vw)" top="5vh" aria-label="選擇頭像">
-      <div id="generals-portrait-card">
+      <div id="generals-portrait-card" v-loading="albumLoading" :element-loading-svg="loadingSvg" element-loading-custom-class="generals-album-loading" :aria-busy="albumLoading">
         <div class="module-toolbar">
           <ElInput id="generals-album-search" v-model="albumSearch" type="search" placeholder="篩選頭像ID" aria-label="篩選頭像ID" :disabled="!albumReady" />
           <ElButton :type="albumPick === null ? 'primary' : 'default'" :disabled="!albumReady" @click="albumPick = null">無頭像</ElButton>
@@ -287,7 +290,7 @@ watch([albumPage, albumSearch], () => { if (albumGrid.value) albumGrid.value.scr
           </template>
         </div>
         <ListPagination v-if="albumReady && !albumLoading" id="generals-album-pagination" v-model:current-page="albumPage" :page-size="albumPageSize" :page-sizes="[25]" :total="albumTotal" :disabled="busy" />
-        <div class="module-toolbar">
+        <div id="generals-album-actions" class="module-toolbar">
           <ElButton data-action="album-confirm" :disabled="!albumReady" @click="confirmAlbum()">確定</ElButton>
           <ElButton data-action="album-cancel" @click="closeAlbum()">取消</ElButton>
         </div>
@@ -300,11 +303,15 @@ watch([albumPage, albumSearch], () => { if (albumGrid.value) albumGrid.value.scr
 #generals-editor:not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
 .module-toolbar { flex-shrink: 0; }
 .table-region { flex: 1; min-height: 0; overflow: hidden; }
+#generals-table :deep([data-field] > .el-input),
+#generals-table :deep([data-field] > .el-input-number) { width: 100%; min-width: 0; max-width: 100%; }
+#generals-table :deep([data-action="portrait"]) { max-width: 100%; }
 .generals-thumb { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; vertical-align: middle; }
-:global(.generals-portrait-dialog) { display: flex; flex-direction: column; resize: both; overflow: hidden; max-width: 94vw; max-height: 90vh; min-width: min(360px, 94vw); min-height: min(420px, 90vh); }
-:global(.generals-portrait-dialog .el-dialog__body) { display: flex; flex-direction: column; min-height: 0; }
+:global(.generals-portrait-dialog) { display: flex; flex-direction: column; resize: both; overflow: hidden; height: min(800px, 90vh); max-width: 94vw; max-height: 90vh; min-width: min(360px, 94vw); min-height: min(420px, 90vh); }
+:global(.generals-portrait-dialog .el-dialog__body) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 #generals-portrait-card { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-#generals-album-grid { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+#generals-album-grid { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); align-content: start; gap: 12px; }
+#generals-album-pagination, #generals-album-actions { justify-content: flex-end; }
 .generals-album-item { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .generals-album-thumb { object-fit: contain; image-rendering: pixelated; cursor: pointer; }
 </style>

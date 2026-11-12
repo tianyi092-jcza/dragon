@@ -139,9 +139,9 @@ const originalReference = games.snapshotReference('h1', GAME, '1');
 const untouched = JSON.stringify(['trial_sessions', 'trial_assets', 'content_games'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray()));
 for (const kind of ['portrait-byte', 'city-view', 'portrait-override']) {
   const candidate = structuredClone(game), state = candidate.chapters[chapterId].state;
-  if (kind === 'portrait-byte') state.generals[0].portrait = 255;
+  if (kind === 'portrait-byte') state.generals[0].portrait = 621;
   else if (kind === 'city-view') state.cities[0].view = 255;
-  else state.generals[0].portraitKey = '255';
+  else state.generals[0].portraitKey = '621';
   const digest = canonicalDigest(candidate, text => createHash('sha256').update(text).digest('hex'));
   const reference = { ...originalReference, sourceDigest: digest };
   let visualCaptures = 0;
@@ -156,7 +156,7 @@ for (const kind of ['portrait-byte', 'city-view', 'portrait-override']) {
       async capture() { visualCaptures++; throw new Error('invalid chapter reached visual capture'); },
     },
   });
-  await fails(`${kind} preflight rejection`, () => rejected.issue('h1', GAME, '1', chapterId), kind === 'portrait-override' ? 'PLAY_PORTRAIT_CORRUPT' : 'TRIAL_CHAPTER_ASSET_MISSING');
+  await fails(`${kind} preflight rejection`, () => rejected.issue('h1', GAME, '1', chapterId), kind === 'portrait-override' ? 'PORTRAIT_NOT_FOUND' : 'TRIAL_CHAPTER_ASSET_MISSING');
   check(`${kind} rejects without visuals or Trial rows`, visualCaptures === 0 && untouched === JSON.stringify(['trial_sessions', 'trial_assets', 'content_games'].map(table => storage.sql.exec(`SELECT * FROM ${table}`).toArray())));
   check(`${kind} preserves captured candidate and original source`, canonicalDigest(candidate, text => createHash('sha256').update(text).digest('hex')) === digest && canonicalDigest(game, text => createHash('sha256').update(text).digest('hex')) === originalDigest);
 }
@@ -171,7 +171,7 @@ check('issue active', issued.trial.state === 'active' && issued.trial.chapterId 
   // the loader object's insertion order; their canonical source is identical.
   check('captured source equals loader and preserves serialized chapter', canonicalDigest(captured.game, text => createHash('sha256').update(text).digest('hex')) === originalDigest && Buffer.from(JSON.stringify(captured.game.chapters[chapterId].state)).equals(issued.derived.find(row => row.assetId === 'chapter').bytes));
   const candidate = structuredClone(captured.game), badChapter = game.chapterOrder.at(-1);
-  candidate.chapters[badChapter].state.generals[0].portrait = 255;
+  candidate.chapters[badChapter].state.generals[0].portrait = 621;
   const digest = canonicalDigest(candidate, text => createHash('sha256').update(text).digest('hex'));
   const reference = { ...originalReference, sourceDigest: digest };
   let visualCaptures = 0;

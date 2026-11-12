@@ -303,10 +303,10 @@ try {
       sql.exec('INSERT INTO content_games VALUES(?,?,?,?,NULL,NULL,?,?,?, ?,0,0,?,?)', gameId, owner, 'owned portrait fixture', '', '1', '1', null, '1', time, time);
       let reads = 0;
       const usageDTO = role === 'author'
-        ? { chapters: [{ generals: [{ portraitKey: 'p0001' }] }], generalDefinitions: null, chapterPeople: null }
-        : { chapters: [{ generals: [] }], generalDefinitions: [{ portraitRef: { assetId: 'p0002' } }, { portraitRef: null }], chapterPeople: [{ people: [
+        ? { chapters: [{ generals: [{ portraitKey: '150' }] }], generalDefinitions: null, chapterPeople: null }
+        : { chapters: [{ generals: [] }], generalDefinitions: [{ portraitRef: { assetId: '151' } }, { portraitRef: null }], chapterPeople: [{ people: [
           { included: false, values: { portraitRef: { assetId: '0' } } },
-          { included: true, values: { portraitRef: { assetId: 'p0002' } } },
+          { included: true, values: { portraitRef: { assetId: '151' } } },
           { included: true, values: { portraitRef: null } },
         ] }] };
       const usageBefore = structuredClone(usageDTO);
@@ -314,10 +314,10 @@ try {
       const path = `/api/games/${gameId}/portraits`;
       const available = await ok(role, path);
       assert.equal(available.portraits.length, KAO_MANIFEST.length);
-      assert.deepEqual(available.portraits.filter(row => row.inUse).map(row => row.assetId).sort(), role === 'author' ? ['p0001'] : ['0', 'p0002']);
+      assert.deepEqual(available.portraits.filter(row => row.inUse).map(row => row.assetId).sort(), role === 'author' ? ['150'] : ['0', '151']);
       assert.deepEqual(usageDTO, usageBefore);
-      await ok(role, path + '/p0001'); assert.equal(reads, 1); groups++;
-      const portrait = KAO_MANIFEST.find(row => row.id === (role === 'author' ? '0' : 'p0001'));
+      await ok(role, path + '/150'); assert.equal(reads, 1); groups++;
+      const portrait = KAO_MANIFEST.find(row => row.id === (role === 'author' ? '0' : '150'));
       const preview = `${path}/${portrait.id}/bytes?sha256=${portrait.sha256}`;
       assert.equal((await call(role, preview)).data.error, 'PORTRAIT_BYTES_NOT_CONFIGURED');
       const originalApp = app; let byteReads = 0;
@@ -375,7 +375,7 @@ try {
       const fenced = await call(role, fencedPath);
       assert.equal(fenced.status, 409, 'catalogue must recheck the fence after usage read');
       assert.equal(fenced.data.error, 'GAME_DELETING'); assert.equal(Object.hasOwn(fenced.data, 'portraits'), false);
-      for (const suffix of ['', '/p0001', `/${portrait.id}/bytes?sha256=${portrait.sha256}`]) {
+      for (const suffix of ['', '/150', `/${portrait.id}/bytes?sha256=${portrait.sha256}`]) {
         const denied = await call(role, fencedPath + suffix);
         assert.equal(denied.status, 409); assert.equal(denied.data.error, 'GAME_DELETING');
       }
@@ -386,7 +386,7 @@ try {
         reads++;
         sql.exec('UPDATE users SET epoch=epoch+1 WHERE id=?', owner);
         if (role === 'other') throw new Error('owned failed usage read after revocation');
-        return { chapters: [{ generals: [{ portraitKey: 'p0001' }] }] };
+        return { chapters: [{ generals: [{ portraitKey: '150' }] }] };
       };
       const revoked = await call(role, path);
       assert.equal(revoked.status, 401, role + ' must not receive a catalogue after the usage await revokes its session');
@@ -485,7 +485,7 @@ try {
       assert.deepEqual(sql.exec('SELECT * FROM content_games ORDER BY game_id').toArray(), gamesBefore);
       byteDenials.push({ barrier, target, rejects, status: reply.status, retryStatus: again.status, byteReads }); groups++;
     }
-    process.stdout.write(JSON.stringify({groups,byteDenials,scope:'Actual common Request and SQLite session epochs; real Node adapter reads fixed manifest PNG 0/p0001 through editor preview and Trial web-relative paths with identical bytes/length/SHA and no-store, unconfigured/corrupt/bad-query refusal, resolve/reject byte-reader epoch fixtures for both routes return401; explicit legacy/native override and neutral definition/chapter portrait-reference fixtures (including inactive configuration and null references); usage-read errors stay 500/503 without fabricated usage flags; catalogue rejects409 when an explicit SQLite fence fixture appears during usage await, subsequent catalogue/descriptor/bytes deny before read with game metadata unchanged; no physical deletion. A late byte-read fence rejects the game preview and subsequent catalogue/descriptor/bytes without another read; the same shared PNG remains readable through an unfenced game and authenticated Trial web route. Two usage-read fixtures revoke epoch during await. Thirty-two byte-reader fixtures independently change epoch, disabled flag, absolute expiry or idle expiry during await (resolve/reject for each of four routes, including both Trial registry catalog selections with an explicit assembled-byte adapter); both the late response and next request are 401, the next request performs no byte read, and changed authority rows/game metadata remain intact. These are explicit SQL boundary fixtures, not actual account-management operations or elapsed-wall-clock tests. No fixed-source installation, blob reads, login, HTTPS, browser decode or full authorization matrix.'}) + '\n');
+    process.stdout.write(JSON.stringify({groups,byteDenials,scope:'Actual common Request and SQLite session epochs; real Node adapter reads fixed manifest PNG 0/150 through editor preview and Trial web-relative paths with identical bytes/length/SHA and no-store, unconfigured/corrupt/bad-query refusal, resolve/reject byte-reader epoch fixtures for both routes return401; explicit legacy/native override and neutral definition/chapter portrait-reference fixtures (including inactive configuration and null references); usage-read errors stay 500/503 without fabricated usage flags; catalogue rejects409 when an explicit SQLite fence fixture appears during usage await, subsequent catalogue/descriptor/bytes deny before read with game metadata unchanged; no physical deletion. A late byte-read fence rejects the game preview and subsequent catalogue/descriptor/bytes without another read; the same shared PNG remains readable through an unfenced game and authenticated Trial web route. Two usage-read fixtures revoke epoch during await. Thirty-two byte-reader fixtures independently change epoch, disabled flag, absolute expiry or idle expiry during await (resolve/reject for each of four routes, including both Trial registry catalog selections with an explicit assembled-byte adapter); both the late response and next request are 401, the next request performs no byte read, and changed authority rows/game metadata remain intact. These are explicit SQL boundary fixtures, not actual account-management operations or elapsed-wall-clock tests. No fixed-source installation, blob reads, login, HTTPS, browser decode or full authorization matrix.'}) + '\n');
   } else {
   const policy = installedSourcePolicy(readFileSync('server/pinned/world-manifest.txt'), readFileSync('server/pinned/entity-manifest.txt'));
   const put = async bytes => {
