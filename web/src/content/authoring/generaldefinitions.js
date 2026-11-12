@@ -4,7 +4,7 @@
 // (B5); its entries are imported/copied from the bottom-layer general records
 // and are not a cross-chapter person identity.
 import { KAO_MANIFEST } from '../../../kao/manifest.js';
-import { ABILITY_LIMITS, BUILTIN_GAME_ID } from './gamesource.js';
+import { BUILTIN_GAME_ID } from './gamesource.js';
 import { emptyGeneralSlot } from './chaptermaterialize.js';
 import { assignGeneralToChapterState, clearGeneralFromChapterState } from './gamesource.js';
 import { captureChapterCities } from './cityrecords.js';
@@ -26,13 +26,34 @@ function text(value) {
 }
 // 能力值是游戏级资料库的基本属性（2026-11 用户裁决 A），章节只能覆写；
 // 旧记录可以没有 ability（不补默认值，缺省＝尚未录入）。
-const definitionFields = ['name', 'hao', 'portraitRef', 'ability'];
+// 游戏级武将库能力范围（Web 产品决定 2026-11，非原版机制）：六项统一 0..15。
+// 原版武力／统率／政治为全字节 u8（re-notes-entity-fields 武将§2 明确禁 &0F），
+// 专长 0 亦合法。2026-11 用户裁决：库层下限取 0（不强制 1），上限 15；
+// 实测本书 2560 条原生记录中 358 名武将至少一项专长为 0，取 1 会把源值造假。
+// 章节槽仍用 ABILITY_LIMITS（0..max），原生值不受影响。
+const LIBRARY_ABILITY_LIMITS = Object.freeze({
+  siege: [0, 15], field: [0, 15], naval: [0, 15],
+  force: [0, 15], lead: [0, 15], politics: [0, 15],
+});
+// 字（表字）与号是两个独立作者面字段（2026-11 用户裁定）：原版 6 字节“字号/称呼”
+// 在多数记录里等于姓名，不能当号；号只取真正的号（如诸葛亮卧龙、庞统凤雏）。
+// 字目前不写入任何原生槽，仅供参考/后期填写。
+const definitionFields = ['name', 'zi', 'hao', 'portraitRef', 'ability', 'suicideOnCapture'];
+// 势力被灭被俘即自杀＝原版武将记录 +00 attr bit4（旧属灭亡被俘退场；
+// 消费者 2A0D，场景读 general.attr & 0x10；re-notes-entity-fields 武将§2 实锤）。
+// 2026-11 用户裁决：提升到游戏级共享属性，章节不可覆写（只继承）；
+// 默认 false（不会自杀）。写槽时按位合并，同字节其余位保留。
+function suicideFlag(value) {
+  if (value === undefined) return false;
+  if (typeof value !== 'boolean') throw new RangeError('general suicide flag must be boolean');
+  return value;
+}
 function abilityValue(value) {
-  plain(value, Object.keys(ABILITY_LIMITS));
+  plain(value, Object.keys(LIBRARY_ABILITY_LIMITS));
   const captured = {};
-  for (const [field, max] of Object.entries(ABILITY_LIMITS)) {
+  for (const [field, [min, max]] of Object.entries(LIBRARY_ABILITY_LIMITS)) {
     const current = value[field];
-    if (!Number.isInteger(current) || Object.is(current, -0) || current < 0 || current > max) throw new RangeError(`general ability ${field} out of range`);
+    if (!Number.isInteger(current) || Object.is(current, -0) || current < min || current > max) throw new RangeError(`general ability ${field} out of range`);
     captured[field] = current;
   }
   return captured;
@@ -43,7 +64,7 @@ function fieldValue(key, value) {
     if (!name) throw new RangeError('general name required');
     return name;
   }
-  if (key === 'hao') return text(value);
+  if (key === 'zi' || key === 'hao') return text(value);
   if (key === 'ability') return abilityValue(value);
   if (value === null) return null;
   plain(value, ['assetId', 'sha256']);
@@ -56,7 +77,9 @@ function definition(values) {
   const keys = Object.keys(values), required = ['name', 'hao', 'portraitRef'];
   if (required.some(key => !Object.hasOwn(values, key)) || keys.some(key => !definitionFields.includes(key))) throw new TypeError('general definition fields required');
   const captured = Object.fromEntries(required.map(key => [key, fieldValue(key, values[key])]));
+  captured.zi = fieldValue('zi', values.zi ?? '');
   if (Object.hasOwn(values, 'ability')) captured.ability = fieldValue('ability', values.ability);
+  captured.suicideOnCapture = suicideFlag(values.suicideOnCapture);
   return captured;
 }
 function identity(gameId, generalId) {
@@ -108,7 +131,7 @@ function captureScope(game) {
   for (const [id, value] of Object.entries(game.generals)) {
     identity(game.gameId, id);
     const captured = definition(value);
-    if (captured.name !== value.name || captured.hao !== value.hao) throw new RangeError('saved general text must be canonical');
+    if (captured.name !== value.name || captured.hao !== value.hao || captured.zi !== (value.zi ?? '')) throw new RangeError('saved general text must be canonical');
     generals[id] = captured;
   }
   const order = game.chapterOrder;
@@ -245,7 +268,12 @@ export function applyGeneralDefinitionEdit(game, edit) {
     delete generals[edit.generalId];
     return { ...game, generals, chapters };
   }
-  generals[edit.generalId] = definition(edit.values);
+  const next = definition(edit.values);
+  // 姓名游戏内唯一（2026-11 用户裁决，可当主键）：库级 create/update 都查。
+  for (const [id, record] of Object.entries(generals)) {
+    if (id !== edit.generalId && record?.name === next.name) throw new RangeError('general name is already used');
+  }
+  generals[edit.generalId] = next;
   return { ...game, generals };
 }
 // 人物層（people）是作者面的身份引用，原生 128 槽是它的編碼：兩者必須一起變。
@@ -264,10 +292,14 @@ function syncChapterSlot(chapter, generalId, included, values) {
       slot.hao = values.hao;
       slot.portrait = portrait;
       if (values.ability !== undefined) slot.ability = { ...values.ability };
+      // 自杀旗按位并入槽 attr bit4，同字节其余位保留（bit7 登场／bit6 君主等）。
+      slot.attr = values.suicideOnCapture === true ? slot.attr | 0x10 : slot.attr & ~0x10;
       return { ...chapter, state };
     }
-    assignGeneralToChapterState(state, { generalId, name: values.name, hao: values.hao, portrait,
-      ...(values.ability === undefined ? {} : { ability: values.ability }) });
+    const assignment = { generalId, name: values.name, hao: values.hao, portrait };
+    if (values.ability !== undefined) assignment.ability = values.ability;
+    if (values.suicideOnCapture !== undefined) assignment.suicideOnCapture = values.suicideOnCapture;
+    assignGeneralToChapterState(state, assignment);
     return { ...chapter, state };
   }
   if (!slot) return chapter;

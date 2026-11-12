@@ -14,7 +14,7 @@ const id = G + '#general-' + 'a'.repeat(64), id2 = G + '#general-' + 'b'.repeat(
 const image = KAO_MANIFEST.find(row => row.id.startsWith('p'));
 assert.ok(image);
 const portraitRef = { assetId: image.id, sha256: image.sha256 };
-const definition = { name: '甲', hao: '字', portraitRef };
+const definition = { name: '甲', zi: '字', hao: '', portraitRef, suicideOnCapture: false };
 const create = { op: 'create', generalId: id, values: definition };
 const fixture = () => ({ gameId: G, sourceRef: { kind: 'builtin-template', sourceId: 'wolong-builtin' }, generals: {}, chapters: Object.fromEntries(['one', 'two'].map(chapterId => [chapterId, { chapterId, state: { factions: [], generals: [], cities: [] } }])), chapterOrder: ['one', 'two'], map: { retained: true } });
 const bind = (chapterId, overrides = {}, included = true, generalId = id) => ({ op: 'set', chapterId, generalId, values: { included, factionId: null, overrides } });
@@ -26,27 +26,27 @@ assert.deepEqual(first.chapters.one.people[id], { included: true, factionId: nul
 assert.deepEqual(first.chapters.one.state, before.chapters.one.state);
 assert.deepEqual(first.generals, before.generals); assert.deepEqual(first.map, before.map);
 assert.equal(Object.hasOwn(first, 'slotMap'), false);
-assert.deepEqual(effectiveChapterPerson(first, 'one', id), { generalId: id, included: true, factionId: null, values: definition, inheritedFields: ['name', 'hao', 'portraitRef', 'ability'], overriddenFields: [] });
+assert.deepEqual(effectiveChapterPerson(first, 'one', id), { generalId: id, included: true, factionId: null, values: definition, inheritedFields: ['name', 'zi', 'hao', 'portraitRef', 'ability', 'suicideOnCapture'], overriddenFields: [] });
 assert.deepEqual(generalDefinitionReferences(base, id), []); groups++;
 const second = applyChapterPersonEdit(first, bind('two', { name: ' e\u0301 ', hao: '𠮷e\u0301', portraitRef: null }, false));
 assert.deepEqual(second.chapters.two.people[id].overrides, { name: 'é', hao: '𠮷é', portraitRef: null });
 assert.deepEqual(generalDefinitionReferences(second, id), [
-  { chapterId: 'one', included: true, inheritedFields: ['name', 'hao', 'portraitRef', 'ability'], overriddenFields: [] },
-  { chapterId: 'two', included: false, inheritedFields: ['ability'], overriddenFields: ['name', 'hao', 'portraitRef'] },
+  { chapterId: 'one', included: true, inheritedFields: ['name', 'zi', 'hao', 'portraitRef', 'ability', 'suicideOnCapture'], overriddenFields: [] },
+  { chapterId: 'two', included: false, inheritedFields: ['zi', 'ability', 'suicideOnCapture'], overriddenFields: ['name', 'hao', 'portraitRef'] },
 ]);
 const cascaded = applyGeneralDefinitionEdit(second, { op: 'delete', generalId: id });
 assert.deepEqual(cascaded.generals, {});
 assert.equal(cascaded.chapters.one.people?.[id], undefined, 'chapter references are cleared, not kept dangling');
 assert.equal(cascaded.chapters.two.people?.[id], undefined);
 assert.deepEqual(second.chapters.one.people[id], { included: true, factionId: null, overrides: {} }, 'the source is untouched');
-const nextBase = applyGeneralDefinitionEdit(second, { op: 'update', generalId: id, values: { name: '新甲', hao: '新字', portraitRef } });
-assert.deepEqual(effectiveChapterPerson(nextBase, 'one', id).values, { name: '新甲', hao: '新字', portraitRef });
-assert.deepEqual(effectiveChapterPerson(nextBase, 'two', id).values, { name: 'é', hao: '𠮷é', portraitRef: null });
+const nextBase = applyGeneralDefinitionEdit(second, { op: 'update', generalId: id, values: { name: '新甲', zi: '字', hao: '新字', portraitRef } });
+assert.deepEqual(effectiveChapterPerson(nextBase, 'one', id).values, { name: '新甲', zi: '字', hao: '新字', portraitRef, suicideOnCapture: false });
+assert.deepEqual(effectiveChapterPerson(nextBase, 'two', id).values, { name: 'é', zi: '字', hao: '𠮷é', portraitRef: null, suicideOnCapture: false });
 assert.deepEqual(effectiveChapterPerson(second, 'one', id).values, definition); groups++;
 // Deleting override keys restores inheritance from the current definition;
 // null clears only portraitRef and never means inheritance.
 const restored = applyChapterPersonEdit(nextBase, bind('two', { portraitRef: null }, false));
-assert.deepEqual(effectiveChapterPerson(restored, 'two', id), { generalId: id, included: false, factionId: null, values: { name: '新甲', hao: '新字', portraitRef: null }, inheritedFields: ['name', 'hao', 'ability'], overriddenFields: ['portraitRef'] });
+assert.deepEqual(effectiveChapterPerson(restored, 'two', id), { generalId: id, included: false, factionId: null, values: { name: '新甲', zi: '字', hao: '新字', portraitRef: null, suicideOnCapture: false }, inheritedFields: ['name', 'zi', 'hao', 'ability', 'suicideOnCapture'], overriddenFields: ['portraitRef'] });
 const inherited = applyChapterPersonEdit(restored, bind('two', {}, false));
 assert.deepEqual(effectiveChapterPerson(inherited, 'two', id).values, nextBase.generals[id]);
 assert.deepEqual(inherited.chapters.two.people[id].overrides, {}); groups++;
@@ -141,7 +141,7 @@ assert.equal(getters, 0); groups++;
 // The UI report is a projection, not another stored authority. A non-included
 // configuration still inherits fields, while explicit overrides stay protected.
 const impactSource = applyChapterPersonEdit(second, bind('two', { name: '章名', portraitRef: null }, false));
-assert.deepEqual(generalDefinitionChangeImpact(impactSource, id, { name: '新甲', hao: '新字', portraitRef: null }), {
+assert.deepEqual(generalDefinitionChangeImpact(impactSource, id, { name: '新甲', zi: '字', hao: '新字', portraitRef: null }), {
   changedFields: ['name', 'hao', 'portraitRef'], affectedChapters: [
     { chapterId: 'one', fields: ['name', 'hao', 'portraitRef'] }, { chapterId: 'two', fields: ['hao'] },
   ],
@@ -163,7 +163,7 @@ assert.equal(isolatedProjection.chapterPeople[1].people[0].values.portraitRef.sh
 isolatedProjection.chapterPeople[0].people[0].values.portraitRef.sha256 = '0'.repeat(64);
 assert.equal(isolatedProjection.chapterPeople[1].people[0].values.portraitRef.sha256, portraitRef.sha256);
 isolatedProjection.generalReferences[0].chapters[0].inheritedFields.length = 0;
-assert.deepEqual(isolatedProjection.chapterPeople[0].people[0].inheritedFields, ['name', 'hao', 'portraitRef', 'ability']);
+assert.deepEqual(isolatedProjection.chapterPeople[0].people[0].inheritedFields, ['name', 'zi', 'hao', 'portraitRef', 'ability', 'suicideOnCapture']);
 assert.deepEqual(chapterPeopleProjection(twoInherited).chapterPeople[0].people[0].values.portraitRef, portraitRef); groups++;
 const badImpactValues = { ...definition };
 Object.defineProperty(badImpactValues, 'name', { enumerable: true, get() { getters++; throw new Error('must not read impact getter'); } });

@@ -29,13 +29,13 @@ export async function verifyDistributionSchema(storage, ledger) {
   assert.ok(Number.isSafeInteger(sql.databaseSize) && sql.databaseSize > 0);
   checks.push('actual provider consuming cursor and finite logical database byte count');
   const facts = assertDeletionDefinitions(sql);
-  assert.equal(facts.tablesVerified, 54); assert.equal(facts.indexesVerified, 52); assert.equal(facts.foreignKeyDeclarationsVerified, 4);
-  assert.equal(rows("SELECT name FROM sqlite_master WHERE type='table'").reduce((n,t)=>n+rows(`PRAGMA table_xinfo(${t.name})`).length,0),361);
+  assert.equal(facts.tablesVerified, 56); assert.equal(facts.indexesVerified, 54); assert.equal(facts.foreignKeyDeclarationsVerified, 4);
+  assert.equal(rows("SELECT name FROM sqlite_master WHERE type='table'").reduce((n,t)=>n+rows(`PRAGMA table_xinfo(${t.name})`).length,0),368);
   const original = rows('SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name');
-  checks.push('exact 54 tables / 52 indexes / 361 columns / four FK declarations');
+  checks.push('exact 56 tables / 54 indexes / 368 columns / four FK declarations');
   assert.equal(inspectDeclaredForeignKeyRows(sql).edgesVerified, 4);
-  assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified, 50);
-  assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared, 50);
+  assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified, 48);
+  assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared, 48);
   checks.push('all four typed edges and 50 native covering index/unique scans');
   rollback(() => { sql.exec('CREATE TABLE future_ledger (id INTEGER)'); rejected(()=>assertDeletionDefinitions(sql),'DELETE_SCHEMA_DEFINITION'); });
   rollback(() => { sql.exec('CREATE INDEX future_index ON content_distribution_events(game_id)'); rejected(()=>assertDeletionDefinitions(sql),'DELETE_SCHEMA_DEFINITION'); });
@@ -135,5 +135,5 @@ export async function verifyDistributionSchema(storage, ledger) {
   assert.equal(lists,beforeDistributionLists+1); assert.equal(ledger.status().tailGeneration,1);
   checks.push('cross-game enqueue during list is rejected at await boundary, no second list');
   assert.equal(assertDeletionDefinitions(sql).schemaDigest,facts.schemaDigest);
-  return {checks,groups:checks.length,tables:54,indexes:52,columns:361,foreignKeys:4,scope:'owned SQL and deletion observation only; populated global ledger deliberately unsupported, no producer/drain/physical deletion proof'};
+  return {checks,groups:checks.length,tables:56,indexes:54,columns:368,foreignKeys:4,scope:'owned SQL and deletion observation only; populated global ledger deliberately unsupported, no producer/drain/physical deletion proof'};
 }

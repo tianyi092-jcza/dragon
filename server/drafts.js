@@ -1,4 +1,7 @@
 // Private fixed-copy drafts only. Representation-safe resource edits are not runtime admission.
+// @deprecated T1–T8 副本简化：draft 链退役中，不再接受新写。新写走 GameCopyStore 模块覆盖写；
+// 本类仅供迁移脚本（tools/migrate_copy_once.mjs 经 captureForCompile 只读 head→copy）与
+// 旧 UI 改绑完成前的只读投影使用；F6 控制器重写完成后随旧路一并删除。
 import { createHash } from 'node:crypto';
 import { canonicalSourceTokens, encodeSourceChunks, decodeSourceChunks, CanonicalSourceParser } from '../web/src/content/authoring/sourcejson.js';
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
@@ -252,6 +255,10 @@ function resolveMapEdits(gameId, actorId, operationKey, edits = []) {
     return edit;
   });
 }
+/**
+ * @deprecated T1–T8 副本简化退役中：不再接受新写（新写走 GameCopyStore）；
+ * 仅供迁移脚本只读与旧 UI 改绑完成前的只读投影，F6 完成后删除。
+ */
 export class PrivateDrafts {
   #storage; #sql; #principal; #games; #blobs; #definition; #guard; #verifier; #atlas;
   constructor({ storage, principal, games, blobs, definition, operationGuard, atlas }) {

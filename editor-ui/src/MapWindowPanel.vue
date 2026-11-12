@@ -1,6 +1,10 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElInput } from 'element-plus/es/components/input/index.mjs';
+import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
+import { ElPopover } from 'element-plus/es/components/popover/index.mjs';
+import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 import { screenToWorld, edgePanDelta, ZOOM_MIN, ZOOM_MAX } from '../../web/src/editor/viewport.js';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean, placementReady: Boolean, placementFootprint: Object, placementDrag: String, shiftAnchor: Object, shiftPreview: Object });
 const emit = defineEmits(['placement-point', 'placement-drag-end', 'base-cells', 'shift-point', 'shift-candidate']);
@@ -204,6 +208,7 @@ const tools = computed(() => [
   ['grab', '抓住已選錨點占格位移（只填表單）', !grabOffsets.value],
 ]);
 const toolMenu = ref(null), toolMenuElement = ref(null);
+const toolMenuAnchor = { getBoundingClientRect: () => DOMRect.fromRect({ x: toolMenu.value?.x ?? 0, y: toolMenu.value?.y ?? 0 }) };
 function closeToolMenu() { toolMenu.value = null; }
 async function openToolMenu(event) {
   event.preventDefault();
@@ -368,18 +373,18 @@ onBeforeUnmount(() => {
     <h3>已保存修訂的圖塊窗口（唯讀）</h3>
     <p>共用已明確載入的草稿修訂。座標與尺寸以圖格計，單邊最多32格；須明確選擇季節並分別讀取窗口及圖集。未保存表單不參與，輸入變更不會自動發請求。</p>
     <div class="module-toolbar">
-      <label>明確草稿修訂<input id="map-window-revision" :value="model.fields.revision" :disabled="busy || model.loadLocked" inputmode="numeric" @input="actions.setField('revision', $event.target.value)"></label>
+      <label>明確草稿修訂<ElInput id="map-window-revision" :model-value="model.fields.revision" :disabled="busy || model.loadLocked" inputmode="numeric" @input="actions.setField('revision', $event)" /></label>
       <ElButton id="map-window-load" :disabled="busy || model.loadLocked || !model.fields.gameId" @click="actions.load()">載入此修訂</ElButton>
       <ElButton id="map-window-query" :disabled="busy || model.queryLocked" @click="actions.query()">查詢原保存操作</ElButton>
     </div>
     <div class="module-toolbar">
-      <label>X<input id="map-window-x" v-model.number="x" type="number" min="0" max="383" step="1" :disabled="busy || model.mapWindow.locked"></label>
-      <label>Y<input id="map-window-y" v-model.number="y" type="number" min="0" max="255" step="1" :disabled="busy || model.mapWindow.locked"></label>
-      <label>寬<input id="map-window-width" v-model.number="width" type="number" min="1" max="32" step="1" :disabled="busy || model.mapWindow.locked"></label>
-      <label>高<input id="map-window-height" v-model.number="height" type="number" min="1" max="32" step="1" :disabled="busy || model.mapWindow.locked"></label>
+      <label>X<ElInput id="map-window-x" v-model.number="x" type="number" min="0" max="383" step="1" :disabled="busy || model.mapWindow.locked" /></label>
+      <label>Y<ElInput id="map-window-y" v-model.number="y" type="number" min="0" max="255" step="1" :disabled="busy || model.mapWindow.locked" /></label>
+      <label>寬<ElInput id="map-window-width" v-model.number="width" type="number" min="1" max="32" step="1" :disabled="busy || model.mapWindow.locked" /></label>
+      <label>高<ElInput id="map-window-height" v-model.number="height" type="number" min="1" max="32" step="1" :disabled="busy || model.mapWindow.locked" /></label>
       <ElButton id="map-window-read" :disabled="busy || model.mapWindow.locked || !validRectangle" @click="actions.mapWindow(x, y, width, height)">讀取圖格窗口</ElButton>
       <ElButton id="map-scene-read" :disabled="busy || model.mapWindow.locked || !validRectangle" @click="actions.mapScene(x, y, width, height)">讀取整圖供本地導航</ElButton>
-      <label>季節<select id="map-window-season" v-model="season" :disabled="busy || model.mapAtlas.locked"><option value="" disabled>請明確選擇</option><option value="spring">春</option><option value="summer">夏</option><option value="autumn">秋</option><option value="winter">冬</option></select></label>
+      <label>季節<ElSelect id="map-window-season" v-model="season" :disabled="busy || model.mapAtlas.locked"><ElOption value="" disabled label="請明確選擇" /><ElOption value="spring" label="春" /><ElOption value="summer" label="夏" /><ElOption value="autumn" label="秋" /><ElOption value="winter" label="冬" /></ElSelect></label>
       <ElButton id="map-window-atlas" :disabled="busy || model.mapAtlas.locked || !validSeason" @click="actions.mapAtlas(season)">讀取季節圖集</ElButton>
     </div>
     <p id="map-scene-state">{{ model.mapWindow.localNavigation ? '固定域整圖已讀取；導航只在本地切換顯示窗口，顯隱變更仍重新讀取。' : '窗口讀取模式；導航會請求確切已保存修訂的窗口。' }} 保存、重讀或身份切換會清除整圖顯示資料；不是可寫來源或運行准入。</p>
@@ -408,9 +413,9 @@ onBeforeUnmount(() => {
     <p>先在素材表單明確選擇素材、變體與水域類別，再檢查圖格並取用落點。此步只替換放置表單的X／Y；素材、類別與其它輸入保持，必須另按確認放置才保存。裝飾層鎖定時不可取用。</p>
     <div id="map-window-placement-feedback"><p v-if="placementPreview" id="map-window-placement-status" :data-outside="placementPreview.outside">占用 {{ placementPreview.cells.length }} 格；超出固定地圖 {{ placementPreview.outside }} 格／窗口外 {{ placementPreview.offWindow }} 格。輪廓表示占用範圍；已知配方與圖集可疊加半透明貼圖，缺資料保持空白，不代表運行准入。窗口外部分不畫，越界不可取用落點，不裁切保存。</p>
     <p v-else-if="placementReady && picked">占用格預覽未知，不能從格數猜形狀；保存仍由服務核驗完整範圍。</p></div>
-    <label>窗口顯示縮放<select id="map-window-zoom" :value="zoom" :disabled="!readable" @change="changeZoom($event.target.value)"><option v-for="level in zoomLevels" :key="level" :value="level">{{ level * 100 }}%</option></select></label>
+    <label>窗口顯示縮放<ElSelect id="map-window-zoom" :model-value="zoom" :disabled="!readable" @change="changeZoom($event)"><ElOption v-for="level in zoomLevels" :key="level" :value="level" :label="level * 100 + '%'" /></ElSelect></label>
     <p>縮放只改目前窗口的顯示尺寸，不改圖格、框選集合或未讀輸入，不重新讀取圖集；變更倍率會取消尚未完成的拖框。畫布內Ctrl＋滾輪以滑鼠位置縮放；普通滾輪仍捲動頁面。錨點受目前窗口可捲動範圍限制，不能因此讀取更多地圖；這不是整圖縮放。</p>
-    <label>左鍵模式<select id="map-window-mode" v-model="mode"><option v-for="[value, label, disabled] in tools" :key="value" :value="value" :disabled="disabled">{{ label }}</option></select></label>
+    <label>左鍵模式<ElSelect id="map-window-mode" v-model="mode"><ElOption v-for="[value, label, disabled] in tools" :key="value" :value="value" :disabled="disabled" :label="label" /></ElSelect></label>
     <p>畫布右鍵只開啟同一組模式選單，不選格、不保存、不切換圖層或解除鎖定。方向鍵／Home／End選工具，Enter確認；Esc只關選單，選單外首次點擊只關閉。</p>
     <p v-if="mode === 'base-select'" id="map-window-base-selection">基礎格框選：待取用 {{ baseCells.length }} 格。拖曳只預覽完整圖格範圍，須按上方追加鈕才加入補底選取；保留原頁外勾選，不猜數值、不保存。Esc清除未取用範圍。</p>
     <p>框選模式拖曳後只讀取完整裝飾集合，包含被遮住的實例；不選道路或據點、不保存，也不覆蓋素材面板勾選。拖出窗口會限制在當前窗口內；Esc、失焦或切換窗口取消拖曳。一般拖框取代集合；按下時按住Shift會追加，同修訂導航後可繼續追加，途中放開或按下Shift不改本次模式。已讀整圖時，裝飾／基礎格框選可在可見邊緣平移預覽；鬆手還原原窗口，按跨窗口的完整世界矩形讀取裝飾或保留待取用基礎範圍，不自動保存或擴邊。</p>
@@ -440,35 +445,34 @@ onBeforeUnmount(() => {
     <p id="map-window-shift-status" :data-outside="shiftPreviewVisible ? shiftPreview.outside : null" :data-unknown="shiftPreviewVisible ? shiftPreview.unknown : null">整批位移貼圖／輪廓預覽，不改底圖或保存。<template v-if="shiftPreviewVisible"><strong v-if="shiftPreview.transient">拖曳中，尚未填入參數。</strong>所選 {{ shiftPreview.count }} 個實例／窗口內占格聯集 {{ shiftPreview.cells.length }} 格／越界 {{ shiftPreview.outside }} 格次（按實例計）／形狀未知 {{ shiftPreview.unknown }} 個／貼圖未知 {{ shiftPreview.unknownVisual }} 個。貼圖沿源繪製序疊放，未知上層留空；形狀未知時只保留已知輪廓。紫色為目的占格，越界時紅色；窗口外不畫，不裁切保存集合。未知形狀不猜填；原位置仍在底圖，移除後的下層及完整合法性仍須服務校驗。</template><template v-else>須有非零整數位移、已選實例及已讀窗口；鎖定、換層或其它工具拖曳期間不顯示。</template></p>
     <Teleport to="body">
       <div v-if="toolMenu" class="window-tool-backdrop" @pointerdown.self.prevent @click.self="closeToolMenu" @contextmenu.prevent.self="closeToolMenu">
-        <div id="map-window-tool-menu" ref="toolMenuElement" role="menu" aria-label="圖塊窗口工具" :style="{ left: toolMenu.x + 'px', top: toolMenu.y + 'px' }" @keydown.stop="toolMenuKey" @focusout="toolMenuFocusOut" @contextmenu.prevent>
-          <button v-for="[value, label, disabled] in tools" :key="value" type="button" role="menuitemradio" tabindex="-1" :data-window-tool="value" :aria-checked="mode === value" :disabled="disabled" @click="chooseTool(value)">{{ label }}</button>
-        </div>
+        <ElPopover :visible="true" virtual-triggering :virtual-ref="toolMenuAnchor" :teleported="false" :show-arrow="false" :width="360" :offset="0" placement="bottom-start">
+          <div id="map-window-tool-menu" ref="toolMenuElement" role="menu" aria-label="圖塊窗口工具" @keydown.stop="toolMenuKey" @focusout="toolMenuFocusOut" @contextmenu.prevent>
+            <ElButton v-for="[value, label, disabled] in tools" :key="value" role="menuitemradio" tabindex="-1" :data-window-tool="value" :aria-checked="mode === value" :type="mode === value ? 'primary' : 'default'" :disabled="disabled" @click="chooseTool(value)">{{ label }}</ElButton>
+          </div>
+        </ElPopover>
       </div>
     </Teleport>
     <details v-if="model.decorationSelection?.ready" id="map-window-selection-result">
       <summary>修訂 {{ model.decorationSelection.value.draftRevision }}：累計完整裝飾 {{ model.decorationSelection.selectedIds.length }} 項（只讀）</summary>
       <p id="map-window-selection-last">最後查詢：({{ model.decorationSelection.value.x }}, {{ model.decorationSelection.value.y }}) {{ model.decorationSelection.value.width }}×{{ model.decorationSelection.value.height }}格，命中 {{ model.decorationSelection.value.instanceIds.length }} 項；累計集合可包含此前矩形。</p>
-      <ul><li v-for="id in model.decorationSelection.selectedIds" :key="id">{{ id }}</li></ul>
+      <ElTable :data="model.decorationSelection.selectedIds.map(id => ({ id }))" :show-header="false"><ElTableColumn prop="id" /></ElTable>
     </details>
   </section>
 </template>
 <style scoped>
 #map-window-shift-status { height: 4em; overflow: auto; }
 #map-window-pick-status { height: 3em; overflow: auto; }
-#map-window-pick-outline { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; fill: #217bce22; stroke: #217bce; stroke-width: 0.1; }
+#map-window-pick-outline { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; fill: rgb(from var(--el-color-primary) r g b / 0.13); stroke: var(--el-color-primary); stroke-width: 0.1; }
 #map-window-shift-preview { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; fill: #8246c022; stroke: #8246c0; stroke-width: 0.1; }
-#map-window-shift-preview.outside { fill: #ed403322; stroke: #af2018; }
+#map-window-shift-preview.outside { fill: rgb(from var(--el-color-danger) r g b / 0.13); stroke: var(--el-color-danger); }
 .map-window-surface { position: relative; width: max-content; overflow: hidden; }
 .window-tool-backdrop { position: fixed; inset: 0; z-index: 2000; }
-#map-window-tool-menu { position: fixed; max-width: calc(100vw - 8px); max-height: calc(100vh - 8px); overflow: auto; padding: 4px; background: #fff; border: 1px solid #768274; box-shadow: 0 2px 10px #0004; }
-#map-window-tool-menu button { display: block; width: 100%; padding: 8px; text-align: left; border: 0; background: transparent; color: #203020; }
-#map-window-tool-menu button[aria-checked="true"] { background: #e5efe1; }
-#map-window-tool-menu button:focus-visible { outline: 2px solid #4a7828; outline-offset: -2px; }
-#map-window-tool-menu button:disabled { color: #777; }
+#map-window-tool-menu { max-height: calc(100vh - 32px); overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+#map-window-tool-menu .el-button { margin-left: 0; }
 #map-window-shift-picture,
 #map-window-placement-picture { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; opacity: 0.7; }
-#map-window-placement-preview { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; fill: #58c87844; stroke: #146838; stroke-width: 0.08; }
-#map-window-placement-preview.outside { fill: #ed403344; stroke: #af2018; }
+#map-window-placement-preview { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; fill: rgb(from var(--el-color-success) r g b / 0.27); stroke: var(--el-color-success); stroke-width: 0.08; }
+#map-window-placement-preview.outside { fill: rgb(from var(--el-color-danger) r g b / 0.27); stroke: var(--el-color-danger); }
 .placing #map-window-inspection { height: 3em; overflow: auto; }
 .placing #map-window-placement-feedback { height: 5em; overflow: auto; }
 .placing #map-window-placement-feedback p { margin: 0; }
@@ -477,8 +481,8 @@ onBeforeUnmount(() => {
 #map-window-canvas.panning { touch-action: none; cursor: grab; }
 #map-window-canvas.panning:active { cursor: grabbing; }
 #map-window-pan-preview { display: block; min-height: 1.5em; }
-#map-window-selection-box { position: absolute; box-sizing: border-box; border: 2px solid #ffd65a; pointer-events: none; }
+#map-window-selection-box { position: absolute; box-sizing: border-box; border: 2px solid var(--el-color-warning); pointer-events: none; }
 #map-window-selection-result { max-height: 180px; overflow: auto; }
-.map-window-viewport { overflow: auto; max-height: 512px; max-width: 100%; border: 1px solid #768274; }
+.map-window-viewport { overflow: auto; max-height: 512px; max-width: 100%; }
 #map-window-canvas { display: block; width: auto; height: auto; max-width: none; border: 0; padding: 0; image-rendering: pixelated; }
 </style>

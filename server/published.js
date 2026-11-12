@@ -10,6 +10,8 @@ import { checkGameName } from '../web/src/content/authoring/gamesource.js';
 import { fail, fields } from './security.js';
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
 const revision = value => typeof value === 'string' && /^[1-9][0-9]*$/.test(value);
+// copy-era 修订号＝批准 ordinal（方案 B，用户裁决）：与旧数字修订并存，读 path 按形状区分版本。
+const ordinalRev = value => typeof value === 'string' && /^1\.(0|[1-9][0-9]{0,30})$/.test(value);
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 export class PublishedGames {
   #storage; #sql; #principal;
@@ -40,8 +42,10 @@ export class PublishedGames {
     let pin;
     try { pin = JSON.parse(raw); }
     catch { fail(500, 'PUBLISH_CORRUPT'); }
-    if (!pin || pin.gameId !== gameId || typeof pin.name !== 'string' || !revision(pin.revision ?? null) || !digest(pin.sourceDigest) || !Array.isArray(pin.chapters) || !pin.chapters.every(entry => typeof entry === 'string' && entry.length > 0) || typeof pin.publishedAt !== 'string' || typeof pin.ordinal !== 'string' || !/^[0-9]+(\.[0-9]+)+$/.test(pin.ordinal)) { fail(500, 'PUBLISH_CORRUPT'); }
-    return Object.freeze({ gameId: pin.gameId, name: pin.name, revision: pin.revision, sourceDigest: pin.sourceDigest, chapters: Object.freeze([...pin.chapters]), publishedAt: pin.publishedAt, ordinal: pin.ordinal });
+    if (!pin || pin.gameId !== gameId || typeof pin.name !== 'string' || !(revision(pin.revision ?? null) || ordinalRev(pin.revision)) || !digest(pin.sourceDigest) || !Array.isArray(pin.chapters) || !pin.chapters.every(entry => typeof entry === 'string' && entry.length > 0) || typeof pin.publishedAt !== 'string' || typeof pin.ordinal !== 'string' || !/^[0-9]+(\.[0-9]+)+$/.test(pin.ordinal)) { fail(500, 'PUBLISH_CORRUPT'); }
+    // copy-era pin（ordinal 修订）必须带发布说明原文；旧数字修订 pin 无该字段，保持可读（删前兼容，正式数据清理后全为新形）。
+    if (!revision(pin.revision) && typeof pin.description !== 'string') { fail(500, 'PUBLISH_CORRUPT'); }
+    return Object.freeze({ gameId: pin.gameId, name: pin.name, revision: pin.revision, sourceDigest: pin.sourceDigest, chapters: Object.freeze([...pin.chapters]), publishedAt: pin.publishedAt, ordinal: pin.ordinal, description: typeof pin.description === 'string' ? pin.description : null });
   }
   // Registry write: node stamps publishedAt server-side; owner is stamped here
   // for unpublish auth. Game existence/ownership/compiled-revision proof stays
@@ -81,7 +85,7 @@ export class PublishedGames {
       WHERE g.game_id=?`, gameId);
     if (!row) { fail(404, 'GAME_NOT_FOUND'); }
     if (row.current_release_id === null) { fail(409, 'GAME_NOT_PUBLISHED'); }
-    if (!uuid(row.current_release_id) || row.release_game_id !== gameId || row.pin_owner_id !== row.owner_id || typeof row.pin_json !== 'string' || !/^1\.(0|[1-9][0-9]{0,30})$/.test(row.ordinal ?? '') || !/^[1-9][0-9]{0,30}$/.test(row.draft_revision ?? '') || !digest(row.source_digest) || row.pack_revision !== row.draft_revision || row.pack_digest !== row.source_digest) { fail(503, 'PUBLISH_REFERENCE_CORRUPT'); }
+    if (!uuid(row.current_release_id) || row.release_game_id !== gameId || row.pin_owner_id !== row.owner_id || typeof row.pin_json !== 'string' || !/^1\.(0|[1-9][0-9]{0,30})$/.test(row.ordinal ?? '') || !(revision(row.draft_revision) || ordinalRev(row.draft_revision)) || !digest(row.source_digest) || row.pack_revision !== row.draft_revision || row.pack_digest !== row.source_digest) { fail(503, 'PUBLISH_REFERENCE_CORRUPT'); }
     const pin = this.#readPin(gameId, row.pin_json);
     if (pin.ordinal !== row.ordinal || pin.revision !== row.draft_revision || pin.sourceDigest !== row.source_digest || !pin.chapters.length || new Set(pin.chapters).size !== pin.chapters.length) { fail(503, 'PUBLISH_REFERENCE_CORRUPT'); }
   }

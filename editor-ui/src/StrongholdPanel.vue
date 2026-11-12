@@ -1,9 +1,12 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElInput } from 'element-plus/es/components/input/index.mjs';
+import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
+import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 // 城池據點＝這款遊戲的共享資料（192 座，全章共用）。座標由地圖放置寫回，這裡只讀；
-// 所屬勢力／首都等屬章節屬性，不在本頁。加載沿用當前遊戲的明確修訂。
-const props = defineProps({ draftModel: Object, draftActions: Object, busy: Boolean });
+// 所屬勢力／首都等屬章節屬性，不在本頁。加載走副本頁，不再經過修訂。
+const props = defineProps({ model: Object, actions: Object, busy: Boolean });
 
 const NUMBERS = { max_prod: 65535, prod: 65535, growth: 255, defence: 255, troops: 255, type: 255 };
 const FIELDS = ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type'];
@@ -20,11 +23,12 @@ const status = ref('');
 const failure = ref('');
 const cityName = value => String(value ?? '').normalize('NFC').trim();
 
-const cities = computed(() => props.draftModel?.cities ?? null);
-const loaded = computed(() => cities.value?.rows ?? []);
-const supported = computed(() => Boolean(cities.value?.supported));
-const canLoad = computed(() => !props.busy && !props.draftModel?.loadLocked && Boolean(props.draftModel?.fields?.gameId) && Boolean(props.draftModel?.fields?.revision));
-const locked = computed(() => Boolean(props.busy) || !props.draftModel || Boolean(props.draftModel.loadLocked) || Boolean(cities.value?.locked));
+const page = computed(() => props.model?.copy?.page ?? null);
+const cities = computed(() => page.value?.cities ?? null);
+const loaded = computed(() => cities.value ?? []);
+const supported = computed(() => Boolean(page.value));
+const canLoad = computed(() => !props.busy && Boolean(props.model?.fields?.gameId));
+const locked = computed(() => Boolean(props.busy) || !props.model || !page.value);
 
 const columns = [
   { key: 'seq', title: '序號', sortable: false },
@@ -53,21 +57,18 @@ const visible = computed(() => {
 // 序號跟著「現在看到的順序」重排，不是據點身份或槽位。
 const rows = computed(() => visible.value.map((row, index) => ({ ...row, seq: index + 1 })));
 
-function toggleSort(key) {
-  const column = columns.find(entry => entry.key === key);
-  if (!column?.sortable) return;
-  if (sort.key === key) sort.dir = sort.dir > 0 ? -1 : 1;
-  else { sort.key = key; sort.dir = 1; }
+function onSortChange({ prop, order }) {
+  sort.key = prop;
+  sort.dir = order === 'descending' ? -1 : 1;
 }
-function sortMark(key) { return sort.key === key ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''; }
 
 async function load() {
   if (!canLoad.value) return;
   status.value = ''; failure.value = ''; editing.value = null;
-  try { await props.draftActions.load(); }
+  try { await props.actions.loadCopy(); }
   catch (error) { failure.value = (error && error.message) || '加載未完成。'; return; }
-  const list = cities.value?.rows ?? [];
-  status.value = cities.value?.supported ? '已加載 ' + list.length + ' 座' : '';
+  const list = cities.value ?? [];
+  status.value = page.value ? '已加載 ' + list.length + ' 座' : '';
 }
 
 function startEdit(row) {
@@ -100,11 +101,10 @@ async function save(row) {
   const patch = { name: cityName(form.name) };
   for (const key of FIELDS) patch[key] = form[key];
   try {
-    const reply = await props.draftActions.citySave(row.cityId, patch);
+    const reply = await props.actions.cityCopySave(row.cityId, patch);
     editing.value = null;
+    // 控制器保存後已重讀副本：行回到只讀時顯示新值，不另起一次讀取。
     if (typeof reply === 'string') status.value = reply;
-    // 保存後立即重讀該修訂：行回到只讀時顯示新值，按鈕也重新可用。
-    await props.draftActions.load();
   } catch (error) {
     failure.value = (error && error.message) || '保存未完成（原因未回報）。';
   }
@@ -115,67 +115,33 @@ async function save(row) {
   <section id="stronghold-editor" class="module-card">
     <div class="module-toolbar">
       <ElButton id="stronghold-load" :disabled="!canLoad" @click="load()">加載</ElButton>
-      <input id="stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱" :disabled="!supported">
+      <ElInput id="stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱" :disabled="!supported" />
       <span id="stronghold-status" role="status" class="stronghold-status">{{ failure || status }}</span>
     </div>
-    <div v-if="supported" class="entity-table-wrap" tabindex="0">
-      <table id="stronghold-table" class="entity-table">
-        <thead><tr>
-          <th v-for="column in columns" :key="column.key" :data-column="column.key">
-            <button v-if="column.sortable" type="button" class="sort-header" :data-sort="column.key" :aria-pressed="sort.key === column.key" @click="toggleSort(column.key)">{{ column.title }}{{ sortMark(column.key) }}</button>
-            <template v-else>{{ column.title }}</template>
-          </th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="row in rows" :key="row.cityId" :data-city-id="row.cityId" :data-city-seq="row.seq">
-            <td data-field="seq">{{ row.seq }}</td>
-            <td data-field="name">
-              <input v-if="editing === row.cityId" v-model="form.name" data-input="name" maxlength="12" :disabled="busy">
-              <template v-else>{{ row.name ?? '未配置' }}</template>
-            </td>
-            <td v-for="key in ['max_prod', 'prod', 'growth', 'defence', 'troops']" :key="key" :data-field="key">
-              <input v-if="editing === row.cityId" v-model="form[key]" :data-input="key" inputmode="numeric" :disabled="busy">
-              <template v-else>{{ row[key] ?? '—' }}</template>
-            </td>
-            <td data-field="type">
-              <select v-if="editing === row.cityId" v-model="form.type" data-input="type" :disabled="busy">
-                <option v-for="[value, label] in CITY_TYPES" :key="value" :value="value">{{ label }}</option>
-                <option v-if="!CITY_TYPES.some(([value]) => Number(value) === Number(form.type))" :value="form.type">{{ form.type }}（未知）</option>
-              </select>
-              <template v-else>{{ typeLabel(row.type) }}</template>
-            </td>
-            <td class="account-row-actions" data-field="actions">
-              <template v-if="editing === row.cityId">
-                <ElButton data-action="save" :disabled="busy" @click="save(row)">保存</ElButton>
-                <ElButton data-action="cancel" :disabled="busy" @click="cancelEdit()">取消</ElButton>
+    <div v-if="supported" class="table-region" tabindex="0">
+      <ElTable id="stronghold-table" :data="rows" row-key="cityId" @sort-change="onSortChange">
+        <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="column.title" :sortable="column.sortable ? 'custom' : false" :sort-orders="['ascending', 'descending']" :min-width="column.key === 'actions' ? 180 : 120">
+          <template #header><span :data-column="column.key" :data-sort="column.sortable ? column.key : undefined">{{ column.title }}</span></template>
+          <template #default="{ row }">
+            <div :data-field="column.key" :data-city-id="row.cityId" :data-city-seq="row.seq">
+              <template v-if="column.key === 'seq'">{{ row.seq }}</template>
+              <template v-else-if="column.key === 'actions'">
+                <div class="account-row-actions"><template v-if="editing === row.cityId"><ElButton data-action="save" :disabled="busy" @click="save(row)">保存</ElButton><ElButton data-action="cancel" :disabled="busy" @click="cancelEdit()">取消</ElButton></template><ElButton v-else data-action="edit" :disabled="locked" @click="startEdit(row)">編輯</ElButton></div>
               </template>
-              <ElButton v-else data-action="edit" :disabled="locked" @click="startEdit(row)">編輯</ElButton>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="!rows.length" class="empty-state">{{ search ? '沒有符合的據點；清空搜尋可看全部。' : '據點清單是空的。' }}</p>
+              <template v-else-if="column.key === 'type'">
+                <ElSelect v-if="editing === row.cityId" v-model="form.type" data-input="type" :disabled="busy"><ElOption v-for="[value, label] in CITY_TYPES" :key="value" :value="Number(value)" :label="label" /><ElOption v-if="!CITY_TYPES.some(([value]) => Number(value) === Number(form.type))" :value="form.type" :label="form.type + '（未知）'" /></ElSelect>
+                <template v-else>{{ typeLabel(row.type) }}</template>
+              </template>
+              <template v-else-if="column.key === 'name'">
+                <ElInput v-if="editing === row.cityId" v-model="form.name" data-input="name" maxlength="12" :disabled="busy" /><template v-else>{{ row.name ?? '未配置' }}</template>
+              </template>
+              <template v-else><ElInput v-if="editing === row.cityId" v-model="form[column.key]" :data-input="column.key" inputmode="numeric" :disabled="busy" /><template v-else>{{ row[column.key] ?? '—' }}</template></template>
+            </div>
+          </template>
+        </ElTableColumn>
+        <template #empty>{{ search ? '沒有符合的據點；清空搜尋可看全部。' : '據點清單是空的。' }}</template>
+      </ElTable>
     </div>
     <p v-else id="stronghold-unsupported" class="stronghold-note">先按「加載」讀取這款遊戲的據點資料。</p>
   </section>
 </template>
-
-<style>
-#stronghold-editor{padding:16px 18px}
-#stronghold-editor .module-toolbar{gap:8px;margin:0 0 10px;align-items:center}
-#stronghold-editor .module-toolbar .el-button{min-height:var(--control-height);padding:0 14px}
-#stronghold-editor #stronghold-search{height:var(--control-height);width:200px;padding:0 10px;box-sizing:border-box}
-#stronghold-editor .entity-table-wrap{max-height:calc(100vh - 288px)}
-#stronghold-editor .entity-table{min-width:720px}
-#stronghold-editor .entity-table th,#stronghold-editor .entity-table td{padding:6px 8px}
-#stronghold-editor .entity-table thead th{font-size:12px;letter-spacing:1px}
-#stronghold-editor .entity-table td input{width:100%;min-width:3.4em;height:var(--control-height);box-sizing:border-box}
-#stronghold-editor .entity-table td select{width:100%;min-width:5.4em;margin-top:0;height:var(--control-height)}
-#stronghold-editor .entity-table .el-button{min-height:var(--control-height);padding:0 10px}
-#stronghold-editor .entity-table .account-row-actions{min-width:112px;white-space:nowrap}
-#stronghold-editor .sort-header{border:0;background:none;padding:0;font:inherit;cursor:pointer;color:inherit}
-#stronghold-editor .sort-header[aria-pressed="true"]{font-weight:700}
-#stronghold-editor .stronghold-status{font-size:13px;color:#5b7264}
-#stronghold-editor .stronghold-status:empty{display:none}
-#stronghold-editor .stronghold-note{margin:0;font-size:13px;color:#718077}
-</style>

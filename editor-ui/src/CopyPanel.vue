@@ -1,15 +1,16 @@
 <script setup>
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElInput } from 'element-plus/es/components/input/index.mjs';
 defineProps({ model: Object, actions: Object, busy: Boolean });
 </script>
 <template>
   <section id="copy" class="module-card">
     <form id="copy-create" @submit.prevent="actions.create()">
-      <label>遊戲名稱<input name="name" required maxlength="1024" :value="model.name"
-             :disabled="busy || model.locked" @input="actions.setField('name', $event.target.value)"></label>
+      <label>遊戲名稱<ElInput name="name" required maxlength="1024" :model-value="model.name"
+             :disabled="busy || model.locked" @input="actions.setField('name', $event)" /></label>
       <p class="hint">名稱去掉首尾空白後最多 8 個字；只填遊戲屬性。</p>
-      <label>簡介<input name="introduction" maxlength="1024" :value="model.introduction"
-             :disabled="busy || model.locked" @input="actions.setField('introduction', $event.target.value)"></label>
+      <label>簡介<ElInput name="introduction" maxlength="1024" :model-value="model.introduction"
+             :disabled="busy || model.locked" @input="actions.setField('introduction', $event)" /></label>
       <p class="hint">簡介最多 100 個字，可留空。</p>
       <p class="hint">新建只複製底層地圖（含據點）：章節與武將庫都是空的，由作者自行建立；管理員要整套複製時用「遊戲管理」的「複製遊戲」。</p>
       <ElButton native-type="submit" type="primary" :disabled="busy || model.createDisabled">

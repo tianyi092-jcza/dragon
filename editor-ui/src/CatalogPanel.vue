@@ -1,4 +1,7 @@
 <script setup>
+import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElInput } from 'element-plus/es/components/input/index.mjs';
+import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 defineProps({ model: Object, actions: Object, busy: Boolean });
 </script>
 <template>
@@ -11,16 +14,16 @@ defineProps({ model: Object, actions: Object, busy: Boolean });
       <!-- 使用者 m1107：篩選與分類 TAB 同一行，靠右上；不再单独占一行高度。 -->
       <div class="resource-toolbar">
         <div class="resource-categories">
-          <button v-for="item in model.categories" :key="item.id" :data-category="item.id"
-                  :class="{ on: model.category === item.id }" :disabled="busy"
+          <ElButton v-for="item in model.categories" :key="item.id" :data-category="item.id"
+                  :type="model.category === item.id ? 'primary' : 'default'" :disabled="busy"
                   @click="actions.selectCategory(item.id)">
             {{ item.label }}<span class="count">{{ item.count }}</span>
-          </button>
+          </ElButton>
         </div>
         <div class="resource-filter">
           <span class="muted">此分類 {{ model.rows.length }} 項</span>
-          <label>篩選<input :value="model.filter" maxlength="128" :disabled="busy"
-                           placeholder="依檔名篩選" @input="actions.setFilter($event.target.value)"></label>
+          <label>篩選<ElInput :model-value="model.filter" maxlength="128" :disabled="busy"
+                           placeholder="依檔名篩選" @input="actions.setFilter($event)" /></label>
         </div>
       </div>
 
@@ -37,25 +40,13 @@ defineProps({ model: Object, actions: Object, busy: Boolean });
         </figure>
       </div>
 
-      <div v-else class="resource-list">
-        <p v-if="!model.rows.length" class="muted">此分類沒有符合條件的資源。</p>
-        <div v-for="(row, index) in model.rows" :key="row.path" class="resource-row" :data-path="row.path">
-          <span class="index">{{ index + 1 }}</span>
-          <template v-if="row.category === 'image'">
-            <img :src="row.url" :alt="row.label" loading="lazy" class="thumb">
-            <span class="name">{{ row.path }}</span>
-            <span class="muted">{{ row.byteLength }} bytes</span>
-          </template>
-          <template v-else-if="row.category === 'audio'">
-            <span class="name">{{ row.path }}</span>
-            <audio :src="row.url" controls preload="metadata"></audio>
-          </template>
-          <template v-else>
-            <span class="name">{{ row.path }}</span>
-            <span class="muted">{{ row.byteLength }} bytes</span>
-          </template>
-        </div>
-      </div>
+      <ElTable v-else :data="model.rows" row-key="path" :show-header="false">
+        <ElTableColumn type="index" width="80" />
+        <ElTableColumn min-width="120"><template #default="{ row }"><span class="resource-row" :data-path="row.path"><img v-if="row.category === 'image'" :src="row.url" :alt="row.label" loading="lazy" class="thumb"></span></template></ElTableColumn>
+        <ElTableColumn prop="path" min-width="280" />
+        <ElTableColumn min-width="300"><template #default="{ row }"><audio v-if="row.category === 'audio'" :src="row.url" controls preload="metadata"></audio><span v-else>{{ row.byteLength }} bytes</span></template></ElTableColumn>
+        <template #empty>此分類沒有符合條件的資源。</template>
+      </ElTable>
     </template>
   </section>
 </template>

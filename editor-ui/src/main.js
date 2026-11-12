@@ -2,6 +2,24 @@ import { createApp, reactive } from 'vue';
 import 'element-plus/es/components/button/style/css';
 import 'element-plus/es/components/message-box/style/css';
 import 'element-plus/es/components/tag/style/css';
+import 'element-plus/es/components/text/style/css';
+import 'element-plus/es/components/link/style/css';
+import 'element-plus/es/components/table/style/css';
+import 'element-plus/es/components/table-column/style/css';
+import 'element-plus/es/components/dialog/style/css';
+import 'element-plus/es/components/overlay/style/css';
+import 'element-plus/es/components/input/style/css';
+import 'element-plus/es/components/input-number/style/css';
+import 'element-plus/es/components/checkbox/style/css';
+import 'element-plus/es/components/checkbox-group/style/css';
+import 'element-plus/es/components/select/style/css';
+import 'element-plus/es/components/option/style/css';
+import 'element-plus/es/components/form/style/css';
+import 'element-plus/es/components/tooltip/style/css';
+import 'element-plus/es/components/scrollbar/style/css';
+import 'element-plus/es/components/progress/style/css';
+import 'element-plus/es/components/popover/style/css';
+import './theme.css';
 import Workbench from './Workbench.vue';
 export { createAccountController } from './accounts.js';
 export { createCopyController } from './copy.js';
@@ -9,6 +27,11 @@ export { createCopyController } from './copy.js';
 // The shell receives display facts only, never CSRF tokens, passwords, source
 // objects or live game state. Server permissions remain the authority.
 export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, mapview, catalog, generals, copy, fullCopy, publication, management, review, deletion }) {
+  // The legacy page link belongs to the player. Detach it only in the editor;
+  // do not override its theme variables or change the shared server asset.
+  document.querySelector('link[rel="stylesheet"][href="/style.css"]')?.remove();
+  // Dialogs/popovers are teleported outside the workbench root.
+  Object.assign(document.body.style, { fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)' });
   const state = reactive({ authenticated: false, mustChange: false, admin: false, account: '', view: null, busy: false, views });
   const accountsModel = reactive({ rows: [], loaded: false, stale: false, message: '', generation: 0 });
   const draftModel = reactive({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: true });

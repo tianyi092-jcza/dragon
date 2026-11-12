@@ -1,6 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElCheckbox } from 'element-plus/es/components/checkbox/index.mjs';
+import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean, currentGame: String });
 const onlyCurrent = ref(false);
 const games = computed(() => onlyCurrent.value ? props.model.games.filter(game => game.gameId === props.currentGame) : props.model.games);
@@ -12,9 +14,9 @@ watch(() => props.currentGame, id => { if (!id) onlyCurrent.value = false; });
     <p>僅管理員可上架已發布的正式版本，不修改或發布他人草稿。下架同時限制；解除仍保持下架，須另行上架。內置遊戲不提供寫入操作。本地管理標記不等於玩家已可見。</p>
     <ElButton id="management-load" :disabled="busy || model.locked" @click="actions.refresh()">明確讀取目前管理清單</ElButton>
     <p id="management-current-game">目前編輯遊戲：{{ currentGame || '未選擇' }}。僅用於定位清單，不提供編輯權限，也不更換原管理操作目標或修訂。</p>
-    <label><input id="management-current-only" v-model="onlyCurrent" type="checkbox" :disabled="busy || model.locked || !currentGame">只顯示目前編輯遊戲（不重新讀取）</label>
+    <ElCheckbox id="management-current-only" v-model="onlyCurrent" :disabled="busy || model.locked || !currentGame">只顯示目前編輯遊戲（不重新讀取）</ElCheckbox>
     <p v-if="onlyCurrent && !games.length" id="management-current-missing">已讀清單沒有此遊戲；請明確讀取管理清單，不據此判定已刪除。</p>
-    <div id="management-games"><div v-for="game in games" :key="game.gameId" :data-game-id="game.gameId"><p>{{ game.label }}</p><ElButton v-for="action in game.actions" :key="action.action" :disabled="busy || action.disabled" @click="actions.start(game.gameId, game.rowRevision, action.action)">{{ action.label }}</ElButton></div></div>
+    <ElTable id="management-games" :data="games" row-key="gameId" :show-header="false"><ElTableColumn min-width="320"><template #default="{ row: game }"><span :data-game-id="game.gameId">{{ game.label }}</span></template></ElTableColumn><ElTableColumn min-width="360"><template #default="{ row: game }"><div class="account-row-actions"><ElButton v-for="action in game.actions" :key="action.action" :disabled="busy || action.disabled" @click="actions.start(game.gameId, game.rowRevision, action.action)">{{ action.label }}</ElButton></div></template></ElTableColumn></ElTable>
     <p id="management-operation">{{ model.operation }}</p>
     <ElButton id="management-query" :disabled="busy || model.queryDisabled" @click="actions.query()">查詢原管理操作與分發狀態</ElButton>
     <ElButton id="management-retry" :disabled="busy || model.retryDisabled" @click="actions.retry()">明確同鍵同body與原修訂重試</ElButton>

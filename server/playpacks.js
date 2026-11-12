@@ -19,6 +19,8 @@ import worldManifest from './pinned/world-manifest.txt';
 import entityManifest from './pinned/entity-manifest.txt';
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
 const revision = value => typeof value === 'string' && /^[1-9][0-9]*$/.test(value);
+// copy-era 修订号＝批准 ordinal（方案 B）：读 path 只放宽形状，等值比对逻辑不变。
+const revisionOrOrdinal = value => revision(value) || (typeof value === 'string' && /^1\.(0|[1-9][0-9]{0,30})$/.test(value));
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const shaBytes = value => createHash('sha256').update(value).digest('hex');
 const ASSET_IDS = Object.freeze(['terrain', 'roadGraph', 'roadCost', 'roadOffset', 'minimapBase', 'minimapLarge']);
@@ -62,7 +64,11 @@ export class PublishedPacks {
     if (!origin || origin.registry_id !== this.#policy.registryId || origin.profile_revision !== this.#policy.profileRevision || origin.definition_digest !== this.#runtimeAssets.definition().definitionDigest) { fail(409, 'PLAY_SOURCE_CHANGED'); }
     const rev = this.#policy.revision;
     const paths = ['map_atlas_', 'map_tiles_'].flatMap(stem => ['spring', 'summer', 'autumn', 'winter'].map(season => `content/builtin/compiled/${rev}/${stem}${season}.png`));
-    const source = await this.#runtimeAssets.capture(tokenHash, reference, paths);
+    // copy 时代的上架引用只有 {gameId, draftRevision: ordinal, sourceDigest: copyDigest}，
+    // 没有 draft 快照 rootKey（草稿链已退役，快照门在此无意义）。季节图是全游戏共享的
+    // 钉死美术：完整性锚在 policy（索引校验＋下文逐 role sha），游戏侧新鲜度由上文
+    // copy_origins＋同意事务内的 VALIDATION_STALE 承担，不走快照绑定的 capture。
+    const source = await this.#runtimeAssets.readShared(tokenHash, paths);
     const visual = path => {
       const role = this.#policy.roles.find(item => item.path === path);
       if (!role) { fail(503, 'PLAY_VISUALS_BINDING'); }
@@ -204,7 +210,7 @@ export class PublishedPacks {
     let pin;
     try { pin = JSON.parse(row.pin_json); }
     catch { fail(500, 'PLAY_CORRUPT'); }
-    if (!pin || pin.gameId !== gameId || typeof pin.name !== 'string' || !revision(pin.revision ?? null) || !digest(pin.sourceDigest) || !Array.isArray(pin.chapters) || typeof pin.publishedAt !== 'string') { fail(500, 'PLAY_CORRUPT'); }
+    if (!pin || pin.gameId !== gameId || typeof pin.name !== 'string' || !revisionOrOrdinal(pin.revision ?? null) || !digest(pin.sourceDigest) || !Array.isArray(pin.chapters) || typeof pin.publishedAt !== 'string') { fail(500, 'PLAY_CORRUPT'); }
     return pin;
   }
   #storedPack(pin) {
@@ -244,7 +250,7 @@ export class PublishedPacks {
     if (gameId !== 'wolong-builtin' && !uuid(gameId)) { fail(422, 'PLAY_GAME_ID'); }
     const pin = this.#pin(gameId);
     const rev = requestedRevision ?? pin.revision;
-    if (!revision(rev) || rev !== pin.revision) { fail(409, 'PLAY_SNAPSHOT_CHANGED'); }
+    if (!revisionOrOrdinal(rev) || rev !== pin.revision) { fail(409, 'PLAY_SNAPSHOT_CHANGED'); }
     const { manifest, states } = this.#storedPack(pin);
     const chapter = chapterId ?? manifest.chapters?.[0] ?? null;
     if (typeof chapter !== 'string' || !states[chapter]) { fail(422, 'PLAY_CHAPTER'); }
@@ -254,7 +260,7 @@ export class PublishedPacks {
   asset(gameId, requestedRevision, sourceDigest, assetId) {
     if (gameId !== 'wolong-builtin' && !uuid(gameId)) { fail(422, 'PLAY_GAME_ID'); }
     const pin = this.#pin(gameId);
-    if (!revision(requestedRevision) || requestedRevision !== pin.revision || !digest(sourceDigest) || sourceDigest !== pin.sourceDigest) { fail(409, 'PLAY_SNAPSHOT_CHANGED'); }
+    if (!revisionOrOrdinal(requestedRevision) || requestedRevision !== pin.revision || !digest(sourceDigest) || sourceDigest !== pin.sourceDigest) { fail(409, 'PLAY_SNAPSHOT_CHANGED'); }
     if (typeof assetId !== 'string') { fail(404, 'PLAY_ASSET'); }
     const { manifest } = this.#storedPack(pin);
     return this.#serveAsset(pin, manifest, assetId);

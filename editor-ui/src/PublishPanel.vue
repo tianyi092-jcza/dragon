@@ -1,8 +1,12 @@
 <script setup>
 import { ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
+import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
+import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
+import { ElText } from 'element-plus/es/components/text/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
 const stateTags = { draft: 'info', pending: 'warning', listed: 'success' };
 const time = value => value === '—' ? value : new Date(value).toLocaleString();
@@ -13,8 +17,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // 阻塞遮罩：只針对「正在跑的那一个动作」。不管结果如何，最后都要关掉回到正常页面。
 function open(title) { stop(); overlay.value = { title, line: '', failed: false }; elapsed.value = 0; ticker = setInterval(() => { elapsed.value++; }, 1000); }
 function close() { stop(); overlay.value = null; checking.value = false; }
-// 第一個還沒算完的層＝畫面上「當前」那一項；不假裝已完成的層是通過。
-const currentLayer = () => (props.model?.validationLayers ?? []).findIndex(layer => !layer.done);
+// 单 POST 无分步进度：检查中整表统一显示 ▶，不假装逐项推进。
 async function attached(title, run) {
   open(title);
   try { await run(); close(); }
@@ -25,8 +28,10 @@ async function attached(title, run) {
   }
 }
 async function publish(row) {
+  const text = (props.model.description ?? '').trim();
+  if (![...text].length) { await ElMessageBox.alert('请先填写发布说明（1..2000 字），再送出上架申请。', '缺少发布说明', { type: 'warning' }); return; }
   try {
-    await ElMessageBox.confirm(`上架申請會先校驗整個遊戲（全部章節與跨章引用）。通過後版本號自動 +1（本次 ${row.nextVersion}）並提交管理員審核；校驗失敗則狀態不變並列出錯誤。`, `上架申請「${row.name}」`, { type: 'warning', confirmButtonText: '送出申請', cancelButtonText: '取消' });
+    await ElMessageBox.confirm(`上架申請會先校驗整個遊戲（全部章節與跨章引用）。通過後版本號自動 +1（本次 ${row.nextVersion}）並提交管理員審核；校驗失敗則狀態不變並列出錯誤。\n\n发布说明（${[...text].length}/2000）：\n${text}`, `上架申請「${row.name}」`, { type: 'warning', confirmButtonText: '送出申請', cancelButtonText: '取消' });
   } catch { return; }
   await attached('正在送出上架申請…', () => props.actions.publish(row.gameId));
 }
@@ -41,11 +46,14 @@ async function check(row) {
     if (ticker) { clearInterval(ticker); ticker = null; }
     return;
   }
-  // 四層在遮罩裡同步更新（每一層由自己那次請求算完才變 ✓/✗）；全部通過才關窗。
+  // 四层→动态清单：遮罩里始终列出检验项；有结论才变 ✓/✗，全部通过才关窗。
   if (props.model.validationPassed) { await sleep(600); close(); return; }
-  // 失敗：視窗留著，紅字原因在下面，按「關閉」或修正後重新檢驗。
+  // 失败且确有红字明细才提红字；无明细（请求层失败）时只说原因，不指不存在的红字。
   if (ticker) { clearInterval(ticker); ticker = null; }
-  overlay.value = { title: `檢驗「${row.name}」未通過`, line: '請依下方紅字修正章節後重新檢驗；未通過前上架申請按鈕保持不可用。', failed: true };
+  const bad = (props.model.validationLayers ?? []).filter(layer => layer.done && !layer.ok);
+  overlay.value = bad.length
+    ? { title: `檢驗「${row.name}」未通過`, line: `請依下方紅字修正後重新檢驗（${bad.map(layer => layer.title).join('、')}未通過）；修正前上架申請按鈕保持不可用。`, failed: true }
+    : { title: `檢驗「${row.name}」未拿到明细`, line: '检验请求没有返回可列出的明细（见面板消息）；修正网络或服务端问题后重新检验。', failed: true };
 }
 </script>
 
@@ -55,73 +63,34 @@ async function check(row) {
       <ElButton id="publish-refresh" :disabled="busy || model.refreshDisabled" @click="actions.refresh()">刷新</ElButton>
     </div>
     <p id="publish-message" role="status">{{ model.message }}</p>
-    <p v-if="model.blockedReason" id="publish-blocked" role="status" class="module-notice">{{ model.blockedReason }}</p>
-    <p id="publish-references" role="status">{{ model.referencesText }}</p>
-    <div class="entity-table-wrap" tabindex="0">
-      <table id="publish-table" class="entity-table">
-        <thead><tr><th>遊戲名稱</th><th>說明</th><th>版本號</th><th>狀態</th><th>檢驗</th><th>創建時間</th><th>狀態時間</th><th>操作</th></tr></thead>
-        <tbody>
-          <tr v-for="row in model.rows" :key="row.gameId" :data-game-id="row.gameId" :data-state="row.stateKey">
-            <td data-field="name">{{ row.name }}</td>
-            <td data-field="introduction">{{ row.introduction }}</td>
-            <td data-field="version">{{ row.version }}</td>
-            <td data-field="state" :class="'state-' + stateTags[row.stateKey]">{{ row.state }}<ElTag v-if="row.rejected" data-field="rejected" type="danger" effect="plain" size="small">已駁回</ElTag></td>
-            <td data-field="validation" :data-validation="row.validationKey" :title="row.publishHint">{{ row.validation }}<br><small>{{ row.validationTime }}</small></td>
-            <td data-field="created">{{ time(row.createdAt) }}</td>
-            <td data-field="state-time">{{ time(row.stateTime) }}</td>
-            <td class="account-row-actions">
-              <ElButton data-action="check" :disabled="busy || model.checkDisabled" @click="check(row)">校驗</ElButton>
-              <ElButton data-action="publish" :title="row.publishHint" :disabled="busy || row.publishDisabled" @click="publish(row)">上架申請</ElButton>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="!model.rows.length" class="empty-state">尚未讀取清單，或此帳戶沒有可上架的遊戲。請在「新建遊戲」建立，或按「刷新」。</p>
-    </div>
-    <p id="publish-operation">{{ model.operation }}</p>
     <div class="module-toolbar">
-      <ElButton id="publish-query" :disabled="busy || model.queryDisabled" @click="actions.query()">查詢原操作</ElButton>
-      <ElButton id="publish-retry" :disabled="busy || model.retryDisabled" @click="actions.retry()">以原鍵重試</ElButton>
-      <ElButton id="publish-forget" :disabled="busy || model.forgetDisabled" @click="actions.forget()">只停止本機追蹤</ElButton>
+      <label style="flex:1">发布说明<ElInput :model-value="model.description" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="必填，1..2000 字，随所选行的上架申请一起提交" :disabled="busy" @input="actions.setDescription($event)" /></label>
     </div>
+    <ElTable id="publish-table" :data="model.rows" row-key="gameId">
+      <ElTableColumn v-for="[key, title] in [['name','遊戲名稱'],['introduction','說明'],['version','版本號'],['state','狀態'],['validation','檢驗'],['created','創建時間'],['state-time','狀態時間'],['actions','操作']]" :key="key" :label="title" :min-width="key === 'actions' ? 240 : 180">
+        <template #default="{ row }"><div :data-field="key" :data-game-id="row.gameId" :data-state="row.stateKey">
+          <template v-if="key === 'state'"><ElTag :type="stateTags[row.stateKey]">{{ row.state }}</ElTag><ElTag v-if="row.rejected" data-field="rejected" type="danger">已駁回</ElTag></template>
+          <div v-else-if="key === 'validation'" :data-validation="row.validationKey" :title="row.publishHint">{{ row.validation }}<br><small>{{ row.validationTime }}</small></div>
+          <template v-else-if="key === 'created'">{{ time(row.createdAt) }}</template><template v-else-if="key === 'state-time'">{{ time(row.stateTime) }}</template>
+          <div v-else-if="key === 'actions'" class="account-row-actions"><ElButton data-action="check" :disabled="busy || model.checkDisabled" @click="check(row)">校驗</ElButton><ElButton data-action="publish" :title="row.publishHint" :disabled="busy || row.publishDisabled" @click="publish(row)">上架申請</ElButton></div>
+          <template v-else>{{ row[key] }}</template>
+        </div></template>
+      </ElTableColumn>
+      <template #empty>尚未讀取清單，或此帳戶沒有可上架的遊戲。請在「新建遊戲」建立，或按「刷新」。</template>
+    </ElTable>
     <p id="publish-result">{{ model.result }}</p>
-    <div v-if="overlay" id="publish-overlay" class="progress-overlay" role="alertdialog" aria-busy="true">
-      <div class="progress-card progress-card-wide">
+    <ElDialog v-if="overlay" id="publish-overlay" :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" aria-busy="true">
         <p id="publish-overlay-text">{{ overlay.title }}</p>
-        <!-- 檢驗四層：只在這一層視窗內逐項出現；沒回報的層不畫、不補 -->
-        <ol v-if="checking && model.validationLayers?.length" id="publish-validation-layers" class="validation-layers">
-          <li v-for="(layer, index) in model.validationLayers" :key="layer.key" :data-layer="layer.key" :data-layer-code="layer.code" :data-layer-ok="layer.done ? String(layer.ok) : 'pending'" :data-layer-done="layer.done" :class="layer.done ? (layer.ok ? 'layer-ok' : 'layer-bad') : (index === currentLayer() ? 'layer-current' : 'layer-todo')">
-            <strong>{{ layer.done ? (layer.ok ? '✓' : '✗') : (index === currentLayer() ? '▶' : '·') }} {{ layer.title }}</strong>
-            <ul v-if="!layer.ok" class="validation-failures">
-              <li v-for="failure in layer.failures" :key="failure.chapterId + failure.detail">{{ failure.name }}：{{ failure.detail }}</li>
-            </ul>
-          </li>
-        </ol>
-        <!-- 上架 ①–⑥：服務端逐段回報，已完成 ✓、失敗 ✗、尚未開始 · -->
-        <ol v-if="!checking && model.steps?.length" id="publish-steps">
-          <li v-for="step in model.steps" :key="step.index" :data-step-index="step.index" :data-step-state="step.state" :class="'step-' + step.state">
-            {{ step.state === 'done' ? '✓' : step.state === 'failed' ? '✗' : step.state === 'current' ? '▶' : '·' }} {{ step.title }}
-          </li>
-        </ol>
+        <!-- 检验清单：常驻两项；检查中统一 ▶，无结果时 ·，有结论 ✓/✗；未知码追加在后 -->
+        <ElTable v-if="model.validationLayers?.length" id="publish-validation-layers" :data="model.validationLayers" :show-header="false"><ElTableColumn><template #default="{ row: layer }"><div :data-layer="layer.key" :data-layer-code="layer.code" :data-layer-ok="layer.done ? String(layer.ok) : 'pending'" :data-layer-done="layer.done">
+          <ElText :type="layer.done ? (layer.ok ? 'success' : 'danger') : (checking ? 'primary' : 'info')">{{ layer.done ? (layer.ok ? '✓' : '✗') : (checking ? '▶ 检查中' : '· 未检验') }} {{ layer.title }}</ElText>
+          <template v-if="layer.done && !layer.ok"><p v-for="failure in layer.failures" :key="failure.chapterId + failure.detail"><ElText type="danger">{{ failure.name }}：{{ failure.detail }}</ElText></p></template>
+        </div></template></ElTableColumn></ElTable>
+        <!-- 上架只送一次 POST，提交后轮询 slot 状态；无多段进度。 -->
         <!-- 第二行：處理過程；失敗或逾時就在這一行說明原因 -->
         <p id="publish-overlay-line">{{ overlay.failed ? overlay.line : (model.phase || '正在處理…') }}</p>
         <small id="publish-overlay-elapsed">{{ overlay.failed ? '上面這句話也會留在面板訊息裡' : '已用 ' + elapsed + ' 秒；完成後會自動關閉，也可以切到別的頁面' }}</small>
         <p v-if="overlay.failed"><ElButton id="publish-overlay-close" @click="close">關閉</ElButton></p>
-      </div>
-    </div>
+    </ElDialog>
   </section>
 </template>
-
-<style>
-#publish-overlay .progress-card-wide{min-width:520px;max-width:640px}
-#publish-validation-layers{margin:0;padding-left:1.2em}
-#publish-validation-layers .layer-ok{color:#3a7d33}
-#publish-validation-layers .layer-bad{color:#c0392b}
-#publish-validation-layers .layer-current{color:#1a5fb4;font-weight:600}
-#publish-validation-layers .layer-todo{color:#888}
-#publish-validation-layers .validation-failures{color:#c0392b;margin:.25em 0 .5em;padding-left:1.1em}
-#publish-steps{margin:.4em 0;padding-left:1.2em;color:#555;line-height:1.6}
-#publish-steps .step-done{color:#3a7d33}
-#publish-steps .step-current{color:#1a5fb4;font-weight:600}
-#publish-steps .step-failed{color:#c0392b;font-weight:600}
-</style>

@@ -30,7 +30,7 @@ const create = { op: 'create', generalId, values: { name: source.name, hao: sour
 const imported = applyGeneralDefinitionEdit(base, create);
 assert.deepEqual(base.generals, {});
 assert.deepEqual(imported.chapters[chapterIds[0]], base.chapters[chapterIds[0]]);
-assert.deepEqual(imported.generals[generalId], { name: source.name, hao: source.hao, portraitRef });
+assert.deepEqual(imported.generals[generalId], { name: source.name, zi: '', hao: source.hao, portraitRef, suicideOnCapture: false });
 assert.equal(typeof profile.verify(captured.capability, imported, [], [create]).sourceDigest, 'string');
 checks++;
 
@@ -41,7 +41,7 @@ assert.deepEqual(generalDefinitionReferences(imported, generalId), []);
 const referenced = applyChapterPersonEdit(imported, reference);
 assert.deepEqual(generalDefinitionReferences(referenced, generalId).map(row => [row.chapterId, row.overriddenFields]), [[chapterIds[3], ['name']]]);
 assert.deepEqual(referenced.chapters[chapterIds[3]].state, base.chapters[chapterIds[3]].state);
-assert.deepEqual(effectiveChapterPerson(referenced, chapterIds[3], generalId).values, { name: '章內名', hao: source.hao, portraitRef });
+assert.deepEqual(effectiveChapterPerson(referenced, chapterIds[3], generalId).values, { name: '章內名', zi: '', hao: source.hao, portraitRef, suicideOnCapture: false });
 const proof = profile.verify(captured.capability, referenced, [], [create], [], [reference]);
 assert.equal(typeof proof.sourceDigest, 'string');
 assert.notEqual(proof.sourceDigest, captured.baselineDigest);

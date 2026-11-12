@@ -34,6 +34,14 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   const chapterOrderInputs = new Map();
   let owner = null, identity = null, generation = 0, readGeneration = 0, games = [], loaded = null, attempt = null, badJournal = false, chapters = [], resources = [], message = '請查看自己的遊戲並明確載入已保存修訂。';
   const fields = { gameId: '', revision: '', name: '', introduction: '', chapterId: '' };
+  // F6 副本链状态（加法）：只服务 copy 模块写 + 上架状态读，不碰 draft 保存/查询/试运行旧路。
+  let copyGameId = null, copyDigest = null, copyUpdatedAt = null, copySubmission = null, copyValidation = null, copyTicket = null;
+  // F2 副本页读投影（加法）：GET /copy 全量数据的显示投影，与 draft 修订读完全隔离。
+  let copyData = null, copyValidationDigest = null, copyPortraits = null;
+  // 分批导入进度：{done,total,state,message}。非 null 时面板显示阻塞式弹窗。
+  let copyImportProgress = null;
+  // 单批条数：本地 HTTPS 入口 JSON body 上限 16384B，一行约 150B，取 64 留足余量。
+  const COPY_GENERAL_IMPORT_BATCH = 64;
   const input = () => ({ name: fields.name, introduction: fields.introduction });
   const resourceLimits = { money: [-8388608, 8388607], reserve_cav: [0, 65535], reserve_arc: [0, 65535], reserve_inf: [0, 65535] };
   let resourceInputs = [], definitions = null, definitionReferences = null, chapterPeople = null, definitionLibrary = [], waterGroups = null, waterMembers = null, waterCandidates = null;
@@ -395,6 +403,26 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       water: { supported: allowed && waterGroups !== null, rows: allowed && waterGroups ? structuredClone(waterGroups) : [], members: allowed && waterMembers !== null ? structuredClone(waterMembers) : null, createCandidates: allowed && waterCandidates !== null ? structuredClone(waterCandidates) : null, createLocked: locked || !waterReady() || waterMembers === null || waterCandidates === null || Boolean(attempt), splitLocked: locked || !waterReady() || waterMembers === null || Boolean(attempt), locked: locked || !waterReady() || Boolean(attempt) },
       message: allowed ? message : '',
       selectionMissing: allowed && Boolean(fields.gameId) && !games.some(game => game.gameId === fields.gameId),
+      copy: allowed && copyGameId === fields.gameId ? { digest: copyDigest, updatedAt: copyUpdatedAt, submission: copySubmission, validation: copyValidation, ticketReady: Boolean(copyTicket),
+        page: copyLoadedForGame() ? { digest: copyDigest, updatedAt: copyUpdatedAt, dirty: fields.name !== copyData.name || fields.introduction !== copyData.introduction || resourceInputs.length > 0 || startInputs.size > 0,
+          loadLocked: locked || isBusy(), editLocked: locked || isBusy(), cancelLocked: locked || isBusy() || !(fields.name !== copyData.name || fields.introduction !== copyData.introduction || resourceInputs.length > 0 || startInputs.size > 0),
+          chapters: copyData.chapters.map(chapter => ({ chapterId: chapter.chapterId, name: chapter.name, startDate: chapter.startDate === null ? null : { ...chapter.startDate }, gaps: copyGapsFor(chapter.chapterId) })),
+          resources: copyData.resources.map(chapter => ({ chapterId: chapter.chapterId, name: chapter.name, factions: chapter.factions.map(faction => ({ ...faction,
+            inputs: { ...Object.fromEntries(Object.keys(resourceLimits).map(key => [key, String(faction[key])])), ...resourceInputs.find(edit => edit.chapterId === chapter.chapterId && edit.slot === faction.slot)?.values } })) })),
+          create: { name: chapterCreateInputs.name, era: chapterCreateInputs.era, year: chapterCreateInputs.year, month: chapterCreateInputs.month, day: chapterCreateInputs.day, ready: true, locked: locked || isBusy(),
+            hint: '新增章節會帶入固定源第 1 章同槽據點記錄與 128 個武將槽，所屬勢力為空；地圖與據點基礎資料共用本遊戲。' },
+          cities: copyData.cities.map(row => ({ ...row })),
+          generals: copyData.generals === null ? null : copyData.generals.map(row => ({ ...row })),
+          import: copyImportProgress === null ? null : { ...copyImportProgress },
+          portraits: copyPortraits === null ? null : copyPortraits.map(row => ({ ...row })),
+          attributes: { known: true, locked: locked || isBusy(), chapters: copyData.chapters.map(chapter => {
+            const staged = startInputs.get(chapter.chapterId) ?? {}, saved = chapter.startDate;
+            return { chapterId: chapter.chapterId, name: chapter.name, startMissing: saved === null, startDirty: startInputs.has(chapter.chapterId),
+              start: { era: staged.era ?? (saved?.era ?? 'ad'), year: staged.year ?? (saved === null ? '' : String(saved.year)), month: staged.month ?? (saved === null ? '' : String(saved.month)), day: staged.day ?? (saved === null ? '' : String(saved.day)) },
+              factions: chapter.factions.map(faction => ({ slot: faction.slot, monarchSlot: faction.monarchSlot, advisorSlot: faction.advisorSlot, diplomatSlot: faction.diplomatSlot, capital: faction.capital })),
+              generals: chapter.generals.map(general => ({ ...general, posts: copyHeldPosts(chapter, general.slot) })),
+              cities: chapter.cities.map(city => ({ ...city })) };
+          }) } } : null } : { digest: null, updatedAt: null, submission: null, validation: null, ticketReady: false, page: null },
       context: allowed && loaded ? { gameId: loaded.gameId, name: loaded.metadata.name, draftRevision: loaded.draftRevision, readGeneration: loaded.readGeneration, dirty: dirty(), verified: Boolean(loaded.verifiedRead), pending: Boolean(attempt) } : null,
       locked, gameLocked: locked || Boolean(attempt), loadLocked: locked || unresolved(), editLocked: locked || !loaded?.verifiedRead || Boolean(attempt),
       cancelLocked: locked || !loaded?.verifiedRead || Boolean(attempt) || (!draftInputsDirty() && !startInputs.size),
@@ -417,7 +445,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   function clearFields() { resourceInputs = []; startInputs.clear(); clearDefinitions(); Object.assign(fields, { gameId: '', revision: '', name: '', introduction: '', chapterId: '' }); }
   function setIdentity(next) {
     if (identity === next) { render(); return; } generation++; decorLocked = false; baseUnlocked = false; minimap = null; mapAtlas = null; mapWindow = null; mapScene = null; decorationSelection = null; identity = next;
-    if (next && owner !== next.user.id) { owner = next.user.id; games = []; loaded = null; attempt = null; badJournal = false; chapters = []; resources = []; clearFields(); restore(); }
+    if (next && owner !== next.user.id) { owner = next.user.id; games = []; loaded = null; attempt = null; badJournal = false; chapters = []; resources = []; copyGameId = null; copyDigest = null; copyUpdatedAt = null; copySubmission = null; copyValidation = null; copyTicket = null; copyData = null; copyPortraits = null; copyImportProgress = null; copyValidationDigest = null; clearFields(); restore(); }
     else if (next && !attempt) restore();
     // Expiry hides the projection, not falsely acknowledging or resubmitting input.
     render();
@@ -581,6 +609,648 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     } catch (error) { if (valid() && attempt === pending) { if (error.status === 404) { if (pending.state !== 'revoked') pending.state = 'not-found'; message = pending.state === 'revoked' ? '舊會話已由實際改密撤銷；查無原操作仍不宣稱已保存或失敗。可確認放棄後載入明確修訂。' : '目前查無原操作，不保證在途請求已結束；有原內容才可明確重送同一個請求。不保留原內容時，可明確改密撤銷所有舊會話後再載入，不能重造請求，也不會自動另起一個請求。'; } else if (error.code === 'OPERATION_REVOKED') { pending.state = 'revoked'; message = '原操作會話已撤銷，不能復活舊鍵；確認放棄後載入明確修訂。'; } else { message = '查詢未確認：' + error.message; throw error; } } }
   }
   function action(callback) { return work(async () => { if (!permitted()) throw new Error('請先登入並完成改密。'); try { return await callback(); } finally { render(); } }); }
+  // F6 副本链（加法）：模块覆盖写 + 上架状态读。服务端为唯一校验者；成功换摘要即作废本地旧 submission 快照。
+  async function saveCopyModule(module, patch) {
+    if (isBusy() || !permitted() || !uuid(fields.gameId)) return null;
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      try {
+        const result = await api('/api/games/' + gameId + '/copy', { module, patch });
+        if (!valid()) return null;
+        if (!result || result.gameId !== gameId || !hexDigest(result.copyDigest)) throw new Error('副本保存回應無效。');
+        copyGameId = gameId; copyDigest = result.copyDigest; copyUpdatedAt = typeof result.updatedAt === 'string' ? result.updatedAt : null; copySubmission = null;
+        if (copyValidationDigest !== copyDigest) { copyValidation = null; copyTicket = null; copyValidationDigest = null; }
+        message = '副本模組已保存：' + module + '／摘要 ' + result.copyDigest.slice(0, 12) + '…；檢驗票已失效，需重新檢驗。';
+        return result;
+      } catch (error) { if (valid()) message = '副本保存未確認：' + error.message; throw error; }
+    });
+  }
+  async function readCopySubmission() {
+    if (isBusy() || !permitted() || !uuid(fields.gameId)) return null;
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      try {
+        const result = await api('/api/games/' + gameId + '/copy/submission');
+        if (!valid()) return null;
+        if (!result || result.gameId !== gameId) throw new Error('上架狀態回應無效。');
+        copyGameId = gameId; copySubmission = result;
+        if (hexDigest(result.copyDigest)) { copyDigest = result.copyDigest; copyUpdatedAt = typeof result.copyUpdatedAt === 'string' ? result.copyUpdatedAt : copyUpdatedAt; }
+        message = result.blockedReason ?? (result.publishEnabled ? '已通過檢驗，可填寫發布說明後上架申請（仍需確認）。' : '上架狀態已讀取。');
+        return result;
+      } catch (error) { if (valid()) message = '上架狀態未確認：' + error.message; throw error; }
+    });
+  }
+  async function validateCopy() {
+    if (isBusy() || !permitted() || !uuid(fields.gameId)) return null;
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      try {
+        const result = await api('/api/games/' + gameId + '/copy/validate', {});
+        if (!valid()) return null;
+        if (!result || result.gameId !== gameId || !['passed', 'failed'].includes(result.state) || !hexDigest(result.copyDigest)) throw new Error('檢驗回應無效。');
+        copyGameId = gameId; copyDigest = result.copyDigest;
+        copyValidation = { state: result.state, checkedAt: typeof result.checkedAt === 'string' ? result.checkedAt : null, problems: Array.isArray(result.problems) ? result.problems : [] };
+        copyTicket = result.state === 'passed' && typeof result.ticket === 'string' ? result.ticket : null;
+        copyValidationDigest = result.state === 'passed' ? result.copyDigest : null;
+        copySubmission = null;
+        message = result.state === 'passed' ? '檢驗通過；可填寫發布說明後上架申請（仍需確認）。' : '檢驗未通過：' + copyValidation.problems.length + ' 項，請依紅字修正後重新檢驗。';
+        return result;
+      } catch (error) { if (valid()) { copyTicket = null; message = '檢驗未確認：' + error.message; } throw error; }
+    });
+  }
+  async function submitCopy(description) {
+    if (isBusy() || !permitted() || !uuid(fields.gameId)) return null;
+    if (typeof description !== 'string' || !description.trim()) throw new Error('請填寫發布說明。');
+    if (!copyTicket || copyGameId !== fields.gameId) throw new Error('請先通過檢驗再上架申請。');
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      try {
+        const result = await api('/api/games/' + gameId + '/copy/submission', { ticket: copyTicket, description });
+        if (!valid()) return null;
+        if (!result || result.gameId !== gameId || result.state !== 'submitted') throw new Error('上架申請回應無效。');
+        copyTicket = null; copySubmission = null;
+        message = '已提交上架申請；需重新檢驗通過才會再次解禁。';
+        return result;
+      } catch (error) {
+        if (valid()) {
+          if (error && (error.status === 409 || error.status === 422)) copyTicket = null;
+          message = '上架申請未確認：' + error.message;
+        }
+        throw error;
+      }
+    });
+  }
+  // F2 副本页读 + 按模块存（加法）：读 GET /copy 全量并做显示投影，写走
+  // saveCopyModule（metadata / chapters.resources），成功后 loadCopy() 重读。
+  const copyLoadedForGame = () => Boolean(copyData && copyGameId === fields.gameId && uuid(fields.gameId));
+  function checkedCopyCities(cities) {
+    if (!cities || typeof cities !== 'object' || Array.isArray(cities)) throw new Error('副本據點格式無效。');
+    const seen = new Set(), rows = [];
+    for (const [cityId, row] of Object.entries(cities)) {
+      if (!cityId || seen.has(cityId) || !row || typeof row !== 'object' || Array.isArray(row) || typeof row.name !== 'string' || !row.name) throw new Error('副本據點身份無效。');
+      seen.add(cityId);
+      const out = { cityId, name: row.name };
+      for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
+        const value = row[key] ?? null;
+        if (value !== null && (!Number.isSafeInteger(value) || value < 0 || value > CITY_NUMBER_LIMITS[key])) throw new Error('副本據點數值格式無效。');
+        out[key] = value;
+      }
+      rows.push(out);
+    }
+    return rows;
+  }
+  function checkedCopyGenerals(generals, gameId) {
+    // 游戏级武将库（父表）读投影：只认 game-owned 身份字典；旧槽位字典绝不重释。
+    // 无库返回 null（不支持），面板提示先走人物导入建库。
+    if (generals === undefined || generals === null) return null;
+    if (typeof generals !== 'object' || Array.isArray(generals)) throw new Error('副本武將庫格式無效。');
+    const prefix = gameId + '#general-', seen = new Set(), rows = [];
+    for (const [generalId, row] of Object.entries(generals)) {
+      if (typeof generalId !== 'string' || !generalId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(generalId.slice(prefix.length)) || seen.has(generalId) ||
+          !row || typeof row !== 'object' || Array.isArray(row) || typeof row.name !== 'string' || !row.name) throw new Error('副本武將身份無效。');
+      seen.add(generalId);
+      const out = { generalId, name: row.name, zi: typeof row.zi === 'string' ? row.zi : '', hao: typeof row.hao === 'string' ? row.hao : '' };
+      out.portraitRef = row.portraitRef === null || row.portraitRef === undefined ? null : checkedPortrait(row.portraitRef);
+      out.suicideOnCapture = row.suicideOnCapture === true;
+      let ability = null;
+      if (row.ability !== null && row.ability !== undefined) {
+        // 读侧宽容旧值（0..255）：面板保存时才按库规则收紧到 0..15。
+        if (typeof row.ability !== 'object' || Array.isArray(row.ability) ||
+            [['siege', 15], ['field', 15], ['naval', 15], ['force', 255], ['lead', 255], ['politics', 255]].some(([key, max]) => !Number.isInteger(row.ability[key]) || Object.is(row.ability[key], -0) || row.ability[key] < 0 || row.ability[key] > max)) throw new Error('副本武將能力格式無效。');
+        ability = { ...row.ability };
+      }
+      out.ability = ability;
+      rows.push(out);
+    }
+    return rows;
+  }
+  function checkedCopyData(data, gameId) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('副本內容格式無效。');
+    if (!data.metadata || typeof data.metadata.name !== 'string' || typeof data.metadata.introduction !== 'string') throw new Error('副本名稱／簡介格式無效。');
+    if (!Array.isArray(data.chapterOrder) || !data.chapters || typeof data.chapters !== 'object' || Array.isArray(data.chapters)) throw new Error('副本章節格式無效。');
+    const seen = new Set();
+    const chapters = data.chapterOrder.map(id => {
+      if (typeof id !== 'string' || !id || seen.has(id)) throw new Error('副本章節身份無效。');
+      seen.add(id);
+      const row = data.chapters[id];
+      if (!row || !row.state || typeof row.state !== 'object' || Array.isArray(row.state)) throw new Error('副本章節內容無效。');
+      const st = row.state;
+      let startDate = null;
+      if (st.start !== null && st.start !== undefined) {
+        if (!st.start || typeof st.start !== 'object' || Array.isArray(st.start) || !Number.isSafeInteger(st.start.year) || !Number.isSafeInteger(st.start.month) || !Number.isSafeInteger(st.start.day)) throw new Error('副本章節開始日期格式無效。');
+        startDate = { year: st.start.year, month: st.start.month, day: st.start.day, era: st.start.era ?? null };
+      }
+      if (!Array.isArray(st.factions)) throw new Error('副本章節勢力格式無效。');
+      const slots = new Set();
+      const factions = st.factions.map(faction => {
+        if (!faction || !Number.isInteger(faction.idx) || faction.idx < 0 || faction.idx > 21 || slots.has(faction.idx)) throw new Error('副本勢力槽格式無效。');
+        slots.add(faction.idx);
+        for (const [key, [min, max]] of Object.entries(resourceLimits)) if (!Number.isInteger(faction[key]) || Object.is(faction[key], -0) || faction[key] < min || faction[key] > max) throw new Error('副本勢力資源格式無效。');
+        // 角色引用只在存在時驗值（舊種子可能缺鍵），缺鍵投影為 null，不虛構任職。
+        const roles = {};
+        for (const [source, target, max] of [['monarch_idx', 'monarchSlot', 127], ['advisor_idx', 'advisorSlot', 127], ['diplomat_idx', 'diplomatSlot', 127], ['capital', 'capital', 191]]) {
+          const value = faction[source] ?? null;
+          if (value !== null && (!Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > max)) throw new Error('副本勢力角色引用無效。');
+          roles[target] = value;
+        }
+        return { slot: faction.idx, ...Object.fromEntries(Object.keys(resourceLimits).map(key => [key, faction[key]])), ...roles };
+      });
+      if (!Array.isArray(st.generals)) throw new Error('副本章節武將格式無效。');
+      const bindings = data.sourceRecords?.bindings ?? null;
+      if (bindings !== null && (!bindings || typeof bindings !== 'object' || Array.isArray(bindings))) throw new Error('副本人物來源綁定無效。');
+      const slotMap = bindings?.[id]?.slotMap ?? null;
+      if (slotMap !== null && (!slotMap || typeof slotMap !== 'object' || Array.isArray(slotMap))) throw new Error('副本人物來源綁定無效。');
+      const generalSlots = new Set();
+      const generals = st.generals.map(general => {
+        if (!general || !Number.isInteger(general.idx) || Object.is(general.idx, -0) || general.idx < 0 || general.idx > 127 || generalSlots.has(general.idx) || typeof general.name !== 'string' || typeof general.hao !== 'string') throw new Error('副本章節武將格式無效。');
+        if (general.faction !== null && general.faction !== undefined && (!Number.isInteger(general.faction) || Object.is(general.faction, -0) || general.faction < 0 || general.faction > 255)) throw new Error('副本章節武將所屬格式無效。');
+        if (general.portraitKey !== null && general.portraitKey !== undefined && (typeof general.portraitKey !== 'string' || !/^p?[0-9]{1,6}$/.test(general.portraitKey))) throw new Error('副本章節武將頭像綁定格式無效。');
+        if (general.portrait !== null && general.portrait !== undefined && (!Number.isInteger(general.portrait) || Object.is(general.portrait, -0) || general.portrait < 0 || general.portrait > 255)) throw new Error('副本章節武將原圖格式無效。');
+        let ability = null;
+        if (general.ability !== null && general.ability !== undefined) {
+          if (!general.ability || typeof general.ability !== 'object' || Array.isArray(general.ability) || [['force', 255], ['lead', 255], ['politics', 255], ['siege', 15], ['field', 15], ['naval', 15]].some(([key, max]) => !Number.isInteger(general.ability[key]) || Object.is(general.ability[key], -0) || general.ability[key] < 0 || general.ability[key] > max)) throw new Error('副本章節武將能力格式無效。');
+          ability = { ...general.ability };
+        }
+        if (general.specialty_low_bits !== null && general.specialty_low_bits !== undefined && (typeof general.specialty_low_bits !== 'string' || general.specialty_low_bits.length !== 3 || !/^[0-9a-f]{3}$/.test(general.specialty_low_bits))) throw new Error('副本章節武將專長格式無效。');
+        const sourceRecordId = slotMap?.[general.idx] ?? null;
+        if (sourceRecordId !== null && (typeof sourceRecordId !== 'string' || !sourceRecordId || general.idx === 127)) throw new Error('副本人物來源綁定無效。');
+        generalSlots.add(general.idx);
+        // attr bit4＝原版势力灭亡被俘退场标志（re-notes-entity-fields 武将§2）：
+        // 这里只投影成布尔，不暴露整个 attr；缺值当未设。
+        return { slot: general.idx, name: general.name, hao: general.hao, factionSlot: general.faction ?? null, reserved: general.idx === 127, portraitKey: general.portraitKey ?? null, originalPortraitId: general.portrait == null ? null : String(general.portrait), ability, specialtyLowBits: general.specialty_low_bits ?? null, suicideOnCapture: (general.attr & 0x10) === 0x10, sourceRecordId };
+      });
+      if (!Array.isArray(st.cities)) throw new Error('副本章節據點格式無效。');
+      const citySlots = new Set();
+      const cities = st.cities.map(city => {
+        if (!city || !Number.isSafeInteger(city.idx) || city.idx < 0 || city.idx > 191 || citySlots.has(city.idx) || typeof city.name !== 'string') throw new Error('副本章節據點身份無效。');
+        citySlots.add(city.idx);
+        const out = { idx: city.idx, name: city.name };
+        for (const key of ['troops', 'prod']) { const value = city[key] ?? null; if (value !== null && (!Number.isSafeInteger(value) || value < 0)) throw new Error('副本章節據點數值格式無效。'); out[key] = value; }
+        for (const [source, target] of [['troops_cap', 'troopsCap'], ['max_prod', 'maxProd']]) { const value = city[source] ?? city[target] ?? null; if (value !== null && (!Number.isSafeInteger(value) || value < 0)) throw new Error('副本章節據點數值格式無效。'); out[target] = value; }
+        for (const key of ['growth', 'defence']) { const value = city[key] ?? null; if (value !== null && (!Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > 255)) throw new Error('副本章節據點數值格式無效。'); out[key] = value; }
+        for (const key of ['faction', 'governor']) { const value = city[key] ?? null; if (value !== null && (!Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > 255)) throw new Error('副本章節據點歸屬格式無效。'); out[key] = value; }
+        return out;
+      });
+      return { chapterId: id, name: typeof st.name === 'string' && st.name ? st.name : id, startDate, factions, generals, cities };
+    });
+    return { name: data.metadata.name, introduction: data.metadata.introduction, chapters,
+      cities: checkedCopyCities(data.cities),
+      generals: checkedCopyGenerals(data.generals, gameId),
+      resources: chapters.map(chapter => ({ chapterId: chapter.chapterId, name: chapter.name, factions: chapter.factions.map(faction => ({ slot: faction.slot, money: faction.money, reserve_cav: faction.reserve_cav, reserve_arc: faction.reserve_arc, reserve_inf: faction.reserve_inf })) })) };
+  }
+  // 检验问题按章分发；未检验时 gaps 为 null，面板显示「尚未检验」。
+  function copyGapsFor(chapterId) {
+    if (!copyValidation || !Array.isArray(copyValidation.problems)) return null;
+    const items = copyValidation.problems.filter(problem => problem && problem.chapterId === chapterId);
+    return { saveGaps: 0, activeGaps: items.length, assets: null,
+      details: { save: [], active: items.map(problem => ({ code: String(problem.code ?? 'COPY_PROBLEM'), subject: chapterId, description: String(problem.detail ?? ''), recognized: true })), omittedSave: 0, omittedActive: 0 } };
+  }
+  // 首建兜底：读不到副本行（新游戏从未来过副本页）就地 ensure（幂等，只种一次），再读一次。
+  // ensure 自带 POST 空对象体（api 无 body 即发 GET，会 404）。
+  async function readCopyOrEnsure(gameId) {
+    try {
+      return await api('/api/games/' + gameId + '/copy');
+    } catch (error) {
+      if (error?.code !== 'COPY_NOT_FOUND') throw error;
+      await api('/api/games/' + gameId + '/copy/ensure', {});
+      return await api('/api/games/' + gameId + '/copy');
+    }
+  }
+  async function loadCopy() {
+    if (isBusy() || !permitted() || !uuid(fields.gameId)) return;
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      const response = await readCopyOrEnsure(gameId);
+      if (!valid() || fields.gameId !== gameId) return;
+      if (!response || response.gameId !== gameId || !hexDigest(response.copyDigest) || !response.data) throw new Error('副本讀取回應無效。');
+      copyData = checkedCopyData(response.data, gameId);
+      copyGameId = gameId; copyDigest = response.copyDigest; copyUpdatedAt = typeof response.updatedAt === 'string' ? response.updatedAt : null;
+      if (copyValidationDigest !== copyDigest) { copyValidation = null; copyTicket = null; copyValidationDigest = null; }
+      copySubmission = null; resourceInputs = [];
+      fields.name = copyData.name; fields.introduction = copyData.introduction;
+      if (!copyData.chapters.some(chapter => chapter.chapterId === fields.chapterId)) fields.chapterId = copyData.chapters[0]?.chapterId ?? '';
+      message = '已載入副本；名稱／簡介與四資源按模組保存，成功後自動重讀。';
+    });
+  }
+  function setCopyField(name, value) {
+    if (!permitted() || isBusy() || typeof value !== 'string' || !copyLoadedForGame()) return;
+    if (['name', 'introduction'].includes(name)) { fields[name] = value; render(); }
+    if (name === 'chapterId' && copyData.chapters.some(chapter => chapter.chapterId === value)) { fields.chapterId = value; render(); }
+  }
+  function setCopyResource(chapterId, slot, key, value) {
+    if (!permitted() || isBusy() || !copyLoadedForGame() || typeof value !== 'string' || !Object.hasOwn(resourceLimits, key)) return;
+    const row = copyData.resources.find(chapter => chapter.chapterId === chapterId)?.factions.find(faction => faction.slot === slot);
+    if (!row) return;
+    let edit = resourceInputs.find(item => item.chapterId === chapterId && item.slot === slot);
+    if (!edit) { edit = { chapterId, slot, values: {} }; resourceInputs.push(edit); }
+    if (value === String(row[key])) delete edit.values[key]; else edit.values[key] = value;
+    resourceInputs = resourceInputs.filter(item => Object.keys(item.values).length); render();
+  }
+  function normalizedCopyName(value, limit, label) {
+    if (typeof value !== 'string' || !value.isWellFormed() || [...value].some(c => { const n = c.codePointAt(0); return n < 32 || n >= 127 && n <= 159; })) throw new Error(label + '含無效字元。');
+    const clean = value.trim().normalize('NFC');
+    if ([...clean].length > limit || !clean.length && label === '名稱') throw new Error(label + '長度無效。');
+    return clean;
+  }
+  async function saveCopyPage() {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) return null;
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      const meta = {};
+      if (fields.name !== copyData.name) meta.name = normalizedCopyName(fields.name, 8, '名稱');
+      if (fields.introduction !== copyData.introduction) {
+        const clean = normalizedCopyName(fields.introduction, 1024, '簡介');
+        if (clean !== copyData.introduction) meta.introduction = clean;
+      }
+      const edits = normalizedResources();
+      const resources = {};
+      for (const edit of edits) { (resources[edit.chapterId] ??= {})[edit.slot] = edit.values; }
+      if (!Object.keys(meta).length && !Object.keys(resources).length) { message = '與已讀副本相同；沒有保存。'; return null; }
+      if (!valid()) return null;
+      if (Object.keys(meta).length) await saveCopyModuleInner(gameId, valid, 'metadata', meta);
+      if (Object.keys(resources).length) await saveCopyModuleInner(gameId, valid, 'chapters', { resources });
+      await loadCopyInner(gameId, valid);
+      return copyDigest;
+    });
+  }
+  // saveCopyModule 的内联版：同一次保存按模块顺序送多次 PUT，成功才重读。
+  async function saveCopyModuleInner(gameId, valid, module, patch) {
+    const result = await api('/api/games/' + gameId + '/copy', { module, patch });
+    if (!valid() || fields.gameId !== gameId) return null;
+    if (!result || result.gameId !== gameId || !hexDigest(result.copyDigest)) throw new Error('副本保存回應無效。');
+    copyGameId = gameId; copyDigest = result.copyDigest; copyUpdatedAt = typeof result.updatedAt === 'string' ? result.updatedAt : null; copySubmission = null;
+    if (copyValidationDigest !== copyDigest) { copyValidation = null; copyTicket = null; copyValidationDigest = null; }
+    return result;
+  }
+  async function loadCopyInner(gameId, valid) {
+    const response = await readCopyOrEnsure(gameId);
+    if (!valid() || fields.gameId !== gameId) return;
+    if (!response || response.gameId !== gameId || !hexDigest(response.copyDigest) || !response.data) throw new Error('副本讀取回應無效。');
+    copyData = checkedCopyData(response.data, gameId);
+    copyGameId = gameId; copyDigest = response.copyDigest; copyUpdatedAt = typeof response.updatedAt === 'string' ? response.updatedAt : null;
+    copySubmission = null; resourceInputs = [];
+    fields.name = copyData.name; fields.introduction = copyData.introduction;
+    if (!copyData.chapters.some(chapter => chapter.chapterId === fields.chapterId)) fields.chapterId = copyData.chapters[0]?.chapterId ?? '';
+    message = '已保存並重讀副本；檢驗票已失效，需重新檢驗。';
+  }
+  // 副本页共用头像相册（加法）：游戏级只读，不读修订不走武将表；切游戏时清空。
+  // 从本游戏原生槽导入库条目（显式动作）：同名武将只取第一条，已存在的跳过。
+  // 只搬姓名／原图／六项能力／自杀旗，字／号留空；不改任何章节槽，也不建人物引用。
+  function generalCopyImportRows() {
+    if (!copyLoadedForGame()) return [];
+    const existing = new Set((copyData.generals ?? []).map(row => row.name));
+    const rows = new Map();
+    for (const chapter of copyData.chapters) {
+      for (const general of chapter.generals) {
+        if (general.reserved || !general.name || existing.has(general.name) || rows.has(general.name)) continue;
+        // 字／号是作者面字段（2026-11 用户裁定）：原版 6 字节“字号/称呼”在多数记录里
+        // 等于姓名，不能冒充号。导入一律留空，号只由人工填写（如卧龙／凤雏）。
+        const row = { name: general.name, suicideOnCapture: general.suicideOnCapture === true };
+        const portrait = general.originalPortraitId === null ? 0 : Number(general.originalPortraitId);
+        row.portrait = Number.isInteger(portrait) && portrait >= 0 && portrait <= 255 ? portrait : 0;
+        if (general.ability) row.ability = { ...general.ability };
+        rows.set(general.name, row);
+      }
+    }
+    return [...rows.values()];
+  }
+  async function generalCopyImport() {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本武將資料。');
+    const rows = generalCopyImportRows();
+    if (!rows.length) throw new Error('沒有可導入的原生武將記錄（可能已全部導入）。');
+    const batches = Math.ceil(rows.length / COPY_GENERAL_IMPORT_BATCH);
+    if (!confirm('從本遊戲的原生武將記錄導入 ' + rows.length + ' 名到武將庫？\n· 同名武將只取第一條，已在庫中的會跳過\n· 只新增庫條目（姓名／字／號留空／原圖／能力／勢力被滅被俘）\n· 字与号需另行手工填寫（号只有少數人有）\n· 不改任何章節槽位，也不建立人物引用\n· 請求體上限 16KiB，會分 ' + batches + ' 批送出；中途失敗已入庫的保留')) return;
+    const gameId = fields.gameId, valid = ticket();
+    if (!valid() || fields.gameId !== gameId) return;
+    return action(async () => {
+      // 分批送出：单请求受 16KiB body 限制；每批完成后立即刷新阻塞式进度窗。
+      copyImportProgress = { done: 0, total: rows.length, state: 'running', batches };
+      render();
+      try {
+        for (let at = 0; at < rows.length; at += COPY_GENERAL_IMPORT_BATCH) {
+          const batch = rows.slice(at, at + COPY_GENERAL_IMPORT_BATCH);
+          await saveCopyModuleInner(gameId, valid, 'generals', { import: batch });
+          if (!valid() || fields.gameId !== gameId) { copyImportProgress = null; return; }
+          copyImportProgress = { done: at + batch.length, total: rows.length, state: 'running', batches };
+          render();
+        }
+        await loadCopyInner(gameId, valid);
+        copyImportProgress = { done: rows.length, total: rows.length, state: 'done', batches };
+        render();
+        return '已導入 ' + rows.length + ' 名武將並重讀副本。';
+      } catch (error) {
+        copyImportProgress = { done: copyImportProgress?.done ?? 0, total: rows.length, state: 'failed', batches, message: error && error.message ? error.message : '未知原因' };
+        render();
+        throw error;
+      }
+    });
+  }
+  function clearCopyImport() { if (isBusy()) return; copyImportProgress = null; render(); }
+  async function loadCopyPortraits() {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本資料。');
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      const result = await api('/api/games/' + encodeURIComponent(gameId) + '/portraits');
+      if (!valid() || fields.gameId !== gameId) return;
+      if (result?.gameId !== gameId || !Array.isArray(result.portraits)) throw new Error('共用頭像清單回應無效。');
+      const seen = new Set();
+      copyPortraits = result.portraits.map(row => {
+        const ref = checkedPortrait({ assetId: row?.assetId, sha256: row?.sha256 });
+        if (seen.has(ref.assetId)) throw new Error('共用頭像清單回應無效。');
+        seen.add(ref.assetId);
+        return ref;
+      });
+    });
+  }
+  async function copyChapter(op, chapterId) {
+    if (isBusy() || !permitted() || !copyLoadedForGame() || !['copy', 'rename', 'delete'].includes(op)) return null;
+    const gameId = fields.gameId, valid = ticket();
+    const selected = copyData.chapters.find(item => item.chapterId === chapterId);
+    if (!selected) throw new Error('請選擇已載入的章節。');
+    const name = op === 'rename' ? selected.name : null;
+    return action(async () => {
+      let patch;
+      if (op === 'rename') {
+        const answer = prompt('章節新名稱', name);
+        if (answer === null) return null;
+        patch = { rename: { [chapterId]: normalizedCopyName(answer, 16, '章名') } };
+        if (patch.rename[chapterId] === '') { message = '章名不可空白；沒有改名。'; return null; }
+      }
+      else patch = { [op]: { chapterId } };
+      if (op === 'delete' && !confirm('刪除章節「' + selected.name + '」？僅影響副本，不改變已發布版本；副本可暫無章節，但屆時禁止發布。')) return null;
+      await saveCopyModuleInner(gameId, valid, 'chapters', patch);
+      await loadCopyInner(gameId, valid);
+      return copyDigest;
+    });
+  }
+  async function createCopyChapter() {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) return null;
+    const gameId = fields.gameId, valid = ticket();
+    const edit = chapterCreateRequest();
+    return action(async () => {
+      await saveCopyModuleInner(gameId, valid, 'chapters', { create: { name: edit.name, start: edit.start } });
+      resetChapterCreate();
+      await loadCopyInner(gameId, valid);
+      return copyDigest;
+    });
+  }
+  function cancelCopyEdits() {
+    if (!permitted() || isBusy() || !copyLoadedForGame()) return false;
+    if (!(fields.name !== copyData.name || fields.introduction !== copyData.introduction || resourceInputs.length || startInputs.size)) return false;
+    if (!confirm('放棄本頁名稱、簡介、所有章節四資源及章節年代的未保存輸入，恢復已讀副本？不重新讀取、不保存。')) return false;
+    fields.name = copyData.name; fields.introduction = copyData.introduction; resourceInputs = []; startInputs.clear();
+    message = '已恢復名稱、簡介、四資源及章節年代到已讀副本；沒有讀取或保存。';
+    render(); return true;
+  }
+  // F3b 章節屬性（加法）：逐命令走 chapters.edits／setStart，成功後 loadCopyInner 重讀。
+  // 本地校验镜像 draft assign*（同章 rows、同 caps 口徑）；確認語保留「只存本命令」。
+  const copyChapterRow = chapterId => {
+    const row = copyData?.chapters.find(chapter => chapter.chapterId === chapterId);
+    if (!row) throw new Error('請選擇已讀取的章節。');
+    return row;
+  };
+  function copyHeldPosts(chapter, generalIdx) {
+    const posts = [];
+    for (const faction of chapter.factions) {
+      if (faction.monarchSlot === generalIdx) posts.push(postNames.monarch);
+      if (faction.advisorSlot === generalIdx) posts.push(postNames.strategist);
+      if (faction.diplomatSlot === generalIdx) posts.push(postNames.diplomat);
+    }
+    return posts;
+  }
+  function setCopyStartInput(chapterId, field, text) {
+    if (isBusy() || !copyLoadedForGame() || typeof text !== 'string' || !['era', 'year', 'month', 'day'].includes(field)) return;
+    const chapter = copyData.chapters.find(row => row.chapterId === chapterId);
+    if (!chapter) return;
+    const saved = chapter.startDate;
+    const current = field === 'era' ? saved?.era ?? 'ad' : saved === null ? '' : String(saved[field]);
+    const staged = { ...(startInputs.get(chapterId) ?? {}) };
+    if (text === current) delete staged[field]; else staged[field] = text;
+    if (Object.keys(staged).length) startInputs.set(chapterId, staged); else startInputs.delete(chapterId);
+    generation++; render();
+  }
+  function cancelCopyStartInput(chapterId) {
+    if (isBusy() || !startInputs.has(chapterId)) return;
+    startInputs.delete(chapterId); generation++; message = '已放棄本章年代輸入；未讀取、未保存。'; render();
+  }
+  async function submitCopyChapterEdit(chapterId, edit, description) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    copyChapterRow(chapterId);
+    if (!confirm(description + '？\n只保存本次章節屬性命令，不保存其它表單輸入；保存後自動重讀副本。')) return false;
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      await saveCopyModuleInner(gameId, valid, 'chapters', { edits: [edit] });
+      if (!valid() || fields.gameId !== gameId) return false;
+      await loadCopyInner(gameId, valid);
+      return true;
+    });
+  }
+  async function saveCopyChapterStart(chapterId) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId), staged = startInputs.get(chapterId);
+    if (!staged) { message = '本章沒有待保存的開始年代輸入。'; render(); return false; }
+    const values = {};
+    for (const [field, text] of Object.entries(staged)) {
+      if (field === 'era') { if (!['bc', 'ad'].includes(text)) throw new Error('紀年只能是公元前（bc）或公元后（ad）。'); values.era = text; continue; }
+      const value = Number(text.trim() === '' ? NaN : text), max = field === 'year' ? 9999 : field === 'month' ? 12 : 31;
+      if (!Number.isSafeInteger(value) || Object.is(value, -0) || value < 1 || value > max) throw new Error((field === 'year' ? '年' : field === 'month' ? '月' : '日') + '須為 1 至 ' + max + ' 的整數。');
+      values[field] = value;
+    }
+    if (chapter.startDate === null) throw new Error('本章沒有已讀的開始日期物件；本頁不補預設日期。');
+    const label = [values.era === undefined ? null : values.era === 'bc' ? '公元前' : '公元后', values.year === undefined ? chapter.startDate.year + '年' : values.year + '年', values.month === undefined ? chapter.startDate.month + '月' : values.month + '月', values.day === undefined ? chapter.startDate.day + '日' : values.day + '日'].filter(Boolean).join(' ');
+    if (!confirm('將章節「' + chapter.name + '」的開始年代設為 ' + label + '（只加／改這些欄位，紀年標籤不改年份）？\n只保存本次章節屬性命令，不保存其它表單輸入；保存後自動重讀副本。')) return false;
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      await saveCopyModuleInner(gameId, valid, 'chapters', { setStart: { [chapterId]: values } });
+      if (!valid() || fields.gameId !== gameId) return false;
+      startInputs.delete(chapterId);
+      await loadCopyInner(gameId, valid);
+      return true;
+    });
+  }
+  async function copyCityFaction(chapterId, cityIdx, factionId) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const city = chapter.cities.find(row => row.idx === cityIdx);
+    if (!city) throw new Error('該據點不在已讀的本章據點清單。');
+    if (factionId !== null && !chapter.factions.some(faction => faction.slot === factionId)) throw new Error('所屬勢力必須是本章已宣告的勢力槽，或中立。');
+    if ((city.faction ?? null) === factionId) { message = '據點所屬與已讀資料相同；沒有保存。'; render(); return false; }
+    const label = factionId === null ? '中立' : '勢力槽 ' + factionId;
+    return submitCopyChapterEdit(chapterId, { op: 'city-faction', chapterId, cityIdx, factionId }, '將章節「' + chapter.name + '」據點 #' + cityIdx + '「' + city.name + '」的所屬改為 ' + label + '（原 ' + (city.faction == null ? '中立' : '勢力槽 ' + city.faction) + '；同步原生城主位，不改舊所屬位）');
+  }
+  async function copyCapital(chapterId, factionIdx, cityIdx) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const faction = chapter.factions.find(row => row.slot === factionIdx);
+    if (!faction) throw new Error('請選擇本章已宣告的勢力槽。');
+    const city = chapter.cities.find(row => row.idx === cityIdx);
+    if (!city) throw new Error('該據點不在已讀的本章據點清單。');
+    if (faction.capital === cityIdx) { message = '該據點已是此勢力首都；沒有保存。'; render(); return false; }
+    return submitCopyChapterEdit(chapterId, { op: 'set-capital', chapterId, factionIdx, cityIdx }, '將章節「' + chapter.name + '」勢力槽 ' + factionIdx + ' 的首都設為據點 #' + cityIdx + '「' + city.name + '」（原 ' + (faction.capital == null ? '無' : '#' + faction.capital) + '）。首都唯一且不要求該據點屬於此勢力；取消首都只能改設另一據點');
+  }
+  const copyGeneralRow = (chapter, generalIdx) => {
+    const general = chapter.generals.find(row => row.slot === generalIdx);
+    if (!general) throw new Error('請選擇本章已讀取的武將槽。');
+    return general;
+  };
+  async function copyGeneralFaction(chapterId, generalIdx, factionId) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const general = copyGeneralRow(chapter, generalIdx);
+    if (general.reserved) throw new Error('保留槽不能指派所屬勢力。');
+    const posts = copyHeldPosts(chapter, generalIdx);
+    if (posts.length) throw new Error('此武將目前擔任' + posts.join('、') + '；請先清空該職務，再改所屬勢力。');
+    if (factionId !== null && !chapter.factions.some(row => row.slot === factionId)) throw new Error('所屬勢力必須是本章已宣告的勢力槽，或自由。');
+    if ((general.factionSlot ?? null) === factionId) { message = '武將所屬與已讀資料相同；沒有保存。'; render(); return false; }
+    const label = factionId === null ? '自由' : '勢力槽 ' + factionId;
+    return submitCopyChapterEdit(chapterId, { op: 'general-faction', chapterId, generalIdx, factionId }, '將章節「' + chapter.name + '」武將 #' + generalIdx + '「' + general.name + '」的所屬改為 ' + label + '（原 ' + (general.factionSlot == null ? '自由' : '勢力槽 ' + general.factionSlot) + '；不改職務、不搬兵力）');
+  }
+  async function copyGovernor(chapterId, cityIdx, generalSlot) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const city = chapter.cities.find(row => row.idx === cityIdx);
+    if (!city) throw new Error('請選擇本章已讀取的據點。');
+    if (city.faction === null || city.faction === undefined) throw new Error('中立據點不能指派內政官；請先設定該據點的所屬勢力。');
+    if (generalSlot === null) {
+      if (city.governor === null || city.governor === undefined) { message = '此據點沒有內政官；沒有保存。'; render(); return false; }
+      return submitCopyChapterEdit(chapterId, { op: 'city-governor', chapterId, cityIdx, generalIdx: null }, '清空章節「' + chapter.name + '」據點 #' + cityIdx + ' 的內政官（原槽 ' + city.governor + '；同時清該武將身份與舊預算）');
+    }
+    const general = copyGeneralRow(chapter, generalSlot);
+    if (general.reserved || generalSlot === 127) throw new Error('內政官必須是本章的普通武將槽。');
+    if ((general.factionSlot ?? null) !== city.faction) throw new Error('內政官必須先屬於該據點的勢力；請先在武將面設定所屬勢力。');
+    if (city.governor === generalSlot) { message = '內政官與已讀資料相同；沒有保存。'; render(); return false; }
+    return submitCopyChapterEdit(chapterId, { op: 'city-governor', chapterId, cityIdx, generalIdx: generalSlot }, '將章節「' + chapter.name + '」據點 #' + cityIdx + ' 的內政官改為槽 ' + generalSlot + '／' + general.name + '（原 ' + (city.governor == null ? '無' : '槽 ' + city.governor) + '；不改兵力、不改舊預算）');
+  }
+  async function copyDiplomat(chapterId, factionIdx, generalSlot) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const faction = chapter.factions.find(row => row.slot === factionIdx);
+    if (!faction) throw new Error('請選擇本章已宣告的勢力槽。');
+    if (generalSlot === null) {
+      if (faction.diplomatSlot === null) { message = '此勢力沒有外交官；沒有保存。'; render(); return false; }
+      return submitCopyChapterEdit(chapterId, { op: 'set-diplomat', chapterId, factionIdx, generalIdx: null }, '清空章節「' + chapter.name + '」勢力槽 ' + factionIdx + ' 的外交官職務（原槽 ' + faction.diplomatSlot + '）');
+    }
+    const general = copyGeneralRow(chapter, generalSlot);
+    if (general.reserved || generalSlot === 127) throw new Error('外交官必須是本章的普通武將槽。');
+    if ((general.factionSlot ?? null) !== factionIdx) throw new Error('外交官必須先屬於該勢力；請先在武將面設定所屬勢力。');
+    const other = copyHeldPosts(chapter, generalSlot).filter(post => !(post === postNames.diplomat && faction.diplomatSlot === generalSlot));
+    if (other.length) throw new Error('此武將已擔任' + other.join('、') + '；請先清空該職務。');
+    if (faction.diplomatSlot === generalSlot) { message = '此武將已是該勢力外交官；沒有保存。'; render(); return false; }
+    return submitCopyChapterEdit(chapterId, { op: 'set-diplomat', chapterId, factionIdx, generalIdx: generalSlot }, '將章節「' + chapter.name + '」勢力槽 ' + factionIdx + ' 的外交官設為武將 #' + generalSlot + '「' + general.name + '」（原槽 ' + (faction.diplomatSlot ?? '無') + '；不改所屬與其它職務）');
+  }
+  async function copyCityNumbers(chapterId, cityIdx, values) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    if (!chapter.cities.some(row => row.idx === cityIdx)) throw new Error('該據點不在已讀的本章據點清單。');
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('據點數值格式無效。');
+    const keys = Object.keys(values);
+    if (!keys.length || keys.some(key => !['troops', 'prod', 'growth', 'defence'].includes(key) || !Number.isSafeInteger(values[key]) || values[key] < 0 || Object.is(values[key], -0))) throw new Error('據點只接受明確的 troops／prod／growth／defence 非負整數；上限仍由保存服務核驗。');
+    return submitCopyChapterEdit(chapterId, { op: 'city-native', chapterId, cityIdx, values: { ...values } }, '保存章節 [' + chapterId + '] 據點 #' + cityIdx + '：' + keys.map(key => key + '=' + values[key]).join('、') + '（只同步這些欄位的具名值）');
+  }
+  async function copyRenameGeneral(chapterId, generalIdx, values) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const general = chapter.generals.find(row => row.slot === generalIdx);
+    if (!general) throw new Error('請選擇本章已讀取的武將槽。');
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('武將文字格式無效。');
+    const keys = Object.keys(values);
+    if (!keys.length || keys.some(key => !['name', 'hao'].includes(key) || typeof values[key] !== 'string')) throw new Error('只接受明確姓名／字；文字範圍由共用保存服務核驗。');
+    return submitCopyChapterEdit(chapterId, { op: 'rename-general', chapterId, generalIdx, values: { ...values } }, '將章節「' + chapter.name + '」武將 #' + generalIdx + '「' + general.name + '」改為' + keys.map(key => key + '=' + values[key]).join('、'));
+  }
+  async function copyGeneralPortrait(chapterId, generalIdx, portraitKey) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const general = chapter.generals.find(row => row.slot === generalIdx);
+    if (!general) throw new Error('請選擇本章已讀取的武將槽。');
+    if (portraitKey !== null && typeof portraitKey !== 'string') throw new Error('請明確選擇共用頭像ID，或以null清除綁定；不接受網址、上傳或缺值。');
+    if ((general.portraitKey ?? null) === portraitKey) { message = portraitKey === null ? '此武將沒有頭像綁定；沒有保存。' : '頭像綁定與已讀資料相同；沒有保存。'; render(); return false; }
+    return submitCopyChapterEdit(chapterId, { op: 'portrait', chapterId, generalIdx, portraitKey }, portraitKey === null ? '清除章節「' + chapter.name + '」武將 #' + generalIdx + '「' + general.name + '」的頭像綁定' : '將章節「' + chapter.name + '」武將 #' + generalIdx + '「' + general.name + '」的頭像綁定設為 ' + portraitKey);
+  }
+  const copyFactionPostRow = (chapter, factionSlot) => {
+    const faction = chapter.factions.find(row => row.slot === factionSlot);
+    if (!faction) throw new Error('請選擇本章已宣告的勢力槽。');
+    return faction;
+  };
+  const copyPostGeneralRow = (chapter, generalSlot) => {
+    const general = chapter.generals.find(row => row.slot === generalSlot);
+    if (!general || general.reserved) throw new Error('請選擇已讀章內的普通武將引用；任官或清空須有完整普通武將引用。');
+    return general;
+  };
+  async function copyStrategist(chapterId, factionSlot, generalSlot) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const faction = copyFactionPostRow(chapter, factionSlot);
+    if (!Number.isSafeInteger(generalSlot) || Object.is(generalSlot, -0) || generalSlot < 0 || generalSlot >= 127) throw new Error('請明確選擇普通武將槽0至126；清空請使用獨立清空動作。');
+    const general = copyPostGeneralRow(chapter, generalSlot);
+    return submitCopyChapterEdit(chapterId, { op: 'set-strategist', chapterId, factionIdx: factionSlot, generalIdx: generalSlot }, '將章節「' + chapter.name + '」勢力槽 ' + factionSlot + ' 的軍師設為槽 ' + generalSlot + '：' + general.name + '（原軍師槽 ' + (faction.advisorSlot ?? '無') + '）。任職資格仍由服務校驗，不遷移所屬勢力');
+  }
+  async function copyClearStrategist(chapterId, factionSlot) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const faction = copyFactionPostRow(chapter, factionSlot);
+    if (faction.advisorSlot === null) { message = '此勢力沒有軍師；沒有保存。'; render(); return false; }
+    const general = chapter.generals.find(row => row.slot === faction.advisorSlot);
+    return submitCopyChapterEdit(chapterId, { op: 'set-strategist', chapterId, factionIdx: factionSlot, generalIdx: null }, '清空章節「' + chapter.name + '」勢力槽 ' + factionSlot + ' 的軍師引用（原槽 ' + faction.advisorSlot + (general ? '：' + general.name : '') + '）');
+  }
+  async function copyMonarch(chapterId, factionSlot, generalSlot) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const faction = copyFactionPostRow(chapter, factionSlot);
+    if (!Number.isSafeInteger(generalSlot) || Object.is(generalSlot, -0) || generalSlot < 0 || generalSlot >= 127) throw new Error('請明確選擇普通武將槽0至126。');
+    const general = copyPostGeneralRow(chapter, generalSlot);
+    return submitCopyChapterEdit(chapterId, { op: 'set-monarch', chapterId, factionIdx: factionSlot, generalIdx: generalSlot }, '將章節「' + chapter.name + '」勢力槽 ' + factionSlot + ' 的君主設為槽 ' + generalSlot + '：' + general.name + '（原君主槽 ' + faction.monarchSlot + '）。必須是無任職的自由武將，任職資格仍由服務校驗');
+  }
+  async function copySucceedMonarch(chapterId, factionSlot, generalSlot) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const faction = copyFactionPostRow(chapter, factionSlot);
+    if (!Number.isSafeInteger(generalSlot) || Object.is(generalSlot, -0) || generalSlot < 0 || generalSlot >= 127) throw new Error('請明確選擇普通繼任武將槽0至126；此動作不解散勢力。');
+    const general = copyPostGeneralRow(chapter, generalSlot);
+    return submitCopyChapterEdit(chapterId, { op: 'remove-monarch', chapterId, factionIdx: factionSlot, resolution: { successor: generalSlot } }, '免除章節「' + chapter.name + '」勢力槽 ' + factionSlot + ' 的君主引用（原君主槽 ' + faction.monarchSlot + '），指定槽 ' + generalSlot + '：' + general.name + ' 接任。不解散勢力；繼任者必須是無任職的自由武將，任職資格仍由服務校驗');
+  }
+  async function copyDisbandFaction(chapterId, factionSlot) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const faction = copyFactionPostRow(chapter, factionSlot);
+    return submitCopyChapterEdit(chapterId, { op: 'disband-faction', chapterId, factionIdx: factionSlot, confirm: true }, '解散章節「' + chapter.name + '」勢力槽 ' + factionSlot + '（原君主槽 ' + faction.monarchSlot + '）。成員轉自由、據點轉中立，只作用於本章，不刪武將');
+  }
+  async function copyBlockers(chapterId, generalIdx) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    const chapter = copyChapterRow(chapterId);
+    const general = chapter.generals.find(row => row.slot === generalIdx);
+    if (!general) throw new Error('請選擇本章已讀取的武將槽。');
+    const lines = [`#${generalIdx} 不可刪除：武將鎖定 128 密排，不開放增刪。`, '以下依章節分列同編號槽位，不代表各章為同一人物；不構成完整刪除准入。'];
+    for (const row of copyData.chapters) {
+      const g = row.generals.find(value => value.slot === generalIdx);
+      if (!g) continue;
+      lines.push(`【${row.name}／${row.chapterId}】${g.name}：`);
+      lines.push('引用資料未提供，不能視為無引用。');
+    }
+    message = lines.join('\n'); render(); return true;
+  }
+  // F3e 地图命令（加法）：逐命令走 map.edits，成功后 loadCopyInner 重读。
+  // 本地只做形状门（数组＋对象＋op 字符串），深层形状与引用有效性由服务端按
+  // COPY_MAP_OPS 原函数核验（fail-closed）；与 draft 不同，这里不做确认框，
+  // 高频小 op（平移／填底）沿用地图页直接提交语义。
+  function copyMapId(kind) {
+    if (!copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    if (!['decoration', 'material', 'water'].includes(kind)) throw new Error('地圖身份種類無效。');
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    return fields.gameId + '#' + kind + '-' + Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+  async function submitCopyMapEdits(edits) {
+    if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本。');
+    if (!Array.isArray(edits) || !edits.length) throw new Error('地圖命令不能為空。');
+    for (const edit of edits) if (!edit || typeof edit !== 'object' || Array.isArray(edit) || typeof edit.op !== 'string') throw new Error('地圖命令格式無效。');
+    const gameId = fields.gameId, valid = ticket();
+    return action(async () => {
+      await saveCopyModuleInner(gameId, valid, 'map', { edits });
+      if (!valid() || fields.gameId !== gameId) return false;
+      await loadCopyInner(gameId, valid);
+      return true;
+    });
+  }
+  async function copyMapEdit(edit) { return submitCopyMapEdits([edit]); }
   async function startTrial(child) {
     if (!loaded?.verifiedRead || attempt) throw new Error('請先載入自己的精確草稿並確認無未確認操作。');
     const chapterId = fields.chapterId;
@@ -635,7 +1305,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   function selectedGame() { return permitted() ? (attempt?.gameId ?? loaded?.gameId ?? fields.gameId) || null : null; }
   function adoptGame(gameId) {
     if (!permitted() || selectedGame() === gameId || attempt || badJournal) return;
-    clearDefinitions(); fields.gameId = gameId; loaded = null; chapters = []; resources = []; resourceInputs = []; fields.name = ''; fields.introduction = ''; fields.chapterId = ''; fields.revision = games.find(game => game.gameId === gameId)?.draftRevision ?? ''; generation++; render();
+    clearDefinitions(); fields.gameId = gameId; loaded = null; chapters = []; resources = []; resourceInputs = []; copyData = null; copyPortraits = null; copyImportProgress = null; fields.name = ''; fields.introduction = ''; fields.chapterId = ''; fields.revision = games.find(game => game.gameId === gameId)?.draftRevision ?? ''; generation++; render();
   }
   function setField(name, value) {
     if (!permitted() || isBusy() || typeof value !== 'string') return;
@@ -657,6 +1327,16 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       if (!/^-?(0|[1-9][0-9]*)$/.test(text) || !Number.isSafeInteger(value) || Object.is(value, -0) || value < min || value > max) throw new Error('資源須為範圍內十進位整數：' + key + '（' + min + '～' + max + '）。');
       return [key, value];
     })) }));
+  }
+  function generalName(value) {
+    // 与库层同规则：非空 NFC＋无效字元拒绝；长度不另设限（renameGeneral 同口径）；
+    // 唯一走全库查重（服务端再验一次）。
+    if (typeof value !== 'string' || !value.isWellFormed() || [...value].some(c => { const n = c.codePointAt(0); return n < 32 || n >= 127 && n <= 159; }) || !value.trim()) throw new Error('武將姓名不可空白或含無效字元。');
+    return value.trim().normalize('NFC');
+  }
+  function generalHao(value) {
+    if (typeof value !== 'string' || !value.isWellFormed() || [...value].some(c => { const n = c.codePointAt(0); return n < 32 || n >= 127 && n <= 159; })) throw new Error('武將字含無效字元。');
+    return value.normalize('NFC');
   }
   function cityName(value) {
     if (typeof value !== 'string' || !value.isWellFormed() || [...value].some(c => { const n = c.codePointAt(0); return n < 32 || n >= 127 && n <= 159; }) || !value.trim()) throw new Error('據點名稱不可空白或含無效字元。');
@@ -790,32 +1470,123 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!persist()) { attempt = null; throw new Error('據點未發送：無法保留原操作鍵。'); }
     return sendAttempt('正在保存據點；回應不明時先查詢同一個請求。');
   }
+  async function cityCopySave(cityId, patch) {
+    if (isBusy() || !permitted() || !copyLoadedForGame() || !patch || typeof patch !== 'object') throw new Error('請先載入本遊戲的副本據點資料。');
+    const row = copyData.cities.find(item => item.cityId === cityId);
+    if (!row) throw new Error('請選擇已讀取的據點身份。');
+    const gameId = fields.gameId, valid = ticket();
+    const current = () => valid() && permitted() && copyLoadedForGame() && copyData.cities.some(item => item.cityId === cityId);
+    const body = {};
+    if (patch.name !== undefined && patch.name !== row.name) {
+      const name = cityName(String(patch.name ?? ''));
+      if ([...name].length > 12) throw new Error('據點名稱最多 12 個字。');
+      if (copyData.cities.some(item => item.cityId !== cityId && item.name === name)) throw new Error('據點名稱「' + name + '」已被其他據點使用。');
+      body.rename = { [cityId]: name };
+    }
+    const values = {};
+    for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
+      if (patch[key] === undefined) continue;
+      const raw = String(patch[key] ?? '').trim();
+      if (raw === '') { if (row[key] !== null) throw new Error(key + ' 不可留空；請填 0–' + CITY_NUMBER_LIMITS[key] + ' 的整數或取消。'); continue; }
+      if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > CITY_NUMBER_LIMITS[key]) throw new Error(key + ' 必須是 0–' + CITY_NUMBER_LIMITS[key] + ' 的整數。');
+      if (Number(raw) !== row[key]) values[key] = Number(raw);
+    }
+    if (Object.keys(values).length) body.numbers = { [cityId]: values };
+    if (!Object.keys(body).length) return '據點沒有變更。';
+    if (!current()) return;
+    return action(async () => {
+      await saveCopyModuleInner(gameId, valid, 'cities', body);
+      if (!valid() || fields.gameId !== gameId) return;
+      await loadCopyInner(gameId, valid);
+      return '已保存據點並重讀副本。';
+    });
+  }
+  // 游戏级武将库行级保存（加法）：只发变更字段走 generals.upsert，成功后重读。
+  // 姓名全库唯一、能力六项 0..15（Web 产品决定），服务端再验一次。
+  async function generalCopySave(generalId, patch) {
+    if (isBusy() || !permitted() || !copyLoadedForGame() || !patch || typeof patch !== 'object') throw new Error('請先載入本遊戲的副本武將資料。');
+    const rows = copyData.generals ?? null;
+    if (!rows) throw new Error('本遊戲尚無武將庫；請先走人物導入建庫。');
+    const row = rows.find(item => item.generalId === generalId);
+    if (!row) throw new Error('請選擇已讀取的武將身份。');
+    const gameId = fields.gameId, valid = ticket();
+    const current = () => valid() && permitted() && copyLoadedForGame() && (copyData.generals ?? []).some(item => item.generalId === generalId);
+    const upsert = {};
+    if (patch.name !== undefined && patch.name !== row.name) {
+      const name = generalName(String(patch.name ?? ''));
+      if (rows.some(item => item.generalId !== generalId && item.name === name)) throw new Error('武將姓名「' + name + '」已被其他武將使用。');
+      upsert.name = name;
+    }
+    if (patch.zi !== undefined && patch.zi !== row.zi) upsert.zi = generalHao(String(patch.zi ?? ''));
+    if (patch.hao !== undefined && patch.hao !== row.hao) upsert.hao = generalHao(String(patch.hao ?? ''));
+    if (patch.suicideOnCapture !== undefined && patch.suicideOnCapture !== row.suicideOnCapture) {
+      if (typeof patch.suicideOnCapture !== 'boolean') throw new Error('勢力被滅被俘須為勾選。');
+      upsert.suicideOnCapture = patch.suicideOnCapture;
+    }
+    if (patch.portraitRef !== undefined && JSON.stringify(patch.portraitRef ?? null) !== JSON.stringify(row.portraitRef)) {
+      upsert.portraitRef = patch.portraitRef === null ? null : checkedPortrait(patch.portraitRef);
+    }
+    if (patch.ability !== undefined) {
+      if (!patch.ability || typeof patch.ability !== 'object' || Array.isArray(patch.ability)) throw new Error('武將能力格式無效。');
+      const ability = {};
+      // 只校驗本次給的字段。范圍 0..15：原版專長 0 合法且必須能原樣保留；
+      // 库规则上限 15（下限 0，用户 2026-11 裁决）。
+      for (const [key, value] of Object.entries(patch.ability)) {
+        if (!['siege', 'field', 'naval', 'force', 'lead', 'politics'].includes(key)) throw new Error('武將能力格式無效。');
+        const raw = String(value ?? '').trim();
+        if (!/^[0-9]{1,2}$/.test(raw) || Number(raw) > 15) throw new Error(key + ' 必須是 0–15 的整數。');
+        if (Number(raw) !== row.ability?.[key]) ability[key] = Number(raw);
+      }
+      if (Object.keys(ability).length) upsert.ability = ability;
+    }
+    if (!Object.keys(upsert).length) return '武將沒有變更。';
+    if (!current()) return;
+    return action(async () => {
+      await saveCopyModuleInner(gameId, valid, 'generals', { upsert: { [generalId]: upsert } });
+      if (!valid() || fields.gameId !== gameId) return;
+      await loadCopyInner(gameId, valid);
+      return '已保存武將並重讀副本。';
+    });
+  }
   function checkedPortrait(value) {
     if (value === null) return null;
     if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'assetId,sha256' || typeof value.assetId !== 'string' || !/^p?[0-9]{1,6}$/.test(value.assetId) || typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)) throw new Error('人物頭像引用無效。');
     return { assetId: value.assetId, sha256: value.sha256 };
   }
-  function definitionText(name, hao) {
-    for (const text of [name, hao]) if (typeof text !== 'string' || !text.isWellFormed() || [...text].some(c => { const n = c.codePointAt(0); return n < 32 || n >= 127 && n <= 159; })) throw new Error('人物姓名／字含無效字元。');
+  function definitionText(name, hao, zi = '') {
+    for (const text of [name, hao, zi]) if (typeof text !== 'string' || !text.isWellFormed() || [...text].some(c => { const n = c.codePointAt(0); return n < 32 || n >= 127 && n <= 159; })) throw new Error('人物姓名／字號含無效字元。');
     if (!name.trim()) throw new Error('人物姓名不可空白。');
-    return { name: name.trim().normalize('NFC'), hao: hao.normalize('NFC') };
+    return { name: name.trim().normalize('NFC'), hao: hao.normalize('NFC'), zi: zi.normalize('NFC') };
   }
   function checkedDefinitions(rows, gameId) {
     if (rows === undefined || rows === null) return null; // Older/unsupported DTO is not an empty library.
     if (!Array.isArray(rows)) throw new Error('人物定義回應不符來源。');
     const seen = new Set(), prefix = gameId + '#general-';
     return rows.map(row => {
-      if (!row || Object.keys(row).sort().join(',') !== 'generalId,hao,name,portraitRef' || typeof row.generalId !== 'string' || !row.generalId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(row.generalId.slice(prefix.length)) || seen.has(row.generalId)) throw new Error('人物定義身份回應無效。');
+      if (!row || typeof row !== 'object' || Array.isArray(row) || !['generalId', 'hao', 'name', 'portraitRef'].every(key => Object.hasOwn(row, key)) ||
+          Object.keys(row).some(key => !['generalId', 'hao', 'zi', 'name', 'portraitRef', 'ability', 'suicideOnCapture'].includes(key)) ||
+          typeof row.generalId !== 'string' || !row.generalId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(row.generalId.slice(prefix.length)) || seen.has(row.generalId)) throw new Error('人物定義身份回應無效。');
       seen.add(row.generalId);
-      const text = definitionText(row.name, row.hao);
-      if (text.name !== row.name || text.hao !== row.hao) throw new Error('人物定義文字回應無效。');
-      return { generalId: row.generalId, ...text, portraitRef: checkedPortrait(row.portraitRef) };
+      const text = definitionText(row.name, row.hao, row.zi ?? '');
+      if (text.name !== row.name || text.hao !== row.hao || text.zi !== (row.zi ?? '')) throw new Error('人物定義文字回應無效。');
+      return { generalId: row.generalId, ...text, portraitRef: checkedPortrait(row.portraitRef),
+        ...(row.ability === undefined ? {} : { ability: checkedDefinitionAbility(row.ability) }),
+        suicideOnCapture: row.suicideOnCapture === true };
     });
+  }
+  function checkedDefinitionAbility(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('人物能力覆蓋無效。');
+    const captured = {};
+    for (const key of ['siege', 'field', 'naval', 'force', 'lead', 'politics']) {
+      if (!Number.isInteger(value[key]) || Object.is(value[key], -0) || value[key] < 1 || value[key] > 15) throw new Error('人物能力覆蓋無效。');
+      captured[key] = value[key];
+    }
+    return captured;
   }
   function checkedDefinitionReferences(rows, people, chapterRows) {
     if (rows === undefined || rows === null) return null;
     if (!people || !Array.isArray(rows) || rows.length !== people.length) throw new Error('人物引用清單不完整。');
-    const keys = ['name', 'hao', 'portraitRef'], seen = new Set();
+    const keys = ['name', 'zi', 'hao', 'portraitRef', 'ability', 'suicideOnCapture'], seen = new Set();
     return rows.map(row => {
       if (!row || Object.keys(row).sort().join(',') !== 'chapters,generalId' || !people.some(person => person.generalId === row.generalId) || seen.has(row.generalId) || !Array.isArray(row.chapters)) throw new Error('人物引用身份無效。');
       seen.add(row.generalId); let previous = -1;
@@ -832,7 +1603,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   function checkedChapterPeople(rows, people, references, chapterRows) {
     if (rows === undefined || rows === null) return null;
     if (!people || !references || !Array.isArray(rows) || rows.length !== chapterRows.length) throw new Error('章節人物清單不完整。');
-    const keys = ['name', 'hao', 'portraitRef'];
+    const keys = ['name', 'zi', 'hao', 'portraitRef', 'ability', 'suicideOnCapture'];
     const result = rows.map((chapter, index) => {
       if (!chapter || Object.keys(chapter).sort().join(',') !== 'chapterId,people' || chapter.chapterId !== chapterRows[index].chapterId || !Array.isArray(chapter.people)) throw new Error('章節人物身份無效。');
       const seen = new Set();
@@ -841,16 +1612,19 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
         const base = people.find(row => row.generalId === person.generalId), reference = references.find(row => row.generalId === person.generalId)?.chapters.find(row => row.chapterId === chapter.chapterId);
         if (!base || !reference || reference.included !== person.included) throw new Error('章節人物引用不一致。');
         seen.add(person.generalId);
-        const overrides = {}, values = { name: base.name, hao: base.hao, portraitRef: checkedPortrait(base.portraitRef) };
+        const overrides = {}, values = { name: base.name, zi: base.zi, hao: base.hao, portraitRef: checkedPortrait(base.portraitRef), suicideOnCapture: base.suicideOnCapture === true };
+        if (base.ability !== undefined) values.ability = checkedDefinitionAbility(base.ability);
         for (const key of Object.keys(person.overrides)) {
           const value = person.overrides[key];
-          const checked = key === 'portraitRef' ? checkedPortrait(value) : key === 'name' ? definitionText(value, '').name : definitionText('名', value).hao;
+          // 自杀旗不可章节覆写（与章节无关）：服务端 person() 同样拒收布尔覆写。
+          if (key === 'suicideOnCapture' || !['portraitRef', 'name', 'zi', 'hao', 'ability'].includes(key)) throw new Error('章節人物覆蓋未規範化。');
+          const checked = key === 'portraitRef' ? checkedPortrait(value) : key === 'name' ? definitionText(value, '').name : key === 'zi' ? definitionText('名', '', value).zi : key === 'hao' ? definitionText('名', value).hao : checkedDefinitionAbility(value);
           if (JSON.stringify(checked) !== JSON.stringify(value)) throw new Error('章節人物覆蓋未規範化。');
           overrides[key] = checked; values[key] = checked;
         }
         const inheritedFields = keys.filter(key => !Object.hasOwn(overrides, key)), overriddenFields = keys.filter(key => Object.hasOwn(overrides, key));
         for (const [key, expected] of Object.entries({ inheritedFields, overriddenFields })) if (JSON.stringify(person[key]) !== JSON.stringify(expected) || JSON.stringify(reference[key]) !== JSON.stringify(expected)) throw new Error('章節人物繼承清單不一致。');
-        if (!person.values || Object.keys(person.values).sort().join(',') !== 'hao,name,portraitRef' || keys.some(key => JSON.stringify(person.values[key]) !== JSON.stringify(values[key]))) throw new Error('章節人物有效值不一致。');
+        if (!person.values || Object.keys(person.values).sort().join(',') !== Object.keys(values).sort().join(',') || Object.keys(values).some(key => JSON.stringify(person.values[key]) !== JSON.stringify(values[key]))) throw new Error('章節人物有效值不一致。');
         return { generalId: person.generalId, included: person.included, factionId: null, overrides, values, inheritedFields, overriddenFields };
       }) };
     });
@@ -1627,7 +2401,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       decorationSelection = null;
       message = '已清除窗口選取；素材勾選、位移錨點與輸入保持。';
       render();
-    }, takeDecorationSelection, decorationPick: (x, y) => action(() => readDecorationSelection(x, y, 1, 1, 'top')), decorationSelection: (x, y, width, height, mode) => action(() => readDecorationSelection(x, y, width, height, mode)), mapWindowStep: (dx, dy) => action(() => moveMapWindow(dx, dy, 'window')), mapWindowPan: (dx, dy) => action(() => moveMapWindow(dx, dy, 'tile')), locateInstance: instanceId => action(() => locateInstance(instanceId)), locateMinimapCell: (x, y) => action(() => locateMinimapCell(x, y)), redrawMapWindow: drawMapWindow, previewMapWindowPan, drawMaterialPreview, drawPlacementPreview, drawShiftPreview, mapAtlas: season => action(() => readMapAtlas(season)), mapScene: (x, y, width, height) => action(() => readMapWindow(x, y, width, height, '1111', true)), mapWindow: (x, y, width, height) => action(() => readMapWindow(x, y, width, height)), mapLayer: setMapLayer, decorLock: setDecorLocked, baseUnlock: setBaseUnlocked, basePage: setBasePage, baseFill: (cells, tile, geography) => action(() => submitBaseFill(cells, tile, geography)), removeInstances: selection => action(() => submitMaterial('decoration-remove', selection)), split: instanceId => action(() => submitMaterial('decoration-split', instanceId)), place: (materialId, variantRef, x, y, waterClass) => action(() => submitMaterial('decoration-place', materialId, { variantRef, x, y, waterClass })), reorder: (selection, direction) => action(() => submitMaterial('decoration-reorder', selection, { direction })), translate: (selection, dx, dy) => action(() => submitMaterial('decoration-translate', selection, { dx, dy })), material: (op, selection) => action(() => submitMaterial(op, selection)), chapterCity: (op, chapterId, cityId) => action(() => submitChapterCity(op, chapterId, cityId)), cityRename: cityId => action(() => renameCity(cityId)), citySave: (cityId, patch) => action(() => saveCity(cityId, patch)), minimap: () => action(readMinimap), redrawMinimap: drawMinimap, waterCreate: (memberIds, baseCells, visible) => action(() => submitWaterChange('water-create', null, visible, { memberIds, baseCells })), waterSplit: (groupId, memberIds, baseCells) => action(() => submitWaterChange('water-split', groupId, undefined, { memberIds, baseCells })), waterMerge: (groupIds, visible) => action(() => submitWaterChange('water-merge', groupIds, visible)), waterRename: groupId => action(() => submitWaterChange('water-rename', groupId)), waterVisibility: (groupId, visible) => action(() => submitWaterChange('water-visibility', groupId, visible)), person: (op, chapterId, generalId, included, field) => action(() => submitPerson(op, chapterId, generalId, included, field)), refresh: () => action(refreshGames), load: () => action(load), cancelEdits, save: () => action(() => submit()), query: () => action(query), retry: () => action(() => submit(true)), chooseGame, setField, setResource, chapter, createChapter, setChapterCreateField, createFaction, setFactionCreateField, trial, selectDefinition, setDefinitionField, chooseDefinitionPortrait, toggleImport, clearImportSelection, importGenerals: () => action(importGenerals), definitionPortraits: () => action(readDefinitionPortraits), saveDefinition: () => action(() => submitDefinition()), deleteDefinition: () => action(() => submitDefinition(true)) },
+    }, takeDecorationSelection, decorationPick: (x, y) => action(() => readDecorationSelection(x, y, 1, 1, 'top')), decorationSelection: (x, y, width, height, mode) => action(() => readDecorationSelection(x, y, width, height, mode)), mapWindowStep: (dx, dy) => action(() => moveMapWindow(dx, dy, 'window')), mapWindowPan: (dx, dy) => action(() => moveMapWindow(dx, dy, 'tile')), locateInstance: instanceId => action(() => locateInstance(instanceId)), locateMinimapCell: (x, y) => action(() => locateMinimapCell(x, y)), redrawMapWindow: drawMapWindow, previewMapWindowPan, drawMaterialPreview, drawPlacementPreview, drawShiftPreview, mapAtlas: season => action(() => readMapAtlas(season)), mapScene: (x, y, width, height) => action(() => readMapWindow(x, y, width, height, '1111', true)), mapWindow: (x, y, width, height) => action(() => readMapWindow(x, y, width, height)), mapLayer: setMapLayer, decorLock: setDecorLocked, baseUnlock: setBaseUnlocked, basePage: setBasePage, baseFill: (cells, tile, geography) => action(() => submitBaseFill(cells, tile, geography)), removeInstances: selection => action(() => submitMaterial('decoration-remove', selection)), split: instanceId => action(() => submitMaterial('decoration-split', instanceId)), place: (materialId, variantRef, x, y, waterClass) => action(() => submitMaterial('decoration-place', materialId, { variantRef, x, y, waterClass })), reorder: (selection, direction) => action(() => submitMaterial('decoration-reorder', selection, { direction })), translate: (selection, dx, dy) => action(() => submitMaterial('decoration-translate', selection, { dx, dy })), material: (op, selection) => action(() => submitMaterial(op, selection)), chapterCity: (op, chapterId, cityId) => action(() => submitChapterCity(op, chapterId, cityId)), cityRename: cityId => action(() => renameCity(cityId)), citySave: (cityId, patch) => action(() => saveCity(cityId, patch)), minimap: () => action(readMinimap), redrawMinimap: drawMinimap, waterCreate: (memberIds, baseCells, visible) => action(() => submitWaterChange('water-create', null, visible, { memberIds, baseCells })), waterSplit: (groupId, memberIds, baseCells) => action(() => submitWaterChange('water-split', groupId, undefined, { memberIds, baseCells })), waterMerge: (groupIds, visible) => action(() => submitWaterChange('water-merge', groupIds, visible)), waterRename: groupId => action(() => submitWaterChange('water-rename', groupId)), waterVisibility: (groupId, visible) => action(() => submitWaterChange('water-visibility', groupId, visible)), person: (op, chapterId, generalId, included, field) => action(() => submitPerson(op, chapterId, generalId, included, field)), refresh: () => action(refreshGames), load: () => action(load), cancelEdits, save: () => action(() => submit()), query: () => action(query), retry: () => action(() => submit(true)), chooseGame, setField, setResource, chapter, createChapter, setChapterCreateField, createFaction, setFactionCreateField, trial, saveCopyModule, readCopySubmission, validateCopy, submitCopy, loadCopy, saveCopyPage, setCopyField, setCopyResource, copyChapter, createCopyChapter, cancelCopyEdits, cityCopySave, generalCopySave, generalCopyImport, clearCopyImport, loadCopyPortraits, setCopyStartInput, cancelCopyStartInput, saveCopyChapterStart, copyCityFaction, copyCityNumbers, copyCapital, copyGeneralFaction, copyGovernor, copyDiplomat, copyBlockers, copyRenameGeneral, copyGeneralPortrait, copyStrategist, copyClearStrategist, copyMonarch, copySucceedMonarch, copyDisbandFaction, copyMapId, submitCopyMapEdits, copyMapEdit, selectDefinition, setDefinitionField, chooseDefinitionPortrait, toggleImport, clearImportSelection, importGenerals: () => action(importGenerals), definitionPortraits: () => action(readDefinitionPortraits), saveDefinition: () => action(() => submitDefinition()), deleteDefinition: () => action(() => submitDefinition(true)) },
     setIdentity, render, canLeave, gotoGame, selectedGame, adoptGame,
     canAdoptGame(gameId) { return permitted() && !badJournal && (!attempt || attempt.gameId === gameId); },
     savedContext() { return permitted() && loaded?.verifiedRead && !attempt && !badJournal ? { gameId: loaded.gameId, draftRevision: loaded.draftRevision, dirty: dirty() } : null; },
@@ -1638,7 +2412,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       else return;
       message = '服務已確認改密並撤銷舊會話。這不代表原保存成功或失敗；確認放棄後載入明確修訂。'; render();
     },
-    clearForLogout() { generation++; loaded = null; attempt = null; chapters = []; resources = []; games = []; clearFields(); render(); },
+    clearForLogout() { generation++; loaded = null; attempt = null; chapters = []; resources = []; games = []; copyData = null; copyPortraits = null; copyImportProgress = null; copyValidationDigest = null; clearFields(); render(); },
     // 服務端已回執的物理刪除（不是清單遺漏）：丟掉對它的保留上下文，頂部「當前遊戲」只剩可選的遊戲。
     // 未確認的原操作仍保留──那個要能查詢或重試，不能被一次 UI 通知抹掉。
     forgetGame(gameId) {
@@ -1647,6 +2421,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       if (attempt && attempt.gameId === gameId) { render(); return false; }
       if (fields.gameId !== gameId && loaded?.gameId !== gameId && gameContext?.current() !== gameId) { render(); return false; }
       generation++; loaded = null; chapters = []; resources = []; badJournal = false;
+      if (copyGameId === gameId) { copyGameId = null; copyDigest = null; copyUpdatedAt = null; copySubmission = null; copyValidation = null; copyTicket = null; copyData = null; copyValidationDigest = null; copyPortraits = null; copyImportProgress = null; }
       clearFields(); persist();
       if (gameContext?.current() === gameId) { try { gameContext.reset?.(); } catch { /* 選取清除失敗不推翻已成立的刪除。 */ } }
       message = '該遊戲已被物理刪除，已清空它的編輯上下文；請重新選擇要編輯的遊戲。';

@@ -1,156 +1,117 @@
 # AGENTS.md — 臥龍傳 Web 项目记忆
 
-> 这里只维护长期事实、架构、命令、约定和当前主线；先读[全局约定](../AGENTS.md)。本轮进展、失败与待办放[checkpoint journal](docs/checkpoint-journal.md)，版本沿革见[CHANGELOG](CHANGELOG.md)。文档或历史测试不能替代原始机制证据、当前验证或用户授权。
+> 只维护长期事实、架构、命令、约定和当前主线。先读[全局约定](../AGENTS.md)；本轮进展、失败、验证与阻塞见 [journal](docs/checkpoint-journal.md)，版本沿革见 [CHANGELOG](CHANGELOG.md)。文档、现有代码和测试均不替代原始机制证据或用户授权。
 
-## 1. 边界与当前主线
+## 1. 项目边界与当前主线
 
-- 原生 JavaScript ES Modules＋Canvas 2D 重写1995 DOS《臥龍傳》，玩家／Trial引擎及共同核心无模拟器、框架、npm运行时依赖；完整`web/`可直接静态服务，部署打包另有工具。互联网编辑器展示层是用户批准的独立例外：`editor-ui/`采用Vue 3＋Element Plus与独立构建，生成资源仅由编辑器同源提供，不进入游戏引擎，见[框架壳边界](docs/editor-framework-shell.md)。
-- 仓库`E:/Dragon/web-port`；原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。自动化禁止访问真实`SAVE.DAT`、用户存档/profile；只用内存、mock或新隔离profile。
-- 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏正式版本`1.n`与软件版本、source修订、程序摘要相互独立。
-- fresh／restore走v2原生道路与固定表，生产v1路径已退役；未知消费点fail-closed，保已提交前缀、hold和禁存。不凭现代码、体验或测试补公式，不宣称完整战役已经认证。
-- 当前主线：**工作台统一发布＋游戏级存储**。软件版本 **`0.1.11`** 已发 Release 并上生产（**生产在 `sadcloud`（`ssh sadcloud`，82.158.91.231:7218，4C/3.9G/50G，2026-11-09 起；instabox sandbox 已退役**）：编辑器镜像 `20261109-b6-disk12`、玩家镜像 `dragon-player:20261109-b6-disk`；static release digest `b5674f4b…`／sourceTree `91defffe…` 与玩家站一致；**不依赖 R2，也不经 Cloudflare Tunnel**：两个域名 A 记录直指源站、灰云（DNS only），TLS 由机器上的 nginx（443 `ssl_preread` 按 SNI → `8443`）+ Let's Encrypt 证书终止）；游戏存储方案 B 的 A/B/C 三批已上线：上架并行写游戏级在架指针 `control/directory.json`，读者只按指针出目录，删除 = 库行 purge + 指针移除 + `artifacts/<gameId>/` 前缀回收 + 编辑器私有位元組 `private/<gameId>/` 回收（ui15 补全；不回收时每个游戏留 49 檔／46 MB）。生产上「复制→全面检验→上架→管理员同意→玩家端加载游玩→删旧产物」已跑通。发布协议为 **A 路線（同步发布）**：上架／同意在同一请求内把分发推到可见（`EDITOR_SYNC_PUBLISH=0` 即回旧协议），并新增审计日志 `game_releases` 与管理员「发布历史」面板（`GET /api/admin/games/<id>/releases`）。上架端到端 190–205 s，**前端不再依赖那一次长连接**：POST 只发一次＋每 5 s 轮询 `GET /api/games/<id>/publish-operations/<key>`，先到者胜，超时只报「结果未知」不清追踪键。
-- **已上线能力（2026-11-09，细节见 [journal](docs/checkpoint-journal.md)）**：②「檢驗」结果落库（`content_game_validations`，绑定 `draft_revision`＋`source_digest`；schema **55 表／53 索引／369 列／4 FK**），上架硬门是「同修订 passed」，否则 `409 PUBLISH_VALIDATION_REQUIRED`；③檢驗四層（章節／武將／據點／固定槽）改逐层请求、在同一个遮罩里逐項 ✓/✗ 并列出红字原因；④上架申請 ①–⑥ 為服務端逐步进度（`GET /api/games/<id>/publish-operations/<key>/progress`）；城池據點页＝游戏级表格（名稱 1–12 字且遊戲內唯一、最大生產力／類型可改；槽位與座標凍結不顯示；暫無刪除）。
-- **玩家站与编辑器必须用同一份 static release（digest 锁步）**：两端现在跑在同一台 VPS——编辑器 `dragon-editor-1`（`127.0.0.1:8788`）＋玩家 `dragon-player-1`（`127.0.0.1:8789`，同一份 `reader/*.js` 跑在 Node 上），静态产物挂 `/srv/dragon/dist`（1442 档，现行 digest `b5674f4b…`；换 digest 时必须同步改 `publication.env` 三个 pin 与 nginx 的 `deployment-assets/static-v1/<digest>/`），程序归档在磁盘桶 `artifacts/programs/<digest>/` 与 `control/programs/<digest>.json`。`web/` 一变就换 digest，而 `reader/programentry.js` 只为 `?formalGame=` 正式入口选程序（`mode` 只接受 `new`／`load`），未登记就 503「目前無法取得一致的遊戲程式」（普通首页走静态资源，不受影响）。重建静态产物用 `vps/manual-static-build.sh`（内部固定 `git -c core.autocrlf=false archive`）；现行生产布局、部署配方与上线核对见 [game-storage-layout](docs/game-storage-layout.md) §16。软件版本、玩家站 digest、程序归档摘要三者相互独立，必须分别核对。
-- 剩余：下线 7 张 `content_distribution_*` 与退役流程（前置＝生产实测一次 20 章上架耗时，已有 212 s 数据）、通用系统审计未立项；上架回执已改轮询（不依赖单次长连接），不必再修「超时上报失败」。维护源：[存储布局](docs/game-storage-layout.md)（§16 为现行生产）、[R2接线](docs/r2-player-connection.md)（历史 CF/R2 形态）、[VPS就绪](docs/vps-editor-readiness.md)；本轮修改、提交／部署状态与阻塞只记 [checkpoint journal](docs/checkpoint-journal.md)，不在此复制。
-- 优先最小修改、复用现有验证，不堆框架或辅助测试。保留他人改动；commit／push分别需明确授权，推送显式使用GitHub `github`，不误推Gitea `origin`。不提交秘密、缓存、临时报告、截图或本地运行数据。**本机对 `github.com:443` 的 git HTTP/2 通道常被重置**（`OpenSSL SSL_read: Connection was reset`／`Failed to connect`），而 `curl`／`gh api`／`ls-remote` 同一时刻可能正常；推送与拉取用 `git -c http.version=HTTP/1.1 push github <ref>` 即通，不必改全局配置。本机还设了 `HTTP(S)_PROXY`／`ALL_PROXY=http://127.0.0.1:10808`：`git` 走代理、`ssh`／`scp` 不走代理（这是上面那条重置的环境原因），而 **`wrangler` 会被代理卡死**，调用前必须 `env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u all_proxy`。**VPS 部署不要从本机传大包**：2026-11-05 实测本机→VPS 上行跌到 ≈16 KB/s，改用服务器侧 `git fetch --depth 1` 取 GitHub（服务器到 GitHub 快且可 hash 校验），配方见 [game-storage-layout](docs/game-storage-layout.md) §15。
+- 以原生 JavaScript ES Modules＋Canvas 2D 重写 1995 DOS《臥龍傳》。玩家、共同核心及保留的 Trial 引擎无框架、构建和 npm 运行时依赖；完整 `web/` 可直接静态服务。
+- 编辑器展示层是已批准的独立例外：`editor-ui/` 使用 Vue 3.5.x＋Element Plus 2.14.8＋Vite 6.x，预构建资源只由编辑器同源提供，不进入玩家引擎。业务层只向壳传显示 DTO／动作回调，不传凭据、源对象或 live 游戏状态；局部表单临时输入不替代服务端身份与权限权威。
+- 仓库 `E:/Dragon/web-port`；原程序 `E:/Dragon/Dragon/`；官方基准 `E:/Dragon/原版/`，改版库 `上/中/下/后/`。禁止自动化访问真实 `SAVE.DAT` 或用户存档/profile；使用内存、mock、隔离目录与全新浏览器 profile。
+- 软件版本以 `VERSION` 为准，规则基线 `web-0.1.1`；游戏版本 `1.n`、软件版本、内容摘要与程序归档身份相互独立。
+- **当前主线：游戏级共享数据＋copy 单套／publish 单槽／formal 单快照收敛。** 元数据、章节、据点、游戏级武将及发布审核已接 copy；地图与部分定义面板、旧 draft 控制器／表清理仍有收尾，不能宣称旧链已全删。编辑器 `/api/trial/*` 已返回 `410 TRIAL_RETIRED`，不因保留引擎或旧文件重开试运行。
+- **展示层长期架构约定：Element Plus 默认主题、默认组件、默认控件与默认 size**，适用于编辑器全部现有及新增前端页面，不因本轮迁移结束而失效。决策背景、备选方案与取舍见 [journal §37](docs/checkpoint-journal.md#37-前端架构决策编辑器采用-element-plus-默认主题与组件)（tag: `architecture`）；本地迁移验证及剩余限制见 journal §36，不将实施记录当生产上线事实。
+- 生产采用 `sadcloud` 单 VPS（`ssh sadcloud`，根 `/srv/dragon`），编辑器与玩家服务分开运行，SQLite＋私有文件桶＋磁盘分发桶；域名 `dragon-editor.720108.xyz`／`dragon.720108.xyz` 经 nginx／Let's Encrypt，DNS 直指源站。Cloudflare Worker／R2／Tunnel 与 instabox 是历史形态；现行运维以[存储布局 §18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)为入口，镜像／摘要须部署时重新核对。
 
-## 2. 架构与数据流
+## 2. 架构与数据归属
 
-`原版非存档资料 → 离线导入 → 编辑源 → 校验／编译 → Scenario副本 → 保存守卫／快照 → IndexedDB`
+```text
+原版非存档资料 → 离线导入／游戏源 → 校验与编译 → Scenario → 保存守卫 → IndexedDB
+编辑器：copy(gameId) → 全量检验／一次性票 → publish 单槽 → 管理员同意 → formal 最新版
+```
 
-| 模块（游戏路径相对`web/src/`） | 职责 |
+| 路径 | 职责 |
 | --- | --- |
-| `main.js`、`app/startflow.js`、`app/battleflow.js` | App装配，新局／恢复共用加载器，战斗接续 |
-| `content/`、`game/world.js`、`game/worldresources.js` | 内容身份、编译合同、每世界资源实例 |
-| `game/navigation/`、`game/native*.js` | 原生道路／地形／占格／固定表；不是通用A*或Dijkstra替代品 |
-| `game/ai.js`、`legionphase.js`、`legionscheduler.js`、`strategicfailure.js` | 逐槽规则、续段、失败暂停 |
-| `game/clock.js`、`tacticalclock.js`、`battle/original*.js` | 战略／战术预算、Session、RNG、VM、结算 |
-| `game/savegame.js`、`core/gamesavestore.js`、`saverepository.js` | 完整快照、IndexedDB事务、CAS及存档归属 |
-| `render/`、`ui/`、`game/playerqueries.js` | 只读绘制、界面、消息FIFO与查询 |
-| `player/` | 正式目录／准入／资源／存档／宿主；旧`reader/`客户端文件仅再导出 |
-| 仓库`editor-ui/`、`server/public/` | Vue后台外壳及原生业务模块适配；不持有响应式游戏状态、不替代服务端权限 |
-| 仓库`server/editorapp.js`、`vps/` | Node与workerd共用业务／鉴权；VPS SQLite、文件桶、发布CLI和drainer |
-| 仓库`reader/site.js`、`vps/player-server.mjs` | 同源游戏API、程序归档资源与Static Assets路由；同一份 `reader/*.js` 由 `vps/player-server.mjs` 在 Node 上跑（workerd／`wrangler.jsonc` 为历史形态） |
+| `web/src/main.js`、`app/startflow.js`、`app/battleflow.js` | 新局／恢复装配、场景与战斗接续 |
+| `web/src/content/`、`game/world.js`、`game/worldresources.js` | 内容身份、编译合同、每世界资源实例 |
+| `web/src/game/navigation/`、`game/native*.js` | 原生道路／地形／占格／固定表；不是通用 A* 替代品 |
+| `web/src/game/ai.js`、`legionphase.js`、`legionscheduler.js`、`strategicfailure.js` | 逐槽调度、续段及失败暂停 |
+| `web/src/game/clock.js`、`tacticalclock.js`、`battle/original*.js` | 战略／战术时序、Session、RNG 与结算 |
+| `web/src/game/savegame.js`、`core/gamesavestore.js`、`saverepository.js` | 完整快照、IndexedDB 事务、CAS 与存档归属 |
+| `web/src/render/`、`ui/`、`game/playerqueries.js` | 只读绘制、输入、消息 FIFO 与查询 |
+| `web/src/player/` | 正式游戏目录、准入、资源与存档；旧客户端 reader 文件仅再导出 |
+| `editor-ui/`、`server/public/*.txt` | Vue 展示壳及原生业务控制器；展示迁移不改业务合同 |
+| `server/editorapp.js`、`server/gamecopy.js` | 共同应用／鉴权、模块写入、检验票、提交与审核事务 |
+| `vps/`、`reader/site.js`、`vps/player-server.mjs` | Node SQLite／文件桶／发布装配；玩家侧复用 `reader/*.js` |
 
-- 世界384×256格、16px图块、192据点节点；128军团槽、22正常势力、24×24外交矩阵、256×4B事件轮；逻辑界面640×400。哨兵／别名／排除槽不能用数组长度泛化。
-- `web/content/builtin/`编译20章；图集、布局、拓扑与规则地形分离，画道路不等于建通路。实际资源路径取世界定义，不硬编码旧`road_graph.json`。命名state字段为权威，未知字节不补零；解析纠错导入新目录，不手改生成物。
-- IndexedDB为同源`wolong-web/saves`，目录与正文同事务；不是DOS存档或服务端API。恢复先回标题，detached校验／资源ready后安装，await后重核所属scenario／world／clock／票据。战斗、未完续段、装配或故障均禁存。
-- 编辑器schema：**54表／52索引／106对象／361列／4FK，23个DDL源**（`d301c49` 起分发账本另有退休检查点／清理／入队闸门三表，已补冻结；`game_releases` 为 A 路線发布审计日志，每次上架一行，无 payload 无外键；见 checkpoint-journal §4.2／§4.30）。权威含`server/deletiondefinitions.js`、`deletionschema.js`、`distributiondeclarations.js`；旧22源生成器不再覆盖全量，不能直接覆盖当前冻结门。
-- **单一 VPS 承载两端（2026-11-06 方案 B 上线，取代 CF Worker＋R2）**：`sadcloud` 上编辑器负责账户／草稿／私有Trial／编译／发布，玩家服务把 `reader/*.js` 跑在 Node 上；游戏字节放**磁盘桶** `/srv/dragon/bucket`（`vps/disk-bucket.mjs`，与 `vps/r2client.mjs` 逐方法同形：`etag` 用 R2 形状 `"<md5>"`、`last-modified` 取文件 mtime（收据 `visibleAt` 靠它）、content-type 落 `.meta/<key>`）。桶布局`kao/`（**621 张共享画像，其中 150 张数字档 0–149 供游戏按 byte 取用，`p####` 471 张供编辑器 portraitKey 挑选；全部必须 128×128**）、`artifacts/programs/<programDigest>/`（共享程序包）、`artifacts/<gameId>/…`（游戏级不可变发布字节）、`control/current.json`（冻结根）、`control/directory.json`（**游戏级在架指针：唯一与游戏相关的可写对象**）、`control/programs|roots|receipts/`。禁用户上传画像。游戏数据发布不经Git、不重启程序。
-- 发布请求永久幂等，准确release／pin／冻结事件同事务；预上传不等于公开可见，远端根CAS与读回收据后才确认，未知响应不伪造回滚。删除栅栏不等于物理清理；真正删除＝库行purge＋在架指针移除该gameId＋按`artifacts/<gameId>/`前缀回收＋编辑器私有位元組`private/<gameId>/`前缀回收（`FileBucket.remove`，`installed/` 永不删），读者查不到即`410 GAME_DELETED`（墓碑与缺席等价，purge后不留墓碑）。
-- `/play-api`交给游戏reader；`/program-assets/<digest>/…`交给登记／清单／SHA门；正式根页请求由当前部署选择程序壳，普通首页走ASSETS。程序选择不是用户提供的历史摘要；八季节图基址来自模块URL。游戏版本作废与软件归档身份是不同概念。
+### 游戏与保存
 
-### 2.1 编辑器与统一地图的文档职责
+- 原版世界 384×256 格、16px 图块、192 据点、128 军团槽、22 正常势力、24×24 外交矩阵，逻辑界面 640×400；哨兵／别名／排除槽不能用数组长度泛化。扩容与任意拓扑须另过准入门，不能从原图证据外推。
+- fresh／restore 使用 v2 原生道路与固定表，生产 v1 回退已退役。未知消费点 fail-closed，保留已提交前缀、hold 与禁存；不补零未知 RAM，不用 `Math.random` 兜底。
+- 图集、显示布局、拓扑与规则地形分离；Scenario 是规则地形权威，画道路不等于建通路。资源路径取世界定义，不硬编码旧图。解析纠错导入新目录，不手改生成物。
+- 正式存档仅同源 IndexedDB `wolong-web/saves`，目录与正文同事务。游戏内读档先回标题，detached 校验／资源 ready 后安装；await 后重核 scenario／world／clock／票据。战斗、未完续段、装配与故障期间禁存；真实 JSON 往返不能用 structuredClone 替代。
+- RNG、原生表、live／delayed 对象身份及槽写序不可简化；绘制不推进路线、不消费 RNG。规则证据按[行军](../.agents/skills/re-march-engagement/SKILL.md)、[战斗](../.agents/skills/re-battle-command/SKILL.md)、[战后](../.agents/skills/re-post-battle/SKILL.md)、[数据格式](../.agents/skills/re-data-formats/SKILL.md)加载，不在 memory 复制地址／推导细节。
 
-任务匹配时先读[产品设计](docs/game-editor-design.md)、[工程合同](docs/game-editor-technical-design.md)、[迁移计划](docs/game-map-migration-plan.md)、[准入排查](docs/re-notes-editor-map-admission.md)及相关SKILL原证；[术语表](CONTEXT.md)不替代规则。[开发待办](docs/editor-dev-todo.md)和[需求矩阵](docs/editor-requirements-matrix.md)用于定位缺口，不自动授权实施。
+### 编辑器数据与发布
 
-基础模块详见[基础重构](docs/web-refactor-phase1.md)、[存档与地图分块](docs/web-refactor-phase2.md)、[内容架构](docs/content-architecture.md)、[表现合同](docs/presentation-modernization.md)。互联网编辑器不等于既有`editor.html`受限补丁工具；`saves.html`是本地存档管理／备份入口。
+- 据点、地图道路、武将库与章节属于**单款游戏自己的共享数据**；`sourceRef.kind`／`copy_origins.profile_revision` 只是来源标签，不能据此杜撰第二份共享数据。编辑期可变 copy 与正式快照分开，发布不回写内置源。
+- 据点父表：名称、地图坐标、最大生产力、类型及新章默认四值；缺省四值从该游戏第一章回填一次。章节可改所属势力、当前生产力、上升值、防灾值、城兵；名称／最大生产力／类型关联父表，内政官不在该设置。编译物化原生格式，见[据点合同](docs/editor-city-definitions.md)与[章节属性](docs/chapter-and-base-resources.md)。
+- 游戏级武将库姓名游戏内唯一，六项能力写入域 `0..15`；`suicideOnCapture` 是游戏级属性，关联槽只同步 attr bit4，不改其它位。`zi` 只保存、不写原生槽；导入不把原生称呼字段误当字／号。导入是显式动作、按姓名去重、64 条一批，成功批次保留，失败可重试；不伪造跨批事务。
+- copy 模块保存只拦本模块约束，跨模块依赖在发布全量检验门闭合；按 `copyDigest` 作废旧票，不能照搬旧 `draft_revision` 保存门。单写者 copy 无修订 CAS，不意味着可省鉴权、epoch、Origin 或删除栅栏。
+- 提交需同摘要的通过票、必填发布说明（1–2000 码点），票一次性核销、每游戏 30 分钟节流。管理员同意在同一事务内分配 ordinal、安装已准备包、更新 pin／formal／`listed=1`；失败整体回滚、不耗号。ordinal 按 `1.0→1.1…1.10` 整数序号递增，不回滚或复用。名称占用与登记归游戏作者，同作者不可重名、不同作者可同名；审核管理员是权限身份，不是名称所有者。
+- 内置游戏始终可用，管理员也不能经编辑器修改／下架／删除；完整复制不含对局或存档。作者只编辑／提交自己的内容，管理员审核／限制／删除，不替别人编辑。普通新建与完整复制入口语义不同，不能混用。
+- 新正式版使同游戏旧版对局禁存、旧档不可加载；清旧与新版保存同事务，失败不先删。网络错误、缺身份、下架或损坏不能冒充更新。仅下架且未更新的会话可继续；`410 GAME_DELETED` 用阻塞告知「該遊戲已刪除！」，仅「確認」，清该游戏本机进度后回开局。
+- `control/directory.json` 为游戏级在架指针；共享程序包在 `artifacts/programs/<digest>/`，游戏发布字节在 `artifacts/<gameId>/`，编辑器私有字节在 `private/<gameId>/`。删除须库行 purge＋指针移除＋两处游戏前缀回收；`installed/` 底层资源与共享程序包不是游戏孤儿，禁止顺带删除。
+- 磁盘桶兼容既有对象端口：ETag 形如 `"<md5>"`、mtime 决定 last-modified，读者绑定须含 `size`、`httpMetadata.contentType` 与 `body: ReadableStream`。shared `kao/` 为 621 张 128×128 画像（数字 0–149／`p####` 471 张），不开放用户上传。
 
-### 2.2 执行顺序与迁移准入
+## 3. 展示、交互与文档职责
 
-- 先确认共同合同，再迁移验证当前游戏，随后开发编辑器；M0基准→M1自动小地图→M2统一源／接线→M3真实修改样本。不分叉原图专用格式、校验豁免或第二套规则／AI。
-- 原384×256／192据点证据不推广到任意拓扑、移动城市、空白章或扩容。G-MAP／G-ROAD／G-INIT／G-SLOTS／G-CAP按影响分别核验，局部未知只阻塞相关工作。
-- 必须真实编辑组件、重新编译并走同一加载器；不得把原图截图包装成编辑成果。四层为基本地图→装饰→道路→据点；作者指定水陆路型，显隐／锁定不改规则。Scenario是规则地形唯一权威，显示不反写源或消费RNG。
-- 自动小地图共用同一源与算法，河湖海／静态路网、遮挡与等比点击矩形遵循产品合同；不另设原图算法。验收覆盖实际修改、20章／季节、涉及战术入口、固定RNG、JSON恢复和迟到资源；视觉项由用户验收，局部通过不是全战役证明。
+- 玩家游戏的无关闭按钮、羽扇唯一开关、右键退层／强制多步无效、地图锁例外及 hold 并集遵[全局约定](../AGENTS.md)。**编辑器是常规网页交互例外**，不套游戏窗口皮肤；玩家列表选中色 `#4a7828` 不适用于编辑器。
+- **长期强制约定（用户确认，Web 产品决定，非原版机制）**：编辑器全部现有及新增前端页面一律使用 **Element Plus 默认主题、默认组件、默认控件与默认 size**、繁体 locale；默认主色 `#409EFF` 及其它视觉取默认 `--el-*`，不重定义主题变量、不在默认组件上再造皮肤。列表用 `ElTable/ElTableColumn`，弹窗用 `ElDialog/ElMessageBox`，表单用 `ElInput/ElInputNumber/ElCheckbox/ElSelect` 等对应默认控件，按钮用默认 `ElButton`。这是持续有效的架构选择，不是一次性换色；例外须另获用户明确批准。不增加框架／图标库／依赖；图标另取授权。范围仅 `editor-ui/` 展示层，不将组件体系带入玩家／Trial Canvas 引擎或业务／规则核心。
+- 按组件路径引入，例如 `import { ElButton } from 'element-plus/es/components/button/index.mjs'`，**同时**在 `editor-ui/src/main.js` 引入相应 `element-plus/es/components/<name>/style/css`，否则只有裸组件 DOM。
+- `editor-ui/src/theme.css` 只放骨架、间距、宽度、溢出与资源内容布局；不定义颜色、控件高度、字阶、边框或圆角覆盖。整页不滚、数据区滚；提示左／目前草稿右，枚举显示名称、未知保留「数字（未知）」；保存后按既有控制器合同重读。
+- `server/public/style.css` 属玩家样式，**不得为了编辑器去改它**；编辑器挂载时移除该 link。原[布局规范](docs/editor-ui-layout-spec.md)中的通用布局目标仍适用，但其中 34px、自造变量／原生 table 皮肤及共用玩家样式的旧条款已被本次默认组件决定取代，不能重新引回。
+- 保留中文／繁体文案与既有 id、data-* 协议（尤 `#generals-*`、`#publish-overlay*`、`#full-copy-overlay*`、`#review-*` 及行／列／输入标记）；结构变化不等于授权删除选择器。EP 空字符串是有效业务选项时，保持 `empty-values=[null, undefined]`；数组多选用 `ElCheckboxGroup`，不靠原生 input 语义猜测。
+- 等待写「在做什么」，成功写「做成什么」，失败写「原因＋可做什么」；不伪造百分比。长动作／失败弹窗按所属状态机限制 Esc、遮罩和明确关闭，不将默认可关闭行为强加给阻塞流程。全局 `run()` 先解锁再渲染，面板异常不扩散。
+- 玩家标题只用一个游戏选择器，远端目录失败不阻断内置游戏；新局／标题读档后默认展开军师条、势力信息、小地图。开场、云纹金框和加载等待按[开场合同](docs/opening-scene.md)，不把这些玩家视觉引入编辑器。
+- `CITY-4064-WEB-1` 是已批准的有限 Web 差异，不据此放宽其它规则；原证与适用域见[行军维护源](docs/re-notes-march-pathfinding.md#3156-p394064-外栈读取闭合为永久工程边界)。
+- 游戏时序、只读渲染、云雨季节、战术对白等现行决定分别见[战略时序](docs/re-notes-strategic-time.md)、[表现合同](docs/presentation-modernization.md)、[行军表现](docs/march-presentation-fixes.md)、[战术生命周期](docs/re-notes-tactical-lifecycle.md)，不在记忆重复历史参数和测试成绩。
+- 编辑器／地图任务按需加载[产品设计](docs/game-editor-design.md)、[共同工程合同](docs/game-editor-technical-design.md)、[迁移计划](docs/game-map-migration-plan.md)、[准入原证](docs/re-notes-editor-map-admission.md)及相关 SKILL。地图 M0→M1→M2→M3 仍须真实修改、编译和同加载器验证；方案／待办不等于实施授权。框架壳边界见[说明](docs/editor-framework-shell.md)，copy 收尾以[任务清单](docs/copy-simplification-tasks.md)与 journal 的实际状态交叉核对，旧 UI／API 描述不能覆盖现行决定。
 
-### 2.3 已确认的编辑器与多游戏边界
+## 4. 重要工程坑点
 
-- **数据模型铁律（用户 2026-11-11 决定）**：城池據點／地图道路／武将／游戏章节都是**这一款游戏自己的共享数据**，只有一份。`sourceRef.kind`（`builtin-template`／`builtin-copy`）与 `copy_origins.profile_revision` 只是「数据由内置哪份源导入」的**来源标签**，不得据此断言「没有游戏级据点」「再有一份副本」；真正的副本只指**编辑期临时修订**（加载当前共享数据→修改→保存延伸修订号→发布审核通过后成为现行版本，旧修订不再加载）。據點父表＝名称、坐标（地图管理写回）、最大生产力、类型＋给新章的默认值（当前生产力／上升值／防灾值／城兵，一次性从该游戏第一章取回，缺失允许自填）；章节子表可改所属势力＋那四项，名称／最大生产力／类型只读关联父表；内政官不在章节设置。编译发布时父表＋子表物化成原版二进制形状，运行时与存档格式不变。详见 `docs/editor-city-definitions.md` §0。
-- 内置游戏始终可用，管理员也不能经编辑器修改／下架／删除；独立完整复制不含对局／存档。普通新建仅复制地图／道路／中立据点，不复制人物／势力／章节；复制固定修订，不追踪模板更新。副本不改原件或共享资源。
-- 作者仅编辑／发布自己的内容；管理员全局上下架、限制及删除，但不能替他人编辑／发布。停用账户不自动下架。编辑器桌面繁体界面，不转换用户文本，允许常规保存／取消／关闭；玩家界面仍遵循游戏交互。
-- 内置／正式自建／Trial共享源合同、编译及规则／AI／地图引擎，稳定实体ID与原运行槽分开。VPS／Cloudflare两端分别验证；引擎版本不同步时不开放新Trial／发布，不热换运行数据。
-- 草稿可不完整；试玩／发布必须验证所需依赖，发布绑定精确已保存修订，陈旧写入拒绝。发布与上架分离；版本`1.0、1.1…1.10`按整数序号递增，不回滚／复用。公开公告历史不授历史游戏准入。
-- **新版上线，旧游戏版本全部作废**：已确认更新的旧对局停止且禁存；旧档提示不能加载并自动清除，新版保存与同游戏旧档清除同事务，失败不先删旧档。同版其它槽／其它游戏保留；缺身份、损坏、网络失败、下架、删除不能冒充版本更新。仅下架且未更新的会话可继续。整游戏被删后玩家端弹繁体告知「該遊戲已刪除！」，只有一个「確認」按钮、右键无效（阻塞项），确认即无条件清除本机该游戏进度并回跳开局选择页；触发面包括开局加载与运行期换章，判定一律以 reader 的 `410 GAME_DELETED` 为准。旧「是否刪除？」问句与「取消／右键保留」政策已撤销。
-- Trial固定已保存、校验过的草稿快照，仅窗口内存，不读写正式存档／回写草稿／发布；可选完整章但不能跳过共享依赖。断网暂停，认证明确失效终止，重新登录须新开Trial；新窗口不等于安全隔离。
+- **构建不等于检查**：`build.mjs --check` 仅比对，不更新资源；修改 Vue 后先 build，再 check。生成 `server/public/shell-ui.txt`（服务 URL `/shell-ui.js`）、`shell-ui.css`、`shell-ui-licenses.txt` 三份必须一起同步。
+- **构建不等于服务刷新**：`server/public/*.txt` 被进程 import，dev 监听还排除 `server/public/`；改控制器或产物后须重启自己持有的 dev 实例，再用新 profile／禁缓存刷新验字节。不能停别的会话实例。
+- **已登记库不是随改随用**：消费者指纹／角色／SHA 绑定严格；不为跑通而改 manifest、重算旧身份或放宽门。`--no-library` 只能验壳与空态，`SOURCE_NOT_REGISTERED` 是真实源流程阻塞，合成 DTO 预览不能替代它。
+- **schema 以声明和活门为准**：`deletiondefinitions.js`、`deletionschema.js`、`distributiondeclarations.js` 及相关投影／inventory 同步维护；不把某轮表数写成永久规则，不改 pinned 历史 lane 快照祝福新结构。purge 为单事务；栅栏存在不等于物理清理成功。
+- **SQLite WAL 快照**：裸拷主 DB 可能漏已提交 WAL；运行库调查／迁移须使用一致备份（如 `VACUUM INTO`）或停服一致快照，不据不完整副本判机制。
+- **部署锁步**：改 `web/src/**` 后重建 `trialweb.txt`（即便编辑器 Trial 已退役，安装校验仍绑定它）。玩家与编辑器用同一 static release；镜像内源码、三处 pin、nginx `static-v1/<digest>/` 与程序登记必须一致。无包登记、错误 content-type、uid／目录权限都可使启动或程序资源 503，不能放宽校验掩盖。
+- **换行影响摘要**：遵 `.gitattributes`，生产静态归档使用 `vps/manual-static-build.sh`（内置 `git -c core.autocrlf=false archive`）；Windows 工作树／裸 blob／归档字节可能不同，不能改期望 hash。`sourceTreeDigest` 相同不保证整个 inventory 一致，核 `static-release.json` 与实际资源 SHA。
+- 生产取源、镜像构建、三 pin／nginx 切换和两服务部署 ID 的完整顺序见[存储布局](docs/game-storage-layout.md) §16／§18。生产写入、删库、迁移、部署另需授权；服务健康、push 成功和内容实际可用是不同证据。
+- 保留用户／其它会话改动，不整体 reset/clean、不批量归一换行。commit、push 分别需明确授权；推送 GitHub 使用 remote `github`，不是 Gitea `origin`。遇本机 Git HTTP/2 reset，可单次 `git -c http.version=HTTP/1.1 …`，不改全局策略。不提交秘密、profile、缓存、临时截图或运行数据。
 
-## 3. 当前Web产品约定
+## 5. 常用命令与分级验证
 
-- 无关闭按钮、羽扇唯一开关、右键逐层回退、地图锁／行军目标指示例外、强制多步右键无效，按[全局约定](../AGENTS.md)及[军师UI技能](../.agents/skills/re-ui-advisor-menu/SKILL.md)。菜单／模态／场景／战斗／鼠标hold取并集，不用速度档模拟暂停；地图鼠标移动暂停，静止1秒释放自己的hold。
-- 新局／标题读档后默认展开军师条、势力信息、小地图，未选子项不额外锁图。列表右侧滚动条、24px表头、选中`#4a7828`；排序绑定原对象。
-- 标题只用一个游戏下拉框，默认「臥龍傳·三國制霸之計（內置）」（**繁体**），自建显示名称／版本，公告入口保留；远端目录失败不阻断内置游戏。标题页入口布局：「通知」文字＋游戏下拉框在顶部居中；右上是 `intro/scene.html` 的三颗圆钮（声音／重播／跳过，40×40，右侧 20px，top 20／70／120），本机存档入口是它们下面的第四颗圆钮（带「!」，top 170px，悬停／聚焦才出文字「不可用存檔」）；左侧竖排副标题已取消（节点与淡入时序保留，菜单放出时机不变）。游戏内弹窗统一用原版云纹金框：云纹/金框素材在 `web/grf/ui/{cloud,frame_sq,frame_col,frame_cap}.png`，共用绘制在 `web/src/player/cloudframe.js`（16px 格、上下 `frame_sq` 逐 8px、左右 `frame_cap`+`frame_col`、内部 32×32 平铺）。本机存档弹窗与章节选择窗同尺寸（448×368）、打开即自动检查、无重查按钮；点「新游戏」后在章节窗上方显示上一页选中的游戏名（同宽 464、距页顶 40px、同云纹，`startmenu.js#_gameNameBanner`）。姓名／字号确认后加载期间保持只读可见并提示等待，不伪造进度百分比，见[开场合同](docs/opening-scene.md)。
-- 上架管理面板的「上架」按钮禁用与**校验结果无关**：`blocked = Boolean(pending) || badJournal`（`server/public/publish.txt`），`pending` 是从 sessionStorage 恢复的上次上架追踪，结果未确认前一直禁着；`check()` 只查章节引用（`GET /api/games/<id>/draft/chapter-references`），通过只说明引用完整，**不等于编译或发布通过**。面板必须把禁用原因写出来（`blockedReason`／按钮 `title`）：pending 时引导先「查詢原操作」再「只停止本機追蹤」，不得建议盲清重发。
-- **编辑器 UI／布局规范（全模块强制，用户 2026-11）**：见[编辑器 UI／布局规范](docs/editor-ui-layout-spec.md)。要点：整页不出滚动条（`.workbench{height:100vh;overflow:hidden}`，只有数据区滚）；标题区不要「編輯後台 / 模块名」副标题；顶部单行左「操作提示」右「目前草稿（右对齐、无边框）」；控件统一 `--control-height:34px`、同高且垂直居中，**禁止用 `margin-top` 造控件间距**（flex 行内会把控件下推半格）；行容器 `display:flex;align-items:center`；优先 `ElInput/ElSelect/ElButton`，原生控件不得与全局 `input:not(…)×3` 选择器抢权重；表格 `vertical-align:middle`、表内按钮与输入框同高；枚举列必须显示可读名称（据點类型 0–4＝大都市／中都市／小都市／關卡／戰場，原版字串是「都市」），未知值「数字（未知）」；保存成功后由面板 `load()` 重读，不改控制器合同。
-- 编辑器后台（Vue 例外）：「系統資源」是**只读内置资源浏览**，头像类目同时包含共享画像库 621 张（`/api/resources` 在钉死的 available-library roles 后追加 `GamePortraits` 中未收录的 `kao/<id>.png`，字节走 `readSharedPortrait`＋sha256）；分类 TAB 与筛选框同一行（筛选靠右）；头像用相册卡片（序号＋头像一行，路径与文件大小在下一行）。**不要为此重算 `available-library.txt` 或 static pin**。
-- 战略Clock（用户指定的Web产品决定）：五档6.5／5.0／4.8／1.8／1.0ms，每RAF最多16更新；60Hz预算上限约960更新/秒，高刷上限1000，实际受负载／hold影响。变速保留子步相位、每步查hold、不补后台债务；玩家与Trial共用，战术独立。原证与现代差异见[战略时序](docs/re-notes-strategic-time.md)。
-- 军团按`8×movePeriod`插值，六队全骑周期2、其余3；城／军团中心`(16x+8,16y+8)`，不按道路视觉补偿。段内X优先定向，段末用权威方向／驻守帧；只读绘制。接战按原+03相位显示、原生道路到期且count>1时请求声音；无固定墙钟节拍或共享五响上限，不补播。详见[行军表现](docs/march-presentation-fixes.md)、[锚点原证](docs/re-notes-map-marker-anchor.md)。
-- CITY-4064-WEB-1是明确批准的Web差异：四候选且随机低两位0时选第4项、不额外耗RNG，不模拟未知动态外栈；其它规则不放宽，见[原证边界](docs/re-notes-march-pathfinding.md#3156-p394064-外栈读取闭合为永久工程边界)。
-- 云雨原八帧PNG由32槽timer／dirty及显式2533准备驱动，位置按战略serial／对象interval插值；无独立100ms节拍，hold冻结。季节按换季月前16日渐变，月结消息返回前不推进day1／季节／对象准备。Canvas仅尺寸／DPR变时重建，绘制只读；细节见[表现合同](docs/presentation-modernization.md)和[战略时序](docs/re-notes-strategic-time.md)。
-- 自定军师无普通任官／编成／自动出征资格；统一后留在地图、不播D7END，信赖归零／灭亡仍GAME OVER。音效CF9的TYPE1→4→关闭只控制既有音乐逻辑，OFF不禁PC/FM效果；战术对白不暂停Session，姓名独占首行、正文按宽折行，见[战术生命周期](docs/re-notes-tactical-lifecycle.md)。
-
-## 4. 重要坑点与证据入口
-
-- `OriginalBattleRng`启动RTC播种一次，新局／标题不重播种，恢复与战术回写共用同一RNG；不以Math.random兜底。每更新1据点／16军团，槽动作→日结→03尾→余槽／天气；退出仍保已提交前缀，不能重播消息／随机消费。
-- native表唯一持有记录，live／delayed是同对象视图；0B／1E零值、独立03、F14、inactive槽有语义。`_march`不覆盖0A／0C／0E残值，地址≠节点ID，CF1不一律无路，未知RAM不补零。地图对象前16灾害／后16云不压缩槽号。
-- 六队原值、战前BP和双方战果写回顺序不能简化；撤退不传送，命令／战争关系／势力目标分开，委任不覆盖玩家未完成目标。见[行军](../.agents/skills/re-march-engagement/SKILL.md)、[战斗](../.agents/skills/re-battle-command/SKILL.md)、[战后](../.agents/skills/re-post-battle/SKILL.md)、[外交](../.agents/skills/re-domestic-diplomacy/SKILL.md)及[消息ABI](docs/re-notes-strategic-message-abi.md)。
-- 恢复贯穿road／movement／terrain／cityCache能力，不重新合成掩盖缺失。真实JSON会丢undefined／将非有限数变null，structuredClone不能替代往返测试；内部十人单位≠显示人数，MMAP索引0不必透明，见[数据技能](../.agents/skills/re-data-formats/SKILL.md)。
-- Trial的旧roadgraph门面恒null，查询用`scenarioNativeRoadContext`。链路为issue／commit→`/api/trial/web/?trial=<uuid>`→束内`servertrialapp.js`；cookie Path=/api。POST分发必须在调用方或被调用方守权限，不能无条件漏门。等待真实画布尺寸再做浏览器操作。
-- schema变更同步冻结声明／UNIQUE投影／所有计数及受影响lane，不能只改期望值祝福旧结果。全局分发payload／在途／备份引用未闭合时，非空账本删除inventory应拒绝，不能只过滤game_id假装完整清理。
-- **工作台阻塞与文案约定**：阻塞只在「当前动作」上表达（先确认→遮罩写明正在做什么→分步状态→完成自动关闭）；等待说「在做什么」、结束说「做成了什么」、失败说「发生了什么＋能做什么＋怎么回报」，面向用户的句子不贴原键／gameId；不得用定时器假装百分比（要么真实计数，要么只说步骤）。每个请求必须有上限（只读60s／写600s），`run()`的`finally`先解锁再渲染，单面板渲染异常不得扩散。
-- **生产数据清理坑**：`publication-data/private-objects/installed` 是「已安装底层资源」字节，不是孤儿blob；删了它复制会在`loadFull`读源时必失败（reserve只查SQLite，所以预约仍成功）。清空前先看备份体积（有字节约256M，清空后只剩几百K）。R2操作习惯：`r2client.list(prefix,maxKeys)`返回key字符串数组（无分页token），`get` 404返回null；容器rootfs只读使`docker cp`不可用，查库走`docker run --rm -v …/publication-data:/data:ro node:22-bookworm-slim node /q.cjs`。
-- S3 SigV4保留空canonical query行；桶私有、凭据仓库外env。源章ID含`#`时R2保字面key、HTTP只编码一次。固定库消费者指纹改变需审差异／新身份，不覆写旧注册表或放宽SHA；画像索引硬编码与库指纹须共同核查。
-- 按`.gitattributes`保持字节；Windows工作树与云Git检出清单可能因换行不同，先核Git blob及明确eol例外，不能改预期hash掩盖差异。`git status`标M不必有真实差异，不批量reset／renormalize。**用`git archive HEAD <path> | tar -xO | sha256sum`做落地字节校验**（`web/index.html`、`web/src/content/authoring/gamesource.js`、`web/src/game/navigation/originalroadarrival.js`是`eol=crlf`，裸blob sha会假失败）；Windows工作树直接跑`prepare_deploy`会得到错digest，必须用`git -c core.autocrlf=false -c core.eol=lf worktree add --detach`的LF检出；而且`core.autocrlf=true`时**`git archive`本身也会**给未声明`eol`的文本文件补CRLF（2026-11-06实测45个文件、+0.43MiB，`content/builtin/chapters/*.json`每行+1字节），但`sourceTreeDigest`不变（只覆盖显式`eol=lf`的`web/src/**.js`与`web/intro/styles.css`）→ 表现为「digest对上了、inventory sha对不上」（`f1582a85…` vs `72ec1c31…`）。归档一律用`git -c core.autocrlf=false archive`（`vps/manual-static-build.sh`已内置），判据是`dist/static-release.json`的sha256等于线上同名文件。
-- **部署锁步的四个坑**（配方见[存储布局](docs/game-storage-layout.md)§15）：①**pin与镜像必须同源**——`vps/publication-main.mjs`开机前用`verifyInstalledProgram`比对镜像内`web/`＋`trialweb.txt`与`STATIC_SOURCE_SHA256`，只改`publication.env`不重建镜像会`startup-failed`崩溃循环；②**R2程序登记可能被静默跳过**——归档传输错误只判`unreachable`，服务照常起、日志只有`started`＋`distribution-idle`，要在容器内查`control/programs/<digest>.json`，缺了就再重启一次（幂等）；③**nginx在容器里**——`docker exec nginx nginx -t|nginx -s reload`，复制`location`块要按花括号深度取块尾（块内有嵌套`types {}`）；④**顺序不可颠倒**——镜像内`VERIFY_OK`→切`app`＋`.env`→**最后**改`publication.env`三处pin→recreate；先改pin再跑`backup-publication.sh`会让它结尾的`compose up -d`用**旧镜像**重建，旧`web/`对新`STATIC_SOURCE_SHA256`→`startup-failed`循环（2026-11-06实测不可用约28分钟）。玩家端每次`web/`变更都会换digest，未锁步就会开局503，所以UI改动可攒一批再一次性部署，不要每次push都重启生产；新digest首启要~23分钟（R2无该digest时要先下载1441文件核sha再上传），已有同digest时7分钟。
-- **方案 B 迁移的三个坑（2026-11-06 实锤，细节见 journal §1.2）**：①玩家端唯讀綁定必须是 Workers 绑定形状 `{ size, httpMetadata.contentType, body: ReadableStream }`——`reader/programarchive.js` 用 `body.getReader()` 分块读、用 `httpMetadata.contentType` 逐字比对，只给 `{ size, arrayBuffer() }` 会让 `/program-assets/*` 全部 **503 `PROGRAM_ASSET_UNAVAILABLE`**（不是 404），`tools/verify_disk_bucket.mjs` 第 8 条已锁定；②Debian 的 `/etc/nginx/mime.types` 缺 `flac/wav/mid` → `vps/static-client.mjs` 的 `STATIC_CONTENT_TYPE` 失败，必须补；③`/program-assets/<digest>/` 的 digest 是**程序包 digest**（`control/programs/<digest>.json`），`static-release.json` 是 manifest 不是 asset（走该路由必 404，正常），`?formalGame=` 的 `mode` 只接受 `new`／`load`。
-- **（历史，2026-11-06 已迁出 CF）Cloudflare 边缘会静默切断百秒级响应**：上架端到端 190–205 s，`client.txt` 与 nginx 都是 600 s、连接能活到 190 s 以上，却常在响应前被丢（`Premature close`，nginx 记 `499`）而服务端事务已提交；非 Enterprise 的 100 s 上限不可调。结论：延长超时无解，客户端只能「写请求只发一次＋轮询幂等查询端点」，后台长任务同理。
-- Workers单文件25MiB限制：静态部署排除大型创作源`game-source.json`，保留运行资产；使用显式构建，不依赖custom build hook的跨版本行为。BGM为软件OPL3输出，不是实机录音；版权／分发边界见[README](README.md)。
-- 重lane的代理502／DO stub失败与产品500分开排查，不凭无日志认定产品错误；测试门闩支持多个waiter，重叠put不能覆盖首个release。可复核补丁见`docs/fixture-patches/`。证据inputs／imports双桶都需固定hash，失败轮保留，不覆盖已封存scope。
-- 原证索引：[AI全链](docs/re-notes-ai-chain.md)、[行军](docs/re-notes-march-pathfinding.md)、[武将去向](docs/re-notes-legion-fate.md)、[财政](docs/re-notes-ai-fiscal.md)、[外交](docs/re-notes-ai-diplomacy.md)。
-
-## 5. 常用命令与验证
-
-仓库根执行，先审I/O与依赖；以下是入口索引，不是整批运行或部署授权。工作台菜单与模块职责见[编辑器工作台结构](docs/editor-workbench-structure.md)、基础资料与章节属性归属见[城池据点与章节属性](docs/chapter-and-base-resources.md)。详细专项命令／范围见[R2接线](docs/r2-player-connection.md)、[VPS就绪](docs/vps-editor-readiness.md)和[部署指南](docs/deployment.md)，不在长期记忆复制逐批成绩。
+以下在仓库根执行，是入口索引，**不是整批测试／部署授权**。先审 I/O、依赖与隔离要求，显式选 lane，重任务串行，禁止 `verify_*` 通配。
 
 ```bash
 python -m http.server 8321 --directory web
 node tools/editor_server.mjs --serve --port 8322
-node tools/dev_editor.mjs  # 本地开发服务：同上服务端跑 Node SQLite／文件桶，改源码自动重建重启
-node tools/verify_pinned_source_registration.mjs  # 固定源启动登记（空库开箱可建游戏）
+node tools/dev_editor.mjs --port 8443 --store <独立状态目录>
+# 仅壳／空态检查可追加 --no-library；不能据此验真实源复制／发布
+npm --prefix editor-ui ci --ignore-scripts
+node editor-ui/build.mjs
+node editor-ui/build.mjs --check
+node tools/build_trial_web_bundle.mjs
 python -B tools/compile_content.py --output /path/to/new-generated
-node tools/build_trial_web_bundle.mjs  # 修改web/src后重建，并核两壳／库指纹
-vps/manual-static-build.sh /path/to/out  # 重建静态产物：dist/（LF），末行印出 static-release.json 的 sha256
-# 改了 web/ 或编辑器二进制：先重算静态发布并把三个 pin 与 nginx 的 static-v1/<digest>/ 路径一起换，再起容器：
-#   rsync -a --delete <out>/dist/ /srv/dragon/dist/；改 publication.env 的 STATIC_RELEASE_SHA256／STATIC_SOURCE_SHA256／STATIC_PATH_PREFIX；改 /etc/nginx/sites-available/dragon-editor.conf 的同一 digest；nginx -t && systemctl reload nginx
-ssh sadcloud 'cd /srv/dragon/src && git fetch -q origin main && git reset -q --hard origin/main'  # 生产取源（服务器到 GitHub 快且可校验）
-ssh sadcloud 'cd /srv/dragon && docker build -f src/vps/Dockerfile.publication -t dragon-editor-publication:<tag> src'  # 编辑器镜像
-ssh sadcloud 'cd /srv/dragon && docker build -f src/vps/Dockerfile.player -t dragon-player:<tag> src'  # 玩家镜像
-ssh sadcloud 'cd /srv/dragon && docker compose up -d --force-recreate editor'  # 先改 *.env 的 *_DEPLOYMENT_ID；compose 用环境变量插值，即使只起 editor 也要同时给 EDITOR_DEPLOYMENT_ID 与 PLAYER_DEPLOYMENT_ID
-curl -s https://dragon-editor.720108.xyz/api/health  # 期望 200 + initialized:true
-curl -s https://dragon.720108.xyz/play-api/v1/registry  # 玩家端目录（generation／directory）
-node tools/verify_start_flow.mjs
-node tools/verify_clock_transition.mjs
-node tools/verify_march_navigation.mjs
-node --test tools/verify_native_road_movement.mjs
-npm --prefix editor-ui ci --ignore-scripts  # 仅修改后台展示层时安装固定构建依赖
-npm --prefix editor-ui run build           # 只生成编辑器壳，不部署
-npm --prefix editor-ui run check           # 重建逐字节比对生成物
-node tools/verify_editor_workbench_browser.mjs
+node tools/verify_pinned_source_registration.mjs
+node --test tools/verify_copy_generals_manage.mjs
+node --test tools/verify_copy_controller_copypage.mjs tools/verify_copy_controller_chapters.mjs tools/verify_copy_controller_cities.mjs tools/verify_copy_controller_generals.mjs tools/verify_copy_controller_modules.mjs tools/verify_editor_definition_controller.mjs tools/verify_editor_chapter_people.mjs
+node --test tools/verify_copy_chapter_ops.mjs tools/verify_copy_single_slot.mjs tools/verify_copy_validate_gate.mjs
+node tools/verify_publish_controller_slot.mjs
+node tools/verify_review_controller_queue.mjs
+node tools/verify_game_purge.mjs
 node tools/verify_editor_schema_sources.mjs
-node tools/verify_player_site.mjs
-node tools/verify_reader.mjs
-node tools/verify_game_save_store.mjs
-node tools/verify_player_restore_browser.mjs
-node tools/verify_formal_app_browser.mjs
-node tools/verify_trial_app_boot.mjs <新整数轮次>
-node tools/verify_publication_main.mjs
-node tools/verify_directory_pointer.mjs        # 指针整形/CAS/幂等/根先于指针语义
-node tools/verify_reader_directory_pointer.mjs # 读者按指针出目录，与旧投影逐字等价
-node tools/verify_game_purge.mjs               # 31表逐表0行复查
-node tools/verify_game_purge_reclaim.mjs       # 指针移除+artifacts前缀回收+私有位元組回收
-node tools/verify_copy_tracking.mjs            # 复制一次跑到完成/档案数进度/失败可见
-node tools/verify_copy_abandon.mjs             # 失败不留下名称与数据
-node tools/verify_vps_linux.mjs  # 非root Linux、原生临时文件系统、Node>=22.13
 node --check <变更JS或MJS>
 git diff --check
+# 只读线上核对；不是部署或改生产数据
+curl -s https://dragon-editor.720108.xyz/api/health
+curl -s https://dragon.720108.xyz/play-api/v1/registry
+# 仅构建隔离静态产物；不上传／切换生产
+sh vps/manual-static-build.sh /path/to/new-out
 ```
 
-- 内容／规则改动按范围跑pipeline、catalog、world、slot-phase／battle、formation、road-authority等现有入口；共享调度／RNG／存档／跨模块状态改动须完整安全回归。Python禁优化，使用`-B`和UTF-8日志；编译输出用新隔离目录。
-- UI用全新浏览器profile核流程和console/page/request错误；保存另测守卫、真实JSON、事务失败及跨窗口CAS。已有Playwright可显式传`PLAYWRIGHT_MODULE`，不擅自安装依赖。完整EOF后的CDP失败只能逐请求严格关联，不泛化忽略。
-- 公开发布联合链使用`verify_publication_chain_browser.mjs`的`--node-service --management-ui --deletion-ui --admin-deletion-ui --player-client --player-app --public-player`，程序路径另加`--program-paths`（重入口600秒）。按当前版本唯一政策核旧票拒绝、旧局禁存、空槽新版保存原子清旧及仅同版下架续玩；验证范围见R2§2.72，进程内运输桥不等于生产TCP／TLS／云或物理清理。
-- 程序资源验证复用`verify_program_entry.mjs`／`verify_program_assets.mjs`及各自`--workerd`；静态整包用`verify_static_release_package.mjs --archive --archive-read`，只能操作自有包，不覆盖共享dist。真桶测试限定自有`test/`前缀并清理；生产数据写入另依授权执行。
-- 每次交付核实际diff、支持文件主动LSP及`lens_diagnostics mode=all`；空缓存／push-only／inconclusive不算clean。纯文档核职责、链接／锚点及元数据，不跑无关游戏回归；保留被引用的journal锚点或提供归档索引。
-- 验证先固定显式入口／依赖／源码SHA与I/O白名单，串行跑重入口，禁止`verify_*`通配。仅关闭自有监听／profile，子进程用必要环境白名单；改动后重新核证据，不拼接过期成绩。
-- Workers构建目标`main`、根`/`：构建`node tools/prepare_deploy.mjs`。**玩家端已改手动发布**（Git集成的自动构建已断开）：在LF环境下 `vps/manual-static-build.sh <out>` 产出`dist/`与`wrangler.deploy.jsonc`（已去掉`build.command`、路径为绝对值），再`env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u all_proxy npx wrangler deploy -c <out>/wrangler.deploy.jsonc`；内容相同时约14秒且`No updated asset files to upload`，重复发布幂等。不要用仓库`wrangler.jsonc`直接deploy（那会重跑build并得到非LF产物）。只有明确授权才commit／`git push github HEAD:main`；推送成功、构建成功、运行数据可用是三项不同证据。
-
-### Jev开发期辅助（非运行时依赖）
-
-仅advisory，不是机制证据、测试oracle或放行门。多风险域改动用`change`，诊断仍有多种归因用`failure`，原证调查方向未定用`reverse-triage`；纯文档和明确语法问题无需调用。先人工最小摘要、离线preview审state，再检查key并`--send`；禁发秘密、真实存档、原资源、个人信息或未审日志。失败／地区限制不绕过、不阻塞权威验证。命令`node tools/jev_assess.mjs <change|failure|reverse-triage> --input -`，详见[集成文档](docs/jev-integration.md)。
+- 规则改动按范围选内容、slot-phase、battle、formation、road-authority、save 等现有安全回归；共享调度／RNG／存档／跨模块状态须完整适用回归。Python 用 `-B` 与 UTF-8 日志，编译写新目录。
+- UI 用全新 Playwright profile，核 console／pageerror／请求错误、实际保存重读与可用源流程；需要模块时可指定已有 `PLAYWRIGHT_MODULE`，不擅自装依赖。合成 fixture、真实服务与生产验证必须分开报告。
+- 存档另测真实 JSON、事务失败、跨窗口 CAS；公开版本／目录／删除可复用 `verify_publication_chain_browser.mjs`，程序归档用 `verify_program_entry.mjs`／`verify_program_assets.mjs`，按入口文档选参数，不能把进程内桥当生产 TCP／TLS。
+- **交付检查**：核实际 diff；支持文件主动 `lens_diagnostics source=lsp scope=paths`，并跑 `mode=all`。空缓存、push-only、超时／inconclusive 不算 clean，编译成功不替代 Vue LSP。未跑／失败／覆盖不足如实列明，不拼接过期成绩。
+- 纯文档只核职责、事实依据、链接／锚点与 diff，不跑无关游戏回归；保留外部引用的 journal 锚点或归档索引。Jev 仅开发期 advisory，非证据／oracle／放行门，纯文档无需调用；使用边界见[集成文档](docs/jev-integration.md)。

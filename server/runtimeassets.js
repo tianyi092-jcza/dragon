@@ -89,17 +89,11 @@ export class OwnedRuntimeAssets {
     for (const bytes of pieces) { result.set(bytes, at); at += bytes.length; }
     return result;
   }
-  async capture(tokenHash, reference, paths) {
-    if (!Array.isArray(paths) || paths.length < 1 || paths.length > this.#allowed.size || new Set(paths).size !== paths.length || paths.some(path => typeof path !== 'string' || !this.#allowed.has(path))) fail(403, 'SOURCE_RUNTIME_ROLE');
-    const wanted = new Set(paths);
-    if (!reference || typeof reference.rootKey !== 'string' || !hex(reference.sourceDigest)) fail(422, 'SOURCE_RUNTIME_BINDING');
-    const actor = this.#principal(tokenHash);
-    if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED');
-    const current = this.#games.snapshotReference(tokenHash, reference.gameId, reference.draftRevision);
-    if (current.rootKey !== reference.rootKey || current.sourceDigest !== reference.sourceDigest) fail(409, 'SOURCE_RUNTIME_CHANGED');
-    const context = { actor: { id: actor.id, epoch: actor.epoch }, reference: { ...current }, row: this.#row() };
-    this.#assert(tokenHash, context);
-    const raw = await this.#read(tokenHash, context, { sha256: context.row.root_digest, byteLength: context.row.root_byte_length });
+  // Decode + verify the installed-source index against the pinned policy.
+  // Pure: no I/O, no authority checks. Both snapshot-bound captures and
+  // snapshot-independent shared-art reads anchor integrity here (policy
+  // definitionDigest + per-role descriptors), never in caller identity.
+  #verifiedIndex(raw) {
     let index;
     try { index = decodeSourceChunks([raw]); } catch { fail(503, 'SOURCE_RUNTIME_INDEX'); }
     exact(index, ['schema', 'registryId', 'definitionDigest', 'roles']);
@@ -115,6 +109,92 @@ export class OwnedRuntimeAssets {
       for (const chunk of role.chunks) { part(chunk); length += chunk.byteLength; }
       if (length !== role.byteLength) fail(503, 'SOURCE_RUNTIME_INDEX');
     }
+    return index;
+  }
+  // Bucket read with whole-object sha verification, without per-chunk
+  // authority asserts (counterpart of #read for callers with no snapshot
+  // context; session is checked at entry and on every readWeb instead).
+  async #readPlain(descriptor) {
+    part(descriptor);
+    const object = await this.#bucket.get(`installed/${this.#policy.registryId}/${descriptor.sha256}`);
+    if (!object) fail(404, 'SOURCE_OBJECT_MISSING');
+    if (!object.body || object.size !== descriptor.byteLength) {
+      try { await object.body?.cancel(); } catch { /* Preserve integrity failure. */ }
+      fail(503, 'SOURCE_OBJECT_CORRUPT');
+    }
+    const reader = object.body.getReader(), pieces = [], digest = createHash('sha256');
+    let length = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!(value instanceof Uint8Array)) fail(503, 'SOURCE_OBJECT_CORRUPT');
+        length += value.length;
+        if (length > descriptor.byteLength) fail(503, 'SOURCE_OBJECT_CORRUPT');
+        const bytes = Uint8Array.from(value); digest.update(bytes); pieces.push(bytes);
+      }
+      if (length !== descriptor.byteLength || digest.digest('hex') !== descriptor.sha256) fail(503, 'SOURCE_OBJECT_CORRUPT');
+    } catch (error) {
+      try { await reader.cancel(); } catch { /* Cancellation must not replace the read failure. */ }
+      throw error;
+    }
+    finally { reader.releaseLock(); }
+    const result = new Uint8Array(length); let at = 0;
+    for (const bytes of pieces) { result.set(bytes, at); at += bytes.length; }
+    return result;
+  }
+  // Snapshot-independent read of shared public art (season map visuals) for
+  // copy-built packs: approve references carry only {gameId, draftRevision:
+  // ordinal, sourceDigest: copyDigest} and have no draft snapshot to bind
+  // (draft chain retired). These bytes are identical for every game on this
+  // source revision, so the snapshot-equality gate is meaningless here:
+  // integrity stays anchored in the pinned policy (verified index + per-role
+  // sha, rechecked by the caller), and the game side's freshness stays with
+  // the caller's copy_origins check plus the transactional copy-digest
+  // recheck at approve time. Principal session + installed-source definition
+  // checks still apply.
+  async readShared(tokenHash, paths) {
+    if (!Array.isArray(paths) || paths.length < 1 || paths.length > this.#allowed.size || new Set(paths).size !== paths.length || paths.some(path => typeof path !== 'string' || !this.#allowed.has(path))) fail(403, 'SOURCE_RUNTIME_ROLE');
+    const wanted = new Set(paths);
+    const actor = this.#principal(tokenHash);
+    if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED');
+    const session = { id: actor.id, epoch: actor.epoch };
+    const checkSession = () => {
+      const live = this.#principal(tokenHash);
+      if (live.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED');
+      if (live.id !== session.id || live.epoch !== session.epoch) fail(401, 'SESSION_INVALID');
+    };
+    const row = this.#row();
+    const raw = await this.#readPlain({ sha256: row.root_digest, byteLength: row.root_byte_length });
+    const index = this.#verifiedIndex(raw);
+    const roles = new Map();
+    for (const role of index.roles) {
+      if (!wanted.has(role.path)) continue;
+      if (role.byteLength > 25 * 1024 * 1024) fail(413, 'SOURCE_RUNTIME_TOO_LARGE');
+      const bytes = new Uint8Array(role.byteLength); let at = 0;
+      for (const descriptor of role.chunks) { const chunk = await this.#readPlain(descriptor); bytes.set(chunk, at); at += chunk.length; }
+      if (sha(bytes) !== role.sha256) fail(503, 'SOURCE_ROLE_CORRUPT');
+      roles.set(role.path, bytes);
+    }
+    checkSession();
+    return Object.freeze({ registryId: index.registryId, definitionDigest: index.definitionDigest, rootDigest: row.root_digest, readWeb: path => {
+      checkSession();
+      if (!roles.has(path)) fail(403, 'SOURCE_RUNTIME_ROLE');
+      return Uint8Array.from(roles.get(path));
+    } });
+  }
+  async capture(tokenHash, reference, paths) {
+    if (!Array.isArray(paths) || paths.length < 1 || paths.length > this.#allowed.size || new Set(paths).size !== paths.length || paths.some(path => typeof path !== 'string' || !this.#allowed.has(path))) fail(403, 'SOURCE_RUNTIME_ROLE');
+    const wanted = new Set(paths);
+    if (!reference || typeof reference.rootKey !== 'string' || !hex(reference.sourceDigest)) fail(422, 'SOURCE_RUNTIME_BINDING');
+    const actor = this.#principal(tokenHash);
+    if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED');
+    const current = this.#games.snapshotReference(tokenHash, reference.gameId, reference.draftRevision);
+    if (current.rootKey !== reference.rootKey || current.sourceDigest !== reference.sourceDigest) fail(409, 'SOURCE_RUNTIME_CHANGED');
+    const context = { actor: { id: actor.id, epoch: actor.epoch }, reference: { ...current }, row: this.#row() };
+    this.#assert(tokenHash, context);
+    const raw = await this.#read(tokenHash, context, { sha256: context.row.root_digest, byteLength: context.row.root_byte_length });
+    const index = this.#verifiedIndex(raw);
     const roles = new Map();
     for (const role of index.roles) {
       if (!wanted.has(role.path)) continue;

@@ -103,6 +103,15 @@ export class GameDeletionFence {
       const actor = this.#actor(tokenHash); this.#guard(actor.id, operationKey);
       const replayed = this.#checkFenceIdempotency(actor, operationKey, digest, captured);
       if (replayed) { return replayed; }
+      const standing = this.#one('SELECT * FROM content_deletion_fences WHERE game_id=?', captured.gameId);
+      if (standing) {
+        // 重试：栅栏已成立但游戏行仍在＝上次 purge 失败回滚。确认同一意图
+        // （所有者或管理员＋确认名一致）则直接返回既有回执，不做任何写入、
+        // 不重记分布事件；rowRevision 取栅栏成立时的新修订，调用方据此继续 purge。
+        const row = this.#target(actor, captured.gameId);
+        if (captured.confirmationName !== row.draft_name) { fail(409, 'DELETE_CONFIRMATION'); }
+        return Object.freeze({ gameId: row.game_id, state: 'fenced', rowRevision: standing.fence_revision, createdAt: standing.created_at });
+      }
       const row = this.#assertFenceable(actor, captured);
       const next = String(BigInt(row.row_revision) + 1n), time = new Date().toISOString();
       const updated = this.#one('UPDATE content_games SET row_revision=?, listed=0 WHERE game_id=? AND row_revision=? RETURNING game_id', next, row.game_id, row.row_revision);

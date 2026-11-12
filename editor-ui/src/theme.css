@@ -1,0 +1,59 @@
+/* Layout only. Element Plus owns component appearance, sizes and theme tokens. */
+html, body, #editor-app { margin: 0; height: 100%; }
+body { overflow: hidden; }
+#editor-app[hidden], #editor-app [hidden] { display: none; }
+.workbench { height: 100dvh; display: grid; grid-template-columns: 216px minmax(0, 1fr); grid-template-rows: 76px minmax(0, 1fr); overflow: hidden; }
+.workbench-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; margin-right: 12px; }
+.brand-caption, .account-secondary { display: block; }
+.account-actions, .current-game, .page-line, .module-toolbar, .resource-toolbar, .resource-categories, .resource-filter, .account-filters, .account-row-actions, .account-tags, .chapter-order { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.current-game { margin-left: auto; }
+.current-game .el-select { width: 260px; }
+#menu { display: flex; flex-direction: column; gap: 8px; padding: 16px; overflow: auto; }
+#menu .el-button { margin-left: 0; }
+.nav-label { margin: 12px 0 0; }
+.workbench-main { min-width: 0; min-height: 0; padding: 16px 24px; display: flex; flex-direction: column; overflow: hidden; }
+.page-line { justify-content: space-between; flex-wrap: nowrap; }
+.page-heading h1 { margin: 0; }
+#status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-context { flex: 0 1 auto; max-width: 62%; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-layout { grid-template-columns: 1fr; }
+.auth-layout .workbench-main { width: min(580px, 100%); box-sizing: border-box; margin: 24px auto; overflow: auto; }
+.auth-card, .account-card { width: 100%; max-width: 650px; }
+.module-card { min-width: 0; min-height: 0; overflow: auto; }
+#session { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+#session > .module-card { flex: 1; }
+#session > .account-card { overflow: auto; }
+.module-toolbar, .resource-toolbar, .account-filters { margin: 12px 0; }
+.module-toolbar > label, .current-game > label, .resource-filter label { display: flex; align-items: center; gap: 8px; margin: 0; white-space: nowrap; }
+.module-toolbar .el-input, .module-toolbar .el-select, .resource-filter .el-input { width: 220px; }
+form { margin: 16px 0; }
+.auth-card form > label, .account-card form > label, .module-card > label, .module-form > label { display: block; margin: 12px 0; }
+.user-menu-items { display: flex; flex-direction: column; gap: 8px; }
+.user-menu-items .el-button { margin-left: 0; }
+.module-form { max-width: 760px; }
+.module-form .el-input, .module-form .el-select { width: 100%; }
+.account-create { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.account-create label { flex: 1; max-width: 360px; }
+.account-filters .el-input { width: 320px; }
+.account-filters .el-select { width: 180px; }
+.accounts-intro, .chapter-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.table-region, .account-table-wrap { min-width: 0; overflow: auto; }
+.table-region + .table-region { margin-top: 16px; }
+.empty-state { padding: 16px; text-align: center; }
+.module-card p { overflow-wrap: anywhere; }
+.chapter-role-roster { max-height: 12rem; overflow: auto; }
+.resource-toolbar { justify-content: space-between; }
+.resource-filter { margin-left: auto; }
+.resource-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+.resource-gallery > p { grid-column: 1 / -1; }
+.resource-card { display: grid; grid-template-columns: 2.6em 64px minmax(0, 1fr); align-items: center; gap: 10px; margin: 0; padding: 8px; }
+.resource-card .thumb { width: 64px; height: 64px; object-fit: contain; }
+.resource-card figcaption { min-width: 0; display: flex; flex-direction: column; }
+.resource-card .name { overflow-wrap: anywhere; }
+.resource-card .index { text-align: right; }
+.resource-row .thumb { width: 44px; height: 44px; object-fit: contain; }
+.resource-row audio { max-width: 260px; }
+#generals-message { white-space: pre-wrap; max-height: 24rem; overflow: auto; }
+@media (max-width: 1050px) { .workbench { grid-template-columns: 190px minmax(0, 1fr); } .auth-layout { grid-template-columns: 1fr; } .workbench-header { padding: 0 16px; } }

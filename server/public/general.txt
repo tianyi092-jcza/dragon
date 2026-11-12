@@ -61,13 +61,16 @@ export function installGenerals({ api, authority, work, isBusy, publish = () => 
     const row = chapter()?.[field].find(r => r.idx === idx); if (!row) throw new Error('原目標已不存在，請重讀。'); return row;
   }
   async function listPortraits() {
-    const target = {...gameOf()}, valid = ticket(), result = await api('/api/games/' + encodeURIComponent(target.gameId) + '/portraits'); if (!valid()) return;
+    // 頭像庫是遊戲級唯讀資源：只認已採納的遊戲身份，不讀草稿修訂、不走武將表明細。
+    if (!allowed() || typeof selected !== 'string' || !selected) throw new Error('請先登入並選擇遊戲。');
+    const gameId = selected, valid = ticket(), result = await api('/api/games/' + encodeURIComponent(gameId) + '/portraits'); if (!valid()) return;
     if (!Array.isArray(result?.portraits)) throw new Error('頭像清單回應無效。'); const ids = new Set();
     const next = result.portraits.map(p => { if (typeof p?.assetId !== 'string' || !p.assetId || ids.has(p.assetId) || Object.hasOwn(p, 'sha256') && (typeof p.sha256 !== 'string' || p.sha256.length !== 64 || !/^[a-f0-9]{64}$/.test(p.sha256)) || typeof p.mime !== 'string' || !Number.isSafeInteger(p.byteLength) || p.byteLength < 0 || typeof p.inUse !== 'boolean') throw new Error('頭像清單回應無效。'); ids.add(p.assetId); return {assetId:p.assetId,mime:p.mime,byteLength:p.byteLength,inUse:p.inUse,...(Object.hasOwn(p, 'sha256') ? {sha256:p.sha256} : {})}; });
     library = next; portraitId = library[0]?.assetId ?? ''; message = `共用庫 ${library.length} 張（唯讀）。`;
   }
   function action(callback, label = '操作未完成') { return work(async () => { const actor = identity, serial = ++actionGeneration; try { await callback(); } catch (error) { if (allowed() && actor === identity && serial === actionGeneration) message = label + '：' + error.message + '；請重讀後重做。'; throw error; } finally { render(); } }); }
   const actions = Object.freeze({refresh:() => action(refresh),inspect:() => action(inspect),listPortraits:() => action(listPortraits),
+    adoptFor(value) { adoptGame(value); },
     blockers:(id,idx) => action(async () => {
       rowFor(id,idx,'generals');
       const lines = [`#${idx} 不可刪除：武將鎖定 128 密排，不開放增刪。`, '以下依章節分列同編號槽位，不代表各章為同一人物；不構成完整刪除准入。'];

@@ -7,6 +7,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { GameCopyStore } from '../server/gamecopy.js';
 import { createPublicationBrowserAuthority } from './fixtures/publication-browser-authority.mjs';
 import { createGameReclaimer } from '../vps/game-reclaimer.mjs';
 import { DIRECTORY_POINTER_KEY, directoryPointerBody } from '../reader/directorypointer.js';
@@ -90,12 +91,13 @@ async function post(path, body, { token = adminToken, csrf = adminCsrf, key = `p
   return { status: response.status, value };
 }
 
-const TABLES = [ // 與 server/gamepurge.js 一致的 32 張含 game_id 表（分發帳本三表除外）
+const TABLES = [ // 與 server/gamepurge.js 一致的 35 张含 game_id 表（分發帳本三表除外）
   'content_used_ids', 'content_names', 'content_audits',
-  'content_announcements', 'content_snapshots', 'content_releases', 'game_releases', 'published_games', 'published_packs',
+  'content_announcements', 'content_game_validations', 'content_snapshots', 'content_releases', 'game_releases', 'published_games', 'published_packs',
   'published_pack_chapters', 'published_pack_assets', 'copy_requests', 'copy_objects', 'copy_origins',
+  'game_copies', 'publish_slots', 'copy_validations',
   'content_http_command_targets', 'content_http_command_proofs', 'draft_requests', 'draft_objects', 'draft_references',
-  'draft_topology_moves', 'draft_topology_rebuilds', 'trial_sessions', 'compile_jobs', 'fallback_compile_objects',
+  'draft_topology_moves', 'draft_topology_rebuilds', 'compile_jobs', 'fallback_compile_objects',
   'data_compile_objects', 'image_compile_objects', 'content_private_writes', 'content_deletion_operations',
   'content_deletion_job_freezes', 'content_deletion_draft_freezes',
   'content_games', 'content_deletion_fences',
@@ -105,6 +107,12 @@ const gameRow = () => sql.exec('SELECT row_revision, draft_name, listed FROM con
 
 const initial = gameRow();
 assert.ok(initial, 'fixture 必須先建立遊戲列');
+// T1–T8 副本三表：用真 GameCopyStore 建表（与生产 DDL 逐字节一致），再种一行，证明 purge 一并清零。
+new GameCopyStore({ storage, principal: () => ({}), games: { assertNotDeleting() {}, listOwn: () => [] } });
+{ const digest = 'a'.repeat(64), now = '2026-11-01T00:00:00.000Z';
+  sql.exec('INSERT OR REPLACE INTO game_copies VALUES(?,?,?,?,?)', gameId, 'owner', '{}', digest, now);
+  sql.exec("INSERT OR REPLACE INTO publish_slots VALUES(?,?,?,?,?,?,?)", gameId, null, null, digest, 'empty', null, null);
+  sql.exec('INSERT OR REPLACE INTO copy_validations VALUES(?,?,?,?,?,?)', gameId, 'passed', digest, '[]', null, now); }
 const occupied = counts();
 assert.ok(occupied.copy_objects > 0 && occupied.copy_origins > 0, 'fixture 應有 copy 帳本列可被清除');
 
@@ -135,6 +143,17 @@ assert.equal(fence.value.state, 'fenced');
 assert.equal(counts().content_deletion_fences, 1);
 assert.equal(counts().content_games, 1, '柵欄階段不得先行刪列');
 checks.push('柵欄成立但資料庫列仍在（物理刪除是獨立一步）');
+
+// ③′ 重试栅栏（上次 purge 失败回滚后）：不同键同意图不再 409 GAME_DELETING，
+// 直接返回既有回执且不写新行，调用方可拿回执里的新修订继续 purge。
+{
+  const retry = await post(`/api/games/${gameId}/deletion`, { gameId, expectedRowRevision: initial.row_revision, confirmationName: initial.draft_name });
+  assert.equal(retry.status, 200, JSON.stringify(retry.value));
+  assert.equal(retry.value.state, 'fenced');
+  assert.equal(retry.value.rowRevision, fence.value.rowRevision);
+  assert.equal(counts().content_deletion_fences, 1, '重试不得重复建栅');
+  checks.push('已栅栏游戏重复建栅返回既有回执（可继续 purge），不抛 GAME_DELETING');
+}
 
 // ④ 名稱／修訂不符要被拒；正確輸入才清除。
 {

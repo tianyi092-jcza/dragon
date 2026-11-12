@@ -82,6 +82,23 @@ function checkCloneDescriptors(root) {
 function capturedInstanceIds(source) {
   return new Set([...source.map.decorations, ...source.map.roads.flatMap(road => road.components ?? []), ...source.map.placements].map(instance => instance.id));
 }
+// copy 地图单命令入口：writeModule map 模块调用。命令形与校验全部复用
+// applyCapturedMapEdit（与 capture 回放同一口径）；新身份由调用方（控制器）
+// 用随机 64hex 生成（`gameId#<kind>-<64hex>`），服务端只验格式＋未占用。
+// 整包替换已废止：map 模块只接受 {edits}，无调用方依赖旧形。
+export const COPY_MAP_OPS = Object.freeze(['base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility']);
+export function applyCopyMapEdits(game, edits) {
+  if (!Array.isArray(edits) || !edits.length) fail(422, 'COPY_MAP');
+  const usedGroupIds = new Set(game.map?.waterGroups?.map(group => group.id) ?? []);
+  const usedMaterialIds = new Set(Object.keys(game.componentDefinitions ?? {}));
+  const usedInstanceIds = capturedInstanceIds(game);
+  let next = game;
+  for (const edit of edits) {
+    if (!edit || typeof edit !== 'object' || Array.isArray(edit) || !COPY_MAP_OPS.includes(edit.op)) fail(422, 'COPY_MAP');
+    next = applyCapturedMapEdit(next, edit, usedGroupIds, usedMaterialIds, usedInstanceIds);
+  }
+  return next;
+}
 function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedInstanceIds) {
   const descriptors = view(edit); // Reject getters/functions before reading op.
   if (edit.op === 'base-fill') {

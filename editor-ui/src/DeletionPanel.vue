@@ -1,6 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElCheckbox } from 'element-plus/es/components/checkbox/index.mjs';
+import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean, currentGame: String });
 const onlyCurrent = ref(false);
 const games = computed(() => onlyCurrent.value ? props.model.games.filter(game => game.gameId === props.currentGame) : props.model.games);
@@ -13,9 +15,9 @@ watch(() => props.currentGame, id => { if (!id) onlyCurrent.value = false; });
     <ElButton id="deletion-load" :disabled="busy || model.locked" @click="actions.refresh()">明確讀取自己的刪除目標</ElButton>
     <ElButton id="deletion-admin-load" :hidden="!model.admin" :disabled="busy || model.locked || !model.admin" @click="actions.managed()">管理員明確讀取全局刪除目標</ElButton>
     <p id="deletion-current-game">目前編輯遊戲：{{ currentGame || '未選擇' }}。僅用於定位清單，不更換原刪除請求的目標、確認名稱或修訂。</p>
-    <label><input id="deletion-current-only" v-model="onlyCurrent" type="checkbox" :disabled="busy || model.locked || !currentGame">只顯示目前編輯遊戲（不重新讀取）</label>
+    <ElCheckbox id="deletion-current-only" v-model="onlyCurrent" :disabled="busy || model.locked || !currentGame">只顯示目前編輯遊戲（不重新讀取）</ElCheckbox>
     <p v-if="onlyCurrent && !games.length" id="deletion-current-missing">已讀清單沒有此遊戲；請明確讀取有權查看的清單，不據此判定已刪除。</p>
-    <div id="deletion-games"><div v-for="game in games" :key="game.gameId" :data-game-id="game.gameId"><p>{{ game.label }}</p><ElButton :disabled="busy || game.disabled" :title="game.title" @click="actions.start(game.gameId, game.rowRevision)">提出刪除請求</ElButton></div></div>
+    <ElTable id="deletion-games" :data="games" row-key="gameId" :show-header="false"><ElTableColumn min-width="320"><template #default="{ row: game }"><span :data-game-id="game.gameId">{{ game.label }}</span></template></ElTableColumn><ElTableColumn min-width="200"><template #default="{ row: game }"><ElButton :disabled="busy || game.disabled" :title="game.title" @click="actions.start(game.gameId, game.rowRevision)">提出刪除請求</ElButton></template></ElTableColumn></ElTable>
     <p id="deletion-operation">{{ model.operation }}</p>
     <ElButton id="deletion-query" :disabled="busy || model.queryDisabled" @click="actions.query()">查詢原刪除請求與分發</ElButton>
     <ElButton id="deletion-retry" :disabled="busy || model.retryDisabled" @click="actions.retry()">明確以原鍵原名稱原修訂重試</ElButton>

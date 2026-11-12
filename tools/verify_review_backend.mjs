@@ -197,9 +197,14 @@ try {
   assert.equal(rows.some(entry => entry.gameId === pending.gameId), false, '已删游戏不再出现在审核清单');
   assert.equal((await ok(deletionPath(listed.gameId), { gameId: listed.gameId, expectedRowRevision: '1', confirmationName: '已上架樣本' }, admin)).state, 'fenced');
   assert.equal(rowRevision(listed.gameId).listed, 0);
-  assert.equal((await ok(deletionPath(noRelease.gameId), { gameId: noRelease.gameId, expectedRowRevision: '1', confirmationName: '純草稿樣本' }, author)).state, 'fenced');
+  const draftFence = await ok(deletionPath(noRelease.gameId), { gameId: noRelease.gameId, expectedRowRevision: '1', confirmationName: '純草稿樣本' }, author);
+  assert.equal(draftFence.state, 'fenced');
   await rejection(() => call(rejectPath(pending.gameId), { action: 'reject', expectedRowRevision: fenced.row_revision }, admin), 409, 'GAME_DELETING');
-  await rejection(() => call(deletionPath(noRelease.gameId), { gameId: noRelease.gameId, expectedRowRevision: '2', confirmationName: '純草稿樣本' }, author), 409, 'GAME_DELETING');
+  // 物理删除失败后必须可重取同一栅栏回执继续 purge，不重写栅栏或推进目录。
+  const registryBeforeRetry = registry();
+  assert.deepEqual(await ok(deletionPath(noRelease.gameId), { gameId: noRelease.gameId, expectedRowRevision: '2', confirmationName: '純草稿樣本' }, author), draftFence);
+  assert.equal(rowRevision(noRelease.gameId).row_revision, draftFence.rowRevision);
+  assert.equal(registry(), registryBeforeRetry);
   checks.push('actual any-state delete (§6): listed/pending/draft all fenced, listed→0, publish pin/pack cascaded, registry bumped for the listed one, fenced games vanish from review list and refuse further review');
 
   // 6. 作者侧清单也带 rejected（B3 作者需要看到已驳回）。

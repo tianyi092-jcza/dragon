@@ -1,6 +1,7 @@
 // Read-only verification of the fixed DDL-owner inventory after platform
-// extraction and the additive frozen distribution ledger. Compare against the
-// explicit frozen declarations, never derive acceptance from observed DDL.
+// extraction, copy storage and Trial retirement. The owner list follows the
+// mounted EditorService constructors; archived trials.js is not an active owner.
+// Compare against explicit frozen declarations, never bless observed DDL.
 // Pair with verify_distribution_schema.mjs (actual workerd constructor).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { assertDeletionDefinitions } from '../server/deletiondefinitions.js';
 const modules = ['editorapp', 'metadata', 'stageapi', 'commandtargets', 'sourcecatalog', 'admincopy',
   'drafts', 'jobs', 'datacompiler', 'imagejobs', 'fallbackjobs', 'privatewrites',
   'deletionjobfreeze', 'deletiondraftfreeze', 'releases', 'topology', 'portraits',
-  'published', 'playpacks', 'trials', 'announcements', 'validations', 'distribution', 'distributionledger'];
+  'published', 'playpacks', 'gamecopy', 'announcements', 'validations', 'distribution', 'distributionledger'];
 const storage = openStorage(':memory:');
 const tables = new Set(), indexes = [];
 try {
@@ -35,11 +36,11 @@ try {
     }
   }
   for (const sql of indexes) storage.sql.exec(sql);
-  assert.equal(modules.length, 24); assert.equal(tables.size, 55);
+  assert.equal(modules.length, 24); assert.equal(tables.size, 56);
   const result = assertDeletionDefinitions(storage.sql);
-  assert.equal(result.tablesVerified, 55); assert.equal(result.indexesVerified, 53);
+  assert.equal(result.tablesVerified, 56); assert.equal(result.indexesVerified, 54);
   assert.equal(result.foreignKeyDeclarationsVerified, 4);
   const columns = [...tables].reduce((sum, name) => sum + storage.sql.exec(`PRAGMA table_xinfo(${name})`).toArray().length, 0);
-  assert.equal(columns, 369);
-  process.stdout.write('schema sources: 24 owners / 55 tables / 53 indexes / 369 columns / 4 FK; exact additive frozen gates\n');
+  assert.equal(columns, 368);
+  process.stdout.write('schema sources: 24 owners / 56 tables / 54 indexes / 368 columns / 4 FK; exact frozen gates after copy/Trial retirement\n');
 } finally { storage.close(); }

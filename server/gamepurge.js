@@ -25,6 +25,10 @@ const TABLES = Object.freeze([
   'copy_requests',
   'copy_objects',
   'copy_origins',
+  // T1–T8 副本单套三表：与 game_copies 同生命周期，物理删除必须一并清零。
+  'game_copies',
+  'publish_slots',
+  'copy_validations',
   'content_http_command_targets',
   'content_http_command_proofs',
   'draft_requests',
@@ -108,18 +112,24 @@ export class GamePurge {
       // 可見性的 system of record，退休要經過 retireCheckpointInTxn 的確認+清理兩段，
       // 直接刪列會讓 ledger 的整體不變量（DISTRIBUTION_LEDGER_CORRUPT）失效。
       // storage.sql.exec 回的是資料列游標（沒有 .changes），所以用 DELETE…RETURNING 直接數。
+      // 增量建表的库可能还没有新表：不存在即无可删，跳过（回执 tables 计数如实反映实际触及的表）。
+      const existing = new Set(this.#sql.exec("SELECT name FROM sqlite_master WHERE type='table'").toArray().map(r => r.name));
+      const tables = TABLES.filter(t => existing.has(t));
       const removed = {};
-      for (const table of TABLES) {
+      for (const table of tables) {
         removed[table] = this.#sql.exec(`DELETE FROM ${table} WHERE game_id=? RETURNING game_id`, gameId).toArray().length;
       }
-      // 複查：任何一張表還有這個 gameId 的列就是沒刪乾淨，整批回滾。
-      for (const table of TABLES) {
+      // 複查：任何一張表還有這個 gameId 的列就是沒刪乾淨，整批回滾；
+      // 回执带上残留表名，调用方才能指出是哪一组范围没清掉。
+      const leftover = [];
+      for (const table of tables) {
         const left = Number(this.#one(`SELECT COUNT(*) AS n FROM ${table} WHERE game_id=?`, gameId)?.n);
-        if (left !== 0) { fail(503, 'PURGE_INCOMPLETE'); }
+        if (left !== 0) { leftover.push(table); }
       }
+      if (leftover.length) { fail(503, 'PURGE_INCOMPLETE', { tables: leftover }); }
       if (removed.content_games !== 1) { fail(503, 'PURGE_INCOMPLETE'); }
       if (removed.content_deletion_fences !== 1) { fail(503, 'PURGE_INCOMPLETE'); }
-      return Object.freeze({ version: 1, gameId, state: 'purged', removed: Object.freeze({ ...removed }), tables: TABLES.length, purgedAt: new Date().toISOString(), retirement });
+      return Object.freeze({ version: 1, gameId, state: 'purged', removed: Object.freeze({ ...removed }), tables: tables.length, purgedAt: new Date().toISOString(), retirement });
     });
   }
 }

@@ -1,6 +1,8 @@
 <script setup>
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
+import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 import WaterGroupsPanel from './WaterGroupsPanel.vue';
 import MaterialsPanel from './MaterialsPanel.vue';
 import BaseTerrainPanel from './BaseTerrainPanel.vue';
@@ -22,11 +24,11 @@ watch(() => props.model.context, () => resize(1));
 // Initial shell mount precedes controller installation; its first render paints.
 onMounted(() => { props.actions.attachCanvas(canvas.value); props.actions.redraw?.(); });
 onBeforeUnmount(() => props.actions.attachCanvas(null));
-function choose(event) { props.actions.select(event.target.value); event.target.value = props.model.selected ?? ''; }
+function choose(value) { props.actions.select(value); }
 </script>
 <template>
   <section id="mapview-editor" class="module-card">
-    <label v-if="draftModel?.workspace">目前編輯層<select id="map-current-layer" :value="draftModel.workspace.layer" :disabled="busy || draftModel.workspace.locked" @change="draftActions.mapLayer($event.target.value)"><option value="base">基本地圖</option><option value="decor">裝飾</option><option value="roads">道路（目前唯讀）</option><option value="cities">據點（目前唯讀）</option></select></label>
+    <label v-if="draftModel?.workspace">目前編輯層<ElSelect id="map-current-layer" :model-value="draftModel.workspace.layer" :disabled="busy || draftModel.workspace.locked" @change="draftActions.mapLayer($event)"><ElOption value="base" label="基本地圖" /><ElOption value="decor" label="裝飾" /><ElOption value="roads" label="道路（目前唯讀）" /><ElOption value="cities" label="據點（目前唯讀）" /></ElSelect></label>
     <p>只在目前層執行補底或裝飾實例操作；換層不改顯隱、鎖定、已存內容或其它表單，也不自動保存。道路／據點尚未開放寫入。素材庫與水域組資料管理獨立。</p>
     <MapWindowPanel :model="draftModel" :actions="draftActions" :busy="busy" :placement-ready="placementReady" :placement-footprint="placementFootprint" :placement-drag="placementDrag" :shift-anchor="shiftAnchor" :shift-preview="shiftPreview" @shift-candidate="shiftCandidate = $event" @shift-point="materialPanel?.useShiftPoint($event)" @placement-drag-end="placementDrag = null" @placement-point="materialPanel?.useWindowPoint($event)" @base-cells="basePanel?.useWindowCells($event)" />
     <WaterGroupsPanel ref="waterPanel" :model="draftModel" :actions="draftActions" :busy="busy" />
@@ -36,7 +38,7 @@ function choose(event) { props.actions.select(event.target.value); event.target.
     <p>放置192鎖定、道路拓撲章節釘死、圖塊語義未審計，這些編輯尚未開放；下圖僅顯示放置與道路幾何。拓撲意向是獨立查詢，不代表執行遷移、保存或發布准入。</p>
     <div class="module-toolbar">
       <ElButton id="mapview-refresh" :disabled="busy || model.locked" @click="actions.refresh()">讀取遊戲清單</ElButton>
-      <label>遊戲<select id="mapview-games" :value="model.selected ?? ''" :disabled="busy || model.locked" @change="choose"><option v-if="model.selected && !model.games.some(g => g.gameId === model.selected)" :value="model.selected" disabled>目前遊戲：{{ model.selected }}（本面板未列出，請讀取清單）</option><option v-for="game in model.games" :key="game.gameId" :value="game.gameId">{{ game.label }}</option></select></label>
+      <label>遊戲<ElSelect id="mapview-games" :model-value="model.selected ?? ''" :disabled="busy || model.locked" @change="choose"><ElOption v-if="model.selected && !model.games.some(g => g.gameId === model.selected)" :value="model.selected" disabled :label="`目前遊戲：${model.selected}（本面板未列出，請讀取清單）`" /><ElOption v-for="game in model.games" :key="game.gameId" :value="game.gameId" :label="game.label" /></ElSelect></label>
       <ElButton id="mapview-inspect" :disabled="busy || model.locked || !model.selected" @click="actions.inspect()">讀取地圖</ElButton>
     </div>
     <p>{{ model.context }}</p>
@@ -52,10 +54,10 @@ function choose(event) { props.actions.select(event.target.value); event.target.
       <canvas ref="canvas" id="mapview-canvas" width="384" height="256" aria-label="唯讀據點與道路示意圖"></canvas>
     </div>
     <p id="mapview-message" role="status">{{ model.message }}</p>
-    <div id="mapview-roads" class="entity-table-wrap" tabindex="0" aria-label="道路唯讀描述"><p v-for="(line,index) in model.lines" :key="index">{{ line }}</p></div>
+    <ElTable id="mapview-roads" :data="model.lines.map(line => ({ line }))" :show-header="false" aria-label="道路唯讀描述"><ElTableColumn prop="line" /></ElTable>
   </section>
 </template>
 <style scoped>
-#mapview-viewport { overflow: auto; max-height: 512px; max-width: 100%; border: 1px solid #768274; }
+#mapview-viewport { overflow: auto; max-height: 512px; max-width: 100%; }
 #mapview-canvas { display: block; max-width: none; width: auto; height: auto; }
 </style>

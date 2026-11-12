@@ -889,7 +889,7 @@ export function assignChapterGeneral(game, chapterId, values) {
 export function assignGeneralToChapterState(state, values) {
   if (!isPlainObject(values)) throw new TypeError("general values required");
   const keys = Object.keys(values);
-  if (!keys.length || keys.some(key => !["generalId", "name", "hao", "portrait", "ability"].includes(key))) throw new RangeError("chapter general allows generalId/name/hao/portrait/ability only");
+  if (!keys.length || keys.some(key => !["generalId", "name", "hao", "portrait", "ability", "suicideOnCapture"].includes(key))) throw new RangeError("chapter general allows generalId/name/hao/portrait/ability/suicideOnCapture only");
   if (typeof values.generalId !== "string" || !values.generalId) throw new RangeError("general identity required");
   if (typeof values.name !== "string" || !values.name.trim()) throw new RangeError("general name required");
   if (!Number.isInteger(values.portrait) || Object.is(values.portrait, -0) || values.portrait < 0 || values.portrait > 255) throw new RangeError("general portrait 0..255 required");
@@ -908,6 +908,11 @@ export function assignGeneralToChapterState(state, values) {
     record.ability = { ...values.ability };
   }
   record.attr = 0x80;
+  // 库自杀旗（attr bit4）随指派写入新槽；其余位保持新槽初值。
+  if (values.suicideOnCapture !== undefined) {
+    if (typeof values.suicideOnCapture !== 'boolean') throw new RangeError('general suicide flag must be boolean');
+    if (values.suicideOnCapture) record.attr |= 0x10;
+  }
   record.active = true;
   generals[slot.idx] = record;
   return { slot: slot.idx };

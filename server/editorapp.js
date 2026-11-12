@@ -14,6 +14,7 @@ import { AdminFullCopy } from './admincopy.js';
 import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
 import { GameSnapshotVerifier } from './snapshots.js';
 import { PrivateDrafts } from './drafts.js';
+import { GameCopyStore } from './gamecopy.js';
 import { FixedCopyDataCompiler } from './datacompiler.js';
 import { FixedCopyImages } from './copyimages.js';
 import { FixedCopyImageJobs } from './imagejobs.js';
@@ -25,7 +26,7 @@ import { PrivateWriteJournal } from './privatewrites.js';
 import { PrivateLibraryAssets } from './libraryassets.js';
 import { ValidationStore } from './validations.js';
 import { PublishProgress, PUBLISH_STEPS } from './publishprogress.js';
-import { TrialSessions } from './trials.js';
+// T6 试运行已取消：不再引用 TrialSessions，所有 /api/trial/* 一律 410。
 import { PublishedGames } from './published.js';
 import { PublishOperations } from './publishoperations.js';
 import { AnnouncementStore } from './announcements.js';
@@ -60,7 +61,7 @@ import shellUI from './public/shell-ui.txt';
 import shellStyle from './public/shell-ui.css';
 import shellLicenses from './public/shell-ui-licenses.txt';
 import trialwebBundle from './public/trialweb.txt';
-import trialappShell from './public/trialapp.txt';
+// T6 试运行已取消：trialapp 已下线，不再导入 trialapp.txt。
 import playappShell from './public/playapp.txt';
 import { decodeSourceChunks } from '../web/src/content/authoring/sourcejson.js';
 const COOKIE = '__Secure-dragon-editor';
@@ -72,7 +73,6 @@ const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosnif
 // script-src stays strict 'self' (no inline script, no eval).
 const trialHeaders = { ...headers, 'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; media-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" };
 const trialWebFiles = new Map(parseTrialJson(trialwebBundle, 'trial web bundle').files.map(file => [file.path, file]));
-const trialAppPage = parseTrialJson(trialappShell, 'trial app shell').html;
 const playAppPage = parseTrialJson(playappShell, 'play app shell').html;
 // Only the pinned shared client resource paths are public; never expose source/draft registry roles.
 const playLibraryPaths = new Set(Object.keys(parseTrialJson(availableLibraryManifest, 'available library').resources));
@@ -88,7 +88,7 @@ function playOriginOf(env) {
   } catch { return null; }
 }
 function parseTrialJson(text, label) { try { return JSON.parse(text); } catch (cause) { throw new Error(`${label} corrupt`, { cause }); } }
-const TRIAL_WAIT_PAGE = '<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>草稿試運行</title><p>正在建立試運行工作階段…若啟動失敗，請返回工作台查看診斷並重新開啟。</p></html>';
+// T6 试运行已取消：TRIAL_WAIT_PAGE 已删除，所有 trial 入口 410。
 const TRIAL_WEB_TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.json': 'application/json', '.txt': 'text/plain', '.flac': 'audio/flac', '.wav': 'audio/wav' };
 const trialWebType = path => TRIAL_WEB_TYPES[path.slice(path.lastIndexOf('.'))] ?? 'application/octet-stream';
 function staticAsset(pathname) {
@@ -230,6 +230,9 @@ return class EditorMetadata extends PlatformBase {
     // B-1/Q14 draft topology intents (moves + rebuild records live outside
     // the canonical game object; any pending move blocks save/publish).
     this.topology = new DraftTopology({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games });
+    // T1–T8 简化副本：copy 单套可变草稿（无修订号），单写者覆盖写。
+    this.gameCopies = new GameCopyStore({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games });
+    // T6 试运行已取消：不再实例化 TrialSessions，所有 /api/trial/* 一律 410。
     this.trialSessions = null;
     this.blobs = null; this.installedSources = null; this.adminCopies = null; this.authorCopies = null; this.privateDrafts = null; this.stageApi = null; this.availableLibrary = null; this.libraryBrowser = null; this.libraryAssets = null;
     if (env.EDITOR_BLOBS) {
@@ -269,8 +272,7 @@ return class EditorMetadata extends PlatformBase {
           if (!role) fail(503, 'DRAFT_ATLAS_NOT_CONFIGURED');
           return { registryId: source.registryId, definitionDigest: source.definitionDigest, rootDigest: source.rootDigest, sha256: role.sha256, bytes: source.readWeb(path) };
         } });
-      // Draft Trial sessions with support-domain chapter projection, private derived resources, registry visuals and fence-begin deletion cascade.
-      this.trialSessions = new TrialSessions({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, drafts: this.privateDrafts, runtimeAssets, policy });
+      // T6 试运行已取消：保留 privateDrafts 供迁移脚本只读 head→copy，不再建 TrialSessions。
       this.libraryAssets = new PrivateLibraryAssets({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, drafts: this.privateDrafts, catalog: this.availableLibrary, policy: libraryPolicy });
       const ports = { storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, blobs: this.blobs, operationGuard: (actor, key) => this.contentKey(actor, key, 'compile') };
       const imagePlanner = new FixedCopyImages({ ...ports, drafts: this.privateDrafts, catalog: this.installedSources, policy });
@@ -633,51 +635,9 @@ return class EditorMetadata extends PlatformBase {
   }
   async #getTrialRoutes(rt) {
     const { method, path } = rt;
-    if (method === 'GET' && path === '/api/trial/wait') {
-      const { url, tokenHash, policy } = rt;
-      if (url.search) { fail(422, 'TRIAL_QUERY'); }
-      this.touch(tokenHash, policy);
-      return new Response(TRIAL_WAIT_PAGE, { headers: { ...trialHeaders, 'Content-Type': 'text/html; charset=utf-8' } });
-    }
-    if (method === 'GET' && path === '/api/trial/web/') {
-      const { url, tokenHash, policy } = rt;
-      this.touch(tokenHash, policy);
-      const trialId = url.searchParams.get('trial');
-      if ([...url.searchParams.keys()].join(',') !== 'trial' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(trialId ?? '')) { fail(422, 'TRIAL_QUERY'); }
-      return new Response(trialAppPage, { headers: { ...trialHeaders, 'Content-Type': 'text/html; charset=utf-8' } });
-    }
-    if (method === 'GET' && path.startsWith('/api/trial/web/')) { return this.#getTrialWebFile(rt); }
+    // T6 试运行已取消：所有 trial 入口一律 410，不再提供页面/资源/会话。
+    if (method === 'GET' && (path === '/api/trial/wait' || path === '/api/trial/web/' || path.startsWith('/api/trial/web/'))) fail(410, 'TRIAL_RETIRED');
     return null;
-  }
-  async #getTrialWebFile(rt) {
-    const { url, path, tokenHash, policy } = rt;
-    // core/assets.js imageBust appends ?v=original-sprites-1 to the four battle sprite
-    // images; trial responses are no-store so the bust is inert here. Allow exactly that
-    // one known value and keep the strict no-query gate for everything else.
-    if (url.search && !([...url.searchParams.keys()].join(',') === 'v' && url.searchParams.get('v') === 'original-sprites-1')) { fail(422, 'TRIAL_QUERY'); }
-    this.touch(tokenHash, policy);
-    const rel = path.slice('/api/trial/web/'.length);
-    if (!/^[A-Za-z0-9_][A-Za-z0-9_/.-]{0,255}$/.test(rel) || rel.includes('..') || rel.includes('\\') || rel.endsWith('/')) { fail(404, 'TRIAL_WEB_PATH'); }
-    // Trial portrait overrides resolve relative to this directory. The shared
-    // 621-image manifest is distinct from the older fixed runtime library.
-    const portraitPath = /^kao\/([A-Za-z0-9]{1,32})\.png$/.exec(rel);
-    if (portraitPath && readSharedPortrait) {
-      const descriptor = this.portraits.get(portraitPath[1]);
-      let bytes;
-      try { bytes = await readSharedPortrait(descriptor); }
-      catch (error) { this.principal(tokenHash); throw error; }
-      this.principal(tokenHash);
-      if (!(bytes instanceof Uint8Array) || bytes.byteLength !== descriptor.byteLength || createHash('sha256').update(bytes).digest('hex') !== descriptor.sha256) fail(503, 'PORTRAIT_BYTES_CORRUPT');
-      return new Response(bytes, { headers: { ...trialHeaders, 'Content-Type': 'image/png', 'Content-Length': String(bytes.byteLength), 'X-Content-SHA256': descriptor.sha256 } });
-    }
-    const bundled = trialWebFiles.get(rel);
-    if (bundled) { return new Response(bundled.text, { headers: { ...trialHeaders, 'Content-Type': `${trialWebType(rel)}; charset=utf-8`, 'X-Content-SHA256': bundled.sha256 } }); }
-    if (!this.installedSources || !this.availableLibrary) { fail(503, 'TRIAL_WEB_NOT_CONFIGURED'); }
-    let bytes;
-    try { bytes = await this.trialRegistryBytes(rel.startsWith('content/builtin/compiled/') ? this.installedSources : this.availableLibrary, rel); }
-    catch (error) { this.principal(tokenHash); throw error; }
-    this.principal(tokenHash);
-    return new Response(bytes, { headers: { ...trialHeaders, 'Content-Type': trialWebType(rel), 'X-Content-SHA256': createHash('sha256').update(bytes).digest('hex') } });
   }
   async #getAdminAccounts(rt) {
     const { tokenHash, policy, user } = rt;
@@ -839,6 +799,7 @@ return class EditorMetadata extends PlatformBase {
     if (method === 'GET' && path === '/api/games/submissions') { const games = this.games.submissionSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/admin/games') { const games = this.games.managementSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/admin/reviews') { const games = this.games.adminSubmissionSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
+    if (method === 'GET' && path === '/api/admin/copy/submissions') { if (!this.gameCopies) { fail(503, 'COPY_NOT_CONFIGURED'); } const queue = this.gameCopies.reviewQueue(tokenHash); this.touch(tokenHash, policy); return response({ queue }); }
     if (method === 'GET' && releaseHistoryPath) { return this.#getReleaseHistory(rt); }
     if (method === 'GET' && path === '/api/admin/source') { return this.#getAdminSource(rt); }
     if (method === 'GET' && path === '/api/admin/library') { return this.#getAdminLibrary(rt); }
@@ -991,28 +952,93 @@ return class EditorMetadata extends PlatformBase {
     return null;
   }
   async #getTrialStatusPack(rt) {
-    const { method, url, tokenHash, policy, trialPath } = rt;
-    if (method === 'GET' && trialPath?.[2] === 'status') { if (!this.trialSessions) { fail(503, 'TRIAL_NOT_CONFIGURED'); } if (url.search) { fail(422, 'TRIAL_QUERY'); } this.touch(tokenHash, policy); return response(this.trialSessions.status(tokenHash, trialPath[1])); }
-    if (method === 'GET' && trialPath?.[2] === 'pack') { if (!this.trialSessions) { fail(503, 'TRIAL_NOT_CONFIGURED'); } if (url.search) { fail(422, 'TRIAL_QUERY'); } this.touch(tokenHash, policy); return response(this.trialSessions.pack(tokenHash, trialPath[1])); }
+    const { method, trialPath } = rt;
+    // T6 试运行已取消。
+    if (method === 'GET' && (trialPath?.[2] === 'status' || trialPath?.[2] === 'pack')) fail(410, 'TRIAL_RETIRED');
     return null;
   }
   async #getRecordRoutes(rt) {
     const { method, draftPath, trialAssetPath } = rt;
+    const hit = await this.#getGameCopy(rt);
+    if (hit) { return hit; }
     if (method === 'GET' && draftPath) { return this.#getDraftRead(rt); }
     const statusPack = await this.#getTrialStatusPack(rt);
     if (statusPack) { return statusPack; }
     if (method === 'GET' && trialAssetPath) { return this.#getTrialAsset(rt); }
     return null;
   }
+  // T1–T8 简化副本：copy 单套可变草稿读 + 提交状态机读。
+  async #getGameCopy(rt) {
+    const { method, url, tokenHash, policy, gameCopyPath } = rt;
+    if (!gameCopyPath || method !== 'GET') { return null; }
+    if (!this.gameCopies) { fail(503, 'COPY_NOT_CONFIGURED'); }
+    const gameId = gameCopyPath[1], sub = gameCopyPath[2];
+    if (sub === 'submission') {
+      if (url.search) { fail(422, 'COPY_QUERY'); }
+      this.touch(tokenHash, policy);
+      return response(this.gameCopies.submission(tokenHash, gameId));
+    }
+    if (!sub) {
+      if (url.search) { fail(422, 'COPY_QUERY'); }
+      this.touch(tokenHash, policy);
+      return response(this.gameCopies.read(tokenHash, gameId));
+    }
+    return null;
+  }
+  // T1–T8 简化副本：模块覆盖写 + 整包检验 + 单槽提交。
+  async #postGameCopy(rt) {
+    const { url, tokenHash, policy, gameCopyPath, value } = rt;
+    if (!gameCopyPath) { return null; }
+    if (!this.gameCopies) { fail(503, 'COPY_NOT_CONFIGURED'); }
+    const gameId = gameCopyPath[1], sub = gameCopyPath[2];
+    if (url.search) { fail(422, 'COPY_QUERY'); }
+    if (!sub) {
+      fields(value, ['module', 'patch']);
+      this.touch(tokenHash, policy);
+      return response(this.gameCopies.writeModule(tokenHash, gameId, value.module, value.patch));
+    }
+    if (sub === 'validate') {
+      fields(value, []);
+      this.touch(tokenHash, policy);
+      return response(this.gameCopies.validateWhole(tokenHash, gameId));
+    }
+    if (sub === 'submission') {
+      fields(value, ['ticket', 'description']);
+      this.touch(tokenHash, policy);
+      return response(this.gameCopies.submit(tokenHash, gameId, value));
+    }
+    if (sub === 'reject') {
+      fields(value, []);
+      this.touch(tokenHash, policy);
+      return response(this.gameCopies.rejectSlot(tokenHash, gameId));
+    }
+    if (sub === 'approve') {
+      // 方案 B：事务外准备 pack（compile＋prepare 皆为 async），事务内原子提交。
+      // pack 身份的修订号取预检 nextVersion；真正的新鲜度与序号由 approveSlot 在事务内复核＋配发。
+      fields(value, []);
+      const preview = this.gameCopies.approvePreview(tokenHash, gameId);
+      const compiled = compileTrialSource(preview.data, bytes => createHash('sha256').update(bytes).digest('hex'));
+      const ticket = await this.playPacks.prepare(tokenHash, { game: preview.data, reference: { gameId, draftRevision: preview.nextVersion, sourceDigest: preview.copyDigest }, compiled });
+      this.touch(tokenHash, policy);
+      return response(this.gameCopies.approveSlot(tokenHash, gameId, () => this.playPacks.installPreparedInTxn(tokenHash, ticket)));
+    }
+    if (sub === 'ensure') {
+      // B4 迁移/首建：draft 头修订只种一次，已有 copy 行直接返回不覆盖。
+      fields(value, []);
+      if (!this.privateDrafts) { fail(503, 'DRAFT_NOT_CONFIGURED'); }
+      const owned = this.games.listOwn(tokenHash).find(entry => entry.gameId === gameId);
+      if (!owned) { fail(404, 'GAME_NOT_FOUND'); }
+      const head = await this.privateDrafts.captureForCompile(tokenHash, gameId, owned.draftRevision);
+      this.touch(tokenHash, policy);
+      return response(this.gameCopies.seedFromGame(tokenHash, gameId, head.game));
+    }
+    return null;
+  }
   async #getTrialAsset(rt) {
-    const { url, tokenHash, policy, trialAssetPath } = rt;
-    if (!this.trialSessions) { fail(503, 'TRIAL_NOT_CONFIGURED'); }
-    if (url.search) { fail(422, 'TRIAL_QUERY'); }
-    this.touch(tokenHash, policy);
-    const served = this.trialSessions.asset(tokenHash, trialAssetPath[1], trialAssetPath[2]);
-    // 共用画像（B）：无字节落库，返回 kao 引用描述；Trial同源路径按共享画像清单取数。
-    if (!served.bytes) { return new Response(JSON.stringify(served), { headers: { ...headers, 'Content-Type': 'application/json', 'X-Content-SHA256': served.sha256 } }); }
-    return new Response(served.bytes, { headers: { ...headers, 'Content-Type': served.mime, 'X-Content-SHA256': served.sha256 } });
+    const { trialAssetPath } = rt;
+    // T6 试运行已取消。
+    if (trialAssetPath) fail(410, 'TRIAL_RETIRED');
+    return null;
   }
   async #postManagement(rt) {
     const { request, tokenHash, user, policy, url, value, managementPath } = rt;
@@ -1302,6 +1328,8 @@ return class EditorMetadata extends PlatformBase {
   }
   async #postEntryRoutes(rt) {
     const { request, tokenHash, user, policy, url, path, value, managementPath, reviewPath, deletionPath, purgePath, stagePath, copyPath, authorCopyPath, draftPath } = rt;
+    const gameCopyHit = await this.#postGameCopy(rt);
+    if (gameCopyHit) { return gameCopyHit; }
     if (managementPath) { return this.#postManagement(rt); }
     if (purgePath) { return this.#postPurge(rt); }
     if (reviewPath) { return this.#postReview(rt); }
@@ -1332,35 +1360,16 @@ return class EditorMetadata extends PlatformBase {
     return null;
   }
   async #postTrialStart(rt) {
-    const { request, tokenHash, user, policy, url, value, trialStartPath } = rt;
+    const { trialStartPath } = rt;
     if (!trialStartPath) { return null; }
-    if (!this.trialSessions) { fail(503, 'TRIAL_NOT_CONFIGURED'); }
-    if (url.search) { fail(422, 'TRIAL_QUERY'); }
-    fields(value, ['expectedRevision', 'chapterId']);
-    this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'auth');
-    const op = await this.operation(request, value, user.id, user.epoch, policy), old = await this.replay(op, policy);
-    if (old) { return response(old.body, 200); }
-    const issued = await this.trialSessions.issue(tokenHash, trialStartPath[1], value.expectedRevision, value.chapterId);
-    let result = { body: issued.trial };
-    const sealed = await seal(result, policy.secret, op.aad);
-    const committed = this.ctx.storage.transactionSync(() => { if (!this.canCommit(op)) { return false; } const current = this.principal(tokenHash); if (current.epoch !== user.epoch) { fail(401, 'SESSION_INVALID'); } this.trialSessions.commit(tokenHash, result.body, issued.derived); this.touch(tokenHash, policy); this.remember(op, sealed, policy); return true; });
-    if (!committed) { const replayed = await this.replay(op, policy); result = { body: replayed.body }; }
-    return response(result.body, 200);
+    // T6 试运行已取消。
+    fail(410, 'TRIAL_RETIRED');
   }
   async #postTrialEnd(rt) {
-    const { request, tokenHash, user, policy, url, value, trialPath } = rt;
+    const { trialPath } = rt;
     if (trialPath?.[2] !== 'end') { return null; }
-    if (!this.trialSessions) { fail(503, 'TRIAL_NOT_CONFIGURED'); }
-    if (url.search) { fail(422, 'TRIAL_QUERY'); }
-    fields(value, []);
-    this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'auth');
-    const op = await this.operation(request, value, user.id, user.epoch, policy), old = await this.replay(op, policy);
-    if (old) { return response(old.body, 200); }
-    let result = { body: this.trialSessions.endPreview(tokenHash, trialPath[1]) };
-    const sealed = await seal(result, policy.secret, op.aad);
-    const committed = this.ctx.storage.transactionSync(() => { if (!this.canCommit(op)) { return false; } const current = this.principal(tokenHash); if (current.epoch !== user.epoch) { fail(401, 'SESSION_INVALID'); } result = { body: this.trialSessions.endCommit(tokenHash, trialPath[1], result.body) }; this.touch(tokenHash, policy); this.remember(op, sealed, policy); return true; });
-    if (!committed) { const replayed = await this.replay(op, policy); result = { body: replayed.body }; }
-    return response(result.body, 200);
+    // T6 试运行已取消。
+    fail(410, 'TRIAL_RETIRED');
   }
   async #buildPasswordMutation(user, value, policy) {
     fields(value, ['oldPassword', 'newPassword']); password(value.newPassword);
@@ -1461,11 +1470,12 @@ return class EditorMetadata extends PlatformBase {
     const trialPath = /^\/api\/trials\/([a-f0-9-]{36})(?:\/(status|end|pack))?$/.exec(path);
     const trialAssetPath = /^\/api\/trials\/([a-f0-9-]{36})\/assets\/([A-Za-z0-9]{1,32})$/.exec(path);
     const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|minimap|map-window|map-layer-window|map-scene|map-atlas|decoration-selection|chapter-references|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
+    const gameCopyPath = /^\/api\/games\/([a-f0-9-]{36})\/copy(?:\/(validate|submission|ensure|reject|approve))?$/.exec(path);
     const releasesPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/releases$/.exec(path);
     // 發布歷史（game_releases 日誌）與上面 content_releases 的 /releases 是兩件事：
     // 前者是「上架歷史」（admin 唯讀、A 路線之後才有），後者是內容修訂清單。
     const releaseHistoryPath = /^\/api\/admin\/games\/([a-f0-9-]{36}|wolong-builtin)\/releases$/.exec(path);
-    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, reviewPath, deletionPath, purgePath, portraitPath, copyPath, authorCopyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath, releasesPath, releaseHistoryPath, topologyPath };
+    const rt = { request, policy, url, path, method, tokenHash, user, csrf, managementQuery, managementPath, reviewPath, deletionPath, purgePath, portraitPath, copyPath, authorCopyPath, stageAssetsPath, libraryPath, stagePath, trialStartPath, trialPath, trialAssetPath, draftPath, gameCopyPath, releasesPath, releaseHistoryPath, topologyPath };
     if (method === 'GET') {
       const hit = (await this.#getTrialRoutes(rt)) ?? (await this.#getPrimaryRoutes(rt)) ?? (await this.#getDeletion(rt)) ?? (await this.#getPortraits(rt)) ?? (await this.#getTopology(rt)) ?? (await this.#getCollectionRoutes(rt)) ?? (await this.#getRecordRoutes(rt));
       if (hit) { return hit; }

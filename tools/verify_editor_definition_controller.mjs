@@ -7,7 +7,7 @@ const { installDraftEditor } = await import(`data:text/javascript;base64,${Buffe
 const G = '11111111-1111-4111-8111-111111111111', H = '22222222-2222-4222-8222-222222222222';
 const ID = `${G}#general-${'a'.repeat(64)}`, SHA = 'b'.repeat(64);
 const metadata = { name: '作者草稿', introduction: '已保存' };
-const row = () => ({ generalId: ID, name: '原名', hao: '', portraitRef: null });
+const row = () => ({ generalId: ID, name: '原名', zi: '', hao: '', portraitRef: null });
 const dto = (revision = '1', definitions = []) => ({ gameId: G, draftRevision: revision, profileRevision: 'fixed-template-authoring-1', metadata, generalDefinitions: definitions, generalReferences: definitions.map(person => ({ generalId: person.generalId, chapters: [] })), chapters: [{ chapterId: 'first', name: '第一章', factions: [], gaps: { saveGaps: 0, activeGaps: 3 } }] });
 const receipt = revision => ({ gameId: G, draftRevision: revision, metadata });
 const cityRow = (over = {}) => ({ cityId: 'city-0', name: null, runtimeSlot: 0, x: 1, y: 2, max_prod: null, type: null, view: null, ...over });
@@ -985,7 +985,7 @@ test('create binds the original saved revision and metadata; lost response keeps
   const h = harness(); await h.load(); h.a.setField('name', '另一表未保存');
   h.a.setDefinitionField('name', ' e\u0301 '); h.a.setDefinitionField('hao', '字');
   h.response(() => { throw new Error('response lost'); }); await h.a.saveDefinition();
-  const first = structuredClone(h.calls.at(-1)); assert.deepEqual(first.body, { metadata, resourceEdits: [], generalEdits: [{ op: 'create', values: { name: 'é', hao: '字', portraitRef: null } }] }); assert.equal(first.options.revision, '1');
+  const first = structuredClone(h.calls.at(-1)); assert.deepEqual(first.body, { metadata, resourceEdits: [], generalEdits: [{ op: 'create', values: { name: 'é', zi: '', hao: '字', portraitRef: null } }] }); assert.equal(first.options.revision, '1');
   const before = h.calls.length; await h.a.saveDefinition(); await h.a.retry(); assert.equal(h.calls.length, before);
   let association; try { association = JSON.parse([...h.records.values()][0]); } catch (cause) { throw new Error('bad fixture association', { cause }); }
   assert.deepEqual(Object.keys(association).sort(), ['gameId', 'key', 'revision']);
@@ -993,7 +993,7 @@ test('create binds the original saved revision and metadata; lost response keeps
   h.response(() => receipt('2')); await h.a.retry(); assert.deepEqual(h.calls.at(-1), first);
   assert.equal(h.model().fields.name, '另一表未保存'); assert.equal(h.model().context.dirty, true); assert.equal(h.model().context.verified, false); assert.equal(h.model().definitions.locked, true); assert.equal(h.records.size, 0);
   h.confirm = false; const beforeRead = h.calls.length; await h.a.load(); assert.equal(h.calls.length, beforeRead);
-  h.confirm = true; h.response(() => dto('2', [{ ...row(), name: 'é', hao: '字' }])); await h.a.load(); assert.equal(h.model().definitions.rows.length, 1); assert.equal(h.model().context.verified, true);
+  h.confirm = true; h.response(() => dto('2', [{ ...row(), name: 'é', zi: '', hao: '字' }])); await h.a.load(); assert.equal(h.model().definitions.rows.length, 1); assert.equal(h.model().context.verified, true);
 });
 test('reload retains only original operation association; query acknowledgement requires exact reread', async () => {
   const first = harness(); await first.load(); first.a.setDefinitionField('name', '新將'); first.response(() => { throw new Error('lost'); }); await first.a.saveDefinition();
@@ -1004,7 +1004,7 @@ test('reload retains only original operation association; query acknowledgement 
 });
 test('update and delete retain stable IDs; cancellation and changed identity cannot issue writes', async () => {
   const h = harness({ definitions: [row()] }); await h.load(); h.a.selectDefinition(ID); h.a.setDefinitionField('name', '改名');
-  h.response(() => receipt('2')); await h.a.saveDefinition(); assert.deepEqual(h.calls.at(-1).body.generalEdits, [{ op: 'update', generalId: ID, values: { name: '改名', hao: '', portraitRef: null } }]);
+  h.response(() => receipt('2')); await h.a.saveDefinition(); assert.deepEqual(h.calls.at(-1).body.generalEdits, [{ op: 'update', generalId: ID, values: { name: '改名', zi: '', hao: '', portraitRef: null } }]);
   h.response(() => dto('2', [{ ...row(), name: '改名' }])); await h.a.load(); h.a.selectDefinition(ID);
   const before = h.calls.length; h.confirm = false; await h.a.deleteDefinition(); assert.equal(h.calls.length, before);
   h.confirm = () => { h.identity(null); return true; }; await h.a.deleteDefinition(); assert.equal(h.calls.length, before); assert.deepEqual(h.model().definitions.rows, []);
@@ -1046,10 +1046,10 @@ const referencedDTO = () => {
   const data = dto('1', [row()]);
   data.chapters.push({ ...data.chapters[0], chapterId: 'second', name: '<img>第二章' });
   data.generalReferences[0].chapters = [
-    { chapterId: 'first', included: true, inheritedFields: ['name', 'hao', 'portraitRef'], overriddenFields: [] },
-    { chapterId: 'second', included: false, inheritedFields: ['hao', 'portraitRef'], overriddenFields: ['name'] },
+    { chapterId: 'first', included: true, inheritedFields: ['name', 'zi', 'hao', 'portraitRef', 'ability', 'suicideOnCapture'], overriddenFields: [] },
+    { chapterId: 'second', included: false, inheritedFields: ['zi', 'hao', 'portraitRef', 'ability', 'suicideOnCapture'], overriddenFields: ['name'] },
   ];
-  data.chapterPeople = data.generalReferences[0].chapters.map(reference => ({ chapterId: reference.chapterId, people: [{ generalId: ID, included: reference.included, factionId: null, overrides: reference.chapterId === 'second' ? { name: '章名' } : {}, values: { name: reference.chapterId === 'second' ? '章名' : '原名', hao: '', portraitRef: null }, inheritedFields: reference.inheritedFields, overriddenFields: reference.overriddenFields }] }));
+  data.chapterPeople = data.generalReferences[0].chapters.map(reference => ({ chapterId: reference.chapterId, people: [{ generalId: ID, included: reference.included, factionId: null, overrides: reference.chapterId === 'second' ? { name: '章名' } : {}, values: { name: reference.chapterId === 'second' ? '章名' : '原名', zi: '', hao: '', portraitRef: null, suicideOnCapture: false }, inheritedFields: reference.inheritedFields, overriddenFields: reference.overriddenFields }] }));
   return data;
 };
 test('inherited changes show exact chapter fields; cancel has no journal, lost response retries the original acknowledgment', async () => {
@@ -1115,8 +1115,8 @@ test('new chapter configurations inherit without native fields; malformed effect
 test('restore inheritance deletes only the selected override, retaining inactive status and exact retry body', async () => {
   for (const field of ['name', 'hao', 'portraitRef']) {
     const data = referencedDTO(), person = data.chapterPeople[1].people[0], reference = data.generalReferences[0].chapters[1];
-    person.overrides = { name: '章名', hao: '章字', portraitRef: null }; person.values = { ...person.overrides };
-    person.inheritedFields = []; person.overriddenFields = ['name', 'hao', 'portraitRef']; reference.inheritedFields = []; reference.overriddenFields = [...person.overriddenFields];
+    person.overrides = { name: '章名', hao: '章字', portraitRef: null }; person.values = { ...person.overrides, zi: '', suicideOnCapture: false };
+    person.inheritedFields = ['zi', 'ability', 'suicideOnCapture']; person.overriddenFields = ['name', 'hao', 'portraitRef']; reference.inheritedFields = [...person.inheritedFields]; reference.overriddenFields = [...person.overriddenFields];
     const h = harness(); await h.load(); h.response(() => data); await h.a.load(); h.a.setField('chapterId', 'second');
     h.confirm = false; const before = h.calls.length; await h.a.person('inherit', 'second', ID, undefined, field); assert.equal(h.calls.length, before); assert.equal(h.records.size, 0);
     h.confirm = true; h.response(() => { throw new Error('owned loss'); }); await h.a.person('inherit', 'second', ID, undefined, field);

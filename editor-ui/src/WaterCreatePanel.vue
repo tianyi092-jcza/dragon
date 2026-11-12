@@ -1,6 +1,10 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElInput } from 'element-plus/es/components/input/index.mjs';
+import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
+import { ElCheckbox, ElCheckboxGroup } from 'element-plus/es/components/checkbox/index.mjs';
+import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
 const selected = ref([]), visibility = ref(''), filter = ref(''), page = ref(0);
 defineExpose({ hasInputs: () => visibility.value !== '' });
@@ -32,8 +36,8 @@ function create() {
     <p v-if="!candidates" id="water-create-unknown">此修訂沒有提供新建候選，不能視為空庫；請用上方按鈕明確載入。</p>
     <template v-else>
       <div class="module-toolbar">
-        <label>篩選候選<input id="water-create-filter" v-model="filter" type="search" :disabled="locked"></label>
-        <label>新組小地圖設定<select id="water-create-visibility" v-model="visibility" :disabled="locked"><option value="" disabled>請明確選擇</option><option value="yes">顯示</option><option value="no">不顯示</option></select></label>
+        <label>篩選候選<ElInput id="water-create-filter" v-model="filter" type="search" :disabled="locked" /></label>
+        <label>新組小地圖設定<ElSelect id="water-create-visibility" v-model="visibility" :disabled="locked"><ElOption value="" disabled label="請明確選擇" /><ElOption value="yes" label="顯示" /><ElOption value="no" label="不顯示" /></ElSelect></label>
         <ElButton id="water-create-clear" :disabled="locked || !selected.length" @click="selected = []">清除全部新建選取</ElButton>
         <ElButton id="water-create-cancel" :disabled="locked || (!visibility && !selected.length)" @click="selected = []; visibility = ''">取消新建準備</ElButton>
         <ElButton id="water-create-save" :disabled="locked || !selected.length || !visibility" @click="create">新建所選水域組合</ElButton>
@@ -45,9 +49,7 @@ function create() {
         <ElButton id="water-create-next" :disabled="locked || currentPage + 1 >= pages" @click="page = currentPage + 1">下一頁候選</ElButton>
       </div>
       <p v-if="!filtered.length">沒有符合篩選的候選；不代表沒有水域。</p>
-      <div id="water-create-candidates" class="entity-table-wrap" tabindex="0" aria-label="新建水域完整候選">
-        <p v-for="row in rows" :key="row.key"><label><input v-model="selected" data-water-create-candidate type="checkbox" :value="row.key" :disabled="locked">{{ row.label }}</label></p>
-      </div>
+      <ElCheckboxGroup v-model="selected"><ElTable id="water-create-candidates" :data="rows" row-key="key" :show-header="false" aria-label="新建水域完整候選"><ElTableColumn><template #default="{ row }"><ElCheckbox data-water-create-candidate :value="row.key" :disabled="locked">{{ row.label }}</ElCheckbox></template></ElTableColumn></ElTable></ElCheckboxGroup>
     </template>
   </section>
 </template>
