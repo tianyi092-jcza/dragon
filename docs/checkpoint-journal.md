@@ -9,9 +9,84 @@
 | --- | --- |
 | 游戏级数据／copy 简化 | 元数据、章节、据点、武将库、发布／审核已接 copy；地图／部分定义面板、旧 draft 控制器与旧表清理仍未整体收尾，见[任务清单](copy-simplification-tasks.md) |
 | 发布／审核修补 | 下列 §14／§15 的真实包准备、成功提示与 `listed=1` 修补已在本地验证；不是本轮默认主题任务的新增业务改动 |
-| Element Plus 默认展示 | 已迁移并重建；指定回归保留 6 项既有失败，真实源完整浏览器验收及 Vue LSP 未闭合，详见 §36；用户确认此选择为长期架构约定，决策记录见 §37（tag: `architecture`） |
+| Element Plus 默认展示 | 已迁移并重建；§36 指定回归的既有失败及真实源验收边界保留；§44 统一列表，§45 接入独立 Vue 检查兼容工具，但宿主空诊断仍有未确认，不能称全部 LSP 通过。默认组件长期决定见 §37（tag: `architecture`） |
 | 生产 | **本轮没有部署或线上复核**。上一份部署收据为 editor `20261111-city2`、player `20261109-b6-disk`、static `826b7c3a…`／sourceTree `65cbb8d7…`；仅作历史定位，不保证服务器此刻仍是该值。运维入口见[存储布局 §18](game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产) |
-| 工作区 | 用户已授权完整本地提交；本次对已有 copy／发布审核／清理、展示层、工具与文档改动一起审查并纳入提交，排除重复部署镜像及本地任务草稿。审查修补与最终验证见 §38；没有 push／部署 |
+| 工作区 | §38 已在 `34bf1c1` 提交；§39–45 的编辑器修补、统一列表与开发工具兼容按本轮明确授权纳入本地提交，收据见 §46，提交标识以 `git log` 为准；未 push／部署 |
+
+## 46. 编辑器展示修补与 Vue 检查工具本地提交
+
+- 用户明确要求「提交」，本轮仅本地 commit，不推送／部署。范围为 §39–45 的统一加载、据点／武将固定表头与分页、共用操作按钮、分页头像选择、显隐修复、测试／构建资源／长期文档及项目级 Vue LSP 工具；不扩大到玩家规则、数据库、迁移或生产操作。历史各节「当轮未提交」保留为原收据，不改写历史。
+- 提交前重新运行：分页／统一加载／据点与武将 copy 控制器／内存 SQLite 武将库 **33／33**；两份全新隔离浏览器测试（武将完整流程、据点与全部 **11 模块**显隐）通过，pageerror／console error／意外请求均 **0**；使用内存 API，不是生产或真实资源流程验收。
+- 独立 Vue 协议回归重跑：**30 SFC 错误级／7016 均 0**、TS2322 真实错误正控及修正清除、标准 push 与完整诊断、符号请求均通过，桥请求为 0；保留 ChaptersPanel 既有 TS6133 提示。宿主 push-only／空结果和父目录启动限制仍按 §45 报告，不冒称全部 pi-lens 检查通过。
+- `build.mjs --check` 与已生成资源逐字节一致：1035 modules、JS 1071695B／CSS 123470B／13 包 notices；协议脚本及两份客户端产物语法、diff 检查通过。验证日志在本机 `C:/Users/fczll/AppData/Local/Temp/dragon-editor-commit/`，不入 Git。未重跑无关游戏规则或存档测试，未访问真实 SAVE／用户 profile／生产。
+- 提交排除私有 node_modules、缓存、临时日志／截图；UI package／lock、许可证及玩家样式无改动。`E:/Dragon/AGENTS.md` 在仓库外，本轮不能纳入此仓库提交，保留其现有长期约定而不删除或伪称已提交。未修改全局工具、配置、信任或权限。
+
+## 45. 项目级 Vue LSP standalone 兼容工具（2026-11-12）
+
+- 用户批准先用局部可回退方案，保留编辑器 Vue **3.5.44**、Element Plus **2.14.8**、pi-lens **4.4.12**；不是降到 Vue 2。仅新增 `editor-ui/lsp/` 私有 package／lock／协议回归与说明、`editor-ui/.pi-lens.json` 和 ESM Bundler `jsconfig.json`，忽略私有 node_modules。实际锁定 **@vue/language-server 2.2.12 + TypeScript 5.9.3**，`npm ci --ignore-scripts` 重装验证 **91 包**；不改 UI 运行时 package／lock、全局工具／配置／信任，不把开发工具打入玩家或编辑器发布产物。入口与回退维护源为 [工具说明](../editor-ui/lsp/README.md)，AGENTS 只留索引。
+- 原因证据：默认 Vue LS **3.3.14** 可以约 1 秒初始化，却发送 `tsserver/request` 的 `_vue:projectInfo` 后等待客户端桥；安装版 pi-lens 无对应请求／返回桥处理，独立只读 JSON-RPC 也重现符号请求不返回。v2.2.12 官方入口的 `vue.hybridMode:false` 改走内部 TS 项目，避免桥依赖；固定服务版本而非盲升插件／换未支持桥的替代品。官方源码链接与配置合同见工具说明，不以旧超时或空缓存推断源码错误。
+- `npm run --prefix editor-ui/lsp check` 用同一项目 argv／初始化选项启动新进程，不写测试 SFC：符号响应、TS2322 正控（完整 request＋标准 publish 均报真实错误）、修正后完整结果清除；逐个读取 **30 个 src/*.vue**，错误级／7016 均 **0**，桥请求 **0**，stderr 空。最后一次初始化 **852ms**，组件完整查询 **34–509ms**；仅 ChaptersPanel 原有 severity4／TS6133 `factionSlotLabel` 未使用提示，未为消提示改业务。补 Bundler 解析后，前期 14 条 EP 深路径声明提示已消失，未加 any 声明或关闭诊断。测试依赖真实服务完整 handler；该版 inter-file 模式 advertise push，不虚称原生 advertise pull。
+- 新 pi SDK 会话验证实际 extension／工具，无模型请求、不存对话、不设置信任：从 `editor-ui` 启动时 `GeneralsPanel.vue` 符号树返回，`latency.log` 新 PID **22360** 记录 `launchVariant:override`。同一会话四组件主动诊断仍为 **1 timeout＋3 push-only/silent-on-clean**，未确认 clean，不能用独立服务完整回归替它冒领全部 pi-lens 通过。
+- 同时保留失败边界：第一次新 SDK 会话从仓库根启动，虽然 effective_config 显示嵌套三字段来源，实际 PID **21336** 仍 `launchVariant:default`、符号请求 10 秒超时；当前老会话也没自动切换。只切换测试启动 cwd 后采用 override；因此文档明确要求 **`cd editor-ui` 后启动新 pi 进程**，不宣称父目录启动／仅 reload 已解决。不通过改全局配置或信任绕过这一宿主局限。
+- 私有包 `npm ci`、完整协议回归、`node --check editor-ui/lsp/verify.mjs`、diff 检查通过；原 UI `build.mjs --check` 保持同字节（1035 modules／JS 1071695B／CSS 123470B／13 包 notices），无需重建。八文件主动 LSP：七项 clean，仓库 AGENTS 只有六条既有 Marksman 父目录链接 warning，五个不同目标逐路径存在核对通过；session `mode=all` 另核，当前 Vue 宿主未确认状态仍保留。协议脚本新 JSON 边界扫描意见已修正并重新扫描；未屏蔽规则。日志：本机 `C:/Users/fczll/AppData/Local/Temp/dragon-vue-lsp-compat/{project-probe.log,pi-session-probe.log,pi-session-probe-editor-root.log}`；各自关闭所持子进程／SDK extension。
+- 本轮仅开发工具配置，不改游戏／编辑器业务，未重跑无关规则／存档／浏览器 UI，未读真实 SAVE／生产，未 commit／push／部署。回退只移走项目 override 后启动新进程；私有依赖是否卸载由用户决定，不覆盖此前工作区修改。
+
+## 44. 武将／据点统一分页与操作列、头像每页 25 张（2026-11-12）
+
+- 用户指定以城池据点普通默认「保存／取消」为准，不用武将旧蓝色保存／右侧浮层操作列；全部编辑器列表长期统一 Loading、固定表头、可跳转分页、不使用瀑布流，后续默认执行，特殊情况由用户另提。本轮只实施武将管理／城池据点及头像弹窗。规范维护源重写为 `editor-ui-layout-spec.md`，撤销旧 34px、自造皮肤／sticky 和面板重复重读的过期合同；仓库 AGENTS 与仓外 `E:/Dragon/AGENTS.md` 只留摘要与链接，不宣称其它模块已迁移。
+- 新增共用 `ListRowActions.vue`（普通默认編輯／保存／取消）、`ListPagination.vue`（默认 ElPagination＋jumper）、`pagination.js`（完整筛选／排序结果切片、页大小重置及数据缩减页码收敛）；两面板复用。列表默认 25，可选 25／50／100，连续序号、末页／空结果准确，切页／筛选／排序回滚动顶部，分页在数据区下方固定。保留 `:not([hidden])`，操作列不 fixed、不 primary；`main.js` 按路径引入默认 Pagination CSS，不改玩家样式、控制器／API／存储或添加依赖。
+- 头像弹窗固定 25 张／页，只挂载当前页并保留本页图片懒加载，目录仍按需读取／缓存；無頭像独立选择不占配额，跨页保留选择，搜索全目录后回第一页。默认 ElDialog 限制视口宽高、内容区滚动，并支持右下角 resize；分页与确认／取消保持可见。首次浏览器检查抓到 teleport 根节点没有父组件 scoped 属性、`resize:none`，改用仅该专用弹窗类的 global 布局选择器，非全局 Dialog 皮肤覆盖；重跑真实拖动缩放通过。
+- 扩展两份永久实际打包壳浏览器测试：`verify_editor_generals_browser.mjs`、`verify_editor_panel_visibility_browser.mjs`。全新隔离 Chromium＋内存 API：25／50／100、上一／下一／jumper、末页 160→10／162→12／192→17、序号、全量筛选／排序、空结果、滚动不追加、切页回顶部；武将跨页编辑保留且零隐式写入、两模块默认普通按钮／无悬浮操作列、取消零写入、保存仅发预期变更并重读。头像 621 张为 25／页、末页 21，未访问页不挂载／下载；翻页选择保持、搜索／空结果／确认／取消、缓存复用及拖动调整弹窗验证通过。用例修正了据点请求应为既有 rename 而非 upsert，以及 EP 页码文本空白的夹具断言，不改业务迎合测试。
+- 1440×900／1024×600／1600×1000 三尺寸：表体真实滚动、表头／分页不滚、整页不溢出；头像弹窗边界、分页及确认／取消均在视口内。空态及 192 座加载后两轮全部 **11 模块**显隐通过；两脚本 pageerror／console error／意外请求均 **0**，所有自有服务与浏览器 finally 关闭。截图已核对；本机日志／截图在 `C:/Users/fczll/AppData/Local/Temp/dragon-list-pagination/`。这是合成 API 夹具验收，不是真实后端／生产／资源画质验收。
+- 新增 `editor-ui/tests/pagination.test.mjs` 四项纯展示状态测试；与统一加载、据点／武将 copy 控制器及内存 SQLite 武将库共 **33／33 通过**。命令：`node --test --test-concurrency=1 editor-ui/tests/pagination.test.mjs tools/verify_editor_loading.mjs tools/verify_copy_controller_cities.mjs tools/verify_copy_controller_generals.mjs tools/verify_copy_generals_manage.mjs`。build 后 check 同字节通过：**1035 modules、JS 1071695B、CSS 123470B、13 包 notices**，许可证无差异。生成 JS／新测试／main／pagination 语法及 diff 检查通过；仅原换行提示，未批量转换。CSS 对 HEAD 剔除默认 Loading／Pagination、新增局部面板／分页／弹窗布局并还原头像网格旧布局、归一 scoped ID 后逐字节相同，其余默认组件样式未动。
+- 主动 LSP 仍有四个 Vue 超时及部分 push-only 未确认，不能用构建／空缓存称通过；新测试直接依赖路径的声明提示通过将测试放入 editor-ui 子项目并正常 import Vue 消除，不加类型屏蔽。默认 CSS 保留 **7 条上游兼容 warning＋24 条 no-important**（相对前轮新增来自默认 Pagination），不手改产物消警；session `mode=all` 另核。未跑无关游戏规则回归，未读真实存档、未触及生产，未 commit／push／部署。
+
+## 43. 武将管理固定表头、行编辑与懒加载核查（2026-11-12）
+
+> 后续用户决定见 §44：本节右侧 fixed 操作列已撤销，蓝色保存改普通默认按钮；列表及头像均已分页，不再一次挂载 621 张。本节 154／621 等为改动前历史结果，不是现行分页验收。
+
+- 用户范围：加载／原生记录导入使用统一动画、锁定列表头、恢复可见的编辑操作、编辑态点击头像打开选择弹窗，弹窗加载有动画且头像懒加载。核对 `GeneralsPanel.vue`、`draft.txt` 与共同 API 入口：编辑／取消／保存、相册按需读取、原生 `loading="lazy"` 原本已有；三类读取也已接 §41 的统一入口，本轮复用而不另建转圈组件或改写控制器。
+- 表格缺少限定高度，改前打包浏览器测试明确失败：内部滚动设置 1000px 后仍为 0。给 `ElTable` 设置 `height="100%"`，以局部 flex 数据区占剩余高度，表头留在数据区上方；操作列用默认组件 `fixed="right"`，不再藏在宽表最右方。面板布局只匹配 `#generals-editor:not([hidden])`，避免重犯 §42 的隐藏覆盖。不改默认皮肤／主题、玩家样式或业务合同。
+- 同时修正直接影响导入／编辑的两处问题：① 导入按钮原来复用需要武将库已存在的编辑锁，导致“尚无武将库”时无法导入；现在依据已加载副本及可导入记录启用。② 空能力资料用空字符串初始化时，默认 `ElInputNumber` 挂载会将其变成 0；新浏览器用例捕获了无意发送六个 0 的请求。表单改用组件支持的 null，并跳过未改的空能力，只改头像／姓名／号不会补造能力值。
+- 新增 `tools/verify_editor_generals_browser.mjs`：实际打包壳／客户端／控制器，全新隔离 Chromium＋内存 API 夹具。验证加载／导入／相册及保存重读均显示页中央蓝色四圆点、无等待文字、真实旋转且遮罩高于弹窗；只读头像不打开选择器，编辑态才打开，确认只改表单、取消零写入，保存只发变更字段并重读。相册未打开零目录请求，重开复用清单；621 张均为懒加载，本次开窗只请求 154 张，末张滚动前未下载、滚到底后才加载。另核缺库导入、空能力不改写、姓名过滤／排序、162 行列表在 1440×900／1024×600／1600×1000 的内部滚动与固定表头／右侧操作列。pageerror／console error／意外请求均为 0。
+- §42 全 **11 模块**显隐回归（空态及 192 座据点）重跑通过；统一加载、据点／武将读投影及武将库控制器／内存 SQLite 回归共 **29／29 通过**。build 后 check 同字节通过（1007 modules，JS 1049561B、CSS 115988B、13 包 notices，许可证无差异）；生成 JS／新测试语法与 diff 检查通过。CSS 审计：相对 HEAD 剔除默认 Loading、据点及武将两组局部布局并归一 scoped ID 后完全相等，其余组件样式未动。
+- Vue 主动 LSP 10 秒超时、新浏览器脚本为 push-only，均未确认 clean；CSS 保留 6 条上游兼容 warning＋22 条既有 no-important，日志 Markdown 主动检查及 session `mode=all` 另核。不将构建／空诊断当 Vue LSP 通过；浏览器保存重读为隔离 API 夹具，非真实后端／生产验收。未跑无关游戏规则回归，未提交／推送／部署；未读真实存档，自有服务与浏览器均已关闭。日志／截图：本机 `C:/Users/fczll/AppData/Local/Temp/dragon-generals-ui/`。
+
+## 42. 据点面板跨模块残留回归修复（2026-11-12）
+
+- 用户在武将管理、系统资源等页发现据点面板占据上方空间。根因是 §39 新增的 `#stronghold-editor[data-v-*] { display:flex }` 与全局 `#editor-app [hidden] { display:none }` 同优先级，打包后局部规则在后，覆盖了隐藏。不是数据串写；是此次表头布局修改引入的跨模块展示回归。
+- 定点把 `StrongholdPanel.vue` 选择器收窄为 `#stronghold-editor:not([hidden])`，只在面板显示时启用 flex；不改全局隐藏规则、不加 `!important`、不重写模块装配，不改业务或数据。保留固定表头及 §41 已确认的加载动画，重建资源。
+- 新增 `tools/verify_editor_panel_visibility_browser.mjs`，使用实际打包壳／客户端／控制器、全新隔离 Chromium 和内存管理员 API 夹具。空态、加载 192 座后两轮逐一切换全部 **11 个模块**，断言隐藏面板 computed display 为 none、无布局矩形、当前模块是唯一显示面板；返回据点后验证真实内部滚动 1000px、固定表头及 1440×900／1024×600／1600×1000 缩放。pageerror／console error／意外请求均为 0；未使用真实后端、生产或存档。重复执行时修正测试等待逻辑：默认 Loading 离场过渡可同时保留多个遮罩，改为等待所有遮罩均不占布局，随后完整重跑通过，不把夹具选择器严格模式报错当产品故障。
+- 另在隔离服务响应内还原旧 CSS 选择器（不改工作树）执行同一测试：首次非据点页即失败，明确捕获 `hidden:true / display:flex / rects:1`；修复版本完整通过。脚本／日志／武将管理修复截图在本机 `C:/Users/fczll/AppData/Local/Temp/dragon-panel-visibility/`。§41 中央动画浏览器用例重跑通过，仅预期 503 网络错误；相关加载／据点／武将控制器 **14／14** 通过。
+- build／check 同字节通过（JS 1048888B、CSS 115775B、13 包 notices），语法与 diff 检查通过。Vue 主动 LSP 超时、新浏览器测试为 push-only，均未确认 clean；不以构建或空诊断代替。未运行无关游戏规则回归，未提交／推送／部署；自有验证服务与浏览器均已关闭。
+- 更正旧验证范围：§39／§40 的单面板开发夹具“隐藏再显示”不能证明打包壳的跨模块隐藏；§41 虽进入武将／副本页，却未断言据点真正不可见，因此没有覆盖本缺陷，不能再据这些历史结果声称模块显隐通过。此项以本节打包壳全模块回归为准。
+
+## 41. 编辑器统一页中央四圆点加载动画（2026-11-12）
+
+- 用户指定参考图：页中央蓝色四圆点旋转、不要加载文字，全部加载采用同一动画。`Workbench.vue` 使用唯一的 Element Plus `v-loading.fullscreen` 入口和静态四圆点 SVG，颜色、尺寸、遮罩、旋转取默认 Loading；`main.js` 显式引入 Loading 样式，不加依赖或自造动画 CSS，不改玩家样式。
+- `client.txt` 在共同 API 边界计数所有未完成请求，`finally` 在响应正文消费完毕／失败后减计数；与既有动作 busy 合并，覆盖首次会话、后台资源清单、并行读取以及各模块加载／保存重读。只传加载布尔值到展示层，不改变鉴权、请求参数、错误、超时或控制器 busy 语义。按钮加载图标及据点／资源空态／相册／发布历史的纯等待文字移除；保留成功、失败与多步动作的实际进度说明。§39 固定表头继续保留；长期约定已同步仓库 AGENTS。
+- 新增 `tools/verify_editor_loading.mjs`，用实际传输函数及隔离 fetch 双件验证并发最后一个正文完成才停止、连续请求恢复、HTTP／网络／超时／坏 JSON 失败清理、并发中单个失败不提前停止。与据点／武将控制器回归共 **14／14 通过**；无网络、生产或存档读写。
+- 全新隔离 Chromium，实际构建壳＋`client.txt`＋控制器、内存 API 响应：首次会话、背景清单、游戏清单、据点／武将／副本读取共用无文字动画；核四圆点、默认蓝色、真实 CSS 旋转、页面正中央、重复点击不再请求、失败退出及重试、192 行固定表头和 1024×600／1600×1000 缩放。pageerror／意外请求为 0；console 仅 1 条主动构造 HTTP 503 的预期网络错误。夹具最初修正默认 Loading 离场过渡选择器及不存在的章节加载按钮定位，随后完整通过；不称真实后端／生产验收。自有静态服务与浏览器均已关闭，日志／截图在本机 `C:/Users/fczll/AppData/Local/Temp/dragon-workbench-loading/`。
+- build／check 同字节通过：1007 modules，JS **1048888B**、CSS **115761B**、13 包 notices（许可证未变）；生成 JS／client／main／新测试语法、`git diff --check` 通过。CSS 与 HEAD 对比：剔除默认 EP Loading、既有三条据点布局并归一生成 scoped ID 后完全相等，其余组件样式未改；上游 CSS 保留 6 条 LSP warning＋22 条 no-important（新增 2 条来自默认 Loading），不手改产物消警。
+- 主动 LSP：main 已确认 clean，7 个 Vue 文件超时未确认；新测试检查为 push-only，不能称 clean；`.txt` 无 LSP 支持，以语法检查补充。仓库 AGENTS 的 6 条 Marksman 跨仓链接告警对应父目录文档，逐路径确认文件存在；journal Markdown clean。session `mode=all` 另核，不用空缓存宣称通过。未运行无关规则回归；未 commit／push／部署，未改生产／真实存档。
+
+## 40. 城池据点加载按钮旋转动画（2026-11-12）
+
+> 历史方案：用户随后明确改为统一页中央动画，本节按钮转圈及加载提示文字已由 §41 撤销，不能继续作为现行 UI 约定。
+
+- `editor-ui/src/StrongholdPanel.vue` 使用 Element Plus `ElButton :loading` 的默认旋转图标，不新增 Spin 库、图标依赖或皮肤；本地 `loading` 只跟随本按钮的 `loadCopy()` Promise，设置 `aria-busy`、显示「正在加載據點…」并阻止重复点击，`finally` 在成功／失败时均清理。其它操作的全局 busy 只禁用按钮，不误显示本次加载动画；不改控制器／后端合同，保留 §39 固定表头。
+- 全新隔离 Chromium＋实际面板／默认 EP 样式，以可控 Promise 验证首次空态加载有 CSS 旋转动画、重复点击仅一次调用、成功恢复、失败停止及可重试、其它 busy 不转圈；同时重跑 §39 的滚动、缩放、搜索、排序与保存回调检查，console error／pageerror 为 0。数据和动作仍为合成夹具，不称真实后端保存验证；自有服务／浏览器已关闭，脚本及日志在本机 `C:/Users/fczll/AppData/Local/Temp/dragon-stronghold-loading/`。
+- 据点控制器回归 **6／6**；build／check 同字节通过（JS 1043528B、CSS 114144B、13 包 notices），CSS／许可证相对 §39 无新增变化；生成 JS 语法、`git diff --check` 通过。Vue 主动 LSP 超时未确认，session `mode=all` 缓存不作 clean 证明。未提交／推送／部署，未访问生产或正式存档。
+
+## 39. 城池据点列表固定表头（2026-11-12）
+
+> 验证范围更正：本节单面板夹具未覆盖打包壳的跨模块显隐，实际引入了据点面板残留；根因、修复与完整回归见 §42，不能把本节“隐藏再显示”当全模块验证。
+
+- 用户范围：只改「城池据点」模块的表头冻结。`editor-ui/src/StrongholdPanel.vue` 沿用 Element Plus `ElTable`，设置 `height="100%"`；面板用局部 flex 布局、工具栏不收缩、数据区占剩余高度，把滚动交给组件内部。没有自造 sticky 表头、修改默认皮肤或业务／保存合同。
+- 浏览器改前复现：192 行合成显示 DTO 下，表格底部到 9617px、面板溢出、内部可滚距离为 0；改后 1440×900 下表格底部 884px、内部可滚 8733px，面板／整页均无纵向溢出。新隔离 Chromium 会话验证滚动 1000px 表头位置不变、末行可达、1024px 宽时横向滚动 200px 表头同步，以及 1024×600／1600×1000 缩放、隐藏再显示、搜索、双向排序、编辑保存回调；console error／pageerror 均为 0。
+- 浏览器使用真实 Vue 面板、项目布局 CSS 与默认 EP 组件，但数据／保存动作是合成夹具，**不是后端保存或生产验收**。临时入口先修正 Windows ESM URL／Vue runtime 模板夹具问题；系统 Chrome 启动退出，改用已安装 headless shell，新建 profile，不下载或调整权限。测试 finally 关闭自有浏览器与临时 Vite 服务；脚本、前后日志及截图在本机 `C:/Users/fczll/AppData/Local/Temp/dragon-stronghold-header/`，不进产品包。
+- `node --test tools/verify_copy_controller_cities.mjs`：**6／6 通过**。`node editor-ui/build.mjs && node editor-ui/build.mjs --check`：1001 modules、JS 1043301B／CSS 114144B、13 包 notices，同字节通过；许可证重建后无差异。`git diff --check` 通过。
+- Vue 主动 LSP 两次均超时未确认，不能称 clean；构建与浏览器通过不替代该检查。日志 Markdown 主动检查 clean；生成 CSS 为 6 条 LSP＋20 条样式告警，已逐字节核对：移除本轮新增的 3 条局部布局规则后与 HEAD 完全相同，告警位于未变的上游 CSS，不手改产物消警；session `mode=all` 已检查，缓存缺口不算通过。生成 JS 语法检查通过。不重跑无关游戏规则回归，不读正式存档，不改生产数据，未 commit／push／部署。§38 是上一轮已完成的本地提交前收据，当前新改动保留未提交。
 
 ## 38. 完整本地提交前审查：copy／发布审核／默认展示层与回归
 

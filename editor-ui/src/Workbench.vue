@@ -6,6 +6,7 @@ import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
 import { ElPopover } from 'element-plus/es/components/popover/index.mjs';
 import { ElConfigProvider } from 'element-plus/es/components/config-provider/index.mjs';
+import { vLoading } from 'element-plus/es/components/loading/index.mjs';
 import zhTw from 'element-plus/es/locale/lang/zh-tw.mjs';
 import LoginPage from './LoginPage.vue';
 import AccountPages from './AccountPages.vue';
@@ -21,6 +22,8 @@ import CopyGamePanel from './CopyGamePanel.vue';
 import PublishPanel from './PublishPanel.vue';
 import ReviewPanel from './ReviewPanel.vue';
 const props = defineProps({ state: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, mapviewModel: Object, mapview: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
+// 使用者指定的四圓點圖形；尺寸、主色、遮罩與旋轉沿用 Element Plus Loading。
+const loadingSvg = '<g fill="var(--el-color-primary)"><circle cx="25" cy="11" r="5"/><circle cx="39" cy="25" r="5" opacity=".75"/><circle cx="25" cy="39" r="5" opacity=".5"/><circle cx="11" cy="25" r="5" opacity=".25"/></g>';
 const accountsPanel = ref(null), mapPanel = ref(null);
 defineExpose({ accountDirty: () => accountsPanel.value?.dirty() ?? false, mapInputs: () => Boolean(ready.value && mapPanel.value?.hasInputs()) });
 const userMenu = ref(false);
@@ -39,7 +42,7 @@ function go(view) { userMenu.value = false; props.navigate(view); }
 
 <template>
   <ElConfigProvider :locale="zhTw" size="default" :empty-values="[null, undefined]">
-  <div class="workbench" :class="{ 'auth-layout': !ready }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
+  <div v-loading.fullscreen="state.busy || state.loading" :element-loading-svg="loadingSvg" element-loading-custom-class="workbench-loading" :aria-busy="Boolean(state.busy || state.loading)" class="workbench" :class="{ 'auth-layout': !ready }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
     <header class="workbench-header">
       <ElLink class="brand" href="#draft-editor" @click.prevent="go('draft-editor')"><span class="brand-mark">臥</span><span>臥龍傳<span class="brand-caption">創作工作台</span></span></ElLink>
       <div class="current-game" :hidden="!ready">

@@ -17,7 +17,7 @@ const profile = reactive({ displayName: '', email: '', phone: '', note: '' });
       <label>目前密碼<ElInput v-model="password.oldPassword" name="oldPassword" type="password" autocomplete="current-password" required maxlength="128" /></label>
       <label>新密碼<ElInput v-model="password.newPassword" name="newPassword" type="password" autocomplete="new-password" minlength="9" maxlength="128" required /></label>
       <label>確認新密碼<ElInput v-model="password.confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required maxlength="128" /></label>
-      <ElButton type="primary" native-type="submit" :loading="state.busy">變更密碼</ElButton>
+      <ElButton type="primary" native-type="submit" :disabled="state.busy">變更密碼</ElButton>
     </form>
   </div>
   <div class="account-card" :hidden="!ready || state.view !== 'profile'">
@@ -26,7 +26,7 @@ const profile = reactive({ displayName: '', email: '', phone: '', note: '' });
       <label>郵箱<ElInput v-model="profile.email" name="email" maxlength="128" autocomplete="email" /></label>
       <label>電話<ElInput v-model="profile.phone" name="phone" maxlength="128" autocomplete="tel" /></label>
       <label>備註<ElInput v-model="profile.note" name="note" maxlength="128" /></label>
-      <ElButton type="primary" native-type="submit" :loading="state.busy">保存資料</ElButton>
+      <ElButton type="primary" native-type="submit" :disabled="state.busy">保存資料</ElButton>
     </form><p id="profile-status" role="status"></p>
   </div>
 </template>

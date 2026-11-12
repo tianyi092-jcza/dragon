@@ -7,7 +7,7 @@ defineProps({ model: Object, actions: Object, busy: Boolean });
 <template>
   <section id="catalog-editor" class="module-card resources-card">
     <p v-if="!model.loaded" id="catalog-message" role="status" class="muted">
-      {{ model.message || '正在讀取內置資源…' }}
+      {{ model.message }}
     </p>
 
     <template v-if="model.loaded">

@@ -1,0 +1,13 @@
+{
+  "lsp": {
+    "serverOverrides": {
+      "vue": {
+        "command": ["node", "lsp/node_modules/@vue/language-server/bin/vue-language-server.js", "--stdio"],
+        "initializationOptions": {
+          "typescript": { "tsdk": "./lsp/node_modules/typescript/lib" },
+          "vue": { "hybridMode": false }
+        }
+      }
+    }
+  }
+}

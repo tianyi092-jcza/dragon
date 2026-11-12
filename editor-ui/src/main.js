@@ -19,6 +19,8 @@ import 'element-plus/es/components/tooltip/style/css';
 import 'element-plus/es/components/scrollbar/style/css';
 import 'element-plus/es/components/progress/style/css';
 import 'element-plus/es/components/popover/style/css';
+import 'element-plus/es/components/loading/style/css';
+import 'element-plus/es/components/pagination/style/css';
 import './theme.css';
 import Workbench from './Workbench.vue';
 export { createAccountController } from './accounts.js';
@@ -32,7 +34,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   document.querySelector('link[rel="stylesheet"][href="/style.css"]')?.remove();
   // Dialogs/popovers are teleported outside the workbench root.
   Object.assign(document.body.style, { fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)' });
-  const state = reactive({ authenticated: false, mustChange: false, admin: false, account: '', view: null, busy: false, views });
+  const state = reactive({ authenticated: false, mustChange: false, admin: false, account: '', view: null, busy: false, loading: false, views });
   const accountsModel = reactive({ rows: [], loaded: false, stale: false, message: '', generation: 0 });
   const draftModel = reactive({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: true });
   const stageAssetsModel = reactive({ loadDisabled: true, clearDisabled: true, context: '', message: '', summary: '', outputs: [], missing: [], unresolved: [] });
@@ -67,6 +69,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
     management: model => Object.assign(managementModel, model),
     review: model => Object.assign(reviewModel, model),
     deletion: model => Object.assign(deletionModel, model),
+    loading: value => { state.loading = value; },
     accountDirty: () => instance.accountDirty(),
     mapInputs: () => instance.mapInputs(),
     sync({ current, view, busy }) {

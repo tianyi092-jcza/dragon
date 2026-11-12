@@ -1,5 +1,8 @@
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
+import ListPagination from './ListPagination.vue';
+import ListRowActions from './ListRowActions.vue';
+import { usePagination } from './pagination.js';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 import { ElInput } from 'element-plus/es/components/input/index.mjs';
@@ -26,7 +29,7 @@ const ABILITY_KEYS = ABILITIES.map(item => item.key);
 const search = ref('');
 const sort = reactive({ key: 'seq', dir: 1 });
 const editing = ref(null);
-const form = reactive({ name: '', zi: '', hao: '', suicide: false, portraitRef: null, ability: { siege: '', field: '', naval: '', force: '', lead: '', politics: '' } });
+const form = reactive({ name: '', zi: '', hao: '', suicide: false, portraitRef: null, ability: { siege: null, field: null, naval: null, force: null, lead: null, politics: null } });
 const status = ref('');
 const failure = ref('');
 const albumSearch = ref('');
@@ -58,6 +61,7 @@ const locked = computed(() => Boolean(props.busy) || !props.model || !page.value
 const portraits = computed(() => page.value?.portraits ?? null);
 // 分批导入进度（控制器推送）：running/failed 时显示阻塞式弹窗，done 时自动收起。
 const importing = computed(() => page.value?.import ?? null);
+const canImport = computed(() => !props.busy && supported.value && importable.value > 0 && importing.value?.state !== 'running');
 const importPercent = computed(() => {
   const row = importing.value;
   if (!row || !row.total) return 0;
@@ -97,14 +101,20 @@ const visible = computed(() => {
 });
 // 序號跟著「現在看到的順序」重排，不是武將身份。
 const rows = computed(() => visible.value.map((row, index) => ({ ...row, seq: index + 1 })));
+const { currentPage, pageSize, total, pagedRows } = usePagination(rows);
+const table = ref(null);
+watch(search, () => { currentPage.value = 1; });
+watch([currentPage, pageSize, search, () => sort.key, () => sort.dir], () => table.value?.setScrollTop(0), { flush: 'post' });
 
 function onSortChange({ prop, order }) {
   sort.key = order ? prop : 'seq';
   sort.dir = order === 'descending' ? -1 : 1;
+  currentPage.value = 1;
 }
 
 async function load() {
   if (!canLoad.value) return;
+  currentPage.value = 1;
   status.value = ''; failure.value = ''; editing.value = null;
   try { await props.actions.loadCopy(); }
   catch (error) { failure.value = (error && error.message) || '加載未完成。'; return; }
@@ -120,14 +130,14 @@ function startEdit(row) {
   form.hao = row.hao ?? '';
   form.suicide = row.suicideOnCapture === true;
   form.portraitRef = row.portraitRef ? { ...row.portraitRef } : null;
-  for (const key of ABILITY_KEYS) form.ability[key] = row.ability?.[key] ?? '';
+  for (const key of ABILITY_KEYS) form.ability[key] = row.ability?.[key] ?? null;
   failure.value = '';
 }
 function cancelEdit() { editing.value = null; failure.value = ''; }
 
 // 從本遊戲原生記錄導入（顯式動作；同名去重、已在庫的跳過由控制器計算）。
 async function importRecords() {
-  if (locked.value) return;
+  if (!canImport.value) return;
   status.value = ''; failure.value = '';
   try {
     const reply = await props.actions.generalCopyImport();
@@ -164,6 +174,7 @@ async function save(row) {
   const ability = {};
   for (const key of ABILITY_KEYS) {
     const raw = String(form.ability[key] ?? '').trim();
+    if (raw === '' && row.ability === null) continue;
     if (!/^[0-9]{1,2}$/.test(raw)) { failure.value = ABILITIES.find(item => item.key === key).title + ' 必須是整數。'; return; }
     if (Number(raw) !== row.ability?.[key]) ability[key] = Number(raw);
   }
@@ -182,12 +193,13 @@ async function save(row) {
   }
 }
 
-// 弹窗立即打开（不等 621 条清单）：清单在弹窗内加载，缩略图再按需懒加载。
+// 清单按需读取；只挂载当前页的 25 张缩略图，不以滚动追加下一批。
 async function openAlbum() {
   if (locked.value) return;
   albumFailure.value = '';
   albumPick.value = form.portraitRef ? form.portraitRef.assetId : null;
   albumSearch.value = '';
+  albumPage.value = 1;
   albumOpen.value = true;
   if (albumReady.value || albumLoading.value) return;
   albumLoading.value = true;
@@ -209,17 +221,22 @@ const albumRows = computed(() => {
   const needle = albumSearch.value.trim().toLowerCase();
   return (portraits.value ?? []).filter(item => !needle || item.assetId.toLowerCase().includes(needle));
 });
+const { currentPage: albumPage, pageSize: albumPageSize, total: albumTotal, pagedRows: albumPageRows } = usePagination(albumRows);
+const albumGrid = ref(null);
+watch(albumSearch, () => { albumPage.value = 1; });
+watch([albumPage, albumSearch], () => { if (albumGrid.value) albumGrid.value.scrollTop = 0; }, { flush: 'post' });
 </script>
 
 <template>
   <section id="generals-editor" class="module-card">
     <div class="module-toolbar">
       <ElButton id="generals-load" :disabled="!canLoad" @click="load()">加載</ElButton>
-      <ElButton id="generals-import" :disabled="locked || !importable || importing?.state === 'running'" @click="importRecords()">從原生記錄導入{{ importable ? '（' + importable + '）' : '' }}</ElButton>
+      <ElButton id="generals-import" :disabled="!canImport" @click="importRecords()">從原生記錄導入{{ importable ? '（' + importable + '）' : '' }}</ElButton>
       <ElInput id="generals-search" v-model="search" type="search" placeholder="搜尋姓名／字" aria-label="搜尋姓名／字" :disabled="!supported" />
       <span id="generals-status" role="status" class="generals-status">{{ failure || status }}</span>
     </div>
-    <ElTable v-if="supported && libraryReady" id="generals-table" :data="rows" row-key="generalId" @sort-change="onSortChange">
+    <div v-if="supported && libraryReady" class="table-region" tabindex="0">
+    <ElTable id="generals-table" ref="table" :data="pagedRows" height="100%" row-key="generalId" @sort-change="onSortChange">
       <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="({ portrait: '頭像', hao: '號', suicide: '勢力被滅被俘' })[column.key] ?? column.title" :sortable="column.sortable ? 'custom' : false" :min-width="column.key === 'actions' ? 180 : column.type === 'number' ? 180 : column.key === 'seq' ? 80 : 140">
         <template #header="{ column: tableColumn }"><span :data-column="column.key" :data-sort="column.sortable ? column.key : undefined">{{ tableColumn.label }}</span></template>
         <template #default="{ row }">
@@ -229,7 +246,7 @@ const albumRows = computed(() => {
               <ElTooltip v-if="editing === row.generalId" content="點擊選擇頭像"><ElButton :disabled="busy" data-action="portrait" title="點擊選擇頭像" @click="openAlbum()"><img v-if="form.portraitRef" :src="portraitUrl(form.portraitRef)" :alt="form.portraitRef.assetId" loading="lazy" class="generals-thumb"><span v-else>無</span></ElButton></ElTooltip>
               <img v-else-if="row.portraitRef" :src="portraitUrl(row.portraitRef)" :alt="row.portraitRef.assetId" loading="lazy" class="generals-thumb"><span v-else>無</span>
             </template>
-            <template v-else-if="column.key === 'actions'"><div class="account-row-actions"><template v-if="editing === row.generalId"><ElButton type="primary" data-action="save" :disabled="busy" @click="save(row)">保存</ElButton><ElButton data-action="cancel" :disabled="busy" @click="cancelEdit()">取消</ElButton></template><ElButton v-else data-action="edit" :disabled="locked" @click="startEdit(row)">編輯</ElButton></div></template>
+            <template v-else-if="column.key === 'actions'"><ListRowActions :editing="editing === row.generalId" :busy="busy" :locked="locked" @save="save(row)" @cancel="cancelEdit()" @edit="startEdit(row)" /></template>
             <template v-else-if="column.key === 'suicide'"><ElCheckbox v-if="editing === row.generalId" v-model="form.suicide" data-input="suicide" :disabled="busy" /><span v-else>{{ suicideLabel(row.suicideOnCapture) }}</span></template>
             <template v-else-if="column.type === 'number'"><ElInputNumber v-if="editing === row.generalId" v-model="form.ability[column.key]" :data-input="column.key" :min="0" :max="15" :step="1" :disabled="busy" /><span v-else>{{ row.ability?.[column.key] ?? '—' }}</span></template>
             <template v-else><ElInput v-if="editing === row.generalId" v-model="form[column.key]" :data-input="column.key" :disabled="busy" /><span v-else>{{ column.key === 'name' ? (row.name ?? '未配置') : (row[column.key] || '—') }}</span></template>
@@ -238,8 +255,10 @@ const albumRows = computed(() => {
       </ElTableColumn>
       <template #empty><p class="empty-state">{{ search ? '沒有符合的武將；清空搜尋可看全部。' : (importable ? '武將庫是空的；可按「從原生記錄導入」把本遊戲章節裡的 ' + importable + ' 名武將種進庫。' : '武將庫是空的。') }}</p></template>
     </ElTable>
+    </div>
     <p v-else-if="supported" id="generals-unsupported" class="generals-note">本遊戲尚無武將庫（父表）；請先從原生記錄導入。</p>
     <p v-else id="generals-unloaded" class="generals-note">先按「加載」讀取這款遊戲的武將資料。</p>
+    <ListPagination v-if="supported && libraryReady" id="generals-pagination" v-model:current-page="currentPage" v-model:page-size="pageSize" :total="total" :disabled="busy" />
     <ElDialog v-if="importing && (importing.state === 'running' || importing.state === 'failed')" id="generals-import-dialog" :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" aria-label="導入進度">
         <p class="generals-import-title">{{ importing.state === 'failed' ? '導入未完成' : '正在導入原生武將記錄' }}</p>
         <p class="generals-note" v-if="importing.state === 'running'">請求體上限 16KiB，共 {{ importing.batches }} 批；請勿關閉或重新整理本頁。</p>
@@ -250,25 +269,24 @@ const albumRows = computed(() => {
           <ElButton data-action="import-close" :disabled="busy" @click="actions.clearCopyImport()">關閉</ElButton>
         </div>
     </ElDialog>
-    <ElDialog v-if="albumOpen" id="generals-portrait-dialog" :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" width="min(900px, 92vw)" aria-label="選擇頭像">
+    <ElDialog v-if="albumOpen" id="generals-portrait-dialog" class="generals-portrait-dialog" :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" width="min(900px, 94vw)" top="5vh" aria-label="選擇頭像">
       <div id="generals-portrait-card">
         <div class="module-toolbar">
           <ElInput id="generals-album-search" v-model="albumSearch" type="search" placeholder="篩選頭像ID" aria-label="篩選頭像ID" :disabled="!albumReady" />
-          <span class="generals-note" v-if="albumLoading">正在讀取共用頭像清單…</span>
-          <span class="generals-note" v-else-if="albumReady">符合 {{ albumRows.length }}／{{ portraits.length }} 張；點縮圖選中，再按確定。</span>
-          <span class="generals-note" v-else>尚未讀取頭像清單。</span>
+          <ElButton :type="albumPick === null ? 'primary' : 'default'" :disabled="!albumReady" @click="albumPick = null">無頭像</ElButton>
+          <span class="generals-note" v-if="albumReady">符合 {{ albumRows.length }}／{{ portraits.length }} 張；點縮圖選中，再按確定。</span>
+          <span class="generals-note" v-else-if="!albumLoading">尚未讀取頭像清單。</span>
         </div>
         <p v-if="albumFailure" role="status" class="generals-status">{{ albumFailure }}</p>
-        <div id="generals-album-grid" class="generals-album-grid" tabindex="0">
-          <p v-if="albumLoading" class="generals-note generals-album-wait">載入中…（共 621 張，未載入前不阻擋關閉）</p>
-          <template v-else>
-            <div><ElButton :type="albumPick === null ? 'primary' : 'default'" @click="albumPick = null">無頭像</ElButton></div>
-            <div v-for="item in albumRows" :key="item.assetId" class="generals-album-item" :data-portrait-id="item.assetId">
+        <div id="generals-album-grid" ref="albumGrid" class="generals-album-grid" tabindex="0">
+          <template v-if="!albumLoading">
+            <div v-for="item in albumPageRows" :key="item.assetId" class="generals-album-item" :data-portrait-id="item.assetId">
               <img :src="portraitUrl(item)" :alt="item.assetId" width="64" height="64" loading="lazy" decoding="async" class="generals-album-thumb" @click="albumPick = item.assetId">
               <ElButton :type="albumPick === item.assetId ? 'primary' : 'default'" @click="albumPick = item.assetId">{{ item.assetId }}</ElButton>
             </div>
           </template>
         </div>
+        <ListPagination v-if="albumReady && !albumLoading" id="generals-album-pagination" v-model:current-page="albumPage" :page-size="albumPageSize" :page-sizes="[25]" :total="albumTotal" :disabled="busy" />
         <div class="module-toolbar">
           <ElButton data-action="album-confirm" :disabled="!albumReady" @click="confirmAlbum()">確定</ElButton>
           <ElButton data-action="album-cancel" @click="closeAlbum()">取消</ElButton>
@@ -279,8 +297,14 @@ const albumRows = computed(() => {
 </template>
 
 <style scoped>
+#generals-editor:not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
+.module-toolbar { flex-shrink: 0; }
+.table-region { flex: 1; min-height: 0; overflow: hidden; }
 .generals-thumb { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; vertical-align: middle; }
-#generals-album-grid { max-height: 54vh; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+:global(.generals-portrait-dialog) { display: flex; flex-direction: column; resize: both; overflow: hidden; max-width: 94vw; max-height: 90vh; min-width: min(360px, 94vw); min-height: min(420px, 90vh); }
+:global(.generals-portrait-dialog .el-dialog__body) { display: flex; flex-direction: column; min-height: 0; }
+#generals-portrait-card { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#generals-album-grid { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
 .generals-album-item { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .generals-album-thumb { object-fit: contain; image-rendering: pixelated; cursor: pointer; }
 </style>

@@ -6,6 +6,7 @@
 /server/.local/
 /node_modules/
 /editor-ui/node_modules/
+/editor-ui/lsp/node_modules/
 /editor-ui/dist/
 .env
 .env.*

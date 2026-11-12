@@ -10,10 +10,16 @@ import { installStronghold } from '/stronghold.js';
 import { installGenerals } from '/general.js';
 import { installMapViewer } from '/mapview.js';
 import { installStageAssetBrowser } from '/stage-assets.js';
-let current = null, busy = false, sessionEpoch = 0;
+let current = null, busy = false, sessionEpoch = 0, pendingRequests = 0;
 const q = id => document.querySelector('#' + id), status = text => { q('status').textContent = text; };
 const errors = { INVALID_LOGIN: '帳戶或密碼無效。', LOGIN_REQUIRED: '請登入。', SESSION_INVALID: '會話已失效，請重新登入。', PASSWORD_CHANGE_REQUIRED: '請先變更初始密碼。', LOGIN_RATE_LIMIT: '登入過於頻繁，請稍後重試。', ACCOUNT_CHANGED: '帳戶已被修改，請重新載入。', SECRETS_NOT_CONFIGURED: '服務尚未配置初始密碼與安全金鑰。', PASSWORD_LENGTH: '密碼長度須為9至128個字元。', PASSWORD_COMPLEXITY: '密碼須包含大寫字母、小寫字母、數字及符號（空白不算符號）。', NEW_PASSWORD_REQUIRED: '請使用不同的新密碼。', GAME_NAME_OCCUPIED: '這個名稱已被另一份遊戲使用；請換一個名稱（遊戲名稱在生命週期內唯一）。', COPY_NAME_BUSY: '這個名稱的使用者正在建立另一份遊戲；請稍後或換名稱。', COPY_NOT_CLAIMABLE: '此原操作已結束或正被其它請求處理；請先查詢上一次操作，不另建第二份。' };
+// 共用請求計數涵蓋首次進入、背景清單及並行請求；動畫不改動 busy／權限語義。
 async function api(path, value, options = {}) {
+  pendingRequests++; shell.loading(true);
+  try { return await apiRequest(path, value, options); }
+  finally { pendingRequests--; shell.loading(pendingRequests > 0); }
+}
+async function apiRequest(path, value, options) {
   const mark = sessionEpoch; const headers = {}; if (value !== undefined) { headers['Content-Type'] = 'application/json'; headers['Idempotency-Key'] = options.key ?? crypto.randomUUID(); if (options.revision !== undefined) headers['If-Match'] = '"' + options.revision + '"'; if (current) headers['X-CSRF-Token'] = current.csrf; }
   // 每個請求都有上限：伺服器或代理層要是一直不回，工作台也不能永久鎖死（使用者只能重新載入）。
   // 上架要整遊戲編譯，所以寫入預設給 5 分種；只讀查詢 60 秒就夠。

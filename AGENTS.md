@@ -61,7 +61,9 @@
 - `editor-ui/src/theme.css` 只放骨架、间距、宽度、溢出与资源内容布局；不定义颜色、控件高度、字阶、边框或圆角覆盖。整页不滚、数据区滚；提示左／目前草稿右，枚举显示名称、未知保留「数字（未知）」；保存后按既有控制器合同重读。
 - `server/public/style.css` 属玩家样式，**不得为了编辑器去改它**；编辑器挂载时移除该 link。原[布局规范](docs/editor-ui-layout-spec.md)中的通用布局目标仍适用，但其中 34px、自造变量／原生 table 皮肤及共用玩家样式的旧条款已被本次默认组件决定取代，不能重新引回。
 - 保留中文／繁体文案与既有 id、data-* 协议（尤 `#generals-*`、`#publish-overlay*`、`#full-copy-overlay*`、`#review-*` 及行／列／输入标记）；结构变化不等于授权删除选择器。EP 空字符串是有效业务选项时，保持 `empty-values=[null, undefined]`；数组多选用 `ElCheckboxGroup`，不靠原生 input 语义猜测。
-- 等待写「在做什么」，成功写「做成什么」，失败写「原因＋可做什么」；不伪造百分比。长动作／失败弹窗按所属状态机限制 Esc、遮罩和明确关闭，不将默认可关闭行为强加给阻塞流程。全局 `run()` 先解锁再渲染，面板异常不扩散。
+- **统一加载反馈（用户指定）**：编辑器数据加载统一显示页中央蓝色四圆点旋转动画，不用文字或按钮转圈代替。由工作台唯一的 Element Plus Loading 入口处理，图形按用户参考图，颜色／尺寸／旋转／遮罩沿用默认组件；共同 API 请求计数覆盖首次会话、后台清单和并行读取，并与动作 busy 合并，成功／失败均清理。新增模块沿用共同入口，不另造加载样式；图片／音频懒加载不阻塞整页。
+- **列表长期默认（用户确认，后续无需重复询问）**：现有／新增列表使用固定表头的默认 `ElTable`、带 jumper 的 `ElPagination`，不使用瀑布流／无限滚动追加；数据请求沿用上述统一 Loading。操作列按城池据点参考统一默认普通按钮：只读「編輯」，编辑态「保存／取消」，不加 primary／link／text 或固定悬浮列。默认每页 25 条，可选 25／50／100；头像选择弹窗固定每页 25 张、仅挂载当前页、可跳转并适配／调整窗口大小。新模块复用 `ListPagination.vue`、`ListRowActions.vue` 与 `pagination.js`；详见[布局规范](docs/editor-ui-layout-spec.md)。特殊情况由用户另提；此约定不自动授权整仓集中迁移，实际实施范围按当前用户任务，不把未改模块记成已迁移。
+- 多步动作进度写「在做什么」，成功写「做成什么」，失败写「原因＋可做什么」；不伪造百分比。长动作／失败弹窗按所属状态机限制 Esc、遮罩和明确关闭，不将默认可关闭行为强加给阻塞流程。全局 `run()` 先解锁再渲染，面板异常不扩散。
 - 玩家标题只用一个游戏选择器，远端目录失败不阻断内置游戏；新局／标题读档后默认展开军师条、势力信息、小地图。开场、云纹金框和加载等待按[开场合同](docs/opening-scene.md)，不把这些玩家视觉引入编辑器。
 - `CITY-4064-WEB-1` 是已批准的有限 Web 差异，不据此放宽其它规则；原证与适用域见[行军维护源](docs/re-notes-march-pathfinding.md#3156-p394064-外栈读取闭合为永久工程边界)。
 - 游戏时序、只读渲染、云雨季节、战术对白等现行决定分别见[战略时序](docs/re-notes-strategic-time.md)、[表现合同](docs/presentation-modernization.md)、[行军表现](docs/march-presentation-fixes.md)、[战术生命周期](docs/re-notes-tactical-lifecycle.md)，不在记忆重复历史参数和测试成绩。
@@ -70,6 +72,7 @@
 ## 4. 重要工程坑点
 
 - **构建不等于检查**：`build.mjs --check` 仅比对，不更新资源；修改 Vue 后先 build，再 check。生成 `server/public/shell-ui.txt`（服务 URL `/shell-ui.js`）、`shell-ui.css`、`shell-ui-licenses.txt` 三份必须一起同步。
+- **Vue 检查工具兼容方案**：编辑器保留 Vue 3；私有 `editor-ui/lsp/` 固定 Vue LS 2.2.12＋TS 5.9.3 standalone，配置只在 `editor-ui/.pi-lens.json`，不改全局 pi-lens／信任。当前客户端须从 `editor-ui` 启动新 pi 进程才能实际采用 override；父目录启动虽可显示配置来源，仍可能走默认服务。完整安装、协议回归、push-only 限制与回退见[工具说明](editor-ui/lsp/README.md)；不把空主动结果当 clean，需要时运行该独立新进程检查并记录真实结果。
 - **构建不等于服务刷新**：`server/public/*.txt` 被进程 import，dev 监听还排除 `server/public/`；改控制器或产物后须重启自己持有的 dev 实例，再用新 profile／禁缓存刷新验字节。不能停别的会话实例。
 - **已登记库不是随改随用**：消费者指纹／角色／SHA 绑定严格；不为跑通而改 manifest、重算旧身份或放宽门。`--no-library` 只能验壳与空态，`SOURCE_NOT_REGISTERED` 是真实源流程阻塞，合成 DTO 预览不能替代它。
 - **schema 以声明和活门为准**：`deletiondefinitions.js`、`deletionschema.js`、`distributiondeclarations.js` 及相关投影／inventory 同步维护；不把某轮表数写成永久规则，不改 pinned 历史 lane 快照祝福新结构。purge 为单事务；栅栏存在不等于物理清理成功。
@@ -91,6 +94,9 @@ node tools/dev_editor.mjs --port 8443 --store <独立状态目录>
 npm --prefix editor-ui ci --ignore-scripts
 node editor-ui/build.mjs
 node editor-ui/build.mjs --check
+# 仅编辑器开发工具，独立依赖；新 pi 会话须从 editor-ui 启动
+npm ci --prefix editor-ui/lsp --ignore-scripts --no-audit --no-fund
+npm run --prefix editor-ui/lsp check
 node tools/build_trial_web_bundle.mjs
 python -B tools/compile_content.py --output /path/to/new-generated
 node tools/verify_pinned_source_registration.mjs

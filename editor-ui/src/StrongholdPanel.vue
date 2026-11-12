@@ -1,5 +1,8 @@
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
+import ListPagination from './ListPagination.vue';
+import ListRowActions from './ListRowActions.vue';
+import { usePagination } from './pagination.js';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
@@ -15,6 +18,7 @@ const FIELDS = ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type'];
 const CITY_TYPES = [['0', '大都市'], ['1', '中都市'], ['2', '小都市'], ['3', '關卡'], ['4', '戰場']];
 const typeLabel = value => CITY_TYPES.find(([key]) => Number(key) === value)?.[1] ?? (value === null || value === undefined ? '—' : String(value) + '（未知）');
 
+const loading = ref(false);
 const search = ref('');
 const sort = reactive({ key: 'seq', dir: 1 });
 const editing = ref(null);
@@ -27,7 +31,7 @@ const page = computed(() => props.model?.copy?.page ?? null);
 const cities = computed(() => page.value?.cities ?? null);
 const loaded = computed(() => cities.value ?? []);
 const supported = computed(() => Boolean(page.value));
-const canLoad = computed(() => !props.busy && Boolean(props.model?.fields?.gameId));
+const canLoad = computed(() => !loading.value && !props.busy && Boolean(props.model?.fields?.gameId));
 const locked = computed(() => Boolean(props.busy) || !props.model || !page.value);
 
 const columns = [
@@ -56,17 +60,25 @@ const visible = computed(() => {
 });
 // 序號跟著「現在看到的順序」重排，不是據點身份或槽位。
 const rows = computed(() => visible.value.map((row, index) => ({ ...row, seq: index + 1 })));
+const { currentPage, pageSize, total, pagedRows } = usePagination(rows);
+const table = ref(null);
+watch(search, () => { currentPage.value = 1; });
+watch([currentPage, pageSize, search, () => sort.key, () => sort.dir], () => table.value?.setScrollTop(0), { flush: 'post' });
 
 function onSortChange({ prop, order }) {
   sort.key = prop;
   sort.dir = order === 'descending' ? -1 : 1;
+  currentPage.value = 1;
 }
 
 async function load() {
   if (!canLoad.value) return;
+  loading.value = true;
+  currentPage.value = 1;
   status.value = ''; failure.value = ''; editing.value = null;
   try { await props.actions.loadCopy(); }
-  catch (error) { failure.value = (error && error.message) || '加載未完成。'; return; }
+  catch (error) { status.value = ''; failure.value = (error && error.message) || '加載未完成。'; return; }
+  finally { loading.value = false; }
   const list = cities.value ?? [];
   status.value = page.value ? '已加載 ' + list.length + ' 座' : '';
 }
@@ -114,19 +126,19 @@ async function save(row) {
 <template>
   <section id="stronghold-editor" class="module-card">
     <div class="module-toolbar">
-      <ElButton id="stronghold-load" :disabled="!canLoad" @click="load()">加載</ElButton>
+      <ElButton id="stronghold-load" :aria-busy="loading" :disabled="!canLoad" @click="load()">加載</ElButton>
       <ElInput id="stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱" :disabled="!supported" />
       <span id="stronghold-status" role="status" class="stronghold-status">{{ failure || status }}</span>
     </div>
     <div v-if="supported" class="table-region" tabindex="0">
-      <ElTable id="stronghold-table" :data="rows" row-key="cityId" @sort-change="onSortChange">
+      <ElTable id="stronghold-table" ref="table" :data="pagedRows" height="100%" row-key="cityId" @sort-change="onSortChange">
         <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="column.title" :sortable="column.sortable ? 'custom' : false" :sort-orders="['ascending', 'descending']" :min-width="column.key === 'actions' ? 180 : 120">
           <template #header><span :data-column="column.key" :data-sort="column.sortable ? column.key : undefined">{{ column.title }}</span></template>
           <template #default="{ row }">
             <div :data-field="column.key" :data-city-id="row.cityId" :data-city-seq="row.seq">
               <template v-if="column.key === 'seq'">{{ row.seq }}</template>
               <template v-else-if="column.key === 'actions'">
-                <div class="account-row-actions"><template v-if="editing === row.cityId"><ElButton data-action="save" :disabled="busy" @click="save(row)">保存</ElButton><ElButton data-action="cancel" :disabled="busy" @click="cancelEdit()">取消</ElButton></template><ElButton v-else data-action="edit" :disabled="locked" @click="startEdit(row)">編輯</ElButton></div>
+                <ListRowActions :editing="editing === row.cityId" :busy="busy" :locked="locked" @save="save(row)" @cancel="cancelEdit()" @edit="startEdit(row)" />
               </template>
               <template v-else-if="column.key === 'type'">
                 <ElSelect v-if="editing === row.cityId" v-model="form.type" data-input="type" :disabled="busy"><ElOption v-for="[value, label] in CITY_TYPES" :key="value" :value="Number(value)" :label="label" /><ElOption v-if="!CITY_TYPES.some(([value]) => Number(value) === Number(form.type))" :value="form.type" :label="form.type + '（未知）'" /></ElSelect>
@@ -143,5 +155,12 @@ async function save(row) {
       </ElTable>
     </div>
     <p v-else id="stronghold-unsupported" class="stronghold-note">先按「加載」讀取這款遊戲的據點資料。</p>
+    <ListPagination v-if="supported" id="stronghold-pagination" v-model:current-page="currentPage" v-model:page-size="pageSize" :total="total" :disabled="busy" />
   </section>
 </template>
+
+<style scoped>
+#stronghold-editor:not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
+.module-toolbar { flex-shrink: 0; }
+.table-region { flex: 1; min-height: 0; overflow: hidden; }
+</style>
