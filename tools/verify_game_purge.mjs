@@ -9,7 +9,8 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { GameCopyStore } from '../server/gamecopy.js';
 import { createPublicationBrowserAuthority } from './fixtures/publication-browser-authority.mjs';
-import { createGameReclaimer } from '../vps/game-reclaimer.mjs';
+import { createGameReclaimer, reclaimPrivateGame } from '../vps/game-reclaimer.mjs';
+import { createEditorService } from '../vps/editor-server.mjs';
 import { DIRECTORY_POINTER_KEY, directoryPointerBody } from '../reader/directorypointer.js';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -28,7 +29,7 @@ const stubStager = { stage: unused, verifyStaged: unused };
 // 刪除後的 R2 回收（方案 B）：owned in-memory 物件埠，不連任何雲端。
 // 這裡求的是路由/埠真的被呼叫、且只清本遊戲，不是真實 R2/S3/TLS 證據。
 const reclaimObjects = new Map();
-let reclaimRemoves = 0;
+let reclaimRemoves = 0, failReclaim = false;
 const storeObject = (key, bytes) => reclaimObjects.set(key, { bytes: Buffer.from(bytes), headers: { etag: '"' + sha(Buffer.from(bytes)) + '"', 'content-type': 'application/json' } });
 const reclaimR2 = Object.freeze({
   async get(key, options) {
@@ -43,7 +44,10 @@ const reclaimR2 = Object.freeze({
     storeObject(key, bytes); return true;
   },
   async list(prefix, maxKeys) { assert.equal(maxKeys, 1000); return [...reclaimObjects.keys()].filter(key => key.startsWith(prefix)).sort(); },
-  async remove(key) { reclaimRemoves++; reclaimObjects.delete(key); return 204; },
+  async remove(key) {
+    if (failReclaim && reclaimRemoves === 1) throw new Error('INJECTED_DISK_FAILURE');
+    reclaimRemoves++; reclaimObjects.delete(key); return 204;
+  },
 });
 const parseOwned = text => { try { return JSON.parse(text); } catch (cause) { assert.fail('owned pointer must stay parseable: ' + cause.message); } };
 // 遊戲自己的私有位元組（草稿與資源原件）住在同一個 FileBucket 的 private/<gameId>/ 下：
@@ -112,6 +116,7 @@ new GameCopyStore({ storage, principal: () => ({}), games: { assertNotDeleting()
 { const digest = 'a'.repeat(64), now = '2026-11-01T00:00:00.000Z';
   sql.exec('INSERT OR REPLACE INTO game_copies VALUES(?,?,?,?,?)', gameId, 'owner', '{}', digest, now);
   sql.exec("INSERT OR REPLACE INTO publish_slots VALUES(?,?,?,?,?,?,?)", gameId, null, null, digest, 'empty', null, null);
+  sql.exec('UPDATE publish_slots SET description=? WHERE game_id=?', '保留刪除入口測試', gameId);
   sql.exec('INSERT OR REPLACE INTO copy_validations VALUES(?,?,?,?,?,?)', gameId, 'passed', digest, '[]', null, now); }
 const occupied = counts();
 assert.ok(occupied.copy_objects > 0 && occupied.copy_origins > 0, 'fixture 應有 copy 帳本列可被清除');
@@ -165,6 +170,30 @@ checks.push('柵欄成立但資料庫列仍在（物理刪除是獨立一步）'
   checks.push('名稱與 rowRevision 不符都被拒，且列未被部分刪除');
 }
 
+// 缺少回收器必須在刪庫前拒絕（同一 owned authority，固定測試 key，非真實環境）。
+const unconfigured = createEditorService({ storage, bucket: purgeBucket, env: { EDITOR_ORIGIN: origin, EDITOR_REQUEST_KEY: 'c'.repeat(64), EDITOR_DEFAULT_PASSWORD: authority.password }, runtimeStager: stubStager, frozenPublication: true });
+const unavailable = await unconfigured.fetch(new Request(`${origin}/api/admin/games/${gameId}/purge`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: `__Secure-dragon-editor=${adminToken}`, 'X-CSRF-Token': adminCsrf, 'Idempotency-Key': `unconfigured-${randomUUID()}` }, body: JSON.stringify({ confirmationName: initial.draft_name, expectedRowRevision: fence.value.rowRevision }) }));
+assert.equal(unavailable.status, 503);
+assert.equal((await unavailable.json()).error, 'RECLAIMER_UNCONFIGURED');
+assert.equal(counts().content_games, 1);
+assert.ok(await purgeBucket.get(ownPrivateKey));
+checks.push('回收器未裝配時刪除拒絕，庫行／檔案保持可重試');
+
+// 真正刪掉一個分發檔案後失敗：庫行／fence 仍在，重試完成剩餘清理。
+assert.equal(reclaimRemoves, 0, '核權、名稱與修訂拒絕不得碰檔案');
+failReclaim = true;
+const failedReclaim = await post(`/api/admin/games/${gameId}/purge`, { confirmationName: initial.draft_name, expectedRowRevision: fence.value.rowRevision });
+assert.equal(failedReclaim.status, 503);
+assert.equal(failedReclaim.value.error, 'RECLAIM_FAILED');
+assert.equal(reclaimRemoves, 1);
+assert.equal(counts().content_games, 1, '回收失敗不能先刪庫行');
+assert.equal(counts().content_deletion_fences, 1, '保留不可逆 fence 供重試');
+assert.ok(await purgeBucket.get(ownPrivateKey));
+const retryRows = authority.app.gameCopies.reviewQueue(sha(Buffer.from(adminToken)));
+assert.ok(retryRows.some(row => row.gameId === gameId && row.rowRevision === fence.value.rowRevision), '回收失敗後管理列表保留正確修訂的刪除入口');
+failReclaim = false;
+checks.push('檔案部分清除後失敗保留庫行／fence，原修訂可重試，不產生無主檔案');
+
 const purged = await post(`/api/admin/games/${gameId}/purge`, { confirmationName: initial.draft_name, expectedRowRevision: fence.value.rowRevision });
 assert.equal(purged.status, 200, JSON.stringify(purged.value));
 const receipt = purged.value;
@@ -179,8 +208,8 @@ assert.ok(['completed', 'not-applicable', 'pending'].includes(receipt.retirement
 // 而內容完全相同的另一個遊戲與共享程序包／畫像一個位元組都不能少。
 {
   assert.equal(receipt.reclamation?.state, 'completed', '回執必須回報 R2 回收完成：' + JSON.stringify(receipt.reclamation));
-  assert.equal(receipt.reclamation.pointer, 'removed');
-  assert.equal(receipt.reclamation.objects, ownKeys.length, '必須只刪本遊戲的物件');
+  assert.equal(receipt.reclamation.pointer, 'already-absent');
+  assert.equal(receipt.reclamation.objects, ownKeys.length - 1, '重試只刪剩餘物件');
   assert.equal(reclaimRemoves, ownKeys.length);
   // 私有位元組：本遊戲清空、另一個遊戲與共享 installed 一個位元組都不動。
   // 複製與編譯階段本身就會寫入數十個私有位元組（生產實測 49 檔／46 MB），所以這裡
@@ -246,5 +275,15 @@ checks.push(`purge 回執宣告 ${receipt.tables} 張表；實查 ${TABLES.lengt
 }
 
 storage.close();
+// 開發入口無公開分發桶時復用私有回收；一樣確認自己清空、共享與他遊戲不變。
+const localBucket = new FileBucket({ root: join(own, 'local-only') });
+for (const key of [ownPrivateKey, twinPrivateKey, installedKey]) await localBucket.put(key, new Uint8Array([7]));
+assert.equal(await reclaimPrivateGame(localBucket, gameId), 1);
+assert.deepEqual((await localBucket.list({ prefix: `private/${gameId}/` })).objects, []);
+assert.ok(await localBucket.get(twinPrivateKey));
+assert.ok(await localBucket.get(installedKey));
+assert.equal(await reclaimPrivateGame(localBucket, gameId), 0);
+checks.push('開發服務共用私有回收：目標清空、重試冪等、共享與他遊戲保留');
+
 const result = { checks, calls: calls.length, purgedTables: receipt.tables, removed: receipt.removed, sources: { 'server/gamepurge.js': sha(readFileSync('server/gamepurge.js')), 'server/editorapp.js': sha(readFileSync('server/editorapp.js')) }, scope: 'real editor gateway/auth/SQLite/FileBucket + owned in-memory R2 object port; database-row purge and per-game R2 reclamation — no real S3/R2/TLS deployment, no distribution-ledger retirement path, no player-side play-through' };
 process.stdout.write(`${JSON.stringify(result)}` + '\n');

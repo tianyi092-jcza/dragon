@@ -54,7 +54,7 @@ function harness() {
 }
 const selectGame = async h => { await h.actions.refresh(); h.actions.chooseGame(gameId); };
 const loadOk = h => { h.response(path => { if (path === `/api/games/${gameId}/copy`) return { gameId, copyDigest: DIGEST_A, updatedAt: null, data: copyData() }; throw new Error('unexpected api: ' + path); }); };
-const posts = h => h.calls.filter(c => c.path === `/api/games/${gameId}/copy` && c.body !== undefined).map(c => c.body);
+const posts = h => h.calls.filter(c => [ `/api/games/${gameId}/copy`, `/api/games/${gameId}/copy/import-generals` ].includes(c.path) && c.body !== undefined).map(c => c.body);
 
 test('loadCopy builds generals rows in the page projection', async () => {
   const h = harness(); await selectGame(h); loadOk(h);
@@ -150,7 +150,7 @@ const SID1 = 'sid-general-1', SID2 = 'sid-general-2';
 function freshStore() {
   const id = randomUUID();
   storage.sql.exec('INSERT INTO content_games VALUES(?,?)', id, actor.id);
-  store.ensureFromGame('tok', id, { generals: {
+  store.ensureFromGame('tok', id, { chapters: {}, generals: {
     [SID1]: { name: '甲', hao: '', portraitRef: null, suicideOnCapture: false, ability: abilityFull() },
     [SID2]: { name: '乙', hao: '表', portraitRef, suicideOnCapture: true, ability: null },
   } });
@@ -251,7 +251,7 @@ test('suicide flag merges into slot attr bit4 on assign and person set, other bi
   assert.equal(s3.chapters.ch1.state.generals.find(g => g?.generalId === LG).attr, 0x80);
 });
 
-test('generalCopyImport builds deduped rows from native slots and posts one import patch', async () => {
+test('generalCopyImport ignores target native slots and posts one builtin replacement request', async () => {
   const h = harness(); await selectGame(h);
   const chapter = (id, slots) => ({ chapterId: id, state: { name: id, start: { year: 184, month: 1, day: 1 },
     factions: [{ idx: 0, money: 100, reserve_cav: 1, reserve_arc: 2, reserve_inf: 3, monarch_idx: 0, advisor_idx: null, diplomat_idx: 1, capital: 0 }],
@@ -264,18 +264,13 @@ test('generalCopyImport builds deduped rows from native slots and posts one impo
   h.response(() => ({ gameId, copyDigest: DIGEST_A, updatedAt: null, data }));
   await h.actions.loadCopy();
   const reply = await h.actions.generalCopyImport();
-  assert.equal(reply, '已導入 3 名武將並重讀副本。');
-  const body = posts(h)[0];
-  assert.equal(body.module, 'generals');
-  assert.deepEqual(body.patch.import, [
-    { name: '張梁', suicideOnCapture: true, portrait: 5, ability: { siege: 0, field: 2, naval: 0, force: 8, lead: 7, politics: 8 } },
-    { name: '何進', suicideOnCapture: true, portrait: 5, ability: { siege: 0, field: 2, naval: 0, force: 8, lead: 7, politics: 8 } },
-    { name: '張寶', suicideOnCapture: false, portrait: 0, ability: { siege: 0, field: 2, naval: 0, force: 8, lead: 7, politics: 8 } },
-  ]);
+  assert.equal(reply, '已從內置遊戲導入 0 名武將並重讀副本。');
+  assert.deepEqual(posts(h), [{}]);
+  assert.equal(h.calls.find(call => call.body).path, '/api/games/' + gameId + '/copy/import-generals');
   assert.equal(h.errors.length, 0);
 });
 
-test('generalCopyImport splits into 16KiB-safe batches and reports progress', async () => {
+test('generalCopyImport sends no target records or artificial batch progress', async () => {
   const h = harness(); await selectGame(h);
   // 130 个不重名原生记录（两章各 65 槽，idx 保持 0..127）→ 64 + 64 + 2 三批。
   const slotAt = (offset, i) => ({ idx: i, name: '將' + String(offset + i).padStart(3, '0'), hao: '', faction: 0, portrait: 0, attr: 0x80,
@@ -290,50 +285,34 @@ test('generalCopyImport splits into 16KiB-safe batches and reports progress', as
   const original = h.actions.generalCopySave;
   assert.equal(typeof original, 'function');
   const reply = await h.actions.generalCopyImport();
-  assert.equal(reply, '已導入 130 名武將並重讀副本。');
-  const bodies = posts(h);
-  assert.deepEqual(bodies.map(body => body.patch.import.length), [64, 64, 2]);
-  assert.equal(bodies.every(body => body.module === 'generals'), true);
-  assert.equal(bodies.flatMap(body => body.patch.import).length, 130);
-  // 进度快照在结束后是 done；批次总数与请求数一致。
-  assert.equal(h.model().copy.page.import.state, 'done');
-  assert.equal(h.model().copy.page.import.total, 130);
-  assert.equal(h.model().copy.page.import.batches, 3);
+  assert.equal(reply, '已從內置遊戲導入 0 名武將並重讀副本。');
+  assert.deepEqual(posts(h), [{}]);
   assert.equal(h.errors.length, 0);
-  assert.deepEqual(h.workOptions.at(-1), { feedback: 'progress' });
-  assert.ok(h.calls.slice(beforeImport).every(call => call.options?.feedback === 'progress'), 'all batches AND the final reread are progress-only');
-  assert.deepEqual([...new Set(h.progress.map(item => item.done))], [0, 64, 128, 130], 'progress reports actual committed batches');
+  assert.ok(h.calls.slice(beforeImport).every(call => call.options?.feedback !== 'progress'));
+  assert.deepEqual(h.progress, []);
 });
 
-test('failed native import retains the committed count and never switches to global loading', async () => {
+test('failed builtin replacement does not clear the displayed library or claim partial success', async () => {
   const h = harness(); await selectGame(h);
   const data = copyData({ generals: {} });
   data.chapters.ch1.state.generals = Array.from({ length: 65 }, (_, idx) => ({ idx, name: `新將${idx}`, hao: '', faction: null }));
   h.response(() => ({ gameId, copyDigest: DIGEST_A, data }));
   await h.actions.loadCopy();
   const beforeImport = h.calls.length;
-  let committed = 0;
-  h.response((path, body) => {
-    if (body && committed === 0) { committed = body.patch.import.length; return { gameId, copyDigest: DIGEST_A }; }
-    throw new Error('fixture second batch failed');
-  });
+  h.response(() => { throw new Error('fixture replacement failed'); });
   await h.actions.generalCopyImport();
-  assert.equal(committed, 64);
-  assert.equal(h.model().copy.page.import.state, 'failed');
-  assert.equal(h.model().copy.page.import.done, 64);
-  assert.match(h.model().copy.page.import.message, /second batch failed/);
-  assert.ok(h.calls.slice(beforeImport).every(call => call.options?.feedback === 'progress'));
-  assert.deepEqual(h.workOptions.at(-1), { feedback: 'progress' });
+  assert.equal(h.calls.slice(beforeImport).length, 1);
+  assert.deepEqual(h.model().copy.page.generals, []);
   assert.equal(h.errors.length, 1);
-  await h.actions.clearCopyImport();
-  assert.equal(h.model().copy.page.import, null);
+  assert.match(h.errors[0].message, /replacement failed/);
 });
 
-test('generalCopyImport skips names already in the library and refuses an empty set', async () => {
-  const h = harness(); await selectGame(h); loadOk(h);
+test('generalCopyImport can overwrite an existing library', async () => {
+  const h = harness(); await selectGame(h);
+  h.response(() => ({ gameId, copyDigest: DIGEST_A, updatedAt: null, data: copyData() }));
   await h.actions.loadCopy();
-  await assert.rejects(h.actions.generalCopyImport(), /沒有可導入/);
-  assert.deepEqual(posts(h), []);
+  await h.actions.generalCopyImport();
+  assert.deepEqual(posts(h), [{}]);
 });
 
 test('copy generals import creates hashed ids, resolves portraits and leaves 字/号 empty', () => {

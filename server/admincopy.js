@@ -6,6 +6,8 @@ import { createPinnedCopyLoader } from '../tools/editor_trusted_copy.mjs';
 import { FixedCopyProfile, FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
 import { GameSnapshotVerifier } from './snapshots.js';
 import { fail } from './security.js';
+import { GameCopyStore } from './gamecopy.js';
+import { initializeCopyGenerals } from './copygenerals.js';
 const hash = value => createHash('sha256').update(value).digest('hex');
 // 從未 claim 的 pending 列超過這個寬限期就當成中斷（分頁關了、請求從未到 /run）。
 // 保留 reserve→run 的正常间隙（請求本體很小），又不讓死列永久佔住名稱。
@@ -21,7 +23,7 @@ function request(input) {
 }
 function key(value) { if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value)) fail(422, 'COPY_OPERATION_KEY'); }
 export class AdminFullCopy {
-  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #leaseMs; #roles; #profileRevision; #gameLimit; #caps = new WeakMap(); #executing = new WeakSet();
+  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #copies; #leaseMs; #roles; #profileRevision; #gameLimit; #caps = new WeakMap(); #executing = new WeakSet();
   constructor({ storage, principal, catalog, games, blobs, leaseMs = 60000, roles = ['admin'], profileRevision = FIXED_COPY_PROFILE, gameLimit = 0 }) {
     if (!storage?.sql || typeof principal !== 'function' || typeof catalog?.loadFull !== 'function' || typeof games?.recoverGameId !== 'function' || typeof games?.assertNameAvailableInTxn !== 'function' || typeof blobs?.putImmutable !== 'function') throw new TypeError('actual same-domain stores and principal required');
     if (!Array.isArray(roles) || roles.length === 0 || !roles.every(role => role === 'admin' || role === 'author')) fail(503, 'COPY_ROLE_POLICY');
@@ -30,6 +32,7 @@ export class AdminFullCopy {
     if (!Number.isSafeInteger(gameLimit) || gameLimit < 0) fail(503, 'COPY_QUOTA_POLICY');
     this.#gameLimit = gameLimit;
     if (!Number.isSafeInteger(leaseMs) || leaseMs < 1 || leaseMs > 300000) fail(503, 'COPY_LEASE_POLICY');
+    this.#copies = new GameCopyStore({ storage, principal, games });
     this.#storage = storage; this.#sql = storage.sql; this.#principal = principal; this.#catalog = catalog; this.#games = games; this.#blobs = blobs; this.#leaseMs = leaseMs; this.#roles = Object.freeze([...roles]); this.#verifier = new GameSnapshotVerifier({ blobs });
     storage.transactionSync(() => {
       this.#sql.exec('CREATE TABLE IF NOT EXISTS copy_requests (actor TEXT NOT NULL, op_key TEXT NOT NULL, request_digest TEXT NOT NULL, auth_epoch INTEGER NOT NULL, game_id TEXT NOT NULL UNIQUE, registry_id TEXT NOT NULL, definition_digest TEXT NOT NULL, catalog_root TEXT NOT NULL, profile_revision TEXT NOT NULL, metadata_json TEXT NOT NULL, state TEXT NOT NULL, generation INTEGER NOT NULL, lease_hash TEXT, lease_until INTEGER NOT NULL, row_revision TEXT NOT NULL, created_at TEXT NOT NULL, result_json TEXT, PRIMARY KEY(actor,op_key))');
@@ -163,11 +166,19 @@ export class AdminFullCopy {
     if (profile.verify(captured.capability, baselineProof.game).sourceDigest !== captured.baselineDigest) fail(422, 'COPY_BASELINE_PROOF');
     const checked = await this.#verifier.verify(tokenHash, { gameId: row.game_id, allocation, metadata: candidate.metadata, source: saved }), proof = profile.verify(captured.capability, checked.game);
     this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
+    // 冻结 baseline/profile 不变；当前工作台 copy 在同一创建事务中安装规范化主表。
+    const copyData = initializeCopyGenerals(candidate);
+    if (row.profile_revision === FIXED_TEMPLATE_PROFILE) {
+      const { game: builtin } = await createPinnedCopyLoader({ readWeb: source.readWeb })({ gameId: row.game_id, ownerId: actor.id });
+      copyData.cities = structuredClone(builtin.cities);
+      this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
+    }
     const prepared = await this.#games.prepareSnapshot(tokenHash, { gameId: row.game_id, draftRevision: '1', metadata: candidate.metadata, source: saved, allocation }); this.#lease(tokenHash, cap);
     this.#games.transaction(tokenHash, { key: row.op_key, method: 'create', target: 'new', digest: row.request_digest }, tx => {
       const now = this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
       const pending = this.#one("SELECT sha256 FROM copy_objects WHERE game_id=? AND state<>'verified'", row.game_id); if (pending) fail(503, 'COPY_OBJECT_NOT_VERIFIED');
       const result = tx.create(allocation, prepared);
+      this.#copies.seedFromGame(tokenHash, row.game_id, copyData);
       this.#sql.exec('INSERT INTO copy_origins VALUES(?,?,?,?,?,?,?,?,?,?)', row.game_id, row.registry_id, row.definition_digest, row.catalog_root, row.profile_revision, baseline.sha256, baseline.byteLength, captured.baselineDigest, proof.sourceDigest, checked.dependencyDigest);
       const receipt = { gameId: row.game_id, draftRevision: '1', sourceDigest: proof.sourceDigest, baselineDigest: captured.baselineDigest };
       this.#sql.exec("UPDATE copy_objects SET state='committed' WHERE game_id=?", row.game_id);

@@ -7,16 +7,17 @@ import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
 import { ElText } from 'element-plus/es/components/text/index.mjs';
+import { vLoading } from 'element-plus/es/components/loading/index.mjs';
+import { loadingSvg } from './loading.js';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
+const emit = defineEmits(['overlay-change']);
 const stateTags = { draft: 'info', pending: 'warning', listed: 'success' };
 const time = value => value === '—' ? value : new Date(value).toLocaleString();
-const overlay = ref(null), elapsed = ref(0), checking = ref(false);
-let ticker = null, closer = null;
-const stop = () => { if (ticker) { clearInterval(ticker); ticker = null; } if (closer) { clearTimeout(closer); closer = null; } };
+const overlay = ref(null), checking = ref(false);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // 阻塞遮罩：只針对「正在跑的那一个动作」。不管结果如何，最后都要关掉回到正常页面。
-function open(title) { stop(); overlay.value = { title, line: '', failed: false }; elapsed.value = 0; ticker = setInterval(() => { elapsed.value++; }, 1000); }
-function close() { stop(); overlay.value = null; checking.value = false; }
+function open(title) { overlay.value = { title, line: '', failed: false }; emit('overlay-change', true); }
+function close() { overlay.value = null; checking.value = false; emit('overlay-change', false); }
 // 单 POST 无分步进度：检查中整表统一显示 ▶，不假装逐项推进。
 async function attached(title, run) {
   open(title);
@@ -24,7 +25,6 @@ async function attached(title, run) {
   catch (error) {
     // 失敗或逾時：遮罩留在原處說明原因，按「關閉」才收；同樣的句子也會留在面板訊息裡。
     overlay.value = { title, line: (error && error.message) || '處理未完成（原因未回報）。', failed: true };
-    if (ticker) { clearInterval(ticker); ticker = null; }
   }
 }
 async function publish(row) {
@@ -43,13 +43,11 @@ async function check(row) {
   catch (error) {
     // 檢驗沒拿到結果：就地把原因寫在這一層視窗，不另開第二個窗。
     overlay.value = { title: `正在檢驗「${row.name}」…`, line: (error && error.message) || '檢驗未完成（原因未回報）。', failed: true };
-    if (ticker) { clearInterval(ticker); ticker = null; }
     return;
   }
   // 四层→动态清单：遮罩里始终列出检验项；有结论才变 ✓/✗，全部通过才关窗。
   if (props.model.validationPassed) { await sleep(600); close(); return; }
   // 失败且确有红字明细才提红字；无明细（请求层失败）时只说原因，不指不存在的红字。
-  if (ticker) { clearInterval(ticker); ticker = null; }
   const bad = (props.model.validationLayers ?? []).filter(layer => layer.done && !layer.ok);
   overlay.value = bad.length
     ? { title: `檢驗「${row.name}」未通過`, line: `請依下方紅字修正後重新檢驗（${bad.map(layer => layer.title).join('、')}未通過）；修正前上架申請按鈕保持不可用。`, failed: true }
@@ -79,7 +77,9 @@ async function check(row) {
       <template #empty>尚未讀取清單，或此帳戶沒有可上架的遊戲。請在「新建遊戲」建立，或按「刷新」。</template>
     </ElTable>
     <p id="publish-result">{{ model.result }}</p>
-    <ElDialog v-if="overlay" id="publish-overlay" :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" aria-busy="true">
+    <ElDialog v-if="overlay" id="publish-overlay" width="min(440px, calc(100vw - 32px))" align-center :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" :aria-busy="!overlay.failed">
+      <div class="publish-progress">
+        <div v-if="!overlay.failed" id="publish-loading" v-loading="true" :element-loading-svg="loadingSvg" class="publish-loading" />
         <p id="publish-overlay-text">{{ overlay.title }}</p>
         <!-- 检验清单：常驻两项；检查中统一 ▶，无结果时 ·，有结论 ✓/✗；未知码追加在后 -->
         <ElTable v-if="model.validationLayers?.length" id="publish-validation-layers" :data="model.validationLayers" :show-header="false"><ElTableColumn><template #default="{ row: layer }"><div :data-layer="layer.key" :data-layer-code="layer.code" :data-layer-ok="layer.done ? String(layer.ok) : 'pending'" :data-layer-done="layer.done">
@@ -89,8 +89,15 @@ async function check(row) {
         <!-- 上架只送一次 POST，提交后轮询 slot 状态；无多段进度。 -->
         <!-- 第二行：處理過程；失敗或逾時就在這一行說明原因 -->
         <p id="publish-overlay-line">{{ overlay.failed ? overlay.line : (model.phase || '正在處理…') }}</p>
-        <small id="publish-overlay-elapsed">{{ overlay.failed ? '上面這句話也會留在面板訊息裡' : '已用 ' + elapsed + ' 秒；完成後會自動關閉，也可以切到別的頁面' }}</small>
         <p v-if="overlay.failed"><ElButton id="publish-overlay-close" @click="close">關閉</ElButton></p>
+      </div>
     </ElDialog>
   </section>
 </template>
+
+<style scoped>
+.publish-progress { min-height: 260px; max-height: calc(100dvh - 160px); overflow: auto; display: flex; flex-direction: column; gap: 20px; padding: 8px 16px 24px; }
+.publish-progress > * { flex-shrink: 0; }
+.publish-loading { position: relative; height: 80px; }
+#publish-overlay-text, #publish-overlay-line { margin: 0; }
+</style>

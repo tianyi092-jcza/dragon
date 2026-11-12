@@ -74,6 +74,7 @@ async function serve() {
   const { openStorage } = await import('../vps/sqlite-port.mjs');
   const { FileBucket } = await import('../vps/file-bucket.mjs');
   const { createEditorService } = await import('../vps/editor-server.mjs');
+  const { reclaimPrivateGame } = await import('../vps/game-reclaimer.mjs');
   const { createEditorHTTPS } = await import('./editor_local_https.mjs');
   const bucket = new FileBucket({ root: join(STORE, 'private') });
   const storage = openStorage(join(STORE, 'editor.sqlite'));
@@ -93,7 +94,9 @@ async function serve() {
       ...(process.env.DRAGON_TIMING ? { DRAGON_TIMING: '1' } : {}),
       ...(library ? { EDITOR_AVAILABLE_LIBRARY_ROOT: JSON.stringify(library) } : {}),
     };
-    const service = createEditorService({ storage, bucket, env });
+    // 此開發入口沒有 runtimeStager／公開分發桶；所有遊戲專屬檔案只在 private 桶。
+    const purgeReclaimer = async gameId => ({ gameId, pointer: 'absent', objects: 0, privateObjects: await reclaimPrivateGame(bucket, gameId) });
+    const service = createEditorService({ storage, bucket, env, purgeReclaimer });
     transport = await createEditorHTTPS(
       { dispatchFetch: (url, init) => service.fetch(new Request(url, init)) },
       { port: PORT, tls: developmentTLS() },

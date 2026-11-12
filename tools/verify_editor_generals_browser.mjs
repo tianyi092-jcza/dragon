@@ -62,6 +62,10 @@ try {
     if (method === 'GET' && path === '/api/session') return route.fulfill({ json: { user, csrf: 'isolated-fixture' } });
     if (method === 'GET' && path === '/api/resources') return route.fulfill({ json: { mode: 'BUILTIN_READONLY', resources: [] } });
     if (method === 'GET' && path === '/api/games') return route.fulfill({ json: { games: [{ gameId, ownerId: user.id, draftRevision: '1', metadata: data.metadata }] } });
+    if (path === `/api/games/${gameId}/copy/import-generals`) {
+      assert.equal(method, 'POST'); posts.push(request.postDataJSON());
+      pending.push({ key: 'import-POST', route }); return;
+    }
     if (path === `/api/games/${gameId}/copy`) {
       if (method === 'POST') posts.push(request.postDataJSON());
       pending.push({ key: `copy-${method}`, route }); return;
@@ -115,12 +119,12 @@ try {
   const noGlobalSpin = async label => {
     assert.equal(await page.locator('.workbench-loading:visible').count(), 0, `${label}: no global loading mask`);
   };
-  const checkProgress = async (done, total) => {
-    const dialog = page.locator('#generals-import-dialog');
+  const confirmImport = async () => {
+    const dialog = page.locator('.el-message-box');
     await dialog.waitFor();
-    await page.waitForFunction(({ done, total }) => document.querySelector('.generals-import-count')?.textContent.includes(`${done} / ${total}`), { done, total });
-    assert.equal(await dialog.locator('.el-progress').count(), 1, 'real batch progress, not a spinner');
-    await noGlobalSpin('native import');
+    assert.match(await dialog.textContent(), /覆蓋現有全部武將資料/);
+    await dialog.getByRole('button', { name: '確認覆蓋' }).click();
+    await checkSpin('atomic builtin import');
   };
   const widths = [60, 80, 120, 100, 100, 140, 120, 120, 120, 120, 120, 120];
   const checkWidths = async () => {
@@ -380,13 +384,11 @@ try {
   assert.equal(await withoutAbility('hao').textContent(), '無能力資料也可編輯');
   assert.equal(data.generals[idFor(1)].ability, null);
   await page.locator('#generals-import').click();
-  await checkProgress(0, 2);
-  const imported = posts.at(-1);
-  assert.equal(imported.module, 'generals');
-  assert.deepEqual(imported.patch.import.map(row => row.name), ['待導入甲', '待導入乙']);
-  for (const [i, row] of imported.patch.import.entries()) data.generals[idFor(160 + i)] = { name: row.name, zi: '', hao: '', portraitRef: null, suicideOnCapture: row.suicideOnCapture, ability: row.ability };
-  await release('copy-POST', { gameId, copyDigest: 'b'.repeat(64), updatedAt: null });
-  await checkProgress(2, 2);
+  await confirmImport();
+  assert.deepEqual(posts.at(-1), {});
+  data.generals = Object.fromEntries(Array.from({ length: 162 }, (_, i) => [idFor(i), { name: `內置將${i}`, zi: '', hao: '', portraitRef: null, suicideOnCapture: false, ability: { ...ability } }]));
+  await release('import-POST', { gameId, copyDigest: 'b'.repeat(64), updatedAt: null });
+  await checkSpin('builtin import reread');
   await release('copy-GET', copyReply());
   await idle();
   assert.equal(await page.locator('#generals-table .el-table__row').count(), 25);
@@ -394,7 +396,7 @@ try {
   await jump('generals-pagination', 7);
   assert.equal(await page.locator('#generals-table .el-table__row').count(), 12);
   await jump('generals-pagination', 1);
-  assert.equal(await page.locator('#generals-import').isEnabled(), false);
+  assert.equal(await page.locator('#generals-import').isEnabled(), true);
   for (const viewport of [{ width: 1920, height: 1080 }, { width: 1440, height: 900 }, { width: 1024, height: 600 }, { width: 1600, height: 1000 }]) {
     await page.setViewportSize(viewport);
     const table = page.locator('#generals-table'), header = table.locator('.el-table__header-wrapper'), scroll = table.locator('.el-scrollbar__wrap');
@@ -444,11 +446,11 @@ try {
   assert.equal(await page.locator('#generals-unsupported').isVisible(), true);
   assert.equal(await page.locator('#generals-import').isEnabled(), true);
   await page.locator('#generals-import').click();
-  await checkProgress(0, 2);
-  assert.equal(posts.at(-1).patch.import.length, 2);
-  data.generals = Object.fromEntries(posts.at(-1).patch.import.map((row, i) => [idFor(160 + i), { name: row.name, zi: '', hao: '', portraitRef: null, suicideOnCapture: row.suicideOnCapture, ability: row.ability }]));
-  await release('copy-POST', { gameId, copyDigest: 'b'.repeat(64), updatedAt: null });
-  await checkProgress(2, 2);
+  await confirmImport();
+  assert.deepEqual(posts.at(-1), {});
+  data.generals = Object.fromEntries([0, 1].map(i => [idFor(i), { name: `內置將${i}`, zi: '', hao: '', portraitRef: null, suicideOnCapture: false, ability }]));
+  await release('import-POST', { gameId, copyDigest: 'b'.repeat(64), updatedAt: null });
+  await checkSpin('missing library reread');
   await release('copy-GET', copyReply());
   await idle();
   assert.equal(await page.locator('#generals-table .el-table__row').count(), 2);
@@ -457,7 +459,7 @@ try {
   assert.deepEqual(requestFailures, []);
   assert.deepEqual(unexpected, []);
   assert.deepEqual(pending, []);
-  process.stdout.write('PASS generals: immediate repeated global loading, local album loading, native import progress, fixed/edit column widths, 25-row jump pagination/page sizes/filter/sort/empty/last page, paged portrait picker, plain shared row actions, edit/cancel/save+reread, fixed header/pagination at four viewport sizes, hidden-form drafts retained, missing-library import, nullable abilities, module visibility; no browser errors.\n');
+  process.stdout.write('PASS generals: immediate repeated global loading, local album loading, confirmed atomic builtin import/loading+reread, fixed/edit column widths, 25-row jump pagination/page sizes/filter/sort/empty/last page, paged portrait picker, plain shared row actions, edit/cancel/save+reread, fixed header/pagination at four viewport sizes, hidden-form drafts retained, missing-library import, nullable abilities, module visibility; no browser errors.\n');
 } finally {
   await browser?.close();
   await new Promise(resolve => server.close(resolve));

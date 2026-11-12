@@ -78,6 +78,13 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
   const gameId = run.data.gameId;
   assert.match(gameId, /^[a-f0-9-]{36}$/);
 
+  // 完整复制成功即有 copy 主表，不依赖首次页面 ensure。
+  const initialized = await call(`/api/games/${gameId}/copy`, undefined, admin);
+  assert.equal(initialized.status, 200);
+  assert.equal(Object.keys(initialized.data.data.generals).length, 466);
+  assert.equal(Object.keys(initialized.data.data.cities).length, 192);
+  assert.equal(Object.values(initialized.data.data.chapters).flatMap(ch => ch.state.generals).filter(g => g.generalId).length, 2540);
+
   // ensure 幂等：两次同摘要。
   const e1 = await call(`/api/games/${gameId}/copy/ensure`, {}, admin);
   assert.equal(e1.status, 200, JSON.stringify(e1.data).slice(0, 300));
@@ -89,6 +96,15 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
   const got = await call(`/api/games/${gameId}/copy`, undefined, admin);
   assert.equal(got.status, 200);
   assert.equal(got.data.copyDigest, e1.data.copyDigest);
+
+  const generalId = Object.keys(got.data.data.generals)[0];
+  const original = got.data.data.generals[generalId];
+  assert.equal((await call(`/api/games/${gameId}/copy`, { module: 'generals', patch: { upsert: { [generalId]: { name: '測試改名' } } } }, admin)).status, 200);
+  const imported = await call(`/api/games/${gameId}/copy/import-generals`, {}, admin);
+  assert.equal(imported.status, 200, JSON.stringify(imported.data));
+  const reread = await call(`/api/games/${gameId}/copy`, undefined, admin);
+  assert.deepEqual(reread.data.data.generals[generalId], original);
+  assert.equal((await call(`/api/games/${gameId}/copy/import-generals`, { generals: {} }, admin)).status, 422);
 
   // 模块存：只改 metadata，摘要必变。
   const w = await call(`/api/games/${gameId}/copy`, { module: 'metadata', patch: { name: '链路改名', introduction: 'HTTP回放改后' } }, admin);
@@ -148,5 +164,29 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
   assert.equal(s3.data.slot.state, 'approved');
   assert.equal(s3.data.version, '1.0');
   assert.equal(s3.data.nextVersion, '1.1');
+  const managed = await call('/api/admin/copy/submissions', undefined, admin);
+  assert.equal(managed.data.queue.find(row => row.gameId === gameId).state, 'approved');
+  assert.equal(managed.data.queue.find(row => row.gameId === gameId).listed, true);
+  assert.equal((await call(`/api/games/${gameId}/copy/approve`, {}, admin)).status, 409);
+
+  // 普通新建也直接拥有据点主表，武将允许为空；来源相同不等于共用可变数据。
+  const newKey = randomUUID();
+  assert.equal((await call('/api/games', { name: '空白新建', introduction: '隔離初始化驗證' }, admin, { 'Idempotency-Key': newKey })).status, 202);
+  const created = await call('/api/games/create/' + newKey + '/run', {}, admin, { 'If-Match': '"1"' });
+  assert.equal(created.status, 200, JSON.stringify(created.data));
+  const newId = created.data.gameId;
+  const blank = await call(`/api/games/${newId}/copy`, undefined, admin);
+  assert.equal(blank.status, 200);
+  assert.deepEqual(blank.data.data.generals, {});
+  assert.equal(Object.keys(blank.data.data.cities).length, 192);
+  const cityId = Object.keys(blank.data.data.cities)[0];
+  assert.ok(Number.isInteger(blank.data.data.cities[cityId].max_prod));
+  assert.ok(Number.isInteger(blank.data.data.cities[cityId].growth));
+  const importedBlank = await call(`/api/games/${newId}/copy/import-generals`, {}, admin);
+  assert.equal(importedBlank.status, 200, JSON.stringify(importedBlank.data));
+  const blankRead = await call(`/api/games/${newId}/copy`, undefined, admin);
+  assert.equal(Object.keys(blankRead.data.data.generals).length, 466);
+  assert.deepEqual(blankRead.data.data.cities, blank.data.data.cities);
+  assert.deepEqual((await call(`/api/games/${gameId}/copy`, undefined, admin)).data.data.generals, got.data.data.generals);
   } finally { await close(); }
 });

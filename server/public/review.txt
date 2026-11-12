@@ -1,5 +1,5 @@
 // B3 上架審核 controller（Web 產品決定 2026-11）：管理員審核 copy 单槽待审队列。
-// 清单走 GET /api/admin/copy/submissions（仅 submitted，附说明原文）；拒绝走
+// 清单走 GET /api/admin/copy/submissions（提交过即保留，只有 submitted 可审核）；拒绝走
 // POST /api/games/:id/copy/reject（槽回 empty）；同意走 /copy/approve 配发 ordinal 并覆盖 formal，
 // 不走旧 listing 链；删除＝旧不可逆删除链（游戏级，与 copy 无关）。
 // 本檔只做展示與操作追蹤，服務端仍是唯一權限。三個動作在服務端天然收斂
@@ -13,7 +13,7 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
  const fields = (v, keys) => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).sort().join(',') === [...keys].sort().join(',');
  const hex = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
  const name = v => typeof v === 'string' && v.isWellFormed() && [...v].length >= 1 && [...v].length <= 8;
- const states = { draft: '草稿', pending: '待上架', listed: '已上架' };
+ const states = { submitted: '待審核', approved: '已通過', empty: '暫無新申請', ready: '已校驗，尚未提交' };
  const errors = {
   ADMIN_REQUIRED: '只有管理員可以審核上架申請。',
   RELEASE_HISTORY_QUERY: '發布歷史查詢格式無效；請重新整理清單。',
@@ -31,6 +31,8 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
   PURGE_LISTED: '遊戲仍在玩家端上架中，不能物理刪除；请先下架再重試。',
   PURGE_FORBIDDEN: '只有作者本人或管理員能物理刪除此遊戲。',
   PURGE_INCOMPLETE: '物理刪除复查发现残留列，已整批回滚；请把涉及表名告诉管理员。',
+  RECLAIMER_UNCONFIGURED: '檔案清理服務未配置；資料列與刪除入口已保留，配置後可重試。',
+  RECLAIM_FAILED: '遊戲檔案清理未完成；資料列與刪除入口已保留，可重試繼續清理。',
   LISTING_RESTRICTED: '此遊戲處於管理限制，不能同意上架。',
   DISTRIBUTION_NOT_CONFIGURED: '服務尚未配置分發狀態；不推定已公開。',
   DISTRIBUTION_GAME_PENDING: '此遊戲仍有待確認分發，不能上架下一版。',
@@ -55,10 +57,11 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
    if (!row || typeof row !== 'object' || Array.isArray(row) || !uuid(row.gameId) || seen.has(row.gameId)) throw new Error('待审队列栏位无效。');
    if (typeof row.name !== 'string' || !name(row.name) || typeof row.author !== 'string' || [...row.author].length < 1 || [...row.author].length > 32) throw new Error('待审队列栏位无效。');
    if (typeof row.description !== 'string' || [...row.description].length > 2000) throw new Error('待审队列栏位无效。');
-   if (!iso(row.submittedAt) || (row.validatedAt !== null && !iso(row.validatedAt))) throw new Error('待审队列栏位无效。');
+   if ((row.submittedAt !== null && !iso(row.submittedAt)) || (row.validatedAt !== null && !iso(row.validatedAt))) throw new Error('待审队列栏位无效。');
    if (row.validation !== null && (!row.validation || typeof row.validation !== 'object' || !['passed', 'failed'].includes(row.validation.state) || !iso(row.validation.checkedAt))) throw new Error('待审队列栏位无效。');
    if ((row.version !== null && !ordinal(row.version)) || !ordinal(row.nextVersion)) throw new Error('待审队列栏位无效。');
    if (!revision(row.rowRevision) || !iso(row.createdAt)) throw new Error('待审队列栏位无效。');
+   if (!Object.hasOwn(states, row.state) || typeof row.listed !== 'boolean') throw new Error('審核狀態無效。');
    seen.add(row.gameId); return Object.freeze({ ...row });
   });
  }
@@ -76,18 +79,16 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
   if (BigInt(value.rowRevision) !== BigInt(row.rowRevision) + 1n && BigInt(value.rowRevision) !== BigInt(row.rowRevision)) throw new Error('刪除回執格式無效；請重新整理清單。');
   return value;
  }
- // 用戶決定（2026-11）：刪除＝徹底清除。柵欄成立後立刻物理刪除資料庫列；
- // 物理刪除失敗只降級成「已柵欄、尚未徹底刪除」，不推翻已成立的事實。
- // C 批：物理刪除回執多一個選填的回收結果（在架指標移除＋R2 前綴位元組回收）。
- // 未設定回收器或回收失敗都是「已刪列、尚未回收」，不得當成已回收。
+ // 現行服務先回收檔案再刪庫行；兼容舊服務 pending 回執，但絕不顯示完成。
  const reclaimed = value => value === undefined || value !== null && typeof value === 'object' && !Array.isArray(value) &&
   ['completed', 'pending'].includes(value.state) && Number.isSafeInteger(value.objects) && value.objects >= 0 &&
-  Object.keys(value).every(key => ['state', 'code', 'objects', 'pointer'].includes(key)) &&
-  (value.state === 'completed' ? ['rewritten', 'absent', 'already-absent'].includes(value.pointer) && value.code === undefined : typeof value.code === 'string' && value.code.length >= 1 && value.code.length <= 200 && !/[\x00-\x1f\x7f]/.test(value.code) && value.pointer === undefined);
+  Object.keys(value).every(key => ['state', 'code', 'objects', 'privateObjects', 'pointer'].includes(key)) &&
+  (value.privateObjects === undefined || Number.isSafeInteger(value.privateObjects) && value.privateObjects >= 0) &&
+  (value.state === 'completed' ? ['removed', 'rewritten', 'absent', 'already-absent'].includes(value.pointer) && value.code === undefined : typeof value.code === 'string' && value.code.length >= 1 && value.code.length <= 200 && !/[\x00-\x1f\x7f]/.test(value.code) && value.pointer === undefined);
  const reclaimText = value => !value ? '' : value.state === 'completed'
-  ? ' 在架指標與 R2 位元組已回收。'
-  : value.code === 'RECLAIMER_UNCONFIGURED' ? ' R2 回收未設定，位元組可能仍留在儲存。'
-  : ' R2 回收未完成（' + value.code + '），可稍後重試。';
+  ? ' 在架指標與遊戲存儲檔案已回收。'
+  : value.code === 'RECLAIMER_UNCONFIGURED' ? ' 存儲回收未設定，檔案可能仍留在儲存。'
+  : ' 存儲回收未完成（' + value.code + '），可稍後重試。';
  function purgeReceipt(value, row) {
   if ((!fields(value, ['gameId', 'purgedAt', 'reclamation', 'removed', 'state', 'tables', 'version']) && !fields(value, ['gameId', 'purgedAt', 'reclamation', 'removed', 'retirement', 'state', 'tables', 'version'])) || value.version !== 1 || value.state !== 'purged' || value.gameId !== row.gameId || !iso(value.purgedAt) || !Number.isSafeInteger(value.tables) || !value.removed || typeof value.removed !== 'object' || value.removed.content_games !== 1 || !reclaimed(value.reclamation)) throw new Error('徹底刪除回執格式無效；柵欄已成立，可稍後重試。');
   return value;
@@ -106,12 +107,12 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
   const visible = current({ id: identity?.user?.id, version: identity?.user?.version, generation }), disabled = !visible || isBusy() || sending;
   const list = visible ? rows.map(row => ({
    gameId: row.gameId, name: row.name, author: row.author, description: row.description,
-   version: row.version ?? '—', nextVersion: row.nextVersion, stateKey: 'pending', state: states.pending, rejected: false,
-   createdAt: row.createdAt, stateTime: row.submittedAt, rowRevision: row.rowRevision,
-   approveDisabled: disabled, rejectDisabled: disabled, deleteDisabled: disabled,
+   version: row.version ?? '—', nextVersion: row.nextVersion, stateKey: row.state, state: states[row.state] + (row.listed ? '／已上架' : '／未上架'), rejected: false,
+   createdAt: row.createdAt, stateTime: row.submittedAt ?? row.validatedAt ?? row.createdAt, rowRevision: row.rowRevision,
+   approveDisabled: disabled || row.state !== 'submitted', rejectDisabled: disabled || row.state !== 'submitted', deleteDisabled: disabled,
    historyDisabled: disabled, historyOpen: historyGameId === row.gameId && visible,
-   approveHint: '同意后版本自动为 ' + row.nextVersion + ' 并覆盖正式版本；失败不耗序号',
-   rejectHint: '驳回后槽回空，作者重验可再交',
+   approveHint: row.state === 'submitted' ? '同意后版本自动为 ' + row.nextVersion + ' 并覆盖正式版本；失败不耗序号' : '須等待作者再次提交申請才能審核',
+   rejectHint: row.state === 'submitted' ? '驳回后槽回空，作者重验可再交' : '目前沒有待審核申請',
    deleteHint: '刪除整個遊戲（含所有章節與已上架版本，含資料庫列），不是刪除單個版本，徹底清除且不可恢復',
   })) : [];
   const history = {
@@ -124,14 +125,14 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
   };
   emit({ rows: list, history, message: visible ? messageText : '', result: visible ? resultText : '', locked: disabled, refreshDisabled: !visible || isBusy() || sending });
  }
- async function load(ctx) {
-  const value = await api('/api/admin/copy/submissions');
+ async function load(ctx, options) {
+  const value = await api('/api/admin/copy/submissions', undefined, options);
   if (!current(ctx)) return;
   rows = rowList(value);
  }
  async function refresh() { const ctx = capture(); message(''); resultText = ''; await load(ctx); render(); return '上架清單已更新。'; }
  // 每個動作：新鍵、CASA 由伺服器判定、無論成敗都重讀清單（狀態只在伺服器成立）。
- async function execute(row, request, verify, done) {
+ async function execute(row, request, verify, done, options) {
   const ctx = capture();
   if (!rows.includes(row)) throw new Error('審核清單已變，請重新整理。');
   sending = true; message(''); resultText = ''; render();
@@ -146,7 +147,7 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
    throw error;
   } finally {
    sending = false;
-   if (current(ctx)) { try { await load(ctx); } catch { /* 清單保持舊值，直到明確重新整理 */ } }
+   if (current(ctx)) { try { await load(ctx, options); } catch { /* 清單保持舊值，直到明確重新整理 */ } }
    render();
   }
  }
@@ -157,6 +158,7 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
  };
  async function approve(gameId, rowRevision) {
   const row = rowFor(gameId, rowRevision);
+  if (row.state !== 'submitted') throw new Error('目前沒有待審核申請。');
   return await execute(row, () => api('/api/games/' + row.gameId + '/copy/approve', {}),
     (value, target) => {
       if (!value || typeof value !== 'object' || value.gameId !== target.gameId || value.state !== 'approved' || typeof value.ordinal !== 'string') throw new Error('同意回执无效；请重新整理清单。');
@@ -165,28 +167,33 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
  }
  async function reject(gameId, rowRevision) {
   const row = rowFor(gameId, rowRevision);
+  if (row.state !== 'submitted') throw new Error('目前沒有待審核申請。');
   return await execute(row, () => api('/api/games/' + row.gameId + '/copy/reject', {}), rejectReceipt, '已驳回「' + row.name + '」的上架申请；槽已回空，作者重验可再交。');
  }
- async function remove(gameId, rowRevision) {
+ async function remove(gameId, rowRevision, onProgress = () => {}) {
   const row = rowFor(gameId, rowRevision);
   let outcome = null;
   await execute(row, async () => {
    // 栅栏已存在（上次 purge 失败回滚）时服务端直接返回既有回执继续 purge，不抛 GAME_DELETING。
-   const fence = deleteReceipt(await api('/api/games/' + row.gameId + '/deletion', { gameId: row.gameId, expectedRowRevision: row.rowRevision, confirmationName: row.name }, { key: crypto.randomUUID() }), row);
+   onProgress('fencing');
+   const fence = deleteReceipt(await api('/api/games/' + row.gameId + '/deletion', { gameId: row.gameId, expectedRowRevision: row.rowRevision, confirmationName: row.name }, { key: crypto.randomUUID(), feedback: 'progress' }), row);
+   onProgress('purging');
    try {
-    const purge = purgeReceipt(await api('/api/admin/games/' + row.gameId + '/purge', { confirmationName: row.name, expectedRowRevision: fence.rowRevision }, { key: crypto.randomUUID() }), row);
+    const purge = purgeReceipt(await api('/api/admin/games/' + row.gameId + '/purge', { confirmationName: row.name, expectedRowRevision: fence.rowRevision }, { key: crypto.randomUUID(), feedback: 'progress' }), row);
     outcome = { ok: true, receipt: purge };
+    onProgress('refreshing');
     return { fence, purge };
    }
    catch (error) {
     const tables = Array.isArray(error?.detail?.tables) ? error.detail.tables.filter(t => typeof t === 'string') : [];
-    const text = errors[error.code] ?? (error.message || error.code || '原因未回報');
-    outcome = { ok: false, error: text, errorTables: tables };
+    const detail = typeof error?.detail?.reason === 'string' ? '（' + error.detail.reason + '）' : '';
+    const text = (errors[error.code] ?? (error.message || error.code || '原因未回報')) + detail;
+    outcome = { ok: false, code: error.code, error: text, errorTables: tables };
     return { fence, purgeError: text + (tables.length ? '（涉及：' + tables.join('、') + '）' : '') };
    }
   }, value => value.fence, value => value.purge
-   ? '已徹底刪除（不可恢復）：資料庫已移除 ' + row.name + ' 的所有列，玩家端目錄不再列出它；分發帳本與 R2 位元組由既有退役清理回收，不刪玩家本地存檔。' + reclaimText(value.purge?.reclamation)
-   : '已建立不可逆刪除柵欄，但物理刪除尚未完成：' + value.purgeError);
+   ? (value.purge.reclamation?.state === 'completed' ? '已徹底刪除（不可恢復）：' : '資料列已刪除，但存儲回收尚未確認，不能視為徹底刪除：') + row.name + '；共享程序、共享畫像與玩家本地存檔不受影響。' + reclaimText(value.purge.reclamation)
+   : '已建立不可逆刪除柵欄，但物理刪除尚未完成：' + value.purgeError, { feedback: 'progress' });
   // 只有拿到物理刪除回執才算乾淨刪除，同时把回执带给弹窗逐组列状态。
   // 同時告知其他工作頁：這個遊戲是真的被刪了（不是清單遺漏），應丟掉對它的上下文。
   if (outcome?.ok) { try { onPurged(row.gameId); } catch { /* 提示失敗不影響已成立的刪除事實。 */ } }
@@ -218,7 +225,7 @@ export function installReview({ api, authority, work, isBusy, onPurged = () => {
   refresh: () => work(async () => { const ctx = capture(); try { return await refresh(); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
   approve: (gameId, rowRevision) => work(async () => { const ctx = capture(); try { return await approve(gameId, rowRevision); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
   reject: (gameId, rowRevision) => work(async () => { const ctx = capture(); try { return await reject(gameId, rowRevision); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
-  remove: (gameId, rowRevision) => work(async () => { const ctx = capture(); try { return await remove(gameId, rowRevision); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }),
+  remove: (gameId, rowRevision, onProgress) => work(async () => { const ctx = capture(); try { return await remove(gameId, rowRevision, onProgress); } catch (error) { if (current(ctx)) message(errors[error.code] ?? error.message); throw error; } finally { render(); } }, { feedback: 'progress' }),
  });
  return Object.freeze({ actions, render,
   setIdentity(value) {

@@ -9,7 +9,7 @@
 - 仓库 `E:/Dragon/web-port`，原程序 `E:/Dragon/Dragon/`，官方基准 `E:/Dragon/原版/`，改版库 `上/中/下/后/`。禁止自动化访问真实 `SAVE.DAT`、用户存档或 profile；测试使用内存、mock、隔离目录与新 profile。
 - 软件版本以 `VERSION` 为准，规则基线 `web-0.1.1`；游戏版本 `1.n`、软件版本、内容摘要和程序归档身份相互独立。
 - **当前主线：游戏级共享数据＋copy 单套／publish 单槽／formal 单快照。** 元数据、章节、据点、武将库及发布审核已接 copy；地图／部分定义面板、旧 draft 控制器与表清理尚未整体收尾，见[任务清单](docs/copy-simplification-tasks.md)。编辑器 `/api/trial/*` 已退役为 `410 TRIAL_RETIRED`，保留引擎不等于重开接口。
-- 当前本地后续为武将加载／相册优化、共享头像数字重编号与轻量目录；真实持久化、旧冻结包及生产尚未迁移／验收。具体交付和未通过项只记 journal，不把本地结果当上线事实。
+- 当前本地已实现copy主表初始化、内置武将整库覆盖、持久管理员列表、先清文件再删库及阻塞弹窗反馈；尚未部署。地图收尾、头像旧持久化／冻结包兼容与生产验收仍待按任务推进；具体批次、验证缺口与数据操作收据只记journal，不把本地结果当上线事实。
 - 生产为 `sadcloud` 单 VPS（`ssh sadcloud`，根 `/srv/dragon`）：编辑器／玩家分服务，SQLite＋私有文件桶＋磁盘分发桶，nginx／Let's Encrypt；域名 `dragon-editor.720108.xyz`／`dragon.720108.xyz`，DNS 直指源站。Worker／R2／Tunnel、instabox 是历史形态；现行运维见[存储布局 §18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)，部署时重新核镜像／摘要。
 
 ## 2. 架构与数据归属
@@ -45,12 +45,14 @@
 
 - 据点、地图道路、武将库与章节属于**单款游戏自己的共享数据**；`sourceRef.kind`／`copy_origins.profile_revision` 只是来源标签，不是第二份共享数据。编辑 copy 与正式快照分开，发布不回写内置源。
 - 据点父表拥有名称、坐标、最大生产力、类型及新章默认四值，缺省四值从第一章回填一次；章节可改所属势力、当前生产力、上升值、防灾值、城兵，内政官不在该设置。编译物化原生格式，见[据点合同](docs/editor-city-definitions.md)与[章节属性](docs/chapter-and-base-resources.md)。
-- 武将库姓名游戏内唯一，六能力 `0..15`；`suicideOnCapture` 为游戏级属性，关联槽只同步 attr bit4。`zi` 只保存、不写原生槽；不把原生称呼误作字／号。导入须显式、按姓名去重、64 条一批，成功前缀保留、失败可重试，不伪造跨批事务。
+- 普通新建初始化完整据点主表，武将可空；完整复制初始化copy主表及章节槽关联，不保留空武将库。固定章序／槽序、姓名trim＋NFC去重，首次同名整条胜出。从内置游戏导入须确认整库覆盖，服务端准备后单事务替换、失败保留旧库，不扫描目标章或分批追加；不自动迁移旧副本。
+- 武将姓名游戏内唯一，改名不改稳定ID；主表投影到关联槽，缺失引用交发布门报告，不隐式免职。六能力 `0..15`，`suicideOnCapture`只同步attr bit4；`zi`只保存，不把原生称呼导成字／号。详见[现行武将合同](docs/editor-general-definitions.md#copy内置武将转换与主表权威现行)。
 - copy 保存只拦本模块约束，发布全量检验闭合跨模块依赖；`copyDigest` 变化作废旧票，不照搬 `draft_revision` 门。单写者无修订 CAS 不等于可省鉴权、epoch、Origin、删除栅栏。
+- 管理员全局管理列表按gameId显示已提交过申请且未删除的游戏，不受顶部当前游戏过滤；通过/驳回仍保留删除入口，只有submitted可再次审核，编辑/校验不会解锁审核。
 - 提交须同摘要通过票及 1–2000 码点发布说明，票一次性核销、每游戏 30 分钟节流。同意须同事务分配 ordinal、安装已准备包、更新 pin／formal／`listed=1`，失败回滚、不耗号；版本按 `1.0→1.1…1.10` 整数序号递增，不回滚／复用。名称归游戏作者，同作者不可重名、不同作者可同名，审核管理员不是名称所有者。
 - 内置游戏始终可用，不经编辑器修改／下架／删除；完整复制不含对局或存档。作者编辑／提交自己内容，管理员审核／限制／删除，不替作者编辑；普通新建与完整复制不能混用。
 - 新正式版使旧版对局禁存、旧档不可加载；清旧与新版保存同事务，失败不先删。网络错误、缺身份、下架、损坏不能冒充更新；仅下架未更新的会话可继续。`410 GAME_DELETED` 阻塞显示「該遊戲已刪除！」，仅「確認」，清该游戏本机进度后回开局。
-- 在架指针 `control/directory.json`；共享程序 `artifacts/programs/<digest>/`，游戏发布 `artifacts/<gameId>/`，编辑私有 `private/<gameId>/`。删除须库行 purge＋移除指针＋回收两处游戏前缀，不顺带删除 `installed/` 或共享程序。
+- 在架指针 `control/directory.json`；共享程序 `artifacts/programs/<digest>/`，游戏发布 `artifacts/<gameId>/`，编辑私有 `private/<gameId>/`。删除须先核权／栅栏、移除指针并清空两处游戏前缀，再交易内复核并 purge 库行；回收失败保留管理行／栅栏供重试，不先删库制造孤儿文件。不顺带删除 `installed/` 或共享程序，现行合同见[存储布局 §11.1](docs/game-storage-layout.md#111-本轮实际做了什么)。
 - 磁盘桶 ETag 为 `"<md5>"`、mtime 决定 last-modified；读者绑定含 `size`、`httpMetadata.contentType`、`body: ReadableStream`。共享 `kao/` 为 621 张 128×128 画像，文件名／资产 ID 数字 `0..620`，255按普通资源、不开放上传；ID>255 走 `portraitKey`，不塞原生 byte，不改 DOS FF 或历史冻结身份。详见[画像资源决定](docs/re-notes-portrait-reader.md#现行web准入与原证边界)。
 
 ## 3. 展示、交互与文档职责
@@ -60,7 +62,8 @@
 - 组件按路径引入（如 `element-plus/es/components/button/index.mjs`），并在 `main.js` 引入相应 `element-plus/es/components/<name>/style/css`，否则只有裸 DOM。`theme.css` 仅骨架、间距、宽度、滚动、资源布局；不覆盖控件高度／字阶／边框／圆角。不得为编辑器修改玩家 `server/public/style.css`，挂载时移除该 link。
 - 详细维护源为[布局规范](docs/editor-ui-layout-spec.md)：整页不滚、数据区滚、垂直居中、左提示右草稿、枚举名称（未知保留「数字（未知）」）、保存后按控制器合同重读。旧 34px／原生 table 皮肤条款已撤销。可见布局不得覆盖 `[hidden]`；隐藏重型内容按需挂载，但保留控制器与组件未保存输入。
 - 保留中文／繁体与 id、data-* 协议（特别是 `#generals-*`、`#publish-overlay*`、`#full-copy-overlay*`、`#review-*`）。有效空字符串选项用 `empty-values=[null, undefined]`，数组多选用 `ElCheckboxGroup`；组件回调传值，不假定原生事件。
-- 加载共用四圆点及默认 Loading：页面用唯一全局请求计数／对应 busy；弹窗先打开、局部居中加载；真实导入保留 `ElProgress`（含最终重读）。动作／请求默认 `global`，局部／进度明确分流，不改变权限／busy；成功失败均清理。图片／音频懒加载不阻塞整页，多步进度不伪造百分比。`run()` 先解锁再渲染，面板异常不扩散；阻塞流程仍按状态机限制 Esc／遮罩／关闭。
+- 加载共用四圆点及默认Loading；页面统一请求计数／busy，弹窗先打开再局部加载，动作／请求默认`global`，局部／进度明确分流（含最终重读），不改权限或busy。图片／音频懒加载不阻塞整页，真实批次才用进度、不伪造百分比。`run()`先解锁再渲染，面板异常不扩散。
+- 完整复制／检验用窄版加高阻塞弹窗，动画在内容上方，不叠背景Loading或底部说明；检验明细内部滚动，失败保留结果和确认／关闭入口。删除仅在当前弹窗更新真实阶段、无Loading，全部清理确认后才显示完成。具体尺寸、状态及例外统一维护在[布局规范§3](docs/editor-ui-layout-spec.md#3-加载反馈)。
 - 列表默认固定表头、25／50／100 分页与 jumper，不用瀑布流；普通默认「編輯／保存／取消」，不加 primary／link／text 或悬浮操作列。复用 `ListPagination.vue`、`ListRowActions.vue`、`pagination.js`。固定列紧凑、读编辑同宽、控件不撑宽，操作列 min180 吸收余宽；宽屏无无谓横滚、窄屏表内横滚。规范不自动授权整仓迁移。
 - 头像弹窗固定25张／页、只挂当前页、懒图、可跳页／resize；目录完整读取并缓存、数值排序。copy 用 `?usage=0` 跳过未消费的旧草稿使用统计，无查询旧接口仍保留 `inUse`；认证／SHA 门不放宽，见[轻量目录合同](docs/editor-general-definitions.md#copy头像目录轻量读取现行)。尺寸／对齐细则只在布局规范维护。
 - 玩家标题单一游戏选择器，远端失败不阻断内置；新局／标题读档后默认展开军师条、势力信息、小地图。开场视觉见[开场合同](docs/opening-scene.md)；`CITY-4064-WEB-1` 有限差异见[行军维护源](docs/re-notes-march-pathfinding.md#3156-p394064-外栈读取闭合为永久工程边界)，不外推其它规则。
@@ -97,8 +100,7 @@ node tools/verify_pinned_source_registration.mjs
 node --test --test-concurrency=1 tools/verify_editor_portrait_catalog.mjs tools/verify_copy_generals_manage.mjs tools/verify_copy_controller_generals.mjs tools/verify_editor_loading.mjs
 node --test --test-concurrency=1 tools/verify_copy_controller_copypage.mjs tools/verify_copy_controller_chapters.mjs tools/verify_copy_controller_cities.mjs tools/verify_copy_controller_modules.mjs tools/verify_editor_definition_controller.mjs tools/verify_editor_chapter_people.mjs
 node --test --test-concurrency=1 tools/verify_copy_chapter_ops.mjs tools/verify_copy_single_slot.mjs tools/verify_copy_validate_gate.mjs
-node tools/verify_publish_controller_slot.mjs
-node tools/verify_review_controller_queue.mjs
+node --test tools/verify_review_controller_queue.mjs
 node tools/verify_game_purge.mjs
 node tools/verify_editor_schema_sources.mjs
 node --check <变更JS或MJS>
@@ -111,6 +113,7 @@ sh vps/manual-static-build.sh /path/to/new-out
 ```
 
 - 规则改动选内容、slot-phase、battle、formation、road-authority、save 等适用回归；共享调度／RNG／存档／跨模块状态须完整适用覆盖。Python 用 `-B`／UTF-8，编译写新目录。
+- copy初始化／整库覆盖／删除按需选 `verify_copy_builtin_generals.mjs`、`verify_copy_http_roundtrip.mjs`、`verify_game_purge_reclaim.mjs`；发布控制器入口为 `verify_publish_controller_slot.mjs`，当前运行注意事项见journal，不用强制退出证明计时器已清理。
 - UI 用全新 Playwright profile，核 console／pageerror／请求错误、保存重读及可用源流程；可指定已有 `PLAYWRIGHT_MODULE`，不擅装依赖。合成夹具、真实后端、生产分开报告。永久浏览器入口：`verify_editor_generals_browser.mjs`、`verify_editor_panel_visibility_browser.mjs`。
 - 存档另测真实 JSON、事务失败、跨窗口 CAS；公开版本／目录／删除可用 `verify_publication_chain_browser.mjs`，程序归档用 `verify_program_entry.mjs`／`verify_program_assets.mjs`，按各入口选参数，进程内桥不等于生产 TCP／TLS。
 - 交付核实际 diff；支持文件主动 `lens_diagnostics source=lsp scope=paths`，再 `mode=all`。空缓存、push-only、超时／inconclusive 不算 clean，构建不替代 Vue LSP；未跑／失败／覆盖不足如实记录。

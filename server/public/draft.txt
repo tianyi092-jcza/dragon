@@ -38,10 +38,8 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   let copyGameId = null, copyDigest = null, copyUpdatedAt = null, copySubmission = null, copyValidation = null, copyTicket = null;
   // F2 副本页读投影（加法）：GET /copy 全量数据的显示投影，与 draft 修订读完全隔离。
   let copyData = null, copyValidationDigest = null, copyPortraits = null;
-  // 分批导入进度：{done,total,state,message}。非 null 时面板显示阻塞式弹窗。
+  // 保留旧 DTO/clearCopyImport 接口形状；新覆盖导入不产生批次进度。
   let copyImportProgress = null;
-  // 单批条数：本地 HTTPS 入口 JSON body 上限 16384B，一行约 150B，取 64 留足余量。
-  const COPY_GENERAL_IMPORT_BATCH = 64;
   const input = () => ({ name: fields.name, introduction: fields.introduction });
   const resourceLimits = { money: [-8388608, 8388607], reserve_cav: [0, 65535], reserve_arc: [0, 65535], reserve_inf: [0, 65535] };
   let resourceInputs = [], definitions = null, definitionReferences = null, chapterPeople = null, definitionLibrary = [], waterGroups = null, waterMembers = null, waterCandidates = null;
@@ -894,56 +892,20 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     message = '已保存並重讀副本；檢驗票已失效，需重新檢驗。';
   }
   // 副本页共用头像相册（加法）：游戏级只读，不读修订不走武将表；切游戏时清空。
-  // 从本游戏原生槽导入库条目（显式动作）：同名武将只取第一条，已存在的跳过。
-  // 只搬姓名／原图／六项能力／自杀旗，字／号留空；不改任何章节槽，也不建人物引用。
-  function generalCopyImportRows() {
-    if (!copyLoadedForGame()) return [];
-    const existing = new Set((copyData.generals ?? []).map(row => row.name));
-    const rows = new Map();
-    for (const chapter of copyData.chapters) {
-      for (const general of chapter.generals) {
-        if (general.reserved || !general.name || existing.has(general.name) || rows.has(general.name)) continue;
-        // 字／号是作者面字段（2026-11 用户裁定）：原版 6 字节“字号/称呼”在多数记录里
-        // 等于姓名，不能冒充号。导入一律留空，号只由人工填写（如卧龙／凤雏）。
-        const row = { name: general.name, suicideOnCapture: general.suicideOnCapture === true };
-        const portrait = general.originalPortraitId === null ? 0 : Number(general.originalPortraitId);
-        row.portrait = Number.isInteger(portrait) && portrait >= 0 && portrait <= 255 ? portrait : 0;
-        if (general.ability) row.ability = { ...general.ability };
-        rows.set(general.name, row);
-      }
-    }
-    return [...rows.values()];
-  }
-  async function generalCopyImport() {
+  // 内置来源在服务端完整转换并原子替换；不读取目标章槽，不分批破坏旧库。
+  async function generalCopyImport(confirmReplace = confirm) {
     if (isBusy() || !permitted() || !copyLoadedForGame()) throw new Error('請先載入本遊戲的副本武將資料。');
-    const rows = generalCopyImportRows();
-    if (!rows.length) throw new Error('沒有可導入的原生武將記錄（可能已全部導入）。');
-    const batches = Math.ceil(rows.length / COPY_GENERAL_IMPORT_BATCH);
-    if (!confirm('從本遊戲的原生武將記錄導入 ' + rows.length + ' 名到武將庫？\n· 同名武將只取第一條，已在庫中的會跳過\n· 只新增庫條目（姓名／字／號留空／原圖／能力／勢力被滅被俘）\n· 字与号需另行手工填寫（号只有少數人有）\n· 不改任何章節槽位，也不建立人物引用\n· 請求體上限 16KiB，會分 ' + batches + ' 批送出；中途失敗已入庫的保留')) return;
     const gameId = fields.gameId, valid = ticket();
+    if (!await confirmReplace('將從內置遊戲重新建立本遊戲的武將庫，覆蓋現有全部武將資料。\n自訂武將及姓名、字、號、能力、頭像等修改將被移除；字、號重新留空。\n同名取首次記錄；被移除武將的章節引用須在發布前處理。是否繼續？')) return;
     if (!valid() || fields.gameId !== gameId) return;
     return action(async () => {
-      // 分批送出：单请求受 16KiB body 限制；每批完成后立即刷新阻塞式进度窗。
-      copyImportProgress = { done: 0, total: rows.length, state: 'running', batches };
-      render();
-      try {
-        for (let at = 0; at < rows.length; at += COPY_GENERAL_IMPORT_BATCH) {
-          const batch = rows.slice(at, at + COPY_GENERAL_IMPORT_BATCH);
-          await saveCopyModuleInner(gameId, valid, 'generals', { import: batch }, { feedback: 'progress' });
-          if (!valid() || fields.gameId !== gameId) { copyImportProgress = null; return; }
-          copyImportProgress = { done: at + batch.length, total: rows.length, state: 'running', batches };
-          render();
-        }
-        await loadCopyInner(gameId, valid, { feedback: 'progress' });
-        copyImportProgress = { done: rows.length, total: rows.length, state: 'done', batches };
-        render();
-        return '已導入 ' + rows.length + ' 名武將並重讀副本。';
-      } catch (error) {
-        copyImportProgress = { done: copyImportProgress?.done ?? 0, total: rows.length, state: 'failed', batches, message: error && error.message ? error.message : '未知原因' };
-        render();
-        throw error;
-      }
-    }, { feedback: 'progress' });
+      const result = await api('/api/games/' + gameId + '/copy/import-generals', {});
+      if (!valid() || fields.gameId !== gameId) return;
+      if (!result || result.gameId !== gameId || !hexDigest(result.copyDigest)) throw new Error('導入回應未確認，請重新載入副本核對結果。');
+      await loadCopyInner(gameId, valid);
+      if (!valid() || fields.gameId !== gameId) return;
+      return '已從內置遊戲導入 ' + copyData.generals.length + ' 名武將並重讀副本。';
+    });
   }
   function clearCopyImport() { if (isBusy()) return; copyImportProgress = null; render(); }
   async function loadCopyPortraits() {

@@ -11,6 +11,7 @@ import { OwnedRuntimeAssets } from './runtimeassets.js';
 import { installedSourcePolicy, installedAvailableLibraryPolicy } from './sourcecatalogpolicy.js';
 import availableLibraryManifest from './available-library.txt';
 import { AdminFullCopy } from './admincopy.js';
+import { createPinnedCopyLoader } from '../tools/editor_trusted_copy.mjs';
 import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
 import { GameSnapshotVerifier } from './snapshots.js';
 import { PrivateDrafts } from './drafts.js';
@@ -255,6 +256,14 @@ return class EditorMetadata extends PlatformBase {
       this.#bootstrapLibrary(env);
       copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, gameLimit });
       const authorSource = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, readRole: ['admin', 'author'] });
+      this.loadBuiltinGeneralSource = async (tokenHash, gameId) => {
+        const actor = this.principal(tokenHash);
+        const source = await authorSource.loadFull(tokenHash, authorSource.definition().registryId);
+        authorSource.assertCapture(tokenHash, source);
+        const { game } = await createPinnedCopyLoader({ readWeb: source.readWeb })({ gameId, ownerId: actor.id });
+        authorSource.assertCapture(tokenHash, source);
+        return game;
+      };
       // Web 產品決定 2026-11（工作台結構合同 §2／批次 B6，取代 2026-10-31 的
       // 「新建遊戲產出完整 20 章副本」）：工作台級「新建遊戲」只複製底層地圖
       // （含據點），章節與武將庫為空（FIXED_TEMPLATE_PROFILE）；管理員「複製遊戲」
@@ -1022,6 +1031,14 @@ return class EditorMetadata extends PlatformBase {
       this.touch(tokenHash, policy);
       return response(this.gameCopies.approveSlot(tokenHash, gameId, () => this.playPacks.installPreparedInTxn(tokenHash, ticket)));
     }
+    if (sub === 'import-generals') {
+      fields(value, []);
+      this.gameCopies.read(tokenHash, gameId); // 先验目标归属，再读受信内置来源。
+      if (!this.loadBuiltinGeneralSource) fail(503, 'COPY_NOT_CONFIGURED');
+      const source = await this.loadBuiltinGeneralSource(tokenHash, gameId);
+      this.touch(tokenHash, policy);
+      return response(this.gameCopies.replaceGenerals(tokenHash, gameId, source));
+    }
     if (sub === 'ensure') {
       // B4 迁移/首建：draft 头修订只种一次，已有 copy 行直接返回不覆盖。
       fields(value, []);
@@ -1134,24 +1151,24 @@ return class EditorMetadata extends PlatformBase {
     }));
   }
   // 物理刪除（用戶決定 2026-11）：只接在既有 fence 之後，把遊戲從資料庫徹底移除，
-  // 再（注入了回收埠時）把 R2 上屬於它的位元組與在架指針條目一併移除。庫行 purge
-  // 是一個交易；R2 回收在交易之後才做，失敗只降級成 pending 回報，不推翻已提交的
-  // 刪除事實，也不假裝已清理（回執沒說 completed 就是沒完成）。
+  // 先核權並回收遊戲專屬檔案／目錄指標，再以單一交易刪庫行。
+  // 回收失敗不刪庫行，保留不可逆 fence 與管理入口，允許重試完成清理。
   async #postPurge(rt) {
     const { request, tokenHash, user, policy, url, purgePath, value } = rt;
     if (url.search) { fail(422, 'PURGE_QUERY'); }
     this.touch(tokenHash, policy);
     this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'delete');
-    const result = this.gamePurge.purge(tokenHash, purgePath[1], value ?? {});
-    this.ctx.storage.transactionSync(() => this.announcements.bumpRegistryInTxn());
-    if (purgeReclaimer === undefined) { return response({ ...result, reclamation: { state: 'pending', code: 'RECLAIMER_UNCONFIGURED', objects: 0 } }); }
-    try {
-      const facts = await purgeReclaimer(result.gameId);
-      return response({ ...result, reclamation: { state: 'completed', pointer: facts.pointer, objects: facts.objects, privateObjects: facts.privateObjects ?? 0 } });
-    } catch (error) {
-      const code = String(error?.code || error?.message || 'RECLAIM_FAILED');
-      return response({ ...result, reclamation: { state: 'pending', code, objects: 0 } });
+    const gameId = purgePath[1], input = value ?? {};
+    this.gamePurge.check(tokenHash, gameId, input);
+    if (purgeReclaimer === undefined) fail(503, 'RECLAIMER_UNCONFIGURED');
+    let facts;
+    try { facts = await purgeReclaimer(gameId); }
+    catch (error) {
+      fail(503, 'RECLAIM_FAILED', { reason: String(error?.code || error?.message || 'RECLAIM_FAILED').slice(0, 200) });
     }
+    const result = this.gamePurge.purge(tokenHash, gameId, input);
+    this.ctx.storage.transactionSync(() => this.announcements.bumpRegistryInTxn());
+    return response({ ...result, reclamation: { state: 'completed', pointer: facts.pointer, objects: facts.objects, privateObjects: facts.privateObjects ?? 0 } });
   }
   // §4.1/Q43 deletion query (GET fence receipt).
   async #getDeletion(rt) {
@@ -1474,7 +1491,7 @@ return class EditorMetadata extends PlatformBase {
     const trialPath = /^\/api\/trials\/([a-f0-9-]{36})(?:\/(status|end|pack))?$/.exec(path);
     const trialAssetPath = /^\/api\/trials\/([a-f0-9-]{36})\/assets\/([A-Za-z0-9]{1,32})$/.exec(path);
     const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|minimap|map-window|map-layer-window|map-scene|map-atlas|decoration-selection|chapter-references|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
-    const gameCopyPath = /^\/api\/games\/([a-f0-9-]{36})\/copy(?:\/(validate|submission|ensure|reject|approve))?$/.exec(path);
+    const gameCopyPath = /^\/api\/games\/([a-f0-9-]{36})\/copy(?:\/(validate|submission|ensure|reject|approve|import-generals))?$/.exec(path);
     const releasesPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/releases$/.exec(path);
     // 發布歷史（game_releases 日誌）與上面 content_releases 的 /releases 是兩件事：
     // 前者是「上架歷史」（admin 唯讀、A 路線之後才有），後者是內容修訂清單。

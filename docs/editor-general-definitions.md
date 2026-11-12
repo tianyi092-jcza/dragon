@@ -8,7 +8,22 @@
 
 回归入口：`verify_editor_portrait_catalog.mjs` 用实际Request／会话／临时SQLite、显式旧草稿适配器验证轻量零读取及旧模式；`verify_copy_generals_manage.mjs` 验控制器请求；`verify_editor_generals_browser.mjs` 验实际构建壳、真实共享PNG及目录缓存／分页，API仍为隔离内存夹具。首次线上耗时占比未经测量，本地绕过无用链路不等于生产延迟SLA。
 
-## 已批准的模型边界
+## copy内置武将转换与主表权威（现行）
+
+来源：用户本轮批准的副本初始化方案，属于 **Web 产品决定，非原版机制**。本节取代下文旧中立 draft 的同名准入、完整副本不建库、章级覆盖、目标章槽导入及64条追加导入约定；旧接口历史证据不删除，也不自动迁移真实旧副本。
+
+- 每款游戏的 `copy.generals` 是唯一游戏级武将主表；`sourceRef.kind` 只描述初始化来源，不决定使用第二份数据。姓名游戏内唯一，姓名键为 trim＋NFC；ID创建后独立于姓名，改名不换ID。
+- 内置来源经 installed source 的角色/SHA/登记门读出20章，按 `chapterOrder`、原生 `idx` 槽序遍历，排除127保留槽及空姓名。首次同名整条胜出，后续同名完全忽略：六能力、头像、自杀旗都不生成章节覆盖。当前固定来源产生466名、2540个非保留槽关联。
+- 转换字段为 `name/zi/hao/portraitRef/ability/suicideOnCapture`；字、号均空，六能力保持首条0..15值，不截断或补值；画像0和255均按普通共享资产绑定ID＋SHA。原始FF及旧冻结来源身份不改。
+- 管理员完整复制保持原 baseline/profile 冻结源不变，在同一创建事务中另将转换后的当前 copy 入库：192据点、466名武将、20章槽的稳定 `generalId` 关联。普通新建也即有192据点完整主表，武将可为空。创建失败回滚，不靠首次页面读取补建新游戏。
+- 具名章槽是主表的投影：姓名、号、六能力、画像与attr bit4由父表同步；其余attr位、所属、职务、出场和原始兼容字节保持。字不写原槽；画像ID>255只用 `portraitKey`，不塞byte。复用既有 `generaldefinitions.js` 的具名字段/bit4边界（原证见 `re-notes-entity-fields.md` 武将节），本次不新增原版规则或字节解码结论。
+- 已关联武将不允许用旧章级改名／画像命令写第二份游戏级字段，返回 `COPY_GENERAL_SHARED_FIELD`；应到武将主表修改。删除父表记录保留章槽引用/职务，不隐式免职；发布检验报 `CHAPTER_GENERAL_MISSING`。章节展示重构不属于本批。
+- **从内置游戏导入**：确认覆盖整库及丢弃现有修改后，`POST /api/games/:id/copy/import-generals {}`。先校验目标归属，再读受信内置源；准备完成后重新核身份/epoch/删除栅栏，在一笔事务中替换主表及关联投影、更新copy摘要并作废旧票。不是扫描目标章节，不是先清空再分批追加。转换/写入失败旧库不变；网络/回执未知需重读核对，不声称服务端一定未写入。既有稳定ID保留关联，移除的自定义ID留发布缺口。
+- 无可报告的批次进度，使用全局四圆点Loading，成功后重读；确认使用默认Element Plus弹窗，不伪造百分比。
+
+实现：`server/copygenerals.js`、`admincopy.js`、`gamecopy.js`、`editorapp.js`。验证：`verify_copy_builtin_generals.mjs`、`verify_copy_http_roundtrip.mjs`、`verify_copy_generals_manage.mjs` 及隔离 `verify_editor_generals_browser.mjs`；本地验证不代表上线。批次任务见[初始化任务](copy-initialization-tasks.md)。
+
+## 已批准的模型边界（旧 draft 历史，现行 copy 以上节为准）
 
 工程合同§1.2／§3的 `generals { generalId: GeneralDefinition }` 是全游戏人物基础资料；`generalId` 是人物身份，不是章节槽、来源记录ID、姓名或头像。不同人物可以同名、同画像。章节 `people[generalId]` 的加入／归属／覆盖和原生槽分配是另一层，不能用创建基础资料冒充完成新将初始化。
 

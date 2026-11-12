@@ -3,8 +3,8 @@
 //   - 只處理已建立不可逆柵欄（content_deletion_fences 有列）的遊戲；
 //   - wolong-builtin 一律 403（內置遊戲條目不在本管線的職責內）；
 //   - 全程單一交易，逐表刪除後複查 0 行，任何一步不符預期整體回滾；
-//   - 這裡只動資料庫列。R2 位元組由既有 distribution ledger 的 retired-generation
-//     清理機制回收（見 §4.8 待辦），不在這個類別裡假裝已刪。
+//   - 這裡只動資料庫列。HTTP 層先核權並確認專屬檔案回收，再提交本交易；
+//     回收失敗保留 fence 與管理入口，以便重試，不留無主檔案。
 import { fail } from './security.js';
 
 // 依實際 schema 查出的含 game_id 資料表（32 張，扣除分發帳本三表），子表在前、聚合表在後。
@@ -85,12 +85,25 @@ export class GamePurge {
     return who;
   }
 
-  purge(tokenHash, gameId, value) {
+  // 外部檔案回收前核權；提交庫行交易內再次核驗，禁止繞過 fence／歸屬／修訂。
+  check(tokenHash, gameId, value) {
     if (gameId === 'wolong-builtin') { fail(403, 'BUILTIN_PROTECTED'); }
     if (!/^[a-f0-9-]{36}$/.test(gameId)) { fail(422, 'PURGE_GAME_ID'); }
     const actor = this.#actor(tokenHash);
     const confirmationName = value?.confirmationName, expectedRowRevision = value?.expectedRowRevision;
     if (typeof confirmationName !== 'string' || !revision(expectedRowRevision)) { fail(422, 'PURGE_INPUT'); }
+    const fence = this.#one('SELECT owner_id FROM content_deletion_fences WHERE game_id=?', gameId);
+    if (!fence) fail(409, 'GAME_NOT_FENCED');
+    if (actor.role !== 'admin' && actor.id !== fence.owner_id) fail(403, 'PURGE_FORBIDDEN');
+    const row = this.#one('SELECT draft_name,row_revision,listed FROM content_games WHERE game_id=?', gameId);
+    if (!row) fail(404, 'GAME_NOT_FOUND');
+    if (row.draft_name !== confirmationName) fail(409, 'PURGE_CONFIRMATION');
+    if (row.row_revision !== expectedRowRevision) fail(409, 'PURGE_STALE');
+    if (Number(row.listed) === 1) fail(409, 'PURGE_LISTED');
+  }
+
+  purge(tokenHash, gameId, value) {
+    this.check(tokenHash, gameId, value);
     // 帳本位置必須在刪列前取：events 表不在 purge 範圍，但它們就是退役的選擇依據。
     const generations = this.#sql.exec('SELECT generation FROM content_distribution_events WHERE game_id=? ORDER BY generation', gameId).toArray().map(row => Number(row.generation));
     const anchorDigest = this.#one('SELECT operation_digest FROM content_distribution_events WHERE game_id=? ORDER BY generation DESC LIMIT 1', gameId)?.operation_digest ?? null;
@@ -99,15 +112,7 @@ export class GamePurge {
       // 刪除順序不等於 FK 圖的拓樸順序，且最終每張表都是 0 行：把 FK 檢查延到 commit，
       // 任何真實殘留都會在 commit 時失敗（不會被吞掉）。
       this.#sql.exec('PRAGMA defer_foreign_keys=ON');
-      const fence = this.#one('SELECT game_id,owner_id,actor_id,fence_revision FROM content_deletion_fences WHERE game_id=?', gameId);
-      // 只有已經建立不可逆柵欄的遊戲才談得上「徹底刪除」。
-      if (!fence) { fail(409, 'GAME_NOT_FENCED'); }
-      if (actor.role !== 'admin' && actor.id !== fence.owner_id) { fail(403, 'PURGE_FORBIDDEN'); }
-      const row = this.#one('SELECT game_id,draft_name,row_revision,listed FROM content_games WHERE game_id=?', gameId);
-      if (!row) { fail(404, 'GAME_NOT_FOUND'); }
-      if (row.draft_name !== confirmationName) { fail(409, 'PURGE_CONFIRMATION'); }
-      if (row.row_revision !== expectedRowRevision) { fail(409, 'PURGE_STALE'); }
-      if (Number(row.listed) === 1) { fail(409, 'PURGE_LISTED'); }
+      this.check(tokenHash, gameId, value);
       // 分發帳本（events／outbox／chunks／checkpoints／cleanup）不在這裡刪：它是 R2 位元組與
       // 可見性的 system of record，退休要經過 retireCheckpointInTxn 的確認+清理兩段，
       // 直接刪列會讓 ledger 的整體不變量（DISTRIBUTION_LEDGER_CORRUPT）失效。

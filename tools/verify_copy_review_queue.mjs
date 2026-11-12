@@ -1,5 +1,4 @@
-// 管理员待审队列：仅 submitted 槽，附作者/说明原文/版本预告（真实内存 SQLite）。
-// 口径：非 admin 403；空队列 []；驳回后离队；作者名取 owner 账号。
+// 管理员全局列表：提交过申请即保留，审核资格只认 submitted（真实内存 SQLite）。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -37,7 +36,7 @@ const failWith = async (fn, status, code) => {
   assert.fail('expected ' + code);
 };
 
-test('待审队列仅列 submitted 并附说明原文，驳回后离队', async () => {
+test('全局列表附说明原文，驳回和重新校验保留行但不能审核', async () => {
   const { store, db } = makeStore();
   const [a, b] = [randomUUID(), randomUUID()];
   for (const [id, name] of [[a, '甲 game'], [b, '乙 game']]) {
@@ -55,5 +54,13 @@ test('待审队列仅列 submitted 并附说明原文，驳回后离队', async 
   assert.deepEqual(queue.map(r => [r.name, r.author, r.description, r.version, r.nextVersion]), [['甲 game', '作者甲', '甲说明', null, '1.0'], ['乙 game', '作者甲', '乙说明', null, '1.0']]);
   assert.ok(queue.every(r => r.validation?.state === 'passed' && typeof r.submittedAt === 'string' && typeof r.rowRevision === 'string'));
   store.rejectSlot('admin', a);
+  assert.deepEqual(new Set(store.reviewQueue('admin').map(r => r.gameId)), new Set([a, b]));
+  assert.equal(store.reviewQueue('admin').find(r => r.gameId === a).state, 'empty');
+  await failWith(() => store.rejectSlot('admin', a), 409, 'SLOT_NOT_SUBMITTED');
+  store.validateWhole('owner', a);
+  assert.equal(store.reviewQueue('admin').find(r => r.gameId === a).state, 'ready');
+  await failWith(() => store.rejectSlot('admin', a), 409, 'SLOT_NOT_SUBMITTED');
+  db.prepare('DELETE FROM publish_slots WHERE game_id=?').run(a);
+  db.prepare('DELETE FROM content_games WHERE game_id=?').run(a);
   assert.deepEqual(store.reviewQueue('admin').map(r => r.gameId), [b]);
 });

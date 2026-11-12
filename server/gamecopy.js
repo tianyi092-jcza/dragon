@@ -11,6 +11,7 @@ import { compileMapSource } from '../web/src/content/authoring/mapcompile.js';
 import { applyCopyMapEdits, COPY_MAP_OPS } from './copyprofile.js';
 import { cityName } from '../web/src/content/authoring/cityrecords.js';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
+import { builtinGeneralLibrary, projectCopyGenerals } from './copygenerals.js';
 // 共用头像库 ID→SHA（武将库 portraitRef 校验用，与 generaldefinitions 同源）。
 const LIBRARY_PORTRAITS = new Map(KAO_MANIFEST.map(row => [row.id, row.sha256]));
 // 游戏级武将库能力范围（Web 产品决定 2026-11，非原版机制）：六项统一 0..15。
@@ -369,7 +370,7 @@ function applyModule(data, module, checked) {
     }
     if (checked.import) for (const { generalId, ...row } of checked.import) next.generals[generalId] = row;
     if (checked.remove) for (const id of checked.remove) delete next.generals[id];
-    return next;
+    return projectCopyGenerals(next);
   }
   if (module === 'chapters') {
     let next = structuredClone(data);
@@ -481,9 +482,26 @@ export class GameCopyStore {
     if (!row) fail(404, 'COPY_NOT_FOUND');
     const data = this.#parse(row.data_json);
     const checked = checkModule(module, patch, data, gameId);
+    if (module === 'chapters') {
+      for (const edit of checked.edits ?? []) {
+        if (edit.op !== 'rename-general' && edit.op !== 'portrait') continue;
+        const generalId = data.chapters[edit.chapterId]?.state.generals.find(row => row.idx === edit.generalIdx)?.generalId;
+        if (generalId && Object.hasOwn(data.generals, generalId)) fail(422, 'COPY_GENERAL_SHARED_FIELD');
+      }
+    }
     let next;
     try { next = applyModule(data, module, checked); }
     catch (e) { if (e?.status) throw e; fail(422, 'COPY_PATCH'); }
+    return this.#writeData(tokenHash, gameId, actor, next);
+  }
+  // 仅服务端已认证内置来源可调用；HTTP 不接受客户端传入整库。
+  replaceGenerals(tokenHash, gameId, source) {
+    const { actor } = this.#owned(tokenHash, gameId);
+    const data = this.read(tokenHash, gameId).data;
+    data.generals = builtinGeneralLibrary(source, gameId);
+    return this.#writeData(tokenHash, gameId, actor, projectCopyGenerals(data));
+  }
+  #writeData(tokenHash, gameId, actor, next) {
     const text = JSON.stringify(next);
     if (Buffer.byteLength(text) > MAX_COPY_BYTES) fail(413, 'COPY_TOO_LARGE');
     const now = new Date().toISOString(), digest = sha(text);
@@ -505,6 +523,11 @@ export class GameCopyStore {
     const data = this.#parse(row.data_json), digest = row.copy_digest;
     let problems = [];
     try {
+      for (const [chapterId, chapter] of Object.entries(data.chapters)) {
+        for (const row of chapter.state.generals) {
+          if (row.generalId && !Object.hasOwn(data.generals, row.generalId)) problems.push({ chapterId, code: 'CHAPTER_GENERAL_MISSING', detail: row.generalId });
+        }
+      }
       const report = chapterReferenceReport(data);
       for (const ch of report ?? []) {
         if (ch?.missing?.length || ch?.gaps?.length) problems.push({ chapterId: ch.chapterId ?? ch.id ?? '?', code: 'CHAPTER_REFERENCE', detail: JSON.stringify(ch.missing ?? ch.gaps ?? ch).slice(0, 500) });
@@ -607,12 +630,12 @@ export class GameCopyStore {
       publishEnabled: fresh && !submitted && !blockedReason, blockedReason,
     });
   }
-  // 管理员待审队列：仅 state='submitted' 的槽，附作者/说明原文/版本预告。
-  // 同意写 formal 待独立发版修订编号裁决，队列只读不推进状态。
+  // 管理员全局管理列表：提交过申请的游戏保留一行，审核资格仍只认 submitted。
+  // ready/empty 可能是审核后重新校验/驳回；description 保留提交记录（驳回会清 submitted_at）。
   reviewQueue(tokenHash) {
     const actor = this.#actor(tokenHash);
     if (actor.role !== 'admin') fail(403, 'ADMIN_REQUIRED');
-    const slots = this.#sql.exec("SELECT * FROM publish_slots WHERE state='submitted' ORDER BY submitted_at, game_id").toArray();
+    const slots = this.#sql.exec('SELECT * FROM publish_slots WHERE description IS NOT NULL ORDER BY submitted_at, game_id').toArray();
     return Object.freeze(slots.map(slot => {
       const g = this.#one('SELECT g.*,u.account FROM content_games g JOIN users u ON u.id=g.owner_id WHERE g.game_id=?', slot.game_id);
       if (!g) fail(503, 'REVIEW_QUEUE_CORRUPT');
@@ -621,6 +644,7 @@ export class GameCopyStore {
       const version = release?.ordinal ?? null;
       return Object.freeze({ gameId: slot.game_id, name: g.draft_name, author: g.account,
         description: slot.description, submittedAt: slot.submitted_at, validatedAt: slot.validated_at,
+        state: slot.state, listed: g.listed === 1,
         validation: v ? { state: v.state, checkedAt: v.checked_at } : null,
         version, nextVersion: version === null ? '1.0' : version.slice(0, version.lastIndexOf('.') + 1) + String(BigInt(version.slice(version.lastIndexOf('.') + 1)) + 1n),
         rowRevision: g.row_revision, createdAt: g.created_at });

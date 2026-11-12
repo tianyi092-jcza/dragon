@@ -9,7 +9,7 @@ import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElInputNumber } from 'element-plus/es/components/input-number/index.mjs';
 import { ElCheckbox } from 'element-plus/es/components/checkbox/index.mjs';
 import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
-import { ElProgress } from 'element-plus/es/components/progress/index.mjs';
+import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import { ElTooltip } from 'element-plus/es/components/tooltip/index.mjs';
 import { vLoading } from 'element-plus/es/components/loading/index.mjs';
 import { loadingSvg } from './loading.js';
@@ -44,31 +44,13 @@ const page = computed(() => props.model?.copy?.page ?? null);
 const gameId = computed(() => props.model?.fields?.gameId ?? null);
 const library = computed(() => page.value?.generals ?? null);
 const loaded = computed(() => library.value ?? []);
-// 可导入的原生记录：同名只算一条，已在库的跳过（与服务端同口径）。
-const importable = computed(() => {
-  const existing = new Set(loaded.value.map(row => row.name));
-  const names = new Set();
-  for (const chapter of page.value?.attributes?.chapters ?? []) {
-    for (const general of chapter.generals ?? []) {
-      if (general.reserved || !general.name || existing.has(general.name)) continue;
-      names.add(general.name);
-    }
-  }
-  return names.size;
-});
 const supported = computed(() => Boolean(page.value));
 const libraryReady = computed(() => Array.isArray(library.value));
 const canLoad = computed(() => !props.busy && Boolean(gameId.value));
 const locked = computed(() => Boolean(props.busy) || !props.model || !page.value || !libraryReady.value);
 const portraits = computed(() => page.value?.portraits ?? null);
-// 分批导入进度（控制器推送）：running/failed 时显示阻塞式弹窗，done 时自动收起。
-const importing = computed(() => page.value?.import ?? null);
-const canImport = computed(() => !props.busy && supported.value && importable.value > 0 && importing.value?.state !== 'running');
-const importPercent = computed(() => {
-  const row = importing.value;
-  if (!row || !row.total) return 0;
-  return Math.min(100, Math.round(row.done * 100 / row.total));
-});
+// 来源由服务端读取；空白新游戏也能导入。单次原子请求使用全局 Loading。
+const canImport = computed(() => !props.busy && supported.value && !editing.value);
 const albumReady = computed(() => Array.isArray(portraits.value));
 
 const columns = [
@@ -137,12 +119,14 @@ function startEdit(row) {
 }
 function cancelEdit() { editing.value = null; failure.value = ''; }
 
-// 從本遊戲原生記錄導入（顯式動作；同名去重、已在庫的跳過由控制器計算）。
+// 從內置遊戲覆蓋導入；控制器確認後送一次請求，成功重讀。
 async function importRecords() {
   if (!canImport.value) return;
   status.value = ''; failure.value = '';
   try {
-    const reply = await props.actions.generalCopyImport();
+    const reply = await props.actions.generalCopyImport(text => ElMessageBox.confirm(text, '覆蓋武將庫', {
+      type: 'warning', confirmButtonText: '確認覆蓋', cancelButtonText: '取消',
+    }).then(() => true, () => false));
     if (typeof reply === 'string') status.value = reply;
   } catch (error) {
     failure.value = (error && error.message) || '導入未完成（原因未回報）。';
@@ -234,7 +218,7 @@ watch([albumPage, albumSearch], () => { if (albumGrid.value) albumGrid.value.scr
   <section id="generals-editor" class="module-card">
     <div class="module-toolbar">
       <ElButton id="generals-load" :disabled="!canLoad" @click="load()">加載</ElButton>
-      <ElButton id="generals-import" :disabled="!canImport" @click="importRecords()">從原生記錄導入{{ importable ? '（' + importable + '）' : '' }}</ElButton>
+      <ElButton id="generals-import" :disabled="!canImport" @click="importRecords()">從內置遊戲導入</ElButton>
       <ElInput id="generals-search" v-model="search" type="search" placeholder="搜尋姓名／字" aria-label="搜尋姓名／字" :disabled="!supported" />
       <span id="generals-status" role="status" class="generals-status">{{ failure || status }}</span>
     </div>
@@ -256,22 +240,12 @@ watch([albumPage, albumSearch], () => { if (albumGrid.value) albumGrid.value.scr
           </div>
         </template>
       </ElTableColumn>
-      <template #empty><p class="empty-state">{{ search ? '沒有符合的武將；清空搜尋可看全部。' : (importable ? '武將庫是空的；可按「從原生記錄導入」把本遊戲章節裡的 ' + importable + ' 名武將種進庫。' : '武將庫是空的。') }}</p></template>
+      <template #empty><p class="empty-state">{{ search ? '沒有符合的武將；清空搜尋可看全部。' : '武將庫是空的；可按「從內置遊戲導入」初始化。' }}</p></template>
     </ElTable>
     </div>
-    <p v-else-if="supported" id="generals-unsupported" class="generals-note">本遊戲尚無武將庫（父表）；請先從原生記錄導入。</p>
+    <p v-else-if="supported" id="generals-unsupported" class="generals-note">本遊戲尚無武將庫（父表）；可從內置遊戲導入。</p>
     <p v-else id="generals-unloaded" class="generals-note">先按「加載」讀取這款遊戲的武將資料。</p>
     <ListPagination v-if="supported && libraryReady" id="generals-pagination" v-model:current-page="currentPage" v-model:page-size="pageSize" :total="total" :disabled="busy" />
-    <ElDialog v-if="importing && (importing.state === 'running' || importing.state === 'failed')" id="generals-import-dialog" :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" aria-label="導入進度">
-        <p class="generals-import-title">{{ importing.state === 'failed' ? '導入未完成' : '正在導入原生武將記錄' }}</p>
-        <p class="generals-note" v-if="importing.state === 'running'">請求體上限 16KiB，共 {{ importing.batches }} 批；請勿關閉或重新整理本頁。</p>
-        <p class="generals-import-count">{{ importing.done }} / {{ importing.total }} 名（{{ importPercent }}%）</p>
-        <ElProgress :percentage="importPercent" :show-text="false" />
-        <p v-if="importing.state === 'failed'" role="alert" class="generals-status">已入庫 {{ importing.done }} 名；系統回報「{{ importing.message }}」。可關閉後再按導入重試（已入庫的會跳過）。</p>
-        <div class="module-toolbar" v-if="importing.state === 'failed'">
-          <ElButton data-action="import-close" :disabled="busy" @click="actions.clearCopyImport()">關閉</ElButton>
-        </div>
-    </ElDialog>
     <ElDialog v-if="albumOpen" id="generals-portrait-dialog" class="generals-portrait-dialog" :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" width="min(900px, 94vw)" top="5vh" aria-label="選擇頭像">
       <div id="generals-portrait-card" v-loading="albumLoading" :element-loading-svg="loadingSvg" element-loading-custom-class="generals-album-loading" :aria-busy="albumLoading">
         <div class="module-toolbar">

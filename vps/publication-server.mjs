@@ -19,8 +19,7 @@ export async function startPublicationServer({ storage, bucket, env, r2, verifyS
     throw new TypeError('trusted publication ports, static verifier, interval and listen address required');
   }
   const transport = Object.freeze({ get: r2.get.bind(r2), putImmutable: r2.putImmutable.bind(r2), putControl: r2.putControl.bind(r2) });
-  // 刪除遊戲後的 R2 回收需要 list/remove：只有傳入完整物件埠時才裝配，否則
-  // purge 仍舊只動庫行並在回執裡報 RECLAIMER_UNCONFIGURED（不假裝已清理）。
+  // 回收需要 list/remove：缺少完整埠時 purge 在刪庫前拒絕，保留 fence 與重試入口。
   const purgeReclaimer = typeof r2.list === 'function' && typeof r2.remove === 'function'
     ? createGameReclaimer({ r2: { get: r2.get.bind(r2), putControl: r2.putControl.bind(r2), list: r2.list.bind(r2), remove: r2.remove.bind(r2) }, objects: bucket, prefix })
     : undefined;

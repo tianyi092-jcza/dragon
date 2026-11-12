@@ -41,7 +41,7 @@ copy(gameId) ──[检验通过→一次性票]──▶ slot(gameId)单槽 ─
   - 30 分钟节流：`now - slot.submitted_at < 30min → 429 PUBLISH_TOO_SOON`（T2）。
   - 单槽覆盖：`INSERT OR REPLACE INTO publish_slots`，`state=submitted`，核销 `ticket`（同一票不可用两次，T5）。
 - [x] `rejectSlot(gameId, admin)`：`submitted → empty`（仅 admin；票提交时已核销；说明保留备查；作者重验可再交；非 submitted → 409）。（`POST /api/games/:id/copy/reject` 已接线；驳回不写 formal、无需编号；同意已按下列 approveSlot 条目接入 ordinal 链）
-- [x] `reviewQueue(admin)`：仅 `submitted` 槽成队（作者账号/说明原文/版本预告/检验态/rowRevision；队外不读不推进）。（`GET /api/admin/copy/submissions` 已接线；`verify_copy_review_queue` 1 项通过）
+- [x] `reviewQueue(admin)`：现为全局持久管理列表，已有提交说明的游戏按gameId保留一行，带申请状态和独立listed状态；通过/驳回保留删除入口，只有submitted能审核，编辑/校验不能解锁。旧「仅submitted成队」已由用户批准的[本批](copy-initialization-tasks.md)取代；接口仍为 `GET /api/admin/copy/submissions`，不按顶部游戏过滤。
 - [x] `approveSlot(gameId, admin, installPack)`：`submitted → approved`＋序号配发（CAS `next_ordinal`，失败不耗号）＋release 行＋`pin`（含 `description`，修订号＝ordinal）＋`pruneExceptInTxn`＋正式名（copy metadata）＋包安装回调，同事务原子提交。（用户裁决方案 B；`POST /api/games/:id/copy/approve` 已接线：事务外 compile＋prepare，事务内 `installPreparedInTxn`；`verify_copy_approve_slot` 2 项通过。旧 pin 读 path 兼容数字修订＋新 ordinal，缺 `description` 仅新形报错）
   - 键设计：`pin.revision`＝`content_releases.ordinal`＝批准 ordinal（`1.0→1.1…`）；内容钉死只认 `copy_digest`；`content_releases.draft_revision` 列暂存 ordinal（列名遗留，待旧管线删除时随表清理，有注释）。
   - 原子提交（同一 `transactionSync`，CAS `next_ordinal` 防并发同意双耗号）：槽 `submitted→approved`＋序号配发＋release 行＋`pin`（含 `description`）＋`pruneExceptInTxn`＋正式名（copy metadata）＋包安装回调。
@@ -131,7 +131,7 @@ copy(gameId) ──[检验通过→一次性票]──▶ slot(gameId)单槽 ─
 - [x] `node editor-ui/build.mjs --check` 通过（若改 Vue）。（试运行下线后重建 `shell-ui`，`--check` 通过）
 - [x] 新：`tools/verify_copy_single_slot.mjs`（单槽覆盖、30min节流、说明必填、票一次性）。
 - [x] 新：`tools/verify_copy_reject_slot.mjs`（管理员驳回：非 admin 403、非 submitted 409、无 copy 404、内置 403；槽回 empty 说明保留；作者重验可再交；真实内存 SQLite）。
-- [x] 新：`tools/verify_copy_review_queue.mjs`（待审队列：仅 submitted 成队＋说明原文/作者/版本预告；非 admin 403；驳回后离队；真实内存 SQLite）。
+- [x] `tools/verify_copy_review_queue.mjs`（现行全局管理列表：说明原文/作者/版本预告；非admin403；驳回/重验保留行但不能审核；真实内存SQLite。旧离队断言已撤销）。
 - [x] 新：`tools/verify_copy_validate_gate.mjs`（未验禁用、通过解禁一次、提交再禁用、重验再解禁）。
 - [x] 新：`tools/migrate_copy_once.mjs`（HTTP 驱动逐游戏 ensure，幂等可重跑）。
 - [x] 新：`tools/verify_copy_http_roundtrip.mjs`（真 EditorService＋落盘 SQLite：建游戏→ensure幂等→模块存→检验→提交→票复投409→越权401/404/422）。

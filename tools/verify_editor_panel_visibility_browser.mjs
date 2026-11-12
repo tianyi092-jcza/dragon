@@ -190,6 +190,147 @@ try {
     assert.equal(await scroll.evaluate(el => el.scrollTop), 0);
     await jump(1);
   }
+  const managed = Array.from({ length: 30 }, (_, i) => ({
+    gameId: `22222222-2222-4222-8222-${String(i).padStart(12, '0')}`, name: `管理${i}`, author: '另一作者',
+    description: '已提交過的申請', submittedAt: '2026-01-02T00:00:00.000Z', validatedAt: null, validation: null,
+    state: ['submitted', 'approved', 'ready', 'empty'][i % 4], listed: i % 4 === 1,
+    version: i % 4 === 1 ? '1.0' : null, nextVersion: i % 4 === 1 ? '1.1' : '1.0', rowRevision: '1', createdAt: '2026-01-01T00:00:00.000Z',
+  }));
+  replies.set('/api/admin/copy/submissions', { queue: managed });
+  await page.locator('#menu [data-view="management-editor"]').click();
+  await idle();
+  assert.equal(await page.locator('#review-table .el-table__row').count(), 25);
+  assert.equal(await page.locator('#workspace-context').isVisible(), false);
+  const reviewRow = i => page.locator('#review-table .el-table__row').filter({ has: page.locator(`[data-game-id="${managed[i].gameId}"]`) });
+  assert.equal(await reviewRow(0).locator('[data-action="approve"]').isEnabled(), true);
+  for (const i of [1, 2, 3]) {
+    assert.equal(await reviewRow(i).locator('[data-action="approve"]').isDisabled(), true);
+    assert.equal(await reviewRow(i).locator('[data-action="reject"]').isDisabled(), true);
+    assert.equal(await reviewRow(i).locator('[data-action="delete"]').isEnabled(), true);
+  }
+  await reviewRow(1).locator('[data-action="delete"]').click();
+  await page.locator('#review-overlay').waitFor();
+  assert.match(await page.locator('#review-overlay-title').textContent(), /管理1/);
+  await page.locator('#review-overlay-cancel').click();
+  const reviewJump = page.locator('#review-pagination .el-pagination__jump input');
+  await reviewJump.fill('2'); await reviewJump.press('Enter'); await reviewJump.press('Tab');
+  await page.waitForFunction(() => document.querySelectorAll('#review-table .el-table__row').length === 5);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 600 }, { width: 1600, height: 1000 }]) {
+    await page.setViewportSize(viewport);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight));
+    assert.ok(await page.locator('#review-pagination').evaluate(el => el.getBoundingClientRect().bottom <= innerHeight));
+  }
+  process.stdout.write('PASS global management: other games visible, submitted-only review, retained delete entry, 25/page+jump, viewport containment.\n');
+  await reviewJump.fill('1'); await reviewJump.press('Enter'); await reviewJump.press('Tab');
+  const deletion = [], requestReady = Array.from({ length: 3 }, () => Promise.withResolvers()), target = managed[1];
+  let deleting = false;
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === `/api/games/${target.gameId}/deletion` || path === `/api/admin/games/${target.gameId}/purge` || deleting && path === '/api/admin/copy/submissions') {
+      deleting = true; deletion.push(route); requestReady[deletion.length - 1].resolve(); return;
+    }
+    return route.fallback();
+  });
+  await reviewRow(1).locator('[data-action="delete"]').click();
+  await page.locator('#review-overlay-confirm').click();
+  const localProgress = async (count, text) => {
+    await requestReady[count - 1].promise;
+    await page.waitForFunction(() => document.querySelector('#review-overlay')?.getAttribute('aria-busy') === 'true');
+    await page.locator('#review-overlay-line').filter({ hasText: text }).waitFor();
+    assert.equal(deletion.length, count);
+    assert.equal(await page.locator('.workbench-loading').isVisible(), false, 'delete uses dialog progress, never global loading');
+  };
+  await localProgress(1, '正在建立刪除柵欄');
+  await deletion[0].fulfill({ json: { gameId: target.gameId, state: 'fenced', rowRevision: '2', createdAt: '2026-01-02T03:04:07.000Z' } });
+  await localProgress(2, '正在清理遊戲檔案');
+  await deletion[1].fulfill({ json: { gameId: target.gameId, state: 'purged', version: 1, tables: 2, purgedAt: '2026-01-02T03:04:08.000Z', removed: { content_games: 1, content_deletion_fences: 1 }, reclamation: { state: 'completed', pointer: 'removed', objects: 2, privateObjects: 49 } } });
+  await localProgress(3, '正在更新管理清單');
+  await deletion[2].fulfill({ json: { queue: managed.filter(row => row.gameId !== target.gameId) } });
+  await idle();
+  assert.equal(await page.locator('#review-overlay-title').textContent(), '刪除完成');
+  assert.equal(await page.locator('#review-overlay-scopes .el-text--success').count(), 4);
+  assert.equal(await reviewRow(1).count(), 0);
+  await page.locator('#review-overlay-close').click();
+  process.stdout.write('PASS deletion: fence → file cleanup → queue refresh in one dialog, no global loading, four completed scopes and row removed.\n');
+  const copyId = '33333333-3333-4333-8333-333333333333', runReady = Promise.withResolvers();
+  await page.route('**/api/admin/source', route => route.fulfill({ json: { definition: { registryId: 'fixture-source' } } }));
+  await page.route('**/api/admin/copies**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/run')) { runReady.resolve(route); return; }
+    return route.fulfill({ json: { gameId: copyId, state: path === '/api/admin/copies' ? 'pending' : 'running', rowRevision: '1', objects: 49, leaseUntil: Date.now() + 60000 } });
+  });
+  await page.locator('#menu [data-view="copy-game-editor"]').click(); await idle();
+  await page.locator('#full-copy-name').fill('複製測試');
+  await page.locator('#full-copy-create').click();
+  const runRoute = await runReady.promise;
+  await page.locator('#full-copy-loading .el-loading-mask').waitFor();
+  await page.waitForFunction(() => [...document.querySelectorAll('.workbench-loading')].every(el => el.getClientRects().length === 0));
+  assert.equal(await page.locator('#full-copy-overlay small').count(), 0);
+  assert.equal(await page.locator('#full-copy-overlay .el-dialog__headerbtn').count(), 0);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 600 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const dialog = await page.locator('#full-copy-overlay').boundingBox();
+    const spinner = await page.locator('#full-copy-loading').boundingBox();
+    const text = await page.locator('#full-copy-overlay-text').boundingBox();
+    assert.ok(dialog.width <= 440 && dialog.width <= viewport.width - 32);
+    assert.ok(dialog.height >= 240 && dialog.y >= 0 && dialog.y + dialog.height <= viewport.height);
+    assert.ok(spinner.y >= dialog.y && spinner.y + spinner.height <= text.y, 'spinner is inside the dialog above progress text');
+    assert.equal(await page.locator('.workbench-loading').isVisible(), false);
+  }
+  await page.keyboard.press('Escape');
+  await page.mouse.click(4, 4);
+  assert.equal(await page.locator('#full-copy-overlay').isVisible(), true, 'Escape and backdrop cannot dismiss active copy');
+  assert.equal(await page.locator('#full-copy-create').isDisabled(), true);
+  await runRoute.fulfill({ json: { gameId: copyId, state: 'failed', rowRevision: '2', objects: 0, failedCode: 'COPY_FAILED' } });
+  await idle();
+  await page.locator('#full-copy-dismiss').waitFor();
+  assert.equal(await page.locator('#full-copy-loading').count(), 0);
+  assert.equal(await page.locator('#full-copy-overlay small').count(), 0);
+  await page.locator('#full-copy-dismiss').click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  process.stdout.write('PASS full-copy dialog: compact/taller, spinner above text, no background Loading or footer explanation, blocking Escape/backdrop, failure dismissal.\n');
+  const validations = [], validationReady = [Promise.withResolvers(), Promise.withResolvers()];
+  await page.route(`**/api/games/${gameId}/draft/chapter-references`, route => route.fulfill({ json: { gameId, chapters: [] } }));
+  await page.route(`**/api/games/${gameId}/copy/validate`, route => { validations.push(route); validationReady[validations.length - 1].resolve(); });
+  await page.locator('#menu [data-view="publish-editor"]').click(); await idle();
+  await page.locator('#publish-table [data-action="check"]').click();
+  await validationReady[0].promise;
+  await page.locator('#publish-loading .el-loading-mask').waitFor();
+  await page.waitForFunction(() => [...document.querySelectorAll('.workbench-loading')].every(el => el.getClientRects().length === 0));
+  assert.equal(await page.locator('#publish-overlay-elapsed').count(), 0);
+  assert.equal(await page.locator('#publish-overlay-close').count(), 0);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 600 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const dialog = await page.locator('#publish-overlay').boundingBox();
+    const spinner = await page.locator('#publish-loading').boundingBox();
+    const title = await page.locator('#publish-overlay-text').boundingBox();
+    assert.ok(dialog.width <= 440 && dialog.width <= viewport.width - 32);
+    assert.ok(dialog.height >= 280 && dialog.y >= 0 && dialog.y + dialog.height <= viewport.height);
+    assert.ok(spinner.y >= dialog.y && spinner.y + spinner.height <= title.y);
+    assert.equal(await page.locator('.workbench-loading').isVisible(), false);
+  }
+  await page.keyboard.press('Escape'); await page.mouse.click(4, 4);
+  assert.equal(await page.locator('#publish-overlay').isVisible(), true);
+  await validations[0].fulfill({ json: { gameId, state: 'failed', copyDigest: 'a'.repeat(64), ticket: null, problems: Array.from({ length: 20 }, (_, i) => ({ code: 'CHAPTER_REFERENCE', chapterId: 'ch' + i, detail: '隔離夾具引用缺口' + i })) } });
+  await idle();
+  await page.locator('#publish-overlay-close').waitFor();
+  assert.equal(await page.locator('#publish-loading').count(), 0);
+  assert.equal(await page.locator('#publish-validation-layers [data-layer="CHAPTER_REFERENCE"] p').count(), 20);
+  assert.ok(await page.locator('.publish-progress').evaluate(el => el.scrollHeight > el.clientHeight), 'long validation errors scroll inside the dialog');
+  await page.locator('#publish-overlay-close').click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.locator('#publish-table [data-action="check"]').click(); await validationReady[1].promise;
+  await validations[1].fulfill({ json: { gameId, state: 'passed', copyDigest: 'a'.repeat(64), ticket: 'fixture-ticket', problems: [] } });
+  await page.locator('#publish-overlay').waitFor({ state: 'detached' }); await idle();
+  const refreshReady = Promise.withResolvers();
+  const holdRefresh = route => refreshReady.resolve(route);
+  await page.route('**/api/games', holdRefresh);
+  await page.locator('#publish-refresh').click();
+  const refreshRoute = await refreshReady.promise;
+  await page.locator('.workbench-loading').waitFor({ state: 'visible' });
+  await refreshRoute.fulfill({ json: replies.get('/api/games') }); await idle();
+  await page.unroute('**/api/games', holdRefresh);
+  process.stdout.write('PASS validation dialog: compact/taller, local top spinner, blocking, scrollable failure details, passed auto-close and normal global Loading restored.\n');
   await page.locator('#menu [data-view="generals-editor"]').click();
   await idle();
   await checkPanels('generals-editor', 'final generals state');

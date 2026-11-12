@@ -23,7 +23,9 @@ import PublishPanel from './PublishPanel.vue';
 import ReviewPanel from './ReviewPanel.vue';
 const props = defineProps({ state: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, mapviewModel: Object, mapview: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
 import { loadingSvg } from './loading.js';
-const globalLoading = computed(() => props.state.loading || props.state.busy && props.state.feedback === 'global');
+// 阻塞彈窗自行展示 Loading，不在它背後再疊一個全局動畫；請求計數與 busy 不變。
+const publicationOverlay = ref(false);
+const globalLoading = computed(() => !(publicationOverlay.value || props.fullCopyModel.tracking || props.fullCopyModel.failed) && (props.state.loading || props.state.busy && props.state.feedback === 'global'));
 const accountsPanel = ref(null), mapPanel = ref(null);
 defineExpose({ accountDirty: () => accountsPanel.value?.dirty() ?? false, mapInputs: () => Boolean(ready.value && mapPanel.value?.hasInputs()) });
 const userMenu = ref(false);
@@ -78,7 +80,7 @@ function go(view) { userMenu.value = false; props.navigate(view); }
       <div class="page-heading" :hidden="!ready"><h1>{{ title }}</h1></div>
       <div class="page-line" :hidden="!ready">
         <p id="status" role="status" aria-live="polite"></p>
-        <div id="workspace-context" class="workspace-context" :hidden="!draftModel.context || state.view === 'catalog-editor' || state.view === 'copy'">
+        <div id="workspace-context" class="workspace-context" :hidden="!draftModel.context || state.view === 'catalog-editor' || state.view === 'copy' || state.view === 'management-editor'">
           <span v-if="draftModel.context">目前草稿：{{ draftModel.context.name }}／{{ draftModel.context.gameId }}<strong v-if="draftModel.context.dirty">／有未保存修改</strong><strong v-if="draftModel.context.pending">／原操作未確認</strong><strong v-if="!draftModel.context.verified">／尚須明確載入</strong></span>
         </div>
       </div>
@@ -93,7 +95,7 @@ function go(view) { userMenu.value = false; props.navigate(view); }
         <CatalogPanel :model="catalogModel" :actions="catalog" :busy="state.busy" :hidden="!ready || state.view !== 'catalog-editor'" />
         <GeneralsPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'generals-editor'" />
         <CopyPanel :model="copyModel" :actions="copy" :busy="state.busy" :hidden="!ready || state.view !== 'copy'" />
-        <PublishPanel :model="publicationModel" :actions="publication" :busy="state.busy" :hidden="!ready || state.view !== 'publish-editor'" />
+        <PublishPanel :model="publicationModel" :actions="publication" :busy="state.busy" :hidden="!ready || state.view !== 'publish-editor'" @overlay-change="publicationOverlay = $event" />
         <ReviewPanel :model="reviewModel" :actions="review" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'management-editor'" />
         <CopyGamePanel :model="fullCopyModel" :actions="fullCopy" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'copy-game-editor'" />
       </section>
