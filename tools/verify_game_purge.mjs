@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { GameCopyStore } from '../server/gamecopy.js';
+import { validateSystemBaseMap } from '../server/systembasemap.js';
 import { createPublicationBrowserAuthority } from './fixtures/publication-browser-authority.mjs';
 import { createGameReclaimer, reclaimPrivateGame } from '../vps/game-reclaimer.mjs';
 import { createEditorService } from '../vps/editor-server.mjs';
@@ -94,6 +95,92 @@ async function post(path, body, { token = adminToken, csrf = adminCsrf, key = `p
   calls.push({ path, status: response.status });
   return { status: response.status, value };
 }
+
+// New system singleton is initialized through the real authenticated gateway,
+// not injected as a placeholder row. It must survive the later game purge.
+const baseMapPath = '/api/admin/base-map';
+const getBaseMap = token => authority.fetch(new Request(origin + baseMapPath, { headers: { Cookie: `__Secure-dragon-editor=${token}` } }));
+assert.equal((await getBaseMap(ownerToken)).status, 403);
+assert.equal((await (await getBaseMap(adminToken)).json()).snapshot, null);
+assert.equal((await post(baseMapPath + '/initialize', {}, { token: ownerToken, csrf: await csrfFor(ownerToken) })).status, 403);
+assert.equal((await post(baseMapPath + '/initialize', {}, { csrf: '' })).status, 403);
+const initializedMap = await post(baseMapPath + '/initialize', {});
+assert.equal(initializedMap.status, 200, JSON.stringify(initializedMap.value));
+assert.equal(initializedMap.value.snapshot.version, 1);
+assert.equal((await post(baseMapPath + '/initialize', {})).value.snapshot.digest, initializedMap.value.snapshot.digest);
+checks.push('基礎地圖真實HTTP首次轉換、管理員限制、CSRF與重進不覆寫');
+const initialTemplate = initializedMap.value.snapshot.template;
+const getAtlas = (query, token = adminToken) => authority.fetch(new Request(origin + baseMapPath + '/atlas?' + query, { headers: { Cookie: `__Secure-dragon-editor=${token}` } }));
+assert.equal((await getAtlas('season=spring', ownerToken)).status, 403);
+assert.equal((await getAtlas('season=unknown')).status, 422);
+assert.equal((await getAtlas('season=spring&season=winter')).status, 422);
+assert.equal((await getAtlas('season=spring&path=elsewhere')).status, 422);
+for (const season of ['spring', 'summer', 'autumn', 'winter']) {
+  const image = await getAtlas('season=' + season);
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get('content-type'), 'application/octet-stream');
+  const bytes = new Uint8Array(await image.arrayBuffer());
+  const descriptor = initialTemplate.content.editorAssets.seasonAtlases[season];
+  assert.equal(bytes.byteLength, descriptor.byteLength);
+  assert.equal(sha(bytes), descriptor.sha256);
+  assert.equal(image.headers.get('x-content-sha256'), descriptor.sha256);
+}
+checks.push('基礎地圖四季圖集受權讀取、實際長度/SHA、作者及非法查詢拒絕');
+// This older isolated fixture deliberately has no mapEditorAssets. Do not
+// silently backfill it; add the descriptor only as an explicit test fixture.
+const getCopyAtlas = (query, token = ownerToken) => authority.fetch(new Request(origin + `/api/games/${gameId}/copy/map-atlas?${query}`, { headers: { Cookie: `__Secure-dragon-editor=${token}` } }));
+const ensureAtlasCopy = await post(`/api/games/${gameId}/copy/ensure`, {}, { token: ownerToken, csrf: await csrfFor(ownerToken) });
+assert.equal(ensureAtlasCopy.status, 200, JSON.stringify(ensureAtlasCopy.value));
+assert.equal((await getCopyAtlas('season=spring')).status, 409);
+const originalCopyRow = sql.exec('SELECT data_json,copy_digest FROM game_copies WHERE game_id=?', gameId).toArray()[0];
+const atlasFixture = JSON.parse(originalCopyRow.data_json);
+atlasFixture.mapEditorAssets = structuredClone(initialTemplate.content.editorAssets);
+const atlasFixtureText = JSON.stringify(atlasFixture);
+sql.exec('UPDATE game_copies SET data_json=?,copy_digest=? WHERE game_id=?', atlasFixtureText, sha(atlasFixtureText), gameId);
+assert.equal((await getCopyAtlas('season=spring', adminToken)).status, 404, 'non-owner administrator receives the existing hidden-game denial');
+assert.equal((await getCopyAtlas('season=invalid')).status, 422);
+assert.equal((await getCopyAtlas('season=spring&path=elsewhere')).status, 422);
+assert.equal((await getCopyAtlas('season=spring&season=winter')).status, 422);
+for (const season of ['spring', 'summer', 'autumn', 'winter']) {
+  const image = await getCopyAtlas('season=' + season);
+  assert.equal(image.status, 200);
+  const bytes = new Uint8Array(await image.arrayBuffer());
+  const descriptor = atlasFixture.mapEditorAssets.seasonAtlases[season];
+  assert.equal(bytes.byteLength, descriptor.byteLength);
+  assert.equal(sha(bytes), descriptor.sha256);
+  assert.equal(image.headers.get('x-content-sha256'), descriptor.sha256);
+}
+sql.exec('UPDATE game_copies SET data_json=?,copy_digest=? WHERE game_id=?', originalCopyRow.data_json, originalCopyRow.copy_digest, gameId);
+checks.push('遊戲圖集作者歸屬、四季真實SHA、他人管理員/非法查詢拒絕、舊副本無隱式回填');
+const piece = initialTemplate.content.map.decorations.find(item => {
+  const definition = initialTemplate.content.componentDefinitions[item.definitionRef];
+  return definition.category === 'mountain-pattern' && definition.footprint.length > 1 && definition.footprint.length <= 8;
+});
+const footprint = initialTemplate.content.componentDefinitions[piece.definitionRef].footprint;
+const childIds = footprint.map((_, index) => `system-base-map#decoration-${sha(`http-split-${index}`)}`);
+const splitReply = await post(baseMapPath + '/save', { edits: [{ op: 'decoration-split', instanceId: piece.id, childIds }] });
+assert.equal(splitReply.status, 200, JSON.stringify(splitReply.value));
+assert.equal(splitReply.value.snapshot.version, 2);
+const beforeCompiled = validateSystemBaseMap(initialTemplate, sha).compiled;
+assert.deepEqual(validateSystemBaseMap(splitReply.value.snapshot.template, sha).compiled.terrainBytes, beforeCompiled.terrainBytes);
+assert.ok(splitReply.value.snapshot.template.content.selectionGroups.some(group => childIds.every(id => group.members.some(member => member.id === id))));
+const removeEdit = { op: 'decoration-remove', memberIds: childIds };
+const refusedEdit = await post(baseMapPath + '/save', { edits: [removeEdit] });
+assert.equal(refusedEdit.status, 422);
+assert.equal(refusedEdit.value.error, 'BASE_MAP_INVALID');
+assert.equal((await (await getBaseMap(adminToken)).json()).snapshot.digest, splitReply.value.snapshot.digest);
+assert.equal((await post(baseMapPath + '/save', { edits: [removeEdit] }, { token: ownerToken, csrf: await csrfFor(ownerToken) })).status, 403);
+const cells = footprint.map(([dx, dy]) => (piece.y + dy) * 384 + piece.x + dx);
+// Explicit test-author byte choice, not a guessed original hidden ground.
+const editReply = await post(baseMapPath + '/save', { edits: [removeEdit, { op: 'base-fill', cells, tile: 16, geography: 0 }] });
+assert.equal(editReply.status, 200, JSON.stringify(editReply.value));
+assert.equal(editReply.value.snapshot.version, 3);
+const afterCompiled = validateSystemBaseMap(editReply.value.snapshot.template, sha).compiled;
+assert.notDeepEqual(afterCompiled.terrainBytes, beforeCompiled.terrainBytes);
+assert.deepEqual(afterCompiled.roadGraph, beforeCompiled.roadGraph);
+const templateBeforePurge = sql.exec('SELECT * FROM system_base_map').toArray();
+assert.equal((await post(baseMapPath + '/initialize', {})).value.snapshot.digest, editReply.value.snapshot.digest);
+checks.push('基礎地圖HTTP拆片維護組引用、unknown拒絕保留舊版、明確補底保存重編與重進不覆寫編輯');
 
 const TABLES = [ // 與 server/gamepurge.js 一致的 35 张含 game_id 表（分發帳本三表除外）
   'content_used_ids', 'content_names', 'content_audits',
@@ -271,7 +358,9 @@ checks.push(`purge 回執宣告 ${receipt.tables} 張表；實查 ${TABLES.lengt
   const afterDigests = Object.fromEntries(builtinFiles.map(path => [path, digestOf(path)]));
   assert.deepEqual(afterDigests, before, 'web/content/builtin 與 server/pinned 的位元組不得被 purge 改動');
   assert.equal(sql.exec("SELECT COUNT(*) AS n FROM users").toArray()[0].n, 2, '帳號不得被連帶刪除');
-  checks.push('installed source／pinned manifest／帳號都未被觸碰');
+  assert.deepEqual(sql.exec('SELECT * FROM system_base_map').toArray(), templateBeforePurge, '系統基礎地圖完整正文/摘要/版本不受遊戲刪除影響');
+  assert.equal((await (await getBaseMap(adminToken)).json()).snapshot.digest, editReply.value.snapshot.digest);
+  checks.push('installed source／pinned manifest／帳號／系統基礎地圖都未被觸碰');
 }
 
 storage.close();

@@ -14,20 +14,21 @@ import AccountsPanel from './AccountsPanel.vue';
 import DraftPanel from './DraftPanel.vue';
 import ChaptersPanel from './ChaptersPanel.vue';
 import StrongholdPanel from './StrongholdPanel.vue';
-import MapPanel from './MapPanel.vue';
+import BaseMapPanel from './BaseMapPanel.vue';
 import CatalogPanel from './CatalogPanel.vue';
 import GeneralsPanel from './GeneralsPanel.vue';
 import CopyPanel from './CopyPanel.vue';
 import CopyGamePanel from './CopyGamePanel.vue';
 import PublishPanel from './PublishPanel.vue';
 import ReviewPanel from './ReviewPanel.vue';
-const props = defineProps({ state: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, mapviewModel: Object, mapview: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
+const props = defineProps({ state: Object, baseMapModel: Object, baseMap: Object, gameMapModel: Object, gameMap: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
 import { loadingSvg } from './loading.js';
 // 阻塞彈窗自行展示 Loading，不在它背後再疊一個全局動畫；請求計數與 busy 不變。
 const publicationOverlay = ref(false);
 const globalLoading = computed(() => !(publicationOverlay.value || props.fullCopyModel.tracking || props.fullCopyModel.failed) && (props.state.loading || props.state.busy && props.state.feedback === 'global'));
-const accountsPanel = ref(null), mapPanel = ref(null);
-defineExpose({ accountDirty: () => accountsPanel.value?.dirty() ?? false, mapInputs: () => Boolean(ready.value && mapPanel.value?.hasInputs()) });
+const accountsPanel = ref(null);
+// New map sessions participate directly in the shared context's leave guard.
+defineExpose({ accountDirty: () => accountsPanel.value?.dirty() ?? false });
 const userMenu = ref(false);
 const ready = computed(() => props.state.authenticated && !props.state.mustChange);
 const menu = computed(() => props.state.views.filter(item => !item[2] || props.state.admin));
@@ -91,7 +92,8 @@ function go(view) { userMenu.value = false; props.navigate(view); }
         <DraftPanel :active="ready && state.view === 'draft-editor'" :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'draft-editor'" />
         <ChaptersPanel :active="ready && state.view === 'chapters-editor'" :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'chapters-editor'" />
         <StrongholdPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'stronghold-editor'" />
-        <MapPanel ref="mapPanel" :model="mapviewModel" :actions="mapview" :draft-model="draftModel" :draft-actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'mapview-editor'" />
+        <BaseMapPanel v-if="ready && state.admin && state.view === 'base-map-editor'" :model="baseMapModel" :actions="baseMap" :busy="state.busy" />
+        <BaseMapPanel v-if="ready && state.view === 'mapview-editor'" :key="gameMapModel.gameId || 'no-game'" :model="gameMapModel" :actions="gameMap" :busy="state.busy" />
         <CatalogPanel :model="catalogModel" :actions="catalog" :busy="state.busy" :hidden="!ready || state.view !== 'catalog-editor'" />
         <GeneralsPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'generals-editor'" />
         <CopyPanel :model="copyModel" :actions="copy" :busy="state.busy" :hidden="!ready || state.view !== 'copy'" />

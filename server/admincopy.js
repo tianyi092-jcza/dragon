@@ -8,6 +8,7 @@ import { GameSnapshotVerifier } from './snapshots.js';
 import { fail } from './security.js';
 import { GameCopyStore } from './gamecopy.js';
 import { initializeCopyGenerals } from './copygenerals.js';
+import { instantiateSystemBaseMap } from './systembasemap.js';
 const hash = value => createHash('sha256').update(value).digest('hex');
 // 從未 claim 的 pending 列超過這個寬限期就當成中斷（分頁關了、請求從未到 /run）。
 // 保留 reserve→run 的正常间隙（請求本體很小），又不讓死列永久佔住名稱。
@@ -23,11 +24,13 @@ function request(input) {
 }
 function key(value) { if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value)) fail(422, 'COPY_OPERATION_KEY'); }
 export class AdminFullCopy {
-  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #copies; #leaseMs; #roles; #profileRevision; #gameLimit; #caps = new WeakMap(); #executing = new WeakSet();
-  constructor({ storage, principal, catalog, games, blobs, leaseMs = 60000, roles = ['admin'], profileRevision = FIXED_COPY_PROFILE, gameLimit = 0 }) {
+  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #copies; #leaseMs; #roles; #profileRevision; #gameLimit; #captureBaseMap; #caps = new WeakMap(); #executing = new WeakSet();
+  constructor({ storage, principal, catalog, games, blobs, leaseMs = 60000, roles = ['admin'], profileRevision = FIXED_COPY_PROFILE, gameLimit = 0, captureBaseMap = () => fail(503, 'BASE_MAP_NOT_CONFIGURED') }) {
     if (!storage?.sql || typeof principal !== 'function' || typeof catalog?.loadFull !== 'function' || typeof games?.recoverGameId !== 'function' || typeof games?.assertNameAvailableInTxn !== 'function' || typeof blobs?.putImmutable !== 'function') throw new TypeError('actual same-domain stores and principal required');
     if (!Array.isArray(roles) || roles.length === 0 || !roles.every(role => role === 'admin' || role === 'author')) fail(503, 'COPY_ROLE_POLICY');
     if (![FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE].includes(profileRevision)) fail(503, 'COPY_PROFILE_POLICY');
+    if (typeof captureBaseMap !== 'function') throw new TypeError('trusted system base-map snapshot port required');
+    this.#captureBaseMap = captureBaseMap;
     this.#profileRevision = profileRevision;
     if (!Number.isSafeInteger(gameLimit) || gameLimit < 0) fail(503, 'COPY_QUOTA_POLICY');
     this.#gameLimit = gameLimit;
@@ -157,6 +160,9 @@ export class AdminFullCopy {
   }
   async #execute(tokenHash, cap) {
     const { actor, row } = this.#lease(tokenHash, cap), allocation = this.#games.recoverGameId(tokenHash, cap);
+    // One detached snapshot per execution, before any await. A committed retry
+    // returns its existing receipt; a failed execution never installs a copy.
+    const mapSnapshot = this.#captureBaseMap();
     const source = await this.#catalog.loadFull(tokenHash, row.registry_id); this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
     let record = 0; const profile = new FixedCopyProfile({ profileRevision: row.profile_revision, loadCopy: createPinnedCopyLoader({ kind: row.profile_revision === FIXED_TEMPLATE_PROFILE ? 'minimal' : 'full', readWeb: source.readWeb, allocateEntityId: () => row.game_id + ':source-record:' + ++record }) });
     const captured = await profile.capture({ gameId: row.game_id, ownerId: actor.id }); this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
@@ -167,12 +173,7 @@ export class AdminFullCopy {
     const checked = await this.#verifier.verify(tokenHash, { gameId: row.game_id, allocation, metadata: candidate.metadata, source: saved }), proof = profile.verify(captured.capability, checked.game);
     this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
     // 冻结 baseline/profile 不变；当前工作台 copy 在同一创建事务中安装规范化主表。
-    const copyData = initializeCopyGenerals(candidate);
-    if (row.profile_revision === FIXED_TEMPLATE_PROFILE) {
-      const { game: builtin } = await createPinnedCopyLoader({ readWeb: source.readWeb })({ gameId: row.game_id, ownerId: actor.id });
-      copyData.cities = structuredClone(builtin.cities);
-      this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
-    }
+    const copyData = instantiateSystemBaseMap(initializeCopyGenerals(candidate), mapSnapshot, hash);
     const prepared = await this.#games.prepareSnapshot(tokenHash, { gameId: row.game_id, draftRevision: '1', metadata: candidate.metadata, source: saved, allocation }); this.#lease(tokenHash, cap);
     this.#games.transaction(tokenHash, { key: row.op_key, method: 'create', target: 'new', digest: row.request_digest }, tx => {
       const now = this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);

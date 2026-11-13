@@ -37,6 +37,9 @@ const catalog = {
   loadFull: () => fail(503, 'COPY_NOT_CONFIGURED'),
 };
 const gamesStub = {
+  // These failures happen before current-copy installation.
+  assertNotDeleting: () => fail(503, 'UNEXPECTED_COPY_STORE_CALL'),
+  listOwn: () => fail(503, 'UNEXPECTED_COPY_STORE_CALL'),
   recoverGameId: () => fail(503, 'COPY_NOT_CONFIGURED'),
   assertNameAvailableInTxn(token, name) {
     if (storage.sql.exec('SELECT game_id FROM content_names WHERE owner_id=? AND name=?', principal(token).id, name).toArray().length) fail(409, 'GAME_NAME_OCCUPIED');

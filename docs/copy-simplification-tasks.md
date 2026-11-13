@@ -46,7 +46,7 @@ copy(gameId) ──[检验通过→一次性票]──▶ slot(gameId)单槽 ─
   - 键设计：`pin.revision`＝`content_releases.ordinal`＝批准 ordinal（`1.0→1.1…`）；内容钉死只认 `copy_digest`；`content_releases.draft_revision` 列暂存 ordinal（列名遗留，待旧管线删除时随表清理，有注释）。
   - 原子提交（同一 `transactionSync`，CAS `next_ordinal` 防并发同意双耗号）：槽 `submitted→approved`＋序号配发＋release 行＋`pin`（含 `description`）＋`pruneExceptInTxn`＋正式名（copy metadata）＋包安装回调。
   - 包构建：编排层先在事务外 `compileGameSource(copyData)`＋`playPacks.prepare`（`reference={gameId, draftRevision: ordinal, sourceDigest: copy_digest}`；`#visuals` 需生产 R2，测试环境以注入的安装回调代替）；事务内 `installPreparedInTxn`。无包不写 formal（fail-closed，503 照常抛出）。
-  - 校验涟漪（与旧管线共存期只放宽、不收紧）：`published.readPin/writePin`、`playpacks` 取包时、`releases` 新链路的 revision 正则接受 ordinal 形；等值比较处（manifest↔pin、玩家 `identity.revision`）与格式无关，无需改。
+  - 校验涟漪（与旧管线共存期只放宽、不收紧）：`published.readPin/writePin`、`playpacks` 取包时、`releases` 新链路的 revision 正则接受 ordinal 形；manifest↔pin精确等值比较保持；旧结论“玩家identity.revision无需改”已撤销：玩家`validateIdentity`另有整数格式门，系统基础地图运行链回放实测会拒copy的`1.n`。现已补旧整数/规范`1.n`双形准入及负控，见[地图合同§7.7](system-base-map-design.md#77-编辑地图至运行加载器的隔离验证)。
 
 ### B2 发布正式 `formal` 收敛（复用现行 `published_games + content_releases`，不新增多版本）
 - [ ] `formal` 只留最新：`publishInTxn` 后 `pruneExceptInTxn(keepReleaseId)` 已有，继续沿用。（copy 同意链内联等价删除）
@@ -89,10 +89,12 @@ copy(gameId) ──[检验通过→一次性票]──▶ slot(gameId)单槽 ─
 - [x] 保存语义：按模块 `PUT /copy`，成功后 `load()` 重读，不依赖控制器自动重读。（控制器加法：`loadCopy` 读 `GET /copy` 建页投影、`saveCopyPage` 按序送 metadata＋chapters.resources、`copyChapter/createCopyChapter` 走 chapters 模块、`setCopyField/setCopyResource/cancelCopyEdits`；`DraftPanel.vue` 已改绑；`verify_copy_controller_copypage.mjs` 7 项通过；附带修 `saveCopyModule` 换摘要即清检验票)
 
 ### F3 章节/据点/武将/地图面板
+
+**地图后继计划（用户确认）**：不再只改绑旧MapPanel；旧地图页面全部重设计。先完成独立系统基础地图的一次转换/管理员维护，再将普通新建及完整复制接到同一模板初始化，最后建设游戏地图工作台。详细分批与验收见[系统基础地图任务](system-base-map-tasks.md)；下列旧MapPanel条目仅记录已有后端能力与接线缺口，不代表现行完整实现方案。
 - [x] `StrongholdPanel`：保存走 `cities` 模块（rename＋numbers 同体一次 PUT，成功后控制器重读），删 `fields.revision` 门，`canLoad` 只看 gameId。（控制器加法：`checkedCopyCities`＋`cityCopySave`＋`page.cities` 行投影；`verify_copy_controller_cities` 6 项通过）
 - [x] `ChaptersPanel`：保存走 `chapters.edits` 七 op＋`setStart`（逐命令一次 PUT，成功后控制器重读），`setCopyStartInput/cancelCopyStartInput` 替代年代暂存门，`setCopyField('chapterId')` 切章；`model.copy.page.attributes` 投影（势力角色／武将职务／据点数值，`posts` 由投影算）。（控制器加法：`checkedCopyData` 章武将／据点／角色引用校验＋`submitCopyChapterEdit`＋七 `copy*` 动作；`verify_copy_controller_chapters` 6 项通过）
 - [x] `GeneralsPanel`：武将／势力表走 `model.copy.page.attributes`，就绪门只看副本页＋游戏（删 `revision/verifiedRead/profileRevision` 门），保存走 `copy*` 七任职动作＋`copyBlockers`（逐命令一次 PUT，成功后控制器重读），章节切换走 `setCopyField`，头像库跟随副本游戏（`adoptFor`，游戏级端点，不读修订）。（控制器加法：武将显示字段 `originalPortraitId/ability/specialtyLowBits/sourceRecordId`＋`copyBlockers`；`verify_copy_controller_generals` 4 项通过）
-- [ ] `MapPanel`：保存走新 `copy` 模块 API，删 `revision/verifiedRead/profileRevision` 门，改走 `copyDigest`。（后端已备齐：`map: {edits}` 十四 op 走 `copyprofile.applyCopyMapEdits` 原函数＋`COPY_MAP_OPS` allowlist，新身份由调用方随机 64hex 生成、服务端验格式＋未占用，整包替换已废止；`verify_copy_map_ops` 4 项通过。控制器加法：`copyMapId/submitCopyMapEdits/copyMapEdit`（形状门＋精确单体＋重读；`verify_copy_controller_map` 4 项通过）。面板投影＋改绑待后续）
+- [x] 游戏地图保存走新 `copy` 模块 API/`copyDigest`。按用户作废旧地图页面的后继决定，以共用BaseMapPanel＋createGameMapWorkbench替换旧MapPanel，已不依赖旧revision/verifiedRead/profileRevision门；服务仍用十四op身份/配方门并维护组合引用。真实HTTPS浏览器保存重读、实际修改后废票/重验/审批及同一玩家加载器装配通过，详见[基础地图合同§7.6–7.9](system-base-map-design.md#76-游戏地图读取与编辑会话)。
 - [x] 跨模块缺口不在模块页拦，只在发布页红字列出（T4 §3）。（构造证据：`writeModule` 全程不读 `copy_validations`/票据，只换摘要即废票；跨引用（首都/太守/改名影响章/库引用/地图编译/章缺口）只进 `validateWhole` 全量闭包→逐章 problems→发布遮罩按 code 分组＋`copyGapsFor` 按章分发；控制器本地成员检查只认已读存在性。覆盖：`validate_gate`＋`single_slot`＋`copypage` gaps 分发）
 
 ### F4 `PublishPanel.vue`（状态机主面，T5）
@@ -106,7 +108,7 @@ copy(gameId) ──[检验通过→一次性票]──▶ slot(gameId)单槽 ─
 - [x] 同意即 `ordinal+1` 并覆盖 `formal`。（`approveSlot`＋路由＋审核面启用已落地；包构建：路由事务外 `compileGameSource`＋`prepare`，事务内 `installPreparedInTxn`；R2 visuals 缺失环境按 503 照常失败）
 
 ### F6 控制器 `server/public/draft.txt + publish.txt`
-- [ ] `installDraftEditor`：删 `revision/attempt/verifiedRead/profileRevision` 状态机，改 `copyDigest + ticket`；删 `trial()`、`query()/retry()`；`save()` 按模块拆分。（`saveCopyModule/readCopySubmission/validateCopy/submitCopy` 加法已落地＋`verify_copy_controller_modules` 9项通过；旧路未动。删除禁区（已审计）：`attempt/badJournal/queryLocked/retryLocked/trialLocked` 及 `verifiedRead/revision/profileRevision` 门仍被挂载中的 MapWindow/Materials/BaseTerrain/WaterGroups/GeneralDefinitions/CityDefinitions/ChapterRoles/WaterCreate 面板读取，`trial()/query()/retry()` 动作虽零调用但其状态被上述面板依赖——零散删动作只增测例 churn，必须等 MapPanel＋定义库面板改绑后整批删除）
+- [ ] `installDraftEditor`：删 `revision/attempt/verifiedRead/profileRevision` 状态机，改 `copyDigest + ticket`；删 `trial()`、`query()/retry()`；`save()` 按模块拆分。（`saveCopyModule/readCopySubmission/validateCopy/submitCopy` 加法已落地＋`verify_copy_controller_modules` 9项通过；旧路未动。删除边界已由基础地图合同§7.9重新审计：旧MapPanel及其子页面不再挂载、client启动/画布/dirty桥已删除；DraftPanel→ChapterRolesPanel仍实际消费共享章角色状态，GeneralDefinitions/CityDefinitions及旧地图协议有兼容验证消费者但不在现行菜单。不可再称这些旧地图/定义页面全部挂载；本项是完整draft退役，仍须另批处理共享章角色与兼容协议，不能拿地图入口替换当整项完成）
 - [x] `installPublish`：已整体重写为 copy 单槽 API（旧 `validationRow/fresh()/revision/operation-key/progress/journal` 全删）：行数据源 `GET /api/games`＋逐游戏 `GET /copy/submission`；`check()` 走 `POST /copy/validate` 落库取票；`publish()` 只送一次（无票自动先验，票 `digest` 对不上重验，提交后清空说明＋票据）；提交后 5s 轮询 `GET submission` 查 `slot`、190s 到期或离 submitted 自动停；`description` 控制器截断 2000、提交前必填校验；节流倒计时取服务端 `blockedReason` 人话（轮询/重读即更新）。（`verify_publish_controller_slot` 6 项通过）
 
 ## 3. 校验分层（T4，模块个案前置规则）

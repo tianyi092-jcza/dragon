@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { GameCopyStore } from '../server/gamecopy.js';
 import { FixedCopyProfile } from '../server/copyprofile.js';
+import { applyMapWorkspaceEdits } from '../server/mapworkspace.js';
+import { previewMapEdits } from '../web/src/editor/mapcommands.js';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
 
 const gameId = randomUUID();
@@ -38,6 +40,40 @@ const failWith = async (fn, status, code) => {
 const hex64 = c => c.repeat(64);
 const readMap = store => store.read('tok', gameId).data.map;
 const readCompDefs = store => store.read('tok', gameId).data.componentDefinitions;
+
+test('browser preview matches authorized writer for supported editing commands', () => {
+  let source = mapData();
+  const id = suffix => `${gameId}#decoration-${hex64(suffix)}`;
+  const materialId = `${gameId}#material-${hex64('f')}`;
+  const waterId = suffix => `${gameId}#water-${hex64(suffix)}`;
+  const definitionRef = Object.keys(source.componentDefinitions)[0];
+  const dryCells = source.map.base.geography.flatMap((value, cell) => value === 0 ? [cell] : []).slice(0, 2);
+  const commands = [
+    { op: 'base-fill', cells: dryCells, tile: 5, geography: 2 },
+    ...['a', 'b'].map((suffix, index) => ({ op: 'decoration-place', instanceId: id(suffix), materialId: definitionRef, variantRef: 'original', x: 1 + index, y: 1, waterClass: null })),
+    { op: 'decoration-translate', memberIds: [id('a'), id('b')], dx: 1, dy: 0 },
+    { op: 'decoration-reorder', memberIds: [id('a')], direction: -1 },
+    { op: 'material-capture', memberIds: [id('a'), id('b')], materialId, name: '預覽素材' },
+    { op: 'material-rename', materialId, name: '預覽改名' },
+    { op: 'decoration-place', instanceId: id('c'), materialId, variantRef: 'original', x: 10, y: 10, waterClass: null },
+    { op: 'decoration-split', instanceId: id('c'), childIds: [id('d'), id('e')] },
+    { op: 'decoration-remove', memberIds: [id('a'), id('b'), id('d'), id('e')] },
+    { op: 'material-remove', materialId },
+    { op: 'water-create', groupId: waterId('a'), memberIds: [], baseCells: dryCells, name: '預覽水組', showOnMinimap: true },
+    { op: 'water-split', sourceGroupId: waterId('a'), groupId: waterId('b'), memberIds: [], baseCells: [dryCells[0]], name: '拆分水組' },
+    { op: 'water-merge', groupIds: [waterId('a'), waterId('b')], groupId: waterId('c'), name: '合併水組', showOnMinimap: true },
+    { op: 'water-rename', groupId: waterId('c'), name: '水組改名' },
+    { op: 'water-visibility', groupId: waterId('c'), showOnMinimap: false },
+  ];
+  for (const edit of commands) {
+    if (edit.op === 'decoration-split') source = { ...source, selectionGroups: [{ id: 'preview-group', members: [{ layer: 'decorations', id: id('c') }] }] };
+    const preview = previewMapEdits(source, [edit]);
+    const saved = applyMapWorkspaceEdits(source, [edit]);
+    assert.deepEqual(preview, saved, edit.op);
+    source = saved;
+  }
+  assert.throws(() => previewMapEdits(source, [{ op: 'move-city' }]), /不支援/);
+});
 
 test('base-fill writes tiles and geography', async () => {
   const store = makeStore();
@@ -85,6 +121,19 @@ test('material capture/rename/remove persists definitions alongside the map', ()
   store.writeModule('tok', gameId, 'map', { edits: [{ op: 'material-remove', materialId }] });
   assert.equal(Object.hasOwn(readCompDefs(store), materialId), false);
   assert.ok(readMap(store).decorations.some(row => row.id === instanceId));
+});
+
+test('map removal maintains new selection groups without changing cross-layer entities', () => {
+  const store = makeStore(), source = mapData();
+  const member = { layer: 'decorations', id: source.map.decorations[0].id };
+  const city = { layer: 'placements', id: source.map.placements[0].id };
+  source.selectionGroups = [{ id: 'mixed', members: [member, city] }, { id: 'only-decoration', members: [member] }];
+  store.ensureFromGame('tok', gameId, source);
+  store.writeModule('tok', gameId, 'map', { edits: [{ op: 'decoration-remove', memberIds: [member.id] }] });
+  const saved = store.read('tok', gameId).data;
+  assert.deepEqual(saved.selectionGroups, [{ id: 'mixed', members: [city] }]);
+  assert.deepEqual(saved.map.placements, source.map.placements);
+  assert.equal(source.selectionGroups.length, 2, 'input remains detached from persisted edits');
 });
 
 test('water create/visibility/rename roundtrip', async () => {

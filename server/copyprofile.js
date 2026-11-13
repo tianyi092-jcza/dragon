@@ -87,7 +87,7 @@ function capturedInstanceIds(source) {
 // 用随机 64hex 生成（`gameId#<kind>-<64hex>`），服务端只验格式＋未占用。
 // 整包替换已废止：map 模块只接受 {edits}，无调用方依赖旧形。
 export const COPY_MAP_OPS = Object.freeze(['base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility']);
-export function applyCopyMapEdits(game, edits) {
+export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
   if (!Array.isArray(edits) || !edits.length) fail(422, 'COPY_MAP');
   const usedGroupIds = new Set(game.map?.waterGroups?.map(group => group.id) ?? []);
   const usedMaterialIds = new Set(Object.keys(game.componentDefinitions ?? {}));
@@ -95,11 +95,11 @@ export function applyCopyMapEdits(game, edits) {
   let next = game;
   for (const edit of edits) {
     if (!edit || typeof edit !== 'object' || Array.isArray(edit) || !COPY_MAP_OPS.includes(edit.op)) fail(422, 'COPY_MAP');
-    next = applyCapturedMapEdit(next, edit, usedGroupIds, usedMaterialIds, usedInstanceIds);
+    next = applyCapturedMapEdit(next, edit, usedGroupIds, usedMaterialIds, usedInstanceIds, definitionLimit);
   }
   return next;
 }
-function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedInstanceIds) {
+function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedInstanceIds, definitionLimit = 1024) {
   const descriptors = view(edit); // Reject getters/functions before reading op.
   if (edit.op === 'base-fill') {
     const keys = ['op', 'cells', 'tile', 'geography'];
@@ -175,7 +175,7 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
       next = captureComponent(source, edit.memberIds, edit.materialId, edit.name);
     } else if (edit.op === 'material-rename') next = renameMaterial(source, edit.materialId, edit.name);
     else next = removeMaterial(source, edit.materialId);
-    validateLibraryAdditions(source, next.componentDefinitions, next.map);
+    validateLibraryAdditions(source, next.componentDefinitions, next.map, definitionLimit);
     if (edit.op === 'material-capture') usedMaterialIds.add(edit.materialId);
     return next;
   }

@@ -10,7 +10,7 @@ import { assertDeletionDefinitions } from '../server/deletiondefinitions.js';
 const modules = ['editorapp', 'metadata', 'stageapi', 'commandtargets', 'sourcecatalog', 'admincopy',
   'drafts', 'jobs', 'datacompiler', 'imagejobs', 'fallbackjobs', 'privatewrites',
   'deletionjobfreeze', 'deletiondraftfreeze', 'releases', 'topology', 'portraits',
-  'published', 'playpacks', 'gamecopy', 'announcements', 'validations', 'distribution', 'distributionledger'];
+  'published', 'playpacks', 'gamecopy', 'systembasemapstore', 'announcements', 'validations', 'distribution', 'distributionledger'];
 const storage = openStorage(':memory:');
 const tables = new Set(), indexes = [];
 try {
@@ -36,11 +36,11 @@ try {
     }
   }
   for (const sql of indexes) storage.sql.exec(sql);
-  assert.equal(modules.length, 24); assert.equal(tables.size, 56);
+  assert.equal(modules.length, 25); assert.equal(tables.size, 57);
   const result = assertDeletionDefinitions(storage.sql);
-  assert.equal(result.tablesVerified, 56); assert.equal(result.indexesVerified, 54);
+  assert.equal(result.tablesVerified, 57); assert.equal(result.indexesVerified, 54);
   assert.equal(result.foreignKeyDeclarationsVerified, 4);
   const columns = [...tables].reduce((sum, name) => sum + storage.sql.exec(`PRAGMA table_xinfo(${name})`).toArray().length, 0);
-  assert.equal(columns, 368);
-  process.stdout.write('schema sources: 24 owners / 56 tables / 54 indexes / 368 columns / 4 FK; exact frozen gates after copy/Trial retirement\n');
+  assert.equal(columns, 373);
+  process.stdout.write('schema sources: 25 owners / 57 tables / 54 indexes / 373 columns / 4 FK; exact frozen gates including system base map\n');
 } finally { storage.close(); }

@@ -8,7 +8,8 @@ import { checkGameName } from '../web/src/content/authoring/gamesource.js';
 import { bumpOrdinal } from './releases.js';
 import { editChapterResources } from '../web/src/editor/chapterresources.js';
 import { compileMapSource } from '../web/src/content/authoring/mapcompile.js';
-import { applyCopyMapEdits, COPY_MAP_OPS } from './copyprofile.js';
+import { COPY_MAP_OPS } from './copyprofile.js';
+import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { cityName } from '../web/src/content/authoring/cityrecords.js';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
 import { builtinGeneralLibrary, projectCopyGenerals } from './copygenerals.js';
@@ -406,7 +407,7 @@ function applyModule(data, module, checked) {
   if (module === 'map') {
     try {
       // 素材命令也会返回 componentDefinitions；不能只保存 map 而丢掉定义库。
-      return applyCopyMapEdits(next, checked.edits);
+      return applyMapWorkspaceEdits(next, checked.edits);
     } catch (e) { if (e?.status) throw e; fail(422, 'COPY_MAP'); }
   }
   return next;

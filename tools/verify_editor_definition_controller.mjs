@@ -10,7 +10,7 @@ const metadata = { name: '作者草稿', introduction: '已保存' };
 const row = () => ({ generalId: ID, name: '原名', zi: '', hao: '', portraitRef: null });
 const dto = (revision = '1', definitions = []) => ({ gameId: G, draftRevision: revision, profileRevision: 'fixed-template-authoring-1', metadata, generalDefinitions: definitions, generalReferences: definitions.map(person => ({ generalId: person.generalId, chapters: [] })), chapters: [{ chapterId: 'first', name: '第一章', factions: [], gaps: { saveGaps: 0, activeGaps: 3 } }] });
 const receipt = revision => ({ gameId: G, draftRevision: revision, metadata });
-const cityRow = (over = {}) => ({ cityId: 'city-0', name: null, runtimeSlot: 0, x: 1, y: 2, max_prod: null, type: null, view: null, ...over });
+const cityRow = (over = {}) => ({ cityId: 'city-0', name: null, runtimeSlot: 0, x: 1, y: 2, max_prod: null, prod: null, growth: null, defence: null, troops: null, type: null, view: null, ...over });
 const cityDto = (revision = '1', rows = [cityRow()], ids = []) => ({ ...dto(revision), cityDefinitions: rows, chapterCities: [{ chapterId: 'first', cities: ids.map(cityId => ({ cityId, factionId: null, values: { name: rows.find(row => row.cityId === cityId).name }, overrides: {}, inheritedFields: ['name'], overriddenFields: [] })) }] });
 function harness({ records = new Map(), definitions = [], failSet = false, minimapCanvas = null, digestPixels } = {}) {
   let identity = { user: { id: 'author', mustChangePassword: false } }, busy = false, model, handler;

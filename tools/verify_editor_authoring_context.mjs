@@ -10,9 +10,9 @@ const { installMapViewer } = await load('mapview');
 const { installPublish } = await load('publish');
 const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
 const game = id => ({ gameId: id, draftRevision: id === A ? '1' : '2', listed: false, metadata: { name: id === A ? '甲' : '乙', introduction: '' } });
-// 上架清單（B2）列形狀：state/version 必須互斥，rowRevision 與 createdAt 必須有效。
-const submission = id => ({ gameId: id, name: id === A ? '甲' : '乙', introduction: '', state: 'draft', version: null,
-  stateTime: null, createdAt: '2026-11-01T00:00:00.000Z', restricted: false, rejected: false, draftChanged: true, rowRevision: '1' });
+// Current copy-slot projection; publication lists all owned games independently.
+const submission = id => ({ gameId: id, state: 'draft', version: null, nextVersion: '1.0',
+  copyDigest: 'a'.repeat(64), validation: null, slot: null, publishEnabled: false, blockedReason: '尚未检验' });
 const detail = id => ({ ...game(id), profileRevision: 'fixed-copy-resources-1', strongholds: [], map: { roads: [], placements: 0 }, chapters: [{
   chapterId: id + '#one', name: '章', gaps: { saveGaps: 0, activeGaps: 1 },
   factions: [{ slot: 0, idx: 0, monarch_idx: 0, advisor_idx: null, capital: 0, money: 1, reserve_cav: 0, reserve_arc: 0, reserve_inf: 0 }],
@@ -27,8 +27,8 @@ function harness() {
     calls.push({ path, body, options });
     if (handler) { const value = handler(path, body, options); if (value !== undefined) return value; }
     if (path === '/api/games') return { games: ids.map(game) };
-    if (path === '/api/games/submissions') return { games: ids.map(submission) };
     const id = path.split('/')[3];
+    if (path.endsWith('/copy/submission')) return submission(id);
     if (path.endsWith('/topology')) return { gameId: id, moves: [], rebuilds: [], blocked: false };
     if (body) throw new Error('owned lost response');
     return detail(id);
@@ -48,7 +48,7 @@ function harness() {
   return { members, models, context, calls, errors, consent, storage, confirmations,
     list: value => { ids = value; }, response: value => { handler = value; }, onConfirm: value => { onConfirm = value; },
     identity: value => { context.reset(); identity = value; for (const member of Object.values(members)) member.setIdentity(value); },
-    all: id => { for (const member of Object.values(members)) assert.equal(member.selectedGame(), id); },
+    all: id => { for (const [key, member] of Object.entries(members)) assert.equal(member.selectedGame(), key === 'publication' ? null : id, key); },
   };
 }
 test('one explicit selection reaches all four panels without reads; each panel reads its own exact revision', async () => {
@@ -139,10 +139,10 @@ test('late read failures do not attach an old-game error to any switched entity 
     h.all(B); assert.equal(h.models[key].message, '', key);
   }
 });
-test('publication follows the shared selection instead of owning one; a pending operation vetoes leaving', async () => {
+test('publication remains a global copy-slot list and does not own or veto the shared selection', async () => {
   const h = harness(), m = h.members;
   await m.draft.actions.refresh();
-  assert.deepEqual(Object.keys(m.publication.actions).sort(), ['check', 'forget', 'publish', 'query', 'refresh', 'remove', 'retry']);
+  assert.deepEqual(Object.keys(m.publication.actions).sort(), ['check', 'publish', 'refresh', 'setDescription']);
   await m.publication.actions.refresh(); h.all(A);
   assert.deepEqual(h.models.publication.rows.map(row => row.name), ['甲', '乙']);
   m.draft.actions.chooseGame(B); h.all(B);
@@ -156,7 +156,8 @@ test('the publication list never replaces the shared selection', async () => {
   await m.publication.actions.refresh(); h.all(B);
   assert.deepEqual(h.models.publication.rows.map(row => row.name), ['甲', '乙']);
   h.list([A]); const n = h.calls.length; await m.publication.actions.refresh();
-  h.all(B); assert.equal(h.calls.length, n + 1);
+  h.all(B); assert.equal(h.calls.length, n + 2);
+  assert.deepEqual(h.calls.slice(n).map(call => call.path), ['/api/games', `/api/games/${A}/copy/submission`]);
   assert.deepEqual(h.models.publication.rows.map(row => row.name), ['甲']);
   assert.equal(h.models.publication.locked, false);
 });

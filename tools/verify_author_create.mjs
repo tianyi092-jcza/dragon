@@ -49,6 +49,9 @@ const catalog = {
 // This role-gate fixture only models indexed claims; the real metadata port and
 // legacy formal-name reservations are covered by verify_formal_name_occupancy.
 const gamesStub = {
+  // This reserve-only fixture must never enter the current-copy store ports.
+  assertNotDeleting: () => fail(503, 'UNEXPECTED_COPY_STORE_CALL'),
+  listOwn: () => fail(503, 'UNEXPECTED_COPY_STORE_CALL'),
   recoverGameId: () => fail(503, 'COPY_NOT_CONFIGURED'),
   assertNameAvailableInTxn(token, name) {
     if (storage.sql.exec('SELECT game_id FROM content_names WHERE owner_id=? AND name=?', principal(token).id, name).toArray().length) fail(409, 'GAME_NAME_OCCUPIED');

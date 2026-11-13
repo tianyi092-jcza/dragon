@@ -16,6 +16,10 @@ import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
 import { GameSnapshotVerifier } from './snapshots.js';
 import { PrivateDrafts } from './drafts.js';
 import { GameCopyStore } from './gamecopy.js';
+import { SystemBaseMapStore } from './systembasemapstore.js';
+import { readInstalledEditorSource } from '../tools/editor_builtin_source.mjs';
+import { convertInstalledSystemBaseMap } from '../tools/system_base_map_conversion.mjs';
+import { BUILTIN_RESOURCES } from '../web/src/content/builtinresources.generated.js';
 import { FixedCopyDataCompiler } from './datacompiler.js';
 import { FixedCopyImages } from './copyimages.js';
 import { FixedCopyImageJobs } from './imagejobs.js';
@@ -233,6 +237,17 @@ return class EditorMetadata extends PlatformBase {
     this.topology = new DraftTopology({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games });
     // T1–T8 简化副本：copy 单套可变草稿（无修订号），单写者覆盖写。
     this.gameCopies = new GameCopyStore({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games });
+    this.systemBaseMap = new SystemBaseMapStore({ storage: ctx.storage, principal: hash => this.principal(hash),
+      loadInitialTemplate: async tokenHash => {
+        if (!this.installedSources) fail(503, 'BASE_MAP_SOURCE_UNAVAILABLE');
+        const catalog = this.installedSources;
+        const captured = await catalog.loadFull(tokenHash, catalog.definition().registryId);
+        catalog.assertCapture(tokenHash, captured);
+        const source = readInstalledEditorSource(BUILTIN_RESOURCES, path => Buffer.from(captured.readWeb(path)));
+        const { template } = convertInstalledSystemBaseMap(source, BUILTIN_RESOURCES.sourceDigest);
+        catalog.assertCapture(tokenHash, captured);
+        return template;
+      } });
     // T6 试运行已取消：不再实例化 TrialSessions，所有 /api/trial/* 一律 410。
     this.trialSessions = null;
     this.blobs = null; this.installedSources = null; this.adminCopies = null; this.authorCopies = null; this.privateDrafts = null; this.stageApi = null; this.availableLibrary = null; this.libraryBrowser = null; this.libraryAssets = null;
@@ -254,8 +269,9 @@ return class EditorMetadata extends PlatformBase {
       // 而不放寬 availableLibrary 的安裝／登記權限（install 另有 admin 守衛）。
       this.libraryBrowser = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy: libraryPolicy, readRole: ['admin', 'author'] });
       this.#bootstrapLibrary(env);
-      copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, gameLimit });
+      copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, gameLimit, captureBaseMap: () => this.systemBaseMap.capture() });
       const authorSource = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, readRole: ['admin', 'author'] });
+      this.readCopyMapAtlas = (tokenHash, path) => authorSource.readRole(tokenHash, path);
       this.loadBuiltinGeneralSource = async (tokenHash, gameId) => {
         const actor = this.principal(tokenHash);
         const source = await authorSource.loadFull(tokenHash, authorSource.definition().registryId);
@@ -269,7 +285,7 @@ return class EditorMetadata extends PlatformBase {
       // （含據點），章節與武將庫為空（FIXED_TEMPLATE_PROFILE）；管理員「複製遊戲」
       // 才整套複製（地圖＋章節＋武將），走既有 /api/admin/copies 完整副本管線。
       // 兩種 profile 的歷史行仍各自按其 profile 讀取。
-      this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['admin', 'author'], profileRevision: FIXED_TEMPLATE_PROFILE, gameLimit });
+      this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['admin', 'author'], profileRevision: FIXED_TEMPLATE_PROFILE, gameLimit, captureBaseMap: () => this.systemBaseMap.capture() });
       this.commandTargets = new HttpCommandTargets(ctx.storage, env.EDITOR_REQUEST_KEY);
       ctx.storage.transactionSync(() => this.sql.exec('CREATE TABLE IF NOT EXISTS copy_http_commands (actor TEXT NOT NULL, op_key TEXT NOT NULL, request_digest TEXT NOT NULL, auth_epoch INTEGER NOT NULL, PRIMARY KEY(actor,op_key))'));
       this.privateDrafts = new PrivateDrafts({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, blobs: this.blobs, definition: () => this.installedSources.definition(), operationGuard: (actor, key) => this.contentKey(actor, key, 'draft'),
@@ -803,6 +819,25 @@ return class EditorMetadata extends PlatformBase {
   async #getPrimaryRoutes(rt) {
     const { method, path, tokenHash, policy, user, csrf, url, releasesPath, releaseHistoryPath } = rt;
     if (method === 'GET' && path === '/api/session') { this.touch(tokenHash, policy); return response({ user: dto(user), csrf }); }
+    if (method === 'GET' && path === '/api/admin/base-map/atlas') {
+      const snapshot = this.systemBaseMap.read(tokenHash);
+      if (!snapshot) fail(409, 'BASE_MAP_NOT_INITIALIZED');
+      const season = url.searchParams.get('season');
+      if ([...url.searchParams.keys()].join(',') !== 'season' || !['spring', 'summer', 'autumn', 'winter'].includes(season)) fail(422, 'BASE_MAP_QUERY');
+      const descriptor = snapshot.template.content.editorAssets.seasonAtlases[season];
+      const source = await this.installedSources.loadFull(tokenHash, this.installedSources.definition().registryId);
+      this.installedSources.assertCapture(tokenHash, source);
+      const bytes = source.readWeb(descriptor.url);
+      if (bytes.byteLength !== descriptor.byteLength || createHash('sha256').update(bytes).digest('hex') !== descriptor.sha256) fail(503, 'BASE_MAP_ATLAS_CORRUPT');
+      this.touch(tokenHash, policy);
+      return new Response(bytes, { headers: { ...headers, 'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.byteLength), 'X-Content-SHA256': descriptor.sha256 } });
+    }
+    if (method === 'GET' && path === '/api/admin/base-map') {
+      if (url.search) fail(422, 'BASE_MAP_QUERY');
+      const snapshot = this.systemBaseMap.read(tokenHash);
+      this.touch(tokenHash, policy);
+      return response({ snapshot });
+    }
     if (method === 'GET' && path === '/api/admin/accounts') { return this.#getAdminAccounts(rt); }
     if (method === 'GET' && path === '/api/games') { const games = this.games.listOwn(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
     if (method === 'GET' && path === '/api/games/submissions') { const games = this.games.submissionSummaries(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
@@ -982,6 +1017,19 @@ return class EditorMetadata extends PlatformBase {
     if (!gameCopyPath || method !== 'GET') { return null; }
     if (!this.gameCopies) { fail(503, 'COPY_NOT_CONFIGURED'); }
     const gameId = gameCopyPath[1], sub = gameCopyPath[2];
+    if (sub === 'map-atlas') {
+      const { data } = this.gameCopies.read(tokenHash, gameId);
+      const season = url.searchParams.get('season');
+      if ([...url.searchParams.keys()].join(',') !== 'season' || !['spring', 'summer', 'autumn', 'winter'].includes(season)) fail(422, 'COPY_QUERY');
+      const descriptor = data.mapEditorAssets?.seasonAtlases?.[season];
+      if (!descriptor) fail(409, 'COPY_MAP_ASSETS_UNAVAILABLE');
+      if (!this.readCopyMapAtlas) fail(503, 'COPY_NOT_CONFIGURED');
+      const role = await this.readCopyMapAtlas(tokenHash, descriptor.url);
+      this.gameCopies.read(tokenHash, gameId); // Recheck ownership/deletion after the authenticated asset read.
+      if (role.byteLength !== descriptor.byteLength || role.sha256 !== descriptor.sha256) fail(503, 'COPY_MAP_ATLAS_CORRUPT');
+      this.touch(tokenHash, policy);
+      return new Response(role.bytes, { headers: { ...headers, 'Content-Type': 'application/octet-stream', 'Content-Length': String(role.byteLength), 'X-Content-SHA256': role.sha256 } });
+    }
     if (sub === 'submission') {
       if (url.search) { fail(422, 'COPY_QUERY'); }
       this.touch(tokenHash, policy);
@@ -1359,6 +1407,16 @@ return class EditorMetadata extends PlatformBase {
       if (url.search) { fail(422, 'STAGE_QUERY'); }
       const result = await this.stageApi.write(tokenHash, stagePath, value, request.headers.get('Idempotency-Key'), request.headers.get('If-Match')); this.stageApi.assertCurrent(tokenHash, stagePath, result); return response(result, stagePath.id ? 200 : 202);
     }
+    if (path === '/api/admin/base-map/save') {
+      if (url.search) fail(422, 'BASE_MAP_QUERY');
+      fields(value, ['edits']);
+      return response({ snapshot: this.systemBaseMap.edit(tokenHash, value.edits) });
+    }
+    if (path === '/api/admin/base-map/initialize') {
+      if (url.search) fail(422, 'BASE_MAP_QUERY');
+      fields(value, []);
+      return response({ snapshot: await this.systemBaseMap.initialize(tokenHash) });
+    }
     if (path === '/api/admin/source/install') {
       this.copyAccess(tokenHash); fields(value, []); this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'source');
       let staged; try { staged = JSON.parse(this.env.EDITOR_INSTALLED_SOURCE_ROOT); } catch { fail(503, 'SOURCE_NOT_STAGED'); }
@@ -1491,7 +1549,7 @@ return class EditorMetadata extends PlatformBase {
     const trialPath = /^\/api\/trials\/([a-f0-9-]{36})(?:\/(status|end|pack))?$/.exec(path);
     const trialAssetPath = /^\/api\/trials\/([a-f0-9-]{36})\/assets\/([A-Za-z0-9]{1,32})$/.exec(path);
     const draftPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/draft(?:\/(save|minimap|map-window|map-layer-window|map-scene|map-atlas|decoration-selection|chapter-references|operations\/([A-Za-z0-9_-]{16,128})))?$/.exec(path);
-    const gameCopyPath = /^\/api\/games\/([a-f0-9-]{36})\/copy(?:\/(validate|submission|ensure|reject|approve|import-generals))?$/.exec(path);
+    const gameCopyPath = /^\/api\/games\/([a-f0-9-]{36})\/copy(?:\/(validate|submission|ensure|reject|approve|import-generals|map-atlas))?$/.exec(path);
     const releasesPath = /^\/api\/games\/([a-f0-9-]{36}|wolong-builtin)\/releases$/.exec(path);
     // 發布歷史（game_releases 日誌）與上面 content_releases 的 /releases 是兩件事：
     // 前者是「上架歷史」（admin 唯讀、A 路線之後才有），後者是內容修訂清單。

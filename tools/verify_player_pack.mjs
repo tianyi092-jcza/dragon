@@ -34,7 +34,18 @@ function fixture() {
   const options={compilerRevision,maxTotalBytes:1000000,session:{identity,state:()=>state,read:async role=>{reads.push(role);assert.ok(data.has(role));return structuredClone(data.get(role));}},readStatic:async(path,{maxBytes})=>{staticReads.push(path);const value=statics.get(path);assert.ok(value.bytes.length<=maxBytes);return structuredClone(value);},urls:{createObjectURL(blob){const url='blob:owned-'+(++serial);blobs.set(url,blob);return url;},revokeObjectURL(url){revoked.push(url);blobs.delete(url);}}};
   return {manifest,identity,data,statics,reads,staticReads,blobs,revoked,options,sync,state:value=>{state=value;},load:()=>loadPlayerPack(options)};
 }
+// Copy approval records the public ordinal as the pack revision; old integer
+// draft revisions remain valid for existing immutable publications.
+for (const revision of ['1.0', '1.10']) {
+  const f = fixture();
+  f.identity.revision = revision; f.identity.ordinal = revision; f.manifest.identity.draftRevision = revision;
+  [...f.manifest.assets, ...f.manifest.minimapAssets].forEach(entry => { entry.url = entry.url.replace('revision=1&', `revision=${revision}&`); });
+  f.sync(); const pack = await f.load(); assert.equal(pack.identity.revision, revision); pack.close(); checks++;
+}
 async function invalid(f,code='PLAYER_PACK_INVALID') { await assert.rejects(f.load(),e=>e.code===code);assert.equal(f.blobs.size,0);checks++; }
+for (const revision of ['0', '01', '1.01', '1.-1', '2.0', '1.0/extra', '1.' + '9'.repeat(32)]) {
+  const f = fixture(); f.identity.revision = revision; await invalid(f); assert.equal(f.reads.length, 0);
+}
 {
  const f=fixture(),pack=await f.load();assert.equal(f.reads.length,9);assert.equal(f.staticReads.length,8);assert.equal(Object.keys(pack.resourceURLs).length,15);
  assert.deepEqual(pack.manifest,f.manifest);assert.equal(pack.identity.releaseId,releaseId);assert.equal(pack.identity.ordinal,'1.0');assert.equal(pack.chapter.name,'unchanged');

@@ -41,7 +41,7 @@ export async function createPublicationBrowserAuthority({ root, origin, runtimeS
       sql.exec('INSERT INTO users VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', id, account, role, encodedPassword, 0, 0, 1, 1, '', '', '', '');
       sql.exec('INSERT INTO sessions VALUES(?,?,?,?,?)', tokenHash, id, 1, Date.now() + 3600000, Date.now() + 3600000);
     }
-    assert.equal(assertDeletionDefinitions(sql).tablesVerified, 56);
+    assert.equal(assertDeletionDefinitions(sql).tablesVerified, 57);
     const policy = installedSourcePolicy(readFileSync('server/pinned/world-manifest.txt'), readFileSync('server/pinned/entity-manifest.txt'));
     const stageInstalled = async bytes => {
       const data = new Uint8Array(bytes), digest = sha(data), key = `installed/${policy.registryId}/${digest}`;

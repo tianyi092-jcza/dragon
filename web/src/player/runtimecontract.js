@@ -11,7 +11,9 @@ export function isChapterId(value, gameId) {
   return isGameId(gameId) && (isId(value) || (typeof value === 'string' && value.startsWith(`${gameId}#`) && isId(value.slice(gameId.length + 1))));
 }
 export const isOrdinal = value => typeof value === 'string' && /^1\.(0|[1-9][0-9]{0,30})$/.test(value);
-export const isRevision = value => typeof value === 'string' && /^[1-9][0-9]{0,30}$/.test(value);
+// Legacy frozen packs use integer draft revisions; copy approvals use their
+// public 1.n ordinal. Exact manifest/session identity checks still apply.
+export const isRevision = value => typeof value === 'string' && /^(?:[1-9][0-9]{0,30}|1\.(?:0|[1-9][0-9]{0,30}))$/.test(value);
 export const ASSET_TYPES = Object.freeze({ terrain: 'application/octet-stream', roadGraph: 'application/json', roadCost: 'application/octet-stream', roadOffset: 'application/json', minimapBase: 'image/png', minimapLarge: 'image/png' });
 // 有界併發：發布遊戲一章可達 173 個資源、章節列表要逐章換票，全部逐個 await 在長鏈路上
 // 要幾分鐘（服務端本身 3 ms/個）。結果按輸入索引回填，呼叫端仍保有順序語意。

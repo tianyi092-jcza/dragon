@@ -62,7 +62,7 @@ try {
   const client = await http('/client.js');
   assert.equal(client.status, 200);
   const modules = [...client.text.matchAll(/^import .* from '(\/[^']+\.js)';$/gm)].map(match => match[1]);
-  assert.deepEqual([...modules].sort(), ['/catalog.js','/draft.js','/general.js','/library.js','/management.js','/mapview.js','/publish.js','/review.js','/shell-ui.js','/stage-assets.js','/stage.js','/stronghold.js'],
+  assert.deepEqual([...modules].sort(), ['/catalog.js','/draft.js','/general.js','/library.js','/management.js','/publish.js','/review.js','/shell-ui.js','/stage-assets.js','/stage.js','/stronghold.js'],
     'client.js imports exactly the shipped controller modules (management-editor renders review.js)');
   for (const path of ['/client.js', ...modules]) {
     const asset = await http(path);
@@ -108,10 +108,10 @@ try {
   check('CSRF, password mutation, epoch revocation and authenticated game route');
   assert.equal((await http('/api/trial/web/src/game/clock.js')).status, 401);
   const engine = await http('/api/trial/web/src/game/clock.js', { headers: session });
-  assert.equal(engine.status, 200); assert.match(engine.text, /MAX_TICKS_PER_FRAME/);
-  assert.match(engine.headers['x-content-sha256'], /^[a-f0-9]{64}$/);
-  assert.equal((await http('/api/trial/web/server/security.js', { headers: session })).status, 404);
-  check('same generated Trial engine through authenticated role route; no arbitrary file reads');
+  assert.equal(engine.status, 410); assert.deepEqual(json(engine), { error: 'TRIAL_RETIRED' });
+  const retiredPath = await http('/api/trial/web/server/security.js', { headers: session });
+  assert.equal(retiredPath.status, 410); assert.deepEqual(json(retiredPath), { error: 'TRIAL_RETIRED' });
+  check('retired Trial routes expose neither engine nor arbitrary files');
   const key = randomUUID(), create = () => http('/api/admin/accounts', { method: 'POST', value: { account: 'owned-author' }, headers: { ...session, 'Idempotency-Key': key } });
   const made = await create(), replay = await create();
   assert.equal(made.status, 200, made.text); assert.deepEqual(json(replay), json(made));
@@ -124,14 +124,14 @@ try {
   const options = { storage, principal: () => { throw new Error('unused owned principal'); }, requestKey: env.EDITOR_REQUEST_KEY };
   new GameDeletionJobFreeze(options); new GameDeletionDraftFreeze(options);
   const facts = assertDeletionDefinitions(storage.sql);
-  assert.equal(facts.tablesVerified, 55); assert.equal(facts.indexesVerified, 53);
+  assert.equal(facts.tablesVerified, 57); assert.equal(facts.indexesVerified, 54);
   assert.equal(facts.foreignKeyDeclarationsVerified, 4);
   check('real Node application has exact additive frozen SQLite declarations and constraints');
   await server.close(); server = null; storage.close(); storage = null;
   await start();
   assert.equal((await http('/api/session', { headers: session })).status, 200);
   assert.equal(json(await http('/api/admin/accounts', { headers: session })).accounts.length, 2);
-  assert.equal((await http('/api/trial/web/src/game/clock.js', { headers: session })).status, 200);
+  assert.equal((await http('/api/trial/web/src/game/clock.js', { headers: session })).status, 410);
   check('service reopen preserves users/session/authority without reseeding or separate auth DB');
   const logout = await http('/api/auth/logout', { method: 'POST', value: {}, headers: { ...session, 'Idempotency-Key': randomUUID() } });
   assert.equal(logout.status, 200); assert.match(logout.headers['set-cookie'][0], /Max-Age=0/);

@@ -281,8 +281,8 @@ export function fillBase(source, cells, tile, geography) {
   });
 }
 // Structural gate: immutable recipes; author names and unused entries only.
-export function validateLibraryAdditions(source, definitions, map = source.map) {
-  if (!definitions || Object.getPrototypeOf(definitions) !== Object.prototype || Object.keys(definitions).length > 1024) fail("素材庫結構／數量不合法");
+export function validateLibraryAdditions(source, definitions, map = source.map, definitionLimit = 1024) {
+  if (!definitions || Object.getPrototypeOf(definitions) !== Object.prototype || Object.keys(definitions).length > definitionLimit) fail("素材庫結構／數量不合法");
   for (const [id, old] of Object.entries(source.componentDefinitions)) {
     if (JSON.stringify(old) === JSON.stringify(definitions[id])) continue;
     if (!authorMaterial(old)) fail("現有原圖塊定義不可覆寫或刪除");

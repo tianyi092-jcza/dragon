@@ -25,10 +25,12 @@ import './theme.css';
 import Workbench from './Workbench.vue';
 export { createAccountController } from './accounts.js';
 export { createCopyController } from './copy.js';
+export { createBaseMapWorkbench } from './basemapworkbench.js';
+export { createGameMapWorkbench } from './gamemapworkbench.js';
 
 // The shell receives display facts only, never CSRF tokens, passwords, source
 // objects or live game state. Server permissions remain the authority.
-export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, mapview, catalog, generals, copy, fullCopy, publication, management, review, deletion }) {
+export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, catalog, generals, copy, fullCopy, publication, management, review, deletion, baseMap, gameMap }) {
   // The legacy page link belongs to the player. Detach it only in the editor;
   // do not override its theme variables or change the shared server asset.
   document.querySelector('link[rel="stylesheet"][href="/style.css"]')?.remove();
@@ -41,7 +43,8 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const stageJobsModel = reactive({ purpose: 'data', locked: true, artifacts: [] });
   const libraryModel = reactive({ assets: [], missing: [], loadDisabled: true, filterDisabled: true, downloadDisabled: true, serial: 0 });
   const strongholdModel = reactive({ games: [], chapters: [], cities: [], locked: true, saveDisabled: true });
-  const mapviewModel = reactive({games:[],lines:[],locked:true});
+  const baseMapModel = reactive({ loaded: false, exists: false, version: 0, locked: true, dirty: false, layers: [], materials: [], waters: [], selected: null });
+  const gameMapModel = reactive({ gameScoped: true, loaded: false, exists: false, locked: true, dirty: false, layers: [], materials: [], waters: [], selected: null });
   const catalogModel = reactive({categories:[],category:'portrait',filter:'',rows:[],total:0,loaded:false,message:'',loading:false});
   const generalsModel = reactive({games:[],chapters:[],generals:[],factions:[],library:[],locked:true,saveDisabled:true});
   const copyModel = reactive({name:'',introduction:'',games:[],locked:true,createDisabled:true,tracking:false,message:''});
@@ -51,16 +54,17 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const managementModel = reactive({games:[],locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
   const reviewModel = reactive({ rows: [], message: '', result: '', locked: true, refreshDisabled: true, history: { gameId: null, loading: false, message: '', rows: [] } });
   const deletionModel = reactive({games:[],admin:false,locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
-  const app = createApp(Workbench, { state, accountsModel, accounts, draftModel, draft, stageAssetsModel, stageAssets, stageJobsModel, stageJobs, libraryModel, library, strongholdModel, stronghold, mapviewModel, mapview, catalogModel, catalog, generalsModel, generals, copyModel, copy, fullCopyModel, fullCopy, publicationModel, publication, managementModel, management, reviewModel, review, deletionModel, deletion, navigate, logout });
+  const app = createApp(Workbench, { state, baseMapModel, baseMap, gameMapModel, gameMap, accountsModel, accounts, draftModel, draft, stageAssetsModel, stageAssets, stageJobsModel, stageJobs, libraryModel, library, strongholdModel, stronghold, catalogModel, catalog, generalsModel, generals, copyModel, copy, fullCopyModel, fullCopy, publicationModel, publication, managementModel, management, reviewModel, review, deletionModel, deletion, navigate, logout });
   const instance = app.mount(root);
   return Object.freeze({
+    baseMap: model => Object.assign(baseMapModel, model),
+    gameMap: model => Object.assign(gameMapModel, model),
     accounts: model => Object.assign(accountsModel, model),
     draft: model => Object.assign(draftModel, model),
     stageAssets: model => Object.assign(stageAssetsModel, model),
     stageJobs: model => Object.assign(stageJobsModel, model),
     library: model => Object.assign(libraryModel, model),
     stronghold: model => Object.assign(strongholdModel, model),
-    mapview: model => Object.assign(mapviewModel, model),
     catalog: model => Object.assign(catalogModel, model),
     generals: model => Object.assign(generalsModel, model),
     copy: model => Object.assign(copyModel, model),
@@ -71,7 +75,6 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
     deletion: model => Object.assign(deletionModel, model),
     loading: value => { state.loading = value; },
     accountDirty: () => instance.accountDirty(),
-    mapInputs: () => instance.mapInputs(),
     sync({ current, view, busy, feedback = 'global' }) {
       Object.assign(state, {
         authenticated: Boolean(current), mustChange: Boolean(current?.user.mustChangePassword),

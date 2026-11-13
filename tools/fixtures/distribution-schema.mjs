@@ -29,19 +29,19 @@ export async function verifyDistributionSchema(storage, ledger) {
   assert.ok(Number.isSafeInteger(sql.databaseSize) && sql.databaseSize > 0);
   checks.push('actual provider consuming cursor and finite logical database byte count');
   const facts = assertDeletionDefinitions(sql);
-  assert.equal(facts.tablesVerified, 56); assert.equal(facts.indexesVerified, 54); assert.equal(facts.foreignKeyDeclarationsVerified, 4);
-  assert.equal(rows("SELECT name FROM sqlite_master WHERE type='table'").reduce((n,t)=>n+rows(`PRAGMA table_xinfo(${t.name})`).length,0),368);
+  assert.equal(facts.tablesVerified, 57); assert.equal(facts.indexesVerified, 54); assert.equal(facts.foreignKeyDeclarationsVerified, 4);
+  assert.equal(rows("SELECT name FROM sqlite_master WHERE type='table'").reduce((n,t)=>n+rows(`PRAGMA table_xinfo(${t.name})`).length,0),373);
   const original = rows('SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name');
-  checks.push('exact 56 tables / 54 indexes / 368 columns / four FK declarations');
+  checks.push('exact 57 tables / 54 indexes / 373 columns / four FK declarations');
   assert.equal(inspectDeclaredForeignKeyRows(sql).edgesVerified, 4);
-  assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified, 48);
+  assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified, 49); // 45 explicit + 3 distribution + 1 validation keys; singleton adds no index.
   assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared, 48);
-  checks.push('all four typed edges and 50 native covering index/unique scans');
+  checks.push('all four typed edges, 48 covering indexes and 49 unique-key scans');
   rollback(() => { sql.exec('CREATE TABLE future_ledger (id INTEGER)'); rejected(()=>assertDeletionDefinitions(sql),'DELETE_SCHEMA_DEFINITION'); });
   rollback(() => { sql.exec('CREATE INDEX future_index ON content_distribution_events(game_id)'); rejected(()=>assertDeletionDefinitions(sql),'DELETE_SCHEMA_DEFINITION'); });
   rollback(() => { sql.exec("CREATE TRIGGER future_trigger AFTER INSERT ON content_distribution_events BEGIN SELECT 1; END"); rejected(()=>assertDeletionDefinitions(sql),'DELETE_SCHEMA_DEFINITION'); });
   checks.push('unknown table, index and trigger remain rejected');
-  for (const table of ['content_distribution_chunks','content_distribution_events','content_distribution_state']) {
+  for (const table of ['content_distribution_chunks','content_distribution_events','content_distribution_state','system_base_map']) {
     rollback(() => { sql.exec(`DROP TABLE ${table}`); rejected(()=>assertDeletionDefinitions(sql),'DELETE_SCHEMA_DEFINITION'); });
     rollback(() => {
       sql.exec(`ALTER TABLE ${table} ADD COLUMN future_ref TEXT`);
@@ -64,8 +64,8 @@ export async function verifyDistributionSchema(storage, ledger) {
   rollback(() => {
     enqueue();
     assert.equal(inspectDeclaredForeignKeyRows(sql).rowsChecked,1);
-    assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified,50);
-    assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared,50);
+    assert.equal(inspectDeclaredUniqueKeys(sql).constraintsVerified,49);
+    assert.equal(inspectDeclaredIndexProjections(sql).indexesCompared,48);
     assert.throws(()=>sql.exec('INSERT INTO content_distribution_chunks SELECT * FROM content_distribution_chunks'));
     assert.throws(()=>sql.exec('INSERT INTO content_distribution_events SELECT generation+1,operation_id,kind,game_id,previous_digest,operation_digest,payload_digest,payload_length,chunk_count,created_at,state,attempts,confirmed_at,receipt_json FROM content_distribution_events'));
   }); checks.push('actual integer generation edge and both native UNIQUE constraints');
@@ -135,5 +135,5 @@ export async function verifyDistributionSchema(storage, ledger) {
   assert.equal(lists,beforeDistributionLists+1); assert.equal(ledger.status().tailGeneration,1);
   checks.push('cross-game enqueue during list is rejected at await boundary, no second list');
   assert.equal(assertDeletionDefinitions(sql).schemaDigest,facts.schemaDigest);
-  return {checks,groups:checks.length,tables:56,indexes:54,columns:368,foreignKeys:4,scope:'owned SQL and deletion observation only; populated global ledger deliberately unsupported, no producer/drain/physical deletion proof'};
+  return {checks,groups:checks.length,tables:57,indexes:54,columns:373,foreignKeys:4,scope:'owned SQL and deletion observation only; populated global ledger deliberately unsupported, no producer/drain/physical deletion proof'};
 }
