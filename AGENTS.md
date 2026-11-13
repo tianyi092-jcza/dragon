@@ -9,7 +9,7 @@
 - 仓库`E:/Dragon/web-port`，原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。禁止自动化访问真实`SAVE.DAT`、用户存档/profile；测试用内存、mock、隔离目录及新profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏版本`1.n`、软件版本、内容摘要和程序归档身份相互独立。
 - **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核及地图工作台已接copy；部分定义面板、旧draft整体退役与表清理仍待，见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`已退役为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
-- **基础地图（Web产品决定）**：管理员“基礎地圖”维护独立系统模板；普通新建/完整复制共用单快照实例化，既有游戏不跟随更新。共用Canvas工作台已替换旧MapPanel/mapview启动链。本期固定384×256/192槽，采用可拆Web片段，不复原DOS自然对象身份、不扩容。缺`mapEditorAssets`的旧copy明确拒绝画布读取，不自动迁移。合同见[基础地图设计](docs/system-base-map-design.md)，本地验证不等于生产部署。
+- **基础地图（Web产品决定）**：管理员“基礎地圖”维护独立系统模板；普通新建/完整复制共用单快照实例化，既有游戏不跟随更新。共用Canvas工作台已替换旧MapPanel/mapview启动链。本期固定384×256/192槽，采用可拆Web片段，不复原DOS自然对象身份、不扩容。缺`mapEditorAssets`的旧copy明确拒绝画布读取，不自动迁移。合同见[基础地图设计](docs/system-base-map-design.md)，本地验证不等于生产部署。实测后的精灵分类库、紧凑布局/折叠菜单、四季TAB及海域背景见[第二阶段设计](docs/map-workspace-sprite-library-design.md)；目前仅设计交付，不能当作已实施或真实数据迁移授权。
 - 生产为`sadcloud`单VPS（`ssh sadcloud`，`/srv/dragon`）：编辑器/玩家分服务，SQLite＋私有文件桶＋磁盘分发桶，nginx/Let's Encrypt；域名`dragon-editor.720108.xyz`/`dragon.720108.xyz`直连源站。Worker/R2/Tunnel、instabox为历史形态；操作前按[存储布局§18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)重新核部署身份。
 
 ## 2. 架构与数据归属

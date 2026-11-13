@@ -7,17 +7,25 @@
 | 工作线 | 当前交接 |
 | --- | --- |
 | 基础地图 | B0–B7本地42项核对完成：独立模板、管理员维护、两种创建共用初始化、游戏工作台、保存/审批及同加载器装配。见[任务](system-base-map-tasks.md)和[逐项证据](system-base-map-completion-audit.md)；未部署 |
+| 地图第二阶段 | 用户实测反馈后完成[精灵素材库与紧凑工作台设计](map-workspace-sprite-library-design.md)及[新会话实施提示词](map-workspace-sprite-library-handoff.md)，S0–S6尚未实施；旧42项不覆盖新需求 |
 | copy收敛 | 元数据/章节/据点/武将/地图/审核已接copy；部分定义面板、整个旧draft退役与表清理另待，见[收敛任务](copy-simplification-tasks.md) |
 | 数据边界 | 不自动迁移旧游戏地图或头像冻结包。缺mapEditorAssets的旧copy在新画布明确拒绝；真实数据迁移、提交/推送、部署均需独立授权 |
-| Git/生产 | 地图批次结束时本地HEAD为0541fff，修改未提交/推送；未联网确认远端，也未操作生产。旧§58的提交授权不延伸到本批。现行运维入口为[存储布局§18](game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产) |
+| Git/生产 | §74批次已提交172ffe0并推送github/main（当时交付回执复核一致）；本设计轮核本地HEAD仍172ffe0，未重新联网核远端，新文档改动未提交/推送。未部署；旧提交授权不延伸到本轮。运维入口见[存储布局§18](game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产) |
 | 验证边界 | 真实资源夹具、隔离HTTPS后端、玩家加载器端口与生产分别报告；LSP未确认不记clean，不把本地完成当公共分发或整局战役验收 |
 
 ### 未完成、阻塞与下一步
 
-1. 本地图实施目标已关闭，无待用户确认的实施阻塞；下一批按用户范围选择copy剩余收敛或旧数据迁移，不自动扩大任务。
+1. 上阶段地图实施目标已关闭；当前交接是地图第二阶段设计及新会话提示词，本轮不实施代码。后续按新提示词获得的授权推进S0–S6，不复用旧goal/旧42项作为完成证据。
 2. 旧地图数据迁移、头像旧持久化/冻结包兼容、生产安装与验收未执行；公共分发/网络reader admission及完整玩家App战役不在本次加载器端口验证内。
 3. **未解决的历史验证缺口**（不是已确认的本轮回归）：`verify_vps_publish_pack`曾43过1失败（stale draft visual capture）；`verify_vps_trial`曾超时；旧玩家pack harness曾缺检验票。backend_admin_copy缺MINIFLARE_MODULE、backend_copy_entry旧objects断言、template_root portrait-epoch旧Trial预期、generals_conflict_model旧动作清单均待按现行适用性复核。不得为跑绿恢复Trial或放宽来源门。
 4. `verify_publish_controller_slot`曾用例完成但轮询计时器未退出；force-exit只取用例结果，不证明生命周期清理。宿主LSP仍有未确认，独立Vue检查保留ChaptersPanel既有TS6133提示。
+
+## 75. 地图实测反馈与第二阶段设计交接
+
+- **范围**：用户先要求讨论六项UI/素材意见，再补充四季四TAB、原精灵分类成库、海域自动平铺背景；最后明确本会话只完成设计文档与新对话实施提示词。未修改产品代码、资源或真实模板，未创建新goal，未提交/推送/部署。
+- **交付**：[第二阶段设计](map-workspace-sprite-library-design.md)为详细维护源，包含单行工具/全站菜单折叠、紧凑图层、网格、原像素分类相册、去重及目录物化、拖放状态、海域/地理/unknown边界、S0–S6清单与验证；[提示词](map-workspace-sprite-library-handoff.md)可直接发给新会话实施。
+- **纠偏**：初始2357定义是256原子＋2101原图分片，不是同数量独立精灵；截图2358的新增项未查真实模板。现有四季已共用地图，改为Tabs是交互纠正。原byte/recipe不同不能只按春季图片去重；非水覆盖不擦下层水域地理，海底加陆地贴图不能冒充地理同步。已有unknown/真实数据不自动填海，空白可玩海图不因背景方案获得准入。
+- **验证范围**：5份文档76个本地链接路径及新文档相关锚点通过，S0–S6共22项均保持待实施；核职责/来源/授权边界及git diff --check通过（仅既有LF/CRLF提示）。纯文档不跑无关构建、游戏或浏览器回归。旧原证/现有源码仅用于标明本轮设计前提，不宣称新语义组件已认证。
 
 ## 74. 全量审查、统一提交与推送
 
