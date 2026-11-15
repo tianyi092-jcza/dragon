@@ -1,4 +1,4 @@
-// Current atomic-only workspace, real registered atlas/source, isolated in-memory API.
+// Atomic library plus readonly city groups, real registered atlas/source, isolated in-memory API.
 // Fresh profile; not evidence for production authentication or transport.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -14,7 +14,7 @@ import { BUILTIN_RESOURCES } from '../web/src/content/builtinresources.generated
 import { enableSeaGroundBase } from '../web/src/editor/componenttools.js';
 import { validateSystemBaseMap } from '../server/systembasemap.js';
 import { applyMapWorkspaceEdits } from '../server/mapworkspace.js';
-import { verifyAtomicLibrary, selectAtomicTile, dragAtomicTile, verifyMapWorkspaceChrome, verifyCompactMapLayout } from './map_atomic_browser_helpers.mjs';
+import { verifyAtomicLibrary, selectAtomicTile, dragAtomicTile, verifyMapWorkspaceChrome, verifyCompactMapLayout, verifyMapPanLock, verifyCityGroupLibrary } from './map_atomic_browser_helpers.mjs';
 const moduleName = process.env.PLAYWRIGHT_MODULE || 'playwright';
 const { chromium } = await import(isAbsolute(moduleName) ? pathToFileURL(moduleName).href : moduleName);
 const ratio = Number(process.env.PLAYWRIGHT_DPR || 2);
@@ -86,6 +86,8 @@ try {
   await panel.getByRole('button', { name: '建立', exact: true }).click();
   await page.getByText('基礎地圖已建立。', { exact: true }).waitFor();
   await verifyAtomicLibrary(page, panel, template.content);
+  await verifyCityGroupLibrary(page, panel, template.content);
+  await verifyMapPanLock(page, panel);
   assert.equal(saves, 0); assert.deepEqual(snapshot.template, template);
   await selectAtomicTile(panel, template.content.componentDefinitions, 205);
   const neutral = panel.getByLabel('據點圖塊 205', { exact: true }).locator('..');
@@ -123,6 +125,8 @@ try {
   assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'run() failure is visible in merged status and stages nothing');
   await panel.getByRole('button', { name: '載入', exact: true }).click();
   await page.getByText('已重新讀取基礎地圖。', { exact: true }).waitFor();
+  await panel.getByRole('button', { name: '鎖圖', exact: true }).click();
+  assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'true');
   await dragAtomicTile(page, panel, template.content.componentDefinitions, 112, 208, 135);
   await panel.getByRole('button', { name: '撤銷', exact: true }).click();
   assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
@@ -144,6 +148,8 @@ try {
   await panel.locator('.base-map-canvas').focus(); await page.keyboard.press('Shift+F10');
   await page.screenshot({ path: join(screenshots, 'wide-menu.png') });
   await page.keyboard.press('Escape');
+  await verifyCityGroupLibrary(page, panel, snapshot.template.content);
+  await page.screenshot({ path: join(screenshots, 'city-groups-wide.png') });
   for (const [width, height] of [[1024, 600], [1440, 900], [1600, 1000], [900, 700]]) {
     await page.setViewportSize({ width, height });
     await page.waitForFunction(() => document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1);
@@ -152,6 +158,7 @@ try {
     await page.getByRole('button', { name: '折疊導覽', exact: true }).click();
     await page.waitForFunction(width => document.querySelector('.base-map-canvas').clientWidth > width, expanded.map.width);
     const collapsed = await verifyCompactMapLayout(page, panel);
+    await verifyCityGroupLibrary(page, panel, snapshot.template.content);
     assert.equal(collapsed.map.width - expanded.map.width, navWidth - 64);
     assert.deepEqual(collapsed.library, expanded.library);
     console.log(`Layout ${width}x${height}: expanded map ${expanded.map.width}x${expanded.map.height}, collapsed ${collapsed.map.width}x${collapsed.map.height}, top ${expanded.map.y}, bottom ${expanded.map.bottom}, library ${expanded.library.width}px`);
@@ -168,6 +175,7 @@ try {
     await readonly.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
     assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
   }
+  assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'true', 'lock survives placement/save/reread, menu edits/undo, floating tools and layout changes');
   await page.screenshot({ path: join(screenshots, 'narrow.png') });
   console.log('Workspace screenshots: ' + screenshots);
   const savedTemplate = JSON.stringify(snapshot);
@@ -180,10 +188,17 @@ try {
   await page.getByText('已重新讀取遊戲地圖。', { exact: true }).waitFor();
   await page.waitForFunction(() => !document.querySelector('.map-status').textContent.includes('圖集載入中'));
   assert.equal(await page.locator('#menu [data-view="base-map-editor"]').count(), 0);
+  const gameBeforeLock = JSON.stringify(game);
+  await verifyCityGroupLibrary(page, gamePanel, game);
+  await page.screenshot({ path: join(screenshots, 'city-groups-game-narrow.png') });
+  await verifyMapPanLock(page, gamePanel);
+  assert.equal(gameSaves, 0); assert.equal(JSON.stringify(game), gameBeforeLock);
+  await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).click();
   await dragAtomicTile(page, gamePanel, game.componentDefinitions, 0, 319, 1);
   await gamePanel.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('已保存並重新讀取遊戲地圖。', { exact: true }).waitFor();
   assert.equal(gameSaves, 1); assert.equal(game.map.decorations.at(-1).definitionRef, 'tile-0');
+  assert.equal(await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'true', 'game placement/save do not clear pan lock');
   assert.deepEqual(game.mapEditorAssets, editorAssets, 'one edit retains all four seasonal atlases');
   assert.equal(await gamePanel.locator('.base-map-seasons').count(), 0);
   assert.ok(requestedSeasons.length >= 2);
@@ -197,5 +212,5 @@ try {
   assert.equal(await page.locator('.workbench-header').evaluate(node => node.getBoundingClientRect().height), 76);
   await page.waitForLoadState('networkidle');
   assert.deepEqual(errors, []); assert.deepEqual(failures, []); assert.deepEqual(unexpected, []);
-  console.log(`PASS atomic workspace DPR${ratio}: 240 spring atlas cells, neutral city library, seven categories, no season/combined/library/layer tabs, lazy scrolling, IDs, native pixels, sea base, drag/keyboard/cancel/lock/undo, JSON save/reread, old instances/groups unchanged, author isolation, four viewport sizes; in-memory API fixture.`);
+  console.log(`PASS atomic workspace DPR${ratio}: 240 spring atlas cells plus four native-size readonly city groups, eight categories, no season/legacy-library/layer tabs, lazy scrolling, IDs, native pixels, sea base, pan-lock toggling and gesture cancellation, unlocked selection/zoom/editing, drag/keyboard/cancel/layer-lock/undo, JSON save/reread, old instances/groups unchanged, author isolation, four viewport sizes; in-memory API fixture.`);
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }

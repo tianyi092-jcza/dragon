@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMapCanvas } from '../src/mapcanvas.js';
 import { previewMapEdits } from '../../web/src/editor/mapcommands.js';
+import cityGroupCatalog from '../src/mapcitygroups.json' with { type: 'json' };
 
 const fixture = () => ({ cities: {}, componentDefinitions: { piece: { id: 'piece', revision: 'test-1', category: 'test-fixture', name: '測試片段', anchor: [0, 0], footprint: [[0, 0], [1, 0], [0, 1]], visualRef: 'MMAP.MDL:indexed-footprint', ruleRecipeRef: 'ki-byte-stamp-1', variants: { original: { tiles: [[0, 0, 16], [1, 0, 17], [0, 1, 18]] } } } }, map: {
   bounds: { minX: 0, minY: 0, width: 2, height: 2, tileSize: 16 }, base: { terrainRef: [16, 16, 16, 16], geography: [0, 0, 0, 0], unknownUnderlays: {} },
@@ -24,16 +25,74 @@ function recipeFixture() {
     support: 'existing-decoration', geographyEffect: 'preserve-underlay' } };
 }
 
-test('default workspace publishes 240 neutral-library atomic cards, without changing existing combinations', () => {
+test('default workspace publishes 240 atomic cards and four preview-only city groups without changing existing combinations', () => {
   const { source } = recipeFixture(), before = JSON.stringify(source);
   let model;
   const view = createMapCanvas({ publish: value => { model = value; }, stage: () => assert.fail('browsing must not stage') });
   view.setSource(source);
-  assert.equal(model.catalogItems.length, 240);
+  assert.equal(model.catalogItems.length, 244);
   assert.equal(model.catalogAtoms.length, 256);
-  assert.ok(model.catalogItems.every(row => row.cells === 1 && /^tile-\d+$/.test(row.id)));
-  assert.equal(model.catalogCategories.length, 7);
+  assert.ok(model.catalogItems.slice(0, 240).every(row => row.cells === 1 && /^tile-\d+$/.test(row.id)));
+  assert.ok(model.catalogItems.slice(240).every(row => row.category === 'city-group' && !row.canPlace && !row.available));
+  assert.deepEqual(model.catalogCategories.map(row => row.name), ['地面', '山地', '水系', '農田', '牆體', '據點', '據點組', '道路']);
   assert.equal(JSON.stringify(source), before);
+});
+
+test('city groups preview native cells at DPR1/1.25/2 without exposing recipes or accepting placement', () => {
+  const { source } = recipeFixture(), main = canvas();
+  cityGroupCatalog.items.flatMap(item => item.rows.flat()).forEach(tile => {
+    const id = `tile-${tile}`;
+    source.componentDefinitions[id] = { id, revision: 'original-byte-1', category: 'atomic-original', anchor: [0, 0],
+      footprint: [[0, 0]], visualRef: `MMAP.MDL:${id}`, ruleRecipeRef: 'ki-byte-stamp-1', variants: { original: { tiles: [[0, 0, tile]] } } };
+  });
+  let model;
+  const before = JSON.stringify(source), atlas = { season: 'spring' };
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: () => assert.fail('city groups cannot stage edits') });
+  view.attach(main, null); view.setSource(source); view.setAtlas(atlas); view.pick(1, 1);
+  const previousRatio = Object.getOwnPropertyDescriptor(globalThis, 'devicePixelRatio');
+  try {
+    for (const ratio of [1, 1.25, 2]) {
+      Object.defineProperty(globalThis, 'devicePixelRatio', { configurable: true, value: ratio });
+      for (const item of cityGroupCatalog.items) {
+        const id = `catalog:${item.itemId}`, row = model.catalogItems.find(row => row.id === id), thumb = canvas();
+        const width = item.rows[0].length * 16, height = item.rows.length * 16;
+        assert.equal(row.available, true); assert.equal(row.canPlace, false);
+        assert.deepEqual([row.previewWidth, row.previewHeight], [width, height]);
+        assert.ok(!['tiles', 'rows', 'anchor', 'gates', 'source', 'definition', 'variants', 'plan'].some(key => key in row));
+        view.previewMaterial(thumb, id);
+        assert.deepEqual([thumb.width, thumb.height, thumb.style.width, thumb.style.height], [width * ratio, height * ratio, `${width}px`, `${height}px`]);
+        assert.deepEqual(thumb.draws.filter(row => row[0] === 'image'), item.rows.flatMap((row, y) => row.map((tile, x) => ['image', atlas, tile % 16 * 16, Math.floor(tile / 16) * 16, 16, 16, x * 16, y * 16, 16, 16])));
+        assert.equal(thumb.getContext('2d').imageSmoothingEnabled, false);
+        assert.equal(view.previewPlacement(id, 1, 1), null); view.commitPlacement();
+        assert.throws(() => view.command('decoration-place', { materialId: id }), /僅供預覽/);
+        view.previewMaterial(null, id);
+      }
+    }
+    assert.equal(JSON.stringify(source), before);
+    const id = 'catalog:city-group-large-v1';
+    model.catalogItems.find(row => row.id === id).name = 'mutated DTO';
+    model.catalogCategories[0].name = 'mutated DTO';
+    model.catalogAtoms[222].available = false;
+    model.catalogItems.find(row => row.id === 'tile-222').available = false;
+    view.grid(false);
+    assert.equal(model.catalogItems.find(row => row.id === id).name, '大都市');
+    assert.equal(model.catalogCategories[0].name, '地面');
+    assert.equal(model.catalogAtoms[222].available, true);
+    assert.equal(model.catalogItems.find(row => row.id === 'tile-222').available, true);
+    // Even a same-ID source definition cannot turn a display-only recipe into a material.
+    source.componentDefinitions[id] = { ...structuredClone(source.componentDefinitions.piece), id };
+    delete source.componentDefinitions['tile-222']; view.setSource(source);
+    assert.equal(model.catalogItems.find(row => row.id === id).available, false);
+    const thumb = canvas(); view.previewMaterial(thumb, id);
+    assert.equal(thumb.draws.filter(row => row[0] === 'image').length, 0);
+    assert.equal(view.previewPlacement(id, 1, 1), null); view.commitPlacement();
+    assert.throws(() => view.command('decoration-place', { materialId: id }), /僅供預覽/);
+    view.setSource(null);
+    assert.ok(model.catalogItems.filter(row => row.category === 'city-group').every(row => !row.available && !row.canPlace));
+  } finally {
+    if (previousRatio) Object.defineProperty(globalThis, 'devicePixelRatio', previousRatio);
+    else delete globalThis.devicePixelRatio;
+  }
 });
 
 test('atomic thumbnails enlarge to 32 CSS pixels while map placement stays one 16px cell', () => {

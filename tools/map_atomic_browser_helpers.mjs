@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { decodePNG } from '../server/pngio.js';
 import { projectAtomicSpriteCatalog } from '../editor-ui/src/mapatomiccatalog.js';
 import { fitViewport, worldToScreen } from '../web/src/editor/viewport.js';
+import cityGroupCatalog from '../editor-ui/src/mapcitygroups.json' with { type: 'json' };
 
 export async function selectAtomicTile(panel, definitions, tile) {
   const catalog = projectAtomicSpriteCatalog(definitions), item = catalog.catalogItems.find(row => row.id === `tile-${tile}`);
@@ -70,6 +71,63 @@ export async function verifyCompactMapLayout(page, panel) {
   return geometry;
 }
 
+// View-only lock: exercise actual pointer gestures and rendered pixels, not just the icon.
+export async function verifyMapPanLock(page, panel) {
+  const canvas = panel.locator('.base-map-canvas'), lock = panel.getByRole('button', { name: '鎖圖', exact: true });
+  const pixels = () => canvas.evaluate(async node => {
+    const rgba = node.getContext('2d').getImageData(0, 0, node.width, node.height).data;
+    return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', rgba))).join(',');
+  });
+  const drag = async () => {
+    const box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2;
+    await page.mouse.move(x, y); await page.mouse.down();
+    await page.mouse.move(x + 48, y + 32, { steps: 8 }); await page.mouse.up();
+  };
+  assert.equal(await lock.isEnabled(), true);
+  assert.equal(await lock.getAttribute('aria-pressed'), 'false', 'new workspace starts unlocked');
+  const unlockedIcon = await lock.locator('path').getAttribute('d');
+  await panel.getByRole('button', { name: '100%', exact: true }).click();
+  await canvas.click();
+  for (let cycle = 0; cycle < 2; cycle++) {
+    const before = await pixels(); await drag();
+    assert.notEqual(await pixels(), before, 'unlocked drag must actually move the viewport at 100%');
+    await lock.click();
+    assert.equal(await lock.getAttribute('aria-pressed'), 'true');
+    assert.notEqual(await lock.locator('path').getAttribute('d'), unlockedIcon);
+    const lockedPixels = await pixels(); await drag();
+    assert.equal(await pixels(), lockedPixels, 'locked drag neither pans nor picks the release cell');
+    await canvas.click({ position: { x: 80, y: 100 } });
+    await canvas.click({ button: 'right', position: { x: 80, y: 100 } });
+    await panel.getByRole('dialog', { name: '物件操作', exact: true }).waitFor();
+    assert.ok((await panel.locator('.base-map-object-info').textContent()).includes('ID：'), 'selection and context menu still work');
+    await page.keyboard.press('Escape');
+    const beforeZoom = await pixels();
+    await panel.getByRole('button', { name: '放大', exact: true }).click();
+    assert.notEqual(await pixels(), beforeZoom, 'pan lock does not lock toolbar zoom');
+    await panel.getByRole('button', { name: '100%', exact: true }).click();
+    const beforeWheel = await pixels();
+    await canvas.dispatchEvent('wheel', { deltaY: -100 });
+    assert.notEqual(await pixels(), beforeWheel, 'pan lock does not lock wheel zoom');
+    await panel.getByRole('button', { name: '100%', exact: true }).click();
+    await lock.focus(); await lock.press(cycle ? 'Space' : 'Enter');
+    assert.equal(await lock.getAttribute('aria-pressed'), 'false', 'keyboard activation also unlocks');
+    assert.equal(await lock.locator('path').getAttribute('d'), unlockedIcon);
+  }
+  // Lock during a captured drag using the keyboard, then release: no stale gesture resumes.
+  const box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2;
+  await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 12, y + 12);
+  await lock.focus(); await lock.press('Enter');
+  assert.equal(await lock.getAttribute('aria-pressed'), 'true');
+  const interrupted = await pixels();
+  await page.mouse.move(x + 40, y + 40); await page.mouse.up();
+  assert.equal(await pixels(), interrupted, 'locking cancels an in-progress map drag');
+  await lock.press('Enter');
+  await page.mouse.move(x + 60, y + 60);
+  assert.equal(await pixels(), interrupted, 'unlocking cannot resume the old gesture without a new press');
+  await drag(); assert.notEqual(await pixels(), interrupted, 'fresh drag works again after unlock');
+  assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'pan lock and view gestures never dirty the map');
+}
+
 export async function verifyMapWorkspaceChrome(page, panel, source, selectedId) {
   const canvas = panel.locator('.base-map-canvas'), floating = panel.locator('.base-map-floating');
   const tabs = panel.locator('.base-map-catalog-tabs');
@@ -77,7 +135,7 @@ export async function verifyMapWorkspaceChrome(page, panel, source, selectedId) 
   assert.equal(new Set(tabRows).size, 2);
   assert.equal(new Set(tabRows.slice(0, 4)).size, 1); assert.equal(new Set(tabRows.slice(4)).size, 1);
   assert.equal(await panel.locator('.base-map-inspector, .base-map-tool-tabs').count(), 0);
-  assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).isDisabled(), true);
+  assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).isEnabled(), true);
   for (const text of await panel.locator('.base-map-toolbar button').allTextContents()) if (text.trim() && text.trim() !== '100%') assert.equal([...text.trim()].length, 2);
   assert.deepEqual((await panel.locator('.base-map-controls button').allTextContents()).slice(-4).map(text => text.trim()), ['全圖', '放大', '100%', '縮小']);
   await tabs.getByRole('tab', { name: '水系', exact: true }).click();
@@ -162,11 +220,64 @@ export async function verifyMapWorkspaceChrome(page, panel, source, selectedId) 
   assert.equal(await panel.getByRole('dialog', { name: '物件操作', exact: true }).count(), 0);
 }
 
+export async function verifyCityGroupLibrary(page, panel, source) {
+  await panel.getByRole('tab', { name: '據點組', exact: true }).click();
+  const album = panel.getByRole('list', { name: '據點組素材相冊' });
+  await album.locator('canvas').nth(3).waitFor();
+  assert.equal(await album.getByRole('listitem').count(), 4);
+  assert.equal(await album.getByRole('button').count(), 0, 'city-group previews have no placement button');
+  assert.equal(await album.locator('[title], [aria-describedby]').count(), 0);
+  await album.getByText('目前僅供預覽，尚未開放放置。', { exact: true }).waitFor();
+  const asset = (source.editorAssets ?? source.mapEditorAssets).seasonAtlases.spring;
+  const atlas = decodePNG(await readFile(new URL('../web/' + asset.url.replace(/^\//, ''), import.meta.url)));
+  for (const item of cityGroupCatalog.items) {
+    const card = album.locator(`[data-tile="catalog:${item.itemId}"]`);
+    await card.scrollIntoViewIfNeeded();
+    assert.equal(await card.getByText(item.name, { exact: true }).count(), 1);
+    assert.equal(await card.getByText(`ID：catalog:${item.itemId}`, { exact: true }).count(), 1);
+    const displayed = await card.locator('canvas').evaluate(node => {
+      const ratio = devicePixelRatio, rgba = node.getContext('2d').getImageData(0, 0, node.width, node.height).data;
+      const pixels = []; let crisp = true;
+      for (let y = 0; y < node.clientHeight; y++) for (let x = 0; x < node.clientWidth; x++) {
+        const offset = (y * ratio * node.width + x * ratio) * 4;
+        pixels.push(...rgba.slice(offset, offset + 4));
+        for (let dy = 0; dy < ratio; dy++) for (let dx = 0; dx < ratio; dx++) {
+          const expanded = ((y * ratio + dy) * node.width + x * ratio + dx) * 4;
+          for (let c = 0; c < 4; c++) if (rgba[expanded + c] !== rgba[offset + c]) crisp = false;
+        }
+      }
+      const image = node.getBoundingClientRect(), card = node.closest('[role="listitem"]').getBoundingClientRect();
+      return { width: node.clientWidth, height: node.clientHeight, backing: [node.width, node.height], ratio, pixels, crisp,
+        fits: image.left >= card.left && image.right <= card.right && image.top >= card.top && image.bottom <= card.bottom };
+    });
+    const width = item.rows[0].length * 16, height = item.rows.length * 16, pixels = [];
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const tile = item.rows[Math.floor(y / 16)][Math.floor(x / 16)];
+      const offset = ((Math.floor(tile / 16) * 16 + y % 16) * atlas.width + tile % 16 * 16 + x % 16) * 4;
+      pixels.push(...atlas.pixels.slice(offset, offset + 4));
+    }
+    assert.deepEqual([displayed.width, displayed.height], [width, height]);
+    assert.deepEqual(displayed.backing, [width * displayed.ratio, height * displayed.ratio]);
+    assert.equal(displayed.crisp, true); assert.equal(displayed.fits, true);
+    assert.deepEqual(displayed.pixels, pixels, `${item.itemId}: every pixel matches the complete spring recipe at native scale`);
+    const preview = card.locator('.base-map-city-group-preview');
+    await preview.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
+    const from = await preview.boundingBox(), to = await panel.locator('.base-map-canvas').boundingBox();
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2); await page.mouse.down();
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 4 }); await page.mouse.up();
+    assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'city-group keyboard and drag do not stage edits');
+  }
+  assert.equal(await album.evaluate(node => node.scrollWidth <= node.clientWidth), true, 'full IDs and native-size previews do not create horizontal overflow');
+  const cards = await album.getByRole('listitem').evaluateAll(nodes => nodes.map(node => ({ x: node.offsetLeft, y: node.offsetTop })));
+  assert.equal(new Set(cards.map(row => row.x)).size, 2, 'only city groups use two columns');
+  assert.equal(cards[0].y, cards[1].y); assert.equal(cards[2].y, cards[3].y);
+}
+
 export async function verifyAtomicLibrary(page, panel, source) {
   const catalog = projectAtomicSpriteCatalog(source.componentDefinitions);
   const library = panel.locator('.base-map-library'), album = library.getByRole('list', { name: '原子素材相冊' });
   assert.equal(await library.locator('.base-map-library-tabs, .base-map-catalog-layers, .base-map-list').count(), 0);
-  assert.deepEqual(await library.getByRole('tab').allTextContents(), ['地面', '山地', '水系', '農田', '牆體', '據點', '道路']);
+  assert.deepEqual(await library.getByRole('tab').allTextContents(), ['地面', '山地', '水系', '農田', '牆體', '據點', '據點組', '道路']);
   for (const name of ['分類樣板', '原始／歷史素材', '我的素材', '基底', '裝飾', '水路', '橋梁', '海域', 'Web 編輯組合', '原始圖塊（高級）'])
     assert.equal(await library.getByRole('tab', { name, exact: true }).count(), 0);
   assert.equal(await album.locator('[title], [aria-describedby]').count(), 0, 'material cards have no hover descriptions');

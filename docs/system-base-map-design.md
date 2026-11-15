@@ -3,7 +3,7 @@
 > 状态：用户已确认产品方向并授权开始下一步；B0–B6已落地用户选择A的Web可拆片段、独立模板、两种创建与共用地图工作台；B7本地逐项审计已完成，验证范围与限制见[交付核对](system-base-map-completion-audit.md)。来源：本轮用户依次确认“两种创建入口共用地图初始化”“内置可编辑元素控件化”“转换一次保存为系统基础数据、管理员可继续维护、脱离内置游戏”及“本期不扩容，后期再增加地图扩展”。本文件是该模块的详细维护源；任务见[实施清单](system-base-map-tasks.md)。
 > 以下属于 Web 产品决定及工程设计，不是原版机制认证。旧地图页面全部作废并重新设计；不因此废除已证共同编译能力或允许猜造规则。
 
-> 后继实现：紧凑布局、拖放及历史四季TAB见[第二阶段设计](map-workspace-sprite-library-design.md)；全幅95底图、地面小地图轮廓及旧源暂存启用见[SEA-GROUND-1](map-sea-ground-contract.md)；当前240单格展示／256底层身份／七类、固定春季／据点中立库、桥梁水路并道路、取消多层库导航／组合卡／悬停见[ATOMIC-CATALOG-1](map-atomic-catalog-contract.md)。本页原unknown／水域开关／全输出保真收据限旧无policy转换源；模板独立、创建快照和保存权限合同继续适用，不沿用旧42项收据证明后继需求。
+> 后继实现：紧凑布局、拖放及历史四季TAB见[第二阶段设计](map-workspace-sprite-library-design.md)；全幅95底图、地面小地图轮廓及旧源暂存启用见[SEA-GROUND-1](map-sea-ground-contract.md)；当前240单格展示／256底层身份、固定春季／据点中立库、桥梁水路并道路、取消多层库导航／旧组合卡／悬停见[ATOMIC-CATALOG-1](map-atomic-catalog-contract.md)；[据点组](map-city-group-contract.md#readonly-library)另加四张原尺寸只读预览与第八分类，不开放放置／拆散。本页原unknown／水域开关／全输出保真收据限旧无policy转换源；模板独立、创建快照和保存权限合同继续适用，不沿用旧42项收据证明后继需求。
 
 ## 1. 目标与边界
 

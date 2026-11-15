@@ -4,7 +4,7 @@
 >
 > 审计基线：本地HEAD `6e9b10f`及其未提交工作区；目录 `map-sprite-samples-41`，程序壳JS1214553B／CSS149223B（十条四格物化配方）／13项许可。未提交、推送、部署或迁移真实数据。之后源码／目录变化必须重核受影响项，不能直接沿用本表放行。
 
-> **历史收据范围**：本表对应v41。后继底图／地面轮廓采用[SEA-GROUND-1](map-sea-ground-contract.md)；默认素材库现为[ATOMIC-CATALOG-1](map-atomic-catalog-contract.md)的240单格展示／256底层身份／七类／无悬停，固定春季、据点只展示中立中心与通用部件，桥梁水路并道路，不再展示原组合与历史库导航。当前布局与菜单见[MAP-SPACE-4](map-atomic-catalog-contract.md#map-space-layout)，不再用固定中栏或素材分页；最新紧凑布局／100%展示验证见[journal §85](checkpoint-journal.md#85-map-space-5紧凑布局与原始比例)，完整HTTPS链保留[journal §84](checkpoint-journal.md#84-map-space-4地图优先布局与对象右键菜单)的当批范围，不冒称本轮又跑；§82及此前保留各自历史范围。以下四季TAB、188样板／高级库、海域／水域开关、构建大小等不得作为当前行为或新轮放行依据；目录原身份仍适用。
+> **历史收据范围**：本表对应v41。后继底图／地面轮廓采用[SEA-GROUND-1](map-sea-ground-contract.md)；默认素材库现为[ATOMIC-CATALOG-1](map-atomic-catalog-contract.md)的240单格展示／256底层身份／无悬停；后继[据点组](map-city-group-contract.md#readonly-library)增加四张只读组合预览／第八分类，固定春季、据点只展示中立中心与通用部件，桥梁水路并道路，不再展示原组合与历史库导航。当前布局与菜单见[MAP-SPACE-4](map-atomic-catalog-contract.md#map-space-layout)，不再用固定中栏或素材分页；当前据点组展示验证见[journal §89](checkpoint-journal.md#89-city-group-preview-1据点组只读素材展示)，紧凑布局／100%展示验证见[journal §85](checkpoint-journal.md#85-map-space-5紧凑布局与原始比例)，完整HTTPS链保留[journal §84](checkpoint-journal.md#84-map-space-4地图优先布局与对象右键菜单)的当批范围，不冒称本轮又跑；§82及此前保留各自历史范围。以下四季TAB、188样板／高级库、海域／水域开关、构建大小等不得作为当前行为或新轮放行依据；目录原身份仍适用。
 
 ## 1. 六项用户意见逐项映射
 

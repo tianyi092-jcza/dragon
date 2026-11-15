@@ -7,9 +7,18 @@ import { fitViewport, panViewport, screenToWorld, zoomAt } from '../../web/src/e
 import { catalogLayer } from './mapcataloglayers.js';
 import { projectAtomicSpriteCatalog } from './mapatomiccatalog.js';
 import { planSpriteMaterialization } from './mapspriterecipes.js';
+import cityGroupCatalog from './mapcitygroups.json' with { type: 'json' };
+
+// Display-only recipes stay private, separate from placeable source definitions/plans.
+const cityGroups = new Map(cityGroupCatalog.items.map(item => [`catalog:${item.itemId}`, {
+  itemId: item.itemId, name: item.name,
+  tiles: item.rows.flatMap((row, y) => row.map((tile, x) => [x, y, tile])),
+  width: item.rows[0].length * cityGroupCatalog.previewCellSize,
+  height: item.rows.length * cityGroupCatalog.previewCellSize,
+}]));
 
 // Optional private recipe port remains for reusable combination tooling, never
-// populated by the current atomic-only workspace.
+// populated by the current workspace. City groups are previews, not placement plans.
 export function createMapCanvas({ publish, stage, gameId = 'system-base-map', spriteRecipes = [] }) {
   let source = null, canvas = null, mini = null, atlas = null, tiles = null, picker = null, selected = null;
   let diagnostics = [], gridVisible = true, placement = null;
@@ -17,8 +26,12 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   const thumbnails = new Map();
   // Program descriptors and plans stay private; no fabricated definition enters source or Vue.
   const recipes = structuredClone(spriteRecipes);
-  let recipePlans = new Map();
-  const materialDefinition = id => recipePlans.has(id) ? recipePlans.get(id)?.definition : source?.componentDefinitions[id];
+  let recipePlans = new Map(), availableCityGroups = new Set();
+  let atomicCatalog = projectAtomicSpriteCatalog();
+  const materialDefinition = id => {
+    if (cityGroups.has(id)) return undefined;
+    return recipePlans.has(id) ? recipePlans.get(id)?.definition : source?.componentDefinitions[id];
+  };
   const visible = { base: true, decor: true, roads: true, cities: true };
   const locked = { base: false, decor: false, roads: true, cities: true };
   const world = () => ({ width: source.map.bounds.width * 16, height: source.map.bounds.height * 16 });
@@ -27,13 +40,13 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const context = target.getContext('2d');
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, target.width, target.height);
-    const def = materialDefinition(id);
-    if (!def) return;
-    const tiles = def.variants[Object.keys(def.variants)[0]].tiles;
+    const group = cityGroups.get(id), def = materialDefinition(id);
+    if (group ? !availableCityGroups.has(id) : !def) return;
+    const tiles = group ? group.tiles : def.variants[Object.keys(def.variants)[0]].tiles;
     const xs = tiles.map(([x]) => x), ys = tiles.map(([, y]) => y);
     const minX = Math.min(...xs), minY = Math.min(...ys);
-    // Library-only 2x nearest-neighbour preview; source cells and map ghosts stay 16px.
-    const cell = 32;
+    // Single atoms use 2x previews; city groups keep native 16px cells and aspect ratio.
+    const cell = group ? cityGroupCatalog.previewCellSize : 32;
     const width = (Math.max(...xs) - minX + 1) * cell, height = (Math.max(...ys) - minY + 1) * cell;
     const ratio = globalThis.devicePixelRatio || 1;
     target.style.width = `${width}px`; target.style.height = `${height}px`;
@@ -54,14 +67,20 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     });
   }
   function facts() {
+    const projectedCatalog = structuredClone(atomicCatalog);
     const usedMaterials = new Set(source ? [...source.map.decorations.map(row => row.definitionRef), ...source.map.roads.flatMap(road => (road.components ?? []).map(row => row.definitionRef)), ...source.map.placements.map(row => row.componentRef)] : []);
-    const projectedCatalog = projectAtomicSpriteCatalog(source?.componentDefinitions);
     const selectedDefinition = selected?.layer === 'decor' ? source.map.decorations.find(row => row.id === selected.id)?.definitionRef : null;
     const selectedCategory = projectedCatalog.catalogItems.find(row => row.id === selectedDefinition)?.category;
     const selectedType = projectedCatalog.catalogCategories.find(row => row.id === selectedCategory)?.name || ({ decor: '裝飾片段', base: '底圖', roads: '道路', cities: '據點', group: '組合' })[selected?.layer];
     publish({ loaded: Boolean(source), zoom: view.zoom, gridVisible, selected: selected ? { ...selected, type: selectedType } : null,
       ...projectedCatalog,
-      catalogItems: [...projectedCatalog.catalogItems, ...recipes.map(recipe => {
+      catalogCategories: projectedCatalog.catalogCategories.flatMap(category => category.id === 'city' ? [category, { id: 'city-group', name: '據點組' }] : [category]),
+      catalogItems: [...projectedCatalog.catalogItems, ...Array.from(cityGroups, ([id, group]) => {
+        const available = availableCityGroups.has(id);
+        return { id, itemId: group.itemId, name: group.name, category: 'city-group', cells: group.tiles.length,
+          previewWidth: group.width, previewHeight: group.height, available, canPlace: false,
+          note: available ? '據點組預覽；暫未開放放置。' : '本圖缺少匹配的原子定義；不可預覽或放置。' };
+      }), ...recipes.map(recipe => {
         const id = `catalog:${recipe.itemId}`, plan = recipePlans.get(id);
         let note = '本圖缺少匹配的原子定義；不可預覽或放置';
         if (plan) {
@@ -167,6 +186,8 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const first = !source;
     placement = null;
     source = value;
+    atomicCatalog = projectAtomicSpriteCatalog(source?.componentDefinitions);
+    availableCityGroups = new Set(Array.from(cityGroups).filter(([, group]) => group.tiles.every(([, , tile]) => atomicCatalog.catalogAtoms[tile].available)).map(([id]) => id));
     recipePlans = new Map(recipes.map(recipe => [`catalog:${recipe.itemId}`, source ? planSpriteMaterialization(source.componentDefinitions, recipe) : null]));
     if (!source) { diagnostics = []; atlas = null; tiles = null; picker = null; selected = null; minimap = null; thumbnails.forEach((target, id) => drawThumbnail(target, id)); if (mini) mini.getContext('2d').clearRect(0, 0, mini.width, mini.height); draw(); facts(); return; }
     tiles = composeMapDisplayLayers(source, visible).tiles;
@@ -225,6 +246,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     }
     if (['base-fill', 'base-fill-rectangle', 'water-visibility'].includes(op)) throw new Error('海域基底固定；小地圖只顯示地面輪廓、道路及據點');
     if (op === 'decoration-place') {
+      if (cityGroups.has(fields.materialId)) throw new Error('據點組目前僅供預覽，尚未開放放置。');
       if (!selected || locked.decor) throw new Error('請先選取放置位置並解鎖裝飾層');
       if (recipePlans.has(fields.materialId)) {
         const plan = recipePlans.get(fields.materialId);

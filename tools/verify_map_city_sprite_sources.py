@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from PIL import Image
 
 import audit_map_city_sprite_sources as audit
 
@@ -18,6 +19,62 @@ class CitySpriteSourceTests(unittest.TestCase):
             for name in ("KI.EXE", "MMAP.MDL", "MMAP.MAP")}
         cls.inputs["SINARIO.DAT"] = (audit.ROOT.parent / "原版/SINARIO.DAT").read_bytes()
         cls.report = audit.inspect_city_sources(cls.inputs)
+
+    def test_city_group_template_shapes_and_center_anchors(self):
+        catalog = json.loads((audit.ROOT / "editor-ui/src/mapcitygroups.json").read_text(encoding="utf-8"))
+        self.assertEqual(catalog["schema"], "map-city-groups-1")
+        self.assertEqual(catalog["previewCellSize"], 16)
+        self.assertEqual(len({item["itemId"] for item in catalog["items"]}), 4)
+        expected = [(5, 5, [2, 2], [0], 4, 205), (3, 3, [1, 1], [1, 2, 4], 4, 205),
+                    (3, 1, [1, 0], [3], 2, 211), (1, 3, [0, 1], [3], 2, 208)]
+        for item, (width, height, anchor, kinds, gate_count, center) in zip(catalog["items"], expected, strict=True):
+            self.assertEqual([len(row) for row in item["rows"]], [width] * height)
+            self.assertEqual(item["anchor"], anchor)
+            self.assertEqual(item["cityTypes"], kinds)  # Approved Web template choices, not inferred from pixels.
+            self.assertEqual(item["rows"][anchor[1]][anchor[0]], center)
+            gates = item["gates"]
+            self.assertEqual(len({tuple(point) for point in gates}), gate_count)
+            self.assertNotIn(anchor, gates)
+            self.assertTrue(all(0 <= x < width and 0 <= y < height for x, y in gates))
+            self.assertEqual(gates, [[x, y] for y, row in enumerate(item["rows"])
+                                    for x, tile in enumerate(row) if 212 <= tile <= 221])
+            self.assertEqual(sum(203 <= tile <= 211 for row in item["rows"] for tile in row), 1)
+
+    def test_city_group_complete_patterns_have_original_node_witnesses(self):
+        catalog = json.loads((audit.ROOT / "editor-ui/src/mapcitygroups.json").read_text(encoding="utf-8"))
+        layout = audit.rle_decode(self.inputs["MMAP.MAP"])
+        for item in catalog["items"]:
+            ax, ay = item["anchor"]
+            matches = [city for city in self.report["chapters"][0]["cities"]
+                       if all(layout[(city["y"] + y - ay) * 384 + city["x"] + x - ax] == tile
+                              for y, row in enumerate(item["rows"]) for x, tile in enumerate(row))]
+            self.assertEqual(len(matches), item["source"]["nodeWindowCount"])
+            self.assertEqual(matches[0]["slot"], item["source"]["firstSlot"])
+            self.assertEqual([matches[0]["x"], matches[0]["y"]], item["source"]["center"])
+            self.assertTrue(all(city["typeNibble"] in item["cityTypes"] for city in matches))
+        # Type 4 sharing the small template is the user's Web design choice;
+        # no original four-door battlefield witness is claimed.
+
+    def test_city_group_preview_uses_original_pixels_at_sixteen_pixels_per_cell(self):
+        catalog = json.loads((audit.ROOT / "editor-ui/src/mapcitygroups.json").read_text(encoding="utf-8"))
+        with Image.open(audit.ROOT / "web/map_atlas_spring.png") as atlas:
+            self.assertEqual(atlas.mode, "P")
+            for item in catalog["items"]:
+                width, height = len(item["rows"][0]) * 16, len(item["rows"]) * 16
+                preview = Image.new("P", (width, height))
+                expected = bytearray(width * height)
+                for y, row in enumerate(item["rows"]):
+                    for x, tile in enumerate(row):
+                        raw = self.inputs["MMAP.MDL"][tile * 128:(tile + 1) * 128]
+                        indices = bytes(sum(((raw[plane * 32 + py * 2 + px // 8] >> (7 - px % 8)) & 1) << plane
+                                            for plane in range(4)) for py in range(16) for px in range(16))
+                        tx, ty = tile % 16 * 16, tile // 16 * 16
+                        preview.paste(atlas.crop((tx, ty, tx + 16, ty + 16)), (x * 16, y * 16))
+                        for py in range(16):
+                            start = (y * 16 + py) * width + x * 16
+                            expected[start:start + 16] = indices[py * 16:(py + 1) * 16]
+                self.assertEqual(preview.tobytes(), bytes(expected), item["itemId"])
+                self.assertEqual(preview.size, (width, height))
 
     def test_large_city_corner_pairs_and_wall_end_references(self):
         catalog = json.loads((audit.ROOT / "editor-ui/src/mapspritecatalog.json").read_text(encoding="utf-8"))

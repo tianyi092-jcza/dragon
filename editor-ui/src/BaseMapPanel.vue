@@ -7,6 +7,7 @@ import WorkspaceIcon from './WorkspaceIcon.vue';
 const props = defineProps({ model: { type: Object, required: true }, actions: { type: Object, required: true }, busy: Boolean });
 const canvas = ref(null), host = ref(null), album = ref(null), sentinel = ref(null), floating = ref(null), menu = ref(null);
 const catalogCategory = ref('mountain'), loadedCount = ref(24), floatingPosition = ref(null), contextPosition = ref(null);
+const panLocked = ref(false);
 const labels = { base: '底圖', decor: '裝飾', roads: '道路', cities: '據點' };
 const rows = computed(() => (props.model.catalogItems || []).filter(row => row.category === catalogCategory.value));
 const visibleRows = computed(() => rows.value.slice(0, loadedCount.value));
@@ -108,7 +109,7 @@ function down(event) {
 function move(event) {
   if (!pointer || props.busy) return;
   if (Math.hypot(event.offsetX - pointer.startX, event.offsetY - pointer.startY) > 3) pointer.moved = true;
-  if (pointer.moved) props.actions.pan(pointer.x - event.offsetX, pointer.y - event.offsetY);
+  if (pointer.moved && !panLocked.value) props.actions.pan(pointer.x - event.offsetX, pointer.y - event.offsetY);
   pointer.x = event.offsetX; pointer.y = event.offsetY;
 }
 function up(event) {
@@ -193,7 +194,7 @@ onBeforeUnmount(() => {
       <ElButton v-if="!model.gameScoped && model.loaded && !model.exists" :disabled="busy" title="首次建立系統基礎地圖" @click="actions.initialize()">建立</ElButton>
       <ElButton :disabled="locked || !model.dirty" title="保存並重新讀取地圖" @click="actions.save()">保存</ElButton>
       <ElButton :disabled="locked || !model.dirty" title="撤銷上一步修改" @click="actions.undo()">撤銷</ElButton>
-      <ElButton disabled aria-label="鎖圖" title="鎖圖：作用範圍待確認，暫未開放"><WorkspaceIcon name="locked" /></ElButton>
+      <ElButton :disabled="busy || !model.exists" aria-label="鎖圖" :aria-pressed="panLocked" :title="panLocked ? '已鎖定地圖拖動；點擊解除，選取與縮放不受影響' : '鎖定地圖拖動；不影響選取與縮放'" @click="panLocked = !panLocked; pointer = null"><WorkspaceIcon :name="panLocked ? 'locked' : 'unlocked'" /></ElButton>
       <ElCheckbox :model-value="model.gridVisible !== false" @update:model-value="actions.grid($event)">網格</ElCheckbox>
       <ElButton :disabled="!model.exists" title="縮放至顯示整張地圖" @click="actions.fit()">全圖</ElButton>
       <ElButton :disabled="!model.exists" title="放大地圖" @click="actions.zoom(1.25)">放大</ElButton>
@@ -241,13 +242,15 @@ onBeforeUnmount(() => {
         <div class="base-map-catalog-tabs" role="tablist" aria-label="素材分類">
           <ElButton v-for="(item, index) in model.catalogCategories" :key="item.id" role="tab" :aria-selected="catalogCategory === item.id" :type="catalogCategory === item.id ? 'primary' : 'default'" :plain="catalogCategory === item.id" @click="catalogCategory = item.id" @keydown="categoryKey($event, index)">{{ item.name }}</ElButton>
         </div>
-        <div ref="album" class="base-map-material-album" role="list" aria-label="原子素材相冊" @scroll="cancelMaterial">
+        <div ref="album" class="base-map-material-album" :class="{ 'base-map-city-groups': catalogCategory === 'city-group' }" role="list" :aria-label="catalogCategory === 'city-group' ? '據點組素材相冊' : '原子素材相冊'" @scroll="cancelMaterial">
+          <span v-if="catalogCategory === 'city-group'">目前僅供預覽，尚未開放放置。</span>
           <div v-for="row in visibleRows" :key="row.itemId" role="listitem" :data-tile="row.id">
             <div v-if="row.canPlace" class="base-map-material-preview" role="button" tabindex="0" :aria-label="`${row.name}；拖至地圖或按Enter／空白鍵開始放置`" :aria-disabled="placementLocked" @keydown="startMaterialKeyboard($event, row.id)" @pointerdown="materialDown($event, row.id)" @pointermove="materialMove" @pointerup="materialUp" @pointercancel="cancelMaterial" @lostpointercapture="cancelMaterial" @dragstart.prevent><canvas :ref="node => actions.previewMaterial(node, row.id)" width="32" height="32" :aria-label="row.name" /></div>
-            <div v-else class="base-map-atom-preview" tabindex="0" :aria-label="`${row.name}；${row.note}`"><canvas v-if="row.available" :ref="node => actions.previewMaterial(node, row.id)" width="32" height="32" :aria-label="row.name" /><span v-else>不可用</span></div>
+            <div v-else :class="row.category === 'city-group' ? 'base-map-city-group-preview' : 'base-map-atom-preview'" tabindex="0" :aria-label="`${row.name}；${row.note}`"><canvas v-if="row.available" :ref="node => actions.previewMaterial(node, row.id)" :width="row.previewWidth || 32" :height="row.previewHeight || 32" :aria-label="row.name" /><span v-else>不可用</span></div>
+            <span v-if="row.category === 'city-group'">{{ row.name }}</span>
             <span>ID：{{ row.id.replace('tile-', '') }}</span>
           </div>
-          <span v-if="!rows.length">此分類尚無原子素材。</span>
+          <span v-if="!rows.length">此分類尚無素材。</span>
           <div v-show="loadedCount < rows.length" ref="sentinel" class="base-map-lazy-sentinel" aria-hidden="true"></div>
         </div>
       </aside>
@@ -279,12 +282,15 @@ onBeforeUnmount(() => {
 .base-map-object-info { display: flex; flex-direction: column; overflow-wrap: anywhere; gap: 4px; }
 .base-map-context-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .base-map-library { grid-column: 2; grid-row: 1 / -1; display: flex; flex-direction: column; gap: 8px; overflow: hidden; min-height: 0; }
-.base-map-catalog-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; flex-shrink: 0; }
+.base-map-catalog-tabs { display: grid; grid-template-columns: repeat(4, auto); gap: 4px 2px; flex-shrink: 0; }
 .base-map-material-album { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; }
 .base-map-material-album > [role="listitem"] { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; }
+.base-map-city-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.base-map-city-groups > [role="listitem"] { min-width: 0; text-align: center; overflow-wrap: anywhere; }
+.base-map-city-group-preview { display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
 .base-map-material-album > span, .base-map-lazy-sentinel { grid-column: 1 / -1; }
 .base-map-lazy-sentinel { height: 1px; }
 .base-map-material-preview, .base-map-atom-preview { width: 32px; height: 32px; }
 .base-map-material-preview[aria-disabled="false"] { touch-action: none; }
-.base-map-material-preview canvas, .base-map-atom-preview canvas { display: block; max-width: none; image-rendering: pixelated; }
+.base-map-material-preview canvas, .base-map-atom-preview canvas, .base-map-city-group-preview canvas { display: block; max-width: none; image-rendering: pixelated; }
 </style>

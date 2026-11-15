@@ -1,0 +1,53 @@
+{
+  "schema": "map-city-groups-1",
+  "previewCellSize": 16,
+  "evidenceRef": "docs/re-notes-editor-map-admission.md#city-group-template-sources",
+  "items": [
+    {
+      "itemId": "city-group-large-v1",
+      "name": "大都市",
+      "cityTypes": [0],
+      "anchor": [2, 2],
+      "rows": [
+        [222, 231, 220, 231, 223],
+        [230, 255, 254, 255, 246],
+        [221, 254, 205, 254, 221],
+        [230, 255, 254, 255, 246],
+        [224, 247, 220, 247, 225]
+      ],
+      "gates": [[2, 0], [0, 2], [4, 2], [2, 4]],
+      "source": { "firstSlot": 14, "center": [241, 48], "nodeWindowCount": 12 }
+    },
+    {
+      "itemId": "city-group-common-v1",
+      "name": "中小都市／戰場",
+      "cityTypes": [1, 2, 4],
+      "anchor": [1, 1],
+      "rows": [
+        [226, 216, 227],
+        [218, 205, 219],
+        [228, 217, 229]
+      ],
+      "gates": [[1, 0], [0, 1], [2, 1], [1, 2]],
+      "source": { "firstSlot": 2, "center": [246, 15], "nodeWindowCount": 18 }
+    },
+    {
+      "itemId": "city-group-gate-vertical-v1",
+      "name": "垂直關卡",
+      "cityTypes": [3],
+      "anchor": [1, 0],
+      "rows": [[214, 211, 215]],
+      "gates": [[0, 0], [2, 0]],
+      "source": { "firstSlot": 59, "center": [202, 101], "nodeWindowCount": 5 }
+    },
+    {
+      "itemId": "city-group-gate-horizontal-v1",
+      "name": "水平關卡",
+      "cityTypes": [3],
+      "anchor": [0, 1],
+      "rows": [[212], [208], [213]],
+      "gates": [[0, 0], [0, 2]],
+      "source": { "firstSlot": 31, "center": [195, 70], "nodeWindowCount": 4 }
+    }
+  ]
+}
