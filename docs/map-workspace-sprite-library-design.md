@@ -1,6 +1,6 @@
 # 地图工作台第二阶段：精灵素材库与紧凑创作界面
 
-> 状态：设计完成，尚未实施。本轮授权仅为设计文档和新会话实施提示词，不包括产品代码、数据迁移、提交、推送或部署。
+> 状态：S0–S6本地实施与证据审计完成（v41明确支持域；宿主LSP未确认如实记录）。256槽去向闭合，不等于所有原机制已知或所有参考可放置；见§10逐项状态、§11当前映射及逐项审计。设计轮原仅授权文档，后续接续授权允许本地实施，不包括真实数据迁移、提交、推送或部署。
 > 来源：用户测试基础地图后提出六项意见，并补充“四季使用四个TAB”“以已逆向精灵图建立分类素材库”“海域作为自动平铺背景”。均为Web产品方向，不冒称DOS机制。
 > 基线：`172ffe0193a43555d00f517b97d4353e0f83b65c`。上一阶段[B0–B7](system-base-map-tasks.md)及[完成审计](system-base-map-completion-audit.md)保持原历史范围；本设计不是将旧42项重新勾选的依据。
 > 本文件是本阶段产品、数据、交互和验收的详细维护源；[新会话提示词](map-workspace-sprite-library-handoff.md)只负责交接。既有[系统模板合同](system-base-map-design.md)、[共同地图合同](game-editor-technical-design.md#2-统一地图合同)、[全局规范](../../AGENTS.md)继续适用。
@@ -129,6 +129,8 @@
 - 保留旧冻结profile、38角色manifest和1024原门；新目录的配方预算须显式有界并有满额负控，不简单将所有定义算作转换豁免。当前作者素材预算及256格上限未获扩大。
 - 目录代码更新与内容发布分开：普通保存/发布不触发构建/部署。系统模板/游戏仍独立、复制只取单快照；删游戏不删共享目录/资源。
 
+历史接续（v34组批基础，当时未完成目录接线；v35已闭合首配方实际产品／HTTPS，见[准入§2.1s](re-notes-editor-map-admission.md#sprite-g05-compact-materialized)）：一个受核四原子样本可通过七条既有placement／capture／remove命令表达定义与实例，不需为此先增服务操作。控制器已支持一次预览／撤销整组，保存仍为受限扁平请求；只有该样本的共同核心／预算／JSON与内存传输证据，目录引用、私有预览、实际拖放、HTTPS／票据尚待接入验证，不外推所有配方。详见[原数据与工程边界](re-notes-editor-map-admission.md#sprite-g05-small-recipe-batches)。
+
 ### 6.6 原像素相册
 
 - 以CSS像素1:1展示图块（16×16素材不拉大成64×64）；DPR只增加画布后备像素，不改变视觉尺寸，关闭平滑插值。
@@ -193,48 +195,50 @@
 新批次用S0–S6，不修改上一阶段42项的历史状态。每项必须有产物和验证证据。
 
 ### S0 基线与源盘点
-- [ ] 核HEAD/工作区/当前授权、现有实现接缝及四季唯一布局。
-- [ ] 产出256槽逐项来源/四季/类别/置信度清单，明确所有槽去向。
-- [ ] 提交严格重复与视觉相似的分离报告，不删除原身份。
+- [x] 核HEAD/工作区/当前授权、现有实现接缝及四季唯一布局。
+- [x] 产出256槽逐项来源/四季/类别/置信度清单，明确所有槽去向。
+- [x] 提交严格重复与视觉相似的分离报告，不删除原身份。
 
 ### S1 精炼组件合同和样板
-- [ ] 山地/河流/墙段/农田样板、连接示例、真实四季预览；明确Web组合与原证边界。
-- [ ] 定稿目录schema、稳定ID、去重键、定义物化/预算/支持状态；核地理作用域。
-- [ ] 扩展到全目录；未辨识/只读参考透明列出，不伪造完成或新规则。
+- [x] 山地/河流/墙段/农田样板、连接示例、真实四季预览；明确Web组合与原证边界。
+- [x] 定稿目录schema、稳定ID、去重键、定义物化/预算/支持状态；核地理作用域。
+- [x] 扩展到全目录；未辨识/只读参考透明列出，不伪造完成或新规则。（v41共188项；256槽去向闭合，14高级保留及规则未知仍明列，详见准入§2.1y。）
 
 ### S2 紧凑界面与全站菜单
-- [ ] 菜单折叠/图标/授权链接，各角色全部模块可达，dirty流程不变。
-- [ ] 一行工具＋四季Tabs，移除工作台小地图，紧凑图层/按需属性。
-- [ ] 网格、视口中心保留、宽窄屏整页不滚；默认组件/size不破坏。
+- [x] 菜单折叠/图标/授权链接，各角色全部模块可达，dirty流程不变。
+- [x] 一行工具＋四季Tabs，移除工作台小地图，紧凑图层/按需属性。
+- [x] 网格、视口中心保留、宽窄屏整页不滚；默认组件/size不破坏。
 
 ### S3 海域和素材展示
-- [ ] 分类相册/原像素显示/分页/键盘可访问/能力提示；默认不混历史切片。
-- [ ] 登记海域平铺配方，四季无缝与原byte/地理映射可复核。
-- [ ] 显式基底编辑可撤销；旧unknown/模板/其它游戏不自动改变；陆海地理负控通过。
+- [x] 分类相册/原像素显示/分页/键盘可访问/能力提示；默认不混历史切片。
+- [x] 登记海域平铺配方，四季无缝与原byte/地理映射可复核。
+- [x] 显式基底编辑可撤销；旧unknown/模板/其它游戏不自动改变；陆海地理负控通过。
 
 ### S4 拖放与共同保存
-- [ ] 幽灵预览/锚点格吸附/完整footprint/一次提交，缩放/DPR/resize一致。
-- [ ] 越界/锁层/取消/迟到事件/身份或游戏切换负控；无部分落地。
-- [ ] 目录物化与放置共用前后端核心、事务/预算/旧冻结门/票据失效覆盖；保存后真实重读。
+- [x] 幽灵预览/锚点格吸附/完整footprint/一次提交，缩放/DPR/resize一致。
+- [x] 越界/锁层/取消/迟到事件/身份或游戏切换负控；无部分落地。
+- [x] 目录物化与放置共用前后端核心、事务/预算/旧冻结门/票据失效覆盖；保存后真实重读。（v35含133项既有定义引用及1条四格物化配方；新配方已核共同七命令／预算／一次撤销、真实HTTPS保存重读／两创建／复用令旧票失效／审核后玩家加载，详见准入§2.1s。未扩只读支持域。）
 
 ### S5 验证
-- [ ] 无编辑全编译输出保真，素材去重可复现，四季切换不改布局/规则/dirty。
-- [ ] 更新前端单元、共同编辑及真实登记源转换/存储/隔离回归；必要时schema/purge联动。
-- [ ] 全新Playwright会话验菜单折叠、两工作台、各季、相册、拖放、网格、dirty/权限和1600×1000/900×700/DPR变化。
-- [ ] 真实隔离HTTPS后端验模板编辑→两创建→copy编辑/发布/审核→同玩家加载器消费修改；不以mock/browser截图代持久化。
-- [ ] build后check、Vue独立LSP、变更文件LSP及mode=all、语法/diff、web变更重建trialweb；如实报告未确认。
+- [x] 无编辑全编译输出保真，素材去重可复现，四季切换不改布局/规则/dirty。
+- [x] 更新前端单元、共同编辑及真实登记源转换/存储/隔离回归；必要时schema/purge联动。（未改schema／purge。）
+- [x] 全新Playwright会话验菜单折叠、两工作台、各季、相册、拖放、网格、dirty/权限和1600×1000/900×700/DPR变化。
+- [x] 真实隔离HTTPS后端验模板编辑→两创建→copy编辑/发布/审核→同玩家加载器消费修改；不以mock/browser截图代持久化。
+- [x] build后check、Vue独立LSP、变更文件LSP及mode=all、语法/diff、web变更重建trialweb；如实报告未确认。（宿主LSP未确认明列，未改共同web核心，Trial重建不适用。）
 
 ### S6 文档与完成审计
-- [ ] 更新详细目录/原证索引、设计/任务、journal；撤销过时现态，保留历史审计。
-- [ ] 每条用户意见映射产物和测试；区分视觉待验收、未支持规则、旧数据/生产操作范围。无证据不勾完成。
+- [x] 更新详细目录/原证索引、设计/任务、journal；撤销过时现态，保留历史审计。（v41与准入§2.1y、逐项审计及journal同步；历史接续明确保留当版范围。）
+- [x] 每条用户意见映射产物和测试；区分视觉待验收、未支持规则、旧数据/生产操作范围。无证据不勾完成。（见[逐项审计](map-workspace-sprite-library-audit.md)；v41完整目录与最终实际HTTPS复核已补齐；未支持规则、未确认诊断及未授权生产操作明列。）
 
 建议验证入口（在仓库根执行，先审I/O，显式串行选lane，不通配）：
 ```bash
-node --test --test-concurrency=1 editor-ui/tests/basemap.test.mjs editor-ui/tests/gamemap.test.mjs editor-ui/tests/gamemapworkbench.test.mjs editor-ui/tests/mapatlas.test.mjs editor-ui/tests/mapcanvas.test.mjs
+node --test --test-concurrency=1 editor-ui/tests/basemap.test.mjs editor-ui/tests/gamemap.test.mjs editor-ui/tests/gamemapworkbench.test.mjs editor-ui/tests/mapatlas.test.mjs editor-ui/tests/mapcanvas.test.mjs editor-ui/tests/mapspritecatalog.test.mjs editor-ui/tests/mapspriterecipes.test.mjs
 node --test --test-concurrency=1 tools/verify_copy_map_ops.mjs tools/verify_copy_validate_gate.mjs tools/verify_copy_single_slot.mjs
+node tools/verify_map_sprite_materialization.mjs
 node tools/verify_system_base_map_conversion.mjs
 node tools/verify_system_base_map_store.mjs
 node tools/verify_system_base_map_minimap.mjs
+node --test tools/verify_map_base_geography.mjs
 node tools/verify_system_base_map_browser.mjs
 node tools/verify_copy_http_roundtrip.mjs --browser
 node editor-ui/build.mjs
@@ -247,3 +251,663 @@ node --check <changed-file.js>
 git diff --check
 ```
 新目录/拖放/海域验收必须新增针对性用例；上述旧入口全绿不能证明新需求完成。浏览器模块/executable使用已有安装，端口选空闲隔离实例，不停他人服务；测试不得访问真实SAVE/profile或修改真实模板。
+
+<a id="11-本地实施进展s0原始盘点s2局部未整体验收"></a>
+
+## 11. 本地实施与验证（当前支持域及历史批次）
+
+本批核HEAD为`6e9b10f`，保留其它未跟踪图片及其它会话AGENTS改动；不提交、推送、部署或迁移真实模板。§10勾选仅表示该条本地要求有对应证据：S0为逐槽报告与严格身份审计（允许透明未知，不等于全库）；S2为v35 fresh双DPR两尺寸浏览器及65前端tests证据；S3为目录/海域原资源验证、地理负控及真实隔离HTTPS海域保存链；S4为133项精确复用及1条物化四格的共同命令／预算／旧冻结边界与真实重读／票据／发布加载；S5为对应构建的单元、原资源、转换、历史门、双DPR与实际HTTPS全链（逐版覆盖见审计表）（宿主LSP未确认如实记录）。v41已补齐S1全目录和S6总审；最终70前端／34原资源／161身份服务／十物化十七只读／双DPR／实际HTTPS635.755秒及独立Vue32SFC证据已核。以下表为现态，后续各“接续”段保留各批历史验证边界。六项用户意见、具体产物、验证覆盖与剩余工作集中见[逐项证据审计](map-workspace-sprite-library-audit.md)；该表将本地完成范围、未支持规则和生产操作边界分开，不将历史局部结果扩写为全部原机制认证。
+
+| 用户要求 | 当前产物与证据 | 支持边界与历史说明 |
+| --- | --- | --- |
+| 导航折叠／图标 | Workbench.vue、WorkspaceIcon.vue、theme.css；浏览器折叠64px、角色过滤、dirty拒绝后激活项保持；管理员12／作者8模块展开及折叠可达 | 真实服务权限链不由前端夹具证明 |
+| 一行工具／四季／移除小地图 | BaseMapPanel.vue；四季真实atlas像素往返、零保存、不dirty；工作台无mini Canvas，水域标志仍保存重读 | 窄屏侧工具、同排季节/状态、按需识别资料已接续；全模块导航已补夹具覆盖，最终双DPR与实际HTTPS交互已核 |
+| 图层／网格／视口 | mapcanvas.js及两协调器；双线网格、DPR、非整数缩放、导航resize中心保留、宽窄屏与锁层负控通过 | 外观可再由用户实用验收，不影响已测状态合同 |
+| 精炼目录 | mapspritecatalog.json v41：188样板／85多格及4类5个原图摆放示例，66可放置、122只读（地表／海岸／河岸／道路桥梁／据点外观）；完整字节/四季/见证/严格身份核对，256槽去向在高级相册透明展示 | 待整理0，14槽高级保留仍明列（含72／190机制未知）；v41补十二只读岸形与五原子参考，地面55按25／25／5，原256身份全部保留。以下为历史接续：v40四种紧凑岸形只读归地面，地面38项按25／13分页；v39两岸形／四方向八个宽水接片只读进入水系，水系26项按25／1分页；v38原图完整十三格池形只读参考覆盖九岸片，95仍归基底并保留组件引用，不生成水域定义；v37十五种河纹基本形只读归水系，原MDL／四季／触边／原图见证已核，不认证mask或规则端口；v35新四格独立物化配方覆盖160／161／166／174，v36再以九种受核小斜面／横带／折角覆盖余13山纹，G05待整理清空，水域支持不变；v33审完21个G02候选，收六双格岸纹及21细角只读参考；v34纠正其误入水系的展示分类，按§6.2全部归地面，不借分类或无waterClass授予放置；原80槽的水域实例保持，v37仅改变十五槽的目录去向。G05累计新增二十一条受信配方覆盖三十二槽，v32核三个18／20／22格完整山纹面，未裁格、未补孔；v32当时余八槽在固定冠点过滤下无完整候选、九槽仍需提炼／原证审阅，v35从这17槽中登记四格新配方而非裁旧定义，137长条及28／50／64／134格旧大块未直接收录；固定v28余40槽完整查询仍保留为历史审阅基线，不将大块旧片段直接升格；G11最后四槽已用四双格转角及两墙纹只读落位，据点30项按25／5分页；节点边缘212..221已只读登记；G11四向三格据点边缘已按原MAP全量关系与精确受信定义只读登记；G06五个团块冠点纹仅只读参考，当时地面34项按25／9分页已核；G03的29斑纹及G12的251门楼上缘仅只读，不按统一偏移生成；G08八桥岸接片与G09两蓝纹按原分类器及像素只读登记，不作为海域预设；14槽高级保留中12槽属已核原城角色族、72／190原机制仍未知，224..229转为双格转角／三格边缘只读配方引用；G12的254／255内圈与G10六门楼已按原数据／原像素只读登记；G07三项按格列细点／簇点斑纹独立登记，普通覆盖保留地理；G01四个细角仍只读；已有山纹缺角／边沿、墙收尾／下弯和起尾共用中格拼例，已有道路六方向、海岸八方向参考、山纹块面／边缘、带孔折角及四类示例，至v40的34槽缺口已由v41闭合；不开放未经证实的水域、道路或据点规则 |
+| 原像素相册／拖放 | 默认分类相册、作者相册、256高级只读分页；当前页原像素与DPR、Pointer/键盘幽灵、取消和一次撤销通过；纵向目录样板与byte0已补真实HTTPS保存／创建／发布同加载器链 | 目录v41支持域及S6总审已核；v35新增物化配方的预算／原子性／真实HTTPS／票据及玩家加载已核；新增其它配方仍须独立证据与适用验证 |
+| 海域自动背景／显式基底 | mapbasepresets.json sea-base-95-v1：原2×2周期、四季SHA；单格／1–16矩形显式一次base-fill、撤销及真实HTTPS保存／复制／发布通过，地理负控通过 | 不自动清模板／补unknown／盖陆清海；更大范围未开放且不在本期批量铺刷范围 |
+
+### 接续：v41岸纹去向闭合与S6本地审计
+
+补齐十二四格只读岸形与五个独立原子参考，不以更大窗口凑覆盖、不删原byte身份。188项＝103原子／58既有多格／10物化／17只读配方，66放122只读；256去向79／162／1／14／0，原208待整理队列全部有明确去向，14高级保留及规则未知不冒认证。完整来源、配方及支持边界见[准入§2.1y](re-notes-editor-map-admission.md#sprite-g02-coast-completion)。70前端、34原资源132.756秒、161身份服务415.596秒、十物化／十七只读90.450秒、build-check JS1214553B及fresh双DPR两尺寸通过；实际四季RGB、地面55按25／25／5及水系25／1、只读无编辑和原组批交互均核。scope改为明确支持域的精炼目录，壳字节不变；r2报告绑定最终目录SHA。收尾再次运行实际HTTPS635.755秒及独立Vue32SFC通过；源、保存／两创建／单条复用使旧票失效／审核／实际玩家加载已核，不是公网或整局。32路径主动LSP9确认／23未确认（5timeout18push-only），modeall缓存5复杂度提示及4UI未完整，不称全clean。26个变更／新增JS、MJS、Python语法通过，最终目录／报告／壳与文档链接交叉核对见审计收据。S1及S6在明确支持域内闭合；未提交、推送、部署或迁移真实数据。
+
+### 接续：v40四种紧凑岸形（只读地面参考）
+
+从635个受限原MAP 2×2候选中审阅16个四季轮廓，收斜向细颈／窄端岬形／圆端／叉口湾形四种，不把候选全部升格或当作DOS自然对象／水域mask。原证、完整配方与选择方法详见[准入§2.1x](re-notes-editor-map-admission.md#sprite-g02-coast-outlines)。现171项、256去向79／128／1／14／34；新增14槽仅只读，不改放置支持。70前端／33原资源118.344秒／10物化及5只读真实函数85.756秒／build-check JS1202058B／fresh DPR2两尺寸通过；新四卡逐季实际32×32 RGB、地面25／13及水系25／1分页已核。首轮两处旧测试期待已按新证据更正并重跑。五路径LSP2确认3push-only、五缓存文件未完整／八提示；DPR1／HTTPS／Vue／既有身份服务等维持历史版本，不重复无变化检查，不重建Trial。S1余34岸纹与S6仍待。
+
+### 接续：v39宽水接片（两岸形／四方向，只读）
+
+96..103逐槽原MDL／四季／原MAP122处与首见核对后，作为八个独立原子参考，不旋转／镜像或与95互换，不造水域mask。名称是Web外观描述，不是水流／规则端口；详细来源与验证维护于[准入§2.1w](re-notes-editor-map-admission.md#sprite-g02-water-mouths)。69前端／33原资源／build-check（JS1199365B）／fresh DPR2两尺寸通过，实际八卡与池形四季RGB匹配原证，水系首次26项按25／1仅挂当前页；池形测试按itemId定位页码而非假定第一页。四路径LSP2确认2push-only，五缓存文件未完整／八提示。没有新增服务或核心路径，未重复无变化的物化／HTTPS／Vue／Trial；S1余48岸纹及S6未完成。
+
+### 接续：v38完整池形（只读，不物化定义）
+
+原图[45,2]的13格池形保留两处透明缺格，以一个48×80原像素参考卡入水系，而不是增九张岸片卡。源布局仅1个完整见证，四季SHA／真实Canvas RGB逐项相同；真实规划器及画布拒绝放置且无ID／命令／源改写。原证、基底95共享引用的审计修正及失败记录见[准入§2.1v](re-notes-editor-map-admission.md#sprite-g02-pool-reference)。68前端／32原资源／十物化配方与一只读负控／build-check（JS1193657B）／fresh DPR2两尺寸通过，六路径LSP2确认4push-only、五缓存文件未完整／八提示。不重复无变化的旧身份服务(v37)、DPR1(v36)、HTTPS(v35)、Vue(v18)或Trial；目标仍未完成。
+
+### 接续：v37河纹基本形（只读）
+
+十五项明确的四弯／四端／四分支／横纵直段／四向交汇进入水系相册，原子身份、四季、触边与全部原MAP位置可复核；触边只是像素观察，不当作规则端口。详细维护源为[准入§2.1u](re-notes-editor-map-admission.md#sprite-g02-river-primitives)。当前158项、65待整理；67前端／32原资源／148身份完整服务／build-check（JS1192686B）／fresh DPR2两尺寸通过，新只读卡键鼠操作不生成地图编辑。DPR1与十配方物化回归仍标v36，HTTPS仍标v35，Vue仍标v18；本轮不重复未变化路径或Trial。五路径LSP2确认3push-only，五文件缓存未完整／八复杂度提示，不称clean。S1／S6未完成。
+
+### S0资源字节核对（非分类认证）
+
+运行`python -B tools/audit_map_sprite_atoms.py <new-round>`，只读固定MMAP.MDL／MMAP.MAP／GAMEPAL.BRG、四季atlas及当前mmap_map.bin；使用现有离线Pillow，不安装依赖。只写新的`.dragon-analysis/sprite-atoms-<new-round>/`：`inventory.json`、`review.html`和本地PNG，已有目录拒覆盖。报告保留输入SHA/长度、脚本SHA、每槽128B偏移/原byte/原始及解码摘要、四季RGB摘要、原图次数、支持状态。
+
+- MDL SHA=`2fa1dd1b1ec7c426cf22583334a62dc61bdb1f1cefc59cbe8e9827480d118d1d`，256×128B。逐平面解码的全部256槽均与四季PNG索引逐byte相等；原BRG前四组48B按既有离线映射与PNG前16色一致。这是资源相等核对，不是新的CPU调色板运行证明。
+- MMAP.MAP解包98304B，与Web布局逐byte一致，SHA=`740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861`；238槽使用、18槽未使用。
+- 四季RGB完全相同的槽组仅`[72,190]`（`48h,BEh`），共255个视觉组。两个原byte身份仍独立，不能据像素去掉任一个。严格原子身份256个；尚未生成多格组件，不能宣称多格严格去重完成。
+- 全部256槽明确标`pending-identification`，放置能力未由本审计认证；初轮类别置信度全部unknown，后继仅4槽记录视觉候选（见下方样板接续），不将视觉区间当正式类别。S0分类仍待，S1更未完成；登记源revision/manifest核验已在下方接续补齐。
+- `s0-r1`和`s0-r2`两份报告逐byte相等，已有目录拒覆盖负控通过。原资源/运行资产未写入。
+
+### 接续：双对比网格与离线审阅页
+
+网格改为每条横／竖边界只入路径一次，深色2 CSSpx外线＋浅色1 CSSpx内线；不再对相邻格重复描边。DPR仅转换后备像素，线宽不乘世界缩放；小于16 CSSpx单格仍隐藏，黄色选框独立。`mapcanvas.test.mjs`覆盖两次描边、边界无重复、开关、DPR2及非整数缩放下固定线宽、密网格隐藏、源不变／零stage。18前端测试、build/check和fresh DPR2两尺寸浏览器复跑通过；浏览器仍为真实资源＋API夹具，未新增逐像素对比度验收。此次未重复独立Vue检查（未改Vue）。
+
+初版审计新增离线`review.html`：256张四季原像素条、238个首次出现处春季上下文、4张图集；5×5上下文不是物件边界。后继已扩为全槽四季上下文，见下节，以下500文件计数仅为历史收据。`.dragon-analysis/sprite-atoms-s0-review-r1/`和`r2/`共500文件逐byte一致；HTML核256卡片、本地图片原尺寸及无script。未给任何槽自动分类，也不将审阅页当产品相册。分类／样板仍待。
+
+本次JS语法与diff通过；两JS主动LSP均push-only未确认。mode=all缓存3项复杂度warning且6文件扫描不完整，不记clean。没有修改web/src或真实资源。
+
+### 接续：原始槽绑定当前登记源
+
+`audit_map_sprite_atoms.py`现以Node调用现有只读`readInstalledEditorSource()`，复用登记描述符、38项资产SHA/长度及共同编译输出核对，不另写弱化版manifest解析器。四季散放atlas还须分别与已验证登记条目的路径、长度、SHA一致，之后才生成审阅产物。报告记录登记revision、四季登记条目、描述符／manifest／校验器文件摘要；这不是传递代码全集指纹，也不读取生效模板或copy数据库。
+
+本次登记revision为`map-2-28805fc52a1c79910a949fb32b242323777c1741245724b8c346fd8e7a567bfe`。最终运行`s0-registration-r3`及`r4`各500文件逐byte相等；四季分别注入错误登记摘要均在写目录前拒绝，注入校验器失败会传播失败且无产物，已有目录在调用校验器前拒覆盖。负控只替换子进程返回／异常，未篡改任何登记资产。检查收据：`.dragon-analysis/sprite-atoms-registration-check.json`。复跑仍使用上面的审计入口加全新round名。
+
+Python主动LSP为push-only未确认，不能记clean。本增量只改离线审计及文档，不重跑无影响的Vue构建／浏览器／游戏规则；分类、四类样板、海域配方和产品素材库仍未完成。
+
+### 接续：窄屏侧工具切换
+
+`BaseMapPanel.vue`在≤1200px时使用默认ElTabs切换“圖層／屬性”和“素材／管理”，默认素材；右侧仅显示一项工具，不再上下分配144px给图层。宽屏恢复两区并列。切换只改变本地展示状态，以CSS隐藏保留表单、分类及选择，不卸载画布、不调用读写动作。两工作台共用此实现，未改变内容、权限或规则。
+
+既有`verify_system_base_map_browser.mjs`新增真实点击验证：900×700工具互斥可见、切换前后画布几何一致、素材名称准备及分类保持、1600×1000恢复两区、无额外模板读写、copy脏修改仍可保存。全新DPR1与DPR2会话均通过，仍为真实登记资源＋API内存夹具，不是真实HTTPS链。build→check一致（壳1029897B/CSS148275B，13项许可）；独立Vue LS32 SFC通过，BaseMapPanel零诊断，既有ChaptersPanel提示保持。宿主Vue/测试主动LSP均push-only未确认，不能称clean。本增量未改共同核心，不重复无影响规则回归。
+
+### 接续：工具栏同排季节与短状态
+
+`BaseMapPanel.vue`将四季Tabs移入工具栏，右侧接网格/全图/缩放；短状态同排截断并以title保留全文，不再占独立常驻行。图集错误仍按需另行显示及重试，服务端问题保留可滚动区域。窄屏仅工具栏内部横滚，不改默认控件皮肤。
+
+新增浏览器断言季节位于header、控件同排且无独立状态行。首次窄屏运行发现状态可压缩到零宽导致重读消息不可见；改为最小80px后全新DPR2两尺寸及原保存/重读回归通过。真实登记资源＋API夹具，非HTTPS链。build→check一致（壳1029759B/CSS148344B）；独立Vue LS32 SFC通过，改动Vue零诊断，既有ChaptersPanel提示保持。主动LSP两文件分别超时/push-only未确认；mode=all仍3复杂度warning及6文件不完整，不称clean。本增量未改核心，未重复DPR1或规则回归。
+
+### 接续：选中对象识别资料按需显示
+
+`BaseMapPanel.vue`不再将装饰/道路/据点内部名称作为常驻标题；显示用途与坐标，既有装饰格数保留。默认Element按钮展开名称/ID，长值换行；换对象或成功重读后收起，缩放等视图变化保持。道路/据点选中时说明只读限制，不新增命令，也不改变表单或dirty。
+
+浏览器新增默认隐藏、实际实例ID、缩放保展开、换对象收起及零额外读写断言，全新DPR2双尺寸回归通过；道路/据点提示尚未单独浏览器选中覆盖。build→check一致（壳1031273B/CSS148412B），独立Vue LS32 SFC通过，改动Vue零诊断；既有ChaptersPanel提示保持。两文件主动LSP为超时/push-only未确认，mode=all仍3复杂度warning及6文件不完整。本次无核心更改，未重复DPR1/规则回归或真实HTTPS链。
+
+### 接续：展开／折叠菜单全模块可达性
+
+`verify_system_base_map_browser.mjs`新增复用角色导航检查：管理员12个、作者8个模块，在展开及折叠两态逐项真实点击，核菜单顺序、图标、可访问名称、唯一激活项、页面标题和对应面板可见。作者菜单排除全部4个管理员入口，导航请求不含任何`/api/admin/`；两角色遍历全部请求均GET且保存计数不变。原脏地图取消导航／换游戏回归继续执行。
+
+新增账户／审核空清单及未检验发布状态的明确API夹具，不修改产品权限。首轮遗漏账户清单端点被unexpected断言拦住；补齐后，模拟submission 404导致console错误断言失败，改为合法draft状态响应后通过，没有过滤console错误。全新DPR2与DPR1两尺寸回归通过；最终新增全请求GET／作者无admin请求断言在DPR1执行通过。此为真实Vue＋内存API的导航覆盖，不证明真实后端鉴权，也不证明各模块业务操作全部通过。
+
+本增量只改测试／文档，不重建未变的Vue壳或重复规则回归。脚本语法通过；主动LSP push-only未确认，mode=all仍3项既有复杂度warning及6文件覆盖不完整。S0分类、S1／S3／S4／海域及S5真实链仍待。
+
+### 接续：四类视觉候选与原图相邻样板
+
+离线审计新增`samples.json`／`samples.html`及16张原尺寸PNG：山地候选槽112（70h）、河道候选槽6（06h）、墙段候选槽248（F8h）、农田候选槽180（B4h）。候选来自本轮直接查看已核MDL解码像素及原MMAP.MAP上下文，属于**Web视觉分类推断**，不是原版规则结论，不使用982F野战分类表充当素材标签。只给这4槽标`visual-candidate`，其余252槽保持unknown；全部256槽仍待辨识且不认证放置。
+
+每个样板取种子在原图首次出现处的最多5×5观察窗，四季共用完整有序`[dx,dy,byte]`排列，记录原图起点、种子坐标／偏移、登记revision、布局SHA及逐季RGB摘要；HTML列出十六进制格表，图片保持CSS原尺寸。原图已存在的邻接只作为连接审阅示例，不证明任意平铺或自然对象归属。`anchor`、`footprint`、`geographyMask`、`trustedRecipe`明确为null，未凭观察窗伪造组件边界或受信配方；因此**尚不满足S1可放置样板验收**，也不是产品相册。
+
+运行`python -B tools/audit_map_sprite_atoms.py s0-samples-r1`及`r2`，各518文件逐byte一致。独立核对四窗全部原MAP字节、16张图每格与已登记atlas像素相等、HTML尺寸1:1、四季共用布局、未认证字段与全部256槽待辨识状态。收据：`.dragon-analysis/sprite-atoms-samples-check.json`；审阅入口：`.dragon-analysis/sprite-atoms-s0-samples-r1/samples.html`。原资源、登记源、系统模板和游戏copy未改。
+
+本次只改离线工具／文档，不重建Vue或跑无影响游戏／浏览器回归。Python主动LSP仍push-only未确认，不能记clean。后续仍须完成全槽分类、明确最小组件边界／地理作用域／服务可信配方；不把这四份原图观察窗升级为任意放置许可。
+
+### 接续：审计负控固化为隔离回归
+
+新增永久入口`python -B tools/verify_map_sprite_atoms.py -v`，不再依赖会话内临时断言。只复制明确列出的MDL／MAP／BRG／四季atlas／布局到系统临时目录，成功路径仍调用真实`readInstalledEditorSource`检查当前登记源；测试结束自动清理自有临时目录，不访问模板库、用户存档或浏览器profile。
+
+本轮6组测试通过：256身份及4候选/未认证状态、四个观察窗逐格原MAP和16张四季图逐像素一致/原尺寸；重复输出逐byte一致；四季各path/byteLength/SHA共12种登记错误在输出创建前拒绝；登记校验器失败传播；已有目录拒覆盖且不调用校验器；非法round拒绝。负控使用注入的登记元数据/进程错误，不修改真实登记资产，不冒真实文件篡改或服务权限测试。
+
+新测试Python主动LSP为push-only未确认；mode=all仍3项既有复杂度warning与6文件覆盖不完整，不称clean。仅新增离线回归和文档，没有产品代码变化，不重复Vue构建／浏览器／游戏规则测试。S0分类与S1可信配方等缺口保持。
+
+### 接续：全图有向邻接证据
+
+`audit_map_sprite_atoms.py`新增`adjacency.json`，直接扫描原始MMAP.MAP解包布局：横向98048对、纵向97920对，共5209种有向byte对。每种记录次数和行优先首见坐标，不跨行、不旋转、不由类别推断连接。绑定原布局SHA、登记revision和审计脚本SHA。四类样板另列全图涉及种子槽的全部邻接记录（山地119／河道132／墙段16／农田152种），不再只提供一个5×5窗口；HTML按需展开方向、byte、次数及原图坐标。
+
+这是**原始数据相邻事实**，不是无缝纹理、自然对象或规则连通结论；未出现的组合也不因此判为非法。全部槽的未认证状态及样板null配方保持，不接产品放置。产物：`.dragon-analysis/sprite-atoms-s0-adjacency-r1/{adjacency.json,samples.html}`。
+
+`python -B tools/verify_map_sprite_atoms.py -v`本轮7组通过：新增独立按轴扫描核对全部有向对、计数、排序、首见坐标与候选过滤，既有四季像素、重复输出及登记失败负控保持通过。两Python主动LSP均push-only未确认；mode=all仍3项既有复杂度warning及6文件覆盖不完整。仅工具／文档变化，不重建Vue或运行无影响浏览器／规则回归；S1可信目录、地理作用域与可放置样板仍未完成。
+
+### 接续：产品素材预览保持原像素
+
+`mapcanvas.js`现按配方实际包围盒设置预览CSS尺寸，逐格固定16×16 CSSpx，DPR只扩大后备画布；不再将单格放大成64px或将大组件缩成一团。`BaseMapPanel.vue`暂保现有列表，以64px可键盘聚焦的滚动窗口容纳原尺寸图；这只是共用预览接缝，不将旧列表冒称精炼分类相册。保留透明空洞和负局部坐标；换季重绘，图集失效或源移除清空旧图，不写源或stage。
+
+19项前端Node测试通过，新增DPR1/1.25/2、四季对象切换、逐格16px绘制、空洞、112px宽组件不缩小、卸载不再重绘、源不变／零stage断言。全新浏览器DPR1与DPR2在两尺寸通过，新增当前页25张预览的DOM原尺寸及后备尺寸核对，既有保存重读／角色／dirty回归保持；仍为真实登记资源＋API内存夹具，不是实际HTTPS权限链。宽组件滚动操作在下方后继回归中补验。
+
+Vue build→check一致（壳1031830B、CSS148599B、13项许可），独立Vue LS32 SFC通过，改动Vue零诊断，既有ChaptersPanel提示保留。JS语法通过；四路径主动LSP为1超时／3 push-only，全部未确认，mode=all缓存4项复杂度warning且覆盖不完整，不称clean。无web/src修改，不重建trialweb。本次补读迁移计划全文及产品／工程合同地图相关部分；未把历史授权或支持域外推为新配方准入。精炼目录、拖放与海域仍待。
+
+### 接续：宽素材键盘滚动与换季保持
+
+既有浏览器入口从真实登记定义中定位首个宽于64px的组件，经Pagination跳页，以方向右键滚动原像素窗口；等待浏览器`scrollend`后记录位置。实测画布宽256 CSSpx、窗口64px，春→夏→秋→冬→春逐次保持画布尺寸与滚动位置，返回第一页仍仅挂载25张预览；内容读取／保存计数不增。另在擷取名称准备后冬→春，确认输入保留且未提交。
+
+首轮误用End（纵向滚动）等待横滚超时；改方向右键后曾在滚动动画第一帧采样得到1px而最终40px，现等待scrollend再比较，未放宽结果断言。fresh DPR2全回归通过；追加名称保持断言后fresh DPR1全回归通过，均含两窗口尺寸。仍是实际资源＋API内存夹具，非真实HTTPS链。JS语法与diff通过；主动LSP push-only未确认，mode=all缓存4条复杂度warning及不完整覆盖。仅测试／文档变更，未重建壳或重复无关规则测试。
+
+### 接续：已有定义的严格配方身份审计
+
+`tools/map_sprite_identity.mjs`为离线目录审计提供规范身份：统一footprint／anchor／各variant tiles的局部原点，格按行列排序，对象键排序；原byte、全部变体、recipe、visualRef、revision及其它语义字段保留。只将id／name／evidenceRef作为展示与溯源元数据分开保留，不因此丢来源。未知语义数组（包括未来地理mask）保持原序，不猜坐标转换／旋转／镜像；可能保守地保留相似项，不以此认定语义等价。输入来自已验证登记源／既有planner，不是接收任意客户端配方的验证器。
+
+既有`audit_system_base_map.mjs`新增`strict-identities.json`，记录算法／planner／脚本SHA、源revision、完整规范身份与原ID成员。运行`node tools/audit_system_base_map.mjs sprite-identities-r1`及r2，新隔离目录内该报告逐byte相同；实测256原子＋2101旧分片仍为2357个严格身份，重复组0。**这说明不能靠简单去重把旧片段库变成精炼库**，并不宣称2357项都应出现在默认相册，或已完成分类／配方认证。没有修改定义、实例或真实模板。
+
+`node --test tools/verify_map_sprite_identity.mjs`三组通过：坐标平移／对象键与格序不影响身份，原byte72/190仍不同，锚点／空洞／非首变体／recipe／水类别／地理mask／用途约束差异不合并，真实登记全量定义不变。三JS语法及diff检查通过；三路径主动LSP均push-only未确认，mode=all仍4条既有复杂度warning与不完整覆盖。仅离线工具与文档，不重建产品壳或重复浏览器／规则回归。S1可信目录、物化及放置能力仍未完成。
+
+### 接续：已有放置按钮反映装饰锁定门
+
+`BaseMapPanel.vue`的既有列表放置按钮现在在装饰层锁定时禁用，并提示先解锁；沿用原`mapcanvas.command`的锁定门，没有新增配方或放置权限。解锁会清除原选取，仍需重新选择目标才启用按钮。此项不是S4拖放或可信目录实现。
+
+全新DPR2浏览器覆盖锁装饰后选基底格仍禁用、解锁但无目标仍禁用、重新选取后启用，且读／保存次数不变；完整两尺寸夹具回归通过。首轮测试仍停在Web组合列表，得到0个放置按钮；补明确切换元素素材后通过，未放宽产品断言。Vue build/check一致（JS 1032052B／CSS 148599B），独立Vue LS32 SFC通过，原ChaptersPanel提示保持。宿主两路径主动LSP为timeout／push-only未确认；mode=all仍4复杂度warning及不完整覆盖。本次未重复DPR1或规则回归，API仍为内存夹具，不是真实HTTPS鉴权证据。
+
+### 接续：画布放置预览状态机（尚未接入Pointer界面）
+
+`mapcanvas.js`新增`previewPlacement`／`cancelPlacement`／`commitPlacement`原生端口，仅接受当前私有source内的定义引用。CSS坐标经既有`screenToWorld`吸附整数锚点；按真实footprint绘轮廓和锚点十字，空洞不填，越界标红、不裁掉越界格。返回的`inBounds`只表示几何范围，不是配方／碰撞／编译准入证明，既有stage仍拥有正式编辑校验。移动只重绘并返回小DTO，不投影整份素材清单、不修改源、不生成实例ID。
+
+确认先消费本次预览，再调用一次既有`decoration-place` stage；重复确认或stage抛错后再次确认均不能重放。锁层、隐藏装饰、图集失效、源重装、显式取消均清预览；视口缩放／平移／resize也取消旧屏幕坐标预览，后续Pointer接线需用最新rect重新预览。当前不接Vue、相册、键盘或Pointer事件，未开放新用户入口，也未实现目录物化；不能算S4拖放完成。
+
+22项前端测试通过，新增覆盖DPR1／1.25／2、非零锚点、1.25缩放、完整占格／空洞、越界／非有限坐标、锁层／取消／图集失效、源不变和stage拒绝不重放。浮点绘图断言首次因`-3.999999999999999`与`-4`严格比较失败；改为1e-10绘图坐标容差，整数提交位置仍严格比较。build后check一致（JS 1034122B／CSS 148599B），JS语法与diff检查通过；fresh DPR2原有两尺寸浏览器回归通过，但只证明旧入口未退化，未覆盖新端口的真实拖放。未改Vue，未重跑独立Vue LS或DPR1浏览器。两JS主动LSP均push-only未确认；mode=all为3复杂度warning（含新增previewPlacement）及4文件不完整，不称clean。
+
+### 接续：两工作台转发放置预览动作
+
+`basemapworkbench.js`转发原生预览／取消端口，确认经既有`work`边界调用画布的一次性提交；仍由controller stage核权限、快照和不确定写入状态。`gamemapworkbench.js`仅转发到当前游戏session，不持有第二份预览状态。协调器回归新增参数及返回值保持、切换后仅调用新session、登出后三个动作均不调用旧session的断言。尚未接Vue／Pointer，不宣称拖放可用。
+
+本次22项前端测试通过，build→check一致（JS 1034319B／CSS 148599B），变更JS语法及diff通过。三路径主动LSP均push-only未确认；mode=all仍有mapcanvas两项复杂度warning及4文件检查不完整，不称clean。未改Vue，未重复独立Vue检查；未运行浏览器，新动作尚无用户入口，真实Pointer与HTTPS链覆盖仍待。
+
+### 接续：已有素材列表的Pointer拖放
+
+`BaseMapPanel.vue`从素材预览接Pointer capture，以client坐标减最新画布rect调用原生预览；移动超过3 CSSpx才进入拖动，释放前重算当前位置，确认沿既有work／stage路径。移动不写内容，单击图样不放置；Esc、画布外释放、pointercancel、失去捕获、窗口失焦、卸载、切类／切页、读取代次／季节／锁定状态变化取消。装饰隐藏或锁定、busy、图集未就绪均禁止开始。原列表放置按钮与键盘滚动保留，不引入拖拽库或客户端配方正文。
+
+该批次只是既有定义的拖放接线：当时仅占格轮廓与锚点，纹理幽灵见下方接续；不表示精炼目录、道路／据点新能力或任意组合准入完成。该批次尚未实现键盘选材→画布确认流程（后继已接入，见下）；尚未完成触屏、resize中拖动、全部取消事件及作者copy实际拖放的浏览器覆盖。
+
+fresh DPR2及DPR1浏览器完整入口均通过：在管理员模板用真实鼠标移动、按住、释放，验证预览零dirty、Esc取消、画布外释放取消、画布内释放变dirty、一次撤销恢复clean且零保存／重读。首轮素材行保留了表格旧滚动位置，坐标为负，未真正按下素材；诊断事件轨迹定位后加入scrollIntoViewIfNeeded，再执行真实鼠标动作通过，临时轨迹代码已删除。原两尺寸、角色隔离、保存重读回归继续通过，但API仍是内存夹具，不是HTTPS／生产鉴权证明。
+
+22项前端测试、Vue build→check（JS 1036035B／CSS 148599B／13项许可）、独立Vue LS32 SFC及JS语法／diff通过；BaseMapPanel无Vue诊断，ChaptersPanel既有TS6133提示保留。主动Vue／脚本LSP分别超时及push-only，均未确认；mode=all仍2项复杂度warning与4文件不完整，不称clean。未修改web/src，不重建trialweb。
+
+### 接续：当前季节的半透明纹理幽灵
+
+`mapcanvas.js`在占格轮廓之前以50%透明度绘制当前atlas的首variant原始byte图块，与确认命令使用同一variant／anchor／整数坐标；保留空洞，不用包围盒填充。随后恢复不透明绘制蓝／红轮廓与锚点，越界仍拒提交；不改源、规则、stage或目录身份。图集失效清除预览，用户换季仍按既有策略取消当前拖动，不能拿旧季节图继续放置。
+
+23项前端测试通过：新增四季atlas身份、源图块裁切、完整图块与空洞、透明度恢复、取消／图集失效清除、源不变；DPR1／1.25／2、非零anchor和1.25 zoom下纹理与轮廓逐坐标一致。build→check一致（JS1036500B／CSS148599B／13项许可），三JS语法及diff通过。fresh DPR2完整浏览器回归通过，新增真实鼠标预览改变画布像素、Esc与外部释放恢复原像素hash；API为内存夹具，不冒真实HTTPS链。此次未重复DPR1浏览器或独立Vue LS（无Vue改动）。三路径主动LSP均push-only未确认；mode=all为3复杂度warning及4文件不完整，不称clean。该批次目录／海域／完整键盘流程与全部拖放取消、作者copy拖放覆盖仍待；键盘流程见后继，不关闭S4整项。
+
+### 接续：两工作台键盘选材与放置
+
+`BaseMapPanel.vue`在素材预览按Enter／空格开始，将焦点移到画布并从可视中心预览；方向键按当前zoom换算为一格，Enter／空格仅一次确认，Esc取消并返回原素材焦点。离开画布焦点、resize及原读取／季节／锁定取消条件清预览；Pointer开始也清键盘准备。未进入键盘放置时，素材方向键仍用于宽图滚动。继续使用同一原生预览／commit端口，不将source送入Vue，不新增配方或越过装饰锁。
+
+fresh DPR1与DPR2完整浏览器入口均通过：管理员键盘焦点转移、方向键往返像素一致、Esc返回焦点、Tab取消、确认后一次撤销；锁定层不能开始；作者copy方向键及空格确认、一次撤销、零API请求且模板／另一个copy保持。均含1600×1000／900×700和原Pointer／导航回归，资源真实、API内存夹具，不冒实际HTTPS或触屏证明。
+
+build→check一致（JS1037879B／CSS148599B／13项许可）；独立Vue LS32 SFC通过，BaseMapPanel零诊断，ChaptersPanel既有TS6133提示保留。脚本语法／diff通过；两路径主动LSP一超时一push-only，mode=all仍3复杂度warning及4文件检查不完整，不称clean。未改规则核心，未重复Node规则回归。分类目录、海域、全部取消／触屏覆盖与真实HTTPS链仍待，S4整项不关闭。
+
+### 接续：作者Pointer隔离与视口变化取消
+
+既有浏览器入口新增作者copy真实鼠标拖放：移动不dirty，Esc后释放不提交，正常释放一次撤销恢复clean；两条路径均零API请求、系统模板与另一copy逐JSON不变。管理员分别在Pointer拖动和键盘准备中将视口1600×1000改为1500×1000，等待实际布局与ResizeObserver，再释放鼠标／按Enter仍不提交；恢复尺寸与全图后像素hash回到无幽灵基线。
+
+最终fresh DPR1和DPR2完整入口均通过，保留900×700及全模块导航／保存重读回归。仅修改测试与文档，未改产品或规则，不重复构建、Vue LS或Node规则回归。脚本语法／diff通过；主动LSP为push-only未确认，mode=all仍3复杂度warning及4文件检查不完整。以上使用真实登记图集与内存API夹具，不是持久化／HTTPS／触屏或全部取消场景证明。S4整项仍未关闭。
+
+### 接续：触摸拖动不被原生滚动抢占
+
+浏览器CDP触摸输入先复现：素材预览虽然调用Pointer capture，触摸移动时原生滚动仍取消Pointer，画布没有幽灵。`BaseMapPanel.vue`仅对`aria-disabled="false"`的素材预览添加`touch-action:none`，使可放置卡片的触摸手势用于拖动；禁用状态不覆盖原生触摸行为，素材外仍可滚动，宽图仍保留已验证的键盘滚动。没有改放置命令、权限或规则。
+
+复用完整浏览器入口，CDP开启单指触摸模拟，分别连续移动后touchCancel和touchEnd：移动显示幽灵且不dirty；取消不提交，释放一次撤销恢复原像素，零读取／保存。修后fresh DPR1与DPR2均通过，包括鼠标、键盘、作者隔离和resize取消。CDP为Chromium输入模拟，不冒真实触屏硬件、多指或全部浏览器证明。
+
+build→check一致（JS1037879B／CSS148682B／13项许可），独立Vue LS32 SFC通过（BaseMapPanel零诊断，ChaptersPanel既有TS6133提示）；脚本语法／diff通过。主动Vue／脚本LSP一超时一push-only，mode=all仍3复杂度warning与4文件未完整检查，不称clean。未改规则核心，不重复Node规则回归。精炼目录、海域及真实HTTPS链继续待实施。
+
+### 接续：原生捕获丢失与确认键连发
+
+既有浏览器入口在真实拖动中核`hasPointerCapture`，调用DOM `releasePointerCapture`并以随后真实鼠标移动触发浏览器的捕获变更：幽灵像素恢复基线，后续释放不产生编辑。不以手工派发`lostpointercapture`冒原生捕获行为。键盘确认连续三次keydown再keyup，焦点留在素材且一次撤销恢复clean，不重复提交或重新开启预览。fresh DPR1／2完整入口通过，23项前端Node测试通过；无规则修改。
+
+### 接续：当前内容的“我的素材”入口
+
+`BaseMapPanel.vue`新增“我的素材”工具视图，仅以既有私有适配器投影的`editable`筛选当前内容的作者素材。复用原像素预览、分页、Pointer／键盘入口及原编辑／删除动作，不复制定义或源，不新增权限、格式和配方。原“元素素材”兼容入口仍保留；这不是精炼分类相册，不能把2357旧定义重命名成精炼目录。
+
+完整浏览器入口验证：管理员擷取／保存／重读后，此视图仅有1项作者素材、不含原子或旧片段；编辑名称后取消保留原名，零API且源JSON不变。作者已有copy的此视图为空，不继承后来在系统模板捕获的素材；切回元素素材恢复25项、无额外读取。后补DPR2确认捕获的多格素材能从筛选视图键盘放置，一次撤销只移除新实例、保留素材，零额外读写；该后补断言未重复DPR1。fresh DPR1／2均通过其余用例的1600×1000及900×700；真实登记图集＋内存API夹具，不是HTTPS鉴权／持久化证明。
+
+build→check一致（JS1038145B／CSS148682B／13项许可）；独立Vue LS32 SFC通过，BaseMapPanel零诊断、ChaptersPanel既有TS6133提示保留。脚本语法通过；主动Vue／脚本LSP一超时一push-only未确认，mode=all仍mapcanvas三项复杂度warning及四文件不完整，不称clean。S0–S6整项仍未完成，精炼目录、海域和真实HTTPS链未补齐。
+
+### 接续：作者素材原像素相册与管理分离
+
+“我的素材”默认使用仅挂当前页的网格相册，复用25／50／100分页与jumper；不常驻名字、内部ID或放置按钮。预览仍按原格16 CSS像素绘制，多格超卡片区域可滚动，DPR仅提高后备画布像素。默认Element Plus Tooltip在悬停／键盘聚焦时提示名称、格数、操作与当前放置限制；没有引入自定义控件皮肤。
+
+“管理素材”切至既有表格改名／删除，“素材相册”返回；切换、窄屏布局变化均保留未保存名称，原formDirty守卫不变。相册／管理、侧工具、分页大小变化加入取消幽灵入口；放置仍复用同一私有适配器和一次stage，不改变配方、权限或保存格式。此相册限定当前内容作者素材，尚不等于§6完整分类精炼相册，也未将旧片段重标为精炼组件。
+
+fresh DPR1／2完整浏览器入口均通过：真实登记资源、API内存夹具，1600×1000／900×700；新增空态隔离、无常驻名称／放置按钮、聚焦Tooltip、管理切换取消、未保存改名保留、原像素／DPR尺寸、捕获多格素材键盘及Pointer放置与一次撤销像素复原。全部只在隔离夹具运行，不证明HTTPS／实际鉴权／持久化链。双DPR串行合并调用曾耗尽240秒工具预算（DPR2已通过），随后DPR1独立重跑通过；最终Tooltip版本的两个DPR也分别通过。
+
+23项前端Node测试通过；build→check一致（JS1041196B／CSS149030B／13项许可），独立Vue LS32 SFC通过（BaseMapPanel零诊断，ChaptersPanel既有TS6133提示）。主动Vue／脚本LSP仍一超时一push-only未确认；mode=all为mapcanvas三复杂度warning及四文件不完整，不称clean。全槽分类／受信目录与物化、海域、真实HTTPS和S6整体验收继续待办。
+
+### 接续：全256槽四季上下文可复核索引
+
+`audit_map_sprite_atoms.py`新增`contexts.json`（`map-sprite-atom-contexts-1`）：全部256原byte各占一项，绑定登记revision、布局SHA及生成脚本SHA。238个使用槽记录row-major首次出现坐标、裁边5×5窗口原点／尺寸／槽内偏移、按行逐格原byte，以及四季原像素PNG与RGB摘要；18个未使用槽坐标／窗口均为null、格和图像集合为空，不生成虚构上下文。`review.html`按同一窗口展示四季，旧春季`context-<byte>.png`路径保留。审阅入口为`.dragon-analysis/sprite-atoms-contexts-four-season-r2/review.html`，逐格索引为同目录`contexts.json`。
+
+这是源数据的可复核观察索引，不是物件分组、footprint、锚点、地理mask或放置配方。原4槽候选及全部256槽pending状态不变；只增加查证所需的完整四季上下文，不声称类别／精炼目录已经完成。
+
+`python -B tools/verify_map_sprite_atoms.py`本轮8组通过：新增全部槽首见坐标、边缘窗口、无使用槽空证据、逐格原图与四季atlas像素／摘要、HTML原尺寸核对；既有确定性全文件比较、登记摘要／大小／路径拒绝、校验器失败和覆盖保护通过。`contexts-four-season-r2`真实资源审计通过，仍238使用／18未使用，四季视觉重复仅72／190且保留身份。只读取指定非存档原资源／登记源，未访问真实SAVE、模板、copy或生产。此轮不改产品代码，不重建Vue、不重跑无关游戏或浏览器测试。
+
+### 接续：全量四季相邻对可视审阅
+
+已有`adjacency.json`的5209种有向原图相邻对现在提供`adjacency.html`：按east／south及起点槽折叠，显示计数、首见格坐标、解压MAP两格偏移和春夏秋冬原像素拼接。east保持左→右32×16，south保持上→下16×32，不旋转、镜像或补像素；槽位链接返回`review.html`。只生成8张有界图册，`adjacency-preview.json`记录每对的原byte、矩形位置、登记版本／布局／脚本SHA及各图册RGB摘要。没有相邻记录的槽不生成悬空链接。
+
+本轮入口：`.dragon-analysis/sprite-atoms-adjacency-review-r1/adjacency.html`。这是原图观察的审阅工具，不是精炼配方、任意位置可拼接、无缝或规则连通证明；全部256槽仍pending，未改模板／copy／生产。图册相邻单元之间的排版边界也不是原图邻接关系，仅每个标注的两格对属于观察证据。
+
+`python -B tools/verify_map_sprite_atoms.py`本轮9组通过：全5209对四季逐格像素、方向／图册矩形不重叠、摘要、HTML原尺寸／链接／解压偏移，以及既有全槽上下文、确定性和登记负控。真实资源审计生成通过。两Python主动LSP均push-only未确认；mode=all仍3项mapcanvas复杂度warning及4文件不完整，不称clean。此轮不改产品代码，未重跑Vue／游戏／浏览器；离线HTML已有结构及像素验证，未做浏览器渲染验收。
+
+### 接续：真实HTTPS相册放置与保存回放
+
+扩展`tools/verify_copy_http_roundtrip.mjs --browser`，使用新临时SQLite／私有文件桶、临时本机TLS证书和全新Playwright context，所有API请求进入真实EditorService，无API mock。已执行通过（最终约521秒）：
+
+- 从模板真实Web编辑组擷取非水作者素材，保存后从后端读取新增定义，确认擷取本身不改变地图实例。
+- “我的素材”相册键盘开始／Escape取消不产生dirty；Pointer放置一次撤销恢复clean，再次放置仅在保存后写入一个实例，后端核definitionRef及精确目标格；显式重新读取后相册仍有该素材且clean。
+- 目标取原擷取格及锚点，不为测试虚构任意地形位置的规则准入。预览／撤销／待保存操作不改变服务端模板摘要。
+- 模板保存不改变旧copy；后续两个真实浏览器创建入口均实例化当前模板地图（含新放置实例），互相一致。游戏地图保存不反写模板或另一游戏；900×700检查整页不滚，console/pageerror/requestfailed为空。
+- 同一次入口的前段仍通过copy修改使检验票失效、检验／提交／审核、真实编译包入SQLite、正式`loadPlayerPack`／`createPlayerEnvironment`／`prepareScenario`读取修改后terrain及192槽道路的断言。
+
+**该轮历史覆盖边界（新素材发布缺口已由下一节接续补齐）**：当时发布／玩家loader段先于浏览器擷取，验证的是前段地图修改；该轮尚未将新擷取素材再发布并交玩家加载器，不将两个分段拼称“新素材全发布链完成”。loader用隔离session/static端口读取真实审核包，不证明公网分发／reader准入／浏览器对局。此轮真实HTTPS交互为默认DPR1、主要1600×1000；900×700仅末尾布局，不替代既有内存夹具的双DPR完整交互覆盖。新精炼目录、海域与S5整项仍未完成。
+
+运行记录：原入口首次240秒工具超时，确认测试进程无残留后放宽工具时限，原入口约461秒通过；新增用例首次因测试误用“重讀”按钮名而超时，改为实际“重新讀取／取消修改”后完整重跑通过。未放宽产品校验或跳过断言。脚本`node --check`与diff通过；主动LSP push-only未确认，mode=all仍3项复杂度warning及4文件不完整。不改产品／Vue／web源码，无需重新build或trialweb；未操作真实模板、copy、存档或生产。
+
+### 接续：新增作者素材进入审核包与玩家加载器
+
+在同一永久入口继续扩展并完整运行通过（约528秒）。浏览器擷取／Pointer放置／保存后，两种创建不仅核地图相等，还逐项核新素材定义与实例引用保留。选完整复制所得游戏，再经真实HTTPS执行copy水域小地图显示编辑、重新读取、检验票、提交、审核；对这次审核生成的实际SQLite包调用共用`verifyApprovedMap`验证，前段原有发布也复用此函数，未删除旧断言。
+
+`loadPlayerPack`→`createPlayerEnvironment`→`prepareScenario`读取本次新素材所属审核包，核terrain与该copy共同编译输出逐byte相等、与原始未编辑地图不同、v2道路192节点、场景192据点及本次releaseId／ordinal。新素材在原位置重复覆盖，**不以像素差声称该素材单独造成terrain变化**；差异包含先前已验证模板基底编辑，素材定义／实例保存与复制由独立断言证明。copy编辑、发布和加载后再次核系统模板摘要及另一个新建copy不变。
+
+本轮补齐上一节明确缺少的“新擷取素材→完整复制→copy编辑→提交审核→同玩家加载器”隔离链路；不是公网reader鉴权／分发、浏览器玩家对局或精炼目录／海域的完成证明。浏览器操作使用真实HTTPS与新临时SQLite／文件桶，玩家loader仍通过隔离session/static适配读取真实审核包。默认DPR1交互及末尾窄屏布局范围不变；S0–S6整条仍不勾完成。
+
+脚本语法与diff通过；主动LSP push-only未确认，mode=all仍3项mapcanvas复杂度warning及4文件不完整。仅修改永久测试及记录，无产品／Vue／web源码或生产／真实模板／用户存档变更，不重跑无关构建。
+
+### 接续：海域平铺前置的全槽重复纹理审计
+
+`audit_map_sprite_atoms.py`新增`repetition.json`／`repetition.html`及四张768×768图册：全部256槽分别以原16×16像素重复3×3，四季独立显示48×48 CSS窗口，不旋转、缩放或补像素。每槽链接原资源／上下文；索引绑定登记revision、解压MAP及脚本SHA。此处是**重复预览**，不是原图上下文，不混淆两者。
+
+工具逐格枚举原384×256布局中全部合法3×3窗口（含重叠，排除跨行／越界），记录同byte窗口计数与首见左上角。真实资源中14槽存在此类窗口：`0,1,2,6,16,17,18,20,95,128,129,130,131,180`；例如byte95共8410窗口，首见`(319,0)`。这些数字仅证明原MAP字节重复，不自动认证海域、地理贡献、无缝性或任意位置准入；其它242槽未见此类窗口不代表组合非法。所有256槽仍保持待辨识，不向产品写入海域配方。
+
+只读产物：`.dragon-analysis/sprite-atoms-repetition-review-r1/`，共1250文件。永久`python -B tools/verify_map_sprite_atoms.py` **10组通过**：新增独立九格集合枚举复核全部计数／首见、全部256×4×9图块像素、图册摘要／矩形、原CSS尺寸与双向链接；既有确定性与登记负控保留。主动Python LSP两项push-only未确认；`mode=all`仍3项mapcanvas复杂度warning／4文件不完整。仅离线工具与文档变更，不需要重跑无关Vue／浏览器／游戏检查，不读取真实模板／copy／SAVE或写生产。海域填充和地理作用域合同仍未完成。
+
+### 接续：显式基底与覆盖地理的负控
+
+新增永久入口`node --test tools/verify_map_base_geography.mjs`，用纯内存Web作者输入锁定§8.3合同，6项通过：三种显式水域值上普通不透明装饰不擦地理；显式改单格地理即使视觉byte不变也生效；删除装饰保留编辑后的base而非恢复旧图；unknown仅选中格补底并清对应来源记录，未选邻格仍拒严格编译；覆盖物的局部水域mask与未选隐藏水组保持独立；混合非法选区及事务内编译失败均不改输入。实际JSON往返与前一状态不变另有断言；前一状态保留不是浏览器撤销操作的替代证据。
+
+现有`node tools/verify_editor_base_fill_history.mjs`同时重跑通过：minimal/full两profile、41项固定输入、6组受信补底历史检查。新夹具中的byte95及sea/river/lake标注均为显式测试输入，**不登记海域配方、不证明原版分类或纹理无缝**。本轮未改产品实现、模板、copy或真实资源；海域工具与目录仍待完成。新脚本语法通过，主动LSP push-only未确认；未触及Vue或浏览器行为，不重跑相应构建／冒烟。
+
+### 接续：素材与管理入口 Tabs
+
+`BaseMapPanel.vue` 将原下拉入口替换为 Element Plus 默认 Tabs；现有全量兼容入口改名「原始／歷史素材」，与「我的素材」「水域與小地圖」「Web 編輯組合」「問題定位」分列。沿用现有数据、权限、分页及取消预览逻辑，不把旧定义声明成精炼类别，不新增原始槽放置能力。窄栏用默认溢出箭头与方向键导航，CSS仅约束容器宽度／收缩；未修改控件皮肤。正式精炼分类相册仍待目录认证。
+
+本次 build/check 产物 JS1041299B／CSS149096B、13 licenses 一致；独立Vue LS32 SFC通过（本组件0诊断，ChaptersPanel既有未用变量hint）。23项地图前端测试通过。全新浏览器DPR1／2均通过1600×1000、900×700，新增窄屏溢出箭头点击、五入口可达、标签切换取消键盘幽灵且像素／dirty不变；API仍为内存fixture。共享浏览器导航helper使用默认方向键，不强制改写Tabs键盘行为；初版测试误用Enter导致超时，修正后通过。
+
+真实隔离HTTPS入口同步新导航后，末次完整运行约523秒通过，保留新增素材持久化／两创建／审核包玩家加载断言。此前三次运行末尾检测到一个春季管理员atlas请求中止（后两次记录 `net::ERR_ABORTED`）；补充重读完成、创建后网络空闲等待及分阶段请求断言后末次通过，但未定位中止根因，不能据单次绿宣称间歇问题已修复。请求失败记录保留URL／错误／timing，不忽略或过滤失败。无公网／生产验证。
+
+变更脚本语法、diff通过。宿主主动LSP四路径push-only未确认，`mode=all`仍3项mapcanvas复杂度warning与4项扫描不完整；不称全仓clean。无规则核心变更，不重建trialweb。S0–S6整体仍未完成。
+
+### 接续：原始图块高级只读相册
+
+- `BaseMapPanel.vue`新增「原始圖塊（高級）」Tab，使用默认分页与原像素相册，只挂当前页；悬停／焦点显示原ID与只读说明，无常驻名称或放置按钮，不绑定Pointer／键盘放置动作。旧「原始／歷史素材」兼容全量清单、作者素材和历史定义引用保持不变；这是独立高级浏览入口，不是精炼目录或旧放置权限的收紧。
+- `mapcanvas.js`只向显示DTO增加`originalAtom`，按导入器的`atomic-original`类别及`tile-数字`原子ID约定筛选，不向Vue交付源／图集，也不以该标志决定规则或服务端准入。真实登记模板验证完整且有序的`tile-0..255`，含未使用和视觉重复槽；`deco-grass`虽然也有原子类别，但属兼容别名，留在旧清单，不重复冒充原byte身份。
+- 永久浏览器入口逐页核256项无遗漏／合并、每页最多25、CSS16×16及DPR后备尺寸；Enter／Space／点击只读卡片再确认画布不产生预览、dirty或保存。新增第六Tab后，窄栏原生向前箭头允许多次操作直到首部，不再把一次箭头误当全回首。无强制点击、DOM模拟事件或请求错误过滤。
+- fresh DPR1与DPR2均通过1600×1000／900×700完整fixture入口；23前端测试、build/check（JS1043252B、CSS149183B、13licenses）、独立Vue LS32SFC（本文件0诊断，ChaptersPanel既有提示）、JS语法与diff检查通过。初次浏览器运行暴露类别筛选257项（含旧别名），下一次暴露窄栏需多次向前箭头，均修正后双DPR完整通过。
+- 宿主主动LSP四文件未确认（一次超时／三次push-only）；mode=all记录5项mapcanvas复杂度warning及4文件不完整，不称clean。本轮仅展示DTO／UI及测试改变，未重跑耗时HTTPS发布链，不宣称之前atlas间歇中止已修复。未改共同编译核心，不需重建trial包；未动真实模板/copy或生产。全槽正式分类、精炼定义物化与海域工具仍未完成。
+
+### 接续：显式单格海域基底预设
+
+- `BaseMapPanel.vue`新增「此格填入海域基底」，内部固定Web预设`sea-base-95-v1 = {tile:95, geography:1}`。这落实§8已批准的显式海域方向，不是将视觉标签当原版机制：纹理的四季像素/2×2周期及MAP重复原证见[准入原证§2.1a](re-notes-editor-map-admission.md#21a-接续原资源核对byte95重复纹理非海域规则)。原S0报告的全槽pending是历史审计状态，本轮仅明确该单格Web基底用途，未声称完成256槽分类。
+- 只在已选基底格显示，复用已有`base-fill`，一次stage、一次撤销、保存后重读；既有服务校验/ledger/摘要仍适用，没有新增服务命令、模板根字段或装饰实例。基底锁/隐藏及工作区加载状态禁用按钮（手工单格填充同样同步禁用）。tooltip明确不删覆盖物、不补邻格、不是原版通行分类。不会默认执行，也不会改普通新建。
+- 选择填入的格可以原本unknown，这是作者显式补底；只有该格的unknown provenance按既有fillBase语义移除。非水覆盖物仍不擦水地理，已有水覆盖贡献仍服从composer顺序。本预设不是陆海边界自动修复，也不开放矩形/整图填海；大范围命令与精炼目录仍待后续。
+- `verify_map_sprite_atoms.py`新增锁定原MDL裁片SHA、四季RGB SHA、48×48重复索引奇偶周期、8410原MAP窗口及首见坐标的测试；11 tests通过。`verify_map_base_geography.mjs`6 tests及`verify_editor_base_fill_history.mjs`2 profiles/6 groups/41 inputs重跑通过。
+- fresh browser DPR1/2分别通过1600×1000及900×700完整入口；新增预设交互在宽屏覆盖本地stage/一次undo/再填/保存重读、完整内容与单个base-fill结果一致、覆盖物保持、邻格及其它内容不变。真实登记源与图集＋内存API fixture，不是新增HTTPS发布链证据。首次新增预期误保留临时gameId而实际template持久化会移除，修正预期后通过；DPR1与history串行总300秒工具预算超时，单独重跑通过，未过滤失败。
+- build/check一致（JS1044614B、CSS149183B、13licenses），独立Vue LS32SFC通过，BaseMapPanel零诊断（ChaptersPanel既有TS6133 hint）；23前端tests通过。宿主主动LSP三文件一timeout两push-only未确认；mode=all仍5项mapcanvas复杂度warning及4文件未完整，不能称clean。未改共同规则核心，不重建trial；未重跑HTTPS，先前atlas间歇中止根因仍未闭合。S0–S6整体未完成。
+
+### 接续：有界矩形海域填充
+
+- `BaseMapPanel.vue`在选中基底的属性区新增宽／高默认控件及明确范围按钮：所选格为左上角，向右下填充，每边1–16格；沿用`sea-base-95-v1`的byte95／显式geography1，不新增原版机制结论。单格按钮保留，覆盖物不删除、未选unknown不补齐。
+- `mapcanvas.js`的`base-fill-rectangle`仅为工作区动作，将合法矩形展开成**一条既有`base-fill`命令**；不是新增服务操作。范围必须完整位于当前bounds内，越界不裁切，隐藏／锁定基底拒绝，非法宽高在stage前拒绝；最大256个cell约1.6KB，沿用会话128条／16384字节总预算和现有服务原子编辑、历史ledger，不拆分请求或绕预算。16×16是本轮保守UI支持范围，不宣称原版或服务全局限制；更大范围仍未开放。
+- 新增单测覆盖2×2完整有序cells、16×16满额、非零地图原点、越界／非法尺寸／隐藏／锁定拒绝、一次stage且原source不变。fresh双DPR浏览器在真实登记图集＋内存API中覆盖2×2一次撤销回clean、再保存重读与完整内容深比较；未选格和覆盖物变化均受全量比较约束。新增操作在宽屏执行，完整入口另覆盖900×700既有布局。
+- 24项前端tests、6项基底地理tests、两profile／41固定输入历史校验、build/check（JS1047632B／CSS149183B、13licenses）、独立Vue LS32SFC通过（BaseMapPanel无诊断，ChaptersPanel既有TS6133 hint）；node语法检查／diff检查通过。宿主主动LSP四项未确认（一超时、三push-only）；mode=all仍五复杂度warning和四文件未完整，不称clean。
+- 未修改web共同核心／服务schema，不需重建trial；本轮未重跑隔离HTTPS，不宣称此前atlas请求中止根因已解决。没有真实数据写入、生产迁移或部署。精炼目录及全项S0–S6验收仍未完成。
+
+### 接续：海域只读预设登记与真实HTTPS矩形闭环
+
+- `editor-ui/src/mapbasepresets.json`是程序随附的基底预设索引，schema／catalogRevision为`map-base-presets-1`，当前仅登记`sea-base-95-v1`。条目包含具体fill值、仅所选格作用域、作者显式Web地理授权、保留覆盖物、2×2像素周期、固定源revision、MDL偏移／长度／SHA、四季atlas裁片RGB SHA及原证链接。`BaseMapPanel.vue`的单格／矩形按钮共用此条目的冻结fill，不再另写95／1常量。
+- 此索引**不是全精炼组件目录schema**，不新增组件定义／服务操作／root字段，不把itemId写入内容或历史；最终仍保存具体`base-fill`命令，因此已保存内容不依赖将来的目录更新。原有固定登记源／图集门不变；元数据由原资源回归校验，不宣称新增运行时来源校验。后续精炼组件物化仍待实施。
+- 原资源测试现在直接读取实际预设，核版本／唯一条目／具体填充值与作用域，以及登记revision、原MDL切片、四季RGB和周期；保留独立固定SHA与原图8410个重复窗口断言，避免只对比预设自身。
+- `verify_copy_http_roundtrip.mjs --browser`新增真实HTTPS范围填充：在原图已证的同byte3×3窗口内选择`(319,1)`为左上角填2×2，隐藏覆盖层仅供拾取；stage不落库、一次undo清dirty、再保存重读后完整content与共同命令结果比较，逐格核byte95／geography1，再恢复图层。该处允许既有格已是海，不用此用例宣称像素必有差异；任意新地形位置的规则准入仍未认证。
+- 上述模板接续原真实链：捕获素材／放置、两种浏览器创建均完整继承当前map且旧copy隔离，完整复制再编辑／检验／提交／审核，实际审核包经player pack／environment／scenario加载器校验。最终全入口574秒通过，所有console／pageerror／requestfailed断言保留，无API mock。仍非公网分发或浏览器玩家对局验证；单次通过不关闭此前atlas间歇ERR_ABORTED根因。
+- 本次11原资源tests、24前端tests＋6地理tests、build/check（JS1047724B／CSS149183B／13licenses）、独立Vue LS32SFC及fresh默认DPR2内存API浏览器通过；后者含1600×1000／900×700，未重复DPR1。独立Vue保留ChaptersPanel既有hint。主动宿主LSP四项一项confirmed、三项push-only未确认，mode=all仍五复杂度warning／四文件不完整，不称全clean。没有真实模板／游戏迁移，S0–S6整体仍未完成。
+
+### 接续：四类单格样板目录与默认分类相册
+
+- 新增`editor-ui/src/mapspritecatalog.json`（schema `map-sprite-catalog-1`／revision `map-sprite-samples-1`），明确范围为**四项Web单格样板，非完整精炼库**。稳定itemId引用既有`tile-112`山纹、`tile-6`河岸、`tile-180`田纹、`tile-248`墙纹，记录anchor／footprint／recipe／地理效果和逐项原MDL及四季RGB来源摘要。原证边界详见[准入原证§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)。不从视觉标签推DOS规则，不把原图5×5上下文冒充可放置组合。
+- `mapspritecatalog.js`仅对当前源里**精确匹配**的既有原子定义提供DTO，核ID／revision／category／anchor／footprint／唯一original变体及byte／recipe、无额外waterClass或mask；同名但改变配方、锚点或水作用域均不可预览／放置。源、定义及图集不进入Vue，目录显示不改源。普通三项共用既有一次`decoration-place`与键盘／Pointer预览；河岸因水作用域未确认只读。旧兼容清单原能力未变，此只读约束不冒充新增服务安全边界。
+- 默认入口改为「分類樣板」，内层七个默认Element Plus分类Tabs。每类原像素相册／分页／Tooltip；山地、农田、墙体各一个可放置单格样板，水系一个只读参考；地面、道路、据点明确空态，不造假配方。目录不混入2357历史条目，「原始／歷史素材」「我的素材」「原始圖塊（高級）」和管理入口仍独立可达。切类取消预览，不删除历史定义／实例。
+- 当前四项均复用模板／copy已拥有的定义，保存的是具体原有放置命令和实例，不依赖“最新目录”再解析。**新增多格配方物化、全槽去向和拼接示例仍未完成**；不得将现有作者capture预算扩大或以此宣称S1完整schema／全库验收通过。旧S0工具的pending状态保留为候选审计输出。
+- 验证：12原资源tests（新增直接核四条目录原MDL／四季摘要）、26前端tests（含精确定义负控／DTO隔离）、真实登记模板上的三项服务端放置与完整validateSystemBaseMap／JSON往返通过。新模板测试首次误用composer字段terrainBytes而失败，改正为其真实返回terrain后通过，没有放宽产品校验。双DPR fresh浏览器均通过1600×1000／900×700；新增覆盖默认不混历史表、7类别、16CSS像素及DPR背板、河岸Enter／Space不操作、空类别、三样板取消，以及山纹一次确认／一次undo回原图；API仍内存夹具。未重跑HTTPS全链或声称修复其历史间歇请求问题。
+- build/check（最终JS1056292B／CSS149223B／13licenses）及独立Vue LS32SFC通过（ChaptersPanel既有hint），宿主LSP首轮八项两confirmed／一附加warning／五未确认；新模块nested-ternary提示已改为if/else并重建，最终DPR2浏览器再次通过；该模块主动复查为push-only未确认，mode=all四文件不完整，不称全clean。没有共同游戏核心变化，不重建trial或操作真实模板；S0–S6整体仍未完成。
+
+### 接续：全槽去向对齐当前程序目录
+
+`audit_map_sprite_atoms.py`现同时读取并摘要绑定程序随附`mapspritecatalog.json`与`mapbasepresets.json`，逐项复核登记revision、原MDL偏移／长度／原字节SHA和四季RGB SHA后才输出去向。256槽各有独立去向及目录itemId/revision：3项`catalog-reference`、1项`read-only-reference`、1项`base-preset`、251项`pending-identification`；全部仍可高级只读检视。Web用途与原资源置信度分栏，不将未知类别改成已确认，也不以展示相似合并72/190。
+
+新隔离产物`.dragon-analysis/sprite-atoms-catalog-destinations-r1/`共256槽、238使用，来源和去向可复核；先前报告的“256全部pending”是当时历史状态，不代表现在已登记的五项用途。本次`verify_map_sprite_atoms.py`13tests通过，新增六组目录revision/原SHA/季节SHA篡改负控，拒绝时不创建输出目录；真实只读审计通过。HEAD仍`6e9b10faabdaacf6013bc3ffd80566725cedfa45`，保留既有任务及他人修改。两Python主动LSP均push-only未确认，mode=all仍四个既有UI文件检查不完整；`git diff --check`通过（既有换行警告），不称LSP clean。仅离线工具／文档变更，未重跑无关构建或浏览器。此步闭合清单的当前去向，不宣称251项辨识完成、多格目录完成或S0–S6验收完成。
+
+### 接续：三条受核多格配方复用既有定义
+
+目录升级`map-sprite-samples-2`，保留四单格，在`components`新增山纹横向四格／墙纹横向五格／田纹横向双格。它们分别是原图实际序列`112,132,132,113`／`248,231,231,231,249`／`180,180`，不是任意截大块，不旋转、不生成像素；原MAP见证与出现数、四季拼图SHA及详细边界维护在[准入原证§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)。每项独立复核后引用已有完全匹配的`web-piece-*`定义，不把2101片段整体改标签、不新增定义／实例类型／服务命令。匹配含revision/category/visualRef/recipe/anchor/完整footprint/唯一variant全部有序tiles及无水mask；缺失或同ID改配方时不预览／放置。目录不是live数据，保存依旧具体定义引用和实例，JSON重载不依赖最新目录。
+
+真实登记源回归六项可放置样板，核共同服务命令、完整模板校验、JSON往返、原见证位置编译terrain/geography不变；多次放置不新增定义，在现有库数量预算下也不需要额外名额；重复instanceId与包含尾格的越界整拒。没有新增配方物化路径或放宽作者预算，不把“复用”写成“已实现缺定义物化”。新多格条目沿既有幽灵/键盘/Pointer路径；fresh夹具浏览器核七卡原像素尺寸（最长80 CSSpx，可在64px窗口滚动）、DPR背板、取消、山纹四格一次stage和一次undo，无保存请求。API夹具不是HTTPS/auth；服务校验独立由真实登记源入口覆盖，本轮未重跑HTTPS发布链。
+
+验证：`verify_map_sprite_atoms.py`15tests（含多格原MAP逐格/四季SHA、四组见证篡改拒绝）、`verify_map_sprite_catalog.mjs`、27前端tests、build/check（JS1059495B/CSS149223B/13licenses）、独立Vue LS32SFC均通过，ChaptersPanel旧TS6133提示保留；最终fresh DPR1/2浏览器各通过1600×1000与900×700，新样板操作主要宽屏。主动宿主LSP七项一confirmed六未确认（一次timeout、五push-only），modeall四既有UI文件不完整，不称clean。新隔离报告`multicell-catalog-r1`：256槽，7槽目录引用／1只读河岸／1基底／247待辨识；上一节251待辨识是前一版本状态。全库、河流地理作用域与四类完整连接例及最终S0–S6验收仍未完成。
+
+### 接续：纵向原配方与多格河岸只读参考
+
+`map-sprite-samples-3`新增纵向山纹四格、纵向田纹双格与横向河岸三格参考；均复核原MAP见证与全部四季SHA，纵向配方不是横向旋转。详见[原证§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)。目录现10项、6多格，8可放置、2只读；真实登记定义的严格身份计数为10，无方向强合并。原子清单9目录引用／1只读byte／1基底／245待辨识；新隔离报告`directional-catalog-r1`附目录数量及支持状态汇总。目录仍不是完整连接系统，不关闭S1。
+
+浏览器逐项遍历实际目录，独立按footprint核CSS宽高及DPR双轴背板、每类卡片/可操作数量、全部取消不dirty；河岸三格与单格同样没有放置回调。服务回归补纵向尾部越界整拒，不裁切；8个可放置定义均验证复用及完整模板／JSON。15原资源tests、27前端tests、登记源验证、build/check（JS1062268B/CSS149223B/13licenses）和fresh DPR1/2完整夹具浏览器均通过（1600×1000、900×700；新增目录交互主要宽屏）。未改Vue源或共同web核心，本轮无trial重建；最新独立Vue LS结果仍为前批32SFC通过。本轮主动LSP六项一confirmed五push-only未确认，modeall四既有UI文件不完整；未重跑HTTPS链，不冒充新目录持久化证据。一次文档批量替换因旧段少“尺寸”两字未匹配，整批未写入；核原文后定点完成。
+
+### 接续：登记纵向样板真实HTTPS闭环
+
+`verify_copy_http_roundtrip --browser`新增`mountain-column-4-v1`实际分类相册交互。以原MAP见证`[180,18]`为目标，键盘取消、Pointer一次放置→一次撤销→再放置→保存重读；落库前digest不变，落库后全文等于共同核心单个`decoration-place`，整个定义库不增不改。后续两种实际浏览器创建均保留该实例与原完整定义；其中完整复制游戏再改copy水域显示、检验、提交、审核，然后同`loadPlayerPack/createPlayerEnvironment/prepareScenario`消费该包。源模板及另一新游戏隔离断言保留。原位置叠放不产生独立像素差，本用例不将此前基底差异说成样板改变地形，也不认证任意落点拓扑。
+
+最新完整真实隔离HTTPS入口569.4秒通过，临时SQLite/桶/证书、新浏览器profile、无API mock，全部console/pageerror/requestfailed断言保留；不等于公网分发或浏览器对局，之前间歇atlas ERR_ABORTED根因仍不能据单次绿测试宣称关闭。新增交互DPR1宽屏，末尾900×700布局；DPR2由前项夹具验证，二者不混证。工具语法通过，主动LSP push-only未确认。本段只补测试，不修改产品/服务/共同核心，不重跑无关构建。S4末项/S5总验收仍待完整目录收敛。
+
+### 接续：带孔墙纹折角
+
+新增`wall-corner-3-v1`三占格／一个空位，原见证`[5,38]`共2处；原四季SHA与空位哈希载体边界详见[原证§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)。审计只核完整明确占格与原MAP，不补矩形，不自动旋转；新增重复坐标、补实孔洞、超范围负控。目录v4现在11严格身份／7多格、9普通装饰／2只读，原子去向11目录引用／1只读byte／1基底／243待辨识，新隔离报告`corner-catalog-r1`。真实共同核心回归核孔洞不占格、不改原地形，原见证处完整模板/JSON编译等价。
+
+分类相册全部11项新增逐像素alpha检查：占格整格255、空格整格0，DPR双轴后备不混入黑色哈希载体；双DPR fresh完整浏览器均通过1600×1000/900×700（新样板交互仍主要宽屏，API为夹具）。本轮14项mapcanvas/catalog测试、16原资源tests、登记源回归、build/check（JS1063218B/CSS149223B/13licenses）、语法/diff通过。LSP六项一confirmed五push-only，modeall四UI不完整。无Vue源／web核心变更，不重跑独立Vue或trial；未为新增折角重跑HTTPS，前段纵向样板HTTPS证据不冒充折角专项。一次后续拼接调查因Windows默认GBK读JSON失败，无写入，改显式UTF-8后继续；墙角实现及验证未失败。S1全库仍未勾。
+
+### 接续：四类原图拼接示例
+
+目录v5在11个既有样板之外增加只读`examples`，不增加配方、定义或自动连接命令。山／田共用起点折向、河岸同byte重叠延伸、墙角斜向重复，完整相对位置与原图见证见[原证§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)。河岸仍参考，墙角之间空位不补格，原图共现不冒充通行或无缝规则。
+
+新独占报告`.dragon-analysis/sprite-atoms-composition-examples-r1/examples.html`展示四类各四季原像素PNG，`examples.json`列完整有序占格、相对摆放、原MAP见证与四季RGBA摘要。18原资源tests全部通过，含重叠同byte、全窗口计数、逐格原像素／透明空位、篡改偏移／见证拒绝；登记源服务测试新增三个可放置例的两命令批次、整个compose结果及独立JSON模板校验，河岸显式不执行放置。build/check通过且最终壳字节长度仍1063218B/CSS149223B/13licenses，新增只读例不进入UI展示DTO；没有Vue/绘图/命令改动，不重复上一段已绿双DPR交互或HTTPS。四项LSP一confirmed三push-only，modeall四UI不完整；语法/diff通过。根据实际四类产物只勾S1第一项；完整目录和合同总审仍待，goal不完成。
+
+### 接续：当前目录v1合同与预算审计
+
+本期`map-sprite-catalog-1`为程序随附只读索引：`catalogRevision`版本化；`items`为原子引用，`components`为明确完整多格配方，`examples`只作离线相对摆放说明、不物化为新定义。稳定`itemId`与`definitionRef`全目录各自唯一；严格身份由`mapSpriteIdentity`核footprint/anchor/全部variant/recipe/地理及语义，四季视觉重复不合并byte。`source`分别维护原MDL或原MAP/四季来源，不进入Vue DTO。
+
+运行时只接受与已有定义的id/revision/category/visualRef/recipe/anchor/footprint/唯一original完整tiles完全匹配且无额外水类别/mask的项；缺少或同ID篡改显示不可用。`existing-decoration`对应preserve-underlay，不改地理；`reference-only`对应unresolved且无放置回调。当前所有可放置项都可精确复用，因此每次新增定义预算为0，不新建物化命令、不静默补库。保存仍是独立现有定义与实例，实际服务/JSON/完整编译回归不依赖后来目录；以后若新增无法复用配方，必须另闭合本节6.5规定的原子物化及预算，不能偷改源。
+
+`verify_map_sprite_catalog.mjs`在满额definitionLimit下核所有既有项重复放置成功且定义库逐字段不变，另用同一个合法捕获命令作正负对照：余一槽成功、满额拒绝“素材庫結構／數量不合法”，拒绝后输入无半定义。该limit仅测试参数，不改变生产1024旧门或作者256格上限。新负控首次60秒工具预算耗尽未得到结果，按240秒工具预算重跑完整通过；没有改产品超时或跳过断言。结合原子/多格完整身份篡改和缺定义负控，只勾S1合同项；全目录仍未完成，243未知不改成已证素材。
+
+### 接续：墙纹起段与短段的独立核对
+
+目录v6新增原图确有的横向双格起段、三格短段，原MAP见证、计数和四季原像素来源见[原证§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)。两条都精确复用已有定义，不新增服务操作、物化或地理规则；目录现13严格身份／9多格、11可放置和2只读。新增的是有不同完整配方的短段，不把整批旧切片改标签；全槽243待辨识仍未解决，S1全目录不勾。
+
+18原资源tests、14目录／画布tests、真实登记源13身份及11放置／3拼接例／完整模板JSON／满额预算负控通过；回归实例ID改用itemId和序号语义的SHA，避免条目超过9后产生非64位标识。独占报告为`.dragon-analysis/sprite-atoms-wall-segments-r1/`。build/check通过（JS1065043B、CSS149223B、13licenses）；fresh DPR2完整夹具浏览器通过1600×1000及900×700，逐卡片原像素尺寸／透明度／取消断言包含新条目。此次未重跑DPR1、真实HTTPS、独立Vue或Trial构建：无Vue／共同核心变更，不能将历史结果冒称本轮覆盖。主动LSP五项均未确认（一timeout四push-only），modeall仍四UI文件不完整；语法及diff检查通过。goal继续active，未宣称完整目录或最终验收通过。
+
+### 接续：全256槽辨识状态进入高级相册
+
+程序目录投影新增`catalogAtoms`，固定列出0..255完整原byte身份，逐项从登记目录和基底预设派生「分類樣板引用／只讀樣板引用／基底預設／待辨識」。高级相册显示汇总11／1／1／243，并在每卡焦点／悬停提示列明状态及关联样板；不常驻长ID／名称，不新增放置操作。像素相同的72／190仍独立且待辨识。目录用途与当前地图可用性分开：本图缺少完全匹配的原子定义时保留对应槽位、显示不可用，不伪造图像；与可放置样板复用同一严格字段匹配函数。Vue只接状态和说明DTO，不接定义／配方／位图。
+
+28前端tests通过，新增完整256顺序、固定去向、缺失／篡改定义及DTO隔离负控。fresh DPR1／2完整夹具入口各通过两尺寸，逐卡核原像素和辨识标签，摘要数量与原资源报告一致；浏览器仍内存API而非真实HTTPS。本轮build/check通过（JS1067896B、CSS149223B、13licenses），独立Vue LS32SFC通过，BaseMapPanel零诊断、Chapters既有unused hint。宿主主动LSP四项未确认（一timeout三push-only），modeall四UI不完整；不称全工具clean。只增加展示投影和高级相册，不改原证、服务权限、共同核心或发布内容；未重复原资源／HTTPS／Trial构建。此项令未知状态在产品内透明可见，但**不把243未知改成已确认分类，不以展示完256槽代替完整精炼库验收**，S1全库仍未勾。
+
+### 接续：山纹块面与边缘成组登记
+
+目录v8新增横块／左缘／右缘／下缘四条完整原字节配方，成组审阅四季像素后仅登记实际可核的Web用途，不按候选区间整体分类。原MAP见证／次数及配方维护在[原证§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)，四季SHA和严格既有定义引用维护在目录。没有自然对象身份声明、自动连接或新物化；四项都只复用既有普通装饰定义，保持下层地理。
+
+现18目录项／13多格／16可放置／2只读，新增6个有目录引用的byte，全槽18／1／1／236。15前端专项、18原资源tests、18项登记源共同服务／完整模板／JSON／预算负控通过；新报告`.dragon-analysis/sprite-atoms-mountain-edges-r1/`独占写入。build/check通过（JS1072289B、CSS149223B、13licenses），fresh双DPR两尺寸夹具核18项原像素／alpha及选材取消、256标签，未新增状态逻辑或Vue源码。本轮不重复HTTPS／独立Vue／Trial，前版HTTPS证据不冒充4条新增项逐一浏览器发布。主动LSP五项一JSON确认clean、其余四push-only未确认；modeall四UI不完整；JS语法／diff检查通过。S1全库及S6最终回流仍待；不将本轮18项绿色测试作为完整库完成证据。
+
+### 接续：桥梁／据点只读外观相册
+
+目录v9新增184／185纵横桥纹、203／204／205三色旗屋顶外观参考，让七个分类均有可检视条目；不把参考图像升级成可放置能力。原证详见准入说明§2.1b：203／204原MAP未使用，没有见证；其余次数与首见均保留，不根据像素、颜色或次数推运行态机制。精确复用`tile-N`投影，只读卡明确不可新建／改拓扑／搬移据点。新增五项均未引入服务命令或内容数据变更，原16可放置项完全保持。
+
+现23项／13多格／16可放置／7只读，256槽18／6／1／231。16前端专项、18原资源、23严格身份服务／JSON／预算验证通过；首次原资源测试发现旧断言仅对byte6期待unresolved，按新增只读合同修正期待后18项全过。独占报告`.dragon-analysis/sprite-atoms-structure-references-r1/`。build/check通过（JS1076126B、CSS149223B、13licenses），fresh DPR2两尺寸夹具遍历全部23条，新增只读卡Enter／Space／click／拖到地图均不改像素、不dirty、不写入。未改Vue／共同核心，不重跑独立Vue／Trial；DPR1最近证据为v8，真实HTTPS最近为v6，不宣称本轮逐项HTTP发布。宿主LSP六项未确认（一timeout五push-only）、modeall四UI不完整；语法／diff通过。七分类有图不是完整库交付，231待辨识与S1／S6缺口保持。
+
+### 接续：田纹四向缺角样板
+
+v10增加四条三格田纹缺角配方，具体占格／既有定义／原MAP窗口见准入说明§2.1b。不旋转原图，不补第四格，不从匹配窗口数推自然对象边界；NW锚点位于空格亦保持`[0,0]`原定义。27目录项／17多格／20可放置／7参考，256槽去向仍18／6／1／231。服务新增海域反差负控：每个角样板仅画三格180，缺格95及完整地理、基底、水组不变；前端新增四方向独立身份及补孔拒绝，浏览器NW实际提交／一次undo。
+
+17前端专项、18原资源tests、27身份服务／完整模板／JSON／满额预算通过；独占原子报告`field-corners-r1`。build/check通过（JS1079864B、CSS149223B、13licenses）；fresh DPR1／2两尺寸夹具遍历当前27样板及256原子，核空洞alpha、原像素、只读无放置。未改Vue／共同核心，不重跑独立Vue／Trial；真实HTTPS最近仍v6代表链，未宣称四角逐项浏览器发布。宿主LSP五项中1确认、4push-only未确认，modeall四UI不完整。语法／diff通过。四角只扩充既有受信视觉组合，231未知与S1完整库／S6最终回流仍待。
+
+### 接续：地表碎纹原子分组
+
+v11登记原byte0／1／2／17／18／20六条单格地表纹理，保留各自原始字节及四季图像；共33项／17多格／26可放置／7参考，全槽24／6／1／225。视觉标签不是陆海地理判定，所有地表卡继续普通装饰，七条（含16）均有覆盖海域而不改地理的服务负控。byte0不丢弃；浏览器实际提交撤销通过。候选28角落三像素与海纹同色，保持未知，不由邻号或颜色自动判陆海；原证及未准入理由集中维护于准入说明§2.1b。
+
+18前端专项、18原资源、33身份服务／JSON／预算通过；首次原资源测试把28未知项放进“有目录ID”期待表导致断言失败，改为独立未知负控后18项全过。独占报告`.dragon-analysis/sprite-atoms-ground-family-r1/`。build/check（JS1084201B、CSS149223B、13licenses）及fresh DPR2两尺寸夹具通过。DPR1最近v10；本轮未重跑真实HTTPS（最近v6）、独立Vue或Trial（未改Vue／共同核心）。宿主LSP五项未确认（一timeout四push-only）、modeall四UI不完整；语法／diff通过。六槽分类不扩规则范围，剩225未知与S1／S6仍未闭合。
+
+### 接续：当前支持目录的共同保存和验证审计
+
+针对最新v6目录／全槽状态展示而非历史构建，重新执行真实隔离HTTPS完整入口，565.4秒通过：海域矩形及登记纵向样板一次撤销、保存／重读、定义精确复用、作者素材捕获／放置、模板与游戏隔离、两种新建、copy编辑／检验／提交／审核及实际pack/environment/scenario加载。使用独立SQLite/FileBucket、临时证书及全新profile，无API mock；保留console/pageerror/requestfailed全量断言。新墙纹短段的完整服务／JSON门由13项登记源回归覆盖，HTTPS交互代表为纵向山纹，不宣称13项逐一浏览器发布；也不宣称公网reader传输或真实浏览器对局。既有atlas偶发ERR_ABORTED根因未关闭，本次单次通过不等于修复。
+
+重新执行`verify_system_base_map_conversion.mjs`：无编辑全部编译产物一致、20章兼容及输入未变，实际terrain SHA `740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861`，并覆盖JSON、共同编辑、unknown拒绝、旧1024门、转换作者素材满额拒绝、资源／边界／未知recipe负控。`verify_map_sprite_identity.mjs`三组通过，2357完整身份／2357严格组，零强合并。`verify_editor_base_fill_history.mjs`六组／两profile／41输入、`verify_editor_decoration_placement_history.mjs`八组／两profile／41输入通过，均getter0，不改冻结源。
+
+结合本轮28前端tests、18原资源tests、13项目录真实源校验、最新build/check、独立Vue LS、主动LSP与明确未确认记录、fresh双DPR两尺寸以及上述HTTPS证据，勾S4最后项与S5五项。此审计仅证明**当前已开放能力**，不以全绿测试替代S1全目录扩充，也不把河岸参考提升为可放置规则；S1最后项、S6及整个goal仍未完成。新目录配方若不能复用现有定义，当前没有物化权限，必须先闭合完整原子物化合同；本轮不增加任何豁免。
+
+### 接续：地表碎点单格与地理负控
+
+目录v7增加`ground-texture-16-v1`，原MDL偏移2048／128B、MAP9641次，四季原像素及上下文核为Web视觉“地表碎點”，不推原地形种类。复用完整`tile-16`定义，不用旧别名、不新建定义。服务回归除了同byte原见证／JSON／预算等完整门，另将此项覆盖在实际海域格上，核terrain变16而地理仍1、base与waterGroups不变；这是可放置外观而非陆地基底笔刷。原证维护源见准入说明§2.1b。
+
+当前14项、9多格、12可放置、2只读，全槽12目录引用／1只读／1基底／242待辨识；地面分类不再空，道路／据点仍空。15目录／画布tests、18原资源tests、14项真实登记源服务回归通过；首次原资源测试因遗漏v6版本断言失败，修正版本断言后18项完整通过，未改原证期待。独占审计输出`.dragon-analysis/sprite-atoms-ground-r1/`。build/check通过（JS1068629B／CSS149223B／13licenses）；fresh DPR2两尺寸夹具通过，新增地面项原像素、键盘确认和一次撤销，并核全256状态标签。未改Vue／共同核心，本增量不重跑独立Vue／Trial；DPR1和真实HTTPS仍是前一v6构建证据，不说地面项已经逐一HTTPS发布。主动LSP五项未确认（一timeout四push-only），modeall五项不完整；语法／diff通过。S1完整目录与S6最终回流仍待，goal继续。
+
+### 接续：v11 byte0实际发布加载正控
+
+`verify_copy_http_roundtrip.mjs --browser`在原有真实链中增加地表byte0，避免仅在内存命令测试中证明0合法。基于已显式填海的`[319,1]`（线性703）拖放`ground-texture-0-v1`，一次撤销后再次提交，保存前服务摘要不变；保存重读与一条既有`decoration-place`共同命令输出完全一致。定义表、base及waterGroups都不改；不是隐式陆地基底。两种创建分别核实例／定义独立复制，copy编辑后编译terrain[703]为0、geography[703]仍1，实际审核包经pack/environment/world/scenario加载，玩家terrain[703]明确为0而非空值／回退。
+
+最新v11构建真实隔离HTTPS完整链671.8秒通过（独立SQLite／FileBucket／证书／fresh profile，无API mock），既有海域、纵向山纹、作者捕获、取消／单撤销、隔离及审批验证均保留。目录仍33项、225槽未辨识，不声明所有目录项逐条浏览器发布或公网／真实对局验证。新增测试脚本主动LSP push-only未确认，modeall四UI不完整，语法／diff通过。本轮仅改测试及证据文档，无产品字节变化，不重复构建、原资源、独立Vue或Trial。历史atlas ERR_ABORTED根因未关闭，不因本轮通过宣称修复；S1／S6完整目录回流仍待。
+
+### 接续：v12四直岸／四斜岸只读方向参考
+
+逐项审阅byte32／33／36／37／48／49／52／53四季原像素，登记八个不同方向的海岸外观参考；原MDL偏移、原MAP次数／见证与置信边界在[原证§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)，SHA唯一维护于目录。四直岸、四斜岸的方向是图像海纹位置，不旋转／镜像代替原byte，不从像素推地理mask或自动连岸。八项只在地面分类显示完全匹配原子定义，均`reference-only`，提示明确不可放置；原七种普通地表样板仍可用；当轮28未知，v16接续仅只读登记，仍不准作为普通地表放置。
+
+目录v12现41项＝24单格＋17多格／26可放置＋15只读，256槽24引用／14只读／1基底／217待辨识。19前端专项、18原资源、41身份真实登记源服务／完整模板／JSON／预算通过；方向替换身份负控和八项可见但不放置断言已补。原子报告独占输出`.dragon-analysis/sprite-atoms-coast-directions-r1/`。build/check通过（JS1089993B、CSS149223B、13licenses），fresh DPR1／2两尺寸遍历全部41项、全256状态，八岸参考实际Enter／Space／click／拖入地图不改像素、不dirty、不保存。主动LSP六项一确认、五未确认（一timeout四push-only），modeall四UI不完整，语法／diff通过。未改Vue或共同核心，不重跑独立Vue／Trial；HTTPS最近为v11 byte0链671.8秒，本轮新增只读参考未重复该链。217未知、全目录与S6最终回流仍未完成。
+
+### 接续：v13四弯路／两直路方向只读参考
+
+逐张核byte196..201四季原像素，登记上右／上左／下右／下左弯路及横／纵直路。方向是Web外观检索标签，不从图像推DOS道路连接或寻径规则；未证实交汇就不补交汇。源MDL偏移、MAP位置／次数及原证边界见[准入§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)，全部原byte身份独立、不旋转替代。六项只读、不可新建道路／桥梁；无新服务操作／预算／地理权限。
+
+现47项＝30单格＋17多格，26可放置／21只读，全槽24引用／20只读／1基底／211待辨识。20前端专项、18原资源tests、47身份服务／JSON／满额预算通过，横／纵方向替换身份明确拒绝；原子报告`road-directions-r1`独占输出。build/check通过（JS1094249B、CSS149223B、13licenses）；fresh DPR2两尺寸遍历全部47项与全槽状态，六路纹卡实际激活／拖入不改变像素／dirty／写入。宿主LSP五项一确认四push-only未确认，modeall四UI不完整，语法／diff通过。DPR1最近v12，HTTPS最近v11 byte0链671.8秒；本轮仅扩只读目录、不改Vue／共同核心，未重复DPR1／HTTPS／独立Vue／Trial。211槽及S1完整目录／S6最终回流仍待。
+
+### 接续：v14墙纹收尾／下弯与重叠拼接
+
+两条多格配方`wall-end-2-v1`（231,249）／`wall-turn-2-v1`（231,223）由实际原图窗口、四季RGB与受信旧定义逐项核对后登记；不是把所有小历史片段自动升格。本轮未收较长重复起段，不宣称现有组件能重组所有旧片段。原定义ID、窗口见证及语义边界见[准入§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)。两项普通装饰、零anchor双格，定义精确复用，无物化／规则／预算变化。
+
+新增第五个拼接例：起段248/231与收尾231/249相对[0,0]／[1,0]共用中格，输出248/231/249，等价已有三格短墙，原图[13,42]共2处。保留原四类示例，现4类5例（4普通、1只读）；它证明字节兼容视觉拼接，不证明自动连接／DOS对象／拓扑。原资源测试核每格与四季RGBA；服务回归另在三格实际海域上比两部件和单短墙，完整合成输出相同，地理／base／水组／定义均不改。
+
+现49项＝30单格＋19多格，28可放置／21只读，全槽24／20／1／211未变。20前端专项、18原资源、49身份服务／JSON／预算通过；独占报告`wall-end-composition-r1`。build/check（JS1096024B、CSS149223B、13licenses）、fresh DPR2双尺寸通过，新两部件各键盘提交／一次撤销，遍历49项及256状态。宿主LSP五项一确认四push-only未确认，modeall四UI不完整，语法／diff通过。DPR1最近v12、HTTPS最近v11 byte0链；未改Vue／共同核心，未重复独立Vue／Trial，未宣称新部件逐一HTTPS发布。211未知及S1完整库／S6最终回流保持未完成。
+
+### 接续：v15山纹阶沿／收沿与两种四格边沿
+
+从旧定义初筛130个小片段候选，并非批量认证；实际核原图和四季后登记4个独立配方，详细有序tiles／定义ID／见证见[准入§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)。阶沿三格缺左上、收沿三格缺右下，均零anchor，前者锚点为空；另两种2×2右缘／右下缘完整四格。全部精确复用旧普通装饰定义，不旋转生成、不改变底层地理、不宣称自然对象边界或旧山纹类别即DOS规则。新增被引用byte124／126／129，其它候选仍不自动赋类。
+
+新增单元补孔拒绝和服务实际海域反差负控：三格各写自己的原byte，缺格保持95，geography／base／水组不变。现53项／23多格／32可放置／21只读，去向27／20／1／208，四类5例不变。21前端专项、18原资源tests、53身份服务／JSON／预算通过，独占`mountain-steps-r1`报告。build/check通过（JS1099780B、CSS149223B、13licenses）。包含所有验证的串行命令在750秒总时限内完成前述验证及DPR2，随后DPR1未获结果；单独420秒预算补跑DPR1完整通过。因此最新双DPR两尺寸均有独立成功输出，不把总超时当通过或产品故障修复。遍历53条及256槽，新增两缺角实际提交／一次撤销、逐格透明alpha。
+
+主动LSP五项一确认四push-only未确认，modeall四UI不完整；语法／diff通过。未改Vue／共同核心，不重跑独立Vue／Trial；HTTPS最近v11 byte0链，未宣称本轮四配方逐条HTTPS发布。S1完整库及S6最终回流仍未闭合。
+
+### 接续：v15剩余208槽全量分流与近似海纹负控
+
+本轮不再添加零散目录项，而是逐槽查看全部256槽四季原像素，将当前208个未登记槽分为12个有限审阅组，具体集合、视觉候选置信度、原MAP使用情况、原证缺口及下一步统一维护在[准入§2.1c](re-notes-editor-map-admission.md#21c-v15全槽候选审阅与剩余208槽分流不改正式类别)。直接重核原MDL／解包MAP与v15目录快照摘要；脚本核12组无重复且并集正好为208个pending。18个原MAP未使用槽中203／204已只读登记，其余16个明确仍在队列中，未将未使用或看起来相似的槽改名成“完成整理”。全部四季浏览不等于正式类别或完整配方认证，目录53项和去向27／20／1／208不变。
+
+实际排除一个错误合并方向：191／202虽为蓝色纹样，却不是95海纹的相位变体。原MDL索引与95分别差30／50像素、周期16×16，202另有索引4；16×16全部平移匹配均失败。新增原资源回归直接解码MDL及核四季索引，不推水域地理、不增加海域预设。19原资源tests通过，实际文档中12组集合与v15待辨识集合再次交叉核对通过；Python主动LSP push-only未确认、modeall四UI不完整，diff及新链接锚点检查通过。本轮仅证据／测试变化，不重跑无变化的build、浏览器、HTTPS、Vue或Trial；S1完整库／S6最终回流仍待，下一步按12组处理上下文、组合边界及受信配方，不用临时目录项数量作完成门。
+
+### 接续：v16按G01复核细角，只读而非地表放置
+
+原字节与原MAP上下文复核撤销G01的“细碎地表”候选：3／13／19包含角落水纹色索引，与G02中28一起登记为四个海岸细角只读参考。单格、零anchor、精确原子定义，不新增地理mask或放置能力；微角／双阶／三阶只描述实际像素，不是规则尺度。原证、完整坐标／MDL偏移／MAP次数与首见维护在准入§2.1b，旧“28无itemId”现态断言已改成只读限制并明确标注历史。v15队列保持可复核快照；扣除这四槽后剩11个非空组／204槽，不将其余候选默认归类。
+
+目录现57项（34单格／23多格，32放置／25只读），原子去向27／24／1／204。21前端专项、20原资源tests、57严格身份共同服务／JSON／满额负控通过；独占报告`coast-fine-corners-r1`。build/check一致（JS1102649B、CSS149223B、13licenses），fresh DPR2两尺寸遍历57样板和256槽，四细角Enter／Space／click／拖入不改像素、dirty、保存。DPR1最近v15，HTTPS最近v11 byte0链671.8秒；本轮只增只读参考，未改Vue／共同核心，不重复独立Vue／Trial／HTTPS。主动LSP五项均未确认（一timeout四push-only）、modeall四UI不完整；不记宿主clean。完整目录与S6最终回流仍待。
+
+### 接续：v17按G07核三种格列／簇点纹样
+
+直接核181／182／183四季原像素与原MAP上下文，分别登记格列细点（field）及两种簇点斑纹（ground），不因邻近180而一律认作田纹，也不推农田、树林或生产力规则。复用精确原子定义、零anchor单格、既有普通装饰命令，原byte与四季保持不变。原MDL偏移／SHA／MAP次数首见与边界在准入§2.1b；v15剩余表扣除G07后三槽，现10个非空组／201待辨识。
+
+目录60项＝37单格＋23多格，35可放置、25只读，原子去向30／24／1／201。22前端专项、21原资源tests、60严格身份共同服务／JSON／满额预算通过；新增182不能由183替代，G07三图覆盖实际海域格仍geography1、base／水组不变。所有普通地表／G07海域反差用例额外经过完整模板校验和JSON往返，不仅比局部compose。报告`g07-textures-r1`绑定实际v17目录。build/check通过（JS1104837B、CSS149223B、13licenses）；fresh DPR2两尺寸遍历60项与256槽，三新项实际键盘确认／一次undo／零保存。DPR1最近v15、HTTPS最近v11，未宣称新三项逐条HTTPS发布。未改Vue／共同核心，不重复独立Vue／Trial。主动LSP五项未确认（一timeout四push-only）、modeall四UI不完整；语法／diff通过。S1完整库及S6最终回流仍待。
+
+### 接续：v18 G04高级保留，不新增重复默认卡片
+
+按设计§6.3的高级保留去向，显式保留72／190两个原byte，默认仍60项。原128B／四季完全相同、原MAP未使用的实锤及机制未知边界详见[准入§2.1b](re-notes-editor-map-admission.md#21b-接续web分类样板单格引用不等于自然对象复原)。新增目录`advancedRetention`及高级相册汇总／逐卡理由，源审计拒绝未证重复、去向冲突和摘要篡改；不改源定义／规则／预算／放置能力。去向30／24／1／2高级保留／199待辨识，余9个非空审阅组；两槽机制未知没有消失。
+
+36前端tests、23原资源tests、独占`advanced-retention-r1`报告、build/check（JS1105877B／CSS149223B／13licenses）、独立Vue LS32SFC及fresh双DPR两尺寸完整夹具通过。两保留卡Enter／Space／click／拖入地图均无像素／dirty／保存变化，身份仍分别核验。独立Vue保留Chapters既有TS6133 hint；宿主主动7项未确认（2timeout／5push-only），modeall四UI不完整并新增projectSpriteCatalog复杂度15提示，已记录defer、未压制代码或称clean。目录正式项及服务未变，放置／预算回归最近v17，真实HTTPS最近v11，不重复两者；未改共同web核心，不重建Trial。S1完整库及S6最终回流仍未闭合。
+
+### 接续：G10／G11／G12城市原来源复核（不改目录）
+
+新增`audit_map_city_sprite_sources.py`与`verify_map_city_sprite_sources.py`，直接读取固定KI、原MDL／MAP、官方四章SINARIO，固化原城市着色窗及全部192槽位置关系。详细结论唯一维护于[准入§2.1d](re-notes-editor-map-admission.md#21d-原城市着色与部件相对位置复核g10g11g12未开放新放置)：16个原MAP未用图块有明确条件着色消费者；212..221的邻接位置不等于独立城市节点；254／255全部168处与21个type0节点内圈集合相等。没有把静态反汇编当CPU实跑，也不以样本矩形充当原对象边界或新放置准入。
+
+9项正负回归通过，独占报告`.dragon-analysis/sprite-city-sources-native-r3/`含源／工具摘要、两个完整指令窗及逐槽计数；输入变更／路径逃逸／覆盖输出／失败留产物均有拒绝验证。两个Python主动LSP均push-only未确认；modeall保留四UI不完整及目录投影复杂度提示，未称clean。语法／diff与文档链接复核；只有离线工具／测试／文档变化，不重跑已绿构建、Vue、浏览器或HTTPS。目录仍v18、60项／199待辨识，具体去向尚待落位；这199是待整理队列，不是把已实锤原消费者重称未知。S1全库与S6最终回流仍未完成。
+
+### 接续：v19 G10两方向三色门楼只读落位
+
+沿原城市色组及逐项四季原像素核验，登记206..211六个门楼参考，原身份不合并、不旋转／重染色；原MAP未用的四槽不补假见证。详细原证与目录边界维护于[准入§2.1d](re-notes-editor-map-admission.md#21d-原城市着色与部件相对位置复核g10g11g12未开放新放置)。全为city只读，不开放新建／搬移据点或普通装饰路径。现在66项／43原子／23多格、35可放置／31只读；全256槽30引用／30只读／1基底／2高级保留／193待辨识。实际核v15原208集合扣已处理15槽恰为8个非空组／193，且绑定当前目录SHA。
+
+本轮37前端全六入口、23原资源、10城市原来源（新增目录与原色组绑定）、66身份真实登记源服务／JSON／预算回归通过。独占报告`gate-color-families-r1`；build/check通过，JS1110211B／CSS149223B／13licenses。fresh DPR2两尺寸夹具遍历66样板与256槽，六新门楼Enter／Space／click／拖入地图无像素／dirty／保存变化；同色不同方向及同组三色配方错换拒绝。DPR1最近v18，真实HTTPS最近v11 byte0链671.8秒，不宣称本轮重跑。未改Vue／共同核心，不重复独立Vue或Trial构建。六项主动LSP一JSON确认、五未确认（一timeout四push-only）；modeall四UI和目录单元测试未完成，投影复杂度提示沿既有defer，未称clean。语法／diff／文档链接核对；S1完整目录和S6最终回流仍未完成。
+
+### 接续：v20据点内圈只读参考
+
+G12的254／255全部原MAP位置已核等于21个type0节点的内圈轴向／斜向各四格；本轮沿独立原byte登记两项city只读参考，零anchor单格，不赋予新建／移动据点、地理或完整对象身份。详细原MDL偏移／原MAP位置与能力界限集中[准入§2.1d](re-notes-editor-map-admission.md#21d-原城市着色与部件相对位置复核g10g11g12未开放新放置)。unit锁定255在此资源有效，不是空值或signed -1，254也不能替代255。G12仍留251，不依编号相邻自动归类。
+
+当前68项／23多格，35放置／33只读，全槽30／32／1／2高级保留／191待辨识；原v15队列扣十七槽后精确为8非空组。38前端全六入口、23原资源、11城市来源绑定、68身份服务／JSON／预算、build/check（JS1111669B／CSS149223B／13licenses）及fresh DPR2双尺寸完整fixture通过，逐项遍历68卡和256槽；两个新参考激活／拖放无像素／dirty／写变化。首次城市绑定测试的坐标期待用了list而原内存报告是tuple，按实际容器纠正后11项全过，未改坐标规则。独占报告`.dragon-analysis/sprite-atoms-city-interiors-r1/`。
+
+主动LSP六项均未确认（一timeout五push-only），modeall四UI不完整及既有投影复杂度15提示（仍defer，不用代码抑制）；语法／diff如实核。DPR1及独立Vue最近v18、真实HTTPS最近v11 byte0链671.8秒；无Vue／共同核心变更，不重复Vue／Trial／HTTPS，不冒逐条城市发布。S1完整目录／S6最终回流与goal仍未完成。
+
+### 接续：v21 G11城角色族高级保留
+
+按已核原8AD1十对两色状态成组整理，详见[准入§2.1d](re-notes-editor-map-admission.md#21d-原城市着色与部件相对位置复核g10g11g12未开放新放置)。不把20个原角块逐张当独立据点：未被默认配方引用的18槽只留高级相册，现有223／231墙纹去向保留。目录记录完整十对和固定原窗／KI／SINARIO／MDL／MAP来源；资源审计复用原城市来源检查，拒错色对、漏槽、冲突、未知槽混入及原文件篡改，失败不产生输出。不授新类别、地理、放置、染色或据点编辑能力，默认仍68项（35放置／33只读）、23多格及四类五拼例。
+
+现去向30引用／32只读／1基底／20高级保留／173待辨识；72／190原机制仍未知，其余18高级保留不是凭未使用作判断。原18个未使用槽均已有明确展示去向（6只读＋12高级保留），不称原程序废槽。原v15队列208扣共35槽精确为8非空组173，G11还有18槽待整理；本批不关闭S1。
+
+39前端全六入口、26原资源、12原城市来源tests通过，独占报告`city-corner-families-r1`。build/check JS1112815B／CSS149223B／13licenses一致，fresh DPR2完整两尺寸fixture通过；全部20张高级保留卡Enter／Space／click／拖进地图不改像素、dirty或保存。默认配方／服务操作未变，服务预算证据最近v20，DPR1／独立Vue最近v18，HTTPS最近v11 byte0链；不重复无变化的服务／Vue／Trial／HTTPS验证。主动LSP六项中2确认、4push-only未确认；modeall四UI不完整及既有投影复杂度15提示保留，不称全clean。语法／diff与链接核对；goal、S1完整库及S6最终回流未完成，无提交推送部署或真实迁移。
+
+### 接续：v22 G08桥岸与G09蓝纹只读归档
+
+直接核原`E961..E993`分类器和`E881..E899`紧接调用／写回，补足191／202“只看蓝纹”的用途线索；静态指令前提、原窗摘要、十槽次数／首见及能力边界唯一详源见[准入§2.1e](re-notes-editor-map-admission.md#sprite-road-g08-g09)。逐项审阅186..189、192..195、191／202四季像素后作为道路只读参考，不靠95视觉相似作海域基底，不提供新建路桥或普通装饰放置。没有新定义、物化、规则或运行核心改动。
+
+目录v22为78项（55单格／23多格）、35放置／43只读；原子30引用／42只读／1基底／20高级保留／163待辨识，四类五拼例不变。G08／G09退出展示待整理队列，原v15集合扣45槽后为6非空组；不能从这十槽被原分类器接收外推任意道路有效、几何方向或海域mask。72／190完整原机制仍未知，高级保留不是删除／合并身份。
+
+40前端全六入口、27原资源、78严格身份服务／35普通放置／4普通拼例／JSON／满额负控通过；独占报告`road-bank-blue-r1`。首次前端测试中旧“road-前缀等于六方向”筛选混入两蓝纹而失败，改为明确六方向itemId范围后40项全过，未放宽六方向身份期待。build/check JS1120028B／CSS149223B／13licenses一致；fresh DPR2两尺寸fixture遍历78卡及256槽，新增十参考激活／拖入均不改像素、dirty或保存。DPR1／独立Vue最近v18、HTTPS最近v11 byte0链，城市来源独立12项最近v21；本轮只增只读目录，不重复这些无变化路径，未改共同web不重建Trial。主动LSP五项2确认、3push-only未确认；modeall四UI未完成及既有投影复杂度15提示保留。语法／diff及链接核对。S1完整库／S6最终回流／goal继续，未提交、推送、部署或迁移真实数据。
+
+### 接续：v23交错斑纹与门楼上缘只读参考
+
+G03的29与G12的251逐项核原MDL／四季／MAP后，以原`tile-N`引用作只读目录，不新增普通放置或地理涂改。29名为「暖色交錯斑紋參考」，ground类提示改为通用地表外观而非所有项都叫海岸；不能据与6相似认证河流。251的全部五处沿同列230连到五个211中心，官方槽68为dy=-3、其余为-2；初次“统一-2”查询断言失败后撤销假设，新审计／测试保留实际两种序列，不以邻近统计生成对象。完整原证唯一维护在[准入§2.1f](re-notes-editor-map-admission.md#sprite-mottle-gate-cap)。
+
+现80项（57单格／23多格）、35放置／45参考，256槽30引用／44只读／1基底／20保留／161待辨识。原v15队列扣47槽，余G02／G05／G06／G11四个非空组，G03／G12展示归档不等于机制全闭合。新增251审计验证全部原位置与官方中心集合，单元拒6／230替代29／251；只读浏览器Enter／Space／click／拖入不改像素、dirty或保存。
+
+41前端全六入口、28原资源、13城市原证、80身份服务／完整模板／JSON／预算通过。新独占报告`.dragon-analysis/sprite-city-sources-gate-caps-r1/`及`.dragon-analysis/sprite-atoms-mottle-gate-caps-r1/`。build/check（JS1121464B、CSS149223B、13licenses）、fresh DPR1／2完整fixture各两尺寸通过，遍历80样板及256槽。无Vue／共同核心变化，不重跑独立Vue（最近v18）／Trial；只增只读入口，真实HTTPS保持v11 byte0链671.8秒边界。主动LSP八项2确认、6未确认（一timeout五push-only）；modeall四UI不完整，旧复杂度提示未改代码压制。JS／Python语法、diff及队列／本地链接核对；S1全库、S6最终回流和goal仍未完成，无提交／部署／真实迁移。
+
+### 接续：G06五团块冠点纹与默认分类首次跨页（v24）
+
+168／176／177／178／179逐项核四季原像素和原MAP上下文，登记ground类只读外观；详细MDL偏移／128B与四季摘要／出现次数唯一来源见[准入§2.1g](re-notes-editor-map-admission.md#sprite-g06-crowns)。不推树木、森林、岩石、自然对象边界及地理／战场机制，不新增放置、定义或核心命令。相近177／178不得互换身份。
+
+当前85项（62原子／23多格）、35放置／50只读；全槽30引用／49参考／1基底／20保留／156待辨识，余G02=89／G05=49／G11=18三组。地面分类首次27项；浏览器用已有Pagination跳页，第1页25卡、第2页178／179两卡，按当前页核完整名称集合／原像素／空洞，不把前页卡残留或滚动追加误当分页。五新卡Enter／Space／click／拖入地图不改像素、dirty或保存。
+
+42前端全六入口、29原资源、85身份服务／完整模板／JSON／满额预算通过。原资源首跑漏更新逐槽去向期待，补五个只读期待后29项全过；一次临时只读查询使用不存在的decoder导出失败，改用现有rle_decode后从固定源复核，无源数据写入。独占报告`.dragon-analysis/sprite-atoms-g06-crowns-r1/`；build/check（JS1125028B／CSS149223B／13licenses），fresh DPR1／2各两尺寸通过。未改Vue／共同核心，不重跑独立Vue（最近v18）／Trial；只增参考不重跑HTTPS（最近v11 byte0链671.8秒），城市原证13项仍为v23结果。主动LSP五项2确认、3push-only未确认；modeall四UI不完整，既有复杂度提示未改代码压制。语法／diff、当前剩余集合及本地链接核对。S1完整库／S6最终回流未完成，不以地面类别有27图代替组件提炼。
+
+### 接续：G11四条完整三格据点边缘（v25）
+
+原MAP逐字节及官方四章节点数据核四条完整上／下／左／右边缘配方，分别60／67／58／45处，所有中格242..245均覆盖；不是截取局部像素猜完整城市。详细有序配方、坐标偏移、节点类型与完整MDL／四季来源见[准入§2.1h](re-notes-editor-map-admission.md#sprite-city-edges)。只复用已有structure-pattern精确定义，city类只读，不将共同核心能识别定义误当新建／搬移许可。226..229从高级保留转为这些三格配方引用；原十对色族和相反色byte身份不变，高级提示去掉过时18个数量并锁单元负控。
+
+现89项（62原子／27多格）、35放置／54参考；去向30引用／57只读／1基底／16保留／152待辨识，余G02=89、G05=49、G11=14。43前端全六入口、29原资源、14城市原证、89身份服务／JSON／预算通过。初次前端失败来自旧city数量12未加四条，修正明确16后全43通过；服务末尾旧85日志已改按实际rows输出并完整重跑确认89。独占原来源`city-sources-city-edges-r1`及原子`city-edges-r2`报告；r1原子收据保留为提示文案修正前历史。
+
+build/check JS1128653B／CSS149223B／13licenses一致；fresh DPR2及DPR1各两尺寸完整通过，四条多格参考Enter／Space／click／拖入无地图／dirty／保存改变。第一次合并服务＋build＋浏览器调用600秒预算耗尽（服务和构建有结果，浏览器无结果）不记成功，后续独立浏览器重跑通过；DPR1在保留提示文字更正后的最终构建执行。主动LSP七项2确认、5push-only未确认，modeall四UI不完整；末轮JSON／单元／服务日志三文件主动复核均未确认（1timeout／2push-only），不称clean。队列208扣56与报告152个pending精确同集，四份文档86本地链接／锚点及语法／diff通过。无Vue／共同核心变化，不重复独立Vue（最近v18）／Trial或真实HTTPS（最近v11 byte0链671.8秒）。本轮不关闭S1全库／S6最终回流或goal。
+
+### 接续：G11剩余十四槽的原图关联（不改v25目录）
+
+详细原证集中[准入§2.1i](re-notes-editor-map-admission.md#sprite-g11-boundary-parts)。原审计从计数扩为212..221及246／247全部598格的精确节点关联；大节点右／底边中点实际为3墙／18门，不能统一补墙或造门。252／253全部23处四邻逐格记录，首个252在y=0，北邻null而非回绕；253原处上下为89／110，不把较大窗口旁边的230误作正上方。原资源关联仅证明固定图的布局，不是对象边界、地理或自动连接公式。
+
+受信定义全量枚举：212..221无多格转换定义；246／247各有两条2格候选，252在2..6格内有3条含孔候选，253唯一旧多格片段有29格。未为减少待办将整块旧片段升级成精炼组件；尚未新增配方或物化命令。17城市来源tests和依赖该检查器的29原资源tests通过，输出新`.dragon-analysis/sprite-city-sources-remaining-boundaries-r1/`。两Python主动LSP均push-only未确认，modeall四UI不完整；无pyc语法、报告工具SHA／598+23记录数、88本地链接／锚点和diff核对通过。本轮仅离线证据／测试／文档，无产品字节改变，不重复build、浏览器、HTTPS、Vue或Trial。目录保持89项／152待整理，S1全库和S6最终回流仍未闭合。
+
+### 接续：v26节点边缘十原子只读落位
+
+依[原证§2.1i](re-notes-editor-map-admission.md#sprite-g11-boundary-parts)将212..221十个原子加入city分类，全部精确已有定义／单格／只读；没有多格定义时不造新配方，不把原相对位置当生成公式。现99项（72单格／27多格）、35放置／64参考；256去向30／67／1／16／142。city26项跨25分页，地面27项已有25／2边界，新增单元锁每方向byte不可互换，原城市来源测试绑定这十条与全部508处原位置。
+
+44全前端、29原资源、18城市原证、99身份服务／JSON／预算通过；首轮前端漏更新city16数量断言、原资源另漏旧v25版本断言，分别修正后完整重跑通过。独占报告`city-boundary-atoms-r1`。build/check通过（JS1135849B、CSS149223B、13licenses）；fresh DPR2两尺寸完整99卡／256槽通过。浏览器首次切回地面时夹具误以为总在第一页而定位超时：据点已跨两页、地面也两页，分页可保留第二页；夹具改为显式jumper定位目标卡页后通过，未改变产品行为。DPR1最近v25、Vue最近v18、HTTPS最近v11；无Vue／共同核心改动，不重跑无变化路径或Trial。六项主动LSP均push-only未确认，modeall四UI不完整，仍不称全clean。实际队列核对v15的208槽扣66后，与报告绑定当前目录SHA的142个pending精确同集，无遗漏／重复；余G02=89／G05=49／G11=4。JS／无pyc Python语法、89本地链接／锚点及diff通过，S1完整库及S6最终回流不勾。
+
+### 接续：v27 G11双格转角及墙纹收尾
+
+原证与完整有序配方集中[准入§2.1j](re-notes-editor-map-admission.md#sprite-g11-corner-pairs)：四个已有双格定义覆盖246／247与原城角，原MAP各21处恰与官方type0节点固定相对位置集合一致；252／253按已核全部邻接只作单格墙纹参考。原字节、全季像素、完整anchor／footprint精确复用，不扩放置或物化，不把长旧片段升格组件。224／225从高级保留转为只读配方引用，223保留旧可放置墙纹用途；G11展示去向收束不等于新据点生成准入。
+
+新回归发现离线审计按首遇配方汇总223去向，与产品“任一普通配方引用优先”不一致；已修正并保留完整引用列表，新增反转components顺序的256槽去向／引用集合不变回归。逐配方支持不变。现105项（74单格／31多格）、35放置／70只读；全槽30／73／1／14／138，余G02=89／G05=49。45前端、30原资源、19城市原证、105身份服务／JSON／满额通过。前端一处旧city26期待导致首跑失败，改30后全过；原资源首轮两个失败发现审计缺陷，修复后全过，未调整原证迁就旧输出。
+
+build/check通过（JS1140872B／CSS149223B／13licenses），fresh DPR2两尺寸完整105卡／256槽通过；据点30项25／5分页和地面27项25／2分页都只挂当前页，新六卡均不能激活／拖入放置。合并原资源＋服务＋审计调用300秒超时，只有前两项完整PASS；独立新round `g11-final-parts-r2`完成审计，收据`.dragon-analysis/sprite-atoms-g11-final-parts-r2/`。DPR1最近v25、Vuev18、HTTPSv11；无Vue／共同核心变更，不重复对应验证或Trial。主动LSP八项2确认／6未确认（1timeout5push-only），modeall四UI不完整；不称全clean。S1完整库和S6最后回流仍待，不结算goal。
+
+### 接续：v28 G05七条短山纹配方
+
+完整配方、受信定义、原MAP计数／首见及四季来源集中[准入§2.1k](re-notes-editor-map-admission.md#sprite-g05-short-slopes)。对G05原49槽限定既有mountain-pattern／2..6格定义，13候选覆盖9槽；选七条短小完整配方，保留其余历史定义。其余40槽仅在本次限定筛选无候选，不据此宣布全库无定义、废槽或机制未知。所有新增项零anchor、明确占格／缺角，普通装饰保下层地理，不旋转／补孔／新增物化，125与118尾格即使轮廓相同仍为不同身份。
+
+现112项（74单格／38多格），42放置／70只读；256槽39引用／73只读／1基底／14高级保留／129待整理，余G02=89／G05=40。46全前端、30原资源、112身份服务／JSON／满额通过；海域反差负控由固定2×2扩为实际footprint外接框，七新配方占格写原byte、缺格仍95，geography／base／waterGroups不变，完整模板与JSON重读通过。独占收据`.dragon-analysis/sprite-atoms-g05-short-slopes-r1/`。
+
+build/check通过（JS1147650B／CSS149223B／13licenses），fresh DPR2两尺寸完整112卡／256槽通过，新七项实际键盘提交一次撤销且不保存，逐格alpha保持孔洞。DPR1最近v25、独立Vuev18、城市原证19项最近v27、HTTPSv11 byte0链；未改Vue／共同核心，不重复这些无变化路径或Trial。主动LSP五项2确认／3push-only未确认，modeall四UI不完整，不称全clean。本轮无失败首跑，S1完整库与S6最终回流仍待。
+
+### 接续：G05余40槽完整定义成员关系（不改v28产品）
+
+撤去短片段筛选，逐byte遍历完整受信转换定义，40槽全部有既有多格定义，最小完整footprint为7..97格；18槽最小不超过16格，22槽大于16格。完整分组、查询边界及可重复入口见[准入成员关系](re-notes-editor-map-admission.md#sprite-g05-full-membership)，不能以旧category或转换网格切片证明自然对象身份，更不能为覆盖byte把75／97格旧片段直接升格默认组件。16仅是本次审阅分层，不是新预算或产品限制。
+
+`verify_map_sprite_identity.mjs`增加40槽定义数／最小完整占格精确回归并输出登记revision，三组实际通过，2357严格身份仍独立且源未修改。本轮只改回归／证据文档，目录仍112项、129待整理，不重复build／浏览器／HTTPS／Vue／Trial。脚本主动LSP push-only未确认，modeall四UI不完整；不以查询完成替代S1或结算goal。
+
+### 接续：v29 G05四个小轮廓完整配方
+
+从固定成员关系选117／128／134的全部五个并列最小定义，重新核完整转换身份、原MAP占格窗口及四季原像素，收录四个7／8格完整山纹配方；含只读冠点纹179的第五项不收录，不删除旧定义。四配方各有缺角，包含未占格anchor、2×5纵向和4×2横向外接框，不补孔或物化新定义。配方、来源、排除理由与验证详细维护于[准入§2.1l](re-notes-editor-map-admission.md#sprite-g05-small-outlines)。现116项、46放置70只读；256槽42／73／1／14／126，G02=89／G05=37，S1全库和S6仍待。
+
+47前端、30原资源、116严格身份服务／46普通放置／4拼例／满额／JSON通过；全部mountain-slope配方核实际外接框海域反差、缺格仍95且下层地理不变。独占报告`.dragon-analysis/sprite-atoms-g05-small-outlines-r1/`。build/check JS1151728B／CSS149223B／13licenses，fresh DPR1／DPR2各两尺寸完整116卡／256槽通过，四新样板实际确认／一次undo及逐格alpha通过。首次前端集合遗漏真实byte115已按原配方修正；服务两次超时均不算通过，增加测试耗时日志后900秒预算下368.0秒完整通过，不改产品逻辑、不称性能修复。五LSP2确认3push-only，modeall四UI不完整；Vue／共同核心未改，不重复Vue(v18)／Trial／城市原证(v27)／HTTPS(v11)。
+
+### 接续：v30 G05五个中型完整轮廓
+
+从固定成员关系中15个剩余小尺寸槽取得14个并列最小定义，逐一核完整转换身份、原MAP窗口与四季像素后，选择五个9／10／12／14格完整配方。原配方／见证／全部候选去向唯一详记[准入§2.1m](re-notes-editor-map-admission.md#sprite-g05-medium-outlines)。六个混冠候选不裁片绕行，三个纯山纹备选暂不收录；新增十槽引用，仍不批量导入历史块。现121样板、51可放70只读，全槽52／73／1／14／116，G02=89／G05=27；S1完整库／S6未完成。
+
+48前端、30原资源、121身份服务／51放置／4普通拼例／JSON／满额通过（425.6秒）；原子报告g05-medium-outlines-r1。build/check JS1157166B、CSS149223B、13licenses；fresh DPR2和独立DPR1两尺寸完整通过121卡／256槽，十六山纹逐项确认／一次undo／alpha验证。首次原资源漏更新旧版本／有序条目期待，修正后全过；浏览器对已跨页的旧横山纹定位失败，夹具补按索引jumper定位而不改产品。双DPR合并800秒超时仅DPR2有完整PASS，DPR1独立900秒预算完整重跑通过。四LSP2确认2push-only、四UI缓存不完整。无Vue／共同核心变更，不重跑Vue／Trial／城市原证／身份成员关系／HTTPS，保留各自版本，不称本轮全工具clean或新增配方逐项HTTPS发布。
+
+### 接续：v31 两个非最小完整替代
+
+最小候选混冠不是全库无候选。遍历五个剩余小槽的全部定义／变体后，找到135的13格、139／156共用的10格完整替代，逐原MAP／四季审阅后登记；137仍为较长重复候选、165的五项均涉及只读项，二者不因排队时间而强行收录。查询计数／复核方法和两配方见[准入§2.1n](re-notes-editor-map-admission.md#sprite-g05-nonminimal-outlines)。现123项、53放置70只读，全槽55／73／1／14／113，G02=89／G05=24，S1全库／S6仍待。
+
+49前端、30原资源、123身份服务／53放置／4拼例／完整模板／JSON／满额通过（414.5秒）；独占原子报告g05-nonminimal-outlines-r1。build/check JS1159339B／CSS149223B／13licenses，fresh DPR2两尺寸完整123卡／256槽通过，十八坡纹实际确认／一次undo／alpha。DPR1最近v30，本轮未重复；无Vue／共同核心变化，不重跑相关历史Vue／城市原证／身份关系／HTTPS及Trial。四LSP2确认2push-only、四UI缓存不完整，边界分开记录。
+
+### 接续：v31剩余24槽全尺寸过滤（仅研究／回归）
+
+全部定义／变体按固定冠点字节168／176..179过滤后，八槽无完整候选、十六槽有15–134格完整候选；详细计数回归、八种最小定义与下一步维护在[准入后继](re-notes-editor-map-admission.md#sprite-g05-remaining-candidates)。先核18／20／22格三个完整候选，不整块搬入大切片，不把过滤结果当原机制或放置证书。`verify_map_sprite_identity.mjs`新增固定v31的24组计数／最小占格回归，三组通过、2357严格身份与源保持。目录仍v31／123项／113待整理，没有新构建或放置能力；本研究不重复无关产品验证，S1／S6仍待。
+
+### 接续：v32三个完整山纹面
+
+沿全尺寸分流，核18／20／22格候选的原MDL／MAP／BRG、四季登记像素及原图完整占格窗口后，复用三既有定义加入目录；没有整批升级大块旧片段。完整配方、原见证、空锚点与17槽剩余清单维护在[准入§2.1o](re-notes-editor-map-admission.md#sprite-g05-larger-faces)。现126项、56普通放置70只读；全槽62／73／1／14／106，G02=89／G05=17，S1全库／S6未完成。
+
+50前端、30原资源、126身份服务／56放置／4拼例／JSON／满额通过（437.475秒）。原资源首次反序用例仍期待53可放项，按实际56修正后30项重跑全过。build/check JS1163018B／CSS149223B／13licenses；fresh DPR1／2各两尺寸完整通过126卡／256槽，二十一坡纹逐项确认／一次undo／完整alpha。四LSP2确认2push-only、四UI缓存不完整。无Vue／共同核心变化，未重复相应历史Vue／城市原证／身份分流／HTTPS或Trial，不称新增三配方逐项HTTPS发布。独占报告g05-larger-faces-r1，原208队列扣102后精确等于106pending，无遗漏重复。
+
+### 接续：G02九槽可复用切片与八十槽水域边界（不改v32）
+
+全89槽查询发现只有4／5／8／9／10／12／21／24／25有非水域切片：最小都为单格，去除单格后八槽最小二格、21最小五格；其余80槽仍有登记实例，全部带sea／river／lake，被既有非水域切片策略排除。不能把“无切片”写成“无原子定义／原图未用”，也不能移除waterClass来人为增加候选。详细计数、可重复入口与原证边界在[准入§2.1p](re-notes-editor-map-admission.md#sprite-g02-fragment-boundary)。身份回归新增固定89槽检查，三组通过、2357严格身份和源保持；脚本主动LSP push-only未确认，modeall四UI不完整。本轮只研究／回归／文档，不改目录或重跑无关构建、浏览器、HTTPS、Vue、Trial；下一步先核九槽完整候选，不把80原子铺成精炼库。S1全库／S6仍待。
+
+### 接续：v33六双格岸纹与21细角只读参考
+
+21个完整候选经原MDL／MAP／BRG／四季核验后选六个双格，另按原子身份收21细角；不把其五格L形的四个0格一起升级，也不裁格冒用旧ID。全部只读、地理作用域未知；原证、完整配方和未选候选去向见[准入§2.1q](re-notes-editor-map-admission.md#sprite-g02-shore-references)。现133项／58多格／56可放77只读，全槽62／82／1／14／97，G02=80／G05=17；S1完整库／S6仍待。
+
+51前端、30原资源、133身份／56普通放置／4拼例／JSON／满额通过（413.325秒）；报告g02-shore-references-r1。build/check JS1169056B／CSS149223B／13licenses，fresh DPR2两尺寸完整133卡／256槽通过，新七项无放置动作／dirty／写入。DPR1最近v32；没有Vue／共同核心变更，不重复Vue／城市原证／HTTPS历史验证或Trial。五项LSP2确认3push-only未确认、四UI缓存不完整，不称全clean；保留他人文件和本地未提交状态。
+
+### 接续：v34纠正岸纹展示分类
+
+对照本设计§6.2发现v33七项岸纹误入水系。现全部归地面，保留reference-only／unresolved，不改任何定义／配方／地理作用域；详细更正维护于[准入§2.1q后继](re-notes-editor-map-admission.md#sprite-g02-shore-references)。地面34项按25／9分页，水系仅原两项河岸参考。测试明确分类不授予普通放置；此前全绿未覆盖分类合同，不能据此保留错误。
+
+51前端、30原资源、build/check、fresh DPR2两尺寸133卡／256槽通过；报告g02-ground-category-r1，JS1169063B／CSS149223B／13licenses。四LSP2确认2push-only、四UI缓存不完整。仅七个展示字段和revision变化，不重复无关服务／预算／HTTPS／Vue／DPR1或Trial；分别保留v33／v11／v18／v32历史证据。133项、56可放77只读、97待整理不变；S1与S6仍未完成。
+
+### 接续：小配方表达性与一次组批基础（目录仍v34）
+
+剩17山纹原字节存在七种全由这些槽组成的2×2原MAP窗口，未据此升格目录或宣称自然对象。对第一种四格组合，永久入口`verify_map_sprite_materialization.mjs`证明七条既有命令可原子得到一个作者定义和一个实例，共同preview／服务一致、满额／末步失败不留半成品、JSON完整模板及海域保留地理；34.462秒首轮、补原布局SHA与12窗口断言后36.274秒通过。详细原证、命令链与限制维护于[准入§2.1r](re-notes-editor-map-admission.md#sprite-g05-small-recipe-batches)。
+
+`basemap.js`仅增加组批预览／一次undo边界，管理模板和作者copy共用，实际保存协议与权限门未改。55前端tests、build/check（JS1169256B／CSS149223B／13licenses）及fresh DPR2两尺寸原有133卡／256槽浏览器完整通过；新组批的保存重读仅为真实共同函数＋内存传输，未称HTTPS／SQLite或目录物化拖放完成。四项主动LSP均未确认（三timeout、一push-only），modeall五文件不完整、三个复杂度提示；不靠拆函数或ignore压制。目录仍133项／97待整理，未重跑无变化原资源／目录服务／Vue／DPR1／城市原证／HTTPS／Trial。下一步接版本化小配方、私有预览、完整配方复用和实际端到端链；S1／S6／goal未完成。
+
+### 接续：私有配方规划器（未接入产品相册／画布）
+
+本段记录规划器批次结束时状态；后继画布管线接线见下一节，保留此历史标题与测试版本。
+
+`mapspriterecipes.js`生成与source分离的预览描述，先核原子和capture可保持的规范几何；在完整规则配方匹配时引用已有作者材料，否则生成现有组批命令，不客户端插入定义。显示名／出生溯源不作为规则差异，但额外约束、变体或mask不能忽略。只读／地理未知配方即使已有同图材料也不能生成放置；规划阶段不分配ID，孔洞与空anchor不补格。细节和工程边界在准入§2.1r维护，未新增目录准入。
+
+七个前端入口60项通过，永久表达性入口已改用该规划器生成命令及识别真实capture后的复用，43.417秒完整通过。初轮三项主动LSP2确认1push-only，补空anchor用例后的测试复查push-only，最终modeall仍五文件不完整。该批结束时产品相册／画布尚未调用该模块，目录及程序壳未变，不重跑无关浏览器／Vue／原资源／完整目录服务／HTTPS／Trial；S1／S6不勾。
+
+### 接续：私有相册DTO与画布管线（尚未登记新目录配方）
+
+`mapcanvas.js`接入程序配方规划器，私有完整定义供缩略图／幽灵／footprint共用，Vue仍只接显示DTO，不把`catalog:<itemId>`插入source。每次源安装重算计划；一次确认stage整组，真实capture重读后下次只复用一命令，undo回原源后恢复新建计划。透明anchor不补实，只读／缺原子／越界／锁层／隐藏不放置，切源／取消／图集清空／视口变化取消；拒绝后迟到确认不重放。详细维护源[准入§2.1r](re-notes-editor-map-admission.md#sprite-g05-small-recipe-batches)。
+
+七前端入口64项通过；新四组含双DPR四季绘图调用、DTO隔离、真实capture、完整复用及各拒绝边界。永久表达性入口34.704秒通过，已由真实画布确认→控制器→共同preview／服务→内存JSON保存／重读贯通，包含一次undo、重读后一命令复用、身份释放取消；不是HTTPS／SQL／鉴权／票据或玩家加载。build/check JS1173998B／CSS149223B／13licenses，fresh DPR2两尺寸完整原有133卡／256槽回归通过。主动LSP三项未确认（一timeout两push-only）、modeall五文件不完整与八复杂度提示保留。
+
+程序壳现包含规划器，但v34无`recipes`登记，生产默认目录仍133卡、97待整理；工程注入配方的绘图单测不冒充新配方真实PNG浏览器验证。下一步登记受证的小配方及原资源／256槽去向审计，再验真实选择和HTTPS／票据链。本轮未改Vue／共同核心／服务／目录，未重跑无变化原资源／完整目录服务／独立Vue／DPR1／HTTPS／Trial。S1全目录、S6及goal仍未完成。
+
+### 接续：v35紧凑四格正式登记及隔离发布闭环
+
+此前“未登记配方／浏览器只验133卡”为v34历史，现独立recipes登记一条2×2山纹，不借旧片段ID。完整原窗口／四季与Web边界唯一详见[准入§2.1s](re-notes-editor-map-admission.md#sprite-g05-compact-materialized)。134项、57放77只读，去向66／82／1／14／93；G05余13、G02余80，完整库未完成。
+
+65前端、31原资源、正式目录默认画布→共同服务／JSON／预算（34.332秒）、build/check（JS1174825B／CSS149223B／13licenses）、fresh双DPR两尺寸完整浏览器通过。新卡四季实际RGB、拖放／取消／一次undo、七命令保存及重读一命令复用均已走产品。真实隔离HTTPS626.132秒通过，含SQLite完整源等于七条共同命令、两种创建继承、copy一命令复用独立使旧检验票失效、再检验／审核／实际玩家加载器读四byte。不是公网／生产／整局验证。首轮单测旧G05列表及浏览器隐藏图层定位失败均按原证／真实布局修正，产品未改以迎合测试。
+
+八路径LSP2确认6未确认，modeall五文件不完整、八复杂度提示保留。无Vue／共同核心／schema变更，旧133服务身份／城市原证／身份成员关系／Vue保持明确历史，不重建Trial。S1全库与S6／goal仍待；下一步按剩余13山纹／80水纹的具体原证和支持边界继续，不把本条成功外推为全库物化认证。
+
+### 接续：v36山坡小窗口批次与G05去向闭合
+
+从剩13槽的448个受限2×2原图窗口候选中，经四季上下文／原MDL像素复核选择九种小型斜面、横带和折角，未批量转入其它439候选，也不裁旧片段／借身份。完整表及可复核方法唯一维护于[准入§2.1t](re-notes-editor-map-admission.md#sprite-g05-small-window-batch)。目录143项（133旧定义引用＋10原子物化），去向79／82／1／14／80；G05清空，水纹G02=80仍未闭合，不把图样共现写成自然对象／通路／地理规则。
+
+66前端、31原资源（115.046秒）、全部10物化配方逐条共同服务／完整JSON／原图等价／复用（81.166秒）、build/check（JS1181931B／CSS149223B／13licenses）通过。fresh双DPR各两尺寸通过：143卡／256槽、十配方逐卡四季真实RGB与原证SHA相等，山纹确认／整组撤销及原紧凑卡保存重读／复用保持。初轮两处旧pending断言按新原证撤销，双DPR合并900秒超时只有DPR2完成，DPR1独立900秒预算完整重跑；不把失败轮记成功。五路径LSP2确认3push-only，modeall五文件不完整／八复杂度提示。未改Vue／共同核心／服务，不重复Vue／Trial／schema；HTTPS最近仍v35首配方，不称新增九项逐一发布。目录SHA与独占g05-small-window-batch-r1报告绑定，旧报告保留。
+
+### 验证与失败记录
+
+以下为初轮历史；当前验证以各接续段为准。
+
+18项前端Node测试通过；Vue build后check一致，独立Vue LS检查32 SFC通过（ChaptersPanel既有TS6133提示未改）。全新浏览器DPR1和DPR2各运行1600×1000、900×700，覆盖上述UI、保存重读、角色、dirty取消；使用真实登记资源与API内存夹具，不冒真实HTTPS鉴权／持久化／发布链。
+
+窄屏首轮分页挤空表格导致点击超时，已调整右栏宽度和上下区高度后通过。四季春季回返像素hash曾因Chromium重复读像素后渲染后端变化而不同；夹具固定`--disable-accelerated-2d-canvas`后通过，此为固定软件后端证据，不代表全部GPU后端逐像素一致。
+
+变更JS语法及diff通过。宿主主动LSP十个UI/JS路径均timeout或push-only未确认，新Python审计也push-only；不能记clean，独立Vue结果单独报告。`lens_diagnostics mode=all`另报mapcanvas四项、gamemapworkbench一项复杂度warning，及三Vue／CSS扫描不完整；未屏蔽，不称全仓clean。未跑S5真实隔离HTTPS全链、未重建trialweb（无web/src变更），不以旧测试覆盖新素材/海域/拖放。详细会话记录见journal§76。

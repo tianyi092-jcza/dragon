@@ -4,7 +4,7 @@ import { createBaseMapController } from '../src/basemap.js';
 
 function fixture() {
   let stored = null, model, painted, postError = null, readError = null, allow = true;
-  const calls = [];
+  const calls = [], paints = [];
   const actor = { user: { id: 'admin', role: 'admin', mustChangePassword: false }, version: 1 };
   const fresh = () => ({ version: 1, digest: 'a'.repeat(64), template: { content: { map: { value: 0 } } } });
   const controller = createBaseMapController({
@@ -16,12 +16,15 @@ function fixture() {
       if (body === undefined && readError) throw readError;
       return { snapshot: structuredClone(stored) };
     },
-    work: action => action(), publish: value => { model = value; }, paint: value => { painted = value; },
-    preview: (source, edits) => ({ map: { value: source.map.value + edits.reduce((sum, edit) => sum + edit.amount, 0) } }),
+    work: action => action(), publish: value => { model = value; }, paint: value => { painted = value; paints.push(value); },
+    preview: (source, edits) => {
+      if (edits.some(edit => edit.failPreview)) throw new Error('preview rejected');
+      return { map: { value: source.map.value + edits.reduce((sum, edit) => sum + edit.amount, 0) } };
+    },
     confirm: () => allow,
   });
   controller.setIdentity(actor);
-  return { controller, calls, actor, model: () => model, painted: () => painted,
+  return { controller, calls, paints, actor, model: () => model, painted: () => painted,
     postError: value => { postError = value; }, readError: value => { readError = value; }, allow: value => { allow = value; } };
 }
 
@@ -49,6 +52,51 @@ test('explicit initialization; display projection excludes source; stage/undo/sa
   assert.equal(f.calls.at(-1).body, undefined);
   const count = f.calls.length;
   await a.initialize(); await a.save(); assert.equal(f.calls.length, count);
+});
+
+test('one staged batch paints once, undoes once, and saves the existing flat protocol', async () => {
+  const f = fixture(), a = f.controller.actions;
+  await a.reload(); await a.initialize(); a.stage({ amount: 1 });
+  const batch = [{ amount: 2 }, { amount: 3 }], paints = f.paints.length;
+  assert.equal(a.stage(batch), true); batch[0].amount = 100;
+  assert.equal(f.paints.length, paints + 1); assert.equal(f.painted().map.value, 6);
+  assert.equal(f.model().editCount, 3, 'wire-command budget count, not gesture count');
+  a.stage({ amount: 4 }); a.undo(); assert.equal(f.painted().map.value, 6);
+  a.undo(); assert.equal(f.painted().map.value, 1); assert.equal(f.model().editCount, 1);
+  a.stage([{ amount: 2 }, { amount: 3 }]); await a.save();
+  assert.deepEqual(f.calls.at(-2).body, { edits: [{ amount: 1 }, { amount: 2 }, { amount: 3 }] });
+  assert.equal(f.model().dirty, false); assert.equal(f.painted().map.value, 6);
+  a.stage({ amount: 7 }); a.undo(); assert.equal(f.painted().map.value, 6);
+  assert.equal(f.model().editCount, 0, 'reread clears batch undo boundaries');
+});
+
+test('empty, oversized and late-failing batches preserve both pending data and undo history', async () => {
+  const f = fixture(), a = f.controller.actions;
+  await a.reload(); await a.initialize(); a.stage({ amount: 7 });
+  const source = f.painted(), paints = f.paints.length;
+  assert.throws(() => a.stage([]), /不可為空/);
+  assert.throws(() => a.stage([{ amount: 1 }, { amount: 2, failPreview: true }]), /preview rejected/);
+  assert.throws(() => a.stage(Array.from({ length: 128 }, () => ({ amount: 1 }))), /上限/);
+  assert.throws(() => a.stage([{ amount: 1 }, { amount: 2, text: '漢'.repeat(6000) }]), /上限/);
+  assert.equal(f.painted(), source); assert.equal(f.paints.length, paints); assert.equal(f.model().editCount, 1);
+  a.stage(Array.from({ length: 127 }, () => ({ amount: 1 })));
+  assert.equal(f.model().editCount, 128); a.undo();
+  assert.equal(f.painted().map.value, 7); a.undo(); assert.equal(f.painted().map.value, 0);
+});
+
+test('batch validation rejection remains undoable, while uncertain saves block all batch replay', async () => {
+  const f = fixture(), a = f.controller.actions;
+  await a.reload(); await a.initialize(); a.stage([{ amount: 2 }, { amount: 3 }]);
+  f.postError(Object.assign(new Error('invalid'), { status: 422 })); await a.save();
+  assert.equal(f.model().locked, false); a.undo(); assert.equal(f.model().dirty, false);
+  a.stage([{ amount: 2 }, { amount: 3 }]); f.postError(new Error('response lost')); await a.save();
+  const paints = f.paints.length; a.undo(); assert.equal(a.stage([{ amount: 9 }]), false);
+  assert.equal(f.paints.length, paints); assert.equal(f.model().editCount, 2);
+  f.postError(null); await a.reload(); a.stage({ amount: 1 }); a.undo();
+  assert.equal(f.model().editCount, 0); assert.equal(f.painted().map.value, 0);
+  a.stage([{ amount: 2 }, { amount: 3 }]);
+  f.controller.setIdentity({ ...f.actor, version: 2 }); await a.reload();
+  a.stage({ amount: 1 }); a.undo(); assert.equal(f.model().dirty, false);
 });
 
 test('known validation rejection preserves editable input; uncertain write blocks replay', async () => {

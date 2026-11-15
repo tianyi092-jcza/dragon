@@ -11,7 +11,9 @@ export function createMapWorkbench({ api, work, publish, confirm, gameId = null 
     paint: source => { canvas.setSource(source); void atlas.setSource(source); } });
   return Object.freeze({ ...controller, actions: Object.freeze({ ...controller.actions,
     attach: canvas.attach, resize: canvas.resize, pick: canvas.pick, pan: canvas.pan, zoom: canvas.zoom,
-    fit: canvas.fit, locate: canvas.locate, focusDiagnostic: canvas.focusDiagnostic, selectGroup: canvas.selectGroup, layer: canvas.layer, previewMaterial: canvas.previewMaterial, season: atlas.setSeason, retryAtlas: atlas.retry,
+    fit: canvas.fit, grid: canvas.grid, locate: canvas.locate, focusDiagnostic: canvas.focusDiagnostic, selectGroup: canvas.selectGroup, layer: canvas.layer, previewMaterial: canvas.previewMaterial, season: atlas.setSeason, retryAtlas: atlas.retry,
+    previewPlacement: canvas.previewPlacement, cancelPlacement: canvas.cancelPlacement,
+    commitPlacement: () => work(() => canvas.commitPlacement()),
     command: (op, fields) => work(() => canvas.command(op, fields)),
   }) });
 }

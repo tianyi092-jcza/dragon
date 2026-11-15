@@ -1,0 +1,30 @@
+{
+  "schema": "map-base-presets-1",
+  "catalogRevision": "map-base-presets-1",
+  "items": {
+    "sea-base-95-v1": {
+      "name": "海域基底",
+      "support": "explicit-base-fill",
+      "fill": { "tile": 95, "geography": 1 },
+      "scope": "selected-cells-only",
+      "geographyAuthority": "web-author-explicit-choice",
+      "preserveOverlays": true,
+      "periodPixels": [2, 2],
+      "source": {
+        "revision": "map-2-28805fc52a1c79910a949fb32b242323777c1741245724b8c346fd8e7a567bfe",
+        "resource": "MMAP.MDL",
+        "byteOffset": 12160,
+        "byteLength": 128,
+        "sha256": "1343d1f3641745575b7c889286478988827c4f4bac686c1a24b9424200e03432",
+        "atlasRect": [240, 80, 16, 16],
+        "seasonRgbSha256": {
+          "spring": "a22b32429919b7039306ce9cfe1e231d21f3587efe7618d938c0570e5e9d7f5d",
+          "summer": "a22b32429919b7039306ce9cfe1e231d21f3587efe7618d938c0570e5e9d7f5d",
+          "autumn": "a22b32429919b7039306ce9cfe1e231d21f3587efe7618d938c0570e5e9d7f5d",
+          "winter": "a22b32429919b7039306ce9cfe1e231d21f3587efe7618d938c0570e5e9d7f5d"
+        },
+        "evidenceRef": "docs/re-notes-editor-map-admission.md#21a-接续原资源核对byte95重复纹理非海域规则"
+      }
+    }
+  }
+}

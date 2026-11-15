@@ -41,6 +41,20 @@ test('author map session uses copy endpoints, command payload and reread; never 
   assert.equal(f.model().dirty, false); assert.equal(f.source().cities.city.name, '甲');
 });
 
+test('author batches retain a single undo boundary and send flat copy edits after a known rejection', async () => {
+  const f = fixture(), actions = f.controller.actions; await actions.enter();
+  const one = { op: 'base-fill', cells: [0], tile: 16, geography: 0 };
+  const batch = [{ op: 'decoration-remove', memberIds: ['one'] }, { op: 'decoration-remove', memberIds: ['two'] }];
+  actions.stage(one); actions.stage(batch); f.rejectSave(true); await actions.save();
+  assert.equal(f.model().uncertain, false); assert.equal(f.model().editCount, 3);
+  actions.undo(); assert.deepEqual(f.source().map.decorations, [one]);
+  actions.stage(batch); f.rejectSave(false); await actions.save();
+  assert.deepEqual(f.calls.at(-2).body, { module: 'map', patch: { edits: [one, ...batch] } });
+  assert.equal(f.calls.at(-1).body, undefined); assert.equal(f.model().dirty, false);
+  actions.stage(one); actions.undo(); assert.equal(f.model().dirty, false);
+  assert.deepEqual(f.source().cities, { city: { name: '甲' } });
+});
+
 test('copy rejection preserves input; session loss clears sources and stale read cannot restore them', async () => {
   const f = fixture(), actions = f.controller.actions; await actions.enter();
   actions.stage({ op: 'base-fill', cells: [0], tile: 16, geography: 0 });

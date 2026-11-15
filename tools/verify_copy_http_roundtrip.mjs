@@ -4,6 +4,9 @@
 // 用法：node tools/verify_copy_http_roundtrip.mjs [--browser]（cwd=web-port）
 // Browser mode requires explicit installed PLAYWRIGHT_MODULE/PLAYWRIGHT_CHROMIUM_EXECUTABLE.
 import assert from 'node:assert/strict';
+import { selectMapLibraryTab } from './map_workspace_browser_helpers.mjs';
+import spriteCatalog from '../editor-ui/src/mapspritecatalog.json' with { type: 'json' };
+import { planSpriteMaterialization } from '../editor-ui/src/mapspriterecipes.js';
 import test from 'node:test';
 import { createRequire } from 'node:module';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -15,6 +18,9 @@ import { loadPlayerPack } from '../web/src/player/playerpack.js';
 import { createPlayerEnvironment } from '../web/src/player/playerenvironment.js';
 import { ASSET_TYPES } from '../web/src/player/runtimecontract.js';
 import { prepareScenario } from '../web/src/game/scenarioassembly.js';
+import { componentCells } from '../web/src/editor/componenttools.js';
+import { applyMapWorkspaceEdits } from '../server/mapworkspace.js';
+import { fitViewport, worldToScreen } from '../web/src/editor/viewport.js';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 import { request as httpsRequest } from 'node:https';
 
@@ -222,19 +228,20 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
   // The production pack/environment/world loaders consume the ACTUAL approved
   // SQLite bytes. The session/static transport below is an isolated test port,
   // not proof of public distribution, reader admission, or a browser campaign.
-  const packRow = storage.sql.exec('SELECT * FROM published_packs WHERE game_id=?', gameId).toArray()[0];
+  async function verifyApprovedMap(approvedGameId, approval, compiled, priorTerrain) {
+  const packRow = storage.sql.exec('SELECT * FROM published_packs WHERE game_id=?', approvedGameId).toArray()[0];
   const manifest = JSON.parse(packRow.manifest_json), chapterId = manifest.chapters[0];
-  const identity = { gameId, releaseId: ok.data.releaseId, ordinal: ok.data.ordinal, revision: packRow.revision,
+  const identity = { gameId: approvedGameId, releaseId: approval.releaseId, ordinal: approval.ordinal, revision: packRow.revision,
     sourceDigest: packRow.source_digest, chapterId, chapters: manifest.chapters, manifestDigest: sha(packRow.manifest_json) };
   const declarations = new Map([...manifest.assets, ...manifest.minimapAssets, ...manifest.portraits].map(entry => [entry.assetId, entry]));
   const result = (bytes, contentType) => ({ bytes: new Uint8Array(bytes), contentType, sha256: sha(bytes) });
   const pack = await loadPlayerPack({ compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 128 * 1024 * 1024,
     session: { identity, state: () => 'active', read: async role => {
       if (role === 'manifest') return result(Buffer.from(packRow.manifest_json), 'application/json');
-      if (role === 'chapter:' + chapterId) return result(Buffer.from(storage.sql.exec('SELECT state_json FROM published_pack_chapters WHERE game_id=? AND chapter_id=?', gameId, chapterId).toArray()[0].state_json), 'application/json');
+      if (role === 'chapter:' + chapterId) return result(Buffer.from(storage.sql.exec('SELECT state_json FROM published_pack_chapters WHERE game_id=? AND chapter_id=?', approvedGameId, chapterId).toArray()[0].state_json), 'application/json');
       assert.ok(role.startsWith('asset:')); const id = role.slice(6), declaration = declarations.get(id); assert.ok(declaration);
       if (declaration.role === 'game-portrait') return result(readFileSync('web/' + declaration.url), 'image/png');
-      const row = storage.sql.exec('SELECT bytes FROM published_pack_assets WHERE game_id=? AND asset_id=?', gameId, id).toArray()[0];
+      const row = storage.sql.exec('SELECT bytes FROM published_pack_assets WHERE game_id=? AND asset_id=?', approvedGameId, id).toArray()[0];
       assert.ok(row); return result(Buffer.from(row.bytes), ASSET_TYPES[id]);
     } }, readStatic: async path => {
       assert.ok([...Object.values(manifest.visualAssets.seasons), ...Object.values(manifest.visualAssets.seasonAtlases)].some(entry => entry.path === path));
@@ -243,13 +250,16 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
   try {
     const environment = createPlayerEnvironment(pack, { playerFaction: pack.chapter.factions[0].idx });
     const terrain = await environment.world.terrain.loadTerrain();
-    assert.deepEqual(Buffer.from(terrain), Buffer.from(expected.terrainBytes));
-    assert.notEqual(sha(terrain), sha(beforeMap.terrainBytes));
+    assert.deepEqual(Buffer.from(terrain), Buffer.from(compiled.terrainBytes));
+    assert.notEqual(sha(terrain), sha(priorTerrain));
     const roads = await environment.world.roads.loadRoadGraph(); assert.equal(roads.version, 2); assert.equal(roads.nodes.length, 192);
     const prepared = await prepareScenario({ raw: environment.raw, idx: 0, mode: 'fresh', content: environment.content, world: environment.world });
     assert.equal(prepared.scenario.cities.length, 192);
-    assert.deepEqual(prepared.metadata.content.publication, { releaseId: ok.data.releaseId, ordinal: '1.0' });
+    assert.deepEqual(prepared.metadata.content.publication, { releaseId: approval.releaseId, ordinal: approval.ordinal });
+    return terrain;
   } finally { pack.close(); }
+  }
+  await verifyApprovedMap(gameId, ok.data, expected, beforeMap.terrainBytes);
 
   // 普通新建也直接拥有据点主表，武将允许为空；来源相同不等于共用可变数据。
   const newKey = randomUUID();
@@ -306,7 +316,7 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
       page.on('console', message => {
         if (message.type() === 'error' && !(message.location().url === origin + '/favicon.ico' && /404/.test(message.text()))) errors.push({ text: message.text(), location: message.location().url });
       });
-      page.on('requestfailed', request => failures.push(request.url()));
+      page.on('requestfailed', request => failures.push({ url: request.url(), error: request.failure()?.errorText, timing: request.timing() }));
       page.setDefaultTimeout(60000);
       // No routes/mocks: all requests reach the owned HTTPS service and SQLite.
       await page.goto(origin + '/#base-map-editor');
@@ -315,13 +325,237 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
         throw new Error(JSON.stringify({ url: page.url(), body: (await page.locator('body').innerText()).slice(0, 2000), errors, failures }), { cause });
       });
       await page.waitForFunction(() => !document.querySelector('#base-map-editor').textContent.includes('圖集載入中'));
+      assert.deepEqual(failures, [], 'initial template and atlas requests');
       const gameBefore = storage.sql.exec('SELECT data_json FROM game_copies WHERE game_id=?', gameId).toArray()[0].data_json;
-      await panel.locator('.base-map-library > .el-select').click();
-      await page.getByRole('option', { name: '水域與小地圖', exact: true }).click();
+      await selectMapLibraryTab(panel, '水域與小地圖');
       await panel.getByRole('button', { name: /從小地圖隱藏|顯示於小地圖/ }).first().click();
       await panel.getByRole('button', { name: '保存', exact: true }).click();
       await panel.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      assert.deepEqual(failures, [], 'water edit and template reread requests');
+      const beforeSea = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
+      // Explicit annotation within the resource-proven 3x3 sea-texture witness,
+      // not an assertion that arbitrary road/city destinations support sea.
+      await panel.getByRole('button', { name: '全圖', exact: true }).click();
+      for (const layer of ['裝飾', '道路', '據點']) await panel.getByRole('button', { name: '隱藏' + layer, exact: true }).click();
+      const seaCanvas = panel.locator('.base-map-canvas');
+      const seaSize = await seaCanvas.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }));
+      const seaView = fitViewport(seaSize, { width: 384 * 16, height: 256 * 16 });
+      const seaPosition = worldToScreen(seaView, 319.5 * 16, 1.5 * 16);
+      const seaBox = await seaCanvas.boundingBox();
+      await page.mouse.click(seaBox.x + seaPosition[0], seaBox.y + seaPosition[1]);
+      await panel.getByRole('spinbutton', { name: '海域範圍寬', exact: true }).fill('2');
+      await panel.getByRole('spinbutton', { name: '海域範圍高', exact: true }).fill('2');
+      await panel.getByRole('button', { name: '範圍填入海域基底', exact: true }).click();
+      assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
+      assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, beforeSea.digest);
+      await panel.getByRole('button', { name: '撤銷上一步', exact: true }).click();
+      assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+      await page.mouse.click(seaBox.x + seaPosition[0], seaBox.y + seaPosition[1]);
+      await panel.getByRole('button', { name: '範圍填入海域基底', exact: true }).click();
+      await panel.getByRole('button', { name: '保存', exact: true }).click();
+      await panel.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      await page.waitForFunction(() => !document.querySelector('#base-map-editor').textContent.includes('圖集載入中'));
+      const beforeCatalog = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
+      const seaCells = [703, 704, 1087, 1088];
+      const expectedSea = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...beforeSea.template.content }, [
+        { op: 'base-fill', cells: seaCells, tile: 95, geography: 1 },
+      ]);
+      delete expectedSea.gameId;
+      assert.deepEqual(beforeCatalog.template.content, expectedSea, 'HTTPS rectangle writes only its explicit cells and preserves overlays');
+      for (const cell of seaCells) {
+        assert.equal(beforeCatalog.template.content.map.base.terrainRef[cell], 95);
+        assert.equal(beforeCatalog.template.content.map.base.geography[cell], 1);
+      }
+      assert.deepEqual(failures, [], 'sea rectangle undo/save/reread requests');
+      for (const layer of ['裝飾', '道路', '據點']) await panel.getByRole('button', { name: '顯示' + layer, exact: true }).click();
+      // A registered vertical recipe, not a captured material or a rotated image.
+      // Re-place at its raw MAP witness so this does not certify arbitrary topology.
+      const sample = spriteCatalog.components.find(item => item.itemId === 'mountain-column-4-v1');
+      const [sampleX, sampleY] = sample.source.firstWitness;
+      await selectMapLibraryTab(panel, '分類樣板');
+      const mountainItems = [...spriteCatalog.items, ...spriteCatalog.components, ...spriteCatalog.recipes].filter(item => item.category === 'mountain');
+      const sampleJump = panel.locator('.el-pagination__jump input');
+      await sampleJump.fill(String(Math.floor(mountainItems.findIndex(item => item.itemId === sample.itemId) / 25) + 1));
+      await sampleJump.press('Enter');
+      const samplePreview = panel.getByRole('button', { name: `${sample.name}；拖至地圖或按Enter／空白鍵開始放置`, exact: true });
+      await samplePreview.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Escape');
+      assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+      await panel.getByRole('button', { name: '全圖', exact: true }).click();
+      const sampleSize = await seaCanvas.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }));
+      const sampleView = fitViewport(sampleSize, { width: 384 * 16, height: 256 * 16 });
+      const samplePosition = worldToScreen(sampleView, (sampleX + 0.5) * 16, (sampleY + 0.5) * 16);
+      const sampleCanvasBox = await seaCanvas.boundingBox(), sampleBox = await samplePreview.boundingBox();
+      for (const undo of [true, false]) {
+        await page.mouse.move(sampleBox.x + sampleBox.width / 2, sampleBox.y + sampleBox.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(sampleCanvasBox.x + samplePosition[0], sampleCanvasBox.y + samplePosition[1], { steps: 8 });
+        await page.mouse.up();
+        assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
+        if (undo) {
+          await panel.getByRole('button', { name: '撤銷上一步', exact: true }).click();
+          assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+        }
+      }
+      assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, beforeCatalog.digest);
+      await panel.getByRole('button', { name: '保存', exact: true }).click();
+      await panel.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      await page.waitForFunction(() => !document.querySelector('#base-map-editor').textContent.includes('圖集載入中'));
+      const beforeGround = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
+      const samplePlaced = beforeGround.template.content.map.decorations.at(-1);
+      assert.equal(samplePlaced.definitionRef, sample.definitionRef);
+      assert.deepEqual([samplePlaced.x, samplePlaced.y], [sampleX, sampleY]);
+      const expectedCatalog = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...beforeCatalog.template.content }, [{
+        op: 'decoration-place', instanceId: samplePlaced.id, materialId: sample.definitionRef,
+        variantRef: 'original', x: sampleX, y: sampleY, waterClass: null,
+      }]);
+      delete expectedCatalog.gameId;
+      assert.deepEqual(beforeGround.template.content, expectedCatalog, 'catalog save is one exact existing-core command');
+      assert.deepEqual(beforeGround.template.content.componentDefinitions, beforeCatalog.template.content.componentDefinitions,
+        'catalog reuse neither adds budget nor rewrites a definition');
+      assert.deepEqual(failures, [], 'catalog keyboard cancel, pointer undo/save/reread requests');
+      // Byte zero is an ordinary ground-appearance recipe, NOT an empty value or
+      // implicit land annotation. Overlay one explicitly filled sea cell and
+      // carry that difference through both creation entries and player loading.
+      const ground = spriteCatalog.items.find(item => item.itemId === 'ground-texture-0-v1');
+      assert.equal(ground.tile, 0);
+      const groundTabs = panel.locator('.base-map-catalog-tabs');
+      await groundTabs.getByRole('tab', { selected: true }).press('ArrowLeft');
+      assert.equal(await groundTabs.getByRole('tab', { name: '地面', exact: true }).getAttribute('aria-selected'), 'true');
+      await sampleJump.fill('1'); await sampleJump.press('Enter');
+      const groundPreview = panel.getByRole('button', { name: `${ground.name}；拖至地圖或按Enter／空白鍵開始放置`, exact: true });
+      await panel.getByRole('button', { name: '全圖', exact: true }).click();
+      const groundSize = await seaCanvas.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }));
+      const groundView = fitViewport(groundSize, { width: 384 * 16, height: 256 * 16 });
+      const groundPosition = worldToScreen(groundView, 319.5 * 16, 1.5 * 16);
+      const groundCanvasBox = await seaCanvas.boundingBox(), groundBox = await groundPreview.boundingBox();
+      for (const undo of [true, false]) {
+        await page.mouse.move(groundBox.x + groundBox.width / 2, groundBox.y + groundBox.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(groundCanvasBox.x + groundPosition[0], groundCanvasBox.y + groundPosition[1], { steps: 8 });
+        await page.mouse.up();
+        assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
+        if (undo) {
+          await panel.getByRole('button', { name: '撤銷上一步', exact: true }).click();
+          assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+        }
+      }
+      assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, beforeGround.digest);
+      await panel.getByRole('button', { name: '保存', exact: true }).click();
+      await panel.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      await page.waitForFunction(() => !document.querySelector('#base-map-editor').textContent.includes('圖集載入中'));
+      const beforeCapture = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
+      const groundPlaced = beforeCapture.template.content.map.decorations.at(-1);
+      assert.equal(groundPlaced.definitionRef, 'tile-0');
+      assert.deepEqual([groundPlaced.x, groundPlaced.y], [319, 1]);
+      const expectedGround = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...beforeGround.template.content }, [{
+        op: 'decoration-place', instanceId: groundPlaced.id, materialId: ground.definitionRef,
+        variantRef: 'original', x: 319, y: 1, waterClass: null,
+      }]);
+      delete expectedGround.gameId;
+      assert.deepEqual(beforeCapture.template.content, expectedGround, 'byte-zero save is exactly one registered placement');
+      assert.deepEqual(beforeCapture.template.content.componentDefinitions, beforeGround.template.content.componentDefinitions);
+      assert.deepEqual(beforeCapture.template.content.map.base, beforeGround.template.content.map.base);
+      assert.deepEqual(beforeCapture.template.content.map.waterGroups, beforeGround.template.content.map.waterGroups);
+      assert.deepEqual(failures, [], 'byte-zero pointer undo/save/reread requests');
+      // New registered recipe uses seven existing commands, not a borrowed legacy definition.
+      const compact = spriteCatalog.recipes.find(item => item.itemId === 'mountain-slope-compact-4-v1');
+      await groundTabs.getByRole('tab', { selected: true }).press('ArrowRight');
+      await sampleJump.fill(String(Math.floor(mountainItems.findIndex(item => item.itemId === compact.itemId) / 25) + 1));
+      await sampleJump.press('Enter');
+      const compactPreview = panel.getByRole('button', { name: `${compact.name}；拖至地圖或按Enter／空白鍵開始放置`, exact: true });
+      await panel.getByRole('button', { name: '全圖', exact: true }).click();
+      const compactSize = await seaCanvas.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }));
+      const compactView = fitViewport(compactSize, { width: 384 * 16, height: 256 * 16 });
+      const [compactX, compactY] = compact.source.firstWitness;
+      const compactPosition = worldToScreen(compactView, (compactX + 0.5) * 16, (compactY + 0.5) * 16);
+      const compactCanvasBox = await seaCanvas.boundingBox(), compactBox = await compactPreview.boundingBox();
+      for (const undo of [true, false]) {
+        await page.mouse.move(compactBox.x + 8, compactBox.y + 8); await page.mouse.down();
+        await page.mouse.move(compactCanvasBox.x + compactPosition[0], compactCanvasBox.y + compactPosition[1], { steps: 8 });
+        assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+        await page.mouse.up();
+        assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
+        if (undo) {
+          await panel.getByRole('button', { name: '撤銷上一步', exact: true }).click();
+          assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+        }
+      }
+      assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, beforeCapture.digest);
+      await panel.getByRole('button', { name: '保存', exact: true }).click();
+      await panel.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      await page.waitForFunction(() => !document.querySelector('#base-map-editor').textContent.includes('圖集載入中'));
+      const compactSnapshot = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
+      const compactPlaced = compactSnapshot.template.content.map.decorations.at(-1);
+      const compactId = compactPlaced.definitionRef, compactDefinition = compactSnapshot.template.content.componentDefinitions[compactId];
+      assert.deepEqual([compactPlaced.x, compactPlaced.y], [compactX, compactY]);
+      assert.deepEqual(compactDefinition.variants.original.tiles, compact.tiles);
+      assert.equal(Object.keys(compactSnapshot.template.content.componentDefinitions).length, Object.keys(beforeCapture.template.content.componentDefinitions).length + 1);
+      const compactIds = [compactId, ...compactDefinition.captureProvenance.memberIds, compactPlaced.id];
+      const compactCommands = planSpriteMaterialization(beforeCapture.template.content.componentDefinitions, compact).place(compactX, compactY, () => compactIds.shift());
+      assert.equal(compactCommands.length, 7); assert.equal(compactIds.length, 0);
+      const expectedCompact = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...beforeCapture.template.content }, compactCommands);
+      delete expectedCompact.gameId;
+      assert.deepEqual(compactSnapshot.template.content, expectedCompact, 'HTTPS persisted exactly the planned atomic batch with no temporary map instances');
+      assert.deepEqual(failures, [], 'registered compact recipe pointer/grouped undo/save/reread requests');
+      const sourceContent = compactSnapshot.template.content;
+      const captureIndex = sourceContent.selectionGroups.slice(0, 25).findIndex(group =>
+        group.members.every(member => member.layer === 'decorations' && !sourceContent.map.decorations.find(row => row.id === member.id).waterClass)
+        && group.members.reduce((count, member) => count + componentCells(sourceContent,
+          sourceContent.map.decorations.find(row => row.id === member.id)).length, 0) <= 256);
+      assert.ok(captureIndex >= 0, 'real first page has a bounded non-water capture group');
+      const capturedCells = sourceContent.selectionGroups[captureIndex].members.flatMap(member =>
+        componentCells(sourceContent, sourceContent.map.decorations.find(row => row.id === member.id)));
+      await selectMapLibraryTab(panel, 'Web 編輯組合');
+      await panel.getByRole('button', { name: '選取組合', exact: true }).nth(captureIndex).click();
+      await panel.getByRole('textbox', { name: '新素材名稱', exact: true }).fill('HTTPS相冊素材');
+      await panel.getByRole('button', { name: '擷取為素材', exact: true }).click();
+      await panel.getByRole('button', { name: '保存', exact: true }).click();
+      await panel.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      const captured = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
+      const [materialId, material] = Object.entries(captured.template.content.componentDefinitions).find(([, def]) => def.name === 'HTTPS相冊素材');
+      assert.ok(materialId);
+      assert.deepEqual(captured.template.content.map, sourceContent.map, 'capture adds a definition, not a map instance');
+      await selectMapLibraryTab(panel, '我的素材');
+      await panel.getByRole('list', { name: '我的素材相冊', exact: true }).waitFor();
+      const preview = panel.getByRole('button', { name: 'HTTPS相冊素材；拖至地圖或按Enter／空白鍵開始放置', exact: true });
+      await preview.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Escape');
+      assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+      await panel.getByRole('button', { name: '全圖', exact: true }).click();
+      const canvas = panel.locator('.base-map-canvas');
+      const size = await canvas.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }));
+      const view = fitViewport(size, { width: 384 * 16, height: 256 * 16 });
+      // Place over the original captured cells: this tests new persistence without
+      // inventing a rule-valid arbitrary terrain destination.
+      const targetX = Math.min(...capturedCells.map(cell => cell[0])) + material.anchor[0];
+      const targetY = Math.min(...capturedCells.map(cell => cell[1])) + material.anchor[1];
+      const [screenX, screenY] = worldToScreen(view, (targetX + 0.5) * 16, (targetY + 0.5) * 16);
+      const canvasBox = await canvas.boundingBox(), previewBox = await preview.boundingBox();
+      for (const undo of [true, false]) {
+        await page.mouse.move(previewBox.x + previewBox.width / 2, previewBox.y + previewBox.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(canvasBox.x + screenX, canvasBox.y + screenY, { steps: 8 });
+        await page.mouse.up();
+        assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
+        if (undo) {
+          await panel.getByRole('button', { name: '撤銷上一步', exact: true }).click();
+          assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'one undo consumes the entire pointer placement');
+        }
+      }
+      assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, captured.digest, 'preview/undo/staging do not persist');
+      await panel.getByRole('button', { name: '保存', exact: true }).click();
+      await panel.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      assert.deepEqual(failures, [], 'capture and placement requests');
       const templateAfter = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
+      assert.equal(templateAfter.template.content.map.decorations.length, captured.template.content.map.decorations.length + 1);
+      const placed = templateAfter.template.content.map.decorations.at(-1);
+      assert.equal(placed.definitionRef, materialId);
+      assert.deepEqual([placed.x, placed.y], [targetX, targetY]);
+      await panel.getByRole('button', { name: '重新讀取／取消修改', exact: true }).click();
+      await panel.getByText('已重新讀取基礎地圖。', { exact: true }).waitFor();
+      await page.waitForFunction(() => !document.querySelector('#base-map-editor').textContent.includes('圖集載入中'));
+      await preview.waitFor();
+      assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+      assert.deepEqual(failures, [], 'explicit template reread requests');
       assert.notEqual(templateAfter.digest, templateT2.digest);
       assert.equal(storage.sql.exec('SELECT data_json FROM game_copies WHERE game_id=?', gameId).toArray()[0].data_json, gameBefore);
       await page.locator('.current-game').getByRole('button', { name: '重新整理', exact: true }).click();
@@ -332,14 +566,15 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
       const gamePanel = page.locator('#game-map-editor');
       await gamePanel.getByText('已重新讀取遊戲地圖。', { exact: true }).waitFor();
       await page.waitForFunction(() => !document.querySelector('#game-map-editor').textContent.includes('圖集載入中'));
-      await gamePanel.locator('.base-map-library > .el-select').click();
-      await page.getByRole('option', { name: '水域與小地圖', exact: true }).click();
+      await selectMapLibraryTab(gamePanel, '水域與小地圖');
       await gamePanel.getByRole('button', { name: /從小地圖隱藏|顯示於小地圖/ }).first().click();
       await gamePanel.getByRole('button', { name: '保存', exact: true }).click();
       await gamePanel.getByText('已保存並重新讀取遊戲地圖。', { exact: true }).waitFor();
+      await page.waitForLoadState('networkidle');
       assert.notEqual(storage.sql.exec('SELECT data_json FROM game_copies WHERE game_id=?', gameId).toArray()[0].data_json, gameBefore);
       assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, templateAfter.digest);
       assert.deepEqual(mapData((await call(`/api/games/${newId}/copy`, undefined, admin)).data.data), mapData(blank.data.data));
+      assert.deepEqual(failures, [], 'game map save requests');
       const browserCreated = [];
       for (const full of [true, false]) {
         await page.locator(`[data-view="${full ? 'copy-game-editor' : 'copy'}"]`).click();
@@ -352,20 +587,78 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
         const response = await completed;
         assert.equal(response.status(), 200, await response.text());
         const createdGame = (await response.json()).gameId;
+        // Let the browser consume its follow-up reads/atlas before the test's
+        // synchronous compilation work occupies this same-process HTTPS server.
+        await page.waitForLoadState('networkidle');
         const record = await call(`/api/games/${createdGame}/copy`, undefined, admin);
         assert.equal(record.status, 200);
         assert.equal(record.data.data.mapOrigin.digest, templateAfter.digest);
         assert.deepEqual(record.data.data.map, templateAfter.template.content.map);
+        assert.deepEqual(record.data.data.componentDefinitions[materialId], material, 'captured definition is independently materialized with both new copies');
+        assert.deepEqual(record.data.data.componentDefinitions[compactId], compactDefinition);
+        assert.deepEqual(record.data.data.map.decorations.find(row => row.id === compactPlaced.id), compactPlaced);
+        assert.equal(record.data.data.map.decorations.at(-1).definitionRef, materialId);
+        assert.deepEqual(record.data.data.map.decorations.find(row => row.id === samplePlaced.id), samplePlaced);
+        assert.deepEqual(record.data.data.map.decorations.find(row => row.id === groundPlaced.id), groundPlaced);
+        assert.deepEqual(record.data.data.componentDefinitions['tile-0'], beforeGround.template.content.componentDefinitions['tile-0']);
+        assert.deepEqual(record.data.data.componentDefinitions[sample.definitionRef], beforeCatalog.template.content.componentDefinitions[sample.definitionRef]);
         assert.equal(Object.keys(record.data.data.generals).length, full ? 466 : 0);
         browserCreated.push(record.data.data);
       }
       assert.deepEqual(mapData(browserCreated[0]), mapData(browserCreated[1]), 'both actual browser creation entries use the same current template');
+      const albumGameId = browserCreated[0].gameId;
+      const water = browserCreated[0].map.waterGroups[0];
+      const waterEdit = await call(`/api/games/${albumGameId}/copy`, { module: 'map', patch: {
+        edits: [{ op: 'water-visibility', groupId: water.id, showOnMinimap: !water.showOnMinimap }],
+      } }, admin);
+      assert.equal(waterEdit.status, 200, JSON.stringify(waterEdit.data));
+      const compactPass = await call(`/api/games/${albumGameId}/copy/validate`, {}, admin);
+      assert.equal(compactPass.status, 200); assert.equal(compactPass.data.state, 'passed');
+      const compactReuse = planSpriteMaterialization(browserCreated[0].componentDefinitions, compact);
+      assert.equal(compactReuse.materialId, compactId); assert.equal(compactReuse.definitionCost, 0);
+      const compactReuseEdits = compactReuse.place(compactX, compactY, kind => `${albumGameId}#${kind}-${sha('compact-reuse')}`);
+      assert.equal(compactReuseEdits.length, 1);
+      const albumEdit = await call(`/api/games/${albumGameId}/copy`, { module: 'map', patch: {
+        edits: compactReuseEdits,
+      } }, admin);
+      assert.equal(albumEdit.status, 200, JSON.stringify(albumEdit.data));
+      const compactStale = await call(`/api/games/${albumGameId}/copy/submission`, { ticket: compactPass.data.ticket, description: '配方復用後舊票拒絕' }, admin);
+      assert.equal(compactStale.status, 409); assert.equal(compactStale.data.error, 'VALIDATION_STALE');
+      const albumCopy = await call(`/api/games/${albumGameId}/copy`, undefined, admin);
+      assert.equal(albumCopy.status, 200);
+      assert.deepEqual(albumCopy.data.data.componentDefinitions[materialId], material);
+      assert.deepEqual(albumCopy.data.data.map.decorations.find(row => row.id === placed.id), placed);
+      assert.equal(albumCopy.data.data.map.decorations.at(-1).definitionRef, compactId);
+      assert.deepEqual(albumCopy.data.data.componentDefinitions, browserCreated[0].componentDefinitions);
+      assert.deepEqual(albumCopy.data.data.map.decorations.find(row => row.id === samplePlaced.id), samplePlaced);
+      assert.deepEqual(albumCopy.data.data.componentDefinitions[sample.definitionRef], beforeCatalog.template.content.componentDefinitions[sample.definitionRef]);
+      assert.equal(albumCopy.data.data.map.waterGroups[0].showOnMinimap, !water.showOnMinimap);
+      assert.deepEqual(albumCopy.data.data.map.decorations.find(row => row.id === groundPlaced.id), groundPlaced);
+      const albumExpected = compileGameSource(albumCopy.data.data, sha);
+      assert.equal(albumExpected.terrainBytes[seaCells[0]], 0, 'copy compilation retains literal byte zero over sea');
+      assert.equal(albumExpected.geography[seaCells[0]], 1, 'ordinary ground appearance never changes sea geography');
+      const albumPass = await call(`/api/games/${albumGameId}/copy/validate`, {}, admin);
+      assert.equal(albumPass.status, 200, JSON.stringify(albumPass.data));
+      assert.equal(albumPass.data.state, 'passed');
+      const albumSubmit = await call(`/api/games/${albumGameId}/copy/submission`, {
+        ticket: albumPass.data.ticket, description: '真實HTTPS相冊素材複製與地圖編輯後發布驗證',
+      }, admin);
+      assert.equal(albumSubmit.status, 200, JSON.stringify(albumSubmit.data));
+      assert.equal(albumSubmit.data.state, 'submitted');
+      const albumApproval = await call(`/api/games/${albumGameId}/copy/approve`, {}, admin);
+      assert.equal(albumApproval.status, 200, JSON.stringify(albumApproval.data));
+      assert.equal(albumApproval.data.state, 'approved');
+      assert.equal(albumApproval.data.ordinal, '1.0');
+      const publishedTerrain = await verifyApprovedMap(albumGameId, albumApproval.data, albumExpected, beforeMap.terrainBytes);
+      assert.equal(publishedTerrain[seaCells[0]], 0, 'approved bytes consumed by the player world retain zero, not an empty/fallback tile');
+      for (const [dx, dy, tile] of compact.tiles) assert.equal(publishedTerrain[(compactY + dy) * 384 + compactX + dx], tile, 'new recipe cells survive the actual approved-pack player loader');
       assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, templateAfter.digest);
+      assert.deepEqual(mapData((await call(`/api/games/${browserCreated[1].gameId}/copy`, undefined, admin)).data.data), mapData(browserCreated[1]));
       await page.locator('[data-view="mapview-editor"]').click();
       await page.setViewportSize({ width: 900, height: 700 });
       await page.waitForFunction(() => document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1);
       assert.deepEqual(errors, []); assert.deepEqual(failures, []);
-      console.log('PASS fresh browser -> actual HTTPS -> SQLite template/game-map save and reread, cross-game isolation, both creation entries using current template, narrow layout; no API mocks.');
+      console.log('PASS fresh browser -> actual HTTPS -> SQLite template/game-map save and reread; explicit sea rectangle, registered vertical recipe and byte-zero ground overlay single undo/save/reread, zero survives both creations/publication/player loading without changing sea geography, exact definition reuse, new compact recipe atomic materialization/inherited definition/reuse/stale ticket refusal/player cells, captured-material album, keyboard cancel, pointer placement, single undo and persisted instance; cross-game isolation, both creation entries using current template; inherited catalog recipe and captured material -> copy map edit -> validate/submit/approve -> actual player pack/environment/scenario loaders; narrow layout; no API mocks.');
     } finally { await browser.close(); }
   }
   } finally { await close(); }

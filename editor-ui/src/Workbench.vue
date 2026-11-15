@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElLink } from 'element-plus/es/components/link/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
@@ -8,6 +8,8 @@ import { ElPopover } from 'element-plus/es/components/popover/index.mjs';
 import { ElConfigProvider } from 'element-plus/es/components/config-provider/index.mjs';
 import { vLoading } from 'element-plus/es/components/loading/index.mjs';
 import zhTw from 'element-plus/es/locale/lang/zh-tw.mjs';
+import { ElMenu, ElMenuItem, ElMenuItemGroup } from 'element-plus/es/components/menu/index.mjs';
+import WorkspaceIcon from './WorkspaceIcon.vue';
 import LoginPage from './LoginPage.vue';
 import AccountPages from './AccountPages.vue';
 import AccountsPanel from './AccountsPanel.vue';
@@ -30,6 +32,7 @@ const accountsPanel = ref(null);
 // New map sessions participate directly in the shared context's leave guard.
 defineExpose({ accountDirty: () => accountsPanel.value?.dirty() ?? false });
 const userMenu = ref(false);
+const collapsed = ref(false), navigationMenu = ref(null);
 const ready = computed(() => props.state.authenticated && !props.state.mustChange);
 const menu = computed(() => props.state.views.filter(item => !item[2] || props.state.admin));
 // 選單只有一級，分組只作標籤：工作台級（底層資源）→ 遊戲級 → 管理員專屬。
@@ -40,12 +43,19 @@ const groups = computed(() => {
 // 頂部選擇器是全局「當前遊戲」上下文；切換須經草稿控制器的未保存改動攔截。
 function switchGame(value) { props.draft.chooseGame(value); }
 const title = computed(() => ({ profile: '個人資料', password: '變更密碼' }[props.state.view] || menu.value.find(item => item[0] === props.state.view)?.[1] || '工作台'));
-function go(view) { userMenu.value = false; props.navigate(view); }
+async function go(view) {
+  userMenu.value = false;
+  props.navigate(view);
+  // Element Plus selects optimistically; the shared dirty/permission guard
+  // remains authoritative even when it rejects a navigation attempt.
+  await nextTick();
+  navigationMenu.value?.updateActiveIndex(props.state.view);
+}
 </script>
 
 <template>
   <ElConfigProvider :locale="zhTw" size="default" :empty-values="[null, undefined]">
-  <div v-loading.fullscreen="globalLoading" :element-loading-svg="loadingSvg" element-loading-custom-class="workbench-loading" :aria-busy="Boolean(state.busy || state.loading)" class="workbench" :class="{ 'auth-layout': !ready }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
+  <div v-loading.fullscreen="globalLoading" :element-loading-svg="loadingSvg" element-loading-custom-class="workbench-loading" :aria-busy="Boolean(state.busy || state.loading)" class="workbench" :class="{ 'auth-layout': !ready, 'nav-collapsed': ready && collapsed }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
     <header class="workbench-header">
       <ElLink class="brand" href="#draft-editor" @click.prevent="go('draft-editor')"><span class="brand-mark">臥</span><span>臥龍傳<span class="brand-caption">創作工作台</span></span></ElLink>
       <div class="current-game" :hidden="!ready">
@@ -71,11 +81,17 @@ function go(view) { userMenu.value = false; props.navigate(view); }
       </div>
     </header>
     <aside id="menu" class="workbench-menu" :hidden="!ready" aria-label="編輯模組">
-      <template v-for="group in groups" :key="group.key">
-        <p class="nav-label">{{ group.label }}</p>
-        <ElButton v-for="[id, label] in group.items" :key="id" :data-view="id" :type="state.view === id ? 'primary' : 'default'" :aria-current="state.view === id ? 'page' : undefined" :disabled="state.busy" @click="go(id)">{{ label }}</ElButton>
-      </template>
-      <p class="nav-note">草稿與正式版本分離<br>遊戲規則共用同一引擎<br><ElLink href="/shell-ui-licenses.txt" target="_blank" rel="noopener">第三方授權</ElLink></p>
+      <ElMenu ref="navigationMenu" class="module-menu" :collapse="collapsed" :collapse-transition="false" :default-active="state.view" @select="go">
+        <ElMenuItemGroup v-for="group in groups" :key="group.key" :title="collapsed ? '' : group.label">
+          <ElMenuItem v-for="[id, label] in group.items" :key="id" :index="id" :data-view="id" :aria-label="label" :aria-current="state.view === id ? 'page' : undefined" :disabled="state.busy">
+            <WorkspaceIcon :name="id" /><template #title>{{ label }}</template>
+          </ElMenuItem>
+        </ElMenuItemGroup>
+      </ElMenu>
+      <div class="navigation-footer">
+        <ElLink href="/shell-ui-licenses.txt" target="_blank" rel="noopener" aria-label="第三方授權" title="第三方授權"><WorkspaceIcon v-if="collapsed" name="info" /><span v-else>第三方授權</span></ElLink>
+        <ElButton :aria-expanded="!collapsed" :aria-label="collapsed ? '展開導覽' : '折疊導覽'" @click="collapsed = !collapsed"><WorkspaceIcon :name="collapsed ? 'expand' : 'collapse'" /><span v-if="!collapsed">折疊導覽</span></ElButton>
+      </div>
     </aside>
     <main class="workbench-main">
       <div class="page-heading" :hidden="!ready"><h1>{{ title }}</h1></div>

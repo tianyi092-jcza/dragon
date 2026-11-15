@@ -5,6 +5,7 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { readInstalledEditorSource } from './editor_builtin_source.mjs';
 import { planSystemBaseMapPieces } from './system_base_map_pieces.mjs';
+import { mapSpriteIdentity } from './map_sprite_identity.mjs';
 import { WATER_CLASSES } from '../web/src/content/authoring/maplayers.js';
 
 const round = process.argv[2];
@@ -208,13 +209,31 @@ const html = `<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta na
 <h2>既存水域／道路／據點成員樣本</h2>${figures}</html>`;
 const piecePlan = { sourceRevision: source.revision,
   plannerSha256: sha(readFileSync(new URL('./system_base_map_pieces.mjs', import.meta.url))), ...planSystemBaseMapPieces(source) };
+const strictGroups = new Map();
+Object.values({ ...definitions, ...piecePlan.definitions }).forEach(definition => {
+  const identity = mapSpriteIdentity(definition);
+  const members = strictGroups.get(identity) ?? [];
+  members.push({ id: definition.id, name: definition.name ?? null, evidenceRef: definition.evidenceRef ?? null });
+  strictGroups.set(identity, members);
+});
+const strictIdentityReport = {
+  schema: 'map-sprite-strict-identity-audit-1', sourceRevision: source.revision,
+  identityAlgorithmSha256: sha(readFileSync(new URL('./map_sprite_identity.mjs', import.meta.url))),
+  plannerSha256: piecePlan.plannerSha256, scriptSha256: report.scriptSha256,
+  boundary: 'Offline grouping only; no deletion, placement permission or refined classification. Local footprint/anchor/tile coordinates normalized; all variants and remaining semantic fields preserved. Display id/name/evidenceRef retained separately. Unknown array semantics preserve their order conservatively.',
+  definitions: Object.keys(definitions).length + Object.keys(piecePlan.definitions).length,
+  strictGroups: strictGroups.size,
+  groups: [...strictGroups].map(([identity, members]) => ({ sha256: sha(identity), identity: JSON.parse(identity), members })),
+};
 const output = new URL(`../.dragon-analysis/system-base-map-${round}/`, import.meta.url);
+mkdirSync(new URL('../.dragon-analysis/', import.meta.url), { recursive: true });
 mkdirSync(output); // EEXIST refuses any overwrite, including partial previous runs.
 writeFileSync(new URL('inventory.json', output), JSON.stringify(report, null, 2) + '\n');
 writeFileSync(new URL('ownership.json', output), JSON.stringify(ownership) + '\n');
 writeFileSync(new URL('review.html', output), html);
 writeFileSync(new URL('candidates.json', output), JSON.stringify(candidateReport) + '\n');
 writeFileSync(new URL('piece-plan.json', output), JSON.stringify(piecePlan) + '\n');
+writeFileSync(new URL('strict-identities.json', output), JSON.stringify(strictIdentityReport, null, 2) + '\n');
 const candidateHtml = `<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>B0 非水候選</title>
 <style>body{font-family:system-ui;margin:24px}table{border-collapse:collapse}td,th{padding:5px;border:1px solid #aaa}svg{width:100%;max-height:600px;image-rendering:pixelated}details{margin:12px 0}</style>
 <h1>非水幾何候選與Web初始分片</h1><p>用戶已選A。正式Web分片計畫見piece-plan.json：${piecePlan.groups.length}可拆組合、${piecePlan.pieces.length}片段、${Object.keys(piecePlan.definitions).length}可重用圖樣。先保留四連通組合，再按固定16×16格網及格內四連通拆片（每片≤256格）；不是原版物件身份。以下原候選圖仍用於檢查，不將近城距離當歸屬。</p><p>${escape(candidateReport.boundary)}</p><p>完整逐格成員見 candidates.json。每類最大三片與全部建築候選可展開；相鄰不代表同一物體，離城近不代表屬城。圖窗按包圍盒加邊距裁取，紫格才是候選成員。</p>

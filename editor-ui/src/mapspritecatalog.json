@@ -1,0 +1,1561 @@
+{
+  "schema": "map-sprite-catalog-1",
+  "catalogRevision": "map-sprite-samples-41",
+  "sourceRevision": "map-2-28805fc52a1c79910a949fb32b242323777c1741245724b8c346fd8e7a567bfe",
+  "scope": "web-curated-catalog-explicit-support",
+  "categories": [
+    { "id": "ground", "name": "地面" },
+    { "id": "mountain", "name": "山地" },
+    { "id": "water", "name": "水系" },
+    { "id": "field", "name": "農田" },
+    { "id": "wall", "name": "牆體" },
+    { "id": "road", "name": "道路／橋梁" },
+    { "id": "city", "name": "城鎮／據點外觀" }
+  ],
+  "advancedRetention": [
+    {
+      "groupId": "unused-visual-pair-72-190-v1", "tiles": [72, 190],
+      "reason": "unused-visual-duplicate",
+      "note": "72／190原資源及四季外觀相同，原MAP均未使用；只在高級相冊分別保留，不合併byte、不新增重複樣板。原機制用途仍未知，不授予放置能力",
+      "source": {
+        "resource": "MMAP.MDL", "offsets": [9216, 24320], "byteLength": 128,
+        "sha256": "0b0092265d94dcfecd0872596570d4e290162e0ffe702624797fa3fc53d47bb4",
+        "seasonRgbSha256": {
+          "spring": "660ff87aa4f5dd6ccd975523a15ec73a794d2907a31e51bcffebf04806329c01",
+          "summer": "f4c9baed4c881fc2271982ccc3a22a3da867cdfe5970be143c266cb9439c3eb0",
+          "autumn": "1952d2b99380972ce7d60cd250d9e142e20580ed189f39b32304288ff355c8e6",
+          "winter": "17a11f4f691cdc3f4ead8b19f168ef764f91add53943cae50e32a4629ff956c7"
+        },
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "mapOccurrences": 0
+      }
+    },
+    {
+      "groupId": "native-city-corner-color-parts-v1",
+      "tiles": [222, 230, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241],
+      "reason": "native-city-color-parts",
+      "note": "原8AD1城角兩色族：222↔232、223↔233、224↔234、225↔235、226↔236、227↔237、228↔238、229↔239、230↔240、231↔241。未被目錄配方引用的零件僅高級保留，不另造獨立據點卡片；223／231保留牆紋用途，224..229由雙格轉角／三格邊緣參考引用。原byte不合併、不染色，不授予放置或改變據點能力",
+      "source": {
+        "resource": "MMAP.MDL", "resourceSha256": "2fa1dd1b1ec7c426cf22583334a62dc61bdb1f1cefc59cbe8e9827480d118d1d",
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "nativeInputSha256": {
+          "KI.EXE": "fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868",
+          "SINARIO.DAT": "4ad37ad619649bf9ca2f075ffe483ff67f205fafa1e2d7b4926dc2598ec08c87"
+        },
+        "nativeWindow": { "start": 35312, "endExclusive": 35562, "sha256": "11e4ac44e6a7104365b62f752a786d68a84419be04c8bd52a47a7e0f40de5e4c" },
+        "pairs": [[222,232],[223,233],[224,234],[225,235],[226,236],[227,237],[228,238],[229,239],[230,240],[231,241]]
+      }
+    }
+  ],
+  "items": [
+    {
+      "itemId": "mountain-texture-112-v1", "name": "山紋單格樣板", "category": "mountain",
+      "definitionRef": "tile-112", "tile": 112, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]],
+      "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "resource": "MMAP.MDL", "offset": 14336, "byteLength": 128,
+        "sha256": "8ff89599b1a3e08fdd4618a6cd90217ba6ef359ac5c8b4e595e8f7c5a506a4f3",
+        "seasonRgbSha256": {
+          "spring": "4b0dca66e9ffd23b7fd8f2bcf003f2836abf3092f0a98d049c877a83c027959f",
+          "summer": "47c6fa5088770211f9efb02039ae34d8a6d077aa2991c00ff04fa09b23ce0f99",
+          "autumn": "566b299ebdc15924d63a254f9ad84cd612810b97daa91e7932d4ca071996c52b",
+          "winter": "1a1aab0aaffe64dcf1b2e538489849fffbcfe275c87fdb751ef8a5b88ad71390"
+        }
+      }
+    },
+    {
+      "itemId": "river-bank-6-v1", "name": "河岸單格參考", "category": "water",
+      "definitionRef": "tile-6", "tile": 6, "support": "reference-only",
+      "geographyEffect": "unresolved", "anchor": [0, 0], "footprint": [[0, 0]],
+      "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "resource": "MMAP.MDL", "offset": 768, "byteLength": 128,
+        "sha256": "ffb7ba8bb594ed47375e0896f35386683df6868196cf5d767a50dbfc69610797",
+        "seasonRgbSha256": {
+          "spring": "393a9b04aa1a9315b601d3554afaea2a92f78af49d107d8f8ac1c2551d6c662b",
+          "summer": "4b047250669adca33b81ff60ef8cdd17bb31c623dd7a71938bcdaa8057c79f26",
+          "autumn": "dbe8c5bc82d193c14c6849d42bf12be4444dab3160972fe5ab952698bbcc0c7c",
+          "winter": "bd137bfa0b873890b43c25a50bc962b0621486bd647271b2a4657c327e30f78f"
+        }
+      }
+    },
+    {
+      "itemId": "field-texture-180-v1", "name": "田紋單格樣板", "category": "field",
+      "definitionRef": "tile-180", "tile": 180, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]],
+      "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "resource": "MMAP.MDL", "offset": 23040, "byteLength": 128,
+        "sha256": "62450e77aa1c55f7e51b2d48fa610cccb1f08d56462ab7d531090532d197a636",
+        "seasonRgbSha256": {
+          "spring": "a042a083bf69c63c26d4aeeec76e146142b5cf60ec300acaec0a7ba2f7d0a933",
+          "summer": "db738bbb8e2a5740144d402d4a7ab91be0edc9b8f583028dd2cf2c5fa6f5c735",
+          "autumn": "dccfe4ede32deeb8ec74ee153b2c056dd92ebe5090958fa3443d12955b8f39ea",
+          "winter": "bdd95e18990e6a8d8e0f33277bce5e124180504f35a8641c25f2ec8929079641"
+        }
+      }
+    },
+    {
+      "itemId": "wall-texture-248-v1", "name": "牆紋單格樣板", "category": "wall",
+      "definitionRef": "tile-248", "tile": 248, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]],
+      "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "resource": "MMAP.MDL", "offset": 31744, "byteLength": 128,
+        "sha256": "4ddfe4d767d5dbc03e37190633ec33cac10c748f981eedf58b135012663c5ce8",
+        "seasonRgbSha256": {
+          "spring": "015cfd093483202822846e8d6d80a39ff57cc5ed3ebbfc5d0f43f1fc1f17911f",
+          "summer": "02f4b1dadc763f794ea4e0bb6adfdf661c5f6a0ed231d747b0a2c76cde2a9727",
+          "autumn": "7709f576a5d568573507da08fbaed85ed0c8c973ec8f0ed98377ee6cd3239699",
+          "winter": "1eeec0fd473a4655986d334b5664e4652c78bdc73415add3054661bb9872cf88"
+        }
+      }
+    },
+    {
+      "itemId": "ground-texture-16-v1", "name": "地表碎點單格樣板", "category": "ground",
+      "definitionRef": "tile-16", "tile": 16, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]],
+      "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "resource": "MMAP.MDL", "offset": 2048, "byteLength": 128,
+        "sha256": "8052c163c6e3e74fe01e0338aaa277f819ba8d31d5e817a51865d9e5e15ceb95",
+        "seasonRgbSha256": {
+          "spring": "0c0926e3a59b0a28e41ac5b6c6ff841c26cfb68deede6f0597db8b1a4d2fce67",
+          "summer": "09f2c4755641047c2ac8b67748fbae4344093ea88972ebab83ce8363f6639902",
+          "autumn": "f49b07a8f7afdaa9927a0dcb2e80518bc026b3a530c8bd0d730c432b4a9fc3ee",
+          "winter": "00ebdf01ef0d152d9fdddd35096097adcf1ed6c3e00a5dc634524f50539692c2"
+        }
+      }
+    },
+    {
+      "itemId": "bridge-vertical-184-v1", "name": "縱向橋紋外觀參考", "category": "road",
+      "definitionRef": "tile-184", "tile": 184, "support": "reference-only",
+      "geographyEffect": "unresolved", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 23552, "byteLength": 128,
+        "sha256": "894d8a81089703a9f3924fb064b393ffefc2dae1e8a1a8210c46c4d419632333",
+        "seasonRgbSha256": {
+          "spring": "78d6056aa19ace58766951cc6ddc0b94ca3ae11e50cd30fe05f97f01172a33d8",
+          "summer": "b2200cb9c9103953641b40aa52408825f9d6d77f08c82a46bfaa6e9106636f23",
+          "autumn": "76c07e3139aec529fdfc1fdf842305d4e62766ed416cd9f70cf3bbc87e356392",
+          "winter": "92c9bb6b63a553a07128afd9e35a5ff61704103145dcf58bcd1568e5ba3a2a20"
+        }
+      }
+    },
+    {
+      "itemId": "bridge-horizontal-185-v1", "name": "橫向橋紋外觀參考", "category": "road",
+      "definitionRef": "tile-185", "tile": 185, "support": "reference-only",
+      "geographyEffect": "unresolved", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 23680, "byteLength": 128,
+        "sha256": "2d0a370b64bf05c97152be15b32d6c1eafd7cc6cf17d7b519113024ff6e8a78c",
+        "seasonRgbSha256": {
+          "spring": "b2a828caa3f29c367a794d024d05c6bdd5f155d57275d245ea2def7c50dd2a0f",
+          "summer": "5ae21a1d5ff1353d5a64deabfdd1eca1b93099378a03b2acf13cfb217b444f47",
+          "autumn": "4dc6e253e182035414802bb70e8f22689e5275824a196087549f317e6d365dfc",
+          "winter": "2298343e0293baaca4d90dafc8d7ab156135b29810defb802ec089d3e63b4071"
+        }
+      }
+    },
+    {
+      "itemId": "roof-red-203-v1", "name": "紅旗屋頂外觀參考", "category": "city",
+      "definitionRef": "tile-203", "tile": 203, "support": "reference-only",
+      "geographyEffect": "unresolved", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 25984, "byteLength": 128,
+        "sha256": "bfcb4f4b574e83d628ada6dd888dc0fd5d511a35dd574ab7c2fa555ce8d69703",
+        "seasonRgbSha256": {
+          "spring": "a584d703edd8418c8091bb23caea992e59f195039b5b4089edf58442c9dcbcbc",
+          "summer": "a584d703edd8418c8091bb23caea992e59f195039b5b4089edf58442c9dcbcbc",
+          "autumn": "a584d703edd8418c8091bb23caea992e59f195039b5b4089edf58442c9dcbcbc",
+          "winter": "a584d703edd8418c8091bb23caea992e59f195039b5b4089edf58442c9dcbcbc"
+        }
+      }
+    },
+    {
+      "itemId": "roof-blue-204-v1", "name": "藍旗屋頂外觀參考", "category": "city",
+      "definitionRef": "tile-204", "tile": 204, "support": "reference-only",
+      "geographyEffect": "unresolved", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 26112, "byteLength": 128,
+        "sha256": "91dfc901789aa9263913a9f29b605ae3bbf6b4990114a2abdc0160b6e8e09e3d",
+        "seasonRgbSha256": {
+          "spring": "335b774900afa786076756490a2dadf9e581d554fb2efce99b6a127f43419d74",
+          "summer": "335b774900afa786076756490a2dadf9e581d554fb2efce99b6a127f43419d74",
+          "autumn": "335b774900afa786076756490a2dadf9e581d554fb2efce99b6a127f43419d74",
+          "winter": "335b774900afa786076756490a2dadf9e581d554fb2efce99b6a127f43419d74"
+        }
+      }
+    },
+    {
+      "itemId": "roof-yellow-205-v1", "name": "黃旗屋頂外觀參考", "category": "city",
+      "definitionRef": "tile-205", "tile": 205, "support": "reference-only",
+      "geographyEffect": "unresolved", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 26240, "byteLength": 128,
+        "sha256": "2528299e502dd82f04374528d33384ace29536a00f290bd69cc163c2dcb7da44",
+        "seasonRgbSha256": {
+          "spring": "a776e5b5c8b72fe21c46e8e509ad8dcc8438d3f2ed399352ebeaf98ceb6aff7a",
+          "summer": "a776e5b5c8b72fe21c46e8e509ad8dcc8438d3f2ed399352ebeaf98ceb6aff7a",
+          "autumn": "a776e5b5c8b72fe21c46e8e509ad8dcc8438d3f2ed399352ebeaf98ceb6aff7a",
+          "winter": "a776e5b5c8b72fe21c46e8e509ad8dcc8438d3f2ed399352ebeaf98ceb6aff7a"
+        }
+      }
+    },
+    {
+      "itemId": "ground-texture-0-v1", "name": "地表細點樣板", "category": "ground",
+      "definitionRef": "tile-0", "tile": 0, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 0, "byteLength": 128,
+        "sha256": "9b0b2bab8753b66bfdefab7d4fa52a770337a05ec497944acebfe4e01a72eae7",
+        "seasonRgbSha256": {
+          "spring": "5f38adedbb1c21dea1de0d20b39a101af8570652fcbf3319f4737553eca3359c",
+          "summer": "d47bc172fa756315cf8d1f55b563acca9d16cd4c9adf0601918db36fd60030fd",
+          "autumn": "afa1998b2aba84e4e55f24831d48294c4d867c034e47c68fce6024e4cd6b655c",
+          "winter": "4c1c960e0d52cbb1465b6e16d3ddb2738b07de523e2b160bbea616527f5f112a"
+        }
+      }
+    },
+    {
+      "itemId": "ground-texture-1-v1", "name": "地表碎紋（春黃點）", "category": "ground",
+      "definitionRef": "tile-1", "tile": 1, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 128, "byteLength": 128,
+        "sha256": "500d479dd7478ee3c5b24d5ea9ba2af97b17af6eda5e4740474e0f785bb91c8f",
+        "seasonRgbSha256": {
+          "spring": "4587c28d2116d25776b0b02352496c83bb4e05fa76c0b12f2b90e89b2b9eff07",
+          "summer": "ed4aa8f271b3589b6cfa6c10f42e4b1c5bdedd88f6e8b25ee3bbee9fc48f0de2",
+          "autumn": "5645c0fb81f65f22752255c11752bc635ae96556e0499c80c458c9b986ac648c",
+          "winter": "7965308d2b2bd008a6afad9f28b3d3f5ddfcd93418c1e3ac8de2a11775a498b7"
+        }
+      }
+    },
+    {
+      "itemId": "ground-texture-2-v1", "name": "地表碎紋（春密黃點）", "category": "ground",
+      "definitionRef": "tile-2", "tile": 2, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 256, "byteLength": 128,
+        "sha256": "d2476d096b2f0763193608a42ca5e87a66aebf72ddd6f094bc8d5146e8a53ca7",
+        "seasonRgbSha256": {
+          "spring": "db93f373544b0668fbb91227a2e95f24982fa63f9cb22196a99bb2bc6e9f5ced",
+          "summer": "ab9637cd7b99c5ecaf75eb664810f15edc2fc2be424544b8794a84fda17b3ff1",
+          "autumn": "186eb75343eed0fa3c98fcf383912e792c7287bc6dc72f0e4400bfeb984d9332",
+          "winter": "94c49e862ec6d206ba898f5c91a0d96b0257ae02bf9ef462eb5a42c071f882f2"
+        }
+      }
+    },
+    {
+      "itemId": "ground-texture-17-v1", "name": "地表碎紋（春綠點）", "category": "ground",
+      "definitionRef": "tile-17", "tile": 17, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 2176, "byteLength": 128,
+        "sha256": "740c044e82567bea2edc40810ac2535171688be5a0e65f80f4bae5655ecde8e9",
+        "seasonRgbSha256": {
+          "spring": "10d97e6832f2b752be6cacf1ac4173559e953ec4f5c1e507802786ab7140a24f",
+          "summer": "c4d9d9fd83803d9dbd3ec28ba1f52524652ea5c21b85670789e8f2fdb9256df9",
+          "autumn": "82522bfae35ab892b8cd9a4fdcd6c43e72b53c6966de28fde31b7fb4c70457ad",
+          "winter": "fbac61993df69519b892488834cfc0036e4f23f3d8714f7c70cc45573fc118c3"
+        }
+      }
+    },
+    {
+      "itemId": "ground-texture-18-v1", "name": "地表碎紋（春密綠點）", "category": "ground",
+      "definitionRef": "tile-18", "tile": 18, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 2304, "byteLength": 128,
+        "sha256": "8fb7c993047cd6027a376946fb6f1c96fdce5c47ed6c6c9751a341457215757d",
+        "seasonRgbSha256": {
+          "spring": "6c6670f312a29293ee8a4a0f8bc9c65a2a460216afcb01ead4bb3d8128a33197",
+          "summer": "1e1bfdfa0854f690faa05d3a5a25fefc655b4a54537b94cf33a01628243edc3c",
+          "autumn": "c490fd791592d50335c9c93134ee35202f40bdcb5dfff5b0fff7162611096a34",
+          "winter": "d1114874fb56437a61390270bb7e64e665a4b9283e61de80dbddd63cb4461497"
+        }
+      }
+    },
+    {
+      "itemId": "ground-texture-20-v1", "name": "地表碎紋（春金黃點）", "category": "ground",
+      "definitionRef": "tile-20", "tile": 20, "support": "existing-decoration",
+      "geographyEffect": "preserve-underlay", "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 2560, "byteLength": 128,
+        "sha256": "e040be28d9bb5272d469a27c50f66489d1afa61e4d3f42f8f7ff458dcb55abff",
+        "seasonRgbSha256": {
+          "spring": "db1d2b0ca44bbe2404625b131916c3bfa48838e76987d4e10bae6dd0af45a262",
+          "summer": "8ce14eda2bdcb147c70a3e9ef5d7a59453e243ad1ddeeea7651bc5063b010d50",
+          "autumn": "edf55fd5c8139495754d03de27fb82af702e980b03725d2df27b0d5fb574c15b",
+          "winter": "913441ec9edef063fe66ac9621f7e178db74cbeec3071db4efddffda051df727"
+        }
+      }
+    },
+    {
+      "itemId": "coast-nw-32-v1", "name": "斜岸左上海紋參考", "category": "ground",
+      "definitionRef": "tile-32", "tile": 32, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 4096, "byteLength": 128,
+        "sha256": "070cb4c0763b36a9190d14b5e11f613f46cc40926ca40918d6c7577a6cd3eebc",
+        "seasonRgbSha256": {
+          "spring": "fee880afafcef68fef9ef28e990482a7fcbadf22ec33674281094be230b92a4e",
+          "summer": "925b15a9be619559a12c2227342347523db0f2571990ec2dea76728f2fa11ea3",
+          "autumn": "4a8a3e60b0d8c9f3b17a2339ff9696ad57a64419cc4e5ae2dea192e5acf2e9bb",
+          "winter": "597b329135053c81be728a1d48ee6179ed5cf73b793f2e83c548936baa87f7ba"
+        }
+      }
+    },
+    {
+      "itemId": "coast-ne-33-v1", "name": "斜岸右上海紋參考", "category": "ground",
+      "definitionRef": "tile-33", "tile": 33, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 4224, "byteLength": 128,
+        "sha256": "982c0ad888080698788a1c034a40cd45a89932677307959eeccafbe47c8b0c0d",
+        "seasonRgbSha256": {
+          "spring": "7e11d77da0346b3df2c0c5aade108d9dfbd5cb87507a32ad5be0712ac68a5710",
+          "summer": "132335d1870fcd70ed1e543b69ee62b34acc8a481aeb122e8c330026a861e069",
+          "autumn": "9c3dac1f8c03b78a531284d94d1be1831d6ee342a827e25365791dfa1993ec4f",
+          "winter": "d4fc50ae886ba984e2f4cd97475add9c04025655d3e6a62823e29ee1054fb668"
+        }
+      }
+    },
+    {
+      "itemId": "coast-e-36-v1", "name": "直岸右側海紋參考", "category": "ground",
+      "definitionRef": "tile-36", "tile": 36, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 4608, "byteLength": 128,
+        "sha256": "9014a85c43d78265c29a11aa200044a828c40312e38c76a529b67d6fbaeabcf5",
+        "seasonRgbSha256": {
+          "spring": "a441dba45518d1a17eaa84a882bc8fefc5aa56da486fdd4989468e1793ba8c11",
+          "summer": "d701f78875a8a84181dd0c68a9f06ea6343666f71436bd7d295cb7fb2926f7d0",
+          "autumn": "3f927b9f84fa6bdbe00a3c5a0121bb74326f95e9157065bd0a739a6b1faf2f04",
+          "winter": "e02982ac60447f69631492ba831ab6f61eb985dca7b4b9576cdf56c18cf695a4"
+        }
+      }
+    },
+    {
+      "itemId": "coast-n-37-v1", "name": "直岸上側海紋參考", "category": "ground",
+      "definitionRef": "tile-37", "tile": 37, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 4736, "byteLength": 128,
+        "sha256": "7178243eae1fa5b2ec0c4314976ddb3a23e993a6969d300fe81300b54b82ea98",
+        "seasonRgbSha256": {
+          "spring": "9a58187eba89dc4879bc6a61452696c079b01edf9cf91b675f33d87ef12b9323",
+          "summer": "c19f75f1d5228a18f4668f5495d706815a440aec8768d9a06017157964e46f0a",
+          "autumn": "42d9bc3270b0c076b45e6e097a73b56aa6253bbab13919e4f6b8a23febfac152",
+          "winter": "40fba880017211a16496759873de333d6db44821af6c753a6ee386d4e78bb2af"
+        }
+      }
+    },
+    {
+      "itemId": "coast-sw-48-v1", "name": "斜岸左下海紋參考", "category": "ground",
+      "definitionRef": "tile-48", "tile": 48, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 6144, "byteLength": 128,
+        "sha256": "828bbf4dee0bb6ada21a70815734770a99453bba9f9c952b7e0a79f2f28b2732",
+        "seasonRgbSha256": {
+          "spring": "f468fea478f6fb4ffd327fc6f1f25d8e73fdcad47e1a59f0f0468154e7ef0864",
+          "summer": "9b962f8f0a6300018faaca31ce07424051d7b00c6854012d36ee9cac97a17953",
+          "autumn": "2d5f194d2df351a77b9dd33cb616035681b1410815e26dec94f26c110b577d9f",
+          "winter": "253c110fd7ebb357e3335e3a00652fce39e558d5272a56cb069fd5c5cf7c9609"
+        }
+      }
+    },
+    {
+      "itemId": "coast-se-49-v1", "name": "斜岸右下海紋參考", "category": "ground",
+      "definitionRef": "tile-49", "tile": 49, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 6272, "byteLength": 128,
+        "sha256": "10f747e0acd87bcddea1e993f41d677b48baf17d3647eaf007afaf7a2563846b",
+        "seasonRgbSha256": {
+          "spring": "7629217f5f0872e972937434552093aaca5c5f4a73b58a4a79bad565e71d6705",
+          "summer": "e051ade66b2c3553f44fe674652ae6643c124db9e01cbf97b37045a13042e7f2",
+          "autumn": "38499d13ab11ab94a15a89f37521450c034e21fb5c91e01edecdef7ae88fcc59",
+          "winter": "0a856b9cc96a4646e37481146d8462cb61bcf37bb5d33199a5a88b54f914a72e"
+        }
+      }
+    },
+    {
+      "itemId": "coast-w-52-v1", "name": "直岸左側海紋參考", "category": "ground",
+      "definitionRef": "tile-52", "tile": 52, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 6656, "byteLength": 128,
+        "sha256": "71722001f11a52cfcd3a0ac9891b116b38d6c1d16289999805c3491c1d0b3a60",
+        "seasonRgbSha256": {
+          "spring": "7309c64f0d08f596cb71f252c85a776ec0decb81053c96cdcaafc3d8e8b5a55f",
+          "summer": "c1521c0d54b0572eb92e56eac3112798ffe6c22aa3ee6e5bb7b85033ae7bfe25",
+          "autumn": "2d16ee0e7c9a78472933b621151e912fd6e80de548b96af01c637ed7e11d5399",
+          "winter": "8bcbeea61c13236e9c2381bb38b9d7da67a6ceaa3a551dfce68d2afe8d698a06"
+        }
+      }
+    },
+    {
+      "itemId": "coast-s-53-v1", "name": "直岸下側海紋參考", "category": "ground",
+      "definitionRef": "tile-53", "tile": 53, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 6784, "byteLength": 128,
+        "sha256": "58c16038eccea59d4f9a37cea79eb5ee454eac4ab6be49938b6089919a1a8008",
+        "seasonRgbSha256": {
+          "spring": "37b68ba60d915b22a58751a1fabf1931146468216830503c2aa7ec351c7fc4c1",
+          "summer": "5788db442713562bdf81ab165e249c0fcc748dfa648f3fae0dadbd8bae3a43ee",
+          "autumn": "4da9e8352d5b75941ce470a28707c5a597124c258f608fde2cec4169051f6a7c",
+          "winter": "11072e8a6966fa27bd516b75d77dab61649813064d855b84c52b66e9ff5c77ba"
+        }
+      }
+    },
+    {
+      "itemId": "road-ne-196-v1", "name": "上右彎路紋參考", "category": "road",
+      "definitionRef": "tile-196", "tile": 196, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 25088, "byteLength": 128,
+        "sha256": "50507842419020f71f4980dadea5e2eb097976d9ed4fe2834f9b1c5bc106714d",
+        "seasonRgbSha256": {
+          "spring": "9da20b1ebb774347850b82b0d9489e093c1262b1e6c95b5843ec2da5fabd782c",
+          "summer": "9e99e6c0ed8266bf1620d4addfe881051d08fc05348e89571472dd60b7281c71",
+          "autumn": "631b30d4de9c37aeb7738bd44296993bd9e6fa6c8515fed4f1458a4353caff1f",
+          "winter": "0681539cdd650d4995e54f65744e0cdc7de7c661cdae0d8cc97d149b017068bd"
+        }
+      }
+    },
+    {
+      "itemId": "road-nw-197-v1", "name": "上左彎路紋參考", "category": "road",
+      "definitionRef": "tile-197", "tile": 197, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 25216, "byteLength": 128,
+        "sha256": "d2cc32f9834cc7f5ef6ec6451099126238670e5e6c6304c9ca5a0689823e2470",
+        "seasonRgbSha256": {
+          "spring": "08f5ab2bb18bc83e1ddb27980d6274c253d3184ed6df98554b560c6c3533b71c",
+          "summer": "de07215715701e7b7b9c85eb94483446698b9309f3e6dc12ab383765bbefdf7e",
+          "autumn": "2e7652761210ea3937295fd83a3d424c53dc4042764249acb846fea1a2314b9f",
+          "winter": "a2461791510c95ceaf76b8a90311ba0e3bf510799f9d8b322f5ac7391c71562b"
+        }
+      }
+    },
+    {
+      "itemId": "road-se-198-v1", "name": "下右彎路紋參考", "category": "road",
+      "definitionRef": "tile-198", "tile": 198, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 25344, "byteLength": 128,
+        "sha256": "c3c5612173913c60783392a1ebfb53c8efa6d9f7f4c2e7c99cf4df63d59393a3",
+        "seasonRgbSha256": {
+          "spring": "3dd55d78aab6c853e766b4f383d1785016486e87e514b0a4f4508f7a5666c097",
+          "summer": "b49e9d8ea0e0bd3ff2606abfe17b6ef204569ec882e768f3a69fe388cf0aa9a3",
+          "autumn": "eafd23c2f669685f9b781df4f8410ccca1d5a88d592d092784d6792db68df2cd",
+          "winter": "4691f2e92058131062c880c772fb1705d79f0f1f69e5c009bf66fec63a266c9c"
+        }
+      }
+    },
+    {
+      "itemId": "road-sw-199-v1", "name": "下左彎路紋參考", "category": "road",
+      "definitionRef": "tile-199", "tile": 199, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 25472, "byteLength": 128,
+        "sha256": "41994a251b4a73ec9eb0083da5292c6533f906f53af4d6c80a765ddf992cb4cb",
+        "seasonRgbSha256": {
+          "spring": "2e73395290da3379f31aadee129615d2833de33945f4c7b91849c84d507d2b0a",
+          "summer": "8a9d232d10d4ff18872a00165b3741d77cf95ce8860cdd849210d396cddf0ecb",
+          "autumn": "590e235ef7177fa522eb3ac1a4333107094f2d976a95e547b655e842657a3c0e",
+          "winter": "9b19ff4848af37a4ed49771abdaa8c7535901e36d64063b477660ee186288fb3"
+        }
+      }
+    },
+    {
+      "itemId": "road-horizontal-200-v1", "name": "橫向直路紋參考", "category": "road",
+      "definitionRef": "tile-200", "tile": 200, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 25600, "byteLength": 128,
+        "sha256": "7ca17e84fcc4973f5b9e1c7a5f112426bfbf59aa06913bd1017500e339a25638",
+        "seasonRgbSha256": {
+          "spring": "d6467dd98bc2cb08fdd6afe8fb048cbf383e6a5846ec3dd5eff03244293ec9d6",
+          "summer": "7d23fed5fecf7740dacc2c3475bd4d550440c86c69086e625f622a67208b058e",
+          "autumn": "0df37bf9f7a3bc0ad61b1ef47ce3252acc9747297bd8ab6781d0abe249afe78a",
+          "winter": "4dc768c8a7ffa876453e7a51e114e9efc8586393e4e5eaab983de22e203491c8"
+        }
+      }
+    },
+    {
+      "itemId": "road-vertical-201-v1", "name": "縱向直路紋參考", "category": "road",
+      "definitionRef": "tile-201", "tile": 201, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 25728, "byteLength": 128,
+        "sha256": "aea7c1bf98c9e4d4f0284c4f88a7112b589a4d99d05d984e659730b5dc76e643",
+        "seasonRgbSha256": {
+          "spring": "a38d94a75bf7ce0d9f32b128273e1a0286305bc67e6abd484ec1d22b07739893",
+          "summer": "cae006fb3947b0493501aa80b9347ee8cf152e71a77ea653af46c3889f6f1a28",
+          "autumn": "192f1101a258669069f753e0fc63da8818617525ad372f677cde36fe6f38ee1d",
+          "winter": "5af275c908d33244c743fc86d1fec13eea6787a380a120c130eec9bb20f044dd"
+        }
+      }
+    },
+    {
+      "itemId": "coast-corner-se-3-v1", "name": "海岸右下微角參考", "category": "ground",
+      "definitionRef": "tile-3", "tile": 3, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 384, "byteLength": 128,
+        "sha256": "36e442083f695d007d9fb523c1d6544869cd3b7905da6914fcfeb2acef555411",
+        "seasonRgbSha256": {
+          "spring": "efbde52d8128d60728d826dd805b4f329cd0bb087823604e3795fbffaa4c4b23",
+          "summer": "da4842df5666d13c38d1b9c5f097530d46b3add565ce8288c61a79b8d34c4eab",
+          "autumn": "cc74588586318d74e6521a22970fc5024a568ddbeecb5188c38c9b73be757a14",
+          "winter": "1c2546dd6dc708729894c9e036dfccdf0f7551fd5fe98f6746cc90b242f0d14e"
+        }
+      }
+    },
+    {
+      "itemId": "coast-corner-se-13-v1", "name": "海岸右下三階角參考", "category": "ground",
+      "definitionRef": "tile-13", "tile": 13, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 1664, "byteLength": 128,
+        "sha256": "79158c7cda07a7f47c341fdbd4362fc197e46dda2e51ee9c7b12c5afb4f40269",
+        "seasonRgbSha256": {
+          "spring": "17b911566653a1b548ae55ba1913dcfc6d2aa307f098ca902985b613dcba05b7",
+          "summer": "cd192118de9f504f2af8ffced0aed647f9b1c7435e19fa554522133583ab21ee",
+          "autumn": "d11e21df42a2518bd05c9ff77e00e502aff62948bf507d5fc7b664181c3378b2",
+          "winter": "6e67c8398ac84ed0dfc37bbe8fc465c1e37998b7d83920e5161d3f480bd251d1"
+        }
+      }
+    },
+    {
+      "itemId": "coast-corner-ne-19-v1", "name": "海岸右上雙階角參考", "category": "ground",
+      "definitionRef": "tile-19", "tile": 19, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 2432, "byteLength": 128,
+        "sha256": "ac900e13ec0c6e9c8388415a7fc95fd6d04b4b9b6eea3b41751760ba188e0426",
+        "seasonRgbSha256": {
+          "spring": "14fa8d8c67d1503b0e15da3ee7a8716d7113505f37ef9fd72cd7ad7da37eb4b7",
+          "summer": "06f1d26559edcecbc2cb3c3fc229e79ec1490dba03ae07a0f033da3c21a24e9a",
+          "autumn": "66ccae6228202ec175172c1eb8ec7da259d81a89b9e9a2edcc7c587672f9307a",
+          "winter": "291b25e5850b738dce22c4d25e087bbcd07307e36b4fa55dc51e848a336c7d9a"
+        }
+      }
+    },
+    {
+      "itemId": "coast-corner-se-28-v1", "name": "海岸右下雙階角參考", "category": "ground",
+      "definitionRef": "tile-28", "tile": 28, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 3584, "byteLength": 128,
+        "sha256": "7eb2aa6a534ba8903599080bb40923673e505c4266679571a5e219e7653615f9",
+        "seasonRgbSha256": {
+          "spring": "828a1424b21caff3250f7852b050d4f38b35b3b10e9bf97711f7a79fe17e0665",
+          "summer": "840f06842395d1b50b074a0827c647971825e003f0ad13db277455fec8c94eeb",
+          "autumn": "12b696e720d4be07169d4eaf3005d9488b617f513fd7da197c3686414f3abf3e",
+          "winter": "72d1c8bab8b2a5884e2490cb794f9fc71e3a6bd25bb200aa65e6ccaa9c1023ba"
+        }
+      }
+    },
+    {
+      "itemId": "field-grid-181-v1", "name": "格列細點單格樣板", "category": "field",
+      "definitionRef": "tile-181", "tile": 181, "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 23168, "byteLength": 128,
+        "sha256": "37764f8d33559ae5d030a69e9afeb694d9238a1de1423265ce394ef25ede4a36",
+        "seasonRgbSha256": {
+          "spring": "61fa010cea2b39175a46246c6e87595554a987194d219d2f0d39727d0450b98a",
+          "summer": "4b3bccdef8d1808b57ed91051bf77a59d04dd5ecf8c42dd77d56e78d43542cf0",
+          "autumn": "cb6ee6b015a6754533e08f7ad25c30b3598368f20447e7325a01cd312e2ddab7",
+          "winter": "742033b378919285a649c36810420a150fa5418bb178dec337238c28bc4b6775"
+        }
+      }
+    },
+    {
+      "itemId": "ground-cluster-182-v1", "name": "簇點斑紋單格樣板", "category": "ground",
+      "definitionRef": "tile-182", "tile": 182, "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 23296, "byteLength": 128,
+        "sha256": "2e16c7838dfe304ef89b32043fcb2e67ead2859a414b84d31e2fd5f271bbb924",
+        "seasonRgbSha256": {
+          "spring": "3a59e73bfc5b6793d5defd9b9a6a9de7e98a107b8fa5e231ee3ce822d2bfe08f",
+          "summer": "3dd5d936668fe7d46e62517e64ccbe15f692aee02c21fff48526c5b7f9812ec4",
+          "autumn": "c3995ee664de818c410899b0654c0b842e5a798368970aaa76e52fffd88488f2",
+          "winter": "ef3a05505de6798c2b8b58ecd4f7793311375b8daec5a624df9e6e4e789b3b0d"
+        }
+      }
+    },
+    {
+      "itemId": "ground-cluster-183-v1", "name": "深斑簇點單格樣板", "category": "ground",
+      "definitionRef": "tile-183", "tile": 183, "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 23424, "byteLength": 128,
+        "sha256": "cb70379b1fbafa095aa685638ad58649f958b5873244ab7a998a85e4bec7889d",
+        "seasonRgbSha256": {
+          "spring": "0b3a9416973e416c6053a63a90bc8aec2c3f6de6087a976780b7b725c404a9c3",
+          "summer": "a7d3f57a4f6c33185678f5215070191fdd07ccba78d663733bb2245238bc26f5",
+          "autumn": "351ca9f5676b43a50c4ae34e0e3e1bb6107870d23995289e511b22effea5cc15",
+          "winter": "db23867aaae689739011ecf2a16ca4002d95b8aa9c162def5af22ab035ccc7fd"
+        }
+      }
+    },
+    {
+      "itemId": "gate-horizontal-red-206-v1", "name": "橫牆門樓紅頂參考", "category": "city",
+      "definitionRef": "tile-206", "tile": 206, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 26368, "byteLength": 128,
+        "sha256": "d44628253afc6db08874a8fb84495f5e6741ed57998ac8ff8bbfa7632f852bb2",
+        "seasonRgbSha256": {
+          "spring": "2e300dbccec6ccefa44948248433aa812bcfd81f768ec95238518e0625022e9e",
+          "summer": "f2292b32b47511a594a9b3615ec8dee4a6b083f9c9bb42deba9af4c20bb91256",
+          "autumn": "dda56041bd984a4e75a812c8d36a0ef1aaa885a323a287090747e689a32b0d5a",
+          "winter": "74f3686f84079ee5f6f283900d14c888d940fa6416bf4a02ff517c3cff4bd01b"
+        }
+      }
+    },
+    {
+      "itemId": "gate-horizontal-blue-207-v1", "name": "橫牆門樓藍頂參考", "category": "city",
+      "definitionRef": "tile-207", "tile": 207, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 26496, "byteLength": 128,
+        "sha256": "1072b52870b8aac40835c62f6d1210b188c5d952f6b3a2253a793ea388b49012",
+        "seasonRgbSha256": {
+          "spring": "68b6768068ade3e8622b008a8c6744db8745b61faf660b32f9c894f500335343",
+          "summer": "2022240a4e6c1a0064499c9018942eafbd027a185781b15e95a612fc3e127120",
+          "autumn": "b65934c71ce6977936d0d100051bd25c619923ec51f0fa2743bb1b69ecdd4560",
+          "winter": "eebc50add1f9974a038be8000914532d234b3167c5dadb52e463c28553bae698"
+        }
+      }
+    },
+    {
+      "itemId": "gate-horizontal-yellow-208-v1", "name": "橫牆門樓黃頂參考", "category": "city",
+      "definitionRef": "tile-208", "tile": 208, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 26624, "byteLength": 128,
+        "sha256": "183983214f07d32ba6937854e36109f3cb2e280944bd9929fb17c829ec6df873",
+        "seasonRgbSha256": {
+          "spring": "3c37fd4f7bf6f249ad7238134e8e1f0fab0c4b39c60241388301a561335ea049",
+          "summer": "e0ed54198a513498f00b939bdb038560cd55e7a1cd6f022d67c04f2f6bfa3162",
+          "autumn": "9292488a8f4e9f26062e6608ad13c0c75f3abf39374fe4c10d99fa07e87b47d6",
+          "winter": "77328414cdbd100b62fc24bee9349d4a0535af86c8e07a85f0798ee652be7a9b"
+        }
+      }
+    },
+    {
+      "itemId": "gate-vertical-red-209-v1", "name": "縱牆門樓紅頂參考", "category": "city",
+      "definitionRef": "tile-209", "tile": 209, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 26752, "byteLength": 128,
+        "sha256": "617cff3ff1547235b528b5a1bfbcbcfdf5aebc6c033adec9f139bb0596764c37",
+        "seasonRgbSha256": {
+          "spring": "8afd07a8d9e37563388b1f3ab6e8119db0af92013dc86c0f2b86928af2640ee1",
+          "summer": "98e1e6f0a2972de138ce99fc2fac2976bfa03c41d39b0767c03c3510351db36a",
+          "autumn": "4e435bc3c1d0f7a3f073c1f668eb2ea3ebdbadfa66d7697b389ca9327d1db744",
+          "winter": "bb6dbb04fbc8272338087c771dfab13b6a7c25af9c22ea625f5344546b457b21"
+        }
+      }
+    },
+    {
+      "itemId": "gate-vertical-blue-210-v1", "name": "縱牆門樓藍頂參考", "category": "city",
+      "definitionRef": "tile-210", "tile": 210, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 26880, "byteLength": 128,
+        "sha256": "aec18ff069e68f3bdd486b60b7fc9c762969bac997cebf5eb15e6f62228030f5",
+        "seasonRgbSha256": {
+          "spring": "fccdcb81fc4638056f98661ff0e94610dda3475f90e52c472815e39a2d68c54c",
+          "summer": "62914fb3d49339376baa0b209896457c44f64c2ae5acb37d1527282d854c9f77",
+          "autumn": "3d0ae1f9f2dd7340c2660ab86b529d5dbd158d058e47107fd246eb423e5ed802",
+          "winter": "78ef02f01907d3137a45711027ca17026606be520cb6d8c567fbae0131625a01"
+        }
+      }
+    },
+    {
+      "itemId": "gate-vertical-yellow-211-v1", "name": "縱牆門樓黃頂參考", "category": "city",
+      "definitionRef": "tile-211", "tile": 211, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 27008, "byteLength": 128,
+        "sha256": "1383f78835238986f1ed42ad4a4bedaf53387fe578d4bda89b1e42d9806cfb80",
+        "seasonRgbSha256": {
+          "spring": "ca17adf15134ff278df2e8145b400b4920f0020b6d18c0e2e3d0b41376effd47",
+          "summer": "22663eecd9bda7ed957a8d041529c9d5694ca970267bdc45bf9b27cfbe730373",
+          "autumn": "fc00efd91444fa17eabd5c2a35f806e3cdd8e69807db1481ee5435d7414e2332",
+          "winter": "ba794faa7a007c242a937f18d469f4b2a0735c3a22ce2105d635c96af99a31b5"
+        }
+      }
+    },
+    {
+      "itemId": "city-interior-axis-254-v1", "name": "據點內圈軸向細格參考", "category": "city",
+      "definitionRef": "tile-254", "tile": 254, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 32512, "byteLength": 128,
+        "sha256": "4e909d6b13a1c782ec8711c4fa7acc596d506cc8b282331d531f670c9be610e8",
+        "seasonRgbSha256": {
+          "spring": "0c5f77211236762bb6e2aa6020e06baa43ea5843b5e08762664145a94a15d1e7",
+          "summer": "0c5f77211236762bb6e2aa6020e06baa43ea5843b5e08762664145a94a15d1e7",
+          "autumn": "0c5f77211236762bb6e2aa6020e06baa43ea5843b5e08762664145a94a15d1e7",
+          "winter": "0c5f77211236762bb6e2aa6020e06baa43ea5843b5e08762664145a94a15d1e7"
+        }
+      }
+    },
+    {
+      "itemId": "city-interior-diagonal-255-v1", "name": "據點內圈斜向斑紋參考", "category": "city",
+      "definitionRef": "tile-255", "tile": 255, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 32640, "byteLength": 128,
+        "sha256": "683ae1281e89777edc0c1f79a97edeeabb08770f3c7707a89ebc18becb2ef3b3",
+        "seasonRgbSha256": {
+          "spring": "979084244a77f8933df36b6e459d9ba2221751173edda9eb22a4598d27b8f78c",
+          "summer": "979084244a77f8933df36b6e459d9ba2221751173edda9eb22a4598d27b8f78c",
+          "autumn": "979084244a77f8933df36b6e459d9ba2221751173edda9eb22a4598d27b8f78c",
+          "winter": "979084244a77f8933df36b6e459d9ba2221751173edda9eb22a4598d27b8f78c"
+        }
+      }
+    },
+    {
+      "itemId": "bridge-bank-north-186-v1", "name": "北岸棕條接片參考", "category": "road",
+      "definitionRef": "tile-186", "tile": 186, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":23808,"byteLength":128,"sha256":"a9c64329e4e6c543aafc0cc6929a37af60888c550abd84941f23d26f569055f4","seasonRgbSha256":{"spring":"e328dba5411d4a89c79b2ba87bbff943275c846ec47439963b4a47096ab1f7e5","summer":"750a19eac40c7d77a3a53d62229780180b1141f273163f564c95dcc5d9f998a3","autumn":"e4565ccef18f9c2ace9247a3ac1a806ccb905a59fab4ab284d5aa22f056d6e6c","winter":"fdc9bed0ad371e70e6cd26dbc6dfbe1fe5c19a5a53df51ea8dca3dffed95ac23"}}
+    },
+    {
+      "itemId": "bridge-bank-south-187-v1", "name": "南岸棕條接片參考", "category": "road",
+      "definitionRef": "tile-187", "tile": 187, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":23936,"byteLength":128,"sha256":"c1718c49fd0d46c125ba227ee4cda630090e2c735006e823f58abfcb7b5e99ff","seasonRgbSha256":{"spring":"ec3c9294bb6965f1e14f938fcd6f5b6d075bdb0e4fedb00ecfe1a67f9bc7cd61","summer":"4093df9181d408a2640609d36bf6749b5d9b63e8db92ccb2338b5cde85be8d03","autumn":"eb5340aca3db63df4979d39f392cb83fc742e0d35d4c9947cbe14039cd61b338","winter":"fe13ceaae49c6690ab4b685dec19c999eca147475af99a04afa64f8922252067"}}
+    },
+    {
+      "itemId": "bridge-bank-west-188-v1", "name": "西岸棕條接片參考", "category": "road",
+      "definitionRef": "tile-188", "tile": 188, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":24064,"byteLength":128,"sha256":"4390d5b3559ec12d0bbcb330ef159ccc490235769e3bc2471da6331498105931","seasonRgbSha256":{"spring":"a8df5bcec86d4cbfdcf7b0b4d21c9543d6bd51fa0319ba2ae6807619d5cd764f","summer":"4462a1368176aa76e476fbf052e6c3d8a4ee744c7ecf5abeba0ffc73bdd88725","autumn":"9e069ecadfe71d4278555de59c1840263d1c75ebd7d9e9fc3d006891ec06bfd4","winter":"f6586f4b8641e58bc1597beffc437494ae2d7eab37aa0601d689a84b0df3c674"}}
+    },
+    {
+      "itemId": "bridge-bank-east-189-v1", "name": "東岸棕條接片參考", "category": "road",
+      "definitionRef": "tile-189", "tile": 189, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":24192,"byteLength":128,"sha256":"312ab79ea650fedb40d64e3bb1755ad5fc81f392827a38dec4a86f6b654c5f90","seasonRgbSha256":{"spring":"bee9d848e26129020257cc9be7d832bf8cec79d544f14ccb8a556a58c2341849","summer":"0ddb0ab5a198768167aa96f50b0e88ba6afd13a3a33716ece90500184ddf5847","autumn":"fa133233a3e5ae27b86588578ba8820d48779d2dc890438c1d32507a98a52bf2","winter":"af6cba07c9358ca4cde90a1a9f3762147f151988f860c11f313f5db1c98241cd"}}
+    },
+    {
+      "itemId": "bridge-bank-horizontal-a-192-v1", "name": "橋岸橫紋甲參考", "category": "road",
+      "definitionRef": "tile-192", "tile": 192, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":24576,"byteLength":128,"sha256":"3b2d3bcd652a48afea22260050db3a851ba74883ed277ee88a13066faeb35dd8","seasonRgbSha256":{"spring":"6fb4a9d4feb39400d00d45015cea221d4eb8e42d5ae5a02b8941cc7d2cc6308a","summer":"0ce563828beb7bb45545bf97498ff1f262e42451ef11c2db207278e94fbc72ef","autumn":"b21c9b24b357b6f1cf606d9573be548ffcc8f559b435ebe56b1b2378b886a40f","winter":"adbfc2278342e2f7cb8977fb61558db68e866f8cafc6602298ff353fdb7a94e8"}}
+    },
+    {
+      "itemId": "bridge-bank-vertical-a-193-v1", "name": "橋岸縱紋甲參考", "category": "road",
+      "definitionRef": "tile-193", "tile": 193, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":24704,"byteLength":128,"sha256":"a60fd726070d316e74635e5b3537379ab93894cb02698c5d6303b8c5f09f86f1","seasonRgbSha256":{"spring":"ae1afed4751fb841777940c60c39a826782554bfc8f7157dac7c0c628b659076","summer":"ae1afed4751fb841777940c60c39a826782554bfc8f7157dac7c0c628b659076","autumn":"ae1afed4751fb841777940c60c39a826782554bfc8f7157dac7c0c628b659076","winter":"ae1afed4751fb841777940c60c39a826782554bfc8f7157dac7c0c628b659076"}}
+    },
+    {
+      "itemId": "bridge-bank-horizontal-b-194-v1", "name": "橋岸橫紋乙參考", "category": "road",
+      "definitionRef": "tile-194", "tile": 194, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":24832,"byteLength":128,"sha256":"ec1deb97ce43474cc18b47094351803543f340835b859b583e1c91df8a0ae479","seasonRgbSha256":{"spring":"11211cd41ccd2d78dbd46d39fdebb36205a8100343649662a009734c2ac89f29","summer":"11211cd41ccd2d78dbd46d39fdebb36205a8100343649662a009734c2ac89f29","autumn":"11211cd41ccd2d78dbd46d39fdebb36205a8100343649662a009734c2ac89f29","winter":"11211cd41ccd2d78dbd46d39fdebb36205a8100343649662a009734c2ac89f29"}}
+    },
+    {
+      "itemId": "bridge-bank-vertical-b-195-v1", "name": "橋岸縱紋乙參考", "category": "road",
+      "definitionRef": "tile-195", "tile": 195, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":24960,"byteLength":128,"sha256":"75629be8c6598a14f2bff4e6b0689432ee99bb5a2720127d62b05a2ff1f7dec9","seasonRgbSha256":{"spring":"2be4083ff09cbea4e51b3396e463dc82cd53592acb2d4d67bdf020a02666acb8","summer":"a34bbae9acd46e78dcb77a2ff5bbcb6f9e970485b231b36a828e64242f4ad1fc","autumn":"60cb4d85f9c3f9374d67cd0a6d2834f59079a66c7411a1feec98558383a97ce1","winter":"fcc21789c7d0d682f033128bc1be216811087c5f727ced874d0fb2cddd532a9d"}}
+    },
+    {
+      "itemId": "road-blue-pattern-191-v1", "name": "道路藍色斜紋參考", "category": "road",
+      "definitionRef": "tile-191", "tile": 191, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":24448,"byteLength":128,"sha256":"08f9103b645873ec3f8be0a98ad73bd2099fd8125efa0dcfcb2047815a65d5f6","seasonRgbSha256":{"spring":"1ad98c26f9248c0e2836d2774e5bf1b994442bda5dce6d6a3e01680b67489c09","summer":"1ad98c26f9248c0e2836d2774e5bf1b994442bda5dce6d6a3e01680b67489c09","autumn":"1ad98c26f9248c0e2836d2774e5bf1b994442bda5dce6d6a3e01680b67489c09","winter":"1ad98c26f9248c0e2836d2774e5bf1b994442bda5dce6d6a3e01680b67489c09"}}
+    },
+    {
+      "itemId": "road-blue-pattern-202-v1", "name": "道路藍綠交錯紋參考", "category": "road",
+      "definitionRef": "tile-202", "tile": 202, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":25856,"byteLength":128,"sha256":"100fdf8b1ec5a725e4a4f616b0cb09dcf5cffad8e2d6404022d49bb2bfa4c6fc","seasonRgbSha256":{"spring":"54c99e42255834dcdf1b8efbceb6152c6653746bc0510c746a384fb694d09d5a","summer":"54c99e42255834dcdf1b8efbceb6152c6653746bc0510c746a384fb694d09d5a","autumn":"54c99e42255834dcdf1b8efbceb6152c6653746bc0510c746a384fb694d09d5a","winter":"54c99e42255834dcdf1b8efbceb6152c6653746bc0510c746a384fb694d09d5a"}}
+    },
+    {
+      "itemId": "ground-mottle-29-v1", "name": "暖色交錯斑紋參考", "category": "ground",
+      "definitionRef": "tile-29", "tile": 29, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 3712, "byteLength": 128,
+        "sha256": "feb4533e9896882f341ed0a35e0300ab15defd6947de762ed3ab31a6d782cbf5",
+        "seasonRgbSha256": {
+          "spring": "620cd25f537d414710edcc5ef0010ae2401ef24cdead9747af1a05f4f144f9c3",
+          "summer": "69f4b69514562a3a040bfe27eb3ba613eadd46292d4a0ab266004000ed44314d",
+          "autumn": "57dc5829811006e9bc5c00949b1fd0dbba7fb36b53aa54bab6d42b78da971b27",
+          "winter": "15ccb9cef06c75fefd8dfbec0be8ec340d71e7b1c520ed995e48d740138a822b"
+        }
+      }
+    },
+    {
+      "itemId": "city-gate-cap-251-v1", "name": "縱向門樓上緣尖紋參考", "category": "city",
+      "definitionRef": "tile-251", "tile": 251, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "resource": "MMAP.MDL", "offset": 32128, "byteLength": 128,
+        "sha256": "892da0e416ff4407acf12ce7c1f8a67f10b15eb42d19fd9d50ccb8e71b0da45b",
+        "seasonRgbSha256": {
+          "spring": "3ea2f964e9e2e2e8cae40d56b85e8cdba73c829d53044b9ce3af4fe358e54fa3",
+          "summer": "3ea2f964e9e2e2e8cae40d56b85e8cdba73c829d53044b9ce3af4fe358e54fa3",
+          "autumn": "3ea2f964e9e2e2e8cae40d56b85e8cdba73c829d53044b9ce3af4fe358e54fa3",
+          "winter": "3ea2f964e9e2e2e8cae40d56b85e8cdba73c829d53044b9ce3af4fe358e54fa3"
+        }
+      }
+    },
+    {
+      "itemId": "ground-crown-168-v1", "name": "團塊冠點紋參考", "category": "ground",
+      "definitionRef": "tile-168", "tile": 168, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":21504,"byteLength":128,"sha256":"5c702d1f2d46c49877e6e1fc63ee340810d937256df7c30c32dc3132e3b72513","seasonRgbSha256":{"spring":"d011ab4cfc941b4dcd7ee89830881a8557f14a2eb87f64ceb811b80c50f6e303","summer":"29c9d9cbaf54c1d74e4603fb749db41f633f9da519236870d9fdd4a02b358e28","autumn":"dfb0ba5d9a2692214a5543deaab0d87e454fcd677aad7242bc8e80b51e101d99","winter":"bcccd5d2f4dcfd01f799d3c555e469957488abb79b3b46e6e93a000b7c9db3cc"}}
+    },
+    {
+      "itemId": "ground-crown-176-v1", "name": "密集冠點紋參考", "category": "ground",
+      "definitionRef": "tile-176", "tile": 176, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":22528,"byteLength":128,"sha256":"6a135bea1da65aa060e6a1e0add36f78de2e88455b905b40f80ef4e0ddbbd4e5","seasonRgbSha256":{"spring":"cbc37835afbd950af021328d0926e5df4ba55a954a3197c867fc4edda5fa79c2","summer":"6d7c71708b39983283923312add47b9220197d006450da301b6b6f242b76853d","autumn":"24e8e87a18cf9e37cf4d2d5b8b6c88366f708014af5c96c5c84f1f813f337093","winter":"6cbc457bf41cd6e456acc1215292f00c9fbb0efb654cc9a296fd65687642af84"}}
+    },
+    {
+      "itemId": "ground-crown-177-v1", "name": "尖冠疊紋參考", "category": "ground",
+      "definitionRef": "tile-177", "tile": 177, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":22656,"byteLength":128,"sha256":"fbe5505102eb82d553d7786d1797ec986599b8138e1e673d441a509b49da160a","seasonRgbSha256":{"spring":"9d9e553ea06b0add641e5cd835427789c8da5794a9d043899d24f61bbd1612fa","summer":"1a202623991299618a4d4a752ee2444e7fbae7637967f09735d3c0fcd9180850","autumn":"198c548b0d3b55604bb768391317dbe7a28ca6d7b97ccc3bbbde31e1967819bf","winter":"e24e10f8f029f5ec75c15ca8f6bbbfa2e0ab2dc64e7e38bea0079d5d9b06d942"}}
+    },
+    {
+      "itemId": "ground-crown-178-v1", "name": "暗冠疊影紋參考", "category": "ground",
+      "definitionRef": "tile-178", "tile": 178, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":22784,"byteLength":128,"sha256":"76e9ce0037ecca9767bffdc6034cbf6386db707b2eef84562d7931b129b62a5b","seasonRgbSha256":{"spring":"ed19fb7c17958a438e38850240d6abeb92d55bcbfe0a449bdad1f865042aaecc","summer":"7e58e7d243baf197dd7bf64d727a232d05788e5e68e36f9a30697b5d6e0893bf","autumn":"8fa388a299ad19b44a5405798a238e321ebfa5402b2a513774267d2ce3cb17b1","winter":"f93a943ca4132facc21198f39fa6fd3c00c4364a40ce41986bbdf4808e7becd4"}}
+    },
+    {
+      "itemId": "ground-crown-179-v1", "name": "斜列簇紋參考", "category": "ground",
+      "definitionRef": "tile-179", "tile": 179, "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {"resource":"MMAP.MDL","offset":22912,"byteLength":128,"sha256":"bd8901970e4c77d5aff3cac54c028143c6e51c21c460fd73f8f4ce42ebfeb93f","seasonRgbSha256":{"spring":"ae8be525a1b82830babeaff0914152800edfbffa87426bb8146e0bd1b412aaa1","summer":"d63f80c3cab15d5670bc653ef2d1d9231f5ddea0677fa847f942a9db8be01850","autumn":"4d883d04cc3932abefcd7b0b32bf6cb04e3b029e2ff4abab41069f56d74dc88b","winter":"a137ff09a8a042589bfaefee510951ab1190b29d35d902740b08e4de52db8576"}}
+    },
+    {"itemId":"city-boundary-212-v1","name":"橫向門樓上側柵紋參考","category":"city","definitionRef":"tile-212","tile":212,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":27136,"byteLength":128,"sha256":"8fd972f6234a5df862607ccc4a581a99aad1261a4e1a7c87db2eddbf990a871d","seasonRgbSha256":{"spring":"446548b1ae924439f4839d54ea7ff3d25e835468dcb4ae1a96a131fad515e685","summer":"0c77976366e7eff0a2bca8438832643c408d404528be25f078484e7af1111b1c","autumn":"e24e8bbfaf4fa1089361ea1ff3d228cdab23dc211e155fa312a05dd445c21292","winter":"6e5a39fb10c6965779721522edb6c6618d0955fcac52448309aad0560a4ec436"}}},
+    {"itemId":"city-boundary-213-v1","name":"橫向門樓下側柵紋參考","category":"city","definitionRef":"tile-213","tile":213,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":27264,"byteLength":128,"sha256":"14df11341f16314c414d9953001718e844cafa75bb6f913281d5438ff086d367","seasonRgbSha256":{"spring":"fd71f4ff5c05cd124750e243ad94b8e3df38fa6038ed27efa1fc78e7389c139d","summer":"9dba330174ebb1f5420e009a467fe362b33149ab69a5c2d9317856811f6309bf","autumn":"da632e5d3a13f830efec5d1ecc18c58f20392dc963ab6dc6735bd3aa2a44915a","winter":"1c873311136943693ed1f013af08e85ab70e237b497b4ca1ff0f4e280a190ae1"}}},
+    {"itemId":"city-boundary-214-v1","name":"縱向門樓左側柵紋參考","category":"city","definitionRef":"tile-214","tile":214,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":27392,"byteLength":128,"sha256":"330c1e714358afe52a08297f6a9f90e994896c17372edfa2629b67c525a11350","seasonRgbSha256":{"spring":"8bc9d778de405e90932f03752959bc83f206e54c5697baa9fde4353ef1c9ede5","summer":"9473508c780d17190b40d33e1c6dd59fa4030a6d0d2b89dd09d4a5566a713f35","autumn":"ae2f7f629fd02c861bd21b6decdac65bf27f93eb9b41e48c67b4cfb0fc6f29a5","winter":"eee62d8c1d548f7fec25fe6c1a5c6d7a89e562ae8e2a79c06c8d20adc163ddce"}}},
+    {"itemId":"city-boundary-215-v1","name":"縱向門樓右側柵紋參考","category":"city","definitionRef":"tile-215","tile":215,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":27520,"byteLength":128,"sha256":"aa776abfa17a9675b3e94321687d67c600674f6c7d3d38a3efa964a9cd764fd5","seasonRgbSha256":{"spring":"d684c2891ae48f3b23e5c4e0f2c9e2c409d2655d58bb3027ee345aee596ae13e","summer":"69c3304fd06f9f9f1b60809c41b20206c638171241576ad5801fb5be2a12e3f0","autumn":"2acbdb1d9b951629ee42c306bf1eb8eba99669ae7e8eca0d72dbc96a8505ec53","winter":"a598076cfa841c93e9a3049237f77ba084dee9e8a05e44149a15df6d11ac697c"}}},
+    {"itemId":"city-boundary-216-v1","name":"據點上側門紋參考","category":"city","definitionRef":"tile-216","tile":216,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":27648,"byteLength":128,"sha256":"5cdfd171b227f067a90105a5f14388e5fdbc4de5c80071f160dde0722e144377","seasonRgbSha256":{"spring":"b7d9c5c2c2ab5b80970a60529f2f88cb9bafe846b428c52a39af0f9d900c1559","summer":"b360ee7e47845aff6beea1386e7694b862bfece6e01607e000552c1d69f7ea68","autumn":"9af72e2735a403f7fd4feed68f93d793c409c583660827aad8cf40cea4a0baa2","winter":"cb79665b30691120ced72edd47764313835333f79261d4882d2f73c37df66591"}}},
+    {"itemId":"city-boundary-217-v1","name":"據點下側門紋參考","category":"city","definitionRef":"tile-217","tile":217,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":27776,"byteLength":128,"sha256":"d26e9ad60d1d894a69838ac76d8ad2ba662dbbe232ff0d87b24c16a02ad4f81c","seasonRgbSha256":{"spring":"dbe5ffbf606b8798516c8b32ffb411bbfed7e57710b2ff7c67aa96353de13ccc","summer":"c344c6cfc7892292b3c166874049e5ca1d7e492a3bd5a083a98a0b6d4219ac7e","autumn":"939cd14c05716b493c1462c129838b38a4b997ced201137bc2afc513724c9fb8","winter":"a28c730aa282a0fc78238e9e879075f1f98c5e4213aa7461148960e520e80519"}}},
+    {"itemId":"city-boundary-218-v1","name":"據點左側門紋參考","category":"city","definitionRef":"tile-218","tile":218,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":27904,"byteLength":128,"sha256":"1941a06cf7641d2b819ebf719462da53ac8cc22001ab3a0b89ab04476eaa01ae","seasonRgbSha256":{"spring":"3f499e384ba74bc058084aec74ec78d13ae44aa74a561eaa63e1c551b090213f","summer":"8c92789e12ca6c85438cf0d132af21ea8733a1eeb5be6ebedffc9a7ddfda2e77","autumn":"660ce3f14b9395b1a9e09e1eb9d4ed9df5ac10bfcc59e4066d2ec2863827204d","winter":"3bea92c162e4750ad6d4a6ad4c88d77f1b4fea3995139fd2f3620e24937ffd1a"}}},
+    {"itemId":"city-boundary-219-v1","name":"據點右側門紋參考","category":"city","definitionRef":"tile-219","tile":219,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":28032,"byteLength":128,"sha256":"a9540cceb6b7432fa4703cad2f58e3f0cc5ac0099a22311f991b49c550de41c0","seasonRgbSha256":{"spring":"e94798f74954d6af198e310b818102ecf45e2786b563e41a0ec5e08e60c2e802","summer":"325da99883e03acb2787e81e4db56100547064424f9f2d279b50ba86c35dbea8","autumn":"35278f6bd1d1b5d53471801a00f4ece01a2544111b163197d655783c8136a504","winter":"6c8c11da09ef73895e88b90425ea275cd13605bffc5471f3fe8808d744a41e05"}}},
+    {"itemId":"city-boundary-220-v1","name":"大型據點橫向門紋參考","category":"city","definitionRef":"tile-220","tile":220,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":28160,"byteLength":128,"sha256":"a6c0a73e09cf2adc9cd658535338bd003912452f92d22b93e5980a39faf7f7f7","seasonRgbSha256":{"spring":"417f0dcbc9050c537fffd39aa496553c668e4fe6b3e2b7c5cc19c51e2275ad73","summer":"54ffcc03f6e8d681bbf544fa6cd773e737299c810fb32f848eaa59d8b4ff7aa3","autumn":"e398bfd2efeb534b25dad5873c8ae815ae4f0d3c2841ee7397225611e680caa7","winter":"5d840b4968ddb155f6132ea81d0bfd2b3a1ff0c0c9a6f7c938e9ee1c6f03b79c"}}},
+    {"itemId":"city-boundary-221-v1","name":"大型據點縱向門紋參考","category":"city","definitionRef":"tile-221","tile":221,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":28288,"byteLength":128,"sha256":"96ece2db6d8b49634794bc49c7e6db25269532d493ae82cc573ab33df82200b2","seasonRgbSha256":{"spring":"0a9e55835c63a4688158f1a16e86cb4beca3b8ef2dd7217a7fe0096f89792b57","summer":"dc41aee7f7bfddfee084763a948fdb892abdef211b36b68cfcd213895d734bd1","autumn":"72dbc0b8e87156fa0e1630c0633aea1ef4c39f918276987126b458371e30ef9c","winter":"8a8fb39723793bad691a03caf39569495b7f358c78c2a214c5be22bab32069dd"}}},
+    {"itemId":"wall-end-252-v1","name":"牆紋收角單格參考","category":"wall","definitionRef":"tile-252","tile":252,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":32256,"byteLength":128,"sha256":"7f7cf07b93640cc71cd726410d907de622731266420c3453d781cfb834eeedc0","seasonRgbSha256":{"spring":"ea4b1a77c26bc1a2fb39fbd54afaf41c4d856b11243fb946754a28e721f443ef","summer":"1a63066766c09856cf13d2595352ead30a652ca04374ecca011843ce55992eae","autumn":"7a9f550436b1de1817e2e4c52b5b059a56c82032de89f9b7b3c12c414304b524","winter":"0152d0ff193adcc8ea657ef7cf8a5123935dd6106aca2d66c8f647d8e5c2ce3d"}}},
+    {"itemId":"wall-band-253-v1","name":"牆紋深色點帶單格參考","category":"wall","definitionRef":"tile-253","tile":253,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":32384,"byteLength":128,"sha256":"51d74e6c76561efd37556182e4fb2a8f4fb7ebf8bc5959fcbe67c41e691e5fd1","seasonRgbSha256":{"spring":"f0d628f41dbf7daaeceddde7789faaf17d4ff0f64860479f6322cc4263f84ef9","summer":"529a0a2587fd37b3cdda24756db4b4537fc8e1ded95fedfff0f9dea3257df3db","autumn":"b252180aea0b7772075596e75a57cbc2275aab7b0559cb1d124a7c73cede81ee","winter":"ce25e144f435d8a058c4d1493380dc65adbf7fc8cdb9fff10b88239563fbb640"}}},
+    {"itemId":"shore-fine-corner-21-v1","name":"岸紋細角單格參考","category":"ground","definitionRef":"tile-21","tile":21,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":2688,"byteLength":128,"sha256":"7f8e1634438613cd607d1bb2fa263d3803bf6bf06d780375d636f0a7663ea12b","seasonRgbSha256":{"spring":"ab5067123ac873de39de0f9bcbe76aedf6fdb6772ab81dbb4d15102b9e4410d7","summer":"a7d099210933b10b8f9703baf6d6667e37b56d8c8dfac937fa2750dde1f2f500","autumn":"a6e0cd8d0c7fbca2503463cb1ff131a48fcfb72c02ef92c2b7a74a288b8b0ad3","winter":"e4259e254dfde9e8c2c17c128434794a8ad55dc1f868c713e65886ba4fd18f28"}}},
+    {"itemId":"river-stroke-88-v1","name":"河紋右下彎單格參考","category":"water","definitionRef":"tile-88","tile":88,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":11264,"byteLength":128,"sha256":"65b41e6ccaef256e12873d8a6ee7f9c97e28de53c719d2df0a84387d2706ba80","seasonRgbSha256":{"spring":"d76c5d234f45146e2ff0e5620bbf3391207d05ef494408b45338701dd16d148b","summer":"471bec3cc1842c965dc74755ed8740f929b35f4e3e87ddc75ba87b4cc772077d","autumn":"98f6da11b772c56d291b4f146f666c3f7de757a93c4da13b1e9c1fc01662a95e","winter":"47e0f976afe0dc9ff4bdad62c190c5360fd7965a72217a14e7751b116cc96659"}}},
+    {"itemId":"river-stroke-89-v1","name":"河紋左下彎單格參考","category":"water","definitionRef":"tile-89","tile":89,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":11392,"byteLength":128,"sha256":"91bf9449d6032e5730a5a84a8d7c027b566de187c244aaec559768f85cb70408","seasonRgbSha256":{"spring":"551f7e06bb3b62d76f86a815db6519ce9dd3b7aed7505c0d7fbd0a092d45947a","summer":"4ceef9f5a786c66e0559e826b6724d513f85f4da09335d53f0acd4a7aaf7fd34","autumn":"673db19808988b70187024b9da2b3a4785b7a8855e3b85939b8e9bbe0bd3ea35","winter":"0126cbe41cc1c6e15bb6d2f6999fc478a9c6cf85c457069756335a558de21ba5"}}},
+    {"itemId":"river-stroke-90-v1","name":"河紋下分支單格參考","category":"water","definitionRef":"tile-90","tile":90,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":11520,"byteLength":128,"sha256":"4ce8ed4582d7da5547a3c40ad7c78b61ebef094db9575001011dbf5685243748","seasonRgbSha256":{"spring":"86413dece10feb64e18dea514033107fb8a0b185f00a219f6ad421fdbe65e8f8","summer":"99bc11294bc3c45cef1c2ac3e42bf1ad6a5b5895529973edec4bf25bd73db87f","autumn":"a9b7ff68ed5c5107c0627fb4290d0544092941a2a6acf0835fdc24134d3d904b","winter":"23be244e7ae93d6694c64f0fc9cf278f13e90bb0c7a4ea5ee800db02ad539531"}}},
+    {"itemId":"river-stroke-91-v1","name":"河紋左分支單格參考","category":"water","definitionRef":"tile-91","tile":91,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":11648,"byteLength":128,"sha256":"e71c8791dce538f56bc6de38e137c68efb269623a66854f3588651127eda57f7","seasonRgbSha256":{"spring":"a702a7835b881363380b3853d6848456fafb3baf2dd8c570d69861a923ca055c","summer":"e205ecc420ebdf31be4ae648f4ed190f883e1855205b816eb5791941a75108d7","autumn":"b1f8cb237045423ffda8a776cb98992c953192877fba0d839edaf9b277eef11f","winter":"c155a8a750027dcd1f6ebbb5a327cddb244b037df352b8785fbe8a467de2e9ad"}}},
+    {"itemId":"river-stroke-92-v1","name":"河紋左端單格參考","category":"water","definitionRef":"tile-92","tile":92,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":11776,"byteLength":128,"sha256":"add1c09ba2d97c0d7e256e108e83edb4dbf0a32ed5a047f2df8537ec8229ac5c","seasonRgbSha256":{"spring":"a8189dd230ea3f02961fd4391dbf853f3f80a7ebee82c6834b7c204134707fa7","summer":"838e8c8ab49f85daaf885c365c3c799dd9093076396caf21f770b56a031b4a85","autumn":"39c9fd17b6e4c03f50de225fb3549ee40e10a682e8ee5e1fce9ea3c7f8878a3d","winter":"02c69f03e0bc644bb468b9dbfd9e916d2069c99ac076062631ca2f164fb7ae76"}}},
+    {"itemId":"river-stroke-93-v1","name":"河紋上端單格參考","category":"water","definitionRef":"tile-93","tile":93,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":11904,"byteLength":128,"sha256":"d8bca3ed440a39ca866ee4724e6c14719e9972b00e4f5bcaf7046be801b7dad9","seasonRgbSha256":{"spring":"95e4b8d7a3301826a88035cc143f58482f3ed13b1286eb8bc5a9518236151523","summer":"97499cd805562b576b1dd9c16104bc19f436f5e667cc7edd64b8ce7d1940e8a0","autumn":"55a23c8d767c18f53b353854ccece09a08fd686d1eacb7314a28a8045cc8e699","winter":"f1d2f687689df4b18d15621dfa765e94f31c6acdc42864a9be68042a78c99371"}}},
+    {"itemId":"river-stroke-94-v1","name":"河紋橫直段單格參考","category":"water","definitionRef":"tile-94","tile":94,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":12032,"byteLength":128,"sha256":"4885e6dbe5bfc0336dbb500a7cce601adbe17f404cda847234fd68f0ba282f6e","seasonRgbSha256":{"spring":"d3dbbeafd1a2cca71c2d12209fb5ad7b066469b943535d8f33338741609026ac","summer":"c35cc467890ae4591fc88b441486ae57fbba16c6c7f1fc570d50bdd195328c86","autumn":"d4336b24efb2fbec88c303082cbc5bffc2ad8fa939f777ee8e7fe5d48eecb5e2","winter":"515d5256bd4da03c55ce99bb5b5c47d8ee7fcf52298bba949ffec122f36add11"}}},
+    {"itemId":"river-stroke-104-v1","name":"河紋右上彎單格參考","category":"water","definitionRef":"tile-104","tile":104,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":13312,"byteLength":128,"sha256":"fa9079684924169a50ae61249f51af70e9f42de3b3fccbade83707313c00eeed","seasonRgbSha256":{"spring":"a2ed17209af3cb6e18469d986383678deb6c78bc8d5dd8719cbbd573a387a566","summer":"22bda6aa78320cfce522f2284e1539c938b3dee57456e0903fe91d3dfec5786e","autumn":"21641a587377318b143f14a1806dabd47d7dfc8de5ae2c06d78bd8ae54c616f0","winter":"bb87d8a50b584c49b34a49ba3fb7ad4b3f86b61c8363fe45094e8d34f26512c4"}}},
+    {"itemId":"river-stroke-105-v1","name":"河紋左上彎單格參考","category":"water","definitionRef":"tile-105","tile":105,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":13440,"byteLength":128,"sha256":"667dc2cf900a54c29ca495c5a9bc3acfbc29199cd90de31dea3589790f7bffc1","seasonRgbSha256":{"spring":"9e09b8ca6ebef1ff899c80f4108e7e106465e435630c44ada4ca7b86a0e79c49","summer":"f5fdc606cf13b17d47c8e225041579d9d87e5b558f21b4a0df70404ca7be8d43","autumn":"e9f2233f02bb8cfbb1a2ae31e6143d60a8e77da3ef42a0af51053690812ca2be","winter":"55350539c796f3c1253acbfc6c3ea5a6ead09962c6f76f91b3cdcf8fc66c3387"}}},
+    {"itemId":"river-stroke-106-v1","name":"河紋右分支單格參考","category":"water","definitionRef":"tile-106","tile":106,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":13568,"byteLength":128,"sha256":"60b59bb88ce8d13fe2336e10faced5e1a5d0dfcd3eeec54cbfc37321fbfbe11f","seasonRgbSha256":{"spring":"e37ccca722ee0bfdfced4616c7ba614bec80c1f08059459b0624711e9b7a2b39","summer":"02aae77222b2d15cb0c6e5705a54bf8629c0cc6f2969555f8cf1bdbe78911c96","autumn":"0bdb8d23c1f24299a404b95f562fa6ca06b9d5499605dc6b9cb02ef215eced4d","winter":"002a263cc01038a9cb5456d154784b4581bb3a0be36f11ce5e4a252201a4c7e2"}}},
+    {"itemId":"river-stroke-107-v1","name":"河紋上分支單格參考","category":"water","definitionRef":"tile-107","tile":107,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":13696,"byteLength":128,"sha256":"8dd5f81acde08c5f15f3284691ddb22d76e4fb41bc7a281b96191c07aa2c5458","seasonRgbSha256":{"spring":"c027abf2c22c6e710c29d9a26f7335b37eb9da9a9d2376e973ad1d1d5ca40f74","summer":"bb16f7b59ad1c1fed4d7afa52b09c506adc542122a2ca5d3d0d818a5b3d04d88","autumn":"b9bf4b2937abf186290d522d6edb844d24e122292fd9be2d6400eea7a89b33ce","winter":"234d8f769d653875e1ad8316215eb1f56c725ced3c471336d4db42d61e2b16e3"}}},
+    {"itemId":"river-stroke-108-v1","name":"河紋右端單格參考","category":"water","definitionRef":"tile-108","tile":108,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":13824,"byteLength":128,"sha256":"7bb71c0531a1fa7cebfef33bcbb73d91a6e31d58bd7a1cd454e92f86ec7a1754","seasonRgbSha256":{"spring":"27a30c81002a254fbef126e1832e972c65f6cace8bc8d96a0f4b92824bb42c29","summer":"32c29d00e5f90b85f8632bd779e648d67a24cf8b423782631c998d9020cebc29","autumn":"cbb4411ba6f6bdee709827650318d37d8029bf646f94cc869108070a321c027a","winter":"a2f7cc64c9639a27f87ee2ba16e708ba88e9236a4063feb8d4791467842e4486"}}},
+    {"itemId":"river-stroke-109-v1","name":"河紋下端單格參考","category":"water","definitionRef":"tile-109","tile":109,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":13952,"byteLength":128,"sha256":"9b33b166a53a0dcf065b717b41ed04817c36ecf322cdd999fab98650b6106fb0","seasonRgbSha256":{"spring":"d0acedb6edadfa175e708e1a390fdffe1c9be62da02606157525d2e18045b474","summer":"6bf733b66065ef91f7a88d28ec594964b76cabaef376669898e19181ae13d2f7","autumn":"39258d20f8dd3c91c18809480f470e61442043e022e33c4c67700e9e654bd323","winter":"7a5ecc6127593acd516d42ea84820be5cfd8b088a8650fe109f8b416d4e90866"}}},
+    {"itemId":"river-stroke-110-v1","name":"河紋縱直段單格參考","category":"water","definitionRef":"tile-110","tile":110,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":14080,"byteLength":128,"sha256":"c25e27c057e7b16c41a4ab4397cfba59e6742be1ee8bf667255cdbf0b05a1c22","seasonRgbSha256":{"spring":"9a59a38503e7aea65bce9d1f194b90663cdc80b7e07b0b1c362ef18663bdf383","summer":"a37f0ca41c3605c94c00964f2484043c4f3d08eb8df9e31fc05c116eb1ff6bcd","autumn":"7ab2f73b73b091cbfe074efef4d5c96d0bc16106478ce9e70e4cac6d12e5c762","winter":"1d0b058971180038e9b18dc07e3ea76e3ec85e5f9ae5d9077b9dcf051189a711"}}},
+    {"itemId":"river-stroke-111-v1","name":"河紋四向交匯單格參考","category":"water","definitionRef":"tile-111","tile":111,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":14208,"byteLength":128,"sha256":"f541703d7081e10731f22977c92210e8e6b252b361636d34786eb83584e7ddcd","seasonRgbSha256":{"spring":"8e8cc5ed32e07a024b77b178e2fcd844edaf9d82a74204692d7062751bde88f4","summer":"c4678e6a67abfee40dbe6c5a498909bb87304fba7c124b8d28eebd10cbed6505","autumn":"51eac8111ab8e8c051a8d92f208997eeb86abd3521a0c18862cd5a958619f7be","winter":"696d50d9ae2c0a1000fc41873e21b81ccecb5701b2a214b0e388aec15e60ae99"}}},
+    {"itemId":"water-mouth-96-v1","name":"右向寬腹水口參考","category":"water","definitionRef":"tile-96","tile":96,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":12288,"byteLength":128,"sha256":"3adeb5bc3622269e058fc8770e0c0a128a5a09077c7c69111b00e596c8286ba9","seasonRgbSha256":{"spring":"8b75cd801e94f6ae12a417c873e2b099a9f55afb73702aca19e6be68d4da4258","summer":"0f9b05823a6238c1f16ae7dca25a8818139b4ef1d6ae1a5dc540d0b1b7965fb0","autumn":"39951b6e5e505b84dcec41e6838f72015541e1baa7a6ed5bc6a8ecf1ec5622b3","winter":"a054348415ff32363f4226f127da589c37208946c46b3ae30f12b02c24ccf167"}}},
+    {"itemId":"water-mouth-97-v1","name":"左向寬腹水口參考","category":"water","definitionRef":"tile-97","tile":97,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":12416,"byteLength":128,"sha256":"05c1486180f3ef2615c7a8914aed26e60686e16e6a2e3b1522dafc3ac3ba83f6","seasonRgbSha256":{"spring":"adc2012a807cb39a56098c72bed1f422e8bcda201fe5a9965ce6c9016aad3817","summer":"754b592e2567fa819accb164477f1611abc8086aa0b5027b6c3b4006b45d4d7f","autumn":"986fe5853fd6908830f157de0ee140ee7cffd299fcd4ac4ad5ebea0ee3be6beb","winter":"c86cf86745b961eb7121c28e3bab9a1c1cf5f4d7587407cd6653001bbb133515"}}},
+    {"itemId":"water-mouth-98-v1","name":"下向寬腹水口參考","category":"water","definitionRef":"tile-98","tile":98,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":12544,"byteLength":128,"sha256":"c87ee16203e516d5e5764dd769f699c08173e43e79814621e2a0e83a808c832e","seasonRgbSha256":{"spring":"48403e1c9c973ea8fe8df2e2b83ca91f851d10a9e5d7f3f89be1e77fbb984814","summer":"42cbb6fea51b200a6483d4896760e3a6c4c78c7a98573401d5bf6c410b27035c","autumn":"956490c6ab587aa9cd782d57200f19c948961570d6850e452eb4e3ab76603d7b","winter":"69c557c73df6e57406ae75b65c5feea3b6239f249f9c20f1e93e74595c66d52a"}}},
+    {"itemId":"water-mouth-99-v1","name":"上向寬腹水口參考","category":"water","definitionRef":"tile-99","tile":99,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":12672,"byteLength":128,"sha256":"0dd52a5be1d2ee12d482b52e36e39a7dd18691b9adbd0c1c821ebdf5283e0b54","seasonRgbSha256":{"spring":"42da49735e80946fcdce0fe75a3bc824272deb7b10404ad3e70c7a35e2458a1e","summer":"1f9f5770efd87a7d7097058278e4884f14f187b514300e3c0af02a85997913da","autumn":"d85e2c2228125692707d4e100a013abacb82a2c340f489d1fd99a34f69f794de","winter":"66864998d1ae30e7977cab72d8817535dc56250e2e67b6e6e1a06f81270ae9fa"}}},
+    {"itemId":"water-mouth-100-v1","name":"右向斜岸水口參考","category":"water","definitionRef":"tile-100","tile":100,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":12800,"byteLength":128,"sha256":"0ca39a4aaef683803505e1c2a56c63c80c2b70c97c7745313b9c0391be2f37d1","seasonRgbSha256":{"spring":"af0a42069320ead4c790c690bff16a0cfc314ac7495de13072212ebb8ca30648","summer":"37caed47b9b42ed47f97275317b084b050083e1cdbdf8266afbf5ced4653626a","autumn":"8de4916504ee3588a7c102aaa146c4af70bc628dceaa870262272727a1bcbc45","winter":"9ce1afd755efabe1b9d85ea1c4b1fd05ab76006a9dd335194adde25af44fd5c1"}}},
+    {"itemId":"water-mouth-101-v1","name":"左向斜岸水口參考","category":"water","definitionRef":"tile-101","tile":101,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":12928,"byteLength":128,"sha256":"dd4b2899ae31ca4b5a6bc0f2959ce8b86766b3293318d8cd3d489587daeed466","seasonRgbSha256":{"spring":"8b2f94aa67ae9a84d76b3ff7ed3f8fdb5a87094ad963086d92ccd5aa693fa3ed","summer":"95744fec181984978267770abc0bbe9683d9f8016e802742bdabf2be86340439","autumn":"f89ed7923d8ef425977a698793a9ce0070944eb3e4ef891a03a15c7422da40f1","winter":"7cf8e1f446fdf08681dd4ced5fd74f826208215577b9db19e3226062a0efbd45"}}},
+    {"itemId":"water-mouth-102-v1","name":"下向斜岸水口參考","category":"water","definitionRef":"tile-102","tile":102,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":13056,"byteLength":128,"sha256":"ab791993c01811eace5c1e08e1a80b798e76ed955b1bf617e3def6960247b104","seasonRgbSha256":{"spring":"1eeffca8c5defcc6213da0405d4bc4a4720b9a466327c396e277110dd9a3bd43","summer":"9541cc8401b7a6dd66c3fd3e13c6357d31296823d04848e24a604ec2d2c10d9a","autumn":"c3ed14f9a5a9499cdc3a09178f99481455dedd28aeab3930d83774aa97205849","winter":"a78e1c633823e1d43465e3c6996d2867cfc3aec487d4aeec841a5b2ae7bce994"}}},
+    {"itemId":"water-mouth-103-v1","name":"上向斜岸水口參考","category":"water","definitionRef":"tile-103","tile":103,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":13184,"byteLength":128,"sha256":"88388d923b6467a7f5e731a6ba11b32fc2c0d0ce1e3cdc7ffbed02967e87fb18","seasonRgbSha256":{"spring":"901311ab2065839b4fea2b7092fd28d5cea9d227c9e6f39a21bc797f67be242c","summer":"e36efdfd8dc6b9476f5588652ee3f8ab79b79bb0d566c46f02b780d63b2236af","autumn":"ba0620d394beff755bbd5bc510ae1f0cf0dd4fdcceec9fae5dd2c6a382b73ae1","winter":"318b332da916fa7c89d3aacd8cf9abeb4296496d22d6197a740d3e98b66c3df4"}}},
+    {"itemId":"coast-edge-41-v1","name":"岸紋左下折角單格參考","category":"ground","definitionRef":"tile-41","tile":41,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":5248,"byteLength":128,"sha256":"fc7069e8c04065e867e2a2840737c8659e4442c97d7b87f3cc8bdacbc556b14e","seasonRgbSha256":{"spring":"724e0f3b91112f7d84a491b15a20985c2f300dbb96cf9cb5cb93b329d766f6cb","summer":"bce8cd63fa61eb40856da619a94238e73be44aa47dee8d638115028193cb44de","autumn":"6ed92e5f33bf327352d83e21917e43a48e5840ebf04929d0a512cb7ffcd31e22","winter":"956db05d9b7dba67845fac16d31676e9d644e9c4b958e5d03c064700fe966e96"}}},
+    {"itemId":"coast-edge-42-v1","name":"岸紋右側折角單格參考","category":"ground","definitionRef":"tile-42","tile":42,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":5376,"byteLength":128,"sha256":"2f2cb3a66997d07a6d06b8af79260bdf8d455ec661969c341f210ae5c43bd0d3","seasonRgbSha256":{"spring":"09b542539b9cd7b633b21c47b9fca0108e23b91cb08ed82e06dedbcafe358aa0","summer":"9301b1029f9a7804f9ebaf5e22abdde32c5d4f614fa34d81a6882c543590af7f","autumn":"9ce0dd54a0fefb964ee14ff29bb17f76436142ac3c18933d79c3032c422a8b46","winter":"eaf7d1cdbd0c1483f509950e1016659eea4b403a838908ccd754f053d432c919"}}},
+    {"itemId":"coast-edge-74-v1","name":"岸紋下緣凹弧單格參考","category":"ground","definitionRef":"tile-74","tile":74,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":9472,"byteLength":128,"sha256":"997c4d30aa024c194767dc688640790d2fef8600cb138eb719d1d5c7fefb7f20","seasonRgbSha256":{"spring":"8b3a6a96d8fc7f4f7c5563c903a1ee5c9a228caed3f653381930d2d15cdb7f30","summer":"338019459c09c6513d09a78b78c2352cd828e68dbbe5e3a76e6fbd59f1f16031","autumn":"f18a6fbe0c98da64178a1beb7b367a246d1cf8a42d13b15a8408b76be018ab75","winter":"ca83ea34e444231ffced0b7c6f36ae9f4c7512f720b4b89f774d2f9ee3d295d8"}}},
+    {"itemId":"coast-edge-75-v1","name":"岸紋上緣凹弧單格參考","category":"ground","definitionRef":"tile-75","tile":75,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":9600,"byteLength":128,"sha256":"86c79b909ff6ffd14d144e914c5f467f4cc9354f837a5c3361f91fb6ab2c02bb","seasonRgbSha256":{"spring":"941f073df64435899f4d64413aed1402ff0acee0aca31cd656ba54164dace449","summer":"e771f84808bbcf5e65fb72295358b73b1b543370d47e57bbea4e80aeba12ef73","autumn":"d129be10deb5028a869c3b49626caba23c806b6e04be1e1ece7c0aab02f53fca","winter":"b5ef586b35e9afd30995e98278f2f43f8b128ae0d0db6d3f9e20bed2bc674ad9"}}},
+    {"itemId":"coast-edge-79-v1","name":"岸紋斜角單格參考","category":"ground","definitionRef":"tile-79","tile":79,"support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"resource":"MMAP.MDL","offset":10112,"byteLength":128,"sha256":"2d795d488cf591281f0943be4e54dc4b6466d82fa2f0b128255d98d88ba6f309","seasonRgbSha256":{"spring":"c00a353d9c78471504cf8c59aeca15e0efdeceebf3f4b080c253907aa3923c41","summer":"734f7074a055d67a977ef53709273a35e540ebfd7ecece6228cd13947cae971e","autumn":"7c871581a3d2c383a58d1b7e4c76a2d7479e032976b7e228bd77e285f73b5ca8","winter":"b85d1097051889701497c53f5f6a988b1e3fb20fe76f80895714f18bd0bb911d"}}}
+  ],
+  "components": [
+    {"itemId":"shore-shallow-arc-2-v1","name":"岸紋淺弧雙格參考","category":"ground","definitionRef":"web-piece-05cb5dac6c71ac4f14bebc237777cf4dfa27e1426e013bac07d3d62d10588bb7","definitionRevision":"web-piece-policy-1","definitionCategory":"ground-shore-pattern","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0]],"tiles":[[0,0,5],[1,0,4]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[189,96],"occurrences":3,"seasonRgbSha256":{"spring":"b0b2d39c5274e0bf9ff0ecd5f70a6c15de74b99ef434afee658f3972509c532e","summer":"47a3e139bedf2d1ce3159235f9a3c189b1582bd77bf807aa44d4afe729f3b485","autumn":"fe2b6a2b5f28fbfe02fb74672fdb7f400a9b3fa9f15a94275c7734f84f768cdc","winter":"77aa610f3cdd5708987670f9b8c2bb3c49944a8e679eef70eecba5dbc95f0c4e"}}},
+    {"itemId":"shore-left-line-2-v1","name":"岸紋左線縱雙格參考","category":"ground","definitionRef":"web-piece-f54cb5e6701b28ab41669c5e8e6629775c7a950867d03bd362e5cd7890d19dca","definitionRevision":"web-piece-policy-1","definitionCategory":"ground-shore-pattern","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[0,1]],"tiles":[[0,0,8],[0,1,10]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[142,85],"occurrences":13,"seasonRgbSha256":{"spring":"b87479238c1d64851cb0e8143672b984a26b70fc6ba399ef5c3f09608860ba47","summer":"7cb518c1b1e86575697d7e1bf8e60477315f6eb7f80806abcf71f0f093b8c251","autumn":"d68afdcaed7169cc52558173860fb6d4c4d7d134fad85cd84f6d8dcaf7a568ae","winter":"ae6c52abaddecdedf60332659225a8fe2b6b2e60aadb25ea50db23d0f9014846"}}},
+    {"itemId":"shore-upper-line-2-v1","name":"岸紋上線橫雙格參考","category":"ground","definitionRef":"web-piece-4af184cd552c37cd4c8605e95f156ed8449be3a948bce3b5b77098449c76a249","definitionRevision":"web-piece-policy-1","definitionCategory":"ground-shore-pattern","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0]],"tiles":[[0,0,9],[1,0,9]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[33,20],"occurrences":39,"seasonRgbSha256":{"spring":"ff65789f8568cf719b826db063c6445cfdc768aeb8d66ab4b19fd16b7f6004d0","summer":"a71d4956a7f369b9e70d6a2dce8206e82f22db24ffbdfe2d3acab03318853be0","autumn":"6609e62269051afd39723e1c22d32ad9b13a285ea3ea4c024a762be2e28b175c","winter":"3c3e7811d888521b22320cb3d7de44935a92ba3c517acf08b12dad413292d08e"}}},
+    {"itemId":"shore-lower-bend-2-v1","name":"岸紋下彎雙格參考","category":"ground","definitionRef":"web-piece-c1d5e260f398faa29ee0685e4a6bbee9800937277211758289bb3a6569b8c6e0","definitionRevision":"web-piece-policy-1","definitionCategory":"ground-shore-pattern","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0]],"tiles":[[0,0,12],[1,0,25]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[285,44],"occurrences":12,"seasonRgbSha256":{"spring":"a98de500af303fa3c8e3c73f636b6aa289140f62a1deb876a9b67a4057c3a2da","summer":"b6a997bddab3be6304c6adbccf2f26dd89104e9daf113bdd4a788006ddeb2000","autumn":"4a3fd244a55521f322d1b921058a5837ee37fa0de1ee128656d434fd2fbd8ead","winter":"b42f0317b2600211941e0d13402fefe79ee0389e4f140c52b77cd6ea88284fe2"}}},
+    {"itemId":"shore-right-line-2-v1","name":"岸紋右線縱雙格參考","category":"ground","definitionRef":"web-piece-a915ac814ef649c47ff319c2f2d20718a81c6ad2a6a26989664f69f7964a1a69","definitionRevision":"web-piece-policy-1","definitionCategory":"ground-shore-pattern","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[0,1]],"tiles":[[0,0,24],[0,1,24]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[277,24],"occurrences":27,"seasonRgbSha256":{"spring":"2f1eacf62ca2ba2ad2e04f35e63cbae50226c258dac7328b3d1a1210fdacc03f","summer":"4c2661b6ad68f1387e1a3f0ae24b9ded3c385af24f6ed2ff760d96188b9472f9","autumn":"9f405ea6613709d9e28c73299c41375dc8568652d9af024794664e542de61629","winter":"f86a262accb6ef7c362a5dadfd668f40cd930e5c564e81e9f2c42a52c36b5f9a"}}},
+    {"itemId":"shore-lower-line-2-v1","name":"岸紋下線橫雙格參考","category":"ground","definitionRef":"web-piece-27b685f7ce86f937e1a3b6cea0f49481e72f56ef4e8fec3b02616ef3c70484a4","definitionRevision":"web-piece-policy-1","definitionCategory":"ground-shore-pattern","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0]],"tiles":[[0,0,25],[1,0,25]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[266,56],"occurrences":30,"seasonRgbSha256":{"spring":"9ba9075c81cb0942482cf6264c0c669b81a498f2e407a324904ce724117b6093","summer":"10f68c51bc2da028f792a55d33d2fca2ca3b25d734343bacf4689b3f820cb2b6","autumn":"f65bcc65c760816af145cc89ee592a0697c68a48245703b59c43e4f5fe266dde","winter":"773f7dc8fa03cb8c84f84592d332d97c295f1a4f3aea2e81a35a4e942aa154f4"}}},
+    {
+      "itemId":"mountain-slope-double-face-18-v1","name":"山紋雙階十八格樣板","category":"mountain",
+      "definitionRef":"web-piece-a28c083b660505835ffcdb3cdddf2337e21ad160e8fd36016931fd33482b0024","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[3,1],[0,2],[1,2],[2,2],[3,2],[4,2],[0,3],[1,3],[2,3],[3,3],[4,3]],"tiles":[[0,0,112],[1,0,132],[2,0,132],[3,0,113],[0,1,133],[1,1,159],[2,1,173],[3,1,148],[0,2,133],[1,2,146],[2,2,145],[3,2,122],[4,2,113],[0,3,133],[1,3,146],[2,3,145],[3,3,129],[4,3,148]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[42,44],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"0b5075de730561279375195e19b8aeb57a7205856b9d1847a67b74b0db04ed90","summer":"b4ede9fed28e86f5b1304a188cabcbdac25420b140b5fa96e744b109418df716","autumn":"6fe50643a83ed06f523f06393a863e24fdd6c359070447657a36566f05044ad1","winter":"86bd9e14c9f1d2bca9118516e161bc83b80704c8261dd080b743a6b38b3853b8"}}
+    },
+    {
+      "itemId":"mountain-slope-tall-face-20-v1","name":"山紋直脊二十格樣板","category":"mountain",
+      "definitionRef":"web-piece-f198961e13ff0a89765b68d400546d9e590133ea7219419af7f420e274f10969","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[1,0],[2,0],[3,0],[1,1],[2,1],[3,1],[1,2],[2,2],[3,2],[1,3],[2,3],[3,3],[1,4],[2,4],[3,4],[0,5],[1,5],[2,5],[3,5],[4,5]],"tiles":[[1,0,112],[2,0,132],[3,0,113],[1,1,133],[2,1,141],[3,1,148],[1,2,133],[2,2,155],[3,2,148],[1,3,133],[2,3,155],[3,3,148],[1,4,133],[2,4,155],[3,4,148],[0,5,112],[1,5,124],[2,5,155],[3,5,122],[4,5,113]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[7,122],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"833ca3c6b3b4502e7712cb41ea64a3df43f2c241f6701fa185b528cd66f6953f","summer":"04ea7d217b2b11ade66a585ea04000bd787baa89a735c28cfe2e456ed3ef8030","autumn":"89d39444fcdd91fbc0447c468a8f624a9204a2a8379216362c7cc43a296c4561","winter":"5e8db51eaa640dd18e0c4888a20a3873381f2fa85caacd3d93c9efffa1acd104"}}
+    },
+    {
+      "itemId":"mountain-slope-upper-face-22-v1","name":"山紋上階面二十二格樣板","category":"mountain",
+      "definitionRef":"web-piece-3802604ba3d5f05f9131ebe33ec308397237356705b5dca13a1861ab8a5622ab","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[3,0],[4,0],[0,1],[1,1],[2,1],[3,1],[4,1],[0,2],[1,2],[2,2],[3,2],[4,2],[0,3],[1,3],[2,3],[3,3],[4,3],[0,4],[1,4],[2,4],[3,4],[4,4]],"tiles":[[3,0,112],[4,0,132],[0,1,112],[1,1,132],[2,1,132],[3,1,124],[4,1,131],[0,2,133],[1,2,118],[2,2,119],[3,2,162],[4,2,117],[0,3,133],[1,3,116],[2,3,117],[3,3,127],[4,3,126],[0,4,114],[1,4,149],[2,4,149],[3,4,149],[4,4,115]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[27,224],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"034a29778beb518df403435d18f565afebafe6c096fd998626f28c92b1fae58e","summer":"eb1aebc526a0adb9f1d68544beebf578f072426bdf3da529641947c984a2964e","autumn":"55e5e5683a6173aefd943e1dec68bdfe0f09284d617368b516d4d34c87422794","winter":"b17345318b8af8a649921793e0db714ccdb001444d1a5db39b887a3167ca77b4"}}
+    },
+    {
+      "itemId":"mountain-slope-stepped-face-13-v1","name":"山紋階脊十三格樣板","category":"mountain",
+      "definitionRef":"web-piece-ee4c322ed9126738ca09369abcc3414619241afd95eede96fe91889ac558700c","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2],[0,3],[1,3],[2,3],[0,4],[1,4],[2,4]],"tiles":[[0,0,113],[0,1,122],[1,1,132],[2,1,113],[0,2,135],[1,2,136],[2,2,148],[0,3,128],[1,3,128],[2,3,148],[0,4,128],[1,4,126],[2,4,115]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[96,155],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"df8b16db7df0ffe17a8e3a795239c006336ac95e9a25fbfceece067d1989b5a5","summer":"ddd45dc6876d5c2056e3f0b56ef09a8dce9cb6dd0a6b40075f47e5ff92961bd8","autumn":"6711e329de4a80ddab1a1ad38fa28973e0255dfa527ed08517f4385380aea4de","winter":"373d6df831c30b614db4408d3158d6b6a188f50a5b40e90f2215d2ff56a3c8c3"}}
+    },
+    {
+      "itemId":"mountain-slope-shoulder-10-v1","name":"山紋右肩十格樣板","category":"mountain",
+      "definitionRef":"web-piece-97e63ec06c0247d357bdaa31e2ca0835f5ecadbbd0f2e98941ff8897da594bf5","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]],"tiles":[[0,0,133],[1,0,139],[2,0,126],[3,0,115],[0,1,133],[1,1,156],[2,1,148],[0,2,114],[1,2,149],[2,2,175]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[140,48],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"925055e7660460774a3a5185d81c3b09a2dd55b585d213bde588010287885adf","summer":"a41861e27259f154181f49c0e9192cca1e9296bf60c7af06926bea982d76cc2a","autumn":"24b7fbf7dacd429fcee212794db0fa68a392b52ed19f2708ce4a09fb95217a04","winter":"e01db976d796a502c1ab3e78e16c975d96892071f4ca5709feca3b6d6e2984fd"}}
+    },
+    {
+      "itemId":"mountain-slope-face-12-v1","name":"山紋斜面十二格樣板","category":"mountain",
+      "definitionRef":"web-piece-5a2d6bb7f2bdfa6e28d6340dea7c4a91d527e6a1bd3305f69b37f0634f340db9","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1],[3,1],[0,2],[1,2],[2,2],[3,2]],"tiles":[[0,0,133],[1,0,125],[2,0,123],[3,0,129],[0,1,133],[1,1,121],[2,1,143],[3,1,129],[0,2,114],[1,2,149],[2,2,149],[3,2,149]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[124,32],"occurrences":1,"seasonRgbSha256":{"spring":"4643225fee0930136c555a37f7e6bcbcc6f63668e3bba2fdd1a61bb8a2a7feb3","summer":"ddac92995832db4009f769a9600341038aa69b9e2eb1e49ac12c8a3ab00dda3c","autumn":"87bd0317b6c6044c7486a4713efa6d97d2167396971d4d95d6a186091e9b2bb6","winter":"bb0da3f4d48f7a4dbf1bc2437b6bb8b5035d51bdba40d6f577e96c38235ac2f0"}}
+    },
+    {
+      "itemId":"mountain-slope-east-hook-9-v1","name":"山紋右掛角九格樣板","category":"mountain",
+      "definitionRef":"web-piece-585b2d459ae413fa063b3cd1eb7d1cafebd6df0c85647af8e2e98cd0ec75b3c1","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[2,0],[0,1],[1,1],[0,2],[1,2],[0,3],[1,3]],"tiles":[[0,0,129],[1,0,126],[2,0,115],[0,1,129],[1,1,148],[0,2,127],[1,2,148],[0,3,149],[1,3,115]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[288,192],"occurrences":5,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"a4ee7183c49dfaf97b3beb8da49910a6c0eb49dcae2ddca29f9df219420d37d3","summer":"8789a3f677a706e0bf9be4ad830eb72f06b0015ed97700a705a7842bab3ba3ef","autumn":"0e500175e55af1450aaf8d622703edc1475ba76c74c74d84e14972aa206e1a93","winter":"9a29ef2807b282da4b00a4b7e60b037808fb94777a9a047c4644dad33589af10"}}
+    },
+    {
+      "itemId":"mountain-slope-lower-steps-14-v1","name":"山紋下階十四格樣板","category":"mountain",
+      "definitionRef":"web-piece-b9e74bbb1dc1b994b48fbcc6250d57aadb8d30873490bbf0069c7f7d95f3ca02","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[2,0],[3,0],[4,0],[5,0],[1,1],[2,1],[3,1],[4,1],[5,1],[3,2],[4,2],[5,2]],"tiles":[[0,0,114],[1,0,120],[2,0,150],[3,0,152],[4,0,147],[5,0,147],[1,1,114],[2,1,149],[3,1,120],[4,1,144],[5,1,144],[3,2,114],[4,2,149],[5,2,149]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[90,48],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"d8376499a4e7839f8d736599cfc147c2661f7022e2ff64dc959493997249bc32","summer":"30efa7f9ecac12f1edee1a128ec1a1a56d9739a4ea9bf038b434513ac63486fa","autumn":"a7f4ad64fb8f064abc0fd3f60d738c7cd21ff0fbe38a9f51b48964ba6ebc0c16","winter":"17cb09b97f6d2683291b462bcbcfd0710f8da0fa768d0cdee8aeef4ee7f1adba"}}
+    },
+    {
+      "itemId":"mountain-slope-upper-steps-14-v1","name":"山紋上階十四格樣板","category":"mountain",
+      "definitionRef":"web-piece-f9bfa3293b11646bef91320382073db5c0cc1381a1e072577b4ef2a490410c45","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[4,0],[5,0],[6,0],[2,1],[3,1],[4,1],[5,1],[6,1],[0,2],[1,2],[2,2],[3,2],[4,2],[5,2]],"tiles":[[4,0,112],[5,0,132],[6,0,113],[2,1,112],[3,1,132],[4,1,124],[5,1,126],[6,1,115],[0,2,112],[1,2,132],[2,2,124],[3,2,162],[4,2,163],[5,2,148]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[180,237],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"ca2c5045aeb53f94941e4952d335368c76624436f3769a981c1e97d7868ed313","summer":"892361973288f856d28953823a1e442390d43028fbb1e8443ef569e87c47e84d","autumn":"54f885383330091a1a5b131b470ad72e89ecb8d582797aac573b2d892508d0df","winter":"02c9c73accba322b5e324ecdb9c98ca93f7e4b0c9093b71b6db0a8b4306be915"}}
+    },
+    {
+      "itemId":"mountain-slope-narrow-tail-10-v1","name":"山紋窄尾縱向十格樣板","category":"mountain",
+      "definitionRef":"web-piece-b6f626d3c7ec24a647f5149e5ebaf96f85cddd97e25f821ce421ab3e8b839fdc","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[0,3],[1,3],[0,4],[0,5]],"tiles":[[0,0,132],[1,0,113],[0,1,171],[1,1,148],[0,2,129],[1,2,148],[0,3,126],[1,3,115],[0,4,148],[0,5,115]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[192,48],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"cfd29a022b261e32e69e6708f69e86dc09f5dda0ebd10bb97cb0a725f08dd31f","summer":"57eb9ac92ca3d4623555e36b55e7fa5685225c0cb871a354b0ed0b5fa6d06251","autumn":"f560d56fd740c75d90393c3daca271fc3c0707eef2e94b7fdb6a6b6d39a990cc","winter":"c4bbb3c6422b0b794ef2d60d9d4415ab691a71d64bd2c4105dffed8540943529"}}
+    },
+    {
+      "itemId":"mountain-slope-east-tall-8-v1","name":"山紋右階縱向八格樣板","category":"mountain",
+      "definitionRef":"web-piece-93c1bff63b28c02077ed024813edf9d7108cac9603fe487f364463eaf3d8d194","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[0,1],[0,2],[1,2],[0,3],[1,3],[0,4],[1,4]],"tiles":[[0,0,113],[0,1,148],[0,2,122],[1,2,113],[0,3,117],[1,3,148],[0,4,149],[1,4,115]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[16,52],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"5688f53c06981754f738217bb7774ab2a4cf050aadd68f38a4917514f3e49a97","summer":"b81214892d498e548f4ade7c5fce4f824c8a65bc76a4d789ee0e58f138cd933d","autumn":"e4ed5116252ccaa80820684e112a966b453aab360971b1a4e3b5ea1dbe4f6252","winter":"25d7a34be50439ade7ce5185941f7490b1cb3895bd14849f7480928418d31620"}}
+    },
+    {
+      "itemId":"mountain-slope-lower-7-v1","name":"山紋下緣橫向七格樣板","category":"mountain",
+      "definitionRef":"web-piece-9c8a611a32744a11d5ee28a2d6613d379e54e0f5e46c3e747d2c7f51c4eef960","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[2,0],[3,0],[0,1],[1,1],[2,1]],"tiles":[[0,0,128],[1,0,128],[2,0,126],[3,0,115],[0,1,149],[1,1,149],[2,1,115]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[212,8],"occurrences":31,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"0482d493bf245bb6adb004458d3e9e768d2c30cc7b1d2110360226c0355e116a","summer":"e869b70e6a10a659ba8826cb54d498f9af788e9ec0e83dc877f60a4d93fb8525","autumn":"0e2f9387fcc0bc61170327412e73f6c3515b9312df0511fa707914990b1b25b2","winter":"8e0324a07bf9c3e35bcf10e7b236598f0cece637deb4632118974dac7cf83919"}}
+    },
+    {
+      "itemId":"mountain-slope-west-tail-7-v1","name":"山紋左側伸尾七格樣板","category":"mountain",
+      "definitionRef":"web-piece-a1254234822d08c2dea2903c3576dc8d67b791f9f50c2c0a8f6e0de99cb73a1a","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[1,3]],"tiles":[[0,0,112],[1,0,132],[0,1,133],[1,1,134],[0,2,114],[1,2,120],[1,3,114]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[161,12],"occurrences":5,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"86c77c795017bb6366874f90ca6a4d1ca356b2152fa3cce84623a29075178e1b","summer":"43ced14f1748ab9cf1d27a385424a12300ae728989c73e920b46932d758edbef","autumn":"b8ef2dad70b7877787ed60e7e913c74b2b660a8a84ab9a72eea97d2ea40d55f0","winter":"68aca1b93c2ca69c8558e89f3597b88ab14616183352d668474550f3761328b1"}}
+    },
+    {
+      "itemId":"mountain-slope-west-open-7-v1","name":"山紋左階缺角七格樣板","category":"mountain",
+      "definitionRef":"web-piece-e9b147389d677fbd9cc204cc91858b60597db6d36b4dd5bd1f6da89638c3e5ae","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[1,0],[0,1],[1,1],[0,2],[1,2],[0,3],[1,3]],"tiles":[[1,0,112],[0,1,112],[1,1,124],[0,2,133],[1,2,134],[0,3,114],[1,3,120]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[55,36],"occurrences":6,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"88976c5f1d05a77d2924d8e70efe8dd0858785b3f6b25f5296d77eff28902018","summer":"18f7f1585f4dedc9de2dd03553a4cbc043d8838daf2e3cd2dcfbf6088f56e0eb","autumn":"1817e1cf1cbb72edc0075ca6aef99d10231f8d544515378f76b41eb9781702e4","winter":"0f0738b70cffed45025d74923db1c58255af85192e2b3c2f4640c117ef5ada80"}}
+    },
+    {
+      "itemId":"mountain-slope-tail-2-v1","name":"山紋暗緣收尾雙格樣板","category":"mountain",
+      "definitionRef":"web-piece-0a3d90cd76c27b899d8a1fe63c23786b3eda2b169e4905eff9dbce5987ad28e9","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0]],"tiles":[[0,0,149],[1,0,175]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[141,50],"occurrences":18,"seasonRgbSha256":{"spring":"21bbf6ec2ae2cbaf2a6a6a6589e01744a4e0eb8b2237155f27820530ccd39c67","summer":"6df0825e8e899ccdccf109a50c07acbc75824b069d068d8e6da6ad55fe158833","autumn":"f179f520e28c55ec1dcea14c76ab65c4dc30ee7769ea1cee0eaca94cc97d8c81","winter":"1c5abb257cf53a8949cdbfb8e0359e4e4f38274a9e946cb87af74f5c22ff0240"}}
+    },
+    {
+      "itemId":"mountain-slope-east-step-5-v1","name":"山紋右階缺角五格樣板","category":"mountain",
+      "definitionRef":"web-piece-371aeb157d51f27a6194117230cc5c819145068e8cedb86902c93d8e91431517","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1],[2,1]],"tiles":[[0,0,132],[1,0,113],[0,1,140],[1,1,122],[2,1,113]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[16,78],"occurrences":7,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"28e85e7a60dba2e270138af261ca3daebc7887b7e2e329c476cb81a6a7b2a41f","summer":"984f657477621350db5a1ec448ec4020a26ae63fe7f18b5855650c0f761c0ec0","autumn":"ba13b5b437e2101459ebd1452f861294e15e38a89d8a4ba84c7901255d352f25","winter":"45205727791ad554d4d69d6199d923e36204f692aedd97b3c17f0707b62d6541"}}
+    },
+    {
+      "itemId":"mountain-slope-west-open-5a-v1","name":"山紋左階延段五格甲樣板","category":"mountain",
+      "definitionRef":"web-piece-370d5e97d0c8c33a5077c9fc89ae73531009d5b1fa4d79f2dd14f1361adefa82","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[1,0],[0,1],[1,1],[0,2],[1,2]],"tiles":[[1,0,112],[0,1,112],[1,1,124],[0,2,133],[1,2,125]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[180,17],"occurrences":36,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"ad3cd1692dafca8c752e73eebb1b07642655e8478b90b4574fe0883780f43293","summer":"88dee865fc1e05fdef4776443c98cf79f776baeb24a1d5d33b9b4d34c00c20a6","autumn":"76b7426c3c00833b50c6ff9bae3537f60c990932890428443254e6791029e1ae","winter":"d1b2c1c1c1edf60bdf5782594c5ae27b4d208821d4be6ec7447bbd60bce2e897"}}
+    },
+    {
+      "itemId":"mountain-slope-west-open-5b-v1","name":"山紋左階延段五格乙樣板","category":"mountain",
+      "definitionRef":"web-piece-ee112c8516a9ca456076346d302ed5b19dae791a3b1ba459aa06c2a01dfd9cb5","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[1,0],[0,1],[1,1],[0,2],[1,2]],"tiles":[[1,0,112],[0,1,112],[1,1,124],[0,2,133],[1,2,118]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[110,205],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"991a749f5c3e5c902a67e520d6daca097d697edfa6d3ee9ee7b23e81e40c82c6","summer":"3a543978e9ed562d90abb66c52a083eb1c0be2b8466b0621b8befb43c783453c","autumn":"3e4c2205ee5906c5e57082fab58af37eba76fc05fc7a67640ff34786b25aea44","winter":"b5b8711d19f6681bc7819d711e1af687c42bfcef683e7df123ceaa96391c471d"}}
+    },
+    {
+      "itemId":"mountain-slope-west-6-v1","name":"山紋左側斜紋六格樣板","category":"mountain",
+      "definitionRef":"web-piece-9f5915dbcba49f8a808e91aa5cda97efd0420099660988894b47c0c1247648b0","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2]],"tiles":[[0,0,133],[1,0,130],[0,1,133],[1,1,116],[0,2,114],[1,2,149]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[84,173],"occurrences":3,"seasonRgbSha256":{"spring":"a87e7d8f575c54f7b2c5d3205fc0de4ab6905e69ea76c282c1e5047d8bdcd605","summer":"590f9b060feb3f61054ccc5b9e9f84a5df07556792db335f4112b4b3f88e4793","autumn":"eb6e49ee5fc56b2bb8f5521f1fb7fc930daa519c8cf5a63919c83cad9b0cac6a","winter":"85e2b5339d0dd3d319c625f12154412f23b9ee205603a28c06111a5829787c0c"}}
+    },
+    {
+      "itemId":"mountain-slope-west-foot-4-v1","name":"山紋左下暗緣四格樣板","category":"mountain",
+      "definitionRef":"web-piece-43a4069e84415c44a721a2a052d47cb4bd839ab9f71fce7277be51093d6b4afb","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,133],[1,0,138],[0,1,114],[1,1,149]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[190,24],"occurrences":8,"seasonRgbSha256":{"spring":"167abbe44112d17ab0b049a4095512d431a9fdd5b4b0def7ae6189dfd6064b34","summer":"b662f7c2964ae70fa7fffbdc4a7f70e052081ac3338548cd1ba6053a905bee7d","autumn":"2c1cbee755c530681584c086f12dc29802af941e6e102628156510c485d0b1b2","winter":"926922c5571ae57376e53a48bb6c50dff2f97bd46b41c9373810120b35f420f0"}}
+    },
+    {
+      "itemId":"mountain-slope-east-open-5-v1","name":"山紋右側延段缺角五格樣板","category":"mountain",
+      "definitionRef":"web-piece-a765dbea84d44032e37c8169f5aeba22ee0f9904010ac5126d15e1a268adc52d","definitionRevision":"web-piece-policy-1","definitionCategory":"mountain-pattern",
+      "support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[0,1],[1,1],[0,2],[1,2]],"tiles":[[0,0,113],[0,1,122],[1,1,113],[0,2,131],[1,2,148]],"ruleRecipeRef":"ki-byte-stamp-1",
+      "source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[180,83],"occurrences":5,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"967f4cf1d2a2d2a030414e1f5b6038e235e11bf0209ca64b02c40e06f1724bc4","summer":"38da8c2cc0afe5b6327d93fd321b405b24613823d60a246f5b480840480d7047","autumn":"a1c32b60499542e26546e3797e672cf4b85bb9d771f3282c965bd872d1efb754","winter":"ca90e291779067068b575fe06056bae2dad82cf7bf8260e46415424159cfb343"}}
+    },
+    {
+      "itemId": "city-corner-east-top-2-v1", "name": "大型據點右上雙格參考", "category": "city",
+      "definitionRef": "web-piece-6560d8cf2b3c08707fe7376eeb41ed98dfd33480d3f41d02ef41d0428491486e",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "reference-only", "geographyEffect": "unresolved", "anchor": [0, 0],
+      "footprint": [[0, 0], [0, 1]], "tiles": [[0, 0, 223], [0, 1, 246]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861", "firstWitness": [259, 7], "occurrences": 21,
+        "seasonRgbSha256": {"spring":"5d4d05463ea76c4ede712e2128d10a177a362c686f7434826a4cc98077461ab5","summer":"3c5521ad3b06753f7ffb64e22f95229e61fe72b645508fc6623bd01f7ee49586","autumn":"da000d22d663981b11163315d853ad80c5d77630e9a755f51468698c016cabbc","winter":"b5c12e23c253c29655d9f873051f9d7ba780d85b07c4f8112bdde3a3ed117fca"}
+      }
+    },
+    {
+      "itemId": "city-corner-east-bottom-2-v1", "name": "大型據點右下縱雙格參考", "category": "city",
+      "definitionRef": "web-piece-ba6af7812baff365fd3b47547cd019e5e839f32ef80721edab88e97cb13c8095",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "reference-only", "geographyEffect": "unresolved", "anchor": [0, 0],
+      "footprint": [[0, 0], [0, 1]], "tiles": [[0, 0, 246], [0, 1, 225]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861", "firstWitness": [259, 10], "occurrences": 21,
+        "seasonRgbSha256": {"spring":"7fd01906aa4cda6ece60f37e88e47825d4590eca1d26677230eb041c71081745","summer":"7fd01906aa4cda6ece60f37e88e47825d4590eca1d26677230eb041c71081745","autumn":"7fd01906aa4cda6ece60f37e88e47825d4590eca1d26677230eb041c71081745","winter":"7fd01906aa4cda6ece60f37e88e47825d4590eca1d26677230eb041c71081745"}
+      }
+    },
+    {
+      "itemId": "city-corner-south-left-2-v1", "name": "大型據點左下橫雙格參考", "category": "city",
+      "definitionRef": "web-piece-1520ac2ee8084daafc3539a33562f20b5720f5ae6cf1529d9202adc992814559",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "reference-only", "geographyEffect": "unresolved", "anchor": [0, 0],
+      "footprint": [[0, 0], [1, 0]], "tiles": [[0, 0, 224], [1, 0, 247]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861", "firstWitness": [255, 11], "occurrences": 21,
+        "seasonRgbSha256": {"spring":"dcea10a450bdbcc7f0ef122594e43b5aabe5647af63b570a38ea882b119d7ba6","summer":"a000d1cde1a80f37cacecfa314d81fa2b29a47f0271e91867c989c647e19a124","autumn":"60759d97f441cf860b025b717071ddabac69b4824cb3244822e4baa51bc13970","winter":"1f6f0f936f1ab37536e328087fd85f9731a637b70a20af797ec1942a3a3a4c1f"}
+      }
+    },
+    {
+      "itemId": "city-corner-south-right-2-v1", "name": "大型據點右下橫雙格參考", "category": "city",
+      "definitionRef": "web-piece-8927d13b318e07da909bbb98cacdf55c0513fb0227a731fd808e27ae43ed4997",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "reference-only", "geographyEffect": "unresolved", "anchor": [0, 0],
+      "footprint": [[0, 0], [1, 0]], "tiles": [[0, 0, 247], [1, 0, 225]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861", "firstWitness": [258, 11], "occurrences": 21,
+        "seasonRgbSha256": {"spring":"c746b49cb48316dc601a0fd2e4e057a633b67f169d6916d4476490e47959d190","summer":"c746b49cb48316dc601a0fd2e4e057a633b67f169d6916d4476490e47959d190","autumn":"c746b49cb48316dc601a0fd2e4e057a633b67f169d6916d4476490e47959d190","winter":"c746b49cb48316dc601a0fd2e4e057a633b67f169d6916d4476490e47959d190"}
+      }
+    },
+    {
+      "itemId": "city-edge-north-3-v1", "name": "據點上緣三格參考", "category": "city",
+      "definitionRef": "web-piece-bfecdfc2747346e4830edb7f1ee36e0d86be9b074f7b8b34b208d682a36bb63b",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [2, 0]],
+      "tiles": [[0, 0, 226], [1, 0, 244], [2, 0, 227]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [217, 10], "occurrences": 60,
+        "seasonRgbSha256": { "spring": "eb7890817c45c0d75d8adbe20dfdc0e16a28a5128cef6bbd4297e4eef5e72eae", "summer": "577235fedfa6ddbc7133331fe01c727e45787cf6b60fd121f0af9220de32b034", "autumn": "eb21699da7a4eb01d1ee9406004f0596d53db49227dc893319c10679a900c651", "winter": "62ccbca9ad98c82da8b3cb7192a08bc20186a160562ef11a27ff3cd8b251ad7e" }
+      }
+    },
+    {
+      "itemId": "city-edge-south-3-v1", "name": "據點下緣三格參考", "category": "city",
+      "definitionRef": "web-piece-731983b5dccf75d384e3b89735867b68e1d63ab66f1a66b9963895cee1a4c242",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [2, 0]],
+      "tiles": [[0, 0, 228], [1, 0, 245], [2, 0, 229]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [217, 12], "occurrences": 67,
+        "seasonRgbSha256": { "spring": "d33a31f15c14d6f1d596538e184dd5ba8822959205cf6da3ee9fb64cffef182b", "summer": "e663643eb708db633a1d03424f7f1e31269d40be1752ef1e65ed5ec81d250127", "autumn": "80611fb494f200b9737374fc824044e0b28011e77d038e5c8b194b8d4968f8a4", "winter": "c1ced390f51bed17e85b50bb6be0ff2348950405b75cb3090fc54caa7acb0a81" }
+      }
+    },
+    {
+      "itemId": "city-edge-west-3-v1", "name": "據點左緣三格參考", "category": "city",
+      "definitionRef": "web-piece-9a0a5d37194adff2d184e8c96662b94c2bd390c615c1427d8935fed335d30266",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0], [0, 1], [0, 2]],
+      "tiles": [[0, 0, 226], [0, 1, 242], [0, 2, 228]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [175, 21], "occurrences": 58,
+        "seasonRgbSha256": { "spring": "74acb9f45247670b7bb1d3c19d5ac386d24ae40f0a606110b44395bfaaa70897", "summer": "499b556e98b4e07eefb94d291342adac0c77b045daa037edcfc205cebc4ab99b", "autumn": "3c67b0550c097681bc5fdcc35145174cd0a7f07d9140d327a9f77bd3c8b4a35b", "winter": "eb6dd8c68fa25c48c2d332434c0523c2e19552df6a05c1bf85828f66451b7a3b" }
+      }
+    },
+    {
+      "itemId": "city-edge-east-3-v1", "name": "據點右緣三格參考", "category": "city",
+      "definitionRef": "web-piece-349161efd0a47578b2f73391730c1c94f058772ee9407840199d68a3893eb8f0",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0], [0, 1], [0, 2]],
+      "tiles": [[0, 0, 227], [0, 1, 243], [0, 2, 229]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": { "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [258, 16], "occurrences": 45,
+        "seasonRgbSha256": { "spring": "ee2cc88e1912b8f69220ab3fb33e816797bdf67db781bb555cf45dfce7481d4a", "summer": "15724f4ecfe2b9d1ca024f7405d1bdb51225a46f62f1c26552bfcbf84e43a433", "autumn": "1d081ee7f2383172acab225705bd8a0b3d9c614453d6bdfaecad405eb179bf17", "winter": "9ef5fca068965f48119412e22f0137f304e276d92c2ae220b20adf04bb1327e4" }
+      }
+    },
+    {
+      "itemId": "field-corner-se-v1", "name": "田紋缺右下三格樣板", "category": "field",
+      "definitionRef": "web-piece-2f309df8a13385531c9cd5a7fda53894e17cdcaa0266a49799a279bc593370ee",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "field-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [0, 1]],
+      "tiles": [[0, 0, 180], [1, 0, 180], [0, 1, 180]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [72, 12], "occurrences": 237, "rgbHoleCarrier": [0, 0, 0],
+        "seasonRgbSha256": {
+          "spring": "cfd18524ace77556c2123eac62cac21a86435a02e7583428f300143c2e809f40",
+          "summer": "ea45aec5a66c8ed4512ef6e2991c40f18dc28c2b84be074bf46eb193b3943e25",
+          "autumn": "66465e96519fcbfc8452946e3bf9843ef423dd539f005a87c29cf3bd740a11d3",
+          "winter": "3f121b4c8ea1b74d521a9e0efafd803a2d13e81dad346917ed0619fd4bb94c4f"
+        }
+      }
+    },
+    {
+      "itemId": "field-corner-sw-v1", "name": "田紋缺左下三格樣板", "category": "field",
+      "definitionRef": "web-piece-0f989cfd059c3911c6de0e72b36cd029125a2998021bfdb9de5e36e0717f0cf2",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "field-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [1, 1]],
+      "tiles": [[0, 0, 180], [1, 0, 180], [1, 1, 180]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [337, 55], "occurrences": 235, "rgbHoleCarrier": [0, 0, 0],
+        "seasonRgbSha256": {
+          "spring": "032017f81844b6a70619a5b7b002b96d3859427b9c7daf858440516c7a8bdf9c",
+          "summer": "8a0a302452415eb2cbffd6c7617e0d8ea1a679a0f4b1247de900c47dcffc072b",
+          "autumn": "32a05c8e6036577382a2364c934bbd709a5b5013a04cfab97dfd45e0fe15cba6",
+          "winter": "fc45f982b3c48cb4d042dad3b9c3a6926f114d614b85a04771cbbc065f4a4393"
+        }
+      }
+    },
+    {
+      "itemId": "field-corner-ne-v1", "name": "田紋缺右上三格樣板", "category": "field",
+      "definitionRef": "web-piece-eb8cc1de61bfc1b8d701e3ebcec47c1fefca268b667848afe84e9fbad4aefe19",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "field-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [0, 1], [1, 1]],
+      "tiles": [[0, 0, 180], [0, 1, 180], [1, 1, 180]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [337, 54], "occurrences": 238, "rgbHoleCarrier": [0, 0, 0],
+        "seasonRgbSha256": {
+          "spring": "530afdd1096645e6cc5beabfbfdbc131151e67aba63e222f5c2534f3a603dce1",
+          "summer": "a2d9808225d4c82e6453832b890e3f55e3d7180430639029e142f0cf4ccc377f",
+          "autumn": "253311bf640bf22462ecab916f77b1da5ae8b64aed6b3fa6dce0e22b7bf43f0c",
+          "winter": "72afd1c7c2da9118c77d89f739ef8c12a1d52e0ad401ae924b67a295ba16019d"
+        }
+      }
+    },
+    {
+      "itemId": "field-corner-nw-v1", "name": "田紋缺左上三格樣板", "category": "field",
+      "definitionRef": "web-piece-5fb28d5fafd9ca154faaee579afbff946c2251d5051364ceaf718072236c01af",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "field-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[1, 0], [0, 1], [1, 1]],
+      "tiles": [[1, 0, 180], [0, 1, 180], [1, 1, 180]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [72, 11], "occurrences": 243, "rgbHoleCarrier": [0, 0, 0],
+        "seasonRgbSha256": {
+          "spring": "8a3fd0449775bd8b972989d61785a3d57288020a64f5f62a5d69cb3c6c939c9d",
+          "summer": "3460b627a3ee49b9649625f9ec354dadd92a6d202c4e6b7c9137570c8035da49",
+          "autumn": "bbe441277f3b2b93b754e1c3e9f1663a9ac53862e75e3541393b991eefdcedcb",
+          "winter": "23a36d3f88efa190f60e8d9d4060f244721900d658179dfa0bb1f232679ec8ce"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-block-6-v1", "name": "山紋橫塊六格樣板", "category": "mountain",
+      "definitionRef": "web-piece-7796c10af8b612203ac2c90bcf5e4010f27755ac0517e22365fd9c3999977a95",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]],
+      "tiles": [[0, 0, 112], [1, 0, 132], [2, 0, 113], [0, 1, 114], [1, 1, 149], [2, 1, 115]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [326, 197], "occurrences": 2,
+        "seasonRgbSha256": {
+          "spring": "02c24d0df35d74bd671e7c9e19657bfb4ebfc10d790e2265586edd586feb3b23",
+          "summer": "cf7491b78ca49c594edad9cff6c3325a468ccccec6878f2aac5761ad2edb361e",
+          "autumn": "63e27785d43e4456be40174eccf08efea9e1dc6353346fa99a49655e60f39732",
+          "winter": "698030ba207bb9961e7e8be6000fe766f35e95ae434b39aa0a87ee70290a33cc"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-east-6-v1", "name": "山紋右緣六格樣板", "category": "mountain",
+      "definitionRef": "web-piece-931f866bb0bd0c1e331aad1e9682798b150fd6b483011d779d1a643f0965c20e",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [0, 1], [1, 1], [0, 2], [1, 2]],
+      "tiles": [[0, 0, 132], [1, 0, 113], [0, 1, 136], [1, 1, 148], [0, 2, 149], [1, 2, 115]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [38, 134], "occurrences": 8,
+        "seasonRgbSha256": {
+          "spring": "1da63f18360a75803881ddc35f050ae328e5ba3615660f616406286c03c8679f",
+          "summer": "ce1b268390325b358c6a82d21fccbf11789c0baa715cfe2a9eb6e4c7b0da838f",
+          "autumn": "4015a1ec0fade801e9d55bb5387ef12b499dd2324743569b8c7b7a0f73507fb1",
+          "winter": "a87951340de176086ae44d7cff64f56597439c16d4813411ef581c0e47414a14"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-west-6-v1", "name": "山紋左緣六格樣板", "category": "mountain",
+      "definitionRef": "web-piece-55fc405673bbe80906f2c2ce66c297f7f417096828294cf34bac161cdd3100be",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [0, 1], [1, 1], [0, 2], [1, 2]],
+      "tiles": [[0, 0, 112], [1, 0, 132], [0, 1, 133], [1, 1, 162], [0, 2, 114], [1, 2, 149]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [238, 180], "occurrences": 3,
+        "seasonRgbSha256": {
+          "spring": "057b79c74b4bdf85854b5aea6260377b4f78db2c307f23c9162a152a477441e7",
+          "summer": "54a3a3d2349e2af83a9c8adb6ef43198674aa678659a9e85ce011fabad704674",
+          "autumn": "0474bd64120f94b0afb11b86a27dfa904614f614b7c366897378e515a92218b0",
+          "winter": "94316eac9e2741cc11496666598d3e3f7f8c5d562fbb2896e55436830f1fa2f8"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-foot-4-v1", "name": "山紋下緣四格樣板", "category": "mountain",
+      "definitionRef": "web-piece-65f4f3f0e05b54fc382d52cf111e3f6cbf71db09b894305c20c098324896e246",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [0, 1], [1, 1]],
+      "tiles": [[0, 0, 120], [1, 0, 148], [0, 1, 114], [1, 1, 115]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [180, 30], "occurrences": 7,
+        "seasonRgbSha256": {
+          "spring": "4fb08bee310bbadede32933ec77f975de30dc9e9e3cf186d87aafafcac3133c5",
+          "summer": "a8cbb82fcda41e2fc908a6950564c5d5201742c5ad317a78c8a81322ade8e332",
+          "autumn": "ccf5dcd56b968b901b3c6772f1271893cf393592c2e66d1130f55f1cc76acefa",
+          "winter": "b05dd022a28aa5bc880604ea46741a6448746aefe12a9039b5d35b7fd7d2269a"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-step-up-3-v1", "name": "山紋階沿缺角三格樣板", "category": "mountain",
+      "definitionRef": "web-piece-8f5cddfc3274bb566b46a98e5bec8399755a1f288254576832dc43eba250c1ec",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[1, 0], [0, 1], [1, 1]],
+      "tiles": [[1, 0, 112], [0, 1, 112], [1, 1, 124]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [209, 3], "occurrences": 395, "rgbHoleCarrier": [0, 0, 0],
+        "seasonRgbSha256": {
+          "spring": "fd0c06af39f346ccb83ee9be22e7786efcca21900027714b7f027a369a7581df",
+          "summer": "e1d8008aea0e1ee4a4b10a816a0301323895dbbcb7553c467cbb5ccb6d0f8820",
+          "autumn": "d9a88921dad791e3163902f9ed4971ca5b6a3052c3ebef09097026c124fb502c",
+          "winter": "c4553800801508926fd33961f8254790a339dffbb6b7e15f4ffd9df3572130bb"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-step-down-3-v1", "name": "山紋收沿缺角三格樣板", "category": "mountain",
+      "definitionRef": "web-piece-73f237c5f850169a58ba0b5ee01faac4f95609f300345a52903064c2443c199c",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [0, 1]],
+      "tiles": [[0, 0, 126], [1, 0, 115], [0, 1, 115]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [216, 6], "occurrences": 363, "rgbHoleCarrier": [0, 0, 0],
+        "seasonRgbSha256": {
+          "spring": "7f3284a30cd344b64816c671192a81c178c211cab796601c8973c82920b623fe",
+          "summer": "4a1592b1395bf8ee1dab0a60fe97ef0c347b44d8ffdc9e9a502c833353155f0d",
+          "autumn": "6d90b582fa80169d3bb03022c1ef4b4f22057da7cfdc9c61fe753cc61605a64b",
+          "winter": "3628f917cdafde258c55e15ad505b470ac42ac42dd10027102e8def6397efd81"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-east-4-v1", "name": "山紋右緣四格樣板", "category": "mountain",
+      "definitionRef": "web-piece-c237c9cce2fd223d3e3327b0fb118876ebf6f93c61a9d2795e23b4f76c1f5874",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [0, 1], [1, 1]],
+      "tiles": [[0, 0, 132], [1, 0, 113], [0, 1, 126], [1, 1, 115]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [172, 96], "occurrences": 24,
+        "seasonRgbSha256": {
+          "spring": "28a7b4015d982288c44c66c4b64584e73bb2d45dbdd8aa52407f741a8b28d833",
+          "summer": "f362f15b2d4b735e4d9cd575ccabf47576d528c5d67c53c587a2985968aeeb2f",
+          "autumn": "40e4fb5c8e630a1310661178f7248b2758984ced89b86921d371c176986300e9",
+          "winter": "2361eeec1475686f7c1fee983813dd132e02f8b01835a8d911df7a1f7ac36b4e"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-foot-east-4-v1", "name": "山紋右下緣四格樣板", "category": "mountain",
+      "definitionRef": "web-piece-b4e3ca0d27f4e10edb0496c921ec552fca9e7dcc4c8d35ddb2c0d0e3c6f86fe7",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [0, 1], [1, 1]],
+      "tiles": [[0, 0, 129], [1, 0, 148], [0, 1, 149], [1, 1, 115]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [65, 5], "occurrences": 55,
+        "seasonRgbSha256": {
+          "spring": "bb1026fe9012ff69316dac43a5c9bc2142b4dbc7be2e38d895cf461e81f08358",
+          "summer": "c68c80b3d6e396e4b321b49ca90ab6cb7a2d46e6c005039998ef053536f86488",
+          "autumn": "ed20f6e99367c750da868d16a3f5ae0bccd461f1a76cbd0c270121de4f11f015",
+          "winter": "898c776824f36e72f4778ac0cf8e51a18bb751ee10610ca2fe4b81a32a656760"
+        }
+      }
+    },
+    {
+      "itemId": "wall-corner-3-v1", "name": "牆紋折角三格樣板", "category": "wall",
+      "definitionRef": "web-piece-2f54e1ce9433fc53e2cb0ef65c573b8ba36728056288fa02c6842560fdc8a5a5",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [1, 1]],
+      "tiles": [[0, 0, 248], [1, 0, 223], [1, 1, 250]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [5, 38], "occurrences": 2,
+        "rgbHoleCarrier": [0, 0, 0],
+        "seasonRgbSha256": {
+          "spring": "01c381331fb473bb84e62c90fcbdd0ec7edd1418a82db6c818d18e025b3d503d",
+          "summer": "3f26591e4422d452ac11a21141293d0e1a894803a0e861abbd7d5c73b3f7fcbb",
+          "autumn": "4b764c542eb247c9eebf3026d5473cde68b09e53e1aead2c7be483e6b0f97d04",
+          "winter": "d31bb773b0b18c09137e4d27b6e34e35f16e539a06f6dc81b5b8dd98726d3371"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-column-4-v1", "name": "山紋縱向四格樣板", "category": "mountain",
+      "definitionRef": "web-piece-8d22529b69c5104396dd8fd561e6b57faa6f84927d6af8854c6cf36a419e0c51",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [0, 1], [0, 2], [0, 3]],
+      "tiles": [[0, 0, 112], [0, 1, 133], [0, 2, 133], [0, 3, 114]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [180, 18], "occurrences": 57,
+        "seasonRgbSha256": {
+          "spring": "6d9ca38a33163715f9c20e28e65834cf4d9e7f64f07da9f547d21e8d1aec81f1",
+          "summer": "77da6432555c41906661eb6b18307109fd54c6bd36c79490196ec4ef7ca9e8a2",
+          "autumn": "7d42c1f1d4a43891f18501748edbb4084e4d01735ffca5f97a14639fc4d435ec",
+          "winter": "6922c4d1679bb4158eb5e6c79ee705c3a55cbe4efaf88af6d0ed77c7db646b75"
+        }
+      }
+    },
+    {
+      "itemId": "field-column-2-v1", "name": "田紋縱向雙格樣板", "category": "field",
+      "definitionRef": "web-piece-79f9e8b484f10a5c6088e363569eaae2d71e160ebca79ba6b206abe83724a2a8",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "field-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [0, 1]],
+      "tiles": [[0, 0, 180], [0, 1, 180]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [77, 6], "occurrences": 705,
+        "seasonRgbSha256": {
+          "spring": "fa4ac68a3f86f79583f2be15b7dacef6ef2ba161080ef55890c86b9831420652",
+          "summer": "10f433361d0506f20bb8f010127de7e93addf4a6838d6d1701cf66cefab34522",
+          "autumn": "60cfe45610d5ad721eef418a8c39fb6b65bd4d7edeb7009afba13e2b5040ff83",
+          "winter": "e9ea5775d65ae7cac6f9a27fd5f16e19039235e32d15f44acc00a1ae0b15fea6"
+        }
+      }
+    },
+    {
+      "itemId": "river-bank-strip-3-v1", "name": "河岸橫向三格參考", "category": "water",
+      "definitionRef": "web-piece-d6ada2ef4ea6b0bbc4f598b5fa16a985f66639e036c7976d26b6b7fe2e92121c",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "ground-shore-pattern",
+      "support": "reference-only", "geographyEffect": "unresolved",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [2, 0]],
+      "tiles": [[0, 0, 6], [1, 0, 6], [2, 0, 6]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [296, 0], "occurrences": 107,
+        "seasonRgbSha256": {
+          "spring": "49b1cce330567441d04a1fb51ae5581ce6b7687b77f77c7bfc56f121923528f5",
+          "summer": "d6b61b9d2e661373a700e33beb426cdfb4b357ff299d70e53acb437497d9834c",
+          "autumn": "12326c6128ba77f0700fdc0fad0c63cf68bf091363c501ce706f6015aee1948b",
+          "winter": "8116cf302988279f9cb0b5be3d6712d8956b0da9dbf6c99c80cc6fdaae39c48e"
+        }
+      }
+    },
+    {
+      "itemId": "mountain-strip-4-v1", "name": "山紋橫向四格樣板", "category": "mountain",
+      "definitionRef": "web-piece-9e792a3af30d02a8a67aac8d87b52f53cb57fae672cd75260bb745ad615b02cd",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "mountain-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [2, 0], [3, 0]],
+      "tiles": [[0, 0, 112], [1, 0, 132], [2, 0, 132], [3, 0, 113]],
+      "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [50, 31], "occurrences": 56,
+        "seasonRgbSha256": {
+          "spring": "3b3320461f8022e5e60f4baf6f6ac8f6fb01955aee8dcc06239fa3101f690e46",
+          "summer": "f76e94ef9f4bc777a33c41d0d91c5ff3a929f783e6785a6735b531ac3a6b7181",
+          "autumn": "3ffe2e3522cce245d401c42d86a76e0448c44b66b096efab28947cc6f1bc2c5e",
+          "winter": "af6547647f5f5a52e72529bf97212c45c92900e1e25f95c7dc14769e27bdeb4f"
+        }
+      }
+    },
+    {
+      "itemId": "wall-strip-5-v1", "name": "牆紋橫向五格樣板", "category": "wall",
+      "definitionRef": "web-piece-a1fc618c33359d47e9137d631c0c07fbee3eec3a57fee84708ab49312bc0db54",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]],
+      "tiles": [[0, 0, 248], [1, 0, 231], [2, 0, 231], [3, 0, 231], [4, 0, 249]],
+      "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [151, 10], "occurrences": 1,
+        "seasonRgbSha256": {
+          "spring": "15a0022c92ae8782566d9b0b9e69a71b77b68dcf7744c1ac001b17cd7f90ce20",
+          "summer": "1f851a3c7b358a259ec0aba0e3b1a6bed556cb70547705cc3d009d739702d976",
+          "autumn": "5a4da333be1588cfd591ca2619732d2da273524e8a80b845e8a20526da812c2c",
+          "winter": "33a1ddd714834142a32d65bf84d33378d43c442340926c46e1b68eeb9d3952b6"
+        }
+      }
+    },
+    {
+      "itemId": "wall-start-2-v1", "name": "牆紋起段雙格樣板", "category": "wall",
+      "definitionRef": "web-piece-0a106843415a637066bdcb159afaa0bcb255ba6b1641be2c9a6a4b31738ae3d1",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0]],
+      "tiles": [[0, 0, 248], [1, 0, 231]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [172, 7], "occurrences": 9,
+        "seasonRgbSha256": {
+          "spring": "dfccded090db47b295b67adace2fa476b31830602b605dbc741356064a7051d8",
+          "summer": "bbef8ecef877acb049f9d003e877f816f625e25ec7623b73d90d980a83a887c1",
+          "autumn": "cf9e710944ef4a74d23b85f906250c6867efa25c06d46e184ec8cda1215f37c8",
+          "winter": "43a41ee77b66a0cad20474b98b399a5ede52e83c0c4d3c46f4bb22b63a9221b8"
+        }
+      }
+    },
+    {
+      "itemId": "wall-end-2-v1", "name": "牆紋收尾雙格樣板", "category": "wall",
+      "definitionRef": "web-piece-8cf177f1a787683ab268cda71cb9bedbeffa2df6038b9d94775b2229a041daf4",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0]],
+      "tiles": [[0, 0, 231], [1, 0, 249]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [154, 10], "occurrences": 8,
+        "seasonRgbSha256": {
+          "spring": "54b920377eedddf3e253d16f930ce2ad5ec0fd87e6cefdae043febbdcf805670",
+          "summer": "c5e1e9b0fb7fdf676f81869ea2003a33d7aba51a47e1385890414c656a66837e",
+          "autumn": "6b276a7ddaabbdf1d067b3e700ed9c114969c4fc21ffffc3601bbfaa279ec229",
+          "winter": "4d0f38711e17ea63a4ee1361d5e5aeb672e56e7511e091e77ee235da241c2e25"
+        }
+      }
+    },
+    {
+      "itemId": "wall-turn-2-v1", "name": "牆紋下彎雙格樣板", "category": "wall",
+      "definitionRef": "web-piece-a0c4d6a7064302fd97f1f58ded9f50b18f3ed304b7f11dfeca510cfc417ea5a9",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0]],
+      "tiles": [[0, 0, 231], [1, 0, 223]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [258, 7], "occurrences": 24,
+        "seasonRgbSha256": {
+          "spring": "8b041d2cc956635d44623d37b5c1e73fb59aa9a56640c240b7432697444e6d75",
+          "summer": "39023388b618a48caa26af5a3ad1cd66abec0fa4599f7f5abcd898da4ae9dd67",
+          "autumn": "7ba29fbf42ac634505912a42e9692a7527bc26ef9f46c27c6d48795f43e48db2",
+          "winter": "25c07c2d1639bbaa05e15c849003e8277def38f4172a94b960688a1567dbec47"
+        }
+      }
+    },
+    {
+      "itemId": "wall-short-3-v1", "name": "牆紋短段三格樣板", "category": "wall",
+      "definitionRef": "web-piece-8f462a3d5f33d8e0e678a5dd907fa1154e67eb224edb6e8a7aa90df107e89b71",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "structure-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [2, 0]],
+      "tiles": [[0, 0, 248], [1, 0, 231], [2, 0, 249]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [13, 42], "occurrences": 2,
+        "seasonRgbSha256": {
+          "spring": "b7d28ffccf887f3a7a1ed0b20669c04812a4df1bc20747c9005f480b7c23ebdf",
+          "summer": "53db5692b47c751e916c51f2a6c26b5b57307d47abeead88b5f59827c3caae49",
+          "autumn": "9cc071013c213685262fa5131b4095d14e4cf8be15e39270d6f18e0da1753705",
+          "winter": "2fd513ec99de93db3f3f69a0959264f90e7ae767a7a3c385cb146d33727d0d32"
+        }
+      }
+    },
+    {
+      "itemId": "field-strip-2-v1", "name": "田紋橫向雙格樣板", "category": "field",
+      "definitionRef": "web-piece-bddb764f569afa838352853453b56c50812aa27e3fc77094d8bb81cf825e29d5",
+      "definitionRevision": "web-piece-policy-1", "definitionCategory": "field-pattern",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0]],
+      "tiles": [[0, 0, 180], [1, 0, 180]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [72, 12], "occurrences": 798,
+        "seasonRgbSha256": {
+          "spring": "15ca08327879701eda18c4aecd9a463d78e59479e0672aa8aa1412aa16f5d7ae",
+          "summer": "cadd9734d12248957b331fa85abc5a2257dc0eb4a2d14f521be9948c219e278c",
+          "autumn": "6a7700a1cda2fa7dd7d4deccd60f1e97c67ec6a092490918882c7dbab48bc253",
+          "winter": "6004b3b610d01d18fa9420c5c8da053c02b3cd3e616f62e64cf064f679b18b7e"
+        }
+      }
+    }
+  ],
+  "recipes": [
+    {"itemId":"coast-pointed-tip-4-v1","name":"尖端岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,39],[1,0,47],[0,1,86],[1,1,63]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[333,75],"seasonRgbSha256":{"spring":"02fa6142ae47cf6eb3ba0f798189214636b45ceb91ac02cdf26171845dfe0c10","summer":"9eff93f5e78bd6524259b66c8759c4ad5635e98ad14ba8e4b331782252001ad3","autumn":"a2c45e41531c8ede3eaaca04009c57d890702996e25b9bf0ba2be24e4bafc2f8","winter":"a724f2af0cb742711b36f087bb025ffe3e5053c7a68fd649b362b9e5595a3b73"}}},
+    {"itemId":"coast-lower-diagonal-4-v1","name":"下緣斜帶岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,62],[1,0,87],[0,1,77],[1,1,71]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[136,169],"seasonRgbSha256":{"spring":"eeb033bc46a6f31185ea35f9739ae65954b2d8e53bd1be4c37f9bb56f411dc73","summer":"8bdeebbeaf66ea57386e030e0b0f91a054d442683c30ad999c3664293a87e6f0","autumn":"1768ef4fed49cd3c498829075095d9e8cfc2542fe1d90ac57b818278d455f3b7","winter":"51583607e171d594297708c039ccb348459322577fc8fa1dbadcc6d54b2e27d2"}}},
+    {"itemId":"coast-rising-diagonal-4-v1","name":"上升斜帶岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,51],[1,0,46],[0,1,68],[1,1,61]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[173,218],"seasonRgbSha256":{"spring":"8f772f3f0724c21fb53db983de579057225b19e032b9eba691d8376999359483","summer":"5051a0dd9b60196ae136d0a2771dfbe0db662303902e28c2d236feb9b6a9ba3d","autumn":"f3fbe85dd37463a44748fd45ab29ae5e38ae096f6127e58e4cc2a50df6b16105","winter":"c68732f9c2be84e586d5b69cdb0dccddf1d4541083c22249b34f98d64c8382da"}}},
+    {"itemId":"coast-right-notch-4-v1","name":"右側折口岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,76],[1,0,43],[0,1,0],[1,1,81]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[344,65],"seasonRgbSha256":{"spring":"486eb3bbb6eabe1ac90819a4b9218bfe0467bad919f628906fbc344856a826cb","summer":"bfbd988ef13467e52646ebd49971382458c7bb8a8bab8469eb2e91078dc57e1e","autumn":"82ea455890be570ef3f0ea23d915d6e50f1562bbffca02f3ed84a3c9f11d657a","winter":"1e4374708f3130f7c8f01816c30899dc10d9a7506c5f01b7bc7c9b67b900bf99"}}},
+    {"itemId":"coast-narrow-inlet-4-v1","name":"窄口灣形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,0],[1,0,73],[0,1,86],[1,1,57]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[355,234],"seasonRgbSha256":{"spring":"3466f690f1c60b82d078d5626a2f024901b1213f337f3f7ffb2f533cb82ab3cd","summer":"41421f66950931d43c8daa3825a85e4384c77ad2e254a197e8050565bd05ec9d","autumn":"daa27729ba962029c43be2929d5c0c1dad8db86465120eb9053bd5f156e71cd4","winter":"5fc960cad46c075b31fa7735d195de0f55e6ca10b6ec4720cd5306310f185ee2"}}},
+    {"itemId":"coast-opposed-corners-4-v1","name":"對角岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,47],[1,0,82],[0,1,83],[1,1,95]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[156,183],"seasonRgbSha256":{"spring":"ebf644057b0cff483355fdab95101d3ffdb5fd9d11d7b6237344c8d04d668059","summer":"91434040ec1189c77be6625e551c694c101d0d3597bd207fbb8dea0fd9efca1d","autumn":"6a38176dc247149ca08fef6d7cd894a5563965008d20a4c0f741c0c94498ac9e","winter":"45ff7fa22e91dd2882843c0f62fa3d6744607ba7161ae030b67776af21b90425"}}},
+    {"itemId":"coast-rounded-bay-4-v1","name":"圓弧灣形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,51],[1,0,50],[0,1,95],[1,1,34]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[346,168],"seasonRgbSha256":{"spring":"6d55a146a6631061585925cb32dd1b83d96fb751694b1ecae0534ad074d25e7d","summer":"cd75e3fc2ae11bea0e146fba34b80ca6cd86b4ed629ad96c114a3ff30a317344","autumn":"f21cdc6868d587cfbf5cd443ef37754d7049552cf0443807f656e6db5139beba","winter":"8a67c8748e9f4587377995e43af55865936bc9ff1979a8ae55e8600c82428ff1"}}},
+    {"itemId":"coast-vertical-step-4-v1","name":"縱向曲折岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,26],[1,0,95],[0,1,19],[1,1,65]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":4,"firstWitness":[262,61],"seasonRgbSha256":{"spring":"faecb15744b42e8e877dc8bf91ae32a23ed860fbd0220516d02f2fee1fe2126b","summer":"faaef1dc5a05662c7159e995c191a4277af6801842f8a5b626c438ce5259623e","autumn":"dc09ee9b814bd7abe2d32d1c0002cdde02f4d42c7cf349c330fd68cc2c2f33e8","winter":"4909c2a6a608fb94805c192eea56a557a522e8584d37aebbc0a854ba78849351"}}},
+    {"itemId":"coast-horizontal-step-4-v1","name":"橫向曲折岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,35],[1,0,95],[0,1,0],[1,1,11]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":3,"firstWitness":[308,133],"seasonRgbSha256":{"spring":"c81139d01e70a44e5ea93d55698ebc4d78812ba2abbacd61bfa8bfa55248a9dc","summer":"d599107499f2fd4d816e192e45a9607d7f8aa60453515e200fb2b07a2d243278","autumn":"a9e5512bb34ab734ca20055ac855c2da6609546be8ad122714babe45a171f352","winter":"413fe4284f9ba65ba663db8cdcb0253b236b69ed3358062947c7ac9e0a3953c8"}}},
+    {"itemId":"coast-right-angle-4-v1","name":"直角岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,27],[1,0,0],[0,1,95],[1,1,22]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":2,"firstWitness":[180,205],"seasonRgbSha256":{"spring":"ba1be893248d701ab31b1e1f790c948190195df295ee11ecb4bc59af1ec2cc17","summer":"b7090764b4abbb1d419e4d4ecc0be2cfddd894a36cd1f20cd993f784e4d1953c","autumn":"3635ee57054506dd55801efb390994855f816655b66f5fd478415bb32f10320e","winter":"c931d31850f6f80255e51e7b1466eee3cbdc1e289a33f2da51b1b2f167c5da69"}}},
+    {"itemId":"coast-left-bay-4-v1","name":"左側凹灣岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,95],[1,0,14],[0,1,95],[1,1,30]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":2,"firstWitness":[165,181],"seasonRgbSha256":{"spring":"cca41731d27cd6c2ce47abc0668b626e0d58f55b397dc020b9cb09061afaa641","summer":"499b4d635a81d9afcc2b99fb6504932e251874912be5b9fb5cd6e5efc06ff4fc","autumn":"8dcf64612c6d40245e2c5b648ebf58548f85ac22a05266fd333fafbd3cc9916c","winter":"d84bc13210ad6a1e48370fe232e43c55d4ffd67025c16f749d765663f4c9dd19"}}},
+    {"itemId":"coast-right-cape-4-v1","name":"右側凸岬岸形四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,0],[1,0,15],[0,1,0],[1,1,31]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[353,242],"seasonRgbSha256":{"spring":"4e1cf04b0741159e9ff7014607606d2814d3b0f7cd18e171bd0a26310f96e9ab","summer":"13ffe12c12355ddbb1f2f26d8999e3edda7f6e1d5716a5ada241970f8c4e9450","autumn":"8ac14d723fd005fd8ffcbe0a128feafe5cde32994910da6e7c8c80825c1e849b","winter":"700d01865c104878f8834c7f5232e75280901f67b1c2b05922cc333847a11628"}}},
+    {"itemId":"coast-diagonal-neck-4-v1","name":"斜向細頸岸紋四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,84],[1,0,85],[0,1,70],[1,1,71]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":3,"firstWitness":[364,155],"seasonRgbSha256":{"spring":"de103cc13c98dd17512230f70d54c2f4a16f8a6ba91138e24c7a0020443711b6","summer":"6364d9fb05ae19fdad5977ac1f7ae4560750b8c8fb14a5e0eb5ba787c1d9add0","autumn":"a4e22f5b4f59c23d657c9412ebeed4faec48704e3720f3b8ba09869d3bfe42e9","winter":"847706e4ac1de10aa9c447ed7b5f0daf6d9ff17b8eabc4ed0db318fe425e7cf9"}}},
+    {"itemId":"coast-narrow-cape-4-v1","name":"窄端岬形岸紋四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,66],[1,0,67],[0,1,58],[1,1,59]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[364,57],"seasonRgbSha256":{"spring":"c7278194fe70c590a5485ca5968ecc8367fa7fec73c89c816401ae2c3102518a","summer":"d3b1317af842a45aa75525fa8cf5446cba43c92a2c3e936008a336cb13465f71","autumn":"6549b370cc56f7c1387865e3b09740cc5a144a36f9f65c37c6e2361b82df9948","winter":"67341d0d4595775500e3c9b795872b4de46e91efbe8d1f00ae9b800b9eca3ee3"}}},
+    {"itemId":"coast-rounded-head-4-v1","name":"圓端岸紋四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,69],[1,0,7],[0,1,78],[1,1,23]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[373,208],"seasonRgbSha256":{"spring":"1217e01babdc8e6bedf3d4345cfa4d863adf54cf199360252b8070544798634b","summer":"7c293f72736fd9aa1616a652d472f9152c6ecc21936d6e0d4b4ecdb11c6b410b","autumn":"58941cf4867e0daf75c9a56f67d72fa6d49679c2e6601adef9543331a7561001","winter":"4c63cdc18582be7f624b7be10b464100674b12efc3309e0f9fc0821855c316a9"}}},
+    {"itemId":"coast-fork-inlet-4-v1","name":"叉口灣形岸紋四格參考","category":"ground","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,40],[1,0,69],[0,1,56],[1,1,85]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","occurrences":1,"firstWitness":[356,59],"seasonRgbSha256":{"spring":"4dbd953406875bfd6370dce3615bc53ffcea8837c8032b9ec53c2c99c2f0f81e","summer":"92f1064fe392bd53a84ce7e0d9705441c981c27bbd128b50453cd2e6128a02ce","autumn":"c3cb4cbec63beb2e94a7d0324e93cbb19be02356fdd82af64d36cbd4c34a9cf1","winter":"cc4a247431fef4cdc2c7b1a6b7914e48c91e7ba96b3d03d04252ac523c179f7a"}}},
+    {"itemId":"water-pool-outline-13-v1","name":"封閉池形十三格參考","category":"water","support":"reference-only","geographyEffect":"unresolved","anchor":[0,0],"footprint":[[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2],[0,3],[1,3],[0,4],[1,4]],"tiles":[[0,0,44],[1,0,55],[2,0,45],[0,1,38],[1,1,95],[2,1,54],[0,2,38],[1,2,95],[2,2,80],[0,3,38],[1,3,64],[0,4,60],[1,4,61]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[45,2],"occurrences":1,"rgbHoleCarrier":[0,0,0],"seasonRgbSha256":{"spring":"155d49721af5afdecba45c24a05d1cd2cb079e831caa14a614c9cfddc2ff4e17","summer":"78e6778e84e1d45da6f832e601101c1d6b97fa72f0b8938e5fd5addd5d564642","autumn":"77f9a9ed721e2443a5fa73a8d74ad89a6ee5dc6b7fa0a6a96fff93f6e861cfbc","winter":"1a608f5b36da72d8bb17f1444891b074c333a6bec66cd7f48fd446c3f2fa3046"}}},
+    {"itemId":"mountain-slope-diagonal-4-v1","name":"山坡斜面四格樣板","category":"mountain","support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,166],[1,0,170],[0,1,154],[1,1,167]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[38,85],"occurrences":2,"seasonRgbSha256":{"spring":"b196969683daa3c4d655e6f130efcf8d17125109e41788ccbd47a6653532b7f2","summer":"419591c6933203886bcb4f523735779a839bf20d7ab95f9a43b4f5318d24aa0a","autumn":"1ddbec5a964ac40c688a41230db13aad03dcc1ab154447d009db15ada176f402","winter":"a9dcd2552763f353c2479d408599b9cde2d19c72972ada2036f681abf772a003"}}},
+    {"itemId":"mountain-slope-fold-4-v1","name":"山坡折面四格樣板","category":"mountain","support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,143],[1,0,172],[0,1,169],[1,1,143]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[46,63],"occurrences":4,"seasonRgbSha256":{"spring":"e3c69d50ac3edb12f1ed36c1e5347cbfb107c0d69d3f34ccf031051259ccf30c","summer":"23cbd3c98cb51d01fc941fb52ef0a32e9956473480ad8219ce662515b078126a","autumn":"bfcbf504e3d57d47d766bf3c6161f82e73519705439989a5383fb31ff1a05f85","winter":"76205558e1be6469f64266bb97b52a86b04944468bc2025de7bec7c6c0cc765a"}}},
+    {"itemId":"mountain-slope-lower-turn-4-v1","name":"山坡下緣轉角四格樣板","category":"mountain","support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,129],[1,0,122],[0,1,164],[1,1,165]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[232,192],"occurrences":2,"seasonRgbSha256":{"spring":"728dc4529eadb295cc910c004fec715c9de4371853c5a29a51145bdaf674ef0f","summer":"d61cfc4f4d2156c6e105a7246a79ac9590db9ae2880c09090bedd002fa3fe870","autumn":"e1e8b3acb1ef6b6428875860c7a65d346c14f9cfcc504b794bfe4abc920fb45d","winter":"d855bfa35d3b1727ffbf30604c75976c893aa598c285b116212691d76223026c"}}},
+    {"itemId":"mountain-slope-upper-turn-4-v1","name":"山坡上緣轉角四格樣板","category":"mountain","support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,128],[1,0,137],[0,1,128],[1,1,128]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[2,102],"occurrences":27,"seasonRgbSha256":{"spring":"d5a237dd41d4b4ab5fa9627abe328d3676f90d3a43fdf505d19953edfd81a91e","summer":"927af4d6977f2ca36b8caa558ef10460414bc3e60458120a7f375876621f3d93","autumn":"ca0740e41f7caad40039dbb8e8364410d037267ea900d41fb2b05fb4d88ff2a9","winter":"45c2c9b20827260608fb263a3deb5bc493a343bdf9a52bbdd9610c328ce1a817"}}},
+    {"itemId":"mountain-slope-horizontal-4-v1","name":"山坡橫帶四格樣板","category":"mountain","support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,131],[1,0,131],[0,1,151],[1,1,151]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[89,43],"occurrences":12,"seasonRgbSha256":{"spring":"add353d1298448b79c7063cbf45c35c49aeaadd252a9dafc477012e8eb8b3026","summer":"82b88a39a21603884544217d6a6aa59ff2eaeb53c9f58830b90bb590074b7d2a","autumn":"e8bd81b5c7f80eb10448a6d5227db4a1658c6235a65c260add646dca38f3e713","winter":"b6e90662250366cfb49403256e50647930c5a471dcb91a3476b3c0377995aaa2"}}},
+    {"itemId":"mountain-slope-double-step-4-v1","name":"山坡雙階四格樣板","category":"mountain","support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,130],[1,0,142],[0,1,120],[1,1,130]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[14,53],"occurrences":8,"seasonRgbSha256":{"spring":"b37fc7ebbd8e1b7987d7500872fcf3e747158c06d892d981da34cb1a95c346a1","summer":"7b3e5e0ce497435629407faa296d4ef3a520da8c80480dc5c13dd92787064871","autumn":"85429e50bc7d85967e8b81e83b536861e1ccd604233e021d823f65c78341b1b1","winter":"462d97d6157dfcdc2ed35d5d86cead3365a90a44a1cd33062763584ba33d7e51"}}},
+    {"itemId":"mountain-slope-narrow-face-4-v1","name":"山坡窄斜面四格樣板","category":"mountain","support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,144],[1,0,153],[0,1,120],[1,1,169]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[135,108],"occurrences":1,"seasonRgbSha256":{"spring":"638b7af6b63d01f8f95052ecd7cb4ceb4865f64060cbee8e763093bfa546e1f6","summer":"90d95a05f148298c9194c2ca10534eb3ea7a95dd54f6b5b4f2b1ac28fcb02dde","autumn":"cb628eaf5072d82c123188c219b3bcb035b57ea71e3268724509caa237c12c72","winter":"9c32632dd25d89aa3712de7f49c506f035487f8bc35d3233790f6db20eebf3fc"}}},
+    {"itemId":"mountain-slope-notched-face-4-v1","name":"山坡折缺面四格樣板","category":"mountain","support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,145],[1,0,122],[0,1,158],[1,1,172]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[2,156],"occurrences":1,"seasonRgbSha256":{"spring":"787130cdd67ea33276a6f94a91bb74c24f20383ee70893f109ed52a3e8a1fa09","summer":"547257f5d3e845d1b4400bfa7e7bf18098e5db304a6e7a4151914001d68ed6ae","autumn":"c7ecb7978f1cb4ed4b78e9c0df18c882e352e3c58a26a93041758e42162afce7","winter":"c90606b7df3b39864636cbc1bbf0a9f6cb735edf568a410fd498d75936dbb3d6"}}},
+    {"itemId":"mountain-slope-lower-face-4-v1","name":"山坡下斜面四格樣板","category":"mountain","support":"existing-decoration","geographyEffect":"preserve-underlay","anchor":[0,0],"footprint":[[0,0],[1,0],[0,1],[1,1]],"tiles":[[0,0,157],[1,0,129],[0,1,167],[1,1,126]],"ruleRecipeRef":"ki-byte-stamp-1","source":{"layoutSha256":"740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861","firstWitness":[9,128],"occurrences":1,"seasonRgbSha256":{"spring":"b6c3833d129ad9faabccd03a10d03978bcbe634b0b4b8c60d368ece02d51f6b2","summer":"0958edd6d88cc2ada0d9a044da7256aa4eaf69523ef444b2aad8781766b2fc4b","autumn":"b25b955a71f721a8066774b310907c10d86a537ccaa52347d7c382456df174ae","winter":"5d8bd798672f71d78c92c8ed7e918a29d57b102e07f9d82c53d61884f3637a7b"}}},
+    {
+      "itemId": "mountain-slope-compact-4-v1", "name": "山坡緊湊四格樣板", "category": "mountain",
+      "support": "existing-decoration", "geographyEffect": "preserve-underlay",
+      "anchor": [0, 0], "footprint": [[0, 0], [1, 0], [0, 1], [1, 1]],
+      "tiles": [[0, 0, 166], [1, 0, 160], [0, 1, 161], [1, 1, 174]], "ruleRecipeRef": "ki-byte-stamp-1",
+      "source": {
+        "layoutSha256": "740708c27a89db0a7f82865be623b5732099ec97aabf399e7dbde1450c87c861",
+        "firstWitness": [209, 7], "occurrences": 12,
+        "seasonRgbSha256": {
+          "spring": "5dc2058beb6f01342a8033ff13f296708652141b1d06e4032ddd3dc1e5e5f896",
+          "summer": "c5baa3ae76e54193d528fc7e55245d29a09da5a8e1ae21b28b24d995dbd90ee6",
+          "autumn": "2d65b00accf1abccf0ebeef46c51ee2f2339c7830e41f9231bde64c6e21e2f52",
+          "winter": "5bf1079a9554dceeb3de3afdbb269165598c77beb96d82edbae49b4ef9cf3ba3"
+        }
+      }
+    }
+  ],
+  "examples": [
+    {
+      "exampleId": "mountain-shared-corner-v1", "name": "山紋共用起點折向", "category": "mountain",
+      "placements": [{ "itemId": "mountain-strip-4-v1", "x": 0, "y": 0 }, { "itemId": "mountain-column-4-v1", "x": 0, "y": 0 }],
+      "source": { "firstWitness": [175, 32], "occurrences": 1 }
+    },
+    {
+      "exampleId": "river-bank-overlap-v1", "name": "河岸同字節重疊延伸（僅參考）", "category": "water",
+      "placements": [{ "itemId": "river-bank-strip-3-v1", "x": 0, "y": 0 }, { "itemId": "river-bank-strip-3-v1", "x": 2, "y": 0 }],
+      "source": { "firstWitness": [245, 2], "occurrences": 11 }
+    },
+    {
+      "exampleId": "field-shared-corner-v1", "name": "田紋共用起點折向", "category": "field",
+      "placements": [{ "itemId": "field-strip-2-v1", "x": 0, "y": 0 }, { "itemId": "field-column-2-v1", "x": 0, "y": 0 }],
+      "source": { "firstWitness": [72, 12], "occurrences": 237 }
+    },
+    {
+      "exampleId": "wall-diagonal-repeat-v1", "name": "牆紋斜向重複（保留空格）", "category": "wall",
+      "placements": [{ "itemId": "wall-corner-3-v1", "x": 0, "y": 0 }, { "itemId": "wall-corner-3-v1", "x": 2, "y": 2 }],
+      "source": { "firstWitness": [5, 38], "occurrences": 1 }
+    },
+    {
+      "exampleId": "wall-start-end-overlap-v1", "name": "牆紋起段與收尾共用一格", "category": "wall",
+      "placements": [{ "itemId": "wall-start-2-v1", "x": 0, "y": 0 }, { "itemId": "wall-end-2-v1", "x": 1, "y": 0 }],
+      "source": { "firstWitness": [13, 42], "occurrences": 2 }
+    }
+  ]
+}

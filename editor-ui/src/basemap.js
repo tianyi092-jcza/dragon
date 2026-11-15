@@ -7,7 +7,7 @@ export function createMapController({ api, work, publish, preview = previewMapEd
   const path = gameId ? '/api/games/' + encodeURIComponent(gameId) + '/copy' : '/api/admin/base-map';
   let identity = null, actorId = null, actorVersion = null, generation = 0;
   let pendingForm = false, readRevision = 0;
-  let snapshot = null, candidate = null, edits = [], loaded = false, uncertain = false, message = '', serverProblems = [];
+  let snapshot = null, candidate = null, edits = [], undoSizes = [], loaded = false, uncertain = false, message = '', serverProblems = [];
   const permitted = () => Boolean(identity && !identity.user.mustChangePassword && (gameId ? ['admin', 'author'].includes(identity.user.role) : identity.user.role === 'admin'));
   const current = mark => mark === generation && permitted() && identity.user.id === actorId && (identity.version ?? null) === actorVersion;
   const render = () => publish({ loaded, exists: Boolean(snapshot), version: snapshot?.version ?? 0,
@@ -20,7 +20,7 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     else if (value.snapshot !== null) next = { ...value.snapshot, content: value.snapshot?.template?.content };
     if (!gameId && next !== null && (!Number.isSafeInteger(next?.version) || next.version < 1 || !/^[a-f0-9]{64}$/.test(next.digest) || !next.content?.map)) throw new Error('基礎地圖回應無效');
     pendingForm = false; readRevision++;
-    snapshot = next; candidate = next?.content ?? null; edits = []; loaded = true; uncertain = false; serverProblems = [];
+    snapshot = next; candidate = next?.content ?? null; edits = []; undoSizes = []; loaded = true; uncertain = false; serverProblems = [];
     paint(candidate); render();
   }
   async function read(mark) {
@@ -54,16 +54,20 @@ export function createMapController({ api, work, publish, preview = previewMapEd
   }
   function stage(edit) {
     if (!permitted() || uncertain || !snapshot) return false;
-    const pending = [...edits, structuredClone(edit)];
+    // One user action may expand into existing wire commands; preview and undo
+    // still commit the entire action, while the server keeps its flat protocol.
+    const batch = structuredClone(Array.isArray(edit) ? edit : [edit]);
+    if (!batch.length) throw new Error('修改批次不可為空。');
+    const pending = [...edits, ...batch];
     if (pending.length > 128 || new TextEncoder().encode(JSON.stringify(gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending })).length > 16384) throw new Error('本次修改已達保存上限，請先保存。');
     const next = preview(snapshot.content, pending);
-    candidate = next; edits = pending; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate); render();
+    candidate = next; edits = pending; undoSizes = [...undoSizes, batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate); render();
     return true;
   }
   function undo() {
     if (!permitted() || uncertain || !edits.length) return;
-    const pending = edits.slice(0, -1), next = preview(snapshot.content, pending);
-    candidate = next; edits = pending; serverProblems = []; paint(candidate); render();
+    const pending = edits.slice(0, -undoSizes.at(-1)), next = preview(snapshot.content, pending);
+    candidate = next; edits = pending; undoSizes = undoSizes.slice(0, -1); serverProblems = []; paint(candidate); render();
   }
   async function save() {
     if (!permitted() || uncertain || !edits.length) return;
@@ -93,12 +97,12 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     if (next === identity && next?.user.id === actorId && (next?.version ?? null) === actorVersion && permitted()) return;
     pendingForm = false; readRevision++;
     identity = next; actorId = next?.user.id ?? null; actorVersion = next?.version ?? null; generation++;
-    snapshot = null; candidate = null; edits = []; loaded = false; uncertain = false; message = ''; serverProblems = [];
+    snapshot = null; candidate = null; edits = []; undoSizes = []; loaded = false; uncertain = false; message = ''; serverProblems = [];
     paint(null); render();
   }
   return Object.freeze({ actions: Object.freeze({ reload, initialize, stage, undo, save, formDirty: value => { pendingForm = Boolean(value); }, enter: () => loaded ? undefined : reload() }), setIdentity, render,
     dirty: () => edits.length > 0 || uncertain || pendingForm,
     canLeave: (forUnload = false) => !(edits.length || uncertain || pendingForm) || !forUnload && confirm('地圖有未保存修改或未確認結果，仍要離開？'),
-    dispose() { generation++; snapshot = null; candidate = null; edits = []; paint(null); },
+    dispose() { generation++; snapshot = null; candidate = null; edits = []; undoSizes = []; paint(null); },
   });
 }
