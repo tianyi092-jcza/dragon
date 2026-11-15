@@ -42,6 +42,7 @@ const groups = computed(() => {
 });
 // 頂部選擇器是全局「當前遊戲」上下文；切換須經草稿控制器的未保存改動攔截。
 function switchGame(value) { props.draft.chooseGame(value); }
+const activeMap = computed(() => props.state.view === 'base-map-editor' ? props.baseMapModel : props.state.view === 'mapview-editor' ? props.gameMapModel : null);
 const title = computed(() => ({ profile: '個人資料', password: '變更密碼' }[props.state.view] || menu.value.find(item => item[0] === props.state.view)?.[1] || '工作台'));
 async function go(view) {
   userMenu.value = false;
@@ -55,7 +56,7 @@ async function go(view) {
 
 <template>
   <ElConfigProvider :locale="zhTw" size="default" :empty-values="[null, undefined]">
-  <div v-loading.fullscreen="globalLoading" :element-loading-svg="loadingSvg" element-loading-custom-class="workbench-loading" :aria-busy="Boolean(state.busy || state.loading)" class="workbench" :class="{ 'auth-layout': !ready, 'nav-collapsed': ready && collapsed }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
+  <div v-loading.fullscreen="globalLoading" :element-loading-svg="loadingSvg" element-loading-custom-class="workbench-loading" :aria-busy="Boolean(state.busy || state.loading)" class="workbench" :class="{ 'auth-layout': !ready, 'nav-collapsed': ready && collapsed, 'map-workspace': ready && Boolean(activeMap) }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
     <header class="workbench-header">
       <ElLink class="brand" href="#draft-editor" @click.prevent="go('draft-editor')"><span class="brand-mark">臥</span><span>臥龍傳<span class="brand-caption">創作工作台</span></span></ElLink>
       <div class="current-game" :hidden="!ready">
@@ -95,9 +96,9 @@ async function go(view) {
     </aside>
     <main class="workbench-main">
       <div class="page-heading" :hidden="!ready"><h1>{{ title }}</h1></div>
-      <div class="page-line" :hidden="!ready">
-        <p id="status" role="status" aria-live="polite"></p>
-        <div id="workspace-context" class="workspace-context" :hidden="!draftModel.context || state.view === 'catalog-editor' || state.view === 'copy' || state.view === 'management-editor'">
+      <div class="page-line" :hidden="!ready || Boolean(activeMap)">
+        <p id="status" role="status" aria-live="polite" :hidden="Boolean(activeMap)">{{ state.statusMessage }}</p>
+        <div id="workspace-context" class="workspace-context" :hidden="Boolean(activeMap) || !draftModel.context || state.view === 'catalog-editor' || state.view === 'copy' || state.view === 'management-editor'">
           <span v-if="draftModel.context">目前草稿：{{ draftModel.context.name }}／{{ draftModel.context.gameId }}<strong v-if="draftModel.context.dirty">／有未保存修改</strong><strong v-if="draftModel.context.pending">／原操作未確認</strong><strong v-if="!draftModel.context.verified">／尚須明確載入</strong></span>
         </div>
       </div>

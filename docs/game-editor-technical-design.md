@@ -81,7 +81,7 @@ GameSource
 
 本合同供系统模板与游戏地图共同使用；256种原子定义和分层保真源只是转换基础，不是完整元素控件化完成证书。全图元素粒度/实例/组合及一次转换验收以[系统基础地图设计§3](system-base-map-design.md#3-可编辑转换的完成标准)为准。本期不扩容，后期扩容须另适配统一引擎，不将builtin身份作为格式限制。
 
-> 现行模式补充：[SEA-GROUND-1](map-sea-ground-contract.md)采用显式base.policy、全幅95基底和独立地面小地图贡献；[ATOMIC-CATALOG-1](map-atomic-catalog-contract.md)规定240单格展示／256底层身份／七类的投影，工作台固定春季、据点库仅中立中心与通用部件，四季仍共用布局；不重写旧组合、图层语义或拓扑能力。以下unknown、非水覆盖不擦地理、组合水域开关等旧合同继续约束无policy源；新模式以该补充为准，不改原规则byte权威或冻结历史。
+> 现行模式补充：[SEA-GROUND-1](map-sea-ground-contract.md)采用显式base.policy、全幅95基底和独立地面小地图贡献；[ATOMIC-CATALOG-1](map-atomic-catalog-contract.md)规定240单格展示／256底层身份／七类的投影，工作台固定春季、据点库仅中立中心与通用部件，四季仍共用布局；不重写旧组合、图层语义或拓扑能力。后继[MAP-SPACE-4](map-atomic-catalog-contract.md#map-space-layout)将`decoration-reorder.direction`扩为±1／top／bottom，最后两者只稳定调整装饰数组顺序，预演与受限保存共用，不能跨图层。以下unknown、非水覆盖不擦地理、组合水域开关等旧合同继续约束无policy源；新模式以该补充为准，不改原规则byte权威或冻结历史。
 
 ### 2.1 坐标与四层
 

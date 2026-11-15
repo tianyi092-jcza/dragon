@@ -53,6 +53,8 @@ test('browser preview matches authorized writer for supported editing commands',
     ...['a', 'b'].map((suffix, index) => ({ op: 'decoration-place', instanceId: id(suffix), materialId: definitionRef, variantRef: 'original', x: 1 + index, y: 1, waterClass: null })),
     { op: 'decoration-translate', memberIds: [id('a'), id('b')], dx: 1, dy: 0 },
     { op: 'decoration-reorder', memberIds: [id('a')], direction: -1 },
+    { op: 'decoration-reorder', memberIds: [id('a')], direction: 'bottom' },
+    { op: 'decoration-reorder', memberIds: [id('a')], direction: 'top' },
     { op: 'material-capture', memberIds: [id('a'), id('b')], materialId, name: '預覽素材' },
     { op: 'material-rename', materialId, name: '預覽改名' },
     { op: 'decoration-place', instanceId: id('c'), materialId, variantRef: 'original', x: 10, y: 10, waterClass: null },
@@ -73,6 +75,29 @@ test('browser preview matches authorized writer for supported editing commands',
     source = saved;
   }
   assert.throws(() => previewMapEdits(source, [{ op: 'move-city' }]), /不支援/);
+});
+
+test('top/bottom are single bounded commands, persist and reject malformed alternatives atomically', () => {
+  const store = makeStore(), source = mapData();
+  store.ensureFromGame('tok', gameId, source);
+  const selected = source.map.decorations[1].id;
+  for (const direction of ['top', 'bottom']) {
+    const before = store.read('tok', gameId).data;
+    const edit = { op: 'decoration-reorder', memberIds: [selected], direction };
+    const expected = previewMapEdits(before, [edit]);
+    store.writeModule('tok', gameId, 'map', { edits: JSON.parse(JSON.stringify([edit])) });
+    const saved = store.read('tok', gameId).data;
+    assert.deepEqual(saved, expected);
+    assert.equal(direction === 'top' ? saved.map.decorations.at(-1).id : saved.map.decorations[0].id, selected);
+    for (const key of ['base', 'roads', 'placements', 'waterGroups']) assert.deepEqual(saved.map[key], source.map[key]);
+  }
+  const digest = store.read('tok', gameId).copyDigest;
+  for (const direction of [0, 2, '1', 'front', null, {}, true]) {
+    assert.throws(() => store.writeModule('tok', gameId, 'map', { edits: [{ op: 'decoration-reorder', memberIds: [selected], direction }] }));
+    assert.equal(store.read('tok', gameId).copyDigest, digest);
+  }
+  assert.throws(() => store.writeModule('tok', gameId, 'map', { edits: [{ op: 'decoration-reorder', memberIds: [selected], direction: 'top' }, { op: 'decoration-reorder', memberIds: ['missing'], direction: 'bottom' }] }));
+  assert.equal(store.read('tok', gameId).copyDigest, digest);
 });
 
 test('base-fill writes tiles and geography', async () => {

@@ -17,7 +17,14 @@ body { overflow: hidden; }
 .workbench-main { min-width: 0; min-height: 0; padding: 16px 24px; display: flex; flex-direction: column; overflow: hidden; }
 .page-line { justify-content: space-between; flex-wrap: nowrap; }
 .page-heading h1 { margin: 0; }
-#status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Map-only compact shell: fixed library; all released space belongs to Canvas. */
+.workbench.map-workspace { grid-template-rows: 56px minmax(0, 1fr); }
+.map-workspace .workbench-header { gap: 8px; padding: 0 8px; }
+.map-workspace .brand { gap: 4px; }
+.map-workspace .brand-mark { margin-right: 0; }
+.map-workspace .workbench-main { padding: 4px 8px 8px; }
+.map-workspace .page-heading { margin-bottom: 4px; }
+#status, .map-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-context { flex: 0 1 auto; max-width: 62%; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-layout { grid-template-columns: 1fr; }
 .auth-layout .workbench-main { width: min(580px, 100%); box-sizing: border-box; margin: 24px auto; overflow: auto; }

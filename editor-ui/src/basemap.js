@@ -73,7 +73,9 @@ export function createMapController({ api, work, publish, preview = previewMapEd
   function undo() {
     if (!permitted() || uncertain || !edits.length) return;
     const pending = edits.slice(0, -undoSizes.at(-1)), next = preview(snapshot.content, pending);
-    candidate = next; edits = pending; undoSizes = undoSizes.slice(0, -1); serverProblems = []; paint(candidate); render();
+    candidate = next; edits = pending; undoSizes = undoSizes.slice(0, -1); serverProblems = [];
+    message = pending.length ? '已撤銷上一步；仍有未保存修改。' : '已撤銷全部未保存修改。';
+    paint(candidate); render();
   }
   async function save() {
     if (!permitted() || uncertain || !edits.length) return;

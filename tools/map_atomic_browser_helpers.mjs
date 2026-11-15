@@ -10,12 +10,16 @@ export async function selectAtomicTile(panel, definitions, tile) {
   assert.ok(item, `byte ${tile} must be a visible library item`);
   const category = catalog.catalogCategories.find(row => row.id === item.category);
   const tabs = panel.locator('.base-map-catalog-tabs');
-  for (let step = 0; step < catalog.catalogCategories.length && await tabs.getByRole('tab', { name: category.name, exact: true }).getAttribute('aria-selected') !== 'true'; step++)
-    await tabs.getByRole('tab', { selected: true }).press('ArrowRight');
+  await tabs.getByRole('tab', { name: category.name, exact: true }).click();
   assert.equal(await tabs.getByRole('tab', { name: category.name, exact: true }).getAttribute('aria-selected'), 'true');
-  const index = catalog.catalogItems.filter(row => row.category === item.category).findIndex(row => row.id === item.id);
-  const jump = panel.locator('.el-pagination__jump input');
-  await jump.fill(String(Math.floor(index / 25) + 1)); await jump.press('Enter');
+  const album = panel.locator('.base-map-material-album');
+  const target = album.locator(`[data-tile="${item.id}"]`);
+  for (let step = 0; !await target.count() && step < 8; step++) {
+    const count = await album.locator('[role="listitem"]').count();
+    await album.evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await album.locator('[role="listitem"]').nth(count).waitFor();
+  }
+  await target.scrollIntoViewIfNeeded();
   return panel.getByRole('button', { name: `${item.name}；拖至地圖或按Enter／空白鍵開始放置`, exact: true });
 }
 
@@ -34,6 +38,130 @@ export async function dragAtomicTile(page, panel, definitions, tile, x, y) {
   assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
 }
 
+export async function verifyCompactMapLayout(page, panel) {
+  const geometry = await panel.evaluate(node => {
+    const rect = selector => {
+      const box = node.querySelector(selector).getBoundingClientRect();
+      return { x: box.x, y: box.y, width: box.width, height: box.height, right: box.right, bottom: box.bottom };
+    };
+    const heading = document.querySelector('.page-heading').getBoundingClientRect();
+    return { map: rect('.base-map-canvas'), tools: rect('.base-map-toolbar'), controls: rect('.base-map-controls'), status: rect('.map-status'), library: rect('.base-map-library'), tabs: rect('.base-map-catalog-tabs'), headingBottom: heading.bottom, height: innerHeight, width: innerWidth };
+  });
+  const { map, tools, controls, status, library, tabs } = geometry;
+  assert.equal(library.width, 260, 'compact library has fixed width, independent of navigation and viewport');
+  assert.ok(Math.abs(tools.y - tabs.y) <= 1, 'library starts at tool-row height, not below it');
+  assert.ok(Math.abs(tools.y - geometry.headingBottom - 4) <= 1, 'no separate status/description row below title');
+  assert.ok(Math.abs(map.y - tools.bottom - 4) <= 1, 'map starts immediately after the single toolbar row');
+  assert.ok(Math.abs(map.bottom - library.bottom) <= 1, 'map and material library bottoms align');
+  assert.ok(Math.abs(map.bottom - (geometry.height - 8)) <= 1, 'only eight pixels below map');
+  assert.ok(Math.abs(library.right - (geometry.width - 8)) <= 1, 'compact outer right margin');
+  assert.ok(Math.abs(library.x - map.right - 8) <= 1, 'only eight pixels separate map and library');
+  assert.ok(Math.abs(status.y + status.height / 2 - controls.y - controls.height / 2) <= 1, 'status follows controls on the same line');
+  assert.ok(status.x >= controls.right, 'status is after the buttons, not above them');
+  assert.ok(Math.abs(controls.x - map.x) <= 1, 'button group is aligned with the map left edge');
+  assert.ok(Math.abs(status.right - map.right) <= 1, 'status is aligned with the map right edge');
+  assert.equal(await panel.locator('.map-status').evaluate(node => getComputedStyle(node).textAlign), 'right');
+  assert.ok(status.x >= tools.x && status.right <= tools.right + 1, 'status stays visible on narrow screens; only the buttons scroll');
+  assert.ok(tools.height <= 50, 'toolbar never wraps into multiple rows; narrow view scrolls locally');
+  assert.equal(await page.locator('.page-line').isVisible(), false);
+  assert.equal(await panel.getByText('已預覽新底圖與地面輪廓', { exact: false }).count(), 0, 'retired long description is not rendered');
+  const buttons = await panel.locator('.base-map-catalog-tabs button').evaluateAll(nodes => nodes.map(node => ({ width: node.clientWidth, scroll: node.scrollWidth, height: node.getBoundingClientRect().height })));
+  assert.ok(buttons.every(button => button.scroll <= button.width && button.height === 32), 'compact category layout keeps default-size controls and all text');
+  return geometry;
+}
+
+export async function verifyMapWorkspaceChrome(page, panel, source, selectedId) {
+  const canvas = panel.locator('.base-map-canvas'), floating = panel.locator('.base-map-floating');
+  const tabs = panel.locator('.base-map-catalog-tabs');
+  const tabRows = await tabs.getByRole('tab').evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().y)));
+  assert.equal(new Set(tabRows).size, 2);
+  assert.equal(new Set(tabRows.slice(0, 4)).size, 1); assert.equal(new Set(tabRows.slice(4)).size, 1);
+  assert.equal(await panel.locator('.base-map-inspector, .base-map-tool-tabs').count(), 0);
+  assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).isDisabled(), true);
+  for (const text of await panel.locator('.base-map-toolbar button').allTextContents()) if (text.trim() && text.trim() !== '100%') assert.equal([...text.trim()].length, 2);
+  assert.deepEqual((await panel.locator('.base-map-controls button').allTextContents()).slice(-4).map(text => text.trim()), ['全圖', '放大', '100%', '縮小']);
+  await tabs.getByRole('tab', { name: '水系', exact: true }).click();
+  const album = panel.locator('.base-map-material-album');
+  assert.ok(await album.locator('canvas').count() < 100, 'offscreen water materials are not all mounted at once');
+  await selectAtomicTile(panel, source.componentDefinitions, 111);
+  assert.equal(await album.locator('canvas').count(), 100);
+  await tabs.getByRole('tab', { name: '地面', exact: true }).click();
+  assert.equal(await album.evaluate(node => node.scrollTop), 0, 'category change resets local scrolling');
+  await tabs.getByRole('tab', { name: '地面', exact: true }).press('ArrowRight');
+  assert.equal(await tabs.getByRole('tab', { selected: true }).textContent(), '山地');
+  await panel.getByRole('button', { name: '全圖', exact: true }).click();
+  for (let i = 0; i < 3; i++) await panel.getByRole('button', { name: '放大', exact: true }).click();
+  const expandedLayout = await verifyCompactMapLayout(page, panel);
+  const originalWidth = await canvas.evaluate(node => node.clientWidth);
+  await canvas.click(); await canvas.click({ button: 'right' });
+  const selectedBefore = await panel.locator('.base-map-object-info').textContent();
+  await page.keyboard.press('Escape');
+  await canvas.evaluate(node => {
+    const context = node.getContext('2d'), original = context.strokeRect;
+    node.zoomProbe = { original, sizes: [] };
+    context.strokeRect = function (...values) { node.zoomProbe.sizes.push(values.slice(2)); return original.apply(this, values); };
+  });
+  for (const startZoom of ['放大', '縮小', '放大']) {
+    await panel.getByRole('button', { name: startZoom, exact: true }).click();
+    await canvas.evaluate(node => { node.zoomProbe.sizes.length = 0; });
+    await panel.getByRole('button', { name: '100%', exact: true }).click();
+    const sizes = await canvas.evaluate(node => node.zoomProbe.sizes);
+    assert.ok(sizes.length > 0 && sizes.every(([w, h]) => Math.abs(w - 16) < 1e-10 && Math.abs(h - 16) < 1e-10), '100% renders each selected world cell at 16 CSS pixels, independently of DPR');
+    await canvas.click(); await canvas.click({ button: 'right' });
+    assert.equal(await panel.locator('.base-map-object-info').textContent(), selectedBefore, '100% preserves view center');
+    await page.keyboard.press('Escape');
+  }
+  await canvas.evaluate(node => { node.getContext('2d').strokeRect = node.zoomProbe.original; delete node.zoomProbe; });
+  await page.getByRole('button', { name: '折疊導覽', exact: true }).click();
+  await page.waitForFunction(width => document.querySelector('.base-map-canvas').clientWidth > width, originalWidth);
+  assert.equal(await canvas.evaluate(node => node.clientWidth), originalWidth + 152, 'all released navigation width goes to the map');
+  const collapsedLayout = await verifyCompactMapLayout(page, panel);
+  assert.deepEqual(collapsedLayout.library, expandedLayout.library, 'navigation changes only map width, never the fixed library');
+  await canvas.click(); await canvas.click({ button: 'right' });
+  assert.equal(await panel.locator('.base-map-object-info').textContent(), selectedBefore, 'resize keeps world center and zoom, no auto fit');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '展開導覽', exact: true }).click();
+  await page.waitForFunction(width => document.querySelector('.base-map-canvas').clientWidth === width, originalWidth);
+  const handle = panel.getByRole('button', { name: '移動圖層工具', exact: true });
+  await canvas.focus(); await page.mouse.move(0, 0);
+  const iconButtons = await floating.locator('button').evaluateAll(nodes => nodes.map(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height, border: getComputedStyle(node).borderTopColor, text: node.classList.contains('is-text') })));
+  assert.ok(iconButtons.every(button => button.width === 32 && button.height === 32 && button.text && button.border === 'rgba(0, 0, 0, 0)'), 'floating icons are square default-height text buttons, with no resting border');
+  await handle.hover();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.base-map-drag-handle')).borderTopColor !== 'rgba(0, 0, 0, 0)');
+  const start = await handle.boundingBox(), map = await canvas.boundingBox(), before = await floating.boundingBox();
+  assert.ok(before.width <= 460, 'floating toolbar is compact instead of a six-hundred-pixel strip');
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2); await page.mouse.down();
+  await page.mouse.move(map.x + 40, map.y + 50, { steps: 8 }); await page.mouse.up();
+  const moved = await floating.boundingBox();
+  assert.ok(moved.y < before.y); assert.ok(moved.x >= map.x && moved.y >= map.y && moved.x + moved.width <= map.x + map.width + 1 && moved.y + moved.height <= map.y + map.height + 1);
+  await handle.focus(); await handle.press('ArrowDown');
+  const keyed = await floating.boundingBox();
+  assert.equal(Math.round(keyed.y - moved.y), 8, JSON.stringify({ before, moved, keyed, map, scroll: await canvas.evaluate(node => ({ hostTop: node.parentElement.scrollTop, hostLeft: node.parentElement.scrollLeft })) }));
+  assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'layout, navigation and lazy browsing do not edit source');
+  await panel.getByRole('button', { name: '全圖', exact: true }).click();
+  const size = await canvas.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }));
+  const point = worldToScreen(fitViewport(size, { width: 384 * 16, height: 256 * 16 }), 208.5 * 16, 135.5 * 16);
+  await canvas.click({ position: { x: point[0], y: point[1] } });
+  for (const action of ['置底', '置頂', '下移一層', '上移一層', '刪除']) {
+    await canvas.click({ button: 'right', position: { x: point[0], y: point[1] } });
+    const menu = panel.getByRole('dialog', { name: '物件操作', exact: true });
+    assert.ok((await menu.locator('.base-map-object-info').textContent()).includes(selectedId));
+    assert.equal(await menu.locator('strong').textContent(), '山地');
+    assert.equal(await menu.locator('button:disabled').count(), 9, 'eight future tools and object lock stay disabled');
+    await menu.getByRole('button', { name: action, exact: true }).click();
+    assert.equal(await menu.count(), 0);
+    assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
+    await panel.getByRole('button', { name: '撤銷', exact: true }).click();
+    assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+    // Deleting clears selection; explicitly pick again after undo.
+    await canvas.click({ position: { x: point[0], y: point[1] } });
+  }
+  await canvas.focus(); await canvas.press('Shift+F10');
+  await panel.getByRole('dialog', { name: '物件操作', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await panel.getByRole('dialog', { name: '物件操作', exact: true }).count(), 0);
+}
+
 export async function verifyAtomicLibrary(page, panel, source) {
   const catalog = projectAtomicSpriteCatalog(source.componentDefinitions);
   const library = panel.locator('.base-map-library'), album = library.getByRole('list', { name: '原子素材相冊' });
@@ -47,13 +175,15 @@ export async function verifyAtomicLibrary(page, panel, source) {
   for (const label of ['春', '夏', '秋', '冬']) assert.equal(await panel.getByRole('tab', { name: label, exact: true }).count(), 0);
   // Only spring is reachable in the workbench; four-season rendering is tested below the UI.
   const season = 'spring';
-    await page.waitForFunction(id => !document.getElementById(id).textContent.includes('圖集載入中'), await panel.getAttribute('id'));
+    await page.waitForFunction(() => !document.querySelector('.map-status')?.textContent.includes('圖集載入中'));
+    assert.equal(await library.locator('.el-pagination').count(), 0, 'map-only lazy library has no pagination');
     const atlas = decodePNG(await readFile(new URL('../web/' + source.editorAssets.seasonAtlases[season].url.replace(/^\//, ''), import.meta.url)));
     let count = 0;
     for (const category of catalog.catalogCategories) {
       const items = catalog.catalogItems.filter(row => row.category === category.id);
-      for (let first = 0; first < items.length; first += 25) {
-        await selectAtomicTile(panel, source.componentDefinitions, Number(items[first].id.slice(5)));
+      await selectAtomicTile(panel, source.componentDefinitions, Number(items.at(-1).id.slice(5)));
+      {
+        const first = 0;
         const displayed = await album.locator('canvas').evaluateAll(nodes => nodes.map(node => {
           const ratio = devicePixelRatio, rgba = node.getContext('2d').getImageData(0, 0, node.width, node.height).data;
           const pixels = [], scale = 2 * ratio;
@@ -68,7 +198,8 @@ export async function verifyAtomicLibrary(page, panel, source) {
           }
           return { name: node.getAttribute('aria-label'), width: node.clientWidth, height: node.clientHeight, backing: node.width, backingHeight: node.height, ratio, pixels, crisp };
         }));
-        assert.deepEqual(displayed.map(row => row.name), items.slice(first, first + 25).map(row => row.name));
+        assert.deepEqual(displayed.map(row => row.name), items.map(row => row.name));
+        assert.deepEqual(await album.locator('[role="listitem"] > span').allTextContents(), items.map(row => `ID：${row.id.slice(5)}`));
         for (let i = 0; i < displayed.length; i++) {
           const item = displayed[i], tile = Number(items[first + i].id.slice(5));
           assert.deepEqual([item.width, item.height, item.backing, item.backingHeight], [32, 32, 32 * item.ratio, 32 * item.ratio]);
@@ -80,7 +211,7 @@ export async function verifyAtomicLibrary(page, panel, source) {
           }
           assert.deepEqual(item.pixels, pixels, `${season} byte${tile}: exact original atlas cell, not a crop of a multi-cell sample`);
         }
-        assert.equal(await album.getByRole('button').count(), items.slice(first, first + 25).filter(row => row.canPlace).length);
+        assert.equal(await album.getByRole('button').count(), items.filter(row => row.canPlace).length);
         count += displayed.length;
       }
     }

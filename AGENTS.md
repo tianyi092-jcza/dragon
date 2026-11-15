@@ -43,7 +43,7 @@
 
 ### 地图编辑与素材
 
-- `mapspritecatalog.json`保留版本化Web配方／身份，不是DOS对象表；不能按像素合并原byte或删除历史定义。当前库遵[ATOMIC-CATALOG-1](docs/map-atomic-catalog-contract.md)：保留256原子身份，默认显示240张16×16单格，隐藏游戏动态选择的16个据点所属配色变体；据点只显示中立中心与通用部件。工作台固定春季、无季节切换，四季共用一份布局；右侧32×32像素放大预览不改地图占格；仅地面／山地／水系／农田／墙体／据点／道路七类，桥梁／水路并道路；不展示组合／历史／作者等库导航或素材悬停说明。严格匹配原子定义，只读／未知不放置；既有地图组合与共同组合能力保留，不自动拆除。
+- `mapspritecatalog.json`保留版本化Web配方／身份，不是DOS对象表；不能按像素合并原byte或删除历史定义。当前库遵[ATOMIC-CATALOG-1](docs/map-atomic-catalog-contract.md)：保留256原子身份，默认显示240张16×16单格，隐藏游戏动态选择的16个据点所属配色变体；据点只显示中立中心与通用部件。工作台固定春季、无季节切换，四季共用一份布局；右侧32×32像素放大预览不改地图占格；仅地面／山地／水系／农田／墙体／据点／道路七类，桥梁／水路并道路；不展示组合／历史／作者等库导航或素材悬停说明。严格匹配原子定义，只读／未知不放置；既有地图组合与共同组合能力保留，不自动拆除。后继[MAP-SPACE-4](docs/map-atomic-catalog-contract.md#map-space-layout)采用两行按钮TAB、32px图样下ID与素材库局部懒加载（分页专项例外），图层工具浮动可拖，导航折叠释放空间给地图且保视野；对象右键菜单的装饰调序／删除开放，组合／变换／对象锁暂禁用，顶部锁图范围待明确。后续[紧凑布局](docs/map-atomic-catalog-contract.md#compact-map-layout)将工具／状态同行、固定右栏与地图底对齐，浮栏图标采用用户批准的无框方形按钮局部例外；100%恢复16px原始格，不改32px素材预览。
 - `mapcanvas.js`／`mapspriterecipes.js`私有持有源、图集及预览定义，Vue只接DTO／动作。已有定义须完整匹配才复用；新配方沿共同放置／捕获／移除命令物化，不向source偷插定义。组批先过完整预览与预算，一次安装／撤销，保存仍为受限扁平请求，重读后按完整配方复用。
 - 四季共用一份布局；显示网格、幽灵和视口不写内容。[SEA-GROUND-1](docs/map-sea-ground-contract.md)显式全幅95海底，小地图仅地面轮廓＋道路／据点；四层合成／眼睛锁独立于素材分类，不设四层库导航。用户界面称底图，未放素材处自然露出，不需铺海。新模板直接启用，旧可编辑地图仅本地暂存启用、保存才写入，不自动迁移持久数据；无policy旧源仍保留下层地理／unknown语义。外观分类不授予河湖mask、道路连通或移城能力。详细合同及原证见上述设计和[准入说明](docs/re-notes-editor-map-admission.md)。
 
@@ -64,7 +64,7 @@
 - 编辑器全部页面采用**Element Plus默认主题/组件/控件/size、繁体locale**，不重定义`--el-*`、不加皮肤或UI/图标依赖。仅展示层，玩家Canvas不套此规则；编辑器可常规保存/取消/关闭，不套游戏右键约定。决策背景见[journal§37](docs/checkpoint-journal.md#37-前端架构决策编辑器采用-element-plus-默认主题与组件)。
 - 组件按路径引入，`main.js`同时引入对应`style/css`；ElOption/ElTableColumn由select/table导出。`theme.css`仅骨架/间距/宽度/滚动/内容布局，不覆盖控件高度/字阶/边框/圆角；不修改玩家`server/public/style.css`，挂载编辑器时移除该link。
 - [布局规范](docs/editor-ui-layout-spec.md)为详细维护源：整页不滚、数据区滚、垂直居中、枚举名称（未知保留数字）、保存后重读；旧34px/原生table皮肤撤销。不得覆盖`[hidden]`；隐藏重型内容按需挂载但保留输入。保留id/data-*协议；空字符串选项用`empty-values=[null, undefined]`，多选用ElCheckboxGroup，回调接值不假定原生事件。
-- 列表固定表头、25/50/100分页＋jumper，不滚动追加；复用ListPagination/ListRowActions/pagination。默认普通编辑/保存/取消按钮，不加primary/link/text或悬浮操作列。固定列紧凑、读编辑同宽，操作列min180吸收余宽，窄屏表内横滚。头像25/页、当前页懒图、数值排序、跳页/resize；copy目录`?usage=0`跳过旧draft统计，无查询旧接口保留inUse与SHA/权限门。
+- 列表默认固定表头、25/50/100分页＋jumper，不滚动追加（地图素材库按上述专项例外）；复用ListPagination/ListRowActions/pagination。默认普通编辑/保存/取消按钮，不加primary/link/text或悬浮操作列。固定列紧凑、读编辑同宽，操作列min180吸收余宽，窄屏表内横滚。头像25/页、当前页懒图、数值排序、跳页/resize；copy目录`?usage=0`跳过旧draft统计，无查询旧接口保留inUse与SHA/权限门。
 - 加载共用四圆点/默认Loading；请求计数覆盖正文消费，默认global，局部/进度显式分流且包括重读；图片/音频懒载不挡整页，真实批次才报进度。`run()`先解锁再渲染，异常不扩散。复制/检验用局部阻塞弹窗、不叠背景Loading；删除在当前弹窗报告真实阶段、无Loading，清理全成功才报完成。尺寸/失败入口详见布局规范§3。
 - 编辑器/地图任务加载[产品设计](docs/game-editor-design.md)、[工程合同](docs/game-editor-technical-design.md)、[迁移计划](docs/game-map-migration-plan.md)、[准入原证](docs/re-notes-editor-map-admission.md)与相关SKILL；框架边界见[壳合同](docs/editor-framework-shell.md)。M0→M1→M2→M3须真实修改/编译/同加载器验证，方案不构成实施授权。
 

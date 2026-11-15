@@ -153,7 +153,7 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
     const keys = ['op', 'memberIds', 'direction'];
     if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
     view(edit.memberIds);
-    if (!Array.isArray(edit.memberIds) || edit.memberIds.some(id => typeof id !== 'string') || edit.direction !== 1 && edit.direction !== -1) fail(422, 'COPY_MAP_DELTA');
+    if (!Array.isArray(edit.memberIds) || edit.memberIds.some(id => typeof id !== 'string') || ![1, -1, 'top', 'bottom'].includes(edit.direction)) fail(422, 'COPY_MAP_DELTA');
     return reorderDecorations(source, edit.memberIds, edit.direction);
   }
   if (edit.op === 'decoration-translate') {

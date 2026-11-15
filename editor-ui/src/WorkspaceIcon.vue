@@ -21,6 +21,20 @@ const paths = {
   hidden: 'M3 3l18 18M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12',
   locked: 'M5 10h14v12H5zM8 10V6a4 4 0 0 1 8 0v4',
   unlocked: 'M5 10h14v12H5zM8 10V6a4 4 0 0 1 8 0',
+  drag: 'M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4',
+  'to-top': 'M4 3h16M12 20V7M7 12l5-5 5 5',
+  'to-bottom': 'M4 21h16M12 4v13M7 12l5 5 5-5',
+  'layer-up': 'M4 17h16M12 14V3M7 8l5-5 5 5M4 21h16',
+  'layer-down': 'M4 3h16M12 10v11M7 16l5 5 5-5M4 7h16',
+  group: 'M3 3h18v18H3zM7 7h5v5H7zM12 12h5v5h-5z',
+  ungroup: 'M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 7h5v5H7zM12 12h5v5h-5z',
+  duplicate: 'M8 8h13v13H8zM16 5V3H3v13h2',
+  fill: 'M5 8l7-6 9 10-7 6-9-10M4 21h16M3 12l-2 4a2 2 0 0 0 4 0z',
+  'rotate-right': 'M18 8a8 8 0 1 0 1 10M18 3v6h-6',
+  'rotate-left': 'M6 8a8 8 0 1 1-1 10M6 3v6h6',
+  'flip-x': 'M12 2v20M8 5v14H2zM16 5v14h6z',
+  'flip-y': 'M2 12h20M5 8h14V2zM5 16h14v6z',
+  delete: 'M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7',
 };
 </script>
 <template><ElIcon><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="paths[name] || paths.info" /></svg></ElIcon></template>

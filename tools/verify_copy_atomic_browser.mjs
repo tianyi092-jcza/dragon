@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { compileGameSource } from '../web/src/content/authoring/trialcompile.js';
 import { applyMapWorkspaceEdits } from '../server/mapworkspace.js';
+import { fitViewport, worldToScreen } from '../web/src/editor/viewport.js';
 import { verifyAtomicLibrary, selectAtomicTile, dragAtomicTile } from './map_atomic_browser_helpers.mjs';
 
 export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, gameId, newId, mapData, sha, beforeMap, verifyApprovedMap }) {
@@ -23,8 +24,8 @@ export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, ga
     const priorGames = [gameId, newId].map(id => storage.sql.exec('SELECT data_json FROM game_copies WHERE game_id=?', id).toArray()[0].data_json);
     await page.goto(origin + '/#base-map-editor');
     const panel = page.locator('#base-map-editor');
-    await panel.getByText('已重新讀取基礎地圖。', { exact: true }).waitFor();
-    await page.waitForFunction(() => !document.getElementById('base-map-editor').textContent.includes('圖集載入中'));
+    await page.getByText('已重新讀取基礎地圖。', { exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.map-status').textContent.includes('圖集載入中'));
     const initial = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
     await verifyAtomicLibrary(page, panel, initial.template.content);
     assert.ok(initial.template.content.map.base.terrainRef.every(tile => tile === 95));
@@ -41,13 +42,13 @@ export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, ga
       await card.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Escape');
       assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
       await dragAtomicTile(page, panel, snapshot.template.content.componentDefinitions, tile, x, y);
-      await panel.getByRole('button', { name: '撤銷上一步', exact: true }).click();
+      await panel.getByRole('button', { name: '撤銷', exact: true }).click();
       assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
       await dragAtomicTile(page, panel, snapshot.template.content.componentDefinitions, tile, x, y);
       assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, snapshot.digest);
       await panel.getByRole('button', { name: '保存', exact: true }).click();
-      await panel.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
-      await page.waitForFunction(() => !document.getElementById('base-map-editor').textContent.includes('圖集載入中'));
+      await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      await page.waitForFunction(() => !document.querySelector('.map-status').textContent.includes('圖集載入中'));
       const saved = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
       const placed = saved.template.content.map.decorations.at(-1);
       assert.equal(placed.definitionRef, `tile-${tile}`);
@@ -61,9 +62,29 @@ export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, ga
       assert.deepEqual(saved.template.content.selectionGroups, snapshot.template.content.selectionGroups);
       snapshot = saved;
     }
-    await panel.getByRole('button', { name: '重新讀取／取消修改', exact: true }).click();
-    await panel.getByText('已重新讀取基礎地圖。', { exact: true }).waitFor();
-    await page.waitForFunction(() => !document.getElementById('base-map-editor').textContent.includes('圖集載入中'));
+    const selectedId = snapshot.template.content.map.decorations.at(-1).id;
+    const canvas = panel.locator('.base-map-canvas');
+    await panel.getByRole('button', { name: '全圖', exact: true }).click();
+    const size = await canvas.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }));
+    const point = worldToScreen(fitViewport(size, { width: 384 * 16, height: 256 * 16 }), 319.5 * 16, 1.5 * 16);
+    await canvas.click({ position: { x: point[0], y: point[1] } });
+    for (const [direction, label] of [['bottom', '置底'], ['top', '置頂']]) {
+      await canvas.click({ button: 'right', position: { x: point[0], y: point[1] } });
+      const menu = panel.getByRole('dialog', { name: '物件操作', exact: true });
+      assert.ok((await menu.locator('.base-map-object-info').textContent()).includes(selectedId));
+      await menu.getByRole('button', { name: label, exact: true }).click();
+      await panel.getByRole('button', { name: '保存', exact: true }).click();
+      await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      const saved = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
+      const expected = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...snapshot.template.content }, [{ op: 'decoration-reorder', memberIds: [selectedId], direction }]);
+      delete expected.gameId;
+      assert.deepEqual(saved.template.content, expected, 'context endpoint action is one persisted command, not hundreds of adjacent swaps');
+      assert.equal(direction === 'top' ? saved.template.content.map.decorations.at(-1).id : saved.template.content.map.decorations[0].id, selectedId);
+      snapshot = saved;
+    }
+    await panel.getByRole('button', { name: '載入', exact: true }).click();
+    await page.getByText('已重新讀取基礎地圖。', { exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.map-status').textContent.includes('圖集載入中'));
     assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
     assert.notEqual(snapshot.digest, initial.digest);
     assert.deepEqual([gameId, newId].map(id => storage.sql.exec('SELECT data_json FROM game_copies WHERE game_id=?', id).toArray()[0].data_json), priorGames);
@@ -98,11 +119,11 @@ export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, ga
     await page.getByRole('option', { name: '原子瀏覽完整', exact: true }).click();
     await page.locator('[data-view="mapview-editor"]').click();
     const gamePanel = page.locator('#game-map-editor');
-    await gamePanel.getByText('已重新讀取遊戲地圖。', { exact: true }).waitFor();
-    await page.waitForFunction(() => !document.getElementById('game-map-editor').textContent.includes('圖集載入中'));
+    await page.getByText('已重新讀取遊戲地圖。', { exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.map-status').textContent.includes('圖集載入中'));
     await dragAtomicTile(page, gamePanel, created[0].componentDefinitions, 0, 320, 1);
     await gamePanel.getByRole('button', { name: '保存', exact: true }).click();
-    await gamePanel.getByText('已保存並重新讀取遊戲地圖。', { exact: true }).waitFor();
+    await page.getByText('已保存並重新讀取遊戲地圖。', { exact: true }).waitFor();
     await page.waitForLoadState('networkidle');
     const stale = await call(`/api/games/${id}/copy/submission`, { ticket: priorTicket.data.ticket, description: '原子修改後舊票拒絕' }, admin);
     assert.equal(stale.status, 409); assert.equal(stale.data.error, 'VALIDATION_STALE');
@@ -129,6 +150,6 @@ export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, ga
     await page.setViewportSize({ width: 900, height: 700 });
     await page.waitForFunction(() => document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1);
     assert.deepEqual(errors, []); assert.deepEqual(failures, []);
-    console.log('PASS atomic fresh browser / actual HTTPS / SQLite: 240 spring previews/neutral city library, seven categories/no tooltips or season switch, template drag/cancel/undo/save/reread, both creation entries, game atomic save, stale ticket refusal, validation/submission/approval, exact player pack/environment/scenario terrain and two published minimap PNGs, unchanged definitions/groups and independent games.');
+    console.log('PASS atomic fresh browser / actual HTTPS / SQLite: 240 spring previews/neutral city library, seven categories/no tooltips or season switch, template drag/cancel/undo/save/reread, context top/bottom saves, both creation entries, game atomic save, stale ticket refusal, validation/submission/approval, exact player pack/environment/scenario terrain and two published minimap PNGs, unchanged definitions/groups and independent games.');
   } finally { await browser.close(); }
 }

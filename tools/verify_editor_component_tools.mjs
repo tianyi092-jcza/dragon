@@ -130,6 +130,17 @@ for (let mask = 1; mask < 32; mask++) for (const direction of [-1, 1]) {
   if (actual.join() === originalOrder.join()) assert.equal(next, ordered); else assert.notEqual(next, ordered);
   assert.equal(JSON.stringify(ordered), orderSnapshot); checks++;
 }
+// MAP-SPACE-4: endpoints preserve both selected and unselected relative order.
+for (let mask = 1; mask < 32; mask++) for (const direction of ['top', 'bottom']) {
+  const ids = originalOrder.filter((_, i) => mask & (1 << i)), others = originalOrder.filter(id => !ids.includes(id));
+  const next = reorderDecorations(ordered, ids, direction);
+  assert.deepEqual(next.map.decorations.map(row => row.id), direction === 'top' ? [...others, ...ids] : [...ids, ...others]);
+  assert.deepEqual(next, parse(JSON.stringify(next)));
+  for (const key of ['base', 'roads', 'placements', 'waterGroups']) assert.deepEqual(next.map[key], ordered.map[key]);
+  assert.deepEqual(next.componentDefinitions, ordered.componentDefinitions);
+  assert.equal(reorderDecorations(next, ids, direction), next, 'endpoint is a no-op when already there');
+  assert.equal(JSON.stringify(ordered), orderSnapshot); checks++;
+}
 const visibleWater = structuredClone(ordered); visibleWater.map.waterGroups[0].showOnMinimap = true;
 const belowRiver = reorderDecorations(reorderDecorations(visibleWater, ["c"], -1), ["c"], -1), beforeOrder = composeMapLayers(visibleWater), afterOrder = composeMapLayers(belowRiver);
 assert.equal(beforeOrder.terrain[cell], 16); assert.equal(afterOrder.terrain[cell], 16);

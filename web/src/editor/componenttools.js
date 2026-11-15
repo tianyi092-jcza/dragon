@@ -229,13 +229,21 @@ export function translateDecorations(source, ids, dx, dy) {
     if (x + dx < 0 || x + dx >= 384 || y + dy < 0 || y + dy >= 256) fail("整批占用範圍超界；全部未提交");
   return transaction(source, (next) => { next.map.decorations = next.map.decorations.map((d) => selected.has(d.id) ? { ...d, x: d.x + dx, y: d.y + dy } : d); });
 }
-// Q61 author order only: one adjacent unselected neighbour per selected block.
+// Web author order only: one neighbour per selected block, or a stable partition
+// to the decoration layer's top/bottom. Never cross into roads/cities/base.
 export function reorderDecorations(source, ids, direction) {
   unique(ids);
-  if (!ids.length || direction !== 1 && direction !== -1) fail("請選取完整裝飾並指定上移或下移");
+  if (!ids.length || ![1, -1, 'top', 'bottom'].includes(direction)) fail("請選取完整裝飾並指定上移、下移、置頂或置底");
   const selected = new Set(ids), decorations = source.map.decorations;
   if (decorations.filter((d) => selected.has(d.id)).length !== ids.length) fail("調序引用不存在的裝飾");
   composeMapLayers(source, { draft: true });
+  if (direction === 'top' || direction === 'bottom') {
+    const members = decorations.filter(row => selected.has(row.id));
+    const others = decorations.filter(row => !selected.has(row.id));
+    const order = direction === 'top' ? [...others, ...members] : [...members, ...others];
+    if (order.every((row, index) => row === decorations[index])) return source;
+    return transaction(source, next => { next.map.decorations = order; });
+  }
   const order = decorations.slice();
   const start = direction === 1 ? order.length - 2 : 1, end = direction === 1 ? -1 : order.length;
   let moved = false;

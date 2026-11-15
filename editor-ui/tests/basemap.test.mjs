@@ -63,11 +63,13 @@ test('one staged batch paints once, undoes once, and saves the existing flat pro
   assert.equal(f.model().editCount, 3, 'wire-command budget count, not gesture count');
   a.stage({ amount: 4 }); a.undo(); assert.equal(f.painted().map.value, 6);
   a.undo(); assert.equal(f.painted().map.value, 1); assert.equal(f.model().editCount, 1);
+  assert.equal(f.model().message, '已撤銷上一步；仍有未保存修改。');
   a.stage([{ amount: 2 }, { amount: 3 }]); await a.save();
   assert.deepEqual(f.calls.at(-2).body, { edits: [{ amount: 1 }, { amount: 2 }, { amount: 3 }] });
   assert.equal(f.model().dirty, false); assert.equal(f.painted().map.value, 6);
   a.stage({ amount: 7 }); a.undo(); assert.equal(f.painted().map.value, 6);
   assert.equal(f.model().editCount, 0, 'reread clears batch undo boundaries');
+  assert.equal(f.model().message, '已撤銷全部未保存修改。');
 });
 
 test('empty, oversized and late-failing batches preserve both pending data and undo history', async () => {

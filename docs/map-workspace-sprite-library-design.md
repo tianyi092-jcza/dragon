@@ -5,7 +5,7 @@
 > 基线：`172ffe0193a43555d00f517b97d4353e0f83b65c`。上一阶段[B0–B7](system-base-map-tasks.md)及[完成审计](system-base-map-completion-audit.md)保持原历史范围；本设计不是将旧42项重新勾选的依据。
 > 本文件是本阶段产品、数据、交互和验收的详细维护源；[新会话提示词](map-workspace-sprite-library-handoff.md)只负责交接。既有[系统模板合同](system-base-map-design.md)、[共同地图合同](game-editor-technical-design.md#2-统一地图合同)、[全局规范](../../AGENTS.md)继续适用。
 
-> **v41 后继现行合同**：[SEA-GROUND-1](map-sea-ground-contract.md)维护全幅95底图与仅地面的小地图轮廓；随后[ATOMIC-CATALOG-1](map-atomic-catalog-contract.md)现规定保留256原子身份、默认240张16×16单格／七个末级分类，固定春季并隐藏据点所属配色变体，水路／桥梁并道路，取消四层库导航、其它库切换、组合卡与素材悬停说明，保留图层工具和既有地图组合。本文后面的四季TAB、填海、水域开关、默认组合／高级／作者相册及Tooltip接续和验证收据均属当版历史；原资源身份、配方及未知边界仍保留，当前准入与验证以新合同为准。
+> **v41 后继现行合同**：[SEA-GROUND-1](map-sea-ground-contract.md)维护全幅95底图与仅地面的小地图轮廓；随后[ATOMIC-CATALOG-1](map-atomic-catalog-contract.md)现规定保留256原子身份、默认240张16×16单格／七个末级分类，固定春季并隐藏据点所属配色变体，水路／桥梁并道路，取消四层库导航、其它库切换、组合卡与素材悬停说明，保留图层工具和既有地图组合。当前紧凑布局／懒加载／ID／浮动图层与右键操作见[MAP-SPACE-4](map-atomic-catalog-contract.md#map-space-layout)，替代固定中栏及素材分页。本文后面的四季TAB、填海、水域开关、默认组合／高级／作者相册及Tooltip接续和验证收据均属当版历史；原资源身份、配方及未知边界仍保留，当前准入与验证以新合同为准。
 
 ## 1. 目标与边界
 

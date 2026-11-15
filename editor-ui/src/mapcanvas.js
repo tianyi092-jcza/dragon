@@ -56,7 +56,10 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   function facts() {
     const usedMaterials = new Set(source ? [...source.map.decorations.map(row => row.definitionRef), ...source.map.roads.flatMap(road => (road.components ?? []).map(row => row.definitionRef)), ...source.map.placements.map(row => row.componentRef)] : []);
     const projectedCatalog = projectAtomicSpriteCatalog(source?.componentDefinitions);
-    publish({ loaded: Boolean(source), zoom: view.zoom, gridVisible, selected: selected ? { ...selected } : null,
+    const selectedDefinition = selected?.layer === 'decor' ? source.map.decorations.find(row => row.id === selected.id)?.definitionRef : null;
+    const selectedCategory = projectedCatalog.catalogItems.find(row => row.id === selectedDefinition)?.category;
+    const selectedType = projectedCatalog.catalogCategories.find(row => row.id === selectedCategory)?.name || ({ decor: '裝飾片段', base: '底圖', roads: '道路', cities: '據點', group: '組合' })[selected?.layer];
+    publish({ loaded: Boolean(source), zoom: view.zoom, gridVisible, selected: selected ? { ...selected, type: selectedType } : null,
       ...projectedCatalog,
       catalogItems: [...projectedCatalog.catalogItems, ...recipes.map(recipe => {
         const id = `catalog:${recipe.itemId}`, plan = recipePlans.get(id);
@@ -208,7 +211,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   function command(op, fields = {}) {
     if (!source) return;
     if (op.startsWith('decoration-') && op !== 'decoration-place') {
-      if (selected?.layer !== 'decor' || locked.decor) throw new Error('請先選取未鎖定的裝飾片段');
+      if (selected?.layer !== 'decor' || locked.decor || !visible.decor) throw new Error('請先選取未鎖定的裝飾片段');
       if (op === 'decoration-split') return stage({ op, instanceId: selected.id, childIds: Array.from({ length: selected.cells }, () => newId('decoration')) });
       return stage({ op, memberIds: [selected.id], ...fields });
     }
