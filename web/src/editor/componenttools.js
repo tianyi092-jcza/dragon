@@ -1,6 +1,7 @@
 // Web author operations in the existing byte-stamp profile, not DOS formulas.
 // Copy-on-write transactions: failures leave caller state/selection untouched.
 import { composeMapLayers, BYTE_STAMP_RECIPE, WATER_CLASSES } from "../content/authoring/maplayers.js";
+import { SEA_GROUND_POLICY, SEA_BASE_TILE, componentGroundMask } from '../content/authoring/mapground.js';
 const fail = (message) => { throw new RangeError(message); };
 const text = (value) => {
   if (typeof value !== "string" || !value.trim() || [...value].length > 64 || /[\u0000-\u001f\u007f]/u.test(value)) fail("名稱須為1至64字且無控制字元");
@@ -14,6 +15,32 @@ function transaction(source, change) {
   change(next);
   composeMapLayers(next, { draft: true });
   return next;
+}
+// Explicit, reversible workspace edit; never run on pinned/imported source in place.
+// Existing authored base bytes become bottom decorations; unknown underlay becomes
+// the approved ocean default, not an inferred original terrain classification.
+export function enableSeaGroundBase(source) {
+  composeMapLayers(source, { draft: true });
+  if (source.map.base.policy === SEA_GROUND_POLICY) return source;
+  return transaction(source, next => {
+    const ids = new Set([...source.map.decorations, ...source.map.roads.flatMap(road => road.components ?? []), ...source.map.placements].map(item => item.id));
+    const underlays = source.map.base.terrainRef.flatMap((tile, cell) => {
+      if (tile === null || tile === SEA_BASE_TILE) return [];
+      const definitionRef = `tile-${tile}`, def = source.componentDefinitions[definitionRef];
+      if (!def || def.ruleRecipeRef !== BYTE_STAMP_RECIPE || JSON.stringify(def.anchor) !== '[0,0]' ||
+          JSON.stringify(def.footprint) !== '[[0,0]]' || JSON.stringify(def.variants?.original?.tiles) !== `[[0,0,${tile}]]`)
+        fail('保留舊基底需要匹配的原子配方');
+      const id = `sea-ground-underlay-${cell}`;
+      if (ids.has(id)) fail('海域基底轉換身份衝突');
+      return [{ id, definitionRef, variantRef: 'original', x: cell % 384, y: Math.floor(cell / 384) }];
+    });
+    // Retain even sea-looking historical stamps: they may cover authored ground.
+    // Removing them merely because they look like the base would change native bytes.
+    next.map.decorations = [...underlays, ...source.map.decorations];
+    next.map.waterGroups = next.map.waterGroups.map(group => ({ ...group, baseCells: [] })).filter(group => group.memberIds.length);
+    next.map.base = { ...next.map.base, policy: SEA_GROUND_POLICY, terrainRef: Array(384 * 256).fill(SEA_BASE_TILE),
+      geography: Array(384 * 256).fill(1), unknownUnderlays: {} };
+  });
 }
 export function componentCells(source, instance) {
   const def = source.componentDefinitions[instance?.definitionRef];
@@ -115,14 +142,16 @@ export function captureComponent(source, memberIds, id, name) {
   if (!id || Object.hasOwn(source.componentDefinitions, id)) fail("新素材身份重複或缺失");
   const selected = new Set(memberIds), instances = source.map.decorations.filter((d) => selected.has(d.id));
   if (instances.length !== memberIds.length) fail("素材擷取只接受裝飾層的完整實例");
-  const cells = new Map(), water = new Set(), classes = new Set();
+  const cells = new Map(), water = new Set(), classes = new Set(), land = new Set();
   for (const instance of instances) {
     const def = source.componentDefinitions[instance.definitionRef];
     if (def.ruleRecipeRef !== BYTE_STAMP_RECIPE) fail("未支持的素材規則綁定");
     const mask = new Set((def.geographyMask ?? def.footprint).map((p) => p.join(",")));
+    const ground = new Set(componentGroundMask(def, instance).map(point => point.join(',')));
     for (const [dx, dy, tile] of def.variants[instance.variantRef ?? "original"].tiles) {
       const x = instance.x + dx - def.anchor[0], y = instance.y + dy - def.anchor[1], key = `${x},${y}`;
       cells.set(key, [x, y, tile]);
+      if (ground.has(`${dx},${dy}`)) land.add(key);
       if (instance.waterClass && mask.has(`${dx},${dy}`)) { water.add(key); classes.add(instance.waterClass); }
     }
   }
@@ -137,6 +166,12 @@ export function captureComponent(source, memberIds, id, name) {
   if (classes.size) {
     def.authorWaterClass = [...classes][0];
     def.geographyMask = [...water].map((key) => { const [x, y] = key.split(",").map(Number); return [x - x0, y - y0]; });
+  }
+  if (source.map.base.policy === SEA_GROUND_POLICY) {
+    const landMask = [...land].map(key => { const [x, y] = key.split(',').map(Number); return [x - x0, y - y0]; });
+    // Omit redundant masks so existing exact recipe reuse remains valid.
+    const normal = new Set(componentGroundMask(def, { variantRef: 'original' }).map(point => point.join(',')));
+    if (normal.size !== landMask.length || landMask.some(point => !normal.has(point.join(',')))) def.minimapLandMask = landMask;
   }
   return transaction(source, (next) => { next.componentDefinitions[id] = def; });
 }
@@ -236,12 +271,14 @@ export function splitDecoration(source, instanceId, childIds) {
       if (tuple?.length === 1 && tuple[0][0] === 0 && tuple[0][1] === 0) atoms.set(tuple[0][2], id);
     }
   }
+  const ground = new Set(componentGroundMask(def, instance).map(point => point.join(',')));
   const children = tiles.map(([dx, dy, tile], i) => {
     const definitionRef = atoms.get(tile); if (!definitionRef) fail("缺少受信單格原圖塊；不猜建配方");
     const child = { ...instance, id: childIds[i], definitionRef, variantRef: "original",
       x: instance.x + dx - def.anchor[0], y: instance.y + dy - def.anchor[1],
       splitProvenance: { instanceId, definitionRef: instance.definitionRef, variantRef: instance.variantRef ?? "original", localCell: [dx, dy] } };
     if (!mask.has(`${dx},${dy}`)) delete child.waterClass;
+    if (source.map.base.policy === SEA_GROUND_POLICY) child.minimapLand = ground.has(`${dx},${dy}`);
     return child;
   });
   return transaction(source, (next) => {
@@ -271,6 +308,7 @@ export function removeMaterial(source, id) {
   return transaction(source, (next) => { delete next.componentDefinitions[id]; });
 }
 export function fillBase(source, cells, tile, geography) {
+  if (source.map.base.policy === SEA_GROUND_POLICY) fail('海域基底固定；請以裝飾層地面素材編輯陸地');
   unique(cells); if (!cells.length) fail("請先選取基礎格或待補底組件");
   if (!Number.isInteger(tile) || tile < 0 || tile > 255 || !Number.isInteger(geography) || geography < 0 || geography > 3) fail("替換圖塊／地理值不在明確支持域");
   for (const cell of cells) if (!Number.isInteger(cell) || cell < 0 || cell >= 384 * 256) fail("補底格超出固定地圖");

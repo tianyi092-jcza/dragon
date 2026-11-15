@@ -9,7 +9,7 @@
 - 仓库`E:/Dragon/web-port`，原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。禁止自动化访问真实`SAVE.DAT`、用户存档/profile；测试用内存、mock、隔离目录及新profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏版本`1.n`、软件版本、内容摘要和程序归档身份相互独立。
 - **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核及地图工作台已接copy；部分定义面板、旧draft整体退役与表清理仍待，见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`已退役为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
-- **基础地图（Web产品决定）**：管理员“基礎地圖”维护独立系统模板；普通新建/完整复制共用单快照实例化，既有游戏不跟随更新。共用Canvas工作台已替换旧MapPanel/mapview启动链。本期固定384×256/192槽，采用可拆Web片段，不复原DOS自然对象身份、不扩容。缺`mapEditorAssets`的旧copy明确拒绝画布读取，不自动迁移。合同见[基础地图设计](docs/system-base-map-design.md)，本地验证不等于生产部署。实测后的精灵分类库、紧凑布局/折叠菜单、四季TAB及海域背景见[第二阶段设计](docs/map-workspace-sprite-library-design.md)；本地实现与分级验证已完成，现行支持边界见设计§10–11及[逐项审计](docs/map-workspace-sprite-library-audit.md)；只读／规则未知仍明确保留，不等于生产部署或真实数据迁移授权。
+- **地图工作台（Web产品决定）**：系统基础地图、共用Canvas与第二阶段精炼目录已完成本地实现／验证；不等于生产部署。管理员维护独立模板，两种创建取单快照，既有游戏不跟随更新；固定384×256／192槽，不复原DOS对象或扩容。缺`mapEditorAssets`的旧copy明确拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[第二阶段](docs/map-workspace-sprite-library-design.md)；当前验收边界见[审计](docs/map-workspace-sprite-library-audit.md)。
 - 生产为`sadcloud`单VPS（`ssh sadcloud`，`/srv/dragon`）：编辑器/玩家分服务，SQLite＋私有文件桶＋磁盘分发桶，nginx/Let's Encrypt；域名`dragon-editor.720108.xyz`/`dragon.720108.xyz`直连源站。Worker/R2/Tunnel、instabox为历史形态；操作前按[存储布局§18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)重新核部署身份。
 
 ## 2. 架构与数据归属
@@ -41,6 +41,12 @@
 - 正式存档仅同源IndexedDB `wolong-web/saves`，目录/正文同事务。游戏内读档先回标题，detached校验及资源ready后安装，await后重核scenario/world/clock/票据；战斗、未完续段、装配、故障期间禁存。须测真实JSON往返，不能只用structuredClone。
 - 标题单一游戏选择器，远端失败不阻断内置；新局/标题读档后默认展开军师条、势力信息、小地图。玩家交互/hold遵[全局约定](../AGENTS.md)；机制按[行军](../.agents/skills/re-march-engagement/SKILL.md)、[战斗](../.agents/skills/re-battle-command/SKILL.md)、[战后](../.agents/skills/re-post-battle/SKILL.md)、[数据格式](../.agents/skills/re-data-formats/SKILL.md)加载，不在memory复制推导。表现与支持边界见[开场](docs/opening-scene.md)、[战略时序](docs/re-notes-strategic-time.md)、[表现](docs/presentation-modernization.md)、[行军](docs/march-presentation-fixes.md)、[战术生命周期](docs/re-notes-tactical-lifecycle.md)；`CITY-4064-WEB-1`不外推其它规则。
 
+### 地图编辑与素材
+
+- `mapspritecatalog.json`保留版本化Web配方／身份，不是DOS对象表；不能按像素合并原byte或删除历史定义。当前库遵[ATOMIC-CATALOG-1](docs/map-atomic-catalog-contract.md)：保留256原子身份，默认显示240张16×16单格，隐藏游戏动态选择的16个据点所属配色变体；据点只显示中立中心与通用部件。工作台固定春季、无季节切换，四季共用一份布局；右侧32×32像素放大预览不改地图占格；仅地面／山地／水系／农田／墙体／据点／道路七类，桥梁／水路并道路；不展示组合／历史／作者等库导航或素材悬停说明。严格匹配原子定义，只读／未知不放置；既有地图组合与共同组合能力保留，不自动拆除。
+- `mapcanvas.js`／`mapspriterecipes.js`私有持有源、图集及预览定义，Vue只接DTO／动作。已有定义须完整匹配才复用；新配方沿共同放置／捕获／移除命令物化，不向source偷插定义。组批先过完整预览与预算，一次安装／撤销，保存仍为受限扁平请求，重读后按完整配方复用。
+- 四季共用一份布局；显示网格、幽灵和视口不写内容。[SEA-GROUND-1](docs/map-sea-ground-contract.md)显式全幅95海底，小地图仅地面轮廓＋道路／据点；四层合成／眼睛锁独立于素材分类，不设四层库导航。用户界面称底图，未放素材处自然露出，不需铺海。新模板直接启用，旧可编辑地图仅本地暂存启用、保存才写入，不自动迁移持久数据；无policy旧源仍保留下层地理／unknown语义。外观分类不授予河湖mask、道路连通或移城能力。详细合同及原证见上述设计和[准入说明](docs/re-notes-editor-map-admission.md)。
+
 ### 编辑器数据与发布
 
 - 地图道路、据点、武将库及章节属于单款游戏自己的共享数据；`sourceRef.kind`/`copy_origins.profile_revision`是历史来源标签，`mapOrigin`记录模板快照，不是第二份live数据。copy与formal分离，发布不回写内置源。
@@ -69,7 +75,8 @@
 - **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态。改`web/src/**`重建trialweb.txt；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
 - **会话/版本接缝**：session DTO可无根级version，捕获和比较要使用相同缺省，不因undefined/null误拒全部请求；身份/epoch守卫仍保留。copy审批revision可为规范`1.n`，玩家兼容旧正整数，但不能省略manifest/session精确身份与SHA校验。
 - **schema/purge**：同步deletiondefinitions/deletionschema/distributiondeclarations及投影/inventory，不把某批表数固化为规则、不重算pinned基线；系统基础地图表不进游戏purge。SQLite WAL调查用一致备份或停服快照，不能裸拷主库；栅栏存在不等于文件已清。
-- 提交、推送、生产写入/迁移/部署分别授权；健康或push成功不是内容验收。保留用户/其它会话改动，不整体reset/clean、不批量换行。不提交秘密/profile/缓存/运行数据。GitHub用remote `github`，非Gitea `origin`；HTTP/2 reset可单次加`-c http.version=HTTP/1.1`，不改全局策略。
+- **离线审计与编码**：忽略的报告父目录在新检出中可能不存在，允许创建父目录，但新轮次叶目录必须独占、拒绝覆盖。Python用`-B`和显式UTF-8；Windows子进程输出也须指定编码，不能以stdout的UTF-8设置代替。报告绑定当时输入／工具SHA，工具修补不改写旧收据。
+- 提交、推送、生产写入/迁移/部署分别授权；健康或push成功不是内容验收。保留用户/其它会话改动，不整体reset/clean、不批量换行。不提交秘密/profile/缓存/运行数据。遇Git锁先查活跃进程、时间与归属，不盲删锁。GitHub用remote `github`，非Gitea `origin`；HTTP/2 reset可单次加`-c http.version=HTTP/1.1`，不改全局策略。
 
 ## 5. 常用命令与分级验证
 
@@ -92,6 +99,10 @@ node tools/verify_pinned_source_registration.mjs
 node tools/verify_editor_schema_sources.mjs
 node tools/verify_game_purge.mjs
 node tools/verify_system_base_map_conversion.mjs
+python -B tools/audit_map_sprite_atoms.py <new-round>
+python -B tools/verify_map_sprite_atoms.py
+node tools/verify_map_sprite_catalog.mjs
+node tools/verify_map_sprite_materialization.mjs
 node tools/verify_copy_http_roundtrip.mjs --browser
 node --check <变更JS或MJS>
 git diff --check
@@ -102,7 +113,7 @@ curl -s https://dragon.720108.xyz/play-api/v1/registry
 sh vps/manual-static-build.sh /path/to/new-out
 ```
 
-- 按改动选内容、slot-phase、battle、formation、road-authority、save等回归；共享调度/RNG/存档/跨模块状态要完整适用覆盖。Python用`-B`/UTF-8，生成物写新目录。copy/地图具体lane索引见[收敛任务](docs/copy-simplification-tasks.md)与[地图核对](docs/system-base-map-completion-audit.md)，历史通过不替代本次执行。
+- 按改动选内容、slot-phase、battle、formation、road-authority、save等回归；共享调度/RNG/存档/跨模块状态要完整适用覆盖。生成物写新目录。copy/地图lane按[收敛任务](docs/copy-simplification-tasks.md)、[基础地图核对](docs/system-base-map-completion-audit.md)及[精炼目录审计](docs/map-workspace-sprite-library-audit.md)选择；历史通过不替代本次执行。
 - UI用全新Playwright profile，核console/pageerror/请求失败、保存重读及真实登记源流程；可用已有PLAYWRIGHT_MODULE，不擅装依赖。永久入口包括verify_editor_generals_browser、verify_editor_panel_visibility_browser、verify_system_base_map_browser；夹具、真实后端、生产分开报告。
 - 存档另测真实JSON、事务失败、跨窗口CAS；公开目录/删除用verify_publication_chain_browser，归档用verify_program_entry/verify_program_assets，按入口选参数。进程内桥不等于生产TCP/TLS；强制退出测试不能证明计时器清理。
 - 交付审实际diff；支持文件主动`lens_diagnostics source=lsp scope=paths`，再`mode=all`。空缓存/push-only/超时/inconclusive不算clean，构建不代替Vue LSP；未跑/失败/覆盖不足如实记录。

@@ -80,7 +80,7 @@ for (const item of catalog.recipes.filter(item => item.itemId !== recipe.itemId)
     assert.deepEqual(plan.definition.variants.original.tiles, item.tiles);
     assert.throws(() => plan.place(...item.source.firstWitness, () => assert.fail('read-only recipes allocate no identities')), /僅供參考/);
     let facts;
-    const readonlyCanvas = createMapCanvas({ publish: value => { facts = value; }, stage: () => assert.fail('read-only recipes cannot stage') });
+    const readonlyCanvas = createMapCanvas({ spriteRecipes: catalog.recipes, publish: value => { facts = value; }, stage: () => assert.fail('read-only recipes cannot stage') });
     readonlyCanvas.setSource(source); readonlyCanvas.resize(6144, 4096); readonlyCanvas.setAtlas({});
     const row = facts.catalogItems.find(row => row.itemId === item.itemId);
     assert.equal(row.available, true); assert.equal(row.canPlace, false); assert.equal(row.cells, item.tiles.length);
@@ -116,7 +116,7 @@ for (const item of catalog.recipes.filter(item => item.itemId !== recipe.itemId)
 // In-memory transport backed by the real shared server function. Not HTTPS/SQL.
 let stored = JSON.parse(JSON.stringify(template.content)), version = 1, model, painted, canvasModel, controller;
 const paints = [], writes = [];
-const workspace = createMapCanvas({ publish: value => { canvasModel = value; }, stage: batch => controller.actions.stage(batch) });
+const workspace = createMapCanvas({ spriteRecipes: catalog.recipes, publish: value => { canvasModel = value; }, stage: batch => controller.actions.stage(batch) });
 workspace.resize(6144, 4096);
 controller = createMapController({ work: action => action(), confirm: () => true,
   publish: value => { model = value; }, paint: value => { painted = value; paints.push(value); workspace.setSource(value); },
@@ -133,6 +133,17 @@ controller = createMapController({ work: action => action(), confirm: () => true
   } });
 controller.setIdentity({ user: { id: 'isolated-admin', role: 'admin', mustChangePassword: false }, version: 1 });
 await controller.actions.enter();
+assert.equal(model.seaGroundPending, true);
+assert.equal(model.editCount, 1); assert.equal(writes.length, 0);
+assert.deepEqual(stored, template.content, 'opening a legacy map never writes it');
+assert.equal(painted.map.base.policy, 'sea-ground-1');
+controller.actions.undo();
+assert.equal(model.dirty, false); assert.deepEqual(painted, stored);
+await controller.actions.reload();
+await controller.actions.save();
+assert.deepEqual(writes.shift(), { edits: [{ op: 'sea-ground-enable' }] });
+assert.equal(model.seaGroundPending, false); assert.equal(model.dirty, false);
+assert.equal(stored.map.base.policy, 'sea-ground-1');
 workspace.setAtlas({});
 const initial = JSON.stringify(painted), paintCount = paints.length, catalogId = `catalog:${recipe.itemId}`;
 assert.ok(canvasModel.catalogItems.find(item => item.id === catalogId).canPlace);
@@ -146,7 +157,7 @@ assert.equal(writes.length, 1); assert.deepEqual(Object.keys(writes[0]), ['edits
 assert.equal(writes[0].edits.length, 7);
 assert.deepEqual(writes[0].edits.map(edit => edit.op), edits.map(edit => edit.op));
 assert.deepEqual(painted.componentDefinitions[writes[0].edits.at(-1).materialId].variants.original.tiles, tiles);
-assert.equal(model.uncertain, false); assert.equal(model.dirty, false); assert.equal(model.version, 2);
+assert.equal(model.uncertain, false); assert.equal(model.dirty, false); assert.equal(model.version, 3);
 assert.deepEqual(painted, stored);
 assert.match(canvasModel.catalogItems.find(item => item.id === catalogId).note, /復用本圖完整配方；1條命令/);
 workspace.previewPlacement(catalogId, 209 * 16 + 1, 7 * 16 + 1); workspace.commitPlacement();

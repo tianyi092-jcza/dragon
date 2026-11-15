@@ -1,5 +1,6 @@
 // Web display categories, not DOS terrain or topology classifications.
 // Existing-definition cards are projected here; new recipe cards/plans stay in the private canvas adapter.
+import { catalogLayer } from './mapcataloglayers.js';
 import catalog from './mapspritecatalog.json' with { type: 'json' };
 import basePresets from './mapbasepresets.json' with { type: 'json' };
 
@@ -10,12 +11,12 @@ function matchesRegisteredDefinition(def, item) {
     && JSON.stringify(def.footprint) === JSON.stringify(item.footprint)
     && Object.keys(def.variants).length === 1
     && JSON.stringify(def.variants.original?.tiles) === JSON.stringify(item.tiles)
-    && def.authorWaterClass === undefined && def.geographyMask === undefined);
+    && def.authorWaterClass === undefined && def.geographyMask === undefined && def.minimapLandMask === undefined);
 }
 
 export function projectSpriteCatalog(definitions) {
   return {
-    catalogCategories: catalog.categories.map(({ id, name }) => ({ id, name })),
+    catalogCategories: [{ id: 'sea-base', name: '海域' }, ...catalog.categories.map(({ id, name }) => ({ id, name: id === 'road' ? '道路／橋梁／水路' : name }))],
     // Complete byte inventory; classification is program metadata, availability is this map's exact definition.
     catalogAtoms: Array.from({ length: 256 }, (_, tile) => {
       const id = `tile-${tile}`, def = definitions?.[id];
@@ -39,7 +40,7 @@ export function projectSpriteCatalog(definitions) {
       ...catalog.components.map(item => ({ ...item, visualRef: 'MMAP.MDL:indexed-footprint' }))].map(item => {
       const def = definitions?.[item.definitionRef];
       const available = matchesRegisteredDefinition(def, item);
-      let note = 'Web原圖字節樣板；沿用完全匹配的既有定義，不改下層地理，不代表自然物件身份或自動拼接';
+      let note = 'Web原圖字節樣板；地面構成陸地輪廓，其他裝飾不影響小地圖輪廓；不代表原版物件身份或自動拼接';
       if (!available) note = '本圖缺少匹配的受信定義；不可預覽或放置';
       else if (item.support === 'reference-only') {
         note = '外觀參考；地理作用域未確認，不開放放置';
@@ -48,9 +49,12 @@ export function projectSpriteCatalog(definitions) {
         if (item.category === 'city') note = '外觀參考；不可新建／搬移據點，不開放放置或改變據點資料';
       }
       return {
-        id: item.definitionRef, itemId: item.itemId, name: item.name, category: item.category, cells: item.footprint.length,
+        id: item.definitionRef, itemId: item.itemId, name: item.name, layer: catalogLayer(item.itemId), category: item.category, cells: item.footprint.length,
         available, canPlace: available && item.support === 'existing-decoration', note,
       };
-    }),
+    }).concat([{ id: 'tile-95', itemId: 'sea-base-95-v1', name: '海域基底', layer: 'base', category: 'sea-base', cells: 1,
+      available: matchesRegisteredDefinition(definitions?.['tile-95'], { definitionRef: 'tile-95', definitionRevision: 'original-byte-1',
+        definitionCategory: 'atomic-original', ruleRecipeRef: 'ki-byte-stamp-1', visualRef: 'MMAP.MDL:tile-95', anchor: [0, 0], footprint: [[0, 0]], tiles: [[0, 0, 95]] }),
+      canPlace: false, note: '全圖固定海域基底；不需逐格填入。地面、山地、水系等在裝飾層編輯。' }]),
   };
 }

@@ -24,13 +24,73 @@ function recipeFixture() {
     support: 'existing-decoration', geographyEffect: 'preserve-underlay' } };
 }
 
+test('default workspace publishes 240 neutral-library atomic cards, without changing existing combinations', () => {
+  const { source } = recipeFixture(), before = JSON.stringify(source);
+  let model;
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: () => assert.fail('browsing must not stage') });
+  view.setSource(source);
+  assert.equal(model.catalogItems.length, 240);
+  assert.equal(model.catalogAtoms.length, 256);
+  assert.ok(model.catalogItems.every(row => row.cells === 1 && /^tile-\d+$/.test(row.id)));
+  assert.equal(model.catalogCategories.length, 7);
+  assert.equal(JSON.stringify(source), before);
+});
+
+test('atomic thumbnails enlarge to 32 CSS pixels while map placement stays one 16px cell', () => {
+  const { source } = recipeFixture(), before = JSON.stringify(source), main = canvas(), thumb = canvas(), staged = [];
+  const view = createMapCanvas({ publish() {}, stage: edit => staged.push(edit) });
+  const previousRatio = Object.getOwnPropertyDescriptor(globalThis, 'devicePixelRatio');
+  try {
+    view.attach(main, null); view.setSource(source); view.resize(32, 32); view.fit(); view.grid(false);
+    for (const ratio of [1, 1.25, 2]) {
+      Object.defineProperty(globalThis, 'devicePixelRatio', { configurable: true, value: ratio });
+      for (const season of ['spring', 'summer', 'autumn', 'winter']) {
+        const atlas = { season }; view.setAtlas(atlas); thumb.draws.length = 0; main.draws.length = 0;
+        view.previewMaterial(thumb, 'tile-166');
+        assert.deepEqual([thumb.width, thumb.height, thumb.style.width, thumb.style.height], [32 * ratio, 32 * ratio, '32px', '32px']);
+        assert.deepEqual(thumb.draws.filter(row => row[0] === 'image'), [['image', atlas, 96, 160, 16, 16, 0, 0, 32, 32]]);
+        assert.equal(thumb.getContext('2d').imageSmoothingEnabled, false);
+        view.previewPlacement('tile-166', 1, 1);
+        assert.deepEqual(main.draws.filter(row => row[0] === 'image-alpha' && row[1] === 0.5).map(row => row.slice(-4)), [[0, 0, 16, 16]]);
+        view.cancelPlacement();
+      }
+    }
+    view.previewPlacement('tile-166', 1, 1); view.commitPlacement();
+    assert.equal(staged.length, 1);
+    assert.deepEqual(staged.map(({ instanceId: _instanceId, ...edit }) => edit), [{ op: 'decoration-place', materialId: 'tile-166', variantRef: 'original', x: 0, y: 0, waterClass: null }]);
+    assert.equal(JSON.stringify(source), before);
+  } finally {
+    if (previousRatio) Object.defineProperty(globalThis, 'devicePixelRatio', previousRatio);
+    else delete globalThis.devicePixelRatio;
+  }
+});
+
+test('one JSON-saved layout edit is reused unchanged by all four seasonal atlases', () => {
+  const { source } = recipeFixture(), staged = [], main = canvas();
+  source.editorAssets = { seasonAtlases: Object.fromEntries(['spring', 'summer', 'autumn', 'winter'].map(season => [season, { url: `/${season}.png` }])) };
+  const view = createMapCanvas({ publish() {}, stage: edit => staged.push(edit) });
+  view.attach(main, null); view.setSource(source); view.resize(32, 32); view.fit(); view.grid(false);
+  view.setAtlas({ season: 'spring' });
+  view.previewPlacement('tile-166', 1, 1); view.commitPlacement();
+  assert.equal(staged.length, 1);
+  const saved = JSON.parse(JSON.stringify(previewMapEdits(source, staged))), before = JSON.stringify(saved);
+  assert.deepEqual(saved.editorAssets, source.editorAssets);
+  assert.equal(saved.map.decorations.at(-1).definitionRef, 'tile-166');
+  view.setSource(saved);
+  for (const season of ['spring', 'summer', 'autumn', 'winter']) {
+    const atlas = { season }; main.draws.length = 0; view.setAtlas(atlas);
+    assert.ok(main.draws.some(row => row[0] === 'image' && row[1] === atlas && row.slice(2).join(',') === '96,160,16,16,0,0,16,16'), `${season} uses the saved tile at the same cell`);
+    assert.equal(JSON.stringify(saved), before, 'atlas changes do not create or mutate seasonal layouts');
+  }
+});
+
 test('private recipe thumbnails and ghosts use exact cells and never leak plans to DTOs or source', () => {
   const { source, recipe } = recipeFixture(), original = JSON.stringify(source), main = canvas(), thumb = canvas();
   let model;
   const view = createMapCanvas({ spriteRecipes: [recipe], publish: value => { model = value; }, stage: () => assert.fail('preview must not stage') });
   view.attach(main, null); view.setSource(source); view.grid(false);
   const id = `catalog:${recipe.itemId}`, row = model.catalogItems.find(item => item.id === id);
-  assert.deepEqual(Object.keys(row).sort(), ['available', 'canPlace', 'category', 'cells', 'id', 'itemId', 'name', 'note']);
+  assert.deepEqual(Object.keys(row).sort(), ['available', 'canPlace', 'category', 'cells', 'id', 'itemId', 'layer', 'name', 'note']);
   assert.equal(row.available, true); assert.equal(row.canPlace, true); assert.equal(row.cells, 4);
   assert.match(row.note, /7條命令/);
   assert.equal(model.materials.some(item => item.id === id), false);
@@ -43,7 +103,7 @@ test('private recipe thumbnails and ghosts use exact cells and never leak plans 
       for (const season of ['spring', 'summer', 'autumn', 'winter']) {
         const atlas = { season }; view.setAtlas(atlas); thumb.draws.length = 0; main.draws.length = 0;
         view.previewMaterial(thumb, id);
-        assert.deepEqual([thumb.width, thumb.height, thumb.style.width, thumb.style.height], [32 * ratio, 32 * ratio, '32px', '32px']);
+        assert.deepEqual([thumb.width, thumb.height, thumb.style.width, thumb.style.height], [64 * ratio, 64 * ratio, '64px', '64px']);
         const images = thumb.draws.filter(row => row[0] === 'image');
         assert.equal(images.length, 4); assert.ok(images.every(row => row[1] === atlas));
         const expected = [[96, 160, 16, 16], [0, 160, 16, 16], [16, 160, 16, 16], [224, 160, 16, 16]];
@@ -124,38 +184,23 @@ test('recipe canvas preserves transparent anchor cells through preview and mater
   view.attach(main, null); view.setSource(source); view.setAtlas({}); view.grid(false);
   const id = `catalog:${recipe.itemId}`;
   view.previewMaterial(thumb, id); main.draws.length = 0; view.previewPlacement(id, 1, 1);
-  assert.deepEqual(thumb.draws.filter(row => row[0] === 'image').map(row => row.slice(-4)), [[16, 0, 16, 16], [0, 16, 16, 16]]);
+  assert.deepEqual(thumb.draws.filter(row => row[0] === 'image').map(row => row.slice(-4)), [[32, 0, 32, 32], [0, 32, 32, 32]]);
   assert.deepEqual(main.draws.filter(row => row[0] === 'image-alpha' && row[1] === 0.5).map(row => row.slice(-4)), [[16, 0, 16, 16], [0, 16, 16, 16]]);
   view.commitPlacement(); assert.equal(batches[0].length, 5);
   const candidate = previewMapEdits(source, batches[0]);
   assert.deepEqual(candidate.componentDefinitions[batches[0][2].materialId].footprint, [[1, 0], [0, 1]]);
 });
 
-test('bounded base rectangles stage one existing command, reject overflow and preserve source', () => {
+test('workspace rejects retired manual fill and water visibility actions without staging', () => {
   const source = fixture(), original = JSON.stringify(source), commands = [], main = canvas();
   const view = createMapCanvas({ publish() {}, stage: edit => commands.push(edit) });
   view.attach(main, null); view.setSource(source); view.setAtlas({}); view.fit();
   view.layer('decor', 'locked', true); view.pick(1, 1);
-  view.command('base-fill-rectangle', { width: 2, height: 2, tile: 95, geography: 1 });
-  assert.deepEqual(commands, [{ op: 'base-fill', cells: [0, 1, 2, 3], tile: 95, geography: 1 }]);
-  for (const [width, height] of [[0, 1], [1, null], [1.5, 1], [17, 1], [1, Infinity], [3, 1]]) {
-    assert.throws(() => view.command('base-fill-rectangle', { width, height, tile: 95, geography: 1 }));
+  for (const operation of ['base-fill', 'base-fill-rectangle', 'water-visibility']) {
+    assert.throws(() => view.command(operation, { width: 2, height: 2, tile: 95, geography: 1 }), /海域基底固定/);
   }
-  view.pick(31, 31);
-  assert.throws(() => view.command('base-fill-rectangle', { width: 2, height: 1, tile: 95, geography: 1 }), /超出地圖/);
-  view.layer('base', 'visible', false);
-  assert.throws(() => view.command('base-fill-rectangle', { width: 1, height: 1, tile: 95, geography: 1 }));
-  view.layer('base', 'visible', true); view.layer('base', 'locked', true);
-  assert.throws(() => view.command('base-fill-rectangle', { width: 1, height: 1, tile: 95, geography: 1 }));
-  assert.equal(commands.length, 1);
+  assert.deepEqual(commands, []);
   assert.equal(JSON.stringify(source), original);
-  const large = fixture();
-  large.map.bounds = { minX: 7, minY: 9, width: 16, height: 16, tileSize: 16 };
-  large.map.base = { terrainRef: Array(256).fill(16), geography: Array(256).fill(0), unknownUnderlays: {} };
-  large.map.decorations = [];
-  view.layer('base', 'locked', false); view.setSource(large); view.fit(); view.pick(1, 1);
-  view.command('base-fill-rectangle', { width: 16, height: 16, tile: 95, geography: 1 });
-  assert.deepEqual(commands[1].cells, Array.from({ length: 256 }, (_, index) => index));
 });
 
 test('placement preview snaps its anchor, preserves holes and commits at most once', () => {
@@ -268,14 +313,14 @@ test('material previews preserve native pixels, holes and season changes without
     for (const ratio of [1, 1.25, 2]) {
       Object.defineProperty(globalThis, 'devicePixelRatio', { configurable: true, value: ratio });
       view.previewMaterial(target, 'piece');
-      assert.deepEqual(target.style, { width: '32px', height: '32px' });
-      assert.equal(target.width, 32 * ratio); assert.equal(target.height, 32 * ratio);
+      assert.deepEqual(target.style, { width: '64px', height: '64px' });
+      assert.equal(target.width, 64 * ratio); assert.equal(target.height, 64 * ratio);
       for (const season of ['spring', 'summer', 'autumn', 'winter']) {
         const atlas = { season }; target.draws.length = 0; view.setAtlas(atlas);
         const images = target.draws.filter(row => row[0] === 'image');
         assert.equal(images.length, 3, 'footprint hole stays clear');
         assert.ok(images.every(row => row[1] === atlas));
-        assert.deepEqual(images.map(row => row.slice(-4)), [[0, 0, 16, 16], [16, 0, 16, 16], [0, 16, 16, 16]]);
+        assert.deepEqual(images.map(row => row.slice(-4)), [[0, 0, 32, 32], [32, 0, 32, 32], [0, 32, 32, 32]]);
         assert.ok(target.draws.some(row => row[0] === 'transform' && row[1] === ratio && row[4] === ratio));
         assert.equal(target.getContext('2d').imageSmoothingEnabled, false);
       }
@@ -292,8 +337,8 @@ test('material previews preserve native pixels, holes and season changes without
     wide.componentDefinitions.wide = { ...wide.componentDefinitions.piece, id: 'wide', anchor: [-2, 0], footprint: [[-2, 0], [4, 0]], variants: { original: { tiles: [[-2, 0, 16], [4, 0, 17]] } } };
     view.setSource(wide); view.setAtlas({}); target.draws.length = 0;
     view.previewMaterial(target, 'wide');
-    assert.deepEqual(target.style, { width: '112px', height: '16px' }, 'wide components are not shrunk to fit a card');
-    assert.deepEqual(target.draws.filter(row => row[0] === 'image').map(row => row.slice(-4)), [[0, 0, 16, 16], [96, 0, 16, 16]], 'negative local origin and holes are retained');
+    assert.deepEqual(target.style, { width: '224px', height: '32px' }, 'wide components are not shrunk to fit a card');
+    assert.deepEqual(target.draws.filter(row => row[0] === 'image').map(row => row.slice(-4)), [[0, 0, 32, 32], [192, 0, 32, 32]], 'negative local origin and holes are retained');
     assert.equal(JSON.stringify(source), original);
   } finally {
     if (previousRatio) Object.defineProperty(globalThis, 'devicePixelRatio', previousRatio);
@@ -387,9 +432,9 @@ test('unknown underlay diagnostics locate the exact base cell without guessing a
   const removed = previewMapEdits(source, [{ op: 'decoration-remove', memberIds: ['piece-1'] }]);
   view.setSource(removed); assert.equal(model.diagnostics.length, 3);
   view.focusDiagnostic(2); assert.equal(model.selected.x, 0); assert.equal(model.selected.y, 1);
-  view.command('base-fill', { tile: 20, geography: 0 });
-  assert.deepEqual(commands[0].cells, [2]);
-  view.setSource(previewMapEdits(removed, commands)); assert.equal(model.diagnostics.length, 2);
+  assert.throws(() => view.command('base-fill', { tile: 20, geography: 0 }), /海域基底固定/);
+  assert.deepEqual(commands, []);
+  assert.equal(model.diagnostics.length, 3, 'legacy diagnostics do not restore the retired manual tool');
   assert.equal(removed.map.base.terrainRef[2], null);
   view.setSource(null); assert.deepEqual(model.diagnostics, []);
 });
@@ -411,9 +456,10 @@ test('native canvas uses tile atlas, footprint hit testing, display-only layer l
   assert.ok(model.materials.some(row => !row.originalAtom), 'historical pieces stay outside the atom reference view');
   assert.equal(model.materials.find(row => row.id === 'deco-grass').originalAtom, false, 'legacy aliases sharing atomic category are not a second canonical byte');
   view.pick(24, 24); assert.equal(model.selected.layer, 'base', 'footprint hole is not selectable decoration');
-  view.command('base-fill', { tile: 20, geography: 0 }); assert.deepEqual(commands.at(-1).cells, [3]);
+  assert.throws(() => view.command('base-fill', { tile: 20, geography: 0 }), /海域基底固定/);
+  assert.deepEqual(commands, []);
   view.pick(8, 24); assert.equal(model.selected.id, 'piece-1');
-  assert.throws(() => view.command('base-fill', { tile: 20, geography: 0 }), /基底格/);
+  assert.throws(() => view.command('base-fill', { tile: 20, geography: 0 }), /海域基底固定/);
   view.command('decoration-split');
   const split = commands.at(-1); assert.equal(split.childIds.length, 3);
   assert.ok(split.childIds.every(id => /^system-base-map#decoration-[a-f0-9]{64}$/.test(id)));

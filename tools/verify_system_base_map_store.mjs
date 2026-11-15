@@ -39,9 +39,11 @@ try {
   authorized = true;
   assert.equal(store.read('admin'), null);
   const initial = await store.initialize('admin');
-  assert.equal(initial.digest, receipt.digest);
+  assert.notEqual(initial.digest, receipt.digest, 'new store uses the Web ocean/ground model, not the legacy conversion digest');
+  assert.equal(initial.template.content.map.base.policy, 'sea-ground-1');
+  assert.ok(initial.template.content.map.base.terrainRef.every(tile => tile === 95));
   assert.equal(initial.version, 1);
-  const edited = structuredClone(template);
+  const edited = structuredClone(initial.template);
   Object.values(edited.content.cities)[0].name = '模板新城';
   const invalid = structuredClone(template);
   invalid.content.map.base.terrainRef[0] = null;
@@ -83,7 +85,7 @@ try {
   } finally { concurrentStorage.close(); }
   storage.sql.exec("UPDATE system_base_map SET digest=? WHERE singleton=1", '0'.repeat(64));
   assert.throws(() => reopened.capture(), error => error.code === 'BASE_MAP_CORRUPT');
-  console.log(JSON.stringify({ passed: true, initialDigest: receipt.digest, checks: ['real-sqlite-singleton', 'admin-only',
+  console.log(JSON.stringify({ passed: true, initialDigest: initial.digest, legacyConversionDigest: receipt.digest, checks: ['real-sqlite-singleton', 'admin-only',
     'post-await-auth-recheck', 'no-template-refusal', 'invalid-save-retains-current', 'trusted-assets-protected',
     'conversion-origin-protected', 'transaction-rollback', 'isolated-snapshot', 'reentry-no-conversion',
     'reopen-preserves-edits', 'late-initialize-preserves-edits', 'corrupt-digest-refusal'], scope: 'store only; HTTP/schema-inventory/purge covered by separate lanes' }, null, 2));

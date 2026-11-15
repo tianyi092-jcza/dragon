@@ -4,6 +4,7 @@ import { fail, HttpError } from './security.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
 import { validateSystemBaseMap } from './systembasemap.js';
+import { enableSeaGroundBase } from '../web/src/editor/componenttools.js';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const MAX_TEMPLATE_BYTES = 64 * 1024 * 1024;
 
@@ -43,8 +44,11 @@ export class SystemBaseMapStore {
     const current = this.#current();
     if (current) return current;
     // Loader owns source/SHA admission. HTTP supplies no template or source URL.
-    const template = await this.#loadInitial(tokenHash);
+    const initial = await this.#loadInitial(tokenHash);
     this.#admin(tokenHash);
+    // Only first creation defaults to the new Web model. Existing persisted
+    // templates/copies are untouched until an explicit workspace save.
+    const template = { ...initial, content: enableSeaGroundBase(initial.content) };
     const { digest } = validateSystemBaseMap(template, sha);
     const text = JSON.stringify(template);
     if (Buffer.byteLength(text) > MAX_TEMPLATE_BYTES) fail(413, 'BASE_MAP_TOO_LARGE');

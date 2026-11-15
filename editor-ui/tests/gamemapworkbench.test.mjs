@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGameMapWorkbench } from '../src/gamemapworkbench.js';
+import { createMapWorkbench } from '../src/basemapworkbench.js';
+
+test('template and game workbenches expose no season setter and initialize in spring', () => {
+  for (const gameId of [null, 'game-a']) {
+    let model = {};
+    const workspace = createMapWorkbench({ api: () => assert.fail('empty session must not fetch'), work: fn => fn(), confirm: () => true,
+      gameId, publish: value => Object.assign(model, value) });
+    workspace.setIdentity({ user: { id: 'owner', role: 'admin' }, version: 1 });
+    assert.equal(model.season, 'spring');
+    assert.equal(Object.hasOwn(workspace.actions, 'season'), false);
+    workspace.dispose();
+  }
+});
 
 test('game coordinator disposes before switching, preserves canvas ports, and only enters each session once', async () => {
   const sessions = [], log = [];
@@ -20,6 +33,7 @@ test('game coordinator disposes before switching, preserves canvas ports, and on
       sessions.push(s); log.push('create:' + gameId); return s;
     },
   });
+  assert.equal(Object.hasOwn(coordinator.actions, 'season'), false);
   const canvas = {}, minimap = {}, actor = { user: { id: 'owner', role: 'author' }, version: 1 };
   coordinator.actions.attach(canvas, minimap); coordinator.setIdentity(actor);
   assert.equal(coordinator.selectedGame(), 'game-a'); assert.deepEqual(sessions[0].attached, [canvas, minimap]);

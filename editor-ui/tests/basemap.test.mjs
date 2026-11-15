@@ -6,7 +6,7 @@ function fixture() {
   let stored = null, model, painted, postError = null, readError = null, allow = true;
   const calls = [], paints = [];
   const actor = { user: { id: 'admin', role: 'admin', mustChangePassword: false }, version: 1 };
-  const fresh = () => ({ version: 1, digest: 'a'.repeat(64), template: { content: { map: { value: 0 } } } });
+  const fresh = () => ({ version: 1, digest: 'a'.repeat(64), template: { content: { map: { base: { policy: 'sea-ground-1' }, value: 0 } } } });
   const controller = createBaseMapController({
     api: async (path, body) => {
       calls.push({ path, body });
@@ -19,7 +19,7 @@ function fixture() {
     work: action => action(), publish: value => { model = value; }, paint: value => { painted = value; paints.push(value); },
     preview: (source, edits) => {
       if (edits.some(edit => edit.failPreview)) throw new Error('preview rejected');
-      return { map: { value: source.map.value + edits.reduce((sum, edit) => sum + edit.amount, 0) } };
+      return { map: { ...source.map, value: source.map.value + edits.reduce((sum, edit) => sum + edit.amount, 0) } };
     },
     confirm: () => allow,
   });

@@ -4,6 +4,7 @@
 // converted into native terrain, movement cost, RNG, or topology.
 // Native consumers still read the resulting single plane (E4CE, E961,
 // 2708, 4B63, 8A1E). Unsupported recipes fail for every game identity.
+import { SEA_GROUND_POLICY, SEA_BASE_TILE, componentGroundMask } from './mapground.js';
 export const BYTE_STAMP_RECIPE = "ki-byte-stamp-1";
 export const WATER_CLASSES = Object.freeze({ sea: 1, river: 2, lake: 3 });
 
@@ -21,6 +22,10 @@ export function composeMapLayers(src, { draft = false } = {}) {
   const { bounds, base, decorations, roads, placements } = src.map;
   const W = bounds.width;
   const H = bounds.height;
+  if (base.policy !== undefined && base.policy !== SEA_GROUND_POLICY) fail('INVALID_BASE_POLICY', 'map.base.policy');
+  const seaGround = base.policy === SEA_GROUND_POLICY;
+  if (seaGround && (base.terrainRef.some(tile => tile !== SEA_BASE_TILE) || base.geography.some(value => value !== 1)))
+    fail('INVALID_SEA_GROUND_BASE', 'map.base');
   const terrain = base.terrainRef.slice();
   const geography = Uint8Array.from(base.geography);
   const minimapGeography = Uint8Array.from(base.geography);
@@ -46,7 +51,7 @@ export function composeMapLayers(src, { draft = false } = {}) {
       integer(cell, 0, W * H - 1, group.id);
       if (groupedBase.has(cell) || base.geography[cell] === 0) fail("INVALID_WATER_GROUP_BASE", group.id);
       groupedBase.add(cell);
-      if (!group.showOnMinimap) minimapGeography[cell] = 0;
+      if (!seaGround && !group.showOnMinimap) minimapGeography[cell] = 0;
     }
   }
   const diagnostics = [];
@@ -107,6 +112,16 @@ export function composeMapLayers(src, { draft = false } = {}) {
         waterCells.add(cell);
       }
     }
+    if (def.minimapLandMask !== undefined) {
+      if (!Array.isArray(def.minimapLandMask)) fail('INVALID_LAND_MASK', at);
+      const land = new Set();
+      for (const point of def.minimapLandMask) {
+        if (!Array.isArray(point) || point.length !== 2 || !point.every(Number.isInteger)) fail('INVALID_LAND_MASK', at);
+        const cell = point.join(',');
+        if (!footprint.has(cell) || land.has(cell)) fail('INVALID_LAND_MASK', at);
+        land.add(cell);
+      }
+    }
     const result = { def, tiles, waterCells };
     cache.set(key, result);
     return result;
@@ -126,6 +141,8 @@ export function composeMapLayers(src, { draft = false } = {}) {
     // A non-water component never erases lower water geography, even
     // though its opaque native tile replaces the lower rule/visual tile.
     const water = instance.waterClass;
+    if (instance.minimapLand !== undefined && (typeof instance.minimapLand !== 'boolean' || tiles.length !== 1)) fail('INVALID_LAND_MASK', at);
+    const landCells = seaGround && selectWater ? new Set(componentGroundMask(def, instance).map(point => point.join(','))) : null;
     for (const [dx, dy, tile] of tiles) {
       const x = instance.x + dx - def.anchor[0];
       const y = instance.y + dy - def.anchor[1];
@@ -134,8 +151,9 @@ export function composeMapLayers(src, { draft = false } = {}) {
       terrain[y * W + x] = tile;
       if (selectWater && water !== undefined && waterCells.has(`${dx},${dy}`)) {
         geography[y * W + x] = WATER_CLASSES[water];
-        if (!hiddenMembers.has(instance.id)) minimapGeography[y * W + x] = WATER_CLASSES[water];
+        if (!seaGround && !hiddenMembers.has(instance.id)) minimapGeography[y * W + x] = WATER_CLASSES[water];
       }
+      if (landCells?.has(`${dx},${dy}`)) minimapGeography[y * W + x] = 0;
     }
   }
 

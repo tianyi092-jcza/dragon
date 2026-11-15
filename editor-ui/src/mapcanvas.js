@@ -4,11 +4,13 @@ import { composeMapDisplayLayers } from '../../web/src/editor/mapdisplay.js';
 import { renderMinimapPixels } from '../../web/src/content/authoring/minimap.js';
 import { createDecorationPicker } from '../../web/src/editor/componenttools.js';
 import { fitViewport, panViewport, screenToWorld, zoomAt } from '../../web/src/editor/viewport.js';
-import { projectSpriteCatalog } from './mapspritecatalog.js';
+import { catalogLayer } from './mapcataloglayers.js';
+import { projectAtomicSpriteCatalog } from './mapatomiccatalog.js';
 import { planSpriteMaterialization } from './mapspriterecipes.js';
-import catalog from './mapspritecatalog.json' with { type: 'json' };
 
-export function createMapCanvas({ publish, stage, gameId = 'system-base-map', spriteRecipes = catalog.recipes ?? [] }) {
+// Optional private recipe port remains for reusable combination tooling, never
+// populated by the current atomic-only workspace.
+export function createMapCanvas({ publish, stage, gameId = 'system-base-map', spriteRecipes = [] }) {
   let source = null, canvas = null, mini = null, atlas = null, tiles = null, picker = null, selected = null;
   let diagnostics = [], gridVisible = true, placement = null;
   let view = { x: 0, y: 0, zoom: 1 }, size = { width: 1, height: 1 }, minimap = null;
@@ -30,7 +32,8 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const tiles = def.variants[Object.keys(def.variants)[0]].tiles;
     const xs = tiles.map(([x]) => x), ys = tiles.map(([, y]) => y);
     const minX = Math.min(...xs), minY = Math.min(...ys);
-    const cell = 16;
+    // Library-only 2x nearest-neighbour preview; source cells and map ghosts stay 16px.
+    const cell = 32;
     const width = (Math.max(...xs) - minX + 1) * cell, height = (Math.max(...ys) - minY + 1) * cell;
     const ratio = globalThis.devicePixelRatio || 1;
     target.style.width = `${width}px`; target.style.height = `${height}px`;
@@ -52,7 +55,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   }
   function facts() {
     const usedMaterials = new Set(source ? [...source.map.decorations.map(row => row.definitionRef), ...source.map.roads.flatMap(road => (road.components ?? []).map(row => row.definitionRef)), ...source.map.placements.map(row => row.componentRef)] : []);
-    const projectedCatalog = projectSpriteCatalog(source?.componentDefinitions);
+    const projectedCatalog = projectAtomicSpriteCatalog(source?.componentDefinitions);
     publish({ loaded: Boolean(source), zoom: view.zoom, gridVisible, selected: selected ? { ...selected } : null,
       ...projectedCatalog,
       catalogItems: [...projectedCatalog.catalogItems, ...recipes.map(recipe => {
@@ -60,9 +63,9 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
         let note = '本圖缺少匹配的原子定義；不可預覽或放置';
         if (plan) {
           note = '外觀參考；不開放放置';
-          if (plan.canPlace) note = `${plan.materialId ? '復用本圖完整配方' : '放置時擷取原子為本圖素材'}；${plan.commandCount}條命令，一次撤銷；保留下層地理`;
+          if (plan.canPlace) note = `${plan.materialId ? '復用本圖完整配方' : '放置時擷取原子為本圖素材'}；${plan.commandCount}條命令，一次撤銷；只有地面影響小地圖輪廓`;
         }
-        return { id, itemId: recipe.itemId, name: recipe.name, category: recipe.category, cells: recipe.footprint.length,
+        return { id, itemId: recipe.itemId, name: recipe.name, layer: catalogLayer(recipe.itemId), category: recipe.category, cells: recipe.footprint.length,
           available: Boolean(plan), canPlace: Boolean(plan?.canPlace), note };
       })],
       layers: Object.keys(visible).map(id => ({ id, visible: visible[id], locked: locked[id] })),
@@ -199,7 +202,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       const index = picker.pick(x, y), item = source.map.decorations[index];
       if (item) { const def = source.componentDefinitions[item.definitionRef]; selected = { layer: 'decor', id: item.id, name: def.name || item.definitionRef, x: item.x, y: item.y, cells: def.footprint.length, captureAllowed: true }; }
     }
-    if (!selected && visible.base && !locked.base) selected = { layer: 'base', id: String((y - minY) * width + x - minX), name: '基底格', x, y };
+    if (!selected && visible.base && !locked.base) selected = { layer: 'base', id: String((y - minY) * width + x - minX), name: '底圖格', x, y };
     draw(); facts();
   }
   function command(op, fields = {}) {
@@ -217,19 +220,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       if (!members.length || members.some(member => member.layer !== 'decorations')) throw new Error('素材擷取只接受裝飾層組合，不含道路或據點');
       return stage({ op, memberIds: members.map(member => member.id), materialId: newId('material'), name: fields.name });
     }
-    if (op === 'base-fill-rectangle') {
-      if (selected?.layer !== 'base' || locked.base || !visible.base) throw new Error('請先選取可見基底格並解鎖基底層');
-      const { width, height, tile, geography } = fields;
-      if (![width, height].every(value => Number.isInteger(value) && value >= 1 && value <= 16)) throw new Error('填充範圍寬高須為1至16格');
-      const bounds = source.map.bounds, x = selected.x - bounds.minX, y = selected.y - bounds.minY;
-      if (x + width > bounds.width || y + height > bounds.height) throw new Error('填充範圍超出地圖，不會裁切或部分填入');
-      const cells = Array.from({ length: width * height }, (_, index) => (y + Math.floor(index / width)) * bounds.width + x + index % width);
-      return stage({ op: 'base-fill', cells, tile, geography });
-    }
-    if (op === 'base-fill') {
-      if (selected?.layer !== 'base' || locked.base) throw new Error('請先選取基底格並解鎖基底層');
-      return stage({ op, cells: [(selected.y - source.map.bounds.minY) * source.map.bounds.width + selected.x - source.map.bounds.minX], ...fields });
-    }
+    if (['base-fill', 'base-fill-rectangle', 'water-visibility'].includes(op)) throw new Error('海域基底固定；小地圖只顯示地面輪廓、道路及據點');
     if (op === 'decoration-place') {
       if (!selected || locked.decor) throw new Error('請先選取放置位置並解鎖裝飾層');
       if (recipePlans.has(fields.materialId)) {
@@ -293,7 +284,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       if (!source || !problem || !Number.isInteger(problem.x) || !Number.isInteger(problem.y)) return;
       placement = null;
       const x = problem.x + source.map.bounds.minX, y = problem.y + source.map.bounds.minY;
-      selected = { layer: 'base', id: String(problem.cell), name: '待補基底格', x, y };
+      selected = { layer: 'base', id: String(problem.cell), name: '待補底圖格', x, y };
       const zoom = Math.max(1, view.zoom);
       view = panViewport({ x: (problem.x + 0.5) * 16 - size.width / zoom / 2, y: (problem.y + 0.5) * 16 - size.height / zoom / 2, zoom }, 0, 0, size, world());
       draw(); facts();

@@ -7,16 +7,16 @@ const path = `/api/games/${gameId}/copy`;
 const author = { user: { id: 'owner', role: 'author', mustChangePassword: false }, version: 1 };
 function fixture() {
   let model = {}, painted = null, rejectSave = false, readHook = null;
-  let saved = { gameId, map: { decorations: [] }, mapEditorAssets: { seasonAtlases: {} }, cities: { city: { name: '甲' } } };
+  let saved = { gameId, map: { base: { policy: 'sea-ground-1' }, decorations: [] }, mapEditorAssets: { seasonAtlases: {} }, cities: { city: { name: '甲' } } };
   const calls = [];
   const controller = createMapController({ gameId, work: fn => fn(), confirm: () => true,
     publish: patch => Object.assign(model, patch), paint: source => { painted = source; },
-    preview: (source, edits) => ({ ...structuredClone(source), map: { decorations: structuredClone(edits) } }),
+    preview: (source, edits) => ({ ...structuredClone(source), map: { ...source.map, decorations: structuredClone(edits) } }),
     api: async (url, body) => {
       calls.push({ url, body }); assert.equal(url, path);
       if (body) {
         if (rejectSave) throw Object.assign(new Error('COPY_PATCH'), { status: 422 });
-        assert.equal(body.module, 'map'); saved.map = { decorations: structuredClone(body.patch.edits) };
+        assert.equal(body.module, 'map'); saved.map = { ...saved.map, decorations: structuredClone(body.patch.edits) };
         return { copyDigest: 'b'.repeat(64) };
       }
       if (readHook) return readHook();

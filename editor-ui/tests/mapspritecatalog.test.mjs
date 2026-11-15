@@ -19,7 +19,7 @@ test('catalog exposes 161 verified Web samples and DTOs, not source recipes', ()
   const source = definitions(), before = JSON.stringify(source), result = projectSpriteCatalog(source);
   assert.equal(catalog.schema, 'map-sprite-catalog-1');
   assert.equal(new Set([...catalog.items, ...catalog.components].map(item => item.itemId)).size, 161);
-  assert.equal(result.catalogCategories.length, 7);
+  assert.equal(result.catalogCategories.length, 8);
   assert.deepEqual(result.catalogItems.map(row => [row.id, row.available, row.canPlace]), [
     ['tile-112', true, true], ['tile-6', true, false], ['tile-180', true, true], ['tile-248', true, true], ['tile-16', true, true],
     ...[184, 185, 203, 204, 205].map(tile => [`tile-${tile}`, true, false]),
@@ -36,7 +36,9 @@ test('catalog exposes 161 verified Web samples and DTOs, not source recipes', ()
     ...[96, 97, 98, 99, 100, 101, 102, 103].map(tile => [`tile-${tile}`, true, false]),
     ...[41, 42, 74, 75, 79].map(tile => [`tile-${tile}`, true, false]),
     ...catalog.components.map(item => [item.definitionRef, true, item.support === 'existing-decoration']),
+    ['tile-95', false, false],
   ]);
+  assert.equal(result.catalogItems.at(-1).layer, 'base');
   assert.ok(result.catalogItems.every(row => !('source' in row) && !('variants' in row) && !('ruleRecipeRef' in row)));
   result.catalogItems[0].name = 'changed DTO'; result.catalogCategories[0].name = 'changed DTO';
   assert.notEqual(projectSpriteCatalog(source).catalogItems[0].name, 'changed DTO');
@@ -180,7 +182,7 @@ test('eight water mouths keep both four-direction families as exact read-only id
 
 test('advanced-retained duplicates remain two exact identities without default cards or placement grants', () => {
   const source = definitions(), result = projectSpriteCatalog(source);
-  assert.equal(result.catalogItems.length, 161);
+  assert.equal(result.catalogItems.length, 162);
   assert.ok(result.catalogItems.every(row => row.id !== 'tile-72' && row.id !== 'tile-190'));
   for (const tile of [72, 190]) {
     const row = result.catalogAtoms[tile];
@@ -197,7 +199,7 @@ test('advanced-retained duplicates remain two exact identities without default c
 test('native city color parts stay advanced references, not extra default objects or recoloring controls', () => {
   const source = definitions(), before = JSON.stringify(source), result = projectSpriteCatalog(source);
   const tiles = [222, 230, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241];
-  assert.equal(result.catalogItems.length, 161);
+  assert.equal(result.catalogItems.length, 162);
   for (const tile of tiles) {
     const row = result.catalogAtoms[tile];
     assert.equal(row.available, true);

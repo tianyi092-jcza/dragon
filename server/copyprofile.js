@@ -4,7 +4,7 @@ import { canonicalSourceTokens } from '../web/src/content/authoring/sourcejson.j
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
 import { editChapterResources, readFactionResources } from '../web/src/editor/chapterresources.js';
 import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
-import { fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
+import { enableSeaGroundBase, fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, setCityDefinitionNumbers, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
 import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, moveChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor } from '../web/src/content/authoring/gamesource.js';
@@ -86,7 +86,7 @@ function capturedInstanceIds(source) {
 // applyCapturedMapEdit（与 capture 回放同一口径）；新身份由调用方（控制器）
 // 用随机 64hex 生成（`gameId#<kind>-<64hex>`），服务端只验格式＋未占用。
 // 整包替换已废止：map 模块只接受 {edits}，无调用方依赖旧形。
-export const COPY_MAP_OPS = Object.freeze(['base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility']);
+export const COPY_MAP_OPS = Object.freeze(['sea-ground-enable', 'base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility']);
 export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
   if (!Array.isArray(edits) || !edits.length) fail(422, 'COPY_MAP');
   const usedGroupIds = new Set(game.map?.waterGroups?.map(group => group.id) ?? []);
@@ -95,7 +95,13 @@ export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
   let next = game;
   for (const edit of edits) {
     if (!edit || typeof edit !== 'object' || Array.isArray(edit) || !COPY_MAP_OPS.includes(edit.op)) fail(422, 'COPY_MAP');
-    next = applyCapturedMapEdit(next, edit, usedGroupIds, usedMaterialIds, usedInstanceIds, definitionLimit);
+    if (edit.op === 'sea-ground-enable') {
+      // Workspace-only product transition, deliberately absent from frozen
+      // legacy capture/profile replay in applyCapturedMapEdit.
+      if (Object.keys(view(edit)).length !== 1) fail(422, 'COPY_MAP_DELTA');
+      next = enableSeaGroundBase(next);
+      for (const id of capturedInstanceIds(next)) usedInstanceIds.add(id);
+    } else next = applyCapturedMapEdit(next, edit, usedGroupIds, usedMaterialIds, usedInstanceIds, definitionLimit);
   }
   return next;
 }

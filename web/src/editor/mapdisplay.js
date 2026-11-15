@@ -15,7 +15,7 @@ export function composeMapDisplayLayers(source, visible) {
   if (!layers.every(key => visible[key])) {
     const map = source.map;
     const display = composeMapLayers({ ...source, map: { ...map,
-      base: { ...map.base, terrainRef: visible.base ? map.base.terrainRef : Array(map.bounds.width * map.bounds.height).fill(null) },
+      base: { ...map.base, policy: visible.base ? map.base.policy : undefined, terrainRef: visible.base ? map.base.terrainRef : Array(map.bounds.width * map.bounds.height).fill(null) },
       decorations: visible.decor ? map.decorations : [],
       roads: visible.roads ? map.roads : [],
       placements: visible.cities ? map.placements : [],

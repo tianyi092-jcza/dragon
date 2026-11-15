@@ -1,6 +1,6 @@
 // Shared editor-only preview dispatch. Server authorization and command identity
 // ledgers remain in copyprofile.js; this module grants no write permission.
-import { fillBase, splitDecoration, placeComponent, removeDecorations, reorderDecorations,
+import { enableSeaGroundBase, fillBase, splitDecoration, placeComponent, removeDecorations, reorderDecorations,
   translateDecorations, captureComponent, renameMaterial, removeMaterial, createWaterGroup,
   splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from './componenttools.js';
 
@@ -24,6 +24,7 @@ export function reconcileMapSelectionGroups(source, next, edits) {
 export function previewMapEdits(source, edits) {
   const next = edits.reduce((current, edit) => {
     switch (edit.op) {
+      case 'sea-ground-enable': return enableSeaGroundBase(current);
       case 'base-fill': return fillBase(current, edit.cells, edit.tile, edit.geography);
       case 'decoration-split': return splitDecoration(current, edit.instanceId, edit.childIds);
       case 'decoration-place': return placeComponent(current, edit.materialId, edit.x, edit.y, edit.instanceId, edit.waterClass, edit.variantRef);

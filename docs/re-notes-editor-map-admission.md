@@ -5,6 +5,8 @@
 > 本文维护本批跨模块证据、负例和未闭合项；字段／机制的既有详细源仍为[实体字段](re-notes-entity-fields.md)、[自定义数据](re-notes-custom-data.md)、[道路](re-notes-march-pathfinding.md)、[城池易主与野战地形](re-notes-legion-fate.md)。工程选择回流[工程合同](game-editor-technical-design.md)，执行与验收回流[迁移计划](game-map-migration-plan.md)。
 > 标签：**实锤**只限标出的原指令／原数据；**代码事实**说明当前接缝；**工程方案**不是原机制；没有证书的组合仍为**未知**。本批重新取原字节和进行数据统计，不把静态反汇编或Python统计说成原程序运行。
 
+> v41后继Web决定：[SEA-GROUND-1](map-sea-ground-contract.md)明确95全海底和仅地面的小地图轮廓，地面集合／显示mask不是新KI机制；[ATOMIC-CATALOG-1](map-atomic-catalog-contract.md)现为240单格展示／256底层身份与七个末级分类，工作台固定春季、据点中立库过滤复用下述§2.1d原证，桥梁／水路归道路，取消组合库导航及悬停。本文历史的填海／水域开关、188默认样板／高级去向保留当版证据，不作为新工作台现态。95原MDL／四季周期及其它原身份不变；72／190仍未知，浏览归类不证明陆地、原通行或战斗规则。
+
 ## 1. 本轮结论与影响范围
 
 | 排查项 | 已收窄／确认 | 仍缺什么 | 对当前游戏迁移的影响 |

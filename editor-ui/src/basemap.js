@@ -12,15 +12,21 @@ export function createMapController({ api, work, publish, preview = previewMapEd
   const current = mark => mark === generation && permitted() && identity.user.id === actorId && (identity.version ?? null) === actorVersion;
   const render = () => publish({ loaded, exists: Boolean(snapshot), version: snapshot?.version ?? 0,
     dirty: edits.length > 0, editCount: edits.length, locked: !permitted() || uncertain || !snapshot,
-    uncertain, message, serverProblems, readRevision, gameId, gameScoped: Boolean(gameId) });
+    uncertain, message, serverProblems, readRevision, gameId, gameScoped: Boolean(gameId),
+    seaGroundPending: edits.some(edit => edit.op === 'sea-ground-enable'),
+    seaGroundEnabled: candidate?.map.base.policy === 'sea-ground-1' });
   function install(value) {
     if (gameId && (value.gameId !== gameId || value.data?.gameId !== gameId || !/^[a-f0-9]{64}$/.test(value.copyDigest) || !value.data.map)) throw new Error('遊戲地圖回應無效');
     let next = null;
     if (gameId) next = { content: { ...value.data, editorAssets: value.data.mapEditorAssets }, digest: value.copyDigest, version: value.copyDigest.slice(0, 12) };
     else if (value.snapshot !== null) next = { ...value.snapshot, content: value.snapshot?.template?.content };
     if (!gameId && next !== null && (!Number.isSafeInteger(next?.version) || next.version < 1 || !/^[a-f0-9]{64}$/.test(next.digest) || !next.content?.map)) throw new Error('基礎地圖回應無效');
+    // Stage the visible product transition, never write on GET. Save/undo/leave
+    // use the same command history as ordinary edits; old formal content is unchanged.
+    const pending = next && next.content.map.base.policy === undefined ? [{ op: 'sea-ground-enable' }] : [];
+    const prepared = next ? preview(next.content, pending) : null;
     pendingForm = false; readRevision++;
-    snapshot = next; candidate = next?.content ?? null; edits = []; undoSizes = []; loaded = true; uncertain = false; serverProblems = [];
+    snapshot = next; candidate = prepared; edits = pending; undoSizes = pending.length ? [1] : []; loaded = true; uncertain = false; serverProblems = [];
     paint(candidate); render();
   }
   async function read(mark) {
