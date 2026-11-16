@@ -22,6 +22,14 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 171. CITY后继：B2重录＋B5基线（goal active，已提交efdf64f，未push）
+
+- 用户目标：完整实现破192后编辑工作台建档可玩＋玩家侧可运行；旧工作台上架游戏可删，无需迁移。已按组合授权推进：B1本地提交／B2重录／B3服务端签发／B4立项／B5全量；提交与推送分别授权，本轮只本地提交，不push、不部署、不动真实数据。
+- B2（commit `efdf64f`，6文件）：`main.js` 3行攻城目录捕获致20消费者单指纹漂移，`available-library.txt`最小重录（仅该哈希，93632字节不变，新SHA `01658a87…`，旧清单封存`server/pinned/`，`sourcecatalogpolicy`＋刷新夹具同步，registry保持）；基础地图转换补C5口径（无章模板空`chapterDigests`＋20章基线＋重组后重编一致，一次通过）；parity测试补base-map初始化（测试-only，随现行产品）。验证：4文件`node --check`＋`diff --check`干净，programHashes 20/20，source/library/base-map安装200，copy运行200＋draft 20章。parity现停于遗留直发门`409 PUBLISH_VALIDATION_REQUIRED`（缺服务端检验票；测试走已退役的直接上架＋trial-pack流，未改走copy检验→提交→批准→正式链），属测试流过时非产品回归；VPUBLISH后端live链保持△（缺口从指纹收窄为遗留发布流迁移，单元v3链仍绿）。
+- B5场景基线（i5-7500，win32）：admission 6/6（257装配＋快照往返，~0.86s）；fiscal 11/11（含257城，~89ms）；m192统一链3/3（~2.76s）；compiled index 3/3（~3.0s；后两者含内置加载IO，非纯城市扩展耗时，属推断）；codec 257链：encode ~7ms／快照~1.5–5ms／搜索~2–3ms，堆~8–9MiB，owner读256次。未改产品代码，不重建bundle。
+- B3范围（设计先行，未动代码）：copy面现仅rename/numbers既有城，章节`city/city-native/city-faction/set-capital/city-governor`走`cityIdx`且多处`>191`拒收，`nativeCityRecordRaw`定长192；服务端签发须新增建城动作（稳定cityId永不复用）＋章节`idx→id`迁移＋放置绑定已签发ID＋章节覆盖新置城（D6默认），实现分片另行实施。
+- 当前：`HEAD efdf64f`（`ahead github/main 6`），工作树干净；生产仍内置192准入。下一步：B3签发设计→实施；B4 D2/D4/费用；B5若需逐阶段剖析另行展开；VPUBLISH全链迁移待用户确认是否纳入。
+
 ## 170. CITY-CAPACITY-1：本轮收敛检查点（goal complete，commit 8ba841f）
 
 - 本轮目标：按计划从C0审计推进至M192／193／257验证与文档收敛（goal `980ce3d7`，已complete；耗时10h31m，tokens 8,237,552）。地图保持384×256；D1–D6仅实施已批准项，D2／D4／费用未动。
