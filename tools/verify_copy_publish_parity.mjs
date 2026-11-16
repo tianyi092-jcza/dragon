@@ -80,7 +80,9 @@ try {
   const admin = { cookie: changed.cookie ?? session.cookie, csrf: changed.data.csrf };
   await ok('/api/admin/source/install', {}, admin);
   await ok('/api/admin/library/install', {}, admin);
+  const baseMap = await ok('/api/admin/base-map/initialize', {}, admin);
   checks.push({ check: 'pinnedSourceAndLibraryInstalled', registryId: source.registryId });
+  checks.push({ check: 'systemBaseMapInitialized', digest: baseMap.snapshot?.digest ?? null });
 
   // 管理员复制整个游戏：地图 + 20 章 + 原生武将
   const copyKey = randomUUID();

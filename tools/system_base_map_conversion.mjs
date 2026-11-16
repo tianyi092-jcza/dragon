@@ -33,12 +33,14 @@ export function convertInstalledSystemBaseMap(source, sourceDigest) {
       selectionGroups: plan.groups.map(group => ({ id: group.id, label: group.category,
         members: group.pieceIds.map(id => ({ layer: 'decorations', id })) })) } };
   const { digest, compiled } = validateSystemBaseMap(template, sha);
-  const { sourceDigest: ignoredBefore, ...before } = baseline;
-  const { sourceDigest: ignoredAfter, ...after } = compiled;
+  const { sourceDigest: ignoredBefore, chapterDigests: beforeDigests, ...before } = baseline;
+  const { sourceDigest: ignoredAfter, chapterDigests: afterDigests, ...after } = compiled;
   assert.deepEqual(after, before, 'all shared compiler outputs must remain unchanged');
+  assert.equal(Object.keys(beforeDigests ?? {}).length, 20, 'baseline must carry 20 chapter digests');
+  assert.deepEqual(afterDigests ?? {}, {}, 'chapter-less template must carry empty chapter digests');
   // Also compile against actual imported chapters (not just empty template projection).
   const { sourceDigest: ignoredGame, ...withChapters } = compileGameSource(game, sha);
-  assert.deepEqual(withChapters, before, 'actual chapter/native adjacency compatibility');
+  assert.deepEqual(withChapters, { ...before, chapterDigests: beforeDigests }, 'actual chapter/native adjacency compatibility');
   assert.equal(canonicalDigest(source, sha), originalDigest, 'conversion must not mutate registered input');
   return { template, mapping: plan, receipt: { schema: 'system-base-map-conversion-receipt-1', digest,
     sourceRevision: source.revision, sourceDigest, policy: plan.policy,

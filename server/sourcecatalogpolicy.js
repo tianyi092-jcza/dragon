@@ -57,7 +57,7 @@ export function installedAvailableLibraryPolicy(input) {
   const bytes = new Uint8Array(length); bytes.set(new Uint8Array(buffer, offset, length));
   // LIBRARY-REFRESH-2: five reviewed presentation consumers, same fixed roles.
   // The previous manifest is retained under pinned/; its registry is NOT reused.
-  const manifestHash = 'f4ba804b84b326ff2d569980127f52d3f6df92ab623d740ad3ab21945840615b';
+  const manifestHash = '01658a875c012f7015a77cc79204121e3feba382bf9c5467ff918b3843450516';
   const library = manifest(bytes, manifestHash, 93632);
   if (library.schemaVersion !== 1 || library.profile !== TRIAL_ASSET_PROFILE || library.mode !== 'STAGED_AVAILABLE_LIBRARY_NOT_Q69_CLOSURE' || library.baseRevision !== LIBRARY_BASE_REVISION || library.runtimeDataSha256 !== 'f819a1a5bb81d8b915a19e8efbaf6a212d8e4516843513869dc1b939ca1ac3af' || Object.keys(library.resources).sort().join('\n') !== FIXED_TRIAL_ASSET_PATHS.join('\n') || Object.keys(library.supportingFiles).join(',') !== 'font/OFL-Oswald.txt' || Object.keys(library.programHashes).length !== 20 || library.unresolvedReferences.length !== 20) fail(503, 'LIBRARY_MANIFEST_IDENTITY');
   const roles = [{ path: 'available-library-manifest.json', sha256: manifestHash, byteLength: 93632 }];
