@@ -22,6 +22,12 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 183. D2-A满页行为冻结：原版满页就是丢，无overflow机制（RE结论，未push）
+
+- 用户选A（C0级RE查清再定）。调用者×满行为矩阵（已冻结，有原证）：2FBF满→CF=1/inserted:false，调用方各自丢弃（22DB回false、2286跳过不计数、budgets:190透传queued:false、diplomacy 2BD9径回传）；301C满→CF恒0不可区分，所有调用方按成功继续（5940照常notice、34EB后缀照常排清除、handler内延迟以已前进游标为起点），静默丢失；2BD9月界REP MOVSW 1..3→0..2无条件丢弃旧当前页（含未消费）；31AE不清槽，D20到100h后31BD直接返回不再重装，DEC下溢FF不重读末槽。原证：re-notes-ai-diplomacy§2.1（1/2/4/5条）、legion-fate§9.3、§9.7六行表；Web侧`originalDelayedEnqueue301C`/`originalCurrentEnqueue2FBF`/`resetEventMonth`逐行对应。
+- A结论：原版没有不丢事件的机制，满页/月界/耗尽三处都是丢。“D2不丢”不是还原，是纯Web产品决定——要做就按C方案走（用户已批B4方向时再定）：旁表＋sequence计数＋泵合并排序，且改变192满页失败行为须单独标差异。§9.7六行（已消费槽复用禁令、2BD9未消费尾部顺序、301C月结游标、handler再入队游标、末槽迟到处理、bounds快照）即实施检查表，模型 slots 待用户拍板C后逐项落。
+- 本批：B3回归create/chapter-ref 5/5（admit必填battleMapId未波及其他op）；`diff --check`干净。未重建bundle（本批无web/src改动）。
+
 ## 182. B4收尾：D4 k=2可达＋2286新城入灾＋费用域保留（本地验证，未push）
 
 - 用户拍板：N=193..256顶槽必须可达（总目标突破192）；费用域问清区别后再定；D2按“实现它”推进到可实现边界。
