@@ -817,7 +817,7 @@ function chapterState(game, chapterId) {
   return state;
 }
 function chapterCityRow(state, cityIdx) {
-  if (!Number.isSafeInteger(cityIdx) || Object.is(cityIdx, -0) || cityIdx < 0 || cityIdx > 191) throw new RangeError("chapter city idx 0..191 required");
+  if (!Number.isSafeInteger(cityIdx) || Object.is(cityIdx, -0) || cityIdx < 0 || cityIdx > 511) throw new RangeError("chapter city idx 0..511 required");
   const record = (state.cities ?? []).find(c => c?.idx === cityIdx);
   if (!isPlainObject(record)) throw new RangeError(`unknown chapter city: ${cityIdx}`);
   return record;

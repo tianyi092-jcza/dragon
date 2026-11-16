@@ -754,7 +754,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       if (baseHasFaction(chapterId, edit.factionIdx)) revertFactionWrite(chapterId, edit.factionIdx, ['capital'],
         shell => setFactionCapital(shell, chapterId, edit.factionIdx, edit.cityIdx), [], null, preOp.get(i));
     } else if (op === 'city-faction') {
-      if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191 || !('factionId' in edit)) fail(422, 'COPY_PROTECTED_DELTA');
+      if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 511 || !('factionId' in edit)) fail(422, 'COPY_PROTECTED_DELTA');
       revertCityFaction(chapterId, edit.cityIdx, edit.factionId, preOp.get(i));
     } else if (op === 'general-faction') {
       if (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127 || !('factionId' in edit)) fail(422, 'COPY_PROTECTED_DELTA');
@@ -777,7 +777,7 @@ function revertAppliedChapterEdits(baseline, candidate, applied, libraryRoots = 
       if (!Number.isInteger(edit.status)) fail(422, 'COPY_PROTECTED_DELTA');
       revertGeneralWrite(chapterId, edit.generalIdx, ['status'], shell => setGeneralStatus(shell, chapterId, edit.generalIdx, edit.status), preOp.get(i));
     } else if (op === 'city-governor') {
-      if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191) fail(422, 'COPY_PROTECTED_DELTA');
+      if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 511) fail(422, 'COPY_PROTECTED_DELTA');
       if (edit.generalIdx !== null && (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127)) fail(422, 'COPY_PROTECTED_DELTA');
       revertCityGovernor(chapterId, edit.cityIdx, edit.generalIdx, preOp.get(i));
     } else if (op === 'start-date') {

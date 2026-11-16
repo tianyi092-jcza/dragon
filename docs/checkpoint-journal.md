@@ -22,6 +22,12 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 173. B3实现片(2)：章节cityId键控＋191→511（已提交，未push）
+
+- 边界解析方案（§4.6改键落为此实现：同等能力、更小 blast radius；内层记录仍槽位键控，删城重排时再议）：`gamecopy.js`五城市op接受`cityId`替代`cityIdx`（校验期经`data.cities`解`runtimeSlot`并改写为idx形，`cityIdx+cityId`并存／未知ID／非串／槽越界一律422；未带cityId返回原patch身份）；三处`>191→>511`；`gamesource.js chapterCityRow 191→511`（`writeSlotByte`本就容忍缺表，新城无native raw可配具名）；`copyprofile.js`两处revert门`191→511`；`editChapterCityNative`保持192旧路。应用层缺条目仍fail-closed（COPY_CHAPTER，apply内try归一）。
+- 新`tools/verify_copy_city_chapter_ref.mjs` 2/2：五op经cityId在既有槽同效（troops+1／首都／太守／faction null）／误用422×3＋511无条目／新签发城无条目应用层拒收（锁片3前置）。回归：chapter_ops＋city_create 13/13、city_history 1/1。`node --check`×4＋`diff --check`干净。bundle重建（web/src改动所致，trial 255文件SHA `1108e769…`，shell/play不变）。LSP三文件inconclusive（push-only，不称clean）。新测试转CRLF与同目录一致。
+- 未动：片3（放置绑定＋章节D6默认条目）／画布UI接线；生产／推送／真实数据未动。
+
 ## 172. B3实现片(1)：cities.create服务端签发（已提交，未push）
 
 - `server/gamecopy.js` cities模块新增`create:{name,numbers?}`：姓名沿rename门（cityName／1..12码点／409重名）、numbers沿既有七字段0..65535门；签发`city-NNN`（既有最大序号＋1，pad3），槽位`existing.length`（只增不减故稠密），行无x/y（未放置储备，编译在放置前fail-closed）；`existing.length>=512`拒收；apply侧`create:`键插入（已存在fail-closed）；`writeModule`回`issuedCityId`（加法字段，旧形状不变）。

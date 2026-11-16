@@ -280,11 +280,23 @@ function checkModule(module, patch, data, gameId) {
         }
       }
     }
+    // B3: 章节城市引用接受稳定 cityId（边界一次解析为槽位，内层仍走 idx）。
+    let normalizedEdits = patch.edits;
     if (patch.edits !== undefined) {
       // 与 draft chapterEdits 同形同限（ChaptersPanel 七 op：city/city-native/city-faction/set-capital/general-faction/city-governor/set-diplomat）。
       if (!Array.isArray(patch.edits) || !patch.edits.length) fail(422, 'COPY_CHAPTER');
       const keysOf = (o, ks) => Object.keys(o).sort().join(',') === ks;
-      for (const edit of patch.edits) {
+      // B3: 章节城市引用接受稳定 cityId（边界一次解析为槽位，内层仍走 idx）。
+      const cityOp = op => ['city', 'city-native', 'city-faction', 'set-capital', 'city-governor'].includes(op);
+      const edits = normalizedEdits.map(raw => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !cityOp(raw.op) || raw.cityId === undefined) return raw;
+        if ('cityIdx' in raw) fail(422, 'COPY_CHAPTER');
+        const slot = data.cities?.[raw.cityId]?.runtimeSlot;
+        if (typeof raw.cityId !== 'string' || !Number.isSafeInteger(slot) || slot < 0 || slot > 511) fail(422, 'COPY_CHAPTER');
+        const { cityId: _dropped, ...rest } = raw;
+        return { ...rest, cityIdx: slot };
+      });
+      for (const edit of normalizedEdits = edits) {
         if (!edit || typeof edit !== 'object' || Array.isArray(edit)) fail(422, 'COPY_CHAPTER');
         if (edit.op === 'city' || edit.op === 'city-native') {
           if (!keysOf(edit, 'chapterId,cityIdx,op,values') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
@@ -296,13 +308,13 @@ function checkModule(module, patch, data, gameId) {
         }
         else if (edit.op === 'city-faction') {
           if (!keysOf(edit, 'chapterId,cityIdx,factionId,op') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
-          if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191) fail(422, 'COPY_CHAPTER');
+          if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 511) fail(422, 'COPY_CHAPTER');
           if (edit.factionId !== null && (!Number.isInteger(edit.factionId) || edit.factionId < 0 || edit.factionId > 255)) fail(422, 'COPY_CHAPTER');
         }
         else if (edit.op === 'set-capital') {
           if (!keysOf(edit, 'chapterId,cityIdx,factionIdx,op') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
           if (!Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21) fail(422, 'COPY_CHAPTER');
-          if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191) fail(422, 'COPY_CHAPTER');
+          if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 511) fail(422, 'COPY_CHAPTER');
         }
         else if (edit.op === 'general-faction') {
           if (!keysOf(edit, 'chapterId,factionId,generalIdx,op') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
@@ -311,7 +323,7 @@ function checkModule(module, patch, data, gameId) {
         }
         else if (edit.op === 'city-governor') {
           if (!keysOf(edit, 'chapterId,cityIdx,generalIdx,op') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
-          if (!Number.isInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 191) fail(422, 'COPY_CHAPTER');
+          if (!Number.isInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 511) fail(422, 'COPY_CHAPTER');
           if (edit.generalIdx !== null && (!Number.isInteger(edit.generalIdx) || edit.generalIdx < 0 || edit.generalIdx > 127)) fail(422, 'COPY_CHAPTER');
         }
         else if (edit.op === 'set-diplomat') {
@@ -355,7 +367,7 @@ function checkModule(module, patch, data, gameId) {
       }
     }
     if (patch.rename === undefined && patch.setStart === undefined && patch.create === undefined && patch.copy === undefined && patch.delete === undefined && patch.resources === undefined && patch.edits === undefined) fail(422, 'COPY_PATCH');
-    return patch;
+    return normalizedEdits !== patch.edits ? { ...patch, edits: normalizedEdits } : patch;
   }
   // map 模块：只接受 {edits} 逐命令补丁，走 copyprofile 原函数（与 capture 回放同一口径）；
   // 深层形状由 applyCopyMapEdits 再验（COPY_MAP_DELTA），整包替换已废止。
