@@ -134,55 +134,91 @@ export function initializeScenarioCityNativeInputs(scenario) {
   let rawChecked = false;
   const rawByte = (entry, offset) =>
     parseInt(entry.slice(offset * 2, offset * 2 + 2), 16);
+  // D2 named slots (no native record): cityId -> scenario slot, resolved
+  // once; legacy slots keep the record path and never consult this map.
+  let slotByCityId = null;
+  const scenarioSlot = (cityId) => {
+    slotByCityId ??= new Map();
+    if (slotByCityId.size === 0)
+      for (const row of cities)
+        if (typeof row?.cityId === 'string') slotByCityId.set(row.cityId, row.idx);
+    return slotByCityId.get(cityId);
+  };
   for (let index = 0; index < total; index++) {
     const city = cities[index];
     if (!city || city.idx !== index)
       throw new RangeError("Web engineering Uncovered fresh city slot");
     if (!needRaw(city)) continue;
-    if (!rawChecked) {
-      if (!Array.isArray(records) || records.length !== total)
-        throw new RangeError(
-          "Web engineering Uncovered fresh city tick source records",
-        );
-      rawChecked = true;
-    }
-    const entry = records[index];
-    if (typeof entry !== "string" || !/^[0-9a-fA-F]{64}$/.test(entry))
+    const entry = Array.isArray(records) ? records[index] : undefined;
+    if (entry !== undefined && (typeof entry !== "string" || !/^[0-9a-fA-F]{64}$/.test(entry)))
       throw new RangeError(
         "Web engineering Uncovered native city record raw at fresh init",
       );
-    if (city._aiCooldown === undefined)
-      city._aiCooldown = rawByte(entry, 0x17);
-    if (city._strategicLastFaction === undefined)
-      city._strategicLastFaction = rawByte(entry, 0x1a);
-    // 3FAB/3FD4 border inputs: C1B count (+0x1B) and the four ordered
-    // neighbour slots C1C..1F (+0x1C..+0x1F, 0xFF-terminated in raw).
-    // 4028/88CC attr byte IS record +0x00 (low nibble = baked border
-    // bits, 3839/3840 consistent with +0x1B; the single ch8/city162
-    // 0x64 quirk is copied verbatim, never reinterpreted).
-    if (city.strategicBorderCount === undefined)
-      city.strategicBorderCount = rawByte(entry, 0x1b);
-    if (city.strategicNeighbours === undefined)
-      city.strategicNeighbours = [0x1c, 0x1d, 0x1e, 0x1f].map((offset) =>
-        rawByte(entry, offset),
+    if (typeof entry === "string") {
+      rawChecked = true;
+      if (city._aiCooldown === undefined)
+        city._aiCooldown = rawByte(entry, 0x17);
+      if (city._strategicLastFaction === undefined)
+        city._strategicLastFaction = rawByte(entry, 0x1a);
+      // 3FAB/3FD4 border inputs: C1B count (+0x1B) and the four ordered
+      // neighbour slots C1C..1F (+0x1C..+0x1F, 0xFF-terminated in raw).
+      // 4028/88CC attr byte IS record +0x00 (low nibble = baked border
+      // bits, 3839/3840 consistent with +0x1B; the single ch8/city162
+      // 0x64 quirk is copied verbatim, never reinterpreted).
+      if (city.strategicBorderCount === undefined)
+        city.strategicBorderCount = rawByte(entry, 0x1b);
+      if (city.strategicNeighbours === undefined)
+        city.strategicNeighbours = [0x1c, 0x1d, 0x1e, 0x1f].map((offset) =>
+          rawByte(entry, offset),
+        );
+      if (city.attr === undefined) city.attr = rawByte(entry, 0);
+      if (city.disaster_event === undefined)
+        city.disaster_event = rawByte(entry, 0x15);
+      // 4269 C15 灾害强度（+0x15，20章3840条全零）：每日 damageOriginalCity
+      // 严格消费，fresh 即显式置记录值（全零），不依赖缺失语义。
+      continue;
+    }
+    // D2 named city: no native record exists and none is synthesized
+    // (D1b). All scalar initializer fields must already be explicit via
+    // admit/convert; only the numeric neighbour slots project from the
+    // named table (null -> 0xFF, cityId -> scenario slot), the same byte
+    // positions the legacy path reads from raw.
+    if (city._aiCooldown === undefined ||
+        city._strategicLastFaction === undefined ||
+        city.strategicBorderCount === undefined ||
+        city.attr === undefined ||
+        city.disaster_event === undefined ||
+        !Array.isArray(city.neighbourCityIds) || city.neighbourCityIds.length !== 4)
+      throw new RangeError(
+        "Web engineering Uncovered fresh city tick source records",
       );
-    if (city.attr === undefined) city.attr = rawByte(entry, 0);
-    if (city.disaster_event === undefined)
-      city.disaster_event = rawByte(entry, 0x15);
-    // 4269 C15 灾害强度（+0x15，20章3840条全零）：每日 damageOriginalCity
-    // 严格消费，fresh 即显式置记录值（全零），不依赖缺失语义。
+    if (city.strategicNeighbours === undefined) {
+      const slots = [];
+      for (const id of city.neighbourCityIds) {
+        if (id === null) { slots.push(0xff); continue; }
+        const slot = scenarioSlot(id);
+        if (slot === undefined || !cities[slot] || cities[slot].idx !== slot)
+          throw new RangeError(
+            "Web engineering Uncovered fresh city tick source records",
+          );
+        slots.push(slot);
+      }
+      city.strategicNeighbours = slots;
+    }
   }
+  void rawChecked;
 }
 export function synthesizeScenarioCityCache(scenario) {
   const records = scenario?.nativeCityRecordRaw;
   const cities = scenario?.cities;
-  // Live city-table length (was: fixed 192 records). Both sides must be
-  // present with matching lengths and strict per-slot identity.
+  // Live city-table length (was: fixed 192 records). Records cover the
+  // imported prefix; D2 named tail slots (no native record, D1b) project
+  // their explicit cityCacheByte. Longer or corrupt records still refuse.
   if (!Array.isArray(cities) || cities.length === 0)
     throw new RangeError(
       "Web engineering Uncovered fresh city cache source cities",
     );
-  if (!Array.isArray(records) || records.length !== cities.length)
+  if (!Array.isArray(records) || records.length > cities.length)
     throw new RangeError(
       "Web engineering Uncovered fresh city cache source records",
     );
@@ -190,12 +226,24 @@ export function synthesizeScenarioCityCache(scenario) {
     if (!cities[index] || cities[index].idx !== index)
       throw new RangeError("Web engineering Uncovered fresh city slot");
   let hex = "";
-  for (const entry of records) {
-    if (typeof entry !== "string" || !/^[0-9a-fA-F]{64}$/.test(entry))
+  for (let index = 0; index < cities.length; index++) {
+    const entry = records[index];
+    if (entry !== undefined) {
+      if (typeof entry !== "string" || !/^[0-9a-fA-F]{64}$/.test(entry))
+        throw new RangeError(
+          "Web engineering Uncovered native city record raw at fresh init",
+        );
+      hex += entry.slice(0x18 * 2, 0x18 * 2 + 2);
+      continue;
+    }
+    // D2 named tail slot: byte 0x18 projects from the explicit named
+    // cityCacheByte (admit default 0 matches legacy neutral records).
+    const cached = cities[index]?.cityCacheByte;
+    if (!Number.isInteger(cached) || cached < 0 || cached > 255)
       throw new RangeError(
-        "Web engineering Uncovered native city record raw at fresh init",
+        "Web engineering Uncovered fresh city cache source records",
       );
-    hex += entry.slice(0x18 * 2, 0x18 * 2 + 2);
+    hex += cached.toString(16).padStart(2, "0");
   }
   return { version: 1, spans: [{ address: 0, hex }] };
 }

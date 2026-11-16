@@ -1,4 +1,4 @@
-import { mountWorkbench, createAccountController, createCopyController, createBaseMapWorkbench, createGameMapWorkbench } from '/shell-ui.js';
+import { mountWorkbench, createAccountController, createCopyController, createBaseMapWorkbench, createGameMapWorkbench, createNewCityController } from '/shell-ui.js';
 import { installDraftEditor, createAuthoringContext } from '/draft.js';
 import { installStageJobs } from '/stage.js';
 import { installLibraryBrowser } from '/library.js';
@@ -70,8 +70,8 @@ const views = [
 ];
 let view = null, displayedOwner = null, draftRefreshPending = false;
 const accounts = createAccountController({ api, authority: () => current, work: run, publish: model => shell.accounts(model), confirm: text => confirm(text) });
-const gameMapActions = {}, baseMapActions = {}, managementActions = {}, deletionActions = {}, publicationActions = {}, reviewActions = {}, copyActions = {}, fullCopyActions = {}, draftActions = {}, stageAssetsActions = {}, stageJobsActions = {}, libraryActions = {}, strongholdActions = {}, generalsActions = {}, catalogActions = {};
-const shell = mountWorkbench({ root: q('editor-app'), views, navigate, accounts, baseMap: baseMapActions, gameMap: gameMapActions, draft: draftActions, stageAssets: stageAssetsActions, stageJobs: stageJobsActions, library: libraryActions, stronghold: strongholdActions, catalog: catalogActions, generals: generalsActions, copy: copyActions, fullCopy: fullCopyActions, publication: publicationActions, management: managementActions, deletion: deletionActions, review: reviewActions, logout: () => q('logout').click() });
+const gameMapActions = {}, newCityActions = {}, baseMapActions = {}, managementActions = {}, deletionActions = {}, publicationActions = {}, reviewActions = {}, copyActions = {}, fullCopyActions = {}, draftActions = {}, stageAssetsActions = {}, stageJobsActions = {}, libraryActions = {}, strongholdActions = {}, generalsActions = {}, catalogActions = {};
+const shell = mountWorkbench({ root: q('editor-app'), views, navigate, accounts, baseMap: baseMapActions, gameMap: gameMapActions, newCity: newCityActions, draft: draftActions, stageAssets: stageAssetsActions, stageJobs: stageJobsActions, library: libraryActions, stronghold: strongholdActions, catalog: catalogActions, generals: generalsActions, copy: copyActions, fullCopy: fullCopyActions, publication: publicationActions, management: managementActions, deletion: deletionActions, review: reviewActions, logout: () => q('logout').click() });
 function permittedView(next) {
   if (!current || current.user.mustChangePassword) return null;
   if (['profile', 'password'].includes(next)) return next;
@@ -82,7 +82,7 @@ function permittedView(next) {
 // 看到的就是當下真實清單，不必先看到舊資料再按「重新整理」。
 const autoLoad = {
   'base-map-editor': () => baseMapUI.actions.enter(),
-  'mapview-editor': () => gameMapUI.actions.enter(),
+  'mapview-editor': () => { gameMapUI.actions.enter(); newCityUI.actions.enter(); },
   'management-editor': () => reviewUI?.actions.refresh(),
   'publish-editor': () => publishUI?.actions.refresh(),
   admin: () => accounts.load(),
@@ -117,7 +117,7 @@ function render() {
   }
   accounts.setIdentity(current); copyUI.setIdentity(current); fullCopyUI.setIdentity(current); baseMapUI.setIdentity(current);
   if (current) fillProfile();
-  draftUI.setIdentity(current); gameMapUI.setIdentity(current); stageUI?.setIdentity(current); libraryUI?.setIdentity(current); catalogUI?.setIdentity(current); managementUI?.setIdentity(current); deletionUI?.setIdentity(current); publishUI?.setIdentity(current); reviewUI?.setIdentity(current); stageAssetUI?.setIdentity(current); strongholdUI?.setIdentity(current); generalsUI?.setIdentity(current);
+  draftUI.setIdentity(current); gameMapUI.setIdentity(current); newCityUI.setIdentity(current); stageUI?.setIdentity(current); libraryUI?.setIdentity(current); catalogUI?.setIdentity(current); managementUI?.setIdentity(current); deletionUI?.setIdentity(current); publishUI?.setIdentity(current); reviewUI?.setIdentity(current); stageAssetUI?.setIdentity(current); strongholdUI?.setIdentity(current); generalsUI?.setIdentity(current);
   show(view ?? location.hash.slice(1));
 }
 async function run(action, options = {}) {
@@ -146,7 +146,7 @@ const list = () => accounts.load();
 let stageUI, libraryUI, catalogUI, managementUI, deletionUI, publishUI, reviewUI, stageAssetUI, strongholdUI, generalsUI;
 let contextIdentity = null;
 const authoringContext = createAuthoringContext({
-  participants: () => ({draft: draftUI, stronghold: strongholdUI, generals: generalsUI, map: gameMapUI, publication: publishUI}),
+  participants: () => ({draft: draftUI, stronghold: strongholdUI, generals: generalsUI, map: gameMapUI, newCity: newCityUI, publication: publishUI}),
   initialGame: () => draftUI.selectedGame(),
   beforeChange: () => stageUI.canLeave() && catalogUI.canLeave() && managementUI.canLeave() && deletionUI.canLeave() && copyUI.canLeave(),
 });
@@ -167,6 +167,8 @@ const baseMapUI = createBaseMapWorkbench({ api, work: run, publish: model => she
 Object.assign(baseMapActions, baseMapUI.actions);
 const gameMapUI = createGameMapWorkbench({ api, work: run, publish: model => shell.gameMap(model), confirm: text => confirm(text), gameContext: contextFor('map') });
 Object.assign(gameMapActions, gameMapUI.actions);
+const newCityUI = createNewCityController({ api, work: run, publish: model => shell.newCity(model), confirm: text => confirm(text), gameContext: contextFor('map') });
+Object.assign(newCityActions, newCityUI.actions);
 stageUI = installStageJobs({ api, authority: () => current, work: run, isBusy: () => busy, savedContext: () => draftUI.savedContext(), publish: model => shell.stageJobs(model) });
 Object.assign(stageJobsActions, stageUI.actions);
 libraryUI = installLibraryBrowser({ api, authority: () => current, work: run, isBusy: () => busy, savedContext: () => draftUI.savedContext(), publish: model => shell.library(model) });

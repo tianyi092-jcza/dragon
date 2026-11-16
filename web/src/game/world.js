@@ -138,8 +138,14 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
     delete city.sim;
     delete city.disaster;
     delete city.growth_rate;
-    delete city.disaster_event;
-    delete city._strategicLastFaction;
+    // D2 named tail cities have no native record to refill from (D1b):
+    // their admitted initializer bytes are the source, so only slots
+    // covered by nativeCityRecordRaw drop the chapter-carried values.
+    const recordCount = Array.isArray(state.nativeCityRecordRaw) ? state.nativeCityRecordRaw.length : 0;
+    if (city.idx === undefined || city.idx < recordCount) {
+      delete city.disaster_event;
+      delete city._strategicLastFaction;
+    }
   }
   for (const general of state.generals ?? []) {
     delete general.is_player;

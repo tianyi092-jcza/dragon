@@ -574,11 +574,15 @@ export function renameChapter(game, chapterId, name) {
 // B3片3(b)：显式 admit——已放置新城在全部章节建 D6 默认条目（raw-less，不造 32B）。
 // attr 0 取自固定源中立城实测（city-027）；_strategicLastFaction 0x18 为 Web 新城中立标记
 // （非原版机制，治理时按 F17 刷新）；neighbourCityIds 全空（无路时与道路图一致，通路后须刷新）。
-export function admitChapterCity(game, cityId, troopsCap) {
+// D2 可玩门：battleMapId 必填且必须是 192 攻城资源目录身份（ki-1995:siege:0..191，
+// 与现有战场共享是 Web 产品决定、非原版机制）；写定义＋全部章节行，缺之攻城投影拒收。
+export function admitChapterCity(game, cityId, troopsCap, battleMapId) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   const definition = game.cities?.[cityId];
   if (!isPlainObject(definition) || definition.cityId !== cityId) throw new RangeError(`unknown city: ${cityId}`);
   if (!Number.isInteger(troopsCap) || troopsCap < 0 || troopsCap > 255) throw new RangeError(`city ${cityId} needs an explicit troops_cap 0..255 at admission`);
+  const siege = /^ki-1995:siege:(\d{1,3})$/.exec(battleMapId ?? "");
+  if (!siege || Number(siege[1]) > 191) throw new RangeError(`city ${cityId} needs an explicit shared siege battleMapId ki-1995:siege:0..191 at admission`);
   const slot = definition.runtimeSlot;
   if (!Number.isInteger(slot) || slot < 0 || slot > 511) throw new RangeError(`city ${cityId} needs a live runtime slot`);
   const place = (game.map?.placements ?? []).find(p => p?.cityId === cityId);
@@ -593,8 +597,9 @@ export function admitChapterCity(game, cityId, troopsCap) {
   }
   numbers.troops_cap = troopsCap;
   definition.x = place.x; definition.y = place.y;
-  const entry = { idx: slot, name: definition.name, faction: null, governor: null, ...numbers, x: place.x, y: place.y,
-    attr: 0, _aiCooldown: 0, _strategicLastFaction: 0x18, strategicBorderCount: 0, disaster_event: 0, cityCacheByte: 0,
+  definition.battleMapId = battleMapId;
+  const entry = { idx: slot, cityId, name: definition.name, faction: null, governor: null, ...numbers, x: place.x, y: place.y,
+    battleMapId, attr: 0, _aiCooldown: 0, _strategicLastFaction: 0x18, strategicBorderCount: 0, disaster_event: 0, cityCacheByte: 0,
     neighbourCityIds: [null, null, null, null] };
   let admitted = 0;
   for (const chapterId of game.chapterOrder ?? []) {

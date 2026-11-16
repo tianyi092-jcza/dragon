@@ -54,6 +54,34 @@ export function previewMapEdits(source, edits) {
       case 'decoration-remove': return removeDecorations(current, edit.memberIds);
       case 'decoration-reorder': return reorderDecorations(current, edit.memberIds, edit.direction);
       case 'decoration-translate': return translateDecorations(current, edit.memberIds, edit.dx, edit.dy);
+      // D2 copy ops: client preview mirrors geometry only (placement tile,
+      // binding link, road path). All certification (scan order, ports,
+      // slots, neighbour agreement) stays server-side at save.
+      case 'city-stamp': {
+        if (!Number.isInteger(edit.x) || !Number.isInteger(edit.y) ||
+            !Number.isInteger(edit.tile) || typeof edit.pieceId !== 'string')
+          throw new RangeError('新據點圖塊位置或圖號無效');
+        return { ...current, map: { ...current.map,
+          placements: [...(current.map?.placements ?? []),
+            { id: edit.pieceId, cityId: null, x: edit.x, y: edit.y,
+              componentRef: `tile-${edit.tile}`, variantRef: 'original' }] } };
+      }
+      case 'city-bind': {
+        if (typeof edit.pieceId !== 'string' || typeof edit.cityId !== 'string')
+          throw new RangeError('圖塊或據點身份無效');
+        return { ...current, map: { ...current.map,
+          placements: (current.map?.placements ?? []).map(place =>
+            place?.id === edit.pieceId ? { ...place, cityId: edit.cityId } : place) } };
+      }
+      case 'road-add': {
+        if (typeof edit.roadId !== 'string' || typeof edit.fromCityId !== 'string' ||
+            typeof edit.toCityId !== 'string' || !Array.isArray(edit.geometry))
+          throw new RangeError('道路端點或路徑無效');
+        return { ...current, map: { ...current.map,
+          roads: [...(current.map?.roads ?? []),
+            { id: edit.roadId, fromCityId: edit.fromCityId, toCityId: edit.toCityId,
+              travelKind: edit.travelKind, geometry: edit.geometry }] } };
+      }
       case 'material-capture': return captureComponent(current, edit.memberIds, edit.materialId, edit.name);
       case 'material-rename': return renameMaterial(current, edit.materialId, edit.name);
       case 'material-remove': return removeMaterial(current, edit.materialId);

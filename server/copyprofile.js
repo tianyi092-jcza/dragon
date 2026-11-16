@@ -8,6 +8,9 @@ import { enableSeaGroundBase, fillBase, placeComponent, splitDecoration, removeD
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, setCityDefinitionNumbers, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
 import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, moveChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor } from '../web/src/content/authoring/gamesource.js';
+import { composeMapLayers } from '../web/src/content/authoring/maplayers.js';
+import { buildRoad } from '../web/src/content/authoring/roadedit.js';
+import { MAX_ROAD_EDGES } from '../web/src/content/authoring/mapcompile.js';
 import { fail } from './security.js';
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
 export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
@@ -86,7 +89,7 @@ function capturedInstanceIds(source) {
 // applyCapturedMapEdit（与 capture 回放同一口径）；新身份由调用方（控制器）
 // 用随机 64hex 生成（`gameId#<kind>-<64hex>`），服务端只验格式＋未占用。
 // 整包替换已废止：map 模块只接受 {edits}，无调用方依赖旧形。
-export const COPY_MAP_OPS = Object.freeze(['sea-ground-enable', 'base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility']);
+export const COPY_MAP_OPS = Object.freeze(['sea-ground-enable', 'base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility', 'city-stamp', 'city-bind', 'road-add']);
 export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
   if (!Array.isArray(edits) || !edits.length) fail(422, 'COPY_MAP');
   const usedGroupIds = new Set(game.map?.waterGroups?.map(group => group.id) ?? []);
@@ -102,6 +105,167 @@ export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
       next = enableSeaGroundBase(next);
       for (const id of capturedInstanceIds(next)) usedInstanceIds.add(id);
     } else next = applyCapturedMapEdit(next, edit, usedGroupIds, usedMaterialIds, usedInstanceIds, definitionLimit);
+  }
+  return next;
+}
+// D2 city/road topology ops (user-approved 2026-11: archive -> stamp -> bind ->
+// admit -> road-add -> publish). Unbound pieces fail map validation until
+// city-bind (fail-closed); full certification stays at chapter compile.
+function copyMapTakenIds(game) {
+  const taken = new Set();
+  for (const d of game.map?.decorations ?? []) if (typeof d?.id === 'string') taken.add(d.id);
+  for (const road of game.map?.roads ?? []) {
+    if (typeof road?.id === 'string') taken.add(road.id);
+    for (const c of road?.components ?? []) if (typeof c?.id === 'string') taken.add(c.id);
+  }
+  for (const p of game.map?.placements ?? []) if (typeof p?.id === 'string') taken.add(p.id);
+  return taken;
+}
+function stampCityPiece(source, edit, descriptors) {
+  const keys = ['op', 'pieceId', 'x', 'y', 'tile'];
+  if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
+  const pieceId = value(edit, 'pieceId'), x = value(edit, 'x'), y = value(edit, 'y'), tile = value(edit, 'tile');
+  const prefix = `${source.gameId}#city-piece-`;
+  if (typeof pieceId !== 'string' || !pieceId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(pieceId.slice(prefix.length))) fail(422, 'COPY_MAP_DELTA');
+  if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || Object.is(x, -0) || Object.is(y, -0) ||
+      x < 0 || x >= 384 || y < 0 || y >= 256) fail(422, 'COPY_MAP_DELTA');
+  if (!Number.isInteger(tile) || tile < 0xcb || tile > 0xd3) fail(422, 'COPY_MAP_DELTA');
+  if (!Object.hasOwn(source.componentDefinitions ?? {}, `tile-${tile}`)) fail(422, 'COPY_MAP_DELTA');
+  if (copyMapTakenIds(source).has(pieceId)) fail(422, 'COPY_MAP_DELTA');
+  const key = y * 384 + x;
+  let maxKey = -1;
+  for (const p of source.map?.placements ?? []) {
+    if (!Number.isInteger(p?.x) || !Number.isInteger(p?.y)) fail(422, 'COPY_MAP_DELTA');
+    if (p.x === x && p.y === y) fail(422, 'COPY_MAP_CITY_CELL_TAKEN');
+    maxKey = Math.max(maxKey, p.y * 384 + p.x);
+  }
+  // Compiler node scan is row-major: a new city must scan after every
+  // existing center, otherwise slots disagree. Renumbering live slots is
+  // refused; pick a southern/eastern site.
+  if (key <= maxKey) fail(422, 'COPY_MAP_CITY_SCAN_ORDER');
+  for (const road of source.map?.roads ?? [])
+    for (const pt of road?.geometry ?? [])
+      if (pt?.x === x && pt?.y === y) fail(422, 'COPY_MAP_CITY_CELL_TAKEN');
+  const next = structuredClone(source);
+  next.map.placements.push({ id: pieceId, cityId: null, x, y,
+    componentRef: `tile-${tile}`, variantRef: 'original' });
+  return next;
+}
+function bindCityPiece(source, edit, descriptors) {
+  const keys = ['op', 'pieceId', 'cityId'];
+  if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
+  const pieceId = value(edit, 'pieceId'), cityId = value(edit, 'cityId');
+  if (typeof pieceId !== 'string' || !pieceId || typeof cityId !== 'string' || !cityId) fail(422, 'COPY_MAP_DELTA');
+  if (!Object.hasOwn(source.cities ?? {}, cityId)) fail(422, 'COPY_MAP_DELTA');
+  const next = structuredClone(source);
+  const piece = next.map?.placements?.find(p => p?.id === pieceId);
+  if (!piece) fail(422, 'COPY_MAP_DELTA');
+  if (piece.cityId !== null && piece.cityId !== undefined) fail(422, 'COPY_MAP_DELTA');
+  if (next.map.placements.some(p => p?.cityId === cityId)) fail(422, 'COPY_MAP_CITY_BOUND');
+  piece.cityId = cityId;
+  // Archive coordinates follow the binding (admit re-asserts the same
+  // values); the compiler cross-checks archive against placement.
+  next.cities[cityId].x = piece.x;
+  next.cities[cityId].y = piece.y;
+  return next;
+}
+function refreshChapterNeighbours(next) {
+  const cities = Object.values(next.cities ?? {});
+  const slotById = new Map(cities.map(c => [c?.cityId, c?.runtimeSlot]));
+  const idBySlot = new Map(cities.map(c => [c?.runtimeSlot, c?.cityId]));
+  const adjacency = new Map(cities.map(c => [c?.cityId, []]));
+  for (const road of next.map?.roads ?? []) {
+    if (!slotById.has(road?.fromCityId) || !slotById.has(road?.toCityId)) fail(422, 'COPY_MAP_DELTA');
+    adjacency.get(road.fromCityId).push(road.toCityId);
+    adjacency.get(road.toCityId).push(road.fromCityId);
+  }
+  const expected = new Map();
+  for (const [cityId, ids] of adjacency) {
+    const sorted = ids.map(id => slotById.get(id)).sort((a, b) => a - b).map(slot => idBySlot.get(slot));
+    if (sorted.length > 4) fail(422, 'COPY_MAP_CITY_DEGREE');
+    while (sorted.length < 4) sorted.push(null);
+    expected.set(cityId, sorted);
+  }
+  for (const chapterId of next.chapterOrder ?? []) {
+    const rows = next.chapters?.[chapterId]?.state?.cities;
+    if (!Array.isArray(rows)) fail(422, 'COPY_MAP_DELTA');
+    for (const row of rows) {
+      const cityId = typeof row?.cityId === 'string' ? row.cityId : idBySlot.get(row?.idx);
+      const want = expected.get(cityId);
+      if (cityId === undefined || !want) fail(422, 'COPY_MAP_DELTA');
+      if (typeof row?.raw === 'string') continue; // untouched legacy rows keep raw; endpoints convert below
+      row.neighbourCityIds = [...want];
+    }
+  }
+  return expected;
+}
+function convertEndpointRow(row, cityId, neighbourIds) {
+  if (typeof row?.raw !== 'string') { row.neighbourCityIds = [...neighbourIds]; return; }
+  if (!/^[0-9a-f]{64}$/i.test(row.raw)) fail(422, 'COPY_MAP_DELTA');
+  // Same byte derivation as the legacy chapter conversion: initializer
+  // fields come from raw, topology comes from the edited road graph.
+  const bytes = Uint8Array.from({ length: 32 }, (_, i) => Number.parseInt(row.raw.slice(i * 2, i * 2 + 2), 16));
+  delete row.raw;
+  row.cityId = cityId;
+  row.attr = bytes[0]; row._aiCooldown = bytes[0x17]; row._strategicLastFaction = bytes[0x1a];
+  row.strategicBorderCount = bytes[0x1b]; row.disaster_event = bytes[0x15]; row.cityCacheByte = bytes[0x18];
+  row.neighbourCityIds = [...neighbourIds];
+}
+function addCopyRoad(source, edit, descriptors) {
+  const keys = ['op', 'roadId', 'fromCityId', 'toCityId', 'travelKind', 'geometry'];
+  if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
+  const roadId = value(edit, 'roadId'), fromCityId = value(edit, 'fromCityId'), toCityId = value(edit, 'toCityId'),
+    travelKind = value(edit, 'travelKind'), geometry = value(edit, 'geometry');
+  const prefix = `${source.gameId}#road-`;
+  if (typeof roadId !== 'string' || !roadId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(roadId.slice(prefix.length))) fail(422, 'COPY_MAP_DELTA');
+  if (typeof fromCityId !== 'string' || typeof toCityId !== 'string' || fromCityId === toCityId) fail(422, 'COPY_MAP_DELTA');
+  if (travelKind !== 'land' && travelKind !== 'water') fail(422, 'COPY_MAP_DELTA');
+  if (!Array.isArray(geometry) || geometry.length < 2 || geometry.length > 1024) fail(422, 'COPY_MAP_DELTA');
+  for (const pt of geometry)
+    if (!pt || typeof pt !== 'object' || Array.isArray(pt) || Object.keys(pt).sort().join(',') !== 'x,y' ||
+        !Number.isSafeInteger(pt.x) || !Number.isSafeInteger(pt.y) || pt.x < 0 || pt.x > 383 || pt.y < 0 || pt.y > 255) fail(422, 'COPY_MAP_DELTA');
+  for (let i = 1; i < geometry.length; i++)
+    if (Math.max(Math.abs(geometry[i].x - geometry[i - 1].x), Math.abs(geometry[i].y - geometry[i - 1].y)) !== 1) fail(422, 'COPY_MAP_DELTA');
+  if (copyMapTakenIds(source).has(roadId)) fail(422, 'COPY_MAP_DELTA');
+  const citiesById = new Map((source.map?.placements ?? []).filter(p => typeof p?.cityId === 'string').map(p => [p.cityId, p]));
+  for (const id of [fromCityId, toCityId])
+    if (!Object.hasOwn(source.cities ?? {}, id) || !citiesById.has(id)) fail(422, 'COPY_MAP_ROAD_ENDPOINT');
+  const centers = new Set((source.map?.placements ?? []).map(p => `${p?.x},${p?.y}`));
+  for (const pt of geometry) if (centers.has(`${pt.x},${pt.y}`)) fail(422, 'COPY_MAP_ROAD_THROUGH_CITY');
+  if ((source.map?.roads ?? []).length + 1 > MAX_ROAD_EDGES) fail(422, 'COPY_MAP_ROAD_SPACE');
+  // Chapter coverage first: every chapter must already hold both endpoint
+  // rows (admit pushes dense rows), otherwise compile indexing breaks.
+  const slotOf = id => source.cities[id].runtimeSlot;
+  for (const chapterId of source.chapterOrder ?? []) {
+    const rows = source.chapters?.[chapterId]?.state?.cities;
+    if (!Array.isArray(rows) || !rows.some(r => r?.idx === slotOf(fromCityId)) || !rows.some(r => r?.idx === slotOf(toCityId)))
+      fail(422, 'COPY_MAP_ROAD_ENDPOINT');
+  }
+  // Certified construction over the composed plane: corridor tiles must be
+  // painted (base-fill/decoration-place) before the record is accepted.
+  // Unbound pieces paint no city tile yet, so exclude nothing: compose reads
+  // componentRef stamps regardless of binding.
+  const layered = composeMapLayers({ schemaVersion: 1, map: source.map, componentDefinitions: source.componentDefinitions ?? {} }, { draft: true });
+  const tiles = (x, y) => layered.terrain[y * 384 + x];
+  let built;
+  try {
+    built = buildRoad({ fromCityId, toCityId, travelKind,
+      geometry: geometry.map(p => ({ x: p.x, y: p.y })), cities: citiesById, roads: source.map?.roads ?? [], tiles });
+  } catch (e) { fail(422, 'COPY_MAP_ROAD_SHAPE', String(e?.code ?? e?.message ?? e).slice(0, 300)); }
+  const next = structuredClone(source);
+  next.map.roads.push({ id: roadId, fromCityId, toCityId,
+    travelKind, geometry: geometry.map(p => ({ x: p.x, y: p.y })), nativeBinding: built.nativeBinding });
+  // Endpoint cities change topology: legacy raw rows convert to named
+  // (initializer from raw bytes, topology from the edited graph); every
+  // named row refreshes from the same adjacency, untouched legacy rows
+  // keep raw (their adjacency is unchanged).
+  const want = refreshChapterNeighbours(next);
+  const idBySlot = new Map(Object.values(next.cities).map(c => [c?.runtimeSlot, c?.cityId]));
+  for (const chapterId of next.chapterOrder ?? []) {
+    for (const row of next.chapters[chapterId].state.cities) {
+      const cityId = typeof row?.cityId === 'string' ? row.cityId : idBySlot.get(row?.idx);
+      if (cityId === fromCityId || cityId === toCityId) convertEndpointRow(row, cityId, want.get(cityId));
+    }
   }
   return next;
 }
@@ -163,6 +327,9 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
     if (!Array.isArray(edit.memberIds) || edit.memberIds.some(id => typeof id !== 'string') || !Number.isSafeInteger(edit.dx) || !Number.isSafeInteger(edit.dy) || Object.is(edit.dx, -0) || Object.is(edit.dy, -0)) fail(422, 'COPY_MAP_DELTA');
     return translateDecorations(source, edit.memberIds, edit.dx, edit.dy);
   }
+  if (edit.op === 'city-stamp') return stampCityPiece(source, edit, descriptors);
+  if (edit.op === 'city-bind') return bindCityPiece(source, edit, descriptors);
+  if (edit.op === 'road-add') return addCopyRoad(source, edit, descriptors);
   if (['material-capture', 'material-rename', 'material-remove'].includes(edit.op)) {
     // Only trusted history replay supplies this identity ledger.
     // This does not enable an HTTP command.

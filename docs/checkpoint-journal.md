@@ -22,6 +22,17 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 178. D1(b)具名编译＋D2新城拓扑＋编辑器新城面板（本地验证通过，未push）
+
+- 用户决策：D1由(b)具名正统（内置终将删除，raw只留导入侧；(a)合成raw虽下游零改但成永久负担）；D2=建档→放piece→绑定（先cities.create→地图city-stamp放未绑定piece→city-bind选piece绑档案→admit→road-add→发布）；B4三项全做（见下blocked）；旧上架游戏可删（本地测试游戏可删，生产删除需另行明确授权，本轮未动生产）。目标：编辑器复制新游戏→基础地图加据点道路→发布可玩。
+- D1(b)：`trialcompile.js`章节循环加具名分支——64hex raw走原校验；缺raw（null/undefined）走具名：档案覆盖＋placement坐标一致＋neighbourCityIds四槽具名（经placement绑定解槽位，legacy混合章同样适用）与路网严格一致＋initializer六字段u8范围；坏raw（非64hex非空）仍拒收。`verify_trial_compile_named_city.mjs`：mixed章编译＋roadGraph不变＋三类失败fail-closed。
+- D2：`mapcompile.js` placements `192`锁→`1..512`（精确计数仍由编译node-scan把关）；`copyprofile.js`＋`COPY_MAP_OPS`新增`city-stamp`（CB..D3图块、scan-last行序、中心/道路占格拒收）／`city-bind`（piece＋档案双向绑定、回填档案x/y）／`road-add`（buildRoad认证＋端点须已admit＋legacy端点行raw→具名转换initializer取raw字节＋全章neighbour回填，legacy非端点行不动）；`admitChapterCity`加必填`battleMapId`（`ki-1995:siege:0..191`共享战场是Web产品决定，写定义＋全章行，`captureCityDefinitions`放行）；`validateWhole`接入`compileTrialSource`（ticket意味着可编译）。`verify_copy_city_topology.mjs` 2/2（193城编译＋ticket；op六类fail-closed）。
+- 可玩接缝：`scenariocitycache.js`具名投影（缺记录槽读具名initializer，strategicNeighbours由neighbourCityIds解槽位，cache尾槽读cityCacheByte；legacy记录路径不动，坏记录仍报原错）；`world.js`新局删除`disaster_event/_strategicLastFaction`仅限有记录槽（具名尾槽保留admit值；legacy中立城byte18=0x00与admit默认0一致）。`verify_copy_city_publish.mjs` HTTP全链：create→stamp→bind→admit→走廊→road-add→validate→submit→approve→formal包193节点→prepareScenario 193城（battleMapId随行）。
+- 编辑器：`mapcommands.js`三op纯预览；`mapcanvas.js` city-stamp命令＋未绑定图块标注；新`gamenewcity.js`＋`NewCityPanel.vue`（建档／放图块经地图选中／绑定／接见／加路，Element Plus默认组件），`main.js`／`Workbench.vue`／`client.txt`（participants＋adoptGame＋autoLoad）接线，shell-ui重建。`verify_new_city_panel_browser.mjs`冒烟通过（渲染／建档POST形状／无选位提示／零pageerror）。
+- 回归：admit 5/5、topology 2/2、named-compile、legacy字节一致（readInstalledEditorSource）、capacity 6/6、copy_http_roundtrip 192链通过、`editor-ui/build --check`通过。c15与panel-visibility（11→12视图断言）经stash证实为基线已有失败，非本轮引入。trialweb＋shell-ui已重建。LSP：改动期inline clean；会话lens跨cwd不可用（inconclusive，不称clean）。
+- B4（D2事件跨月／D4天气抽样／费用域）blocked：计划§9.4明示三项未批——D2“暂不具备实施条件”、D4须用户定均匀性＋RNG消费、费用域待C2追完搜索提具体建议；按铁律§2.1不得把推断写进正式规则路径。本轮只交付缺口＋解锁条件：D2需行为变更授权（页满失败→成功）＋301C跨月映射等证据闭合；D4需抽样语义决定；费用域需C2后继提案。其它已授权工作继续，不停工。
+- 未动：旧上架游戏删除（仅本地隔离验证，未碰生产／真实数据）、push／部署。下一步：本地提交本轮（不push）。
+
 ## 177. VPUBLISH迁移：parity改走copy检验链（本地通过，未push）
 
 - `tools/verify_copy_publish_parity.mjs`：遗留`/api/publish`直发（409）＋trial-pack比对（410退役）改走现行链：copy → `copy/validate`（passed＋ticket）→ `copy/submission`（submitted）→ `copy/approve`（approved ordinal 1.0）→ admin queue approved＋listed → `published-games` 20章；资产等价改读同进程`published_pack_assets`（terrain逐字节、roadGraph语义）对内置release。

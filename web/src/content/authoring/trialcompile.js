@@ -94,16 +94,52 @@ export function compileGameSource(game, sha256hex) {
       // Imported fixed-slot chapters carry a compact native adjacency table.
       // No certified edited-chapter initializer is wired here: don't retain
       // stale C1C..1F after an edge deletion/addition or silently rewrite it.
-      if (!/^[0-9a-f]{64}$/i.test(city.raw ?? ""))
+      if (/^[0-9a-f]{64}$/i.test(city.raw ?? "")) {
+        const rawWord = (offset) => Number.parseInt(city.raw.slice(offset * 2, offset * 2 + 2), 16) +
+          Number.parseInt(city.raw.slice(offset * 2 + 2, offset * 2 + 4), 16) * 256;
+        if (rawWord(8) !== node.x || rawWord(10) !== node.y)
+          throw new RangeError(`chapter native city coordinate mismatch: ${chapterId} slot ${node.id}`);
+        const importedNeighbors = city.raw.slice(0x1c * 2).match(/../g)
+          .map((hex) => Number.parseInt(hex, 16)).filter((idx) => idx !== 255).sort((a, b) => a - b);
+        if (importedNeighbors.join(",") !== neighbors[node.id].join(","))
+          throw new RangeError(`unsupported chapter topology change: ${chapterId} slot ${node.id}`);
+        continue;
+      }
+      // D1(b) named branch: editor-admitted cities carry no native raw.
+      // Corrupt raw is rejected above by falling through; only a missing raw
+      // selects this branch. Coordinate agreement is already established by
+      // the idx/x/y check plus the tile node-scan; here the named neighbour
+      // table must exactly cover the compiled road adjacency, same strictness
+      // as the raw branch (no stated neighbour without a road and vice versa).
+      if (city.raw !== undefined && city.raw !== null)
         throw new RangeError(`unsupported chapter city source: ${chapterId} slot ${node.id}`);
-      const rawWord = (offset) => Number.parseInt(city.raw.slice(offset * 2, offset * 2 + 2), 16) +
-        Number.parseInt(city.raw.slice(offset * 2 + 2, offset * 2 + 4), 16) * 256;
-      if (rawWord(8) !== node.x || rawWord(10) !== node.y)
-        throw new RangeError(`chapter native city coordinate mismatch: ${chapterId} slot ${node.id}`);
-      const importedNeighbors = city.raw.slice(0x1c * 2).match(/../g)
-        .map((hex) => Number.parseInt(hex, 16)).filter((idx) => idx !== 255).sort((a, b) => a - b);
-      if (importedNeighbors.join(",") !== neighbors[node.id].join(","))
+      if (typeof city.cityId !== "string" || !Object.hasOwn(game.cities ?? {}, city.cityId))
+        throw new RangeError(`chapter city without archive coverage: ${chapterId} slot ${node.id}`);
+      const placements = game.map?.placements ?? [];
+      const placement = placements.find((p) => p?.cityId === city.cityId);
+      if (!placement || placement.x !== city.x || placement.y !== city.y)
+        throw new RangeError(`chapter city/placement mismatch: ${chapterId} slot ${node.id}`);
+      if (!Array.isArray(city.neighbourCityIds) || city.neighbourCityIds.length !== 4 ||
+          city.neighbourCityIds.some((id) => id !== null && (typeof id !== "string" || !Object.hasOwn(game.cities, id))))
+        throw new RangeError(`chapter city neighbours must be four named slots: ${chapterId} slot ${node.id}`);
+      // Neighbour rows may be legacy raw rows without a cityId (mixed
+      // chapter); resolve through the placement binding, the same authority
+      // that ties the archive identity to chapter coordinates.
+      const namedNeighbors = [];
+      for (const id of city.neighbourCityIds) {
+        if (id === null) continue;
+        const neighbourPlacement = placements.find((p) => p?.cityId === id);
+        const slot = neighbourPlacement ? state.cities.findIndex((row) => row?.x === neighbourPlacement.x && row?.y === neighbourPlacement.y) : -1;
+        if (slot < 0) throw new RangeError(`chapter city neighbour not placed: ${chapterId} slot ${node.id}`);
+        namedNeighbors.push(slot);
+      }
+      namedNeighbors.sort((a, b) => a - b);
+      if (namedNeighbors.join(",") !== neighbors[node.id].join(","))
         throw new RangeError(`unsupported chapter topology change: ${chapterId} slot ${node.id}`);
+      for (const field of ["attr", "_aiCooldown", "_strategicLastFaction", "strategicBorderCount", "disaster_event", "cityCacheByte"]) {
+        if (!Number.isInteger(city[field]) || city[field] < 0 || city[field] > 255)
+          throw new RangeError(`chapter city initializer out of range: ${chapterId} slot ${node.id} ${field}`);
+      }
     }
   }
   // Compatibility is explicit source data, NOT a KI weight formula.

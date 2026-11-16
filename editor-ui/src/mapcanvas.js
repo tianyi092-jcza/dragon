@@ -217,7 +217,8 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     placement = null; selected = null;
     if (visible.cities && !locked.cities) {
       const place = source.map.placements.find(row => row.x === x && row.y === y);
-      if (place) selected = { layer: 'cities', id: place.id, name: source.cities[place.cityId]?.name || place.cityId, x, y };
+      if (place) selected = { layer: 'cities', id: place.id,
+        name: place.cityId == null ? `未綁定圖塊 ${place.id.slice(-8)}` : (source.cities[place.cityId]?.name || place.cityId), x, y };
     }
     if (!selected && visible.roads && !locked.roads) {
       const road = source.map.roads.find(row => row.geometry.some(point => point.x === x && point.y === y));
@@ -232,6 +233,12 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   }
   function command(op, fields = {}) {
     if (!source) return;
+    if (op === 'city-stamp') {
+      if (!selected || locked.cities || !visible.cities) throw new Error('請先在地圖上選取新據點中心位置');
+      const tile = Number(fields.tile);
+      if (!Number.isInteger(tile) || tile < 0xcb || tile > 0xd3) throw new Error('中心圖號須為 CB..D3');
+      return stage({ op, pieceId: newId('city-piece'), x: selected.x, y: selected.y, tile });
+    }
     if (op.startsWith('decoration-') && op !== 'decoration-place') {
       if (selected?.layer !== 'decor' || locked.decor || !visible.decor) throw new Error('請先選取未鎖定的裝飾片段');
       if (op === 'decoration-split') return stage({ op, instanceId: selected.id, childIds: Array.from({ length: selected.cells }, () => newId('decoration')) });

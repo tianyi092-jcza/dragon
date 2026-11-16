@@ -8,6 +8,7 @@ import { checkGameName } from '../web/src/content/authoring/gamesource.js';
 import { bumpOrdinal } from './releases.js';
 import { editChapterResources } from '../web/src/editor/chapterresources.js';
 import { compileMapSource } from '../web/src/content/authoring/mapcompile.js';
+import { compileTrialSource } from '../web/src/content/authoring/trialcompile.js';
 import { COPY_MAP_OPS } from './copyprofile.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { cityName } from '../web/src/content/authoring/cityrecords.js';
@@ -262,9 +263,11 @@ function checkModule(module, patch, data, gameId) {
     }
     if (patch.admit !== undefined) {
       // B3片3(b)：显式 admit 已放置新城（placement＋主表完备在应用层核对，缺项 fail-closed；troops_cap 在 admit 时显式填写）。
-      if (!patch.admit || typeof patch.admit !== 'object' || Array.isArray(patch.admit) || Object.keys(patch.admit).sort().join(',') !== 'cityId,troops_cap') fail(422, 'COPY_CHAPTER');
+      // D2 可玩门：battleMapId 必填（ki-1995:siege:0..191 共享战场），写定义＋全部章节行。
+      if (!patch.admit || typeof patch.admit !== 'object' || Array.isArray(patch.admit) || Object.keys(patch.admit).sort().join(',') !== 'battleMapId,cityId,troops_cap') fail(422, 'COPY_CHAPTER');
       if (typeof patch.admit.cityId !== 'string' || !patch.admit.cityId) fail(422, 'COPY_CHAPTER');
       if (!Number.isInteger(patch.admit.troops_cap) || patch.admit.troops_cap < 0 || patch.admit.troops_cap > 255) fail(422, 'COPY_CHAPTER');
+      if (typeof patch.admit.battleMapId !== 'string' || !/^ki-1995:siege:(\d{1,3})$/.test(patch.admit.battleMapId) || Number(patch.admit.battleMapId.slice(15)) > 191) fail(422, 'COPY_CHAPTER');
     }
     if (patch.resources !== undefined) {
       // {chapterId: {slot: values}}——slot 为原生派系 idx；值域 money -8388608..8388607、三预备兵 0..65535。
@@ -421,7 +424,7 @@ function applyModule(data, module, checked) {
       if (checked.create) addBlankChapter(next, checked.create);
       if (checked.copy) copyChapterInGame(next, checked.copy.chapterId);
       if (checked.delete) deleteChapter(next, checked.delete.chapterId);
-      if (checked.admit) admitChapterCity(next, checked.admit.cityId, checked.admit.troops_cap);
+      if (checked.admit) admitChapterCity(next, checked.admit.cityId, checked.admit.troops_cap, checked.admit.battleMapId);
       if (checked.rename) for (const [id, name] of Object.entries(checked.rename)) renameChapter(next, id, name);
       if (checked.setStart) for (const [id, s] of Object.entries(checked.setStart)) setChapterStart(next, id, s);
       // editChapterCity/editChapterCityNative/setGeneralPortrait 为纯函数（返回新包），其余原函数就地改写。
@@ -581,6 +584,13 @@ export class GameCopyStore {
       }
       validateGameSource(data, { draft: true });
       compileMapSource({ schemaVersion: 1, map: data.map, componentDefinitions: data.componentDefinitions });
+      // D2: ticket means "compiles" — chapter topology (named/raw) is
+      // certified here, not first at approve.
+      try {
+        compileTrialSource(data, bytes => createHash('sha256').update(bytes).digest('hex'));
+      } catch (e) {
+        problems.push({ chapterId: '-', code: 'CHAPTER_COMPILE', detail: String(e?.message ?? e).slice(0, 500) });
+      }
     } catch (e) {
       problems.push({ chapterId: '-', code: e?.code ?? 'VALIDATION_FAILED', detail: String(e?.message ?? e).slice(0, 500) });
     }

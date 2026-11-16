@@ -1,6 +1,7 @@
 // M2 统一地图源校验/编译共享核心（Web 工程方案，非原版机制）。
 // 同一结构服务内置迁移与后续编辑副本；同一编译管线产生规则输入与视觉派生。
-// 容量：现行规则 profile 只接受 384x256、192 据点及现有固定槽域；超域明确拒绝。
+// 容量：现行规则 profile 只接受 384x256；据点为 live 1..512（D2 用户批准），
+// 192 固定槽域只描述原版/Custom 导入基线，不再是校验锁。
 
 import { composeMapLayers } from "./maplayers.js";
 
@@ -8,6 +9,10 @@ export const MAP_SCHEMA_VERSION = 1;
 export const RULE_PROFILE = "ki-1995/web-0.1.1";
 export const SUPPORTED_BOUNDS = Object.freeze({ width: 384, height: 256, tileSize: 16 });
 export const CITY_SLOTS = 192;
+// D2 live capacity (Web product decision, user-approved 2026-11): placements are
+// no longer locked to 192. 1..512 entries; exact agreement with the city table
+// (count + scan order) stays enforced by the chapter compiler node scan and
+// the archive/placement cross-checks, not by this length gate.
 // A-CAP-1 负控：原道路低区的分区编码空间（节点自 0000、边 0800..1FFF、
 // 点 2000..7FFF，见排查§4）只给出上界 384 边／6144 点，不是可玩容量承诺。
 // 超出编码空间的输入在此明确拒绝；域内新增仍须 G-ROAD/G-CAP 专项放行。
@@ -55,7 +60,7 @@ export function validateMapSource(src, options = {}) {
       throw new RangeError(`decorations[${index}] out of bounds`);
   }
   const placements = src.map?.placements;
-  if (!Array.isArray(placements) || placements.length !== CITY_SLOTS) throw new RangeError(`map.placements must contain ${CITY_SLOTS} slots`);
+  if (!Array.isArray(placements) || placements.length < 1 || placements.length > 512) throw new RangeError("map.placements must contain 1..512 city slots (live capacity)");
   const seenCells = new Set();
   const seenCities = new Set();
   for (const [index, place] of placements.entries()) {
