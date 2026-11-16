@@ -259,6 +259,12 @@ export function performScenarioMonthlyWeatherEvents(sc, rng) {
     return { slots, index, event };
   };
   const io = {
+    readCityCount() {
+      const cities = own(sc, "cities");
+      if (!Array.isArray(cities) || cities.length < 1 || cities.length > 512)
+        missing("live city table for regional sampling");
+      return cities.length;
+    },
     readBoundWord(field) {
       return word(own(currentBounds(), field), `weather bound ${field}`);
     },

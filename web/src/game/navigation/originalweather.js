@@ -247,7 +247,24 @@ export function continueOriginalDisasterObject34B1(io, state) {
   return { status: "return", changed: true, damage, delay, queued };
 }
 
-/** 22DB: clear the prior non-global area, then optionally queue type11. */
+/** 22DB: clear the prior non-global area, then optionally queue type11.
+ * D4 live sampling (Web产品决定，非原版机制，用户B4批准实施；
+ * 均匀性与RNG消耗决策见计划§9.4——本实现逐字采用提案公式，不自造阈值)：
+ * 选城按live城市数N抽样。B=256^k为容纳N的最小byte空间，k个原RNG byte
+ * （大端序，先耗高位）组成r；接受r<floor(B*3/4)后选floor(r*N/floor(B*3/4))，
+ * 否则按原`index>=0xc0`语义返回false。N=192且k=1时接受0..191且index=r，
+ * 与旧单字节读取逐字节一致；xLow门、1/2门与bounds写回保持原样。 */
+function originalRegionalCityIndex2313(io, count) {
+  if (!Number.isInteger(count) || count < 1 || count > 512) stop("2313", "live city count out of range");
+  let width = 1, space = 256;
+  while (space < count) { width++; space *= 256; }
+  const cap = Math.floor((space * 3) / 4);
+  let sample = 0;
+  for (let position = 0; position < width; position++)
+    sample = sample * 256 + rng(io, position === 0 ? "2313" : `2313+${position}`);
+  if (sample >= cap) return -1;
+  return Math.floor((sample * count) / cap);
+}
 export function originalMonthlyWeather22DB(io) {
   if (bound(io, "minX", "22E3") !== 0xfff0) {
     originalDisasterArea237E(io, 0);
@@ -257,8 +274,8 @@ export function originalMonthlyWeather22DB(io) {
     writeBound(io, "maxY", 0x0190, "2305");
   }
   if ((rng(io, "230C") & 1) === 0) return false;
-  const index = rng(io, "2313");
-  if (index >= 0xc0) return false;
+  const index = originalRegionalCityIndex2313(io, call(io, "readCityCount", [], "2313N"));
+  if (index < 0) return false;
   if (cityByte(io, index, "xLow", "2324") < 0xc0 && (rng(io, "232B") & 1) === 0)
     return false;
   const delay = ((rng(io, "2333") & 7) + 8) << 2;
