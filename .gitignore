@@ -41,6 +41,8 @@ web/server.log
 # Runtime scratch & offline reverse-engineering output
 /.dragon-runtime/
 /.dragon-analysis/
+# Per-run browser failure dumps are local run artifacts, never evidence.
+/editor-ui/.dragon-analysis/release-readiness/
 
 # Reproducible reverse-engineering probe reports (runtime uses web/road_graph.json)
 /web/road_graph_probe.json
