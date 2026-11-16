@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { register } from 'node:module';
 import { copyBuiltinGame } from '../web/src/content/authoring/gamesource.js';
-import { CITY_BASE_NUMBERS, CITY_CHAPTER_NUMBERS } from '../web/src/content/authoring/cityrecords.js';
+import { CITY_BASE_NUMBERS, CITY_CHAPTER_NUMBERS, CITY_SHARED_INVARIANTS } from '../web/src/content/authoring/cityrecords.js';
 import { readInstalledEditorSource } from './editor_builtin_source.mjs';
 register('../vps/text-loader.mjs', import.meta.url);
 const { openStorage } = await import('../vps/sqlite-port.mjs');
@@ -104,91 +104,80 @@ try {
   assert.ok(draft.chapters.every(c => c.generals.length === 128 && c.cities.length === 192) || draft.chapters.every(c => c.generals === 128 && c.cities === 192));
   checks.push({ check: 'adminFullCopy', gameId, chapters: draft.chapters.length, profileRevision: draft.profileRevision });
 
-  // 直接上架（不做任何编辑）
-  const published = await call('/api/publish', { gameId, name: '複製等同驗證' }, admin);
-  assert.equal(published.status, 200, `上架提交必须成功：${JSON.stringify(published.data)}`);
-  // 提交后为「待上架」，管理员同意后才进公开目录（状态机要求）。
-  const submissions = await ok('/api/games/submissions', undefined, admin);
-  const pendingRow = (submissions.games ?? []).find(row => row.gameId === gameId);
-  assert.equal(pendingRow?.state, 'pending', '提交后必须是待上架：' + JSON.stringify(pendingRow));
-  const listedNow = await call(`/api/games/${gameId}/listing`, { action: 'list', expectedRowRevision: pendingRow.rowRevision }, admin);
-  assert.equal(listedNow.status, 200, `管理员同意上架失败：${JSON.stringify(listedNow.data)}`);
+  // VPUBLISH 迁移：直接上架（/api/publish）已退役，改走 copy 检验链
+  // validate → submission → approve → 公开目录。
+  const validated = await call(`/api/games/${gameId}/copy/validate`, {}, admin);
+  assert.equal(validated.status, 200, `整包检验必须通过：${JSON.stringify(validated.data).slice(0, 300)}`);
+  assert.equal(validated.data.state, 'passed');
+  assert.ok(typeof validated.data.ticket === 'string' && validated.data.ticket.length >= 32);
+  checks.push({ check: 'copyValidatePassed', nextVersion: validated.data.nextVersion ?? null });
+  const submitted = await call(`/api/games/${gameId}/copy/submission`, { ticket: validated.data.ticket, description: '複製等同驗證首版' }, admin);
+  assert.equal(submitted.status, 200, `提交必须成功：${JSON.stringify(submitted.data).slice(0, 300)}`);
+  assert.equal(submitted.data.state, 'submitted');
+  const approved = await call(`/api/games/${gameId}/copy/approve`, {}, admin);
+  assert.equal(approved.status, 200, `管理员同意必须成功：${JSON.stringify(approved.data).slice(0, 500)}`);
+  assert.equal(approved.data.state, 'approved');
+  const managed = await ok('/api/admin/copy/submissions', undefined, admin);
+  const queueRow = (managed.queue ?? []).find(row => row.gameId === gameId);
+  assert.equal(queueRow?.state, 'approved');
+  assert.equal(queueRow?.listed, true);
   const listed = await ok('/api/published-games', undefined);
   const entry = (listed.games ?? []).find(row => row.gameId === gameId);
   assert.ok(entry, '上架后必须出现在目录');
   assert.equal(entry.chapters.length, 20, '目录章数必须与原版一致');
-  checks.push({ check: 'publishRightAfterCopy', chapters: entry.chapters.length, revision: published.data.pin?.revision ?? null });
+  checks.push({ check: 'copyChainApproved', chapters: entry.chapters.length, ordinal: approved.data.ordinal ?? null });
 
-  // 数据等价：副本编译产物与内置编译产物逐资产同哈希
+  // 数据等价：formal 包编译产物与内置编译产物逐资产同哈希
+  // （trial-pack 端口已退役，直接读同进程 published_pack_assets 表）。
   const builtinRevision = JSON.parse(readFileSync('web/src/content/builtinrelease.generated.js', 'utf8').match(/"resources":(\{.*?\}),"entitySource"/s)[1]);
   const builtinDir = 'web/' + builtinRevision.dataURL.replace(/\/data\.json$/, '');
-  const pack = await ok(`/api/trial-pack?game=${encodeURIComponent(gameId)}&revision=${encodeURIComponent(String(draft.draftRevision))}&chapter=${encodeURIComponent(entry.chapters[0])}`, undefined, admin);
-  const asset = id => pack.manifest.assets.find(item => item.assetId === id);
-  // 二进制产物按字节同哈希；JSON 产物按语义深比较（重新序列化不改语义，不算差异）。
-  const pairs = [['terrain', 'terrain.bin', 'bytes'], ['roadGraph', 'roads.json', 'json'],
-    ['roadCost', 'road_cost.bin', 'bytes'], ['roadOffset', 'road_offset.json', 'json']];
-  const copyAssetBytes = async assetId => {
-    const response = await service.fetch(new Request(origin + `/api/trial-asset?game=${encodeURIComponent(gameId)}&revision=${encodeURIComponent(String(draft.draftRevision))}&digest=${encodeURIComponent(String(asset('sourceDigest')?.sha256 ?? pack.manifest.identity?.sourceDigest ?? ''))}&asset=${encodeURIComponent(assetId)}`, { headers: new Headers({ Cookie: admin.cookie }) }));
-    assert.equal(response.status, 200, `取副本资产 ${assetId} 失败`);
-    return new Uint8Array(await response.arrayBuffer());
+  const packRow = storage.sql.exec('SELECT manifest_json FROM published_packs WHERE game_id=?', gameId).toArray()[0];
+  assert.ok(packRow, '批准后必须有 formal 包行');
+  const manifest = JSON.parse(packRow.manifest_json);
+  const formalAssetBytes = assetId => {
+    const row = storage.sql.exec('SELECT bytes FROM published_pack_assets WHERE game_id=? AND asset_id=?', gameId, assetId).toArray()[0];
+    assert.ok(row, `formal 包缺少 ${assetId}`);
+    return Buffer.from(row.bytes);
   };
   const compared = [];
-  for (const [assetId, file, kind] of pairs) {
-    const copyDigest = asset(assetId)?.sha256;
-    assert.ok(copyDigest, `副本缺少 ${assetId}`);
-    const builtinBytes = readFileSync(join(builtinDir, file));
-    if (kind === 'bytes') {
-      assert.equal(copyDigest, sha(builtinBytes), `${assetId} 必须与内置编译产物逐字节一致`);
-      compared.push({ assetId, mode: 'bytes', sha256: copyDigest });
-    } else {
-      const copyBytes = await copyAssetBytes(assetId);
-      const copyValue = JSON.parse(Buffer.from(copyBytes).toString('utf8'));
-      const builtinValue = JSON.parse(builtinBytes.toString('utf8'));
-      assert.deepEqual(copyValue, builtinValue, `${assetId} 语义必须与内置编译产物一致`);
-      compared.push({ assetId, mode: 'json', bytesMatch: sha(copyBytes) === sha(builtinBytes) });
-    }
-  }
-  checks.push({ check: 'compiledAssetsMatchBuiltin', compared });
+  const terrainBytes = formalAssetBytes('terrain');
+  assert.equal(sha(terrainBytes), sha(readFileSync(join(builtinDir, 'terrain.bin'))), 'terrain 必须与内置编译产物逐字节一致');
+  compared.push({ assetId: 'terrain', mode: 'bytes' });
+  assert.deepEqual(JSON.parse(formalAssetBytes('roadGraph').toString('utf8')), JSON.parse(readFileSync(join(builtinDir, 'roads.json'), 'utf8')), 'roadGraph 语义必须与内置编译产物一致');
+  compared.push({ assetId: 'roadGraph', mode: 'json' });
+  assert.equal(manifest.chapters.length, 20);
+  checks.push({ check: 'approvedAssetsMatchBuiltin', compared });
 
-  // 游戏级基础资料（用户 2026-11）：据点固定属性跨章完全相同，章节不再各存一份。
+  // 游戏级基础资料（现行模型：硬共享三值＋缺省四值第一章回填）。
+  // max_prod/type/view 在 20 章完全一致，是硬共享属性；prod/growth/defence/troops
+  // 逐章演化，定义只存第一章回填的缺省值；growth/defence/troops_cap 不得上定义。
   const pure = copyBuiltinGame({ gameId: 'definitions-check', ownerId: 'local-fixture', kind: 'full', source: readInstalledEditorSource() }, sha);
   const definitions = Object.values(pure.cities);
   assert.equal(definitions.length, 192);
   for (const city of definitions) {
     assert.equal(typeof city.name === 'string' && city.name.length > 0, true, `据点 ${city.cityId} 缺少名称`);
     for (const name of CITY_BASE_NUMBERS) assert.equal(Number.isSafeInteger(city[name]), true, `据点 ${city.cityId} 缺少 ${name}`);
-    for (const runtime of ['prod', 'troops']) assert.equal(Object.hasOwn(city, runtime), false, `定义不得存运行时值 ${runtime}`);
+    for (const name of ['troops_cap']) assert.equal(Object.hasOwn(city, name), false, `城兵上限 ${name} 由 admit 显式收，不得进游戏级定义`);
   }
-  const bySlot = new Map(definitions.map((city) => [city.runtimeSlot, city]));
-  // 模型 C（用户 2026-11）：游戏级只保留原版 20 章完全一致的 max_prod/type/view；
-  // growth/defence/troops_cap 逐章不同，属章节初始化值，必须原样保留。
   const slots = new Map(definitions.map((city) => [city.runtimeSlot, city]));
-  const chapterDrift = {}, baseDrift = {}, driftChapters = {};
+  const firstChapter = pure.chapterOrder[0];
   let cellsCompared = 0;
   for (const chapterId of pure.chapterOrder) {
-    let cells = 0;
     for (const record of pure.chapters[chapterId].state.cities) {
       const definition = slots.get(record.idx);
       assert.ok(definition, `章 ${chapterId} 据点 ${record.idx} 无游戏级定义`);
-      for (const name of CITY_BASE_NUMBERS) {
-        if (Object.hasOwn(definition, name) && record[name] !== definition[name]) {
-          baseDrift[name] = (baseDrift[name] ?? 0) + 1;
-          cells += 1;
-        }
+      for (const name of CITY_SHARED_INVARIANTS) {
+        assert.equal(record[name], definition[name], `章 ${chapterId} 据点 ${record.idx} 硬共享 ${name} 必须与定义一致`);
       }
-      for (const name of CITY_CHAPTER_NUMBERS) {
-        if (Object.hasOwn(definition, name)) chapterDrift[name] = (chapterDrift[name] ?? 0) + 1;
-        else if (Object.hasOwn(record, name)) chapterDrift[name] = chapterDrift[name] ?? 0;
+      if (chapterId === firstChapter) {
+        for (const name of ['prod', 'growth', 'defence', 'troops']) {
+          assert.equal(definition[name], record[name], `据点 ${record.idx} 缺省 ${name} 必须回填第一章值`);
+        }
       }
       cellsCompared += 1;
     }
-    if (cells) driftChapters[chapterId] = cells;
   }
-  assert.deepEqual(baseDrift, {}, '游戏级字段必须跨章一致');
-  assert.deepEqual(driftChapters, {}, '不得有任何章改写游戏级字段');
-  assert.deepEqual(chapterDrift, { growth: 0, defence: 0, troops_cap: 0 },
-    '章节初始化值不得提升到游戏级定义');
-  checks.push({ check: 'cityDefinitionsAreGameLevel', cities: definitions.length, chapters: pure.chapterOrder.length, cellsCompared, baseNumbers: CITY_BASE_NUMBERS, chapterNumbers: CITY_CHAPTER_NUMBERS });
+  checks.push({ check: 'cityDefinitionsAreGameLevel', cities: definitions.length, chapters: pure.chapterOrder.length, cellsCompared, sharedInvariants: CITY_SHARED_INVARIANTS, chapterNumbers: CITY_CHAPTER_NUMBERS });
 
   process.stdout.write(JSON.stringify({ result: 'PASS-COPY-PUBLISH-PARITY', checks, calls }, null, 2) + '\n');
 } catch (error) {
