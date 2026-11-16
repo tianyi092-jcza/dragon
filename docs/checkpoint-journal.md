@@ -8,11 +8,11 @@
 | --- | --- |
 | copy收敛 | 元数据／章节／据点／武将／地图／审核已接copy；部分定义面板、旧draft整体退役及表清理仍待，按[收敛任务](copy-simplification-tasks.md)另行推进 |
 | 基础地图 | B0–B7本地42项核对完成；独立模板、两种创建、共同工作台与发布加载见[完成核对](system-base-map-completion-audit.md)；没有因此部署 |
-| 据点扩容 | §92–169推进C0/C1，城市／章初态片段转换及城市ID到运行索引片段编译已实施，补战略邻接与导航端口一致性门；C2已验证运输／寻路／选边／撤退选址的分级对照，D5已接运行选边无路停止；用户批准D1/D3/D5/D6部分后，C3已接批次续段、两处别名、主动迁都无候选、军事候选类型化、所属索引服务、战略邻居索引边界、到达首读／移动所属／到达指针桥／移动节点域／撤退驻留与返回索引解槽；C4攻城入口城市门已改动态长度，C2/C3寻路索引读契约已接，C1 fresh缓存合成与初态已改live长度，C3/C5编成／增援／迁都城市门已动态化，C4俘虏城市门与首都扫描已动态化；用户2026-11-17授权解除阻塞后准入放行1..256并验证M193。详见[计划§9](city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)。完整源及v3装配未接；C4攻城资源身份／战术入口子项已接，C5–C9未开始，产品准入现为1..256（257+需v3重编号）；事件／天气／费用与财政扩域待目标需要时推进。 |
+| 据点扩容 | §92–170推进C0/C1，城市／章初态片段转换及城市ID到运行索引片段编译已实施，补战略邻接与导航端口一致性门；C2已验证运输／寻路／选边／撤退选址的分级对照，D5已接运行选边无路停止；用户批准D1/D3/D5/D6部分后，C3已接批次续段、两处别名、主动迁都无候选、军事候选类型化、所属索引服务、战略邻居索引边界、到达首读／移动所属／到达指针桥／移动节点域／撤退驻留与返回索引解槽；C4攻城入口城市门已改动态长度，C2/C3寻路索引读契约已接，C1 fresh缓存合成与初态已改live长度，C3/C5编成／增援／迁都城市门已动态化，C4俘虏城市门与首都扫描已动态化；用户2026-11-17授权解除阻塞后准入放行1..256并验证M193；M257(a)–(h)闭环（v3 memory／搜索区域／边判／F23 word域／月度循环／装配准入／深路径单测／浏览器257城链／正式包可玩准入）；C5编译索引摘要＋M192统一链＋store往返；C6 copy面live长度＋发布器v3-role全链（用户批准）；M192后开放（用户批准：canPlace翻转，可用性门=基础数量×目录可用）；C7-A–J（设计／引用查询／预检／物化／stage接线／画布解禁／拆散／删门／撤销语义／四模板浏览器）；C8证据登记＋残余门排查＋VPERF codec基线；C9回流AGENTS双布局现况。详见[计划§9](city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)。产品准入：内置仍192，v3包可玩；事件／天气／费用待目标需要时推进。 |
 | 据点组新增 | §88完成四套配方／原证，§89接入据点后第八TAB及四张原尺寸只读预览，双DPR通过，随`c3efb05`提交。放置／拆散仍未开放；用户后继选择真实据点扩容，原新增实体／绑定已有据点的方向询问不再阻塞计划，实际创建接入扩容C6–C7 |
 | 地图素材库 | v41及ATOMIC历史交付见§76／80／81；当前§87顶部锁图已明确为拖动锁定切换；§85收回顶部高度／固定紧凑右栏／底对齐／无框浮栏与100%原始比例，保留§84两行TAB／ID／局部懒加载与右键调序删除；保留§82固定春季与中立据点库：240单格／256身份／32px，单格79可放／161只读；§89另加四张只读据点组，合计八类4＋4两行。桥梁水路仍并道路，无组合库导航和悬停，不自动拆现有地图组合；四季共用布局、游戏动态所属配色不变 |
 | 海域／地面模型 | SEA-GROUND-1本地实现与验证见§79：全幅95底图、地面小地图轮廓，保存／发布后由同一玩家引擎加载；四层合成／工具保留，原四层库导航由§80替代 |
-| Git／生产 | 第二阶段完整提交`664819d22898e7ff9dacf2df7b1d8e11765a7bd8`已推送`github/main`；其后§78文档整理及§79–82代码／测试／文档／壳产物随§83所在本地提交收录。§83本地提交为`a7237ca`；§84–85修改随§86本地提交`fdb9d67`收录；§87–89修改随§90本地提交`c3efb05`收录；§91扩容计划文档尚未提交。没有新增push、部署或真实数据迁移 |
+| Git／生产 | 第二阶段完整提交`664819d22898e7ff9dacf2df7b1d8e11765a7bd8`已推送`github/main`；其后§78文档整理及§79–82代码／测试／文档／壳产物随§83所在本地提交收录。§83本地提交为`a7237ca`；§84–85修改随§86本地提交`fdb9d67`收录；§87–89修改随§90本地提交`c3efb05`收录；CITY-CAPACITY-1全轮（§92–170）随`8ba841f`本地提交收录（130文件，工作树干净，未push）。没有新增push、部署或真实数据迁移 |
 
 ### 未完成、阻塞与下一步
 
@@ -21,6 +21,17 @@
 3. 历史回归适用性仍待复核，**不是本轮已确认回归**：`verify_vps_publish_pack`曾43过1失败（stale draft visual capture）、`verify_vps_trial`超时、旧玩家pack夹具缺检验票；backend_admin_copy缺MINIFLARE_MODULE，backend_copy_entry／template_root／generals_conflict_model存在旧合同期待。不得为跑绿恢复Trial或放宽身份门。
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
+
+## 170. CITY-CAPACITY-1：本轮收敛检查点（goal complete，commit 8ba841f）
+
+- 本轮目标：按计划从C0审计推进至M192／193／257验证与文档收敛（goal `980ce3d7`，已complete；耗时10h31m，tokens 8,237,552）。地图保持384×256；D1–D6仅实施已批准项，D2／D4／费用未动。
+- 已完成：M257(a)–(h)（v3 memory编码／搜索区域参数／边判版本跟随／F23 word域`&65535`／月度三循环live长度／装配v3准入／深路径单测／浏览器257城正式包可玩链）；C5编译动态槽位／索引摘要／M192统一链／store往返；C6 copy面live长度＋发布器v3-role全链（schema 2／studio-app-3／native-road-v3，用户2026-11-18批准）与M192后开放（canPlace翻转）；C7-A–J（设计／引用查询／预检／物化／stage接线／画布解禁／拆散／删门／撤销语义／四模板浏览器）；C8-1证据登记（§7十四项：V192／V193／V257闭环，VGROUP经C7-J闭环，VPUBLISH为△，VEVENT为NA）＋C8-2残余门排查（ai.js道路桥／灭亡横扫改live）＋VPERF codec基线；C9回流（AGENTS.md双布局现况）。bundle 255文件（末次SHA `047b4a73…5ae395b1`，shell/play不变）。
+- 关键决策：V3-A区域参数化（`node=slot*8`不动，只搬区域）；F23回绕`&65535`（非饱和钳位；byte回绕256城清零，生产必须word）；索引读一律可选注入（缺省旧契约，旧mock逐字节一致）；M192开放=v3包可玩准入＋canPlace翻转（可用性门=基础数量×目录可用）；`CITY_COUNT_LOCKED`守基础192、`FFFF` raw门、trials v2-only保留；改换行／重录指纹超授权不动。
+- 失败尝试（均被测试抓包并修正）：movement `cityNodeBound`作用域漏定义；search测试文件体重复；highChain逗号表达式；487B capital `0xFF`无首都门；v3 regions缺接线致`0x8800`别名吞没入队；`roadNodeIdFromRaw`的`0x800`硬门；retreat解构函数误用`context`；fiscal／diplomacy RNG计数；`slice(0,2)` dense误判；identity缺chapters；96KB地形夹具；reconcile按调和后集合判新致删组复活（两处）；mapcanvas误删import；`HttpError.status`误断`code`；tile-256越界。基线既有失败（stash同败，非回归）：parity指纹偏斜、minimap资产缺失、game_save_store、player_pack_compiled、publish_atomicity（＋mock漂移）、road_callers／march_resume／native_road_callers装配期、city_source_registered需`--output`、reorder缺draft.txt、domestic_budget_event缺talk.json。
+- 相关文件：`web/src/game/navigation/*`（memory／search／movement／retreat／arrival／siege／fiscal／diplomacy／budgets）、`scenarioassembly.js`／`savegame.js`、`playerpack.js`／`playerenvironment.js`／`server/playpacks.js`、`gamesource.js`／`gamecopy.js`、`editor/citygroupplacement.js`／`componenttools.js`／`mapcommands.js`、`editor-ui/src/mapcanvas.js`／`server/topology.js`、新`tools/verify_*.mjs`（admission／triplets／v3_browser／playable／city-group族／bench_m257_perf）与`editor-ui/tests/citygroupundo.test.mjs`、`city-capacity-expansion-plan.md`（C5/C6/C7/C8小节）、`map-city-group-contract.md`（§4）、`AGENTS.md`。47G `.dragon-analysis/`为git忽略的本地分析数据，未提交。
+- 当前状态：goal complete；`8ba841f`本地提交（130文件，工作树干净）；**未push**。生产仍为内置192准入；v3包可玩、257城链均为本地验证。
+- 阻塞点：无待拍板项（C6c＋M192用户已批并实施）。VPUBLISH后端live链保持△（parity指纹修复需真实后端授权）；D2／D4／费用仅目标需要时启动。
+- 下一步（新对话）：①VPUBLISH后端链（需生产后端＋指纹修复授权）；②D2／D4／费用（需目标确认）；③cityId签发路径（canPlace已翻转，签发主体未定）；④VPERF场景级耗时。不得为跑绿恢复Trial或放宽身份门；提交／推送／生产操作分别授权。
 
 ## 169. CITY-CAPACITY-1/C5：M192后开放（v3包可玩准入，用户批准执行）
 
