@@ -8,9 +8,9 @@
 - 编辑器展示层限定`editor-ui/`，使用Vue 3＋Element Plus＋Vite，版本以package/lock为准；预构建壳由同源服务提供。Vue只接显示DTO/动作回调，不接凭据、源对象或live游戏状态，不替代服务端权限。
 - 仓库`E:/Dragon/web-port`，原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。禁止自动化访问真实`SAVE.DAT`、用户存档/profile；测试用内存、mock、隔离目录及新profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏版本`1.n`、软件版本、内容摘要和程序归档身份相互独立。
-- **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核及地图工作台已接copy；部分定义面板、旧draft整体退役与表清理仍待，见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`已退役为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
-- **地图工作台（Web产品决定）**：系统基础地图、共用Canvas与第二阶段精炼目录已完成本地实现／验证；不等于生产部署。管理员维护独立模板，两种创建取单快照，既有游戏不跟随更新；固定384×256／192槽，不复原DOS对象或扩容。缺`mapEditorAssets`的旧copy明确拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[第二阶段](docs/map-workspace-sprite-library-design.md)；当前验收边界见[审计](docs/map-workspace-sprite-library-audit.md)。
-- **据点扩容后继任务（Web产品决定）**：用户确定先保持384×256地图，解除192据点限制，人物／地图等其它容量后续再扩；开发计划与新会话入口见[CITY-CAPACITY-1](docs/city-capacity-expansion-plan.md)。运行／道路／财政／存档代码已支持v2-192与v3-512双布局（M192／M193／M257本地验证，见[C8验收](docs/city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)），内置游戏与生产准入仍为192，据点组仍只读；计划不等于已部署。本期改造须贯通稳定身份、道路、章节、运行、战场与保存，不只放宽计数门，不另建简化引擎。具体Web差异／尚待细化项由该计划维护，不自动授权生产迁移。
+- **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核及地图工作台已接copy；新城面板（建档→city-stamp→city-bind→admit→road-add）与删除面板（上架审核视图）已接线；193城全链（检验→票→提交→批准→正式包→玩家装配）本地验证通过；部分定义面板、旧draft整体退役与表清理仍待，见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`已退役为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
+- **地图工作台（Web产品决定）**：系统基础地图、共用Canvas与第二阶段精炼目录已完成本地实现／验证；不等于生产部署。管理员维护独立模板，两种创建取单快照，既有游戏不跟随更新；固定384×256，城数为live 1..512（节点扫描行序定槽，192为导入基线），不复原DOS对象或扩容。缺`mapEditorAssets`的旧copy明确拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[第二阶段](docs/map-workspace-sprite-library-design.md)；当前验收边界见[审计](docs/map-workspace-sprite-library-audit.md)。
+- **据点扩容后继任务（Web产品决定）**：用户确定先保持384×256地图，解除192据点限制，人物／地图等其它容量后续再扩；开发计划与新会话入口见[CITY-CAPACITY-1](docs/city-capacity-expansion-plan.md)。运行／道路／财政／存档代码已支持v2-192与v3-512双布局（M192／M193／M257本地验证，见[C8验收](docs/city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)），内置游戏与生产准入仍为192，据点组仍只读；计划不等于已部署。新城admit必填battleMapId（`ki-1995:siege:0..191`共享战场，Web产品决定，写定义＋全章行）；2FBF/301C满轮由溢出旁表承接（Web产品决定，§184）。本期改造须贯通稳定身份、道路、章节、运行、战场与保存，不只放宽计数门，不另建简化引擎。具体Web差异／尚待细化项由该计划维护，不自动授权生产迁移。
 - 生产为`sadcloud`单VPS（`ssh sadcloud`，`/srv/dragon`）：编辑器/玩家分服务，SQLite＋私有文件桶＋磁盘分发桶，nginx/Let's Encrypt；域名`dragon-editor.720108.xyz`/`dragon.720108.xyz`直连源站。Worker/R2/Tunnel、instabox为历史形态；操作前按[存储布局§18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)重新核部署身份。
 
 ## 2. 架构与数据归属
@@ -74,6 +74,7 @@
 - **build≠check≠服务刷新**：Vue变更先build再check，同步shell-ui.txt（URL `/shell-ui.js`）/css/licenses。`server/public/*.txt`被进程import且dev监听排除；只重启自己持有实例，用新profile/禁缓存核字节，不能停他人实例。
 - **Vue LSP**：项目私有`editor-ui/lsp/`用Vue LS2.2.12＋TS5.9.3 standalone，仅项目`.pi-lens.json`；从editor-ui启动新会话才实际采用override，配置来源不等于launcher生效。不改全局工具/信任，安装与独立检查见[说明](editor-ui/lsp/README.md)。
 - **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态。改`web/src/**`重建trialweb.txt；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
+- **copyop分发**：`applyCapturedMapEdit`的`view(edit)`返回属性描述符表，不是原对象；新op用`value(edit, key)`取值，勿直读`edit.x`。未绑定piece（cityId空）校验必败，绑定后才放行；新城中心须行序扫描在最后（scan-last），否则编译拒收；走廊须先铺好（端点D4..DD），road-add只做认证不铺砖。
 - **会话/版本接缝**：session DTO可无根级version，捕获和比较要使用相同缺省，不因undefined/null误拒全部请求；身份/epoch守卫仍保留。copy审批revision可为规范`1.n`，玩家兼容旧正整数，但不能省略manifest/session精确身份与SHA校验。
 - **schema/purge**：同步deletiondefinitions/deletionschema/distributiondeclarations及投影/inventory，不把某批表数固化为规则、不重算pinned基线；系统基础地图表不进游戏purge。SQLite WAL调查用一致备份或停服快照，不能裸拷主库；栅栏存在不等于文件已清。
 - **离线审计与编码**：忽略的报告父目录在新检出中可能不存在，允许创建父目录，但新轮次叶目录必须独占、拒绝覆盖。Python用`-B`和显式UTF-8；Windows子进程输出也须指定编码，不能以stdout的UTF-8设置代替。报告绑定当时输入／工具SHA，工具修补不改写旧收据。
@@ -115,7 +116,7 @@ sh vps/manual-static-build.sh /path/to/new-out
 ```
 
 - 按改动选内容、slot-phase、battle、formation、road-authority、save等回归；共享调度/RNG/存档/跨模块状态要完整适用覆盖。生成物写新目录。copy/地图lane按[收敛任务](docs/copy-simplification-tasks.md)、[基础地图核对](docs/system-base-map-completion-audit.md)及[精炼目录审计](docs/map-workspace-sprite-library-audit.md)选择；历史通过不替代本次执行。
-- UI用全新Playwright profile，核console/pageerror/请求失败、保存重读及真实登记源流程；可用已有PLAYWRIGHT_MODULE，不擅装依赖。永久入口包括verify_editor_generals_browser、verify_editor_panel_visibility_browser、verify_system_base_map_browser；夹具、真实后端、生产分开报告。
+- UI用全新Playwright profile，核console/pageerror/请求失败、保存重读及真实登记源流程；可用已有PLAYWRIGHT_MODULE，不擅装依赖。永久入口包括verify_editor_generals_browser、verify_editor_panel_visibility_browser、verify_new_city_panel_browser、verify_system_base_map_browser；夹具、真实后端、生产分开报告。
 - 存档另测真实JSON、事务失败、跨窗口CAS；公开目录/删除用verify_publication_chain_browser，归档用verify_program_entry/verify_program_assets，按入口选参数。进程内桥不等于生产TCP/TLS；强制退出测试不能证明计时器清理。
 - 交付审实际diff；支持文件主动`lens_diagnostics source=lsp scope=paths`，再`mode=all`。空缓存/push-only/超时/inconclusive不算clean，构建不代替Vue LSP；未跑/失败/覆盖不足如实记录。
 - 纯文档只核职责、事实、链接/兼容锚点及diff，不跑无关游戏/浏览器回归。Jev仅advisory、非证据或放行门，纯文档不用，见[集成边界](docs/jev-integration.md)。

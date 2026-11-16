@@ -8,19 +8,16 @@
 | --- | --- |
 | copy收敛 | 元数据／章节／据点／武将／地图／审核已接copy；部分定义面板、旧draft整体退役及表清理仍待，按[收敛任务](copy-simplification-tasks.md)另行推进 |
 | 基础地图 | B0–B7本地42项核对完成；独立模板、两种创建、共同工作台与发布加载见[完成核对](system-base-map-completion-audit.md)；没有因此部署 |
-| 据点扩容 | §92–170推进C0/C1，城市／章初态片段转换及城市ID到运行索引片段编译已实施，补战略邻接与导航端口一致性门；C2已验证运输／寻路／选边／撤退选址的分级对照，D5已接运行选边无路停止；用户批准D1/D3/D5/D6部分后，C3已接批次续段、两处别名、主动迁都无候选、军事候选类型化、所属索引服务、战略邻居索引边界、到达首读／移动所属／到达指针桥／移动节点域／撤退驻留与返回索引解槽；C4攻城入口城市门已改动态长度，C2/C3寻路索引读契约已接，C1 fresh缓存合成与初态已改live长度，C3/C5编成／增援／迁都城市门已动态化，C4俘虏城市门与首都扫描已动态化；用户2026-11-17授权解除阻塞后准入放行1..256并验证M193；M257(a)–(h)闭环（v3 memory／搜索区域／边判／F23 word域／月度循环／装配准入／深路径单测／浏览器257城链／正式包可玩准入）；C5编译索引摘要＋M192统一链＋store往返；C6 copy面live长度＋发布器v3-role全链（用户批准）；M192后开放（用户批准：canPlace翻转，可用性门=基础数量×目录可用）；C7-A–J（设计／引用查询／预检／物化／stage接线／画布解禁／拆散／删门／撤销语义／四模板浏览器）；C8证据登记＋残余门排查＋VPERF codec基线；C9回流AGENTS双布局现况。详见[计划§9](city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)。产品准入：内置仍192，v3包可玩；事件／天气／费用待目标需要时推进。 |
+| 据点扩容 | §92–170推进C0/C1（城市ID到运行索引编译、战略邻接、寻路对照、批次续段、别名、迁都、候选类型化、索引服务、相位、缓存合成、编成/增援/迁都/俘虏城市门动态化）；M193/M257(a)–(h)闭环；C5索引摘要＋M192统一链＋store往返；C6 copy面live长度＋发布器v3全链；C7-A–J；C8证据＋VPERF codec基线；C9回流双布局。随后B3（服务端签发city-NNN＋admit＋named转换，§172–176）→B4：D1(b)具名编译（raw-less分支）＋D2新城拓扑（建档→city-stamp→city-bind→admit→road-add→发布；§178）→193城HTTP全链可玩验证（§178）→D4 22DB live-N抽样（k=2，§181–182）＋2286 live扫描（§182）→费用域保留u16（§181–182）→D2-C溢出旁表＋2BD9排空（§184，用户批C；64位置模型未建）→VPERF场景级（§179）。详见[计划§9](city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)。产品准入：内置仍192，v3包可玩；全部本地验证，未push/部署。 |
 | 据点组新增 | §88完成四套配方／原证，§89接入据点后第八TAB及四张原尺寸只读预览，双DPR通过，随`c3efb05`提交。放置／拆散仍未开放；用户后继选择真实据点扩容，原新增实体／绑定已有据点的方向询问不再阻塞计划，实际创建接入扩容C6–C7 |
 | 地图素材库 | v41及ATOMIC历史交付见§76／80／81；当前§87顶部锁图已明确为拖动锁定切换；§85收回顶部高度／固定紧凑右栏／底对齐／无框浮栏与100%原始比例，保留§84两行TAB／ID／局部懒加载与右键调序删除；保留§82固定春季与中立据点库：240单格／256身份／32px，单格79可放／161只读；§89另加四张只读据点组，合计八类4＋4两行。桥梁水路仍并道路，无组合库导航和悬停，不自动拆现有地图组合；四季共用布局、游戏动态所属配色不变 |
 | 海域／地面模型 | SEA-GROUND-1本地实现与验证见§79：全幅95底图、地面小地图轮廓，保存／发布后由同一玩家引擎加载；四层合成／工具保留，原四层库导航由§80替代 |
-| Git／生产 | 第二阶段完整提交`664819d22898e7ff9dacf2df7b1d8e11765a7bd8`已推送`github/main`；其后§78文档整理及§79–82代码／测试／文档／壳产物随§83所在本地提交收录。§83本地提交为`a7237ca`；§84–85修改随§86本地提交`fdb9d67`收录；§87–89修改随§90本地提交`c3efb05`收录；CITY-CAPACITY-1全轮（§92–170）随`8ba841f`本地提交收录（130文件，工作树干净，未push）。没有新增push、部署或真实数据迁移 |
+| Git／生产 | 第二阶段完整提交`664819d22898e7ff9dacf2df7b1d8e11765a7bd8`已推送`github/main`；其后本地链：`b4611c5`（VPUBLISH走copy链）→`972990b`（D1b＋D2拓扑＋新城面板）→`76fd224`（VPERF场景级）→`ae9149f`（删除面板挂载）→`e64bd78`＋`ac14551`（D4/费用域/D2证据）→`636e86c`（D2-A冻结）→`3422e66`（D2-C实现）。工作树干净，均未push。本地dev服务（`tools/dev_editor.mjs --port 5173 --store .dragon-analysis/dev`）在跑；本地旧上架（臥龍傳·重構版1.0）已由用户经删除面板删除，库内正式包/游戏/副本已清零。无生产写入、部署或真实数据迁移。 |
 
 ### 未完成、阻塞与下一步
 
-1. 用户已授权按计划从C0推进本地实施，当前首批盘点见§92，入口见[CITY-CAPACITY-1](city-capacity-expansion-plan.md#handoff)。用户已选择保持384×256、支持新增真实据点，不再重复询问§88的新增／绑定方向；计划C0补全字段矩阵和具体Web差异合同，不能只删192固定门。已完成的据点组只读展示（§88–89）保留，真实放置／拆散在C6–C7接线；[据点组合同§3](map-city-group-contract.md#3-必须明确的放置接缝)是此前限制与询问背景，不代表当前仍需选择方向。顶部锁图的旧待确认项已由§87用户决定及本地实现解除：只锁拖动平移，不锁选取／缩放／编辑。对象锁定和八项组合／变换仍按原约定暂禁用。其余地图布局／菜单已本地实施验证。当前无第二阶段本地目标的剩余实施阻塞；不重开已完成的分类任务。新规则、旧地图／头像持久数据迁移、生产安装与验收须按后续任务和独立授权处理。
-2. 宿主LSP仍有未确认；独立Vue检查保留`ChaptersPanel.vue`既有TS6133提示。隔离HTTPS历史出现atlas `net::ERR_ABORTED`，后续完整通过但根因未闭合，不能称已修复。
-3. 历史回归适用性仍待复核，**不是本轮已确认回归**：`verify_vps_publish_pack`曾43过1失败（stale draft visual capture）、`verify_vps_trial`超时、旧玩家pack夹具缺检验票；backend_admin_copy缺MINIFLARE_MODULE，backend_copy_entry／template_root／generals_conflict_model存在旧合同期待。不得为跑绿恢复Trial或放宽身份门。
-4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
-5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
+1. D2全量（64位置调度模型）未实现：提案未冻结，原生4字节无空位放sequence/overflow标记（见§184与§9.7）。当前用旁表＋排空覆盖“不丢”部分；完整调度器须用户另行立项。不重开已完成的分类任务。新规则、旧地图／头像持久数据迁移、生产安装与验收须按后续任务和独立授权处理。
+2. 环境注意：宿主LSP会话不可用时以inline LSP检查为准，不称clean；旧浏览器回归（`verify_editor_panel_visibility_browser` 11→12视图断言、`verify_c15_upstream_replays`）为基线已有失败，与本轮无关。不得为跑绿恢复Trial或放宽身份门。
 
 ## 184. D2-C实现：溢出旁表＋2BD9排空（用户批C，本地验证，未push）
 
@@ -87,7 +84,7 @@
 - 新`verify_copy_city_admit.mjs` 5/5：全章admit＋回填＋gaps无192项／未放/缺数/未知/坏形拒收＋admit前解析拒收／live≈legacy（192 parity）＋新城键形正确＋缺具名拒收／raw-less改值（直接＋整包两路）／capture live过＋储备拒收。回归：chapter_ops/create/chapter_ref 15/15、conversion 7/7、registered源PASS(192)。`node --check`×5＋`diff --check`干净；bundle重建（trial `f05b064f…`，shell/play不变）。LSP四文件inconclusive（push-only，不称clean）。
 - 插曲：主表本无troops_cap（CITY_BASE_NUMBERS七项）→admit显式收；capture储备报错为字段门（先x/y缺），测试按实调；派系段初写占位已按legacy补齐。通路新城邻接刷新（有路后）＋publish端到端留待VPUBLISH迁移验证。
 
-## 175. 用户决策（待恢复后执行，未push）
+## 175. 用户决策（已执行，见§176/§178；本节为历史记录）
 
 - admit触发a/b待选（已解释，见下）；B4用户批准“现在启动”；VPUBLISH用户批准“迁移”（parity遗留直发流改走copy检验链，含△收敛）。goal仍blocked，待a/b选择＋/goal resume后执行。
 - 用户已选(b)显式admitCity op。待/goal resume后按序执行：B3片3(b)实施 → B4 → VPUBLISH迁移。
@@ -111,7 +108,7 @@
 - 新`tools/verify_copy_city_create.mjs` 3/3：签发city-192槽192无坐标／连签city-193单调＋rename/numbers旧路无issued字段／重名409＋坏输入422＋空包COPY_PATCH＋直种512槽拒收。回归：controller_cities 6/6、chapter_ops 10/10。`node --check`（gamecopy＋新测试）与`diff --check`干净。LSP对两文件inconclusive（server属push-only不能确认为clean，不称clean）。
 - 未动：章节`cityIdx→cityId`改键（片2）、放置绑定已签发ID＋章节D6默认条目（片3）、画布/UI接线。生产／推送／真实数据均未动。
 
-## 171. CITY后继：B2重录＋B5基线（goal active，已提交efdf64f，未push）
+## 171. CITY后继：B2重录＋B5基线（goal complete，§176–184继续推进）
 
 - 用户目标：完整实现破192后编辑工作台建档可玩＋玩家侧可运行；旧工作台上架游戏可删，无需迁移。已按组合授权推进：B1本地提交／B2重录／B3服务端签发／B4立项／B5全量；提交与推送分别授权，本轮只本地提交，不push、不部署、不动真实数据。
 - B2（commit `efdf64f`，6文件）：`main.js` 3行攻城目录捕获致20消费者单指纹漂移，`available-library.txt`最小重录（仅该哈希，93632字节不变，新SHA `01658a87…`，旧清单封存`server/pinned/`，`sourcecatalogpolicy`＋刷新夹具同步，registry保持）；基础地图转换补C5口径（无章模板空`chapterDigests`＋20章基线＋重组后重编一致，一次通过）；parity测试补base-map初始化（测试-only，随现行产品）。验证：4文件`node --check`＋`diff --check`干净，programHashes 20/20，source/library/base-map安装200，copy运行200＋draft 20章。parity现停于遗留直发门`409 PUBLISH_VALIDATION_REQUIRED`（缺服务端检验票；测试走已退役的直接上架＋trial-pack流，未改走copy检验→提交→批准→正式链），属测试流过时非产品回归；VPUBLISH后端live链保持△（缺口从指纹收窄为遗留发布流迁移，单元v3链仍绿）。
