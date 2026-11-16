@@ -98,9 +98,16 @@ export function restoreSnapshotState(saved) {
     });
   }
   const assembly = readSavedAssembly(saved);
-  if (hasNativeLegionSlots(state) && assembly.metadata?.roadVersion !== 2)
-    throw new TypeError("Native legion slots require v2 assembly identity");
-  if (assembly.metadata?.roadVersion === 2)
+  if (
+    hasNativeLegionSlots(state) &&
+    assembly.metadata?.roadVersion !== 2 &&
+    assembly.metadata?.roadVersion !== 3
+  )
+    throw new TypeError("Native legion slots require v2/v3 assembly identity");
+  if (
+    assembly.metadata?.roadVersion === 2 ||
+    assembly.metadata?.roadVersion === 3
+  )
     assertNativeCitySnapshotState(state);
   return state;
 }
@@ -215,7 +222,10 @@ export function admitSavedScenario(saved, app) {
   // allowed by the lower-level bounded assembly/probe API. Missing planes or
   // cache must fail before loadState can touch the live scene/RNG. Preserve
   // the record; never reconstruct lost runtime writes from compiled assets.
-  if (assembly.metadata?.roadVersion === 2) {
+  if (
+    assembly.metadata?.roadVersion === 2 ||
+    assembly.metadata?.roadVersion === 3
+  ) {
     for (const field of ["movementMemory", "terrainMemory", "cityCache"])
       if (assembly[field] == null)
         throw new TypeError(`v2 App restore requires saved ${field}`);
@@ -328,7 +338,9 @@ export function snapshotState(app, slotIdx, label) {
   assertSnapshotSafe(app);
   const sc = app.scenario;
   const assembly = snapshotScenarioAssembly(app);
-  const nativeRoads = assembly.scenarioAssembly?.roadVersion === 2;
+  const nativeRoads =
+    assembly.scenarioAssembly?.roadVersion === 2 ||
+    assembly.scenarioAssembly?.roadVersion === 3;
   if (nativeRoads) {
     assertNativeCitySnapshotState(sc);
     // JSON turns non-finite numbers into null, which these native bytes encode

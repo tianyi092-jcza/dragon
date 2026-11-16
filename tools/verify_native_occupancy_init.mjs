@@ -161,7 +161,11 @@ test("synthesizeScenarioCityCache: C18 initial = city record byte +0x18", () => 
     bytes[0x18] = i & 0xff;
     return Buffer.from(bytes).toString("hex");
   });
-  const input = synthesizeScenarioCityCache({ nativeCityRecordRaw: records });
+  const cities = Array.from({ length: 192 }, (_, idx) => ({ idx }));
+  const input = synthesizeScenarioCityCache({
+    nativeCityRecordRaw: records,
+    cities,
+  });
   assert.equal(input.version, 1);
   assert.equal(input.spans.length, 1);
   assert.equal(input.spans[0].address, 0);
@@ -172,12 +176,47 @@ test("synthesizeScenarioCityCache: C18 initial = city record byte +0x18", () => 
   assert.equal(cache.readByte(191), 191);
 });
 
+test("synthesizeScenarioCityCache: live length follows the city table", () => {
+  const cities = Array.from({ length: 200 }, (_, idx) => ({ idx }));
+  const records = Array.from({ length: 200 }, (_, i) => {
+    const bytes = new Uint8Array(32);
+    bytes[0x18] = (i * 3) & 0xff;
+    return Buffer.from(bytes).toString("hex");
+  });
+  const input = synthesizeScenarioCityCache({
+    nativeCityRecordRaw: records,
+    cities,
+  });
+  assert.equal(input.spans[0].hex.length, 200 * 2);
+  // The version-1 factory gate still caps at 192 slots: wider spans stay
+  // fail-closed there until the save-format capacity decision lands.
+  assert.throws(
+    () => createScenarioCityCache(input, checkpoint, false),
+    /Invalid city cache known span/,
+  );
+  // Cities/records length mismatch and missing tables stay fail-closed.
+  assert.throws(
+    () =>
+      synthesizeScenarioCityCache({
+        nativeCityRecordRaw: records.slice(0, 199),
+        cities,
+      }),
+    /city cache source/,
+  );
+  assert.throws(
+    () => synthesizeScenarioCityCache({ nativeCityRecordRaw: records }),
+    /city cache source/,
+  );
+});
+
 test("synthesizeScenarioCityCache: missing or malformed raw fails closed", () => {
+  const cities = Array.from({ length: 192 }, (_, idx) => ({ idx }));
   assert.throws(() => synthesizeScenarioCityCache({}), /city cache source/);
   assert.throws(
     () =>
       synthesizeScenarioCityCache({
         nativeCityRecordRaw: Array.from({ length: 191 }, () => "00".repeat(32)),
+        cities,
       }),
     /city cache source/,
   );
@@ -185,6 +224,7 @@ test("synthesizeScenarioCityCache: missing or malformed raw fails closed", () =>
     () =>
       synthesizeScenarioCityCache({
         nativeCityRecordRaw: Array.from({ length: 192 }, () => "zz".repeat(32)),
+        cities,
       }),
     /city record raw/,
   );

@@ -1014,7 +1014,7 @@ test("geometry/render inputs never write workspace; synthetic v1 graphs rejected
   assert.deepEqual(f.memory.snapshot(), before);
   // P76 gate: v1 owners are unconstructible; fresh preparation against a
   // synthetic v1 graph fails closed (P24 no-old-save-compat policy).
-  await assert.rejects(fixture(undefined, false, 1), /must be v2/);
+  await assert.rejects(fixture(undefined, false, 1), /must be v2 or v3/);
   // prepareScenario clones raw, so the pre-prepare raw scenario stays
   // unbound. Snapshots of it are taken against a fresh (road-unloaded)
   // world: the fixture world now carries loaded v2 roads, and unbound
@@ -1499,14 +1499,14 @@ test("capture inputs actual JSON preserve own unknowns/word values; invalid pres
   }
 });
 
-test("4CF3 all256 stored F23 bytes wrap independently; same-owner DEC/INC cancels without recount", async () => {
+test("4CF3 all256 stored F23 counts wrap in word domain; same-owner DEC/INC cancels without recount", async () => {
   for (let value = 0; value < 256; value++) {
     const f = await captureFixture();
     f.sc.factions[0].n_cities = value;
     f.sc.factions[1].n_cities = value;
     assert.throws(() => applyCapture(f), /8A3F/);
-    assert.equal(f.sc.factions[0].n_cities, (value - 1) & 255);
-    assert.equal(f.sc.factions[1].n_cities, (value + 1) & 255);
+    assert.equal(f.sc.factions[0].n_cities, (value - 1) & 65535); // M257(d): word-domain wrap, reachable states unchanged.
+    assert.equal(f.sc.factions[1].n_cities, (value + 1) & 65535); // M257(d): word-domain wrap, reachable states unchanged.
   }
   const f = await captureFixture();
   f.sc.cities[0].faction = 1;

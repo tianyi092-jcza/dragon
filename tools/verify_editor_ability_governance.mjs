@@ -43,7 +43,7 @@ function instructionControl(force, politics, initial, bytes) {
 function run(city, general, bytes, owner = 0) {
   let draws = 0;
   const sc = { player_faction: 0, cities: [city], generals: [general] };
-  governOriginalCity(sc, { readCityOwnerByte(address) { assert.equal(address, 0x841); return owner; } }, city, {
+  governOriginalCity(sc, { readCityOwner(index) { assert.equal(index, 0); return owner; } }, city, {
     nextByte() { assert.ok(draws < bytes.length, 'unexpected RNG consumption'); return bytes[draws++]; },
   });
   return draws;
@@ -92,7 +92,7 @@ test('missing ability at its actual read preserves budget prefix and consumes no
     const city = { idx: 0, governor: 0, growth: 199, defence: 200, troops: 1, troops_cap: 255 };
     const before = structuredClone(city), general = { assignment_budget: 1, ability };
     let draws = 0;
-    assert.throws(() => governOriginalCity({ player_faction: 0, cities: [city], generals: [general] }, { readCityOwnerByte: () => 0 }, city, { nextByte() { draws++; return 0; } }), /Uncovered/);
+    assert.throws(() => governOriginalCity({ player_faction: 0, cities: [city], generals: [general] }, { readCityOwner: () => 0 }, city, { nextByte() { draws++; return 0; } }), /Uncovered/);
     assert.equal(general.assignment_budget, 0); assert.deepEqual(city, before); assert.equal(draws, 0);
   }
 });

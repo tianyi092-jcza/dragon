@@ -74,13 +74,14 @@ async function fixture({
   movement = true,
   spans = [{ address: 3840, hex: "00000000000100000000" }],
   version = 2,
+  nodeCount = 192,
   change = () => {},
 } = {}) {
   const graph = {
     version,
     width: 384,
     height: 256,
-    nodes: Array.from({ length: 192 }, (_, id) => ({
+    nodes: Array.from({ length: nodeCount }, (_, id) => ({
       id,
       x: [1, 8][id] ?? id + 10,
       y: id < 2 ? 10 : 20,
@@ -88,9 +89,11 @@ async function fixture({
     })),
     edges: [],
   };
+  // v3 keeps node=slot*8; the single edge base moves past the node table.
+  const edgeBase = version === 3 ? (nodeCount * 8 + 15) & ~15 : 0x800;
   for (const [source, target, weight] of edges) {
     const id = graph.edges.length,
-      address = 0x800 + id * 16;
+      address = edgeBase + id * 16;
     for (const [n, tag] of [
       [source, 0x4000],
       [target, 0x8000],
@@ -145,7 +148,16 @@ async function fixture({
     { scenarios: [template] },
   );
   const raw = createNewGameScenario(template);
-  if (version === 2) initializeNativeLegionSlotsFromZeroChapter(raw);
+  // Non-192 tables: the content pipeline caps compiled city inputs at the
+  // original count, so extend the raw 32B records explicitly (zero-filled:
+  // border count zero keeps the military phase a no-op for added cities).
+  // The 192 path is untouched and stays byte-identical.
+  if (nodeCount !== 192)
+    raw.nativeCityRecordRaw = Array.from(
+      { length: nodeCount },
+      (_, i) => raw.nativeCityRecordRaw?.[i] ?? "00".repeat(32),
+    );
+  if (version !== 1) initializeNativeLegionSlotsFromZeroChapter(raw);
   raw.legions = [legion];
   raw.factions[0].n_legions = 1;
   // Explicit synthetic inactive 2459 slots, not original initialization.
@@ -157,7 +169,7 @@ async function fixture({
       raw.nativeLegionSlots.records[legion.slot] = legion;
     rebindNativeLegionViews(raw);
   }
-  if (version === 2) attachSyntheticNativeFactionSource(raw);
+  if (version !== 1) attachSyntheticNativeFactionSource(raw);
   const world = createWorldResources();
   const args = {
     raw,
@@ -178,7 +190,7 @@ async function fixture({
   const tiles = new Uint8Array(384 * 256).fill(0xba);
   tiles[3840 + 2] = tiles[3840 + 7] = 0xd4;
   // Explicit synthetic current terrain, supplied separately from asset loading.
-  if (version === 2)
+  if (version !== 1)
     args.terrainMemory = {
       version: 1,
       spans: [
@@ -424,6 +436,47 @@ test("real slot node departure first point does not OR bit0; multiple due action
   assert.throws(() => memory.readByte(0x9000), /Unprovided/);
 });
 
+test("M257(g): v3 node departure rides the relocated edge base with the moved queue", async () => {
+  const f = await fixture({
+    version: 3,
+    nodeCount: 257,
+    legion: soldier({
+      x: 1,
+      roadEdgeOrNode: 0,
+      occupancyOffset: 1,
+      status: 0xc3,
+    }),
+    // Explicit caller inputs win over record bytes; border count zero
+    // keeps the military phase a no-op (same convention as the admission
+    // fixture's last city).
+    change: (raw) => {
+      for (const city of raw.cities) {
+        city._aiCooldown = 0;
+        city._strategicLastFaction = city.faction;
+        city.strategicBorderCount = 0;
+        city.strategicNeighbours = [255, 255, 255, 255];
+        city.attr = 0x80;
+        city.disaster_event = 0;
+      }
+    },
+  });
+  assert.equal(f.sc.cities.length, 257);
+  assert.equal(f.context.memory.roadLayout.version, 3);
+  slot(f);
+  assert.equal(f.app._strategicBattleFailure, undefined);
+  assert.deepEqual(state(f).slice(0, 5), [2, 10, 0x810, 0x2000, 4]);
+  assert.equal(f.A.status & 3, 0);
+  // v3 scratch ends at 0x8000+257*8=0x8808 and the queue lives at 0x9000:
+  // the legacy ring above the scratch stays unknown while v3 ring is used.
+  assert.throws(() => f.context.memory.readByte(0x8808), /Unprovided/);
+  assert.doesNotThrow(() => f.context.memory.readByte(0x9000));
+  slot(f);
+  slot(f);
+  assert.equal(f.A.x, 2);
+  slot(f);
+  assert.equal(f.A.x, 3);
+});
+
 test("2831/2880 deadline: field missing G1F stops4CD0; siege preserves 4AEC/4F92 prefix before missing city troops", async () => {
   for (const kind of ["field", "siege"])
     for (const count of [0, 5, 1])
@@ -572,7 +625,7 @@ test("2831 low-slot friend wins; slot127 excluded; status/Y/X short circuits and
   }
 });
 
-test("47BB primitive double-stop directions, shortcut no workspace, ignored CF exhaustion AL0/5", async () => {
+test("47BB primitive double-stop directions, shortcut and D5 exhaustion without legion writes", async () => {
   for (const costs of [
     [3, 9],
     [9, 3],
@@ -592,14 +645,18 @@ test("47BB primitive double-stop directions, shortcut no workspace, ignored CF e
   }
   const isolated = await fixture();
   const zero = query(isolated, { words: { 14: 16, 20: 24 } });
-  assert.equal(zero.result.cf, false);
-  assert.equal(zero.bytes[10], 0);
-  assert.equal(zero.words[12], 0x2014);
-  assert.equal(zero.words[14], 0x800);
+  assert.deepEqual(zero.result, { cf: false, reason: "unreachable" });
+  assert.equal(zero.bytes[10], 4);
+  assert.equal(zero.words[12], 0x200c);
+  assert.equal(zero.words[14], 16);
+  assert.equal(zero.trace.some(([op]) => op === "wb" || op === "ww"), false);
   const five = await fixture({ edges: [[0, 1, 1]] });
-  const out = query(five, { words: { 14: 16, 20: 0 } });
-  assert.equal(out.bytes[10], 5);
-  assert.equal(out.words[12], 0x2014);
+  const out = query(five, { words: { 14: 16, 20: 0 }, bytes: { 35: 10 } });
+  assert.deepEqual(out.result, { cf: false, reason: "unreachable" });
+  assert.equal(out.bytes[10], 4);
+  assert.equal(out.words[12], 0x200c);
+  assert.equal(out.trace.some(([op, at]) => op === "rb" && at === 35), false);
+  assert.equal(out.trace.some(([op]) => op === "wb" || op === "ww"), false);
 });
 
 test("real 47BB high fee enters291A then stops at explicit display input retaining search/DEC/bit1", async () => {
@@ -828,11 +885,11 @@ test("fresh v2 always synthesizes the movement plane (P40 1A2D/8AEA); old detach
     /movement capability/,
   );
   // P76 gate: v1 owners are unconstructible; fresh preparation against a
-  // synthetic v1 graph fails closed at the v2-graph gate (the retired
+  // synthetic v1 graph fails closed at the v2/v3-graph gate (the retired
   // "v1 cannot carry movement" guard is deleted with the v1 arms).
   await assert.rejects(
     () => fixture({ version: 1 }),
-    /must be v2/,
+    /must be v2 or v3/,
   );
   assert.throws(
     () =>
@@ -896,15 +953,21 @@ test("both flags gates: low classes and bit6 signed gates; at most one candidate
         }
 });
 
-test("14 is id not address or 20/tx; real exhausted AL0/5 consumes literal point RAM", async () => {
+test("14 stays an independent id; D5 exhausted search leaves position and occupancy intact", async () => {
   for (const id of [0, 8, 16, 191]) {
     const f = await fixture({
       legion: soldier({ status: 0xc3, targetNode: id, targetCity: 17 }),
     });
-    assert.equal(stepTo(f.sc, f.A, f.A.x, f.A.y), "moved");
+    const before = [f.A.x, f.A.y, f.A.roadStride, f.A.roadPointAddress, f.A.roadEdgeOrNode];
+    const occupied = plane(f, f.A.occupancyOffset);
+    assert.equal(stepTo(f.sc, f.A, f.A.x, f.A.y), id === 0 ? "moved" : "unreachable");
     assert.equal(f.A.targetNode, id);
     assert.equal(f.A.targetCity, 17);
-    if (id !== 0) assert.equal(f.A.roadStride, 4); // AL0 selects 0800+8 == old BP (4810/4819).
+    if (id !== 0) {
+      assert.deepEqual([f.A.x, f.A.y, f.A.roadStride, f.A.roadPointAddress, f.A.roadEdgeOrNode], before);
+      assert.equal(plane(f, f.A.occupancyOffset), occupied);
+      assert.equal(f.A.status >= 0x80, true);
+    }
   }
   for (const cost of [0, 1]) {
     const f = await fixture({
@@ -915,10 +978,50 @@ test("14 is id not address or 20/tx; real exhausted AL0/5 consumes literal point
         status: 0xc3,
       }),
     });
-    assert.equal(stepTo(f.sc, f.A), "moved");
-    assert.equal(f.A.roadStride, cost ? 5 : 0);
-    assert.equal(f.A.roadPointAddress, 0x2014);
-    assert.equal(f.A.roadEdgeOrNode, 0);
+    const before = [f.A.x, f.A.y, f.A.roadStride, f.A.roadPointAddress, f.A.targetNode];
+    const occupied = plane(f, f.A.occupancyOffset);
+    assert.equal(stepTo(f.sc, f.A), "unreachable");
+    assert.deepEqual([f.A.x, f.A.y, f.A.roadStride, f.A.roadPointAddress, f.A.targetNode], before);
+    assert.equal(f.A.roadEdgeOrNode, 16);
+    assert.equal(plane(f, f.A.occupancyOffset), occupied);
+  }
+});
+
+test("D5 unreachable action restores occupancy, returns through slot tail and retains target", async () => {
+  for (const [roadEdgeOrNode, status] of [[16, 0xc0], [16, 0xc3], [0x800, 0xc3]]) {
+    const f = await fixture({
+      legion: soldier({ roadEdgeOrNode, status, targetNode: 3, targetCity: 3, commandState: 10 }),
+      change: raw => raw.legions.push(soldier({ slot: 2, moveDelay: 8 })),
+    });
+    const before = [f.A.x, f.A.y, f.A.roadEdgeOrNode, f.A.roadPointAddress, f.A.roadStride,
+      f.A.targetNode, f.A.targetCity, f.A.commandState];
+    const occupancy = plane(f, f.A.occupancyOffset);
+    assert.equal(slot(f), "returned");
+    assert.equal(f.app._strategicBattleFailure, undefined);
+    assert.deepEqual([f.A.x, f.A.y, f.A.roadEdgeOrNode, f.A.roadPointAddress, f.A.roadStride,
+      f.A.targetNode, f.A.targetCity, f.A.commandState], before);
+    assert.equal(f.A.status >= 0x80, true);
+    assert.equal(plane(f, f.A.occupancyOffset), occupancy);
+    assert.equal(f.sc.legions[1].moveDelay, 7, "remaining slot still visited once");
+    assert.equal(f.sc._legionBatchCursor, 16);
+    assert.equal(canSnapshotState(f.app), true, "no unfinished rule continuation");
+    assert.equal(json(snapshotState(f.app, 0, "unreachable")).state.nativeLegionSlots.records[0].targetNode, 3);
+    for (let repeat = 0; repeat < 4; repeat++) {
+      assert.equal(slot(f), "returned");
+      assert.deepEqual([f.A.x, f.A.y, f.A.roadEdgeOrNode, f.A.roadPointAddress, f.A.roadStride,
+        f.A.targetNode, f.A.targetCity, f.A.commandState], before,
+      "subsequent due action must not resume the stale edge direction");
+      assert.equal(plane(f, f.A.occupancyOffset), occupancy);
+    }
+    if (roadEdgeOrNode >= 0x800) {
+      assert.equal(f.A.status & 2, 2);
+      f.A.targetNode = 0;
+      f.A.targetCity = 0;
+      f.A.moveDelay = 1;
+      assert.equal(slot(f), "returned");
+      assert.equal(f.A.status & 2, 0, "reachable replacement completes pending selection");
+      assert.equal(f.A.x, 4);
+    }
   }
 });
 

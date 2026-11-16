@@ -13,7 +13,11 @@ export function createPlayerEnvironment(pack, { playerFaction } = {}) {
   current();
   const identity = pack.identity, manifest = pack.manifest;
   validateIdentity(identity);
-  if (manifest?.compilerRevision !== TRIAL_COMPILER_REVISION || manifest.buildFormat !== 'studio-app-2' ||
+  // CITY-CAPACITY-1 C6(c) (user-authorized): dual formal-pack triplets.
+  // v2 (schema 1 / studio-app-2) and v3 (schema 2 / studio-app-3) only.
+  const triplet = manifest?.schemaVersion === 1 && manifest.buildFormat === 'studio-app-2' ? 2
+    : manifest?.schemaVersion === 2 && manifest.buildFormat === 'studio-app-3' ? 3 : 0;
+  if (manifest?.compilerRevision !== TRIAL_COMPILER_REVISION || triplet === 0 ||
       manifest.identity?.gameId !== identity.gameId || manifest.identity.sourceDigest !== identity.sourceDigest ||
       manifest.identity.draftRevision !== identity.revision || !manifest.chapters?.includes(identity.chapterId) ||
       !pack.chapter || !Number.isInteger(playerFaction) || !pack.chapter.factions?.some(f => f.idx === playerFaction)) {

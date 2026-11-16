@@ -78,4 +78,12 @@ for(const state of ['closed','deleted']) {const f=fixture();f.state(state);await
 {const f=fixture();const revoke=f.options.urls.revokeObjectURL;let first=true;f.options.urls.revokeObjectURL=url=>{if(first){first=false;throw new Error('owned revoke failure');}revoke(url);};const pack=await f.load();assert.throws(pack.close,/owned revoke failure/);assert.equal(f.blobs.size,1);pack.close();assert.equal(f.blobs.size,0);checks++;}
 {const f=fixture();const create=f.options.urls.createObjectURL;let first;f.options.urls.createObjectURL=blob=>{if(first)return first;first=create(blob);return first;};await invalid(f);assert.equal(f.revoked.length,1);}
 {const f=fixture();f.manifest.portraits[0].assetId=2;f.manifest.portraits[0].url='kao/2.png';f.sync();await invalid(f);}
+// CITY-CAPACITY-1 C6(c) (user-authorized): v3 formal packs load end to end;
+// mixed triplets are rejected even when each field is individually known.
+{const f=fixture();f.manifest.schemaVersion=2;f.manifest.buildFormat='studio-app-3';for(const e of f.manifest.assets) if(e.assetId==='roadGraph')e.role='native-road-v3';f.sync();const pack=await f.load();assert.equal(pack.manifest.schemaVersion,2);assert.equal(pack.manifest.buildFormat,'studio-app-3');assert.equal(pack.manifest.assets.find(e=>e.assetId==='roadGraph').role,'native-road-v3');pack.close();checks++;}
+for(const mutate of [
+ m=>{m.schemaVersion=2;},
+ m=>{m.buildFormat='studio-app-3';},
+ m=>{m.schemaVersion=2;m.buildFormat='studio-app-3';m.assets.find(e=>e.assetId==='roadGraph').role='native-road-v2';},
+]) {const f=fixture();mutate(f.manifest);f.sync();await invalid(f);}
 process.stdout.write(JSON.stringify({checks,scope:'owned synthetic pack/byte/Blob URL ports; native Node Blob URL lifecycle, no network or engine proof'})+'\n');

@@ -2,6 +2,7 @@
 
 import { createCityGarrison, legionBattleUnits } from "../autobattle.js";
 import { generalForLegion, LEGION_UNIT_TYPE } from "../legionunits.js";
+import { resolveSiegeMap } from "../../content/battlemapcatalog.js";
 
 export const FIELD = 1024;
 export const BATTLE_SCENE_WIDTH = 2048;
@@ -107,10 +108,13 @@ export function createSiegeProjection(
   battleMaps,
   defender = null,
 ) {
-  const map =
-    battleMaps?.directory?.[city.idx] ??
-    battleMaps?.cities?.find((entry) => entry.idx === city.idx);
-  if (!map || map.idx !== city.idx)
+  const explicitBinding = Object.hasOwn(city, "battleMapId");
+  const map = explicitBinding
+    ? resolveSiegeMap(battleMaps.siegeCatalog, city.battleMapId)
+    : (battleMaps?.directory?.[city.idx] ??
+      battleMaps?.cities?.find((entry) => entry.idx === city.idx));
+  if (!explicitBinding && (!Number.isInteger(city.idx) || city.idx < 0 ||
+      city.idx >= 192 || !map || map.idx !== city.idx))
     throw new RangeError(`missing BATTLE.MAP city directory ${city.idx}`);
   let defendingLegion = defender;
   if (!defendingLegion) {
@@ -130,7 +134,8 @@ export function createSiegeProjection(
     attacker,
     defender: defendingLegion,
     city,
-    directoryIndex: city.idx,
+    // The resource directory is independent of the actual damage/ownership target.
+    directoryIndex: map.idx,
     layout: map.layout,
     theme: map.theme,
     mirror: false,

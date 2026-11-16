@@ -2,6 +2,10 @@
 // 不持有全局活动图，编辑预览/不同世界可以各自拥有独立实例。
 import { STRATEGIC_LAYOUT } from "../../content/worlddefinition.js";
 import { validateOriginalRoadContent } from "./originalroadcontent.js";
+import {
+  edgeBaseForVersion,
+  maxNodesForVersion,
+} from "./originalroadmemory.js";
 
 function freezeContent(value) {
   if (value && typeof value === "object") {
@@ -22,23 +26,30 @@ export function createRoadGraph(url, { fetcher, assertCurrent = () => {} } = {})
   let adjacency = [];
 
   const ROAD_NODE_SIZE = STRATEGIC_LAYOUT.nodeSize;
-  const ROAD_EDGE_BASE = STRATEGIC_LAYOUT.edgeBase;
   const ROAD_EDGE_SIZE = STRATEGIC_LAYOUT.edgeSize;
   const ROAD_POINT_BASE = STRATEGIC_LAYOUT.pointBase;
   const ROAD_POINT_SIZE = STRATEGIC_LAYOUT.pointSize;
   const coordKey = (x, y) => `${x},${y}`;
 
   function installGraph(raw) {
-    if (raw?.version === 2) {
+    if (raw?.version === 2 || raw?.version === 3) {
       // Validate a detached candidate completely before changing any installed index.
       raw = structuredClone(raw);
       validateOriginalRoadContent(raw);
       freezeContent(raw);
     }
+    const maxNodes =
+      raw.version === 1
+        ? 0x800 / STRATEGIC_LAYOUT.nodeSize
+        : maxNodesForVersion(raw?.version);
     if (
       !raw ||
-      (raw.version !== 1 && raw.version !== 2) ||
-      raw.nodes?.length !== STRATEGIC_LAYOUT.citySlots
+      (raw.version !== 1 && raw.version !== 2 && raw.version !== 3) ||
+      !Number.isInteger(raw.nodes?.length) ||
+      raw.nodes.length < 1 ||
+      // v1/v2 keep the DOS city-node address domain (slots 0..255);
+      // v3 aligns the edge base past the live node table (slots 0..511).
+      raw.nodes.length > maxNodes
     ) {
       throw new Error("invalid strategic road graph");
     }
@@ -67,7 +78,7 @@ export function createRoadGraph(url, { fetcher, assertCurrent = () => {} } = {})
         target >= raw.nodes.length ||
         !Number.isFinite(weight) ||
         (raw.version === 1 && weight <= 0) ||
-        (raw.version === 2 && weight < 0)
+        ((raw.version === 2 || raw.version === 3) && weight < 0)
       ) {
         throw new Error(`invalid strategic road edge ${edge.id}`);
       }
@@ -125,8 +136,8 @@ export function createRoadGraph(url, { fetcher, assertCurrent = () => {} } = {})
 
   /** Immutable staged asset only. RAM belongs to an explicit Scenario owner. */
   function originalRoadGraph() {
-    if (graph?.version !== 2)
-      throw new Error("Expected a loaded v2 road graph");
+    if (graph?.version !== 2 && graph?.version !== 3)
+      throw new Error("Expected a loaded v2/v3 road graph");
     return graph;
   }
 
@@ -140,11 +151,18 @@ export function createRoadGraph(url, { fetcher, assertCurrent = () => {} } = {})
     return graph?.nodes?.[id] ?? null;
   }
 
+  function roadNodeCount() {
+    return graph?.nodes.length ?? 0;
+  }
+
   function roadEdgeById(id) {
     return graph?.edges?.[id] ?? null;
   }
 
-  /** E717：节点表从0起每项8B；边表从0x0800起每项0x10B。 */
+  /** E717：节点表从0起每项8B；边表从版本相关基址起每项0x10B。 */
+  function versionEdgeBase() {
+    return edgeBaseForVersion(graph?.version, graph?.nodes.length ?? 0);
+  }
   function roadNodeRawAddress(nodeId) {
     return Number.isInteger(nodeId) &&
       nodeId >= 0 &&
@@ -154,9 +172,11 @@ export function createRoadGraph(url, { fetcher, assertCurrent = () => {} } = {})
   }
 
   function roadNodeIdFromRaw(rawAddress) {
+    const edgeBase = versionEdgeBase();
     return Number.isInteger(rawAddress) &&
       rawAddress >= 0 &&
-      rawAddress < ROAD_EDGE_BASE &&
+      edgeBase > 0 &&
+      rawAddress < edgeBase &&
       rawAddress % ROAD_NODE_SIZE === 0 &&
       rawAddress / ROAD_NODE_SIZE < (graph?.nodes.length ?? 0)
       ? rawAddress / ROAD_NODE_SIZE
@@ -164,21 +184,25 @@ export function createRoadGraph(url, { fetcher, assertCurrent = () => {} } = {})
   }
 
   function roadEdgeRawAddress(edgeId) {
+    const edgeBase = versionEdgeBase();
     return Number.isInteger(edgeId) &&
+      edgeBase > 0 &&
       edgeId >= 0 &&
       edgeId < (graph?.edges.length ?? 0)
-      ? ROAD_EDGE_BASE + edgeId * ROAD_EDGE_SIZE
+      ? edgeBase + edgeId * ROAD_EDGE_SIZE
       : null;
   }
 
   function roadEdgeIdFromRaw(rawAddress) {
+    const edgeBase = versionEdgeBase();
     if (
       !Number.isInteger(rawAddress) ||
-      rawAddress < ROAD_EDGE_BASE ||
-      (rawAddress - ROAD_EDGE_BASE) % ROAD_EDGE_SIZE !== 0
+      edgeBase <= 0 ||
+      rawAddress < edgeBase ||
+      (rawAddress - edgeBase) % ROAD_EDGE_SIZE !== 0
     )
       return null;
-    const edgeId = (rawAddress - ROAD_EDGE_BASE) / ROAD_EDGE_SIZE;
+    const edgeId = (rawAddress - edgeBase) / ROAD_EDGE_SIZE;
     return edgeId < (graph?.edges.length ?? 0) ? edgeId : null;
   }
 
@@ -371,6 +395,7 @@ export function createRoadGraph(url, { fetcher, assertCurrent = () => {} } = {})
     originalRoadGraph,
     roadNodeAt,
     roadNodeById,
+    roadNodeCount,
     roadEdgeById,
     roadNodeRawAddress,
     roadNodeIdFromRaw,

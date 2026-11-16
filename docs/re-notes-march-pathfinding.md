@@ -155,7 +155,7 @@
 
 正常落到49B0必经49A9未跳（CL0）和49AB/49AE未跳（CH0），尾部没有POP CX。因此**CX=0**确定；第一次根无候选时AX0，否则AX=最后一批min；BX800/CF1。撤销“耗尽AX/CX一概未知”。输出计数byte归零不等于证明无限抽象队列真的为空。
 
-**调用者不能统一CF1→blocked**：47BB两处分流只看CX>=8000及命令≥0A，不看search CF。耗尽CX0跳过291A门，仍读图0800。边内按AL==4取该边+6、否则+8，与旧当前边+8比较以写±4；节点路径按AL==4取首点、否则末点，并写0E800、0A=AL、清bit0、CLC。所以失败可写0A0或5；不能强归一成±4。这不授权恢复旧战后stride0截断路径。487B的490C也仍将AX左移2作城偏移并CLC。
+**原版调用者不能统一CF1→blocked（现行Web的47BB耗尽特例已由下方批准D5替代，原证保留）**：47BB两处分流只看CX>=8000及命令≥0A，不看search CF。耗尽CX0跳过291A门，仍读图0800。边内按AL==4取该边+6、否则+8，与旧当前边+8比较以写±4；节点路径按AL==4取首点、否则末点，并写0E800、0A=AL、清bit0、CLC。所以失败可写0A0或5；不能强归一成±4。这不授权恢复旧战后stride0截断路径。487B的490C也仍将AX左移2作城偏移并CLC。
 
 可重复的静态golden，完整显式tag/byte输入在上述纯内存测试：
 
@@ -169,6 +169,72 @@
 原队列旧byte不能默认为零；在上述普通输入中，读项都来自本调用已完整写入的项。局部实现由调用者提供可读/可写内存，未知byte抛错，之前写入不回滚；不分配清零队列或用无界数组假装原环。容量覆盖、CH回绕、地址别名和不匹配反向扫描须保留实际字节/顺序，不能由普通小图绿测扩大认证。
 
 默认资源缺口已从旧P04图继续核：192节点768tag槽、508有效互反链接/260空槽，254边各恰两端，无自环；**121节点**的原邻接顺序不同于edge-id插入序（如node2原`3,4,0,5`，插入序`0,3,4,5`）。原byte成本总5272、每边点数−1；点flags见§5.4。当前源/运行图都未存tag与flags，成本仍旧值。已导入新目录并核差异（§3.6）；仍待编译/发布及接入491B和各调用者，不能直接改生成物或把新增原语单测说成P1已修。
+
+<a id="city-capacity-structured-search"></a>
+#### CITY-CAPACITY-1/C2：结构化搜索的隔离对照核（未切换运行）
+
+本轮重新读取固定KI全文SHA `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，VA+200h的`491B..4A7B`窗口SHA `5726902195fc4ed43b079e026a2721ddceb9530981743d3b8afab1d40c3812e0`，逐条核本节静态合同。没有运行原CPU；后续对照的旧oracle是已证转录`searchOriginalRoadMemory`，不是以它替代原指令证据。
+
+`navigation/structuredroadsearch.js:searchStructuredRoadGraph`接已校验的v3结构图和一次校验的城市查询：
+
+- 保每批unsigned word最小费用、端口0..3顺序、按端口而非节点访问、两端槽一同标记，以及较贵旧项搬运和新项入队的交错次序。不是稳定优先队列／通用Dijkstra；S2中新增C必须早于旧B。
+- 数组计数／城市索引／roadIndex不做byte或地址截断；visited按`cityIndex*4+slot`访问，队列不再占128项物理环。互反端口在图边界已校验，不保留跨记录寻槽。结构图所有节点都是真实据点，索引192以上不是旧地址600h的“非城市节点”。
+- 命中在读取该城所属／加费之前。返回`found`含`cityIndex/roadIndex/direction/costWord`；direction是反向搜索命中端向根走的±1。D5批准的`already-there`与`unreachable`分开，耗尽不再暴露虚假0800边；未接47BB／487B调用者写回，不能说玩家无路行为已完成。
+- **费用尚未扩域**：此隔离核刻意保`u16(cost+A6) OR 8000`、城市+4及边byte费用的原word回绕，并用`costWord`命名，不把它当无符号数学距离或按每次非己加80A6。旧正常域对照与78边旧回绕向量通过，不等于批准该编码为任意大图的最终费用政策。D5费用域决定仍待，v3可玩准入仍关闭。
+- 每次查询只用私有临时访问表／队列，不写图、所属或Scenario；未知所属报错而不是“无路”。这不证明旧scratch的全部其它消费者已退出，运行装配与保存仍待后继审计。
+
+`verify_structured_road_search.mjs`8项通过：KI窗pin、S2交错、S3节点重复入队、快捷／耗尽、连续外属与原word回绕、192/254/255/256普通索引、511节点二叉树的256项同批前沿、坏查询／未知owner。结构输入由共同投影生成；几何只作搜索运输夹具，不认证道路资源推导或新城可玩。
+
+**真实登记源对照r6**：`verify_city_source_registered.mjs --output .dragon-analysis/city-capacity/registered-city-source-r6`读取原41登记输入，用同一192节点／254边／5526点图对照原地址内存模型。三组共52176查询，返回道路／方向／费用及每次所属读取顺序逐同：默认章所属、actor0的36864单停止点全对＋6096双停止点查询；全己／全非己各24个根×192停止点、各4608查询。默认章有251次快捷，其余两组各24次，三组均无耗尽；孤图耗尽另由单测覆盖。三条结果与读取轨迹SHA依次`4d0af6aaddcfa898dc9ea478157b6823681b2c122ed43db400de3ac63e16a119`、`fc1453d8ebaf9fd641fe3ea1cd1e85b93d4eabb475d88126197951b490f48020`、`2a9b74a37fbf6d8fe09b696a7a0f7725fbea1be4d25e5fa4cb519fab702efa4e`，来源／工具SHA及scope在该轮audit.json。
+
+r6保原r1–r5报告，所有登记输入、源对象及结构图不改，城市两轮输出仍一致。以上是三个显式所属配置的detached查询对照，不是全所属组合、CPU执行、军团移动／撤退写回、v3加载、M192战役、M193/M257、发布或存档验收；正式目标均未完成。
+
+<a id="city-capacity-structured-selection"></a>
+**CITY-CAPACITY-1/C2结构化47BB选边核（隔离，未接运行）**：固定KI全文SHA同上，VA+200h的47BB..487B窗口SHA `ea4bc330ab019a92b359b78c79b8bf346c9fac4cc095d45a1c32ec2f6035ead0`。本轮重新逐指令核过入口→两端快捷→反搜→费用门→首末点／方向写回→CLC/STC。47D3/47D7的停止点顺序为C=source、B=target；4821/4828只写status bit0与stride，不改当前edge/point；城市4831同点直接CLC不清残留；4863/4866/4869/486C依次写point、edge、清bit0、stride。高费用门在47F2/4842，command>=0A才以L01 owner调用291A，不能用目标城所属代替。
+
+`structuredroadselection.js:selectStructuredRoad`复用隔离491B核，消费已由边界校验的结构图／位置及规则字段。城市命中选择新边首／末点并返回`hasEnteredRoad:false`；道路上保roadIndex和pointIndex，仅选正反方向并返回true；到达目标城返回`already-there`。它是无写入决策，**不冒充已经按原写序提交军团**。耗尽按批准D5返回`unreachable`，不造road0、不自行调用去向；原费用域命中则单列`fate-required`及owner，后续caller仍待接线。尚未批准的新费用政策不能靠该结果提前落地。
+
+位置联合类型中的pointIndex是**规则游标，不必等于军团当前XY**：原选边先写首点地址，随后candidate可能因接敌挂起而尚未写坐标。不能只按pointIndex反算并覆盖XY。nodeize保L0A/L0C，已读movement正常在城分支会选边后重写，already-there则不触及；本批没有删除这些字段、声称所有其它读者闭合或开放旧快照转换。status bit0及独立命令目标仍另有权威。
+
+`verify_structured_road_selection.mjs`6项通过：16个城市起终点、72个道路点／方向／目标组合，与独立原47BB比较结果、所属读取顺序和原写集顺序；另核两位置的高费用command9/10及端点快捷、无路不返回假边、192/254/255/256端点、图／输入不改。原窗口pin只证明静态来源，不是CPU执行；合成图不认证端口地形。未覆盖actual candidate移动、占格、接敌倒数、291A后继、撤退、存档或M192，原生产门不变。
+
+**登记图选边对照续批（r7）**：`tools/verify_city_source_registered.mjs --output .dragon-analysis/city-capacity/registered-city-source-r7`在原41角色登记捕获的192节点／254边上完成56160次47BB决策对照。每profile取全部192节点、每条道路`floor(points.length/2)`游标的正反方向；目标每16城采样并追加该边两端；owner0、command1/10。只用私有地址内存及规则字段记录，291A替为记录owner的stub，不执行去向或实例化App。
+
+| 所属profile | 查询 | selected | already-there | fate-required | 边端点快捷 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 默认章实际所属（中立编码18h） | 18720 | 10452 | 24 | 8244 | 2032 |
+| 全己方 | 18720 | 18696 | 24 | 0 | 2032 |
+| 全外属 | 18720 | 10364 | 24 | 8332 | 2032 |
+
+逐项核结构位置、hasEnteredRoad与原status bit0、未动其它status位、owner惰性读取序及原legion写集顺序；already-there保原残留point7777h/stride80h且无写入。输入位置／结构图／源对象不改。三份结果／读取／写集轨迹SHA依表序为`c3f1a4b8e90d2361097f1b9d5ec320f08bd1929333efe8259deafdd0c5cdbd6a`、`1636ea91a7192bc93c51666718274422311e48136b99d8fe712ad9cd0d3ebab8`、`df647c60dd7d836943952b31e17131630570e51aa16ab08de01dd17fd95ab3c4`。`audit.json`明确绑定11份审计代码及原7份转换代码、各profile所属SHA和采样配置；原52176次491B对照亦重跑通过，41输入SHA及两轮城市／章节产物不变。r1–r6收据未改。
+
+r7仍未覆盖全部道路点／目标／所属组合、登记图无路负控（仅合成测试覆盖）、CPU执行、实际legion写回、占格、接敌、291A后继、撤退及新费用政策；报告明确列入unverified。不以56160次决定对照当作移动或M192完整验收，战场probe IDs也仍非真实资源绑定。
+
+<a id="city-capacity-unreachable-action"></a>
+**CITY-CAPACITY-1/D5无路动作返回（用户批准Web差异，已接当前运行）**：`selectOriginalRoad47BB`检查491B的明确`reason:exhausted`，在命令／高费用门之前返回`{cf:false,reason:'unreachable'}`，不把残留BX0800／AL0或5当作有效边／方向，不读23、不写军团字段、不调用291A。`performOriginalRoadAction`两处选边入口接该结果，恢复本次占格DEC所对应的INC，返回`unreachable`；候选格、方向、坐标与目标不被伪造选边覆盖。若本次因status bit1待重算而进入，则重新置该bit使下次正常到期动作继续重算，避免在路军团因该bit已清而沿旧方向偷走。无新增计时器／随机数，无路本身不清目标、不解散或瞬移；后续可达目标可完成重算并正常移动。
+
+原生军团槽将此视为本次action正常返回，继续原日结／尾段及其余槽，不以无路暂停整个世界，也不豁免规则费用。失败输入仍走已有fail-closed，不冒充unreachable。高费用命中且command>=0A仍走已证去向分支；487B撤退选址、玩家新命令预检及提示、AI派令保旧目标等D5剩余caller尚未完成，本条不认证其行为。
+
+`verify_native_road_movement.mjs`35项通过：替换两个历史假边耗尽oracle，保留原始字节证据；新增实际slot测试覆盖在城两种flag入口与在路重算、command10无去向、占格恢复、余槽一次、JSON保存目标、连续到期不偷走及可达替换恢复。追加连续动作负控先发现“只恢复占格仍会下次偷走”，再以保留pending-bit修正；未回滚原已提交规则前缀或加猜测重试。首次快照断言错读派生legions数组，已改读持久化权威nativeLegionSlots.records，未改存档实现。结构化选边6项、到达32项及占城18项也重新通过；这些不是M192完整战役或旧档／新图加载证明。
+
+<a id="city-capacity-structured-retreat"></a>
+**CITY-CAPACITY-1/C2结构化487B撤退选址（隔离决策，未接运行）**：`navigation/structuredroadretreat.js:findStructuredRetreatCity`复用结构化491B。原首都FF在源边界转为null；无首都先返回，不读当前位置／所属。边内先读from所属、后读to所属，按48C2／48D5把不可退一端替为另一端；两个stop传递顺序仍to、from，不排序。491B快捷直接返回already-there，保490C无最终所属读取；正常命中按在城／在边选择不同方向端点，再按48FD读选中城所属。返回found或already-there携带cityIndex；明确失败分no-capital、foreign-endpoints、no-route、foreign-next-city，不执行291A、不写军团／占格／图，也不合成耗尽AX换算出的城市。索引255／256是普通城市。
+
+本批直接复核固定KI（全文SHA同§3.5，VA+200h）487B..491B完整窗口，SHA `69d36b1879958c62f100428e8e2748b9e3557ff3562961b8e048f4884c75a0dd`：4887判FF后488B STC；48BB先读from、48CA再读to；48D7／48E5调491B，48DA／48E8 CF分流；边内48DC与FFFC比较、节点48EA与4比较，48F1取端点；48FD再查所属，490C快捷／耗尽共用AX<<2及CLC。最后这个原版耗尽假成功由已批准D5的新明确no-route替代，不能与正常快捷混同。
+
+`verify_structured_road_retreat.mjs`7项通过：锁原窗；16种所属组合×4首都×10城市／边位置共640次正常可达查询，与原487B适配器逐返回城和惰性所属读取序相同；无首都、同点不读无关字段；孤图明确no-route；等费用三角图反转根端口顺序后选城随之改变，不按城市ID排序；两端外属／下一城外属分因，未知所属仍抛错；192/254/255/256端点正常。合成图只验证运输和决策，不认证实际地图端口；没有原CPU执行、真实登记图全量撤退对照、军团写回、去向执行、战后返回或存档接线。现有`originalRetreatRoute`／continue／garrison调用者仍待统一迁移，不能因这个隔离查询已绿就宣称D5运行撤退完成。费用仍按原word策略，不提前实现未批准费用扩域。
+
+**真实登记图撤退对照r8（隔离487B，不是运行撤退验收）**：`verify_city_source_registered.mjs`在既有41角色来源、192节点／254边上增加30720次查询。三种所属配置均为owner0；位置覆盖全部192节点、254边各中点的±方向，共700种；首都每16城采样，另含当前位置／边两端及null，去重后每配置10240次。逐结果、惰性所属读取序及无首都不读当前位置与原487B适配器一致；图、位置对象、20章捕获源与41原输入不改。r8报告同时重跑原52176次搜索、56160次选边及双轮城市投影，并独立核这些结果与r7完全相同。
+
+| 所属配置 | found | already-there | no-capital | foreign-next-city | foreign-endpoints |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 默认章（中立映射18h） | 701 | 254 | 700 | 2083 | 6502 |
+| 全己方 | 8332 | 1208 | 700 | 0 | 0 |
+| 全外方 | 0 | 192 | 700 | 2292 | 7056 |
+
+上述连通图未触发no-route；孤图由前述单测覆盖，不能把表内外属失败当作搜索耗尽覆盖。全外方仍有192个同节点快捷，是原490C不再读所属的确定结果，不补“首都必须属己”检查来改写这一局部行为。
+
+独占收据`.dragon-analysis/city-capacity/registered-city-source-r8/audit.json`的`roadRetreat`绑定上述配置、所属SHA、30720次计数及13份审计代码SHA；城市转换另沿rev4的7份代码SHA。三组结果／所属读取轨迹SHA依次为`dcf464fe3a4094b336762ef08300b0bb28b31648a6df220ffab03b2c4fe24e49`、`a41ad4c111b5fd0b86e11bd2ffb334d85e66cd8197fc0872a9ff2bcbe866ed39`、`9f6df961e3376a020f8b717a9c3fdcaaaeb3e2264ba51758c18089f4a3607fdc`。r1–r7不改；战场ID仍是audit-only运输探针。未认证全部首都／位置／所属组合、原CPU、军团写回、占格、去向执行、战后caller或新费用规则，更不代表M192／v3准入／真实保存完成。
 
 ### 3.6 P24：图字节重建与默认图条件队列界
 
@@ -301,7 +367,7 @@
 - capability保存在正式assembly的Scenario WeakMap所有者中，与原图RAM同寿命；context只读查找，不逐查询创建。snapshot正式`webMeta.movementMemory`带version1、exact world/content身份、复用road checkpoint的完整initialGraph与known spans。JSON恢复校验身份/图/有序不重叠有界spans，保unknown/零/FF，军团指针仍由普通状态快照保存，无冲突副表。capture在await前复制输入。
 - 缺此可选能力的旧detached v2仍能prepare、487B、snapshot、JSON restore，只在移动入口拒绝；v1、错位metadata、错身份/图拒绝。无metadata有效phase v1准入不变，不迁移旧档、不推测占格初值。
 
-**47BB原写序**（`navigation/originalroadmovement.js`）：先14→0E→01，边内先edge+6→+8；目标等+8/+6快捷OR1后写stride4/FC，不搜索、不写0C/0E。其它目标从14向两端反搜，保旧+8作BP。只在unsigned CX≥8000h才读23，23≥0Ah再读01并在291A边界抛；保搜索RAM及外层DEC/清bit1，不假STC。低费即使缺23也不抢读。边内仅比较返回**AL==4**选返回edge+6，否则+8；所得端等旧BP写4，否则FC，保旧边/点。节点相等CLC无写，其余反搜后依次写0C→0E→清bit0→AL低byte stride。**忽略search CF**：耗尽仍读0800，节点可写stride0/5而非统一±4；边内AL0读0800+8，若等旧BP则+4。对外只声明CF，不伪造本接口没有完整输入/验证的其它47BB寄存器ABI。
+**47BB原版／历史Web写序**（`navigation/originalroadmovement.js`现行耗尽特例见[批准D5](#city-capacity-unreachable-action)，其它已证顺序保持）：先14→0E→01，边内先edge+6→+8；目标等+8/+6快捷OR1后写stride4/FC，不搜索、不写0C/0E。其它目标从14向两端反搜，保旧+8作BP。只在unsigned CX≥8000h才读23，23≥0Ah再读01并在291A边界抛；保搜索RAM及外层DEC/清bit1，不假STC。低费即使缺23也不抢读。边内仅比较返回**AL==4**选返回edge+6，否则+8；所得端等旧BP写4，否则FC，保旧边/点。节点相等CLC无写，其余反搜后依次写0C→0E→清bit0→AL低byte stride。**忽略search CF**：耗尽仍读0800，节点可写stride0/5而非统一±4；边内AL0读0800+8，若等旧BP则+4。对外只声明CF，不伪造本接口没有完整输入/验证的其它47BB寄存器ABI。
 
 **2662/42AB/点推进**：
 
@@ -323,6 +389,11 @@
 
 ### 3.13 P24：detached到达命令与存储city+18缓存
 
+<a id="city-capacity-d3"></a>
+**CITY-CAPACITY-1/D3现行Web差异（用户明确批准，非原版机制）**：用户对集中提出的D1/D3/D5/D6建议回复“同意建议”并恢复goal后，43D3改读**当前到达城**的stored C18缓存（非目标城、非实时军团计数）；不再读取原DI+18跨势力／外交／其它城别名。handler5之前的道路域、兵力、目标attr短路门与后续RNG／命令写序保持；仅新的缓存判定改变是否进入原43D9随机分支。3F29遇旧属中立18h不再写外交[0][23]，正常势力F17写回、冷却前缀、旧属字段不改写及C18刷新保持。该差异统一作用于旧192城和后继扩容，不设旧图兼容引擎；不授权删除其它别名或扩大城市数值域。
+
+以下表格与P24/P41说明中的43D3别名、3F29中立外交写入均保留作**原程序证据／历史Web行为**，不再作为现行实现或逐位等价要求。`verify_strategic_city_ai_raw.mjs`保留原字节认证；`verify_native_road_arrival.mjs`对D3按批准的Web结果测试。旧4300历史分析也不据此重新判定；D3沿当前节点传递方式读取实际到达节点，未改4300返回／占格协议。
+
 > 接续状态更正：本节早期291A/463E/25E5全停描述由[去向§7](re-notes-legion-fate.md#7-有限-scenario-接线p24-fate-integration-1)的显式字段、无消息返回与失败前缀合同取代；其它未覆盖域不因此放行。
 
 **范围/置信度**：固定KI静态指令为实锤；命名字段、显式known cache、精确异常是批准的Web工程表示，不是DOS异常机制。本节为本批唯一详细维护源。仍由`performLegionSlotAction → performOriginalRoadAction`及`stepTo`调用；不复用legacy `settleArrivedLegionCommand/state5AliasedByte/cityLocalStrength`，不新增槽泵、不启用App v2。默认v1与§3.11攻城双方结果先于攻方474A的P1修复不变。
@@ -338,7 +409,7 @@
 | 消费地址 | 已覆盖命名域 | 未覆盖域 |
 | --- | --- | --- |
 | 28FD owner | wrapped地址841h+20h*j，j0..191：live city.faction | 其它D52别名/缺字段 |
-| 43D3 DI+18h | 600h..83Fh **完整 24×24 native 表**（trial-tactical-browser-r1 实机修复：旧读 `sc.diplomacy` prefix view，16 势力剧本第三方行（如行 22）`undefined` 冻泵 `Uncovered diplomacy 2072 at 43D3`；改走 `nativeDiplomacyAt`，与 originalcity.js 3FF4 同模式）；858h+20h*j stored cache；**000h..5FFh faction 域（P41）**：偶 k→`faction[k/2].nativeGeneralCount`（F+18 live）、奇 k→F+38 静态 raw 字节（strict hex 切片）；4300 拦截 STC 重入以 DI=u16(idx*0x400)，idx=64 回绕 0→势力0 F18 | F+18/F+38 以外的 faction offset与其它别名 |
+| 43D3 DI+18h（原证／历史Web，现行见D3） | 600h..83Fh **完整 24×24 native 表**（trial-tactical-browser-r1 实机修复：旧读 `sc.diplomacy` prefix view，16 势力剧本第三方行（如行 22）`undefined` 冻泵 `Uncovered diplomacy 2072 at 43D3`；改走 `nativeDiplomacyAt`，与 originalcity.js 3FF4 同模式）；858h+20h*j stored cache；**000h..5FFh faction 域（P41）**：偶 k→`faction[k/2].nativeGeneralCount`（F+18 live）、奇 k→F+38 静态 raw 字节（strict hex 切片）；4300 拦截 STC 重入以 DI=u16(idx*0x400)，idx=64 回绕 0→势力0 F18 | F+18/F+38 以外的 faction offset与其它别名 |
 | 4304/441B/4455/4462 | 实际city+18的同一cache能力 | 缺能力/未知byte/非city地址 |
 | 4549/454C | 实际city记录+8/+A的完整X/Y word | 缺坐标、非city pointer，包括首都FF |
 
@@ -386,12 +457,21 @@ Web 根因已确定为 `snapshotScenarioAssembly → readSavedAssembly/admitSave
 **测试与剩余边界**：`verify_native_road_arrival.mjs`使用正式prepared detached Scenario、真实slot/stepTo与纯内存JSON，覆盖lazy gates、一次dispatch、不同BX/DI别名、同槽/早槽前缀、两次DEC/refresh、cache/图RAM隔离、city异常hold、原phase/F14保持。少量自定义IO原语只补真实bridge未覆盖边界，不是CPU oracle。旧movement到达“28F4全拒绝”测试最初改停handler9/461D；现[§3.15](#native-formation-callers)推进到实际缺池4735，保原等待/失败覆盖。固定KI字节核查、初红修正、私有变异及当前SHA证据只记journal/实施产物；完整安全清单与独立review另跑。461D限定三池域已由§3.15推进；291A/463E及消息、2BA8、4A7B/4ADE、D52非命名别名、完整cityAI/全campaign仍未认证。
 
 <a id="native-city-callers"></a>
+<a id="city-capacity-request-tail"></a>
+
+**CITY-CAPACITY-1/D1前置续段修复（Web调度接线，不是新增原机制结论）**：`tickStrategicCity`原生TALK38已有关闭后执行40F6／414F／40B3的回调，但`aiTick`原生分支没有传入后继，反而在消息仍挂起时直接调用`finishStrategicCityUpdate`，提前治理、灾损和军团batch。现原生分支捕获本次options／Scenario／clock，向军事阶段传入一次性resume；请求存在时返回pending，关闭后才治理→灾损→推进城游标→唯一军团批次。无UI同步完成也只执行一次；旧clock／Scenario回调无效，后继异常保前缀并hold／禁存。不改原3F57→3F5A顺序、规则公式或随机消费，仅修复JS异步接续。后续同一原生分支已接D1相位区间，见下段；下游地址、道路及装配仍固定192，不能据此宣称扩容可玩。回归见`verify_native_city.mjs`的native aiTick TALK38／stale clock用例及`verify_city_request_continuation.mjs`。
+
+**消息自身续段失败边界**：40F6／414F／40B3在异步`onClose`里执行，早于批次resume，不能只依赖resume内部catch。`completeRequest`现捕获这段错误，保已提交冷却等前缀、进入同Scenario／clock的failure hold并禁存，不再恢复批次。故障注入覆盖RNG失败（未写冷却）与40B3缺owner（已写冷却27）；重复关闭及后续aiTick不重耗RNG，不推进城市相位／军团。新增回归先以异常逃逸失败、修复后native city34/34通过；没有新增规则兜底或回滚。
+
+**D1相位批次接线（用户批准Web决定）**：`game/cityphase.js:cityPhaseRange`按`[floor(p*N/192),floor((p+1)*N/192))`给出有序区间；原生aiTick以military/daily阶段及闭包内cursor处理区间。每城军事实返后才治理／灾损；遇TALK38只挂起当前城，回调从daily继续，前城不重跑。running防同步无UI重入；全区间返回后才提交下一phase、执行一次军团batch，空区间也保留军团更新。历史`options.cityIndex`及存档`_cityTickCursor`名称暂保留，语义是0..191相位：N192时与旧城市索引严格相同。未完成批次依现有request／failure守卫禁存，不新增半批快照或改旧存档准入。
+
+`verify_city_phase.mjs`覆盖0/1/191/192/193/257/98304数量完整一轮，不漏不重；`verify_native_city.mjs`的N257仅为调度定点探针，phase50访问已知v2槽66/67，连续两次请求验证前缀不重跑、军团只推进一次；额外65个占位记录不消费。该夹具刻意不走真实扩容准入，不是新192以上道路、城市raw、缓存或M257证明。正式新增节点仍待C1–C5统一适配，不放宽旧门。
 
 ### 3.14 P24：detached城市军事→治理→灾害真返回与有限天气尾
 
 **范围与原证**：本节为城市切片唯一详细维护源；静态KI指令为实锤，命名字段/Uncovered为批准Web工程表示，测试不是独立CPU证书。固定KI SHA同§3.13，VA+200h。本轮原窗在`C:/Users/fczll/AppData/Local/Temp/dragon-city-contract-readonly-6qdnvees/`，`raw-3efd-42ab.txt`、`raw-4575-474a.txt`、`raw-1d0b-1df8.txt`及`raw-2459-24c0.txt`可逐条用原byte重核。编成依赖另有`raw-6e8f-703c.txt`，不能把其局部窗当完整新编接线。本批不启用App v2、不改v1算法/默认道路资产、不增加双内核或旧档迁移；当前无旧档保全约束按项目AGENTS政策，不授权触碰真实SAVE。
 
-**唯一城市阶段所有者**：`aiTick → tickStrategicCity`先§3.13 cache前缀，再`runOriginalCityMilitary`。真返回后`finishStrategicCityUpdate`独占`governOriginalCity(4194) → damageOriginalCity(4269)`，不再调用legacy治理。3F6F才写`_cityTickCursor=(idx+1)%192`。随后既有16槽action→2600→264A（03再21）→余槽；25FF才写`_legionBatchCursor`，然后2459，正常返回才可1D8E。main仅native取消旧无条件预推进；v1不变。native `aiTick`区分returned/pending/failed；全城市阶段异常进入同Scenario/Clock failure hold并禁存，直接military入口仍抛Uncovered。城成功军失败保已提交城市游标；天气失败也保军团游标。不补finally尾、不回滚、不重复前缀/RNG。本批日期控制限CF2<8，未认证月界/完整外交消息返回。
+**历史P24城市阶段所有者（现行JS批次及消息失败接线已由上方D1替代，原调用顺序证据保留）**：`aiTick → tickStrategicCity`先§3.13 cache前缀，再`runOriginalCityMilitary`。真返回后`finishStrategicCityUpdate`独占`governOriginalCity(4194) → damageOriginalCity(4269)`，不再调用legacy治理。3F6F才写`_cityTickCursor=(idx+1)%192`。随后既有16槽action→2600→264A（03再21）→余槽；25FF才写`_legionBatchCursor`，然后2459，正常返回才可1D8E。main仅native取消旧无条件预推进；v1不变。native `aiTick`区分returned/pending/failed；全城市阶段异常进入同Scenario/Clock failure hold并禁存，直接military入口仍抛Uncovered。城成功军失败保已提交城市游标；天气失败也保军团游标。不补finally尾、不回滚、不重复前缀/RNG。本批日期控制限CF2<8，未认证月界/完整外交消息返回。
 
 **命名与保存**：C14=`strategicThreat`，C1B=`strategicBorderCount`，C1C..1F=`strategicNeighbours`（固定四byte原顺序），C18仍只有cityCache能力。C15沿`disaster_event`，不增加镜像。F19沿`target_faction`，F16/F17沿既有具名字段。上述own state克隆保存；不在native消费时从raw/owner/道路/军团数补值。邻接FF终止而洞/null/NaN不是FF；snapshot拒绝新字节非法值/邻接洞，restore克隆后验证。缺整个可选字段仍未知，短路未读不提前阻断。cityCache/占格/图RAM仍以exact世界/内容/initialGraph身份隔离。88CC边界维护、完整初始化与捕获callee未接，4ADE门不放行，不能每tick重算边界掩盖缺写者。
 
@@ -545,17 +625,49 @@ snapshot候选不改live；只存表一次，不另存live/delayed规则副本�
 
 **范围/置信度**：固定KI capstone现刷为实锤（字节 pin 见 `verify_strategic_city_ai_raw.mjs` P39 段）；栈内容来源追踪为实锤指令级推导；「原版结果输入依赖、静态不可复现」为实锤结论。本节为本项唯一详细维护源。
 
-**行走语义（4057..40B2）**：`405D` 一次 canonical RNG 后 `al &= 3`；`4064` 起 `cmp ss:[di],0xFE`——槽字节≥0xFE 则 `di=bp` 从头重扫（**al 不变**），否则 `dec al`、`al==0` 选中该槽、`di+=4` 续走。3FA9 只在 `3F89` 用 `rep stosw` 把 16 字节本地帧预填 0xFFFF；候选满四个（cl=4 耗尽）时不再写终止符。因此 N<4 时 al=0 的行走被哨兵截回、结果确定（等价 255 mod N 回绕，Web 现行实现逐指令吻合并有测试锁定）；**N=4 且 al=0 时行走越出缓冲进入压栈区**。
+**行走语义（4057..40B2）**：`405D` 一次 canonical RNG 后 `al &= 3`；`4064` 起 `cmp ss:[di],0xFE`——槽字节≥0xFE 则 `di=bp` 从头重扫（**al 不变**），否则 `dec al`、`al==0` 选中该槽、`di+=4` 续走。3FA9 只在 `3F89` 用 `rep stosw` 把 16 字节本地帧预填 0xFFFF；候选满四个（cl=4 耗尽）时不再写终止符。因此 N<4 时 al=0 的行走被哨兵截回、结果确定（等价 255 mod N 回绕，Web保留该DEC选择结果、RNG和可观察读写次序；私有候选表示的后继变化见下方容量改造）；**N=4 且 al=0 时行走越出缓冲进入压栈区**。
 
 **外栈内容来源（实锤）**：`3F74` 依次 push es/ax/bx/cx/dx/di/bp 后 `sub sp,0x10; mov bp,sp`，故 `[bp+0x10]`=压栈 oldBP，`[bp+0x12/14/16/18/1A/1C]`=di/dx/cx/bx/ax/es。其中 bx=城市 X 低字节、ax=邻城 cache&0x7F、es=地图段基址（均为确定性状态值）；但 **bp/di/dx/cx 是 3EFD 未经初始化透传的 1CD0→1D0B 入口残余**——主循环 1C1F..1C65 每帧先跑 1F7F 输入、E453 计时（`1C22 push cx/dx / call E453 / pop`）、59A6/59B7/1E46/1F30/5C58 UI 分支，这些寄存器逐帧随用户输入与计时而变；再往上是返回地址（3F5A/1D16/1C65）与更老帧。al=0 的行走需 256 次有效字节读才终止（stride-4 深入约 1KB 栈），途经任何 ≥0xFE 字节都重置 di 但不重置 al，最终落点由动态栈内容决定。
 
 **原版结论与历史 Web 边界**：原版此路径为越界栈读，选中槽由运行时动态栈字节决定，输入依赖、静态不可复现；与3094未初始化RAM同类。N=4可达性不可静态排除（边城四邻皆属目标势力即可构造）。P39当时将Web在`di>=16`首次`ss:[bp+0x10]`读停止归类为永久fail-closed；此分类是历史实现政策，已被下述明确产品决定取代，原版证据结论不变。C08其余4155/43D3/7FB4边界仍按各专项来源，不随本例外放行。
 
-**CITY-4064-WEB-1（已批准 Web 产品决定，非原版机制）**：来源为用户报告重置版吕布归天/刘勋/最高战略速度在196年5月11日显示`Uncovered SS:[BP+10h] at 4064`；助手明确提出“仅四候选且随机低两位0时选第4候选、不额外耗随机数”，用户回复“同意，继续”。截图只用于定位，不是原规则证据。实施边界：共同`runOriginalCityMilitary`在一次405D取样后，仅`bp===16 && al===0`将计数置4，继续原DEC循环命中最后一条有效候选；不增哨兵、不补栈、不重新抽签、不改变其它候选数或随机值。原低1/2/3分别选第1/2/3条，低0按此Web例外选第4条，按候选构建顺序而非城市编号。4073弱城/玩家/增援以及4099→4155出击的条件、原有RNG消费、写回和后续治理/调度保持。玩家与编辑器试玩共用源码，生成Trial束同步重建。其它失败仍保前缀、hold和禁存，不全局吞异常。
+**CITY-4064-WEB-1（已批准 Web 产品决定，非原版机制）**：来源为用户报告重置版吕布归天/刘勋/最高战略速度在196年5月11日显示`Uncovered SS:[BP+10h] at 4064`；助手明确提出“仅四候选且随机低两位0时选第4候选、不额外耗随机数”，用户回复“同意，继续”。截图只用于定位，不是原规则证据。实施边界：共同`runOriginalCityMilitary`在一次405D取样后，仅`candidates.length===4 && al===0`（旧实现以`bp===16`表示四候选）将计数置4，继续原DEC循环命中最后一条有效候选；不增哨兵、不补栈、不重新抽签、不改变其它候选数或随机值。原低1/2/3分别选第1/2/3条，低0按此Web例外选第4条，按候选构建顺序而非城市编号。4073弱城/玩家/增援以及4099→4155出击的条件、原有RNG消费、写回和后续治理/调度保持。玩家与编辑器试玩共用源码，生成Trial束同步重建。其它失败仍保前缀、hold和禁存，不全局吞异常。
 
 **本例外回归范围**：`verify_native_city.mjs`以1..4候选×全部256随机byte检查选择/两次RNG（405D和既有416E）及目标/命令写集；弱玩家城canonical RNG仍只耗405D一次；Clock与TrialStrategicClock通过真实aiTick的城市→16槽→天气续行，与选中相同目标的低1原有分支对照后继状态/RNG次数。测试日期同截图但场景是明确合成fixture，不是用户同局/同RNG复现，也不宣称整个战役已认证。
 
 **验证与剩余工作**：`verify_native_formation.mjs`的静态手算golden覆盖真实城市→创建→当前/跨批slot→后续47BB、旧兵守恒、一次成功后partial失败、state9池竞争、type4、active同slot/F14/03、实际消费点失败/hold/禁存、JSON冷再入及sidecar不反盖。既有native测试显式增加表/样式输入，旧461D全停断言推进到实际缺池4735；不是生产填洞。三旧v1测试及父追加批准同文件phase/BP夹具修正只锁已证输入/后继，不改v1生产来兼容耗尽pointIndex/旧cooldown。私有mutant、完整回归、浏览器、主动诊断与review的精确批次状态记journal/交付报告；focused不等于全AI、native启用或全战役证书。
+
+<a id="city-capacity-typed-city-candidates"></a>
+##### CITY-CAPACITY-1/C3：军事候选身份与FE/FF标记分离
+
+`runOriginalCityMilitary`现将函数私有16-byte工作表改为有序`{cityIndex,owner,cachePlusOne}`记录和独立`hasHostileNeighbour`标记；不再把候选城市身份当成FE/FF。原DOS工作表／越界栈证据仍以上文为准，不称原程序存在这些对象。
+
+- 候选扫描仍按C1C四槽次序；当前旧准入仍以FF终止，不排序、不去重。敌对威胁与有效目标候选独立：没有候选但有敌对邻居写C00 bit7，有候选写bits6/7，无两者走原冷却清零分支。
+- 3FFF的威胁累加仍每次`&255`；400C重复读owner和4013读缓存＋1仍发生，即使本函数后续不使用记录的这两个字段，也不能作为“冗余读”删掉。C14、C00只在完整候选构建返回后按原顺序写回，构建失败不提交局部威胁和候选。
+- 405D仍只抽一次低2位；保byte DEC循环，N<4低0仍数第256候选，不改成`rng%N`；N=4低0继续已批准的第四候选例外。循环末回绕有序记录下标，不访问原栈padding；出击既有416E消费及所有下游条件不变。
+- `verify_native_city.mjs`本轮35/35，包括既有1..4候选×256随机byte及新混合己方／敌对／中立邻居的三组I/O轨迹。例C18=10与255累加为9；目标分别为敌1／中立18／敌2，核每次owner/cache惰性读取、一次405D、weak-player返回不清冷却。原窗静态核对和TALK38完整续段入口另通过；未执行原CPU。
+- **仍未完成**：neighbour消费仍是byte/FF，派令／编成／缓存和v3装配尚未全接。`cityOwner`旧地址依赖已由下述索引服务替代，但不能据此宣布254/255/256城市已在完整军事路径运行；不改变候选数量、公式或新增RNG策略。
+
+<a id="city-capacity-indexed-city-owner"></a>
+##### CITY-CAPACITY-1/C3：所属读取的索引边界
+
+现行`originalroadstate.js:readCityOwnerByIndex`按非负安全整数索引和实际city.idx读取live `faction`；null仍转18h，缺行／字段、错idx及非byte所属仍报错，不取raw或补中立。`readOriginalRoadCityOwnerByte`保原地址／192槽门，只将合法地址解成索引后复用同一读取体；不是放宽D52 RAM或允许额外势力。
+
+`prepareScenario`及`scenarioNativeRoadContext`提供`readCityOwner(index,instruction)`；`originalcity.js`的军事、请求后继和治理九个读取点，`originalroadarrival.js:refreshOriginalCityCache`的3F11现属读取和`arriveOriginalRoad`的28F4首读，以及`performOriginalRoadAction`内联`cityOwner(node)`（候选攻城门与42AB端点检查），改用该服务。首读按`roadNodeToCitySlot`把`BX`（8*slot）经同一u16回绕／对齐解成槽位再索引读主权，不经过192槽旧地址门；其它旧地址／重复192检查照旧去掉，原读取先后和故障阶段标签保留；规则所有者byte值、RNG、C14／C00提交、预算、C18及失败前缀不变。47BB寻路（movement选边／retreat 487B）经`searchOriginalRoadMemory`的可选`readCityOwnerAtNode`＋`cityNodeBound`注入同一索引读（`readRoadNodeOwner`＋共享`cityNodeBoundOf`），缺省走旧地址契约；retreat三处读（两端点、搜索内、终点`BX+0x841`先验`BX%0x20`再解节点）统一经此契约。旧地址API仍供未注／无能力的mock与旧夹具使用，不建立两套所属权威。
+
+`verify_original_road_state`10/10包含索引192/254/255/256的live读取／旧地址拒绝、未知输入标签、同一治理叶的高索引对照（字段／预算／3次RNG与index0同）、28F4首读与到达指针桥、移动节点域的高槽位覆盖，以及C1C懒解码的顺序／不修复语义；未装配新城市世界。`verify_original_road_search`11/11锁定47BB索引契约（198..200槽链：旧形pin、live界费用、0x600旧界门控、487B found全链路，旧地址读永不触发）。native city36/36、治理算术3/3（含393216个byte算术样本，不是放宽编辑器能力域）、月度外交15/15、道路movement35/35、arrival32/32、siege12/12、capture18/18及TALK38续段入口通过。日志中的失败hold来自故障负控。v3装配、派令／编成／缓存及高索引完整军事／移动／撤退路径仍待接，不称M192/M257。
+
+<a id="city-capacity-typed-city-neighbours"></a>
+##### CITY-CAPACITY-1/C3：战略邻居的索引边界
+
+现行`originalroadstate.js:readOriginalStrategicNeighbour(city,slot,instruction)`只解一格旧C1C：FF为空引用，其它byte原样返回，不压缩、不排序、不跨槽修复；未知byte、坏槽和坏行仍报错并保留指令诊断。军事是该服务的当前唯一生产消费者：仍按四槽顺序逐格懒读，null即原FF终止，不把后续槽前移；其它消费者继续保留各自跳过／终止语义，不借本服务统一改写。索引值域仍是旧byte域，高索引只能由显式nullable-index输入进入同一军事叶做能力验证，不能由旧byte解码产生。
+
+同一军事叶在`scenarioNativeRoadContext`和`prepareScenario`返回中经`readStrategicNeighbour`接入；测试用显式高索引输入验证192/254/255/256可派令且仅null终止，四次RNG与派令写集与baseline一致。当前仍未升级邻居存储、v3装配、派令／编成／缓存／道路位置，不代表新城运行准入或C3完成。
+
+<a id="city-capacity-indexed-movement-owner"></a>
+##### CITY-CAPACITY-1/C3：移动所属读取的索引边界
+
+`performOriginalRoadAction`内联`cityOwner(node)`（候选攻城门与42AB端点检查）改用`roadNodeToCitySlot`解槽＋`context.readCityOwner(slot,"movement-owner")`，同一u16回绕／对齐语义，错位／边地址／身份错位仍fail-closed，不经过192槽旧地址门。`arriveOriginalRoad`的私有`cityAtPointer`（`cacheAt`／4311／attr／4549坐标／缓存递减全覆盖点）改用共享`cityAtRoadPointer`：`0x840+slot*32`同一起始／对齐，按live城市长度验身份，不设192门。movement的47BB寻路plumbing仍走旧地址API（共享`originalroadsearch`的`readStateByte`契约，多夹具依赖，另行转移）；movement`cityAt`／目标桥`191*8`门已按live城市长度动态化（城市表缺失时沿用旧门）。retreat的474A驻留检查改按live城市域＋索引读主权，`originalRetreatRoute`的BX返回校验改按live长度（旧`0x17e0`为192城写法）；487B体内部与寻路plumbing仍走旧地址API。movement35/35、arrival32/32、road_state10/10、siege12/12通过，不代表完整移动／撤退路径已脱离地址域。
 
 #### 3.15.7 P40：占格平面/C18 缓存的 C02 生命周期与 fresh 初始化闭合
 

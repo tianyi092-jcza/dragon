@@ -76,7 +76,7 @@ try {
     try { assert.equal(aiTick(app, { cityIndex: 192, legionBatchStart: 0, hour: app.clock.hour, runFactionTick: false }), 'failed'); }
     finally { console.error = report; }
     assert.equal(reports.length, 1); assert.equal(reports[0][0], '[wolong] strategic update failed; clock held');
-    assert.ok(reports[0][1] instanceof RangeError); assert.equal(reports[0][1].message, 'Uncovered city cursor at 3EFD');
+    assert.ok(reports[0][1] instanceof RangeError); assert.equal(reports[0][1].message, 'Invalid city update phase'); // D1 phase semantics: cityIndex denotes phase 0..191, so 192 is rejected by the phase gate before the 3EFD cursor check; hold/save-refusal below unchanged.
     assert.ok(app._strategicBattleFailure); assert.equal(app.clock.hold, true); assert.throws(() => snapshotState(app, 0, saved.label)); negativeControls++;
     assert.deepEqual(app.originalRng.snapshot(), failureRng); assert.deepEqual(memory.records(), sourceBeforeContinuation);
     checks.push({ idx, prefix, continuation: hotTrace, capturedSha: hash(text), continuedSha: hash(saveJSON(hot)), fullCommonRecoveredStateAndSidecarRngEqual: true, storedCapturedRecordUnchanged: true, invalidCityCursorHoldAndSaveRefused: true });

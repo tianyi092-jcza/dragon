@@ -29,8 +29,10 @@ const signed24 = (value) => (value & 0x800000 ? value - 0x1000000 : value);
 export function performScenarioMonthlyFiscal(sc, rng) {
   const faction = (slot, at) => nativeFactionAt(sc, slot, at);
   const city = (slot, at) => {
-    const value = sc.cities?.[slot];
-    if (!value || value.idx !== slot || slot < 0 || slot >= 192)
+    const cities = own(sc, "cities");
+    const live = Array.isArray(cities) ? cities.length : 192;
+    const value = cities?.[slot];
+    if (!value || value.idx !== slot || slot < 0 || slot >= live)
       missing(`${at} city ${slot}`);
     return value;
   };
@@ -45,10 +47,15 @@ export function performScenarioMonthlyFiscal(sc, rng) {
       const value = own(record, field);
       if ((field === "capital" || field === "target_faction") && value === null)
         return 0xff;
+      // M257(d): n_cities rides word; every other fiscal byte is untouched.
+      if (field === "n_cities") return word(value, field);
       return byte(value, field);
     },
     writeFactionByte(slot, field, value) {
-      faction(slot, field)[field] = byte(value, `${field} write`);
+      faction(slot, field)[field] =
+        field === "n_cities"
+          ? word(value, `${field} write`)
+          : byte(value, `${field} write`);
     },
     readFactionWord(slot, field) {
       return word(own(faction(slot, field), field), field);
@@ -82,6 +89,15 @@ export function performScenarioMonthlyFiscal(sc, rng) {
       const signed = signed24(u24(value, "money write"));
       record.money = signed;
       if (Object.hasOwn(record, "gold")) record.gold = signed;
+    },
+    readCityCount(at) {
+      const cities = own(sc, "cities");
+      return integer(
+        Array.isArray(cities) ? cities.length : 192,
+        1,
+        0xffff,
+        at ?? "city count",
+      );
     },
     readCityByte(slot, field) {
       const record = city(slot, field);

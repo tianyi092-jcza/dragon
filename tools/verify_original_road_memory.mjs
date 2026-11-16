@@ -2,7 +2,11 @@
 // These are codec/search controls, not certificates that these worlds are generated.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createOriginalRoadMemory } from "../web/src/game/navigation/originalroadmemory.js";
+import {
+  createOriginalRoadMemory,
+  createCheckedOriginalRoadMemory,
+  restoreOriginalRoadMemory,
+} from "../web/src/game/navigation/originalroadmemory.js";
 import { searchOriginalRoadMemory } from "../web/src/game/navigation/originalroadsearch.js";
 
 function fixture() {
@@ -151,4 +155,80 @@ test("codec profile rejects workspace overlap; explicit writes distinguish known
   assert.throws(() => memory.writeByte(0xffff, -1), TypeError);
   assert.equal(memory.readByte(0xffff), 0);
   assert.throws(() => memory.readByte(0x10000), TypeError);
+});
+
+// M257 v3 (plan §9.10.24 V3-A): node=slot*8 kept, edge base relocated past
+// the live node table. v2 bytes stay untouched (pinned above).
+function v3Fixture(nodeCount = 257) {
+  const nodes = Array.from({ length: nodeCount }, (_, id) => ({
+    id,
+    edgeSlots: [0, 0, 0, 0],
+  }));
+  nodes[0].edgeSlots[0] = 0x4810;
+  nodes[1].edgeSlots[0] = 0x8810;
+  return {
+    version: 3,
+    nodes,
+    edges: [
+      {
+        id: 0,
+        source: 0,
+        target: 1,
+        weight: 1,
+        bounds: { minX: 2, maxX: 3, minY: 10, maxY: 10 },
+        points: [{ x: 2, y: 10, flags: 0x44 }],
+      },
+    ],
+  };
+}
+
+test("v3 relocates the edge base past 257 nodes; v2 cap and layout untouched", () => {
+  const memory = createOriginalRoadMemory(v3Fixture());
+  assert.deepEqual(memory.roadLayout, {
+    version: 3,
+    nodeCount: 257,
+    edgeBase: 0x810,
+    pointBase: 0x2000,
+  });
+  // Node 256 base 0x800 is addressable and no longer an edge record.
+  assert.deepEqual(bytesAt(memory, 256 * 8, 8), [0, 0, 0, 0, 0, 0, 0, 0]);
+  // Edge 0 header at 0x810 with node*8 endpoints.
+  assert.deepEqual(bytesAt(memory, 0x810, 10), [0, 0x20, 0, 0x20, 1, 0, 0, 0, 8, 0]);
+  assert.deepEqual(bytesAt(memory, 0x2000, 4), [2, 0, 10, 0x44]);
+  // v2 layout descriptor and 256-node admission stay as before.
+  assert.deepEqual(createOriginalRoadMemory(fixture()).roadLayout, {
+    version: 2,
+    nodeCount: 192,
+    edgeBase: 0x800,
+    pointBase: 0x2000,
+  });
+  assert.throws(() => createOriginalRoadMemory({ ...v3Fixture(), version: 2 }), TypeError);
+  assert.throws(() => createOriginalRoadMemory(v3Fixture(513)), TypeError);
+  const overflow = v3Fixture();
+  overflow.edges = Array.from({ length: 400 }, (_, id) => ({
+    ...overflow.edges[0],
+    id,
+  }));
+  assert.throws(() => createOriginalRoadMemory(overflow), /overlap the point region/);
+});
+
+test("v3 checked reciprocal tags and checkpoint roundtrip use the relocated base", () => {
+  const memory = createCheckedOriginalRoadMemory(v3Fixture());
+  assert.equal(memory.readByte(0x816), 0);
+  assert.equal(memory.readByte(0x818), 8);
+  const bad = v3Fixture();
+  bad.edges[0].source = bad.edges[0].target;
+  assert.throws(() => createCheckedOriginalRoadMemory(bad), /self-loop/);
+  const mismatched = v3Fixture();
+  mismatched.nodes[1].edgeSlots[0] = 0x8810;
+  mismatched.nodes[2].edgeSlots[1] = 0x8810;
+  assert.throws(
+    () => createCheckedOriginalRoadMemory(mismatched),
+    /endpoint mismatch/,
+  );
+  const checkpoint = memory.snapshot();
+  memory.writeByte(0x9000, 0x5a);
+  const restored = restoreOriginalRoadMemory(v3Fixture(), memory.snapshot());
+  assert.equal(restored.readByte(0x9000), 0x5a);
+  assert.throws(() => restoreOriginalRoadMemory({ ...v3Fixture(), version: 2 }, checkpoint), TypeError);
 });

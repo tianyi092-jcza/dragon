@@ -4,12 +4,35 @@
 import { canonicalDigest, validateGameSource } from "./gamesource.js";
 import { compileMapSource } from "./mapcompile.js";
 import { buildRoad, encodeRoadGraphV2 } from "./roadedit.js";
-import { FIXED_CITY_BINDINGS } from "./fixedcitybindings.js";
 import { validateOriginalRoadContent } from "../../game/navigation/originalroadcontent.js";
 
 // Fixed-node scan enforcement also changes the supported contract.
 // Keep all old build directories intact.
 export const TRIAL_COMPILER_REVISION = "editor-local-0.6"; // combination-level display-only projection
+
+/** C5 index summary: dense slot table plus per-chapter state digests.
+ * Pure derivation over already-validated dense cities and chapter states;
+ * battleMapId bindings are absent from game.cities by schema (C6 authoring
+ * model work), so no binding table is emitted here. Both outputs must be
+ * JSON-stable for manifest/publish consumers.
+ */
+export function compileSourceIndex(game, cities, sha256hex) {
+  if (typeof sha256hex !== "function")
+    throw new RangeError("sha256hex digest function required");
+  const cityIndex = cities.map((city, slot) => {
+    if (city?.runtimeSlot !== slot || typeof city.cityId !== "string")
+      throw new RangeError("city index requires dense 0..N-1 slots");
+    return { slot, cityId: city.cityId, x: city.x, y: city.y };
+  });
+  const chapterDigests = {};
+  for (const chapterId of game.chapterOrder ?? []) {
+    const state = game.chapters?.[chapterId]?.state;
+    if (state === undefined)
+      throw new RangeError(`chapter state missing: ${chapterId}`);
+    chapterDigests[chapterId] = canonicalDigest(state, sha256hex);
+  }
+  return { cityIndex, chapterDigests };
+}
 
 export function compileGameSource(game, sha256hex) {
   validateGameSource(game);
@@ -17,28 +40,31 @@ export function compileGameSource(game, sha256hex) {
     componentDefinitions: game.componentDefinitions ?? {} });
   const placements = new Map(game.map.placements.map((p) => [p.cityId, p]));
   // Placement array order is editor state, NOT native node numbering.
+  // CITY-CAPACITY-1 C5: slots are dense scan order 0..N-1; the composed
+  // plane scan below (not FIXED_CITY_BINDINGS) is the position authority.
   const cities = Object.values(game.cities).slice().sort((a, b) => a.runtimeSlot - b.runtimeSlot);
+  if (cities.some((city, index) => city.runtimeSlot !== index))
+    throw new RangeError("city runtime slots must be dense 0..N-1 in scan order");
   const citiesById = new Map(cities.map((city) => {
     const place = placements.get(city.cityId);
-    const fixed = FIXED_CITY_BINDINGS[city.runtimeSlot];
-    if (!fixed || city.x !== fixed[0] || city.y !== fixed[1] || place.x !== city.x || place.y !== city.y)
-      throw new RangeError(`unsupported city relocation: ${city.cityId}`);
+    if (!place || place.x !== city.x || place.y !== city.y)
+      throw new RangeError(`unsupported city placement: ${city.cityId}`);
     return [city.cityId, place];
   }));
   // KI E4CE..E50B scans 384 columns × 256 rows: each CB..D3 tile
-  // calls E57F and increments node count (E4ED/E4F0). M0 pins the
-  // original scan order to these 192 slots. Enforce that supported
-  // alias explicitly; do not encode a graph for an extra/missing node.
-  // This is a Web fixed-domain rejection, not malformed-DOS emulation.
+  // calls E57F and increments node count (E4ED/E4F0). The composed-plane
+  // scan order is the slot authority: count and coordinates must match the
+  // city table exactly. Extra/missing/unmoved scan nodes are rejected here,
+  // not encoded. This is a Web fixed-domain rejection, not malformed-DOS emulation.
   const nodeScan = [];
   for (let at = 0; at < compiled.terrainBytes.length; at++) {
     const tile = compiled.terrainBytes[at];
     if (tile >= 0xcb && tile < 0xd4)
       nodeScan.push([at % compiled.width, Math.floor(at / compiled.width)]);
   }
-  if (nodeScan.length !== FIXED_CITY_BINDINGS.length || nodeScan.some(([x, y], i) =>
-    x !== FIXED_CITY_BINDINGS[i][0] || y !== FIXED_CITY_BINDINGS[i][1]))
-    throw new RangeError("unsupported city node scan: composed plane differs from fixed slots");
+  if (nodeScan.length !== cities.length || nodeScan.some(([x, y], i) =>
+    x !== cities[i].x || y !== cities[i].y))
+    throw new RangeError("unsupported city node scan: composed plane differs from city slots");
   const checked = [];
   const tiles = (x, y) => compiled.terrainBytes[y * compiled.width + x];
   for (const road of game.map.roads) {
@@ -113,7 +139,8 @@ export function compileGameSource(game, sha256hex) {
     compatibilityAssetMode = "legacy-trial-derived-mask";
   }
   return { ...compiled, roadGraph, roadCost, roadOffsetBytes, compatibilityAssetMode,
-    sourceDigest: canonicalDigest(game, sha256hex) };
+    sourceDigest: canonicalDigest(game, sha256hex),
+    ...compileSourceIndex(game, cities, sha256hex) };
 }
 
 // Existing editor callers keep their API; formal migration calls the

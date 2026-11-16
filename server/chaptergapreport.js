@@ -6,9 +6,8 @@ function describe(gap) {
   const rest = gap.message.startsWith(gap.subject) ? gap.message.slice(gap.subject.length) : gap.message;
   const exact = new Map([
     [' generals must be 128 dense (locked)', '武將須符合目前128個密排槽的鎖定格式。'],
-    [' cities must be 192 (locked)', '據點須符合目前192個槽的鎖定格式。'],
+    [' cities must be 1..512 live slots', '據點須符合目前1～512個動態槽格式；槽位按地圖掃描順序密排。'],
     ['general idx must be unique 0..127', '武將編號須唯一且在0～127範圍。'],
-    ['city idx must be unique 0..191', '據點編號須唯一且在0～191範圍。'],
     ['faction idx must be unique 0..21', '勢力編號須唯一且在0～21範圍；隱藏原生槽不列為公開勢力。'],
     ['declared faction count differs from public view length; initialization edit unsupported', '勢力聲明數量與公開列表長度不一致；解散／初始化寫集未閉合，不自動改數量或原生槽。'],
     ['native faction source must contain 22 valid fixed slots', '已提供的原生勢力來源須包含22個有效固定槽；不以預設值修補。'],
@@ -21,6 +20,8 @@ function describe(gap) {
   if (field) description = `${field[1]}：${({ 'is required': '必填資料缺失或格式不符', 'must be a finite number': '須為有限數值', 'must be a string': '須為文字', 'must be an integer or null': '須為整數或空值' })[field[2]]}。`;
   const ability = /^\.(siege|field|naval|force|lead|politics) must be an integer in 0\.\.(15|255)$/.exec(rest);
   if (ability) description = `${ability[1]}：須為0～${ability[2]}的整數；僅為儲存表示檢查，不代表可玩准入。`;
+  const cityIdx = /^city idx must be unique dense 0\.\.(\d+)$/.exec(rest);
+  if (cityIdx) description = `據點編號須唯一且在0～${cityIdx[1]}範圍密排。`;
   const nativeView = /^faction slot (\d+) is not declared position (\d+); native view order required$/.exec(rest);
   if (nativeView) description = `原生勢力視圖位置 ${nativeView[2]} 卻指向槽 ${nativeView[1]}；固定槽映射未閉合，不自動重排。`;
   const nativeMismatch = /^faction slot (\d+) ([a-z_]+) differs from native source; initialization edit unsupported$/.exec(rest);

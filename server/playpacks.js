@@ -27,7 +27,19 @@ const ASSET_IDS = Object.freeze(['terrain', 'roadGraph', 'roadCost', 'roadOffset
 // Portrait library ids must never collide with pack asset ids (§4.3 B4e).
 export const RESERVED_ASSET_IDS = ASSET_IDS;
 const ASSET_MIME = Object.freeze({ terrain: 'application/octet-stream', roadGraph: 'application/json', roadCost: 'application/octet-stream', roadOffset: 'application/json', minimapBase: 'image/png', minimapLarge: 'image/png' });
-const ASSET_ROLE = Object.freeze({ terrain: 'rules-initial-terrain', roadGraph: 'native-road-v2', roadCost: 'legacy-grid-visual', roadOffset: 'legacy-grid-visual', minimapBase: 'automatic-minimap', minimapLarge: 'automatic-minimap' });
+const ASSET_ROLE_V2 = Object.freeze({ terrain: 'rules-initial-terrain', roadGraph: 'native-road-v2', roadCost: 'legacy-grid-visual', roadOffset: 'legacy-grid-visual', minimapBase: 'automatic-minimap', minimapLarge: 'automatic-minimap' });
+// CITY-CAPACITY-1 C6(c) (user-authorized): formal pack triplets per road-graph
+// version. v2 packs are byte-identical to before; v3 packs carry schema 2 /
+// studio-app-3 with the relocated native-road-v3 role. No mixed triplets.
+const PACK_TRIPLETS = Object.freeze({
+  2: Object.freeze({ schemaVersion: 1, buildFormat: 'studio-app-2', roles: ASSET_ROLE_V2 }),
+  3: Object.freeze({ schemaVersion: 2, buildFormat: 'studio-app-3', roles: Object.freeze({ ...ASSET_ROLE_V2, roadGraph: 'native-road-v3' }) }),
+});
+function tripletFor(roadVersion) {
+  const triplet = PACK_TRIPLETS[roadVersion];
+  if (!triplet) fail(422, 'PLAY_SNAPSHOT');
+  return triplet;
+}
 const assetURL = (gameId, rev, sourceDigest, assetId) => `/api/trial-asset?game=${encodeURIComponent(gameId)}&revision=${rev}&digest=${sourceDigest}&asset=${assetId}`;
 export class PublishedPacks {
   #storage; #sql; #principal; #runtimeAssets; #policy; #portraits;
@@ -133,13 +145,15 @@ export class PublishedPacks {
     // package owns its bytes/JSON and must not observe later caller mutations.
     const identity = { gameId: reference.gameId, draftRevision: reference.draftRevision, sourceDigest: reference.sourceDigest };
     const chapterOrder = [...game.chapterOrder], ruleProfile = structuredClone(game.ruleProfile);
+    // C6(c): the emitted pack triplet follows the compiled graph version.
+    const { schemaVersion, buildFormat, roles } = tripletFor(compiled?.roadGraph?.version);
     const { compatibilityAssetMode, width, height } = compiled;
     const visuals = await this.#visuals(tokenHash, { ...reference, ...identity });
     const portraits = this.#freezePortraits(states);
     const portraitEntries = portraits.map(row => Object.freeze({ assetId: row.assetId, sha256: row.sha256, byteLength: row.byteLength, role: 'game-portrait', url: `kao/${row.assetId}.png`, mime: row.mime }));
-    const entries = Object.entries(payloads).map(([assetId, data]) => Object.freeze({ assetId, sha256: shaBytes(data), byteLength: data.length, role: ASSET_ROLE[assetId], url: assetURL(identity.gameId, identity.draftRevision, identity.sourceDigest, assetId) }));
+    const entries = Object.entries(payloads).map(([assetId, data]) => Object.freeze({ assetId, sha256: shaBytes(data), byteLength: data.length, role: roles[assetId], url: assetURL(identity.gameId, identity.draftRevision, identity.sourceDigest, assetId) }));
     const manifest = Object.freeze({
-      schemaVersion: 1, compilerRevision: TRIAL_COMPILER_REVISION, buildFormat: 'studio-app-2',
+      schemaVersion, compilerRevision: TRIAL_COMPILER_REVISION, buildFormat,
       compatibilityAssetMode, ruleProfile,
       identity: Object.freeze({ ...identity, trialSnapshotId: `${identity.gameId}@${identity.draftRevision}:${identity.sourceDigest}` }),
       world: Object.freeze({ id: `${identity.gameId}-world`, revision: identity.sourceDigest, width, height, tileSize: 16 }),

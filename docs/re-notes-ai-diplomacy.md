@@ -21,6 +21,34 @@
 
 实际完整`producer-invite`先以R233排`[2,17,0,2]`到offset104，后以R218排`[1,0,17,FF]`到88。**生产先后与事件槽顺序不同**；这不是已经消费/提交战争的证明。官方完整2BD9为32634条/30次RNG。
 
+### 2.1 CITY-CAPACITY-1/C0事件移页与消费边界复核
+
+**实锤限静态指令及下列入口；Web测试是迁移对照，不是原CPU执行证明。** 本批重新只读§1同SHA的KI.EXE，文件偏移=VA+200h。以`tools/disasm.py:va_range`反汇编并记录以下半开窗SHA256，复跑入口为`node tools/verify_city_capacity_event_boundaries.mjs`，只读KI及仓库模块、夹具纯内存，不读SAVE。
+
+| 原窗 | SHA256 |
+| --- | --- |
+| 2BD9..2C10 | `96d586961f223cf367f029dc05ea96f16a21fbda9390220616d07e1c552c0c23` |
+| 2FBF..301C | `19835607b97993616258d0d9c4670229031258066e485425621856eb5d72e0d9` |
+| 301C..304E | `49bbcf42d89dc5a8da3fba044f6e66166c7e2f68b5e4604a7b4fc4d16e16e72b` |
+| 31AE..31F2 | `c9b8ef2aa1fbeebb4bc0be77b70542babe82723f6d4d8305adfe0565af930cec` |
+| 5358..53C6 | `442201b9d1c4318beaa15c06fc08e647c6c7fc6158164d2f660da18a4b62cba7` |
+
+1. **移页不等待旧当前页消费完毕**：2BE1置D20=0，2BE8置31AD=7；2BF8令DI=0，2BFA令SI=100h，2BFD令CX=180h，2C00 CLD，2C01 REP MOVSW，将100h..3FFh前移；2C03令CX=80h，2C06 REP STOSW清300h..3FFh。旧当前页无论已消费与否都被覆盖，不是逐事件“到期删除”。Web原生接线为`originalMonthlyDiplomacy2BD9→resetEventMonth`，不是ai.js中拒native的legacy移页函数。
+2. **消费不清槽、先推进游标**：31CB/31CE取两个word，31D2/31D5先D20+=4，31E8才调用handler；31AE..31F2无清零事件槽的写指令。handler内301C延迟以已前进游标为起点。D20到100h后，下一次divider归0直接31BD返回，不重装10，再一次DEC从0变FF；不能视为“末槽可无限重复消费”。
+3. **两种入队边界不同**：2FBF在2FE6先检查起点<100h，失败STC；301C先3033读起点，只有占用后才303F加4、3042比较400h。301C普通插入和满轮返回均CF=0，unknown越界读不是full，不能统一为一个Boolean分支。301C详细合同仍见[去向§9.3](re-notes-legion-fate.md#93-301c搜索两word写与cf实锤及明确工程域)。
+4. **月结生产者位于移页两侧**：5358里538E调用585F（可能经5940→301C），5394才调用2BD9；5397/539A/539D/53A0/53A3依次调用5715、578F、22DB、2286、57FE。不能把所有月结事件统一当作“移页后产生”。
+
+```text
+月结：5695 → 585F〔可301C入队〕 → 55A6 → 2BD9〔移页，再外交提案〕
+                                                ↓
+          5715 → 578F → 22DB → 2286 → 57FE〔当前新页入队〕
+消费：divider归零 → 读事件 → 游标先+1槽 → handler〔可再301C入队〕
+```
+
+对照向量（槽号从0起，D20为槽号×4）：旧游标63、delay2，301C写65；随后移页后位于1。若先移页再delay2则写2，结果不同。旧当前页63未消费且游标0，移页后也被丢弃；旧页3槽0移到页2槽0，页3全清。消费槽0后不清其4B，handler的delay6写7而不是6。`D20=03E0h,delay8`先探0400h，严格内存夹具拒绝未知读而非返回full。
+
+本批五项测试全部通过（含原窗pin）；另`verify_native_weather_events.mjs`五项通过。测试用全不活动22势力隔离移页前缀，不声称通过完整外交决策／月结战役。扩容“不静默丢弃”须另定跨月、队内顺序及溢出处理，这是Web差异，不由这些旧边界自动推导。
+
 ## 3. 2E33协同邀请
 
 当前势力A、旧目标T、玩家P：
@@ -288,9 +316,9 @@ P(A)=200时T的199换目标，200/201保持；防守B自身力量0↔2000不改�
 
 实际军团写点仅452E(+20)、4536(+14)、4539(status)。**不是把所有军团目标改新都，不清导航，不写状态11返都。** F2A=FF静默RET；有外交官则在原3464→CDE停止时，F3与这些军团字段已经提交，不能消息返回后重做迁都。
 
-无己城输入中6A3D返回FFFF/CF1，但33FD未检查CF；`u16((FFFF−0840)<<3)=BDF8`，高byteBD令新都189，原4502后完整返回。这只认证该异常输入计算；不追加“失败保留旧都/改0”经验补丁，也不证明正常AI会丢光城市后仍到此。
+**原程序／历史Web行为（type8现已由批准的[D5差异](re-notes-legion-fate.md#city-capacity-d5-capital)替代，原证不改）**：无己城输入中6A3D返回FFFF/CF1，但33FD未检查CF；`u16((FFFF−0840)<<3)=BDF8`，高byteBD令新都189，原4502后完整返回。这只认证该异常输入计算；不追加“失败保留旧都/改0”经验补丁，也不证明正常AI会丢光城市后仍到此。
 
-生产现以`originalcapitalrelocation.js`和严格Scenario桥接回native type8：先按CFF拒玩家、再查固定势力active，固定192城执行6A3D并先写F+3，随后4502只扫L0..L126。CFD保持独立word；若它与事件势力pointer相等但CFF不等，已提交迁都/军团前缀后停在341F未闭合玩家消息/5E60。普通NPC无外交官直接返回；有外交官时严格等待通用TALK57关闭，再按selector 1A4和外交官talk_idx等待第二段个性对白关闭，才恢复同一3E11尾段。全程0 RNG，槽127不读；任一后段缺字段保留先前资本或军团写入并hold。`verify_native_capital_relocation.mjs`以固定KI字节和7项回归锁定后城平手、偏好、无城189、两段返回、CFD/CFF分歧、失败前缀及live中立城（P89：实机tick 243首崩“city 6 owner at 6A50”——live中立城`faction`为null而fixture用0xff哨兵，套件恒绿掩盖；根因为首都域`readCityOwner`独漏`null→0x18`映射，其余四域negotiation/capture/fate/warconsumer皆有，原码依据42AB端点谓词“非己且非0x18”；0x18永不等于真实势力，6A3D扫描跳过中立城；修后先红后绿+实机复测tick 1000+零pageerror）。此接线不扩大type1–7、完整8810或5E60。
+以下为native type8原接线历史（无候选现行按上述D5，不再写189；其它后继进展另见对应段）：以`originalcapitalrelocation.js`和严格Scenario桥接回native type8：先按CFF拒玩家、再查固定势力active，固定192城执行6A3D并先写F+3，随后4502只扫L0..L126。CFD保持独立word；若它与事件势力pointer相等但CFF不等，已提交迁都/军团前缀后停在341F未闭合玩家消息/5E60。普通NPC无外交官直接返回；有外交官时严格等待通用TALK57关闭，再按selector 1A4和外交官talk_idx等待第二段个性对白关闭，才恢复同一3E11尾段。全程0 RNG，槽127不读；任一后段缺字段保留先前资本或军团写入并hold。`verify_native_capital_relocation.mjs`以固定KI字节和7项回归锁定后城平手、偏好、无城189、两段返回、CFD/CFF分歧、失败前缀及live中立城（P89：实机tick 243首崩“city 6 owner at 6A50”——live中立城`faction`为null而fixture用0xff哨兵，套件恒绿掩盖；根因为首都域`readCityOwner`独漏`null→0x18`映射，其余四域negotiation/capture/fate/warconsumer皆有，原码依据42AB端点谓词“非己且非0x18”；0x18永不等于真实势力，6A3D扫描跳过中立城；修后先红后绿+实机复测tick 1000+零pageerror）。此接线不扩大type1–7、完整8810或5E60。
 
 ## 17. P19复跑、独立审阅与输入修订说明
 

@@ -14,6 +14,11 @@ const call = (io, method, args, at) => {
   if (typeof io?.[method] !== "function") stop(at, `missing ${method}`);
   return io[method](...args, at);
 };
+// M257(e): live city count capability; legacy mocks without it keep 192.
+const readCityCount = (io, at) => {
+  if (typeof io?.readCityCount !== "function") return 192;
+  return integer(io.readCityCount(at), 1, 0xffff, at, "city count");
+};
 const integer = (value, min, max, at, label) => {
   if (!Number.isInteger(value) || value < min || value > max)
     stop(at, `${label} is out of range`);
@@ -106,7 +111,8 @@ function scanFaction53C6(io, slot, expense) {
     arc = 0,
     inf = 0,
     cities = 0;
-  for (let index = 0; index < 192; index++) {
+  const cityCount = readCityCount(io, "53F7");
+  for (let index = 0; index < cityCount; index++) {
     const owner = byte(
       call(io, "readCityByte", [index, "faction"], "53F7"),
       "53F7",
@@ -129,7 +135,7 @@ function scanFaction53C6(io, slot, expense) {
     cav = (cav + yields.cav) & 0xffff;
     arc = (arc + yields.arc) & 0xffff;
     inf = (inf + yields.inf) & 0xffff;
-    cities = (cities + 1) & 0xff;
+    cities = (cities + 1) & 0xffff;
   }
   const playerPointer = word(
     call(io, "readPlayerFactionPointer", [], "5410"),
@@ -252,7 +258,8 @@ function deficit5828(io, slot, money) {
 }
 
 function updateCities5695(io) {
-  for (let index = 0; index < 192; index++) {
+  const cityCount = readCityCount(io, "56A0");
+  for (let index = 0; index < cityCount; index++) {
     const growth = byte(
       call(io, "readCityByte", [index, "growth"], "56A0"),
       "56A0",

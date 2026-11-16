@@ -4,7 +4,6 @@
 // Readers must supply known bytes or throw; missing/old queue bytes are NOT zero.
 
 const u16 = (value) => value & 0xffff;
-const nextEntry = (pointer) => u16(pointer + 8) & 0xfbff;
 
 function requireUnsigned(value, maximum, label) {
   if (!Number.isInteger(value) || value < 0 || value > maximum) {
@@ -21,6 +20,15 @@ function requireUnsigned(value, maximum, label) {
  * Optional observe is diagnostic/read-only; readers reject uncovered bytes.
  * No implicit queue clearing, unbounded-queue replacement, node-visited set,
  * blocked-city rule, RNG consumption, or CF-to-null conversion is performed.
+ * Optional readCityOwnerAtNode(node, at) replaces the address-form owner
+ * read with an indexed one, and optional cityNodeBound replaces the legacy
+ * 0x600 city-node gate with a live bound. Both default to the legacy
+ * contract so existing fixtures keep byte-exact behavior.
+ * Optional regions {scratchEnd, queueBase} parameterize the search
+ * workspace per road version (memory searchRegionsFor). v2 defaults keep
+ * the clear range, visited base and queue ring byte-exact; v3 keeps the
+ * +0x8000 visited base and moves only the queue ring. scratchEnd must not
+ * pass queueBase, so visited marks can never alias queue entries.
  */
 export function searchOriginalRoadMemory({
   start,
@@ -30,12 +38,26 @@ export function searchOriginalRoadMemory({
   readGraphByte,
   writeGraphByte,
   readStateByte,
+  readCityOwnerAtNode,
+  cityNodeBound,
+  regions,
   observe,
 }) {
   requireUnsigned(start, 0xffff, "start");
   requireUnsigned(stopB, 0xffff, "stop B");
   requireUnsigned(stopC, 0xffff, "stop C");
   requireUnsigned(owner, 0xff, "owner");
+  const { scratchEnd = 0x8800, queueBase = 0x8800 } = regions ?? {};
+  requireUnsigned(scratchEnd, 0xffff, "scratch end");
+  requireUnsigned(queueBase, 0xffff, "queue base");
+  if (scratchEnd <= 0x8000 || scratchEnd > queueBase) {
+    throw new TypeError(
+      `Invalid original road search regions: ${scratchEnd}/${queueBase}`,
+    );
+  }
+  // Ring arithmetic replaces the v2 &0xFBFF wrap; identical on the v2 ring.
+  const nextEntry = (pointer) =>
+    queueBase + ((u16(pointer) - queueBase + 8) % (128 * 8));
   // 491B..4924: notably, no memory initialization on this CF=1 return.
   if (start === stopB || start === stopC) {
     return { ax: start, bx: stopB, cx: stopC, cf: true, reason: "shortcut" };
@@ -61,11 +83,11 @@ export function searchOriginalRoadMemory({
   }
 
   // 4940..4948: 1024 words, not the queue at 8800..8BFF.
-  for (let address = 0x8000; address < 0x8800; address += 2) {
+  for (let address = 0x8000; address < scratchEnd; address += 2) {
     writeWord(address, 0);
   }
-  let head = 0x87f8;
-  let tail = 0x8800;
+  let head = queueBase - 8;
+  let tail = queueBase;
   let inputCount = 1; // CL: includes the virtual initial root.
   let outputCount = 0; // CH: byte, NOT clamped to the physical capacity 128.
   let minimum = 0;
@@ -124,9 +146,11 @@ export function searchOriginalRoadMemory({
         };
       }
       let nodeCost = cost;
-      if (node < 0x600) {
+      if (node < (cityNodeBound ?? 0x600)) {
         const faction = requireUnsigned(
-          readStateByte(u16(node * 4 + 0x841)),
+          readCityOwnerAtNode
+            ? readCityOwnerAtNode(node, "city owner")
+            : readStateByte(u16(node * 4 + 0x841)),
           0xff,
           "city owner",
         );

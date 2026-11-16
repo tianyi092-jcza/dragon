@@ -31,6 +31,8 @@ const nativeCapitalIo = (sc) => {
   const legionAt = (slot, at) => nativeLegionAt(sc, slot, at);
   return {
     readPlayerFactionByte: () => own(sc, "player_faction", "33EA"),
+    // Live 6A3D scan bound; io consumers without it keep the legacy 192.
+    cityCount: sc?.cities?.length,
     readPlayerFactionPointer: () =>
       own(sc, "nativePlayerFactionPointer", "341A"),
     readFactionAttr: (index) => own(factionAt(index, "33F3"), "attr", "33F3"),
@@ -54,7 +56,8 @@ const nativeCapitalIo = (sc) => {
       const value = own(cityAt(index, "6A50"), "faction", "6A50");
       return value === null ? 0x18 : byte(value, "city owner");
     },
-    readCityAttr: (index) => own(cityAt(index, "6A55"), "attr", "6A55"),
+    readCityType: (index) => own(cityAt(index, "6A55"), "type", "6A55"),
+    readCityAttr: (index) => own(cityAt(index, "6A73"), "attr", "6A73"),
     readCityProduction: (index) => own(cityAt(index, "6A5F"), "prod", "6A5F"),
     readLegionFaction: (slot) => own(legionAt(slot, "451F"), "faction", "451F"),
     readLegionStatus: (slot) => own(legionAt(slot, "4524"), "status", "4524"),

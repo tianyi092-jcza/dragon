@@ -14,6 +14,8 @@ import {
   arriveOriginalRoad,
   interceptOriginalRoad4300,
 } from "./originalroadarrival.js";
+import { cityNodeBoundOf, readRoadNodeOwner, roadNodeToCitySlot } from "./originalroadstate.js";
+import { searchRegionsFor } from "./originalroadmemory.js";
 import {
   bindLegionSlotCounter,
   projectEngagementCounter,
@@ -44,7 +46,9 @@ export function selectOriginalRoad47BB(io) {
   const target = rw(0x14),
     current = rw(0x0e),
     owner = rb(1);
-  const edge = current >= 0x800;
+  // Edge/node kind marker follows the road version (v2 0x800).
+  const edgeBase = io.roadEdgeBase ?? 0x800;
+  const edge = current >= edgeBase;
   let stopB = current,
     stopC = current;
   if (edge) {
@@ -64,7 +68,16 @@ export function selectOriginalRoad47BB(io) {
     readGraphByte: io.readGraphByte,
     writeGraphByte: io.writeGraphByte,
     readStateByte: io.readCityOwnerByte,
+    // Indexed 47BB search contract: present only when the driver attached
+    // a live city table; mocks without it keep the legacy address reads.
+    readCityOwnerAtNode: io.readCityOwnerAtNode,
+    cityNodeBound: io.cityNodeBound,
+    // Versioned workspace regions; v2 defaults keep byte-exact behavior.
+    regions: io.roadSearchRegions,
   });
+  // CITY-CAPACITY-1 D5 (approved Web difference): exhaustion is not an
+  // implicit edge 0800, nor a high-fee fate request. No legion writes here.
+  if (result.reason === "exhausted") return { cf: false, reason: "unreachable" };
   if (result.cx >= 0x8000 && rb(0x23) >= 0x0a) {
     const captor = rb(1); // 47FE / 484E, not a search result or city owner.
     if (typeof io.fate !== "function")
@@ -87,6 +100,14 @@ export function selectOriginalRoad47BB(io) {
   return { cf: false };
 }
 
+// City-node domain follows the live scenario length, not the legacy 192.
+// Edge/node kind markers (0x800+) are untouched. When the city table is
+// absent the legacy bounds apply; identity is enforced where records load.
+const cityNodeTotalOf = (sc) => sc.cities?.length;
+const maxTargetNodeOf = (sc) => {
+  const total = cityNodeTotalOf(sc);
+  return total === undefined ? 191 : total - 1;
+};
 function movementIO(sc, legion, context, rng, blocks) {
   const byteFields = {
     0: "status",
@@ -122,9 +143,13 @@ function movementIO(sc, legion, context, rng, blocks) {
     if (offset === 0x12) return unsigned(legion.y, 65535, "Y") & 255;
     return unsigned(legion[byteFields[offset]], 255, `L${offset.toString(16)}`);
   };
+  // City-node domain follows the live scenario length, not the legacy 192.
+  // Edge/node kind markers (0x800+) are untouched. When the city table is
+  // absent the legacy bounds apply; identity is enforced where records load.
+  const maxTargetNode = maxTargetNodeOf(sc);
   const rw = (offset) =>
     offset === 0x14
-      ? unsigned(legion.targetNode, 191, "target node id") * 8
+      ? unsigned(legion.targetNode, maxTargetNode, "target node id") * 8
       : unsigned(legion[wordFields[offset]], 65535, `L${offset.toString(16)}`);
   const wb = (offset, value) => {
     value &= 255;
@@ -138,7 +163,7 @@ function movementIO(sc, legion, context, rng, blocks) {
   const ww = (offset, value) => {
     value = u16(value);
     if (offset === 0x14) {
-      if (value % 8 || value > 191 * 8)
+      if (value % 8 || value > maxTargetNode * 8)
         throw new RangeError(
           `Uncovered original movement target bridge: ${value}`,
         );
@@ -162,6 +187,19 @@ function movementIO(sc, legion, context, rng, blocks) {
     readGraphByte: gb,
     writeGraphByte: context.memory.writeByte,
     readCityOwnerByte: context.readCityOwnerByte,
+    // Versioned search workspace regions (memory roadLayout, v2 default).
+    roadSearchRegions: searchRegionsFor(context.memory?.roadLayout),
+    // Edge/node kind marker follows the road version (v2 0x800).
+    roadEdgeBase: context.memory?.roadLayout?.edgeBase ?? 0x800,
+    // Indexed 47BB search contract, attached only when the live indexed
+    // owner capability exists; legacy mocks keep the address reads above.
+    ...(typeof context.readCityOwner === "function"
+      ? {
+          readCityOwnerAtNode: (node, at) =>
+            readRoadNodeOwner(sc, context, node, at ?? "47BB-search"),
+          cityNodeBound: cityNodeBoundOf(sc),
+        }
+      : {}),
     fate: (captor) =>
       performScenarioLegionFate(
         sc,
@@ -204,14 +242,24 @@ export function performOriginalRoadAction(sc, legion, context, rng = null, block
     graphWord: gw,
     readGraphByte: gb,
   } = io;
+  // Edge/node kind marker follows the road version (v2 0x800).
+  const edgeBase = io.roadEdgeBase ?? 0x800;
+  // Movement owner reads: same u16 wrap/alignment as node*4+0x841, but the
+  // owner comes from the indexed reader so no legacy 192-slot cap applies.
+  // The 47BB search plumbing below still uses the address reader (shared
+  // originalroadsearch contract); that transfer is a later step.
   const cityOwner = (node) =>
     unsigned(
-      context.readCityOwnerByte(u16(node * 4 + 0x841)),
+      context.readCityOwner(
+        roadNodeToCitySlot(sc, node, "movement-owner"),
+        "movement-owner",
+      ),
       255,
       "city owner",
     );
+  const cityNodeBound = cityNodeBoundOf(sc);
   const cityAt = (node) => {
-    if (node % 8 || node >= 0x600 || sc.cities?.[node / 8]?.idx !== node / 8)
+    if (node % 8 || node >= cityNodeBound || sc.cities?.[node / 8]?.idx !== node / 8)
       throw new RangeError(`Uncovered original movement city bridge: ${node}`);
     return sc.cities[node / 8];
   };
@@ -237,7 +285,7 @@ export function performOriginalRoadAction(sc, legion, context, rng = null, block
     const edge = rw(0x0e);
     const node = gw(edge + (rb(0x0a) === 4 ? 8 : 6));
     ww(0x0e, node);
-    if (node < 0x600) {
+    if (node < cityNodeBound) {
       const city = cityAt(node);
       const x = unsigned(city.x, 65535, "city X"),
         y = unsigned(city.y, 65535, "city Y");
@@ -329,7 +377,7 @@ export function performOriginalRoadAction(sc, legion, context, rng = null, block
   if (current === rw(0x14))
     return arriveOriginalRoad(sc, context, io, current, rng);
   if (rb(0) & 0x10) performScenarioLegionFate(sc, legion, context, "2BA8");
-  if (current < 0x800) {
+  if (current < edgeBase) {
     if (rb(1) !== unsigned(sc.player_faction, 255, "player faction")) {
       const interception = interceptOriginalRoad4300(sc, context, io, current);
       if (interception.cf)
@@ -359,13 +407,26 @@ export function performOriginalRoadAction(sc, legion, context, rng = null, block
   let firstPoint = false;
   if (rb(0) & 2) {
     wb(0, rb(0) & 0xfd);
-    if (selectOriginalRoad47BB(io).cf) {
+    const selected = selectOriginalRoad47BB(io);
+    if (selected.reason === "unreachable") {
+      // Keep route recomputation pending; otherwise an on-road army resumes
+      // its stale direction next action even though no route was found.
+      wb(0, rb(0) | 2);
+      occupancyDelta(1);
+      return "unreachable";
+    }
+    if (selected.cf) {
       occupancyDelta(1); // 26AB→26F5 even after fate deactivation.
       return "fate";
     }
     firstPoint = !(rb(0) & 1);
-  } else if (rw(0x0e) < 0x800) {
-    if (selectOriginalRoad47BB(io).cf) {
+  } else if (rw(0x0e) < edgeBase) {
+    const selected = selectOriginalRoad47BB(io);
+    if (selected.reason === "unreachable") {
+      occupancyDelta(1);
+      return "unreachable";
+    }
+    if (selected.cf) {
       occupancyDelta(1); // 26BE→26F5.
       return "fate";
     }

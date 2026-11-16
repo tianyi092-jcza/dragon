@@ -7,6 +7,7 @@ import {
   performScenarioCapitalRelocation,
   performScenarioRelocationCommit,
 } from "../web/src/game/navigation/scenariocapitalrelocation.js";
+import { originalSelectCapital6A3D } from "../web/src/game/navigation/originalcapitalrelocation.js";
 
 const ki = fs.readFileSync("E:/Dragon/Dragon/KI.EXE");
 assert.equal(
@@ -21,6 +22,7 @@ function fixture({ player = 0, pointer = 0, diplomat = 9 } = {}) {
     idx,
     faction: 0xff,
     attr: 0x80,
+    type: 0,
     prod: 0,
     name: `城${idx}`,
   }));
@@ -144,6 +146,43 @@ test("native type8 chooses later preferred tie and preserves exact 127-slot writ
   assert.equal(rngCalls(), 0);
 });
 
+test("6A55 uses C16 type independently of C00 preferred border bits", () => {
+  const { scenario, cities } = fixture({ diplomat: null });
+  // 6A55: 8A6416 / 80E40F; 6A73: F6041F. All three are
+  // preferred (C00&1F==0), but a later higher type must not replace city5.
+  Object.assign(cities[5], { attr: 0x80, type: 0, prod: 100 });
+  Object.assign(cities[7], { attr: 0x80, type: 3, prod: 200 });
+  Object.assign(cities[8], { attr: 0x80, type: 3, prod: 200 });
+  const result = performScenarioCapitalRelocation(scenario, { type: 8, arg0: 7 });
+  assert.equal(result.newCapital, 5);
+  assert.equal(result.status, "unchanged");
+});
+
+test("6A55/6A5F rejected candidates do not consume C00 at 6A73", () => {
+  const { scenario, cities } = fixture({ diplomat: null });
+  Object.assign(cities[5], { attr: 0x80, type: 0, prod: 100 });
+  Object.assign(cities[7], { type: 3 });
+  delete cities[7].attr;
+  delete cities[7].prod;
+  Object.assign(cities[8], { type: 0, prod: 99 });
+  delete cities[8].attr;
+  assert.equal(
+    performScenarioCapitalRelocation(scenario, { type: 8, arg0: 7 }).newCapital,
+    5,
+  );
+});
+
+test("missing C16 cannot fall back to attr and fails before capital writes", () => {
+  const { scenario, cities, factions, records } = fixture({ diplomat: null });
+  delete cities[5].type;
+  assert.throws(
+    () => performScenarioCapitalRelocation(scenario, { type: 8, arg0: 7 }),
+    /native capital type at 6A55/,
+  );
+  assert.equal(factions[7].capital, 5);
+  assert.equal(records[0].targetCity, 5);
+});
+
 test("CFF player and inactive gates return before city/legion mutation", () => {
   const playerCase = fixture({ player: 7 });
   assert.deepEqual(
@@ -170,18 +209,47 @@ test("CFF player and inactive gates return before city/legion mutation", () => {
   assert.equal(inactive.factions[7].capital, 5);
 });
 
-test("no owned city retains original CF-ignored transformation to capital 189", () => {
-  const { scenario, factions, cities } = fixture({ diplomat: null });
-  for (const city of cities) city.faction = 0xff;
-  const result = performScenarioCapitalRelocation(scenario, {
-    type: 8,
-    arg0: 7,
-    arg1: 0,
-    arg2: 0,
-  });
+test("D5 no candidate preserves capital/legions and returns an explicit result", () => {
+  for (const capital of [5, 189, null]) {
+    const { scenario, factions, cities } = fixture();
+    cities.forEach(city => { city.faction = 0xff; });
+    factions[7].capital = capital;
+    const before = structuredClone(scenario);
+    const result = performScenarioCapitalRelocation(scenario, { type: 8, arg0: 7 });
+    assert.deepEqual(result, { status: "no-capital-candidate", faction: 7 });
+    assert.deepEqual(scenario, before);
+  }
+});
+
+test("D5 no candidate consumes the type8 event without messages, RNG or continuation", () => {
+  const f = fixture({ pointer: 7 * 0x40 });
+  f.cities.forEach(city => { city.faction = null; });
+  // No candidate must not read downstream monarch/diplomat/legion inputs.
+  delete f.factions[7].monarch_idx;
+  delete f.factions[7].diplomat_idx;
+  delete f.records[0].targetCity;
+  const factionsBefore = structuredClone(f.factions);
+  const recordsBefore = structuredClone(f.records);
+  assert.equal(tickStrategicWarEvents(f.app), true);
+  assert.equal(f.scenario._strategicEventCursor, 1);
+  assert.equal(f.scenario._strategicEventDivider, 10);
+  assert.deepEqual(f.factions, factionsBefore);
+  assert.deepEqual(f.records, recordsBefore);
+  assert.equal(f.messages.length, 0);
+  assert.equal(f.rngCalls(), 0);
+  assert.equal(f.app._nativeCapitalRelocationContinuation, undefined);
+  assert.equal(f.app._strategicBattleFailure, undefined);
+});
+
+test("D5 a genuine candidate at city189 still relocates normally", () => {
+  const f = fixture({ diplomat: null });
+  f.cities.forEach(city => { city.faction = null; });
+  f.cities[189].faction = 7;
+  const result = performScenarioCapitalRelocation(f.scenario, { type: 8, arg0: 7 });
   assert.equal(result.status, "relocated");
-  assert.equal(result.newCapital, 0xbd);
-  assert.equal(factions[7].capital, 0xbd);
+  assert.equal(result.newCapital, 189);
+  assert.equal(f.factions[7].capital, 189);
+  assert.equal(f.records[0].targetCity, 189);
 });
 
 test("matching independent CFD shows the monarch line after committed writes", () => {
@@ -305,6 +373,19 @@ test("33FD same-capital ret preserves the committed xchg and skips 4502/messages
   assert.equal(factions[7].capital, 5);
   assert.equal(records[0].targetCity, 5);
   assert.equal(records[1].status, 0x80);
+});
+
+test("6A3D scan follows io.cityCount beyond 192, legacy io keeps 192", () => {
+  const mock = (cityCount) => ({
+    ...(cityCount === undefined ? {} : { cityCount }),
+    readCityOwner: (index) => (index === 199 ? 0 : 1),
+    readCityType: () => 0,
+    readCityProduction: (index) => (index === 199 ? 500 : 0),
+    readCityAttr: () => 0,
+  });
+  assert.equal(originalSelectCapital6A3D(mock(200), 0), 199);
+  // No count on the io: the only qualifying city is out of the legacy bound.
+  assert.equal(originalSelectCapital6A3D(mock(undefined), 0), null);
 });
 
 test("33FD NPC commit reports through the diplomat gate like 33EA", () => {

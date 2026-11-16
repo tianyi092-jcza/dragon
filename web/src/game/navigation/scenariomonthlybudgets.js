@@ -36,7 +36,8 @@ function createScenarioMonthlyBudgetIO(sc, rng) {
     const cities = own(sc, "cities");
     if (
       !Array.isArray(cities) ||
-      cities.length !== 192 ||
+      cities.length < 1 ||
+      cities.length > 0xffff ||
       !Object.hasOwn(cities, slot)
     )
       missing(`city ${slot}`);
@@ -79,6 +80,12 @@ function createScenarioMonthlyBudgetIO(sc, rng) {
     return { values, index, event: values[index] };
   };
   return {
+    readCityCount() {
+      const cities = own(sc, "cities");
+      if (!Array.isArray(cities) || cities.length < 1 || cities.length > 0xffff)
+        missing("city count");
+      return cities.length;
+    },
     readPlayerFactionByte() {
       return byte(own(sc, "player_faction"), "CFF player faction");
     },

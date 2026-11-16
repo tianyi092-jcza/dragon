@@ -1,6 +1,6 @@
+import { roadNodeToCitySlot, cityAtRoadPointer } from "./originalroadstate.js";
 // KI 28F4, 4300, 4325..4501, 4548 and city prefix 3F06..3F50.
-// Exact wrapped aliases/lazy instruction boundaries: march notes §3.13.
-import { nativeDiplomacyAt, writeNativeDiplomacyAt } from "../nativediplomacy.js";
+// Original evidence and approved CITY-CAPACITY-1/D3 differences: march §3.13.
 const u16 = (value) => value & 0xffff;
 function stop(label) {
   throw new RangeError(`Web engineering Uncovered ${label}`);
@@ -11,18 +11,6 @@ function unsigned(value, max, label) {
 }
 const byte = (value, label) => unsigned(value, 255, label);
 const word = (value, label) => unsigned(value, 65535, label);
-function cityAtPointer(sc, pointer, instruction) {
-  const offset = pointer - 0x840,
-    index = offset / 32;
-  if (
-    offset < 0 ||
-    offset % 32 ||
-    index >= 192 ||
-    sc.cities?.[index]?.idx !== index
-  )
-    stop(`city pointer ${pointer} at ${instruction}`);
-  return sc.cities[index];
-}
 function factionAt(sc, owner, instruction) {
   if (!Number.isInteger(owner) || owner < 0 || owner >= 24)
     stop(`faction ${owner} at ${instruction}`);
@@ -40,39 +28,8 @@ export function readOriginalCityCache(context, index, at) {
   return cacheCapability(context, at).readByte(index);
 }
 function cacheAt(sc, context, address, at) {
-  const city = cityAtPointer(sc, u16(address - 0x18), at);
+  const city = cityAtRoadPointer(sc, u16(address - 0x18), at);
   return readOriginalCityCache(context, city.idx, at);
-}
-function aliasedByte(sc, context, address) {
-  const normalized = u16(address);
-  if (normalized >= 0x600 && normalized < 0x840) {
-    // Native rules read the full fixed 24x24 table (nativediplomacy.js: 原文
-    // "The declared diplomacy array is only a prefix view"); sc.diplomacy
-    // only carries the declared rows, so rows past the faction count (e.g.
-    // third-party reads in 16-faction scenarios) must go through
-    // nativeDiplomacyAt, like originalcity.js 3FF4 and scenariofactiontick.
-    const offset = normalized - 0x600;
-    return nativeDiplomacyAt(sc, Math.floor(offset / 24), offset % 24, "43D3 diplomacy");
-  }
-  // 43D3 k=0..47: DI=k*0x20 (28F4: DI=BX*4, BX=idx*8), read [DI+0x18].
-  // 偶k → 势力[k/2]+0x18（F18 武将数，live nativeGeneralCount）；
-  // 奇k → 势力[k/2]+0x38（无直接位移写者，静态初值；别名指针写不可静态排除）。
-  if (normalized < 0x600) {
-    const faction = factionAt(sc, normalized >>> 6, "43D3 faction alias");
-    const offset = normalized & 0x3f;
-    if (offset === 0x18)
-      return byte(faction.nativeGeneralCount, "faction F18 at 43D3");
-    if (offset === 0x38) {
-      const raw = faction.raw;
-      const value =
-        typeof raw === "string" && raw.length === 128
-          ? Number.parseInt(raw.slice(0x38 * 2, 0x38 * 2 + 2), 16)
-          : Number.NaN;
-      return byte(value, "faction +38 raw at 43D3");
-    }
-    stop(`faction alias offset ${offset} at 43D3`);
-  }
-  return cacheAt(sc, context, normalized, "43D3");
 }
 
 /** 4300 returns mutated BX even on CLC; only STC re-enters 266A. */
@@ -87,7 +44,7 @@ export function interceptOriginalRoad4300(sc, context, io, bx) {
   if (cacheAt(sc, context, u16(di + 0x858), "4304") > 1)
     return { cf: false, bx: node };
   if (io.readByte(8) === 4) return { cf: false, bx: node };
-  const city = cityAtPointer(sc, u16(di + 0x840), "4311");
+  const city = cityAtRoadPointer(sc, u16(di + 0x840), "4311");
   if (byte(city.attr, "city attr at 4311") < 0x80)
     return { cf: false, bx: node };
   di = u16(di * 8);
@@ -101,7 +58,12 @@ export function arriveOriginalRoad(sc, context, io, bx, rng) {
   wb(8, 4); // 266A, before either owner read or unknown 291A.
   const di = u16(bx * 4);
   const owner = rb(1);
-  const cityOwner = context.readCityOwnerByte(u16(di + 0x841));
+  // 28F4 first-read: same u16 wrap/alignment as DI+0x841, but the owner
+  // comes from the indexed reader so no legacy 192-slot cap applies.
+  const cityOwner = context.readCityOwner(
+    roadNodeToCitySlot(sc, bx, "28F4-first"),
+    "28F4-first",
+  );
   if (owner !== cityOwner) {
     const targetAddress = rb(0x20) * 8;
     if (targetAddress === bx) {
@@ -117,10 +79,10 @@ export function arriveOriginalRoad(sc, context, io, bx, rng) {
     handler += 4;
   if (handler >= 12) stop("4325 dispatch table at 434F");
   const attr = (at) =>
-    byte(cityAtPointer(sc, pointer, at).attr, `city attr at ${at}`);
+    byte(cityAtRoadPointer(sc, pointer, at).attr, `city attr at ${at}`);
   const capital = (faction, at) => encodedOrder(faction.capital, at);
   function targetCoordinates(cityPointer) {
-    const city = cityAtPointer(sc, cityPointer, "4549");
+    const city = cityAtRoadPointer(sc, cityPointer, "4549");
     const x = word(city.x, "city X at 4549"),
       y = word(city.y, "city Y at 454C");
     const node = u16(cityPointer - 0x840) >>> 2;
@@ -131,7 +93,7 @@ export function arriveOriginalRoad(sc, context, io, bx, rng) {
     return equal;
   }
   function decrementCache(at) {
-    const index = cityAtPointer(sc, pointer, at).idx;
+    const index = cityAtRoadPointer(sc, pointer, at).idx;
     const cache = cacheCapability(context, at);
     cache.writeByte(index, (cache.readByte(index) - 1) & 255);
   }
@@ -146,10 +108,13 @@ export function arriveOriginalRoad(sc, context, io, bx, rng) {
   } else if (handler === 4) {
     if (targetCoordinates(pointer) && !(attr("43A5") & 0x40)) wb(0x23, 1);
   } else if (handler === 5) {
-    if (rw(0x0e) >= 0x800) wb(0x23, 0);
+    // Edge/node kind marker follows the road version (v2 0x800).
+    if (rw(0x0e) >= (io.roadEdgeBase ?? 0x800)) wb(0x23, 0);
     else if (rw(4) <= 300) wb(0x23, 10);
     else if (attr("43C9") & 0x40) wb(0x23, 0);
-    else if (attr("43CE") < 0x80 || aliasedByte(sc, context, di + 0x18) > 2) {
+    // CITY-CAPACITY-1 D3 (approved Web difference): use the arrived city's
+    // stored C18, not the original cross-record DI+18 alias or target city.
+    else if (attr("43CE") < 0x80 || cacheAt(sc, context, di + 0x858, "43D3") > 2) {
       if (typeof rng?.nextByte !== "function") stop("canonical RNG at 43D9");
       wb(0x0b, (byte(rng.nextByte(), "RNG byte at 43D9") & 7) + 1);
       wb(0x23, 2);
@@ -237,19 +202,12 @@ export function refreshOriginalCityCache(sc, context, city) {
   const cooldown = byte(city._aiCooldown, "city cooldown at 3F06");
   if (cooldown) city._aiCooldown = cooldown - 1;
   const oldOwner = byte(city._strategicLastFaction, "city old owner at 3F11");
-  const owner = context.readCityOwnerByte(0x841 + city.idx * 32);
+  const owner = context.readCityOwner(city.idx, "3F11");
   if (oldOwner !== owner) {
-    if (oldOwner === 0x18) {
-      // KI 3F11..3F29 performs no range check between the compare and the
-      // store (window 3EFD..3F2C re-verified against KI.EXE: straight-line
-      // 3F1B..3F29, BX=old*0x40, [BX+0x17], AH=cityIdx since SI=idx*32).
-      // old=0x18 addresses DS:0617, i.e. the diplomacy matrix row 0 col 23
-      // (D52:0600 base; entity-fields §4.2/npc-strategy §4 boundary).
-      // Official 20-chapter +0x1A domain is closed to {0x00..0x15,0x18}
-      // (3840 records checked); only this alias needs the model, anything
-      // else stays fail-closed in factionAt below.
-      writeNativeDiplomacyAt(sc, 0, 23, city.idx, "3F29");
-    } else if (oldOwner <= 0x15 && sc.factions?.some((f) => f?.idx === oldOwner)) {
+    // CITY-CAPACITY-1 D3 (approved Web difference): neutral has no
+    // faction order. Do not overwrite diplomacy[0][23] with a city ID.
+    // Keep the old-owner field, cooldown prefix and C18 refresh unchanged.
+    if (oldOwner <= 0x15 && sc.factions?.some((f) => f?.idx === oldOwner)) {
       factionAt(sc, oldOwner, "3F29").strategic_city_secondary = city.idx;
     } else if (oldOwner !== 0x18 && oldOwner > 0x15) {
       stop(`3F29 old owner ${oldOwner} outside the closed domain`);

@@ -59,6 +59,8 @@ bytes(0x1cd0, "803ea598007434803ea59801740f");
 bytes(0x1c22, "5152e82cc85a59");
 bytes(0x1bf9, "8b168e988b1e9098");
 
+// These original alias pins remain historical evidence, NOT the current Web
+// D3 policy (arrived-city C18; march notes §3.13 city-capacity-d3).
 // P41 43D3 linear alias full domain: 28F4 sets DI=BX*4 with BX=node idx*8 (so
 // DI=idx*0x20 leftover into the 4325 dispatch); 43AF is the state-1 handler
 // whose 43D3 reads [DI+0x18] without adding 0x840 — k=0..47 aliases faction

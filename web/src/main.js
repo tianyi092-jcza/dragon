@@ -1,5 +1,6 @@
 // 引擎主入口 — 装配数据/视图/输入/HUD
 import { loadJSON } from "./core/assets.js";
+import { createSiegeMapCatalog } from "./content/battlemapcatalog.js";
 import {
   MapView,
   preloadDisasterObjectImages,
@@ -203,6 +204,8 @@ const app = {
           talkTable,
         ]) => {
           this.assertFormalCurrent();
+          // Capture once at the resource boundary, not in each battle projection.
+          battleMaps.siegeCatalog = createSiegeMapCatalog(battleMaps);
           battleMaps.navigation = battleNavigation;
           battleMaps.formationVectors = battleRules.formationVectors;
           this.battleMaps = battleMaps;

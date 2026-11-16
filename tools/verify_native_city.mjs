@@ -30,6 +30,7 @@ import { TrialStrategicClock } from "../web/src/editor/trialruleboundaries.js";
 import {
   governOriginalCity,
   damageOriginalCity,
+  runOriginalCityMilitary,
 } from "../web/src/game/navigation/originalcity.js";
 import { tickOriginalStrategicWeather } from "../web/src/game/weather.js";
 import {
@@ -394,6 +395,149 @@ test("4028 cooldown RET still F16; DEC1 enters player TALK38 modal with deferred
     assert.equal(f.app._strategicCityRequest, null);
   }
 });
+test("native aiTick waits for TALK38 before governance/cursors and resumes exactly once", async () => {
+  for (const withUi of [true, false]) {
+    const f = await fixture();
+    neighbours(f, [1], [2]);
+    city(f)._aiCooldown = 1;
+    f.sc._cityTickCursor = 66;
+    f.sc._legionBatchCursor = 16;
+    f.app.originalRng = bytes(3, 255, 255); // request tail, then two governance gates
+    const messages = [];
+    if (withUi) f.app.gamebar = {
+      enqueueTalkMessage: message => messages.push(message), syncClock() {},
+    };
+    const options = { cityIndex: 66, legionBatchStart: 16, hour: 0 };
+    assert.equal(aiTick(f.app, options), withUi ? "pending" : "returned");
+    if (withUi) {
+      assert.equal(messages.length, 1);
+      assert.equal(f.app.originalRng.calls, 0);
+      assert.equal(f.sc._cityTickCursor, 66);
+      assert.equal(f.sc._legionBatchCursor, 16);
+      assert.equal(f.app._legionSlotBatch, undefined);
+      assert.equal(aiTick(f.app, options), "pending");
+      options.cityIndex = 1000; // The pending update owns a copy.
+      messages[0].onClose();
+      messages[0].onClose();
+    }
+    assert.equal(f.app.originalRng.calls, 3);
+    assert.equal(city(f)._aiCooldown, 0x1b);
+    assert.equal(f.sc._cityTickCursor, 67);
+    assert.equal(f.sc._legionBatchCursor, 32);
+    assert.equal(f.app._strategicBattleFailure, undefined);
+  }
+});
+
+test("native pending city ignores stale clock close and holds a failed governance tail", async () => {
+  for (const stale of [true, false]) {
+    const f = await fixture();
+    neighbours(f, [1], [2]);
+    city(f)._aiCooldown = 1;
+    f.sc._cityTickCursor = 66;
+    f.sc._legionBatchCursor = 16;
+    f.app.originalRng = bytes(3, 0); // first governance gate then missing growth
+    const messages = [];
+    f.app.gamebar = { enqueueTalkMessage: message => messages.push(message), syncClock() {} };
+    assert.equal(aiTick(f.app, { cityIndex: 66, legionBatchStart: 16, hour: 0 }), "pending");
+    if (stale) f.app.clock = {};
+    else delete city(f).growth;
+    messages[0].onClose();
+    const calls = f.app.originalRng.calls;
+    messages[0].onClose();
+    assert.equal(f.app.originalRng.calls, calls);
+    assert.equal(f.sc._cityTickCursor, 66);
+    assert.equal(f.sc._legionBatchCursor, 16);
+    if (stale) {
+      assert.equal(calls, 0);
+      assert.equal(f.app._strategicBattleFailure, undefined);
+    } else {
+      assert.equal(calls, 2);
+      assert.ok(f.app._strategicBattleFailure);
+      assert.equal(canSnapshotState(f.app), false);
+      assert.equal(aiTick(f.app, { cityIndex: 66 }), "failed");
+    }
+  }
+});
+
+test("native request-tail failure holds before resume and never replays its prefix", async () => {
+  for (const failAt of ["rng", "record"]) {
+    const f = await fixture();
+    neighbours(f, [1], [2]);
+    city(f)._aiCooldown = 1;
+    f.sc._cityTickCursor = 66;
+    f.sc._legionBatchCursor = 16;
+    f.app.originalRng = bytes(3);
+    if (failAt === "rng") f.app.originalRng.nextByte = function () {
+      this.calls++;
+      throw new Error("injected request RNG failure");
+    };
+    const messages = [];
+    f.app.gamebar = { enqueueTalkMessage: message => messages.push(message), syncClock() {} };
+    assert.equal(aiTick(f.app, { cityIndex: 66, legionBatchStart: 16, hour: 0 }), "pending");
+    if (failAt === "record") delete city(f).faction;
+    assert.doesNotThrow(() => messages[0].onClose());
+    assert.ok(f.app._strategicBattleFailure);
+    assert.equal(f.app._strategicCityRequest, null);
+    assert.equal(canSnapshotState(f.app), false);
+    assert.equal(f.app.originalRng.calls, 1);
+    assert.equal(city(f)._aiCooldown, failAt === "rng" ? 0 : 27);
+    assert.equal(f.sc.factions[0].strategic_city_primary, null);
+    assert.equal(f.sc._cityTickCursor, 66);
+    assert.equal(f.sc._legionBatchCursor, 16);
+    messages[0].onClose();
+    assert.equal(aiTick(f.app, { cityIndex: 66 }), "failed");
+    assert.equal(f.app.originalRng.calls, 1);
+  }
+});
+
+test("D1 empty city phase still advances one legion batch without touching city fields", async () => {
+  const f = await fixture();
+  f.sc.cities = [{ idx: 0 }]; // Scheduler-only probe, not a playable v2 world.
+  f.sc._cityTickCursor = 0;
+  f.sc._legionBatchCursor = 16;
+  f.app.originalRng = bytes();
+  assert.equal(aiTick(f.app, { cityIndex: 0, legionBatchStart: 16, hour: 0 }), "returned");
+  assert.equal(f.sc._cityTickCursor, 1);
+  assert.equal(f.sc._legionBatchCursor, 32);
+  assert.equal(f.app.originalRng.calls, 0);
+});
+
+test("D1 two-city phase resumes successive requests without replaying the first city", async () => {
+  const f = await fixture();
+  // Scheduler-only probe: phase50 of N257 visits existing v2 slots66/67.
+  // App/road admission stays fixed192; synthetic extra rows are never read.
+  f.sc.cities.push(...Array.from({ length: 65 }, (_, i) => ({ idx: 192 + i })));
+  neighbours(f, [1], [2]);
+  Object.assign(f.sc.cities[67], {
+    strategicBorderCount: 1, strategicNeighbours: [1, 255, 255, 255], _aiCooldown: 1,
+  });
+  city(f)._aiCooldown = 1;
+  f.sc._cityTickCursor = 50;
+  f.sc._legionBatchCursor = 16;
+  f.app.originalRng = bytes(3, 255, 255, 4, 255, 255);
+  const messages = [];
+  f.app.gamebar = { enqueueTalkMessage: message => messages.push(message), syncClock() {} };
+  assert.equal(aiTick(f.app, { cityIndex: 50, legionBatchStart: 16, hour: 0 }), "pending");
+  assert.equal(messages.length, 1);
+  assert.equal(f.app.originalRng.calls, 0);
+  messages[0].onClose();
+  assert.equal(messages.length, 2);
+  assert.equal(f.app.originalRng.calls, 3);
+  assert.equal(city(f)._aiCooldown, 27);
+  assert.equal(f.sc._cityTickCursor, 50);
+  assert.equal(f.sc._legionBatchCursor, 16);
+  messages[0].onClose();
+  assert.equal(f.app.originalRng.calls, 3);
+  messages[1].onClose();
+  messages[1].onClose();
+  assert.equal(f.app.originalRng.calls, 6);
+  assert.equal(city(f)._aiCooldown, 27);
+  assert.equal(f.sc.cities[67]._aiCooldown, 28);
+  assert.equal(f.sc._cityTickCursor, 51);
+  assert.equal(f.sc._legionBatchCursor, 32);
+  assert.equal(f.app._strategicBattleFailure, undefined);
+});
+
 test("4575 signed high-word quota/byte shift true CF1; 45C1 no active gate and fixed 127 reads", async () => {
   const f = await fixture({ player: 2 });
   neighbours(f, [1], [0]);
@@ -428,6 +572,50 @@ test("4575 signed high-word quota/byte shift true CF1; 45C1 no active gate and f
   delete f.sc.generals[125];
   assert.throws(() => military(f), /general 125 at 45CE/);
 });
+test("typed candidates preserve threat markers, duplicate owner/cache reads and byte threat sum", async () => {
+  for (const target of [1, 0x18, 2]) {
+    const f = await fixture();
+    neighbours(f, [4, 1, 3, 2]);
+    f.sc.cities[4].faction = 2;
+    f.sc.cities[3].faction = 0;
+    f.sc.cities[2].faction = null;
+    f.sc.factions[0].target_faction = target;
+    f.sc.diplomacy[0][1] = 0;
+    f.sc.diplomacy[0][2] = 0;
+    f.context.cityCache.writeByte(4, 10);
+    f.context.cityCache.writeByte(1, 255);
+    f.context.cityCache.writeByte(2, 4);
+    f.context.cityCache.writeByte(66, 1);
+    city(f)._aiCooldown = 9;
+    const trace = [], cache = f.context.cityCache;
+    const context = { ...f.context,
+      readCityOwner(index, instruction) {
+        trace.push(['owner', index]);
+        return f.context.readCityOwner(index, instruction);
+      },
+      cityCache: { ...cache, readByte(index) {
+        trace.push(['cache', index]);
+        return cache.readByte(index);
+      } },
+    };
+    const rng = { nextByte() { trace.push(['rng']); return 0; } };
+    assert.equal(runOriginalCityMilitary(f.sc, context, city(f), rng), 'returned');
+    const expected = [['owner', 66], ['owner', 66]];
+    // Explicit byte-table construction oracle: hostile FE marker precedes a
+    // candidate write at the same row; each candidate re-reads owner and C18.
+    for (const [index, owner] of [[4, 2], [1, 1], [3, 0], [2, 0x18]]) {
+      expected.push(['owner', index]);
+      if (owner === 0) continue;
+      if (owner !== 0x18) expected.push(['cache', index]);
+      if (owner === target) expected.push(['owner', index], ['cache', index]);
+    }
+    expected.push(['cache', 66], ['rng'], ['cache', 66], ['cache', 66], ['owner', 66]);
+    assert.deepEqual(trace, expected);
+    assert.equal(city(f).strategicThreat, 9); // (10+255) & FF, not widened.
+    assert.equal(city(f).attr, 0xc0);
+    assert.equal(city(f)._aiCooldown, 9); // weak player return, not dispatch.
+  }
+});
 test("4057 one-to-three candidate cyclic DEC selection: low0 means 256, not r%n", async () => {
   for (let n = 1; n <= 3; n++)
     for (let r = 0; r < 4; r++) {
@@ -447,6 +635,56 @@ test("4057 one-to-three candidate cyclic DEC selection: low0 means 256, not r%n"
       assert.equal(f.A.moveDelay, 1);
     }
 });
+test('typed neighbour capability dispatches 192/254/255/256 as identities; only null terminates', async () => {
+  const f = await fixture();
+  neighbours(f, [1, 2, 3, 4]);
+  while (f.sc.cities.length < 257) {
+    const idx = f.sc.cities.length;
+    f.sc.cities.push({ idx, faction: 1 });
+  }
+  // Detached primitive probe, NOT v2/v3 admission: high C18 inputs are explicit
+  // owned values. The old 192 cache and actual snapshot schema remain unchanged.
+  const high = [192, 254, 255, 256], stored = new Map(high.map(index => [index, 1]));
+  city(f).strategicNeighbours = [...high];
+  f.context.cityCache.writeByte(66, 2);
+  const slots = [];
+  const context = {
+    ...f.context,
+    readStrategicNeighbour(record, slot) {
+      assert.equal(record, city(f));
+      slots.push(slot);
+      return record.strategicNeighbours[slot]; // predeclared nullable-index inputs
+    },
+    cityCache: { readByte(index) {
+      if (index === 66) return f.context.cityCache.readByte(index);
+      assert.ok(stored.has(index), `unknown C18 ${index}`);
+      return stored.get(index);
+    } },
+  };
+  for (const roll of [0, 1, 2, 3]) {
+    f.A.status = 0xc4;
+    f.A.commandState = 7;
+    f.A.targetCity = 66;
+    const rng = bytes(roll, 64);
+    slots.length = 0;
+    assert.equal(runOriginalCityMilitary(f.sc, context, city(f), rng), 'returned');
+    assert.equal(f.A.targetCity, high[roll === 0 ? 3 : roll - 1]);
+    assert.equal(f.A.commandState, 0);
+    assert.equal(f.A.targetNode, 66);
+    assert.equal(f.A.status, 0xc4);
+    assert.equal(rng.calls, 2);
+    assert.deepEqual(slots, [0, 1, 2, 3]);
+  }
+  city(f).strategicNeighbours = [192, null, 255, 256];
+  f.A.commandState = 7;
+  const rng = bytes(0, 64);
+  slots.length = 0;
+  assert.equal(runOriginalCityMilitary(f.sc, context, city(f), rng), 'returned');
+  assert.deepEqual(slots, [0, 1]);
+  assert.equal(f.A.targetCity, 192);
+  assert.equal(rng.calls, 2);
+});
+
 test("four candidates weak player city: all low bits return after one RNG and attr/cache commit", async () => {
   for (let r = 0; r < 4; r++) {
     const f = await fixture();

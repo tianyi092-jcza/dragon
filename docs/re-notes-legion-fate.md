@@ -427,6 +427,11 @@ kernel新增全256预设门、256×1..22活动数的选择/环绕、F18最低/�
 
 ### 11.1 原始绑定与调用者（实锤）
 
+<a id="city-capacity-d5-capital"></a>
+**CITY-CAPACITY-1/D5现行Web差异（用户已批准，非原版机制）**：主动迁都type8的6A3D选择无候选时，`originalSelectCapital6A3D`返回null，33EA返回`{status:'no-capital-candidate', faction}`，不再把FFFF换算为189。此返回发生在读旧首都、写F03、4502军团改目标和消息字段读取之前；事件槽仍按原31AE先推进，无新增RNG／对白／挂起。真实城189若是合法候选仍可选中。正常选城、偏好、平手及4502写序不改。
+
+该决定不改捕获路径4DF0无候选的F03=FF、清active及灭亡后继，也不把其它无候选／费用异常一并处理。下列原指令结论及C0历史“无城189／未批准”记录继续作为历史证据，不再要求type8 Web复现该结果；初态和扩容准入尚须后续接线。当前回归入口`verify_native_capital_relocation.mjs`锁定上述Web结果，同时保留KI字节绑定。
+
 KI.EXE SHA256 `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，文件偏移=VA+200h。可独立从该文件重取以下半开窗口：
 
 | VA窗口 | 原byte SHA256 |
@@ -443,6 +448,24 @@ KI.EXE SHA256 `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`
 - NPC/委任4EEB→5130，5192先攻474A、51A1再守，AH置相应失败位；恢复BX/BP，AL为胜负。玩家战术1BBA/1BC9也先攻后守474A，1BD1/1BD4还有9321/9D0设备调用；4F4C另减攻军占格。此处仅复核返回ABI，不认证那些设备/占格外围已接通。
 - 4B23只在攻胜消费守方失败位，4B28传攻方所属→291A后才4B41。无主军4B3A先4FC8清临时军status；玩家无主军还有4EFE→4F71的TALK26前置边界，不能挪到占城尾。
 - 4B41读取攻L01给AL，4B44从外栈恢复城市指针到SI，4B46调用4CF3；4B49直接到4B56恢复保存寄存器并RET，**不在此补宣战/双向降关系**。Web native退出在legacy这些写者之前；v1差异未借本片修改。
+
+#### CITY-CAPACITY-1/C0：6A3D类型与边界字段混用修正
+
+本次从`E:/Dragon/Dragon/KI.EXE`重新读取6A3D..6A9B，整文件与窗口SHA均与§11.1一致；没有执行EXE或读取SAVE。复核命令（仓库根）：`python -B -c "import sys; sys.path.insert(0,'tools'); import disasm; print(disasm.va_range(0x6a3d,0x6a9b))"`。实际关键原字节为：
+
+```text
+6A55 8A6416   MOV AH,[SI+16]     ; C16类型／景观
+6A58 80E40F   AND AH,0F
+6A5B 3ADC     CMP BL,AH         ; 类型较大跳过，未读prod/C00
+6A5F 3B540E   CMP DX,[SI+0E]    ; 生产力较小跳过，未读C00
+6A68 8A5C16   MOV BL,[SI+16]    ; 更新候选类型
+6A73 F6041F   TEST BYTE [SI],1F ; 此时才读取C00边界标志
+6A7A 8A5C16   MOV BL,[SI+16]    ; preferred候选仍更新C16
+```
+
+**实锤更正范围：** 原type8实现`originalSelectCapital6A3D`错误将`readCityAttr() & 15`作为类型，scenario adapter又实际提供C00，不能因测试绑定了原bytes就宣称行为一致。捕获路径`capital6A3D`使用独立`city.type`，此次不改其算法。`tools/parse_sinario.py`的`c[0x16]&0x0F`映射与原字段相符；现已为type8独立提供`readCityType`，C00延至通过类型／生产力门后才读，不合并两个不同caller的无候选CF语义。
+
+可复核反例：同属城5/7/8均`attr=80h`，类型分别0/3/3、生产力100/200/200；其余城市非同属。原指令先取城5，城7/8均在6A5D跳过，最终选5；修正前Web误用C00低位，把三城类型均当0而选8。已补该反例、门前拒绝不读C00／prod及缺type不得回退attr三项回归；旧夹具补明确type，不改变已有消息返回／4502写序、无候选189、0 RNG断言。验证入口`node tools/verify_native_capital_relocation.mjs`本次15/15通过。此项为原证错误修正，不是扩容新规则，不实现待批的“无候选不写189”。
 
 ### 11.2 逐指令前缀与停止点（实锤＋明确工程边界）
 
@@ -533,6 +556,17 @@ Web规范映射是D44相对线性byte地址0..98303；**不是DOS segment模拟�
 - 异属：8925 test对方attr&DH；清时先892B INC对方C1B，再892F OR对方attr。随后8933 test本城attr&DL，清时8937 INC本城C1B，再893A OR本城attr。
 - 同属：893D test对方attr&DH；置位时8943 DEC对方C1B，再8949 AND清bit；然后894F test本城，置位时8953 DEC、8958 AND。NOT DH/DL仅临时取反，返回前恢复，不改变下一邻接使用的bit。
 - 各INC/DEC按byte回绕，attr保其它bit；标志已正确时不读取C1B。不能重算邻城数或先改完两边count再统一attr，四个独立写点故障都保先前写。C1C缺键/洞、邻居192..254别名、对方反向项未知在实际读点停，不当FF或“没有反向边”。允许给定不对称/重复/自邻的原字节，既有格式保存只校验四byte，不按几何修复。
+
+<a id="city-capacity-strategic-neighbour-order"></a>
+#### 12.3.1 CITY-CAPACITY-1：战略邻接顺序不能由道路端口顺序覆盖
+
+**原指令复核（实锤）：** 本轮只读固定`KI.EXE`（全文SHA见本文件基准），以VA＋`0x200`提取`88CC..895D`，SHA仍为`36fda64eb97a79c3bd05ca1ead136c08b2dca05a66efc8ccce7a167daa60f38d`。`88EB 8A3D`按C1C当前位置取邻城，`88F0`对FF跳过`88FD D0E2`的DL移位；`8915 3A25`／`8919 D0E6`按对方C1C位置找反向位；随后OR／AND双方C00。它们没有读导航节点的四个道路tag槽。因此“连接的是同一批城”不足以授权重排C1C或重建其attr位。这里是静态指令证据，不是原CPU运行。
+
+**登记输入观测（不是新增原机制认证）：** 独占报告`.dragon-analysis/city-capacity/registered-city-source-r11/audit.json`的`runtimeCitySlices.neighbourOrders`记录20章3840行：战略邻接与导航端点的多重集合全部相同，但2600行的非空顺序不同；192导航节点中114个端口数组有中间空槽，3840战略数组没有中间空槽，同一城跨20章的战略顺序一致（本轮只读对照）。例如city0导航槽为`[2,null,null,3]`，C1C对应`[3,2,null,null]`。若另构输入令本城与city2同属、city3异属，按两种顺序推导将分别操作bit0／bit1；这只是指令条件的受控示例，不宣称某章原运行态恰如此。
+
+**工程合同：** `compileChapterCityState`现要求已校验的结构化图，核城市身份／位置及邻接多重集合一致，只排序比较副本，分别保留战略数组和导航端口顺序。已存在但未连通的城市引用、与图不符的漏项／重复邻接以及陈旧图配新坐标均拒绝，不自动修复。这个约束只用于新局源片段编译，不改上节给定原字节／live快照的可观察写序或保存准入；也不证明带间隙战略槽已经适配v3运行。
+
+D6的新城初态生成必须显式保持两套顺序的职责，不能以新城生成之名重算导入C00/C1B或把所有章C1C替换成导航槽。C00高位及完整新建／修改道路的初态写集尚未由本条实现。r11仍是隔离片段，非M192；版本、代码／输入摘要及未验范围见其收据。
 
 ### 12.4 单一规则图、保存、消费者与caller返回
 

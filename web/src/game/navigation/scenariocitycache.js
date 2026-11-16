@@ -1,12 +1,22 @@
-// Web capability for exactly D52 city[0..191]+18, not a D52 mirror.
+// Web capability for D52 city+18 bytes, not a D52 mirror.
 // KI refresh 3F4C and byte DEC 4455/4462; march notes §3.13.
-const SIZE = 192;
+// Size follows the live city table via the cityCount argument.
 
-export function createScenarioCityCache(input, roadCheckpoint, restore) {
+export function createScenarioCityCache(
+  input,
+  roadCheckpoint,
+  restore,
+  cityCount = 192,
+) {
   const {
     identity,
     memory: { initialGraph },
   } = roadCheckpoint;
+  // CITY-CAPACITY-1 (user-authorized 2026-11-17): cache size follows the
+  // live city table; the default keeps the original 192 save surface.
+  if (!Number.isInteger(cityCount) || cityCount < 1)
+    throw new TypeError("Invalid city cache size");
+  const SIZE = cityCount;
   if (
     input?.version !== 1 ||
     !Array.isArray(input.spans) ||
@@ -105,8 +115,11 @@ export function createScenarioCityCache(input, roadCheckpoint, restore) {
 export function initializeScenarioCityNativeInputs(scenario) {
   const records = scenario?.nativeCityRecordRaw;
   const cities = scenario?.cities;
-  if (!Array.isArray(cities) || cities.length !== SIZE)
+  // Live city-table length (was: fixed 192). Record count must match the
+  // live table exactly; all per-slot identity checks stay strict.
+  if (!Array.isArray(cities) || cities.length === 0)
     throw new RangeError("Web engineering Uncovered fresh city table");
+  const total = cities.length;
   // Explicit caller inputs win; record bytes fill only absent fields.
   // Real chapters always lack these fields at fresh (createNewGameScenario
   // deletes disaster_event; the rest are never parsed), so production
@@ -121,13 +134,13 @@ export function initializeScenarioCityNativeInputs(scenario) {
   let rawChecked = false;
   const rawByte = (entry, offset) =>
     parseInt(entry.slice(offset * 2, offset * 2 + 2), 16);
-  for (let index = 0; index < SIZE; index++) {
+  for (let index = 0; index < total; index++) {
     const city = cities[index];
     if (!city || city.idx !== index)
       throw new RangeError("Web engineering Uncovered fresh city slot");
     if (!needRaw(city)) continue;
     if (!rawChecked) {
-      if (!Array.isArray(records) || records.length !== SIZE)
+      if (!Array.isArray(records) || records.length !== total)
         throw new RangeError(
           "Web engineering Uncovered fresh city tick source records",
         );
@@ -162,10 +175,20 @@ export function initializeScenarioCityNativeInputs(scenario) {
 }
 export function synthesizeScenarioCityCache(scenario) {
   const records = scenario?.nativeCityRecordRaw;
-  if (!Array.isArray(records) || records.length !== SIZE)
+  const cities = scenario?.cities;
+  // Live city-table length (was: fixed 192 records). Both sides must be
+  // present with matching lengths and strict per-slot identity.
+  if (!Array.isArray(cities) || cities.length === 0)
+    throw new RangeError(
+      "Web engineering Uncovered fresh city cache source cities",
+    );
+  if (!Array.isArray(records) || records.length !== cities.length)
     throw new RangeError(
       "Web engineering Uncovered fresh city cache source records",
     );
+  for (let index = 0; index < cities.length; index++)
+    if (!cities[index] || cities[index].idx !== index)
+      throw new RangeError("Web engineering Uncovered fresh city slot");
   let hex = "";
   for (const entry of records) {
     if (typeof entry !== "string" || !/^[0-9a-fA-F]{64}$/.test(entry))

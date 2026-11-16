@@ -519,13 +519,15 @@ test("terrainMemory actual JSON/restore/prepare isolation, identity and missing 
     );
   }
   assertPlayableScenario(readSavedAssembly(g.saved)); // P58 flip: v2 enters play
-  const absent = await fixture({ terrain: false }),
-    restored = await cold(absent);
-  // P89: fresh without explicit terrainMemory synthesizes the certified map
-  // tile plane (mocked world bytes 0xBA here); null-terrain owners retired.
+  const absent = await fixture({ terrain: false });
+  // Fresh now paints the synthesized plane through 89F0/8A1E before saving.
+  // Cold restore must preserve that live plane, not re-copy immutable 0xBA.
+  const freshCenter = absent.context.readTerrainByte(10, 10);
+  const restored = await cold(absent);
   assert.ok(restored.context.terrain);
   assert.equal(Object.hasOwn(restored.saved.webMeta, "terrainMemory"), true);
-  assert.equal(restored.context.readTerrainByte(10, 10), 0xba);
+  assert.equal(restored.context.readTerrainByte(10, 10), freshCenter);
+  assert.equal(absent.args.world.terrain.terrainTile(10, 10), 0xba);
 });
 
 test("terrain schema rejects holes/illegal/overlap and v1/misplaced metadata without modifying live owner", async () => {

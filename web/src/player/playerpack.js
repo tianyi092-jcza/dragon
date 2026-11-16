@@ -7,7 +7,15 @@ import { PlayerReaderError } from './playerclient.js';
 const seasons = ['spring', 'summer', 'autumn', 'winter'];
 const rules = ['terrain', 'roadGraph', 'roadCost', 'roadOffset'];
 const minis = ['minimapBase', 'minimapLarge'];
-const roles = { terrain: 'rules-initial-terrain', roadGraph: 'native-road-v2', roadCost: 'legacy-grid-visual', roadOffset: 'legacy-grid-visual', minimapBase: 'automatic-minimap', minimapLarge: 'automatic-minimap' };
+const baseRoles = { terrain: 'rules-initial-terrain', roadCost: 'legacy-grid-visual', roadOffset: 'legacy-grid-visual', minimapBase: 'automatic-minimap', minimapLarge: 'automatic-minimap' };
+// CITY-CAPACITY-1 C6(c) (user-authorized): dual formal-pack admission. The two
+// triplets must match exactly; mixed triplets (e.g. schema 2 with a v2 road
+// role) are rejected by the role table lookup below.
+const roleTables = {
+  '1/studio-app-2': { ...baseRoles, roadGraph: 'native-road-v2' },
+  '2/studio-app-3': { ...baseRoles, roadGraph: 'native-road-v3' },
+};
+const rolesFor = manifest => roleTables[manifest?.schemaVersion + '/' + manifest?.buildFormat];
 const fail = code => { throw new PlayerReaderError(code); };
 const check = value => { if (!value) fail('PLAYER_PACK_INVALID'); };
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -66,7 +74,9 @@ export async function loadPlayerPack({ session, compilerRevision, maxTotalBytes,
     check(await sha256(manifestBytes) === identity.manifestDigest); current();
     let manifest;
     try { manifest = parseJSON(manifestBytes); } catch { fail('PLAYER_PACK_INVALID'); }
-    check(manifest?.schemaVersion === 1 && manifest.buildFormat === 'studio-app-2' && manifest.compilerRevision === compilerRevision && !Object.hasOwn(manifest, 'scope'));
+    check(manifest.compilerRevision === compilerRevision && !Object.hasOwn(manifest, 'scope'));
+    const roles = rolesFor(manifest);
+    check(roles !== undefined);
     check(manifest.identity?.gameId === identity.gameId && manifest.identity.draftRevision === identity.revision && manifest.identity.sourceDigest === identity.sourceDigest && JSON.stringify(manifest.chapters) === JSON.stringify(identity.chapters));
     check(manifest.world?.id === identity.gameId + '-world' && manifest.world.revision === identity.sourceDigest && manifest.world.width === 384 && manifest.world.height === 256 && manifest.world.tileSize === 16);
     const declared = [];

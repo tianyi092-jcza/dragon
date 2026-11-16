@@ -66,7 +66,7 @@ export function originalFactionTick3E14(io) {
   if (attr >= 0x80) {
     attr &= 0xbf;
     call(io, "writeFactionByte", [slot, "attr", attr], "3E22");
-    const cities = byte(
+    const cities = word(
       call(io, "readFactionByte", [slot, "n_cities"], "3E25"),
       "3E25",
       "n_cities",

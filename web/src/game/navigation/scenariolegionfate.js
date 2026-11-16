@@ -70,10 +70,11 @@ function factionAt(sc, owner) {
 }
 
 function cityAt(sc, index, at) {
+  const live = sc.cities?.length ?? 192;
   if (
     !Number.isInteger(index) ||
     index < 0 ||
-    index >= 192 ||
+    index >= live ||
     sc.cities?.[index]?.idx !== index
   )
     missing(`city address ${index} at ${at}`);
@@ -176,6 +177,13 @@ export function createScenarioLegionFateIO(sc, context, rng) {
       return value === null ? 0x18 : value;
     },
     readCityLastByte: (index) => cityAt(sc, index, "4236")._strategicLastFaction,
+    // M257/C8-2: live sweep bound (legacy fate mocks omit it and keep 192).
+    readCityCount: () => {
+      const cities = sc.cities;
+      if (!Array.isArray(cities) || cities.length < 1 || cities.length > 0xffff)
+        missing("city count");
+      return cities.length;
+    },
     writeCityLastByte: (index, value) => {
       cityAt(sc, index, "4236")._strategicLastFaction = value;
     },

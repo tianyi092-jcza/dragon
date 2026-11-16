@@ -4,6 +4,7 @@ import { createScenarioBattleIO } from "./originalfieldterrain.js";
 import { resolveOriginalSiegeQuickBattle } from "./originalfieldbattle.js";
 import { nativeLegionAt, rebindNativeLegionViews } from "../nativelegions.js";
 import { captureOriginalCity } from "./originalcitycapture.js";
+import { cityAtRoadPointer } from "./originalroadstate.js";
 import { retreatOriginalGarrison } from "./originalroadretreat.js";
 import { performScenarioLegionFate, performScenarioExtinction4FCE, performScenarioExtinctionPlayerGate } from "./scenariolegionfate.js";
 
@@ -201,14 +202,11 @@ export function performScenarioSiegeEntry(
     blocks,
   );
   function cityAt(pointer, at) {
-    const index = (pointer - 0x840) / 32;
-    const city =
-      Number.isInteger(index) &&
-      index >= 0 &&
-      index < 192 &&
-      sc.cities?.[index];
-    if (!city || city.idx !== index) stop(at, "city address/identity");
-    return city;
+    try {
+      return cityAtRoadPointer(sc, pointer, at);
+    } catch (cause) {
+      throw stop(at, "city address/identity");
+    }
   }
   function own(record, key, max, at) {
     if (!record || !Object.hasOwn(record, key)) stop(at, `missing ${key}`);
@@ -290,7 +288,12 @@ export function performScenarioSiegeEntry(
     );
   };
   try {
-    if (!Number.isInteger(cityIndex) || cityIndex < 0 || cityIndex >= 192)
+    if (
+      !Number.isInteger(cityIndex) ||
+      cityIndex < 0 ||
+      cityIndex >= (sc.cities?.length ?? 0) ||
+      sc.cities[cityIndex]?.idx !== cityIndex
+    )
       stop("28BB", "city pointer alias");
     call.cityPointer = 0x840 + cityIndex * 32;
     // 4F36/4F13战术挂起的三方记录：攻方原生记录、主守军原生记录、被攻城池。

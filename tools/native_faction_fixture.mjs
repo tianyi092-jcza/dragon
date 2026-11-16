@@ -101,10 +101,14 @@ export function attachSyntheticNativeFactionSource(sc, extraRecords = {}) {
   );
   sc.nativeMonthlyPolicyRaw = Buffer.from(policy).toString("hex");
   // P40：fresh v2 的 C18 缓存初值 = 8CAE 载入的城记录 byte+0x18；测试夹具
-  // 提供 192×32B 全零记录（仅 +0x18 被 fresh 初始化消费；+0x01 owner 语义
-  // 属 P30/P34 别名夹具，这里不声明）。
-  sc.nativeCityRecordRaw = Array.from({ length: 192 }, () =>
-    Buffer.alloc(32).toString("hex"),
+  // 提供 live长度×32B 全零记录（仅 +0x18 被 fresh 初始化消费；+0x01 owner 语义
+  // 属 P30/P34 别名夹具，这里不声明）。已存在的显式记录逐槽保留。
+  const cityTotal = Array.isArray(sc.cities) ? sc.cities.length : 192;
+  const previous = Array.isArray(sc.nativeCityRecordRaw)
+    ? sc.nativeCityRecordRaw
+    : [];
+  sc.nativeCityRecordRaw = Array.from({ length: cityTotal }, (_, i) =>
+    typeof previous[i] === "string" ? previous[i] : Buffer.alloc(32).toString("hex"),
   );
   return sc;
 }

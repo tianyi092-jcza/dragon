@@ -98,7 +98,7 @@ export function assertNativeFactionSlots(sc) {
     for (const field of ["reserve_cav", "reserve_arc", "reserve_inf"])
       integer(faction[field], 0, 65535, field);
     integer(faction.money, -0x800000, 0x7fffff, "money");
-    integer(faction.n_cities, 0, 255, "n_cities");
+    integer(faction.n_cities, 0, 65535, "n_cities");
     integer(
       faction.monthly_reserve_upkeep,
       0,

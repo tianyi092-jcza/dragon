@@ -40,7 +40,7 @@ assert.match(generalGaps[0].detail, /武將庫/);
 check();
 
 // ② 據點定義被刪除 → 所有在原生記錄裡用到該固定槽的章逐章列出，且嚴格結構門
-// 只會回一句「requires 192 cities」；所以上架門必須先跑逐章清單。
+// 只會回一句「needs a dense runtime slot」（191 城不再是 0..190 連續槽）；所以上架門必須先跑逐章清單。
 const cityless = clone();
 const [cityId, definition] = Object.entries(cityless.cities)[0];
 delete cityless.cities[cityId];
@@ -49,7 +49,7 @@ const affected = cityless.chapterOrder.filter(id => (cityless.chapters[id].state
 assert.ok(affected.length > 0);
 assert.deepEqual([...new Set(slotGaps.map(gap => gap.chapterId))].sort(), [...affected].sort());
 assert.ok(slotGaps.every(gap => gap.code === 'CHAPTER_CITY_SLOT_MISSING' && gap.detail.includes(String(definition.runtimeSlot))));
-assert.throws(() => validateGameSource(cityless), /requires 192 cities/);
+assert.throws(() => validateGameSource(cityless), /needs a dense runtime slot/);
 check();
 
 // ③ 作者層據點配置引用被刪除的定義 → CHAPTER_CITY_MISSING，與槽位缺口並存。

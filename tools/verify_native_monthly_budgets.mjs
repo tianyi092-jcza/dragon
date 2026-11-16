@@ -46,6 +46,43 @@ const sequence = (...values) => ({
   },
 });
 
+test("M257(e): 5715 scans past slot 191 under a live city count", () => {
+  const sc = fixture();
+  for (let slot = 192; slot < 200; slot++) {
+    sc.cities.push({
+      idx: slot,
+      faction: null,
+      governor: null,
+    });
+  }
+  Object.assign(sc.cities[195], {
+    faction: 0,
+    governor: 5,
+    growth: 100,
+    defence: 120,
+    troops_cap: 50,
+    troops: 20,
+  });
+  sc.generals[5].assignment_budget = 0;
+  const rng = sequence(0);
+  const result = performScenarioMonthlyBudgetProducers(sc, rng);
+  assert.deepEqual(
+    result.domestic.map(({ amount }) => amount),
+    [4250],
+  );
+  assert.deepEqual(
+    result.domestic.map(({ arg0 }) => arg0),
+    [195],
+  );
+  assert.deepEqual(sc.strategicEventSlots[0], {
+    type: 4,
+    arg0: 195,
+    arg1: 0x9a,
+    arg2: 0x10,
+  });
+  assert.equal(rng.calls, 1);
+});
+
 test("5715 then 578F encode city/faction and little-endian amount in shared 4-byte slots", () => {
   const sc = fixture();
   const city = sc.cities[69];

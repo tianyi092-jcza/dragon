@@ -16,7 +16,7 @@ test('empty chapter reports locked entity counts without pretending it is playab
   assert.equal(report.details.active.filter(row => row.code === 'entity-count').length, 2);
   assert.equal(report.details.active.filter(row => row.code === 'chapter-factions').length, 1);
   assert.ok(report.details.active.every(row => row.recognized));
-  assert.match(report.details.active[0].description, /128/); assert.match(report.details.active[1].description, /192/);
+  assert.match(report.details.active[0].description, /128/); assert.match(report.details.active[1].description, /512/);
   assert.deepEqual(state, before);
 });
 test('未登场槽是空位：保存门只管已登场槽（2026-11 用户裁决）', () => {

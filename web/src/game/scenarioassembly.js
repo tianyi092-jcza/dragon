@@ -2,6 +2,7 @@
 // The actual App uses this detached preparation before any live installation.
 // Formal JSON contract and unsupported native scope: march notes §3.10.
 import { STRATEGIC_LAYOUT } from "../content/worlddefinition.js";
+import { maxNodesForVersion } from "./navigation/originalroadmemory.js";
 import { Scenario } from "./world.js";
 import { assertLegionPhaseState } from "./legionphase.js";
 import {
@@ -39,7 +40,7 @@ import {
   restoreScenarioRoadMemory,
   snapshotScenarioRoadMemory,
 } from "./navigation/scenarioroadmemory.js";
-import { readOriginalRoadCityOwnerByte } from "./navigation/originalroadstate.js";
+import { readOriginalRoadCityOwnerByte, readCityOwnerByIndex, readOriginalStrategicNeighbour } from "./navigation/originalroadstate.js";
 import {
   createScenarioMovementMemory,
   synthesizeScenarioMovementMemory,
@@ -72,7 +73,7 @@ export function assertNoEmbeddedRoadMetadata(state) {
 }
 
 function assertMetadata(metadata) {
-  if (metadata?.version !== 1 || ![1, 2].includes(metadata.roadVersion))
+  if (metadata?.version !== 1 || ![1, 2, 3].includes(metadata.roadVersion))
     throw new TypeError("Invalid scenario assembly schema/road version");
   for (const value of [
     metadata.world?.id,
@@ -142,9 +143,9 @@ export function assertAssemblyIdentity(metadata, idx, content, world) {
  * Saves without assembly metadata are legacy phaseless saves and pass
  * through (P58 flip keeps the pre-flip null-metadata admission intact). */
 export function assertPlayableScenario({ metadata }) {
-  // P65 G5: only staged v2 (or phaseless legacy metadata, v2-initialized
+  // P65 G5: only staged v2/v3 (or phaseless legacy metadata, v2-initialized
   // at prepare per P58) may enter App play. Explicit v1 is retired.
-  if (metadata != null && metadata.roadVersion !== 2)
+  if (metadata != null && metadata.roadVersion !== 2 && metadata.roadVersion !== 3)
     throw new Error("unstaged road version cannot enter play");
 }
 
@@ -221,13 +222,28 @@ export async function prepareScenario({
   expected.roadVersion = roadVersion;
   assertMetadata(expected);
   // P76 gate (entire v2 replacement): v1 owners are unconstructible.
-  // Fresh preparation against a non-v2 graph fails closed here; restore
+  // Fresh preparation against a non-v2/v3 graph fails closed here; restore
   // of explicit v1 metadata is already retired at the prepare gate above.
-  if (roadVersion !== 2)
-    throw new TypeError("Scenario road graph must be v2");
-  if (scenario.cities.length !== STRATEGIC_LAYOUT.citySlots)
-    throw new TypeError("Invalid fixed scenario city table");
-  for (let slot = 0; slot < STRATEGIC_LAYOUT.citySlots; slot++) {
+  if (roadVersion !== 2 && roadVersion !== 3)
+    throw new TypeError("Scenario road graph must be v2 or v3");
+  // CITY-CAPACITY-1 admission (user-authorized 2026-11-17): the live city
+  // table must equal the live road-graph node table 1:1 (slot identity +
+  // center match per slot). v2 keeps the DOS 256-node domain; v3 caps at
+  // the 512-node visited-scratch ceiling. STRATEGIC_LAYOUT.citySlots stays
+  // the original-layout constant, not the admission bound.
+  const cityTotal = scenario.cities.length;
+  const graphNodes =
+    typeof world.roads?.roadNodeCount === "function"
+      ? world.roads.roadNodeCount()
+      : STRATEGIC_LAYOUT.citySlots;
+  if (
+    !Number.isInteger(cityTotal) ||
+    cityTotal < 1 ||
+    cityTotal > maxNodesForVersion(roadVersion) ||
+    cityTotal !== graphNodes
+  )
+    throw new TypeError("Invalid scenario city table");
+  for (let slot = 0; slot < cityTotal; slot++) {
     const city = scenario.cities[slot],
       node = world.roads.roadNodeById(slot);
     if (
@@ -238,7 +254,7 @@ export async function prepareScenario({
     )
       throw new TypeError(`Scenario city/node mismatch at ${slot}`);
   }
-  if (roadVersion === 2) {
+  if (roadVersion === 2 || roadVersion === 3) {
     if (mode === "restore") {
       if (!metadata || !checkpoint)
         throw new TypeError("v2 restore requires metadata and road memory");
@@ -318,6 +334,7 @@ export async function prepareScenario({
           cacheInput,
           snapshotScenarioRoadMemory(scenario),
           mode === "restore",
+          scenario.cities.length,
         );
   // P89 root cause (live-verified crash: fresh new games bound no terrain,
   // first legion road step threw "Uncovered native terrain memory" into the
@@ -372,14 +389,16 @@ export async function prepareScenario({
   return {
     scenario,
     metadata: structuredClone(expected),
+    readCityOwner: (index, instruction) => readCityOwnerByIndex(scenario, index, instruction),
+    readStrategicNeighbour: readOriginalStrategicNeighbour,
     readCityOwnerByte: (address) =>
       readOriginalRoadCityOwnerByte(scenario, address),
   };
 }
 
 /** Read-only assembly lookup for detached native callers, never a RAM initializer.
- * P76 gate: only v2 owners exist. Known v2 without formal ownership is an
- * engineering error, never permission to run unbound.
+ * P76 gate: only v2/v3 owners exist. Known staged versions without formal
+ * ownership are an engineering error, never permission to run unbound.
  */
 export function scenarioNativeRoadContext(scenario) {
   assertNoEmbeddedRoadMetadata(scenario);
@@ -392,16 +411,18 @@ export function scenarioNativeRoadContext(scenario) {
   assertAssemblyIdentity(owner.metadata, owner.idx, owner.content, owner.world);
   if (owner.world.roads.loadedRoadVersion() !== owner.metadata.roadVersion)
     throw new TypeError("Native caller road version mismatch");
-  // P76 gate: v1 owners are unconstructible (prepare requires a v2 graph;
+  // P76 gate: v1 owners are unconstructible (prepare requires a v2/v3 graph;
   // explicit v1 metadata is retired at every gate). Fail closed.
-  if (owner.metadata.roadVersion !== 2)
-    throw new TypeError("Scenario road owner must be v2");
+  if (owner.metadata.roadVersion !== 2 && owner.metadata.roadVersion !== 3)
+    throw new TypeError("Scenario road owner must be v2 or v3");
   return Object.freeze({
     roads: owner.world.roads,
     memory: getScenarioRoadMemory(scenario),
     movement: owner.movement,
     cityCache: owner.cityCache,
     terrain: owner.terrain,
+    readStrategicNeighbour: readOriginalStrategicNeighbour,
+    readCityOwner: (index, instruction) => readCityOwnerByIndex(scenario, index, instruction),
     readTerrainByte: (x, y) => {
       if (!owner.terrain)
         throw new RangeError("Uncovered native terrain memory");
@@ -436,7 +457,7 @@ export function snapshotScenarioAssembly(app) {
   if (owner.world.roads.loadedRoadVersion() !== owner.metadata.roadVersion)
     throw new TypeError("Snapshot road version mismatch");
   const result = { scenarioAssembly: structuredClone(owner.metadata) };
-  if (owner.metadata.roadVersion === 2) {
+  if (owner.metadata.roadVersion === 2 || owner.metadata.roadVersion === 3) {
     result.roadMemory = snapshotScenarioRoadMemory(sc);
     if (owner.movement) result.movementMemory = owner.movement.snapshot();
     if (owner.cityCache) result.cityCache = owner.cityCache.snapshot();

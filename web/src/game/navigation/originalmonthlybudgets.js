@@ -43,7 +43,13 @@ const enqueue = (io, type, arg0, amount) =>
     0xff,
   );
 
-/** 5715: fixed 192-city scan; amount zero is still enqueued. */
+// M257(e): live city count capability; legacy mocks without it keep 192.
+const readCityCount = (io, at) => {
+  if (typeof io?.readCityCount !== "function") return 192;
+  return word(io.readCityCount(at), at, "city count");
+};
+
+/** 5715: live-count city scan; amount zero is still enqueued. */
 export function originalMonthlyDomesticBudgets5715(io) {
   const player = byte(
     call(io, "readPlayerFactionByte", [], "5720"),
@@ -51,7 +57,8 @@ export function originalMonthlyDomesticBudgets5715(io) {
     "CFF player faction",
   );
   const queued = [];
-  for (let city = 0; city < 192; city++) {
+  const cityCount = readCityCount(io, "572A");
+  for (let city = 0; city < cityCount; city++) {
     const owner = byte(
       call(io, "readCityByte", [city, "owner"], "572A"),
       "572A",

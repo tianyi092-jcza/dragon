@@ -10,6 +10,7 @@
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏版本`1.n`、软件版本、内容摘要和程序归档身份相互独立。
 - **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核及地图工作台已接copy；部分定义面板、旧draft整体退役与表清理仍待，见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`已退役为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
 - **地图工作台（Web产品决定）**：系统基础地图、共用Canvas与第二阶段精炼目录已完成本地实现／验证；不等于生产部署。管理员维护独立模板，两种创建取单快照，既有游戏不跟随更新；固定384×256／192槽，不复原DOS对象或扩容。缺`mapEditorAssets`的旧copy明确拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[第二阶段](docs/map-workspace-sprite-library-design.md)；当前验收边界见[审计](docs/map-workspace-sprite-library-audit.md)。
+- **据点扩容后继任务（Web产品决定）**：用户确定先保持384×256地图，解除192据点限制，人物／地图等其它容量后续再扩；开发计划与新会话入口见[CITY-CAPACITY-1](docs/city-capacity-expansion-plan.md)。运行／道路／财政／存档代码已支持v2-192与v3-512双布局（M192／M193／M257本地验证，见[C8验收](docs/city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)），内置游戏与生产准入仍为192，据点组仍只读；计划不等于已部署。本期改造须贯通稳定身份、道路、章节、运行、战场与保存，不只放宽计数门，不另建简化引擎。具体Web差异／尚待细化项由该计划维护，不自动授权生产迁移。
 - 生产为`sadcloud`单VPS（`ssh sadcloud`，`/srv/dragon`）：编辑器/玩家分服务，SQLite＋私有文件桶＋磁盘分发桶，nginx/Let's Encrypt；域名`dragon-editor.720108.xyz`/`dragon.720108.xyz`直连源站。Worker/R2/Tunnel、instabox为历史形态；操作前按[存储布局§18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)重新核部署身份。
 
 ## 2. 架构与数据归属

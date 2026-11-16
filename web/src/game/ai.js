@@ -13,6 +13,7 @@ import {
 } from "./diplomacy.js";
 import { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 import { cityRawBytes, factionRawByte } from "./legacyrecords.js";
+import { cityPhaseRange } from "./cityphase.js";
 import { countLegionActivation, countLegionRemoval } from "./legioncounts.js";
 import { hasNativeFactionSlots } from "./nativefactions.js";
 import { hasNativeStrategicEventWheel } from "./nativeevents.js";
@@ -243,7 +244,7 @@ export function buildArmies(sc) {
       // as DOS addresses, or overwrite independent 14 from targetCity (20).
       // 4502..4547 can leave 14 != 20; preserve the known value, including 0.
       // Missing fields / legacy DOS conversion require their own input contract.
-      const savedCurrentNode = rawRoadNodeId(L.roadEdgeOrNode);
+      const savedCurrentNode = rawRoadNodeId(L.roadEdgeOrNode, sc.cities?.length);
       const savedMarch = restoreRoadMarchContext({
         x: L.x,
         y: L.y,
@@ -403,7 +404,7 @@ function legionAtTargetNode(sc, legion) {
     return sc.cities.some((city) => city.x === legion.x && city.y === legion.y);
   }
   const currentNode =
-    rawRoadNodeId(legion?.roadEdgeOrNode) ??
+    rawRoadNodeId(legion?.roadEdgeOrNode, sc.cities?.length) ??
     legion?._currentNode ??
     legion?._march?.currentNode;
   return Number.isInteger(currentNode) && legion.targetNode === currentNode;
@@ -708,8 +709,15 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
       )
         return;
       app._strategicCityRequest = null;
-      completePlayerReinforcementRequest(sc, native, city, rng);
-      onRequestComplete?.();
+      try {
+        completePlayerReinforcementRequest(sc, native, city, rng);
+        onRequestComplete?.();
+      } catch (error) {
+        // The asynchronous 40F6/414F/40B3 return is outside aiTick's stack.
+        // Retain any committed writes, but never allow a failed city replay.
+        if (app.scenario === sc && app.clock === request.clock)
+          holdFailedStrategicUpdate(app, error);
+      }
       app.gamebar?.syncClock?.();
     };
     if (!app.gamebar?.enqueueTalkMessage) {
@@ -936,20 +944,22 @@ function clearMarchNavigation(A) {
   delete A._feint;
 }
 
-function rawRoadNodeId(rawAddress) {
+function rawRoadNodeId(rawAddress, nodeCount = 192) {
   const decoded = roadNodeIdFromRaw(rawAddress);
   if (decoded != null) return decoded;
+  // Graph-unavailable fallback: slot identity only, bounded by the live
+  // table (v3 node addresses reach 0x808; edge bases stay above nodeCount).
   return Number.isInteger(rawAddress) &&
     rawAddress >= 0 &&
-    rawAddress < 0x0800 &&
     rawAddress % 8 === 0 &&
-    rawAddress / 8 < 192
+    rawAddress / 8 < nodeCount
     ? rawAddress / 8
     : null;
 }
 
 function markLegionAtRoadNode(sc, legion, nodeId) {
-  if (!Number.isInteger(nodeId) || nodeId < 0 || nodeId >= 192) return;
+  const live = sc.cities?.length ?? 192;
+  if (!Number.isInteger(nodeId) || nodeId < 0 || nodeId >= live) return;
   const rawAddress = scenarioRoadRawAddress(sc, nodeId) ?? nodeId * 8;
   legion._currentNode = nodeId;
   legion.roadEdgeOrNode = rawAddress;
@@ -5294,22 +5304,50 @@ export function aiTick(app, options = {}) {
       clock = app.clock;
     try {
       if (dispatchNativeUnificationGate(app)) return "pending";
-      if (Number.isInteger(options.cityIndex)) {
-        if (
-          options.cityIndex < 0 ||
-          options.cityIndex >= 192 ||
-          scenario.cities?.[options.cityIndex]?.idx !== options.cityIndex
-        )
-          throw new RangeError("Uncovered city cursor at 3EFD");
-        tickStrategicCity(app, options.cityIndex);
-      } else if (options.runCityDaily !== false) {
-        throw new RangeError(
-          "Uncovered native update requires explicit cityIndex",
-        );
-      }
-      finishStrategicCityUpdate(app, options);
+      const update = { ...options };
+      // Historical option/cursor name is retained for the 192-city callers.
+      // It denotes the phase (0..191), not a city index in an expanded world.
+      const range = Number.isInteger(update.cityIndex)
+        ? cityPhaseRange(update.cityIndex, scenario.cities.length)
+        : null;
+      if (!range && update.runCityDaily !== false)
+        throw new RangeError("Uncovered native update requires explicit cityIndex");
+      let cursor = range?.start ?? 0;
+      let stage = "military", running = false, done = false;
+      const resume = () => {
+        if (running || done || app._strategicBattleFailure ||
+            app.scenario !== scenario || app.clock !== clock) return;
+        running = true;
+        try {
+          while (range && cursor < range.end) {
+            const city = scenario.cities[cursor];
+            if (city?.idx !== cursor) throw new RangeError("Uncovered city cursor at 3EFD");
+            if (stage === "military") {
+              stage = "daily";
+              tickStrategicCity(app, cursor, resume);
+              // Synchronous no-UI close cannot re-enter this running loop.
+              if (app._strategicCityRequest) return;
+            }
+            governOriginalCity(scenario, scenarioNativeRoadContext(scenario), city,
+              app.originalRng ?? app.activeBattleRng);
+            damageOriginalCity(city);
+            cursor++;
+            stage = "military";
+          }
+          if (range) scenario._cityTickCursor = range.nextPhase;
+          done = true;
+          // All cities returned; one legion batch, even for an empty phase.
+          finishStrategicCityUpdate(app, { ...update, cityIndex: undefined, runCityDaily: false });
+        } catch (error) {
+          if (app.scenario === scenario && app.clock === clock)
+            holdFailedStrategicUpdate(app, error);
+        } finally {
+          running = false;
+        }
+      };
+      resume();
       if (app._strategicBattleFailure) return "failed";
-      return app._legionSlotBatch ? "pending" : "returned";
+      return app._strategicCityRequest || app._legionSlotBatch ? "pending" : "returned";
     } catch (error) {
       if (app.scenario === scenario && app.clock === clock)
         holdFailedStrategicUpdate(app, error);
@@ -5345,23 +5383,13 @@ function finishStrategicCityUpdate(app, options) {
   // 1D0B: city military/request already returned, then governance, then
   // 25A3. Newly formed armies compete for reserves BEFORE these slots.
   const native = scenarioNativeRoadContext(sc);
+  // Native city phases already completed in aiTick's resumable batch.
   if (Number.isInteger(options.cityIndex)) {
-    if (native) {
-      const city = sc.cities[options.cityIndex];
-      governOriginalCity(
-        sc,
-        native,
-        city,
-        app.originalRng ?? app.activeBattleRng,
-      );
-      damageOriginalCity(city);
-      sc._cityTickCursor = (options.cityIndex + 1) % 192; // 3F6F, once after 4269 RET.
-    } else
-      tickStrategicCityDaily(
-        sc,
-        options.cityIndex,
-        app.originalRng ?? app.activeBattleRng,
-      );
+    tickStrategicCityDaily(
+      sc,
+      options.cityIndex,
+      app.originalRng ?? app.activeBattleRng,
+    );
   } else if (options.runCityDaily !== false) {
     cityDaily(sc, app.originalRng ?? app.activeBattleRng);
   }
@@ -5621,7 +5649,7 @@ function performLegionSlotAction(app, A) {
     if (
       A._retreat &&
       Number.isInteger(A._retreat.nodeId) &&
-      rawRoadNodeId(A.roadEdgeOrNode) === A._retreat.nodeId
+      rawRoadNodeId(A.roadEdgeOrNode, sc.cities?.length) === A._retreat.nodeId
     )
       A._retreat = null;
     // 行军驱动挂起（总督/外交官/灭亡/4F06警告）必须让出批处理，由消息

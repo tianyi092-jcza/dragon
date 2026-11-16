@@ -395,6 +395,32 @@ test("4236 missing city +1A stays a fail-closed stop, never a zero fill", async 
   assert.match(error.message, /readCityLastByte/);
 });
 
+test("4236 sweep follows the live city count past the legacy 192 bound", () => {
+  const owners = Array(200).fill(0x18);
+  const lasts = Array(200).fill(0x18);
+  const writes = [];
+  owners[198] = DEAD;
+  lasts[198] = DEAD;
+  owners[199] = CAPTOR;
+  lasts[199] = DEAD;
+  const result = originalExtinctionCitySweep4236(
+    {
+      readCityOwnerByte: (index) => owners[index],
+      readCityLastByte: (index) => lasts[index],
+      writeCityLastByte: (index, value) => writes.push([index, value]),
+      readCityCount: () => 200,
+    },
+    DEAD,
+    CAPTOR,
+  );
+  assert.equal(result, "normalized");
+  // Both high slots are visited: 198 (dead/dead) and 199 (captor/dead).
+  assert.deepEqual(writes, [
+    [198, DEAD],
+    [199, CAPTOR],
+  ]);
+});
+
 test("3669 merges the symmetric pair to min bit80 and honors neutral", () => {
   const cells = Array.from({ length: 24 }, () => Array(24).fill(0));
   const io = {
@@ -468,7 +494,7 @@ test("captureOriginalCity wires the extinction scan past 4D1E", async () => {
   assert.equal(city.faction, CAPTOR);
   // 4CF8 wrote DEAD, then the scan-internal 4236 normalized last to the owner.
   assert.equal(city._strategicLastFaction, CAPTOR);
-  assert.equal(f.sc.factions[DEAD].n_cities, (oldCities - 1) & 255);
+  assert.equal(f.sc.factions[DEAD].n_cities, (oldCities - 1) & 65535 /* M257(d): word-domain wrap, byte shape kept reachable */);
   assert.equal(f.sc.factions[DEAD].attr & 0x80, 0);
   // The scan stopped before 4D2A: no new-owner F23 increment yet.
   assert.equal(f.sc.factions[CAPTOR].n_cities, 0);
@@ -583,7 +609,7 @@ test("captureOriginalCity continues past 4D1E once the scan returns", async () =
   });
   assert.equal(result, "captured-4D62"); // 4D62 RET after 4D2A/8A1E/88CC/4D33.
   assert.equal(city.faction, CAPTOR);
-  assert.equal(f.sc.factions[DEAD].n_cities, (oldCities - 1) & 255);
+  assert.equal(f.sc.factions[DEAD].n_cities, (oldCities - 1) & 65535 /* M257(d): word-domain wrap, byte shape kept reachable */);
   // 4D2A runs now that 4FCE returned: the captor F23 increments.
   assert.equal(f.sc.factions[CAPTOR].n_cities, 1);
 });
@@ -623,7 +649,7 @@ test("captureOriginalCity suspends at 5042 and defers the 4D2A tail", async () =
   );
   // 4CF3..4D1E prefix kept, but the 4D2A tail has not run yet.
   assert.equal(city.faction, CAPTOR);
-  assert.equal(f.sc.factions[DEAD].n_cities, (oldCities - 1) & 255);
+  assert.equal(f.sc.factions[DEAD].n_cities, (oldCities - 1) & 65535 /* M257(d): word-domain wrap, byte shape kept reachable */);
   assert.equal(f.sc.factions[CAPTOR].n_cities, 0);
   assert.equal(f.sc.factions[CAPTOR].target_faction, DEAD);
   // TALK36 close: the 504D..5073 resume runs first, then the deferred tail
@@ -864,7 +890,7 @@ test("captureOriginalCity suspends the governor report before the 4D0A DEC", asy
   assert.equal(f.sc.factions[DEAD].n_cities, oldCities);
   assert.equal(f.sc.factions[CAPTOR].n_cities, 0);
   assert.equal(suspended.governorTail(), "captured-4D62");
-  assert.equal(f.sc.factions[DEAD].n_cities, (oldCities - 1) & 255);
+  assert.equal(f.sc.factions[DEAD].n_cities, (oldCities - 1) & 65535 /* M257(d): word-domain wrap, byte shape kept reachable */);
   assert.equal(f.sc.factions[CAPTOR].n_cities, 1);
 });
 

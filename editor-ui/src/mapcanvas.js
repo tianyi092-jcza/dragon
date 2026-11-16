@@ -6,6 +6,7 @@ import { createDecorationPicker } from '../../web/src/editor/componenttools.js';
 import { fitViewport, panViewport, screenToWorld, zoomAt } from '../../web/src/editor/viewport.js';
 import { catalogLayer } from './mapcataloglayers.js';
 import { projectAtomicSpriteCatalog } from './mapatomiccatalog.js';
+import { planCityGroupPlacement, materializeCityGroupPlacement } from '../../web/src/editor/citygroupplacement.js';
 import { planSpriteMaterialization } from './mapspriterecipes.js';
 import cityGroupCatalog from './mapcitygroups.json' with { type: 'json' };
 
@@ -246,7 +247,19 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     }
     if (['base-fill', 'base-fill-rectangle', 'water-visibility'].includes(op)) throw new Error('海域基底固定；小地圖只顯示地面輪廓、道路及據點');
     if (op === 'decoration-place') {
-      if (cityGroups.has(fields.materialId)) throw new Error('據點組目前僅供預覽，尚未開放放置。');
+      if (cityGroups.has(fields.materialId)) {
+        // C7-F: city-group placement routes through the all-or-nothing
+        // precheck plus map-side materialization, staged as a single
+        // city-group-place op. The stable cityId must be caller-issued
+        // through the copy-model path (C6-1); the canvas never invents one,
+        // so a bare preview call keeps the legacy refusal below.
+        if (typeof fields.cityId !== 'string' || !fields.cityId) throw new Error('據點組目前僅供預覽，尚未開放放置。');
+        if (!selected || locked.decor || !visible.decor) throw new Error('請先選取放置位置並解鎖裝飾層');
+        const item = cityGroupCatalog.items.find(entry => `catalog:${entry.itemId}` === fields.materialId);
+        const plan = planCityGroupPlacement(source, item, { x: selected.x, y: selected.y, cityType: fields.cityType });
+        const materialized = materializeCityGroupPlacement(plan, { cityId: fields.cityId, newId });
+        return stage({ op: 'city-group-place', materialized });
+      }
       if (!selected || locked.decor) throw new Error('請先選取放置位置並解鎖裝飾層');
       if (recipePlans.has(fields.materialId)) {
         const plan = recipePlans.get(fields.materialId);

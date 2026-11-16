@@ -7,6 +7,26 @@ const text = (value) => {
   if (typeof value !== "string" || !value.trim() || [...value].length > 64 || /[\u0000-\u001f\u007f]/u.test(value)) fail("名稱須為1至64字且無控制字元");
   return value.trim();
 };
+// Shared occupancy scan: decorations (full footprints), road components
+// and placements. Used by placement precheck and gate-removal precheck.
+export function occupiedCells(source) {
+  const occupied = new Set();
+  const map = source?.map;
+  if (!map || typeof map !== "object") fail("地圖來源缺失");
+  for (const decoration of map.decorations ?? []) {
+    for (const [x, y] of componentCells(source, decoration)) occupied.add(`${x},${y}`);
+  }
+  for (const road of map.roads ?? []) {
+    for (const component of road.components ?? []) {
+      for (const [x, y] of componentCells(source, component)) occupied.add(`${x},${y}`);
+    }
+  }
+  for (const placement of map.placements ?? []) {
+    if (Number.isInteger(placement?.x) && Number.isInteger(placement?.y))
+      occupied.add(`${placement.x},${placement.y}`);
+  }
+  return occupied;
+}
 function transaction(source, change) {
   const next = { ...source, componentDefinitions: { ...source.componentDefinitions }, map: { ...source.map,
     decorations: source.map.decorations.slice(), waterGroups: structuredClone(source.map.waterGroups ?? []),
@@ -188,6 +208,44 @@ export function placeComponent(source, definitionRef, x, y, id, waterClass, vari
     if (waterClass) next.map.waterGroups.push(newGroup(next, "group-" + id, def.name ?? "新水域組合", [id], [], true));
   });
 }
+export function placeCityGroup(source, materialized) {
+  const cityId = materialized?.cityId;
+  if (typeof cityId !== "string" || !cityId) fail("據點身份缺失");
+  const decorations = materialized?.decorations, ports = materialized?.ports, group = materialized?.group;
+  if (!Array.isArray(decorations) || !decorations.length) fail("據點裝飾描述缺失");
+  if (!Array.isArray(ports)) fail("據點門端口描述缺失");
+  if (!group || group.id !== `city-group-${cityId}` || !Array.isArray(group.members) || !group.members.length) fail("據點成組描述缺失");
+  const taken = new Set([...source.map.decorations, ...source.map.roads.flatMap((road) => road.components ?? []), ...source.map.placements].map((item) => item.id));
+  const batch = new Set();
+  for (const deco of decorations) {
+    if (typeof deco?.instanceId !== "string" || !deco.instanceId || taken.has(deco.instanceId) || batch.has(deco.instanceId)) fail("裝飾身份重複或缺失");
+    batch.add(deco.instanceId);
+    const tile = /^tile-(\d+)$/.exec(deco.materialId ?? "");
+    const def = source.componentDefinitions[deco.materialId];
+    if (!def || !tile || Number(tile[1]) > 255 || def.ruleRecipeRef !== BYTE_STAMP_RECIPE || JSON.stringify(def.anchor) !== "[0,0]" ||
+        JSON.stringify(def.footprint) !== "[[0,0]]" || JSON.stringify(def.variants?.original?.tiles) !== `[[0,0,${tile[1]}]]`) fail(`裝飾素材不存在或非原子單格：${deco.materialId}`);
+    if (!Number.isInteger(deco.x) || !Number.isInteger(deco.y) || deco.x < 0 || deco.y < 0 || deco.x >= 384 || deco.y >= 256) fail("裝飾落點須為地圖內整數圖格");
+    if (deco.variantRef !== "original") fail("據點裝飾只接受原尺寸變體");
+  }
+  const portTaken = new Set((source.cityGatePorts ?? []).map((port) => port?.portId));
+  const portBatch = new Set();
+  ports.forEach((port, gateIndex) => {
+    if (!port || port.portId !== `${cityId}:${gateIndex}` || port.cityId !== cityId || port.gateIndex !== gateIndex) fail("門端口身份不符");
+    if (portTaken.has(port.portId) || portBatch.has(port.portId)) fail("門端口身份重複");
+    portBatch.add(port.portId);
+    if (!Number.isInteger(port.x) || !Number.isInteger(port.y) || port.x < 0 || port.y < 0 || port.x >= 384 || port.y >= 256) fail("門端口須為地圖內整數圖格");
+  });
+  const groups = source.selectionGroups ?? [];
+  if (groups.some((row) => row?.id === group.id)) fail("據點成組身份重複");
+  if (group.members.some((member) => member?.layer !== "decorations" || !batch.has(member.id))) fail("據點成組只含本次裝飾");
+  // Ports are metadata only: no road geometry is created here. Copy-model
+  // city rows, chapter coverage and battleMapId bindings are NOT written.
+  return transaction(source, (next) => {
+    for (const deco of decorations) next.map.decorations.push({ id: deco.instanceId, definitionRef: deco.materialId, variantRef: "original", x: deco.x, y: deco.y });
+    next.cityGatePorts = [...(source.cityGatePorts ?? []), ...ports.map((port) => ({ ...port }))];
+    next.selectionGroups = [...(source.selectionGroups ?? []), { id: group.id, members: group.members.map((member) => ({ ...member })) }];
+  });
+}
 // Q39 over-boundary preview: which cells WOULD exceed on the proposed move.
 // Pure read, no mutation, same input gates as translateDecorations.
 export function previewTranslateOutOfBounds(source, ids, dx, dy) {
@@ -205,6 +263,45 @@ export function previewTranslateOutOfBounds(source, ids, dx, dy) {
 // with the capacity reason; unconfigured bounds block publish at freeze.
 export function requestMapExpansion() {
   fail("MAP_EXPANSION_CLOSED：地圖固定 384x256，不開放擴邊；容量原證未閉合");
+}
+// C7-G disassembly (§4.2): unlink the city group only. Decorations stay
+// as independent parts, gate port metadata stays, and no copy-model,
+// chapter or road record is touched. Unknown groups fail closed.
+export function disbandCityGroup(source, cityId) {
+  if (typeof cityId !== "string" || !cityId) fail("據點身份缺失");
+  const groupId = `city-group-${cityId}`;
+  if (!(source.selectionGroups ?? []).some((row) => row?.id === groupId)) fail("據點成組不存在");
+  return transaction(source, (next) => {
+    next.selectionGroups = (source.selectionGroups ?? []).filter((row) => row?.id !== groupId);
+  });
+}
+// C7-H gate deletion (§4.3 contract): remove one gate port after the road
+// reference precheck, replacing the gate cell with an atomic wall tile.
+// The wall decoration stays ungrouped; the selection group keeps its other
+// members. Copy-model rows, chapter coverage and battleMapId are NOT written.
+export function removeCityGate(source, { cityId, gateIndex, wallMaterialId, wallInstanceId } = {}) {
+  if (typeof cityId !== "string" || !cityId) fail("據點身份缺失");
+  if (!Number.isInteger(gateIndex) || gateIndex < 0) fail("門索引須為非負整數");
+  const portId = `${cityId}:${gateIndex}`;
+  const port = (source.cityGatePorts ?? []).find((row) => row?.portId === portId);
+  if (!port || port.cityId !== cityId || port.gateIndex !== gateIndex) fail("門端口不存在");
+  if (!Number.isInteger(port.x) || !Number.isInteger(port.y)) fail("門端口座標異常");
+  // Roads reference cities, not ports: any road touching the city blocks
+  // gate deletion until unlinked via road tools. Roads themselves untouched.
+  const refs = (source.map?.roads ?? []).filter((road) => road?.fromCityId === cityId || road?.toCityId === cityId).map((road) => road.id);
+  if (refs.length) fail(`門所屬據點仍有道路引用，須先經道路工具解綁：${refs.join("、")}`);
+  if (typeof wallInstanceId !== "string" || !wallInstanceId) fail("牆體身份缺失");
+  const taken = new Set([...source.map.decorations, ...source.map.roads.flatMap((road) => road.components ?? []), ...source.map.placements].map((item) => item.id));
+  if (taken.has(wallInstanceId)) fail("牆體身份重複");
+  const tile = /^tile-(\d+)$/.exec(wallMaterialId ?? "");
+  const def = source.componentDefinitions[wallMaterialId];
+  if (!def || !tile || Number(tile[1]) > 255 || def.ruleRecipeRef !== BYTE_STAMP_RECIPE || JSON.stringify(def.anchor) !== "[0,0]" ||
+      JSON.stringify(def.footprint) !== "[[0,0]]" || JSON.stringify(def.variants?.original?.tiles) !== `[[0,0,${tile[1]}]]`) fail(`牆體素材不存在或非原子單格：${wallMaterialId}`);
+  if (occupiedCells(source).has(`${port.x},${port.y}`)) fail(`門格已被佔用：${port.x},${port.y}`);
+  return transaction(source, (next) => {
+    next.cityGatePorts = (source.cityGatePorts ?? []).filter((row) => row?.portId !== portId);
+    next.map.decorations.push({ id: wallInstanceId, definitionRef: wallMaterialId, variantRef: "original", x: port.x, y: port.y });
+  });
 }
 // Remove complete decoration instances only. Keep unknown-underlay provenance:
 // exposing it is a draft diagnostic, never permission to invent a replacement.

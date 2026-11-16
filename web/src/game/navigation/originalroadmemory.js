@@ -3,9 +3,44 @@
 // The graph's lower 32KiB is initialized by E49F; its upper half is NOT.
 const GRAPH_BYTES = 0x10000;
 const INITIALIZED_END = 0x8000;
-const NODE_COUNT = 192;
-const EDGE_BASE = 0x800;
+// CITY-CAPACITY-1 admission (user-authorized 2026-11-17): node records
+// follow the live graph length. Node*8 < 0x800 caps v2 graphs at 256 nodes;
+// 192 stays the original-layout count. M257 v3 (plan §9.10.24 V3-A):
+// version-3 graphs keep node=slot*8 and all slot arithmetic, but relocate
+// regions — node table 0..N*8, EDGE_BASE_V3=align16(N*8), points stay
+// 0x2000..0x8000. The search scratch/queue relocation rides with (b).
+const MAX_V2_NODE_COUNT = 0x800 / 8;
+const EDGE_BASE_V2 = 0x800;
 const POINT_BASE = 0x2000;
+// v3 scratch [0x8000,0x8000+N*8) must stay below the v3 queue at 0x9000.
+const MAX_V3_NODE_COUNT = 0x1000 / 8;
+export { MAX_V2_NODE_COUNT, MAX_V3_NODE_COUNT };
+/** Admission bound per staged version: v2 keeps the DOS 256-node domain,
+ * v3 caps at the 512-node visited-scratch ceiling. Unknown versions get 0
+ * so every admission gate fails closed.
+ */
+export function maxNodesForVersion(version) {
+  if (version === 3) return MAX_V3_NODE_COUNT;
+  if (version === 2) return MAX_V2_NODE_COUNT;
+  return 0;
+}
+/** Edge-table base per staged version: v2 is the DOS 0x800 constant, v3
+ * aligns past the live node table (V3-A). Unknown versions get -1 so
+ * address decoders fail closed.
+ */
+export function edgeBaseForVersion(version, nodeCount) {
+  if (version === 3 && Number.isInteger(nodeCount) && nodeCount >= 1)
+    return align16(nodeCount * 8);
+  if (version === 2) return EDGE_BASE_V2;
+  return -1;
+}
+// Search workspace: v2 clears [0x8000,0x8800) and rings the queue inside
+// [0x8800,0x8C00) via &0xFBFF; v3 moves the 128-entry ring to 0x9000.
+const SCRATCH_BASE = 0x8000;
+const QUEUE_BASE_V2 = 0x8800;
+const QUEUE_BASE_V3 = 0x9000;
+const QUEUE_RING_BYTES = 128 * 8;
+const align16 = (value) => (value + 15) & ~15;
 
 function unsigned(value, maximum, label) {
   if (!Number.isInteger(value) || value < 0 || value > maximum) {
@@ -14,24 +49,52 @@ function unsigned(value, maximum, label) {
   return value;
 }
 
+/** Search workspace regions for a road layout. v2 returns the original
+ * clear range and queue ring; v3 keeps the +0x8000 visited base and moves
+ * only the queue ring to 0x9000. Missing/foreign layouts fall back to v2.
+ */
+export function searchRegionsFor(layout) {
+  if (layout?.version === 3) {
+    const nodeBytes = layout.nodeCount * 8;
+    return { scratchEnd: SCRATCH_BASE + nodeBytes, queueBase: QUEUE_BASE_V3 };
+  }
+  return { scratchEnd: QUEUE_BASE_V2, queueBase: QUEUE_BASE_V2 };
+}
+
+/** Version-parameterized region layout. v2 is byte-identical to the
+ * original map; v3 keeps node=slot*8 addressing and only moves the edge
+ * base past the live node table. Throws the same asset TypeErrors.
+ */
+function layoutFor(graph) {
+  const version = graph?.version;
+  const isV3 = version === 3;
+  if (!isV3 && version !== 2) {
+    throw new TypeError(
+      "Original road memory requires version 2 or 3 and 1..N node records",
+    );
+  }
+  const nodes = graph?.nodes;
+  const nodeCount = nodes?.length ?? 0;
+  const maxNodes = maxNodesForVersion(version);
+  if (!Array.isArray(nodes) || nodeCount < 1 || nodeCount > maxNodes) {
+    throw new TypeError(
+      `Original road memory requires version ${isV3 ? 3 : 2} and 1..${maxNodes} node records`,
+    );
+  }
+  const edgeBase = edgeBaseForVersion(version, nodeCount);
+  return { version: isV3 ? 3 : 2, nodeCount, edgeBase };
+}
+
 /** Encode version-2 raw-record fields; this is not full world validation.
  * Does not synthesize tags, point flags, costs or bounds from geometry.
  * Layouts overlapping the search workspace are outside this content profile;
  * rejection is an asset error, not an invented original "blocked" result.
  */
 export function createOriginalRoadMemory(graph) {
-  if (
-    graph?.version !== 2 ||
-    !Array.isArray(graph.nodes) ||
-    graph.nodes.length !== NODE_COUNT
-  ) {
-    throw new TypeError(
-      "Original road memory requires version 2 and 192 node records",
-    );
-  }
+  const { version, nodeCount, edgeBase } = layoutFor(graph);
   if (
     !Array.isArray(graph.edges) ||
-    EDGE_BASE + graph.edges.length * 16 > POINT_BASE
+    edgeBase + graph.edges.length * 16 > POINT_BASE
   ) {
     throw new TypeError("Original road edge records overlap the point region");
   }
@@ -58,7 +121,7 @@ export function createOriginalRoadMemory(graph) {
     writeByte(address + 1, value >>> 8);
   }
 
-  for (let id = 0; id < NODE_COUNT; id++) {
+  for (let id = 0; id < nodeCount; id++) {
     const node = graph.nodes[id];
     if (
       node?.id !== id ||
@@ -88,7 +151,7 @@ export function createOriginalRoadMemory(graph) {
         "Original road point records overlap the search workspace",
       );
     }
-    const address = EDGE_BASE + id * 16;
+    const address = edgeBase + id * 16;
     putWord(address, pointAddress, "first point");
     putWord(
       address + 2,
@@ -99,12 +162,12 @@ export function createOriginalRoadMemory(graph) {
     // +5 remains the E49F initializer's zero; E77D..E81B does not write it.
     putWord(
       address + 6,
-      unsigned(edge.source, NODE_COUNT - 1, "source node") * 8,
+      unsigned(edge.source, nodeCount - 1, "source node") * 8,
       "source offset",
     );
     putWord(
       address + 8,
-      unsigned(edge.target, NODE_COUNT - 1, "target node") * 8,
+      unsigned(edge.target, nodeCount - 1, "target node") * 8,
       "target offset",
     );
     putWord(address + 10, edge.bounds?.minX, "minimum X");
@@ -145,7 +208,14 @@ export function createOriginalRoadMemory(graph) {
   }
   // Keep the backing arrays private: unknown allocated bytes must not leak as 0.
   // Writes remain immediate and persistent, including explicitly supplied old RAM.
-  return Object.freeze({ readByte, writeByte, snapshot });
+  // roadLayout carries the version-parameterized regions for search step (b).
+  const roadLayout = Object.freeze({
+    version,
+    nodeCount,
+    edgeBase,
+    pointBase: POINT_BASE,
+  });
+  return Object.freeze({ readByte, writeByte, snapshot, roadLayout });
 }
 
 function encodeHex(bytes) {
@@ -215,19 +285,20 @@ export function restoreOriginalRoadMemory(graph, checkpoint) {
  */
 export function createCheckedOriginalRoadMemory(graph) {
   const memory = createOriginalRoadMemory(graph);
+  const { nodeCount, edgeBase } = layoutFor(graph);
   const word = (address) =>
     memory.readByte(address) | (memory.readByte(address + 1) << 8);
   const edgeCount = graph.edges.length;
-  const edgeEnd = EDGE_BASE + edgeCount * 16;
+  const edgeEnd = edgeBase + edgeCount * 16;
   const sourceTags = new Uint8Array(edgeCount);
   const targetTags = new Uint8Array(edgeCount);
   for (let id = 0; id < edgeCount; id++) {
-    const pointer = EDGE_BASE + id * 16;
+    const pointer = edgeBase + id * 16;
     if (word(pointer + 6) === word(pointer + 8)) {
       throw new TypeError(`Original road content has self-loop edge ${id}`);
     }
   }
-  for (let node = 0; node < NODE_COUNT; node++) {
+  for (let node = 0; node < nodeCount; node++) {
     for (let slot = 0; slot < 4; slot++) {
       const tag = word(node * 8 + slot * 2);
       if (tag === 0) continue;
@@ -239,9 +310,9 @@ export function createCheckedOriginalRoadMemory(graph) {
       }
       const pointer = tag & 0x3fff;
       if (
-        pointer < EDGE_BASE ||
+        pointer < edgeBase ||
         pointer >= edgeEnd ||
-        (pointer - EDGE_BASE) % 16 !== 0
+        (pointer - edgeBase) % 16 !== 0
       ) {
         throw new TypeError(
           `Invalid original road edge pointer at ${node}:${slot}`,
@@ -253,7 +324,7 @@ export function createCheckedOriginalRoadMemory(graph) {
           `Original road tag endpoint mismatch at ${node}:${slot}`,
         );
       }
-      const id = (pointer - EDGE_BASE) / 16;
+      const id = (pointer - edgeBase) / 16;
       const seen = selector === 0x4000 ? sourceTags : targetTags;
       if (seen[id]) {
         throw new TypeError(

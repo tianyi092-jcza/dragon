@@ -162,7 +162,9 @@ export function createOriginalLegion(sc, context, index) {
   record.status = 0xc0;
   rebindNativeLegionViews(sc); // Publish the same C0 record even if a later read fails.
   record._markerFrame = 4;
-  const city = capital < 192 && sc.cities?.[capital];
+  // Live city-table length (was: capital<192 short-circuit); per-slot idx
+  // identity stays strict, missing capitals still stop at 6F89.
+  const city = sc.cities?.[capital];
   if (!city || city.idx !== capital) formationUncovered("city at 6F89");
   const x = word(city.x, "city X at 6F89"),
     y = word(city.y, "city Y at 6F8C");

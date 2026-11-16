@@ -100,6 +100,27 @@ export class DraftTopology {
     const row = this.#sql.exec('DELETE FROM draft_topology_rebuilds WHERE game_id=? AND road_id=? RETURNING *', gameId, roadId).toArray()[0];
     return row ? 1 : 0;
   }
+  // C7-A reference list (read-only): every road touching the city, the
+  // pending move intent for it, and rebuilds recorded for those roads.
+  // No mutation; the delete-gate consumes this before any removal work.
+  references(tokenHash, game, cityId) {
+    this.#owned(tokenHash, game?.gameId);
+    if (typeof cityId !== 'string' || !cityId) fail(422, 'TOPOLOGY_CITY_ID');
+    const roads = (game?.map?.roads ?? [])
+      .filter(r => r?.fromCityId === cityId || r?.toCityId === cityId)
+      .map(r => r.id);
+    const roadSet = new Set(roads);
+    const move = this.#sql.exec('SELECT x, y, updated_at FROM draft_topology_moves WHERE game_id=? AND city_id=?', game.gameId, cityId).toArray()[0];
+    const rebuilds = this.#sql.exec('SELECT road_id, travel_kind FROM draft_topology_rebuilds WHERE game_id=?', game.gameId).toArray()
+      .filter(row => roadSet.has(row.road_id))
+      .map(row => Object.freeze({ roadId: row.road_id, travelKind: row.travel_kind }));
+    return Object.freeze({
+      cityId,
+      roads: Object.freeze([...roads]),
+      moveIntent: move ? Object.freeze({ x: move.x, y: move.y, updatedAt: move.updated_at }) : null,
+      rebuilds: Object.freeze([...rebuilds]),
+    });
+  }
   // Display data for B-2 UI: every broken road with its recorded geometry
   // (if any) and the still-uncovered set the gate enforces.
   status(tokenHash, game, gameId) {

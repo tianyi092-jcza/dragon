@@ -212,6 +212,9 @@ export function encodeRoadGraphV2(roads, citiesById) {
     nodeIndex.set(cityId, nodes.length);
     nodes.push({ id: nodes.length, x: city.x, y: city.y, edgeSlots: [0, 0, 0, 0], _city: cityId });
   }
+  // v2 tags live at 0x800+id*16; the node table itself caps at 256 slots.
+  // Larger live tables need a v3 graph encoder, not a wider v2 bound.
+  if (nodes.length > 256) fail("too-many-nodes", `cities exceed v2 node domain 0..255: ${nodes.length}`);
   const edges = list.map((r, id) => {
     const src = nodeIndex.get(r.fromCityId);
     const tgt = nodeIndex.get(r.toCityId);

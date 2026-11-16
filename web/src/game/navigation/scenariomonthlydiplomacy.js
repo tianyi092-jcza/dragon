@@ -37,7 +37,8 @@ function createScenarioMonthlyDiplomacyIO(sc, rng) {
     const cities = own(sc, "cities");
     if (
       !Array.isArray(cities) ||
-      cities.length !== 192 ||
+      cities.length < 1 ||
+      cities.length > 0xffff ||
       !Object.hasOwn(cities, slot)
     )
       missing(`city ${slot}`);
@@ -79,6 +80,12 @@ function createScenarioMonthlyDiplomacyIO(sc, rng) {
       : { type: bytes[0], arg0: bytes[1], arg1: bytes[2], arg2: bytes[3] };
   };
   return {
+    readCityCount() {
+      const cities = own(sc, "cities");
+      if (!Array.isArray(cities) || cities.length < 1 || cities.length > 0xffff)
+        missing("city count");
+      return cities.length;
+    },
     readPlayerFaction() {
       return byte(own(sc, "player_faction"), "CFF player faction");
     },
@@ -103,7 +110,8 @@ function createScenarioMonthlyDiplomacyIO(sc, rng) {
           return value === null ? 0xff : byte(value, `faction ${slot} target`);
         }
         case "nCities":
-          return byte(own(record, "n_cities"), `faction ${slot} n_cities`);
+          // M257(d): count rides word; every other diplomacy byte is untouched.
+          return word(own(record, "n_cities"), `faction ${slot} n_cities`);
         case "bellicosity":
           return byte(
             own(record, "bellicosity"),

@@ -1,5 +1,7 @@
 // KI.EXE 487B..491A; caller/representation boundaries: march notes §3.11.
 import { searchOriginalRoadMemory } from "./originalroadsearch.js";
+import { searchRegionsFor } from "./originalroadmemory.js";
+import { cityNodeBoundOf, readRoadNodeOwner, roadNodeToCitySlot } from "./originalroadstate.js";
 import {
   refreshOriginalLegion,
   formationByte,
@@ -26,6 +28,10 @@ export function retreatOriginalRoadMemory({
   readGraphByte,
   writeGraphByte,
   readStateByte,
+  readCityOwnerAtNode,
+  cityNodeBound,
+  regions,
+  edgeBase = 0x800,
 }) {
   const byte = (value, label) =>
     requireOriginalRetreatValue(value, 0xff, label);
@@ -33,7 +39,12 @@ export function retreatOriginalRoadMemory({
     byte(readGraphByte(u16(address)), "graph byte") |
     (byte(readGraphByte(u16(address + 1)), "graph byte") << 8);
   const cityOwner = (node) =>
-    byte(readStateByte(u16(node * 4 + 0x841)), "city owner");
+    byte(
+      readCityOwnerAtNode
+        ? readCityOwnerAtNode(node, "city owner")
+        : readStateByte(u16(node * 4 + 0x841)),
+      "city owner",
+    );
   const faction = byte(readFactionByte(), "faction");
   const capital = byte(readCapitalByte(faction), "capital");
   if (capital === 0xff)
@@ -46,7 +57,8 @@ export function retreatOriginalRoadMemory({
     "current word",
   );
   let cx = bx;
-  const onEdge = bx >= 0x800;
+  // Edge/node kind marker follows the road version (v2 0x800).
+  const onEdge = bx >= edgeBase;
   if (onEdge) {
     cx = word(bx + 6);
     bx = word(bx + 8);
@@ -65,6 +77,9 @@ export function retreatOriginalRoadMemory({
     readGraphByte,
     writeGraphByte,
     readStateByte,
+    readCityOwnerAtNode,
+    cityNodeBound,
+    regions,
   });
   ({ ax, bx, cx } = result);
   if (result.cf) {
@@ -74,7 +89,20 @@ export function retreatOriginalRoadMemory({
   }
   if (ax === (onEdge ? 0xfffc : 4)) bx = u16(bx + 2);
   bx = u16(word(bx + 6) << 2);
-  const cf = byte(readStateByte(u16(bx + 0x841)), "city owner") !== owner;
+  // Final next-city owner read: BX is the same node*4 encoding, so the
+  // legacy address is BX+0x841. The indexed form decodes the slot first;
+  // misaligned returns stay fail-closed on both contracts.
+  let nextOwner;
+  if (readCityOwnerAtNode) {
+    if (bx % 0x20 !== 0)
+      throw new RangeError(
+        `Uncovered original road retreat return bridge: ${bx}`,
+      );
+    nextOwner = cityOwner((bx / 0x20) * 8);
+  } else {
+    nextOwner = byte(readStateByte(u16(bx + 0x841)), "city owner");
+  }
+  const cf = nextOwner !== owner;
   return { ax, bx, cx, cf, reason: cf ? "foreign-next-city" : "found" };
 }
 
@@ -123,9 +151,16 @@ export function continueOriginalLegionAfterBattle(sc, legion, won, context) {
     return true;
   }
   const current = readOriginalRetreatCurrent(legion);
+  // 474A current-city shortcut: same node bridge as the state reader, but
+  // the owner comes from the indexed reader with a live city-node range.
+  // Cities absent keeps the legacy bound; misaligned input stays fail-closed.
+  const cityRange = (sc.cities?.length ?? 192) * 8;
   if (
-    current < 0x600 &&
-    context.readCityOwnerByte(current * 4 + 0x841) ===
+    current < cityRange &&
+    context.readCityOwner(
+      roadNodeToCitySlot(sc, current, "474A-current"),
+      "474A-current",
+    ) ===
       readOriginalRetreatFaction(legion)
   ) {
     legion.commandState = 8;
@@ -177,9 +212,28 @@ export function originalRetreatRoute(scenario, legion, context) {
     readGraphByte: context.memory.readByte,
     writeGraphByte: context.memory.writeByte,
     readStateByte: context.readCityOwnerByte,
+    // Versioned search workspace regions (memory roadLayout, v2 default).
+    regions: searchRegionsFor(context.memory?.roadLayout),
+    // Edge/node kind marker follows the road version (v2 0x800).
+    edgeBase: context.memory?.roadLayout?.edgeBase ?? 0x800,
+    // Indexed 487B contract, attached only when the live indexed owner
+    // capability exists; legacy mocks keep the address reads above.
+    ...(typeof context.readCityOwner === "function"
+      ? {
+          readCityOwnerAtNode: (node, at) =>
+            readRoadNodeOwner(scenario, context, node, at ?? "487B"),
+          cityNodeBound: cityNodeBoundOf(scenario),
+        }
+      : {}),
   });
   if (result.cf) return null;
-  if (result.bx % 0x20 !== 0 || result.bx > 0x17e0)
+  // BX return bridge: BX>>2 is the same node*4 encoding, so BX%0x20 must be
+  // zero and BX/0x20 must be a live city slot; the legacy 0x17e0 cap is the
+  // 192-city spelling of that bound.
+  if (
+    result.bx % 0x20 !== 0 ||
+    result.bx / 0x20 >= (scenario.cities?.length ?? 0)
+  )
     throw new RangeError(
       `Uncovered original road retreat city return: ${result.bx}`,
     );

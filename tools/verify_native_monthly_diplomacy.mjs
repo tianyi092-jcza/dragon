@@ -108,6 +108,35 @@ test("fixed sources preserve 24x24 diplomacy and 256x4 event bytes in all 20 cha
   }
 });
 
+test("M257(e): candidate scan crosses 191 under a live city count", () => {
+  const hacked = () => {
+    const sc = initialize(official());
+    sc.player_faction = 0;
+    const city = sc.cities.find((item) => Number.isInteger(item.faction) && item.faction >= 0 && item.faction <= 21);
+    assert.ok(city, "official chapter needs a named owned city");
+    const bytes = Buffer.from(city.raw, "hex");
+    bytes[0] |= 0x01;
+    bytes[0x1c] = 200;
+    city.raw = bytes.toString("hex");
+    return sc;
+  };
+  // Control: slot 200 is outside the legacy 192 domain.
+  assert.throws(
+    () => performScenarioMonthlyDiplomacy(hacked(), new OriginalBattleRng({ ch: 0, cl: 0, dh: 0 })),
+    /2C79/,
+  );
+  // Extended: 65 neutral mask-0 cities admit slot 200; the neutral
+  // neighbour only sets the empty flag, so the run stays perturbation-free.
+  const sc = hacked();
+  for (let slot = 192; slot < 257; slot++) {
+    sc.cities.push({ idx: slot, faction: null, raw: "00".repeat(32) });
+  }
+  const rng = new OriginalBattleRng({ ch: 0, cl: 0, dh: 0 });
+  const result = performScenarioMonthlyDiplomacy(sc, rng);
+  assert.equal(rng.calls, 30);
+  assert.equal(result.rows.length, 22);
+});
+
 test("official first chapter matches P17 full 2BD9 RNG count and Cao Cao/Lu Bu relation result", () => {
   const sc = initialize(official());
   sc.player_faction = 0;
@@ -217,7 +246,7 @@ test("2E77 player17 aliases live city0 C11, including governance and disaster wr
     let writerCalls = 0;
     if (writer === 'governance') {
       city.troops = city.troops_cap;
-      governOriginalCity(sc, { readCityOwnerByte: address => aliasStateByte(sc, address, 'owned governance owner') }, city, { nextByte() { writerCalls++; return 0; } });
+      governOriginalCity(sc, { readCityOwner: index => aliasStateByte(sc, 0x841 + index * 32, 'owned governance owner') }, city, { nextByte() { writerCalls++; return 0; } });
     } else {
       city.disaster_event = 1; damageOriginalCity(city);
     }

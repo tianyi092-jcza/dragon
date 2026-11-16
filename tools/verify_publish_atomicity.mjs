@@ -56,7 +56,7 @@ try {
   const input = revision => ({
     game: { gameId: G, map: { bounds: { minX: 0, minY: 0, width: 384, height: 256 } }, chapterOrder: ['c1'], chapters: { c1: { state: { marker: revision, generals: [], cities: [{ idx: 0, view: 0 }] } } }, ruleProfile: { fixture: revision } },
     reference: { gameId: G, draftRevision: String(revision), sourceDigest: (revision === 1 ? 'a' : 'b').repeat(64) },
-    compiled: { width: 384, height: 256, compatibilityAssetMode: 'fixture-only', terrainBytes: new Uint8Array([revision]), roadGraph: { marker: revision }, roadCost: new Uint8Array([revision]), roadOffsetBytes: new TextEncoder().encode('{}'), minimapGeography: new Uint8Array(384 * 256).fill(1), roadMask: new Uint8Array(384 * 256) },
+    compiled: { width: 384, height: 256, compatibilityAssetMode: 'fixture-only', terrainBytes: new Uint8Array([revision]), roadGraph: { version: 2, marker: revision }, roadCost: new Uint8Array([revision]), roadOffsetBytes: new TextEncoder().encode('{}'), minimapGeography: new Uint8Array(384 * 256).fill(1), roadMask: new Uint8Array(384 * 256) },
   });
   const tables = ['content_games', 'published_packs', 'published_pack_chapters', 'published_pack_assets', 'published_games', 'content_releases', 'content_distribution_outbox', 'content_announcements', 'content_registry'];
   const snapshot = () => tables.map(table => rows(`SELECT * FROM ${table} ORDER BY rowid`));

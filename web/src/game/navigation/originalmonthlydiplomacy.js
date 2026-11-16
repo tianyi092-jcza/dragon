@@ -28,6 +28,11 @@ const u16 = (value, at, label) => {
 const signed16 = (value) => (value & 0x8000 ? value - 0x10000 : value);
 const readFactionByte = (io, slot, field, at) =>
   u8(call(io, "readFactionByte", [slot, field], at), at, `faction ${field}`);
+// M257(e): live city count capability; legacy mocks without it keep 192.
+const readCityCount = (io, at) => {
+  if (typeof io?.readCityCount !== "function") return 192;
+  return u16(io.readCityCount(at), at, "city count");
+};
 const readRelation = (io, actor, target, at) =>
   u8(call(io, "readRelationByte", [actor, target], at), at, "relation");
 const writeRelation = (io, actor, target, value, at) =>
@@ -86,7 +91,12 @@ function strategicPower3091(io, slot) {
     "reserve infantry",
   );
   let power = (cav >>> 2) + (arc >>> 2) + (inf >>> 2);
-  const cities = readFactionByte(io, slot, "nCities", "30B0");
+  // M257(d): the count rides u16; every other 2BD9 byte stays u8.
+  const cities = u16(
+    call(io, "readFactionByte", [slot, "nCities"], "30B0"),
+    "30B0",
+    "faction nCities",
+  );
   if (power >>> 8 >= cities) power = 2000;
   if (power > 2000) power = 2000;
   const moneyWord = u16(
@@ -104,7 +114,8 @@ function lowerRelation(raw, amount) {
 function buildCandidates(io, actor) {
   const ordinary = [];
   let empty = false;
-  for (let city = 0; city < 192; city++) {
+  const cityCount = readCityCount(io, "2C61");
+  for (let city = 0; city < cityCount; city++) {
     if (readFactionByte(io, city, "cityOwner", "2C61") !== actor) continue;
     const mask = readFactionByte(io, city, "cityConnectionMask", "2C6D");
     if (mask > 0x0f) stop("2C6D", "city connection mask exceeds four bits");
@@ -116,8 +127,8 @@ function buildCandidates(io, actor) {
         `cityConnection${direction}`,
         "2C79",
       );
-      if (neighbour >= 192)
-        stop("2C79", "city connection is outside 192 slots");
+      if (neighbour >= cityCount)
+        stop("2C79", "city connection is outside live slots");
       const owner = readFactionByte(io, neighbour, "cityOwner", "2C80");
       if (owner === actor) continue;
       if (owner === 0x18) {

@@ -15,7 +15,9 @@ function own(record, field, max, at, nullable = false) {
   return value;
 }
 function cityAt(sc, index, at) {
-  if (index < 0 || index >= 192 || sc.cities?.[index]?.idx !== index)
+  // Live city-table length (was: index>=192); per-slot idx identity stays
+  // strict. A missing table keeps the legacy 192 bound, still fail-closed.
+  if (index < 0 || index >= (sc.cities?.length ?? 192) || sc.cities?.[index]?.idx !== index)
     stop(at, `city address ${index}`);
   return sc.cities[index];
 }
@@ -35,7 +37,9 @@ function capital6A3D(sc, owner) {
     type = 255,
     production = 0,
     preferred = false;
-  for (let index = 0; index < 192; index++) {
+  // Live scan bound matching the relocation 6A3D (was: fixed 192); per-city
+  // reads stay identity-checked through cityAt.
+  for (let index = 0; index < (sc.cities?.length ?? 192); index++) {
     const city = cityAt(sc, index, "6A50");
     if (ownerByte(city, "6A50") !== owner) continue;
     const candidateType = own(city, "type", 15, "6A55");
@@ -226,7 +230,10 @@ export function captureOriginalCity(
   // (as captureTail) on the suspend paths. 4D62 RET, no diplomatic tail.
   const runInlineTail = () => {
     const taker = factionAt(sc, captor, "4D2A");
-    taker.n_cities = (own(taker, "n_cities", 255, "4D2A") + 1) & 255;
+    // M257(d): word-domain wrap, the byte-wrap shape DOS has. Reachable
+    // counts never touch either edge (192 games stay <255; M257 stays
+    // far below 65535), so observable behavior is unchanged.
+    taker.n_cities = (own(taker, "n_cities", 65535, "4D2A") + 1) & 65535;
     paint8A1E(sc, city); //4D2D; actual terrain writes before any88CC reads.
     borders88CC(sc, city); //4D30.
     if (own(sc, "nativeFateDisplayFlags", 255, "4D33") & 4)
@@ -239,7 +246,11 @@ export function captureOriginalCity(
   // 4D6F/4D7E writes above and this rest).
   const runPrefixRest = () => {
     const faction = factionAt(sc, oldOwner, "4D0A");
-    faction.n_cities = (own(faction, "n_cities", 255, "4D0A") - 1) & 255;
+    // M257(d): word-domain wrap, mirroring the taker side and the DOS
+    // byte shape. A 0-city faction losing a city is unreachable in
+    // asserted flows; the wrap keeps the existing suite's forced-reassign
+    // repaint coverage alive without inventing a saturating clamp.
+    faction.n_cities = (own(faction, "n_cities", 65535, "4D0A") - 1) & 65535;
     const capitalCarry = capital4DF0(sc, city, oldOwner);
     retreatGarrison(); //4D11/4D18: caller retains original BP, including inactive.
     if (!capitalCarry) return runInlineTail();

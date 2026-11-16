@@ -24,6 +24,11 @@ function call(io, method, args, at) {
 }
 const byte = (io, method, args, at) =>
   unsigned(call(io, method, args, at), 255, at, method);
+// M257/C8-2: live city count capability; legacy mocks keep the 192 sweep.
+const readCityCount = (io, at) => {
+  if (typeof io?.readCityCount !== "function") return 192;
+  return unsigned(io.readCityCount(at), 65535, at, "city count");
+};
 const lb = (io, slot, offset, at) =>
   byte(io, "readLegionByte", [slot, offset], at);
 const gb = (io, slot, offset, at) =>
@@ -519,7 +524,8 @@ export function originalExtinctionDiplomat5074(
 export function originalExtinctionCitySweep4236(io, deadOwner, captor) {
   unsigned(deadOwner, 23, "4236", "AL dead owner");
   unsigned(captor, 255, "4236", "AH captor");
-  for (let city = 0; city < 192; city++) {
+  const cityCount = readCityCount(io, "4236");
+  for (let city = 0; city < cityCount; city++) {
     const owner = byte(io, "readCityOwnerByte", [city], "4244");
     if (owner !== deadOwner && owner !== captor) continue;
     const last = byte(io, "readCityLastByte", [city], "424E");

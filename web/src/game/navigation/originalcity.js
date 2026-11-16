@@ -37,16 +37,6 @@ function factionAt(sc, owner, at) {
   if (!faction) stop(`faction ${owner} at ${at}`);
   return faction;
 }
-function cityOwner(sc, context, index, at) {
-  if (
-    !Number.isInteger(index) ||
-    index < 0 ||
-    index >= 192 ||
-    sc.cities?.[index]?.idx !== index
-  )
-    stop(`city ${index} at ${at}`);
-  return context.readCityOwnerByte(0x841 + index * 32);
-}
 function generalAt(sc, index, at) {
   if (index >= 128 || !sc.generals?.[index]) stop(`general ${index} at ${at}`);
   return sc.generals[index];
@@ -96,18 +86,20 @@ function requestReinforcement(sc, context, city, amount) {
   // 8810 TALK38「\2前來請求援軍。」。P32 审计实锤 8810 全树零规则写入、零 RNG；
   // 关闭后的 40F6 RNG、414F 冷却与 40B3 登记由 tickStrategicCity 的模态续段执行，
   // 本函数不提前消费，只返回标记（原码消息阻塞期间无任何其它 RNG 消费）。
-  if (player === cityOwner(sc, context, city.idx, "40D7"))
+  if (player === context.readCityOwner(city.idx, "40D7"))
     return "player-message";
   const faction = factionAt(
     sc,
-    cityOwner(sc, context, city.idx, "410B"),
+    context.readCityOwner(city.idx, "410B"),
     "4117",
   );
   if (!requestFormation(sc, context, faction, city.idx, amount)) return;
   const capital = encodedByte(faction.capital, "F03 at 411C");
   const x = word(city.x, "request X at 4127");
   const cap = sc.cities?.[capital];
-  if (capital >= 192 || cap?.idx !== capital) stop("capital city at 412B");
+  // Live city-table length (was: capital>=192 gate); per-slot idx
+  // identity stays strict at the same 412B diagnostic.
+  if (cap?.idx !== capital) stop("capital city at 412B");
   const dx = Math.abs(x - word(cap.x, "capital X at 412B"));
   const y = word(city.y, "request Y at 4133");
   const dy = Math.abs(y - word(cap.x, "capital X at 4137"));
@@ -116,7 +108,7 @@ function requestReinforcement(sc, context, city, amount) {
 function recordRequest(sc, context, city) {
   factionAt(
     sc,
-    cityOwner(sc, context, city.idx, "40B3"),
+    context.readCityOwner(city.idx, "40B3"),
     "40C5",
   ).strategic_city_primary = city.idx;
 }
@@ -146,12 +138,14 @@ function dispatch(sc, city, target, count, rng) {
 
 /** 3F74 normal military return only; 3EFD prefix and 4194 belong to caller. */
 export function runOriginalCityMilitary(sc, context, city, rng) {
-  if (cityOwner(sc, context, city.idx, "3F50") === 0x18) return "returned";
-  const work = new Uint8Array(16).fill(255);
+  if (context.readCityOwner(city.idx, "3F50") === 0x18) return "returned";
+  // CITY-CAPACITY-1: city identity is not an FE/FF work-table marker.
+  // Preserve ordered candidate construction and all original lazy reads.
+  const candidates = [];
   let threat = 0,
-    bp = 0;
+    hasHostileNeighbour = false;
   if (byte(city.strategicBorderCount, "C1B at 3FAB") !== 0) {
-    const owner = cityOwner(sc, context, city.idx, "3FB3");
+    const owner = context.readCityOwner(city.idx, "3FB3");
     // DOS reads the fixed 22-slot faction table blindly (city faction
     // domain over all 20 chapters is exactly 0..21). The Web named table
     // carries active factions only; when no named record exists, read the
@@ -161,12 +155,9 @@ export function runOriginalCityMilitary(sc, context, city, rng) {
       nativeFactionAt(sc, owner, "3FBF-dead");
     const target = encodedByte(holder.target_faction, "F19 at 3FBF");
     for (let index = 0; index < 4; index++) {
-      const neighbour = byte(
-        city.strategicNeighbours?.[index],
-        "C1C neighbour at 3FD4",
-      );
-      if (neighbour === 255) break;
-      const otherOwner = cityOwner(sc, context, neighbour, "3FE4");
+      const neighbour = context.readStrategicNeighbour(city, index, "3FD4");
+      if (neighbour === null) break;
+      const otherOwner = context.readCityOwner(neighbour, "3FE4");
       if (otherOwner === owner) continue;
       if (otherOwner !== 0x18) {
         // DOS reads the fixed 24x24 relation matrix blindly; the Web named
@@ -177,48 +168,43 @@ export function runOriginalCityMilitary(sc, context, city, rng) {
         const relation = named ??
           nativeDiplomacyAt(sc, owner, otherOwner, "3FF4-dead");
         if (byte(relation, "relation at 3FF4") >= 0x80) continue;
-        work[bp] = 254;
+        hasHostileNeighbour = true;
         threat =
           (threat + readOriginalCityCache(context, neighbour, "3FFF")) & 255;
       }
       if (otherOwner !== target) continue;
-      work[bp] = neighbour;
-      work[bp + 1] = cityOwner(sc, context, neighbour, "400C");
-      work[bp + 2] =
-        (readOriginalCityCache(context, neighbour, "4013") + 1) & 255;
-      bp += 4;
+      candidates.push({
+        cityIndex: neighbour,
+        owner: context.readCityOwner(neighbour, "400C"),
+        cachePlusOne: (readOriginalCityCache(context, neighbour, "4013") + 1) & 255,
+      });
     }
   }
   city.strategicThreat = threat; // 3F92 only after complete 3FA9 RET.
   city.attr = byte(city.attr, "C00 at 4028") & 0x3f;
-  if (work[0] === 255) {
+  if (candidates.length === 0 && !hasHostileNeighbour) {
     city._aiCooldown = 0;
     return "returned";
   }
-  city.attr |= work[0] === 254 ? 0x80 : 0xc0;
+  city.attr |= candidates.length === 0 ? 0x80 : 0xc0;
   if (readOriginalCityCache(context, city.idx, "4044") < 1) {
     if (requestReinforcement(sc, context, city, 1) === "player-message")
       return "player-request";
     recordRequest(sc, context, city);
     return "returned";
   }
-  if (work[0] >= 254) return "returned";
+  if (candidates.length === 0) return "returned";
   let al = random(rng, "405D") & 3,
-    di = 0;
+    selected = 0;
   // Approved Web deviation (CITY-4064-WEB-1; march notes §3.15.6): only
   // four candidates + low0 selects the fourth candidate. DOS instead reads
   // dynamic outer-stack bytes here; this is not an original-rule claim.
   // Reuse the one 405D draw; retain the DEC loop and all downstream calls.
-  if (bp === 16 && al === 0) al = 4;
+  if (candidates.length === 4 && al === 0) al = 4;
   for (;;) {
-    if (di >= 16) stop("SS:[BP+10h] at 4064");
-    if (work[di] >= 254) {
-      di = 0;
-      continue;
-    }
     al = (al - 1) & 255;
     if (al === 0) break;
-    di += 4;
+    selected = (selected + 1) % candidates.length;
   }
   if (readOriginalCityCache(context, city.idx, "4073") <= 1) {
     const amount = (byte(city.strategicThreat, "C14 at 407A") + 2) & 255;
@@ -226,7 +212,7 @@ export function runOriginalCityMilitary(sc, context, city, rng) {
     if (amount <= local) return "returned";
     if (
       byte(sc.player_faction, "player at 4086") ===
-      cityOwner(sc, context, city.idx, "408B")
+      context.readCityOwner(city.idx, "408B")
     )
       return "returned";
     requestReinforcement(sc, context, city, amount - local);
@@ -235,7 +221,7 @@ export function runOriginalCityMilitary(sc, context, city, rng) {
     dispatch(
       sc,
       city,
-      work[di],
+      candidates[selected].cityIndex,
       readOriginalCityCache(context, city.idx, "40A6"),
       rng,
     );
@@ -262,7 +248,7 @@ export function governOriginalCity(sc, context, city, rng) {
     dl = 4;
   if (
     byte(sc.player_faction, "player at 4198") ===
-    cityOwner(sc, context, city.idx, "419C")
+    context.readCityOwner(city.idx, "419C")
   ) {
     cl = 5;
     dl = 1;

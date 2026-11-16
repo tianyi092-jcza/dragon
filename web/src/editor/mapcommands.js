@@ -1,6 +1,6 @@
 // Shared editor-only preview dispatch. Server authorization and command identity
 // ledgers remain in copyprofile.js; this module grants no write permission.
-import { enableSeaGroundBase, fillBase, splitDecoration, placeComponent, removeDecorations, reorderDecorations,
+import { enableSeaGroundBase, fillBase, splitDecoration, placeComponent, placeCityGroup, disbandCityGroup, removeCityGate, removeDecorations, reorderDecorations,
   translateDecorations, captureComponent, renameMaterial, removeMaterial, createWaterGroup,
   splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from './componenttools.js';
 
@@ -18,7 +18,27 @@ export function reconcileMapSelectionGroups(source, next, edits) {
         member.layer !== 'decorations' || !removed.has(member.id)) })).filter(group => group.members.length);
     }
   }
-  return { ...next, selectionGroups: groups };
+  // Ops that drop whole groups on purpose (city-group-disband) are honored
+  // here too: the reconciler otherwise rebuilds `groups` from the source
+  // and resurrects the disbanded entry. Judged against the SOURCE set, so
+  // only groups the disband op could have removed are filtered.
+  const disbanded = new Set();
+  for (const edit of edits)
+    if (edit.op === 'city-group-disband' && typeof edit.cityId === 'string' && edit.cityId)
+      disbanded.add(`city-group-${edit.cityId}`);
+  if (disbanded.size) groups = groups.filter(group => !disbanded.has(group?.id));
+  // them here; existing ops never stage groups so this is a no-op for them.
+  // Newness is judged against the SOURCE: groups that reconcile deliberately
+  // drops (e.g. emptied by decoration-remove) must not be resurrected.
+  const before = new Set((source.selectionGroups ?? []).map(group => group?.id));
+  const staged = new Set(groups.map(group => group.id));
+  let merged = groups;
+  for (const group of next.selectionGroups ?? []) {
+    if (before.has(group.id) || staged.has(group.id)) continue;
+    if (merged === groups) merged = groups.slice();
+    merged.push(group); staged.add(group.id);
+  }
+  return { ...next, selectionGroups: merged };
 }
 
 export function previewMapEdits(source, edits) {
@@ -28,6 +48,9 @@ export function previewMapEdits(source, edits) {
       case 'base-fill': return fillBase(current, edit.cells, edit.tile, edit.geography);
       case 'decoration-split': return splitDecoration(current, edit.instanceId, edit.childIds);
       case 'decoration-place': return placeComponent(current, edit.materialId, edit.x, edit.y, edit.instanceId, edit.waterClass, edit.variantRef);
+      case 'city-group-place': return placeCityGroup(current, edit.materialized);
+      case 'city-group-disband': return disbandCityGroup(current, edit.cityId);
+      case 'city-gate-remove': return removeCityGate(current, edit);
       case 'decoration-remove': return removeDecorations(current, edit.memberIds);
       case 'decoration-reorder': return reorderDecorations(current, edit.memberIds, edit.direction);
       case 'decoration-translate': return translateDecorations(current, edit.memberIds, edit.dx, edit.dy);

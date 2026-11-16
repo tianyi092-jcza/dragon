@@ -22,7 +22,9 @@ export const BUILTIN_GAME_ID = "wolong-builtin";
 
 // (ii) 立法＋修正案 A（用户批准 2026-10-10，非原版机制）：保存门（必填＋连接性）与 active 门
 // （全字段＋交叉＋计数）。一般数值不猜规则范围；能力另核已证存储表示，非可玩值域。
-// faction/join_faction 经内置章反例证非严格外键，不验；将数暂锁 128 dense、城数 192 锁，章节/势力开放。
+// faction/join_faction 经内置章反例证非严格外键，不验；将数暂锁 128 dense。
+// 城数原为 192 锁；CITY-CAPACITY-1 C5（目标必需，用户已授权解除保留）改 live 1..512
+// 槽位，dense 0..N-1 身份；章节／势力开放。
 const GENERAL_NUMBER_FIELDS = ["idx","attr","portrait","battle_rating","assignment_budget","battle_formation","status","talk_idx","captive_flag","appear_months"];
 // KI G+0E..10 high nibble; G+11..13 full byte. See editor-ability-import.md.
 // Reject impossible representations without granting high-value author/runtime admission.
@@ -64,7 +66,7 @@ export function chapterActiveGaps(state, chapterId = "?") {
   const cities = Array.isArray(state?.cities) ? state.cities : [];
   const factions = Array.isArray(state?.factions) ? state.factions : [];
   if (generals.length !== 128) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} generals must be 128 dense (locked)` });
-  if (cities.length !== 192) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} cities must be 192 (locked)` });
+  if (cities.length < 1 || cities.length > 512) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} cities must be 1..512 live slots` });
   // Web product Q40 (game-editor-design §4.5), not an original-game formula:
   // incomplete drafts may have no factions, but cannot enter Trial/publication.
   if (!factions.length) gaps.push({ code: "chapter-factions", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} factions must include at least one entry` });
@@ -74,7 +76,7 @@ export function chapterActiveGaps(state, chapterId = "?") {
     else gidx.add(g.idx);
   }
   for (const c of cities) {
-    if (!Number.isInteger(c?.idx) || c.idx < 0 || c.idx > 191 || cidx.has(c.idx)) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `city idx must be unique 0..191` });
+    if (!Number.isInteger(c?.idx) || c.idx < 0 || c.idx > cities.length - 1 || cidx.has(c.idx)) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `city idx must be unique dense 0..${cities.length - 1}` });
     else cidx.add(c.idx);
   }
   // Fixed-profile public identities: KI 3E4C..3E55 steps 40h to 580h.
@@ -334,7 +336,16 @@ export function copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex) {
 // `nativeCityRecordRaw` 是原始記錄內容，不由本函式改寫。
 export function applySharedCityData(game) {
   const definitions = Object.values(game.cities ?? {});
-  if (definitions.length !== 192) throw new RangeError("game source requires 192 cities");
+  // C5: definitions follow the same live 1..512 dense-slot contract as
+  // validateGameSource; per-record lookup below still fails closed on gaps.
+  if (definitions.length < 1 || definitions.length > 512)
+    throw new RangeError("game source requires 1..512 cities");
+  const seen = new Set();
+  for (const definition of definitions) {
+    if (!Number.isInteger(definition?.runtimeSlot) || definition.runtimeSlot < 0 || definition.runtimeSlot > definitions.length - 1 || seen.has(definition.runtimeSlot))
+      throw new RangeError("game source city runtime slots must be dense 0..N-1");
+    seen.add(definition.runtimeSlot);
+  }
   const bySlot = new Map(definitions.map(city => [city.runtimeSlot, city]));
   const first = game.chapters?.[game.chapterOrder?.[0]]?.state?.cities ?? [];
   const firstByIdx = new Map(first.map(city => [city.idx, city]));
@@ -406,12 +417,12 @@ export function validateGameSource(game, options = {}) {
   if (game.map == null) throw new TypeError("game source requires a map");
   const diagnostics = validateMapSource({ schemaVersion: 1, map: game.map, componentDefinitions: game.componentDefinitions ?? {} }, options);
   const cityIds = Object.keys(game.cities ?? {});
-  if (cityIds.length !== 192) throw new RangeError("game source requires 192 cities");
+  if (cityIds.length < 1 || cityIds.length > 512) throw new RangeError("game source requires 1..512 cities");
   const slots = new Set();
   for (const [id, city] of Object.entries(game.cities)) {
     if (city.cityId !== id) throw new RangeError(`city key/ref mismatch: ${id}`);
-    if (!Number.isInteger(city.runtimeSlot) || city.runtimeSlot < 0 || city.runtimeSlot > 191)
-      throw new RangeError(`city ${id} needs a fixed runtime slot`);
+    if (!Number.isInteger(city.runtimeSlot) || city.runtimeSlot < 0 || city.runtimeSlot > cityIds.length - 1)
+      throw new RangeError(`city ${id} needs a dense runtime slot`);
     if (slots.has(city.runtimeSlot)) throw new RangeError("duplicate city runtime slot");
     slots.add(city.runtimeSlot);
   }

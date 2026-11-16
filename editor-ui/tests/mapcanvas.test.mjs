@@ -533,3 +533,37 @@ test('native canvas uses tile atlas, footprint hit testing, display-only layer l
   assert.equal(mini.width, 250); assert.equal(mini.height, 167);
   view.setSource(null); assert.equal(model.loaded, false); assert.equal(model.selected, null);
 });
+
+test('city-group decoration-place stages prechecked materialized plans only with caller-issued cityId', () => {
+  const item = cityGroupCatalog.items.find(row => row.itemId === 'city-group-common-v1');
+  const source = { cities: {}, componentDefinitions: {}, map: {
+    bounds: { minX: 0, minY: 0, width: 8, height: 8, tileSize: 16 },
+    base: { terrainRef: [16, 16, 16, 16], geography: [0, 0, 0, 0], unknownUnderlays: {} },
+    decorations: [], roads: [], placements: [], waterGroups: [] } };
+  for (const tile of new Set(item.rows.flat())) {
+    const id = `tile-${tile}`;
+    source.componentDefinitions[id] = { id, revision: 'original-byte-1', category: 'atomic-original', anchor: [0, 0],
+      footprint: [[0, 0]], visualRef: `MMAP.MDL:${id}`, ruleRecipeRef: 'ki-byte-stamp-1', variants: { original: { tiles: [[0, 0, tile]] } } };
+  }
+  const staged = [], main = canvas();
+  const view = createMapCanvas({ publish() {}, stage: edit => staged.push(edit) });
+  view.attach(main, null); view.setSource(source);
+  view.pick(16, 16);
+  const id = `catalog:${item.itemId}`;
+  // No caller-issued cityId: legacy preview-only refusal, nothing staged.
+  assert.throws(() => view.command('decoration-place', { materialId: id, cityType: 1 }), /僅供預覽/);
+  assert.deepEqual(staged, []);
+  // cityType outside the recipe gate is rejected by the precheck.
+  assert.throws(() => view.command('decoration-place', { materialId: id, cityId: 'test-city-1', cityType: 0 }), /do not include/);
+  assert.deepEqual(staged, []);
+  const before = JSON.stringify(source);
+  view.command('decoration-place', { materialId: id, cityId: 'test-city-1', cityType: 1 });
+  assert.equal(staged.length, 1);
+  const [edit] = staged;
+  assert.equal(edit.op, 'city-group-place');
+  assert.equal(edit.materialized.cityId, 'test-city-1');
+  assert.equal(edit.materialized.decorations.length, item.rows.flat().length - item.gates.length);
+  assert.deepEqual(edit.materialized.ports.map(port => port.portId), item.gates.map((_, gateIndex) => `test-city-1:${gateIndex}`));
+  assert.equal(edit.materialized.group.id, 'city-group-test-city-1');
+  assert.equal(JSON.stringify(source), before, 'staging never writes the source');
+});

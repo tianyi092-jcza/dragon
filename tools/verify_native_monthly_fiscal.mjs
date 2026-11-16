@@ -104,6 +104,66 @@ test("official faction13 native 5358 finance precedes 192 growth RNG and updates
   assert.equal(rng.calls, 192);
 });
 
+test("M257(e): live city count scans, recounts and grows 200 cities", () => {
+  const extra = () => {
+    const { sc, faction } = fixture();
+    for (let slot = 192; slot < 200; slot++) {
+      sc.cities.push({
+        idx: slot,
+        x: 100,
+        y: 100,
+        faction: 13,
+        prod: 600,
+        growth: 100,
+        max_prod: 200,
+      });
+    }
+    return { sc, faction };
+  };
+  const control = fixture();
+  const controlReport = monthlySettlement(control.sc, null, sequence(0));
+  const live = extra();
+  const liveReport = monthlySettlement(live.sc, null, sequence(0));
+  const incomeOf = (report) => report.find(({ faction: idx }) => idx === 13).income;
+  // Recount covers the appended slots; income covers their production.
+  assert.equal(live.faction.n_cities, control.faction.n_cities + 8);
+  assert.equal(live.faction.n_cities, 15);
+  assert.ok(incomeOf(liveReport) > incomeOf(controlReport));
+  // Growth RNG is consumed once per live city, not per 192 slots.
+  const rng = sequence(0);
+  monthlySettlement(extra().sc, null, rng);
+  assert.equal(rng.calls, 200);
+});
+
+test("M257(g): live city count scans, recounts and grows 257 cities", () => {
+  const extra = () => {
+    const { sc, faction } = fixture();
+    for (let slot = 192; slot < 257; slot++) {
+      sc.cities.push({
+        idx: slot,
+        x: 100,
+        y: 100,
+        faction: 13,
+        prod: 600,
+        growth: 100,
+        max_prod: 200,
+      });
+    }
+    return { sc, faction };
+  };
+  const control = fixture();
+  const controlReport = monthlySettlement(control.sc, null, sequence(0));
+  const live = extra();
+  const liveReport = monthlySettlement(live.sc, null, sequence(0));
+  const incomeOf = (report) => report.find(({ faction: idx }) => idx === 13).income;
+  assert.equal(live.faction.n_cities, control.faction.n_cities + 65);
+  assert.equal(live.faction.n_cities, 72);
+  assert.ok(incomeOf(liveReport) > incomeOf(controlReport));
+  const rng = sequence(0);
+  monthlySettlement(extra().sc, null, rng);
+  assert.equal(rng.calls, 257);
+});
+
 test("5456 uses uncleared expense and strict burden equality to reject all three pools", () => {
   const { sc, faction } = fixture();
   faction.monthly_reserve_upkeep = 4352;

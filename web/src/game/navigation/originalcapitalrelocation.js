@@ -12,18 +12,24 @@ const u16 = (value, at, field) => {
   return value;
 };
 
-/** 6A3D: fixed 192-city scan, including the original no-candidate 189 result. */
+/** 6A3D selection; approved CITY-CAPACITY-1/D5 uses null for no candidate. */
 export function originalSelectCapital6A3D(io, faction) {
   const owner = u8(faction, "6A3D", "faction");
+  // Live city-table scan (was: fixed 192); io without a count keeps the
+  // legacy bound. Per-city reads stay identity-checked by the io layer.
+  const total = io.cityCount ?? 192;
+  if (!Number.isInteger(total) || total < 0 || total > 0xffff)
+    stop("6A3D", "city count");
   let bestType = 0xff;
   let bestProduction = 0;
   let preferred = false;
   let selected = -1;
-  for (let city = 0; city < 192; city++) {
+  for (let city = 0; city < total; city++) {
     if (u8(io.readCityOwner(city), "6A50", `city ${city} owner`) !== owner)
       continue;
-    const attr = u8(io.readCityAttr(city), "6A55", `city ${city} attr`);
-    const type = attr & 0x0f;
+    // KI 6A55 reads C16 (type); C00 border bits are a separate 6A73 read.
+    // Raw window and counterexample: re-notes-legion-fate §11.1.
+    const type = u8(io.readCityType(city), "6A55", `city ${city} type`) & 0x0f;
     if (bestType < type) continue;
     const production = u16(
       io.readCityProduction(city),
@@ -36,15 +42,16 @@ export function originalSelectCapital6A3D(io, faction) {
       bestProduction = production;
       selected = city;
     }
-    if ((attr & 0x1f) === 0) {
+    if ((u8(io.readCityAttr(city), "6A73", `city ${city} attr`) & 0x1f) === 0) {
       preferred = true;
       bestType = type;
       bestProduction = production;
       selected = city;
     }
   }
-  // 33FD..3406 does not inspect 6A3D CF. FFFF transforms to AL=BDh.
-  return selected < 0 ? 0xbd : selected;
+  // Original 33FD..3406 ignored CF and transformed FFFF to 189. D5 is an
+  // approved Web difference: keep absence distinct from a real city189.
+  return selected < 0 ? null : selected;
 }
 
 /** 4502: exactly slots 0..126 and exactly +20/+14/status writes. */
@@ -96,6 +103,7 @@ export function originalCapitalRelocation33EA(io, event) {
     return { status: "ignored-inactive", faction };
 
   const newCapital = originalSelectCapital6A3D(io, faction);
+  if (newCapital === null) return { status: "no-capital-candidate", faction };
   const oldCapital = u8(io.readFactionCapital(faction), "3408", "old capital");
   io.writeFactionCapital(faction, newCapital);
   if (newCapital === oldCapital)

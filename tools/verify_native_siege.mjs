@@ -35,6 +35,7 @@ function neutralRetreatFixture(capital) {
   const context = {
     memory: { readByte: unexpected, writeByte: unexpected },
     readCityOwnerByte: () => 0,
+    readCityOwner: () => 0,
     roads: { roadNodeById: (id) => ({ id }) },
   };
   return { sc, legion, context };

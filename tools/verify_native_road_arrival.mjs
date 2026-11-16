@@ -424,12 +424,12 @@ test("4548 full word X/Y and 0E compare; always16,18,14 writes, capital uses pla
   assert.equal(lazy.A.commandState, 4);
 });
 
-test("43AF gates, actual DI diplomacy/cache aliases, stale raw ignored, exactly canonical RNG", async () => {
+test("D3 Web: 43AF gates use arrived-city stored cache, stale raw ignored, canonical RNG", async () => {
   for (const total of [300, 301, 599, 600])
     for (const attr of [0, 0x40, 0x80, 0xc0]) {
       const f = await fixture({
         command: 5,
-        cache: [{ address: 0, hex: "00" }],
+        cache: [{ address: 66, hex: "00" }],
       });
       f.A.troops = total;
       f.sc.cities[66].attr = attr;
@@ -456,9 +456,9 @@ test("43AF gates, actual DI diplomacy/cache aliases, stale raw ignored, exactly 
     const f = await fixture({
       node,
       command: 5,
-      cache: node === 66 ? [{ address: 0, hex: "03" }] : null,
+      cache: [{ address: node, hex: "03" }],
     });
-    // node 3 → 势力[1]+0x38 奇数线性别名（43D3 k=0..47 全域已接）。
+    // Historical alias values are decoys: D3 reads the arrived-city cache.
     if (node === 3) {
       const raw = f.sc.factions[1].raw;
       f.sc.factions[1].raw =
@@ -469,21 +469,56 @@ test("43AF gates, actual DI diplomacy/cache aliases, stale raw ignored, exactly 
     slot(f);
     assert.equal(f.A.commandState, 2);
   }
-  // 偶数节点走势力 F18（live nativeGeneralCount）：node 2 → 势力[1]+0x18。
-  const even = await fixture({ node: 2, command: 5 });
+  // D3: node2 reads its C18 rather than the former F18 alias.
+  const even = await fixture({ node: 2, command: 5, cache: [{ address: 2, hex: "03" }] });
   even.sc.factions[1].nativeGeneralCount = 3;
   assert.throws(() => go(even), /canonical RNG at 43D9/);
   slot(even);
   assert.equal(even.A.commandState, 2);
-  // F18 ≤ 2 时不耗 RNG，继续低兵首都重编检查（城66 attr=0 → 非首都 → 5）。
-  const low = await fixture({ node: 2, command: 5 });
-  low.sc.factions[1].nativeGeneralCount = 2;
+  // C18 <= 2 consumes no RNG even when the former F18 alias is high.
+  const low = await fixture({ node: 2, command: 5, cache: [{ address: 2, hex: "02" }] });
+  low.sc.factions[1].nativeGeneralCount = 255; // Old F18 alias no longer controls arrival.
   slot(low);
   assert.equal(low.A.commandState, 5);
   assert.equal(low.A.moveDelay, 3);
 });
 
-test("4300 ordered short circuits and interception BX/DI aliases never balance occupancy", async () => {
+test("D3 arrived city, not target/old aliases/live occupancy, controls handler5", async () => {
+  for (const node of [0, 2, 3, 48, 64, 66, 191]) {
+    for (const count of [2, 3]) {
+      const f = await fixture({ node, command: 5, cache: [] });
+      const target = (node + 1) % 192;
+      f.A.targetCity = target;
+      f.A.targetNode = target;
+      f.context.cityCache.writeByte(node, count);
+      f.context.cityCache.writeByte(target, count === 2 ? 3 : 2);
+      // Remove old faction/raw dependencies; diplomacy and movement must
+      // not be used to reconstruct this stored cache input.
+      f.sc.factions.forEach(faction => {
+        delete faction.nativeGeneralCount;
+        delete faction.raw;
+      });
+      const expected = new OriginalBattleRng().restore(f.app.originalRng.snapshot());
+      if (count > 2) expected.nextByte();
+      const bytes = { 1: 0, 32: target, 35: 5 };
+      const io = {
+        readByte: at => { assert(Object.hasOwn(bytes, at)); return bytes[at]; },
+        writeByte: (at, value) => { bytes[at] = value; },
+        readWord: at => {
+          assert(at === 14 || at === 4);
+          return at === 14 ? node * 8 : 600;
+        },
+        writeWord: () => assert.fail('unexpected coordinate write'),
+      };
+      arriveOriginalRoad(f.sc, f.context, io, node * 8, f.app.originalRng);
+      assert.equal(bytes[35], count > 2 ? 2 : 5);
+      assert.deepEqual(f.app.originalRng.snapshot(), expected.snapshot());
+      assert.equal(f.context.cityCache.readByte(node), count);
+    }
+  }
+});
+
+test("4300 ordered short circuits and interception retains stored cache without balancing occupancy", async () => {
   for (const gate of ["cache", "marker", "attr"]) {
     const f = await fixture({
       node: 0,
@@ -514,8 +549,7 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
       change: (sc) => {
         sc.legions[0].targetNode = 191;
         sc.legions[0].targetCity = 191;
-        // node 6 在修正寻址下抵达真实城市6：43D3的DI+18读落到势力域
-        // （faction[3].F18 live，§3.13/P41），夹具补足第4势力以覆盖之。
+        // Keep the historical extra faction as a decoy; D3 reads city6 C18.
         if (node === 6)
           sc.factions.push({
             idx: 3,
@@ -534,20 +568,15 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
       assert.throws(() => go(f), /nativeFateDisplayFlags/);
       assert.equal(f.sc.factions[0].n_legions, 1);
     } else if (node === 6) {
-      // 旧实现误传变异BX，到达读到幻影城192在此抛road-state-byte；修正后
-      // 读真实城市6并走完handler-5的43D3分支（F18=0跳过RNG、600兵不触发
-      // 4405），不再抛错，命令态与占格快照保持拦截不平衡语义。
+      // Actual city6 C18=1 skips RNG; 600 troops skip 4405.
+      // D3 does not change interception's occupancy behavior.
       go(f);
       assert.equal(f.A.commandState, 1);
       assert.equal(f.app._strategicBattleFailure, undefined);
     } else {
       if (node === 64) {
-        // 修正寻址：拦截STC重入arrive用原节点号512，DI=512*4=2048为真值
-        // （§3.13保留语义）；旧实现误传变异BX致DI回绕0读势力F18。DI+18h
-        // =2072落外交窗（row22/col8），夹具按该真地址给值：
-        // diplomacy[22][8]≤2跳过RNG（handler5直返，命令字节保持1）。
-        // Synthetic input only: set the actual fixed-table cell. Replacing
-        // the declared prefix array no longer changes native rule inputs.
+        // D3 reads city64 C18=1. The historical diplomacy alias is only
+        // a decoy; changing it must not affect this arrival or RNG.
         const prefixLength = f.sc.diplomacy.length;
         writeNativeDiplomacyAt(f.sc, 22, 8, 2, "fixture 43D3 low alias");
         assert.equal(nativeDiplomacyAt(f.sc, 22, 8, "fixture readback"), 2);
@@ -555,7 +584,7 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
         slot(f);
         assert.equal(f.A.commandState, 1);
         assert.equal(f.app._strategicBattleFailure, undefined);
-        // diplomacy[22][8]>2：走 43D9 RNG → 状态 2。
+        // D3: raising the old diplomacy alias must not consume RNG.
         const forced = await fixture({
           node,
           command: 1,
@@ -572,7 +601,7 @@ test("4300 ordered short circuits and interception BX/DI aliases never balance o
         assert.equal(forced.sc.diplomacy.length, forcedPrefixLength);
         const before64 = forced.context.movement.snapshot();
         slot(forced);
-        assert.equal(forced.A.commandState, 2);
+        assert.equal(forced.A.commandState, 1); // D3: diplomacy does not replace city64 C18=1.
         assert.equal(forced.A.targetCity, node);
         assert.deepEqual(forced.context.movement.snapshot(), before64);
       } else {
@@ -689,22 +718,22 @@ test("3F06 prefix DEC before old owner, no city1A rewrite, neutral refresh and s
     assert.equal(f.sc.cities[66]._aiCooldown, 1);
     assert.throws(() => f.context.cityCache.readByte(66), /Uncovered/);
   }
-  // KI 3F11..3F29 has no range check (window 3EFD..3F2C re-verified):
-  // old=0x18 stores cityIdx at DS:0617 = diplomacy row 0 col 23, no throw,
-  // no city+0x1A rewrite. Official +0x1A domain {0x00..0x15,0x18} closed.
+  // D3 approved Web difference: neutral old-owner no longer stores cityIdx
+  // into diplomacy[0][23]. Keep cooldown, old-owner and cache write ordering.
   {
     const f = await fixture({ cache: [{ address: 65, hex: "00fffe" }] });
     f.sc.cities[66]._aiCooldown = 2;
     f.sc.cities[66]._strategicLastFaction = 24;
     f.context.movement.writeByte(240, 67, 0x82);
+    const diplomacyBefore = json(f.sc.nativeDiplomacyMatrix.rows);
     assert.equal(tickStrategicCity(f.app, 66), "returned");
     // 3F06 DEC 2→1, then the owned-city military scan finds no threat
     // (work[0]===255) and zeroes cooldown on its return path — pre-existing
     // 3F92-path semantics, unaffected by the 3F29 alias fix.
     assert.equal(f.sc.cities[66]._aiCooldown, 0);
     assert.equal(f.sc.cities[66]._strategicLastFaction, 24);
-    assert.equal(f.sc.nativeDiplomacyMatrix.rows[0][23], 66);
-    assert.equal(f.sc.diplomacy[0][23], 66);
+    assert.deepEqual(f.sc.nativeDiplomacyMatrix.rows, diplomacyBefore); // D3: no neutral alias write.
+    assert.equal(f.sc.diplomacy[0][23], diplomacyBefore[0][23]);
     assert.equal(f.sc.factions[0].strategic_city_secondary, null);
     assert.equal(f.context.cityCache.readByte(66), 2);
   }

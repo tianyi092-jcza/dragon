@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { createSiegeMapCatalog } from "../web/src/content/battlemapcatalog.js";
 
-const { createBattle, createFieldBattle, queueTacticalCommand } = await import(
+const { createBattle, createFieldBattle, queueTacticalCommand, settleVisualBattle } = await import(
   "../web/src/game/tacticalbattle.js"
 );
 const { mirrorOriginalBattleTiles } = await import(
@@ -25,6 +26,7 @@ const battleMaps = parseJson(
   ),
   "battle_maps.json",
 );
+battleMaps.siegeCatalog = createSiegeMapCatalog(battleMaps);
 battleMaps.navigation = parseJson(
   await fs.readFile(
     new URL("../web/battle_navigation.json", import.meta.url),
@@ -151,6 +153,56 @@ for (const cityIndex of [0, 10]) {
   );
 }
 
+// CITY-CAPACITY-1: detached tactical facade only, not >192 strategic admission.
+for (const player_faction of [0, 1]) {
+  const cities = [256, 257].map((idx, i) => ({
+    idx, name: `新城${idx}`, faction: 1, troops: 100 + i * 100, growth: 180, defence: 160,
+    battleMapId: "ki-1995:siege:0",
+  }));
+  const handles = cities.map(city => createBattle(
+    { ...sc, player_faction }, legion("攻", 0, 1), city,
+    battleMaps, legion("守", 1, 2),
+  ));
+  handles.forEach((handle, i) => {
+    assert.equal(handle.directoryIndex, 0);
+    assert.equal(handle.exitContext.city, cities[i]);
+    assert.equal(handle.city.idx, 256 + i);
+    assert.equal(handle.session.registers.mode, 0);
+    const expected = player_faction === 1
+      ? mirrorOriginalBattleTiles(Uint8Array.from(battleMaps.maps["0"]))
+      : battleMaps.maps["0"];
+    assert.deepEqual(Array.from(handle.session.spatial.tiles), Array.from(expected));
+  });
+  assert.equal(handles[0].session.rng.calls, handles[1].session.rng.calls);
+  const before = handles[1].session.spatial.tiles[123];
+  const resourceBefore = battleMaps.maps["0"][123];
+  handles[0].session.spatial.tiles[123] ^= 1;
+  assert.equal(handles[1].session.spatial.tiles[123], before);
+  assert.equal(battleMaps.maps["0"][123], resourceBefore);
+  const damageResults = handles.map((handle, i) => {
+    const legacyCity = { ...cities[i], idx: 0 };
+    delete legacyCity.battleMapId;
+    const baseline = createBattle(
+      { ...sc, player_faction }, legion("攻", 0, 1), legacyCity,
+      battleMaps, legion("守", 1, 2),
+    );
+    // Controlled exit fixture, not a played battle or strategic write-back.
+    for (const item of [baseline, handle]) {
+      item.exitContext.wallRecords = [{ kind: 1, flags: 1, metric: 0 }];
+      item.session.finished = true;
+      item.session.winner = 0;
+    }
+    const beforeCity = structuredClone(cities[i]);
+    const rngCalls = handle.session.rng.calls;
+    const exit = settleVisualBattle(handle);
+    assert.deepEqual(exit.cityDamage, settleVisualBattle(baseline).cityDamage);
+    assert.deepEqual(cities[i], beforeCity, "tactical settlement only emits damage, no strategic write");
+    assert.equal(handle.session.rng.calls, rngCalls);
+    return exit.cityDamage;
+  });
+  assert.notDeepEqual(damageResults[0], damageResults[1], "shared resource must not replace each target's troop base");
+}
+
 process.stdout.write(
-  "battle tactics OK: production facade uses original Session command queue\n",
+  "battle tactics OK: original Session queue + independent siege binding/target and shared-map isolation\n",
 );
