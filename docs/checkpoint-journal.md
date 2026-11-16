@@ -22,6 +22,10 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 179. VPERF场景级耗时：assembly＋月度（本地实测记录，非门限）
+
+- 新`tools/bench_scenario_perf.mjs`（i5-7500／15.9GiB／win32／node24，与codec基线同机）：compileGameSource 192城2734ms（堆456MiB，地形/道路为主）；fresh缓存init＋synthesize三档皆sub-ms（192：0.78＋0.26ms；193真实admit：0.39＋0.14ms；257合成探针：0.35＋0.09ms）；monthlySettlement 192城8.7ms／193城3.3ms（warmup噪声）／257城20.5ms，rng.calls 192／193／257精确（循环确有跑量）。257为M257(e)式最小字段合成探针，只量级缩放，不作可玩宣称。堆~900MiB（含内存copy store＋夹具）。无产品代码变更，不重建bundle。C8-1登记VPERF场景级由△改记录。
+
 ## 178. D1(b)具名编译＋D2新城拓扑＋编辑器新城面板（本地验证通过，未push）
 
 - 用户决策：D1由(b)具名正统（内置终将删除，raw只留导入侧；(a)合成raw虽下游零改但成永久负担）；D2=建档→放piece→绑定（先cities.create→地图city-stamp放未绑定piece→city-bind选piece绑档案→admit→road-add→发布）；B4三项全做（见下blocked）；旧上架游戏可删（本地测试游戏可删，生产删除需另行明确授权，本轮未动生产）。目标：编辑器复制新游戏→基础地图加据点道路→发布可玩。
