@@ -22,6 +22,13 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 176. B3片3(b)实施：显式admit＋named转换＋capture live化（已提交，未push）
+
+- `gamesource.js`：`admitChapterCity(game,cityId,troopsCap)`——验主表完备（名＋7数＋troops_cap显式0..255，缺项指名拒收）＋placement在位（储备拒收）→回填主表x/y→逐章稠密追加密集条目（faction/governor null、四项主表复制、initializer按D6零初态：attr 0取固定源中立实测、`_strategicLastFaction 0x18`为Web新城标记非原版、灾害0/冷却0/C18=0、四邻接null）＋作者层中立ref；`editChapterCity` raw-less容忍（有raw全核对＋同步，无raw只改具名，cap仍在位；native路径保持192旧路）。
+- `cityrecords.js`：`captureCityDefinitions`槽192→512（x/y仍必填，储备过不了）；`chaptercityconversion.js`：新`convertLiveChapterCities`（raw行沿legacy派生＋交叉核对，raw-less读具名，派系段同legacy，输出同键形）；`gamecopy.js`：chapters `admit:{cityId,troops_cap}`（0..255，应用层缺项fail-closed为COPY_CHAPTER）。
+- 新`verify_copy_city_admit.mjs` 5/5：全章admit＋回填＋gaps无192项／未放/缺数/未知/坏形拒收＋admit前解析拒收／live≈legacy（192 parity）＋新城键形正确＋缺具名拒收／raw-less改值（直接＋整包两路）／capture live过＋储备拒收。回归：chapter_ops/create/chapter_ref 15/15、conversion 7/7、registered源PASS(192)。`node --check`×5＋`diff --check`干净；bundle重建（trial `f05b064f…`，shell/play不变）。LSP四文件inconclusive（push-only，不称clean）。
+- 插曲：主表本无troops_cap（CITY_BASE_NUMBERS七项）→admit显式收；capture储备报错为字段门（先x/y缺），测试按实调；派系段初写占位已按legacy补齐。通路新城邻接刷新（有路后）＋publish端到端留待VPUBLISH迁移验证。
+
 ## 175. 用户决策（待恢复后执行，未push）
 
 - admit触发a/b待选（已解释，见下）；B4用户批准“现在启动”；VPUBLISH用户批准“迁移”（parity遗留直发流改走copy检验链，含△收敛）。goal仍blocked，待a/b选择＋/goal resume后执行。

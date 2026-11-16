@@ -50,7 +50,7 @@ export function captureCityDefinitions(game) {
     const city = cityRecord(value), keys = Object.keys(city);
     if (city.cityId !== id || !id || keys.some(key => !allowed.includes(key)) || !['cityId', 'runtimeSlot', 'x', 'y'].every(key => Object.hasOwn(city, key))) throw new RangeError('city definition fields are not understood');
     cityBaseNumbers(city);
-    if (!Number.isInteger(city.runtimeSlot) || city.runtimeSlot < 0 || city.runtimeSlot >= 192 || slots.has(city.runtimeSlot) || !Number.isInteger(city.x) || city.x < 0 || city.x >= 384 || !Number.isInteger(city.y) || city.y < 0 || city.y >= 256) throw new RangeError('fixed city binding required');
+    if (!Number.isInteger(city.runtimeSlot) || city.runtimeSlot < 0 || city.runtimeSlot >= 512 || slots.has(city.runtimeSlot) || !Number.isInteger(city.x) || city.x < 0 || city.x >= 384 || !Number.isInteger(city.y) || city.y < 0 || city.y >= 256) throw new RangeError('city definition needs a live slot with map coords');
     if (Object.hasOwn(city, 'name') && cityName(city.name) !== city.name) throw new RangeError('saved city name must be canonical');
     slots.add(city.runtimeSlot);
     Object.defineProperty(cities, id, { value: { ...city }, enumerable: true, writable: true, configurable: true });

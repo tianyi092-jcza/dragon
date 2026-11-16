@@ -571,6 +571,44 @@ export function renameChapter(game, chapterId, name) {
 // derived, never stored. Base cities are 192-locked with frozen slots/coords
 // (certified model), so deletion is check-only: the blocker list is the
 // deliverable, including the count lock itself.
+// B3片3(b)：显式 admit——已放置新城在全部章节建 D6 默认条目（raw-less，不造 32B）。
+// attr 0 取自固定源中立城实测（city-027）；_strategicLastFaction 0x18 为 Web 新城中立标记
+// （非原版机制，治理时按 F17 刷新）；neighbourCityIds 全空（无路时与道路图一致，通路后须刷新）。
+export function admitChapterCity(game, cityId, troopsCap) {
+  if (!isPlainObject(game)) throw new TypeError("game source required");
+  const definition = game.cities?.[cityId];
+  if (!isPlainObject(definition) || definition.cityId !== cityId) throw new RangeError(`unknown city: ${cityId}`);
+  if (!Number.isInteger(troopsCap) || troopsCap < 0 || troopsCap > 255) throw new RangeError(`city ${cityId} needs an explicit troops_cap 0..255 at admission`);
+  const slot = definition.runtimeSlot;
+  if (!Number.isInteger(slot) || slot < 0 || slot > 511) throw new RangeError(`city ${cityId} needs a live runtime slot`);
+  const place = (game.map?.placements ?? []).find(p => p?.cityId === cityId);
+  if (!place || !Number.isInteger(place.x) || place.x < 0 || place.x >= 384 || !Number.isInteger(place.y) || place.y < 0 || place.y >= 256)
+    throw new RangeError(`city ${cityId} must be placed on the map before chapter admission`);
+  if (typeof definition.name !== "string" || !definition.name.trim()) throw new RangeError(`city ${cityId} needs a name before chapter admission`);
+  const numbers = {};
+  for (const [name, max] of Object.entries({ max_prod: 0xffff, prod: 0xffff, growth: 0xff, defence: 0xff, troops: 0xff, type: 0xff, view: 0xff })) {
+    const value = definition[name];
+    if (!Number.isInteger(value) || value < 0 || value > max) throw new RangeError(`city ${cityId} needs ${name} 0..${max} before chapter admission`);
+    numbers[name] = value;
+  }
+  numbers.troops_cap = troopsCap;
+  definition.x = place.x; definition.y = place.y;
+  const entry = { idx: slot, name: definition.name, faction: null, governor: null, ...numbers, x: place.x, y: place.y,
+    attr: 0, _aiCooldown: 0, _strategicLastFaction: 0x18, strategicBorderCount: 0, disaster_event: 0, cityCacheByte: 0,
+    neighbourCityIds: [null, null, null, null] };
+  let admitted = 0;
+  for (const chapterId of game.chapterOrder ?? []) {
+    const chapter = game.chapters?.[chapterId], state = chapter?.state;
+    if (!isPlainObject(chapter) || !Array.isArray(state?.cities)) throw new RangeError(`chapter ${chapterId} has no city table`);
+    if (state.cities.some(c => c?.idx === slot)) continue;
+    if (state.cities.length !== slot) throw new RangeError(`chapter ${chapterId} city table is not dense at slot ${slot}`);
+    state.cities.push({ ...entry });
+    if (!isPlainObject(chapter.cities)) chapter.cities = {};
+    if (!Object.hasOwn(chapter.cities, cityId)) chapter.cities[cityId] = { factionId: null, overrides: {} };
+    admitted++;
+  }
+  return { cityId, slot, admitted };
+}
 export function cityReferences(game, cityId) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   const city = game.cities?.[cityId];
@@ -640,10 +678,15 @@ export function editChapterCity(game, chapterId, cityIdx, values) {
   const keys = Object.keys(values);
   if (!keys.length || keys.some(k => !Object.hasOwn(CITY_EDIT_FIELDS, k))) throw new RangeError("city edit allows troops/prod/growth/defence only");
   const record = chapterCity(game, chapterId, cityIdx);
-  if (typeof record.raw !== "string" || !/^[a-f0-9]{64}$/i.test(record.raw)) throw new RangeError("chapter city raw record required");
-  if (!Number.isSafeInteger(record.troops_cap) || record.troops_cap < 0 || !Number.isSafeInteger(record.max_prod) || record.max_prod < 0) throw new RangeError("chapter city caps required");
-  if (cityRawByte(record.raw, 0x13) !== record.troops || cityRawWord(record.raw, 0x0E) !== record.prod ||
-      cityRawByte(record.raw, 0x10) !== record.growth || cityRawByte(record.raw, 0x11) !== record.defence) throw new RangeError("章節據點數值／原生來源分歧");
+  // raw-less（admit新城）：只改具名，跳过原生同步；cap 仍需在位。不造 32B 记录。
+  const hasRaw = typeof record.raw === "string" && /^[a-f0-9]{64}$/i.test(record.raw);
+  if (hasRaw) {
+    if (!Number.isSafeInteger(record.troops_cap) || record.troops_cap < 0 || !Number.isSafeInteger(record.max_prod) || record.max_prod < 0) throw new RangeError("chapter city caps required");
+    if (cityRawByte(record.raw, 0x13) !== record.troops || cityRawWord(record.raw, 0x0E) !== record.prod ||
+        cityRawByte(record.raw, 0x10) !== record.growth || cityRawByte(record.raw, 0x11) !== record.defence) throw new RangeError("章節據點數值／原生來源分歧");
+  } else {
+    for (const cap of ["troops_cap", "max_prod"]) if (!Number.isSafeInteger(record[cap]) || record[cap] < 0) throw new RangeError("chapter city caps required");
+  }
   const captured = {};
   for (const key of keys) {
     const value = values[key], spec = CITY_EDIT_CAPS[key], cap = typeof spec === "string" ? record[spec] : spec;
@@ -654,9 +697,10 @@ export function editChapterCity(game, chapterId, cityIdx, values) {
   const next = deepClone(game), state = next.chapters[chapterId].state, target = state.cities.find(c => c?.idx === cityIdx);
   for (const key of keys) {
     const value = captured[key]; if (value === target[key]) continue;
-    const [offset, size] = CITY_EDIT_FIELDS[key];
-    const hex = Array.from({ length: size }, (_, i) => ((value >>> (i * 8)) & 255).toString(16).padStart(2, "0")).join("");
     target[key] = value;
+    if (!hasRaw) continue;
+    const [offset, size] = CITY_EDIT_FIELDS[key];
+    const hex = Array.from({ length: size }, (_, i) => ((value >>> (i * 8)) & 255).toString(16).padStart(2, "")).join("");
     target.raw = target.raw.slice(0, offset * 2) + hex + target.raw.slice((offset + size) * 2);
   }
   return next;

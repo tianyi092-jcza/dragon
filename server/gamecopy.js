@@ -2,7 +2,7 @@
 // 不做历史回放/整包编解码/draft 链；模块存只拦本模块，发布门全量检验。
 // 单写者：新覆盖旧，不做 CAS；鉴权/epoch 不可省；30 分钟节流按 game 计。
 import { createHash, randomUUID } from 'node:crypto';
-import { validateGameSource, chapterReferenceReport, addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, setChapterStart, editChapterCity, editChapterCityNative, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setFactionDiplomat, setCityGovernor, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction } from '../web/src/content/authoring/gamesource.js';
+import { validateGameSource, chapterReferenceReport, addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, setChapterStart, admitChapterCity, editChapterCity, editChapterCityNative, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setFactionDiplomat, setCityGovernor, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction } from '../web/src/content/authoring/gamesource.js';
 import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { checkGameName } from '../web/src/content/authoring/gamesource.js';
 import { bumpOrdinal } from './releases.js';
@@ -260,6 +260,12 @@ function checkModule(module, patch, data, gameId) {
     if (patch.delete !== undefined) {
       if (!patch.delete || typeof patch.delete !== 'object' || Array.isArray(patch.delete) || !chapterId(patch.delete.chapterId)) fail(422, 'COPY_CHAPTER');
     }
+    if (patch.admit !== undefined) {
+      // B3片3(b)：显式 admit 已放置新城（placement＋主表完备在应用层核对，缺项 fail-closed；troops_cap 在 admit 时显式填写）。
+      if (!patch.admit || typeof patch.admit !== 'object' || Array.isArray(patch.admit) || Object.keys(patch.admit).sort().join(',') !== 'cityId,troops_cap') fail(422, 'COPY_CHAPTER');
+      if (typeof patch.admit.cityId !== 'string' || !patch.admit.cityId) fail(422, 'COPY_CHAPTER');
+      if (!Number.isInteger(patch.admit.troops_cap) || patch.admit.troops_cap < 0 || patch.admit.troops_cap > 255) fail(422, 'COPY_CHAPTER');
+    }
     if (patch.resources !== undefined) {
       // {chapterId: {slot: values}}——slot 为原生派系 idx；值域 money -8388608..8388607、三预备兵 0..65535。
       if (!patch.resources || typeof patch.resources !== 'object' || Array.isArray(patch.resources)) fail(422, 'COPY_CHAPTER');
@@ -366,9 +372,8 @@ function checkModule(module, patch, data, gameId) {
         else fail(422, 'COPY_CHAPTER');
       }
     }
-    if (patch.rename === undefined && patch.setStart === undefined && patch.create === undefined && patch.copy === undefined && patch.delete === undefined && patch.resources === undefined && patch.edits === undefined) fail(422, 'COPY_PATCH');
-    return normalizedEdits !== patch.edits ? { ...patch, edits: normalizedEdits } : patch;
-  }
+    if (patch.rename === undefined && patch.setStart === undefined && patch.create === undefined && patch.copy === undefined && patch.delete === undefined && patch.admit === undefined && patch.resources === undefined && patch.edits === undefined) fail(422, 'COPY_PATCH');
+    return normalizedEdits !== patch.edits ? { ...patch, edits: normalizedEdits } : patch;  }
   // map 模块：只接受 {edits} 逐命令补丁，走 copyprofile 原函数（与 capture 回放同一口径）；
   // 深层形状由 applyCopyMapEdits 再验（COPY_MAP_DELTA），整包替换已废止。
   if (module === 'map') {
@@ -416,6 +421,7 @@ function applyModule(data, module, checked) {
       if (checked.create) addBlankChapter(next, checked.create);
       if (checked.copy) copyChapterInGame(next, checked.copy.chapterId);
       if (checked.delete) deleteChapter(next, checked.delete.chapterId);
+      if (checked.admit) admitChapterCity(next, checked.admit.cityId, checked.admit.troops_cap);
       if (checked.rename) for (const [id, name] of Object.entries(checked.rename)) renameChapter(next, id, name);
       if (checked.setStart) for (const [id, s] of Object.entries(checked.setStart)) setChapterStart(next, id, s);
       // editChapterCity/editChapterCityNative/setGeneralPortrait 为纯函数（返回新包），其余原函数就地改写。
