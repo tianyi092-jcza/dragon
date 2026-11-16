@@ -22,6 +22,11 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 175. 用户决策（待恢复后执行，未push）
+
+- admit触发a/b待选（已解释，见下）；B4用户批准“现在启动”；VPUBLISH用户批准“迁移”（parity遗留直发流改走copy检验链，含△收敛）。goal仍blocked，待a/b选择＋/goal resume后执行。
+- a/b含义：新城签发后须在20章建条目否则编译拒绝。 (a)放置自动admit＝落图同时服务端自动建20章D6默认条目：一步到位、无中间态；代价是地图写入跨模块改章节，误放/删城须连带、一次建全20章。 (b)显式admitCity op＝放置只落图（编译保持拒绝），作者点一次“纳入章节”才建条目：模块干净、可摆多城后统一admit；代价是多一步、中间态需UI明示。推荐(b)（与显式保存文化一致，中间态本就是fail-closed安全态；放置成功后“一键纳入”可消多步负担）。
+
 ## 174. B3片3设计：章节admit（§4.7，待触发确认，未push）
 
 - 消费者盘点：`convertLegacyChapterCities`（state＋raw→编译具名形，192锁）／`captureCityDefinitions`（192锁＋x/y必填，片1储备行过不了）／`editChapterCity`（64-hex raw必填）／`chapterActiveGaps`密度门已live免改／revert `baseCity`无新槽回退。结论：新城走named-only新路（与legacy转换并存），不造raw（D6原文明示）。
