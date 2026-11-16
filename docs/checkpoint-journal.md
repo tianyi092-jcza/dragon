@@ -22,6 +22,13 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 180. 本地服务澄清＋删除面板挂载（本地 dev 5173 已起，未push）
+
+- 更正：本轮全部实现均为本地服务，无推送无部署；此前的公网探测（dragon*.720108.xyz）只是只读连通性抽查，不是目标。本地目标库为`.dragon-analysis/dev`（editor.sqlite）：仅1个上架游戏`臥龍傳·重構版`（`be4d9d16…`，approved，20章6资产），即待删的旧上架。
+- 删除面板存在但未挂进壳（生产壳同样没有）：`DeletionPanel.vue`＋`installGameDeletion`＋model/actions通道齐全，仅缺Workbench挂载。本轮把面板挂到“上架审核”视图ReviewPanel下方（`currentGame`取draft选中，不新增菜单项），shell-ui重建，dev服务（5173＋同库）重启后 served bundle 含`deletion-editor`＋`new-city`。headless启动检查：登录页正常，零JS错（401系未登录探针、404系favicon）。
+- 交接：用户自行登录 https://127.0.0.1:5173/ （自签证书请忽略警告，账号tianyi用自己密码）→上架审核→先按面板要求由管理员下架已上架游戏→提删除请求（建栅栏）→query/retry追踪。面板明示：此步仅建不可逆删除栅栏，历史内容/专属资源/备份的完整清理尚未就绪，不删玩家本地存档。实际fence/purge点击由用户执行。
+- 未动：旧上架的fence/purge（等用户操作）；push/部署。
+
 ## 179. VPERF场景级耗时：assembly＋月度（本地实测记录，非门限）
 
 - 新`tools/bench_scenario_perf.mjs`（i5-7500／15.9GiB／win32／node24，与codec基线同机）：compileGameSource 192城2734ms（堆456MiB，地形/道路为主）；fresh缓存init＋synthesize三档皆sub-ms（192：0.78＋0.26ms；193真实admit：0.39＋0.14ms；257合成探针：0.35＋0.09ms）；monthlySettlement 192城8.7ms／193城3.3ms（warmup噪声）／257城20.5ms，rng.calls 192／193／257精确（循环确有跑量）。257为M257(e)式最小字段合成探针，只量级缩放，不作可玩宣称。堆~900MiB（含内存copy store＋夹具）。无产品代码变更，不重建bundle。C8-1登记VPERF场景级由△改记录。
