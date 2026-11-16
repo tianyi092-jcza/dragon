@@ -315,6 +315,10 @@ function preserveOrClearTarget(io, actor, row, warAttempted) {
 /** Full synchronous 2BD9 producer through its original RET. */
 export function originalMonthlyDiplomacy2BD9(io) {
   resetEventMonth(io);
+  // D2-C: month rotation cleared page 3; drain pending overflow head-first
+  // into the fresh tail (Web产品决定). No RNG consumed; adapters without
+  // the hook keep the legacy rotation (overflow stays tabled).
+  if (typeof io.drainOverflowRecords === "function") io.drainOverflowRecords();
   const player = u8(
     call(io, "readPlayerFaction", [], "2C10"),
     "2C10",

@@ -1,5 +1,6 @@
 // Strict KI.EXE weather/event leaves.
 import { originalDelayedEnqueue301C } from "./originallegionfate.js";
+import { queueOverflowRecord } from "./strategiceventoverflow.js";
 // Evidence: docs/re-notes-march-pathfinding.md#native-weather-monthly-producer.
 export class OriginalWeatherBoundaryError extends Error {
   constructor(at, detail) {
@@ -47,7 +48,10 @@ export function originalCurrentEnqueue2FBF(io, ax, dx, delay) {
     "D20 cursor word",
   );
   offset = (offset + cursor) & 0xffff;
-  if (offset >= 0x100) return { inserted: false, offset, cf: true };
+  if (offset >= 0x100) {
+    queueOverflowRecord(io, ax, dx);
+    return { inserted: false, offset, cf: true };
+  }
   for (;;) {
     if (
       byte(
@@ -61,7 +65,10 @@ export function originalCurrentEnqueue2FBF(io, ax, dx, delay) {
       return { inserted: true, offset, cf: false };
     }
     offset = (offset + 4) & 0xffff;
-    if (offset >= 0x100) return { inserted: false, offset, cf: true };
+    if (offset >= 0x100) {
+      queueOverflowRecord(io, ax, dx);
+      return { inserted: false, offset, cf: true };
+    }
   }
 }
 

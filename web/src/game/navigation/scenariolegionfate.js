@@ -25,6 +25,7 @@ import {
   commitOriginalRecruitJoinOwnerWrite,
   commitOriginalCaptivePendingFactionWrite,
 } from "./originallegionfate.js";
+import { captureStrategicOverflow } from "./strategiceventoverflow.js";
 
 const legionFields = { 0: "status", 1: "faction", 2: "generalIdx" };
 const generalFields = {
@@ -261,6 +262,10 @@ function createScenarioMonthlyFateIO(sc, rng, queued) {
         slots[index] = { ...event, arg1: value & 255, arg2: value >>> 8 };
         queued.push({ ...slots[index] }); // Web report only, not another rule queue.
       } else missing("unaligned event word");
+    },
+    // D2-C overflow hook (Web产品决定). Missing hook keeps the legacy drop.
+    queueOverflowRecord(record) {
+      return captureStrategicOverflow(sc, record);
     },
   };
   return io;

@@ -5,6 +5,7 @@ import {
   originalMonthlyDomesticBudgets5715,
   originalMonthlyEnvoyBudgets578F,
 } from "./originalmonthlybudgets.js";
+import { captureStrategicOverflow } from "./strategiceventoverflow.js";
 
 const missing = (label) => {
   throw new RangeError(`Web engineering Uncovered monthly budget ${label}`);
@@ -179,6 +180,10 @@ function createScenarioMonthlyBudgetIO(sc, rng) {
       entry.values[entry.index] = bytes.every((item) => item === 0)
         ? null
         : { type: bytes[0], arg0: bytes[1], arg1: bytes[2], arg2: bytes[3] };
+    },
+    // D2-C overflow hook (Web产品决定). Missing hook keeps the legacy drop.
+    queueOverflowRecord(record) {
+      return captureStrategicOverflow(sc, record);
     },
   };
 }

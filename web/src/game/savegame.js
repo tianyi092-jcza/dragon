@@ -255,6 +255,8 @@ export function applyWebMetaToState(state, webMeta) {
     "_factionTickCursor",
     "_strategicEventCursor",
     "_strategicEventDivider",
+    "strategicEventOverflow",
+    "_strategicEventSeq",
     "_envoyDiplomacyCursor",
   ]) {
     if (field === "delayedLegionReturns" && hasNativeLegionSlots(state))
@@ -508,6 +510,9 @@ export function snapshotState(app, slotIdx, label) {
           return { _strategicEventCursor: sc._strategicEventCursor ?? 0 };
         })(),
         _strategicEventDivider: sc._strategicEventDivider ?? 7,
+        // D2-C overflow side table (Web产品决定): pending unplaced events.
+        strategicEventOverflow: structuredClone(sc.strategicEventOverflow ?? []),
+        _strategicEventSeq: sc._strategicEventSeq ?? 0,
         _envoyDiplomacyCursor: sc._envoyDiplomacyCursor ?? 0,
         envoys: structuredClone(sc.envoys ?? {}),
         cityRuleState: (sc.cities ?? [])

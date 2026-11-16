@@ -22,6 +22,12 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 184. D2-C实现：溢出旁表＋2BD9排空（用户批C，本地验证，未push）
+
+- 用户拍板C（旁表＋sequence，泵消费时合并；满页失败改成功是Web产品决定，与原证冲突时返工）。实现：新`strategiceventoverflow.js`（capture／drain／计数，旁表`strategicEventOverflow`＋`_strategicEventSeq`单调计数；无记录不建表，零足迹）；2FBF两满点＋301C满点调`queueOverflowRecord`（io无此方法=脱离夹具，保持原丢弃）；`originalMonthlyDiplomacy2BD9`在reset后调`io.drainOverflowRecords`（adapters实现：sc闭包＋writeEventWord直写已清页3，限64，余量保序留表）；五处adapter挂`queueOverflowRecord`（weather月度io＋对象io、diplomacy、budgets、fate月度io）；savegame capture＋apply加两字段。
+- 明确未做的（§9.7原句保留）：64位置/sequence排序的调度模型未建（旁表只有顺序队列，无位置概念）；迟到标记只在待处理阶段可见，写入页3后即为普通事件（与轮转携带一致）；bounds快照未做（仍读共享bounds）；RNG消耗零增加；2BD9轮转丢弃旧当前页行为不变。泵消费合并=经由页3重入轮的自然泵，非逐槽插队。
+- 验证：`verify_event_overflow_side_table.mjs` 5/5（2FBF满捕获＋sequence、无hook legacy一致、301C满CF仍0、排空保序＋部分排空保序、存档apply）；回归weather采样6/灾2＋fiscal11＋capacity6。新测试转CRLF；trialweb重建（256文件）。
+
 ## 183. D2-A满页行为冻结：原版满页就是丢，无overflow机制（RE结论，未push）
 
 - 用户选A（C0级RE查清再定）。调用者×满行为矩阵（已冻结，有原证）：2FBF满→CF=1/inserted:false，调用方各自丢弃（22DB回false、2286跳过不计数、budgets:190透传queued:false、diplomacy 2BD9径回传）；301C满→CF恒0不可区分，所有调用方按成功继续（5940照常notice、34EB后缀照常排清除、handler内延迟以已前进游标为起点），静默丢失；2BD9月界REP MOVSW 1..3→0..2无条件丢弃旧当前页（含未消费）；31AE不清槽，D20到100h后31BD直接返回不再重装，DEC下溢FF不重读末槽。原证：re-notes-ai-diplomacy§2.1（1/2/4/5条）、legion-fate§9.3、§9.7六行表；Web侧`originalDelayedEnqueue301C`/`originalCurrentEnqueue2FBF`/`resetEventMonth`逐行对应。

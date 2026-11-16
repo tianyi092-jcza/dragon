@@ -5,6 +5,7 @@ import {
   continueOriginalDisasterObject34B1,
   originalMonthlyWeatherEvents,
 } from "./originalweather.js";
+import { captureStrategicOverflow } from "./strategiceventoverflow.js";
 
 const missing = (label) => {
   throw new RangeError(`Web engineering Uncovered native weather ${label}`);
@@ -203,6 +204,11 @@ function createScenarioObjectIO(sc, rng, queued = []) {
         queued.push({ ...slots[index] });
       } else missing("unaligned event word");
     },
+    // D2-C overflow hook: full-page drops are captured to the side table
+    // instead (Web产品决定). Missing hook keeps the legacy drop.
+    queueOverflowRecord(record) {
+      return captureStrategicOverflow(sc, record);
+    },
   };
 }
 
@@ -341,6 +347,9 @@ export function performScenarioMonthlyWeatherEvents(sc, rng) {
         };
         queued.push({ ...slots[index] });
       } else missing("unaligned event word");
+    },
+    queueOverflowRecord(record) {
+      return captureStrategicOverflow(sc, record);
     },
   };
   const result = originalMonthlyWeatherEvents(io);

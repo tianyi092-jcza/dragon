@@ -4,6 +4,7 @@ import {
   writeNativeDiplomacyAt,
 } from "../nativediplomacy.js";
 import { aliasStateByte } from "./scenariowarconsumer.js";
+import { captureStrategicOverflow, drainStrategicOverflow } from "./strategiceventoverflow.js";
 import { originalMonthlyDiplomacy2BD9 } from "./originalmonthlydiplomacy.js";
 
 const missing = (label) => {
@@ -233,6 +234,15 @@ function createScenarioMonthlyDiplomacyIO(sc, rng) {
         bytes[3] = value >>> 8;
       }
       storeEventBytes(entry, bytes);
+    },
+    // D2-C overflow hooks (Web产品决定). Missing hooks keep legacy drops.
+    queueOverflowRecord(record) {
+      return captureStrategicOverflow(sc, record);
+    },
+    drainOverflowRecords() {
+      return drainStrategicOverflow(sc,
+        (offset) => this.readEventTypeByte(offset),
+        (offset, value) => this.writeEventWord(offset, value));
     },
   };
 }
