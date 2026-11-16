@@ -83,16 +83,21 @@ export function continueScenarioDisasterAreaEvent(sc, state) {
 
 function createScenarioObjectIO(sc, rng, queued = []) {
   const cityAtPointer = (pointer) => {
+    const cities = own(sc, "cities");
+    if (!Array.isArray(cities) || cities.length < 1 || cities.length > 512)
+      missing("live city table for pointer gate");
+    // Native valid range ended at the last 192-slot record start (0x2020);
+    // live range ends at the last live record start (D2-capacity slice).
+    const lastStart = 0x0840 + (cities.length - 1) * 0x20;
     if (
       !Number.isInteger(pointer) ||
       pointer < 0x0840 ||
-      pointer > 0x2020 ||
+      pointer > lastStart ||
       (pointer - 0x0840) % 0x20
     )
       missing(`city pointer ${pointer}`);
     const index = (pointer - 0x0840) >>> 5;
-    const cities = own(sc, "cities");
-    if (!Array.isArray(cities) || !Object.hasOwn(cities, index))
+    if (!Object.hasOwn(cities, index))
       missing(`city ${index}`);
     return cities[index];
   };

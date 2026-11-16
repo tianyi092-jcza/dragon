@@ -36,17 +36,22 @@ test('N=192 matches the legacy single-byte pick', () => {
   assert.equal(edge.log.bytes, 3);
 });
 
-test('coverage sweep pins 0..191 for N=192 and N=193 (slot 192 absent)', () => {
-  for (const count of [192, 193]) {
-    const picked = new Set();
-    for (let byte = 0; byte < 192; byte++) {
-      const io = mockIO({ count, bytes: [1, byte, 0] });
-      assert.equal(originalMonthlyWeather22DB(io), true);
-      picked.add(io.log.picks[0]);
-    }
-    assert.deepEqual([...picked].sort((a, b) => a - b),
-      Array.from({ length: 192 }, (_, i) => i));
-    assert.equal(picked.has(192), false);
+test('sweep pins 0..191 for N=192; N=193 covers 0..192 with two bytes', () => {
+  const picked192 = new Set();
+  for (let byte = 0; byte < 192; byte++) {
+    const io = mockIO({ count: 192, bytes: [1, byte, 0] });
+    assert.equal(originalMonthlyWeather22DB(io), true);
+    picked192.add(io.log.picks[0]);
+  }
+  assert.deepEqual([...picked192].sort((a, b) => a - b),
+    Array.from({ length: 192 }, (_, i) => i));
+  // N=193 spot coverage incl. the top slot (full 49152 sweep is the k-rule
+  // itself; representative r values below).
+  const cases = [[0x0000, 0], [0xbf02, 192], [0xbfff, 192]];
+  for (const [r, want] of cases) {
+    const io = mockIO({ count: 193, bytes: [1, (r >> 8) & 0xff, r & 0xff, 0] });
+    assert.equal(originalMonthlyWeather22DB(io), true);
+    assert.equal(io.log.picks[0], want);
   }
 });
 
@@ -56,17 +61,16 @@ test('first 1/2 gate still short-circuits before any pick byte', () => {
   assert.equal(io.log.bytes, 1);
 });
 
-test('N=193 verbatim: same-byte reject, coverage pins to 0..191 (top slot gap)', () => {
-  // cap = floor(256*3/4) = 192 < N: floor(r*193/192) maxes at 191, so slot
-  // 192 is unreachable under the verbatim proposal. Pinned here as a verified
-  // property; widening k for 193..256 needs an explicit user decision
-  // (proposal §9.4 only promises "at most one discrete bucket" skew).
-  const legacy = mockIO({ count: 192, bytes: [1, 192] });
-  assert.equal(originalMonthlyWeather22DB(legacy), false);
-  assert.equal(legacy.log.bytes, 2);
-  const added = mockIO({ count: 193, bytes: [1, 192, 0] });
-  assert.equal(originalMonthlyWeather22DB(added), false);
-  assert.equal(added.log.bytes, 2); // rejected before the delay byte
+test('N=193 uses two bytes and reaches the admitted slot (user k-width call)', () => {
+  // cap = floor(65536*3/4) = 49152; index 192 needs r*193 >= 192*49152
+  // i.e. r >= 48898 (0xBF02).
+  const added = mockIO({ count: 193, bytes: [1, 0xbf, 0x02, 0] });
+  assert.equal(originalMonthlyWeather22DB(added), true);
+  assert.equal(added.log.bytes, 4);
+  assert.equal(added.log.picks[0], 192);
+  const reject = mockIO({ count: 193, bytes: [1, 0xff, 0xff] });
+  assert.equal(originalMonthlyWeather22DB(reject), false);
+  assert.equal(reject.log.bytes, 3); // rejected before the delay byte
 });
 
 test('N=257 composes two bytes with the 3/4 cap', () => {

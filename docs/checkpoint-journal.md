@@ -22,6 +22,15 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 182. B4收尾：D4 k=2可达＋2286新城入灾＋费用域保留（本地验证，未push）
+
+- 用户拍板：N=193..256顶槽必须可达（总目标突破192）；费用域问清区别后再定；D2按“实现它”推进到可实现边界。
+- D4 k宽：`originalRegionalCityIndex2313`改N<=192用k=1、N>=193用k=2（用户2026-11-决定，替代逐字提案在该区间的顶槽不可达；N=192逐字节一致）。`verify_weather_regional_sampling.mjs` 6/6（0xBF02命中192、sweep覆盖0..192、门 preserved、RNG字节数精确）。
+- 2286（D2同族容量锁，非B4原条目，按总目标顺手打通）：`originalMonthlyCityDisasters2286`的`index<0xc0`改live-N；`cityAtPointer`指针门`0x2020`改`0x0840+(N-1)*0x20`；N=192时两者逐字节一致。`verify_weather_city_disasters.mjs` 2/2（192前缀384字节一致；193城defence0命中并以0x2040指针排type12）。下游34B1/23FF/2438/34EB走同一指针门＋坐标，无需另改。
+- 费用域结论（保留，不改代码）：保留=192数学不可能回绕（上界37912<65536，实测最大37160），扩展图沿用原算术，仅极端长路（最坏全非己255权155条／实际均权344条）折叠；立新域（如饱和封顶）在192同样零可观测差异（阈值永不触发），等于为未出现的拓扑提前分叉＋新阈值需另行拍板。建议保留，待真实扩展拓扑逼近阈值再议。分析工具`analyze_cost_domain.mjs`留存。
+- D2全量仍未实现：提案模型（64位置/sequence排序/overflow标记）未冻结——记录无空闲字段可放sequence/overflow标记、跨月映射与月界顺序无原证，硬写等于编机制，违反铁律§2.1。本轮交付：调用者证据收拢（5940/34EB/handler→301C，§9.3合同）＋可实现边界已探到2286（上条）。待立项C0级RE或用户接受分片交付。
+- 本批：6×`node --check`＋`diff --check`干净；新测试CRLF；trialweb重建（255文件，输出不变）。
+
 ## 181. B4推进：D4实施＋费用域提案＋D2证据冻结（本地验证，未push）
 
 - D4（用户B4“全做”授权，按提案逐字实施，标Web产品决定）：`originalweather.js` 22DB选城改live-N抽样（`originalRegionalCityIndex2313`：B=256^k最小容纳N，大端序k字节组成r，接受r<floor(B*3/4)取floor(r*N/cap)，否则沿原`index>=0xC0`语义返回false；N=192/k=1与旧单字节逐字节一致；1/2门、xLow门、bounds写回不动）＋`scenarioweather.js` io加`readCityCount`。`verify_weather_regional_sampling.mjs` 6/6（192一致、门 preserved、193/257行为、sweep覆盖钉0..191）。

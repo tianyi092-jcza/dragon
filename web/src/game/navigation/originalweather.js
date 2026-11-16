@@ -249,15 +249,16 @@ export function continueOriginalDisasterObject34B1(io, state) {
 
 /** 22DB: clear the prior non-global area, then optionally queue type11.
  * D4 live sampling (Web产品决定，非原版机制，用户B4批准实施；
- * 均匀性与RNG消耗决策见计划§9.4——本实现逐字采用提案公式，不自造阈值)：
- * 选城按live城市数N抽样。B=256^k为容纳N的最小byte空间，k个原RNG byte
+ * N=193..256用k=2为用户2026-11-明确决定，使顶槽可达，替代提案最小byte
+ * 规则在该区间的顶槽不可达；N<=192逐字节一致不变）。
+ * 选城按live城市数N抽样。B=256^k为容纳N的byte空间（N<=192时k=1；
+ * N>=193时k=2），k个原RNG byte
  * （大端序，先耗高位）组成r；接受r<floor(B*3/4)后选floor(r*N/floor(B*3/4))，
  * 否则按原`index>=0xc0`语义返回false。N=192且k=1时接受0..191且index=r，
  * 与旧单字节读取逐字节一致；xLow门、1/2门与bounds写回保持原样。 */
 function originalRegionalCityIndex2313(io, count) {
   if (!Number.isInteger(count) || count < 1 || count > 512) stop("2313", "live city count out of range");
-  let width = 1, space = 256;
-  while (space < count) { width++; space *= 256; }
+  const width = count <= 192 ? 1 : 2, space = width === 1 ? 256 : 65536;
   const cap = Math.floor((space * 3) / 4);
   let sample = 0;
   for (let position = 0; position < width; position++)
@@ -291,10 +292,14 @@ export function originalMonthlyWeather22DB(io) {
   return true;
 }
 
-/** 2286: fixed 192 city records, first successful gate skips the second gate. */
+/** 2286: fixed 192 city records at N=192; live city count beyond (D2-capacity
+ * slice: new cities join the monthly disaster scan. Web产品决定，非原版机制).
+ * First successful gate skips the second gate; per-city RNG order unchanged. */
 export function originalMonthlyCityDisasters2286(io) {
+  const total = call(io, "readCityCount", [], "2286N");
+  if (!Number.isInteger(total) || total < 1 || total > 512) stop("2286N", "live city count out of range");
   let inserted = 0;
-  for (let index = 0; index < 0xc0; index++) {
+  for (let index = 0; index < total; index++) {
     if (rng(io, "2297") < 0x18) {
       const roll = rng(io, "229E") & 0x3f;
       if (roll >= cityByte(io, index, "defence", "22A3")) {
