@@ -70,6 +70,13 @@
 - 编译：中心必须进入 `nodeScan`（C5-1 扫描序权威），否则编译 fail-closed 并报未注册／未连通；新城须有章节覆盖或在章初态切片处显式 fail-closed（C5 状态形）；`cityTypes` 须有显式 `battleMapId` 绑定，无回退（C4 目录门）。
 - 栈与持久化：撤销栈单条目、dirty 标记、服务端 copy DTO 保存重读一致。
 
+### 4.7 章节新城条目 admit（B3片3，设计先行，待触发方式确认）
+
+- 现状（已核）：`convertLegacyChapterCities`从state行＋32B raw组装编译具名形（192锁：bindings／state表／raw表），新城无raw且“不得伪造32B记录”（计划D6）；`captureCityDefinitions`仍192锁且要求x/y（片1储备行过不了）；`editChapterCity`要求64-hex raw；`chapterActiveGaps`密度门已live（1..512／idx稠密）无需改；revert `baseCity`无新槽回退。
+- 条目内容（D6已批准方向）：faction null（中立）／governor null／troops_cap显式填写值／prod·growth·defence·troops从主表复制一次／initializer按D6零初态（attr·cooldown0·旧属等当前属·border0·disaster无·cache·C18=0）／neighbourCityIds四槽按非空导航端口原序（空位null）；x/y取自placement绑定（主表行同时回填x/y，储备态结束）。
+- 待确认（不猜实现）：触发方式二选一——(a)放置落图时自动全章admit（跨模块副作用，map→chapters）；(b)显式admitCity op（`chapters:{admit:{cityId}}`，逐章追加密集idx＝slot，revert语义＝删条目）。两种都要求named-only转换新路（`convertNamedChapterCity`，与legacy转换并存，输出同键形）＋`editChapterCity` raw缺席时只改具名（raw同步跳过）＋`captureCityDefinitions` live化（槽＜512、x/y自placement回退）。
+- 片3实施片（确认后）：admit op＋named转换＋capture live化＋主表x/y回填＋单测（全章覆盖／编译过／revert删条目／512拒收）。
+
 ### 4.5 非目标
 
 旋转／翻转／对象锁（既有禁令不变）、自动生成道路、自动分配章节、超出占格的地形改写。

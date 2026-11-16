@@ -22,6 +22,12 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 174. B3片3设计：章节admit（§4.7，待触发确认，未push）
+
+- 消费者盘点：`convertLegacyChapterCities`（state＋raw→编译具名形，192锁）／`captureCityDefinitions`（192锁＋x/y必填，片1储备行过不了）／`editChapterCity`（64-hex raw必填）／`chapterActiveGaps`密度门已live免改／revert `baseCity`无新槽回退。结论：新城走named-only新路（与legacy转换并存），不造raw（D6原文明示）。
+- 条目内容＝D6已批准方向（faction/governor null、troops_cap显式、四项主表复制、initializer零初态、四邻接按非空端口原序、x/y取placement并回填主表）。触发方式二选一待确认：(a)放置自动全章admit；(b)显式admitCity op。确认后实施片：admit＋named转换＋capture live化＋x/y回填＋单测。
+- 本批纯文档：`node --check`不适用（无代码改动），`diff --check`干净。
+
 ## 173. B3实现片(2)：章节cityId键控＋191→511（已提交，未push）
 
 - 边界解析方案（§4.6改键落为此实现：同等能力、更小 blast radius；内层记录仍槽位键控，删城重排时再议）：`gamecopy.js`五城市op接受`cityId`替代`cityIdx`（校验期经`data.cities`解`runtimeSlot`并改写为idx形，`cityIdx+cityId`并存／未知ID／非串／槽越界一律422；未带cityId返回原patch身份）；三处`>191→>511`；`gamesource.js chapterCityRow 191→511`（`writeSlotByte`本就容忍缺表，新城无native raw可配具名）；`copyprofile.js`两处revert门`191→511`；`editChapterCityNative`保持192旧路。应用层缺条目仍fail-closed（COPY_CHAPTER，apply内try归一）。
