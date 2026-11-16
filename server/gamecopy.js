@@ -61,7 +61,8 @@ function checkModule(module, patch, data, gameId) {
     return { name: patch.name.normalize('NFC'), introduction: patch.introduction.normalize('NFC') };
   }
   if (module === 'cities') {
-    // patch: {rename?: {cityId: name}, numbers?: {cityId: {max_prod/prod/growth/defence/troops/type/view}}}
+    // patch: {rename?: {cityId: name}, numbers?: {cityId: {...}}, create?: {name, numbers?}}
+    // create 为 B3 服务端签发：append-only city-NNN，未放置储备无 x/y（编译在放置前 fail-closed）。
     const out = {};
     if (patch.rename !== undefined) {
       if (!patch.rename || typeof patch.rename !== 'object' || Array.isArray(patch.rename)) fail(422, 'COPY_CITY');
@@ -88,6 +89,26 @@ function checkModule(module, patch, data, gameId) {
         }
         out[`numbers:${cityId}`] = { ...values };
       }
+    }
+    if (patch.create !== undefined) {
+      if (!patch.create || typeof patch.create !== 'object' || Array.isArray(patch.create)) fail(422, 'COPY_CITY');
+      if (Object.keys(patch.create).length === 0 || Object.keys(patch.create).some(k => !['name', 'numbers'].includes(k))) fail(422, 'COPY_CITY');
+      let cleaned; try { cleaned = cityName(patch.create.name); } catch { fail(422, 'COPY_CITY'); }
+      if (codePoints(cleaned) < 1 || codePoints(cleaned) > 12) fail(422, 'COPY_CITY');
+      if (new Set(Object.values(data.cities ?? {}).map(c => c.name)).has(cleaned)) fail(409, 'COPY_CITY_NAME_TAKEN');
+      const numbers = patch.create.numbers ?? {};
+      if (!numbers || typeof numbers !== 'object' || Array.isArray(numbers)) fail(422, 'COPY_CITY');
+      for (const [k, n] of Object.entries(numbers)) {
+        if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(k)) fail(422, 'COPY_CITY');
+        if (!Number.isSafeInteger(n) || n < 0 || n > 65535) fail(422, 'COPY_CITY');
+      }
+      const existing = Object.keys(data.cities ?? {});
+      if (existing.length >= 512) fail(422, 'COPY_CITY');
+      let top = -1;
+      for (const id of existing) { const m = /^city-(\d{1,3})$/.exec(id); if (m) top = Math.max(top, Number(m[1])); }
+      const cityId = `city-${String(top + 1).padStart(3, '0')}`;
+      if (data.cities?.[cityId]) fail(422, 'COPY_CITY');
+      out[`create:${cityId}`] = { cityId, runtimeSlot: existing.length, name: cleaned, ...numbers };
     }
     if (!Object.keys(out).length) fail(422, 'COPY_PATCH');
     return out;
@@ -357,6 +378,10 @@ function applyModule(data, module, checked) {
     for (const [k, v] of Object.entries(checked)) {
       const [op, cityId] = k.split(/:(.*)/);
       if (op === 'rename') next.cities[cityId].name = v;
+      else if (op === 'create') {
+        if (!cityId || next.cities[cityId]) fail(422, 'COPY_CITY');
+        next.cities[cityId] = { ...v };
+      }
       else Object.assign(next.cities[cityId], v);
     }
     return next;
@@ -493,7 +518,10 @@ export class GameCopyStore {
     let next;
     try { next = applyModule(data, module, checked); }
     catch (e) { if (e?.status) throw e; fail(422, 'COPY_PATCH'); }
-    return this.#writeData(tokenHash, gameId, actor, next);
+    const saved = this.#writeData(tokenHash, gameId, actor, next);
+    // B3: 签发动作把新 cityId 带回给调用方（画布放置绑定用），加法字段不改旧形状。
+    const issued = module === 'cities' ? Object.keys(checked).find(k => k.startsWith('create:')) : null;
+    return issued ? Object.freeze({ ...saved, issuedCityId: issued.slice('create:'.length) }) : saved;
   }
   // 仅服务端已认证内置来源可调用；HTTP 不接受客户端传入整库。
   replaceGenerals(tokenHash, gameId, source) {

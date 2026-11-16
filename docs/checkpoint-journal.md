@@ -22,6 +22,12 @@
 4. `verify_publish_controller_slot`曾用例结束但轮询计时器未退出；force-exit不能证明清理成功。公共网络reader及完整玩家App战役不在本次同加载器端口验证范围内。
 5. §79–82按用户新请求实施本地地图改动，保留§78未提交文档整理；§83用户另行授权本地提交；仍无新增推送、部署、真实数据迁移或清理本地报告的授权。未重跑无关战斗／存档、schema／purge及完整资源审计（未改这些规则、表或资源）；§82只读复核据点着色来源19项，不新增运行规则；新规则仍按独立任务处理。
 
+## 172. B3实现片(1)：cities.create服务端签发（已提交，未push）
+
+- `server/gamecopy.js` cities模块新增`create:{name,numbers?}`：姓名沿rename门（cityName／1..12码点／409重名）、numbers沿既有七字段0..65535门；签发`city-NNN`（既有最大序号＋1，pad3），槽位`existing.length`（只增不减故稠密），行无x/y（未放置储备，编译在放置前fail-closed）；`existing.length>=512`拒收；apply侧`create:`键插入（已存在fail-closed）；`writeModule`回`issuedCityId`（加法字段，旧形状不变）。
+- 新`tools/verify_copy_city_create.mjs` 3/3：签发city-192槽192无坐标／连签city-193单调＋rename/numbers旧路无issued字段／重名409＋坏输入422＋空包COPY_PATCH＋直种512槽拒收。回归：controller_cities 6/6、chapter_ops 10/10。`node --check`（gamecopy＋新测试）与`diff --check`干净。LSP对两文件inconclusive（server属push-only不能确认为clean，不称clean）。
+- 未动：章节`cityIdx→cityId`改键（片2）、放置绑定已签发ID＋章节D6默认条目（片3）、画布/UI接线。生产／推送／真实数据均未动。
+
 ## 171. CITY后继：B2重录＋B5基线（goal active，已提交efdf64f，未push）
 
 - 用户目标：完整实现破192后编辑工作台建档可玩＋玩家侧可运行；旧工作台上架游戏可删，无需迁移。已按组合授权推进：B1本地提交／B2重录／B3服务端签发／B4立项／B5全量；提交与推送分别授权，本轮只本地提交，不push、不部署、不动真实数据。
