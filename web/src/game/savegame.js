@@ -1,6 +1,7 @@
 // Web 存档：仅保存玩家浏览器 IndexedDB 中的 JSON 状态。
 // 不读取、生成或上传 DOS SAVE.DAT；二进制格式兼容代码已从正式产品路径移除。
 import { isLegionDelegated } from "./legionmode.js";
+import { ensureStrategicEventSchedule } from "./navigation/strategiceventschedule.js";
 import { assertNativeFateSnapshotState } from "./navigation/scenariolegionfate.js";
 import {
   hasNativeLegionSlots,
@@ -42,6 +43,7 @@ export function canSnapshotState(app) {
     app?._scenarioAssemblyPending ||
     app?._scenarioAssemblyIncomplete ||
     app?._legionSlotBatch ||
+    app?._strategicEventBatch ||
     app?._nativeMonthlyFateContinuation ||
     app?._nativeExtinctionContinuation ||
     app?._nativeDiplomatContinuation ||
@@ -255,7 +257,7 @@ export function applyWebMetaToState(state, webMeta) {
     "_factionTickCursor",
     "_strategicEventCursor",
     "_strategicEventDivider",
-    "strategicEventOverflow",
+    "strategicEventSchedule",
     "_strategicEventSeq",
     "_envoyDiplomacyCursor",
   ]) {
@@ -285,9 +287,25 @@ export function applyWebMetaToState(state, webMeta) {
   }
   for (const saved of runtime?.cityRuleState ?? []) {
     const city = state.cities?.[saved.idx];
-    if (city && saved.disasterEvent != null)
-      city.disaster_event = saved.disasterEvent;
+    if (!city) continue;
+    if (saved.disasterEvent != null) city.disaster_event = saved.disasterEvent;
+    if (saved.disasterGeneration != null)
+      city._disasterGeneration = saved.disasterGeneration;
   }
+  // D2-EVENT-64 D8: the D2-C side table has no reproducible due time, so a
+  // non-empty one is refused instead of guessed into "next month slot 0".
+  // D8: one-shot structural validation; corrupt schedules reject the load
+  // instead of being repaired or half-installed.
+  if (state.strategicEventSchedule != null)
+    ensureStrategicEventSchedule(state);
+  if (
+    Array.isArray(runtime?.strategicEventOverflow) &&
+    runtime.strategicEventOverflow.length > 0
+  )
+    throw new RangeError(
+      "cannot restore a non-empty D2-C overflow side table",
+    );
+  delete state.strategicEventOverflow;
   for (const saved of runtime?.factionRuleState ?? []) {
     const faction = state.factions?.find(
       (candidate) => candidate.idx === saved.idx,
@@ -510,8 +528,22 @@ export function snapshotState(app, slotIdx, label) {
           return { _strategicEventCursor: sc._strategicEventCursor ?? 0 };
         })(),
         _strategicEventDivider: sc._strategicEventDivider ?? 7,
-        // D2-C overflow side table (Web产品决定): pending unplaced events.
-        strategicEventOverflow: structuredClone(sc.strategicEventOverflow ?? []),
+        // D2-EVENT-64 absolute-position schedule (Web产品决定): carry and
+        // overflow records plus D6/D7 position metadata.
+        ...(hasNativeStrategicEventWheel(sc) ||
+        hasNativeLegionSlots(sc)
+          ? sc.strategicEventSchedule === undefined
+            ? {}
+            : {
+                strategicEventSchedule: structuredClone(
+                  sc.strategicEventSchedule,
+                ),
+              }
+          : {
+              strategicEventSchedule: structuredClone(
+                sc.strategicEventSchedule ?? null,
+              ),
+            }),
         _strategicEventSeq: sc._strategicEventSeq ?? 0,
         _envoyDiplomacyCursor: sc._envoyDiplomacyCursor ?? 0,
         envoys: structuredClone(sc.envoys ?? {}),
@@ -520,6 +552,9 @@ export function snapshotState(app, slotIdx, label) {
           .map((city) => ({
             idx: city.idx,
             disasterEvent: city.disaster_event,
+            ...(city._disasterGeneration === undefined
+              ? {}
+              : { disasterGeneration: city._disasterGeneration }),
           })),
         factionRuleState: (sc.factions ?? []).map((faction) => ({
           idx: faction.idx,

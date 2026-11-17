@@ -732,3 +732,18 @@ TALK376原三行是“無條件同意／提供資金／拒　　絕”；TALK378
 **Web 接线**：`scenariowarconsumer.js` 新增 `aliasStateByte/aliasStateWord`（0580..08FF 界内 strict）并在 `warEventIo` 的 `readFactionReserve/readFactionCityCount/readFactionResourceWord` 三个 3091 读者上按 index≥0x16 分流；其余读者（351A attr、352A/35C0 F19、3639 关系）仍限 22 真势力不变。`originalwarconsumer.js` 规则层零改动（3091 本就索引无关）。
 
 回归：`verify_native_war_consumer.mjs` 13/13——新增 35AB 全窗字节 pin、22/23 零槽改换、24..32 矩阵保留（0xFF→2000）与资源 word 置零改换（`rows[4][1]=rows[4][2]=0` 令 P(25)=0）、33..35 城别名（活 owner=5 → word 5≤19 → P=0 改换；owner=null→18h 且零兵力 → 重置 2000 保留）、城记录缺失 fail-closed（A 前缀已提交+B 保留+hold）、0x24 直接写不读别名；删除旧「22 别名抛 /faction slot/」测试（行为已被原证取代）。§15 的 18h/23h 采样别名地址（0604../08C4..）与本区域映射一致。
+
+
+## 40. D2-EVENT-64：Web 绝对位置调度表（Web产品决定，非原版机制）
+
+> 用户 2026-11-17 确认 D0–D8＋S1 全部 (a)。本节是 Web 侧语义的详细维护源；原版原窗字节与 RNG 仍以 §2.1／§14–15 及 `verify_*` 为准，本节不是原证。
+
+**模型**：`sc.strategicEventSchedule = { version:1, epoch, entries[], meta[] }`，绝对位置 `epoch*64 + slot`。`entries` 带 `rank`（0=carry／1=overflow）、`order`（复用 `_strategicEventSeq`）、四字节载荷与可选 `region`／`generation`；`meta` 保存仍留在原轮内记录的 D6/D7 元数据并按绝对位置随移页搬运。排队／carry／排序／派发均 0 RNG。
+
+**生产落点**：2FBF 页内拥挤→`(epoch+1)*64`（下月位置 0）；2FBF 请求跨页→`epoch*64+offset/4`；301C 整轮满→`epoch*64+offset/4`（扫描终点）。原轮可写时仍只写原轮，overflow 不占原槽，因此同一记录永不双派发。`inserted` 保持原 4 字节真值，新增 `accepted` 供 22DB／2286／预算／57FE 判断「Web 已接受」。
+
+**消费**：`0x31AE` 分频归零时只推进一次游标，冻结该位置批次（carry → 原轮记录 → overflow 串行）；消息返回前不派发下一条，整批结束才 `tickFactionStrategicState` 一次。移页前 `beforeEventMonthShift()` 把旧当前页 `cursor..63` 未消费记录按槽序搬到新纪元位置 0，再搬过期条目。
+
+**保存**：`scenarioRuntimeState.strategicEventSchedule` 随快照保存；恢复一次性校验，非空旧 D2-C 旁表拒绝载入（到期时间不可恢复），损坏即拒绝且不半安装。D2-C 模块 `strategiceventoverflow.js` 已删除。
+
+**回归**：`tools/verify_d2_event_schedule.mjs`、`_chain`、`_refusal`、`_v_matrix`、`_v_matrix_app`、`_save_roundtrip`；计划 V01–V18 映射见 [d2-event-scheduler-plan.md](d2-event-scheduler-plan.md) §12.7。

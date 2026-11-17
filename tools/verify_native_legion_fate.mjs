@@ -1471,13 +1471,17 @@ test("native301C word cursor wrap, out-of-buffer first probe, missing queue/type
   for (const [run, error, commitsReset] of [
     [
       (f) => enqueueDelayedStrategicEvent(f.app, { type: 9 }, 8),
-      /legacy event wheel/,
+      // D2-EVENT-64 S1: native worlds now use the real 301C leaf, so a
+      // missing wheel/cursor fails closed there instead of the legacy helper.
+      /Uncovered native event _strategicEventCursor|legacy event wheel/,
       false,
     ],
     [
       (f) => monthlyDiplomacyAI(f.app),
-      /monthly diplomacy strategicEventSlots/,
-      true,
+      // D2-EVENT-64 D3: the carry hook runs before the wheel shift, so a
+      // missing cursor fails closed before any reset write (no prefix).
+      /Uncovered monthly diplomacy _strategicEventCursor|D20 cursor|monthly diplomacy strategicEventSlots/,
+      false,
     ],
     [(f) => hasPendingStrategicEvent(f.sc, 9), /legacy event wheel/, false],
   ]) {

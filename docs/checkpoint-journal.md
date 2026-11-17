@@ -16,8 +16,63 @@
 
 ### 未完成、阻塞与下一步
 
-1. D2全量（64位置调度模型）未实现：P0／P1已完成隔离审计并复现2FBF接缝（§186）；[D2-EVENT-64计划](d2-event-scheduler-plan.md)§11列出D0–D8＋S1的一次性决策包与四组示例，待用户确认后才能接正式规则（P2–P6）。原生4字节无空位不是Web实现阻塞，元数据可独立存储；真正待冻结的是时间／跨月／返回后继／天气上下文及保存兼容。当前旁表＋页3排空把捕获事件拖到约4个月后并读错bounds，不保证完整语义。goal已置`blocked`（待D0–D8＋S1确认）；§186另分列本轮目标、已完成、关键决策、失败尝试、相关文件、当前状态、阻塞点与下一步。新规则、旧地图／头像持久数据迁移、生产安装与验收须按后续任务和独立授权处理。
+1. D2-EVENT-64：D0–D8＋S1已确认（全 (a)），P2–P5本地完成并20个验证全绿（§187；实现与边界见[D2-EVENT-64计划](d2-event-scheduler-plan.md)§12）；P6剩浏览器整局／真实JSON冷恢复、`0x304E`待议与re-notes回流。未提交、未push。原生4字节无空位不是Web实现阻塞，元数据可独立存储；真正待冻结的是时间／跨月／返回后继／天气上下文及保存兼容。当前旁表＋页3排空把捕获事件拖到约4个月后并读错bounds，不保证完整语义。goal已置`blocked`（待D0–D8＋S1确认）；§186另分列本轮目标、已完成、关键决策、失败尝试、相关文件、当前状态、阻塞点与下一步。新规则、旧地图／头像持久数据迁移、生产安装与验收须按后续任务和独立授权处理。
 2. 环境注意：宿主LSP会话不可用时以inline LSP检查为准，不称clean；旧浏览器回归（`verify_editor_panel_visibility_browser` 11→12视图断言、`verify_c15_upstream_replays`）为基线已有失败，与本轮无关。不得为跑绿恢复Trial或放宽身份门。
+
+## 187. D2-EVENT-64：P2–P5 本地实现（D0–D8＋S1 全 (a)，未提交未push）
+
+**本轮目标**
+用户确认「全部按推荐（等价 D0=a, D1=a, D2=a, D3=a, D4=a, D5=a, D6=a, D7=a, D8=a, S1=a）」后，按计划 §11 接入正式路径：拥挤／跨页／满轮不丢事件、月份位置换算、消息续段串行、保存恢复校验与旧旁表退役。仍禁止真实`SAVE.DAT`／profile／dev库、提交、推送、部署。
+
+**已完成工作**
+- 新模块`web/src/game/navigation/strategiceventschedule.js`：`{version:1, epoch, entries[], meta[]}`；绝对位置`epoch*64+slot`；rank `0=carry／1=overflow`；同一位置顺序固定 carry→原轮→overflow；排队／carry／排序 0 RNG；缺字段＝空表，版本／字节／区域非法一律抛错。
+- 生产：2FBF 页内拥挤→`(epoch+1)*64`；跨页请求→`epoch*64+offset/4`；301C 整轮满→`epoch*64+offset/4`；原轮可写记录仍只写原轮，overflow 不占原槽（无双重派发）。`inserted` 保持原 4 字节真值，新增`accepted`；22DB／2286／预算／57FE 改读`accepted`，消除「报失败却未来执行」。
+- 移页：2BD9 新增`beforeEventMonthShift()`，把旧当前页`cursor..63`按槽序（含位置元数据）搬到新纪元位置 0，再搬过期条目，之后才移位；`0x31AE`语义与原窗字节不变。
+- 派发：泵在分频归零时只推进一次游标并冻结该位置批次；`ai.js`串行派发，消息返回前不处理下一条，整批结束才`tickFactionStrategicState`一次；场景卸载清批次，批次／消息挂起期间禁存。
+- D6：type11 产生时快照`_disasterBounds`（overflow 存条目、原轮记录存位置元数据，移页时随 carry 物化），执行优先用快照。
+- D7：`city._disasterGeneration`在写入非零灾度时递增并随`cityRuleState`保存；type12 subtype0 清除事件携带产生时代次，不符则不清零、不移对象。
+- D8：恢复一次性校验调度表；非空旧 D2-C 旁表拒绝载入（不猜到期时间），空旁表忽略；删除`strategiceventoverflow.js`与旧测试，新增`verify_d2_event_refusal.mjs`。
+- S1：`enqueueDelayedStrategicEvent`在 native 走真实 301C（`BL=0x14`，0 RNG），`gamebar`三处 type6/7 不再抛`legacy event wheel`。
+
+**关键决策**
+D0=a 单一路径覆盖 192..512；D1/D2 落点见上；D3 旧尾与新条目并入新纪元位置 0、旧先于新；D4 每位置一次游标＋冻结批次＋串行＋tick 一次；D5 `accepted`面向生产者、`inserted`只作原窗真值；D6/D7 元数据随事件走；D8 版本门＋无转换器；S1 并入本批。原轮字节、RNG、身份门与天气/灾害数值规则未改。
+
+**失败尝试与纠错**
+- 两次超长`bash heredoc`被截断（`unterminated`/未找到终止符）→ 改用`write`工具落文件再追加。
+- `savegame.js`插入 import 的锚点不存在，替换静默无效 → 测试报`ensureStrategicEventSchedule is not defined`后修正常规 import。
+- `carryOverdueEntries`只改`order`未重排，同位置顺序错位 → 变更后统一重排。
+- 恢复拒绝检查误读`state.strategicEventOverflow`（白名单已不再复制）→ 改读原始`runtime.strategicEventOverflow`。
+- 旧测试固定了被取代的行为（满页计数 0、`legacy event wheel`、三字段记录）：按新证据改为满页仍计 queued、native 301C fail-closed、四字节记录含`arg2`。
+- 主动 LSP：首次相对路径解析到`editor-ui/`下报 11 个 not found；绝对路径后仍 inconclusive（push-only，`ai.js` 5800 行超 5000 上限），不称 clean。
+- `server/public/trialweb.txt`被本地 dev 实例先行重建但非最新；按 AGENTS 用`node tools/build_trial_web_bundle.mjs`重建 256 文件（sha`7002969c…`），确认已移除旧旁表模块、只含新调度模块。
+
+**相关文件**
+改：`web/src/game/navigation/{strategiceventschedule.js(新),scenarioevents.js,scenarioweather.js,scenariomonthlydiplomacy.js,scenariolegionfate.js,scenariomonthlybudgets.js,originalweather.js,originallegionfate.js,originalmonthlydiplomacy.js}`、`web/src/game/{ai.js,savegame.js}`；删：`web/src/game/navigation/strategiceventoverflow.js`；测试：新增`tools/verify_d2_event_schedule.mjs`、`verify_d2_event_schedule_chain.mjs`、`verify_d2_event_refusal.mjs`，更新`verify_native_weather_monthly/…events`、`verify_native_legion_fate`、`verify_strategic_negotiation_events`，删除`verify_event_overflow_side_table.mjs`。文档：本计划§7／§12、本 journal。
+
+**V01–V18 补证（2026-11-17 续）**
+- 新增`tools/verify_d2_event_v_matrix.mjs`（13/13：V01–V08、V11、V15–V18）、`verify_d2_event_v_matrix_app.mjs`（5/5：V09、V10、V12、V13 模块级、V14）、`verify_d2_event_save_roundtrip.mjs`（1/1：真实 20 章夹具`snapshotState→saveJSON→admitSavedScenario→prepareScenario(restore)`后续月一致）。映射表见计划§12.7。
+- V09 抓到真实缺陷并修复：首版`drainStrategicEventBatch`在首条事件已打开消息时仍立即派发下一条（`Uncovered overlapping native generic TALK event`）；现改为消息挂起即返回等待，返回后才继续。该缺陷正是本任务要防的「消息未返回就处理下一事件」。
+- 浏览器端仍不可跑：本机`PLAYWRIGHT_MODULE`为空、本地/全局均无 playwright，按约定不擅自安装；`verify_app_save_ownership`因无页面超时不计通过。V13 已由引擎层真实夹具覆盖同一链。
+- 计划§12.5／§12.5.1／§12.7 已写入上述边界与证据映射；`server/public/trialweb.txt`按`build_trial_web_bundle.mjs`重建（sha`83a3b6dc…`）。
+- 回流完成：`docs/re-notes-ai-diplomacy.md`§40 与`docs/re-notes-legion-fate.md`§20 记录 Web 调度语义（明标非原版机制），`re-domestic-diplomacy`§8.1、`re-post-battle`§8 加实现指针；`git diff --check`通过、四份文档链接 0 失效。
+- 用户 2026-11-17 追加两项决定：`0x304E` 查询纳入调度条目；Playwright 没有就授权安装。复核后发现本机已有`@playwright/cli`自带`playwright`与 Chromium，现有 verifier 默认路径可用，**未安装任何新依赖**。
+- 304E：`strategiceventschedule.js`新增`hasScheduledEvent`（只读），`ai.js hasPendingStrategicEvent`在原轮结果后并集调度条目；链测试 9/9（新增 V19 用例：命中／目标不符／取走后不命中）。
+- 浏览器实跑：`verify_menu_save_slots_browser d2event64-menu3`通过（存 A→推进→存 B→覆盖→回标题→空槽三禁→读 A→刷新→读 B，`page errors: []`）。首轮暴露新局崩溃：`beforeEventMonthShift`在`resetEventMonth`之前要求 cursor，实测`RangeError: Uncovered monthly diplomacy _strategicEventCursor`；已修为「原轮全空且调度表空才视为 pristine 跳过」，其余缺 cursor 仍 fail-closed 且不写 reset 前缀（`native_legion_fate` 42/42 恢复）。
+- `verify_war_proposal_browser` 两次均落 retryable 分支（`exit 2`，`no fate card`/`dice loss`），不计通过；`precheck.pending:true` 证明 304E 仍查到在飞 type1。
+- bundle 重建 sha `2237603d…`（256 文件）。LSP 仍 inconclusive（push-only、`ai.js` 5800 行超上限），仅 `node --check` 佐证。
+- 最终验证：24 个适用`tools/verify_*`显式清单全绿（含新增 V19、`weather_regional_sampling`）；`git diff --check`通过。
+- 失败尝试（过程记录）：曾用`verify_*.mjs`通配跑全目录，触发大量需参数／服务／浏览器的 backend 脚本失败并超时——**不是回归**，违反 AGENTS「禁止 verify_* 通配」，已改为显式清单，不作通过或失败证据。
+- 主动 LSP：对 5 个改动文件用绝对路径重试，仍 `inconclusive=5`（push-only server 不发布 clean），不称 clean。
+- 追加补测：`tools/verify_d2_event_schedule_browser.mjs` 在真实游戏页注入 2 条非空调度（overflow+generation、carry+region，epoch 5），经`saveGame`→真实 IndexedDB→`page.reload`→`loadSave` 原样恢复，`page errors: []`、禁止路径 0；至此「非空调度条目的浏览器往返」缺口关闭（计划 §12.5／V20）。
+
+**当前状态**
+P0–P5 本地完成；23 个`tools/verify_*`全绿（`verify_d2_event_schedule`9/9、`_chain`8/8、`_refusal`6/6、`native_weather_monthly`8/8、`native_weather_events`5/5、`native_legion_fate`42/42、`native_monthly_budgets`9/9、`city_capacity_event_boundaries`5/5、RNG raw OK、diplomacy runtime/all-scenarios、三个 save 验证、negotiation/capital/message_fifo/city_ai/native_city/faction_tick 均 OK）。无提交、无推送、无部署；生产与pin未动。
+
+**阻塞点**
+无用户决定依赖。未完成项均为验证／待议：浏览器整局与真实 JSON 冷恢复未跑（`verify_app_save_ownership`因无页面超时，不计通过）；`0x304E`是否纳入调度条目待用户确认；re-notes 回流未做。
+
+**下一步**
+1. 隔离 profile 跑浏览器集成（新局→数月→天气/灾害→存档→恢复→继续），核对 carry／overflow／代次字段往返。2. 就`0x304E`给出选项后另行接。3. 提交需另行授权（推送同样单独授权）。4. re-notes 增补 Web 调度语义链接。
 
 ## 186. D2-EVENT-64：P0/P1隔离审计与一次性决策包（未实施，未push）
 

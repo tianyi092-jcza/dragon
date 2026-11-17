@@ -17,6 +17,7 @@ import { cityPhaseRange } from "./cityphase.js";
 import { countLegionActivation, countLegionRemoval } from "./legioncounts.js";
 import { hasNativeFactionSlots } from "./nativefactions.js";
 import { hasNativeStrategicEventWheel } from "./nativeevents.js";
+import { hasScheduledEvent } from "./navigation/strategiceventschedule.js";
 import {
   countNativeAliveFactions,
   NATIVE_UNIFICATION_MONARCH_SELECTOR,
@@ -88,8 +89,10 @@ import {
 } from "./navigation/scenarioweather.js";
 import {
   consumeScenarioStrategicEvent,
+  createScenarioEventWheelIO,
   decodeScenarioGenericTalkEvent,
 } from "./navigation/scenarioevents.js";
+import { originalDelayedEnqueue301C } from "./navigation/originallegionfate.js";
 import { performScenarioFactionTick } from "./navigation/scenariofactiontick.js";
 import { performScenarioGeneralRatingRefresh } from "./navigation/scenariogeneralrating.js";
 import { performScenarioMonthlyDiplomacy } from "./navigation/scenariomonthlydiplomacy.js";
@@ -2281,12 +2284,15 @@ export function hasPendingStrategicEvent(
     0,
     Math.min(STRATEGIC_EVENT_TOTAL_SLOTS, sc._strategicEventCursor | 0),
   );
-  return slots.slice(cursor).some((event) => {
+  const pending = slots.slice(cursor).some((event) => {
     if (event?.type !== type) return false;
     if (arg0 != null && event.arg0 !== arg0) return false;
     if (arg1 != null && event.arg1 !== arg1) return false;
     return true;
   });
+  // D2-EVENT-64: records the wheel could not hold are still owed, so the query
+  // must see them too; otherwise a duplicate proposal slips past 304E.
+  return pending || hasScheduledEvent(sc, { type, arg0, arg1 });
 }
 
 /**
@@ -2296,6 +2302,25 @@ export function hasPendingStrategicEvent(
 export function enqueueDelayedStrategicEvent(app, event, delaySlots) {
   const sc = app?.scenario;
   if (!sc) return false;
+  // D2-EVENT-64 (S1): native worlds use the real 301C leaf (BL=delay slots,
+  // 0 RNG) instead of the legacy wheel helper, which is fail-closed there.
+  if (
+    scenarioNativeRoadContext(sc) ||
+    hasNativeLegionSlots(sc) ||
+    hasNativeStrategicEventWheel(sc)
+  ) {
+    const ax =
+      (Number(event?.type) & 0xff) | ((Number(event?.arg0) & 0xff) << 8);
+    const dx =
+      (Number(event?.arg1) & 0xff) | ((Number(event?.arg2) & 0xff) << 8);
+    const result = originalDelayedEnqueue301C(
+      createScenarioEventWheelIO(sc),
+      ax,
+      dx,
+      Math.max(0, Math.trunc(delaySlots) || 0) & 0xff,
+    );
+    return result.inserted || result.accepted;
+  }
   const slots = ensureStrategicEventSlots(sc, app);
   const cursor = Math.max(
     0,
@@ -3288,9 +3313,15 @@ export function tickStrategicWarEvents(app) {
   if (scenarioNativeRoadContext(sc) || hasNativeLegionSlots(sc)) {
     try {
       const step = consumeScenarioStrategicEvent(sc);
-      return step.status === "dispatch"
-        ? dispatchStrategicEvent(app, step.event)
-        : false;
+      if (step.status !== "dispatch") return false;
+      // D4: the position's batch is frozen by the pump; dispatch serially and
+      // only tick the faction once the whole position is done.
+      app._strategicEventBatch = step.rest?.length
+        ? { scenario: sc, pending: step.rest }
+        : null;
+      dispatchStrategicEvent(app, step.event);
+      drainStrategicEventBatch(app);
+      return true;
     } catch (error) {
       holdFailedStrategicUpdate(app, error);
       throw error;
@@ -3813,8 +3844,29 @@ function applyDisasterArea(app, baseStrength) {
   return changed;
 }
 
+/** D4: dispatch the remaining events of one position. Returns true when a
+ * message is now pending (the caller must not tick the faction yet). */
+function drainStrategicEventBatch(app) {
+  const batch = app._strategicEventBatch;
+  if (!batch) return false;
+  if (batch.scenario !== app.scenario) {
+    app._strategicEventBatch = null;
+    throw new RangeError("Uncovered strategic event batch owner");
+  }
+  // A message may already be open (the first event of the batch): never
+  // dispatch the next record before it returns.
+  if (app._strategicEventPostMessageRngPending) return true;
+  while (batch.pending.length) {
+    dispatchStrategicEvent(app, batch.pending.shift());
+    if (app._strategicEventPostMessageRngPending) return true;
+  }
+  app._strategicEventBatch = null;
+  return false;
+}
+
 function finishDeferredFactionTick(app) {
   if (!app._factionTickDeferred) return;
+  if (drainStrategicEventBatch(app)) return;
   app._factionTickDeferred = false;
   tickFactionStrategicState(app);
   app.hud?.refreshInfo?.();
@@ -3856,13 +3908,14 @@ function resumeNativeDisasterAreaEvent(app) {
   return true;
 }
 
-function dispatchNativeDisasterAreaEvent(app) {
+function dispatchNativeDisasterAreaEvent(app, region = null) {
   if (app._nativeDisasterAreaContinuation)
     throw new RangeError("Uncovered overlapping native disaster-area event");
   const sc = app.scenario;
   const state = beginScenarioDisasterAreaEvent(
     sc,
     app.originalRng ?? app.activeBattleRng,
+    region,
   );
   app._nativeDisasterAreaContinuation = { scenario: sc, state };
   return resumeNativeDisasterAreaEvent(app);
@@ -4526,6 +4579,8 @@ export function clearNativeUiContinuations(app) {
   // 预算接见 continuation 同为 UI 绑定：剧本卸载/装配时不断开，下一次
   // 预算事件即抛 overlapping（其 commit 的 owner 门只认同 scenario）。
   app._nativeBudgetContinuation = null;
+  // D2-EVENT-64: a frozen position batch belongs to the old scenario.
+  app._strategicEventBatch = null;
 }
 
 /** 剧本提交/回标题同时废除旧规则挂起continuation：挂起中的消息模态属于
@@ -4828,7 +4883,8 @@ function dispatchStrategicEvent(app, event) {
     if (event?.type === 8) return dispatchNativeCapitalRelocation(app, event);
     if (event?.type === 9) return dispatchGeneralFateEvent(app, event);
     if (event?.type === 10) return dispatchNativeGenericTalkEvent(app, event);
-    if (event?.type === 11) return dispatchNativeDisasterAreaEvent(app);
+    if (event?.type === 11)
+      return dispatchNativeDisasterAreaEvent(app, event.region ?? null);
     if (event?.type === 12)
       return dispatchNativeDisasterObjectEvent(app, event);
     if (event?.type === 13) return dispatchNativeDeficitTrustEvent(app, event);

@@ -116,7 +116,10 @@ test("2286 all C11 bytes respect masked-roll boundaries and skip the second gate
         const result = performScenarioMonthlyWeatherEvents(sc, rng);
         const fire = roll >= defence;
         assert.equal(result.areaQueued, false);
-        assert.equal(result.cityQueued, Number(fire && !full));
+        // D2-EVENT-64 D5: a refused-but-accepted record is still counted as
+        // queued (the wheel slot stays untouched), superseding D2-C's
+        // "full page counts zero" Web behavior.
+        assert.equal(result.cityQueued, Number(fire));
         assert.equal(rng.calls, fire ? 386 : 387);
         assert.equal(sc.cities[0].defence, defence);
         assert.equal(sc.cities[0].growth, 255);
@@ -206,7 +209,13 @@ test("2FBF wraps the word cursor before its 0x100 limit and preserves scan order
     0,
     32,
   );
-  assert.deepEqual(result, { inserted: true, offset: 100, cf: false });
+  assert.deepEqual(result, {
+    inserted: true,
+    accepted: true,
+    offset: 100,
+    cf: false,
+    overflow: null,
+  });
   assert.deepEqual(writes, [
     [100, 0x000b],
     [102, 0],

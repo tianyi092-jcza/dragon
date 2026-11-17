@@ -4,7 +4,12 @@ import {
   writeNativeDiplomacyAt,
 } from "../nativediplomacy.js";
 import { aliasStateByte } from "./scenariowarconsumer.js";
-import { captureStrategicOverflow, drainStrategicOverflow } from "./strategiceventoverflow.js";
+import {
+  overflowTargetFor,
+  pendingScheduledCount,
+  recordOverflowEvent,
+  rotateStrategicEventSchedule,
+} from "./strategiceventschedule.js";
 import { originalMonthlyDiplomacy2BD9 } from "./originalmonthlydiplomacy.js";
 
 const missing = (label) => {
@@ -235,14 +240,38 @@ function createScenarioMonthlyDiplomacyIO(sc, rng) {
       }
       storeEventBytes(entry, bytes);
     },
-    // D2-C overflow hooks (Web产品决定). Missing hooks keep legacy drops.
-    queueOverflowRecord(record) {
-      return captureStrategicOverflow(sc, record);
+    // D2-EVENT-64: refused records go to the absolute-position schedule.
+    queueOverflowRecord(record, meta) {
+      return recordOverflowEvent(sc, overflowTargetFor(sc, meta), record);
     },
-    drainOverflowRecords() {
-      return drainStrategicOverflow(sc,
-        (offset) => this.readEventTypeByte(offset),
-        (offset, value) => this.writeEventWord(offset, value));
+    // D3: carry the old current page's unconsumed tail (and any overdue
+    // scheduled entries) to the new epoch's slot 0 before the wheel shifts.
+    beforeEventMonthShift() {
+      // Fresh 2BD9 runs before resetEventMonth, so the cursor/divider do not
+      // exist yet and the wheel is still the all-zero source table: nothing is
+      // owed, and skipping keeps a new game at epoch 0.
+      const cursor = sc._strategicEventCursor;
+      if (!Number.isInteger(cursor)) {
+        const slots = sc.strategicEventSlots;
+        const pristine =
+          Array.isArray(slots) && slots.every((slot) => !slot);
+        if (pendingScheduledCount(sc) === 0 && pristine) return 0;
+        missing("D20 cursor");
+      }
+      if (cursor < 0 || cursor > 0x3fff) missing("D20 cursor");
+      return rotateStrategicEventSchedule(sc, {
+        cursorSlot: cursor,
+        readRecord(slot) {
+          const { event } = eventAt(slot * 4);
+          if (!event) return null;
+          return {
+            type: event.type,
+            arg0: event.arg0,
+            arg1: event.arg1,
+            arg2: event.arg2,
+          };
+        },
+      });
     },
   };
 }

@@ -3,7 +3,7 @@
 // Bounded instruction kernel; Scenario IO/callers: scenariolegionfate.js.
 // IO owns explicit bytes, the unique fixed slots and canonical occupancy plane.
 // No raw/live-array fallback, inferred F18, synthetic callee RET or rollback.
-import { queueOverflowRecord } from "./strategiceventoverflow.js";
+import { queueOverflowRecord } from "./strategiceventschedule.js";
 
 export class OriginalFateBoundaryError extends RangeError {
   constructor(at, detail) {
@@ -129,10 +129,20 @@ export function originalDelayedEnqueue301C(io, ax, dx, delay) {
     }
     offset = (offset + 4) & 65535;
     if (offset >= 0x400) {
-      // D2-C: full wheel is indistinguishable (CF always 0); overflow the
-      // record to the side table instead of dropping it (Web产品决定).
-      queueOverflowRecord(io, ax, dx);
-      return { inserted: false, offset, cf: false };
+      // D2-EVENT-64 (D2=a): keep the absolute target the caller asked for.
+      // CF stays 0 (the original caller never checks it); `accepted` is the
+      // producer-facing "Web took it", `inserted` stays the wheel truth.
+      const overflow = queueOverflowRecord(io, ax, dx, {
+        offset,
+        pageFull: false,
+      });
+      return {
+        inserted: false,
+        accepted: overflow !== null,
+        offset,
+        cf: false,
+        overflow,
+      };
     }
   }
 }

@@ -1,6 +1,6 @@
 # D2-EVENT-64：战略事件64位置调度任务计划与跨会话交接
 
-> 状态：**P0／P1 已完成（隔离审计、接缝复现、决策包）；D0–D8＋S1 待用户一次性确认；P2–P6 未开始**。计划本身不批准待定行为。
+> 状态：**D0–D8＋S1 已确认（全部 (a)，2026-11-17）；P0–P5 本地完成并验证；P6 进行中（浏览器 E2E、LSP 结论、文档回流待补）**。未提交、未推送、未部署。
 > 起点：本地 `cc6cd1d`（2026-11-17 复核 HEAD 未变），最近实现记录为 [journal §184](checkpoint-journal.md#184-d2-c实现溢出旁表2bd9排空用户批c本地验证未push)。本轮执行与证据见 §10，待确认决策见 §11，交接见 [journal §186](checkpoint-journal.md#186-d2-event-64p0p1隔离审计与一次性决策包未实施未push)。版本仅用于定位，执行者必须重新核对 HEAD／diff，不重置到此版本。
 > 本文是 D2 后继的任务、决策和验收维护源；原版机制仍归原证文档，历史结果仍归 journal。**禁止把本文建议或旧测试当原版证据。**
 
@@ -278,12 +278,12 @@ D6/D7复杂度是真实失败模式，不是泛化安全设计：事件跨月后
 | P0 现场与隔离基线 | 完成 | HEAD `cc6cd1d`；KI `fffeba…`；§2.1 五窗 SHA | 5 个 `node tools/verify_*.mjs` 全通过（§10.2）；端口只读辨认 | 无 |
 | P1 原窗与调用链复核 | 完成 | [外交§2.1](re-notes-ai-diplomacy.md#21-city-capacity-1c0事件移页与消费边界复核)、[去向§9.3](re-notes-legion-fate.md#93-301c搜索两word写与cf实锤及明确工程域)、[扩容§9.7](city-capacity-expansion-plan.md#97-c0事件边界测试与d2缺口收敛) | 同上＋静态接线审计（§10.5） | 已闭合分类不再重开 |
 | P1 接缝复现（§3 第1–5项） | 完成 | 三个隔离探针（§10.3–§10.6，`.dragon-analysis/d2-event-64/`） | 真实生产适配器＋真实 2BD9／泵／消费者 | 无 |
-| P1 合同草案与决策包 | **完成，待确认** | §11 | 四组示例＋D0–D8＋S1 | 等用户一次性确认 |
-| P2 调度核心与隔离测试 | 未开始 | — | — | 依赖 §11 确认 |
-| P3 生产者／月结／上下文接线 | 未开始 | — | — | 依赖 §11；S1 另定 |
-| P4 事件泵／消息／势力后继 | 未开始 | — | — | 依赖 P2–P3 |
-| P5 保存恢复与旧旁表退役 | 未开始 | — | — | 依赖 §11 D8 |
-| P6 集成验收与文档回流 | 未开始 | — | — | 依赖 P2–P5 |
+| P1 合同草案与决策包 | 完成，已确认（2026-11-17 全部 (a)） | §11＋§11.5 确认记录 | 四组示例＋D0–D8＋S1 | 无 |
+| P2 调度核心与隔离测试 | 完成（本地） | `web/src/game/navigation/strategiceventschedule.js`；`tools/verify_d2_event_schedule.mjs` | 9/9 通过（§12.4） | 无 |
+| P3 生产者／月结／上下文接线 | 完成（本地） | 2FBF／301C 原叶＋五个适配器；S1＝`ai.js enqueueDelayedStrategicEvent` | §12.2／§12.4 | D6/D7 仅对离开原轮的记录带快照 |
+| P4 事件泵／消息／势力后继 | 完成（本地） | `scenarioevents.js`（batch）＋`ai.js`（串行、tick 一次；304E 含调度条目） | 链测试 D4 用例＋304E 用例（9/9） | 无 |
+| P5 保存恢复与旧旁表退役 | 完成（本地） | `savegame.js`；删除`strategiceventoverflow.js`与旧测试 | 8/8 链测试 D8 用例＋真实 Chromium 菜单存档往返（§12.5） | 非空调度条目的浏览器 IDB 往返仍只由引擎链覆盖 |
+| P6 集成验收与文档回流 | 进行中 | §12 | 20 个 `tools/verify_*` 全绿（§12.4） | 浏览器 E2E、LSP 结论、journal |
 
 每轮交接另记录：HEAD、自己修改路径、非自己修改、测试输出位置、当前决策状态、可执行下一步。不要将token耗尽或会话结束记为目标完成。
 
@@ -457,3 +457,111 @@ D6/D7复杂度是真实失败模式，不是泛化安全设计：事件跨月后
 ### 11.5 确认方式
 
 请按 `D0=a, D1=a, D2=a, D3=a, D4=a, D5=a, D6=a, D7=a, D8=a, S1=a` 的形式（或指出改选项／另述语义）一次性回复；确认前 P2 不开始。确认后可直接 `/goal resume` 继续 P2–P6。
+
+**确认记录（2026-11-17）**：用户回复「全部按推荐（等价 D0=a, D1=a, D2=a, D3=a, D4=a, D5=a, D6=a, D7=a, D8=a, S1=a）」。九项全部按 (a) 执行，S1 并入 P3。确认范围只覆盖 §11.3 的行为选择；§11.4 必做项、§0.2 红线与未闭合原证不因此改变。
+
+## 12. 实施记录（P2–P6 本地，2026-11-17；未提交／未推送／未部署）
+
+按 §11.5 确认（D0–D8＋S1 全部 (a)）实施。原轮语义、原窗字节、RNG 与身份门未改；新增行为全部标为 Web 产品决定。
+
+### 12.1 数据模型（`web/src/game/navigation/strategiceventschedule.js`）
+
+```text
+sc.strategicEventSchedule = {
+  version: 1,
+  epoch,                     // 月纪元；绝对位置 = epoch*64 + slot
+  entries: [{ position, rank, order, type, arg0, arg1, arg2, region?, generation? }],
+  meta:    [{ position, region?, generation? }]   // 原轮内记录的 D6/D7 附加元数据
+}
+```
+
+- `rank 0 = carry`（旧页未消费尾部／过期条目），`rank 1 = overflow`（原轮放不下）；同一位置派发顺序固定为 **carry → 原轮记录 → overflow**。
+- `order` 复用既有 `_strategicEventSeq`；排序／合并／carry 全部 0 RNG。
+- 缺失字段＝空表（epoch 0）。DOS 侧本来只有 256×4B 原轮，因此该转换不发明状态、不猜到期时间；损坏版本／非法字节／非法区域一律抛 `RangeError`（不修复、不半安装）。
+
+### 12.2 生产与落点（D1／D2／D5／S1）
+
+| 入口 | 原行为 | 现落点 |
+| --- | --- | --- |
+| 2FBF 页内拥挤（扫到 0x100） | 捕获后报失败 | `(epoch+1)*64`（下月位置 0），`accepted:true`、`inserted:false` |
+| 2FBF 请求跨页（目标 ≥0x100） | 立即 STC | `epoch*64 + offset/4`（请求的绝对位置，不早于请求） |
+| 301C 整轮满（offset ≥0x400） | CF 仍 0、调用方按成功继续 | `epoch*64 + offset/4`（扫描终点＝请求位置向后） |
+| 2BD9 移页 | 丢弃旧当前页未消费尾部 | `beforeEventMonthShift()` 把旧 `cursor..63` 按槽序搬到新纪元位置 0，再搬过期调度条目；之后才移位 |
+| 进言 type6/7 | legacy 入口在 native 抛错 | `enqueueDelayedStrategicEvent` 在 native 走真实 301C（`BL=0x14`，0 RNG） |
+
+- 原轮可写的记录**仍只写原轮**，overflow 不占用任何原槽，因此不会出现同一记录两处派发。
+- `inserted` 保持原 4 字节写入真值；新增 `accepted`＝「Web 已接受」（原轮或调度表）；22DB／2286／预算／57FE 改读 `accepted`，消除「报失败却未来执行」。
+
+### 12.3 派发、上下文与保存（D3／D4／D6／D7／D8）
+
+- 泵（`consumeScenarioStrategicEvent`）：分频归零时**只推进一次游标**，冻结该位置批次并返回 `rest`；`ai.js` 串行派发，消息返回前不处理下一条，整批结束才 `tickFactionStrategicState` 一次（`finishDeferredFactionTick` 先排空批次）。场景卸载清空批次；批次或消息挂起期间禁存。
+- D6：type11 产生时把 `_disasterBounds` 快照写入调度条目（overflow）或位置元数据（原轮记录，移页时随 carry 物化）；执行时优先用快照，缺省仍读共享 bounds。
+- D7：`city._disasterGeneration` 在写入非零灾度时递增，随 `cityRuleState` 保存；type12 subtype0 清除事件携带产生时代次，代次不符则既不清零也不移对象。
+- D8：恢复时一次性校验调度表；非空旧 D2-C 旁表拒绝载入（到期时间不可恢复），空旁表忽略；旧旁表模块与测试已删除。
+
+### 12.4 验证（全部隔离、纯内存／只读 JSON）
+
+| 入口 | 结果 | 覆盖 |
+| --- | --- | --- |
+| `tools/verify_d2_event_schedule.mjs` | 9/9 | 绝对位置、排序、carry 重定向、真实 JSON 往返、损坏拒绝、0 RNG |
+| `tools/verify_d2_event_schedule_chain.mjs` | 8/8 | D1/D2 落点、D3 移页、D4 单次游标＋批次顺序、D6 快照、D7 代次、D8 恢复门 |
+| `tools/verify_d2_event_refusal.mjs` | 6/6 | `inserted`／`cf` 真值、`accepted`、无 hook 仍原版丢弃、301C 原位写入 |
+| `verify_native_weather_monthly` / `verify_native_weather_events` | 8/8、5/5 | 22DB／2286 计数改 `accepted`；type11/12 适配器 |
+| `verify_native_legion_fate` | 42/42 | 301C 失败前缀与 hold；S1 后 native 走 301C |
+| `verify_native_monthly_budgets` | 9/9 | type4/5 满页不再丢 |
+| `verify_city_capacity_event_boundaries`、`verify_strategic_event_rng_raw` | 5/5、OK | 原窗 SHA 与 RNG 时序不变 |
+| `verify_diplomacy_runtime`、`verify_diplomacy_all_scenarios` | OK | 真实 2BD9＋新移页钩子 |
+| `verify_game_save_snapshot`／`_runtime`／`_exchange` | OK | 存档字段与恢复 |
+| `verify_strategic_negotiation_events`、`_capital_event`、`_message_fifo`、`_city_ai`、`verify_native_city`、`verify_native_faction_tick` | OK | type6/7 四字节记录、泵与后继、城市链 |
+| `tools/verify_d2_event_v_matrix.mjs` | 13/13 | V01–V08、V11、V15–V18（正常路径零差异、两类拒绝落点、远期不提前、错位换算、批次 65、区域快照、257 城、适配器单一化、纪元推进、元数据失败） |
+| `tools/verify_d2_event_v_matrix_app.mjs` | 5/5 | V09 消息串行、V10 故障 hold/禁存/不重放、V12 代次轨迹、V13 模块级 JSON 续月一致、V14 恢复门包装 |
+| `tools/verify_d2_event_save_roundtrip.mjs` | 1/1 | V13 应用级：真实 20 章夹具 `snapshotState→saveJSON→admitSavedScenario→prepareScenario(restore)`，调度表／城市代次保留且续月顺序一致 |
+| `node tools/build_trial_web_bundle.mjs` | 重建 256 文件（sha `2237603d…`） | `server/public/trialweb.txt` 仅含新调度模块，旧旁表模块已无残留 |
+
+### 12.5 已知边界（未覆盖，不算通过）
+
+- `0x304E`：用户 2026-11-17 明确「纳入调度条目」，已实现（`hasScheduledEvent`，读-only）并有链测试；原版查询仍只扫原轮，本条属**已批准 Web 差异**。
+- 浏览器验证：本机 `PLAYWRIGHT_MODULE` 为空，但 `@playwright/cli` 自带 `playwright`（`C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright`）与已下载 Chromium，现有 verifier 的默认路径即可用（无需新装依赖）。`verify_menu_save_slots_browser` 实跑通过：新局→菜单存 A→推进日→存 B→覆盖 A→回标题→空槽三禁→读 A→刷新→读 B，`page errors: []`。该轮同时暴露并修复了 §12.5.2 的新局缺陷。
+- **非空调度条目的浏览器 IDB 往返**：已补 `tools/verify_d2_event_schedule_browser.mjs`——真实游戏页注入 2 条（overflow+generation、carry+region，epoch 5）→ `app.saveGame` → 真实 IndexedDB → `page.reload` → `app.loadSave`，两条与 epoch 原样恢复，`page errors: []`、禁止路径 0。
+- `verify_war_proposal_browser` 两次运行均落在文档记录的 retryable 分支（`exit 2`，`no fate card`/`dice loss`），不计通过；其 `precheck.pending:true` 证明 304E 仍能查到在飞 type1。
+- 主动 LSP 检查 inconclusive（push-only、`ai.js` 超 5000 行上限），`node --check` 全部通过；不称 clean。
+- 多事件同位置时的 handler RNG 轨迹变化属已声明 Web 差异（多派发即多消费），未被原版对照覆盖。
+
+### 12.5.2 浏览器实跑抓到并修复的新局缺陷
+
+`beforeEventMonthShift` 首版要求 `_strategicEventCursor` 必须存在，但新局 `initializeStrategicDiplomacy→2BD9` 在 `resetEventMonth` 之前运行，此时 cursor/divider 尚未建立，导致新局直接 `RangeError: Uncovered monthly diplomacy _strategicEventCursor`（浏览器实测 30s 超时，`page errors` 捕获）。修复：仅当「原轮数组存在且全空、调度表无条目」时视为 pristine 新局并跳过 carry；其余缺 cursor 情形仍 fail-closed，且抛在 reset 写之前（`native_legion_fate` 前缀断言保持 `commitsReset:false`）。
+
+### 12.5.1 V09 抓到并修复的实现缺陷
+
+首版 `drainStrategicEventBatch` 在批次首条事件已打开消息时仍会立即派发下一条（测试报 `Uncovered overlapping native generic TALK event`）。已改为：若 `_strategicEventPostMessageRngPending` 已置位则直接返回等待，消息返回后才继续下一条。该缺陷正是本任务要防的「消息未返回就处理下一事件」，V09 现在锁死该顺序。
+
+### 12.7 V01–V18 证据映射
+
+| V | 证据 |
+| --- | --- |
+| V01 | `v_matrix` V01（delay 0/8/32/63 原位写入、无调度条目、0 RNG、游标/分频不动） |
+| V02 | `v_matrix` V02（页内满→下纪元 0；跨页→绝对槽；随机起点只耗 1 字节）＋ `refusal` 用例 |
+| V03 | `v_matrix` V03（满轮→槽 256，64 次到期均不派发该条；槽洞抛错） |
+| V04 | `v_matrix` V04（cursor63+delay2→槽 65；移页后为新槽 1，非 2） |
+| V05 | `v_matrix` V05（两条 delay6→槽 6/7；槽 0 消费只推进一次游标，未来槽不位移） |
+| V06 | `v_matrix` V06（连续两月 carry 不重不丢，已消费槽不重放） |
+| V07 | `v_matrix` V07（cursor64→page-end 无派发；divider 0→255 下溢不派发） |
+| V08 | `v_matrix` V08（65 条同位置不截断，顺序稳定） |
+| V09 | `v_matrix_app` V09（A/B 消息串行，C 无消息；整批后 tick 一次） |
+| V10 | `v_matrix_app` V10（未知类型→hold/禁存/游标前缀保留/不重放）＋ `native_legion_fate` 故障用例 |
+| V11 | `v_matrix` V11（生产时区域快照；后续月改共享 bounds 仍按快照伤害） |
+| V12 | `chain` D7 ＋ `v_matrix_app` V12（旧代次清除跳过、同代次清除生效） |
+| V13 | `save_roundtrip`（应用级真实夹具存档→恢复→续月）＋ `v_matrix_app` V13（模块级 JSON 顺序） |
+| V14 | `chain` D8 ＋ `v_matrix_app` V14（损坏拒绝、包装错误、不改输入、旧档保留提示） |
+| V15 | `v_matrix` V15（257 城采样＋满页接受）＋ `verify_weather_regional_sampling`／`native_city` |
+| V16 | `v_matrix` V16（源码级：无旧旁表引用、五个适配器统一入库）＋ `refusal` 无 hook 保留原版丢弃 |
+| V17 | `v_matrix` V17（fresh 2BD9 每轮 +1 纪元；restore 不再推进）＋ `native_legion_fate`／`diplomacy_all_scenarios` |
+| V18 | `v_matrix` V18（非法元数据不落半条、原轮不变）＋ `native_legion_fate` 两 word 前缀｜`refusal` 301C 满轮 0x400 |
+| V19（新增） | 304E 纳入：`chain` D4/304E 用例（调度条目在取走前被查询命中、目标不符不命中、取走后不再命中） |
+| V20（新增） | 非空调度条目的浏览器 IDB 往返：`verify_d2_event_schedule_browser`（entries/epoch 原样恢复，page errors 空） |
+
+### 12.6 待办
+
+1. ~~浏览器集成~~：已完成菜单存档往返（§12.5）；可选补跑「非空调度条目」的浏览器 IDB 往返夹具。
+2. ~~`0x304E`~~：用户已定「纳入调度条目」，实现与测试见 §12.7。
+3. ~~文档回流~~：已完成——[外交 re-notes §40](re-notes-ai-diplomacy.md#40-d2-event-64web-绝对位置调度表web产品决定非原版机制)、[去向 §20](re-notes-legion-fate.md#20-d2-event-64-301c-满轮后的绝对位置接收web产品决定非原版机制)，并在两个 SKILL §8.1／§8 加入 Web 实现指针。

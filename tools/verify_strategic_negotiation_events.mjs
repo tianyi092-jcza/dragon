@@ -63,16 +63,18 @@ assert.equal(
   enqueueDelayedStrategicEvent(app, { type: 7, arg0: 1, arg1: 2 }, 0x14),
   true,
 );
+// D2-EVENT-64 S1: the native 301C leaf stores the full four-byte record.
 assert.deepEqual(sc.strategicEventSlots[21], {
   type: 7,
   arg0: 1,
   arg1: 2,
+  arg2: 0,
 });
 
 const dispatched = [];
 const dispatchSc = scenarioFixture();
-dispatchSc.strategicEventSlots[0] = { type: 6, arg0: 1, arg1: 0 };
-dispatchSc.strategicEventSlots[1] = { type: 7, arg0: 1, arg1: 2 };
+dispatchSc.strategicEventSlots[0] = { type: 6, arg0: 1, arg1: 0, arg2: 0 };
+dispatchSc.strategicEventSlots[1] = { type: 7, arg0: 1, arg1: 2, arg2: 0 };
 const dispatchApp = {
   scenario: dispatchSc,
   gamebar: {

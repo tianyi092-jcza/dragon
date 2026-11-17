@@ -5,7 +5,14 @@ import {
   continueOriginalDisasterObject34B1,
   originalMonthlyWeatherEvents,
 } from "./originalweather.js";
-import { captureStrategicOverflow } from "./strategiceventoverflow.js";
+import {
+  absolutePosition,
+  attachPositionMeta,
+  attachRegionToEntry,
+  overflowTargetFor,
+  recordOverflowEvent,
+  strategicEventEpoch,
+} from "./strategiceventschedule.js";
 
 const missing = (label) => {
   throw new RangeError(`Web engineering Uncovered native weather ${label}`);
@@ -26,7 +33,18 @@ const word = (value, label) => {
 };
 const signedWord = (value) => ((value & 0xffff) << 16) >> 16;
 
-function createScenarioAreaIO(sc, rng = null) {
+/** D7: Web-only disaster generation. Bumped whenever a new damage value is
+ * written, so a delayed clear can tell whether it still owns the disaster. */
+function cityGeneration(city) {
+  const value = city?._disasterGeneration;
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+function bumpCityGeneration(city, damage) {
+  if (!(damage > 0)) return;
+  city._disasterGeneration = cityGeneration(city) + 1;
+}
+
+function createScenarioAreaIO(sc, rng = null, region = null) {
   const cityAt = (index) => {
     const cities = own(sc, "cities");
     if (!Array.isArray(cities) || !Object.hasOwn(cities, index))
@@ -37,7 +55,10 @@ function createScenarioAreaIO(sc, rng = null) {
     return city;
   };
   const currentBounds = () => {
-    const bounds = sc?._disasterBounds ?? own(sc, "weatherCloudBounds");
+    // D6: a scheduled (carry/overflow) area event carries its production-time
+    // region; same-month wheel events keep the original shared-bounds read.
+    const bounds =
+      region ?? sc?._disasterBounds ?? own(sc, "weatherCloudBounds");
     if (!bounds || typeof bounds !== "object" || Array.isArray(bounds))
       missing("weather bounds");
     return bounds;
@@ -62,7 +83,10 @@ function createScenarioAreaIO(sc, rng = null) {
     },
     writeCityByte(index, field, value) {
       if (field !== "disaster") missing(`city write ${field}`);
-      cityAt(index).disaster_event = byte(value, `city ${index} disaster`);
+      const city = cityAt(index);
+      const damage = byte(value, `city ${index} disaster`);
+      city.disaster_event = damage;
+      bumpCityGeneration(city, damage);
     },
     readPlayerFaction() {
       return byte(own(sc, "player_faction"), "player faction");
@@ -74,8 +98,10 @@ function createScenarioAreaIO(sc, rng = null) {
   };
 }
 
-export function beginScenarioDisasterAreaEvent(sc, rng) {
-  return beginOriginalDisasterAreaEvent34A6(createScenarioAreaIO(sc, rng));
+export function beginScenarioDisasterAreaEvent(sc, rng, region = null) {
+  return beginOriginalDisasterAreaEvent34A6(
+    createScenarioAreaIO(sc, rng, region),
+  );
 }
 
 export function continueScenarioDisasterAreaEvent(sc, state) {
@@ -146,7 +172,13 @@ function createScenarioObjectIO(sc, rng, queued = []) {
     },
     writeCityPointerByte(pointer, field, value) {
       if (field !== "disaster") missing(`city write ${field}`);
-      cityAtPointer(pointer).disaster_event = byte(value, "city disaster");
+      const city = cityAtPointer(pointer);
+      const damage = byte(value, "city disaster");
+      city.disaster_event = damage;
+      bumpCityGeneration(city, damage);
+    },
+    readCityPointerGeneration(pointer) {
+      return cityGeneration(cityAtPointer(pointer));
     },
     readObjectByte(slot, field) {
       const { object } = objectAt(slot);
@@ -204,10 +236,33 @@ function createScenarioObjectIO(sc, rng, queued = []) {
         queued.push({ ...slots[index] });
       } else missing("unaligned event word");
     },
-    // D2-C overflow hook: full-page drops are captured to the side table
-    // instead (Web产品决定). Missing hook keeps the legacy drop.
-    queueOverflowRecord(record) {
-      return captureStrategicOverflow(sc, record);
+    // D2-EVENT-64: refused records go to the absolute-position schedule
+    // (D1/D2), never to a second dispatch path. A type12/subtype0 clear also
+    // carries the city disaster generation it was produced for (D7).
+    queueOverflowRecord(record, meta) {
+      const generation =
+        record.type === 0x0c && record.arg0 === 0
+          ? cityGeneration(
+              cityAtPointer(record.arg1 | (record.arg2 << 8)),
+            )
+          : null;
+      const next = recordOverflowEvent(
+        sc,
+        overflowTargetFor(sc, meta),
+        generation === null ? record : { ...record, generation },
+      );
+      return next;
+    },
+    // A clear that still fits the wheel keeps its generation in position-keyed
+    // metadata so month carry can materialize it later (D7).
+    noteEventPlacement({ offset, ax, dx }) {
+      if ((ax & 0xff) !== 0x0c || ax >>> 8 !== 0) return;
+      const pointer = (dx & 0xff) | ((dx >>> 8) << 8);
+      attachPositionMeta(
+        sc,
+        absolutePosition(strategicEventEpoch(sc), offset >>> 2),
+        { generation: cityGeneration(cityAtPointer(pointer)) },
+      );
     },
   };
 }
@@ -221,6 +276,7 @@ export function beginScenarioDisasterObjectEvent(sc, event) {
     createScenarioObjectIO(sc, null),
     subtype,
     pointer,
+    event.generation ?? null,
   );
 }
 
@@ -236,6 +292,8 @@ export function continueScenarioDisasterObjectEvent(sc, state, rng) {
 /** Strict named adapter for the original 22DB then 2286 monthly producer. */
 export function performScenarioMonthlyWeatherEvents(sc, rng) {
   const queued = [];
+  let areaOverflow = null;
+  let areaPosition = null;
   const cityAt = (index) => {
     const cities = own(sc, "cities");
     if (!Array.isArray(cities) || !Object.hasOwn(cities, index))
@@ -348,10 +406,34 @@ export function performScenarioMonthlyWeatherEvents(sc, rng) {
         queued.push({ ...slots[index] });
       } else missing("unaligned event word");
     },
-    queueOverflowRecord(record) {
-      return captureStrategicOverflow(sc, record);
+    queueOverflowRecord(record, meta) {
+      const next = recordOverflowEvent(
+        sc,
+        overflowTargetFor(sc, meta),
+        record,
+      );
+      if (record.type === 0x0b) areaOverflow = next;
+      return next;
+    },
+    noteEventPlacement({ offset, ax }) {
+      if ((ax & 0xff) !== 0x0b) return;
+      areaPosition = absolutePosition(strategicEventEpoch(sc), offset >>> 2);
     },
   };
   const result = originalMonthlyWeatherEvents(io);
+  // D6: the area event carries the bounds that 22DB just wrote, so a later
+  // month (carry/overflow) still damages the region it was produced for.
+  if (result.areaQueued) {
+    const bounds = currentBounds();
+    const region = {
+      minX: signedWord(bounds.minX),
+      maxX: signedWord(bounds.maxX),
+      minY: signedWord(bounds.minY),
+      maxY: signedWord(bounds.maxY),
+    };
+    if (areaOverflow) attachRegionToEntry(sc, areaOverflow.order, region);
+    else if (areaPosition !== null)
+      attachPositionMeta(sc, areaPosition, { region });
+  }
   return { ...result, queued };
 }

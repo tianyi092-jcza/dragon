@@ -314,11 +314,12 @@ function preserveOrClearTarget(io, actor, row, warAttempted) {
 
 /** Full synchronous 2BD9 producer through its original RET. */
 export function originalMonthlyDiplomacy2BD9(io) {
+  // D2-EVENT-64 D3: before the wheel shifts, the adapter carries the old
+  // current page's unconsumed tail (and any overdue scheduled entries) to the
+  // new epoch's slot 0. No RNG consumed; adapters without the hook keep the
+  // original rotation (old tail is dropped, as in DOS).
+  if (typeof io.beforeEventMonthShift === "function") io.beforeEventMonthShift();
   resetEventMonth(io);
-  // D2-C: month rotation cleared page 3; drain pending overflow head-first
-  // into the fresh tail (Web产品决定). No RNG consumed; adapters without
-  // the hook keep the legacy rotation (overflow stays tabled).
-  if (typeof io.drainOverflowRecords === "function") io.drainOverflowRecords();
   const player = u8(
     call(io, "readPlayerFaction", [], "2C10"),
     "2C10",

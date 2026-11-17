@@ -1,6 +1,6 @@
 // Strict KI.EXE weather/event leaves.
 import { originalDelayedEnqueue301C } from "./originallegionfate.js";
-import { queueOverflowRecord } from "./strategiceventoverflow.js";
+import { queueOverflowRecord } from "./strategiceventschedule.js";
 // Evidence: docs/re-notes-march-pathfinding.md#native-weather-monthly-producer.
 export class OriginalWeatherBoundaryError extends Error {
   constructor(at, detail) {
@@ -34,7 +34,10 @@ const bound = (io, field, at) =>
 const writeBound = (io, field, value, at) =>
   call(io, "writeBoundWord", [field, value & 0xffff], at);
 
-/** 2FBF: current 0x100-byte page only; CF reports insertion failure. */
+/** 2FBF: current 0x100-byte page only; CF reports insertion failure.
+ * D2-EVENT-64: a refused record may still be *accepted* into the Web schedule
+ * (D5). `inserted` stays the original four-byte write truth; `accepted` is the
+ * producer-facing "Web took it"; `overflow` is the scheduled entry, if any. */
 export function originalCurrentEnqueue2FBF(io, ax, dx, delay) {
   ax = word(ax, "2FC4", "AX event word");
   dx = word(dx, "2FC3", "DX event word");
@@ -48,10 +51,18 @@ export function originalCurrentEnqueue2FBF(io, ax, dx, delay) {
     "D20 cursor word",
   );
   offset = (offset + cursor) & 0xffff;
-  if (offset >= 0x100) {
-    queueOverflowRecord(io, ax, dx);
-    return { inserted: false, offset, cf: true };
-  }
+  const refuse = (at, pageFull) => {
+    const overflow = queueOverflowRecord(io, ax, dx, { offset: at, pageFull });
+    return {
+      inserted: false,
+      accepted: overflow !== null,
+      offset: at,
+      cf: true,
+      overflow,
+    };
+  };
+  if (offset >= 0x100) return refuse(offset, false);
+
   for (;;) {
     if (
       byte(
@@ -62,13 +73,20 @@ export function originalCurrentEnqueue2FBF(io, ax, dx, delay) {
     ) {
       call(io, "writeEventWord", [offset, ax], "2FF6");
       call(io, "writeEventWord", [(offset + 2) & 0xffff, dx], "2FF8");
-      return { inserted: true, offset, cf: false };
+      // Web-only hook (D2-EVENT-64): adapters attach D6/D7 metadata keyed by
+      // the absolute slot the record landed in. No original byte changes.
+      if (typeof io.noteEventPlacement === "function")
+        io.noteEventPlacement({ offset, ax, dx });
+      return {
+        inserted: true,
+        accepted: true,
+        offset,
+        cf: false,
+        overflow: null,
+      };
     }
     offset = (offset + 4) & 0xffff;
-    if (offset >= 0x100) {
-      queueOverflowRecord(io, ax, dx);
-      return { inserted: false, offset, cf: true };
-    }
+    if (offset >= 0x100) return refuse(0x100, true);
   }
 }
 
@@ -197,7 +215,15 @@ export function originalDisasterObjectRemove2438(io, x, y) {
 }
 
 /** 34B1 through its optional TALK71/72 boundary. */
-export function beginOriginalDisasterObject34B1(io, subtype, cityPointer) {
+/** 34B1 entry. `expectedGeneration` is the Web-only D7 guard: a clear event
+ * only owns the disaster it was produced for, so a newer disaster (higher
+ * generation) is left untouched. Unbound (null) keeps the original behavior. */
+export function beginOriginalDisasterObject34B1(
+  io,
+  subtype,
+  cityPointer,
+  expectedGeneration = null,
+) {
   subtype = byte(subtype, "34B9", "event subtype");
   cityPointer = word(cityPointer, "34B1", "city pointer");
   const x = word(
@@ -211,6 +237,22 @@ export function beginOriginalDisasterObject34B1(io, subtype, cityPointer) {
     "city Y",
   );
   if (subtype === 0) {
+    if (expectedGeneration !== null) {
+      const generation = call(
+        io,
+        "readCityPointerGeneration",
+        [cityPointer],
+        "34BD",
+      );
+      if (generation !== expectedGeneration)
+        return {
+          status: "return",
+          changed: false,
+          skipped: true,
+          subtype,
+          cityPointer,
+        };
+    }
     call(io, "writeCityPointerByte", [cityPointer, "disaster", 0], "34BD");
     originalDisasterObjectRemove2438(io, x, y);
     return { status: "return", changed: true, subtype, cityPointer };
@@ -287,7 +329,10 @@ export function originalMonthlyWeather22DB(io) {
   if (cityByte(io, index, "xLow", "2324") < 0xc0 && (rng(io, "232B") & 1) === 0)
     return false;
   const delay = ((rng(io, "2333") & 7) + 8) << 2;
-  if (!originalCurrentEnqueue2FBF(io, 0x000b, 0, delay).inserted) return false;
+  const area = originalCurrentEnqueue2FBF(io, 0x000b, 0, delay);
+  // D5: the producer-facing acceptance is "the Web took it" (wheel or
+  // schedule); `inserted` alone no longer means the event was dropped.
+  if (!area.inserted && !area.accepted) return false;
   let value = cityWord(io, index, "x", "234C");
   if ((value << 16) >> 16 >= 10) value = (value - 5) & 0xffff;
   writeBound(io, "minX", value, "2358");
@@ -310,22 +355,26 @@ export function originalMonthlyCityDisasters2286(io) {
     if (rng(io, "2297") < 0x18) {
       const roll = rng(io, "229E") & 0x3f;
       if (roll >= cityByte(io, index, "defence", "22A3")) {
-        if (
-          originalCurrentEnqueue2FBF(io, 0x010c, 0x0840 + index * 0x20, 0xff)
-            .inserted
-        )
-          inserted++;
+        const fire = originalCurrentEnqueue2FBF(
+          io,
+          0x010c,
+          0x0840 + index * 0x20,
+          0xff,
+        );
+        if (fire.inserted || fire.accepted) inserted++;
         continue;
       }
     }
     if (rng(io, "22B4") >= 0x18) continue;
     const roll = rng(io, "22BB") & 0x3f;
     if (roll < cityByte(io, index, "growth", "22C0")) continue;
-    if (
-      originalCurrentEnqueue2FBF(io, 0x020c, 0x0840 + index * 0x20, 0xff)
-        .inserted
-    )
-      inserted++;
+    const riot = originalCurrentEnqueue2FBF(
+      io,
+      0x020c,
+      0x0840 + index * 0x20,
+      0xff,
+    );
+    if (riot.inserted || riot.accepted) inserted++;
   }
   return inserted;
 }

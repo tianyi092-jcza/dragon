@@ -1013,3 +1013,11 @@ P55现刷（与P54窗一致，逐字节重核）：`5074..50B3`——F2A==FF则5
 
 - `0A1C`窗（A1C，1CB1返回后唯一KI后继）=纯VGA场同步调色板重载：0x3DA轮询+cs:0x1964表16轮写调色板，寄存器save/restore对称（push ax/bx/cx/dx/si … pop逆序+ret），零规则内存写、零RNG、零分支外发。
 - 故即使60B4可达且shell对AL=0返回调用方，KI侧返回后效应仅显示（调色板重刷）；1CB1压栈的AX在A1C内被pop恢复，无残留。H4-(3c)封为**非规则影响UNKNOWN围栏**：归属/loader语义仍未知，但影响半径已证不含任何规则状态，可终局携带不再阻塞。
+
+
+## 20. D2-EVENT-64：301C 满轮后的绝对位置接收（Web产品决定，非原版机制）
+
+- 原版 301C 在整轮 0x400 字节内找不到空槽时 CF 仍为 0，调用方（585F/5940、291A、34EB、进言 type6/7）按成功继续，事件实际丢失（§9.3、`verify_native_legion_fate` 42/42 仍锁该前缀）。
+- Web 决定（D2=a）：满轮时把记录挂到扫描终点的绝对位置 `epoch*64+offset/4`，`inserted:false` 保留、`cf:false` 保留、新增 `accepted:true`；派发仍按分频与游标顺序，不改变 301C／5940 的调用时序。位置换算与 carry 语义见 [外交 re-notes §40](re-notes-ai-diplomacy.md#40-d2-event-64web-绝对位置调度表web产品决定非原版机制)。
+- 进言提交 type6/7：`enqueueDelayedStrategicEvent` 在 native 世界改走真实 301C（`BL=0x14`，0 RNG），不再抛 `legacy event wheel`（S1）。
+- 回归：`verify_d2_event_refusal.mjs`、`verify_d2_event_v_matrix.mjs`（V02/V03/V18）、`verify_strategic_negotiation_events.mjs`。
