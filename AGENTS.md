@@ -9,8 +9,9 @@
 - 仓库`E:/Dragon/web-port`，原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。禁止自动化访问真实`SAVE.DAT`、用户存档/profile；测试用内存、mock、隔离目录及新profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏版本`1.n`、软件版本、内容摘要和程序归档身份相互独立。
 - **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核及地图工作台已接copy；新城面板（建档→city-stamp→city-bind→admit→road-add）与删除面板（上架审核视图）已接线；193城全链（检验→票→提交→批准→正式包→玩家装配）本地验证通过；部分定义面板、旧draft整体退役与表清理仍待，见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`已退役为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
+- **战略事件调度（Web产品决定，非原版机制）**：权威是 `strategicEventSchedule`＝「纪元×64 位置」列表（`epoch*64+slot`），4 字节轮只作投影与原窗对照；`inserted` 仅原窗真值，`accepted` 才是「Web 已接受」。消费仍是每位置推进一次游标、7/10 分频；消息未返回不得派下一条，整批结束才 tick 势力一次。移页把旧当前页未消费尾部与过期条目搬到新纪元位置 0，pristine 新局（轮全空、调度表空）跳过。恢复一次性校验，非空旧 D2-C 旁表拒绝（到期时间不可恢复，不猜）；`0x304E` 查询含调度条目。
 - **地图工作台（Web产品决定）**：系统基础地图、共用Canvas与第二阶段精炼目录已完成本地实现／验证；不等于生产部署。管理员维护独立模板，两种创建取单快照，既有游戏不跟随更新；固定384×256，城数为live 1..512（节点扫描行序定槽，192为导入基线），不复原DOS对象或扩容。缺`mapEditorAssets`的旧copy明确拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[第二阶段](docs/map-workspace-sprite-library-design.md)；当前验收边界见[审计](docs/map-workspace-sprite-library-audit.md)。
-- **据点扩容后继任务（Web产品决定）**：用户确定先保持384×256地图，解除192据点限制，人物／地图等其它容量后续再扩；开发计划与新会话入口见[CITY-CAPACITY-1](docs/city-capacity-expansion-plan.md)。运行／道路／财政／存档代码已支持v2-192与v3-512双布局（M192／M193／M257本地验证，见[C8验收](docs/city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)），内置游戏与生产准入仍为192，据点组仍只读；计划不等于已部署。新城admit必填battleMapId（`ki-1995:siege:0..191`共享战场，Web产品决定，写定义＋全章行）；2FBF/301C满轮由溢出旁表承接（Web产品决定，§184）。本期改造须贯通稳定身份、道路、章节、运行、战场与保存，不只放宽计数门，不另建简化引擎。具体Web差异／尚待细化项由该计划维护，不自动授权生产迁移。
+- **据点扩容后继任务（Web产品决定）**：用户确定先保持384×256地图，解除192据点限制，人物／地图等其它容量后续再扩；开发计划与新会话入口见[CITY-CAPACITY-1](docs/city-capacity-expansion-plan.md)。运行／道路／财政／存档代码已支持v2-192与v3-512双布局（M192／M193／M257本地验证，见[C8验收](docs/city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)），内置游戏与生产准入仍为192，据点组仍只读；计划不等于已部署。新城admit必填battleMapId（`ki-1995:siege:0..191`共享战场，Web产品决定，写定义＋全章行）；原版四页事件轮放不下的记录（2FBF 页满／跨页、301C 满轮）由绝对位置调度表承接（Web产品决定，D0–D8＋S1 已确认；实现与边界见[D2-EVENT-64](docs/d2-event-scheduler-plan.md)§12）。本期改造须贯通稳定身份、道路、章节、运行、战场与保存，不只放宽计数门，不另建简化引擎。具体Web差异／尚待细化项由该计划维护，不自动授权生产迁移。
 - 生产为`sadcloud`单VPS（`ssh sadcloud`，`/srv/dragon`）：编辑器/玩家分服务，SQLite＋私有文件桶＋磁盘分发桶，nginx/Let's Encrypt；域名`dragon-editor.720108.xyz`/`dragon.720108.xyz`直连源站。Worker/R2/Tunnel、instabox为历史形态；操作前按[存储布局§18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)重新核部署身份。
 
 ## 2. 架构与数据归属
@@ -75,6 +76,7 @@
 - **Vue LSP**：项目私有`editor-ui/lsp/`用Vue LS2.2.12＋TS5.9.3 standalone，仅项目`.pi-lens.json`；从editor-ui启动新会话才实际采用override，配置来源不等于launcher生效。不改全局工具/信任，安装与独立检查见[说明](editor-ui/lsp/README.md)。
 - **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态。改`web/src/**`重建trialweb.txt；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
 - **copyop分发**：`applyCapturedMapEdit`的`view(edit)`返回属性描述符表，不是原对象；新op用`value(edit, key)`取值，勿直读`edit.x`。未绑定piece（cityId空）校验必败，绑定后才放行；新城中心须行序扫描在最后（scan-last），否则编译拒收；走廊须先铺好（端点D4..DD），road-add只做认证不铺砖。
+- **事件调度**：调度表与 4 字节轮不能各派发一次——条目只写原轮或只写调度表，读时按 carry→原轮→overflow 合并；改 `strategicEventSchedule` 形状须同步快照校验与 `verify_d2_event_*`，否则到恢复期才炸。
 - **会话/版本接缝**：session DTO可无根级version，捕获和比较要使用相同缺省，不因undefined/null误拒全部请求；身份/epoch守卫仍保留。copy审批revision可为规范`1.n`，玩家兼容旧正整数，但不能省略manifest/session精确身份与SHA校验。
 - **schema/purge**：同步deletiondefinitions/deletionschema/distributiondeclarations及投影/inventory，不把某批表数固化为规则、不重算pinned基线；系统基础地图表不进游戏purge。SQLite WAL调查用一致备份或停服快照，不能裸拷主库；栅栏存在不等于文件已清。
 - **离线审计与编码**：忽略的报告父目录在新检出中可能不存在，允许创建父目录，但新轮次叶目录必须独占、拒绝覆盖。Python用`-B`和显式UTF-8；Windows子进程输出也须指定编码，不能以stdout的UTF-8设置代替。报告绑定当时输入／工具SHA，工具修补不改写旧收据。
@@ -104,6 +106,8 @@ node tools/verify_system_base_map_conversion.mjs
 python -B tools/audit_map_sprite_atoms.py <new-round>
 python -B tools/verify_map_sprite_atoms.py
 node tools/verify_map_sprite_catalog.mjs
+node tools/verify_d2_event_schedule.mjs            # + _chain/_refusal/_v_matrix/_v_matrix_app/_save_roundtrip
+node tools/verify_d2_event_schedule_browser.mjs    # 浏览器 lane；本机 @playwright/cli 自带 playwright
 node tools/verify_map_sprite_materialization.mjs
 node tools/verify_copy_http_roundtrip.mjs --browser
 node --check <变更JS或MJS>
