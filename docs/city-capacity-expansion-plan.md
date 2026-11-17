@@ -404,6 +404,8 @@ I/O白名单：首批只读仓库源码／文档／Git状态，仅修改本文�
 
 ### 9.7 C0事件边界测试与D2缺口收敛
 
+> 后继入口：[D2-EVENT-64任务计划](d2-event-scheduler-plan.md)（journal §185，计划未实施）。本节保留C0历史原证与六项缺口；§184旁表仅完成部分载荷保留，不等于完整调度。原生4字节无空位不阻止Web独立元数据；正式改造须按后继计划冻结时间、返回、上下文及兼容合同，不以本文历史提案自动授权。
+
 **本地新增产物：** `tools/verify_city_capacity_event_boundaries.mjs`，只读KI、只用私有内存，5/5通过；旧事件／区域天气consumer回归另5/5通过。原证维护源为[外交§2.1](re-notes-ai-diplomacy.md#21-city-capacity-1c0事件移页与消费边界复核)，本节仅记录扩容影响。原生链为`performScenarioMonthlyDiplomacy→originalMonthlyDiplomacy2BD9→resetEventMonth`；消费为`tickStrategicWarEvents→consumeScenarioStrategicEvent→originalEventPump31AE→dispatchStrategicEvent`。
 
 | 实际边界 | D2必须显式决定的变化 |

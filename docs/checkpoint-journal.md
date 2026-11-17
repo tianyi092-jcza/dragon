@@ -16,8 +16,54 @@
 
 ### 未完成、阻塞与下一步
 
-1. D2全量（64位置调度模型）未实现：提案未冻结，原生4字节无空位放sequence/overflow标记（见§184与§9.7）。当前用旁表＋排空覆盖“不丢”部分；完整调度器须用户另行立项。不重开已完成的分类任务。新规则、旧地图／头像持久数据迁移、生产安装与验收须按后续任务和独立授权处理。
+1. D2全量（64位置调度模型）未实现：P0／P1已完成隔离审计并复现2FBF接缝（§186）；[D2-EVENT-64计划](d2-event-scheduler-plan.md)§11列出D0–D8＋S1的一次性决策包与四组示例，待用户确认后才能接正式规则（P2–P6）。原生4字节无空位不是Web实现阻塞，元数据可独立存储；真正待冻结的是时间／跨月／返回后继／天气上下文及保存兼容。当前旁表＋页3排空把捕获事件拖到约4个月后并读错bounds，不保证完整语义。goal已置`blocked`（待D0–D8＋S1确认）；§186另分列本轮目标、已完成、关键决策、失败尝试、相关文件、当前状态、阻塞点与下一步。新规则、旧地图／头像持久数据迁移、生产安装与验收须按后续任务和独立授权处理。
 2. 环境注意：宿主LSP会话不可用时以inline LSP检查为准，不称clean；旧浏览器回归（`verify_editor_panel_visibility_browser` 11→12视图断言、`verify_c15_upstream_replays`）为基线已有失败，与本轮无关。不得为跑绿恢复Trial或放宽身份门。
+
+## 186. D2-EVENT-64：P0/P1隔离审计与一次性决策包（未实施，未push）
+
+**本轮目标**（用户`/goal`）
+按[D2-EVENT-64计划](d2-event-scheduler-plan.md)执行64位置事件调度改造；本轮限P0/P1：核对原证、建立隔离基线、复现现有旁表接缝、细化合同；**D0–D8＋S1确认前不得接入正式规则**。禁止读真实`SAVE.DAT`／用户profile／dev库；禁止提交、推送、部署、重录pin。
+
+**已完成工作**
+- 现场：HEAD`cc6cd1d`不变；工作树只有§185文档改动，未stash／reset其它会话改动。只读辨认5173（dev_editor）／8443两个监听，未重启未连store；本轮输出独占`.dragon-analysis/d2-event-64/`（`.gitignore:43`）。KI SHA`fffeba…`未变。
+- P0基线5条全绿：`verify_city_capacity_event_boundaries`5/5、`verify_event_overflow_side_table`5/5、`verify_strategic_event_rng_raw`OK、`verify_native_weather_monthly`8/8、`verify_native_weather_events`5/5；日志`p0-*.log`。
+- P1复现（真实生产适配器＋真实2BD9轮转／31AE泵／type11消费者，`p1-probe-seam.mjs`）：当前页满时22DB`areaQueued:false`、不写bounds、旁表只有`type/arg0/arg1/arg2/sequence`；轮转1排空进页3、轮转4到当前页，**M+5才派发（晚约4个月）**；执行时读共享bounds→图心伤城2/3或后续月区域伤城100，均非目标城0/1。301C远期满轮（槽200）落M+5位置0（晚约1个月）；2FBF跨页请求（字节288，原版立即STC）落M+5位置0（晚约3个月）。
+- 恢复与适配器探针：`applyWebMetaToState`对旁表／sequence无校验；真实`performScenarioMonthlyDiplomacy`把`type:0x1ff`静默截断成255写入页3，日后派发才抛`Uncovered native strategic event type 255`；半写记录在31AE读第二word时失败，divider已重置、游标不前，每次到期重复失败；301C第二word写失败时第一word`0x0709`已提交（两word独立）。
+- 接线审计：2FBF生产者=2BD9／5715／578F／22DB／2286／57FE；301C=585F/5940／291A／34EB；只有22DB／预算／57FE读`inserted`，捕获时一律报失败却未来执行。新缺口：进言提交type6/7`gamebar.js:2940/3238/3364`仍走legacy`enqueueDelayedStrategicEvent`，native下抛`legacy event wheel`（S1）。
+- SKILL复核（计划§10.8）：301C的`BL`是槽偏移且扫到四页末尾；页满失败**仍已消费**随机起点1字节；301C插入／满队列CF均0且5940不查；DOS槽尾`+0x52C0..+0x56BF`就是事件轮、**DOS无到期时间字段**；用户既有决定“无需保留旧Web存档”。
+- 文档：计划新增§10（10.1现场隔离、10.2基线表、10.3接缝复现、10.4落点、10.5接线审计、10.6恢复缺口、10.7分级、10.8 SKILL补证）与§11（推荐模型、四组示例、D0–D8＋S1决策表、必做项、确认格式）；§0.1／§7账本同步。`git diff --check`通过、无行尾空格、相对链接0失效。
+
+**关键决策**
+- 本轮只冻结“待确认”决策包，未将其写入规则路径；推荐全部为(a)：D0同一引擎192..512；D1页内拥挤→新纪元位置0、跨页请求按绝对位置落未来页；D2 301C保留绝对目标向后扫；D3旧页未消费→新纪元位置0、旧先于新；D4每位置推进一次游标＋串行＋冻结本批＋势力tick一次；D5生产者面向`accepted`、`inserted`只作原窗真值；D6 type11携带区域快照；D7清除绑定城市灾害代次；D8版本门＋不猜到期时间（不写转换器）；S1进言type6/7并入P3改native 301C／300E。
+- 推荐单一权威＝「月纪元×64位置表」＋4字节轮投影，禁止旧旁表／新队列／4字节轮三处各自派发；排队／carry／排序0 RNG。
+- 已批准不动：天气、灾害清除、身份门与既有RNG规则不得为测试改写。
+
+**失败尝试与纠错**
+- 首版用`bash <<'PYEOF'`内嵌整段Markdown追加计划：heredoc未闭合报`unterminated triple-quoted string`；改为`write`工具写`.dragon-analysis/d2-event-64/plan-append.md`再用短脚本追加。
+- §186首版追加到journal末尾，破坏“最新在前”顺序；改为插到`## 185.`之前。
+- journal行尾误判：以通用换行读入导致CR计数为0，一度以为被转成LF；用`file`与`git show HEAD`字节计数确认工作树CRLF／索引LF，`git diff --numstat`仅20+/1-，无整文件行尾翻动。
+
+**相关文件**
+- 改：`docs/d2-event-scheduler-plan.md`（§0.1／§7／§10／§11）、`docs/checkpoint-journal.md`（本条＋主线第1项）。
+- 未改但已审计（只读）：`web/src/game/navigation/{strategiceventoverflow,originalweather,originalevents,originallegionfate,originalmonthlydiplomacy,originalmonthlybudgets}.js`、`web/src/game/{ai,scenarioevents,scenarioweather,scenariomonthlydiplomacy,gamebar,savegame,scenarioassembly}.js`、`web/src/main.js`。
+- 不入库：`.dragon-analysis/d2-event-64/`（探针、`.out.json`、日志）。
+
+**当前状态**
+P0/P1完成、决策包已就绪；P2–P6未开始；无`web/src/**`改动、无bundle重建、无pin变更、未提交／推送／部署。goal已置`blocked`（原因列D0–D8＋S1）。纯文档变更，故未跑代码LSP／`node --check`，不称clean；V01–V18尚无证据。
+
+**阻塞点**
+D0–D8＋S1未确认；确认前P2不得开始（避免“按建议”自动补齐具体行为）。
+
+**下一步**
+1. 用户按`D0=a, D1=a, … S1=a`一次性回复（或指出改选项），`/goal resume`。
+2. P2调度核心＋隔离测试→P3生产者／月结／上下文（含S1）→P4泵／消息／势力后继→P5保存恢复＋旧旁表退役→P6集成验收；每阶段更新计划§7账本并记录命令与结果。
+3. P5必须做：恢复边界一次性校验（调度表／旁表／sequence／纪元）、非法输入拒绝且不半安装、移除旧capture／drain生产路径。
+## 185. D2-EVENT-64后继计划（仅文档，供新会话goal委派）
+
+- 用户要求先评估最合理处理方式，再生成详细、防跑偏的任务计划；本轮未实施调度改造，未创建goal。
+- 新维护源：[D2-EVENT-64](d2-event-scheduler-plan.md)：P0–P6分阶段、D0–D8待确认决定、V01–V18验收矩阵、原证索引、安全隔离、旧旁表退役、完成审计及可复制`/goal`文本。建议保64位置／7与10分频，Web结构承载位置内多事件，不重写全战略调度器。
+- 代码审阅发现：2FBF捕获溢出后仍返回`inserted:false`，22DB因此不写本次bounds，但type11已留旁表；这是现状接缝判断，尚未执行本轮生产→消费复现，不称新原版实锤。P1须隔离复现，不能以旧5项旁表测试放行。
+- 计划生成不等于批准全部新行为；跨页目标、301C满轮落点、carry顺序、天气生命周期和旧快照策略须冻结。只改文档，检查相对文件链接与diff；未跑游戏／浏览器回归，无commit/push/生产写入。
 
 ## 184. D2-C实现：溢出旁表＋2BD9排空（用户批C，本地验证，未push）
 
