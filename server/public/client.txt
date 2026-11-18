@@ -128,7 +128,7 @@ async function run(action, options = {}) {
   try { draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); deletionUI?.render(); publishUI?.render(); reviewUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); copyUI.render(); fullCopyUI.render(); } catch { /* 畫不上不影響動作本身 */ }
   // 動作若能說清楚自己完成了什麼（例如「複製完成。」「檢驗完成。」），就在上方提示那句話；
   // 才退回仍有的中性提示，不再讓所有操作都顯示成「操作完成」。
-  try { const result = await action(); status(typeof result === 'string' && result ? result : '操作完成。'); return result; }
+  try { const result = await action(); if (!options.ownStatus) status(typeof result === 'string' && result ? result : '操作完成。'); return result; }
   catch (error) { status((error && error.message) || '操作失敗（原因未回報）。', true); if (feedback !== 'global') throw error; }
   finally {
     busy = false; feedback = 'global';

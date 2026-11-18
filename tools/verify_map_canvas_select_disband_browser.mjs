@@ -187,6 +187,10 @@ try {
     assert.ok(details.join('').includes(target.id));
     assert.ok(details.join('').includes(template.content.cities[target.cityId].name));
     assert.ok(details.join('').includes('請檢查'));
+    const report = panel.locator('.map-save-report');
+    assert.match(await report.innerText(), /檢查未通過，未保存/);
+    assert.match(await report.innerText(), /失敗：本機檢查/);
+    assert.match(await report.innerText(), /未執行：伺服器核驗/);
     assert.equal(snapshot.version, 1, 'invalid drop never reaches persistent write');
     await panel.getByRole('button', { name: '撤銷', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#base-map-editor .base-map-canvas').dataset.redCells === '0');

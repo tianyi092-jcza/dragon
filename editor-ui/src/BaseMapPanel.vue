@@ -5,8 +5,15 @@ import { ElCheckbox } from 'element-plus/es/components/checkbox/index.mjs';
 import { ElCard } from 'element-plus/es/components/card/index.mjs';
 import { ElSelect } from 'element-plus/es/components/select/index.mjs';
 import { ElOption } from 'element-plus/es/components/select/index.mjs';
+import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
 import WorkspaceIcon from './WorkspaceIcon.vue';
 const props = defineProps({ model: { type: Object, required: true }, actions: { type: Object, required: true }, busy: Boolean });
+const checks = computed(() => (props.model.saveReport?.steps || []).map((label, i) => {
+  const { index, state } = props.model.saveReport;
+  if (i < index) return `已完成：${label}`;
+  if (i > index) return `${state === 'running' ? '等待中' : '未執行'}：${label}`;
+  return `${({ running: '進行中', unknown: '結果待確認', failed: '失敗' })[state]}：${label}`;
+}));
 const canvas = ref(null), host = ref(null), album = ref(null), sentinel = ref(null), floating = ref(null), menu = ref(null);
 const catalogCategory = ref('mountain'), loadedCount = ref(24), floatingPosition = ref(null), contextPosition = ref(null);
 const panLocked = ref(false);
@@ -288,6 +295,15 @@ onBeforeUnmount(() => {
       <span class="map-status" role="status" aria-live="polite" :title="notice || model.message">{{ model.atlasLoading ? '圖集载入中…' : notice || model.message }}</span>
     </header>
     <div class="base-map-workspace">
+    <ElDialog :model-value="model.saveReport?.state === 'running'" title="地圖保存檢查" width="min(32rem, 90vw)" append-to-body :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
+      <div role="status" aria-live="polite"><strong>{{ model.saveReport?.summary }}</strong><ol><li v-for="line in checks" :key="line">{{ line }}</li></ol></div>
+    </ElDialog>
+    <details v-if="model.saveReport && model.saveReport.state !== 'running'" class="map-save-report" :open="model.saveReport.state !== 'success'">
+      <summary>{{ model.saveReport.summary }} · 查看檢查結果</summary>
+      <ol><li v-for="line in checks" :key="line">{{ line }}</li></ol>
+      <p v-if="model.uncertain">請先重新讀取地圖，確認目前版本；不要重送同一批修改。</p>
+      <p v-else-if="model.saveReport.state === 'failed'">修改仍保留。請依下方問題修正，或撤銷上一步，再保存。</p>
+    </details>
     <div v-if="model.atlasError" class="base-map-problems" role="alert"><span>{{ model.atlasError }}</span><ElButton @click="actions.retryAtlas()">重試</ElButton></div>
     <div v-if="model.serverProblems?.length" class="base-map-problems" role="alert"><p v-for="(problem, index) in model.serverProblems" :key="index">{{ problem.message }}</p></div>
     <div v-if="model.diagnostics?.length" class="base-map-problems" role="alert"><div v-for="problem in model.diagnostics" :key="problem.index"><span>{{ problem.message }}</span><ElButton :disabled="!Number.isInteger(problem.x) || !Number.isInteger(problem.y)" title="定位底圖格" @click="actions.focusDiagnostic(problem.index)">定位</ElButton></div></div>
@@ -355,6 +371,7 @@ onBeforeUnmount(() => {
 .base-map-controls :deep(.el-checkbox) { margin-right: 0; }
 .base-map-toolbar .map-status { flex: 0 1 auto; min-width: 120px; max-width: 240px; margin-left: auto; text-align: right; }
 .base-map-panel :deep(.el-button + .el-button) { margin-left: 0; }
+.map-save-report { max-height: 25%; overflow: auto; flex-shrink: 0; }
 .base-map-problems { max-height: 96px; overflow: auto; flex-shrink: 0; }
 .base-map-body { display: grid; grid-template-columns: minmax(0, 1fr) 260px; grid-template-rows: auto minmax(0, 1fr); gap: 4px 8px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .base-map-workspace { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }

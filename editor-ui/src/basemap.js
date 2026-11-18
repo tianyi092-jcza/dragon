@@ -8,13 +8,13 @@ export { createMapController as createBaseMapController };
 export function createMapController({ api, work, publish, preview = previewMapEdits, paint, confirm, gameId = null }) {
   const path = gameId ? '/api/games/' + encodeURIComponent(gameId) + '/copy' : '/api/admin/base-map';
   let identity = null, actorId = null, actorVersion = null, generation = 0;
-  let pendingForm = false, readRevision = 0;
+  let pendingForm = false, readRevision = 0, saveReport = null;
   let snapshot = null, candidate = null, edits = [], undoSizes = [], loaded = false, uncertain = false, message = '', serverProblems = [];
   const permitted = () => Boolean(identity && !identity.user.mustChangePassword && (gameId ? ['admin', 'author'].includes(identity.user.role) : identity.user.role === 'admin'));
   const current = mark => mark === generation && permitted() && identity.user.id === actorId && (identity.version ?? null) === actorVersion;
   const render = () => publish({ loaded, exists: Boolean(snapshot), version: snapshot?.version ?? 0,
     dirty: edits.length > 0, editCount: edits.length, locked: !permitted() || uncertain || !snapshot,
-    uncertain, message, serverProblems, readRevision, gameId, gameScoped: Boolean(gameId),
+    uncertain, message, serverProblems, saveReport, readRevision, gameId, gameScoped: Boolean(gameId),
     seaGroundPending: edits.some(edit => edit.op === 'sea-ground-enable'),
     seaGroundEnabled: candidate?.map.base.policy === 'sea-ground-1' });
   function install(value) {
@@ -31,9 +31,10 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     snapshot = next; candidate = prepared; edits = pending; undoSizes = pending.length ? [1] : []; loaded = true; uncertain = false; serverProblems = [];
     paint(candidate, false); render();
   }
-  async function read(mark) {
-    const value = await api(path);
+  async function read(mark, options) {
+    const value = await api(path, undefined, options);
     if (!current(mark)) return;
+    if (!options) saveReport = null;
     install(value);
   }
   async function reload() {
@@ -70,12 +71,14 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     if (pending.length > MAP_EDIT_MAX_COMMANDS || new TextEncoder().encode(JSON.stringify(gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending })).length > MAP_EDIT_MAX_BYTES)
       throw new Error('本次修改超過保存上限（4096條命令／16 MiB）。已有修改可先保存；若單次操作仍超限，請縮小選取範圍。');
     const next = preview(snapshot.content, pending);
+    saveReport = null;
     candidate = next; edits = pending; undoSizes = [...undoSizes, batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate, pending.some(edit => edit.op === 'map-object-translate')); render();
     return true;
   }
   function undo() {
     if (!permitted() || uncertain || !edits.length) return;
     const pending = edits.slice(0, -undoSizes.at(-1)), next = preview(snapshot.content, pending);
+    saveReport = null;
     candidate = next; edits = pending; undoSizes = undoSizes.slice(0, -1); serverProblems = [];
     message = pending.length ? '已撤銷上一步；仍有未保存修改。' : '已撤銷全部未保存修改。';
     paint(candidate, pending.some(edit => edit.op === 'map-object-translate')); render();
@@ -85,30 +88,50 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     const mark = generation, pending = structuredClone(edits);
     return work(async () => {
       if (!current(mark)) return;
-      let committed = false, submitted = false;
+      const moved = pending.some(edit => edit.op === 'map-object-translate');
+      const steps = [...(moved ? ['本機檢查：道路端點、據點占格、重疊與路網連通'] : []),
+        gameId ? `伺服器核驗 ${pending.length} 條地圖修改（命令格式、素材與物件引用${moved ? '、移動後的位置與連通性' : ''}），通過才寫入遊戲地圖` : `伺服器核驗 ${pending.length} 條地圖修改：物件位置、路網連通、模板及受保護資源，通過才寫入基礎地圖`,
+        '重新讀取已保存的地圖'];
+      let index = 0, committed = false, submitted = false;
+      const report = (state, summary) => { saveReport = { steps, index, state, summary }; render(); };
+      const local = { feedback: 'local' };
+      serverProblems = [];
       try {
-        if (pending.some(edit => edit.op === 'map-object-translate')) assertMapPositions(candidate);
+        report('running', '正在檢查地圖');
+        if (moved) {
+          // Give the checklist a paint opportunity before synchronous map validation.
+          if (typeof requestAnimationFrame === 'function') await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+          if (!current(mark)) return;
+          assertMapPositions(candidate); index++;
+        }
+        report('running', '等待伺服器核驗及寫入');
         submitted = true;
-        await api(gameId ? path : path + '/save', gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending });
+        await api(gameId ? path : path + '/save', gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending }, local);
         if (!current(mark)) return;
         committed = true;
-        await read(mark);
-        if (current(mark)) message = gameId ? '已保存並重新讀取遊戲地圖。' : '已保存並重新讀取基礎地圖。';
+        index++; report('running', '正在重新讀取地圖');
+        await read(mark, local);
+        if (current(mark)) {
+          message = gameId ? '已保存並重新讀取遊戲地圖。' : '已保存並重新讀取基礎地圖。';
+          index++; report('success', '保存成功');
+        }
       } catch (error) {
         if (current(mark)) {
           // A known validation rejection retains editable inputs. Unknown writes
           // or a failed read after success must not replay non-idempotent edits.
           uncertain = committed || submitted && error.status !== 422;
           serverProblems = Array.isArray(error.detail?.problems) ? error.detail.problems.filter(problem => typeof problem?.message === 'string').slice(0, 128).map(problem => ({ message: problem.message.slice(0, 512) })) : [];
+          const summary = committed ? '已寫入，重新讀取失敗' : uncertain ? '未能確認寫入結果' : '檢查未通過，未保存';
           message = committed ? '保存已成功，但重新讀取失敗；請重新讀取後再編輯。' : error.message;
+          if (!serverProblems.length) serverProblems = [{ message: error.message }];
+          report(uncertain && !committed ? 'unknown' : 'failed', summary);
         }
       }
-      if (current(mark)) render();
-    });
+    }, { feedback: 'local', ownStatus: true });
   }
   function setIdentity(next) {
     if (next === identity && next?.user.id === actorId && (next?.version ?? null) === actorVersion && permitted()) return;
-    pendingForm = false; readRevision++;
+    pendingForm = false; readRevision++; saveReport = null;
     identity = next; actorId = next?.user.id ?? null; actorVersion = next?.version ?? null; generation++;
     snapshot = null; candidate = null; edits = []; undoSizes = []; loaded = false; uncertain = false; message = ''; serverProblems = [];
     paint(null); render();
