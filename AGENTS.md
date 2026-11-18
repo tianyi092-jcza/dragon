@@ -8,10 +8,10 @@
 - 编辑器展示层限定`editor-ui/`，使用Vue 3＋Element Plus＋Vite，版本以package/lock为准；预构建壳由同源服务提供。Vue只接显示DTO/动作回调，不接凭据、源对象或live游戏状态，不替代服务端权限。
 - 仓库`E:/Dragon/web-port`，原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。禁止自动化访问真实`SAVE.DAT`、用户存档/profile；测试用内存、mock、隔离目录及新profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏版本`1.n`、软件版本、内容摘要和程序归档身份相互独立。
-- **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核及地图工作台已接copy；新城面板（建档→city-stamp→city-bind→admit→road-add）与删除面板（上架审核视图）已接线；193城全链（检验→票→提交→批准→正式包→玩家装配）本地验证通过；部分定义面板、旧draft整体退役与表清理仍待，见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`已退役为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
-- **战略事件调度（Web产品决定，非原版机制）**：权威是 `strategicEventSchedule`＝「纪元×64 位置」列表（`epoch*64+slot`），4 字节轮只作投影与原窗对照；`inserted` 仅原窗真值，`accepted` 才是「Web 已接受」。消费仍是每位置推进一次游标、7/10 分频；消息未返回不得派下一条，整批结束才 tick 势力一次。移页把旧当前页未消费尾部与过期条目搬到新纪元位置 0，pristine 新局（轮全空、调度表空）跳过。恢复一次性校验，非空旧 D2-C 旁表拒绝（到期时间不可恢复，不猜）；`0x304E` 查询含调度条目。
-- **地图工作台（Web产品决定）**：系统基础地图、共用Canvas与第二阶段精炼目录已完成本地实现／验证；不等于生产部署。管理员维护独立模板，两种创建取单快照，既有游戏不跟随更新；固定384×256，城数为live 1..512（节点扫描行序定槽，192为导入基线），不复原DOS对象或扩容。缺`mapEditorAssets`的旧copy明确拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[第二阶段](docs/map-workspace-sprite-library-design.md)；当前验收边界见[审计](docs/map-workspace-sprite-library-audit.md)。
-- **据点扩容后继任务（Web产品决定）**：用户确定先保持384×256地图，解除192据点限制，人物／地图等其它容量后续再扩；开发计划与新会话入口见[CITY-CAPACITY-1](docs/city-capacity-expansion-plan.md)。运行／道路／财政／存档代码已支持v2-192与v3-512双布局（M192／M193／M257本地验证，见[C8验收](docs/city-capacity-expansion-plan.md#9-c0实施账本字段失败边界与差异提案)），内置游戏与生产准入仍为192，据点组仍只读；计划不等于已部署。新城admit必填battleMapId（`ki-1995:siege:0..191`共享战场，Web产品决定，写定义＋全章行）；原版四页事件轮放不下的记录（2FBF 页满／跨页、301C 满轮）由绝对位置调度表承接（Web产品决定，D0–D8＋S1 已确认；实现与边界见[D2-EVENT-64](docs/d2-event-scheduler-plan.md)§12）。本期改造须贯通稳定身份、道路、章节、运行、战场与保存，不只放宽计数门，不另建简化引擎。具体Web差异／尚待细化项由该计划维护，不自动授权生产迁移。
+- **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核、地图、新城和独立管理员删除管理已接线；193城发布装配链本地通过。定义面板余项、旧draft退役及表清理见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
+- **战略事件（Web产品决定，非原版机制）**：`strategicEventSchedule`以`epoch*64+slot`定位，四字节轮作投影／原窗对照；`inserted`仅原窗真值，`accepted`才是Web已接受。每位置只推进一次，消息返回后才派下一条，整批后tick势力一次。移页、7/10分频、查询及保存合同见[D2计划§12](docs/d2-event-scheduler-plan.md)；恢复一次性校验，非空旧D2-C旁表拒绝，不猜到期时间。
+- **地图工作台（Web产品决定）**：独立系统模板＋共用Canvas＋精炼目录已本地实现。两种创建取模板单快照，既有游戏不跟随更新；固定384×256、live 1..512城，行序定槽，192为导入基线，不复原DOS对象。缺`mapEditorAssets`的旧copy拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[精炼目录](docs/map-workspace-sprite-library-design.md)及[验收边界](docs/map-workspace-sprite-library-audit.md)；本地通过不等于部署。
+- **据点扩容（Web产品决定）**：固定384×256，运行／道路／财政／存档支持v2-192与v3-512；内置与生产准入仍192，据点组库仍只读。新城admit必填`battleMapId`（`ki-1995:siege:0..191`共享战场，写定义＋全章行）。须贯通稳定身份、道路、章节、运行、战场和保存，不只放宽计数门或另建引擎。人物／地图等其它容量、Web差异与验收见[CITY计划](docs/city-capacity-expansion-plan.md)；不自动授权部署／迁移。
 - 生产为`sadcloud`单VPS（`ssh sadcloud`，`/srv/dragon`）：编辑器/玩家分服务，SQLite＋私有文件桶＋磁盘分发桶，nginx/Let's Encrypt；域名`dragon-editor.720108.xyz`/`dragon.720108.xyz`直连源站。Worker/R2/Tunnel、instabox为历史形态；操作前按[存储布局§18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)重新核部署身份。
 
 ## 2. 架构与数据归属
@@ -31,6 +31,7 @@
 | `web/src/game/savegame.js`、`core/{gamesavestore,saverepository}.js` | 完整快照、IDB事务/CAS、存档归属 |
 | `web/src/render/`、`ui/`、`game/playerqueries.js` | 只读绘制、输入、消息FIFO与查询 |
 | `web/src/player/` | 正式目录、准入、资源、存档；旧reader客户端仅再导出 |
+| `web/src/editor/{mapcommands,componenttools,mapobjectmove,mappositionvalidation,mapeditlimits}.js` | 地图共同预演、对象写入、位置校验与请求预算 |
 | `editor-ui/`、`server/public/*.txt` | Vue展示壳/原生业务控制器 |
 | `server/{editorapp,gamecopy,systembasemap,systembasemapstore,mapworkspace}.js` | 鉴权、copy/模板、初始化、共同编辑与检验 |
 | `vps/`、`reader/site.js` | Node SQLite/文件桶/发布装配；玩家服务复用reader |
@@ -45,7 +46,10 @@
 
 ### 地图编辑与素材
 
-- `mapspritecatalog.json`保留版本化Web配方／身份，不是DOS对象表；不能按像素合并原byte或删除历史定义。当前库遵[ATOMIC-CATALOG-1](docs/map-atomic-catalog-contract.md)：保留256原子身份，默认显示240张16×16单格，隐藏游戏动态选择的16个据点所属配色变体；据点只显示中立中心与通用部件。工作台固定春季、无季节切换，四季共用一份布局；右侧32×32像素放大预览不改地图占格；原单格七类不变，后继[据点组](docs/map-city-group-contract.md#readonly-library)在据点后增加第八类、四张原尺寸只读预览，不开放放置／拆散；桥梁／水路并道路，不恢复旧组合／历史／作者库导航或素材悬停说明。严格匹配原子定义，只读／未知不放置；既有地图组合与共同组合能力保留，不自动拆除。后继[MAP-SPACE-4](docs/map-atomic-catalog-contract.md#map-space-layout)采用两行按钮TAB、32px图样下ID与素材库局部懒加载（分页专项例外），图层工具浮动可拖，导航折叠释放空间给地图且保视野；对象右键菜单的装饰调序／删除开放，组合／变换／对象锁暂禁用；[顶部锁图](docs/map-atomic-catalog-contract.md#map-pan-lock)只切换拖动平移，保留选取／缩放／编辑，不写地图数据。后续[紧凑布局](docs/map-atomic-catalog-contract.md#compact-map-layout)将工具／状态同行、固定右栏与地图底对齐，浮栏图标采用用户批准的无框方形按钮局部例外；100%恢复16px原始格，不改32px素材预览。
+- **素材／显示**：`mapspritecatalog.json`是版本化Web身份／配方，不是DOS对象表；保留256原子身份，默认240个16×16单格，隐藏16个动态所属配色变体，不能按像素合并身份。固定春季预览、四季共享布局；原七类＋四张只读据点组预览，桥梁／水路并道路。32px素材预览不改占格，100%为16px原始格；只读／未知不可放置，不恢复旧库导航或自动拆旧对象。见[原子合同](docs/map-atomic-catalog-contract.md)、[据点组](docs/map-city-group-contract.md#readonly-library)。
+- **地图交互（Web产品决定）**：未锁拖整图，锁图后拖已选可编辑对象；底图仅供建城选位，不弹对象菜单。拖动实体50%透明且保持抓取点，取消不落源；顶层点选，Shift多选装饰／通用组可批删。新组合是单一实例，不新增成员组链；拆散包含解组和多格实例拆单格，历史组数据保留兼容但不显示归属。建城使用工具栏弹窗，关闭保输入；复制／填充／对象锁未开放。布局与动作细则见[§2.6](docs/map-atomic-catalog-contract.md#26-地图交互收尾选位背景与锁图对象操作)。
+- **地图保存预算**：`mapeditlimits.js`统一4096条命令／16 MiB完整JSON；仅基础地图save与游戏copy POST提高运输限，其它路由仍16 KiB，权限／模块校验不变。一批一次预演／撤销、失败无前缀；新组合／拆分以地图格数为对象上限，普通素材capture仍256格。模板／copy源64 MiB限不变；不自动迁移真实数据。
+- **道路／据点对象移动（Web产品决定）**：锁图后可拖已选对象；拖放问题仅以半透明红格提示，修正后消除，保存时才列对象ID、据点名称／ID、坐标、原因并拒绝保存。只改显式对象及对应章节坐标，不猜归属／重连道路／重排槽号；检查模式随未保存移动批次，既有copy分步建城不新增全局拒绝门。详细源：[移动与错误详情](docs/map-atomic-catalog-contract.md#map-position-feedback)。
 - `mapcanvas.js`／`mapspriterecipes.js`私有持有源、图集及预览定义，Vue只接DTO／动作。已有定义须完整匹配才复用；新配方沿共同放置／捕获／移除命令物化，不向source偷插定义。组批先过完整预览与预算，一次安装／撤销，保存仍为受限扁平请求，重读后按完整配方复用。
 - 四季共用一份布局；显示网格、幽灵和视口不写内容。[SEA-GROUND-1](docs/map-sea-ground-contract.md)显式全幅95海底，小地图仅地面轮廓＋道路／据点；四层合成／眼睛锁独立于素材分类，不设四层库导航。用户界面称底图，未放素材处自然露出，不需铺海。新模板直接启用，旧可编辑地图仅本地暂存启用、保存才写入，不自动迁移持久数据；无policy旧源仍保留下层地理／unknown语义。外观分类不授予河湖mask、道路连通或移城能力。详细合同及原证见上述设计和[准入说明](docs/re-notes-editor-map-admission.md)。
 
@@ -76,6 +80,7 @@
 - **Vue LSP**：项目私有`editor-ui/lsp/`用Vue LS2.2.12＋TS5.9.3 standalone，仅项目`.pi-lens.json`；从editor-ui启动新会话才实际采用override，配置来源不等于launcher生效。不改全局工具/信任，安装与独立检查见[说明](editor-ui/lsp/README.md)。
 - **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态。改`web/src/**`重建trialweb.txt；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
 - **copyop分发**：`applyCapturedMapEdit`的`view(edit)`返回属性描述符表，不是原对象；新op用`value(edit, key)`取值，勿直读`edit.x`。未绑定piece（cityId空）校验必败，绑定后才放行；新城中心须行序扫描在最后（scan-last），否则编译拒收；走廊须先铺好（端点D4..DD），road-add只做认证不铺砖。
+- **地图交互验收**：摘掉组关系不等于拆成单格，须检查实例身份／足迹、JSON保存重读及逐格命中。提示应复用固定状态区，右键清提示引发resize会关闭菜单／改变点击坐标，不能用点击重试掩盖。移动保存门限于移动批次，不阻断copy分步建城。
 - **事件调度**：调度表与 4 字节轮不能各派发一次——条目只写原轮或只写调度表，读时按 carry→原轮→overflow 合并；改 `strategicEventSchedule` 形状须同步快照校验与 `verify_d2_event_*`，否则到恢复期才炸。
 - **会话/版本接缝**：session DTO可无根级version，捕获和比较要使用相同缺省，不因undefined/null误拒全部请求；身份/epoch守卫仍保留。copy审批revision可为规范`1.n`，玩家兼容旧正整数，但不能省略manifest/session精确身份与SHA校验。
 - **schema/purge**：同步deletiondefinitions/deletionschema/distributiondeclarations及投影/inventory，不把某批表数固化为规则、不重算pinned基线；系统基础地图表不进游戏purge。SQLite WAL调查用一致备份或停服快照，不能裸拷主库；栅栏存在不等于文件已清。
@@ -109,6 +114,8 @@ node tools/verify_map_sprite_catalog.mjs
 node tools/verify_d2_event_schedule.mjs            # + _chain/_refusal/_v_matrix/_v_matrix_app/_save_roundtrip
 node tools/verify_d2_event_schedule_browser.mjs    # 浏览器 lane；本机 @playwright/cli 自带 playwright
 node tools/verify_map_sprite_materialization.mjs
+node --test --test-concurrency=1 tools/verify_map_position_editing.mjs
+node tools/verify_map_canvas_select_disband_browser.mjs # 可选 --large；隔离SQLite／API夹具
 node tools/verify_copy_http_roundtrip.mjs --browser
 node --check <变更JS或MJS>
 git diff --check
@@ -120,6 +127,7 @@ sh vps/manual-static-build.sh /path/to/new-out
 ```
 
 - 按改动选内容、slot-phase、battle、formation、road-authority、save等回归；共享调度/RNG/存档/跨模块状态要完整适用覆盖。生成物写新目录。copy/地图lane按[收敛任务](docs/copy-simplification-tasks.md)、[基础地图核对](docs/system-base-map-completion-audit.md)及[精炼目录审计](docs/map-workspace-sprite-library-audit.md)选择；历史通过不替代本次执行。
+- `verify_editor_workbench_browser.mjs`默认串行跑现行显隐／基础地图／选择拆散／新城四lane；旧draft/Trial体仅`--legacy-draft`，不是现行产品验收。分项通过不等于超时总命令通过。
 - UI用全新Playwright profile，核console/pageerror/请求失败、保存重读及真实登记源流程；可用已有PLAYWRIGHT_MODULE，不擅装依赖。永久入口包括verify_editor_generals_browser、verify_editor_panel_visibility_browser、verify_new_city_panel_browser、verify_system_base_map_browser；夹具、真实后端、生产分开报告。
 - 存档另测真实JSON、事务失败、跨窗口CAS；公开目录/删除用verify_publication_chain_browser，归档用verify_program_entry/verify_program_assets，按入口选参数。进程内桥不等于生产TCP/TLS；强制退出测试不能证明计时器清理。
 - 交付审实际diff；支持文件主动`lens_diagnostics source=lsp scope=paths`，再`mode=all`。空缓存/push-only/超时/inconclusive不算clean，构建不代替Vue LSP；未跑/失败/覆盖不足如实记录。

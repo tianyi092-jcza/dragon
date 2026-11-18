@@ -13,6 +13,7 @@ const paths = {
   'chapters-editor': 'M3 4h7l2 2 2-2h7v16h-7l-2 2-2-2H3zM12 6v16',
   'publish-editor': 'M12 16V3M7 8l5-5 5 5M4 14v7h16v-7',
   'management-editor': 'M5 3h14v18H5zM8 12l3 3 5-6',
+  'deletion-editor': 'M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7',
   'copy-game-editor': 'M8 8h13v13H8zM16 5V3H3v13h2',
   'base-map-editor': 'M2 8l10-5 10 5-10 5zM2 13l10 5 10-5M2 18l10 5 10-5',
   collapse: 'M15 4l-8 8 8 8', expand: 'M9 4l8 8-8 8',

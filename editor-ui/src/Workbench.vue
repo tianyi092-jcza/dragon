@@ -44,7 +44,11 @@ const groups = computed(() => {
 });
 // 頂部選擇器是全局「當前遊戲」上下文；切換須經草稿控制器的未保存改動攔截。
 function switchGame(value) { props.draft.chooseGame(value); }
-const activeMap = computed(() => props.state.view === 'base-map-editor' ? props.baseMapModel : props.state.view === 'mapview-editor' ? props.gameMapModel : null);
+const activeMap = computed(() => {
+  if (props.state.view === 'base-map-editor') return props.baseMapModel;
+  if (props.state.view === 'mapview-editor') return props.gameMapModel;
+  return null;
+});
 const title = computed(() => ({ profile: '個人資料', password: '變更密碼' }[props.state.view] || menu.value.find(item => item[0] === props.state.view)?.[1] || '工作台'));
 async function go(view) {
   userMenu.value = false;
@@ -112,14 +116,15 @@ async function go(view) {
         <ChaptersPanel :active="ready && state.view === 'chapters-editor'" :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'chapters-editor'" />
         <StrongholdPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'stronghold-editor'" />
         <BaseMapPanel v-if="ready && state.admin && state.view === 'base-map-editor'" :model="baseMapModel" :actions="baseMap" :busy="state.busy" />
-        <BaseMapPanel v-if="ready && state.view === 'mapview-editor'" :key="gameMapModel.gameId || 'no-game'" :model="gameMapModel" :actions="gameMap" :busy="state.busy" />
-        <NewCityPanel v-if="ready && state.view === 'mapview-editor'" :key="`newcity-${gameMapModel.gameId || 'no-game'}`" :model="newCityModel" :actions="newCity" :busy="state.busy" :map-actions="gameMap" :map-selected="gameMapModel.selected" />
+        <BaseMapPanel v-if="ready && state.view === 'mapview-editor'" :key="gameMapModel.gameId || 'no-game'" :model="gameMapModel" :actions="gameMap" :busy="state.busy">
+          <template #tools><NewCityPanel :model="newCityModel" :actions="newCity" :busy="state.busy" :map-actions="gameMap" :map-selected="gameMapModel.selected" /></template>
+        </BaseMapPanel>
         <CatalogPanel :model="catalogModel" :actions="catalog" :busy="state.busy" :hidden="!ready || state.view !== 'catalog-editor'" />
         <GeneralsPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'generals-editor'" />
         <CopyPanel :model="copyModel" :actions="copy" :busy="state.busy" :hidden="!ready || state.view !== 'copy'" />
         <PublishPanel :model="publicationModel" :actions="publication" :busy="state.busy" :hidden="!ready || state.view !== 'publish-editor'" @overlay-change="publicationOverlay = $event" />
         <ReviewPanel :model="reviewModel" :actions="review" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'management-editor'" />
-        <DeletionPanel :model="deletionModel" :actions="deletion" :busy="state.busy" :current-game="draftModel.fields.gameId" :hidden="!ready || !state.admin || state.view !== 'management-editor'" />
+        <DeletionPanel :model="deletionModel" :actions="deletion" :busy="state.busy" :current-game="draftModel.fields.gameId" :hidden="!ready || !state.admin || state.view !== 'deletion-editor'" />
         <CopyGamePanel :model="fullCopyModel" :actions="fullCopy" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'copy-game-editor'" />
       </section>
     </main>

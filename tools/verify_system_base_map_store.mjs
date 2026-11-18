@@ -43,6 +43,13 @@ try {
   assert.equal(initial.template.content.map.base.policy, 'sea-ground-1');
   assert.ok(initial.template.content.map.base.terrainRef.every(tile => tile === 95));
   assert.equal(initial.version, 1);
+  assert.throws(() => store.edit('admin', Array.from({ length: 129 }, () => ({}))), error => error.code === 'COPY_MAP', '129 commands reach semantic validation instead of the retired 128 cap');
+  assert.throws(() => store.edit('admin', Array.from({ length: 4097 }, () => ({}))), error => error.code === 'BASE_MAP_EDITS');
+  assert.deepEqual(store.capture(), initial, 'budget and semantic rejections never install a prefix');
+  const roadToMove = initial.template.content.map.roads.find(road => road.geometry.every(point => point.y < 252));
+  assert.throws(() => store.edit('admin', [{ op: 'map-object-translate', layer: 'roads', id: roadToMove.id, dx: 0, dy: 2 }]),
+    error => error.status === 422 && error.detail?.problems.some(problem => problem.message.includes(roadToMove.id) && problem.message.includes('請檢查')));
+  assert.deepEqual(store.capture(), initial, 'invalid road movement retains the complete persisted snapshot');
   const edited = structuredClone(initial.template);
   Object.values(edited.content.cities)[0].name = '模板新城';
   const invalid = structuredClone(template);

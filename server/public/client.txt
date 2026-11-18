@@ -65,6 +65,7 @@ const views = [
   ['chapters-editor', '遊戲章節', false, 'game'],
   ['publish-editor', '上架管理', false, 'game'],
   ['management-editor', '上架審核', true, 'admin'],
+  ['deletion-editor', '刪除管理', true, 'admin'],
   ['copy-game-editor', '複製遊戲', true, 'admin'],
   ['base-map-editor', '基礎地圖', true, 'admin'],
 ];

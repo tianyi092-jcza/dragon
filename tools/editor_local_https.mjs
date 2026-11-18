@@ -1,6 +1,7 @@
 // Local developer transport only: TLS stays at the public loopback entrance.
 // Cloudflare deployment never imports this module or changes its edge TLS.
 import { createServer } from 'node:https';
+import { requestBodyLimit } from '../server/security.js';
 import { mkdtempSync, readFileSync, existsSync, unlinkSync, rmdirSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,8 +9,7 @@ import { spawnSync } from 'node:child_process';
 // 'range' carries the audio preview contract (`<audio>` sends Range and needs
 // 206/416); dropping it here would hide a real defect from local testing.
 const allowedHeaders = new Set(['accept', 'content-type', 'origin', 'cookie', 'x-csrf-token', 'idempotency-key', 'if-match', 'range']);
-const maxJSONBytes = 16384;
-function capture(incoming) {
+function capture(incoming, maxJSONBytes) {
   return new Promise((done, reject) => {
     let length = 0, oversized = false; const parts = [];
     incoming.on('data', part => { length += part.length; if (length > maxJSONBytes) oversized = true; if (!oversized) parts.push(part); });
@@ -44,7 +44,7 @@ export async function createEditorHTTPS(mf, { port = 8787, tls } = {}) {
         if (incoming.headers.host !== '127.0.0.1:' + port) { incoming.resume(); errorResponse(outgoing,'LOCAL_HOST',400); return; }
         const url = new URL(incoming.url, origin);
         if (url.origin !== origin) { incoming.resume(); errorResponse(outgoing,'LOCAL_URL',400); return; }
-        const input = await capture(incoming);
+        const input = await capture(incoming, requestBodyLimit(incoming.method, url.pathname));
         if (input.oversized) { errorResponse(outgoing,'BODY_TOO_LARGE',413); return; }
         const headers = new Headers();
         for (const [name,value] of Object.entries(incoming.headers)) if (value !== undefined && allowedHeaders.has(name)) headers.set(name, Array.isArray(value) ? value.join(',') : value);

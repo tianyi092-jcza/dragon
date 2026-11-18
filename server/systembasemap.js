@@ -2,6 +2,7 @@
 // Web policy only; native admission remains the shared compiler's responsibility.
 import { canonicalDigest, applySharedCityData, validateGameSource, GAME_RULE_PROFILE, GAMESOURCE_SCHEMA } from '../web/src/content/authoring/gamesource.js';
 import { compileGameSource } from '../web/src/content/authoring/trialcompile.js';
+import { assertMapConnected } from '../web/src/content/authoring/mapcompile.js';
 import { CITY_BASE_NUMBERS, CITY_NUMBER_LIMITS } from '../web/src/content/authoring/cityrecords.js';
 
 export const SYSTEM_BASE_MAP_SCHEMA = 'system-base-map-1';
@@ -23,6 +24,7 @@ export function validateSystemBaseMap(template, sha256hex) {
     throw new RangeError('system base map content must not contain chapter/person/game state');
   // Private compiler projection, NOT a stored game, a publish ticket or a new
   // permitted sourceRef kind in the legacy fixed-copy profile.
+  assertMapConnected({ schemaVersion: 1, map: content.map, componentDefinitions: content.componentDefinitions ?? {} });
   const compiled = compileGameSource({ schemaVersion: GAMESOURCE_SCHEMA, gameId: 'system-base-map-check',
     ruleProfile: GAME_RULE_PROFILE, sourceRef: { kind: 'system-base-map-check', sourceId: 'system-base-map', revision: digest, digest },
     map: content.map, componentDefinitions: content.componentDefinitions, cities: content.cities,

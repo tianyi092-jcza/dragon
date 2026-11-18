@@ -18,7 +18,7 @@ export function createGameMapWorkbench({ api, work, publish, confirm, gameContex
     session.setIdentity(identity);
     session.actions.attach(canvas, minimap);
   }
-  const actions = Object.fromEntries(['reload', 'initialize', 'stage', 'undo', 'save', 'formDirty', 'resize', 'pick', 'pan', 'zoom', 'fit', 'grid', 'locate', 'focusDiagnostic', 'selectGroup', 'layer', 'previewMaterial', 'previewPlacement', 'cancelPlacement', 'commitPlacement', 'retryAtlas', 'command'].map(name => [name, (...args) => session?.actions[name](...args)]));
+  const actions = Object.fromEntries(['reload', 'initialize', 'stage', 'undo', 'save', 'formDirty', 'resize', 'pick', 'pan', 'zoom', 'fit', 'grid', 'locate', 'focusDiagnostic', 'selectGroup', 'layer', 'previewMaterial', 'previewPlacement', 'cancelPlacement', 'commitPlacement', 'beginObjectMove', 'previewObjectMove', 'commitObjectMove', 'cancelObjectMove', 'toggleMulti', 'beginMultiMove', 'groupSelection', 'ungroupSelection', 'retryAtlas', 'command'].map(name => [name, (...args) => session?.actions[name](...args)]));
   actions.attach = (nextCanvas, nextMinimap) => {
     canvas = nextCanvas; minimap = nextMinimap; session?.actions.attach(canvas, minimap);
   };

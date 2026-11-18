@@ -129,6 +129,49 @@ export function diagnoseMapDraft(src) {
   return validateMapSource(src, { draft: true });
 }
 
+// Save-time connectivity gate (Web product decision): land/water/bridge are
+// all roads and must form one connected network. No isolated city without a
+// road, no headless road, continuous geometry, no isolated segment.
+// Travel kinds are ignored here: water may join bridge, bridge may join land,
+// land joins via cities. Every city must have a road, including single-city maps.
+export function assertMapConnected(src) {
+  const placements = src?.map?.placements;
+  const roads = src?.map?.roads;
+  if (!Array.isArray(placements) || !Array.isArray(roads)) throw new RangeError('map placements/roads missing for connectivity check');
+  const cityIds = placements.map(p => p?.cityId).filter(id => typeof id === 'string' && id);
+  if (cityIds.length !== placements.length) throw new RangeError('unbound city piece must be bound before connectivity check');
+  if (cityIds.length < 1) throw new RangeError('map must contain at least one city');
+  const adjacency = new Map(cityIds.map(id => [id, new Set()]));
+  for (const road of roads) {
+    if (!adjacency.has(road?.fromCityId) || !adjacency.has(road?.toCityId))
+      throw new RangeError(`road ${road?.id ?? '?'} references an unknown city (headless road)`);
+    if (road.fromCityId === road.toCityId) throw new RangeError(`road ${road.id} is a self-loop`);
+    const geometry = road.geometry;
+    if (!Array.isArray(geometry) || geometry.length < 2) throw new RangeError(`road ${road.id} geometry must be continuous`);
+    for (let i = 1; i < geometry.length; i++) {
+      const dx = Math.abs(geometry[i].x - geometry[i - 1].x);
+      const dy = Math.abs(geometry[i].y - geometry[i - 1].y);
+      if (Math.max(dx, dy) !== 1) throw new RangeError(`road ${road.id} is discontinuous at segment ${i - 1}-${i}`);
+    }
+    adjacency.get(road.fromCityId).add(road.toCityId);
+    adjacency.get(road.toCityId).add(road.fromCityId);
+  }
+  const isolated = cityIds.filter(id => adjacency.get(id).size === 0);
+  if (isolated.length) throw new RangeError(`isolated city without road: ${isolated.slice(0, 8).join('\u3001')}${isolated.length > 8 ? '\u2026' : ''}`);
+  const seen = new Set([cityIds[0]]);
+  const queue = [cityIds[0]];
+  while (queue.length) {
+    const current = queue.pop();
+    for (const next of adjacency.get(current)) {
+      if (!seen.has(next)) { seen.add(next); queue.push(next); }
+    }
+  }
+  if (seen.size !== cityIds.length) {
+    const outside = cityIds.filter(id => !seen.has(id));
+    throw new RangeError(`map road network disconnected: isolated segment ${outside.slice(0, 8).join('\u3001')}${outside.length > 8 ? '\u2026' : ''}`);
+  }
+}
+
 // Four-layer opaque original-byte composition + independent explicit
 // water geography + static road geometry. No guessed movement/cost rule.
 export function compileMapSource(src) {

@@ -514,7 +514,7 @@ test('native canvas uses tile atlas, footprint hit testing, display-only layer l
   assert.ok(model.materials.filter(row => row.originalAtom).every(row => !row.editable), 'reference classification does not grant author mutation rights');
   assert.ok(model.materials.some(row => !row.originalAtom), 'historical pieces stay outside the atom reference view');
   assert.equal(model.materials.find(row => row.id === 'deco-grass').originalAtom, false, 'legacy aliases sharing atomic category are not a second canonical byte');
-  view.pick(24, 24); assert.equal(model.selected.layer, 'base', 'footprint hole is not selectable decoration');
+  view.pick(24, 24); assert.equal(model.selected.layer, 'base', 'footprint hole only supplies a placement coordinate');
   assert.throws(() => view.command('base-fill', { tile: 20, geography: 0 }), /海域基底固定/);
   assert.deepEqual(commands, []);
   view.pick(8, 24); assert.equal(model.selected.id, 'piece-1');
@@ -534,6 +534,20 @@ test('native canvas uses tile atlas, footprint hit testing, display-only layer l
   view.setSource(null); assert.equal(model.loaded, false); assert.equal(model.selected, null);
 });
 
+test('base cell supplies only a city placement coordinate, never a movable decoration', () => {
+  const source = fixture(), commands = []; let model;
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: edit => commands.push(edit) });
+  view.attach(canvas(), null); view.setSource(source); view.pick(24, 24);
+  assert.equal(model.selected.layer, 'base');
+  assert.equal(view.beginObjectMove(24, 24), false);
+  for (const op of ['decoration-remove', 'decoration-split', 'decoration-reorder', 'material-capture']) {
+    assert.throws(() => view.command(op), /裝飾/);
+  }
+  view.command('city-stamp', { tile: 205 });
+  assert.equal(commands.length, 1);
+  assert.deepEqual({ ...commands[0], pieceId: 'generated' }, { op: 'city-stamp', pieceId: 'generated', x: 1, y: 1, tile: 205 });
+});
+
 test('city-group decoration-place stages prechecked materialized plans only with caller-issued cityId', () => {
   const item = cityGroupCatalog.items.find(row => row.itemId === 'city-group-common-v1');
   const source = { cities: {}, componentDefinitions: {}, map: {
@@ -547,6 +561,8 @@ test('city-group decoration-place stages prechecked materialized plans only with
   }
   const staged = [], main = canvas();
   const view = createMapCanvas({ publish() {}, stage: edit => staged.push(edit) });
+  source.map.base.terrainRef = Array(64).fill(16);
+  source.map.base.geography = Array(64).fill(0);
   view.attach(main, null); view.setSource(source);
   view.pick(16, 16);
   const id = `catalog:${item.itemId}`;
@@ -566,4 +582,173 @@ test('city-group decoration-place stages prechecked materialized plans only with
   assert.deepEqual(edit.materialized.ports.map(port => port.portId), item.gates.map((_, gateIndex) => `test-city-1:${gateIndex}`));
   assert.equal(edit.materialized.group.id, 'city-group-test-city-1');
   assert.equal(JSON.stringify(source), before, 'staging never writes the source');
+});
+
+function multiFixture() {
+  const atom = id => ({ id, revision: 'test-1', category: 'atomic-original', anchor: [0, 0],
+    footprint: [[0, 0]], visualRef: `MMAP.MDL:${id}`, ruleRecipeRef: 'ki-byte-stamp-1', variants: { original: { tiles: [[0, 0, 16]] } } });
+  return { cities: {}, componentDefinitions: { 'tile-16': atom('tile-16') }, selectionGroups: [], map: {
+    bounds: { minX: 0, minY: 0, width: 5, height: 4, tileSize: 16 },
+    base: { terrainRef: Array(20).fill(16), geography: Array(20).fill(0), unknownUnderlays: {} },
+    decorations: [
+      { id: 'a', definitionRef: 'tile-16', variantRef: 'original', x: 0, y: 0 },
+      { id: 'b', definitionRef: 'tile-16', variantRef: 'original', x: 1, y: 0 },
+      { id: 'c', definitionRef: 'tile-16', variantRef: 'original', x: 2, y: 0 },
+    ],
+    roads: [{ id: 'r1', geometry: [{ x: 4, y: 3 }] }],
+    placements: [{ id: 'p1', cityId: null, x: 0, y: 3, componentRef: 'tile-16', variantRef: 'original' }],
+    waterGroups: [] } };
+}
+
+test('shift-click toggles multi-select, combine regroups and disbands in one undo unit', () => {
+  const source = multiFixture(), main = canvas(), staged = [];
+  let model;
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: edit => { staged.push(edit); return 'staged'; } });
+  view.attach(main, null); view.setSource(source); view.setAtlas({});
+  // fit state: zoom 0.4, origin (0,-8); cell (x,y) centre screens at ((x+0.5)*6.4, ((y+0.5)*16+8)*0.4).
+  assert.deepEqual(view.toggleMulti(22.4, 6.4), { toggled: false });
+  assert.deepEqual(model.multi, []);
+  assert.equal(view.toggleMulti(28.8, 25.6).rejected, 'road');
+  assert.equal(view.toggleMulti(3.2, 25.6).rejected, 'city');
+  assert.deepEqual(model.multi, []);
+  assert.deepEqual(view.toggleMulti(3.2, 6.4), { toggled: true, multi: [{ kind: 'decor', id: 'a' }] });
+  assert.deepEqual(model.multi, [{ kind: 'decor', id: 'a' }]);
+  view.toggleMulti(9.6, 6.4);
+  assert.deepEqual(model.multi.map(m => m.id), ['a', 'b']);
+  view.toggleMulti(3.2, 6.4);
+  assert.deepEqual(model.multi.map(m => m.id), ['b']);
+  assert.deepEqual(view.groupSelection(), { error: 'at-least-two' });
+  assert.deepEqual(view.ungroupSelection(), { noop: true });
+  assert.deepEqual(staged, []);
+  view.toggleMulti(16, 6.4);
+  assert.deepEqual(view.groupSelection(), { grouped: true });
+  assert.equal(staged.length, 1);
+  assert.equal(staged[0].length, 1);
+  assert.equal(staged[0][0].op, 'decoration-combine');
+  assert.deepEqual(staged[0][0].memberIds, ['b', 'c']);
+  assert.match(staged[0][0].instanceId, /^system-base-map#decoration-[0-9a-f]{64}$/);
+  assert.deepEqual(model.multi, []);
+  const gid = staged[0][0].instanceId;
+  const moved = previewMapEdits(source, staged[0]);
+  view.setSource(moved);
+  view.toggleMulti(9.6, 6.4);
+  assert.deepEqual(model.multi, [{ kind: 'decor', id: gid }]);
+  assert.deepEqual(moved.selectionGroups, []);
+  const dis = view.ungroupSelection();
+  assert.deepEqual(dis, { ungrouped: [], split: 1 });
+  assert.equal(staged.length, 2);
+  assert.equal(staged[1][0].op, 'decoration-split');
+  assert.equal(staged[1][0].instanceId, gid);
+  const child = staged[1][0].childIds[0];
+  assert.deepEqual(model.multi, []);
+  view.setSource(previewMapEdits(moved, staged[1]));
+  view.pick(3.2, 6.4);
+  assert.equal(model.selected.id, 'a');
+  view.toggleMulti(9.6, 6.4);
+  assert.deepEqual(model.multi.map(m => m.id), ['a', child]);
+  assert.equal(model.selected, null);
+  assert.equal(view.beginMultiMove(9.6, 6.4), true);
+  view.previewObjectMove(16, 6.4);
+  view.commitObjectMove();
+  assert.equal(staged.length, 3);
+  assert.deepEqual(staged[2].map(edit => edit.op), ['decoration-translate', 'decoration-reorder']);
+  assert.deepEqual(staged[2][0].memberIds, ['a', child]);
+  assert.deepEqual([staged[2][0].dx, staged[2][0].dy], [1, 0]);
+  assert.equal(staged[2][1].direction, 'top');
+});
+
+test('legacy web-piece groups select as groups and disband through the generic path', () => {
+  const source = multiFixture(), main = canvas(), staged = [];
+  let model;
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: edit => { staged.push(edit); return 'staged'; } });
+  const withLegacy = previewMapEdits(source, [{ op: 'decoration-group', memberIds: ['a', 'b'], groupId: 'web-piece-group-7' }]);
+  assert.deepEqual(withLegacy.selectionGroups.map(g => g.id), ['web-piece-group-7']);
+  view.attach(main, null); view.setSource(withLegacy); view.setAtlas({});
+  view.toggleMulti(9.6, 6.4);
+  assert.deepEqual(model.multi, [{ kind: 'group', id: 'web-piece-group-7' }]);
+  view.toggleMulti(16, 6.4);
+  assert.deepEqual(model.multi.map(m => m.id), ['web-piece-group-7', 'c']);
+  const combined = view.groupSelection();
+  assert.deepEqual(combined, { grouped: true });
+  assert.equal(staged.length, 1);
+  assert.deepEqual(staged[0].map(edit => edit.op), ['decoration-combine']);
+  assert.deepEqual(staged[0][0].memberIds, ['a', 'b', 'c']);
+  assert.match(staged[0][0].instanceId, /^system-base-map#decoration-[0-9a-f]{64}$/);
+  const merged = previewMapEdits(withLegacy, staged[0]);
+  assert.deepEqual(merged.selectionGroups, []);
+  assert.equal(merged.map.decorations.length, 1);
+  assert.deepEqual(model.multi, []);
+});
+
+test('disband flattens grouped and already-ungrouped fragments into individually selectable cells', () => {
+  for (const grouped of [false, true]) {
+    const source = fixture(), batches = []; let model, current = source;
+    for (const tile of [16, 17, 18]) source.componentDefinitions[`atom-${tile}`] = {
+      ...source.componentDefinitions.piece, id: `atom-${tile}`, footprint: [[0, 0]],
+      variants: { original: { tiles: [[0, 0, tile]] } },
+    };
+    source.selectionGroups = grouped ? [{ id: 'web-piece-group-7', members: [{ layer: 'decorations', id: 'piece-1' }] }] : [];
+    const view = createMapCanvas({ publish: value => { model = value; }, stage: edits => {
+      const next = previewMapEdits(current, edits);
+      batches.push(edits); current = JSON.parse(JSON.stringify(next)); view.setSource(current); return true;
+    } });
+    view.attach(canvas(), null); view.setSource(source); view.pick(8, 8);
+    const result = view.ungroupSelection();
+    assert.equal(result.split, 1);
+    assert.equal(batches.length, 1, 'one controller undo unit');
+    assert.deepEqual(batches[0].map(edit => edit.op), grouped ? ['decoration-ungroup', 'decoration-split'] : ['decoration-split']);
+    assert.deepEqual(current.selectionGroups, []);
+    assert.equal(current.map.decorations.length, 3);
+    const ids = new Set();
+    for (const [x, y] of [[1, 0], [0, 1], [0, 0]]) {
+      view.pick(x * 16 + 8, y * 16 + 8);
+      assert.equal(model.selected.cells, 1);
+      assert.equal(model.selectedGroup, null);
+      ids.add(model.selected.id);
+    }
+    assert.equal(ids.size, 3);
+    // Recombine two new cells, then disband again: no multi-cell fragment returns.
+    view.pick(8, 8);
+    view.toggleMulti(8, 8); view.toggleMulti(24, 8); view.groupSelection();
+    view.ungroupSelection();
+    assert.equal(current.map.decorations.length, 3);
+    assert.deepEqual(current.selectionGroups, []);
+    view.setSource(source); view.pick(8, 8);
+    assert.equal(model.selected.cells, 3, 'restoring the previous source restores the whole fragment');
+  }
+});
+
+test('failed fragment splitting preserves the group and selection; dedicated groups are refused', () => {
+  const source = fixture(); let current = source, model;
+  source.selectionGroups = [{ id: 'web-piece-group-7', members: [{ layer: 'decorations', id: 'piece-1' }] }];
+  const before = JSON.stringify(source);
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: edits => { current = previewMapEdits(current, edits); view.setSource(current); } });
+  view.attach(canvas(), null); view.setSource(source); view.pick(8, 8);
+  assert.throws(() => view.ungroupSelection(), /缺少受信單格/);
+  assert.equal(JSON.stringify(current), before);
+  assert.equal(model.selected.id, 'piece-1');
+  const protectedSource = structuredClone(source);
+  protectedSource.selectionGroups[0].id = 'city-group-protected';
+  view.setSource(protectedSource);
+  assert.deepEqual(view.ungroupSelection(), { error: 'unsupported' });
+  assert.equal(JSON.stringify(current), before);
+});
+
+test('plain click toggles selection off, single grouped decor disbands its group', () => {
+  const source = multiFixture(), main = canvas(), staged = [];
+  let model;
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: edit => { staged.push(edit); return 'staged'; } });
+  const withLegacy = previewMapEdits(source, [{ op: 'decoration-group', memberIds: ['a', 'b'], groupId: 'web-piece-group-7' }]);
+  view.attach(main, null); view.setSource(withLegacy); view.setAtlas({});
+  view.pick(3.2, 6.4);
+  assert.equal(model.selected.id, 'a');
+  view.pick(3.2, 6.4);
+  assert.equal(model.selected, null);
+  view.pick(9.6, 6.4);
+  assert.equal(model.selected.id, 'b');
+  assert.equal(model.selectedGroup, 'web-piece-group-7');
+  assert.deepEqual(view.ungroupSelection(), { ungrouped: ['web-piece-group-7'] });
+  assert.deepEqual(staged, [[{ op: 'decoration-ungroup', groupId: 'web-piece-group-7' }]]);
+  assert.deepEqual(model.multi, []);
+  assert.equal(model.selected.id, 'b');
 });

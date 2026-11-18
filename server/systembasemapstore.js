@@ -5,6 +5,8 @@ import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
 import { validateSystemBaseMap } from './systembasemap.js';
 import { enableSeaGroundBase } from '../web/src/editor/componenttools.js';
+import { MAP_EDIT_MAX_COMMANDS } from '../web/src/editor/mapeditlimits.js';
+import { assertMapPositions } from '../web/src/editor/mappositionvalidation.js';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const MAX_TEMPLATE_BYTES = 64 * 1024 * 1024;
 
@@ -63,16 +65,17 @@ export class SystemBaseMapStore {
   }
   edit(tokenHash, edits) {
     this.#admin(tokenHash);
-    if (!Array.isArray(edits) || !edits.length || edits.length > 128) fail(422, 'BASE_MAP_EDITS');
+    if (!Array.isArray(edits) || !edits.length || edits.length > MAP_EDIT_MAX_COMMANDS) fail(422, 'BASE_MAP_EDITS');
     const current = this.capture();
     try {
       const { gameId, ...content } = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...current.template.content }, edits);
+      assertMapPositions(content);
       return this.save(tokenHash, { ...current.template, content });
     } catch (error) {
       // Expected authoring/compiler rejections are actionable, not HTTP 500.
       // No SQL/native exception or stack trace is converted to a success DTO.
       if (error instanceof RangeError || error instanceof TypeError)
-        throw new HttpError(422, 'BASE_MAP_INVALID', { problems: [{ message: error.message.slice(0, 512) }] });
+        throw new HttpError(422, 'BASE_MAP_INVALID', error.detail ?? { problems: [{ message: error.message.slice(0, 512) }] });
       throw error;
     }
   }

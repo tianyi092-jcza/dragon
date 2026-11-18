@@ -1426,7 +1426,21 @@ return class EditorMetadata extends PlatformBase {
     if (path === '/api/admin/library/install') { return this.#postLibraryInstall(rt); }
     if (path === '/api/admin/copies') {
       this.copyAccess(tokenHash); fields(value, ['registryId', 'name', 'introduction']); this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'copy');
-      return response(this.adminCopies.reserve(tokenHash, request.headers.get('Idempotency-Key'), value), 202);
+      try {
+        return response(this.adminCopies.reserve(tokenHash, request.headers.get('Idempotency-Key'), value), 202);
+      } catch (error) {
+        // One-time production migration: the default source is the staged pinned
+        // builtin, converted to the new spec inside execute. Install it as part of
+        // the copy request instead of a separate step (Web product decision).
+        if (!(error instanceof HttpError) || error.code !== 'SOURCE_NOT_REGISTERED') throw error;
+        let staged; try { staged = JSON.parse(this.env.EDITOR_INSTALLED_SOURCE_ROOT); } catch { throw error; }
+        fields(staged, ['registryId', 'root']);
+        if (staged.registryId !== value.registryId) throw error;
+        const digest = typeof staged.root?.sha256 === 'string' ? staged.root.sha256 : '';
+        if (!/^[0-9a-f]{64}$/.test(digest)) throw error;
+        await this.installedSources.install(tokenHash, staged.registryId, staged.root, 'auto-' + digest.slice(0, 24));
+        return response(this.adminCopies.reserve(tokenHash, request.headers.get('Idempotency-Key'), value), 202);
+      }
     }
     if (path === '/api/games') {
       this.authorCopyAccess(tokenHash); fields(value, ['name', 'introduction']); this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'copy');

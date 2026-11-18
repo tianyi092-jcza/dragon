@@ -1,6 +1,8 @@
 // Framework-free controller. Source/template bodies never enter the Vue model.
 // preview and paint are native editor-core ports, not reactive view callbacks.
 import { previewMapEdits } from '../../web/src/editor/mapcommands.js';
+import { assertMapPositions } from '../../web/src/editor/mappositionvalidation.js';
+import { MAP_EDIT_MAX_COMMANDS, MAP_EDIT_MAX_BYTES } from '../../web/src/editor/mapeditlimits.js';
 
 export { createMapController as createBaseMapController };
 export function createMapController({ api, work, publish, preview = previewMapEdits, paint, confirm, gameId = null }) {
@@ -27,7 +29,7 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     const prepared = next ? preview(next.content, pending) : null;
     pendingForm = false; readRevision++;
     snapshot = next; candidate = prepared; edits = pending; undoSizes = pending.length ? [1] : []; loaded = true; uncertain = false; serverProblems = [];
-    paint(candidate); render();
+    paint(candidate, false); render();
   }
   async function read(mark) {
     const value = await api(path);
@@ -65,9 +67,10 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     const batch = structuredClone(Array.isArray(edit) ? edit : [edit]);
     if (!batch.length) throw new Error('修改批次不可為空。');
     const pending = [...edits, ...batch];
-    if (pending.length > 128 || new TextEncoder().encode(JSON.stringify(gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending })).length > 16384) throw new Error('本次修改已達保存上限，請先保存。');
+    if (pending.length > MAP_EDIT_MAX_COMMANDS || new TextEncoder().encode(JSON.stringify(gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending })).length > MAP_EDIT_MAX_BYTES)
+      throw new Error('本次修改超過保存上限（4096條命令／16 MiB）。已有修改可先保存；若單次操作仍超限，請縮小選取範圍。');
     const next = preview(snapshot.content, pending);
-    candidate = next; edits = pending; undoSizes = [...undoSizes, batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate); render();
+    candidate = next; edits = pending; undoSizes = [...undoSizes, batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate, pending.some(edit => edit.op === 'map-object-translate')); render();
     return true;
   }
   function undo() {
@@ -75,15 +78,17 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     const pending = edits.slice(0, -undoSizes.at(-1)), next = preview(snapshot.content, pending);
     candidate = next; edits = pending; undoSizes = undoSizes.slice(0, -1); serverProblems = [];
     message = pending.length ? '已撤銷上一步；仍有未保存修改。' : '已撤銷全部未保存修改。';
-    paint(candidate); render();
+    paint(candidate, pending.some(edit => edit.op === 'map-object-translate')); render();
   }
   async function save() {
     if (!permitted() || uncertain || !edits.length) return;
     const mark = generation, pending = structuredClone(edits);
     return work(async () => {
       if (!current(mark)) return;
-      let committed = false;
+      let committed = false, submitted = false;
       try {
+        if (pending.some(edit => edit.op === 'map-object-translate')) assertMapPositions(candidate);
+        submitted = true;
         await api(gameId ? path : path + '/save', gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending });
         if (!current(mark)) return;
         committed = true;
@@ -93,7 +98,7 @@ export function createMapController({ api, work, publish, preview = previewMapEd
         if (current(mark)) {
           // A known validation rejection retains editable inputs. Unknown writes
           // or a failed read after success must not replay non-idempotent edits.
-          uncertain = committed || error.status !== 422;
+          uncertain = committed || submitted && error.status !== 422;
           serverProblems = Array.isArray(error.detail?.problems) ? error.detail.problems.filter(problem => typeof problem?.message === 'string').slice(0, 128).map(problem => ({ message: problem.message.slice(0, 512) })) : [];
           message = committed ? '保存已成功，但重新讀取失敗；請重新讀取後再編輯。' : error.message;
         }

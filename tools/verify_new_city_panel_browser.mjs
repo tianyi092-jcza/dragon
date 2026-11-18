@@ -95,6 +95,8 @@ test('new city panel renders, creates and surfaces canvas errors', async () => {
     await idle();
     await page.locator('#menu [data-view="mapview-editor"]').click();
     await idle();
+    assert.equal(await page.locator('#new-city-panel').isVisible(), false, 'new-city form does not consume map layout');
+    await page.getByRole('button', { name: '建城', exact: true }).click();
     await page.locator('#new-city-panel').waitFor();
     await page.locator('#new-city-panel h3').waitFor();
     const mapStatus = await page.locator('#game-map-editor .map-status').first().textContent();
@@ -113,6 +115,10 @@ test('new city panel renders, creates and surfaces canvas errors', async () => {
     }
     // Create posts the exact module shape the server verified.
     await page.locator('#new-city-panel').getByLabel('名稱').fill('冒烟新城');
+    await page.keyboard.press('Escape');
+    await page.locator('#new-city-panel').waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: '建城', exact: true }).click();
+    assert.equal(await page.locator('#new-city-panel').getByLabel('名稱').inputValue(), '冒烟新城', 'closing the dialog preserves input');
     await page.locator('#new-city-panel').getByRole('button', { name: '建檔', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#new-city-status')?.textContent.includes('建檔完成'));
     assert.equal(posts.length, 1);

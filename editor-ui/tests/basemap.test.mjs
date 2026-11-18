@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createBaseMapController } from '../src/basemap.js';
+import { MAP_EDIT_MAX_COMMANDS, MAP_EDIT_MAX_BYTES } from '../../web/src/editor/mapeditlimits.js';
 
 function fixture() {
   let stored = null, model, painted, postError = null, readError = null, allow = true;
@@ -78,12 +79,24 @@ test('empty, oversized and late-failing batches preserve both pending data and u
   const source = f.painted(), paints = f.paints.length;
   assert.throws(() => a.stage([]), /不可為空/);
   assert.throws(() => a.stage([{ amount: 1 }, { amount: 2, failPreview: true }]), /preview rejected/);
-  assert.throws(() => a.stage(Array.from({ length: 128 }, () => ({ amount: 1 }))), /上限/);
-  assert.throws(() => a.stage([{ amount: 1 }, { amount: 2, text: '漢'.repeat(6000) }]), /上限/);
+  assert.throws(() => a.stage(Array.from({ length: MAP_EDIT_MAX_COMMANDS }, () => ({ amount: 1 }))), /上限/);
+  assert.throws(() => a.stage([{ amount: 1 }, { amount: 2, text: '漢'.repeat(Math.ceil(MAP_EDIT_MAX_BYTES / 3)) }]), /上限/);
   assert.equal(f.painted(), source); assert.equal(f.paints.length, paints); assert.equal(f.model().editCount, 1);
-  a.stage(Array.from({ length: 127 }, () => ({ amount: 1 })));
-  assert.equal(f.model().editCount, 128); a.undo();
+  a.stage(Array.from({ length: MAP_EDIT_MAX_COMMANDS - 1 }, () => ({ amount: 1 })));
+  assert.equal(f.model().editCount, MAP_EDIT_MAX_COMMANDS); a.undo();
   assert.equal(f.painted().map.value, 7); a.undo(); assert.equal(f.painted().map.value, 0);
+});
+
+test('fresh workspace accepts a large batch above both old limits, undoes once and saves/rereads', async () => {
+  const f = fixture(), a = f.controller.actions;
+  await a.reload(); await a.initialize();
+  const edits = Array.from({ length: 256 }, () => ({ amount: 1, text: '漢'.repeat(128) }));
+  assert.ok(new TextEncoder().encode(JSON.stringify({ edits })).length > 16384);
+  a.stage(edits); assert.equal(f.model().editCount, 256);
+  a.undo(); assert.equal(f.model().editCount, 0);
+  a.stage(edits); await a.save();
+  assert.equal(f.painted().map.value, 256); assert.equal(f.model().dirty, false);
+  assert.deepEqual(f.calls.at(-2).body.edits, edits);
 });
 
 test('batch validation rejection remains undoable, while uncertain saves block all batch replay', async () => {
@@ -130,7 +143,7 @@ test('successful write plus failed reread is not replayed or falsely marked roll
 test('permission/session replacement clears private view; request bounds preserve pending inputs', async () => {
   const f = fixture(), a = f.controller.actions;
   await a.reload(); await a.initialize(); a.stage({ amount: 1 });
-  assert.throws(() => a.stage({ amount: 2, text: 'x'.repeat(17000) }), /上限/);
+  assert.throws(() => a.stage({ amount: 2, text: 'x'.repeat(MAP_EDIT_MAX_BYTES) }), /上限/);
   assert.equal(f.model().editCount, 1);
   f.controller.setIdentity({ user: { id: 'author', role: 'author', mustChangePassword: false }, version: 1 });
   assert.equal(f.painted(), null); assert.equal(f.model().exists, false);

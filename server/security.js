@@ -1,4 +1,5 @@
 import { scryptSync, timingSafeEqual } from 'node:crypto';
+import { MAP_EDIT_MAX_BYTES } from '../web/src/editor/mapeditlimits.js';
 // detail 只承载已授权的结构化拒绝理由（目前仅上架的全章引用清單），由 fetch 的
 // JSON 错误封包原样转交；不携带请求内容，也不构成新的成功响应形状。
 export class HttpError extends Error { constructor(status, code, detail) { super(code); this.status = status; this.code = code; if (detail !== undefined) this.detail = detail; } }
@@ -59,10 +60,16 @@ export function config(env) {
   return { origin, playOrigin, secret: env.EDITOR_REQUEST_KEY, defaultPassword: env.EDITOR_DEFAULT_PASSWORD, sessionMs: integer('EDITOR_SESSION_MS', 8 * 3600000), idleMs: integer('EDITOR_IDLE_MS', 30 * 60000), rateMs: integer('EDITOR_RATE_MS', 10 * 60000), accountLimit: integer('EDITOR_ACCOUNT_LIMIT', 5), sourceLimit: integer('EDITOR_SOURCE_LIMIT', 30) };
 }
 export function fields(value, expected) { if (!value || Array.isArray(value) || typeof value !== 'object' || Object.keys(value).length !== expected.length || expected.some(key => !Object.hasOwn(value, key))) fail(422, 'REQUEST_FIELDS'); }
+// Shared by gateway, application, Node HTTP and local TLS. The copy endpoint
+// multiplexes modules; only its transport ceiling changes, not module validation.
+export function requestBodyLimit(method, pathname) {
+  return method === 'POST' && (pathname === '/api/admin/base-map/save' || /^\/api\/games\/[a-f0-9-]{36}\/copy$/.test(pathname)) ? MAP_EDIT_MAX_BYTES : 16384;
+}
 export async function body(request) {
+  const limit = requestBodyLimit(request.method, new URL(request.url).pathname);
   if (!request.headers.get('content-type')?.split(';')[0].trim().toLowerCase().endsWith('/json')) fail(415, 'JSON_REQUIRED');
   const reader = request.body?.getReader(); if (!reader) fail(422, 'REQUEST_BODY'); const chunks = []; let length = 0;
-  try { for (;;) { const { done, value } = await reader.read(); if (done) break; length += value.length; if (length > 16384) fail(413, 'REQUEST_TOO_LARGE'); chunks.push(value); } } finally { reader.releaseLock(); }
+  try { for (;;) { const { done, value } = await reader.read(); if (done) break; length += value.length; if (length > limit) fail(413, 'REQUEST_TOO_LARGE'); chunks.push(value); } } finally { reader.releaseLock(); }
   const bytes = new Uint8Array(length); let offset = 0; for (const value of chunks) { bytes.set(value, offset); offset += value.length; }
   try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { fail(422, 'INVALID_JSON'); }
 }

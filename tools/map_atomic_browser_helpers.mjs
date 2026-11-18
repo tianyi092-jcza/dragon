@@ -78,28 +78,38 @@ export async function verifyMapPanLock(page, panel) {
     const rgba = node.getContext('2d').getImageData(0, 0, node.width, node.height).data;
     return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', rgba))).join(',');
   });
-  const drag = async () => {
-    const box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2;
+  const drag = async () => dragFrom(null, null);
+  const dragFrom = async (offsetX, offsetY) => {
+    const box = await canvas.boundingBox();
+    const x = box.x + (offsetX ?? box.width / 2), y = box.y + (offsetY ?? box.height / 2);
     await page.mouse.move(x, y); await page.mouse.down();
     await page.mouse.move(x + 48, y + 32, { steps: 8 }); await page.mouse.up();
   };
+  const saveButton = () => panel.getByRole('button', { name: '保存', exact: true });
   assert.equal(await lock.isEnabled(), true);
   assert.equal(await lock.getAttribute('aria-pressed'), 'false', 'new workspace starts unlocked');
   const unlockedIcon = await lock.locator('path').getAttribute('d');
   await panel.getByRole('button', { name: '100%', exact: true }).click();
   await canvas.click();
   for (let cycle = 0; cycle < 2; cycle++) {
+    // 未锁定：点击照常选中切换；拖动一律平移地图，绝不暂存对象移动。
+    await canvas.click({ position: { x: 80, y: 100 } });
+    await page.keyboard.press('Escape');
     const before = await pixels(); await drag();
-    assert.notEqual(await pixels(), before, 'unlocked drag must actually move the viewport at 100%');
+    assert.notEqual(await pixels(), before, 'unlocked drag must pan the viewport at 100%');
+    assert.equal(await saveButton().isEnabled(), false, 'unlocked drag must never stage object moves');
     await lock.click();
     assert.equal(await lock.getAttribute('aria-pressed'), 'true');
     assert.notEqual(await lock.locator('path').getAttribute('d'), unlockedIcon);
+    // 无已选对象时，锁定拖拽（含 Shift）不得退化为平移。
+    // Layer visibility toggles clear object selection without changing persisted data.
+    await panel.getByRole('button', { name: '隱藏裝飾', exact: true }).click();
+    await panel.getByRole('button', { name: '顯示裝飾', exact: true }).click();
     const lockedPixels = await pixels(); await drag();
-    assert.equal(await pixels(), lockedPixels, 'locked drag neither pans nor picks the release cell');
-    await canvas.click({ position: { x: 80, y: 100 } });
-    await canvas.click({ button: 'right', position: { x: 80, y: 100 } });
-    await panel.getByRole('dialog', { name: '物件操作', exact: true }).waitFor();
-    assert.ok((await panel.locator('.base-map-object-info').textContent()).includes('ID：'), 'selection and context menu still work');
+    assert.equal(await pixels(), lockedPixels, 'locked drag without a movable selection cannot pan');
+    await page.keyboard.down('Shift'); await drag(); await page.keyboard.up('Shift');
+    assert.equal(await pixels(), lockedPixels, 'Shift does not bypass pan lock');
+    assert.equal(await saveButton().isEnabled(), false, 'locked empty drag stages nothing');
     await page.keyboard.press('Escape');
     const beforeZoom = await pixels();
     await panel.getByRole('button', { name: '放大', exact: true }).click();
@@ -113,19 +123,23 @@ export async function verifyMapPanLock(page, panel) {
     assert.equal(await lock.getAttribute('aria-pressed'), 'false', 'keyboard activation also unlocks');
     assert.equal(await lock.locator('path').getAttribute('d'), unlockedIcon);
   }
-  // Lock during a captured drag using the keyboard, then release: no stale gesture resumes.
+  // Lock during a captured drag using the keyboard: the toggle clears the
+  // in-progress gesture, then the release lands cleanly with nothing staged.
   const box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2;
   await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 12, y + 12);
   await lock.focus(); await lock.press('Enter');
   assert.equal(await lock.getAttribute('aria-pressed'), 'true');
   const interrupted = await pixels();
   await page.mouse.move(x + 40, y + 40); await page.mouse.up();
-  assert.equal(await pixels(), interrupted, 'locking cancels an in-progress map drag');
+  const released = await pixels();
+  assert.equal(released, interrupted, 'locking mid-drag cancels the gesture via the toggle');
+  assert.equal(await saveButton().isEnabled(), false, 'cancelled gesture stages nothing');
   await lock.press('Enter');
+  assert.equal(await lock.getAttribute('aria-pressed'), 'false');
   await page.mouse.move(x + 60, y + 60);
-  assert.equal(await pixels(), interrupted, 'unlocking cannot resume the old gesture without a new press');
-  await drag(); assert.notEqual(await pixels(), interrupted, 'fresh drag works again after unlock');
-  assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'pan lock and view gestures never dirty the map');
+  assert.equal(await pixels(), released, 'unlocking cannot resume the old gesture without a new press');
+  await drag(); assert.notEqual(await pixels(), released, 'fresh drag works again after unlock');
+  assert.equal(await saveButton().isEnabled(), false, 'view and pan gestures leave nothing staged');
 }
 
 export async function verifyMapWorkspaceChrome(page, panel, source, selectedId) {
@@ -137,7 +151,7 @@ export async function verifyMapWorkspaceChrome(page, panel, source, selectedId) 
   assert.equal(await panel.locator('.base-map-inspector, .base-map-tool-tabs').count(), 0);
   assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).isEnabled(), true);
   for (const text of await panel.locator('.base-map-toolbar button').allTextContents()) if (text.trim() && text.trim() !== '100%') assert.equal([...text.trim()].length, 2);
-  assert.deepEqual((await panel.locator('.base-map-controls button').allTextContents()).slice(-4).map(text => text.trim()), ['全圖', '放大', '100%', '縮小']);
+  assert.deepEqual((await panel.locator('.base-map-controls button').allTextContents()).slice(-7, -3).map(text => text.trim()), ['全圖', '放大', '100%', '縮小']);
   await tabs.getByRole('tab', { name: '水系', exact: true }).click();
   const album = panel.locator('.base-map-material-album');
   assert.ok(await album.locator('canvas').count() < 100, 'offscreen water materials are not all mounted at once');
@@ -200,18 +214,31 @@ export async function verifyMapWorkspaceChrome(page, panel, source, selectedId) 
   const size = await canvas.evaluate(node => ({ width: node.clientWidth, height: node.clientHeight }));
   const point = worldToScreen(fitViewport(size, { width: 384 * 16, height: 256 * 16 }), 208.5 * 16, 135.5 * 16);
   await canvas.click({ position: { x: point[0], y: point[1] } });
-  for (const action of ['置底', '置頂', '下移一層', '上移一層', '刪除']) {
+  const menu = () => panel.getByRole('dialog', { name: '物件操作', exact: true });
+  const openMenu = async () => {
+    // 单击是切换语义：先右键试探，无菜单则说明点灭了，再点一次选中后重开。
     await canvas.click({ button: 'right', position: { x: point[0], y: point[1] } });
-    const menu = panel.getByRole('dialog', { name: '物件操作', exact: true });
-    assert.ok((await menu.locator('.base-map-object-info').textContent()).includes(selectedId));
-    assert.equal(await menu.locator('strong').textContent(), '山地');
-    assert.equal(await menu.locator('button:disabled').count(), 9, 'eight future tools and object lock stay disabled');
-    await menu.getByRole('button', { name: action, exact: true }).click();
-    assert.equal(await menu.count(), 0);
+    if (await menu().count() === 0) {
+      await canvas.click({ position: { x: point[0], y: point[1] } });
+      await canvas.click({ button: 'right', position: { x: point[0], y: point[1] } });
+    }
+    await menu().waitFor();
+  };
+  for (const action of ['置底', '置頂', '下移一層', '上移一層', '刪除']) {
+    await openMenu();
+    assert.ok((await menu().locator('.base-map-object-info').textContent()).includes(selectedId));
+    assert.equal(await menu().locator('strong').textContent(), '山地');
+    assert.equal(await menu().locator('button:disabled').count(), 2, 'single-object combine and object lock stay disabled');
+    assert.equal(await menu().getByRole('button', { name: '複製', exact: true }).count(), 0);
+    assert.equal(await menu().getByRole('button', { name: '填充', exact: true }).count(), 0);
+    assert.deepEqual(await menu().locator('.base-map-context-actions').last().locator('button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))), ['组合', '拆散', '鎖定物件', '刪除']);
+    assert.deepEqual(await panel.locator('.base-map-controls button').evaluateAll(nodes => nodes.slice(-3).map(node => node.getAttribute('aria-label'))), ['鎖圖', '複製', '填充']);
+    await menu().getByRole('button', { name: action, exact: true }).click();
+    assert.equal(await menu().count(), 0);
     assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
     await panel.getByRole('button', { name: '撤銷', exact: true }).click();
     assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
-    // Deleting clears selection; explicitly pick again after undo.
+    // 删除会清空选中；其它操作后选中仍在——下一轮 openMenu 的二次点击能纠正开关状态。
     await canvas.click({ position: { x: point[0], y: point[1] } });
   }
   await canvas.focus(); await canvas.press('Shift+F10');

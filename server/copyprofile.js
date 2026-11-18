@@ -1,10 +1,12 @@
 // Content-only internal capability. NEVER a principal, persistent author grant or runtime certificate.
 import { createHash } from 'node:crypto';
+import { MAP_EDIT_MAX_COMMANDS } from '../web/src/editor/mapeditlimits.js';
+import { translateMapObject } from '../web/src/editor/mapobjectmove.js';
 import { canonicalSourceTokens } from '../web/src/content/authoring/sourcejson.js';
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
 import { editChapterResources, readFactionResources } from '../web/src/editor/chapterresources.js';
 import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
-import { enableSeaGroundBase, fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
+import { enableSeaGroundBase, fillBase, placeComponent, splitDecoration, removeDecorations, translateDecorations, reorderDecorations, combineDecorations, groupDecorations, ungroupDecorations, captureComponent, renameMaterial, removeMaterial, validateLibraryAdditions, createWaterGroup, splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from '../web/src/editor/componenttools.js';
 import { applyGeneralDefinitionEdit, applyChapterPersonEdit } from '../web/src/content/authoring/generaldefinitions.js';
 import { setCityDefinitionName, setCityDefinitionNumbers, applyChapterCityEdit } from '../web/src/content/authoring/citydefinitions.js';
 import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, moveChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor } from '../web/src/content/authoring/gamesource.js';
@@ -89,16 +91,19 @@ function capturedInstanceIds(source) {
 // applyCapturedMapEdit（与 capture 回放同一口径）；新身份由调用方（控制器）
 // 用随机 64hex 生成（`gameId#<kind>-<64hex>`），服务端只验格式＋未占用。
 // 整包替换已废止：map 模块只接受 {edits}，无调用方依赖旧形。
-export const COPY_MAP_OPS = Object.freeze(['sea-ground-enable', 'base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility', 'city-stamp', 'city-bind', 'road-add']);
+export const COPY_MAP_OPS = Object.freeze(['sea-ground-enable', 'map-object-translate', 'base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'decoration-combine', 'decoration-group', 'decoration-ungroup', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility', 'city-stamp', 'city-bind', 'city-unbind', 'road-add']);
 export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
-  if (!Array.isArray(edits) || !edits.length) fail(422, 'COPY_MAP');
+  if (!Array.isArray(edits) || !edits.length || edits.length > MAP_EDIT_MAX_COMMANDS) fail(422, 'COPY_MAP');
   const usedGroupIds = new Set(game.map?.waterGroups?.map(group => group.id) ?? []);
   const usedMaterialIds = new Set(Object.keys(game.componentDefinitions ?? {}));
   const usedInstanceIds = capturedInstanceIds(game);
   let next = game;
   for (const edit of edits) {
     if (!edit || typeof edit !== 'object' || Array.isArray(edit) || !COPY_MAP_OPS.includes(edit.op)) fail(422, 'COPY_MAP');
-    if (edit.op === 'sea-ground-enable') {
+    if (edit.op === 'map-object-translate') {
+      if (Object.keys(view(edit)).sort().join(',') !== 'dx,dy,id,layer,op') fail(422, 'COPY_MAP_DELTA');
+      next = translateMapObject(next, value(edit, 'layer'), value(edit, 'id'), value(edit, 'dx'), value(edit, 'dy'));
+    } else if (edit.op === 'sea-ground-enable') {
       // Workspace-only product transition, deliberately absent from frozen
       // legacy capture/profile replay in applyCapturedMapEdit.
       if (Object.keys(view(edit)).length !== 1) fail(422, 'COPY_MAP_DELTA');
@@ -167,6 +172,33 @@ function bindCityPiece(source, edit, descriptors) {
   // values); the compiler cross-checks archive against placement.
   next.cities[cityId].x = piece.x;
   next.cities[cityId].y = piece.y;
+  return next;
+}
+function unbindCityPiece(source, edit, descriptors) {
+  const keys = ['op', 'pieceId'];
+  if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
+  const pieceId = value(edit, 'pieceId');
+  if (typeof pieceId !== 'string' || !pieceId) fail(422, 'COPY_MAP_DELTA');
+  const next = structuredClone(source);
+  const piece = next.map?.placements?.find(p => p?.id === pieceId);
+  if (!piece) fail(422, 'COPY_MAP_DELTA');
+  if (typeof piece.cityId !== 'string' || !piece.cityId) fail(422, 'COPY_MAP_DELTA');
+  if (!Object.hasOwn(next.cities ?? {}, piece.cityId)) fail(422, 'COPY_MAP_DELTA');
+  const oldCityId = piece.cityId;
+  // Roads touching the bound city block unbind until unlinked via road tools.
+  const refs = (next.map?.roads ?? []).filter(road => road?.fromCityId === oldCityId || road?.toCityId === oldCityId).map(road => road.id);
+  if (refs.length) fail(422, 'COPY_MAP_CITY_ROAD_REF');
+  piece.cityId = null;
+  // Auto-clear the archive coordinates written by city-bind (Web product decision).
+  // System templates carry no required x/y, so delete; game copies require
+  // live coords, so reset to the cleared sentinel 0,0 and re-obtain via bind.
+  if (next.gameId === 'system-base-map') {
+    if (next.cities[oldCityId] && typeof next.cities[oldCityId] === 'object') {
+      delete next.cities[oldCityId].x; delete next.cities[oldCityId].y;
+    }
+  } else {
+    next.cities[oldCityId].x = 0; next.cities[oldCityId].y = 0;
+  }
   return next;
 }
 function refreshChapterNeighbours(next) {
@@ -283,11 +315,24 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
     if (!usedInstanceIds || Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
     view(edit.childIds);
     const prefix = `${source.gameId}#decoration-`;
-    if (typeof edit.instanceId !== 'string' || !Array.isArray(edit.childIds) || edit.childIds.length < 2 || edit.childIds.length > 256 || new Set(edit.childIds).size !== edit.childIds.length || edit.childIds.some(id => typeof id !== 'string' || !id.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(id.slice(prefix.length)) || usedInstanceIds.has(id))) fail(422, 'COPY_MAP_DELTA');
+    if (typeof edit.instanceId !== 'string' || !Array.isArray(edit.childIds) || edit.childIds.length < 2 || edit.childIds.length > source.map.bounds.width * source.map.bounds.height || new Set(edit.childIds).size !== edit.childIds.length || edit.childIds.some(id => typeof id !== 'string' || !id.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(id.slice(prefix.length)) || usedInstanceIds.has(id))) fail(422, 'COPY_MAP_DELTA');
     // The shared writer owns atom recipes, masks, water membership and exact
     // unknown-underlay covering references. Removed parent IDs stay reserved.
     const next = splitDecoration(source, edit.instanceId, edit.childIds);
     for (const id of edit.childIds) usedInstanceIds.add(id);
+    return next;
+  }
+  if (edit.op === 'decoration-combine') {
+    const keys = ['op', 'memberIds', 'materialId', 'instanceId'];
+    if (!usedMaterialIds || !usedInstanceIds || Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
+    view(edit.memberIds);
+    const materialPrefix = `${source.gameId}#material-`, instancePrefix = `${source.gameId}#decoration-`;
+    if (!Array.isArray(edit.memberIds) || edit.memberIds.some(id => typeof id !== 'string') ||
+        typeof edit.materialId !== 'string' || !edit.materialId.startsWith(materialPrefix) || !/^[a-f0-9]{64}$/.test(edit.materialId.slice(materialPrefix.length)) || usedMaterialIds.has(edit.materialId) ||
+        typeof edit.instanceId !== 'string' || !edit.instanceId.startsWith(instancePrefix) || !/^[a-f0-9]{64}$/.test(edit.instanceId.slice(instancePrefix.length)) || usedInstanceIds.has(edit.instanceId)) fail(422, 'COPY_MAP_DELTA');
+    if (Object.keys(source.componentDefinitions).length >= definitionLimit) fail(422, 'COPY_MAP_DELTA');
+    const next = combineDecorations(source, edit.memberIds, edit.materialId, edit.instanceId);
+    usedMaterialIds.add(edit.materialId); usedInstanceIds.add(edit.instanceId);
     return next;
   }
   if (edit.op === 'decoration-place') {
@@ -327,8 +372,30 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
     if (!Array.isArray(edit.memberIds) || edit.memberIds.some(id => typeof id !== 'string') || !Number.isSafeInteger(edit.dx) || !Number.isSafeInteger(edit.dy) || Object.is(edit.dx, -0) || Object.is(edit.dy, -0)) fail(422, 'COPY_MAP_DELTA');
     return translateDecorations(source, edit.memberIds, edit.dx, edit.dy);
   }
+  // Generic author grouping (Web product decision): decorations only. The
+  // generic identity gate keeps city/water groups on their own disband paths.
+  if (edit.op === 'decoration-group') {
+    const keys = ['op', 'memberIds', 'groupId'];
+    if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
+    view(edit.memberIds);
+    const prefix = `${source.gameId}#group-`;
+    if (!Array.isArray(edit.memberIds) || edit.memberIds.length < 2 || edit.memberIds.some(id => typeof id !== 'string') || typeof edit.groupId !== 'string' || !edit.groupId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(edit.groupId.slice(prefix.length))) fail(422, 'COPY_MAP_DELTA');
+    return groupDecorations(source, edit.memberIds, edit.groupId);
+  }
+  if (edit.op === 'decoration-ungroup') {
+    const keys = ['op', 'groupId'];
+    if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
+    const prefix = `${source.gameId}#group-`;
+    const generic = typeof edit.groupId === 'string' && edit.groupId.startsWith(prefix) && /^[a-f0-9]{64}$/.test(edit.groupId.slice(prefix.length));
+    // Legacy conversion groups (web-piece-group-N, decor-only) disband through the
+    // same path; city/water groups keep their own disband paths and stay rejected.
+    const legacy = /^web-piece-group-\d+$/.test(edit.groupId ?? '');
+    if (!generic && !legacy) fail(422, 'COPY_MAP_DELTA');
+    return ungroupDecorations(source, edit.groupId);
+  }
   if (edit.op === 'city-stamp') return stampCityPiece(source, edit, descriptors);
   if (edit.op === 'city-bind') return bindCityPiece(source, edit, descriptors);
+  if (edit.op === 'city-unbind') return unbindCityPiece(source, edit, descriptors);
   if (edit.op === 'road-add') return addCopyRoad(source, edit, descriptors);
   if (['material-capture', 'material-rename', 'material-remove'].includes(edit.op)) {
     // Only trusted history replay supplies this identity ledger.

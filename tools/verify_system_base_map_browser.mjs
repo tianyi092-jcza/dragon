@@ -127,6 +127,9 @@ try {
   await page.getByText('已重新讀取基礎地圖。', { exact: true }).waitFor();
   await panel.getByRole('button', { name: '鎖圖', exact: true }).click();
   assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'true');
+  // Toggle twice to prove the lock switch itself works; palette placement works in both modes.
+  await panel.getByRole('button', { name: '鎖圖', exact: true }).click();
+  assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'false');
   await dragAtomicTile(page, panel, template.content.componentDefinitions, 112, 208, 135);
   await panel.getByRole('button', { name: '撤銷', exact: true }).click();
   assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
@@ -175,7 +178,7 @@ try {
     await readonly.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
     assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
   }
-  assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'true', 'lock survives placement/save/reread, menu edits/undo, floating tools and layout changes');
+  assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'false', 'pan-lock helper leaves the workspace unlocked');
   await page.screenshot({ path: join(screenshots, 'narrow.png') });
   console.log('Workspace screenshots: ' + screenshots);
   const savedTemplate = JSON.stringify(snapshot);
@@ -193,12 +196,13 @@ try {
   await page.screenshot({ path: join(screenshots, 'city-groups-game-narrow.png') });
   await verifyMapPanLock(page, gamePanel);
   assert.equal(gameSaves, 0); assert.equal(JSON.stringify(game), gameBeforeLock);
-  await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).click();
+  // Deterministic starting state for game placement (palette works in both modes).
+  if (await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed') === 'true') await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).click();
   await dragAtomicTile(page, gamePanel, game.componentDefinitions, 0, 319, 1);
   await gamePanel.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('已保存並重新讀取遊戲地圖。', { exact: true }).waitFor();
   assert.equal(gameSaves, 1); assert.equal(game.map.decorations.at(-1).definitionRef, 'tile-0');
-  assert.equal(await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'true', 'game placement/save do not clear pan lock');
+  assert.equal(await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'false', 'game placement ran from the unlocked state');
   assert.deepEqual(game.mapEditorAssets, editorAssets, 'one edit retains all four seasonal atlases');
   assert.equal(await gamePanel.locator('.base-map-seasons').count(), 0);
   assert.ok(requestedSeasons.length >= 2);

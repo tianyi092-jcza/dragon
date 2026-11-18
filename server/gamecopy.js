@@ -7,10 +7,11 @@ import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { checkGameName } from '../web/src/content/authoring/gamesource.js';
 import { bumpOrdinal } from './releases.js';
 import { editChapterResources } from '../web/src/editor/chapterresources.js';
-import { compileMapSource } from '../web/src/content/authoring/mapcompile.js';
+import { compileMapSource, assertMapConnected } from '../web/src/content/authoring/mapcompile.js';
 import { compileTrialSource } from '../web/src/content/authoring/trialcompile.js';
 import { COPY_MAP_OPS } from './copyprofile.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
+import { assertMapPositions } from '../web/src/editor/mappositionvalidation.js';
 import { cityName } from '../web/src/content/authoring/cityrecords.js';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
 import { builtinGeneralLibrary, projectCopyGenerals } from './copygenerals.js';
@@ -453,8 +454,16 @@ function applyModule(data, module, checked) {
   if (module === 'map') {
     try {
       // 素材命令也会返回 componentDefinitions；不能只保存 map 而丢掉定义库。
-      return applyMapWorkspaceEdits(next, checked.edits);
-    } catch (e) { if (e?.status) throw e; fail(422, 'COPY_MAP'); }
+      const candidate = applyMapWorkspaceEdits(next, checked.edits);
+      // The multi-step new-city workflow still saves incomplete authoring
+      // states. This position gate belongs to an explicit movement batch.
+      if (checked.edits.some(edit => edit.op === 'map-object-translate')) assertMapPositions(candidate);
+      return candidate;
+    } catch (e) {
+      if (e?.code === 'MAP_POSITION_INVALID') fail(422, e.code, e.detail);
+      if (e?.status) throw e;
+      fail(422, 'COPY_MAP');
+    }
   }
   return next;
 }
@@ -584,6 +593,7 @@ export class GameCopyStore {
       }
       validateGameSource(data, { draft: true });
       compileMapSource({ schemaVersion: 1, map: data.map, componentDefinitions: data.componentDefinitions });
+      assertMapConnected({ schemaVersion: 1, map: data.map, componentDefinitions: data.componentDefinitions ?? {} });
       // D2: ticket means "compiles" — chapter topology (named/raw) is
       // certified here, not first at approve.
       try {

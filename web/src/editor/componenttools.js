@@ -157,7 +157,7 @@ export function mergeWaterGroups(source, groupIds, id, name, visible) {
   if (groups.some((g) => !g)) fail("合併引用不存在的組合");
   return createWaterGroup(source, groups.flatMap((g) => g.memberIds), groups.flatMap((g) => g.baseCells), id, name, visible);
 }
-export function captureComponent(source, memberIds, id, name) {
+export function captureComponent(source, memberIds, id, name, maxCells = 256) {
   unique(memberIds); if (!memberIds.length) fail("請先選取裝飾組件");
   if (!id || Object.hasOwn(source.componentDefinitions, id)) fail("新素材身份重複或缺失");
   const selected = new Set(memberIds), instances = source.map.decorations.filter((d) => selected.has(d.id));
@@ -175,7 +175,7 @@ export function captureComponent(source, memberIds, id, name) {
       if (instance.waterClass && mask.has(`${dx},${dy}`)) { water.add(key); classes.add(instance.waterClass); }
     }
   }
-  if (cells.size > 256) fail("本地素材擷取最多256格；不支援整圖包裝為素材");
+  if (cells.size > maxCells) fail(`本地素材擷取最多${maxCells}格`);
   if (classes.size > 1) fail("單一素材只接受一種明確水域類別，請分開擷取");
   const all = [...cells.values()], x0 = Math.min(...all.map((p) => p[0])), y0 = Math.min(...all.map((p) => p[1]));
   const tiles = all.map(([x, y, tile]) => [x - x0, y - y0, tile]);
@@ -194,6 +194,36 @@ export function captureComponent(source, memberIds, id, name) {
     if (normal.size !== landMask.length || landMask.some(point => !normal.has(point.join(',')))) def.minimapLandMask = landMask;
   }
   return transaction(source, (next) => { next.componentDefinitions[id] = def; });
+}
+// Web flattening: selected stamps become one independently identified object.
+// Pixel overlap follows their existing draw order; no selection-group is created.
+export function combineDecorations(source, memberIds, materialId, instanceId) {
+  if (memberIds.length < 2) fail('組合至少需要兩個裝飾');
+  if (source.map.decorations.some(item => item.id === instanceId)) fail('組件身份重複');
+  const selected = new Set(memberIds);
+  const members = source.map.decorations.filter(item => selected.has(item.id));
+  if ((source.selectionGroups ?? []).some(group => !/^web-piece-group-\d+$/.test(group.id) &&
+      !group.id.startsWith(`${source.gameId}#group-`) && group.members.some(member => member.layer === 'decorations' && selected.has(member.id))))
+    fail('專用據點／水系組不可通過裝飾組合改寫');
+  const captured = captureComponent(source, memberIds, materialId, '組合物件', source.map.bounds.width * source.map.bounds.height);
+  const definition = { ...captured.componentDefinitions[materialId] };
+  delete definition.captureProvenance;
+  const cells = members.flatMap(item => componentCells(source, item));
+  const x = Math.min(...cells.map(([x]) => x)), y = Math.min(...cells.map(([, y]) => y));
+  return transaction(captured, next => {
+    next.componentDefinitions[materialId] = definition;
+    if (source.selectionGroups) next.selectionGroups = source.selectionGroups.map(group => ({ ...group,
+      members: group.members.filter(member => member.layer !== 'decorations' || !selected.has(member.id)) })).filter(group => group.members.length);
+    const combined = { id: instanceId, definitionRef: materialId, variantRef: 'original', x, y };
+    if (definition.authorWaterClass) combined.waterClass = definition.authorWaterClass;
+    const last = source.map.decorations.findLastIndex(item => selected.has(item.id));
+    next.map.decorations = source.map.decorations.flatMap((item, index) => index === last ? [combined] : selected.has(item.id) ? [] : [item]);
+    next.map.waterGroups = next.map.waterGroups.map(group => ({ ...group,
+      memberIds: [...new Set(group.memberIds.map(id => selected.has(id) ? instanceId : id))] }));
+    for (const [cell, record] of Object.entries(next.map.base.unknownUnderlays)) {
+      if (selected.has(record.coveringInstanceId)) next.map.base.unknownUnderlays[cell] = { ...record, coveringInstanceId: instanceId };
+    }
+  });
 }
 export function placeComponent(source, definitionRef, x, y, id, waterClass, variantRef = "original") {
   const def = source.componentDefinitions[definitionRef]; if (!def) fail("素材不存在");
@@ -271,6 +301,31 @@ export function disbandCityGroup(source, cityId) {
   if (typeof cityId !== "string" || !cityId) fail("據點身份缺失");
   const groupId = `city-group-${cityId}`;
   if (!(source.selectionGroups ?? []).some((row) => row?.id === groupId)) fail("據點成組不存在");
+  return transaction(source, (next) => {
+    next.selectionGroups = (source.selectionGroups ?? []).filter((row) => row?.id !== groupId);
+  });
+}
+// Generic author grouping (Web product decision): decorations only. Roads,
+// placements and existing groups never join; members must be ungrouped, so a
+// combine always starts from a flat member list (client disbands first).
+export function groupDecorations(source, memberIds, groupId) {
+  unique(memberIds);
+  if (!Array.isArray(memberIds) || memberIds.length < 2) fail("成組至少需要兩個完整裝飾");
+  if (typeof groupId !== "string" || !groupId) fail("成組身份缺失或無效");
+  const selected = new Set(memberIds), instances = source.map.decorations.filter((d) => selected.has(d.id));
+  if (instances.length !== memberIds.length) fail("成組只接受存在的完整裝飾實例");
+  const grouped = new Set((source.selectionGroups ?? []).flatMap((row) => (row?.members ?? []).map((member) => member?.id)));
+  if (memberIds.some((id) => grouped.has(id))) fail("已在組內的裝飾須先打散才能重組");
+  if ((source.selectionGroups ?? []).some((row) => row?.id === groupId)) fail("成組身份重複");
+  return transaction(source, (next) => {
+    next.selectionGroups = [...(source.selectionGroups ?? []), { id: groupId, members: memberIds.map((id) => ({ layer: "decorations", id })) }];
+  });
+}
+// Generic disband only; city/water groups keep their own paths and prechecks.
+// The caller owns the generic-identity gate; the writer only demands existence.
+export function ungroupDecorations(source, groupId) {
+  if (typeof groupId !== "string" || !groupId) fail("成組身份缺失或無效");
+  if (!(source.selectionGroups ?? []).some((row) => row?.id === groupId)) fail("成組不存在");
   return transaction(source, (next) => {
     next.selectionGroups = (source.selectionGroups ?? []).filter((row) => row?.id !== groupId);
   });
@@ -361,7 +416,7 @@ export function splitDecoration(source, instanceId, childIds) {
   if (def.ruleRecipeRef !== BYTE_STAMP_RECIPE || def.visualRef !== "MMAP.MDL:indexed-footprint") fail("只可拆分已支持的明確多格原圖塊配方");
   composeMapLayers(source, { draft: true });
   const tiles = def.variants[instance.variantRef ?? "original"].tiles;
-  if (tiles.length < 2 || tiles.length > 256 || childIds.length !== tiles.length) fail("請選取2至256格的完整裝飾；子實例身份須覆蓋全部格");
+  if (tiles.length < 2 || tiles.length > source.map.bounds.width * source.map.bounds.height || childIds.length !== tiles.length) fail("請選取完整多格裝飾；子實例身份須覆蓋全部格");
   const existing = new Set([...source.map.decorations, ...source.map.roads.flatMap((r) => r.components ?? []), ...source.map.placements].map((d) => d.id));
   if (childIds.some((id) => typeof id !== "string" || !id || existing.has(id))) fail("子實例身份缺失或已被使用");
   const mask = new Set((def.geographyMask ?? def.footprint).map((p) => p.join(",")));

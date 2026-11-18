@@ -1,8 +1,10 @@
 // Shared editor-only preview dispatch. Server authorization and command identity
 // ledgers remain in copyprofile.js; this module grants no write permission.
 import { enableSeaGroundBase, fillBase, splitDecoration, placeComponent, placeCityGroup, disbandCityGroup, removeCityGate, removeDecorations, reorderDecorations,
-  translateDecorations, captureComponent, renameMaterial, removeMaterial, createWaterGroup,
+  translateDecorations, combineDecorations, captureComponent, renameMaterial, removeMaterial, createWaterGroup,
   splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from './componenttools.js';
+
+import { translateMapObject } from './mapobjectmove.js';
 
 export function reconcileMapSelectionGroups(source, next, edits) {
   if (!source.selectionGroups) return next;
@@ -12,20 +14,24 @@ export function reconcileMapSelectionGroups(source, next, edits) {
       groups = groups.map(group => ({ ...group, members: group.members.flatMap(member =>
         member.layer === 'decorations' && member.id === edit.instanceId
           ? edit.childIds.map(id => ({ layer: 'decorations', id })) : [member]) }));
-    } else if (edit.op === 'decoration-remove') {
+    } else if (edit.op === 'decoration-remove' || edit.op === 'decoration-combine') {
       const removed = new Set(edit.memberIds);
       groups = groups.map(group => ({ ...group, members: group.members.filter(member =>
         member.layer !== 'decorations' || !removed.has(member.id)) })).filter(group => group.members.length);
     }
   }
-  // Ops that drop whole groups on purpose (city-group-disband) are honored
-  // here too: the reconciler otherwise rebuilds `groups` from the source
-  // and resurrects the disbanded entry. Judged against the SOURCE set, so
-  // only groups the disband op could have removed are filtered.
+  // Ops that drop whole groups on purpose (city-group-disband,
+  // decoration-ungroup) are honored here too: the reconciler otherwise
+  // rebuilds `groups` from the source and resurrects the disbanded entry.
+  // Judged against the SOURCE set, so only groups the disband op could
+  // have removed are filtered.
   const disbanded = new Set();
-  for (const edit of edits)
+  for (const edit of edits) {
     if (edit.op === 'city-group-disband' && typeof edit.cityId === 'string' && edit.cityId)
       disbanded.add(`city-group-${edit.cityId}`);
+    else if (edit.op === 'decoration-ungroup' && typeof edit.groupId === 'string' && edit.groupId)
+      disbanded.add(edit.groupId);
+  }
   if (disbanded.size) groups = groups.filter(group => !disbanded.has(group?.id));
   // them here; existing ops never stage groups so this is a no-op for them.
   // Newness is judged against the SOURCE: groups that reconcile deliberately
@@ -34,7 +40,9 @@ export function reconcileMapSelectionGroups(source, next, edits) {
   const staged = new Set(groups.map(group => group.id));
   let merged = groups;
   for (const group of next.selectionGroups ?? []) {
-    if (before.has(group.id) || staged.has(group.id)) continue;
+    // Re-added disbanded ids (ungroup + regroup in one batch) must survive;
+    // untouched source groups are already in merged via `groups`.
+    if (staged.has(group.id) || (before.has(group.id) && !disbanded.has(group.id))) continue;
     if (merged === groups) merged = groups.slice();
     merged.push(group); staged.add(group.id);
   }
@@ -46,14 +54,25 @@ export function previewMapEdits(source, edits) {
     switch (edit.op) {
       case 'sea-ground-enable': return enableSeaGroundBase(current);
       case 'base-fill': return fillBase(current, edit.cells, edit.tile, edit.geography);
+      case 'map-object-translate': return translateMapObject(current, edit.layer, edit.id, edit.dx, edit.dy);
       case 'decoration-split': return splitDecoration(current, edit.instanceId, edit.childIds);
       case 'decoration-place': return placeComponent(current, edit.materialId, edit.x, edit.y, edit.instanceId, edit.waterClass, edit.variantRef);
       case 'city-group-place': return placeCityGroup(current, edit.materialized);
       case 'city-group-disband': return disbandCityGroup(current, edit.cityId);
       case 'city-gate-remove': return removeCityGate(current, edit);
       case 'decoration-remove': return removeDecorations(current, edit.memberIds);
+      case 'decoration-combine': return combineDecorations(current, edit.memberIds, edit.materialId, edit.instanceId);
       case 'decoration-reorder': return reorderDecorations(current, edit.memberIds, edit.direction);
       case 'decoration-translate': return translateDecorations(current, edit.memberIds, edit.dx, edit.dy);
+      case 'decoration-group': {
+        if (!Array.isArray(edit.memberIds) || edit.memberIds.length < 2 || typeof edit.groupId !== 'string' || !edit.groupId)
+          throw new RangeError('成組至少需要兩個裝飾與有效成組身份');
+        return { ...current, selectionGroups: [...(current.selectionGroups ?? []), { id: edit.groupId, members: edit.memberIds.map(id => ({ layer: 'decorations', id })) }] };
+      }
+      case 'decoration-ungroup': {
+        if (typeof edit.groupId !== 'string' || !edit.groupId) throw new RangeError('解散缺少成組身份');
+        return { ...current, selectionGroups: (current.selectionGroups ?? []).filter(row => row?.id !== edit.groupId) };
+      }
       // D2 copy ops: client preview mirrors geometry only (placement tile,
       // binding link, road path). All certification (scan order, ports,
       // slots, neighbour agreement) stays server-side at save.
@@ -69,9 +88,34 @@ export function previewMapEdits(source, edits) {
       case 'city-bind': {
         if (typeof edit.pieceId !== 'string' || typeof edit.cityId !== 'string')
           throw new RangeError('圖塊或據點身份無效');
-        return { ...current, map: { ...current.map,
+        const bound = (current.map?.placements ?? []).find(place => place?.id === edit.pieceId);
+        if (!bound) throw new RangeError('圖塊不存在');
+        const cities = current.cities ? { ...current.cities } : current.cities;
+        if (cities?.[edit.cityId]) cities[edit.cityId] = { ...cities[edit.cityId], x: bound.x, y: bound.y };
+        return { ...current, ...(cities ? { cities } : null), map: { ...current.map,
           placements: (current.map?.placements ?? []).map(place =>
             place?.id === edit.pieceId ? { ...place, cityId: edit.cityId } : place) } };
+      }
+      case 'city-unbind': {
+        if (typeof edit.pieceId !== 'string' || !edit.pieceId)
+          throw new RangeError('圖塊身份無效');
+        const target = (current.map?.placements ?? []).find(place => place?.id === edit.pieceId);
+        if (!target || typeof target.cityId !== 'string' || !target.cityId)
+          throw new RangeError('圖塊尚未綁定據點');
+        const oldCityId = target.cityId;
+        const cities = current.cities ? { ...current.cities } : current.cities;
+        if (cities?.[oldCityId]) {
+          if (current.gameId === 'system-base-map') {
+            const cleared = { ...cities[oldCityId] };
+            delete cleared.x; delete cleared.y;
+            cities[oldCityId] = cleared;
+          } else {
+            cities[oldCityId] = { ...cities[oldCityId], x: 0, y: 0 };
+          }
+        }
+        return { ...current, ...(cities ? { cities } : null), map: { ...current.map,
+          placements: (current.map?.placements ?? []).map(place =>
+            place?.id === edit.pieceId ? { ...place, cityId: null } : place) } };
       }
       case 'road-add': {
         if (typeof edit.roadId !== 'string' || typeof edit.fromCityId !== 'string' ||

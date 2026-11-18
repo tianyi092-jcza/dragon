@@ -2,10 +2,12 @@
 import { reactive, ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElInput } from 'element-plus/es/components/input/index.mjs';
+import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean, mapActions: Object, mapSelected: Object });
 const create = reactive({ name: '', numbers: { max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1 } });
 const stampTile = ref(205);
+const open = ref(false);
 const bind = reactive({ pieceId: '', cityId: '' });
 const admit = reactive({ cityId: '', troops_cap: 60, battleMapId: 'ki-1995:siege:7' });
 const road = reactive({ fromCityId: '', toCityId: '', travelKind: 'land', geometry: '' });
@@ -16,7 +18,9 @@ async function run(action) {
 }
 </script>
 <template>
-  <section v-if="model?.gameScoped" id="new-city-panel" class="module-card">
+  <ElButton v-if="model?.gameScoped" title="新據點建檔與放置" :disabled="busy" @click="open = true">建城</ElButton>
+  <ElDialog v-if="model?.gameScoped" v-model="open" title="新據點" width="80%" append-to-body>
+  <section id="new-city-panel" class="module-card new-city-content">
     <h3>新據點：建檔 → 放圖塊 → 綁定 → 接見 → 加路</h3>
     <p>走廊須先用裝飾素材鋪好（埠 D4..DD、腹地 B8..DD）；放圖塊前請先在地圖工作台保存其它地圖修改，綁定／接見／加路後請重新載入地圖。各步皆為直接寫入，發布前請走檢驗。</p>
     <p id="new-city-status" role="status">{{ model.message }}</p>
@@ -59,4 +63,8 @@ async function run(action) {
     </div>
     <p>已放 {{ model.cities.filter(c => c.placed).length }}／{{ model.cities.length }} 城；未綁定圖塊 {{ model.unboundPieces.length }}；共 {{ model.chapters }} 章。</p>
   </section>
+  </ElDialog>
 </template>
+<style scoped>
+.new-city-content { max-height: 65vh; overflow: auto; }
+</style>

@@ -158,7 +158,7 @@ EditorApp已装配该类：`GET /api/admin/base-map`返回当前snapshot（未�
 
 schema以`systembasemapdeclarations.js`追加固定声明，未重算旧baseline；deletiondefinitions/deletionschema与inventory同步，系统表仅列入已知表，不加入按游戏清理范围。无游戏外键/附加索引，distributiondeclarations无新增键；资源保留在既有共享来源目录。真实隔离gateway/auth/SQLite/FileBucket的`verify_game_purge.mjs`已建立实际模板，删游戏后完整template_json/摘要/版本不变。另有schema源检查与实际workerd schema/行约束测试；不代表线上部署或迁移。
 
-`POST /api/admin/base-map/save`仅接受`{edits}`，1–128条命令且仍受现有16KiB请求上限限制，不接受整份模板。`mapworkspace.js`复用已有14个明确地图命令，再统一维护selectionGroups拆片替换/删除引用；游戏copy地图保存也复用该层。新身份命令沿用命名规则，系统作用域为`system-base-map#decoration-<64hex>`等，游戏作用域仍是gameId。道路/据点引用保留，不因跨层组选取获得移动拓扑权限。旧水域跨道路拆/并仍受现有核心限制，不悄悄丢弃道路成员。
+`POST /api/admin/base-map/save`仅接受`{edits}`，1–4096条命令、完整JSON请求上限16 MiB（用户批准增容，替代旧128条／16 KiB；维护源见[地图合同§2.6](map-atomic-catalog-contract.md#26-地图交互收尾选位背景与锁图对象操作)），不接受整份模板。`mapworkspace.js`复用已有14个明确地图命令，再统一维护selectionGroups拆片替换/删除引用；游戏copy地图保存也复用该层。新身份命令沿用命名规则，系统作用域为`system-base-map#decoration-<64hex>`等，游戏作用域仍是gameId。道路/据点引用保留，不因跨层组选取获得移动拓扑权限。旧水域跨道路拆/并仍受现有核心限制，不悄悄丢弃道路成员。
 
 整组命令在内存候选执行，完整编译通过才单事务保存；编译RangeError/TypeError映射为422 `BASE_MAP_INVALID`及有界problems.message，不回传堆栈。HTTP实测拆多格并维护组引用→删除暴露unknown拒绝且旧摘要不变→同批显式补底保存，规则plane确有变化、道路图不变，保存后重读/再次initialize不覆盖编辑。模板存储检查比游戏草稿模块保存严格；后者继续允许待修复草稿，不拿模板门替换发布全量门。
 
@@ -184,7 +184,7 @@ schema以`systembasemapdeclarations.js`追加固定声明，未重算旧baseline
 
 `verify_game_purge.mjs`用真实隔离应用/鉴权/SQLite/FileBucket核作者四季图集、他人管理员404和查询负控；旧夹具先ensure，再仅在隔离库显式加入可信描述符验证新接口，随后恢复原copy正文/摘要。该夹具不证明真实新建浏览器工作台已经接通。
 
-框架外`createMapController`同时支持系统模板及固定gameId的游戏copy会话，原`createBaseMapController`保留兼容导出；游戏端只GET自己的copy、POST既有`{module:'map',patch:{edits}}`，按完整请求体计算16KiB预算，不调用系统首次建立/保存接口。完整copy正文留在私有会话，Vue仅收到摘要前缀、状态和地图显示DTO；`mapEditorAssets`仅在私有绘制投影中作为`editorAssets`别名，不回写数据。422保留输入，未知写结果锁定，保存后重读仍同一游戏；外来gameId响应在绘制前拒绝。游戏模块保存允许草稿问题，不能替代全量发布检验。
+框架外`createMapController`同时支持系统模板及固定gameId的游戏copy会话，原`createBaseMapController`保留兼容导出；游戏端只GET自己的copy、POST既有`{module:'map',patch:{edits}}`，按完整请求体计算16 MiB预算（同系统地图共享4096条命令上限），不调用系统首次建立/保存接口。完整copy正文留在私有会话，Vue仅收到摘要前缀、状态和地图显示DTO；`mapEditorAssets`仅在私有绘制投影中作为`editorAssets`别名，不回写数据。422保留输入，未知写结果锁定，保存后重读仍同一游戏；外来gameId响应在绘制前拒绝。游戏模块保存允许草稿问题，不能替代全量发布检验。
 
 `createMapWorkbench`复用同一画布/图集/编辑核心，实例ID和atlas端点绑定gameId。`createGameMapWorkbench`仅参与当前游戏ID协调，切换前由共同context执行离开检查，切换后先dispose旧会话再建新会话；身份版本变化也清理，旧异步结果不能恢复。每会话首次进入仅触发一次读取，失败不形成自动重试循环。main/Workbench/client已接新游戏地图页面，复用BaseMapPanel并显示游戏摘要而非模板版本，隐藏首次建立；旧MapPanel不再挂载；client旧installMapViewer启动/身份/渲染链、Vue旧mapview模型和draft旧画布/本地地图表单桥已移除。历史MapPanel子组件、mapview.txt及draft内部地图函数仍有历史验证器/混合定义控制器依赖，暂不整文件删除，后续须逐项核实。浏览器断言当前壳不请求/mapview.js。顶部游戏选择和全局离开保护纳入新会话，拒绝丢弃时仍保留原游戏/输入。当前游戏变化后进入新会话，图集未就绪或失败时禁止编辑命令。真实转换地图/图集＋内存API浏览器已验证作者编辑/保存重读、模板及另一游戏不变、切换和dirty拒绝；不冒充实际HTTP后端、发布或玩家加载器验收。
 

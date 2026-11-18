@@ -7,14 +7,13 @@ import { KAO_MANIFEST } from '../web/kao/manifest.js';
 import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { config, HttpError } from '../server/security.js';
+import { config, HttpError, requestBodyLimit } from '../server/security.js';
 register('./text-loader.mjs', import.meta.url);
 const { createEditorApplication, createEditorGateway } = await import('../server/editorapp.js');
 const portraitFiles = new Map(KAO_MANIFEST.map(entry => [entry.id, new URL(`../web/kao/${entry.file}`, import.meta.url)]));
 // Only the common application's manifest-validated descriptor reaches this port.
 const readSharedPortrait = descriptor => readFile(portraitFiles.get(descriptor.assetId));
 const EditorApplication = createEditorApplication(class NodeApplicationBase {}, { readSharedPortrait });
-const LIMIT = 16384; // Same bounded JSON request contract as server/security.js.
 const errorReply = (status, error) => Response.json({ error }, { status, headers: {
   'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
 } });
@@ -46,7 +45,7 @@ export function createEditorService({ storage, bucket, env, runtimeStager, froze
   });
 }
 
-function capture(request) {
+function capture(request, limit) {
   return new Promise((resolve, reject) => {
     let length = 0;
     const chunks = [];
@@ -59,7 +58,7 @@ function capture(request) {
     const end = () => { clean(); resolve(Buffer.concat(chunks, length)); };
     const data = bytes => {
       length += bytes.length;
-      if (length > LIMIT) { request.pause(); error(new HttpError(413, 'REQUEST_TOO_LARGE')); }
+      if (length > limit) { request.pause(); error(new HttpError(413, 'REQUEST_TOO_LARGE')); }
       else chunks.push(bytes);
     };
     request.on('data', data); request.once('end', end);
@@ -91,8 +90,9 @@ export async function startEditorServer({ storage, bucket, env, runtimeStager, f
       for (const [key, value] of Object.entries(request.headers)) if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : value);
       const method = request.method;
       if (method !== 'GET' && method !== 'POST') throw new HttpError(404, 'NOT_FOUND');
-      if (Number(request.headers['content-length'] ?? 0) > LIMIT) throw new HttpError(413, 'REQUEST_TOO_LARGE');
-      const bytes = method === 'POST' ? await capture(request) : undefined;
+      const limit = requestBodyLimit(method, new URL(request.url, service.origin).pathname);
+      if (Number(request.headers['content-length'] ?? 0) > limit) throw new HttpError(413, 'REQUEST_TOO_LARGE');
+      const bytes = method === 'POST' ? await capture(request, limit) : undefined;
       headers.delete('content-length'); headers.delete('transfer-encoding');
       const input = new Request(service.origin + request.url, { method, headers, body: bytes });
       const reply = await service.fetch(input, request.socket.remoteAddress ?? 'local-shared');
