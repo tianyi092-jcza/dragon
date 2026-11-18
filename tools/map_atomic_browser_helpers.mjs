@@ -252,9 +252,8 @@ export async function verifyCityGroupLibrary(page, panel, source) {
   const album = panel.getByRole('list', { name: '據點組素材相冊' });
   await album.locator('canvas').nth(3).waitFor();
   assert.equal(await album.getByRole('listitem').count(), 4);
-  assert.equal(await album.getByRole('button').count(), 0, 'city-group previews have no placement button');
+  assert.equal(await album.getByRole('button').count(), 4, 'each city group supports placement');
   assert.equal(await album.locator('[title], [aria-describedby]').count(), 0);
-  await album.getByText('目前僅供預覽，尚未開放放置。', { exact: true }).waitFor();
   const asset = (source.editorAssets ?? source.mapEditorAssets).seasonAtlases.spring;
   const atlas = decodePNG(await readFile(new URL('../web/' + asset.url.replace(/^\//, ''), import.meta.url)));
   for (const item of cityGroupCatalog.items) {
@@ -288,11 +287,12 @@ export async function verifyCityGroupLibrary(page, panel, source) {
     assert.equal(displayed.crisp, true); assert.equal(displayed.fits, true);
     assert.deepEqual(displayed.pixels, pixels, `${item.itemId}: every pixel matches the complete spring recipe at native scale`);
     const preview = card.locator('.base-map-city-group-preview');
-    await preview.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
+    await preview.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Escape');
     const from = await preview.boundingBox(), to = await panel.locator('.base-map-canvas').boundingBox();
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2); await page.mouse.down();
     await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 4 }); await page.mouse.up();
-    assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'city-group keyboard and drag do not stage edits');
+    assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true, 'group drag stages decoration');
+    await panel.getByRole('button', { name: '撤銷', exact: true }).click();
   }
   assert.equal(await album.evaluate(node => node.scrollWidth <= node.clientWidth), true, 'full IDs and native-size previews do not create horizontal overflow');
   const cards = await album.getByRole('listitem').evaluateAll(nodes => nodes.map(node => ({ x: node.offsetLeft, y: node.offsetTop })));

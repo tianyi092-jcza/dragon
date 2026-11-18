@@ -145,6 +145,34 @@ try {
     .sort((a, b) => nearCenter(a.point) - nearCenter(b.point))[0];
   const city = template.content.map.placements.slice().sort((a, b) => nearCenter(a) - nearCenter(b))[0];
   await panel.getByRole('button', { name: '鎖圖', exact: true }).click();
+  await panel.getByRole('button', { name: '全圖', exact: true }).click();
+  const bindingPoint = await viewOf(city.x, city.y), cityName = template.content.cities[city.cityId].name;
+  await lclick(bindingPoint); await rclick(bindingPoint);
+  const select = menu().getByRole('combobox');
+  assert.ok(await select.isDisabled());
+  assert.equal(await menu().locator('.el-select__selected-item').filter({ hasText: cityName }).count(), 1);
+  const masks = await page.evaluateHandle(() => {
+    const records = [];
+    const observer = new MutationObserver(changes => {
+      for (const change of changes) if ([...change.addedNodes].some(node => node.matches?.('.workbench-loading'))) records.push(true);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return { records, observer };
+  });
+  await menu().getByRole('button', { name: '解綁', exact: true }).click();
+  assert.ok(await menu().getByRole('button', { name: '綁定', exact: true }).isEnabled());
+  assert.equal(await menu().locator('.el-select__selected-item').filter({ hasText: cityName }).count(), 1);
+  await select.click();
+  const options = page.locator('.base-map-bind-options:visible').getByRole('option');
+  await options.first().waitFor();
+  assert.deepEqual(await options.allTextContents(), [cityName]);
+  await select.press('Escape');
+  await menu().getByRole('button', { name: '綁定', exact: true }).click();
+  await menu().getByRole('button', { name: '解綁', exact: true }).waitFor();
+  assert.ok(await select.isDisabled());
+  assert.equal(await masks.evaluate(({ records, observer }) => { observer.disconnect(); return records.length; }), 0);
+  await panel.getByRole('button', { name: '撤銷', exact: true }).click();
+  await panel.getByRole('button', { name: '撤銷', exact: true }).click();
   for (const target of [{ id: road.row.id, point: road.point, cityId: road.row.fromCityId }, { id: city.id, point: city, cityId: city.cityId }]) {
     await panel.getByRole('button', { name: '全圖', exact: true }).click();
     const start = await viewOf(target.point.x, target.point.y), end = await viewOf(target.point.x, target.point.y + 2);

@@ -14,14 +14,14 @@ test('single atomic library keeps 256 source identities but exposes 240 cards in
   assert.deepEqual(result.catalogItems.map(row => row.id), Array.from({ length: 256 }, (_, tile) => tile).filter(tile => !hidden.includes(tile)).map(tile => `tile-${tile}`));
   assert.deepEqual(result.catalogAtoms.map(row => row.id), Array.from({ length: 256 }, (_, tile) => `tile-${tile}`));
   assert.ok(result.catalogItems.every(row => row.cells === 1 && row.available && !('tiles' in row) && !('variants' in row)));
-  assert.equal(result.catalogItems.filter(row => row.canPlace).length, 79, 'only already admitted decoration bytes gain atomic cards');
+  assert.equal(result.catalogItems.filter(row => row.canPlace).length, 240, 'all visible matched atoms can be stamped as decorations');
   for (const [tile, category] of [[0, 'ground'], [112, 'mountain'], [61, 'water'], [95, 'water'], [180, 'field'], [248, 'wall'], [255, 'city'], [196, 'road'], [184, 'road'], [191, 'road'], [202, 'road']])
     assert.equal(byTile[tile].category, category);
-  for (const tile of [72, 190, 95, 184, 191, 196, 205, 255]) assert.equal(byTile[tile].canPlace, false);
+  for (const tile of [72, 190, 95, 184, 191, 196, 205, 255]) assert.equal(byTile[tile].canPlace, true);
   for (const tile of [72, 190]) assert.match(byTile[tile].note, /未知/);
   for (const tile of Array.from({ length: 19 }, (_, index) => 184 + index).filter(tile => tile !== 190)) {
     assert.equal(byTile[tile].category, 'road', `bridge/road/waterway byte ${tile} shares the road browser category`);
-    assert.equal(byTile[tile].canPlace, false, 'browsing labels grant no new topology capability');
+    assert.equal(byTile[tile].canPlace, true, 'road artwork is placeable');
   }
   assert.equal(JSON.stringify(source), before);
 });
@@ -38,7 +38,7 @@ test('only neutral center variants and common non-player parts remain in the cit
   for (const tile of [205, 208, 211, ...Array.from({ length: 10 }, (_, i) => i + 222)])
     assert.equal(result.catalogItems.some(row => row.id === `tile-${tile}`), true);
   assert.equal(result.catalogItems.filter(row => row.category === 'city').length, 30);
-  assert.ok(result.catalogItems.filter(row => row.category === 'city').every(row => !row.canPlace));
+  assert.ok(result.catalogItems.filter(row => row.category === 'city').every(row => row.canPlace));
   assert.equal(JSON.stringify(source), before);
 });
 test('visual shore correction keeps all ground and vegetation references on the first page without new capabilities', () => {
@@ -52,10 +52,10 @@ test('visual shore correction keeps all ground and vegetation references on the 
   for (const tile of [7, 14, 15, 21, 22, 23, 24, 25]) assert.equal(byTile[tile].category, 'water', 'user-boxed screenshot cards');
   for (const tile of [6, 29, 168, 176, 177, 178, 179]) {
     assert.equal(byTile[tile].available, true, 'artwork is not missing');
-    assert.equal(byTile[tile].canPlace, false, 'visual relabeling grants no placement permission');
+    assert.equal(byTile[tile].canPlace, true, 'available artwork is placeable');
   }
   assert.equal(catalogItems.filter(row => row.category === 'water').length, 100);
-  assert.equal(catalogItems.filter(row => row.canPlace).length, 79);
+  assert.equal(catalogItems.filter(row => row.canPlace).length, 240);
 });
 test('atom availability requires exact identity, never a matching multi-cell definition or category', () => {
   const source = definitions(); delete source['tile-112'];

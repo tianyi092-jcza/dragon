@@ -10,7 +10,15 @@ const props = defineProps({ model: { type: Object, required: true }, actions: { 
 const canvas = ref(null), host = ref(null), album = ref(null), sentinel = ref(null), floating = ref(null), menu = ref(null);
 const catalogCategory = ref('mountain'), loadedCount = ref(24), floatingPosition = ref(null), contextPosition = ref(null);
 const panLocked = ref(false);
-const bindCityId = ref('');
+const preferredCityId = ref('');
+const bindingPending = ref(false);
+const bindCityId = computed({
+  get() {
+    const choices = props.model.unboundCities || [];
+    return choices.some(city => city.cityId === preferredCityId.value) ? preferredCityId.value : choices[0]?.cityId || '';
+  },
+  set(id) { preferredCityId.value = id; },
+});
 const notice = ref('');
 let objectDragging = false, shiftSelect = false;
 const labels = { base: '底圖', decor: '裝飾', roads: '道路', cities: '據點' };
@@ -93,7 +101,8 @@ function cancelKey(event) {
     origin?.focus({ preventScroll: true });
   }
 }
-watch([placementLocked, () => props.model.readRevision, () => props.model.zoom, catalogCategory], () => { cancelMaterial(); contextPosition.value = null; });
+watch(placementLocked, () => { cancelMaterial(); if (!props.model.selectedBinding) contextPosition.value = null; });
+watch([() => props.model.readRevision, () => props.model.zoom, catalogCategory], () => { cancelMaterial(); contextPosition.value = null; });
 watch([() => props.model.selected?.layer, () => props.model.selected?.id], () => { contextPosition.value = null; });
 watch(catalogCategory, () => { loadedCount.value = 24; album.value.scrollTop = 0; });
 watch([loadedCount, catalogCategory, () => rows.value.length], async () => {
@@ -199,7 +208,7 @@ async function openContext(event) {
   contextPosition.value = { x: Math.max(0, Math.min(contextPosition.value.x, bounds.width - menu.value.offsetWidth)), y: Math.max(0, Math.min(contextPosition.value.y, bounds.height - menu.value.offsetHeight)) };
   menu.value.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
 }
-function dismissContext(event) { if (!menu.value?.contains(event.target)) contextPosition.value = null; }
+function dismissContext(event) { if (!menu.value?.contains(event.target) && !event.target.closest('.base-map-bind-options')) contextPosition.value = null; }
 function runObjectCommand(op, fields) { contextPosition.value = null; bindCityId.value = ''; props.actions.command(op, fields); }
 async function runGroup() {
   contextPosition.value = null;
@@ -215,18 +224,27 @@ async function runUngroup() {
   else if (result && result.error) notice.value = '当前状态不可拆散';
   else if (result && result.ungrouped) notice.value = `已拆散${result.ungrouped.length}个组合${result.split ? `，${result.split}个装饰片段已拆为独立单格` : ''}（未保存，撤销可还原）`;
 }
-function runBindToggle() {
+async function runBindToggle() {
   const binding = props.model.selectedBinding;
-  if (!binding || props.busy) return;
-  if (binding.cityId) runObjectCommand('city-unbind', { pieceId: binding.pieceId });
-  else if (bindCityId.value) runObjectCommand('city-bind', { pieceId: binding.pieceId, cityId: bindCityId.value });
+  if (!binding || locked.value || bindingPending.value || (!binding.cityId && !bindCityId.value)) return;
+  bindingPending.value = true;
+  try {
+    if (binding.cityId) {
+      preferredCityId.value = binding.cityId;
+      await props.actions.command('city-unbind', { pieceId: binding.pieceId });
+    } else await props.actions.command('city-bind', { pieceId: binding.pieceId, cityId: bindCityId.value });
+  } catch (error) { notice.value = error.message; }
+  finally { bindingPending.value = false; }
 }
-watch([() => props.model.selectedBinding?.pieceId, () => props.model.selectedBinding?.cityId], () => { bindCityId.value = ''; });
+watch(() => props.model.selectedBinding?.pieceId, () => { preferredCityId.value = ''; });
 onMounted(() => {
   props.actions.attach(canvas.value, null);
   observer = new ResizeObserver(entries => {
     const { width, height } = entries[0].contentRect;
-    cancelMaterial(); contextPosition.value = null;
+    cancelMaterial();
+    if (contextPosition.value && menu.value && props.model.selectedBinding) {
+      contextPosition.value = { x: Math.max(0, Math.min(contextPosition.value.x, width - menu.value.offsetWidth)), y: Math.max(0, Math.min(contextPosition.value.y, height - menu.value.offsetHeight)) };
+    } else contextPosition.value = null;
     props.actions.resize(width, height);
     constrainFloating();
   });
@@ -259,13 +277,13 @@ onBeforeUnmount(() => {
       <ElButton :disabled="locked || !model.dirty" title="保存並重新讀取地圖" @click="notice = ''; actions.save()">保存</ElButton>
       <ElButton :disabled="locked || !model.dirty" title="撤銷上一步修改" @click="notice = ''; actions.undo()">撤銷</ElButton>
       <slot name="tools" />
-      <ElCheckbox :model-value="model.gridVisible !== false" @update:model-value="actions.grid($event)">網格</ElCheckbox>
       <ElButton :disabled="!model.exists" title="縮放至顯示整張地圖" @click="actions.fit()">全圖</ElButton>
       <ElButton :disabled="!model.exists" title="放大地圖" @click="actions.zoom(1.25)">放大</ElButton>
       <ElButton :disabled="!model.exists" title="原始比例：每格16×16像素，保持視野中心" @click="actions.zoom(1 / model.zoom)">100%</ElButton>
       <ElButton :disabled="!model.exists" title="縮小地圖" @click="actions.zoom(0.8)">縮小</ElButton>
-      <ElButton :disabled="busy || !model.exists" aria-label="鎖圖" :aria-pressed="panLocked" :title="panLocked ? '已鎖圖：拖動已選物件；點擊解鎖' : '未鎖圖：拖動平移；點擊鎖定後可拖動已選物件'" @click="panLocked = !panLocked; pointer = null; objectDragging = false; bindCityId = ''; actions.cancelObjectMove(); actions.cancelPlacement()"><WorkspaceIcon :name="panLocked ? 'locked' : 'unlocked'" /></ElButton>
+      <ElButton :disabled="busy || !model.exists" aria-label="鎖圖" :aria-pressed="panLocked" :title="panLocked ? '已鎖圖：拖動已選物件；點擊解鎖' : '未鎖圖：拖動平移；點擊鎖定後可拖動已選物件'" @click="panLocked = !panLocked; pointer = null; objectDragging = false; actions.cancelObjectMove(); actions.cancelPlacement()"><WorkspaceIcon :name="panLocked ? 'locked' : 'unlocked'" /></ElButton>
       <ElButton v-for="item in futureActions" :key="item.icon" :aria-label="item.name" :title="`${item.name}：暫未開放`" disabled><WorkspaceIcon :name="item.icon" /></ElButton>
+      <ElCheckbox :model-value="model.gridVisible !== false" @update:model-value="actions.grid($event)">網格</ElCheckbox>
       </div>
       <span class="map-status" role="status" aria-live="polite" :title="notice || model.message">{{ model.atlasLoading ? '圖集载入中…' : notice || model.message }}</span>
     </header>
@@ -289,10 +307,12 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="contextPosition && (model.selected || (model.multi && model.multi.length))" ref="menu" class="base-map-context" :style="{ left: `${contextPosition.x}px`, top: `${contextPosition.y}px` }" role="dialog" aria-label="物件操作" @contextmenu.prevent>
         <ElCard :body-style="{ padding: '12px' }">
-          <div class="base-map-object-info"><template v-if="model.multi && model.multi.length"><strong>组合</strong><span>共{{ model.multi.length }}件</span><span>Shift+单击切换增减</span></template><template v-else><strong>{{ model.selected.type || labels[model.selected.layer] || '组合' }}</strong><span>{{ model.selected.x }}, {{ model.selected.y }}</span><span>ID：{{ model.selected.id }}</span><span v-if="model.selected.layer === 'cities'">綁定：{{ model.selectedBinding?.cityId ? (model.cities.find(c => c.cityId === model.selectedBinding.cityId)?.name || model.selectedBinding.cityId) : '未綁定' }}</span></template></div>
+          <div class="base-map-object-info"><template v-if="model.multi && model.multi.length"><strong>组合</strong><span>共{{ model.multi.length }}件</span><span>Shift+单击切换增减</span></template><template v-else><strong>{{ model.selected.type || labels[model.selected.layer] || '组合' }}</strong><span>{{ model.selected.x }}, {{ model.selected.y }}</span><span>ID：{{ model.selected.id }}</span></template></div>
           <div v-if="model.selected && model.selected.layer === 'cities'" class="base-map-context-actions base-map-city-bind">
-            <ElSelect v-model="bindCityId" filterable :disabled="busy || locked || panLocked || Boolean(model.selectedBinding?.cityId)" placeholder="未綁定據點列表" aria-label="綁定據點下拉框"><ElOption v-for="city in model.unboundCities || []" :key="city.cityId" :value="city.cityId" :label="`${city.name}［${city.cityId}］`" /></ElSelect>
-            <ElButton :disabled="busy || locked || panLocked || (!model.selectedBinding?.cityId && !bindCityId)" @click="runBindToggle()">{{ model.selectedBinding?.cityId ? '解綁' : '綁定' }}</ElButton>
+            <span>綁定：</span>
+            <ElSelect v-if="model.selectedBinding?.cityId" :model-value="model.selectedBinding.cityId" disabled aria-label="綁定據點下拉框"><ElOption :value="model.selectedBinding.cityId" :label="model.cities.find(c => c.cityId === model.selectedBinding.cityId)?.name || model.selectedBinding.cityId" /></ElSelect>
+            <ElSelect v-else v-model="bindCityId" filterable popper-class="base-map-bind-options" :disabled="locked || bindingPending || !bindCityId" placeholder="無可綁據點" aria-label="綁定據點下拉框"><ElOption v-for="city in model.unboundCities || []" :key="city.cityId" :value="city.cityId" :label="city.name" /></ElSelect>
+            <ElButton :loading="bindingPending" :disabled="locked || (!model.selectedBinding?.cityId && !bindCityId)" @click="runBindToggle()">{{ model.selectedBinding?.cityId ? '解綁' : '綁定' }}</ElButton>
           </div>
           <div class="base-map-context-actions">
             <ElButton v-for="item in orderActions" :key="item.icon" :aria-label="item.name" :title="item.name" :disabled="objectLocked" @click="runObjectCommand('decoration-reorder', { direction: item.direction })"><WorkspaceIcon :name="item.icon" /></ElButton>
@@ -313,9 +333,8 @@ onBeforeUnmount(() => {
           <ElButton v-for="(item, index) in model.catalogCategories" :key="item.id" role="tab" :aria-selected="catalogCategory === item.id" :type="catalogCategory === item.id ? 'primary' : 'default'" :plain="catalogCategory === item.id" @click="catalogCategory = item.id" @keydown="categoryKey($event, index)">{{ item.name }}</ElButton>
         </div>
         <div ref="album" class="base-map-material-album" :class="{ 'base-map-city-groups': catalogCategory === 'city-group' }" role="list" :aria-label="catalogCategory === 'city-group' ? '據點組素材相冊' : '原子素材相冊'" @scroll="cancelMaterial">
-          <span v-if="catalogCategory === 'city-group'">目前僅供預覽，尚未開放放置。</span>
           <div v-for="row in visibleRows" :key="row.itemId" role="listitem" :data-tile="row.id">
-            <div v-if="row.canPlace" class="base-map-material-preview" role="button" tabindex="0" :aria-label="`${row.name}；拖至地圖或按Enter／空白鍵開始放置`" :aria-disabled="placementLocked" @keydown="startMaterialKeyboard($event, row.id)" @pointerdown="materialDown($event, row.id)" @pointermove="materialMove" @pointerup="materialUp" @pointercancel="cancelMaterial" @lostpointercapture="cancelMaterial" @dragstart.prevent><canvas :ref="node => actions.previewMaterial(node, row.id)" width="32" height="32" :aria-label="row.name" /></div>
+            <div v-if="row.canPlace" class="base-map-material-preview" :class="{ 'base-map-city-group-preview': row.category === 'city-group' }" role="button" tabindex="0" :aria-label="`${row.name}；拖至地圖或按Enter／空白鍵開始放置`" :aria-disabled="placementLocked" @keydown="startMaterialKeyboard($event, row.id)" @pointerdown="materialDown($event, row.id)" @pointermove="materialMove" @pointerup="materialUp" @pointercancel="cancelMaterial" @lostpointercapture="cancelMaterial" @dragstart.prevent><canvas :ref="node => actions.previewMaterial(node, row.id)" :width="row.previewWidth || 32" :height="row.previewHeight || 32" :aria-label="row.name" /></div>
             <div v-else :class="row.category === 'city-group' ? 'base-map-city-group-preview' : 'base-map-atom-preview'" tabindex="0" :aria-label="`${row.name}；${row.note}`"><canvas v-if="row.available" :ref="node => actions.previewMaterial(node, row.id)" :width="row.previewWidth || 32" :height="row.previewHeight || 32" :aria-label="row.name" /><span v-else>不可用</span></div>
             <span v-if="row.category === 'city-group'">{{ row.name }}</span>
             <span>ID：{{ row.id.replace('tile-', '') }}</span>
@@ -351,13 +370,14 @@ onBeforeUnmount(() => {
 .base-map-context { position: absolute; width: 240px; max-width: 100%; max-height: 100%; overflow: auto; box-sizing: border-box; }
 .base-map-object-info { display: flex; flex-direction: column; overflow-wrap: anywhere; gap: 4px; }
 .base-map-context-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.base-map-city-bind { grid-template-columns: auto minmax(calc(4em + 44px), 1fr) auto; align-items: center; gap: 4px; }
 .base-map-library { grid-column: 2; grid-row: 1 / -1; display: flex; flex-direction: column; gap: 8px; overflow: hidden; min-height: 0; }
 .base-map-catalog-tabs { display: grid; grid-template-columns: repeat(4, auto); gap: 4px 2px; flex-shrink: 0; }
 .base-map-material-album { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 8px; flex: 1; min-height: 0; overflow-y: auto; }
 .base-map-material-album > [role="listitem"] { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; }
 .base-map-city-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .base-map-city-groups > [role="listitem"] { min-width: 0; text-align: center; overflow-wrap: anywhere; }
-.base-map-city-group-preview { display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
+.base-map-material-album .base-map-city-group-preview { display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
 .base-map-material-album > span, .base-map-lazy-sentinel { grid-column: 1 / -1; }
 .base-map-lazy-sentinel { height: 1px; }
 .base-map-material-preview, .base-map-atom-preview { width: 32px; height: 32px; }

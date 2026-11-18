@@ -19,6 +19,6 @@ export function createMapWorkbench({ api, work, publish, confirm, gameId = null 
     toggleMulti: canvas.toggleMulti, beginMultiMove: canvas.beginMultiMove,
     groupSelection: () => work(() => canvas.groupSelection()), ungroupSelection: () => work(() => canvas.ungroupSelection()),
     commitPlacement: () => work(() => canvas.commitPlacement()),
-    command: (op, fields) => work(() => canvas.command(op, fields)),
+    command: (op, fields) => work(() => canvas.command(op, fields), op === 'city-bind' || op === 'city-unbind' ? { feedback: 'local' } : undefined),
   }) });
 }

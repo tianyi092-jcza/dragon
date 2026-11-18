@@ -38,8 +38,10 @@ test('default workspace publishes 240 atomic cards and four preview-only city gr
   assert.equal(JSON.stringify(source), before);
 });
 
-test('city groups preview native cells at DPR1/1.25/2 without exposing recipes or accepting placement', () => {
+test('city groups preview native cells at DPR1/1.25/2 and drag as one visual decoration batch without exposing recipes', () => {
   const { source } = recipeFixture(), main = canvas();
+  Object.assign(source.map.bounds, { width: 16, height: 16 });
+  Object.assign(source.map.base, { terrainRef: Array(256).fill(16), geography: Array(256).fill(0) });
   cityGroupCatalog.items.flatMap(item => item.rows.flat()).forEach(tile => {
     const id = `tile-${tile}`;
     source.componentDefinitions[id] = { id, revision: 'original-byte-1', category: 'atomic-original', anchor: [0, 0],
@@ -47,7 +49,7 @@ test('city groups preview native cells at DPR1/1.25/2 without exposing recipes o
   });
   let model;
   const before = JSON.stringify(source), atlas = { season: 'spring' };
-  const view = createMapCanvas({ publish: value => { model = value; }, stage: () => assert.fail('city groups cannot stage edits') });
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: edits => edits });
   view.attach(main, null); view.setSource(source); view.setAtlas(atlas); view.pick(1, 1);
   const previousRatio = Object.getOwnPropertyDescriptor(globalThis, 'devicePixelRatio');
   try {
@@ -56,14 +58,17 @@ test('city groups preview native cells at DPR1/1.25/2 without exposing recipes o
       for (const item of cityGroupCatalog.items) {
         const id = `catalog:${item.itemId}`, row = model.catalogItems.find(row => row.id === id), thumb = canvas();
         const width = item.rows[0].length * 16, height = item.rows.length * 16;
-        assert.equal(row.available, true); assert.equal(row.canPlace, false);
+        assert.equal(row.available, true); assert.equal(row.canPlace, true);
         assert.deepEqual([row.previewWidth, row.previewHeight], [width, height]);
         assert.ok(!['tiles', 'rows', 'anchor', 'gates', 'source', 'definition', 'variants', 'plan'].some(key => key in row));
         view.previewMaterial(thumb, id);
         assert.deepEqual([thumb.width, thumb.height, thumb.style.width, thumb.style.height], [width * ratio, height * ratio, `${width}px`, `${height}px`]);
         assert.deepEqual(thumb.draws.filter(row => row[0] === 'image'), item.rows.flatMap((row, y) => row.map((tile, x) => ['image', atlas, tile % 16 * 16, Math.floor(tile / 16) * 16, 16, 16, x * 16, y * 16, 16, 16])));
         assert.equal(thumb.getContext('2d').imageSmoothingEnabled, false);
-        assert.equal(view.previewPlacement(id, 1, 1), null); view.commitPlacement();
+        assert.ok(view.previewPlacement(id, 16, 16)?.inBounds);
+        const edits = view.commitPlacement();
+        assert.equal(edits.at(-1).op, 'decoration-place');
+        assert.equal(edits.filter(edit => edit.op === 'material-capture').length, 1);
         assert.throws(() => view.command('decoration-place', { materialId: id }), /僅供預覽/);
         view.previewMaterial(null, id);
       }

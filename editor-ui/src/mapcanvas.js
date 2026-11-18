@@ -33,7 +33,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   let recipePlans = new Map(), availableCityGroups = new Set();
   let atomicCatalog = projectAtomicSpriteCatalog();
   const materialDefinition = id => {
-    if (cityGroups.has(id)) return undefined;
+    if (cityGroups.has(id)) return recipePlans.get(id)?.definition;
     return recipePlans.has(id) ? recipePlans.get(id)?.definition : source?.componentDefinitions[id];
   };
   const visible = { base: true, decor: true, roads: true, cities: true };
@@ -84,8 +84,8 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       catalogItems: [...projectedCatalog.catalogItems, ...Array.from(cityGroups, ([id, group]) => {
         const available = availableCityGroups.has(id);
         return { id, itemId: group.itemId, name: group.name, category: 'city-group', cells: group.tiles.length,
-          previewWidth: group.width, previewHeight: group.height, available, canPlace: false,
-          note: available ? '據點組預覽；暫未開放放置。' : '本圖缺少匹配的原子定義；不可預覽或放置。' };
+          previewWidth: group.width, previewHeight: group.height, available, canPlace: Boolean(recipePlans.get(id)?.canPlace),
+          note: available ? '整組放置為裝飾，不建立城市或道路連線。' : '本圖缺少匹配的原子定義；不可預覽或放置。' };
       }), ...recipes.map(recipe => {
         const id = `catalog:${recipe.itemId}`, plan = recipePlans.get(id);
         let note = '本圖缺少匹配的原子定義；不可預覽或放置';
@@ -214,12 +214,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
         const y = placement.y + dy - def.anchor[1] - source.map.bounds.minY;
         context.strokeRect((x * 16 - view.x) * view.zoom, (y * 16 - view.y) * view.zoom, cell, cell);
       });
-      const ax = ((placement.x - source.map.bounds.minX) * 16 - view.x) * view.zoom;
-      const ay = ((placement.y - source.map.bounds.minY) * 16 - view.y) * view.zoom;
-      context.beginPath();
-      context.moveTo(ax, ay + cell / 2); context.lineTo(ax + cell, ay + cell / 2);
-      context.moveTo(ax + cell / 2, ay); context.lineTo(ax + cell / 2, ay + cell);
-      context.stroke();
+
     }
     if (mini && minimap) {
       const ctx = mini.getContext('2d'), image = ctx.createImageData(250, 167);
@@ -482,7 +477,10 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     errorCells = []; moveBackdrop = null;
     atomicCatalog = projectAtomicSpriteCatalog(source?.componentDefinitions);
     availableCityGroups = new Set(Array.from(cityGroups).filter(([, group]) => group.tiles.every(([, , tile]) => atomicCatalog.catalogAtoms[tile].available)).map(([id]) => id));
-    recipePlans = new Map(recipes.map(recipe => [`catalog:${recipe.itemId}`, source ? planSpriteMaterialization(source.componentDefinitions, recipe) : null]));
+    // Library group drops are visual decorations; semantic city creation remains a separate command.
+    const groupRecipes = Array.from(cityGroups.values(), group => ({ ...group, anchor: [0, 0], footprint: group.tiles.map(([x, y]) => [x, y]),
+      ruleRecipeRef: 'ki-byte-stamp-1', support: 'existing-decoration', geographyEffect: 'preserve-underlay' }));
+    recipePlans = new Map([...recipes, ...groupRecipes].map(recipe => [`catalog:${recipe.itemId}`, source ? planSpriteMaterialization(source.componentDefinitions, recipe) : null]));
     if (!source) { diagnostics = []; atlas = null; tiles = null; picker = null; selected = null; minimap = null; thumbnails.forEach((target, id) => drawThumbnail(target, id)); if (mini) mini.getContext('2d').clearRect(0, 0, mini.width, mini.height); draw(); facts(); return; }
     tiles = composeMapDisplayLayers(source, visible).tiles;
     picker = createDecorationPicker(source);

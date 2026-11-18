@@ -92,7 +92,8 @@ try {
   await selectAtomicTile(panel, template.content.componentDefinitions, 205);
   const neutral = panel.getByLabel('據點圖塊 205', { exact: true }).locator('..');
   await neutral.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
-  assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'neutral cards remain readonly');
+  assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true, 'neutral artwork can be placed');
+  await panel.getByRole('button', { name: '撤銷', exact: true }).click();
   assert.equal(await panel.getByRole('button', { name: /填入.*基底/ }).count(), 0);
   await panel.getByRole('button', { name: '全圖', exact: true }).click();
   for (const label of ['裝飾', '道路', '據點']) await panel.getByRole('button', { name: '隱藏' + label, exact: true }).click();
@@ -174,9 +175,10 @@ try {
     assert.equal(new Set(tabRows).size, 2);
     await selectAtomicTile(panel, template.content.componentDefinitions, 202);
     assert.equal(await panel.locator('.base-map-catalog-tabs').getByRole('tab', { name: '道路', exact: true }).getAttribute('aria-selected'), 'true');
-    const readonly = panel.getByLabel('道路圖塊 202', { exact: true }).locator('..');
-    await readonly.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
-    assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+    const roadCard = panel.getByLabel('道路圖塊 202', { exact: true }).locator('..');
+    await roadCard.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
+    assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);
+    await panel.getByRole('button', { name: '撤銷', exact: true }).click();
   }
   assert.equal(await panel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'false', 'pan-lock helper leaves the workspace unlocked');
   await page.screenshot({ path: join(screenshots, 'narrow.png') });
