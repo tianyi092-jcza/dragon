@@ -1,6 +1,7 @@
 // Framework-free controller. Source/template bodies never enter the Vue model.
 // preview and paint are native editor-core ports, not reactive view callbacks.
 import { previewMapEdits } from '../../web/src/editor/mapcommands.js';
+import { changesMapPositions } from '../../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../../web/src/editor/mappositionvalidation.js';
 import { MAP_EDIT_MAX_COMMANDS, MAP_EDIT_MAX_BYTES } from '../../web/src/editor/mapeditlimits.js';
 
@@ -72,7 +73,7 @@ export function createMapController({ api, work, publish, preview = previewMapEd
       throw new Error('本次修改超過保存上限（4096條命令／16 MiB）。已有修改可先保存；若單次操作仍超限，請縮小選取範圍。');
     const next = preview(snapshot.content, pending);
     saveReport = null;
-    candidate = next; edits = pending; undoSizes = [...undoSizes, batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate, pending.some(edit => edit.op === 'map-object-translate')); render();
+    candidate = next; edits = pending; undoSizes = [...undoSizes, batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate, pending.some(changesMapPositions)); render();
     return true;
   }
   function undo() {
@@ -81,16 +82,16 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     saveReport = null;
     candidate = next; edits = pending; undoSizes = undoSizes.slice(0, -1); serverProblems = [];
     message = pending.length ? '已撤銷上一步；仍有未保存修改。' : '已撤銷全部未保存修改。';
-    paint(candidate, pending.some(edit => edit.op === 'map-object-translate')); render();
+    paint(candidate, pending.some(changesMapPositions)); render();
   }
   async function save() {
     if (!permitted() || uncertain || !edits.length) return;
     const mark = generation, pending = structuredClone(edits);
     return work(async () => {
       if (!current(mark)) return;
-      const moved = pending.some(edit => edit.op === 'map-object-translate');
+      const moved = pending.some(changesMapPositions);
       const steps = [...(moved ? ['本機檢查：道路端點、據點占格、重疊與路網連通'] : []),
-        gameId ? `伺服器核驗 ${pending.length} 條地圖修改（命令格式、素材與物件引用${moved ? '、移動後的位置與連通性' : ''}），通過才寫入遊戲地圖` : `伺服器核驗 ${pending.length} 條地圖修改：物件位置、路網連通、模板及受保護資源，通過才寫入基礎地圖`,
+        gameId ? `伺服器核驗 ${pending.length} 條地圖修改（命令格式、素材與物件引用${moved ? '、修改後的位置與連通性' : ''}），通過才寫入遊戲地圖` : `伺服器核驗 ${pending.length} 條地圖修改：物件位置、路網連通、模板及受保護資源，通過才寫入基礎地圖`,
         '重新讀取已保存的地圖'];
       let index = 0, committed = false, submitted = false;
       const report = (state, summary) => { saveReport = { steps, index, state, summary }; render(); };

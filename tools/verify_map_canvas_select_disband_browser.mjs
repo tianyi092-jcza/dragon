@@ -195,7 +195,15 @@ try {
     await panel.getByRole('button', { name: '撤銷', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#base-map-editor .base-map-canvas').dataset.redCells === '0');
     assert.equal(await panel.locator('.base-map-problems').count(), 0);
-    console.log('Position feedback/save refusal/undo:', target.id);
+    await lclick(start); await rclick(start); await menu().waitFor();
+    await menu().getByRole('button', { name: '刪除', exact: true }).click();
+    await page.getByRole('dialog', { name: '刪除地圖物件' }).getByRole('button', { name: '確認刪除' }).click();
+    await panel.getByRole('button', { name: '撤銷', exact: true }).waitFor();
+    if (target.id === city.id) await page.waitForFunction(() => Number(document.querySelector('#base-map-editor .base-map-canvas').dataset.redCells) > 0);
+    assert.equal(await panel.locator('.base-map-problems').count(), 0);
+    await panel.getByRole('button', { name: '撤銷', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#base-map-editor .base-map-canvas').dataset.redCells === '0');
+    console.log('Position feedback/save refusal and delete/undo:', target.id);
   }
   await panel.getByRole('button', { name: '鎖圖', exact: true }).click();
   await panel.getByRole('button', { name: '全圖', exact: true }).click();
@@ -350,6 +358,13 @@ try {
   }
   await rclick(await viewOf(splitAgain[0].x, splitAgain[0].y)); await menu().waitFor();
   await menu().getByRole('button', { name: '刪除', exact: true }).click();
+  const question = page.getByRole('dialog', { name: '刪除地圖物件' });
+  assert.match(await question.innerText(), /是否刪除「.+」.*共 2 件/);
+  await question.getByRole('button', { name: '取消' }).click();
+  assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false);
+  await rclick(await viewOf(splitAgain[0].x, splitAgain[0].y)); await menu().waitFor();
+  await menu().getByRole('button', { name: '刪除', exact: true }).click();
+  await question.getByRole('button', { name: '確認刪除' }).click();
   await panel.getByRole('button', { name: '撤銷', exact: true }).click();
   assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'batch delete is one undo unit');
   for (const child of splitAgain) {
@@ -358,6 +373,7 @@ try {
   }
   await rclick(await viewOf(splitAgain[0].x, splitAgain[0].y)); await menu().waitFor();
   await menu().getByRole('button', { name: '刪除', exact: true }).click();
+  await question.getByRole('button', { name: '確認刪除' }).click();
   await panel.getByRole('button', { name: '保存', exact: true }).click();
   await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
   assert.ok(splitAgain.every(child => !snapshot.template.content.map.decorations.some(item => item.id === child.id)), 'both selected objects really deleted in SQLite');

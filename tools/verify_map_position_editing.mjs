@@ -30,6 +30,16 @@ function fixture() {
       decorations: [], waterGroups: [], placements,
       roads: [{ ...road, nativeBinding: derived.nativeBinding, components: geometry.map((p, index) => ({ ...p, id: `road-cell-${index}`, definitionRef: `tile-${tileAt(p.x)}`, variantRef: 'original' })) }] } };
 }
+test('deleting a city piece or its only road stages an independent invalid candidate with affected cells', () => {
+  for (const [layer, id, code] of [['cities', 'piece-a', 'unknown-endpoint'], ['roads', 'road-ab', 'MAP_CONNECTION']]) {
+    const source = fixture(), edits = [{ op: 'map-object-remove', layer, id }];
+    const candidate = previewMapEdits(source, edits);
+    assert.deepEqual(applyMapWorkspaceEdits(source, edits), candidate);
+    assert.ok(mapPositionProblems(candidate).some(p => p.code === code && p.cells.length));
+    assert.throws(() => assertMapPositions(candidate));
+    assert.equal(source.map.placements.length, 2); assert.equal(source.map.roads.length, 1);
+  }
+});
 const move = (layer, id, dx, dy) => ({ op: 'map-object-translate', layer, id, dx, dy });
 
 test('a supported move on the real 192-city template saves, recompiles and rereads from SQLite', async () => {

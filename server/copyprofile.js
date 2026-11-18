@@ -1,7 +1,7 @@
 // Content-only internal capability. NEVER a principal, persistent author grant or runtime certificate.
 import { createHash } from 'node:crypto';
 import { MAP_EDIT_MAX_COMMANDS } from '../web/src/editor/mapeditlimits.js';
-import { translateMapObject } from '../web/src/editor/mapobjectmove.js';
+import { removeMapObject, translateMapObject } from '../web/src/editor/mapobjectmove.js';
 import { canonicalSourceTokens } from '../web/src/content/authoring/sourcejson.js';
 import { normalizeGameMetadata } from '../web/src/editor/gamemetadata.js';
 import { editChapterResources, readFactionResources } from '../web/src/editor/chapterresources.js';
@@ -91,7 +91,7 @@ function capturedInstanceIds(source) {
 // applyCapturedMapEdit（与 capture 回放同一口径）；新身份由调用方（控制器）
 // 用随机 64hex 生成（`gameId#<kind>-<64hex>`），服务端只验格式＋未占用。
 // 整包替换已废止：map 模块只接受 {edits}，无调用方依赖旧形。
-export const COPY_MAP_OPS = Object.freeze(['sea-ground-enable', 'map-object-translate', 'base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'decoration-combine', 'decoration-group', 'decoration-ungroup', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility', 'city-stamp', 'city-bind', 'city-unbind', 'road-add']);
+export const COPY_MAP_OPS = Object.freeze(['sea-ground-enable', 'map-object-remove', 'map-object-translate', 'base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'decoration-combine', 'decoration-group', 'decoration-ungroup', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility', 'city-stamp', 'city-bind', 'city-unbind', 'road-add']);
 export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
   if (!Array.isArray(edits) || !edits.length || edits.length > MAP_EDIT_MAX_COMMANDS) fail(422, 'COPY_MAP');
   const usedGroupIds = new Set(game.map?.waterGroups?.map(group => group.id) ?? []);
@@ -100,7 +100,17 @@ export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
   let next = game;
   for (const edit of edits) {
     if (!edit || typeof edit !== 'object' || Array.isArray(edit) || !COPY_MAP_OPS.includes(edit.op)) fail(422, 'COPY_MAP');
-    if (edit.op === 'map-object-translate') {
+    if (edit.op === 'map-object-remove') {
+      if (Object.keys(view(edit)).sort().join(',') !== 'id,layer,op') fail(422, 'COPY_MAP_DELTA');
+      const layer = value(edit, 'layer'), id = value(edit, 'id');
+      const before = next;
+      next = removeMapObject(next, layer, id);
+      if (layer === 'roads' && next.chapterOrder?.length) {
+        const road = before.map.roads.find(row => row.id === id);
+        next = { ...next, chapters: structuredClone(next.chapters) };
+        syncRoadEndpoints(next, road.fromCityId, road.toCityId);
+      }
+    } else if (edit.op === 'map-object-translate') {
       if (Object.keys(view(edit)).sort().join(',') !== 'dx,dy,id,layer,op') fail(422, 'COPY_MAP_DELTA');
       next = translateMapObject(next, value(edit, 'layer'), value(edit, 'id'), value(edit, 'dx'), value(edit, 'dy'));
     } else if (edit.op === 'sea-ground-enable') {
@@ -291,6 +301,10 @@ function addCopyRoad(source, edit, descriptors) {
   // (initializer from raw bytes, topology from the edited graph); every
   // named row refreshes from the same adjacency, untouched legacy rows
   // keep raw (their adjacency is unchanged).
+  syncRoadEndpoints(next, fromCityId, toCityId);
+  return next;
+}
+function syncRoadEndpoints(next, fromCityId, toCityId) {
   const want = refreshChapterNeighbours(next);
   const idBySlot = new Map(Object.values(next.cities).map(c => [c?.runtimeSlot, c?.cityId]));
   for (const chapterId of next.chapterOrder ?? []) {

@@ -106,7 +106,8 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       unboundCities: source ? Object.values(source.cities ?? {}).filter(city => !source.map.placements.some(p => p?.cityId === city.cityId)).map(city => ({ cityId: city.cityId, name: city.name ?? city.cityId })) : [],
       selectedBinding: selected?.layer === 'cities' ? (() => { const piece = source?.map.placements.find(p => p?.id === selected.id); return piece ? { pieceId: piece.id, cityId: piece.cityId ?? null, x: piece.x, y: piece.y } : null; })() : null,
       selectedGroup,
-      multi: multi.map(row => ({ ...row })),
+      multi: multi.map(({ kind, id }) => ({ kind, id })),
+      multiNames: multi.slice(0, 3).map(row => row.name || row.id),
       objectMove: objectMove ? { ...objectMove } : null,
     });
   }
@@ -384,11 +385,11 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const index = picker.pick(cell.x, cell.y), item = source.map.decorations[index];
     if (!item) return { toggled: false };
     const group = selectableGroupOf(item.id);
-    const entry = group ? { kind: 'group', id: group.id } : { kind: 'decor', id: item.id };
+    const entry = group ? { kind: 'group', id: group.id, name: group.label } : { kind: 'decor', id: item.id, name: source.componentDefinitions[item.definitionRef].name || item.definitionRef };
     if (!multi.length && selected && (selected.layer === 'decor' || selected.layer === 'group')) {
       const first = selected.layer === 'group' ? { kind: 'group', id: selected.id } : { kind: 'decor', id: selected.id };
       const known = first.kind === 'decor' || (source.selectionGroups ?? []).some(row => row.id === first.id && isSelectableGroup(row));
-      if (known) multi.push(first);
+      if (known) multi.push({ ...first, name: selected.name });
       selected = null;
     }
     const at = multi.findIndex(row => row.kind === entry.kind && row.id === entry.id);
@@ -396,7 +397,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     else multi.push(entry);
     objectMove = null; placement = null;
     draw(); facts();
-    return { toggled: true, multi: multi.map(row => ({ ...row })) };
+    return { toggled: true, multi: multi.map(({ kind, id }) => ({ kind, id })) };
   }
   function beginMultiMove(sx, sy) {
     if (!source || !multi.length || locked.decor || !visible.decor) return false;
@@ -540,6 +541,14 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       const tile = Number(fields.tile);
       if (!Number.isInteger(tile) || tile < 0xcb || tile > 0xd3) throw new Error('中心圖號須為 CB..D3');
       return stage({ op, pieceId: newId('city-piece'), x: selected.x, y: selected.y, tile });
+    }
+    if (op === 'map-object-remove') {
+      if (!selected || !['cities', 'roads'].includes(selected.layer) || locked[selected.layer] || !visible[selected.layer]) throw new Error('請先選取未鎖定的道路或據點');
+      return stage({ op, layer: selected.layer, id: selected.id });
+    }
+    if (op === 'decoration-remove' && selected?.layer === 'group' && !multi.length && selected.captureAllowed && !locked.decor && visible.decor) {
+      const group = source.selectionGroups.find(row => row.id === selected.id);
+      return stage({ op, memberIds: group.members.map(row => row.id) });
     }
     if (op === 'decoration-remove' && multi.length) {
       if (locked.decor || !visible.decor) throw new Error('請先選取未鎖定的裝飾片段');

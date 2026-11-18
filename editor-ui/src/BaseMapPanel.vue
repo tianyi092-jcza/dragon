@@ -6,6 +6,7 @@ import { ElCard } from 'element-plus/es/components/card/index.mjs';
 import { ElSelect } from 'element-plus/es/components/select/index.mjs';
 import { ElOption } from 'element-plus/es/components/select/index.mjs';
 import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
+import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import WorkspaceIcon from './WorkspaceIcon.vue';
 const props = defineProps({ model: { type: Object, required: true }, actions: { type: Object, required: true }, busy: Boolean });
 const checks = computed(() => (props.model.saveReport?.steps || []).map((label, i) => {
@@ -39,7 +40,11 @@ const futureActions = [{ name: '複製', icon: 'duplicate' }, { name: '填充', 
 const multiCount = computed(() => props.model.multi?.length ?? 0);
 const groupDisabled = computed(() => placementLocked.value || multiCount.value < 2);
 const ungroupDisabled = computed(() => placementLocked.value || (multiCount.value === 0 && !props.model.selectedGroup && props.model.selected?.layer !== 'decor'));
-const deleteDisabled = computed(() => placementLocked.value || (multiCount.value === 0 && props.model.selected?.layer !== 'decor'));
+const deleteDisabled = computed(() => {
+  const layer = props.model.selected?.layer;
+  if (multiCount.value || layer === 'decor' || layer === 'group' && props.model.selected.captureAllowed) return placementLocked.value;
+  return locked.value || !['cities', 'roads'].includes(layer) || props.model.layers.some(row => row.id === layer && (row.locked || !row.visible));
+});
 let observer, lazyObserver, pointer = null, floatingPointer = null, materialPointer = null, materialKeyboard = null;
 function cancelMaterial() {
   materialPointer = null;
@@ -216,6 +221,19 @@ async function openContext(event) {
   menu.value.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
 }
 function dismissContext(event) { if (!menu.value?.contains(event.target) && !event.target.closest('.base-map-bind-options')) contextPosition.value = null; }
+async function askRemove() {
+  if (deleteDisabled.value) return;
+  const { selected, multi, gameId, readRevision } = props.model;
+  const objects = multi?.length ? multi : [selected];
+  const names = (multi?.length ? props.model.multiNames : [selected.name || selected.id]).map(name => `「${name}」`).join('、');
+  const target = objects.length === 1 ? names : `${names}${objects.length > 3 ? '等' : ''}（共 ${objects.length} 件）`;
+  contextPosition.value = null;
+  const confirmed = await ElMessageBox.confirm(`是否刪除${target}？`, '刪除地圖物件', {
+    type: 'warning', confirmButtonText: '確認刪除', cancelButtonText: '取消', closeOnClickModal: false,
+  }).then(() => true, () => false);
+  if (confirmed && !deleteDisabled.value && props.model.gameId === gameId && props.model.readRevision === readRevision &&
+    props.model.selected?.id === selected?.id && JSON.stringify(props.model.multi) === JSON.stringify(multi)) runObjectCommand(!multi?.length && ['cities', 'roads'].includes(selected?.layer) ? 'map-object-remove' : 'decoration-remove');
+}
 function runObjectCommand(op, fields) { contextPosition.value = null; bindCityId.value = ''; props.actions.command(op, fields); }
 async function runGroup() {
   contextPosition.value = null;
@@ -338,7 +356,7 @@ onBeforeUnmount(() => {
             <ElButton aria-label="拆散" title="拆散" :disabled="ungroupDisabled" @click="runUngroup()"><WorkspaceIcon name="ungroup" /></ElButton>
 
             <ElButton aria-label="鎖定物件" title="鎖定物件：暫未開放" disabled><WorkspaceIcon name="locked" /></ElButton>
-            <ElButton aria-label="刪除" title="刪除選取的完整裝飾物件" :disabled="deleteDisabled" @click="runObjectCommand('decoration-remove')"><WorkspaceIcon name="delete" /></ElButton>
+            <ElButton aria-label="刪除" title="刪除選取的地圖物件" :disabled="deleteDisabled" @click="askRemove()"><WorkspaceIcon name="delete" /></ElButton>
           </div>
         </ElCard>
         </div>

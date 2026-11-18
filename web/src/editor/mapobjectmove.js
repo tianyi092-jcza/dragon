@@ -19,6 +19,21 @@ export function mapObjectParts(source, layer, id) {
   return { place, decorations, placements: [place], stamps, cells: stamps.flatMap(item => componentCells(source, item)) };
 }
 
+export const changesMapPositions = edit => edit.op === 'map-object-translate' || edit.op === 'map-object-remove';
+
+export function removeMapObject(source, layer, id) {
+  if (!['cities', 'roads'].includes(layer) || typeof id !== 'string') throw new RangeError('需要有效道路或據點圖塊 ID');
+  const parts = mapObjectParts(source, layer, id);
+  const map = { ...source.map };
+  if (parts.road) map.roads = map.roads.filter(row => row.id !== id);
+  else {
+    map.placements = map.placements.filter(row => row.id !== id);
+    const owned = new Set(parts.decorations.map(row => row.id));
+    map.decorations = map.decorations.filter(row => !owned.has(row.id));
+  }
+  return { ...source, map };
+}
+
 export function translateMapObject(source, layer, id, dx, dy) {
   if (!['roads', 'cities'].includes(layer) || typeof id !== 'string' || !Number.isSafeInteger(dx) || !Number.isSafeInteger(dy) || (!dx && !dy))
     throw new RangeError('移動需要道路／據點ID及非零整數位移');

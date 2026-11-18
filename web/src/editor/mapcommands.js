@@ -4,7 +4,7 @@ import { enableSeaGroundBase, fillBase, splitDecoration, placeComponent, placeCi
   translateDecorations, combineDecorations, captureComponent, renameMaterial, removeMaterial, createWaterGroup,
   splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from './componenttools.js';
 
-import { translateMapObject } from './mapobjectmove.js';
+import { removeMapObject, translateMapObject } from './mapobjectmove.js';
 
 export function reconcileMapSelectionGroups(source, next, edits) {
   if (!source.selectionGroups) return next;
@@ -14,6 +14,9 @@ export function reconcileMapSelectionGroups(source, next, edits) {
       groups = groups.map(group => ({ ...group, members: group.members.flatMap(member =>
         member.layer === 'decorations' && member.id === edit.instanceId
           ? edit.childIds.map(id => ({ layer: 'decorations', id })) : [member]) }));
+    } else if (edit.op === 'map-object-remove') {
+      const live = Object.fromEntries(['roads', 'placements', 'decorations'].map(layer => [layer, new Set(next.map[layer].map(row => row.id))]));
+      groups = groups.map(group => ({ ...group, members: group.members.filter(member => live[member.layer]?.has(member.id)) })).filter(group => group.members.length);
     } else if (edit.op === 'decoration-remove' || edit.op === 'decoration-combine') {
       const removed = new Set(edit.memberIds);
       groups = groups.map(group => ({ ...group, members: group.members.filter(member =>
@@ -54,6 +57,7 @@ export function previewMapEdits(source, edits) {
     switch (edit.op) {
       case 'sea-ground-enable': return enableSeaGroundBase(current);
       case 'base-fill': return fillBase(current, edit.cells, edit.tile, edit.geography);
+      case 'map-object-remove': return removeMapObject(current, edit.layer, edit.id);
       case 'map-object-translate': return translateMapObject(current, edit.layer, edit.id, edit.dx, edit.dy);
       case 'decoration-split': return splitDecoration(current, edit.instanceId, edit.childIds);
       case 'decoration-place': return placeComponent(current, edit.materialId, edit.x, edit.y, edit.instanceId, edit.waterClass, edit.variantRef);

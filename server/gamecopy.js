@@ -11,6 +11,7 @@ import { compileMapSource, assertMapConnected } from '../web/src/content/authori
 import { compileTrialSource } from '../web/src/content/authoring/trialcompile.js';
 import { COPY_MAP_OPS } from './copyprofile.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
+import { changesMapPositions } from '../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../web/src/editor/mappositionvalidation.js';
 import { cityName } from '../web/src/content/authoring/cityrecords.js';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
@@ -457,7 +458,7 @@ function applyModule(data, module, checked) {
       const candidate = applyMapWorkspaceEdits(next, checked.edits);
       // The multi-step new-city workflow still saves incomplete authoring
       // states. This position gate belongs to an explicit movement batch.
-      if (checked.edits.some(edit => edit.op === 'map-object-translate')) assertMapPositions(candidate);
+      if (checked.edits.some(changesMapPositions)) assertMapPositions(candidate);
       return candidate;
     } catch (e) {
       if (e?.code === 'MAP_POSITION_INVALID') fail(422, e.code, e.detail);
