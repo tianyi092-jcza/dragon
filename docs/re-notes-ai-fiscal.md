@@ -219,6 +219,13 @@ Type13跳表`3507`先以通用NPC显示TALK51；第一次真实返回后才进�
 
 到此月结生产前缀及政策切换已接至`53BD`，事件消费者另放行type1 NPC/已战无消息路径、type8迁都以及既有type9、type10、type11、type12、type13的有限实锤域。type1–8全类消息流（含type2/3玩家决定38C7/38E6、type8玩家分支341F→5E60）、8810/5E80规则闭包与月末后续命令链已分别由P25–P33闭合（type1–8见[外交笔记§35–38](re-notes-ai-diplomacy.md)，8810/5E80见[消息ABI§17](re-notes-strategic-message-abi.md#17-p3288105e80传递树写集审计与规则闭包)，月末后续命令链见下节§15）；默认v1及正常App拒v2保持。
 
+### CHAPTER-WB作者开局计量复核
+
+本轮重读固定SHA `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868` 的KI（文件偏移=CS地址+0200h），Capstone16复核`67CD..6845`、`7C6E..7D00`及`7DA5..7DF4`。实锤：67D9 `mov ax,100`后call7C6E，成功才写D10；67F2/6812/6832各`mov ax,10000`后call7C6E，CF取消则返回，成功`xor dx,dx;mov bx,10;div bx`后分别写D12/D14/D16。7C99保存cap到[bp]，7CA2清输入；7DA5数字累积，7DB9比较SI与[bp]并钳cap，7CF5恢复CF、7CF6返回AX=SI。数字输入完成后没有第二次÷10；53A6的四word搬运及财政消费沿既有§14/§15闭合链，不改变RNG或月结顺序。
+
+可复核入口 `node --test tools/verify_chapter_player_opening.mjs` pin全文SHA及上述输入／写回／返回窗；`verify_native_monthly_policy.mjs` pin53A6与20章政策源。测试不是全键盘CPU仿真。**Web产品范围**：作者开局本月与下月六项均沿用原输入域0..10000实际人数，本月税率0..100；本月可编辑不是原版游戏中途键盘新增功能。唯一序列化边界`editor/chapteropening.js`取floor(n/10)，保存raw，fresh只解码乘10；0/9/10/127/10000分别为0/0/1/12/1000原word。下月税率与D09/D11保留，不开放修改，不裁剪旧导入方案。
+
+<a id="native-fiscal-monthly-sequence"></a>
 ## 15. P33：月末后续命令链（1D8E续段、585F玩家消息、兵源对账）
 
 本节为月末后续命令链的唯一详细维护源；`585F`玩家登场/俘虏归宿消息接线的机制细节维护于[去向§18](re-notes-legion-fate.md#18-玩家登场与俘虏归宿消息接线p33-monthly-fate-1)，本节只维护月末骨架与兵源对账。

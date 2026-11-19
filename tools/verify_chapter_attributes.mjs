@@ -1,4 +1,6 @@
-// §7 chapter attributes (docs/editor-workbench-structure.md, batch B4).
+// Legacy §7 chapter attributes (docs/editor-workbench-structure.md, batch B4).
+// Frozen profile replay only; current CHAPTER-WB copy commands use linked
+// owner/capital/count writers and the era-aware runtime tested in their own lanes.
 // Fixed Web inputs and shared writers only: no DOS saves, DB, browser profile,
 // auth or runtime admission. Every claim is re-derived from the pinned copy.
 import assert from 'node:assert/strict';
@@ -58,8 +60,8 @@ test('pinned chapters keep named posts, capitals and the city owner byte aligned
 test('chapter attribute writers keep named views, fixed slots and strict validation aligned', () => {
   const edited = structuredClone(game), id = edited.chapterOrder[0], state = edited.chapters[id].state;
   const faction = state.factions[0], city = state.cities[0], other = state.cities[1];
-  // The era is an authoring label beside the year: switching it cannot renumber
-  // the chapter, and a later year write keeps the label.
+  // This legacy writer/replay test checks serialization only. Switching era
+  // preserves the numeric date; runtime BC progression is tested separately.
   const { year, month, day } = state.start;
   setChapterStart(edited, id, { era: 'bc' });
   assert.equal(state.start.era, 'bc'); assert.deepEqual({ year: state.start.year, month: state.start.month, day: state.start.day }, { year, month, day });
@@ -76,7 +78,8 @@ test('chapter attribute writers keep named views, fixed slots and strict validat
   assert.equal(city.faction, faction.idx); assert.equal(byte(city.raw, 1), faction.idx);
   if (typeof table[city.idx] === 'string') assert.equal(byte(table[city.idx], 1), faction.idx);
   assert.equal(byte(city.raw, 0x1a), oldOwner);
-  // Capital is one city per faction and does not require ownership.
+  // Frozen setFactionCapital replay does not enforce ownership. This is NOT
+  // the current copy contract: setChapterCapital links ownership and counts.
   setFactionCapital(edited, id, faction.idx, other.idx);
   assert.equal(faction.capital, other.idx);
   assert.equal(byte(faction.raw, 3), other.idx);

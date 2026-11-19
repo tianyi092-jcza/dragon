@@ -18,12 +18,12 @@ const errorReply = (status, error) => Response.json({ error }, { status, headers
   'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
 } });
 
-export function createEditorService({ storage, bucket, env, runtimeStager, frozenPublication = false, purgeReclaimer, distributionDrain }) {
+export function createEditorService({ storage, bucket, env, runtimeStager, frozenPublication = false, purgeReclaimer, distributionDrain, isolatedCopySource }) {
   const policy = config(env);
   if (!storage?.sql || !bucket) throw new TypeError('SQLite and private bucket ports required');
   const bindings = { ...env, EDITOR_BLOBS: bucket };
   // Trusted startup option only; the shared factory validates it before SQL.
-  const Application = runtimeStager === undefined && frozenPublication === false && purgeReclaimer === undefined && distributionDrain === undefined ? EditorApplication : createEditorApplication(class NodeApplicationBase {}, { runtimeStager, frozenPublication, readSharedPortrait, purgeReclaimer, distributionDrain });
+  const Application = runtimeStager === undefined && frozenPublication === false && purgeReclaimer === undefined && distributionDrain === undefined && isolatedCopySource === undefined ? EditorApplication : createEditorApplication(class NodeApplicationBase {}, { runtimeStager, frozenPublication, readSharedPortrait, purgeReclaimer, distributionDrain, isolatedCopySource });
   const entry = createEditorGateway({ frozenPublication });
   const application = new Application({ storage }, bindings);
   bindings.EDITOR_METADATA = {

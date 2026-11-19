@@ -49,9 +49,11 @@ function catalogRows(value, expected) {
   for (const [index, row] of rows.entries()) {
     if (row?.chapterId !== expected.chapters[index] || typeof row.name !== 'string' || !row.name.length) return null;
     if (!['year', 'month', 'day'].every(key => Number.isSafeInteger(row.start?.[key]))) return null;
+    if (row.start.era !== undefined && (!['bc', 'ad'].includes(row.start.era) || row.start.year < 1)) return null;
     if (!Array.isArray(row.factions)) return null;
     out.push(Object.freeze({ chapterId: row.chapterId, name: row.name,
-      start: Object.freeze({ year: row.start.year, month: row.start.month, day: row.start.day }),
+      start: Object.freeze({ year: row.start.year, month: row.start.month, day: row.start.day,
+        ...(row.start.era === undefined ? {} : { era: row.start.era }) }),
       factions: Object.freeze(row.factions.map(faction => Object.freeze({
         monarch: faction.monarch, advisor: faction.advisor, capital: faction.capital,
         nGenerals: faction.nGenerals, nCities: faction.nCities }))) }));
@@ -90,11 +92,13 @@ export async function loadPlayerChapters({ reader, selection, assertCurrent = ()
       let chapter;
       try { chapter = parseJSON(bytes); } catch { fail('PLAYER_CHAPTER_PREVIEW_INVALID'); }
       if (typeof chapter?.name !== 'string' || !chapter.name.length ||
-          !['year', 'month', 'day'].every(key => Number.isSafeInteger(chapter.start?.[key]))) fail('PLAYER_CHAPTER_PREVIEW_INVALID');
+          !['year', 'month', 'day'].every(key => Number.isSafeInteger(chapter.start?.[key])) ||
+          (chapter.start.era !== undefined && (!['bc', 'ad'].includes(chapter.start.era) || chapter.start.year < 1))) fail('PLAYER_CHAPTER_PREVIEW_INVALID');
       // Display fields only: no faction choice, rule initialization or playable
       // certification. The selected pack still passes the shared engine gates.
       rows.push(Object.freeze({ chapterId, name: chapter.name,
-        start: Object.freeze({ year: chapter.start.year, month: chapter.start.month, day: chapter.start.day }) }));
+        start: Object.freeze({ year: chapter.start.year, month: chapter.start.month, day: chapter.start.day,
+          ...(chapter.start.era === undefined ? {} : { era: chapter.start.era }) }) }));
     } finally { session.close(); }
   }
   assertCurrent();

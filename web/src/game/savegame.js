@@ -448,6 +448,7 @@ export function snapshotState(app, slotIdx, label) {
     year: clock.year,
     month: clock.month,
     day: clock.day,
+    ...(clock.era == null ? {} : { era: clock.era }),
   };
   state.save_sub = clock.sub ?? 0;
   state.save_hour = clock.hour ?? 0;

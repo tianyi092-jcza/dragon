@@ -240,6 +240,79 @@ native `processMonthlyGeneralFates(585F)`全停已由[§9](#9-月度俘虏594058
 
 原kernel测试新增精确有序写集、当前属同/异/FF/18/缺失、原属活动/灭亡、0/255回绕、24..255原属别名拒绝、缺字段前缀、玩家5101与3485无active门。Scenario测试直接真实handler，覆盖与L02分离、127号、缺own/错identity、显示字段无关、无意外全场景/军团/F14/03/占格/RNG变化、JSON恢复以及外围入口仍拒绝。它们是**原字节推导的有界回归，不是原CPU动态执行/正常完整战役前史**；未修未知别名、全F18初始化/写者、显示及8810返回或默认v2。新进展不关闭C13整行，更不关闭C01–C15。
 
+### CHAPTER-WB 普通武将所属编辑与F18（Web作者操作）
+
+本轮重读固定KI SHA256 `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，file offset=VA+200h：`2AD3 CMP AH,FF / 2AD6 JE 2AE3`；旧属非FF时`2AD8 BH=AH / 2ADA BL=0 / 2ADC、2ADE SHR BX,1 / 2AE0 DEC byte[BX+18]`；`2AE3 CMP AL,FF / 2AE5 JE 2AF2`；新属非FF同样构造指针，`2AEF INC byte[BX+18]`；`2AF2 POP BX / 2AF3 RET`。字节回绕、F18偏移与旧DEC/新INC次序为**实锤**；已有捕获/投奔caller及消息边界继续遵上述分节，不由作者编辑推导新机制。
+
+`setChapterGeneralOwner`是已授权的**Web作者所属编辑，不模拟原版招募或俘虏流程**：仅普通槽、无任官、status=0/captive_flag=FF的归属变更；俘虏/特殊状态拒绝，不自动清除。当前copy `general-faction`及按generalId的`general-settings`同步两份来源raw F18与存在的nativeGeneralCount；不按active数重算，不改倒计时或投奔。相同所属是作者无修改，不声称省略运行时2AD2的两次访问。`n_generals`仅按`parse_sinario.py`既有扣同属军师并max(0)的显示兼容口径刷新，绝不作为native输入。SQLite回归包含自由→0→1→自由、同次inactive/4月/预定投奔1而当前属0、整批拒绝回滚、其他章/主表不变；真正`initializeNativeFactionSlots`读取修改后的F18通过。君主更换、势力创建/解散及特殊状态清理仍未由此认证。
+
+**军师编辑的显示投影补充（Web兼容，不是KI任免规则）**：现行copy改走`setChapterStrategist`，任命/清空后按上述旧`n_generals`显示口径刷新；原`setStrategist`保持冻结回放行为。只改F02引用及兼容显示值，不在编辑时执行玩家开局的F18 DEC，也不消费RNG。回归先证实清空时显示仍为7而固定F18为8，再核清空变8、恢复原军师回7，整个作者源除F02镜像与该显示字段外不变；运行权威仍为固定raw/nativeGeneralCount。此修复不把旧显示口径升级为NPC原版人数公式。
+
+### CHAPTER-WB 更换君主（Web作者操作）
+
+同一KI SHA、VA+200h再次只读复核：`2A12 TEST byte[BX],40h / 2A15 JE 2A1E / 2A17 AND byte[BX],BFh`，君主标记为G00 bit6、清除保留其余位是**实锤**。后接`2A1A ADD byte[BX+1E],3`属于原捕获路径，不能带入作者换君主；此处不声称重演捕获/死亡/继位机制。
+
+已批准的作者换君主由`changeChapterMonarch`承接当前copy的`set-monarch`及`remove-monarch.resolution.successor`。新君主须本游戏库已关联、正常槽、活动、倒计时0、status0/captiveFF、无任官，自由或本势力；旧君主的异常所属/任官/特殊状态须先显式解决，不暗清。自由候选以既有所属写者增加F18一次，本属候选不改人数；旧君主不退属，只清bit6。F01及两raw镜像同步，新君主置bit6；势力身份/编号、首都/城市、资源和开局方案不变。无RNG或运行时消息调用。冻结legacy helper仍供旧replay，不扩展其原证结论。
+
+`verify_copy_chapter_ops.mjs`覆盖自由与本属两条路径、旧君主保留、raw/编号/资源/他章/主表不变及越属抢君整批回滚。原始夹具没有满足全部资格的自由人，测试显式设置隔离作者配置，未放宽可任用条件，也不以夹具声称原版自由人物已登场。此项不认证尚未完成的势力解散。
+
+<a id="chapter-wb-作者势力退役表示内部切片尚未接现行api"></a>
+### CHAPTER-WB 作者势力退役表示（现行copy命令）
+
+`retireChapterFaction`是已批准P2解散要求的**Web作者操作**，不是执行DOS败亡/俘虏/RNG链。保留原有公开声明数组的位置/宽度、idx及作者ID/编号，以`retired:true`表示不可再任职的槽；不把原22槽表的声明外记录添进公开列表。现行创建仍只追加，不复用退役槽，因此保留的原外交单元（含物理别名）不会被指给另一个新身份。本切片不宣称解决全部槽复用或中立外交初始化。
+
+已落实的清理写集：普通成员G1C转自由，清G00君主位并保留登场/月份；指向本势力的G19投奔清空；本属城C01转18h空城、不动旧属C1A；自身F00活动位清除、F01=FF、F02=7F、F03/F16/F17/F19/F2A=FF；三预备池、F14军团数、F18武将数、F1A..1C维护累计、F20..22金钱及F23城数归零，同时从新raw解码命名字段。移除该势力玩家开局方案，其他势力指向它的F19清FF。声明计数`n_factions`仍表示保留的声明宽度，不改成实时存活数；存活门继续消费22固定槽的活动位。G00 bit6原始位义见前节2A12/2A17；F00活动位、胜负门及败亡减活计数窗口见`verify_native_victory_gate.mjs`的4FCE/1D0B原字节；其余字段原证索引见实体字典/财政与外交SKILL。上述**清理策略**来自Web产品要求，不把“清零”说成原版新建或败亡配方。
+
+先检查后修改：章内已有军团、非零type待处理原生事件、外交官、成员非普通状态/俘虏标记、其他任官、保留将引用等报具体冲突，不猜测其清理，也不执行旧运行回调；类型0事件参数与外交矩阵原字节保留。退役模型保存校验拒绝活动/首都/资金/人数、玩家方案或所属/投奔/俘虏/目标残留。首中末三槽的direct回归已验证固定位置、双raw、C1A不变、其它章和主表不变，以及真实native表装配/存活计数和JSON后rebind别名；六种冲突在修改前拒绝。
+
+**现行接线与验证**：`disband-faction`及`remove-monarch {disband:true}`统一调用此helper；预检RangeError以422 `COPY_CHAPTER_RETIREMENT_CONFLICT`携具体原因返回，失败不保存前缀。普通角色/所属/投奔、首都、外交官、开局方案及两种资源writer都拒绝再写退役槽。DTO保留已分配槽数，只投影非退役势力；创建按物理声明宽度限制22槽，不因隐藏行释放容量。四Tab解散先列成员/据点/投奔数量与不复用限制，取消零POST，成功重读使原首都解锁；后台冲突不自动猜清。正式玩家环境拒绝显式选择退役槽。
+
+首中末的两种实际copy命令已在隔离SQLite成功，并再次通过发布检验；九种后续写入拒绝时，前一资源修改、摘要、时间及票据不变。完整编译、实际fresh装配及完整JSON恢复验证固定槽/存活数/自由成员与空城。鉴权HTTP另验证两章各两势力、同一人物跨章君主/普通人与同城异属；退役首势力后，另一章/主表/另一势力不变，随后建立新势力使用新编号3/槽2而非旧编号1/槽0。`CHAPTER_WB_RETIREMENT=1`正式lane退役转换夹具末势力后走真实检验/审批/正式加载，并在两位存续玩家的实际App完成BC→AD月结与隔离IDB恢复。具体轮次见journal§199与章节审计T1–T5；不把有界清理称为DOS败亡规则，也不声称任意军团/外交/事件冲突已经支持自动清理。
+
+### CHAPTER-WB 空白章固定势力表（Web创建边界）
+
+负控在只创建两势力的新章调用真实`initializeNativeFactionSlots`/`countNativeAliveFactions`，得到**16而非2**：旧`createFaction`首次填表会复制`CHAPTER_BASE.factionSlots`整张固定源表，未声明槽也带入活动位/钱兵。这违反已批准“普通新建不凭空生成势力”，不能以公开列表只有两行证明没有额外势力。
+
+现行新章创建/普通新副本转换通过`initializeBlankChapterInputs`，在无声明、无已初始化固定表的创建边界物化22个非活动记录。仅清上节已有字段证据的活动/角色/城/钱兵/计数/目标字段，保留其余固定源字节；不生成公开势力或人物身份。此为Web空白作者初态，不是DOS存在通用“空白剧本初始化器”的结论。之后每次明确创建仅启用对应槽。完整复制、旧副本读取及无编号历史回放不调用此入口，已初始化的表拒绝重复初始化，不落盘修补旧数据。
+
+真实HTTPS/SQLite回归锁定普通新建0活动、两章分别创建后各2活动、解散后1活动、再创建后2活动而声明宽度3；转换测试同时检查未配置表无金钱/预备兵/维护累计/角色/城引用。完整转换17章的34次装配/JSON恢复仍通过。此固定表切片当时未补外交矩阵；雨云、完整模板事件页及后续获批外交模板分别见下文。旧缺失输入仍拒绝，不因新建模板成立而自动修补旧副本。详见章节审计T1/T4/T5与journal§199。
+
+### CHAPTER-WB 空白章共同天气输入
+
+**实锤数据**：本轮只读`原版/上/中/下/后/SINARIO.DAT`，每章步长22208B。全20章的文件`+0x21C0..0x22BF`完整256B雨云窗逐字节相同，`+0x32..0x39`边界均为`f0fff0ff90019001`（有符号word：minX/minY=-16、maxX/maxY=400）。下库虽总长88830B，其四章天气窗全部完整，未补尾字节。五份文件的完整SHA256、全窗相等及16×16B逐字段解码对照由`tools/verify_chapter_blank_weather.mjs`固定，未读取任何SAVE。
+
+16槽按原解析映射：活动byte0、x/y signed word2/4、phaseX/velocityX/phaseY/velocityY signed byte8..11、timer/interval/group byte12..14、frame byte15低3位。测试把全部原窗直接解码，与生成模块的共同模板逐字段比较，不拿现有Web表现反证原始机制。
+
+**Web创建策略**：新空白章沿用这份共同天气输入，不造随机云、不从前一作者章继承；`build_chapter_base.mjs`从固定登记源生成并校验16槽/整数范围/边界，`initializeBlankChapterInputs`分别深拷贝云与边界。实际`initializeScenarioWeatherInputs`接受该数据，按既有已证入口拥有status80与空灾害槽；未改天气规则、RNG消费、月结或restore路径。双章引用隔离测试证明修改一章的云/边界不改另一章或生成模板。天气证据不替代其他初态证据；事件页另按下段独立核验，外交矩阵后续批准模板及普通新关系见下节。
+
+### CHAPTER-WB 空白章模板事件页
+
+只读同五份已绑定SHA的原始文件，逐章取`+0x52C0..0x56BF`：19个完整1024B窗全为0，SHA256均为`5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef`；下库第4章仅1022B，原样保留且真实`initializeNativeStrategicEventWheel`仍拒绝，未补齐。19/1只描述本组固定输入，不成为运行期规则。
+
+新空白章采用固定基座`upper-1`中**已经完整的原始事件页**，不是对缺页的旧章合成零。生成器要求该创建模板事件页完整且空；新章只复制其字符串，实际运行初始化器建立256个空槽。完整复制、已有副本和restore不套此默认，也未清运行期已排事件、改事件生产/游标/RNG。新原证测试直接对照19个完整窗口与生成物，并对短尾保留拒绝；此模板策略不推定截断原章已恢复，不允许把任意旧源缺失输入补零。
+
+### CHAPTER-WB 空白章外交模板与新增行列
+
+**原始数据证据**：固定基座为上库第一章，原文件SHA已绑定于`verify_chapter_blank_weather.mjs`。该工具直接取`上/SINARIO.DAT +0680..08BF`完整576B，比对生成的24×24原矩阵（包含对角和22/23物理别名）。原`+0681`即0→1为B7h=和平55，按既有外交字典40..59属普通；不是从视觉样本拟合数值。矩阵方向/位义与字典原证维护在`re-domestic-diplomacy` §3，不在这里重定义规则。
+
+**Web产品决定**：用户明确追加外交矩阵子模块、固定模板初值以及新增势力双方默认普通。创建专用`initializeBlankChapterInputs`复制完整模板并建立空声明视图；`createChapterFaction`只将新槽与已声明且未退役的其他槽双向设为模板B7h，保持旧有向关系、所有对角、退役/未声明/保留格不变，并按声明宽度投影具名矩阵。旧具名矩阵若与raw分歧先拒绝，不趁创建修复旧格。完整复制/GET/restore不调用该默认；不改变DOS外交计算或RNG。单格编辑与第五Tab现已接线，见下段；普通新建正式App链另验。
+
+新测试核576格的第三势力新增写集、故意不对称旧关系保留、旧raw/具名分歧拒绝无写入，以及空白两势力章真实compile→prepareScenario fresh→完整JSON→restore成功；这不等同于普通创建正式发布及App月结链通过。字典选择UI的其余档位写入合同见下段。
+
+**外交字典与单格编辑（现行）**：本轮再次只读同SHA的KI.EXE，CS+0200h。`7A9A..7AC4`：raw<80h显示7844「交戰」；否则取低7位，>100显示786E「－－」，100先DEC到99，其余unsigned DIV20后按7B步长取784B最惡、7852險惡、7859普通、7860良好、7867親密。`verify_chapter_diplomacy.mjs`绑定完整EXE SHA，核原Big5字典及CMP/JA/JB/DEC字节、各档边界和输入byte范围。不是借截图证明阈值。
+
+共享`chapterdiplomacy.js`维护五档标签/分类及**Web作者代表值**：最惡81h(1)、險惡96h(22)、普通B7h(55)、良好CCh(76)、親密DDh(93)，分别取固定上1模板0→4、4→5、0→1、0→3、0→17已有格；原证测试逐格比对，不称DOS有这个设置菜单或将代表值当原版关系更新公式。已有交战/超100值按原显示保留为只读当前选项，只有明确选择五档之一才替换为代表值。
+
+当前`diplomacy`命令精确收`chapterId/actorIdx/targetIdx/relation`；本章两条未退役声明且非对角，拒未知档/保留槽/跨章身份/额外raw字段。先验证完整矩阵、固定声明槽序及具名视图一致，再只写actor→target的一字节和具名格，反方向/所有其他格不动，不消费RNG。现行copy事务保证后续错误时前置命令、内容摘要/票据/时间无前缀写入。原始矩阵从不交给Vue；控制器只投影数字格DTO，页面按当前非退役君主建行列，默认Element Plus表格/选择器、同势力“－”、选择即保存重读而无二次确认。新增/解散后自动增删展示行列；失败重挂选择器显示上次已读值并在模块标题报错，旧游戏/章节响应不写当前局部状态。
+
+真实SQLite已覆盖五档单向精确差分与非法/退役拒绝；真实鉴权HTTP覆盖作者/CSRF门、另一章及主表隔离和批回滚。fresh Chromium另核22势力/462个选择格、1440与1024宽仅表格内横滚、即时保存不弹确认、单向重读、HTTP422不改源且恢复旧值、退役隐藏行列。该browser lane为内存API运输，不替代真实HTTP。
+
+### CHAPTER-WB 作者倒计时／投奔字段复核
+
+本次只读 `E:/Dragon/Dragon/KI.EXE`，SHA256 `fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868`，文件偏移=CS+0200，Capstone16复核585F..58C8：586A比较G00与80h，不活动跳588E；586F比较G18与0，非零5875按byte减1后跳588E（减至零本次仍不招募）；587A先读G1C，FF才CALL5899。589A单独读取G19，FF走58C2；非FF在58A2消费RNG，AL<40h才58A9清G19→FF，后续分支沿本节§10现有证据链，不在作者命令中新造分配算法。
+
+Web作者命令 `general-arrival` 只改目标章普通武将的 `appear_months`（0..255为byte编码边界）与 `join_faction`（null或本章有君主的正常槽）。当前所属、attr/active、任职和F18不随这两个独立输入改写；未登场武将不是删除对象。G127与君主拒绝此普通武将命令。该切片不实现active编辑、当前所属联动计数或解散清理，不能当作完整P2验收。SQLite回归验证两字段差异、他章/主表不变及批次失败无前缀。
+
 ## 9. 月度俘虏5940、585F扫描与301C入队（P24-MONTHLY-CAPTIVE-1）
 
 本节为该增量的唯一详细维护源，取代§7/8中585F全入口停止的旧现状；**仅有限native真实`processMonthlyGeneralFates`已接，不是整月/全AI完成**。本节当批未接无属招募5899，后由[§10](#10-招募5899与f23权威边界p24-recruitment-1)有限接通；玩家消息599C已由[§18](#18-玩家登场与俘虏归宿消息接线p33-monthly-fate-1)接线；1D8E事件泵、5358外围/正常App v2、35ED及4FCE仍不放行。未新增章节初始化、F18回算、第二事件缓冲或消息假RET；v1旧近似保留并明确不是原规则证明。
@@ -897,7 +970,7 @@ if unsigned(AX) > DI: DI = AX; SI = BP[i] // 4CDB..4CE1，严格大于
 - `5940`（G1D!=FF俘虏归宿）：ECE0消费1字节；r>=0x40→RET；r>=0x20且G1C==G19→joined径（5956 G1D=FF、595A G17=0、5960 2AD2(AH=FF,AL=G1C)先写、5963 CX=0x42→TALK[66]→5990）；否则pending径（596B BL=(r&0xF)+8、597E 301C入队AX=(slot<<8)|9/DX=FFFF、5984 CX=0x41→TALK[65]→5990、**598A G1C=0x18仅在5990返回后**）。`5990`：`cs:[CFF]!=G1C`→RET（非玩家无消息）；==→`5999 PUSH SI`/`599A DI=SP`→`599C CALL CDE`→8810→`59A4 POP SI`→RET。joined径写在消息前、pending径`G1C=0x18`写在消息后，顺序不对称已实锤。
 - Web接线（5810合同同§9/§10）：`originalMonthlyGeneralScan585F(io,startSlot=0)`支持`io.deferPlayerFateMessage`钩子——玩家径返回`{deferred:{at,kind:'recruit-join'|'captive-joined'|'captive-pending',slot,owner,talkIndex},slot}`并暂停扫描，恢复从`slot+1`重入（跨槽无其它存活寄存器，与LOOP CX/SI语义等价）；无钩子保持`5924`/`599C` stop fail-closed。导出续段commit：`commitOriginalRecruitJoinOwnerWrite`（5930：`G1C==0xFF`幂等门+`G1C=owner`+`2AD2(255,owner)`）与`commitOriginalCaptivePendingFactionWrite`（598A：`G1C=owner`，owner=挂起时捕获的G1C）；captive-joined无尾写。挂起期间禁止快照保存（`_nativeMonthlyFateContinuation`禁存门）。
 - ai.js合同：`processMonthlyGeneralFates(app,deferredTail)` native支路入口前置门——同scenario已挂起直接RangeError（在消耗任何RNG/扫描前；旧实现把检查放在suspend时导致重扫slot 0二次消费RNG，已改前置）；deferred→`suspendNativeMonthlyFateMessage`入队8810等价Talk模态（talkIndex 41/65/66、generalName参数、onClose=resumeNativeMonthlyFate）并置`_strategicEventPostMessageRngPending`。resume：验scenario/owner→按kind补写续段→从`slot+1`续扫→再deferred则链式下一条（保tail）→完成后清续体、rngPending=false并执行`deferredTail`（月结剩余步：ratings/diplomacy/budgets/disaster/deficit/policy/monthlyAI/cmd.monthEnd/monthlyAppear守卫后）。错误路径holdFailedStrategicUpdate+rethrow，保留前缀不回滚。无gamebar→RangeError fail-closed。
-- main.js月结重构：`onMonthEnd`在5358序列后建nativeBlocked守卫（scenarioNativeRoadContext||hasNativeLegionSlots）与`runRemainingMonthEndSteps`闭包；processMonthlyGeneralFates未挂起才立即顺序执行尾巴。native场景下monthlyAppear与cmd.monthEnd的pendingRecruits段跳过（585F逐月减G18=appear_months与v1按elapsed阈值直改faction双机制冲突消除；v1 recruit()命令花200金次月+500无原版对应，native场景返err禁用，v1保留——**未批准差异候选，待用户裁决**，原版兵源=5695自动增长+67C5跳表財政政策配额，见[财政§14](re-notes-ai-fiscal.md#native-fiscal-monthly-sequence)）。
+- main.js月结重构：`onMonthEnd`在5358序列后建nativeBlocked守卫（scenarioNativeRoadContext||hasNativeLegionSlots）与`runRemainingMonthEndSteps`闭包；processMonthlyGeneralFates未挂起才立即顺序执行尾巴。native场景下monthlyAppear与cmd.monthEnd的pendingRecruits段跳过（585F逐月减G18=appear_months与v1按elapsed阈值直改faction双机制冲突消除；v1 recruit()命令花200金次月+500无原版对应，native场景返err禁用，v1保留——**未批准差异候选，待用户裁决**，原版兵源=5695自动增长+67C5跳表財政政策配额，见[财政月结顺序](re-notes-ai-fiscal.md#native-fiscal-monthly-sequence)）。
 - 回归：`verify_native_legion_fate.mjs` 40项——5924/599C两旧stop断言改写为deferred全合同（挂起前缀保留、continuation形状、talkIndex、already-pending再入、onClose后5930/598A写序、slot+1续扫、链式多挂起、无新RNG、tail执行、故障保持hold+禁存），外加既有585F/5940/5899钉值不变。
 - 仍未闭合：CFD全初始化/跨阶段写者、F18全生命周期、5358整链、35ED/1D8E、4FCE消息返回与TALK36后F19续段（扫描本体见§19）、生产native内容挂载与默认App v2准入；不启用正常App v2、不改默认资产。
 

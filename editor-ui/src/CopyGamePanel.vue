@@ -1,4 +1,5 @@
 <script setup>
+import { ref, watch } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
@@ -6,6 +7,8 @@ import { ElProgress } from 'element-plus/es/components/progress/index.mjs';
 import { vLoading } from 'element-plus/es/components/loading/index.mjs';
 import { loadingSvg } from './loading.js';
 const props = defineProps({ model: Object, actions: Object, busy: Boolean });
+const showConversion = ref(false);
+watch(() => props.model.conversionDetails, () => { showConversion.value = false; });
 async function create() {
   if (props.busy || props.model.createDisabled) return;
   try { await props.actions.create(); }
@@ -17,6 +20,10 @@ async function create() {
   <section id="copy-game-editor" class="module-card">
     <!-- 唯一訊息區：複製期間、成功、失敗都在這一處顯示 -->
     <p id="full-copy-message" role="status">{{ model.message }}</p>
+    <ElButton v-if="model.conversionDetails" id="full-copy-conversion" @click="showConversion = true">轉換明細</ElButton>
+    <ElDialog v-model="showConversion" title="章節轉換明細" width="min(880px, calc(100vw - 32px))" align-center destroy-on-close>
+      <ElInput id="full-copy-conversion-details" type="textarea" readonly :autosize="{ minRows: 8, maxRows: 18 }" :model-value="model.conversionDetails" />
+    </ElDialog>
     <p>地圖＋章節＋武將全套複製，產生原章完整副本。名稱不能與既有遊戲重複。</p>
     <form id="full-copy-form" class="module-form" @submit.prevent="create()">
       <label>名稱<ElInput id="full-copy-name" maxlength="1024" :model-value="model.name" :disabled="busy || model.locked" @input="actions.setField('name', $event)" /></label>

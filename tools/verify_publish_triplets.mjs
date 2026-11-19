@@ -60,7 +60,30 @@ const manifestOf = async roadGraph => {
   assert.equal(manifest.assets.find(e => e.assetId === 'terrain').role, 'rules-initial-terrain');
   assert.equal(manifest.world.width, 384);
 }
+{
+  const graph = { version: 2, nodes: [], edges: [] }, full = await manifestOf(graph);
+  storage.sql.exec('UPDATE copy_origins SET profile_revision=? WHERE game_id=?', 'fixed-template-authoring-1', G);
+  const template = await manifestOf(graph);
+  assert.deepEqual(template.visualAssets, full.visualAssets, 'both creation modes keep exactly the same pinned season descriptors');
+  const [path, bytes] = visualBytes.entries().next().value, corrupted = Uint8Array.from(bytes);
+  corrupted[0] ^= 1; visualBytes.set(path, corrupted);
+  await assert.rejects(packs.prepare('owned-token', input(graph)), error => error.code === 'PLAY_VISUALS_BINDING');
+  visualBytes.set(path, bytes);
+  storage.sql.exec('UPDATE copy_origins SET profile_revision=? WHERE game_id=?', packs.policy.profileRevision, G);
+}
+for (const legacyName of [undefined, '舊章名']) {
+  const source = input({ version: 2, nodes: [], edges: [] });
+  source.game.chapters.c1.name = '新甲';
+  if (legacyName !== undefined) source.game.chapters.c1.state.name = legacyName;
+  const before = JSON.stringify(source.game);
+  const pending = packs.prepare('owned-token', source);
+  assert.equal(JSON.stringify(source.game), before, 'publication name projection does not rewrite author/native source');
+  source.game.chapters.c1.name = '稍後修改';
+  const ticket = await pending;
+  const staged = packs.snapshotPrepared('owned-token', ticket);
+  assert.equal(JSON.parse(staged.chapters[0].state_json).name, '新甲', 'prepared chapter uses the captured author label, not absent/stale state.name');
+}
 for (const roadGraph of [{}, { version: 1 }, { version: 4 }, null]) {
   await assert.rejects(packs.prepare('owned-token', input(roadGraph)), error => error.code === 'PLAY_SNAPSHOT');
 }
-process.stdout.write(JSON.stringify({ checks: 3, scope: 'C6(c) publisher triplets: v2 unchanged, v3 schema2/studio-app-3/native-road-v3, unknown versions rejected' }) + '\n');
+process.stdout.write(JSON.stringify({ checks: 6, scope: 'C6(c) publisher triplets: v2 unchanged, v3 schema2/studio-app-3/native-road-v3, unknown versions rejected; CHAPTER-WB both creation profiles retain identical visuals and reject corrupt asset bytes' }) + '\n');

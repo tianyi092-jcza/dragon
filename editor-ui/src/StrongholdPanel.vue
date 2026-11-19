@@ -41,7 +41,7 @@ const columns = [
   { key: 'prod', title: '當前生產', sortable: true, type: 'number' },
   { key: 'growth', title: '上升值', sortable: true, type: 'number' },
   { key: 'defence', title: '防災值', sortable: true, type: 'number' },
-  { key: 'troops', title: '城兵', sortable: true, type: 'number' },
+  { key: 'troops', title: '城兵*10', sortable: true, type: 'number' },
   { key: 'type', title: '類型', sortable: true, type: 'number' },
   { key: 'actions', title: '操作', sortable: false },
 ];

@@ -5,8 +5,8 @@ import { sha256 } from '../web/src/player/runtimecontract.js';
 const G='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',R='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',D='c'.repeat(64);
 const selection={gameId:G,releaseId:R,ordinal:'1.0',revision:'1',sourceDigest:D,name:'Owned',publishedAt:'2037-01-01T00:00:00.000Z',chapters:[G+'#one',G+'#two']};
 let checks=0;
-async function fixture(){
- const calls=[],sessions=[],bodies=selection.chapters.map((_chapterId,i)=>({name:i===0?'<img src=x onerror=owned()>':'第二章',start:{year:184+i,month:1,day:1},privateField:'not retained'}));
+async function fixture(era){
+ const calls=[],sessions=[],bodies=selection.chapters.map((_chapterId,i)=>({name:i===0?'<img src=x onerror=owned()>':'第二章',start:{year:era===undefined?184+i:1+i,month:1,day:1,...(era===undefined?{}:{era})},privateField:'not retained'}));
  const replies=await Promise.all(bodies.map(async body=>{const bytes=new TextEncoder().encode(JSON.stringify(body));return{bytes,sha256:await sha256(bytes),contentType:'application/json'};}));
  const f={calls,sessions,bodies,replies,admitHook:null,readHook:null,statusHook:null};
  f.reader={async admit(request){calls.push(['admit',structuredClone(request)]);const index=selection.chapters.indexOf(request.chapterId);let state='active';const s={identity:{...structuredClone(selection),chapterId:request.chapterId,manifestDigest:D},state:()=>state,close(){state='closed';calls.push(['close',request.chapterId]);},async read(role){calls.push(['read',role]);return f.readHook?f.readHook(index,s):replies[index];}};sessions.push(s);if(f.admitHook)await f.admitHook(s,index);return s;},async status(id){calls.push(['status',id]);return f.statusHook?f.statusHook():{...structuredClone(selection),listed:true};}};
@@ -40,5 +40,21 @@ for(const stage of ['before','admit','read','status']){const f=await fixture(),e
 }
 {
  const f=await fixture(),preview=await loadPlayerChapters({reader:f.reader,selection});f.admitHook=s=>{s.identity.ordinal='1.1';s.identity.releaseId=G;};await assert.rejects(()=>admitPlayerChapter({reader:f.reader,selection:preview.selection,chapterId:selection.chapters[0]}),invalid);assert.ok(f.sessions.every(s=>s.state()==='closed'));checks++;
+}
+for (const era of ['bc', 'ad']) {
+ const f=await fixture(era), preview=await loadPlayerChapters({reader:f.reader,selection});
+ assert.deepEqual(preview.chapters.map(row=>row.start),f.bodies.map(body=>body.start));
+ const catalog=async()=>({...selection,chapters:f.bodies.map((body,index)=>({chapterId:selection.chapters[index],name:body.name,start:body.start,factions:[]}))});
+ f.calls.length=0;
+ const listed=await loadPlayerChapters({reader:f.reader,selection,catalog});
+ assert.deepEqual(listed.chapters.map(row=>row.start),f.bodies.map(body=>body.start));
+ assert.equal(f.calls.some(call=>call[0]==='admit'),false,'valid era catalog must not fall back to previews');
+ checks++;
+}
+for (const start of [{era:'bc',year:0,month:1,day:1},{era:'unknown',year:1,month:1,day:1},{era:null,year:1,month:1,day:1}]) {
+ const f=await fixture(),bytes=new TextEncoder().encode(JSON.stringify({name:'bad date',start}));
+ f.readHook=async()=>({bytes,sha256:await sha256(bytes),contentType:'application/json'});
+ await assert.rejects(()=>loadPlayerChapters({reader:f.reader,selection}),invalid);
+ assert.ok(f.sessions.every(session=>session.state()==='closed'));checks++;
 }
 process.stdout.write(JSON.stringify({checks,scope:'Owned reader ports and bounded real JSON/SHA only; preview does not certify playable rules or supply a reusable gameplay ticket.'})+'\n');

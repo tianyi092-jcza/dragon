@@ -21,8 +21,8 @@ const raw = (va, len) =>
 
 test("KI.EXE sha256 pinned", () => {
   assert.equal(
-    createHash("sha256").update(KI).digest("hex").slice(0, 8),
-    "fffeba98",
+    createHash("sha256").update(KI).digest("hex"),
+    "fffeba985231cda4d636e93d10f598470b1f691d00275e4aa38e285893d43868",
   );
 });
 

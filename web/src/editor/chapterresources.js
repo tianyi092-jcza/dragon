@@ -14,19 +14,19 @@ export function readFactionResources(raw) {
   return Object.fromEntries(Object.entries(fields).map(([name, [offset, size]]) => [name, decoded(raw, offset, size, name === 'money')]));
 }
 function locate(game, chapterId, slot) {
-  if (game?.gameId === BUILTIN_GAME_ID || game?.sourceRef?.kind !== "builtin-copy" || game.sourceRef.sourceId !== BUILTIN_GAME_ID) throw new RangeError("僅可編輯獨立完整副本的既有章節資源");
+  if (game?.gameId === BUILTIN_GAME_ID || !["builtin-copy", "builtin-template"].includes(game?.sourceRef?.kind) || game.sourceRef.sourceId !== BUILTIN_GAME_ID) throw new RangeError("僅可編輯獨立遊戲副本的既有章節資源");
   if (typeof chapterId !== "string" || !game.chapterOrder?.includes(chapterId) || !Object.hasOwn(game.chapters ?? {}, chapterId) || game.chapters[chapterId].chapterId !== chapterId) throw new RangeError("章節身份不符");
   const state = game.chapters[chapterId].state;
   if (!Array.isArray(state?.factions) || state.factions.length > 22 || !Number.isInteger(slot) || slot < 0 || slot >= 22) throw new RangeError("公開勢力槽不符");
-  // A chapter's public list may shrink after a faction is removed. Its idx
-  // still selects the original native slot; array position is not identity.
+  // idx selects the native slot. Current retirement retains an inactive
+  // physical row but does not authorize editing that retired faction.
   const ids = new Set();
   for (const row of state.factions) {
     if (!Number.isInteger(row?.idx) || row.idx < 0 || row.idx >= 22 || ids.has(row.idx)) throw new RangeError("公開勢力槽不符");
     ids.add(row.idx);
   }
   const position = state.factions.findIndex(row => row.idx === slot);
-  if (position < 0) throw new RangeError("公開勢力槽不符");
+  if (position < 0 || state.factions[position].retired === true) throw new RangeError("公開勢力槽不存在或已退役");
   if (!Array.isArray(state.nativeFactionSlotRaw) || state.nativeFactionSlotRaw.length !== 22) throw new TypeError("缺少固定勢力來源");
   for (let i = 0; i < 22; i++) rawRecord(state.nativeFactionSlotRaw[i]);
   const faction = state.factions[position], raw = rawRecord(faction.raw), native = state.nativeFactionSlotRaw[slot];
@@ -37,6 +37,24 @@ function locate(game, chapterId, slot) {
   if (faction.money_hi !== decoded(raw, 0x22, 1, false)) throw new RangeError("章節資金高位來源分歧");
   return { state, faction, position };
 }
+// CHAPTER-WB actual-amount/people input. Product bounds are not native widths.
+// Reserve pools use ten-person words (F04/06/08); money F20..22 does not.
+export function editChapterResourcePeople(game, chapterId, slot, values) {
+  if (!values || typeof values !== "object" || ![Object.prototype, null].includes(Object.getPrototypeOf(values)))
+    throw new TypeError("資源修改格式不符");
+  const descriptors = Object.getOwnPropertyDescriptors(values), names = Reflect.ownKeys(descriptors);
+  if (!names.length || names.some(name => typeof name !== "string" || !Object.hasOwn(fields, name) ||
+      !descriptors[name].enumerable || !Object.hasOwn(descriptors[name], "value")))
+    throw new TypeError("僅支援資金與三種預備兵池");
+  const stored = Object.fromEntries(names.map(name => {
+    const value = descriptors[name].value, max = name === "money" ? 650000 : 65000;
+    if (!Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > max)
+      throw new RangeError(`作者資源輸入 ${name} 必須為 0..${max}`);
+    return [name, name === "money" ? value : Math.floor(value / 10)];
+  }));
+  return editChapterResources(game, chapterId, slot, stored);
+}
+
 export function editChapterResources(game, chapterId, slot, values) {
   const { faction, position } = locate(game, chapterId, slot);
   if (!values || typeof values !== "object" || ![Object.prototype, null].includes(Object.getPrototypeOf(values))) throw new TypeError("資源修改格式不符");

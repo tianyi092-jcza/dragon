@@ -1131,7 +1131,7 @@ export class StartMenu {
   // 日期格式 0x62F: "196年 4月 1日" (月/日十位補空格)
   _dateStr(d) {
     const p = (n) => (n >= 10 ? `${n}` : ` ${n}`);
-    return `${d.year}年 ${p(d.month)}月 ${p(d.day)}日`;
+    return `${d.era === 'bc' ? '前' : ''}${d.year}年 ${p(d.month)}月 ${p(d.day)}日`;
   }
 
   // ── comp7 @rel: 雲窗(0,0,191,79) 白線y23 按鈕×2 描邊×4 文字×2 ──

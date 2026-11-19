@@ -3,6 +3,7 @@
 import { DEFAULT_WORLD } from "../content/worlddefinition.js";
 import { initializeLegionSlotState } from "./legionphase.js";
 import { initializeFactionLegionCounts } from "./legioncounts.js";
+import { decodePlayerOpening } from "./nativemonthlypolicy.js";
 
 export const WORLD = {
   TILES_X: DEFAULT_WORLD.width,
@@ -96,8 +97,19 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   const state = structuredClone(raw);
   if (playerFaction != null) state.player_faction = playerFaction;
 
-  // 原版新章节头字段为未指定/满信赖；Web 选定玩家势力后从满值开始。
+  // CHAPTER-WB Web product: only fresh creation installs the selected faction's
+  // opening. Legacy templates without a plan keep the historical fresh default.
+  const opening = state.factions?.find(f => f.idx === state.player_faction)?.playerOpening;
   state.trust = 255;
+  if (opening !== undefined) {
+    const { trust, policy } = decodePlayerOpening(opening);
+    state.trust = trust;
+    state.nativeMonthlyPolicyRaw = opening.policyRaw;
+    state.tax = policy.tax;
+    state.next_tax = policy.nextTax;
+    state.conscription = policy.conscription;
+    state.next_conscription = policy.nextConscription;
+  }
   delete state.trust_game_over;
   // 新局不得继承任何 Web 运行时队列或派生状态。正常 data.json 模板不含这些字段；
   // 这里仍显式清理，保证同章重开及意外模板污染都回到纯 SINARIO 初态。

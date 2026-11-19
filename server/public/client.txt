@@ -3,7 +3,7 @@ import { installDraftEditor, createAuthoringContext } from '/draft.js';
 import { installStageJobs } from '/stage.js';
 import { installLibraryBrowser } from '/library.js';
 import { installLibraryRegistration } from '/catalog.js';
-import { installGameManagement, installGameDeletion } from '/management.js';
+import { installGameManagement } from '/management.js';
 import { installPublish } from '/publish.js';
 import { installReview } from '/review.js';
 import { installStronghold } from '/stronghold.js';
@@ -65,14 +65,13 @@ const views = [
   ['chapters-editor', '遊戲章節', false, 'game'],
   ['publish-editor', '上架管理', false, 'game'],
   ['management-editor', '上架審核', true, 'admin'],
-  ['deletion-editor', '刪除管理', true, 'admin'],
   ['copy-game-editor', '複製遊戲', true, 'admin'],
   ['base-map-editor', '基礎地圖', true, 'admin'],
 ];
 let view = null, displayedOwner = null, draftRefreshPending = false;
 const accounts = createAccountController({ api, authority: () => current, work: run, publish: model => shell.accounts(model), confirm: text => confirm(text) });
-const gameMapActions = {}, newCityActions = {}, baseMapActions = {}, managementActions = {}, deletionActions = {}, publicationActions = {}, reviewActions = {}, copyActions = {}, fullCopyActions = {}, draftActions = {}, stageAssetsActions = {}, stageJobsActions = {}, libraryActions = {}, strongholdActions = {}, generalsActions = {}, catalogActions = {};
-const shell = mountWorkbench({ root: q('editor-app'), views, navigate, accounts, baseMap: baseMapActions, gameMap: gameMapActions, newCity: newCityActions, draft: draftActions, stageAssets: stageAssetsActions, stageJobs: stageJobsActions, library: libraryActions, stronghold: strongholdActions, catalog: catalogActions, generals: generalsActions, copy: copyActions, fullCopy: fullCopyActions, publication: publicationActions, management: managementActions, deletion: deletionActions, review: reviewActions, logout: () => q('logout').click() });
+const gameMapActions = {}, newCityActions = {}, baseMapActions = {}, managementActions = {}, publicationActions = {}, reviewActions = {}, copyActions = {}, fullCopyActions = {}, draftActions = {}, stageAssetsActions = {}, stageJobsActions = {}, libraryActions = {}, strongholdActions = {}, generalsActions = {}, catalogActions = {};
+const shell = mountWorkbench({ root: q('editor-app'), views, navigate, accounts, baseMap: baseMapActions, gameMap: gameMapActions, newCity: newCityActions, draft: draftActions, stageAssets: stageAssetsActions, stageJobs: stageJobsActions, library: libraryActions, stronghold: strongholdActions, catalog: catalogActions, generals: generalsActions, copy: copyActions, fullCopy: fullCopyActions, publication: publicationActions, management: managementActions, review: reviewActions, logout: () => q('logout').click() });
 function permittedView(next) {
   if (!current || current.user.mustChangePassword) return null;
   if (['profile', 'password'].includes(next)) return next;
@@ -118,14 +117,14 @@ function render() {
   }
   accounts.setIdentity(current); copyUI.setIdentity(current); fullCopyUI.setIdentity(current); baseMapUI.setIdentity(current);
   if (current) fillProfile();
-  draftUI.setIdentity(current); gameMapUI.setIdentity(current); newCityUI.setIdentity(current); stageUI?.setIdentity(current); libraryUI?.setIdentity(current); catalogUI?.setIdentity(current); managementUI?.setIdentity(current); deletionUI?.setIdentity(current); publishUI?.setIdentity(current); reviewUI?.setIdentity(current); stageAssetUI?.setIdentity(current); strongholdUI?.setIdentity(current); generalsUI?.setIdentity(current);
+  draftUI.setIdentity(current); gameMapUI.setIdentity(current); newCityUI.setIdentity(current); stageUI?.setIdentity(current); libraryUI?.setIdentity(current); catalogUI?.setIdentity(current); managementUI?.setIdentity(current); publishUI?.setIdentity(current); reviewUI?.setIdentity(current); stageAssetUI?.setIdentity(current); strongholdUI?.setIdentity(current); generalsUI?.setIdentity(current);
   show(view ?? location.hash.slice(1));
 }
 async function run(action, options = {}) {
   if (busy) return; busy = true; feedback = options.feedback ?? 'global'; shell.sync({ current, view, busy, feedback }); const controls = [...document.querySelectorAll('#login input,#profile input,#password input')]; controls.forEach(node => { node.disabled = true; });
   // 立刻把「現在有一個動作在跑」畫到每個面板上：否則動作期間其它按鈕看起來可以點，
   // 實際被 run() 的 busy 守衛默默吞掉。
-  try { draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); deletionUI?.render(); publishUI?.render(); reviewUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); copyUI.render(); fullCopyUI.render(); } catch { /* 畫不上不影響動作本身 */ }
+  try { draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); publishUI?.render(); reviewUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); copyUI.render(); fullCopyUI.render(); } catch { /* 畫不上不影響動作本身 */ }
   // 動作若能說清楚自己完成了什麼（例如「複製完成。」「檢驗完成。」），就在上方提示那句話；
   // 才退回仍有的中性提示，不再讓所有操作都顯示成「操作完成」。
   try { const result = await action(); if (!options.ownStatus) status(typeof result === 'string' && result ? result : '操作完成。'); return result; }
@@ -136,7 +135,7 @@ async function run(action, options = {}) {
     shell.sync({ current, view, busy });
     controls.forEach(node => { node.disabled = false; });
     try {
-      draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); deletionUI?.render(); publishUI?.render(); reviewUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); copyUI.render(); fullCopyUI.render();
+      draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); publishUI?.render(); reviewUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); copyUI.render(); fullCopyUI.render();
       // 複製完成後要刷新頂部「當前遊戲」下拉框；不能直接調用，因為此刻 busy 還是 true。
       if (draftRefreshPending) { draftRefreshPending = false; void draftUI.actions.refresh(); }
       show(view);
@@ -144,12 +143,12 @@ async function run(action, options = {}) {
   }
 }
 const list = () => accounts.load();
-let stageUI, libraryUI, catalogUI, managementUI, deletionUI, publishUI, reviewUI, stageAssetUI, strongholdUI, generalsUI;
+let stageUI, libraryUI, catalogUI, managementUI, publishUI, reviewUI, stageAssetUI, strongholdUI, generalsUI;
 let contextIdentity = null;
 const authoringContext = createAuthoringContext({
   participants: () => ({draft: draftUI, stronghold: strongholdUI, generals: generalsUI, map: gameMapUI, newCity: newCityUI, publication: publishUI}),
   initialGame: () => draftUI.selectedGame(),
-  beforeChange: () => stageUI.canLeave() && catalogUI.canLeave() && managementUI.canLeave() && deletionUI.canLeave() && copyUI.canLeave(),
+  beforeChange: () => stageUI.canLeave() && catalogUI.canLeave() && managementUI.canLeave() && copyUI.canLeave(),
 });
 const contextFor = source => ({ current: authoringContext.current, select: id => { const selected = authoringContext.select(id, source); if (selected) show(view); return selected; }, reset: () => authoringContext.reset() });
 async function openGameView(id, target) {
@@ -178,8 +177,6 @@ catalogUI = installLibraryRegistration({ api, authority: () => current, work: ru
 Object.assign(catalogActions, catalogUI.actions);
 managementUI = installGameManagement({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.management(model) });
 Object.assign(managementActions, managementUI.actions);
-deletionUI = installGameDeletion({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.deletion(model) });
-Object.assign(deletionActions, deletionUI.actions);
 publishUI = installPublish({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('publication'), publish: model => shell.publication(model) });
 Object.assign(publicationActions, publishUI.actions);
 reviewUI = installReview({ api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.review(model), onPurged: gameId => { draftUI.forgetGame(gameId); } });
@@ -195,7 +192,7 @@ function accountDirty(includePassword = true) {
   if (!current) return false;
   return shell.accountDirty() || ['displayName', 'email', 'phone', 'note'].some(key => q('profile').elements.namedItem(key).value !== (current.user[key] ?? '')) || includePassword && [...q('password').querySelectorAll('input')].some(input => input.value);
 }
-const canLeave = (forUnload = false, includePassword = true) => (!accountDirty(includePassword) || !forUnload && confirm('帳戶建立、個人資料或密碼尚未提交；此操作不會自動保存這些輸入。確定繼續？')) && draftUI.canLeave(forUnload) && stageUI.canLeave(forUnload) && catalogUI.canLeave(forUnload) && managementUI.canLeave(forUnload) && deletionUI.canLeave(forUnload) && publishUI.canLeave(forUnload) && strongholdUI.canLeave(forUnload) && copyUI.canLeave(forUnload) && fullCopyUI.canLeave(forUnload) && baseMapUI.canLeave(forUnload) && gameMapUI.canLeave(forUnload);
+const canLeave = (forUnload = false, includePassword = true) => (!accountDirty(includePassword) || !forUnload && confirm('帳戶建立、個人資料或密碼尚未提交；此操作不會自動保存這些輸入。確定繼續？')) && draftUI.canLeave(forUnload) && stageUI.canLeave(forUnload) && catalogUI.canLeave(forUnload) && managementUI.canLeave(forUnload) && publishUI.canLeave(forUnload) && strongholdUI.canLeave(forUnload) && copyUI.canLeave(forUnload) && fullCopyUI.canLeave(forUnload) && baseMapUI.canLeave(forUnload) && gameMapUI.canLeave(forUnload);
 window.addEventListener('beforeunload', event => { stageUI.revokeURLs(); libraryUI.revokeURLs(); if (!canLeave(true)) { event.preventDefault(); event.returnValue = ''; } });
 q('login').onsubmit = event => { event.preventDefault(); const data = new FormData(event.currentTarget); run(async () => { if (!canLeave()) return; current = await api('/api/auth/login', { account: String(data.get('account')), password: String(data.get('password')) }); sessionEpoch++; q('login').reset(); render(); if (!current.user.mustChangePassword && current.user.role === 'admin') await list(); }); };
 q('password').onsubmit = event => { event.preventDefault(); const data = new FormData(event.currentTarget); run(async () => { if (!canLeave(false, false)) return; if (data.get('newPassword') !== data.get('confirmPassword')) throw new Error('兩次新密碼不相同。'); current = await api('/api/auth/password', { oldPassword: String(data.get('oldPassword')), newPassword: String(data.get('newPassword')) }); sessionEpoch++; draftUI.passwordChanged(current); stageUI.passwordChanged(current); q('password').reset(); render(); if (current.user.role === 'admin') await list(); }); };

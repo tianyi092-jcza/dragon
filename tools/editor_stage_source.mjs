@@ -1,16 +1,18 @@
 // Explicit operator bootstrap: fixed Web bytes to isolated R2, never account impersonation/SQL approval.
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { installedSourcePolicy } from '../server/sourcecatalogpolicy.js';
+import { installedSourcePolicy, isIsolatedChapterSourcePolicy } from '../server/sourcecatalogpolicy.js';
 import { encodeSourceChunks } from '../web/src/content/authoring/sourcejson.js';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
-export async function stageInstalledEditorSource(bucket) {
+export async function stageInstalledEditorSource(bucket, isolatedSource) {
+  if (isolatedSource !== undefined && (!isIsolatedChapterSourcePolicy(isolatedSource.policy) || typeof isolatedSource.readWeb !== 'function'))
+    throw new TypeError('trusted independently branded staging source required');
   if (typeof bucket?.get !== 'function' || typeof bucket?.put !== 'function') throw new TypeError('actual operator R2 required');
-  const readWeb = path => Buffer.from(readFileSync(new URL('../web/' + path, import.meta.url)));
+  const readWeb = isolatedSource?.readWeb ?? (path => Buffer.from(readFileSync(new URL('../web/' + path, import.meta.url))));
   // Pinned role bytes are read directly and verified per-role below against
   // the server pinned manifests. The Web-default trusted-copy gate is a
   // separate scope and must not decide which pinned bytes get staged.
-  const policy = installedSourcePolicy(readFileSync(new URL('../server/pinned/world-manifest.txt', import.meta.url)), readFileSync(new URL('../server/pinned/entity-manifest.txt', import.meta.url)));
+  const policy = isolatedSource?.policy ?? installedSourcePolicy(readFileSync(new URL('../server/pinned/world-manifest.txt', import.meta.url)), readFileSync(new URL('../server/pinned/entity-manifest.txt', import.meta.url)));
   const definitionDigest = sha(Buffer.concat(encodeSourceChunks(policy))), roles = [];
   async function put(bytes) {
     const descriptor = { sha256: sha(bytes), byteLength: bytes.length }, key = `installed/${policy.registryId}/${descriptor.sha256}`;

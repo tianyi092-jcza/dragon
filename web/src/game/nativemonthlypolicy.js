@@ -93,10 +93,24 @@ export function assertNativeMonthlyPolicy(sc) {
   assertNamedViews(sc, raw);
 }
 
+// Source boundary shared by fresh opening plans and the native initializer.
+// Decoding exposes people counts; it never serializes or divides them again.
+export function decodeNativeMonthlyPolicySource(encoded) {
+  const raw = decodeSource(encoded);
+  return { raw, ...expectedViews(raw) };
+}
+
+export function decodePlayerOpening(opening) {
+  if (!opening || Object.keys(opening).sort().join(',') !== 'policyRaw,trust' ||
+      !Number.isInteger(opening.trust) || Object.is(opening.trust, -0) || opening.trust < 0 || opening.trust > 255)
+    throw new TypeError("Invalid player opening plan");
+  return { trust: opening.trust, policy: decodeNativeMonthlyPolicySource(opening.policyRaw) };
+}
+
 export function initializeNativeMonthlyPolicy(sc) {
   if (hasNativeMonthlyPolicy(sc))
     throw new TypeError("Native monthly policy already initialized");
-  const raw = decodeSource(sc?.nativeMonthlyPolicyRaw);
+  const { raw } = decodeNativeMonthlyPolicySource(sc?.nativeMonthlyPolicyRaw);
   assertNamedViews(sc, raw);
   sc.nativeMonthlyPolicy = { version: 1, bytes: raw };
   assertNativeMonthlyPolicy(sc);

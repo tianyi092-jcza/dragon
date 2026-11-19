@@ -17,6 +17,12 @@ export function inspectCopyOriginLinks(sql,gameId){
  if(markers(sql,'SELECT 1 AS binding FROM copy_requests NOT INDEXED WHERE game_id=? COLLATE BINARY AND length(CAST(result_json AS BLOB))>8192 LIMIT 1',[gameId],1))fail(503,'DELETE_COPY_ORIGIN_BUDGET');
  const receipt=query(sql,'SELECT r.result_json AS receipt,o.source_digest AS source,o.baseline_digest AS baseline FROM copy_requests AS r NOT INDEXED JOIN copy_origins AS o NOT INDEXED ON r.game_id COLLATE BINARY=o.game_id COLLATE BINARY WHERE r.game_id=? COLLATE BINARY LIMIT 2',[gameId],2);
  if(receipt.length!==1||Object.keys(receipt[0]).length!==3||Object.values(receipt[0]).some(v=>typeof v!=='string'))fail(503,'DELETE_COPY_ORIGIN_QUERY');let value;try{value=JSON.parse(receipt[0].receipt);}catch{fail(503,'DELETE_COPY_RECEIPT_ROWS');}
- if(!value||Array.isArray(value)||typeof value!=='object'||Object.keys(value).sort().join(',')!=='baselineDigest,draftRevision,gameId,sourceDigest'||value.gameId!==gameId||value.draftRevision!=='1'||value.sourceDigest!==receipt[0].source||value.baselineDigest!==receipt[0].baseline)fail(503,'DELETE_COPY_RECEIPT_ROWS');
+ if(!value||Array.isArray(value)||typeof value!=='object')fail(503,'DELETE_COPY_RECEIPT_ROWS');
+ // CHAPTER-WB adds optional presentation data, not another identity or authority.
+ const {chapterConversion,...identity}=value;
+ if(Object.keys(identity).sort().join(',')!=='baselineDigest,draftRevision,gameId,sourceDigest'||identity.gameId!==gameId||identity.draftRevision!=='1'||identity.sourceDigest!==receipt[0].source||identity.baselineDigest!==receipt[0].baseline)fail(503,'DELETE_COPY_RECEIPT_ROWS');
+ if(chapterConversion!==undefined&&(chapterConversion?.version!==1||!Array.isArray(chapterConversion.labels)||!Array.isArray(chapterConversion.capitals)||
+  !chapterConversion.labels.every(row=>typeof row?.chapterId==='string'&&typeof row.sourceName==='string'&&(row.sourceNumber===null||typeof row.sourceNumber==='string')&&typeof row.number==='string'&&typeof row.name==='string')||
+  !chapterConversion.capitals.every(row=>typeof row?.chapterId==='string'&&typeof row.cityName==='string'&&Number.isInteger(row.cityIdx)&&(row.before===null||Number.isInteger(row.before))&&Number.isInteger(row.after))))fail(503,'DELETE_COPY_RECEIPT_ROWS');
  return Object.freeze({copyOriginLinksVerified:true,copyReceiptLinksVerified:true});
 }

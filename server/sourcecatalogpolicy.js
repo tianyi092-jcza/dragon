@@ -14,7 +14,24 @@ const LIBRARY_BASE_REVISION = 'map-2-47e35876cd32ff3b7eee27da3be95eaa1b52a6d108a
 // Shared fixed identity for policy and structural consumers; not a capability.
 export const AVAILABLE_LIBRARY_REGISTRY_ID = 'approved-available-library-f4ba804b-1';
 const policies = new WeakSet();
+const isolatedChapterPolicies = new WeakSet();
 export const isInstalledSourcePolicy = value => policies.has(value);
+export const isIsolatedChapterSourcePolicy = value => isolatedChapterPolicies.has(value);
+
+// Trusted test assembly only: preserve every production role and pin, append
+// one independently hashed fixture payload, and NEVER reuse the builtin ID.
+// No HTTP or environment option calls this constructor.
+export function isolatedChapterSourcePolicy(base, role) {
+  if (!policies.has(base) || base.registryId !== 'approved-builtin-28805f-entities7e7-1' ||
+    !/^[a-f0-9]{64}$/.test(role.sha256) || role.path !== `fixtures/chapter-workbench/${role.sha256}.json` ||
+    !Number.isSafeInteger(role.byteLength) || role.byteLength < 1 || role.byteLength > 64 * 1024 * 1024)
+    throw new TypeError('pinned base and independent chapter fixture role required');
+  const fixtureRole = Object.freeze({ path: role.path, sha256: role.sha256, byteLength: role.byteLength });
+  const policy = Object.freeze({ ...base, registryId: `isolated-chapter-wb-${role.sha256}`, sourceDigest: role.sha256,
+    roles: Object.freeze([...base.roles, fixtureRole].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) });
+  policies.add(policy); isolatedChapterPolicies.add(policy);
+  return policy;
+}
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 function manifest(bytes, expectedHash, expectedLength) {
   if (!(bytes instanceof Uint8Array) || bytes.length !== expectedLength || digest(bytes) !== expectedHash) fail(503, 'SOURCE_MANIFEST_NOT_PINNED');

@@ -54,6 +54,21 @@ const ref = fresh().resources['asset:terrain'];
 const assets = [{ asset_id: 'terrain', sha256: ref.sha256, byte_length: ref.byteLength, bytes: assetFile.bytes }];
 const build = (p = pack, c = chapters, a = assets, r = release) => buildRuntimeIndex(pin, r, p, c, a);
 assert.deepEqual(build().reference, reference); n++;
+// CHAPTER-WB: an immutable release index must not erase the signed chapter's era.
+for (const era of ['bc', 'ad']) {
+  const rows = chapters.map(row => ({ ...row, state_json: JSON.stringify({
+    ...parseJSON(Buffer.from(row.state_json)), name: '紀元章', factions: [], start: { era, year: 1, month: 12, day: 31 },
+  }) }));
+  const built = build(pack, rows);
+  const index = parseJSON(built.files.find(file => file.key === built.reference.key).bytes);
+  assert.ok(index.chapterIndex.every(row => row.start.era === era && row.start.year === 1));
+  for (const row of rows) assert.equal(built.files.find(file => file.key.endsWith(`/chapters/${row.chapter_id}.json`)).bytes.toString(), row.state_json);
+  for (const start of [{ era, year: 0, month: 1, day: 1 }, { era: 'invalid', year: 1, month: 1, day: 1 }]) {
+    const invalid = structuredClone(index); invalid.chapterIndex[0].start = start;
+    assert.throws(() => validateIndex(invalid), /RUNTIME_CORRUPT/);
+  }
+  n++;
+}
 // SQL cursors and prepared arrays may enumerate the same rows differently.
 // Their ordering must not select different immutable runtime descriptors.
 const orderedManifest = parseJSON(manifestFile.bytes), graphBytes = Buffer.from('{}');

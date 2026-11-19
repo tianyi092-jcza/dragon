@@ -58,7 +58,7 @@ export function mountPlayerNewGame({ root, reader, selection, store, compilerRev
     phase = 'chapters'; heading.textContent = '選擇章節'; message.textContent = `${preview.selection.name} ${preview.selection.ordinal}`;
     rows.replaceChildren();
     for (const row of preview.chapters)
-      button(`${row.name}　${row.start.year}/${row.start.month}/${row.start.day}`, () => { void choose(row.chapterId); }, 'chapterId', row.chapterId);
+      button(`${row.name}　${row.start.era === 'bc' ? '公元前' : row.start.era === 'ad' ? '公元' : ''}${row.start.year}/${row.start.month}/${row.start.day}`, () => { void choose(row.chapterId); }, 'chapterId', row.chapterId);
   }
   async function refresh() {
     if (closed) return false;

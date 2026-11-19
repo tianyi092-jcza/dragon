@@ -21,11 +21,10 @@ import CatalogPanel from './CatalogPanel.vue';
 import GeneralsPanel from './GeneralsPanel.vue';
 import CopyPanel from './CopyPanel.vue';
 import CopyGamePanel from './CopyGamePanel.vue';
-import DeletionPanel from './DeletionPanel.vue';
 import NewCityPanel from './NewCityPanel.vue';
 import PublishPanel from './PublishPanel.vue';
 import ReviewPanel from './ReviewPanel.vue';
-const props = defineProps({ state: Object, baseMapModel: Object, baseMap: Object, gameMapModel: Object, gameMap: Object, newCityModel: Object, newCity: Object, deletionModel: Object, deletion: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
+const props = defineProps({ state: Object, baseMapModel: Object, baseMap: Object, gameMapModel: Object, gameMap: Object, newCityModel: Object, newCity: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
 import { loadingSvg } from './loading.js';
 // 阻塞彈窗自行展示 Loading，不在它背後再疊一個全局動畫；請求計數與 busy 不變。
 const publicationOverlay = ref(false);
@@ -113,7 +112,7 @@ async function go(view) {
         <AccountPages :state="state" :ready="ready" />
         <AccountsPanel ref="accountsPanel" :model="accountsModel" :actions="accounts" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'admin'" />
         <DraftPanel :active="ready && state.view === 'draft-editor'" :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'draft-editor'" />
-        <ChaptersPanel :active="ready && state.view === 'chapters-editor'" :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'chapters-editor'" />
+        <ChaptersPanel :active="ready && state.view === 'chapters-editor'" :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'chapters-editor'" @notice="state.statusMessage = $event" />
         <StrongholdPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'stronghold-editor'" />
         <BaseMapPanel v-if="ready && state.admin && state.view === 'base-map-editor'" :model="baseMapModel" :actions="baseMap" :busy="state.busy" />
         <BaseMapPanel v-if="ready && state.view === 'mapview-editor'" :key="gameMapModel.gameId || 'no-game'" :model="gameMapModel" :actions="gameMap" :busy="state.busy">
@@ -124,7 +123,6 @@ async function go(view) {
         <CopyPanel :model="copyModel" :actions="copy" :busy="state.busy" :hidden="!ready || state.view !== 'copy'" />
         <PublishPanel :model="publicationModel" :actions="publication" :busy="state.busy" :hidden="!ready || state.view !== 'publish-editor'" @overlay-change="publicationOverlay = $event" />
         <ReviewPanel :model="reviewModel" :actions="review" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'management-editor'" />
-        <DeletionPanel :model="deletionModel" :actions="deletion" :busy="state.busy" :current-game="draftModel.fields.gameId" :hidden="!ready || !state.admin || state.view !== 'deletion-editor'" />
         <CopyGamePanel :model="fullCopyModel" :actions="fullCopy" :busy="state.busy" :hidden="!ready || !state.admin || state.view !== 'copy-game-editor'" />
       </section>
     </main>

@@ -35,7 +35,7 @@ export { createNewCityController } from './gamenewcity.js';
 
 // The shell receives display facts only, never CSRF tokens, passwords, source
 // objects or live game state. Server permissions remain the authority.
-export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, catalog, generals, copy, fullCopy, publication, management, review, deletion, baseMap, gameMap, newCity }) {
+export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, catalog, generals, copy, fullCopy, publication, management, review, baseMap, gameMap, newCity }) {
   // The legacy page link belongs to the player. Detach it only in the editor;
   // do not override its theme variables or change the shared server asset.
   document.querySelector('link[rel="stylesheet"][href="/style.css"]')?.remove();
@@ -59,8 +59,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const publicationModel = reactive({rows:[],locked:true,refreshDisabled:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true,operation:'',result:'',message:''});
   const managementModel = reactive({games:[],locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
   const reviewModel = reactive({ rows: [], message: '', result: '', locked: true, refreshDisabled: true, history: { gameId: null, loading: false, message: '', rows: [] } });
-  const deletionModel = reactive({games:[],admin:false,locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
-  const app = createApp(Workbench, { state, baseMapModel, baseMap, gameMapModel, gameMap, newCityModel, newCity, accountsModel, accounts, draftModel, draft, stageAssetsModel, stageAssets, stageJobsModel, stageJobs, libraryModel, library, strongholdModel, stronghold, catalogModel, catalog, generalsModel, generals, copyModel, copy, fullCopyModel, fullCopy, publicationModel, publication, managementModel, management, reviewModel, review, deletionModel, deletion, navigate, logout });
+  const app = createApp(Workbench, { state, baseMapModel, baseMap, gameMapModel, gameMap, newCityModel, newCity, accountsModel, accounts, draftModel, draft, stageAssetsModel, stageAssets, stageJobsModel, stageJobs, libraryModel, library, strongholdModel, stronghold, catalogModel, catalog, generalsModel, generals, copyModel, copy, fullCopyModel, fullCopy, publicationModel, publication, managementModel, management, reviewModel, review, navigate, logout });
   const instance = app.mount(root);
   return Object.freeze({
     baseMap: model => Object.assign(baseMapModel, model),
@@ -79,7 +78,6 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
     publication: model => Object.assign(publicationModel, model),
     management: model => Object.assign(managementModel, model),
     review: model => Object.assign(reviewModel, model),
-    deletion: model => Object.assign(deletionModel, model),
     loading: value => { state.loading = value; },
     status: (message, isError = false) => {
       state.statusMessage = message;

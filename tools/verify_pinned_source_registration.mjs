@@ -4,6 +4,9 @@
 // root drifted, and leaves a fresh database able to create a game with no manual
 // admin click. Node SQLite + private file bucket + loopback HTTPS, no browser.
 //   node tools/verify_pinned_source_registration.mjs
+//   node tools/verify_pinned_source_registration.mjs --source-only
+// source-only excludes the separately staged available-library compatibility
+// check; it does not weaken that check or claim library/start-game coverage.
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,6 +21,7 @@ import { stageInstalledEditorSource } from './editor_stage_source.mjs';
 import { stageInstalledAvailableLibrary } from './editor_stage_library.mjs';
 import { createEditorHTTPS } from './editor_local_https.mjs';
 
+const sourceOnly = process.argv.includes('--source-only');
 const port = Number(process.env.EDITOR_TEST_PORT || 8789);
 assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535, 'valid test port required');
 const origin = `https://127.0.0.1:${port}`;
@@ -63,7 +67,7 @@ try {
     },
   };
   const source = await stageInstalledEditorSource(operator);
-  await stageInstalledAvailableLibrary(operator);
+  if (!sourceOnly) await stageInstalledAvailableLibrary(operator);
   const env = {
     EDITOR_ORIGIN: origin,
     EDITOR_DEFAULT_PASSWORD: bootstrapPassword,
@@ -125,7 +129,7 @@ try {
   const cancel = await call(`/api/games/create/${pending.op_key}/cancel`, {}, admin, { 'If-Match': `"${reserved.data.rowRevision}"` });
   assert.equal(cancel.status, 200);
   assert.equal(count('SELECT COUNT(*) AS n FROM content_games'), 0, 'cancelled reservation leaves no game');
-  checks.push({ check: 'freshDeployCanCreateGame', reserve: reserved.status, cancel: cancel.status });
+  checks.push({ check: 'freshDeployCanReserveAndCancelGame', reserve: reserved.status, cancel: cancel.status });
 
   // The production seam: startEditorServer runs the optional startup step after
   // the schema exists and before the port opens.
@@ -136,7 +140,7 @@ try {
   await server.close();
   checks.push({ check: 'serverRunsStartupStep', prepared: prepared.length });
 
-  process.stdout.write(JSON.stringify({ result: 'PASS-PINNED-SOURCE-REGISTRATION', platform: 'Node SQLite/FileBucket + owned HTTPS', checks, calls }, null, 2) + '\n');
+  process.stdout.write(JSON.stringify({ result: sourceOnly ? 'PASS-PINNED-SOURCE-REGISTRATION-SOURCE-ONLY' : 'PASS-PINNED-SOURCE-REGISTRATION', availableLibraryChecked: !sourceOnly, platform: 'Node SQLite/FileBucket + owned HTTPS', checks, calls }, null, 2) + '\n');
 } catch (error) {
   process.stderr.write(JSON.stringify({ result: 'FAIL', error: error?.message, stack: error?.stack, checks, calls }, null, 2) + '\n');
   process.exitCode = 1;

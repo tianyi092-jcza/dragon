@@ -195,7 +195,7 @@ export class HUD {
     const c = this.app.clock;
     if (!c) return;
     document.querySelector("#datestr").textContent =
-      `${c.year}年${c.month}月${c.day}日 ${String(c.hour).padStart(2, "0")}時`;
+      `${c.era === 'bc' ? '公元前' : ''}${c.year}年${c.month}月${c.day}日 ${String(c.hour).padStart(2, "0")}時`;
     document
       .querySelectorAll("#clockbar .spd")
       .forEach((b, i) => b.classList.toggle("on", i === c.speed));
@@ -240,7 +240,7 @@ export class HUD {
     this.app.data.scenarios.forEach((raw, i) => {
       const t = document.createElement("span");
       t.className = "tab";
-      t.textContent = raw.start.year + "年";
+      t.textContent = `${raw.start.era === 'bc' ? '前' : ''}${raw.start.year}年`;
       t.onclick = () => this.app.setScenario(i);
       el.append(t);
     });

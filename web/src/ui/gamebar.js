@@ -7994,7 +7994,7 @@ export class GameBar {
         const d = scState?.save_date || s.date;
         if (d) {
           const p = (n) => (n >= 10 ? `${n}` : ` ${n}`);
-          dateStr = `${d.year}年${p(d.month)}月${p(d.day)}日`;
+          dateStr = `${d.era === 'bc' ? '前' : ''}${d.year}年${p(d.month)}月${p(d.day)}日`;
         } else {
           dateStr = "184年 1月 1日";
         }
@@ -8228,11 +8228,11 @@ export class GameBar {
       ctx.font = DIN;
       ctx.fillStyle = c.hold ? "#aaaaaa" : "#ffffff"; // 暂停(鼠标活动)时灰显
       ctx.textBaseline = "top";
-      const put = (txt, rightEdge) => {
-        const w = ctx.measureText(txt).width;
-        ctx.fillText(txt, this.bx + rightEdge - w, 8);
+      const put = (txt, rightEdge, maxWidth = 32) => {
+        const w = Math.min(ctx.measureText(txt).width, maxWidth);
+        ctx.fillText(txt, this.bx + rightEdge - w, 8, maxWidth);
       };
-      put(`${c.year}`, 494);
+      put(`${c.era === 'bc' ? '前' : ''}${c.year}`, 494, 35);
       put(`${c.month}`, 527);
       put(`${c.day}`, 560);
     }

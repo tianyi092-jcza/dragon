@@ -13,6 +13,9 @@ import { captureChapterCities } from "./cityrecords.js";
 import { emptyGeneralSlot, materializeChapterState } from "./chaptermaterialize.js";
 import { CHAPTER_BASE } from "./chapterbase.generated.js";
 import { decodeFactionSlot } from "../../game/nativefactions.js";
+import { decodePlayerOpening } from "../../game/nativemonthlypolicy.js";
+import { encodePlayerOpening } from "../../editor/chapteropening.js";
+import { CHAPTER_DIPLOMACY_RELATIONS, decodeChapterDiplomacy } from "../../editor/chapterdiplomacy.js";
 import { CITY_BASE_NUMBERS, CITY_SHARED_INVARIANTS, CITY_NUMBER_LIMITS } from "./cityrecords.js";
 import { factionNativeConsistencyGaps } from "./factionconsistency.js";
 
@@ -59,7 +62,24 @@ export function chapterSaveGaps(state, chapterId = "?") {
   }
   return gaps;
 }
-// active 门：保存门＋全字段＋交叉＋计数。试玩 issue 与发布编译共用（单源）。
+// CHAPTER-WB capital relationship shared by copy publication and legacy checks.
+export function chapterCapitalGaps(state, chapterId = "?") {
+  const gaps = [], claimed = new Map();
+  const owner = new Map((state?.cities ?? []).map(c => [c?.idx, c?.faction ?? null]));
+  for (const [i, faction] of (state?.factions ?? []).entries()) {
+    if (faction?.capital === null || faction?.capital === undefined) continue;
+    const label = `chapter ${chapterId} faction[${i}]`;
+    if (owner.get(faction.capital) !== faction.idx)
+      gaps.push({ code: "entity-ref", subject: label, message: `${label} capital ${faction.capital} is not owned by this faction` });
+    if (claimed.has(faction.capital))
+      gaps.push({ code: "entity-ref", subject: label, message: `${label} capital ${faction.capital} is already the capital of faction[${claimed.get(faction.capital)}]` });
+    else claimed.set(faction.capital, i);
+  }
+  return gaps;
+}
+
+// Legacy compilation active gate; copy publication additionally checks capital
+// relationships even when a chapter retains its original _src marker.
 export function chapterActiveGaps(state, chapterId = "?") {
   const gaps = [...chapterSaveGaps(state, chapterId)];
   const generals = Array.isArray(state?.generals) ? state.generals : [];
@@ -69,7 +89,7 @@ export function chapterActiveGaps(state, chapterId = "?") {
   if (cities.length < 1 || cities.length > 512) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} cities must be 1..512 live slots` });
   // Web product Q40 (game-editor-design §4.5), not an original-game formula:
   // incomplete drafts may have no factions, but cannot enter Trial/publication.
-  if (!factions.length) gaps.push({ code: "chapter-factions", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} factions must include at least one entry` });
+  if (!factions.some(faction => faction?.retired !== true)) gaps.push({ code: "chapter-factions", subject: `chapter ${chapterId}`, message: `chapter ${chapterId} factions must include at least one entry` });
   const gidx = new Set(), cidx = new Set(), fids = new Set();
   for (const g of generals) {
     if (!Number.isInteger(g?.idx) || g.idx < 0 || g.idx > 127 || gidx.has(g.idx)) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: `general idx must be unique 0..127` });
@@ -82,6 +102,9 @@ export function chapterActiveGaps(state, chapterId = "?") {
   // Fixed-profile public identities: KI 3E4C..3E55 steps 40h to 580h.
   // Physical slots 22/23 stay in native data, not this public faction list.
   // Uniqueness is the authoring identity contract, not a new rule formula.
+  // initializeNativeFactionSlots overlays the declared rows by physical slot.
+  // Unique IDs alone cannot certify a sparse/reordered array left by legacy deletion.
+  if (factions.some((faction, index) => faction?.idx !== index)) gaps.push({ code: "faction-slot-order", subject: `chapter ${chapterId}`, message: "declared faction rows must preserve dense native slot order; faction retirement requires explicit conversion" });
   for (const fa of factions) {
     if (!Number.isInteger(fa?.idx) || fa.idx < 0 || fa.idx > 21 || fids.has(fa.idx)) gaps.push({ code: "entity-count", subject: `chapter ${chapterId}`, message: "faction idx must be unique 0..21" });
     else fids.add(fa.idx);
@@ -108,6 +131,15 @@ export function chapterActiveGaps(state, chapterId = "?") {
   }
   for (const [i, fa] of factions.entries()) {
     const label = `chapter ${chapterId} faction[${i}]`;
+    if (Object.hasOwn(fa, 'retired') && fa.retired !== true) gaps.push({ code: 'entity-save', subject: label, message: `${label} invalid retirement marker` });
+    if (fa.retired === true) {
+      const empty = Number.isInteger(fa.attr) && fa.attr >= 0 && fa.attr < 0x80 && fa.active === false && fa.monarch_idx === 255 && fa.monarch === '' &&
+        ['advisor_idx', 'capital', 'diplomat_idx', 'target_faction', 'strategic_city_primary', 'strategic_city_secondary'].every(key => fa[key] === null) &&
+        ['money', 'money_hi', 'reserve_cav', 'reserve_arc', 'reserve_inf', 'n_generals', 'nativeGeneralCount', 'n_cities', 'n_legions', 'monthly_reserve_upkeep'].every(key => fa[key] === 0) &&
+        fa.playerOpening === undefined && !generals.some(g => g.faction === fa.idx || g.join_faction === fa.idx || g.captive_flag === fa.idx || g.origFaction === fa.idx) && !cities.some(city => city.faction === fa.idx) && !factions.some(other => other.target_faction === fa.idx);
+      if (!empty) gaps.push({ code: 'entity-save', subject: label, message: `${label} retired slot retains active state or references` });
+      continue;
+    }
     pushNumberFields(fa, FACTION_NUMBER_FIELDS, label, gaps, "entity-field");
     for (const f of FACTION_NULLABLE_NUMBER_FIELDS) if (fa?.[f] !== null && fa?.[f] !== undefined && !Number.isInteger(fa[f])) gaps.push({ code: "entity-field", subject: label, message: `${label}.${f} must be an integer or null` });
     if (!gidx.has(fa?.monarch_idx)) gaps.push({ code: "entity-ref", subject: label, message: `${label} monarch ${fa?.monarch_idx} is unknown` });
@@ -118,17 +150,7 @@ export function chapterActiveGaps(state, chapterId = "?") {
   // 「不可能把首都設置在別人據點」「一個首都據點只能被一個勢力所有，不共用」）。
   // 內置章不套：原版 8 個內置勢力的首都據點 +01 並不屬於該勢力，且多個勢力共用
   // 同一首都據點，屬原始內容；以 state._src（內置章來源標記，複製章沿用）豁免。
-  if (!Object.hasOwn(state ?? {}, "_src")) {
-    const owner = new Map(cities.map(c => [c?.idx, c?.faction ?? null]));
-    const claimed = new Map();
-    for (const [i, fa] of factions.entries()) {
-      if (fa?.capital === null || fa?.capital === undefined) continue;
-      const label = `chapter ${chapterId} faction[${i}]`;
-      if (owner.get(fa.capital) !== fa.idx) gaps.push({ code: "entity-ref", subject: label, message: `${label} capital ${fa.capital} is not owned by this faction` });
-      if (claimed.has(fa.capital)) gaps.push({ code: "entity-ref", subject: label, message: `${label} capital ${fa.capital} is already the capital of faction[${claimed.get(fa.capital)}]` });
-      else claimed.set(fa.capital, i);
-    }
-  }
+  if (!Object.hasOwn(state ?? {}, "_src")) gaps.push(...chapterCapitalGaps(state, chapterId));
   // 太守與身份必須一致：原版任命（0x6AD8..0x6AEA）同時寫 city[+0x19] 與
   // general[+0x17]=2，所以「據點有太守但該武將身份不是內政官（2）」是作者層的
   // 不一致宣告，必須報出而不是靜默接受。內置 20 章此欄全為空，不衝突。
@@ -324,7 +346,8 @@ export function copyBuiltinGame({ gameId, ownerId, kind, source }, sha256hex) {
     // 游戏级共享数据投影：名称以父表为准，父表缺的四项默认值从第一章回填。
     applySharedCityData(game);
   }
-  validateGameSource(game);
+  // A minimal game is an editable zero-chapter draft, not a publish candidate.
+  validateGameSource(game, { draft: kind === 'minimal' });
   return game;
 }
 
@@ -435,11 +458,29 @@ export function validateGameSource(game, options = {}) {
   }
   for (const chapterId of game.chapterOrder ?? []) {
     if (!game.chapters?.[chapterId]) throw new RangeError(`chapterOrder references missing ${chapterId}`);
+    const chapter = game.chapters[chapterId];
+    if (chapter.number !== undefined) {
+      const labels = checkedChapterLabels(game, chapterId, chapter.number, chapter.name);
+      if (labels[0] !== chapter.number || labels[1] !== chapter.name)
+        throw new RangeError("chapter labels must be canonical");
+    }
   }
+  // Empty authoring games also serve the independent map-template compiler.
+  // The copy publication boundary owns the at-least-one-chapter requirement.
   if (!/^\d+$/.test(game.localModel?.draftRevision ?? "")) throw new RangeError("draftRevision must be a decimal string");
   // (ii) 两级门：保存门缺即拒存；active 门在草稿下记诊断、严格下拒发布/编译。
   for (const [chapterId, chapter] of Object.entries(game.chapters ?? {})) {
     const state = chapter?.state ?? chapter;
+    const numbers = new Set();
+    for (const faction of state.factions ?? []) {
+      if (chapter.nextFactionNumber !== undefined) {
+        if (!Number.isSafeInteger(faction.number) || faction.number < 1 || numbers.has(faction.number) || faction.factionId !== `${chapterId}#faction-${faction.number}`)
+          throw new RangeError('invalid chapter faction identity or number');
+        numbers.add(faction.number);
+      } else if (faction.number !== undefined || faction.factionId !== undefined) throw new RangeError('chapter faction identity requires an allocation counter');
+      if (faction.playerOpening !== undefined) decodePlayerOpening(faction.playerOpening);
+    }
+    if (chapter.nextFactionNumber !== undefined && (!Number.isSafeInteger(chapter.nextFactionNumber) || chapter.nextFactionNumber <= Math.max(0, ...numbers))) throw new RangeError('invalid next faction number');
     // chapterActiveGaps 首段即保存门缺口：任何模式都拒存；其余 active 缺口草稿记诊断、严格拒收。
     for (const gap of chapterActiveGaps(state, chapterId)) {
       if (gap.code === "entity-save" || !draft) throw new RangeError(gap.message);
@@ -514,7 +555,9 @@ function freshChapterId(game, stem) {
 // 不帶 options 時保持原「空殼」形狀，供固定副本結構回放等內部投影使用。
 export function addBlankChapter(game, options = {}) {
   if (!isPlainObject(game) || !isPlainObject(game.chapters) || !Array.isArray(game.chapterOrder)) throw new TypeError("game source required");
-  const chapterId = freshChapterId(game, "custom");
+  const chapterId = options.chapterId ?? freshChapterId(game, "custom");
+  if (typeof chapterId !== "string" || !chapterId.startsWith(`${game.gameId}#`) || Object.hasOwn(game.chapters, chapterId))
+    throw new RangeError("new chapter identity required");
   game.chapters[chapterId] = { chapterId, name: "新章节", state: { factions: [], generals: [], cities: [] } };
   // D1 materialize: a new chapter references every game-level 据点 definition
   // neutrally. Fixed attributes stay game-level; only ownership is per chapter.
@@ -525,19 +568,78 @@ export function addBlankChapter(game, options = {}) {
   }
   game.chapterOrder.push(chapterId);
   if (options.start !== undefined) materializeChapterState(game, chapterId, options.start);
-  if (options.name !== undefined) renameChapter(game, chapterId, options.name);
+  if (options.number !== undefined) {
+    setChapterLabels(game, chapterId, options.number, options.name);
+    initializeChapterFactionIdentities(game.chapters[chapterId]);
+    initializeBlankChapterInputs(game.chapters[chapterId].state);
+  }
+  else if (options.name !== undefined) renameChapter(game, chapterId, options.name);
   return chapterId;
 }
-export function copyChapterInGame(game, chapterId) {
+// New blank authoring chapters only, never a repair of an existing source.
+// No original forces/resources/appointments may leak into the fixed 22 slots.
+// Opaque bytes keep their fixed-source provenance. New blank chapters copy the
+// fixed diplomacy template; creating a force initializes only its live pairs.
+export function initializeBlankChapterInputs(state) {
+  if (state.factions.length !== 0 || state.nativeFactionSlotRaw !== undefined)
+    throw new RangeError('blank chapter initializer requires empty, uninitialized faction slots');
+  state.nativeFactionSlotRaw = CHAPTER_BASE.factionSlots.map((encoded, slot) => {
+    const native = decodeFactionSlot(encoded, slot);
+    let raw = patchByte(encoded, 0, native.attr & 0x7f);
+    [[1, 255], [2, 127], [3, 255], [0x16, 255], [0x17, 255], [0x19, 255], [0x2a, 255],
+      ...[4, 5, 6, 7, 8, 9, 0x14, 0x18, 0x1a, 0x1b, 0x1c, 0x20, 0x21, 0x22, 0x23].map(offset => [offset, 0])]
+      .forEach(([offset, value]) => { raw = patchByte(raw, offset, value); });
+    return raw;
+  });
+  const opening = encodePlayerOpening({ trust: 255, policyRaw: CHAPTER_BASE.monthlyPolicyRaw },
+    { trust: 255, tax: 18, conscription: [0, 0, 0], nextConscription: [0, 0, 0] });
+  const { trust, policy } = decodePlayerOpening(opening);
+  Object.assign(state, { trust, nativeMonthlyPolicyRaw: opening.policyRaw, tax: policy.tax,
+    next_tax: policy.nextTax, conscription: policy.conscription, next_conscription: policy.nextConscription,
+    // The complete 16-record weather window and bounds match in all five
+    // original SINARIO files (verify_chapter_blank_weather.mjs); no new RNG.
+    weatherClouds: deepClone(CHAPTER_BASE.weatherClouds), weatherCloudBounds: deepClone(CHAPTER_BASE.weatherCloudBounds),
+    nativeStrategicEventRaw: CHAPTER_BASE.nativeStrategicEventRaw,
+    nativeDiplomacyRaw: CHAPTER_BASE.nativeDiplomacyRaw, diplomacy: [] });
+}
+
+// Creation/conversion only: never invoked by a read. Native slots remain fixed;
+// the author-visible monotonically allocated number is not an array position.
+export function initializeChapterFactionIdentities(chapter) {
+  const numbers = chapter.state.factions.map(faction => faction.number ?? faction.idx + 1);
+  if (numbers.some(number => !Number.isSafeInteger(number) || number < 1) || new Set(numbers).size !== numbers.length)
+    throw new RangeError('chapter faction numbers must be unique positive integers');
+  const next = chapter.nextFactionNumber ?? Math.max(0, ...numbers) + 1;
+  if (!Number.isSafeInteger(next) || next <= Math.max(0, ...numbers)) throw new RangeError('next faction number must exceed every allocated number');
+  chapter.state.factions.forEach((faction, index) => {
+    faction.number = numbers[index];
+    faction.factionId = `${chapter.chapterId}#faction-${faction.number}`;
+  });
+  chapter.nextFactionNumber = next;
+}
+
+export function copyChapterInGame(game, chapterId, options = {}) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   const source = chapterEntry(game, chapterId);
-  const id = freshChapterId(game, "copy");
+  const id = options.chapterId ?? freshChapterId(game, "copy");
+  if (typeof id !== "string" || !id.startsWith(`${game.gameId}#`) || Object.hasOwn(game.chapters, id))
+    throw new RangeError("new chapter identity required");
   game.chapters[id] = { ...deepClone(source), chapterId: id, sourceChapterId: source.sourceChapterId ?? chapterId, name: `${source.name ?? chapterId}（副本）` };
   game.chapterOrder.push(id);
+  if (source.nextFactionNumber !== undefined) initializeChapterFactionIdentities(game.chapters[id]);
+  // Explicitly labelled CHAPTER-WB chapters receive new, unique author labels.
+  // Unlabelled legacy copies keep their historical replay shape until conversion.
+  if (source.number !== undefined) {
+    const numbers = new Set(game.chapterOrder.map(key => game.chapters[key].number));
+    const names = new Set(game.chapterOrder.map(key => game.chapters[key].name?.trim().normalize("NFC")));
+    let n = 1;
+    while (numbers.has(String(n)) || names.has(`副本${n}`)) n += 1;
+    setChapterLabels(game, id, String(n), `副本${n}`);
+  }
   return id;
 }
-// 章节序号＝chapterOrder 里的位置（2026-11 用户裁决：允许重排，不新增 ordinal 字段）。
-// 只改顺序，不动章节内容；toIndex 是重排后的位置。
+// List position is independent of the CHAPTER-WB author number and stable ID.
+// Only order changes; toIndex is the resulting position.
 export function moveChapter(game, chapterId, toIndex) {
   if (!isPlainObject(game) || !Array.isArray(game.chapterOrder)) throw new TypeError("game source required");
   chapterEntry(game, chapterId);
@@ -556,15 +658,48 @@ export function deleteChapter(game, chapterId) {
   delete game.chapters[chapterId];
   game.chapterOrder = game.chapterOrder.filter(id => id !== chapterId);
 }
+// CHAPTER-WB explicit authoring command. Legacy sources without `number`
+// remain readable; reading never migrates them or derives identity from order.
+// Both labels are captured together, so a failed uniqueness check writes neither.
+function checkedChapterLabels(game, chapterId, number, name) {
+  chapterEntry(game, chapterId);
+  const labels = [number, name].map((value, index) => {
+    if (typeof value !== "string") throw new RangeError("chapter label required");
+    const normalized = value.trim().normalize("NFC");
+    if (!normalized) throw new RangeError("chapter label required");
+    checkGameName(normalized, index === 0 ? 6 : 8);
+    return normalized;
+  });
+  for (const id of game.chapterOrder) {
+    if (id === chapterId) continue;
+    const other = game.chapters[id];
+    if (other.number?.trim().normalize("NFC") === labels[0]) throw new RangeError("duplicate chapter number");
+    if (other.name?.trim().normalize("NFC") === labels[1]) throw new RangeError("duplicate chapter name");
+  }
+  return labels;
+}
+export function setChapterLabels(game, chapterId, number, name) {
+  const labels = checkedChapterLabels(game, chapterId, number, name);
+  game.chapters[chapterId].number = labels[0];
+  game.chapters[chapterId].name = labels[1];
+}
+
 export function renameChapter(game, chapterId, name) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
-  chapterEntry(game, chapterId);
+  const chapter = chapterEntry(game, chapterId);
+  if (chapter.number !== undefined) {
+    setChapterLabels(game, chapterId, chapter.number, name);
+    return;
+  }
+  // Legacy history replay only: unconverted chapters retain their old budget.
   // Normalize before applying the existing display-name budget and text
   // checks. 16 碼點是 2026-11 用戶裁決的章節標題上限（游戲名仍用各自上限），
   // 不是原版引擎欄位限制。
   if (typeof name !== "string" || !name.trim()) throw new RangeError("chapter name required");
   const normalized = name.trim().normalize("NFC");
   checkGameName(normalized, 16);
+  if (game.chapterOrder.some(id => id !== chapterId && game.chapters[id].number !== undefined &&
+      game.chapters[id].name === normalized)) throw new RangeError("duplicate chapter name");
   game.chapters[chapterId].name = normalized;
 }
 // Stronghold references (§4.2): placement status and reference lists are
@@ -825,6 +960,7 @@ function factionEntry(game, chapterId, factionIdx) {
   const { factions } = chapterFactions(game, chapterId);
   const record = factions.find(f => f?.idx === factionIdx);
   if (!isPlainObject(record)) throw new RangeError(`unknown faction: ${factionIdx}`);
+  if (record.retired === true) throw new RangeError(`retired faction: ${factionIdx}`);
   return record;
 }
 function generalByIdx(game, chapterId, generalIdx) {
@@ -874,12 +1010,13 @@ function chapterCityRow(state, cityIdx) {
 function chapterFactionRow(state, factionIdx) {
   const record = (state.factions ?? []).find(f => f?.idx === factionIdx);
   if (!isPlainObject(record)) throw new RangeError(`unknown chapter faction: ${factionIdx}`);
+  if (record.retired === true) throw new RangeError(`retired chapter faction: ${factionIdx}`);
   return record;
 }
 function factionValue(state, factionId) {
   if (factionId === null) return null;
   if (!Number.isSafeInteger(factionId) || Object.is(factionId, -0) || factionId < 0) throw new RangeError("chapter faction idx or null required");
-  if (!(state.factions ?? []).some(f => f?.idx === factionId)) throw new RangeError(`chapter faction ${factionId} is not declared`);
+  if (!(state.factions ?? []).some(f => f?.idx === factionId && f.retired !== true)) throw new RangeError(`chapter faction ${factionId} is not declared or is retired`);
   return factionId;
 }
 function patchByte(raw, offset, value) {
@@ -902,6 +1039,12 @@ function writeFactionField(state, faction, field, value) {
   faction[field] = value;
   writeSlotByte(state.nativeFactionSlotRaw, faction.idx, faction, offset, value === null ? sentinel : value);
 }
+export function setChapterPlayerOpening(game, chapterId, factionIdx, values) {
+  const state = chapterState(game, chapterId), faction = chapterFactionRow(state, factionIdx);
+  const base = faction.playerOpening ?? { trust: state.trust, policyRaw: state.nativeMonthlyPolicyRaw };
+  faction.playerOpening = encodePlayerOpening(base, values);
+}
+
 export function setChapterStart(game, chapterId, values) {
   if (!isPlainObject(values)) throw new TypeError("chapter start values required");
   const keys = Object.keys(values);
@@ -927,10 +1070,43 @@ export function setChapterCityFaction(game, chapterId, cityIdx, factionId) {
   city.faction = factionValue(state, factionId);
   writeSlotByte(state.nativeCityRecordRaw, cityIdx, city, CITY_OWNER_BYTE, city.faction === null ? CITY_NEUTRAL_BYTE : city.faction);
 }
+// CHAPTER-WB Web authoring relationship, not a change to DOS capture rules.
+// Historical replay keeps setChapterCityFaction/setFactionCapital below.
+export function setChapterCityOwner(game, chapterId, cityIdx, factionId) {
+  const state = chapterState(game, chapterId), city = chapterCityRow(state, cityIdx);
+  const owner = factionValue(state, factionId);
+  if (state.factions.some(f => f.capital === cityIdx && f.idx !== owner))
+    throw new RangeError("capital ownership is locked; change the capital first");
+  const affected = state.factions.filter(f => f.idx === city.faction || f.idx === owner);
+  const counts = affected.map(f => ({ faction: f,
+    count: state.cities.filter(c => (c.idx === cityIdx ? owner : c.faction) === f.idx).length }));
+  // Raw-backed native content has a one-byte F23. Expanded named content does
+  // not: refuse an unrepresentable native mirror rather than wrap or truncate.
+  for (const { faction, count } of counts) {
+    if (count > 255 && (typeof faction.raw === "string" || state.nativeFactionSlotRaw?.[faction.idx] !== undefined))
+      throw new RangeError("city count requires expanded named faction representation");
+  }
+  setChapterCityFaction(game, chapterId, cityIdx, owner);
+  for (const { faction, count } of counts) {
+    faction.n_cities = count;
+    writeSlotByte(state.nativeFactionSlotRaw, faction.idx, faction, 0x23, count);
+  }
+}
+export function setChapterCapital(game, chapterId, factionIdx, cityIdx) {
+  const state = chapterState(game, chapterId), faction = chapterFactionRow(state, factionIdx);
+  chapterCityRow(state, cityIdx);
+  if (state.factions.some(f => f.idx !== factionIdx && f.capital === cityIdx))
+    throw new RangeError("capital is already assigned to another faction");
+  if (cityIdx > 255 && (typeof faction.raw === "string" || state.nativeFactionSlotRaw?.[factionIdx] !== undefined))
+    throw new RangeError("capital requires expanded named faction representation");
+  setChapterCityOwner(game, chapterId, cityIdx, factionIdx);
+  setFactionCapital(game, chapterId, factionIdx, cityIdx);
+}
+
 // A faction keeps exactly one capital (chapterActiveGaps requires it to resolve),
 // so "not the capital" is expressed by marking another city, never by clearing.
-// Ownership is not required: 8 official factions start with a capital city their
-// own faction byte does not name, and that original data is not an error.
+// Legacy replay preserves original capital bytes, including mismatched owners.
+// Current copy commands use setChapterCapital; publication does not exempt _src.
 export function setFactionCapital(game, chapterId, factionIdx, cityIdx) {
   const state = chapterState(game, chapterId);
   chapterCityRow(state, cityIdx);
@@ -1003,6 +1179,55 @@ export function setGeneralStatus(game, chapterId, generalIdx, status) {
   if (!Number.isInteger(status) || Object.is(status, -0) || status < 0 || status > 4) throw new RangeError("general status must be an integer in 0..4");
   generalByIdx(game, chapterId, generalIdx).status = status;
 }
+// CHAPTER-WB author inputs, not a new recruitment rule. KI 586F/5875 reads
+// G18 as a byte countdown; 589A reads independent G19 (FF = no preference).
+// Neither field changes current affiliation, posts or F18 counts. Optional active
+// owns G00 bit7 only (KI 586A); other attr bits and the countdown remain independent.
+export function setChapterGeneralArrival(game, chapterId, generalIdx, values) {
+  if (!isPlainObject(values) || !['appearMonths,joinFaction', 'active,appearMonths,joinFaction'].includes(Object.keys(values).sort().join(','))) throw new TypeError('arrival requires appearMonths and joinFaction, with optional active');
+  if (Object.hasOwn(values, 'active') && typeof values.active !== 'boolean') throw new TypeError('active must be boolean');
+  if (!Number.isInteger(values.appearMonths) || Object.is(values.appearMonths, -0) || values.appearMonths < 0 || values.appearMonths > 255) throw new RangeError('arrival countdown must fit byte months');
+  const state = chapterState(game, chapterId), general = generalByIdx(game, chapterId, generalIdx);
+  if (state.factions.some(faction => faction.monarch_idx === generalIdx)) throw new RangeError('monarch is not an ordinary general');
+  const join = factionValue(state, values.joinFaction);
+  if (join !== null && join >= FACTION_SLOT_LIMIT) throw new RangeError('join target must be a normal faction slot');
+  if (join !== null && !state.factions.some(faction => faction.idx === join && Number.isInteger(faction.monarch_idx))) throw new RangeError('join target must have a monarch');
+  if (Object.hasOwn(values, 'active')) {
+    if (!Number.isInteger(general.attr) || general.attr < 0 || general.attr > 255) throw new RangeError('general attr byte required');
+    setGeneralActive(game, chapterId, generalIdx, values.active);
+  }
+  general.appear_months = values.appearMonths;
+  general.join_faction = join;
+}
+
+// Current authoring transfer, not a replay of a runtime recruitment/captive flow.
+// F18 byte DEC/INC: KI 2AD2..2AF3; n_generals is only the historical parser view.
+export function setChapterGeneralOwner(game, chapterId, generalIdx, factionId) {
+  const state = chapterState(game, chapterId), general = generalByIdx(game, chapterId, generalIdx);
+  const nextOwner = factionValue(state, factionId);
+  if (general.faction === nextOwner) return;
+  if (general.status !== 0 || general.captive_flag !== 0xff)
+    throw new RangeError('special or captive general requires explicit resolution before affiliation editing');
+  const updates = [[general.faction, -1], [nextOwner, 1]].filter(([owner]) => owner !== null).map(([owner, delta]) => {
+    if (!Number.isInteger(owner) || owner < 0 || owner >= FACTION_SLOT_LIMIT) throw new RangeError('normal faction required');
+    const faction = factionEntry(game, chapterId, owner), raw = state.nativeFactionSlotRaw?.[owner];
+    if (typeof raw !== 'string' || !/^[0-9a-f]{128}$/i.test(raw) || typeof faction.raw !== 'string' || !/^[0-9a-f]{128}$/i.test(faction.raw)) throw new RangeError('native faction count source required');
+    const count = Number.parseInt(raw.slice(0x30, 0x32), 16);
+    if (Number.parseInt(faction.raw.slice(0x30, 0x32), 16) !== count ||
+        (Object.hasOwn(faction, 'nativeGeneralCount') && faction.nativeGeneralCount !== count)) throw new RangeError('native faction count mirrors disagree');
+    return { faction, count: (count + delta) & 0xff };
+  });
+  setChapterGeneralFaction(game, chapterId, generalIdx, nextOwner);
+  updates.forEach(({ faction, count }) => {
+    writeSlotByte(state.nativeFactionSlotRaw, faction.idx, faction, 0x18, count);
+    if (Object.hasOwn(faction, 'nativeGeneralCount')) faction.nativeGeneralCount = count;
+    if (Object.hasOwn(faction, 'n_generals')) {
+      const advisor = state.generals.find(row => row.idx === faction.advisor_idx);
+      faction.n_generals = Math.max(0, count - (advisor?.faction === faction.idx ? 1 : 0));
+    }
+  });
+}
+
 export function setChapterGeneralFaction(game, chapterId, generalIdx, factionId) {
   // generalByIdx keeps the reserved G127 slot out of ordinary affiliation, as
   // for the post writers; the reserved slot carries no chapter identity.
@@ -1062,6 +1287,25 @@ export function setCityGovernor(game, chapterId, cityIdx, generalIdx) {
   general.status = 2;
   return { replaced: replaced === generalIdx ? null : replaced };
 }
+// Web author succession only, not capture/death processing. Preserve the old
+// lord as an ordinary member; G00 bit6 is the lord marker (KI 2A12/2A17).
+export function changeChapterMonarch(game, chapterId, factionIdx, generalIdx) {
+  const state = chapterState(game, chapterId), faction = factionEntry(game, chapterId, factionIdx);
+  const next = generalByIdx(game, chapterId, generalIdx);
+  if (faction.monarch_idx === generalIdx) return;
+  const prior = generalByIdx(game, chapterId, faction.monarch_idx);
+  if (!Object.hasOwn(game.generals ?? {}, next.generalId)) throw new RangeError('new lord must reference this game library');
+  if (next.status !== 0 || next.captive_flag !== 255 || next.appear_months !== 0 || !(next.attr & 0x80)) throw new RangeError('new lord must be available');
+  if (next.faction !== null && next.faction !== factionIdx) throw new RangeError('new lord must be free or belong to this faction');
+  if (postsHeld(game, chapterId, generalIdx).length) throw new RangeError('new lord holds another post');
+  if (prior.faction !== factionIdx || prior.status !== 0 || prior.captive_flag !== 255 || postsHeld(game, chapterId, prior.idx).some(post => post.post !== 'monarch' || post.faction !== factionIdx)) throw new RangeError('current lord requires explicit relationship resolution');
+  if (next.faction === null) setChapterGeneralOwner(game, chapterId, generalIdx, factionIdx);
+  writeFactionField(state, faction, 'monarch_idx', generalIdx);
+  faction.monarch = next.name;
+  prior.attr &= 0xbf; prior.is_monarch = false;
+  next.attr |= 0x40; next.is_monarch = true;
+}
+
 export function setMonarch(game, chapterId, factionIdx, generalIdx) {
   const state = chapterState(game, chapterId), faction = factionEntry(game, chapterId, factionIdx);
   const general = generalByIdx(game, chapterId, generalIdx);
@@ -1071,6 +1315,18 @@ export function setMonarch(game, chapterId, factionIdx, generalIdx) {
   general.faction = factionIdx;
   writeFactionField(state, faction, "monarch_idx", generalIdx);
 }
+// Current authoring also refreshes the legacy display view (parse_sinario.py).
+// This is not the KI player-advisor initializer: native F18 stays untouched.
+// Keep setStrategist below unchanged for frozen profile replay.
+export function setChapterStrategist(game, chapterId, factionIdx, generalIdx) {
+  const state = chapterState(game, chapterId), faction = factionEntry(game, chapterId, factionIdx);
+  const count = decodeFactionSlot(state.nativeFactionSlotRaw?.[factionIdx], factionIdx).nativeGeneralCount;
+  const result = setStrategist(game, chapterId, factionIdx, generalIdx);
+  const advisor = state.generals.find(general => general.idx === faction.advisor_idx);
+  faction.n_generals = Math.max(0, count - (advisor?.faction === factionIdx ? 1 : 0));
+  return result;
+}
+
 export function setStrategist(game, chapterId, factionIdx, generalIdx) {
   const state = chapterState(game, chapterId), faction = factionEntry(game, chapterId, factionIdx);
   if (generalIdx === null) { writeFactionField(state, faction, "advisor_idx", null); return { replaced: null }; }
@@ -1096,12 +1352,62 @@ export function removeMonarch(game, chapterId, factionIdx, resolution) {
   setMonarch(game, chapterId, factionIdx, resolution.successor);
 }
 const FACTION_SLOT_LIMIT = 22;
-// 新建势力槽（Web 作者层，非原版初始化规则）：作者选一名自由武將作君主，首都留空
-// 由 setFactionCapital 指定——「没有首都的势力不能保存」由 chapterActiveGaps 的
-// capital 引用检查承担，不另立第二套门槛。宣告顺序＝原生槽序（
-// initializeNativeFactionSlots 要求 factions[slot].idx === slot），所以新势力只能
-// 接在末尾；原生位元组沿用固定源同槽，只改本函数拥有的栏位（君主／空内政官／
-// 空外交官／空首都／派生计数），其余未证实位元组保持原值。
+// Current copy directional diplomacy setting: Web authoring, not a DOS turn action.
+export function setChapterDiplomacy(game, chapterId, actorIdx, targetIdx, relation) {
+  const state = chapterState(game, chapterId);
+  factionEntry(game, chapterId, actorIdx);
+  factionEntry(game, chapterId, targetIdx);
+  if (actorIdx === targetIdx) throw new RangeError('diplomacy diagonal is not editable');
+  const choice = CHAPTER_DIPLOMACY_RELATIONS.find(option => option.id === relation);
+  if (!choice) throw new RangeError('unknown diplomacy relationship');
+  decodeChapterDiplomacy(state);
+  state.nativeDiplomacyRaw = patchByte(state.nativeDiplomacyRaw, actorIdx * 24 + targetIdx, choice.value);
+  state.diplomacy[actorIdx][targetIdx] = choice.value;
+}
+
+// Current copy command: mandatory lord/capital and product-defined opening values.
+// Retains the legacy initializer's remaining fixed-slot fields; not a DOS new-faction claim.
+export function createChapterFaction(game, chapterId, monarchIdx, cityIdx) {
+  const chapter = chapterEntry(game, chapterId), state = chapterState(game, chapterId);
+  const monarch = generalByIdx(game, chapterId, monarchIdx);
+  if (monarch.status !== 0 || monarch.captive_flag !== 255 || monarch.appear_months !== 0 || !(monarch.attr & 0x80)) throw new RangeError('lord must be an available ordinary general');
+  if (!Object.hasOwn(game.generals ?? {}, monarch.generalId)) throw new RangeError('lord must reference this game library');
+  if (!Number.isInteger(cityIdx) || cityIdx < 0 || cityIdx > 255 || !state.cities.some(city => city.idx === cityIdx)) throw new RangeError('native capital city required');
+  if (state.factions.some(faction => faction.capital === cityIdx)) throw new RangeError('capital already belongs to another faction');
+  if (state.factions.some((faction, index) => faction.idx !== index)) throw new RangeError('native faction slots must remain dense');
+  const opening = encodePlayerOpening({ trust: 255, policyRaw: state.nativeMonthlyPolicyRaw },
+    { trust: 255, tax: 18, conscription: [0, 0, 0], nextConscription: [0, 0, 0] });
+  if (state.nativeDiplomacyRaw !== undefined) decodeChapterDiplomacy(state);
+  if (chapter.nextFactionNumber === undefined) initializeChapterFactionIdentities(chapter);
+  if (!Number.isSafeInteger(chapter.nextFactionNumber) || chapter.nextFactionNumber >= Number.MAX_SAFE_INTEGER || chapter.nextFactionNumber < 1 || state.factions.some(faction => faction.number >= chapter.nextFactionNumber)) throw new RangeError('faction number allocation exhausted or inconsistent');
+  const { factionIdx } = createFaction(game, chapterId, { monarchIdx });
+  const faction = state.factions[factionIdx], number = chapter.nextFactionNumber++;
+  Object.assign(faction, { number, factionId: `${chapterId}#faction-${number}`, monarch: monarch.name, playerOpening: opening,
+    money: 0, money_hi: 0, reserve_cav: 0, reserve_arc: 0, reserve_inf: 0, nativeGeneralCount: 1, n_generals: 1,
+    attr: Number.parseInt(faction.raw.slice(0, 2), 16) | 0x80, active: true });
+  [[0, faction.attr], [0x18, 1], [0x20, 0], [0x21, 0], [0x22, 0],
+    ...[4, 5, 6, 7, 8, 9].map(offset => [offset, 0])].forEach(([offset, value]) => writeSlotByte(state.nativeFactionSlotRaw, factionIdx, faction, offset, value));
+  writeFactionField(state, faction, 'diplomat_idx', null);
+  monarch.attr |= 0x40; monarch.is_monarch = true; monarch.active = true;
+  setChapterCapital(game, chapterId, factionIdx, cityIdx);
+  if (state.nativeDiplomacyRaw !== undefined) {
+    // User-approved Web default, not a DOS diplomacy rule. Never reset an
+    // existing pair, a diagonal, or a retired/reserved/undeclared slot pair.
+    state.factions.filter(other => other.idx !== factionIdx && other.retired !== true).forEach(other => {
+      state.nativeDiplomacyRaw = patchByte(state.nativeDiplomacyRaw, factionIdx * 24 + other.idx, CHAPTER_BASE.ordinaryDiplomacyRaw);
+      state.nativeDiplomacyRaw = patchByte(state.nativeDiplomacyRaw, other.idx * 24 + factionIdx, CHAPTER_BASE.ordinaryDiplomacyRaw);
+    });
+    const width = state.factions.length;
+    state.diplomacy = Array.from({ length: width }, (_, actor) => Array.from({ length: width }, (_, target) => {
+      const offset = (actor * 24 + target) * 2;
+      return Number.parseInt(state.nativeDiplomacyRaw.slice(offset, offset + 2), 16);
+    }));
+  }
+  return { factionIdx, factionId: faction.factionId, number };
+}
+
+// Legacy replay initializer: append one declared fixed slot, with no capital yet.
+// Current authoring wraps this in createChapterFaction; do not change replay bytes.
 export function createFaction(game, chapterId, options) {
   if (!isPlainObject(options)) throw new TypeError("create faction options required");
   const keys = Object.keys(options);
@@ -1121,13 +1427,70 @@ export function createFaction(game, chapterId, options) {
   let raw = table[slot];
   for (const [offset, value] of [[1, monarch.idx], [2, 0x7f], [3, 0xff], [0x23, 0]]) raw = patchByte(raw, offset, value);
   table[slot] = raw;
-  // n_cities／n_generals 是原版存储字段（运行期由占城／编成维护），建势力时按本章
-  // 现况取值：新势力 0 个据点、1 名武將（内政官不计入 n_generals）。
+  // Frozen legacy replay: n_cities mirrors F23; n_generals is the old Web
+  // display view, not native F18. Current createChapterFaction sets both views.
   factions.push({ ...decodeFactionSlot(raw, slot), n_generals: 1 });
   monarch.faction = slot;
   if (Object.hasOwn(state, "n_factions")) state.n_factions = factions.length;
   return { factionIdx: slot };
 }
+// Web author retirement, not the DOS defeat/capture sequence. The declaration
+// retains its physical slot; retired slots are not reused for another identity.
+export function retireChapterFaction(game, chapterId, factionIdx) {
+  const state = chapterState(game, chapterId), faction = factionEntry(game, chapterId, factionIdx);
+  if (state.factions.some((row, index) => row.idx !== index)) throw new RangeError('retirement requires dense native faction slots');
+  const members = state.generals.filter(general => general.faction === factionIdx);
+  const conflicts = [];
+  if (state.legions?.length) conflicts.push(`chapter has ${state.legions.length} legion records; legion retirement is unsupported`);
+  if (faction.diplomat_idx !== null && faction.diplomat_idx !== undefined) conflicts.push(`faction ${factionIdx} has diplomat ${faction.diplomat_idx}`);
+  state.generals.forEach(general => {
+    if (general.captive_flag === factionIdx || general.origFaction === factionIdx) conflicts.push(`general ${general.idx} retains captive faction ${factionIdx}`);
+    if (general.idx === 127 && (general.faction === factionIdx || general.join_faction === factionIdx)) conflicts.push('reserved general 127 references the retiring faction');
+  });
+  members.forEach(general => {
+    if (general.status !== 0 || general.captive_flag !== 255) conflicts.push(`general ${general.idx} has status ${general.status} / captive flag ${general.captive_flag}`);
+    const posts = postsHeld(game, chapterId, general.idx).filter(post =>
+      !(post.post === 'monarch' && post.faction === factionIdx) && !(post.post === 'strategist' && post.faction === factionIdx));
+    if (posts.length) conflicts.push(`general ${general.idx} holds another appointment`);
+  });
+  state.cities.forEach(city => {
+    if (city.faction === factionIdx && city.governor !== null && city.governor !== undefined) conflicts.push(`city ${city.idx} has governor ${city.governor}`);
+  });
+  if (state.nativeStrategicEventRaw !== undefined) {
+    if (typeof state.nativeStrategicEventRaw !== 'string' || !/^[0-9a-f]{2048}$/i.test(state.nativeStrategicEventRaw)) conflicts.push('native strategic event source is incomplete');
+    else Array.from({ length: 256 }, (_, slot) => slot).forEach(slot => {
+      const type = Number.parseInt(state.nativeStrategicEventRaw.slice(slot * 8, slot * 8 + 2), 16);
+      if (type !== 0) conflicts.push(`pending native event ${slot} type ${type}; event reference cleanup is unsupported`);
+    });
+  }
+  if (conflicts.length) throw new RangeError('faction retirement conflicts: ' + conflicts.join('; '));
+  const encoded = state.nativeFactionSlotRaw?.[factionIdx];
+  const native = decodeFactionSlot(encoded, factionIdx);
+  let raw = patchByte(encoded, 0, native.attr & 0x7f);
+  [[1, 255], [2, 127], [3, 255], [0x16, 255], [0x17, 255], [0x19, 255], [0x2a, 255],
+    ...[4, 5, 6, 7, 8, 9, 0x14, 0x18, 0x1a, 0x1b, 0x1c, 0x20, 0x21, 0x22, 0x23].map(offset => [offset, 0])]
+    .forEach(([offset, value]) => { raw = patchByte(raw, offset, value); });
+  // Keep inactive diplomacy cells, including physical aliases, unchanged.
+  // No new faction can acquire this retired slot and inherit its old relations.
+  state.nativeFactionSlotRaw[factionIdx] = raw;
+  Object.assign(faction, decodeFactionSlot(raw, factionIdx), { retired: true, monarch: '', money_hi: 0, n_generals: 0 });
+  delete faction.playerOpening;
+  members.forEach(general => { general.faction = null; general.attr &= 0xbf; general.is_monarch = false; });
+  state.generals.forEach(general => { if (general.join_faction === factionIdx) general.join_faction = null; });
+  state.cities.forEach(city => {
+    if (city.faction !== factionIdx) return;
+    city.faction = null;
+    writeSlotByte(state.nativeCityRecordRaw, city.idx, city, CITY_OWNER_BYTE, CITY_NEUTRAL_BYTE);
+  });
+  state.factions.forEach(other => {
+    if (other.target_faction !== factionIdx) return;
+    other.target_faction = null;
+    writeSlotByte(state.nativeFactionSlotRaw, other.idx, other, 0x19, 255);
+  });
+  if (state.player_faction === factionIdx) state.player_faction = null;
+  return { factionIdx, members: members.length };
+}
+
 export function disbandFaction(game, chapterId, factionIdx) {
   const { chapter, factions } = chapterFactions(game, chapterId, factionIdx);
   const at = factions.findIndex(f => f?.idx === factionIdx);

@@ -652,6 +652,8 @@ const app = {
     // 新游戏使用章节起始日；存档使用 parse_save/snapshotState 的 save_date。
     const clockOptions = {
       startYear,
+      // Restored calendar owns its era; never reapply the chapter's opening era.
+      startEra: loadedDate ? loadedDate.era ?? null : this.scenario.start.era ?? null,
       startMonth,
       startDay: Math.max(1, requestedDay | 0),
       onStrategicTick: (c) => {

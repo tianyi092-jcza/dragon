@@ -73,6 +73,7 @@ export function validateIndex(index) {
       seen.add(row.chapterId);
       requireValue(typeof row.name === 'string' && row.name.length > 0 && row.name.length <= 64);
       requireValue(row.start !== null && typeof row.start === 'object' && ['year', 'month', 'day'].every(key => Number.isSafeInteger(row.start[key])));
+      requireValue(row.start.era === undefined || (['bc', 'ad'].includes(row.start.era) && row.start.year > 0));
       requireValue(Array.isArray(row.factions) && row.factions.length <= 64);
       for (const faction of row.factions) {
         requireValue(faction !== null && typeof faction === 'object');

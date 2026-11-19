@@ -20,7 +20,7 @@ export function createPlayerEnvironment(pack, { playerFaction } = {}) {
   if (manifest?.compilerRevision !== TRIAL_COMPILER_REVISION || triplet === 0 ||
       manifest.identity?.gameId !== identity.gameId || manifest.identity.sourceDigest !== identity.sourceDigest ||
       manifest.identity.draftRevision !== identity.revision || !manifest.chapters?.includes(identity.chapterId) ||
-      !pack.chapter || !Number.isInteger(playerFaction) || !pack.chapter.factions?.some(f => f.idx === playerFaction)) {
+      !pack.chapter || !Number.isInteger(playerFaction) || !pack.chapter.factions?.some(f => f.idx === playerFaction && f.retired !== true)) {
     throw new TypeError('matching formal pack and explicit player faction required');
   }
   function url(role) {

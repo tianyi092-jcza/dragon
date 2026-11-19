@@ -8,7 +8,8 @@
 - 编辑器展示层限定`editor-ui/`，使用Vue 3＋Element Plus＋Vite，版本以package/lock为准；预构建壳由同源服务提供。Vue只接显示DTO/动作回调，不接凭据、源对象或live游戏状态，不替代服务端权限。
 - 仓库`E:/Dragon/web-port`，原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。禁止自动化访问真实`SAVE.DAT`、用户存档/profile；测试用内存、mock、隔离目录及新profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏版本`1.n`、软件版本、内容摘要和程序归档身份相互独立。
-- **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核、地图、新城和独立管理员删除管理已接线；193城发布装配链本地通过。定义面板余项、旧draft退役及表清理见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
+- **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核、地图和新城已接线；游戏删除仅在「上架审核」提供，无独立「删除管理」模块，不改变删除权限/栅栏。定义面板余项、旧draft退役及表清理见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
+- **游戏章节（Web产品决定）**：CHAPTER-WB P0–P7及后继界面调整已本地交付，当前为章节管理／势力设置／势力武将／势力据点／外交关系五Tab；游戏管理只保留选择、载入与名称/简介，不再重复章节或任官表单。现行规则见[章节合同§0](docs/chapter-and-base-resources.md#0-chapter-wb-现行产品口径与字段盘点)，分层验证与支持限制见[审计](docs/chapter-workbench-audit.md)，不是部署或全部工具全绿。
 - **战略事件（Web产品决定，非原版机制）**：`strategicEventSchedule`以`epoch*64+slot`定位，四字节轮作投影／原窗对照；`inserted`仅原窗真值，`accepted`才是Web已接受。每位置只推进一次，消息返回后才派下一条，整批后tick势力一次。移页、7/10分频、查询及保存合同见[D2计划§12](docs/d2-event-scheduler-plan.md)；恢复一次性校验，非空旧D2-C旁表拒绝，不猜到期时间。
 - **地图工作台（Web产品决定）**：独立系统模板＋共用Canvas＋精炼目录已本地实现。两种创建取模板单快照，既有游戏不跟随更新；固定384×256、live 1..512城，行序定槽，192为导入基线，不复原DOS对象。缺`mapEditorAssets`的旧copy拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[精炼目录](docs/map-workspace-sprite-library-design.md)及[验收边界](docs/map-workspace-sprite-library-audit.md)；本地通过不等于部署。
 - **据点扩容（Web产品决定）**：固定384×256，运行／道路／财政／存档支持v2-192与v3-512；内置与生产准入仍192，据点组素材可作为装饰拖放但不自动建城。新城admit必填`battleMapId`（`ki-1995:siege:0..191`共享战场，写定义＋全章行）。须贯通稳定身份、道路、章节、运行、战场和保存，不只放宽计数门或另建引擎。人物／地图等其它容量、Web差异与验收见[CITY计划](docs/city-capacity-expansion-plan.md)；不自动授权部署／迁移。
@@ -34,6 +35,7 @@
 | `web/src/editor/{mapcommands,componenttools,mapobjectmove,mappositionvalidation,mapeditlimits}.js` | 地图共同预演、对象写入、位置校验与请求预算 |
 | `editor-ui/`、`server/public/*.txt` | Vue展示壳/原生业务控制器 |
 | `server/{editorapp,gamecopy,systembasemap,systembasemapstore,mapworkspace}.js` | 鉴权、copy/模板、初始化、共同编辑与检验 |
+| `web/src/content/authoring/gamesource.js`、`server/{copychapters,copygenerals}.js` | 独立章节/势力命令、新副本转换、主表人物投影 |
 | `vps/`、`reader/site.js` | Node SQLite/文件桶/发布装配；玩家服务复用reader |
 
 ### 游戏与保存
@@ -42,6 +44,7 @@
 - fresh/restore使用v2原生道路与固定表，v1生产回退已退役。未知消费点fail-closed，保留已提交前缀、hold与禁存；不补未知RAM、不用`Math.random`兜底，不简化RNG消费、live/delayed身份或槽写序。
 - 图集/显示布局/拓扑/规则地形分离，Scenario为规则地形权威；画路不等于通路，资源取世界定义。绘制不推进路线或消费RNG；解析纠错导入新目录，不手改生成物。地图unknown不得猜底。
 - 正式存档仅同源IndexedDB `wolong-web/saves`，目录/正文同事务。游戏内读档先回标题，detached校验及资源ready后安装，await后重核scenario/world/clock/票据；战斗、未完续段、装配、故障期间禁存。须测真实JSON往返，不能只用structuredClone。
+- 各势力`playerOpening`仅在fresh按实际所选势力安装，restore保持运行值。显式`era=bc|ad`正向计时为前2→前1→公元1，无0年；存档保存纪元，恢复不从章头补回。无era历史兼容不作为新内容默认，纪元不能只改显示。
 - 标题单一游戏选择器，远端失败不阻断内置；新局/标题读档后默认展开军师条、势力信息、小地图。玩家交互/hold遵[全局约定](../AGENTS.md)；机制按[行军](../.agents/skills/re-march-engagement/SKILL.md)、[战斗](../.agents/skills/re-battle-command/SKILL.md)、[战后](../.agents/skills/re-post-battle/SKILL.md)、[数据格式](../.agents/skills/re-data-formats/SKILL.md)加载，不在memory复制推导。表现与支持边界见[开场](docs/opening-scene.md)、[战略时序](docs/re-notes-strategic-time.md)、[表现](docs/presentation-modernization.md)、[行军](docs/march-presentation-fixes.md)、[战术生命周期](docs/re-notes-tactical-lifecycle.md)；`CITY-4064-WEB-1`不外推其它规则。
 
 ### 地图编辑与素材
@@ -58,9 +61,11 @@
 - 地图道路、据点、武将库及章节属于单款游戏自己的共享数据；`sourceRef.kind`/`copy_origins.profile_revision`是历史来源标签，`mapOrigin`记录模板快照，不是第二份live数据。copy与formal分离，发布不回写内置源。
 - 据点主表拥有名称/坐标/最大生产力/类型/新章默认四值，缺省四值从第一章回填一次；章节仅覆盖所属、当前生产力、上升值、防灾值、城兵，内政官不在该设置。见[据点合同](docs/editor-city-definitions.md)、[章节合同](docs/chapter-and-base-resources.md)。
 - 普通新建完整据点主表、武将可空；完整复制还初始化人物/章节槽关联。内置武将整库导入须确认，服务端准备后单事务替换、失败保留旧库，不扫目标章分批追加。章序/槽序固定，姓名trim＋NFC去重、首次同名整条胜出；稳定ID改名不变，主表投影关联槽，缺引用交发布门，不隐式免职。六能力0..15，`suicideOnCapture`只同步attr bit4，`zi`只存，详见[武将合同](docs/editor-general-definitions.md#copy内置武将转换与主表权威现行)。
+- 章节互不依赖；编号/名称trim＋NFC后分别最多6/8码点、各自在游戏内唯一。章ID与次序分离；势力作者编号/ID与原生idx分离。删章不动主表/他章；势力退役保固定槽与身份，不splice或复用22个已分配槽，复杂军团/事件/俘虏等关系报具体冲突而非猜清。
+- 建势力须君主＋首都同事务，首都必本属；换君主不换势力身份、旧君主留属。人物所属/已登场/倒计时/投奔独立且同行编辑一次保存，读/取消不分配人物槽。章节征兵/预备兵输入实际人数，只在序列化处floor(/10)一次；城兵实际人数须为10倍数，不静默舍入；金钱不缩放。默认值、范围、双raw与旧值保留规则见章节合同，不在界面重算原生计数。
 - copy保存只拦模块约束，发布全量检查跨模块；摘要变动作废检验票，不恢复draft修订门。单写者无CAS不等于省略鉴权/epoch/Origin/删除栅栏。
 - 提交须同摘要通过票、1–2000码点说明；票一次性、每游戏30分钟节流。同意原子分配ordinal、安装已准备包、更新pin/formal/`listed=1`，失败回滚不耗号；版本1.0→1.1…1.10不复用。名称归作者，同作者不可重名；管理员全局管理保留已提交未删除游戏，审核只允许submitted，编辑/校验不解锁审核。
-- 内置游戏始终可用且不可编辑/下架/删除；作者编辑提交自己游戏，管理员审核/限制/删除而非替作者编辑。完整复制不含对局/存档，普通新建与完整复制不能混用。
+- 内置游戏始终可用且不可编辑/下架/删除；作者编辑提交自己游戏，管理员审核/限制/删除而非替作者编辑。完整复制不含对局/存档，普通新建与完整复制不能混用。用户批准同章同君主身份的重复势力仅保留首次，其余在新副本退役丢弃、不合并资源、不挪原槽，写转换明细；同章不同君主共用首都也仅保留首个，后续势力在新副本丢弃并记录原因；首都不存在仍拒。原件/已有副本不自动迁移，详见[章节转换合同](docs/chapter-and-base-resources.md#新复制转换边界与可见回执p4)。
 - 新正式版使旧对局禁存、旧档不可加载；清旧与新保存同事务。网络失败/下架/损坏不得冒充更新，仅下架未更新的会话可继续。`410 GAME_DELETED`强制确认后清该游戏本机进度并回开局。
 - 目录`control/directory.json`；共享程序`artifacts/programs/<digest>/`、游戏发布`artifacts/<gameId>/`、私有`private/<gameId>/`。删除先核权/栅栏→移除指针/清两前缀→事务复核/purge，失败保留管理行与栅栏供重试；不删installed或共享程序。磁盘桶ETag为带引号md5，mtime决定last-modified，reader须有size/contentType/ReadableStream。详见[存储合同](docs/game-storage-layout.md)。
 - 共享`kao/`共621张128×128画像，文件名/ID数字0..620，255是普通资源，不开放上传；ID>255走portraitKey，不塞byte，不改DOS FF或旧冻结身份。见[画像合同](docs/re-notes-portrait-reader.md#现行web准入与原证边界)。
@@ -77,8 +82,9 @@
 ## 4. 重要工程坑点
 
 - **build≠check≠服务刷新**：Vue变更先build再check，同步shell-ui.txt（URL `/shell-ui.js`）/css/licenses。`server/public/*.txt`被进程import且dev监听排除；只重启自己持有实例，用新profile/禁缓存核字节，不能停他人实例。
+- **开发库选择**：启动dev显式指定`--store`；空目录会呈现另一套空数据，不能据此判游戏删除。沿用用户指定库前核进程命令/目录，不默认换库、搬库或重建；验收使用独占测试目录，当前手测实例交接放journal而非固定PID。
 - **Vue LSP**：项目私有`editor-ui/lsp/`用Vue LS2.2.12＋TS5.9.3 standalone，仅项目`.pi-lens.json`；从editor-ui启动新会话才实际采用override，配置来源不等于launcher生效。不改全局工具/信任，安装与独立检查见[说明](editor-ui/lsp/README.md)。
-- **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态。改`web/src/**`重建trialweb.txt；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
+- **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态，`--source-only`不验证available-library。改`web/src/**`重建trialweb.txt；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
 - **copyop分发**：`applyCapturedMapEdit`的`view(edit)`返回属性描述符表，不是原对象；新op用`value(edit, key)`取值，勿直读`edit.x`。未绑定piece（cityId空）校验必败，绑定后才放行；新城中心须行序扫描在最后（scan-last），否则编译拒收；走廊须先铺好（端点D4..DD），road-add只做认证不铺砖。
 - **地图交互验收**：摘掉组关系不等于拆成单格，须检查实例身份／足迹、JSON保存重读及逐格命中。提示应复用固定状态区，右键清提示引发resize会关闭菜单／改变点击坐标，不能用点击重试掩盖。移动保存门限于移动批次，不阻断copy分步建城。
 - **事件调度**：调度表与 4 字节轮不能各派发一次——条目只写原轮或只写调度表，读时按 carry→原轮→overflow 合并；改 `strategicEventSchedule` 形状须同步快照校验与 `verify_d2_event_*`，否则到恢复期才炸。
@@ -117,6 +123,9 @@ node tools/verify_map_sprite_materialization.mjs
 node --test --test-concurrency=1 tools/verify_map_position_editing.mjs
 node tools/verify_map_canvas_select_disband_browser.mjs # 可选 --large；隔离SQLite／API夹具
 node tools/verify_copy_http_roundtrip.mjs --browser
+node --test tools/verify_copy_chapter_ops.mjs
+node --test tools/verify_chapter_workbench_http.mjs # 按审计显式选EDITOR或FORMAL/BROWSER/APP/ERA等lane
+node tools/verify_chapter_workbench_browser.mjs   # fresh profile，内存API，不冒充真实鉴权后端
 node --check <变更JS或MJS>
 git diff --check
 # 只读线上核对，不是部署

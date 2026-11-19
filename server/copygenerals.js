@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
 import { fail } from './security.js';
+import { assignChapterGeneral, setChapterGeneralArrival, setChapterGeneralOwner } from '../web/src/content/authoring/gamesource.js';
 const portraits = new Map(KAO_MANIFEST.map(row => [row.id, row.sha256]));
 const abilities = ['force', 'lead', 'politics', 'siege', 'field', 'naval'];
 
@@ -50,6 +51,36 @@ export function projectCopyGenerals(game) {
       }
     }
   }
+  return game;
+}
+
+// Authoring a library member allocates only this chapter's normal slot. Reading
+// the library never allocates slots, and inactive is not equivalent to removal.
+export function configureCopyGeneral(source, chapterId, generalId, values) {
+  if (!Object.hasOwn(source.chapters, chapterId) || !Object.hasOwn(source.generals, generalId))
+    fail(422, 'COPY_GENERAL_REFERENCE');
+  const game = structuredClone(source), chapter = game.chapters[chapterId];
+  const definition = game.generals[generalId];
+  let row = chapter.state.generals.find(g => g.generalId === generalId);
+  if (!row) {
+    if (typeof values?.active !== 'boolean') fail(422, 'COPY_GENERAL_ACTIVE_REQUIRED');
+    // The shared legacy allocator selects the first unbound slot. Never let it
+    // overwrite an unresolved historical person or the reserved slot 127.
+    const vacant = chapter.state.generals.find(g => g.generalId == null);
+    if (!vacant || vacant.idx > 126) fail(422, 'COPY_GENERAL_SLOTS_FULL');
+    if (vacant.name.trim()) fail(422, 'COPY_GENERAL_UNRESOLVED_SLOT');
+    const { slot } = assignChapterGeneral(game, chapterId, {
+      generalId, name: definition.name, hao: definition.hao,
+      portrait: 0, suicideOnCapture: definition.suicideOnCapture,
+      ...(definition.ability ? { ability: definition.ability } : {}),
+    });
+    row = chapter.state.generals[slot];
+  }
+  const { factionId, ...arrival } = values;
+  setChapterGeneralArrival(game, chapterId, row.idx, arrival);
+  if (Object.hasOwn(values, 'factionId')) setChapterGeneralOwner(game, chapterId, row.idx, factionId);
+  // Project only this chapter; unrelated chapters and the library remain exact.
+  projectCopyGenerals({ generals: game.generals, chapters: { [chapterId]: chapter } });
   return game;
 }
 

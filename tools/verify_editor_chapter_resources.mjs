@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { readInstalledEditorSource } from "./editor_builtin_source.mjs";
 import { copyBuiltinGame, disbandFaction } from "../web/src/content/authoring/gamesource.js";
-import { editChapterResources } from "../web/src/editor/chapterresources.js";
+import { editChapterResources, editChapterResourcePeople } from "../web/src/editor/chapterresources.js";
 const sha = bytes => createHash("sha256").update(bytes).digest("hex"), inputs = {}, tools = {};
 const priorIDB = Object.getOwnPropertyDescriptor(globalThis, "indexedDB"); let implicitIDB = 0;
 Object.defineProperty(globalThis, "indexedDB", { configurable: true, get() { implicitIDB++; throw new Error("IDB forbidden"); } });
@@ -23,6 +23,12 @@ try {
     }
     row.money_hi = Number.parseInt(row.raw.slice(0x22 * 2, 0x23 * 2), 16); return next;
   }
+  const id = game.chapterOrder[0], slot = 0;
+  const ordinary = structuredClone(game); ordinary.sourceRef.kind = 'builtin-template';
+  const ordinaryBefore = JSON.stringify(ordinary);
+  assert.deepEqual(editChapterResourcePeople(ordinary, id, slot, { money: 10000, reserve_cav: 127, reserve_arc: 10, reserve_inf: 9 }),
+    expected(ordinary, id, slot, { money: 10000, reserve_cav: 12, reserve_arc: 1, reserve_inf: 0 })); checks++;
+  assert.equal(JSON.stringify(ordinary), ordinaryBefore, 'ordinary author source remains detached');
   for (const id of game.chapterOrder) {
     const rows = game.chapters[id].state.factions;
     for (const slot of [0, rows.length - 1]) for (const [name, [, , min, max]] of Object.entries(fields)) {
@@ -31,7 +37,6 @@ try {
     }
     assert.equal(editChapterResources(game, id, 0, { money: rows[0].money }), game); checks++;
   }
-  const id = game.chapterOrder[0], slot = 0;
   const compacted = structuredClone(game), removedSlot = compacted.chapters[id].state.factions[0].idx;
   disbandFaction(compacted, id, removedSlot);
   const survivingSlot = compacted.chapters[id].state.factions[0].idx;
@@ -57,7 +62,7 @@ try {
   for (const index of [-1, 22, 0.5, "0", null]) refused(game, id, index, { money: 1 });
   for (const chapter of ["missing", "__proto__", "", null]) refused(game, chapter, slot, { money: 1 });
   for (const change of [
-    g => { g.gameId = "wolong-builtin"; }, g => { g.sourceRef.kind = "builtin-template"; }, g => { g.chapterOrder = []; },
+    g => { g.gameId = "wolong-builtin"; }, g => { g.sourceRef.kind = "unknown-source"; }, g => { g.sourceRef.sourceId = "other-source"; }, g => { g.chapterOrder = []; },
     g => { g.chapters[id].chapterId = "other"; }, g => { g.chapters[id].state.factions[0].idx = 1; },
     g => { g.chapters[id].state.nativeFactionSlotRaw.pop(); }, g => { delete g.chapters[id].state.nativeFactionSlotRaw[0]; },
     g => { g.chapters[id].state.factions[0].raw = "00"; }, g => { g.chapters[id].state.factions[0].money++; },

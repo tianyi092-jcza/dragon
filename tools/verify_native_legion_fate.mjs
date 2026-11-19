@@ -235,8 +235,9 @@ const slot = (f, daily = false) =>
     runCityDaily: false,
     settleDaily: daily,
   });
-async function restored(f) {
-  const saved = json(snapshotState(f.app, 0, "arrival"));
+async function restored(f, transport = null) {
+  let saved = json(snapshotState(f.app, 0, "arrival"));
+  if (transport) saved = await transport.roundtrip(saved);
   const result = await prepareScenario({
     ...f.args,
     mode: "restore",
@@ -994,6 +995,50 @@ async function recruitmentFixture(random = 0, preferred = 1) {
   f.sc.nativePlayerFactionPointer = 0xffff;
   return f;
 }
+
+test('CHAPTER-WB BC to AD snapshot restore preserves era and decrements native585F once per month', async t => {
+  const transport = process.env.CHAPTER_WB_IDB === '1' ? await (await import('./chapter_idb_transport.mjs')).createChapterIDBTransport() : null;
+  if (transport) t.after(() => transport.close());
+  let f = await recruitmentFixture();
+  Object.assign(f.sc.generals[0], { attr: 128, appear_months: 3 });
+  f.sc.trust = 13;
+  f.app.clock = new Clock({ startEra: 'bc', startYear: 1, startMonth: 12, startDay: 31 });
+  f = await restored(f, transport);
+  assert.deepEqual(f.saved.state.save_date, { year: 1, month: 12, day: 31, era: 'bc' });
+  assert.equal(f.sc.trust, 13, 'restore does not reapply fresh trust');
+  let settlements = 0;
+  const attachClock = () => {
+    const date = f.sc.save_date;
+    f.app.clock = new Clock({ startEra: date.era, startYear: date.year,
+      startMonth: date.month, startDay: date.day,
+      onMonthEnd(c) {
+        settlements++;
+        assert.deepEqual(processMonthlyGeneralFates(f.app), []);
+        c.hold = true;
+      },
+    });
+  };
+  attachClock();
+  f.app.clock.hour = 23; f.app.clock.sub = 8;
+  f.app.clock.advanceFrame(f.app.clock.currentStep);
+  assert.equal(f.sc.generals[0].appear_months, 2);
+  f.app.clock.advanceFrame(10000);
+  assert.equal(settlements, 1);
+  f.app.clock.hold = false;
+  f.app.clock.advanceFrame(f.app.clock.currentStep);
+  assert.equal(f.sc.generals[0].appear_months, 2);
+  f.sc.trust = 27;
+  f = await restored(f, transport);
+  assert.deepEqual(f.saved.state.save_date, { year: 1, month: 1, day: 1, era: 'ad' });
+  assert.equal(f.sc.trust, 27, 'post-era restore uses snapshot trust rather than opening defaults');
+  assert.equal(f.sc.generals[0].appear_months, 2);
+  attachClock();
+  f.app.clock.day = 31;
+  f.app.clock.hour = 23; f.app.clock.sub = 8;
+  f.app.clock.advanceFrame(f.app.clock.currentStep);
+  assert.equal(settlements, 2);
+  assert.equal(f.sc.generals[0].appear_months, 1);
+});
 
 // Real processMonthlyGeneralFates, not a parallel recruitment handler.
 test("native5899 preferred joins through585F and JSON restore without G17/G1D or legacy count writes", async () => {

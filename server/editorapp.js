@@ -8,7 +8,7 @@ import { GameManagement } from './management.js';
 import { ImmutableBlobStore } from './blobs.js';
 import { InstalledSourceCatalog } from './sourcecatalog.js';
 import { OwnedRuntimeAssets } from './runtimeassets.js';
-import { installedSourcePolicy, installedAvailableLibraryPolicy } from './sourcecatalogpolicy.js';
+import { installedSourcePolicy, installedAvailableLibraryPolicy, isIsolatedChapterSourcePolicy } from './sourcecatalogpolicy.js';
 import availableLibraryManifest from './available-library.txt';
 import { AdminFullCopy } from './admincopy.js';
 import { createPinnedCopyLoader } from '../tools/editor_trusted_copy.mjs';
@@ -154,7 +154,11 @@ const VALIDATION_LAYER_CODES = new Map([['chapter', 'CHAPTER_MISSING'], ['genera
 const VALIDATION_LAYER_KEYS = new Set(VALIDATION_LAYER_CODES.keys());
 const VALIDATION_JOB_TTL_MS = 120000, VALIDATION_JOB_LIMIT = 8;
 const DISTRIBUTION_SYNC_STATES = new Set(['IDLE', 'VISIBLE_CONFIRMED', 'COMMITTED_SYNC_PENDING']);
-export function createEditorApplication(PlatformBase, { runtimeStager, frozenPublication = false, readSharedPortrait, purgeReclaimer, distributionDrain } = {}) {
+export function createEditorApplication(PlatformBase, { runtimeStager, frozenPublication = false, readSharedPortrait, purgeReclaimer, distributionDrain, isolatedCopySource } = {}) {
+  if (isolatedCopySource !== undefined && (!isIsolatedChapterSourcePolicy(isolatedCopySource.policy) || typeof isolatedCopySource.createCopyLoader !== 'function'))
+    throw new TypeError('trusted independently branded chapter source required');
+  const copySourcePolicy = isolatedCopySource?.policy;
+  const createCopyLoader = isolatedCopySource?.createCopyLoader ?? createPinnedCopyLoader;
   if (readSharedPortrait !== undefined && typeof readSharedPortrait !== 'function') throw new TypeError('trusted shared portrait reader required');
   // 刪除後的 R2 回收埠（方案 B）：只清本遊戲的位元組與在架指針條目，不是刪除權限。
   if (purgeReclaimer !== undefined && typeof purgeReclaimer !== 'function') throw new TypeError('trusted purge reclaimer required');
@@ -259,7 +263,7 @@ return class EditorMetadata extends PlatformBase {
       const gameLimit = env.EDITOR_GAME_LIMIT === undefined ? 0 : Number(env.EDITOR_GAME_LIMIT);
       this.privateWrites = new PrivateWriteJournal({ storage: ctx.storage, bucket: env.EDITOR_BLOBS });
       this.blobs = new ImmutableBlobStore({ bucket: this.privateWrites, authority: (hash, context) => this.games.blobAuthority(hash, context), storage:ctx.storage, maxBytes });
-      const policy = installedSourcePolicy(new TextEncoder().encode(worldManifest), new TextEncoder().encode(entityManifest));
+      const policy = copySourcePolicy ?? installedSourcePolicy(new TextEncoder().encode(worldManifest), new TextEncoder().encode(entityManifest));
       this.installedSources = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, operationGuard: (actor, key) => this.contentKey(actor.id, key, 'source') });
       runtimeAssets = new OwnedRuntimeAssets({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), games: this.games, policy, kind: 'visuals' });
       const libraryPolicy = installedAvailableLibraryPolicy(new TextEncoder().encode(availableLibraryManifest));
@@ -269,14 +273,14 @@ return class EditorMetadata extends PlatformBase {
       // 而不放寬 availableLibrary 的安裝／登記權限（install 另有 admin 守衛）。
       this.libraryBrowser = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy: libraryPolicy, readRole: ['admin', 'author'] });
       this.#bootstrapLibrary(env);
-      copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, gameLimit, captureBaseMap: () => this.systemBaseMap.capture() });
+      copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, gameLimit, createCopyLoader, captureBaseMap: () => this.systemBaseMap.capture() });
       const authorSource = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, readRole: ['admin', 'author'] });
       this.readCopyMapAtlas = (tokenHash, path) => authorSource.readRole(tokenHash, path);
       this.loadBuiltinGeneralSource = async (tokenHash, gameId) => {
         const actor = this.principal(tokenHash);
         const source = await authorSource.loadFull(tokenHash, authorSource.definition().registryId);
         authorSource.assertCapture(tokenHash, source);
-        const { game } = await createPinnedCopyLoader({ readWeb: source.readWeb })({ gameId, ownerId: actor.id });
+        const { game } = await createCopyLoader({ readWeb: source.readWeb })({ gameId, ownerId: actor.id });
         authorSource.assertCapture(tokenHash, source);
         return game;
       };
@@ -285,7 +289,7 @@ return class EditorMetadata extends PlatformBase {
       // （含據點），章節與武將庫為空（FIXED_TEMPLATE_PROFILE）；管理員「複製遊戲」
       // 才整套複製（地圖＋章節＋武將），走既有 /api/admin/copies 完整副本管線。
       // 兩種 profile 的歷史行仍各自按其 profile 讀取。
-      this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['admin', 'author'], profileRevision: FIXED_TEMPLATE_PROFILE, gameLimit, captureBaseMap: () => this.systemBaseMap.capture() });
+      this.authorCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: authorSource, games: this.games, blobs: this.blobs, leaseMs: 300000, roles: ['admin', 'author'], profileRevision: FIXED_TEMPLATE_PROFILE, gameLimit, createCopyLoader, captureBaseMap: () => this.systemBaseMap.capture() });
       this.commandTargets = new HttpCommandTargets(ctx.storage, env.EDITOR_REQUEST_KEY);
       ctx.storage.transactionSync(() => this.sql.exec('CREATE TABLE IF NOT EXISTS copy_http_commands (actor TEXT NOT NULL, op_key TEXT NOT NULL, request_digest TEXT NOT NULL, auth_epoch INTEGER NOT NULL, PRIMARY KEY(actor,op_key))'));
       this.privateDrafts = new PrivateDrafts({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, blobs: this.blobs, definition: () => this.installedSources.definition(), operationGuard: (actor, key) => this.contentKey(actor, key, 'draft'),
@@ -306,7 +310,7 @@ return class EditorMetadata extends PlatformBase {
     }
     // Frozen public play snapshots. Blobless development has no owned runtime
     // reader, so preparing a publication remains closed rather than bypassed.
-    this.playPacks = new PublishedPacks({ storage: ctx.storage, principal: hash => this.principal(hash), runtimeAssets, portraits: this.portraits });
+    this.playPacks = new PublishedPacks({ storage: ctx.storage, principal: hash => this.principal(hash), runtimeAssets, portraits: this.portraits, isolatedSourcePolicy: copySourcePolicy });
   }
   one(query, ...args) { return this.sql.exec(query, ...args).toArray()[0]; }
   // Read-only public registry role bytes for the trial web route: pinned index roles, chunked R2 reads, sha re-verified.

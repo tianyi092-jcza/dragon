@@ -8,6 +8,7 @@ import { GameSnapshotVerifier } from './snapshots.js';
 import { fail } from './security.js';
 import { GameCopyStore } from './gamecopy.js';
 import { initializeCopyGenerals } from './copygenerals.js';
+import { initializeCopyChapters } from './copychapters.js';
 import { instantiateSystemBaseMap } from './systembasemap.js';
 const hash = value => createHash('sha256').update(value).digest('hex');
 // 從未 claim 的 pending 列超過這個寬限期就當成中斷（分頁關了、請求從未到 /run）。
@@ -24,12 +25,14 @@ function request(input) {
 }
 function key(value) { if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value)) fail(422, 'COPY_OPERATION_KEY'); }
 export class AdminFullCopy {
-  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #copies; #leaseMs; #roles; #profileRevision; #gameLimit; #captureBaseMap; #caps = new WeakMap(); #executing = new WeakSet();
-  constructor({ storage, principal, catalog, games, blobs, leaseMs = 60000, roles = ['admin'], profileRevision = FIXED_COPY_PROFILE, gameLimit = 0, captureBaseMap = () => fail(503, 'BASE_MAP_NOT_CONFIGURED') }) {
+  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #copies; #leaseMs; #roles; #profileRevision; #gameLimit; #captureBaseMap; #createCopyLoader; #caps = new WeakMap(); #executing = new WeakSet();
+  constructor({ storage, principal, catalog, games, blobs, leaseMs = 60000, roles = ['admin'], profileRevision = FIXED_COPY_PROFILE, gameLimit = 0, captureBaseMap = () => fail(503, 'BASE_MAP_NOT_CONFIGURED'), createCopyLoader = createPinnedCopyLoader }) {
     if (!storage?.sql || typeof principal !== 'function' || typeof catalog?.loadFull !== 'function' || typeof games?.recoverGameId !== 'function' || typeof games?.assertNameAvailableInTxn !== 'function' || typeof blobs?.putImmutable !== 'function') throw new TypeError('actual same-domain stores and principal required');
     if (!Array.isArray(roles) || roles.length === 0 || !roles.every(role => role === 'admin' || role === 'author')) fail(503, 'COPY_ROLE_POLICY');
     if (![FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE].includes(profileRevision)) fail(503, 'COPY_PROFILE_POLICY');
     if (typeof captureBaseMap !== 'function') throw new TypeError('trusted system base-map snapshot port required');
+    if (typeof createCopyLoader !== 'function') throw new TypeError('trusted copy loader factory required');
+    this.#createCopyLoader = createCopyLoader;
     this.#captureBaseMap = captureBaseMap;
     this.#profileRevision = profileRevision;
     if (!Number.isSafeInteger(gameLimit) || gameLimit < 0) fail(503, 'COPY_QUOTA_POLICY');
@@ -59,13 +62,18 @@ export class AdminFullCopy {
   }
   #summary(row) {
     const failedCode = this.#failedCode(row);
-    return { gameId: row.game_id, state: row.state, rowRevision: row.row_revision, generation: row.generation, leaseUntil: row.lease_until, registryId: row.registry_id, objects: this.#objects(row.game_id), ...(failedCode ? { failedCode } : {}) };
+    let failedDetail;
+    if (failedCode === 'COPY_CHAPTER_CAPITAL') {
+      const value = parsed(row.result_json);
+      if (typeof value?.detail === 'string') failedDetail = value.detail;
+    }
+    return { gameId: row.game_id, state: row.state, rowRevision: row.row_revision, generation: row.generation, leaseUntil: row.lease_until, registryId: row.registry_id, objects: this.#objects(row.game_id), ...(failedCode ? { failedCode } : {}), ...(failedDetail ? { failedDetail } : {}) };
   }
   // 未完成的複製不得留下任何東西（用戶回報：沒複製成功卻佔住名稱）。
   // 收回＝終止狀態＋歸還名稱＋把半成品物件標成 abandoned；已 commit 的一律不動。
   // code 只為“讓使用者看得到失敗原因”而記（用戶要求：沒成功不得靜默消失）。
-  #abandonInTxn(row, state, code = null) {
-    const reason = state === 'failed' ? JSON.stringify({ version: 1, code: typeof code === 'string' && /^[A-Z][A-Z0-9_]{2,63}$/.test(code) ? code : 'COPY_FAILED' }) : null;
+  #abandonInTxn(row, state, code = null, detail = null) {
+    const reason = state === 'failed' ? JSON.stringify({ version: 1, code: typeof code === 'string' && /^[A-Z][A-Z0-9_]{2,63}$/.test(code) ? code : 'COPY_FAILED', ...(code === 'COPY_CHAPTER_CAPITAL' && typeof detail === 'string' ? { detail } : {}) }) : null;
     this.#sql.exec('UPDATE copy_requests SET state=?,lease_hash=NULL,lease_until=0,row_revision=?,result_json=? WHERE actor=? AND op_key=?', state, String(BigInt(row.row_revision) + 1n), reason, row.actor, row.op_key);
     this.#sql.exec('DELETE FROM content_names WHERE game_id=?', row.game_id);
     this.#sql.exec("UPDATE copy_objects SET state='abandoned' WHERE game_id=?", row.game_id);
@@ -89,7 +97,7 @@ export class AdminFullCopy {
         const row = this.#one('SELECT * FROM copy_requests WHERE actor=? AND op_key=?', known.actor.id, known.operationKey);
         // 只收回自己這次 lease 那份：別人已重新 claim 或已 commit 的不動。
         if (!row || row.state !== 'running' || row.generation !== known.generation || row.lease_hash !== known.leaseHash) return;
-        this.#abandonInTxn(row, 'failed', code);
+        this.#abandonInTxn(row, 'failed', code, error?.detail);
       });
     } catch { /* 收回失敗不得掩蓋原始錯誤；仍有 reserve 前的 stale 清掃兵底 */ }
   }
@@ -123,7 +131,16 @@ export class AdminFullCopy {
   #result(tokenHash, row) {
     const result = parsed(row.result_json), origin = this.#one('SELECT * FROM copy_origins WHERE game_id=?', row.game_id), snapshot = this.#games.snapshotReference(tokenHash, row.game_id, '1');
     if (!origin || typeof origin.baseline_digest !== 'string') fail(503, 'COPY_RECEIPT_CORRUPT');
-    if (text(result) !== text({ gameId: row.game_id, draftRevision: '1', sourceDigest: snapshot.sourceDigest, baselineDigest: origin.baseline_digest }) || origin?.source_digest !== snapshot.sourceDigest || origin.registry_id !== row.registry_id || origin.catalog_root !== row.catalog_root || origin.profile_revision !== row.profile_revision || origin.definition_digest !== row.definition_digest) fail(503, 'COPY_RECEIPT_CORRUPT'); return result;
+    // The original four identity fields remain exact; conversion is an optional
+    // presentation receipt, not another source identity or publication authority.
+    const { chapterConversion, ...identity } = result ?? {};
+    if (text(identity) !== text({ gameId: row.game_id, draftRevision: '1', sourceDigest: snapshot.sourceDigest, baselineDigest: origin.baseline_digest }) || origin?.source_digest !== snapshot.sourceDigest || origin.registry_id !== row.registry_id || origin.catalog_root !== row.catalog_root || origin.profile_revision !== row.profile_revision || origin.definition_digest !== row.definition_digest) fail(503, 'COPY_RECEIPT_CORRUPT');
+    if (chapterConversion !== undefined && (chapterConversion?.version !== 1 || !Array.isArray(chapterConversion.labels) || !Array.isArray(chapterConversion.capitals) ||
+        !chapterConversion.labels.every(value => typeof value?.chapterId === 'string' && typeof value.sourceName === 'string' &&
+          (value.sourceNumber === null || typeof value.sourceNumber === 'string') && typeof value.number === 'string' && typeof value.name === 'string') ||
+        !chapterConversion.capitals.every(value => typeof value?.chapterId === 'string' && typeof value.cityName === 'string' &&
+          Number.isInteger(value.cityIdx) && (value.before === null || Number.isInteger(value.before)) && Number.isInteger(value.after)))) fail(503, 'COPY_RECEIPT_CORRUPT');
+    return result;
   }
   claim(tokenHash, operationKey, expectedRevision) {
     const actor = this.#actor(tokenHash); return this.#storage.transactionSync(() => {
@@ -164,16 +181,17 @@ export class AdminFullCopy {
     // returns its existing receipt; a failed execution never installs a copy.
     const mapSnapshot = this.#captureBaseMap();
     const source = await this.#catalog.loadFull(tokenHash, row.registry_id); this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
-    let record = 0; const profile = new FixedCopyProfile({ profileRevision: row.profile_revision, loadCopy: createPinnedCopyLoader({ kind: row.profile_revision === FIXED_TEMPLATE_PROFILE ? 'minimal' : 'full', readWeb: source.readWeb, allocateEntityId: () => row.game_id + ':source-record:' + ++record }) });
+    let record = 0; const profile = new FixedCopyProfile({ profileRevision: row.profile_revision, loadCopy: this.#createCopyLoader({ kind: row.profile_revision === FIXED_TEMPLATE_PROFILE ? 'minimal' : 'full', readWeb: source.readWeb, allocateEntityId: () => row.game_id + ':source-record:' + ++record }) });
     const captured = await profile.capture({ gameId: row.game_id, ownerId: actor.id }); this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
     const candidate = { ...captured.game, metadata: parsed(row.metadata_json) }; profile.verify(captured.capability, candidate);
+    const chapterData = initializeCopyChapters(initializeCopyGenerals(candidate));
     const baseline = await this.#write(tokenHash, cap, allocation, captured.game), saved = await this.#write(tokenHash, cap, allocation, candidate);
     const baselineProof = await this.#verifier.verify(tokenHash, { gameId: row.game_id, allocation, metadata: captured.game.metadata, source: baseline });
     if (profile.verify(captured.capability, baselineProof.game).sourceDigest !== captured.baselineDigest) fail(422, 'COPY_BASELINE_PROOF');
     const checked = await this.#verifier.verify(tokenHash, { gameId: row.game_id, allocation, metadata: candidate.metadata, source: saved }), proof = profile.verify(captured.capability, checked.game);
     this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
     // 冻结 baseline/profile 不变；当前工作台 copy 在同一创建事务中安装规范化主表。
-    const copyData = instantiateSystemBaseMap(initializeCopyGenerals(candidate), mapSnapshot, hash);
+    const copyData = instantiateSystemBaseMap(chapterData, mapSnapshot, hash);
     const prepared = await this.#games.prepareSnapshot(tokenHash, { gameId: row.game_id, draftRevision: '1', metadata: candidate.metadata, source: saved, allocation }); this.#lease(tokenHash, cap);
     this.#games.transaction(tokenHash, { key: row.op_key, method: 'create', target: 'new', digest: row.request_digest }, tx => {
       const now = this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
@@ -181,7 +199,8 @@ export class AdminFullCopy {
       const result = tx.create(allocation, prepared);
       this.#copies.seedFromGame(tokenHash, row.game_id, copyData);
       this.#sql.exec('INSERT INTO copy_origins VALUES(?,?,?,?,?,?,?,?,?,?)', row.game_id, row.registry_id, row.definition_digest, row.catalog_root, row.profile_revision, baseline.sha256, baseline.byteLength, captured.baselineDigest, proof.sourceDigest, checked.dependencyDigest);
-      const receipt = { gameId: row.game_id, draftRevision: '1', sourceDigest: proof.sourceDigest, baselineDigest: captured.baselineDigest };
+      const receipt = { gameId: row.game_id, draftRevision: '1', sourceDigest: proof.sourceDigest, baselineDigest: captured.baselineDigest,
+        chapterConversion: copyData.chapterConversion };
       this.#sql.exec("UPDATE copy_objects SET state='committed' WHERE game_id=?", row.game_id);
       this.#sql.exec("UPDATE copy_requests SET state='committed',lease_hash=NULL,lease_until=0,row_revision=?,result_json=? WHERE actor=? AND op_key=?", String(BigInt(now.row.row_revision) + 1n), text(receipt), actor.id, row.op_key);
       return result;

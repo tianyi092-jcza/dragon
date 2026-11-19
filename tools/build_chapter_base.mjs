@@ -31,7 +31,34 @@ export function buildChapterBase(source) {
     if (typeof city.raw !== 'string' || !/^[0-9a-f]{64}$/.test(city.raw)) throw new RangeError(`city slot ${slot} needs a 32-byte record`);
     return [city.name, city.raw];
   });
-  return { revision: source.revision, chapterId: chapter.id, cities, factionSlots };
+  const monthlyPolicyRaw = chapter.state.nativeMonthlyPolicyRaw;
+  if (typeof monthlyPolicyRaw !== 'string' || !/^[0-9a-f]{32}$/.test(monthlyPolicyRaw)) throw new RangeError('fixed source monthly policy must carry all 16 bytes');
+  // Copy a proven complete empty template, never pad a truncated source page.
+  const nativeStrategicEventRaw = chapter.state.nativeStrategicEventRaw;
+  if (typeof nativeStrategicEventRaw !== 'string' || !/^0{2048}$/.test(nativeStrategicEventRaw))
+    throw new RangeError('blank chapter base needs the complete empty template event window');
+  const nativeDiplomacyRaw = chapter.state.nativeDiplomacyRaw;
+  if (typeof nativeDiplomacyRaw !== 'string' || !/^[0-9a-f]{1152}$/.test(nativeDiplomacyRaw))
+    throw new RangeError('blank chapter base needs the complete 24 by 24 diplomacy matrix');
+  // Web authoring default: use the template's existing 0->1 ordinary relation,
+  // not a guessed midpoint. Diagonals and reserved/alias cells stay untouched.
+  const ordinaryDiplomacyRaw = Number.parseInt(nativeDiplomacyRaw.slice(2, 4), 16);
+  if (ordinaryDiplomacyRaw < 0xa8 || ordinaryDiplomacyRaw > 0xbb)
+    throw new RangeError('template 0->1 must be peaceful ordinary (40..59)');
+  const { weatherClouds, weatherCloudBounds } = chapter.state;
+  const cloudFields = [['x', -32768, 32767], ['y', -32768, 32767],
+    ...['phaseX', 'phaseY', 'velocityX', 'velocityY'].map(key => [key, -128, 127]),
+    ...['timer', 'interval', 'group'].map(key => [key, 0, 255]), ['frame', 0, 7]];
+  if (!Array.isArray(weatherClouds) || weatherClouds.length !== 16 || weatherClouds.some(cloud =>
+    !cloud || typeof cloud.active !== 'boolean' || cloudFields.some(([key, min, max]) =>
+      !Number.isInteger(cloud[key]) || cloud[key] < min || cloud[key] > max)))
+    throw new RangeError('fixed source needs sixteen complete weather cloud records');
+  if (!weatherCloudBounds || ['minX', 'minY', 'maxX', 'maxY'].some(key =>
+    !Number.isInteger(weatherCloudBounds[key]) || weatherCloudBounds[key] < -32768 || weatherCloudBounds[key] > 32767) ||
+    weatherCloudBounds.minX > weatherCloudBounds.maxX || weatherCloudBounds.minY > weatherCloudBounds.maxY)
+    throw new RangeError('fixed source weather bounds required');
+  return { revision: source.revision, chapterId: chapter.id, cities, factionSlots, monthlyPolicyRaw,
+    weatherClouds, weatherCloudBounds, nativeStrategicEventRaw, nativeDiplomacyRaw, ordinaryDiplomacyRaw };
 }
 
 export function renderChapterBaseModule(base) {

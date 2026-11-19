@@ -46,7 +46,9 @@ test('loadCopy projects general display fields and source binding', async () => 
   const h = harness(); await selectGame(h); loadOk(h);
   await h.actions.loadCopy();
   const g = h.model().copy.page.attributes.chapters[0].generals[0];
-  assert.deepEqual(g, { slot: 0, name: '丁', hao: '字', factionSlot: 0, reserved: false, portraitKey: 'p7', originalPortraitId: '3',
+  assert.deepEqual(g, { generalId: null, slot: 0, name: '丁', zi: '', hao: '字', portraitRef: null,
+    active: null, arrival: null, monarchEligible: false, strategistEligible: false,
+    factionSlot: 0, reserved: false, portraitKey: 'p7', originalPortraitId: '3',
     ability: { force: 90, lead: 80, politics: 70, siege: 15, field: 14, naval: 13 }, specialtyLowBits: '1a2', suicideOnCapture: false, sourceRecordId: 'rec-1', posts: ['君主'] });
   const keep = h.model().copy.page.attributes.chapters[0].generals[1];
   assert.deepEqual([keep.originalPortraitId, keep.ability, keep.specialtyLowBits, keep.sourceRecordId], [null, null, null, null]);

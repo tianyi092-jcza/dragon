@@ -9,12 +9,13 @@
 // season visuals stay registry-relative (served anonymously under /content/).
 import { createHash } from 'node:crypto';
 import { fail } from './security.js';
+import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
 import { collectPortraitIds } from './portraits.js';
 import { cityViewGaps } from './trials.js';
 import { MINIMAP_SIZES, renderMinimapPixels } from '../web/src/content/authoring/minimap.js';
 import { encodePNG } from './pngio.js';
 import { TRIAL_COMPILER_REVISION } from '../web/src/content/authoring/trialcompile.js';
-import { installedSourcePolicy, isInstalledSourcePolicy } from './sourcecatalogpolicy.js';
+import { installedSourcePolicy, isInstalledSourcePolicy, isIsolatedChapterSourcePolicy } from './sourcecatalogpolicy.js';
 import worldManifest from './pinned/world-manifest.txt';
 import entityManifest from './pinned/entity-manifest.txt';
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
@@ -44,12 +45,14 @@ const assetURL = (gameId, rev, sourceDigest, assetId) => `/api/trial-asset?game=
 export class PublishedPacks {
   #storage; #sql; #principal; #runtimeAssets; #policy; #portraits;
   #prepared = new WeakMap();
-  constructor({ storage, principal, runtimeAssets = null, portraits = null }) {
+  constructor({ storage, principal, runtimeAssets = null, portraits = null, isolatedSourcePolicy }) {
+    if (isolatedSourcePolicy !== undefined && !isIsolatedChapterSourcePolicy(isolatedSourcePolicy))
+      throw new TypeError('independently branded publication source required');
     if (!storage?.sql || typeof principal !== 'function') { throw new TypeError('actual SQLite and trusted principal required'); }
     if (portraits !== null && typeof portraits?.forPublish !== 'function') { throw new TypeError('portrait reader required'); }
     this.#storage = storage; this.#sql = storage.sql; this.#principal = principal; this.#runtimeAssets = runtimeAssets; this.#portraits = portraits;
     // Same installed-source policy the worker builds for TrialSessions.
-    this.#policy = installedSourcePolicy(new TextEncoder().encode(worldManifest), new TextEncoder().encode(entityManifest));
+    this.#policy = isolatedSourcePolicy ?? installedSourcePolicy(new TextEncoder().encode(worldManifest), new TextEncoder().encode(entityManifest));
     if (!isInstalledSourcePolicy(this.#policy)) { throw new TypeError('installed source policy required'); }
     storage.transactionSync(() => {
       this.#sql.exec('CREATE TABLE IF NOT EXISTS published_packs (game_id TEXT PRIMARY KEY, revision TEXT NOT NULL, source_digest TEXT NOT NULL, manifest_json TEXT NOT NULL, updated_at TEXT NOT NULL)');
@@ -73,7 +76,10 @@ export class PublishedPacks {
   async #visuals(tokenHash, reference) {
     if (!this.#runtimeAssets) { fail(503, 'PLAY_NOT_CONFIGURED'); }
     const origin = this.#one('SELECT * FROM copy_origins WHERE game_id=?', reference.gameId);
-    if (!origin || origin.registry_id !== this.#policy.registryId || origin.profile_revision !== this.#policy.profileRevision || origin.definition_digest !== this.#runtimeAssets.definition().definitionDigest) { fail(409, 'PLAY_SOURCE_CHANGED'); }
+    // Both authorized creation modes use the same installed visual registry.
+    // The template/full-copy profile is historical provenance, not a second
+    // live asset source. Keep registry, definition and per-role SHA binding.
+    if (!origin || origin.registry_id !== this.#policy.registryId || ![this.#policy.profileRevision, FIXED_TEMPLATE_PROFILE].includes(origin.profile_revision) || origin.definition_digest !== this.#runtimeAssets.definition().definitionDigest) { fail(409, 'PLAY_SOURCE_CHANGED'); }
     const rev = this.#policy.revision;
     const paths = ['map_atlas_', 'map_tiles_'].flatMap(stem => ['spring', 'summer', 'autumn', 'winter'].map(season => `content/builtin/compiled/${rev}/${stem}${season}.png`));
     // copy 时代的上架引用只有 {gameId, draftRevision: ordinal, sourceDigest: copyDigest}，
@@ -119,12 +125,20 @@ export class PublishedPacks {
     const states = {};
     for (const chapterId of game.chapterOrder) {
       if (typeof chapterId !== 'string' || !chapterId) { fail(422, 'PLAY_SNAPSHOT'); }
-      const state = game.chapters?.[chapterId]?.state;
+      const chapter = game.chapters?.[chapterId], state = chapter?.state;
       if (!state || typeof state !== 'object' || !Array.isArray(state.cities)) { fail(422, 'PLAY_SNAPSHOT'); }
       // Use the same fixed-library reference gate as Trial, not a numeric range
       // or a claim that structural compilation proves every image exists.
       if (cityViewGaps(state.cities).length) { fail(422, 'PLAY_CITY_VIEW_MISSING'); }
       states[chapterId] = structuredClone(state);
+      // Author labels own published presentation. Native state.name may be
+      // absent in blank chapters or stale after a rename; never rewrite the
+      // author source or previously committed packs. Legacy inputs without
+      // an outer label retain their existing state bytes.
+      if (Object.hasOwn(chapter, 'name')) {
+        if (typeof chapter.name !== 'string' || !chapter.name.trim()) fail(422, 'PLAY_SNAPSHOT');
+        states[chapterId].name = chapter.name;
+      }
     }
     const payloads = {
       terrain: Buffer.from(compiled.terrainBytes),

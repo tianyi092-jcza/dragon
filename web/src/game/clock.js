@@ -36,6 +36,7 @@ export class Clock {
    */
   constructor({
     startYear,
+    startEra = null,
     startMonth,
     startDay = 1,
     onStrategicTick = null,
@@ -51,6 +52,12 @@ export class Clock {
     this.day = startDay; // CF0: 日 1..当月天数
     this.month = startMonth; // CF4: 月 1..12
     this.year = startYear; // CF6: 年
+    // CHAPTER-WB Web calendar: explicit era enables forward-only years, no 0.
+    // Unlabelled historical content retains its native year-wrap contract.
+    if (startEra !== null && (startEra !== 'bc' && startEra !== 'ad' ||
+        !Number.isSafeInteger(startYear) || startYear < 1))
+      throw new RangeError('calendar requires bc|ad and a positive year');
+    this.era = startEra;
 
     this._strategicSpeed = 2; // 0最低速 1低速 2普通 3高速 4最高速 — 对应系统选单"戰略速度"
     this._legacyPaused = false;
@@ -268,8 +275,15 @@ export class Clock {
     this.day = 0;
     let yearEnded = false;
     if (this.month >= 12) {
-      if (this.year >= 1000) this.year = 998;
-      this.year = (this.year + 1) & 0xffff;
+      if (this.era === 'bc') {
+        if (this.year === 1) this.era = 'ad';
+        else this.year--;
+      } else if (this.era === 'ad') {
+        this.year++;
+      } else {
+        if (this.year >= 1000) this.year = 998;
+        this.year = (this.year + 1) & 0xffff;
+      }
       this.month = 0;
       yearEnded = true;
     }
@@ -285,6 +299,7 @@ export class Clock {
 
   serialize() {
     // 对应存档文件头 0x3B 字节里的时钟区
-    return { year: this.year, month: this.month, day: this.day };
+    return { year: this.year, month: this.month, day: this.day,
+      ...(this.era === null ? {} : { era: this.era }) };
   }
 }

@@ -3,7 +3,7 @@
 // No schema, writes, arbitrary bucket keys, or unregistered source fallbacks.
 import { createHash } from 'node:crypto';
 import { canonicalSourceTokens, decodeSourceChunks } from '../web/src/content/authoring/sourcejson.js';
-import { isInstalledSourcePolicy } from './sourcecatalogpolicy.js';
+import { isInstalledSourcePolicy, isIsolatedChapterSourcePolicy } from './sourcecatalogpolicy.js';
 import { fail } from './security.js';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -20,7 +20,7 @@ export class OwnedRuntimeAssets {
   constructor({ storage, bucket, principal, games, policy, kind }) {
     if (!storage?.sql || typeof bucket?.get !== 'function' || typeof principal !== 'function' || typeof games?.snapshotReference !== 'function' || !isInstalledSourcePolicy(policy)) throw new TypeError('trusted owned runtime asset ports required');
     const paths = [];
-    if (kind === 'visuals' && policy.roles.length === 41) {
+    if (kind === 'visuals' && (policy.roles.length === 41 || isIsolatedChapterSourcePolicy(policy))) {
       const prefix = `content/builtin/compiled/${policy.revision}/`;
       paths.push(`${prefix}manifest.json`);
       for (const stem of ['map_atlas_', 'map_tiles_']) for (const season of ['spring', 'summer', 'autumn', 'winter']) paths.push(`${prefix}${stem}${season}.png`);

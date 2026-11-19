@@ -2,20 +2,24 @@
 // 不做历史回放/整包编解码/draft 链；模块存只拦本模块，发布门全量检验。
 // 单写者：新覆盖旧，不做 CAS；鉴权/epoch 不可省；30 分钟节流按 game 计。
 import { createHash, randomUUID } from 'node:crypto';
-import { validateGameSource, chapterReferenceReport, addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, setChapterStart, admitChapterCity, editChapterCity, editChapterCityNative, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setFactionDiplomat, setCityGovernor, renameGeneral, setMonarch, setStrategist, removeMonarch, disbandFaction } from '../web/src/content/authoring/gamesource.js';
+import { validateGameSource, chapterReferenceReport, chapterCapitalGaps, addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, setChapterLabels, setChapterPlayerOpening, setChapterDiplomacy, setChapterStart, admitChapterCity, editChapterCity, editChapterCityNative, setChapterCityOwner, setChapterCapital, setChapterGeneralArrival, setChapterGeneralOwner, createChapterFaction, setFactionDiplomat, setCityGovernor, renameGeneral, changeChapterMonarch, setChapterStrategist, retireChapterFaction } from '../web/src/content/authoring/gamesource.js';
 import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { checkGameName } from '../web/src/content/authoring/gamesource.js';
 import { bumpOrdinal } from './releases.js';
-import { editChapterResources } from '../web/src/editor/chapterresources.js';
+import { editChapterResources, editChapterResourcePeople } from '../web/src/editor/chapterresources.js';
 import { compileMapSource, assertMapConnected } from '../web/src/content/authoring/mapcompile.js';
 import { compileTrialSource } from '../web/src/content/authoring/trialcompile.js';
+import { initializeNativeFactionSlots } from '../web/src/game/nativefactions.js';
+import { initializeNativeDiplomacyMatrix } from '../web/src/game/nativediplomacy.js';
+import { initializeNativeStrategicEventWheel } from '../web/src/game/nativeevents.js';
+import { initializeNativeMonthlyPolicy } from '../web/src/game/nativemonthlypolicy.js';
 import { COPY_MAP_OPS } from './copyprofile.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { changesMapPositions } from '../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../web/src/editor/mappositionvalidation.js';
 import { cityName } from '../web/src/content/authoring/cityrecords.js';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
-import { builtinGeneralLibrary, projectCopyGenerals } from './copygenerals.js';
+import { builtinGeneralLibrary, projectCopyGenerals, configureCopyGeneral } from './copygenerals.js';
 // 共用头像库 ID→SHA（武将库 portraitRef 校验用，与 generaldefinitions 同源）。
 const LIBRARY_PORTRAITS = new Map(KAO_MANIFEST.map(row => [row.id, row.sha256]));
 // 游戏级武将库能力范围（Web 产品决定 2026-11，非原版机制）：六项统一 0..15。
@@ -243,6 +247,8 @@ function checkModule(module, patch, data, gameId) {
     if (patch.create !== undefined) {
       // 与 draft add-blank 同限：名≤1024 原字符；start 含年代时 year 1..9999、month 1..12、day 1..31、era bc|ad。
       if (!patch.create || typeof patch.create !== 'object' || Array.isArray(patch.create)) fail(422, 'COPY_CHAPTER');
+      if (Object.keys(patch.create).some(key => !['number', 'name', 'start'].includes(key))) fail(422, 'COPY_CHAPTER');
+      if (patch.create.number !== undefined && (typeof patch.create.number !== 'string' || typeof patch.create.name !== 'string')) fail(422, 'COPY_CHAPTER');
       if (patch.create.name !== undefined && (typeof patch.create.name !== 'string' || !patch.create.name.trim() || patch.create.name.length > 1024)) fail(422, 'COPY_CHAPTER');
       if (patch.create.start !== undefined) {
         const s = patch.create.start;
@@ -309,7 +315,23 @@ function checkModule(module, patch, data, gameId) {
       });
       for (const edit of normalizedEdits = edits) {
         if (!edit || typeof edit !== 'object' || Array.isArray(edit)) fail(422, 'COPY_CHAPTER');
-        if (edit.op === 'city' || edit.op === 'city-native') {
+        if (edit.op === 'chapter-labels') {
+          if (!keysOf(edit, 'chapterId,name,number,op') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
+          if (typeof edit.number !== 'string' || typeof edit.name !== 'string') fail(422, 'COPY_CHAPTER');
+        }
+        else if (edit.op === 'resources-people') {
+          if (!keysOf(edit, 'chapterId,factionIdx,op,values') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
+          if (!Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21) fail(422, 'COPY_CHAPTER');
+        }
+        else if (edit.op === 'diplomacy') {
+          if (!keysOf(edit, 'actorIdx,chapterId,op,relation,targetIdx') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
+          if (![edit.actorIdx, edit.targetIdx].every(slot => Number.isInteger(slot) && slot >= 0 && slot < 22) || typeof edit.relation !== 'string') fail(422, 'COPY_CHAPTER');
+        }
+        else if (edit.op === 'player-opening') {
+          if (!keysOf(edit, 'chapterId,factionIdx,op,values') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
+          if (!Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21) fail(422, 'COPY_CHAPTER');
+        }
+        else if (edit.op === 'city' || edit.op === 'city-native') {
           if (!keysOf(edit, 'chapterId,cityIdx,op,values') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
           if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0) fail(422, 'COPY_CHAPTER');
           if (!edit.values || typeof edit.values !== 'object' || Array.isArray(edit.values)) fail(422, 'COPY_CHAPTER');
@@ -326,6 +348,15 @@ function checkModule(module, patch, data, gameId) {
           if (!keysOf(edit, 'chapterId,cityIdx,factionIdx,op') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
           if (!Number.isInteger(edit.factionIdx) || edit.factionIdx < 0 || edit.factionIdx > 21) fail(422, 'COPY_CHAPTER');
           if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0 || edit.cityIdx > 511) fail(422, 'COPY_CHAPTER');
+        }
+        else if (edit.op === 'create-faction') {
+          if (!keysOf(edit, 'chapterId,cityIdx,monarchIdx,op') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
+        }
+        else if (edit.op === 'general-settings') {
+          if (!keysOf(edit, 'chapterId,generalId,op,values') || !chapterId(edit.chapterId) || typeof edit.generalId !== 'string') fail(422, 'COPY_CHAPTER');
+        }
+        else if (edit.op === 'general-arrival') {
+          if (!keysOf(edit, 'chapterId,generalIdx,op,values') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
         }
         else if (edit.op === 'general-faction') {
           if (!keysOf(edit, 'chapterId,factionId,generalIdx,op') || !chapterId(edit.chapterId)) fail(422, 'COPY_CHAPTER');
@@ -423,27 +454,52 @@ function applyModule(data, module, checked) {
   if (module === 'chapters') {
     let next = structuredClone(data);
     try {
-      if (checked.create) addBlankChapter(next, checked.create);
-      if (checked.copy) copyChapterInGame(next, checked.copy.chapterId);
+      if (checked.create) {
+        const { number, name, start } = checked.create;
+        addBlankChapter(next, { number, name, start,
+          ...(number === undefined ? {} : { chapterId: `${next.gameId}#chapter-${randomUUID()}` }) });
+      }
+      if (checked.copy) {
+        const source = next.chapters[checked.copy.chapterId];
+        copyChapterInGame(next, checked.copy.chapterId, source?.number === undefined ? {} :
+          { chapterId: `${next.gameId}#chapter-${randomUUID()}` });
+      }
       if (checked.delete) deleteChapter(next, checked.delete.chapterId);
       if (checked.admit) admitChapterCity(next, checked.admit.cityId, checked.admit.troops_cap, checked.admit.battleMapId);
       if (checked.rename) for (const [id, name] of Object.entries(checked.rename)) renameChapter(next, id, name);
       if (checked.setStart) for (const [id, s] of Object.entries(checked.setStart)) setChapterStart(next, id, s);
       // editChapterCity/editChapterCityNative/setGeneralPortrait 为纯函数（返回新包），其余原函数就地改写。
       if (checked.edits) for (const edit of checked.edits) {
-        if (edit.op === 'city') next = editChapterCity(next, edit.chapterId, edit.cityIdx, edit.values);
+        if (edit.op === 'chapter-labels') setChapterLabels(next, edit.chapterId, edit.number, edit.name);
+        else if (edit.op === 'resources-people') next = editChapterResourcePeople(next, edit.chapterId, edit.factionIdx, edit.values);
+        else if (edit.op === 'player-opening') setChapterPlayerOpening(next, edit.chapterId, edit.factionIdx, edit.values);
+        else if (edit.op === 'diplomacy') setChapterDiplomacy(next, edit.chapterId, edit.actorIdx, edit.targetIdx, edit.relation);
+        else if (edit.op === 'city') next = editChapterCity(next, edit.chapterId, edit.cityIdx, edit.values);
         else if (edit.op === 'city-native') next = editChapterCityNative(next, edit.chapterId, edit.cityIdx, edit.values);
-        else if (edit.op === 'city-faction') setChapterCityFaction(next, edit.chapterId, edit.cityIdx, edit.factionId);
-        else if (edit.op === 'set-capital') setFactionCapital(next, edit.chapterId, edit.factionIdx, edit.cityIdx);
-        else if (edit.op === 'general-faction') setChapterGeneralFaction(next, edit.chapterId, edit.generalIdx, edit.factionId);
+        else if (edit.op === 'city-faction') setChapterCityOwner(next, edit.chapterId, edit.cityIdx, edit.factionId);
+        else if (edit.op === 'set-capital') setChapterCapital(next, edit.chapterId, edit.factionIdx, edit.cityIdx);
+        else if (edit.op === 'create-faction') {
+          if (next.chapters[edit.chapterId]?.state.nativeMonthlyPolicyRaw === undefined) fail(422, 'COPY_CHAPTER_INITIALIZATION_REQUIRED', 'nativeMonthlyPolicyRaw is required; blank chapter initialization is not yet complete');
+          createChapterFaction(next, edit.chapterId, edit.monarchIdx, edit.cityIdx);
+        }
+        else if (edit.op === 'general-settings') next = configureCopyGeneral(next, edit.chapterId, edit.generalId, edit.values);
+        else if (edit.op === 'general-arrival') setChapterGeneralArrival(next, edit.chapterId, edit.generalIdx, edit.values);
+        else if (edit.op === 'general-faction') setChapterGeneralOwner(next, edit.chapterId, edit.generalIdx, edit.factionId);
         else if (edit.op === 'set-diplomat') setFactionDiplomat(next, edit.chapterId, edit.factionIdx, edit.generalIdx);
         else if (edit.op === 'city-governor') setCityGovernor(next, edit.chapterId, edit.cityIdx, edit.generalIdx);
         else if (edit.op === 'rename-general') renameGeneral(next, edit.chapterId, edit.generalIdx, edit.values);
         else if (edit.op === 'portrait') next = setGeneralPortrait(next, edit.chapterId, edit.generalIdx, edit.portraitKey);
-        else if (edit.op === 'set-monarch') setMonarch(next, edit.chapterId, edit.factionIdx, edit.generalIdx);
-        else if (edit.op === 'set-strategist') setStrategist(next, edit.chapterId, edit.factionIdx, edit.generalIdx);
-        else if (edit.op === 'remove-monarch') removeMonarch(next, edit.chapterId, edit.factionIdx, edit.resolution);
-        else if (edit.op === 'disband-faction') disbandFaction(next, edit.chapterId, edit.factionIdx);
+        else if (edit.op === 'set-monarch') changeChapterMonarch(next, edit.chapterId, edit.factionIdx, edit.generalIdx);
+        else if (edit.op === 'set-strategist') setChapterStrategist(next, edit.chapterId, edit.factionIdx, edit.generalIdx);
+        else if (edit.op === 'disband-faction' || edit.op === 'remove-monarch' && edit.resolution.disband === true) {
+          // Author retirement keeps fixed slot identity; never use the legacy splice.
+          try { retireChapterFaction(next, edit.chapterId, edit.factionIdx); }
+          catch (error) {
+            if (error instanceof RangeError) fail(422, 'COPY_CHAPTER_RETIREMENT_CONFLICT', error.message);
+            throw error;
+          }
+        }
+        else if (edit.op === 'remove-monarch') changeChapterMonarch(next, edit.chapterId, edit.factionIdx, edit.resolution.successor);
       }
       if (checked.resources) for (const [chapterId, slots] of Object.entries(checked.resources)) {
         for (const [slotKey, values] of Object.entries(slots)) next = editChapterResources(next, chapterId, Number(slotKey), values);
@@ -534,25 +590,29 @@ export class GameCopyStore {
   }
   // T1 单写者：直接覆盖，不做 CAS/修订比对；同时作废旧检验票。
   writeModule(tokenHash, gameId, module, patch) {
-    const { actor } = this.#owned(tokenHash, gameId);
-    const row = this.#one('SELECT * FROM game_copies WHERE game_id=?', gameId);
-    if (!row) fail(404, 'COPY_NOT_FOUND');
-    const data = this.#parse(row.data_json);
-    const checked = checkModule(module, patch, data, gameId);
-    if (module === 'chapters') {
-      for (const edit of checked.edits ?? []) {
-        if (edit.op !== 'rename-general' && edit.op !== 'portrait') continue;
-        const generalId = data.chapters[edit.chapterId]?.state.generals.find(row => row.idx === edit.generalIdx)?.generalId;
-        if (generalId && Object.hasOwn(data.generals, generalId)) fail(422, 'COPY_GENERAL_SHARED_FIELD');
+    // CHAPTER-WB P1: capture, validate and apply against the same transactional
+    // copy as the write and ticket invalidation (nested writes use savepoints).
+    return this.#storage.transactionSync(() => {
+      const { actor } = this.#owned(tokenHash, gameId);
+      const row = this.#one('SELECT * FROM game_copies WHERE game_id=?', gameId);
+      if (!row) fail(404, 'COPY_NOT_FOUND');
+      const data = this.#parse(row.data_json);
+      const checked = checkModule(module, patch, data, gameId);
+      if (module === 'chapters') {
+        for (const edit of checked.edits ?? []) {
+          if (edit.op !== 'rename-general' && edit.op !== 'portrait') continue;
+          const generalId = data.chapters[edit.chapterId]?.state.generals.find(row => row.idx === edit.generalIdx)?.generalId;
+          if (generalId && Object.hasOwn(data.generals, generalId)) fail(422, 'COPY_GENERAL_SHARED_FIELD');
+        }
       }
-    }
-    let next;
-    try { next = applyModule(data, module, checked); }
-    catch (e) { if (e?.status) throw e; fail(422, 'COPY_PATCH'); }
-    const saved = this.#writeData(tokenHash, gameId, actor, next);
-    // B3: 签发动作把新 cityId 带回给调用方（画布放置绑定用），加法字段不改旧形状。
-    const issued = module === 'cities' ? Object.keys(checked).find(k => k.startsWith('create:')) : null;
-    return issued ? Object.freeze({ ...saved, issuedCityId: issued.slice('create:'.length) }) : saved;
+      let next;
+      try { next = applyModule(data, module, checked); }
+      catch (e) { if (e?.status) throw e; fail(422, 'COPY_PATCH'); }
+      const saved = this.#writeData(tokenHash, gameId, actor, next);
+      // B3: 签发动作把新 cityId 带回给调用方（画布放置绑定用），加法字段不改旧形状。
+      const issued = module === 'cities' ? Object.keys(checked).find(k => k.startsWith('create:')) : null;
+      return issued ? Object.freeze({ ...saved, issuedCityId: issued.slice('create:'.length) }) : saved;
+    });
   }
   // 仅服务端已认证内置来源可调用；HTTP 不接受客户端传入整库。
   replaceGenerals(tokenHash, gameId, source) {
@@ -582,6 +642,8 @@ export class GameCopyStore {
     if (!row) fail(404, 'COPY_NOT_FOUND');
     const data = this.#parse(row.data_json), digest = row.copy_digest;
     let problems = [];
+    if (data.chapterOrder?.length === 0)
+      problems.push({ code: 'CHAPTER_EMPTY', detail: 'at least one chapter required for publication' });
     try {
       for (const [chapterId, chapter] of Object.entries(data.chapters)) {
         for (const row of chapter.state.generals) {
@@ -589,8 +651,26 @@ export class GameCopyStore {
         }
       }
       const report = chapterReferenceReport(data);
-      for (const ch of report ?? []) {
-        if (ch?.missing?.length || ch?.gaps?.length) problems.push({ chapterId: ch.chapterId ?? ch.id ?? '?', code: 'CHAPTER_REFERENCE', detail: JSON.stringify(ch.missing ?? ch.gaps ?? ch).slice(0, 500) });
+      for (const ch of report) {
+        if (ch.problems.length) problems.push({ chapterId: ch.chapterId, code: 'CHAPTER_REFERENCE', detail: JSON.stringify(ch.problems).slice(0, 500) });
+      }
+      // CHAPTER-WB publication never exempts a copy because it retains _src.
+      // The immutable original remains untouched; only this candidate is judged.
+      for (const chapterId of data.chapterOrder) {
+        // Compilation alone does not exercise the fresh native input boundary.
+        // Run the same fixed-table initializers on detached copies; never fill
+        // missing source bytes or install runtime state into the author copy.
+        for (const [field, initialize] of [
+          ['nativeFactionSlotRaw', initializeNativeFactionSlots],
+          ['nativeDiplomacyRaw', initializeNativeDiplomacyMatrix],
+          ['nativeStrategicEventRaw', initializeNativeStrategicEventWheel],
+          ['nativeMonthlyPolicyRaw', initializeNativeMonthlyPolicy],
+        ]) {
+          try { initialize(structuredClone(data.chapters[chapterId].state)); }
+          catch (error) { problems.push({ chapterId, code: 'CHAPTER_NATIVE_INITIALIZATION', detail: `${field}: ${error.message}`.slice(0, 500) }); }
+        }
+        for (const gap of chapterCapitalGaps(data.chapters[chapterId].state, chapterId))
+          problems.push({ chapterId, code: 'CHAPTER_CAPITAL', detail: gap.message });
       }
       validateGameSource(data, { draft: true });
       compileMapSource({ schemaVersion: 1, map: data.map, componentDefinitions: data.componentDefinitions });

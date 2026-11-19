@@ -32,6 +32,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       name: allowed ? name : '', introduction: allowed ? introduction : '',
       games: allowed ? games.map(row => ({ ...row })) : [],
       message: allowed ? message : '', locked,
+      conversionDetails: allowed && full ? summary?.conversionDetails ?? '' : '',
       // 追蹤期間面板會顯示自動核對的進度；不需要任何「續」按鈕（用戶要求）。
       tracking: allowed && tracking(),
       // 失敗不得靜默消失（用戶要求）：彈窗留著並列出原因，使用者按「確認」才關。
@@ -64,16 +65,49 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
   const reasonText = code => typeof code === 'string' && code.length > 0
     ? (reasons[code] ?? '複製失敗（' + code + '）')
     : reasons.COPY_FAILED;
+  function failedMessage(summary) {
+    if (summary.failedCode === 'COPY_CHAPTER_CAPITAL') {
+      let detail = '來源劇本有重複或無效的首都引用。';
+      if (summary.failedDetail) {
+        try { const value = JSON.parse(summary.failedDetail); if (typeof value?.message === 'string') detail = value.message; }
+        catch { /* Old or malformed detail does not change the failed operation state. */ }
+      }
+      return label + '失敗：' + detail + ' 原件與已有遊戲未修改，名稱已釋放。這不是名稱問題。若此為舊規則下的共用首都失敗，現在可依保留首個勢力的新規則重新複製；不存在的首都引用仍須先修正來源。';
+    }
+    return label + '失敗：' + reasonText(summary.failedCode) + '。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。';
+  }
   function decodeSummary(data, expectedGame = null) {
     if (!data || typeof data.gameId !== 'string' || !data.gameId || expectedGame && data.gameId !== expectedGame) throw new Error('新建回應無效。');
     // 檔案數與租約到期只作展示與排程用：缺欄位或格式不合時不猜，退回預設。
     const objects = Number.isSafeInteger(data.objects) && data.objects >= 0 ? data.objects : null;
     const leaseUntil = Number.isSafeInteger(data.leaseUntil) && data.leaseUntil >= 0 ? data.leaseUntil : 0;
     const failedCode = typeof data.failedCode === 'string' && /^[A-Z][A-Z0-9_]{2,63}$/.test(data.failedCode) ? data.failedCode : null;
-    if (revision(data.draftRevision)) return { gameId: data.gameId, draftRevision: data.draftRevision, objects, leaseUntil };
+    if (revision(data.draftRevision)) {
+      let conversionDetails = '';
+      if (full && data.chapterConversion !== undefined) {
+        const conversion = data.chapterConversion;
+        if (conversion?.version !== 1 || !Array.isArray(conversion.labels) || !Array.isArray(conversion.capitals) ||
+            !conversion.labels.every(row => typeof row?.chapterId === 'string' && typeof row.sourceName === 'string' &&
+              (row.sourceNumber === null || typeof row.sourceNumber === 'string') && typeof row.number === 'string' && typeof row.name === 'string') ||
+            !conversion.capitals.every(row => typeof row?.chapterId === 'string' && typeof row.cityName === 'string' &&
+              Number.isInteger(row.cityIdx) && (row.before === null || Number.isInteger(row.before)) && Number.isInteger(row.after)) ||
+            (conversion.duplicates !== undefined && (!Array.isArray(conversion.duplicates) || !conversion.duplicates.every(row =>
+              typeof row?.chapterId === 'string' && typeof row.monarchName === 'string' && Number.isInteger(row.keptFactionIdx) && Number.isInteger(row.discardedFactionIdx) &&
+              (row.reason !== 'shared-capital' || typeof row.cityName === 'string')))))
+          throw new Error('複製已回報完成，但章節轉換明細格式無效；請保留原操作查詢。');
+        const labels = new Map(conversion.labels.map(row => [row.chapterId, row]));
+        conversionDetails = ['章節編號／名稱轉換（原件不變）',
+          ...conversion.labels.map(row => `${row.sourceNumber ?? '未編號'}「${row.sourceName || '未命名'}」 → ${row.number}「${row.name}」`),
+          '', `首都歸屬修正：${conversion.capitals.length} 項（只修改新副本）`,
+          ...conversion.capitals.map(row => `章節 ${labels.get(row.chapterId)?.number ?? '未知'}「${row.cityName}」：原始所屬值 ${row.before ?? '空城'} → ${row.after}`),
+          '', `勢力丟棄：${conversion.duplicates?.length ?? 0} 項（同章同君主或共用首都保留第一個，不合併資源）`,
+          ...(conversion.duplicates ?? []).map(row => `章節 ${labels.get(row.chapterId)?.number ?? '未知'}「${row.monarchName}」：保留原序號 ${row.keptFactionIdx + 1}，丟棄 ${row.discardedFactionIdx + 1}${row.reason === 'shared-capital' ? `（共用首都「${row.cityName}」）` : ''}`),
+        ].join('\n');
+      }
+      return { gameId: data.gameId, draftRevision: data.draftRevision, objects, leaseUntil, conversionDetails };
+    }
     if (!['pending', 'running', 'canceled', 'failed'].includes(data.state) || !revision(data.rowRevision)) throw new Error('新建狀態回應無效。');
-    return { gameId: data.gameId, state: data.state, rowRevision: data.rowRevision, objects, leaseUntil, failedCode };
-    return { gameId: data.gameId, state: data.state, rowRevision: data.rowRevision, objects, leaseUntil };
+    return { gameId: data.gameId, state: data.state, rowRevision: data.rowRevision, objects, leaseUntil, failedCode, failedDetail: typeof data.failedDetail === 'string' ? data.failedDetail : null };
   }
   function listingState(game) {
     if (game.listed) return '已上架';
@@ -190,10 +224,10 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       if (data === null || !valid(t) || operation !== key) return;
       summary = decodeSummary(data); needsQuery = false;
     }
-    if (summary.draftRevision) { message = label + '已建立。'; release(); if (!full) await ownGames(t); render(); return; }
+    if (summary.draftRevision) { message = label + '已建立。' + (summary.conversionDetails ? '章節編號、名稱與首都轉換已記錄，請查看「轉換明細」。' : ''); release(); if (!full) await ownGames(t); render(); return; }
     if (summary.state === 'canceled') { message = '此原操作已取消，未產生副本。'; render(); return; }
     // 失敗＝服務端已收回這筆操作（名稱也退回了），不保存任何東西；清掉本機原鍵讓名稱可直接重用。
-    if (summary.state === 'failed') { message = label + '失敗：' + reasonText(summary.failedCode) + '。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。'; release(); render(); return; }
+    if (summary.state === 'failed') { message = failedMessage(summary); release(); render(); return; }
     if (!pending()) { message = '此原操作已結束，未產生副本。'; render(); return; }
     needsQuery = false;
     await track(t, key);
@@ -201,6 +235,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     // 已完成：釋放本機原鍵，下一次載入不會再自動核對這筆舊操作。
     release();
     message = full ? '完整副本已建立；遊戲清單已自動更新，可在「遊戲管理」直接載入。' : '新遊戲已建立，可在下方「我的遊戲」中編輯。';
+    if (summary.conversionDetails) message += '章節編號、名稱與首都轉換已記錄，請查看「轉換明細」。';
     if (!full) await ownGames(t); else onCreated();
     // 回傳給外層：頁面上方的提示要說清楚是什麼完成了，而不是一律「操作完成」。
     return full ? '複製完成。' : '新遊戲已建立。';
@@ -229,7 +264,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       if (!valid(t) || operation !== key) return;
       if (summary?.draftRevision) return;
       if (summary?.state === 'canceled') { message = '此原操作已取消，未產生副本。'; render(); return; }
-      if (summary?.state === 'failed') { message = label + '失敗：' + reasonText(summary.failedCode) + '。這次的資料已由服務端丟棄（名稱已釋放），可修改後直接重新複製。'; release(); render(); return; }
+      if (summary?.state === 'failed') { message = failedMessage(summary); release(); render(); return; }
       if (Date.now() - started > TRACK_MS) { park(); return; }
       // 沒有本頁在跑的請求、也沒有別的請求持着租約 → 用同一個原鍵再跑一次。
       const leased = summary?.state === 'running' && Number(summary.leaseUntil ?? 0) > Date.now();

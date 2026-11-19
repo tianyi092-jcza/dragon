@@ -164,14 +164,16 @@ try {
   await checkWidths();
   // 隱藏只卸載重型 DOM，不卸載面板組件或丟棄控制器／本地編輯表單。
   await page.locator('#menu [data-view="draft-editor"]').click();
-  const resource = page.locator('#draft-resources input').first();
-  await resource.evaluate(el => { el.value = '321'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  assert.equal(await page.locator('#draft-resources, #draft-chapters').count(), 0, 'legacy chapter and raw-unit resource forms are retired');
+  const introduction = page.locator('#draft-introduction');
+  await introduction.fill('保留未保存簡介');
   await page.locator('#menu [data-view="generals-editor"]').click();
-  assert.equal(await page.locator('#draft-resources input').count(), 0);
+  assert.equal(await page.locator('#draft-introduction').count(), 0);
   await page.locator('#menu [data-view="draft-editor"]').click();
-  assert.equal(await resource.inputValue(), '321', 'hidden resource fields retain controller inputs');
+  assert.equal(await introduction.inputValue(), '保留未保存簡介', 'hidden metadata fields retain controller inputs');
   await page.locator('#draft-cancel-edits').click();
   await page.locator('#menu [data-view="chapters-editor"]').click();
+  await page.locator('#chapters-editor').getByRole('tab', { name: '勢力據點', exact: true }).click();
   const city = page.locator('#chapters-editor .el-table__row').filter({ has: page.locator('[data-city-idx="0"]') });
   assert.equal(await city.locator('[data-number-edit]').isEnabled(), true, 'chapter number editing is available');
   await city.locator('[data-number-edit]').click();

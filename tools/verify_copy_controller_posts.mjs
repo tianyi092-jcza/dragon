@@ -21,8 +21,8 @@ const state = () => ({
     { idx: 2, name: '丁', hao: '', faction: 1 },
     { idx: 3, name: '主', hao: '', faction: 1 },
     { idx: 4, name: '野', hao: '', faction: null, portraitKey: 'p1' },
-    { idx: 5, name: '孤', hao: '', faction: null },
-    { idx: 6, name: '替', hao: '', faction: null },
+    { idx: 5, generalId: `${gameId}#general-${'5'.repeat(64)}`, name: '孤', hao: '', faction: null, attr: 128, appear_months: 0, status: 0, captive_flag: 255 },
+    { idx: 6, generalId: `${gameId}#general-${'6'.repeat(64)}`, name: '替', hao: '', faction: 0, attr: 128, appear_months: 0, status: 0, captive_flag: 255 },
     { idx: 127, name: '留', hao: '', faction: null },
   ],
   cities: [{ idx: 0, name: '城甲', faction: 0, governor: null, troops: 1, prod: 1, troops_cap: 1, max_prod: 1, growth: 1, defence: 1 }],
@@ -30,6 +30,7 @@ const state = () => ({
 const copyData = (over = {}) => ({
   metadata: { name: '測名', introduction: '介' },
   chapterOrder: ['ch1'],
+  generals: Object.fromEntries([5, 6].map(idx => [`${gameId}#general-${String(idx).repeat(64)}`, { name: idx === 5 ? '孤' : '替', portraitRef: null, ability: null }])),
   chapters: { ch1: { chapterId: 'ch1', state: state() } },
   cities: { c1: { name: '洛陽', max_prod: 1, prod: 1, growth: 1, defence: 1, troops: 1, type: 0, view: 0 } },
   ...over,
@@ -37,16 +38,16 @@ const copyData = (over = {}) => ({
 
 function harness({ confirmReply = true } = {}) {
   let identity = { user: { id: 'author', mustChangePassword: false }, csrf: 'token' }, busy = false, model;
-  const calls = [], errors = [];
+  const calls = [], errors = [], confirmations = [];
   let response = null;
-  const h = { calls, errors, response: handler => { response = handler; }, model: () => model };
+  const h = { calls, errors, confirmations, response: handler => { response = handler; }, model: () => model };
   const controller = installDraftEditor({
     api: async (path, body) => { calls.push({ path, body }); if (response) return response(path, body); if (path === '/api/games') return { games: [{ gameId, draftRevision: '1', metadata: { name: '舊', introduction: '稿' } }] }; throw new Error('unexpected api: ' + path); },
     authority: () => identity, isBusy: () => busy,
     publish: value => { model = value; },
     work: async fn => { if (busy) return; busy = true; try { return await fn(); } catch (error) { errors.push(error); } finally { busy = false; controller.render(); } },
     storage: { getItem: () => undefined, setItem: () => {}, removeItem: () => {} },
-    confirm: () => confirmReply, prompt: () => null,
+    confirm: text => { confirmations.push(text); return confirmReply; }, prompt: () => null,
   });
   controller.setIdentity(identity);
   return { ...h, controller, actions: controller.actions };
@@ -54,6 +55,27 @@ function harness({ confirmReply = true } = {}) {
 const selectGame = async h => { await h.actions.refresh(); h.actions.chooseGame(gameId); };
 const loadOk = h => { h.response(path => { if (path === `/api/games/${gameId}/copy`) return { gameId, copyDigest: DIGEST_A, updatedAt: null, data: copyData() }; throw new Error('unexpected api: ' + path); }); };
 const posts = h => h.calls.filter(c => c.path === `/api/games/${gameId}/copy` && c.body !== undefined).map(c => c.body);
+
+test('current confirmations show author faction numbers and names, never native slot labels', async () => {
+  const h = harness({ confirmReply: false }); await selectGame(h);
+  const data = copyData();
+  Object.assign(data.chapters.ch1.state.factions[0], { number: 8, factionId: 'ch1#faction-8' });
+  h.response(path => {
+    assert.equal(path, `/api/games/${gameId}/copy`);
+    return { gameId, copyDigest: DIGEST_A, updatedAt: null, data };
+  });
+  await h.actions.loadCopy();
+  await h.actions.copyMonarch('ch1', 0, 5);
+  await h.actions.copyClearStrategist('ch1', 0);
+  await h.actions.copyGeneralFaction('ch1', 5, 0);
+  assert.equal(h.confirmations.length, 3);
+  h.confirmations.forEach(text => {
+    assert.match(text, /勢力 8「君」/);
+    assert.doesNotMatch(text, /勢力槽|原槽|君主槽|軍師槽|ch1/);
+  });
+  assert.deepEqual(posts(h), []);
+  assert.deepEqual(h.errors, []);
+});
 
 test('projection carries portraitKey for the toggle', async () => {
   const h = harness(); await selectGame(h); loadOk(h);
@@ -137,6 +159,9 @@ test('local guards reject without sending', async () => {
     () => h.actions.copyRenameGeneral('ch1', 99, { name: 'x' }),
     () => h.actions.copyGeneralPortrait('ch1', 2, 123),
     () => h.actions.copyDisbandFaction('ch1', 9),
+    () => h.actions.copyMonarch('ch1', 1, 6), // eligible but another faction's member
+    () => h.actions.copyMonarch('ch1', 0, 1), // serving strategist
+    () => h.actions.copySucceedMonarch('ch1', 0, 4), // unknown availability/library identity
   ]) await assert.rejects(call(), /.*/);
   assert.equal(await h.actions.copyClearStrategist('ch1', 1), false);
   assert.equal(h.calls.length, base);
