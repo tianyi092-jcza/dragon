@@ -39,7 +39,7 @@ import { checkTrustGameOver } from "../web/src/game/commands.js";
   assert.equal(checkTrustGameOver(app), true);
   assert.equal(app.clock.speed, 0);
   assert.equal(shown.length, 1);
-  assert.equal(shown[0].img, "grf/gameover.png");
+  assert.equal(shown[0].img, "grf/defeat.png");
 }
 
 process.stdout.write(

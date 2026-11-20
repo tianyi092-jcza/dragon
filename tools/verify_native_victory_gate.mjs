@@ -5,8 +5,11 @@ import test from "node:test";
 
 import { dispatchNativeUnificationGate } from "../web/src/game/ai.js";
 import {
+  advanceToVictoryCutscene,
+  unificationDateText,
+} from "../web/src/render/victorymodal.js";
+import {
   countNativeAliveFactions,
-  NATIVE_UNIFICATION_MONARCH_SELECTOR,
   NATIVE_UNIFICATION_TALK_INDEX,
   resolveNativeVictoryMonarch,
 } from "../web/src/game/navigation/originalvictorygate.js";
@@ -120,31 +123,54 @@ test("resolveNativeVictoryMonarch follows 87FF pointer chain", () => {
   assert.throws(() => resolveNativeVictoryMonarch(broken), /victory gate/);
 });
 
-test("1D20 victory branch fires once with TALK75 + monarch line + D7END sequence", () => {
+test("gate is fail-closed without DOM: guard unset, no messages, no cutscene", () => {
+  // node 无 document：门在全部基础设施检查后、一次性护栏前抛 modal-return。
   const sc = makeScenario([0], { pointerSlot: 0, monarchIndex: 5 });
   const app = makeApp(sc);
-  assert.equal(dispatchNativeUnificationGate(app), true);
-  assert.equal(sc.nativeUnificationShown, true);
-  assert.equal(app.messages.length, 2);
-  assert.equal(app.messages[0].talkIndex, NATIVE_UNIFICATION_TALK_INDEX);
-  assert.equal(app.messages[0].gen, null);
-  assert.equal(app.messages[1].gen.idx, 5);
-  // selector 0x197 → 0x196 + (0x197-0x196)*8 + talk_idx = 414+5
-  assert.equal(NATIVE_UNIFICATION_MONARCH_SELECTOR, 0x197);
-  assert.equal(
-    app.messages[1].talkIndex,
-    0x196 + (NATIVE_UNIFICATION_MONARCH_SELECTOR - 0x196) * 8 + 5,
-  );
+  assert.throws(() => dispatchNativeUnificationGate(app), /modal return/);
+  assert.equal(sc.nativeUnificationShown, undefined);
+  assert.equal(app.messages.length, 0);
   assert.equal(app.endings.length, 0);
-  // 第二条关闭后才 1CB1(AL=2)→D7END：END_S1..12 循环序列
-  app.messages[1].onClose();
-  assert.equal(app.endings.length, 1);
-  assert.equal(app.endings[0].sequence.length, 12);
-  assert.equal(app.endings[0].sequence[0], "grf/end_s1.png");
-  assert.equal(app.endings[0].sequence[11], "grf/end_s12.png");
-  // 一次性：再次 tick 不重放
-  assert.equal(dispatchNativeUnificationGate(app), false);
-  assert.equal(app.messages.length, 2);
+});
+
+test("advanceToVictoryCutscene closes modal and shows victory.png", () => {
+  const shown = [], removed = [];
+  const modal = {
+    active: true,
+    _holder: {},
+    _el: { remove: () => removed.push(true) },
+  };
+  const app = {
+    victoryModal: modal,
+    endView: { show: (options) => shown.push(options) },
+  };
+  advanceToVictoryCutscene(app);
+  assert.equal(modal.active, false);
+  assert.deepEqual(removed, [true]);
+  assert.equal(app.victoryModal, null);
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].img, "grf/victory.png");
+});
+
+test("advanceToVictoryCutscene works without a modal and needs endView", () => {
+  const shown = [];
+  advanceToVictoryCutscene({ endView: { show: (options) => shown.push(options) } });
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].img, "grf/victory.png");
+  assert.throws(() => advanceToVictoryCutscene({}), /cutscene has no UI/);
+});
+
+test("unificationDateText shows 公元/公元前 prefix", () => {
+  assert.equal(
+    unificationDateText({ year: 184, month: 1, day: 1, era: "ad" }),
+    "公元184年1月1日",
+  );
+  assert.equal(
+    unificationDateText({ year: 2, month: 12, day: 30, era: "bc" }),
+    "公元前2年12月30日",
+  );
+  assert.throws(() => unificationDateText({}), /clock date/);
+  assert.throws(() => unificationDateText(null), /clock date/);
 });
 
 test("gate is inert while more than one faction alive or scenario not native", () => {

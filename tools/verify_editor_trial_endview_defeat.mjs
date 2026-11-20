@@ -4,7 +4,7 @@
 // through real canvas left-clicks (last-item passive choice / keypad 決定 / dialog advance — every
 // option clicked is an original-mechanism choice), battles left to resolve with no orders. No
 // backend shortcuts, no rule/fee/morale invention, no engine change (zero production files touched).
-// PASS: endView shows grf/gameover.png with an extinction caption and score.scene === 'gameover'.
+// PASS: endView shows grf/defeat.png with the typewriter poem and score.scene === 'gameover'.
 // Bound: 22-minute pump; timeout is an honest FAIL (attempt preserved), never a fabricated pass.
 // attempt-1 (dry, later-3): a full passive year produced no war and no extinction — honest fail
 // preserved as attempt1-q69-8e-dry-endview; target reselected to the later-4 single city.
@@ -39,12 +39,15 @@ function parsed(b) { try { return JSON.parse(b); } catch (cause) { throw new Err
 const unit = () => {
 	const commands = readFileSync("web/src/game/commands.js", "utf8");
 	assert.ok(commands.includes("export function checkTrustGameOver(app)"), "trust gameover present");
-	assert.ok(commands.includes('img: "grf/gameover.png"'), "trust gameover image present");
+	assert.ok(commands.includes('img: "grf/defeat.png"'), "trust defeat image present");
 	const ai = readFileSync("web/src/game/ai.js", "utf8");
 	assert.ok(ai.includes("export function triggerNativePlayerDefeat(app, sc, deadOwner)"), "native player defeat present");
-	assert.ok(ai.includes('img: "grf/gameover.png"'), "extinction gameover image present");
+	assert.ok(ai.includes('img: "grf/defeat.png"'), "extinction defeat image present");
 	const endview = readFileSync("web/src/render/endview.js", "utf8");
-	assert.ok(endview.includes('if (o.img === "grf/gameover.png") this.app.score?.gameOver();'), "endview gameover branch present");
+	assert.ok(endview.includes('grf/defeat.png') && endview.includes("score?.gameOver()"), "endview defeat branch present");
+	assert.ok(endview.includes("出師未捷身先死") && endview.includes("常使英雄淚滿襟"), "endview defeat poem present");
+	assert.ok(endview.includes("重新再來") && endview.includes("exitStaged"), "endview defeat retry present");
+	assert.ok(endview.includes("returnToTitle"), "endview defeat returns to game selection");
 	const score = readFileSync("web/src/core/score.js", "utf8");
 	assert.ok(score.includes("gameOver() {"), "score gameOver present");
 	evidence("unit-defeat-callsites", true, true);
@@ -210,8 +213,8 @@ try {
 		return {
 			date: [app?.clock?.year, app?.clock?.month, app?.clock?.day].join("-"),
 			playerDead: me?.dead === true || (sc?.cities ?? []).filter((c) => (c.owner ?? c.faction) === sc?.player_faction).length === 0,
-			endView: { active: app?.endView?.active === true, img: app?.endView?.img?.currentSrc ?? app?.endView?.img?.src ?? null, caption: document.querySelector("#edcap")?.textContent ?? null },
-			capDebug: { hasEndView: app?.endView != null, capIsNull: app?.endView?.cap == null, edcapText: document.querySelector("#edcap")?.textContent ?? null, endvDisplay: document.querySelector("#endv")?.style?.display ?? null },
+			endView: { active: app?.endView?.active === true, img: app?.endView?.img?.currentSrc ?? app?.endView?.img?.src ?? null, poem: document.querySelector("#edpoem")?.getAttribute("aria-label") ?? null, retry: document.querySelector("#edretry")?.textContent ?? null, retryVisible: document.querySelector("#edretry")?.style?.visibility ?? null },
+			capDebug: { hasEndView: app?.endView != null, capIsNull: app?.endView?.cap == null, edpoemText: document.querySelector("#edpoem")?.textContent ?? null, endvDisplay: document.querySelector("#endv")?.style?.display ?? null },
 			audience: p ? { type: p.type ?? null, step: p.step ?? null, reasons, keypad, budget: (p.type === "domestic-budget" || p.type === "envoy-budget") } : null,
 			battle: app?.battleView?.active === true,
 			trial: app?.trialGate?.state ?? null,
@@ -252,22 +255,23 @@ try {
 		}
 		if (Date.now() - lastLog > 60000) { lastLog = Date.now(); tlog(`8e pump alive date=${s.date} battle=${s.battle} trial=${s.trial} clicks=${pumpClicks}`); }
 	}
-	evidence("browser-defeat-gameover", String(finalSnap.endView.img ?? "").endsWith("grf/gameover.png"), true);
+	evidence("browser-defeat-gameover", String(finalSnap.endView.img ?? "").endsWith("grf/defeat.png"), true);
 	const defeatScene = await page2.evaluate(() => window.__dragonApp?.score?.scene);
 	const capSnap = await snapshot();
 	const capDebug = capSnap.capDebug;
 	const loginDoneAt = workbenchLoginAt;
 	const expectedConsole = consoleErrors.filter((e) => e.label === "workbench" && (e.url ?? "").endsWith("/api/session") && e.text.includes("401") && e.at <= loginDoneAt);
 	const unexpected = consoleErrors.filter((e) => !expectedConsole.includes(e));
-	writeFileSync(join(out, "observations.json"), `${JSON.stringify({ img: finalSnap.endView.img, caption: finalSnap.endView.caption, capDebug, scene: defeatScene, date: finalSnap.date, pumpClicks, audiences, trial: finalSnap.trial, classifiedExpected: expectedConsole, unexpectedConsole: unexpected, pageErrors }, null, 2)}\n`, { flag: "wx" });
-	evidence("browser-gameover-caption", /覆滅|信賴度|軍覆滅/.test(finalSnap.endView.caption ?? ""), true);
+	writeFileSync(join(out, "observations.json"), `${JSON.stringify({ img: finalSnap.endView.img, poem: finalSnap.endView.poem, retry: finalSnap.endView.retry, retryVisible: finalSnap.endView.retryVisible, capDebug, scene: defeatScene, date: finalSnap.date, pumpClicks, audiences, trial: finalSnap.trial, classifiedExpected: expectedConsole, unexpectedConsole: unexpected, pageErrors }, null, 2)}\n`, { flag: "wx" });
+	evidence("browser-defeat-poem", /出師未捷身先死/.test(finalSnap.endView.poem ?? ""), true);
+	evidence("browser-defeat-retry", finalSnap.endView.retry === "重新再來", true);
 	evidence("browser-score-gameover", await page2.evaluate(() => window.__dragonApp?.score?.scene), "gameover");
 	evidence("browser-no-unexpected-errors", unexpected.length + pageErrors.length, 0);
 
 	const receipt = {
 		result: "PASS-TRIAL-ENDVIEW-DEFEAT-8E-NOT-Q69-CLOSURE",
 		round, checks, calls,
-		gate: { error: null, chapter: "later-4", playerFaction: 1, endView: "grf/gameover.png", scoreScene: "gameover" },
+		gate: { error: null, chapter: "later-4", playerFaction: 1, endView: "grf/defeat.png", scoreScene: "gameover" },
 		observations: { startDate, endDate: finalSnap.date, pumpClicks, audiences, trialAtEnd: finalSnap.trial, consoleErrors, pageErrors },
 		limits: "Ruling A defeat half: later-4 passive single-city play under original mechanisms only (no invented rules/fees/orders/APIs, zero production change); unification browser proof stays residual. Trial content premise (user-approved): only 据点/道路/武将 data differ, engine/rules/AI untouched. Click-to-title reload left unasserted (trial-reload reboot ambiguity, static code reviewed). This is not a Q69 closure certificate. No runtime/Release admission.",
 	};

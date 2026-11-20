@@ -24,6 +24,11 @@ import {
   NATIVE_UNIFICATION_TALK_INDEX,
   resolveNativeVictoryMonarch,
 } from "./navigation/originalvictorygate.js";
+import {
+  advanceToVictoryCutscene,
+  showVictoryModal,
+  unificationDateText,
+} from "../render/victorymodal.js";
 import { terrainTile } from "./pathfind.js";
 import {
   reverseRoadMarchContext,
@@ -2619,8 +2624,8 @@ export function triggerNativePlayerDefeat(app, sc, deadOwner) {
   if (typeof app.endView?.show !== "function")
     throw new RangeError("native player defeat has no UI");
   app.endView.show({
-    img: "grf/gameover.png",
-    caption: `大業未成，${faction?.monarch?.trim?.() || ""}軍覆滅…（點擊返回標題）`,
+    img: "grf/defeat.png",
+    caption: `大業未成，${faction?.monarch?.trim?.() || ""}軍覆滅…`,
   });
   return "player-defeated";
 }
@@ -5297,9 +5302,11 @@ export function cancelLegionSlotBatch(app) {
 /**
  * 1D0B 首指令统一胜利门（native 场景，v1 不动）：D2A≡活跃势力数==1 时
  * 进入 1D20 胜利分支——CDE beep、TALK[75] 宣告、君主个性行
- * （选择器 0x197→TALK[414+talk_idx]），关闭后 AL=2→1CB1→D7END
- * 结局（END_S1..12 循环）。一次性（nativeUnificationShown 持久护栏），
- * 0 RNG；缺消息/结局基础设施 fail-closed。
+ * （选择器 0x197→TALK[414+talk_idx]）均为原版实锤逐项镜像；其后 Web 产品决定
+ * （非原版机制）：君主行关闭后出「天下一統」云纹弹窗，任意点击进
+ * grf/victory.png 水墨过场（3s 淡入→十行评语逐字→「返回」）。END_S1..12
+ * 资产保留但门不再触发。一次性（nativeUnificationShown 持久护栏），
+ * 0 RNG；缺消息/弹窗/结局基础设施 fail-closed。
  */
 export function dispatchNativeUnificationGate(app) {
   const sc = app.scenario;
@@ -5309,7 +5316,9 @@ export function dispatchNativeUnificationGate(app) {
   if (typeof app.gamebar?.enqueueTalkMessage !== "function")
     throw new RangeError("Uncovered native unification TALK return");
   if (typeof app.endView?.show !== "function")
-    throw new RangeError("Uncovered native unification D7END return");
+    throw new RangeError("Uncovered native unification cutscene return");
+  if (typeof document === "undefined")
+    throw new RangeError("Uncovered native unification modal return");
   sc.nativeUnificationShown = true;
   warnSfx(); // 1D20: CALL 0CDE（PC 喇叭 beep）
   const monarch = resolveNativeVictoryMonarch(sc);
@@ -5327,12 +5336,12 @@ export function dispatchNativeUnificationGate(app) {
     kind: "native-unification-monarch",
     onClose: () => {
       try {
-        // 1CB1 AL=2 → YNVSHELL→D7END.EXE：END_S1..12 循环播放至点击退出。
-        app.endView.show({
-          sequence: Array.from(
-            { length: 12 },
-            (_, i) => `grf/end_s${i + 1}.png`,
-          ),
+        // 原版个性行之后：Web 统一弹窗（动态统一日期＋天下一統），
+        // 任意点击推进 grf/victory.png 过场。
+        const dateText = unificationDateText(app.clock);
+        showVictoryModal(app, {
+          dateText,
+          onAdvance: () => advanceToVictoryCutscene(app),
         });
       } catch (error) {
         holdFailedStrategicUpdate(app, error);
@@ -5354,6 +5363,8 @@ export function aiTick(app, options = {}) {
   }
   if (app.battleView?.active || app.engageTransition?.active)
     return scenarioNativeRoadContext(app.scenario) ? "pending" : undefined;
+  // 统一弹窗／结束过场打开期间保持 pending（时钟已由各自 holder 暂停）。
+  if (app.endView?.active || app.victoryModal?.active) return "pending";
   if (!app.scenario?.legions) return;
   if (scenarioNativeRoadContext(app.scenario)) {
     const scenario = app.scenario,

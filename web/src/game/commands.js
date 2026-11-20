@@ -163,8 +163,8 @@ export function checkTrustGameOver(app) {
   sc.trust_game_over = true;
   if (app.clock) app.clock.speed = 0;
   app.endView?.show({
-    img: "grf/gameover.png",
-    caption: "信賴度歸零，軍師之職不保…（點擊返回標題）",
+    img: "grf/defeat.png",
+    caption: "信賴度歸零，軍師之職不保…",
   });
   return true;
 }

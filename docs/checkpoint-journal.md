@@ -5,12 +5,7 @@
 
 ## 当前主线与状态
 
-| 工作线 | 当前交接 |
-| --- | --- |
-| 游戏章节 | CHAPTER-WB P0–P7及后继调整已本地交付（五Tab、复制去重、行编辑见§200–208）。现行规则以[章节合同§0](chapter-and-base-resources.md#0-chapter-wb-现行产品口径与字段盘点)为准。旧 draft 菜单已撤（控制器保留），「游戏管理」即上架发布模块。不把§199中途缺口当待办。 |
-| copy收敛 | 共享数据、章节、武将、地图、审核已接copy；删除仅留上架审核。定义面板余项、旧draft退役及表清理见[收敛任务](docs/copy-simplification-tasks.md)。 |
-| 地图／扩容／事件 | 现行范围见[CITY计划](docs/city-capacity-expansion-plan.md)、[地图合同](docs/map-atomic-catalog-contract.md#26-地图交互收尾选位背景与锁图对象操作)、[D2计划§12](docs/d2-event-scheduler-plan.md)；本地通过不等于部署。 |
-| 本地成果／生产 | 提交／推送分别授权，未经授权不部署。保留既有用户修改，未迁移内置源、已有copy或正式包。旧Git跟踪引用/PID不能代表当前远端或服务状态，操作前重核。 |
+主线与产品决定见 [AGENTS.md §1](../AGENTS.md#1-项目边界与当前主线)；本轮增量（胜负过场，未提交）见 §220／§219。
 
 ### 当前阻塞、支持限制与下一步
 
@@ -18,21 +13,40 @@
 - **诊断不是全绿**：宿主LSP多次inconclusive、TXT unsupported及缓存pending/complexity warning不能记clean；独立Vue LS 34 SFC实际通过另列。后续按变更重验不将历史构建/分项通过代替全链。
 - **支持边界**：复杂退役关系具体拒绝；已分配22槽不复用；首都及计数原生byte写限制仍在。512城读模型通过不代表大于255首都已能写。App跨纪元证明月界/存读档续计，不声称模拟此前整月所有事件分支或生产签名reader验收。
 - **现场数据待确认**：开发库`content_games`为0，3条`copy_requests`均为`failed`，编辑器无已提交游戏；章节页无数据是数据缺失而非投影门。用户看到的章节数据不在任何现存本地库；需用户确认期望来源（重新复制/导入或其它备份），不自行重建。
-- **下一步范围**：菜单重整、品牌统一、检验单行三项未提交；现场复测、copy余项、库身份更新、部署及真实数据操作仍须另行授权。`client.txt`／`index.html`改动后须重启本地编辑器服务（supervisor 按设计忽略 `server/public`）。
+- **下一步范围**：菜单重整、品牌统一、检验单行三项已提交（7b5b627）；现场复测、copy余项、库身份更新、部署及真实数据操作仍须另行授权。`client.txt`／`index.html`改动后的本地编辑器服务重启已于本轮验证通过（见§218）。
 
-## 217. 品牌统一与检验单行（未提交）
+## 220. 胜利过场动画（统一弹窗＋victory.png 水墨＋十行评语，未提交）
+
+- 用户指定：统一门 TALK75＋君主行保留在前→中央「天下一統」云纹金框弹窗（`grf/ui/cloud.png`平铺默认纹理非黑底，动态统一日期公元／公元前均显前缀`公元184年1月1日`）→地图/弹窗任意点击→`web/grf/victory.png`（720×450 PNG 497KB）3s淡入→十行评语逐字150ms→1s后小一号「返回」(14px)回游戏选择页；正文20px加粗居中按效果图10行断行；界面字串已扫全繁体。
+- 背景布局新规（两过场统一，失败同步改造）：等比居中不拉伸不平铺，scale=max(1,cover)——高分辨率放大填满无空白，低于1920*1080不缩小，容器overflow裁剪绝无滚动条（`EndView._fitStageImage`＋load/resize重算，失败旧96vw/88vh letterbox作废）。
+- 改动：`render/victorymodal.js`新模组（弹窗＋`unificationDateText`＋`advanceToVictoryCutscene`）；`endview.js`重构双模式（defeat/victory共`_showStaged`，`VICTORY_IMG`导出，`exitStaged`统一回`returnToTitle`，legacy序列分支保留）；`ai.js`统一门改挂弹窗（END_S门退役资产保留）＋aiTick顶加`endView/victoryModal` pending守卫；`trialassetpaths`＋两审计＋victory-gate测试同步（node无DOM走modal fail-closed，`advance/dateText`单测，TALK75/字节pin不动）；`trialweb.txt`按改web/src规则重建（含victory三串）。
+- 范围：三会话共用fresh＋native装配故不加内置排除门（否则连试玩later-4灭国gameover预期一起破），验证只落上架路径，内置不验证不适配；legacy-monthlyAI统一无过场产品决定保持。
+- 验证：`node --check`＋`git diff --check`全过；victory-gate 11项、4FCE 35项、no_cutscene全过；新profile冒煙：弹窗日期/标题/云纹/z30→点击进过场→110/110字→返回→回标题，失败回归cover 1422×800无滚动条，零pageerror（三截图已阅）；LSP paths inconclusive（ai.js超行＋server不确证）。真机统一全链与22分钟泵未跑；未commit/push。
+
+## 219. 失败过场动画（defeat.png 水墨＋逐字诗＋重新再來，未提交）
+
+- 用户指定：`E:/Dragon/失败.png`→`web/grf/defeat.png`（864×486 PNG 522KB，原图2.1MB未动）；3s水墨淡入→「出師未捷身先死，常使英雄淚滿襟」20px加粗逐字150ms（句间400ms）→1s后「重新再來」按钮；仅按钮经`returnToTitle()`回游戏选择页，背景点击无效果；全繁体（Web产品决定，非原版机制）。
+- 改动：`web/src/render/endview.js`重写（defeat分支＋`exitDefeat`＋样式复位，legacy胜利/单图行为不变）；`ai.js`两处＋`commands.js`一处 `gameover.png`→`defeat.png`（cause caption保留、去點擊提示，失败视图隐藏）；`trialassetpaths.js`＋两审计＋三verify断言同步（诗/按钮/aria-label）。原`gameover.png`（GAMEOVER.DAT原证）保留。
+- 验证：`node --check`九文件＋`git diff --check`全过；`verify_victory_no_cutscene`＋`verify_native_extinction4FCE`（35项）全过；新profile冒煙（8321临时页，9.5s）：14/14字显、按钮visible、背景点击不离开、点击按钮`returnToTitle`成立、零pageerror（截图`Temp/defeat_smoke.png`已阅，布局与效果图一致）；LSP paths模式inconclusive（ai.js超5000行上限＋server不确证clean，非0诊断）。
+- 现场：`server/public/trialweb.txt`被同步重建（含defeat三处新串，属改`web/src`必重建件）；完整22分钟真机灭国泵未跑（沿用旧收据路径，断言已更新）；未commit/push。
+
+## 218. 本地 dev 服务重启验证（8443 served == 本地）
+
+- 用户重启 `tools/dev_editor.mjs --port 8443 --store .dragon-analysis/basemaps-dev-store` 后核验：`/api/health` 200；`/` 标题「臥龍傳編輯器」与本地 `index.html` 一致；`/client.js` == `server/public/client.txt`（22907 bytes，views 12 项，copy 首位、`publish-editor`「游戏管理」，无 draft 菜单项）；`/shell-ui.js` == `server/public/shell-ui.txt`（1349472 bytes，`Workbench.vue` 无 `ElMenuItemGroup`，`PublishPanel.vue` 有 `validation-cell`）；`/favicon.ico`、`/brand.png`、`/auth-logo.png` 皆 200。旧 `dev-start-8443.err.log` 的构建失败为重启前残留，当前子进程服务正常。
+
+## 217. 品牌统一与检验单行（已提交 7b5b627，与 github/main 同步）
 
 - 品牌统一「臥龍傳編輯器」：页签 title、左上品牌单行 20px 加粗（用户明确指定的字阶例外）、加载占位文；旧两行副标题 `brand-caption` 已无引用。
 - 检验列改单行：`PublishPanel.vue` 检验结论与时间同行（`validation-cell` 复用 8px 间距），逻辑不动。用户已确认已上架行「未检验／—」是检验票一次性语义（提交即作废），不是校验丢失。
 - 验证：`build --check` 通过；Vue LSP 全过；shell 测试仍只有已知 `login-form` 旧失败。
 
-## 216. 菜单重整：删游戏管理、上架改名、去分组（未提交）
+## 216. 菜单重整：删游戏管理、上架改名、去分组（已提交 7b5b627，与 github/main 同步）
 
 - 用户四项：删「游戏管理」（draft-editor 菜单项；draft 控制器是全台游戏上下文底座，继续保留供选游戏／workspace／stage 共用）；「上架管理」改名「游戏管理」；取消「工作台级」，「新建游戏」移到游戏级首位；分组标签不再显示，权限过滤不变。
 - 改动：`client.txt` views 12 项（copy 首位游戏组，publish 改名；默认落地与新建后进游戏改为 `copy`／`publish-editor`）；`Workbench.vue` 菜单展平（去 `ElMenuItemGroup`、去分组标签）；`verify_editor_shell` 跟进（viewPanels 去 draft、菜单标签与分组断言更新，地图双面板单独立检查，`MapPanel` 改 `BaseMapPanel`）；`verify_editor_panel_visibility_browser`（初始 copy、12 视图、mock 补三图）。
 - 附带修活：三处旧 mock 补 `brand.png`／`auth-logo.png` 静态供给；`verify_city_delete_browser` 改走顶栏选游戏（draft 菜单已无）。编辑中发现 views 数组一度写出 16 项重复，可见性断言抓到，已修（12 项）。
 - 验证：可见性 12 视图全过；unbind／city-delete／disband 全过；`build --check`、`lsp` 全过；shell 静态检查等价复刻全过（原文件仍停在已知 `login-form` 旧失败，菜单检查位执行不到）。
-- 已知 stale（非本轮引入，不扩大）：`verify_editor_workbench_browser.mjs` 66 处 `nav()` 用 `#menu button[data-view]`，新壳菜单项是 `li`，自 Vue 改壳即不可运行需另起 rehab。
+- `verify_editor_workbench_browser.mjs` 自 Vue 改壳 stale（本轮未跑，见 memory §5，不扩大）。
 
 ## 215. 编辑器 chrome 图与用户管理（已提交 53e55f4；chrome 部分 892dc75）
 
@@ -57,15 +71,10 @@
 ## 211. 开发数据目录收敛为唯一一个
 
 - 用户确认只保留 `E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`（内含失败回执 `臥龍傳·重構版`／`重構版3`），删除其余 9 个仓库内库及 `E:/Dragon/.dragon-analysis/element-default-ui`；以后固定此目录启动，验证用系统临时目录。规则已入 [AGENTS.md](../AGENTS.md)§4。
-- **重要事实**：保留库无任何已提交游戏，3 条复制请求全 `failed`；章节无数据是数据缺失，不得重建或声称恢复。
 
 ## 210. 完整提交前审查与验证（历史批次）
 
 - 用户授权审查全部改动建单提交并推送；核对 60 改＋20 新增，排除代理／运行产物；Trial 重建 unchange；`verify_pinned_source_registration` 默认 lane 仍因 available-library 指纹失败（见阻塞）。后续远端若变须重核，不以快照代替 push 结果。
-
-## 209. project memory 与 journal 整理
-
-- 长期事实归 memory、会话进展归 journal；journal 约 126KB 压至约 26KB，memory 约 143 行；文档链接检查通过；未把历史成绩改写为本轮结果。
 
 ## 208–200. 已关闭章节批次（各一行，细则见 git 历史）
 

@@ -14,6 +14,7 @@
 - **战略事件（Web产品决定，非原版机制）**：`strategicEventSchedule`以`epoch*64+slot`定位，四字节轮作投影／原窗对照；`inserted`仅原窗真值，`accepted`才是Web已接受。每位置只推进一次，消息返回后才派下一条，整批后tick势力一次。移页、7/10分频、查询及保存合同见[D2计划§12](docs/d2-event-scheduler-plan.md)；恢复一次性校验，非空旧D2-C旁表拒绝，不猜到期时间。
 - **地图工作台（Web产品决定）**：独立系统模板＋共用Canvas＋精炼目录已本地实现。两种创建取模板单快照，既有游戏不跟随更新；固定384×256、live 1..512城，行序定槽，192为导入基线，不复原DOS对象。缺`mapEditorAssets`的旧copy拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[精炼目录](docs/map-workspace-sprite-library-design.md)及[验收边界](docs/map-workspace-sprite-library-audit.md)；本地通过不等于部署。
 - **据点扩容（Web产品决定）**：固定384×256，运行／道路／财政／存档支持v2-192与v3-512；内置与生产准入仍192，据点组素材可作为装饰拖放但不自动建城。新城admit必填`battleMapId`（`ki-1995:siege:0..191`共享战场，写定义＋全章行）。须贯通稳定身份、道路、章节、运行、战场和保存，不只放宽计数门或另建引擎。人物／地图等其它容量、Web差异与验收见[CITY计划](docs/city-capacity-expansion-plan.md)；不自动授权部署／迁移。
+- **胜负过场（Web产品决定，非原版机制）**：失败（势力被灭／信赖归零）走 `web/grf/defeat.png` 水墨 3s 淡入→诗句逐字→「重新再來」按钮，**仅按钮**经 `returnToTitle()` 回游戏选择页；统一（native 门 TALK75＋君主行在前）走中央「天下一統」云纹弹窗（动态统一日期，公元／公元前均显前缀）→任意点击→`web/grf/victory.png` 3s 淡入→十行评语逐字→「返回」回选择页。两过场背景统一等比居中 `scale=max(1,cover)`，不拉伸不平铺、容器裁剪无滚动条。原 `gameover.png`／END_S1..12 保留为原证资产；legacy `monthlyAI` 统一无过场保持；过场验证只落上架路径，不为内置加排除门。
 - 生产为`sadcloud`单VPS（`ssh sadcloud`，`/srv/dragon`）：编辑器/玩家分服务，SQLite＋私有文件桶＋磁盘分发桶，nginx/Let's Encrypt；域名`dragon-editor.720108.xyz`/`dragon.720108.xyz`直连源站。Worker/R2/Tunnel、instabox为历史形态；操作前按[存储布局§18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)重新核部署身份。
 
 ## 2. 架构与数据归属
@@ -84,16 +85,16 @@
 ## 4. 重要工程坑点
 
 - **build≠check≠服务刷新**：Vue变更先build再check，同步shell-ui.txt（URL `/shell-ui.js`）/css/licenses。`server/public/*.txt`被进程import且dev监听排除；只重启自己持有实例，用新profile/禁缓存核字节，不能停他人实例；`client.txt`／`index.html`改动必须重启服务（supervisor 按设计忽略 `server/public` 变更）。
-- **开发库选择（用户已定，2026-11-20）**：本地编辑器只有一个开发状态目录 `E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`（内含 `editor.sqlite`、`private/`、`tls/`、`request-key.txt`），以后固定从此目录启动，不再新建、切换、搬移或重建其它仓库内数据目录；其余历史库已按用户指示删除。该库当前没有任何已提交游戏，`copy_requests` 保留 `臥龍傳·重構版`／`重構版3` 等失败副本回执，不能把回执当游戏或章节数据。验证脚本一律用系统临时目录（`mkdtemp`）作独占库，不落到仓库内。启动前核进程命令/目录，不默认换库；当前手测实例交接放journal而非固定PID。
+- **开发库选择（用户已定，2026-11-20）**：本地编辑器只有一个开发状态目录 `E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`（内含 `editor.sqlite`、`private/`、`tls/`、`request-key.txt`），以后固定从此目录启动，不再新建、切换、搬移或重建其它仓库内数据目录；其余历史库已按用户指示删除。验证脚本一律用系统临时目录（`mkdtemp`）作独占库，不落到仓库内。启动前核进程命令/目录，不默认换库；当前手测实例交接放journal而非固定PID。
 - **Vue LSP**：项目私有`editor-ui/lsp/`用Vue LS2.2.12＋TS5.9.3 standalone，仅项目`.pi-lens.json`；从editor-ui启动新会话才实际采用override，配置来源不等于launcher生效。不改全局工具/信任，安装与独立检查见[说明](editor-ui/lsp/README.md)。
-- **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态，`--source-only`不验证available-library。改`web/src/**`重建trialweb.txt；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
+- **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态，`--source-only`不验证available-library。改`web/src/**`重建trialweb.txt，重建后 grep 新串确认已含；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
 - **copyop分发**：`applyCapturedMapEdit`的`view(edit)`返回属性描述符表，不是原对象；新op用`value(edit, key)`取值，勿直读`edit.x`。未绑定piece（cityId空）校验必败，绑定后才放行；新城中心须行序扫描在最后（scan-last），否则编译拒收；走廊须先铺好（端点D4..DD），road-add只做认证不铺砖。
 - **地图交互验收**：摘掉组关系不等于拆成单格，须检查实例身份／足迹、JSON保存重读及逐格命中。提示应复用固定状态区，右键清提示引发resize会关闭菜单／改变点击坐标，不能用点击重试掩盖。移动保存门限于移动批次，不阻断copy分步建城。
 - **事件调度**：调度表与 4 字节轮不能各派发一次——条目只写原轮或只写调度表，读时按 carry→原轮→overflow 合并；改 `strategicEventSchedule` 形状须同步快照校验与 `verify_d2_event_*`，否则到恢复期才炸。
 - **会话/版本接缝**：session DTO可无根级version，捕获和比较要使用相同缺省，不因undefined/null误拒全部请求；身份/epoch守卫仍保留。copy审批revision可为规范`1.n`，玩家兼容旧正整数，但不能省略manifest/session精确身份与SHA校验。
 - **schema/purge**：同步deletiondefinitions/deletionschema/distributiondeclarations及投影/inventory，不把某批表数固化为规则、不重算pinned基线；系统基础地图表不进游戏purge。SQLite WAL调查用一致备份或停服快照，不能裸拷主库；栅栏存在不等于文件已清。
 - **离线审计与编码**：忽略的报告父目录在新检出中可能不存在，允许创建父目录，但新轮次叶目录必须独占、拒绝覆盖。Python用`-B`和显式UTF-8；Windows子进程输出也须指定编码，不能以stdout的UTF-8设置代替。报告绑定当时输入／工具SHA，工具修补不改写旧收据。
-- 提交、推送、生产写入/迁移/部署分别授权；健康或push成功不是内容验收。保留用户/其它会话改动，不整体reset/clean、不批量换行。不提交秘密/profile/缓存/运行数据。遇Git锁先查活跃进程、时间与归属，不盲删锁。GitHub用remote `github`，非Gitea `origin`；HTTP/2 reset可单次加`-c http.version=HTTP/1.1`，不改全局策略。
+- 提交、推送、生产写入/迁移/部署分别授权；健康或push成功不是内容验收。保留用户/其它会话改动，不整体reset/clean、不批量换行。不提交秘密/profile/缓存/运行数据。遇Git锁先查活跃进程、时间与归属，不盲删锁。GitHub用remote `github`，非Gitea `origin`；HTTP/2 reset可单次加`-c http.version=HTTP/1.1`，不改全局策略。旧 Git 跟踪引用与既有 PID 不能代表当前远端或服务状态，操作前重核 status／远端同步与进程命令行／目录。
 
 ## 5. 常用命令与分级验证
 

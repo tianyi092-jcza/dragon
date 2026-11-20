@@ -978,7 +978,7 @@ test("production applyBattleResult routes player extinction to defeat", async ()
   assert.equal(f.sc.factions[DEAD].attr, 0);
   assert.equal(f.sc.factions[CAPTOR].n_cities, 0);
   assert.equal(shows.length, 1);
-  assert.equal(shows[0].img, "grf/gameover.png");
+  assert.equal(shows[0].img, "grf/defeat.png");
 });
 
 // P55-C09-2b end to end: TALK69+1A7 suspend, then the tail chains the

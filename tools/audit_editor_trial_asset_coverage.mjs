@@ -159,10 +159,14 @@ site("kao-portrait-data", "web/src/game/world.js", ["`kao/${m ? m.portrait : 0}.
 	});
 
 site("endview-endings", "web/src/game/ai.js",
-	['img: "grf/gameover.png"', "`grf/end_s${i + 1}.png`"],
+	['img: "grf/defeat.png"', "`grf/end_s${i + 1}.png`"],
 	() => {
-		assert.ok(text("web/src/game/commands.js").includes('img: "grf/gameover.png"'), "commands gameover anchor");
-		claim("endview-endings", "grf/gameover.png");
+		assert.ok(text("web/src/game/commands.js").includes('img: "grf/defeat.png"'), "commands defeat anchor");
+		assert.ok(text("web/src/render/endview.js").includes('grf/defeat.png'), "endview defeat anchor");
+		assert.ok(text("web/src/render/endview.js").includes('grf/victory.png'), "endview victory anchor");
+		assert.ok(text("web/src/render/victorymodal.js").includes('grf/ui/cloud.png'), "victory modal cloud anchor");
+		claim("endview-endings", "grf/defeat.png");
+		claim("endview-endings", "grf/victory.png");
 		for (let i = 1; i <= 12; i++) claim("endview-endings", `grf/end_s${i}.png`);
 	});
 
