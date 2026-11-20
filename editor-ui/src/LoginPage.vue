@@ -8,7 +8,8 @@ defineProps({ busy: Boolean });
 
 <template>
   <div class="auth-card">
-    <p class="eyebrow">WOLONG · EDITOR</p><h1>登入創作工作台</h1><p class="muted">管理你的遊戲、編輯草稿，並在同一引擎中測試。</p>
+    <img class="auth-logo" src="/auth-logo.png" alt="臥龍傳" width="128" height="128">
+    <p class="eyebrow">WOLONG · EDITOR</p><h1>臥龍傳編輯器</h1><p class="muted">管理你的遊戲、編輯草稿，並在同一引擎中測試。</p>
     <form id="login" @reset="fields.account = ''; fields.password = ''">
       <label>帳戶<ElInput v-model="fields.account" name="account" autocomplete="username" required maxlength="32" /></label>
       <label>密碼<ElInput v-model="fields.password" name="password" type="password" autocomplete="current-password" required maxlength="128" /></label>

@@ -5,14 +5,23 @@ body { overflow: hidden; }
 .workbench { height: 100dvh; display: grid; grid-template-columns: 216px minmax(0, 1fr); grid-template-rows: 76px minmax(0, 1fr); overflow: hidden; }
 .workbench-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; margin-right: 12px; }
+.brand-static, .brand-static:hover, .brand-static:focus { color: inherit; cursor: default; text-decoration: none; }
+.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; margin-right: 12px; object-fit: contain; }
+.auth-card { text-align: center; }
+.auth-logo { display: block; width: 128px; height: 128px; margin: 0 auto 8px; }
+.auth-card form { display: flex; flex-direction: column; align-items: center; }
+.auth-card form > label { width: 50%; text-align: left; }
+.auth-card form > .el-button { width: 50%; margin-top: 24px; }
 .brand-caption, .account-secondary { display: block; }
 .account-actions, .current-game, .page-line, .module-toolbar, .resource-toolbar, .resource-categories, .resource-filter, .account-filters, .account-row-actions, .account-tags, .chapter-order { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .current-game { margin-left: auto; }
 .current-game .el-select { width: 260px; }
 #menu { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .module-menu { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.navigation-footer { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; }
+/* 折疊按鈕圖標與上方菜單圖標同起點：菜單項左內邊距20px，減去默認按鈕自身左內邊距15px與邊框1px。 */
+.navigation-footer { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 8px 0 8px 4px; }
+/* 用戶明確要求12px（默認字階約定的例外）。 */
+.licenses-link { margin-left: 8px; font-size: 12px; }
 .workbench.nav-collapsed { grid-template-columns: 64px minmax(0, 1fr); }
 .workbench-main { min-width: 0; min-height: 0; padding: 16px 24px; display: flex; flex-direction: column; overflow: hidden; }
 .page-line { justify-content: space-between; flex-wrap: nowrap; }
@@ -27,7 +36,7 @@ body { overflow: hidden; }
 #status, .map-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-context { flex: 0 1 auto; max-width: 62%; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-layout { grid-template-columns: 1fr; }
-.auth-layout .workbench-main { width: min(580px, 100%); box-sizing: border-box; margin: 24px auto; overflow: auto; }
+.auth-layout .workbench-main { width: min(580px, 100%); box-sizing: border-box; margin: auto; overflow: auto; }
 .auth-card, .account-card { width: 100%; max-width: 650px; }
 .module-card { min-width: 0; min-height: 0; overflow: auto; }
 #session { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }

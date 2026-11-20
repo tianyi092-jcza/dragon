@@ -65,6 +65,9 @@ import style from './public/style.css';
 import shellUI from './public/shell-ui.txt';
 import shellStyle from './public/shell-ui.css';
 import shellLicenses from './public/shell-ui-licenses.txt';
+import faviconIcon from './public/favicon.ico';
+import brandMark from './public/brand.png';
+import authLogo from './public/auth-logo.png';
 import trialwebBundle from './public/trialweb.txt';
 // T6 试运行已取消：trialapp 已下线，不再导入 trialapp.txt。
 import playappShell from './public/playapp.txt';
@@ -113,6 +116,9 @@ function staticAsset(pathname) {
   if (pathname === '/mapview.js') { return { content: mapviewClient, type: 'text/javascript' }; }
   if (pathname === '/stage-assets.js') { return { content: stageAssetsClient, type: 'text/javascript' }; }
   if (pathname === '/style.css') { return { content: style, type: 'text/css' }; }
+  if (pathname === '/favicon.ico') { return { content: faviconIcon, type: 'image/x-icon', binary: true }; }
+  if (pathname === '/brand.png') { return { content: brandMark, type: 'image/png', binary: true }; }
+  if (pathname === '/auth-logo.png') { return { content: authLogo, type: 'image/png', binary: true }; }
   return { content: page, type: 'text/html' };
 }
 function response(value, status = 200, token) {
@@ -1722,8 +1728,9 @@ export function createEditorGateway({ frozenPublication = false } = {}) {
       // Only this shell allows its generated base; Trial/management retain base-uri 'none'.
       return new Response(playAppPage, { headers: { ...trialHeaders, 'Content-Security-Policy': trialHeaders['Content-Security-Policy'].replace("base-uri 'none'", "base-uri 'self'"), 'Content-Type': 'text/html; charset=utf-8' } });
     }
-    if (request.method === 'GET' && ['/', '/client.js', '/draft.js', '/stage.js', '/library.js', '/catalog.js', '/management.js', '/publish.js', '/review.js', '/stronghold.js', '/general.js', '/mapview.js', '/stage-assets.js', '/style.css', '/shell-ui.js', '/shell-ui.css', '/shell-ui-licenses.txt'].includes(url.pathname)) {
+    if (request.method === 'GET' && ['/', '/client.js', '/draft.js', '/stage.js', '/library.js', '/catalog.js', '/management.js', '/publish.js', '/review.js', '/stronghold.js', '/general.js', '/mapview.js', '/stage-assets.js', '/style.css', '/shell-ui.js', '/shell-ui.css', '/shell-ui-licenses.txt', '/favicon.ico', '/brand.png', '/auth-logo.png'].includes(url.pathname)) {
       const asset = staticAsset(url.pathname);
+      if (asset.binary) return new Response(asset.content, { headers: { ...headers, 'Content-Type': asset.type } });
       return new Response(asset.content, { headers: { ...headers, 'Content-Type': `${asset.type}; charset=utf-8` } });
     }
     // Anonymous season-visual art for play manifests resolves registry-

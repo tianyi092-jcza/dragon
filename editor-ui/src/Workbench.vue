@@ -64,7 +64,7 @@ async function go(view) {
   <ElConfigProvider :locale="zhTw" size="default" :empty-values="[null, undefined]">
   <div v-loading.fullscreen="globalLoading" :element-loading-svg="loadingSvg" element-loading-custom-class="workbench-loading" :aria-busy="Boolean(state.busy || state.loading)" class="workbench" :class="{ 'auth-layout': !ready, 'nav-collapsed': ready && collapsed, 'map-workspace': ready && Boolean(activeMap) }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
     <header class="workbench-header">
-      <ElLink class="brand" href="#draft-editor" @click.prevent="go('draft-editor')"><span class="brand-mark">臥</span><span>臥龍傳<span class="brand-caption">創作工作台</span></span></ElLink>
+      <ElLink v-if="ready" :underline="false" class="brand brand-static" href="#draft-editor" @click.prevent="go('draft-editor')"><img class="brand-mark" src="/brand.png" alt="臥龍傳"><span>臥龍傳<span class="brand-caption">創作工作台</span></span></ElLink>
       <div class="current-game" :hidden="!ready">
         <span>當前遊戲</span>
         <ElSelect id="current-game" :model-value="draftModel.fields.gameId" :disabled="state.busy || draftModel.gameLocked" @change="switchGame">
@@ -85,6 +85,7 @@ async function go(view) {
           </div>
         </ElPopover>
         <ElButton id="logout" :disabled="state.busy">登出</ElButton>
+        <ElLink class="licenses-link" href="/shell-ui-licenses.txt" target="_blank" rel="noopener" aria-label="第三方授權" title="第三方授權">第三方授權</ElLink>
       </div>
     </header>
     <aside id="menu" class="workbench-menu" :hidden="!ready" aria-label="編輯模組">
@@ -96,8 +97,7 @@ async function go(view) {
         </ElMenuItemGroup>
       </ElMenu>
       <div class="navigation-footer">
-        <ElLink href="/shell-ui-licenses.txt" target="_blank" rel="noopener" aria-label="第三方授權" title="第三方授權"><WorkspaceIcon v-if="collapsed" name="info" /><span v-else>第三方授權</span></ElLink>
-        <ElButton :aria-expanded="!collapsed" :aria-label="collapsed ? '展開導覽' : '折疊導覽'" @click="collapsed = !collapsed"><WorkspaceIcon :name="collapsed ? 'expand' : 'collapse'" /><span v-if="!collapsed">折疊導覽</span></ElButton>
+        <ElButton :aria-expanded="!collapsed" :aria-label="collapsed ? '展開導覽' : '折疊導覽'" @click="collapsed = !collapsed"><WorkspaceIcon :name="collapsed ? 'expand' : 'collapse'" /></ElButton>
       </div>
     </aside>
     <main class="workbench-main">

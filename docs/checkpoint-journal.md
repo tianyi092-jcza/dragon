@@ -22,6 +22,15 @@
 - **现场数据待确认**：该库`content_games`为0，`copy_requests`的3条均为`failed`（含`BASE_MAP_NOT_INITIALIZED`等），因此编辑器无已提交游戏，章节页显示“尚未载入副本”是数据缺失而非投影门。用户看到的章节数据不在任何现存本地库；需用户确认期望的数据来源（重新复制/导入或其它备份），不自行重建。
 - **下一步范围**：本轮按用户授权审查并提交／推送；现场复测、copy余项、库身份更新、部署及真实数据操作仍须另行授权，不重开已完成章节goal。
 
+## 215. 編輯器 chrome 圖：頁籤圖示／品牌標／登入頁（本地實施，未提交）
+
+- 用戶三項：頁籤圖示用 `dist/favicon.ico`；工作台左上角「臥」字改 `web/favicon.png`；登入頁取消左上角標、內容水平置中（標題保持左對齊）、帳密輸入框減半、登入鈕加倍、頂部加 128px `web/feather-fan-white-shadow-128.png`。
+- 放置：`server/public/favicon.ico`、`brand.png`（32px）、`auth-logo.png`（128px）為服務真相源；`editor-ui/public/` 放同位元組鏡像僅供 Vite 構建解析，運行時仍走服务端同源路由（CSP `img-src 'self' blob:` 禁 `data:`，不做內嵌、不改 CSP）。
+- 裝配：`wrangler.jsonc` 加 `Data` 規則三檔；`vps/text-loader.mjs` 加 `.ico/.png` 二進制端口（base64 過文本源，與 workerd `Data` 導出同為 ArrayBuffer）；`editorapp.js` 導入＋`staticAsset` 二進制分支（不加 `charset`）＋靜態白名單；`index.html` 加 icon 連結。
+- 登入頁：品牌連結改 `v-if="ready"`（未登入页眉无品牌文字）；登录区 `margin: auto` 整块垂直居中；卡片置中、label 50% 左對齊文字、按鈕與輸入框同寬 50%（用戶後續改為同寬，取代加倍）、按钮顶部 24px；頂部 128px logo。
+- 側欄頁腳：折疊按鈕去文字只留箭頭，圖標與上方菜單圖標同起點左對齊（頁腳左內邊距4px＝菜單20px－按鈕自身15px－邊框1px）；第三方授權鏈接搬到頂欄登出鈕後（間距16px、12px字，用戶明確要求的字階例外）。
+- 驗證：`verify_shell_brand_browser.mjs` 全過（真服務隔離庫：三路由 200＋位元組一致、icon 連結、登入截圖 logo 128px、無品牌標、輸入框置中半寬、按鈕約二倍寬）；`build --check`、`lsp check` 34 SFC 全過。
+
 ## 214. 地图保存检验失败只显示一句明确原因（本地实施，未提交）
 
 - 用户反馈：地图上解绑据点后保存，检查未通过是对的，但提示堆了三层（标题＋步骤＋裸错误码 `COPY_MAP_CITY_ROAD_REF`＋通用重试话术），看不懂。要求只提示一句明确原因。
