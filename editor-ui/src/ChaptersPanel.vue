@@ -8,8 +8,8 @@ import { ElInputNumber } from 'element-plus/es/components/input-number/index.mjs
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 import { ElTabs, ElTabPane } from 'element-plus/es/components/tabs/index.mjs';
-import { vLoading } from 'element-plus/es/components/loading/index.mjs';
-import { loadingSvg } from './loading.js';
+import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs';
+import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
 import ListPagination from './ListPagination.vue';
 import { usePagination } from './pagination.js';
 import { CHAPTER_DIPLOMACY_RELATIONS, chapterDiplomacyRelation } from '../../web/src/editor/chapterdiplomacy.js';
@@ -115,32 +115,79 @@ const creating = ref(false);
 const loading = ref(false);
 const canLoad = computed(() => !loading.value && !props.busy && Boolean(props.model?.fields?.gameId));
 const createForm = reactive({ number: '', name: '', era: 'ad', year: '', month: '', day: '' });
+const createResult = ref('');
+const createClosing = ref(false);
+let createTimer = null;
+function cancelCreate() {
+  if (createTimer !== null) { clearTimeout(createTimer); createTimer = null; }
+  createClosing.value = false;
+  Object.assign(createForm, { number: '', name: '', era: 'ad', year: '', month: '', day: '' });
+  createResult.value = '';
+  numberError.value = '';
+  creating.value = false;
+}
 async function createChapter() {
+  if (createTimer !== null) return;
   const gameId = props.model.fields.gameId;
   numberError.value = '';
+  createResult.value = '';
   try {
     const saved = await props.actions.createNumberedCopyChapter({ ...createForm });
     if (saved && props.model.fields.gameId === gameId) {
-      creating.value = false;
-      Object.assign(createForm, { number: '', name: '', era: 'ad', year: '', month: '', day: '' });
+      createResult.value = '保存成功，3 秒後關閉。';
       activeTab.value = 'chapters';
+      factionPage.value = generalPage.value = cityPage.value = 1;
+      createClosing.value = true;
+      createTimer = setTimeout(() => { createTimer = null; cancelCreate(); }, 3000);
+    } else if (saved) {
+      createResult.value = '保存成功，但當前遊戲已切換，請重讀核對。';
+    } else {
+      createResult.value = '保存未確認，請重試。';
     }
-  } catch (error) { numberError.value = error.message; }
+  } catch (error) { createResult.value = '保存失敗：' + (error.message || '原因未回報'); }
 }
-const labelEditing = ref(false), labelForm = reactive({ number: '', name: '' });
-function editLabels() {
-  if (!chapter.value || locked.value) return;
-  labelForm.number = chapter.value.number ?? '';
-  labelForm.name = chapter.value.name;
-  labelEditing.value = true;
-}
-async function saveLabels() {
-  const id = chapter.value.chapterId, gameId = props.model.fields.gameId;
+const chapterOptionDate = row => row.startMissing
+  ? '日期未設定'
+  : `${row.start.era === 'bc' ? '公元前' : '公元'}${row.start.year}年${row.start.month}月${row.start.day}日`;
+const chapterOptionLabel = row => `${row.number ?? ''}  ${row.name}  ${chapterOptionDate(row)}`;
+const labelForm = reactive({ number: '', name: '' });
+const chapterFormResult = ref('');
+const labelDirty = computed(() => Boolean(chapter.value) && ((labelForm.number || '') !== (chapter.value.number ?? '') || labelForm.name !== (chapter.value.name ?? '')));
+const chapterFormDirty = computed(() => Boolean(chapter.value) && (labelDirty.value || chapter.value.startDirty));
+// 合併保存：編號名稱＋暫存年代一次提交，各自仍走原控制器命令與確認。
+async function saveChapterForm() {
+  const current = chapter.value;
+  if (!current || locked.value) return;
+  const id = current.chapterId, gameId = props.model.fields.gameId;
+  const wantLabels = labelDirty.value, wantStart = Boolean(current.startDirty);
+  if (!wantLabels && !wantStart) { chapterFormResult.value = '資料與已讀相同；沒有保存。'; return; }
+  chapterFormResult.value = '';
   numberError.value = '';
   try {
-    const saved = await props.actions.saveCopyChapterLabels(id, labelForm.number, labelForm.name);
-    if (saved && props.model.fields.gameId === gameId && chapter.value?.chapterId === id) labelEditing.value = false;
-  } catch (error) { numberError.value = error.message; }
+    if (wantLabels) {
+      const saved = await props.actions.saveCopyChapterLabels(id, labelForm.number, labelForm.name);
+      if (!saved) { chapterFormResult.value = '編號名稱未保存（已取消確認）。'; return; }
+      if (props.model.fields.gameId !== gameId) { chapterFormResult.value = '保存成功，但當前遊戲已切換，請重讀核對。'; return; }
+    }
+    if (wantStart) {
+      const savedStart = await props.actions.saveCopyChapterStart(id);
+      if (!savedStart) { chapterFormResult.value = wantLabels ? '編號名稱已保存；年代未保存（已取消確認或無變更）。' : '年代未保存（已取消確認）。'; return; }
+      if (props.model.fields.gameId !== gameId) { chapterFormResult.value = '保存成功，但當前遊戲已切換，請重讀核對。'; return; }
+    }
+    labelForm.number = chapter.value?.number ?? '';
+    labelForm.name = chapter.value?.name ?? '';
+    chapterFormResult.value = '保存成功。';
+    factionPage.value = generalPage.value = cityPage.value = 1;
+  } catch (error) { chapterFormResult.value = '保存失敗：' + (error.message || '原因未回報'); }
+}
+function cancelChapterForm() {
+  const current = chapter.value;
+  if (!current) return;
+  labelForm.number = current.number ?? '';
+  labelForm.name = current.name ?? '';
+  numberError.value = '';
+  chapterFormResult.value = '';
+  if (current.startDirty) props.actions.cancelCopyStartInput(current.chapterId);
 }
 // 章節可改的五屬性：所屬勢力＋四項數值（同列一次保存，唯讀態顯示文字）。
 // 上限：當前生產 ≤ 最大生產、城兵 ≤ 城兵上限、上升值／防災值是 u8。
@@ -193,7 +240,7 @@ const cities = computed(() => chapter.value?.cities ?? []);
 const { currentPage: factionPage, pageSize: factionSize, total: factionTotal, pagedRows: pagedFactions } = usePagination(factionRows);
 const { currentPage: generalPage, pageSize: generalSize, total: generalTotal, pagedRows: pagedGenerals } = usePagination(ordinaryGenerals);
 const { currentPage: cityPage, pageSize: citySize, total: cityTotal, pagedRows: pagedCities } = usePagination(cities);
-const dirty = computed(() => chapter.value?.startDirty || numberEdit.value !== null || openingEdit.value !== null || resourceEdit.value !== null || arrivalEdit.value !== null || labelEditing.value || creating.value || creatingFaction.value);
+const dirty = computed(() => chapter.value?.startDirty || numberEdit.value !== null || openingEdit.value !== null || resourceEdit.value !== null || arrivalEdit.value !== null || chapterFormDirty.value || creating.value || creatingFaction.value);
 // The shell mounts before controller actions are installed; initial input state is clean.
 const emit = defineEmits(['notice']);
 watch(numberError, message => { if (props.active) emit('notice', message); }, { flush: 'sync' });
@@ -201,10 +248,17 @@ watch(() => props.active && !attributes.value, missing => {
   if (missing) emit('notice', '尚未載入副本：請先載入本遊戲的副本再查看章節屬性。');
 });
 watch(dirty, value => props.actions.setChapterInputDirty(Boolean(value)), { flush: 'sync' });
-onUnmounted(() => props.actions.setChapterInputDirty(false));
+onUnmounted(() => { if (createTimer !== null) { clearTimeout(createTimer); createTimer = null; } props.actions.setChapterInputDirty(false); });
 watch(() => props.model.fields.gameId, () => {
   numberEdit.value = null; openingEdit.value = null; resourceEdit.value = null; arrivalEdit.value = null;
-  labelEditing.value = false; creating.value = false; creatingFaction.value = false; numberError.value = '';
+  labelForm.number = ''; labelForm.name = ''; chapterFormResult.value = '';
+  creating.value = false; creatingFaction.value = false; numberError.value = '';
+});
+// 切換章節即載入該章現值，常駐表單不保留上一章的輸入。
+watch(() => chapter.value?.chapterId, () => {
+  labelForm.number = chapter.value?.number ?? '';
+  labelForm.name = chapter.value?.name ?? '';
+  chapterFormResult.value = '';
 });
 function canNavigate() {
   if (props.busy) return false;
@@ -215,7 +269,7 @@ function switchChapter(value) {
   if (!canNavigate()) return;
   props.actions.setCopyField('chapterId', value);
   factionPage.value = generalPage.value = cityPage.value = 1;
-  numberEdit.value = null; numberError.value = '';
+  numberEdit.value = null; numberError.value = ''; chapterFormResult.value = '';
 }
 // 與城池據點／武將管理同語義：按頂部當前遊戲顯式載入副本，成功後回到第一頁。
 async function load() {
@@ -271,53 +325,63 @@ async function saveNumbers(city) {
 </script>
 
 <template>
-  <section id="chapters-editor" class="module-card" v-loading="loading" :element-loading-svg="loadingSvg" element-loading-text="正在載入副本…" :aria-busy="loading">
+  <section id="chapters-editor" class="module-card" :aria-busy="loading">
     <template v-if="active">
       <div v-if="!creating" class="module-toolbar"><ElButton id="chapters-load" :aria-busy="loading" :disabled="!canLoad" @click="load()">加載</ElButton><ElButton data-chapter-create :disabled="busy || dirty || !attributes || attributes.locked" @click="creating = true; numberError = ''">新增章節</ElButton></div>
-      <div v-else class="chapter-create-form">
+      <ElDialog v-else v-model="creating" title="新增章節" width="480" :close-on-click-modal="false" @close="cancelCreate">
+        <ElForm :model="createForm" label-width="auto" class="chapter-create-form" @submit.prevent="createChapter">
         <div class="chapter-create-fields">
-          <label class="chapter-create-number">編號<ElInput v-model="createForm.number" data-new-chapter-number :disabled="busy" /></label>
-          <label class="chapter-create-name">名稱<ElInput v-model="createForm.name" data-new-chapter-name :disabled="busy" /></label>
+          <ElFormItem class="chapter-create-number" label="編號"><ElInput v-model="createForm.number" data-new-chapter-number :disabled="busy" /></ElFormItem>
+          <ElFormItem class="chapter-create-name" label="名稱"><ElInput v-model="createForm.name" data-new-chapter-name :disabled="busy" /></ElFormItem>
         </div>
         <div class="chapter-create-fields">
-          <label class="chapter-create-era">紀年<ElSelect v-model="createForm.era" :disabled="busy"><ElOption v-for="[value, label] in eras" :key="value" :value="value" :label="label" /></ElSelect></label>
-          <label class="chapter-create-year">年<ElInput v-model="createForm.year" inputmode="numeric" :disabled="busy" /></label>
-          <label class="chapter-create-day">月<ElInput v-model="createForm.month" inputmode="numeric" :disabled="busy" /></label>
-          <label class="chapter-create-day">日<ElInput v-model="createForm.day" inputmode="numeric" :disabled="busy" /></label>
+          <ElFormItem class="chapter-create-era" label="紀年"><ElSelect v-model="createForm.era" :disabled="busy"><ElOption v-for="[value, label] in eras" :key="value" :value="value" :label="label" /></ElSelect></ElFormItem>
+          <ElFormItem class="chapter-create-year" label="年"><ElInput v-model="createForm.year" inputmode="numeric" :disabled="busy" /></ElFormItem>
+          <ElFormItem class="chapter-create-day" label="月"><ElInput v-model="createForm.month" inputmode="numeric" :disabled="busy" /></ElFormItem>
+          <ElFormItem class="chapter-create-day" label="日"><ElInput v-model="createForm.day" inputmode="numeric" :disabled="busy" /></ElFormItem>
         </div>
-        <div class="chapter-create-actions">
-          <ElButton data-new-chapter-save :disabled="busy" @click="createChapter">保存</ElButton>
-          <ElButton data-new-chapter-cancel :disabled="busy" @click="creating = false; numberError = ''">取消</ElButton>
-        </div>
-      </div>
+        <p class="module-notice chapter-create-result" role="status">{{ createResult }}</p>
+        </ElForm>
+        <template #footer>
+          <div class="chapter-create-footer">
+          <ElButton data-new-chapter-save :disabled="busy || createClosing" @click="createChapter">保存</ElButton>
+          <ElButton data-new-chapter-cancel :disabled="busy" @click="cancelCreate">取消</ElButton>
+          </div>
+        </template>
+      </ElDialog>
     </template>
     <p v-if="!chapters.length && !creating" class="empty-state">尚無章節，可新增章節。</p>
     <!-- 組件與 numberForm 保留；隱藏時不掛載數百個選單及其選項。 -->
     <template v-else-if="active && !creating && chapters.length">
       <div class="module-toolbar">
-        <label>章節<ElSelect id="chapters-select" :model-value="chapter?.chapterId" :disabled="busy || !attributes" @change="switchChapter($event)"><ElOption v-for="row in chapters" :key="row.chapterId" :value="row.chapterId" :label="row.name" /></ElSelect></label>
+        <label>章節<ElSelect id="chapters-select" class="chapter-switch" :model-value="chapter?.chapterId" :disabled="busy || !attributes" @change="switchChapter($event)"><ElOption v-for="row in chapters" :key="row.chapterId" :value="row.chapterId" :label="chapterOptionLabel(row)"><span class="chapter-option-number">{{ row.number ?? '' }}</span><span class="chapter-option-name">{{ row.name }}</span><span class="chapter-option-date">{{ chapterOptionDate(row) }}</span></ElOption></ElSelect></label>
         <ElTag v-if="chapter?.startDirty" type="warning" effect="plain">年代輸入未保存</ElTag>
       </div>
       <ElTabs v-model="activeTab" class="chapter-tabs" :before-leave="canNavigate">
       <ElTabPane label="章節管理" name="chapters">
       <div class="module-toolbar">
-        <label>編號<ElInput v-if="labelEditing" v-model="labelForm.number" data-chapter-number :disabled="busy" /><span v-else>{{ chapter?.number ?? '尚未設定' }}</span></label>
-        <label>名稱<ElInput v-if="labelEditing" v-model="labelForm.name" data-chapter-name :disabled="busy" /><span v-else>{{ chapter?.name }}</span></label>
-        <template v-if="labelEditing"><ElButton data-chapter-label-save :disabled="busy" @click="saveLabels">保存</ElButton><ElButton :disabled="busy" @click="labelEditing = false; numberError = ''">取消</ElButton></template>
-        <ElButton v-else data-chapter-label-edit :disabled="locked || dirty" @click="editLabels">編輯</ElButton>
         <ElButton data-chapter-copy :disabled="locked || dirty" @click="actions.copyChapter('copy', chapter.chapterId)">複製本章</ElButton>
         <ElButton data-chapter-delete :disabled="locked || dirty" @click="actions.copyChapter('delete', chapter.chapterId)">刪除本章</ElButton>
       </div>
-      <h3>開始年代</h3>
-      <p v-if="chapter?.startMissing" class="module-notice">本章沒有已讀的開始日期物件；本頁不補預設日期。</p>
-      <div class="module-toolbar">
-        <label>紀年<ElSelect data-start-era :model-value="chapter?.start.era" :disabled="locked || chapter?.startMissing" @change="setEra($event)"><ElOption v-for="[value, label] in eras" :key="value" :value="value" :label="label" /></ElSelect></label>
-        <label>年<ElInput data-start-year inputmode="numeric" maxlength="5" :model-value="chapter?.start.year" :disabled="locked || chapter?.startMissing" @input="setStart('year', $event)" /></label>
-        <label>月<ElInput data-start-month inputmode="numeric" maxlength="2" :model-value="chapter?.start.month" :disabled="locked || chapter?.startMissing" @input="setStart('month', $event)" /></label>
-        <label>日<ElInput data-start-day inputmode="numeric" maxlength="2" :model-value="chapter?.start.day" :disabled="locked || chapter?.startMissing" @input="setStart('day', $event)" /></label>
-        <ElButton data-start-save :disabled="locked || !chapter?.startDirty" @click="actions.saveCopyChapterStart(chapter.chapterId)">保存開始年代</ElButton>
-        <ElButton data-start-cancel :disabled="locked || !chapter?.startDirty" @click="actions.cancelCopyStartInput(chapter.chapterId)">取消年代輸入</ElButton>
+      <ElForm :model="labelForm" label-width="auto" class="chapter-create-form" @submit.prevent="saveChapterForm">
+      <div class="chapter-create-fields">
+        <ElFormItem class="chapter-create-number" label="編號"><ElInput v-model="labelForm.number" data-chapter-number :disabled="locked" /></ElFormItem>
+        <ElFormItem class="chapter-create-name" label="名稱"><ElInput v-model="labelForm.name" data-chapter-name :disabled="locked" /></ElFormItem>
       </div>
+      <p class="chapter-start-title">開始年代</p>
+      <p v-if="chapter?.startMissing" class="module-notice">本章沒有已讀的開始日期物件；本頁不補預設日期。</p>
+      <div class="chapter-create-fields">
+        <ElFormItem class="chapter-create-era" label="紀年"><ElSelect data-start-era :model-value="chapter?.start.era" :disabled="locked || chapter?.startMissing" @change="setEra($event)"><ElOption v-for="[value, label] in eras" :key="value" :value="value" :label="label" /></ElSelect></ElFormItem>
+        <ElFormItem class="chapter-create-year" label="年"><ElInput data-start-year inputmode="numeric" maxlength="5" :model-value="chapter?.start.year" :disabled="locked || chapter?.startMissing" @input="setStart('year', $event)" /></ElFormItem>
+        <ElFormItem class="chapter-create-day" label="月"><ElInput data-start-month inputmode="numeric" maxlength="2" :model-value="chapter?.start.month" :disabled="locked || chapter?.startMissing" @input="setStart('month', $event)" /></ElFormItem>
+        <ElFormItem class="chapter-create-day" label="日"><ElInput data-start-day inputmode="numeric" maxlength="2" :model-value="chapter?.start.day" :disabled="locked || chapter?.startMissing" @input="setStart('day', $event)" /></ElFormItem>
+      </div>
+      <p class="module-notice chapter-create-result" role="status">{{ chapterFormResult }}</p>
+      <div class="chapter-create-footer">
+        <ElButton data-chapter-form-save :disabled="busy || locked || !chapterFormDirty" @click="saveChapterForm">保存</ElButton>
+        <ElButton data-chapter-form-cancel :disabled="busy || locked || !chapterFormDirty" @click="cancelChapterForm">取消</ElButton>
+      </div>
+      </ElForm>
       </ElTabPane>
       <ElTabPane label="勢力設置" name="factions">
       <div class="module-toolbar">

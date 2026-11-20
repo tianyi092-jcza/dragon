@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { fail, HttpError } from './security.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
+import { cityName } from '../web/src/content/authoring/cityrecords.js';
 import { validateSystemBaseMap } from './systembasemap.js';
 import { enableSeaGroundBase } from '../web/src/editor/componenttools.js';
 import { MAP_EDIT_MAX_COMMANDS } from '../web/src/editor/mapeditlimits.js';
@@ -35,6 +36,62 @@ export class SystemBaseMapStore {
     return { version: row.version, digest: row.digest, template, updatedAt: row.updated_at };
   }
   read(tokenHash) { this.#admin(tokenHash); return this.#current(); }
+  // 基础据点编辑：与游戏级城池据点同字段口径（改名＋数值），坐标与槽位归地图侧。
+  saveCities(tokenHash, patch) {
+    this.#admin(tokenHash);
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail(422, 'BASE_CITIES_PATCH');
+    const current = this.capture();
+    const cities = structuredClone(current.template.content.cities);
+    let changed = false;
+    if (patch.rename !== undefined) {
+      if (!patch.rename || typeof patch.rename !== 'object' || Array.isArray(patch.rename)) fail(422, 'BASE_CITY');
+      const seen = new Set(Object.values(cities).map(city => city.name));
+      for (const [cityId, name] of Object.entries(patch.rename)) {
+        const row = cities[cityId];
+        if (!row) fail(422, 'BASE_CITY');
+        let cleaned; try { cleaned = cityName(name); } catch { fail(422, 'BASE_CITY'); }
+        if ([...cleaned].length < 1 || [...cleaned].length > 12) fail(422, 'BASE_CITY');
+        if (cleaned === row.name) continue;
+        seen.delete(row.name);
+        if (seen.has(cleaned)) fail(409, 'BASE_CITY_NAME_TAKEN');
+        seen.add(cleaned);
+        row.name = cleaned; changed = true;
+      }
+    }
+    if (patch.numbers !== undefined) {
+      if (!patch.numbers || typeof patch.numbers !== 'object' || Array.isArray(patch.numbers)) fail(422, 'BASE_CITY');
+      for (const [cityId, values] of Object.entries(patch.numbers)) {
+        const row = cities[cityId];
+        if (!row) fail(422, 'BASE_CITY');
+        if (!values || typeof values !== 'object' || Array.isArray(values)) fail(422, 'BASE_CITY');
+        for (const [key, n] of Object.entries(values)) {
+          if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(key)) fail(422, 'BASE_CITY');
+          if (!Number.isSafeInteger(n) || n < 0 || n > 65535) fail(422, 'BASE_CITY');
+          if (row[key] !== n) { row[key] = n; changed = true; }
+        }
+      }
+    }
+    if (!changed) fail(422, 'BASE_CITIES_PATCH');
+    try {
+      return this.save(tokenHash, { ...current.template, content: { ...current.template.content, cities } });
+    } catch (error) {
+      if (error instanceof RangeError) throw new HttpError(422, 'BASE_CITIES_INVALID', { problems: [{ message: error.message.slice(0, 512) }] });
+      throw error;
+    }
+  }
+  // 整份替换：复制成功／从游戏直推时用游戏级据点定义整体覆盖系统基。
+  // 仅做形状校验（与模板校验一致），不要求 x/y（未落子储备允许缺坐标）。
+  replaceCities(tokenHash, cities) {
+    this.#admin(tokenHash);
+    if (!cities || typeof cities !== 'object' || Array.isArray(cities) || !Object.keys(cities).length) fail(422, 'BASE_CITIES');
+    const current = this.capture();
+    try {
+      return this.save(tokenHash, { ...current.template, content: { ...current.template.content, cities: structuredClone(cities) } });
+    } catch (error) {
+      if (error instanceof RangeError) throw new HttpError(422, 'BASE_CITIES_INVALID', { problems: [{ message: error.message.slice(0, 512) }] });
+      throw error;
+    }
+  }
   // Internal port for already-authorized creation. No public template read grant.
   capture() {
     const snapshot = this.#current();

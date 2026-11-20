@@ -32,10 +32,12 @@ const data = {
   chapters: { ch1: { chapterId: 'ch1', state: { name: '第一章', start: { year: 184, month: 1, day: 1 }, factions: [], generals: [], cities: [] } } },
   cities: Object.fromEntries(Array.from({ length: 192 }, (_, i) => ['city-' + i, { name: '據點' + String(i).padStart(3, '0'), max_prod: 100 + i, prod: 50, growth: 2, defence: 3, troops: 4, type: i % 5, view: 1 }])),
 };
+const baseCities = Object.fromEntries(Object.entries(data.cities).map(([id, city], i) => [id, { ...city, cityId: id, runtimeSlot: i, x: i % 384, y: Math.floor(i / 384) }]));
 const replies = new Map([
   ['/api/session', { user, csrf: 'isolated-fixture' }],
   ['/api/admin/accounts', { accounts: [] }],
   ['/api/admin/base-map', { snapshot: null }],
+  ['/api/admin/base-cities', { snapshot: { version: 1, digest: 'd'.repeat(64), updatedAt: null, cities: baseCities }, blessed: null }],
   ['/api/admin/copy/submissions', { queue: [] }],
   ['/api/resources', { mode: 'BUILTIN_READONLY', resources: [] }],
   ['/api/games', { games: [{ gameId, ownerId: user.id, draftRevision: '1', metadata: data.metadata }] }],
@@ -98,14 +100,14 @@ try {
   await idle();
   await checkPanels('draft-editor', 'initial empty state');
   const views = await page.locator('#menu [data-view]').evaluateAll(elements => elements.map(el => el.dataset.view));
-  assert.equal(views.length, 13, 'all author and administrator modules');
+  assert.equal(views.length, 14, 'all author and administrator modules');
   for (const phase of ['empty', '192 cities loaded']) {
     for (const view of views) {
       await page.locator('#menu [data-view="' + view + '"]').click();
       await idle();
       await checkPanels(view, phase);
     }
-    process.stdout.write('PASS ' + phase + ': all 13 modules hide inactive panels without occupying space.\n');
+    process.stdout.write('PASS ' + phase + ': all 14 modules hide inactive panels without occupying space.\n');
     if (phase === 'empty') {
       await page.getByRole('button', { name: '重新整理', exact: true }).first().click();
       await idle();

@@ -8,7 +8,7 @@
 - 编辑器展示层限定`editor-ui/`，使用Vue 3＋Element Plus＋Vite，版本以package/lock为准；预构建壳由同源服务提供。Vue只接显示DTO/动作回调，不接凭据、源对象或live游戏状态，不替代服务端权限。
 - 仓库`E:/Dragon/web-port`，原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。禁止自动化访问真实`SAVE.DAT`、用户存档/profile；测试用内存、mock、隔离目录及新profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏版本`1.n`、软件版本、内容摘要和程序归档身份相互独立。
-- **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照。** 元数据、章节、据点、武将库、审核、地图和新城已接线；游戏删除仅在「上架审核」提供，无独立「删除管理」模块，不改变删除权限/栅栏。定义面板余项、旧draft退役及表清理见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
+- **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照＋系统双基（基础地图＋基础据点）。** 元数据、章节、据点、武将库、审核、地图和新城已接线；基础据点是系统基 `content.cities` 的管理员编辑面（与游戏级城池据点同列同口径，坐标归地图），新建播种与复制成功自动刷新都走同一份；只允许存在一个成功的完整复制（基准），重拷前须先删除旧游戏；删内置／生产覆盖／标准数据发布均延后到部署轮次另行授权。游戏删除仅在「上架审核」提供，无独立「删除管理」模块，不改变删除权限/栅栏。定义面板余项、旧draft退役及表清理见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
 - **游戏章节（Web产品决定）**：CHAPTER-WB P0–P7及后继界面调整已本地交付，当前为章节管理／势力设置／势力武将／势力据点／外交关系五Tab；游戏管理只保留选择、载入与名称/简介，不再重复章节或任官表单。现行规则见[章节合同§0](docs/chapter-and-base-resources.md#0-chapter-wb-现行产品口径与字段盘点)，分层验证与支持限制见[审计](docs/chapter-workbench-audit.md)，不是部署或全部工具全绿。
 - **战略事件（Web产品决定，非原版机制）**：`strategicEventSchedule`以`epoch*64+slot`定位，四字节轮作投影／原窗对照；`inserted`仅原窗真值，`accepted`才是Web已接受。每位置只推进一次，消息返回后才派下一条，整批后tick势力一次。移页、7/10分频、查询及保存合同见[D2计划§12](docs/d2-event-scheduler-plan.md)；恢复一次性校验，非空旧D2-C旁表拒绝，不猜到期时间。
 - **地图工作台（Web产品决定）**：独立系统模板＋共用Canvas＋精炼目录已本地实现。两种创建取模板单快照，既有游戏不跟随更新；固定384×256、live 1..512城，行序定槽，192为导入基线，不复原DOS对象。缺`mapEditorAssets`的旧copy拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[精炼目录](docs/map-workspace-sprite-library-design.md)及[验收边界](docs/map-workspace-sprite-library-audit.md)；本地通过不等于部署。
@@ -72,7 +72,7 @@
 
 ## 3. 展示、交互与文档职责
 
-- 编辑器全部页面采用**Element Plus默认主题/组件/控件/size、繁体locale**，不重定义`--el-*`、不加皮肤或UI/图标依赖。仅展示层，玩家Canvas不套此规则；编辑器可常规保存/取消/关闭，不套游戏右键约定。决策背景见[journal§37](docs/checkpoint-journal.md#37-前端架构决策编辑器采用-element-plus-默认主题与组件)。
+- 编辑器全部页面采用**Element Plus默认主题/组件/控件/size、繁体locale**，不重定义`--el-*`、不加皮肤或UI/图标依赖。**全系统一律繁体中文：用户输入的简体只转述需求，不回流到界面文案、报错、测试断言或文档。**仅展示层，玩家Canvas不套此规则；编辑器可常规保存/取消/关闭，不套游戏右键约定。决策背景见[journal§37](docs/checkpoint-journal.md#37-前端架构决策编辑器采用-element-plus-默认主题与组件)。
 - 组件按路径引入，`main.js`同时引入对应`style/css`；ElOption/ElTableColumn由select/table导出。`theme.css`仅骨架/间距/宽度/滚动/内容布局，不覆盖控件高度/字阶/边框/圆角；不修改玩家`server/public/style.css`，挂载编辑器时移除该link。
 - [布局规范](docs/editor-ui-layout-spec.md)为详细维护源：整页不滚、数据区滚、垂直居中、枚举名称（未知保留数字）、保存后重读；旧34px/原生table皮肤撤销。不得覆盖`[hidden]`；隐藏重型内容按需挂载但保留输入。保留id/data-*协议；空字符串选项用`empty-values=[null, undefined]`，多选用ElCheckboxGroup，回调接值不假定原生事件。
 - 列表默认固定表头、25/50/100分页＋jumper，不滚动追加（地图素材库按上述专项例外）；复用ListPagination/ListRowActions/pagination。默认普通编辑/保存/取消按钮，不加primary/link/text或悬浮操作列。固定列紧凑、读编辑同宽，操作列min180吸收余宽，窄屏表内横滚。头像25/页、当前页懒图、数值排序、跳页/resize；copy目录`?usage=0`跳过旧draft统计，无查询旧接口保留inUse与SHA/权限门。

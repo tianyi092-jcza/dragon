@@ -61,6 +61,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     COPY_LEASE_LOST: '複製階段逾時（單次執行超過 5 分鐘）',
     COPY_BASELINE_PROOF: '來源基準校驗未通過',
     COPY_RECEIPT_CORRUPT: '複製回執校驗未通過',
+    COPY_SINGLETON_EXISTS: '已有基礎複製遊戲，請先刪除後再複製',
   });
   const reasonText = code => typeof code === 'string' && code.length > 0
     ? (reasons[code] ?? '複製失敗（' + code + '）')

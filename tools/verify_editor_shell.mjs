@@ -20,6 +20,7 @@ const chaptersView = readFileSync('editor-ui/src/ChaptersPanel.vue', 'utf-8');
 const stageAssetsView = readFileSync('editor-ui/src/StageAssetsPanel.vue', 'utf-8') + readFileSync('editor-ui/src/StageJobsPanel.vue', 'utf-8');
 const libraryView = readFileSync('editor-ui/src/LibraryPanel.vue', 'utf-8');
 const strongholdView = readFileSync('editor-ui/src/StrongholdPanel.vue', 'utf-8');
+const baseStrongholdView = readFileSync('editor-ui/src/SystemStrongholdPanel.vue', 'utf-8');
 const mapView = readFileSync('editor-ui/src/MapPanel.vue', 'utf-8');
 const catalogView = readFileSync('editor-ui/src/CatalogPanel.vue', 'utf-8');
 const generalsView = readFileSync('editor-ui/src/GeneralsPanel.vue', 'utf-8');
@@ -29,7 +30,7 @@ const publishView = readFileSync('editor-ui/src/PublishPanel.vue', 'utf-8');
 // 它們不在出貨殼內，讀它們只會製造「面板存在」的假通過。
 const reviewView = readFileSync('editor-ui/src/ReviewPanel.vue', 'utf-8');
 const copyGameView = readFileSync('editor-ui/src/CopyGamePanel.vue', 'utf-8');
-const htmlIds = new Set([...(reviewView + copyGameView + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + mapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
+const htmlIds = new Set([...(reviewView + copyGameView + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + baseStrongholdView + mapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
 // Login home: login form + hidden session/menu; no business content outside.
 check("login-form", accountViews.includes('<form id="login">'));
 check("menu-nav", shell.includes('<aside id="menu"') && shell.includes(':hidden="!ready"'));
@@ -39,7 +40,7 @@ check("session-hidden", shell.includes('<section id="session" :hidden="!state.au
 // three-level workbench structure; cancelled modules keep server capability.
 	// 視圖 id 與面板根節點 id 不是同一件事（歷史名 management-editor 渲染 ReviewPanel 的 review-editor），
 	// 因此逐項登記面板組件，並要求出貨殼真的 import 該組件、且用同一視圖 id 控制顯示。
-	const viewPanels = { "copy": ["CopyPanel", "copy"], "draft-editor": ["DraftPanel", "draft-editor"], "admin": ["AccountsPanel", "admin"], "catalog-editor": ["CatalogPanel", "catalog-editor"], "stronghold-editor": ["StrongholdPanel", "stronghold-editor"], "mapview-editor": ["MapPanel", "mapview-editor"], "generals-editor": ["GeneralsPanel", "generals-editor"], "chapters-editor": ["ChaptersPanel", "chapters-editor"], "publish-editor": ["PublishPanel", "publish-editor"], "management-editor": ["ReviewPanel", "review-editor"], "copy-game-editor": ["CopyGamePanel", "copy-game-editor"] };
+	const viewPanels = { "copy": ["CopyPanel", "copy"], "draft-editor": ["DraftPanel", "draft-editor"], "admin": ["AccountsPanel", "admin"], "catalog-editor": ["CatalogPanel", "catalog-editor"], "stronghold-editor": ["StrongholdPanel", "stronghold-editor"], "base-stronghold-editor": ["SystemStrongholdPanel", "base-stronghold-editor"], "mapview-editor": ["MapPanel", "mapview-editor"], "generals-editor": ["GeneralsPanel", "generals-editor"], "chapters-editor": ["ChaptersPanel", "chapters-editor"], "publish-editor": ["PublishPanel", "publish-editor"], "management-editor": ["ReviewPanel", "review-editor"], "copy-game-editor": ["CopyGamePanel", "copy-game-editor"] };
 	for (const [id, [component, root]] of Object.entries(viewPanels)) {
 		check(`view-section:${id}`, htmlIds.has(root) && client.includes(`'${id}'`) && shell.includes(`import ${component} from './${component}.vue'`) && shell.includes(`state.view !== '${id}'`));
 	}
@@ -138,5 +139,5 @@ check("chapter-attribute-writers", ["setChapterStart", "setChapterCityFaction", 
 check("chapter-attribute-pipe", ["'start-date'", "'city-faction'", "'set-capital'", "'general-faction'", "'set-diplomat'"].every(op => drafts.includes(op)) && drafts.includes("era: st.start.era ?? null") && drafts.includes("diplomat_idx: f.diplomat_idx ?? null"));
 check("chapter-attribute-revert", (() => { const c = readFileSync("server/copyprofile.js", "utf-8"); return ["'start-date'", "'city-faction'", "'set-capital'", "'general-faction'", "'set-diplomat'"].every(op => c.includes(op)) && c.includes("revertCityFaction") && c.includes("revertFactionByte"); })());
 check("chapter-attribute-controller", ["saveChapterStart:", "cityFaction:", "setCapital:", "generalFaction:", "setDiplomat:", "setStartInput"].every(name => draft.includes(name)) && draft.includes("attributes: {") && draft.includes("heldPosts(") && draft.includes("startInputs"));
-check("chapter-attributes-ui", htmlIds.has("chapters-editor") && ["data-start-era", "data-start-save", "data-start-cancel", "data-city-faction", "data-city-capital", "data-general-faction", "data-faction-diplomat"].every(name => chaptersView.includes(name)) && !chaptersView.includes('document.'));
+check("chapter-attributes-ui", htmlIds.has("chapters-editor") && ["data-start-era", "data-chapter-form-save", "data-chapter-form-cancel", "data-city-faction", "data-city-capital", "data-general-faction", "data-faction-diplomat"].every(name => chaptersView.includes(name)) && !chaptersView.includes('document.'));
 process.stdout.write(`editor shell matrix PASS ${checks.length} checks\n`);

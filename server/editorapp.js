@@ -273,7 +273,10 @@ return class EditorMetadata extends PlatformBase {
       // 而不放寬 availableLibrary 的安裝／登記權限（install 另有 admin 守衛）。
       this.libraryBrowser = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy: libraryPolicy, readRole: ['admin', 'author'] });
       this.#bootstrapLibrary(env);
-      copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, gameLimit, createCopyLoader, captureBaseMap: () => this.systemBaseMap.capture() });
+      copies = this.adminCopies = new AdminFullCopy({ storage: ctx.storage, principal: hash => this.principal(hash), catalog: this.installedSources, games: this.games, blobs: this.blobs, leaseMs: 300000, gameLimit, createCopyLoader, captureBaseMap: () => this.systemBaseMap.capture(),
+        // 每次成功复制即覆盖一行系统基：用新游戏据点整体替换系统基 cities。
+        // 形状已在复制提交前预校验；此处抛错即 loud 失败供核查。
+        onCommitted: async (tokenHash, { cities }) => { this.systemBaseMap.replaceCities(tokenHash, cities); } });
       const authorSource = new InstalledSourceCatalog({ storage: ctx.storage, bucket: env.EDITOR_BLOBS, principal: hash => this.principal(hash), policy, readRole: ['admin', 'author'] });
       this.readCopyMapAtlas = (tokenHash, path) => authorSource.readRole(tokenHash, path);
       this.loadBuiltinGeneralSource = async (tokenHash, gameId) => {
@@ -841,6 +844,14 @@ return class EditorMetadata extends PlatformBase {
       const snapshot = this.systemBaseMap.read(tokenHash);
       this.touch(tokenHash, policy);
       return response({ snapshot });
+    }
+    if (method === 'GET' && path === '/api/admin/base-cities') {
+      if (url.search) fail(422, 'BASE_MAP_QUERY');
+      const snapshot = this.systemBaseMap.read(tokenHash);
+      this.touch(tokenHash, policy);
+      if (!snapshot) return response({ snapshot: null, blessed: this.adminCopies.blessed(tokenHash) });
+      const { version, digest, template, updated_at } = snapshot;
+      return response({ snapshot: { version, digest, cities: template.content.cities, updatedAt: updated_at }, blessed: this.adminCopies.blessed(tokenHash) });
     }
     if (method === 'GET' && path === '/api/admin/accounts') { return this.#getAdminAccounts(rt); }
     if (method === 'GET' && path === '/api/games') { const games = this.games.listOwn(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
@@ -1420,6 +1431,21 @@ return class EditorMetadata extends PlatformBase {
       if (url.search) fail(422, 'BASE_MAP_QUERY');
       fields(value, []);
       return response({ snapshot: await this.systemBaseMap.initialize(tokenHash) });
+    }
+    if (path === '/api/admin/base-cities') {
+      if (url.search) fail(422, 'BASE_MAP_QUERY');
+      fields(value, ['cities']);
+      this.touch(tokenHash, policy);
+      const saved = this.systemBaseMap.saveCities(tokenHash, value.cities);
+      return response({ snapshot: { version: saved.version, digest: saved.digest, updatedAt: saved.updated_at, cities: saved.template.content.cities } });
+    }
+    if (path === '/api/admin/base-cities/promote') {
+      if (url.search) fail(422, 'BASE_MAP_QUERY');
+      fields(value, ['gameId']);
+      const cities = this.adminCopies.readGameCities(tokenHash, value.gameId);
+      const promoted = this.systemBaseMap.replaceCities(tokenHash, cities);
+      this.touch(tokenHash, policy);
+      return response({ snapshot: { version: promoted.version, digest: promoted.digest, updatedAt: promoted.updated_at, cities: promoted.template.content.cities }, blessed: this.adminCopies.blessed(tokenHash) });
     }
     if (path === '/api/admin/source/install') {
       this.copyAccess(tokenHash); fields(value, []); this.contentKey(user.id, request.headers.get('Idempotency-Key'), 'source');

@@ -9,7 +9,7 @@ import { fail } from './security.js';
 import { GameCopyStore } from './gamecopy.js';
 import { initializeCopyGenerals } from './copygenerals.js';
 import { initializeCopyChapters } from './copychapters.js';
-import { instantiateSystemBaseMap } from './systembasemap.js';
+import { instantiateSystemBaseMap, assertSystemBaseCities } from './systembasemap.js';
 const hash = value => createHash('sha256').update(value).digest('hex');
 // 從未 claim 的 pending 列超過這個寬限期就當成中斷（分頁關了、請求從未到 /run）。
 // 保留 reserve→run 的正常间隙（請求本體很小），又不讓死列永久佔住名稱。
@@ -25,13 +25,15 @@ function request(input) {
 }
 function key(value) { if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(value)) fail(422, 'COPY_OPERATION_KEY'); }
 export class AdminFullCopy {
-  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #copies; #leaseMs; #roles; #profileRevision; #gameLimit; #captureBaseMap; #createCopyLoader; #caps = new WeakMap(); #executing = new WeakSet();
-  constructor({ storage, principal, catalog, games, blobs, leaseMs = 60000, roles = ['admin'], profileRevision = FIXED_COPY_PROFILE, gameLimit = 0, captureBaseMap = () => fail(503, 'BASE_MAP_NOT_CONFIGURED'), createCopyLoader = createPinnedCopyLoader }) {
+  #storage; #sql; #principal; #catalog; #games; #blobs; #verifier; #copies; #leaseMs; #roles; #profileRevision; #gameLimit; #captureBaseMap; #createCopyLoader; #onCommitted; #caps = new WeakMap(); #executing = new WeakSet();
+  constructor({ storage, principal, catalog, games, blobs, leaseMs = 60000, roles = ['admin'], profileRevision = FIXED_COPY_PROFILE, gameLimit = 0, captureBaseMap = () => fail(503, 'BASE_MAP_NOT_CONFIGURED'), createCopyLoader = createPinnedCopyLoader, onCommitted = null }) {
     if (!storage?.sql || typeof principal !== 'function' || typeof catalog?.loadFull !== 'function' || typeof games?.recoverGameId !== 'function' || typeof games?.assertNameAvailableInTxn !== 'function' || typeof blobs?.putImmutable !== 'function') throw new TypeError('actual same-domain stores and principal required');
     if (!Array.isArray(roles) || roles.length === 0 || !roles.every(role => role === 'admin' || role === 'author')) fail(503, 'COPY_ROLE_POLICY');
     if (![FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE].includes(profileRevision)) fail(503, 'COPY_PROFILE_POLICY');
     if (typeof captureBaseMap !== 'function') throw new TypeError('trusted system base-map snapshot port required');
     if (typeof createCopyLoader !== 'function') throw new TypeError('trusted copy loader factory required');
+    if (onCommitted !== null && typeof onCommitted !== 'function') throw new TypeError('commit hook must be a function');
+    this.#onCommitted = onCommitted;
     this.#createCopyLoader = createCopyLoader;
     this.#captureBaseMap = captureBaseMap;
     this.#profileRevision = profileRevision;
@@ -48,6 +50,29 @@ export class AdminFullCopy {
   }
   #one(q, ...values) { return this.#sql.exec(q, ...values).toArray()[0]; }
   #actor(tokenHash, prior) { const actor = this.#principal(tokenHash); if (actor.must_change) fail(403, 'PASSWORD_CHANGE_REQUIRED'); if (!this.#roles.includes(actor.role)) fail(403, 'FULL_COPY_ADMIN_REQUIRED'); if (prior && (actor.id !== prior.id || actor.epoch !== prior.epoch)) fail(401, 'SESSION_INVALID'); return actor; }
+  // 基础复制游戏（派生口径，无新表）：唯一仍存在的成功完整复制。删除游戏后自动让位。
+  blessed(tokenHash) {
+    this.#actor(tokenHash);
+    const rows = this.#sql.exec("SELECT game_id, metadata_json, created_at FROM copy_requests WHERE profile_revision=? AND state='committed'", FIXED_COPY_PROFILE).toArray();
+    for (const row of rows) {
+      if (!this.#one('SELECT game_id FROM content_games WHERE game_id=?', row.game_id)) continue;
+      let name = row.game_id;
+      try { const meta = JSON.parse(row.metadata_json); if (typeof meta?.name === 'string' && meta.name) name = meta.name; } catch { /* receipt name is display-only */ }
+      return { gameId: row.game_id, name, createdAt: row.created_at };
+    }
+    return null;
+  }
+  readGameCities(tokenHash, gameId) {
+    this.#actor(tokenHash);
+    return this.#copies.read(tokenHash, gameId).data.cities ?? {};
+  }
+  // 单复制门（仅完整复制）：已有在世基准时拒绝新预留，重拷前须先删除旧游戏。
+  // 只看已提交＋游戏仍在的行：失败/取消/过期行不占位；进行中的预留是并发常态，
+  // 不在此门拦截（双拷并发本就允许，以提交先后为准，后提交者刷新系统基）。
+  #assertSingleton(tokenHash) {
+    if (this.#profileRevision !== FIXED_COPY_PROFILE) return;
+    if (this.blessed(tokenHash) !== null) fail(409, 'COPY_SINGLETON_EXISTS');
+  }
   #row(actor, operationKey) { key(operationKey); const row = this.#one('SELECT * FROM copy_requests WHERE actor=? AND op_key=?', actor.id, operationKey); if (!row) fail(404, 'COPY_NOT_FOUND'); if (row.auth_epoch !== actor.epoch) fail(409, 'COPY_OPERATION_REVOKED'); return row; }
   #source(tokenHash, row) { const source = this.#catalog.status(tokenHash, row.registry_id), definition = this.#catalog.definition(); if (source.definitionDigest !== row.definition_digest || source.rootDigest !== row.catalog_root || definition.profileRevision !== FIXED_COPY_PROFILE || ![FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE].includes(row.profile_revision)) fail(409, 'COPY_SOURCE_CHANGED'); }
   // 進度只報客觀事實：copy_objects 裡這筆操作已暫存的物件數（去重後的實際檔案數）。
@@ -112,6 +137,8 @@ export class AdminFullCopy {
       if (old) { if (old.request_digest !== requestDigest(old.profile_revision)) fail(409, 'IDEMPOTENCY_CONFLICT'); this.#row(actor, operationKey); this.#source(tokenHash, old); return this.#summary(old); }
       // 上一次沒跑完的複製不得佔住名稱：先收回已無執行中請求的舊操作，再檢查名稱。
       this.#abandonStaleInTxn(actor);
+      // 單複製門（僅完整複製）：已有在世基準時拒絕新預留，重拷前須先刪除舊遊戲。
+      this.#assertSingleton(tokenHash, actor);
       if (this.#one('SELECT op_key FROM content_operations WHERE actor=? AND op_key=?', actor.id, operationKey) || this.#one('SELECT op_key FROM content_reservations WHERE actor=? AND op_key=?', actor.id, operationKey)) fail(409, 'IDEMPOTENCY_CONFLICT');
       this.#games.assertNameAvailableInTxn(tokenHash, values.metadata.name);
       const id = crypto.randomUUID(); if (this.#one('SELECT game_id FROM content_used_ids WHERE game_id=?', id)) fail(409, 'GAME_ID_USED');
@@ -192,6 +219,14 @@ export class AdminFullCopy {
     this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
     // 冻结 baseline/profile 不变；当前工作台 copy 在同一创建事务中安装规范化主表。
     const copyData = instantiateSystemBaseMap(chapterData, mapSnapshot, hash);
+    // 完整复制即刷新系统基：先校验后提交，避免游戏已建、系统基没跟上的半截状态。
+    // 并发双拷以先提交者为准：后执行者在重资产写入前再确认一次基准归属。
+    if (row.profile_revision === FIXED_COPY_PROFILE) {
+      const other = this.blessed(tokenHash);
+      if (other && other.gameId !== row.game_id) fail(409, 'COPY_SINGLETON_EXISTS');
+      try { assertSystemBaseCities(copyData.cities); }
+      catch { fail(422, 'COPY_BASE_CITIES'); }
+    }
     const prepared = await this.#games.prepareSnapshot(tokenHash, { gameId: row.game_id, draftRevision: '1', metadata: candidate.metadata, source: saved, allocation }); this.#lease(tokenHash, cap);
     this.#games.transaction(tokenHash, { key: row.op_key, method: 'create', target: 'new', digest: row.request_digest }, tx => {
       const now = this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
@@ -205,6 +240,11 @@ export class AdminFullCopy {
       this.#sql.exec("UPDATE copy_requests SET state='committed',lease_hash=NULL,lease_until=0,row_revision=?,result_json=? WHERE actor=? AND op_key=?", String(BigInt(now.row.row_revision) + 1n), text(receipt), actor.id, row.op_key);
       return result;
     });
+    // 每次成功复制即覆盖一行系统基（派生基准，无需另跑刷新）。形状已在上面预校验，
+    // 此处抛错即 loud 失败供核查，不静默吞掉。
+    if (row.profile_revision === FIXED_COPY_PROFILE && this.#onCommitted) {
+      await this.#onCommitted(tokenHash, { gameId: row.game_id, cities: copyData.cities });
+    }
     return this.query(tokenHash, row.op_key);
   }
 }

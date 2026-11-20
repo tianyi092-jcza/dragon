@@ -36,9 +36,9 @@ body { overflow: hidden; }
 .module-toolbar, .resource-toolbar, .account-filters { margin: 12px 0; }
 .module-toolbar > label, .current-game > label, .resource-filter label { display: flex; align-items: center; gap: 8px; margin: 0; white-space: nowrap; }
 .module-toolbar .el-input, .module-toolbar .el-select, .resource-filter .el-input { width: 220px; }
-.chapter-create-form { display: grid; gap: 12px; margin: 12px 0; }
+.chapter-create-form { display: grid; gap: 24px; margin: 16px 0 8px; min-height: 150px; }
 .chapter-create-fields { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.chapter-create-fields > label { display: flex; align-items: center; gap: 8px; white-space: nowrap; margin: 0; }
+.chapter-create-fields > .el-form-item { margin-bottom: 0; }
 .chapter-create-number .el-input { width: 128px; }
 .chapter-create-name .el-input { width: 180px; }
 .chapter-create-era .el-select { width: 104px; }
@@ -46,6 +46,15 @@ body { overflow: hidden; }
 .chapter-create-day .el-input { width: 64px; }
 .chapter-create-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; }
 .chapter-create-actions > .el-button + .el-button { margin-left: 0; }
+.chapter-create-result { min-height: 22px; margin: 0; }
+.chapter-start-title { margin: 12px 0 0; }
+.chapter-create-footer { display: flex; justify-content: flex-start; gap: 8px; padding-top: 20px; }
+.chapter-create-footer > .el-button + .el-button { margin-left: 0; }
+.chapter-option-number, .chapter-option-name, .chapter-option-date { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.chapter-option-number { width: 2em; margin-right: 1em; }
+.chapter-option-name { width: 8em; margin-right: 1em; }
+.chapter-option-date { width: 12em; }
+#chapters-editor .chapter-switch { width: 340px; }
 form { margin: 16px 0; }
 .auth-card form > label, .account-card form > label, .module-card > label, .module-form > label { display: block; margin: 12px 0; }
 .user-menu-items { display: flex; flex-direction: column; gap: 8px; }

@@ -198,35 +198,29 @@ try {
   assert.equal(await page.locator('#stronghold-editor').getByText('城兵*10', { exact: true }).count(), 1);
   const panel = page.locator('#chapters-editor');
   await panel.locator('[data-chapter-create]').click();
-  for (const width of [1440, 1024]) {
-    await page.setViewportSize({ width, height: 900 });
-    const layout = await panel.locator('.chapter-create-form').evaluate(form => {
-      const rect = selector => { const r = form.querySelector(selector).getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width }; };
-      return { save: rect('[data-new-chapter-save]'), cancel: rect('[data-new-chapter-cancel]'),
-        number: rect('.chapter-create-number .el-input'), name: rect('.chapter-create-name .el-input'),
-        dates: [...form.querySelectorAll('.chapter-create-fields:nth-child(2) label')].map(el => el.getBoundingClientRect().y) };
-    });
-    assert.equal(layout.save.y, layout.cancel.y, 'save and cancel share their own action row');
-    assert.ok(layout.cancel.x > layout.save.x && layout.cancel.right <= width);
-    assert.equal(layout.number.width, 128); assert.equal(layout.name.width, 180);
-    assert.ok(layout.dates.every(y => y === layout.dates[0]), 'date fields fit one row at supported widths');
-    assert.ok(layout.save.y > layout.dates[0]);
-  }
+  const dialog = page.locator('.el-dialog');
+  await dialog.waitFor();
+  assert.ok((await dialog.locator('.el-dialog__title').textContent()).includes('新增章節'), 'create dialog shows the approved title');
+  assert.equal(await page.locator('.el-overlay .el-dialog').count(), 1, 'create dialog is modal');
+  assert.equal(await dialog.locator('.chapter-create-result').count(), 1, 'result row reserves space before saving');
+  assert.equal(await page.locator('.el-overlay').count(), 1, 'create dialog is modal');
   await page.setViewportSize({ width: 1440, height: 900 });
-  await panel.locator('[data-new-chapter-number]').fill('甲');
-  await panel.locator('[data-new-chapter-name]').fill('第一章');
+  await dialog.locator('[data-new-chapter-number]').fill('甲');
+  await dialog.locator('[data-new-chapter-name]').fill('第一章');
   // Element Plus select owns an additional search input; identify the three numeric controls.
-  const dates = panel.locator('input[inputmode="numeric"]');
+  const dates = dialog.locator('input[inputmode="numeric"]');
   await dates.nth(0).fill('1'); await dates.nth(1).fill('12'); await dates.nth(2).fill('31');
-  await panel.locator('[data-new-chapter-save]').click(); await idle();
-  await panel.locator('[data-chapter-label-edit]').waitFor();
+  await dialog.locator('[data-new-chapter-save]').click();
+  await dialog.getByText(/保存成功/).waitFor();
+  await dialog.waitFor({ state: 'hidden', timeout: 10000 });
+  await panel.locator('[data-chapter-form-save]').waitFor();
+  assert.equal(await panel.locator('[data-chapter-form-save]').isDisabled(), true, 'merged form starts clean');
   assert.equal(posts.length, 1); assert.equal(posts[0].patch.create.number, '甲');
   assert.deepEqual(await panel.getByRole('tab').allTextContents(), ['章節管理', '勢力設置', '勢力武將', '外交關係', '勢力據點']);
   await panel.getByRole('tab', { name: '外交關係', exact: true }).click();
   assert.equal(await panel.locator('[data-diplomacy-diagonal]').count(), 1);
   assert.equal(await panel.locator('[data-diplomacy-cell]').count(), 0);
   await panel.getByRole('tab', { name: '章節管理', exact: true }).click();
-  await panel.locator('[data-chapter-label-edit]').click();
   await panel.locator('[data-chapter-name]').fill('改名');
   dismissDialog = true;
   const priorDialogs = dialogCount;
@@ -237,12 +231,12 @@ try {
   dismissDialog = false;
   await panel.getByRole('tab', { name: '勢力武將', exact: true }).click();
   assert.equal(await panel.getByRole('tab', { name: '章節管理', exact: true }).getAttribute('aria-selected'), 'true');
-  await panel.locator('[data-chapter-label-save]').click(); await idle();
-  await panel.locator('[data-chapter-label-edit]').waitFor();
+  await panel.locator('[data-chapter-form-save]').click(); await idle();
+  assert.equal(await panel.locator('[data-chapter-form-save]').isDisabled(), true, 'merged save clears the form dirty state');
   assert.equal(data.chapters['chapter-1'].name, '改名'); assert.equal(posts.length, 2);
   await panel.getByRole('tab', { name: '勢力設置', exact: true }).click();
   const factions = panel.locator('#pane-factions');
-  assert.equal(await panel.locator('#chapters-status, .module-notice').count(), 0, 'only the shared status line remains');
+  assert.equal(await panel.locator('#chapters-status, .module-notice:not(.chapter-create-result)').count(), 0, 'only the shared status line remains');
   assert.ok((await factions.locator('.el-table__row').first().boundingBox()).height <= 46, 'default controls fit a compact faction row');
   async function assertFluidTable(table) {
     for (const width of [1920, 1440, 1024]) {

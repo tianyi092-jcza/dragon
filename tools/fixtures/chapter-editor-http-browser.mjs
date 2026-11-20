@@ -48,15 +48,15 @@ export async function verifyChapterEditorHTTPBrowser({ origin, cookie, gameId, s
     const first = source.chapters[firstId], second = source.chapters[secondId];
     const chooseChapter = async name => {
       await panel.locator('.el-select').filter({ has: page.locator('#chapters-select') }).click();
-      await page.getByRole('option', { name, exact: true }).click(); await idle();
+      // Option text is the three-part number/name/date label; match the chapter name part.
+      await page.getByRole('option', { name }).click(); await idle();
     };
     await chooseChapter(first.name);
     assert.deepEqual(await panel.getByRole('tab').allTextContents(), ['章節管理', '勢力設置', '勢力武將', '外交關係', '勢力據點']);
     for (const name of ['實測甲', first.name]) {
-      await panel.locator('[data-chapter-label-edit]').click();
       await panel.locator('[data-chapter-name]').fill(name);
-      await saved(() => panel.locator('[data-chapter-label-save]').click());
-      await panel.locator('[data-chapter-label-edit]').waitFor();
+      await saved(() => panel.locator('[data-chapter-form-save]').click());
+      assert.equal(await panel.locator('[data-chapter-form-save]').isDisabled(), true, 'merged save clears the form dirty state');
       assert.equal((await read()).data.chapters[firstId].name, name);
     }
     await panel.getByRole('tab', { name: '勢力設置', exact: true }).click();
@@ -84,8 +84,10 @@ export async function verifyChapterEditorHTTPBrowser({ origin, cookie, gameId, s
     const lord = source.generals[first.state.generals[first.state.factions[0].monarch_idx].generalId].name;
     for (const [label, owner] of [[lord, 0], ['空城', null]]) {
       await saved(async () => {
+        await city.locator('[data-number-edit]').click();
         await city.locator('[data-city-faction]').click();
         await page.getByRole('option', { name: label, exact: true }).click();
+        await city.locator('[data-number-save]').click();
       });
       assert.equal((await read()).data.chapters[firstId].state.cities[2].faction, owner);
     }

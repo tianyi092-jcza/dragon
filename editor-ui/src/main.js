@@ -30,12 +30,13 @@ import Workbench from './Workbench.vue';
 export { createAccountController } from './accounts.js';
 export { createCopyController } from './copy.js';
 export { createBaseMapWorkbench } from './basemapworkbench.js';
+export { createBaseStrongholdWorkbench } from './basecities.js';
 export { createGameMapWorkbench } from './gamemapworkbench.js';
 export { createNewCityController } from './gamenewcity.js';
 
 // The shell receives display facts only, never CSRF tokens, passwords, source
 // objects or live game state. Server permissions remain the authority.
-export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, catalog, generals, copy, fullCopy, publication, management, review, baseMap, gameMap, newCity }) {
+export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, catalog, generals, copy, fullCopy, publication, management, review, baseMap, baseStronghold, gameMap, newCity }) {
   // The legacy page link belongs to the player. Detach it only in the editor;
   // do not override its theme variables or change the shared server asset.
   document.querySelector('link[rel="stylesheet"][href="/style.css"]')?.remove();
@@ -49,6 +50,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const libraryModel = reactive({ assets: [], missing: [], loadDisabled: true, filterDisabled: true, downloadDisabled: true, serial: 0 });
   const strongholdModel = reactive({ games: [], chapters: [], cities: [], locked: true, saveDisabled: true });
   const baseMapModel = reactive({ loaded: false, exists: false, version: 0, locked: true, dirty: false, layers: [], materials: [], waters: [], selected: null });
+  const baseStrongholdModel = reactive({ loaded: false, version: 0, digest: '', updatedAt: '', cities: [], blessed: null, locked: true, message: '' });
   const gameMapModel = reactive({ gameScoped: true, loaded: false, exists: false, locked: true, dirty: false, layers: [], materials: [], waters: [], selected: null });
   const newCityModel = reactive({ gameScoped: true, gameId: null, loaded: false, locked: true, message: '', cities: [], unboundPieces: [], boundIds: [], chapters: 0 });
   const catalogModel = reactive({categories:[],category:'portrait',filter:'',rows:[],total:0,loaded:false,message:'',loading:false});
@@ -59,10 +61,11 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   const publicationModel = reactive({rows:[],locked:true,refreshDisabled:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true,operation:'',result:'',message:''});
   const managementModel = reactive({games:[],locked:true,queryDisabled:true,retryDisabled:true,forgetDisabled:true});
   const reviewModel = reactive({ rows: [], message: '', result: '', locked: true, refreshDisabled: true, history: { gameId: null, loading: false, message: '', rows: [] } });
-  const app = createApp(Workbench, { state, baseMapModel, baseMap, gameMapModel, gameMap, newCityModel, newCity, accountsModel, accounts, draftModel, draft, stageAssetsModel, stageAssets, stageJobsModel, stageJobs, libraryModel, library, strongholdModel, stronghold, catalogModel, catalog, generalsModel, generals, copyModel, copy, fullCopyModel, fullCopy, publicationModel, publication, managementModel, management, reviewModel, review, navigate, logout });
+  const app = createApp(Workbench, { state, baseMapModel, baseMap, baseStrongholdModel, baseStronghold, gameMapModel, gameMap, newCityModel, newCity, accountsModel, accounts, draftModel, draft, stageAssetsModel, stageAssets, stageJobsModel, stageJobs, libraryModel, library, strongholdModel, stronghold, catalogModel, catalog, generalsModel, generals, copyModel, copy, fullCopyModel, fullCopy, publicationModel, publication, managementModel, management, reviewModel, review, navigate, logout });
   const instance = app.mount(root);
   return Object.freeze({
     baseMap: model => Object.assign(baseMapModel, model),
+    baseStronghold: model => Object.assign(baseStrongholdModel, model),
     gameMap: model => Object.assign(gameMapModel, model),
     newCity: model => Object.assign(newCityModel, model),
     accounts: model => Object.assign(accountsModel, model),

@@ -22,6 +22,14 @@
 - **现场数据待确认**：该库`content_games`为0，`copy_requests`的3条均为`failed`（含`BASE_MAP_NOT_INITIALIZED`等），因此编辑器无已提交游戏，章节页显示“尚未载入副本”是数据缺失而非投影门。用户看到的章节数据不在任何现存本地库；需用户确认期望的数据来源（重新复制/导入或其它备份），不自行重建。
 - **下一步范围**：本轮按用户授权审查并提交／推送；现场复测、copy余项、库身份更新、部署及真实数据操作仍须另行授权，不重开已完成章节goal。
 
+## 212. 基础据点模块（M1–M4 本地实施，M5 延后）
+
+- 用户依次确认：2(a)一次性直推取顶部当前游戏（底层实现）、每次复制成功即覆盖一行系统基（A：提取即对齐，不回写）、单复制门（已有在世基准拒新，重拷先删旧）、删内置／生产覆盖／M7 标准数据发布全部延后到部署轮次。
+- 实现：`systembasemapstore.js` 新增 `saveCities`（改名＋数值，与游戏级同口径）／`replaceCities`（整份覆盖，经 `validateSystemBaseMap`）；`systembasemap.js` 新增纯校验 `assertSystemBaseCities`（复制提交前预检防半截状态）；`admincopy.js` 新增派生 `blessed()`（唯一在世成功完整复制，删游戏自动让位）、reserve 门 `COPY_SINGLETON_EXISTS`（仅 full profile；失败/取消/进行中行不占位）及提交后 `onCommitted` 刷新；`editorapp.js` 接线（GET/POST `/api/admin/base-cities`、POST `/api/admin/base-cities/promote`、 blessed 随 GET 返回）。
+- 编辑器：`SystemStrongholdPanel.vue`＋`basecities.js`（与城池据点同列同编辑，坐标只读；加載／从目前游戏匯入／基准行），`client.txt` 新增 `base-stronghold-editor`（管理员，排基础地图前）及 setIdentity/render/canLeave/autoLoad 接线，`main.js`／`Workbench.vue` 模型与面板装配。
+- 验证：`verify_base_cities.mjs`（改名/数值/版本 bump、422/409/403 拒绝门、直推替换、门：失败行不占位／删游戏让位）4/4；`verify_base_stronghold_http.mjs`（真 HTTPS＋隔离库：读写拒门／直推／新建播种吃新基＋浏览器加载改名）全过；`verify_copy_abandon` 14 checks 全过（门只看已提交基准）；Vue LS 34 SFC；`verify_copy_controller_chapters` 23/23；`verify_system_base_map_instantiation` 全过。`verify_editor_shell` 仍仅历史 `login-form` 一项失败（HEAD 即有，见本轮 stash 核验）。
+- 未提交。M5（删内置／生产覆盖／M7）待部署轮次另行授权；现场多复制、旧数据兼容一律不处理（现部署皆测试数据，可整体重建）。
+
 ## 211. 开发数据目录收敛为唯一一个
 
 - 用户确认保留包含`臥龍傳·重構版`／`重構版3`记录的数据目录，即`E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`，其余数据目录全部删除，且以后不再另建新数据目录。

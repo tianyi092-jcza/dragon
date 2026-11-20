@@ -8,6 +8,21 @@ import { CITY_BASE_NUMBERS, CITY_NUMBER_LIMITS } from '../web/src/content/author
 export const SYSTEM_BASE_MAP_SCHEMA = 'system-base-map-1';
 export const SYSTEM_BASE_MAP_PROFILE = 'ki-fixed-map-384x256-192-1';
 
+// 轻量形状校验：复制提交前先确认新游戏据点能进系统基，避免游戏已建、系统基没刷新的半截状态。
+// 与模板校验同口径（名＋七项数值），不要求 x/y（未落子储备允许缺坐标）。
+export function assertSystemBaseCities(cities) {
+  if (!cities || typeof cities !== 'object' || Array.isArray(cities) || !Object.keys(cities).length)
+    throw new RangeError('system base requires a non-empty city map');
+  for (const [cityId, city] of Object.entries(cities)) {
+    if (!city || typeof city !== 'object' || Array.isArray(city)) throw new RangeError(`system base city ${cityId} requires a record`);
+    if (typeof city.name !== 'string' || !city.name.trim()) throw new RangeError(`system base city ${cityId} requires a name`);
+    for (const field of CITY_BASE_NUMBERS) {
+      if (!Number.isSafeInteger(city[field]) || city[field] < 0 || city[field] > CITY_NUMBER_LIMITS[field])
+        throw new RangeError(`system base city ${cityId} requires valid ${field}`);
+    }
+  }
+}
+
 export function validateSystemBaseMap(template, sha256hex) {
   if (template?.schema !== SYSTEM_BASE_MAP_SCHEMA || template.supportProfile !== SYSTEM_BASE_MAP_PROFILE)
     throw new RangeError('unsupported system base map schema/profile');
