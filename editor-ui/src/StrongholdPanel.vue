@@ -29,6 +29,9 @@ const cityName = value => String(value ?? '').normalize('NFC').trim();
 
 const page = computed(() => props.model?.copy?.page ?? null);
 const cities = computed(() => page.value?.cities ?? null);
+const placements = computed(() => page.value?.placements ?? {});
+const mapPlaced = row => Boolean(placements.value[row.cityId]);
+const mapLabel = row => { const place = placements.value[row.cityId]; return place ? `${place.x}, ${place.y}` : ''; };
 const loaded = computed(() => cities.value ?? []);
 const supported = computed(() => Boolean(page.value));
 const canLoad = computed(() => !loading.value && !props.busy && Boolean(props.model?.fields?.gameId));
@@ -37,6 +40,7 @@ const locked = computed(() => Boolean(props.busy) || !props.model || !page.value
 const columns = [
   { key: 'seq', title: '序號', sortable: false },
   { key: 'name', title: '據點名稱', sortable: true, type: 'text' },
+  { key: 'map', title: '地圖座標', sortable: false },
   { key: 'max_prod', title: '最大生產', sortable: true, type: 'number' },
   { key: 'prod', title: '當前生產', sortable: true, type: 'number' },
   { key: 'growth', title: '上升值', sortable: true, type: 'number' },
@@ -65,6 +69,26 @@ const table = ref(null);
 watch(search, () => { currentPage.value = 1; });
 watch([currentPage, pageSize, search, () => sort.key, () => sort.dir], () => table.value?.setScrollTop(0), { flush: 'post' });
 
+const canRemove = row => !locked.value && editing.value === null && !mapPlaced(row);
+const removeReasons = { COPY_CITY_PLACED: '該據點已在地圖上使用，請先解除綁定。', COPY_CITY_ROADED: '該據點仍被道路引用。', COPY_CITY_CHAPTER: '該據點仍被章節引用。' };
+function describeRemoveError(error) {
+  const known = error && removeReasons[error.code];
+  if (!known) return (error && error.message) || '刪除未完成（原因未回報）。';
+  const details = Array.isArray(error.detail?.blockers) ? error.detail.blockers.map(item => item.detail).filter(Boolean).slice(0, 3) : [];
+  return known + (details.length ? '（' + details.join('；') + '）' : '');
+}
+async function remove(row) {
+  if (!canRemove(row)) return;
+  failure.value = ''; status.value = '';
+  if (!window.confirm(`確定刪除據點「${row.name}」嗎？刪除後不可恢復。`)) return;
+  try {
+    const reply = await props.actions.cityCopyRemove(row.cityId, { feedback: 'local' });
+    editing.value = null;
+    if (typeof reply === 'string') status.value = reply;
+  } catch (error) {
+    failure.value = describeRemoveError(error);
+  }
+}
 function onSortChange({ prop, order }) {
   sort.key = prop;
   sort.dir = order === 'descending' ? -1 : 1;
@@ -138,7 +162,13 @@ async function save(row) {
             <div :data-field="column.key" :data-city-id="row.cityId" :data-city-seq="row.seq">
               <template v-if="column.key === 'seq'">{{ row.seq }}</template>
               <template v-else-if="column.key === 'actions'">
+                <div class="account-row-actions stronghold-row-actions">
                 <ListRowActions :editing="editing === row.cityId" :busy="busy" :locked="locked" @save="save(row)" @cancel="cancelEdit()" @edit="startEdit(row)" />
+                <ElButton v-if="editing !== row.cityId" data-action="delete" :disabled="!canRemove(row)" :title="mapPlaced(row) ? '已在地圖上使用，不能刪除' : '刪除此據點'" @click="remove(row)">刪除</ElButton>
+                </div>
+              </template>
+              <template v-else-if="column.key === 'map'">
+                <span data-map-coord>{{ mapLabel(row) }}</span>
               </template>
               <template v-else-if="column.key === 'type'">
                 <ElSelect v-if="editing === row.cityId" v-model="form.type" data-input="type" :disabled="busy"><ElOption v-for="[value, label] in CITY_TYPES" :key="value" :value="Number(value)" :label="label" /><ElOption v-if="!CITY_TYPES.some(([value]) => Number(value) === Number(form.type))" :value="form.type" :label="form.type + '（未知）'" /></ElSelect>

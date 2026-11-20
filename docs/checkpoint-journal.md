@@ -22,7 +22,20 @@
 - **现场数据待确认**：该库`content_games`为0，`copy_requests`的3条均为`failed`（含`BASE_MAP_NOT_INITIALIZED`等），因此编辑器无已提交游戏，章节页显示“尚未载入副本”是数据缺失而非投影门。用户看到的章节数据不在任何现存本地库；需用户确认期望的数据来源（重新复制/导入或其它备份），不自行重建。
 - **下一步范围**：本轮按用户授权审查并提交／推送；现场复测、copy余项、库身份更新、部署及真实数据操作仍须另行授权，不重开已完成章节goal。
 
-## 212. 基础据点模块（M1–M4 本地实施，M5 延后）
+## 214. 地图保存检验失败只显示一句明确原因（本地实施，未提交）
+
+- 用户反馈：地图上解绑据点后保存，检查未通过是对的，但提示堆了三层（标题＋步骤＋裸错误码 `COPY_MAP_CITY_ROAD_REF`＋通用重试话术），看不懂。要求只提示一句明确原因。
+- 原因定位：解绑是本地暂存命令，保存时服务端 `unbindCityPiece` 因道路仍引用该据点而 422；客户端 `errors` 表无此码，回落到通用「這次沒有完成…告訴管理員」模板，面板状态行、问题列表、全局状态行三处各说一遍。
+- 改动（游戏地图与基础地图同一路径）：`server/public/client.txt` 错误映射新增 `COPY_MAP_CITY_ROAD_REF`（道路未解关联＋放置必须绑定，否则无法保存）与 `COPY_MAP_CITY_BOUND`（一城只能绑一处）；三处展示位同源于 `error.message`，一次翻译即全收敛，不动校验逻辑与报告骨架。
+- 验证：`verify_map_unbind_message_browser.mjs` 全过（真实转换模板＋内存库：解绑被道路引用据点→保存→唯一明确原因行、无裸码、无通用重试话术、版本未推进）；其它 `COPY_MAP_*` 仍走通用模板（未逐条改写，避免措辞失据）。
+
+## 213. 游戏级城池据点：地图坐标列与删除（本地实施，未提交）
+
+- 用户要求：据点名称后加「地圖座標」列（已绑定显示地图落子 `x, y`，未绑定为空）；操作列加「刪除」，仅当地图坐标为空才可用。
+- 服务端 `gamecopy.js` cities 模块新增 `remove:[cityId]`：落子绑定（`COPY_CITY_PLACED`）、道路引用（`COPY_CITY_ROADED`）、章节实质引用（所屬／太守／首都，`COPY_CITY_CHAPTER`，附明细）逐项拒绝；中性章节行随删清理，槽位原生行保持密度不动。`checkedCopyData` 透传 `map.placements`（仅落子子集，不留整图）。
+- `draft.txt` 新增 `cityCopyRemove`（`{feedback:'local'}`，服务端拒绝直达面板行内，不走全局状态行）＋`copy.page.placements`。`StrongholdPanel.vue` 加列＋删除键（绑定行禁用并提示）；系统基础据点页不动（无删除）。
+- 验证：`verify_copy_city_delete.mjs` 5/5（四类守卫＋清理＋格式拒绝）；`verify_city_delete_browser.mjs` 全过（坐标显示、禁用态、删除成功、章节/道路拒绝文案）；Vue LS 34 SFC；`build --check` 通过；`verify_editor_shell` 仍仅历史 `login-form` 一项失败。
+- 未提交；系统基删除不在本轮范围。操作列編輯／刪除同行：刪除鍵原落在行组件 div 外被挤到下一行，改用 `stronghold-row-actions` 不换行容器包裹（与 `chapter-faction-actions` 同模式）。
 
 - 用户依次确认：2(a)一次性直推取顶部当前游戏（底层实现）、每次复制成功即覆盖一行系统基（A：提取即对齐，不回写）、单复制门（已有在世基准拒新，重拷先删旧）、删内置／生产覆盖／M7 标准数据发布全部延后到部署轮次。
 - 实现：`systembasemapstore.js` 新增 `saveCities`（改名＋数值，与游戏级同口径）／`replaceCities`（整份覆盖，经 `validateSystemBaseMap`）；`systembasemap.js` 新增纯校验 `assertSystemBaseCities`（复制提交前预检防半截状态）；`admincopy.js` 新增派生 `blessed()`（唯一在世成功完整复制，删游戏自动让位）、reserve 门 `COPY_SINGLETON_EXISTS`（仅 full profile；失败/取消/进行中行不占位）及提交后 `onCommitted` 刷新；`editorapp.js` 接线（GET/POST `/api/admin/base-cities`、POST `/api/admin/base-cities/promote`、 blessed 随 GET 返回）。

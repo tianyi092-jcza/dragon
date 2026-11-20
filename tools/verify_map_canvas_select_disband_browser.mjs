@@ -3,8 +3,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import { readInstalledEditorSource } from './editor_builtin_source.mjs';
 import { convertInstalledSystemBaseMap } from './system_base_map_conversion.mjs';
 import { BUILTIN_RESOURCES } from '../web/src/content/builtinresources.generated.js';
@@ -14,8 +13,7 @@ import { openStorage } from '../vps/sqlite-port.mjs';
 import { fitViewport, worldToScreen } from '../web/src/editor/viewport.js';
 import { composeMapLayers } from '../web/src/content/authoring/maplayers.js';
 
-const moduleName = process.env.PLAYWRIGHT_MODULE || 'playwright';
-const { chromium } = await import(isAbsolute(moduleName) ? pathToFileURL(moduleName).href : moduleName);
+const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { template: legacy } = convertInstalledSystemBaseMap(readInstalledEditorSource(), BUILTIN_RESOURCES.sourceDigest);
 const template = { ...legacy, content: enableSeaGroundBase(legacy.content) };
 const root = new URL('../server/public/', import.meta.url);

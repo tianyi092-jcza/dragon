@@ -54,6 +54,35 @@ function checkDescription(value) {
   return trimmed.normalize('NFC');
 }
 
+// 据点删除守卫：仅地图未使用（无落子绑定）且无实质引用时可删。
+// 章节中性行（所屬空、太守空、非首都、中性引用）随删除一并清理；
+// 槽位原生行保持密度不动（admit 依赖末尾追加），仅在發布／运行链复核。
+function cityDeleteBlockers(data, cityId) {
+  const blockers = [];
+  const place = (data.map?.placements ?? []).find(p => p?.cityId === cityId);
+  if (place) blockers.push({ code: 'COPY_CITY_PLACED', detail: `已放入地圖（${place.x}, ${place.y}），须先解除绑定` });
+  for (const road of data.map?.roads ?? []) {
+    if (road?.fromCityId === cityId || road?.toCityId === cityId) blockers.push({ code: 'COPY_CITY_ROADED', detail: `道路引用：${road.id ?? road.fromCityId + '→' + road.toCityId}` });
+  }
+  for (const chapterId of data.chapterOrder ?? []) {
+    const chapter = data.chapters?.[chapterId];
+    if (!chapter || typeof chapter !== 'object') { blockers.push({ code: 'COPY_CITY_CHAPTER', detail: `章節異常：${chapterId}` }); continue; }
+    const entry = chapter.cities?.[cityId];
+    if (entry && typeof entry === 'object' && (entry.factionId !== null && entry.factionId !== undefined || Object.keys(entry.overrides ?? {}).length)) {
+      blockers.push({ code: 'COPY_CITY_CHAPTER', detail: `章節引用：${chapter.name ?? chapterId}（所屬／覆寫）` });
+    }
+    const slot = data.cities?.[cityId]?.runtimeSlot;
+    const record = Array.isArray(chapter.state?.cities) ? chapter.state.cities.find(row => row?.idx === slot) : null;
+    if (record && typeof record === 'object') {
+      if (record.faction !== null && record.faction !== undefined) blockers.push({ code: 'COPY_CITY_CHAPTER', detail: `${chapter.name ?? chapterId}：所屬勢力槽 ${record.faction}` });
+      if (record.governor !== null && record.governor !== undefined) blockers.push({ code: 'COPY_CITY_CHAPTER', detail: `${chapter.name ?? chapterId}：太守槽 ${record.governor}` });
+      for (const faction of chapter.state?.factions ?? []) {
+        if (faction && faction.capital === slot) blockers.push({ code: 'COPY_CITY_CHAPTER', detail: `${chapter.name ?? chapterId}：勢力槽 ${faction.idx} 首都` });
+      }
+    }
+  }
+  return blockers;
+}
 // 模块存只拦本模块内（T4）：非空/范围/长度/本模块唯一；跨模块一律推迟到发布门。
 function checkModule(module, patch, data, gameId) {
   if (!MODULES.includes(module)) fail(422, 'COPY_MODULE');
@@ -116,6 +145,18 @@ function checkModule(module, patch, data, gameId) {
       const cityId = `city-${String(top + 1).padStart(3, '0')}`;
       if (data.cities?.[cityId]) fail(422, 'COPY_CITY');
       out[`create:${cityId}`] = { cityId, runtimeSlot: existing.length, name: cleaned, ...numbers };
+    }
+    if (patch.remove !== undefined) {
+      if (!Array.isArray(patch.remove) || !patch.remove.length) fail(422, 'COPY_CITY');
+      const seen = new Set();
+      for (const cityId of patch.remove) {
+        if (typeof cityId !== 'string' || !cityId || seen.has(cityId)) fail(422, 'COPY_CITY');
+        seen.add(cityId);
+        if (!data.cities?.[cityId]) fail(422, 'COPY_CITY');
+        const blockers = cityDeleteBlockers(data, cityId);
+        if (blockers.length) fail(422, blockers[0].code, { blockers });
+        out[`remove:${cityId}`] = true;
+      }
     }
     if (!Object.keys(out).length) fail(422, 'COPY_PATCH');
     return out;
@@ -434,6 +475,18 @@ function applyModule(data, module, checked) {
       else if (op === 'create') {
         if (!cityId || next.cities[cityId]) fail(422, 'COPY_CITY');
         next.cities[cityId] = { ...v };
+      }
+      else if (op === 'remove') {
+        if (!next.cities?.[cityId]) fail(422, 'COPY_CITY');
+        const blockers = cityDeleteBlockers(next, cityId);
+        if (blockers.length) fail(422, blockers[0].code, { blockers });
+        delete next.cities[cityId];
+        for (const chapterId of next.chapterOrder ?? []) {
+          const chapter = next.chapters?.[chapterId];
+          const entry = chapter?.cities?.[cityId];
+          if (entry && typeof entry === 'object' && (entry.factionId === null || entry.factionId === undefined) && !Object.keys(entry.overrides ?? {}).length)
+            delete chapter.cities[cityId];
+        }
       }
       else Object.assign(next.cities[cityId], v);
     }

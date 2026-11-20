@@ -50,6 +50,8 @@ body { overflow: hidden; }
 .chapter-start-title { margin: 12px 0 0; }
 .chapter-create-footer { display: flex; justify-content: flex-start; gap: 8px; padding-top: 20px; }
 .chapter-create-footer > .el-button + .el-button { margin-left: 0; }
+.stronghold-row-actions { flex-wrap: nowrap; }
+.stronghold-row-actions > .el-button + .el-button { margin-left: 0; }
 .chapter-option-number, .chapter-option-name, .chapter-option-date { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .chapter-option-number { width: 2em; margin-right: 1em; }
 .chapter-option-name { width: 8em; margin-right: 1em; }

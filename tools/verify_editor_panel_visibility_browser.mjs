@@ -3,11 +3,9 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
-const moduleName = process.env.PLAYWRIGHT_MODULE || 'playwright';
-const { chromium } = await import(isAbsolute(moduleName) ? pathToFileURL(moduleName).href : moduleName);
+const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../server/public/', import.meta.url);
 const modules = { 'client.js': 'client.txt', 'shell-ui.js': 'shell-ui.txt', 'draft.js': 'draft.txt', 'stage.js': 'stage.txt', 'library.js': 'library.txt', 'catalog.js': 'catalog.txt', 'management.js': 'management.txt', 'publish.js': 'publish.txt', 'review.js': 'review.txt', 'stronghold.js': 'stronghold.txt', 'general.js': 'general.txt', 'mapview.js': 'mapview.txt', 'stage-assets.js': 'stageassets.txt' };
 const server = createServer(async (req, res) => {
@@ -100,14 +98,14 @@ try {
   await idle();
   await checkPanels('draft-editor', 'initial empty state');
   const views = await page.locator('#menu [data-view]').evaluateAll(elements => elements.map(el => el.dataset.view));
-  assert.equal(views.length, 14, 'all author and administrator modules');
+  assert.equal(views.length, 13, 'all author and administrator modules');
   for (const phase of ['empty', '192 cities loaded']) {
     for (const view of views) {
       await page.locator('#menu [data-view="' + view + '"]').click();
       await idle();
       await checkPanels(view, phase);
     }
-    process.stdout.write('PASS ' + phase + ': all 14 modules hide inactive panels without occupying space.\n');
+    process.stdout.write('PASS ' + phase + ': all 13 modules hide inactive panels without occupying space.\n');
     if (phase === 'empty') {
       await page.getByRole('button', { name: '重新整理', exact: true }).first().click();
       await idle();

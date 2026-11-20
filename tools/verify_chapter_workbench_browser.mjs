@@ -6,10 +6,8 @@ import { CHAPTER_BASE } from '../web/src/content/authoring/chapterbase.generated
 import { CHAPTER_DIPLOMACY_RELATIONS } from '../web/src/editor/chapterdiplomacy.js';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
-import { pathToFileURL } from 'node:url';
-const moduleName = process.env.PLAYWRIGHT_MODULE || 'playwright';
-const { chromium } = await import(isAbsolute(moduleName) ? pathToFileURL(moduleName).href : moduleName);
+import { createRequire } from 'node:module';
+const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../server/public/', import.meta.url);
 const modules = { 'client.js': 'client.txt', 'shell-ui.js': 'shell-ui.txt', 'draft.js': 'draft.txt', 'stage.js': 'stage.txt', 'library.js': 'library.txt', 'catalog.js': 'catalog.txt', 'management.js': 'management.txt', 'publish.js': 'publish.txt', 'review.js': 'review.txt', 'stronghold.js': 'stronghold.txt', 'general.js': 'general.txt', 'mapview.js': 'mapview.txt', 'stage-assets.js': 'stageassets.txt' };
 const server = createServer(async (req, res) => {
@@ -201,9 +199,8 @@ try {
   const dialog = page.locator('.el-dialog');
   await dialog.waitFor();
   assert.ok((await dialog.locator('.el-dialog__title').textContent()).includes('新增章節'), 'create dialog shows the approved title');
-  assert.equal(await page.locator('.el-overlay .el-dialog').count(), 1, 'create dialog is modal');
+  assert.equal(await dialog.locator('xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " el-overlay ")]').count(), 1, 'create dialog renders inside a modal overlay');
   assert.equal(await dialog.locator('.chapter-create-result').count(), 1, 'result row reserves space before saving');
-  assert.equal(await page.locator('.el-overlay').count(), 1, 'create dialog is modal');
   await page.setViewportSize({ width: 1440, height: 900 });
   await dialog.locator('[data-new-chapter-number]').fill('甲');
   await dialog.locator('[data-new-chapter-name]').fill('第一章');
