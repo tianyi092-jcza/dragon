@@ -18,8 +18,17 @@
 - **诊断不是全绿**：宿主LSP多次inconclusive、TXT unsupported及缓存pending/复杂度warning，不能记clean；独立Vue LS 33 SFC实际通过另列。后续按变更重验，不将历史构建/分项通过代替全链。
 - **支持边界**：复杂退役关系具体拒绝；已分配22槽不复用；首都及计数原生byte写限制仍在。512城读模型通过不代表大于255首都已能写。App跨纪元证明月界/存读档续计，不声称模拟此前整月所有事件分支或生产签名reader验收。
 - **用户现场待确认**：此前章节页“未载入副本”缺少明确修复／复测证据；不能把它当零章，也不能把未证实的401原因与复制422混同。若仍复现，先核所选游戏、加载请求与服务字节，再定点诊断。用户已确认上架成功，不重开此前“审核无反应”问题。
-- **开发实例交接**：用户指定`https://127.0.0.1:8443/`和`.dragon-analysis/basemaps-dev-store`。曾误启默认空库导致游戏看似消失；只读核原库数据仍在，按用户要求切回，未删除/下架游戏。后续不得默认换库或重建库；测试另用独占目录。最后实现轮已核shell/draft字节一致，本次文档整理未重查服务，不固定PID、不停他人实例。
+- **开发实例交接（2026-11-20 用户定）**：唯一本地开发状态目录为`E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`（保留`臥龍傳·重構版`／`重構版3`等回执所在的库），以后只从此目录启动，不再另建、切换或重建仓库内数据目录；其余8个仓库内库及`E:/Dragon/.dragon-analysis/element-default-ui`已按用户明确指示删除，只保留系统临时目录做验证。见§211。
+- **现场数据待确认**：该库`content_games`为0，`copy_requests`的3条均为`failed`（含`BASE_MAP_NOT_INITIALIZED`等），因此编辑器无已提交游戏，章节页显示“尚未载入副本”是数据缺失而非投影门。用户看到的章节数据不在任何现存本地库；需用户确认期望的数据来源（重新复制/导入或其它备份），不自行重建。
 - **下一步范围**：本轮按用户授权审查并提交／推送；现场复测、copy余项、库身份更新、部署及真实数据操作仍须另行授权，不重开已完成章节goal。
+
+## 211. 开发数据目录收敛为唯一一个
+
+- 用户确认保留包含`臥龍傳·重構版`／`重構版3`记录的数据目录，即`E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`，其余数据目录全部删除，且以后不再另建新数据目录。
+- 删除前枚举全盘`editor.sqlite`：仓库内9个（`b1-dev-store`/`b3-dev-store`/`b4-dev-store`/`b6-dev-store`/`b8-dev`/`dev`/`dev-city`/`dev-m1107`/`basemaps-dev-store`）加`E:/Dragon/.dragon-analysis/element-default-ui`，共10个；用只读SQLite连接核对各库`content_games`：`b1`2、`b3`10、`b4`3、`b6`5、`b8`1、`dev-city`1，`dev`、`dev-m1107`、`basemaps-dev-store`为0；后者3条`copy_requests`名称分别为`臥龍傳·重構版`、`臥龍傳·重構版3`、`臥龍傳·重構版`。
+- 已删除`b1-dev-store`(202M)、`b3-dev-store`(105M)、`b4-dev-store`(677M)、`b6-dev-store`(307M)、`b8-dev`(144M)、`dev`(195M)、`dev-city`(108M)、`dev-m1107`(105M)及`E:/Dragon/.dragon-analysis/element-default-ui`；删后全盘仅剩`basemaps-dev-store/editor.sqlite`。保留库`/api/health`仍200，`copy_requests`3条不变。未动其它分析报告目录（如`chapter-wb-p0-01`、`sprite-atoms-*`），它们不是数据目录。
+- **重要事实**：保留库没有任何已提交游戏（`content_games`=0，`content_snapshots`/`draft_objects`/`copy_objects`均为0），3条复制请求全部`failed`。因此当前章节页无数据是数据本身缺失；本地不存在用户先前编辑过的章节数据副本，需要用户指定来源（重新复制内置源/导入备份），不得凭空重建或声称已恢复。
+- 规则已写入[AGENTS.md](../AGENTS.md)§4：只从此目录启动、不另建仓库内数据目录；验证一律用`mkdtemp`系统临时目录。
 
 ## 210. 完整提交前审查与验证
 

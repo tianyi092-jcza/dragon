@@ -82,7 +82,7 @@
 ## 4. 重要工程坑点
 
 - **build≠check≠服务刷新**：Vue变更先build再check，同步shell-ui.txt（URL `/shell-ui.js`）/css/licenses。`server/public/*.txt`被进程import且dev监听排除；只重启自己持有实例，用新profile/禁缓存核字节，不能停他人实例。
-- **开发库选择**：启动dev显式指定`--store`；空目录会呈现另一套空数据，不能据此判游戏删除。沿用用户指定库前核进程命令/目录，不默认换库、搬库或重建；验收使用独占测试目录，当前手测实例交接放journal而非固定PID。
+- **开发库选择（用户已定，2026-11-20）**：本地编辑器只有一个开发状态目录 `E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`（内含 `editor.sqlite`、`private/`、`tls/`、`request-key.txt`），以后固定从此目录启动，不再新建、切换、搬移或重建其它仓库内数据目录；其余历史库已按用户指示删除。该库当前没有任何已提交游戏，`copy_requests` 保留 `臥龍傳·重構版`／`重構版3` 等失败副本回执，不能把回执当游戏或章节数据。验证脚本一律用系统临时目录（`mkdtemp`）作独占库，不落到仓库内。启动前核进程命令/目录，不默认换库；当前手测实例交接放journal而非固定PID。
 - **Vue LSP**：项目私有`editor-ui/lsp/`用Vue LS2.2.12＋TS5.9.3 standalone，仅项目`.pi-lens.json`；从editor-ui启动新会话才实际采用override，配置来源不等于launcher生效。不改全局工具/信任，安装与独立检查见[说明](editor-ui/lsp/README.md)。
 - **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态，`--source-only`不验证available-library。改`web/src/**`重建trialweb.txt；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
 - **copyop分发**：`applyCapturedMapEdit`的`view(edit)`返回属性描述符表，不是原对象；新op用`value(edit, key)`取值，勿直读`edit.x`。未绑定piece（cityId空）校验必败，绑定后才放行；新城中心须行序扫描在最后（scan-last），否则编译拒收；走廊须先铺好（端点D4..DD），road-add只做认证不铺砖。
@@ -100,7 +100,7 @@
 ```bash
 python -m http.server 8321 --directory web
 node tools/editor_server.mjs --serve --port 8322
-node tools/dev_editor.mjs --port 8443 --store <独立状态目录>
+node tools/dev_editor.mjs --port 8443 --store .dragon-analysis/basemaps-dev-store
 npm --prefix editor-ui ci --ignore-scripts
 node editor-ui/build.mjs
 node editor-ui/build.mjs --check

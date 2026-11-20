@@ -8,6 +8,8 @@ import { ElInputNumber } from 'element-plus/es/components/input-number/index.mjs
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 import { ElTabs, ElTabPane } from 'element-plus/es/components/tabs/index.mjs';
+import { vLoading } from 'element-plus/es/components/loading/index.mjs';
+import { loadingSvg } from './loading.js';
 import ListPagination from './ListPagination.vue';
 import { usePagination } from './pagination.js';
 import { CHAPTER_DIPLOMACY_RELATIONS, chapterDiplomacyRelation } from '../../web/src/editor/chapterdiplomacy.js';
@@ -110,6 +112,8 @@ async function saveDiplomacy(actorIdx, targetIdx, relation) {
 }
 const activeTab = ref('chapters');
 const creating = ref(false);
+const loading = ref(false);
+const canLoad = computed(() => !loading.value && !props.busy && Boolean(props.model?.fields?.gameId));
 const createForm = reactive({ number: '', name: '', era: 'ad', year: '', month: '', day: '' });
 async function createChapter() {
   const gameId = props.model.fields.gameId;
@@ -138,11 +142,11 @@ async function saveLabels() {
     if (saved && props.model.fields.gameId === gameId && chapter.value?.chapterId === id) labelEditing.value = false;
   } catch (error) { numberError.value = error.message; }
 }
-// 章節可改的五屬性：所屬勢力（即時單命令）＋四項數值（同列一次保存）。
+// 章節可改的五屬性：所屬勢力＋四項數值（同列一次保存，唯讀態顯示文字）。
 // 上限：當前生產 ≤ 最大生產、城兵 ≤ 城兵上限、上升值／防災值是 u8。
 const NUMBER_FIELDS = [['prod', '當前生產', 'maxProd'], ['growth', '上升值', 255], ['defence', '防災值', 255], ['troops', '城兵', 'troopsCap']];
 const numberEdit = ref(null), numberError = ref('');
-const numberForm = reactive({ prod: '', growth: '', defence: '', troops: '' });
+const numberForm = reactive({ prod: '', growth: '', defence: '', troops: '', faction: '' });
 const numberLocked = computed(() => locked.value);
 const generalName = slot => {
   if (slot === null || slot === undefined) return '未配置';
@@ -169,6 +173,12 @@ async function saveFaction() {
     if (props.model.fields.gameId === gameId && chapter.value?.chapterId === id) numberError.value = error.message;
   }
 }
+const cityFactionLabel = city => {
+  if (city.faction === null || city.faction === undefined) return '空城';
+  const faction = factionRows.value.find(row => row.slot === city.faction);
+  if (!faction) return `未列出的勢力（${city.faction}）`;
+  return generalName(faction.monarchSlot);
+};
 const ordinaryGenerals = computed(() => {
   if (!chapter.value) return [];
   const assigned = chapter.value.generals;
@@ -207,22 +217,33 @@ function switchChapter(value) {
   factionPage.value = generalPage.value = cityPage.value = 1;
   numberEdit.value = null; numberError.value = '';
 }
+// 與城池據點／武將管理同語義：按頂部當前遊戲顯式載入副本，成功後回到第一頁。
+async function load() {
+  if (!canLoad.value) return;
+  if (dirty.value) { numberError.value = '請先保存或取消目前輸入，再重新載入副本。'; return; }
+  loading.value = true; numberError.value = '';
+  try { await props.actions.loadCopy(); }
+  catch (error) { numberError.value = (error && error.message) || '加載未完成。'; return; }
+  finally { loading.value = false; }
+  factionPage.value = generalPage.value = cityPage.value = 1;
+}
 function setEra(value) { if (chapter.value) props.actions.setCopyStartInput(chapter.value.chapterId, 'era', value); }
 function setStart(field, value) { if (chapter.value) props.actions.setCopyStartInput(chapter.value.chapterId, field, value); }
-// Controlled selects keep the stored value when a command is cancelled.
-function setCityFaction(city, choice) {
-  props.actions.copyCityFaction(chapter.value.chapterId, city.idx, choice === '' ? null : Number(choice));
-}
 function startNumbers(city) {
   if (numberLocked.value) return;
   numberError.value = ''; numberEdit.value = city.idx;
   for (const [key] of NUMBER_FIELDS) numberForm[key] = city[key] === null || city[key] === undefined ? '' : String(city[key] * (key === 'troops' ? 10 : 1));
+  numberForm.faction = city.faction ?? '';
 }
 function cancelNumbers() { numberEdit.value = null; numberError.value = ''; }
 // 只在頁面預檢；服務端仍按記錄自身上限與原生位元組再驗一次。
 async function saveNumbers(city) {
   if (numberLocked.value) return;
   numberError.value = '';
+  const factionChoice = numberForm.faction === '' ? null : Number(numberForm.faction);
+  if (factionChoice !== null && !factionRows.value.some(faction => faction.slot === factionChoice)) { numberError.value = '所屬勢力必須是本章已宣告的勢力槽，或空城。'; return; }
+  if (factionChoice !== (city.faction ?? null) && factionRows.value.some(faction => faction.capital === city.idx)) { numberError.value = '首都不允許直接改所屬；請先在勢力設置遷都。'; return; }
+  const factionChanged = factionChoice !== (city.faction ?? null);
   const values = {};
   for (const [key, label, capKey] of NUMBER_FIELDS) {
     const text = String(numberForm[key] ?? '').trim();
@@ -235,17 +256,24 @@ async function saveNumbers(city) {
     const value = Number(text) / scale;
     if (value !== city[key]) values[key] = value;
   }
-  if (!Object.keys(values).length) { numberError.value = '數值與已讀資料相同；沒有保存。'; return; }
-  try { await props.actions.copyCityNumbers(chapter.value.chapterId, city.idx, values); numberEdit.value = null; }
+  if (!Object.keys(values).length && !factionChanged) { numberError.value = '資料與已讀相同；沒有保存。'; return; }
+  try {
+    if (factionChanged) {
+      const saved = await props.actions.copyCityFaction(chapter.value.chapterId, city.idx, factionChoice);
+      if (!saved) return;
+    }
+    if (Object.keys(values).length) await props.actions.copyCityNumbers(chapter.value.chapterId, city.idx, values);
+    numberEdit.value = null;
+  }
   // 控制器保存後已重讀副本：行回到只讀時顯示新值，不另起一次讀取。
   catch (error) { numberError.value = (error && error.message) || '保存未完成（原因未回報）。'; }
 }
 </script>
 
 <template>
-  <section id="chapters-editor" class="module-card">
-    <template v-if="active && attributes">
-      <div v-if="!creating" class="module-toolbar"><ElButton data-chapter-create :disabled="busy || dirty || attributes.locked" @click="creating = true; numberError = ''">新增章節</ElButton></div>
+  <section id="chapters-editor" class="module-card" v-loading="loading" :element-loading-svg="loadingSvg" element-loading-text="正在載入副本…" :aria-busy="loading">
+    <template v-if="active">
+      <div v-if="!creating" class="module-toolbar"><ElButton id="chapters-load" :aria-busy="loading" :disabled="!canLoad" @click="load()">加載</ElButton><ElButton data-chapter-create :disabled="busy || dirty || !attributes || attributes.locked" @click="creating = true; numberError = ''">新增章節</ElButton></div>
       <div v-else class="chapter-create-form">
         <div class="chapter-create-fields">
           <label class="chapter-create-number">編號<ElInput v-model="createForm.number" data-new-chapter-number :disabled="busy" /></label>
@@ -325,7 +353,7 @@ async function saveNumbers(city) {
       </ElTabPane>
       <ElTabPane label="勢力武將" name="generals">
       <ElTable id="chapters-generals-table" class="chapter-fluid-table" :data="pagedGenerals" row-key="editKey" height="100%">
-        <ElTableColumn label="槽" min-width="24"><template #default="{ row: general }"><span :data-general-slot="general.slot">{{ general.unassigned ? '未配置' : '#' + general.slot }}</span></template></ElTableColumn>
+        <ElTableColumn label="槽" min-width="24"><template #default="{ row: general }"><span :data-general-slot="general.slot">{{ general.unassigned ? '未配置' : general.slot }}</span></template></ElTableColumn>
         <ElTableColumn label="頭像" min-width="56"><template #default="{ row: general }"><img v-if="general.portraitRef" :src="`/api/games/${encodeURIComponent(model.fields.gameId)}/portraits/${encodeURIComponent(general.portraitRef.assetId)}/bytes?sha256=${general.portraitRef.sha256}`" :alt="general.name" width="48" height="48" loading="lazy" /><span v-else>—</span></template></ElTableColumn>
         <ElTableColumn prop="name" label="姓名" min-width="48" show-overflow-tooltip />
         <ElTableColumn label="字" min-width="24" show-overflow-tooltip><template #default="{ row: general }">{{ general.zi || '—' }}</template></ElTableColumn>
@@ -359,13 +387,12 @@ async function saveNumbers(city) {
       </ElTabPane>
       <ElTabPane label="勢力據點" name="cities">
       <ElTable id="chapters-cities-table" class="chapter-fluid-table" :data="pagedCities" row-key="idx" height="100%">
-        <ElTableColumn label="據點" min-width="32"><template #default="{ row: city }"><span :data-city-idx="city.idx">#{{ city.idx }}</span></template></ElTableColumn>
+        <ElTableColumn label="據點" min-width="32"><template #default="{ row: city }"><span :data-city-idx="city.idx">{{ city.idx }}</span></template></ElTableColumn>
         <ElTableColumn prop="name" label="名稱" min-width="48" show-overflow-tooltip />
         <ElTableColumn label="座標" min-width="44"><template #default="{ row: city }"><span data-city-position>{{ city.x ?? '—' }}, {{ city.y ?? '—' }}</span></template></ElTableColumn>
         <ElTableColumn label="類型" min-width="40"><template #default="{ row: city }"><span data-city-type>{{ cityTypeNames[city.type] ?? (city.type == null ? '—' : city.type + '（未知）') }}</span></template></ElTableColumn>
-        <ElTableColumn label="外觀" min-width="40"><template #default="{ row: city }"><span data-city-view>{{ city.view == null ? '—' : city.view + '（未知）' }}</span></template></ElTableColumn>
         <ElTableColumn label="最大生產" min-width="48"><template #default="{ row: city }"><span data-city-max-prod>{{ city.maxProd ?? '—' }}</span></template></ElTableColumn>
-        <ElTableColumn label="所屬勢力" min-width="80"><template #default="{ row: city }"><ElSelect data-city-faction :model-value="city.faction ?? ''" :disabled="locked || factionRows.some(faction => faction.capital === city.idx)" @change="setCityFaction(city, $event)"><ElOption value="" label="空城" /><ElOption v-for="faction in factionRows" :key="faction.slot" :value="faction.slot" :label="generalName(faction.monarchSlot)" /></ElSelect></template></ElTableColumn>
+        <ElTableColumn label="所屬勢力" min-width="80"><template #default="{ row: city }"><ElSelect v-if="numberEdit === city.idx" v-model="numberForm.faction" data-city-faction :disabled="busy || factionRows.some(faction => faction.capital === city.idx)"><ElOption value="" label="空城" /><ElOption v-for="faction in factionRows" :key="faction.slot" :value="faction.slot" :label="generalName(faction.monarchSlot)" /></ElSelect><span v-else data-city-faction-readonly>{{ cityFactionLabel(city) }}</span></template></ElTableColumn>
         <ElTableColumn v-for="[key, label, capKey] in NUMBER_FIELDS" :key="key" :label="label" min-width="48"><template #default="{ row: city }"><div :data-city-number="key" :title="label + '（上限 ' + ((typeof capKey === 'string' ? city[capKey] : capKey) == null ? '未知' : (typeof capKey === 'string' ? city[capKey] : capKey) * (key === 'troops' ? 10 : 1)) + '）'"><ElInput v-if="numberEdit === city.idx" v-model="numberForm[key]" :data-number-input="key" inputmode="numeric" maxlength="5" :disabled="busy" /><template v-else>{{ city[key] == null ? '—' : city[key] * (key === 'troops' ? 10 : 1) }}</template></div></template></ElTableColumn>
         <ElTableColumn label="首都" min-width="40"><template #default="{ row: city }"><span data-city-capital-readonly>{{ factionRows.some(faction => faction.capital === city.idx) ? '✓' : '' }}</span></template></ElTableColumn>
         <ElTableColumn label="操作" min-width="80"><template #default="{ row: city }"><div class="account-row-actions"><template v-if="numberEdit === city.idx"><ElButton data-number-save :disabled="busy" @click="saveNumbers(city)">保存</ElButton><ElButton data-number-cancel :disabled="busy" @click="cancelNumbers()">取消</ElButton></template><ElButton v-else data-number-edit :disabled="numberLocked" @click="startNumbers(city)">編輯</ElButton></div></template></ElTableColumn>
