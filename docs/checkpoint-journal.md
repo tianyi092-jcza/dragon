@@ -15,7 +15,11 @@
 - **现场数据待确认**：开发库`content_games`为0，3条`copy_requests`均为`failed`，编辑器无已提交游戏；章节页无数据是数据缺失而非投影门。用户看到的章节数据不在任何现存本地库；需用户确认期望来源（重新复制/导入或其它备份），不自行重建。
 - **下一步范围**：菜单重整、品牌统一、检验单行三项已提交（7b5b627）；现场复测、copy余项、库身份更新、部署及真实数据操作仍须另行授权。`client.txt`／`index.html`改动后的本地编辑器服务重启已于本轮验证通过（见§218）。
 
-## 220. 胜利过场动画（统一弹窗＋victory.png 水墨＋十行评语，未提交）
+## 221. 提交推送收据（f522aaf，已与 github/main 同步）
+
+- 审查 13 改＋3 新增（产品代码／测试／审计／文档／过场资产），无本地代理或运行产物混入；`node --check` 全过、`diff --check` 全过、victory-gate＋4FCE 计 46 项全过；`git fetch` 确认远端无漂移后提交推送。§219／§220 标题状态已同步为已提交。
+
+## 220. 胜利过场动画（统一弹窗＋victory.png 水墨＋十行评语，已提交 f522aaf）
 
 - 用户指定：统一门 TALK75＋君主行保留在前→中央「天下一統」云纹金框弹窗（`grf/ui/cloud.png`平铺默认纹理非黑底，动态统一日期公元／公元前均显前缀`公元184年1月1日`）→地图/弹窗任意点击→`web/grf/victory.png`（720×450 PNG 497KB）3s淡入→十行评语逐字150ms→1s后小一号「返回」(14px)回游戏选择页；正文20px加粗居中按效果图10行断行；界面字串已扫全繁体。
 - 背景布局新规（两过场统一，失败同步改造）：等比居中不拉伸不平铺，scale=max(1,cover)——高分辨率放大填满无空白，低于1920*1080不缩小，容器overflow裁剪绝无滚动条（`EndView._fitStageImage`＋load/resize重算，失败旧96vw/88vh letterbox作废）。
@@ -23,7 +27,7 @@
 - 范围：三会话共用fresh＋native装配故不加内置排除门（否则连试玩later-4灭国gameover预期一起破），验证只落上架路径，内置不验证不适配；legacy-monthlyAI统一无过场产品决定保持。
 - 验证：`node --check`＋`git diff --check`全过；victory-gate 11项、4FCE 35项、no_cutscene全过；新profile冒煙：弹窗日期/标题/云纹/z30→点击进过场→110/110字→返回→回标题，失败回归cover 1422×800无滚动条，零pageerror（三截图已阅）；LSP paths inconclusive（ai.js超行＋server不确证）。真机统一全链与22分钟泵未跑；未commit/push。
 
-## 219. 失败过场动画（defeat.png 水墨＋逐字诗＋重新再來，未提交）
+## 219. 失败过场动画（defeat.png 水墨＋逐字诗＋重新再來，已提交 f522aaf）
 
 - 用户指定：`E:/Dragon/失败.png`→`web/grf/defeat.png`（864×486 PNG 522KB，原图2.1MB未动）；3s水墨淡入→「出師未捷身先死，常使英雄淚滿襟」20px加粗逐字150ms（句间400ms）→1s后「重新再來」按钮；仅按钮经`returnToTitle()`回游戏选择页，背景点击无效果；全繁体（Web产品决定，非原版机制）。
 - 改动：`web/src/render/endview.js`重写（defeat分支＋`exitDefeat`＋样式复位，legacy胜利/单图行为不变）；`ai.js`两处＋`commands.js`一处 `gameover.png`→`defeat.png`（cause caption保留、去點擊提示，失败视图隐藏）；`trialassetpaths.js`＋两审计＋三verify断言同步（诗/按钮/aria-label）。原`gameover.png`（GAMEOVER.DAT原证）保留。
