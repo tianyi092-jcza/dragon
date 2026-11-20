@@ -65,9 +65,13 @@ import style from './public/style.css';
 import shellUI from './public/shell-ui.txt';
 import shellStyle from './public/shell-ui.css';
 import shellLicenses from './public/shell-ui-licenses.txt';
-import faviconIcon from './public/favicon.ico';
-import brandMark from './public/brand.png';
-import authLogo from './public/auth-logo.png';
+// Chrome 二进制图以 base64 存 .txt（Text 规则全环境通用；miniflare 不认 Data）。
+// 真文件在同名 .ico/.png，verify_shell_brand_browser 断言解码后字节一致防漂移。
+import faviconB64 from './public/favicon.b64.txt';
+import brandB64 from './public/brand.b64.txt';
+import authLogoB64 from './public/auth-logo.b64.txt';
+const chromeBytes = base64 => Uint8Array.from(atob(base64.trim()), character => character.charCodeAt(0)).buffer;
+const faviconIcon = chromeBytes(faviconB64), brandMark = chromeBytes(brandB64), authLogo = chromeBytes(authLogoB64);
 import trialwebBundle from './public/trialweb.txt';
 // T6 试运行已取消：trialapp 已下线，不再导入 trialapp.txt。
 import playappShell from './public/playapp.txt';
@@ -1527,6 +1531,12 @@ return class EditorMetadata extends PlatformBase {
     if (match[2] === 'disable' && typeof value.disabled !== 'boolean') { fail(422, 'DISABLED_BOOLEAN'); }
     const target = this.one('SELECT * FROM users WHERE id=?', match[1]); if (!target) { fail(404, 'ACCOUNT_NOT_FOUND'); }
     if (target.account === 'tianyi') { fail(403, 'ADMIN_PROTECTED'); } if (target.version !== value.expectedVersion) { fail(409, 'ACCOUNT_CHANGED'); }
+    // 用戶要求的測試用物理刪除：僅創作者帳戶，不碰遊戲關聯（遊戲側殘留由用户自行清理）。
+    if (match[2] === 'delete') {
+      if (target.role !== 'author' || target.id === user.id) { fail(403, 'ADMIN_PROTECTED'); }
+      const mutation = () => { const current = this.one('SELECT version FROM users WHERE id=?', target.id); if (current.version !== value.expectedVersion) { fail(409, 'ACCOUNT_CHANGED'); } this.sql.exec('DELETE FROM sessions WHERE user_id=?', target.id); this.sql.exec('DELETE FROM users WHERE id=?', target.id); };
+      return { mutation, result: { body: { deleted: target.id } }, operationEpoch: user.epoch };
+    }
     // §4.6: the last enabled admin cannot be disabled.
     if (match[2] === 'disable' && value.disabled && target.role === 'admin' && !target.disabled && this.one("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND disabled=0").n < 2) { fail(403, 'ADMIN_LAST'); }
     const encoded = match[2] === 'reset' ? passwordHash(policy.defaultPassword) : target.password_hash;
@@ -1554,7 +1564,7 @@ return class EditorMetadata extends PlatformBase {
       mutation = () => { if (this.one('SELECT id FROM users WHERE account=?', name)) { fail(409, 'ACCOUNT_EXISTS'); } this.sql.exec("INSERT INTO users VALUES(?,?,'author',?,0,1,1,1,'','','','')", created.id, name, encoded); };
       result = { body: { account: dto(created) } };
     } else {
-      const match = /^\/api\/admin\/accounts\/([a-f0-9-]{36})\/(disable|reset)$/.exec(path);
+      const match = /^\/api\/admin\/accounts\/([a-f0-9-]{36})\/(disable|reset|delete)$/.exec(path);
       if (!match) { fail(404, 'NOT_FOUND'); } if (user.role !== 'admin') { fail(403, 'ADMIN_REQUIRED'); }
       const built = this.#buildAccountMutation(user, match, value, policy);
       mutation = built.mutation; result = built.result; operationEpoch = built.operationEpoch;

@@ -9,5 +9,5 @@
   "durable_objects": { "bindings": [{ "name": "EDITOR_METADATA", "class_name": "EditorMetadata" }] },
   "migrations": [{ "tag": "editor-metadata-v1", "new_sqlite_classes": ["EditorMetadata"] }],
   "r2_buckets": [{ "binding": "EDITOR_BLOBS", "bucket_name": "dragon-editor-private" }],
-  "rules": [{ "type": "Text", "globs": ["**/*.html", "**/*.css", "**/*.txt"], "fallthrough": true }, { "type": "Data", "globs": ["public/favicon.ico", "public/brand.png", "public/auth-logo.png"], "fallthrough": true }]
+  "rules": [{ "type": "Text", "globs": ["**/*.html", "**/*.css", "**/*.txt"], "fallthrough": true }]
 }

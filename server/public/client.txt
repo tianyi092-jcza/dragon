@@ -57,8 +57,6 @@ async function apiRequest(path, value, options) {
 const views = [
   ['copy', '新建遊戲', false, 'workbench'],
   ['draft-editor', '遊戲管理', false, 'workbench'],
-  ['admin', '用戶管理', true, 'workbench'],
-  ['catalog-editor', '系統資源', false, 'workbench'],
   ['stronghold-editor', '城池據點', false, 'game'],
   ['mapview-editor', '地圖管理', false, 'game'],
   ['generals-editor', '武將管理', false, 'game'],
@@ -68,6 +66,8 @@ const views = [
   ['copy-game-editor', '複製遊戲', true, 'admin'],
   ['base-stronghold-editor', '基礎據點', true, 'admin'],
   ['base-map-editor', '基礎地圖', true, 'admin'],
+  ['catalog-editor', '人物頭像', true, 'admin'],
+  ['admin', '用戶管理', true, 'admin'],
 ];
 let view = null, displayedOwner = null, draftRefreshPending = false;
 const accounts = createAccountController({ api, authority: () => current, work: run, publish: model => shell.accounts(model), confirm: text => confirm(text) });

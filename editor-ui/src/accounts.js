@@ -51,10 +51,11 @@ export function createAccountController({ api, authority, work, publish, confirm
     return work(async () => {
       requireAdmin();
       const row = rows.find(item => item.id === id);
-      if (!loaded || stale || !row || row.role !== 'author' || !['disable', 'reset'].includes(kind)) throw new Error('請先重載並選擇可管理的創作者帳戶。');
-      let label = row.disabled ? '恢復' : '停用';
+      if (!loaded || stale || !row || row.role !== 'author' || !['disable', 'reset', 'delete'].includes(kind)) throw new Error('請先重載並選擇可管理的創作者帳戶。');
+      let label = row.disabled ? '恢復' : '停用', suffix = '此操作會撤銷它的既有會話。';
       if (kind === 'reset') label = '重設密碼';
-      if (!confirm(label + '帳戶 ' + row.account + '？此操作會撤銷它的既有會話。')) return false;
+      if (kind === 'delete') { label = '刪除'; suffix = '此操作會物理刪除該帳戶，不可恢復。'; }
+      if (!confirm(label + '帳戶 ' + row.account + '？' + suffix)) return false;
       const valid = capture();
       const value = { expectedVersion: row.version }; if (kind === 'disable') value.disabled = !row.disabled;
       try { await api('/api/admin/accounts/' + encodeURIComponent(row.id) + '/' + kind, value); }

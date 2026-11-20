@@ -29,6 +29,9 @@
 - 裝配：`wrangler.jsonc` 加 `Data` 規則三檔；`vps/text-loader.mjs` 加 `.ico/.png` 二進制端口（base64 過文本源，與 workerd `Data` 導出同為 ArrayBuffer）；`editorapp.js` 導入＋`staticAsset` 二進制分支（不加 `charset`）＋靜態白名單；`index.html` 加 icon 連結。
 - 登入頁：品牌連結改 `v-if="ready"`（未登入页眉无品牌文字）；登录区 `margin: auto` 整块垂直居中；卡片置中、label 50% 左對齊文字、按鈕與輸入框同寬 50%（用戶後續改為同寬，取代加倍）、按钮顶部 24px；頂部 128px logo。
 - 側欄頁腳：折疊按鈕去文字只留箭頭，圖標與上方菜單圖標同起點左對齊（頁腳左內邊距4px＝菜單20px－按鈕自身15px－邊框1px）；第三方授權鏈接搬到頂欄登出鈕後（間距16px、12px字，用戶明確要求的字階例外）。
+- 用戶管理：聯絡資料拆郵箱／電話兩列（空值顯示空）；帳戶／姓名拆兩列；角色／狀態拆兩列並移到備註後；去掉初始密碼提示行；操作列加刪除（僅創作者行）：服务端物理刪 users＋sessions 行、不碰遊戲關聯，僅創作者且禁自刪，管理員 403。
+- 驗證：`verify_account_delete.mjs` 全過（删作者200＋列表消失、删管理员403、重删404）；`verify_editor_backend_browser.mjs`（Vue 改写后已 stale：修 ESM 导入、`#menu [data-view]`、`tr:has` 选择器、按钮数 2→3，补删除浏览器覆盖）全过；`build --check`、`lsp` 全过。
+- 側欄：系統資源移至管理員版塊基礎地圖之後並改名人物頭像，仅管理員可见（菜單 `true`＋客户端导航守衛；服务端头像字节仍对作者开放读取，游戏编辑要用，不动）；用戶管理从工作台级移至管理員版块最后。
 - 驗證：`verify_shell_brand_browser.mjs` 全過（真服務隔離庫：三路由 200＋位元組一致、icon 連結、登入截圖 logo 128px、無品牌標、輸入框置中半寬、按鈕約二倍寬）；`build --check`、`lsp check` 34 SFC 全過。
 
 ## 214. 地图保存检验失败只显示一句明确原因（本地实施，未提交）

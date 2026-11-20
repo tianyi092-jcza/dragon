@@ -45,7 +45,7 @@ check("session-hidden", shell.includes('<section id="session" :hidden="!state.au
 		check(`view-section:${id}`, htmlIds.has(root) && client.includes(`'${id}'`) && shell.includes(`import ${component} from './${component}.vue'`) && shell.includes(`state.view !== '${id}'`));
 	}
 // Menu labels are fixed by the product contract.
-for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "系統資源", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架管理", "上架審核", "複製遊戲"]) {
+for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "人物頭像", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架管理", "上架審核", "複製遊戲"]) {
 	check(`view-label:${label}`, client.includes(`'${label}'`));
 }
 check("menu-groups", ["workbench", "game", "admin"].every(group => client.includes(`'${group}'`)) && shell.includes("'工作台級'") && shell.includes("'遊戲級'"));
