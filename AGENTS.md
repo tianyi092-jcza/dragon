@@ -9,7 +9,8 @@
 - 仓库`E:/Dragon/web-port`，原程序`E:/Dragon/Dragon/`，官方基准`E:/Dragon/原版/`，改版库`上/中/下/后/`。禁止自动化访问真实`SAVE.DAT`、用户存档/profile；测试用内存、mock、隔离目录及新profile。
 - 软件版本以`VERSION`为准，规则基线`web-0.1.1`；游戏版本`1.n`、软件版本、内容摘要和程序归档身份相互独立。
 - **当前主线：游戏级共享数据＋copy单套/publish单槽/formal单快照＋系统双基（基础地图＋基础据点）。** 元数据、章节、据点、武将库、审核、地图和新城已接线；基础据点是系统基 `content.cities` 的管理员编辑面（与游戏级城池据点同列同口径，坐标归地图），新建播种与复制成功自动刷新都走同一份；只允许存在一个成功的完整复制（基准），重拷前须先删除旧游戏；删内置／生产覆盖／标准数据发布均延后到部署轮次另行授权。游戏删除仅在「上架审核」提供，无独立「删除管理」模块，不改变删除权限/栅栏。定义面板余项、旧draft退役及表清理见[收敛任务](docs/copy-simplification-tasks.md)。`/api/trial/*`为`410 TRIAL_RETIRED`，保留引擎不等于重开接口。
-- **游戏章节（Web产品决定）**：CHAPTER-WB P0–P7及后继界面调整已本地交付，当前为章节管理／势力设置／势力武将／势力据点／外交关系五Tab；游戏管理只保留选择、载入与名称/简介，不再重复章节或任官表单。现行规则见[章节合同§0](docs/chapter-and-base-resources.md#0-chapter-wb-现行产品口径与字段盘点)，分层验证与支持限制见[审计](docs/chapter-workbench-audit.md)，不是部署或全部工具全绿。
+- **游戏章节（Web产品决定）**：CHAPTER-WB P0–P7及后继界面调整已本地交付，当前为章节管理／势力设置／势力武将／势力据点／外交关系五Tab；游戏管理只保留选择、载入与名称/简介，不再重复章节或任官表单。旧 draft 菜单已撤（控制器保留供顶栏选游戏与 workspace 共用），「游戏管理」即上架发布模块。现行规则见[章节合同§0](docs/chapter-and-base-resources.md#0-chapter-wb-现行产品口径与字段盘点)，分层验证与支持限制见[审计](docs/chapter-workbench-audit.md)，不是部署或全部工具全绿。
+- **编辑器菜单与品牌（用户产品决定）**：12 项扁平无分组标题（游戏组在前、新建首位，管理员组在后），权限过滤不变；页签／品牌／加载占位统一「臥龍傳編輯器」，品牌单行 20px 加粗、授权链 12px（用户明确指定的字阶例外）。
 - **战略事件（Web产品决定，非原版机制）**：`strategicEventSchedule`以`epoch*64+slot`定位，四字节轮作投影／原窗对照；`inserted`仅原窗真值，`accepted`才是Web已接受。每位置只推进一次，消息返回后才派下一条，整批后tick势力一次。移页、7/10分频、查询及保存合同见[D2计划§12](docs/d2-event-scheduler-plan.md)；恢复一次性校验，非空旧D2-C旁表拒绝，不猜到期时间。
 - **地图工作台（Web产品决定）**：独立系统模板＋共用Canvas＋精炼目录已本地实现。两种创建取模板单快照，既有游戏不跟随更新；固定384×256、live 1..512城，行序定槽，192为导入基线，不复原DOS对象。缺`mapEditorAssets`的旧copy拒绝，不自动迁移。合同：[基础地图](docs/system-base-map-design.md)、[精炼目录](docs/map-workspace-sprite-library-design.md)及[验收边界](docs/map-workspace-sprite-library-audit.md)；本地通过不等于部署。
 - **据点扩容（Web产品决定）**：固定384×256，运行／道路／财政／存档支持v2-192与v3-512；内置与生产准入仍192，据点组素材可作为装饰拖放但不自动建城。新城admit必填`battleMapId`（`ki-1995:siege:0..191`共享战场，写定义＋全章行）。须贯通稳定身份、道路、章节、运行、战场和保存，不只放宽计数门或另建引擎。人物／地图等其它容量、Web差异与验收见[CITY计划](docs/city-capacity-expansion-plan.md)；不自动授权部署／迁移。
@@ -37,6 +38,7 @@
 | `server/{editorapp,gamecopy,systembasemap,systembasemapstore,mapworkspace}.js` | 鉴权、copy/模板、初始化、共同编辑与检验 |
 | `web/src/content/authoring/gamesource.js`、`server/{copychapters,copygenerals}.js` | 独立章节/势力命令、新副本转换、主表人物投影 |
 | `vps/`、`reader/site.js` | Node SQLite/文件桶/发布装配；玩家服务复用reader |
+| `server/public/favicon.ico\|brand.png\|auth-logo.png`＋同名`.b64.txt`、`editor-ui/public/`同字节镜像 | 真文件为源，base64-txt 为服务模块（既有 Text 规则全环境通用）；镜像仅供 Vite 构建解析，运行走服务端同源路由 |
 
 ### 游戏与保存
 
@@ -63,7 +65,7 @@
 - 普通新建完整据点主表、武将可空；完整复制还初始化人物/章节槽关联。内置武将整库导入须确认，服务端准备后单事务替换、失败保留旧库，不扫目标章分批追加。章序/槽序固定，姓名trim＋NFC去重、首次同名整条胜出；稳定ID改名不变，主表投影关联槽，缺引用交发布门，不隐式免职。六能力0..15，`suicideOnCapture`只同步attr bit4，`zi`只存，详见[武将合同](docs/editor-general-definitions.md#copy内置武将转换与主表权威现行)。
 - 章节互不依赖；编号/名称trim＋NFC后分别最多6/8码点、各自在游戏内唯一。章ID与次序分离；势力作者编号/ID与原生idx分离。删章不动主表/他章；势力退役保固定槽与身份，不splice或复用22个已分配槽，复杂军团/事件/俘虏等关系报具体冲突而非猜清。
 - 建势力须君主＋首都同事务，首都必本属；换君主不换势力身份、旧君主留属。人物所属/已登场/倒计时/投奔独立且同行编辑一次保存，读/取消不分配人物槽。章节征兵/预备兵输入实际人数，只在序列化处floor(/10)一次；城兵实际人数须为10倍数，不静默舍入；金钱不缩放。默认值、范围、双raw与旧值保留规则见章节合同，不在界面重算原生计数。
-- copy保存只拦模块约束，发布全量检查跨模块；摘要变动作废检验票，不恢复draft修订门。单写者无CAS不等于省略鉴权/epoch/Origin/删除栅栏。
+- copy保存只拦模块约束，发布全量检查跨模块；摘要变动作废检验票，不恢复draft修订门，检验票一次性、提交即作废（已上架行无有效票故显示「未检验／—」属正常语义）。单写者无CAS不等于省略鉴权/epoch/Origin/删除栅栏。
 - 提交须同摘要通过票、1–2000码点说明；票一次性、每游戏30分钟节流。同意原子分配ordinal、安装已准备包、更新pin/formal/`listed=1`，失败回滚不耗号；版本1.0→1.1…1.10不复用。名称归作者，同作者不可重名；管理员全局管理保留已提交未删除游戏，审核只允许submitted，编辑/校验不解锁审核。
 - 内置游戏始终可用且不可编辑/下架/删除；作者编辑提交自己游戏，管理员审核/限制/删除而非替作者编辑。完整复制不含对局/存档，普通新建与完整复制不能混用。用户批准同章同君主身份的重复势力仅保留首次，其余在新副本退役丢弃、不合并资源、不挪原槽，写转换明细；同章不同君主共用首都也仅保留首个，后续势力在新副本丢弃并记录原因；首都不存在仍拒。原件/已有副本不自动迁移，详见[章节转换合同](docs/chapter-and-base-resources.md#新复制转换边界与可见回执p4)。
 - 新正式版使旧对局禁存、旧档不可加载；清旧与新保存同事务。网络失败/下架/损坏不得冒充更新，仅下架未更新的会话可继续。`410 GAME_DELETED`强制确认后清该游戏本机进度并回开局。
@@ -81,7 +83,7 @@
 
 ## 4. 重要工程坑点
 
-- **build≠check≠服务刷新**：Vue变更先build再check，同步shell-ui.txt（URL `/shell-ui.js`）/css/licenses。`server/public/*.txt`被进程import且dev监听排除；只重启自己持有实例，用新profile/禁缓存核字节，不能停他人实例。
+- **build≠check≠服务刷新**：Vue变更先build再check，同步shell-ui.txt（URL `/shell-ui.js`）/css/licenses。`server/public/*.txt`被进程import且dev监听排除；只重启自己持有实例，用新profile/禁缓存核字节，不能停他人实例；`client.txt`／`index.html`改动必须重启服务（supervisor 按设计忽略 `server/public` 变更）。
 - **开发库选择（用户已定，2026-11-20）**：本地编辑器只有一个开发状态目录 `E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`（内含 `editor.sqlite`、`private/`、`tls/`、`request-key.txt`），以后固定从此目录启动，不再新建、切换、搬移或重建其它仓库内数据目录；其余历史库已按用户指示删除。该库当前没有任何已提交游戏，`copy_requests` 保留 `臥龍傳·重構版`／`重構版3` 等失败副本回执，不能把回执当游戏或章节数据。验证脚本一律用系统临时目录（`mkdtemp`）作独占库，不落到仓库内。启动前核进程命令/目录，不默认换库；当前手测实例交接放journal而非固定PID。
 - **Vue LSP**：项目私有`editor-ui/lsp/`用Vue LS2.2.12＋TS5.9.3 standalone，仅项目`.pi-lens.json`；从editor-ui启动新会话才实际采用override，配置来源不等于launcher生效。不改全局工具/信任，安装与独立检查见[说明](editor-ui/lsp/README.md)。
 - **库/字节身份**：角色/指纹/SHA严格绑定，不改manifest或放宽旧身份；`--no-library`仅验壳/空态，`--source-only`不验证available-library。改`web/src/**`重建trialweb.txt；玩家/编辑器static release、源码、三pin、nginx static-v1目录与程序登记锁步；核完整inventory/SHA，不只比sourceTreeDigest。静态归档遵manual-static-build.sh的`core.autocrlf=false`。
@@ -137,7 +139,7 @@ sh vps/manual-static-build.sh /path/to/new-out
 
 - 按改动选内容、slot-phase、battle、formation、road-authority、save等回归；共享调度/RNG/存档/跨模块状态要完整适用覆盖。生成物写新目录。copy/地图lane按[收敛任务](docs/copy-simplification-tasks.md)、[基础地图核对](docs/system-base-map-completion-audit.md)及[精炼目录审计](docs/map-workspace-sprite-library-audit.md)选择；历史通过不替代本次执行。
 - `verify_editor_workbench_browser.mjs`默认串行跑现行显隐／基础地图／选择拆散／新城四lane；旧draft/Trial体仅`--legacy-draft`，不是现行产品验收。分项通过不等于超时总命令通过。
-- UI用全新Playwright profile，核console/pageerror/请求失败、保存重读及真实登记源流程；可用已有PLAYWRIGHT_MODULE，不擅装依赖。永久入口包括verify_editor_generals_browser、verify_editor_panel_visibility_browser、verify_new_city_panel_browser、verify_system_base_map_browser；夹具、真实后端、生产分开报告。
+- UI用全新Playwright profile，核console/pageerror/请求失败、保存重读及真实登记源流程；可用已有PLAYWRIGHT_MODULE，不擅装依赖。永久入口包括verify_editor_generals_browser、verify_editor_panel_visibility_browser（现行12视图）、verify_new_city_panel_browser、verify_system_base_map_browser、verify_shell_brand_browser、verify_map_unbind_message_browser、verify_city_delete_browser、verify_account_delete；夹具、真实后端、生产分开报告。`verify_editor_backend_browser`已修活；`verify_editor_workbench_browser`自Vue改壳 stale（`#menu button[data-view]`全失效）待另起 rehab。
 - 存档另测真实JSON、事务失败、跨窗口CAS；公开目录/删除用verify_publication_chain_browser，归档用verify_program_entry/verify_program_assets，按入口选参数。进程内桥不等于生产TCP/TLS；强制退出测试不能证明计时器清理。
 - 交付审实际diff；支持文件主动`lens_diagnostics source=lsp scope=paths`，再`mode=all`。空缓存/push-only/超时/inconclusive不算clean，构建不代替Vue LSP；未跑/失败/覆盖不足如实记录。
 - 纯文档只核职责、事实、链接/兼容锚点及diff，不跑无关游戏/浏览器回归。Jev仅advisory、非证据或放行门，纯文档不用，见[集成边界](docs/jev-integration.md)。

@@ -68,7 +68,7 @@ async function check(row) {
       <ElTableColumn v-for="[key, title] in [['name','遊戲名稱'],['introduction','說明'],['version','版本號'],['state','狀態'],['validation','檢驗'],['created','創建時間'],['state-time','狀態時間'],['actions','操作']]" :key="key" :label="title" :min-width="key === 'actions' ? 240 : 180">
         <template #default="{ row }"><div :data-field="key" :data-game-id="row.gameId" :data-state="row.stateKey">
           <template v-if="key === 'state'"><ElTag :type="stateTags[row.stateKey]">{{ row.state }}</ElTag><ElTag v-if="row.rejected" data-field="rejected" type="danger">已駁回</ElTag></template>
-          <div v-else-if="key === 'validation'" :data-validation="row.validationKey" :title="row.publishHint">{{ row.validation }}<br><small>{{ row.validationTime }}</small></div>
+          <div v-else-if="key === 'validation'" class="validation-cell" :data-validation="row.validationKey" :title="row.publishHint"><span>{{ row.validation }}</span><small>{{ row.validationTime }}</small></div>
           <template v-else-if="key === 'created'">{{ time(row.createdAt) }}</template><template v-else-if="key === 'state-time'">{{ time(row.stateTime) }}</template>
           <div v-else-if="key === 'actions'" class="account-row-actions"><ElButton data-action="check" :disabled="busy || model.checkDisabled" @click="check(row)">校驗</ElButton><ElButton data-action="publish" :title="row.publishHint" :disabled="busy || row.publishDisabled" @click="publish(row)">上架申請</ElButton></div>
           <template v-else>{{ row[key] }}</template>

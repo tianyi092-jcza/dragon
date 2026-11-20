@@ -8,7 +8,7 @@ import { ElPopover } from 'element-plus/es/components/popover/index.mjs';
 import { ElConfigProvider } from 'element-plus/es/components/config-provider/index.mjs';
 import { vLoading } from 'element-plus/es/components/loading/index.mjs';
 import zhTw from 'element-plus/es/locale/lang/zh-tw.mjs';
-import { ElMenu, ElMenuItem, ElMenuItemGroup } from 'element-plus/es/components/menu/index.mjs';
+import { ElMenu, ElMenuItem } from 'element-plus/es/components/menu/index.mjs';
 import WorkspaceIcon from './WorkspaceIcon.vue';
 import LoginPage from './LoginPage.vue';
 import AccountPages from './AccountPages.vue';
@@ -36,12 +36,8 @@ defineExpose({ accountDirty: () => accountsPanel.value?.dirty() ?? false });
 const userMenu = ref(false);
 const collapsed = ref(false), navigationMenu = ref(null);
 const ready = computed(() => props.state.authenticated && !props.state.mustChange);
+// 選單不再分組顯示：順序即 views 數組順序；權限過濾不變。
 const menu = computed(() => props.state.views.filter(item => !item[2] || props.state.admin));
-// 選單只有一級，分組只作標籤：工作台級（底層資源）→ 遊戲級 → 管理員專屬。
-const groups = computed(() => {
-  const labels = { workbench: '工作台級', game: '遊戲級', admin: '管理員' };
-  return Object.entries(labels).map(([key, label]) => ({ key, label, items: menu.value.filter(item => item[3] === key) })).filter(group => group.items.length);
-});
 // 頂部選擇器是全局「當前遊戲」上下文；切換須經草稿控制器的未保存改動攔截。
 function switchGame(value) { props.draft.chooseGame(value); }
 const activeMap = computed(() => {
@@ -64,7 +60,7 @@ async function go(view) {
   <ElConfigProvider :locale="zhTw" size="default" :empty-values="[null, undefined]">
   <div v-loading.fullscreen="globalLoading" :element-loading-svg="loadingSvg" element-loading-custom-class="workbench-loading" :aria-busy="Boolean(state.busy || state.loading)" class="workbench" :class="{ 'auth-layout': !ready, 'nav-collapsed': ready && collapsed, 'map-workspace': ready && Boolean(activeMap) }" :style="{ fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)', color: 'var(--el-text-color-primary)' }">
     <header class="workbench-header">
-      <ElLink v-if="ready" :underline="false" class="brand brand-static" href="#draft-editor" @click.prevent="go('draft-editor')"><img class="brand-mark" src="/brand.png" alt="臥龍傳"><span>臥龍傳<span class="brand-caption">創作工作台</span></span></ElLink>
+      <ElLink v-if="ready" :underline="false" class="brand brand-static" href="#copy" @click.prevent="go('copy')"><img class="brand-mark" src="/brand.png" alt="臥龍傳編輯器"><span class="brand-title">臥龍傳編輯器</span></ElLink>
       <div class="current-game" :hidden="!ready">
         <span>當前遊戲</span>
         <ElSelect id="current-game" :model-value="draftModel.fields.gameId" :disabled="state.busy || draftModel.gameLocked" @change="switchGame">
@@ -90,11 +86,9 @@ async function go(view) {
     </header>
     <aside id="menu" class="workbench-menu" :hidden="!ready" aria-label="編輯模組">
       <ElMenu ref="navigationMenu" class="module-menu" :collapse="collapsed" :collapse-transition="false" :default-active="state.view" @select="go">
-        <ElMenuItemGroup v-for="group in groups" :key="group.key" :title="collapsed ? '' : group.label">
-          <ElMenuItem v-for="[id, label] in group.items" :key="id" :index="id" :data-view="id" :aria-label="label" :aria-current="state.view === id ? 'page' : undefined" :disabled="state.busy">
-            <WorkspaceIcon :name="id" /><template #title>{{ label }}</template>
-          </ElMenuItem>
-        </ElMenuItemGroup>
+        <ElMenuItem v-for="[id, label] in menu" :key="id" :index="id" :data-view="id" :aria-label="label" :aria-current="state.view === id ? 'page' : undefined" :disabled="state.busy">
+          <WorkspaceIcon :name="id" /><template #title>{{ label }}</template>
+        </ElMenuItem>
       </ElMenu>
       <div class="navigation-footer">
         <ElButton :aria-expanded="!collapsed" :aria-label="collapsed ? '展開導覽' : '折疊導覽'" @click="collapsed = !collapsed"><WorkspaceIcon :name="collapsed ? 'expand' : 'collapse'" /></ElButton>

@@ -7,13 +7,15 @@ body { overflow: hidden; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-static, .brand-static:hover, .brand-static:focus { color: inherit; cursor: default; text-decoration: none; }
 .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; margin-right: 12px; object-fit: contain; }
+/* 用戶明确要求：品牌单行 20px 加粗（默认字阶约定的例外）。 */
+.brand-title { font-size: 20px; font-weight: 700; white-space: nowrap; }
 .auth-card { text-align: center; }
 .auth-logo { display: block; width: 128px; height: 128px; margin: 0 auto 8px; }
 .auth-card form { display: flex; flex-direction: column; align-items: center; }
 .auth-card form > label { width: 50%; text-align: left; }
 .auth-card form > .el-button { width: 50%; margin-top: 24px; }
 .brand-caption, .account-secondary { display: block; }
-.account-actions, .current-game, .page-line, .module-toolbar, .resource-toolbar, .resource-categories, .resource-filter, .account-filters, .account-row-actions, .account-tags, .chapter-order { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.account-actions, .current-game, .page-line, .module-toolbar, .resource-toolbar, .resource-categories, .resource-filter, .account-filters, .account-row-actions, .account-tags, .chapter-order, .validation-cell { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .current-game { margin-left: auto; }
 .current-game .el-select { width: 260px; }
 #menu { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }

@@ -22,6 +22,7 @@ const libraryView = readFileSync('editor-ui/src/LibraryPanel.vue', 'utf-8');
 const strongholdView = readFileSync('editor-ui/src/StrongholdPanel.vue', 'utf-8');
 const baseStrongholdView = readFileSync('editor-ui/src/SystemStrongholdPanel.vue', 'utf-8');
 const mapView = readFileSync('editor-ui/src/MapPanel.vue', 'utf-8');
+const baseMapView = readFileSync('editor-ui/src/BaseMapPanel.vue', 'utf-8');
 const catalogView = readFileSync('editor-ui/src/CatalogPanel.vue', 'utf-8');
 const generalsView = readFileSync('editor-ui/src/GeneralsPanel.vue', 'utf-8');
 const copyView = readFileSync('editor-ui/src/CopyPanel.vue', 'utf-8');
@@ -30,7 +31,7 @@ const publishView = readFileSync('editor-ui/src/PublishPanel.vue', 'utf-8');
 // 它們不在出貨殼內，讀它們只會製造「面板存在」的假通過。
 const reviewView = readFileSync('editor-ui/src/ReviewPanel.vue', 'utf-8');
 const copyGameView = readFileSync('editor-ui/src/CopyGamePanel.vue', 'utf-8');
-const htmlIds = new Set([...(reviewView + copyGameView + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + baseStrongholdView + mapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
+const htmlIds = new Set([...(reviewView + copyGameView + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + baseStrongholdView + mapView + baseMapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
 // Login home: login form + hidden session/menu; no business content outside.
 check("login-form", accountViews.includes('<form id="login">'));
 check("menu-nav", shell.includes('<aside id="menu"') && shell.includes(':hidden="!ready"'));
@@ -40,15 +41,16 @@ check("session-hidden", shell.includes('<section id="session" :hidden="!state.au
 // three-level workbench structure; cancelled modules keep server capability.
 	// 視圖 id 與面板根節點 id 不是同一件事（歷史名 management-editor 渲染 ReviewPanel 的 review-editor），
 	// 因此逐項登記面板組件，並要求出貨殼真的 import 該組件、且用同一視圖 id 控制顯示。
-	const viewPanels = { "copy": ["CopyPanel", "copy"], "draft-editor": ["DraftPanel", "draft-editor"], "admin": ["AccountsPanel", "admin"], "catalog-editor": ["CatalogPanel", "catalog-editor"], "stronghold-editor": ["StrongholdPanel", "stronghold-editor"], "base-stronghold-editor": ["SystemStrongholdPanel", "base-stronghold-editor"], "mapview-editor": ["MapPanel", "mapview-editor"], "generals-editor": ["GeneralsPanel", "generals-editor"], "chapters-editor": ["ChaptersPanel", "chapters-editor"], "publish-editor": ["PublishPanel", "publish-editor"], "management-editor": ["ReviewPanel", "review-editor"], "copy-game-editor": ["CopyGamePanel", "copy-game-editor"] };
+	const viewPanels = { "copy": ["CopyPanel", "copy"], "admin": ["AccountsPanel", "admin"], "catalog-editor": ["CatalogPanel", "catalog-editor"], "stronghold-editor": ["StrongholdPanel", "stronghold-editor"], "base-stronghold-editor": ["SystemStrongholdPanel", "base-stronghold-editor"], "generals-editor": ["GeneralsPanel", "generals-editor"], "chapters-editor": ["ChaptersPanel", "chapters-editor"], "publish-editor": ["PublishPanel", "publish-editor"], "management-editor": ["ReviewPanel", "review-editor"], "copy-game-editor": ["CopyGamePanel", "copy-game-editor"] };
 	for (const [id, [component, root]] of Object.entries(viewPanels)) {
-		check(`view-section:${id}`, htmlIds.has(root) && client.includes(`'${id}'`) && shell.includes(`import ${component} from './${component}.vue'`) && shell.includes(`state.view !== '${id}'`));
+		check(`view-section:${id}`, htmlIds.has(root) && client.includes(`'${id}'`) && shell.includes(`import ${component} from './${component}.vue'`) && (shell.includes(`state.view !== '${id}'`) || shell.includes(`state.view === '${id}'`)));
 	}
-// Menu labels are fixed by the product contract.
-for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "人物頭像", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架管理", "上架審核", "複製遊戲"]) {
+// 地图双面板共用 BaseMapPanel：根 id 按 gameScoped 动态切换，单独立检查。
+check("view-section:map-panels", baseMapView.includes("'game-map-editor'") && baseMapView.includes("'base-map-editor'") && client.includes("'mapview-editor'") && client.includes("'base-map-editor'") && shell.includes("import BaseMapPanel from './BaseMapPanel.vue'") && shell.includes("state.view === 'mapview-editor'") && shell.includes("state.view === 'base-map-editor'"));
+for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "人物頭像", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架審核", "複製遊戲"]) {
 	check(`view-label:${label}`, client.includes(`'${label}'`));
 }
-check("menu-groups", ["workbench", "game", "admin"].every(group => client.includes(`'${group}'`)) && shell.includes("'工作台級'") && shell.includes("'遊戲級'"));
+check("menu-groups", ["game", "admin"].every(group => client.includes(`'${group}'`)) && !client.includes("'workbench'") && !shell.includes("ElMenuItemGroup") && !shell.includes("工作台級") && !shell.includes("遊戲級"));
 check("cancelled-views-absent", !["stage-editor", "stage-assets-editor", "library-editor", "deletion-editor"].some(id => client.includes(`'${id}'`)) && !shell.includes("stage-assets-editor") && !shell.includes('id="library-editor"'));
 check("current-game-selector", shell.includes('id="current-game"') && shell.includes("props.draft.chooseGame(event.target.value)") && readFileSync("server/public/draft.txt", "utf-8").includes("function chooseGame"));
 // Role gate: admin view withheld from non-admin/must-change; menu hidden anon.

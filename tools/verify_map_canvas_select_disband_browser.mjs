@@ -20,7 +20,7 @@ const root = new URL('../server/public/', import.meta.url);
 const modules = { 'client.js': 'client.txt', 'shell-ui.js': 'shell-ui.txt', 'draft.js': 'draft.txt', 'stage.js': 'stage.txt', 'library.js': 'library.txt', 'catalog.js': 'catalog.txt', 'management.js': 'management.txt', 'publish.js': 'publish.txt', 'review.js': 'review.txt', 'stronghold.js': 'stronghold.txt', 'general.js': 'general.txt', 'mapview.js': 'mapview.txt', 'stage-assets.js': 'stageassets.txt' };
 const server = createServer(async (req, res) => {
   const name = new URL(req.url, 'http://localhost').pathname.slice(1) || 'index.html';
-  if (name === 'favicon.ico') return res.writeHead(204).end();
+  if (['favicon.ico', 'brand.png', 'auth-logo.png'].includes(name)) { res.setHeader('Content-Type', name.endsWith('.ico') ? 'image/x-icon' : 'image/png'); res.end(await readFile(new URL(name, root))); return; }
   const file = modules[name] ?? (['index.html', 'shell-ui.css', 'style.css'].includes(name) ? name : null);
   if (!file) return res.writeHead(404).end();
   res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html');

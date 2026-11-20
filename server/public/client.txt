@@ -53,15 +53,14 @@ async function apiRequest(path, value, options) {
     const error = new Error(errors[data.error] ?? ('這次沒有完成：系統回報「' + (data.error || '未提供原因') + '」。可以再試一次；若一直出現，請把這句話連同代碼告訴管理員。')); error.status = response.status; error.code = data.error; if (data.detail !== undefined) error.detail = data.detail; throw error; }
   return data;
 }
-// 三層：工作台級（底層資源）→ 遊戲級（遊戲章節）→ 管理員專屬；第二欄為選單顯示名，第三欄為管理員限定。
+// 二層：遊戲級→ 管理員專屬；第二欄為選單顯示名，第三欄為管理員限定。
 const views = [
-  ['copy', '新建遊戲', false, 'workbench'],
-  ['draft-editor', '遊戲管理', false, 'workbench'],
+  ['copy', '新建遊戲', false, 'game'],
   ['stronghold-editor', '城池據點', false, 'game'],
   ['mapview-editor', '地圖管理', false, 'game'],
   ['generals-editor', '武將管理', false, 'game'],
   ['chapters-editor', '遊戲章節', false, 'game'],
-  ['publish-editor', '上架管理', false, 'game'],
+  ['publish-editor', '遊戲管理', false, 'game'],
   ['management-editor', '上架審核', true, 'admin'],
   ['copy-game-editor', '複製遊戲', true, 'admin'],
   ['base-stronghold-editor', '基礎據點', true, 'admin'],
@@ -77,7 +76,7 @@ function permittedView(next) {
   if (!current || current.user.mustChangePassword) return null;
   if (['profile', 'password'].includes(next)) return next;
   const item = views.find(([id]) => id === next);
-  return item && (!item[2] || current.user.role === 'admin') ? next : 'draft-editor';
+  return item && (!item[2] || current.user.role === 'admin') ? next : 'copy';
 }
 // 進入清單型模組就自動載入一次（用戶要求）：刪除、上架等操作做完後直接切過去，
 // 看到的就是當下真實清單，不必先看到舊資料再按「重新整理」。
@@ -160,10 +159,10 @@ async function openGameView(id, target) {
 }
 const draftUI = installDraftEditor({ api, authority: () => current, work: run, isBusy: () => busy, gameContext: contextFor('draft'), publish: model => shell.draft(model), onContextChanged: () => { stageUI?.render(); libraryUI?.render(); stageAssetUI?.render(); } });
 Object.assign(draftActions, draftUI.actions);
-const copyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.copy(model), gotoGame: id => openGameView(id, 'draft-editor')});
+const copyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, publish: model => shell.copy(model), gotoGame: id => openGameView(id, 'publish-editor')});
 Object.assign(copyActions, copyUI.actions);
-// B6 管理員「複製遊戲」：地圖＋章節＋武將全套複製，入口在「遊戲管理」。
-const fullCopyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, mode: 'full', publish: model => shell.fullCopy(model), gotoGame: id => openGameView(id, 'draft-editor'), onCreated: () => { draftRefreshPending = true; }});
+// B6 管理員「複製遊戲」：地圖＋章節＋武將全套複製，入口在「複製遊戲」。
+const fullCopyUI = createCopyController({api, authority: () => current, work: run, isBusy: () => busy, mode: 'full', publish: model => shell.fullCopy(model), gotoGame: id => openGameView(id, 'publish-editor'), onCreated: () => { draftRefreshPending = true; }});
 Object.assign(fullCopyActions, fullCopyUI.actions);
 const baseMapUI = createBaseMapWorkbench({ api, work: run, publish: model => shell.baseMap(model), confirm: text => confirm(text) });
 Object.assign(baseMapActions, baseMapUI.actions);

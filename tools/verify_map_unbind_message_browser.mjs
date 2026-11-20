@@ -32,7 +32,7 @@ let browser, snapshot = null;
 const errors = [], failures = [];
 const server = createServer(async (req, res) => {
   const name = new URL(req.url, 'http://localhost').pathname.slice(1) || 'index.html';
-  if (name === 'favicon.ico') return res.writeHead(204).end();
+  if (['favicon.ico', 'brand.png', 'auth-logo.png'].includes(name)) { res.setHeader('Content-Type', name.endsWith('.ico') ? 'image/x-icon' : 'image/png'); res.end(await readFile(new URL(name, root))); return; }
   const file = modules[name] ?? (['index.html', 'shell-ui.css', 'style.css'].includes(name) ? name : null);
   if (!file) return res.writeHead(404).end();
   res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html');

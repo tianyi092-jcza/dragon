@@ -45,7 +45,7 @@ const posts = [];
 let digest = 'a'.repeat(64);
 const server = createServer(async (req, res) => {
   const name = new URL(req.url, 'http://localhost').pathname.slice(1) || 'index.html';
-  if (name === 'favicon.ico') return res.writeHead(204).end();
+  if (['favicon.ico', 'brand.png', 'auth-logo.png'].includes(name)) { res.setHeader('Content-Type', name.endsWith('.ico') ? 'image/x-icon' : 'image/png'); res.end(await readFile(new URL(name, root))); return; }
   const file = modules[name] ?? (['index.html', 'shell-ui.css', 'style.css'].includes(name) ? name : null);
   if (!file) return res.writeHead(404).end();
   res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html');
@@ -94,7 +94,7 @@ try {
   const idle = () => page.waitForFunction(() => document.querySelector('.workbench')?.getAttribute('aria-busy') === 'false');
   await page.goto('http://127.0.0.1:' + server.address().port);
   await idle();
-  await page.locator('#menu [data-view="draft-editor"]').click(); await idle();
+  // draft-editor 已退役：改走頂欄當前遊戲選擇器（與可見性套件同式）。
   await page.getByRole('button', { name: '重新整理', exact: true }).first().click(); await idle();
   await page.locator('.current-game .el-select').click();
   await page.getByRole('option', { name: data.metadata.name, exact: true }).click(); await idle();
