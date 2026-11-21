@@ -72,6 +72,7 @@ try {
     }));
   }
   const allowed = new Map(manifest.files.map(file => [file.path, file]));
+  for (const path of ['grf/defeat.png', 'grf/victory.png']) assert.equal(allowed.get(path)?.kind, 'asset', path);
   const readStatic = async (path, { maxBytes }) => {
     assert.ok(path === 'static-release.json' || allowed.get(path)?.kind === 'asset');
     assert.ok(maxBytes > 0);

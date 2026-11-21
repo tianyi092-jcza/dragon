@@ -131,8 +131,6 @@ for (const type of ["cavalry", "archer", "infantry"]) {
 add("battleUI", "grf/ui/battle_formation_stone.png");
 add("font", "font/Oswald-Light.woff2");
 add("end", "grf/gameover.png");
-add("end", "grf/defeat.png");
-add("end", "grf/victory.png");
 for (let i = 1; i <= 12; i++) {
 	add("end", `grf/end_s${i}.png`);
 }

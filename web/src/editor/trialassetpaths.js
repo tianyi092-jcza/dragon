@@ -73,8 +73,6 @@ paths.push(
 	"grf/ui/battle_formation_stone.png",
 	"font/Oswald-Light.woff2",
 	"grf/gameover.png",
-	"grf/defeat.png",
-	"grf/victory.png",
 );
 for (let i = 1; i <= 12; i++) {
 	paths.push(`grf/end_s${i}.png`);

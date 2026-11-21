@@ -165,8 +165,8 @@ site("endview-endings", "web/src/game/ai.js",
 		assert.ok(text("web/src/render/endview.js").includes('grf/defeat.png'), "endview defeat anchor");
 		assert.ok(text("web/src/render/endview.js").includes('grf/victory.png'), "endview victory anchor");
 		assert.ok(text("web/src/render/victorymodal.js").includes('grf/ui/cloud.png'), "victory modal cloud anchor");
-		claim("endview-endings", "grf/defeat.png");
-		claim("endview-endings", "grf/victory.png");
+		for (const p of ["grf/defeat.png", "grf/victory.png"]) assert.ok(!library.has(p), `玩家程式資產不得列入固定素材庫：${p}`);
+		claim("endview-endings", "grf/gameover.png");
 		for (let i = 1; i <= 12; i++) claim("endview-endings", `grf/end_s${i}.png`);
 	});
 
