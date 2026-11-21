@@ -3,6 +3,7 @@
 // 容量：现行规则 profile 只接受 384x256；据点为 live 1..512（D2 用户批准），
 // 192 固定槽域只描述原版/Custom 导入基线，不再是校验锁。
 
+import { isNorthExtension } from './mapextent.js';
 import { composeMapLayers } from "./maplayers.js";
 
 export const MAP_SCHEMA_VERSION = 1;
@@ -29,12 +30,13 @@ export function validateMapSource(src, options = {}) {
   if (!src || typeof src !== "object") throw new TypeError("map source must be an object");
   if (src.schemaVersion !== MAP_SCHEMA_VERSION) throw new RangeError("unsupported map schemaVersion");
   const bounds = src.map?.bounds;
-  if (!bounds || bounds.width !== SUPPORTED_BOUNDS.width || bounds.height !== SUPPORTED_BOUNDS.height || bounds.tileSize !== SUPPORTED_BOUNDS.tileSize)
+  const northExperiment = options.northExperiment === true && isNorthExtension(bounds);
+  if (!bounds || (!northExperiment && (bounds.width !== SUPPORTED_BOUNDS.width || bounds.height !== SUPPORTED_BOUNDS.height)) || bounds.tileSize !== SUPPORTED_BOUNDS.tileSize)
     throw new RangeError("unsupported map bounds for current rule profile");
   if (!Number.isInteger(bounds.minX) || !Number.isInteger(bounds.minY)) throw new TypeError("bounds minX/minY must be integers");
   // A-CAP-1：现行规则 profile 只支持原点域；左／上扩边会平移编译坐标，
   // 须转换全部地图引用（排查§4），在 G-CAP 适配完成前明确拒绝而非默许。
-  if (bounds.minX !== 0 || bounds.minY !== 0) throw new RangeError("non-zero map origin is not supported by the current rule profile");
+  if (!northExperiment && (bounds.minX !== 0 || bounds.minY !== 0)) throw new RangeError("non-zero map origin is not supported by the current rule profile");
   const W = bounds.width;
   const H = bounds.height;
   const base = src.map?.base;
@@ -83,7 +85,7 @@ export function validateMapSource(src, options = {}) {
   // base or the water display class. The same composition serves all ids.
   const layered = composeMapLayers(src, { draft });
   diagnostics.push(...layered.diagnostics);
-  const tileAt = (x, y) => layered.terrain[y * W + x];
+  const tileAt = (x, y) => layered.terrain[(y - bounds.minY) * W + x - bounds.minX];
   // A-ROAD-1 disconnect refusal (authoring side): each endpoint must be a
   // D4..DD port tile, cardinally aligned with its endpoint city at
   // distance 1..2 (certified 508/508 on original output). Truncated or
@@ -174,8 +176,8 @@ export function assertMapConnected(src) {
 
 // Four-layer opaque original-byte composition + independent explicit
 // water geography + static road geometry. No guessed movement/cost rule.
-export function compileMapSource(src) {
-  validateMapSource(src);
+export function compileMapSource(src, { northExperiment = false } = {}) {
+  validateMapSource(src, { northExperiment });
   const W = src.map.bounds.width;
   const H = src.map.bounds.height;
   const layered = composeMapLayers(src);

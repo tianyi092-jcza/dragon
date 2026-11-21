@@ -304,7 +304,7 @@ function addCopyRoad(source, edit, descriptors) {
   syncRoadEndpoints(next, fromCityId, toCityId);
   return next;
 }
-function syncRoadEndpoints(next, fromCityId, toCityId) {
+export function syncRoadEndpoints(next, fromCityId, toCityId) {
   const want = refreshChapterNeighbours(next);
   const idBySlot = new Map(Object.values(next.cities).map(c => [c?.runtimeSlot, c?.cityId]));
   for (const chapterId of next.chapterOrder ?? []) {

@@ -2,7 +2,8 @@
 // Owns center identity/coordinates; the caller owns source schema, footprints,
 // chapter references and rule inputs. Bounds stay 384x256 (Web product contract).
 // Not wired into the fixed-v1 compiler until the whole new contract is ready.
-export function compileCityIdentity({ cities, cityOrder, placements }) {
+import { ORIGINAL_EXTENT, containsTile } from './mapextent.js';
+export function compileCityIdentity({ cities, cityOrder, placements }, extent = ORIGINAL_EXTENT) {
   if (!cities || typeof cities !== 'object' || Array.isArray(cities) ||
       !Array.isArray(cityOrder) || !Array.isArray(placements)) {
     throw new TypeError('city dictionary, order and placements required');
@@ -24,11 +25,10 @@ export function compileCityIdentity({ cities, cityOrder, placements }) {
       throw new RangeError('unknown or multiply placed city identity');
     }
     const { x, y } = placement;
-    if (!Number.isInteger(x) || x < 0 || x >= 384 ||
-        !Number.isInteger(y) || y < 0 || y >= 256) {
+    if (!containsTile(extent, x, y)) {
       throw new RangeError(`city placement outside 384x256: ${cityId}`);
     }
-    const cell = y * 384 + x;
+    const cell = (y - extent.minY) * extent.width + x - extent.minX;
     if (centers.has(cell)) throw new RangeError(`duplicate city center: ${cityId}`);
     centers.add(cell);
     placed.add(cityId);

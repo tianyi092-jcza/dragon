@@ -8,6 +8,7 @@
 // never trusted as authority. Deterministic: no timestamps/randomness.
 // Rule profile: ki-1995/web-0.1.1 (shared, never renamed per game).
 import { validateMapSource } from "./mapcompile.js";
+import { ORIGINAL_EXTENT, containsTile } from './mapextent.js';
 import { deriveSlots } from "./roadedit.js";
 import { captureChapterCities } from "./cityrecords.js";
 import { emptyGeneralSlot, materializeChapterState } from "./chaptermaterialize.js";
@@ -711,7 +712,7 @@ export function renameChapter(game, chapterId, name) {
 // （非原版机制，治理时按 F17 刷新）；neighbourCityIds 全空（无路时与道路图一致，通路后须刷新）。
 // D2 可玩门：battleMapId 必填且必须是 192 攻城资源目录身份（ki-1995:siege:0..191，
 // 与现有战场共享是 Web 产品决定、非原版机制）；写定义＋全部章节行，缺之攻城投影拒收。
-export function admitChapterCity(game, cityId, troopsCap, battleMapId) {
+export function admitChapterCity(game, cityId, troopsCap, battleMapId, extent = ORIGINAL_EXTENT) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   const definition = game.cities?.[cityId];
   if (!isPlainObject(definition) || definition.cityId !== cityId) throw new RangeError(`unknown city: ${cityId}`);
@@ -721,7 +722,7 @@ export function admitChapterCity(game, cityId, troopsCap, battleMapId) {
   const slot = definition.runtimeSlot;
   if (!Number.isInteger(slot) || slot < 0 || slot > 511) throw new RangeError(`city ${cityId} needs a live runtime slot`);
   const place = (game.map?.placements ?? []).find(p => p?.cityId === cityId);
-  if (!place || !Number.isInteger(place.x) || place.x < 0 || place.x >= 384 || !Number.isInteger(place.y) || place.y < 0 || place.y >= 256)
+  if (!place || !containsTile(extent, place.x, place.y))
     throw new RangeError(`city ${cityId} must be placed on the map before chapter admission`);
   if (typeof definition.name !== "string" || !definition.name.trim()) throw new RangeError(`city ${cityId} needs a name before chapter admission`);
   const numbers = {};

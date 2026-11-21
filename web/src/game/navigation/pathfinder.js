@@ -11,6 +11,9 @@ export function createPathfinder(definition, roads, { fetcher, assertCurrent = (
     throw new TypeError("Invalid terrain resource ports");
   const W = definition.width,
     H = definition.height;
+  const minX = definition.minX ?? 0, minY = definition.minY ?? 0;
+  const inside = (x,y) => x >= minX && y >= minY && x < minX+W && y < minY+H;
+  const at = (x,y) => (y-minY)*W+x-minX;
   // 水域 tile: 水路也是路径但代价极高(原版陆路优先: 许昌-舞阳-汝南走陆路,
   // 水路仅在没有陆路可通时兑底, 如跨长江)
   const WATER = new Set([95, 202]);
@@ -85,21 +88,21 @@ export function createPathfinder(definition, roads, { fetcher, assertCurrent = (
 
   /** MMAP.MAP 原始图块编号；资源未就绪或越界时返回 null。 */
   function terrainTile(x, y) {
-    if (!terrain || x < 0 || y < 0 || x >= W || y >= H) return null;
-    return terrain[y * W + x];
+    if (!terrain || !inside(x,y)) return null;
+    return terrain[at(x,y)];
   }
 
   /** 该格道路线的质心偏移 [ox,oy] (像素, 相对格中心): 渲染虚线/标识时贴到道路线上 */
   function roadOffset(x, y) {
-    if (!terrain || !roadOff || x < 0 || y < 0 || x >= W || y >= H)
+    if (!terrain || !roadOff || !inside(x,y))
       return ZERO_OFF;
-    return roadOff[terrain[y * W + x]] || ZERO_OFF;
+    return roadOff[terrain[at(x,y)]] || ZERO_OFF;
   }
   const ZERO_OFF = Object.freeze([0, 0]);
 
   function passable(x, y) {
-    if (!roadCost || x < 0 || y < 0 || x >= W || y >= H) return false;
-    return roadCost[y * W + x] > 0;
+    if (!roadCost || !inside(x,y)) return false;
+    return roadCost[at(x,y)] > 0;
   }
 
   /** 该格允许的行军方向: 关卡只走南北门 / 城只走四门 / 其它 8 向 */
@@ -109,7 +112,7 @@ export function createPathfinder(definition, roads, { fetcher, assertCurrent = (
         [0, -1],
         [0, 1],
       ];
-    const t = terrain?.[y * W + x];
+    const t = terrainTile(x,y);
     if (CITY_TILES.has(t))
       return [
         [1, 0],
@@ -180,7 +183,7 @@ export function createPathfinder(definition, roads, { fetcher, assertCurrent = (
    */
   function findPath(sx, sy, tx, ty, isBlocked) {
     if (!roadCost) return null;
-    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return null;
+    if (!inside(tx,ty) || !inside(sx,sy)) return null;
     if (sx === tx && sy === ty) return [];
     if (!passable(tx, ty)) return null;
     if (isBlocked && isBlocked(tx, ty)) return null; // 目标本身被三方堵死
@@ -190,10 +193,10 @@ export function createPathfinder(definition, roads, { fetcher, assertCurrent = (
     const came = new Int32Array(W * H).fill(-1);
     const closed = new Uint8Array(W * H);
     const h = (x, y) => Math.abs(x - tx) + Math.abs(y - ty);
-    const si = sy * W + sx;
+    const si = at(sx,sy);
     gScore[si] = 0;
     open.push({ i: si, x: sx, y: sy, f: h(sx, sy) });
-    const ti = ty * W + tx;
+    const ti = at(tx,ty);
     let guard = W * H * 2; // 防病态地图死循环
 
     while (open.size && guard-- > 0) {
@@ -203,7 +206,7 @@ export function createPathfinder(definition, roads, { fetcher, assertCurrent = (
         const path = [];
         let i = ti;
         while (i !== si && i >= 0) {
-          path.push({ x: i % W, y: (i / W) | 0 });
+          path.push({ x: i % W + minX, y: Math.floor(i/W) + minY });
           i = came[i];
         }
         return path.reverse();
@@ -215,7 +218,7 @@ export function createPathfinder(definition, roads, { fetcher, assertCurrent = (
           ny = cur.y + dy;
         if (!passable(nx, ny)) continue;
         if (isBlocked && isBlocked(nx, ny)) continue; // 未开战第三方势力堵路
-        const ni = ny * W + nx;
+        const ni = at(nx,ny);
         if (closed[ni]) continue;
         // 城/关只许正向门进出: 斜向移动的两端任一是城则禁止
         if (dx !== 0 && dy !== 0) {

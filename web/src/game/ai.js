@@ -63,7 +63,8 @@ import {
   rebindNativeLegionViews,
 } from "./nativelegions.js";
 import { formationByte } from "./navigation/originalformation.js";
-import { scenarioNativeRoadContext } from "./scenarioassembly.js";
+import { scenarioGridRoadContext, scenarioNativeRoadContext } from "./scenarioassembly.js";
+import { advanceGridMarch } from './navigation/worldgridroads.js';
 import { performOriginalRoadAction } from "./navigation/originalroadmovement.js";
 import {
   performScenarioLegionFate,
@@ -5700,8 +5701,17 @@ function buildNativeSiegeBlocks(app, sc, A, context) {
 function isRoadSuspended(outcome) {
   return typeof outcome === "string" && outcome.endsWith("-suspended");
 }
-function performLegionSlotAction(app, A) {
+export function performLegionSlotAction(app, A) {
   const sc = app.scenario;
+  const grid = scenarioGridRoadContext(sc);
+  if (grid) {
+    const x = A.x, y = A.y;
+    const outcome = advanceGridMarch(sc,A,grid);
+    if (outcome === 'moved') {
+      A.prevX=x; A.prevY=y; A._renderMoveSerial=app.clock?.strategicTickSerial;
+    } else if (outcome === 'arrived') settleArrivedLegionCommand(sc,A,app.originalRng);
+    return 'complete';
+  }
   const native = scenarioNativeRoadContext(sc);
   if (native) {
     // Web _retreat lifecycle mirror of the arrival branch below: the marker

@@ -2,6 +2,8 @@
 // Fixed city slots/coordinates only; native cost/flags/ports are rechecked
 // through the existing E717/E81C/E961 adapter, never guessed from a picture.
 import { canonicalDigest, validateGameSource } from "./gamesource.js";
+import { compileCityIdentity } from './cityidentity.js';
+import { projectStructuredRoadGraph } from './structuredroadgraph.js';
 import { compileMapSource } from "./mapcompile.js";
 import { buildRoad, encodeRoadGraphV2 } from "./roadedit.js";
 import { validateOriginalRoadContent } from "../../game/navigation/originalroadcontent.js";
@@ -34,10 +36,11 @@ export function compileSourceIndex(game, cities, sha256hex) {
   return { cityIndex, chapterDigests };
 }
 
-export function compileGameSource(game, sha256hex) {
-  validateGameSource(game);
+export function compileGameSource(game, sha256hex, { northExperiment = false } = {}) {
+  validateGameSource(game, { northExperiment });
+  const extent = northExperiment ? game.map.bounds : undefined;
   const compiled = compileMapSource({ schemaVersion: 1, map: game.map,
-    componentDefinitions: game.componentDefinitions ?? {} });
+    componentDefinitions: game.componentDefinitions ?? {} }, { northExperiment });
   const placements = new Map(game.map.placements.map((p) => [p.cityId, p]));
   // Placement array order is editor state, NOT native node numbering.
   // CITY-CAPACITY-1 C5: slots are dense scan order 0..N-1; the composed
@@ -62,13 +65,14 @@ export function compileGameSource(game, sha256hex) {
     if (tile >= 0xcb && tile < 0xd4)
       nodeScan.push([at % compiled.width, Math.floor(at / compiled.width)]);
   }
+  const scanCities = extent ? cities.slice().sort((a,b) => a.y-b.y || a.x-b.x) : cities;
   if (nodeScan.length !== cities.length || nodeScan.some(([x, y], i) =>
-    x !== cities[i].x || y !== cities[i].y))
+    x + (extent?.minX ?? 0) !== scanCities[i].x || y + (extent?.minY ?? 0) !== scanCities[i].y))
     throw new RangeError("unsupported city node scan: composed plane differs from city slots");
   const checked = [];
-  const tiles = (x, y) => compiled.terrainBytes[y * compiled.width + x];
+  const tiles = (x, y) => compiled.terrainBytes[(y - (extent?.minY ?? 0)) * compiled.width + x - (extent?.minX ?? 0)];
   for (const road of game.map.roads) {
-    const derived = buildRoad({ ...road, cities: citiesById, roads: checked, tiles });
+    const derived = buildRoad({ ...road, cities: citiesById, roads: checked, tiles }, extent);
     const binding = road.nativeBinding;
     // edgeId is import provenance; addresses are reassigned by the encoder.
     const ruleBinding = { weight: binding?.weight, flags: binding?.flags,
@@ -77,19 +81,22 @@ export function compileGameSource(game, sha256hex) {
       throw new RangeError(`stale native road binding: ${road.id}`);
     checked.push({ ...derived, id: road.id });
   }
-  const roadGraph = encodeRoadGraphV2(checked, citiesById);
-  validateOriginalRoadContent(roadGraph);
+  const roadGraph = extent ? projectStructuredRoadGraph(checked, { placements: game.map.placements,
+    identity: compileCityIdentity({ cities: game.cities, cityOrder: cities.map(city => city.cityId), placements: game.map.placements }, extent) }, extent) : encodeRoadGraphV2(checked, citiesById);
+  if (!extent) validateOriginalRoadContent(roadGraph);
   const neighbors = roadGraph.nodes.map(() => []);
   for (const edge of roadGraph.edges) {
-    neighbors[edge.source].push(edge.target);
-    neighbors[edge.target].push(edge.source);
+    const source = extent ? edge.fromCityIndex : edge.source, target = extent ? edge.toCityIndex : edge.target;
+    neighbors[source].push(target);
+    neighbors[target].push(source);
   }
   for (const list of neighbors) list.sort((a, b) => a - b);
   for (const chapterId of game.chapterOrder) {
     const state = game.chapters[chapterId].state;
     for (const node of roadGraph.nodes) {
-      const city = state?.cities?.[node.id];
-      if (city?.idx !== node.id || city.x !== node.x || city.y !== node.y)
+      const nodeSlot = extent ? node.cityIndex : node.id;
+      const city = state?.cities?.[nodeSlot];
+      if (city?.idx !== nodeSlot || city.x !== node.x || city.y !== node.y)
         throw new RangeError(`chapter city/node mismatch: ${chapterId} slot ${node.id}`);
       // Imported fixed-slot chapters carry a compact native adjacency table.
       // No certified edited-chapter initializer is wired here: don't retain
@@ -101,7 +108,7 @@ export function compileGameSource(game, sha256hex) {
           throw new RangeError(`chapter native city coordinate mismatch: ${chapterId} slot ${node.id}`);
         const importedNeighbors = city.raw.slice(0x1c * 2).match(/../g)
           .map((hex) => Number.parseInt(hex, 16)).filter((idx) => idx !== 255).sort((a, b) => a - b);
-        if (importedNeighbors.join(",") !== neighbors[node.id].join(","))
+        if (importedNeighbors.join(",") !== neighbors[nodeSlot].join(","))
           throw new RangeError(`unsupported chapter topology change: ${chapterId} slot ${node.id}`);
         continue;
       }
@@ -134,7 +141,7 @@ export function compileGameSource(game, sha256hex) {
         namedNeighbors.push(slot);
       }
       namedNeighbors.sort((a, b) => a - b);
-      if (namedNeighbors.join(",") !== neighbors[node.id].join(","))
+      if (namedNeighbors.join(",") !== neighbors[nodeSlot].join(","))
         throw new RangeError(`unsupported chapter topology change: ${chapterId} slot ${node.id}`);
       for (const field of ["attr", "_aiCooldown", "_strategicLastFaction", "strategicBorderCount", "disaster_event", "cityCacheByte"]) {
         if (!Number.isInteger(city[field]) || city[field] < 0 || city[field] > 255)
@@ -151,9 +158,17 @@ export function compileGameSource(game, sha256hex) {
   const compat = game.compatibilityAssets;
   if (compat !== undefined) {
     if (typeof compat.roadCostHex !== "string" || !/^[0-9a-f]+$/i.test(compat.roadCostHex) ||
-        compat.roadCostHex.length !== compiled.width * compiled.height * 2)
+        compat.roadCostHex.length !== compiled.width * (extent ? 256 : compiled.height) * 2)
       throw new RangeError("invalid explicit compatibility roadCost bytes");
-    roadCost = Uint8Array.from(compat.roadCostHex.match(/../g), (hex) => Number.parseInt(hex, 16));
+    const baseCost = Uint8Array.from(compat.roadCostHex.match(/../g), (hex) => Number.parseInt(hex, 16));
+    roadCost = baseCost;
+    if (extent) {
+      roadCost = compiled.roadMask.slice();
+      roadCost.set(baseCost, -extent.minY * extent.width);
+      // Preserve explicit costs inside the original rectangle, as on old maps.
+      // Outside it the grid is only a visual projection; graph edges own travel.
+      for (const {x,y} of roadGraph.nodes) if (y < 0) roadCost[(y-extent.minY)*extent.width+x] = 1;
+    }
     if (typeof compat.roadOffsetJson !== "string") throw new RangeError("invalid explicit roadOffset JSON");
     let offsets;
     try { offsets = JSON.parse(compat.roadOffsetJson); }
@@ -171,7 +186,7 @@ export function compileGameSource(game, sha256hex) {
     // clearly NOT parity with original auxiliary assets and cannot serve
     // as the formal no-edit migration receipt. Never selected by gameId.
     roadCost = compiled.roadMask.slice();
-    for (const node of roadGraph.nodes) roadCost[node.y * compiled.width + node.x] = 1;
+    for (const node of roadGraph.nodes) roadCost[(node.y - (extent?.minY ?? 0)) * compiled.width + node.x] = 1;
     compatibilityAssetMode = "legacy-trial-derived-mask";
   }
   return { ...compiled, roadGraph, roadCost, roadOffsetBytes, compatibilityAssetMode,

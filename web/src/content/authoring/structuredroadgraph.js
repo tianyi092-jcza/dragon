@@ -1,7 +1,8 @@
 // CITY-CAPACITY-1/C2 transport projection, NOT road derivation or runtime admission.
 // citySource is returned by captureCitySource; its identity/coordinates are already
 // checked. Source roads retain visual/provenance data outside this runtime slice.
-export function projectStructuredRoadGraph(roads, citySource) {
+import { ORIGINAL_EXTENT, containsTile } from './mapextent.js';
+export function projectStructuredRoadGraph(roads, citySource, extent = ORIGINAL_EXTENT) {
   if (!Array.isArray(roads)) throw new TypeError('road array required');
   const { cityIds, indexByCityId } = citySource.identity;
   const positions = new Map(citySource.placements.map(p => [p.cityId, p]));
@@ -25,8 +26,7 @@ export function projectStructuredRoadGraph(roads, citySource) {
       throw new RangeError(`complete road points and flags required: ${road.id}`);
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     const points = Array.from(road.geometry, (point, i) => {
-      if (!Number.isInteger(point?.x) || point.x < 0 || point.x >= 384 ||
-          !Number.isInteger(point?.y) || point.y < 0 || point.y >= 256 ||
+      if (!containsTile(extent, point?.x, point?.y) ||
           !Number.isInteger(binding.flags[i]) || binding.flags[i] < 0 || binding.flags[i] > 255)
         throw new RangeError(`invalid road point/flag: ${road.id}/${i}`);
       minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x);
@@ -53,5 +53,6 @@ export function projectStructuredRoadGraph(roads, citySource) {
     return { roadId: road.id, fromCityIndex: indexByCityId[ends[0]],
       toCityIndex: indexByCityId[ends[1]], cost: binding.weight, points, bounds };
   });
+  if (extent !== ORIGINAL_EXTENT) return { version: 'world-grid-experiment', bounds: { ...extent }, nodes, edges };
   return { version: 3, width: 384, height: 256, nodes, edges };
 }

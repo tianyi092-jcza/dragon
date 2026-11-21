@@ -134,8 +134,9 @@ export function composeMapLayers(src, { draft = false } = {}) {
     const bound = recipe(instance.definitionRef, instance.variantRef, at);
     if (bound === null) return;
     const { def, tiles, waterCells } = bound;
-    integer(instance.x, 0, W - 1, at);
-    integer(instance.y, 0, H - 1, at);
+    const col = instance.x - (bounds.minX ?? 0), row = instance.y - (bounds.minY ?? 0);
+    integer(instance.x, bounds.minX ?? 0, (bounds.minX ?? 0) + W - 1, at);
+    integer(instance.y, bounds.minY ?? 0, (bounds.minY ?? 0) + H - 1, at);
     if (instance.waterClass !== undefined && !Object.hasOwn(WATER_CLASSES, instance.waterClass))
       fail("INVALID_WATER_CLASS", at);
     // A non-water component never erases lower water geography, even
@@ -144,8 +145,8 @@ export function composeMapLayers(src, { draft = false } = {}) {
     if (instance.minimapLand !== undefined && (typeof instance.minimapLand !== 'boolean' || tiles.length !== 1)) fail('INVALID_LAND_MASK', at);
     const landCells = seaGround && selectWater ? new Set(componentGroundMask(def, instance).map(point => point.join(','))) : null;
     for (const [dx, dy, tile] of tiles) {
-      const x = instance.x + dx - def.anchor[0];
-      const y = instance.y + dy - def.anchor[1];
+      const x = col + dx - def.anchor[0];
+      const y = row + dy - def.anchor[1];
       integer(x, 0, W - 1, at);
       integer(y, 0, H - 1, at);
       terrain[y * W + x] = tile;

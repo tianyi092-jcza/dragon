@@ -3,6 +3,8 @@ import { DEFAULT_WORLD } from "../content/worlddefinition.js";
 import { loadSeasonTile, loadImage, loadBytes } from "../core/assets.js";
 import { createChunkedTerrain } from "../render/chunkedterrain.js";
 import { SEASONS } from "./world.js";
+import { isNorthExtension } from '../content/authoring/mapextent.js';
+import { createWorldGridRoads } from './navigation/worldgridroads.js';
 import { createRoadGraph } from "./navigation/roadgraph.js";
 import { createPathfinder } from "./navigation/pathfinder.js";
 
@@ -16,7 +18,7 @@ function freezeDefinition(value) {
 
 export function createWorldResources(definition = DEFAULT_WORLD, {
   fetcher, imageLoader = loadImage, bytesLoader = loadBytes,
-  seasonLoader = loadSeasonTile, assertCurrent = () => {},
+  seasonLoader = loadSeasonTile, assertCurrent = () => {}, northExperiment = false,
 } = {}) {
   // Trusted local I/O/lifecycle ports, not runtime admission or server authority.
   if ((fetcher !== undefined && typeof fetcher !== "function") ||
@@ -26,7 +28,7 @@ export function createWorldResources(definition = DEFAULT_WORLD, {
   // 当前世界仍有固定坐标/槽位/图块语义约束，不能靠修改width就启用扩容。
   if (
     definition.width !== 384 ||
-    definition.height !== 256 ||
+    (northExperiment ? !isNorthExtension(definition) : definition.height !== 256 || (definition.minX ?? 0) !== 0 || (definition.minY ?? 0) !== 0) ||
     definition.tileSize !== 16
   )
     throw new RangeError(
@@ -34,7 +36,7 @@ export function createWorldResources(definition = DEFAULT_WORLD, {
     );
   // Capture identity and URLs before asynchronous loads; never retain caller aliases.
   definition = freezeDefinition(structuredClone(definition));
-  const roads = createRoadGraph(definition.assets.roadGraph, { fetcher, assertCurrent });
+  const roads = northExperiment ? createWorldGridRoads(definition,{fetcher,assertCurrent}) : createRoadGraph(definition.assets.roadGraph, { fetcher, assertCurrent });
   const terrain = createPathfinder(definition, roads, { fetcher, assertCurrent });
   return Object.freeze({
     definition, roads, terrain,

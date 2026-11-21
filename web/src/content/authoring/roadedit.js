@@ -62,7 +62,8 @@ function fail(code, message, entities = {}) {
 }
 
 // tiles: (x, y) -> byte. cities: Map cityId -> { x, y }.
-export function buildRoad({ fromCityId, toCityId, geometry, travelKind, cities, roads, tiles }) {
+import { ORIGINAL_EXTENT, containsTile } from './mapextent.js';
+export function buildRoad({ fromCityId, toCityId, geometry, travelKind, cities, roads, tiles }, extent = ORIGINAL_EXTENT) {
   if (!fromCityId || !toCityId) fail("bad-endpoints", "road needs both endpoint cities");
   if (fromCityId === toCityId) fail("self-loop", "road endpoints must differ", { city: fromCityId });
   const from = cities.get(fromCityId);
@@ -73,7 +74,7 @@ export function buildRoad({ fromCityId, toCityId, geometry, travelKind, cities, 
   if (!Array.isArray(geometry) || geometry.length < 2)
     fail("empty-geometry", "road geometry needs at least 2 points");
   for (const [i, pt] of geometry.entries()) {
-    if (!Number.isInteger(pt.x) || !Number.isInteger(pt.y) || pt.x < 0 || pt.x > 383 || pt.y < 0 || pt.y > 255)
+    if (!containsTile(extent, pt.x, pt.y))
       fail("out-of-bounds", `road point ${i} out of bounds`, { index: i });
     if (i > 0) {
       const prev = geometry[i - 1];

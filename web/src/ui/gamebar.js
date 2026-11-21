@@ -47,6 +47,11 @@ import { roadNodeAt, roadNodeRawAddress } from "../game/roadgraph.js";
 /** 出征/编成节点解析：剧本 world 路图优先（见 commands.js dispatchSourceRoadNode）；
  * 试玩壳自建 world，从不加载默认门面实例，用门面恒得 null。 */
 function scenarioRoadNode(sc, x, y) {
+  const grid = scenarioGridRoadContext(sc);
+  if (grid) {
+    const node = grid.graph.nodes.find(n=>n.x===x && n.y===y);
+    return node ? { id:node.cityIndex } : null;
+  }
   const context = scenarioNativeRoadContext(sc);
   return (context ? context.roads.roadNodeAt(x, y) : roadNodeAt(x, y));
 }
@@ -62,7 +67,7 @@ import {
 } from "../game/legionphase.js";
 import { countLegionActivation } from "../game/legioncounts.js";
 import { publishLegacyLegionRecord } from "../game/nativelegions.js";
-import { scenarioNativeRoadContext } from "../game/scenarioassembly.js";
+import { scenarioGridRoadContext, scenarioNativeRoadContext } from "../game/scenarioassembly.js";
 import {
   DEFAULT_LEGION_UNIT_TYPES,
   ensureLegionSlot,

@@ -162,6 +162,9 @@ function currentMetadata(idx, content, world, roadVersion) {
 }
 
 /** Explicit fresh/restore; v2 returns only a detached owner, never a playable App. */
+const gridOwners = new WeakMap();
+export const scenarioGridRoadContext = scenario => gridOwners.get(scenario);
+
 export async function prepareScenario({
   raw,
   idx,
@@ -173,6 +176,7 @@ export async function prepareScenario({
   movementMemory = null,
   terrainMemory = null,
   cityCache = null,
+  northExperiment = false,
 }) {
   if (mode !== "fresh" && mode !== "restore")
     throw new TypeError("Explicit scenario preparation mode required");
@@ -219,6 +223,25 @@ export async function prepareScenario({
   const roadVersion = world.roads.loadedRoadVersion();
   if (metadata !== null && roadVersion !== expected.roadVersion)
     throw new TypeError("Loaded road version mismatch");
+  if (northExperiment && mode === 'fresh' && roadVersion === 'world-grid-experiment') {
+    if (movementInput !== null || terrainInput !== null || cacheInput !== null) throw new TypeError('Fresh grid world requires fresh planes');
+    const graph = await world.roads.loadRoadGraph();
+    if (graph.nodes.length !== scenario.cities.length || graph.nodes.some((node,i) => {
+      const city = scenario.cities[i];
+      return city?.idx !== i || city.x !== node.x || city.y !== node.y || (city.cityId != null && city.cityId !== node.cityId);
+    })) throw new RangeError('World-grid chapter/road nodes disagree');
+    const {minX,minY,width,height} = world.definition, bounds = {minX,minY,width,height};
+    const movement = createScenarioMovementMemory({version:2,bounds,zeroFilled:true,spans:[]},
+      {identity:expected,memory:{initialGraph:world.definition.revision}},false,bounds);
+    for (const army of scenario.legions) {
+      const node = graph.nodes.find(n=>n.x===army.x && n.y===army.y);
+      if (!node) throw new RangeError('Fresh grid legion requires a city position');
+      army.roadPosition = {kind:'city',cityIndex:node.cityIndex};
+      movement.writeTile(army.x,army.y,movement.readTile(army.x,army.y)+1);
+    }
+    gridOwners.set(scenario,Object.freeze({graph,movement}));
+    return {scenario,metadata:{...expected,roadVersion}};
+  }
   expected.roadVersion = roadVersion;
   assertMetadata(expected);
   // P76 gate (entire v2 replacement): v1 owners are unconstructible.
@@ -436,6 +459,7 @@ export function scenarioNativeRoadContext(scenario) {
 /** Snapshot bound current identity and RAM without exposing either private owner. */
 export function snapshotScenarioAssembly(app) {
   const sc = app.scenario;
+  if (gridOwners.has(sc)) throw new TypeError('World-grid scenario saves not admitted');
   assertNoEmbeddedRoadMetadata(sc);
   const owner = assemblies.get(sc);
   if (!owner) {

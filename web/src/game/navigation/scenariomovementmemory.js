@@ -1,6 +1,6 @@
 // Web canonical occupancy plane, not a DOS segment emulator. March notes §3.12.
 // Explicit known spans only: no initialization from coordinates or legion counts.
-const SIZE = 384 * 256;
+import { ORIGINAL_EXTENT, containsTile, isNorthExtension } from '../../content/authoring/mapextent.js';
 
 export function movementPlaneAddress(rowParagraph, offset) {
   if (
@@ -18,11 +18,21 @@ export function movementPlaneAddress(rowParagraph, offset) {
   return rowParagraph * 16 + offset;
 }
 
-export function createScenarioMovementMemory(input, roadCheckpoint, restore) {
+export function createScenarioMovementMemory(input, roadCheckpoint, restore, extent = ORIGINAL_EXTENT) {
+  const expanded = isNorthExtension(extent);
+  if (!expanded && (extent.minX !== 0 || extent.minY !== 0 || extent.width !== 384 || extent.height !== 256)) throw new RangeError('Unsupported occupancy extent');
+  const SIZE = expanded ? extent.width * extent.height : 384 * 256;
+  const version = expanded ? 2 : 1;
+  const {minX,minY,width,height} = expanded ? extent : ORIGINAL_EXTENT;
+  const tileAddress = (x,y) => {
+    if (!containsTile({minX,minY,width,height},x,y)) throw new RangeError('Occupancy tile outside world');
+    return (y-minY)*width+x-minX;
+  };
   const identity = roadCheckpoint.identity;
   const initialGraph = roadCheckpoint.memory.initialGraph;
   if (
-    input?.version !== 1 ||
+    input?.version !== version ||
+    (expanded && (input.bounds?.minX !== minX || input.bounds.minY !== minY || input.bounds.width !== width || input.bounds.height !== height)) ||
     !Array.isArray(input.spans) ||
     input.spans.length > SIZE
   )
@@ -117,7 +127,8 @@ export function createScenarioMovementMemory(input, roadCheckpoint, restore) {
       spans.push({ address, hex });
     }
     const result = {
-      version: 1,
+      version,
+      ...(expanded && { bounds: {minX,minY,width,height} }),
       identity: structuredClone(identity),
       initialGraph,
       spans,
@@ -125,6 +136,18 @@ export function createScenarioMovementMemory(input, roadCheckpoint, restore) {
     if (zeroFilled) result.zeroFilled = true;
     return result;
   }
+  if (expanded) return Object.freeze({
+    readTile(x,y) {
+      const at = tileAddress(x,y);
+      if (!known[at]) throw new RangeError(`Uncovered movement byte: ${at}`);
+      return bytes[at];
+    },
+    writeTile(x,y,value) {
+      const at = tileAddress(x,y);
+      if (!Number.isInteger(value) || value < 0 || value > 255) throw new RangeError('Invalid movement byte write');
+      bytes[at] = value; known[at] = 1;
+    }, snapshot,
+  });
   return Object.freeze({ readByte, readAliasByte, writeByte, snapshot });
 }
 
