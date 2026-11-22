@@ -802,11 +802,11 @@ export function backfillRowBattlefields(game) {
 // 複製裝配：系統基從源遊戲提取據點身份字段（用戶產品決定）。城兵上限取源遊戲
 // 首章同槽行 troops_cap；攻城戰場取源遊戲據點定義 battleMapId。只覆蓋源遊戲確
 // 有的有效值（戰場地須 ki-1995:siege:0..191、上限須 0..255 整數）。源無值時：
-// base 已有手工值保留（更換持久化）；否則按引擎回退按槽位取 BATTLE.MAP 目錄
+// 匹配原城優先取來源槽；其餘保留模板手工值，缺值才按模板槽取 BATTLE.MAP 目錄
 //（createSiegeProjection 與 battlemapcatalog 編號一致，siege:N 即目錄 N；
 // 0..191 落數，192+ 留空等 admit 指名）。copyData.cities 同時餵遊戲副本與
 // 系統基，寫進去即兩邊完全一致。
-export function overlayBaseCityIdentity(copyData, source) {
+export function overlayBaseCityIdentity(copyData, source, { copyPictures = true } = {}) {
   if (!isPlainObject(copyData) || !isPlainObject(source)) throw new TypeError('game source required');
   const definitions = copyData.cities ?? {};
   const sources = Object.values(source.cities ?? {}).filter(city => isPlainObject(city) && typeof city.cityId === 'string');
@@ -819,9 +819,16 @@ export function overlayBaseCityIdentity(copyData, source) {
   for (const city of Object.values(definitions)) {
     if (!isPlainObject(city) || typeof city.cityId !== 'string') continue;
     const origin = sourceById.get(city.cityId) ?? sourceBySlot.get(city.runtimeSlot);
+    if (copyPictures && origin) {
+      const view = origin.view ?? rowBySlot.get(origin.runtimeSlot)?.view;
+      if (view != null) city.view = view;
+    }
     const siege = /^ki-1995:siege:(\d{1,3})$/.exec(origin?.battleMapId ?? '');
     if (origin && siege && Number(siege[1]) <= 191) { city.battleMapId = origin.battleMapId; battlefields++; }
-    else if (!/^ki-1995:siege:(\d{1,3})$/.test(city.battleMapId ?? '')) {
+    else if (origin && Number.isInteger(origin.runtimeSlot) && origin.runtimeSlot >= 0 && origin.runtimeSlot < 192) {
+      // 原城未顯式改圖時，原版實際選圖依來源槽，不依模板舊值或目標槽。
+      city.battleMapId = `ki-1995:siege:${origin.runtimeSlot}`; battlefields++;
+    } else if (!/^ki-1995:siege:(\d{1,3})$/.test(city.battleMapId ?? '')) {
       // 無顯式指定即引擎回退：按槽位取 BATTLE.MAP 目錄。0..191 落數，192+ 留空等 admit 指名。
       // base 已有手工值的不洗（更換持久化）。
       if (Number.isInteger(city.runtimeSlot) && city.runtimeSlot >= 0 && city.runtimeSlot <= 191) {

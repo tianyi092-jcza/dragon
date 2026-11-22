@@ -59,7 +59,7 @@ export function createBaseStrongholdWorkbench({ api, work, publish, confirm, isB
       body.rename = { [cityId]: name };
     }
     const values = {};
-    for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type']) {
+    for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
       if (patch[key] === undefined) continue;
       const raw = String(patch[key] ?? '').trim();
       if (raw === '') { if (row[key] !== null && row[key] !== undefined) throw new Error(key + ' 不可留空。'); continue; }

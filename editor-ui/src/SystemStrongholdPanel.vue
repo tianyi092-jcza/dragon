@@ -8,6 +8,8 @@ import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 import { siegeLabel, siegeValid, siegeInType, thumbUrl } from './siegebattletypes.js';
+import CityPicture from './CityPicture.vue';
+import SiegePickButton from './SiegePickButton.vue';
 import SiegeThumbPicker from './SiegeThumbPicker.vue';
 // 系統基礎據點＝系統兩大基礎資料之一（與基礎地圖並列），管理員專用。
 // 與遊戲級「城池據點」同列同編輯；座標／runtimeSlot 只讀（歸基礎地圖）。
@@ -22,7 +24,7 @@ const loading = ref(false);
 const search = ref('');
 const sort = reactive({ key: 'seq', dir: 1 });
 const editing = ref(null);
-const form = reactive({ name: '', max_prod: '', prod: '', growth: '', defence: '', troops: '', type: '', battleMapId: '', troops_cap: '' });
+const form = reactive({ view: null, name: '', max_prod: '', prod: '', growth: '', defence: '', troops: '', type: '', battleMapId: '', troops_cap: '' });
 const pickerVisible = ref(false);
 const status = ref('');
 const failure = ref('');
@@ -31,7 +33,6 @@ const cityName = value => String(value ?? '').normalize('NFC').trim();
 const cities = computed(() => props.model?.cities ?? []);
 const loaded = computed(() => cities.value ?? []);
 const supported = computed(() => Boolean(props.model?.loaded));
-const blessed = computed(() => props.model?.blessed ?? null);
 const canLoad = computed(() => !loading.value && !props.busy && !props.model?.locked);
 const locked = computed(() => Boolean(props.busy) || Boolean(props.model?.locked));
 const canPromote = computed(() => !loading.value && !props.busy && !locked.value && Boolean(props.gameId));
@@ -44,9 +45,10 @@ const columns = [
   { key: 'growth', title: '上升值', sortable: true, type: 'number' },
   { key: 'defence', title: '防災值', sortable: true, type: 'number' },
   { key: 'troops', title: '城兵*10', sortable: true, type: 'number' },
-  { key: 'troops_cap', title: '城兵上限', sortable: true, type: 'number' },
+  { key: 'troops_cap', title: '城兵上限*10', sortable: true, type: 'number' },
   { key: 'type', title: '類型', sortable: true, type: 'number' },
   { key: 'battleMapId', title: '攻城戰場', sortable: true, type: 'text' },
+  { key: 'view', title: '據點圖片', sortable: true, type: 'number' },
   { key: 'actions', title: '操作', sortable: false },
 ];
 
@@ -93,8 +95,9 @@ function startEdit(row) {
   props.actions.setEditing(true);
   form.name = row.name ?? '';
   for (const key of FIELDS) form[key] = row[key] ?? '';
+  form.view = row.view ?? null;
   form.battleMapId = row.battleMapId ?? '';
-  form.troops_cap = row.troops_cap == null ? '' : String(row.troops_cap * 10);
+  form.troops_cap = row.troops_cap == null ? '' : String(row.troops_cap);
   failure.value = '';
 }
 watch(() => form.type, type => { if (form.battleMapId && !siegeInType(form.battleMapId, type)) form.battleMapId = ''; });
@@ -112,10 +115,9 @@ function validate(row) {
   }
   if (!siegeValid(String(form.battleMapId ?? ''))) return '攻城戰場須為 ki-1995:siege:0..191（先定類型，再按版式／主題分組選擇）。';
   if (!siegeInType(String(form.battleMapId ?? ''), form.type)) return '所選攻城戰場不在該據點類型的子集內，請重選。';
-  // 城兵上限以「人」顯示（存值×10，與章節面板同口徑）；送信轉回 raw 0–255，須為 10 倍數。
-  const capPeople = String(form.troops_cap ?? '').trim();
-  if (capPeople === '') { if (row.troops_cap != null) return '城兵上限不可留空；請填 10 的倍數（人）。'; }
-  else if (!/^[0-9]{1,5}$/.test(capPeople) || Number(capPeople) > 2550 || Number(capPeople) % 10 !== 0) return '城兵上限須為 10 的倍數（人），0–2550。';
+  const cap = String(form.troops_cap ?? '').trim();
+  if (cap === '') { if (row.troops_cap != null) return '城兵上限不可留空。'; }
+  else if (!/^[0-9]{1,3}$/.test(cap) || Number(cap) > 255) return '城兵上限必須是 0–255 的整數（每單位 10 人）。';
   return '';
 }
 async function save(row) {
@@ -124,9 +126,10 @@ async function save(row) {
   if (problem) { failure.value = problem; return; }
   failure.value = ''; status.value = '';
   const patch = { name: cityName(form.name), battleMapId: String(form.battleMapId) };
-  const capPeople = String(form.troops_cap ?? '').trim();
-  if (capPeople !== '') patch.troops_cap = Number(capPeople) / 10;
+  const cap = String(form.troops_cap ?? '').trim();
+  if (cap !== '') patch.troops_cap = Number(cap);
   else if (row.troops_cap != null) patch.troops_cap = row.troops_cap;
+  if (form.view !== (row.view ?? null)) patch.view = form.view;
   for (const key of FIELDS) patch[key] = form[key];
   try {
     const reply = await props.actions.saveCity(row.cityId, patch);
@@ -157,12 +160,9 @@ async function promote() {
       <ElInput id="base-stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱" :disabled="!supported" />
       <span id="base-stronghold-status" role="status" class="stronghold-status">{{ failure || status }}</span>
     </div>
-    <div class="module-toolbar">
-      <span id="base-stronghold-blessed" class="module-notice">目前基準複製遊戲：{{ blessed ? `${blessed.name}／${blessed.gameId}` : '未設定（尚無成功的完整複製）' }}</span>
-    </div>
     <div v-if="supported" class="table-region" tabindex="0">
       <ElTable id="base-stronghold-table" ref="table" :data="pagedRows" height="100%" row-key="cityId" @sort-change="onSortChange">
-        <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="column.title" :sortable="column.sortable ? 'custom' : false" :sort-orders="['ascending', 'descending']" :min-width="column.key === 'actions' ? 180 : 120">
+        <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="column.title" :sortable="column.sortable ? 'custom' : false" :sort-orders="['ascending', 'descending']" :width="column.key === 'seq' ? 60 : undefined" :min-width="column.key === 'battleMapId' ? 306 : column.key === 'actions' ? 180 : column.key === 'troops_cap' ? 138 : column.key === 'seq' ? undefined : 112">
           <template #header><span :data-column="column.key" :data-sort="column.sortable ? column.key : undefined">{{ column.title }}</span></template>
           <template #default="{ row }">
             <div :data-field="column.key" :data-city-id="row.cityId" :data-city-seq="row.seq">
@@ -179,11 +179,12 @@ async function promote() {
               </template>
               <template v-else-if="column.key === 'troops_cap'">
                 <ElInput v-if="editing === row.cityId" v-model="form.troops_cap" data-input="troops_cap" inputmode="numeric" :disabled="busy" />
-                <template v-else>{{ row.troops_cap == null ? '—' : row.troops_cap * 10 }}</template>
+                <template v-else>{{ row.troops_cap ?? '—' }}</template>
               </template>
+              <CityPicture v-else-if="column.key === 'view'" :value="editing === row.cityId ? form.view : row.view" :editable="editing === row.cityId" :disabled="busy" @select="form.view = $event" />
               <template v-else-if="column.key === 'battleMapId'">
-                <div v-if="editing === row.cityId" class="siege-pick"><img v-if="thumbUrl(form.battleMapId)" :src="thumbUrl(form.battleMapId)" alt="" width="96" height="51" /><ElButton :disabled="busy" @click="pickerVisible = true">選圖</ElButton><span>{{ siegeLabel(form.battleMapId) }}</span></div>
-                <template v-else>{{ siegeLabel(row.battleMapId) }}</template>
+                <div v-if="editing === row.cityId" class="siege-pick"><SiegePickButton :value="form.battleMapId" :disabled="busy" @open="pickerVisible = true" /><span>{{ siegeLabel(form.battleMapId) }}</span></div>
+                <template v-else><img v-if="thumbUrl(row.battleMapId)" :src="thumbUrl(row.battleMapId)" :alt="siegeLabel(row.battleMapId)" loading="lazy" width="96" height="51" />{{ siegeLabel(row.battleMapId) }}</template>
               </template>
               <template v-else><ElInput v-if="editing === row.cityId" v-model="form[column.key]" :data-input="column.key" inputmode="numeric" :disabled="busy" /><template v-else>{{ row[column.key] ?? '—' }}</template></template>
             </div>
@@ -200,6 +201,7 @@ async function promote() {
 
 <style scoped>
 #base-stronghold-editor:not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
+#base-stronghold-table :deep(th .cell) { white-space: nowrap; }
 .module-toolbar { flex-shrink: 0; }
 .table-region { flex: 1; min-height: 0; overflow: hidden; }
 </style>

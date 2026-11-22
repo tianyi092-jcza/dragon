@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { fail, HttpError } from './security.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
+import { cityPictures } from './citypictures.js';
+import { siegeMatchesType } from './siegeorigin.js';
 import { cityName } from '../web/src/content/authoring/cityrecords.js';
 import { validateSystemBaseMap } from './systembasemap.js';
 import { enableSeaGroundBase } from '../web/src/editor/componenttools.js';
@@ -66,7 +68,7 @@ export class SystemBaseMapStore {
         if (!values || typeof values !== 'object' || Array.isArray(values)) fail(422, 'BASE_CITY');
         for (const [key, n] of Object.entries(values)) {
           if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(key)) fail(422, 'BASE_CITY');
-          if (!Number.isSafeInteger(n) || n < 0 || n > 65535) fail(422, 'BASE_CITY');
+          if (!Number.isSafeInteger(n) || n < 0 || n > 65535 || (key === 'view' && !Object.hasOwn(cityPictures, n))) fail(422, 'BASE_CITY');
           if (row[key] !== n) { row[key] = n; changed = true; }
         }
       }
@@ -79,6 +81,9 @@ export class SystemBaseMapStore {
         if (typeof battleMapId !== 'string' || !/^ki-1995:siege:(\d{1,3})$/.test(battleMapId) || Number(/^ki-1995:siege:(\d{1,3})$/.exec(battleMapId)[1]) > 191) fail(422, 'BASE_CITY');
         if (row.battleMapId !== battleMapId) { row.battleMapId = battleMapId; changed = true; }
       }
+    }
+    for (const id of new Set([...Object.keys(patch.battlefield ?? {}), ...Object.keys(patch.numbers ?? {}).filter(id => cities[id].type !== current.template.content.cities[id].type)])) {
+      if (!siegeMatchesType(cities[id].battleMapId, cities[id].type)) fail(422, 'BASE_CITY');
     }
     if (patch.troopcap !== undefined) {
       if (!patch.troopcap || typeof patch.troopcap !== 'object' || Array.isArray(patch.troopcap)) fail(422, 'BASE_CITY');

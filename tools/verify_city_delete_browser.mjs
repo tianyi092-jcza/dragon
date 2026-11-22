@@ -14,7 +14,7 @@ const modules = { 'client.js': 'client.txt', 'shell-ui.js': 'shell-ui.txt', 'dra
 const gameId = '11111111-1111-4111-8111-111111111111';
 const user = { id: 'city-delete-fixture', version: 1, account: 'fixture', role: 'admin', mustChangePassword: false };
 function city(idx, name) {
-  return { cityId: 'city-' + idx, runtimeSlot: idx, x: 10 + idx, y: 20, name, max_prod: 100, prod: 10, growth: 1, defence: 1, troops: 5, troops_cap: 100, type: 2, view: 1 };
+  return { cityId: 'city-' + idx, runtimeSlot: idx, x: 10 + idx, y: 20, name, max_prod: 100, prod: 10, growth: 1, defence: 1, troops: 5, troops_cap: 100, type: 2, view: 1, battleMapId: 'ki-1995:siege:7' };
 }
 const data = { gameId, metadata: { name: '刪城測試', introduction: 'memory only' }, chapterOrder: ['chapter-1'],
   cities: { 'city-0': city(0, '綁定城'), 'city-1': city(1, '道路城'), 'city-2': city(2, '章節城'), 'city-3': city(3, '乾淨城') },
@@ -45,6 +45,8 @@ const posts = [];
 let digest = 'a'.repeat(64);
 const server = createServer(async (req, res) => {
   const name = new URL(req.url, 'http://localhost').pathname.slice(1) || 'index.html';
+  if (/^city-picture\/\d+\.png$/.test(name)) { res.setHeader('Content-Type', 'image/png'); res.end(await readFile(new URL('../../web/grf/kyo_' + name.split('/')[1].padStart(6,'0'), root))); return; }
+  if (/^siege-thumb\/\d+\.png$/.test(name)) { res.setHeader('Content-Type', 'image/png'); res.end(await readFile(new URL('../../web/grf/siege/siege-' + name.split('/')[1], root))); return; }
   if (['favicon.ico', 'brand.png', 'auth-logo.png'].includes(name)) { res.setHeader('Content-Type', name.endsWith('.ico') ? 'image/x-icon' : 'image/png'); res.end(await readFile(new URL(name, root))); return; }
   const file = modules[name] ?? (['index.html', 'shell-ui.css', 'style.css'].includes(name) ? name : null);
   if (!file) return res.writeHead(404).end();
@@ -104,6 +106,63 @@ try {
   await panel.locator('#stronghold-table .el-table__row').first().waitFor();
   assert.equal(await panel.locator('#stronghold-table .el-table__row').count(), 4);
   const cell = (id, field) => panel.locator(`[data-field="${field}"][data-city-id="${id}"]`);
+  assert.equal(await cell('city-0','seq').evaluate(el => Math.round(el.closest('td').getBoundingClientRect().width)), 60);
+  await panel.locator('#stronghold-create-toggle').click();
+  const createDialog = page.getByRole('dialog', {name:'新增據點'});
+  await createDialog.waitFor();
+  assert.deepEqual(await createDialog.locator('.el-form-item__label').allTextContents(), ['據點名稱','最大生產','當前生產','上升值','防災值','城兵*10','類型','城兵上限*10','攻城戰場','據點圖片']);
+  const preview = createDialog.locator('.stronghold-create-battle .siege-pick-button');
+  const grid = createDialog.locator('.editor-form-grid');
+  assert.deepEqual(await grid.evaluate(el => [getComputedStyle(el).rowGap, getComputedStyle(el).columnGap, getComputedStyle(el).gridTemplateColumns.split(' ').length]), ['24px', '32px', 2]);
+  assert.equal(Math.round((await createDialog.locator('.stronghold-create-dialog').boundingBox()).width), 900);
+  const previewSize = async () => { const { width, height } = await preview.boundingBox(); return [Math.round(width), Math.round(height)]; };
+  assert.deepEqual(await previewSize(), [240,128]);
+  await preview.getByRole('button').click();
+  await page.locator('.siege-thumb').first().click();
+  await page.getByRole('button', {name:'選定這張'}).click();
+  await preview.locator('img').waitFor();
+  assert.deepEqual(await previewSize(), [240,128]);
+  await page.setViewportSize({width:390,height:640});
+  assert.equal(await grid.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length), 1);
+  assert.ok(await createDialog.locator('.stronghold-dialog-scroll').evaluate(el => el.scrollHeight > el.clientHeight));
+  await createDialog.getByRole('button', {name:'選擇據點圖片'}).click();
+  const pictures = page.getByRole('dialog', {name:'據點圖片'});
+  assert.equal(await pictures.locator('.city-picture-grid button').count(), 15);
+  await pictures.getByRole('img', {name:'據點圖片 0',exact:true}).click();
+  await pictures.getByRole('button', {name:'選定這張'}).click();
+  assert.equal(await createDialog.locator('.city-picture img').getAttribute('src'), '/city-picture/0.png');
+  await createDialog.getByRole('button', {name:'取消', exact:true}).click();
+  await page.setViewportSize({width:1440,height:900});
+  assert.match(await cell('city-0', 'battleMapId').locator('img').getAttribute('src'), /\/7\.png$/);
+  await cell('city-0', 'actions').locator('[data-action="edit"]').click();
+  const chooser = cell('city-0', 'battleMapId').getByRole('button', {name:'更換攻城戰場'});
+  const image = await cell('city-0', 'battleMapId').locator('img').boundingBox();
+  const button = await chooser.boundingBox();
+  assert.ok(Math.abs(image.x + image.width / 2 - button.x - button.width / 2) < 1);
+  assert.ok(Math.abs(image.y + image.height / 2 - button.y - button.height / 2) < 1);
+  await chooser.click();
+  const dialog = page.getByRole('dialog').filter({has:page.locator('.siege-thumb-grid')});
+  await dialog.waitFor();
+  assert.equal(await dialog.locator('.siege-thumb').count(), 86);
+  await dialog.evaluate(el => el.getAnimations().forEach(a => a.finish()));
+  const scroll = await dialog.locator('.stronghold-dialog-scroll').evaluate(body => {
+    body.scrollTop = 120;
+    const overlay = body.closest('.el-overlay-dialog');
+    return [body.scrollTop, overlay.scrollHeight - overlay.clientHeight, document.documentElement.scrollHeight - innerHeight];
+  });
+  assert.deepEqual(scroll, [120, 0, 0]);
+  await dialog.getByRole('button', {name:'關閉', exact:true}).click();
+  await cell('city-0', 'type').locator('.el-select').click();
+  await page.getByRole('option', {name:'關卡', exact:true}).click();
+  assert.equal(await cell('city-0', 'battleMapId').locator('img').count(), 0);
+  await cell('city-0', 'battleMapId').getByRole('button', {name:'選圖'}).click();
+  await dialog.waitFor();
+  assert.equal(await dialog.locator('.siege-thumb').count(), 9);
+  await dialog.locator('.siege-thumb').first().click();
+  await page.getByRole('button', {name:'選定這張'}).click();
+  assert.match(await cell('city-0', 'battleMapId').locator('img').getAttribute('src'), /\/31\.png$/);
+  await cell('city-0', 'actions').locator('[data-action="cancel"]').click();
+  assert.match(await cell('city-0', 'battleMapId').locator('img').getAttribute('src'), /\/7\.png$/);
   // 地图坐标列：已绑定显示坐标，未绑定为空。
   assert.equal(await cell('city-0', 'map').textContent(), '10, 20');
   assert.equal(await cell('city-3', 'map').textContent(), '');

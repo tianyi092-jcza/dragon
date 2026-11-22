@@ -1,4 +1,5 @@
 /* Layout only. Element Plus owns component appearance, sizes and theme tokens. */
+:root { --editor-form-label-gap: 10px; --editor-form-row-gap: 24px; --editor-form-column-gap: 32px; }
 html, body, #editor-app { margin: 0; height: 100%; }
 body { overflow: hidden; }
 #editor-app[hidden], #editor-app [hidden] { display: none; }
@@ -48,7 +49,7 @@ body { overflow: hidden; }
 .module-toolbar > label, .current-game > label, .resource-filter label { display: flex; align-items: center; gap: 8px; margin: 0; white-space: nowrap; }
 .module-toolbar .el-input, .module-toolbar .el-select, .resource-filter .el-input { width: 220px; }
 .chapter-create-form { display: grid; gap: 24px; margin: 16px 0 8px; min-height: 150px; }
-.chapter-create-fields { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.chapter-create-fields { display: flex; align-items: center; flex-wrap: wrap; gap: var(--editor-form-row-gap) var(--editor-form-column-gap); }
 .chapter-create-fields > .el-form-item { margin-bottom: 0; }
 .chapter-create-number .el-input { width: 128px; }
 .chapter-create-name .el-input { width: 180px; }
@@ -61,6 +62,18 @@ body { overflow: hidden; }
 .chapter-start-title { margin: 12px 0 0; }
 .chapter-create-footer { display: flex; justify-content: flex-start; gap: 8px; padding-top: 20px; }
 .chapter-create-footer > .el-button + .el-button { margin-left: 0; }
+[data-field="battleMapId"], [data-field="battleMapId"] .siege-pick { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.siege-thumb-dialog, .stronghold-create-dialog { display: flex; flex-direction: column; max-height: 94dvh; overflow: hidden; }
+.stronghold-dialog-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.editor-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--editor-form-row-gap) var(--editor-form-column-gap); }
+.editor-form-grid > .el-form-item { min-width: 0; margin: 0; }
+.el-form--label-top .el-form-item > .el-form-item__label { margin-bottom: var(--editor-form-label-gap); }
+.stronghold-create-dialog { padding: clamp(16px, 3vw, 32px); }
+.stronghold-create-battle { grid-column: 1 / -1; }
+.stronghold-create-battle .el-form-item__content { gap: 16px; }
+.stronghold-create-battle .siege-pick-button { width: min(240px, 100%); aspect-ratio: 240 / 128; background: var(--el-fill-color-light); }
+.stronghold-create-battle .siege-pick-button img { width: 100%; height: auto; }
+@media (max-width: 640px) { .editor-form-grid { grid-template-columns: minmax(0, 1fr); } }
 .stronghold-row-actions { flex-wrap: nowrap; }
 .stronghold-row-actions > .el-button + .el-button { margin-left: 0; }
 .chapter-option-number, .chapter-option-name, .chapter-option-date { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
@@ -69,12 +82,17 @@ body { overflow: hidden; }
 .chapter-option-date { width: 12em; }
 #chapters-editor .chapter-switch { width: 340px; }
 form { margin: 16px 0; }
-.auth-card form > label, .account-card form > label, .module-card > label, .module-form > label { display: block; margin: 12px 0; }
+form:not(.el-form) { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--editor-form-row-gap) var(--editor-form-column-gap); }
+form:not(.el-form) > label { display: grid; gap: var(--editor-form-label-gap); min-width: 0; }
+.module-card > label { display: block; margin: 12px 0; }
+.auth-card form:not(.el-form) { display: flex; }
+.auth-card form > .el-button { margin-top: 0; }
+form:not(.el-form) > .el-button { justify-self: start; }
 .user-menu-items { display: flex; flex-direction: column; gap: 8px; }
 .user-menu-items .el-button { margin-left: 0; }
 .module-form { max-width: 760px; }
 .module-form .el-input, .module-form .el-select { width: 100%; }
-.account-create { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+form.account-create:not(.el-form) { display: flex; align-items: end; flex-wrap: wrap; }
 .account-create label { flex: 1; max-width: 360px; }
 .account-filters .el-input { width: 320px; }
 .account-filters .el-select { width: 180px; }

@@ -19,10 +19,11 @@ function sourceOf(cities, chapterRows) {
 test('overlay takes troop cap from source chapter one and battlefield from source definitions', () => {
   const copyData = { cities: { a: baseCity('a', 0), b: baseCity('b', 1) } };
   const source = sourceOf(
-    [sourceCity('a', 0, { battleMapId: 'ki-1995:siege:7' }), sourceCity('b', 1, { battleMapId: 'ki-1995:siege:36' })],
+    [sourceCity('a', 0, { view: 0, battleMapId: 'ki-1995:siege:7' }), sourceCity('b', 1, { battleMapId: 'ki-1995:siege:36' })],
     [{ idx: 0, troops_cap: 60 }, { idx: 1, troops_cap: 120 }]);
   const out = overlayBaseCityIdentity(copyData, source);
   assert.deepEqual(out, { battlefields: 2, troopCaps: 2 });
+  assert.equal(copyData.cities.a.view, 0);
   assert.equal(copyData.cities.a.battleMapId, 'ki-1995:siege:7');
   assert.equal(copyData.cities.a.troops_cap, 60);
   assert.equal(copyData.cities.b.battleMapId, 'ki-1995:siege:36');
@@ -31,16 +32,15 @@ test('overlay takes troop cap from source chapter one and battlefield from sourc
   assertSystemBaseCities(copyData.cities);
 });
 
-test('missing source battlefields resolve to the native directory; manual base values survive', () => {
+test('原城未指名時以來源槽回填，覆蓋模板舊圖', () => {
   const copyData = { cities: { x: baseCity('x', 0), y: baseCity('y', 1, { battleMapId: 'ki-1995:siege:99' }) } };
   const source = sourceOf(
-    [sourceCity('other-0', 0, { battleMapId: 'ki-1995:siege:192' }), sourceCity('other-1', 5)],
+    [sourceCity('other-0', 0, { battleMapId: 'ki-1995:siege:192' }), sourceCity('y', 5)],
     [{ idx: 0, troops_cap: 300 }, { idx: 1 }]);
   const out = overlayBaseCityIdentity(copyData, source);
-  assert.deepEqual(out, { battlefields: 1, troopCaps: 0 });
-  // 越界源值不取，改按槽位取目录；base 手工值不洗；超限上限不取。
+  assert.deepEqual(out, { battlefields: 2, troopCaps: 0 });
   assert.equal(copyData.cities.x.battleMapId, 'ki-1995:siege:0');
-  assert.equal(copyData.cities.y.battleMapId, 'ki-1995:siege:99');
+  assert.equal(copyData.cities.y.battleMapId, 'ki-1995:siege:5');
   assert.equal(copyData.cities.x.troops_cap, undefined);
   assert.equal(copyData.cities.y.troops_cap, undefined);
 });

@@ -136,13 +136,29 @@ test('基礎據點：讀寫、拒絕門、直推、新建播種', async () => {
       await idle();
       await panel.locator('#base-stronghold-table .el-table__row').first().waitFor();
       assert.ok((await panel.locator('#base-stronghold-status').textContent()).includes(String(total)));
-      assert.ok((await panel.locator('#base-stronghold-blessed').textContent()).includes('未設定'));
+      assert.equal(await panel.locator('#base-stronghold-blessed').count(), 0);
+      assert.equal(await panel.locator('th:has([data-column="seq"])').evaluate(el => Math.round(el.getBoundingClientRect().width)), 60);
+      assert.ok(await panel.locator('th:has(.caret-wrapper)').evaluateAll(headers => headers.length > 0 && headers.every(th => {
+        const label = th.querySelector('[data-column]').getBoundingClientRect();
+        const caret = th.querySelector('.caret-wrapper').getBoundingClientRect();
+        return caret.top < label.bottom && caret.bottom > label.top;
+      })));
       const row = panel.locator('#base-stronghold-table .el-table__row').first();
       await row.locator('[data-action="edit"]').click();
+      assert.equal(await panel.locator('[data-column="troops_cap"]').textContent(), '城兵上限*10');
+      await row.getByRole('button', {name:'選擇據點圖片'}).click();
+      const pictures = page.getByRole('dialog', {name:'據點圖片'});
+      assert.equal(await pictures.locator('.city-picture-grid button').count(), 15);
+      await pictures.getByRole('img', {name:'據點圖片 14',exact:true}).click();
+      await pictures.getByRole('button', {name:'選定這張'}).click();
+      await row.locator('[data-input="troops_cap"]').fill('169');
       await row.locator('[data-input="name"]').fill('界面改名');
       await row.locator('[data-action="save"]').click();
       await idle();
       assert.ok((await panel.locator('#base-stronghold-status').textContent()).includes('已保存'));
+      assert.equal((await call('/api/admin/base-cities', undefined, admin)).data.snapshot.cities[firstId].troops_cap, 169);
+      assert.equal(await row.locator('[data-field="troops_cap"]').textContent(), '169');
+      assert.equal(await row.locator('[data-field="view"] img').getAttribute('src'), '/city-picture/14.png');
       console.log('PASS base stronghold browser: module, load, inline edit');
       assert.deepEqual(errors, [], 'no page/console/network errors');
     } finally { await browser.close(); }

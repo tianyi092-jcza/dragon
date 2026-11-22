@@ -222,7 +222,7 @@ export class AdminFullCopy {
     const copyData = instantiateSystemBaseMap(chapterData, mapSnapshot, hash);
     // 系統基從源遊戲提取身份：城兵上限取源首章同槽行、攻城戰場取源據點定義；
     // 只覆蓋有效值。copyData.cities 同時餵遊戲副本與系統基，兩邊完全一致。
-    overlayBaseCityIdentity(copyData, chapterData);
+    overlayBaseCityIdentity(copyData, chapterData, { copyPictures: row.profile_revision === FIXED_COPY_PROFILE });
     // 完整复制即刷新系统基：先校验后提交，避免游戏已建、系统基没跟上的半截状态。
     // 并发双拷以先提交者为准：后执行者在重资产写入前再确认一次基准归属。
     if (row.profile_revision === FIXED_COPY_PROFILE) {

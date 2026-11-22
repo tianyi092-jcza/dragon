@@ -2,6 +2,7 @@
 // Node never imports cloudflare:workers or forks the business/auth routes.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { cityPictures } from './citypictures.js';
 import { fileURLToPath } from 'node:url';
 import { GameMetadataStore } from './metadata.js';
 import { GameDeletionFence } from './deletionfence.js';
@@ -1749,6 +1750,15 @@ export function createEditorGateway({ frozenPublication = false } = {}) {
     // relative against /play; only the DO serves it (role-checked, task 4).
     // 攻城縮略圖（編輯器據點選擇器用）：192 張預渲染 240×128 PNG，按目錄號取，
     // 内存小缓存；非法编号或缺文件一律 404，不猜不列目录。
+    if (request.method === 'GET' && url.pathname.startsWith('/city-picture/')) {
+      const match = /^\/city-picture\/(0|[1-9]\d*)\.png$/.exec(url.pathname);
+      const file = match && cityPictures[Number(match[1])];
+      if (file) {
+        const bytes = readFileSync(new URL(`../web/grf/${file}`, import.meta.url));
+        return new Response(bytes, { headers: { ...headers, 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } });
+      }
+      return response({ error: 'NOT_FOUND' }, 404);
+    }
     if (request.method === 'GET' && url.pathname.startsWith('/siege-thumb/')) {
       const match = /^\/siege-thumb\/(\d{1,3})\.png$/.exec(url.pathname);
       const index = match ? Number(match[1]) : -1;

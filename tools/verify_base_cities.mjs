@@ -79,7 +79,8 @@ test('saveCities patches battlefield and troopcap with range gates', async () =>
   const store = makeBaseStore();
   await store.initialize('tok');
   const { id } = firstCityOn(store);
-  const out = store.saveCities('tok', { battlefield: { [id]: 'ki-1995:siege:7' }, troopcap: { [id]: 60 } });
+  failWith(() => store.saveCities('tok', { numbers: { [id]: { type: 3 } }, battlefield: { [id]: 'ki-1995:siege:7' } }), 422, 'BASE_CITY');
+  const out = store.saveCities('tok', { numbers: { [id]: { type: 2 } }, battlefield: { [id]: 'ki-1995:siege:7' }, troopcap: { [id]: 60 } });
   assert.equal(out.version, store.read('tok').version);
   const after = store.read('tok');
   assert.equal(after.template.content.cities[id].battleMapId, 'ki-1995:siege:7');

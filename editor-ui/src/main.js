@@ -8,6 +8,7 @@ import 'element-plus/es/components/link/style/css';
 import 'element-plus/es/components/table/style/css';
 import 'element-plus/es/components/table-column/style/css';
 import 'element-plus/es/components/dialog/style/css';
+import 'element-plus/es/components/form-item/style/css';
 import 'element-plus/es/components/overlay/style/css';
 import 'element-plus/es/components/input/style/css';
 import 'element-plus/es/components/input-number/style/css';

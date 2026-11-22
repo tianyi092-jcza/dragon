@@ -1,6 +1,9 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import ListPagination from './ListPagination.vue';
+import { strongholdWidths } from './strongholdcolumns.js';
+import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
+import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs';
 import ListRowActions from './ListRowActions.vue';
 import { usePagination } from './pagination.js';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
@@ -18,12 +21,14 @@ const FIELDS = ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type'];
 const CITY_TYPES = [['0', '大都市'], ['1', '中都市'], ['2', '小都市'], ['3', '關卡'], ['4', '戰場']];
 const typeLabel = value => CITY_TYPES.find(([key]) => Number(key) === value)?.[1] ?? (value === null || value === undefined ? '—' : String(value) + '（未知）');
 import { siegeLabel, siegeValid, siegeInType, thumbUrl } from "./siegebattletypes.js";
+import CityPicture from './CityPicture.vue';
+import SiegePickButton from './SiegePickButton.vue';
 import SiegeThumbPicker from './SiegeThumbPicker.vue';
 const loading = ref(false);
 const search = ref('');
 const sort = reactive({ key: 'seq', dir: 1 });
 const editing = ref(null);
-const form = reactive({ name: '', max_prod: '', prod: '', growth: '', defence: '', troops: '', type: '', battleMapId: '', troops_cap: '' });
+const form = reactive({ view: null, name: '', max_prod: '', prod: '', growth: '', defence: '', troops: '', type: '', battleMapId: '', troops_cap: '' });
 const creating = ref(false);
 const pickerVisible = ref(false);
 const createPickerVisible = ref(false);
@@ -55,8 +60,9 @@ const columns = [
   { key: 'defence', title: '防災值', sortable: true, type: 'number' },
   { key: 'troops', title: '城兵*10', sortable: true, type: 'number' },
   { key: 'type', title: '類型', sortable: true, type: 'number' },
-  { key: 'troops_cap', title: '城兵上限', sortable: true, type: 'number' },
+  { key: 'troops_cap', title: '城兵上限*10', sortable: true, type: 'number' },
   { key: 'battleMapId', title: '攻城戰場', sortable: true, type: 'text' },
+  { key: 'view', title: '據點圖片', sortable: true, type: 'number' },
   { key: 'actions', title: '操作', sortable: false },
 ];
 
@@ -122,6 +128,7 @@ function startEdit(row) {
   editing.value = row.cityId;
   form.name = row.name ?? '';
   for (const key of FIELDS) form[key] = row[key] ?? '';
+  form.view = row.view ?? null;
   form.battleMapId = row.battleMapId ?? '';
   form.troops_cap = row.troops_cap ?? '';
   failure.value = '';
@@ -137,7 +144,7 @@ async function createCity() {
   for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
     const raw = String(create[key] ?? '').trim();
     const limit = key === 'view' ? 255 : NUMBERS[key];
-    if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > limit) { failure.value = key + ' 必須是 0–' + limit + ' 的整數。'; return; }
+    if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > limit) { failure.value = (columns.find(c => c.key === key)?.title ?? '城景編號') + ' 必須是 0–' + limit + ' 的整數。'; return; }
     numbers[key] = Number(raw);
   }
   const createCapRaw = String(create.troops_cap ?? '').trim();
@@ -181,6 +188,7 @@ async function save(row) {
   if (problem) { failure.value = problem; return; }
   failure.value = ''; status.value = '';
   const patch = { name: cityName(form.name), battleMapId: String(form.battleMapId) };
+  if (form.view !== (row.view ?? null)) patch.view = form.view;
   for (const key of FIELDS) patch[key] = form[key];
   patch.troops_cap = String(form.troops_cap ?? '').trim() === '' ? null : Number(form.troops_cap);
   try {
@@ -202,18 +210,23 @@ async function save(row) {
       <ElInput id="stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱" :disabled="!supported" />
       <span id="stronghold-status" role="status" class="stronghold-status">{{ failure || status }}</span>
     </div>
-    <div v-if="creating && supported" class="module-toolbar stronghold-create" aria-label="新增據點">
-      <label>名稱<ElInput v-model="create.name" maxlength="12" :disabled="busy" /></label>
-      <label v-for="key in ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']" :key="key">{{ key }}<ElInput :model-value="create[key]" inputmode="numeric" :disabled="busy" @input="create[key] = $event" /></label>
-      <label class="siege-pick">攻城戰場<img v-if="thumbUrl(create.battleMapId)" :src="thumbUrl(create.battleMapId)" alt="" width="96" height="51" /><span class="siege-current">{{ siegeLabel(create.battleMapId) }}</span><ElButton :disabled="busy" @click="createPickerVisible = true">選圖</ElButton></label>
-      <label>城兵上限<ElInput v-model="create.troops_cap" inputmode="numeric" :disabled="busy" /></label>
-      <ElButton id="stronghold-create" :disabled="busy || locked" @click="createCity()">建檔</ElButton>
-    </div>
+    <ElDialog v-model="creating" title="新增據點" width="min(900px, 94vw)" align-center append-to-body class="stronghold-create-dialog" body-class="stronghold-dialog-scroll">
+      <ElForm label-position="top" class="editor-form-grid" @submit.prevent="createCity()">
+        <ElFormItem v-for="field in columns.filter(c => ['name', ...FIELDS, 'troops_cap'].includes(c.key))" :key="field.key" :label="field.title">
+          <ElSelect v-if="field.key === 'type'" v-model="create.type" :disabled="busy"><ElOption v-for="[value, label] in CITY_TYPES" :key="value" :value="Number(value)" :label="label" /></ElSelect>
+          <ElInput v-else v-model="create[field.key]" :maxlength="field.key === 'name' ? 12 : undefined" :inputmode="field.key === 'name' ? 'text' : 'numeric'" :disabled="busy" />
+        </ElFormItem>
+        <ElFormItem label="攻城戰場" class="stronghold-create-battle"><SiegePickButton :value="create.battleMapId" :disabled="busy" @open="createPickerVisible = true" /><span class="siege-current">{{ create.battleMapId ? siegeLabel(create.battleMapId) : '尚未選擇戰場' }}</span></ElFormItem>
+        <ElFormItem label="據點圖片" class="stronghold-create-battle"><CityPicture :value="create.view" editable large :disabled="busy" @select="create.view = $event" /></ElFormItem>
+      </ElForm>
+      <p v-if="failure" role="alert">{{ failure }}</p>
+      <template #footer><ElButton :disabled="busy" @click="creating = false">取消</ElButton><ElButton id="stronghold-create" :disabled="busy || locked" @click="createCity()">建檔</ElButton></template>
+    </ElDialog>
     <SiegeThumbPicker :visible="createPickerVisible" :city-type="create.type" :value="create.battleMapId" @select="create.battleMapId = $event" @close="createPickerVisible = false" />
     <SiegeThumbPicker :visible="pickerVisible" :city-type="form.type" :value="form.battleMapId" @select="form.battleMapId = $event" @close="pickerVisible = false" />
     <div v-if="supported" class="table-region" tabindex="0">
       <ElTable id="stronghold-table" ref="table" :data="pagedRows" height="100%" row-key="cityId" @sort-change="onSortChange">
-        <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="column.title" :sortable="column.sortable ? 'custom' : false" :sort-orders="['ascending', 'descending']" :min-width="column.key === 'actions' ? 180 : 120">
+        <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="column.title" :sortable="column.sortable ? 'custom' : false" :sort-orders="['ascending', 'descending']" :width="strongholdWidths[column.key]" :min-width="column.key === 'actions' ? 180 : undefined">
           <template #header><span :data-column="column.key" :data-sort="column.sortable ? column.key : undefined">{{ column.title }}</span></template>
           <template #default="{ row }">
             <div :data-field="column.key" :data-city-id="row.cityId" :data-city-seq="row.seq">
@@ -238,9 +251,10 @@ async function save(row) {
                 <ElInput v-if="editing === row.cityId" v-model="form.troops_cap" data-input="troops_cap" inputmode="numeric" :disabled="busy" />
                 <template v-else>{{ row.troops_cap ?? '（分章）' }}</template>
               </template>
+              <CityPicture v-else-if="column.key === 'view'" :value="editing === row.cityId ? form.view : row.view" :editable="editing === row.cityId" :disabled="busy" @select="form.view = $event" />
               <template v-else-if="column.key === 'battleMapId'">
-                <div v-if="editing === row.cityId" class="siege-pick"><img v-if="thumbUrl(form.battleMapId)" :src="thumbUrl(form.battleMapId)" alt="" width="96" height="51" /><ElButton :disabled="busy" @click="pickerVisible = true">選圖</ElButton><span>{{ siegeLabel(form.battleMapId) }}</span></div>
-                <template v-else>{{ siegeLabel(row.battleMapId) }}</template>
+                <div v-if="editing === row.cityId" class="siege-pick"><SiegePickButton :value="form.battleMapId" :disabled="busy" @open="pickerVisible = true" /><span>{{ siegeLabel(form.battleMapId) }}</span></div>
+                <template v-else><img v-if="thumbUrl(row.battleMapId)" :src="thumbUrl(row.battleMapId)" :alt="siegeLabel(row.battleMapId)" loading="lazy" width="96" height="51" />{{ siegeLabel(row.battleMapId) }}</template>
               </template>
               <template v-else><ElInput v-if="editing === row.cityId" v-model="form[column.key]" :data-input="column.key" inputmode="numeric" :disabled="busy" /><template v-else>{{ row[column.key] ?? '—' }}</template></template>
             </div>

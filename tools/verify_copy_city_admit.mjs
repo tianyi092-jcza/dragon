@@ -70,7 +70,7 @@ test('admit fails closed when unplaced, incomplete, unknown, or malformed', asyn
   const gameId = fresh();
   store.writeModule('tok', gameId, 'cities', { create: { name: '測簽未放城', numbers: FULL_NUMBERS, battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
   await fails(() => store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-192', troops_cap: ADMIT_CAP, battleMapId: SIEGE } }), 'COPY_CHAPTER', 422);
-  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽缺數城', battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
+  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽缺數城', numbers: { type: 2 }, battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
   placed(gameId, 'city-193', 110, 60);
   await fails(() => store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-193', troops_cap: ADMIT_CAP, battleMapId: SIEGE } }), 'COPY_CHAPTER', 422);
   await fails(() => store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-404', troops_cap: ADMIT_CAP, battleMapId: SIEGE } }), 'COPY_CHAPTER', 422);
@@ -144,10 +144,12 @@ test('battlefield edits propagate from definitions to every chapter row; troopca
   store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-192', troops_cap: ADMIT_CAP, battleMapId: SIEGE } });
   const rowsOf = () => readData(gameId).chapterOrder.map(id => readData(gameId).chapters[id].state.cities.find(r => r?.idx === 192));
   assert.ok(rowsOf().every(r => r.battleMapId === SIEGE));
-  store.writeModule('tok', gameId, 'cities', { battlefield: { 'city-192': 'ki-1995:siege:42' } });
+  await fails(() => store.writeModule('tok', gameId, 'cities', { battlefield: { 'city-192': 'ki-1995:siege:31' } }), 'COPY_CITY', 422);
+  await fails(() => store.writeModule('tok', gameId, 'cities', {numbers:{'city-192':{view:15}}}), 'COPY_CITY', 422);
+  store.writeModule('tok', gameId, 'cities', {numbers:{'city-192':{view:14}}, battlefield: { 'city-192': 'ki-1995:siege:42' } });
   const after = readData(gameId);
   assert.equal(after.cities['city-192'].battleMapId, 'ki-1995:siege:42');
-  assert.ok(rowsOf().every(r => r.battleMapId === 'ki-1995:siege:42'));
+  assert.ok(rowsOf().every(r => r.battleMapId === 'ki-1995:siege:42' && r.view === 14));
   // 上限按章各异：定义改了，老章行不动。
   store.writeModule('tok', gameId, 'cities', { troopcap: { 'city-192': 77 } });
   const afterCap = readData(gameId);
