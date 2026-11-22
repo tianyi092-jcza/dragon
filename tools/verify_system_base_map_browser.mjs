@@ -26,6 +26,7 @@ const server = createServer(async (req, res) => {
   const name = new URL(req.url, 'http://localhost').pathname.slice(1) || 'index.html';
   if (name === 'favicon.ico') return res.writeHead(204).end();
   const file = modules[name] ?? (['index.html', 'shell-ui.css', 'style.css'].includes(name) ? name : null);
+  if (name === 'brand.png' || name === 'auth-logo.png') return res.writeHead(200, {'Content-Type':'image/png'}).end(await readFile(new URL(name,root)));
   if (!file) return res.writeHead(404).end();
   res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html');
   res.end(await readFile(new URL(file, root)));
@@ -79,6 +80,47 @@ try {
     }
     unexpected.push(`${request.method()} ${path}`); return route.fulfill({ status: 500, json: { error: 'UNEXPECTED_FIXTURE_REQUEST' } });
   });
+  const baseEdge = process.argv.includes('--base-edge-growth');
+  if (baseEdge || process.argv.includes('--edge-growth')) {
+    const panel = page.locator(baseEdge ? '#base-map-editor' : '#game-map-editor');
+    if (baseEdge) {
+      await page.goto(`http://127.0.0.1:${server.address().port}/#base-map-editor`);
+      await panel.getByRole('button', {name:'建立',exact:true}).click();
+      await page.getByText('基礎地圖已建立。',{exact:true}).waitFor();
+    } else {
+    role = 'author';
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.locator('.current-game').getByRole('button', { name: '重新整理', exact: true }).click();
+    await page.locator('.current-game .el-select').click();
+    await page.getByRole('option', { name: '原子地圖', exact: true }).click();
+    await page.locator('[data-view="mapview-editor"]').click();
+    await page.getByText('已重新讀取遊戲地圖。', { exact:true }).waitFor();
+    }
+    for (const name of ['複製', '填充']) assert.equal(await panel.getByRole('button', { name, exact: true }).count(), 0);
+    for (const name of ['北', '南', '西', '東']) {
+      const group = panel.getByRole('group', { name: `${name}側擴縮`, exact: true });
+      assert.ok(await group.getByRole('button', { name: `${name}增` }).isEnabled());
+      assert.ok(await group.getByRole('button', { name: `${name}縮` }).isDisabled());
+    }
+    const shapes = await page.locator('.el-button:visible').evaluateAll(nodes => nodes.filter(n => n.querySelector('.workspace-icon')).map(n => [n.offsetWidth,n.offsetHeight]));
+    assert.ok(shapes.length >= 9 && shapes.every(([w,h]) => w === h), JSON.stringify(shapes));
+    const gaps = await panel.locator('.extent-direction').evaluateAll(groups => groups.slice(1).map((n,i) => n.getBoundingClientRect().left - groups[i].getBoundingClientRect().right));
+    assert.ok(gaps.length === 3 && gaps.every(gap => gap >= 16), JSON.stringify(gaps));
+    const storedMap = () => baseEdge ? snapshot.template.content.map : game.map;
+    const before = structuredClone(storedMap());
+    for (const [index, label] of (baseEdge ? ['北增','西增','南增','東增','東縮','南縮','西縮','北縮'] : ['北增','北縮']).entries()) {
+      await panel.getByRole('button', {name:label,exact:true}).click();
+      await page.locator('.el-message-box').getByRole('button',{name:'確認',exact:true}).click();
+      await panel.getByRole('button',{name:'保存',exact:true}).click();
+      await page.getByText(baseEdge ? '已保存並重新讀取基礎地圖。' : '已保存並重新讀取遊戲地圖。',{exact:true}).waitFor();
+      assert.equal(baseEdge ? saves : gameSaves, index+1);
+      if (!index) assert.ok(storedMap().decorations.some(d => d.y === -1));
+    }
+    assert.deepEqual(storedMap(),before);
+    if (baseEdge) assert.equal(gameSaves,0);
+    assert.deepEqual(errors,[]); assert.deepEqual(failures,[]);
+    console.log(baseEdge ? 'PASS 基礎地圖四向擴縮、保存重讀與地形還原' : 'PASS 地圖管理北增／北縮按鈕、保存重讀與地形還原');
+  } else {
   await page.goto(`http://127.0.0.1:${server.address().port}/#base-map-editor`);
   const panel = page.locator('#base-map-editor');
   await panel.getByRole('button', { name: '建立', exact: true }).click();
@@ -217,4 +259,5 @@ try {
   await page.waitForLoadState('networkidle');
   assert.deepEqual(errors, []); assert.deepEqual(failures, []); assert.deepEqual(unexpected, []);
   console.log(`PASS atomic workspace DPR${ratio}: 240 spring atlas cells plus four native-size readonly city groups, eight categories, no season/legacy-library/layer tabs, lazy scrolling, IDs, native pixels, sea base, pan-lock toggling and gesture cancellation, unlocked selection/zoom/editing, drag/keyboard/cancel/layer-lock/undo, JSON save/reread, old instances/groups unchanged, author isolation, four viewport sizes; in-memory API fixture.`);
+  }
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }

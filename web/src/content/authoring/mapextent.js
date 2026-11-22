@@ -1,3 +1,4 @@
+import { componentGroundMask, SEA_GROUND_POLICY } from './mapground.js';
 import { componentCells } from '../../editor/componenttools.js';
 // World coordinates stay fixed. Only dense plane indices move. Isolated authoring
 // experiment; this operation is not registered for persistent editor writes yet.
@@ -93,6 +94,59 @@ export function expandMapOneStep(map, side) {
         return atNew(wx, wy);
       }) }));
   }
+  return next;
+}
+// 工作台擴圖：底層擴框仍可單獨使用（相容舊的全海實驗）。只讀目前邊線，
+// 不延長道路幾何、不複製據點綁定。新增的每一層都是可獨立修改的單格。
+export function extendTerrainEdge({ map, componentDefinitions: defs }, side) {
+  const next = expandMapOneStep(map, side);
+  const { bounds } = map;
+  const ox = Number(side === 'east') - Number(side === 'west');
+  const oy = Number(side === 'south') - Number(side === 'north');
+  const edge = stripCells(bounds, side);
+  const [ex, ey] = edge[0];
+  // B8..DD 包含道路、橋、水路、城心及城門。其後為據點磚，單獨牆體可延伸。
+  const walls = new Set([223, 231, 248, 249, 250, 252, 253]);
+  const ordinary = tile => tile != null && (tile < 0xb8 || walls.has(tile));
+  const baseCopies = new Map();
+  for (const [x,y] of edge) {
+    const from = worldToDense(bounds,x,y), to = worldToDense(next.bounds,x+ox,y+oy);
+    const tile = map.base.terrainRef[from];
+    if (ordinary(tile)) next.base.terrainRef[to] = tile;
+    // 舊圖可能沒有可還原的底磚；不複製 unknown 引用，但保留已知地理平面。
+    next.base.geography[to] = map.base.geography[from];
+    baseCopies.set(from,to);
+  }
+  const added = [], memberCopies = new Map();
+  const ids = new Set([...map.decorations, ...map.placements, ...map.roads.flatMap(r => r.components ?? [])].map(d => d.id));
+  let serial = 0;
+  for (const instance of map.decorations) {
+    const def = defs[instance.definitionRef];
+    const tiles = def.variants[instance.variantRef ?? 'original'].tiles;
+    // 整組據點素材即使含邊牆也不延伸。
+    if (tiles.length > 1 && tiles.every(([, , t]) => t >= 203) && tiles.some(([, , t]) => t <= 211)) continue;
+    for (const [dx,dy,tile] of tiles) {
+      const x = instance.x + dx - def.anchor[0], y = instance.y + dy - def.anchor[1];
+      if ((ox ? x !== ex : y !== ey) || !ordinary(tile)) continue;
+      const one = tiles.length === 1;
+      const ref = one ? instance.definitionRef : `tile-${tile}`;
+      if (!defs[ref]) throw new RangeError(`延伸邊界缺少單格素材：${tile}`);
+      let id;
+      do { id = `edge-${side}-${ox ? ex+ox : ey+oy}-${serial++}`; } while (ids.has(id));
+      const child = { id, definitionRef: ref, variantRef: one ? instance.variantRef ?? 'original' : 'original', x:x+ox, y:y+oy };
+      if (one) { child.x += def.anchor[0]-dx; child.y += def.anchor[1]-dy; }
+      if (instance.waterClass && (!def.geographyMask || def.geographyMask.some(([u,v]) => u===dx && v===dy))) child.waterClass = instance.waterClass;
+      if (map.base.policy === SEA_GROUND_POLICY) child.minimapLand = componentGroundMask(def, instance).some(([u,v]) => u===dx && v===dy);
+      added.push(child);
+      if (!memberCopies.has(instance.id)) memberCopies.set(instance.id, []);
+      memberCopies.get(instance.id).push(id);
+    }
+  }
+  next.decorations = [...map.decorations, ...added];
+  if (map.waterGroups) next.waterGroups = next.waterGroups.map((g,i) => ({ ...g,
+    baseCells: [...g.baseCells,...map.waterGroups[i].baseCells.filter(c => baseCopies.has(c)).map(c => baseCopies.get(c))],
+    memberIds: [...g.memberIds,...g.memberIds.flatMap(id => memberCopies.get(id) ?? [])],
+  }));
   return next;
 }
 export function stripCells(bounds, side) {

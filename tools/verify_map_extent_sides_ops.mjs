@@ -37,11 +37,12 @@ const SIDES = ['north', 'south', 'west', 'east'];
 for (const side of SIDES) {
   test(`E3 ${side}: grow saves and rereads, shrink restores baseline`, async () => {
     const gameId = fresh(), before = readData(gameId), baseSig = sig(before);
-    const staged = previewMapEdits(before, [{ op: 'map-extent', side, delta: 1 }]);
+    const grow = { op: 'map-extent', side, delta: 1, fill: 'edge' };
+    const staged = previewMapEdits(before, [grow]);
     const after = staged.map.bounds;
     assert.equal(after.width, side === 'north' || side === 'south' ? 384 : 385);
     assert.equal(after.height, side === 'north' || side === 'south' ? 257 : 256);
-    await writeMap(gameId, [{ op: 'map-extent', side, delta: 1 }]);
+    await writeMap(gameId, [grow]);
     const grown = readData(gameId);
     assert.deepEqual(grown.map.bounds, after);
     assert.equal(sig(grown), baseSig, 'world objects and chapters unchanged');
@@ -49,14 +50,40 @@ for (const side of SIDES) {
     const stripIdx = side === 'north' ? [...Array(lyr.terrain.length).keys()].slice(0, grown.map.bounds.width)
       : side === 'south' ? [...Array(lyr.terrain.length).keys()].slice(-grown.map.bounds.width)
       : [...Array(lyr.terrain.length).keys()].filter(i => (side === 'west' ? i % grown.map.bounds.width === 0 : i % grown.map.bounds.width === grown.map.bounds.width - 1));
-    assert.ok(stripIdx.every(i => lyr.terrain[i] === 95 && lyr.geography[i] === 1), side + ' new strip is sea');
+    assert.deepEqual(grown.map.decorations, staged.map.decorations);
+    const source = composeMapLayers(before);
+    const step = { north: grown.map.bounds.width, south: -grown.map.bounds.width, west: 1, east: -1 }[side];
+    let compared = 0;
+    for (const i of stripIdx) {
+      const near = i + step;
+      const x = near % grown.map.bounds.width + grown.map.bounds.minX, y = Math.floor(near / grown.map.bounds.width) + grown.map.bounds.minY;
+      const j = y * 384 + x;
+      if (source.terrain[j] >= 184) continue;
+      assert.equal(lyr.terrain[i], source.terrain[j]);
+      assert.equal(lyr.minimapGeography[i], source.minimapGeography[j]);
+      compared++;
+    }
+    assert.ok(compared > 0);
     await writeMap(gameId, [{ op: 'map-extent', side, delta: -1 }]);
     const back = readData(gameId);
     assert.deepEqual(back.map.bounds, before.map.bounds);
     assert.deepEqual(back.map.base.terrainRef, before.map.base.terrainRef);
-    assert.deepEqual(back.map.base.geography, before.map.base.geography);
+    assert.deepEqual(back.map, before.map);
   });
 }
+
+test('延伸的邊格可獨立調整；再次增長複製調整後的疊層，不複製道路、橋、城門、據點', () => {
+  const edit = { op: 'map-extent', side: 'north', delta: 1, fill: 'edge' };
+  const stamps = [20,112,185,197,212,205].map((tile,i) => ({ id: `sample-${i}`, definitionRef: `tile-${tile}`, variantRef: 'original', x: 4, y: 0 }));
+  const ridge = { ...captured.componentDefinitions['tile-112'], id:'ridge', visualRef:'MMAP.MDL:indexed-footprint', anchor:[0,1], footprint:[[0,0],[0,1]], variants:{original:{tiles:[[0,0,113],[0,1,114]]}} };
+  const source = { ...captured, componentDefinitions: { ...captured.componentDefinitions, ridge }, map: { ...captured.map, base:{ policy:'sea-ground-1', terrainRef:Array(384*256).fill(95), geography:Array(384*256).fill(1), unknownUnderlays:{} }, roads:[], placements:[], decorations: [...stamps, {id:'ridge', definitionRef:'ridge', x:6,y:1}], waterGroups:[] } };
+  const grown = previewMapEdits(source,[edit]);
+  const copies = grown.map.decorations.filter(d => d.y === -1);
+  assert.deepEqual(copies.map(d => d.definitionRef), ['tile-20','tile-112','tile-113']);
+  assert.ok(copies.every(d => !source.map.decorations.some(original => original.id === d.id)));
+  const again = previewMapEdits(grown,[{op:'decoration-remove', memberIds:[copies[1].id]}, edit]);
+  assert.deepEqual(again.map.decorations.filter(d => d.y === -2).map(d => d.definitionRef), ['tile-20','tile-113']);
+});
 
 test('E3 quota is per-side and independent', async () => {
   const gameId = fresh();

@@ -29,14 +29,14 @@ test('controller north loop: stage, save, reload, undo', async () => {
   await controller.actions.reload();
   assert.equal(model.loaded, true);
   assert.equal(model.exists, true);
-  await controller.actions.stage({ op: 'map-extent', side: 'north', delta: 1 });
+  await controller.actions.stage({ op: 'map-extent', side: 'north', delta: 1, fill: 'edge' });
   assert.equal(model.dirty, true);
   assert.equal(model.message, '有尚未保存的修改。');
   const saveCall = calls.length;
   await controller.actions.save();
   assert.ok(calls.length > saveCall, 'save posts the patch');
   const posted = calls.find(c => c.body?.module === 'map');
-  assert.deepEqual(posted.body.patch.edits.at(-1), { op: 'map-extent', side: 'north', delta: 1 });
+  assert.deepEqual(posted.body.patch.edits.at(-1), { op: 'map-extent', side: 'north', delta: 1, fill: 'edge' });
   assert.ok(posted.body.patch.edits.every(e => ['sea-ground-enable', 'map-extent'].includes(e.op)));
   assert.equal(model.dirty, false);
   assert.deepEqual(stored.map.bounds, { minX: 0, minY: -1, width: 384, height: 257, tileSize: 16 });

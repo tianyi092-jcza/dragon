@@ -4,6 +4,7 @@ defineProps({ name: String });
 // Original project SVG paths; no external icon assets or additional dependency.
 const paths = {
   copy: 'M12 4v16M4 12h16',
+  plus: 'M12 4v16M4 12h16', minus: 'M4 12h16',
   'draft-editor': 'M4 5h16v14H4zM8 9h8M8 13h5',
   admin: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M2 21v-3a7 7 0 0 1 14 0v3M17 4a4 4 0 0 1 0 8M19 15a5 5 0 0 1 3 6',
   'catalog-editor': 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
@@ -38,4 +39,4 @@ const paths = {
   delete: 'M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7',
 };
 </script>
-<template><ElIcon><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="paths[name] || paths.info" /></svg></ElIcon></template>
+<template><ElIcon class="workspace-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="paths[name] || paths.info" /></svg></ElIcon></template>

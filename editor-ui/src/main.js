@@ -1,5 +1,6 @@
 import { createApp, reactive } from 'vue';
 import 'element-plus/es/components/button/style/css';
+import 'element-plus/es/components/button-group/style/css';
 import 'element-plus/es/components/card/style/css';
 import 'element-plus/es/components/message-box/style/css';
 import 'element-plus/es/components/tag/style/css';

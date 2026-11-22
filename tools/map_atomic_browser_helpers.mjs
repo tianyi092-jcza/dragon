@@ -232,7 +232,7 @@ export async function verifyMapWorkspaceChrome(page, panel, source, selectedId) 
     assert.equal(await menu().getByRole('button', { name: '複製', exact: true }).count(), 0);
     assert.equal(await menu().getByRole('button', { name: '填充', exact: true }).count(), 0);
     assert.deepEqual(await menu().locator('.base-map-context-actions').last().locator('button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))), ['组合', '拆散', '鎖定物件', '刪除']);
-    assert.deepEqual(await panel.locator('.base-map-controls button').evaluateAll(nodes => nodes.slice(-3).map(node => node.getAttribute('aria-label'))), ['鎖圖', '複製', '填充']);
+    assert.equal(await panel.locator('.base-map-controls').getByRole('button', { name: '鎖圖', exact: true }).count(), 1);
     await menu().getByRole('button', { name: action, exact: true }).click();
     assert.equal(await menu().count(), 0);
     assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), true);

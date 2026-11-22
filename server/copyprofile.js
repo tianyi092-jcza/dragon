@@ -14,7 +14,7 @@ import { composeMapLayers } from '../web/src/content/authoring/maplayers.js';
 import { buildRoad } from '../web/src/content/authoring/roadedit.js';
 import { MAX_ROAD_EDGES } from '../web/src/content/authoring/mapcompile.js';
 import { analyzeRoadChains, isAutoRoadId } from '../web/src/editor/roadchain.js';
-import { expandMapOneStep, shrinkMapOneStep, isOriginalBounds, isSupportedMapExtent } from '../web/src/content/authoring/mapextent.js';
+import { expandMapOneStep, extendTerrainEdge, shrinkMapOneStep, isOriginalBounds, isSupportedMapExtent } from '../web/src/content/authoring/mapextent.js';
 import { fail } from './security.js';
 
 // MAP-EXT E10: publish/verify/compile entry points admit genuinely extended
@@ -127,13 +127,15 @@ export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
     } else if (edit.op === 'map-extent') {
       // MAP-EXT E3: four sides share one op. The server recomputes quota and
       // strip impact from stored state and never trusts client-sent planes.
-      if (Object.keys(view(edit)).sort().join(',') !== 'delta,op,side') fail(422, 'COPY_MAP_DELTA');
+      const keys = Object.keys(view(edit)).sort().join(',');
+      const extendEdge = keys === 'delta,fill,op,side' && value(edit, 'fill') === 'edge' && value(edit, 'delta') === 1;
+      if (!extendEdge && keys !== 'delta,op,side') fail(422, 'COPY_MAP_DELTA');
       const side = value(edit, 'side'), delta = value(edit, 'delta');
       if (!['north', 'south', 'west', 'east'].includes(side)) fail(422, 'MAP_EXTENT_NOT_ENABLED', { problems: [{ message: '地圖擴縮方向須為北／南／西／東' }] });
       if (delta !== 1 && delta !== -1) fail(422, 'COPY_MAP_DELTA');
       try {
         next = delta === 1
-          ? { ...next, map: expandMapOneStep(next.map, side) }
+          ? { ...next, map: extendEdge ? extendTerrainEdge(next, side) : expandMapOneStep(next.map, side) }
           : { ...next, map: shrinkMapOneStep(next.map, next.componentDefinitions, side) };
       } catch (e) {
         if (e instanceof RangeError) fail(422, e.blockers ? 'MAP_EXTENT_NOT_EMPTY' : 'MAP_EXTENT_BUDGET', { problems: [{ message: e.message }] });

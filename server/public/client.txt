@@ -65,7 +65,7 @@ const views = [
   ['copy-game-editor', '複製遊戲', true, 'admin'],
   ['base-stronghold-editor', '基礎據點', true, 'admin'],
   ['base-map-editor', '基礎地圖', true, 'admin'],
-  ['catalog-editor', '人物頭像', true, 'admin'],
+  ['catalog-editor', '遊戲資源', true, 'admin'],
   ['admin', '用戶管理', true, 'admin'],
 ];
 let view = null, displayedOwner = null, draftRefreshPending = false;

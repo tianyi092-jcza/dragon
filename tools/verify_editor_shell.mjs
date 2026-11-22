@@ -47,7 +47,7 @@ check("session-hidden", shell.includes('<section id="session" :hidden="!state.au
 	}
 // 地图双面板共用 BaseMapPanel：根 id 按 gameScoped 动态切换，单独立检查。
 check("view-section:map-panels", baseMapView.includes("'game-map-editor'") && baseMapView.includes("'base-map-editor'") && client.includes("'mapview-editor'") && client.includes("'base-map-editor'") && shell.includes("import BaseMapPanel from './BaseMapPanel.vue'") && shell.includes("state.view === 'mapview-editor'") && shell.includes("state.view === 'base-map-editor'"));
-for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "人物頭像", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架審核", "複製遊戲"]) {
+for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "遊戲資源", "城池據點", "地圖管理", "武將管理", "遊戲章節", "上架審核", "複製遊戲"]) {
 	check(`view-label:${label}`, client.includes(`'${label}'`));
 }
 check("menu-groups", ["game", "admin"].every(group => client.includes(`'${group}'`)) && !client.includes("'workbench'") && !shell.includes("ElMenuItemGroup") && !shell.includes("工作台級") && !shell.includes("遊戲級"));

@@ -5,7 +5,7 @@ import { enableSeaGroundBase, fillBase, splitDecoration, placeComponent, placeCi
   splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from './componenttools.js';
 
 import { removeMapObject, translateMapObject } from './mapobjectmove.js';
-import { expandMapOneStep, shrinkMapOneStep } from '../content/authoring/mapextent.js';
+import { expandMapOneStep, extendTerrainEdge, shrinkMapOneStep } from '../content/authoring/mapextent.js';
 // MAP-EXT E3: all four sides share one op; quota and strip-emptiness are
 // rechecked server-side from stored state.
 
@@ -66,7 +66,7 @@ export function previewMapEdits(source, edits) {
     switch (edit.op) {
       case 'map-extent': {
         if (!['north', 'south', 'west', 'east'].includes(edit.side)) throw new RangeError('地圖擴縮方向須為北／南／西／東');
-        if (edit.delta === 1) return { ...current, map: expandMapOneStep(current.map, edit.side) };
+        if (edit.delta === 1) return { ...current, map: edit.fill === 'edge' ? extendTerrainEdge(current, edit.side) : expandMapOneStep(current.map, edit.side) };
         if (edit.delta === -1) return { ...current, map: shrinkMapOneStep(current.map, current.componentDefinitions, edit.side) };
         throw new RangeError('地圖擴縮方向須為加一或減一');
       }

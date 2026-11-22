@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElButton, ElButtonGroup } from 'element-plus/es/components/button/index.mjs';
 import { ElCheckbox } from 'element-plus/es/components/checkbox/index.mjs';
 import { ElCard } from 'element-plus/es/components/card/index.mjs';
 import { ElSelect } from 'element-plus/es/components/select/index.mjs';
@@ -36,7 +36,6 @@ const locked = computed(() => props.busy || props.model.locked || props.model.at
 const placementLocked = computed(() => locked.value || props.model.layers.some(layer => layer.id === 'decor' && (layer.locked || !layer.visible)));
 const objectLocked = computed(() => placementLocked.value || props.model.selected?.layer !== 'decor');
 const orderActions = [{ name: '置頂', icon: 'to-top', direction: 'top' }, { name: '下移一層', icon: 'layer-down', direction: -1 }, { name: '上移一層', icon: 'layer-up', direction: 1 }, { name: '置底', icon: 'to-bottom', direction: 'bottom' }];
-const futureActions = [{ name: '複製', icon: 'duplicate' }, { name: '填充', icon: 'fill' }];
 const multiCount = computed(() => props.model.multi?.length ?? 0);
 const groupDisabled = computed(() => placementLocked.value || multiCount.value < 2);
 const ungroupDisabled = computed(() => placementLocked.value || (multiCount.value === 0 && !props.model.selectedGroup && props.model.selected?.layer !== 'decor'));
@@ -240,11 +239,12 @@ async function runExtent(side, delta) {
   const names = { north: '北', south: '南', west: '西', east: '東' };
   const unit = side === 'west' || side === 'east' ? '列' : '行';
   const confirmed = await ElMessageBox.confirm(
-    delta === 1 ? `在${names[side]}側增加一${unit}（全海底，不影響既有世界座標）？預覽後須按保存寫入，撤銷可還原。` : `縮回${names[side]}側新增的一${unit}？跨界裝飾將整件移除、據點只解綁不刪檔、裁切道路列明待修；預覽與紅字診斷確認影響後再保存，撤銷可還原。`,
+    delta === 1 ? `沿${names[side]}側目前的邊緣延伸一${unit}地形（不複製道路、橋、城門或據點）？預覽後須按保存寫入，撤銷可還原。` : `縮回${names[side]}側新增的一${unit}？跨界裝飾將整件移除、據點只解綁不刪檔、裁切道路列明待修；預覽與紅字診斷確認影響後再保存，撤銷可還原。`,
     delta === 1 ? `${names[side]}側加一${unit}` : `${names[side]}側縮回一${unit}`,
     { type: 'info', confirmButtonText: '確認', cancelButtonText: '取消', closeOnClickModal: false }).then(() => true, () => false);
-  if (confirmed) runObjectCommand('map-extent', { side, delta });
+  if (confirmed) runObjectCommand('map-extent', delta === 1 ? { side, delta, fill: 'edge' } : { side, delta });
 }
+const extentDirections = [ ['north', 'N', '北', '行'], ['south', 'S', '南', '行'], ['west', 'W', '西', '列'], ['east', 'E', '東', '列'] ];
 const extentQuota = (side) => props.model.extentSides?.[side] ?? null;
 async function runGroup() {
   contextPosition.value = null;
@@ -312,22 +312,21 @@ onBeforeUnmount(() => {
       <ElButton v-if="!model.gameScoped && model.loaded && !model.exists" :disabled="busy" title="首次建立系統基礎地圖" @click="actions.initialize()">建立</ElButton>
       <ElButton :disabled="locked || !model.dirty" title="保存並重新讀取地圖" @click="notice = ''; actions.save()">保存</ElButton>
       <ElButton :disabled="locked || !model.dirty" title="撤銷上一步修改" @click="notice = ''; actions.undo()">撤銷</ElButton>
-      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('N') ?? 0) >= 20" :title="`北側加一行（全海底，不影響既有世界座標）；已用 ${extentQuota('N') ?? '?'}／20 格`" @click="runExtent('north', 1)">北增</ElButton>
-      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('N') ?? 0) <= 0" :title="`縮回北側新增的一行；已用 ${extentQuota('N') ?? '?'}／20 格，有物件時拒絕`" @click="runExtent('north', -1)">北縮</ElButton>
-      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('S') ?? 0) >= 20" :title="`南側加一行（全海底，不影響既有世界座標）；已用 ${extentQuota('S') ?? '?'}／20 格`" @click="runExtent('south', 1)">南增</ElButton>
-      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('S') ?? 0) <= 0" :title="`縮回南側新增的一行；已用 ${extentQuota('S') ?? '?'}／20 格，有物件時拒絕`" @click="runExtent('south', -1)">南縮</ElButton>
-      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('W') ?? 0) >= 20" :title="`西側加一列（全海底，不影響既有世界座標）；已用 ${extentQuota('W') ?? '?'}／20 格`" @click="runExtent('west', 1)">西增</ElButton>
-      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('W') ?? 0) <= 0" :title="`縮回西側新增的一列；已用 ${extentQuota('W') ?? '?'}／20 格，有物件時拒絕`" @click="runExtent('west', -1)">西縮</ElButton>
-      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('E') ?? 0) >= 20" :title="`東側加一列（全海底，不影響既有世界座標）；已用 ${extentQuota('E') ?? '?'}／20 格`" @click="runExtent('east', 1)">東增</ElButton>
-      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('E') ?? 0) <= 0" :title="`縮回東側新增的一列；已用 ${extentQuota('E') ?? '?'}／20 格，有物件時拒絕`" @click="runExtent('east', -1)">東縮</ElButton>
       <slot name="tools" />
       <ElButton :disabled="!model.exists" title="縮放至顯示整張地圖" @click="actions.fit()">全圖</ElButton>
       <ElButton :disabled="!model.exists" title="放大地圖" @click="actions.zoom(1.25)">放大</ElButton>
       <ElButton :disabled="!model.exists" title="原始比例：每格16×16像素，保持視野中心" @click="actions.zoom(1 / model.zoom)">100%</ElButton>
       <ElButton :disabled="!model.exists" title="縮小地圖" @click="actions.zoom(0.8)">縮小</ElButton>
       <ElButton :disabled="busy || !model.exists" aria-label="鎖圖" :aria-pressed="panLocked" :title="panLocked ? '已鎖圖：拖動已選物件；點擊解鎖' : '未鎖圖：拖動平移；點擊鎖定後可拖動已選物件'" @click="panLocked = !panLocked; pointer = null; objectDragging = false; actions.cancelObjectMove(); actions.cancelPlacement()"><WorkspaceIcon :name="panLocked ? 'locked' : 'unlocked'" /></ElButton>
-      <ElButton v-for="item in futureActions" :key="item.icon" :aria-label="item.name" :title="`${item.name}：暫未開放`" disabled><WorkspaceIcon :name="item.icon" /></ElButton>
       <ElCheckbox :model-value="model.gridVisible !== false" @update:model-value="actions.grid($event)">網格</ElCheckbox>
+        <span class="extent-label">地圖擴展</span>
+        <div v-for="[side, key, name, unit] in extentDirections" :key="side" class="extent-direction" role="group" :aria-label="`${name}側擴縮`">
+          <span>{{ name }}</span>
+          <ElButtonGroup>
+            <ElButton :aria-label="`${name}增`" :title="`向${name}延伸一${unit}；已用 ${extentQuota(key) ?? '?'}／20 格`" :disabled="locked || !model.exists || (extentQuota(key) ?? 0) >= 20" @click="runExtent(side, 1)"><WorkspaceIcon name="plus" /></ElButton>
+            <ElButton :aria-label="`${name}縮`" :title="`縮回${name}側一${unit}；已用 ${extentQuota(key) ?? '?'}／20 格`" :disabled="locked || !model.exists || (extentQuota(key) ?? 0) <= 0" @click="runExtent(side, -1)"><WorkspaceIcon name="minus" /></ElButton>
+          </ElButtonGroup>
+        </div>
       </div>
       <span class="map-status" role="status" aria-live="polite" :title="notice || model.message">{{ model.atlasLoading ? '圖集载入中…' : notice || model.message }}</span>
     </header>
@@ -406,6 +405,9 @@ onBeforeUnmount(() => {
 .base-map-controls { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow-x: auto; }
 .base-map-controls :deep(.el-button), .base-map-controls :deep(.el-checkbox) { flex-shrink: 0; }
 .base-map-controls :deep(.el-checkbox) { margin-right: 0; }
+.extent-label { margin-left: 8px; white-space: nowrap; }
+.extent-direction { display: inline-flex; flex: none; align-items: center; gap: 4px; }
+.extent-direction + .extent-direction { margin-inline-start: 12px; }
 .base-map-toolbar .map-status { flex: 0 1 auto; min-width: 120px; max-width: 240px; margin-left: auto; text-align: right; }
 .base-map-panel :deep(.el-button + .el-button) { margin-left: 0; }
 .map-save-report { max-height: 25%; overflow: auto; flex-shrink: 0; }
@@ -417,7 +419,6 @@ onBeforeUnmount(() => {
 .base-map-floating { position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 16px); max-height: calc(100% - 16px); overflow: auto; }
 .base-map-layer-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 /* User-approved map floating-toolbar exception: default-height square text buttons. */
-.base-map-layer-tools :deep(.el-button) { width: 32px; padding: 0; }
 .base-map-layer-tools :deep(.el-button:hover), .base-map-layer-tools :deep(.el-button:focus-visible) { border-color: var(--el-border-color); }
 .base-map-layer { display: flex; align-items: center; gap: 2px; }
 .base-map-drag-handle { touch-action: none; cursor: move; }
