@@ -13,6 +13,14 @@
 - **調試**：疊層案例最初因測試用山脊配方的 ID 與定義不符，觸發 `INVALID_COMPONENT_IDENTITY`；修正夾具的定義、視覺配方與隔離地圖，沒有放寬校驗。瀏覽器最初因測試伺服器未供應 `auth-logo.png`、`brand.png` 產生兩個 404；改由夾具供應真圖，不忽略 console 錯誤。
 - **收據**：`verify_map_extent_sides_ops.mjs`＋`verify_map_extent_controller.mjs` 共 11 項通過（四向保存重讀、縮回、調整新格再延伸、排除特殊物件等）；`verify_map_extent_templates.mjs` 7 項通過（配額、權限、建立時快照與舊副本隔離等）。`tools/verify_system_base_map_browser.mjs --edge-growth` 驗遊戲地圖；`--base-edge-growth` 以全新瀏覽器驗基礎地圖四增四縮、每步保存重讀與最終還原。兩者是隔離 API 夾具，不是生產驗收。編輯器 build、`--check`、Vue LSP 通過；本會話沒有可用的 `lens_diagnostics`。
 
+## §235｜編輯器 UI 統一規範（Message／Dialog／Form／預設主題）＋冒烟修復
+
+- **範圍**：`editor-ui/src` 全量：新建 `notify.js`（ElMessage plain:true 統一出口）；`main.js` 加 message 樣式＋`statusError` 旗標；`Workbench.vue` 全局 toast 觀察器（statusMessage 按 statusError 分 info/error，model.message 陣列去重 info）＋`onNotice`；Stronghold／Generals／Chapters 本地狀態補 toast；8 個原生 form 全轉 ElForm／ElFormItem（login／password／profile 無 @submit，仍由 `server/public/client.txt` 的 FormData 接管，保留 form id、input name、reset 語義）；Chapters 新增章、Stronghold 新增據點、BaseMap 保存檢查加 `align-center`／`destroy-on-close`／`close-on-click-modal`；CopyGame 轉換明細、full-copy／publish 失敗、review 三階段按鈕移入條件 footer（id 保留、幾何不斷言變化）；`theme.css` 刪除失效的 `form:not(.el-form)` 等規則，換成 `.el-form` 等價布局。`tools/verify_editor_shell.mjs` 的 login-form／current-game-selector 斷言同步為正則。
+- **刻意不動的例外**：GeneralsPanel 相簿（幾何斷言鎖定）；阻塞式 alertdialog 三處體內標題＋按鈕；`window.confirm`（Stronghold 刪除，改 ElMessageBox 會破壞 `verify_city_delete_browser` 的 native-dialog 自動接受，且本機無瀏覽器可重驗）；`accounts-vue-owned` 斷言仍紅（ElTable 遷移前即存在的 stale，未動，見下）。
+- **冒烟抓到的兩個真 bug（已修）**：① GeneralsPanel `watch(albumFailure)` 寫在 `const albumFailure` 宣告之前，掛載即 ReferenceError——三個本地 watch 已移到宣告之後。② Workbench 全局觀察器讀 `props.managementModel.message` 拋 TypeError——根因是 `defineProps` 漏宣告 `managementModel, management`（main.js 有傳、watcher 有讀，props 回退為 undefined），已補回宣告。兩者皆為本輪新增代碼的缺陷，非原版機制問題。
+- **驗證收據**：`node build.mjs`＋`--check` 通過；`npm run --prefix editor-ui/lsp check` 36 個 SFC 零診斷；`git diff --check` 乾淨（僅既有 CRLF 提示）。隔離冒烟（8446＋smoke2 臨時庫＋全新 profile，dev server 自動重載新 bundle）：錯誤登錄 toast 為 `is-plain error`、login／password／profile／create／copy-create／full-copy-form 均為 ElForm、登錄→工作台掛載→6 個可見視圖＋個人資料／變更密碼全部零 pageerror。`verify_editor_shell.mjs` 跑過已修的兩處斷言，仍停在預存的 `accounts-vue-owned`（第 70 行），與修復前一致，無新紅。
+- **未動／待辦**：8447 新 store 啟動失敗，係倉庫預存不一致——`server/available-library.txt` 的 programHashes 與已提交的 5 個 `web/src` 文件（main／endview／mapview／gamebar／hud）對不上，本輪未碰 web/src，不屬本輪範圍，已確認 8446 照常用 pinned 跳過 staging 正常服務。登錄成功後舊的「帳戶或密碼無效」文案殘留顯示（statusMessage 成功路徑未覆蓋），小瑕疵未修。提交／推送另需授權，本輪未提交。
+
 ## §234｜模組改名、記憶整理與交接
 
 - **改名**：`server/public/client.txt` 的 `catalog-editor` 顯示名由「人物頭像」改為「遊戲資源」。ID、管理員權限、頭像功能不動。同步 `tools/verify_editor_shell.mjs` 的名稱斷言；語法與名稱／權限定點檢查通過。

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs';
 import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
 import { ElProgress } from 'element-plus/es/components/progress/index.mjs';
@@ -23,29 +24,25 @@ async function create() {
     <ElButton v-if="model.conversionDetails" id="full-copy-conversion" @click="showConversion = true">轉換明細</ElButton>
     <ElDialog v-model="showConversion" title="章節轉換明細" width="min(880px, calc(100vw - 32px))" align-center destroy-on-close>
       <ElInput id="full-copy-conversion-details" type="textarea" readonly :autosize="{ minRows: 8, maxRows: 18 }" :model-value="model.conversionDetails" />
+      <template #footer><ElButton @click="showConversion = false">關閉</ElButton></template>
     </ElDialog>
     <p>地圖＋章節＋武將全套複製，產生原章完整副本。名稱不能與既有遊戲重複。</p>
-    <form id="full-copy-form" class="module-form" @submit.prevent="create()">
-      <label>名稱<ElInput id="full-copy-name" maxlength="1024" :model-value="model.name" :disabled="busy || model.locked" @input="actions.setField('name', $event)" /></label>
-      <label>簡介<ElInput id="full-copy-introduction" maxlength="1024" :model-value="model.introduction" :disabled="busy || model.locked" @input="actions.setField('introduction', $event)" /></label>
+    <ElForm id="full-copy-form" class="module-form" label-position="top" :model="model" @submit.prevent="create()">
+      <ElFormItem label="名稱" prop="name"><ElInput id="full-copy-name" maxlength="1024" :model-value="model.name" :disabled="busy || model.locked" @input="actions.setField('name', $event)" /></ElFormItem>
+      <ElFormItem label="簡介" prop="introduction"><ElInput id="full-copy-introduction" maxlength="1024" :model-value="model.introduction" :disabled="busy || model.locked" @input="actions.setField('introduction', $event)" /></ElFormItem>
+      <ElFormItem>
       <ElButton id="full-copy-create" type="primary" :disabled="busy || model.createDisabled" @click="create()">複製遊戲</ElButton>
       <ElButton v-if="model.canForget" id="full-copy-forget" :disabled="busy || model.forgetDisabled" @click="actions.forget()">清除本機追蹤</ElButton>
-    </form>
+      </ElFormItem>
+    </ElForm>
     <ElDialog v-if="model.tracking || model.failed" id="full-copy-overlay" width="min(440px, calc(100vw - 32px))" align-center :model-value="true" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" role="alertdialog" :aria-busy="model.tracking">
       <div class="full-copy-progress">
         <div v-if="model.tracking" id="full-copy-loading" v-loading="true" :element-loading-svg="loadingSvg" class="full-copy-loading" />
-        <!-- 标题与背景面板同一句话：只有一套进度说法，不用百分比。
-             失败时弹窗不自动消失（用户要求）：列出原因，按「確認」才关。 -->
         <p id="full-copy-overlay-text">{{ model.message }}</p>
-        <template v-if="model.failed">
-          <div class="module-toolbar">
-            <ElButton id="full-copy-dismiss" type="primary" :disabled="busy" @click="actions.dismiss()">確認</ElButton>
-          </div>
-        </template>
-        <template v-else>
-          <ElProgress :percentage="50" indeterminate :show-text="false" :aria-valuenow="null" />
-        </template>
+        <ElProgress v-if="!model.failed" :percentage="50" indeterminate :show-text="false" :aria-valuenow="null" />
       </div>
+      <!-- 失敗確認走基礎用法的 footer 動作位；運行中無 footer，不改變幾何。 -->
+      <template v-if="model.failed" #footer><ElButton id="full-copy-dismiss" type="primary" :disabled="busy" @click="actions.dismiss()">確認</ElButton></template>
     </ElDialog>
   </section>
 </template>

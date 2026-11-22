@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs';
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
@@ -76,14 +77,14 @@ const chapters = computed(() => (props.model.roles?.chapters ?? []).map(chapter 
     <p>此操作獨立確認，不保存其它表單輸入；回應不明時用上方按鈕查詢同一個請求或重試，成功後須明確重讀修訂。</p>
     <p v-if="!model.roles?.known" id="draft-role-unknown">角色資料未知或尚未精確重讀；中立定義模式不提供此原槽操作。</p>
     <template v-else>
-      <form id="faction-create" class="module-form" @submit.prevent="submitCreate">
+      <ElForm id="faction-create" class="module-form" label-position="top" :model="model.factionCreate ?? {}" @submit.prevent="submitCreate">
         <h4>新建勢力（選君主）</h4>
         <p id="faction-create-hint">{{ model.factionCreate?.hint ?? '未提供新建勢力狀態，不能視為可建立。' }}</p>
-        <label>章節<ElSelect id="faction-create-chapter" :model-value="model.factionCreate?.chapterId ?? ''" :disabled="locked || !model.factionCreate?.ready" @change="pickChapter($event)"><ElOption value="" label="請選擇章節" /><ElOption v-for="chapter in createChapters" :key="chapter.chapterId" :value="chapter.chapterId" :label="chapter.name + (chapter.full ? '（勢力槽已滿）' : '')" /></ElSelect></label>
-        <label>君主<ElSelect id="faction-create-monarch" :model-value="model.factionCreate?.generalSlot ?? ''" :disabled="locked || !model.factionCreate?.ready || !createSelection" @change="pickMonarch($event)"><ElOption value="" label="請選擇武將" /><ElOption v-for="candidate in createCandidates" :key="candidate.slot" :value="String(candidate.slot)" :label="`槽 ${candidate.slot}／${candidate.name}`" /></ElSelect></label>
-        <ElButton id="faction-create-submit" type="primary" native-type="submit" :disabled="!canCreateFaction">建立勢力</ElButton>
+        <ElFormItem label="章節" prop="chapterId"><ElSelect id="faction-create-chapter" :model-value="model.factionCreate?.chapterId ?? ''" :disabled="locked || !model.factionCreate?.ready" @change="pickChapter($event)"><ElOption value="" label="請選擇章節" /><ElOption v-for="chapter in createChapters" :key="chapter.chapterId" :value="chapter.chapterId" :label="chapter.name + (chapter.full ? '（勢力槽已滿）' : '')" /></ElSelect></ElFormItem>
+        <ElFormItem label="君主" prop="generalSlot"><ElSelect id="faction-create-monarch" :model-value="model.factionCreate?.generalSlot ?? ''" :disabled="locked || !model.factionCreate?.ready || !createSelection" @change="pickMonarch($event)"><ElOption value="" label="請選擇武將" /><ElOption v-for="candidate in createCandidates" :key="candidate.slot" :value="String(candidate.slot)" :label="`槽 ${candidate.slot}／${candidate.name}`" /></ElSelect></ElFormItem>
+        <ElFormItem><ElButton id="faction-create-submit" type="primary" native-type="submit" :disabled="!canCreateFaction">建立勢力</ElButton></ElFormItem>
         <p>候選只列本章已出場（已勾選）且無任職的普通武將；G127 保留槽不列入。建立後還必須指定首都才可保存——沒有首都的勢力保存會被拒。</p>
-      </form>
+      </ElForm>
       <p v-if="!chapters.length">此已讀修訂沒有章節。</p>
       <details v-for="chapter in chapters" :key="chapter.chapterId" :data-role-chapter="chapter.chapterId">
         <summary>{{ chapter.name }}／{{ chapter.chapterId }}</summary>

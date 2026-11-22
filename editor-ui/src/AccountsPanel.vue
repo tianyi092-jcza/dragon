@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
 import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElSelect } from 'element-plus/es/components/select/index.mjs';
@@ -26,10 +27,10 @@ defineExpose({ dirty: () => Boolean(newAccount.value) });
 <template>
   <section id="admin" class="accounts-panel module-card" aria-label="創作者帳戶" :aria-busy="busy">
     <div class="accounts-intro"><div><h2>帳戶清單</h2><p class="muted">管理創作者的存取權限；停用帳戶不會自動下架其遊戲。</p></div><ElButton id="refresh" :disabled="busy" @click="actions.refresh()">重載清單</ElButton></div>
-    <form id="create" class="account-create" @submit.prevent="create">
-      <label for="new-account">新創作者帳戶<ElInput id="new-account" v-model="newAccount" name="account" required maxlength="32" autocomplete="off" :disabled="busy || model.stale" /></label>
-      <ElButton type="primary" native-type="submit" :disabled="busy || model.stale">建立</ElButton>
-    </form>
+    <ElForm id="create" class="account-create" inline :model="{ account: newAccount }" @submit.prevent="create">
+      <ElFormItem label="新創作者帳戶" prop="account"><ElInput id="new-account" v-model="newAccount" name="account" required maxlength="32" autocomplete="off" :disabled="busy || model.stale" /></ElFormItem>
+      <ElFormItem><ElButton type="primary" native-type="submit" :disabled="busy || model.stale">建立</ElButton></ElFormItem>
+    </ElForm>
     <p v-if="model.message" id="accounts-message" class="account-warning" role="status">{{ model.message }}</p>
     <div class="account-filters">
       <label for="account-search">搜尋帳戶或個人資料<ElInput id="account-search" v-model="query" type="search" placeholder="帳戶、姓名、郵箱、電話、備註" :disabled="busy" /></label>

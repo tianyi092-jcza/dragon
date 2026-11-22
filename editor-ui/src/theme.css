@@ -13,9 +13,8 @@ body { overflow: hidden; }
 .brand-title { font-size: 20px; font-weight: 700; white-space: nowrap; }
 .auth-card { text-align: center; }
 .auth-logo { display: block; width: 128px; height: 128px; margin: 0 auto 8px; }
-.auth-card form { display: flex; flex-direction: column; align-items: center; }
-.auth-card form > label { width: 50%; text-align: left; }
-.auth-card form > .el-button { width: 50%; margin-top: 24px; }
+.auth-card .el-form { display: flex; flex-direction: column; align-items: center; }
+.auth-card .el-form .el-form-item { width: 50%; }
 .brand-caption, .account-secondary { display: block; }
 .account-actions, .current-game, .page-line, .module-toolbar, .resource-toolbar, .resource-categories, .resource-filter, .account-filters, .account-row-actions, .account-tags, .chapter-order, .validation-cell { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .current-game { margin-left: auto; }
@@ -82,19 +81,13 @@ body { overflow: hidden; }
 .chapter-option-name { width: 8em; margin-right: 1em; }
 .chapter-option-date { width: 12em; }
 #chapters-editor .chapter-switch { width: 340px; }
-form { margin: 16px 0; }
-form:not(.el-form) { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--editor-form-row-gap) var(--editor-form-column-gap); }
-form:not(.el-form) > label { display: grid; gap: var(--editor-form-label-gap); min-width: 0; }
+/* 全站表單已統一為基礎用法 ElForm；堆疊間距交給框架預設，這裡只保留佈局。 */
+.el-form:not(.chapter-create-form) { margin: 16px 0; }
 .module-card > label { display: block; margin: 12px 0; }
-.auth-card form:not(.el-form) { display: flex; }
-.auth-card form > .el-button { margin-top: 0; }
-form:not(.el-form) > .el-button { justify-self: start; }
 .user-menu-items { display: flex; flex-direction: column; gap: 8px; }
 .user-menu-items .el-button { margin-left: 0; }
 .module-form { max-width: 760px; }
 .module-form .el-input, .module-form .el-select { width: 100%; }
-form.account-create:not(.el-form) { display: flex; align-items: end; flex-wrap: wrap; }
-.account-create label { flex: 1; max-width: 360px; }
 .account-filters .el-input { width: 320px; }
 .account-filters .el-select { width: 180px; }
 .accounts-intro, .chapter-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

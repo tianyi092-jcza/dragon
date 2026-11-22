@@ -13,6 +13,7 @@ import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs';
 import { ElTooltip } from 'element-plus/es/components/tooltip/index.mjs';
 import { vLoading } from 'element-plus/es/components/loading/index.mjs';
 import { loadingSvg } from './loading.js';
+import { notifyError, notifyInfo } from './notify.js';
 // 武將庫＝這款遊戲的共享武將資料（父表，全章共用）：頭像、姓名、字、
 // 勢力被滅被俘（自殺旗，原版 attr bit4）、六項能力。章節經人物層繼承共享屬性，
 // 章節自有欄位（所屬／出場／職務等）不在本頁；增刪另議。加載走副本頁。
@@ -38,6 +39,10 @@ const albumSearch = ref('');
 const albumOpen = ref(false), albumLoading = ref(false);
 const albumPick = ref(null);
 const albumFailure = ref('');
+// 本地狀態行（主表＋頭像相簿）不經過全局 model.message，在這裡補 Plain 提示。
+watch(status, message => { if (String(message ?? '').trim()) notifyInfo(message); });
+watch(failure, message => { if (String(message ?? '').trim()) notifyError(message); });
+watch(albumFailure, message => { if (String(message ?? '').trim()) notifyError(message); });
 const generalName = value => String(value ?? '').normalize('NFC').trim();
 
 const page = computed(() => props.model?.copy?.page ?? null);

@@ -1,5 +1,6 @@
 <script setup>
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs';
 import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
 import { ElCheckbox } from 'element-plus/es/components/checkbox/index.mjs';
@@ -68,10 +69,10 @@ function chooseChapterPortrait(choice, chapterId, generalId) {
         <ElButton id="definition-portrait-filter-clear" :disabled="busy || model.definitions.locked || !portraitFilter" @click="portraitFilter = ''">清除篩選</ElButton>
       </div>
       <p id="definition-portrait-filter-status" role="status">符合 {{ filteredPortraits.length }}／{{ model.definitions.library.length }} 項。基表與章節共用此ID篩選，不分大小寫；不改已選引用、不讀取或保存。</p>
-      <form id="definition-form" @submit.prevent="actions.saveDefinition()">
+      <ElForm id="definition-form" label-position="top" :model="model.definitions.form" @submit.prevent="actions.saveDefinition()">
         <p id="definition-selected">{{ model.definitions.form.generalId ?? '新增模式：保存後由服務分配ID' }}</p>
-        <label>姓名<ElInput id="definition-name" :model-value="model.definitions.form.name" :disabled="busy || model.definitions.locked" @input="actions.setDefinitionField('name',$event)" /></label>
-        <label>字（可空）<ElInput id="definition-hao" :model-value="model.definitions.form.hao" :disabled="busy || model.definitions.locked" @input="actions.setDefinitionField('hao',$event)" /></label>
+        <ElFormItem label="姓名" prop="name"><ElInput id="definition-name" :model-value="model.definitions.form.name" :disabled="busy || model.definitions.locked" @input="actions.setDefinitionField('name',$event)" /></ElFormItem>
+        <ElFormItem label="字（可空）" prop="hao"><ElInput id="definition-hao" :model-value="model.definitions.form.hao" :disabled="busy || model.definitions.locked" @input="actions.setDefinitionField('hao',$event)" /></ElFormItem>
         <div class="module-toolbar">
           <ElButton id="definition-portraits" :disabled="busy || model.definitions.locked" @click="actions.definitionPortraits()">讀取共用頭像清單</ElButton>
           <label>頭像<ElSelect id="definition-portrait" :model-value="model.definitions.form.portraitRef?.assetId ?? ''" :disabled="busy || model.definitions.locked" @change="actions.chooseDefinitionPortrait($event)">
@@ -83,7 +84,7 @@ function chooseChapterPortrait(choice, chapterId, generalId) {
           <ElButton id="definition-delete" :disabled="busy || model.definitions.locked || !model.definitions.form.generalId" @click="actions.deleteDefinition()">刪除此無章節引用的定義</ElButton>
         </div>
         <p v-if="model.definitions.dirty">此武將庫表有未保存輸入。保存回應不明時先查原鍵；確認保存後仍須載入回應修訂，不自動改讀最新修訂。</p>
-      </form>
+      </ElForm>
       <section v-if="model.definitions.form.generalId" id="definition-references">
         <h4>所選武將的已讀章節引用</h4>
         <p>僅顯示目前明確載入修訂的章節人物配置；未加入仍是引用。不受目前章節選擇影響，也不是原生任職／事件引用或刪除許可。</p>

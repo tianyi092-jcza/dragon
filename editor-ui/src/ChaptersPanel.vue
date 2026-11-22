@@ -11,6 +11,7 @@ import { ElTabs, ElTabPane } from 'element-plus/es/components/tabs/index.mjs';
 import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs';
 import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
 import ListPagination from './ListPagination.vue';
+import { notifyError, notifyInfo } from './notify.js';
 import { usePagination } from './pagination.js';
 import { CHAPTER_DIPLOMACY_RELATIONS, chapterDiplomacyRelation } from '../../web/src/editor/chapterdiplomacy.js';
 // CHAPTER-WB：四頁共用目前章節；保存後控制器重讀副本。
@@ -116,6 +117,7 @@ const loading = ref(false);
 const canLoad = computed(() => !loading.value && !props.busy && Boolean(props.model?.fields?.gameId));
 const createForm = reactive({ number: '', name: '', era: 'ad', year: '', month: '', day: '' });
 const createResult = ref('');
+watch(createResult, message => { if (String(message ?? '').trim()) notifyInfo(message); });
 const createClosing = ref(false);
 let createTimer = null;
 function cancelCreate() {
@@ -152,6 +154,7 @@ const chapterOptionDate = row => row.startMissing
 const chapterOptionLabel = row => `${row.number ?? ''}  ${row.name}  ${chapterOptionDate(row)}`;
 const labelForm = reactive({ number: '', name: '' });
 const chapterFormResult = ref('');
+watch(chapterFormResult, message => { if (String(message ?? '').trim()) notifyInfo(message); });
 const labelDirty = computed(() => Boolean(chapter.value) && ((labelForm.number || '') !== (chapter.value.number ?? '') || labelForm.name !== (chapter.value.name ?? '')));
 const chapterFormDirty = computed(() => Boolean(chapter.value) && (labelDirty.value || chapter.value.startDirty));
 // 合併保存：編號名稱＋暫存年代一次提交，各自仍走原控制器命令與確認。
@@ -331,7 +334,7 @@ async function saveNumbers(city) {
   <section id="chapters-editor" class="module-card" :aria-busy="loading">
     <template v-if="active">
       <div v-if="!creating" class="module-toolbar"><ElButton id="chapters-load" :aria-busy="loading" :disabled="!canLoad" @click="load()">加載</ElButton><ElButton data-chapter-create :disabled="busy || dirty || !attributes || attributes.locked" @click="creating = true; numberError = ''">新增章節</ElButton></div>
-      <ElDialog v-else v-model="creating" title="新增章節" width="480" :close-on-click-modal="false" @close="cancelCreate">
+      <ElDialog v-else v-model="creating" title="新增章節" width="480" align-center :close-on-click-modal="false" destroy-on-close @close="cancelCreate">
         <ElForm :model="createForm" label-width="auto" class="chapter-create-form" @submit.prevent="createChapter">
         <div class="chapter-create-fields">
           <ElFormItem class="chapter-create-number" label="編號"><ElInput v-model="createForm.number" data-new-chapter-number :disabled="busy" /></ElFormItem>

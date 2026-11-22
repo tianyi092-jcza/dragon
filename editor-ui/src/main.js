@@ -2,6 +2,7 @@ import { createApp, reactive } from 'vue';
 import 'element-plus/es/components/button/style/css';
 import 'element-plus/es/components/button-group/style/css';
 import 'element-plus/es/components/card/style/css';
+import 'element-plus/es/components/message/style/css';
 import 'element-plus/es/components/message-box/style/css';
 import 'element-plus/es/components/tag/style/css';
 import 'element-plus/es/components/text/style/css';
@@ -43,7 +44,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
   document.querySelector('link[rel="stylesheet"][href="/style.css"]')?.remove();
   // Dialogs/popovers are teleported outside the workbench root.
   Object.assign(document.body.style, { fontFamily: 'var(--el-font-family)', fontSize: 'var(--el-font-size-base)' });
-  const state = reactive({ authenticated: false, mustChange: false, admin: false, account: '', view: null, busy: false, feedback: 'global', loading: false, statusMessage: '', views });
+  const state = reactive({ authenticated: false, mustChange: false, admin: false, account: '', view: null, busy: false, feedback: 'global', loading: false, statusMessage: '', statusError: false, views });
   const accountsModel = reactive({ rows: [], loaded: false, stale: false, message: '', generation: 0 });
   const draftModel = reactive({ fields: {}, games: [], chapters: [], resources: [], context: null, locked: true });
   const stageAssetsModel = reactive({ loadDisabled: true, clearDisabled: true, context: '', message: '', summary: '', outputs: [], missing: [], unresolved: [] });
@@ -83,6 +84,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
     loading: value => { state.loading = value; },
     status: (message, isError = false) => {
       state.statusMessage = message;
+      state.statusError = Boolean(isError);
       // Keep map-specific success/dirty text, but never hide run() errors.
       if (isError && state.view === 'base-map-editor') baseMapModel.message = message;
       if (isError && state.view === 'mapview-editor') gameMapModel.message = message;

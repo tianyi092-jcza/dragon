@@ -331,7 +331,7 @@ onBeforeUnmount(() => {
       <span class="map-status" role="status" aria-live="polite" :title="notice || model.message">{{ model.atlasLoading ? '圖集载入中…' : notice || model.message }}</span>
     </header>
     <div class="base-map-workspace">
-    <ElDialog :model-value="model.saveReport?.state === 'running'" title="地圖保存檢查" width="min(32rem, 90vw)" append-to-body :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
+    <ElDialog :model-value="model.saveReport?.state === 'running'" title="地圖保存檢查" width="min(32rem, 90vw)" align-center append-to-body :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
       <div role="status" aria-live="polite"><strong>{{ model.saveReport?.summary }}</strong><ol><li v-for="line in checks" :key="line">{{ line }}</li></ol></div>
     </ElDialog>
     <details v-if="model.saveReport && model.saveReport.state !== 'running'" class="map-save-report" :open="model.saveReport.state !== 'success'">

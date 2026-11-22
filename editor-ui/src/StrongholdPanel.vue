@@ -1,5 +1,6 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
+import { notifyError, notifyInfo } from './notify.js';
 import ListPagination from './ListPagination.vue';
 import { strongholdWidths } from './strongholdcolumns.js';
 import { ElDialog } from 'element-plus/es/components/dialog/index.mjs';
@@ -38,6 +39,9 @@ watch(() => form.type, type => { if (form.battleMapId && !siegeInType(form.battl
 watch(() => create.type, type => { if (create.battleMapId && !siegeInType(create.battleMapId, type)) create.battleMapId = ''; });
 const status = ref('');
 const failure = ref('');
+// 本地失敗／成功行不經過全局 model.message，直接在這裡補一條 Plain 提示。
+watch(failure, message => { if (String(message ?? '').trim()) notifyError(message); });
+watch(status, message => { if (String(message ?? '').trim()) notifyInfo(message); });
 const cityName = value => String(value ?? '').normalize('NFC').trim();
 
 const page = computed(() => props.model?.copy?.page ?? null);
@@ -210,7 +214,7 @@ async function save(row) {
       <ElInput id="stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱" :disabled="!supported" />
       <span id="stronghold-status" role="status" class="stronghold-status">{{ failure || status }}</span>
     </div>
-    <ElDialog v-model="creating" title="新增據點" width="min(900px, 94vw)" align-center append-to-body class="stronghold-create-dialog" body-class="stronghold-dialog-scroll">
+    <ElDialog v-model="creating" title="新增據點" width="min(900px, 94vw)" align-center append-to-body :close-on-click-modal="false" destroy-on-close class="stronghold-create-dialog" body-class="stronghold-dialog-scroll">
       <ElForm label-position="top" class="editor-form-grid" @submit.prevent="createCity()">
         <ElFormItem v-for="field in columns.filter(c => ['name', ...FIELDS, 'troops_cap'].includes(c.key))" :key="field.key" :label="field.title">
           <ElSelect v-if="field.key === 'type'" v-model="create.type" :disabled="busy"><ElOption v-for="[value, label] in CITY_TYPES" :key="value" :value="Number(value)" :label="label" /></ElSelect>

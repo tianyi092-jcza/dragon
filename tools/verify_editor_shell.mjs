@@ -33,7 +33,9 @@ const reviewView = readFileSync('editor-ui/src/ReviewPanel.vue', 'utf-8');
 const copyGameView = readFileSync('editor-ui/src/CopyGamePanel.vue', 'utf-8');
 const htmlIds = new Set([...(reviewView + copyGameView + publishView + copyView + html + shell + accountViews + draftView + chaptersView + stageAssetsView + libraryView + strongholdView + baseStrongholdView + mapView + baseMapView + catalogView + generalsView).matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
 // Login home: login form + hidden session/menu; no business content outside.
-check("login-form", accountViews.includes('<form id="login">'));
+// 登錄表已統一為基礎用法 ElForm（運行時仍渲染原生 form，外部 client.txt 照常接管）：
+// 這裡只鎖定 id="login" 的表單存在，不鎖定寫法。
+check("login-form", /<(form|ElForm)\b[^>]*\bid="login"/.test(accountViews));
 check("menu-nav", shell.includes('<aside id="menu"') && shell.includes(':hidden="!ready"'));
 check("shell-layout", html.includes('id="editor-app"') && !html.includes('id="main"') && !shell.includes('business-host'));
 check("session-hidden", shell.includes('<section id="session" :hidden="!state.authenticated">'));
@@ -52,7 +54,7 @@ for (const label of ["新建遊戲", "遊戲管理", "用戶管理", "遊戲資�
 }
 check("menu-groups", ["game", "admin"].every(group => client.includes(`'${group}'`)) && !client.includes("'workbench'") && !shell.includes("ElMenuItemGroup") && !shell.includes("工作台級") && !shell.includes("遊戲級"));
 check("cancelled-views-absent", !["stage-editor", "stage-assets-editor", "library-editor", "deletion-editor"].some(id => client.includes(`'${id}'`)) && !shell.includes("stage-assets-editor") && !shell.includes('id="library-editor"'));
-check("current-game-selector", shell.includes('id="current-game"') && shell.includes("props.draft.chooseGame(event.target.value)") && readFileSync("server/public/draft.txt", "utf-8").includes("function chooseGame"));
+check("current-game-selector", shell.includes('id="current-game"') && shell.includes("props.draft.chooseGame(value)") && readFileSync("server/public/draft.txt", "utf-8").includes("function chooseGame"));
 // Role gate: admin view withheld from non-admin/must-change; menu hidden anon.
 check("role-gate", client.includes("!current || current.user.mustChangePassword") && client.includes("!item[2] || current.user.role === 'admin'"));
 check("session-gate", shell.includes('state.authenticated && !props.state.mustChange') && shell.includes(':hidden="!ready || !state.admin || state.view'));

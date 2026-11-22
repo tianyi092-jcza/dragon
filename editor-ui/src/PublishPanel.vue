@@ -89,8 +89,9 @@ async function check(row) {
         <!-- 上架只送一次 POST，提交后轮询 slot 状态；无多段进度。 -->
         <!-- 第二行：處理過程；失敗或逾時就在這一行說明原因 -->
         <p id="publish-overlay-line">{{ overlay.failed ? overlay.line : (model.phase || '正在處理…') }}</p>
-        <p v-if="overlay.failed"><ElButton id="publish-overlay-close" @click="close">關閉</ElButton></p>
       </div>
+      <!-- 失敗關閉走基礎用法的 footer 動作位；檢查中無 footer，不改變幾何。 -->
+      <template v-if="overlay.failed" #footer><ElButton id="publish-overlay-close" @click="close">關閉</ElButton></template>
     </ElDialog>
   </section>
 </template>

@@ -1,5 +1,6 @@
 <script setup>
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
+import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs';
 import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
@@ -25,14 +26,16 @@ function choose(value, actions) { actions.chooseGame(value); }
     </details>
     <p id="draft-context">{{ page(model) ? `${model.fields.gameId}／副本摘要 ${page(model).digest.slice(0, 12)}…${page(model).dirty ? '／有未保存修改' : ''}` : '未載入副本' }}</p>
     <p id="draft-status" class="module-notice" role="status">{{ model.message }}</p>
-    <form id="draft-save" class="module-form" @submit.prevent="actions.saveCopyPage()">
-      <label>名稱<ElInput id="draft-name" required maxlength="1024" :model-value="model.fields.name" :disabled="busy || !page(model) || page(model).editLocked" @input="actions.setCopyField('name', $event)" /></label>
-      <label>簡介<ElInput id="draft-introduction" maxlength="1024" :model-value="model.fields.introduction" :disabled="busy || !page(model) || page(model).editLocked" @input="actions.setCopyField('introduction', $event)" /></label>
+    <ElForm id="draft-save" class="module-form" label-position="top" :model="page(model)?.fields ?? {}" @submit.prevent="actions.saveCopyPage()">
+      <ElFormItem label="名稱" prop="name"><ElInput id="draft-name" required maxlength="1024" :model-value="model.fields.name" :disabled="busy || !page(model) || page(model).editLocked" @input="actions.setCopyField('name', $event)" /></ElFormItem>
+      <ElFormItem label="簡介" prop="introduction"><ElInput id="draft-introduction" maxlength="1024" :model-value="model.fields.introduction" :disabled="busy || !page(model) || page(model).editLocked" @input="actions.setCopyField('introduction', $event)" /></ElFormItem>
       <p>名稱trim／NFC後1～8個碼點，簡介最多1024個。保存成功後自動重讀副本。</p>
+      <ElFormItem>
       <ElButton id="draft-save-button" native-type="submit" :disabled="busy || !page(model) || page(model).editLocked">保存資料</ElButton>
       <ElButton id="draft-cancel-edits" :disabled="busy || !page(model) || page(model).cancelLocked" @click="actions.cancelCopyEdits()">取消編輯</ElButton>
+      </ElFormItem>
       <p>取消恢復已讀名稱與簡介，不重新讀取或保存。章節、勢力與開局資源請至「遊戲章節」編輯。</p>
-    </form>
+    </ElForm>
     </template>
   </section>
 </template>

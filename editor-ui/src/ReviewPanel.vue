@@ -133,17 +133,19 @@ async function confirmDelete() {
           <p id="review-overlay-title">物理刪除「{{ overlay.name }}」？</p>
           <p id="review-overlay-line">這是<b>物理刪除</b>：以下範圍如有資料將被徹底清除，不可恢復，也沒有復原入口；玩家本機存檔不受影響。</p>
           <ElTable id="review-overlay-scopes" :data="purgeScopes" :show-header="false"><ElTableColumn><template #default="{ row: scope, $index: i }"><strong>{{ i + 1 }}. {{ scope.title }}</strong><p>{{ scope.detail }}</p></template></ElTableColumn></ElTable>
-          <div class="module-toolbar">
-            <ElButton id="review-overlay-cancel" @click="closeOverlay()">取消</ElButton>
-            <ElButton id="review-overlay-confirm" type="danger" @click="confirmDelete()">確認物理刪除</ElButton>
-          </div>
         </template>
         <template v-else>
           <p id="review-overlay-title">{{ overlay.phase === 'running' ? '正在刪除，請等待…' : (overlay.phase === 'done' ? '刪除完成' : (overlay.phase === 'partial' ? '刪除未完全完成' : '刪除失敗')) }}</p>
           <p id="review-overlay-line">{{ overlay.line }}</p>
           <ElTable v-if="overlay.scopes" id="review-overlay-scopes" :data="overlay.scopes" :show-header="false"><ElTableColumn><template #default="{ row: scope, $index: i }"><strong>{{ i + 1 }}. {{ scope.title }} <ElText v-if="scope.note" :type="scope.state === 'cleared' ? 'success' : scope.state === 'failed' ? 'danger' : scope.state === 'doing' ? 'primary' : 'info'">{{ scope.note }}</ElText></strong><p>{{ scope.detail }}</p></template></ElTableColumn></ElTable>
-          <ElButton id="review-overlay-close" @click="closeOverlay()">關閉</ElButton>
         </template>
+      <template #footer>
+        <template v-if="overlay.phase === 'confirm'">
+          <ElButton id="review-overlay-cancel" @click="closeOverlay()">取消</ElButton>
+          <ElButton id="review-overlay-confirm" type="danger" @click="confirmDelete()">確認物理刪除</ElButton>
+        </template>
+        <ElButton v-else id="review-overlay-close" @click="closeOverlay()">關閉</ElButton>
+      </template>
     </ElDialog>
   </section>
 </template>
