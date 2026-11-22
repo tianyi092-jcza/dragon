@@ -17,12 +17,20 @@ const FIELDS = ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type'];
 // 3 關卡、4 戰場；5 首都／6 中立是同一表後續項，不是合法存儲 type。
 const CITY_TYPES = [['0', '大都市'], ['1', '中都市'], ['2', '小都市'], ['3', '關卡'], ['4', '戰場']];
 const typeLabel = value => CITY_TYPES.find(([key]) => Number(key) === value)?.[1] ?? (value === null || value === undefined ? '—' : String(value) + '（未知）');
-
+import { siegeLabel, siegeValid, siegeInType, thumbUrl } from "./siegebattletypes.js";
+import SiegeThumbPicker from './SiegeThumbPicker.vue';
 const loading = ref(false);
 const search = ref('');
 const sort = reactive({ key: 'seq', dir: 1 });
 const editing = ref(null);
-const form = reactive({ name: '', max_prod: '', prod: '', growth: '', defence: '', troops: '', type: '' });
+const form = reactive({ name: '', max_prod: '', prod: '', growth: '', defence: '', troops: '', type: '', battleMapId: '', troops_cap: '' });
+const creating = ref(false);
+const pickerVisible = ref(false);
+const createPickerVisible = ref(false);
+const create = reactive({ name: '', max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1, battleMapId: '', troops_cap: 60 });
+// 類型先行：類型一切換，戰場若不在該類型子集內即清空重選（新增與編輯同規則）。
+watch(() => form.type, type => { if (form.battleMapId && !siegeInType(form.battleMapId, type)) form.battleMapId = ''; });
+watch(() => create.type, type => { if (create.battleMapId && !siegeInType(create.battleMapId, type)) create.battleMapId = ''; });
 const status = ref('');
 const failure = ref('');
 const cityName = value => String(value ?? '').normalize('NFC').trim();
@@ -47,6 +55,8 @@ const columns = [
   { key: 'defence', title: '防災值', sortable: true, type: 'number' },
   { key: 'troops', title: '城兵*10', sortable: true, type: 'number' },
   { key: 'type', title: '類型', sortable: true, type: 'number' },
+  { key: 'troops_cap', title: '城兵上限', sortable: true, type: 'number' },
+  { key: 'battleMapId', title: '攻城戰場', sortable: true, type: 'text' },
   { key: 'actions', title: '操作', sortable: false },
 ];
 
@@ -112,9 +122,38 @@ function startEdit(row) {
   editing.value = row.cityId;
   form.name = row.name ?? '';
   for (const key of FIELDS) form[key] = row[key] ?? '';
+  form.battleMapId = row.battleMapId ?? '';
+  form.troops_cap = row.troops_cap ?? '';
   failure.value = '';
 }
 function cancelEdit() { editing.value = null; failure.value = ''; }
+async function createCity() {
+  if (locked.value) return;
+  const name = cityName(create.name);
+  if (!name) { failure.value = '據點名稱不可空白。'; return; }
+  if ([...name].length > 12) { failure.value = '據點名稱最多 12 個字。'; return; }
+  if (loaded.value.some(item => cityName(item.name) === name)) { failure.value = '據點名稱「' + name + '」已被其他據點使用。'; return; }
+  const numbers = {};
+  for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
+    const raw = String(create[key] ?? '').trim();
+    const limit = key === 'view' ? 255 : NUMBERS[key];
+    if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > limit) { failure.value = key + ' 必須是 0–' + limit + ' 的整數。'; return; }
+    numbers[key] = Number(raw);
+  }
+  const createCapRaw = String(create.troops_cap ?? '').trim();
+  if (!/^[0-9]{1,3}$/.test(createCapRaw) || Number(createCapRaw) > 255) { failure.value = '城兵上限必須是 0–255 的整數。'; return; }
+  if (!siegeValid(String(create.battleMapId ?? ''))) { failure.value = '攻城戰場須為 ki-1995:siege:0..191（先定類型，再按版式／主題分組選擇）。'; return; }
+  if (!siegeInType(String(create.battleMapId ?? ''), create.type)) { failure.value = '所選攻城戰場不在該據點類型的子集內，請重選。'; return; }
+  failure.value = ''; status.value = '';
+  try {
+    const reply = await props.actions.cityCopyCreate({ name, numbers, battleMapId: String(create.battleMapId), troops_cap: Number(create.troops_cap) });
+    creating.value = false;
+    create.name = ''; create.battleMapId = '';
+    if (typeof reply === 'string') status.value = reply;
+  } catch (error) {
+    failure.value = (error && error.message) || '新增未完成（原因未回報）。';
+  }
+}
 
 // 同一套規則服務端還會再驗一次：這裡只為即時顯示，不代替服務端判定。
 function validate(row) {
@@ -127,6 +166,13 @@ function validate(row) {
     if (raw === '') { if (row[key] !== null) return key + ' 不可留空；請填 0–' + NUMBERS[key] + ' 的整數。'; continue; }
     if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > NUMBERS[key]) return key + ' 必須是 0–' + NUMBERS[key] + ' 的整數。';
   }
+  if (!siegeValid(String(form.battleMapId ?? ''))) return '攻城戰場須為 ki-1995:siege:0..191（先定類型，再按版式／主題分組選擇）。';
+  if (!siegeInType(String(form.battleMapId ?? ''), form.type)) return '所選攻城戰場不在該據點類型的子集內，請重選。';
+  if (String(form.troops_cap ?? '').trim() === '') { if (row.troops_cap !== null) return '城兵上限不可空白；請填 0–255 的整數。'; }
+  else {
+    const capRaw = String(form.troops_cap ?? '').trim();
+    if (!/^[0-9]{1,3}$/.test(capRaw) || Number(capRaw) > 255) return '城兵上限必須是 0–255 的整數。';
+  }
   return '';
 }
 async function save(row) {
@@ -134,8 +180,9 @@ async function save(row) {
   const problem = validate(row);
   if (problem) { failure.value = problem; return; }
   failure.value = ''; status.value = '';
-  const patch = { name: cityName(form.name) };
+  const patch = { name: cityName(form.name), battleMapId: String(form.battleMapId) };
   for (const key of FIELDS) patch[key] = form[key];
+  patch.troops_cap = String(form.troops_cap ?? '').trim() === '' ? null : Number(form.troops_cap);
   try {
     const reply = await props.actions.cityCopySave(row.cityId, patch);
     editing.value = null;
@@ -151,9 +198,19 @@ async function save(row) {
   <section id="stronghold-editor" class="module-card">
     <div class="module-toolbar">
       <ElButton id="stronghold-load" :aria-busy="loading" :disabled="!canLoad" @click="load()">加載</ElButton>
+      <ElButton id="stronghold-create-toggle" :disabled="locked" @click="creating = !creating; failure = ''">{{ creating ? '取消新增' : '新增據點' }}</ElButton>
       <ElInput id="stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱" :disabled="!supported" />
       <span id="stronghold-status" role="status" class="stronghold-status">{{ failure || status }}</span>
     </div>
+    <div v-if="creating && supported" class="module-toolbar stronghold-create" aria-label="新增據點">
+      <label>名稱<ElInput v-model="create.name" maxlength="12" :disabled="busy" /></label>
+      <label v-for="key in ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']" :key="key">{{ key }}<ElInput :model-value="create[key]" inputmode="numeric" :disabled="busy" @input="create[key] = $event" /></label>
+      <label class="siege-pick">攻城戰場<img v-if="thumbUrl(create.battleMapId)" :src="thumbUrl(create.battleMapId)" alt="" width="96" height="51" /><span class="siege-current">{{ siegeLabel(create.battleMapId) }}</span><ElButton :disabled="busy" @click="createPickerVisible = true">選圖</ElButton></label>
+      <label>城兵上限<ElInput v-model="create.troops_cap" inputmode="numeric" :disabled="busy" /></label>
+      <ElButton id="stronghold-create" :disabled="busy || locked" @click="createCity()">建檔</ElButton>
+    </div>
+    <SiegeThumbPicker :visible="createPickerVisible" :city-type="create.type" :value="create.battleMapId" @select="create.battleMapId = $event" @close="createPickerVisible = false" />
+    <SiegeThumbPicker :visible="pickerVisible" :city-type="form.type" :value="form.battleMapId" @select="form.battleMapId = $event" @close="pickerVisible = false" />
     <div v-if="supported" class="table-region" tabindex="0">
       <ElTable id="stronghold-table" ref="table" :data="pagedRows" height="100%" row-key="cityId" @sort-change="onSortChange">
         <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="column.title" :sortable="column.sortable ? 'custom' : false" :sort-orders="['ascending', 'descending']" :min-width="column.key === 'actions' ? 180 : 120">
@@ -176,6 +233,14 @@ async function save(row) {
               </template>
               <template v-else-if="column.key === 'name'">
                 <ElInput v-if="editing === row.cityId" v-model="form.name" data-input="name" maxlength="12" :disabled="busy" /><template v-else>{{ row.name ?? '未配置' }}</template>
+              </template>
+              <template v-else-if="column.key === 'troops_cap'">
+                <ElInput v-if="editing === row.cityId" v-model="form.troops_cap" data-input="troops_cap" inputmode="numeric" :disabled="busy" />
+                <template v-else>{{ row.troops_cap ?? '（分章）' }}</template>
+              </template>
+              <template v-else-if="column.key === 'battleMapId'">
+                <div v-if="editing === row.cityId" class="siege-pick"><img v-if="thumbUrl(form.battleMapId)" :src="thumbUrl(form.battleMapId)" alt="" width="96" height="51" /><ElButton :disabled="busy" @click="pickerVisible = true">選圖</ElButton><span>{{ siegeLabel(form.battleMapId) }}</span></div>
+                <template v-else>{{ siegeLabel(row.battleMapId) }}</template>
               </template>
               <template v-else><ElInput v-if="editing === row.cityId" v-model="form[column.key]" :data-input="column.key" inputmode="numeric" :disabled="busy" /><template v-else>{{ row[column.key] ?? '—' }}</template></template>
             </div>

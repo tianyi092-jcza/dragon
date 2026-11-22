@@ -38,9 +38,16 @@ const ref = { gameId: GAME, draftRevision: '1', sourceDigest: 'b'.repeat(64) };
 const game = bounds => ({ gameId: GAME, chapterOrder: ['c'], chapters: { c: { state: {} } }, map: { bounds } });
 const good = { minX: 0, minY: 0, width: 384, height: 256, tileSize: 16 };
 try {
-  await packs.buildAndStore('h1', { game: game({ ...good, width: 400 }), reference: ref, compiled: {} });
+  await packs.buildAndStore('h1', { game: game({ ...good, width: 500 }), reference: ref, compiled: {} });
   check('bad bounds blocked', false);
 } catch (e) { check('bad bounds blocked', e instanceof HttpError && e.code === 'PLAY_MAP_BOUNDS', e?.code); }
+// MAP-EXT E10: supported extents (here east +16, within the per-side budget)
+// pass the bounds gate; the failure below is the empty chapter state, which
+// proves gate passage rather than a bounds refusal.
+try {
+  await packs.buildAndStore('h1', { game: game({ ...good, width: 400 }), reference: ref, compiled: {} });
+  check('extended bounds pass gate', false);
+} catch (e) { check('extended bounds pass gate', e?.code === 'PLAY_SNAPSHOT', e?.code); }
 try {
   await packs.buildAndStore('h1', { game: { ...game(good), chapterOrder: [] }, reference: ref, compiled: {} });
   check('gate passes good bounds', false);

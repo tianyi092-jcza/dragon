@@ -13,7 +13,18 @@ import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapter
 import { composeMapLayers } from '../web/src/content/authoring/maplayers.js';
 import { buildRoad } from '../web/src/content/authoring/roadedit.js';
 import { MAX_ROAD_EDGES } from '../web/src/content/authoring/mapcompile.js';
+import { analyzeRoadChains, isAutoRoadId } from '../web/src/editor/roadchain.js';
+import { expandMapOneStep, shrinkMapOneStep, isOriginalBounds, isSupportedMapExtent } from '../web/src/content/authoring/mapextent.js';
 import { fail } from './security.js';
+
+// MAP-EXT E10: publish/verify/compile entry points admit genuinely extended
+// maps through the same formal mapExtent switch the editor and player use.
+// Origin maps get no option (byte-identical behavior); unsupported bounds
+// get no option either, so the existing refusal gates keep failing closed.
+export function mapExtentOptionFor(map) {
+  const bounds = map?.bounds;
+  return bounds && !isOriginalBounds(bounds) && isSupportedMapExtent(bounds) ? { mapExtent: true } : {};
+}
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
 export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
 export const FIXED_TEMPLATE_PROFILE = 'fixed-template-authoring-1';
@@ -91,7 +102,7 @@ function capturedInstanceIds(source) {
 // applyCapturedMapEdit（与 capture 回放同一口径）；新身份由调用方（控制器）
 // 用随机 64hex 生成（`gameId#<kind>-<64hex>`），服务端只验格式＋未占用。
 // 整包替换已废止：map 模块只接受 {edits}，无调用方依赖旧形。
-export const COPY_MAP_OPS = Object.freeze(['sea-ground-enable', 'map-object-remove', 'map-object-translate', 'base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'decoration-combine', 'decoration-group', 'decoration-ungroup', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility', 'city-stamp', 'city-bind', 'city-unbind', 'road-add']);
+export const COPY_MAP_OPS = Object.freeze(['sea-ground-enable', 'map-object-remove', 'map-object-translate', 'map-extent', 'base-fill', 'decoration-split', 'decoration-place', 'decoration-remove', 'decoration-reorder', 'decoration-translate', 'decoration-combine', 'decoration-group', 'decoration-ungroup', 'material-capture', 'material-rename', 'material-remove', 'water-create', 'water-split', 'water-merge', 'water-rename', 'water-visibility', 'city-stamp', 'city-bind', 'city-unbind', 'road-add']);
 export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
   if (!Array.isArray(edits) || !edits.length || edits.length > MAP_EDIT_MAX_COMMANDS) fail(422, 'COPY_MAP');
   const usedGroupIds = new Set(game.map?.waterGroups?.map(group => group.id) ?? []);
@@ -113,6 +124,21 @@ export function applyCopyMapEdits(game, edits, definitionLimit = 1024) {
     } else if (edit.op === 'map-object-translate') {
       if (Object.keys(view(edit)).sort().join(',') !== 'dx,dy,id,layer,op') fail(422, 'COPY_MAP_DELTA');
       next = translateMapObject(next, value(edit, 'layer'), value(edit, 'id'), value(edit, 'dx'), value(edit, 'dy'));
+    } else if (edit.op === 'map-extent') {
+      // MAP-EXT E3: four sides share one op. The server recomputes quota and
+      // strip impact from stored state and never trusts client-sent planes.
+      if (Object.keys(view(edit)).sort().join(',') !== 'delta,op,side') fail(422, 'COPY_MAP_DELTA');
+      const side = value(edit, 'side'), delta = value(edit, 'delta');
+      if (!['north', 'south', 'west', 'east'].includes(side)) fail(422, 'MAP_EXTENT_NOT_ENABLED', { problems: [{ message: '地圖擴縮方向須為北／南／西／東' }] });
+      if (delta !== 1 && delta !== -1) fail(422, 'COPY_MAP_DELTA');
+      try {
+        next = delta === 1
+          ? { ...next, map: expandMapOneStep(next.map, side) }
+          : { ...next, map: shrinkMapOneStep(next.map, next.componentDefinitions, side) };
+      } catch (e) {
+        if (e instanceof RangeError) fail(422, e.blockers ? 'MAP_EXTENT_NOT_EMPTY' : 'MAP_EXTENT_BUDGET', { problems: [{ message: e.message }] });
+        throw e;
+      }
     } else if (edit.op === 'sea-ground-enable') {
       // Workspace-only product transition, deliberately absent from frozen
       // legacy capture/profile replay in applyCapturedMapEdit.
@@ -136,6 +162,15 @@ function copyMapTakenIds(game) {
   for (const p of game.map?.placements ?? []) if (typeof p?.id === 'string') taken.add(p.id);
   return taken;
 }
+function inCopyBounds(bounds, x, y) {
+  const b = bounds ?? {};
+  const minX = b.minX ?? 0, minY = b.minY ?? 0, width = b.width ?? 384, height = b.height ?? 256;
+  return x >= minX && x < minX + width && y >= minY && y < minY + height;
+}
+function copyBounds(source) {
+  const b = source?.map?.bounds ?? {};
+  return { minX: b.minX ?? 0, minY: b.minY ?? 0, width: b.width ?? 384, height: b.height ?? 256 };
+}
 function stampCityPiece(source, edit, descriptors) {
   const keys = ['op', 'pieceId', 'x', 'y', 'tile'];
   if (Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
@@ -143,16 +178,17 @@ function stampCityPiece(source, edit, descriptors) {
   const prefix = `${source.gameId}#city-piece-`;
   if (typeof pieceId !== 'string' || !pieceId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(pieceId.slice(prefix.length))) fail(422, 'COPY_MAP_DELTA');
   if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || Object.is(x, -0) || Object.is(y, -0) ||
-      x < 0 || x >= 384 || y < 0 || y >= 256) fail(422, 'COPY_MAP_DELTA');
+      !inCopyBounds(source.map?.bounds, x, y)) fail(422, 'COPY_MAP_DELTA');
   if (!Number.isInteger(tile) || tile < 0xcb || tile > 0xd3) fail(422, 'COPY_MAP_DELTA');
   if (!Object.hasOwn(source.componentDefinitions ?? {}, `tile-${tile}`)) fail(422, 'COPY_MAP_DELTA');
   if (copyMapTakenIds(source).has(pieceId)) fail(422, 'COPY_MAP_DELTA');
-  const key = y * 384 + x;
+  const { minX: stMinX, minY: stMinY, width: stW } = copyBounds(source);
+  const key = (y - stMinY) * stW + x - stMinX;
   let maxKey = -1;
   for (const p of source.map?.placements ?? []) {
     if (!Number.isInteger(p?.x) || !Number.isInteger(p?.y)) fail(422, 'COPY_MAP_DELTA');
     if (p.x === x && p.y === y) fail(422, 'COPY_MAP_CITY_CELL_TAKEN');
-    maxKey = Math.max(maxKey, p.y * 384 + p.x);
+    maxKey = Math.max(maxKey, (p.y - stMinY) * stW + p.x - stMinX);
   }
   // Compiler node scan is row-major: a new city must scan after every
   // existing center, otherwise slots disagree. Renumbering live slots is
@@ -265,7 +301,7 @@ function addCopyRoad(source, edit, descriptors) {
   if (!Array.isArray(geometry) || geometry.length < 2 || geometry.length > 1024) fail(422, 'COPY_MAP_DELTA');
   for (const pt of geometry)
     if (!pt || typeof pt !== 'object' || Array.isArray(pt) || Object.keys(pt).sort().join(',') !== 'x,y' ||
-        !Number.isSafeInteger(pt.x) || !Number.isSafeInteger(pt.y) || pt.x < 0 || pt.x > 383 || pt.y < 0 || pt.y > 255) fail(422, 'COPY_MAP_DELTA');
+        !Number.isSafeInteger(pt.x) || !Number.isSafeInteger(pt.y) || !inCopyBounds(source.map?.bounds, pt.x, pt.y)) fail(422, 'COPY_MAP_DELTA');
   for (let i = 1; i < geometry.length; i++)
     if (Math.max(Math.abs(geometry[i].x - geometry[i - 1].x), Math.abs(geometry[i].y - geometry[i - 1].y)) !== 1) fail(422, 'COPY_MAP_DELTA');
   if (copyMapTakenIds(source).has(roadId)) fail(422, 'COPY_MAP_DELTA');
@@ -287,12 +323,13 @@ function addCopyRoad(source, edit, descriptors) {
   // painted (base-fill/decoration-place) before the record is accepted.
   // Unbound pieces paint no city tile yet, so exclude nothing: compose reads
   // componentRef stamps regardless of binding.
-  const layered = composeMapLayers({ schemaVersion: 1, map: source.map, componentDefinitions: source.componentDefinitions ?? {} }, { draft: true });
-  const tiles = (x, y) => layered.terrain[y * 384 + x];
+  const { minX: rdMinX, minY: rdMinY, width: rdW } = copyBounds(source);
+  const layered = composeMapLayers({ schemaVersion: 1, map: { ...source.map, bounds: { ...copyBounds(source), tileSize: 16 } }, componentDefinitions: source.componentDefinitions ?? {} }, { draft: true });
+  const tiles = (x, y) => layered.terrain[(y - rdMinY) * rdW + x - rdMinX];
   let built;
   try {
     built = buildRoad({ fromCityId, toCityId, travelKind,
-      geometry: geometry.map(p => ({ x: p.x, y: p.y })), cities: citiesById, roads: source.map?.roads ?? [], tiles });
+      geometry: geometry.map(p => ({ x: p.x, y: p.y })), cities: citiesById, roads: source.map?.roads ?? [], tiles }, { ...copyBounds(source), tileSize: 16 });
   } catch (e) { fail(422, 'COPY_MAP_ROAD_SHAPE', String(e?.code ?? e?.message ?? e).slice(0, 300)); }
   const next = structuredClone(source);
   next.map.roads.push({ id: roadId, fromCityId, toCityId,
@@ -304,8 +341,7 @@ function addCopyRoad(source, edit, descriptors) {
   syncRoadEndpoints(next, fromCityId, toCityId);
   return next;
 }
-export function syncRoadEndpoints(next, fromCityId, toCityId) {
-  const want = refreshChapterNeighbours(next);
+export function syncRoadEndpoints(next, fromCityId, toCityId) {  const want = refreshChapterNeighbours(next);
   const idBySlot = new Map(Object.values(next.cities).map(c => [c?.runtimeSlot, c?.cityId]));
   for (const chapterId of next.chapterOrder ?? []) {
     for (const row of next.chapters[chapterId].state.cities) {
@@ -314,6 +350,37 @@ export function syncRoadEndpoints(next, fromCityId, toCityId) {
     }
   }
   return next;
+}
+/**
+ * 拖放路砖自动成路（Web 产品决定）：已放置的道路／城门砖连成链、两端落在
+ * 两座已绑定据点的城门口时，保存时自动物化为道路；砖块删散后自动清理。
+ * 只动 road-auto-* 前缀行；手建道路原样保留。失败的链只留红字诊断。
+ */
+export function reconcileAutoRoads(game) {
+  const layered = composeMapLayers({ schemaVersion: 1, map: { ...game.map, bounds: { ...copyBounds(game), tileSize: 16 } }, componentDefinitions: game.componentDefinitions ?? {} }, { draft: true });
+  const { derived } = analyzeRoadChains(game, layered.terrain, { maxEdges: MAX_ROAD_EDGES });
+  const want = new Map(derived.map(road => [road.id, road]));
+  const kept = [];
+  let changed = false;
+  for (const road of game.map?.roads ?? []) {
+    if (isAutoRoadId(game.gameId, road?.id)) {
+      if (want.has(road.id)) kept.push(road);
+      else changed = true;
+    } else kept.push(road);
+  }
+  const have = new Set(kept.map(road => road.id));
+  const added = [];
+  for (const road of derived) {
+    if (have.has(road.id)) continue;
+    kept.push(road);
+    added.push(road);
+    changed = true;
+  }
+  if (!changed) return { added: [], removed: [] };
+  const before = new Set((game.map?.roads ?? []).filter(road => isAutoRoadId(game.gameId, road?.id)).map(road => road.id));
+  game.map.roads = kept;
+  for (const road of added) syncRoadEndpoints(game, road.fromCityId, road.toCityId);
+  return { added: added.map(road => road.id), removed: [...before].filter(id => !want.has(id)) };
 }
 function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedInstanceIds, definitionLimit = 1024) {
   const descriptors = view(edit); // Reject getters/functions before reading op.
@@ -329,7 +396,7 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
     if (!usedInstanceIds || Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
     view(edit.childIds);
     const prefix = `${source.gameId}#decoration-`;
-    if (typeof edit.instanceId !== 'string' || !Array.isArray(edit.childIds) || edit.childIds.length < 2 || edit.childIds.length > source.map.bounds.width * source.map.bounds.height || new Set(edit.childIds).size !== edit.childIds.length || edit.childIds.some(id => typeof id !== 'string' || !id.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(id.slice(prefix.length)) || usedInstanceIds.has(id))) fail(422, 'COPY_MAP_DELTA');
+    if (typeof edit.instanceId !== 'string' || !Array.isArray(edit.childIds) || edit.childIds.length < 2 || edit.childIds.length > copyBounds(source).width * copyBounds(source).height || new Set(edit.childIds).size !== edit.childIds.length || edit.childIds.some(id => typeof id !== 'string' || !id.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(id.slice(prefix.length)) || usedInstanceIds.has(id))) fail(422, 'COPY_MAP_DELTA');
     // The shared writer owns atom recipes, masks, water membership and exact
     // unknown-underlay covering references. Removed parent IDs stay reserved.
     const next = splitDecoration(source, edit.instanceId, edit.childIds);

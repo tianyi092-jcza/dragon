@@ -1,6 +1,6 @@
 // Web canonical occupancy plane, not a DOS segment emulator. March notes §3.12.
 // Explicit known spans only: no initialization from coordinates or legion counts.
-import { ORIGINAL_EXTENT, containsTile, isNorthExtension } from '../../content/authoring/mapextent.js';
+import { ORIGINAL_EXTENT, containsTile, isNorthExtension, isOriginalBounds, isSupportedMapExtent } from '../../content/authoring/mapextent.js';
 
 export function movementPlaneAddress(rowParagraph, offset) {
   if (
@@ -19,7 +19,9 @@ export function movementPlaneAddress(rowParagraph, offset) {
 }
 
 export function createScenarioMovementMemory(input, roadCheckpoint, restore, extent = ORIGINAL_EXTENT) {
-  const expanded = isNorthExtension(extent);
+  // MAP-EXT E6: north-only experiment plus any non-origin supported extent
+  // take the version-2 plane; origin keeps version 1 (save compatible).
+  const expanded = isNorthExtension(extent) || (!isOriginalBounds(extent) && isSupportedMapExtent(extent));
   if (!expanded && (extent.minX !== 0 || extent.minY !== 0 || extent.width !== 384 || extent.height !== 256)) throw new RangeError('Unsupported occupancy extent');
   const SIZE = expanded ? extent.width * extent.height : 384 * 256;
   const version = expanded ? 2 : 1;

@@ -1,6 +1,9 @@
 // Scenario-owned D44 rules terrain, NOT 9872 occupancy or a rendered PNG.
 // Explicit known bytes only; source/alias/JSON contract: legion-fate notes §12.
-const SIZE = 384 * 256;
+// MAP-EXT E6: origin keeps the exact version-1 schema (save compatible);
+// non-origin supported extents take version 2 with explicit bounds.
+import { ORIGINAL_EXTENT, containsTile, isOriginalBounds, isSupportedMapExtent } from '../../content/authoring/mapextent.js';
+const ORIGIN_SIZE = 384 * 256;
 const own = (value, key) => value != null && Object.hasOwn(value, key);
 
 export function createScenarioTerrainMemory(
@@ -8,10 +11,16 @@ export function createScenarioTerrainMemory(
   identity,
   initialTerrain,
   restore,
+  extent = ORIGINAL_EXTENT,
 ) {
+  const expanded = !isOriginalBounds(extent) && isSupportedMapExtent(extent);
+  const SIZE = expanded ? extent.width * extent.height : ORIGIN_SIZE;
+  const version = expanded ? 2 : 1;
+  const { minX, minY, width, height } = expanded ? extent : ORIGINAL_EXTENT;
   if (
     !own(input, "version") ||
-    input.version !== 1 ||
+    input.version !== version ||
+    (expanded && (input.bounds?.minX !== minX || input.bounds?.minY !== minY || input.bounds?.width !== width || input.bounds?.height !== height)) ||
     !own(input, "spans") ||
     !Array.isArray(input.spans) ||
     input.spans.length > SIZE
@@ -89,6 +98,11 @@ export function createScenarioTerrainMemory(
     known[address] = 1;
   }
   function readTile(x, y) {
+    if (expanded) {
+      if (!containsTile({ minX, minY, width, height }, x, y))
+        throw new RangeError(`Uncovered terrain coordinates: ${x},${y}`);
+      return readByte((y - minY) * width + x - minX);
+    }
     if (
       !Number.isInteger(x) ||
       x < 0 ||
@@ -114,7 +128,8 @@ export function createScenarioTerrainMemory(
       spans.push({ address, hex });
     }
     return {
-      version: 1,
+      version,
+      ...(expanded ? { bounds: { minX, minY, width, height } } : null),
       identity: structuredClone(identity),
       initialTerrain,
       spans,

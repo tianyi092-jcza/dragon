@@ -19,7 +19,7 @@ export function mapObjectParts(source, layer, id) {
   return { place, decorations, placements: [place], stamps, cells: stamps.flatMap(item => componentCells(source, item)) };
 }
 
-export const changesMapPositions = edit => edit.op === 'map-object-translate' || edit.op === 'map-object-remove';
+export const changesMapPositions = edit => edit.op === 'map-object-translate' || edit.op === 'map-object-remove' || edit.op === 'map-extent';
 
 export function removeMapObject(source, layer, id) {
   if (!['cities', 'roads'].includes(layer) || typeof id !== 'string') throw new RangeError('需要有效道路或據點圖塊 ID');

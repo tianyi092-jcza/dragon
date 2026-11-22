@@ -16,6 +16,12 @@ export function assertSystemBaseCities(cities) {
   for (const [cityId, city] of Object.entries(cities)) {
     if (!city || typeof city !== 'object' || Array.isArray(city)) throw new RangeError(`system base city ${cityId} requires a record`);
     if (typeof city.name !== 'string' || !city.name.trim()) throw new RangeError(`system base city ${cityId} requires a name`);
+    if (city.battleMapId !== undefined) {
+      const siege = /^ki-1995:siege:(\d{1,3})$/.exec(city.battleMapId ?? '');
+      if (!siege || Number(siege[1]) > 191) throw new RangeError(`system base city ${cityId} requires a shared siege battleMapId`);
+    }
+    if (city.troops_cap !== undefined && (!Number.isInteger(city.troops_cap) || city.troops_cap < 0 || city.troops_cap > 255))
+      throw new RangeError(`system base city ${cityId} requires troops_cap 0..255`);
     for (const field of CITY_BASE_NUMBERS) {
       if (!Number.isSafeInteger(city[field]) || city[field] < 0 || city[field] > CITY_NUMBER_LIMITS[field])
         throw new RangeError(`system base city ${cityId} requires valid ${field}`);
@@ -44,9 +50,11 @@ export function validateSystemBaseMap(template, sha256hex) {
     ruleProfile: GAME_RULE_PROFILE, sourceRef: { kind: 'system-base-map-check', sourceId: 'system-base-map', revision: digest, digest },
     map: content.map, componentDefinitions: content.componentDefinitions, cities: content.cities,
     compatibilityAssets: content.compatibilityAssets, chapters: {}, chapterOrder: [],
-    localModel: { draftRevision: '1' } }, sha256hex);
+    localModel: { draftRevision: '1' } }, sha256hex, { mapExtent: true });
   Object.values(content.cities).forEach(city => {
     if (typeof city.name !== 'string' || !city.name.trim()) throw new RangeError('template city name required');
+    if (city.troops_cap !== undefined && (!Number.isInteger(city.troops_cap) || city.troops_cap < 0 || city.troops_cap > 255))
+      throw new RangeError(`template city ${city.cityId} requires troops_cap 0..255`);
     CITY_BASE_NUMBERS.forEach(field => {
       if (!Number.isSafeInteger(city[field]) || city[field] < 0 || city[field] > CITY_NUMBER_LIMITS[field])
         throw new RangeError(`template city ${city.cityId} requires valid ${field}`);
@@ -113,7 +121,7 @@ export function instantiateSystemBaseMap(game, snapshot, sha256hex) {
   // The certified minimal profile creates an intentionally unfinished blank
   // chapter. Its map has already passed full template compilation above, but
   // missing people/factions are draft authoring, not a playable chapter yet.
-  if (next.sourceRef.kind === 'builtin-template') validateGameSource(next, { draft: true });
-  else compileGameSource(next, sha256hex);
+  if (next.sourceRef.kind === 'builtin-template') validateGameSource(next, { draft: true, mapExtent: true });
+  else compileGameSource(next, sha256hex, { mapExtent: true });
   return next;
 }

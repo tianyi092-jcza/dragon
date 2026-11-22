@@ -2,7 +2,7 @@
 // 不做历史回放/整包编解码/draft 链；模块存只拦本模块，发布门全量检验。
 // 单写者：新覆盖旧，不做 CAS；鉴权/epoch 不可省；30 分钟节流按 game 计。
 import { createHash, randomUUID } from 'node:crypto';
-import { validateGameSource, chapterReferenceReport, chapterCapitalGaps, addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, setChapterLabels, setChapterPlayerOpening, setChapterDiplomacy, setChapterStart, admitChapterCity, editChapterCity, editChapterCityNative, setChapterCityOwner, setChapterCapital, setChapterGeneralArrival, setChapterGeneralOwner, createChapterFaction, setFactionDiplomat, setCityGovernor, renameGeneral, changeChapterMonarch, setChapterStrategist, retireChapterFaction } from '../web/src/content/authoring/gamesource.js';
+import { validateGameSource, chapterReferenceReport, chapterCapitalGaps, addBlankChapter, copyChapterInGame, deleteChapter, renameChapter, setChapterLabels, setChapterPlayerOpening, setChapterDiplomacy, setChapterStart, admitChapterCity, backfillDefinitionTroopCaps, backfillRowBattlefields, editChapterCity, editChapterCityNative, setChapterCityOwner, setChapterCapital, setChapterGeneralArrival, setChapterGeneralOwner, createChapterFaction, setFactionDiplomat, setCityGovernor, renameGeneral, changeChapterMonarch, setChapterStrategist, retireChapterFaction } from '../web/src/content/authoring/gamesource.js';
 import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { checkGameName } from '../web/src/content/authoring/gamesource.js';
 import { bumpOrdinal } from './releases.js';
@@ -13,7 +13,7 @@ import { initializeNativeFactionSlots } from '../web/src/game/nativefactions.js'
 import { initializeNativeDiplomacyMatrix } from '../web/src/game/nativediplomacy.js';
 import { initializeNativeStrategicEventWheel } from '../web/src/game/nativeevents.js';
 import { initializeNativeMonthlyPolicy } from '../web/src/game/nativemonthlypolicy.js';
-import { COPY_MAP_OPS } from './copyprofile.js';
+import { COPY_MAP_OPS, mapExtentOptionFor, reconcileAutoRoads } from './copyprofile.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { changesMapPositions } from '../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../web/src/editor/mappositionvalidation.js';
@@ -97,8 +97,9 @@ function checkModule(module, patch, data, gameId) {
     return { name: patch.name.normalize('NFC'), introduction: patch.introduction.normalize('NFC') };
   }
   if (module === 'cities') {
-    // patch: {rename?: {cityId: name}, numbers?: {cityId: {...}}, create?: {name, numbers?}}
+    // patch: {rename?: {cityId: name}, numbers?: {cityId: {...}}, battlefield?: {cityId: battleMapId}, troopcap?: {cityId: n}, create?: {name, numbers?, battleMapId, troops_cap}}
     // create 为 B3 服务端签发：append-only city-NNN，未放置储备无 x/y（编译在放置前 fail-closed）。
+    // battleMapId／troops_cap 随定义保存（新建必填；admit／发布自动补行沿用同一值）。
     const out = {};
     if (patch.rename !== undefined) {
       if (!patch.rename || typeof patch.rename !== 'object' || Array.isArray(patch.rename)) fail(422, 'COPY_CITY');
@@ -126,12 +127,32 @@ function checkModule(module, patch, data, gameId) {
         out[`numbers:${cityId}`] = { ...values };
       }
     }
+    if (patch.battlefield !== undefined) {
+      if (!patch.battlefield || typeof patch.battlefield !== 'object' || Array.isArray(patch.battlefield)) fail(422, 'COPY_CITY');
+      for (const [cityId, battleMapId] of Object.entries(patch.battlefield)) {
+        if (typeof cityId !== 'string' || !data.cities?.[cityId]) fail(422, 'COPY_CITY');
+        const siegeId = typeof battleMapId === 'string' ? /^ki-1995:siege:(\d{1,3})$/.exec(battleMapId) : null;
+        if (!siegeId || Number(siegeId[1]) > 191) fail(422, 'COPY_CITY');
+        out[`battlefield:${cityId}`] = { battleMapId };
+      }
+    }
+    if (patch.troopcap !== undefined) {
+      if (!patch.troopcap || typeof patch.troopcap !== 'object' || Array.isArray(patch.troopcap)) fail(422, 'COPY_CITY');
+      for (const [cityId, troopsCap] of Object.entries(patch.troopcap)) {
+        if (typeof cityId !== 'string' || !data.cities?.[cityId]) fail(422, 'COPY_CITY');
+        if (!Number.isInteger(troopsCap) || troopsCap < 0 || troopsCap > 255) fail(422, 'COPY_CITY');
+        out[`troopcap:${cityId}`] = { troops_cap: troopsCap };
+      }
+    }
     if (patch.create !== undefined) {
       if (!patch.create || typeof patch.create !== 'object' || Array.isArray(patch.create)) fail(422, 'COPY_CITY');
-      if (Object.keys(patch.create).length === 0 || Object.keys(patch.create).some(k => !['name', 'numbers'].includes(k))) fail(422, 'COPY_CITY');
+      if (Object.keys(patch.create).length === 0 || Object.keys(patch.create).some(k => !['name', 'numbers', 'battleMapId', 'troops_cap'].includes(k))) fail(422, 'COPY_CITY');
       let cleaned; try { cleaned = cityName(patch.create.name); } catch { fail(422, 'COPY_CITY'); }
       if (codePoints(cleaned) < 1 || codePoints(cleaned) > 12) fail(422, 'COPY_CITY');
       if (new Set(Object.values(data.cities ?? {}).map(c => c.name)).has(cleaned)) fail(409, 'COPY_CITY_NAME_TAKEN');
+      const createSiegeId = typeof patch.create.battleMapId === 'string' ? /^ki-1995:siege:(\d{1,3})$/.exec(patch.create.battleMapId) : null;
+      if (!createSiegeId || Number(createSiegeId[1]) > 191) fail(422, 'COPY_CITY');
+      if (!Number.isInteger(patch.create.troops_cap) || patch.create.troops_cap < 0 || patch.create.troops_cap > 255) fail(422, 'COPY_CITY');
       const numbers = patch.create.numbers ?? {};
       if (!numbers || typeof numbers !== 'object' || Array.isArray(numbers)) fail(422, 'COPY_CITY');
       for (const [k, n] of Object.entries(numbers)) {
@@ -144,7 +165,7 @@ function checkModule(module, patch, data, gameId) {
       for (const id of existing) { const m = /^city-(\d{1,3})$/.exec(id); if (m) top = Math.max(top, Number(m[1])); }
       const cityId = `city-${String(top + 1).padStart(3, '0')}`;
       if (data.cities?.[cityId]) fail(422, 'COPY_CITY');
-      out[`create:${cityId}`] = { cityId, runtimeSlot: existing.length, name: cleaned, ...numbers };
+      out[`create:${cityId}`] = { cityId, runtimeSlot: existing.length, name: cleaned, battleMapId: patch.create.battleMapId, troops_cap: patch.create.troops_cap, ...numbers };
     }
     if (patch.remove !== undefined) {
       if (!Array.isArray(patch.remove) || !patch.remove.length) fail(422, 'COPY_CITY');
@@ -316,7 +337,8 @@ function checkModule(module, patch, data, gameId) {
       if (!patch.admit || typeof patch.admit !== 'object' || Array.isArray(patch.admit) || Object.keys(patch.admit).sort().join(',') !== 'battleMapId,cityId,troops_cap') fail(422, 'COPY_CHAPTER');
       if (typeof patch.admit.cityId !== 'string' || !patch.admit.cityId) fail(422, 'COPY_CHAPTER');
       if (!Number.isInteger(patch.admit.troops_cap) || patch.admit.troops_cap < 0 || patch.admit.troops_cap > 255) fail(422, 'COPY_CHAPTER');
-      if (typeof patch.admit.battleMapId !== 'string' || !/^ki-1995:siege:(\d{1,3})$/.test(patch.admit.battleMapId) || Number(patch.admit.battleMapId.slice(15)) > 191) fail(422, 'COPY_CHAPTER');
+      const admitSiegeId = typeof patch.admit.battleMapId === 'string' ? /^ki-1995:siege:(\d{1,3})$/.exec(patch.admit.battleMapId) : null;
+      if (!admitSiegeId || Number(admitSiegeId[1]) > 191) fail(422, 'COPY_CHAPTER');
     }
     if (patch.resources !== undefined) {
       // {chapterId: {slot: values}}——slot 为原生派系 idx；值域 money -8388608..8388607、三预备兵 0..65535。
@@ -377,7 +399,7 @@ function checkModule(module, patch, data, gameId) {
           if (!Number.isSafeInteger(edit.cityIdx) || edit.cityIdx < 0) fail(422, 'COPY_CHAPTER');
           if (!edit.values || typeof edit.values !== 'object' || Array.isArray(edit.values)) fail(422, 'COPY_CHAPTER');
           const ks = Object.keys(edit.values);
-          if (!ks.length || ks.some(k => !['troops', 'prod', 'growth', 'defence'].includes(k))) fail(422, 'COPY_CHAPTER');
+          if (!ks.length || ks.some(k => !['troops', 'prod', 'growth', 'defence', 'troops_cap'].includes(k))) fail(422, 'COPY_CHAPTER');
           for (const k of ks) if (typeof edit.values[k] !== 'number' || !Number.isInteger(edit.values[k]) || Object.is(edit.values[k], -0)) fail(422, 'COPY_CHAPTER');
         }
         else if (edit.op === 'city-faction') {
@@ -488,6 +510,16 @@ function applyModule(data, module, checked) {
             delete chapter.cities[cityId];
         }
       }
+      else if (op === 'battlefield') {
+        Object.assign(next.cities[cityId], v);
+        // 定义→章节正式流向：面板改战场地同步全章行（上限不走这里，按章各异）。
+        const slot = next.cities[cityId]?.runtimeSlot;
+        if (Number.isInteger(slot)) for (const chapterId of next.chapterOrder ?? []) {
+          const rows = next.chapters?.[chapterId]?.state?.cities;
+          if (!Array.isArray(rows)) continue;
+          for (const row of rows) if (row?.idx === slot) row.battleMapId = v.battleMapId;
+        }
+      }
       else Object.assign(next.cities[cityId], v);
     }
     return next;
@@ -518,7 +550,7 @@ function applyModule(data, module, checked) {
           { chapterId: `${next.gameId}#chapter-${randomUUID()}` });
       }
       if (checked.delete) deleteChapter(next, checked.delete.chapterId);
-      if (checked.admit) admitChapterCity(next, checked.admit.cityId, checked.admit.troops_cap, checked.admit.battleMapId);
+      if (checked.admit) admitChapterCity(next, checked.admit.cityId, checked.admit.troops_cap, checked.admit.battleMapId, next.map?.bounds);
       if (checked.rename) for (const [id, name] of Object.entries(checked.rename)) renameChapter(next, id, name);
       if (checked.setStart) for (const [id, s] of Object.entries(checked.setStart)) setChapterStart(next, id, s);
       // editChapterCity/editChapterCityNative/setGeneralPortrait 为纯函数（返回新包），其余原函数就地改写。
@@ -565,12 +597,14 @@ function applyModule(data, module, checked) {
     try {
       // 素材命令也会返回 componentDefinitions；不能只保存 map 而丢掉定义库。
       const candidate = applyMapWorkspaceEdits(next, checked.edits);
-      // The multi-step new-city workflow still saves incomplete authoring
-      // states. This position gate belongs to an explicit movement batch.
+      // 拖放路磚自動成路：先按當前磚塊重算 road-auto-*，再跑位置門（含紅字診斷）。
+      // 未連通的磚鏈只標紅（warning），不攔保存。
+      reconcileAutoRoads(candidate);
       if (checked.edits.some(changesMapPositions)) assertMapPositions(candidate);
       return candidate;
     } catch (e) {
       if (e?.code === 'MAP_POSITION_INVALID') fail(422, e.code, e.detail);
+      if (typeof e?.code === 'string' && e.code.startsWith('MAP_EXTENT')) fail(422, e.code, e.detail);
       if (e?.status) throw e;
       fail(422, 'COPY_MAP');
     }
@@ -628,10 +662,15 @@ export class GameCopyStore {
     return this.read(tokenHash, gameId);
   }
   // 迁移/首建只种一次：已有行直接返回，不覆盖作者已改内容（B4 幂等）。
+  // 落子时顺手补齐：定义缺城兵上限的，取首章同城行做默认值（只补缺失，不覆盖已有；
+  // 无首章行则留空，后续 admit／发布校验照常 fail-closed）。
   seedFromGame(tokenHash, gameId, data) {
     this.#owned(tokenHash, gameId);
     if (this.#one('SELECT game_id FROM game_copies WHERE game_id=?', gameId)) return this.read(tokenHash, gameId);
-    return this.ensureFromGame(tokenHash, gameId, data);
+    const next = structuredClone(data);
+    backfillDefinitionTroopCaps(next);
+    backfillRowBattlefields(next);
+    return this.ensureFromGame(tokenHash, gameId, next);
   }
   read(tokenHash, gameId) {
     this.#owned(tokenHash, gameId);
@@ -693,8 +732,41 @@ export class GameCopyStore {
     void actor;
     const row = this.#one('SELECT * FROM game_copies WHERE game_id=?', gameId);
     if (!row) fail(404, 'COPY_NOT_FOUND');
-    const data = this.#parse(row.data_json), digest = row.copy_digest;
-    let problems = [];
+    const data = this.#parse(row.data_json);
+    let digest = row.copy_digest;
+    const admitProblems = [];
+    // 上架同步：已放置但缺章节行的新城，按定义自动补行（battleMapId＋troops_cap 取自据点模块建档初值，
+    // 各章后续编辑互不干扰）。定义不全（未放／缺战场／缺上限／数值非法）则记 CHAPTER_ADMIT，不中断其余城市；
+    // 槽位密度按序推进，失败即停，避免后续错位。同步写回副本并换发摘要，检验票据绑定新摘要。
+    const missingChapters = Object.values(data.cities ?? {})
+      .filter(city => city && typeof city.cityId === 'string')
+      .filter(city => (data.chapterOrder ?? []).some(chapterId => {
+        const rows = data.chapters?.[chapterId]?.state?.cities;
+        return Array.isArray(rows) && !rows.some(r => r?.idx === city.runtimeSlot);
+      }))
+      .sort((a, b) => a.runtimeSlot - b.runtimeSlot);
+    if (missingChapters.length) {
+      const next = structuredClone(data);
+      for (const city of missingChapters) {
+        const definition = next.cities?.[city.cityId];
+        try {
+          admitChapterCity(next, city.cityId, definition?.troops_cap, definition?.battleMapId, next.map?.bounds);
+        } catch (error) {
+          admitProblems.push({ chapterId: '-', code: 'CHAPTER_ADMIT', detail: `city ${city.cityId}: ${error.message ?? error}`.slice(0, 500) });
+          break;
+        }
+      }
+      if (!admitProblems.length) {
+        const text = JSON.stringify(next);
+        if (Buffer.byteLength(text) > MAX_COPY_BYTES) fail(413, 'COPY_TOO_LARGE');
+        const now = new Date().toISOString(), synced = createHash('sha256').update(text).digest('hex');
+        this.#sql.exec('UPDATE game_copies SET data_json=?, copy_digest=?, updated_at=? WHERE game_id=?', text, synced, now, gameId);
+        for (const key of Object.keys(data)) delete data[key];
+        Object.assign(data, next);
+        digest = synced;
+      }
+    }
+    let problems = [...admitProblems];
     if (data.chapterOrder?.length === 0)
       problems.push({ code: 'CHAPTER_EMPTY', detail: 'at least one chapter required for publication' });
     try {
@@ -725,13 +797,13 @@ export class GameCopyStore {
         for (const gap of chapterCapitalGaps(data.chapters[chapterId].state, chapterId))
           problems.push({ chapterId, code: 'CHAPTER_CAPITAL', detail: gap.message });
       }
-      validateGameSource(data, { draft: true });
-      compileMapSource({ schemaVersion: 1, map: data.map, componentDefinitions: data.componentDefinitions });
+      validateGameSource(data, { draft: true, ...mapExtentOptionFor(data.map) });
+      compileMapSource({ schemaVersion: 1, map: data.map, componentDefinitions: data.componentDefinitions }, mapExtentOptionFor(data.map));
       assertMapConnected({ schemaVersion: 1, map: data.map, componentDefinitions: data.componentDefinitions ?? {} });
       // D2: ticket means "compiles" — chapter topology (named/raw) is
       // certified here, not first at approve.
       try {
-        compileTrialSource(data, bytes => createHash('sha256').update(bytes).digest('hex'));
+        compileTrialSource(data, bytes => createHash('sha256').update(bytes).digest('hex'), mapExtentOptionFor(data.map));
       } catch (e) {
         problems.push({ chapterId: '-', code: 'CHAPTER_COMPILE', detail: String(e?.message ?? e).slice(0, 500) });
       }

@@ -224,7 +224,21 @@ export function admitSavedScenario(saved, app) {
   // allowed by the lower-level bounded assembly/probe API. Missing planes or
   // cache must fail before loadState can touch the live scene/RNG. Preserve
   // the record; never reconstruct lost runtime writes from compiled assets.
-  if (
+  if (assembly.metadata?.roadVersion === "grid") {
+    // MAP-EXT E9: grid restores carry the occupancy plane only. The
+    // movement/terrain/graph identities were already structural-checked in
+    // readSavedAssembly and are re-verified against the live world inside
+    // prepareScenario; here the saved cities must also pass the same
+    // present-fields-only native byte bar as v2 cities. Bounds are checked
+    // against the live definition now (fail fast) and again at restore.
+    if (assembly.movementMemory == null)
+      throw new TypeError("Grid App restore requires saved movement memory");
+    for (const key of ["minX", "minY", "width", "height"]) {
+      if (assembly.metadata.bounds?.[key] !== app.world?.definition?.[key])
+        throw new TypeError("Grid bounds/world definition mismatch");
+    }
+    assertNativeCitySnapshotState(raw);
+  } else if (
     assembly.metadata?.roadVersion === 2 ||
     assembly.metadata?.roadVersion === 3
   ) {

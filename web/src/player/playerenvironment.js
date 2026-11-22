@@ -7,7 +7,7 @@ import { bindPortraitOverrides, buildPortraitOverrides } from '../core/assets.js
 import { TRIAL_COMPILER_REVISION } from '../content/authoring/trialcompile.js';
 import { validateIdentity } from './runtimecontract.js';
 
-export function createPlayerEnvironment(pack, { playerFaction, northExperiment = false } = {}) {
+export function createPlayerEnvironment(pack, { playerFaction, northExperiment = false, mapExtent = false } = {}) {
   if (typeof pack?.assertCurrent !== 'function') throw new TypeError('loaded player pack required');
   const current = pack.assertCurrent.bind(pack);
   current();
@@ -15,8 +15,10 @@ export function createPlayerEnvironment(pack, { playerFaction, northExperiment =
   validateIdentity(identity);
   // CITY-CAPACITY-1 C6(c) (user-authorized): dual formal-pack triplets.
   // v2 (schema 1 / studio-app-2) and v3 (schema 2 / studio-app-3) only.
+  // MAP-EXT E6: mapExtent 接受任一受支持侧；northExperiment 仍仅北向。
+  const allowGrid = northExperiment === true || mapExtent === true;
   const triplet = manifest?.schemaVersion === 1 && manifest.buildFormat === 'studio-app-2' ? 2
-    : manifest?.schemaVersion === 2 && manifest.buildFormat === 'studio-app-3' ? 3 : northExperiment && manifest?.schemaVersion === 3 && manifest.buildFormat === 'studio-world-grid-1' ? 4 : 0;
+    : manifest?.schemaVersion === 2 && manifest.buildFormat === 'studio-app-3' ? 3 : allowGrid && manifest?.schemaVersion === 3 && manifest.buildFormat === 'studio-world-grid-1' ? 4 : 0;
   if (manifest?.compilerRevision !== TRIAL_COMPILER_REVISION || triplet === 0 ||
       manifest.identity?.gameId !== identity.gameId || manifest.identity.sourceDigest !== identity.sourceDigest ||
       manifest.identity.draftRevision !== identity.revision || !manifest.chapters?.includes(identity.chapterId) ||
@@ -49,7 +51,7 @@ export function createPlayerEnvironment(pack, { playerFaction, northExperiment =
       return base.resolveReference(reference) ? chapter : null;
     },
   });
-  const world = createWorldResources({ ...manifest.world, assets }, { assertCurrent: current, northExperiment: triplet === 4 });
+  const world = createWorldResources({ ...manifest.world, assets }, { assertCurrent: current, northExperiment: triplet === 4 && northExperiment === true, mapExtent: triplet === 4 && mapExtent === true });
   bindPortraitOverrides(world, buildPortraitOverrides(pack.chapter.generals, portraits));
   const raw = createNewGameScenario(pack.chapter, playerFaction);
   current();

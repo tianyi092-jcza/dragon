@@ -6419,8 +6419,13 @@ export class GameBar {
   layout() {
     const W = innerWidth;
     this.bx = Math.max(0, Math.round((W - 640) / 2));
+    // MAP-EXT E6: minimap panel tracks the live world bounds, not the fixed origin.
+    const def = this.app.world?.definition;
+    const liveWorld = def && Number.isInteger(def.width) && Number.isInteger(def.height)
+      ? { width: def.width, height: def.height, tileSize: def.tileSize ?? 16, minX: def.minX ?? 0, minY: def.minY ?? 0 }
+      : MINIMAP_WORLD;
     this.panels = mapPanelLayout({ width: W, height: innerHeight,
-      miniOpen: this.miniOpen, resOpen: this.resOpen, world: MINIMAP_WORLD });
+      miniOpen: this.miniOpen, resOpen: this.resOpen, world: liveWorld });
 
     if (this.financeDialog) {
       this._recalcFinanceDialog();
@@ -8358,7 +8363,8 @@ export class GameBar {
     const sc = this.app.scenario;
     if (!sc) return;
     const me = cmd.playerFaction(sc);
-    const ks = miniT.scale;
+    // MAP-EXT E6: stretched art ⇒ per-axis scale for the viewport rect.
+    const ksx = miniT.scaleX, ksy = miniT.scaleY;
     const battles = minimapBattleMarkers(sc, this.app.engagementFx);
     // 军团路线 (虚线: 军团→目标)
     const t = this.app.clock?.dayProgress?.() ?? 1;
@@ -8409,10 +8415,10 @@ export class GameBar {
     }
     // 视口线框: 当前大地图可视范围 (缩小一半, 并加 1px 右下黑色阴影)
     const view = this.app.view;
-    const vx = (-view.cam.x / view.cam.scale) * ks;
-    const vy = (-view.cam.y / view.cam.scale) * ks;
-    const vw = ((innerWidth / view.cam.scale) * ks) / 2;
-    const vh = ((innerHeight / view.cam.scale) * ks) / 2;
+    const vx = (-view.cam.x / view.cam.scale) * ksx;
+    const vy = (-view.cam.y / view.cam.scale) * ksy;
+    const vw = ((innerWidth / view.cam.scale) * ksx) / 2;
+    const vh = ((innerHeight / view.cam.scale) * ksy) / 2;
     const vrx = r.x + vx + vw / 2;
     const vry = r.y + vy + vh / 2;
     ctx.lineWidth = 1;

@@ -102,13 +102,13 @@ async function confirmDelete() {
     </div>
     <div class="review-table-region">
     <ElTable ref="table" id="review-table" height="100%" :data="tableRows" :row-key="row => row.gameId + (row.historyDetail ? '-history' : '')" :span-method="spanHistory">
-      <ElTableColumn v-for="[key, title] in [['name','遊戲名稱'],['author','作者'],['description','发布说明'],['version','版本號'],['state','狀態'],['created','創建時間'],['state-time','狀態時間'],['actions','操作']]" :key="key" :label="title" :min-width="key === 'actions' ? 420 : 180">
+      <ElTableColumn v-for="[key, title, width] in [['name','遊戲名稱',120],['author','作者',90],['description','发布说明',150],['version','版本號',80],['state','狀態',100],['created','創建時間',140],['state-time','狀態時間',140],['actions','操作',300]]" :key="key" :label="title" :min-width="width">
         <template #default="{ row }">
-          <div v-if="row.historyDetail" :data-history-for="row.gameId">
+          <div v-if="row.historyDetail" class="history-cell" :data-history-for="row.gameId">
             <template v-if="model.history && !model.history.loading">
               <p v-if="model.history.message" :id="'review-history-message-' + row.gameId" role="status">{{ model.history.message }}</p>
               <ElTable v-if="model.history.rows.length" :id="'review-history-' + row.gameId" :data="model.history.rows" row-key="version">
-                <ElTableColumn v-for="[field, label] in [['version','版本'],['published-at','上架時間'],['distribution','分發狀態'],['digest','發布摘要']]" :key="field" :label="label" min-width="180"><template #default="{ row: entry }"><span :data-field="field" :data-version="entry.version" :data-state="entry.state" :title="field === 'digest' ? entry.digest : undefined"><code v-if="field === 'digest'">{{ entry.shortDigest }}</code><template v-else>{{ field === 'published-at' ? time(entry.publishedAt) : field === 'distribution' ? entry.stateText : entry.version }}</template></span></template></ElTableColumn>
+                <ElTableColumn v-for="[field, label] in [['version','版本',100],['published-at','上架時間',140],['distribution','分發狀態',120],['digest','發布摘要',140]]" :key="field" :label="label" :min-width="field === 'version' ? 100 : 120"><template #default="{ row: entry }"><span :data-field="field" :data-version="entry.version" :data-state="entry.state" :title="field === 'digest' ? entry.digest : undefined"><code v-if="field === 'digest'">{{ entry.shortDigest }}</code><template v-else>{{ field === 'published-at' ? time(entry.publishedAt) : field === 'distribution' ? entry.stateText : entry.version }}</template></span></template></ElTableColumn>
               </ElTable>
               <p v-else class="empty-state">還沒有發布記錄：發布日誌從這次上線之後才開始記，不會回填更舊的版本。</p>
               <small>摘要只是這次上架的身分前 8 位（滑鼠停留可看完整字串）；「待確認」＝已提交但尚未觀測到公開，「已公開」＝已讀回公開狀態。</small>
@@ -151,4 +151,6 @@ async function confirmDelete() {
 <style scoped>
 #review-editor:not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
 .review-table-region { flex: 1; min-height: 0; overflow: hidden; }
+#review-table { width: 100%; }
+.history-cell { max-width: 100%; overflow-x: auto; }
 </style>

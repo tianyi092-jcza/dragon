@@ -1,5 +1,8 @@
 // Isolated north-line experiment: registered Web bytes only. No running service,
 // user copy, editor store, browser profile, or game saves are accessed.
+// MAP-EXT E10: the north-only flag path is kept as a compat admission; the
+// grid save/play gates it once refused are now formally staged (E9), so the
+// superseded refusal assertions below check the new formal behavior.
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -124,7 +127,9 @@ try {
     // target, cursor, occupied tiles, intermediate positions or an arrival.
     input.raw.legions.push({slot:0,x:origin.x,y:origin.y,faction:env.player,status:0x80,troops:800,commandState:0,moveDelay:1,movePeriod:3});
     const prepared=await prepareScenario({...input,northExperiment:true});
-    assert.throws(()=>assertPlayableScenario(prepared),/unstaged/);
+    // MAP-EXT E9/E10: grid metadata is staged for App play (save/restore
+    // formally admitted); the old unstaged refusal is retired.
+    assert.doesNotThrow(()=>assertPlayableScenario(prepared));
     const sc=prepared.scenario, army=sc.legions[0], app={scenario:sc,clock:{strategicTickSerial:0},originalRng:createOriginalBattleRng({ch:0,cl:0,dh:1})};
     const bar=Object.assign(Object.create(GameBar.prototype),{app});
     const {movement}=scenarioGridRoadContext(sc);
@@ -148,12 +153,12 @@ try {
         assert.equal(movement.readTile(x,y),0);
         assert.equal(movement.readTile(army.x,army.y),1);
         trace.push([army.x,army.y]);
-        if(army.y===-1 && to===sc.cities.at(-1)) replay=await probeInterruptedMarch({app,army,movement,prepared,transport,dir});
+        if(army.y===-1 && to===sc.cities.at(-1)) replay=await probeInterruptedMarch({app,army,movement,prepared,transport,dir,env});
       }
       if(to===sc.cities.at(-1)) {
         assert.ok(uninterrupted.length>0);
         assert.deepEqual(replay,uninterrupted);
-        console.log(JSON.stringify({checkpoint:[257,-1],matchedSlotVisits:uninterrupted.length,matched:'clock serial, position, phase, road cursor and all occupied cells',officialSave:'refused',officialRestore:'refused'}));
+        console.log(JSON.stringify({checkpoint:[257,-1],matchedSlotVisits:uninterrupted.length,matched:'clock serial, position, phase, road cursor and all occupied cells',officialSave:'admitted',officialRestore:'admitted'}));
       }
       assert.deepEqual(trace,[...points.slice(0,-1).map(p=>[p.x,p.y]),[to.x,to.y]]);
       assert.deepEqual(army.roadPosition,{kind:'city',cityIndex:to.idx});
@@ -175,7 +180,12 @@ try {
     performLegionSlotAction(app,army);
     assert.deepEqual(army.roadPosition,{kind:'city',cityIndex:0});
     assert.equal(movement.readTile(first.x,first.y),0);
-    assert.throws(()=>snapshotScenarioAssembly(app),/not admitted/);
+    // MAP-EXT E9: grid snapshots are formally admitted (roadVersion grid +
+    // v2 occupancy plane). The caller supplies full title-load identity.
+    const snapApp = { scenario: sc, scenarioIdx: 0, content: env.content, world: env.world, clock: app.clock, originalRng: app.originalRng };
+    const asm = snapshotScenarioAssembly(snapApp);
+    assert.equal(asm.scenarioAssembly.roadVersion,'grid');
+    assert.deepEqual(asm.scenarioAssembly.bounds,asm.movementMemory.bounds);
   } finally { pack.close(); }
   console.log(JSON.stringify({bounds,from:[origin.cityId,origin.x,origin.y],to:[dest.cityId,dest.x,dest.y],nodes:graph.nodes.length,roadPoints:geometry.length,search:result.status,withoutLink:'unreachable',legacyFormalCompile:'rejected: unsupported map bounds',experimentalGameCompile:'passed',playerPack:'verified and loaded',playerWorld:'terrain and graph loaded',scenario:'isolated fresh',playerMarch:'friendly north and return, slot actions'}));
 } finally { await rm(dir,{recursive:true,force:true}); }

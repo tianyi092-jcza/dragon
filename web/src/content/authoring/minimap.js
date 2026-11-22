@@ -144,25 +144,30 @@ export function renderMinimapPixels(geography, roadMask, width, height, outW, ou
 // 统一正逆变换：显示框 (bx,by,bw,bh) 与地图像素范围 W=width*16,H=height*16。
 // s=min(bw/W,bh/H)；实际图矩形居中；逆变换只接受半开实际矩形，留边不导航。
 export function minimapTransform(bounds, displayBox) {
-  const W = bounds.width * bounds.tileSize;
-  const H = bounds.height * bounds.tileSize;
-  const s = Math.min(displayBox.w / W, displayBox.h / H);
-  const rw = W * s;
-  const rh = H * s;
-  const rx = displayBox.x + (displayBox.w - rw) / 2;
-  const ry = displayBox.y + (displayBox.h - rh) / 2;
+  // MAP-EXT E6: non-uniform scale matches the stretched compiled minimap
+  // art (renderMinimapPixels fills outW×outH), so markers stay on the art
+  // and tile↔display roundtrips stay exact. Negative NW tiles map inside
+  // the rect by origin offset and never wrap to the last column.
+  const ts = bounds?.tileSize ?? 16;
+  const minX = bounds?.minX ?? 0, minY = bounds?.minY ?? 0;
+  const W = bounds.width * ts;
+  const H = bounds.height * ts;
+  const sx = displayBox.w / W;
+  const sy = displayBox.h / H;
   return Object.freeze({
-    scale: s,
-    rect: Object.freeze({ x: rx, y: ry, w: rw, h: rh }),
+    scaleX: sx,
+    scaleY: sy,
+    rect: Object.freeze({ x: displayBox.x, y: displayBox.y, w: displayBox.w, h: displayBox.h }),
     worldToDisplay(wx, wy) {
-      return [rx + wx * s, ry + wy * s];
+      return [displayBox.x + (wx - minX * ts) * sx, displayBox.y + (wy - minY * ts) * sy];
     },
     displayToWorld(px, py) {
-      if (px < rx || py < ry || px >= rx + rw || py >= ry + rh) return null;
-      return [(px - rx) / s, (py - ry) / s];
+      const lx = px - displayBox.x, ly = py - displayBox.y;
+      if (lx < 0 || ly < 0 || lx >= displayBox.w || ly >= displayBox.h) return null;
+      return [lx / sx + minX * ts, ly / sy + minY * ts];
     },
-    tileCenterToDisplay(tx, ty, minX = 0, minY = 0) {
-      return this.worldToDisplay((tx - minX) * 16 + 8, (ty - minY) * 16 + 8);
+    tileCenterToDisplay(tx, ty) {
+      return this.worldToDisplay(tx * ts + ts / 2, ty * ts + ts / 2);
     },
   });
 }

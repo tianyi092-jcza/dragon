@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 // lives in these focused fresh-browser lanes; their failures propagate here.
 if (!process.argv.includes('--legacy-draft')) {
   const playwright = createRequire(import.meta.url).resolve(process.env.PLAYWRIGHT_MODULE || 'C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright');
-  for (const lane of ['verify_editor_panel_visibility_browser.mjs', 'verify_system_base_map_browser.mjs', 'verify_map_canvas_select_disband_browser.mjs', 'verify_new_city_panel_browser.mjs']) {
+  for (const lane of ['verify_editor_panel_visibility_browser.mjs', 'verify_system_base_map_browser.mjs', 'verify_map_canvas_select_disband_browser.mjs']) {
     console.log('Workbench current lane: ' + lane);
     const result = spawnSync(process.execPath, [fileURLToPath(new URL(lane, import.meta.url))], {
       cwd: fileURLToPath(new URL('../', import.meta.url)), stdio: 'inherit',

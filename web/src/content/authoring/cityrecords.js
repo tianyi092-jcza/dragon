@@ -45,7 +45,7 @@ export function cityBaseNumbers(value) {
 export function captureCityDefinitions(game) {
   cityRecord(game); cityRecord(game.cities);
   const cities = {}, slots = new Set();
-  const allowed = ['cityId', 'runtimeSlot', 'x', 'y', 'name', 'battleMapId', ...CITY_BASE_NUMBERS];
+  const allowed = ['cityId', 'runtimeSlot', 'x', 'y', 'name', 'battleMapId', 'troops_cap', ...CITY_BASE_NUMBERS];
   for (const [id, value] of Object.entries(game.cities)) {
     const city = cityRecord(value), keys = Object.keys(city);
     if (city.cityId !== id || !id || keys.some(key => !allowed.includes(key)) || !['cityId', 'runtimeSlot', 'x', 'y'].every(key => Object.hasOwn(city, key))) throw new RangeError('city definition fields are not understood');
@@ -53,6 +53,8 @@ export function captureCityDefinitions(game) {
       const siege = /^ki-1995:siege:(\d{1,3})$/.exec(city.battleMapId ?? '');
       if (!siege || Number(siege[1]) > 191) throw new RangeError('city definition needs a shared siege battleMapId');
     }
+    // troops_cap 是 Web 侧新建初值（原版按章各异，见 CITY_CHAPTER_NUMBERS）；定义缺失则不补，发布自动补行时必填。
+    if (Object.hasOwn(city, 'troops_cap') && (!Number.isInteger(city.troops_cap) || city.troops_cap < 0 || city.troops_cap > 255)) throw new RangeError('city definition troops_cap must be 0..255');
     cityBaseNumbers(city);
     if (!Number.isInteger(city.runtimeSlot) || city.runtimeSlot < 0 || city.runtimeSlot >= 512 || slots.has(city.runtimeSlot) || !Number.isInteger(city.x) || city.x < 0 || city.x >= 384 || !Number.isInteger(city.y) || city.y < 0 || city.y >= 256) throw new RangeError('city definition needs a live slot with map coords');
     if (Object.hasOwn(city, 'name') && cityName(city.name) !== city.name) throw new RangeError('saved city name must be canonical');

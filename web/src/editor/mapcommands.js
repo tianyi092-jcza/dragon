@@ -5,6 +5,9 @@ import { enableSeaGroundBase, fillBase, splitDecoration, placeComponent, placeCi
   splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from './componenttools.js';
 
 import { removeMapObject, translateMapObject } from './mapobjectmove.js';
+import { expandMapOneStep, shrinkMapOneStep } from '../content/authoring/mapextent.js';
+// MAP-EXT E3: all four sides share one op; quota and strip-emptiness are
+// rechecked server-side from stored state.
 
 export function reconcileMapSelectionGroups(source, next, edits) {
   if (!source.selectionGroups) return next;
@@ -17,6 +20,12 @@ export function reconcileMapSelectionGroups(source, next, edits) {
     } else if (edit.op === 'map-object-remove') {
       const live = Object.fromEntries(['roads', 'placements', 'decorations'].map(layer => [layer, new Set(next.map[layer].map(row => row.id))]));
       groups = groups.map(group => ({ ...group, members: group.members.filter(member => live[member.layer]?.has(member.id)) })).filter(group => group.members.length);
+    } else if (edit.op === 'map-extent') {
+      // Shrink removes whole decoration pieces atomically; drop their group
+      // memberships the same way decoration-remove does (judged on live ids).
+      const liveDeco = new Set(next.map.decorations.map(row => row.id));
+      groups = groups.map(group => ({ ...group, members: group.members.filter(member =>
+        member.layer !== 'decorations' || liveDeco.has(member.id)) })).filter(group => group.members.length);
     } else if (edit.op === 'decoration-remove' || edit.op === 'decoration-combine') {
       const removed = new Set(edit.memberIds);
       groups = groups.map(group => ({ ...group, members: group.members.filter(member =>
@@ -55,6 +64,12 @@ export function reconcileMapSelectionGroups(source, next, edits) {
 export function previewMapEdits(source, edits) {
   const next = edits.reduce((current, edit) => {
     switch (edit.op) {
+      case 'map-extent': {
+        if (!['north', 'south', 'west', 'east'].includes(edit.side)) throw new RangeError('地圖擴縮方向須為北／南／西／東');
+        if (edit.delta === 1) return { ...current, map: expandMapOneStep(current.map, edit.side) };
+        if (edit.delta === -1) return { ...current, map: shrinkMapOneStep(current.map, current.componentDefinitions, edit.side) };
+        throw new RangeError('地圖擴縮方向須為加一或減一');
+      }
       case 'sea-ground-enable': return enableSeaGroundBase(current);
       case 'base-fill': return fillBase(current, edit.cells, edit.tile, edit.geography);
       case 'map-object-remove': return removeMapObject(current, edit.layer, edit.id);

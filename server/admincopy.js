@@ -10,6 +10,7 @@ import { GameCopyStore } from './gamecopy.js';
 import { initializeCopyGenerals } from './copygenerals.js';
 import { initializeCopyChapters } from './copychapters.js';
 import { instantiateSystemBaseMap, assertSystemBaseCities } from './systembasemap.js';
+import { overlayBaseCityIdentity } from '../web/src/content/authoring/gamesource.js';
 const hash = value => createHash('sha256').update(value).digest('hex');
 // 從未 claim 的 pending 列超過這個寬限期就當成中斷（分頁關了、請求從未到 /run）。
 // 保留 reserve→run 的正常间隙（請求本體很小），又不讓死列永久佔住名稱。
@@ -219,6 +220,9 @@ export class AdminFullCopy {
     this.#lease(tokenHash, cap); this.#catalog.assertCapture(tokenHash, source);
     // 冻结 baseline/profile 不变；当前工作台 copy 在同一创建事务中安装规范化主表。
     const copyData = instantiateSystemBaseMap(chapterData, mapSnapshot, hash);
+    // 系統基從源遊戲提取身份：城兵上限取源首章同槽行、攻城戰場取源據點定義；
+    // 只覆蓋有效值。copyData.cities 同時餵遊戲副本與系統基，兩邊完全一致。
+    overlayBaseCityIdentity(copyData, chapterData);
     // 完整复制即刷新系统基：先校验后提交，避免游戏已建、系统基没跟上的半截状态。
     // 并发双拷以先提交者为准：后执行者在重资产写入前再确认一次基准归属。
     if (row.profile_revision === FIXED_COPY_PROFILE) {

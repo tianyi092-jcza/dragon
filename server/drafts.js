@@ -17,7 +17,7 @@ import { WATER_CLASSES, BYTE_STAMP_RECIPE, composeMapLayers } from '../web/src/c
 import { composeMapDisplayLayers } from '../web/src/editor/mapdisplay.js';
 import { renderMinimapPixels, MINIMAP_SIZES, MINIMAP_STYLE_REVISION } from '../web/src/content/authoring/minimap.js';
 import { editChapterResources } from '../web/src/editor/chapterresources.js';
-import { FixedCopyProfile, FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
+import { FixedCopyProfile, FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE, mapExtentOptionFor } from './copyprofile.js';
 import { GameSnapshotVerifier } from './snapshots.js';
 import { decodePNG } from './pngio.js';
 import { hasPendingMoves } from './topology.js';
@@ -508,7 +508,7 @@ export class PrivateDrafts {
     const captured = await this.captureForCompile(tokenHash, gameId, requested);
     this.#owned(tokenHash, gameId, actor); this.#origin(tokenHash, gameId, actor);
     const { game, reference } = captured;
-    const map = compileMapSource({ schemaVersion: 1, map: game.map, componentDefinitions: game.componentDefinitions });
+    const map = compileMapSource({ schemaVersion: 1, map: game.map, componentDefinitions: game.componentDefinitions }, mapExtentOptionFor(game.map));
     const { w: width, h: height } = MINIMAP_SIZES.large, textureSeed = 1;
     const { pixels } = renderMinimapPixels(map.minimapGeography, map.roadMask, map.width, map.height, width, height, textureSeed);
     const result = { format: 'dragon-draft-minimap-1', gameId, draftRevision: requested, sourceDigest: reference.sourceDigest,

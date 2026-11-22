@@ -22,10 +22,9 @@ import CatalogPanel from './CatalogPanel.vue';
 import GeneralsPanel from './GeneralsPanel.vue';
 import CopyPanel from './CopyPanel.vue';
 import CopyGamePanel from './CopyGamePanel.vue';
-import NewCityPanel from './NewCityPanel.vue';
 import PublishPanel from './PublishPanel.vue';
 import ReviewPanel from './ReviewPanel.vue';
-const props = defineProps({ state: Object, baseMapModel: Object, baseMap: Object, baseStrongholdModel: Object, baseStronghold: Object, gameMapModel: Object, gameMap: Object, newCityModel: Object, newCity: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
+const props = defineProps({ state: Object, baseMapModel: Object, baseMap: Object, baseStrongholdModel: Object, baseStronghold: Object, gameMapModel: Object, gameMap: Object, accountsModel: Object, accounts: Object, draftModel: Object, draft: Object, stageAssetsModel: Object, stageAssets: Object, stageJobsModel: Object, stageJobs: Object, libraryModel: Object, library: Object, strongholdModel: Object, stronghold: Object, catalogModel: Object, catalog: Object, generalsModel: Object, generals: Object, copyModel: Object, copy: Object, fullCopyModel: Object, fullCopy: Object, publicationModel: Object, publication: Object, reviewModel: Object, review: Object, navigate: Function, logout: Function });
 import { loadingSvg } from './loading.js';
 // 阻塞彈窗自行展示 Loading，不在它背後再疊一個全局動畫；請求計數與 busy 不變。
 const publicationOverlay = ref(false);
@@ -111,9 +110,7 @@ async function go(view) {
         <StrongholdPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'stronghold-editor'" />
         <SystemStrongholdPanel :model="baseStrongholdModel" :actions="baseStronghold" :busy="state.busy" :game-id="draftModel.fields.gameId" :game-name="(draftModel.games.find(game => game.gameId === draftModel.fields.gameId) || {}).name" :hidden="!ready || !state.admin || state.view !== 'base-stronghold-editor'" />
         <BaseMapPanel v-if="ready && state.admin && state.view === 'base-map-editor'" :model="baseMapModel" :actions="baseMap" :busy="state.busy" />
-        <BaseMapPanel v-if="ready && state.view === 'mapview-editor'" :key="gameMapModel.gameId || 'no-game'" :model="gameMapModel" :actions="gameMap" :busy="state.busy">
-          <template #tools><NewCityPanel :model="newCityModel" :actions="newCity" :busy="state.busy" :map-actions="gameMap" :map-selected="gameMapModel.selected" /></template>
-        </BaseMapPanel>
+        <BaseMapPanel v-if="ready && state.view === 'mapview-editor'" :key="gameMapModel.gameId || 'no-game'" :model="gameMapModel" :actions="gameMap" :busy="state.busy" />
         <CatalogPanel :model="catalogModel" :actions="catalog" :busy="state.busy" :hidden="!ready || state.view !== 'catalog-editor'" />
         <GeneralsPanel :model="draftModel" :actions="draft" :busy="state.busy" :hidden="!ready || state.view !== 'generals-editor'" />
         <CopyPanel :model="copyModel" :actions="copy" :busy="state.busy" :hidden="!ready || state.view !== 'copy'" />

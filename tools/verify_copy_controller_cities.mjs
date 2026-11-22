@@ -9,7 +9,7 @@ const { installDraftEditor } = await import(`data:text/javascript;base64,${Buffe
 const gameId = '11111111-1111-4111-8111-111111111111';
 const DIGEST_A = 'a'.repeat(64);
 const cities = () => ({
-  c1: { name: '洛陽', max_prod: 100, prod: 50, growth: 1, defence: 2, troops: 3, type: 0, view: 1 },
+  c1: { name: '洛陽', max_prod: 100, prod: 50, growth: 1, defence: 2, troops: 3, type: 0, view: 1, battleMapId: 'ki-1995:siege:7', troops_cap: 30 },
   c2: { name: '長安', max_prod: null, prod: null, growth: null, defence: null, troops: null, type: null, view: null },
 });
 const copyData = (over = {}) => ({
@@ -50,8 +50,8 @@ test('loadCopy builds cities rows in the page projection', async () => {
   await h.actions.loadCopy();
   const rows = h.model().copy.page.cities;
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows[0], { cityId: 'c1', name: '洛陽', max_prod: 100, prod: 50, growth: 1, defence: 2, troops: 3, type: 0, view: 1 });
-  assert.deepEqual(rows[1], { cityId: 'c2', name: '長安', max_prod: null, prod: null, growth: null, defence: null, troops: null, type: null, view: null });
+  assert.deepEqual(rows[0], { cityId: 'c1', name: '洛陽', max_prod: 100, prod: 50, growth: 1, defence: 2, troops: 3, type: 0, view: 1, battleMapId: 'ki-1995:siege:7', troops_cap: 30 });
+  assert.deepEqual(rows[1], { cityId: 'c2', name: '長安', max_prod: null, prod: null, growth: null, defence: null, troops: null, type: null, view: null, battleMapId: null, troops_cap: null });
   assert.equal(h.errors.length, 0);
 });
 
@@ -130,4 +130,65 @@ test('cityCopySave clears the validation ticket and surfaces server rejection', 
   assert.equal(h.errors.length, 1);
   assert.equal(h.model().copy.ticketReady, true);
   assert.deepEqual(posts(h), [{ module: 'cities', patch: { rename: { c1: '長安2' } } }]);
+});
+
+test('cityCopySave posts battlefield change, then re-reads', async () => {
+  const h = harness(); await selectGame(h); loadOk(h);
+  await h.actions.loadCopy();
+  const reply = await h.actions.cityCopySave('c1', { battleMapId: 'ki-1995:siege:11' });
+  assert.equal(reply, '已保存據點並重讀副本。');
+  assert.deepEqual(posts(h), [{ module: 'cities', patch: { battlefield: { c1: 'ki-1995:siege:11' } } }]);
+  assert.equal(h.errors.length, 0);
+});
+
+test('cityCopySave posts troopcap change, then re-reads', async () => {
+  const h = harness(); await selectGame(h); loadOk(h);
+  await h.actions.loadCopy();
+  const reply = await h.actions.cityCopySave('c1', { troops_cap: 40 });
+  assert.equal(reply, '已保存據點並重讀副本。');
+  assert.deepEqual(posts(h), [{ module: 'cities', patch: { troopcap: { c1: 40 } } }]);
+  assert.equal(h.errors.length, 0);
+});
+
+test('cityCopySave refuses bad troopcap locally and sends nothing', async () => {
+  const h = harness(); await selectGame(h); loadOk(h);
+  await h.actions.loadCopy();
+  const base = h.calls.length;
+  try { await h.actions.cityCopySave('c1', { troops_cap: 300 }); } catch { h.errors.push(new Error('local-refusal')); }
+  assert.equal(h.errors.length, 1);
+  assert.equal(h.calls.length, base);
+});
+
+test('cityCopySave refuses bad battlefield locally and sends nothing', async () => {
+  const h = harness(); await selectGame(h); loadOk(h);
+  await h.actions.loadCopy();
+  const base = h.calls.length;
+  for (const bad of ['siege:7', 'ki-1995:siege:192', 'ki-1995:siege:x', '']) {
+    try { await h.actions.cityCopySave('c1', { battleMapId: bad }); } catch { h.errors.push(new Error('local-refusal')); }
+    assert.equal(h.errors.length, 1, bad);
+    h.errors.length = 0;
+  }
+  assert.equal(h.calls.length, base);
+});
+
+test('cityCopyCreate posts name+numbers+battlefield+troopcap, then re-reads', async () => {
+  const h = harness(); await selectGame(h); loadOk(h);
+  await h.actions.loadCopy();
+  const reply = await h.actions.cityCopyCreate({ name: '新野', numbers: { max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1 }, battleMapId: 'ki-1995:siege:7', troops_cap: 60 });
+  assert.equal(reply, '已新增據點並重讀副本。下一步：在地圖上放置並綁定。');
+  assert.deepEqual(posts(h), [{ module: 'cities', patch: { create: { name: '新野', numbers: { max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1 }, battleMapId: 'ki-1995:siege:7', troops_cap: 60 } } }]);
+  assert.equal(h.errors.length, 0);
+});
+
+test('cityCopyCreate refuses bad input locally and sends nothing', async () => {
+  const h = harness(); await selectGame(h); loadOk(h);
+  await h.actions.loadCopy();
+  const base = h.calls.length;
+  const good = { name: '新野', numbers: { max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1 }, battleMapId: 'ki-1995:siege:7', troops_cap: 60 };
+  for (const form of [{ ...good, name: '' }, { ...good, name: '洛陽' }, { ...good, battleMapId: 'bad' }, { ...good, troops_cap: 300 }, { ...good, numbers: { ...good.numbers, prod: 'x' } }]) {
+    try { await h.actions.cityCopyCreate(form); } catch { h.errors.push(new Error('local-refusal')); }
+    assert.equal(h.errors.length, 1, JSON.stringify(form));
+    h.errors.length = 0;
+  }
+  assert.equal(h.calls.length, base);
 });

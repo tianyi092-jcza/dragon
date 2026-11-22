@@ -42,6 +42,7 @@ function transaction(source, change) {
 export function enableSeaGroundBase(source) {
   composeMapLayers(source, { draft: true });
   if (source.map.base.policy === SEA_GROUND_POLICY) return source;
+  const { minX, minY, width, height } = mapBounds(source);
   return transaction(source, next => {
     const ids = new Set([...source.map.decorations, ...source.map.roads.flatMap(road => road.components ?? []), ...source.map.placements].map(item => item.id));
     const underlays = source.map.base.terrainRef.flatMap((tile, cell) => {
@@ -52,14 +53,14 @@ export function enableSeaGroundBase(source) {
         fail('保留舊基底需要匹配的原子配方');
       const id = `sea-ground-underlay-${cell}`;
       if (ids.has(id)) fail('海域基底轉換身份衝突');
-      return [{ id, definitionRef, variantRef: 'original', x: cell % 384, y: Math.floor(cell / 384) }];
+      return [{ id, definitionRef, variantRef: 'original', x: minX + cell % width, y: minY + Math.floor(cell / width) }];
     });
     // Retain even sea-looking historical stamps: they may cover authored ground.
     // Removing them merely because they look like the base would change native bytes.
     next.map.decorations = [...underlays, ...source.map.decorations];
     next.map.waterGroups = next.map.waterGroups.map(group => ({ ...group, baseCells: [] })).filter(group => group.memberIds.length);
-    next.map.base = { ...next.map.base, policy: SEA_GROUND_POLICY, terrainRef: Array(384 * 256).fill(SEA_BASE_TILE),
-      geography: Array(384 * 256).fill(1), unknownUnderlays: {} };
+    next.map.base = { ...next.map.base, policy: SEA_GROUND_POLICY, terrainRef: Array(width * height).fill(SEA_BASE_TILE),
+      geography: Array(width * height).fill(1), unknownUnderlays: {} };
   });
 }
 export function componentCells(source, instance) {
@@ -98,13 +99,26 @@ export function decorationIdsInRect(source, left, right, top, bottom) {
   }
   return ids;
 }
+function inMapBounds(bounds, x, y) {
+  const { minX, minY, width, height } = mapBounds({ map: { bounds } });
+  return Number.isInteger(x) && Number.isInteger(y) && x >= minX && x < minX + width && y >= minY && y < minY + height;
+}
+// Legacy fixtures may omit bounds or the origin; expanded maps always carry
+// the full box. Missing pieces default to the original fixed domain.
+function mapBounds(source) {
+  const b = source?.map?.bounds ?? {};
+  return { minX: b.minX ?? 0, minY: b.minY ?? 0, width: b.width ?? 384, height: b.height ?? 256 };
+}
 function unique(values) { if (!Array.isArray(values) || new Set(values).size !== values.length) fail("選取包含重複項目"); return values; }
 function groupParts(source, memberIds, baseCells) {
   unique(memberIds); unique(baseCells);
   if (!memberIds.length && !baseCells.length) fail("請先選取水域組件或基礎水格");
   const instances = new Map([...source.map.decorations, ...source.map.roads.flatMap((r) => r.components ?? [])].map((d) => [d.id, d]));
   for (const id of memberIds) if (!Object.hasOwn(WATER_CLASSES, instances.get(id)?.waterClass)) fail("只能組合明確標注的水域組件");
-  for (const cell of baseCells) if (!Number.isInteger(cell) || cell < 0 || cell >= 384 * 256 || !source.map.base.geography[cell]) fail("只能選取已有明確水域的基礎格");
+  for (const cell of baseCells) {
+    const { width: gw, height: gh } = mapBounds(source);
+    if (!Number.isInteger(cell) || cell < 0 || cell >= gw * gh || !source.map.base.geography[cell]) fail("只能選取已有明確水域的基礎格");
+  }
 }
 function newGroup(source, id, name, memberIds, baseCells, visible) {
   if (typeof id !== "string" || !id || source.map.waterGroups.some((g) => g.id === id)) fail("新組合身份重複或缺失");
@@ -205,7 +219,7 @@ export function combineDecorations(source, memberIds, materialId, instanceId) {
   if ((source.selectionGroups ?? []).some(group => !/^web-piece-group-\d+$/.test(group.id) &&
       !group.id.startsWith(`${source.gameId}#group-`) && group.members.some(member => member.layer === 'decorations' && selected.has(member.id))))
     fail('專用據點／水系組不可通過裝飾組合改寫');
-  const captured = captureComponent(source, memberIds, materialId, '組合物件', source.map.bounds.width * source.map.bounds.height);
+  const captured = captureComponent(source, memberIds, materialId, '組合物件', mapBounds(source).width * mapBounds(source).height);
   const definition = { ...captured.componentDefinitions[materialId] };
   delete definition.captureProvenance;
   const cells = members.flatMap(item => componentCells(source, item));
@@ -229,11 +243,13 @@ export function placeComponent(source, definitionRef, x, y, id, waterClass, vari
   const def = source.componentDefinitions[definitionRef]; if (!def) fail("素材不存在");
   if (!Number.isInteger(x) || !Number.isInteger(y)) fail("落點須為整數圖格");
   if (source.map.decorations.some((d) => d.id === id)) fail("組件身份重複");
+  const bounds = mapBounds(source);
   return transaction(source, (next) => {
     const instance = { id, definitionRef, variantRef, x, y };
     if (waterClass) { if (!Object.hasOwn(WATER_CLASSES, waterClass)) fail("無效水域類別"); instance.waterClass = waterClass; }
     // Check the full footprint before writing, never clip at map borders.
-    for (const [cx, cy] of componentCells(next, instance)) if (cx < 0 || cx >= 384 || cy < 0 || cy >= 256) fail("素材占用範圍超出固定地圖；未提交");
+    for (const [cx, cy] of componentCells(next, instance))
+      if (!Number.isInteger(cx) || !Number.isInteger(cy) || cx < bounds.minX || cx >= bounds.minX + bounds.width || cy < bounds.minY || cy >= bounds.minY + bounds.height) fail("素材占用範圍超出地圖；未提交");
     next.map.decorations.push(instance);
     if (waterClass) next.map.waterGroups.push(newGroup(next, "group-" + id, def.name ?? "新水域組合", [id], [], true));
   });
@@ -254,7 +270,7 @@ export function placeCityGroup(source, materialized) {
     const def = source.componentDefinitions[deco.materialId];
     if (!def || !tile || Number(tile[1]) > 255 || def.ruleRecipeRef !== BYTE_STAMP_RECIPE || JSON.stringify(def.anchor) !== "[0,0]" ||
         JSON.stringify(def.footprint) !== "[[0,0]]" || JSON.stringify(def.variants?.original?.tiles) !== `[[0,0,${tile[1]}]]`) fail(`裝飾素材不存在或非原子單格：${deco.materialId}`);
-    if (!Number.isInteger(deco.x) || !Number.isInteger(deco.y) || deco.x < 0 || deco.y < 0 || deco.x >= 384 || deco.y >= 256) fail("裝飾落點須為地圖內整數圖格");
+    if (!Number.isInteger(deco.x) || !Number.isInteger(deco.y) || !inMapBounds(source.map.bounds, deco.x, deco.y)) fail("裝飾落點須為地圖內整數圖格");
     if (deco.variantRef !== "original") fail("據點裝飾只接受原尺寸變體");
   }
   const portTaken = new Set((source.cityGatePorts ?? []).map((port) => port?.portId));
@@ -263,7 +279,7 @@ export function placeCityGroup(source, materialized) {
     if (!port || port.portId !== `${cityId}:${gateIndex}` || port.cityId !== cityId || port.gateIndex !== gateIndex) fail("門端口身份不符");
     if (portTaken.has(port.portId) || portBatch.has(port.portId)) fail("門端口身份重複");
     portBatch.add(port.portId);
-    if (!Number.isInteger(port.x) || !Number.isInteger(port.y) || port.x < 0 || port.y < 0 || port.x >= 384 || port.y >= 256) fail("門端口須為地圖內整數圖格");
+    if (!Number.isInteger(port.x) || !Number.isInteger(port.y) || !inMapBounds(source.map.bounds, port.x, port.y)) fail("門端口須為地圖內整數圖格");
   });
   const groups = source.selectionGroups ?? [];
   if (groups.some((row) => row?.id === group.id)) fail("據點成組身份重複");
@@ -285,7 +301,7 @@ export function previewTranslateOutOfBounds(source, ids, dx, dy) {
   if (instances.length !== ids.length) fail("批量平移引用不存在的裝飾");
   const cells = [];
   for (const d of instances) for (const [x, y] of componentCells(source, d))
-    if (x + dx < 0 || x + dx >= 384 || y + dy < 0 || y + dy >= 256) cells.push([x + dx, y + dy]);
+    if (!inMapBounds(source.map.bounds, x + dx, y + dy)) cells.push([x + dx, y + dy]);
   return Object.freeze({ count: cells.length, cells: Object.freeze(cells.map(pair => Object.freeze(pair))) });
 }
 // Q39 expansion confirmation: the map stays 384x256 (admission §4: capacity
@@ -378,7 +394,7 @@ export function translateDecorations(source, ids, dx, dy) {
   const selected = new Set(ids), instances = source.map.decorations.filter((d) => selected.has(d.id));
   if (instances.length !== ids.length) fail("批量平移引用不存在的裝飾");
   for (const d of instances) for (const [x, y] of componentCells(source, d))
-    if (x + dx < 0 || x + dx >= 384 || y + dy < 0 || y + dy >= 256) fail("整批占用範圍超界；全部未提交");
+    if (!inMapBounds(source.map.bounds, x + dx, y + dy)) fail("整批占用範圍超界；全部未提交");
   return transaction(source, (next) => { next.map.decorations = next.map.decorations.map((d) => selected.has(d.id) ? { ...d, x: d.x + dx, y: d.y + dy } : d); });
 }
 // Web author order only: one neighbour per selected block, or a stable partition
@@ -416,7 +432,9 @@ export function splitDecoration(source, instanceId, childIds) {
   if (def.ruleRecipeRef !== BYTE_STAMP_RECIPE || def.visualRef !== "MMAP.MDL:indexed-footprint") fail("只可拆分已支持的明確多格原圖塊配方");
   composeMapLayers(source, { draft: true });
   const tiles = def.variants[instance.variantRef ?? "original"].tiles;
-  if (tiles.length < 2 || tiles.length > source.map.bounds.width * source.map.bounds.height || childIds.length !== tiles.length) fail("請選取完整多格裝飾；子實例身份須覆蓋全部格");
+  if (tiles.length < 2) fail("請選取完整多格裝飾；子實例身份須覆蓋全部格");
+  { const { width: sw, height: sh } = mapBounds(source);
+    if (tiles.length > sw * sh || childIds.length !== tiles.length) fail("請選取完整多格裝飾；子實例身份須覆蓋全部格"); }
   const existing = new Set([...source.map.decorations, ...source.map.roads.flatMap((r) => r.components ?? []), ...source.map.placements].map((d) => d.id));
   if (childIds.some((id) => typeof id !== "string" || !id || existing.has(id))) fail("子實例身份缺失或已被使用");
   const mask = new Set((def.geographyMask ?? def.footprint).map((p) => p.join(",")));
@@ -446,7 +464,8 @@ export function splitDecoration(source, instanceId, childIds) {
     next.map.waterGroups = next.map.waterGroups.map((g) => ({ ...g, memberIds: g.memberIds.flatMap((id) => id === instanceId ? children.filter((d) => d.waterClass).map((d) => d.id) : [id]) }))
       .filter((g) => g.memberIds.length || g.baseCells.length);
     for (const child of children) {
-      const at = child.y * 384 + child.x, record = next.map.base.unknownUnderlays[at];
+      const { minX: ux, minY: uy, width: uw } = mapBounds(source);
+      const at = (child.y - uy) * uw + child.x - ux, record = next.map.base.unknownUnderlays[at];
       if (record?.coveringInstanceId === instanceId) next.map.base.unknownUnderlays[at] = { ...record,
         priorCoveringInstanceId: record.priorCoveringInstanceId ?? instanceId, coveringInstanceId: child.id };
     }
@@ -471,7 +490,8 @@ export function fillBase(source, cells, tile, geography) {
   if (source.map.base.policy === SEA_GROUND_POLICY) fail('海域基底固定；請以裝飾層地面素材編輯陸地');
   unique(cells); if (!cells.length) fail("請先選取基礎格或待補底組件");
   if (!Number.isInteger(tile) || tile < 0 || tile > 255 || !Number.isInteger(geography) || geography < 0 || geography > 3) fail("替換圖塊／地理值不在明確支持域");
-  for (const cell of cells) if (!Number.isInteger(cell) || cell < 0 || cell >= 384 * 256) fail("補底格超出固定地圖");
+  { const { width: fw, height: fh } = mapBounds(source);
+    for (const cell of cells) if (!Number.isInteger(cell) || cell < 0 || cell >= fw * fh) fail("補底格超出地圖"); }
   return transaction(source, (next) => {
     const targets = new Set(cells);
     next.map.waterGroups = next.map.waterGroups.map((g) => ({ ...g, baseCells: g.baseCells.filter((v) => !targets.has(v)) })).filter((g) => g.memberIds.length || g.baseCells.length);

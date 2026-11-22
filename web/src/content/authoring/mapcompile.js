@@ -3,7 +3,7 @@
 // 容量：现行规则 profile 只接受 384x256；据点为 live 1..512（D2 用户批准），
 // 192 固定槽域只描述原版/Custom 导入基线，不再是校验锁。
 
-import { isNorthExtension } from './mapextent.js';
+import { isNorthExtension, isSupportedMapExtent } from './mapextent.js';
 import { composeMapLayers } from "./maplayers.js";
 
 export const MAP_SCHEMA_VERSION = 1;
@@ -31,12 +31,15 @@ export function validateMapSource(src, options = {}) {
   if (src.schemaVersion !== MAP_SCHEMA_VERSION) throw new RangeError("unsupported map schemaVersion");
   const bounds = src.map?.bounds;
   const northExperiment = options.northExperiment === true && isNorthExtension(bounds);
-  if (!bounds || (!northExperiment && (bounds.width !== SUPPORTED_BOUNDS.width || bounds.height !== SUPPORTED_BOUNDS.height)) || bounds.tileSize !== SUPPORTED_BOUNDS.tileSize)
+  // MAP-EXT E5: explicit template/creation admission for supported extents.
+  // Default callers (publish/play packs) stay on the strict origin gate.
+  const mapExtent = options.mapExtent === true && isSupportedMapExtent(bounds);
+  if (!bounds || (!northExperiment && !mapExtent && (bounds.width !== SUPPORTED_BOUNDS.width || bounds.height !== SUPPORTED_BOUNDS.height)) || bounds.tileSize !== SUPPORTED_BOUNDS.tileSize)
     throw new RangeError("unsupported map bounds for current rule profile");
   if (!Number.isInteger(bounds.minX) || !Number.isInteger(bounds.minY)) throw new TypeError("bounds minX/minY must be integers");
   // A-CAP-1：现行规则 profile 只支持原点域；左／上扩边会平移编译坐标，
   // 须转换全部地图引用（排查§4），在 G-CAP 适配完成前明确拒绝而非默许。
-  if (!northExperiment && (bounds.minX !== 0 || bounds.minY !== 0)) throw new RangeError("non-zero map origin is not supported by the current rule profile");
+  if (!northExperiment && !mapExtent && (bounds.minX !== 0 || bounds.minY !== 0)) throw new RangeError("non-zero map origin is not supported by the current rule profile");
   const W = bounds.width;
   const H = bounds.height;
   const base = src.map?.base;
@@ -176,8 +179,8 @@ export function assertMapConnected(src) {
 
 // Four-layer opaque original-byte composition + independent explicit
 // water geography + static road geometry. No guessed movement/cost rule.
-export function compileMapSource(src, { northExperiment = false } = {}) {
-  validateMapSource(src, { northExperiment });
+export function compileMapSource(src, { northExperiment = false, mapExtent = false } = {}) {
+  validateMapSource(src, { northExperiment, mapExtent });
   const W = src.map.bounds.width;
   const H = src.map.bounds.height;
   const layered = composeMapLayers(src);

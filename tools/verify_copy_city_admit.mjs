@@ -44,7 +44,7 @@ function placed(gameId, cityId, x = 100, y = 50) {
 
 test('admit creates D6 entries in every chapter and backfills x/y', async () => {
   const gameId = fresh();
-  const w = store.writeModule('tok', gameId, 'cities', { create: { name: '測簽受納城', numbers: FULL_NUMBERS } });
+  const w = store.writeModule('tok', gameId, 'cities', { create: { name: '測簽受納城', numbers: FULL_NUMBERS, battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
   assert.equal(w.issuedCityId, 'city-192');
   placed(gameId, 'city-192');
   const r = store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-192', troops_cap: ADMIT_CAP, battleMapId: SIEGE } });
@@ -68,9 +68,9 @@ test('admit creates D6 entries in every chapter and backfills x/y', async () => 
 
 test('admit fails closed when unplaced, incomplete, unknown, or malformed', async () => {
   const gameId = fresh();
-  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽未放城', numbers: FULL_NUMBERS } });
+  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽未放城', numbers: FULL_NUMBERS, battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
   await fails(() => store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-192', troops_cap: ADMIT_CAP, battleMapId: SIEGE } }), 'COPY_CHAPTER', 422);
-  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽缺數城' } });
+  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽缺數城', battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
   placed(gameId, 'city-193', 110, 60);
   await fails(() => store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-193', troops_cap: ADMIT_CAP, battleMapId: SIEGE } }), 'COPY_CHAPTER', 422);
   await fails(() => store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-404', troops_cap: ADMIT_CAP, battleMapId: SIEGE } }), 'COPY_CHAPTER', 422);
@@ -95,7 +95,7 @@ test('live conversion matches legacy on builtin and covers the admitted city', a
   const live = convertLiveChapterCities(structuredClone(pinned), bindings192);
   assert.deepEqual(live, legacy);
   const gameId = fresh();
-  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽轉換城', numbers: FULL_NUMBERS } });
+  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽轉換城', numbers: FULL_NUMBERS, battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
   placed(gameId, 'city-192', 120, 70);
   store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-192', troops_cap: ADMIT_CAP, battleMapId: SIEGE } });
   const data = readData(gameId);
@@ -113,7 +113,7 @@ test('live conversion matches legacy on builtin and covers the admitted city', a
 
 test('chapter value edits work raw-less on admitted entries', async () => {
   const gameId = fresh();
-  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽改值城', numbers: FULL_NUMBERS } });
+  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽改值城', numbers: FULL_NUMBERS, battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
   placed(gameId, 'city-192', 130, 80);
   store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-192', troops_cap: ADMIT_CAP, battleMapId: SIEGE } });
   const data = readData(gameId);
@@ -128,11 +128,29 @@ test('chapter value edits work raw-less on admitted entries', async () => {
 
 test('captureCityDefinitions goes live; unplaced reserves still fail', async () => {
   const gameId = fresh();
-  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽儲備城', numbers: FULL_NUMBERS } });
+  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽儲備城', numbers: FULL_NUMBERS, battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
   assert.throws(() => captureCityDefinitions(readData(gameId)), /city definition fields are not understood/);
   placed(gameId, 'city-192', 140, 90);
   store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-192', troops_cap: ADMIT_CAP, battleMapId: SIEGE } });
   const defs = captureCityDefinitions(readData(gameId));
   assert.equal(Object.keys(defs).length, 193);
   assert.equal(defs['city-192'].runtimeSlot, 192);
+});
+
+test('battlefield edits propagate from definitions to every chapter row; troopcap stays per-chapter', async () => {
+  const gameId = fresh();
+  store.writeModule('tok', gameId, 'cities', { create: { name: '測簽同步城', numbers: FULL_NUMBERS, battleMapId: SIEGE, troops_cap: ADMIT_CAP } });
+  placed(gameId, 'city-192', 140, 90);
+  store.writeModule('tok', gameId, 'chapters', { admit: { cityId: 'city-192', troops_cap: ADMIT_CAP, battleMapId: SIEGE } });
+  const rowsOf = () => readData(gameId).chapterOrder.map(id => readData(gameId).chapters[id].state.cities.find(r => r?.idx === 192));
+  assert.ok(rowsOf().every(r => r.battleMapId === SIEGE));
+  store.writeModule('tok', gameId, 'cities', { battlefield: { 'city-192': 'ki-1995:siege:42' } });
+  const after = readData(gameId);
+  assert.equal(after.cities['city-192'].battleMapId, 'ki-1995:siege:42');
+  assert.ok(rowsOf().every(r => r.battleMapId === 'ki-1995:siege:42'));
+  // 上限按章各异：定义改了，老章行不动。
+  store.writeModule('tok', gameId, 'cities', { troopcap: { 'city-192': 77 } });
+  const afterCap = readData(gameId);
+  assert.equal(afterCap.cities['city-192'].troops_cap, 77);
+  assert.ok(rowsOf().every(r => r.troops_cap === ADMIT_CAP));
 });

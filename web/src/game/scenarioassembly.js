@@ -2,6 +2,7 @@
 // The actual App uses this detached preparation before any live installation.
 // Formal JSON contract and unsupported native scope: march notes §3.10.
 import { STRATEGIC_LAYOUT } from "../content/worlddefinition.js";
+import { isSupportedMapExtent } from "../content/authoring/mapextent.js";
 import { maxNodesForVersion } from "./navigation/originalroadmemory.js";
 import { Scenario } from "./world.js";
 import { assertLegionPhaseState } from "./legionphase.js";
@@ -72,8 +73,45 @@ export function assertNoEmbeddedRoadMetadata(state) {
   }
 }
 
+// MAP-EXT E9: grid (extended-map) save identity. The structured road graph
+// asset version stays 'world-grid-experiment' at the loader gate; the save
+// metadata marker is the distinct string below so every native v2/v3 gate
+// (which matches exact 2/3) keeps failing closed on grid saves and restores.
+const GRID_ROAD_VERSION = "grid";
+
+// Canonical JSON for change detection only (not a security digest): sorted
+// object keys, arrays in order. The loader freezes the graph, so both the
+// snapshot-time and restore-time objects stringify identically when the
+// compiled bytes are identical. Pure integer arithmetic: deterministic
+// across processes without imports (web/src stays browser-safe).
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+}
+function cyrb53(str, seed) {
+  let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
+function digestRoadGraph(graph) {
+  const text = stableStringify(graph);
+  return [1, 2, 3].map((seed) => cyrb53(text, seed).toString(16).padStart(14, "0")).join("");
+}
+
+function assertGridBounds(bounds) {
+  if (!bounds || !isSupportedMapExtent(bounds))
+    throw new TypeError("Invalid grid scenario bounds");
+}
+
 function assertMetadata(metadata) {
-  if (metadata?.version !== 1 || ![1, 2, 3].includes(metadata.roadVersion))
+  if (metadata?.version !== 1 || (metadata.roadVersion !== GRID_ROAD_VERSION && ![1, 2, 3].includes(metadata.roadVersion)))
     throw new TypeError("Invalid scenario assembly schema/road version");
   for (const value of [
     metadata.world?.id,
@@ -112,6 +150,21 @@ export function readSavedAssembly(saved) {
     throw new TypeError("v1 save retired; start a new game (v2 only)");
   if (metadata.roadVersion === 2 && !meta.roadMemory)
     throw new TypeError("v2 restore requires road memory");
+  // MAP-EXT E9: grid saves carry the v2 occupancy plane plus the immutable
+  // plane identities, never native road RAM. The graph digest and the
+  // terrain identity are verified again after loading at restore; a save
+  // whose world bytes drifted is refused, never rebound to new geometry.
+  if (metadata.roadVersion === GRID_ROAD_VERSION) {
+    assertGridBounds(metadata.bounds);
+    for (const field of ["roadGraphDigest", "terrainIdentity"]) {
+      if (typeof metadata[field] !== "string" || !metadata[field].length)
+        throw new TypeError(`Grid save requires ${field}`);
+    }
+    if (meta.roadMemory || meta.terrainMemory || meta.cityCache)
+      throw new TypeError("Grid save carries no native road memory");
+    if (!meta.movementMemory)
+      throw new TypeError("Grid restore requires movement memory");
+  }
   if (has(meta, "movementMemory") && !meta.movementMemory)
     throw new TypeError("Invalid saved movement memory");
   if (has(meta, "terrainMemory") && !meta.terrainMemory)
@@ -145,7 +198,14 @@ export function assertAssemblyIdentity(metadata, idx, content, world) {
 export function assertPlayableScenario({ metadata }) {
   // P65 G5: only staged v2/v3 (or phaseless legacy metadata, v2-initialized
   // at prepare per P58) may enter App play. Explicit v1 is retired.
-  if (metadata != null && metadata.roadVersion !== 2 && metadata.roadVersion !== 3)
+  // MAP-EXT E9: staged grid saves (explicit bounds + digest + terrain
+  // identity) enter App play through the grid restore branch below.
+  if (
+    metadata != null &&
+    metadata.roadVersion !== 2 &&
+    metadata.roadVersion !== 3 &&
+    metadata.roadVersion !== GRID_ROAD_VERSION
+  )
     throw new Error("unstaged road version cannot enter play");
 }
 
@@ -177,6 +237,8 @@ export async function prepareScenario({
   terrainMemory = null,
   cityCache = null,
   northExperiment = false,
+  // MAP-EXT E6: explicit opt-in for supported extents (any side), not north-only.
+  mapExtent = false,
 }) {
   if (mode !== "fresh" && mode !== "restore")
     throw new TypeError("Explicit scenario preparation mode required");
@@ -208,6 +270,70 @@ export async function prepareScenario({
   // no-old-save-compat policy). Fail closed; never restore a v1 path.
   if (metadata?.roadVersion === 1)
     throw new TypeError("v1 save retired; start a new game (v2 only)");
+  // MAP-EXT E9: grid restore. The movement plane is rebuilt from the saved
+  // spans through the same validating constructor; the immutable planes
+  // (bounds, road graph bytes, terrain bytes) are reloaded from the live
+  // world and must reproduce the saved identities exactly. Anything else
+  // (fresh mode, stray RAM planes, drifted bytes) fails closed here.
+  if (mode === "restore" && metadata?.roadVersion === GRID_ROAD_VERSION) {
+    if (movementMemory == null)
+      throw new TypeError("Grid restore requires movement memory");
+    if (roadMemory != null || terrainMemory != null || cityCache != null)
+      throw new TypeError("Grid restore carries no native road memory");
+    assertAssemblyIdentity(metadata, idx, content, world);
+    assertGridBounds(metadata.bounds);
+    const definition = world?.definition;
+    for (const key of ["minX", "minY", "width", "height"]) {
+      if (metadata.bounds[key] !== definition?.[key])
+        throw new TypeError("Grid bounds/world definition mismatch");
+    }
+    const bounds = { ...metadata.bounds };
+    await world.terrain.loadTerrain();
+    if (world.terrain.terrainIdentity() !== metadata.terrainIdentity)
+      throw new TypeError("Grid terrain identity mismatch");
+    const graph = await world.roads.loadRoadGraph();
+    if (digestRoadGraph(graph) !== metadata.roadGraphDigest)
+      throw new TypeError("Grid road graph digest mismatch");
+    if (
+      graph.nodes.length !== scenario.cities.length ||
+      graph.nodes.some((node, i) => {
+        const city = scenario.cities[i];
+        return (
+          city?.idx !== i ||
+          city.x !== node.x ||
+          city.y !== node.y ||
+          (city.cityId != null && city.cityId !== node.cityId)
+        );
+      })
+    )
+      throw new RangeError("World-grid chapter/road nodes disagree");
+    // The movement constructor revalidates the saved spans (schema,
+    // schema bounds, world/content identity, initial graph) in restore
+    // mode; a corrupt or transplanted plane fails closed inside it. The
+    // checkpoint identity must repeat the fresh-time `expected` shape
+    // exactly (version + roadVersion 2), otherwise the restored plane
+    // snapshots a different identity than the hot plane.
+    const movement = createScenarioMovementMemory(
+      structuredClone(movementMemory),
+      {
+        identity: {
+          version: 1,
+          world: { id: definition.id, revision: definition.revision },
+          content: structuredClone(content?.chapter(idx)?.reference),
+          roadVersion: 2,
+        },
+        memory: { initialGraph: definition.revision },
+      },
+      true,
+      bounds,
+    );
+    const gridMetadata = structuredClone(metadata);
+    gridOwners.set(
+      scenario,
+      Object.freeze({ graph, movement, metadata: gridMetadata, idx, content, world }),
+    );
+    return { scenario, metadata: structuredClone(gridMetadata) };
+  }
   // Capture all mutable inputs before yielding. Ownership is checked again by App.
   const expected = currentMetadata(
     idx,
@@ -223,7 +349,7 @@ export async function prepareScenario({
   const roadVersion = world.roads.loadedRoadVersion();
   if (metadata !== null && roadVersion !== expected.roadVersion)
     throw new TypeError("Loaded road version mismatch");
-  if (northExperiment && mode === 'fresh' && roadVersion === 'world-grid-experiment') {
+  if ((northExperiment || mapExtent) && mode === 'fresh' && roadVersion === 'world-grid-experiment') {
     if (movementInput !== null || terrainInput !== null || cacheInput !== null) throw new TypeError('Fresh grid world requires fresh planes');
     const graph = await world.roads.loadRoadGraph();
     if (graph.nodes.length !== scenario.cities.length || graph.nodes.some((node,i) => {
@@ -231,6 +357,7 @@ export async function prepareScenario({
       return city?.idx !== i || city.x !== node.x || city.y !== node.y || (city.cityId != null && city.cityId !== node.cityId);
     })) throw new RangeError('World-grid chapter/road nodes disagree');
     const {minX,minY,width,height} = world.definition, bounds = {minX,minY,width,height};
+    assertGridBounds(bounds);
     const movement = createScenarioMovementMemory({version:2,bounds,zeroFilled:true,spans:[]},
       {identity:expected,memory:{initialGraph:world.definition.revision}},false,bounds);
     for (const army of scenario.legions) {
@@ -239,8 +366,19 @@ export async function prepareScenario({
       army.roadPosition = {kind:'city',cityIndex:node.cityIndex};
       movement.writeTile(army.x,army.y,movement.readTile(army.x,army.y)+1);
     }
-    gridOwners.set(scenario,Object.freeze({graph,movement}));
-    return {scenario,metadata:{...expected,roadVersion}};
+    // MAP-EXT E9: grid saves verify the immutable planes at snapshot and
+    // restore. Terrain is a loaded resource (never a bound RAM plane), so
+    // the owner pins its identity hex; the live world must reproduce it.
+    await world.terrain.loadTerrain();
+    const gridMetadata = {
+      ...expected,
+      roadVersion: GRID_ROAD_VERSION,
+      bounds: {minX, minY, width, height},
+      roadGraphDigest: digestRoadGraph(graph),
+      terrainIdentity: world.terrain.terrainIdentity(),
+    };
+    gridOwners.set(scenario, Object.freeze({graph, movement, metadata: gridMetadata, idx, content, world}));
+    return {scenario, metadata: structuredClone(gridMetadata)};
   }
   expected.roadVersion = roadVersion;
   assertMetadata(expected);
@@ -385,6 +523,8 @@ export async function prepareScenario({
     expected,
     world.terrain.terrainIdentity(),
     mode === "restore" && terrainExplicit,
+    // MAP-EXT E6: origin callers pass definitions without min fields (?? 0 keeps v1).
+    { minX: world.definition.minX ?? 0, minY: world.definition.minY ?? 0, width: world.definition.width, height: world.definition.height },
   );
   assemblies.set(scenario, {
     terrain,
@@ -459,7 +599,30 @@ export function scenarioNativeRoadContext(scenario) {
 /** Snapshot bound current identity and RAM without exposing either private owner. */
 export function snapshotScenarioAssembly(app) {
   const sc = app.scenario;
-  if (gridOwners.has(sc)) throw new TypeError('World-grid scenario saves not admitted');
+  // MAP-EXT E9: grid saves admitted. The snapshot pins the staged metadata
+  // plus a fresh occupancy-plane snapshot; the live graph and terrain are
+  // re-digested here so a mutated or swapped world fails closed at save
+  // time instead of producing a load-bearing lie.
+  if (gridOwners.has(sc)) {
+    assertNoEmbeddedRoadMetadata(sc);
+    const owner = gridOwners.get(sc);
+    if (
+      app.scenarioIdx !== owner.idx ||
+      (app.world && app.world !== owner.world) ||
+      (app.content && app.content !== owner.content)
+    )
+      throw new TypeError("Snapshot assembly identity/index mismatch");
+    assertAssemblyIdentity(owner.metadata, owner.idx, owner.content, owner.world);
+    assertGridBounds(owner.metadata.bounds);
+    if (digestRoadGraph(owner.graph) !== owner.metadata.roadGraphDigest)
+      throw new TypeError("Snapshot grid road graph changed under owner");
+    if (owner.world.terrain.terrainIdentity() !== owner.metadata.terrainIdentity)
+      throw new TypeError("Snapshot grid terrain changed under owner");
+    return {
+      scenarioAssembly: structuredClone(owner.metadata),
+      movementMemory: owner.movement.snapshot(),
+    };
+  }
   assertNoEmbeddedRoadMetadata(sc);
   const owner = assemblies.get(sc);
   if (!owner) {

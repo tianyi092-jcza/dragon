@@ -20,25 +20,30 @@ export function drawTerrainOverlay(ctx, {
   tileSize = 16,
   worldW = 384,
   worldH = 256,
+  // MAP-EXT E6: extended plane origin (default origin domain).
+  worldMinX = 0,
+  worldMinY = 0,
 }) {
   if (!atlas || !atlas.complete || atlas.naturalWidth === 0) return 0;
   if (!terrain || typeof terrain.readTile !== "function") return 0;
   if (typeof initialHex !== "string" || initialHex.length !== worldW * worldH * 2) return 0;
-  // 可见图块范围（含 1 格边距），只读比较该范围。
-  const x0 = Math.max(0, Math.floor((-sx(0)) / (tileSize * scale)) - 1);
-  const y0 = Math.max(0, Math.floor((-sy(0)) / (tileSize * scale)) - 1);
-  const x1 = Math.min(worldW - 1, Math.ceil((viewW - sx(0)) / (tileSize * scale)) + 1);
-  const y1 = Math.min(worldH - 1, Math.ceil((viewH - sy(0)) / (tileSize * scale)) + 1);
+  // 可见图块范围（含 1 格边距），只读比较该范围。平面原点在 worldMin /worldMinY。
+  const ox = sx(worldMinX * tileSize), oy = sy(worldMinY * tileSize);
+  const x0p = Math.max(0, Math.floor((0 - ox) / (tileSize * scale)) - 1);
+  const y0p = Math.max(0, Math.floor((0 - oy) / (tileSize * scale)) - 1);
+  const x1p = Math.min(worldW - 1, Math.ceil((viewW - ox) / (tileSize * scale)) + 1);
+  const y1p = Math.min(worldH - 1, Math.ceil((viewH - oy) / (tileSize * scale)) + 1);
   let painted = 0;
-  for (let ty = y0; ty <= y1; ty++) {
-    for (let tx = x0; tx <= x1; tx++) {
+  for (let py = y0p; py <= y1p; py++) {
+    for (let px = x0p; px <= x1p; px++) {
+      const tx = px + worldMinX, ty = py + worldMinY;
       let cur;
       try {
         cur = terrain.readTile(tx, ty);
       } catch {
         continue;
       }
-      const init = parseInt(initialHex.slice((ty * worldW + tx) * 2, (ty * worldW + tx) * 2 + 2), 16);
+      const init = parseInt(initialHex.slice((py * worldW + px) * 2, (py * worldW + px) * 2 + 2), 16);
       if (cur === init) continue;
       if (!Number.isInteger(cur) || cur < 0 || cur > 255) continue;
       ctx.drawImage(

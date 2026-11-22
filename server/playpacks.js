@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { fail } from './security.js';
 import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
+import { isOriginalBounds, isSupportedMapExtent } from '../web/src/content/authoring/mapextent.js';
 import { collectPortraitIds } from './portraits.js';
 import { cityViewGaps } from './trials.js';
 import { MINIMAP_SIZES, renderMinimapPixels } from '../web/src/content/authoring/minimap.js';
@@ -32,9 +33,13 @@ const ASSET_ROLE_V2 = Object.freeze({ terrain: 'rules-initial-terrain', roadGrap
 // CITY-CAPACITY-1 C6(c) (user-authorized): formal pack triplets per road-graph
 // version. v2 packs are byte-identical to before; v3 packs carry schema 2 /
 // studio-app-3 with the relocated native-road-v3 role. No mixed triplets.
+// MAP-EXT E10: extended maps ride the grid triplet (schema 3 /
+// studio-world-grid-1 / world-road-grid role), the same shape the player
+// pack loader already admits (E6) — the formal pack now emits it too.
 const PACK_TRIPLETS = Object.freeze({
   2: Object.freeze({ schemaVersion: 1, buildFormat: 'studio-app-2', roles: ASSET_ROLE_V2 }),
   3: Object.freeze({ schemaVersion: 2, buildFormat: 'studio-app-3', roles: Object.freeze({ ...ASSET_ROLE_V2, roadGraph: 'native-road-v3' }) }),
+  'world-grid-experiment': Object.freeze({ schemaVersion: 3, buildFormat: 'studio-world-grid-1', roles: Object.freeze({ ...ASSET_ROLE_V2, roadGraph: 'world-road-grid' }) }),
 });
 function tripletFor(roadVersion) {
   const triplet = PACK_TRIPLETS[roadVersion];
@@ -118,10 +123,12 @@ export class PublishedPacks {
     const actor = this.#actor(tokenHash);
     const authority = { id: actor.id, epoch: actor.epoch };
     if (!game || game.gameId !== reference.gameId || !Array.isArray(game.chapterOrder) || game.chapterOrder.length < 1) { fail(422, 'PLAY_SNAPSHOT'); }
-    // Q39: unconfigured (non-384x256) maps block freeze/publish. Capacity is
-    // not a width switch (admission §4); expansion stays refused.
+    // MAP-EXT E10: origin maps keep the exact old gate; genuinely extended
+    // maps must carry supported bounds (the option helper fails closed on
+    // anything else, so unsupported geometry still refuses here).
     const bounds = game.map?.bounds;
-    if (!bounds || bounds.minX !== 0 || bounds.minY !== 0 || bounds.width !== 384 || bounds.height !== 256) { fail(422, 'PLAY_MAP_BOUNDS'); }
+    const expanded = bounds && !isOriginalBounds(bounds) && isSupportedMapExtent(bounds);
+    if (!bounds || (!expanded && (bounds.minX !== 0 || bounds.minY !== 0 || bounds.width !== 384 || bounds.height !== 256))) { fail(422, 'PLAY_MAP_BOUNDS'); }
     const states = {};
     for (const chapterId of game.chapterOrder) {
       if (typeof chapterId !== 'string' || !chapterId) { fail(422, 'PLAY_SNAPSHOT'); }
@@ -170,7 +177,7 @@ export class PublishedPacks {
       schemaVersion, compilerRevision: TRIAL_COMPILER_REVISION, buildFormat,
       compatibilityAssetMode, ruleProfile,
       identity: Object.freeze({ ...identity, trialSnapshotId: `${identity.gameId}@${identity.draftRevision}:${identity.sourceDigest}` }),
-      world: Object.freeze({ id: `${identity.gameId}-world`, revision: identity.sourceDigest, width, height, tileSize: 16 }),
+      world: Object.freeze({ id: `${identity.gameId}-world`, revision: identity.sourceDigest, ...(expanded ? { minX: bounds.minX, minY: bounds.minY } : null), width, height, tileSize: 16 }),
       chapters: Object.freeze(chapterOrder), visualAssets: visuals, minimap: Object.freeze({ ...minimap }), portraits: Object.freeze(portraitEntries),
       minimapAssets: Object.freeze(entries.filter(entry => entry.assetId.startsWith('minimap'))),
       assets: Object.freeze(entries.filter(entry => !entry.assetId.startsWith('minimap'))),

@@ -6,8 +6,8 @@ import { containsTile } from '../../content/authoring/mapextent.js';
 // a point; no surrogate battle/arrival outcome for unsupported branches.
 export function advanceGridMarch(sc, army, {graph,movement}) {
   const target = army.targetNode;
-  if (army.faction !== sc.player_faction || !graph.nodes[target] || sc.cities[target].faction !== army.faction)
-    throw new RangeError('Grid march requires a friendly player destination');
+  if (!graph.nodes[target] || sc.cities[target].faction !== army.faction)
+    throw new RangeError('Grid march requires a friendly destination of the marching faction');
   const current = army.roadPosition;
   if (current.kind === 'city' && current.cityIndex === target) return 'arrived';
   let next;
@@ -26,8 +26,20 @@ export function advanceGridMarch(sc, army, {graph,movement}) {
   if (!point) throw new RangeError('Grid road cursor outside geometry');
   let destination = point;
   const endpoint = next.direction===1 ? edge.toCityIndex : edge.fromCityIndex;
-  if (sc.cities[endpoint].faction !== army.faction) throw new RangeError('Grid march contact unresolved');
-  if (!turningAtPort && movement.readTile(point.x,point.y)) throw new RangeError('Grid field contact unresolved');
+  if (sc.cities[endpoint].faction !== army.faction) {
+    // MAP-EXT E8: transit contact carries its endpoint; the slot pump turns
+    // an at-war endpoint into a siege engagement, otherwise the refusal stands.
+    const contact = new RangeError('Grid march contact unresolved');
+    contact.endpoint = endpoint;
+    throw contact;
+  }
+  if (!turningAtPort && movement.readTile(point.x,point.y)) {
+    // MAP-EXT E8: field contact carries its tile; the slot pump turns a
+    // hostile occupant into a field engagement, otherwise the refusal stands.
+    const contact = new RangeError('Grid field contact unresolved');
+    contact.point = { x: point.x, y: point.y };
+    throw contact;
+  }
   // Equivalent to continues(flags) / nodeize in originalroadmovement.js:
   // a terminating port commits the city center in the same slot action.
   if (terminates(point.flags)) {

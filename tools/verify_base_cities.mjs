@@ -75,6 +75,21 @@ test('saveCities rejects bad patches and non-admin', async () => {
   failWith(() => locked.replaceCities('tok', store.read('tok').template.content.cities), 403, 'ADMIN_REQUIRED');
 });
 
+test('saveCities patches battlefield and troopcap with range gates', async () => {
+  const store = makeBaseStore();
+  await store.initialize('tok');
+  const { id } = firstCityOn(store);
+  const out = store.saveCities('tok', { battlefield: { [id]: 'ki-1995:siege:7' }, troopcap: { [id]: 60 } });
+  assert.equal(out.version, store.read('tok').version);
+  const after = store.read('tok');
+  assert.equal(after.template.content.cities[id].battleMapId, 'ki-1995:siege:7');
+  assert.equal(after.template.content.cities[id].troops_cap, 60);
+  failWith(() => store.saveCities('tok', { battlefield: { [id]: 'ki-1995:siege:192' } }), 422, 'BASE_CITY');
+  failWith(() => store.saveCities('tok', { troopcap: { [id]: 256 } }), 422, 'BASE_CITY');
+  failWith(() => store.saveCities('tok', { troopcap: { [id]: -1 } }), 422, 'BASE_CITY');
+  failWith(() => store.saveCities('tok', { troopcap: { 'no-such-city': 10 } }), 422, 'BASE_CITY');
+});
+
 test('replaceCities swaps the whole set', async () => {
   const store = makeBaseStore();
   await store.initialize('tok');

@@ -98,7 +98,10 @@ const cases = [
   ['forbidden chapters', value => { value.content.chapters = {}; }, /chapter/],
   ['missing resource', value => { delete value.content.editorAssets.seasonAtlases.winter; }, /resource/],
   ['out of bounds instance', value => { value.content.map.decorations.find(item => item.id === piece.id).x = 384; }, /bounds/],
-  ['unsupported bounds', value => { value.content.map.bounds.width = 385; }, /bounds/],
+  ['unsupported bounds', value => { value.content.map.bounds.width = 385; value.content.map.bounds.minX = 1; }, /bounds/],
+  // MAP-EXT E5: width 385 at minX 0 now parses as an east+1 extent claim, so a
+  // bare width edit without cell remap refuses at coverage, not at the gate.
+  ['extent claim without cell coverage', value => { value.content.map.bounds.width = 385; }, /cover every cell/],
   ['unknown recipe', value => { value.content.componentDefinitions[piece.definitionRef].ruleRecipeRef = 'guessed'; }, /UNSUPPORTED_RULE_BINDING/],
 ];
 cases.forEach(([name, mutate, pattern]) => {

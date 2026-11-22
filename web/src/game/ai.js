@@ -43,6 +43,10 @@ import {
 /** 出征/编成节点解析：剧本 world 路图优先（见 commands.js dispatchSourceRoadNode）；
  * 试玩壳自建 world，从不加载默认门面实例，用门面恒得 null。 */
 function scenarioRoadNodeId(sc, x, y) {
+  // MAP-EXT E7: grid worlds resolve through the structured graph (any
+  // supported extent); the native facade only knows the original domain.
+  const grid = scenarioGridRoadContext(sc);
+  if (grid) return grid.graph.nodes.find(node => node.x === x && node.y === y)?.cityIndex ?? null;
   const context = scenarioNativeRoadContext(sc);
   const node = context ? context.roads.roadNodeAt(x, y) : roadNodeAt(x, y);
   return node?.id ?? null;
@@ -1196,6 +1200,8 @@ function disbandLegionForReturn(sc, legion, captorFaction, app = null) {
   legion._retreat = null;
   legion._markerFrame = 4;
   clearEngagement(legion);
+  // MAP-EXT E8: release the v2 occupancy tile on grid worlds (see helper).
+  releaseGridLegionTile(sc, legion);
   if (hasNativeLegionSlots(sc)) rebindNativeLegionViews(sc);
   enqueuePostbattleFateTalk(
     app,
@@ -1254,6 +1260,8 @@ function clearCapturedLegionRecord(sc, legion) {
   legion.target = null;
   legion._retreat = null;
   clearEngagement(legion);
+  // MAP-EXT E8: release the v2 occupancy tile on grid worlds (see helper).
+  releaseGridLegionTile(sc, legion);
   sc.delayedLegionReturns = (sc.delayedLegionReturns ?? []).filter(
     (record) => record.slot !== legion.slot,
   );
@@ -1276,6 +1284,23 @@ function rejectNativeGeneralLifecycle(sc, app, at) {
   );
   if (app) holdFailedStrategicUpdate(app, error);
   throw error;
+}
+
+/** MAP-EXT E8：grid 世界死亡／离队军团释放其 v2 占格，否则战后接续永久
+ * 撞上尸体格（同批后续槽与后续命令都无法通过：占格有数但无在位敌军
+ * 时接触判定只剩拒收）。原生世界无 v2 占格，不动。调用点只在死亡
+ * 写回处（俘获清除／延迟回归离队），每记录至多一次；计数>0 才减。 */
+function releaseGridLegionTile(sc, legion) {
+  if (!legion || !Number.isInteger(legion.x) || !Number.isInteger(legion.y))
+    return;
+  const movement = scenarioGridRoadContext(sc)?.movement;
+  if (!movement) return;
+  if (movement.readTile(legion.x, legion.y) > 0)
+    movement.writeTile(
+      legion.x,
+      legion.y,
+      movement.readTile(legion.x, legion.y) - 1,
+    );
 }
 
 /** KI.EXE 0x291A：无法继续行动军团的延迟回归/被俘分派。 */
@@ -5701,12 +5726,60 @@ function buildNativeSiegeBlocks(app, sc, A, context) {
 function isRoadSuspended(outcome) {
   return typeof outcome === "string" && outcome.endsWith("-suspended");
 }
+/** MAP-EXT E8：扩展带接触沿原生 engagement 管线结算，不新造战果规则。
+ * 过境敌城仅在开战时建立攻城接触（未开战沿用拒收：原生 0x42AB 的回退
+ * 在 grid 世界无对应机械，不发明返程语义）；占格仅在敌军在位时建立
+ * 野战接触（友军占格沿用等待清空，占位军团恒为过境军团可终结等待）。
+ * 其余 throw（含无数据附加的旧形状）原样上抛，保持 E7 拒收语义。 */
+function resolveGridMarchContact(app, A, error) {
+  const sc = app.scenario;
+  if (
+    error instanceof RangeError &&
+    error.message === "Grid march contact unresolved" &&
+    Number.isInteger(error.endpoint)
+  ) {
+    const city = sc.cities[error.endpoint];
+    if (
+      city &&
+      city.faction !== A.faction &&
+      city.faction != null &&
+      atWar(sc, A.faction, city.faction)
+    ) {
+      startEngagement(A, ENGAGE_KIND_SIEGE, { cityIdx: city.idx });
+      return resolveEngagementAction(app, A);
+    }
+  } else if (
+    error instanceof RangeError &&
+    error.message === "Grid field contact unresolved" &&
+    error.point
+  ) {
+    const foe = contactLegionAt(sc, A, error.point.x, error.point.y);
+    if (foe) {
+      startEngagement(A, ENGAGE_KIND_FIELD, {
+        x: error.point.x,
+        y: error.point.y,
+        faction: foe.faction,
+      });
+      return resolveEngagementAction(app, A);
+    }
+  }
+  throw error;
+}
+
 export function performLegionSlotAction(app, A) {
   const sc = app.scenario;
   const grid = scenarioGridRoadContext(sc);
   if (grid) {
     const x = A.x, y = A.y;
-    const outcome = advanceGridMarch(sc,A,grid);
+    let outcome;
+    try {
+      outcome = advanceGridMarch(sc,A,grid);
+    } catch (error) {
+      // MAP-EXT E8: extended-band contact enters the native engagement
+      // pipeline (quick calc / delegated / tactical-entry gate share one
+      // resolve path); non-contact refusals keep their fail-closed throws.
+      return resolveGridMarchContact(app, A, error);
+    }
     if (outcome === 'moved') {
       A.prevX=x; A.prevY=y; A._renderMoveSerial=app.clock?.strategicTickSerial;
     } else if (outcome === 'arrived') settleArrivedLegionCommand(sc,A,app.originalRng);

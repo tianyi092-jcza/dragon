@@ -67,6 +67,16 @@ export function createBaseStrongholdWorkbench({ api, work, publish, confirm, isB
       if (Number(raw) !== row[key]) values[key] = Number(raw);
     }
     if (Object.keys(values).length) body.numbers = { [cityId]: values };
+    if (patch.battleMapId !== undefined && patch.battleMapId !== (row.battleMapId ?? null)) {
+      const siege = String(patch.battleMapId ?? '');
+      if (!/^ki-1995:siege:(\d{1,3})$/.test(siege) || Number(/^ki-1995:siege:(\d{1,3})$/.exec(siege)[1]) > 191) throw new Error('攻城戰場須為 ki-1995:siege:0..191');
+      body.battlefield = { [cityId]: siege };
+    }
+    if (patch.troops_cap !== undefined && patch.troops_cap !== (row.troops_cap ?? null)) {
+      const raw = String(patch.troops_cap ?? '').trim();
+      if (!/^[0-9]{1,3}$/.test(raw) || Number(raw) > 255) throw new Error('城兵上限必須是 0–255 的整數。');
+      body.troopcap = { [cityId]: Number(raw) };
+    }
     if (!Object.keys(body).length) return '據點沒有變更。';
     const t = ticket();
     return work(async () => {

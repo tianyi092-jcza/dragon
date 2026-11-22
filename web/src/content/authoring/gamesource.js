@@ -750,6 +750,89 @@ export function admitChapterCity(game, cityId, troopsCap, battleMapId, extent = 
   }
   return { cityId, slot, admitted };
 }
+// 复制落子时定义缺城兵上限：取首章同城行做默认值（只补缺失，不覆盖已有；无首章行则留空，
+// 后续 admit／发布校验照常 fail-closed）。方向与发布自动补行一致：定义→章节为正式流向，
+// 这里是反向一次性回填（老档补齐），不拉平各章既有差异。
+export function backfillDefinitionTroopCaps(game) {
+  if (!isPlainObject(game)) throw new TypeError("game source required");
+  const firstId = game.chapterOrder?.[0];
+  const first = game.chapters?.[firstId]?.state;
+  if (!firstId || !Array.isArray(first?.cities)) return 0;
+  let filled = 0;
+  for (const [cityId, definition] of Object.entries(game.cities ?? {})) {
+    if (!isPlainObject(definition) || definition.cityId !== cityId) continue;
+    const current = definition.troops_cap;
+    if (Number.isInteger(current) && current >= 0 && current <= 255) continue;
+    const row = first.cities.find(c => c?.idx === definition.runtimeSlot);
+    const value = row?.troops_cap;
+    if (!Number.isInteger(value) || value < 0 || value > 255) continue;
+    definition.troops_cap = value;
+    filled++;
+  }
+  return filled;
+}
+// 定义→章节正式流向：章行缺攻城战场地而同槽定义有效时补齐（只补缺失，不覆盖
+// 已有值）。老档补齐；面板改定义后由 applyModule 直接同步全章行。
+// 上限不走这里：troops_cap 按章各异，老章互不拉平（定义只供新建 admit 取初值）。
+export function backfillRowBattlefields(game) {
+  if (!isPlainObject(game)) throw new TypeError('game source required');
+  const bySlot = new Map();
+  for (const definition of Object.values(game.cities ?? {})) {
+    if (!isPlainObject(definition) || definition.cityId === undefined) continue;
+    if (!Number.isInteger(definition.runtimeSlot)) continue;
+    const siege = /^ki-1995:siege:(\d{1,3})$/.exec(definition.battleMapId ?? '');
+    if (siege && Number(siege[1]) <= 191 && !bySlot.has(definition.runtimeSlot)) bySlot.set(definition.runtimeSlot, definition.battleMapId);
+  }
+  if (!bySlot.size) return 0;
+  let filled = 0;
+  for (const chapterId of game.chapterOrder ?? []) {
+    const rows = game.chapters?.[chapterId]?.state?.cities;
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      if (!isPlainObject(row) || !Number.isInteger(row.idx)) continue;
+      if (/^ki-1995:siege:(\d{1,3})$/.test(row.battleMapId ?? '')) continue;
+      const value = bySlot.get(row.idx);
+      if (value === undefined) continue;
+      row.battleMapId = value;
+      filled++;
+    }
+  }
+  return filled;
+}
+// 複製裝配：系統基從源遊戲提取據點身份字段（用戶產品決定）。城兵上限取源遊戲
+// 首章同槽行 troops_cap；攻城戰場取源遊戲據點定義 battleMapId。只覆蓋源遊戲確
+// 有的有效值（戰場地須 ki-1995:siege:0..191、上限須 0..255 整數）。源無值時：
+// base 已有手工值保留（更換持久化）；否則按引擎回退按槽位取 BATTLE.MAP 目錄
+//（createSiegeProjection 與 battlemapcatalog 編號一致，siege:N 即目錄 N；
+// 0..191 落數，192+ 留空等 admit 指名）。copyData.cities 同時餵遊戲副本與
+// 系統基，寫進去即兩邊完全一致。
+export function overlayBaseCityIdentity(copyData, source) {
+  if (!isPlainObject(copyData) || !isPlainObject(source)) throw new TypeError('game source required');
+  const definitions = copyData.cities ?? {};
+  const sources = Object.values(source.cities ?? {}).filter(city => isPlainObject(city) && typeof city.cityId === 'string');
+  const sourceById = new Map(sources.map(city => [city.cityId, city]));
+  const sourceBySlot = new Map(sources.filter(city => Number.isInteger(city.runtimeSlot)).map(city => [city.runtimeSlot, city]));
+  const firstId = source.chapterOrder?.[0];
+  const firstRows = source.chapters?.[firstId]?.state?.cities;
+  const rowBySlot = new Map(Array.isArray(firstRows) ? firstRows.filter(row => Number.isInteger(row?.idx)).map(row => [row.idx, row]) : []);
+  let battlefields = 0, troopCaps = 0;
+  for (const city of Object.values(definitions)) {
+    if (!isPlainObject(city) || typeof city.cityId !== 'string') continue;
+    const origin = sourceById.get(city.cityId) ?? sourceBySlot.get(city.runtimeSlot);
+    const siege = /^ki-1995:siege:(\d{1,3})$/.exec(origin?.battleMapId ?? '');
+    if (origin && siege && Number(siege[1]) <= 191) { city.battleMapId = origin.battleMapId; battlefields++; }
+    else if (!/^ki-1995:siege:(\d{1,3})$/.test(city.battleMapId ?? '')) {
+      // 無顯式指定即引擎回退：按槽位取 BATTLE.MAP 目錄。0..191 落數，192+ 留空等 admit 指名。
+      // base 已有手工值的不洗（更換持久化）。
+      if (Number.isInteger(city.runtimeSlot) && city.runtimeSlot >= 0 && city.runtimeSlot <= 191) {
+        city.battleMapId = `ki-1995:siege:${city.runtimeSlot}`; battlefields++;
+      }
+    }
+    const cap = rowBySlot.get(city.runtimeSlot)?.troops_cap;
+    if (Number.isInteger(cap) && cap >= 0 && cap <= 255) { city.troops_cap = cap; troopCaps++; }
+  }
+  return { battlefields, troopCaps };
+}
 export function cityReferences(game, cityId) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   const city = game.cities?.[cityId];
@@ -795,8 +878,8 @@ export function checkCityDeletable(game, cityId) {
 // owner/governor/name/coords/type/view/adjacency stay closed (need attr rebuild,
 // identity sync, Big5 limits, tile evidence). Raw bytes are patched in step
 // with the decoded fields, mirroring editChapterResources.
-const CITY_EDIT_FIELDS = Object.freeze({ troops: [0x13, 1], prod: [0x0E, 2], growth: [0x10, 1], defence: [0x11, 1] });
-const CITY_EDIT_CAPS = Object.freeze({ troops: "troops_cap", prod: "max_prod", growth: 255, defence: 255 });
+const CITY_EDIT_FIELDS = Object.freeze({ troops: [0x13, 1], prod: [0x0E, 2], growth: [0x10, 1], defence: [0x11, 1], troops_cap: [0x12, 1] });
+const CITY_EDIT_CAPS = Object.freeze({ troops: "troops_cap", prod: "max_prod", growth: 255, defence: 255, troops_cap: 255 });
 function chapterCity(game, chapterId, cityIdx) {
   if (!isPlainObject(game)) throw new TypeError("game source required");
   if (game.gameId === BUILTIN_GAME_ID || game.sourceRef?.kind !== "builtin-copy" || game.sourceRef.sourceId !== BUILTIN_GAME_ID) throw new RangeError("僅可編輯獨立完整副本的既有章節據點");
@@ -817,7 +900,7 @@ function cityRawWord(raw, offset) {
 export function editChapterCity(game, chapterId, cityIdx, values) {
   if (!isPlainObject(values)) throw new TypeError("city values required");
   const keys = Object.keys(values);
-  if (!keys.length || keys.some(k => !Object.hasOwn(CITY_EDIT_FIELDS, k))) throw new RangeError("city edit allows troops/prod/growth/defence only");
+  if (!keys.length || keys.some(k => !Object.hasOwn(CITY_EDIT_FIELDS, k))) throw new RangeError("city edit allows troops/prod/growth/defence/troops_cap only");
   const record = chapterCity(game, chapterId, cityIdx);
   // raw-less（admit新城）：只改具名，跳过原生同步；cap 仍需在位。不造 32B 记录。
   const hasRaw = typeof record.raw === "string" && /^[a-f0-9]{64}$/i.test(record.raw);

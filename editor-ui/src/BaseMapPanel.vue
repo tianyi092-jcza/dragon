@@ -235,6 +235,17 @@ async function askRemove() {
     props.model.selected?.id === selected?.id && JSON.stringify(props.model.multi) === JSON.stringify(multi)) runObjectCommand(!multi?.length && ['cities', 'roads'].includes(selected?.layer) ? 'map-object-remove' : 'decoration-remove');
 }
 function runObjectCommand(op, fields) { contextPosition.value = null; bindCityId.value = ''; props.actions.command(op, fields); }
+async function runExtent(side, delta) {
+  notice.value = '';
+  const names = { north: '北', south: '南', west: '西', east: '東' };
+  const unit = side === 'west' || side === 'east' ? '列' : '行';
+  const confirmed = await ElMessageBox.confirm(
+    delta === 1 ? `在${names[side]}側增加一${unit}（全海底，不影響既有世界座標）？預覽後須按保存寫入，撤銷可還原。` : `縮回${names[side]}側新增的一${unit}？跨界裝飾將整件移除、據點只解綁不刪檔、裁切道路列明待修；預覽與紅字診斷確認影響後再保存，撤銷可還原。`,
+    delta === 1 ? `${names[side]}側加一${unit}` : `${names[side]}側縮回一${unit}`,
+    { type: 'info', confirmButtonText: '確認', cancelButtonText: '取消', closeOnClickModal: false }).then(() => true, () => false);
+  if (confirmed) runObjectCommand('map-extent', { side, delta });
+}
+const extentQuota = (side) => props.model.extentSides?.[side] ?? null;
 async function runGroup() {
   contextPosition.value = null;
   const result = await props.actions.groupSelection();
@@ -301,6 +312,14 @@ onBeforeUnmount(() => {
       <ElButton v-if="!model.gameScoped && model.loaded && !model.exists" :disabled="busy" title="首次建立系統基礎地圖" @click="actions.initialize()">建立</ElButton>
       <ElButton :disabled="locked || !model.dirty" title="保存並重新讀取地圖" @click="notice = ''; actions.save()">保存</ElButton>
       <ElButton :disabled="locked || !model.dirty" title="撤銷上一步修改" @click="notice = ''; actions.undo()">撤銷</ElButton>
+      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('N') ?? 0) >= 20" :title="`北側加一行（全海底，不影響既有世界座標）；已用 ${extentQuota('N') ?? '?'}／20 格`" @click="runExtent('north', 1)">北增</ElButton>
+      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('N') ?? 0) <= 0" :title="`縮回北側新增的一行；已用 ${extentQuota('N') ?? '?'}／20 格，有物件時拒絕`" @click="runExtent('north', -1)">北縮</ElButton>
+      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('S') ?? 0) >= 20" :title="`南側加一行（全海底，不影響既有世界座標）；已用 ${extentQuota('S') ?? '?'}／20 格`" @click="runExtent('south', 1)">南增</ElButton>
+      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('S') ?? 0) <= 0" :title="`縮回南側新增的一行；已用 ${extentQuota('S') ?? '?'}／20 格，有物件時拒絕`" @click="runExtent('south', -1)">南縮</ElButton>
+      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('W') ?? 0) >= 20" :title="`西側加一列（全海底，不影響既有世界座標）；已用 ${extentQuota('W') ?? '?'}／20 格`" @click="runExtent('west', 1)">西增</ElButton>
+      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('W') ?? 0) <= 0" :title="`縮回西側新增的一列；已用 ${extentQuota('W') ?? '?'}／20 格，有物件時拒絕`" @click="runExtent('west', -1)">西縮</ElButton>
+      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('E') ?? 0) >= 20" :title="`東側加一列（全海底，不影響既有世界座標）；已用 ${extentQuota('E') ?? '?'}／20 格`" @click="runExtent('east', 1)">東增</ElButton>
+      <ElButton v-if="model.gameScoped" :disabled="locked || !model.exists || (extentQuota('E') ?? 0) <= 0" :title="`縮回東側新增的一列；已用 ${extentQuota('E') ?? '?'}／20 格，有物件時拒絕`" @click="runExtent('east', -1)">東縮</ElButton>
       <slot name="tools" />
       <ElButton :disabled="!model.exists" title="縮放至顯示整張地圖" @click="actions.fit()">全圖</ElButton>
       <ElButton :disabled="!model.exists" title="放大地圖" @click="actions.zoom(1.25)">放大</ElButton>

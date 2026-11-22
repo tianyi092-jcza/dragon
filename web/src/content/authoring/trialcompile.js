@@ -6,6 +6,7 @@ import { compileCityIdentity } from './cityidentity.js';
 import { projectStructuredRoadGraph } from './structuredroadgraph.js';
 import { compileMapSource } from "./mapcompile.js";
 import { buildRoad, encodeRoadGraphV2 } from "./roadedit.js";
+import { isOriginalBounds, ORIGINAL_WIDTH, ORIGINAL_HEIGHT } from "./mapextent.js";
 import { validateOriginalRoadContent } from "../../game/navigation/originalroadcontent.js";
 
 // Fixed-node scan enforcement also changes the supported contract.
@@ -36,11 +37,15 @@ export function compileSourceIndex(game, cities, sha256hex) {
   return { cityIndex, chapterDigests };
 }
 
-export function compileGameSource(game, sha256hex, { northExperiment = false } = {}) {
-  validateGameSource(game, { northExperiment });
-  const extent = northExperiment ? game.map.bounds : undefined;
+export function compileGameSource(game, sha256hex, { northExperiment = false, mapExtent = false } = {}) {
+  validateGameSource(game, { northExperiment, mapExtent });
+  // MAP-EXT E5: the extent branch only engages for genuinely extended bounds.
+  // Origin-domain maps always take the legacy path so shared compiler outputs
+  // stay byte-identical regardless of the admission flag.
+  const extended = (northExperiment || mapExtent) && !isOriginalBounds(game.map.bounds);
+  const extent = extended ? game.map.bounds : undefined;
   const compiled = compileMapSource({ schemaVersion: 1, map: game.map,
-    componentDefinitions: game.componentDefinitions ?? {} }, { northExperiment });
+    componentDefinitions: game.componentDefinitions ?? {} }, { northExperiment, mapExtent });
   const placements = new Map(game.map.placements.map((p) => [p.cityId, p]));
   // Placement array order is editor state, NOT native node numbering.
   // CITY-CAPACITY-1 C5: slots are dense scan order 0..N-1; the composed
@@ -158,16 +163,20 @@ export function compileGameSource(game, sha256hex, { northExperiment = false } =
   const compat = game.compatibilityAssets;
   if (compat !== undefined) {
     if (typeof compat.roadCostHex !== "string" || !/^[0-9a-f]+$/i.test(compat.roadCostHex) ||
-        compat.roadCostHex.length !== compiled.width * (extent ? 256 : compiled.height) * 2)
+        compat.roadCostHex.length !== ORIGINAL_WIDTH * ORIGINAL_HEIGHT * 2)
       throw new RangeError("invalid explicit compatibility roadCost bytes");
     const baseCost = Uint8Array.from(compat.roadCostHex.match(/../g), (hex) => Number.parseInt(hex, 16));
     roadCost = baseCost;
     if (extent) {
+      // MAP-EXT E6: explicit compat is always the origin 384x256 plane,
+      // overlaid row by row at its world offset; extended bands keep the
+      // derived mask. North-only overlays are byte-identical to E5.
       roadCost = compiled.roadMask.slice();
-      roadCost.set(baseCost, -extent.minY * extent.width);
+      for (let r = 0; r < ORIGINAL_HEIGHT; r++)
+        roadCost.set(baseCost.subarray(r * ORIGINAL_WIDTH, (r + 1) * ORIGINAL_WIDTH), (r - extent.minY) * extent.width - extent.minX);
       // Preserve explicit costs inside the original rectangle, as on old maps.
       // Outside it the grid is only a visual projection; graph edges own travel.
-      for (const {x,y} of roadGraph.nodes) if (y < 0) roadCost[(y-extent.minY)*extent.width+x] = 1;
+      for (const {x,y} of roadGraph.nodes) if (x < 0 || y < 0) roadCost[(y-extent.minY)*extent.width+x-extent.minX] = 1;
     }
     if (typeof compat.roadOffsetJson !== "string") throw new RangeError("invalid explicit roadOffset JSON");
     let offsets;
@@ -186,7 +195,7 @@ export function compileGameSource(game, sha256hex, { northExperiment = false } =
     // clearly NOT parity with original auxiliary assets and cannot serve
     // as the formal no-edit migration receipt. Never selected by gameId.
     roadCost = compiled.roadMask.slice();
-    for (const node of roadGraph.nodes) roadCost[(node.y - (extent?.minY ?? 0)) * compiled.width + node.x] = 1;
+    for (const node of roadGraph.nodes) roadCost[(node.y - (extent?.minY ?? 0)) * compiled.width + node.x - (extent?.minX ?? 0)] = 1;
     compatibilityAssetMode = "legacy-trial-derived-mask";
   }
   return { ...compiled, roadGraph, roadCost, roadOffsetBytes, compatibilityAssetMode,

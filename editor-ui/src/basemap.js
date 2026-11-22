@@ -1,6 +1,7 @@
 // Framework-free controller. Source/template bodies never enter the Vue model.
 // preview and paint are native editor-core ports, not reactive view callbacks.
 import { previewMapEdits } from '../../web/src/editor/mapcommands.js';
+import { parseMapSides } from '../../web/src/content/authoring/mapextent.js';
 import { changesMapPositions } from '../../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../../web/src/editor/mappositionvalidation.js';
 import { MAP_EDIT_MAX_COMMANDS, MAP_EDIT_MAX_BYTES } from '../../web/src/editor/mapeditlimits.js';
@@ -13,9 +14,14 @@ export function createMapController({ api, work, publish, preview = previewMapEd
   let snapshot = null, candidate = null, edits = [], undoSizes = [], loaded = false, uncertain = false, message = '', serverProblems = [];
   const permitted = () => Boolean(identity && !identity.user.mustChangePassword && (gameId ? ['admin', 'author'].includes(identity.user.role) : identity.user.role === 'admin'));
   const current = mark => mark === generation && permitted() && identity.user.id === actorId && (identity.version ?? null) === actorVersion;
+  const extentSides = () => {
+    try { return candidate?.map?.bounds ? parseMapSides(candidate.map.bounds) : null; }
+    catch { return null; }
+  };
   const render = () => publish({ loaded, exists: Boolean(snapshot), version: snapshot?.version ?? 0,
     dirty: edits.length > 0, editCount: edits.length, locked: !permitted() || uncertain || !snapshot,
     uncertain, message, serverProblems, saveReport, readRevision, gameId, gameScoped: Boolean(gameId),
+    extentSides: extentSides(),
     seaGroundPending: edits.some(edit => edit.op === 'sea-ground-enable'),
     seaGroundEnabled: candidate?.map.base.policy === 'sea-ground-1' });
   function install(value) {

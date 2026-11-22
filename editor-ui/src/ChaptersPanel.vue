@@ -191,9 +191,12 @@ function cancelChapterForm() {
 }
 // 章節可改的五屬性：所屬勢力＋四項數值（同列一次保存，唯讀態顯示文字）。
 // 上限：當前生產 ≤ 最大生產、城兵 ≤ 城兵上限、上升值／防災值是 u8。
-const NUMBER_FIELDS = [['prod', '當前生產', 'maxProd'], ['growth', '上升值', 255], ['defence', '防災值', 255], ['troops', '城兵', 'troopsCap']];
+const NUMBER_FIELDS = [['prod', '當前生產', 'maxProd'], ['growth', '上升值', 255], ['defence', '防災值', 255], ['troops', '城兵', 'troopsCap'], ['troopsCap', '城兵上限', 255]];
+// 城兵與城兵上限以「人」為顯示單位（存檔值×10）；其餘為原值。服務端鍵用蛇形，送信時轉回。
+const tenfold = key => key === 'troops' || key === 'troopsCap';
+const serverKey = key => key === 'troopsCap' ? 'troops_cap' : key;
 const numberEdit = ref(null), numberError = ref('');
-const numberForm = reactive({ prod: '', growth: '', defence: '', troops: '', faction: '' });
+const numberForm = reactive({ prod: '', growth: '', defence: '', troops: '', troopsCap: '', faction: '' });
 const numberLocked = computed(() => locked.value);
 const generalName = slot => {
   if (slot === null || slot === undefined) return '未配置';
@@ -286,7 +289,7 @@ function setStart(field, value) { if (chapter.value) props.actions.setCopyStartI
 function startNumbers(city) {
   if (numberLocked.value) return;
   numberError.value = ''; numberEdit.value = city.idx;
-  for (const [key] of NUMBER_FIELDS) numberForm[key] = city[key] === null || city[key] === undefined ? '' : String(city[key] * (key === 'troops' ? 10 : 1));
+  for (const [key] of NUMBER_FIELDS) numberForm[key] = city[key] === null || city[key] === undefined ? '' : String(city[key] * (tenfold(key) ? 10 : 1));
   numberForm.faction = city.faction ?? '';
 }
 function cancelNumbers() { numberEdit.value = null; numberError.value = ''; }
@@ -303,12 +306,12 @@ async function saveNumbers(city) {
     const text = String(numberForm[key] ?? '').trim();
     if (text === '') { if (city[key] !== null && city[key] !== undefined) { numberError.value = label + ' 不可留空。'; return; } continue; }
     const storedCap = typeof capKey === 'string' ? city[capKey] : capKey;
-    const scale = key === 'troops' ? 10 : 1;
+    const scale = tenfold(key) ? 10 : 1;
     const cap = storedCap == null ? null : storedCap * scale;
     if (!/^[0-9]{1,5}$/.test(text) || cap === null || Number(text) > cap) { numberError.value = label + ' 必須是 0–' + (cap ?? '未知') + ' 的整數。'; return; }
-    if (Number(text) % scale !== 0) { numberError.value = '城兵人數必須是 10 的倍數。'; return; }
+    if (Number(text) % scale !== 0) { numberError.value = label + '人數必須是 10 的倍數。'; return; }
     const value = Number(text) / scale;
-    if (value !== city[key]) values[key] = value;
+    if (value !== city[key]) values[serverKey(key)] = value;
   }
   if (!Object.keys(values).length && !factionChanged) { numberError.value = '資料與已讀相同；沒有保存。'; return; }
   try {
@@ -457,7 +460,7 @@ async function saveNumbers(city) {
         <ElTableColumn label="類型" min-width="40"><template #default="{ row: city }"><span data-city-type>{{ cityTypeNames[city.type] ?? (city.type == null ? '—' : city.type + '（未知）') }}</span></template></ElTableColumn>
         <ElTableColumn label="最大生產" min-width="48"><template #default="{ row: city }"><span data-city-max-prod>{{ city.maxProd ?? '—' }}</span></template></ElTableColumn>
         <ElTableColumn label="所屬勢力" min-width="80"><template #default="{ row: city }"><ElSelect v-if="numberEdit === city.idx" v-model="numberForm.faction" data-city-faction :disabled="busy || factionRows.some(faction => faction.capital === city.idx)"><ElOption value="" label="空城" /><ElOption v-for="faction in factionRows" :key="faction.slot" :value="faction.slot" :label="generalName(faction.monarchSlot)" /></ElSelect><span v-else data-city-faction-readonly>{{ cityFactionLabel(city) }}</span></template></ElTableColumn>
-        <ElTableColumn v-for="[key, label, capKey] in NUMBER_FIELDS" :key="key" :label="label" min-width="48"><template #default="{ row: city }"><div :data-city-number="key" :title="label + '（上限 ' + ((typeof capKey === 'string' ? city[capKey] : capKey) == null ? '未知' : (typeof capKey === 'string' ? city[capKey] : capKey) * (key === 'troops' ? 10 : 1)) + '）'"><ElInput v-if="numberEdit === city.idx" v-model="numberForm[key]" :data-number-input="key" inputmode="numeric" maxlength="5" :disabled="busy" /><template v-else>{{ city[key] == null ? '—' : city[key] * (key === 'troops' ? 10 : 1) }}</template></div></template></ElTableColumn>
+        <ElTableColumn v-for="[key, label, capKey] in NUMBER_FIELDS" :key="key" :label="label" min-width="48"><template #default="{ row: city }"><div :data-city-number="key" :title="label + '（上限 ' + ((typeof capKey === 'string' ? city[capKey] : capKey) == null ? '未知' : (typeof capKey === 'string' ? city[capKey] : capKey) * (tenfold(key) ? 10 : 1)) + '）'"><ElInput v-if="numberEdit === city.idx" v-model="numberForm[key]" :data-number-input="key" inputmode="numeric" maxlength="5" :disabled="busy" /><template v-else>{{ city[key] == null ? '—' : city[key] * (tenfold(key) ? 10 : 1) }}</template></div></template></ElTableColumn>
         <ElTableColumn label="首都" min-width="40"><template #default="{ row: city }"><span data-city-capital-readonly>{{ factionRows.some(faction => faction.capital === city.idx) ? '✓' : '' }}</span></template></ElTableColumn>
         <ElTableColumn label="操作" min-width="80"><template #default="{ row: city }"><div class="account-row-actions"><template v-if="numberEdit === city.idx"><ElButton data-number-save :disabled="busy" @click="saveNumbers(city)">保存</ElButton><ElButton data-number-cancel :disabled="busy" @click="cancelNumbers()">取消</ElButton></template><ElButton v-else data-number-edit :disabled="numberLocked" @click="startNumbers(city)">編輯</ElButton></div></template></ElTableColumn>
         <template #empty>本章沒有據點。</template>

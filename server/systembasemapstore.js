@@ -71,6 +71,24 @@ export class SystemBaseMapStore {
         }
       }
     }
+    if (patch.battlefield !== undefined) {
+      if (!patch.battlefield || typeof patch.battlefield !== 'object' || Array.isArray(patch.battlefield)) fail(422, 'BASE_CITY');
+      for (const [cityId, battleMapId] of Object.entries(patch.battlefield)) {
+        const row = cities[cityId];
+        if (!row) fail(422, 'BASE_CITY');
+        if (typeof battleMapId !== 'string' || !/^ki-1995:siege:(\d{1,3})$/.test(battleMapId) || Number(/^ki-1995:siege:(\d{1,3})$/.exec(battleMapId)[1]) > 191) fail(422, 'BASE_CITY');
+        if (row.battleMapId !== battleMapId) { row.battleMapId = battleMapId; changed = true; }
+      }
+    }
+    if (patch.troopcap !== undefined) {
+      if (!patch.troopcap || typeof patch.troopcap !== 'object' || Array.isArray(patch.troopcap)) fail(422, 'BASE_CITY');
+      for (const [cityId, troopsCap] of Object.entries(patch.troopcap)) {
+        const row = cities[cityId];
+        if (!row) fail(422, 'BASE_CITY');
+        if (!Number.isInteger(troopsCap) || troopsCap < 0 || troopsCap > 255) fail(422, 'BASE_CITY');
+        if (row.troops_cap !== troopsCap) { row.troops_cap = troopsCap; changed = true; }
+      }
+    }
     if (!changed) fail(422, 'BASE_CITIES_PATCH');
     try {
       return this.save(tokenHash, { ...current.template, content: { ...current.template.content, cities } });

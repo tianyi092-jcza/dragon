@@ -92,7 +92,7 @@ try {
     })));
     assert.deepEqual(panels.filter(panel => panel.hidden && (panel.display !== 'none' || panel.rects !== 0)), [], phase + ': hidden panels must have no display or layout space');
     // 地图画布（.base-map-panel）本就不是 .module-card，画布可见性由地图专项 lane 覆盖。
-    // 地图的建城入口是局部弹窗，不占主布局卡片。
+    // 地圖上不再設建城入口：新據點在據點模塊建檔，地圖上放置＋綁定。
     const expected = view === 'management-editor' ? ['review-editor'] : ['mapview-editor', 'base-map-editor'].includes(view) ? [] : [view];
     assert.deepEqual(panels.filter(panel => panel.rects > 0).map(panel => panel.id), expected, phase + ': only the selected module is visible');
     assert.equal(await page.locator('#stronghold-editor').isVisible(), view === 'stronghold-editor', phase + ': stronghold visibility');

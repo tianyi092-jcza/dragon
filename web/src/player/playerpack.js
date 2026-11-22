@@ -3,7 +3,7 @@
 import { ASSET_TYPES, MAX_METADATA_BYTES, MAX_RESOURCE_BYTES, isDigest, isChapterId, mapLimited, parseJSON, sha256, validateIdentity } from './runtimecontract.js';
 // 資源併發上限：鏈路每趟 0.7–1.5 s，6 路剛好把 173 個資源壓到十幾秒且不打爆瀏覽器連線池。
 const PACK_PARALLEL = 6;
-import { isNorthExtension } from '../content/authoring/mapextent.js';
+import { isNorthExtension, isSupportedMapExtent } from '../content/authoring/mapextent.js';
 import { PlayerReaderError } from './playerclient.js';
 const seasons = ['spring', 'summer', 'autumn', 'winter'];
 const rules = ['terrain', 'roadGraph', 'roadCost', 'roadOffset'];
@@ -34,7 +34,7 @@ function freeze(value) {
 function declaration(entry) {
   check(object(entry) && isDigest(entry.sha256) && Number.isSafeInteger(entry.byteLength) && entry.byteLength > 0 && entry.byteLength <= MAX_RESOURCE_BYTES);
 }
-export async function loadPlayerPack({ session, compilerRevision, maxTotalBytes, readStatic, urls = globalThis.URL, northExperiment = false }) {
+export async function loadPlayerPack({ session, compilerRevision, maxTotalBytes, readStatic, urls = globalThis.URL, northExperiment = false, mapExtent = false }) {
   if (typeof session?.read !== 'function' || typeof session?.state !== 'function' || typeof compilerRevision !== 'string' || !compilerRevision || !Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 1 || typeof readStatic !== 'function' || typeof urls?.createObjectURL !== 'function' || typeof urls?.revokeObjectURL !== 'function') throw new TypeError('fixed session, compiler pin, explicit byte budget and trusted static/URL ports required');
   const identityKeys = ['gameId', 'releaseId', 'ordinal', 'revision', 'sourceDigest', 'chapterId', 'chapters', 'manifestDigest', 'name', 'publishedAt'];
   const identity = structuredClone(Object.fromEntries(identityKeys.map(key => [key, session.identity?.[key]])));
@@ -76,13 +76,15 @@ export async function loadPlayerPack({ session, compilerRevision, maxTotalBytes,
     let manifest;
     try { manifest = parseJSON(manifestBytes); } catch { fail('PLAYER_PACK_INVALID'); }
     check(manifest.compilerRevision === compilerRevision && !Object.hasOwn(manifest, 'scope'));
-    const expanded = northExperiment === true && manifest.schemaVersion === 3 && manifest.buildFormat === 'studio-world-grid-1';
+    // MAP-EXT E6: mapExtent 接受任一受支持侧；northExperiment 仍仅北向。原域两路皆拒扩展门。
+    const allowGrid = northExperiment === true || mapExtent === true;
+    const expanded = allowGrid && manifest.schemaVersion === 3 && manifest.buildFormat === 'studio-world-grid-1';
     const roles = expanded ? { ...baseRoles, roadGraph: 'world-road-grid' } : rolesFor(manifest);
     check(roles !== undefined);
     check(manifest.identity?.gameId === identity.gameId && manifest.identity.draftRevision === identity.revision && manifest.identity.sourceDigest === identity.sourceDigest && JSON.stringify(manifest.chapters) === JSON.stringify(identity.chapters));
-    check(manifest.world?.id === identity.gameId + '-world' && manifest.world.revision === identity.sourceDigest && manifest.world.width === 384 && manifest.world.tileSize === 16 && (expanded
-      ? isNorthExtension(manifest.world)
-      : manifest.world.height === 256 && (manifest.world.minX ?? 0) === 0 && (manifest.world.minY ?? 0) === 0));
+    check(manifest.world?.id === identity.gameId + '-world' && manifest.world.revision === identity.sourceDigest && manifest.world.tileSize === 16 && (expanded
+      ? (mapExtent === true ? isSupportedMapExtent(manifest.world) : isNorthExtension(manifest.world))
+      : manifest.world.width === 384 && manifest.world.height === 256 && (manifest.world.minX ?? 0) === 0 && (manifest.world.minY ?? 0) === 0));
     const declared = [];
     for (const [entries, ids] of [[manifest.assets, rules], [manifest.minimapAssets, minis]]) {
       check(Array.isArray(entries) && entries.length === ids.length && new Set(entries.map(e => e?.assetId)).size === ids.length);

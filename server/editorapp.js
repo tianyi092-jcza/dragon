@@ -1,6 +1,8 @@
 // Shared editor application. Platforms supply storage/blob/base ports;
 // Node never imports cloudflare:workers or forks the business/auth routes.
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { GameMetadataStore } from './metadata.js';
 import { GameDeletionFence } from './deletionfence.js';
 import { GamePurge } from './gamepurge.js';
@@ -12,7 +14,7 @@ import { installedSourcePolicy, installedAvailableLibraryPolicy, isIsolatedChapt
 import availableLibraryManifest from './available-library.txt';
 import { AdminFullCopy } from './admincopy.js';
 import { createPinnedCopyLoader } from '../tools/editor_trusted_copy.mjs';
-import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
+import { FIXED_TEMPLATE_PROFILE, mapExtentOptionFor } from './copyprofile.js';
 import { GameSnapshotVerifier } from './snapshots.js';
 import { PrivateDrafts } from './drafts.js';
 import { GameCopyStore } from './gamecopy.js';
@@ -527,10 +529,10 @@ return class EditorMetadata extends PlatformBase {
     const validation = this.validations.readFresh(gameId, owned.draftRevision);
     if (!validation || validation.state !== 'passed' || validation.sourceDigest !== captured.reference.sourceDigest) { fail(409, 'PUBLISH_VALIDATION_REQUIRED'); }
     this.publishProgress.advance(actor.id, key, 3);
-    try { validateGameSource(captured.game); }
+    try { validateGameSource(captured.game, mapExtentOptionFor(captured.game.map)); }
     catch { fail(422, 'PUBLISH_NOT_COMPILED'); }
     let compiled;
-    try { compiled = compileTrialSource(captured.game, bytes => createHash('sha256').update(bytes).digest('hex')); }
+    try { compiled = compileTrialSource(captured.game, bytes => createHash('sha256').update(bytes).digest('hex'), mapExtentOptionFor(captured.game.map)); }
     catch { fail(422, 'PUBLISH_NOT_COMPILED'); }
     if (compiled?.sourceDigest !== reference.sourceDigest) { fail(503, 'PUBLISH_REFERENCE_CORRUPT'); }
     if (!Array.isArray(captured.game.chapterOrder) || !captured.game.chapterOrder.length) { fail(422, 'PUBLISH_NOT_COMPILED'); }
@@ -1099,7 +1101,7 @@ return class EditorMetadata extends PlatformBase {
       // pack 身份的修订号取预检 nextVersion；真正的新鲜度与序号由 approveSlot 在事务内复核＋配发。
       fields(value, []);
       const preview = this.gameCopies.approvePreview(tokenHash, gameId);
-      const compiled = compileTrialSource(preview.data, bytes => createHash('sha256').update(bytes).digest('hex'));
+      const compiled = compileTrialSource(preview.data, bytes => createHash('sha256').update(bytes).digest('hex'), mapExtentOptionFor(preview.data.map));
       const ticket = await this.playPacks.prepare(tokenHash, { game: preview.data, reference: { gameId, draftRevision: preview.nextVersion, sourceDigest: preview.copyDigest }, compiled });
       this.touch(tokenHash, policy);
       return response(this.gameCopies.approveSlot(tokenHash, gameId, () => this.playPacks.installPreparedInTxn(tokenHash, ticket)));
@@ -1745,6 +1747,19 @@ export function createEditorGateway({ frozenPublication = false } = {}) {
     }
     // Anonymous season-visual art for play manifests resolves registry-
     // relative against /play; only the DO serves it (role-checked, task 4).
+    // 攻城縮略圖（編輯器據點選擇器用）：192 張預渲染 240×128 PNG，按目錄號取，
+    // 内存小缓存；非法编号或缺文件一律 404，不猜不列目录。
+    if (request.method === 'GET' && url.pathname.startsWith('/siege-thumb/')) {
+      const match = /^\/siege-thumb\/(\d{1,3})\.png$/.exec(url.pathname);
+      const index = match ? Number(match[1]) : -1;
+      if (match && Number.isInteger(index) && index >= 0 && index <= 191) {
+        try {
+          const bytes = readFileSync(fileURLToPath(new URL(`../web/grf/siege/siege-${index}.png`, import.meta.url)));
+          return new Response(bytes, { headers: { ...headers, 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400, immutable' } });
+        } catch { /* fall through to NOT_FOUND */ }
+      }
+      return response({ error: 'NOT_FOUND' }, 404);
+    }
     if (!url.pathname.startsWith('/api/') && !(request.method === 'GET' && url.pathname.startsWith('/content/builtin/compiled/'))) { return response({ error: 'NOT_FOUND' }, 404); }
     // CF supplies this header at the ingress. Never accept caller-selected X-Editor-Source.
     // Capture bounded POST input before the DO RPC. Early authorization rejection must

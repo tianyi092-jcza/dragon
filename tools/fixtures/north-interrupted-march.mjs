@@ -1,10 +1,12 @@
-// Pre-development probe, NOT a player save codec. The official snapshot and
-// restore gates must reject this format until the full scenario contract exists.
+// Pre-development probe, NOT a player save codec. MAP-EXT E9/E10: the grid
+// snapshot it once recorded as refused is now formally admitted; this probe
+// keeps the legacy-shape restore rejection (pre-grid metadata is never
+// blessed) plus the movement-plane unit checks and the march replay.
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { snapshotState } from '../../web/src/game/savegame.js';
-import { prepareScenario } from '../../web/src/game/scenarioassembly.js';
+import { prepareScenario, scenarioGridRoadContext } from '../../web/src/game/scenarioassembly.js';
 import { createScenarioMovementMemory } from '../../web/src/game/navigation/scenariomovementmemory.js';
 import { advanceGridMarch } from '../../web/src/game/navigation/worldgridroads.js';
 import { LegionSlotBatch } from '../../web/src/game/legionscheduler.js';
@@ -12,9 +14,14 @@ import { finishLegionSlotTail } from '../../web/src/game/legionphase.js';
 import { loadPlayerPack } from '../../web/src/player/playerpack.js';
 import { createPlayerEnvironment } from '../../web/src/player/playerenvironment.js';
 
-export async function probeInterruptedMarch({app,army,movement,prepared,transport,dir}) {
+export async function probeInterruptedMarch({app,army,movement,prepared,transport,dir,env}) {
   assert.equal(army.y,-1);
-  assert.throws(()=>snapshotState(app,0,'北線隔離檢查'),/World-grid scenario saves not admitted/);
+  // MAP-EXT E9/E10: grid saves are formally admitted. The file below keeps
+  // the legacy pre-grid metadata shape, whose restore stays rejected.
+  const snapApp = { scenario: app.scenario, scenarioIdx: 0, content: env.content, world: env.world, clock: app.clock, originalRng: app.originalRng };
+  const snap = snapshotState(snapApp,0,'北線隔離檢查');
+  assert.equal(snap.webMeta.scenarioAssembly.roadVersion,'grid');
+  assert.deepEqual(snap.webMeta.scenarioAssembly.bounds,snap.webMeta.movementMemory.bounds);
   const file=join(dir,'north-midpoint.json');
   await writeFile(file,JSON.stringify({army,plane:movement.snapshot(),metadata:prepared.metadata,serial:app.clock.strategicTickSerial}),{flag:'wx'});
   const saved=JSON.parse(await readFile(file,'utf8'));
@@ -23,7 +30,12 @@ export async function probeInterruptedMarch({app,army,movement,prepared,transpor
     const env=createPlayerEnvironment(pack,{playerFaction:army.faction,northExperiment:true});
     const graph=await env.world.roads.loadRoadGraph();
     const sc=env.raw;
-    await assert.rejects(prepareScenario({raw:sc,idx:0,mode:'restore',world:env.world,content:env.content,northExperiment:true,metadata:saved.metadata,movementMemory:saved.plane}),/Invalid scenario assembly schema\/road version/);
+    // MAP-EXT E9/E10: the file carries formal grid metadata, so title-load
+    // restore on fresh world objects succeeds (formal path, not a probe
+    // bypass). Pre-grid metadata shapes stay rejected at the schema gate.
+    const ready = await prepareScenario({raw:sc,idx:0,mode:'restore',world:env.world,content:env.content,northExperiment:true,metadata:saved.metadata,movementMemory:saved.plane});
+    assert.equal(ready.metadata.roadVersion,'grid');
+    assert.equal(scenarioGridRoadContext(ready.scenario).movement.readTile(saved.army.x,-1),1);
     const baseline={identity:{world:env.world.definition,content:env.content.chapter(0).reference},memory:{initialGraph:pack.identity.sourceDigest}};
     const bounds=env.world.definition;
     const restorePlane=(plane,ref=baseline)=>createScenarioMovementMemory(plane,ref,true,bounds);

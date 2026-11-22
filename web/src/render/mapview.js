@@ -370,8 +370,11 @@ export class MapView {
   clampCam() {
     const c = this.cam;
     const world = this.getWorldDefinition();
-    c.x = Math.min(0, Math.max(innerWidth - world.width * world.tileSize, c.x));
-    c.y = Math.min(0, Math.max(innerHeight - world.height * world.tileSize, c.y));
+    // MAP-EXT E6: clamp in tile-pixel space with the extent-corner offset
+    // (origin: identical to the old bounds).
+    const ox = (world.minX ?? 0) * world.tileSize, oy = (world.minY ?? 0) * world.tileSize;
+    c.x = Math.min(-ox, Math.max(innerWidth - ox - world.width * world.tileSize, c.x));
+    c.y = Math.min(-oy, Math.max(innerHeight - oy - world.height * world.tileSize, c.y));
   }
 
   /** 固定 100%: 缩放已禁用 (保留 API 兑底) */
@@ -631,14 +634,16 @@ export class MapView {
     ctx.fillStyle = "#141414";
     ctx.fillRect(0, 0, width, height);
 
-    // 底图
+    // 底图（平面原点在 minX/minY；原域与旧行为一致）
+    // MAP-EXT E6: plane pixel (0,0) is the extent corner tile.
+    const planeOx = (world.minX ?? 0) * world.tileSize, planeOy = (world.minY ?? 0) * world.tileSize;
     if (this.seasonImg?.draw) {
-      this.seasonImg.draw(ctx, this.sx(0), this.sy(0), this.cam.scale, width, height);
+      this.seasonImg.draw(ctx, this.sx(planeOx), this.sy(planeOy), this.cam.scale, width, height);
     } else if (this.seasonImg) {
       ctx.drawImage(
         this.seasonImg,
-        this.sx(0),
-        this.sy(0),
+        this.sx(planeOx),
+        this.sy(planeOy),
         world.width * world.tileSize * this.cam.scale,
         world.height * world.tileSize * this.cam.scale,
       );
@@ -665,6 +670,11 @@ export class MapView {
           scale: this.cam.scale,
           viewW: width,
           viewH: height,
+          // MAP-EXT E6: extended plane origin (origin worlds lack min fields).
+          worldW: world.width,
+          worldH: world.height,
+          worldMinX: world.minX ?? 0,
+          worldMinY: world.minY ?? 0,
         });
       }
     } catch { /* 无初始身份时跳过投影，不阻断绘制 */ }
