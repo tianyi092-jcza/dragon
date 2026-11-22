@@ -3,7 +3,12 @@
 > 长期事实、架构、命令与约定维护在 [AGENTS.md](../AGENTS.md)；本页只记录本轮会话的详细进展、调试过程、失败尝试、相关文件、当前阻塞和下一步，不构成实施／提交／部署授权。
 > 历史：[§73–194快照](checkpoint-journal-archive-73-194.md)、[§72及以前](checkpoint-journal-archive-through-72.md)、[更早收据缺口](historical-receipts.md)。历史待办与运行状态不自动延续；机制结论须回SKILL／re-notes原证。
 
-## 本轮（工作区未提交：实施已做，commit／push／部署均待用户明确授权）
+## 本轮（已提交 a1121ec，与 github/main 同步）
+
+### 231. 提交推送收据（a1121ec，effe4dd..a1121ec 已推 github/main）
+
+- 用户授权审查全部改动＋未跟踪文件后完整提交并推送。271 项：60 改＋192 缩略图＋新组件／测试／管线；本地探针／临时脚本已清，`.dragon-analysis` 按忽略规则未进库，`trialweb` 重建 unchanged，`shell-ui` 整包重建；其它会话 MAP-EXT 产品改动保留原样同批。
+- 审查：shell-ui.txt 整包重建属惯例；mapextent／scenarioassembly／copyprofile／ai 抽查为 MAP-EXT E1/E7–E10 产品代码；唯一 --check 误报为已删文件；smoke 18/18。
 
 ### 230. 引擎用指定战场地、审核列表自适应、攻城选图原证结论
 
