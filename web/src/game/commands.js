@@ -8,6 +8,7 @@ export const COST_RECRUIT = 200; // 征兵一次花费(金) → 次月 +500 预�
 const RECRUIT_N = 500;
 export const TAX_MIN = 0,
   TAX_MAX = 40;
+import { hasNativeMonthlyPolicy, nativeMonthlyPolicyWord, writeNativeMonthlyPolicyWord, refreshNativeMonthlyPolicyViews } from "./nativemonthlypolicy.js";
 import { tickEnvoys } from "./diplomacy.js";
 import { isPlayerAdvisorGeneral, playerFaction } from "./playerqueries.js";
 // 保留旧命令API；新只读使用方可直接依赖playerqueries，避免外交反向依赖命令。
@@ -208,8 +209,23 @@ export function recruit(sc, city) {
 }
 
 /** 税率设定写入next_tax，0x53A6在下次月结末尾转正。 */
+export function confirmFiscalPolicy(sc, type, value) {
+  // KI 67CD..6845: D10 tax byte, D12/D14/D16 quotas in tens.
+  const index = ["cav", "arc", "inf"].indexOf(type);
+  const tax = type === "tax";
+  if ((!tax && index < 0) || !Number.isInteger(value) || value < 0 || value > (tax ? 100 : 10000))
+    throw new RangeError("Invalid fiscal policy input");
+  if (hasNativeMonthlyPolicy(sc)) {
+    const offset = tax ? 8 : 10 + index * 2;
+    const raw = tax ? (nativeMonthlyPolicyWord(sc, offset, "67CD") & 0xff00) | value : Math.floor(value / 10);
+    writeNativeMonthlyPolicyWord(sc, offset, raw, "67CD..6845");
+    refreshNativeMonthlyPolicyViews(sc);
+  } else if (tax) sc.next_tax = value;
+  else (sc.next_conscription ??= [0, 0, 0])[index] = value;
+}
+
 export function setTax(sc, n) {
-  sc.next_tax = Math.max(TAX_MIN, Math.min(TAX_MAX, n | 0));
+  confirmFiscalPolicy(sc, "tax", Math.max(TAX_MIN, Math.min(TAX_MAX, n | 0)));
   return { ok: `次月稅率→${sc.next_tax}%` };
 }
 

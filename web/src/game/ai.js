@@ -3218,7 +3218,8 @@ function cityEventPointer(city) {
 }
 
 function eventPointerCity(sc, event) {
-  const pointer = Math.trunc(Number(event?.cityPointer));
+  const pointer = event?.cityPointer ?? (Number.isInteger(event?.arg1) && Number.isInteger(event?.arg2)
+    ? event.arg1 | (event.arg2 << 8) : null);
   if (!Number.isInteger(pointer) || pointer < 0x840) return null;
   const index = (pointer - 0x840) >> 5;
   return sc.cities?.[index] ?? null;
@@ -4050,9 +4051,10 @@ function dispatchDisasterObjectEvent(app, event) {
       if (!rng || typeof rng.nextByte !== "function") return;
       // 0x34E5..0x3501：玩家消息返回后才依次消费伤害与移除延迟。
       city.disaster_event = (rng.nextByte() & 7) + 4;
+      const pointer = cityEventPointer(city);
       enqueueDelayedStrategicEvent(
         app,
-        { type: 12, arg0: 0, cityPointer: cityEventPointer(city) },
+        { type: 12, arg0: 0, arg1: pointer & 255, arg2: pointer >>> 8 },
         (rng.nextByte() & 7) + 6,
       );
     } finally {

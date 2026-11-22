@@ -392,6 +392,7 @@ test("candidate sort performs each immediate strict-smaller exchange", () => {
 test("native failure retains shifted-event prefix and enters the strategic hold", () => {
   const sc = initialize(official());
   sc.player_faction = 0;
+  sc._strategicEventCursor = 63; // A populated wheel is not a pristine fresh opening.
   sc.strategicEventSlots[64] = event(10, 1, 2, 3);
   sc.nativeDiplomacyMatrix.rows[0][13] = undefined;
   const app = {

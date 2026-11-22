@@ -17,7 +17,7 @@ function divWord(numerator, denominator, at) {
   return quotient;
 }
 
-function battlePower(io, role, mode) {
+function battlePower(io, role, mode, specialtyKey) {
   const row = mode === 0 && role === "attacker" ? 3 : mode;
   let weighted = 0;
   for (let i = 0; i < 6; i++) {
@@ -41,7 +41,7 @@ function battlePower(io, role, mode) {
       chosen - (chosen >>> 2) + io.readAbility(leader, "lead", "5304"),
     );
   }
-  const specialty = io.readAbility(leader, mode === 0 ? "siege" : "field", "530D");
+  const specialty = io.readAbility(leader, specialtyKey, "530D");
   const modifier = divWord(command * 16, 16 - specialty, "5320");
   return Math.floor((base * modifier) / 1024) & 65535;
 }
@@ -58,8 +58,11 @@ export function resolveOriginalSiegeQuickBattle(io) {
 }
 
 function resolveQuickBattle(io, mode) {
-  const attack = battlePower(io, "attacker", mode); // A52D7 before D5285.
-  const defence = battlePower(io, "defender", mode);
+  // Approved Web rule: reuse the already selected tactical directory (9A65..9A6F).
+  // Only the commander specialty changes; no second terrain roll or new weight row.
+  const specialtyKey = mode === 0 ? "siege" : io.readGlobal("d34", "Web water field") >= 0xd1 ? "naval" : "field";
+  const attack = battlePower(io, "attacker", mode, specialtyKey);
+  const defence = battlePower(io, "defender", mode, specialtyKey);
   const a = u16(attack + 8),
     d = u16(defence + 8);
   const lost = a < d ? 1 : 0;

@@ -29,7 +29,7 @@
 <a id="3-展示交互与文档职责"></a>
 ## 3. 展示、互動與文件職責
 
-- 編輯器全系統使用繁體中文與 Element Plus 預設主題、元件、尺寸、locale；按路徑匯入元件並在 `main.js` 匯入樣式。不覆寫 `--el-*`，不污染玩家 `server/public/style.css`。純圖示按鈕正方形、文字按鈕維持預設；地圖四個方向組之間留空。保留 id／data 屬性協定，不覆寫 `[hidden]`。玩家 Canvas 的右鍵／hold 規則依[全局約定](../AGENTS.md)，不套用到編輯器。
+- 編輯器全系統使用繁體中文與 Element Plus 預設主題、元件、尺寸、locale；按路徑匯入元件並在 `main.js` 匯入樣式。不覆寫 `--el-*`，不污染玩家 `server/public/style.css`。瞬時提示一律經 `editor-ui/src/notify.js`（ElMessage `plain:true`），常駐文案保留 `<p role="status">`；`#login/#password/#profile` 由 `server/public/client.txt` 的 FormData 接管提交，ElForm 改造須保留 form id、input name 與 reset 語義。純圖示按鈕正方形、文字按鈕維持預設；地圖四個方向組之間留空。保留 id／data 屬性協定，不覆寫 `[hidden]`。玩家 Canvas 的右鍵／hold 規則依[全局約定](../AGENTS.md)，不套用到編輯器。
 - 整頁不滾、資料區滾，列表固定表頭、25/50/100 筆分頁可跳頁；讀／編輯同寬，操作列用普通按鈕吸收餘寬，窄屏表內橫滾。共用四點載入、局部保存重讀回饋，資源按需載入不阻塞整頁。例外與元件細則見[布局規範](docs/editor-ui-layout-spec.md)與[框架殼](docs/editor-framework-shell.md)。
 - 編輯器／地圖任務先核[產品設計](docs/game-editor-design.md)、[工程合同](docs/game-editor-technical-design.md)、[遷移計畫](docs/game-map-migration-plan.md)、[准入原證](docs/re-notes-editor-map-admission.md)及相關 SKILL，再查專項合同。方案文件不構成實施授權；新的機制原證回流 SKILL／re-notes，不只留在 journal。
 
@@ -39,6 +39,7 @@
 - **build ≠ check ≠ 服務刷新**：Vue 先 build 再 `--check`，同步 `shell-ui.txt`、CSS 與授權清單。`server/public/*.txt` 由進程 import；`client.txt` 或 `index.html` 改後需重啟自己持有的實例，核實際服務位元組，不能停他人進程。`web/src/**` 改後重建 `trialweb.txt`。發布歸檔須核完整 inventory／SHA 與 pin，不放寬凍結身份，不把 `--source-only` 當完整資源庫驗證。
 - `applyCapturedMapEdit` 的 `view(edit)` 是屬性描述符，取值用 `value(edit, key)`。地圖共用編輯預算 4096 命令／16 MiB 完整 JSON，模板／copy 源 64 MiB；批次預演／撤銷／拒絕都不可留下前綴。新城中心須符合行序，`road-add` 認證既鋪走廊而非鋪路命令。
 - session DTO 的缺省版本要同口徑比較，不省略身份／epoch／SHA。schema 或 purge 變更同步投影、清單與刪除合同。SQLite WAL 檢查用一致備份，不裸拷主庫。離線報告新輪次獨占目錄，Python `-B`＋明確 UTF-8，含 Windows 子進程。
+- 新狀態庫首次啟動會跑 staging 並校驗 `server/available-library.txt` 的 programHashes；倉庫存在預存不一致（指紋與已提交的 5 個 `web/src` 文件對不上），新庫因此失敗時先核對指紋來源，不手改 manifest；已有 pinned 的舊庫跳過 staging，不受影響。
 - 提交、推送、部署、真實資料遷移各別授權。GitHub 遠端為 `github`，非 `origin`；當次操作當次核對，不根據舊日誌推斷同步。保留其他會話改動，不整體 reset／clean、不盲刪 Git 鎖，不提交憑據或運行資料。
 
 ## 5. 常用命令與分級驗證

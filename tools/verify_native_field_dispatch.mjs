@@ -73,6 +73,27 @@ function fixture() {
     };
   return { io, records, abilities, frame, trace, bytes, calls: () => calls };
 }
+test("Web water quick battle uses naval for both commanders only from D1; weights and RNG stay unchanged", () => {
+  function fight(directory, naval, player) {
+    const f = fixture();
+    f.io.readPlayer = () => player;
+    f.records.attacker.status |= 4;
+    f.records.defender.status |= 4;
+    f.bytes.fill(65); // Nonzero loser roll makes different strength ratios observable.
+    f.frame.d34 = directory;
+    f.abilities[4].naval = naval;
+    f.abilities[9].naval = 0;
+    dispatchOriginalFieldBattle(f.io);
+    assert.equal(f.calls(), 12);
+    assert.deepEqual(f.trace.filter(([method,,,at]) => method === "readAbility" && at === "530D").map(([,id,key]) => [id,key]),
+      [4,9].map(id => [id, directory >= 0xd1 ? "naval" : "field"]));
+    return f.records;
+  }
+  for (const player of [0,1,2]) {
+    assert.deepEqual(fight(0xd0,15,player), fight(0xd1,0,player));
+    assert.notDeepEqual(fight(0xd1,15,player), fight(0xd1,0,player));
+  }
+});
 function boundary(run, instruction) {
   let error;
   assert.throws(run, (e) => {

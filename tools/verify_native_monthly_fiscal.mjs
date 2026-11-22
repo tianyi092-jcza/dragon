@@ -14,6 +14,9 @@ import {
   originalSubtractFunds563B,
 } from "../web/src/game/navigation/originalmonthlyfiscal.js";
 import { processMonthlyFiscalSettlement } from "../web/src/game/ai.js";
+import { GameBar } from "../web/src/ui/gamebar.js";
+import { assertNativeMonthlyPolicy } from "../web/src/game/nativemonthlypolicy.js";
+import { performScenarioMonthlyPolicyActivation } from "../web/src/game/navigation/scenariomonthlypolicy.js";
 import { monthlySettlement } from "../web/src/game/economy.js";
 
 let data;
@@ -57,6 +60,26 @@ function fixture() {
   faction.active = true;
   return { sc, faction };
 }
+
+test("keypad confirmation survives JSON and 53A6; next settlement credits all three player pools", () => {
+  const { sc, faction } = fixture();
+  sc.player_faction = 13;
+  sc.nativePlayerFactionPointer = 13 * 0x40;
+  sc.nativeMonthlyPolicy.bytes[9] = 0xab;
+  for (const [type,val] of [["tax",25],["cav",109],["arc",209],["inf",309]])
+    GameBar.prototype._clickKeypadDialog.call({ app: { scenario: sc, view: { draw() {} } }, keypadDialog: { type,val,ox:0,oy:0 }, closeKeypadDialog() {} },110,84);
+  assertNativeMonthlyPolicy(JSON.parse(JSON.stringify(sc)));
+  assert.equal(sc.nativeMonthlyPolicy.bytes[9], 0xab);
+  assert.equal(sc.next_tax, 25);
+  assert.deepEqual(sc.next_conscription, [100,200,300]);
+  assert.deepEqual(sc.conscription, [0,0,0]);
+  const [prior] = monthlySettlement(sc, null, sequence(0));
+  assert.deepEqual([prior.cav,prior.arc,prior.inf], [0,0,0]);
+  performScenarioMonthlyPolicyActivation(sc);
+  const [next] = monthlySettlement(sc, null, sequence(0));
+  assert.deepEqual([next.cav,next.arc,next.inf], [10,20,30]);
+  assert.deepEqual([faction.reserve_cav,faction.reserve_arc,faction.reserve_inf], [410,520,630]);
+});
 
 test("5609/563B/55EC exact signed24 and carry saturation boundaries", () => {
   assert.equal(originalSubtractFunds563B(0x7618, 0), 0x7618);

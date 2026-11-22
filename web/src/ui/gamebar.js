@@ -5855,17 +5855,8 @@ export class GameBar {
         k.val = k.max;
       } else if (r === 2) {
         // 決定
-        if (k.type === "tax") {
-          sc.next_tax = k.val;
-        } else if (k.type === "cav") {
-          if (!sc.next_conscription) sc.next_conscription = [0, 0, 0];
-          sc.next_conscription[0] = k.val;
-        } else if (k.type === "arc") {
-          if (!sc.next_conscription) sc.next_conscription = [0, 0, 0];
-          sc.next_conscription[1] = k.val;
-        } else if (k.type === "inf") {
-          if (!sc.next_conscription) sc.next_conscription = [0, 0, 0];
-          sc.next_conscription[2] = k.val;
+        if (["tax", "cav", "arc", "inf"].includes(k.type)) {
+          cmd.confirmFiscalPolicy(sc, k.type, k.val);
         } else if (k.type === "envoy-budget" || k.type === "domestic-budget") {
           const amount = k.val;
           this.closeKeypadDialog();

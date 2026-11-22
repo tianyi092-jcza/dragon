@@ -290,7 +290,7 @@ export function createScenarioBattleIO(
         return own(
           sc.generals?.[leader]?.ability,
           field,
-          field === "field" || field === "siege" ? 15 : 255,
+          field === "force" || field === "lead" ? 255 : 15,
           at,
         );
       }),

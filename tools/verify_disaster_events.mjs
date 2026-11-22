@@ -223,7 +223,8 @@ function fixture(bytes = [], count = 24) {
   assert.deepEqual(scenario.strategicEventSlots[9], {
     type: 12,
     arg0: 0,
-    cityPointer: 0x840,
+    arg1: 0x40,
+    arg2: 0x08,
   });
 
   scenario._strategicEventCursor = 9;
