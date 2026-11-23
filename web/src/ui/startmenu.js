@@ -85,7 +85,7 @@ export class StartMenu {
       if (!bound) void this.publicCatalog.view.refresh();
       await runStartFlow(
         {
-          chooseAction: () => this._yesNo(),
+          chooseAction: () => { this.app.resetTitleBinding?.(); return this._yesNo(); },
           chooseChapter: async () => {
             // 正式會話（已在發佈遊戲內）就在本頁列章：章節窗、勢力窗、逐級右鍵返回
             // 全部沿用內置同一套渲染，不再整頁導航回開場音樂。
@@ -109,7 +109,7 @@ export class StartMenu {
           chooseAdvisor: (idx, faction) => this._advisorDialog(idx, faction),
           chooseSave: async () => {
             if (this.selectedGame?.kind === "formal" && !this.app._formalEntry?.catalog) {
-              if (typeof this.app.rebindFormalGame === "function") await this.app.rebindFormalGame(this.selectedGame.gameId);
+              if (typeof this.app.rebindFormalGame === "function") return this.app.rebindFormalGame(this.selectedGame.gameId, 'load');
               else { navigatePlayerGame(this.selectedGame.gameId, "load"); return -1; }
             }
             return this._chooseSave();
@@ -218,6 +218,10 @@ export class StartMenu {
   _chapterRows() {
     // 目录决定官方章节与旧槽号；无目录的旧调用/测试保留原排序兼容。
     const all = this.app.data.scenarios;
+    if (this.app._formalEntry?.catalog) {
+      this._sortedScenarios = all.map((scenario, index) => ({ ...scenario, _origIdx: index }));
+      return all.map(scenario => ({ name: scenario.name, date: scenario.start }));
+    }
     const origIndices = this.app.content
       ? this.app.content.chapters
           .filter((chapter) => chapter.official)

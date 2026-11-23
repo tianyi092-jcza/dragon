@@ -1096,6 +1096,8 @@ function applyFormalCatalog(app, formalEntry) {
     chapters: Object.freeze(formalEntry.catalog.map((row, index) => Object.freeze({
       id: row.chapterId, name: row.name, official: row.official, legacyScenarioIndex: index }))),
     chapter: () => null });
+  app.data = app.content.data;
+  app._formalEntry = formalEntry;
   app.saves = { slots: [] };
   app.saveRepository = null;
   // ①選完章：只拉這一章的位元組（城市／武將／勢力），把模板放回目錄的同一格；
@@ -1104,9 +1106,9 @@ function applyFormalCatalog(app, formalEntry) {
     const pack = await formalEntry.openChapter(index);
     formalEntry.assertCurrent();
     const chapter = pack?.chapter;
-    if (!chapter?.template) throw new Error("formal chapter template required");
+    if (!chapter || pack.identity.chapterId !== formalEntry.catalog[index].chapterId) throw new Error("formal chapter identity mismatch");
     app.data = { scenarios: formalEntry.catalog.map((row, at) => (at === index
-      ? chapter.template : { name: row.name, start: { ...row.start }, factions: [] })) };
+      ? chapter : { name: row.name, start: { ...row.start }, factions: [] })) };
     app.content = Object.freeze({ ...app.content, data: Object.freeze({ scenarios: Object.freeze(app.data.scenarios) }) });
     formalEntry.pendingPack = pack;
     formalEntry.pendingIndex = index;
@@ -1166,7 +1168,7 @@ export async function startApp(opening, { trial = null, formal = null, formalBin
         checkStatus: formal.checkStatus ?? null,
         content: null, world: null, player: null, repository: null,
         savedSlot: null, ended: false, exit: null, failure: null,
-        catalog, openChapter: formal.openChapter, chapter: null };
+        catalog, openChapter: formal.openChapter, openEnvironment: formal.openEnvironment, chapter: null };
     }
   }
   if (app._bootStarted) throw new Error("App already started; open a new trial window");
@@ -1203,12 +1205,26 @@ export async function startApp(opening, { trial = null, formal = null, formalBin
   if (!trial && (!formalEntry || formalEntry.catalog !== null)) app.startMenu = new StartMenu(app);
   // 內置遊戲啟動時也帶上「綁定一款已發佈遊戲」的能力：下拉框選到發佈遊戲後，
   // 新遊戲／讀取存檔都在本頁完成，不再整頁導航回開場音樂。
-  if (typeof formalBinder === "function") app.rebindFormalGame = async gameId => {
-    const bound = await formalBinder({ gameId });
-    applyFormalCatalog(app, bound.formal);
-    app._formalBound = bound;
-    return bound.formal;
-  };
+  if (typeof formalBinder === "function") {
+    const builtin = { content: app.content, data: app.data, world: app.world, saves: app.saves, saveRepository: app.saveRepository };
+    app.resetTitleBinding = () => {
+      if (!app._formalBound) return;
+      app._formalBound.close();
+      Object.assign(app, builtin, { _formalBound: null, _formalEntry: null, _formalPrepareChapter: null, _installFormalChapter: null });
+    };
+    app.rebindFormalGame = async (gameId, mode = 'new') => {
+      const bound = await formalBinder({ gameId, mode });
+      if (!bound) return -1;
+      app._formalBound = bound;
+      if (mode === 'load') {
+        const { environment, saveRepository, savedSlot } = bound;
+        app._formalEntry = { ...bound.formal };
+        Object.assign(app, { content: environment.content, data: environment.content.data, world: environment.world, saveRepository, saves: await saveRepository.load() });
+        return savedSlot;
+      }
+      applyFormalCatalog(app, { ...bound.formal });
+    };
+  }
   app.score.title();
   document.addEventListener(
     "pointerdown",

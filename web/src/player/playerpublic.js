@@ -76,7 +76,7 @@ async function fetchChapterCatalog(expected) {
 // 同頁綁定一款已發佈遊戲（2026-11-08 用戶決定）：內置遊戲在標題頁選到發佈遊戲後，
 // 新遊戲／讀取存檔都在本頁完成，不整頁導航、不重播開場音樂。回傳的 formal 物件
 // 與 launchPublicPlayer 的章節窗模式完全同形，由 main.js 的 applyFormalCatalog 安裝。
-export async function bindFormalGame({ gameId }) {
+export async function bindFormalGame({ gameId, mode = 'new' }) {
   if (!isGameId(gameId)) throw new TypeError('game id required');
   const reader = createPlayerReader({ origin: location.origin });
   const store = createGameSaveStore({ gameId, databaseName: 'wolong-web', getIndexedDB: () => indexedDB });
@@ -87,6 +87,19 @@ export async function bindFormalGame({ gameId }) {
   if (programBase.origin !== location.origin) throw new Error('same-origin program required');
   const policy = { compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 256 * 1024 * 1024,
     readStatic: createPlayerStaticReader({ origin: location.origin, basePath: programBase.pathname }) };
+  const navigate = ({ reason, initialAction }) => {
+    if (reason === 'title' && initialAction === 'load') navigatePlayerGame(gameId, 'load');
+    else initialPage();
+  };
+  if (mode === 'load') {
+    const root = document.body;
+    const selected = await mountPlayerRestore({ root, reader, selection, store, ...policy }).result;
+    if (!selected) return null;
+    const host = createPlayerSessionHost({ session: selected.session, pack: selected.pack, root,
+      discardSaves: () => discardLocalSaves({ store }), navigate });
+    return { ...selected, formal: { assertCurrent: selected.pack.assertCurrent, onExit: host.onExit, checkStatus: host.checkStatus },
+      close() { selected.session.close(); selected.pack.close(); } };
+  }
   const rows = await loadPlayerChapters({ reader, selection, catalog: fetchChapterCatalog });
   const chapters = rows.chapters.map(row => Object.freeze({ ...row,
     official: /#original-\d+$/.test(row.chapterId) }));
@@ -113,7 +126,7 @@ export async function bindFormalGame({ gameId }) {
         saves: createPlayerSaveStore({ environment, store }), assertCurrent: environment.assertCurrent });
       return { environment, saveRepository };
     },
-    async onExit() { ended = true; close(); },
+    async onExit(event) { ended = true; close(); navigate(event); },
   }) });
 }
 
