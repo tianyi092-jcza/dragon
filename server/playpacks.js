@@ -145,6 +145,7 @@ export class PublishedPacks {
       if (Object.hasOwn(chapter, 'name')) {
         if (typeof chapter.name !== 'string' || !chapter.name.trim()) fail(422, 'PLAY_SNAPSHOT');
         states[chapterId].name = chapter.name;
+        if (chapter.number !== undefined) states[chapterId].chapterNumber = chapter.number;
       }
     }
     const payloads = {

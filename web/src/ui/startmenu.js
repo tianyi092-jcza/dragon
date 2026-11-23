@@ -103,10 +103,13 @@ export class StartMenu {
           },
           chooseFaction: async (idx) => {
             // 到這一步才拉這一章的位元組（勢力／城市／武將）；章節窗只用目錄。
-            if (this.app._formalPrepareChapter) await this.app._formalPrepareChapter(idx);
+            if (this.app._formalPrepareChapter && !this.app._formalEntry.catalog[idx].factions?.length) await this.app._formalPrepareChapter(idx);
             return this._factionDialog(idx);
           },
-          chooseAdvisor: (idx, faction) => this._advisorDialog(idx, faction),
+          chooseAdvisor: async (idx, faction) => {
+            if (this.app._formalPrepareChapter) await this.app._formalPrepareChapter(idx);
+            return this._advisorDialog(idx, faction);
+          },
           chooseSave: async () => {
             if (this.selectedGame?.kind === "formal" && !this.app._formalEntry?.catalog) {
               if (typeof this.app.rebindFormalGame === "function") return this.app.rebindFormalGame(this.selectedGame.gameId, 'load');
@@ -220,7 +223,7 @@ export class StartMenu {
     const all = this.app.data.scenarios;
     if (this.app._formalEntry?.catalog) {
       this._sortedScenarios = all.map((scenario, index) => ({ ...scenario, _origIdx: index }));
-      return all.map(scenario => ({ name: scenario.name, date: scenario.start }));
+      return this.app._formalEntry.catalog.map(row => ({ name: row.name, date: row.start }));
     }
     const origIndices = this.app.content
       ? this.app.content.chapters

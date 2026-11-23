@@ -96,7 +96,7 @@ export async function loadPlayerChapters({ reader, selection, assertCurrent = ()
           (chapter.start.era !== undefined && (!['bc', 'ad'].includes(chapter.start.era) || chapter.start.year < 1))) fail('PLAYER_CHAPTER_PREVIEW_INVALID');
       // Display fields only: no faction choice, rule initialization or playable
       // certification. The selected pack still passes the shared engine gates.
-      rows.push(Object.freeze({ chapterId, name: chapter.name,
+      rows.push(Object.freeze({ chapterId, name: chapter.chapterNumber === undefined ? chapter.name : `第${chapter.chapterNumber}章  ${chapter.name}`,
         start: Object.freeze({ year: chapter.start.year, month: chapter.start.month, day: chapter.start.day,
           ...(chapter.start.era === undefined ? {} : { era: chapter.start.era }) }) }));
     } finally { session.close(); }

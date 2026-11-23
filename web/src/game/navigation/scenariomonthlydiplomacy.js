@@ -100,11 +100,16 @@ function createScenarioMonthlyDiplomacyIO(sc, rng) {
         const owner = own(city(slot), "faction");
         return owner === null ? 0x18 : byte(owner, `city ${slot} owner`);
       }
-      if (field === "cityConnectionMask") return cityRaw(slot)[0] & 0x0f;
+      if (field === "cityConnectionMask") {
+        const row = city(slot);
+        return (row.raw === undefined && Array.isArray(row.neighbourCityIds) ? byte(own(row, 'attr'), 'city connection mask') : cityRaw(slot)[0]) & 0x0f;
+      }
       if (field.startsWith("cityConnection")) {
         const direction = Number(field.slice("cityConnection".length));
         if (!Number.isInteger(direction) || direction < 0 || direction > 3)
           missing(`city ${slot} ${field}`);
+        const row = city(slot);
+        if (row.raw === undefined && Array.isArray(row.neighbourCityIds)) return byte(own(row, 'strategicNeighbours')[direction], 'city neighbour');
         return cityRaw(slot)[0x1c + direction];
       }
       const record = faction(slot, `2BD9 ${field}`);

@@ -269,13 +269,11 @@ const app = {
     }
   },
 
-  beginNewGame(i, playerFaction, advisor) {
-    if (this.trialEnded) return Promise.reject(new Error("試運行已結束，請開啟新視窗"));
-    return this.enterGame(async () => {
-      // 正式會話：勢力選定後才建立環境（世界資源與存檔庫），然後照內置同一條路開局。
-      if (this._formalEntry?.pendingPack) await this._installFormalChapter(i, playerFaction);
-      return this.setScenario(i, playerFaction, advisor);
-    });
+  async beginNewGame(i, playerFaction, advisor) {
+    if (this.trialEnded) throw new Error("試運行已結束，請開啟新視窗");
+    // The map and minimap loaders capture their world when the shell is created.
+    if (this._formalEntry?.pendingPack) await this._installFormalChapter(i, playerFaction);
+    return this.enterGame(() => this.setScenario(i, playerFaction, advisor));
   },
 
   promptExit(action = "reload") {
@@ -1103,12 +1101,16 @@ function applyFormalCatalog(app, formalEntry) {
   // ①選完章：只拉這一章的位元組（城市／武將／勢力），把模板放回目錄的同一格；
   // ②選完勢力：才建立環境（世界資源、存檔庫）。到哪一步調哪一步的資料。
   app._formalPrepareChapter = async index => {
+    if (formalEntry.pendingIndex === index && formalEntry.pendingPack) {
+      formalEntry.pendingPack.assertCurrent();
+      return formalEntry.pendingPack.chapter;
+    }
     const pack = await formalEntry.openChapter(index);
     formalEntry.assertCurrent();
     const chapter = pack?.chapter;
     if (!chapter || pack.identity.chapterId !== formalEntry.catalog[index].chapterId) throw new Error("formal chapter identity mismatch");
     app.data = { scenarios: formalEntry.catalog.map((row, at) => (at === index
-      ? chapter : { name: row.name, start: { ...row.start }, factions: [] })) };
+      ? chapter : scenarios[at])) };
     app.content = Object.freeze({ ...app.content, data: Object.freeze({ scenarios: Object.freeze(app.data.scenarios) }) });
     formalEntry.pendingPack = pack;
     formalEntry.pendingIndex = index;

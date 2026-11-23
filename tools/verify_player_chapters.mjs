@@ -41,6 +41,12 @@ for(const stage of ['before','admit','read','status']){const f=await fixture(),e
 {
  const f=await fixture(),preview=await loadPlayerChapters({reader:f.reader,selection});f.admitHook=s=>{s.identity.ordinal='1.1';s.identity.releaseId=G;};await assert.rejects(()=>admitPlayerChapter({reader:f.reader,selection:preview.selection,chapterId:selection.chapters[0]}),invalid);assert.ok(f.sessions.every(s=>s.state()==='closed'));checks++;
 }
+{
+ const f=await fixture();
+ f.readHook=async i=>{const bytes=new TextEncoder().encode(JSON.stringify({...f.bodies[i],chapterNumber:['1','17'][i],name:['黃巾之亂','呂布歸天'][i]}));return {bytes,sha256:await sha256(bytes),contentType:'application/json'};};
+ const result=await loadPlayerChapters({reader:f.reader,selection});
+ assert.deepEqual(result.chapters.map(row=>row.name),['第1章  黃巾之亂','第17章  呂布歸天']);checks++;
+}
 for (const era of ['bc', 'ad']) {
  const f=await fixture(era), preview=await loadPlayerChapters({reader:f.reader,selection});
  assert.deepEqual(preview.chapters.map(row=>row.start),f.bodies.map(body=>body.start));

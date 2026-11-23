@@ -62,7 +62,7 @@ export function buildRuntimeIndex(pin, release, pack, chapters, assets) {
   const complete = states.every(({ state }) => Array.isArray(state.factions) && state.start && typeof state.start === 'object' && typeof state.name === 'string' && state.name.length > 0);
   const chapterIndex = complete ? states.map(({ chapterId, state }) => ({
     chapterId,
-    name: state.name,
+    name: state.chapterNumber === undefined ? state.name : `第${state.chapterNumber}章  ${state.name}`,
     start: { year: state.start.year, month: state.start.month, day: state.start.day,
       ...(state.start.era === undefined ? {} : { era: state.start.era }) },
     factions: state.factions.filter(faction => faction?.monarch && faction.monarch.trim()).map(faction => ({

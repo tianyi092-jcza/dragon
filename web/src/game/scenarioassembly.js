@@ -377,6 +377,16 @@ export async function prepareScenario({
       roadGraphDigest: digestRoadGraph(graph),
       terrainIdentity: world.terrain.terrainIdentity(),
     };
+    // Grid navigation replaces the road plane, not the chapter's strategic tables.
+    initializeNativeFactionSlots(scenario);
+    initializeNativeDiplomacyMatrix(scenario);
+    initializeNativeStrategicEventWheel(scenario);
+    initializeNativeMonthlyPolicy(scenario);
+    if (!hasNativeLegionSlots(scenario)) initializeNativeLegionSlotsFromZeroChapter(scenario);
+    initializeScenarioWeatherInputs(scenario);
+    initializeScenarioCityNativeInputs(scenario);
+    scenario._factionTickCursor ??= 0;
+    scenario.nativeFateDisplayFlags ??= 0;
     gridOwners.set(scenario, Object.freeze({graph, movement, metadata: gridMetadata, idx, content, world}));
     return {scenario, metadata: structuredClone(gridMetadata)};
   }
