@@ -13,7 +13,7 @@ import { initializeNativeFactionSlots } from '../web/src/game/nativefactions.js'
 import { initializeNativeDiplomacyMatrix } from '../web/src/game/nativediplomacy.js';
 import { initializeNativeStrategicEventWheel } from '../web/src/game/nativeevents.js';
 import { initializeNativeMonthlyPolicy } from '../web/src/game/nativemonthlypolicy.js';
-import { COPY_MAP_OPS, mapExtentOptionFor, reconcileAutoRoads } from './copyprofile.js';
+import { COPY_MAP_OPS, mapExtentOptionFor, reconcileAutoRoads, refreshChapterNeighbours } from './copyprofile.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { changesMapPositions } from '../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../web/src/editor/mappositionvalidation.js';
@@ -567,7 +567,10 @@ function applyModule(data, module, checked) {
           { chapterId: `${next.gameId}#chapter-${randomUUID()}` });
       }
       if (checked.delete) deleteChapter(next, checked.delete.chapterId);
-      if (checked.admit) admitChapterCity(next, checked.admit.cityId, checked.admit.troops_cap, checked.admit.battleMapId, next.map?.bounds);
+      if (checked.admit) {
+        admitChapterCity(next, checked.admit.cityId, checked.admit.troops_cap, checked.admit.battleMapId, next.map?.bounds);
+        refreshChapterNeighbours(next);
+      }
       if (checked.rename) for (const [id, name] of Object.entries(checked.rename)) renameChapter(next, id, name);
       if (checked.setStart) for (const [id, s] of Object.entries(checked.setStart)) setChapterStart(next, id, s);
       // editChapterCity/editChapterCityNative/setGeneralPortrait 为纯函数（返回新包），其余原函数就地改写。
@@ -774,6 +777,7 @@ export class GameCopyStore {
         }
       }
       if (!admitProblems.length) {
+        refreshChapterNeighbours(next);
         const text = JSON.stringify(next);
         if (Buffer.byteLength(text) > MAX_COPY_BYTES) fail(413, 'COPY_TOO_LARGE');
         const now = new Date().toISOString(), synced = createHash('sha256').update(text).digest('hex');

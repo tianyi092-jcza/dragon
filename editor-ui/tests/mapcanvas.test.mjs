@@ -546,6 +546,10 @@ test('only the clicked 205 cell of a decoration can stamp and bind a city in one
   view.attach(canvas(), null); view.setSource(source);
   view.pick(8, 8); assert.equal(model.selectedBinding, null);
   view.pick(24, 8); assert.deepEqual(model.selectedBinding, { pieceId: null, cityId: null, x: 1, y: 0 });
+  source.map.placements.push({ id: 'later', x: 0, y: 1, componentRef: 'piece', variantRef: 'original', cityId: null });
+  assert.throws(() => view.command('city-bind', { pieceId: null, cityId: 'test-city' }), /\(1, 0\).*\(0, 1\)/);
+  assert.deepEqual(commands, [], '失敗的綁定不得留下 stamp 或 bind 命令');
+  source.map.placements.pop();
   view.command('city-bind', { pieceId: null, cityId: 'test-city' });
   const pieceId = commands[0][0].pieceId;
   assert.deepEqual(commands, [[{ op: 'city-stamp', pieceId, x: 1, y: 0, tile: 205 }, { op: 'city-bind', pieceId, cityId: 'test-city' }]]);

@@ -328,20 +328,20 @@ onBeforeUnmount(() => {
           </ElButtonGroup>
         </div>
       </div>
-      <span class="map-status" role="status" aria-live="polite" :title="notice || model.message">{{ model.atlasLoading ? '圖集载入中…' : notice || model.message }}</span>
+      <span class="map-status" role="status" aria-live="polite" >{{ model.atlasLoading ? '圖集載入中…' : notice || (model.saveReport ? ({ success: '保存成功', failed: model.uncertain ? '重讀失敗' : '保存失敗', unknown: '結果待確認', running: '保存中…' })[model.saveReport.state] : model.message) }}</span>
     </header>
     <div class="base-map-workspace">
     <ElDialog :model-value="model.saveReport?.state === 'running'" title="地圖保存檢查" width="min(32rem, 90vw)" align-center append-to-body :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
       <div role="status" aria-live="polite"><strong>{{ model.saveReport?.summary }}</strong><ol><li v-for="line in checks" :key="line">{{ line }}</li></ol></div>
     </ElDialog>
     <details v-if="model.saveReport && model.saveReport.state !== 'running'" class="map-save-report" :open="model.saveReport.state !== 'success'">
-      <summary>{{ model.saveReport.summary }} · 查看檢查結果</summary>
-      <ol><li v-for="line in checks" :key="line">{{ line }}</li></ol>
+      <summary>{{ model.saveReport.state === 'success' ? '查看保存詳情' : '查看原因與處理方式' }}</summary>
+      <p v-if="model.saveReport.state === 'success'">地圖已保存並重新載入。</p>
+      <p v-for="(problem, index) in model.serverProblems" :key="index">{{ problem.message }}</p>
       <p v-if="model.uncertain">請先重新讀取地圖，確認目前版本；不要重送同一批修改。</p>
-      <p v-else-if="model.saveReport.state === 'failed'">修改仍保留。請依下方問題修正，或撤銷上一步，再保存。</p>
+      <p v-else-if="model.saveReport.state === 'failed'">這次沒有寫入地圖。編輯內容仍保留，請修正後再保存。</p>
     </details>
     <div v-if="model.atlasError" class="base-map-problems" role="alert"><span>{{ model.atlasError }}</span><ElButton @click="actions.retryAtlas()">重試</ElButton></div>
-    <div v-if="model.serverProblems?.length" class="base-map-problems" role="alert"><p v-for="(problem, index) in model.serverProblems" :key="index">{{ problem.message }}</p></div>
     <div v-if="model.diagnostics?.length" class="base-map-problems" role="alert"><div v-for="problem in model.diagnostics" :key="problem.index"><span>{{ problem.message }}</span><ElButton :disabled="!Number.isInteger(problem.x) || !Number.isInteger(problem.y)" title="定位底圖格" @click="actions.focusDiagnostic(problem.index)">定位</ElButton></div></div>
       <div ref="host" class="base-map-canvas-host">
         <canvas ref="canvas" class="base-map-canvas" tabindex="0" aria-description="選取素材後以方向鍵逐格移動，Enter或空白鍵放置，Esc取消；選取地圖物件後右鍵或Shift+F10開啟操作。" @keydown="moveMaterialKeyboard" @blur="cancelMaterial" :aria-label="model.gameScoped ? '可編輯遊戲地圖' : '可編輯基礎地圖'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="pointer = null; objectDragging = false; actions.cancelObjectMove()" @lostpointercapture="pointer = null; objectDragging = false; actions.cancelObjectMove()" @contextmenu.prevent="openContext($event)" @wheel.prevent="contextPosition = null; !busy && actions.zoom($event.deltaY < 0 ? 1.2 : 1 / 1.2, $event.offsetX, $event.offsetY)" />

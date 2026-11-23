@@ -143,7 +143,9 @@ export function analyzeRoadChains(source, terrain, { maxEdges = Infinity } = {})
   const raw = collectRoadCells(source, terrain);
   for (const key of centerKeys) raw.delete(key);
   const derived = [], problems = [];
-  const existing = [...(source.map?.roads ?? [])];
+  // Re-derive every automatic edge from the current tiles. An old projection
+  // must not collide with itself or disappear on the next save.
+  const existing = (source.map?.roads ?? []).filter(r => !isAutoRoadId(source.gameId, r.id));
   const matchEnd = point => {
     if (point.tile < GATE_TILE_MIN || point.tile > ROAD_TILE_MAX) return { error: 'end-not-port', point };
     const hits = [];
@@ -156,7 +158,7 @@ export function analyzeRoadChains(source, terrain, { maxEdges = Infinity } = {})
     if (hits.length > 1) return { error: 'end-ambiguous', point, cities: hits };
     return { cityId: hits[0] };
   };
-  const manualEdges = existing.filter(r => !isAutoRoadId(source.gameId, r.id)).length;
+  const manualEdges = existing.length;
   for (const chain of traceRoadChains(raw)) {
     const cells = chain.cells.map(c => [c.x, c.y]);
     if (chain.status !== 'ok') {
@@ -186,7 +188,7 @@ export function analyzeRoadChains(source, terrain, { maxEdges = Infinity } = {})
     }
     try {
       const built = buildRoad({ fromCityId, toCityId, travelKind: 'land',
-        geometry, cities: citiesById, roads: [...existing, ...derived], tiles }, extent);
+        geometry, cities: citiesById, roads: existing, tiles }, extent);
       const road = { id, fromCityId, toCityId, travelKind: 'land', geometry, nativeBinding: built.nativeBinding };
       derived.push(road);
       existing.push(road);

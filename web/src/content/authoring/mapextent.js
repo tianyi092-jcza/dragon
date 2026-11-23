@@ -34,6 +34,10 @@ export function isSupportedMapExtent(bounds) {
   return [W, E, N, S].every(v => isInt(v) && v >= 0 && v <= MAP_EXT_SIDE_MAX) &&
     bounds.width === ORIGINAL_WIDTH + W + E && bounds.height === ORIGINAL_HEIGHT + N + S;
 }
+// Expanded maps use structured road nodes keyed by stable city identity, not scan rank.
+export function hasStructuredMapExtent(bounds) {
+  return !isOriginalBounds(bounds) && isSupportedMapExtent(bounds);
+}
 export function assertSupportedMapExtent(bounds) {
   if (!isSupportedMapExtent(bounds)) throw new RangeError('unsupported map bounds');
 }

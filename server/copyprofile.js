@@ -14,7 +14,7 @@ import { composeMapLayers } from '../web/src/content/authoring/maplayers.js';
 import { buildRoad } from '../web/src/content/authoring/roadedit.js';
 import { MAX_ROAD_EDGES } from '../web/src/content/authoring/mapcompile.js';
 import { analyzeRoadChains, isAutoRoadId } from '../web/src/editor/roadchain.js';
-import { expandMapOneStep, extendTerrainEdge, shrinkMapOneStep, isOriginalBounds, isSupportedMapExtent } from '../web/src/content/authoring/mapextent.js';
+import { expandMapOneStep, extendTerrainEdge, shrinkMapOneStep, hasStructuredMapExtent } from '../web/src/content/authoring/mapextent.js';
 import { fail } from './security.js';
 
 // MAP-EXT E10: publish/verify/compile entry points admit genuinely extended
@@ -22,8 +22,7 @@ import { fail } from './security.js';
 // Origin maps get no option (byte-identical behavior); unsupported bounds
 // get no option either, so the existing refusal gates keep failing closed.
 export function mapExtentOptionFor(map) {
-  const bounds = map?.bounds;
-  return bounds && !isOriginalBounds(bounds) && isSupportedMapExtent(bounds) ? { mapExtent: true } : {};
+  return hasStructuredMapExtent(map?.bounds) ? { mapExtent: true } : {};
 }
 const resourceNames = Object.freeze(['money', 'reserve_cav', 'reserve_arc', 'reserve_inf']);
 export const FIXED_COPY_PROFILE = 'fixed-copy-resources-1';
@@ -192,10 +191,10 @@ function stampCityPiece(source, edit, descriptors) {
     if (p.x === x && p.y === y) fail(422, 'COPY_MAP_CITY_CELL_TAKEN');
     maxKey = Math.max(maxKey, (p.y - stMinY) * stW + p.x - stMinX);
   }
-  // Compiler node scan is row-major: a new city must scan after every
+  // Fixed-domain compiler scan is row-major: a new city must scan after every
   // existing center, otherwise slots disagree. Renumbering live slots is
   // refused; pick a southern/eastern site.
-  if (key <= maxKey) fail(422, 'COPY_MAP_CITY_SCAN_ORDER');
+  if (!hasStructuredMapExtent(source.map.bounds) && key <= maxKey) fail(422, 'COPY_MAP_CITY_SCAN_ORDER');
   for (const road of source.map?.roads ?? [])
     for (const pt of road?.geometry ?? [])
       if (pt?.x === x && pt?.y === y) fail(422, 'COPY_MAP_CITY_CELL_TAKEN');
@@ -249,7 +248,7 @@ function unbindCityPiece(source, edit, descriptors) {
   }
   return next;
 }
-function refreshChapterNeighbours(next) {
+export function refreshChapterNeighbours(next) {
   const cities = Object.values(next.cities ?? {});
   const slotById = new Map(cities.map(c => [c?.cityId, c?.runtimeSlot]));
   const idBySlot = new Map(cities.map(c => [c?.runtimeSlot, c?.cityId]));

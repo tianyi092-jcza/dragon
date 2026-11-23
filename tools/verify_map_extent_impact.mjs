@@ -6,7 +6,8 @@
 // Usage: node --test --test-concurrency=1 tools/verify_map_extent_impact.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { compileGameSource } from '../web/src/content/authoring/trialcompile.js';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { GameCopyStore } from '../server/gamecopy.js';
 import { openStorage } from '../vps/sqlite-port.mjs';
 import { createPinnedCopyLoader } from './editor_trusted_copy.mjs';
@@ -79,6 +80,32 @@ test('E4 same-cell overlap: crossing pieces removed, retained kept', async () =>
   await writeMap(gameId, [{ op: 'map-extent', side: 'north', delta: -1 }]);
   const back = readData(gameId);
   assert.ok(!back.map.decorations.some(d => d.id === a || d.id === b), 'both crossing removed');
+});
+
+test('four expanded strips save 205 centers without renumbering cities or chapter capitals', async () => {
+  const gameId = fresh(), before = readData(gameId);
+  for (const [side, dx, dy, slot] of [['north', 0, -1, 2], ['west', -1, 0, 0], ['east', 1, 0, 1], ['south', 0, 1, 3]]) {
+    const occupied = new Set(before.map.roads.flatMap(r => r.geometry.map(p => `${p.x},${p.y}`)));
+    const sites = before.map.placements.map(p => {
+      const x = dx < 0 ? -1 : dx > 0 ? 384 : p.x, y = dy < 0 ? -1 : dy > 0 ? 256 : p.y;
+      const geometry = Array.from({ length: Math.abs(x-p.x)+Math.abs(y-p.y)-1 }, (_, i) => ({ x: p.x+dx*(i+1), y: p.y+dy*(i+1) }));
+      return { p, x, y, geometry };
+    }).sort((a,b) => a.geometry.length-b.geometry.length);
+    const { p, x, y, geometry } = sites.find(s => s.geometry.length >= 3 && !before.map.roads.some(r => r.nativeBinding.slots.some(b => b.node === s.p.cityId && b.slot === slot)) && s.geometry.every(c => !occupied.has(`${c.x},${c.y}`) && !before.map.placements.some(o => o.x === c.x && o.y === c.y)));
+    const { issuedCityId: cityId } = store.writeModule('tok', gameId, 'cities', { create: { name: side, troops_cap: 60, battleMapId: 'ki-1995:siege:0', numbers: { max_prod: 100, prod: 60, growth: 10, defence: 5, troops: 100, type: 0, view: 1 } } });
+    const pieceId = `${before.gameId}#city-piece-${hex64()}`;
+    await writeMap(gameId, [{ op: 'map-extent', side, delta: 1 }, { op: 'city-stamp', pieceId, x, y, tile: 205 }, { op: 'city-bind', pieceId, cityId }, ...geometry.map((c,i) => paint(before.gameId,c.x,c.y,i === 0 || i === geometry.length-1 ? 212 : dx ? 201 : 200))]);
+    store.writeModule('tok', gameId, 'chapters', { admit: { cityId, troops_cap: 60, battleMapId: 'ki-1995:siege:0' } });
+    const saved = readData(gameId);
+    assert.deepEqual([saved.cities[cityId].x, saved.cities[cityId].y], [x, y]);
+    assert.deepEqual(saved.map.roads.slice(0, before.map.roads.length), before.map.roads);
+    assert.ok(saved.map.roads.some(r => [r.fromCityId, r.toCityId].includes(p.cityId) && [r.fromCityId, r.toCityId].includes(cityId)));
+    for (const [id, city] of Object.entries(before.cities)) assert.equal(saved.cities[id].runtimeSlot, city.runtimeSlot);
+    for (const id of saved.chapterOrder) assert.deepEqual(saved.chapters[id].state.factions.map(f => f.capital), before.chapters[id].state.factions.map(f => f.capital));
+  }
+  const compiled = compileGameSource(readData(gameId), bytes => createHash('sha256').update(bytes).digest('hex'), { mapExtent: true });
+  assert.equal(compiled.roadGraph.nodes.length, before.map.placements.length + 4);
+  assert.equal(compiled.roadGraph.edges.length, before.map.roads.length + 4);
 });
 
 test('E4 city in strip: placement removed, records kept, clean unbind saves', async () => {

@@ -1,4 +1,5 @@
 // Native editor canvas adapter. No source or image object enters Vue state.
+import { hasStructuredMapExtent } from '../../web/src/content/authoring/mapextent.js';
 import { composeMapLayers } from '../../web/src/content/authoring/maplayers.js';
 import { composeMapDisplayLayers } from '../../web/src/editor/mapdisplay.js';
 import { renderMinimapPixels } from '../../web/src/content/authoring/minimap.js';
@@ -538,11 +539,19 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     if (selected && prev && (selected.layer === 'decor' || selected.layer === 'group') && selected.layer === prev.layer && selected.id === prev.id && String(selected.center205) === String(prev.center205)) selected = null;
     draw(); facts();
   }
+  function newCityStamp(x, y, tile) {
+    const places = source.map.placements;
+    if (places.some(place => place.x === x && place.y === y)) throw new Error(`(${x}, ${y}) 已有據點中心。`);
+    const last = places.reduce((end, p) => !end || p.y > end.y || (p.y === end.y && p.x > end.x) ? p : end, null);
+    if (!hasStructuredMapExtent(source.map.bounds) && last && (y < last.y || (y === last.y && x <= last.x))) throw new Error(`不能在 (${x}, ${y}) 新增據點中心：請選在最後一個中心 (${last.x}, ${last.y}) 的南方，或同一行的東側。先前修改仍可保存。`);
+    return { op: 'city-stamp', pieceId: newId('city-piece'), x, y, tile };
+  }
   function command(op, fields = {}) {
     if (!source) return;
     if (op === 'city-bind' && fields.pieceId === null && selected?.center205) {
-      const x = selected.x + selected.center205[0], y = selected.y + selected.center205[1], pieceId = newId('city-piece');
-      const result = stage([{ op: 'city-stamp', pieceId, x, y, tile: 205 }, { op, pieceId, cityId: fields.cityId }]);
+      const stamp = newCityStamp(selected.x + selected.center205[0], selected.y + selected.center205[1], 205);
+      const { pieceId, x, y } = stamp;
+      const result = stage([stamp, { op, pieceId, cityId: fields.cityId }]);
       if (result !== false) { selected = { layer: 'cities', id: pieceId, name: source.cities[fields.cityId]?.name || fields.cityId, x, y }; draw(); facts(); }
       return result;
     }
@@ -550,7 +559,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       if (!selected || locked.cities || !visible.cities) throw new Error('請先在地圖上選取新據點中心位置');
       const tile = Number(fields.tile);
       if (!Number.isInteger(tile) || tile < 0xcb || tile > 0xd3) throw new Error('中心圖號須為 CB..D3');
-      return stage({ op, pieceId: newId('city-piece'), x: selected.x, y: selected.y, tile });
+      return stage(newCityStamp(selected.x, selected.y, tile));
     }
     if (op === 'map-object-remove') {
       if (!selected || !['cities', 'roads'].includes(selected.layer) || locked[selected.layer] || !visible[selected.layer]) throw new Error('請先選取未鎖定的道路或據點');

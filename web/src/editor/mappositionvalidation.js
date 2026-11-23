@@ -1,9 +1,10 @@
 // Shared live-preview/save diagnostics. Uses the existing certified road builder;
 // never repairs topology, guesses corridors or silently renumbers city slots.
+import { hasStructuredMapExtent } from '../content/authoring/mapextent.js';
 import { composeMapLayers } from '../content/authoring/maplayers.js';
 import { buildRoad } from '../content/authoring/roadedit.js';
 import { assertMapConnected, MAX_ROAD_EDGES } from '../content/authoring/mapcompile.js';
-import { analyzeRoadChains } from './roadchain.js';
+import { analyzeRoadChains, isAutoRoadId } from './roadchain.js';
 
 export function mapPositionProblems(source, terrain = composeMapLayers(source, { draft: true }).terrain) {
   const { placements, roads, bounds } = source.map;
@@ -32,7 +33,8 @@ export function mapPositionProblems(source, terrain = composeMapLayers(source, {
   });
   // Native node ordering is still the supported dense-slot contract. Crossing
   // it is editable but explicitly marked, not hidden by rewriting chapter IDs.
-  const ordered = placements.filter(place => definitions[place.cityId]).slice().sort((a, b) => a.y - b.y || a.x - b.x);
+  const extended = hasStructuredMapExtent(bounds);
+  const ordered = extended ? [] : placements.filter(place => definitions[place.cityId]).slice().sort((a, b) => a.y - b.y || a.x - b.x);
   ordered.forEach((place, index) => {
     if (definitions[place.cityId].runtimeSlot !== index)
       add('CITY_SCAN_ORDER', place, `${cityLabel(place.cityId)}位置改變了據點掃描順序（槽${definitions[place.cityId].runtimeSlot}，目前順序${index}）`, [[place.x, place.y]]);
@@ -42,7 +44,7 @@ export function mapPositionProblems(source, terrain = composeMapLayers(source, {
     const related = [road.fromCityId, road.toCityId].map(id => `${cityLabel(id)}${cities.has(id) ? ` (${cities.get(id).x}, ${cities.get(id).y})` : ''}`).join(' ↔ ');
     const cells = road.geometry.map(point => [point.x, point.y]);
     try {
-      const derived = buildRoad({ ...road, cities, roads: checked, tiles: (x, y) => terrain[(y - bounds.minY) * bounds.width + x - bounds.minX] });
+      const derived = buildRoad({ ...road, cities, roads: checked, tiles: (x, y) => terrain[(y - bounds.minY) * bounds.width + x - bounds.minX] }, extended ? bounds : undefined);
       const binding = road.nativeBinding, expected = derived.nativeBinding;
       if (binding && (binding.weight !== expected.weight || binding.flags.length !== expected.flags.length ||
           binding.flags.some((flag, index) => flag !== expected.flags[index]) ||
@@ -80,9 +82,9 @@ export function mapPositionProblems(source, terrain = composeMapLayers(source, {
     const detail = problem.code === 'ROAD_AMBIGUOUS' ? `（可連：${(problem.cities ?? []).join('、')}）` : problem.code === 'ROAD_THROUGH_CITY' && problem.point ? `（穿越格：${problem.point.x},${problem.point.y}）` : '';
     add(problem.code, anchor, `${reasons[problem.code] ?? problem.code}${detail}${problem.detail ? `；${problem.detail}` : ''}`, cells, 'warning');
   }
-  const linkedRoads = [...roads, ...autoChains.derived];
+  const linkedRoads = [...roads.filter(r => !isAutoRoadId(source.gameId, r.id)), ...autoChains.derived];
   if (placements.length) {
-    try { assertMapConnected({ map: source.map }); }
+    try { assertMapConnected({ map: { placements, roads: linkedRoads } }); }
     catch {
       // Per-road diagnostics above give exact endpoints. Network errors also
       // mark each involved city so an isolated component cannot be overlooked.
