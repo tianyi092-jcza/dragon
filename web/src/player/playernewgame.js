@@ -77,7 +77,7 @@ export function mountPlayerNewGame({ root, reader, selection, store, compilerRev
     try {
       owner.session = await admitPlayerChapter({ reader, selection: preview.selection, chapterId, assertCurrent: () => current(ticket) });
       current(ticket);
-      owner.pack = await loadPlayerPack({ session: owner.session, compilerRevision, maxTotalBytes, readStatic });
+      owner.pack = await loadPlayerPack({ mapExtent: true, session: owner.session, compilerRevision, maxTotalBytes, readStatic });
       current(ticket); owner.pack.assertCurrent();
       const factions = owner.pack.chapter.factions;
       if (!Array.isArray(factions)) throw new TypeError('chapter factions required');

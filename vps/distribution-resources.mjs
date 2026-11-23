@@ -68,7 +68,7 @@ function projectionEntries(projection, context) {
 }
 // Shared structural check only; callers must first verify the index and bytes.
 export function manifestRoles(index, manifest) {
-  check(manifest?.schemaVersion === 1 && manifest.buildFormat === 'studio-app-2' && manifest.identity?.gameId === index.gameId && manifest.identity?.draftRevision === index.revision && manifest.identity?.sourceDigest === index.sourceDigest && same(manifest.chapters, index.chapters));
+  check(((manifest?.schemaVersion === 1 && manifest.buildFormat === 'studio-app-2') || (manifest?.schemaVersion === 2 && manifest.buildFormat === 'studio-app-3') || (manifest?.schemaVersion === 3 && manifest.buildFormat === 'studio-world-grid-1')) && manifest.identity?.gameId === index.gameId && manifest.identity?.draftRevision === index.revision && manifest.identity?.sourceDigest === index.sourceDigest && same(manifest.chapters, index.chapters));
   check(Array.isArray(manifest.assets) && Array.isArray(manifest.minimapAssets) && Array.isArray(manifest.portraits));
   const roles = new Set(['manifest', ...index.chapters.map(id => `chapter:${id}`)]);
   const add = value => {

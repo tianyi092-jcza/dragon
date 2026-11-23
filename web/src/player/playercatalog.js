@@ -51,7 +51,7 @@ export function mountPlayerCatalog({ root, reader, selectionVisible = true, read
     let message = '暫無發布資訊';
     if (pending) message = '正在取得發布資訊…';
     else if (announcementError) message = '通知暫不可用';
-    else if (announcements.length) message = `${announcements[0].name} ${announcements[0].ordinal}　${announcements[0].creatorAccount}`;
+    else if (announcements.length) message = `${announcements[0].name} ${announcements[0].ordinal}　${announcements[0].creatorAccount}　上架時間：${announcements[0].firstOnlineAt.replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')}`;
     notice.textContent = message;
     if (!modal || modal.kind === 'local') return;
     const content = modal.content;

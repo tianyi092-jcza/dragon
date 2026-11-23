@@ -544,6 +544,7 @@ const app = {
         idx,
         content: loadedContent,
         world: loadedWorld,
+        mapExtent: true, // Only the admitted world-grid road asset activates expanded assembly.
         mode,
         metadata,
         roadMemory,

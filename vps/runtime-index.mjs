@@ -12,7 +12,7 @@ export function buildRuntimeIndex(pin, release, pack, chapters, assets) {
   const manifestBytes = Buffer.from(pack.manifest_json);
   requireValue(manifestBytes.length <= MAX_METADATA_BYTES);
   const manifest = parseJSON(manifestBytes);
-  requireValue(manifest?.buildFormat === 'studio-app-2' && manifest.schemaVersion === 1 && manifest.identity?.gameId === pin.gameId && manifest.identity?.draftRevision === pin.revision && manifest.identity?.sourceDigest === pin.sourceDigest);
+  requireValue(((manifest?.schemaVersion === 1 && manifest.buildFormat === 'studio-app-2') || (manifest?.schemaVersion === 2 && manifest.buildFormat === 'studio-app-3') || (manifest?.schemaVersion === 3 && manifest.buildFormat === 'studio-world-grid-1')) && manifest.identity?.gameId === pin.gameId && manifest.identity?.draftRevision === pin.revision && manifest.identity?.sourceDigest === pin.sourceDigest);
   requireValue(Array.isArray(pin.chapters) && JSON.stringify(manifest.chapters) === JSON.stringify(pin.chapters));
   const resources = {}, files = [], dependencies = [];
   const add = (role, key, bytes, contentType) => {

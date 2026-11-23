@@ -23,7 +23,7 @@ function makeStore() {
     if (/^\s*(SELECT|WITH|PRAGMA)\b/i.test(q) || /\bRETURNING\b/i.test(q)) { const rows = stmt.all(...p); return { toArray: () => rows }; }
     stmt.run(...p); return { toArray: () => [] };
   } };
-  const storage = { sql, transactionSync: fn => { db.exec('BEGIN'); try { const out = fn(); db.exec('COMMIT'); return out; } catch (e) { db.exec('ROLLBACK'); throw e; } } };
+  const storage = { sql, transactionSync: fn => { if (db.isTransaction) return fn(); db.exec('BEGIN'); try { const out = fn(); db.exec('COMMIT'); return out; } catch (e) { db.exec('ROLLBACK'); throw e; } } };
   const owner = { id: 'owner-1', must_change: 0, epoch: 1, role: 'author' };
   const admin = { id: 'admin-1', must_change: 0, epoch: 1, role: 'admin' };
   const games = { assertNotDeleting: () => {}, listOwn: () => [] };
@@ -35,7 +35,9 @@ const gameId = randomUUID();
 const loader = createPinnedCopyLoader({ allocateEntityId: () => 'approve-slot-' + randomUUID() });
 const profile = new FixedCopyProfile({ loadCopy: loader });
 const { game: frozenSeed } = await profile.capture({ gameId: 'approve-slot-source', ownerId: 'owner-1' });
-const seedGame = { ...structuredClone(frozenSeed), gameId, metadata: { name: '測圖', introduction: '介' } };
+const { initializeCopyChapters } = await import('../server/copychapters.js');
+const { initializeCopyGenerals } = await import('../server/copygenerals.js');
+const seedGame = { ...initializeCopyChapters(initializeCopyGenerals(structuredClone(frozenSeed))), gameId, metadata: { name: '測圖', introduction: '介' } };
 
 const failWith = async (fn, status, code) => {
   try { await fn(); } catch (e) { assert.equal(e.status, status); assert.equal(e.code, code); return; }
@@ -44,7 +46,7 @@ const failWith = async (fn, status, code) => {
 const submitFlow = store => {
   store.ensureFromGame('owner', gameId, structuredClone(seedGame));
   const v = store.validateWhole('owner', gameId);
-  assert.equal(v.state, 'passed');
+  assert.equal(v.state, 'passed', JSON.stringify(v.problems?.slice(0, 3)));
   const s = store.submit('owner', gameId, { ticket: v.ticket, description: '首版说明' });
   assert.equal(s.state, 'submitted');
 };

@@ -81,7 +81,7 @@ try{
  response=payload();await page.evaluate(()=>window.__catalog.refresh());
  assert.equal(await select.locator('option').count(),2);assert.equal((await selection()).kind,'builtin');
  await select.selectOption(game);checks++;
- assert.match(await notice.textContent(),/<img src=x>自建 1.39/);assert.equal(await page.locator('img,script').count(),0);checks++;
+ assert.match(await notice.textContent(),/<img src=x>自建 1.39/);assert.ok((await notice.textContent()).includes('上架時間：2037-03-12 00:00:00 UTC'));assert.equal(await page.locator('img,script').count(),0);checks++;
  const before=calls.length;await notice.click();await page.waitForFunction(()=>document.querySelectorAll('[role=dialog] tr').length===31);
  assert.equal(calls.length,before+1);assert.equal(await selection(),null);assert.equal(await select.isDisabled(),true);checks++;
  const dialog=page.getByRole('dialog',{name:'發布資訊'});

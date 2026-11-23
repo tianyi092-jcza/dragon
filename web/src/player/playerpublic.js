@@ -104,11 +104,11 @@ export async function bindFormalGame({ gameId }) {
       if (!row) throw new TypeError('chapter index required');
       close(); assertCurrent();
       session = await admitPlayerChapter({ reader, selection: rows.selection, chapterId: row.chapterId, assertCurrent });
-      pack = await loadPlayerPack({ session, ...policy });
+      pack = await loadPlayerPack({ session, ...policy, mapExtent: true });
       return pack;
     },
     async openEnvironment(currentPack, playerFaction) {
-      const environment = createPlayerEnvironment(currentPack, { playerFaction });
+      const environment = createPlayerEnvironment(currentPack, { playerFaction, mapExtent: true });
       const saveRepository = createPlayerSaveRepository({
         saves: createPlayerSaveStore({ environment, store }), assertCurrent: environment.assertCurrent });
       return { environment, saveRepository };
@@ -167,11 +167,11 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
           session?.close?.(); session = null; pack = null;
           assertCurrent();
           session = await admitPlayerChapter({ reader, selection: rows.selection, chapterId: row.chapterId, assertCurrent });
-          pack = await loadPlayerPack({ session, ...policy });
+          pack = await loadPlayerPack({ session, ...policy, mapExtent: true });
           return pack;
         },
         async openEnvironment(currentPack, playerFaction) {
-          const environment = createPlayerEnvironment(currentPack, { playerFaction });
+          const environment = createPlayerEnvironment(currentPack, { playerFaction, mapExtent: true });
           const saveRepository = createPlayerSaveRepository({
             saves: createPlayerSaveStore({ environment, store }), assertCurrent: environment.assertCurrent });
           return { environment, saveRepository };
@@ -199,7 +199,7 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
         else initialPage();
       },
     });
-    const environment = selected.environment ?? createPlayerEnvironment(selected.pack, { playerFaction: selected.playerFaction });
+    const environment = selected.environment ?? createPlayerEnvironment(selected.pack, { playerFaction: selected.playerFaction, mapExtent: true });
     const saveRepository = selected.saveRepository ?? createPlayerSaveRepository({
       saves: createPlayerSaveStore({ environment, store }), assertCurrent: selected.pack.assertCurrent,
     });

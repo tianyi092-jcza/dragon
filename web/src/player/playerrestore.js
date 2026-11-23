@@ -51,7 +51,7 @@ export function mountPlayerRestore({ root, reader, selection, store, compilerRev
     try {
       owner.session = await admitPlayerChapter({ reader, selection: preview.selection, chapterId, assertCurrent: () => current(ticket) });
       current(ticket);
-      owner.pack = await loadPlayerPack({ session: owner.session, compilerRevision, maxTotalBytes, readStatic });
+      owner.pack = await loadPlayerPack({ mapExtent: true, session: owner.session, compilerRevision, maxTotalBytes, readStatic });
       current(ticket); owner.pack.assertCurrent(); return owner;
     } catch (error) { release(owner); throw error; }
   }
@@ -118,7 +118,7 @@ export function mountPlayerRestore({ root, reader, selection, store, compilerRev
           for (const row of catalog.filter(item => matches(item) && item.chapterId === chapterId)) {
             const saved = await store.get(row.slot); current(ticket);
             if (!agrees(row, saved)) throw new Error('save changed during listing');
-            const environment = createPlayerEnvironment(owner.pack, { playerFaction: saved.record.snapshot?.state?.player_faction });
+            const environment = createPlayerEnvironment(owner.pack, { mapExtent: true, playerFaction: saved.record.snapshot?.state?.player_faction });
             const bound = createPlayerSaveStore({ environment, store });
             const verified = await bound.get(row.slot); current(ticket);
             if (!verified || saveJSON(verified.token) !== saveJSON(saved.token)) throw new Error('save changed during preflight');
@@ -140,7 +140,7 @@ export function mountPlayerRestore({ root, reader, selection, store, compilerRev
     let owner;
     try {
       owner = await resources(choice.chapterId, ticket); current(ticket);
-      const environment = createPlayerEnvironment(owner.pack, { playerFaction: choice.player });
+      const environment = createPlayerEnvironment(owner.pack, { mapExtent: true, playerFaction: choice.player });
       const saves = createPlayerSaveStore({ environment, store });
       let transferred = false;
       const repository = await capturePlayerSaveRepository({ saves, expectedToken: choice.token, assertCurrent: () => { if (!transferred) current(ticket); owner.pack.assertCurrent(); } });

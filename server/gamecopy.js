@@ -980,7 +980,7 @@ export class GameCopyStore {
   // content_releases.draft_revision 列写 ordinal（旧管线删除时随表清理）。
   // 包安装由调用方注入（生产：prepare 后的 installPreparedInTxn；测试：桩），
   // 在同一事务内执行；任何一步失败整体回滚，不写无包 formal。
-  approveSlot(tokenHash, gameId, installPack) {
+  approveSlot(tokenHash, gameId, installPack, candidate) {
     const actor = this.#actor(tokenHash);
     if (actor.role !== 'admin') fail(403, 'ADMIN_REQUIRED');
     if (gameId === 'wolong-builtin') fail(403, 'BUILTIN_PROTECTED');
@@ -1000,7 +1000,8 @@ export class GameCopyStore {
       if (g.next_ordinal !== '0' && !/^[0-9]+(\.[0-9]+)+$/.test(g.next_ordinal)) fail(503, 'RELEASE_STATE_CORRUPT');
       if (Number(g.restricted) !== 0) fail(409, 'LISTING_RESTRICTED');
       const ordinal = bumpOrdinal(g.next_ordinal);
-      const releaseId = randomUUID(), now = new Date().toISOString();
+      if (candidate && (candidate.gameId !== gameId || candidate.ordinal !== ordinal || candidate.sourceDigest !== copy.copy_digest)) fail(409, 'VALIDATION_STALE');
+      const releaseId = candidate?.releaseId ?? randomUUID(), now = new Date().toISOString();
       const moved = this.#one('UPDATE content_games SET next_ordinal=?, current_release_id=? WHERE game_id=? AND next_ordinal=? RETURNING game_id', ordinal, releaseId, gameId, g.next_ordinal);
       if (!moved) fail(409, 'APPROVE_CONFLICT');
       this.#sql.exec('INSERT INTO content_releases VALUES(?,?,?,?,?,?)', gameId, releaseId, ordinal, ordinal, copy.copy_digest, now);
@@ -1029,7 +1030,7 @@ export class GameCopyStore {
       for (const name of names) this.#sql.exec('INSERT INTO content_names VALUES(?,?,?)', g.owner_id, name, gameId);
       this.#sql.exec('DELETE FROM content_releases WHERE game_id=? AND release_id<>?', gameId, releaseId);
       this.#sql.exec("UPDATE publish_slots SET ticket=NULL, state='approved', submitted_at=NULL WHERE game_id=? AND state='submitted'", gameId);
-      installPack();
+      installPack({ releaseId, ordinal, name: pin.name, publishedAt: now });
       return Object.freeze({ gameId, state: 'approved', ordinal, copyDigest: copy.copy_digest, releaseId, description: slot.description, approvedAt: now });
     });
   }

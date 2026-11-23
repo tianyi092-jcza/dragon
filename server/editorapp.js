@@ -1104,8 +1104,25 @@ return class EditorMetadata extends PlatformBase {
       const preview = this.gameCopies.approvePreview(tokenHash, gameId);
       const compiled = compileTrialSource(preview.data, bytes => createHash('sha256').update(bytes).digest('hex'), mapExtentOptionFor(preview.data.map));
       const ticket = await this.playPacks.prepare(tokenHash, { game: preview.data, reference: { gameId, draftRevision: preview.nextVersion, sourceDigest: preview.copyDigest }, compiled });
+      const candidate = { gameId, releaseId: crypto.randomUUID(), ordinal: preview.nextVersion, draftRevision: preview.nextVersion, sourceDigest: preview.copyDigest };
+      const assertCurrent = () => {
+        if (this.principal(tokenHash).role !== 'admin') fail(403, 'ADMIN_REQUIRED');
+        this.games.assertNotDeleting(gameId);
+        const row = this.one('SELECT state,validation_digest FROM publish_slots WHERE game_id=?', gameId);
+        if (row?.state !== 'submitted' || row.validation_digest !== candidate.sourceDigest) fail(409, 'VALIDATION_STALE');
+      };
+      const staged = stageRuntime ? await stageRuntime(candidate, this.playPacks.snapshotPrepared(tokenHash, ticket), assertCurrent) : null;
       this.touch(tokenHash, policy);
-      return response(this.gameCopies.approveSlot(tokenHash, gameId, () => this.playPacks.installPreparedInTxn(tokenHash, ticket)));
+      const approved = this.gameCopies.approveSlot(tokenHash, gameId, issued => {
+        if (stageRuntime && (!staged?.runtime || verifyStaged(staged.ticket, candidate) !== staged.runtime)) fail(503, 'PUBLISH_STAGE_PROOF');
+        this.playPacks.installPreparedInTxn(tokenHash, ticket);
+        if (this.#recordPublication('publish', gameId, staged?.runtime)) return;
+        this.distribution.enqueueInTxn({ gameId, releaseId: issued.releaseId, ordinal: issued.ordinal });
+        const owner = this.one('SELECT u.account FROM users u JOIN content_games g ON g.owner_id=u.id WHERE g.game_id=?', gameId);
+        if (this.announcements.announceInTxn({ gameId, ...issued, creatorAccount: owner.account, firstOnlineAt: issued.publishedAt })) this.announcements.bumpRegistryInTxn();
+      }, candidate);
+      if (this.distributionDrain) await this.#advanceDistribution();
+      return response(approved);
     }
     if (sub === 'import-generals') {
       fields(value, []);
