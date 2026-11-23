@@ -1,8 +1,10 @@
 // System-owned singleton; never keyed by a game ID or stored in private/<gameId>.
 import { createHash } from 'node:crypto';
 import { fail, HttpError } from './security.js';
+import { reconcileAutoRoads } from './copyprofile.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
+import { createStrongholdDefinition } from './gamecopy.js';
 import { cityPictures } from './citypictures.js';
 import { siegeMatchesType } from './siegeorigin.js';
 import { cityName } from '../web/src/content/authoring/cityrecords.js';
@@ -45,6 +47,12 @@ export class SystemBaseMapStore {
     const current = this.capture();
     const cities = structuredClone(current.template.content.cities);
     let changed = false;
+    if (patch.create !== undefined) {
+      if (Object.keys(patch).length !== 1) fail(422, 'BASE_CITIES_PATCH');
+      const city = createStrongholdDefinition(cities, patch.create);
+      cities[city.cityId] = city;
+      changed = true;
+    }
     if (patch.rename !== undefined) {
       if (!patch.rename || typeof patch.rename !== 'object' || Array.isArray(patch.rename)) fail(422, 'BASE_CITY');
       const seen = new Set(Object.values(cities).map(city => city.name));
@@ -148,8 +156,10 @@ export class SystemBaseMapStore {
     if (!Array.isArray(edits) || !edits.length || edits.length > MAP_EDIT_MAX_COMMANDS) fail(422, 'BASE_MAP_EDITS');
     const current = this.capture();
     try {
-      const { gameId, ...content } = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...current.template.content }, edits);
-      assertMapPositions(content);
+      const candidate = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...current.template.content }, edits);
+      reconcileAutoRoads(candidate);
+      assertMapPositions(candidate);
+      const { gameId, ...content } = candidate;
       return this.save(tokenHash, { ...current.template, content });
     } catch (error) {
       // Expected authoring/compiler rejections are actionable, not HTTP 500.

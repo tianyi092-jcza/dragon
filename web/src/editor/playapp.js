@@ -102,8 +102,9 @@ try {
 			pack.manifest?.identity?.sourceDigest !== entry.sourceDigest
 		)
 			fail("發布快照身份不符（可能已重發布）");
+		chapterSelect.selectedOptions[0].textContent = pack.chapter.name;
 		window.__playPack = pack;
-		for (const f of pack.chapter.factions) {
+		for (const f of pack.chapter.factions.filter((f) => f.monarch && f.monarch.trim())) {
 			const option = document.createElement("option");
 			option.value = String(f.idx);
 			option.textContent = f.monarch ?? f.name;
@@ -113,6 +114,7 @@ try {
 	gameSelect.onchange = loadChapters;
 	chapterSelect.onchange = loadFactions;
 	await loadChapters();
+	status.textContent = "請選擇遊戲、章節與勢力，再開始遊戲。";
 	button.onclick = async () => {
 		button.disabled = true;
 		try {

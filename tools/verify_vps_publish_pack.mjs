@@ -138,6 +138,7 @@ for (const field of ['portrait', 'portraitKey', 'generals']) {
 for (const field of ['ordinary255', 'override255', 'last-chapter255']) {
   const updated = structuredClone(game);
   const chapterId = field === 'last-chapter255' ? updated.chapterOrder.at(-1) : updated.chapterOrder[0];
+  Object.values(updated.cities).find(city => city.runtimeSlot === 0).name = '薊縣';
   const general = updated.chapters[chapterId].state.generals[0];
   if (field === 'override255') general.portraitKey = '255';
   else general.portrait = 255;
@@ -145,7 +146,9 @@ for (const field of ['ordinary255', 'override255', 'last-chapter255']) {
   const candidate = compileTrialSource(updated, bytes => createHash('sha256').update(bytes).digest('hex'));
   check(`${field} still reaches the separate asset boundary`, candidate.sourceDigest !== compiled.sourceDigest);
   const prepared = await packs.prepare('h1', { game: updated, reference, compiled: candidate });
-  const snapshot = JSON.parse(packs.snapshotPrepared('h1', prepared).pack.manifest_json);
+  const result = packs.snapshotPrepared('h1', prepared);
+  check('all published chapters use shared city name', result.chapters.every(row => JSON.parse(row.state_json).cities[0].name === '薊縣'));
+  const snapshot = JSON.parse(result.pack.manifest_json);
   check(`${field} retains shared 255 with the manifest SHA`, snapshot.portraits.some(row => row.assetId === '255' && row.sha256 === portraits.get('255').sha256));
   check(`${field} preparation installs no publication rows`, ['published_packs', 'published_pack_chapters', 'published_pack_assets'].every(table => storage.sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).toArray()[0].n === 0));
 }

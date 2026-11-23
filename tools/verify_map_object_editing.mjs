@@ -45,6 +45,21 @@ test('drag removes original pixels, follows the grip at half opacity, cancels wi
   assert.deepEqual(removed.map.decorations.map(row => row.id), ['lower'], 'batch delete does not delete the covered lower object');
 });
 
+test('cell clipboard keeps sparse offsets from first click and stages only complete pastes', () => {
+  const batches = [], view = createMapCanvas({ publish() {}, stage: batch => batches.push(batch) });
+  const source = fixture();
+  source.componentDefinitions['tile-95'] = atom(95);
+  view.resize(320,320); view.setSource(source);
+  view.pick(56,24); // anchor (3,1), not the top-left of the selection
+  view.pick(24,24,true); view.pick(56,40,true);
+  view.pick(40,24,true); view.pick(40,24,true); // toggle hole back off
+  view.command('cell-copy');
+  view.pick(8,8); assert.throws(() => view.command('cell-paste'), /超出地圖/);
+  assert.equal(batches.length,0);
+  view.pick(104,88); view.command('cell-paste');
+  assert.deepEqual(batches.map(batch => batch.map(({x,y,materialId}) => [x,y,materialId])), [[[6,5,'tile-16'],[4,5,'tile-17'],[6,6,'tile-95']]]);
+});
+
 test('new combine is one object with its own ID; JSON server replay, large split and deletion agree with preview', () => {
   const source = fixture();
   source.map.base.policy = 'sea-ground-1';

@@ -47,6 +47,16 @@ test('two right-angle bends trace one corridor rather than diagonal false juncti
   assert.deepEqual(chains[0].cells.map(p => [p.x,p.y]), points);
 });
 
+test('a small city can connect east and south without merging the two gate tiles', () => {
+  const cities = [cityA, cityB, { ...cityA, cityId:'city-c', runtimeSlot:2, y:10 }];
+  const pieces = cities.map(({cityId,x,y}) => ({id:`p-${cityId}`,cityId,x,y}));
+  const decorations = [...CORRIDOR,[2,6,212],[2,7,200],[2,8,200],[2,9,212]].map(([x,y,t]) => deco(x,y,t));
+  const {source,terrain} = scene({cities,pieces,decorations});
+  const {derived,problems} = analyzeRoadChains(source,terrain);
+  assert.deepEqual(problems,[]);
+  assert.deepEqual(derived.map(r=>[r.fromCityId,r.toCityId].sort().join('/')).sort(),['city-a/city-b','city-a/city-c']);
+});
+
 test('analyze materializes a road between two bound cities', () => {
   const { source, terrain } = scene();
   const { derived, problems } = analyzeRoadChains(source, terrain, {});

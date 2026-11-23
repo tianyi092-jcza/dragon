@@ -52,6 +52,11 @@ try {
   assert.deepEqual(store.capture(), initial, 'invalid road movement retains the complete persisted snapshot');
   const edited = structuredClone(initial.template);
   Object.values(edited.content.cities)[0].name = '模板新城';
+  // As with auto roads, the visible bricks may belong to the decoration
+  // layer; the route record itself need not own any component instances.
+  const route = edited.content.map.roads[0];
+  edited.content.map.decorations.push(...route.components);
+  delete route.components;
   const invalid = structuredClone(template);
   invalid.content.map.base.terrainRef[0] = null;
   invalid.content.map.decorations = [];

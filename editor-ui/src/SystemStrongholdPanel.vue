@@ -1,5 +1,6 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
+import StrongholdCreate from './StrongholdCreate.vue';
 import ListPagination from './ListPagination.vue';
 import ListRowActions from './ListRowActions.vue';
 import { usePagination } from './pagination.js';
@@ -156,6 +157,7 @@ async function promote() {
   <section id="base-stronghold-editor" class="module-card">
     <div class="module-toolbar">
       <ElButton id="base-stronghold-load" :aria-busy="loading" :disabled="!canLoad" @click="load()">加載</ElButton>
+      <StrongholdCreate prefix="base-stronghold" :columns="columns" :cities="cities" :save="actions.createCity" :busy="busy" :locked="locked || !supported || loading || editing !== null" @editing="actions.setEditing" />
       <ElButton id="base-stronghold-promote" :disabled="!canPromote" @click="promote()">從目前遊戲匯入{{ gameName ? `（${gameName}）` : '' }}</ElButton>
       <ElInput id="base-stronghold-search" v-model="search" type="search" placeholder="搜尋據點名稱" aria-label="搜尋據點名稱" :disabled="!supported" />
       <span id="base-stronghold-status" role="status" class="stronghold-status">{{ failure || status }}</span>

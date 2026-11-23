@@ -57,12 +57,8 @@ export function originalReserveAdd55EC(pool, produced) {
 }
 
 function distanceDivisor54FC(capital, city) {
-  const dx = Math.abs(
-    word(capital.x, "54FC", "capital x") - word(city.x, "54FF", "city x"),
-  );
-  const dy = Math.abs(
-    word(capital.y, "5506", "capital y") - word(city.y, "5509", "city y"),
-  );
+  const dx = Math.abs(capital.x - city.x);
+  const dy = Math.abs(capital.y - city.y);
   const distance = Math.max(dx, dy) > 0xff ? 0xff : Math.max(dx, dy);
   if (distance <= 0x50) return 2;
   if (distance <= 0xc8) return 3;
@@ -71,7 +67,6 @@ function distanceDivisor54FC(capital, city) {
 
 function production5547(base, y) {
   base = word(base, "5547", "production base") >>> 5;
-  y = word(y, "555A", "city y");
   if (y < 0x50) {
     let inf = base >>> 2;
     let arc = inf >>> 1;
@@ -94,18 +89,11 @@ function scanFaction53C6(io, slot, expense) {
     "53D0",
     "capital",
   );
-  const capital = {
-    x: word(
-      call(io, "readCityWord", [capitalIndex, "x"], "54FC"),
-      "54FC",
-      "capital x",
-    ),
-    y: word(
-      call(io, "readCityWord", [capitalIndex, "y"], "5506"),
-      "5506",
-      "capital y",
-    ),
-  };
+  // Grid maps retain signed world coordinates; native tables still read words.
+  const coordinate = (index, axis, at) => io.readGridCoordinate
+    ? io.readGridCoordinate(index, axis)
+    : word(call(io, "readCityWord", [index, axis], at), at, `city ${axis}`);
+  const capital = { x: coordinate(capitalIndex, 'x', '54FC'), y: coordinate(capitalIndex, 'y', '5506') };
   let income = 0,
     cav = 0,
     arc = 0,
@@ -120,8 +108,8 @@ function scanFaction53C6(io, slot, expense) {
     );
     if (owner !== slot) continue;
     const city = {
-      x: word(call(io, "readCityWord", [index, "x"], "54FF"), "54FF", "city x"),
-      y: word(call(io, "readCityWord", [index, "y"], "5509"), "5509", "city y"),
+      x: coordinate(index, 'x', '54FF'),
+      y: coordinate(index, 'y', '5509'),
     };
     const divisor = distanceDivisor54FC(capital, city);
     const production = word(

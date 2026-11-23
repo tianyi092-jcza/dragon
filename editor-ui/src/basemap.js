@@ -6,6 +6,9 @@ import { changesMapPositions } from '../../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../../web/src/editor/mappositionvalidation.js';
 import { MAP_EDIT_MAX_COMMANDS, MAP_EDIT_MAX_BYTES } from '../../web/src/editor/mapeditlimits.js';
 
+// Visual road-chain diagnostics also apply to tile edits; they are not new
+// save gates. Recompute after a gesture, never on individual pointer moves.
+const needsOverlay = edit => changesMapPositions(edit) || /^(city-|road-|decoration-)/.test(edit.op);
 export { createMapController as createBaseMapController };
 export function createMapController({ api, work, publish, preview = previewMapEdits, paint, confirm, gameId = null }) {
   const path = gameId ? '/api/games/' + encodeURIComponent(gameId) + '/copy' : '/api/admin/base-map';
@@ -33,6 +36,7 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     // Stage the visible product transition, never write on GET. Save/undo/leave
     // use the same command history as ordinary edits; old formal content is unchanged.
     const pending = next && next.content.map.base.policy === undefined ? [{ op: 'sea-ground-enable' }] : [];
+    if (next && !gameId) next.content = { ...next.content, gameId: 'system-base-map' };
     const prepared = next ? preview(next.content, pending) : null;
     pendingForm = false; readRevision++;
     snapshot = next; candidate = prepared; edits = pending; undoSizes = pending.length ? [1] : []; loaded = true; uncertain = false; serverProblems = [];
@@ -77,9 +81,13 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     const pending = [...edits, ...batch];
     if (pending.length > MAP_EDIT_MAX_COMMANDS || new TextEncoder().encode(JSON.stringify(gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending })).length > MAP_EDIT_MAX_BYTES)
       throw new Error('本次修改超過保存上限（4096條命令／16 MiB）。已有修改可先保存；若單次操作仍超限，請縮小選取範圍。');
-    const next = preview(snapshot.content, pending);
+    // Ordinary stamps and translations leave selection-group membership intact.
+    // Apply just this gesture to the accepted preview. Structural histories still
+    // replay as a unit so their end-of-batch group reconciliation is unchanged.
+    const simple = pending.every(({ op }) => ['decoration-place', 'decoration-translate', 'map-object-translate', 'sea-ground-enable'].includes(op));
+    const next = simple ? preview(candidate, batch) : preview(snapshot.content, pending);
     saveReport = null;
-    candidate = next; edits = pending; undoSizes = [...undoSizes, batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate, pending.some(changesMapPositions)); render();
+    candidate = next; edits = pending; undoSizes = [...undoSizes, batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate, pending.some(needsOverlay)); render();
     return true;
   }
   function undo() {
@@ -88,7 +96,7 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     saveReport = null;
     candidate = next; edits = pending; undoSizes = undoSizes.slice(0, -1); serverProblems = [];
     message = pending.length ? '已撤銷上一步；仍有未保存修改。' : '已撤銷全部未保存修改。';
-    paint(candidate, pending.some(changesMapPositions)); render();
+    paint(candidate, pending.some(needsOverlay)); render();
   }
   async function save() {
     if (!permitted() || uncertain || !edits.length) return;
@@ -130,6 +138,7 @@ export function createMapController({ api, work, publish, preview = previewMapEd
           serverProblems = Array.isArray(error.detail?.problems) ? error.detail.problems.filter(problem => typeof problem?.message === 'string').slice(0, 128).map(problem => ({ message: problem.message.slice(0, 512) })) : [];
           const summary = committed ? '已寫入，重新讀取失敗' : uncertain ? '未能確認寫入結果' : '檢查未通過，未保存';
           message = committed ? '保存已成功，但重新讀取失敗；請重新讀取後再編輯。' : error.message;
+          if (!uncertain && error.status === 422) paint(candidate, true);
           if (!serverProblems.length) serverProblems = [{ message: error.message }];
           report(uncertain && !committed ? 'unknown' : 'failed', summary);
         }

@@ -15,7 +15,7 @@ assert.equal(soundDriver.subarray(0x8d7 - 0x100, 0x8e4 - 0x100).toString("hex"),
 assert.equal(ki.subarray(0x1dd1 + 0x200, 0x1dec + 0x200).toString("hex"),
   "a3f00ce88135fe06f00cc606f30c00fe06f30cc606f20c00e88b75");
 assert.equal(STRATEGIC_TIMER_MS, 1000 * 256 * 16 / 1193182);
-assert.deepEqual(STRATEGIC_SPEEDS, [6.5, 5.0, 4.8, 1.8, 1.0], "user-approved Web intervals, not DOS timer rounding");
+assert.deepEqual(STRATEGIC_SPEEDS, [24, 16, 9.6, 6.4, 4.8], "user-approved Web intervals, not DOS timer rounding");
 assert.equal(MAX_TICKS_PER_FRAME, 16, "two slot sweeps; at most one normal period-2/3 movement per RAF");
 
 // Both entry points must consume the same source, including the generated
@@ -49,7 +49,7 @@ for (const speed of [0, 1, 2, 3, 4]) {
   }
   const expected = Math.min(10000 / STRATEGIC_SPEEDS[speed], 600 * MAX_TICKS_PER_FRAME);
   assert.ok(Math.abs(base.strategicTickSerial - expected) < 1.001);
-  if (speed === 4) assert.equal(base.strategicTickSerial, 9600, "60Hz top speed doubles the previous 4800 updates/10s");
+  if (speed === 4) assert.equal(base.strategicTickSerial, 2083, "top speed matches the former normal rate");
   if (speed > 0) assert.ok(STRATEGIC_SPEEDS[speed] < STRATEGIC_SPEEDS[speed - 1]);
   assert.equal(trial.strategicTickSerial, base.strategicTickSerial);
   assert.deepEqual(trial.serialize(), base.serialize());
@@ -97,7 +97,7 @@ for (const ClockType of [Clock, TrialStrategicClock]) {
   c.hold = false;
   gate.canAdvanceRules = true;
   c.advanceFrame(c.currentStep * MAX_TICKS_PER_FRAME);
-  assert.equal(c.dayProgress(), 0);
+  assert.ok(Math.abs(c.dayProgress()) < 1e-12);
 }
 for (const hz of [30, 60, 144]) {
   const sampled = new Clock({ startYear: 196, startMonth: 1 });
@@ -107,9 +107,9 @@ for (const hz of [30, 60, 144]) {
     sampled.advanceFrame(1000 / hz);
     assert.ok(sampled.strategicTickSerial - before <= MAX_TICKS_PER_FRAME);
   }
-  const expected = Math.min(1000, hz * MAX_TICKS_PER_FRAME);
+  const expected = Math.min(1000 / STRATEGIC_SPEEDS[4], hz * MAX_TICKS_PER_FRAME);
   assert.ok(Math.abs(sampled.strategicTickSerial - expected) < 1.001,
-    "30/60/144Hz respect both the frame budget and the 1000 updates/s ceiling");
+    "30/60/144Hz respect both the frame budget and the configured top rate");
 }
 
 let days = 0;

@@ -836,8 +836,9 @@ export class GameBar {
     this.choiceDialog = null;
     if (i === 0) {
       this.showCityCard(city);
+      this.cityCard.garrisonChoice = { city, legion };
     } else {
-      this.showLegionCard(city || legion);
+      this.showLegionCard(city);
     }
     return true;
   }
@@ -889,7 +890,7 @@ export class GameBar {
     let legions = [];
 
     // 如果传入的是据点
-    if (target && target.type != null && target.prod != null) {
+    if (target && sc.cities.includes(target)) {
       targetCity = target;
       legions = sc.legions.filter(
         (L) =>
@@ -3637,8 +3638,9 @@ export class GameBar {
   enqueueIncomingDiplomacyRequest(payload) {
     if (!payload?.requesterFaction || !payload?.result) return;
     this._strategicMessageQueue.push({
-      type: "incoming-diplomacy",
       ...payload,
+      audienceType: payload.type,
+      type: "incoming-diplomacy",
     });
     this._drainStrategicMessages();
   }
@@ -4960,6 +4962,7 @@ export class GameBar {
     if (message.type === "incoming-diplomacy") {
       const opened = await this._showIncomingDiplomacyRequest({
         ...message,
+        type: message.audienceType,
         generation,
       });
       if (generation !== this._scenarioUiGeneration) return;
@@ -6597,6 +6600,20 @@ export class GameBar {
         this.app.battleView.dismissBattleDialogue?.();
         return true;
       }
+      if (this.marchingOrder?.sourceCity) {
+        clickSfx();
+        if (this.orderChoiceMenu) {
+          this.closeOrderChoiceMenu();
+          this.marchingOrder.step = 'pick_target';
+          this.marchingOrder.targetCity = null;
+          this.app.view.draw();
+        } else {
+          const city = this.marchingOrder.sourceCity;
+          this.closeMarchingOrder();
+          this.showLegionCard(city);
+        }
+        return true;
+      }
       if (this.orderChoiceMenu || this.marchingOrder) {
         clickSfx();
         // 定稿层级：目标选择/命令菜单右键直接回到羽扇菜单条展开、八项未选中；
@@ -6685,6 +6702,15 @@ export class GameBar {
         return true;
       }
 
+      const parentCity = this.cityCard?.garrisonChoice?.city;
+      if (parentCity) {
+        clickSfx();
+        const legion = this.app.scenario.legions.find(L => !L.dead && L._active !== false && L.faction != null && L.x === parentCity.x && L.y === parentCity.y);
+        if (legion) {
+          this.showGarrisonChoice(parentCity, legion);
+          return true;
+        }
+      }
       const hadSelectedCity = Boolean(this.app?.view?.selectedCity);
       const hadBaseMenu = Boolean(this.baseMenu);
       const hadPersonnelMenu = Boolean(this.personnelMenu);

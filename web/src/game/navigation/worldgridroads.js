@@ -6,7 +6,7 @@ import { containsTile } from '../../content/authoring/mapextent.js';
 // a point; no surrogate battle/arrival outcome for unsupported branches.
 export function advanceGridMarch(sc, army, {graph,movement}) {
   const target = army.targetNode;
-  if (!graph.nodes[target] || sc.cities[target].faction !== army.faction)
+  if (!graph.nodes[target] || (sc.cities[target].faction != null && sc.cities[target].faction !== army.faction))
     throw new RangeError('Grid march requires a friendly destination of the marching faction');
   const current = army.roadPosition;
   if (current.kind === 'city' && current.cityIndex === target) return 'arrived';
@@ -26,7 +26,8 @@ export function advanceGridMarch(sc, army, {graph,movement}) {
   if (!point) throw new RangeError('Grid road cursor outside geometry');
   let destination = point;
   const endpoint = next.direction===1 ? edge.toCityIndex : edge.fromCityIndex;
-  if (sc.cities[endpoint].faction !== army.faction) {
+  const endpointOwner = sc.cities[endpoint].faction;
+  if (endpointOwner != null && endpointOwner !== army.faction) {
     // MAP-EXT E8: transit contact carries its endpoint; the slot pump turns
     // an at-war endpoint into a siege engagement, otherwise the refusal stands.
     const contact = new RangeError('Grid march contact unresolved');
@@ -43,6 +44,13 @@ export function advanceGridMarch(sc, army, {graph,movement}) {
   // Equivalent to continues(flags) / nodeize in originalroadmovement.js:
   // a terminating port commits the city center in the same slot action.
   if (terminates(point.flags)) {
+    // Neutral endpoints pass 42AB; 2708 checks field contact first, then
+    // 2880 enters siege before the terminal point or city center is occupied.
+    if (endpointOwner == null) {
+      const contact = new RangeError('Grid march contact unresolved');
+      contact.endpoint = endpoint;
+      throw contact;
+    }
     destination = graph.nodes[endpoint];
     next = {kind:'city',cityIndex:endpoint};
   }

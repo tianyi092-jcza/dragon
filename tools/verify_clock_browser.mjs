@@ -166,7 +166,7 @@ try {
   });
   assert.deepEqual(initial.backing, [2048, 1536]);
   assert.equal(initial.dpr, 2);
-  assert.deepEqual(initial.steps, [6.5, 5.0, 4.8, 1.8, 1.0]);
+  assert.deepEqual(initial.steps, [24, 16, 9.6, 6.4, 4.8]);
   assert.equal(
     initial.rngStreamReused,
     true,
@@ -438,7 +438,7 @@ try {
     const expected = Math.min(10000 / initial.steps[speed], 600 * trialEvidence.cap);
     assert.ok(Math.abs(trialEvidence.counts[speed] - expected) < 1.001);
   }
-  assert.equal(trialEvidence.counts[4], 9600, "generated Trial reaches doubled 60Hz top-speed throughput");
+  assert.equal(trialEvidence.counts[4], 2083, "generated Trial top speed matches former normal rate");
   assert.deepEqual(errors, []);
   await trialContext.close();
   process.stdout.write(

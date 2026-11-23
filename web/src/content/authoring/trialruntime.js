@@ -88,7 +88,9 @@ export function createTrialEnvironment(pack, { fullApp = false, playerFaction = 
     visualAssets = buildFullAppVisuals(manifest, binding, scopedAsset);
   }
   const world = createWorldResources({ ...DEFAULT_WORLD, ...manifest.world,
-    assets: { ...visualAssets, ...assets } });
+    assets: { ...visualAssets, ...assets } }, {
+    mapExtent: manifest.schemaVersion === 3 && manifest.buildFormat === 'studio-world-grid-1',
+  });
   bindPortraitOverrides(world, buildPortraitOverrides(pack.chapter?.generals, manifest.portraits));
   const raw = createNewGameScenario(pack.chapter);
   const player = playerFaction ?? raw.factions?.[0]?.idx;

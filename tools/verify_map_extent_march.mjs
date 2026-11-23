@@ -33,6 +33,8 @@ import { loadPlayerPack } from '../web/src/player/playerpack.js';
 import { createPlayerEnvironment } from '../web/src/player/playerenvironment.js';
 import { GameBar } from '../web/src/ui/gamebar.js';
 import { aiTick, performLegionSlotAction } from '../web/src/game/ai.js';
+import { publishLegacyLegionRecord } from '../web/src/game/nativelegions.js';
+import { countLegionActivation } from '../web/src/game/legioncounts.js';
 import { isLegionDelegated } from '../web/src/game/legionmode.js';
 import { createOriginalBattleRng } from '../web/src/game/battle/originalrng.js';
 import { advanceGridMarch } from '../web/src/game/navigation/worldgridroads.js';
@@ -220,13 +222,20 @@ test('E7 south and east marches: player, NPC autonomous, delegated, reorder, con
     const input = { raw: env.raw, idx: 0, mode: 'fresh', world: env.world, content: env.content };
     const anchorRow = chapterState.cities[game.cities[anchorS.cityId].runtimeSlot];
     const npcBaseRow = chapterState.cities[game.cities[npcBase.cityId].runtimeSlot];
-    input.raw.legions.push(
+    // 開局後才編成：不能靠 prepareScenario 為預置軍團裝配路位。
+    const prepared = await prepareScenario({ ...input, mapExtent: true });
+    const sc = prepared.scenario;
+    const formed = [
       { slot: 0, x: anchorS.x, y: anchorS.y, faction: playerFaction, status: 0x80, troops: 800, commandState: 0, moveDelay: 1, movePeriod: 3 },
       { slot: 1, x: npcBase.x, y: npcBase.y, faction: npcFaction, status: 0x80, troops: 800, commandState: 2, moveDelay: 1, movePeriod: 3,
         target: npcBaseRow, targetCity: npcBaseRow.idx, targetNode: npcBaseRow.idx },
-    );
-    const prepared = await prepareScenario({ ...input, mapExtent: true });
-    const sc = prepared.scenario;
+    ];
+    for (const army of formed) {
+      countLegionActivation(sc, army);
+      const record = publishLegacyLegionRecord(sc, army, 'test grid formation');
+      assert.equal(record.roadPosition.kind, 'city');
+      assert.equal(scenarioGridRoadContext(sc).movement.readTile(army.x, army.y), 1);
+    }
     const player = sc.legions.find(l => l.slot === 0), npc = sc.legions.find(l => l.slot === 1);
     const southCity = sc.cities[ordered.length], eastCity = sc.cities[ordered.length + 1];
     const anchorCity = sc.cities[anchorRow.idx], npcCity = sc.cities[npcBaseRow.idx];
@@ -250,8 +259,17 @@ test('E7 south and east marches: player, NPC autonomous, delegated, reorder, con
         const tickVisits = army.moveDelay;
         assert.equal(tickVisits, i === 0 ? 1 : army.movePeriod);
         for (let visit = 1; visit <= tickVisits; visit++) {
+          // App reads the committed cursor: seven other 16-slot batches
+          // must return before this legion can consume another delay unit.
+          while (sc._legionBatchCursor) {
+            const start = sc._legionBatchCursor;
+            app.clock.strategicTickSerial++;
+            aiTick(app, { legionBatchStart: start, runCityDaily: false, settleDaily: false });
+            assert.equal(sc._legionBatchCursor, (start + 16) % 128);
+          }
           app.clock.strategicTickSerial++;
           aiTick(app, { legionBatchStart: 0, runCityDaily: false, settleDaily: false });
+          assert.equal(sc._legionBatchCursor, 16);
           assert.ok(!app._strategicBattleFailure, app._strategicBattleFailure?.message);
           if (visit < tickVisits) assert.deepEqual([army.x, army.y], [x, y]);
         }
@@ -277,7 +295,14 @@ test('E7 south and east marches: player, NPC autonomous, delegated, reorder, con
     // The shared slot pump would interleave both armies, so each march runs
     // isolated (parked armies keep their occupancy tiles, just unpumped).
     const both = sc.legions.slice();
-    const isolate = (army) => { sc.legions = both.filter(l => l === army); };
+    const parked = new Map();
+    const isolate = (army) => {
+      for (const record of both) {
+        if (record !== army && !parked.has(record)) { parked.set(record, record.status); record.status = 0; }
+        if (record === army && parked.has(record)) { record.status = parked.get(record); parked.delete(record); }
+      }
+      sc.legions = [army];
+    };
 
     // 2 first (no ticks yet): NPC autonomous order. The 0x440F case-6 machine
     // issues the east target itself on arrival-settle, unconsumed until now.
@@ -349,7 +374,26 @@ test('E7 south and east marches: player, NPC autonomous, delegated, reorder, con
     // weather does (origin-identical path, fixed seed here). The locked total
     // pins the whole schedule deterministic: NPC 50 steps + south 11 +
     // delegated 11 + reorder/return 11 + re-order 11, all at movePeriod 3.
-    assert.equal(app.originalRng.snapshot().calls - rngBefore, 512);
+    assert.equal(app.originalRng.snapshot().calls - rngBefore, 3936);
+    const owner = sc.factions.find(f => f.idx === playerFaction);
+    owner.capital = anchorCity.idx;
+    assert.ok(bar._orderDisbandAtCapital(player, anchorCity));
+    performLegionSlotAction(app, player);
+    assert.equal(player.roadPosition.kind, 'road');
+    player.morale = 30;
+    player.moveDelay = 2;
+    aiTick(app, { legionBatchStart: 0, runCityDaily: false, settleDaily: true });
+    assert.equal(player.morale, 30);
+    for (let i = 0; i <= geoS.length && player.roadPosition.kind !== 'city'; i++) performLegionSlotAction(app, player);
+    assert.equal(player.roadPosition.cityIndex, owner.capital);
+    const before = owner.n_legions;
+    player.units = Array.from({ length: 6 }, () => ({ type: 1, troops: 100 }));
+    const reserves = owner.reserve_cav;
+    performLegionSlotAction(app, player);
+    assert.equal(player.status, 0);
+    assert.equal(owner.n_legions, before - 1);
+    assert.equal(owner.reserve_cav, Math.min(65500, reserves + 60));
+    assert.equal(movement.readTile(player.x, player.y), 0);
   } finally { pack.close(); }
 });
 
@@ -409,4 +453,12 @@ test('E7 selection and march units: cheapest of two roads, unreachable, occupanc
   assert.throws(() => advanceGridMarch(sc3, a3, { graph: chain, movement }), /Grid march contact unresolved/);
   assert.deepEqual([a3.x, a3.y], [0, 0]);
   assert.equal(movement.readTile(0, 0), 1);
+
+  sc2.cities[1].faction = null;
+  g2.edges[0].points = [{ x: 1, y: 0, flags: 0x44 }, { x: 2, y: 0, flags: 4 }];
+  assert.equal(advanceGridMarch(sc2, a2, { graph: g2, movement }), 'moved');
+  assert.deepEqual([a2.x, a2.y], [1, 0]);
+  assert.throws(() => advanceGridMarch(sc2, a2, { graph: g2, movement }), e => e.endpoint === 1 && e.message === 'Grid march contact unresolved');
+  assert.equal(movement.readTile(1, 0), 1);
+  assert.equal(movement.readTile(2, 0), 0);
 });

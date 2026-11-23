@@ -57,6 +57,20 @@ test('saveCities patches names and numbers with version bump', async () => {
   assert.equal(Object.keys(after.template.content.cities).length, Object.keys(v0.template.content.cities).length);
 });
 
+test('base city creation persists an unplaced definition without modifying the map', async () => {
+  const store = makeBaseStore(), before = await store.initialize('tok');
+  const create = { name: '新增測試', numbers: { max_prod:4000, prod:3000, growth:100, defence:100, troops:50, type:2, view:1 }, battleMapId:'ki-1995:siege:7', troops_cap:60 };
+  store.saveCities('tok', {create});
+  const after = store.read('tok');
+  const city = Object.values(after.template.content.cities).find(c => c.name === create.name);
+  assert.equal(city.runtimeSlot, Object.keys(before.template.content.cities).length);
+  assert.equal(city.troops_cap, 60);
+  assert.equal(city.x, undefined);
+  assert.deepEqual(after.template.content.map,before.template.content.map);
+  failWith(() => store.saveCities('tok', {create}),409,'COPY_CITY_NAME_TAKEN');
+  assert.equal(store.read('tok').digest, after.digest);
+});
+
 test('saveCities rejects bad patches and non-admin', async () => {
   const sql = makeSql();
   const storage = { sql, transactionSync: fn => fn() };

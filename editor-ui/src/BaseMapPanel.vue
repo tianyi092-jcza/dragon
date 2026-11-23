@@ -84,6 +84,12 @@ function startMaterialKeyboard(event, materialId) {
   props.actions.previewPlacement(materialId, materialKeyboard.x, materialKeyboard.y);
 }
 function moveMaterialKeyboard(event) {
+  const key = event.key.toLowerCase();
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && ['c', 'v'].includes(key)) {
+    event.preventDefault();
+    if (!event.repeat && !locked.value && !materialKeyboard && !pointer && !contextPosition.value) void props.actions.command(key === 'c' ? 'cell-copy' : 'cell-paste');
+    return;
+  }
   if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') { event.preventDefault(); void openContext(); return; }
   if (!materialKeyboard || placementLocked.value) return;
   const direction = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
@@ -138,6 +144,7 @@ function down(event) {
   objectDragging = false; shiftSelect = false;
   pointer = { id: event.pointerId, x: event.offsetX, y: event.offsetY, startX: event.offsetX, startY: event.offsetY, moved: false };
   canvas.value.setPointerCapture(event.pointerId);
+  if (event.ctrlKey || event.metaKey) { pointer.cellSelect = true; return; }
   if (event.shiftKey) { shiftSelect = true; return; }
   // 只有锁定地图才允许拖动已选对象；未锁定一律平移地图。
   if (!panLocked.value) return;
@@ -152,7 +159,7 @@ function down(event) {
 function move(event) {
   if (!pointer || props.busy || pointer.id !== event.pointerId) return;
   if (Math.hypot(event.offsetX - pointer.startX, event.offsetY - pointer.startY) > 3) pointer.moved = true;
-  if (pointer.moved) {
+  if (pointer.moved && !pointer.cellSelect) {
     if (!panLocked.value) props.actions.pan(pointer.x - event.offsetX, pointer.y - event.offsetY);
     else if (objectDragging) props.actions.previewObjectMove(event.offsetX, event.offsetY);
   }
@@ -160,6 +167,13 @@ function move(event) {
 }
 function up(event) {
   if (!pointer) return;
+  if (pointer.cellSelect) {
+    if (!pointer.moved && !props.busy) {
+      const count = props.actions.pick(event.offsetX, event.offsetY, true);
+      notice.value = `已選 ${count ?? 0} 格；第一格為貼上定位點。`;
+    }
+    pointer = null; return;
+  }
   if (shiftSelect) {
     shiftSelect = false;
     if (!pointer.moved && !props.busy) {
@@ -331,7 +345,7 @@ onBeforeUnmount(() => {
       <span class="map-status" role="status" aria-live="polite" >{{ model.atlasLoading ? '圖集載入中…' : notice || (model.saveReport ? ({ success: '保存成功', failed: model.uncertain ? '重讀失敗' : '保存失敗', unknown: '結果待確認', running: '保存中…' })[model.saveReport.state] : model.message) }}</span>
     </header>
     <div class="base-map-workspace">
-    <ElDialog :model-value="model.saveReport?.state === 'running'" title="地圖保存檢查" width="min(32rem, 90vw)" align-center append-to-body :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
+    <ElDialog :model-value="model.saveReport?.state === 'running'" title="地圖保存檢查" width="min(calc(32rem + 80px), 90vw)" align-center append-to-body :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
       <div role="status" aria-live="polite"><strong>{{ model.saveReport?.summary }}</strong><ol><li v-for="line in checks" :key="line">{{ line }}</li></ol></div>
     </ElDialog>
     <details v-if="model.saveReport && model.saveReport.state !== 'running'" class="map-save-report" :open="model.saveReport.state !== 'success'">
@@ -344,7 +358,7 @@ onBeforeUnmount(() => {
     <div v-if="model.atlasError" class="base-map-problems" role="alert"><span>{{ model.atlasError }}</span><ElButton @click="actions.retryAtlas()">重試</ElButton></div>
     <div v-if="model.diagnostics?.length" class="base-map-problems" role="alert"><div v-for="problem in model.diagnostics" :key="problem.index"><span>{{ problem.message }}</span><ElButton :disabled="!Number.isInteger(problem.x) || !Number.isInteger(problem.y)" title="定位底圖格" @click="actions.focusDiagnostic(problem.index)">定位</ElButton></div></div>
       <div ref="host" class="base-map-canvas-host">
-        <canvas ref="canvas" class="base-map-canvas" tabindex="0" aria-description="選取素材後以方向鍵逐格移動，Enter或空白鍵放置，Esc取消；選取地圖物件後右鍵或Shift+F10開啟操作。" @keydown="moveMaterialKeyboard" @blur="cancelMaterial" :aria-label="model.gameScoped ? '可編輯遊戲地圖' : '可編輯基礎地圖'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="pointer = null; objectDragging = false; actions.cancelObjectMove()" @lostpointercapture="pointer = null; objectDragging = false; actions.cancelObjectMove()" @contextmenu.prevent="openContext($event)" @wheel.prevent="contextPosition = null; !busy && actions.zoom($event.deltaY < 0 ? 1.2 : 1 / 1.2, $event.offsetX, $event.offsetY)" />
+        <canvas ref="canvas" class="base-map-canvas" tabindex="0" title="Ctrl+點擊增減選格，Ctrl+C 複製；點選一格後按 Ctrl+V 依原形狀貼上。" aria-description="點選單元格後 Ctrl+C 複製圖塊，Ctrl+V 貼上。選取素材後以方向鍵逐格移動，Enter或空白鍵放置，Esc取消；選取地圖物件後右鍵或Shift+F10開啟操作。" @keydown="moveMaterialKeyboard" @blur="cancelMaterial" :aria-label="model.gameScoped ? '可編輯遊戲地圖' : '可編輯基礎地圖'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="pointer = null; objectDragging = false; actions.cancelObjectMove()" @lostpointercapture="pointer = null; objectDragging = false; actions.cancelObjectMove()" @contextmenu.prevent="openContext($event)" @wheel.prevent="contextPosition = null; !busy && actions.zoom($event.deltaY < 0 ? 1.2 : 1 / 1.2, $event.offsetX, $event.offsetY)" />
         <div ref="floating" class="base-map-floating" :style="floatingPosition ? { left: `${floatingPosition.x}px`, top: `${floatingPosition.y}px`, bottom: 'auto' } : {}" aria-label="浮動圖層工具">
         <ElCard :body-style="{ padding: '4px' }">
           <div class="base-map-layer-tools">

@@ -1,3 +1,4 @@
+import { scenarioGridRoadContext } from '../scenarioassembly.js';
 import { nativeFactionAt } from "../nativefactions.js";
 import { nativeLegionAt } from "../nativelegions.js";
 import {
@@ -41,7 +42,13 @@ export function performScenarioMonthlyFiscal(sc, rng) {
       ? 0x18
       : byte(own(record, "faction"), "city faction");
   let playerReport = null;
+  const bounds = scenarioGridRoadContext(sc)?.world.definition;
   const reports = originalMonthlyFiscal5358({
+    readGridCoordinate: bounds && ((slot, axis) => {
+      const min = axis === 'x' ? bounds.minX : bounds.minY;
+      const size = axis === 'x' ? bounds.width : bounds.height;
+      return integer(own(city(slot, axis), axis), min, min + size - 1, `grid city ${axis}`);
+    }),
     readFactionByte(slot, field) {
       const record = faction(slot, field);
       const value = own(record, field);

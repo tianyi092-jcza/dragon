@@ -942,7 +942,8 @@ attachInput(app.view, {
     if (target?.type === "city") {
       const city = target.city;
       app.view.selectedCity = city;
-      const g = app.view.garrisonOf(city);
+      // 點據點按規則格上的軍團開選單，不用上一格插值或行軍目標判定駐軍。
+      const g = sc.legions.find(L => !L.dead && L._active !== false && L.faction != null && L.x === city.x && L.y === city.y);
       if (g) {
         app.gamebar.showGarrisonChoice(city, g);
       } else {

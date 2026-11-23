@@ -130,6 +130,7 @@ export class PublishedPacks {
     const expanded = bounds && !isOriginalBounds(bounds) && isSupportedMapExtent(bounds);
     if (!bounds || (!expanded && (bounds.minX !== 0 || bounds.minY !== 0 || bounds.width !== 384 || bounds.height !== 256))) { fail(422, 'PLAY_MAP_BOUNDS'); }
     const states = {};
+    const cityNames = new Map(Object.values(game.cities ?? {}).map(city => [city.runtimeSlot, city.name]));
     for (const chapterId of game.chapterOrder) {
       if (typeof chapterId !== 'string' || !chapterId) { fail(422, 'PLAY_SNAPSHOT'); }
       const chapter = game.chapters?.[chapterId], state = chapter?.state;
@@ -138,6 +139,9 @@ export class PublishedPacks {
       // or a claim that structural compilation proves every image exists.
       if (cityViewGaps(state.cities).length) { fail(422, 'PLAY_CITY_VIEW_MISSING'); }
       states[chapterId] = structuredClone(state);
+      for (const city of states[chapterId].cities) {
+        if (cityNames.has(city.idx)) city.name = cityNames.get(city.idx);
+      }
       // Author labels own published presentation. Native state.name may be
       // absent in blank chapters or stale after a rename; never rewrite the
       // author source or previously committed packs. Legacy inputs without

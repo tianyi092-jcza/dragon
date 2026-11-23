@@ -3,7 +3,7 @@ import test from "node:test";
 import fs from "node:fs";
 import { initializeLegionSlotState } from "../web/src/game/legionphase.js";
 import { initializeNativeFactionSlots } from "../web/src/game/nativefactions.js";
-import { initializeNativeLegionSlotsFromZeroChapter } from "../web/src/game/nativelegions.js";
+import { initializeNativeLegionSlotsFromZeroChapter, publishLegacyLegionRecord } from "../web/src/game/nativelegions.js";
 import {
   initializeNativeMonthlyPolicy,
   refreshNativeMonthlyPolicyViews,
@@ -226,6 +226,11 @@ test("5456 scans odd +20/+21/+24 aliases but excludes full slots64..127", () => 
       contactAnimationByte21: 13,
       monthlyAliasWord24: 512,
     });
+  // Formations targeting an extended city must retain the real alias bytes,
+  // including nonzero values from a previously used slot, through month-end.
+  for (let slot = 0; slot < 4; slot++) {
+    publishLegacyLegionRecord(aliased.sc, { slot, x: 1, y: 1, status: 128, faction: 13, troops: 0, targetCity: 194 }, 'monthly fixture');
+  }
   monthlySettlement(aliased.sc, null, sequence(0));
   assert.deepEqual(
     [

@@ -48,7 +48,7 @@ export function collectRoadCells(source, terrain) {
   return cells;
 }
 
-function neighboursOf(key, cells) {
+function neighboursOf(key, cells, gateOwners) {
   const [x, y] = key.split(',').map(Number);
   const out = [];
   for (let dy = -1; dy <= 1; dy++)
@@ -58,13 +58,16 @@ function neighboursOf(key, cells) {
       // counting the diagonal shortcut again turns the bend into a junction.
       if (dx && dy && (cells.has(`${x + dx},${y}`) || cells.has(`${x},${y + dy}`))) continue;
       const found = `${x + dx},${y + dy}`;
+      // Two different ports of one city end independent corridors. In a
+      // small city its east and south gates touch diagonally across the centre.
+      if (dx && dy && gateOwners?.has(key) && gateOwners.get(key) === gateOwners.get(found)) continue;
       if (cells.has(found)) out.push(found);
     }
   return out.sort();
 }
 
 /** Chebyshev-connected components, each traced end to end when possible. */
-export function traceRoadChains(cells) {
+export function traceRoadChains(cells, gateOwners) {
   const seen = new Set(), chains = [];
   const ordered = [...cells.keys()].sort();
   for (const start of ordered) {
@@ -75,14 +78,14 @@ export function traceRoadChains(cells) {
     while (queue.length) {
       const key = queue.pop();
       members.push(key);
-      for (const next of neighboursOf(key, cells))
+      for (const next of neighboursOf(key, cells, gateOwners))
         if (!seen.has(next)) {
           seen.add(next);
           queue.push(next);
         }
     }
     members.sort();
-    const degree = new Map(members.map(key => [key, neighboursOf(key, cells).filter(n => members.includes(n)).length]));
+    const degree = new Map(members.map(key => [key, neighboursOf(key, cells, gateOwners).length]));
     const ends = members.filter(key => degree.get(key) === 1);
     if (members.length < 2) {
       chains.push({ cells: members.map(key => cells.get(key)), status: 'single' });
@@ -96,7 +99,7 @@ export function traceRoadChains(cells) {
     const points = [head];
     let prev = null, at = head;
     while (at !== tail) {
-      const next = neighboursOf(at, cells).find(n => n !== prev && members.includes(n));
+      const next = neighboursOf(at, cells, gateOwners).find(n => n !== prev);
       if (next === undefined) break;
       prev = at;
       at = next;
@@ -162,7 +165,14 @@ export function analyzeRoadChains(source, terrain, { maxEdges = Infinity } = {})
     return { cityId: hits[0] };
   };
   const manualEdges = existing.length;
-  for (const chain of traceRoadChains(raw)) {
+  const gateOwners = new Map();
+  for (const [cityId, place] of cityAt) for (const d of [-2,-1,1,2]) {
+    for (const key of [`${place.x+d},${place.y}`, `${place.x},${place.y+d}`]) {
+      if (raw.get(key)?.tile >= GATE_TILE_MIN) gateOwners.set(key, gateOwners.has(key) ? null : cityId);
+    }
+  }
+  for (const [key, owner] of gateOwners) if (owner === null) gateOwners.delete(key);
+  for (const chain of traceRoadChains(raw, gateOwners)) {
     const cells = chain.cells.map(c => [c.x, c.y]);
     if (chain.status !== 'ok') {
       problems.push({ code: chain.status === 'single' ? 'ROAD_UNLINKED' : 'ROAD_JUNCTION', cells, chain });

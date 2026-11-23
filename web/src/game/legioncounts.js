@@ -1,3 +1,5 @@
+import { scenarioGridRoadContext } from './scenarioassembly.js';
+
 // Faction +14 is a stored byte, not a fresh count of the Web live list.
 // KI 6F57/6F5C increments only on inactive-slot activation; 4689/4693
 // decrements with byte wrap (4658, 2997, or active-only 29E2 callers).
@@ -32,6 +34,13 @@ export function countLegionActivation(sc, legion) {
   const faction = sc.factions.find(
     (candidate) => candidate.idx === legion.faction,
   );
+  const grid = scenarioGridRoadContext(sc);
+  if (grid) {
+    const node = grid.graph.nodes.find(n => n.x === legion.x && n.y === legion.y);
+    if (!node) throw new RangeError('New grid legion requires a city position');
+    legion.roadPosition = { kind: 'city', cityIndex: node.cityIndex };
+    grid.movement.writeTile(node.x, node.y, grid.movement.readTile(node.x, node.y) + 1);
+  }
   faction.n_legions = (factionLegionCount(faction) + 1) & 255;
 }
 

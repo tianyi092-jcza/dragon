@@ -24,9 +24,12 @@ const cityGroups = new Map(cityGroupCatalog.items.map(item => [`catalog:${item.i
 // Optional private recipe port remains for reusable combination tooling, never
 // populated by the current workspace. City groups are previews, not placement plans.
 export function createMapCanvas({ publish, stage, gameId = 'system-base-map', spriteRecipes = [] }) {
+  let pickedCell = null, copiedCells = null;
+  const cellSelection = new Map();
   let source = null, canvas = null, mini = null, atlas = null, tiles = null, picker = null, selected = null;
   let diagnostics = [], gridVisible = true, placement = null, objectMove = null, multi = [];
   let moveBackdrop = null, errorCells = [], positionCheckActive = false;
+  let miniImage = null;
   let view = { x: 0, y: 0, zoom: 1 }, size = { width: 1, height: 1 }, minimap = null;
   const thumbnails = new Map();
   // Program descriptors and plans stay private; no fabricated definition enters source or Vue.
@@ -218,11 +221,22 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       });
 
     }
+    for (const [i, {x, y}] of Array.from(cellSelection.values()).entries()) {
+      context.strokeStyle = i === 0 ? '#ffcc00' : '#00ffff';
+      context.strokeRect(((x-source.map.bounds.minX)*16-view.x)*view.zoom, ((y-source.map.bounds.minY)*16-view.y)*view.zoom, cell, cell);
+    }
     if (mini && minimap) {
-      const ctx = mini.getContext('2d'), image = ctx.createImageData(250, 167);
-      minimap.pixels.forEach((byte, index) => { image.data[Math.floor(index / 3) * 4 + index % 3] = byte; });
-      for (let i = 3; i < image.data.length; i += 4) image.data[i] = 255;
-      mini.width = 250; mini.height = 167; ctx.putImageData(image, 0, 0);
+      const ctx = mini.getContext('2d');
+      if (!miniImage) {
+        miniImage = ctx.createImageData(250, 167);
+        const rgba = miniImage.data, rgb = minimap.pixels;
+        for (let s = 0, d = 0; s < rgb.length; s += 3, d += 4) {
+          rgba[d] = rgb[s]; rgba[d+1] = rgb[s+1]; rgba[d+2] = rgb[s+2]; rgba[d+3] = 255;
+        }
+      }
+      if (mini.width !== 250) mini.width = 250;
+      if (mini.height !== 167) mini.height = 167;
+      ctx.putImageData(miniImage, 0, 0);
       ctx.strokeStyle = '#ffcc00'; ctx.strokeRect(view.x / world().width * 250, view.y / world().height * 167, size.width / view.zoom / world().width * 250, size.height / view.zoom / world().height * 167);
     }
   }
@@ -277,10 +291,17 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     }
     return false;
   }
+  function moveFeedback() {
+    draw();
+    publish({ objectMove: objectMove ? { ...objectMove } : null });
+  }
   function previewObjectMove(sx, sy) {
     if (!objectMove || !source) return objectMove ? { ...objectMove } : null;
-    objectMove.started = true;
     const cell = snappedCell(sx, sy);
+    if (objectMove.started && cell?.x === objectMove.pointerX && cell?.y === objectMove.pointerY) return { ...objectMove };
+    objectMove.started = true;
+    objectMove.pointerX = cell?.x;
+    objectMove.pointerY = cell?.y;
     if (!cell) { objectMove = { ...objectMove, inBounds: false }; draw(); facts(); return { ...objectMove }; }
     if (objectMove.layer === 'decor') {
       const item = source.map.decorations.find(row => row.id === objectMove.id);
@@ -289,7 +310,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       const toX = item.x + cell.x - objectMove.gripX, toY = item.y + cell.y - objectMove.gripY;
       const info = decorMoveCells(item, toX, toY);
       objectMove = { ...objectMove, toX, toY, dx: toX - item.x, dy: toY - item.y, inBounds: info.inBounds, cells: info.cells };
-      draw(); facts();
+      moveFeedback();
       return { ...objectMove };
     }
     if (objectMove.layer === 'group') {
@@ -303,7 +324,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       const { minX: boundMinX, minY: boundMinY, width, height } = source.map.bounds;
       const inBounds = moved.every(([x, y]) => x >= boundMinX && x < boundMinX + width && y >= boundMinY && y < boundMinY + height);
       objectMove = { ...objectMove, toX: objectMove.fromX + shiftX, toY: objectMove.fromY + shiftY, dx: shiftX, dy: shiftY, inBounds, cells: moved };
-      draw(); facts();
+      moveFeedback();
       return { ...objectMove };
     }
     if (['multi', 'roads', 'cities'].includes(objectMove.layer)) {
@@ -314,7 +335,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       const { minX: boundMinX, minY: boundMinY, width, height } = source.map.bounds;
       const inBounds = moved.every(([x, y]) => x >= boundMinX && x < boundMinX + width && y >= boundMinY && y < boundMinY + height);
       objectMove = { ...objectMove, toX: objectMove.fromX + shiftX, toY: objectMove.fromY + shiftY, dx: shiftX, dy: shiftY, inBounds, cells: moved };
-      draw(); facts();
+      moveFeedback();
       return { ...objectMove };
     }
     return null;
@@ -378,6 +399,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   // belongs to one (city groups never join multi-select), else the decor.
   // Roads/cities are rejected for grouping. Plain clicks still use pick().
   function toggleMulti(sx, sy) {
+    cellSelection.clear(); pickedCell = null;
     if (!source || locked.decor || !visible.decor) return { toggled: false };
     const cell = snappedCell(sx, sy);
     if (!cell) return { toggled: false };
@@ -476,6 +498,9 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const first = !source;
     placement = null; objectMove = null; multi = [];
     source = value;
+    pickedCell = null;
+    cellSelection.clear();
+    if (!source) copiedCells = null;
     errorCells = []; moveBackdrop = null;
     atomicCatalog = projectAtomicSpriteCatalog(source?.componentDefinitions);
     availableCityGroups = new Set(Array.from(cityGroups).filter(([, group]) => group.tiles.every(([, , tile]) => atomicCatalog.catalogAtoms[tile].available)).map(([id]) => id));
@@ -506,17 +531,28 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     diagnostics = composed.diagnostics;
     const { width, height, minX, minY } = source.map.bounds, roads = new Uint8Array(width * height);
     source.map.roads.forEach(road => road.geometry.forEach(({ x, y }) => { roads[(y - minY) * width + x - minX] = 1; }));
+    miniImage = null;
     minimap = renderMinimapPixels(composed.minimapGeography, roads, width, height, 250, 167, 1);
     if (first) view = fitViewport(size, world());
     draw(); thumbnails.forEach((target, id) => drawThumbnail(target, id)); facts();
   }
-  function pick(sx, sy) {
+  function pick(sx, sy, additive = false) {
     if (!source) return;
     const [wx, wy] = screenToWorld(view, sx, sy), { minX, minY, width, height } = source.map.bounds;
     const x = Math.floor(wx / 16) + minX, y = Math.floor(wy / 16) + minY;
     if (x < minX || x >= minX + width || y < minY || y >= minY + height) return;
     placement = null; objectMove = null; multi = [];
-    const prev = selected;
+    if (additive) {
+      if (!cellSelection.size && pickedCell && pickedCell.selection === selected) cellSelection.set(`${pickedCell.x},${pickedCell.y}`, pickedCell);
+      const key = `${x},${y}`;
+      if (!cellSelection.delete(key)) cellSelection.set(key, { x, y });
+      pickedCell = null; selected = null;
+      draw(); facts();
+      return cellSelection.size;
+    }
+    const hadCellSelection = cellSelection.size > 0;
+    cellSelection.clear();
+    const prev = hadCellSelection ? null : selected;
     selected = null;
     if (visible.cities && !locked.cities) {
       const place = source.map.placements.find(row => row.x === x && row.y === y);
@@ -537,6 +573,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     }
     if (!selected && visible.base && !locked.base) selected = { layer: 'base', id: String((y - minY) * width + x - minX), name: '底圖格', x, y };
     if (selected && prev && (selected.layer === 'decor' || selected.layer === 'group') && selected.layer === prev.layer && selected.id === prev.id && String(selected.center205) === String(prev.center205)) selected = null;
+    pickedCell = selected ? { x, y, selection: selected } : null;
     draw(); facts();
   }
   function newCityStamp(x, y, tile) {
@@ -547,6 +584,30 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     return { op: 'city-stamp', pieceId: newId('city-piece'), x, y, tile };
   }
   function command(op, fields = {}) {
+    if (op === 'cell-copy' || op === 'cell-paste') {
+      const cells = cellSelection.size ? [...cellSelection.values()] : pickedCell && pickedCell.selection === selected ? [pickedCell] : [];
+      if (!source || !cells.length || multi.length) throw new Error('請先點選地圖單元格。');
+      const [anchor] = cells;
+      const { minX, minY, width, height } = source.map.bounds;
+      if (op === 'cell-copy') {
+        copiedCells = cells.map(({x,y}) => {
+          const tile = tiles[(y-minY)*width+x-minX];
+          if (!Number.isInteger(tile) || !source.componentDefinitions[`tile-${tile}`]) throw new Error(`(${x}, ${y}) 沒有可複製的圖塊。`);
+          return { dx:x-anchor.x, dy:y-anchor.y, tile };
+        });
+        return `已複製 ${cells.length} 格；點選一個目標格後貼上。`;
+      }
+      if (!copiedCells) throw new Error('請先用 Ctrl+C 複製圖塊。');
+      if (cells.length !== 1) throw new Error('請點選一個貼上目標格。');
+      if (!visible.decor || locked.decor) throw new Error('請顯示並解鎖裝飾層後再貼上。');
+      const batch = copiedCells.map(({dx,dy,tile}) => {
+        const x = anchor.x+dx, y = anchor.y+dy;
+        if (x < minX || y < minY || x >= minX+width || y >= minY+height) throw new Error(`(${x}, ${y}) 超出地圖，整組未貼上。`);
+        return { op:'decoration-place', instanceId:newId('decoration'), materialId:`tile-${tile}`, variantRef:'original', x, y, waterClass:null };
+      });
+      if (stage(batch) !== false) return `已貼上 ${batch.length} 格，尚未保存。`;
+      return;
+    }
     if (!source) return;
     if (op === 'city-bind' && fields.pieceId === null && selected?.center205) {
       const stamp = newCityStamp(selected.x + selected.center205[0], selected.y + selected.center205[1], 205);

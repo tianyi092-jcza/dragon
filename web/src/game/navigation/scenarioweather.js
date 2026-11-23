@@ -358,6 +358,7 @@ export function performScenarioMonthlyWeatherEvents(sc, rng) {
         disaster: "disaster_event",
       }[field];
       if (!named) missing(`city byte ${field}`);
+      if (field === 'owner' && city.faction === null) return 0x18;
       return byte(own(city, named), `city ${index} ${named}`);
     },
     readCityWord(index, field) {

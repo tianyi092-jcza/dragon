@@ -2019,6 +2019,16 @@ export function applyBattleResult(
     city.troops = originalExit.cityDamage.troops;
     if (city.sim) city.sim.troops = originalExit.cityDamage.troops;
   } else if (wallRecords) applyTacticalSiegeCityDamage(city, wallRecords);
+  if (winner === 'atk' && city.faction === null && scenarioGridRoadContext(sc)) {
+    // World-grid owner projection: 4CF5/4CF8 then neutral 4D2A.
+    // Grid city sprites read live ownership; there is no DOS terrain segment.
+    // Do not reinterpret the grid city index as a DOS SI or move the attacker.
+    const taker = sc.factions.find(faction => faction.idx === A.faction);
+    city._strategicLastFaction = EMPTY_FACTION;
+    city.faction = taker.idx;
+    taker.n_cities++;
+    return;
+  }
   if (
     winner === "atk" &&
     (scenarioNativeRoadContext(sc) || hasNativeLegionSlots(sc))
@@ -3230,7 +3240,7 @@ export function enqueueMonthlyDisasterEvents(app) {
   const sc = app?.scenario;
   const rng = app?.originalRng ?? app?.activeBattleRng;
   if (!sc) return [];
-  if (scenarioNativeRoadContext(sc))
+  if (scenarioNativeRoadContext(sc) || scenarioGridRoadContext(sc))
     return performScenarioMonthlyWeatherEvents(sc, rng).queued;
   if (!rng || typeof rng.nextByte !== "function") return [];
   const queued = [];
@@ -5276,7 +5286,9 @@ function settleEnteredLegionDaily(sc, legion) {
   // Entry qualification belongs to 25B6, not to post-action active/dead flags.
   const faction = sc.factions.find((item) => item.idx === legion.faction);
   if (!faction) throw new TypeError("Entered legion has no faction record");
-  const onRoadEdge = legionOnRoadEdge(legion);
+  const onRoadEdge = scenarioGridRoadContext(sc)
+    ? legion.roadPosition.kind === 'road'
+    : legionOnRoadEdge(legion);
   applyFactionFundsDelta(
     faction,
     -legionDailyMaintenanceCost(legion, onRoadEdge),
@@ -5544,8 +5556,10 @@ function runLegionSlotBatch(app, batch) {
       if (op.kind === "cancelled") return false;
       if (op.kind === "done") {
         // 25FF commits before 2459; a weather failure retains this cursor.
-        if (scenarioNativeRoadContext(sc)) {
+        if (scenarioNativeRoadContext(sc) || scenarioGridRoadContext(sc)) {
           sc._legionBatchCursor = batch.cursor.endSlot % 128;
+        }
+        if (scenarioNativeRoadContext(sc)) {
           // Read the same current RNG at the weather boundary, after all slots.
           batch.changed =
             tickOriginalStrategicWeather(
@@ -5744,8 +5758,7 @@ function resolveGridMarchContact(app, A, error) {
     if (
       city &&
       city.faction !== A.faction &&
-      city.faction != null &&
-      atWar(sc, A.faction, city.faction)
+      (city.faction == null || atWar(sc, A.faction, city.faction))
     ) {
       startEngagement(A, ENGAGE_KIND_SIEGE, { cityIdx: city.idx });
       return resolveEngagementAction(app, A);
@@ -5784,7 +5797,18 @@ export function performLegionSlotAction(app, A) {
     }
     if (outcome === 'moved') {
       A.prevX=x; A.prevY=y; A._renderMoveSerial=app.clock?.strategicTickSerial;
-    } else if (outcome === 'arrived') settleArrivedLegionCommand(sc,A,app.originalRng);
+    } else if (outcome === 'arrived') {
+      const handler = legionCommandHandlerIndex(sc, A);
+      settleArrivedLegionCommand(sc, A, app.originalRng);
+      if (A._disbandAtCapital) {
+        disbandLegionAtCapital(sc, A);
+        releaseGridLegionTile(sc, A);
+      } else if (handler === 9) {
+        repartitionLegionReserves(sc, A);
+        resetLegionActionPhase(A);
+        A.commandState = 3;
+      }
+    }
     return 'complete';
   }
   const native = scenarioNativeRoadContext(sc);

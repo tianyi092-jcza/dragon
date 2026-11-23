@@ -1,6 +1,8 @@
 // Independent map-template validation. No persistence, authority or game creation.
 // Web policy only; native admission remains the shared compiler's responsibility.
-import { canonicalDigest, applySharedCityData, validateGameSource, GAME_RULE_PROFILE, GAMESOURCE_SCHEMA } from '../web/src/content/authoring/gamesource.js';
+import { syncRoadEndpoints } from './copyprofile.js';
+import { isAutoRoadId } from '../web/src/editor/roadchain.js';
+import { canonicalDigest, admitChapterCity, applySharedCityData, validateGameSource, GAME_RULE_PROFILE, GAMESOURCE_SCHEMA } from '../web/src/content/authoring/gamesource.js';
 import { compileGameSource } from '../web/src/content/authoring/trialcompile.js';
 import { assertMapConnected } from '../web/src/content/authoring/mapcompile.js';
 import { CITY_BASE_NUMBERS, CITY_NUMBER_LIMITS } from '../web/src/content/authoring/cityrecords.js';
@@ -46,9 +48,20 @@ export function validateSystemBaseMap(template, sha256hex) {
   // Private compiler projection, NOT a stored game, a publish ticket or a new
   // permitted sourceRef kind in the legacy fixed-copy profile.
   assertMapConnected({ schemaVersion: 1, map: content.map, componentDefinitions: content.componentDefinitions ?? {} });
+  // 建檔未落子的尾端儲備保留在模板；只有地圖上的據點參與路網編譯。
+  const placed = new Set(content.map.placements.map(p => p.cityId));
+  const entries = Object.entries(content.cities).sort((a,b) => a[1].runtimeSlot - b[1].runtimeSlot);
+  if (entries.length > 512 || entries.some(([id, city], slot) => city.cityId !== id || city.runtimeSlot !== slot))
+    throw new RangeError('invalid template city identities');
+  const mapCities = Object.fromEntries(entries.filter(([id, city]) => {
+    if (placed.has(id)) return true;
+    if (city.x != null || city.y != null || !city.battleMapId || city.troops_cap == null)
+      throw new RangeError('invalid unplaced template city');
+    return false;
+  }));
   const compiled = compileGameSource({ schemaVersion: GAMESOURCE_SCHEMA, gameId: 'system-base-map-check',
     ruleProfile: GAME_RULE_PROFILE, sourceRef: { kind: 'system-base-map-check', sourceId: 'system-base-map', revision: digest, digest },
-    map: content.map, componentDefinitions: content.componentDefinitions, cities: content.cities,
+    map: content.map, componentDefinitions: content.componentDefinitions, cities: mapCities,
     compatibilityAssets: content.compatibilityAssets, chapters: {}, chapterOrder: [],
     localModel: { draftRevision: '1' } }, sha256hex, { mapExtent: true });
   Object.values(content.cities).forEach(city => {
@@ -61,7 +74,7 @@ export function validateSystemBaseMap(template, sha256hex) {
     });
   });
   const instanceIds = [...content.map.decorations, ...content.map.placements,
-    ...content.map.roads.flatMap(road => road.components)].map(item => item.id);
+    ...content.map.roads.flatMap(road => road.components ?? [])].map(item => item.id);
   if (instanceIds.some(id => typeof id !== 'string' || !id) || new Set(instanceIds).size !== instanceIds.length)
     throw new RangeError('invalid/duplicate template instance identity');
   const layers = new Map([
@@ -92,7 +105,7 @@ export function validateSystemBaseMap(template, sha256hex) {
         !Number.isSafeInteger(asset.byteLength) || asset.byteLength < 1)
       throw new RangeError('invalid system base map resource descriptor');
   });
-  return { digest, compiled };
+  return { digest, compiled, mapCities };
 }
 
 // Creation boundary: one persisted snapshot, no read of a moving "latest" pointer.
@@ -122,6 +135,20 @@ export function instantiateSystemBaseMap(game, snapshot, sha256hex) {
   // chapter. Its map has already passed full template compilation above, but
   // missing people/factions are draft authoring, not a playable chapter yet.
   if (next.sourceRef.kind === 'builtin-template') validateGameSource(next, { draft: true, mapExtent: true });
-  else compileGameSource(next, sha256hex, { mapExtent: true });
+  else {
+    // Template additions become neutral chapter cities; original slots and
+    // unplaced reserves keep their prior meanings. Use the same admission
+    // and endpoint conversion as a road built inside the game workspace.
+    const oldSlots = new Set(Object.values(game.cities).map(city => city.runtimeSlot));
+    for (const city of Object.values(checked.mapCities).sort((a,b) => a.runtimeSlot-b.runtimeSlot)) {
+      if (!oldSlots.has(city.runtimeSlot)) admitChapterCity(next, city.cityId, city.troops_cap, city.battleMapId, next.map.bounds);
+    }
+    for (const road of next.map.roads) {
+      if (isAutoRoadId('system-base-map', road.id)) syncRoadEndpoints(next, road.fromCityId, road.toCityId);
+    }
+    // The editable copy retains unplaced reserves. Validate imported chapters
+    // against the same placed-city projection as the template road graph.
+    compileGameSource({ ...next, cities: checked.mapCities }, sha256hex, { mapExtent: true });
+  }
   return next;
 }

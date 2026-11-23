@@ -21,10 +21,10 @@ export const STRATEGIC_TIMER_MS = (1000 * 256 * 16) / 1193182;
 // Web产品决定：用户指定五档墙钟间隔（ms），不是原DOS等待值。
 // 每RAF最多两次128槽轮转；正常周期2/3动作相隔16/24次主更新，
 // 因而单帧至多提交一个常规道路步点。迟到时丢超额债务，不跳点追赶。
-// 60Hz最高约960更新/秒，高刷仍受1.0ms档位约束（1000更新/秒）。
+// 最高檔沿用舊普通的 4.8ms，約 208 次更新／秒。
 // 依据及旧速度政策撤换见 docs/re-notes-strategic-time.md §6。
 export const MAX_TICKS_PER_FRAME = 16;
-export const STRATEGIC_SPEEDS = [6.5, 5.0, 4.8, 1.8, 1.0];
+export const STRATEGIC_SPEEDS = [24, 16, 9.6, 6.4, 4.8];
 
 export class Clock {
   /**

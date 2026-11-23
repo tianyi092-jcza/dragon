@@ -23,6 +23,13 @@ assert.deepEqual(convertedMinimal.chapterConversion, { version: 1, labels: [], c
 assert.deepEqual(instantiateSystemBaseMap(convertedMinimal, snapshot, sha).cities, template.content.cities);
 const a = instantiateSystemBaseMap(minimal, snapshot, sha);
 const b = instantiateSystemBaseMap(full, snapshot, sha);
+const withReserve = structuredClone(template);
+const { x, y, ...fields } = Object.values(template.content.cities)[0];
+withReserve.content.cities['city-192'] = { ...fields, name: '漁陽', runtimeSlot:192, cityId:'city-192', troops_cap:60, battleMapId:'ki-1995:siege:2' };
+const reserved = instantiateSystemBaseMap(full, {version:2, digest:canonicalDigest(withReserve, sha), template:withReserve}, sha);
+assert.deepEqual(reserved.cities['city-192'], withReserve.content.cities['city-192']);
+assert.deepEqual(reserved.map, b.map);
+assert.deepEqual(reserved.chapters, b.chapters);
 for (const field of ['map', 'componentDefinitions', 'cities', 'selectionGroups', 'compatibilityAssets', 'mapEditorAssets', 'mapOrigin']) assert.deepEqual(a[field], b[field], field);
 assert.equal(a.chapterOrder.length, 0);
 assert.equal(b.chapterOrder.length, 20);

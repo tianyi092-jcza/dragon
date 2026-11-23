@@ -87,6 +87,30 @@ function cityDeleteBlockers(data, cityId) {
   return blockers;
 }
 // 模块存只拦本模块内（T4）：非空/范围/长度/本模块唯一；跨模块一律推迟到发布门。
+export function createStrongholdDefinition(cities, create) {
+  if (!create || typeof create !== 'object' || Array.isArray(create)) fail(422, 'COPY_CITY');
+  if (Object.keys(create).length === 0 || Object.keys(create).some(k => !['name', 'numbers', 'battleMapId', 'troops_cap'].includes(k))) fail(422, 'COPY_CITY');
+  let cleaned; try { cleaned = cityName(create.name); } catch { fail(422, 'COPY_CITY'); }
+  if (codePoints(cleaned) < 1 || codePoints(cleaned) > 12) fail(422, 'COPY_CITY');
+  if (new Set(Object.values(cities ?? {}).map(c => c.name)).has(cleaned)) fail(409, 'COPY_CITY_NAME_TAKEN');
+  if (!Number.isInteger(create.troops_cap) || create.troops_cap < 0 || create.troops_cap > 255) fail(422, 'COPY_CITY');
+  const numbers = create.numbers ?? {};
+  if (!numbers || typeof numbers !== 'object' || Array.isArray(numbers)) fail(422, 'COPY_CITY');
+  for (const [k, n] of Object.entries(numbers)) {
+    if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(k)) fail(422, 'COPY_CITY');
+    if (!Number.isSafeInteger(n) || n < 0 || n > 65535) fail(422, 'COPY_CITY');
+  }
+  if (numbers.view !== undefined && !Object.hasOwn(cityPictures, numbers.view)) fail(422, 'COPY_CITY');
+  if (!siegeMatchesType(create.battleMapId, numbers.type)) fail(422, 'COPY_CITY');
+  const existing = Object.keys(cities ?? {});
+  if (existing.length >= 512) fail(422, 'COPY_CITY');
+  let top = -1;
+  for (const id of existing) { const m = /^city-(\d{1,3})$/.exec(id); if (m) top = Math.max(top, Number(m[1])); }
+  const cityId = `city-${String(top + 1).padStart(3, '0')}`;
+  if (cities?.[cityId]) fail(422, 'COPY_CITY');
+  return { cityId, runtimeSlot: existing.length, name: cleaned, battleMapId: create.battleMapId, troops_cap: create.troops_cap, ...numbers };
+}
+
 function checkModule(module, patch, data, gameId) {
   if (!MODULES.includes(module)) fail(422, 'COPY_MODULE');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail(422, 'COPY_PATCH');
@@ -150,27 +174,8 @@ function checkModule(module, patch, data, gameId) {
       }
     }
     if (patch.create !== undefined) {
-      if (!patch.create || typeof patch.create !== 'object' || Array.isArray(patch.create)) fail(422, 'COPY_CITY');
-      if (Object.keys(patch.create).length === 0 || Object.keys(patch.create).some(k => !['name', 'numbers', 'battleMapId', 'troops_cap'].includes(k))) fail(422, 'COPY_CITY');
-      let cleaned; try { cleaned = cityName(patch.create.name); } catch { fail(422, 'COPY_CITY'); }
-      if (codePoints(cleaned) < 1 || codePoints(cleaned) > 12) fail(422, 'COPY_CITY');
-      if (new Set(Object.values(data.cities ?? {}).map(c => c.name)).has(cleaned)) fail(409, 'COPY_CITY_NAME_TAKEN');
-      if (!Number.isInteger(patch.create.troops_cap) || patch.create.troops_cap < 0 || patch.create.troops_cap > 255) fail(422, 'COPY_CITY');
-      const numbers = patch.create.numbers ?? {};
-      if (!numbers || typeof numbers !== 'object' || Array.isArray(numbers)) fail(422, 'COPY_CITY');
-      for (const [k, n] of Object.entries(numbers)) {
-        if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(k)) fail(422, 'COPY_CITY');
-        if (!Number.isSafeInteger(n) || n < 0 || n > 65535) fail(422, 'COPY_CITY');
-      }
-      if (numbers.view !== undefined && !Object.hasOwn(cityPictures, numbers.view)) fail(422, 'COPY_CITY');
-      if (!siegeMatchesType(patch.create.battleMapId, numbers.type)) fail(422, 'COPY_CITY');
-      const existing = Object.keys(data.cities ?? {});
-      if (existing.length >= 512) fail(422, 'COPY_CITY');
-      let top = -1;
-      for (const id of existing) { const m = /^city-(\d{1,3})$/.exec(id); if (m) top = Math.max(top, Number(m[1])); }
-      const cityId = `city-${String(top + 1).padStart(3, '0')}`;
-      if (data.cities?.[cityId]) fail(422, 'COPY_CITY');
-      out[`create:${cityId}`] = { cityId, runtimeSlot: existing.length, name: cleaned, battleMapId: patch.create.battleMapId, troops_cap: patch.create.troops_cap, ...numbers };
+      const row = createStrongholdDefinition(data.cities, patch.create);
+      out[`create:${row.cityId}`] = row;
     }
     if (patch.remove !== undefined) {
       if (!Array.isArray(patch.remove) || !patch.remove.length) fail(422, 'COPY_CITY');

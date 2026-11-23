@@ -88,6 +88,20 @@ export function createBaseStrongholdWorkbench({ api, work, publish, confirm, isB
       return '已保存系統基礎據點並重讀。';
     });
   }
+  async function createCity(create) {
+    if (isBusy() || !permitted() || !model.loaded) throw new Error('請先載入系統基礎據點。');
+    const t = ticket();
+    return work(async () => {
+      await api('/api/admin/base-cities', { cities: { create } });
+      if (!valid(t)) return;
+      const data = await api('/api/admin/base-cities');
+      if (!valid(t)) return;
+      applySnapshot(data.snapshot, data.blessed);
+      editing = false;
+      render();
+      return '已新增基礎據點並重讀。';
+    }, { feedback: 'local', ownStatus: true });
+  }
   async function promote(gameId, gameName) {
     if (isBusy() || !permitted() || !gameId) throw new Error('請先選擇要作為來源的遊戲。');
     if (!await confirm(`確定將遊戲「${gameName || gameId}」的全部城池據點覆蓋為系統基礎據點嗎？這會取代現有 ${model.cities.length} 座系統定義。`)) return false;
@@ -106,5 +120,5 @@ export function createBaseStrongholdWorkbench({ api, work, publish, confirm, isB
   }
   render();
   return Object.freeze({ setIdentity, canLeave, setEditing, render,
-    actions: Object.freeze({ enter: () => load(), load, reload, saveCity, promote, setEditing }) });
+    actions: Object.freeze({ enter: () => load(), load, reload, saveCity, createCity, promote, setEditing }) });
 }

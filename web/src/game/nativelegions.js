@@ -85,7 +85,9 @@ export function publishLegacyLegionRecord(sc, legion, at, movement = null) {
   integer(legion?.slot, 0, 127, "slot");
   const record = nativeLegionAt(sc, legion.slot, at, true);
   for (const key of Object.keys(record)) {
-    if (key !== "slot" && key !== "engagementCountdown") delete record[key];
+    // 5456 reads the second half of this same fixed record. Formation's
+    // projected DTO does not replace the stored +21 byte or +24 word.
+    if (!["slot", "engagementCountdown", "contactAnimationByte21", "monthlyAliasWord24"].includes(key)) delete record[key];
   }
   for (const [key, value] of Object.entries(legion)) {
     if (key === "slot" || PRESENTATION_KEYS.has(key)) continue;
@@ -94,6 +96,10 @@ export function publishLegacyLegionRecord(sc, legion, at, movement = null) {
       if (!Array.isArray(value) || value.length !== 6)
         throw new TypeError("Invalid legacy six-team table");
       record.units = structuredClone(value);
+      continue;
+    }
+    if (key === 'roadPosition') {
+      record.roadPosition = { ...value };
       continue;
     }
     if (typeof value === "object") continue;
