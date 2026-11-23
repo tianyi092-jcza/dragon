@@ -55,6 +55,16 @@ test('loadCopy builds cities rows in the page projection', async () => {
   assert.equal(h.errors.length, 0);
 });
 
+test('shared copy reader uses this map’s four expanded edges for definitions and chapter rows', async () => {
+  for (const [x,y,ok] of [[-3,-4,true],[384,256,true],[-4,0,false],[0,-5,false],[385,0,false],[0,257,false]]) {
+    const h = harness(); await selectGame(h);
+    const data = copyData({ map: { bounds: { minX: -3, minY: -4, width: 388, height: 261 } } });
+    Object.assign(data.cities.c1, { x,y }); Object.assign(data.chapters.ch1.state.cities[0], { x,y });
+    h.response(() => ({ gameId, copyDigest: DIGEST_A, data })); await h.actions.loadCopy();
+    assert.equal(Boolean(h.model().copy.page), ok, `${x},${y}`);
+  }
+});
+
 test('loadCopy rejects malformed cities without claiming success', async () => {
   for (const bad of [{ cities: null }, { cities: { c1: { name: '', max_prod: 0 } } }, { cities: { c1: { name: '洛陽', prod: 70000 } } }, { cities: [] }]) {
     const h = harness(); await selectGame(h);

@@ -687,16 +687,16 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
   // F2 副本页读 + 按模块存（加法）：读 GET /copy 全量并做显示投影，写走
   // saveCopyModule（metadata / chapters.resources），成功后 loadCopy() 重读。
   const copyLoadedForGame = () => Boolean(copyData && copyGameId === fields.gameId && uuid(fields.gameId));
-  function checkedCopyCities(cities) {
+  function checkedCopyCities(cities, coordinates) {
     if (!cities || typeof cities !== 'object' || Array.isArray(cities)) throw new Error('副本據點格式無效。');
     const seen = new Set(), slots = new Set(), rows = [];
     for (const [cityId, row] of Object.entries(cities)) {
       if (!cityId || seen.has(cityId) || !row || typeof row !== 'object' || Array.isArray(row) || typeof row.name !== 'string' || !row.name) throw new Error('副本據點身份無效。');
       seen.add(cityId);
       const out = { cityId, name: row.name };
-      for (const [key, max] of [['runtimeSlot', 511], ['x', 383], ['y', 255]]) {
+      for (const [key, min, max] of [['runtimeSlot', 0, 511], ...coordinates]) {
         if (row[key] === undefined) continue;
-        if (row[key] !== null && (!Number.isInteger(row[key]) || Object.is(row[key], -0) || row[key] < 0 || row[key] > max)) throw new Error('副本據點位置格式無效。');
+        if (row[key] !== null && (!Number.isInteger(row[key]) || Object.is(row[key], -0) || row[key] < min || row[key] > max)) throw new Error(`據點「${row.name}」的 ${key} 值不在有效範圍 ${min} 至 ${max} 內。`);
         out[key] = row[key];
       }
       if (out.runtimeSlot != null) {
@@ -753,7 +753,10 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!Array.isArray(data.chapterOrder) || !data.chapters || typeof data.chapters !== 'object' || Array.isArray(data.chapters)) throw new Error('副本章節格式無效。');
     const library = checkedCopyGenerals(data.generals, gameId);
     const definitions = new Map((library ?? []).map(row => [row.generalId, row]));
-    const cityDefinitions = checkedCopyCities(data.cities);
+    const bounds = data.map?.bounds ?? { minX: 0, minY: 0, width: 384, height: 256 };
+    const coordinates = [['x', bounds.minX, bounds.minX + bounds.width - 1], ['y', bounds.minY, bounds.minY + bounds.height - 1]];
+    if (!coordinates.every(([, min, max], axis) => Number.isSafeInteger(min) && min >= -20 && min <= 0 && Number.isSafeInteger(max) && max >= [383, 255][axis] && max <= [403, 275][axis])) throw new Error('副本地圖範圍無效。');
+    const cityDefinitions = checkedCopyCities(data.cities, coordinates);
     const citiesBySlot = new Map(cityDefinitions.filter(city => city.runtimeSlot != null).map(city => [city.runtimeSlot, city]));
     const seen = new Set();
     const chapters = data.chapterOrder.map(id => {
@@ -848,9 +851,9 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
         citySlots.add(city.idx);
         const definition = citiesBySlot.get(city.idx);
         const out = { idx: city.idx, name: definition?.name ?? city.name };
-        for (const [key, max] of [['x', 383], ['y', 255], ['type', 255], ['view', 255]]) {
+        for (const [key, min, max] of [...coordinates, ['type', 0, 255], ['view', 0, 255]]) {
           const value = definition ? definition[key] ?? null : city[key] ?? null;
-          if (!definition && value !== null && (!Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > max)) throw new Error('副本章節據點只讀屬性格式無效。');
+          if (!definition && value !== null && (!Number.isInteger(value) || Object.is(value, -0) || value < min || value > max)) throw new Error('副本章節據點只讀屬性格式無效。');
           out[key] = value;
         }
         for (const key of ['troops', 'prod']) { const value = city[key] ?? null; if (value !== null && (!Number.isSafeInteger(value) || value < 0)) throw new Error('副本章節據點數值格式無效。'); out[key] = value; }
