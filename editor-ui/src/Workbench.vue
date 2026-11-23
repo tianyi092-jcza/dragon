@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElLink } from 'element-plus/es/components/link/index.mjs';
 import { ElTag } from 'element-plus/es/components/tag/index.mjs';
@@ -46,30 +46,14 @@ const activeMap = computed(() => {
   return null;
 });
 const title = computed(() => ({ profile: '個人資料', password: '變更密碼' }[props.state.view] || menu.value.find(item => item[0] === props.state.view)?.[1] || '工作台'));
-// 全局瞬時提示：所有常駐狀態文案（頂部狀態列＋各面板 model.message）
-// 變化時同步發一條 Plain 白底 ElMessage；去重避免同一文案反覆彈出。
-// 控制器只寫 model，不直接彈窗，Node 單測不受 DOM 影響。
-const toasted = new Map();
-function toastOnce(key, text, type = 'info') {
-  const message = String(text ?? '').trim();
-  if (!message || toasted.get(key) === message) return;
-  toasted.set(key, message);
-  notify(message, type);
-}
+// 面板常駐文案不產生 toast；只有明確通知才使用瞬時提示。
 // 章節面板的 @notice 只承載行內校驗／提示文案，不做錯誤分級猜測，一律 info；
 // 真正的錯誤仍走 status(message, true) 的 statusError 旗標。
 function onNotice(message) {
   props.state.statusMessage = message;
   props.state.statusError = false;
+  if (message) notify(message, 'info');
 }
-watch(() => props.state.statusMessage, message => toastOnce('status', message, props.state.statusError ? 'error' : 'info'));
-watch(() => [
-  props.accountsModel.message, props.draftModel.message, props.catalogModel.message,
-  props.copyModel.message, props.fullCopyModel.message, props.publicationModel.message,
-  props.managementModel.message, props.reviewModel.message, props.libraryModel.message,
-  props.stageAssetsModel.message, props.stageJobsModel.message,
-  props.baseMapModel.message, props.baseStrongholdModel.message, props.gameMapModel.message,
-], messages => messages.forEach((message, index) => toastOnce(index, message)));
 async function go(view) {
   userMenu.value = false;
   props.navigate(view);

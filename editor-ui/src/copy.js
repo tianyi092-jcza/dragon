@@ -11,7 +11,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
   const reservePath = full ? '/api/admin/copies' : '/api/games';
   const operationPath = key => full ? '/api/admin/copies/' + encodeURIComponent(key) : '/api/games/create/' + encodeURIComponent(key);
   let actor = null, generation = 0, operation = null, summary = null, games = [], broken = false, needsQuery = false;
-  let name = '', introduction = '', message = '';
+  let name = '', introduction = '', message = '', restored = false;
   const permitted = () => actor && actor === authority() && (full ? actor.user.role === 'admin' : ['admin', 'author'].includes(actor.user.role)) && !actor.user.mustChangePassword;
   const storeKey = () => (full ? 'editor-fullcopy-operation:' : 'editor-copy-operation:') + actor.user.id;
   const validKey = value => typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value);
@@ -34,9 +34,9 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
       message: allowed ? message : '', locked,
       conversionDetails: allowed && full ? summary?.conversionDetails ?? '' : '',
       // 追蹤期間面板會顯示自動核對的進度；不需要任何「續」按鈕（用戶要求）。
-      tracking: allowed && tracking(),
+      tracking: allowed && !restored && tracking(),
       // 失敗不得靜默消失（用戶要求）：彈窗留著並列出原因，使用者按「確認」才關。
-      failed: allowed && !tracking() && summary?.state === 'failed',
+      failed: allowed && !restored && !tracking() && summary?.state === 'failed',
       // 還在自動核對時不能重送；原鍵不可讀或已在追蹤才鎖住建立。
       createDisabled: locked || broken || tracking(),
       forgetDisabled: locked || !operation,
@@ -67,6 +67,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     ? (reasons[code] ?? '複製失敗（' + code + '）')
     : reasons.COPY_FAILED;
   function failedMessage(summary) {
+    if (summary.failedCode === 'BASE_MAP_NOT_INITIALIZED') return (restored ? '上次' : '本次') + label + '時尚未建立基礎地圖。若已建立，可重新提交。';
     if (summary.failedCode === 'COPY_CHAPTER_CAPITAL') {
       let detail = '來源劇本有重複或無效的首都引用。';
       if (summary.failedDetail) {
@@ -195,7 +196,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     if (operation && pending()) { return await runExisting(t); }
 
     const body = full ? await fullBody() : { name, introduction }, key = crypto.randomUUID();
-    operation = key; summary = null; needsQuery = true;
+    restored = false; operation = key; summary = null; needsQuery = true;
     try { storage.setItem(storeKey(), key); } catch { broken = true; throw new Error('無法保留原鍵；本次未提交。'); }
     name = ''; introduction = ''; message = '正在建立' + label + '，請勿重複提交…'; render();
     if (!valid(t) || operation !== key) return;
@@ -211,7 +212,8 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     }
     if (!valid(t) || operation !== key) return;
     summary = decodeSummary(created); needsQuery = false;
-    return await runExisting(t);
+    await runExisting(t);
+    if (valid(t) && summary?.draftRevision) return full ? '遊戲已複製。' : '遊戲已建立。';
   }
   // 一筆追蹤真正結案（已建立或已失效）：釋放本機原鍵，下一次載入不會再自動核對。
   function release() { try { storage.removeItem(storeKey()); } catch { /* 清除失敗只影響下一筆追蹤 */ } operation = null; }
@@ -333,7 +335,7 @@ export function createCopyController({ api, authority, work, isBusy, publish, go
     setIdentity(next) {
       if (actor === next) return render();
       generation++; actor = next; summary = null; games = []; name = ''; introduction = ''; message = ''; needsQuery = false;
-      restore(); render();
+      restore(); restored = Boolean(operation); render();
       // 本機還留著原鍵（重新載入、換分頁）就自動接著核對到完成，不需要人再按一次。
       // 這是使用者已經按過「複製遊戲」的那一筆，不是在自動開新操作。
       if (operation && permitted()) void actions.resume();

@@ -151,13 +151,14 @@ test('服務端判定失敗時直接結束：訊息說出原因與已丟棄、�
   assert.equal(paths(h, '/run').length, 0, '載入後只讀核對，不自動重跑');
 });
 
-test('失敗不得靜默消失：model.failed 留住彈窗，按「確認」才關；成功時不會標成失敗', async () => {
+test('重讀舊失敗只在面板顯示原因，不重彈；新操作成功不標成失敗', async () => {
   const journal = new Map([['editor-fullcopy-operation:admin-1', 'existing-key-1234567890']]);
   const h = setup({ journal, reply: async path => {
     if (path === '/api/games') return { games: [] };
     return pending({ state: 'failed', rowRevision: '2', failedCode: 'COPY_INTERRUPTED' });
   } });
-  assert.equal(await waitFor(() => h.model.failed === true), true, '失敗後彈窗要留著');
+  assert.equal(await waitFor(() => /複製中斷/.test(h.model.message)), true);
+  assert.equal(h.model.failed, false, '重讀舊結果不重彈');
   assert.match(h.model.message, /複製中斷/);
   h.ui.actions.dismiss();
   assert.equal(h.model.failed, false, '按「確認」才關掉');

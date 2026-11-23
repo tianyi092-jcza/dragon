@@ -38,6 +38,8 @@ export { createGameMapWorkbench } from './gamemapworkbench.js';
 
 // The shell receives display facts only, never CSRF tokens, passwords, source
 // objects or live game state. Server permissions remain the authority.
+import { notify } from './notify.js';
+
 export function mountWorkbench({ root, views, navigate, logout, accounts, draft, stageAssets, stageJobs, library, stronghold, catalog, generals, copy, fullCopy, publication, management, review, baseMap, baseStronghold, gameMap }) {
   // The legacy page link belongs to the player. Detach it only in the editor;
   // do not override its theme variables or change the shared server asset.
@@ -85,6 +87,7 @@ export function mountWorkbench({ root, views, navigate, logout, accounts, draft,
     status: (message, isError = false) => {
       state.statusMessage = message;
       state.statusError = Boolean(isError);
+      if (message) notify(message, isError ? 'error' : 'info');
       // Keep map-specific success/dirty text, but never hide run() errors.
       if (isError && state.view === 'base-map-editor') baseMapModel.message = message;
       if (isError && state.view === 'mapview-editor') gameMapModel.message = message;

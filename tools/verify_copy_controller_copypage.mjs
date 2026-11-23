@@ -92,7 +92,7 @@ test('copyChapter posts copy/delete/rename shapes and re-reads', async () => {
   const h = harness(); await selectGame(h); loadOk(h);
   await h.actions.loadCopy();
   await h.actions.copyChapter('copy', 'ch1');
-  await h.actions.copyChapter('delete', 'ch1');
+  assert.equal(await h.actions.copyChapter('delete', 'ch1'), '章節「第一章」已成功刪除。');
   const posts = () => h.calls.filter(c => c.path === `/api/games/${gameId}/copy` && c.body !== undefined).map(c => c.body);
   assert.deepEqual(posts(), [{ module: 'chapters', patch: { copy: { chapterId: 'ch1' } } }, { module: 'chapters', patch: { delete: { chapterId: 'ch1' } } }]);
   const h2 = harness({ promptReply: '新章' }); await selectGame(h2); loadOk(h2);

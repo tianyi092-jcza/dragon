@@ -104,7 +104,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       cities: source ? Object.values(source.cities ?? {}).map(city => ({ cityId: city.cityId, name: city.name ?? city.cityId, x: city.x, y: city.y, bound: source.map.placements.some(p => p?.cityId === city.cityId) })) : [],
       placements: source ? source.map.placements.map(p => ({ id: p.id, cityId: p.cityId ?? null, x: p.x, y: p.y })) : [],
       unboundCities: source ? Object.values(source.cities ?? {}).filter(city => !source.map.placements.some(p => p?.cityId === city.cityId)).map(city => ({ cityId: city.cityId, name: city.name ?? city.cityId })) : [],
-      selectedBinding: selected?.layer === 'cities' ? (() => { const piece = source?.map.placements.find(p => p?.id === selected.id); return piece ? { pieceId: piece.id, cityId: piece.cityId ?? null, x: piece.x, y: piece.y } : null; })() : null,
+      selectedBinding: selected?.layer === 'cities' ? (() => { const piece = source?.map.placements.find(p => p?.id === selected.id); return piece ? { pieceId: piece.id, cityId: piece.cityId ?? null, x: piece.x, y: piece.y } : null; })() : selected?.center205 ? { pieceId: null, cityId: null, x: selected.x + selected.center205[0], y: selected.y + selected.center205[1] } : null,
       selectedGroup,
       multi: multi.map(({ kind, id }) => ({ kind, id })),
       multiNames: multi.slice(0, 3).map(row => row.name || row.id),
@@ -528,14 +528,24 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     }
     if (!selected && visible.decor && !locked.decor) {
       const index = picker.pick(x, y), item = source.map.decorations[index];
-      if (item) { const def = source.componentDefinitions[item.definitionRef]; selected = { layer: 'decor', id: item.id, name: def.name || item.definitionRef, x: item.x, y: item.y, cells: def.footprint.length, captureAllowed: true }; }
+      if (item) {
+        const def = source.componentDefinitions[item.definitionRef], dx = x - item.x, dy = y - item.y;
+        const center = visible.cities && !locked.cities && def.variants[item.variantRef ?? 'original'].tiles.some(([tx, ty, tile]) => tile === 205 && tx === dx + def.anchor[0] && ty === dy + def.anchor[1]);
+        selected = { layer: 'decor', id: item.id, name: def.name || item.definitionRef, x: item.x, y: item.y, cells: def.footprint.length, captureAllowed: true, ...(center ? { center205: [dx, dy] } : {}) };
+      }
     }
     if (!selected && visible.base && !locked.base) selected = { layer: 'base', id: String((y - minY) * width + x - minX), name: '底圖格', x, y };
-    if (selected && prev && (selected.layer === 'decor' || selected.layer === 'group') && selected.layer === prev.layer && selected.id === prev.id) selected = null;
+    if (selected && prev && (selected.layer === 'decor' || selected.layer === 'group') && selected.layer === prev.layer && selected.id === prev.id && String(selected.center205) === String(prev.center205)) selected = null;
     draw(); facts();
   }
   function command(op, fields = {}) {
     if (!source) return;
+    if (op === 'city-bind' && fields.pieceId === null && selected?.center205) {
+      const x = selected.x + selected.center205[0], y = selected.y + selected.center205[1], pieceId = newId('city-piece');
+      const result = stage([{ op: 'city-stamp', pieceId, x, y, tile: 205 }, { op, pieceId, cityId: fields.cityId }]);
+      if (result !== false) { selected = { layer: 'cities', id: pieceId, name: source.cities[fields.cityId]?.name || fields.cityId, x, y }; draw(); facts(); }
+      return result;
+    }
     if (op === 'city-stamp') {
       if (!selected || locked.cities || !visible.cities) throw new Error('請先在地圖上選取新據點中心位置');
       const tile = Number(fields.tile);

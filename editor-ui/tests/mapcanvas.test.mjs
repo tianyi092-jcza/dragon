@@ -539,6 +539,18 @@ test('native canvas uses tile atlas, footprint hit testing, display-only layer l
   view.setSource(null); assert.equal(model.loaded, false); assert.equal(model.selected, null);
 });
 
+test('only the clicked 205 cell of a decoration can stamp and bind a city in one edit', () => {
+  const source = fixture(), commands = []; let model;
+  source.componentDefinitions.piece.variants.original.tiles = [[0, 0, 255], [1, 0, 205], [0, 1, 18]];
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: edit => commands.push(edit) });
+  view.attach(canvas(), null); view.setSource(source);
+  view.pick(8, 8); assert.equal(model.selectedBinding, null);
+  view.pick(24, 8); assert.deepEqual(model.selectedBinding, { pieceId: null, cityId: null, x: 1, y: 0 });
+  view.command('city-bind', { pieceId: null, cityId: 'test-city' });
+  const pieceId = commands[0][0].pieceId;
+  assert.deepEqual(commands, [[{ op: 'city-stamp', pieceId, x: 1, y: 0, tile: 205 }, { op: 'city-bind', pieceId, cityId: 'test-city' }]]);
+});
+
 test('base cell supplies only a city placement coordinate, never a movable decoration', () => {
   const source = fixture(), commands = []; let model;
   const view = createMapCanvas({ publish: value => { model = value; }, stage: edit => commands.push(edit) });

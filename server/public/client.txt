@@ -128,7 +128,7 @@ async function run(action, options = {}) {
   try { draftUI.render(); stageUI?.render(); libraryUI?.render(); catalogUI?.render(); managementUI?.render(); publishUI?.render(); reviewUI?.render(); stageAssetUI?.render(); strongholdUI?.render(); generalsUI?.render(); copyUI.render(); fullCopyUI.render(); baseStrongholdUI.render(); } catch { /* 畫不上不影響動作本身 */ }
   // 動作若能說清楚自己完成了什麼（例如「複製完成。」「檢驗完成。」），就在上方提示那句話；
   // 才退回仍有的中性提示，不再讓所有操作都顯示成「操作完成」。
-  try { const result = await action(); if (!options.ownStatus) status(typeof result === 'string' && result ? result : '操作完成。'); return result; }
+  try { const result = await action(); if (!options.ownStatus && typeof result === 'string' && result) status(result); return result; }
   catch (error) { status((error && error.message) || '操作失敗（原因未回報）。', true); if (feedback !== 'global') throw error; }
   finally {
     busy = false; feedback = 'global';
@@ -200,4 +200,4 @@ q('password').onsubmit = event => { event.preventDefault(); const data = new For
 q('logout').onclick = () => run(async () => { if (!canLeave()) return; await api('/api/auth/logout', {}); draftUI.clearForLogout(); current = null; sessionEpoch++; view = null; history.replaceState(null, '', location.pathname); render(); });
 function fillProfile() { const form = q('profile'); if (!current) return; for (const key of ['displayName', 'email', 'phone', 'note']) { const input = form.elements.namedItem(key); if (input && document.activeElement !== input) input.value = current.user[key] ?? ''; } }
 q('profile').onsubmit = event => { event.preventDefault(); const data = new FormData(event.currentTarget); run(async () => { const value = {}; for (const key of ['displayName', 'email', 'phone', 'note']) value[key] = String(data.get(key) ?? ''); const result = await api('/api/auth/profile', value); current.user = result.user; fillProfile(); q('profile-status').textContent = '已保存。'; }); };
-const bootMark = sessionEpoch; let boot = null; try { boot = await api('/api/session'); } catch (error) { if (bootMark === sessionEpoch) { render(); status(error.message); } } if (boot !== null && bootMark === sessionEpoch) { current = boot; render(); if (current.user.role === 'admin' && !current.user.mustChangePassword) await run(list); }
+const bootMark = sessionEpoch; let boot = null; try { boot = await api('/api/session'); } catch (error) { if (bootMark === sessionEpoch) { render(); status(error.message); } } if (boot !== null && bootMark === sessionEpoch) { current = boot; render(); if (current.user.role === 'admin' && !current.user.mustChangePassword) await run(list, { ownStatus: true }); }

@@ -1054,7 +1054,10 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       if (op === 'delete' && !confirm('刪除章節「' + selected.name + '」？\n本章包含 ' + selected.factions.length + ' 個勢力、' + selected.generals.length + ' 筆武將槽設定、' + selected.cities.length + ' 筆據點設定，將一併刪除。\n不刪遊戲主表或其它章節，不改已發布版本；零章可保存但禁止發布。')) return null;
       await saveCopyModuleInner(gameId, valid, 'chapters', patch);
       await loadCopyInner(gameId, valid);
-      return copyDigest;
+      if (!valid() || fields.gameId !== gameId) return null;
+      if (op === 'delete') return `章節「${selected.name}」已成功刪除。`;
+      if (op === 'copy') return `章節「${selected.name}」已複製。`;
+      return `章節「${selected.name}」已更名為「${patch.rename[chapterId]}」。`;
     });
   }
   async function createCopyChapter() {
