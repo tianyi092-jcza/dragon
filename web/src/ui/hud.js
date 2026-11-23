@@ -1617,7 +1617,7 @@ export class HUD {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
     if (!me) return;
-    const rows = sc.factions.map((f) => {
+    const rows = sc.factions.filter(f => !f.retired).map((f) => {
       const m = sc.generals[f.monarch_idx];
       const isMe = f.idx === me.idx;
       const rel = relation(sc, me.idx, f.idx);

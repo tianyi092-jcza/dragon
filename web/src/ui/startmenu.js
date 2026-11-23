@@ -104,10 +104,13 @@ export class StartMenu {
           chooseFaction: async (idx) => {
             // 到這一步才拉這一章的位元組（勢力／城市／武將）；章節窗只用目錄。
             if (this.app._formalPrepareChapter && !this.app._formalEntry.catalog[idx].factions?.length) await this.app._formalPrepareChapter(idx);
-            return this._factionDialog(idx);
+            const row = await this._factionDialog(idx);
+            if (row == null || row < 0) return row;
+            const chapter = this.app._formalPrepareChapter
+              ? await this.app._formalPrepareChapter(idx) : this.app.data.scenarios[idx];
+            return chapter.factions.filter(f => !f.retired && f.monarch?.trim())[row]?.idx ?? -1;
           },
           chooseAdvisor: async (idx, faction) => {
-            if (this.app._formalPrepareChapter) await this.app._formalPrepareChapter(idx);
             return this._advisorDialog(idx, faction);
           },
           chooseSave: async () => {
@@ -256,7 +259,7 @@ export class StartMenu {
     }
     // 各势力行: 君主名/军师名(势力记录 byte[2] 指定, 0x7F=无→---)/武将数/据点数/首都名
     return scen.factions
-      .filter((f) => f.monarch && f.monarch.trim())
+      .filter((f) => !f.retired && f.monarch?.trim())
       .map((f) => {
         const adv = f.advisor_idx == null ? null : scen.generals[f.advisor_idx];
         return {
