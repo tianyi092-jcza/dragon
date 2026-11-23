@@ -1617,24 +1617,22 @@ export class HUD {
     const sc = this.app.scenario;
     const me = cmd.playerFaction(sc);
     if (!me) return;
-    const rows = sc.factions.filter(f => !f.retired).map((f) => {
+    const cityCounts = new Map();
+    for (const city of sc.cities) cityCounts.set(city.faction, (cityCounts.get(city.faction) ?? 0) + 1);
+    const rows = sc.factions.filter(f => !f.retired && cityCounts.has(f.idx)).map((f) => {
       const m = sc.generals[f.monarch_idx];
       const isMe = f.idx === me.idx;
       const rel = relation(sc, me.idx, f.idx);
       const envoy = sc.envoys?.[f.idx]?.name ?? "－－－";
       const genCount = sc.generals.filter(
-        (g) =>
-          g &&
-          g.faction === f.idx &&
-          g.active !== false &&
-          !(isMe && g.is_player),
+        (g) => g && (g === m || (g.faction === f.idx && g.active !== false && !(isMe && g.is_player))),
       ).length;
       return {
         _faction: f,
         cells: [
           m ? m.name.trim() : `?`,
           `${genCount}`,
-          `${sc.cities.filter((c) => c.faction === f.idx).length}`,
+          `${cityCounts.get(f.idx)}`,
           sc.cities[f.capital]?.name ?? "－－－",
           isMe ? "－－" : { t: relationLabel(rel), color: relationColor(rel) },
           isMe ? "－－－" : envoy,
