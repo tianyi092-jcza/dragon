@@ -266,6 +266,27 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
   } finally { pack.close(); }
   }
   await verifyApprovedMap(gameId, ok.data, expected, beforeMap.terrainBytes);
+  if (process.argv.includes('--publication-only')) {
+    // Immediately replace a pending application using a fresh ticket; no clock override.
+    for (const description of ['新版申請', '重驗後覆蓋申請']) {
+      const checked = await call(`/api/games/${gameId}/copy/validate`, {}, admin);
+      assert.equal(checked.data.state, 'passed');
+      const status = await call(`/api/games/${gameId}/copy/submission`, undefined, admin);
+      assert.equal(status.data.publishEnabled, true, status.data.blockedReason);
+      const submitted = await call(`/api/games/${gameId}/copy/submission`, { ticket: checked.data.ticket, description }, admin);
+      assert.equal(submitted.data.state, 'submitted', JSON.stringify(submitted.data));
+      const pending = await call(`/api/games/${gameId}/copy/submission`, undefined, admin);
+      assert.equal(pending.data.version, '1.0');
+      assert.equal(pending.data.slot.state, 'submitted');
+    }
+    const updated = await call(`/api/games/${gameId}/copy/approve`, {}, admin);
+    assert.equal(updated.data.ordinal, '1.1', JSON.stringify(updated.data));
+    const status = await call(`/api/games/${gameId}/copy/submission`, undefined, admin);
+    assert.equal(status.data.version, '1.1');
+    assert.equal(status.data.slot.state, 'approved');
+    assert.equal(status.data.slot.description, '重驗後覆蓋申請');
+    return;
+  }
 
   // 普通新建也直接拥有据点主表，武将允许为空；来源相同不等于共用可变数据。
   const newKey = randomUUID();

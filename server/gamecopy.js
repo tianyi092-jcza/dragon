@@ -42,7 +42,8 @@ const uuid = v => typeof v === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3
 const hex = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const iso = v => typeof v === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString() === v;
 const sha = b => createHash('sha256').update(b).digest('hex');
-const SUBMIT_COOLDOWN_MS = 30 * 60 * 1000;
+// 测试期间暂停发布申请间隔；恢复时改回 30 * 60 * 1000。
+const SUBMIT_COOLDOWN_MS = 0;
 const MODULES = ['metadata', 'cities', 'generals', 'chapters', 'map'];
 const MAX_COPY_BYTES = 64 * 1024 * 1024;
 
@@ -880,7 +881,7 @@ export class GameCopyStore {
       if (!v || v.state !== 'passed' || v.ticket !== ticket || v.copy_digest !== copy.copy_digest) fail(409, 'VALIDATION_STALE');
       const slot = this.#one('SELECT * FROM publish_slots WHERE game_id=?', gameId);
       const now = Date.now(), nowIso = new Date(now).toISOString();
-      if (slot?.submitted_at && iso(slot.submitted_at) && now - Date.parse(slot.submitted_at) < SUBMIT_COOLDOWN_MS) {
+      if (SUBMIT_COOLDOWN_MS > 0 && slot?.submitted_at && iso(slot.submitted_at) && now - Date.parse(slot.submitted_at) < SUBMIT_COOLDOWN_MS) {
         const remain = Math.ceil((SUBMIT_COOLDOWN_MS - (now - Date.parse(slot.submitted_at))) / 60000);
         fail(429, 'PUBLISH_TOO_SOON', { remainMinutes: remain });
       }
@@ -925,7 +926,7 @@ export class GameCopyStore {
     else if (!v || v.copy_digest !== copy.copy_digest) blockedReason = '副本已变更，请重新检验。';
     else if (v.state !== 'passed') blockedReason = '检验未通过，请依红字修正后重新检验。';
     else if (slot?.state === 'approved' && version) blockedReason = `版本 ${version} 已上架；如需新版，修改内容后重新检验。`;
-    else if (slot?.submitted_at && Date.now() - Date.parse(slot.submitted_at) < SUBMIT_COOLDOWN_MS) {
+    else if (SUBMIT_COOLDOWN_MS > 0 && slot?.submitted_at && Date.now() - Date.parse(slot.submitted_at) < SUBMIT_COOLDOWN_MS) {
       const remain = Math.ceil((SUBMIT_COOLDOWN_MS - (Date.now() - Date.parse(slot.submitted_at))) / 60000);
       blockedReason = `提交太频繁，请 ${remain} 分钟后再试。`;
     }

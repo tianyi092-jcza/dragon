@@ -106,8 +106,6 @@ test('同意门禁：非 admin／未提交／过期检验／无包安装器一�
   await failWith(() => store.approveSlot('owner', gameId, () => {}), 403, 'ADMIN_REQUIRED');
   await failWith(() => store.approveSlot('admin', gameId, () => {}), 409, 'SLOT_NOT_SUBMITTED');
   submitFlow(store);
-  // 拨回首次提交时间，避开 30 分钟节流（节流本身由 single_slot 覆盖）。
-  db.prepare('UPDATE publish_slots SET submitted_at=? WHERE game_id=?').run(new Date(Date.now() - 31 * 60000).toISOString(), gameId);
   await assert.rejects(async () => store.approveSlot('admin', gameId, null), TypeError);
   // 检验过期（副本变更后）：409 且 formal 为空。
   store.writeModule('owner', gameId, 'metadata', { name: '改名', introduction: '' });

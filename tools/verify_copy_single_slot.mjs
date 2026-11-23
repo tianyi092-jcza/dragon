@@ -1,5 +1,5 @@
 // T1–T8 单槽/节流/说明必填/票一次性（内存库，不开 SQLite/浏览器/DOS 存档）。
-// 口径：后到覆盖前到；30 分钟节流按 game 计；说明必填多行 1..2000；票提交即核销。
+// 口径：后到覆盖前到；测试期间重验后可立即再交；说明必填多行 1..2000；票提交即核销。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -85,14 +85,17 @@ function makeStore() {
 const gameId = randomUUID();
 const loader = createPinnedCopyLoader({ allocateEntityId: () => 'single-slot-' + randomUUID() });
 const profile = new FixedCopyProfile({ loadCopy: loader });
-const { game } = await profile.capture({ gameId: 'single-slot-source', ownerId: 'owner-1' });
+const { initializeCopyChapters } = await import('../server/copychapters.js');
+const { initializeCopyGenerals } = await import('../server/copygenerals.js');
+const { game: seed } = await profile.capture({ gameId: 'single-slot-source', ownerId: 'owner-1' });
 
 const failWith = async (fn, status, code) => {
   try { await fn(); } catch (e) { assert.equal(e.status, status); assert.equal(e.code, code); return e; }
   assert.fail('expected ' + code);
 };
 
-test('单槽覆盖 + 票一次性 + 说明必填 + 30分钟节流', async () => {
+test('单槽覆盖 + 票一次性 + 说明必填 + 重新检验可立即提交', async () => {
+  const game = initializeCopyChapters(initializeCopyGenerals(seed));
   const { store, tables } = makeStore();
   tables.content_games.set(gameId, { game_id: gameId, owner_id: 'owner-1', current_release_id: null, listed: 0 });
   store.ensureFromGame('tok', gameId, game);
@@ -105,13 +108,7 @@ test('单槽覆盖 + 票一次性 + 说明必填 + 30分钟节流', async () => 
   assert.equal(s1.state, 'submitted');
   // 票一次性：同一票再用即便换说明也 409。
   await failWith(() => store.submit('tok', gameId, { ticket: v1.ticket, description: '第二版' }), 409, 'VALIDATION_STALE');
-  // 节流：重验拿新票后立即再交 → 429（单槽仍保留第一次说明）。
-  const v2 = store.validateWhole('tok', gameId);
-  await failWith(() => store.submit('tok', gameId, { ticket: v2.ticket, description: '第二版' }), 429, 'PUBLISH_TOO_SOON');
-  assert.equal(tables.publish_slots.get(gameId).description, '首版\n多行说明');
-  // 31 分钟后重交：后到覆盖前到。
-  const slot = tables.publish_slots.get(gameId);
-  slot.submitted_at = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+  // 测试期关闭间隔，使用新票立即重交，不调整系统时间。
   const v3 = store.validateWhole('tok', gameId);
   const s2 = store.submit('tok', gameId, { ticket: v3.ticket, description: '第二版说明' });
   assert.equal(s2.description, '第二版说明');
