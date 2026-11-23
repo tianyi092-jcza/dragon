@@ -867,6 +867,11 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
         for (const key of ['faction', 'governor']) { const value = city[key] ?? null; if (value !== null && (!Number.isInteger(value) || Object.is(value, -0) || value < 0 || value > 255)) throw new Error('副本章節據點歸屬格式無效。'); out[key] = value; }
         return out;
       });
+      // Definitions exist before placement/admission. Show shared properties now;
+      // absent chapter state must not be invented or submitted as an editable row.
+      for (const [idx, definition] of citiesBySlot) {
+        if (!citySlots.has(idx)) cities.push({ idx, name: definition.name, x: definition.x, y: definition.y, type: definition.type, view: definition.view, maxProd: definition.max_prod, pendingChapter: true, faction: null, governor: null, prod: null, troops: null, troopsCap: null, growth: null, defence: null });
+      }
       if (row.name !== undefined && typeof row.name !== 'string') throw new Error('副本章節名稱格式無效。');
       if (row.number !== undefined && (typeof row.number !== 'string' || !row.number || [...row.number].length > 6 || row.number !== row.number.trim().normalize('NFC'))) throw new Error('副本章節編號格式無效。');
       let diplomacy = null;

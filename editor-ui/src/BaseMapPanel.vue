@@ -359,7 +359,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="contextPosition && (model.selected || (model.multi && model.multi.length))" ref="menu" class="base-map-context" :style="{ left: `${contextPosition.x}px`, top: `${contextPosition.y}px` }" role="dialog" aria-label="物件操作" @contextmenu.prevent>
         <ElCard :body-style="{ padding: '12px' }">
-          <div class="base-map-object-info"><template v-if="model.multi && model.multi.length"><strong>组合</strong><span>共{{ model.multi.length }}件</span><span>Shift+单击切换增减</span></template><template v-else><strong>{{ model.selected.type || labels[model.selected.layer] || '组合' }}</strong><span>{{ model.selected.x }}, {{ model.selected.y }}</span><span>ID：{{ model.selected.id }}</span></template></div>
+          <div class="base-map-object-info"><template v-if="model.multi && model.multi.length"><strong>组合</strong><span>共{{ model.multi.length }}件</span><span>Shift+单击切换增减</span></template><template v-else><strong>{{ model.selected.type || labels[model.selected.layer] || '组合' }}</strong><span>{{ model.selected.x }}, {{ model.selected.y }}</span><span class="map-object-id" :title="model.selected.id">ID：{{ model.selected.id }}</span></template></div>
           <div v-if="model.selectedBinding && !model.multi?.length" class="base-map-context-actions base-map-city-bind">
             <span>綁定：</span>
             <ElSelect v-if="model.selectedBinding?.cityId" :model-value="model.selectedBinding.cityId" disabled aria-label="綁定據點下拉框"><ElOption :value="model.selectedBinding.cityId" :label="model.cities.find(c => c.cityId === model.selectedBinding.cityId)?.name || model.selectedBinding.cityId" /></ElSelect>
@@ -423,6 +423,7 @@ onBeforeUnmount(() => {
 .base-map-layer { display: flex; align-items: center; gap: 2px; }
 .base-map-drag-handle { touch-action: none; cursor: move; }
 .base-map-context { position: absolute; width: 240px; max-width: 100%; max-height: 100%; overflow: auto; box-sizing: border-box; }
+.map-object-id { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .base-map-object-info { display: flex; flex-direction: column; overflow-wrap: anywhere; gap: 4px; }
 .base-map-context-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .base-map-city-bind { grid-template-columns: auto minmax(calc(4em + 44px), 1fr) auto; align-items: center; gap: 4px; }

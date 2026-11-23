@@ -40,6 +40,13 @@ test('collect tiles and trace a straight chain', () => {
   assert.ok(chains[0].cells[0].tile >= 0xd4);
 });
 
+test('two right-angle bends trace one corridor rather than diagonal false junctions', () => {
+  const points = [[1,1],[1,2],[1,3],[2,3],[3,3],[4,3],[4,4],[4,5]];
+  const chains = traceRoadChains(new Map(points.map(([x,y]) => [`${x},${y}`, { x,y }])));
+  assert.equal(chains.length, 1); assert.equal(chains[0].status, 'ok');
+  assert.deepEqual(chains[0].cells.map(p => [p.x,p.y]), points);
+});
+
 test('analyze materializes a road between two bound cities', () => {
   const { source, terrain } = scene();
   const { derived, problems } = analyzeRoadChains(source, terrain, {});
@@ -51,7 +58,7 @@ test('analyze materializes a road between two bound cities', () => {
   assert.ok(road.nativeBinding);
   assert.deepEqual(road.geometry.map(p => [p.x, p.y]), [[3, 5], [4, 5], [5, 5], [6, 5]]);
   const again = analyzeRoadChains({ ...source, map: { ...source.map, roads: derived } }, terrain, {});
-  assert.equal(again.derived.length, 0);
+  assert.deepEqual(again.derived, derived);
   assert.equal(again.problems.length, 0);
 });
 

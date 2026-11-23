@@ -54,6 +54,9 @@ function neighboursOf(key, cells) {
   for (let dy = -1; dy <= 1; dy++)
     for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dy) continue;
+      // A right-angle bend already joins these cells via the corner tile;
+      // counting the diagonal shortcut again turns the bend into a junction.
+      if (dx && dy && (cells.has(`${x + dx},${y}`) || cells.has(`${x},${y + dy}`))) continue;
       const found = `${x + dx},${y + dy}`;
       if (cells.has(found)) out.push(found);
     }

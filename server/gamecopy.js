@@ -620,6 +620,19 @@ function applyModule(data, module, checked) {
       // 拖放路磚自動成路：先按當前磚塊重算 road-auto-*，再跑位置門（含紅字診斷）。
       // 未連通的磚鏈只標紅（warning），不攔保存。
       reconcileAutoRoads(candidate);
+      if (checked.edits.some(edit => edit.op === 'city-bind')) {
+        const placed = new Set(candidate.map.placements.map(p => p.cityId));
+        let admitted = false;
+        for (const city of Object.values(candidate.cities).sort((a,b) => a.runtimeSlot - b.runtimeSlot)) {
+          if (!placed.has(city.cityId) || !city.battleMapId || !Number.isInteger(city.troops_cap)) continue;
+          const lengths = candidate.chapterOrder.map(id => candidate.chapters[id].state.cities.length);
+          if (lengths.includes(city.runtimeSlot) && lengths.every(n => n >= city.runtimeSlot)) {
+            admitChapterCity(candidate, city.cityId, city.troops_cap, city.battleMapId, candidate.map.bounds);
+            admitted = true;
+          }
+        }
+        if (admitted) refreshChapterNeighbours(candidate);
+      }
       if (checked.edits.some(changesMapPositions)) assertMapPositions(candidate);
       return candidate;
     } catch (e) {
