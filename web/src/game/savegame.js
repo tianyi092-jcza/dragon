@@ -103,9 +103,10 @@ export function restoreSnapshotState(saved) {
   if (
     hasNativeLegionSlots(state) &&
     assembly.metadata?.roadVersion !== 2 &&
-    assembly.metadata?.roadVersion !== 3
+    assembly.metadata?.roadVersion !== 3 &&
+    assembly.metadata?.roadVersion !== "grid"
   )
-    throw new TypeError("Native legion slots require v2/v3 assembly identity");
+    throw new TypeError("Native legion slots require v2/v3 or grid assembly identity");
   if (
     assembly.metadata?.roadVersion === 2 ||
     assembly.metadata?.roadVersion === 3
@@ -392,8 +393,8 @@ export function snapshotState(app, slotIdx, label) {
       }
   }
   const nativeSlots = hasNativeLegionSlots(sc);
-  if (nativeSlots && !nativeRoads)
-    throw new TypeError("Native legion slots require v2 assembly identity");
+  if (nativeSlots && !nativeRoads && assembly.scenarioAssembly?.roadVersion !== "grid")
+    throw new TypeError("Native legion slots require v2/v3 or grid assembly identity");
   const state = structuredClone(
     nativeSlots
       ? {

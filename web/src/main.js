@@ -229,6 +229,7 @@ const app = {
 
   async enterGame(load) {
     this.assertFormalCurrent();
+    const previousScene = this.gameStarted && this.scenario;
     const entry = {};
     this._gameEntryRequest = entry;
     const assertCurrentEntry = () => {
@@ -258,7 +259,7 @@ const app = {
       this.view.draw();
       this.opening?.hide();
     } catch (error) {
-      if (this._gameEntryRequest === entry) {
+      if (this._gameEntryRequest === entry && !(previousScene && this.scenario === previousScene)) {
         this.score.title();
         this.gameStarted = false;
         document.body.classList.remove("game-active");
@@ -288,9 +289,12 @@ const app = {
     if (this.canPersist === false) return false;
     // Recheck the current slot before enterGame changes runtime/UI; never trust rows.
     const saved = this.saves?.slots.find((slot) => slot.slot === slotIdx);
-    admitSavedScenario(saved, this);
+    const reference = saved?.webMeta?.scenarioAssembly?.content;
+    const crossChapter = this._openSavedChapter && reference && !this.content.resolveReference(reference);
+    if (!crossChapter) admitSavedScenario(saved, this);
     await this.enterGame(async () => {
-      if (!(await this.loadSave(slotIdx))) throw new Error("無法讀取指定存檔");
+      const target = crossChapter ? await this._openSavedChapter(reference, saved.state.player_faction) : null;
+      if (!(await this.loadSave(slotIdx, target))) throw new Error("無法讀取指定存檔");
     });
     this.hud?.flashEvent?.(`讀檔：${this._lastLoadedSaveLabel}`);
   },
@@ -392,6 +396,38 @@ const app = {
         return;
       }
     }
+    this.leaveScenarioForTitle();
+    if (formal) {
+      this.originalRng = null;
+      this.activeBattleRng = null;
+      formal.exit = Promise.resolve().then(() => {
+        let reason = "title";
+        if (formal.failure?.code === "GAME_DELETED") reason = "deleted";
+        else if (formal.failure) reason = "unavailable";
+        return formal.onExit(Object.freeze({ reason, initialAction }));
+      });
+      return formal.exit;
+    }
+    if (this.canPersist === false) {
+      this.originalRng = null;
+      this.activeBattleRng = null;
+      window.dispatchEvent(new Event("dragon-trial-ended"));
+      return;
+    }
+    this.setRuntimeEnabled(true);
+    if (this.startMenu) {
+      try {
+        await this.startMenu.show(initialAction);
+      } finally {
+        if (this.gamebar) this.gamebar._clockHoldRequested = false;
+        this.gamebar?.syncClock();
+      }
+      return;
+    }
+    await this.gamebar?.openSystemLoadDialog?.();
+  },
+
+  leaveScenarioForTitle() {
     this._scenarioAssemblyPending = null;
     this._scenarioAssemblyIncomplete = null;
     cancelLegionSlotBatch(this);
@@ -458,38 +494,6 @@ const app = {
     this.view.seasonImg = null;
     this.scenario = null;
     this.clock = null;
-    if (formal) {
-      this.originalRng = null;
-      this.activeBattleRng = null;
-      formal.exit = Promise.resolve().then(() => {
-        let reason = "title";
-        if (formal.failure?.code === "GAME_DELETED") reason = "deleted";
-        else if (formal.failure) reason = "unavailable";
-        return formal.onExit(Object.freeze({ reason, initialAction }));
-      });
-      return formal.exit;
-    }
-    if (this.canPersist === false) {
-      this.trialEnded = true;
-      this.originalRng = null;
-      this.activeBattleRng = null;
-      this.setRuntimeEnabled(false);
-      window.dispatchEvent(new Event("dragon-trial-ended"));
-      return;
-    }
-    this.setRuntimeEnabled(true);
-    if (this.startMenu) {
-      try {
-        await this.startMenu.show(initialAction);
-      } finally {
-        if (this.gamebar) this.gamebar._clockHoldRequested = false;
-        this.gamebar?.syncClock();
-      }
-      return;
-    }
-    // Trial 持久存档无标题菜单：读档直弹本局列表（上已确认有档）。
-    // 非持久试玩走上面的事件分支回选单，不会到这里。
-    await this.gamebar?.openSystemLoadDialog?.();
   },
 
   // Tactical entry/exit ownership and startup errors share one adapter.
@@ -530,11 +534,13 @@ const app = {
       cityCache = null,
       savedSlot = null,
       savedLabel = null,
+      target = null,
     } = {},
   ) {
     this.assertFormalCurrent();
-    const loadedWorld = this.world,
-      loadedContent = this.content;
+    const priorWorld = this.world, priorContent = this.content;
+    const loadedWorld = target?.world ?? priorWorld,
+      loadedContent = target?.content ?? priorContent;
     const entry = this._gameEntryRequest,
       previousClock = this.clock;
     const prior = this._scenarioAssemblyPending;
@@ -551,8 +557,8 @@ const app = {
       this.assertFormalCurrent();
       if (
         this._scenarioAssemblyPending !== assembly ||
-        this.world !== loadedWorld ||
-        this.content !== loadedContent ||
+        this.world !== priorWorld ||
+        this.content !== priorContent ||
         this._gameEntryRequest !== entry ||
         this.clock !== previousClock
       )
@@ -593,6 +599,17 @@ const app = {
     }
     // Protect installed/partially written state independently of the replaceable
     // preflight ticket. A rejected replacement must not release or revive it.
+    if (savedSlot !== null && this.gameStarted && !this.startMenu && !this._formalEntry) {
+      // Titleless /play: leave the old scene only after the chosen snapshot is prepared.
+      this.leaveScenarioForTitle();
+      this._scenarioAssemblyPending = assembly;
+      this.gamebar._clockHoldRequested = false;
+    }
+    if (target) {
+      this.world = loadedWorld;
+      this.content = loadedContent;
+      this.data = loadedContent.data;
+    }
     this._scenarioAssemblyIncomplete = assembly;
     // Commit boundary. Later failures retain existing partial assembly semantics.
     cancelLegionSlotBatch(this);
@@ -815,7 +832,9 @@ const app = {
           if (!this.runtimeEnabled || !canSnapshotState(this))
             return { saved: "blocked" };
         }
-        let sv = snapshotState(this, slotIdx, label);
+        const append = slotIdx === null && this.playRelease !== undefined;
+        let sv = snapshotState(this, append ? 0 : slotIdx, label);
+        if (this.playRelease !== undefined) sv.webMeta.playRelease = this.playRelease;
         // Stored snapshots are immutable to gameplay; copy the index, not every
         // other archive's full rule RAM, when replacing one record.
         const previous = this.saves;
@@ -840,7 +859,7 @@ const app = {
         return { saved: "failed", error };
       }
       this.loadedSaveSlot = slotIdx;
-      this.hud?.flashEvent?.(`存檔：槽${slotIdx + 1} ${label}`);
+      this.hud?.flashEvent?.(this.playRelease !== undefined ? '存檔成功。' : `存檔：槽${slotIdx + 1} ${label}`);
       return { saved: "local" };
     };
     const queued = this._saveQueue.then(operation, operation);
@@ -849,14 +868,15 @@ const app = {
   },
 
   /** 读档: 用浏览器本地槽位状态覆盖当前场景 */
-  async loadSave(slotIdx) {
+  async loadSave(slotIdx, target = null) {
     if (this.canPersist === false) return false;
     const sv = this.saves?.slots.find((s) => s.slot === slotIdx);
     if (!sv?.played || !sv.state) return false;
     // Reject old/invalid phases before changing the scene, RNG or slot.
     // Restoration deep-clones; playing never mutates the stored snapshot.
-    const admitted = admitSavedScenario(sv, this);
+    const admitted = admitSavedScenario(sv, target ? { content: target.content, data: target.content.data, world: target.world } : this);
     await this.loadState(admitted.raw, admitted.idx, {
+      target,
       mode: "restore",
       metadata: admitted.metadata,
       roadMemory: admitted.roadMemory,
@@ -1214,6 +1234,8 @@ export async function startApp(opening, { trial = null, formal = null, formalBin
     app.assertFormalCurrent();
   } else if (trial) {
     if (trial.persistent === true) {
+      app.playRelease = trial.identity.draftRevision;
+      app._openSavedChapter = trial.openSavedChapter;
       // b2 发布玩：持久存档，按游戏隔离库；canPersist 保持非 false 即允许存读。
       app.saveRepository = createSaveRepository(createIndexedDbSaveBackend({ databaseName: playSaveDatabaseName(trial.identity.gameId) }));
       app.saves = await app.saveRepository.load();

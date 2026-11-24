@@ -7878,6 +7878,10 @@ export class GameBar {
     clickSfx();
     this.systemLoadConfirmDialog = null;
     this.settingsOpen = false;
+    if (!this.app.startMenu && !this.app._formalEntry && this.app.canPersist !== false) {
+      await this.openSystemLoadDialog();
+      return;
+    }
     this.syncClock();
     let played = false;
     try {
@@ -8078,7 +8082,13 @@ export class GameBar {
   }
 
   buildSaveSlotRows() {
-    return saveChoices(this.app.saves?.slots).map((s) => {
+    const slots = this.app.saves?.slots ?? [];
+    const rows = this.app.playRelease === undefined ? saveChoices(slots) : slots.filter(s => {
+      const ref = s.webMeta?.scenarioAssembly?.content;
+      return s.played && ref?.packId === this.app.content.id && ref.revision === this.app.content.revision &&
+        (s.webMeta.playRelease === undefined || s.webMeta.playRelease === this.app.playRelease);
+    }).sort((a, b) => a.slot - b.slot);
+    return rows.map((s) => {
       const i = s.slot;
       let infoText = "";
       let dateStr = "";
@@ -8135,8 +8145,10 @@ export class GameBar {
       scroll: 0,
       hover: -1,
     };
+    this.syncClock();
     void this.app.refreshFormalStatus?.();
     this.app.view.draw();
+    if (this.app.playRelease !== undefined) void this.confirmSystemSave();
     return true;
   }
 
@@ -8150,15 +8162,17 @@ export class GameBar {
   }
 
   async confirmSystemSave(rowIdx) {
-    const row = this.systemSaveDialog?.rows?.[rowIdx];
-    if (!row) return;
+    const dialog = this.systemSaveDialog;
+    const append = this.app.playRelease !== undefined;
+    const row = dialog?.rows[rowIdx];
+    if (!dialog || (append ? rowIdx !== undefined : !row)) return;
     if (!canSnapshotState(this.app)) {
       this.app.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
       warnSfx();
       return;
     }
     clickSfx();
-    const slotIdx = row.slot;
+    const slotIdx = append ? null : row.slot;
     const sc = this.app.scenario;
     const chNum = (this.app.scenarioIdx ?? 0) + 1;
     const chStr =
@@ -8168,6 +8182,15 @@ export class GameBar {
     const advName = sc.player_advisor?.name || sc.advisorName || "－－";
     const label = `第${chStr}章勢力：${rulerName.trim()}　　軍師：${advName.trim()}`;
 
+    if (append) {
+      const result = await this.app.saveGame(slotIdx, label);
+      if (result.saved === 'local' && this.systemSaveDialog === dialog) {
+        dialog.rows = this.buildSaveSlotRows();
+        dialog.scroll = Math.max(0, dialog.rows.length - 4);
+        this.app.view.draw();
+      }
+      return;
+    }
     // 关闭弹窗并返回上一级系统选单
     this.systemSaveDialog = null;
     this.settingsOpen = true;
@@ -8182,15 +8205,19 @@ export class GameBar {
   async openSystemLoadDialog() {
     if (this.app.canPersist === false) return false;
     clickSfx();
+    this.settingsOpen = false;
+    const dialog = this.systemLoadDialog = { rows: [], scroll: 0, hover: -1 };
+    this.syncClock();
+    this.app.view.draw();
     try {
       const saves = await this.app.saveRepository?.load?.();
+      if (this.systemLoadDialog !== dialog) return false;
       if (saves) this.app.saves = saves;
-    } catch {
+    } catch (error) {
+      console.error('[wolong] local save list failed', error);
+      if (this.systemLoadDialog !== dialog) return false;
     }
-    const rows = this.buildSaveSlotRows();
-    this.settingsOpen = false;
-    this.syncClock();
-    this.systemLoadDialog = { rows, scroll: 0, hover: -1 };
+    dialog.rows = this.buildSaveSlotRows();
     this.app.view.draw();
     return true;
   }
@@ -8219,6 +8246,7 @@ export class GameBar {
     try {
       await this.app.beginSavedGame(slotIdx);
     } catch (error) {
+      console.error('[wolong] local load failed', error);
       this.app.hud?.flashEvent?.("讀檔失敗，請重試。");
       this.app.view.draw();
       await this.openSystemLoadDialog();

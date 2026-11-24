@@ -143,6 +143,18 @@ try {
 				persistent: true,
 			});
 			const { startApp } = await import("../main.js");
+			trial.openSavedChapter = async (reference, playerFaction) => {
+				if (reference?.packId !== entry.gameId || reference.revision !== entry.sourceDigest ||
+					!pack.manifest.chapters.includes(reference.chapterId)) fail("存檔不屬於此發布版本");
+				const query = new URLSearchParams({ game: entry.gameId, revision: entry.revision, chapter: reference.chapterId });
+				const response = await fetch(`/api/trial-pack?${query}`, { cache: "no-store" });
+				if (!response.ok) fail("存檔章節載入失敗");
+				const target = await response.json();
+				const id = target.manifest?.identity;
+				if (target.chapterId !== reference.chapterId || id?.gameId !== entry.gameId ||
+					id.draftRevision !== entry.revision || id.sourceDigest !== entry.sourceDigest) fail("存檔章節發布身份不符");
+				return createTrialEnvironment(target, { fullApp: true, playerFaction, persistent: true });
+			};
 			await startApp(null, { trial });
 			panel.remove();
 			status.textContent = entry.revision ? `進行中 ${entry.name}（${entry.revision}版） — 進度保存於本機（與內置/他遊戲隔離）` : `進行中 ${entry.name} — 進度保存於本機（與內置/他遊戲隔離）`;

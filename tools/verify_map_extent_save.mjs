@@ -77,7 +77,7 @@ async function extentSaveTransport(game, compiled) {
   return { session: { identity, state: () => 'active', read: async role => responses.get(role) }, compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 128 * 1024 * 1024, readStatic: async path => responses.get(path) };
 }
 
-test('E9 north-band and west-band mid-march save, title-load, step-sync to arrival', async () => {
+test('E9 north-band and west-band mid-march save, title-load, step-sync to arrival', async t => {
   const tmp = await mkdtemp(join(tmpdir(), 'extent-save-'));
   try {
   const { game } = await createPinnedCopyLoader()({ gameId: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb', ownerId: 'isolated' });
@@ -213,6 +213,15 @@ test('E9 north-band and west-band mid-march save, title-load, step-sync to arriv
     const input = { raw: env.raw, idx: 0, mode: 'fresh', world: env.world, content: env.content };
     const anchorNRow = chapterState.cities[game.cities[anchorN.cityId].runtimeSlot];
     const anchorWRow = chapterState.cities[game.cities[anchorW.cityId].runtimeSlot];
+    await t.test('fresh grid native slots survive JSON save and cold restore', async () => {
+      const { scenario } = await prepareScenario({ ...input, mapExtent: true });
+      const app = { scenario, scenarioIdx: 0, content: env.content, world: env.world, clock: new Clock({ startYear: 184, startMonth: 1, startDay: 1 }), originalRng: createOriginalBattleRng({ ch: 0, cl: 0, dh: 1 }) };
+      const saved = JSON.parse(JSON.stringify(snapshotState(app, 0, 'grid')));
+      assert.equal(saved.state.nativeLegionSlots.records.length, 128);
+      const admitted = admitSavedScenario(saved, { data: { scenarios: Array(game.chapterOrder.length).fill({}) }, content: env.content, world: env.world });
+      const restored = await prepareScenario({ ...admitted, mode: 'restore', content: env.content, world: env.world });
+      assert.deepEqual(snapshotState({ ...app, scenario: restored.scenario }, 0, 'grid').state.nativeLegionSlots, saved.state.nativeLegionSlots);
+    });
     input.raw.legions.push(
       { slot: 0, x: anchorN.x, y: anchorN.y, faction: playerFaction, status: 0x80, troops: 800, commandState: 0, moveDelay: 1, movePeriod: 3 },
       { slot: 1, x: anchorW.x, y: anchorW.y, faction: playerFaction, status: 0x80, troops: 800, commandState: 0, moveDelay: 1, movePeriod: 3 },
