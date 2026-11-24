@@ -47,11 +47,13 @@ function trialPortraits(state) {
   const ids = collectPortraitIds(state?.generals);
   return Object.freeze(new GamePortraits().forPublish(ids).map(row => Object.freeze({ assetId: row.assetId, sha256: row.sha256, byteLength: row.byteLength, mime: row.mime, url: `kao/${row.assetId}.png` })));
 }
-export function cityViewGaps(cities) {
+export function cityViewGaps(cities, extraKnown) {
   const gaps = [];
+  const known = extraKnown instanceof Set ? extraKnown : TRIAL_CITY_VIEW_CAPTURE;
   for (const city of cities) {
     const view = city?.view;
-    if (!Number.isInteger(view) || !TRIAL_CITY_VIEW_CAPTURE.has(view)) { gaps.push(kyoGap(city, view)); }
+    // 發布新圖（自管庫 15..255）由呼叫方傳入已知集合；試玩沿用凍結採集。
+    if (!Number.isInteger(view) || !known.has(view)) { gaps.push(kyoGap(city, view)); }
   }
   return gaps;
 }

@@ -3,7 +3,7 @@
 import { createContentCatalog } from '../content/catalog.js';
 import { createWorldResources } from '../game/worldresources.js';
 import { createNewGameScenario } from '../game/world.js';
-import { bindPortraitOverrides, buildPortraitOverrides } from '../core/assets.js';
+import { bindPortraitOverrides, buildPortraitOverrides, bindCityPictureOverrides, buildCityPictureOverrides } from '../core/assets.js';
 import { TRIAL_COMPILER_REVISION } from '../content/authoring/trialcompile.js';
 import { validateIdentity } from './runtimecontract.js';
 
@@ -36,6 +36,7 @@ export function createPlayerEnvironment(pack, { playerFaction, northExperiment =
   }
   assets.minimap = { base: url('asset:minimapBase'), large: url('asset:minimapLarge') };
   const portraits = manifest.portraits.map(entry => ({ ...entry, url: url('asset:' + entry.assetId) }));
+  const cityPictures = (manifest.cityPictures ?? []).map(entry => ({ ...entry, url: url('asset:' + entry.assetId) }));
   const base = createContentCatalog({ schemaVersion: 1, rules: 'ki-1995', id: identity.gameId,
     revision: identity.sourceDigest, chapters: [{ id: identity.chapterId, legacyScenarioIndex: 0, official: false }] },
   { scenarios: [pack.chapter] });
@@ -53,6 +54,7 @@ export function createPlayerEnvironment(pack, { playerFaction, northExperiment =
   });
   const world = createWorldResources({ ...manifest.world, assets }, { assertCurrent: current, northExperiment: triplet === 4 && northExperiment === true, mapExtent: triplet === 4 && mapExtent === true });
   bindPortraitOverrides(world, buildPortraitOverrides(pack.chapter.generals, portraits));
+  bindCityPictureOverrides(world, buildCityPictureOverrides(pack.chapter.cities, cityPictures));
   const raw = createNewGameScenario(pack.chapter, playerFaction);
   current();
   // Deliberately no persistent:true, private binding, session ticket or save store.

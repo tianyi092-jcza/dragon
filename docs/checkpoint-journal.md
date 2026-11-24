@@ -35,3 +35,98 @@
 
 - 沉淀到 AGENTS.md（Web＋父 2.3）：终态 style-7、1.5 主线、地理分层坑＋回填工具、supervisor 不补 fork、Canvas 列表行高。
 - 删：MINIMAP-FLAT 英文旧节及 16:40 correction；PLAYER-LOCAL 过时交付边界、旧下一步及四行旧问题定位表（已解决旧会话细节，原文查 git show 6a28cf3）；style-3／4／6＋底图间距四个中间态详节；全部 stale 未提交标记。
+
+## 所屬州郡字段（2026-11-24 用户需求，未提交未推送）
+
+- 基础据点＋城池据点共用可选 `region`：默认空白可空最多 5 字，列表在据点名称后加「所屬州郡」列，新建／编辑／校验／保存两端同口径；建游戏整份复制系统基快照自动带州郡，无需改复制逻辑。合同见 `docs/editor-city-definitions.md`「所屬州郡」节。
+- 改动：`cityrecords.js`（`cityRegion`＋`captureCityDefinitions` 准入）、`citysource.js`（准入＋剔除编译必填门）、`server/gamecopy.js`（新建／`region` 补丁）、`server/systembasemapstore.js`（`region` 补丁）、`server/systembasemap.js`（形状校验）、`draft.txt`（城池保存／新建）、`basecities.js`（基础保存）、两面板＋`StrongholdCreate.vue`＋列宽；构建产物 `shell-ui.*`／`trialweb.txt` 重建。
+- 验证：`verify_copy_controller_cities` 14/14（含新增州郡回归）、`verify_base_cities` 7/7、`verify_city_source_conversion` 6/6（中途发现 region 误入编译必填门已修）、`verify_chapter_city_compile` 14/14、controller modules/posts 17/17、`verify_copy_api_bodies` 1/1、build＋check 字节一致。Vue LSP／浏览器冒烟未跑。
+- 州郡後續（2026-11-24）：城池讀投影 `checkedCopyCities` 漏帶 `region` 致重讀空白已修（行恒帶 `region` 預設空白）；城池表改與基礎表同版式（無固定寬、100% 自適應、表頭 nowrap），刪 `strongholdcolumns.js`；兩表序號 50px、攻城戰場去排序；最大／當前生產、上升、防災、城兵上限、據點圖片六列去排序並收窄最小寬（96–112）消橫滾。
+- 州郡版式（2026-11-24）：兩表序號 60px、攻城戰場固定 180px，戰場格改圖左文右兩行（首行戰場名、次行 siege:N 去括號，`siegeParts`），縮略圖保持 96×51。
+
+## 據點圖片自管庫（2026-11-24 用户需求，未提交未推送）
+
+- 新 Web 产品决定（用户批准，取代 2026-10-31 唯讀）：遊戲資源新增「據點圖片」可管分類（kyo 凍結圖＋自管上傳圖），管理員可新增／替換／刪除；其餘分類仍只讀。
+- 用户拍板：寬統一壓 192（高度等比、最近鄰）、僅 PNG、單張 ≤400K、view 遞增（優先複用刪除空洞，超 255 拒）、被刪圖引用處顯示為空、僅影響新發布（歷史版本不动）。
+- 實現：`server/citypicturestore.js`（SQLite `city_pictures`＋`bindCityPictureStorage`／`hasCityPictureView` 准入）；`editorapp.js`（GET 清單／POST 三動作管理員門／網關內建直出＋DO 匿名出自管位元組／`#getResources` 新類＋kyo 歸類＋IHDR 寬高）；`gamecopy.js`／`systembasemapstore.js`（view 門改 store-aware）；`trials.js`（`cityViewGaps` 加 extraKnown 參數，試玩沿用凍結集）；`playpacks.js`（門＋`collectCustomCityPictureEntries`＋manifest.cityPictures＋pack_assets＋serve）；玩家端 `assets.js`（world 綁定＋回落 grf）→ `gamebar.js`／`hud.js` → `playerenvironment.js`／`playerpack.js`（manifest 驗證）。
+- 前端：`catalog.txt`（新類＋url 雙形驗收＋canManage＋三動作＋文案）；`CatalogPanel.vue`（頭像款相冊＋新增／編輯對話窗拖放＋刪除二次確認＋全 TAB 去數量）；`CityPicture.vue`（自取清單合併內建＋未知 view 顯示為空）。
+- 驗證：`verify_city_pictures` 8/8（store／catalog 控制器／HTTP 全鏈路＋發包凍結純函數）；`verify_copy_city_admit`＋`verify_base_cities` 13/13；`verify_idor_matrix` 通過；editor-ui build＋check 一致；trialweb 重建；LSP 37 SFC 零診斷。
+- 预存破缺（非本次，均在改前即破）：`verify_editor_catalog_controller`（用舊 installLibraryRegistration 簽名）、`verify_editor_trial_asset_gate`／sentinel（需 round 參數＋預置 fixture）、`verify_editor_shell#accounts-vue-owned`（四文件皆未動）、`verify_copy_city_create`（並行城兵上限分支把 troops_cap／battleMapId 改必填，測試未跟進；已證 view 門本身正確）。
+- 待验收：8443 真機相冊＋上傳對話窗（Playwright 未裝，本機未跑瀏覽器）；帶自管圖的正式發布端到端；commit／push 待授權。
+
+## 據點圖片相冊版式調整（2026-11-24 用户看圖後三點，未提交）
+
+- 新增按鈕獨立一行（移出 grid 相冊容器，圖片從下一行起排）。
+- 卡片圖下只放遊戲中編號（view），去「據點圖片」字樣與尺寸字樣。
+- 圖片按原尺寸展示（覆寫全域 64px 縮圖，`width/height: auto`）。
+- 驗證：editor-ui build＋check 一致；LSP 本兩文件零診斷（ChaptersPanel 的 notifyError hint 是別人的文件，未動）。
+
+## 據點圖片相冊小圖修復（2026-11-24 用户看圖：不是 192 嫌小，未提交）
+
+- 根因：全域 `.resource-card .thumb`（64px，兩 class 優先級）＋卡片三欄 grid（2.6em／64px／1fr）壓住自管圖；單 class 覆寫輸掉。
+- 修：相冊卡加 `city-picture-card` 改縱向 flex 居中；`img.city-picture-thumb` 三 class＋元素級覆寫回原尺寸（`width/height: auto`＋pixelated）。
+- 驗證：editor-ui build＋check 一致。
+
+## 據點圖片序號浮標（2026-11-24 用户看圖：序號放圖片左上角未提交）
+
+- 卡片改圖框相對定位＋黑色半透明序號浮標（左上 4px）；圖下只留管理員編輯／刪除（非管理員無圖下文字）。
+- 驗證：editor-ui build＋check 一致。
+
+## 據點圖片載入體驗（2026-11-24 用户：開啟慢＋載入中難看未提交）
+
+- 慢因：相冊 15 張逐張走圖書館鑑權讀取；幾秒首刷正常，1 小時內重進讀瀏覽器緩存秒開。
+- 修：kyo 相冊直連 `/city-picture`（與圖書館同位元組已核 sha，immutable 年緩存）；自管圖掛 `?sha=`（命中 immutable／未命中 no-store／壞 sha 拒收）；`img` 帶寬高原尺寸灰底占位＋左上浮標先出，載入不跳版。
+- 驗證：`verify_city_pictures` 8/8（含 sha 緩存三態）；editor-ui build＋check 一致。
+
+## 城市資訊卡所屬州郡顯示（2026-11-24 用户需求未提交）
+
+- 遊戲側點擊據點資訊板：都市類型同行右方不變，下一行（君主同行）右對齊加淺青 `#9fe3ff` 州郡名；空不畫。
+- 數據鏈：`admitChapterCity` 入表自帶 `definition.region ?? ''`；`attachCityRegions(states, cities)`（gamesource 新純函數）發包時回填舊章同槽行，定義為準、未知槽不動；`playpacks.prepare` 逐章調用；`createNewGameScenario` 整 clone 透傳；`gamebar._drawCityCard` 繪製。
+- 驗證：`verify_city_region_card` 2/2（admit 入表／回填冪等）；`verify_city_pictures` 8/8（發包改動回歸）；trialweb 重建（supervisor 側已同步）；git diff 無空白錯誤。
+
+## 扩图两连修（2026-11-24 用户报障未提交）：宣战打敌城掐表＋8A3F 攻城漆崩
+
+- 故障 1：grid 入口把敌城目的地当拒收（`friendly destination`），宣战下令即掐表。
+  修：入口只拦非法节点；敌城直达放行，由到场／过境 E8 管线接敌（中立／开战→攻城接触，未宣战 ai 侧原样拒收一步不动，E7 旧回归锁死）。
+- 故障 2：`paint8A1E` 原版 `(y-2)*384+bx` 步长在扩图上越界／错格（y>255 直接掐；命中范围内读错格静默 corrupt）。
+  修：原图字节游走一字不动；扩图走 tile 空间等价角点（都城 ±2／关隘正交／余 ±1），越界角跳过；接缝 `paintExpandedCityTile` 导出可测。
+- 驗證：`verify_grid_march_hostile` 2/2（新）、`verify_map_extent_march` 2/2（含 E8 前件拒收）、`verify_city_capture_expanded` 3/3（新，y>255／角等价／越界）、trialweb 重建。
+- 待用户 8443 实测：重打一次宣战攻城（march→接触→攻城→占领不断表）；另：战斗动画落点若仍在家城，拿存档复现再查（与本次两修无关，需另立）。
+
+## 扩图攻城漆 fail-closed 诊断增强（2026-11-24 用户 8A3F 仍报未提交）
+
+- 现象：扩图分支已上线（用户控制台出现 paintExpandedCityTile 帧），仍停在 8A3F。
+- 动作：拆分 fail-closed（原生内存缺失 vs 城出界分开报文），出界错带出 idx/x/y/bounds。
+- 原图 A-MAP-2 回归全绿；扩图新回归 3/3；trialweb 重建。
+- 待用户复现贴新报文（含坐标即定是地形装配还是脏城市）。
+
+## 扩图攻城漆改跳过（2026-11-24 用户复现坐标定位：无原生内存未提交）
+
+- 实锤：扩图世界根本没有 D44 原生地形内存（E6 路网替换道路平面；grid restore 明确不带原生内存；grid fresh 提前返回不建原生装配）。`scenarioNativeRoadContext(sc)?.terrain` 恒为 null。
+- 修：paint8A1E 扩图分支无原生内存时直接跳过（地面渲染走图集，用户地图一直正常即证；规则／边框照常）。若未来绑定了原生内存自动恢复绘制（paintExpandedCityTile 保留＋单测）。
+- 驗證：A-MAP-2 原图回归全绿；扩图 3/3；trialweb 重建。
+- 待用户 8443 supervisor 重启后重打宣战攻城（march→接触→攻城→占领不断表）；若战斗动画仍落在家城另立 bug（与本次掐表无关）。
+
+## Canvas willReadFrequently（2026-11-24 用户报控制台警告未提交）
+
+- `worldresources.js` 季节图集混合（`getImageData`×2＋`putImageData`）的离屏 canvas 加 `{ willReadFrequently: true }`；纯性能提示修，无行为变化。
+- trialweb 重建。
+
+## Grid 持续接触无声（2026-11-24 用户：静态有声/play 无声未提交）
+
+- 根因：grid 路从不经过原生 wait() 轮询，接触只建倒数、无声直接等决战；且首触即决（倒数旁路）时闪光只亮一帧、渲染插值还没起步，看着像落在老家。
+- 修：`resolveGridMarchContact` 攻城／野战两支，沿用“首触静默、等待中重复发声”（与 wait 同语义，决战入场不响）；`resolveGridMarchContact` 导出单测接缝。
+- 驗證：新 `verify_grid_march_sound` 2/2（首触静默＋重复发声×攻城野战）；E7 行军 2/2；presentation 既有；trialweb 重建。
+- 待用户 8443 实测：持续接触（围城多日／野战互啃）应有声＋小地图闪光落目标，首触仍静默符合原设计。
+
+## 扩图直达攻城改到场接触（2026-11-24 用户：战斗应在目标门口未提交）
+
+- 用户对（以静态内置版为准）：直达敌城先行军、到门口再接敌；之前出发即接（标落老家）是偏差。
+- 修：`advanceGridMarch` 终点==命令目标时跳过行前接触检查，行军照走；到场 `terminates` 敌城（含宣战他势力，原中立分支一并收敛）抛接触进 E8。过境敌城仍即时接触（E7 锁定）；未宣战 ai 侧拒收不变。
+- 驗證：`verify_grid_march_hostile` 2/2、`verify_grid_march_sound` 2/2、E7 行军 2/2；trialweb 重建。
+- 待用户实测：陈留打濮阳应在濮阳门口闪光＋响声＋攻城。
+
+## 扩图战斗链用户验收（2026-11-24 用户确认正常未提交）
+
+- 宣战攻城全链打通：行军→门口接触（闪光＋声效）→攻城→占领不断表；用户实机确认正常。
+- 本轮改动均未提交：据点图片自管库、州郡卡显示、grid 行军三修（入口／发声／到场接触）、8A3F 扩图漆跳过＋诊断、willReadFrequently；预存破缺（catalog 旧测试／trial 门需参／shell 旧断言／copy_create 并行分支）与本次无关。

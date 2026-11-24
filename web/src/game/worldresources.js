@@ -84,7 +84,7 @@ export function createWorldResources(definition = DEFAULT_WORLD, {
         image.width = target.width; image.height = target.height;
         if (previous.width !== image.width || previous.height !== image.height)
           throw new TypeError("Season atlas dimensions differ");
-        const ctx = image.getContext('2d');
+        const ctx = image.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(previous, 0, 0);
         const pixels = ctx.getImageData(0, 0, image.width, image.height);
         ctx.clearRect(0, 0, image.width, image.height);

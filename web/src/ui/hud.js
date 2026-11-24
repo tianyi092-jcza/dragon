@@ -1,7 +1,7 @@
 // HUD — 顶部面板(剧本/季节切换)、势力图例、悬停提示、君主卡
 import { factionColorEx, SEASONS } from "../game/world.js";
 import { hasPendingStrategicEvent } from "../game/ai.js";
-import { portrait, portraitURL } from "../core/assets.js";
+import { portrait, portraitURL, cityPictureURL } from "../core/assets.js";
 import { createPortraitCanvas } from "./portraitcanvas.js";
 import * as cmd from "../game/commands.js";
 import { clickSfx, warnSfx, toggleMute, unlockSfx } from "../core/speaker.js";
@@ -1876,7 +1876,7 @@ export class HUD {
     p.style.display = "block";
     p.replaceChildren(
       h("img", {
-        src: `grf/kyo_${String(city.view ?? 0).padStart(2, "0")}.png`,
+        src: cityPictureURL(city.view ?? 0, this.app?.world),
         alt: "",
         style:
           "float:right;width:96px;height:96px;image-rendering:pixelated;border:1px solid #665;margin-left:6px",

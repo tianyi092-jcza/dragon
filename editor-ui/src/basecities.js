@@ -67,6 +67,11 @@ export function createBaseStrongholdWorkbench({ api, work, publish, confirm, isB
       if (Number(raw) !== row[key]) values[key] = Number(raw);
     }
     if (Object.keys(values).length) body.numbers = { [cityId]: values };
+    if (patch.region !== undefined && patch.region !== (row.region ?? '')) {
+      const region = String(patch.region ?? '').normalize('NFC').trim();
+      if ([...region].length > 5) throw new Error('所屬州郡最多 5 個字。');
+      body.region = { [cityId]: region };
+    }
     if (patch.battleMapId !== undefined && patch.battleMapId !== (row.battleMapId ?? null)) {
       const siege = String(patch.battleMapId ?? '');
       if (!/^ki-1995:siege:(\d{1,3})$/.test(siege) || Number(/^ki-1995:siege:(\d{1,3})$/.exec(siege)[1]) > 191) throw new Error('攻城戰場須為 ki-1995:siege:0..191');

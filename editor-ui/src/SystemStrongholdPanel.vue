@@ -8,7 +8,7 @@ import { ElButton } from 'element-plus/es/components/button/index.mjs';
 import { ElInput } from 'element-plus/es/components/input/index.mjs';
 import { ElSelect, ElOption } from 'element-plus/es/components/select/index.mjs';
 import { ElTable, ElTableColumn } from 'element-plus/es/components/table/index.mjs';
-import { siegeLabel, siegeValid, siegeInType, thumbUrl } from './siegebattletypes.js';
+import { siegeLabel, siegeValid, siegeInType, siegeParts, thumbUrl } from './siegebattletypes.js';
 import CityPicture from './CityPicture.vue';
 import SiegePickButton from './SiegePickButton.vue';
 import SiegeThumbPicker from './SiegeThumbPicker.vue';
@@ -25,7 +25,7 @@ const loading = ref(false);
 const search = ref('');
 const sort = reactive({ key: 'seq', dir: 1 });
 const editing = ref(null);
-const form = reactive({ view: null, name: '', max_prod: '', prod: '', growth: '', defence: '', troops: '', type: '', battleMapId: '', troops_cap: '' });
+const form = reactive({ view: null, name: '', region: '', max_prod: '', prod: '', growth: '', defence: '', troops: '', type: '', battleMapId: '', troops_cap: '' });
 const pickerVisible = ref(false);
 const status = ref('');
 const failure = ref('');
@@ -41,17 +41,21 @@ const canPromote = computed(() => !loading.value && !props.busy && !locked.value
 const columns = [
   { key: 'seq', title: '序號', sortable: false },
   { key: 'name', title: '據點名稱', sortable: true, type: 'text' },
-  { key: 'max_prod', title: '最大生產', sortable: true, type: 'number' },
-  { key: 'prod', title: '當前生產', sortable: true, type: 'number' },
-  { key: 'growth', title: '上升值', sortable: true, type: 'number' },
-  { key: 'defence', title: '防災值', sortable: true, type: 'number' },
+  { key: 'region', title: '所屬州郡', sortable: true, type: 'text' },
+  { key: 'max_prod', title: '最大生產', sortable: false },
+  { key: 'prod', title: '當前生產', sortable: false },
+  { key: 'growth', title: '上升值', sortable: false },
+  { key: 'defence', title: '防災值', sortable: false },
   { key: 'troops', title: '城兵*10', sortable: true, type: 'number' },
-  { key: 'troops_cap', title: '城兵上限*10', sortable: true, type: 'number' },
+  { key: 'troops_cap', title: '城兵上限*10', sortable: false },
   { key: 'type', title: '類型', sortable: true, type: 'number' },
-  { key: 'battleMapId', title: '攻城戰場', sortable: true, type: 'text' },
-  { key: 'view', title: '據點圖片', sortable: true, type: 'number' },
+  { key: 'battleMapId', title: '攻城戰場', sortable: false },
+  { key: 'view', title: '據點圖片', sortable: false },
   { key: 'actions', title: '操作', sortable: false },
 ];
+// 無固定寬、100% 自適應撐滿：最小寬只保證內容不擠壓，表頭單行不回行。
+const minWidths = { name: 112, region: 100, max_prod: 96, prod: 96, growth: 96,
+  defence: 96, troops: 96, type: 90, troops_cap: 112, view: 112, actions: 180 };
 
 const visible = computed(() => {
   const needle = cityName(search.value).toLocaleLowerCase();
@@ -95,6 +99,7 @@ function startEdit(row) {
   editing.value = row.cityId;
   props.actions.setEditing(true);
   form.name = row.name ?? '';
+  form.region = row.region ?? '';
   for (const key of FIELDS) form[key] = row[key] ?? '';
   form.view = row.view ?? null;
   form.battleMapId = row.battleMapId ?? '';
@@ -109,6 +114,8 @@ function validate(row) {
   if (!name) return '據點名稱不可空白。';
   if ([...name].length > 12) return '據點名稱最多 12 個字。';
   if (loaded.value.some(item => item.cityId !== row.cityId && cityName(item.name) === name)) return '據點名稱「' + name + '」已被其他據點使用。';
+  const region = cityName(form.region);
+  if ([...region].length > 5) return '所屬州郡最多 5 個字。';
   for (const key of FIELDS) {
     const raw = String(form[key] ?? '').trim();
     if (raw === '') { if (row[key] !== null) return key + ' 不可留空；請填 0–' + NUMBERS[key] + ' 的整數。'; continue; }
@@ -126,7 +133,7 @@ async function save(row) {
   const problem = validate(row);
   if (problem) { failure.value = problem; return; }
   failure.value = ''; status.value = '';
-  const patch = { name: cityName(form.name), battleMapId: String(form.battleMapId) };
+  const patch = { name: cityName(form.name), region: cityName(form.region), battleMapId: String(form.battleMapId) };
   const cap = String(form.troops_cap ?? '').trim();
   if (cap !== '') patch.troops_cap = Number(cap);
   else if (row.troops_cap != null) patch.troops_cap = row.troops_cap;
@@ -164,7 +171,7 @@ async function promote() {
     </div>
     <div v-if="supported" class="table-region" tabindex="0">
       <ElTable id="base-stronghold-table" ref="table" :data="pagedRows" height="100%" row-key="cityId" @sort-change="onSortChange">
-        <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="column.title" :sortable="column.sortable ? 'custom' : false" :sort-orders="['ascending', 'descending']" :width="column.key === 'seq' ? 60 : undefined" :min-width="column.key === 'battleMapId' ? 306 : column.key === 'actions' ? 180 : column.key === 'troops_cap' ? 138 : column.key === 'seq' ? undefined : 112">
+        <ElTableColumn v-for="column in columns" :key="column.key" :prop="column.key" :label="column.title" :sortable="column.sortable ? 'custom' : false" :sort-orders="['ascending', 'descending']" :width="column.key === 'seq' ? 60 : column.key === 'battleMapId' ? 180 : undefined" :min-width="minWidths[column.key]">
           <template #header><span :data-column="column.key" :data-sort="column.sortable ? column.key : undefined">{{ column.title }}</span></template>
           <template #default="{ row }">
             <div :data-field="column.key" :data-city-id="row.cityId" :data-city-seq="row.seq">
@@ -179,6 +186,9 @@ async function promote() {
               <template v-else-if="column.key === 'name'">
                 <ElInput v-if="editing === row.cityId" v-model="form.name" data-input="name" maxlength="12" :disabled="busy" /><template v-else>{{ row.name ?? '未配置' }}</template>
               </template>
+              <template v-else-if="column.key === 'region'">
+                <ElInput v-if="editing === row.cityId" v-model="form.region" data-input="region" maxlength="5" :disabled="busy" /><template v-else>{{ row.region ?? '' }}</template>
+              </template>
               <template v-else-if="column.key === 'troops_cap'">
                 <ElInput v-if="editing === row.cityId" v-model="form.troops_cap" data-input="troops_cap" inputmode="numeric" :disabled="busy" />
                 <template v-else>{{ row.troops_cap ?? '—' }}</template>
@@ -186,7 +196,7 @@ async function promote() {
               <CityPicture v-else-if="column.key === 'view'" :value="editing === row.cityId ? form.view : row.view" :editable="editing === row.cityId" :disabled="busy" @select="form.view = $event" />
               <template v-else-if="column.key === 'battleMapId'">
                 <div v-if="editing === row.cityId" class="siege-pick"><SiegePickButton :value="form.battleMapId" :disabled="busy" @open="pickerVisible = true" /><span>{{ siegeLabel(form.battleMapId) }}</span></div>
-                <template v-else><img v-if="thumbUrl(row.battleMapId)" :src="thumbUrl(row.battleMapId)" :alt="siegeLabel(row.battleMapId)" loading="lazy" width="96" height="51" />{{ siegeLabel(row.battleMapId) }}</template>
+                <template v-else><div class="siege-cell"><img v-if="thumbUrl(row.battleMapId)" :src="thumbUrl(row.battleMapId)" :alt="siegeLabel(row.battleMapId)" loading="lazy" width="96" height="51" /><div class="siege-text"><span>{{ siegeParts(row.battleMapId).name }}</span><span>{{ siegeParts(row.battleMapId).tag }}</span></div></div></template>
               </template>
               <template v-else><ElInput v-if="editing === row.cityId" v-model="form[column.key]" :data-input="column.key" inputmode="numeric" :disabled="busy" /><template v-else>{{ row[column.key] ?? '—' }}</template></template>
             </div>
@@ -204,6 +214,8 @@ async function promote() {
 <style scoped>
 #base-stronghold-editor:not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
 #base-stronghold-table :deep(th .cell) { white-space: nowrap; }
+.siege-cell { display: flex; align-items: center; gap: 8px; }
+.siege-text { display: flex; flex-direction: column; line-height: 1.5; white-space: nowrap; }
 .module-toolbar { flex-shrink: 0; }
 .table-region { flex: 1; min-height: 0; overflow: hidden; }
 </style>

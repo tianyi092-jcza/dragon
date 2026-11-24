@@ -99,6 +99,15 @@ export async function loadPlayerPack({ session, compilerRevision, maxTotalBytes,
       declaration(entry); check(typeof entry.assetId === 'string' && /^p?[0-9]{1,6}$/.test(entry.assetId) && entry.role === 'game-portrait' && entry.mime === 'image/png' && entry.url === `kao/${entry.assetId}.png`);
       declared.push({ role: 'asset:' + entry.assetId, type: 'image/png', entry });
     }
+    // 據點圖片自管庫（Web 产品决定 2026-11）：舊包無此鍵，視為空；新包逐條比對。
+    check(manifest.cityPictures === undefined || Array.isArray(manifest.cityPictures));
+    for (const entry of manifest.cityPictures ?? []) {
+      declaration(entry);
+      check(Number.isInteger(entry.view) && entry.view >= 15 && entry.view <= 255 && entry.assetId === `city-picture-${entry.view}` && entry.role === 'game-city-picture' && entry.mime === 'image/png');
+      check(entry.url === `/api/trial-asset?game=${encodeURIComponent(identity.gameId)}&revision=${identity.revision}&digest=${identity.sourceDigest}&asset=${entry.assetId}`);
+      declared.push({ role: 'asset:' + entry.assetId, type: 'image/png', entry });
+    }
+    check(new Set((manifest.cityPictures ?? []).map(e => e?.assetId)).size === (manifest.cityPictures ?? []).length);
     const visual = []; let prefix;
     check(object(manifest.visualAssets) && Object.keys(manifest.visualAssets).sort().join(',') === 'seasonAtlases,seasons');
     for (const [group, stem] of [['seasonAtlases', 'map_atlas_'], ['seasons', 'map_tiles_']]) {

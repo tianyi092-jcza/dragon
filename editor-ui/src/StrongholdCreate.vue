@@ -15,7 +15,7 @@ import SiegePickButton from './SiegePickButton.vue';
 import SiegeThumbPicker from './SiegeThumbPicker.vue';
 const creating = ref(false);
 const createPickerVisible = ref(false);
-const create = reactive({ name: '', max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1, battleMapId: '', troops_cap: 60 });
+const create = reactive({ name: '', region: '', max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1, battleMapId: '', troops_cap: 60 });
 watch(() => create.type, type => { if (create.battleMapId && !siegeInType(create.battleMapId, type)) create.battleMapId = ''; });
 const status = ref('');
 const failure = ref('');
@@ -32,6 +32,8 @@ async function createCity() {
   if (!name) { failure.value = '據點名稱不可空白。'; return; }
   if ([...name].length > 12) { failure.value = '據點名稱最多 12 個字。'; return; }
   if (props.cities.some(item => cityName(item.name) === name)) { failure.value = '據點名稱「' + name + '」已被其他據點使用。'; return; }
+  const region = cityName(create.region);
+  if ([...region].length > 5) { failure.value = '所屬州郡最多 5 個字。'; return; }
   const numbers = {};
   for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
     const raw = String(create[key] ?? '').trim();
@@ -45,9 +47,9 @@ async function createCity() {
   if (!siegeInType(String(create.battleMapId ?? ''), create.type)) { failure.value = '所選攻城戰場不在該據點類型的子集內，請重選。'; return; }
   failure.value = ''; status.value = '';
   try {
-    const reply = await props.save({ name, numbers, battleMapId: String(create.battleMapId), troops_cap: Number(create.troops_cap) });
+    const reply = await props.save({ name, region, numbers, battleMapId: String(create.battleMapId), troops_cap: Number(create.troops_cap) });
     creating.value = false;
-    create.name = ''; create.battleMapId = '';
+    create.name = ''; create.region = ''; create.battleMapId = '';
     if (typeof reply === 'string') status.value = reply;
   } catch (error) {
     failure.value = (error && error.message) || '新增未完成（原因未回報）。';
@@ -58,9 +60,9 @@ async function createCity() {
       <ElButton :id="`${prefix}-create-toggle`" :disabled="locked" @click="creating = !creating; failure = ''">{{ creating ? '取消新增' : '新增據點' }}</ElButton>
     <ElDialog v-model="creating" title="新增據點" width="min(900px, 94vw)" align-center append-to-body :close-on-click-modal="false" destroy-on-close class="stronghold-create-dialog" body-class="stronghold-dialog-scroll">
       <ElForm label-position="top" class="editor-form-grid" @submit.prevent="createCity()">
-        <ElFormItem v-for="field in columns.filter(c => ['name', ...FIELDS, 'troops_cap'].includes(c.key))" :key="field.key" :label="field.title">
+        <ElFormItem v-for="field in columns.filter(c => ['name', 'region', ...FIELDS, 'troops_cap'].includes(c.key))" :key="field.key" :label="field.title">
           <ElSelect v-if="field.key === 'type'" v-model="create.type" :disabled="busy"><ElOption v-for="[value, label] in CITY_TYPES" :key="value" :value="Number(value)" :label="label" /></ElSelect>
-          <ElInput v-else v-model="create[field.key]" :maxlength="field.key === 'name' ? 12 : undefined" :inputmode="field.key === 'name' ? 'text' : 'numeric'" :disabled="busy" />
+          <ElInput v-else v-model="create[field.key]" :maxlength="field.key === 'name' ? 12 : field.key === 'region' ? 5 : undefined" :inputmode="(field.key === 'name' || field.key === 'region') ? 'text' : 'numeric'" :disabled="busy" />
         </ElFormItem>
         <ElFormItem label="攻城戰場" class="stronghold-create-battle"><SiegePickButton :value="create.battleMapId" :disabled="busy" @open="createPickerVisible = true" /><span class="siege-current">{{ create.battleMapId ? siegeLabel(create.battleMapId) : '尚未選擇戰場' }}</span></ElFormItem>
         <ElFormItem label="據點圖片" class="stronghold-create-battle"><CityPicture :value="create.view" editable large :disabled="busy" @select="create.view = $event" /></ElFormItem>

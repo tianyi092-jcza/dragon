@@ -6,8 +6,10 @@ import { containsTile } from '../../content/authoring/mapextent.js';
 // a point; no surrogate battle/arrival outcome for unsupported branches.
 export function advanceGridMarch(sc, army, {graph,movement}) {
   const target = army.targetNode;
-  if (!graph.nodes[target] || (sc.cities[target].faction != null && sc.cities[target].faction !== army.faction))
-    throw new RangeError('Grid march requires a friendly destination of the marching faction');
+  // 非法节点沿用旧拒收；敌城目的地不再此處拒收——行军继续，
+  // 到场／过境分支按既有 E8 政策接敌（中立／开战即攻城接触，
+  // 未宣战在接触时拒收），与原生 stepTo 到达接触对齐。
+  if (!graph.nodes[target]) throw new RangeError('Grid march requires a friendly destination of the marching faction');
   const current = army.roadPosition;
   if (current.kind === 'city' && current.cityIndex === target) return 'arrived';
   let next;
@@ -27,7 +29,9 @@ export function advanceGridMarch(sc, army, {graph,movement}) {
   let destination = point;
   const endpoint = next.direction===1 ? edge.toCityIndex : edge.fromCityIndex;
   const endpointOwner = sc.cities[endpoint].faction;
-  if (endpointOwner != null && endpointOwner !== army.faction) {
+  // 直达目标（敌城） defer 到到场分支：先行军，终段 terminates 接敌，
+  // 与原生“先走后接”对齐（内置版参照）；过境敌城仍即时接触（E7 锁定）。
+  if (endpointOwner != null && endpointOwner !== army.faction && endpoint !== army.targetNode) {
     // MAP-EXT E8: transit contact carries its endpoint; the slot pump turns
     // an at-war endpoint into a siege engagement, otherwise the refusal stands.
     const contact = new RangeError('Grid march contact unresolved');
@@ -46,7 +50,10 @@ export function advanceGridMarch(sc, army, {graph,movement}) {
   if (terminates(point.flags)) {
     // Neutral endpoints pass 42AB; 2708 checks field contact first, then
     // 2880 enters siege before the terminal point or city center is occupied.
-    if (endpointOwner == null) {
+    // Hostile faction endpoints contact here too (direct at-war target arriving
+    // at its gate; transit hostile never reaches this line – the endpoint gate
+    // above already threw; undeclared direct targets are refused by ai.js).
+    if (endpointOwner == null || endpointOwner !== army.faction) {
       const contact = new RangeError('Grid march contact unresolved');
       contact.endpoint = endpoint;
       throw contact;

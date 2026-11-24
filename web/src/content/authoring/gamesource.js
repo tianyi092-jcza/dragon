@@ -734,7 +734,7 @@ export function admitChapterCity(game, cityId, troopsCap, battleMapId, extent = 
   numbers.troops_cap = troopsCap;
   definition.x = place.x; definition.y = place.y;
   definition.battleMapId = battleMapId;
-  const entry = { idx: slot, cityId, name: definition.name, faction: null, governor: null, ...numbers, x: place.x, y: place.y,
+  const entry = { idx: slot, cityId, name: definition.name, region: definition.region ?? '', faction: null, governor: null, ...numbers, x: place.x, y: place.y,
     battleMapId, attr: 0, _aiCooldown: 0, _strategicLastFaction: 0x18, strategicBorderCount: 0, disaster_event: 0, cityCacheByte: 0,
     neighbourCityIds: [null, null, null, null] };
   let admitted = 0;
@@ -749,6 +749,24 @@ export function admitChapterCity(game, cityId, troopsCap, battleMapId, extent = 
     admitted++;
   }
   return { cityId, slot, admitted };
+}
+// 州郡顯示回填（Web 展示用）：定義 region 寫入各章同槽州行；新 admit 已自帶，
+// 舊章靠此處補。純展示欄位，不進規則門；未知槽不动。
+export function attachCityRegions(states, cities) {
+  if (!isPlainObject(states)) throw new TypeError('chapter states required');
+  const bySlot = new Map();
+  for (const city of Object.values(cities ?? {})) {
+    if (isPlainObject(city) && Number.isInteger(city.runtimeSlot)) bySlot.set(city.runtimeSlot, typeof city.region === 'string' ? city.region : '');
+  }
+  let updated = 0;
+  for (const state of Object.values(states)) {
+    if (!Array.isArray(state?.cities)) continue;
+    for (const row of state.cities) {
+      if (!isPlainObject(row) || !Number.isInteger(row.idx) || !bySlot.has(row.idx)) continue;
+      if (row.region !== bySlot.get(row.idx)) { row.region = bySlot.get(row.idx); updated++; }
+    }
+  }
+  return updated;
 }
 // 复制落子时定义缺城兵上限：取首章同城行做默认值（只补缺失，不覆盖已有；无首章行则留空，
 // 后续 admit／发布校验照常 fail-closed）。方向与发布自动补行一致：定义→章节为正式流向，

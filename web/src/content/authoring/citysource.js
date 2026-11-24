@@ -1,7 +1,7 @@
 // CITY-CAPACITY-1: city portion of the new source contract, not GameSource admission.
 // Numeric values here are NEW-CHAPTER defaults; never overwrite existing chapter
 // values (especially troops_cap). Coordinates belong exclusively to placements.
-import { cityRecord, cityName } from './cityrecords.js';
+import { cityRecord, cityName, cityRegion } from './cityrecords.js';
 import { compileCityIdentity } from './cityidentity.js';
 
 export function captureCitySource(source, { draft = true } = {}) {
@@ -29,13 +29,15 @@ export function captureCitySource(source, { draft = true } = {}) {
     max_prod: 65535, prod: 65535, growth: 255, defence: 255,
     troops: 255, troops_cap: 255, type: 15, view: 15,
   };
-  const fields = ['cityId', 'name', ...Object.keys(limits), 'battleMapId'];
+  const fields = ['cityId', 'name', 'region', ...Object.keys(limits), 'battleMapId'];
   const captured = Object.fromEntries(cityOrder.map(cityId => {
     const city = cityRecord(cities[cityId]);
     if (Object.keys(city).some(field => !fields.includes(field)))
       throw new RangeError(`unknown city definition field: ${cityId}`);
     if (Object.hasOwn(city, 'name') && cityName(city.name) !== city.name)
       throw new RangeError(`noncanonical city name: ${cityId}`);
+    if (Object.hasOwn(city, 'region') && (typeof city.region !== 'string' || cityRegion(city.region) !== city.region))
+      throw new RangeError(`noncanonical city region: ${cityId}`);
     for (const [field, max] of Object.entries(limits)) {
       if (!Object.hasOwn(city, field)) continue;
       const value = city[field];
@@ -47,8 +49,9 @@ export function captureCitySource(source, { draft = true } = {}) {
       throw new RangeError(`invalid battleMapId: ${cityId}`);
     if (city.prod > city.max_prod || city.troops > city.troops_cap)
       throw new RangeError(`city default exceeds its cap: ${cityId}`);
+    // region 是可选作者展示字段（預設空白），不列入編譯必填門；其餘缺一即不完整。
     if (!draft && Object.hasOwn(identity.indexByCityId, cityId) &&
-        fields.some(field => !Object.hasOwn(city, field)))
+        fields.some(field => field !== 'region' && !Object.hasOwn(city, field)))
       throw new RangeError(`incomplete placed city definition: ${cityId}`);
     return [cityId, { ...city }];
   }));

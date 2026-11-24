@@ -5,9 +5,9 @@ import { reconcileAutoRoads } from './copyprofile.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
 import { createStrongholdDefinition } from './gamecopy.js';
-import { cityPictures } from './citypictures.js';
+import { bindCityPictureStorage, hasCityPictureView } from './citypicturestore.js';
 import { siegeMatchesType } from './siegeorigin.js';
-import { cityName } from '../web/src/content/authoring/cityrecords.js';
+import { cityName, cityRegion } from '../web/src/content/authoring/cityrecords.js';
 import { validateSystemBaseMap } from './systembasemap.js';
 import { enableSeaGroundBase } from '../web/src/editor/componenttools.js';
 import { MAP_EDIT_MAX_COMMANDS } from '../web/src/editor/mapeditlimits.js';
@@ -21,6 +21,7 @@ export class SystemBaseMapStore {
     if (!storage?.sql || typeof storage.transactionSync !== 'function' || typeof principal !== 'function' || typeof loadInitialTemplate !== 'function')
       throw new TypeError('SQLite, principal and trusted initial-template loader required');
     this.#storage = storage; this.#sql = storage.sql; this.#principal = principal; this.#loadInitial = loadInitialTemplate;
+    bindCityPictureStorage(storage);
     this.#sql.exec('CREATE TABLE IF NOT EXISTS system_base_map (singleton INTEGER PRIMARY KEY CHECK(singleton=1), version INTEGER NOT NULL CHECK(version>0), digest TEXT NOT NULL, template_json TEXT NOT NULL, updated_at TEXT NOT NULL)');
   }
   #admin(tokenHash) {
@@ -40,7 +41,7 @@ export class SystemBaseMapStore {
     return { version: row.version, digest: row.digest, template, updatedAt: row.updated_at };
   }
   read(tokenHash) { this.#admin(tokenHash); return this.#current(); }
-  // 基础据点编辑：与游戏级城池据点同字段口径（改名＋数值），坐标与槽位归地图侧。
+  // 基础据点编辑：与游戏级城池据点同字段口径（改名＋州郡＋数值），坐标与槽位归地图侧。
   saveCities(tokenHash, patch) {
     this.#admin(tokenHash);
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail(422, 'BASE_CITIES_PATCH');
@@ -68,6 +69,15 @@ export class SystemBaseMapStore {
         row.name = cleaned; changed = true;
       }
     }
+    if (patch.region !== undefined) {
+      if (!patch.region || typeof patch.region !== 'object' || Array.isArray(patch.region)) fail(422, 'BASE_CITY');
+      for (const [cityId, region] of Object.entries(patch.region)) {
+        const row = cities[cityId];
+        if (!row) fail(422, 'BASE_CITY');
+        let cleaned; try { cleaned = cityRegion(region); } catch { fail(422, 'BASE_CITY'); }
+        if (row.region !== cleaned) { row.region = cleaned; changed = true; }
+      }
+    }
     if (patch.numbers !== undefined) {
       if (!patch.numbers || typeof patch.numbers !== 'object' || Array.isArray(patch.numbers)) fail(422, 'BASE_CITY');
       for (const [cityId, values] of Object.entries(patch.numbers)) {
@@ -76,7 +86,7 @@ export class SystemBaseMapStore {
         if (!values || typeof values !== 'object' || Array.isArray(values)) fail(422, 'BASE_CITY');
         for (const [key, n] of Object.entries(values)) {
           if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(key)) fail(422, 'BASE_CITY');
-          if (!Number.isSafeInteger(n) || n < 0 || n > 65535 || (key === 'view' && !Object.hasOwn(cityPictures, n))) fail(422, 'BASE_CITY');
+          if (!Number.isSafeInteger(n) || n < 0 || n > 65535 || (key === 'view' && !hasCityPictureView(n))) fail(422, 'BASE_CITY');
           if (row[key] !== n) { row[key] = n; changed = true; }
         }
       }

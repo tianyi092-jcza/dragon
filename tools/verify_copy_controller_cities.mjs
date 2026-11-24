@@ -50,8 +50,8 @@ test('loadCopy builds cities rows in the page projection', async () => {
   await h.actions.loadCopy();
   const rows = h.model().copy.page.cities;
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows[0], { cityId: 'c1', name: '洛陽', max_prod: 100, prod: 50, growth: 1, defence: 2, troops: 3, type: 0, view: 1, battleMapId: 'ki-1995:siege:7', troops_cap: 30 });
-  assert.deepEqual(rows[1], { cityId: 'c2', name: '長安', max_prod: null, prod: null, growth: null, defence: null, troops: null, type: null, view: null, battleMapId: null, troops_cap: null });
+  assert.deepEqual(rows[0], { cityId: 'c1', name: '洛陽', region: '', max_prod: 100, prod: 50, growth: 1, defence: 2, troops: 3, type: 0, view: 1, battleMapId: 'ki-1995:siege:7', troops_cap: 30 });
+  assert.deepEqual(rows[1], { cityId: 'c2', name: '長安', region: '', max_prod: null, prod: null, growth: null, defence: null, troops: null, type: null, view: null, battleMapId: null, troops_cap: null });
   assert.equal(h.errors.length, 0);
 });
 
@@ -186,7 +186,27 @@ test('cityCopyCreate posts name+numbers+battlefield+troopcap, then re-reads', as
   await h.actions.loadCopy();
   const reply = await h.actions.cityCopyCreate({ name: '新野', numbers: { max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1 }, battleMapId: 'ki-1995:siege:7', troops_cap: 60 });
   assert.equal(reply, '已新增據點並重讀副本。下一步：在地圖上放置並綁定。');
-  assert.deepEqual(posts(h), [{ module: 'cities', patch: { create: { name: '新野', numbers: { max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1 }, battleMapId: 'ki-1995:siege:7', troops_cap: 60 } } }]);
+  assert.deepEqual(posts(h), [{ module: 'cities', patch: { create: { name: '新野', region: '', numbers: { max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1 }, battleMapId: 'ki-1995:siege:7', troops_cap: 60 } } }]);
+  assert.equal(h.errors.length, 0);
+});
+
+test('cityCopy region: create posts explicit region, blank region create defaults, save posts change, blank save is no-op', async () => {
+  const h = harness(); await selectGame(h); loadOk(h);
+  await h.actions.loadCopy();
+  const good = { name: '新野', numbers: { max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1 }, battleMapId: 'ki-1995:siege:7', troops_cap: 60 };
+  await h.actions.cityCopyCreate({ ...good, region: '荊州' });
+  assert.deepEqual(posts(h), [{ module: 'cities', patch: { create: { ...good, region: '荊州' } } }]);
+  h.calls.length = 0;
+  try { await h.actions.cityCopyCreate({ ...good, name: '樊城', region: '荊州襄陽郡外' }); } catch { h.errors.push(new Error('local-refusal')); }
+  assert.equal(h.errors.length, 1);
+  assert.equal(h.calls.length, 0);
+  h.errors.length = 0;
+  const saved = await h.actions.cityCopySave('c1', { region: '司隸' });
+  assert.equal(saved, '已保存據點並重讀副本。');
+  assert.deepEqual(posts(h), [{ module: 'cities', patch: { region: { c1: '司隸' } } }]);
+  h.calls.length = 0;
+  assert.equal(await h.actions.cityCopySave('c1', { region: '' }), '據點沒有變更。');
+  assert.equal(h.calls.length, 0);
   assert.equal(h.errors.length, 0);
 });
 

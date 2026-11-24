@@ -5747,8 +5747,14 @@ function isRoadSuspended(outcome) {
  * 在 grid 世界无对应机械，不发明返程语义）；占格仅在敌军在位时建立
  * 野战接触（友军占格沿用等待清空，占位军团恒为过境军团可终结等待）。
  * 其余 throw（含无数据附加的旧形状）原样上抛，保持 E7 拒收语义。 */
-function resolveGridMarchContact(app, A, error) {
+// E8 接触管线（单测接缝：持续接触发声规则在此锁定）。
+export function resolveGridMarchContact(app, A, error) {
   const sc = app.scenario;
+  // Grid 无原生 wait() 轮询：以“已在接触中＋仍等待”复刻首触静默／重复发声语义。
+  const soundResumedContact = outcome => {
+    if (outcome !== 'waiting') return;
+    try { app.engagementFx?.requestSound(sc); } catch { /* Audio unavailable. */ }
+  };
   if (
     error instanceof RangeError &&
     error.message === "Grid march contact unresolved" &&
@@ -5760,8 +5766,11 @@ function resolveGridMarchContact(app, A, error) {
       city.faction !== A.faction &&
       (city.faction == null || atWar(sc, A.faction, city.faction))
     ) {
+      const resumed = !!A._engagement;
       startEngagement(A, ENGAGE_KIND_SIEGE, { cityIdx: city.idx });
-      return resolveEngagementAction(app, A);
+      const outcome = resolveEngagementAction(app, A);
+      if (resumed) soundResumedContact(outcome);
+      return outcome;
     }
   } else if (
     error instanceof RangeError &&
@@ -5770,12 +5779,15 @@ function resolveGridMarchContact(app, A, error) {
   ) {
     const foe = contactLegionAt(sc, A, error.point.x, error.point.y);
     if (foe) {
+      const resumed = !!A._engagement;
       startEngagement(A, ENGAGE_KIND_FIELD, {
         x: error.point.x,
         y: error.point.y,
         faction: foe.faction,
       });
-      return resolveEngagementAction(app, A);
+      const outcome = resolveEngagementAction(app, A);
+      if (resumed) soundResumedContact(outcome);
+      return outcome;
     }
   }
   throw error;
@@ -5786,6 +5798,12 @@ export function performLegionSlotAction(app, A) {
   const grid = scenarioGridRoadContext(sc);
   if (grid) {
     const x = A.x, y = A.y;
+    // 直达他势力据点：未宣战沿用拒收（E7 语义，E8 前件测试锁定：一步不动）；
+    // 已宣战／中立放行，由 grid 到场／过境分支接敌（与原生到达接触对齐）。
+    const dest = Number.isInteger(A.targetNode) ? sc.cities[A.targetNode] : null;
+    if (dest && dest.faction != null && dest.faction !== A.faction && !atWar(sc, A.faction, dest.faction)) {
+      throw new RangeError('Grid march requires a friendly destination of the marching faction');
+    }
     let outcome;
     try {
       outcome = advanceGridMarch(sc,A,grid);

@@ -12,6 +12,7 @@ import { fail } from './security.js';
 import { FIXED_TEMPLATE_PROFILE } from './copyprofile.js';
 import { isOriginalBounds, isSupportedMapExtent } from '../web/src/content/authoring/mapextent.js';
 import { collectPortraitIds } from './portraits.js';
+import { attachCityRegions } from '../web/src/content/authoring/gamesource.js';
 import { cityViewGaps } from './trials.js';
 import { MINIMAP_SIZES, renderMinimapPixels } from '../web/src/content/authoring/minimap.js';
 import { encodePNG } from './pngio.js';
@@ -47,15 +48,33 @@ function tripletFor(roadVersion) {
   return triplet;
 }
 const assetURL = (gameId, rev, sourceDigest, assetId) => `/api/trial-asset?game=${encodeURIComponent(gameId)}&revision=${rev}&digest=${sourceDigest}&asset=${assetId}`;
+// 據點圖片自管庫凍結（Web 产品决定 2026-11）：只收錄本包實際使用的自管圖
+// （view 15..255），位元組進 pack_assets 隨包；內建 0..14 仍走凍結 grf。
+// 純函數可單測；缺圖即損壞引用，不靜默省略（與 portraits forPublish 同口徑）。
+export function collectCustomCityPictureEntries(states, getPicture) {
+  if (typeof getPicture !== 'function') return [];
+  const views = new Set();
+  for (const state of Object.values(states ?? {})) {
+    for (const city of state?.cities ?? []) {
+      if (Number.isInteger(city?.view) && city.view >= 15 && city.view <= 255) views.add(city.view);
+    }
+  }
+  return [...views].sort((a, b) => a - b).map(view => {
+    const picture = getPicture(view);
+    if (!picture) fail(422, 'PLAY_CITY_VIEW_MISSING');
+    return Object.freeze({ view, assetId: `city-picture-${view}`, sha256: picture.sha256, byteLength: picture.byteLength, role: 'game-city-picture', mime: 'image/png', bytes: picture.bytes });
+  });
+}
 export class PublishedPacks {
-  #storage; #sql; #principal; #runtimeAssets; #policy; #portraits;
+  #storage; #sql; #principal; #runtimeAssets; #policy; #portraits; #cityPictures;
   #prepared = new WeakMap();
-  constructor({ storage, principal, runtimeAssets = null, portraits = null, isolatedSourcePolicy }) {
+  constructor({ storage, principal, runtimeAssets = null, portraits = null, cityPictures = null, isolatedSourcePolicy }) {
     if (isolatedSourcePolicy !== undefined && !isIsolatedChapterSourcePolicy(isolatedSourcePolicy))
       throw new TypeError('independently branded publication source required');
     if (!storage?.sql || typeof principal !== 'function') { throw new TypeError('actual SQLite and trusted principal required'); }
     if (portraits !== null && typeof portraits?.forPublish !== 'function') { throw new TypeError('portrait reader required'); }
-    this.#storage = storage; this.#sql = storage.sql; this.#principal = principal; this.#runtimeAssets = runtimeAssets; this.#portraits = portraits;
+    if (cityPictures !== null && (typeof cityPictures?.list !== 'function' || typeof cityPictures?.get !== 'function')) { throw new TypeError('city picture store required'); }
+    this.#storage = storage; this.#sql = storage.sql; this.#principal = principal; this.#runtimeAssets = runtimeAssets; this.#portraits = portraits; this.#cityPictures = cityPictures;
     // Same installed-source policy the worker builds for TrialSessions.
     this.#policy = isolatedSourcePolicy ?? installedSourcePolicy(new TextEncoder().encode(worldManifest), new TextEncoder().encode(entityManifest));
     if (!isInstalledSourcePolicy(this.#policy)) { throw new TypeError('installed source policy required'); }
@@ -119,6 +138,10 @@ export class PublishedPacks {
       return row;
     });
   }
+  #freezeCityPictures(states) {
+    if (!this.#cityPictures) return [];
+    return collectCustomCityPictureEntries(states, view => this.#cityPictures.get(view));
+  }
   async prepare(tokenHash, { game, reference, compiled }) {
     const actor = this.#actor(tokenHash);
     const authority = { id: actor.id, epoch: actor.epoch };
@@ -135,10 +158,13 @@ export class PublishedPacks {
       if (typeof chapterId !== 'string' || !chapterId) { fail(422, 'PLAY_SNAPSHOT'); }
       const chapter = game.chapters?.[chapterId], state = chapter?.state;
       if (!state || typeof state !== 'object' || !Array.isArray(state.cities)) { fail(422, 'PLAY_SNAPSHOT'); }
-      // Use the same fixed-library reference gate as Trial, not a numeric range
-      // or a claim that structural compilation proves every image exists.
-      if (cityViewGaps(state.cities).length) { fail(422, 'PLAY_CITY_VIEW_MISSING'); }
+      // 發布門：內建 0..14 沿用凍結庫；自管圖（15..255）須在庫中有位元組。
+      const knownCityViews = new Set(Array.from({ length: 15 }, (_, view) => view));
+      if (this.#cityPictures) for (const row of this.#cityPictures.list()) knownCityViews.add(row.view);
+      if (cityViewGaps(state.cities, knownCityViews).length) { fail(422, 'PLAY_CITY_VIEW_MISSING'); }
       states[chapterId] = structuredClone(state);
+      // 州郡展示回填：定義 region 落各章同槽州行（舊章補、新 admit 自帶），只影響顯示。
+      attachCityRegions({ [chapterId]: states[chapterId] }, game.cities);
       for (const city of states[chapterId].cities) {
         if (cityNames.has(city.idx)) city.name = cityNames.get(city.idx);
       }
@@ -177,13 +203,18 @@ export class PublishedPacks {
     const visuals = await this.#visuals(tokenHash, { ...reference, ...identity });
     const portraits = this.#freezePortraits(states);
     const portraitEntries = portraits.map(row => Object.freeze({ assetId: row.assetId, sha256: row.sha256, byteLength: row.byteLength, role: 'game-portrait', url: `kao/${row.assetId}.png`, mime: row.mime }));
+    const cityPictures = this.#freezeCityPictures(states);
     const entries = Object.entries(payloads).map(([assetId, data]) => Object.freeze({ assetId, sha256: shaBytes(data), byteLength: data.length, role: roles[assetId], url: assetURL(identity.gameId, identity.draftRevision, identity.sourceDigest, assetId) }));
+    for (const row of cityPictures) { payloads[row.assetId] = Buffer.from(row.bytes); }
+    const cityPictureEntries = cityPictures.map(row => Object.freeze({ view: row.view, assetId: row.assetId, sha256: row.sha256, byteLength: row.byteLength, role: 'game-city-picture', mime: 'image/png', url: assetURL(identity.gameId, identity.draftRevision, identity.sourceDigest, row.assetId) }));
+    const allEntries = Object.freeze([...entries, ...cityPictureEntries]);
     const manifest = Object.freeze({
       schemaVersion, compilerRevision: TRIAL_COMPILER_REVISION, buildFormat,
       compatibilityAssetMode, ruleProfile,
       identity: Object.freeze({ ...identity, trialSnapshotId: `${identity.gameId}@${identity.draftRevision}:${identity.sourceDigest}` }),
       world: Object.freeze({ id: `${identity.gameId}-world`, revision: identity.sourceDigest, ...(expanded ? { minX: bounds.minX, minY: bounds.minY } : null), width, height, tileSize: 16 }),
       chapters: Object.freeze(chapterOrder), visualAssets: visuals, minimap: Object.freeze({ ...minimap }), portraits: Object.freeze(portraitEntries),
+      cityPictures: Object.freeze(cityPictureEntries),
       minimapAssets: Object.freeze(entries.filter(entry => entry.assetId.startsWith('minimap'))),
       assets: Object.freeze(entries.filter(entry => !entry.assetId.startsWith('minimap'))),
     });
@@ -191,7 +222,7 @@ export class PublishedPacks {
     this.#prepared.set(ticket, {
       authority, identity, manifest, manifestJson: JSON.stringify(manifest),
       chapters: Object.entries(states).map(([id, state]) => [id, JSON.stringify(state)]),
-      entries, payloads,
+      entries: allEntries, payloads,
     });
     return ticket;
   }
@@ -271,17 +302,20 @@ export class PublishedPacks {
     return { manifest, states };
   }
   #serveAsset(pin, manifest, assetId) {
-    const entry = [...(manifest.assets ?? []), ...(manifest.minimapAssets ?? []), ...(manifest.portraits ?? [])].find(item => item?.assetId === assetId);
+    const entry = [...(manifest.assets ?? []), ...(manifest.minimapAssets ?? []), ...(manifest.portraits ?? []), ...(manifest.cityPictures ?? [])].find(item => item?.assetId === assetId);
     if (!entry || !digest(entry.sha256) || !Number.isSafeInteger(entry.byteLength)) { fail(404, 'PLAY_ASSET'); }
     const isPortrait = (manifest.portraits ?? []).some(item => item?.assetId === assetId);
-    if (!isPortrait && !ASSET_IDS.includes(assetId)) { fail(404, 'PLAY_ASSET'); }
+    const isCityPicture = (manifest.cityPictures ?? []).some(item => item?.assetId === assetId);
+    if (!isPortrait && !isCityPicture && !ASSET_IDS.includes(assetId)) { fail(404, 'PLAY_ASSET'); }
     if (isPortrait && entry.role !== 'game-portrait') { fail(500, 'PLAY_PACK_CORRUPT'); }
+    if (isCityPicture && (entry.role !== 'game-city-picture' || !Number.isInteger(entry.view))) { fail(500, 'PLAY_PACK_CORRUPT'); }
     const row = this.#one('SELECT * FROM published_pack_assets WHERE game_id=? AND asset_id=?', pin.gameId, assetId);
     if (!row) { fail(500, 'PLAY_PACK_CORRUPT'); }
     const bytes = Buffer.from(row.bytes);
     if (bytes.length !== row.byte_length || shaBytes(bytes) !== row.sha256 || row.sha256 !== entry.sha256 || row.byte_length !== entry.byteLength) { fail(503, 'PLAY_ASSET_CORRUPT'); }
-    const mime = isPortrait ? entry.mime : ASSET_MIME[assetId];
+    const mime = isPortrait || isCityPicture ? entry.mime : ASSET_MIME[assetId];
     if (isPortrait && mime !== 'image/png' && mime !== 'image/jpeg') { fail(500, 'PLAY_PACK_CORRUPT'); }
+    if (isCityPicture && mime !== 'image/png') { fail(500, 'PLAY_PACK_CORRUPT'); }
     return Object.freeze({ bytes, sha256: row.sha256, mime });
   }
   // Anonymous pinned-pack slice (node trial-pack parity: game + optional

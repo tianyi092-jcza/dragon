@@ -718,6 +718,10 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       const cap = row.troops_cap ?? null;
       if (cap !== null && (!Number.isInteger(cap) || cap < 0 || cap > 255)) throw new Error('副本據點城兵上限格式無效。');
       out.troops_cap = cap;
+      // 所屬州郡是作者展示欄位（預設空白、可空、最多 5 字）；讀寫直透不進規則，舊檔缺欄位讀成空白。
+      const region = row.region ?? '';
+      if (typeof region !== 'string' || [...region.normalize('NFC').trim()].length > 5) throw new Error('副本據點州郡格式無效。');
+      out.region = region.normalize('NFC').trim();
       rows.push(out);
     }
     return rows;
@@ -1664,6 +1668,11 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       if (!Number.isInteger(cap) || cap < 0 || cap > 255) throw new Error('城兵上限須為 0–255 的整數。');
       body.troopcap = { [cityId]: cap };
     }
+    if (patch.region !== undefined && patch.region !== (row.region ?? '')) {
+      const region = String(patch.region ?? '').normalize('NFC').trim();
+      if ([...region].length > 5) throw new Error('所屬州郡最多 5 個字。');
+      body.region = { [cityId]: region };
+    }
     if (!Object.keys(body).length) return '據點沒有變更。';
     if (!current()) return;
     return action(async () => {
@@ -1708,11 +1717,13 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!createSiegeId || Number(createSiegeId[1]) > 191) throw new Error('攻城戰場須為 ki-1995:siege:0..191');
     const troopsCap = Number(form.troops_cap);
     if (!Number.isInteger(troopsCap) || troopsCap < 0 || troopsCap > 255) throw new Error('城兵上限須為 0–255 的整數。');
+    const region = String(form.region ?? '').normalize('NFC').trim();
+    if ([...region].length > 5) throw new Error('所屬州郡最多 5 個字。');
     const gameId = fields.gameId, valid = ticket();
     const current = () => valid() && permitted() && copyLoadedForGame();
     if (!current()) return;
     return action(async () => {
-      await saveCopyModuleInner(gameId, valid, 'cities', { create: { name, numbers, battleMapId, troops_cap: troopsCap } });
+      await saveCopyModuleInner(gameId, valid, 'cities', { create: { name, numbers, battleMapId, troops_cap: troopsCap, region } });
       if (!valid() || fields.gameId !== gameId) return;
       await loadCopyInner(gameId, valid);
       return '已新增據點並重讀副本。下一步：在地圖上放置並綁定。';

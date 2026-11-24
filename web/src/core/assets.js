@@ -99,3 +99,30 @@ export function buildPortraitOverrides(generals, portraits) {
 export function portrait(generalOrByte, world) {
   return loadImage(portraitURL(generalOrByte, world));
 }
+/** 據點圖片自管庫 Web 呈現（Web 产品决定 2026-11，非原版機制）：發布包實際引用的
+ * 自管圖按 view 綁定到所屬 world；未命中回落凍結 grf／kyo，不發明圖。被刪圖在新包
+ * 無條目，舊 gamebar／hud 只認回落路徑，顯示為空（404 即空）。 */
+const worldCityPictures = new WeakMap();
+export function bindCityPictureOverrides(world, map) {
+  if (!world || typeof world !== "object" || !(map instanceof Map) || worldCityPictures.has(world)) {
+    throw new TypeError("city picture bindings require a fresh owning world");
+  }
+  worldCityPictures.set(world, new Map([...map].map(([view, entry]) => [view, Object.freeze({ ...entry })])));
+}
+export function cityPictureURL(view, world) {
+  const known = Number.isInteger(view) && view >= 0 && view <= 255 ? view : 0;
+  return worldCityPictures.get(world)?.get(known)?.url ?? `grf/kyo_${String(known).padStart(2, "0")}.png`;
+}
+export function buildCityPictureOverrides(cities, pictures) {
+  const map = new Map();
+  if (!Array.isArray(cities) || !Array.isArray(pictures)) { return map; }
+  const byView = new Map(pictures.filter((entry) => entry && Number.isInteger(entry.view)).map((entry) => [entry.view, entry]));
+  for (const city of cities) {
+    if (!city || !Number.isInteger(city.view)) { continue; }
+    const hit = byView.get(city.view);
+    if (typeof hit?.url === "string" && hit.url) {
+      map.set(city.view, Object.freeze({ view: city.view, url: hit.url }));
+    }
+  }
+  return map;
+}

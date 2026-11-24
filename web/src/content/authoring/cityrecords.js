@@ -15,6 +15,18 @@ export function cityName(value) {
   if (!name) throw new RangeError('city name required');
   return name;
 }
+// 所屬州郡（Web 產品決定 2026-11，非原版機制）：基礎據點與城池據點共用的作者维护
+// 展示欄位，可空，預設空白，最多 5 個字；不參與規則、編譯、章節或發布校驗。
+export function cityRegion(value) {
+  if (typeof value !== 'string') throw new TypeError('city region required');
+  for (const char of value) {
+    const point = char.codePointAt(0);
+    if (point < 32 || point >= 127 && point <= 159 || point >= 0xd800 && point <= 0xdfff) throw new RangeError('invalid city region');
+  }
+  const region = value.normalize('NFC').trim();
+  if ([...region].length > 5) throw new RangeError('city region up to 5 chars');
+  return region;
+}
 // Game-level base numbers (user 2026-11: 据点基础属性归游戏级，除所属势力外都要有).
 // 用户 2026-11 决定（原版字段表）：父表保存 名称／坐标／最大生产力／当前生产力／
 // 上升值／防灾值／城兵／类型；其中 当前生产力・上升值・防灾值・城兵 是给章节新建时
@@ -45,7 +57,7 @@ export function cityBaseNumbers(value) {
 export function captureCityDefinitions(game) {
   cityRecord(game); cityRecord(game.cities);
   const cities = {}, slots = new Set();
-  const allowed = ['cityId', 'runtimeSlot', 'x', 'y', 'name', 'battleMapId', 'troops_cap', ...CITY_BASE_NUMBERS];
+  const allowed = ['cityId', 'runtimeSlot', 'x', 'y', 'name', 'region', 'battleMapId', 'troops_cap', ...CITY_BASE_NUMBERS];
   for (const [id, value] of Object.entries(game.cities)) {
     const city = cityRecord(value), keys = Object.keys(city);
     if (city.cityId !== id || !id || keys.some(key => !allowed.includes(key)) || !['cityId', 'runtimeSlot', 'x', 'y'].every(key => Object.hasOwn(city, key))) throw new RangeError('city definition fields are not understood');
@@ -58,6 +70,7 @@ export function captureCityDefinitions(game) {
     cityBaseNumbers(city);
     if (!Number.isInteger(city.runtimeSlot) || city.runtimeSlot < 0 || city.runtimeSlot >= 512 || slots.has(city.runtimeSlot) || !Number.isInteger(city.x) || city.x < 0 || city.x >= 384 || !Number.isInteger(city.y) || city.y < 0 || city.y >= 256) throw new RangeError('city definition needs a live slot with map coords');
     if (Object.hasOwn(city, 'name') && cityName(city.name) !== city.name) throw new RangeError('saved city name must be canonical');
+    if (Object.hasOwn(city, 'region') && cityRegion(city.region) !== city.region) throw new RangeError('saved city region must be canonical');
     slots.add(city.runtimeSlot);
     Object.defineProperty(cities, id, { value: { ...city }, enumerable: true, writable: true, configurable: true });
   }

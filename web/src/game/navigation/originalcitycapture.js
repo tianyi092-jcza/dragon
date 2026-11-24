@@ -1,7 +1,7 @@
 // KI 4CF3/4D63/4DF0/6A3D/4502, SHA-bound windows: legion-fate notes §11.
 // Real applyBattleResult prefix, not a complete capture/graphics/message RET.
 import { nativeLegionAt } from "../nativelegions.js";
-import { scenarioNativeRoadContext } from "../scenarioassembly.js";
+import { scenarioGridRoadContext, scenarioNativeRoadContext } from "../scenarioassembly.js";
 import { OriginalFateBoundaryError } from "./originallegionfate.js";
 
 const stop = (at, detail) => {
@@ -91,10 +91,71 @@ function capital4DF0(sc, city, owner) {
   return false;
 }
 
+// MAP-EXT 扩图分支：与原 D44 字节游走等价的 tile 空间走位（角点累计步与
+// 原 delta 一一对应：都城 (±2,±2)、关隘正交、其余 (±1,±1)）。原图保持字节
+// 语义（含首尾回绕读）一字不动；扩图越界角点跳过（不包装 falsely）。
+// 可单测接缝：显式 terrain／bounds／city／playerFaction，不碰 WeakMap。
+export function paintExpandedCityTile(terrain, bounds, city, playerFaction) {
+  for (const key of ['minX', 'minY', 'width', 'height']) {
+    if (!Number.isInteger(bounds?.[key])) stop('8A3F', 'expanded terrain bounds');
+  }
+  const { minX, minY, width, height } = bounds;
+  if (!Number.isInteger(playerFaction) || playerFaction < 0 || playerFaction > 255) stop('8A5A', 'expanded player faction');
+  const x = own(city, 'x', 65535, '8A38');
+  const y = own(city, 'y', 65535, '8A1F');
+  const inBounds = (cx, cy) => Number.isInteger(cx) && Number.isInteger(cy) &&
+    cx >= minX && cx < minX + width && cy >= minY && cy < minY + height;
+  const boundsTag = (bounds?.minX ?? '?') + ',' + (bounds?.minY ?? '?') + ',' + (bounds?.width ?? '?') + 'x' + (bounds?.height ?? '?');
+  if (!terrain) stop('8A3F', 'expanded terrain missing native memory plane');
+  if (!inBounds(x, y)) stop('8A3F', 'expanded terrain city outside plane idx=' + city.idx + ' x='+x+' y='+y+' bounds=' + boundsTag);
+  const addressOf = (cx, cy) => (cy - minY) * width + (cx - minX);
+  function readTileAt(cx, cy, at) {
+    try { return terrain.readByte(addressOf(cx, cy)); }
+    catch (cause) { throw new OriginalFateBoundaryError(at, cause.message); }
+  }
+  function writeTileAt(cx, cy, value, at) {
+    try { terrain.writeByte(addressOf(cx, cy), value); }
+    catch (cause) { throw new OriginalFateBoundaryError(at, cause.message); }
+  }
+  const tile = readTileAt(x, y, '8A3F');
+  let value = (Math.floor(((tile - 0xcb) & 255) / 3) * 3 + 0xcb) & 255;
+  const owner = ownerByte(city, '8A4E');
+  if (owner === 0x18) value = (value + 2) & 255;
+  else if (owner !== playerFaction) value = (value + 1) & 255;
+  writeTileAt(x, y, value, '8A63');
+  const currentOwner = ownerByte(city, '8A68');
+  const highlight = currentOwner === playerFaction ? 10 : 0;
+  const type = own(city, 'type', 15, '8A74');
+  const CORNER_STEPS = {
+    0: [[-2, -2], [4, 0], [0, 4], [-4, 0]],
+    3: [[0, -1], [-1, 1], [2, 0], [-1, 1]],
+  };
+  const steps = CORNER_STEPS[type] ?? [[-1, -1], [2, 0], [0, 2], [-2, 0]];
+  let cx = x, cy = y;
+  for (const [dx, dy] of steps) {
+    cx += dx; cy += dy;
+    if (!inBounds(cx, cy)) continue;
+    const corner = readTileAt(cx, cy, '8AD1');
+    if (corner < 0xde || corner >= 0xf2) continue;
+    writeTileAt(cx, cy, 0xde + ((corner - 0xde) % 10) + highlight, '8AE6');
+  }
+}
 // D44-relative canonical domain: ES=(Y-2)*24 paragraphs; BX arithmetic is
 // independently u16. Segment-base wrap/aliases are not a Web terrain plane.
 // Exported for A-MAP-2 write-order tests (same body production calls).
 export function paint8A1E(sc, city) {
+  const grid = scenarioGridRoadContext(sc);
+  if (grid) {
+    // 扩图世界没有 D44 原生地形内存（E6 以路网替换道路平面，grid restore
+    // 明確不带原生内存）：漆面没有可落的背板，而地面渲染走图集（用户地图
+    // 一直正常即证），跳过即等价可观察行为，不掐表；规则部分照常执行。
+    // 若未来某流程给扩图绑定了原生内存，下式自动恢复绘制（已单测覆盖）。
+    const terrain = scenarioNativeRoadContext(sc)?.terrain;
+    if (!terrain) return;
+    paintExpandedCityTile(terrain, grid.world?.definition, city,
+      own(sc, 'player_faction', 255, '8A5A'));
+    return;
+  }
   const y = own(city, "y", 65535, "8A1F");
   let bx = (own(city, "x", 65535, "8A38") + 0x300) & 65535;
   const terrain = scenarioNativeRoadContext(sc)?.terrain;

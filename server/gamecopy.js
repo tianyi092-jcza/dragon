@@ -17,9 +17,9 @@ import { COPY_MAP_OPS, mapExtentOptionFor, reconcileAutoRoads, refreshChapterNei
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { changesMapPositions } from '../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../web/src/editor/mappositionvalidation.js';
-import { cityPictures } from './citypictures.js';
+import { bindCityPictureStorage, hasCityPictureView } from './citypicturestore.js';
 import { siegeMatchesType } from './siegeorigin.js';
-import { cityName } from '../web/src/content/authoring/cityrecords.js';
+import { cityName, cityRegion } from '../web/src/content/authoring/cityrecords.js';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
 import { builtinGeneralLibrary, projectCopyGenerals, configureCopyGeneral } from './copygenerals.js';
 // 共用头像库 ID→SHA（武将库 portraitRef 校验用，与 generaldefinitions 同源）。
@@ -89,10 +89,12 @@ function cityDeleteBlockers(data, cityId) {
 // 模块存只拦本模块内（T4）：非空/范围/长度/本模块唯一；跨模块一律推迟到发布门。
 export function createStrongholdDefinition(cities, create) {
   if (!create || typeof create !== 'object' || Array.isArray(create)) fail(422, 'COPY_CITY');
-  if (Object.keys(create).length === 0 || Object.keys(create).some(k => !['name', 'numbers', 'battleMapId', 'troops_cap'].includes(k))) fail(422, 'COPY_CITY');
+  if (Object.keys(create).length === 0 || Object.keys(create).some(k => !['name', 'region', 'numbers', 'battleMapId', 'troops_cap'].includes(k))) fail(422, 'COPY_CITY');
   let cleaned; try { cleaned = cityName(create.name); } catch { fail(422, 'COPY_CITY'); }
   if (codePoints(cleaned) < 1 || codePoints(cleaned) > 12) fail(422, 'COPY_CITY');
   if (new Set(Object.values(cities ?? {}).map(c => c.name)).has(cleaned)) fail(409, 'COPY_CITY_NAME_TAKEN');
+  let region = '';
+  if (create.region !== undefined) { try { region = cityRegion(create.region); } catch { fail(422, 'COPY_CITY'); } }
   if (!Number.isInteger(create.troops_cap) || create.troops_cap < 0 || create.troops_cap > 255) fail(422, 'COPY_CITY');
   const numbers = create.numbers ?? {};
   if (!numbers || typeof numbers !== 'object' || Array.isArray(numbers)) fail(422, 'COPY_CITY');
@@ -100,7 +102,7 @@ export function createStrongholdDefinition(cities, create) {
     if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(k)) fail(422, 'COPY_CITY');
     if (!Number.isSafeInteger(n) || n < 0 || n > 65535) fail(422, 'COPY_CITY');
   }
-  if (numbers.view !== undefined && !Object.hasOwn(cityPictures, numbers.view)) fail(422, 'COPY_CITY');
+  if (numbers.view !== undefined && !hasCityPictureView(numbers.view)) fail(422, 'COPY_CITY');
   if (!siegeMatchesType(create.battleMapId, numbers.type)) fail(422, 'COPY_CITY');
   const existing = Object.keys(cities ?? {});
   if (existing.length >= 512) fail(422, 'COPY_CITY');
@@ -108,7 +110,7 @@ export function createStrongholdDefinition(cities, create) {
   for (const id of existing) { const m = /^city-(\d{1,3})$/.exec(id); if (m) top = Math.max(top, Number(m[1])); }
   const cityId = `city-${String(top + 1).padStart(3, '0')}`;
   if (cities?.[cityId]) fail(422, 'COPY_CITY');
-  return { cityId, runtimeSlot: existing.length, name: cleaned, battleMapId: create.battleMapId, troops_cap: create.troops_cap, ...numbers };
+  return { cityId, runtimeSlot: existing.length, name: cleaned, region, battleMapId: create.battleMapId, troops_cap: create.troops_cap, ...numbers };
 }
 
 function checkModule(module, patch, data, gameId) {
@@ -124,7 +126,7 @@ function checkModule(module, patch, data, gameId) {
     return { name: patch.name.normalize('NFC'), introduction: patch.introduction.normalize('NFC') };
   }
   if (module === 'cities') {
-    // patch: {rename?: {cityId: name}, numbers?: {cityId: {...}}, battlefield?: {cityId: battleMapId}, troopcap?: {cityId: n}, create?: {name, numbers?, battleMapId, troops_cap}}
+    // patch: {rename?: {cityId: name}, region?: {cityId: region}, numbers?: {cityId: {...}}, battlefield?: {cityId: battleMapId}, troopcap?: {cityId: n}, create?: {name, region?, numbers?, battleMapId, troops_cap}}
     // create 为 B3 服务端签发：append-only city-NNN，未放置储备无 x/y（编译在放置前 fail-closed）。
     // battleMapId／troops_cap 随定义保存（新建必填；admit／发布自动补行沿用同一值）。
     const out = {};
@@ -142,6 +144,14 @@ function checkModule(module, patch, data, gameId) {
         out[`rename:${cityId}`] = cleaned;
       }
     }
+    if (patch.region !== undefined) {
+      if (!patch.region || typeof patch.region !== 'object' || Array.isArray(patch.region)) fail(422, 'COPY_CITY');
+      for (const [cityId, region] of Object.entries(patch.region)) {
+        if (typeof cityId !== 'string' || !data.cities?.[cityId]) fail(422, 'COPY_CITY');
+        let cleaned; try { cleaned = cityRegion(region); } catch { fail(422, 'COPY_CITY'); }
+        out[`region:${cityId}`] = { region: cleaned };
+      }
+    }
     if (patch.numbers !== undefined) {
       if (!patch.numbers || typeof patch.numbers !== 'object' || Array.isArray(patch.numbers)) fail(422, 'COPY_CITY');
       for (const [cityId, values] of Object.entries(patch.numbers)) {
@@ -149,7 +159,7 @@ function checkModule(module, patch, data, gameId) {
         if (!values || typeof values !== 'object' || Array.isArray(values)) fail(422, 'COPY_CITY');
         for (const [k, n] of Object.entries(values)) {
           if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(k)) fail(422, 'COPY_CITY');
-          if (!Number.isSafeInteger(n) || n < 0 || n > 65535 || (k === 'view' && !Object.hasOwn(cityPictures, n))) fail(422, 'COPY_CITY');
+          if (!Number.isSafeInteger(n) || n < 0 || n > 65535 || (k === 'view' && !hasCityPictureView(n))) fail(422, 'COPY_CITY');
         }
         out[`numbers:${cityId}`] = { ...values };
       }
@@ -658,6 +668,7 @@ export class GameCopyStore {
       throw new TypeError('actual SQLite, principal and game directory required');
     }
     this.#storage = storage; this.#sql = storage.sql; this.#principal = principal; this.#games = games;
+    bindCityPictureStorage(storage);
     storage.transactionSync(() => {
       this.#sql.exec('CREATE TABLE IF NOT EXISTS game_copies (game_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, data_json TEXT NOT NULL, copy_digest TEXT NOT NULL, updated_at TEXT NOT NULL)');
       this.#sql.exec("CREATE TABLE IF NOT EXISTS publish_slots (game_id TEXT PRIMARY KEY, ticket TEXT, description TEXT, validation_digest TEXT, state TEXT NOT NULL CHECK(state IN ('empty','ready','submitted','approved')), submitted_at TEXT, validated_at TEXT)");

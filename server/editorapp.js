@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { cityPictures } from './citypictures.js';
+import { CityPictureStore } from './citypicturestore.js';
 import { fileURLToPath } from 'node:url';
 import { GameMetadataStore } from './metadata.js';
 import { GameDeletionFence } from './deletionfence.js';
@@ -247,6 +248,8 @@ return class EditorMetadata extends PlatformBase {
     this.distributionDrainTail = Promise.resolve();
     // Reuse permanent content reservations; historical 'copy' denotes the table family.
     this.publishOperations = new PublishOperations({ storage: ctx.storage, principal: hash => this.principal(hash), games: this.games, operationGuard: (actor, key) => this.contentKey(actor, key, 'copy') });
+    // 據點圖片自管庫（Web 产品决定 2026-11）：內建 0..14 凍結，15..255 管理員可管。
+    this.cityPictureStore = new CityPictureStore({ storage: ctx.storage });
     // 共用画像庫（B 決策）：manifest 唯讀，無 SQL 表、無上傳管線。
     this.portraits = new GamePortraits({ reservedIds: RESERVED_ASSET_IDS });
     // B-1/Q14 draft topology intents (moves + rebuild records live outside
@@ -326,7 +329,7 @@ return class EditorMetadata extends PlatformBase {
     }
     // Frozen public play snapshots. Blobless development has no owned runtime
     // reader, so preparing a publication remains closed rather than bypassed.
-    this.playPacks = new PublishedPacks({ storage: ctx.storage, principal: hash => this.principal(hash), runtimeAssets, portraits: this.portraits, isolatedSourcePolicy: copySourcePolicy });
+    this.playPacks = new PublishedPacks({ storage: ctx.storage, principal: hash => this.principal(hash), runtimeAssets, portraits: this.portraits, cityPictures: this.cityPictureStore, isolatedSourcePolicy: copySourcePolicy });
   }
   one(query, ...args) { return this.sql.exec(query, ...args).toArray()[0]; }
   // Read-only public registry role bytes for the trial web route: pinned index roles, chunked R2 reads, sha re-verified.
@@ -763,6 +766,8 @@ return class EditorMetadata extends PlatformBase {
     const roles = this.libraryBrowser.resourceRoles();
     const category = path => {
       if (path.startsWith('kao/')) return 'portrait';
+      // 據點圖片自成一類（Web 产品决定 2026-11）：kyo  freeze 圖＋自管庫上傳圖。
+      if (path.startsWith('grf/kyo_') || path.startsWith('city-picture/')) return 'city-picture';
       if (path.startsWith('grf/') && path.endsWith('.png')) return 'image';
       if (path.endsWith('.flac') || path.endsWith('.wav') || path.endsWith('.mp3')) return 'audio';
       if (path.startsWith('font/')) return 'font';
@@ -777,10 +782,39 @@ return class EditorMetadata extends PlatformBase {
       const path = `kao/${portrait.assetId}.png`;
       if (!listed.has(path)) resources.push(Object.freeze({ path, byteLength: portrait.byteLength, sha256: portrait.sha256, category: 'portrait' }));
     }
+    // 自管庫上傳圖不在釘死圖書館內，逐張掛自管位址（含 sha 釘選，命中即 immutable）；相冊要寬高， catalog 一併帶出。
+    for (const picture of this.cityPictureStore.list()) {
+      const path = `city-picture/${picture.view}.png`;
+      if (!listed.has(path)) resources.push(Object.freeze({ path, byteLength: picture.byteLength, sha256: picture.sha256, category: 'city-picture', url: `/city-picture/${picture.view}.png?sha=${picture.sha256}`, width: picture.width, height: picture.height }));
+    }
+    // kyo 凍結圖同屬據點圖片類：相冊直讀 /city-picture（與圖書館同位元組已核）。
+    const withPictures = resources.map(row => {
+      if (row.category !== 'city-picture' || row.url) return row;
+      const dims = this.#cityPictureDims(row.path);
+      const kyo = /^grf\/kyo_(\d+)\.png$/.exec(row.path);
+      const url = kyo ? `/city-picture/${Number(kyo[1])}.png` : '/api/resources/asset?path=' + encodeURIComponent(row.path);
+      return Object.freeze({ ...row, url, width: dims.width, height: dims.height });
+    });
     this.touch(tokenHash, policy);
-    return response({ mode: 'BUILTIN_READONLY', registryId: this.libraryBrowser.definition().registryId, resources });
+    return response({ mode: 'BUILTIN_READONLY', registryId: this.libraryBrowser.definition().registryId, resources: withPictures });
   }
-  // 共用畫像（`kao/<id>.png`）直接從 shared portrait reader 取；未收錄進圖書館
+  // kyo 凍結圖尺寸：讀 IHDR 複核後快取（凍結檔不失效，sha 變即重讀）。
+  #cityPictureDims(path) {
+    const key = `grf-dims:${path}`;
+    const cached = this.pictureDimsCache?.get(key);
+    if (cached) return cached;
+    let dims = null;
+    try {
+      const bytes = readFileSync(new URL(`../web/${path}`, import.meta.url));
+      if (bytes.length >= 24 && bytes.readUInt32BE(16) > 0 && bytes.readUInt32BE(20) > 0) {
+        dims = { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+      }
+    } catch {}
+    if (!dims) fail(503, 'CITY_PICTURE_DIMS');
+    (this.pictureDimsCache ??= new Map()).set(key, dims);
+    return dims;
+  }
+  // 共用画像 kao 檔走 shared portrait reader；未收錄 ID 走此路，已收錄兩路同字節。
   // 的 ID 只能走這條路，已收錄的走圖書館或這條都同字節，所以統一先試畫像。
   async #portraitBytes(assetId) {
     if (typeof readSharedPortrait !== 'function') return null;
@@ -877,8 +911,40 @@ return class EditorMetadata extends PlatformBase {
     if (method === 'GET' && path === '/api/admin/library') { return this.#getAdminLibrary(rt); }
     if (method === 'GET' && path === '/api/resources') { return this.#getResources(rt); }
     if (method === 'GET' && path === '/api/resources/asset') { return this.#getResourceAsset(rt); }
+    if (method === 'GET' && path === '/api/city-pictures') { return this.#getCityPictures(rt); }
     if (method === 'GET' && releasesPath) { if (url.search) { fail(422, 'RELEASE_QUERY'); } this.touch(tokenHash, policy); return response({ releases: this.releases.history(tokenHash, releasesPath[1]) }); }
     return (await this.#getManagementCopy(rt)) ?? null;
+  }
+  // 據點圖片自管清單：登入即可讀（作者選圖器用）；上傳／替換／刪除另走管理員 POST。
+  async #getCityPictures(rt) {
+    const { tokenHash, policy, url } = rt;
+    if (url.search) { fail(422, 'CITY_PICTURE_QUERY'); }
+    this.touch(tokenHash, policy);
+    return response({ pictures: this.cityPictureStore.list().map(row => ({ ...row, url: `/city-picture/${row.view}.png` })) });
+  }
+  async #postCityPictures(rt) {
+    const { tokenHash, policy, user, value } = rt;
+    if (user.role !== 'admin') { fail(403, 'ADMIN_REQUIRED'); }
+    if (!value || value.action === 'create') {
+      fields(value, ['action', 'png']);
+      if (value.action !== 'create') fail(422, 'CITY_PICTURE_ACTION');
+      const created = this.cityPictureStore.add(value.png);
+      this.touch(tokenHash, policy);
+      return response({ picture: { ...created, url: `/city-picture/${created.view}.png` } });
+    }
+    if (value.action === 'replace') {
+      fields(value, ['action', 'view', 'png']);
+      const updated = this.cityPictureStore.replace(value.view, value.png);
+      this.touch(tokenHash, policy);
+      return response({ picture: { ...updated, url: `/city-picture/${updated.view}.png` } });
+    }
+    if (value.action === 'delete') {
+      fields(value, ['action', 'view']);
+      const removed = this.cityPictureStore.remove(value.view);
+      this.touch(tokenHash, policy);
+      return response({ removed });
+    }
+    fail(422, 'CITY_PICTURE_ACTION');
   }
   async #getAdminSource(rt) {
     const { tokenHash, policy } = rt;
@@ -1444,6 +1510,7 @@ return class EditorMetadata extends PlatformBase {
     const { request, tokenHash, user, policy, url, path, value, managementPath, reviewPath, deletionPath, purgePath, stagePath, copyPath, authorCopyPath, draftPath } = rt;
     const gameCopyHit = await this.#postGameCopy(rt);
     if (gameCopyHit) { return gameCopyHit; }
+    if (path === '/api/city-pictures') { return this.#postCityPictures(rt); }
     if (managementPath) { return this.#postManagement(rt); }
     if (purgePath) { return this.#postPurge(rt); }
     if (reviewPath) { return this.#postReview(rt); }
@@ -1602,6 +1669,22 @@ return class EditorMetadata extends PlatformBase {
     // current-root gates, never through live VPS pins or local announcements.
     if (frozenPublication && this.#isPlayRoute(method, path)) { fail(503, 'PLAY_READER_REQUIRED'); }
     this.seed(policy);
+    // 據點圖片自管位元組（15..255）：匿名路由；內建 0..14 由網關直出，此處只認自管庫。
+    if (method === 'GET') {
+      const pictureMatch = /^\/city-picture\/(0|[1-9]\d*)\.png$/.exec(path);
+      if (pictureMatch) {
+        // 僅接受無參數或 ?sha=<64hex>；命中即 immutable，未命中走 no-store。
+        const keys = [...url.searchParams.keys()];
+        if (keys.length > 1 || (keys.length === 1 && keys[0] !== 'sha')) fail(422, 'CITY_PICTURE_QUERY');
+        const pinned = url.searchParams.get('sha');
+        if (pinned !== null && !/^[a-f0-9]{64}$/.test(pinned)) fail(422, 'CITY_PICTURE_QUERY');
+        const view = Number(pictureMatch[1]);
+        const custom = !CityPictureStore.isBuiltinView(view) ? this.cityPictureStore.get(view) : null;
+        if (!custom) fail(404, 'NOT_FOUND');
+        const immutable = pinned !== null && pinned === custom.sha256;
+        return new Response(custom.bytes, { headers: { 'Content-Type': 'image/png', 'Cache-Control': immutable ? 'public, max-age=86400, immutable' : 'no-store', 'X-Content-SHA256': custom.sha256, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
+      }
+    }
     // The owner row exists only after seed(), so a fresh install registers the
     // available library here instead of never (self-healing, one-shot).
     if (this.availableLibrary) this.#bootstrapLibrary(this.env);
@@ -1767,14 +1850,15 @@ export function createEditorGateway({ frozenPublication = false } = {}) {
     // relative against /play; only the DO serves it (role-checked, task 4).
     // 攻城縮略圖（編輯器據點選擇器用）：192 張預渲染 240×128 PNG，按目錄號取，
     // 内存小缓存；非法编号或缺文件一律 404，不猜不列目录。
-    if (request.method === 'GET' && url.pathname.startsWith('/city-picture/')) {
-      const match = /^\/city-picture\/(0|[1-9]\d*)\.png$/.exec(url.pathname);
-      const file = match && cityPictures[Number(match[1])];
+    // 據點圖片：0..14 網關讀凍結 grf 文件；15..255 自管图放行給 DO 應用匿名出位元組。
+    const cityPictureMatch = request.method === 'GET' ? /^\/city-picture\/(0|[1-9]\d*)\.png$/.exec(url.pathname) : null;
+    if (cityPictureMatch) {
+      const view = Number(cityPictureMatch[1]);
+      const file = view < cityPictures.length && cityPictures[view];
       if (file) {
         const bytes = readFileSync(new URL(`../web/grf/${file}`, import.meta.url));
         return new Response(bytes, { headers: { ...headers, 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } });
       }
-      return response({ error: 'NOT_FOUND' }, 404);
     }
     if (request.method === 'GET' && url.pathname.startsWith('/siege-thumb/')) {
       const match = /^\/siege-thumb\/(\d{1,3})\.png$/.exec(url.pathname);
@@ -1787,7 +1871,7 @@ export function createEditorGateway({ frozenPublication = false } = {}) {
       }
       return response({ error: 'NOT_FOUND' }, 404);
     }
-    if (!url.pathname.startsWith('/api/') && !(request.method === 'GET' && url.pathname.startsWith('/content/builtin/compiled/'))) { return response({ error: 'NOT_FOUND' }, 404); }
+    if (!url.pathname.startsWith('/api/') && !(request.method === 'GET' && url.pathname.startsWith('/content/builtin/compiled/')) && !cityPictureMatch) { return response({ error: 'NOT_FOUND' }, 404); }
     // CF supplies this header at the ingress. Never accept caller-selected X-Editor-Source.
     // Capture bounded POST input before the DO RPC. Early authorization rejection must
     // not abandon a still-streaming RPC request and truncate the HTTP error response.

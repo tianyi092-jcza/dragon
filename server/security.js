@@ -63,7 +63,7 @@ export function fields(value, expected) { if (!value || Array.isArray(value) || 
 // Shared by gateway, application, Node HTTP and local TLS. The copy endpoint
 // multiplexes modules; only its transport ceiling changes, not module validation.
 export function requestBodyLimit(method, pathname) {
-  return method === 'POST' && (pathname === '/api/admin/base-map/save' || /^\/api\/games\/[a-f0-9-]{36}\/copy$/.test(pathname)) ? MAP_EDIT_MAX_BYTES : 16384;
+  return method === 'POST' && (pathname === '/api/admin/base-map/save' || pathname === '/api/city-pictures' || /^\/api\/games\/[a-f0-9-]{36}\/copy$/.test(pathname)) ? (pathname === '/api/city-pictures' ? 1048576 : MAP_EDIT_MAX_BYTES) : 16384;
 }
 export async function body(request) {
   const limit = requestBodyLimit(request.method, new URL(request.url).pathname);
