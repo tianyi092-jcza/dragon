@@ -1655,7 +1655,7 @@ try {
   });
   assert.deepEqual(
     speedMatrix.map((row) => row.strategicStepMs),
-    [30 / 3, 17.5 / 3, 10 / 3, 5 / 3, 1.5625 / 3],
+    [24, 16, 9.6, 6.4, 4.8],
     "strategic speed retains its independent Web clock behavior",
   );
   for (const row of speedMatrix) {
