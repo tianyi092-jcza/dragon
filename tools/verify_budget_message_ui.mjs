@@ -20,12 +20,13 @@ globalThis.fetch = async (url) => {
     const strings = Array.from({ length: 1023 }, (_, index) => [
       `TALK${index}`,
     ]);
-    return { json: async () => ({ strings }) };
+    return { ok: true, json: async () => ({ strings }) };
   }
-  return { json: async () => ({}) };
+  return { ok: true, json: async () => ({}) };
 };
 
 const { GameBar } = await import("../web/src/ui/gamebar.js");
+const { DEFAULT_WORLD } = await import("../web/src/content/worlddefinition.js");
 
 function flush() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -117,6 +118,7 @@ function fixture() {
     },
   };
   const app = {
+    world: { definition: DEFAULT_WORLD },
     scenario,
     clock,
     view: { draw() {} },
@@ -428,6 +430,54 @@ function fixture() {
   assert.equal(bar.proposalAudience, null);
   assert.equal(player.money, 50000);
   assert.equal(scenario.envoys[1].budget, 0);
+}
+
+// 同批三连串行：内政type4 → 外交type5 → 普通消息；一次只派一条，前一条未关闭后两条必须排队，hold 全程保持。
+{
+  scheduled.clear();
+  const { bar, clock, player, governor, envoy } = fixture();
+  bar.enqueueDomesticBudgetReport({ cityIdx: 0, requested: 1000 });
+  bar.enqueueEnvoyBudgetReport({ targetIdx: 1, requested: 1280 });
+  bar.enqueueStrategicMessage({ text: "NEXT" });
+  await flush();
+  assert.equal(bar.proposalAudience?.step, "budget_report");
+  assert.equal(bar.proposalAudience?.monarchLines?.[0]?.[0]?.text, "TALK56");
+  assert.equal(bar._strategicMessageQueue.length, 2);
+  assert.equal(clock.hold, true);
+
+  await leftAdvance(bar);
+  await leftAdvance(bar);
+  choiceRect(bar);
+  bar.click(10, 10, 0);
+  await flush();
+  assert.equal(bar.proposalAudience?.step, "budget_advisor_result");
+  await leftAdvance(bar);
+  assert.equal(bar.proposalAudience?.step, "envoy_budget_result");
+  bar.click(0, 0, 2);
+  await flush();
+  assert.equal(player.money, 49000);
+  assert.equal(governor.assignment_budget, 7);
+  assert.equal(bar.proposalAudience?.step, "budget_report");
+  assert.equal(bar.proposalAudience?.monarchLines?.[0]?.[0]?.text, "TALK57");
+  assert.equal(bar._strategicMessageQueue.length, 1);
+  assert.equal(clock.hold, true);
+
+  await leftAdvance(bar);
+  await leftAdvance(bar);
+  assert.equal(bar.proposalAudience?.step, "envoy_budget_choice");
+  choiceRect(bar);
+  bar.click(10, 10, 0);
+  await flush();
+  assert.equal(bar.proposalAudience?.step, "budget_advisor_result");
+  await leftAdvance(bar);
+  assert.equal(bar.proposalAudience?.step, "envoy_budget_result");
+  await leftAdvance(bar);
+  await flush();
+  assert.equal(bar.proposalAudience, null);
+  assert.equal(player.money, 47720);
+  assert.equal(envoy.assignment_budget, 10);
+  assert.equal(bar.generalCard?.lines?.[0], "NEXT");
+  assert.equal(clock.hold, true);
 }
 
 process.stdout.write(

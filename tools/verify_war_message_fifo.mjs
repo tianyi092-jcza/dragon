@@ -18,9 +18,9 @@ globalThis.fetch = async (url) => {
     strings[63] = ["\\3對我方發出宣戰布告。"];
     strings[479] = ["與你不共戴天。"];
     strings[487] = ["擊潰\\3。\\4，立即進兵。"];
-    return { json: async () => ({ strings }) };
+    return { ok: true, json: async () => ({ strings }) };
   }
-  return { json: async () => ({}) };
+  return { ok: true, json: async () => ({}) };
 };
 globalThis.Image = class {
   set src(_value) {
@@ -30,6 +30,7 @@ globalThis.Image = class {
 
 const { processStrategicWarEvent } = await import("../web/src/game/ai.js");
 const { GameBar } = await import("../web/src/ui/gamebar.js");
+const { DEFAULT_WORLD } = await import("../web/src/content/worlddefinition.js");
 
 function flush() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -72,6 +73,7 @@ function fixture(playerFaction = 0) {
     },
   };
   const app = {
+    world: { definition: DEFAULT_WORLD },
     scenario,
     clock,
     view: { draw() {} },
