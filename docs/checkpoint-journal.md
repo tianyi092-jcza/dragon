@@ -136,3 +136,70 @@
 - 范围：35 改＋1 删＋6 新增（据点图片自管库／州郡卡／grid 三修／8A3F／声效／region＋城兵上限收尾／回归／journal），无密钥、无本地产物（.dragon-analysis／dist／node_modules 均未入）。
 - 审过别会话改动（region 补完＋troopcap／battlefield plumbing）一并入同一提交；工作区干净。
 - 推送：4e9bedf..46cf530 main -> main（github）。
+
+## 小地图窗口垂直居中（2026-11-24 用户：上贴顶下空块未提交）
+
+- `mappanellayout.js`：内容（图＋1px＋20px双横幅）在框内垂直居中（取整余量对半），横向本来就居中；transform／横幅／命中全跟 mapBox 走，无需另改。
+- 驗證：`verify_map_panel_layout` 通过（横幅不超框断言仍成立）；trialweb 重建。
+
+## 游戏内读档黑屏（2026-11-24 用户报未提交）
+
+- 根因：trial 持久局无标题菜单，`returnToTitle` 尾部直调 `startMenu.show` 空指针；读档弹窗只有注释没实现。
+- 修：`returnToTitle` 无 startMenu 时先确认本局有档（无档留局内提示不动），拆旧局后直弹本局 LOAD DATA（行结构与 SAVE 共用建造器，存档按游戏隔离只读 app.saves）；未使用槽不可选；回标题后取消ֱ禁用（无处可退）；读失败重弹列表；非持久试玩走原事件回选单。
+- 镜像触点：开关轮询 hover 点击右键取消绘制重置栏共 11 处；存档行映射抽共用（存档行为不变）。
+- 驗證：语法＋trialweb 重建；无浏览器覆盖，待用户 8443 实测（系统选单→存檔讀取→确认→列表→进局）。
+
+## 游戏内读档黑屏＋空档提示＋存档失败无日志（2026-11-24 用户报未提交）
+
+- 根因1：trial 持久局无标题菜单，returnToTitle 直调空 startMenu.show 黑屏；读档弹窗只有注释。
+  修：读档直弹本局 LOAD DATA（行与 SAVE 共用建造器，app.saves 按游戏隔离不混档）；
+  有档→拆旧局→选档进局；无档→空窗盖在当局上（右键关回游戏，不拆局）；
+  回标题后取消禁用、读失败重弹；settingsClick(5) 与确认链共用。
+- 根因2：存档失败吞异常（控制台干净）。修：catch 加 console.error('[wolong] local save failed')。
+- 附带修：一次拼错把 load 头拼丢（SAVE 里同时开双窗＋load 未定义），已恢复原样并全量复核。
+- 驗證：语法＋trialweb 重建；无浏览器覆盖，待用户实测三条（有档读档进局／无档空窗可关／存档失败贴 console 红字）。
+
+## 存档点击报 confirmSystemSave 未定义（2026-11-24 用户报未提交）
+
+- 根因：抽共用行时拼错，closeSystemSaveDialog＋confirmSystemSave 定义被吃了（SAVE 打
+  开会连带开 LOAD 窗、confirm 未定义崩）。已从 HEAD 整段恢复，diff 复核仅剩预期
+  增删（弹窗镜像11处＋共用行＋读档三件套＋main 分支）。
+- 驗證：双文件 node --check＋trialweb 重建；待用户实测（SAVE DATA 选槽存档成功）。
+
+## 本轮交接总览（2026-11-24 小地图＋读档／存档链未提交）
+
+### 本轮目标
+- 小地图窗口内容垂直居中；游戏系统选单内存档读取可用（trial 持久局）；存档失败可定位。
+
+### 已完成工作
+- 小地图居中：`mappanellayout.js` 内容（图＋1px＋20px双横幅）垂直居中，`verify_map_panel_layout` 通过。
+- 读档黑屏修：`returnToTitle` 无 startMenu（trial 持久）时预检有档→拆局→弹本局 LOAD DATA→选档进局；
+  无档弹空窗盖当局（右键关回游戏不拆局）；回标题后取消禁用；读失败重弹；非持久走原事件。
+- 空档提示改：用户原话“不是应该弹出存档的窗口，显示里面是空的，而不是这个提示”→空表也弹窗。
+- 存档失败：catch 加 `console.error('[wolong] local save failed')`；存档按游戏隔离（app.saves 只装本局）。
+- 读档行与 SAVE 共用 `buildSaveSlotRows()`；弹窗镜像 11 处（开关／轮询／hover／点击／右键／绘制／重置）。
+
+### 关键决策
+- 游戏内读档必须先回标题（拆旧局）再进新局，禁热替换——trial 无标题则以“拆局＋本局列表窗”等效。
+- 无档→提示不动 vs 弹空窗：按用户拍板改弹空窗（不拆局）；只有已拆局后才禁用取消（防黑屏 limbo）。
+- 存档失败先补日志再修根因（异常曾被吞）。
+
+### 失败尝试
+- 抽共用行脚本拼错两次：一次把 load 头拼丢（SAVE 里双窗＋load 未定义），一次吃掉
+  `closeSystemSaveDialog`＋`confirmSystemSave` 定义（点槽报未定义）；均已从 HEAD 恢复＋逐项复核 diff。
+- 教训：server/editorapp（\r\n）与 gamebar 长函数优先 node 脚本精确锚点，事后必全量复核 diff。
+
+### 相关文件
+- `web/src/ui/mappanellayout.js`、`web/src/ui/gamebar.js`、`web/src/main.js`、
+  `server/public/trialweb.txt`（重建）、`docs/checkpoint-journal.md`。
+
+### 当前状态
+- 代码＋bundle 就绪未提交：`git status` 5 改（journal／trialweb／main／gamebar／mappanellayout）。
+- 待用户 8443 实测三条：有档读档进局／无档空窗可关／SAVE 选槽存档成功（失败贴 console 红字）。
+
+### 阻塞点
+- 需用户实机回执（console 红字决定存档失败根因下一步）；8443 supervisor 由用户自管，勿碰其进程。
+
+### 下一步
+1. 用户实测回执→若存档仍失败，按红字修 snapshot/IDB 根因；
+2. 三条全绿后按授权提交（提交／推送各需明确授权）。

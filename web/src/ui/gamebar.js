@@ -189,6 +189,7 @@ export class GameBar {
     this._legionListSourceCity = null; // 军团列表来源据点，右键/命令完成后返回该列表
     this.orderChoiceMenu = null; // 目标据点指示命令菜单 (戰鬥指揮 / 委任 / 解體)
     this.systemSaveDialog = null; // 系统选单「資料儲存」弹窗
+    this.systemLoadDialog = null; // 系统选单「存檔讀取」本局存档列表（存档按游戏隔离）
     this.systemLoadConfirmDialog = null; // 系统选单「存檔讀取」防丢失确认弹窗
     this.exitConfirmDialog = null; // 刷新或关闭防丢失确认弹窗
     this.settingsHover = -1;
@@ -4942,6 +4943,7 @@ export class GameBar {
       this.app.engageTransition?.active ||
       this.settingsOpen ||
       this.systemSaveDialog ||
+      this.systemLoadDialog ||
       this.systemLoadConfirmDialog ||
       this.exitConfirmDialog ||
       this.listDialog ||
@@ -6394,6 +6396,16 @@ export class GameBar {
       }
       return true;
     }
+    if (this.systemLoadDialog) {
+      const d = this.systemLoadDialog;
+      const { x, y, wTiles, hTiles } = this._systemSaveDialogRect();
+      if (px >= x && px < x + wTiles * 16 && py >= y && py < y + hTiles * 16) {
+        d.scroll = Math.max(0, Math.min(Math.max(0, d.rows.length - 4), d.scroll + Math.sign(dy)));
+        d.hover = -1;
+        this.app.view.draw();
+      }
+      return true;
+    }
     if (!this.listDialog) return false;
     const d = this.listDialog;
     if (!this._hitListDialog(px, py)) return false;
@@ -6453,6 +6465,7 @@ export class GameBar {
       this.submenuOpen ||
       this.settingsOpen ||
       this.systemSaveDialog ||
+      this.systemLoadDialog ||
       this.systemLoadConfirmDialog ||
       this.exitConfirmDialog
     );
@@ -6467,6 +6480,7 @@ export class GameBar {
       !!(
         this.settingsOpen ||
         this.systemSaveDialog ||
+        this.systemLoadDialog ||
         this.systemLoadConfirmDialog ||
         this.exitConfirmDialog ||
         this.listDialog ||
@@ -6549,6 +6563,7 @@ export class GameBar {
     if (this.keypadDialog) return true;
     if (this.settingsOpen) return true;
     if (this.systemSaveDialog) return true;
+    if (this.systemLoadDialog) return true;
     if (this.systemLoadConfirmDialog) return true;
     if (this.exitConfirmDialog) return true;
 
@@ -6594,6 +6609,11 @@ export class GameBar {
       if (this.systemSaveDialog) {
         clickSfx();
         this.closeSystemSaveDialog();
+        return true;
+      }
+      if (this.systemLoadDialog) {
+        clickSfx();
+        this.closeSystemLoadDialog();
         return true;
       }
       if (this.settingsOpen) {
@@ -7268,6 +7288,7 @@ export class GameBar {
             this.settingsOpen = !this.settingsOpen;
             if (!this.settingsOpen) {
               this.systemSaveDialog = null;
+              this.systemLoadDialog = null;
               this.systemLoadConfirmDialog = null;
             }
             this.syncClock();
@@ -7333,6 +7354,24 @@ export class GameBar {
       const i = this._hitSystemSaveOrLoadDialog(this.systemSaveDialog, px, py);
       if (btn === 0 && i >= 0) {
         this.confirmSystemSave(i);
+        return true;
+      }
+      // 点击在弹窗外：消费事件，不做任何操作（只有右键才能取消关闭）
+      return true;
+    }
+    if (this.systemLoadDialog) {
+      const d = this.systemLoadDialog;
+      const { x, y, wTiles } = this._systemSaveDialogRect();
+      const right = x + 8 + (wTiles - 1) * 16;
+      if (btn === 0 && d.rows.length > 4 && px >= right - 14 && px < right && py >= y + 36 && py < y + 236) {
+        d.scroll = Math.round((py - y - 36) / 200 * (d.rows.length - 4));
+        d.hover = -1;
+        this.app.view.draw();
+        return true;
+      }
+      const i = this._hitSystemSaveOrLoadDialog(this.systemLoadDialog, px, py);
+      if (btn === 0 && i >= 0) {
+        this.confirmSystemLoad(i);
         return true;
       }
       // 点击在弹窗外：消费事件，不做任何操作（只有右键才能取消关闭）
@@ -7485,6 +7524,20 @@ export class GameBar {
         py,
       );
       if (old !== this.systemSaveDialog.hover) changed = true;
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
+      return changed;
+    }
+    if (this.systemLoadDialog) {
+      const old = this.systemLoadDialog.hover;
+      this.systemLoadDialog.hover = this._hitSystemSaveOrLoadDialog(
+        this.systemLoadDialog,
+        px,
+        py,
+      );
+      if (old !== this.systemLoadDialog.hover) changed = true;
       if (this.hoverAct) {
         this.hoverAct = null;
         changed = true;
@@ -7826,6 +7879,18 @@ export class GameBar {
     this.systemLoadConfirmDialog = null;
     this.settingsOpen = false;
     this.syncClock();
+    let played = false;
+    try {
+      const saves = await this.app.saveRepository?.load?.();
+      if (saves) this.app.saves = saves;
+      played = (saves?.slots ?? []).some((x) => x?.played);
+    } catch {
+      played = false;
+    }
+    if (!played) {
+      await this.openSystemLoadDialog();
+      return;
+    }
     await this.app.returnToTitle(1);
   }
 
@@ -8012,18 +8077,8 @@ export class GameBar {
     return -1;
   }
 
-  openSystemSaveDialog() {
-    if (this.app.canPersist === false) return false;
-    if (!canSnapshotState(this.app)) {
-      this.app.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
-      warnSfx();
-      return false;
-    }
-    clickSfx();
-    this.settingsOpen = false;
-    this.syncClock();
-
-    const rows = saveChoices(this.app.saves?.slots).map((s) => {
+  buildSaveSlotRows() {
+    return saveChoices(this.app.saves?.slots).map((s) => {
       const i = s.slot;
       let infoText = "";
       let dateStr = "";
@@ -8061,13 +8116,25 @@ export class GameBar {
         played: !!(s && s.played),
       };
     });
+  }
 
+  openSystemSaveDialog() {
+    if (this.app.canPersist === false) return false;
+    if (!canSnapshotState(this.app)) {
+      this.app.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
+      warnSfx();
+      return false;
+    }
+    clickSfx();
+    this.settingsOpen = false;
+    this.syncClock();
+
+    const rows = this.buildSaveSlotRows();
     this.systemSaveDialog = {
       rows,
       scroll: 0,
       hover: -1,
     };
-    // Read-only remote status: no Trial network gate, clock or save identity change.
     void this.app.refreshFormalStatus?.();
     this.app.view.draw();
     return true;
@@ -8109,6 +8176,59 @@ export class GameBar {
 
     // 执行存档
     await this.app.saveGame(slotIdx, label);
+  }
+
+
+  async openSystemLoadDialog() {
+    if (this.app.canPersist === false) return false;
+    clickSfx();
+    try {
+      const saves = await this.app.saveRepository?.load?.();
+      if (saves) this.app.saves = saves;
+    } catch {
+    }
+    const rows = this.buildSaveSlotRows();
+    this.settingsOpen = false;
+    this.syncClock();
+    this.systemLoadDialog = { rows, scroll: 0, hover: -1 };
+    this.app.view.draw();
+    return true;
+  }
+
+  closeSystemLoadDialog() {
+    if (!this.systemLoadDialog) return;
+    // 回标题后无处可退：必须选档，不响应取消，避免黑屏 limbo。
+    if (!this.app.scenario) return;
+    clickSfx();
+    this.systemLoadDialog = null;
+    this.syncClock();
+    this.app.view.draw();
+  }
+
+  async confirmSystemLoad(rowIdx) {
+    const row = this.systemLoadDialog?.rows?.[rowIdx];
+    if (!row || !row.played) {
+      warnSfx();
+      return;
+    }
+    clickSfx();
+    const slotIdx = row.slot;
+    this.systemLoadDialog = null;
+    this.syncClock();
+    this.app.view.draw();
+    try {
+      await this.app.beginSavedGame(slotIdx);
+    } catch (error) {
+      this.app.hud?.flashEvent?.("讀檔失敗，請重試。");
+      this.app.view.draw();
+      await this.openSystemLoadDialog();
+    }
+  }
+
+  _drawSystemLoadDialog(ctx) {
+    const d = this.systemLoadDialog;
+    if (!d) return;
+    this._drawSystemSaveOrLoad(ctx, d, "LOAD  DATA");
   }
 
   _drawSystemLoadConfirmDialog(ctx) {
@@ -8313,6 +8433,9 @@ export class GameBar {
     }
     if (this.systemSaveDialog) {
       this._drawSystemSaveDialog(ctx);
+    }
+    if (this.systemLoadDialog) {
+      this._drawSystemLoadDialog(ctx);
     }
     if (this.systemLoadConfirmDialog) {
       this._drawSystemLoadConfirmDialog(ctx);

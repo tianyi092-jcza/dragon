@@ -376,6 +376,22 @@ const app = {
       this._nativeTacticalQueue = [];
       this.battleView?.discardTrial();
     }
+    if (!this.startMenu) {
+      // Trial/持久试玩无标题菜单：先确认本局有档，无档则不动（留在当前局内提示），
+      // 避免拆完旧局后无处可退黑屏。存档按游戏隔离，读到的只装本局。
+      let played = false;
+      try {
+        const saves = await this.saveRepository?.load?.();
+        if (saves) this.saves = saves;
+        played = (saves?.slots ?? []).some((s) => s?.played);
+      } catch {
+        played = false;
+      }
+      if (!played) {
+        this.hud?.flashEvent?.("尚無可用存檔。");
+        return;
+      }
+    }
     this._scenarioAssemblyPending = null;
     this._scenarioAssemblyIncomplete = null;
     cancelLegionSlotBatch(this);
@@ -404,6 +420,7 @@ const app = {
       this.gamebar.settingsOpen = false;
       this.gamebar.settingsHover = -1;
       this.gamebar.systemSaveDialog = null;
+      this.gamebar.systemLoadDialog = null;
       this.gamebar.systemLoadConfirmDialog = null;
       this.gamebar.exitConfirmDialog = null;
       this.gamebar.selectedSubmenu = null;
@@ -461,12 +478,18 @@ const app = {
       return;
     }
     this.setRuntimeEnabled(true);
-    try {
-      await this.startMenu.show(initialAction);
-    } finally {
-      if (this.gamebar) this.gamebar._clockHoldRequested = false;
-      this.gamebar?.syncClock();
+    if (this.startMenu) {
+      try {
+        await this.startMenu.show(initialAction);
+      } finally {
+        if (this.gamebar) this.gamebar._clockHoldRequested = false;
+        this.gamebar?.syncClock();
+      }
+      return;
     }
+    // Trial 持久存档无标题菜单：读档直弹本局列表（上已确认有档）。
+    // 非持久试玩走上面的事件分支回选单，不会到这里。
+    await this.gamebar?.openSystemLoadDialog?.();
   },
 
   // Tactical entry/exit ownership and startup errors share one adapter.
@@ -812,6 +835,7 @@ const app = {
         slotIdx = sv.slot;
         this.saves = next;
       } catch (error) {
+        console.error("[wolong] local save failed", error);
         if (isCurrent()) this.hud?.flashEvent?.("本機存檔失敗，原存檔未變更。");
         return { saved: "failed", error };
       }

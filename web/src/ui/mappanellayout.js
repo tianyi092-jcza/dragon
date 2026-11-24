@@ -39,7 +39,11 @@ export function mapPanelLayout({ width, height, miniOpen, resOpen, world }) {
     // Preserve existing content-coordinate API used by resource/legion UI.
     panel.x = frame.x + border; panel.y = frame.y + border;
     if (panel.kind === "mini") {
-      panel.mapBox = { x: panel.x + (panel.w - border * 2 - box.w) / 2, y: panel.y, w: box.w, h: box.h };
+      // 内容（图＋1px 间隙＋20px 双横幅）在框内垂直居中：原来顶贴，底下剩取整余量。
+      const bannerDrawH = 20;
+      const slack = Math.max(0, panel.h - border * 2 - (box.h + 1 + bannerDrawH));
+      const yOff = Math.floor(slack / 2);
+      panel.mapBox = { x: panel.x + (panel.w - border * 2 - box.w) / 2, y: panel.y + yOff, w: box.w, h: box.h };
       panel.transform = minimapTransform(world, panel.mapBox);
       panel.bannerY = panel.mapBox.y + box.h + 1;
       panel.bannerWidth = Math.floor((box.w - 4) / 2);
