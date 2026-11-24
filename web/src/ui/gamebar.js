@@ -91,7 +91,8 @@ import {
   minimapBattleMarkers,
 } from "../render/minimapmarkers.js";
 
-const LIST_HEADER_HEIGHT = 24;
+const LIST_HEADER_HEIGHT = 30; // user 2026-11-26：表头加高
+const LIST_ROW_GAP = 4; // user 2026-11-26：列表行之间 4px 间距（pitch = rowH + GAP）
 // 编成窗口内部按钮顺序为骑→步→弓；写入二进制兵种码时必须映射为
 // 1=骑、3=步、2=弓，不能直接用内部索引+1。
 const FORMATION_TYPE_TO_LEGION_TYPE = Object.freeze([
@@ -382,7 +383,7 @@ export class GameBar {
       header: opt.header ?? [],
       cols: opt.cols ?? [],
       rows: opt.rows ?? [],
-      rowH: opt.rowH ?? 16,
+      rowH: opt.rowH ?? 20,
       scrollbar: opt.scrollbar ?? "right",
       w: opt.w ?? 432,
       h: opt.h ?? 320,
@@ -473,7 +474,7 @@ export class GameBar {
     d.titleH = d.titleBar ? 20 : 0;
     d.headerH = d.header.length ? LIST_HEADER_HEIGHT : 0;
     d.top = d.titleH + d.headerH;
-    d.cap = Math.max(1, Math.floor((d.h - d.top) / d.rowH));
+    d.cap = Math.max(1, Math.floor((d.h - d.top) / (d.rowH + LIST_ROW_GAP)));
     if (d.footer) {
       d.fw = 480; // 统一为武将弹窗宽度 480px (30 tiles)
       d.fh = 64; // 对齐 16px 框格 (hTiles=5 → 内高 64，外高 80px)
@@ -649,10 +650,11 @@ export class GameBar {
     ctx.font = FONT;
     ctx.textBaseline = "top";
     const n = Math.min(rows.length - scroll, cap);
+    const pitch = rowH + LIST_ROW_GAP;
     const oy = Math.floor((rowH - 14) / 2);
     for (let i = 0; i < n; i++) {
       const row = rows[scroll + i];
-      const ry = py + top + i * rowH;
+      const ry = py + top + i * pitch;
       const isSelected = scroll + i === d.selectedRow;
       const isHover = scroll + i === d.hover;
       if (isSelected) {
@@ -971,7 +973,7 @@ export class GameBar {
         { x: 352, w: 84, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 220,
@@ -1172,7 +1174,7 @@ export class GameBar {
         { x: 352, w: 84, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 220,
@@ -1284,7 +1286,7 @@ export class GameBar {
         { x: 352, w: 84, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 220,
@@ -7192,9 +7194,10 @@ export class GameBar {
           }
         }
 
+        const pitch = d.rowH + LIST_ROW_GAP;
         const ry = py - d.py - d.top;
-        if (ry >= 0 && ry < d.cap * d.rowH) {
-          const ri = Math.floor(ry / d.rowH) + d.scroll;
+        if (ry >= 0 && ry < d.cap * pitch && ry % pitch < d.rowH) {
+          const ri = Math.floor(ry / pitch) + d.scroll;
           const rx = px - d.px;
           const ci = d.cols.findIndex(
             (col) => rx >= col.x && rx < col.x + col.w,
@@ -7513,8 +7516,8 @@ export class GameBar {
       const sbx = isLeft ? d.px : d.px + d.w - 18;
       const inScroll =
         hasScrollbar && d.rows.length > d.cap && px >= sbx && px < sbx + 18;
-      if (!inScroll && ry >= 0 && ry < d.cap * d.rowH) {
-        hov = Math.floor(ry / d.rowH) + d.scroll;
+      if (!inScroll && ry >= 0 && ry < d.cap * (d.rowH + LIST_ROW_GAP) && ry % (d.rowH + LIST_ROW_GAP) < d.rowH) {
+        hov = Math.floor(ry / (d.rowH + LIST_ROW_GAP)) + d.scroll;
         if (hov < 0 || hov >= d.rows.length) hov = -1;
       }
       d.hover = hov;
@@ -8591,7 +8594,7 @@ export class GameBar {
     const mini = this.panelRect("mini");
     if (!mini) return;
     const w = 120;
-    const h = titleH + Math.min(rows.length, maxVisRows) * rowH;
+    const h = titleH + Math.min(rows.length, maxVisRows) * (rowH + LIST_ROW_GAP);
     this.openListDialog({
       title: "勢力一覽",
       titleBar: true,

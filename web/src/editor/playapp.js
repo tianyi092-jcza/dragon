@@ -6,6 +6,12 @@ const status = document.querySelector("#play-status");
 const panel = document.createElement("div");
 panel.style.cssText =
 	"position:fixed;left:20px;top:20px;z-index:101;color:white;background:#141414;padding:16px;max-width:420px";
+// user 2026-11-26：开局三下拉行高加大（原生控件无真 4px 间隙，用字号＋内边距逼近）。
+const listStyle = document.createElement("style");
+listStyle.textContent =
+	"#play-game,#play-chapter,#play-faction{font-size:18px;padding:8px;margin:4px 0}" +
+	"#play-game option,#play-chapter option,#play-faction option{padding:4px 8px;font-size:18px}";
+document.head.append(listStyle);
 document.body.append(panel);
 function fail(message) {
 	status.textContent = message;

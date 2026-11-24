@@ -473,7 +473,7 @@ export class HUD {
       header: GENERAL_LIST_HEADER,
       cols: GENERAL_LIST_COLS,
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: GENERAL_LIST_WIDTH,
       h: 352,
@@ -541,7 +541,7 @@ export class HUD {
       header: GENERAL_LIST_HEADER,
       cols: GENERAL_LIST_COLS,
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: GENERAL_LIST_WIDTH,
       h: 352,
@@ -605,7 +605,7 @@ export class HUD {
         { x: 352, w: 90, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -689,7 +689,7 @@ export class HUD {
         { x: 360, w: 80, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -761,7 +761,7 @@ export class HUD {
         { x: 352, w: 90, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -864,7 +864,7 @@ export class HUD {
         { x: 366, w: 78, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -926,7 +926,7 @@ export class HUD {
         { x: 366, w: 78, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -1026,7 +1026,7 @@ export class HUD {
         { x: 366, w: 78, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -1127,7 +1127,7 @@ export class HUD {
         { x: 366, w: 78, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -1193,7 +1193,7 @@ export class HUD {
         { x: 360, w: 80, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -1274,7 +1274,7 @@ export class HUD {
         { x: 366, w: 78, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -1385,7 +1385,7 @@ export class HUD {
         { x: 360, w: 80, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -1471,7 +1471,7 @@ export class HUD {
         { x: 366, w: 78, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -1587,7 +1587,7 @@ export class HUD {
         { x: 352, w: 90, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       scrollbar: "right",
       w: 480,
       h: 352,
@@ -1651,7 +1651,7 @@ export class HUD {
         { x: 360, w: 56, align: "left" },
       ],
       rows,
-      rowH: 18,
+      rowH: 20, // user 2026-11-26：行高加高
       w: 480,
       h: 352,
       footer: {

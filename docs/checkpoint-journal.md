@@ -71,3 +71,24 @@ Web product decision (user approved builtin flat look, not original mechanism): 
 - 三项 seed 校验曾按 style-3「seed 不影响输出」断言失败，属测试刻舟（用户已批改方向），按铁律 8 更新为「同 seed 确定、异 seed 杂点不同、掩码一致」后三项全过；`trialweb.txt` 重建（sha `2ff41991…`）。
 - 隔离重渲染 21 色：陆底 17910／杂点 14251、海 4043／绿河 2823／投影 341，预览与 DOS 质感一致。服务 child 已轮换（12576，17:38:56，style-5 之后）`/play` 200。
 - 用户动作不变：编辑器重验→提交→批准→发布 1.2（压平＋回填＋河绿＋杂点＋投影一次带走）。
+
+## 2026-11-24 小地圖底图间距对 DOS（未提交）
+
+- 用户要求底图向右下、稍大，对原版距离。`mappanellayout.js` 加 `DISP_DW=12/DH=8/SHX=6/SHY=4`：显示框 250x167→262x175，右下偏移，框体随之重算（288x224），名牌跟底图走；`gamebar.js` 取图条件 `mw===250`→`mw>=250`（否则大框误取小图）。markers／视口／点击全部走同一 transform，自动对齐。
+- 隔离验证：playwright 全新会话开 1.4（用户已自行上架到 1.4，版号标签正常），底图铺满框、小边距、名牌贴底，与 DOS 一致；`trialweb.txt` 已重建。未提交。
+
+## 2026-11-26 小地圖海岸加高 style-6（未提交）
+
+- 糾正 11-24 误讀：用戶要的不是整個底圖移位，是投影層下沉加深。已全數回退 DISP_*（mappanellayout/gamebar 回到 HEAD 無差異）。
+- `minimap.js` → `minimap-style-6-raised-coast`：投影由 1px 加到 2px（純海像素上／左两格内邻陆即染 `(128,64,32)`），掩码分类不动；隔離渲染投影像素 341→593，海 4043→3791海岸明顯墊高。三項 seed 校验全过`trialweb.txt` 重建。
+- 用戶側需重新上架新版本包底圖才會換装。
+
+## 2026-11-26 小地圖海岸再加高 style-7（未提交）
+
+- 用戶：再高一倍。投影 2px→4px（`minimap-style-7-high-coast`），隔离渲染投影 593→1043 像素，海岸垫高明显。三项 seed 校验全过`trialweb.txt` 重建。待用户上架新版本。
+
+## 2026-11-26 遊戲列表行高＋間距（未提交）
+
+- 用戶：所有列表行加高、表头加高、行间 4px。`gamebar.js` 通用 `openListDialog` 一处改全覆盖（編成／軍团／据点／武将／势力／进言／人事等 18 处调用）：`LIST_HEADER_HEIGHT` 24→30、`LIST_ROW_GAP=4`（pitch=rowH+GAP；绘制／点击／悬停／cap 全按 pitch，间隙点击不命中）；全部 `rowH:18`→20；势力一览高度公式改按 pitch。
+- 权衡：同窗可见行数减少（军团 10→7，武将类 18→13），滚动条兜底，对话框高度不动。菜单式列表（h/items.length 自适应已 24px 级）不动；开局三下拉是原生控件只能字号 18px＋选项内边距逼近（无真 4px 间隙，已告知）。
+- 验证：playwright 全新会话进 1.5，势力一览实机截图行高＋间隔＋高表头生效；`node --check` 三文件过`trialweb.txt` 重建。未提交。

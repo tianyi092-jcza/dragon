@@ -6,7 +6,7 @@
 // 技术合同 §2.4 的参数起点：海岸半径 8 源格、陆地阴影 12/255。
 // style-3 起纹理项（原 4/255）已退役：textureNoise 保留为确定性工具，渲染不再消费。
 
-export const MINIMAP_STYLE_REVISION = "minimap-style-5-dos-relief";
+export const MINIMAP_STYLE_REVISION = "minimap-style-7-high-coast";
 export const MINIMAP_SIZES = Object.freeze({
   base: Object.freeze({ w: 208, h: 139 }),
   large: Object.freeze({ w: 250, h: 167 }),
@@ -131,14 +131,17 @@ export function renderMinimapPixels(geography, roadMask, width, height, outW, ou
       geoMask[oy * outW + ox] = road ? 3 : cls;
     }
   }
-  // style-5 海岸立体感：海底复制陆形下沉一像素（user 2026-11-24 对照 DOS 原版）。
-  // 纯海像素（非路）且上／左邻陆地时改绘投影色；河／路／陆像素不动。
+  // style-7 海岸继续加高（user 2026-11-26）：海底复制陆形下沉四像素——
+  // 纯海像素（非路）且上／左四格内邻陆地时改绘投影色。
+  // 河／路／陆像素不动；geoMask 分类不变。
   for (let oy = 0; oy < outH; oy++) {
     for (let ox = 0; ox < outW; ox++) {
       const i = oy * outW + ox;
       if (geoMask[i] !== 1) continue;
-      const upLand = oy > 0 && geoMask[i - outW] === 0;
-      const leftLand = ox > 0 && geoMask[i - 1] === 0;
+      const upLand = (oy > 0 && geoMask[i - outW] === 0) || (oy > 1 && geoMask[i - outW * 2] === 0) ||
+        (oy > 2 && geoMask[i - outW * 3] === 0) || (oy > 3 && geoMask[i - outW * 4] === 0);
+      const leftLand = (ox > 0 && geoMask[i - 1] === 0) || (ox > 1 && geoMask[i - 2] === 0) ||
+        (ox > 2 && geoMask[i - 3] === 0) || (ox > 3 && geoMask[i - 4] === 0);
       if (!upLand && !leftLand) continue;
       const j = i * 3;
       out[j] = MINIMAP_PALETTE.coastShadow[0];
