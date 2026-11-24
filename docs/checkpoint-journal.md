@@ -130,3 +130,9 @@
 
 - 宣战攻城全链打通：行军→门口接触（闪光＋声效）→攻城→占领不断表；用户实机确认正常。
 - 本轮改动均未提交：据点图片自管库、州郡卡显示、grid 行军三修（入口／发声／到场接触）、8A3F 扩图漆跳过＋诊断、willReadFrequently；预存破缺（catalog 旧测试／trial 门需参／shell 旧断言／copy_create 并行分支）与本次无关。
+
+## 提交推送 46cf530（2026-11-24 用户授权一并提交＋推送到 github/main）
+
+- 范围：35 改＋1 删＋6 新增（据点图片自管库／州郡卡／grid 三修／8A3F／声效／region＋城兵上限收尾／回归／journal），无密钥、无本地产物（.dragon-analysis／dist／node_modules 均未入）。
+- 审过别会话改动（region 补完＋troopcap／battlefield plumbing）一并入同一提交；工作区干净。
+- 推送：4e9bedf..46cf530 main -> main（github）。
