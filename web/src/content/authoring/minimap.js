@@ -1,10 +1,12 @@
-// M1 自动小地图纯生成核心（Web 工程方案，非原版机制）。
+// M1 自动小地图纯生成核心（Web 工程方案，非原版机制）。style-5 起对照 DOS 原版：陆地杂点、河回绿色、海岸下沉投影。
+// 海面纯色对齐内置底图效果。
 // 输入: geographyGrid/staticRoadGeometry/bounds/styleRevision/textureSeed。
 // 约束: 确定可复现；不使用 Math.random/时间/游戏规则 RNG；不修改 Scenario。
 // 显示类别与规则地形分别建模；此处只消费调用方给定的显式地理 grids。
-// 技术合同 §2.4 的参数起点：海岸半径 8 源格、陆地阴影 12/255、纹理 4/255。
+// 技术合同 §2.4 的参数起点：海岸半径 8 源格、陆地阴影 12/255。
+// style-3 起纹理项（原 4/255）已退役：textureNoise 保留为确定性工具，渲染不再消费。
 
-export const MINIMAP_STYLE_REVISION = "minimap-style-2-bands-dither";
+export const MINIMAP_STYLE_REVISION = "minimap-style-5-dos-relief";
 export const MINIMAP_SIZES = Object.freeze({
   base: Object.freeze({ w: 208, h: 139 }),
   large: Object.freeze({ w: 250, h: 167 }),
@@ -15,9 +17,13 @@ export const MINIMAP_PALETTE = Object.freeze({
   land: [0xf0, 0xd0, 0x90],
   seaA: [0x00, 0x1e, 0x5a],
   seaB: [0x00, 0x02, 0x05],
-  river: [0x40, 0x60, 0x40],
+  river: [0x40, 0x60, 0x40], // user 2026-11-24: revert to DOS green rivers
   road: [0x40, 0x60, 0x40], // user visual feedback: one ink for roads and visible water
+  coastShadow: [0x80, 0x40, 0x20], // user 2026-11-24: DOS relief underlay tone
 });
+
+// DOS 式陆地杂点：哈希半点加深（确定性、seed 稳定），幅度贴原版明暗差。
+const GRAIN_DARK = 22;
 
 const COAST_RADIUS = 8;
 const LAND_SHADE = 12;
@@ -56,25 +62,13 @@ export function coastalShade(geography, width, height, x, y) {
   return Math.round(LAND_SHADE * (1 - nearest / (COAST_RADIUS + 1)));
 }
 
-// Web visual bands + indexed-looking stipple, NOT a DOS generator formula.
-// Normalized map coordinates make this shared by all maps; no city/name rules.
-function landPixel(x, y, width, height, ox, oy, seed, shade) {
-  const nx = x / Math.max(1, width - 1), ny = y / Math.max(1, height - 1);
-  const broad = textureNoise(Math.floor(ox / 24), Math.floor(oy / 18), seed) / 30;
-  const cool = Math.max(0, Math.min(0.65, (0.55 - ny) * (1.15 - nx * 0.4) + broad));
-  const warm = Math.max(0, Math.min(0.85, ny * 0.9 + nx * 0.2 + broad));
-  const pale = [242, 222, 156], grey = [175, 189, 180], gold = [230, 222, 64];
-  const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5][(oy & 3) * 4 + (ox & 3)] / 16;
-  const grain = textureNoise(ox, oy, seed);
-  const pixel = [];
-  for (let channel = 0; channel < 3; channel++) {
-    const value = (pale[channel] * (1 - cool) + grey[channel] * cool) * (1 - warm) + gold[channel] * warm - shade;
-    // Finite color steps and sparse cool/olive flecks instead of uniform blur.
-    let speck = 0;
-    if (grain === -4) speck = ny < 0.45 ? -28 : -18;
-    pixel[channel] = Math.max(0, Math.min(255, Math.floor((value + speck) / 16 + bayer) * 16));
-  }
-  return pixel;
+// Style-3 平色陆地（Web 产品决定：用户批准对齐内置纯平底图效果）。
+// 陆地统一取 MINIMAP_PALETTE.land，仅保留海岸渐变 shade；不再按归一化坐标
+// 分冷暖段、不做 Bayer 整量化、不撒噪点，不再有“山脉感”斑块。
+// seed 为保留参数（调用兼容），不再影响输出。
+function landPixel(shade, grain) {
+  const extra = grain ? GRAIN_DARK : 0;
+  return MINIMAP_PALETTE.land.map(value => Math.max(0, Math.min(255, value - shade - extra)));
 }
 
 // geography: Uint8Array, 0=land, 1=sea, 2=river, 3=lake. River/lake
@@ -111,18 +105,17 @@ export function renderMinimapPixels(geography, roadMask, width, height, outW, ou
         b = MINIMAP_PALETTE.river[2];
         cls = 2;
       } else if (sea) {
-        const alt = (ox + oy) & 1;
-        const base = alt === 0 ? MINIMAP_PALETTE.seaA : MINIMAP_PALETTE.seaB;
-        r = base[0];
-        g = base[1];
-        b = base[2];
+        // Style-3：海面纯色 seaA，与内置底图一致；seaB 保留仅作调色板历史。
+        r = MINIMAP_PALETTE.seaA[0];
+        g = MINIMAP_PALETTE.seaA[1];
+        b = MINIMAP_PALETTE.seaA[2];
         cls = 1;
       } else {
-        // 陆地：平色 + 海岸渐变（变暗） + 居中纹理；整数运算。
+        // 陆地：纯平底色 + 海岸渐变（变暗）；style-5 加哈希杂点贴 DOS 底图质感。
         const cx = Math.floor(((sx0 + sx1 - 1) / 2));
         const cy = Math.floor(((sy0 + sy1 - 1) / 2));
         const shade = coastalShade(geography, width, height, cx, cy);
-        [r, g, b] = landPixel(cx, cy, width, height, ox, oy, seed, shade);
+        [r, g, b] = landPixel(shade, textureNoise(ox, oy, seed ?? 1) > 0);
         cls = 0;
       }
       if (road) {
@@ -136,6 +129,21 @@ export function renderMinimapPixels(geography, roadMask, width, height, outW, ou
       out[j + 1] = g;
       out[j + 2] = b;
       geoMask[oy * outW + ox] = road ? 3 : cls;
+    }
+  }
+  // style-5 海岸立体感：海底复制陆形下沉一像素（user 2026-11-24 对照 DOS 原版）。
+  // 纯海像素（非路）且上／左邻陆地时改绘投影色；河／路／陆像素不动。
+  for (let oy = 0; oy < outH; oy++) {
+    for (let ox = 0; ox < outW; ox++) {
+      const i = oy * outW + ox;
+      if (geoMask[i] !== 1) continue;
+      const upLand = oy > 0 && geoMask[i - outW] === 0;
+      const leftLand = ox > 0 && geoMask[i - 1] === 0;
+      if (!upLand && !leftLand) continue;
+      const j = i * 3;
+      out[j] = MINIMAP_PALETTE.coastShadow[0];
+      out[j + 1] = MINIMAP_PALETTE.coastShadow[1];
+      out[j + 2] = MINIMAP_PALETTE.coastShadow[2];
     }
   }
   return { pixels: out, geoMask };

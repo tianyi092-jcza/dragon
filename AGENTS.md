@@ -6,6 +6,7 @@
 
 - 重寫 1995 DOS《臥龍傳》，不用模擬器。玩家與 Trial 引擎、編輯／編譯核心為原生 ES Modules＋Canvas 2D，無框架、無建置及 npm 執行依賴。只有 `editor-ui/` 使用 Vue 3＋Element Plus＋Vite；同源服務提供預建資源，Vue 只接顯示 DTO／動作，不持有憑據、源物件或 live 遊戲狀態。內容發布不觸發程式部署。
 - **主線**：每款遊戲只有一套可編輯 copy、一個 publish 槽、一份 formal 快照；地圖、道路、據點、人物與章節為遊戲內共享資料。系統基礎地圖及基礎據點是建立時的模板，不是既有副本的第二份 live 資料。普通新建與完整複製分開，只允許一個成功的完整複製基準。舊 draft 退役／表清理等範圍見[收斂清單](docs/copy-simplification-tasks.md)。`/api/trial/*` 已退役（410），保留引擎不代表重新開放服務。
+- **目前玩家主線**：發布遊戲與內置遊戲的表現對照，下一項是小地圖顯示。先追內置入口，再用相同章節、世界邊界與操作對照發布路徑；不把現有任一實作當作 DOS 原證。
 - 編輯器為 12 項扁平選單，遊戲組在前、管理員組在後；品牌「臥龍傳編輯器」。「遊戲資源」是原頭像模組的顯示名，仍用 `catalog-editor`，僅管理員可用。「遊戲管理」負責上架發布；章節管理、勢力設定、勢力武將、勢力據點、外交關係在章節工作台；刪除遊戲只在上架審核入口。內置遊戲不可編輯、下架或刪除。
 - 軟體版本見 `VERSION`；規則基線 `web-0.1.1`、內容摘要、遊戲版本 `1.n`、程式歸檔身份彼此獨立。生產為 `sadcloud` 單 VPS、玩家／編輯器分服務；操作前按[存儲佈局 §18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)核對主機、目錄、程序與 pin，不沿用舊 PID 或遠端狀態。
 
@@ -36,6 +37,7 @@
 ## 4. 重要工程坑點
 
 - 唯一開發狀態目錄 `E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`，不重建、搬移或另起倉庫內狀態庫。測試用系統臨時目錄、記憶體 SQLite／mock IDB、全新瀏覽器 profile。禁止自動化讀寫正式 `E:/Dragon/Dragon/SAVE.DAT` 或使用者存檔。
+- 本地玩家入口分清三者：`8321` 是靜態引擎，不供上架目錄；開發編輯器的 `https://127.0.0.1:8443/play` 可讀本地已發布快照，但不是正式玩家標題頁；正式發布／通知驗收須走 reader 與分發桶。不要以靜態頁只見內置遊戲判定發布失敗。
 - **build ≠ check ≠ 服務刷新**：Vue 先 build 再 `--check`，同步 `shell-ui.txt`、CSS 與授權清單。`server/public/*.txt` 由進程 import；`client.txt` 或 `index.html` 改後需重啟自己持有的實例，核實際服務位元組，不能停他人進程。`web/src/**` 改後重建 `trialweb.txt`。發布歸檔須核完整 inventory／SHA 與 pin，不放寬凍結身份，不把 `--source-only` 當完整資源庫驗證。
 - `applyCapturedMapEdit` 的 `view(edit)` 是屬性描述符，取值用 `value(edit, key)`。地圖共用編輯預算 4096 命令／16 MiB 完整 JSON，模板／copy 源 64 MiB；批次預演／撤銷／拒絕都不可留下前綴。新城中心須符合行序，`road-add` 認證既鋪走廊而非鋪路命令。
 - session DTO 的缺省版本要同口徑比較，不省略身份／epoch／SHA。schema 或 purge 變更同步投影、清單與刪除合同。SQLite WAL 檢查用一致備份，不裸拷主庫。離線報告新輪次獨占目錄，Python `-B`＋明確 UTF-8，含 Windows 子進程。

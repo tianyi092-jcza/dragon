@@ -38,7 +38,7 @@ try {
     assert.deepEqual(image, render(converted.minimapGeography, 1));
     const alternate = render(converted.minimapGeography, 2);
     assert.deepEqual(alternate.geoMask, image.geoMask);
-    assert.notDeepEqual(alternate.pixels, image.pixels);
+    assert.notDeepEqual(alternate.pixels, image.pixels); // style-5 DOS 杂点：seed 决定分布
     const invisible = render(withoutWater.minimapGeography, 1);
     assert.notDeepEqual(invisible.pixels, image.pixels);
     assert.ok(image.geoMask.includes(1) && image.geoMask.includes(2), 'visible sea and river/lake retained');

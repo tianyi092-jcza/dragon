@@ -1,42 +1,39 @@
 # 檢查點日誌
 
-本頁交接本輪工作；長期命令、架構與約定見 [AGENTS.md](../AGENTS.md)。本頁不是操作授權，也不是原版機制的證據。
+長期架構、命令及驗證約定見 [AGENTS.md](../AGENTS.md)。本頁記錄交接，不代替原證或部署授權。
 
-## §232｜據點選圖與複製保留（已提交推送）
+## MINIMAP-FLAT | small-map flatten to builtin (style-3 uncommitted)
 
-- `c2ae722`（已隨主線推至 `github/main`）：遊戲與基礎據點共用攻城戰場、城景選圖；攻城候選依原始 192 城的據點類型篩選，野戰仍由地形決定。複製保留城景 ID `0..14`。另整理人數單位、表單與選圖視窗的自適應布局。產品與來源見[據點合同](editor-city-definitions.md)；具體差異用 `git show c2ae722` 查閱，不再以舊 §229 的分組數作為現行選圖規格。
+Web product decision (user approved builtin flat look, not original mechanism): style-2 bands/dither formed large grey blotches (user called mountains) atop the north-expanded world. Established: renderMinimapPixels only consumes 0-land/1-sea/2-river/3-lake; mountains never enter the base. Style-3: flat land (coastal shade only), solid sea, rivers/roads/markers/viewport unchanged.
 
-## §233｜地圖邊緣延伸與基礎地圖（已提交推送 `bfba508`）
+- change: minimap.js landPixel flattened + MINIMAP_STYLE_REVISION=minimap-style-3-flat-land + sea de-checkered; 3 seed assertions synced; trialweb.txt rebuilt.
+- verify: node --check pass; verify_minimap_seed/groups/system_base_map_minimap all pass; offline base 17KB->4KB flat; 8443 child reloaded, 8321/8443-play 200.
+- untouched: builtin compiled bases (already flat), acceptance history, controller-test mock strings.
+- pending: published local 1.0 base frozen at approve; user re-submit->review->shelf to refresh; commit/push need separate auth.
+- play dropdown now shows revision label (playapp.js live module, no bundle needed; verified served with new string); status line also shows loaded revision. If user still sees old art: refresh /play (stale entries list), confirm label is the new version; else republish again on the reloaded child.
 
-- **資料與保存**：不再讓使用者逐格重鋪新增行列。新增按鈕送 `map-extent`、`delta: 1`、`fill: 'edge'`，取當下邊線的普通地形與疊層，新增格有獨立身份；多格素材只取邊線。道路、橋、城門、據點不延伸，原座標不動。保留不帶 `fill` 的舊命令語意，不重寫已有空白行列。核心在 `web/src/content/authoring/mapextent.js`，預覽與服務端分別由 `web/src/editor/mapcommands.js`、`server/copyprofile.js` 呼叫。見[擴縮合同入口](map-expansion/README.md)。
-- **介面演進**：使用者實測遊戲地圖四向成功後，移除「複製／填充」佔位按鈕，將八個文字按鈕改為網格後的北／南／西／東四組 `＋／−`。純圖示按鈕等寬高，方向組間留 16px。管理員「基礎地圖」直接使用同一工具列與命令，不另建實作；模板保存不修改既有遊戲。介面在 `editor-ui/src/{BaseMapPanel.vue,WorkspaceIcon.vue,theme.css,main.js}`，同步重建編輯器資源。
-- **調試**：疊層案例最初因測試用山脊配方的 ID 與定義不符，觸發 `INVALID_COMPONENT_IDENTITY`；修正夾具的定義、視覺配方與隔離地圖，沒有放寬校驗。瀏覽器最初因測試伺服器未供應 `auth-logo.png`、`brand.png` 產生兩個 404；改由夾具供應真圖，不忽略 console 錯誤。
-- **收據**：`verify_map_extent_sides_ops.mjs`＋`verify_map_extent_controller.mjs` 共 11 項通過（四向保存重讀、縮回、調整新格再延伸、排除特殊物件等）；`verify_map_extent_templates.mjs` 7 項通過（配額、權限、建立時快照與舊副本隔離等）。`tools/verify_system_base_map_browser.mjs --edge-growth` 驗遊戲地圖；`--base-edge-growth` 以全新瀏覽器驗基礎地圖四增四縮、每步保存重讀與最終還原。兩者是隔離 API 夾具，不是生產驗收。編輯器 build、`--check`、Vue LSP 通過。
+- correction 2026-11-24 16:40 UTC+8: 1.1 pack art verified FLAT on server (both base+large: 11 colors, cream/navy/green, no grey, no checkerboard). Earlier stale-child theory withdrawn: 16:21 watcher restart did pick up style-3. The grey in browser = stale page/session holding the 1.0 pack, not server data. No republish needed; fresh reload /play and start a NEW game (check 1.1 label in dropdown + status line).
 
-## §234｜模組改名（已提交推送）
+## PLAYER-LOCAL｜本地發布遊戲與擴展地圖
 
-- `server/public/client.txt` 的 `catalog-editor` 顯示名由「人物頭像」改為「遊戲資源」。ID、管理員權限、頭像功能不動。
-- 當時完整 `verify_editor_shell.mjs` 停在舊 `login-form` 斷言；§235 已將該斷言與 current-game-selector 改為正則，現停在預存的 `accounts-vue-owned` stale（ElTable 遷移前即存在，未動）。
+**交付邊界**：`eec4516` 已推送 `github/main`；`c8a974b`（勢力列表）只在本地 `main` 提交。本批未部署。舊 §232–236 與 ENGINE-AUDIT 原文可查 `git show c8a974b:docs/checkpoint-journal.md`。
 
-## §235｜編輯器 UI 統一規範（Message／Dialog／Form／預設主題）＋冒烟修復（已提交推送 `5065270`）
+| 問題／失敗嘗試 | 定位、變更與驗證 |
+| --- | --- |
+| 本地只見內置遊戲；能選章卻無法開局 | `8321` 沒有目錄 API。改用 `8443/play`，確認本地 1.0、19 章與首章包；開局仍因原域尺寸門拒絕北擴世界。`trialruntime.js` 按已知 grid 格式裝配，`playapp.js` 修正選章標籤、空勢力與載入提示。全新瀏覽器以劉虞開局成功，不等於正式 reader 驗收。 |
+| 編輯後複製與道路保存 | `editor-ui/src/{BaseMapPanel.vue,mapcanvas.js,StrongholdCreate.vue}`、`server/{systembasemapstore,gamecopy}.js`、`web/src/editor/roadchain.js` 支援基礎據點新增、多格地圖編輯、道路識別與新增據點的章節准入。北擴三城後完整複製、審核並上架本地 1.0。 |
+| 開局成功但首次行軍即停；普通檔過快 | 新編軍團未帶道路位置，且 grid 每刻重訪前 16 槽。`nativelegions.js`、`legioncounts.js`、`ai.js` 修正編成、占格與八批輪轉；`clock.js` 依使用者決定將舊普通設為最高檔。道路日結不回士氣；返都後由到期動作補員或解體。`verify_map_extent_march.mjs` 等四項回歸通過。 |
+| 中立城下令即報錯；可接敵後勝利仍停在 4CF5 | `worldgridroads.js` 原先只接受友方目的地；擴展城編號又誤入 DOS 固定城表。改為在城前接敵，grid 中立城攻勝寫回所屬與城數。不要把能進入攻城當作整場結算等價證明。 |
+| 月末兩次不同錯誤均顯示 0 日 | 先修軍團編成丟失 `+21/+24` 月結欄位；之後是已佔北擴城的負 Y 被當作無符號座標。財政修後實際跨月又暴露災害事件誤走舊輪；修正 `navigation/{originalmonthlyfiscal,scenariomonthlyfiscal,scenarioweather}.js` 與 `ai.js`。隔離瀏覽器以劉虞持有負座標城從 1/31 跨至 2/1；財政／天氣 20 項通過，使用者亦確認。 |
+| 同格選單、勢力列表與外交接見 | `gamebar.js` 按同格實體開「據點／軍團」，軍團列表右鍵直接關閉；外交 FIFO 分開隊列類型與接見類型，協助／停戰均實測可開窗。`hud.js` 依實際據點排除空勢力，按君主引用計數而不重複，不刪槽、不改武將歸屬。 |
 
-- **範圍**：`editor-ui/src` 全量：新建 `notify.js`（ElMessage plain:true 統一出口）；`main.js` 加 message 樣式＋`statusError` 旗標；`Workbench.vue` 全局 toast 觀察器（statusMessage 按 statusError 分 info/error，model.message 陣列去重 info）＋`onNotice`；Stronghold／Generals／Chapters 本地狀態補 toast；8 個原生 form 全轉 ElForm／ElFormItem（login／password／profile 無 @submit，仍由 `server/public/client.txt` 的 FormData 接管，保留 form id、input name、reset 語義）；Chapters 新增章、Stronghold 新增據點、BaseMap 保存檢查加 `align-center`／`destroy-on-close`／`close-on-click-modal`；CopyGame 轉換明細、full-copy／publish 失敗、review 三階段按鈕移入條件 footer（id 保留、幾何不斷言變化）；`theme.css` 刪除失效的 `form:not(.el-form)` 等規則，換成 `.el-form` 等價布局。`tools/verify_editor_shell.mjs` 的 login-form／current-game-selector 斷言同步為正則。
-- **刻意不動的例外**：GeneralsPanel 相簿（幾何斷言鎖定）；阻塞式 alertdialog 三處體內標題＋按鈕；`window.confirm`（Stronghold 刪除，改 ElMessageBox 會破壞 `verify_city_delete_browser` 的 native-dialog 自動接受，且本機無瀏覽器可重驗）；`accounts-vue-owned` 斷言仍紅（預存 stale，未動）。
-- **冒烟抓到的兩個真 bug（已修）**：① GeneralsPanel `watch(albumFailure)` 寫在 `const albumFailure` 宣告之前，掛載即 ReferenceError——三個本地 watch 已移到宣告之後。② Workbench 全局觀察器讀 `props.managementModel.message` 拋 TypeError——根因是 `defineProps` 漏宣告 `managementModel, management`（main.js 有傳、watcher 有讀，props 回退為 undefined），已補回宣告。兩者皆為本輪新增代碼的缺陷，非原版機制問題。
-- **驗證收據**：`node build.mjs`＋`--check` 通過；`npm run --prefix editor-ui/lsp check` 36 個 SFC 零診斷；`git diff --check` 乾淨（僅既有 CRLF 提示）。隔離冒烟（8446＋smoke2 臨時庫＋全新 profile，dev server 自動重載新 bundle）：錯誤登錄 toast 為 `is-plain error`、login／password／profile／create／copy-create／full-copy-form 均為 ElForm、登錄→工作台掛載→6 個可見視圖＋個人資料／變更密碼全部零 pageerror。`verify_editor_shell.mjs` 跑過已修的兩處斷言，仍停在預存的 `accounts-vue-owned`（第 70 行），與修復前一致，無新紅。
-- **未動／待辦**：8447 新 store 啟動失敗，係倉庫預存不一致——`server/available-library.txt` 的 programHashes 與已提交的 5 個 `web/src` 文件（main／endview／mapview／gamebar／hud）對不上，本輪未碰 web/src，已確認 8446 照常用 pinned 跳過 staging 正常服務（坑點已回流 [AGENTS.md](../AGENTS.md)§4）。登錄成功後舊的「帳戶或密碼無效」文案殘留顯示（statusMessage 成功路徑未覆蓋），小瑕疵未修。
+**提交驗證**：`eec4516` 合併遠端既有玩家修正後重建程式包，21 項專項測試通過，Vue LSP 37 個元件無診斷；`c8a974b` 完成語法與 bundle 檢查。這些是分項驗證，非全庫通過。
 
-## §236｜記憶整理（journal 修剪＋事實回流 AGENTS.md）
+## 下一步與未結項
 
-- 把 §232／§233／§234／§235 的狀態更新為已推送（`c2ae722`、`bfba508`、`5065270` 皆在 `github/main`，工作樹乾淨）；刪除 §234 已失效的交接項（舊 HEAD、手測重啟排查）；§234 的 login-form 阻塞已由 §235 解決，現唯一 stale 為 `accounts-vue-owned`。
-- 長期有效的兩條回流至 [AGENTS.md](../AGENTS.md)：§3 消息出口＋三表 FormData 約束；§4 新庫 staging 指紋預存不一致坑點。一次性的 TDZ／defineProps 根因只留 §235，不進記憶。
-- 本輪只改 journal 與 AGENTS.md，未跑遊戲回歸；當前阻塞與下一步見 §235 未動／待辦，無新增阻塞。提交／推送另需授權。
-
-## ENGINE-AUDIT｜財政輸入、水戰速算、日月結與災害
-
-- 修復玩家下月稅率／三兵種配額未寫原生政策塊，及相容災害處理器延遲清除事件遺失城指針；外交失敗夾具補已運轉事件輪游標，未放寬正式檢查。已批准的 Web 水戰速算僅切換雙方主將專長，不改兵種權重、行軍或抽數。規則來源見 [月度財政](re-notes-ai-fiscal.md) 與 [武將字段](re-notes-entity-fields.md)。
-- 日月／災害／戰鬥等串行專項 225 項，加開局政策 6 項及進言／道路到達／戰後／區域天氣 47 項。全新瀏覽器 Clock smoke 通過；原版第一章勢力 0 由 196/4/1 跨至 196/6/7，兩次月結、瀏覽器記錄 0 錯。不代表逐幀 DOS 全遊戲等價。
-- 公開玩家入口所選程式 `826b7c3a…` 仍提供 `43D3 faction alias` 舊路徑；本輪未部署。路徑 LSP 未返回診斷，無 lens 工具；tsc、JS 語法及 diff 另驗。
+1. **下一項：小地圖顯示。** 尚無確認根因。取得具體畫面、章節與操作，先看內置遊戲如何載入及繪製，再查擴展世界的資源、原點、比例與標記位置；用同一觀察點重現後再決定改哪一層。本輪只登記，不改程式。
+2. 外交與預算同批等待：宣戰已有等待門；玩家停戰／協助及內政／外交預算可能在第一項答復前繼續派發。`ai.js` 的 `drainStrategicEventBatch` 待構造同批連續事件驗證。審查 65 項過、1 項因 `verify_budget_message_ui.mjs` 夾具缺 `compiled minimap base` 未進入測試；這不是玩家小地圖問題的根因證據。
+3. 攻城傷亡：已核六隊交錯扣兵與部分士氣寫回；未完成內置與發布路徑同輸入、同 RNG 的全程對照。保留為待查，不改倍率。
 
 ## 歷史定位與相容錨點
 
@@ -53,3 +50,24 @@
 
 <a id="10-014发布整理"></a><a id="11-015发布整理"></a><a id="6-render-layers-1测量脏层灾害播放器及断链整理"></a><a id="5-当前时钟系统逆向与重构本地完成"></a><a id="6-发布主线阻塞与下一步"></a><a id="8-用户指定五档提速"></a><a id="9-battle-text-reflow-1战术双方对白自动折行"></a><a id="10-录像反馈后的战略性能修复"></a><a id="11-编辑器vps部署前只读盘点"></a><a id="12-受限编辑器容器部署"></a><a id="13-固定库刷新与私有trial接续"></a><a id="16-当前版本资源门部署与只读巡检补强"></a><a id="19-后台框架壳editor-ui-1"></a><a id="20-账户管理组件化editor-ui-2"></a><a id="21-草稿与章节组件化editor-ui-3"></a><a id="22-阶段任务与结构展示editor-ui-4"></a><a id="23-只读素材库组件化editor-ui-5"></a><a id="30-上架限制与删除追踪组件化editor-ui-12"></a><a id="32-固定库身份合同授权修复与目标闭合editor-ui-14"></a><a id="33-后台迁移提交推送与受限上线"></a>
 §5–33：時鐘、表現、早期部署與 Vue 工作台見[舊收據索引](checkpoint-journal-archive-through-72.md)。
+
+## 2026-11-24 小地圖 style-3＋副本地理回填（GEO-BACKFILL，未提交）
+
+- style-3（用户批准对齐内置纯平，非原版机制）：`web/src/content/authoring/minimap.js` landPixel 压平＋海岸渐变、海面纯色 seaA、`MINIMAP_STYLE_REVISION=minimap-style-3-flat-land`；三处 seed 断言同步 seed 不变（`verify_minimap_seed`／groups／`system_base_map_minimap` 全过）；`trialweb.txt` 已重建；离线底图 17KB→4KB 纯平。`playapp.js` 游戏下拉框＋状态行显示发布版本号 live 生效。以上全部未提交。
+- 根因（实锤数据分层 mismatch）：副本 8c05e6a0（384x264,minY-8）terrainRef 海图块仅 12.0%，但 `map.base.geography` 100% 全海（sea-ground-1 模板默认＋装饰 `preserve-underlay` 盖章不改底）；若一致下采样海应 13.3%，实际包底图 59.8%。markers 走剧本故三城标记一直对。内置对照：图块 12.1% 海→底图 10.3% 海一致。
+- 修复（用户批准方案 A，数据面）：`tools/verify_geo_backfill_isolated.mjs` 用 inferred-sea-edge-connected 从 compose 后 terrain 回填（0陆88617／1海9663／2河3096），水团 baseCells 非零门过，patch 后 compose 诊断 0，海 68.7%（含道路覆绿≈包 59.8%）→10.5%，隔离 PNG 与大地形吻合。写库：`game_copies` 1 行 data_json＋copy_digest→`de0520e2…`（sha 自洽防 COPY_CORRUPT），备份在 `C:/Users/fczll/AppData/Local/Temp/wolong-geo-backfill/backup-data-json-13fb.json`。policy sea-ground-1 同步移除（否则 INVALID_SEA_GROUND_BASE），副作用：该图 base-fill 解锁。验证状态自动 stale，用户须在编辑器重跑验证→提交→批准上架 1.2。提交推送另需授权。
+
+## 2026-11-24 小地圖河改海藍 style-4（未提交，用戶待上架 1.2）
+
+- 用戶確認回填效果后要求河与海同蓝。`minimap.js`：`river` 由绿 `(64,96,64)` 改海蓝 `(0,30,90)`，`road` 保持绿（路上叠线仍可见），`MINIMAP_STYLE_REVISION=minimap-style-4-blue-river`（server/tools 仅作报告戳记，无契约风险）。此改共享渲染，内置小地图河同步变蓝（已告知用户）。
+- 驗證：`node --check` 过；`trialweb.txt` 重建（sha `4f989d…`）；三項 seed 校驗全过（颜色不碰 seed）；隔离重渲染 10 色零绿，海 17.3%（原河像素併入海，数学吻合），預覽 PNG 與大地图一致。
+- 服務：supervisor 1848／child 9864 為我方實例；重載新碼需新 child，kill 9864 後 supervisor 未補叉連帶退出，已用原命令重起（supervisor 16256／child 17124，`/play` 200）。child  fork 於 style-4 之後發布 1.2 编底图必為新码。
+- 用戶動作不變：編輯器重驗→提交→批准→發布 1.2，一次帶走地理回填＋河藍＋style-3 壓平。
+
+## 2026-11-24 小地圖 style-5 對照 DOS 原版（未提交，用戶待上架 1.2）
+
+- 用戶对照 DOS 原版底图要求：河回绿、河再细、陆地加杂点、海岸立体感；推翻 style-4 河蓝（内置同步变蓝已随 style-5 回退）。
+- `minimap.js` → `minimap-style-5-dos-relief`：`river` 回绿 `(64,96,64)`（road 保持绿）；陆地哈希杂点（`textureNoise>0` 加深 22，同 seed 稳定）；海岸投影第二遍（纯海像素上／左邻陆 → `(128,64,32)`，河路陆不动）；`landPixel(shade,grain)`；`gamebar.js drawMini` 底图 `imageSmoothingEnabled=false` 包一下保 1px 锐（显示侧，内置同步更脆）。
+- 三项 seed 校验曾按 style-3「seed 不影响输出」断言失败，属测试刻舟（用户已批改方向），按铁律 8 更新为「同 seed 确定、异 seed 杂点不同、掩码一致」后三项全过；`trialweb.txt` 重建（sha `2ff41991…`）。
+- 隔离重渲染 21 色：陆底 17910／杂点 14251、海 4043／绿河 2823／投影 341，预览与 DOS 质感一致。服务 child 已轮换（12576，17:38:56，style-5 之后）`/play` 200。
+- 用户动作不变：编辑器重验→提交→批准→发布 1.2（压平＋回填＋河绿＋杂点＋投影一次带走）。

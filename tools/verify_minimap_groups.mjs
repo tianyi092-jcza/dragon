@@ -61,7 +61,7 @@ try {
     const a = renderMinimapPixels(on.minimapGeography, roads, 384, 256, w, h, 1);
     const b = renderMinimapPixels(on.minimapGeography, roads, 384, 256, w, h, 1);
     const c = renderMinimapPixels(on.minimapGeography, roads, 384, 256, w, h, 2);
-    assert.deepEqual(a, b); assert.deepEqual(a.geoMask, c.geoMask); assert.notDeepEqual(a.pixels, c.pixels);
+    assert.deepEqual(a, b); assert.deepEqual(a.geoMask, c.geoMask); assert.notDeepEqual(a.pixels, c.pixels); // style-5 DOS 杂点：seed 决定分布
     for (let i = 0; i < a.geoMask.length; i++) if (a.geoMask[i] === 3) assert.deepEqual([...a.pixels.slice(i * 3, i * 3 + 3)], MINIMAP_PALETTE.road);
   }
 } finally { Math.random = oldRandom; Date.now = oldNow; }

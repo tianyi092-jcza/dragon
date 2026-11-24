@@ -8376,7 +8376,13 @@ export class GameBar {
     const miniT = p.transform;
     const r = miniT.rect;
     const image = mw === 250 ? this.imgs.mbgLarge : this.imgs.mbg;
-    if (image) ctx.drawImage(image, r.x, r.y, r.w, r.h);
+    // style-5 起底图 1px 线（河／杂点／投影）关平滑保锐：DOS 块感，画完恢复。
+    if (image) {
+      const prevSmooth = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(image, r.x, r.y, r.w, r.h);
+      ctx.imageSmoothingEnabled = prevSmooth;
+    }
     const sc = this.app.scenario;
     if (!sc) return;
     const me = cmd.playerFaction(sc);

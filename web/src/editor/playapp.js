@@ -31,7 +31,9 @@ try {
 	for (const entry of entries) {
 		const option = document.createElement("option");
 		option.value = entry.gameId;
-		option.textContent = entry.name ?? entry.gameId;
+		const baseName = entry.name ?? entry.gameId;
+		// 显示发布版本号以便确认是否载入新包；内置项无 revision 保持原名。
+		option.textContent = entry.revision ? `${baseName}（${entry.revision}版）` : baseName;
 		gameSelect.append(option);
 	}
 	const picked = args.get("game");
@@ -137,7 +139,7 @@ try {
 			const { startApp } = await import("../main.js");
 			await startApp(null, { trial });
 			panel.remove();
-			status.textContent = `進行中 ${entry.name} — 進度保存於本機（與內置/他遊戲隔離）`;
+			status.textContent = entry.revision ? `進行中 ${entry.name}（${entry.revision}版） — 進度保存於本機（與內置/他遊戲隔離）` : `進行中 ${entry.name} — 進度保存於本機（與內置/他遊戲隔離）`;
 		} catch (error) {
 			status.textContent = `無法開始遊戲：${error.message}`;
 			button.disabled = false;
