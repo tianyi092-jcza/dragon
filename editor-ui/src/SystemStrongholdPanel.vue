@@ -115,7 +115,7 @@ function validate(row) {
   if ([...name].length > 12) return '據點名稱最多 12 個字。';
   if (loaded.value.some(item => item.cityId !== row.cityId && cityName(item.name) === name)) return '據點名稱「' + name + '」已被其他據點使用。';
   const region = cityName(form.region);
-  if ([...region].length > 5) return '所屬州郡最多 5 個字。';
+  if ([...region].length > 6) return '所屬州郡最多 6 個字。';
   for (const key of FIELDS) {
     const raw = String(form[key] ?? '').trim();
     if (!raw) continue;
@@ -184,7 +184,7 @@ async function promote() {
                 <ElInput v-if="editing === row.cityId" v-model="form.name" data-input="name" maxlength="12" :disabled="busy" /><template v-else>{{ row.name ?? '未配置' }}</template>
               </template>
               <template v-else-if="column.key === 'region'">
-                <ElInput v-if="editing === row.cityId" v-model="form.region" data-input="region" maxlength="5" :disabled="busy" /><template v-else>{{ row.region ?? '' }}</template>
+                <ElInput v-if="editing === row.cityId" v-model="form.region" data-input="region" :disabled="busy" /><template v-else>{{ row.region ?? '' }}</template>
               </template>
               <template v-else-if="column.key === 'troops_cap'">
                 <ElInput v-if="editing === row.cityId" v-model="form.troops_cap" data-input="troops_cap" inputmode="numeric" :disabled="busy" />

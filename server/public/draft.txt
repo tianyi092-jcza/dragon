@@ -718,9 +718,9 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
       const cap = row.troops_cap ?? null;
       if (cap !== null && (!Number.isInteger(cap) || cap < 0 || cap > 255)) throw new Error('副本據點城兵上限格式無效。');
       out.troops_cap = cap;
-      // 所屬州郡是作者展示欄位（預設空白、可空、最多 5 字）；讀寫直透不進規則，舊檔缺欄位讀成空白。
+      // 所屬州郡是作者展示欄位（預設空白、可空、最多 6 字）；讀寫直透不進規則，舊檔缺欄位讀成空白。
       const region = row.region ?? '';
-      if (typeof region !== 'string' || [...region.normalize('NFC').trim()].length > 5) throw new Error('副本據點州郡格式無效。');
+      if (typeof region !== 'string' || [...region.normalize('NFC').trim()].length > 6) throw new Error('副本據點州郡格式無效。');
       out.region = region.normalize('NFC').trim();
       rows.push(out);
     }
@@ -1670,7 +1670,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     }
     if (patch.region !== undefined && patch.region !== (row.region ?? '')) {
       const region = String(patch.region ?? '').normalize('NFC').trim();
-      if ([...region].length > 5) throw new Error('所屬州郡最多 5 個字。');
+      if ([...region].length > 6) throw new Error('所屬州郡最多 6 個字。');
       body.region = { [cityId]: region };
     }
     if (!Object.keys(body).length) return '據點沒有變更。';
@@ -1729,7 +1729,7 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     const troopsCap = Number(form.troops_cap);
     if (!Number.isInteger(troopsCap) || troopsCap < 0 || troopsCap > 255) throw new Error('城兵上限須為 0–255 的整數。');
     const region = String(form.region ?? '').normalize('NFC').trim();
-    if ([...region].length > 5) throw new Error('所屬州郡最多 5 個字。');
+    if ([...region].length > 6) throw new Error('所屬州郡最多 6 個字。');
     const gameId = fields.gameId, valid = ticket();
     const current = () => valid() && permitted() && copyLoadedForGame();
     if (!current()) return;

@@ -203,16 +203,17 @@ test('cityCopy region: create posts explicit region, blank region create default
   const h = harness(); await selectGame(h); loadOk(h);
   await h.actions.loadCopy();
   const good = { name: '新野', numbers: { max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1 }, battleMapId: 'ki-1995:siege:7', troops_cap: 60 };
-  await h.actions.cityCopyCreate({ ...good, region: '荊州' });
-  assert.deepEqual(posts(h), [{ module: 'cities', patch: { create: { ...good, region: '荊州' } } }]);
+  const region = '荊州南陽郡𠮷'; // Six code points; seven UTF-16 units.
+  await h.actions.cityCopyCreate({ ...good, region });
+  assert.deepEqual(posts(h), [{ module: 'cities', patch: { create: { ...good, region } } }]);
   h.calls.length = 0;
-  try { await h.actions.cityCopyCreate({ ...good, name: '樊城', region: '荊州襄陽郡外' }); } catch { h.errors.push(new Error('local-refusal')); }
+  try { await h.actions.cityCopyCreate({ ...good, name: '樊城', region: region + '外' }); } catch { h.errors.push(new Error('local-refusal')); }
   assert.equal(h.errors.length, 1);
   assert.equal(h.calls.length, 0);
   h.errors.length = 0;
-  const saved = await h.actions.cityCopySave('c1', { region: '司隸' });
+  const saved = await h.actions.cityCopySave('c1', { region });
   assert.equal(saved, '已保存據點並重讀副本。');
-  assert.deepEqual(posts(h), [{ module: 'cities', patch: { region: { c1: '司隸' } } }]);
+  assert.deepEqual(posts(h), [{ module: 'cities', patch: { region: { c1: region } } }]);
   h.calls.length = 0;
   assert.equal(await h.actions.cityCopySave('c1', { region: '' }), '據點沒有變更。');
   assert.equal(h.calls.length, 0);

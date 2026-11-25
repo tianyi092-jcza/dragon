@@ -69,7 +69,7 @@ export function createBaseStrongholdWorkbench({ api, work, publish, confirm, isB
     if (Object.keys(values).length) body.numbers = { [cityId]: values };
     if (patch.region !== undefined && patch.region !== (row.region ?? '')) {
       const region = String(patch.region ?? '').normalize('NFC').trim();
-      if ([...region].length > 5) throw new Error('所屬州郡最多 5 個字。');
+      if ([...region].length > 6) throw new Error('所屬州郡最多 6 個字。');
       body.region = { [cityId]: region };
     }
     if (patch.battleMapId !== undefined && patch.battleMapId !== (row.battleMapId ?? null)) {

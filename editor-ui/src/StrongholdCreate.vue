@@ -33,7 +33,7 @@ async function createCity() {
   if ([...name].length > 12) { failure.value = '據點名稱最多 12 個字。'; return; }
   if (props.cities.some(item => cityName(item.name) === name)) { failure.value = '據點名稱「' + name + '」已被其他據點使用。'; return; }
   const region = cityName(create.region);
-  if ([...region].length > 5) { failure.value = '所屬州郡最多 5 個字。'; return; }
+  if ([...region].length > 6) { failure.value = '所屬州郡最多 6 個字。'; return; }
   const numbers = {};
   for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
     if (key === 'view' && create.view === null) continue;
@@ -63,7 +63,7 @@ async function createCity() {
       <ElForm label-position="top" class="editor-form-grid" @submit.prevent="createCity()">
         <ElFormItem v-for="field in columns.filter(c => ['name', 'region', ...FIELDS, 'troops_cap'].includes(c.key))" :key="field.key" :label="field.title">
           <ElSelect v-if="field.key === 'type'" v-model="create.type" :disabled="busy"><ElOption v-for="[value, label] in CITY_TYPES" :key="value" :value="Number(value)" :label="label" /></ElSelect>
-          <ElInput v-else v-model="create[field.key]" :maxlength="field.key === 'name' ? 12 : field.key === 'region' ? 5 : undefined" :inputmode="(field.key === 'name' || field.key === 'region') ? 'text' : 'numeric'" :disabled="busy" />
+          <ElInput v-else v-model="create[field.key]" :maxlength="field.key === 'name' ? 12 : undefined" :inputmode="(field.key === 'name' || field.key === 'region') ? 'text' : 'numeric'" :disabled="busy" />
         </ElFormItem>
         <ElFormItem label="攻城戰場" class="stronghold-create-battle"><SiegePickButton :value="create.battleMapId" :disabled="busy" @open="createPickerVisible = true" /><span class="siege-current">{{ create.battleMapId ? siegeLabel(create.battleMapId) : '尚未選擇戰場' }}</span></ElFormItem>
         <ElFormItem label="據點圖片" class="stronghold-create-battle"><CityPicture :value="create.view" editable large :disabled="busy" @select="create.view = $event" /></ElFormItem>

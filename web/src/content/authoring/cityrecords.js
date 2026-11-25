@@ -24,7 +24,7 @@ export function cityRegion(value) {
     if (point < 32 || point >= 127 && point <= 159 || point >= 0xd800 && point <= 0xdfff) throw new RangeError('invalid city region');
   }
   const region = value.normalize('NFC').trim();
-  if ([...region].length > 5) throw new RangeError('city region up to 5 chars');
+  if ([...region].length > 6) throw new RangeError('city region up to 6 chars');
   return region;
 }
 // Game-level base numbers (user 2026-11: 据点基础属性归游戏级，除所属势力外都要有).

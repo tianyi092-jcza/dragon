@@ -18,7 +18,7 @@ export function assertSystemBaseCities(cities) {
   for (const [cityId, city] of Object.entries(cities)) {
     if (!city || typeof city !== 'object' || Array.isArray(city)) throw new RangeError(`system base city ${cityId} requires a record`);
     if (typeof city.name !== 'string' || !city.name.trim()) throw new RangeError(`system base city ${cityId} requires a name`);
-    if (city.region !== undefined && (typeof city.region !== 'string' || [...city.region].length > 5)) throw new RangeError(`system base city ${cityId} requires region up to 5 chars`);
+    if (city.region !== undefined && (typeof city.region !== 'string' || [...city.region].length > 6)) throw new RangeError(`system base city ${cityId} requires region up to 6 chars`);
     if (city.battleMapId !== undefined) {
       const siege = /^ki-1995:siege:(\d{1,3})$/.exec(city.battleMapId ?? '');
       if (!siege || Number(siege[1]) > 191) throw new RangeError(`system base city ${cityId} requires a shared siege battleMapId`);
@@ -68,7 +68,7 @@ export function validateSystemBaseMap(template, sha256hex) {
     localModel: { draftRevision: '1' } }, sha256hex, { mapExtent: true });
   Object.values(content.cities).forEach(city => {
     if (typeof city.name !== 'string' || !city.name.trim()) throw new RangeError('template city name required');
-    if (city.region !== undefined && (typeof city.region !== 'string' || [...city.region].length > 5)) throw new RangeError(`template city ${city.cityId} requires region up to 5 chars`);
+    if (city.region !== undefined && (typeof city.region !== 'string' || [...city.region].length > 6)) throw new RangeError(`template city ${city.cityId} requires region up to 6 chars`);
     if (city.troops_cap !== undefined && (!Number.isInteger(city.troops_cap) || city.troops_cap < 0 || city.troops_cap > 255))
       throw new RangeError(`template city ${city.cityId} requires troops_cap 0..255`);
     CITY_BASE_NUMBERS.forEach(field => {
