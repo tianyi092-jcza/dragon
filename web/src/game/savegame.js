@@ -68,14 +68,14 @@ function assertSnapshotSafe(app) {
 
 // Current snapshots require the explicit fixed-slot phase format; do not
 // reconstruct missing old state. Rejection itself does not write any save.
-export function restoreSnapshotState(saved) {
+export function restoreSnapshotState(saved, assembly = readSavedAssembly(saved)) {
   if (saved?.state?.legionPhaseVersion !== LEGION_PHASE_VERSION) {
     throw new Error("此為舊版 AI 存檔，已原樣保留；修正版請從新遊戲開始。");
   }
   let state;
   try {
     state = applyWebMetaToState(structuredClone(saved.state), saved.webMeta);
-    assertNativeLegionSlots(state);
+    assertNativeLegionSlots(state, assembly.metadata?.roadVersion === 'grid' ? assembly.metadata.bounds : null);
     if (hasNativeLegionSlots(state)) rebindNativeLegionViews(state);
     assertNativeFactionSlots(state);
     if (hasNativeFactionSlots(state)) rebindNativeFactionViews(state);
@@ -99,7 +99,6 @@ export function restoreSnapshotState(saved) {
       cause,
     });
   }
-  const assembly = readSavedAssembly(saved);
   if (
     hasNativeLegionSlots(state) &&
     assembly.metadata?.roadVersion !== 2 &&
@@ -209,7 +208,13 @@ function assertNativeFormationSnapshotState(state) {
 /** Shared title/final-load admission. No terrain fetch or live mutation. */
 export function admitSavedScenario(saved, app) {
   if (!saved?.played || !saved.state) throw new TypeError("Unused save slot");
-  const raw = restoreSnapshotState(saved);
+  const assembly = readSavedAssembly(saved);
+  if (assembly.metadata?.roadVersion === 'grid') {
+    for (const key of ['minX','minY','width','height'])
+      if (assembly.metadata.bounds[key] !== app.world?.definition?.[key])
+        throw new TypeError('Grid bounds/world definition mismatch');
+  }
+  const raw = restoreSnapshotState(saved, assembly);
   const idx = saved.scenario_idx;
   if (
     !Array.isArray(raw.cities) ||
@@ -218,7 +223,6 @@ export function admitSavedScenario(saved, app) {
     idx >= app.data.scenarios.length
   )
     throw new TypeError("Invalid saved scenario index/state");
-  const assembly = readSavedAssembly(saved);
   if (assembly.metadata)
     assertAssemblyIdentity(assembly.metadata, idx, app.content, app.world);
   // App restore requires a complete checkpoint, not the synthetic defaults
@@ -234,10 +238,6 @@ export function admitSavedScenario(saved, app) {
     // against the live definition now (fail fast) and again at restore.
     if (assembly.movementMemory == null)
       throw new TypeError("Grid App restore requires saved movement memory");
-    for (const key of ["minX", "minY", "width", "height"]) {
-      if (assembly.metadata.bounds?.[key] !== app.world?.definition?.[key])
-        throw new TypeError("Grid bounds/world definition mismatch");
-    }
     assertNativeCitySnapshotState(raw);
   } else if (
     assembly.metadata?.roadVersion === 2 ||
@@ -392,6 +392,7 @@ export function snapshotState(app, slotIdx, label) {
           );
       }
   }
+  const gridBounds = assembly.scenarioAssembly?.roadVersion === 'grid' ? assembly.scenarioAssembly.bounds : null;
   const nativeSlots = hasNativeLegionSlots(sc);
   if (nativeSlots && !nativeRoads && assembly.scenarioAssembly?.roadVersion !== "grid")
     throw new TypeError("Native legion slots require v2/v3 or grid assembly identity");
@@ -399,7 +400,7 @@ export function snapshotState(app, slotIdx, label) {
     nativeSlots
       ? {
           ...sc,
-          nativeLegionSlots: snapshotNativeLegionSlots(sc),
+          nativeLegionSlots: snapshotNativeLegionSlots(sc, gridBounds),
           legions: [],
           delayedLegionReturns: [],
         }
@@ -454,7 +455,7 @@ export function snapshotState(app, slotIdx, label) {
   assertLegionPhaseState(state);
   // Store the authoritative table once, not copies of active/delayed views.
   if (nativeSlots) {
-    state.nativeLegionSlots = snapshotNativeLegionSlots(state);
+    state.nativeLegionSlots = snapshotNativeLegionSlots(state, gridBounds);
     state.legions = [];
     state.delayedLegionReturns = [];
   }

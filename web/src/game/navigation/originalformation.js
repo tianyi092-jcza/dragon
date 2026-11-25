@@ -166,25 +166,27 @@ export function createOriginalLegion(sc, context, index) {
   // identity stays strict, missing capitals still stop at 6F89.
   const city = sc.cities?.[capital];
   if (!city || city.idx !== capital) formationUncovered("city at 6F89");
-  const x = word(city.x, "city X at 6F89"),
-    y = word(city.y, "city Y at 6F8C");
+  const grid = context.movement?.readTile != null;
+  const x = grid ? city.x : word(city.x, "city X at 6F89");
+  const y = grid ? city.y : word(city.y, "city Y at 6F8C");
   record.roadEdgeOrNode = capital * 8;
   record.targetNode = capital;
   record.x = x;
   record.targetX = x;
   record.y = y;
   record.targetY = y;
-  movementPlaneAddress(0, x);
-  record.occupancyOffset = x;
-  const row = (y & 255) * 24;
-  movementPlaneAddress(row, 0);
-  record.occupancyRowParagraph = row;
-  if (!context.movement) formationUncovered("movement capability at 6FCA");
-  context.movement.writeByte(
-    row,
-    x,
-    (context.movement.readByte(row, x) + 1) & 255,
-  );
+  if (grid) {
+    record.roadPosition = { kind: 'city', cityIndex: capital };
+    context.movement.writeTile(x, y, (context.movement.readTile(x, y) + 1) & 255);
+  } else {
+    movementPlaneAddress(0, x);
+    record.occupancyOffset = x;
+    const row = (y & 255) * 24;
+    movementPlaneAddress(row, 0);
+    record.occupancyRowParagraph = row;
+    if (!context.movement) formationUncovered("movement capability at 6FCA");
+    context.movement.writeByte(row, x, (context.movement.readByte(row, x) + 1) & 255);
+  }
   record.morale = formationByte(faction.legion_morale_cap, "F1D at 6F77");
   record.commandState = 1;
   redistributeOriginalLegion(sc, record);

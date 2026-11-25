@@ -25,7 +25,7 @@ import { portrait } from "../core/assets.js";
 const TABLE_BG = "#f0d090"; // 原版列表米黄底 (240,208,144)
 
 export class StartMenu {
-  constructor(app) {
+  constructor(app, { advisorOnly = false } = {}) {
     this.app = app;
     // 标题阶段的首次操作就是可靠的用户手势；在该手势内解锁并预缓存
     // 接战WAV，避免数分钟后首次委任战斗才启动AudioContext/解码。
@@ -37,6 +37,7 @@ export class StartMenu {
     this._onClick = null;
     this._onMove = null;
     this._onCtx = null;
+    if (advisorOnly) return; // Direct player entry already owns game/chapter/faction selection.
     this.publicCatalog = mountPublicCatalog(document.body);
     this.selectedGame = null;
     // 全域屏蔽瀏覽器右鍵選單
@@ -306,12 +307,25 @@ export class StartMenu {
 
   // ── 軍師確認 (0x8E5A→0x8FC9): 君主/軍師頭像 (64×64) + 首都/武將數/據點數 + 自定/確定 ──
   // 原版外框 240×192 (15×12 tiles, 金框邊厚各 8px, 內部雲紋 224×176)
-  // 返回: undefined=右鍵回退, null=確認原軍師(無軍師則直接確認), {name,hao,portrait}=自定
+  async chooseDirectAdvisor(faction) {
+    this.cv.style.display = 'block';
+    try {
+      await this._loadAssets();
+      return await this._advisorDialog(0, faction);
+    } finally {
+      this._advisorLoadingCleanup?.();
+      this.cv.style.display = 'none';
+    }
+  }
+
+  // undefined=右鍵回退，null=沿用原軍師，物件=自定。
   async _advisorDialog(scenIdx, facIdx) {
     const scen = this.app.data.scenarios[scenIdx];
-    const f = scen.factions[facIdx];
+    const f = scen.factions.find(faction => faction.idx === facIdx);
     const mon = scen.generals[f.monarch_idx];
     const adv = f.advisor_idx == null ? null : scen.generals[f.advisor_idx];
+    // 1AEA→8E7E..8E8C: an unset advisor cannot confirm the original name.
+    if (!adv?.name?.trim()) return this._nameDialog({portrait:145});
     const cap = f.capital == null ? null : scen.cities[f.capital];
     const w = 224,
       h = 176; // 金框外圍 240×192 (15×12 tiles)，居中 (208, 112)
@@ -592,7 +606,7 @@ export class StartMenu {
       ctx.font = '13px "Noto Serif TC","PMingLiU",serif';
       const msg = errorMsg
         ? `！${errorMsg}`
-        : "※ 限1至3個漢字（或6個英數），均為必填";
+        : "※ 軍師名必填，別號可留空；各限3個漢字或6個英數";
       ctx.fillStyle = errorMsg ? "#ff5533" : "#ecd088";
       const tw = ctx.measureText(msg).width;
       ctx.fillText(msg, px + ((w - tw) >> 1), py + 110);
@@ -634,12 +648,6 @@ export class StartMenu {
           errorMsg = "請輸入軍師名";
           draw();
           nameInput.focus();
-          return;
-        }
-        if (!haoVal) {
-          errorMsg = "請輸入別號";
-          draw();
-          haoInput.focus();
           return;
         }
         nameInput.value = nameVal;

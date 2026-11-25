@@ -20,7 +20,7 @@ for(const id of ['terrain','roadGraph','roadCost','roadOffset'])await blob('asse
 await blob('asset:minimapBase',builtin.world.assets.minimap.base);await blob('asset:minimapLarge',builtin.world.assets.minimap.large);
 for(const group of ['seasons','seasonAtlases'])for(const season of ['spring','summer','autumn','winter'])await blob(group+':'+season,builtin.world.assets[group][season]);
 const identity=Object.freeze({gameId:G,releaseId:R,ordinal,revision:'1',sourceDigest:digest,chapterId,manifestDigest:'c'.repeat(64)});
-const pack={assertCurrent:current,identity,chapter:data.scenarios[0],resourceURLs,manifest:{buildFormat:'studio-app-2',compilerRevision:TRIAL_COMPILER_REVISION,identity:{gameId:G,draftRevision:'1',sourceDigest:digest},chapters:[chapterId],world:{id:G+'-world',revision:digest,width:384,height:256,tileSize:16},portraits:[]}};
+const pack={assertCurrent:current,identity,chapter:data.scenarios[0],resourceURLs,manifest:{schemaVersion:1,buildFormat:'studio-app-2',compilerRevision:TRIAL_COMPILER_REVISION,identity:{gameId:G,draftRevision:'1',sourceDigest:digest},chapters:[chapterId],world:{id:G+'-world',revision:digest,width:384,height:256,tileSize:16},portraits:[]}};
 const factionPosition=params.has('alternate-faction')?1:0;
 const environment=createPlayerEnvironment(pack,{playerFaction:pack.chapter.factions[factionPosition].idx});
 const store=createGameSaveStore({gameId:G,databaseName:'owned-formal-app',getIndexedDB:()=>indexedDB});

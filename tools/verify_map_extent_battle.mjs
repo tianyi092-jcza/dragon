@@ -266,16 +266,19 @@ test('E8 extended-band battle: contact, siege, field, aftermath, scheduling', as
       return trace;
     };
 
-    // 1. Non-war transit refusal: ordered into friendly JZ, first edge ends
-    // at hostile S3 while at peace -> the contact throw stands, unmoved.
+    // 1. Non-war transit: enter the road, then 42AB redirects home before siege.
     assert.ok(bar.assignMarchOrder(P, JZ, false));
     isolate(P);
     const stuck = [P.x, P.y];
-    assert.throws(() => performLegionSlotAction(app, P), /Grid march contact unresolved/);
+    assert.equal(performLegionSlotAction(app, P), 'complete');
+    assert.equal(P.roadPosition.kind, 'road');
+    assert.equal(performLegionSlotAction(app, P), 'complete');
+    assert.equal(P.targetCity, A0.idx);
+    assert.equal(P.targetNode, A0.idx);
     assert.deepEqual([P.x, P.y], stuck);
-    assert.equal(P._engagement, undefined);
+    assert.equal(P._engagement, null);
     assert.equal(movement.readTile(stuck[0], stuck[1]), 3);
-    console.log(JSON.stringify({ order: 'nonwar-transit-refused', stuck }));
+    console.log(JSON.stringify({ order: 'nonwar-transit-returned', stuck }));
 
     // 2. Delegated siege gate on the new city.
     declareWar(sc, playerFaction, npcFaction);

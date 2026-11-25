@@ -23,7 +23,7 @@ globalThis.fetch = async (url) => {
     const strings = Array.from({ length: 1023 }, (_, index) => [
       `TALK${index}`,
     ]);
-    return { json: async () => ({ strings }) };
+    return Response.json({ strings });
   }
   const data = await fs.readFile(new URL(`../web/${url}`, import.meta.url));
   return {
@@ -206,6 +206,7 @@ const clock = {
   },
 };
 const app = {
+  world: { definition: { assets: { minimap: { base: 'mini-base.png', large: 'mini-large.png' } } } },
   scenario,
   clock,
   view: { draw() {} },

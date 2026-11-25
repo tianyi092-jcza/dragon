@@ -3,10 +3,10 @@
 
 /**
  * 玩家军师解析：①自定军师 ②确认的原军师 ③势力记录byte[2]
- * ④政治最高的可用武将回退（现Web策略；0x45C1是最高武力编成，非此规则证据）。
+ * 未指定则空缺；不以君主或其他武将代任。
  */
 export function getAdvisor(sc, faction) {
-  const playerAdvisor = sc.player_advisor;
+  const playerAdvisor = faction?.idx === sc.player_faction ? sc.player_advisor : null;
   if (playerAdvisor) {
     if (playerAdvisor.custom)
       return {
@@ -18,21 +18,9 @@ export function getAdvisor(sc, faction) {
     const selected = sc.generals[playerAdvisor.general_idx];
     if (selected) return selected;
   }
-  if (faction.advisor_idx != null) {
+  if (faction?.advisor_idx != null) {
     const assigned = sc.generals[faction.advisor_idx];
     if (assigned?.active) return assigned;
   }
-  let best = null;
-  for (const general of sc.generals) {
-    if (
-      general.faction !== faction.idx ||
-      general.status !== 0 ||
-      !general.active ||
-      general.is_player
-    )
-      continue;
-    if (!best || general.ability.politics > best.ability.politics)
-      best = general;
-  }
-  return best;
+  return null;
 }

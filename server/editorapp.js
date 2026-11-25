@@ -456,6 +456,11 @@ return class EditorMetadata extends PlatformBase {
     if (!/^[A-Za-z0-9_][A-Za-z0-9_/.-]{0,255}$/.test(rel) || rel.includes('..') || rel.includes('\\') || rel.endsWith('/')) { fail(404, 'PLAY_WEB_PATH'); }
     const bundled = trialWebFiles.get(rel);
     if (bundled) { return new Response(bundled.text, { headers: { ...trialHeaders, 'Content-Type': `${trialWebType(rel)}; charset=utf-8`, 'X-Content-SHA256': bundled.sha256 } }); }
+    // These two end screens ship with the player program, not the shared DOS library.
+    if (rel === 'grf/defeat.png' || rel === 'grf/victory.png') {
+      const bytes = readFileSync(new URL(`../web/${rel}`, import.meta.url));
+      return new Response(bytes, { headers: { ...trialHeaders, 'Content-Type': 'image/png', 'X-Content-SHA256': createHash('sha256').update(bytes).digest('hex') } });
+    }
     // The generated document base also prefixes registry-relative seasonal art.
     // Reuse the existing exact eight-role public visual gate, not arbitrary source roles.
     if (rel.startsWith('content/builtin/compiled/')) { return this.#getPlayRegistryFile(url, `/${rel}`); }

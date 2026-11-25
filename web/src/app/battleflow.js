@@ -9,7 +9,7 @@ import {
 } from "../game/ai.js";
 import { createBattle, createFieldBattle } from "../game/tacticalbattle.js";
 import { classifyFieldBattleTerrain } from "../game/fieldterrain.js";
-import { scenarioNativeRoadContext } from "../game/scenarioassembly.js";
+import { scenarioGridRoadContext, scenarioNativeRoadContext } from "../game/scenarioassembly.js";
 import { hasNativeLegionSlots } from "../game/nativelegions.js";
 import { performScenarioGeneralRatingRefresh } from "../game/navigation/scenariogeneralrating.js";
 
@@ -41,7 +41,7 @@ export function createStrategicBattleMethods(services = {}) {
             this.originalRng?.snapshot?.(),
           ),
         (exit) => {
-          api.applyBattleResult(
+          return api.applyBattleResult(
             this,
             A,
             city,
@@ -58,7 +58,7 @@ export function createStrategicBattleMethods(services = {}) {
         },
       );
     },
-    startFieldBattle(A, D) {
+    startFieldBattle(A, D, gridTerrain) {
       this.engagementFx.reset();
       return openStrategicBattle(
         this,
@@ -68,12 +68,12 @@ export function createStrategicBattleMethods(services = {}) {
           // ABI and must not restart classification or a different lifecycle.
           if (
             scenarioNativeRoadContext(this.scenario) ||
-            hasNativeLegionSlots(this.scenario)
+            (hasNativeLegionSlots(this.scenario) && !(scenarioGridRoadContext(this.scenario) && gridTerrain))
           )
             throw new RangeError(
               "Web engineering Uncovered native field terrain pointer/AL ABI at 4B63",
             );
-          const terrain = api.classifyFieldBattleTerrain(
+          const terrain = gridTerrain ?? api.classifyFieldBattleTerrain(
             A,
             D,
             this.scenario.player_faction,
@@ -89,7 +89,7 @@ export function createStrategicBattleMethods(services = {}) {
           );
         },
         (exit) => {
-          api.applyFieldBattleResult(
+          return api.applyFieldBattleResult(
             this,
             A,
             D,
@@ -127,9 +127,9 @@ export async function openStrategicBattle(app, create, applyExit) {
         // 1B7E→533D→55A6, before applyExit's 474A/fate continuation.
         // Native queued battles have their own boundary in applyNativeTacticalExit.
         performScenarioGeneralRatingRefresh(app.scenario);
-        applyExit(exit);
+        const outcome = applyExit(exit);
         app.score?.endBattle?.(battle);
-        finishDeferredLegionDaily(app, continuation.batch, continuation.ticket);
+        if (!(typeof outcome === 'string' && outcome.endsWith('-suspended'))) finishDeferredLegionDaily(app, continuation.batch, continuation.ticket);
         app.hud?.buildLegend?.();
         app.view?.draw?.();
       } catch (error) {

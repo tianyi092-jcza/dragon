@@ -137,6 +137,22 @@ test("M257(e): candidate scan crosses 191 under a live city count", () => {
   assert.equal(result.rows.length, 22);
 });
 
+test("2CDF uses live border bits and neighbour slots, including index 256", () => {
+  const sc = initialize(official());
+  sc.player_faction = 0;
+  const c = sc.cities.find(city => city.faction === 0);
+  const bytes = Buffer.from(c.raw, 'hex');
+  // Static bit 1 leads to an empty city; only live bit 0 reaches owner 21.
+  bytes[0] = 2; bytes[0x1d] = 255;
+  c.raw = bytes.toString('hex');
+  c.attr = 1;
+  c.strategicNeighbours = [256, 999, 255, 255];
+  while (sc.cities.length < 257) sc.cities.push({idx:sc.cities.length,faction:null,raw:'00'.repeat(32)});
+  sc.cities[256].faction = 21;
+  const {rows} = performScenarioMonthlyDiplomacy(sc, new OriginalBattleRng({ch:0,cl:0,dh:0}));
+  assert.ok(rows[0].ordinary.some(({slot}) => slot === 21));
+});
+
 test("official first chapter matches P17 full 2BD9 RNG count and Cao Cao/Lu Bu relation result", () => {
   const sc = initialize(official());
   sc.player_faction = 0;

@@ -53,6 +53,17 @@ test("22DB resets only non-global minX, clears only cities within radius, then r
   assert.equal(rng.calls, 385);
 });
 
+test("22DB clears expanded slots across zero even for a western storm starting at -16", () => {
+  const sc = scenario();
+  sc._disasterBounds = {minX:-16, maxX:-6, minY:-3, maxY:7};
+  for (const x of [9, 10]) sc.cities.push({...city(sc.cities.length), x, y:-3});
+  const rng = sequence(0);
+  performScenarioMonthlyWeatherEvents(sc, rng);
+  assert.deepEqual(sc.cities.slice(192).map(c => c.disaster_event), [0,77]);
+  assert.deepEqual(sc._disasterBounds, sc.weatherCloudBounds);
+  assert.equal(rng.calls, 1 + 2 * sc.cities.length);
+});
+
 test("22DB storm uses x-low extra gate, current-page collision scan and delayed bound writes", () => {
   const sc = scenario();
   sc.cities[5].x = 200;
@@ -168,6 +179,7 @@ test("237E commits intensity before the still-uncovered TALK70 return", () => {
     () =>
       originalDisasterArea237E(
         {
+          readCityCount: () => cities.length,
           readBoundWord: (field) =>
             ({ minX: 0, maxX: 20, minY: 0, maxY: 20 })[field],
           readCityWord: (idx, field) => cities[idx]?.[field] ?? 1000,

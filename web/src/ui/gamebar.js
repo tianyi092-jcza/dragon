@@ -160,6 +160,7 @@ export class GameBar {
   constructor(app, resourcePorts = null) {
     this.app = app;
     this.bx = 0; // 工具栏左缘 (窗口宽变化时重算)
+    this.panelPositions = {};
     this.miniOpen = false;
     this.resOpen = false;
     this.selFaction = null; // 小地图当前选择查看的势力
@@ -392,6 +393,7 @@ export class GameBar {
       y: opt.y ?? "center",
       scroll: 0,
       hover: -1,
+      hoverCol: -1,
       headerHover: -1,
       selectedRow: -1,
       sortColumn: -1,
@@ -514,6 +516,11 @@ export class GameBar {
       );
     }
     return false;
+  }
+
+  _hitListCell(d, row, px) {
+    const x = px - d.px;
+    return d.cols.findIndex((col, c) => x >= col.x && x < col.x + col.w && d.rows[row]?.cells[c]);
   }
 
   _hitListDialogClose(_px, _py) {
@@ -663,7 +670,8 @@ export class GameBar {
         ctx.fillRect(hx, ry, hw, rowH);
       } else if (isHover) {
         ctx.fillStyle = "rgba(0,0,0,0.12)";
-        ctx.fillRect(hx, ry, hw, rowH);
+        const col = d.onPickCell && cols[d.hoverCol];
+        ctx.fillRect(col ? px + col.x : hx, ry, col ? col.w : hw, rowH);
       }
       row.cells.forEach((cell, c) => {
         const col = cols[c];
@@ -1354,11 +1362,10 @@ export class GameBar {
   }
 
   legionAcceptsMarchOrder(legion, notify = false) {
-    const blocked = Boolean(legion?._retreat || legion?._engagement);
+    const blocked = Boolean(legion?._engagement);
     if (blocked && notify) {
-      const state = legion._retreat ? "撤退中" : "交戰中";
       this.app.hud?.flashEvent?.(
-        `「${legion.leader ?? "該軍團"}」正在${state}，不能變更行軍命令。`,
+        `「${legion.leader ?? "該軍團"}」正在交戰中，不能變更行軍命令。`,
       );
       warnSfx();
     }
@@ -1367,6 +1374,8 @@ export class GameBar {
 
   assignMarchOrder(legion, targetCity, delegated) {
     if (!this.legionAcceptsMarchOrder(legion, true)) return false;
+    // Only confirming the replacement order supersedes the retreat target.
+    legion._retreat = null;
     legion.target = targetCity;
     legion.targetCity = targetCity.idx;
     legion.targetNode = scenarioRoadNode(this.app.scenario, targetCity.x, targetCity.y)?.id ?? null;
@@ -1910,7 +1919,7 @@ export class GameBar {
   }
 
   /** 军师子菜单「進言」二级下拉菜单 (敵對提案 / 停戰提案 / 請求協助 / 遷都 / 請求君主出陣) */
-  showAdviceMenu() {
+  async showAdviceMenu() {
     this.closeCityCard();
     this.closeListDialog();
     this.closeGeneralCard();
@@ -1920,6 +1929,22 @@ export class GameBar {
     this.closeProposalAudience();
     this.selectedSubmenu = 0;
     this.syncClock();
+
+    // 622B→87FF selects the player's monarch; 622E tests G17 before
+    // 624A opens any of the five proposals. No legion location test.
+    const sc = this.app.scenario;
+    const monarch = sc.monarchOf(cmd.playerFaction(sc));
+    if (monarch.status !== 0) {
+      this.closeAdviceMenu();
+      const generation = this._scenarioUiGeneration;
+      const lines = await formatTalkTokens(64);
+      if (this.selectedSubmenu !== 0) return;
+      return this.showNpcMessageDialog({ lines, generation, onClose: () => {
+        this.selectedSubmenu = null;
+        this.syncClock();
+        this.app.view.draw();
+      } });
+    }
 
     const btnX = this.bx + 8;
     const wTiles = 8;
@@ -2053,7 +2078,7 @@ export class GameBar {
       : null;
 
     const targetName = (targetFaction.monarch ?? "").trim();
-    const advName = (advGen?.name ?? "軍師").trim();
+    const advName = advGen?.name.trim() ?? "";
     const monarchTalkIdx = (monarch?.talk_idx ?? monarch?.idx ?? 0) % 3;
 
     // 初始君主提问对白 (Talk 86..88)
@@ -2175,7 +2200,7 @@ export class GameBar {
       : null;
 
     const targetName = (targetFaction.monarch ?? "").trim();
-    const advName = (advGen?.name ?? "軍師").trim();
+    const advName = advGen?.name.trim() ?? "";
     const monarchTalkIdx = (monarch?.talk_idx ?? monarch?.idx ?? 0) % 3;
 
     // 初始君主提问对白 (Talk 150..152: "\4，有什麼事嗎？")
@@ -2303,7 +2328,7 @@ export class GameBar {
 
     const allyName = (allyFaction.monarch ?? "").trim();
     const targetName = (targetFaction.monarch ?? "").trim();
-    const advName = (advGen?.name ?? "軍師").trim();
+    const advName = advGen?.name.trim() ?? "";
     const monarchTalkIdx = (monarch?.talk_idx ?? monarch?.idx ?? 0) % 3;
 
     // 初始君主提问对白 (Talk 214..216: "\4啊，突然來找我是為了什麼事啊？")
@@ -2419,7 +2444,7 @@ export class GameBar {
       : null;
 
     const cityName = (targetCity.name ?? "").trim();
-    const advName = (advGen?.name ?? "軍師").trim();
+    const advName = advGen?.name.trim() ?? "";
     const monarchTalkIdx = (monarch?.talk_idx ?? monarch?.idx ?? 0) % 3;
 
     // 初始君主提问对白 (Talk 386..388: "對此地是否有何不滿呢？")
@@ -2492,31 +2517,6 @@ export class GameBar {
     const monarch = sc.monarchOf(me);
     if (!monarch) return;
 
-    // 检查君主是否已经在军团出征中 (KI.EXE 0x69A0: Talk 64)
-    const isDeploying =
-      monarch.status === 1 ||
-      sc.legions?.some(
-        (L) =>
-          !L.dead &&
-          L.faction === me.idx &&
-          (L.leader === monarch.name ||
-            L.leader === monarch.idx ||
-            L.is_monarch),
-      );
-    if (isDeploying) {
-      const lines = await formatTalkTokens(64);
-      await this.showNpcMessageDialog({
-        lines,
-        autoClose: 3000,
-        onClose: () => {
-          this.selectedSubmenu = null;
-          this.syncClock();
-          this.app.view.draw();
-        },
-      });
-      return;
-    }
-
     const advGen = adv.getAdvisor(sc, me);
     const monarchImg = monarch
       ? await portrait(monarch, this.app.world).catch(() => null)
@@ -2526,7 +2526,7 @@ export class GameBar {
       ? await portrait(advGen, this.app.world).catch(() => null)
       : null;
 
-    const advName = (advGen?.name ?? "軍師").trim();
+    const advName = advGen?.name.trim() ?? "";
     const monarchTalkIdx = (monarch?.talk_idx ?? monarch?.idx ?? 0) % 3;
 
     // 初始君主提问对白 (Talk 396..398: "軍師，戰況有所不利嗎？")
@@ -3879,6 +3879,7 @@ export class GameBar {
 
   /** 返回标题时丢弃旧剧本的异步对白/计时器，不执行其 onClose 状态回调。 */
   resetScenarioUi() {
+    this.panelPositions = {};
     this._proposalRequest = null;
     this.app.score?.discardAudience();
     this._scenarioUiGeneration++;
@@ -4583,11 +4584,11 @@ export class GameBar {
       gen = sc.generals?.[city.governor];
     }
     const monarch = me ? sc.monarchOf(me) : null;
-    const advisor = sc.generals?.[me?.advisor_idx] ?? monarch;
-    if (!gen || !monarch || !advisor) return false;
+    const advisor = adv.getAdvisor(sc, me);
+    if (!gen || !monarch) return false;
     const [governorImg, advisorImg, monarchImg] = await Promise.all([
       portrait(gen, this.app.world).catch(() => null),
-      portrait(advisor, this.app.world).catch(() => null),
+      advisor && portrait(advisor, this.app.world).catch(() => null),
       portrait(monarch, this.app.world).catch(() => null),
     ]);
     const rawRequested = Math.max(0, message.requested | 0);
@@ -4661,12 +4662,12 @@ export class GameBar {
       : (envoy?.gen_idx != null && sc.generals?.[envoy.gen_idx]) ||
         sc.generals?.find((g) => g?.name?.trim?.() === envoy?.name?.trim?.());
     const monarch = me ? sc.monarchOf(me) : null;
-    const advisor = sc.generals?.[me?.advisor_idx] ?? monarch;
-    if (!target || !gen || !monarch || !advisor) return false;
+    const advisor = adv.getAdvisor(sc, me);
+    if (!target || !gen || !monarch) return false;
     if (!message.nativeBudget && !envoy) return false;
     const [envoyImg, advisorImg, monarchImg] = await Promise.all([
       portrait(gen, this.app.world).catch(() => null),
-      portrait(advisor, this.app.world).catch(() => null),
+      advisor && portrait(advisor, this.app.world).catch(() => null),
       portrait(monarch, this.app.world).catch(() => null),
     ]);
     const targetName = (target.monarch ?? "該勢力").trim();
@@ -5365,7 +5366,7 @@ export class GameBar {
     // 1. 检查主将 (units[0]) 或 前锋 (units[1]) 兵力是否 <= 0
     if (units[0].troops <= 0 || units[1].troops <= 0) {
       warnSfx();
-      const advGen = adv.getAdvisor(sc, fac) || sc.monarchOf(fac);
+      const advGen = adv.getAdvisor(sc, fac);
       const pImg = advGen
         ? await portrait(advGen, this.app.world).catch(() => null)
         : null;
@@ -5710,9 +5711,7 @@ export class GameBar {
     const sc = this.app.scenario;
     if (sc) {
       const fac = cmd.playerFaction(sc);
-      const advGen =
-        (fac ? adv.getAdvisor(sc, fac) : null) ||
-        (fac ? sc.monarchOf(fac) : null);
+      const advGen = adv.getAdvisor(sc, fac);
       if (advGen && advGen.portrait != null) {
         portrait(advGen, this.app.world)
           .then((img) => {
@@ -6441,11 +6440,32 @@ export class GameBar {
       ? { width: def.width, height: def.height, tileSize: def.tileSize ?? 16, minX: def.minX ?? 0, minY: def.minY ?? 0 }
       : MINIMAP_WORLD;
     this.panels = mapPanelLayout({ width: W, height: innerHeight,
-      miniOpen: this.miniOpen, resOpen: this.resOpen, world: liveWorld });
+      miniOpen: this.miniOpen, resOpen: this.resOpen, world: liveWorld, positions: this.panelPositions });
 
     if (this.financeDialog) {
       this._recalcFinanceDialog();
     }
+  }
+
+  movablePanelAt(px, py) {
+    // System dialogs, advisor workflows and tactical input retain ownership.
+    if (!this._canShowStrategicMessage() || this.app.endView?.active || this.app.victoryModal?.active ||
+        this.selectedSubmenu != null || this.viewingLegion || this.marchingOrder || this.orderChoiceMenu ||
+        this.legionMenu || this.baseMenu || this.adviceMenu || this.personnelMenu || this.formationQuote ||
+        (this.cityCard && this._hitCityCard(px, py)) || this._hitAdvisorBar(px, py) ||
+        (py < 32 && px >= this.bx && px < this.bx + 640)) return null;
+    return this.panels.findLast(p => insidePanel(p, px, py));
+  }
+
+  beginPanelDrag(px, py) {
+    this.layout();
+    const panel = this.movablePanelAt(px, py);
+    if (!panel) return;
+    const positions = this.panelPositions;
+    return (dx, dy) => {
+      if (positions === this.panelPositions && this._canShowStrategicMessage())
+        positions[panel.kind] = {x: panel.frame.x + dx, y: panel.frame.y + dy};
+    };
   }
 
   panelRect(kind) {
@@ -6732,6 +6752,13 @@ export class GameBar {
         return true;
       }
 
+      const panel = this.movablePanelAt(px, py);
+      if (panel) {
+        if (panel.kind === 'mini') { this.miniOpen = false; this.selFaction = null; }
+        else this.resOpen = false;
+        this.app.view.draw();
+        return true;
+      }
       const parentCity = this.cityCard?.garrisonChoice?.city;
       if (parentCity) {
         clickSfx();
@@ -7226,13 +7253,12 @@ export class GameBar {
         const ry = py - d.py - d.top;
         if (ry >= 0 && ry < d.cap * pitch && ry % pitch < d.rowH) {
           const ri = Math.floor(ry / pitch) + d.scroll;
-          const rx = px - d.px;
-          const ci = d.cols.findIndex(
-            (col) => rx >= col.x && rx < col.x + col.w,
-          );
           if (ri >= 0 && ri < d.rows.length && d.onPickCell) {
-            clickSfx();
-            d.onPickCell(ri, ci);
+            const ci = this._hitListCell(d, ri, px);
+            if (ci !== -1) {
+              clickSfx();
+              d.onPickCell(ri, ci);
+            }
             return true;
           }
           if (ri >= 0 && ri < d.rows.length && d.onPick) {
@@ -7314,15 +7340,14 @@ export class GameBar {
       }
       return true;
     }
-    // 小地图: 点击在窗口内即消费
-    const mini = this.panelRect("mini");
-    if (mini && this._miniHit(px, py)) return true;
-    // 资源面板: 仅点击在面板内时消费
+    // 资源面板后画，重叠区域也先消费点击。
     const res = this.panelRect("res");
     if (
       res && insidePanel(res, px, py)
     )
       return true;
+
+    if (this._miniHit(px, py)) return true;
 
     // 系统选单「存檔讀取」防丢失确认弹窗
     if (this.systemLoadConfirmDialog) {
@@ -7581,16 +7606,25 @@ export class GameBar {
         hov = Math.floor(ry / (d.rowH + LIST_ROW_GAP)) + d.scroll;
         if (hov < 0 || hov >= d.rows.length) hov = -1;
       }
+      const col = d.onPickCell && hov >= 0 ? this._hitListCell(d, hov, px) : -1;
+      if (d.onPickCell && col < 0) hov = -1;
+      changed = old !== hov || d.hoverCol !== col || oldHeader !== headerHover;
       d.hover = hov;
+      d.hoverCol = col;
       d.headerHover = headerHover;
-      changed = old !== hov || oldHeader !== headerHover;
       if (this.hoverAct) {
         this.hoverAct = null;
         changed = true;
       }
-    } else if (this.hoverAct) {
-      this.hoverAct = null;
-      changed = true;
+    } else {
+      if (this.listDialog?.onPickCell && this.listDialog.hover !== -1) {
+        this.listDialog.hover = this.listDialog.hoverCol = -1;
+        changed = true;
+      }
+      if (this.hoverAct) {
+        this.hoverAct = null;
+        changed = true;
+      }
     }
     return changed;
   }
@@ -8398,6 +8432,8 @@ export class GameBar {
     this._barImageResources?.assertCurrent();
     if (!this.imgs) return;
     this.layout();
+    if (this.miniOpen) this.drawMini(ctx);
+    if (this.resOpen) this.drawRes(ctx);
     const { bar, i1, i2, i3, i4 } = this.imgs;
     // 工具栏原大顶部居中
     ctx.drawImage(bar, this.bx, 0);
@@ -8469,8 +8505,6 @@ export class GameBar {
       this._drawSystemLoadConfirmDialog(ctx);
     }
     this._drainStrategicMessages();
-    if (this.miniOpen) this.drawMini(ctx);
-    if (this.resOpen) this.drawRes(ctx);
     if (this.listDialog) {
       this._recalcListDialog();
       this._drawListDialog(ctx);
@@ -8752,7 +8786,7 @@ export class GameBar {
     this.layout();
     const mini = this.panelRect("mini");
     if (!mini) return;
-    const w = 120;
+    const w = 126; // 右列结束于 108，另留 18px 给滚动条。
     const h = titleH + Math.min(rows.length, maxVisRows) * (rowH + LIST_ROW_GAP);
     this.openListDialog({
       title: "勢力一覽",
@@ -8821,7 +8855,7 @@ export class GameBar {
     const rows = [
       ["君主", me.monarch],
       ["首都", cap?.name?.trim() ?? "－"],
-      ["軍師", advGen ? advGen.name.trim() : "－－－"],
+      ["軍師", advGen?.name.trim() ?? ""],
     ];
     rows.forEach(([k, v], i) => {
       const y = p.y + 16 + i * 16;

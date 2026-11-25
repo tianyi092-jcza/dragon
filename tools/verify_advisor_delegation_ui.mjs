@@ -257,7 +257,7 @@ assert.equal(legion.status & 0x02, 0x02);
 assert.equal(legion.status & 0x04, 0x04);
 assert.equal(legion._aiOrdered, undefined);
 
-// 强制撤退/接敌等待是权威规则态：列表入口与direct assign都必须拒绝并提示。
+// Retreat is a replaceable destination; current contact still blocks orders.
 const retreating = {
   leader: "退軍",
   status: 0x80,
@@ -265,11 +265,12 @@ const retreating = {
   targetNode: 123,
   _retreat: { cityIdx: 1 },
 };
-const oldRetreatTarget = retreating.target;
-assert.equal(bar.assignMarchOrder(retreating, city, false), false);
-assert.equal(retreating.target, oldRetreatTarget);
-assert.equal(retreating.targetNode, 123);
-assert.match(notices.at(-1), /撤退中/);
+assert.equal(bar.legionAcceptsMarchOrder(retreating), true);
+assert.deepEqual(retreating._retreat, { cityIdx: 1 });
+assert.equal(bar.assignMarchOrder(retreating, city, false), true);
+assert.equal(retreating.target, city);
+assert.equal(retreating.targetNode, roadNodeAt(city.x, city.y).id);
+assert.equal(retreating._retreat, null);
 const engaged = {
   leader: "戰軍",
   status: 0xa0,
@@ -289,12 +290,12 @@ const rowSource = {
   prod: 1,
 };
 app.scenario.cities = [rowSource];
-app.scenario.legions = [{ ...retreating, faction: 0, x: 0, y: 0, units: [] }];
+app.scenario.legions = [{ ...engaged, faction: 0, x: 0, y: 0, units: [] }];
 bar.showLegionCard(rowSource);
 bar.listDialog.onPick(0);
 assert.equal(bar.marchingOrder, null);
 assert.ok(bar.listDialog);
-assert.match(notices.at(-1), /撤退中/);
+assert.match(notices.at(-1), /交戰中/);
 bar.closeListDialog(true);
 
 // 据点/军团二选一弹窗与行军目标的战斗指挥/委任弹窗统一为24px行高。

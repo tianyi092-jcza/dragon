@@ -68,10 +68,10 @@ const nativeCapitalIo = (sc) => {
       legion.targetCity = value;
       legion.target = sc.cities?.[value] ?? null;
     },
-    readLegionRoadAddress: (slot) =>
-      own(legionAt(slot, "4531"), "roadEdgeOrNode", "4531"),
-    writeLegionRoadAddress: (slot, value) => {
-      legionAt(slot, "4536").roadEdgeOrNode = value;
+    readLegionTargetNode: (slot) =>
+      own(legionAt(slot, "4531"), "targetNode", "4531"),
+    writeLegionTargetNode: (slot, value) => {
+      legionAt(slot, "4536").targetNode = value;
     },
     writeLegionStatus: (slot, value) => {
       legionAt(slot, "4539").status = value;

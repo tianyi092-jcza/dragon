@@ -563,6 +563,8 @@ STOP before4D2D CALL8A1E                //当批停点；现由§12推进地图/
 
 旧18（Scenario显式null或24）不读C19、旧F23、旧首都，也不调BP。旧属=新属没有额外早退，DEC/INC抵消；F23即使0也不推断灭亡。4CF5以当时own城市owner为权威，不用战果DTO中的旧owner。C1A沿现有`_strategicLastFaction`，不是新sidecar。官员G17清除前不读旧G17；指针域外在C19已清后停。缺字段只在实际读点停，明确已写owner/governor/F23不回滚。该前缀自身0 RNG；只有原4DA4→291A可消费既有canonical流。
 
+**GRID-CAPITAL-TALK30（发布格图，取代下文 4E3A 历史停点；无消息调用方仍停）**：KI.EXE 去 512B 头复核：4E1B 换 F03 → 4E26 CALL 4502 → 4E2B 比 CFD。玩家分支 4E32 取新 F03、AH=FF 压栈，4E3A CE7、4E42 CALL 8810（CX=1E，TALK30 的 `\\2` 是新城），没有选址输入；消息返回才 4E48 CALL 5E60、4E4B CLC。5E60 的 mask02 展示门见[外交笔记 §38](re-notes-ai-diplomacy.md)，不再改首都或掷 RNG。Web 每次只提交一次：关消息后刷新面板，回 4D11 守军和占城尾；若又有去向消息则由内层负责最后返回。找不到新都仍走 4E50/STC，不提示迁都。
+
 **4DF0**：4DFE仅比较失城索引与F03；不同则4E4B CLC，即使已DEC的F23为0也不检查存城。相同才以旧势力AL调6A3D。无候选4E50先F03=FF，4E54再F00&=7F，4E57 STC。候选成功4E1B交换F03（AL=new、AH=old），4E26→4502，之后4E2B将旧势力指针与**独立CFD word**比较；相等在4E3A→CE7/TALK30/5E60前停，非玩家返回4E4B CLC。CFF不能替代CFD，合法不对齐word作比较不拒绝，但没有初始化假设。
 
 **6A3D**：固定192城市、BL=FF、DX=0、BH=0、DI=FFFF。仅同属者读C16低4bit，`BL < type`跳过；再按unsigned word比较`DX > prod`跳过。两门通过且BH=0，先更新type/prod/DI；随后读取C00&1F，非零不作preferred写；为0则BH=1并再次更新type/prod/DI。BH置1后非preferred不能替换；preferred仍必须同时满足前面两个门，相等后者替换。最后DI=FFFF才STC，返回AX=原城市地址；不是最低idx/按type优先的排序，也不读n_cities。
@@ -1094,3 +1096,19 @@ P55现刷（与P54窗一致，逐字节重核）：`5074..50B3`——F2A==FF则5
 - Web 决定（D2=a）：满轮时把记录挂到扫描终点的绝对位置 `epoch*64+offset/4`，`inserted:false` 保留、`cf:false` 保留、新增 `accepted:true`；派发仍按分频与游标顺序，不改变 301C／5940 的调用时序。位置换算与 carry 语义见 [外交 re-notes §40](re-notes-ai-diplomacy.md#40-d2-event-64web-绝对位置调度表web产品决定非原版机制)。
 - 进言提交 type6/7：`enqueueDelayedStrategicEvent` 在 native 世界改走真实 301C（`BL=0x14`，0 RNG），不再抛 `legacy event wheel`（S1）。
 - 回归：`verify_d2_event_refusal.mjs`、`verify_d2_event_v_matrix.mjs`（V02/V03/V18）、`verify_strategic_negotiation_events.mjs`。
+
+**GRID-CAPTURE-4CF5（Web 扩容适配）**：复核 `KI.EXE` 文件偏移 `4EF3`（代码 `4CF3`）开头 `8A F8 86 7C 01 88 7C 1A`：SI 已指向城记录，先交换 owner，再写旧 owner；不是在这里比较城市编号与 191。Web 入口须验证本场景槽号及对象身份，官员消息继续持有同一槽号；失都时 4531 比较目标节点，也须允许本场景新增城。原版未增加城市。1.7 实包受控输入：192 漁陽位于 y=-6，设为玩家有官员的首都；敌军胜后 TALK68 → TALK30 → 攻方城数增一，未绕过后续处理。
+
+## 21. Grid 攻城败军：有路撤退与 29AE 消息分开
+
+原证复核（KI.EXE，VA+200h）：4751/4757 士气或首队为零直接到 47B5 STC。否则败方若不在己方节点，4777 调 487B；CF=0 才写目标、OR 2，按 478F..47AB 写 10 或 8，不改当前边或坐标。不能以整条原路或首都作无条件目的地。2977 路径则于 2990/2993 写 08/30h，2997 扣军团数；玩家为接收方（非原属）时 29AD 加一选 TALK32，29B8 调 8810，返回直接退栈，无额外 RNG 或恢复原军团。
+
+Web 修复范围：发布 grid 以 `roadPosition` 接已有 `findStructuredRetreatCity`（`verify_structured_road_retreat.mjs` 对照 487B），保留路点，实际到达退点才解绑退却标记。攻方确实不能继续时，在攻城结算尾复用原去向消息，委任过场或战术退出不能抢先提交余槽，最后对白返回才续批。`tools/verify_grid_war_ai_release.mjs` 用 195 城实包，区分自然退回椎阳、受控有兵有士气反向一步、士气零触发 TALK32；不能据截图倒推当次六队和士气。
+
+**GRID-MARCH-FATE / GRID-SIEGE-26**：复核 KI `47EA/483A→491B` 返回，`47F2/4842` 比 CX 与 8000h，`47F8/4848` 比 L23 与 0Ah；两门均达时 `47FE/484E` 取本军 L01 作 AL，`4801/4851→291A`，`4875..487A` 带 CF 返回，不提交道路点。格图槽接相同去向；去向负责释放占格，外侧不能再释放。不把不可达或终点快捷改成291A。另一路为敌攻仅有城兵的玩家据点，`4EF7..4F09` 在 5130 返回 AL=0 后调 4F71，传城和攻方 L02，CE7→8810(TALK26) 返回后才走易主尾段（[参数证据](re-notes-strategic-message-abi.md) §16.1）。格图从速算结果入口带此条件，接既有警告续段；有实际守军、守胜不追加该消息。
+
+**GRID-FIELD-FATE（委任野战，不是攻城）**：KI 4AB6..4AD1 核 AH=1/3→攻方、2→交换 SI/DI 后守方 291A，只派一次。29C3 捕获后，2A24 先比旧属，2A29 再比接收方；玩家接收时 2A30 INC DX，2A3B 调 8810 显示 TALK34，2A48 取 G1E、2A4E 装 CX=19Ah，2A51 再调 8810。grid 野战末尾与攻城败攻方共用去向消息返回；两段之间不能结算当前槽尾，也不重新掷俘获 RNG。发布夹具用曹方委任军团与高顺军团受控接触验证双消息、身份写回及 ticket 关闭顺序。
+
+**GRID-LAST-CITY／末城守军与灭亡武将消息接续**：实锤：KI.EXE 去 512B 头，4D10 PUSHF 保存 4DF0 的迁都结果；4D18→4DA4 无退路时 4DE2 从战前 BP 取一军，4DE5 CALL 291A，返回才移动 BP 并 LOOP。4D1B POPF 后有 carry 才 4D1E→4FCE。500A..503B 固定扫槽 0..126，501A→50D7、5029→50B4、5030→29C3 是不同去向，不一律抓获。29C3 接收方玩家的 2A3B/2A51 为 TALK34＋19A；50D7 归还玩家 5104/510C/5119 为提示音、TALK37＋199。503B 扫完才 504A TALK36，消息返回后才有 504D 后续及 4D2A 占城计数。本轮 Web 格图接入：每段消息关闭才继续下一 BP 成员或下一武将，维持原 RNG、单个批次；没有消息 UI 的底层调用仍停在原证边界。不是在结算完后一次造一串提示。
+
+**GRID-FIELD-COMMAND（亲自指挥）**：复核 KI.EXE 去 512B 头后 4A8E call 4B63 → 4A91/96 写 D35/D34 → 4A9E call 4C72 → 4AA3 换 DI。格图接触保留首次对手，用本世界规则地形依 4B92..4BB4 读西、东、北、南、中，方向依玩家方 +08；复用 §13 分类表，4C1F 只取一次 RNG。TALK29 关闭只交付已选目录/镜像，不重新分类。格图无 DOS 段指针，4C41 只投影原域可表达的同平面别名，未知不猜；原生入口仍拒绝缺指针 ABI 的晚调用。

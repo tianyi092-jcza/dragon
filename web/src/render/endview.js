@@ -297,7 +297,7 @@ export class EndView {
 		if (!this.active || this._mode === "legacy") return;
 		this._hideEndview();
 		try {
-			const ret = this.app.returnToTitle?.();
+			const ret = this.app.returnToTitle?.(undefined, { endScreen: true });
 			if (ret && typeof ret.catch === "function")
 				ret.catch(() => location.reload());
 		} catch {

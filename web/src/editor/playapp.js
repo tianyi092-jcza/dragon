@@ -14,6 +14,7 @@ listStyle.textContent =
 document.head.append(listStyle);
 document.body.append(panel);
 function fail(message) {
+	status.hidden = false;
 	status.textContent = message;
 	throw new Error(message);
 }
@@ -155,10 +156,20 @@ try {
 					id.draftRevision !== entry.revision || id.sourceDigest !== entry.sourceDigest) fail("存檔章節發布身份不符");
 				return createTrialEnvironment(target, { fullApp: true, playerFaction, persistent: true });
 			};
-			await startApp(null, { trial });
+			const { StartMenu } = await import('../ui/startmenu.js');
+			panel.hidden = status.hidden = true;
+			const menu = new StartMenu({data:trial.content.data, world:trial.world}, {advisorOnly:true});
+			const advisor = await menu.chooseDirectAdvisor(trial.player);
+			if (advisor === undefined) {
+				panel.hidden = status.hidden = button.disabled = false;
+				return;
+			}
+			await startApp(null, { trial, advisor });
 			panel.remove();
-			status.textContent = entry.revision ? `進行中 ${entry.name}（${entry.revision}版） — 進度保存於本機（與內置/他遊戲隔離）` : `進行中 ${entry.name} — 進度保存於本機（與內置/他遊戲隔離）`;
+			status.textContent = "";
+			status.hidden = true;
 		} catch (error) {
+			panel.hidden = status.hidden = false;
 			status.textContent = `無法開始遊戲：${error.message}`;
 			button.disabled = false;
 		}

@@ -351,7 +351,8 @@ const app = {
     this.gamebar?.syncClock?.();
     rafId = requestAnimationFrame(() =>
       complete(() => {
-        onFinish();
+        // A post-battle TALK owns the remaining slot until its final close.
+        if (onFinish() === true) return;
         finishDeferredLegionDaily(
           this,
           continuation.batch,
@@ -363,7 +364,14 @@ const app = {
   },
 
   /** 游戏结束：清理运行态并返回首页开局选单 (YES/NO) */
-  async returnToTitle(initialAction) {
+  async returnToTitle(initialAction, { endScreen = false } = {}) {
+    // /play owns a separate selector. Its panel was removed at startup;
+    // opening the in-game load dialog cannot recreate it.
+    if (endScreen && location.pathname === '/play') {
+      this.exitConfirmed = true;
+      location.replace('/play');
+      return;
+    }
     const formal = this._formalEntry;
     if (formal?.exit) return formal.exit;
     this._gameEntryRequest = null;
@@ -380,7 +388,7 @@ const app = {
       this._nativeTacticalQueue = [];
       this.battleView?.discardTrial();
     }
-    if (!this.startMenu) {
+    if (!this.startMenu && !formal) {
       // Trial/持久试玩无标题菜单：先确认本局有档，无档则不动（留在当前局内提示），
       // 避免拆完旧局后无处可退黑屏。存档按游戏隔离，读到的只装本局。
       let played = false;
@@ -707,10 +715,8 @@ const app = {
           hour: c.hour,
           runFactionTick: false,
         });
-        // Native cursors commit at 3F6F / 25FF, never on a failed return.
-        // P65 G4 (entire-v2-replacement gate): the v1 cursor arm is deleted.
-        // Admission (G5) guarantees a native road context for every App
-        // scenario, so no non-native live pump remains to advance here.
+        // Both native and grid city/legion pumps own the 3F6F / 25FF
+        // cursor commits, including asynchronous TALK returns.
       },
       onStrategicUpdateComplete: (c) => this.prepareMapObjects(c),
       onSyncHold: () => this.gamebar?.syncClock?.(),
@@ -932,6 +938,7 @@ app.view.getTerrain = () => {
   }
 };
 attachInput(app.view, {
+  beginPanelDrag: (x, y) => app.gameStarted && app.gamebar?.beginPanelDrag(x, y),
   uiHit: (x, y) => app.gamebar?.hitTest(x, y) ?? false,
   onHover: (target, e) => {
     if (!app.gameStarted || !app.hud) return;
@@ -1184,7 +1191,7 @@ function applyFormalCatalog(app, formalEntry) {
 }
 
 // 标题阶段只读取章节目录和本机存档；地图/道路/战斗数据在确认进入游戏后加载。
-export async function startApp(opening, { trial = null, formal = null, formalBinder = null } = {}) {
+export async function startApp(opening, { trial = null, formal = null, formalBinder = null, advisor = null } = {}) {
   let formalEntry = null;
   if (formal !== null) {
     const environment = formal.environment, repository = formal.saveRepository, catalog = formal.catalog ?? null;
@@ -1292,9 +1299,12 @@ export async function startApp(opening, { trial = null, formal = null, formalBin
   // boot.js 取得单实例锁后挂载独立开场；这里不装配默认地图。
   globalThis.__dragonApp = app;
   if (formalEntry && formalEntry.catalog === null) {
-    if (formalEntry.savedSlot === null) await app.beginNewGame(0, formalEntry.player, null);
-    else await app.beginSavedGame(formalEntry.savedSlot);
-  } else if (trial) await app.beginNewGame(0, trial.player, null);
+    if (formalEntry.savedSlot === null) {
+      const choice = await new StartMenu(app, {advisorOnly:true}).chooseDirectAdvisor(formalEntry.player);
+      if (choice === undefined) return app.returnToTitle();
+      await app.beginNewGame(0, formalEntry.player, choice);
+    } else await app.beginSavedGame(formalEntry.savedSlot);
+  } else if (trial) await app.beginNewGame(0, trial.player, advisor);
   else {
     await Promise.all([opening?.menuReady, app.startMenu._loadAssets()]);
     // runStartFlow 只認 0＝新遊戲；傳字串會落到 chooseSave（彈「讀取存檔」）。

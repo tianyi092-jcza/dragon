@@ -32,7 +32,22 @@ try {
  const page=await context.newPage();page.setDefaultTimeout(90000);
  page.on('pageerror',e=>errors.push(String(e)));page.on('console',m=>{if(m.type()==='error'&&!m.location().url?.endsWith('/favicon.ico'))errors.push(m.text());});
  page.on('requestfailed',r=>failed.push({path:urlOf(r.url()).pathname,error:r.failure()?.errorText}));
- async function ready(path){const target=new URL(path,origin);if(alternateFaction&&target.searchParams.has('large'))target.searchParams.set('alternate-faction','1');await page.goto(target.href);await page.waitForFunction(()=>window.__ownedFormal?.ready||window.__ownedFormal?.bootError);assert.equal(await page.evaluate(()=>window.__ownedFormal.bootError??null),null);}
+ async function confirmAdvisor(){
+  // Canvas confirmation or the mandatory naming panel (alternate-faction fixture).
+  await page.waitForFunction(()=>document.querySelector('#advisor-input-overlay input') || (document.querySelector('#startv').getContext('2d').getImageData(370,267,1,1).data[0]===192));
+  const name=page.locator('#advisor-input-overlay input').first();
+  if(await name.count()){await name.fill('子明');await name.press('Enter');}
+  else await page.locator('#startv').click({position:{x:390,y:268}});
+ }
+ async function ready(path){const target=new URL(path,origin);if(alternateFaction&&target.searchParams.has('large'))target.searchParams.set('alternate-faction','1');await page.goto(target.href);if(!['restore','restore-import','capture'].some(k=>target.searchParams.has(k)))await confirmAdvisor();await page.waitForFunction(()=>window.__ownedFormal?.ready||window.__ownedFormal?.bootError);assert.equal(await page.evaluate(()=>window.__ownedFormal.bootError??null),null);}
+ await ready('/index.html');
+ // No slots, no StartMenu: the retry button must return to the formal host,
+ // not the in-game load picker. The fixture records the actual exit contract.
+ await page.evaluate(()=>window.__app.endView.show({img:'grf/defeat.png'}));
+ await page.waitForFunction(()=>document.querySelector('#edimg').naturalWidth>0);
+ await page.locator('#edretry').click();
+ await page.waitForFunction(()=>window.__ownedFormal.exits.length===1);
+ assert.deepEqual(await page.evaluate(()=>window.__ownedFormal.exits.map(e=>[e.reason,e.initialAction??null])), [['title',null]]);checks++;
  await ready('/index.html');
  const initial=await page.evaluate(async()=>{
   const a=window.__app,c=window.__ownedFormal;
@@ -120,7 +135,7 @@ try {
  // Retirement while the real App is awaiting its shared asset barrier: no install.
  let enteredAsset;const assetStarted=new Promise(r=>{enteredAsset=r;});const assetGate=new Promise(r=>{releaseAsset=r;});
  await page.route('**/battle_rules.json',async route=>{enteredAsset();await assetGate;await route.continue();});
- await page.goto(origin+'/index.html?preflight=1');await assetStarted;
+ await page.goto(origin+'/index.html?preflight=1');await confirmAdvisor();await assetStarted;
  await page.evaluate(()=>{window.__ownedFormal.retire();window.__app.checkFormalCurrent();});releaseAsset();
  await page.waitForFunction(()=>!!window.__ownedFormal?.bootError);
  const stale=await page.evaluate(()=>({error:window.__ownedFormal.bootError.code,exits:window.__ownedFormal.exits,scenario:window.__app.scenario,started:window.__app.gameStarted,enabled:window.__app.runtimeEnabled}));
@@ -153,6 +168,7 @@ try {
  const startupFailures=[];
  for(const kind of ['repository','null','delete-code','missing-slot','season']){
   await page.goto(origin+'/index.html?failure='+kind);
+  if(kind==='season')await confirmAdvisor();
   await page.waitForFunction(()=>!!window.__ownedFormal?.bootError);
   await page.waitForFunction(()=>window.__ownedFormal.exits.length===1);
   const result=await page.evaluate(async()=>{
@@ -184,6 +200,8 @@ try {
    unchanged:after.token.bodyText===stored.token.bodyText&&after.token.writeRevision===stored.token.writeRevision,secondLoadRejected};
  });
  assert.equal(capturedRestore.loadedLabel,capturedRestore.capturedLabel);assert.equal(capturedRestore.externalLabel,'external after capture');checks++;
+ // This deliberately stale save emits the same diagnostic as a real CAS loss.
+ assert.equal(errors.length,1);assert.match(errors[0],/^\[wolong\] local save failed GameSaveConflictError: game save changed; reread required/);errors.shift();
  assert.equal(capturedRestore.result,'failed');assert.equal(capturedRestore.unchanged,true);assert.equal(capturedRestore.secondLoadRejected,true);checks++;
  const smallArchive=await page.evaluate(()=>window.__ownedFormal.store.get(0));
  await ready('/index.html?large=1');

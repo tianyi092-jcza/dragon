@@ -39,19 +39,21 @@ function fixture({ player = 0, pointer = 0, diplomat = 9 } = {}) {
   const records = Array.from({ length: 128 }, (_, slot) =>
     slot === 127
       ? { slot }
-      : { slot, faction: 0xff, status: 0, targetCity: 0xff, roadEdgeOrNode: 0 },
+      : { slot, faction: 0xff, status: 0, targetCity: 0xff },
   );
   Object.assign(records[0], {
     faction: 7,
     status: 0x80,
     targetCity: 5,
-    roadEdgeOrNode: 40,
+    targetNode: 5, // grid army on road: no DOS current-address field
+    roadPosition: { kind: 'road', roadIndex: 1, pointIndex: 3, direction: 1 },
   });
   Object.assign(records[1], {
     faction: 7,
     status: 0x80,
     targetCity: 5,
-    roadEdgeOrNode: 64,
+    targetNode: 8,
+    roadEdgeOrNode: 0x800,
   });
   Object.assign(records[2], {
     faction: 7,
@@ -125,10 +127,13 @@ test("native type8 chooses later preferred tie and preserves exact 127-slot writ
   assert.equal(tickStrategicWarEvents(app), true);
   assert.equal(factions[7].capital, 8);
   assert.equal(records[0].targetCity, 8);
-  assert.equal(records[0].roadEdgeOrNode, 40);
+  assert.equal(records[0].targetNode, 5);
+  assert.ok(!Object.hasOwn(records[0], 'roadEdgeOrNode'));
+  assert.deepEqual(records[0].roadPosition, { kind: 'road', roadIndex: 1, pointIndex: 3, direction: 1 });
   assert.equal(records[0].status, 0x80);
   assert.equal(records[1].targetCity, 8);
-  assert.equal(records[1].roadEdgeOrNode, 40);
+  assert.equal(records[1].targetNode, 5);
+  assert.equal(records[1].roadEdgeOrNode, 0x800);
   assert.equal(records[1].status, 0x82);
   assert.equal(records[2].targetCity, 9);
   assert.deepEqual(records[127], { slot: 127 });
@@ -348,12 +353,12 @@ test("33FD player proposal commit writes capital, retargets 4502 legions and res
   assert.equal(factions[7].capital, 8);
   // 4502 exact write set: slot0 target only; slot1 target+road+status|2; slot2 untouched
   assert.deepEqual(
-    [records[0].targetCity, records[0].roadEdgeOrNode, records[0].status],
-    [8, 40, 0x80],
+    [records[0].targetCity, records[0].targetNode, records[0].status],
+    [8, 5, 0x80],
   );
   assert.deepEqual(
-    [records[1].targetCity, records[1].roadEdgeOrNode, records[1].status],
-    [8, 40, 0x82],
+    [records[1].targetCity, records[1].targetNode, records[1].roadEdgeOrNode, records[1].status],
+    [8, 5, 0x800, 0x82],
   );
   assert.equal(records[2].targetCity, 9);
   // 3421..3448 monarch declaration resolution

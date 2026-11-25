@@ -52,6 +52,8 @@ function slotIndex(slot, at) {
 // The word pair is the existing Web canonical pointer, NOT a DOS segment.
 // The IO must reject noncanonical pointers/unknown plane bytes, not derive XY.
 function decrementOccupancy(io, slot, pointerAt, at) {
+  // Structured worlds own signed tile coordinates, not DOS paragraph pointers.
+  if (io.decrementGridOccupancy) return io.decrementGridOccupancy(slot);
   const offset = unsigned(
     call(io, "readLegionWord", [slot, 0x1a], pointerAt),
     383,
@@ -84,7 +86,7 @@ export function originalGeneralCount2AD2(io, oldOwner, newOwner) {
 }
 
 /** 50D7: DI is a general pointer; no G00/current-owner/same-owner gate. */
-export function originalGeneralReturn50D7(io, slot) {
+export function originalGeneralReturn50D7(io, slot, notify) {
   slotIndex(slot, "50DC");
   gw(io, slot, 0x17, 0, "50DC");
   const origin = gb(io, slot, 0x1d, "50E0");
@@ -95,7 +97,7 @@ export function originalGeneralReturn50D7(io, slot) {
   gw(io, slot, 0x1c, owner, "50F2");
   // AH is explicitly FF, NOT old G1C: this call only increments the return side.
   originalGeneralCount2AD2(io, 255, owner);
-  if (owner === player(io, "50FA")) stop("5101", "CDE/TALK37/199 block");
+  if (owner === player(io, "50FA")) return fateMessageOrStop(notify, 37, slot, '5101', 'CDE/TALK37/199 block', 'returned');
   return owner === 255 ? "unaffiliated" : "returned";
 }
 
@@ -617,23 +619,30 @@ export function originalExtinctionPlayerCheck(io, deadOwner) {
  * general dispatch, then the unconditional 5042 CDE/TALK36 block. Runs inline
  * when no diplomat suspends, or on the TALK69+1A7 sequence close via the
  * diplomat tail. Inner message stops (5101/29C3) stay held with prefix kept. */
-export function originalExtinctionPostDiplomat(io, deadOwner, captor) {
+export function originalExtinctionPostDiplomat(io, deadOwner, captor, messages) {
   originalExtinctionCitySweep4236(io, deadOwner, captor);
   const monarch = fb(io, deadOwner, 1, "5005");
-  for (let slot = 0; slot < 127; slot++) {
-    if (gb(io, slot, 0, "500A") < 0x80) continue; // Inactive record.
-    if (gb(io, slot, 0x1c, "500F") !== deadOwner) continue;
-    if (gb(io, slot, 0x1d, "5014") !== 255) {
-      originalGeneralReturn50D7(io, slot); // Has an origin chain.
+  let slot = 0;
+  function scan() {
+  while (slot < 127) {
+    const current = slot++;
+    if (gb(io, current, 0, "500A") < 0x80) continue;
+    if (gb(io, current, 0x1c, "500F") !== deadOwner) continue;
+    const notify = messages && (message => messages.fate(message, scan));
+    if (gb(io, current, 0x1d, "5014") !== 255) {
+      if (originalGeneralReturn50D7(io, current, notify) === 'fate-suspended') return 'fate-suspended'; // Has an origin chain.
       continue;
     }
-    if (slot !== monarch && gb(io, slot, 0x17, "5023") !== 0) {
-      originalGeneralScatter50B4(io, slot);
+    if (current !== monarch && gb(io, current, 0x17, "5023") !== 0) {
+      originalGeneralScatter50B4(io, current);
       continue;
     }
-    originalCapture29C3(io, slot, captor); // 502E: BX=DI general pointer.
+    if (originalCapture29C3(io, current, captor, notify) === 'fate-suspended') return 'fate-suspended';
   }
+  if (messages) return messages.extinction();
   stop("5042", "CDE/TALK36 extinction block");
+  }
+  return scan();
 }
 /** 4FCE extinction scan. BX is the dead faction record (idx*40h), SI the city,
  * AL the captor; CS:2919 has no stored Web byte — threading captor through the
@@ -647,13 +656,13 @@ export function originalExtinctionPostDiplomat(io, deadOwner, captor) {
  * the handler owns the sequence close and the diplomat tail
  * (originalExtinctionPostDiplomat); the scan returns "diplomat-suspended".
  * Without it the historic 509E hold stays. */
-export function originalExtinction4FCE(io, deadOwner, captor, onDiplomatBlock) {
+export function originalExtinction4FCE(io, deadOwner, captor, onDiplomatBlock, messages) {
   unsigned(deadOwner, 23, "4FCE", "BX dead owner");
   unsigned(captor, 255, "4FCE", "AL captor");
   originalExtinctionF00Clear(io, deadOwner);
   if (originalExtinctionPlayerCheck(io, deadOwner))
     stop("4FE5", "1CB1 nonlocal player-extinction exit");
-  const rest = () => originalExtinctionPostDiplomat(io, deadOwner, captor);
+  const rest = () => originalExtinctionPostDiplomat(io, deadOwner, captor, messages);
   const diplomat = originalExtinctionDiplomat5074(
     io,
     deadOwner,

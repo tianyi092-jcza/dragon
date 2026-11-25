@@ -349,7 +349,12 @@ test('E7 south and east marches: player, NPC autonomous, delegated, reorder, con
     assert.ok(bar.assignMarchOrder(player, southCity, false));
     stepMarch(player, 2);
     const mid = [player.x, player.y];
+    player._retreat = { cityIdx: southCity.idx, nodeId: southCity.idx };
+    assert.ok(bar.legionAcceptsMarchOrder(player));
+    assert.equal(player._retreat.cityIdx, southCity.idx);
     assert.ok(bar.assignMarchOrder(player, anchorCity, false));
+    assert.equal(player._retreat, null);
+    assert.deepEqual([player.x, player.y], mid);
     const retTrace = stepMarch(player, geoS.length + 1, anchorCity.idx);
     assertContinuousTrace(retTrace, mid, [anchorCity.x, anchorCity.y]);
     assert.deepEqual([player.x, player.y], [anchorCity.x, anchorCity.y]);
@@ -359,16 +364,18 @@ test('E7 south and east marches: player, NPC autonomous, delegated, reorder, con
     assert.deepEqual([player.x, player.y], [southCity.x, southCity.y]);
     console.log(JSON.stringify({ order: 'reorder-return-reorder', mid, final: [player.x, player.y], rng: app.originalRng.snapshot().calls }));
 
-    // 5. Destination refusal (E8 precursor): player ordered into the NPC east
-    // city. The friendly-destination gate fires before any march step; the
-    // order stands, the army never moves, occupancy and clock are untouched.
+    // 5. A distant peaceful target does not block the first friendly leg.
     assert.ok(bar.assignMarchOrder(player, eastCity, false));
     const stuck = [player.x, player.y], serialBefore = app.clock.strategicTickSerial;
-    assert.throws(() => performLegionSlotAction(app, player), /friendly destination of the marching faction/);
+    performLegionSlotAction(app, player);
+    assert.equal(player.roadPosition.kind, 'road');
+    assert.equal(player.targetNode, eastCity.idx);
+    assert.ok(bar.assignMarchOrder(player, southCity, false));
+    performLegionSlotAction(app, player);
     assert.deepEqual([player.x, player.y], stuck);
     assert.equal(movement.readTile(stuck[0], stuck[1]), 1);
     assert.equal(app.clock.strategicTickSerial, serialBefore);
-    console.log(JSON.stringify({ order: 'destination-refused', stuck, rng: app.originalRng.snapshot().calls }));
+    console.log(JSON.stringify({ order: 'peaceful-distant-target', stuck, rng: app.originalRng.snapshot().calls }));
 
     // March actions consume no battle RNG themselves; the per-tick strategic
     // weather does (origin-identical path, fixed seed here). The locked total
@@ -424,7 +431,7 @@ test('E7 selection and march units: cheapest of two roads, unreachable, occupanc
   assert.equal(movement.readTile(0, 0), 1);
   assert.equal(movement.readTile(2, 0), 0);
 
-  // Occupancy conflict: blocked point and occupied destination both refuse.
+  // A blocked road point contacts; an absent source count refuses.
   const sc2 = { player_faction: 7, cities: [{ idx: 0, x: 0, y: 0, faction: 7 }, { idx: 1, x: 2, y: 0, faction: 7 }] };
   const ports1 = (end) => [{ roadIndex: 0, end }, null, null, null];
   const nodes1 = [{ x: 0, y: 0, ports: ports1('from') }, { x: 2, y: 0, ports: ports1('to') }];
@@ -439,6 +446,24 @@ test('E7 selection and march units: cheapest of two roads, unreachable, occupanc
   // Marching from an unoccupied tile refuses instead of duplicating presence.
   assert.throws(() => advanceGridMarch(sc2, { ...a2, x: 1, y: 0, roadPosition: { kind: 'road', roadIndex: 0, pointIndex: 1, direction: 1 } }, { graph: g2, movement }), /Grid occupancy conflict/);
 
+  // Tan after capture: two incoming columns, clear gate, foreign army still
+  // on the friendly center with a march order. No second 2831 at city center.
+  const gate = { x: 297, y: 102, flags: 4 };
+  const center = { x: 297, y: 101 };
+  const approach = { x: 297, y: 103, flags: 0 };
+  const graph = { nodes: [nodes1[0], center], edges: [edge('tan', 5, [approach, gate])] };
+  const incoming = [62, 85].map(slot => ({ ...a2, slot, x: 297, y: 103, roadPosition: { kind: 'road', roadIndex: 0, pointIndex: 0, direction: 1 } }));
+  const outgoing = { ...center, slot: 35, status: 198, faction: 13, targetNode: 2 };
+  const tan = { ...sc2, legions: [outgoing, ...incoming] };
+  movement.writeTile(297, 103, 2);
+  movement.writeTile(297, 101, 1);
+  for (const column of incoming) {
+    assert.equal(advanceGridMarch(tan, column, { graph, movement }), 'moved');
+    assert.deepEqual(column.roadPosition, { kind: 'city', cityIndex: 1 });
+  }
+  assert.deepEqual([103, 102, 101].map(y => movement.readTile(297, y)), [0, 0, 3]);
+  assert.deepEqual(outgoing, { ...center, slot: 35, status: 198, faction: 13, targetNode: 2 });
+
   // Mid-route contact: a hostile transit city refuses entry even though the
   // final destination is friendly (E8 resolves the battle; the march engine
   // only records the refusal without moving or duplicating presence).
@@ -448,7 +473,7 @@ test('E7 selection and march units: cheapest of two roads, unreachable, occupanc
     { x: 4, y: 0, ports: [{ roadIndex: 1, end: 'to' }, null, null, null] },
   ];
   const chain = { nodes: chainNodes, edges: [edge('west', 5, line), { ...edge('east', 5, line), fromCityIndex: 1, toCityIndex: 2, points: [{ x: 2, y: 0, flags: 2 }, { x: 3, y: 0, flags: 0 }, { x: 4, y: 0, flags: 3 }] }] };
-  const sc3 = { player_faction: 7, cities: [{ idx: 0, x: 0, y: 0, faction: 7 }, { idx: 1, x: 2, y: 0, faction: 9 }, { idx: 2, x: 4, y: 0, faction: 7 }] };
+  const sc3 = { player_faction: 7, diplomacy: { 7: { 9: 0x7f } }, cities: [{ idx: 0, x: 0, y: 0, faction: 7 }, { idx: 1, x: 2, y: 0, faction: 9 }, { idx: 2, x: 4, y: 0, faction: 7 }] };
   const a3 = { slot: 0, x: 0, y: 0, faction: 7, status: 0x82, commandState: 0, moveDelay: 1, targetNode: 2, roadPosition: { kind: 'city', cityIndex: 0 } };
   assert.throws(() => advanceGridMarch(sc3, a3, { graph: chain, movement }), /Grid march contact unresolved/);
   assert.deepEqual([a3.x, a3.y], [0, 0]);

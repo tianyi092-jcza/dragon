@@ -121,12 +121,8 @@ function buildCandidates(io, actor) {
     if (mask > 0x0f) stop("2C6D", "city connection mask exceeds four bits");
     for (let direction = 0; direction < 4; direction++) {
       if (!(mask & (1 << direction))) continue;
-      const neighbour = readFactionByte(
-        io,
-        city,
-        `cityConnection${direction}`,
-        "2C79",
-      );
+      // Only city indices widen on expanded maps, never faction/owner bytes.
+      const neighbour = u16(call(io, "readFactionByte", [city, `cityConnection${direction}`], "2C79"), "2C79", "neighbour city index");
       if (neighbour >= cityCount)
         stop("2C79", "city connection is outside live slots");
       const owner = readFactionByte(io, neighbour, "cityOwner", "2C80");

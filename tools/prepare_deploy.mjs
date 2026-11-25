@@ -23,6 +23,9 @@ const excluded = new Set([
   "road_graph_probe.json",
   "road_search_probe.json",
   "grf/ui/battle_symbols_grid.png",
+  // Design originals; the public UI uses the exported feather-fan asset.
+  "加粗描边的羽扇图标.png",
+  "柔光白羽金柄羽扇.png",
 ]);
 function include(path) {
   // Unified-map authoring inputs are not player runtime assets (37–41 MiB).

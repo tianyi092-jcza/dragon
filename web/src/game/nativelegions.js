@@ -162,7 +162,7 @@ export function nativeLegionAt(sc, slot, at, write = false) {
     );
   return record;
 }
-export function assertNativeLegionSlots(sc) {
+export function assertNativeLegionSlots(sc, gridBounds = null) {
   if (!hasNativeLegionSlots(sc)) return;
   let previous = -1;
   for (const record of table(sc, "schema")) {
@@ -171,13 +171,20 @@ export function assertNativeLegionSlots(sc) {
     integer(record.slot, previous + 1, 127, "ordered slot");
     previous = record.slot;
     for (const field of byteFields)
-      if (Object.hasOwn(record, field)) integer(record[field], 0, 255, field);
-    for (const field of wordFields)
-      if (Object.hasOwn(record, field)) integer(record[field], 0, 65535, field);
+      if (Object.hasOwn(record, field)) integer(record[field], 0,
+        gridBounds && field === 'targetCity' ? Math.max(255, sc.cities.length - 1) : 255, field);
+    for (const field of wordFields) {
+      if (!Object.hasOwn(record, field)) continue;
+      if (gridBounds && (field === 'x' || field === 'targetX'))
+        integer(record[field], gridBounds.minX, gridBounds.minX + gridBounds.width - 1, field);
+      else if (gridBounds && (field === 'y' || field === 'targetY'))
+        integer(record[field], gridBounds.minY, gridBounds.minY + gridBounds.height - 1, field);
+      else integer(record[field], 0, 65535, field);
+    }
     if (Object.hasOwn(record, "roadStride"))
       integer(record.roadStride, -128, 127, "stride");
     if (Object.hasOwn(record, "targetNode"))
-      integer(record.targetNode, 0, 191, "targetNode");
+      integer(record.targetNode, 0, gridBounds ? sc.cities.length - 1 : 191, "targetNode");
     if (Object.hasOwn(record, "units")) {
       if (!Array.isArray(record.units) || record.units.length !== 6)
         throw new TypeError("Invalid native six-team table");
@@ -255,8 +262,8 @@ export function initializeNativeLegionSlotsFromZeroChapter(sc) {
   rebindNativeLegionViews(sc);
 }
 
-export function snapshotNativeLegionSlots(sc) {
-  assertNativeLegionSlots(sc);
+export function snapshotNativeLegionSlots(sc, gridBounds = null) {
+  assertNativeLegionSlots(sc, gridBounds);
   const records = table(sc, "snapshot").map((record) => {
     const clean = { ...record };
     // +03 stays solely in legionSlotCounters. These are presentation references.

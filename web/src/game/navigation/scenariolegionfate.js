@@ -1,5 +1,6 @@
 // Bounded native Scenario adapter, KI fate notes §7. No legacy/raw fallback.
 // nativeGeneralCount is the sole native F18; n_generals excludes advisors.
+import { scenarioGridRoadContext } from '../scenarioassembly.js';
 import { nativeFactionAt } from "../nativefactions.js";
 import {
   hasNativeDiplomacyMatrix,
@@ -86,6 +87,7 @@ function cityAt(sc, index, at) {
 }
 /** Explicit nullable named sentinels encode FF; absent keys remain unknown. */
 export function createScenarioLegionFateIO(sc, context, rng) {
+  const grid = scenarioGridRoadContext(sc);
   const recordAt = (slot) => nativeLegionAt(sc, slot, "fate IO");
   const movement = () => {
     if (!context?.movement) missing("movement capability");
@@ -173,6 +175,10 @@ export function createScenarioLegionFateIO(sc, context, rng) {
         missing(`faction write ${offset}`);
       faction[factionFields[offset]] = value;
     },
+    decrementGridOccupancy: grid && (slot => {
+      const { x, y } = recordAt(slot);
+      grid.movement.writeTile(x, y, (grid.movement.readTile(x, y) - 1) & 255);
+    }),
     readOccupancyByte: (row, offset) => movement().readByte(row, offset),
     writeOccupancyByte: (row, offset, value) =>
       movement().writeByte(row, offset, value),
@@ -351,12 +357,14 @@ export function performScenarioExtinction4FCE(
   captor,
   context,
   onDiplomatBlock,
+  messages,
 ) {
   return originalExtinction4FCE(
     createScenarioLegionFateIO(sc, context),
     deadOwner,
     captor,
     onDiplomatBlock,
+    messages,
   );
 }
 /** 4FD9..4FDC player gate (P55-C09-2c): commits the F00 clear, then reports

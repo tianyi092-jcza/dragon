@@ -1,3 +1,4 @@
+import { scenarioGridRoadContext } from "../scenarioassembly.js";
 import { nativeFactionAt } from "../nativefactions.js";
 import {
   nativeDiplomacyAt,
@@ -38,6 +39,7 @@ const eventBytes = (event, label) => {
 };
 
 function createScenarioMonthlyDiplomacyIO(sc, rng) {
+  const graph = scenarioGridRoadContext(sc)?.graph;
   const faction = (slot, at) => nativeFactionAt(sc, slot, at);
   const city = (slot) => {
     const cities = own(sc, "cities");
@@ -102,14 +104,23 @@ function createScenarioMonthlyDiplomacyIO(sc, rng) {
       }
       if (field === "cityConnectionMask") {
         const row = city(slot);
-        return (row.raw === undefined && Array.isArray(row.neighbourCityIds) ? byte(own(row, 'attr'), 'city connection mask') : cityRaw(slot)[0]) & 0x0f;
+        // 2CDF enumerates current borders, not the chapter's initial C00.
+        // Grid ports are the same live topology used by the city sortie AI;
+        // buildCandidates compares the endpoint's current owner at 2D00.
+        if (graph) return graph.nodes[slot].ports.reduce((mask, port, i) => port ? mask | (1 << i) : mask, 0);
+        return (Object.hasOwn(row, 'attr') ? byte(row.attr, 'city connection mask') : cityRaw(slot)[0]) & 0x0f;
       }
       if (field.startsWith("cityConnection")) {
         const direction = Number(field.slice("cityConnection".length));
         if (!Number.isInteger(direction) || direction < 0 || direction > 3)
           missing(`city ${slot} ${field}`);
         const row = city(slot);
-        if (row.raw === undefined && Array.isArray(row.neighbourCityIds)) return byte(own(row, 'strategicNeighbours')[direction], 'city neighbour');
+        if (graph) {
+          const port = graph.nodes[slot].ports[direction];
+          const edge = graph.edges[port.roadIndex];
+          return port.end === 'from' ? edge.toCityIndex : edge.fromCityIndex;
+        }
+        if (Array.isArray(row.strategicNeighbours)) return row.strategicNeighbours[direction];
         return cityRaw(slot)[0x1c + direction];
       }
       const record = faction(slot, `2BD9 ${field}`);

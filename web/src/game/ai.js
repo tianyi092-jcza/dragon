@@ -64,10 +64,13 @@ import { clickSfx, doubleClickSfx, warnSfx } from "../core/speaker.js";
 import {
   hasNativeLegionSlots,
   nativeLegionAt,
+  publishLegacyLegionRecord,
   rebindNativeLegionViews,
 } from "./nativelegions.js";
 import { formationByte } from "./navigation/originalformation.js";
 import { scenarioGridRoadContext, scenarioNativeRoadContext } from "./scenarioassembly.js";
+import { classifyGridFieldTerrain } from './navigation/originalfieldterrain.js';
+import { findStructuredRetreatCity } from './navigation/structuredroadretreat.js';
 import { advanceGridMarch } from './navigation/worldgridroads.js';
 import { performOriginalRoadAction } from "./navigation/originalroadmovement.js";
 import {
@@ -324,6 +327,12 @@ const AI_FORMATION_TYPE_CANDIDATES = Object.freeze([
 ]);
 
 function cityNeighbours(sc, city) {
+  const grid = scenarioGridRoadContext(sc);
+  if (grid) return grid.graph.nodes[city.idx].ports.flatMap(port => {
+    if (!port) return [];
+    const edge = grid.graph.edges[port.roadIndex];
+    return [sc.cities[port.end === 'from' ? edge.toCityIndex : edge.fromCityIndex]];
+  });
   const raw = cityRawBytes(city);
   if (!raw) return [];
   const neighbours = [];
@@ -668,7 +677,6 @@ function formAiReinforcements(app, faction, city, requested) {
     };
     attachRuntimeLegion(sc, legion, general.idx);
     countLegionActivation(sc, legion); // 6EB6→6F26, before 461D/6FD2.
-    sc.legions.push(legion);
     general.status = 1;
     replenishLegionAtCapital(sc, legion);
     resetLegionActionPhase(legion); // 6EBC→6FD2, including no-change output.
@@ -676,6 +684,7 @@ function formAiReinforcements(app, faction, city, requested) {
     legion.target = city;
     legion.targetCity = city.idx;
     legion.targetNode = scenarioRoadNodeId(sc, city.x, city.y);
+    publishLegacyLegionRecord(sc, legion, '4575');
     formed++;
   }
   return formed;
@@ -1051,7 +1060,8 @@ function settleFieldLegion(
   // 撤退目标，无法继续时由0x291A清退；不能在统一战果回写中先清目标。
   if (!won) legion.target = null;
   legion._aiOrdered = false;
-  legion._markerFrame = 4;
+  // Grid field/siege results do not move an on-road legion into a city.
+  if (legion.roadPosition?.kind !== 'road') legion._markerFrame = 4;
   clearEngagement(legion);
   // Do not erase +0E here: a failed continuation still reaches this
   // entered slot's 2600 with the original road/node and surviving troops.
@@ -1083,19 +1093,19 @@ function factionIsActive(sc, factionIdx) {
 function retreatRouteToFriendlyCity(sc, legion) {
   const native = scenarioNativeRoadContext(sc);
   if (native) return originalRetreatRoute(sc, legion, native);
-  // P62 G1 (entire-v2-replacement gate): v1 approximation arm deleted.
-  // Fixed endpoint priority + Dijkstra costs with the 0x80a6 non-friendly
-  // penalty were NOT 487B (see removed comment below in git history).
-  // Non-native scenarios now get null (no retreat route); both callers
-  // (continueLegionAfterBattle, retreatCapturedGarrison) already fail
-  // closed on null. See journal P62.
+  const grid = scenarioGridRoadContext(sc);
+  if (grid) {
+    const result = findStructuredRetreatCity(grid.graph, {
+      position: legion.roadPosition, capitalCityIndex: legionFaction(sc, legion).capital,
+      owner: legion.faction, readCityOwner: i => sc.cities[i].faction ?? 0x18,
+    });
+    if (result.status !== 'unreachable') return { city: sc.cities[result.cityIndex], node: { id: result.cityIndex } };
+  }
+  // Detached legacy worlds have no authoritative retreat graph.
   return null;
 }
 
 function assignRetreatRoute(legion, retreat, captorFaction) {
-  // P65 (entire-v2-replacement gate): the P62 G1 leftover non-native arm
-  // is deleted. retreatRouteToFriendlyCity returns null (both callers fail
-  // closed before reaching here) or originalRetreatRoute's {native:true}.
   // 4780,4789,478C; targetNode is the Web id projection of raw BX>>2.
   legion.targetNode = retreat.node.id;
   legion.targetCity = retreat.city.idx;
@@ -1131,9 +1141,9 @@ export function continueLegionAfterBattle(sc, legion, won) {
     return true;
   }
 
-  const currentCity = sc.cities.find(
-    (city) => city.x === legion.x && city.y === legion.y,
-  );
+  const currentCity = scenarioGridRoadContext(sc)
+    ? (legion.roadPosition.kind === 'city' ? sc.cities[legion.roadPosition.cityIndex] : null)
+    : sc.cities.find(city => city.x === legion.x && city.y === legion.y);
   if (currentCity?.faction === legion.faction) {
     legion.commandState = 8;
     return true;
@@ -1310,6 +1320,7 @@ export function dispatchLegionFate(
   captorFaction,
   rng = null,
   app = null,
+  blocks,
 ) {
   const native = scenarioNativeRoadContext(sc);
   if (native || hasNativeLegionSlots(sc)) {
@@ -1321,6 +1332,7 @@ export function dispatchLegionFate(
         "291A",
         captorFaction,
         rng,
+        blocks,
       );
     } catch (error) {
       if (app) holdFailedStrategicUpdate(app, error);
@@ -1523,7 +1535,7 @@ function advanceEngagement(app, A) {
   return resolveEngagementAction(app, A);
 }
 
-function resolveEngagementAction(app, A) {
+function resolveEngagementAction(app, A, firstFieldContact) {
   const engagement = A._engagement;
   const target = engagementTarget(app.scenario, engagement);
   if (!target || target.dead) {
@@ -1533,7 +1545,7 @@ function resolveEngagementAction(app, A) {
   if (legionSlotCounter(A) > 1) return "waiting";
   const resolve = () =>
     engagement.kind === ENGAGE_KIND_FIELD
-      ? resolveFieldBattle(app, A, target)
+      ? resolveFieldBattle(app, A, target, firstFieldContact)
       : resolveBattle(app, A, target);
   if (
     battleUsesDelegatedPlayer(app.scenario, A, target, engagement.kind) &&
@@ -1675,7 +1687,7 @@ export function resolveBattle(app, A, city) {
     rng,
   });
   applySiegeCityDamage(city, result.ratio);
-  applyBattleResult(
+  const fate = applyBattleResult(
     app,
     A,
     city,
@@ -1690,14 +1702,15 @@ export function resolveBattle(app, A, city) {
     {
       strategicRng: rng,
       sides: [result.attack, result.defence],
+      warnBeforeCapture: playerDefender && !playerAttacker && !primaryDefender && !!scenarioGridRoadContext(sc),
       oldFaction,
       defenders,
     },
   );
-  return false;
+  return isRoadSuspended(fate);
 }
 
-export function resolveFieldBattle(app, A, D) {
+export function resolveFieldBattle(app, A, D, firstFieldContact) {
   if (!D || D.dead) return false;
   const sc = app.scenario;
   // 4AA5..4AAF: clear the two actual combatants before 4E5C/TALK29.
@@ -1715,13 +1728,17 @@ export function resolveFieldBattle(app, A, D) {
     app.battleView &&
     !app.battleView.active
   ) {
+    // Classify the first 2831 contact before TALK29, not the selected
+    // primary a second time when the message closes (4C1F consumes RNG).
+    const grid = scenarioGridRoadContext(sc);
+    const terrain = grid && classifyGridFieldTerrain(grid, A, firstFieldContact, sc.player_faction, app.originalRng);
     // 0x4E5C→0x4EB9：玩家参与的非委任野战先显示TALK29，关闭后开战场。
     // 4E82攻方支只经4EB9内一次0CDE；4E9F守方支经4EA1+4EB9内两次0CDE。
     if (A.faction === pf.idx) clickSfx();
     else doubleClickSfx();
     const continuation = captureLegionContinuation(app);
     const start = () => {
-      if (continuation.claim()) app.startFieldBattle(A, D);
+      if (continuation.claim()) app.startFieldBattle(A, D, terrain);
     };
     if (app.gamebar?.enqueueTalkMessage) {
       app.gamebar.enqueueTalkMessage({
@@ -1736,7 +1753,7 @@ export function resolveFieldBattle(app, A, D) {
   }
   const rng = strategicRngFor(app, null);
   const result = resolveStrategicBattle(sc, A, D, { mode: 1, rng });
-  applyFieldBattleResult(
+  const fate = applyFieldBattleResult(
     app,
     A,
     D,
@@ -1750,7 +1767,16 @@ export function resolveFieldBattle(app, A, D) {
       sides: [result.attack, result.defence],
     },
   );
-  return false;
+  return fate === 'fate-suspended';
+}
+
+// Terminal 291A: resume this battle's slot only after the last fate TALK.
+function finishBattleFate(app, legion, captor, rng) {
+  const sc = app.scenario;
+  return dispatchLegionFate(sc, legion, captor, rng, app,
+    scenarioGridRoadContext(sc) && app.gamebar?.enqueueTalkMessage ? {
+      onPlayerFateMessage: message => suspendNativeBattleFateMessage(app, sc, message),
+    } : undefined);
 }
 
 export function applyFieldBattleResult(
@@ -1786,11 +1812,11 @@ export function applyFieldBattleResult(
   const defenceContinues = continueLegionAfterBattle(sc, D, winner === "def");
   if (A._retreat) A._retreat.captorFaction = D.faction;
   if (D._retreat) D._retreat.captorFaction = A.faction;
-  if (!attackContinues) dispatchLegionFate(sc, A, D.faction, strategicRng, app);
+  if (!attackContinues) return finishBattleFate(app, A, D.faction, strategicRng);
   // 4AB6..4AD1: AH=1 or 3 selects attacker fate; only AH=2 selects
   // defender fate. Two failed continuations do NOT dispatch two fates.
   else if (!defenceContinues)
-    dispatchLegionFate(sc, D, A.faction, strategicRng, app);
+    return finishBattleFate(app, D, A.faction, strategicRng);
 }
 
 export function updateFactionAfterCityCapture(sc, factionIdx) {
@@ -1928,6 +1954,7 @@ export function retreatCapturedGarrison(
   defenders,
   captorFaction,
   rng,
+  afterGarrison,
 ) {
   // These are the ORIGINAL 4C72 BP references, not a post-fate active scan.
   if (!defenders.length) return { retreat: 0, fates: [] };
@@ -1948,6 +1975,21 @@ export function retreatCapturedGarrison(
       legion.moveDelay = 1;
     }
     return { retreat: defenders.length, fates: [] };
+  }
+  if (afterGarrison && scenarioGridRoadContext(sc) && app.gamebar?.enqueueTalkMessage) {
+    let index = 0;
+    function advance() {
+      while (index < defenders.length) {
+        const fate = dispatchLegionFate(sc, defenders[index++], captorFaction, rng, app, {
+          onPlayerFateMessage: message => suspendNativeBattleFateMessage(app, sc, message, () => {
+            const result = advance();
+            return isRoadSuspended(result) ? result : afterGarrison();
+          }),
+        });
+        if (isRoadSuspended(fate)) return fate;
+      }
+    }
+    return advance();
   }
   return {
     retreat: 0,
@@ -2010,9 +2052,20 @@ export function applyBattleResult(
       winner === "def",
     );
     if (winner === "atk" && !defenceContinues) {
-      dispatchLegionFate(sc, primaryDefender, A.faction, strategicRng, app);
+      const result = dispatchLegionFate(sc, primaryDefender, A.faction, strategicRng, app,
+        scenarioGridRoadContext(sc) && app.gamebar?.enqueueTalkMessage ? {
+          onPlayerFateMessage: message => suspendNativeBattleFateMessage(app, sc, message, finishCapture),
+        } : undefined);
+      if (isRoadSuspended(result)) return result;
     }
   }
+  // 4EF7→5130 (including 474A), then 4F06 waits for TALK26 before 4B41.
+  if (winner === 'atk' && originalExit?.warnBeforeCapture) {
+    suspendNativeSiegeWarning26(app, sc, {attacker:A, cityIndex:city.idx, resumeTail:finishCapture});
+    return 'siege-warning-suspended';
+  }
+  return finishCapture();
+  function finishCapture() {
   if (originalExit?.cityDamage) {
     city.growth = originalExit.cityDamage.growth;
     city.defence = originalExit.cityDamage.defence;
@@ -2038,13 +2091,14 @@ export function applyBattleResult(
         sc,
         city,
         A.faction,
-        () =>
+        afterGarrison =>
           retreatCapturedGarrison(
             app,
             sc,
             defenders,
             city.faction === null ? EMPTY_FACTION : city.faction,
             strategicRng,
+            afterGarrison,
           ),
         (deadOwner, captor, hooks) => {
           // 4FD9..4FDC player gate first (F00 committed even on the exit path).
@@ -2074,6 +2128,13 @@ export function applyBattleResult(
                 diplomatTail,
                 hooks?.captureTail,
               ),
+            scenarioGridRoadContext(sc) && app.gamebar?.enqueueTalkMessage ? {
+              fate: (message, resume) => suspendNativeBattleFateMessage(app, sc, message, resume),
+              extinction: () => {
+                suspendNativeExtinctionTalk36(app, sc, deadOwner, captor, null, hooks.captureTail);
+                return 'extinction-suspended';
+              },
+            } : undefined,
           );
         },
         (deadOwner, captor, captureTail) =>
@@ -2088,6 +2149,23 @@ export function applyBattleResult(
         {
           onGovernorBlock: (governorCtx, governorTail) =>
             suspendNativeGovernorReport(app, sc, governorCtx, governorTail),
+          onCapitalMessage: app.gamebar?.enqueueTalkMessage && ((newCapital, resume) => {
+            const continuation = captureLegionContinuation(app);
+            warnSfx(); // 4E3A CE7; 4E42 single TALK30, new F03 as city argument.
+            app.gamebar.enqueueTalkMessage({
+              gen: null, talkIndex: 30, cityName: newCapital.name.trim(), kind: 'player-capital-relocated',
+              onComplete: () => {
+                if (!continuation.claim()) return;
+                try {
+                  app.hud?.refreshInfo?.(); // 4E48 -> 5E60 display only
+                  if (!isRoadSuspended(resume())) finishDeferredLegionDaily(app, continuation.batch, continuation.ticket);
+                } catch (error) {
+                  holdFailedStrategicUpdate(app, error);
+                  throw error;
+                }
+              },
+            });
+          }),
         },
       );
     } catch (error) {
@@ -2172,7 +2250,8 @@ export function applyBattleResult(
   }
   if (A._retreat) A._retreat.captorFaction = oldFaction ?? 0x18;
   if (!attackContinues)
-    dispatchLegionFate(sc, A, oldFaction ?? 0x18, strategicRng, app);
+    return finishBattleFate(app, A, oldFaction ?? 0x18, strategicRng);
+  }
 }
 
 function warTalkStyle(sc, faction) {
@@ -2621,10 +2700,10 @@ export function suspendNativeSiegeWarning26(app, sc, { attacker, cityIndex, resu
   };
   warnSfx(); // 4F7C CALL 0CE7（PC喇叭警告）。
   app.gamebar.enqueueTalkMessage({
-    gen: general,
+    gen: null, // system warning; the enemy L02 supplies the name in the text
     talkIndex: 26,
     generalName:
-      attacker?.leader?.trim?.() || general?.name?.trim?.() || "",
+      general?.name?.trim?.() || attacker?.leader?.trim?.() || "",
     cityName: city?.name?.trim?.() || "",
     kind: "siege-warning-26",
     onComplete: () => resumeNativeSiegeWarning26(app),
@@ -2724,7 +2803,7 @@ export function resumeNativeDiplomatReport(app) {
     throw new RangeError("native diplomat continuation scenario mismatch");
   app._nativeDiplomatContinuation = null;
   try {
-    continuation.diplomatTail();
+    if (isRoadSuspended(continuation.diplomatTail())) return true;
   } catch (error) {
     if (error?.instruction === "5042") {
       suspendNativeExtinctionTalk36(
@@ -2811,19 +2890,30 @@ export function resumeNativeGovernorReport(app) {
  * 系统按gen字段展开，传personalitySelector=0x19A；33明确无第二段）。
  * 规则前缀已在消息前提交、关闭后原版直接返回，故无尾写、无continuation：
  * 完成即认领batch/ticket（TALK35形状），批处理从游标继续。 */
-export function suspendNativeBattleFateMessage(app, sc, { talk, slot }) {
+export function suspendNativeBattleFateMessage(app, sc, { talk, slot }, resume) {
   if (typeof app.gamebar?.enqueueTalkMessage !== "function")
     throw new RangeError(`native battle fate TALK${talk} has no UI`);
   const batch = app._legionSlotBatch ?? null;
   const ticket = batch?.ticket ?? null;
+  const continuation = captureLegionContinuation(app);
   const general = sc.generals?.[slot];
+  if (talk === 37) clickSfx(); // 5101 CDE
   const message = {
     gen: general,
     talkIndex: talk,
     generalName: general?.name?.trim?.() ?? "",
     kind: "postbattle-fate",
-    onComplete: () => finishDeferredLegionDaily(app, batch, ticket),
+    onComplete: () => {
+      if (!continuation.claim()) return;
+      try {
+        if (!isRoadSuspended(resume?.())) finishDeferredLegionDaily(app, batch, ticket);
+      } catch (error) {
+        holdFailedStrategicUpdate(app, error);
+        throw error;
+      }
+    },
   };
+  if (talk === 37) message.personalitySelector = 0x199;
   if (talk === 34) message.personalitySelector = 0x19a;
   app.gamebar.enqueueTalkMessage(message);
   return "fate-suspended";
@@ -3862,7 +3952,7 @@ function applyDisasterArea(app, baseStrength) {
   const bounds = sc._disasterBounds;
   if (!bounds) return false;
   let changed = false;
-  for (const city of (sc.cities ?? []).slice(0, 0xc0)) {
+  for (const city of sc.cities ?? []) {
     const centerX = bounds.minX + ((bounds.maxX - bounds.minX) >> 1);
     const centerY = bounds.minY + ((bounds.maxY - bounds.minY) >> 1);
     const distance = Math.max(
@@ -5406,11 +5496,12 @@ export function aiTick(app, options = {}) {
   // 统一弹窗／结束过场打开期间保持 pending（时钟已由各自 holder 暂停）。
   if (app.endView?.active || app.victoryModal?.active) return "pending";
   if (!app.scenario?.legions) return;
-  if (scenarioNativeRoadContext(app.scenario)) {
+  const nativeCity = scenarioNativeRoadContext(app.scenario);
+  if (nativeCity || (scenarioGridRoadContext(app.scenario) && Number.isInteger(options.cityIndex))) {
     const scenario = app.scenario,
       clock = app.clock;
     try {
-      if (dispatchNativeUnificationGate(app)) return "pending";
+      if (nativeCity && dispatchNativeUnificationGate(app)) return "pending";
       const update = { ...options };
       // Historical option/cursor name is retained for the 192-city callers.
       // It denotes the phase (0..191), not a city index in an expanded world.
@@ -5435,9 +5526,11 @@ export function aiTick(app, options = {}) {
               // Synchronous no-UI close cannot re-enter this running loop.
               if (app._strategicCityRequest) return;
             }
-            governOriginalCity(scenario, scenarioNativeRoadContext(scenario), city,
-              app.originalRng ?? app.activeBattleRng);
-            damageOriginalCity(city);
+            const rng = app.originalRng ?? app.activeBattleRng;
+            if (nativeCity) {
+              governOriginalCity(scenario, nativeCity, city, rng);
+              damageOriginalCity(city);
+            } else tickStrategicCityDaily(scenario, cursor, rng);
             cursor++;
             stage = "military";
           }
@@ -5743,8 +5836,7 @@ function isRoadSuspended(outcome) {
   return typeof outcome === "string" && outcome.endsWith("-suspended");
 }
 /** MAP-EXT E8：扩展带接触沿原生 engagement 管线结算，不新造战果规则。
- * 过境敌城仅在开战时建立攻城接触（未开战沿用拒收：原生 0x42AB 的回退
- * 在 grid 世界无对应机械，不发明返程语义）；占格仅在敌军在位时建立
+ * 过境敌城仅在开战时建立攻城接触（和平端点由 advanceGridMarch 的 42AB 折返）；占格仅在敌军在位时建立
  * 野战接触（友军占格沿用等待清空，占位军团恒为过境军团可终结等待）。
  * 其余 throw（含无数据附加的旧形状）原样上抛，保持 E7 拒收语义。 */
 // E8 接触管线（单测接缝：持续接触发声规则在此锁定）。
@@ -5785,7 +5877,7 @@ export function resolveGridMarchContact(app, A, error) {
         y: error.point.y,
         faction: foe.faction,
       });
-      const outcome = resolveEngagementAction(app, A);
+      const outcome = resolveEngagementAction(app, A, foe);
       if (resumed) soundResumedContact(outcome);
       return outcome;
     }
@@ -5798,12 +5890,6 @@ export function performLegionSlotAction(app, A) {
   const grid = scenarioGridRoadContext(sc);
   if (grid) {
     const x = A.x, y = A.y;
-    // 直达他势力据点：未宣战沿用拒收（E7 语义，E8 前件测试锁定：一步不动）；
-    // 已宣战／中立放行，由 grid 到场／过境分支接敌（与原生到达接触对齐）。
-    const dest = Number.isInteger(A.targetNode) ? sc.cities[A.targetNode] : null;
-    if (dest && dest.faction != null && dest.faction !== A.faction && !atWar(sc, A.faction, dest.faction)) {
-      throw new RangeError('Grid march requires a friendly destination of the marching faction');
-    }
     let outcome;
     try {
       outcome = advanceGridMarch(sc,A,grid);
@@ -5813,9 +5899,15 @@ export function performLegionSlotAction(app, A) {
       // resolve path); non-contact refusals keep their fail-closed throws.
       return resolveGridMarchContact(app, A, error);
     }
+    if (outcome === 'fate-required') {
+      // 47FE/484E pass the marching legion's owner in AL (not the next city's).
+      const fate = finishBattleFate(app, A, A.faction, app.originalRng ?? app.activeBattleRng);
+      return isRoadSuspended(fate) ? 'suspended' : 'complete';
+    }
     if (outcome === 'moved') {
       A.prevX=x; A.prevY=y; A._renderMoveSerial=app.clock?.strategicTickSerial;
     } else if (outcome === 'arrived') {
+      if (A._retreat?.nodeId === A.targetNode) A._retreat = null;
       const handler = legionCommandHandlerIndex(sc, A);
       settleArrivedLegionCommand(sc, A, app.originalRng);
       if (A._disbandAtCapital) {

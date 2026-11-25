@@ -244,7 +244,7 @@ export async function prepareScenario({
     throw new TypeError("Explicit scenario preparation mode required");
   assertNoEmbeddedRoadMetadata(raw);
   const scenario = new Scenario(structuredClone(raw));
-  assertNativeLegionSlots(scenario);
+  assertNativeLegionSlots(scenario, metadata?.roadVersion === GRID_ROAD_VERSION ? metadata.bounds : null);
   if (hasNativeLegionSlots(scenario)) rebindNativeLegionViews(scenario);
   assertNativeFactionSlots(scenario);
   if (hasNativeFactionSlots(scenario)) rebindNativeFactionViews(scenario);

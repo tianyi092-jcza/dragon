@@ -67,6 +67,7 @@ async function fixture({ pools = [600, 600, 600] } = {}) {
       idx: id,
       x,
       y,
+      type: 1,
       faction: FACTION,
       attr: 0x80,
       governor: null,

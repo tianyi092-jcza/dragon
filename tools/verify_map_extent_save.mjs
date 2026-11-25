@@ -36,6 +36,8 @@ import { GameBar } from '../web/src/ui/gamebar.js';
 import { aiTick, performLegionSlotAction } from '../web/src/game/ai.js';
 import { createOriginalBattleRng } from '../web/src/game/battle/originalrng.js';
 import { snapshotScenarioAssembly, prepareScenario, scenarioGridRoadContext } from '../web/src/game/scenarioassembly.js';
+import { publishLegacyLegionRecord } from '../web/src/game/nativelegions.js';
+import { countLegionActivation } from '../web/src/game/legioncounts.js';
 import { snapshotState, admitSavedScenario } from '../web/src/game/savegame.js';
 import { Clock } from '../web/src/game/clock.js';
 import { saveJSON } from '../web/src/core/gamesavecodec.js';
@@ -222,16 +224,18 @@ test('E9 north-band and west-band mid-march save, title-load, step-sync to arriv
       const restored = await prepareScenario({ ...admitted, mode: 'restore', content: env.content, world: env.world });
       assert.deepEqual(snapshotState({ ...app, scenario: restored.scenario }, 0, 'grid').state.nativeLegionSlots, saved.state.nativeLegionSlots);
     });
-    input.raw.legions.push(
-      { slot: 0, x: anchorN.x, y: anchorN.y, faction: playerFaction, status: 0x80, troops: 800, commandState: 0, moveDelay: 1, movePeriod: 3 },
-      { slot: 1, x: anchorW.x, y: anchorW.y, faction: playerFaction, status: 0x80, troops: 800, commandState: 0, moveDelay: 1, movePeriod: 3 },
-    );
+
     const prepared = await prepareScenario({ ...input, mapExtent: true });
     const sc = prepared.scenario;
     assert.deepEqual(prepared.metadata.bounds, { minX: -4, minY: -5, width: 388, height: 261 });
     assert.equal(prepared.metadata.roadVersion, 'grid');
     assert.ok(prepared.metadata.roadGraphDigest?.length >= 32);
-    const legionN = sc.legions.find(l => l.slot === 0), legionW = sc.legions.find(l => l.slot === 1);
+    const form = (slot, anchor) => {
+      const army = {slot,x:anchor.x,y:anchor.y,faction:playerFaction,status:0x80,troops:800,commandState:0,moveDelay:1,movePeriod:3};
+      countLegionActivation(sc, army);
+      return publishLegacyLegionRecord(sc, army, 'extent save formation');
+    };
+    const legionN = form(0, anchorN);
     const northCity = sc.cities[ordered.length], westCity = sc.cities[ordered.length + 1];
     assert.equal(northCity.name, '北關');
     assert.equal(westCity.name, '西關');
@@ -331,8 +335,7 @@ test('E9 north-band and west-band mid-march save, title-load, step-sync to arriv
     };
 
     // Leg A: north march, snapshot standing on y=-1.
-    const both = sc.legions.slice();
-    sc.legions = both.filter(l => l === legionN);
+    sc.factions.find(f => f.idx === playerFaction).capital = northCity.idx;
     assert.ok(bar.assignMarchOrder(legionN, northCity, false));
     assert.equal(legionN.targetNode, northCity.idx);
     stepMarch(legionN, geoN.length + 1, () => legionN.y === -1);
@@ -350,6 +353,7 @@ test('E9 north-band and west-band mid-march save, title-load, step-sync to arriv
     assert.equal(saveJSON(gotA.record.snapshot), saveJSON(savedA));
     const { cold: coldA, coldPack: coldPackA } = await titleLoad(gotA.record);
     try {
+      assert.equal(coldA.scenario.factions.find(f => f.idx === playerFaction).capital, northCity.idx);
       const coldN = coldA.scenario.legions.find(l => l.slot === 0);
       assert.deepEqual(legionKey(coldN), legionKey(legionN));
       assert.deepEqual(scenarioGridRoadContext(coldA.scenario).movement.snapshot(), movement.snapshot());
@@ -367,12 +371,13 @@ test('E9 north-band and west-band mid-march save, title-load, step-sync to arriv
     } finally { await coldPackA.close(); }
 
     // Leg B: west march, snapshot standing on x=-1.
-    sc.legions = both.filter(l => l === legionW);
+    const legionW = form(1, anchorW);
     assert.ok(bar.assignMarchOrder(legionW, westCity, false));
     assert.equal(legionW.targetNode, westCity.idx);
     stepMarch(legionW, geoW.length + 1, () => legionW.x === -1);
     assert.equal(legionW.x, -1);
     const savedB = snapshotState(app, 1, '西關行軍中');
+    assert.deepEqual(snapshotState(app, 1, '西關行軍中').state.nativeLegionSlots, savedB.state.nativeLegionSlots);
     await store.put(storeInput(1, savedB));
     const gotB = await store.get(1);
     assert.deepEqual(gotB.record.snapshot, savedB);
@@ -389,7 +394,6 @@ test('E9 north-band and west-band mid-march save, title-load, step-sync to arriv
 
     // Refusals: every mutated copy is refused at title admission and the
     // stored record is preserved byte-for-byte.
-    sc.legions = both.filter(l => l === legionN);
     assert.ok((savedA.webMeta.movementMemory.spans?.length ?? 0) > 0, 'mid-march occupancy must be non-empty');
     let negativeControls = 0;
     const refuse = async (slot, mutate, label) => {
@@ -436,9 +440,6 @@ test('E9 north-band and west-band mid-march save, title-load, step-sync to arriv
     assert.equal((await store.get(1)).record.snapshot.label, '西關行軍中 rev2');
     assert.deepEqual((await store.get(1)).token, second.token);
 
-    // Re-snapshot equality: re-saving the untouched hot state reproduces the
-    // stored bytes (no hidden mutation from the save path itself).
-    sc.legions = both;
     console.log(JSON.stringify({ result: 'E9-OK', negativeControls, rngAtSaveA, worldDigest: savedA.webMeta.scenarioAssembly.roadGraphDigest.slice(0, 16) }));
   } finally { pack.close(); }
   } finally { await rm(tmp, { recursive: true, force: true }); }

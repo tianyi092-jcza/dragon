@@ -1,7 +1,7 @@
 // Web presentation geometry only. No Scenario, clock, RNG or navigation.
 import { pickMinimapBox, minimapTransform } from "../content/authoring/minimap.js";
 
-export function mapPanelLayout({ width, height, miniOpen, resOpen, world }) {
+export function mapPanelLayout({ width, height, miniOpen, resOpen, world, positions }) {
   let top = 36;
   const edge = 4, gap = 8, border = 8, bannerHeight = 21;
   // Reserve the approved 640x48 advisor strip even when currently hidden:
@@ -35,6 +35,13 @@ export function mapPanelLayout({ width, height, miniOpen, resOpen, world }) {
   let y = top, right = width - edge;
   for (const panel of panels) {
     const frame = { x: Math.max(edge, right - panel.w), y: sideBySide ? top : y, w: panel.w, h: panel.h };
+    if (sideBySide) right = frame.x - gap;
+    else y += panel.h + gap;
+    const pos = positions?.[panel.kind];
+    if (pos) {
+      frame.x = Math.max(0, Math.min(width - panel.w, pos.x));
+      frame.y = Math.max(0, Math.min(height - panel.h, pos.y));
+    }
     panel.frame = frame;
     // Preserve existing content-coordinate API used by resource/legion UI.
     panel.x = frame.x + border; panel.y = frame.y + border;
@@ -49,8 +56,6 @@ export function mapPanelLayout({ width, height, miniOpen, resOpen, world }) {
       panel.bannerWidth = Math.floor((box.w - 4) / 2);
       panel.secondBannerX = panel.mapBox.x + panel.bannerWidth + 4;
     }
-    if (sideBySide) right = frame.x - gap;
-    else y += panel.h + gap;
   }
   return panels;
 }

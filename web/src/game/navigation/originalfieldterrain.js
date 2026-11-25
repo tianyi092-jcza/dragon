@@ -87,8 +87,7 @@ export function classifyOriginalFieldTerrain(io, al) {
   // 中心地形类只供战术水战标签（表现层）使用；地图选择权威仍是目录号。
   // 记诊断sidecar（call），不进prefix D-全局，避免污染前缀断言。
   if (typeof io.noteTerrainClass === "function") io.noteTerrainClass(center);
-  if (center > 0 && center < 8) return 0xce + center;
-  if (center === 9) {
+  return fieldDirectory(al, west, east, north, south, center, () => io.nextByte("4C1F"), () => {
     // 4C2C restores D52 only BEFORE LDS. LDS then replaces DS with L1C.
     const offset = io.readLegionWord("attacker", 0x1a, "4C33");
     const attackerRow = io.readLegionWord("attacker", 0x1c, "4C33");
@@ -97,9 +96,38 @@ export function classifyOriginalFieldTerrain(io, al) {
     const currentPlayer = io.readPlayer("4C3D");
     if (currentPlayer !== io.readOccupancyAliasByte(attackerRow, "4C41"))
       ch ^= 0x40;
-    return (ch << 8) | 0xd5;
-  }
-  if (center >= 8) return 0xd1 + (io.nextByte("4C1F") & 3);
+    return ch !== 0;
+  });
+}
+
+// 2873 first matching defender (not the later 4C72 primary). Grid has
+// world coordinates rather than DOS pointers; never sample the builtin world.
+export function classifyGridFieldTerrain(grid, attacker, first, player, rng) {
+  const { x, y } = first;
+  const direction = first.faction === player ? first._markerFrame : attacker._markerFrame;
+  const sample = (dx, dy) => terrainClass(unsigned(grid.world.terrain.terrainTile(x + dx, y + dy), 255, '4B63', 'grid terrain tile'));
+  const west = sample(-1, 0), east = sample(1, 0), north = sample(0, -1), south = sample(0, 1), center = sample(0, 0);
+  const cx = fieldDirectory(unsigned(direction, 255, '4B63', 'player marker'), west, east, north, south, center,
+    () => rng.nextByte(), () => {
+      // 4C41 reads the occupancy-plane alias DS:[SI+1], not attacker.faction.
+      // Preserve the original 384-byte row displacement in world coordinates.
+      const offset = 0x2240 + attacker.slot * 0x40 + 1;
+      const aliasY = attacker.y + Math.floor(offset / 384);
+      if (attacker.x < 0 || attacker.x >= 384 || attacker.y < 0 || aliasY >= 256)
+        stop('4C41', 'noncanonical grid occupancy alias');
+      // Native 26xx already DEC'd the acting army's tile until slot return;
+      // grid commits a move atomically and still includes that army at contact.
+      const occupancy = (grid.movement.readTile(attacker.x, attacker.y) - 1) & 255;
+      const alias = grid.movement.readTile(offset % 384, aliasY);
+      return (occupancy === 0xca) !== (player !== alias);
+    });
+  return { directoryIndex: cx & 255, mirror: !!(cx & 0x4000), terrainClass: center };
+}
+
+function fieldDirectory(al, west, east, north, south, center, nextByte, bridgeMirror) {
+  if (center > 0 && center < 8) return 0xce + center;
+  if (center === 9) return (bridgeMirror() ? 0x4000 : 0) | 0xd5;
+  if (center >= 8) return 0xd1 + (nextByte() & 3);
   // 4BDD: only exact 1/3 reverse; all other AL>=2 use west/east.
   const first = al < 2 ? (al === 1 ? north : south) : al === 3 ? east : west;
   const second = al < 2 ? (al === 1 ? south : north) : al === 3 ? west : east;

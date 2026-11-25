@@ -121,6 +121,18 @@ test("34A6 consumes one RNG and 237E resumes after each player message", () => {
   assert.equal(state.index, 192);
 });
 
+test("237E reaches slot 511 across both axes, including radius 20 but not 21", () => {
+  const cities = Array.from({length:512}, () => ({x:100,y:100,faction:0,disaster_event:0}));
+  Object.assign(cities[510], {x:-18,y:18});
+  Object.assign(cities[511], {x:-17,y:18});
+  const sc = {cities,player_faction:0,weatherCloudBounds:{minX:-2,maxX:8,minY:-7,maxY:3}};
+  const state = beginScenarioDisasterAreaEvent(sc, {nextByte:()=>0});
+  const hit = continueScenarioDisasterAreaEvent(sc, state);
+  assert.deepEqual([hit.status,hit.index,hit.damage], ['message',511,14]);
+  assert.equal(cities[510].disaster_event, 0);
+  assert.equal(continueScenarioDisasterAreaEvent(sc, state).status, 'return');
+});
+
 test("237E reads an empty city as owner 0x18 and skips it silently", () => {
   // 生产实锤：第一章毗陵(120)faction null，天灾覆盖即Uncovered锁钟。
   // 沿全引擎既有约定（originalroadstate.js:25）读0x18；原版23DB只做

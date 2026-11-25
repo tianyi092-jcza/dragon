@@ -90,17 +90,22 @@ export function originalCurrentEnqueue2FBF(io, ax, dx, delay) {
   }
 }
 
-/** 237E entry: bounds are captured once before the fixed city scan. */
+// Web 扩展世界的负坐标以 word 传入；计算几何前解为有符号世界格。
+const signedTile = (value) => (value << 16) >> 16;
+
+/** 237E entry: capture bounds and the live slot count before the scan. */
 export function beginOriginalDisasterArea237E(io, strength) {
   strength = byte(strength, "237E", "AL strength");
   const maxX = bound(io, "maxX", "2383");
   const minX = bound(io, "minX", "2388");
   const maxY = bound(io, "maxY", "2393");
   const minY = bound(io, "minY", "2398");
+  const count = call(io, "readCityCount", [], "23A6");
+  if (!Number.isInteger(count) || count < 1 || count > 512) stop("23A6", "live city count out of range");
   return {
-    strength,
-    centerX: (minX + (((maxX - minX) & 0xffff) >>> 1)) & 0xffff,
-    centerY: (minY + (((maxY - minY) & 0xffff) >>> 1)) & 0xffff,
+    strength, count,
+    centerX: (signedTile(minX) + signedTile(maxX)) >> 1,
+    centerY: (signedTile(minY) + signedTile(maxY)) >> 1,
     index: 0,
     changed: false,
   };
@@ -112,17 +117,13 @@ export function continueOriginalDisasterArea237E(io, state) {
     !state ||
     !Number.isInteger(state.index) ||
     state.index < 0 ||
-    state.index > 0xc0
+    state.index > state.count
   )
     stop("23A3", "invalid area continuation");
-  for (let index = state.index; index < 0xc0; index++) {
-    const x = cityWord(io, index, "x", "23AC");
-    const y = cityWord(io, index, "y", "23B3");
-    const dx =
-      state.centerX >= x ? state.centerX - x : (x - state.centerX) & 0xffff;
-    const dy =
-      state.centerY >= y ? state.centerY - y : (y - state.centerY) & 0xffff;
-    const distance = Math.max(dx, dy);
+  for (let index = state.index; index < state.count; index++) {
+    const x = signedTile(cityWord(io, index, "x", "23AC"));
+    const y = signedTile(cityWord(io, index, "y", "23B3"));
+    const distance = Math.max(Math.abs(state.centerX - x), Math.abs(state.centerY - y));
     state.index = index + 1;
     if (distance > 0x14) continue;
     const damage = Math.max(0, state.strength - ((distance & 0xff) >>> 1));
@@ -316,7 +317,8 @@ function originalRegionalCityIndex2313(io, count) {
   return Math.floor((sample * count) / cap);
 }
 export function originalMonthlyWeather22DB(io) {
-  if (bound(io, "minX", "22E3") !== 0xfff0) {
+  // A narrowed 11-tile western region may start at -16, like the global bounds.
+  if (bound(io, "minX", "22E3") !== 0xfff0 || bound(io, "maxX", "22E3") === 0xfffa) {
     originalDisasterArea237E(io, 0);
     writeBound(io, "minX", 0xfff0, "22F0");
     writeBound(io, "minY", 0xfff0, "22F7");

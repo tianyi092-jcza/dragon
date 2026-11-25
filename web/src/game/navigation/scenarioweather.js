@@ -64,6 +64,7 @@ function createScenarioAreaIO(sc, rng = null, region = null) {
     return bounds;
   };
   return {
+    readCityCount: () => sc.cities.length,
     readBoundWord(field) {
       return word(own(currentBounds(), field), `weather bound ${field}`);
     },

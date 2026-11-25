@@ -5,17 +5,42 @@ import { containsTile } from '../../content/authoring/mapextent.js';
 // Uncontested friendly march only. Read contact/ownership before committing
 // a point; no surrogate battle/arrival outcome for unsupported branches.
 export function advanceGridMarch(sc, army, {graph,movement}) {
-  const target = army.targetNode;
-  // 非法节点沿用旧拒收；敌城目的地不再此處拒收——行军继续，
-  // 到场／过境分支按既有 E8 政策接敌（中立／开战即攻城接触，
-  // 未宣战在接触时拒收），与原生 stepTo 到达接触对齐。
-  if (!graph.nodes[target]) throw new RangeError('Grid march requires a friendly destination of the marching faction');
+  let target = army.targetNode;
+  if (!graph.nodes[target]) throw new RangeError('Grid march target node outside graph');
   const current = army.roadPosition;
-  if (current.kind === 'city' && current.cityIndex === target) return 'arrived';
+  const peacefulForeign = owner => {
+    if (owner == null || owner === army.faction) return false;
+    const relation = sc.diplomacy?.[army.faction]?.[owner];
+    if (!Number.isInteger(relation) || relation < 0 || relation > 255) throw new RangeError('Missing grid march diplomacy byte');
+    return relation >= 0x80;
+  };
+  // KI 2694 -> 42AB: test the current edge BEFORE 47BB reselects it.
+  if (current.kind === 'road') {
+    const edge = graph.edges[current.roadIndex];
+    const forward = current.direction === 1;
+    if (peacefulForeign(sc.cities[forward ? edge.toCityIndex : edge.fromCityIndex].faction)) {
+      target = forward ? edge.fromCityIndex : edge.toCityIndex;
+      army.targetNode = army.targetCity = target;
+      army.target = sc.cities[target];
+      army.status |= 2;
+      army._retreat = null;
+      army._engagement = null;
+    }
+  }
+  if (current.kind === 'city' && current.cityIndex === target) {
+    army._markerFrame = 4; // 266A
+    return 'arrived';
+  }
   let next;
   if (current.kind === 'city' || army.status & 2) {
     const result = selectStructuredRoad(graph,{ position:current,targetCityIndex:target,owner:army.faction,
       command:army.commandState,readCityOwner:i=>sc.cities[i].faction ?? 0x18 });
+    if (result.status === 'fate-required') {
+      // 26A5 consumes the reselect bit before 47BB; 4801/4851 return CF.
+      // The slot owner runs 291A (including any player message), not a move.
+      army.status &= ~2;
+      return 'fate-required';
+    }
     if (result.status === 'unreachable') return 'unreachable';
     if (result.status !== 'selected') throw new Error(`Unsupported grid road selection: ${result.status}`);
     next = result.position;
@@ -24,21 +49,26 @@ export function advanceGridMarch(sc, army, {graph,movement}) {
   const terminates = flags => (flags & 7) >= 2 && ((flags & 0x40) ? next.direction < 0 : next.direction > 0);
   const turningAtPort = current.kind === 'road' && terminates(edge.points[next.pointIndex].flags);
   if (current.kind === 'road' && !turningAtPort) next = {...next, pointIndex:next.pointIndex+next.direction};
-  const point = edge.points[next.pointIndex];
+  const { pointIndex, direction } = next;
+  const point = edge.points[pointIndex];
   if (!point) throw new RangeError('Grid road cursor outside geometry');
   let destination = point;
   const endpoint = next.direction===1 ? edge.toCityIndex : edge.fromCityIndex;
   const endpointOwner = sc.cities[endpoint].faction;
   // 直达目标（敌城） defer 到到场分支：先行军，终段 terminates 接敌，
   // 与原生“先走后接”对齐（内置版参照）；过境敌城仍即时接触（E7 锁定）。
-  if (endpointOwner != null && endpointOwner !== army.faction && endpoint !== army.targetNode) {
+  if (endpointOwner != null && endpointOwner !== army.faction && endpoint !== army.targetNode && !peacefulForeign(endpointOwner)) {
     // MAP-EXT E8: transit contact carries its endpoint; the slot pump turns
     // an at-war endpoint into a siege engagement, otherwise the refusal stands.
     const contact = new RangeError('Grid march contact unresolved');
     contact.endpoint = endpoint;
     throw contact;
   }
-  if (!turningAtPort && movement.readTile(point.x,point.y)) {
+  // KI 2831: the first matching active slot wins; a friendly formation
+  // does not block the column behind it. Keep unaccounted occupancy closed.
+  const friendlyAt = tile => sc.legions?.filter(l => l.slot < 127 && l.status >= 0x80 && l.x === tile.x && l.y === tile.y)
+    .toSorted((a,b) => a.slot-b.slot)[0]?.faction === army.faction;
+  if (!turningAtPort && movement.readTile(point.x,point.y) && !friendlyAt(point)) {
     // MAP-EXT E8: field contact carries its tile; the slot pump turns a
     // hostile occupant into a field engagement, otherwise the refusal stands.
     const contact = new RangeError('Grid field contact unresolved');
@@ -52,7 +82,7 @@ export function advanceGridMarch(sc, army, {graph,movement}) {
     // 2880 enters siege before the terminal point or city center is occupied.
     // Hostile faction endpoints contact here too (direct at-war target arriving
     // at its gate; transit hostile never reaches this line – the endpoint gate
-    // above already threw; undeclared direct targets are refused by ai.js).
+    // above already threw; peaceful approaches turn back on the edge).
     if (endpointOwner == null || endpointOwner !== army.faction) {
       const contact = new RangeError('Grid march contact unresolved');
       contact.endpoint = endpoint;
@@ -62,9 +92,23 @@ export function advanceGridMarch(sc, army, {graph,movement}) {
     next = {kind:'city',cityIndex:endpoint};
   }
   const count = movement.readTile(army.x,army.y);
-  if (!count || movement.readTile(destination.x,destination.y)) throw new RangeError('Grid occupancy conflict');
+  // KI 2728/2736 checks the road point. 27A2 then replaces the occupancy
+  // pointer with the city center; 26FA increments it without a second scan.
+  // A retreating former garrison can still be here after the city changed hands.
+  if (!count) throw new RangeError('Grid occupancy conflict');
+  // 2804/2808 looks AHEAD of the committed cursor (X first); 27F6
+  // looks back and flips direction at a port. Only the target uses frame 4.
+  const atPort = next.kind === 'city';
+  if (atPort && endpoint === target) army._markerFrame = 4;
+  else {
+    const look = edge.points[pointIndex + (atPort ? -direction : direction)];
+    const dx = look.x - point.x, dy = look.y - point.y;
+    if (dx) army._markerFrame = dx > 0 ? 1 : 0;
+    else if (dy) army._markerFrame = dy > 0 ? 3 : 2;
+    if (atPort) army._markerFrame ^= 1;
+  }
   movement.writeTile(army.x,army.y,count-1);
-  movement.writeTile(destination.x,destination.y,1);
+  movement.writeTile(destination.x,destination.y,movement.readTile(destination.x,destination.y)+1);
   army.x=destination.x; army.y=destination.y; army.roadPosition=next; army.status &= ~2;
   return 'moved';
 }

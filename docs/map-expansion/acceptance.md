@@ -108,6 +108,7 @@
 
 ## E8 收據（2026-11-21，狀態：通過——隔離全綠；一處接線＋一處真修）
 
+- 以下為 E8 歷史驗證。「未開戰拒收」已由 [GRID-42AB 折返](../re-notes-march-pathfinding.md) 取代，不再作為驗收條件。
 - 實作：(1) `ai.js resolveGridMarchContact`＋grid 分支 try/catch——過境敵城僅開戰時建 SIEGE engagement（未開戰沿用拒收：原生 0x42AB 回退在 grid 無對應機械，不發明返程語義）；占格僅敵軍在位建 FIELD engagement（友軍占格沿用等待清空，占位恆為過境軍團可終結等待）；其餘 throw（含無附加數據的舊形狀）原樣上拋。接觸後沿原生管線（12-count 等待→速算／委任門／戰術入口共用 `resolveEngagementAction`，不新造戰果規則）。(2) 真修 `releaseGridLegionTile`：grid 死亡／离队軍團在俘獲清除＋延遲回歸离队兩處釋放 v2 占格，否則戰後接續永久撞屍體格（同批後續槽與後續命令皆拒收）；原生不動。另兩處 throw 附加 `endpoint`／`point`（訊息不變，E7 斷言全綠）。
 - 隔離證據：新套件 `node --test tools/verify_map_extent_battle.mjs` → 1/1。南+8 單世界：錨點（玩家）→新城「南關」（NPC 首都，troops 60、`siege:7`）→新城「南交」（玩家，45、`siege:11`），全章 admit＋鄰居雙向＋連通。未開戰過境拒收（order stands，不動）；委任攻城門 suspend（hold 住未扣血）→手動 resolve→易主＋NPC 首都遷出（不斷嗣）＋城損＋勝方留戰前 tile 保 target，11 次 waiting（264A 語義）；stub 原域同構（同種子、逐項克隆）RNG 14=14＋逐項等價＋單城 stub 觸發 4FCE 滅亡；P 留守錨點後出擊，路格遇 F1（200 vs 900）敗→fate＋占格釋放，stub 原域同構 13=13＋逐項等價（含俘獲將軍 status）；委任野戰門 suspend→勝→進駐南交；友軍占格拒收（order stands）；G2 遷入南關後 P2 回錨點（F1 勝方占 tile 不穿越）；slot pay 兩 pass 各扣 43（基線 100000：pinned 章節期初資金低於鉗制下限會掩蓋差值）；`cityDaily` 新行列入＋同種子重跑等價；`monthlyDiplomacyAI` 產 6 案＋304E 門見首案（無重派）；`scenarioNativeRoadContext` null。敗方立於自家城格留守（474A 原生語義，實測確認）故敗仗安排在路格。
 - 夾具教訓（僅測試側）：stub 城市陣列須按 idx 排位（`factionIsActive` 用 `cities[capital]` 位置索引，稀疏洞會判 inactive 致命運分支同果異徑——RNG 差一案本輪即此坑，已修）。

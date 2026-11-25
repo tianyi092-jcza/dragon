@@ -1,5 +1,5 @@
 // 输入处理 — 滚轮缩放 / 拖拽平移 / 悬停拾取 / 点击选择
-export function attachInput(view, { onHover, onSelect, uiHit, onWheel }) {
+export function attachInput(view, { onHover, onSelect, uiHit, onWheel, beginPanelDrag }) {
   const cv = view.cv;
   let drag = null;
 
@@ -17,6 +17,8 @@ export function attachInput(view, { onHover, onSelect, uiHit, onWheel }) {
     drag = {
       mx: e.clientX,
       my: e.clientY,
+      startX: e.clientX, startY: e.clientY,
+      movePanel: beginPanelDrag?.(e.clientX, e.clientY),
       moved: false,
       ui: uiHit?.(e.clientX, e.clientY),
     };
@@ -40,8 +42,12 @@ export function attachInput(view, { onHover, onSelect, uiHit, onWheel }) {
     if (drag) {
       const dx = e.clientX - drag.mx,
         dy = e.clientY - drag.my;
-      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-      if (!drag.ui) {
+      if (drag.movePanel) {
+        const tx = e.clientX - drag.startX, ty = e.clientY - drag.startY;
+        if (Math.abs(tx) + Math.abs(ty) > 3) drag.moved = true;
+        if (drag.moved) drag.movePanel(tx, ty);
+      } else if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      if (!drag.ui && !drag.movePanel) {
         view.pan(dx, dy);
       }
       drag.mx = e.clientX;
@@ -51,6 +57,7 @@ export function attachInput(view, { onHover, onSelect, uiHit, onWheel }) {
       onHover?.(view.pick(e.clientX, e.clientY), e);
     }
   });
+  addEventListener("blur", () => { drag = null; });
   addEventListener("keydown", (e) => {
     if (e.key === "0") {
       view.fit();

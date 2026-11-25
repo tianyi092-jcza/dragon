@@ -67,7 +67,7 @@ function retarget4502(sc, owner, oldCapital, newCapital) {
     if (own(legion, "status", 255, "4524") < 0x80) continue;
     if (own(legion, "targetCity", 255, "4529") !== oldCapital) continue;
     legion.targetCity = newCapital; //452E precedes the independent word read.
-    const targetWord = own(legion, "targetNode", 191, "4531") * 8;
+    const targetWord = own(legion, "targetNode", (sc.cities?.length ?? 192) - 1, "4531") * 8;
     if (targetWord !== newCapital * 8) continue;
     legion.targetNode = oldCapital; //4536; NOT old->new.
     legion.status = own(legion, "status", 255, "4539") | 2;
@@ -87,7 +87,7 @@ function capital4DF0(sc, city, owner) {
   faction.capital = selected; //4E1B XCHG; AL=new, AH=old to4502.
   retarget4502(sc, owner, oldCapital, selected);
   if (owner * 64 === own(sc, "nativePlayerFactionPointer", 65535, "4E2B"))
-    stop("4E3A", "CE7/TALK30/5E60 capital message return");
+    return 'player-relocated';
   return false;
 }
 
@@ -279,7 +279,8 @@ export function captureOriginalCity(
   onExtinctionBlock,
   extraBlocks,
 ) {
-  if (cityAt(sc, own(city, "idx", 191, "4CF5"), "4CF5") !== city)
+  const cityIdx = own(city, "idx", (sc.cities?.length ?? 192) - 1, "4CF5");
+  if (cityAt(sc, cityIdx, "4CF5") !== city)
     stop("4CF5", "unique SI city");
   if (!Number.isInteger(captor) || captor < 0 || captor > 255)
     stop("4CF3", "AL captor byte");
@@ -312,9 +313,20 @@ export function captureOriginalCity(
     // asserted flows; the wrap keeps the existing suite's forced-reassign
     // repaint coverage alive without inventing a saturating clamp.
     faction.n_cities = (own(faction, "n_cities", 65535, "4D0A") - 1) & 65535;
-    const capitalCarry = capital4DF0(sc, city, oldOwner);
-    retreatGarrison(); //4D11/4D18: caller retains original BP, including inactive.
-    if (!capitalCarry) return runInlineTail();
+    const capital = capital4DF0(sc, city, oldOwner);
+    if (capital === 'player-relocated') {
+      if (!extraBlocks?.onCapitalMessage) stop("4E3A", "CE7/TALK30/5E60 capital message return");
+      extraBlocks.onCapitalMessage(sc.cities[faction.capital], afterCapital);
+      return 'capital-suspended';
+    }
+    return afterCapital();
+    function afterCapital() {
+      // 4D18 must return (including every BP member's messages) before 4D1E.
+      const result = retreatGarrison(afterGarrison);
+      return result === 'fate-suspended' ? result : afterGarrison();
+    }
+    function afterGarrison() {
+    if (capital !== true) return runInlineTail();
     if (typeof extinctionScan !== "function")
       stop("4D1E", "4FCE extinction return");
     // 4D2A tail runs only after the 4FCE resume returns (5073 ret to
@@ -324,6 +336,7 @@ export function captureOriginalCity(
     try {
       // 4D1E: BX dead record, AL captor.
       const scanResult = extinctionScan(oldOwner, captor, hooks);
+      if (scanResult === 'fate-suspended' || scanResult === 'extinction-suspended') return scanResult;
       if (scanResult === "diplomat-suspended") return scanResult;
       if (scanResult === "player-defeated") return scanResult;
       // A normally-returning scan falls through to the inline tail
@@ -341,6 +354,7 @@ export function captureOriginalCity(
       onExtinctionBlock(oldOwner, captor, captureTail);
       return "extinction-suspended";
     }
+    }
   };
   if (oldOwner !== 0x18) {
     if (own(city, "governor", 255, "4D63", true) !== 255) {
@@ -352,7 +366,7 @@ export function captureOriginalCity(
       const governorTail = () => runPrefixRest();
       if (typeof extraBlocks?.onGovernorBlock === "function") {
         extraBlocks.onGovernorBlock(
-          { governor, cityIdx: own(city, "idx", 191, "4CF5") },
+          { governor, cityIdx },
           governorTail,
         );
         return "governor-suspended";

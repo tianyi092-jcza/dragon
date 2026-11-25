@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cityPhaseRange } from '../web/src/game/cityphase.js';
 
-for (const count of [0, 1, 191, 192, 193, 257, 384 * 256]) {
+for (const count of [0, 1, 191, 192, 193, 195, 257, 384 * 256]) {
   test(`${count} cities visited exactly once per 192 phases`, () => {
     const ranges = Array.from({ length: 192 }, (_, phase) => cityPhaseRange(phase, count));
     assert.equal(ranges[0].start, 0);

@@ -64,8 +64,8 @@ export function originalRetargetCapitalLegions4502(
   const owner = u8(faction, "4502", "faction");
   const next = u8(newCapital, "4502", "new capital");
   const previous = u8(oldCapital, "4502", "old capital");
-  const newAddress = next << 3;
-  const oldAddress = previous << 3;
+  // 4531/4536 access L14 (target node, stored as an index in Web),
+  // not L0E (current node/edge). Both KI operands are node index << 3.
   for (let slot = 0; slot < 127; slot++) {
     if (
       u8(io.readLegionFaction(slot), "451F", `slot ${slot} faction`) !== owner
@@ -80,14 +80,10 @@ export function originalRetargetCapitalLegions4502(
       continue;
     io.writeLegionTargetCity(slot, next);
     if (
-      u16(
-        io.readLegionRoadAddress(slot),
-        "4531",
-        `slot ${slot} road address`,
-      ) !== newAddress
+      u16(io.readLegionTargetNode(slot), "4531", `slot ${slot} target node`) !== next
     )
       continue;
-    io.writeLegionRoadAddress(slot, oldAddress);
+    io.writeLegionTargetNode(slot, previous);
     io.writeLegionStatus(slot, status | 2);
   }
 }
