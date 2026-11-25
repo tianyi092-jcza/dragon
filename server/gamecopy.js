@@ -19,7 +19,7 @@ import { changesMapPositions } from '../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../web/src/editor/mappositionvalidation.js';
 import { bindCityPictureStorage, hasCityPictureView } from './citypicturestore.js';
 import { siegeMatchesType } from './siegeorigin.js';
-import { cityName, cityRegion } from '../web/src/content/authoring/cityrecords.js';
+import { CITY_NUMBER_LIMITS, cityName, cityRegion } from '../web/src/content/authoring/cityrecords.js';
 import { KAO_MANIFEST } from '../web/kao/manifest.js';
 import { builtinGeneralLibrary, projectCopyGenerals, configureCopyGeneral } from './copygenerals.js';
 // 共用头像库 ID→SHA（武将库 portraitRef 校验用，与 generaldefinitions 同源）。
@@ -100,7 +100,7 @@ export function createStrongholdDefinition(cities, create) {
   if (!numbers || typeof numbers !== 'object' || Array.isArray(numbers)) fail(422, 'COPY_CITY');
   for (const [k, n] of Object.entries(numbers)) {
     if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(k)) fail(422, 'COPY_CITY');
-    if (!Number.isSafeInteger(n) || n < 0 || n > 65535) fail(422, 'COPY_CITY');
+    if (!Number.isSafeInteger(n) || n < 0 || n > CITY_NUMBER_LIMITS[k]) fail(422, 'COPY_CITY');
   }
   if (numbers.view !== undefined && !hasCityPictureView(numbers.view)) fail(422, 'COPY_CITY');
   if (!siegeMatchesType(create.battleMapId, numbers.type)) fail(422, 'COPY_CITY');
@@ -159,7 +159,8 @@ function checkModule(module, patch, data, gameId) {
         if (!values || typeof values !== 'object' || Array.isArray(values)) fail(422, 'COPY_CITY');
         for (const [k, n] of Object.entries(values)) {
           if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(k)) fail(422, 'COPY_CITY');
-          if (!Number.isSafeInteger(n) || n < 0 || n > 65535 || (k === 'view' && !hasCityPictureView(n))) fail(422, 'COPY_CITY');
+          if (k === 'view' && n === null) continue;
+          if (!Number.isSafeInteger(n) || n < 0 || n > CITY_NUMBER_LIMITS[k] || (k === 'view' && !hasCityPictureView(n))) fail(422, 'COPY_CITY');
         }
         out[`numbers:${cityId}`] = { ...values };
       }
@@ -507,7 +508,8 @@ function checkModule(module, patch, data, gameId) {
 }
 
 function applyModule(data, module, checked) {
-  const next = structuredClone(data);
+  // writeModule owns the freshly parsed transactional copy.
+  const next = module === 'cities' ? data : structuredClone(data);
   if (module === 'metadata') { next.metadata = { ...next.metadata, ...checked }; return next; }
   if (module === 'cities') {
     for (const [k, v] of Object.entries(checked)) {
@@ -542,13 +544,14 @@ function applyModule(data, module, checked) {
       else {
         const city = next.cities[cityId];
         Object.assign(city, v);
-        if (op === 'numbers' && v.view !== undefined) for (const id of next.chapterOrder ?? []) {
+        if (op === 'numbers' && v.view === null) delete city.view;
+        if (op === 'numbers' && v.view != null) for (const id of next.chapterOrder ?? []) {
           const state = next.chapters[id]?.state;
           const row = state?.cities?.find(entry => entry.idx === city.runtimeSlot);
           if (!row) continue;
           row.view = v.view;
           // 原始城記錄 +0x16：只改高半位元組，保留各章原始類型。
-          if (typeof row.raw === 'string') {
+          if (typeof row.raw === 'string' && v.view < 16) {
             row.raw = row.raw.slice(0, 44) + v.view.toString(16) + row.raw.slice(45);
             if (state.nativeCityRecordRaw) state.nativeCityRecordRaw[city.runtimeSlot] = row.raw;
           }
@@ -753,6 +756,10 @@ export class GameCopyStore {
       const saved = this.#writeData(tokenHash, gameId, actor, next);
       // B3: 签发动作把新 cityId 带回给调用方（画布放置绑定用），加法字段不改旧形状。
       const issued = module === 'cities' ? Object.keys(checked).find(k => k.startsWith('create:')) : null;
+      if (module === 'cities' && !issued && !patch.remove) {
+        const ids = new Set(Object.keys(checked).map(key => key.slice(key.indexOf(':') + 1)));
+        if (ids.size === 1) return { ...saved, previousDigest: row.copy_digest, savedCity: next.cities[[...ids][0]] };
+      }
       return issued ? Object.freeze({ ...saved, issuedCityId: issued.slice('create:'.length) }) : saved;
     });
   }

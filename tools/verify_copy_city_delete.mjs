@@ -59,6 +59,19 @@ const failWith = (fn, status, code) => {
   assert.fail('expected ' + code);
 };
 
+test('attribute save on bound city returns only its saved row, leaving referenced map intact', () => {
+  const store = makeStore(), before = store.read('tok', gameId);
+  const result = store.writeModule('tok', gameId, 'cities', { region: { 'city-0': '荊州' }, numbers: { 'city-0': { prod: 0, view: null } } });
+  const after = store.read('tok', gameId);
+  assert.equal(result.previousDigest, before.copyDigest);
+  assert.equal(result.copyDigest, after.copyDigest);
+  assert.deepEqual(result.savedCity, after.data.cities['city-0']);
+  assert.equal(result.savedCity.region, '荊州');
+  assert.equal(result.savedCity.prod, 0);
+  assert.equal(result.savedCity.view, undefined);
+  assert.deepEqual(after.data.map, before.data.map);
+});
+
 test('bound on map is refused first', () => {
   const store = makeStore();
   const error = failWith(() => store.writeModule('tok', gameId, 'cities', { remove: ['city-0'] }), 422, 'COPY_CITY_PLACED');

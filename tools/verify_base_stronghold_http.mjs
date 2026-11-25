@@ -159,7 +159,16 @@ test('基礎據點：讀寫、拒絕門、直推、新建播種', async () => {
       assert.equal((await call('/api/admin/base-cities', undefined, admin)).data.snapshot.cities[firstId].troops_cap, 169);
       assert.equal(await row.locator('[data-field="troops_cap"]').textContent(), '169');
       assert.equal(await row.locator('[data-field="view"] img').getAttribute('src'), '/city-picture/14.png');
-      console.log('PASS base stronghold browser: module, load, inline edit');
+      await row.locator('[data-action="edit"]').click();
+      await row.locator('[data-input="prod"]').fill('');
+      await row.locator('[data-input="region"]').fill('荊州');
+      await row.getByRole('button', {name:'選擇據點圖片'}).click();
+      await pictures.getByRole('button', {name:'不使用圖片'}).click();
+      await row.locator('[data-action="save"]').click();
+      await row.locator('[data-action="edit"]').waitFor();
+      const cleared = (await call('/api/admin/base-cities', undefined, admin)).data.snapshot.cities[firstId];
+      assert.deepEqual([cleared.prod, cleared.region, cleared.view], [0, '荊州', undefined]);
+      console.log('PASS base stronghold browser: module, load, inline edit, zero and empty image');
       assert.deepEqual(errors, [], 'no page/console/network errors');
     } finally { await browser.close(); }
   } finally {

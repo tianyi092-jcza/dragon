@@ -1652,8 +1652,8 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
       if (patch[key] === undefined) continue;
       const raw = String(patch[key] ?? '').trim();
-      if (raw === '') { if (row[key] !== null) throw new Error(key + ' 不可留空；請填 0–' + CITY_NUMBER_LIMITS[key] + ' 的整數或取消。'); continue; }
-      if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > CITY_NUMBER_LIMITS[key]) throw new Error(key + ' 必須是 0–' + CITY_NUMBER_LIMITS[key] + ' 的整數。');
+      if (key === 'view' && patch.view === null) { values.view = null; continue; }
+      if (!/^[0-9]{1,5}$/.test(raw || '0') || Number(raw) > CITY_NUMBER_LIMITS[key]) throw new Error(key + ' 必須是 0–' + CITY_NUMBER_LIMITS[key] + ' 的整數。');
       if (Number(raw) !== row[key]) values[key] = Number(raw);
     }
     if (Object.keys(values).length) body.numbers = { [cityId]: values };
@@ -1676,8 +1676,18 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if (!Object.keys(body).length) return '據點沒有變更。';
     if (!current()) return;
     return action(async () => {
-      await saveCopyModuleInner(gameId, valid, 'cities', body);
+      const previous = copyDigest;
+      const result = await saveCopyModuleInner(gameId, valid, 'cities', body);
       if (!valid() || fields.gameId !== gameId) return;
+      if (result?.previousDigest === previous && result.savedCity?.cityId === cityId) {
+        const [saved] = checkedCopyCities({ [cityId]: result.savedCity }, []);
+        Object.assign(row, saved);
+        for (const chapter of copyData.chapters) {
+          const city = chapter.cities.find(item => item.idx === row.runtimeSlot);
+          if (city) Object.assign(city, { name: row.name, view: row.view, type: row.type, maxProd: row.max_prod });
+        }
+        return '已保存據點。';
+      }
       await loadCopyInner(gameId, valid);
       return '已保存據點並重讀副本。';
     });
@@ -1708,7 +1718,8 @@ export function installDraftEditor({ api, authority, work, isBusy, publish, game
     if ((copyData.cities ?? []).some(item => item.name === name)) throw new Error('據點名稱「' + name + '」已被其他據點使用。');
     const numbers = {};
     for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
-      const raw = String(form.numbers?.[key] ?? '').trim();
+      if (key === 'view' && form.numbers?.view == null) continue;
+      const raw = String(form.numbers?.[key] ?? '').trim() || '0';
       if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > CITY_NUMBER_LIMITS[key]) throw new Error(key + ' 必須是 0–' + CITY_NUMBER_LIMITS[key] + ' 的整數。');
       numbers[key] = Number(raw);
     }

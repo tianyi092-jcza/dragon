@@ -8,6 +8,7 @@ import { BUILTIN_RESOURCES } from '../web/src/content/builtinresources.generated
 import { readInstalledEditorSource } from './editor_builtin_source.mjs';
 import { convertInstalledSystemBaseMap } from './system_base_map_conversion.mjs';
 import { SystemBaseMapStore } from '../server/systembasemapstore.js';
+import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
 import { AdminFullCopy } from '../server/admincopy.js';
 import { FIXED_COPY_PROFILE, FIXED_TEMPLATE_PROFILE } from '../server/copyprofile.js';
 
@@ -47,11 +48,18 @@ test('saveCities patches names and numbers with version bump', async () => {
   await store.initialize('tok');
   const v0 = store.read('tok');
   const { id, row } = firstCityOn(store);
-  const out = store.saveCities('tok', { rename: { [id]: '測試城' }, numbers: { [id]: { max_prod: row.max_prod + 1 } } });
+  const start = performance.now();
+  const out = store.saveCities('tok', { rename: { [id]: '測試城' }, region: { [id]: '荊州' }, numbers: { [id]: { max_prod: row.max_prod + 1, prod: 0, view: null } } });
+  console.log(`base-city attribute save (in-memory SQLite): ${Math.round(performance.now() - start)} ms`);
+  assert.equal(canonicalDigest(JSON.parse(JSON.stringify(out.template)), sha), out.digest);
+  assert.deepEqual(out.template.content.map, v0.template.content.map);
   assert.equal(out.version, v0.version + 1);
   assert.notEqual(out.digest, v0.digest);
   const after = store.read('tok');
   assert.equal(after.template.content.cities[id].name, '測試城');
+  assert.equal(after.template.content.cities[id].region, '荊州');
+  assert.equal(after.template.content.cities[id].prod, 0);
+  assert.equal(after.template.content.cities[id].view, undefined);
   assert.equal(after.template.content.cities[id].max_prod, row.max_prod + 1);
   // 其它城不动。
   assert.equal(Object.keys(after.template.content.cities).length, Object.keys(v0.template.content.cities).length);

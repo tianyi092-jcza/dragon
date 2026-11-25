@@ -7,7 +7,7 @@ import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
 import { createStrongholdDefinition } from './gamecopy.js';
 import { bindCityPictureStorage, hasCityPictureView } from './citypicturestore.js';
 import { siegeMatchesType } from './siegeorigin.js';
-import { cityName, cityRegion } from '../web/src/content/authoring/cityrecords.js';
+import { CITY_NUMBER_LIMITS, cityName, cityRegion } from '../web/src/content/authoring/cityrecords.js';
 import { validateSystemBaseMap } from './systembasemap.js';
 import { enableSeaGroundBase } from '../web/src/editor/componenttools.js';
 import { MAP_EDIT_MAX_COMMANDS } from '../web/src/editor/mapeditlimits.js';
@@ -17,6 +17,7 @@ const MAX_TEMPLATE_BYTES = 64 * 1024 * 1024;
 
 export class SystemBaseMapStore {
   #storage; #sql; #principal; #loadInitial;
+  #verified; // Last verified bytes and their canonical JSON, never a mutable template.
   constructor({ storage, principal, loadInitialTemplate }) {
     if (!storage?.sql || typeof storage.transactionSync !== 'function' || typeof principal !== 'function' || typeof loadInitialTemplate !== 'function')
       throw new TypeError('SQLite, principal and trusted initial-template loader required');
@@ -37,7 +38,12 @@ export class SystemBaseMapStore {
       fail(503, 'BASE_MAP_CORRUPT');
     let template;
     try { template = JSON.parse(row.template_json); } catch { fail(503, 'BASE_MAP_CORRUPT'); }
-    if (canonicalDigest(template, sha) !== row.digest) fail(503, 'BASE_MAP_CORRUPT');
+    const rawHash = sha(row.template_json);
+    if (this.#verified?.rawHash !== rawHash || this.#verified.digest !== row.digest) {
+      const text = canonicalDigest(template, canonical => canonical);
+      if (sha(text) !== row.digest) fail(503, 'BASE_MAP_CORRUPT');
+      this.#verified = { rawHash, digest: row.digest, text };
+    }
     return { version: row.version, digest: row.digest, template, updatedAt: row.updated_at };
   }
   read(tokenHash) { this.#admin(tokenHash); return this.#current(); }
@@ -47,6 +53,9 @@ export class SystemBaseMapStore {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail(422, 'BASE_CITIES_PATCH');
     const current = this.capture();
     const cities = structuredClone(current.template.content.cities);
+    for (const field of ['rename', 'region', 'numbers', 'battlefield', 'troopcap']) {
+      if (Object.keys(patch[field] ?? {}).some(id => !Object.hasOwn(cities, id))) fail(422, 'BASE_CITY');
+    }
     let changed = false;
     if (patch.create !== undefined) {
       if (Object.keys(patch).length !== 1) fail(422, 'BASE_CITIES_PATCH');
@@ -86,7 +95,8 @@ export class SystemBaseMapStore {
         if (!values || typeof values !== 'object' || Array.isArray(values)) fail(422, 'BASE_CITY');
         for (const [key, n] of Object.entries(values)) {
           if (!['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view'].includes(key)) fail(422, 'BASE_CITY');
-          if (!Number.isSafeInteger(n) || n < 0 || n > 65535 || (key === 'view' && !hasCityPictureView(n))) fail(422, 'BASE_CITY');
+          if (key === 'view' && n === null) { delete row.view; changed = true; continue; }
+          if (!Number.isSafeInteger(n) || n < 0 || n > CITY_NUMBER_LIMITS[key] || (key === 'view' && !hasCityPictureView(n))) fail(422, 'BASE_CITY');
           if (row[key] !== n) { row[key] = n; changed = true; }
         }
       }
@@ -113,12 +123,19 @@ export class SystemBaseMapStore {
       }
     }
     if (!changed) fail(422, 'BASE_CITIES_PATCH');
-    try {
-      return this.save(tokenHash, { ...current.template, content: { ...current.template.content, cities } });
-    } catch (error) {
-      if (error instanceof RangeError) throw new HttpError(422, 'BASE_CITIES_INVALID', { problems: [{ message: error.message.slice(0, 512) }] });
-      throw error;
-    }
+    // The verified template's map, protected assets and provenance are unchanged.
+    const template = { ...current.template, content: { ...current.template.content, cities } };
+    // Replacing an existing value with canonical city JSON preserves the canonical
+    // key order of the verified document without walking its map arrays again.
+    const cityText = canonicalDigest(cities, canonical => canonical);
+    const [{ text }] = this.#sql.exec("SELECT json_set(?, '$.content.cities', json(?)) AS text", this.#verified.text, cityText).toArray();
+    const version = current.version + 1;
+    if (!Number.isSafeInteger(version)) fail(409, 'BASE_MAP_VERSION_EXHAUSTED');
+    if (Buffer.byteLength(text) > MAX_TEMPLATE_BYTES) fail(413, 'BASE_MAP_TOO_LARGE');
+    const digest = sha(text), updatedAt = new Date().toISOString();
+    this.#storage.transactionSync(() => this.#sql.exec('UPDATE system_base_map SET version=?,digest=?,template_json=?,updated_at=? WHERE singleton=1', version, digest, text, updatedAt));
+    this.#verified = { rawHash: digest, digest, text };
+    return { version, digest, template, updatedAt };
   }
   // 整份替换：复制成功／从游戏直推时用游戏级据点定义整体覆盖系统基。
   // 仅做形状校验（与模板校验一致），不要求 x/y（未落子储备允许缺坐标）。

@@ -15,7 +15,7 @@ import SiegePickButton from './SiegePickButton.vue';
 import SiegeThumbPicker from './SiegeThumbPicker.vue';
 const creating = ref(false);
 const createPickerVisible = ref(false);
-const create = reactive({ name: '', region: '', max_prod: 4000, prod: 3000, growth: 100, defence: 100, troops: 50, type: 2, view: 1, battleMapId: '', troops_cap: 60 });
+const create = reactive({ name: '', region: '', max_prod: 0, prod: 0, growth: 0, defence: 0, troops: 0, type: 0, view: null, battleMapId: '', troops_cap: 0 });
 watch(() => create.type, type => { if (create.battleMapId && !siegeInType(create.battleMapId, type)) create.battleMapId = ''; });
 const status = ref('');
 const failure = ref('');
@@ -36,12 +36,13 @@ async function createCity() {
   if ([...region].length > 5) { failure.value = '所屬州郡最多 5 個字。'; return; }
   const numbers = {};
   for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
-    const raw = String(create[key] ?? '').trim();
+    if (key === 'view' && create.view === null) continue;
+    const raw = String(create[key] ?? '').trim() || '0';
     const limit = key === 'view' ? 255 : NUMBERS[key];
     if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > limit) { failure.value = (props.columns.find(c => c.key === key)?.title ?? '城景編號') + ' 必須是 0–' + limit + ' 的整數。'; return; }
     numbers[key] = Number(raw);
   }
-  const createCapRaw = String(create.troops_cap ?? '').trim();
+  const createCapRaw = String(create.troops_cap ?? '').trim() || '0';
   if (!/^[0-9]{1,3}$/.test(createCapRaw) || Number(createCapRaw) > 255) { failure.value = '城兵上限必須是 0–255 的整數。'; return; }
   if (!siegeValid(String(create.battleMapId ?? ''))) { failure.value = '攻城戰場須為 ki-1995:siege:0..191（先定類型，再按版式／主題分組選擇）。'; return; }
   if (!siegeInType(String(create.battleMapId ?? ''), create.type)) { failure.value = '所選攻城戰場不在該據點類型的子集內，請重選。'; return; }

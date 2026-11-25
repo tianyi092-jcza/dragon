@@ -41,7 +41,7 @@ function ensureCustoms() {
       <button v-for="id in customs" :key="'custom-' + id" type="button" :aria-pressed="id === value" @click="detail = id"><img :src="src(id)" :alt="`據點圖片 ${id}`" loading="lazy" />{{ id }}</button>
     </div>
     <div v-else class="city-picture-detail"><img :src="src(detail)" :alt="`據點圖片 ${detail}`" /><p>據點圖片 {{ detail }}</p></div>
-    <template #footer><template v-if="detail !== null"><ElButton @click="detail = null">返回列表</ElButton><ElButton @click="emit('select', detail); open = false">選定這張</ElButton></template><ElButton @click="open = false">關閉</ElButton></template>
+    <template #footer><ElButton @click="emit('select', null); open = false">不使用圖片</ElButton><template v-if="detail !== null"><ElButton @click="detail = null">返回列表</ElButton><ElButton @click="emit('select', detail); open = false">選定這張</ElButton></template><ElButton @click="open = false">關閉</ElButton></template>
   </ElDialog>
 </template>
 <style scoped>

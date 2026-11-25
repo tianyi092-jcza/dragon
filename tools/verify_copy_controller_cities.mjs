@@ -105,7 +105,6 @@ test('cityCopySave refuses bad input locally and sends nothing', async () => {
     ['c1', { name: '名'.repeat(13) }],
     ['c1', { prod: '70000' }],
     ['c1', { prod: 'x' }],
-    ['c1', { prod: '' }],
     ['c1', { view: '70000' }],
   ];
   for (const [id, patch] of cases) {
@@ -114,9 +113,19 @@ test('cityCopySave refuses bad input locally and sends nothing', async () => {
     h.errors.length = 0;
   }
   assert.equal(h.calls.length, base);
-  // 空字串落在 null 欄位上不算變更。
-  assert.equal(await h.actions.cityCopySave('c2', { prod: '' }), '據點沒有變更。');
-  assert.equal(h.calls.length, base);
+});
+
+test('empty numeric input persists zero and the authoritative row avoids a full copy GET', async () => {
+  const h = harness(); await selectGame(h); loadOk(h); await h.actions.loadCopy();
+  const base = h.calls.length;
+  h.response((_path, body) => {
+    assert.deepEqual(body.patch, { numbers: { c1: { prod: 0, view: null } } });
+    return { gameId, previousDigest: DIGEST_A, copyDigest: 'b'.repeat(64), savedCity: { ...cities().c1, cityId: 'c1', prod: 0, view: null } };
+  });
+  assert.equal(await h.actions.cityCopySave('c1', { prod: '', view: null }), '已保存據點。');
+  assert.equal(h.calls.length, base + 1);
+  assert.equal(h.model().copy.page.cities[0].prod, 0);
+  assert.equal(h.model().copy.page.cities[0].view, null);
 });
 
 test('cityCopySave clears the validation ticket and surfaces server rejection', async () => {

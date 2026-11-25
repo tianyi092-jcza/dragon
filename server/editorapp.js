@@ -902,8 +902,8 @@ return class EditorMetadata extends PlatformBase {
       const snapshot = this.systemBaseMap.read(tokenHash);
       this.touch(tokenHash, policy);
       if (!snapshot) return response({ snapshot: null, blessed: this.adminCopies.blessed(tokenHash) });
-      const { version, digest, template, updated_at } = snapshot;
-      return response({ snapshot: { version, digest, cities: template.content.cities, updatedAt: updated_at }, blessed: this.adminCopies.blessed(tokenHash) });
+      const { version, digest, template, updatedAt } = snapshot;
+      return response({ snapshot: { version, digest, cities: template.content.cities, updatedAt }, blessed: this.adminCopies.blessed(tokenHash) });
     }
     if (method === 'GET' && path === '/api/admin/accounts') { return this.#getAdminAccounts(rt); }
     if (method === 'GET' && path === '/api/games') { const games = this.games.listOwn(tokenHash); this.touch(tokenHash, policy); return response({ games }); }
@@ -1539,7 +1539,7 @@ return class EditorMetadata extends PlatformBase {
       fields(value, ['cities']);
       this.touch(tokenHash, policy);
       const saved = this.systemBaseMap.saveCities(tokenHash, value.cities);
-      return response({ snapshot: { version: saved.version, digest: saved.digest, updatedAt: saved.updated_at, cities: saved.template.content.cities } });
+      return response({ snapshot: { version: saved.version, digest: saved.digest, updatedAt: saved.updatedAt, cities: saved.template.content.cities } });
     }
     if (path === '/api/admin/base-cities/promote') {
       if (url.search) fail(422, 'BASE_MAP_QUERY');

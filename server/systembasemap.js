@@ -26,6 +26,7 @@ export function assertSystemBaseCities(cities) {
     if (city.troops_cap !== undefined && (!Number.isInteger(city.troops_cap) || city.troops_cap < 0 || city.troops_cap > 255))
       throw new RangeError(`system base city ${cityId} requires troops_cap 0..255`);
     for (const field of CITY_BASE_NUMBERS) {
+      if (field === 'view' && city.view === undefined) continue;
       if (!Number.isSafeInteger(city[field]) || city[field] < 0 || city[field] > CITY_NUMBER_LIMITS[field])
         throw new RangeError(`system base city ${cityId} requires valid ${field}`);
     }
@@ -71,6 +72,7 @@ export function validateSystemBaseMap(template, sha256hex) {
     if (city.troops_cap !== undefined && (!Number.isInteger(city.troops_cap) || city.troops_cap < 0 || city.troops_cap > 255))
       throw new RangeError(`template city ${city.cityId} requires troops_cap 0..255`);
     CITY_BASE_NUMBERS.forEach(field => {
+      if (field === 'view' && city.view === undefined) return;
       if (!Number.isSafeInteger(city[field]) || city[field] < 0 || city[field] > CITY_NUMBER_LIMITS[field])
         throw new RangeError(`template city ${city.cityId} requires valid ${field}`);
     });

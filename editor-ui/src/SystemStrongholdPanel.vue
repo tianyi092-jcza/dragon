@@ -118,14 +118,13 @@ function validate(row) {
   if ([...region].length > 5) return '所屬州郡最多 5 個字。';
   for (const key of FIELDS) {
     const raw = String(form[key] ?? '').trim();
-    if (raw === '') { if (row[key] !== null) return key + ' 不可留空；請填 0–' + NUMBERS[key] + ' 的整數。'; continue; }
+    if (!raw) continue;
     if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > NUMBERS[key]) return key + ' 必須是 0–' + NUMBERS[key] + ' 的整數。';
   }
   if (!siegeValid(String(form.battleMapId ?? ''))) return '攻城戰場須為 ki-1995:siege:0..191（先定類型，再按版式／主題分組選擇）。';
   if (!siegeInType(String(form.battleMapId ?? ''), form.type)) return '所選攻城戰場不在該據點類型的子集內，請重選。';
   const cap = String(form.troops_cap ?? '').trim();
-  if (cap === '') { if (row.troops_cap != null) return '城兵上限不可留空。'; }
-  else if (!/^[0-9]{1,3}$/.test(cap) || Number(cap) > 255) return '城兵上限必須是 0–255 的整數（每單位 10 人）。';
+  if (cap && (!/^[0-9]{1,3}$/.test(cap) || Number(cap) > 255)) return '城兵上限必須是 0–255 的整數（每單位 10 人）。';
   return '';
 }
 async function save(row) {
@@ -134,11 +133,9 @@ async function save(row) {
   if (problem) { failure.value = problem; return; }
   failure.value = ''; status.value = '';
   const patch = { name: cityName(form.name), region: cityName(form.region), battleMapId: String(form.battleMapId) };
-  const cap = String(form.troops_cap ?? '').trim();
-  if (cap !== '') patch.troops_cap = Number(cap);
-  else if (row.troops_cap != null) patch.troops_cap = row.troops_cap;
+  patch.troops_cap = Number(form.troops_cap);
   if (form.view !== (row.view ?? null)) patch.view = form.view;
-  for (const key of FIELDS) patch[key] = form[key];
+  for (const key of FIELDS) patch[key] = Number(form[key]);
   try {
     const reply = await props.actions.saveCity(row.cityId, patch);
     editing.value = null;

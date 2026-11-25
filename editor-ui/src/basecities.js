@@ -62,8 +62,8 @@ export function createBaseStrongholdWorkbench({ api, work, publish, confirm, isB
     for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
       if (patch[key] === undefined) continue;
       const raw = String(patch[key] ?? '').trim();
-      if (raw === '') { if (row[key] !== null && row[key] !== undefined) throw new Error(key + ' 不可留空。'); continue; }
-      if (!/^[0-9]{1,5}$/.test(raw) || Number(raw) > 65535) throw new Error(key + ' 必須是 0–65535 的整數。');
+      if (key === 'view' && patch.view === null) { values.view = null; continue; }
+      if (!/^[0-9]{1,5}$/.test(raw || '0') || Number(raw) > 65535) throw new Error(key + ' 必須是 0–65535 的整數。');
       if (Number(raw) !== row[key]) values[key] = Number(raw);
     }
     if (Object.keys(values).length) body.numbers = { [cityId]: values };
@@ -87,7 +87,7 @@ export function createBaseStrongholdWorkbench({ api, work, publish, confirm, isB
     return work(async () => {
       const data = await api('/api/admin/base-cities', { cities: body });
       if (!valid(t)) return;
-      applySnapshot({ version: model.version, digest: data.snapshot.digest, cities: data.snapshot.cities ?? data.snapshot.template?.content?.cities, updatedAt: data.snapshot.updatedAt }, model.blessed);
+      applySnapshot({ version: data.snapshot.version, digest: data.snapshot.digest, cities: data.snapshot.cities ?? data.snapshot.template?.content?.cities, updatedAt: data.snapshot.updatedAt }, model.blessed);
       editing = false;
       render();
       return '已保存系統基礎據點並重讀。';
