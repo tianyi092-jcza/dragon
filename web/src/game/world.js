@@ -100,6 +100,7 @@ export function createNewGameScenario(raw, playerFaction = null, advisor) {
   // CHAPTER-WB Web product: only fresh creation installs the selected faction's
   // opening. Legacy templates without a plan keep the historical fresh default.
   const opening = state.factions?.find(f => f.idx === state.player_faction)?.playerOpening;
+  state.playerFinanceReport = { income: 0, expense: 0 }; // Five SINARIO libraries: header +12h..17h.
   state.trust = 255;
   if (opening !== undefined) {
     const { trust, policy } = decodePlayerOpening(opening);

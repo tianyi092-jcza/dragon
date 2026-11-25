@@ -77,9 +77,9 @@ import {
 import {
   applyFactionFundsDelta,
   factionLegionMoraleCap,
-  getProjectedFinance,
+  getFinancePanelData,
 } from "../game/economy.js";
-import { STRATEGIC_SPEED_LABELS } from "../game/clock.js";
+import { calendarDisplayDay, STRATEGIC_SPEED_LABELS } from "../game/clock.js";
 import {
   TACTICAL_SPEED_FACTORS,
   TACTICAL_SPEED_LABELS,
@@ -415,7 +415,7 @@ export class GameBar {
     if (!d?.sortable || column < 0 || column >= d.header.length) return false;
     const selected = d.rows[d.selectedRow] ?? null;
     const hovered = d.rows[d.hover] ?? null;
-    d.sortDirection = d.sortColumn === column ? -d.sortDirection : 1;
+    d.sortDirection = d.sortColumn === column ? -d.sortDirection : -1;
     d.sortColumn = column;
     const direction = d.sortDirection;
     d.rows.sort((left, right) => {
@@ -996,7 +996,6 @@ export class GameBar {
         const L = row?._legion;
         if (!L) return;
         if (L.faction === me?.idx) {
-          if (!this.legionAcceptsMarchOrder(L, true)) return;
           // 我方军团：进入行军目标指示
           this.marchingOrder = {
             legion: L,
@@ -1305,7 +1304,7 @@ export class GameBar {
       onPick: (ri) => {
         const row = rows[ri];
         const L = row?._legion;
-        if (!L || !this.legionAcceptsMarchOrder(L, true)) return;
+        if (!L) return;
 
         // 进入目标据点指示模式 (大地图可平移拖拽，右侧显示军团详细面板，底部提示 Talk 3)
         this.selectedSubmenu = 4;
@@ -1361,19 +1360,9 @@ export class GameBar {
     this.app.view.draw();
   }
 
-  legionAcceptsMarchOrder(legion, notify = false) {
-    const blocked = Boolean(legion?._engagement);
-    if (blocked && notify) {
-      this.app.hud?.flashEvent?.(
-        `「${legion.leader ?? "該軍團"}」正在交戰中，不能變更行軍命令。`,
-      );
-      warnSfx();
-    }
-    return !blocked;
-  }
-
   assignMarchOrder(legion, targetCity, delegated) {
-    if (!this.legionAcceptsMarchOrder(legion, true)) return false;
+    // 7FA5..7FB7: own formation, even during contact. Re-evaluate contact
+    // on the next road action; the menu itself does not reset +03.
     // Only confirming the replacement order supersedes the retreat target.
     legion._retreat = null;
     legion.target = targetCity;
@@ -6056,7 +6045,7 @@ export class GameBar {
       infoHTiles = 5,
     } = fd;
     const sc = this.app.scenario;
-    const data = getProjectedFinance(sc);
+    const data = getFinancePanelData(sc);
 
     // ── 0. 底部信息提示窗口 (黑底 + 金框 + 军师/提示头像 + 自动回行文字) ──
     const targetInfoOx =
@@ -6994,10 +6983,6 @@ export class GameBar {
       if (btn === 0) {
         const sc = this.app.scenario;
         const L = this.marchingOrder.legion;
-        if (!this.legionAcceptsMarchOrder(L, true)) {
-          this.resetAdvisorDescendants();
-          return true;
-        }
 
         // 如果命令菜单已展开
         if (this.orderChoiceMenu) {
@@ -8456,7 +8441,7 @@ export class GameBar {
       };
       put(`${c.era === 'bc' ? '前' : ''}${c.year}`, 494, 35);
       put(`${c.month}`, 527);
-      put(`${c.day}`, 560);
+      put(`${calendarDisplayDay(c)}`, 560);
     }
     // 军师子菜单带 — 窗口构造：与 banner 同宽的金框 + 黑底 + 无分隔线 + 白字垂直居中
     if (this.submenuOpen) {

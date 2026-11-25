@@ -2,11 +2,12 @@
 // 在地图中央以金框＋云纹平铺（与 gamebar._drawWindow 默认 cloud 同源资产
 // grf/ui/cloud.png）显示统一日期与「天下一統」；地图或弹窗任意点击进入胜利过场。
 import { VICTORY_IMG } from "./endview.js";
+import { calendarDisplayDay } from '../game/clock.js';
 import { clockPause, clockRestore } from "../core/modalclock.js";
 
 /** 统一日期文案（公元／公元前均显前缀：可创作公元前游戏，须与公元区分） */
 export function unificationDateText(clock) {
-	const y = clock?.year, m = clock?.month, d = clock?.day;
+	const y = clock?.year, m = clock?.month, d = clock && calendarDisplayDay(clock);
 	if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d))
 		throw new RangeError("native unification modal needs clock date");
 	const era = clock.era === "bc" ? "公元前" : "公元";

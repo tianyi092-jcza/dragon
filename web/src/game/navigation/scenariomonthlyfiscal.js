@@ -143,6 +143,7 @@ export function performScenarioMonthlyFiscal(sc, rng) {
     },
     writePlayerFinanceReport(income, expense) {
       playerReport = { income, expense };
+      sc.playerFinanceReport = playerReport; // 54E3..54F6, before the accumulated expense is cleared.
     },
     readLegionHalfByte(half, field) {
       const slot = half >>> 1;

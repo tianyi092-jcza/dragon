@@ -154,8 +154,10 @@ bar.resOpen = true;
 bar.layout = GameBar.prototype.layout.bind(bar);
 view.cam.x = 0;
 view.cam.y = 0;
-assert.equal(bar.hitTest(850, 80), true);
-assert.equal(bar.click(850, 80, 0), true);
+bar.layout();
+const {x, y, w, h} = bar.panelRect('mini').mapBox;
+assert.equal(bar.hitTest(x + w / 2, y + h / 2), true);
+assert.equal(bar.click(x + w / 2, y + h / 2, 0), true);
 assert.notEqual(view.cam.x, 0);
 assert.notEqual(view.cam.y, 0);
 assert.equal(bar.listDialog, null);
@@ -257,7 +259,7 @@ assert.equal(legion.status & 0x02, 0x02);
 assert.equal(legion.status & 0x04, 0x04);
 assert.equal(legion._aiOrdered, undefined);
 
-// Retreat is a replaceable destination; current contact still blocks orders.
+// Retreat and strategic contact both allow a replacement march order.
 const retreating = {
   leader: "退軍",
   status: 0x80,
@@ -265,7 +267,6 @@ const retreating = {
   targetNode: 123,
   _retreat: { cityIdx: 1 },
 };
-assert.equal(bar.legionAcceptsMarchOrder(retreating), true);
 assert.deepEqual(retreating._retreat, { cityIdx: 1 });
 assert.equal(bar.assignMarchOrder(retreating, city, false), true);
 assert.equal(retreating.target, city);
@@ -276,10 +277,11 @@ const engaged = {
   status: 0xa0,
   _engagement: { kind: "field" },
 };
-assert.equal(bar.assignMarchOrder(engaged, city, true), false);
-assert.equal(engaged.target, undefined);
-assert.match(notices.at(-1), /交戰中/);
-// 真实列表onPick入口也必须保持列表，不进入目标选择，并明确提示。
+engaged.engagementCountdown = 5;
+assert.equal(bar.assignMarchOrder(engaged, city, true), true);
+assert.equal(engaged.target, city);
+assert.equal(engaged.engagementCountdown, 5);
+// 交战中的己方军团仍可从列表进入目标指示。
 const rowSource = {
   idx: 0,
   faction: 0,
@@ -293,9 +295,8 @@ app.scenario.cities = [rowSource];
 app.scenario.legions = [{ ...engaged, faction: 0, x: 0, y: 0, units: [] }];
 bar.showLegionCard(rowSource);
 bar.listDialog.onPick(0);
-assert.equal(bar.marchingOrder, null);
-assert.ok(bar.listDialog);
-assert.match(notices.at(-1), /交戰中/);
+assert.equal(bar.marchingOrder.legion, app.scenario.legions[0]);
+bar.closeMarchingOrder();
 bar.closeListDialog(true);
 
 // 据点/军团二选一弹窗与行军目标的战斗指挥/委任弹窗统一为24px行高。
@@ -425,24 +426,26 @@ const d = bar.listDialog;
 d.px = 100;
 d.py = 100;
 d.titleH = 0;
-assert.equal(d.headerH, 24, "所有Canvas列表表头统一加高至24px");
-d.headerH = 24;
-d.top = 24;
+assert.equal(d.headerH, 30, "Canvas列表表头为30px");
+d.top = d.headerH;
 d.cap = 4;
 d.selectedRow = 0;
 assert.equal(bar.click(190, 108, 0), true);
 assert.deepEqual(
   d.rows.map((row) => row.id),
-  ["a", "b", "placeholder"],
+  ["b", "a", "placeholder"],
 );
 assert.equal(d.rows[d.selectedRow].id, "b");
 assert.equal(d.sortColumn, 1);
-assert.equal(d.sortDirection, 1);
+assert.equal(d.sortDirection, -1);
 assert.equal(bar.click(190, 108, 0), true);
 assert.deepEqual(
   d.rows.map((row) => row.id),
-  ["b", "a", "placeholder"],
+  ["a", "b", "placeholder"],
 );
+assert.equal(d.sortDirection, 1);
+assert.equal(bar.click(110, 108, 0), true);
+assert.equal(d.sortColumn, 0);
 assert.equal(d.sortDirection, -1);
 assert.equal(bar.hover(110, 108), true);
 assert.equal(d.headerHover, 0);

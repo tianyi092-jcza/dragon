@@ -116,7 +116,7 @@ const sortHarness = {
   },
 };
 assert.equal(GameBar.prototype._sortListDialog.call(sortHarness, 5), true);
-assert.strictEqual(sortHarness.listDialog.rows[0]._gen, commander);
+assert.strictEqual(sortHarness.listDialog.rows[0]._gen, free);
 assert.strictEqual(
   sortHarness.listDialog.rows[sortHarness.listDialog.selectedRow],
   selectedGeneralRow,

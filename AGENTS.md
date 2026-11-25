@@ -6,7 +6,7 @@
 
 - 重寫 1995 DOS《臥龍傳》，不用模擬器。玩家與 Trial 引擎、編輯／編譯核心為原生 ES Modules＋Canvas 2D，無框架、無建置及 npm 執行依賴。只有 `editor-ui/` 使用 Vue 3＋Element Plus＋Vite；同源服務提供預建資源，Vue 只接顯示 DTO／動作，不持有憑據、源物件或 live 遊戲狀態。內容發布不觸發程式部署。
 - **主線**：每款遊戲只有一套可編輯 copy、一個 publish 槽、一份 formal 快照；地圖、道路、據點、人物與章節為遊戲內共享資料。系統基礎地圖及基礎據點是建立時的模板，不是既有副本的第二份 live 資料。普通新建與完整複製分開，只允許一個成功的完整複製基準。舊 draft 退役／表清理等範圍見[收斂清單](docs/copy-simplification-tasks.md)。`/api/trial/*` 已退役（410），保留引擎不代表重新開放服務。
-- **目前玩家主線**：發布遊戲與內置遊戲的表現对照已闭环到小地圖（終態 `minimap-style-7-high-coast`：DOS 质感杂点／绿河／4px 海岸投影／底图关平滑保 1px；渲染 `web/src/content/authoring/minimap.js`，显示 `gamebar.js drawMini`）。用户副本地理回填完成、包已上架 1.5。对照方法保留：先追內置入口，再用相同章節、世界邊界與操作对照发布路徑；不把現有任一實作当作 DOS 原证。
+- **目前玩家主線**：發布遊戲的擴展格圖已接入戰略 AI、行軍接戰、戰後消息、災害與跨章存讀檔。本地《呂布歸天》1.7 是整合回歸樣本，不代表生產版本或全戰役驗收。對照內置與發布路徑時固定章節、世界邊界和操作；兩者都不能代替 DOS 原證。
 - 編輯器為 12 項扁平選單，遊戲組在前、管理員組在後；品牌「臥龍傳編輯器」。「遊戲資源」是原頭像模組的顯示名，仍用 `catalog-editor`，僅管理員可用。「遊戲管理」負責上架發布；章節管理、勢力設定、勢力武將、勢力據點、外交關係在章節工作台；刪除遊戲只在上架審核入口。內置遊戲不可編輯、下架或刪除。
 - 軟體版本見 `VERSION`；規則基線 `web-0.1.1`、內容摘要、遊戲版本 `1.n`、程式歸檔身份彼此獨立。生產為 `sadcloud` 單 VPS、玩家／編輯器分服務；操作前按[存儲佈局 §18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)核對主機、目錄、程序與 pin，不沿用舊 PID 或遠端狀態。
 
@@ -14,7 +14,7 @@
 
 | 邊界 | 入口與不變條件 |
 | --- | --- |
-| 新局、編譯與存檔 | `web/src/app/`、`web/src/content/`、`web/src/game/{world,savegame}.js`、`web/src/core/{gamesavestore,saverepository}.js`。每世界持有資源；存檔只用同源 IndexedDB `wolong-web/saves`，目錄與正文同交易。遊戲內讀檔先回標題，離線校驗、資源就緒並重核身份後才安裝。戰鬥、未完續段、裝配、故障期間禁存。 |
+| 新局、編譯與存檔 | `web/src/app/`、`web/src/content/`、`web/src/game/{world,savegame}.js`、`web/src/core/{gamesavestore,saverepository}.js`。每世界持有資源；存檔只用同源 IndexedDB `wolong-web/saves`，目錄與正文同交易。遊戲內讀檔不熱換 scenario；一般入口先回標題，持久 `/play` 在原畫面選記錄，按所存章節預裝配成功才退場安裝。發布遊戲追加保存記錄，讀取按遊戲、版本及內容摘要隔離。戰鬥、未完續段、裝配、故障期間禁存。 |
 | 行軍、戰鬥與表現 | `web/src/game/navigation/`、`native*.js`、`legionphase.js`、`legionscheduler.js`、`web/src/game/battle/`；`render/`、`ui/` 不推進路線或消費 RNG。原域 384×256、16px 圖塊、192 據點、128 軍團槽、22 正常勢力、24×24 外交矩陣；哨兵、保留槽不能依陣列長度泛化。原生道路、固定表與 RNG 不用 A*／隨機兜底，未知消費點 fail-closed。 |
 | 地圖工作台 | `editor-ui/src/{BaseMapPanel.vue,mapcanvas.js,basemap.js}` 為共用展示及控制器；`web/src/editor/` 負責預演、物件編輯與位置校驗；`server/{mapworkspace,copyprofile,systembasemapstore}.js` 以同一命令重算，不信任前端平面。系統模板寫入須管理員；遊戲工作台不因此取得模板寫權。 |
 | 編輯與發布 | `web/src/content/authoring/gamesource.js`、`server/{editorapp,gamecopy,copychapters,copygenerals}.js` 負責授權、遊戲源、章節／勢力與主表投影。`vps/` 管 SQLite、私有檔案桶與分發桶；`reader/site.js` 服務玩家。共享程式與單一遊戲資源分開存放、清理。 |
@@ -40,9 +40,10 @@
 - 本地玩家入口分清三者：`8321` 是靜態引擎，不供上架目錄；開發編輯器的 `https://127.0.0.1:8443/play` 可讀本地已發布快照，但不是正式玩家標題頁；正式發布／通知驗收須走 reader 與分發桶。不要以靜態頁只見內置遊戲判定發布失敗。
 - 小地圖数据分层坑：`sea-ground-1` 模板 `base.geography` 默认为全海，装饰 `preserve-underlay` 盖章不改底会造成大地圖正常、小地圖深蓝封底。回填用 inferred-sea-edge-connected（`tools/verify_geo_backfill_isolated.mjs` 先隔离验证水团门＋compose＋三项校验），policy 变更须重走发布验证并由用户重上架。
 - **build ≠ check ≠ 服務刷新**：Vue 先 build 再 `--check`，同步 `shell-ui.txt`、CSS 與授權清單。`server/public/*.txt` 由進程 import；`client.txt` 或 `index.html` 改後需重啟自己持有的實例，核實際服務位元組，不能停他人進程。`web/src/**` 改後重建 `trialweb.txt`。supervisor 不自动补 fork：kill 自己实例 child 后须自查 `/play`，无应答用原命令重起。發布歸檔須核完整 inventory／SHA 與 pin，不放寬凍結身份，不把 `--source-only` 當完整資源庫驗證。
+- 格圖可以有原生軍團槽，這不代表有 DOS 道路指針。存讀檔按世界邊界驗有符號座標、按實際據點數驗目標；不因此放寬固定槽或外交 byte。月結鄰接候選從當前道路與主權取得，不能沿用開局邊界。參見[行軍](docs/re-notes-march-pathfinding.md)與[外交](docs/re-notes-ai-diplomacy.md)。
 - `applyCapturedMapEdit` 的 `view(edit)` 是屬性描述符，取值用 `value(edit, key)`。地圖共用編輯預算 4096 命令／16 MiB 完整 JSON，模板／copy 源 64 MiB；批次預演／撤銷／拒絕都不可留下前綴。新城中心須符合行序，`road-add` 認證既鋪走廊而非鋪路命令。
 - session DTO 的缺省版本要同口徑比較，不省略身份／epoch／SHA。schema 或 purge 變更同步投影、清單與刪除合同。SQLite WAL 檢查用一致備份，不裸拷主庫。離線報告新輪次獨占目錄，Python `-B`＋明確 UTF-8，含 Windows 子進程。
-- 新狀態庫首次啟動會跑 staging 並校驗 `server/available-library.txt` 的 programHashes；倉庫存在預存不一致（指紋與已提交的 5 個 `web/src` 文件對不上），新庫因此失敗時先核對指紋來源，不手改 manifest；已有 pinned 的舊庫跳過 staging，不受影響。
+- 新狀態庫首次啟動會跑 staging 並校驗 `server/available-library.txt` 的 programHashes；若指紋不符，先核對來源，不手改 manifest，也不以已 pinned 的舊庫啟動成功當作新庫驗證。
 - 提交、推送、部署、真實資料遷移各別授權。GitHub 遠端為 `github`，非 `origin`；當次操作當次核對，不根據舊日誌推斷同步。保留其他會話改動，不整體 reset／clean、不盲刪 Git 鎖，不提交憑據或運行資料。
 
 ## 5. 常用命令與分級驗證
@@ -56,6 +57,8 @@ node editor-ui/build.mjs
 node editor-ui/build.mjs --check
 npm run --prefix editor-ui/lsp check
 node tools/build_trial_web_bundle.mjs
+# 本地 8443 已有相符的《呂布歸天》發布快照時；只取發布資源，在記憶體驗證
+node tools/verify_grid_war_ai_release.mjs <本地發布遊戲UUID>
 node --test --test-concurrency=1 tools/verify_map_extent_sides_ops.mjs tools/verify_map_extent_controller.mjs
 node --test tools/verify_map_extent_templates.mjs
 node tools/verify_system_base_map_browser.mjs --edge-growth       # 遊戲地圖

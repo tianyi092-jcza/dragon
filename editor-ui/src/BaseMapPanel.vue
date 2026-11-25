@@ -17,7 +17,8 @@ const checks = computed(() => (props.model.saveReport?.steps || []).map((label, 
 }));
 const canvas = ref(null), host = ref(null), album = ref(null), sentinel = ref(null), floating = ref(null), menu = ref(null);
 const catalogCategory = ref('mountain'), loadedCount = ref(24), floatingPosition = ref(null), contextPosition = ref(null);
-const panLocked = ref(false);
+const panLocked = ref(false), selectionBox = ref(null);
+let rightGesture = false;
 const preferredCityId = ref('');
 const bindingPending = ref(false);
 const bindCityId = computed({
@@ -85,6 +86,9 @@ function startMaterialKeyboard(event, materialId) {
 }
 function moveMaterialKeyboard(event) {
   const key = event.key.toLowerCase();
+  if (event.key === 'Delete' && !event.repeat && !materialKeyboard && !pointer && !deleteDisabled.value) {
+    event.preventDefault(); void askRemove(); return;
+  }
   if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && ['c', 'v'].includes(key)) {
     event.preventDefault();
     if (!event.repeat && !locked.value && !materialKeyboard && !pointer && !contextPosition.value) void props.actions.command(key === 'c' ? 'cell-copy' : 'cell-paste');
@@ -109,6 +113,7 @@ function moveMaterialKeyboard(event) {
 }
 function cancelKey(event) {
   if (event.key !== 'Escape') return;
+  if (pointer?.right) { event.preventDefault(); pointer = null; selectionBox.value = null; }
   if (objectDragging) { event.preventDefault(); pointer = null; objectDragging = false; props.actions.cancelObjectMove(); }
   if (contextPosition.value) { event.preventDefault(); contextPosition.value = null; canvas.value.focus({ preventScroll: true }); }
   if (materialPointer || materialKeyboard) {
@@ -137,14 +142,16 @@ function categoryKey(event, index) {
 }
 function down(event) {
   contextPosition.value = null;
-  if (props.busy || event.button !== 0) return;
+  rightGesture = event.button === 2;
+  if (props.busy || (event.button !== 0 && !rightGesture)) return;
   notice.value = '';
   cancelMaterial();
   props.actions.cancelObjectMove();
   objectDragging = false; shiftSelect = false;
   pointer = { id: event.pointerId, x: event.offsetX, y: event.offsetY, startX: event.offsetX, startY: event.offsetY, moved: false };
   canvas.value.setPointerCapture(event.pointerId);
-  if (event.ctrlKey || event.metaKey) { pointer.cellSelect = true; return; }
+  canvas.value.focus({ preventScroll: true });
+  if (rightGesture) { pointer.right = true; return; }
   if (event.shiftKey) { shiftSelect = true; return; }
   // 只有锁定地图才允许拖动已选对象；未锁定一律平移地图。
   if (!panLocked.value) return;
@@ -159,20 +166,24 @@ function down(event) {
 function move(event) {
   if (!pointer || props.busy || pointer.id !== event.pointerId) return;
   if (Math.hypot(event.offsetX - pointer.startX, event.offsetY - pointer.startY) > 3) pointer.moved = true;
-  if (pointer.moved && !pointer.cellSelect) {
+  if (pointer.right && pointer.moved) {
+    selectionBox.value = { left: `${Math.min(pointer.startX,event.offsetX)}px`, top: `${Math.min(pointer.startY,event.offsetY)}px`, width: `${Math.abs(pointer.startX-event.offsetX)}px`, height: `${Math.abs(pointer.startY-event.offsetY)}px` };
+  } else if (!pointer.right && pointer.moved) {
     if (!panLocked.value) props.actions.pan(pointer.x - event.offsetX, pointer.y - event.offsetY);
     else if (objectDragging) props.actions.previewObjectMove(event.offsetX, event.offsetY);
   }
   pointer.x = event.offsetX; pointer.y = event.offsetY;
 }
 function up(event) {
-  if (!pointer) return;
-  if (pointer.cellSelect) {
-    if (!pointer.moved && !props.busy) {
-      const count = props.actions.pick(event.offsetX, event.offsetY, true);
-      notice.value = `已選 ${count ?? 0} 格；第一格為貼上定位點。`;
-    }
-    pointer = null; return;
+  if (!pointer || pointer.id !== event.pointerId) return;
+  if (pointer.right) {
+    move(event);
+    const { moved, startX, startY } = pointer;
+    pointer = null; selectionBox.value = null;
+    if (props.busy) return;
+    if (!moved) void openContext(event);
+    else props.actions.toggleMulti(startX, startY, event.offsetX, event.offsetY);
+    return;
   }
   if (shiftSelect) {
     shiftSelect = false;
@@ -358,7 +369,8 @@ onBeforeUnmount(() => {
     <div v-if="model.atlasError" class="base-map-problems" role="alert"><span>{{ model.atlasError }}</span><ElButton @click="actions.retryAtlas()">重試</ElButton></div>
     <div v-if="model.diagnostics?.length" class="base-map-problems" role="alert"><div v-for="problem in model.diagnostics" :key="problem.index"><span>{{ problem.message }}</span><ElButton :disabled="!Number.isInteger(problem.x) || !Number.isInteger(problem.y)" title="定位底圖格" @click="actions.focusDiagnostic(problem.index)">定位</ElButton></div></div>
       <div ref="host" class="base-map-canvas-host">
-        <canvas ref="canvas" class="base-map-canvas" tabindex="0" title="Ctrl+點擊增減選格，Ctrl+C 複製；點選一格後按 Ctrl+V 依原形狀貼上。" aria-description="點選單元格後 Ctrl+C 複製圖塊，Ctrl+V 貼上。選取素材後以方向鍵逐格移動，Enter或空白鍵放置，Esc取消；選取地圖物件後右鍵或Shift+F10開啟操作。" @keydown="moveMaterialKeyboard" @blur="cancelMaterial" :aria-label="model.gameScoped ? '可編輯遊戲地圖' : '可編輯基礎地圖'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="pointer = null; objectDragging = false; actions.cancelObjectMove()" @lostpointercapture="pointer = null; objectDragging = false; actions.cancelObjectMove()" @contextmenu.prevent="openContext($event)" @wheel.prevent="contextPosition = null; !busy && actions.zoom($event.deltaY < 0 ? 1.2 : 1 / 1.2, $event.offsetX, $event.offsetY)" />
+        <canvas ref="canvas" class="base-map-canvas" tabindex="0" title="右鍵拖曳框選物件，Delete 確認刪除；Shift+點擊增減物件，Ctrl+C 複製，Ctrl+V 貼上。" aria-description="點選單格、Shift 多選或右鍵框選後按 Ctrl+C 複製圖塊，再點選目標格按 Ctrl+V 貼上。選取素材後以方向鍵逐格移動，Enter或空白鍵放置，Esc取消；選取地圖物件後右鍵或Shift+F10開啟操作。" @keydown="moveMaterialKeyboard" @blur="cancelMaterial" :aria-label="model.gameScoped ? '可編輯遊戲地圖' : '可編輯基礎地圖'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @lostpointercapture="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @contextmenu.prevent="!rightGesture && openContext($event)" @wheel.prevent="contextPosition = null; !busy && actions.zoom($event.deltaY < 0 ? 1.2 : 1 / 1.2, $event.offsetX, $event.offsetY)" />
+        <div v-if="selectionBox" aria-hidden="true" class="base-map-selection-box" :style="selectionBox" />
         <div ref="floating" class="base-map-floating" :style="floatingPosition ? { left: `${floatingPosition.x}px`, top: `${floatingPosition.y}px`, bottom: 'auto' } : {}" aria-label="浮動圖層工具">
         <ElCard :body-style="{ padding: '4px' }">
           <div class="base-map-layer-tools">
@@ -428,6 +440,7 @@ onBeforeUnmount(() => {
 .base-map-problems { max-height: 96px; overflow: auto; flex-shrink: 0; }
 .base-map-body { display: grid; grid-template-columns: minmax(0, 1fr) 260px; grid-template-rows: auto minmax(0, 1fr); gap: 4px 8px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .base-map-workspace { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.base-map-selection-box { position: absolute; pointer-events: none; box-sizing: border-box; border: 1px dashed white; background: rgb(40 100 180 / 20%); }
 .base-map-canvas-host { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .base-map-canvas { position: absolute; width: 100%; height: 100%; touch-action: none; }
 .base-map-floating { position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 16px); max-height: calc(100% - 16px); overflow: auto; }

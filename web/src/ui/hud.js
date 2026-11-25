@@ -1,4 +1,5 @@
 // HUD — 顶部面板(剧本/季节切换)、势力图例、悬停提示、君主卡
+import { calendarDisplayDay } from '../game/clock.js';
 import { factionColorEx, SEASONS } from "../game/world.js";
 import { hasPendingStrategicEvent } from "../game/ai.js";
 import { portrait, portraitURL, cityPictureURL } from "../core/assets.js";
@@ -195,7 +196,7 @@ export class HUD {
     const c = this.app.clock;
     if (!c) return;
     document.querySelector("#datestr").textContent =
-      `${c.era === 'bc' ? '公元前' : ''}${c.year}年${c.month}月${c.day}日 ${String(c.hour).padStart(2, "0")}時`;
+      `${c.era === 'bc' ? '公元前' : ''}${c.year}年${c.month}月${calendarDisplayDay(c)}日 ${String(c.hour).padStart(2, "0")}時`;
     document
       .querySelectorAll("#clockbar .spd")
       .forEach((b, i) => b.classList.toggle("on", i === c.speed));

@@ -25,7 +25,7 @@ const cityGroups = new Map(cityGroupCatalog.items.map(item => [`catalog:${item.i
 // populated by the current workspace. City groups are previews, not placement plans.
 export function createMapCanvas({ publish, stage, gameId = 'system-base-map', spriteRecipes = [] }) {
   let pickedCell = null, copiedCells = null;
-  const cellSelection = new Map();
+  const decorById = new Map(), groupById = new Map(), selectableByDecor = new Map();
   let source = null, canvas = null, mini = null, atlas = null, tiles = null, picker = null, selected = null;
   let diagnostics = [], gridVisible = true, placement = null, objectMove = null, multi = [];
   let moveBackdrop = null, errorCells = [], positionCheckActive = false;
@@ -65,11 +65,11 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     tiles.forEach(([x, y, tile]) => context.drawImage(atlas, tile % 16 * 16, Math.floor(tile / 16) * 16, 16, 16, (x - minX) * cell, (y - minY) * cell, cell, cell));
   }
   function groupCells(id, includeHidden = false) {
-    const group = source.selectionGroups?.find(row => row.id === id);
+    const group = groupById.get(id);
     return (group?.members ?? []).flatMap(member => {
       if (!includeHidden && !visible[({ decorations: 'decor', roads: 'roads', placements: 'cities' })[member.layer]]) return [];
       if (member.layer === 'roads') return source.map.roads.find(row => row.id === member.id).geometry.map(point => [point.x, point.y]);
-      const item = (member.layer === 'placements' ? source.map.placements : source.map.decorations).find(row => row.id === member.id);
+      const item = member.layer === 'placements' ? source.map.placements.find(row => row.id === member.id) : decorById.get(member.id);
       const def = source.componentDefinitions[item.definitionRef ?? item.componentRef];
       return def ? def.footprint.map(([x, y]) => [item.x + x - def.anchor[0], item.y + y - def.anchor[1]]) : [[item.x, item.y]];
     });
@@ -221,10 +221,6 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       });
 
     }
-    for (const [i, {x, y}] of Array.from(cellSelection.values()).entries()) {
-      context.strokeStyle = i === 0 ? '#ffcc00' : '#00ffff';
-      context.strokeRect(((x-source.map.bounds.minX)*16-view.x)*view.zoom, ((y-source.map.bounds.minY)*16-view.y)*view.zoom, cell, cell);
-    }
     if (mini && minimap) {
       const ctx = mini.getContext('2d');
       if (!miniImage) {
@@ -240,11 +236,12 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       ctx.strokeStyle = '#ffcc00'; ctx.strokeRect(view.x / world().width * 250, view.y / world().height * 167, size.width / view.zoom / world().width * 250, size.height / view.zoom / world().height * 167);
     }
   }
-  function snappedCell(sx, sy) {
+  function snappedCell(sx, sy, clamp = false) {
     if (!source || !Number.isFinite(sx) || !Number.isFinite(sy)) return null;
     const [wx, wy] = screenToWorld(view, sx, sy);
     const { minX, minY, width, height } = source.map.bounds;
     const x = Math.floor(wx / 16) + minX, y = Math.floor(wy / 16) + minY;
+    if (clamp) return { x: Math.max(minX, Math.min(minX + width - 1, x)), y: Math.max(minY, Math.min(minY + height - 1, y)) };
     if (x < minX || x >= minX + width || y < minY || y >= minY + height) return null;
     return { x, y };
   }
@@ -366,7 +363,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   const genericGroupPrefix = () => `${gameId}#group-`;
   function legacyGroupId(id) { return /^web-piece-group-\d+$/.test(id ?? ''); }
   function selectableGroupOf(decorId) {
-    return (source.selectionGroups ?? []).find(row => isSelectableGroup(row) && (row.members ?? []).some(member => member?.layer === 'decorations' && member.id === decorId));
+    return selectableByDecor.get(decorId);
   }
   function isSelectableGroup(row) {
     return row && typeof row.id === 'string' && (row.id.startsWith(genericGroupPrefix()) || legacyGroupId(row.id));
@@ -375,7 +372,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const cells = [];
     for (const entry of multi) {
       if (entry.kind === 'decor') {
-        const item = source.map.decorations.find(row => row.id === entry.id);
+        const item = decorById.get(entry.id);
         if (!item) continue;
         const def = source.componentDefinitions[item.definitionRef];
         if (!def) continue;
@@ -389,7 +386,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     for (const entry of multi) {
       if (entry.kind === 'decor') ids.add(entry.id);
       else if (entry.kind === 'group') {
-        const group = (source.selectionGroups ?? []).find(row => row.id === entry.id);
+        const group = groupById.get(entry.id);
         for (const member of group?.members ?? []) if (member?.layer === 'decorations') ids.add(member.id);
       }
     }
@@ -398,26 +395,45 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   // Shift+click toggles the topmost object: a generic group when the decor
   // belongs to one (city groups never join multi-select), else the decor.
   // Roads/cities are rejected for grouping. Plain clicks still use pick().
-  function toggleMulti(sx, sy) {
-    cellSelection.clear(); pickedCell = null;
+  function toggleMulti(sx, sy, endX, endY) {
     if (!source || locked.decor || !visible.decor) return { toggled: false };
     const cell = snappedCell(sx, sy);
     if (!cell) return { toggled: false };
-    if (visible.cities && !locked.cities && source.map.placements.some(row => row.x === cell.x && row.y === cell.y)) return { toggled: false, rejected: 'city' };
-    if (visible.roads && !locked.roads && source.map.roads.some(row => row.geometry.some(point => point.x === cell.x && point.y === cell.y))) return { toggled: false, rejected: 'road' };
-    const index = picker.pick(cell.x, cell.y), item = source.map.decorations[index];
-    if (!item) return { toggled: false };
-    const group = selectableGroupOf(item.id);
-    const entry = group ? { kind: 'group', id: group.id, name: group.label } : { kind: 'decor', id: item.id, name: source.componentDefinitions[item.definitionRef].name || item.definitionRef };
+    const range = endX !== undefined;
+    const indices = new Set();
+    if (range) {
+      const end = snappedCell(endX, endY, true);
+      const blocked = new Set();
+      if (visible.cities && !locked.cities) for (const p of source.map.placements) blocked.add(`${p.x},${p.y}`);
+      if (visible.roads && !locked.roads) for (const road of source.map.roads) for (const p of road.geometry) blocked.add(`${p.x},${p.y}`);
+      for (let y = Math.min(cell.y, end.y); y <= Math.max(cell.y, end.y); y++) {
+        for (let x = Math.min(cell.x, end.x); x <= Math.max(cell.x, end.x); x++) {
+          if (!blocked.has(`${x},${y}`)) indices.add(picker.pick(x, y));
+        }
+      }
+    } else {
+      if (visible.cities && !locked.cities && source.map.placements.some(row => row.x === cell.x && row.y === cell.y)) return { toggled: false, rejected: 'city' };
+      if (visible.roads && !locked.roads && source.map.roads.some(row => row.geometry.some(point => point.x === cell.x && point.y === cell.y))) return { toggled: false, rejected: 'road' };
+      indices.add(picker.pick(cell.x, cell.y));
+    }
+    const items = [...indices].map(i => source.map.decorations[i]).filter(Boolean);
+    if (!items.length) return { toggled: false };
     if (!multi.length && selected && (selected.layer === 'decor' || selected.layer === 'group')) {
       const first = selected.layer === 'group' ? { kind: 'group', id: selected.id } : { kind: 'decor', id: selected.id };
       const known = first.kind === 'decor' || (source.selectionGroups ?? []).some(row => row.id === first.id && isSelectableGroup(row));
       if (known) multi.push({ ...first, name: selected.name });
       selected = null;
     }
-    const at = multi.findIndex(row => row.kind === entry.kind && row.id === entry.id);
-    if (at >= 0) multi.splice(at, 1);
-    else multi.push(entry);
+    const entries = new Map(multi.map(row => [`${row.kind}:${row.id}`, row]));
+    for (const item of items) {
+      const group = selectableGroupOf(item.id);
+      const entry = group ? { kind: 'group', id: group.id, name: group.label } : { kind: 'decor', id: item.id, name: source.componentDefinitions[item.definitionRef].name || item.definitionRef };
+      const key = `${entry.kind}:${entry.id}`;
+      if (!range && entries.has(key)) entries.delete(key);
+      else entries.set(key, entry);
+    }
+    if (range) selected = null;
+    multi = [...entries.values()];
     objectMove = null; placement = null;
     draw(); facts();
     return { toggled: true, multi: multi.map(({ kind, id }) => ({ kind, id })) };
@@ -498,8 +514,15 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const first = !source;
     placement = null; objectMove = null; multi = [];
     source = value;
+    decorById.clear(); groupById.clear(); selectableByDecor.clear();
+    for (const item of source?.map.decorations ?? []) decorById.set(item.id, item);
+    for (const group of source?.selectionGroups ?? []) {
+      groupById.set(group.id, group);
+      if (isSelectableGroup(group)) for (const m of group.members) {
+        if (m.layer === 'decorations' && !selectableByDecor.has(m.id)) selectableByDecor.set(m.id, group);
+      }
+    }
     pickedCell = null;
-    cellSelection.clear();
     if (!source) copiedCells = null;
     errorCells = []; moveBackdrop = null;
     atomicCatalog = projectAtomicSpriteCatalog(source?.componentDefinitions);
@@ -536,23 +559,13 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     if (first) view = fitViewport(size, world());
     draw(); thumbnails.forEach((target, id) => drawThumbnail(target, id)); facts();
   }
-  function pick(sx, sy, additive = false) {
+  function pick(sx, sy) {
     if (!source) return;
     const [wx, wy] = screenToWorld(view, sx, sy), { minX, minY, width, height } = source.map.bounds;
     const x = Math.floor(wx / 16) + minX, y = Math.floor(wy / 16) + minY;
     if (x < minX || x >= minX + width || y < minY || y >= minY + height) return;
     placement = null; objectMove = null; multi = [];
-    if (additive) {
-      if (!cellSelection.size && pickedCell && pickedCell.selection === selected) cellSelection.set(`${pickedCell.x},${pickedCell.y}`, pickedCell);
-      const key = `${x},${y}`;
-      if (!cellSelection.delete(key)) cellSelection.set(key, { x, y });
-      pickedCell = null; selected = null;
-      draw(); facts();
-      return cellSelection.size;
-    }
-    const hadCellSelection = cellSelection.size > 0;
-    cellSelection.clear();
-    const prev = hadCellSelection ? null : selected;
+    const prev = selected;
     selected = null;
     if (visible.cities && !locked.cities) {
       const place = source.map.placements.find(row => row.x === x && row.y === y);
@@ -585,8 +598,10 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   }
   function command(op, fields = {}) {
     if (op === 'cell-copy' || op === 'cell-paste') {
-      const cells = cellSelection.size ? [...cellSelection.values()] : pickedCell && pickedCell.selection === selected ? [pickedCell] : [];
-      if (!source || !cells.length || multi.length) throw new Error('請先點選地圖單元格。');
+      if (op === 'cell-paste' && multi.length) throw new Error('請點選一個貼上目標格。');
+      const cells = multi.length ? [...new Map(multiCells().map(([x, y]) => [`${x},${y}`, { x, y }])).values()]
+        : pickedCell && pickedCell.selection === selected ? [pickedCell] : [];
+      if (!source || !cells.length) throw new Error('請先點選地圖單元格。');
       const [anchor] = cells;
       const { minX, minY, width, height } = source.map.bounds;
       if (op === 'cell-copy') {

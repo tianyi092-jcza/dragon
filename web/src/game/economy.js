@@ -109,7 +109,7 @@ export function distLevel(city, cap) {
   if (!cap) return 2;
   const dx = Math.abs(cap.x - city.x);
   const dy = Math.abs(cap.y - city.y);
-  const d = Math.max(dx, dy) & 0xff;
+  const d = Math.min(Math.max(dx, dy), 0xff);
   if (d <= 0x50) return 2;
   if (d <= 0xc8) return 3;
   return 4;
@@ -194,8 +194,8 @@ export function computeFactionExpense(scenario, factionIdx) {
   return troopUpkeep;
 }
 
-/** 军师「財政」界面实时数据与预测模型 */
-export function getProjectedFinance(scenario) {
+/** 686C..6893: 上次结算的收支与本期／次期政策分开显示。 */
+export function getFinancePanelData(scenario) {
   const pIdx = scenario.player_faction ?? 0;
   const f = scenario.factions[pIdx] || scenario.factions[0];
   if (!f) {
@@ -211,22 +211,15 @@ export function getProjectedFinance(scenario) {
       nextCav: 0,
       nextArc: 0,
       nextInf: 0,
-      yieldCav: 0,
-      yieldArc: 0,
-      yieldInf: 0,
     };
   }
 
-  const rawIncome = computeFactionRawIncome(scenario, f.idx);
   const nextTax = scenario.next_tax ?? scenario.tax ?? 18;
-  const projectedIncome = Math.floor((rawIncome * nextTax) / 100);
-  const projectedExpense = computeFactionExpense(scenario, f.idx);
-  const yields = computeConscriptionYields(scenario, f.idx);
 
   return {
     treasury: f.gold ?? f.money ?? 0,
-    income: projectedIncome,
-    expense: projectedExpense,
+    income: scenario.playerFinanceReport?.income ?? '—',
+    expense: scenario.playerFinanceReport?.expense ?? '—',
     curTax: scenario.tax ?? 18,
     curCav: scenario.conscription?.[0] ?? 0,
     curArc: scenario.conscription?.[1] ?? 0,
@@ -235,9 +228,6 @@ export function getProjectedFinance(scenario) {
     nextCav: scenario.next_conscription?.[0] ?? 0,
     nextArc: scenario.next_conscription?.[1] ?? 0,
     nextInf: scenario.next_conscription?.[2] ?? 0,
-    yieldCav: yields.cav,
-    yieldArc: yields.arc,
-    yieldInf: yields.inf,
   };
 }
 
@@ -329,6 +319,7 @@ export function monthlySettlement(scenario, _clock, rng) {
     if (f.idx === pIdx) {
       // 玩家势力: 按设定税率征税，按设定征兵数补充预备兵
       actualIncome = Math.floor((rawIncome * currentTax) / 100);
+      scenario.playerFinanceReport = { income: actualIncome, expense };
       conscriptedCav = Math.min(currentConscription[0] ?? 0, yields.cav);
       conscriptedArc = Math.min(currentConscription[1] ?? 0, yields.arc);
       conscriptedInf = Math.min(currentConscription[2] ?? 0, yields.inf);

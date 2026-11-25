@@ -17,7 +17,7 @@ import { processMonthlyFiscalSettlement } from "../web/src/game/ai.js";
 import { GameBar } from "../web/src/ui/gamebar.js";
 import { assertNativeMonthlyPolicy } from "../web/src/game/nativemonthlypolicy.js";
 import { performScenarioMonthlyPolicyActivation } from "../web/src/game/navigation/scenariomonthlypolicy.js";
-import { monthlySettlement } from "../web/src/game/economy.js";
+import { distLevel, getFinancePanelData, monthlySettlement } from "../web/src/game/economy.js";
 
 let data;
 try {
@@ -79,6 +79,23 @@ test("keypad confirmation survives JSON and 53A6; next settlement credits all th
   const [next] = monthlySettlement(sc, null, sequence(0));
   assert.deepEqual([next.cav,next.arc,next.inf], [10,20,30]);
   assert.deepEqual([faction.reserve_cav,faction.reserve_arc,faction.reserve_inf], [410,520,630]);
+});
+
+test("686C shows settled 18% report, not next 100% or live expense", () => {
+  const { sc, faction } = fixture();
+  sc.player_faction = 13;
+  sc.nativePlayerFactionPointer = 13 * 0x40;
+  sc.nativeMonthlyPolicy.bytes[0] = 18;
+  sc.nativeMonthlyPolicy.bytes[8] = 100;
+  refreshNativeMonthlyPolicyViews(sc);
+  faction.monthly_reserve_upkeep = 1008;
+  const [report] = monthlySettlement(sc, null, sequence(0));
+  const income = Math.floor(17556 * 18 / 100);
+  assert.equal(report.gold, 32000 + income - 1008);
+  faction.monthly_reserve_upkeep = 42;
+  const panel = getFinancePanelData(JSON.parse(JSON.stringify(sc)));
+  assert.deepEqual([panel.income, panel.expense, panel.nextTax], [income, 1008, 100]);
+  assert.deepEqual([80,81,200,201,255,256].map(x => distLevel({x,y:0},{x:0,y:0})), [2,3,3,4,4,4]);
 });
 
 test("5609/563B/55EC exact signed24 and carry saturation boundaries", () => {

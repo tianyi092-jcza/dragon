@@ -50,6 +50,8 @@ template.content.selectionGroups = template.content.selectionGroups.filter(group
 const originalLayers = composeMapLayers(template.content, { draft: true });
 assert.ok(gx, 'grouped member must exist');
 
+const gameMode = process.argv.includes('--game-rectangle-delete');
+const gameId = '11111111-1111-4111-8111-111111111111';
 const storage = openStorage(':memory:');
 const store = new SystemBaseMapStore({ storage, principal: () => ({ id: 'fixture', role: 'admin', must_change: false }), loadInitialTemplate: async () => template });
 let browser, snapshot = null;
@@ -64,9 +66,14 @@ try {
   page.on('requestfailed', request => failures.push(request.url()));
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
-    if (path === '/api/session') return route.fulfill({ json: { user: { id: 'fixture', account: 'fixture', role: 'admin', mustChangePassword: false }, version: 1, csrf: 'fixture' } });
+    if (path === '/api/session') return route.fulfill({ json: { user: { id: 'fixture', account: 'fixture', role: gameMode ? 'author' : 'admin', mustChangePassword: false }, version: 1, csrf: 'fixture' } });
     if (path === '/api/resources') return route.fulfill({ json: { mode: 'BUILTIN_READONLY', resources: [] } });
-    if (path === '/api/games') return route.fulfill({ json: { games: [] } });
+    if (path === '/api/games') return route.fulfill({ json: { games: gameMode ? [{gameId,draftRevision:'1',metadata:{name:'框選測試',introduction:''},createdAt:'2026-01-01T00:00:00.000Z',modifiedAt:'2026-01-01T00:00:00.000Z'}] : [] } });
+    if (gameMode && path === `/api/games/${gameId}/copy/submission`) return route.fulfill({json:{gameId,state:'draft',copyDigest:null,validation:null,slot:null,version:null,nextVersion:'1.0',publishEnabled:false,blockedReason:'尚未檢驗'}});
+    if (gameMode && path === `/api/games/${gameId}/copy` && request.method() === 'GET') {
+      const {editorAssets,...content} = template.content;
+      return route.fulfill({json:{gameId,copyDigest:'a'.repeat(64),data:{...content,gameId,mapEditorAssets:editorAssets}}});
+    }
     if (path === '/api/admin/accounts') return route.fulfill({ json: { accounts: [] } });
     if (path === '/api/admin/copy/submissions') return route.fulfill({ json: { queue: [] } });
     if (path === '/api/users') return route.fulfill({ json: { users: [] } });
@@ -84,15 +91,22 @@ try {
       snapshot = store.edit('fixture', edits);
       return route.fulfill({ json: { snapshot } });
     }
-    if (path === '/api/admin/base-map/atlas') {
+    if (path === '/api/admin/base-map/atlas' || gameMode && path === `/api/games/${gameId}/copy/map-atlas`) {
       const descriptor = template.content.editorAssets.seasonAtlases[url.searchParams.get('season')];
       const atlasBytes = await readFile(new URL('../web/' + descriptor.url, import.meta.url));
       return route.fulfill({ contentType: 'application/octet-stream', headers: { 'X-Content-SHA256': descriptor.sha256 }, body: atlasBytes });
     }
     return route.fulfill({ status: 500, json: { error: 'UNEXPECTED_FIXTURE_REQUEST' } });
   });
-  await page.goto(`http://127.0.0.1:${server.address().port}/#base-map-editor`);
-  const panel = page.locator('#base-map-editor');
+  await page.goto(`http://127.0.0.1:${server.address().port}/${gameMode ? '' : '#base-map-editor'}`);
+  const panel = page.locator(gameMode ? '#game-map-editor' : '#base-map-editor');
+  if (gameMode) {
+    await page.locator('.current-game').getByRole('button', { name: '重新整理', exact: true }).click();
+    await page.locator('.current-game .el-select').click();
+    await page.getByRole('option', {name:'框選測試',exact:true}).click();
+    await page.locator('[data-view="mapview-editor"]').click();
+    await page.getByText('已重新讀取遊戲地圖。',{exact:true}).waitFor();
+  } else {
   try {
     await panel.getByRole('button', { name: '建立', exact: true }).click({ timeout: 15000 });
   } catch (e) {
@@ -105,7 +119,8 @@ try {
   }
   await page.getByText('基礎地圖已建立。', { exact: true }).waitFor();
   await page.waitForFunction(() => [...document.querySelectorAll('#base-map-editor .map-status')].every(el => !(el.textContent || '').includes('圖集载入')), undefined, { timeout: 60000 });
-  console.log('Workspace initialized; checking road/city position feedback.');
+  }
+  console.log('Workspace initialized:', gameMode ? 'game' : 'base');
   const canvas = panel.locator('.base-map-canvas');
   const viewOf = async (x, y) => {
     const box = await canvas.boundingBox();
@@ -115,6 +130,12 @@ try {
     return { x: box.x + sx, y: box.y + sy, rx: sx, ry: sy };
   };
   const menu = () => panel.getByRole('dialog', { name: '物件操作', exact: true });
+  if (gameMode || process.argv.includes('--rectangle-delete')) {
+    await panel.getByRole('button', { name:'全圖', exact:true }).click();
+    await verifyRectangle(await viewOf(gx.x,gx.y));
+    assert.deepEqual(errors, []); assert.deepEqual(failures, []);
+    console.log('PASS right drag and Delete confirmation/cancel/delete/undo with both pan modes');
+  } else {
   const lclick = p => canvas.click({ position: { x: p.rx, y: p.ry } });
   const rclick = p => canvas.click({ button: 'right', position: { x: p.rx, y: p.ry } });
   // Background coordinates remain available for new cities, but never open
@@ -206,6 +227,7 @@ try {
   await panel.getByRole('button', { name: '鎖圖', exact: true }).click();
   await panel.getByRole('button', { name: '全圖', exact: true }).click();
   let gp = await viewOf(gx.x, gx.y);
+
 
   // 1. plain click selects, clicking the same cell again deselects.
   await lclick(gp);
@@ -378,4 +400,20 @@ try {
   assert.equal(errors.join('\n'), '');
   assert.equal(failures.join('\n'), '');
   console.log('PASS grouped and screenshot ungrouped fragments split to independent cells; one undo, unchanged terrain/geography/minimap, save+reload and per-cell picking');
+  }
+  async function verifyRectangle(gp) {
+    for (const locked of [false, true]) {
+      if (locked) await panel.getByRole('button', {name:'鎖圖',exact:true}).click();
+      await page.mouse.move(gp.x,gp.y); await page.mouse.down({button:'right'});
+      await page.mouse.move(gp.x+10,gp.y+8,{steps:4});
+      await panel.locator('.base-map-selection-box').waitFor();
+      await page.mouse.up({button:'right'}); assert.equal(await menu().count(),0);
+      const confirm=page.getByRole('dialog',{name:'刪除地圖物件'});
+      await canvas.press('Delete'); await confirm.getByRole('button',{name:'取消'}).click();
+      await confirm.waitFor({state:'hidden'});
+      await canvas.press('Delete'); await confirm.getByRole('button',{name:'確認刪除'}).click();
+      await panel.getByRole('button',{name:'撤銷',exact:true}).click();
+      assert.equal(await panel.getByRole('button',{name:'保存',exact:true}).isEnabled(),false);
+    }
+  }
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); storage.close(); }

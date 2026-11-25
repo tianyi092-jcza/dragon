@@ -350,7 +350,7 @@ test('E7 south and east marches: player, NPC autonomous, delegated, reorder, con
     stepMarch(player, 2);
     const mid = [player.x, player.y];
     player._retreat = { cityIdx: southCity.idx, nodeId: southCity.idx };
-    assert.ok(bar.legionAcceptsMarchOrder(player));
+    player._engagement = {kind:'siege', target:{cityIdx:southCity.idx}};
     assert.equal(player._retreat.cityIdx, southCity.idx);
     assert.ok(bar.assignMarchOrder(player, anchorCity, false));
     assert.equal(player._retreat, null);
@@ -475,9 +475,14 @@ test('E7 selection and march units: cheapest of two roads, unreachable, occupanc
   const chain = { nodes: chainNodes, edges: [edge('west', 5, line), { ...edge('east', 5, line), fromCityIndex: 1, toCityIndex: 2, points: [{ x: 2, y: 0, flags: 2 }, { x: 3, y: 0, flags: 0 }, { x: 4, y: 0, flags: 3 }] }] };
   const sc3 = { player_faction: 7, diplomacy: { 7: { 9: 0x7f } }, cities: [{ idx: 0, x: 0, y: 0, faction: 7 }, { idx: 1, x: 2, y: 0, faction: 9 }, { idx: 2, x: 4, y: 0, faction: 7 }] };
   const a3 = { slot: 0, x: 0, y: 0, faction: 7, status: 0x82, commandState: 0, moveDelay: 1, targetNode: 2, roadPosition: { kind: 'city', cityIndex: 0 } };
-  assert.throws(() => advanceGridMarch(sc3, a3, { graph: chain, movement }), /Grid march contact unresolved/);
-  assert.deepEqual([a3.x, a3.y], [0, 0]);
-  assert.equal(movement.readTile(0, 0), 1);
+  chain.edges[0].points = [{ x: 1, y: 0, flags: 0x44 }, { x: 2, y: 0, flags: 4 }];
+  assert.equal(advanceGridMarch(sc3, a3, { graph: chain, movement }), 'moved');
+  assert.throws(() => advanceGridMarch(sc3, a3, { graph: chain, movement }), e => e.endpoint === 1 && e.message === 'Grid march contact unresolved');
+  assert.deepEqual([a3.x, a3.y], [1, 0]);
+  assert.deepEqual([0,1,2].map(x => movement.readTile(x,0)), [0,1,0]);
+  // Reset the shared occupancy plane for the independent neutral-city case.
+  movement.writeTile(1, 0, 0);
+  movement.writeTile(0, 0, 1);
 
   sc2.cities[1].faction = null;
   g2.edges[0].points = [{ x: 1, y: 0, flags: 0x44 }, { x: 2, y: 0, flags: 4 }];

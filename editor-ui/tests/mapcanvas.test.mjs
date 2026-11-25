@@ -621,6 +621,19 @@ function multiFixture() {
     waterGroups: [] } };
 }
 
+test('rectangle adds topmost eligible objects once across all cells, in either direction', () => {
+  const source = multiFixture();
+  source.selectionGroups.push({ id: 'web-piece-group-1', label: 'group', members: ['a', 'b'].map(id => ({layer:'decorations', id})) });
+  let model;
+  const view = createMapCanvas({ publish: value => { model = value; }, stage: () => assert.fail('selection is not an edit') });
+  view.attach(canvas(), null); view.setSource(source); view.setAtlas({});
+  view.toggleMulti(3.2, 6.4);
+  view.toggleMulti(16, 25.6, 3.2, 6.4);
+  assert.deepEqual(model.multi.map(row => row.id), ['web-piece-group-1', 'c']);
+  view.toggleMulti(3.2, 6.4, 1000, 1000);
+  assert.deepEqual(model.multi.map(row => row.id), ['web-piece-group-1', 'c']);
+});
+
 test('shift-click toggles multi-select, combine regroups and disbands in one undo unit', () => {
   const source = multiFixture(), main = canvas(), staged = [];
   let model;

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { TrialStrategicClock } from "../web/src/editor/trialruleboundaries.js";
 
-const { Clock, STRATEGIC_SPEEDS, STRATEGIC_TIMER_MS, MAX_TICKS_PER_FRAME } = await import("../web/src/game/clock.js");
+const { Clock, calendarDisplayDay, STRATEGIC_SPEEDS, STRATEGIC_TIMER_MS, MAX_TICKS_PER_FRAME } = await import("../web/src/game/clock.js");
 
 // Original timer and wait gate: explicit KI/COM only, never DOS SAVE.DAT.
 const ki = readFileSync(new URL("../../Dragon/KI.EXE", import.meta.url));
@@ -257,6 +257,7 @@ for (const ClockType of [Clock, TrialStrategicClock]) for (const speed of [0, 1,
   c.sub = 8; c.hour = 23;
   c.advanceFrame(c.currentStep * 8);
   assert.equal(c._pendingMonthAdvance, true);
+  assert.equal(calendarDisplayDay(c), 1, 'Never show day zero during the month-end message');
   assert.deepEqual([c.month, c.day, c.hour, c.sub], [3, 0, 23, 8]);
   assert.deepEqual(calls, ['rules', ['month', 3, 0, 23, 8]]);
   c.advanceFrame(100000);

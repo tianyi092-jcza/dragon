@@ -26,6 +26,9 @@ export const STRATEGIC_TIMER_MS = (1000 * 256 * 16) / 1193182;
 export const MAX_TICKS_PER_FRAME = 16;
 export const STRATEGIC_SPEEDS = [24, 16, 9.6, 6.4, 4.8];
 
+// UI only: 5358 has already advanced the month, but 1DD7 has not committed day 1.
+export const calendarDisplayDay = clock => clock.day === 0 && clock._pendingMonthAdvance ? 1 : clock.day;
+
 export class Clock {
   /**
    * @param opts
