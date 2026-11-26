@@ -1173,8 +1173,11 @@ function applyFormalCatalog(app, formalEntry) {
     if (!pack) throw new Error("formal chapter must be loaded first");
     const loaded = await formalEntry.openEnvironment(pack, playerFaction);
     formalEntry.assertCurrent();
-    const base = loaded.environment.content, chapter = base.chapter(0);
-    if (!chapter?.template) throw new Error("formal chapter template required");
+    const base = loaded.environment.content, baseChapter = base.chapter(0);
+    if (!baseChapter?.template) throw new Error("formal chapter template required");
+    // 上架包章节在环境里 legacyScenarioIndex 恒为 0；此处按章节目录位置校准，
+    // 否则 setScenario(idx>0) 进 currentMetadata 会误报 Scenario content identity/index mismatch。
+    const chapter = Object.freeze({ ...baseChapter, legacyScenarioIndex: index });
     const scenarios = formalEntry.catalog.map((row, at) => (at === index
       ? chapter.template : { name: row.name, start: { ...row.start }, factions: [] }));
     app.content = Object.freeze({ ...base, data: Object.freeze({ ...base.data, scenarios: Object.freeze(scenarios) }),
