@@ -20,7 +20,7 @@ assert.throws(() => worldToDense(ob, 1.5, 0), /out of bounds/);
 assert.throws(() => denseToWorld(ob, 384 * 256), /out of bounds/);
 // North wrapper equals generic north.
 assert.deepEqual(extendNorthOneRow(structuredClone(game.map)).bounds, expandMapOneStep(structuredClone(game.map), 'north').bounds);
-// Each side: 0->1->20->refuse 21; old world cells preserved; new strip is sea.
+// Each side: 0->1->40->refuse 41; old world cells preserved; new strip is sea.
 for (const side of MAP_EXT_SIDES) {
   let m = structuredClone(game.map);
   m = expandMapOneStep(m, side);
@@ -45,9 +45,9 @@ for (const side of MAP_EXT_SIDES) {
     assert.equal(m.base.terrainRef[i], 95, `${side} sea tile`);
     assert.equal(m.base.geography[i], 1, `${side} sea geo`);
   }
-  for (let k = 1; k < 20; k++) m = expandMapOneStep(m, side);
-  assert.deepEqual(parseMapSides(m.bounds)[side === 'north' ? 'N' : side === 'south' ? 'S' : side === 'west' ? 'W' : 'E'], 20);
-  assert.throws(() => expandMapOneStep(m, side), /20/);
+  for (let k = 1; k < 40; k++) m = expandMapOneStep(m, side);
+  assert.deepEqual(parseMapSides(m.bounds)[side === 'north' ? 'N' : side === 'south' ? 'S' : side === 'west' ? 'W' : 'E'], 40);
+  assert.throws(() => expandMapOneStep(m, side), /40/);
   // composed layers agree with base on old domain
   const lyr = composeMapLayers({ ...game, map: m });
   for (let y = 0; y < oldH; y += 51) for (let x = 0; x < oldW; x += 61) {
@@ -63,16 +63,16 @@ assert.deepEqual(parseMapSides(m.bounds), { W: 1, E: 1, N: 1, S: 0 });
 assert.equal(m.bounds.width, 386); assert.equal(m.bounds.height, 257);
 // Max four corners + dense roundtrip.
 let full = structuredClone(game.map);
-for (const side of MAP_EXT_SIDES) for (let k = 0; k < 20; k++) full = expandMapOneStep(full, side);
-assert.deepEqual(full.bounds, { minX: -20, minY: -20, width: 424, height: 296, tileSize: 16 });
-assert.deepEqual(parseMapSides(full.bounds), { W: 20, E: 20, N: 20, S: 20 });
-for (const [x, y] of [[-20, -20], [403, -20], [-20, 275], [403, 275], [0, 0], [383, 255]]) {
+for (const side of MAP_EXT_SIDES) for (let k = 0; k < 40; k++) full = expandMapOneStep(full, side);
+assert.deepEqual(full.bounds, { minX: -40, minY: -40, width: 464, height: 336, tileSize: 16 });
+assert.deepEqual(parseMapSides(full.bounds), { W: 40, E: 40, N: 40, S: 40 });
+for (const [x, y] of [[-40, -40], [423, -40], [-40, 295], [423, 295], [0, 0], [383, 255]]) {
   assert.deepEqual(denseToWorld(full.bounds, worldToDense(full.bounds, x, y)), { x, y });
 }
 // Reject matrix: non-integers, shifted original domain, wrong size.
 for (const bad of [{ minX: 0.5, minY: 0, width: 384, height: 256 }, { minX: 1, minY: 0, width: 384, height: 256 },
-  { minX: 0, minY: 0, width: 425, height: 256 }, { minX: -21, minY: 0, width: 405, height: 256 },
-  { minX: 0, minY: 0, width: 384, height: 277 }, { minX: -20, minY: -20, width: 424, height: 297 }]) {
+  { minX: 0, minY: 0, width: 425, height: 256 }, { minX: -41, minY: 0, width: 425, height: 256 },
+  { minX: 0, minY: 0, width: 384, height: 297 }, { minX: -40, minY: -40, width: 464, height: 337 }]) {
   assert.equal(isSupportedMapExtent({ ...bad, tileSize: 16 }), false, JSON.stringify(bad));
 }
 assert.throws(() => expandMapOneStep(structuredClone(game.map), 'up'), /unknown map side/);

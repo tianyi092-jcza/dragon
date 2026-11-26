@@ -99,10 +99,10 @@ test('E2 refusal matrix: sides, delta, quota, non-empty strip, shrink at zero', 
   assert.ok(!applied.map.decorations.some(d => d.id === decoId), 'crossing piece removed whole');
   const kept = readData(gameId);
   assert.equal(kept.map.bounds.minY, -1, 'pure apply writes nothing to storage');
-  // Quota: drive to 20 via the write path, then the 21st must refuse.
+  // Quota: drive to 40 via the write path, then the 41st must refuse.
   const qid = fresh();
-  for (let k = 0; k < 20; k++) await writeMap(qid, [{ op: 'map-extent', side: 'north', delta: 1 }]);
-  assert.equal(readData(qid).map.bounds.minY, -20);
+  for (let k = 0; k < 40; k++) await writeMap(qid, [{ op: 'map-extent', side: 'north', delta: 1 }]);
+  assert.equal(readData(qid).map.bounds.minY, -40);
   await fails(() => writeMap(qid, [{ op: 'map-extent', side: 'north', delta: 1 }]), 'MAP_EXTENT_BUDGET');
 });
 

@@ -26903,8 +26903,8 @@ const od = Array.from({ length: 15 }, (e, t) => `kyo_${String(t).padStart(2, "0"
         return;
       }
       const f = d(i.region);
-      if ([...f].length > 6) {
-        l.value = "所屬州郡最多 6 個字。";
+      if ([...f].length > 8) {
+        l.value = "所屬州郡最多 8 個字。";
         return;
       }
       const m = {};
@@ -27308,7 +27308,7 @@ const od = Array.from({ length: 15 }, (e, t) => `kyo_${String(t).padStart(2, "0"
       if (!we) return "據點名稱不可空白。";
       if ([...we].length > 12) return "據點名稱最多 12 個字。";
       if (w.value.some((ve) => ve.cityId !== $e.cityId && v(ve.name) === we)) return "據點名稱「" + we + "」已被其他據點使用。";
-      if ([...v(d.region)].length > 6) return "所屬州郡最多 6 個字。";
+      if ([...v(d.region)].length > 8) return "所屬州郡最多 8 個字。";
       for (const ve of a) {
         const D = String(d[ve] ?? "").trim();
         if (D && (!/^[0-9]{1,5}$/.test(D) || Number(D) > n[ve]))
@@ -27709,7 +27709,7 @@ const od = Array.from({ length: 15 }, (e, t) => `kyo_${String(t).padStart(2, "0"
       }, null, 8, ["current-page", "page-size", "total", "disabled"])) : me("v-if", !0)
     ]));
   }
-}, bO = /* @__PURE__ */ Qn(fO, [["__scopeId", "data-v-f64602ba"]]), pO = {
+}, bO = /* @__PURE__ */ Qn(fO, [["__scopeId", "data-v-54f48977"]]), pO = {
   id: "base-stronghold-editor",
   class: "module-card"
 }, mO = { class: "module-toolbar" }, gO = {
@@ -27804,7 +27804,7 @@ const od = Array.from({ length: 15 }, (e, t) => `kyo_${String(t).padStart(2, "0"
       if (!ee) return "據點名稱不可空白。";
       if ([...ee].length > 12) return "據點名稱最多 12 個字。";
       if (m.value.some((Re) => Re.cityId !== ne.cityId && v(Re.name) === ee)) return "據點名稱「" + ee + "」已被其他據點使用。";
-      if ([...v(d.region)].length > 6) return "所屬州郡最多 6 個字。";
+      if ([...v(d.region)].length > 8) return "所屬州郡最多 8 個字。";
       for (const Re of a) {
         const De = String(d[Re] ?? "").trim();
         if (De && (!/^[0-9]{1,5}$/.test(De) || Number(De) > n[Re]))
@@ -28204,7 +28204,7 @@ const od = Array.from({ length: 15 }, (e, t) => `kyo_${String(t).padStart(2, "0"
       }, null, 8, ["current-page", "page-size", "total", "disabled"])) : me("v-if", !0)
     ]));
   }
-}, IO = /* @__PURE__ */ Qn(kO, [["__scopeId", "data-v-5fc8db62"]]), MO = ft({
+}, IO = /* @__PURE__ */ Qn(kO, [["__scopeId", "data-v-dc0844bf"]]), MO = ft({
   /**
   * @description title of the card. Also accepts a DOM passed by `slot#header`
   */
@@ -29219,8 +29219,8 @@ const Rr = Mo, UO = ["id"], KO = { class: "base-map-body" }, GO = {
                     default: T(() => [
                       $(p(Be), {
                         "aria-label": `${ye}增`,
-                        title: `向${ye}延伸一${Ne}；已用 ${Le(H) ?? "?"}／20 格`,
-                        disabled: E.value || !e.model.exists || (Le(H) ?? 0) >= 20,
+                        title: `向${ye}延伸一${Ne}；已用 ${Le(H) ?? "?"}／40 格`,
+                        disabled: E.value || !e.model.exists || (Le(H) ?? 0) >= 40,
                         onClick: (se) => _e(_, 1)
                       }, {
                         default: T(() => [
@@ -29231,7 +29231,7 @@ const Rr = Mo, UO = ["id"], KO = { class: "base-map-body" }, GO = {
                       }, 8, ["aria-label", "title", "disabled", "onClick"]),
                       $(p(Be), {
                         "aria-label": `${ye}縮`,
-                        title: `縮回${ye}側一${Ne}；已用 ${Le(H) ?? "?"}／20 格`,
+                        title: `縮回${ye}側一${Ne}；已用 ${Le(H) ?? "?"}／40 格`,
                         disabled: E.value || !e.model.exists || (Le(H) ?? 0) <= 0,
                         onClick: (se) => _e(_, -1)
                       }, {
@@ -29858,7 +29858,7 @@ const Rr = Mo, UO = ["id"], KO = { class: "base-map-body" }, GO = {
       ])
     ], 8, UO));
   }
-}, y0 = /* @__PURE__ */ Qn(xT, [["__scopeId", "data-v-3bb273df"]]), RT = {
+}, y0 = /* @__PURE__ */ Qn(xT, [["__scopeId", "data-v-be27ab7d"]]), RT = {
   id: "catalog-editor",
   class: "module-card resources-card"
 }, kT = {
@@ -34092,7 +34092,7 @@ function yN(e, t, n, a, o) {
     return w.nativeCityRecordRaw && (k.nativeCityRecordRaw = w.nativeCityRecordRaw.map((I, E) => E === m.runtimeSlot && I ? I.slice(0, 16) + h + I.slice(24) : I)), [y, { ...S, state: k }];
   }))), b;
 }
-const wN = Object.freeze({ minX: 0, minY: 0, width: 384, height: 256 }), Of = 384, Tf = 256, Kh = 20, Gh = Object.freeze(["north", "south", "west", "east"]);
+const wN = Object.freeze({ minX: 0, minY: 0, width: 384, height: 256 }), Of = 384, Tf = 256, Kh = 40, Gh = Object.freeze(["north", "south", "west", "east"]);
 function ao(e) {
   return Number.isInteger(e);
 }
@@ -34134,7 +34134,7 @@ function Xh({ minX: e, minY: t, width: n, height: a }, o, r) {
 function Jh(e, t) {
   if (!Gh.includes(t)) throw new TypeError(`unknown map side: ${t}`);
   const { bounds: n, base: a } = e;
-  if (Af({ ...n, tileSize: 16 }), xc(n)[t === "north" ? "N" : t === "south" ? "S" : t === "west" ? "W" : "E"] >= Kh) throw new RangeError(`${t}側擴展已達 20 格`);
+  if (Af({ ...n, tileSize: 16 }), xc(n)[t === "north" ? "N" : t === "south" ? "S" : t === "west" ? "W" : "E"] >= Kh) throw new RangeError(`${t}側擴展已達 40 格`);
   const s = n.width, i = n.height, c = t === "north" ? { minX: n.minX, minY: n.minY - 1, width: s, height: i + 1 } : t === "south" ? { minX: n.minX, minY: n.minY, width: s, height: i + 1 } : t === "west" ? { minX: n.minX - 1, minY: n.minY, width: s + 1, height: i } : { minX: n.minX, minY: n.minY, width: s + 1, height: i }, l = { ...n, ...c }, d = (v, f) => (f - l.minY) * l.width + v - l.minX, u = new Array(l.width * l.height).fill(95), b = new Array(l.width * l.height).fill(1);
   for (let v = n.minY; v < n.minY + i; v++)
     for (let f = n.minX; f < n.minX + s; f++) {
@@ -36210,7 +36210,7 @@ function vL({ api: e, work: t, publish: n, confirm: a, isBusy: o }) {
     }
     if (Object.keys(O).length && (E.numbers = { [R]: O }), k.region !== void 0 && k.region !== (I.region ?? "")) {
       const N = String(k.region ?? "").normalize("NFC").trim();
-      if ([...N].length > 6) throw new Error("所屬州郡最多 6 個字。");
+      if ([...N].length > 8) throw new Error("所屬州郡最多 8 個字。");
       E.region = { [R]: N };
     }
     if (k.battleMapId !== void 0 && k.battleMapId !== (I.battleMapId ?? null)) {

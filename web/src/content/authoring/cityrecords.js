@@ -16,7 +16,7 @@ export function cityName(value) {
   return name;
 }
 // 所屬州郡（Web 產品決定 2026-11，非原版機制）：基礎據點與城池據點共用的作者维护
-// 展示欄位，可空，預設空白，最多 5 個字；不參與規則、編譯、章節或發布校驗。
+// 展示欄位，可空，預設空白，最多 8 個字；不參與規則、編譯、章節或發布校驗。
 export function cityRegion(value) {
   if (typeof value !== 'string') throw new TypeError('city region required');
   for (const char of value) {
@@ -24,7 +24,7 @@ export function cityRegion(value) {
     if (point < 32 || point >= 127 && point <= 159 || point >= 0xd800 && point <= 0xdfff) throw new RangeError('invalid city region');
   }
   const region = value.normalize('NFC').trim();
-  if ([...region].length > 6) throw new RangeError('city region up to 6 chars');
+  if ([...region].length > 8) throw new RangeError('city region up to 8 chars');
   return region;
 }
 // Game-level base numbers (user 2026-11: 据点基础属性归游戏级，除所属势力外都要有).

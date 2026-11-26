@@ -85,7 +85,7 @@ test('E5 template op refusal matrix (quota, side, delta, corrupt input)', () => 
   fails(() => applyMapWorkspaceEdits(workspace(), [{ op: 'map-extent', side: 'north', delta: 2 }]), 'COPY_MAP_DELTA');
   fails(() => applyMapWorkspaceEdits(workspace(), [{ op: 'map-extent', side: 'north', delta: 0 }]), 'COPY_MAP_DELTA');
   let cur = workspace();
-  for (let k = 0; k < 20; k++) cur = applyMapWorkspaceEdits(cur, [{ op: 'map-extent', side: 'north', delta: 1 }]);
+  for (let k = 0; k < 40; k++) cur = applyMapWorkspaceEdits(cur, [{ op: 'map-extent', side: 'north', delta: 1 }]);
   fails(() => applyMapWorkspaceEdits(cur, [{ op: 'map-extent', side: 'north', delta: 1 }]), 'MAP_EXTENT_BUDGET');
   const before = JSON.stringify(baseTemplate);
   assert.throws(() => validateSystemBaseMap({ ...baseTemplate, version: 0 }, sha));
@@ -102,10 +102,10 @@ test('E5 both creation entries inherit the template snapshot and quota', () => {
     assert.deepEqual(born.map.bounds, grown.content.map.bounds, 'used quota inherited, not reset');
     assert.deepEqual(born.mapOrigin, { schema: grown.schema, supportProfile: grown.supportProfile, version: 1, digest: snap.digest });
   }
-  // Template north already +12: only 8 more rows allowed, the 9th refuses.
+  // Template north already +12: only 28 more rows allowed, the 29th refuses.
   let cur = bornFull;
-  for (let k = 0; k < 8; k++) cur = applyCopyMapEdits(cur, [{ op: 'map-extent', side: 'north', delta: 1 }]);
-  assert.equal(cur.map.bounds.minY, -20, '8 more rows reach the per-side cap of 20');
+  for (let k = 0; k < 28; k++) cur = applyCopyMapEdits(cur, [{ op: 'map-extent', side: 'north', delta: 1 }]);
+  assert.equal(cur.map.bounds.minY, -40, '28 more rows reach the per-side cap of 40');
   fails(() => applyCopyMapEdits(cur, [{ op: 'map-extent', side: 'north', delta: 1 }]), 'MAP_EXTENT_BUDGET');
   // Other sides keep their own independent quota.
   const south = applyCopyMapEdits(bornMinimal, [{ op: 'map-extent', side: 'south', delta: 1 }]);

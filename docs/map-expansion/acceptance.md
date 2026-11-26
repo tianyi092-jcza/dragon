@@ -132,3 +132,10 @@
 - 回歸：publish triplets、publish_after_retirement、copy_chapter_ops（34/34）、E0 北實驗（新正式期望）、bounds、E9 save 全綠；`node --check`＋`git diff --check` 全過。乾淨 HEAD 既有失敗（本輪 stash 對照，非本輪）：`verify_publish_atomicity`（測試 helper 缺 `readShared`）、`verify_frozen_publication_root`＋`verify_static_release_package`（靜態發布基建 `STATIC_RELEASE_INVALID`）、`verify_scenario_assembly` 6/6（靜態 `road_graph` 載入問題，同家族）；沿用 topology D2／road_gates／roundtrip、delegated_target_march 靜態問題。
 - 現場還原（唯讀，未碰服務／未寫入）：`6b2ed96c` 副本 bounds 原域、`draft_topology_moves` 零掛起；E2–E4 空白帶操作已縮回，digest 變動僅來自本輪未提交工作區（未 commit／push）。
 - 未做（阻塞，需擁有者會話，非失敗）：`verify_publication_chain_browser.mjs` 瀏覽器正式鏈；`verify_copy_http_roundtrip --browser`；頁面級「既有副本不重拷使用」；`verify_game_save_store_browser` 擴展圖真機流程；`drafts.readMinimap` 擴展草稿展示（僅透傳，間接覆蓋）。外部署不屬本地結案。
+
+## E11 收據（2026-11-26，狀態：通過——配額 20→40；隔離新期望全綠，4 項為乾淨 HEAD 既有失敗）
+
+- 來源：用戶要求四邊各再加 20（只動系統基，遊戲副本不動；新格只用底圖 95／geography 1，不用邊線複製）。
+- 實作：`mapextent.js MAP_EXT_SIDE_MAX 20→40`（錯誤訊息、註釋、`isNorthExtension` 下界同步；最大 `464×336`，端點 `(-40,-40)..(423,295)`）；`BaseMapPanel.vue` 配額顯示／滿額禁用 `／20→／40`；活合同 `contract.md`＋`AGENTS.md` 同步 40；歷史收據不改，僅此新增。遊戲副本只繼承上限不自動擴，符合「只增加基礎圖」。
+- 隔離證據：`sides`／`north`／`sides_ops`／`templates`／`playable`／`save`／`march` 配額斷言同步 40 後全綠（壞界改為真正超規：北 −41／425 寬／297 高）；`store.edit` 一次 80 條 `map-extent`（無 fill＝底圖）把 dev 系統基從 `(-20,-20,424×296)` 擴到 `(-40,-40,464×336)`（v138→v139），195 據點、195 州郡全保留，新帶抽查 4000 格全 95／1。`node --check`＋`git diff --check`、Vue LSP 37 SFCs 0 告警、`editor-ui --check`＋重建全過。
+- 既有失敗（乾淨 HEAD worktree 同錯，非本輪）：`impact` E4 三項（strip 收縮）、`battle` E8（`Native zero chapter requires an uninitialized empty table`）、`publish` E10；`controller` 過。未跑瀏覽器段（需擁有者會話）。

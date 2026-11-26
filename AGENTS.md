@@ -6,7 +6,7 @@
 
 - 重寫 1995 DOS《臥龍傳》，不用模擬器。玩家與 Trial 引擎、編輯／編譯核心為原生 ES Modules＋Canvas 2D，無框架、無建置及 npm 執行依賴。只有 `editor-ui/` 使用 Vue 3＋Element Plus＋Vite；同源服務提供預建資源，Vue 只接顯示 DTO／動作，不持有憑據、源物件或 live 遊戲狀態。內容發布不觸發程式部署。
 - **主線**：每款遊戲只有一套可編輯 copy、一個 publish 槽、一份 formal 快照；地圖、道路、據點、人物與章節為遊戲內共享資料。系統基礎地圖及基礎據點是建立時的模板，不是既有副本的第二份 live 資料。普通新建與完整複製分開，只允許一個成功的完整複製基準。舊 draft 退役／表清理等範圍見[收斂清單](docs/copy-simplification-tasks.md)。`/api/trial/*` 已退役（410），保留引擎不代表重新開放服務。
-- **目前玩家主線**：發布遊戲的擴展格圖已接入戰略 AI、行軍接戰、戰後消息、災害與跨章存讀檔。本地《呂布歸天》1.7 是整合回歸樣本，不代表生產版本或全戰役驗收。對照內置與發布路徑時固定章節、世界邊界和操作；兩者都不能代替 DOS 原證。
+- **目前玩家主線**：發布遊戲的擴展格圖已接入戰略 AI、行軍接戰、戰後消息、災害與跨章存讀檔。本地發布快照可作整合回歸樣本，不代表生產版本或全戰役驗收。對照內置與發布路徑時固定章節、世界邊界和操作；兩者都不能代替 DOS 原證。
 - 編輯器為 12 項扁平選單，遊戲組在前、管理員組在後；品牌「臥龍傳編輯器」。「遊戲資源」是原頭像模組的顯示名，仍用 `catalog-editor`，僅管理員可用。「遊戲管理」負責上架發布；章節管理、勢力設定、勢力武將、勢力據點、外交關係在章節工作台；刪除遊戲只在上架審核入口。內置遊戲不可編輯、下架或刪除。
 - 軟體版本見 `VERSION`；規則基線 `web-0.1.1`、內容摘要、遊戲版本 `1.n`、程式歸檔身份彼此獨立。生產為 `sadcloud` 單 VPS、玩家／編輯器分服務；操作前按[存儲佈局 §18](docs/game-storage-layout.md#18-迁回-sadcloud2026-11-09-utc-起现行生产)核對主機、目錄、程序與 pin，不沿用舊 PID 或遠端狀態。
 
@@ -22,8 +22,9 @@
 **規則與內容合同**
 
 - 戰略事件用 `epoch*64+slot`；同一位置只推進一次，消息返回才派下一條，整批結束才 tick 勢力。原四位元組輪與調度表不得雙派。改表形狀同步[調度合同](docs/d2-event-scheduler-plan.md)、快照校驗及恢復回歸。開局 `playerOpening` 只在 fresh 安裝，restore 不從章頭重置；有紀元時前 1 年直接接公元 1 年。行軍、戰術、戰後與資料格式依父目錄對應 SKILL 核原證；[戰略時序](docs/re-notes-strategic-time.md)、[戰術生命週期](docs/re-notes-tactical-lifecycle.md)只作可追溯索引。敗北／統一過場為 Web 表現，不替代原勝負門。
-- 基礎地圖及遊戲地圖共用四向擴縮：每側 `0..20` 格，不裁原域、不移動舊座標，最大 `424×296`。新增複製當前邊線普通地形及疊層，不複製道路、橋、城門或據點；縮回按現有物件影響規則。原全海命令與舊資料不追改。擴展須貫通編輯、編譯、行軍、存讀、發布，見[擴縮入口](docs/map-expansion/README.md)與[驗收邊界](docs/map-expansion/acceptance.md)。據點容量 v2-192／v3-512 與地圖尺寸是不同准入門；內置及生產限制見[CITY 計畫](docs/city-capacity-expansion-plan.md)。
+- 基礎地圖及遊戲地圖共用四向擴縮：每側 `0..40` 格，不裁原域、不移動舊座標，最大 `464×336`。新增複製當前邊線普通地形及疊層，不複製道路、橋、城門或據點；縮回按現有物件影響規則。原全海命令與舊資料不追改。擴展須貫通編輯、編譯、行軍、存讀、發布，見[擴縮入口](docs/map-expansion/README.md)與[驗收邊界](docs/map-expansion/acceptance.md)。據點容量 v2-192／v3-512 與地圖尺寸是不同准入門；內置及生產限制見[CITY 計畫](docs/city-capacity-expansion-plan.md)。
 - 地形位元組、顯示、規則地理、小地圖、路網分離。`sea-ground-1` 全幅以 95 海底承托素材，舊無 policy 源不猜底；四季共用布局，素材庫固定春季，保留 256 原子身份，不按像素合併。未鎖可平移，鎖圖才拖已選物件；整組拖放不自動建城，不猜道路重連。移動錯誤保存時列出具體物件／座標。確定道路／城門磚鏈結到兩城才可在遊戲保存時物化道路；有路紋不等於必然可通行。見[地面](docs/map-sea-ground-contract.md)、[原子與物件編輯](docs/map-atomic-catalog-contract.md)、[模板](docs/system-base-map-design.md)。
+- **據點屬性與地圖分開保存**：基礎據點在 SQLite `system_base_map.template_json` 的 `content.cities`；城池據點在遊戲副本的 `cities`。普通新建遊戲複製模板，不與系統基準聯動。既有據點改名、改州郡或數值不重算道路、不編譯地圖；刪城仍查落點、路端與章節引用，發布仍全量校驗。規範摘要須可從持久 JSON 重算；副本單行回執只在修改前摘要與畫面相符時套用，否則重讀。
 - 據點先建檔（指定戰場與城兵上限初值），地圖放置、綁定後連路。戰場、城景與上限是不同欄位；城兵上限不拉平既有章差。攻城依原城類型選圖，野戰依地形。武將主表以穩定 ID 關聯章槽，刪章不動主表或他章；勢力退役不重用原槽。同章同君主或不同君主共首都，完整複製只保首次並留回執，不合併資源。詳見[據點](docs/editor-city-definitions.md)、[武將](docs/editor-general-definitions.md)、[章節／雙基](docs/chapter-and-base-resources.md)。共享頭像 621 張、ID `0..620`，255 是普通資源；大於 255 用 `portraitKey`，不塞 DOS byte，見[頭像合同](docs/re-notes-portrait-reader.md)。
 - copy 保存只攔模組約束；發布時全量校驗，摘要變動即廢票。提交須同摘要一次性票、說明及節流，審核同意在同一交易配發不重用的版本、更新 pin／formal／上架。刪除須所有權、柵欄及清理後復核，不刪共享程式或系統基礎地圖。正式版更新使舊局禁存、舊檔不可載入；網路失敗或下架不是版本更新。合同見[存儲佈局](docs/game-storage-layout.md)。
 
@@ -59,6 +60,8 @@ npm run --prefix editor-ui/lsp check
 node tools/build_trial_web_bundle.mjs
 # 本地 8443 已有相符的《呂布歸天》發布快照時；只取發布資源，在記憶體驗證
 node tools/verify_grid_war_ai_release.mjs <本地發布遊戲UUID>
+# 據點屬性保存與刪除引用（隔離夾具）
+node --test --test-concurrency=1 tools/verify_base_cities.mjs tools/verify_copy_controller_cities.mjs tools/verify_copy_city_delete.mjs
 node --test --test-concurrency=1 tools/verify_map_extent_sides_ops.mjs tools/verify_map_extent_controller.mjs
 node --test tools/verify_map_extent_templates.mjs
 node tools/verify_system_base_map_browser.mjs --edge-growth       # 遊戲地圖

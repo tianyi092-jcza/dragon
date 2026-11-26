@@ -279,7 +279,7 @@ test('E6 local extended grid pack reaches the fresh grid branch; movement covers
 
 test('E6 extended pack refusal matrix (flag off, bad bounds, legacy north intact)', async () => {
   await assert.rejects(loadGridPack({ bounds: GRID_BOUNDS }), /PLAYER_PACK_INVALID/, 'extended pack without any flag refuses');
-  const badBounds = { minX: -21, minY: 0, width: 405, height: 256, tileSize: 16 };
+  const badBounds = { minX: -41, minY: 0, width: 425, height: 256, tileSize: 16 };
   await assert.rejects(loadGridPack({ bounds: badBounds, flags: { mapExtent: true } }), /PLAYER_PACK_INVALID/, 'beyond-cap bounds refuse even with the flag');
   const northBounds = { minX: 0, minY: -5, width: 384, height: 261, tileSize: 16 };
   const legacy = await loadGridPack({ bounds: northBounds, flags: { northExperiment: true } });

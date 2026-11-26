@@ -33,7 +33,7 @@ async function createCity() {
   if ([...name].length > 12) { failure.value = '據點名稱最多 12 個字。'; return; }
   if (props.cities.some(item => cityName(item.name) === name)) { failure.value = '據點名稱「' + name + '」已被其他據點使用。'; return; }
   const region = cityName(create.region);
-  if ([...region].length > 6) { failure.value = '所屬州郡最多 6 個字。'; return; }
+  if ([...region].length > 8) { failure.value = '所屬州郡最多 8 個字。'; return; }
   const numbers = {};
   for (const key of ['max_prod', 'prod', 'growth', 'defence', 'troops', 'type', 'view']) {
     if (key === 'view' && create.view === null) continue;

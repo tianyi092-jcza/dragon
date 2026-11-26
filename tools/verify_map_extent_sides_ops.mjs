@@ -87,8 +87,8 @@ test('延伸的邊格可獨立調整；再次增長複製調整後的疊層，�
 
 test('E3 quota is per-side and independent', async () => {
   const gameId = fresh();
-  for (let k = 0; k < 20; k++) await writeMap(gameId, [{ op: 'map-extent', side: 'north', delta: 1 }]);
-  assert.equal(readData(gameId).map.bounds.minY, -20);
+  for (let k = 0; k < 40; k++) await writeMap(gameId, [{ op: 'map-extent', side: 'north', delta: 1 }]);
+  assert.equal(readData(gameId).map.bounds.minY, -40);
   await fails(() => writeMap(gameId, [{ op: 'map-extent', side: 'north', delta: 1 }]), 'MAP_EXTENT_BUDGET');
   await writeMap(gameId, [{ op: 'map-extent', side: 'east', delta: 1 }]);
   assert.equal(readData(gameId).map.bounds.width, 385, 'north quota does not block east');

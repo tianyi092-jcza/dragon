@@ -115,7 +115,7 @@ function validate(row) {
   if ([...name].length > 12) return '據點名稱最多 12 個字。';
   if (loaded.value.some(item => item.cityId !== row.cityId && cityName(item.name) === name)) return '據點名稱「' + name + '」已被其他據點使用。';
   const region = cityName(form.region);
-  if ([...region].length > 6) return '所屬州郡最多 6 個字。';
+  if ([...region].length > 8) return '所屬州郡最多 8 個字。';
   for (const key of FIELDS) {
     const raw = String(form[key] ?? '').trim();
     if (!raw) continue;

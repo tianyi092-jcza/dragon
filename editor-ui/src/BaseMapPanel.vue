@@ -348,8 +348,8 @@ onBeforeUnmount(() => {
         <div v-for="[side, key, name, unit] in extentDirections" :key="side" class="extent-direction" role="group" :aria-label="`${name}側擴縮`">
           <span>{{ name }}</span>
           <ElButtonGroup>
-            <ElButton :aria-label="`${name}增`" :title="`向${name}延伸一${unit}；已用 ${extentQuota(key) ?? '?'}／20 格`" :disabled="locked || !model.exists || (extentQuota(key) ?? 0) >= 20" @click="runExtent(side, 1)"><WorkspaceIcon name="plus" /></ElButton>
-            <ElButton :aria-label="`${name}縮`" :title="`縮回${name}側一${unit}；已用 ${extentQuota(key) ?? '?'}／20 格`" :disabled="locked || !model.exists || (extentQuota(key) ?? 0) <= 0" @click="runExtent(side, -1)"><WorkspaceIcon name="minus" /></ElButton>
+            <ElButton :aria-label="`${name}增`" :title="`向${name}延伸一${unit}；已用 ${extentQuota(key) ?? '?'}／40 格`" :disabled="locked || !model.exists || (extentQuota(key) ?? 0) >= 40" @click="runExtent(side, 1)"><WorkspaceIcon name="plus" /></ElButton>
+            <ElButton :aria-label="`${name}縮`" :title="`縮回${name}側一${unit}；已用 ${extentQuota(key) ?? '?'}／40 格`" :disabled="locked || !model.exists || (extentQuota(key) ?? 0) <= 0" @click="runExtent(side, -1)"><WorkspaceIcon name="minus" /></ElButton>
           </ElButtonGroup>
         </div>
       </div>

@@ -4,12 +4,12 @@ import { componentCells } from '../../editor/componenttools.js';
 // experiment; this operation is not registered for persistent editor writes yet.
 // MAP-EXT E1: four-side extent core (Web product plan, not DOS mechanism).
 // Original domain is x=0..383, y=0..255. West/north use negative world coords.
-// Per-side added cells W/E/N/S are integers 0..20; max 424x296.
+// Per-side added cells W/E/N/S are integers 0..40; max 464x336.
 // New cells are sea base (tile 95, geography 1) per sea-ground contract.
 export const ORIGINAL_EXTENT = Object.freeze({ minX: 0, minY: 0, width: 384, height: 256 });
 export const ORIGINAL_WIDTH = 384;
 export const ORIGINAL_HEIGHT = 256;
-export const MAP_EXT_SIDE_MAX = 20;
+export const MAP_EXT_SIDE_MAX = 40;
 export const MAP_EXT_MAX_WIDTH = ORIGINAL_WIDTH + MAP_EXT_SIDE_MAX * 2;
 export const MAP_EXT_MAX_HEIGHT = ORIGINAL_HEIGHT + MAP_EXT_SIDE_MAX * 2;
 export const MAP_EXT_SIDES = Object.freeze(['north', 'south', 'west', 'east']);
@@ -53,7 +53,7 @@ export function denseToWorld(bounds, i) {
   return { x: bounds.minX + (i % bounds.width), y: bounds.minY + Math.floor(i / bounds.width) };
 }
 export function isNorthExtension(bounds) {
-  return bounds?.width === 384 && bounds.minX === 0 && Number.isInteger(bounds.minY) && bounds.minY >= -20 && bounds.minY < 0 && bounds.height === 256 - bounds.minY;
+  return bounds?.width === 384 && bounds.minX === 0 && Number.isInteger(bounds.minY) && bounds.minY >= -MAP_EXT_SIDE_MAX && bounds.minY < 0 && bounds.height === 256 - bounds.minY;
 }
 export function containsTile({ minX, minY, width, height }, x, y) {
   return Number.isInteger(x) && Number.isInteger(y) && x >= minX && y >= minY && x < minX + width && y < minY + height;
@@ -67,7 +67,7 @@ export function expandMapOneStep(map, side) {
   assertSupportedMapExtent({ ...bounds, tileSize: 16 });
   const sides = parseMapSides(bounds);
   const key = side === 'north' ? 'N' : side === 'south' ? 'S' : side === 'west' ? 'W' : 'E';
-  if (sides[key] >= MAP_EXT_SIDE_MAX) throw new RangeError(`${side}側擴展已達 20 格`);
+  if (sides[key] >= MAP_EXT_SIDE_MAX) throw new RangeError(`${side}側擴展已達 40 格`);
   const oldW = bounds.width, oldH = bounds.height;
   const d = side === 'north' ? { minX: bounds.minX, minY: bounds.minY - 1, width: oldW, height: oldH + 1 }
     : side === 'south' ? { minX: bounds.minX, minY: bounds.minY, width: oldW, height: oldH + 1 }
