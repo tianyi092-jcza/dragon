@@ -68,7 +68,22 @@ try {
     if (mode === 'load') await page.locator(`[data-save-slot="${index}"]`).click();
     else {
       await page.waitForFunction(() => window.__dragonApp?.startMenu?._sortedScenarios?.length > 1); await click(200,58+index*28);
-      await page.waitForFunction(() => window.__dragonApp?.startMenu?._banners.length === 2); await click(180,54);
+      await page.waitForFunction(() => window.__dragonApp?.startMenu?._banners.length === 2);
+      // Hold the real pack request boundary to verify that the selected faction
+      // cannot be changed while the old canvas is still underneath the mask.
+      await page.evaluate(() => {
+        const app = window.__dragonApp, prepare = app._formalPrepareChapter;
+        app._formalPrepareChapter = async index => {
+          await new Promise(done => { window.releaseChapterRead = done; });
+          return prepare(index);
+        };
+      });
+      await click(180,54);
+      const mask = page.getByRole('dialog', { name:'正在載入章節資料…' });
+      await mask.waitFor(); await page.waitForFunction(() => !!window.releaseChapterRead);
+      await page.keyboard.press('Escape'); await click(180,70);
+      assert.equal(await mask.evaluate(node => node.matches(':modal')),true);
+      await page.evaluate(() => window.releaseChapterRead());
       await page.waitForFunction(() => document.querySelector('#advisor-input-overlay input') || document.querySelector('#startv').getContext('2d').getImageData(370,267,1,1).data[0] === 192);
       const name = page.locator('#advisor-input-overlay input').first();
       if (await name.count()) { await name.fill('子明'); await name.press('Enter'); } else await click(390,268);
@@ -77,6 +92,7 @@ try {
     const live = await page.evaluate(async ({mode,index}) => { const app = window.__dragonApp;
       return { id:app.content.chapter(0).reference.chapterId, idx:app.scenarioIdx, cities:app.scenario.cities.length, saved:mode === 'load' ? null : await app.saveGame(index,'隔離章節 '+index) };
     },{mode,index});
+    assert.equal(await page.locator('dialog.start-loading').count(),0);
     assert.equal(live.id,chapters[index]); assert.equal(live.idx,0); assert.ok(live.cities > 0);
     if (mode === 'new') assert.equal(live.saved.saved,'local',JSON.stringify(live.saved));
     console.log({mode, index, ...live});

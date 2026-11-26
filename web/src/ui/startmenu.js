@@ -44,6 +44,27 @@ export class StartMenu {
     window.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
+  // 只包裝實際等待，不包住需要玩家點選的對話。原生 modal 也隔離鍵盤焦點。
+  async withLoading(label, load) {
+    const mask = document.createElement('dialog');
+    mask.className = 'start-loading';
+    mask.setAttribute('aria-label', label);
+    mask.addEventListener('cancel', event => event.preventDefault());
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    status.textContent = label;
+    const progress = document.createElement('progress');
+    progress.setAttribute('aria-label', label);
+    mask.append(status, progress);
+    document.body.append(mask);
+    try {
+      mask.showModal();
+      // 先給遮罩一次繪製機會，再進入可能同步裝配世界的工作。
+      await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      return await load();
+    } finally { mask.remove(); }
+  }
+
   async _loadAssets() {
     if (this._imgs) return this._imgs;
     // 预载表格数字字体 (仅数字列使用 Oswald, 中文仍 Noto Serif TC)
@@ -104,11 +125,12 @@ export class StartMenu {
           },
           chooseFaction: async (idx) => {
             // 到這一步才拉這一章的位元組（勢力／城市／武將）；章節窗只用目錄。
-            if (this.app._formalPrepareChapter && !this.app._formalEntry.catalog[idx].factions?.length) await this.app._formalPrepareChapter(idx);
+            let chapter;
+            const prepare = () => this.withLoading('正在載入章節資料…', () => this.app._formalPrepareChapter(idx));
+            if (this.app._formalPrepareChapter && !this.app._formalEntry.catalog[idx].factions?.length) chapter = await prepare();
             const row = await this._factionDialog(idx);
             if (row == null || row < 0) return row;
-            const chapter = this.app._formalPrepareChapter
-              ? await this.app._formalPrepareChapter(idx) : this.app.data.scenarios[idx];
+            chapter ??= this.app._formalPrepareChapter ? await prepare() : this.app.data.scenarios[idx];
             return chapter.factions.filter(f => !f.retired && f.monarch?.trim())[row]?.idx ?? -1;
           },
           chooseAdvisor: async (idx, faction) => {
@@ -122,7 +144,7 @@ export class StartMenu {
             return this._chooseSave();
           },
           beginNewGame: async (idx, f, adv) => {
-            await this.app.beginNewGame(idx, f, adv);
+            await this.withLoading('正在準備地圖與遊戲資源…', () => this.app.beginNewGame(idx, f, adv));
           },
           beginSavedGame: async (slot) => {
             await this.app.beginSavedGame(slot);
@@ -331,8 +353,8 @@ export class StartMenu {
       h = 176; // 金框外圍 240×192 (15×12 tiles)，居中 (208, 112)
     const px = (640 - w) >> 1,
       py = (400 - h) >> 1;
-    const monImg = await this._kao(mon);
-    const advImg = adv ? await this._kao(adv) : null;
+    const [monImg, advImg] = await this.withLoading('正在載入君主與軍師頭像…', () =>
+      Promise.all([this._kao(mon), this._kao(adv)]));
     const btns = [
       { label: "自定", act: "custom", x: px + 159, y: py + 126, w: 50, h: 18 },
       { label: "確定", act: "ok", x: px + 159, y: py + 150, w: 50, h: 18 },
@@ -517,20 +539,7 @@ export class StartMenu {
 
     const nameInput = createInput("最多3字");
     const haoInput = createInput("最多3字");
-    const loading = document.createElement("div");
-    loading.hidden = true;
-    loading.setAttribute("role", "status");
-    Object.assign(loading.style, {
-      position: "absolute", background: "#000", color: "#ecd088",
-      textAlign: "center", boxSizing: "border-box",
-    });
-    const loadingText = document.createElement("div");
-    loadingText.textContent = "正在載入遊戲，請稍候…";
-    const progress = document.createElement("progress");
-    progress.setAttribute("aria-label", "遊戲載入中");
-    progress.style.width = "90%"; // Indeterminate: no invented percentage.
-    loading.append(loadingText, progress);
-    overlay.append(nameInput, haoInput, loading);
+    overlay.append(nameInput, haoInput);
     document.body.append(overlay);
 
     const syncPositions = () => {
@@ -552,8 +561,6 @@ export class StartMenu {
       };
       positionInput(nameInput, px + 144, py + 48, 84, 26);
       positionInput(haoInput, px + 240, py + 48, 84, 26);
-      positionInput(loading, px + 16, py + 100, 304, 68);
-      loading.style.lineHeight = `${28 * scaleY}px`;
     };
 
     window.addEventListener("resize", syncPositions);
@@ -655,7 +662,6 @@ export class StartMenu {
         nameInput.readOnly = haoInput.readOnly = true;
         nameInput.blur(); haoInput.blur();
         nameInput.style.pointerEvents = haoInput.style.pointerEvents = "none";
-        loading.hidden = false;
         overlay.setAttribute("aria-busy", "true");
         cleanup();
         this._advisorLoadingCleanup = removeOverlay;

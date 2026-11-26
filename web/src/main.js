@@ -1300,9 +1300,10 @@ export async function startApp(opening, { trial = null, formal = null, formalBin
   globalThis.__dragonApp = app;
   if (formalEntry && formalEntry.catalog === null) {
     if (formalEntry.savedSlot === null) {
-      const choice = await new StartMenu(app, {advisorOnly:true}).chooseDirectAdvisor(formalEntry.player);
+      const menu = new StartMenu(app, {advisorOnly:true});
+      const choice = await menu.chooseDirectAdvisor(formalEntry.player);
       if (choice === undefined) return app.returnToTitle();
-      await app.beginNewGame(0, formalEntry.player, choice);
+      await menu.withLoading('正在準備地圖與遊戲資源…', () => app.beginNewGame(0, formalEntry.player, choice));
     } else await app.beginSavedGame(formalEntry.savedSlot);
   } else if (trial) await app.beginNewGame(0, trial.player, advisor);
   else {

@@ -37,8 +37,11 @@ try {
  await click(280,260);
  await page.waitForFunction(()=>window.__loadingHeld);
  assert.deepEqual(await inputs.evaluateAll(nodes=>nodes.map(n=>[n.value,n.readOnly])),[['測試名',true],['測試號',true]]);
- assert.equal(await page.locator('#advisor-input-overlay [role=status]').isVisible(),true);
- assert.equal(await page.locator('#advisor-input-overlay progress').getAttribute('value'),null);
+ const mask=page.getByRole('dialog',{name:'正在準備地圖與遊戲資源…'});
+ assert.equal(await mask.locator('[role=status]').isVisible(),true);
+ assert.equal(await mask.locator('progress').getAttribute('value'),null);
+ await page.keyboard.press('Escape');
+ assert.equal(await mask.evaluate(node=>node.matches(':modal')),true);
  await inputs.first().dispatchEvent('keydown',{key:'Enter'});await click(280,260);await click(360,260,'right');
  assert.equal(await page.evaluate(()=>window.__beginCalls.length),1);
  await page.setViewportSize({width:1280,height:800});
@@ -48,6 +51,12 @@ try {
  await page.waitForFunction(()=>window.__app.gameStarted&&!document.querySelector('#advisor-input-overlay'),{},{timeout:120000});
  assert.deepEqual(await page.evaluate(()=>window.__beginCalls[0][2]),{name:'測試名',hao:'測試號',portrait:145});
  assert.equal(await page.evaluate(()=>window.__app.startMenu._advisorLoadingCleanup),null);
+ assert.equal(await page.locator('dialog.start-loading').count(),0);
+ assert.equal(await page.evaluate(async()=>{
+  const failure=new Error('held chapter read failed');
+  return window.__app.startMenu.withLoading('正在載入章節資料…',()=>{throw failure;})
+   .then(()=>false,error=>error===failure&&!document.querySelector('dialog.start-loading'));
+ }),true);
  assert.deepEqual(errors,[]);assert.deepEqual(forbidden,[]);
  process.stdout.write('advisor loading: real App started; name/hao retained, indeterminate progress visible, duplicate/cancel blocked, resize and cleanup passed\n');
 } finally {await browser?.close();await server.close();}
