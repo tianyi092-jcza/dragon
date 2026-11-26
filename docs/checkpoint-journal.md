@@ -41,3 +41,10 @@
 
 <a id="10-014发布整理"></a><a id="11-015发布整理"></a><a id="6-render-layers-1测量脏层灾害播放器及断链整理"></a><a id="5-当前时钟系统逆向与重构本地完成"></a><a id="6-发布主线阻塞与下一步"></a><a id="8-用户指定五档提速"></a><a id="9-battle-text-reflow-1战术双方对白自动折行"></a><a id="10-录像反馈后的战略性能修复"></a><a id="11-编辑器vps部署前只读盘点"></a><a id="12-受限编辑器容器部署"></a><a id="13-固定库刷新与私有trial接续"></a><a id="16-当前版本资源门部署与只读巡检补强"></a><a id="19-后台框架壳editor-ui-1"></a><a id="20-账户管理组件化editor-ui-2"></a><a id="21-草稿与章节组件化editor-ui-3"></a><a id="22-阶段任务与结构展示editor-ui-4"></a><a id="23-只读素材库组件化editor-ui-5"></a><a id="30-上架限制与删除追踪组件化editor-ui-12"></a><a id="32-固定库身份合同授权修复与目标闭合editor-ui-14"></a><a id="33-后台迁移提交推送与受限上线"></a>
 §5–33：[時鐘、表現、早期部署與 Vue 工作台收據](checkpoint-journal-archive-through-72.md)。
+
+## 生產部署（2026-11-26，用戶授權整機替換，數據上架暫緩）
+
+- **範圍**：src 取到 `f28fe55`，靜態重建，雙鏡像構建，數據整庫替換為 dev（含 DB v220／private／kao；僅保留登錄賬號語義，tianyi 口令已臨時重置＋must_change=1 待用戶首登輪換）。備份 `backup-20261126T152325Z` 保留，舊 dist 字節因 rsync --delete 丟失（見前條）。
+- **現狀**：editor Up 且 `/api/health` initialized:true；雙域靜態 200；player 容器 Up 但 unhealthy——`REGISTRY_EMPTY`，分發桶空（dev 從未分發＋舊桶被替換）。用戶指示數據上架暫緩，故 player 健康依賴的 publish 一步留待後續。
+- **構建修補**：Dockerfile 漏拷 `tools/system_base_map_conversion.mjs`＋`pieces` 兩文件，各修一次（`d4e8ae3`／`ac46b7d` 已推）。
+- **待辦**：上架 8c05（清掉 8 條 dev 殘留 outbox＋8 條殘留公告後重新 publish，編譯約數分鐘）→ bucket 有包 → player 轉健康。另：登錄限流窗 10 分鐘／同賬號 5 次，重試需間隔。
