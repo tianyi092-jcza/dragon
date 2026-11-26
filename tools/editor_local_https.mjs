@@ -18,7 +18,7 @@ function capture(incoming, maxJSONBytes) {
     incoming.once('end', () => done({ oversized, bytes: oversized ? null : Buffer.concat(parts) }));
   });
 }
-function certificate(directory) {
+export function localTestCertificate(directory) {
   const key = join(directory, 'engineering.key'), cert = join(directory, 'engineering.crt'), env = {};
   for (const name of ['SystemRoot','SYSTEMROOT','WINDIR','COMSPEC','ComSpec','PATH','Path','PATHEXT','TEMP','TMP','USERPROFILE','LOCALAPPDATA','APPDATA','HOMEDRIVE','HOMEPATH']) if (process.env[name] !== undefined) env[name] = process.env[name];
   // Only installed tools, never installation, global trust or an existing private key.
@@ -29,17 +29,19 @@ function certificate(directory) {
   chmodSync(key, 0o600);
   return { key: readFileSync(key), cert: readFileSync(cert), minVersion: 'TLSv1.2' };
 }
-export async function createEditorHTTPS(mf, { port = 8787, tls } = {}) {
+export async function createEditorHTTPS(mf, { port = 8787, tls, player = false } = {}) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid local backend port');
   // Verifiers regenerate a throwaway certificate. A long-lived development
   // service passes its own pair so the browser keeps trusting one identity.
   const directory = tls ? null : mkdtempSync(join(tmpdir(), 'dragon-editor-tls-'));
   const cleanup = () => { if (!directory) return; for (const name of ['engineering.key', 'engineering.crt']) { const path = join(directory,name); if (existsSync(path)) unlinkSync(path); } rmdirSync(directory); };
+  // The reader accepts bearer tickets, not editor session cookies.
+  const forwarded = player ? new Set(['accept', 'authorization', 'range']) : allowedHeaders;
   const origin = 'https://127.0.0.1:' + port; let server, closing;
   const sockets = new Set();
   const errorResponse = (outgoing, code, status) => { if (outgoing.headersSent) { outgoing.destroy(); return; } outgoing.writeHead(status, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' }); outgoing.end(JSON.stringify({ error:code })); };
   try {
-    server = createServer(directory ? certificate(directory) : tls, async (incoming, outgoing) => {
+    server = createServer(directory ? localTestCertificate(directory) : tls, async (incoming, outgoing) => {
       try {
         if (incoming.headers.host !== '127.0.0.1:' + port) { incoming.resume(); errorResponse(outgoing,'LOCAL_HOST',400); return; }
         const url = new URL(incoming.url, origin);
@@ -47,7 +49,7 @@ export async function createEditorHTTPS(mf, { port = 8787, tls } = {}) {
         const input = await capture(incoming, requestBodyLimit(incoming.method, url.pathname));
         if (input.oversized) { errorResponse(outgoing,'BODY_TOO_LARGE',413); return; }
         const headers = new Headers();
-        for (const [name,value] of Object.entries(incoming.headers)) if (value !== undefined && allowedHeaders.has(name)) headers.set(name, Array.isArray(value) ? value.join(',') : value);
+        for (const [name,value] of Object.entries(incoming.headers)) if (value !== undefined && forwarded.has(name)) headers.set(name, Array.isArray(value) ? value.join(',') : value);
         // SDK maps this exact public HTTPS URL to its own HTTP listener, without
         // caller-controlled forwarded-host/MF headers or bypassing Worker authority.
         const response = await mf.dispatchFetch(url.href, { method:incoming.method, headers, body:['GET','HEAD'].includes(incoming.method) ? undefined : input.bytes });

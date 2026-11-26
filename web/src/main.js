@@ -273,7 +273,12 @@ const app = {
   async beginNewGame(i, playerFaction, advisor) {
     if (this.trialEnded) throw new Error("試運行已結束，請開啟新視窗");
     // The map and minimap loaders capture their world when the shell is created.
-    if (this._formalEntry?.pendingPack) await this._installFormalChapter(i, playerFaction);
+    if (this._formalEntry?.catalog) {
+      // i selects a catalog row. The admitted environment and its save store
+      // both own exactly one chapter at runtime index 0.
+      await this._installFormalChapter(i, playerFaction);
+      return this.enterGame(() => this.setScenario(0, playerFaction, advisor));
+    }
     return this.enterGame(() => this.setScenario(i, playerFaction, advisor));
   },
 
@@ -1170,19 +1175,11 @@ function applyFormalCatalog(app, formalEntry) {
   };
   app._installFormalChapter = async (index, playerFaction) => {
     const pack = formalEntry.pendingPack;
-    if (!pack) throw new Error("formal chapter must be loaded first");
+    if (!pack || formalEntry.pendingIndex !== index) throw new Error("selected formal chapter must be loaded first");
     const loaded = await formalEntry.openEnvironment(pack, playerFaction);
     formalEntry.assertCurrent();
-    const base = loaded.environment.content, baseChapter = base.chapter(0);
-    if (!baseChapter?.template) throw new Error("formal chapter template required");
-    // 上架包章节在环境里 legacyScenarioIndex 恒为 0；此处按章节目录位置校准，
-    // 否则 setScenario(idx>0) 进 currentMetadata 会误报 Scenario content identity/index mismatch。
-    const chapter = Object.freeze({ ...baseChapter, legacyScenarioIndex: index });
-    const scenarios = formalEntry.catalog.map((row, at) => (at === index
-      ? chapter.template : { name: row.name, start: { ...row.start }, factions: [] }));
-    app.content = Object.freeze({ ...base, data: Object.freeze({ ...base.data, scenarios: Object.freeze(scenarios) }),
-      chapters: Object.freeze([chapter]),
-      chapter: key => (key === index || key === 0 || key === chapter.id ? chapter : null) });
+    app.content = loaded.environment.content;
+    const chapter = app.content.chapter(0);
     app.data = app.content.data;
     app.world = loaded.environment.world;
     app.saveRepository = loaded.saveRepository;

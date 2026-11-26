@@ -38,7 +38,7 @@
 ## 4. 重要工程坑點
 
 - 唯一開發狀態目錄 `E:/Dragon/web-port/.dragon-analysis/basemaps-dev-store`，不重建、搬移或另起倉庫內狀態庫。測試用系統臨時目錄、記憶體 SQLite／mock IDB、全新瀏覽器 profile。禁止自動化讀寫正式 `E:/Dragon/Dragon/SAVE.DAT` 或使用者存檔。
-- 本地玩家入口分清三者：`8321` 是靜態引擎，不供上架目錄；開發編輯器的 `https://127.0.0.1:8443/play` 可讀本地已發布快照，但不是正式玩家標題頁；正式發布／通知驗收須走 reader 與分發桶。不要以靜態頁只見內置遊戲判定發布失敗。
+- 本地 `https://127.0.0.1:8443/play` 只重定向到獨立玩家站（預設 `https://127.0.0.1:8444/`）。dev 與生產共用正式標題頁、reader、分發及准入；不得改回簡易選章頁或從私有快照兜底。`8321` 只供靜態引擎。dev 分發桶在唯一 store 的 `distribution/`，不連生產；舊 pin 不等於正式分發歷史，缺帳本需另行授權遷移，不可刪資料重建。非首章也以 `chapterId` 識別，目錄位置只供選擇；固定章包內開局／存檔索引均為 0。舊簡易頁 origin 的本機存檔不會自動搬到玩家站。
 - 小地圖数据分层坑：`sea-ground-1` 模板 `base.geography` 默认为全海，装饰 `preserve-underlay` 盖章不改底会造成大地圖正常、小地圖深蓝封底。回填用 inferred-sea-edge-connected（`tools/verify_geo_backfill_isolated.mjs` 先隔离验证水团门＋compose＋三项校验），policy 变更须重走发布验证并由用户重上架。
 - **build ≠ check ≠ 服務刷新**：Vue 先 build 再 `--check`，同步 `shell-ui.txt`、CSS 與授權清單。`server/public/*.txt` 由進程 import；`client.txt` 或 `index.html` 改後需重啟自己持有的實例，核實際服務位元組，不能停他人進程。`web/src/**` 改後重建 `trialweb.txt`。supervisor 不自动补 fork：kill 自己实例 child 后须自查 `/play`，无应答用原命令重起。發布歸檔須核完整 inventory／SHA 與 pin，不放寬凍結身份，不把 `--source-only` 當完整資源庫驗證。
 - 格圖可以有原生軍團槽，這不代表有 DOS 道路指針。存讀檔按世界邊界驗有符號座標、按實際據點數驗目標；不因此放寬固定槽或外交 byte。月結鄰接候選從當前道路與主權取得，不能沿用開局邊界。參見[行軍](docs/re-notes-march-pathfinding.md)與[外交](docs/re-notes-ai-diplomacy.md)。
@@ -58,8 +58,11 @@ node editor-ui/build.mjs
 node editor-ui/build.mjs --check
 npm run --prefix editor-ui/lsp check
 node tools/build_trial_web_bundle.mjs
-# 本地 8443 已有相符的《呂布歸天》發布快照時；只取發布資源，在記憶體驗證
-node tools/verify_grid_war_ai_release.mjs <本地發布遊戲UUID>
+# 隔離 reader＋正式標題頁：只讀既有發布包，臨時 SQLite／分發桶／瀏覽器，首兩章開局存讀
+node tools/prepare_deploy.mjs
+node tools/verify_dev_formal_site.mjs <本地發布遊戲UUID>
+# 8444 正式 reader 已可列出相符的《呂布歸天》時；Node 只額外信任本機 dev 憑證
+NODE_EXTRA_CA_CERTS=.dragon-analysis/basemaps-dev-store/tls/dev.crt node tools/verify_grid_war_ai_release.mjs <本地發布遊戲UUID>
 # 據點屬性保存與刪除引用（隔離夾具）
 node --test --test-concurrency=1 tools/verify_base_cities.mjs tools/verify_copy_controller_cities.mjs tools/verify_copy_city_delete.mjs
 node --test --test-concurrency=1 tools/verify_map_extent_sides_ops.mjs tools/verify_map_extent_controller.mjs

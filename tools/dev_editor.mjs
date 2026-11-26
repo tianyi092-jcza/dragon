@@ -1,9 +1,9 @@
 // Local development service for the editor workbench: the SAME application the
 // production Durable Object runs, on Node SQLite plus a private file bucket,
 // behind a loopback TLS entrance. It is a development harness, not a deployment
-// path: nothing is pushed, published or archived, and no real save file is read.
+// path: publication/archives stay in the local store; no production connection.
 //
-//   node tools/dev_editor.mjs [--port 8443] [--store .dragon-analysis/dev] [--no-watch]
+//   node tools/dev_editor.mjs [--port 8443] [--player-port 8444] [--no-watch]
 //
 // Supervisor mode (default) rebuilds the Vue shell / Trial bundle and restarts
 // the service when sources change. Look at the printed `DEV READY` line for the
@@ -20,7 +20,9 @@ const argv = process.argv.slice(2);
 const option = (name, fallback) => { const at = argv.indexOf(`--${name}`); return at >= 0 ? argv[at + 1] : fallback; };
 const PORT = Number(option('port', 8443));
 if (!Number.isInteger(PORT) || PORT < 1024 || PORT > 65535) throw new RangeError('port must be 1024..65535');
-const STORE = resolve(option('store', '.dragon-analysis/dev'));
+const PLAYER_PORT = Number(option('player-port', PORT + 1));
+if (!Number.isInteger(PLAYER_PORT) || PLAYER_PORT < 1024 || PLAYER_PORT > 65535 || PLAYER_PORT === PORT) throw new RangeError('distinct loopback player port required');
+const STORE = resolve(option('store', join(root, '.dragon-analysis/basemaps-dev-store')));
 const ORIGIN = `https://127.0.0.1:${PORT}`;
 // Local-only bootstrap credential; the first login still forces a real password
 // change exactly like production. Empty database only, never overwrites one.
@@ -73,9 +75,7 @@ async function serve() {
   mkdirSync(join(STORE, 'private'), { recursive: true });
   const { openStorage } = await import('../vps/sqlite-port.mjs');
   const { FileBucket } = await import('../vps/file-bucket.mjs');
-  const { createEditorService } = await import('../vps/editor-server.mjs');
-  const { reclaimPrivateGame } = await import('../vps/game-reclaimer.mjs');
-  const { createEditorHTTPS } = await import('./editor_local_https.mjs');
+  const { startDevSites } = await import('./dev_player_site.mjs');
   const bucket = new FileBucket({ root: join(STORE, 'private') });
   const storage = openStorage(join(STORE, 'editor.sqlite'));
   let transport;
@@ -94,19 +94,14 @@ async function serve() {
       ...(process.env.DRAGON_TIMING ? { DRAGON_TIMING: '1' } : {}),
       ...(library ? { EDITOR_AVAILABLE_LIBRARY_ROOT: JSON.stringify(library) } : {}),
     };
-    // 此開發入口沒有 runtimeStager／公開分發桶；所有遊戲專屬檔案只在 private 桶。
-    const purgeReclaimer = async gameId => ({ gameId, pointer: 'absent', objects: 0, privateObjects: await reclaimPrivateGame(bucket, gameId) });
-    const service = createEditorService({ storage, bucket, env, purgeReclaimer });
-    transport = await createEditorHTTPS(
-      { dispatchFetch: (url, init) => service.fetch(new Request(url, init)) },
-      { port: PORT, tls: developmentTLS() },
-    );
+    transport = await startDevSites({ root, store: STORE, port: PORT, playerPort: PLAYER_PORT, tls: developmentTLS(), storage, bucket, env });
   } catch (error) {
     storage.close();
     throw error;
   }
   process.stdout.write(`DEV READY ${ORIGIN}/  (account tianyi, bootstrap password ${BOOTSTRAP_PASSWORD})\n`);
   process.stdout.write('DEV NOTE 首次登录必须改密码；改了之后下面的 bootstrap 口令不再生效。\n');
+  process.stdout.write(`DEV PLAYER ${ORIGIN}/play → https://127.0.0.1:${PLAYER_PORT}/ (formal reader)\n`);
   process.send?.('ready');
   const stop = async () => { try { await transport.close(); } finally { storage.close(); process.exit(0); } };
   process.once('SIGTERM', stop);
@@ -162,10 +157,12 @@ function fingerprint(entry) {
 const REBUILDS = [
   { label: 'Vue shell', script: join(root, 'editor-ui/build.mjs') },
   { label: 'Trial bundle', script: join(root, 'tools/build_trial_web_bundle.mjs') },
+  { label: 'Player dist', script: join(root, 'tools/prepare_deploy.mjs') },
 ];
 const WATCHES = [
   { label: 'editor-ui/src', dir: join(root, 'editor-ui/src'), rebuild: true },
-  { label: 'web/src', dir: join(root, 'web/src'), rebuild: true },
+  { label: 'web', dir: join(root, 'web'), rebuild: true },
+  { label: 'reader', dir: join(root, 'reader'), rebuild: false },
   { label: 'server', dir: join(root, 'server'), rebuild: false, ignore: path => path.includes(join('server', 'public')) },
   { label: 'vps', dir: join(root, 'vps'), rebuild: false },
 ];
@@ -191,7 +188,7 @@ async function supervise() {
 
   function start() {
     // 子进程重新执行同一个文件；本地实测开关必须显式传下去。
-    const flags = ['--child', '--port', String(PORT), '--store', STORE];
+    const flags = ['--child', '--port', String(PORT), '--player-port', String(PLAYER_PORT), '--store', STORE];
     if (argv.includes('--no-library')) flags.push('--no-library');
     child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...flags],
       { cwd: root, stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
@@ -260,8 +257,8 @@ async function supervise() {
       });
     }
     if (process.stdin.isTTY) process.stdin.setEncoding('utf8');
-    process.stdin.on('data', () => enqueue(() => {}, '手动重启'));
-    log('监视中：editor-ui/src、web/src、server、vps。改 web/ 顶层资源或 web/intro 请手动回车重启。');
+    process.stdin.on('data', () => enqueue(build, '手动重建'));
+    log('监视中：editor-ui/src、web、server、reader、vps。改图片、音频等非代码资源后回车重建。');
   } else log('未开启监视（--no-watch）。');
 
   const shutdown = () => {

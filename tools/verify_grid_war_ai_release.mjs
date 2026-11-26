@@ -1,7 +1,7 @@
 // Opt-in, read-only local /play regression. Uses public assets and an in-memory world only.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { createTrialEnvironment } from '../web/src/content/authoring/trialruntime.js';
+import { localFormalChapter, localPlayerOrigin } from './local_formal_chapter.mjs';
+import { createPlayerEnvironment } from '../web/src/player/playerenvironment.js';
 import { captureOriginalCity } from '../web/src/game/navigation/originalcitycapture.js';
 import { performScenarioMonthlyDiplomacy } from '../web/src/game/navigation/scenariomonthlydiplomacy.js';
 import { getAdvisor } from '../web/src/game/advisor.js';
@@ -20,20 +20,12 @@ import { minimapBattleMarkers } from '../web/src/render/minimapmarkers.js';
 
 const gameId = process.argv[2];
 assert.ok(gameId, 'Specify the local published game UUID');
-globalThis.fetch = async path => {
-  const url = new URL(path, 'https://127.0.0.1:8443');
-  assert.equal(url.origin, 'https://127.0.0.1:8443');
-  return new Response(execFileSync('curl', ['-kfSs', url.href], { maxBuffer: 32 << 20 }));
-};
-const { games } = await (await fetch('/api/published-games')).json();
-const entry = games.find(g => g.gameId === gameId);
-const q = new URLSearchParams({ game: gameId, revision: entry.revision, chapter: `${gameId}#middle-1` });
-const pack = await (await fetch(`/api/trial-pack?${q}`)).json();
+const pack = await localFormalChapter(gameId, 'middle-1');
 assert.match(pack.chapter.name, /呂布歸天/);
 // Reproduce the northern front from public chapter data only. Use the real
 // capture tail and 2BD9; don't reset F19 between month boundary and sortie.
 {
-  const env = createTrialEnvironment(pack, {playerFaction:14});
+  const env = createPlayerEnvironment(pack, {playerFaction:14, mapExtent:true});
   await env.world.roads.loadRoadGraph();
   const {scenario:sc} = await prepareScenario({...env,mode:'fresh',idx:0,mapExtent:true});
   buildArmies(sc);
@@ -69,7 +61,7 @@ assert.match(pack.chapter.name, /呂布歸天/);
   console.log({northernFront:'薊縣',capturedBy:11,targetAfterNextSettlement:yuan.target_faction,tick});
 }
 for (const playerFaction of [14, 0, 11]) {
-  const env = createTrialEnvironment(pack, { playerFaction });
+  const env = createPlayerEnvironment(pack, { playerFaction, mapExtent:true });
   await env.world.roads.loadRoadGraph();
   const { scenario: sc } = await prepareScenario({ ...env, mode: 'fresh', idx: 0, mapExtent: true });
   buildArmies(sc);
@@ -264,7 +256,7 @@ for (const playerFaction of [14, 0, 11]) {
     const column = sc.legions.find(l => l.faction === 0);
     // Manual grid field entry must pass terrain from contact, not use the
     // native pointer guard after TALK29. Construct the actual tactical Session.
-    const asset = async name => (await fetch(`/api/play/web/${name}.json`)).json();
+    const asset = async name => (await fetch(`${localPlayerOrigin}/${name}.json`)).json();
     app.battleMaps = await asset('battle_maps');
     app.battleMaps.navigation = await asset('battle_navigation');
     app.battleMaps.formationVectors = (await asset('battle_rules')).formationVectors;

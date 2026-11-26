@@ -1,7 +1,7 @@
 // Opt-in local public release, in-memory only (no player save / development store writes).
 import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
-import {createTrialEnvironment} from '../web/src/content/authoring/trialruntime.js';
+import {localFormalChapter} from './local_formal_chapter.mjs';
+import {createPlayerEnvironment} from '../web/src/player/playerenvironment.js';
 import {prepareScenario} from '../web/src/game/scenarioassembly.js';
 import {bindNativePlayerFactionPointer,initializeFreshPlayerAdvisor} from '../web/src/game/nativefactions.js';
 import {refreshNativeMonthlyPolicyViews} from '../web/src/game/nativemonthlypolicy.js';
@@ -10,11 +10,8 @@ import {monthEnd} from '../web/src/game/commands.js';
 import {Clock} from '../web/src/game/clock.js';
 import * as ai from '../web/src/game/ai.js';
 const id=process.argv[2]; assert.ok(id,'local published game UUID required');
-globalThis.fetch=async path=>{const url=new URL(path,'https://127.0.0.1:8443');assert.equal(url.origin,'https://127.0.0.1:8443');return new Response(execFileSync('curl',['-kfSs',url.href],{maxBuffer:32<<20}));};
-const get=async path=>(await fetch(path)).json();
-const entry=(await get('/api/published-games')).games.find(g=>g.gameId===id);
-const pack=await get('/api/trial-pack?'+new URLSearchParams({game:id,revision:entry.revision,chapter:id+'#middle-3'}));assert.match(pack.chapter.name,/隱伏新野/);
-const env=createTrialEnvironment(pack,{playerFaction:0});await env.world.roads.loadRoadGraph();
+const pack=await localFormalChapter(id,'middle-3');assert.match(pack.chapter.name,/隱伏新野/);
+const env=createPlayerEnvironment(pack,{playerFaction:0,mapExtent:true});await env.world.roads.loadRoadGraph();
 const {scenario:s}=await prepareScenario({...env,mode:'fresh',idx:0,mapExtent:true});ai.buildArmies(s);initializeFreshPlayerAdvisor(s);bindNativePlayerFactionPointer(s,'xinye fiscal');
 const f=s.factions[0];assert.equal(f.monarch,'曹操');
 const rng=createOriginalBattleRng({ch:0,cl:0,dh:1}),app={scenario:s,originalRng:rng,gamebar:{enqueueTalkMessage(m){m.onClose?.();m.onComplete?.();}}};
