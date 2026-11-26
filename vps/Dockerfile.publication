@@ -5,7 +5,7 @@ COPY server/ ./server/
 COPY vps/ ./vps/
 COPY reader/ ./reader/
 # Runtime copy adapters plus the library's independently fingerprinted consumer.
-COPY tools/editor_trusted_copy.mjs tools/editor_builtin_source.mjs tools/editor_entity_source.mjs tools/stage_editor_trial_assets.mjs ./tools/
+COPY tools/editor_trusted_copy.mjs tools/editor_builtin_source.mjs tools/editor_entity_source.mjs tools/stage_editor_trial_assets.mjs tools/system_base_map_conversion.mjs ./tools/
 COPY web/ ./web/
 USER node
 EXPOSE 8788
