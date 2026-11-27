@@ -32,7 +32,7 @@ const server = createServer(async (req, res) => {
   res.end(await readFile(new URL(file, root)));
 });
 let browser, snapshot = null, saves = 0, gameSaves = 0, role = 'admin', acceptDialogs = true, dialogs = 0;
-const errors = [], failures = [], unexpected = [], writes = [], requestedSeasons = [];
+const errors = [], failures = [], unexpected = [], writes = [], requestedSeasons = [], saveTimings = [];
 const gameId = '11111111-1111-4111-8111-111111111111';
 const { editorAssets, ...content } = template.content;
 let game = { ...structuredClone(content), gameId, mapEditorAssets: structuredClone(editorAssets) };
@@ -42,7 +42,10 @@ try {
   const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: ratio });
   const page = await context.newPage(); page.setDefaultTimeout(30000);
   page.on('pageerror', error => errors.push(error.message));
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('console', message => {
+    if (message.type() === 'error') errors.push(message.text());
+    if (message.text().startsWith('[base-map-save] ')) saveTimings.push(JSON.parse(message.text().slice('[base-map-save] '.length)));
+  });
   page.on('requestfailed', request => failures.push(request.url()));
   page.on('dialog', dialog => { dialogs++; return acceptDialogs ? dialog.accept() : dialog.dismiss(); });
   await page.route('**/api/**', async route => {
@@ -64,7 +67,8 @@ try {
       const next = { ...snapshot.template, content: applyMapWorkspaceEdits({ ...snapshot.template.content, gameId: 'system-base-map' }, edits) };
       delete next.content.gameId;
       snapshot = { version: snapshot.version + 1, digest: validateSystemBaseMap(next, sha).digest, template: JSON.parse(JSON.stringify(next)) }; saves++;
-      return route.fulfill({ json: { snapshot } });
+      assert.equal(request.headers().prefer, 'return=minimal');
+      return route.fulfill({ json: { receipt: { version: snapshot.version, digest: snapshot.digest }, metrics: { serverMs: 10 } } });
     }
     if (path === `/api/games/${gameId}/copy`) {
       if (request.method() === 'POST') {
@@ -112,12 +116,15 @@ try {
       await panel.getByRole('button', {name:label,exact:true}).click();
       await page.locator('.el-message-box').getByRole('button',{name:'確認',exact:true}).click();
       await panel.getByRole('button',{name:'保存',exact:true}).click();
-      await page.getByText(baseEdge ? '已保存並重新讀取基礎地圖。' : '已保存並重新讀取遊戲地圖。',{exact:true}).waitFor();
+      await panel.getByText('查看保存詳情', {exact:true}).waitFor();
       assert.equal(baseEdge ? saves : gameSaves, index+1);
       if (!index) assert.ok(storedMap().decorations.some(d => d.y === -1));
     }
     assert.deepEqual(storedMap(),before);
-    if (baseEdge) assert.equal(gameSaves,0);
+    if (baseEdge) {
+      assert.equal(gameSaves,0); assert.equal(saveTimings.length,saves);
+      assert.ok(saveTimings.every(row => row.committed && row.server.serverMs === 10 && row.reloadRequestMs >= 0 && row.installMs >= 0));
+    }
     assert.deepEqual(errors,[]); assert.deepEqual(failures,[]);
     console.log(baseEdge ? 'PASS 基礎地圖四向擴縮、保存重讀與地形還原' : 'PASS 地圖管理北增／北縮按鈕、保存重讀與地形還原');
   } else {

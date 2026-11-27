@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createBaseMapController } from '../src/basemap.js';
+import { previewMapEdits } from '../../web/src/editor/mapcommands.js';
 import { MAP_EDIT_MAX_COMMANDS, MAP_EDIT_MAX_BYTES } from '../../web/src/editor/mapeditlimits.js';
 
 function fixture() {
@@ -63,14 +64,45 @@ test('one staged batch paints once, undoes once, and saves the existing flat pro
   assert.equal(f.paints.length, paints + 1); assert.equal(f.painted().map.value, 6);
   assert.equal(f.model().editCount, 3, 'wire-command budget count, not gesture count');
   a.stage({ amount: 4 }); a.undo(); assert.equal(f.painted().map.value, 6);
-  a.undo(); assert.equal(f.painted().map.value, 1); assert.equal(f.model().editCount, 1);
+  assert.equal(f.model().canUndo, false);
+  a.undo(); assert.equal(f.painted().map.value, 6); assert.equal(f.model().editCount, 3);
   assert.equal(f.model().message, '已撤銷上一步；仍有未保存修改。');
-  a.stage([{ amount: 2 }, { amount: 3 }]); await a.save();
+  await a.save();
   assert.deepEqual(f.calls.at(-2).body, { edits: [{ amount: 1 }, { amount: 2 }, { amount: 3 }] });
   assert.equal(f.model().dirty, false); assert.equal(f.painted().map.value, 6);
   a.stage({ amount: 7 }); a.undo(); assert.equal(f.painted().map.value, 6);
   assert.equal(f.model().editCount, 0, 'reread clears batch undo boundaries');
   assert.equal(f.model().message, '已撤銷全部未保存修改。');
+});
+
+test('five single-cell replacements preview two commands each, match full replay and preserve undo/save', async () => {
+  const initial = { gameId: 'system-base-map', componentDefinitions: Object.fromEntries([12, 13].map(tile => [`tile-${tile}`, {
+    id: `tile-${tile}`, revision: 'test-1', category: 'atomic-original', visualRef: `MMAP.MDL:tile-${tile}`, anchor: [0, 0], footprint: [[0, 0]], ruleRecipeRef: 'ki-byte-stamp-1', variants: { original: { tiles: [[0, 0, tile]] } }
+  }])), selectionGroups: [], map: { bounds: { minX: 0, minY: 0, width: 2, height: 1 },
+    base: { policy: 'sea-ground-1', terrainRef: [95, 95], geography: [1, 1], unknownUnderlays: {} },
+    decorations: [{ id: 'd0', definitionRef: 'tile-12', x: 0, y: 0 }], placements: [], roads: [], waterGroups: [] } };
+  let stored = initial, painted, submitted;
+  const counts = [], history = [];
+  const controller = createBaseMapController({ api: async (_path, body) => {
+    if (body) { submitted = body.edits; stored = previewMapEdits(initial, submitted); return {}; }
+    return { snapshot: { version: 1, digest: 'a'.repeat(64), template: { content: stored } } };
+  }, work: action => action(), publish() {}, confirm: () => true, paint: value => { painted = value; },
+  preview: (source, batch) => { counts.push(batch.length); return previewMapEdits(source, batch); } });
+  controller.setIdentity({ user: { id: 'admin', role: 'admin' } });
+  const a = controller.actions; await a.enter(); counts.length = 0;
+  for (let i = 1; i <= 5; i++) {
+    const batch = [{ op: 'decoration-remove', memberIds: [`d${i - 1}`] }, { op: 'decoration-place', materialId: `tile-${12 + i % 2}`,
+      instanceId: `d${i}`, x: 0, y: 0, waterClass: i % 2 ? 'lake' : null, variantRef: 'original' }];
+    history.push(...batch); a.stage(batch); assert.deepEqual(painted, previewMapEdits(initial, history));
+  }
+  const last = { ...history.at(-1), instanceId: 'other', x: 1 };
+  a.stage(last); assert.deepEqual(counts, [2, 2, 2, 2, 2, 1]);
+  assert.deepEqual(painted, previewMapEdits(initial, [...history, last]));
+  assert.throws(() => a.stage([{ op: 'decoration-remove', memberIds: ['other'] }, { ...last, x: 3 }]), /超出/);
+  a.undo(); assert.deepEqual(painted, previewMapEdits(initial, history));
+  // Structural histories still reconcile together; undo the structural gesture before saving.
+  a.stage({ op: 'decoration-reorder', memberIds: ['d5'], direction: 'top' }); assert.equal(counts.at(-1), 11);
+  a.undo(); await a.save(); assert.deepEqual(submitted, history); assert.deepEqual(painted, previewMapEdits(initial, history));
 });
 
 test('empty, oversized and late-failing batches preserve both pending data and undo history', async () => {
@@ -84,7 +116,8 @@ test('empty, oversized and late-failing batches preserve both pending data and u
   assert.equal(f.painted(), source); assert.equal(f.paints.length, paints); assert.equal(f.model().editCount, 1);
   a.stage(Array.from({ length: MAP_EDIT_MAX_COMMANDS - 1 }, () => ({ amount: 1 })));
   assert.equal(f.model().editCount, MAP_EDIT_MAX_COMMANDS); a.undo();
-  assert.equal(f.painted().map.value, 7); a.undo(); assert.equal(f.painted().map.value, 0);
+  assert.equal(f.painted().map.value, 7); a.undo(); assert.equal(f.painted().map.value, 7);
+  assert.equal(f.model().canUndo, false); assert.equal(f.model().dirty, true);
 });
 
 test('fresh workspace accepts a large batch above both old limits, undoes once and saves/rereads', async () => {
@@ -97,6 +130,17 @@ test('fresh workspace accepts a large batch above both old limits, undoes once a
   a.stage(edits); await a.save();
   assert.equal(f.painted().map.value, 256); assert.equal(f.model().dirty, false);
   assert.deepEqual(f.calls.at(-2).body.edits, edits);
+});
+
+test('known template capacity rejection logs only timings/sizes and keeps undo available', async t => {
+  const f = fixture(), a = f.controller.actions, log = t.mock.method(console, 'info', () => {});
+  await a.reload(); await a.initialize(); a.stage({ amount: 1 });
+  const metrics = { templateBytes: 67108865, limitBytes: 67108864, readMs: 12 };
+  f.postError(Object.assign(new Error('capacity'), { status: 413, code: 'BASE_MAP_TOO_LARGE', detail: { bytes: metrics.templateBytes, excessBytes: 1, metrics } }));
+  await a.save(); assert.equal(f.model().locked, false); assert.match(f.model().message, /超過上限 1 bytes/);
+  const [tag, json] = log.mock.calls.at(-1).arguments; assert.equal(tag, '[base-map-save]');
+  const report = JSON.parse(json); assert.deepEqual(report.server, metrics); assert.equal(report.committed, false); assert.equal(report.commands, 1);
+  a.undo(); assert.equal(f.model().dirty, false);
 });
 
 test('batch validation rejection remains undoable, while uncertain saves block all batch replay', async () => {

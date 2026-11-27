@@ -64,6 +64,9 @@ try {
   const wrongAssets = structuredClone(template);
   wrongAssets.content.editorAssets.springAtlas.sha256 = '0'.repeat(64);
   assert.throws(() => store.save('admin', wrongAssets), error => error.code === 'BASE_MAP_ASSETS_PROTECTED');
+  // Capacity is checked before the expensive compiler (even an invalid schema is too large).
+  assert.throws(() => store.save('admin', { ...initial.template, schema: 'x'.repeat(64 * 1024 * 1024) }),
+    error => error.code === 'BASE_MAP_TOO_LARGE' && error.status === 413 && error.detail.excessBytes === error.detail.bytes - 64 * 1024 * 1024);
   const wrongOrigin = structuredClone(template);
   wrongOrigin.provenance.sourceDigest = '0'.repeat(64);
   assert.throws(() => store.save('admin', wrongOrigin), error => error.code === 'BASE_MAP_PROVENANCE_PROTECTED');
@@ -84,6 +87,15 @@ try {
   const reopened = new SystemBaseMapStore({ storage, principal, loadInitialTemplate: () => { throw new Error('must not reconvert'); } });
   assert.equal((await reopened.initialize('admin')).version, 2);
   assert.equal(reopened.capture().template.content.cities['city-000'].name, '模板新城');
+  const stamp = { op: 'decoration-place', instanceId: `system-base-map#decoration-${'8'.repeat(64)}`, materialId: 'tile-12', variantRef: 'original', x: 0, y: 0, waterClass: null };
+  const rejected = {};
+  assert.throws(() => reopened.edit('admin', [{ ...stamp, materialId: 'tile-205' }], rejected), e => e.status === 422,
+    'an apparent decoration adding a stray city node must still fail the composed node scan');
+  assert.equal(rejected.lane, 'roads-cities'); assert.equal(reopened.capture().version, 2);
+  const metrics = {}, direct = reopened.edit('admin', [stamp], metrics);
+  assert.equal(metrics.lane, 'direct'); assert.equal(metrics.validateCompileMs, undefined); assert.equal(metrics.roadsPositionsMs, undefined);
+  const persisted = reopened.capture(); assert.equal(persisted.version, 3); assert.equal(persisted.digest, direct.digest);
+  assert.ok(persisted.template.content.map.decorations.some(i => i.id === stamp.instanceId));
   const concurrentStorage = openStorage(join(directory, 'concurrent.sqlite'));
   try {
     let finish, requests = 0;

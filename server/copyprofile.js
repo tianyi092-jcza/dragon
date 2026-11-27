@@ -419,6 +419,10 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
   }
   if (edit.op === 'decoration-place') {
     const keys = ['op', 'instanceId', 'materialId', 'variantRef', 'x', 'y', 'waterClass'];
+    if (Object.hasOwn(descriptors, 'copyFrom')) {
+      if (typeof edit.copyFrom !== 'string' || !edit.copyFrom) fail(422, 'COPY_MAP_DELTA');
+      keys.push('copyFrom');
+    }
     if (!usedInstanceIds || Array.isArray(edit) || Object.keys(descriptors).length !== keys.length || keys.some(key => !Object.hasOwn(descriptors, key))) fail(422, 'COPY_MAP_DELTA');
     const prefix = `${source.gameId}#decoration-`;
     if (typeof edit.instanceId !== 'string' || !edit.instanceId.startsWith(prefix) || !/^[a-f0-9]{64}$/.test(edit.instanceId.slice(prefix.length)) || usedInstanceIds.has(edit.instanceId)) fail(422, 'COPY_MAP_DELTA');
@@ -427,7 +431,7 @@ function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedI
     // Track its generated group identity as well as all instance identities.
     const groupId = `group-${edit.instanceId}`;
     if (edit.waterClass !== null && usedGroupIds.has(groupId)) fail(422, 'COPY_MAP_DELTA');
-    const next = placeComponent(source, edit.materialId, edit.x, edit.y, edit.instanceId, edit.waterClass, edit.variantRef);
+    const next = placeComponent(source, edit.materialId, edit.x, edit.y, edit.instanceId, edit.waterClass, edit.variantRef, edit.copyFrom);
     usedInstanceIds.add(edit.instanceId);
     if (edit.waterClass !== null) usedGroupIds.add(groupId);
     return next;

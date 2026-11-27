@@ -239,19 +239,26 @@ export function combineDecorations(source, memberIds, materialId, instanceId) {
     }
   });
 }
-export function placeComponent(source, definitionRef, x, y, id, waterClass, variantRef = "original") {
+export function placeComponent(source, definitionRef, x, y, id, waterClass, variantRef = "original", copyFrom) {
   const def = source.componentDefinitions[definitionRef]; if (!def) fail("素材不存在");
   if (!Number.isInteger(x) || !Number.isInteger(y)) fail("落點須為整數圖格");
   if (source.map.decorations.some((d) => d.id === id)) fail("組件身份重複");
   const bounds = mapBounds(source);
   return transaction(source, (next) => {
     const instance = { id, definitionRef, variantRef, x, y };
+    let showWater = true;
+    if (copyFrom !== undefined) {
+      const original = source.map.decorations.find(item => item.id === copyFrom);
+      if (!original || original.definitionRef !== definitionRef || (original.variantRef ?? 'original') !== variantRef || (original.waterClass ?? null) !== (waterClass ?? null)) fail('複製來源與素材不符');
+      if (original.minimapLand !== undefined) instance.minimapLand = original.minimapLand;
+      if (waterClass) showWater = source.map.waterGroups.find(group => group.memberIds.includes(copyFrom))?.showOnMinimap ?? true;
+    }
     if (waterClass) { if (!Object.hasOwn(WATER_CLASSES, waterClass)) fail("無效水域類別"); instance.waterClass = waterClass; }
     // Check the full footprint before writing, never clip at map borders.
     for (const [cx, cy] of componentCells(next, instance))
       if (!Number.isInteger(cx) || !Number.isInteger(cy) || cx < bounds.minX || cx >= bounds.minX + bounds.width || cy < bounds.minY || cy >= bounds.minY + bounds.height) fail("素材占用範圍超出地圖；未提交");
     next.map.decorations.push(instance);
-    if (waterClass) next.map.waterGroups.push(newGroup(next, "group-" + id, def.name ?? "新水域組合", [id], [], true));
+    if (waterClass) next.map.waterGroups.push(newGroup(next, "group-" + id, def.name ?? "新水域組合", [id], [], showWater));
   });
 }
 export function placeCityGroup(source, materialized) {

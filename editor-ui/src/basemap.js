@@ -15,6 +15,9 @@ export function createMapController({ api, work, publish, preview = previewMapEd
   let identity = null, actorId = null, actorVersion = null, generation = 0;
   let pendingForm = false, readRevision = 0, saveReport = null;
   let snapshot = null, candidate = null, edits = [], undoSizes = [], loaded = false, uncertain = false, message = '', serverProblems = [];
+  const encoder = new TextEncoder();
+  const emptyBodyBytes = encoder.encode(JSON.stringify(gameId ? { module: 'map', patch: { edits: [] } } : { edits: [] })).length;
+  let bodyBytes = emptyBodyBytes;
   const permitted = () => Boolean(identity && !identity.user.mustChangePassword && (gameId ? ['admin', 'author'].includes(identity.user.role) : identity.user.role === 'admin'));
   const current = mark => mark === generation && permitted() && identity.user.id === actorId && (identity.version ?? null) === actorVersion;
   const extentSides = () => {
@@ -22,7 +25,7 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     catch { return null; }
   };
   const render = () => publish({ loaded, exists: Boolean(snapshot), version: snapshot?.version ?? 0,
-    dirty: edits.length > 0, editCount: edits.length, locked: !permitted() || uncertain || !snapshot,
+    dirty: edits.length > 0, canUndo: undoSizes.length > 0, editCount: edits.length, locked: !permitted() || uncertain || !snapshot,
     uncertain, message, serverProblems, saveReport, readRevision, gameId, gameScoped: Boolean(gameId),
     extentSides: extentSides(),
     seaGroundPending: edits.some(edit => edit.op === 'sea-ground-enable'),
@@ -40,13 +43,18 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     const prepared = next ? preview(next.content, pending) : null;
     pendingForm = false; readRevision++;
     snapshot = next; candidate = prepared; edits = pending; undoSizes = pending.length ? [1] : []; loaded = true; uncertain = false; serverProblems = [];
+    bodyBytes = emptyBodyBytes + encoder.encode(JSON.stringify(pending)).length - 2;
     paint(candidate, false); render();
   }
-  async function read(mark, options) {
+  async function read(mark, options, timings) {
+    const started = performance.now();
     const value = await api(path, undefined, options);
+    const received = performance.now();
+    if (timings) timings.reloadRequestMs = Math.round(received - started);
     if (!current(mark)) return;
     if (!options) saveReport = null;
     install(value);
+    if (timings) timings.installMs = Math.round(performance.now() - received);
   }
   async function reload() {
     const mark = generation;
@@ -79,20 +87,27 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     const batch = structuredClone(Array.isArray(edit) ? edit : [edit]);
     if (!batch.length) throw new Error('修改批次不可為空。');
     const pending = [...edits, ...batch];
-    if (pending.length > MAP_EDIT_MAX_COMMANDS || new TextEncoder().encode(JSON.stringify(gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending })).length > MAP_EDIT_MAX_BYTES)
+    const nextBytes = bodyBytes + encoder.encode(JSON.stringify(batch)).length - 2 + (edits.length ? 1 : 0);
+    if (pending.length > MAP_EDIT_MAX_COMMANDS || nextBytes > MAP_EDIT_MAX_BYTES)
       throw new Error('本次修改超過保存上限（4096條命令／16 MiB）。已有修改可先保存；若單次操作仍超限，請縮小選取範圍。');
-    // Ordinary stamps and translations leave selection-group membership intact.
-    // Apply just this gesture to the accepted preview. Structural histories still
-    // replay as a unit so their end-of-batch group reconciliation is unchanged.
-    const simple = pending.every(({ op }) => ['decoration-place', 'decoration-translate', 'map-object-translate', 'sea-ground-enable'].includes(op));
-    const next = simple ? preview(candidate, batch) : preview(snapshot.content, pending);
+    // In a stamp-only history, reconciliation just filters removed decoration IDs.
+    // Filtering after each gesture gives the same groups as filtering once at the end.
+    // Object moves can read group membership: keep full replay for mixed remove/move
+    // histories and for structural commands such as split or regroup.
+    const hasRemoval = pending.some(({ op }) => op === 'decoration-remove');
+    const incremental = pending.every(({ op }) => ['decoration-place', 'decoration-remove', 'decoration-translate', 'sea-ground-enable'].includes(op)
+      || (!hasRemoval && op === 'map-object-translate'));
+    const next = incremental ? preview(candidate, batch) : preview(snapshot.content, pending);
     saveReport = null;
-    candidate = next; edits = pending; undoSizes = [...undoSizes, batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate, pending.some(needsOverlay)); render();
+    bodyBytes = nextBytes;
+    candidate = next; edits = pending; undoSizes = gameId ? [...undoSizes, batch.length] : [batch.length]; serverProblems = []; message = '有尚未保存的修改。'; paint(candidate, pending.some(needsOverlay), incremental && batch.every(({ op }) => op === 'decoration-place' || op === 'decoration-remove')); render();
     return true;
   }
   function undo() {
-    if (!permitted() || uncertain || !edits.length) return;
-    const pending = edits.slice(0, -undoSizes.at(-1)), next = preview(snapshot.content, pending);
+    if (!permitted() || uncertain || !undoSizes.length) return;
+    const removed = edits.slice(-undoSizes.at(-1));
+    const pending = edits.slice(0, -removed.length), next = preview(snapshot.content, pending);
+    bodyBytes -= encoder.encode(JSON.stringify(removed)).length - 2 + (pending.length ? 1 : 0);
     saveReport = null;
     candidate = next; edits = pending; undoSizes = undoSizes.slice(0, -1); serverProblems = [];
     message = pending.length ? '已撤銷上一步；仍有未保存修改。' : '已撤銷全部未保存修改。';
@@ -103,9 +118,11 @@ export function createMapController({ api, work, publish, preview = previewMapEd
     const mark = generation, pending = structuredClone(edits);
     return work(async () => {
       if (!current(mark)) return;
+      const started = performance.now(), timings = gameId ? null : { commands: pending.length };
+      let sent;
       const moved = pending.some(changesMapPositions);
       const steps = [...(moved ? ['本機檢查：道路端點、據點占格、重疊與路網連通'] : []),
-        gameId ? `伺服器核驗 ${pending.length} 條地圖修改（命令格式、素材與物件引用${moved ? '、修改後的位置與連通性' : ''}），通過才寫入遊戲地圖` : `伺服器核驗 ${pending.length} 條地圖修改：物件位置、路網連通、模板及受保護資源，通過才寫入基礎地圖`,
+        gameId ? `伺服器核驗 ${pending.length} 條地圖修改（命令格式、素材與物件引用${moved ? '、修改後的位置與連通性' : ''}），通過才寫入遊戲地圖` : `伺服器套用 ${pending.length} 條修改；普通裝飾直接保存，涉及道路或據點才檢查路網，擴縮或舊模板完整檢查`,
         '重新讀取已保存的地圖'];
       let index = 0, committed = false, submitted = false;
       const report = (state, summary) => { saveReport = { steps, index, state, summary }; render(); };
@@ -121,11 +138,14 @@ export function createMapController({ api, work, publish, preview = previewMapEd
         }
         report('running', '等待伺服器核驗及寫入');
         submitted = true;
-        await api(gameId ? path : path + '/save', gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending }, local);
+        sent = performance.now();
+        if (timings) timings.localMs = Math.round(sent - started);
+        const result = await api(gameId ? path : path + '/save', gameId ? { module: 'map', patch: { edits: pending } } : { edits: pending }, local);
+        if (timings) Object.assign(timings, { postMs: Math.round(performance.now() - sent), server: result?.metrics });
         if (!current(mark)) return;
         committed = true;
         index++; report('running', '正在重新讀取地圖');
-        await read(mark, local);
+        await read(mark, local, timings);
         if (current(mark)) {
           message = gameId ? '已保存並重新讀取遊戲地圖。' : '已保存並重新讀取基礎地圖。';
           index++; report('success', '保存成功');
@@ -134,14 +154,22 @@ export function createMapController({ api, work, publish, preview = previewMapEd
         if (current(mark)) {
           // A known validation rejection retains editable inputs. Unknown writes
           // or a failed read after success must not replay non-idempotent edits.
-          uncertain = committed || submitted && error.status !== 422;
+          const oversized = !gameId && error.status === 413 && error.code === 'BASE_MAP_TOO_LARGE';
+          uncertain = committed || submitted && error.status !== 422 && !oversized;
+          if (timings) {
+            if (sent !== undefined && timings.postMs === undefined) timings.postMs = Math.round(performance.now() - sent);
+            Object.assign(timings, { error: error.code ?? 'REQUEST_FAILED', ...(error.detail?.metrics && { server: error.detail.metrics }) });
+          }
           serverProblems = Array.isArray(error.detail?.problems) ? error.detail.problems.filter(problem => typeof problem?.message === 'string').slice(0, 128).map(problem => ({ message: problem.message.slice(0, 512) })) : [];
           const summary = committed ? '已寫入，重新讀取失敗' : uncertain ? '未能確認寫入結果' : '檢查未通過，未保存';
           message = committed ? '保存已成功，但重新讀取失敗；請重新讀取後再編輯。' : error.message;
+          if (oversized && Number.isSafeInteger(error.detail?.excessBytes)) message = `模板共 ${error.detail.bytes} bytes，超過上限 ${error.detail.excessBytes} bytes；未寫入，可撤銷或調整。`;
           if (!uncertain && error.status === 422) paint(candidate, true);
-          if (!serverProblems.length) serverProblems = [{ message: error.message }];
+          if (!serverProblems.length) serverProblems = [{ message: oversized ? message : error.message }];
           report(uncertain && !committed ? 'unknown' : 'failed', summary);
         }
+      } finally {
+        if (timings && current(mark)) console.info('[base-map-save]', JSON.stringify({ ...timings, committed: committed || (uncertain ? null : false), totalMs: Math.round(performance.now() - started) }));
       }
     }, { feedback: 'local', ownStatus: true });
   }

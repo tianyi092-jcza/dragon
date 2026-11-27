@@ -177,12 +177,14 @@ try {
       const cache = await caches.open(MUSIC_CACHE);
       const [key] = await cache.keys();
       const bytes = await (await cache.match(key)).arrayBuffer();
-      return Array.from(
+      const digest = Array.from(
         new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
         (n) => n.toString(16).padStart(2, "0"),
       ).join("");
+      if (new URL(key.url).searchParams.get('v') !== digest.slice(0, 16)) throw new Error('stale opening music cache key');
+      return digest;
     }),
-    "2f00b4805ba824ab141dd51bb69e1bd71d01e8d35a6335e65c7cf55133592413",
+    "d9d4dde409c11b78c97cc89f87c03cdc58a4d6abc1b566d1f2f5b98a86034832",
   );
   await page.locator("#start-opening").click();
   await page.waitForFunction(

@@ -75,7 +75,7 @@ export function previewMapEdits(source, edits) {
       case 'map-object-remove': return removeMapObject(current, edit.layer, edit.id);
       case 'map-object-translate': return translateMapObject(current, edit.layer, edit.id, edit.dx, edit.dy);
       case 'decoration-split': return splitDecoration(current, edit.instanceId, edit.childIds);
-      case 'decoration-place': return placeComponent(current, edit.materialId, edit.x, edit.y, edit.instanceId, edit.waterClass, edit.variantRef);
+      case 'decoration-place': return placeComponent(current, edit.materialId, edit.x, edit.y, edit.instanceId, edit.waterClass, edit.variantRef, edit.copyFrom);
       case 'city-group-place': return placeCityGroup(current, edit.materialized);
       case 'city-group-disband': return disbandCityGroup(current, edit.cityId);
       case 'city-gate-remove': return removeCityGate(current, edit);

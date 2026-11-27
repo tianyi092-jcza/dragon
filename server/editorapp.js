@@ -1529,7 +1529,15 @@ return class EditorMetadata extends PlatformBase {
     if (path === '/api/admin/base-map/save') {
       if (url.search) fail(422, 'BASE_MAP_QUERY');
       fields(value, ['edits']);
-      return response({ snapshot: this.systemBaseMap.edit(tokenHash, value.edits) });
+      if (request.headers.get('Prefer') !== 'return=minimal') return response({ snapshot: this.systemBaseMap.edit(tokenHash, value.edits) });
+      const metrics = {}, started = performance.now();
+      try {
+        const receipt = this.systemBaseMap.edit(tokenHash, value.edits, metrics);
+        return response({ receipt, metrics: { ...metrics, serverMs: Math.round(performance.now() - started) } });
+      } catch (error) {
+        if (error instanceof HttpError) error.detail = { ...error.detail, metrics: { ...metrics, serverMs: Math.round(performance.now() - started) } };
+        throw error;
+      }
     }
     if (path === '/api/admin/base-map/initialize') {
       if (url.search) fail(422, 'BASE_MAP_QUERY');

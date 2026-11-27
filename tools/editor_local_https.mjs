@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 // 'range' carries the audio preview contract (`<audio>` sends Range and needs
 // 206/416); dropping it here would hide a real defect from local testing.
-const allowedHeaders = new Set(['accept', 'content-type', 'origin', 'cookie', 'x-csrf-token', 'idempotency-key', 'if-match', 'range']);
+const allowedHeaders = new Set(['accept', 'content-type', 'origin', 'cookie', 'x-csrf-token', 'idempotency-key', 'if-match', 'range', 'prefer']);
 function capture(incoming, maxJSONBytes) {
   return new Promise((done, reject) => {
     let length = 0, oversized = false; const parts = [];

@@ -25,6 +25,57 @@ function recipeFixture() {
     support: 'existing-decoration', geographyEffect: 'preserve-underlay' } };
 }
 
+test('selected cell reports its visible catalog byte, not the instance ID or the multi-cell anchor tile', () => {
+  const source = fixture(), main = canvas();
+  Object.assign(source.map.bounds, { minX: 313, minY: -1 });
+  Object.assign(source.map.decorations[0], { id: 'edge-north--1-349', x: 313, y: -1 });
+  source.componentDefinitions.piece.variants.original.tiles[1][2] = 0;
+  let model;
+  const view = createMapCanvas({ publish: v => { model = v; }, stage: () => assert.fail('inspection must not edit') });
+  view.attach(main, null); view.setSource(source); view.resize(32, 32); view.fit();
+  view.pick(24, 8);
+  assert.equal(model.selected.id, 'edge-north--1-349'); assert.equal(model.selected.cellTileId, 0);
+  view.pick(24, 8); assert.equal(model.selected, null);
+  view.pick(8, 8); assert.equal(model.selected.cellTileId, 16);
+});
+
+test('base-only tint follows visible footprints even for identical tiles and never tints the game workspace', () => {
+  const source = fixture();
+  for (const gameId of ['system-base-map', 'game-id']) {
+    const main = canvas(), fills = [];
+    main.getContext().fillRect = (...rect) => fills.push(rect);
+    const view = createMapCanvas({ gameId, publish() {}, stage: assert.fail });
+    view.attach(main, null); view.setSource(source); view.resize(32, 32); view.fit();
+    fills.length = 0; view.setAtlas({});
+    assert.deepEqual(fills, gameId === 'system-base-map' ? [[16, 16, 16, 16]] : []);
+    fills.length = 0; view.layer('decor', 'visible', false);
+    assert.equal(fills.length, gameId === 'system-base-map' ? 4 : 0);
+  }
+});
+
+test('Shift-drag copies selected decorations once in layer order; preview keeps the originals and rejects partial drops', () => {
+  const { source } = recipeFixture(), main = canvas(), batches = [];
+  source.map.decorations = ['tile-166', 'tile-160'].map((definitionRef, x) => ({ id: `old-${x}`, definitionRef, x, y: 0, minimapLand: x === 0 }));
+  const view = createMapCanvas({ publish() {}, stage: edits => batches.push(edits) });
+  view.attach(main, null); view.setSource(source); view.resize(32, 32); view.fit(); view.setAtlas({});
+  view.pick(24, 8); view.toggleMulti(8, 8);
+  assert.ok(view.beginMultiMove(8, 8, true)); main.draws.length = 0;
+  view.previewObjectMove(8, 24);
+  const sprites = main.draws.filter(r => r[0] === 'image-alpha');
+  assert.equal(sprites.filter(r => r[1] === 0.5).length, 2);
+  assert.ok(sprites.some(r => r[1] === 1 && r[3] === 96 && r[4] === 160));
+  assert.equal(batches.length, 0); view.commitObjectMove(); view.commitObjectMove();
+  assert.equal(batches.length, 1);
+  const after = previewMapEdits(source, batches[0]);
+  assert.deepEqual(after.map.decorations.slice(0, 2), source.map.decorations);
+  assert.deepEqual(after.map.decorations.slice(2).map(i => [i.definitionRef, i.x, i.y]), [['tile-166',0,1], ['tile-160',1,1]]);
+  assert.deepEqual(after.map.decorations.slice(2).map(item => item.minimapLand), [true, false]);
+  assert.equal(new Set(after.map.decorations.map(i => i.id)).size, 4);
+  view.beginMultiMove(8, 8, true); view.previewObjectMove(24, 24); view.commitObjectMove();
+  view.beginMultiMove(8, 8, true); view.previewObjectMove(8, 24); view.cancelObjectMove(); view.commitObjectMove();
+  assert.equal(batches.length, 1);
+});
+
 test('default workspace publishes 240 atomic cards and four preview-only city groups without changing existing combinations', () => {
   const { source } = recipeFixture(), before = JSON.stringify(source);
   let model;
@@ -119,9 +170,9 @@ test('atomic thumbnails enlarge to 32 CSS pixels while map placement stays one 1
         view.cancelPlacement();
       }
     }
-    view.previewPlacement('tile-166', 1, 1); view.commitPlacement();
+    view.previewPlacement('tile-166', 24, 24); view.commitPlacement();
     assert.equal(staged.length, 1);
-    assert.deepEqual(staged.map(({ instanceId: _instanceId, ...edit }) => edit), [{ op: 'decoration-place', materialId: 'tile-166', variantRef: 'original', x: 0, y: 0, waterClass: null }]);
+    assert.deepEqual(staged.map(({ instanceId: _instanceId, ...edit }) => edit), [{ op: 'decoration-place', materialId: 'tile-166', variantRef: 'original', x: 1, y: 1, waterClass: null }]);
     assert.equal(JSON.stringify(source), before);
   } finally {
     if (previousRatio) Object.defineProperty(globalThis, 'devicePixelRatio', previousRatio);
@@ -129,8 +180,45 @@ test('atomic thumbnails enlarge to 32 CSS pixels while map placement stays one 1
   }
 });
 
+test('single-cell drops replace the top decoration as one gesture without flattening older layers', () => {
+  const { source } = recipeFixture(), batches = [], main = canvas();
+  let current = source;
+  const view = createMapCanvas({ publish() {}, stage: edits => {
+    batches.push(edits); current = previewMapEdits(current, Array.isArray(edits) ? edits : [edits]); view.setSource(current);
+  } });
+  view.attach(main, null); view.setSource(source); view.resize(32, 32); view.fit(); view.setAtlas({});
+  const drop = (id, pos) => { view.previewPlacement(id, pos, pos); view.commitPlacement(); };
+  assert.throws(() => drop('tile-166', 8), /多格/);
+  drop('tile-166', 24);
+  const under = { ...current.map.decorations.at(-1), id: 'old-underlay', definitionRef: 'tile-161' };
+  current = { ...current, map: { ...current.map, decorations: [under, ...current.map.decorations] } };
+  view.setSource(current); drop('tile-160', 24); drop('tile-160', 24);
+  assert.equal(batches.length, 2); assert.deepEqual(batches[1].map(e => e.op), ['decoration-remove', 'decoration-place']);
+  assert.deepEqual(current.map.decorations.map(d => d.definitionRef), ['tile-161', 'piece', 'tile-160']);
+  assert.deepEqual(current.map.decorations[0], under);
+  current = { ...current, selectionGroups: [{ id: 'group', members: [{ layer: 'decorations', id: current.map.decorations.at(-1).id }] }] };
+  view.setSource(current); assert.throws(() => drop('tile-161', 24), /組合/);
+  current = { ...current, map: { ...current.map, placements: [{ id: 'centre', cityId: null, x: 1, y: 1, componentRef: 'tile-160' }] } };
+  view.setSource(current); assert.throws(() => drop('tile-161', 24), /道路或據點/);
+  assert.equal(batches.length, 2);
+});
+
+test('ordinary drop refreshes map tiles without redrawing the unchanged library; full install restores it', () => {
+  const { source } = recipeFixture(), main = canvas(), thumb = canvas();
+  let model;
+  const view = createMapCanvas({ publish: value => { model = value; }, stage() {} });
+  view.attach(main, null); view.setAtlas({}); view.setSource(source); view.resize(32, 32); view.fit();
+  view.previewMaterial(thumb, 'tile-166'); const draws = thumb.draws.length;
+  const next = previewMapEdits(source, [{ op: 'decoration-place', instanceId: 'drop', materialId: 'tile-166', x: 1, y: 1 }]);
+  view.setSource(next, true, true); view.pick(24, 24);
+  assert.equal(model.selected.cellTileId, 166); assert.equal(thumb.draws.length, draws);
+  assert.equal(model.materials.find(m => m.id === 'tile-166').inUse, true);
+  view.setSource(source); assert.ok(thumb.draws.length > draws); assert.equal(model.materials.find(m => m.id === 'tile-166').inUse, false);
+});
+
 test('one JSON-saved layout edit is reused unchanged by all four seasonal atlases', () => {
   const { source } = recipeFixture(), staged = [], main = canvas();
+  source.map.decorations = [];
   source.editorAssets = { seasonAtlases: Object.fromEntries(['spring', 'summer', 'autumn', 'winter'].map(season => [season, { url: `/${season}.png` }])) };
   const view = createMapCanvas({ publish() {}, stage: edit => staged.push(edit) });
   view.attach(main, null); view.setSource(source); view.resize(32, 32); view.fit(); view.grid(false);

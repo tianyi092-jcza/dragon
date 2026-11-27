@@ -152,7 +152,13 @@ function down(event) {
   canvas.value.setPointerCapture(event.pointerId);
   canvas.value.focus({ preventScroll: true });
   if (rightGesture) { pointer.right = true; return; }
-  if (event.shiftKey) { shiftSelect = true; return; }
+  if (event.shiftKey) {
+    shiftSelect = true;
+    if (!placementLocked.value) objectDragging = props.model.multi?.length
+      ? props.actions.beginMultiMove(event.offsetX, event.offsetY, true)
+      : props.actions.beginObjectMove(event.offsetX, event.offsetY, true);
+    return;
+  }
   // 只有锁定地图才允许拖动已选对象；未锁定一律平移地图。
   if (!panLocked.value) return;
   if (props.model.multi && props.model.multi.length) {
@@ -169,8 +175,8 @@ function move(event) {
   if (pointer.right && pointer.moved) {
     selectionBox.value = { left: `${Math.min(pointer.startX,event.offsetX)}px`, top: `${Math.min(pointer.startY,event.offsetY)}px`, width: `${Math.abs(pointer.startX-event.offsetX)}px`, height: `${Math.abs(pointer.startY-event.offsetY)}px` };
   } else if (!pointer.right && pointer.moved) {
-    if (!panLocked.value) props.actions.pan(pointer.x - event.offsetX, pointer.y - event.offsetY);
-    else if (objectDragging) props.actions.previewObjectMove(event.offsetX, event.offsetY);
+    if (objectDragging) props.actions.previewObjectMove(event.offsetX, event.offsetY);
+    else if (!panLocked.value && !shiftSelect) props.actions.pan(pointer.x - event.offsetX, pointer.y - event.offsetY);
   }
   pointer.x = event.offsetX; pointer.y = event.offsetY;
 }
@@ -186,7 +192,13 @@ function up(event) {
     return;
   }
   if (shiftSelect) {
+    move(event); // Use the release position, even without a final pointermove.
     shiftSelect = false;
+    if (objectDragging) {
+      objectDragging = false;
+      if (pointer.moved && !placementLocked.value) { pointer = null; props.actions.commitObjectMove(); return; }
+      props.actions.cancelObjectMove();
+    }
     if (!pointer.moved && !props.busy) {
       const result = props.actions.toggleMulti(event.offsetX, event.offsetY);
       if (result && !result.toggled && result.rejected === 'road') notice.value = '道路不能参与组合';
@@ -336,13 +348,14 @@ onBeforeUnmount(() => {
       <ElButton :disabled="busy" title="重新讀取地圖，取消未保存修改" @click="notice = ''; actions.reload()">載入</ElButton>
       <ElButton v-if="!model.gameScoped && model.loaded && !model.exists" :disabled="busy" title="首次建立系統基礎地圖" @click="actions.initialize()">建立</ElButton>
       <ElButton :disabled="locked || !model.dirty" title="保存並重新讀取地圖" @click="notice = ''; actions.save()">保存</ElButton>
-      <ElButton :disabled="locked || !model.dirty" title="撤銷上一步修改" @click="notice = ''; actions.undo()">撤銷</ElButton>
+      <ElButton :disabled="locked || !model.canUndo" title="撤銷上一步修改" @click="notice = ''; actions.undo()">撤銷</ElButton>
       <slot name="tools" />
       <ElButton :disabled="!model.exists" title="縮放至顯示整張地圖" @click="actions.fit()">全圖</ElButton>
       <ElButton :disabled="!model.exists" title="放大地圖" @click="actions.zoom(1.25)">放大</ElButton>
       <ElButton :disabled="!model.exists" title="原始比例：每格16×16像素，保持視野中心" @click="actions.zoom(1 / model.zoom)">100%</ElButton>
       <ElButton :disabled="!model.exists" title="縮小地圖" @click="actions.zoom(0.8)">縮小</ElButton>
       <ElButton :disabled="busy || !model.exists" aria-label="鎖圖" :aria-pressed="panLocked" :title="panLocked ? '已鎖圖：拖動已選物件；點擊解鎖' : '未鎖圖：拖動平移；點擊鎖定後可拖動已選物件'" @click="panLocked = !panLocked; pointer = null; objectDragging = false; actions.cancelObjectMove(); actions.cancelPlacement()"><WorkspaceIcon :name="panLocked ? 'locked' : 'unlocked'" /></ElButton>
+      <span v-if="!model.gameScoped" title="僅標記沒有可見素材覆蓋的底圖，不影響小地圖或遊戲。">灰色蒙板：裸底圖</span>
       <ElCheckbox :model-value="model.gridVisible !== false" @update:model-value="actions.grid($event)">網格</ElCheckbox>
         <span class="extent-label">地圖擴展</span>
         <div v-for="[side, key, name, unit] in extentDirections" :key="side" class="extent-direction" role="group" :aria-label="`${name}側擴縮`">
@@ -369,7 +382,7 @@ onBeforeUnmount(() => {
     <div v-if="model.atlasError" class="base-map-problems" role="alert"><span>{{ model.atlasError }}</span><ElButton @click="actions.retryAtlas()">重試</ElButton></div>
     <div v-if="model.diagnostics?.length" class="base-map-problems" role="alert"><div v-for="problem in model.diagnostics" :key="problem.index"><span>{{ problem.message }}</span><ElButton :disabled="!Number.isInteger(problem.x) || !Number.isInteger(problem.y)" title="定位底圖格" @click="actions.focusDiagnostic(problem.index)">定位</ElButton></div></div>
       <div ref="host" class="base-map-canvas-host">
-        <canvas ref="canvas" class="base-map-canvas" tabindex="0" title="右鍵拖曳框選物件，Delete 確認刪除；Shift+點擊增減物件，Ctrl+C 複製，Ctrl+V 貼上。" aria-description="點選單格、Shift 多選或右鍵框選後按 Ctrl+C 複製圖塊，再點選目標格按 Ctrl+V 貼上。選取素材後以方向鍵逐格移動，Enter或空白鍵放置，Esc取消；選取地圖物件後右鍵或Shift+F10開啟操作。" @keydown="moveMaterialKeyboard" @blur="cancelMaterial" :aria-label="model.gameScoped ? '可編輯遊戲地圖' : '可編輯基礎地圖'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @lostpointercapture="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @contextmenu.prevent="!rightGesture && openContext($event)" @wheel.prevent="contextPosition = null; !busy && actions.zoom($event.deltaY < 0 ? 1.2 : 1 / 1.2, $event.offsetX, $event.offsetY)" />
+        <canvas ref="canvas" class="base-map-canvas" tabindex="0" title="右鍵拖曳框選物件，Delete 確認刪除；Shift+點擊增減物件，Shift+拖曳已選裝飾可複製，Ctrl+C 複製，Ctrl+V 貼上。" aria-description="點選單格、Shift 多選或右鍵框選後按 Ctrl+C 複製圖塊，再點選目標格按 Ctrl+V 貼上。選取素材後以方向鍵逐格移動，Enter或空白鍵放置，Esc取消；選取地圖物件後右鍵或Shift+F10開啟操作。" @keydown="moveMaterialKeyboard" @blur="cancelMaterial" :aria-label="model.gameScoped ? '可編輯遊戲地圖' : '可編輯基礎地圖'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @lostpointercapture="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @contextmenu.prevent="!rightGesture && openContext($event)" @wheel.prevent="contextPosition = null; !busy && actions.zoom($event.deltaY < 0 ? 1.2 : 1 / 1.2, $event.offsetX, $event.offsetY)" />
         <div v-if="selectionBox" aria-hidden="true" class="base-map-selection-box" :style="selectionBox" />
         <div ref="floating" class="base-map-floating" :style="floatingPosition ? { left: `${floatingPosition.x}px`, top: `${floatingPosition.y}px`, bottom: 'auto' } : {}" aria-label="浮動圖層工具">
         <ElCard :body-style="{ padding: '4px' }">
@@ -385,7 +398,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="contextPosition && (model.selected || (model.multi && model.multi.length))" ref="menu" class="base-map-context" :style="{ left: `${contextPosition.x}px`, top: `${contextPosition.y}px` }" role="dialog" aria-label="物件操作" @contextmenu.prevent>
         <ElCard :body-style="{ padding: '12px' }">
-          <div class="base-map-object-info"><template v-if="model.multi && model.multi.length"><strong>组合</strong><span>共{{ model.multi.length }}件</span><span>Shift+单击切换增减</span></template><template v-else><strong>{{ model.selected.type || labels[model.selected.layer] || '组合' }}</strong><span>{{ model.selected.x }}, {{ model.selected.y }}</span><span class="map-object-id" :title="model.selected.id">ID：{{ model.selected.id }}</span></template></div>
+          <div class="base-map-object-info"><template v-if="model.multi && model.multi.length"><strong>组合</strong><span>共{{ model.multi.length }}件</span><span>Shift+单击切换增减</span></template><template v-else><strong>{{ model.selected.type || labels[model.selected.layer] || '组合' }}</strong><span>{{ model.selected.x }}, {{ model.selected.y }}</span><span class="map-object-id" :title="model.selected.id">物件 ID：{{ model.selected.id }}</span><span v-if="model.selected.cellTileId != null">素材庫 ID：{{ model.selected.cellTileId }}</span></template></div>
           <div v-if="model.selectedBinding && !model.multi?.length" class="base-map-context-actions base-map-city-bind">
             <span>綁定：</span>
             <ElSelect v-if="model.selectedBinding?.cityId" :model-value="model.selectedBinding.cityId" disabled aria-label="綁定據點下拉框"><ElOption :value="model.selectedBinding.cityId" :label="model.cities.find(c => c.cityId === model.selectedBinding.cityId)?.name || model.selectedBinding.cityId" /></ElSelect>

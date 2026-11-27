@@ -130,7 +130,27 @@ try {
     return { x: box.x + sx, y: box.y + sy, rx: sx, ry: sy };
   };
   const menu = () => panel.getByRole('dialog', { name: '物件操作', exact: true });
-  if (gameMode || process.argv.includes('--rectangle-delete')) {
+  if (process.argv.includes('--shift-copy')) {
+    await panel.getByRole('button', { name:'全圖', exact:true }).click();
+    const start = await viewOf(standalone.x, standalone.y), end = await viewOf(standalone.x + 6, standalone.y + 3);
+    await canvas.click({ position: { x: start.rx, y: start.ry } });
+    await page.keyboard.down('Shift'); await page.mouse.move(start.x, start.y); await page.mouse.down();
+    await page.mouse.move(end.x, end.y, { steps: 4 });
+    const save = panel.getByRole('button', { name: '保存', exact: true });
+    assert.equal(await save.isEnabled(), false, 'preview must not stage');
+    await page.mouse.up(); await page.keyboard.up('Shift');
+    await panel.getByRole('button', { name: '撤銷', exact: true }).click();
+    assert.equal(await save.isEnabled(), false, 'one undo after shift drop');
+    await page.keyboard.down('Shift'); await page.mouse.move(start.x, start.y); await page.mouse.down();
+    await page.mouse.move(end.x, end.y, { steps: 4 }); await page.mouse.up(); await page.keyboard.up('Shift');
+    await Promise.all([page.waitForResponse(r => r.url().endsWith('/api/admin/base-map/save') && r.status() === 200), save.click()]);
+    const rows = snapshot.template.content.map.decorations, clone = rows.at(-1);
+    assert.equal(rows.length, template.content.map.decorations.length + 1);
+    assert.deepEqual([clone.definitionRef, clone.x, clone.y], [standalone.definitionRef, standalone.x + 6, standalone.y + 3]);
+    assert.deepEqual(rows.find(d => d.id === standalone.id), standalone);
+    assert.deepEqual(errors, []); assert.deepEqual(failures, []);
+    console.log('PASS Shift drag in unlocked viewport copies on release and undoes in one step');
+  } else if (gameMode || process.argv.includes('--rectangle-delete')) {
     await panel.getByRole('button', { name:'全圖', exact:true }).click();
     await verifyRectangle(await viewOf(gx.x,gx.y));
     assert.deepEqual(errors, []); assert.deepEqual(failures, []);

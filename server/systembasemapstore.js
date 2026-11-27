@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { fail, HttpError } from './security.js';
 import { reconcileAutoRoads } from './copyprofile.js';
+import { baseMapSaveLane } from './basemapsavelane.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
 import { createStrongholdDefinition } from './gamecopy.js';
@@ -178,16 +179,26 @@ export class SystemBaseMapStore {
       return this.#current();
     });
   }
-  edit(tokenHash, edits) {
+  edit(tokenHash, edits, metrics) {
     this.#admin(tokenHash);
+    let stamp = performance.now();
+    const phase = name => { if (metrics) { const now = performance.now(); metrics[name] = Math.round(now - stamp); stamp = now; } };
     if (!Array.isArray(edits) || !edits.length || edits.length > MAP_EDIT_MAX_COMMANDS) fail(422, 'BASE_MAP_EDITS');
     const current = this.capture();
+    phase('readMs');
     try {
       const candidate = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...current.template.content }, edits);
-      reconcileAutoRoads(candidate);
-      assertMapPositions(candidate);
+      phase('applyMs');
+      const lane = baseMapSaveLane(current.template.content, candidate, edits);
+      phase('classifyMs');
+      if (metrics) metrics.lane = lane;
+      if (lane !== 'direct') {
+        reconcileAutoRoads(candidate);
+        assertMapPositions(candidate);
+        phase('roadsPositionsMs');
+      }
       const { gameId, ...content } = candidate;
-      return this.save(tokenHash, { ...current.template, content });
+      return this.#save(tokenHash, { ...current.template, content }, current, metrics, phase, lane);
     } catch (error) {
       // Expected authoring/compiler rejections are actionable, not HTTP 500.
       // No SQL/native exception or stack trace is converted to a success DTO.
@@ -198,20 +209,38 @@ export class SystemBaseMapStore {
   }
   save(tokenHash, template) {
     this.#admin(tokenHash);
-    const current = this.capture();
-    const { digest } = validateSystemBaseMap(template, sha);
-    const text = JSON.stringify(template);
-    if (Buffer.byteLength(text) > MAX_TEMPLATE_BYTES) fail(413, 'BASE_MAP_TOO_LARGE');
+    return this.#save(tokenHash, template, this.capture());
+  }
+  #save(tokenHash, template, current, metrics, phase, lane = 'full') {
+    const text = JSON.stringify(template), bytes = Buffer.byteLength(text);
+    phase?.('serializeMs');
+    if (metrics) Object.assign(metrics, { templateBytes: bytes, limitBytes: MAX_TEMPLATE_BYTES, decorations: template.content.map.decorations.length, roads: template.content.map.roads.length });
+    if (bytes > MAX_TEMPLATE_BYTES) {
+      // Only rejected saves pay for the extra per-section measurements.
+      if (metrics) {
+        const { map, ...sections } = template.content;
+        metrics.sectionBytes = Object.fromEntries([...Object.entries(sections), ...Object.entries(map).map(([k,v]) => [`map.${k}`, v])].map(([k,v]) => [k, Buffer.byteLength(JSON.stringify(v))]));
+        phase?.('sizeBreakdownMs');
+      }
+      fail(413, 'BASE_MAP_TOO_LARGE', { bytes, limitBytes: MAX_TEMPLATE_BYTES, excessBytes: bytes - MAX_TEMPLATE_BYTES });
+    }
+    // The existing topology compiler owns the composed CB..D3 node scan and road encoding gates.
+    const digest = lane === 'direct' ? canonicalDigest(template, sha) : validateSystemBaseMap(template, sha).digest;
+    phase?.(lane === 'direct' ? 'digestMs' : 'validateCompileMs');
     // This release edits map content, not the approved immutable asset catalog.
     if (canonicalDigest(template.content.editorAssets, sha) !== canonicalDigest(current.template.content.editorAssets, sha))
       fail(422, 'BASE_MAP_ASSETS_PROTECTED');
     if (canonicalDigest(template.provenance, sha) !== canonicalDigest(current.template.provenance, sha))
       fail(422, 'BASE_MAP_PROVENANCE_PROTECTED');
     if (!Number.isSafeInteger(current.version + 1)) fail(409, 'BASE_MAP_VERSION_EXHAUSTED');
-    return this.#storage.transactionSync(() => {
+    phase?.('protectedFieldsMs');
+    const version = current.version + 1, updatedAt = new Date().toISOString();
+    this.#storage.transactionSync(() => {
       this.#admin(tokenHash);
-      this.#sql.exec('UPDATE system_base_map SET version=?,digest=?,template_json=?,updated_at=? WHERE singleton=1', current.version + 1, digest, text, new Date().toISOString());
-      return this.#current();
+      this.#sql.exec('UPDATE system_base_map SET version=?,digest=?,template_json=?,updated_at=? WHERE singleton=1', version, digest, text, updatedAt);
     });
+    phase?.('commitMs');
+    // The controller always reloads authoritative bytes after the receipt. Legacy callers still get a snapshot.
+    return metrics ? { version, digest, updatedAt } : this.#current();
   }
 }

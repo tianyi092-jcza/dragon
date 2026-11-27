@@ -5,7 +5,7 @@ export const introConfig = {
   characterUrl: "./assets/wolong_sleeves_aligned.gif",
   characterPoster: "./assets/character-aligned-still.png",
   // Content revision in the URL invalidates only this music cache entry.
-  musicUrl: "./assets/opening.mp3?v=7e5b2ff892ec3681",
+  musicUrl: "./assets/opening.mp3?v=d9d4dde409c11b78",
   musicVolume: 0.82,
   musicLoop: false,
   footerText:
