@@ -9,7 +9,7 @@ import { confirmGameDeleted, discardLocalSaves, mountDeletedGameNotice } from '.
 import { createPlayerStaticReader } from './playerstatic.js';
 import { createPlayerEnvironment } from './playerenvironment.js';
 import { createPlayerSaveStore } from './playersaves.js';
-import { createPlayerSaveRepository } from './playerrepository.js';
+import { capturePlayerSaveRepository, createPlayerSaveRepository } from './playerrepository.js';
 import { createPlayerSessionHost } from './playersessionhost.js';
 import { createGameSaveStore } from '../core/gamesavestore.js';
 import { readGameSaveCatalogs } from '../core/gamesavecatalogs.js';
@@ -73,6 +73,41 @@ async function fetchChapterCatalog(expected) {
   try { return await response.json(); } catch { return null; }
 }
 
+// In-game Canvas lists this release's local records. A displayed row is not
+// admission: a click still requires its exact record and a fresh chapter ticket.
+function gameRecordMenu(reader, selection, store, policy, root) {
+  return {
+    async list() {
+      const rows = (await store.list()).filter(row => row.releaseId === selection.releaseId && selection.chapters.includes(row.chapterId));
+      const result = [];
+      for (const row of rows) {
+        const saved = await store.get(row.slot);
+        if (saved?.token.bodyDigest !== row.bodyDigest) continue;
+        const { label, state } = saved.record.snapshot, date = state?.save_date;
+        result.push({ slot: row.slot, chapterId: row.chapterId, bodyDigest: row.bodyDigest, played: true,
+          infoText: label || '本機存檔', dateStr: date ? `${date.era === 'bc' ? '前' : ''}${date.year}年${date.month}月${date.day}日` : '' });
+      }
+      return result;
+    },
+    async select(row) {
+      const saved = await store.get(row.slot);
+      if (!saved || saved.token.bodyDigest !== row.bodyDigest) throw new Error('Selected save changed');
+      const session = await admitPlayerChapter({ reader, selection, chapterId: row.chapterId });
+      let pack, transferred = false;
+      try {
+        pack = await loadPlayerPack({ session, ...policy, mapExtent: true });
+        const environment = createPlayerEnvironment(pack, { mapExtent:true, playerFaction:saved.record.snapshot.state.player_faction });
+        const saves = createPlayerSaveStore({ environment, store });
+        const saveRepository = await capturePlayerSaveRepository({ saves, assertCurrent:pack.assertCurrent, expectedToken:saved.token });
+        const host = createPlayerSessionHost({ session, pack, root, discardSaves:() => discardLocalSaves({store}), navigate:initialPage });
+        transferred = true;
+        return { environment, saveRepository, savedSlot:row.slot, close:host.close,
+          formal:{ assertCurrent:pack.assertCurrent, onExit:host.onExit, checkStatus:host.checkStatus, close:host.close, records:this } };
+      } finally { if (!transferred) { pack?.close(); session.close(); } }
+    },
+  };
+}
+
 // 同頁綁定一款已發佈遊戲（2026-11-08 用戶決定）：內置遊戲在標題頁選到發佈遊戲後，
 // 新遊戲／讀取存檔都在本頁完成，不整頁導航、不重播開場音樂。回傳的 formal 物件
 // 與 launchPublicPlayer 的章節窗模式完全同形，由 main.js 的 applyFormalCatalog 安裝。
@@ -87,7 +122,7 @@ export async function bindFormalGame({ gameId, mode = 'new' }) {
   if (programBase.origin !== location.origin) throw new Error('same-origin program required');
   const policy = { compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 256 * 1024 * 1024,
     readStatic: createPlayerStaticReader({ origin: location.origin, basePath: programBase.pathname }) };
-  const selectRecord = () => bindFormalGame({ gameId, mode: 'load' });
+  const records = gameRecordMenu(reader, selection, store, policy, document.body);
   const navigate = ({ reason, initialAction }) => {
     if (reason === 'title' && initialAction === 'load') navigatePlayerGame(gameId, 'load');
     else initialPage();
@@ -98,7 +133,7 @@ export async function bindFormalGame({ gameId, mode = 'new' }) {
     if (!selected) return null;
     const host = createPlayerSessionHost({ session: selected.session, pack: selected.pack, root,
       discardSaves: () => discardLocalSaves({ store }), navigate });
-    return { ...selected, formal: { assertCurrent: selected.pack.assertCurrent, onExit: host.onExit, checkStatus: host.checkStatus, selectRecord, close: host.close }, close: host.close };
+    return { ...selected, formal: { assertCurrent: selected.pack.assertCurrent, onExit: host.onExit, checkStatus: host.checkStatus, records, close: host.close }, close: host.close };
   }
   const rows = await loadPlayerChapters({ reader, selection, catalog: fetchChapterCatalog });
   const chapters = rows.chapters.map(row => Object.freeze({ ...row,
@@ -111,7 +146,7 @@ export async function bindFormalGame({ gameId, mode = 'new' }) {
     pack = null; session = null;
   };
   return Object.freeze({ gameId, store, close, formal: Object.freeze({
-    catalog: chapters, assertCurrent, selectRecord, close,
+    catalog: chapters, assertCurrent, records, close,
     async openChapter(index) {
       const row = chapters[index];
       if (!row) throw new TypeError('chapter index required');
@@ -172,7 +207,7 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
       const assertCurrent = () => { if (ended) throw new DOMException('Formal session ended', 'AbortError'); };
       catalog.close();
       await startApp(opening, { formal: {
-        catalog: chapters, assertCurrent, selectRecord: () => bindFormalGame({ gameId, mode: 'load' }),
+        catalog: chapters, assertCurrent, records: gameRecordMenu(reader, selection, store, policy, root),
         close() { ended = true; session?.close(); pack?.close(); },
         async openChapter(index) {
           const row = chapters[index];
@@ -219,7 +254,7 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
     });
     await startApp(opening, { formal: { environment, saveRepository, savedSlot: selected.savedSlot ?? null,
       onExit: host.onExit, checkStatus: host.checkStatus, close: host.close,
-      selectRecord: () => bindFormalGame({ gameId, mode: 'load' }) } });
+      records: gameRecordMenu(reader, selection, store, policy, root) } });
   } catch (error) {
     // 正式入口的失敗一律留下代碼：面板文案是給玩家的，診斷要靠這行。
     console.error('[player] public entry failed', error?.code ?? error?.message ?? String(error));

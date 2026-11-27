@@ -5,6 +5,7 @@
 // 雲紋平鋪對齊螢幕原點 (0xF26E: src += (x0 mod 256)/8 + (y0 mod 32)*4)
 // 金框拼裝復刻 0xC14 + DOSBox 截圖比對: 頂/底=紅帶(idx10)+方框鏈片(frame_sq);
 // 左右柱(含四角)=實心柱塊 frame_col 整柱堆疊 (放大截圖比對確認)
+import { withLoading } from './loading.js';
 import { runStartFlow } from "../app/startflow.js";
 import { admitSavedScenario } from "../game/savegame.js";
 import { mountPublicCatalog, navigatePlayerGame } from "../player/playerpublic.js";
@@ -45,25 +46,7 @@ export class StartMenu {
   }
 
   // 只包裝實際等待，不包住需要玩家點選的對話。原生 modal 也隔離鍵盤焦點。
-  async withLoading(label, load) {
-    const mask = document.createElement('dialog');
-    mask.className = 'start-loading';
-    mask.setAttribute('aria-label', label);
-    mask.addEventListener('cancel', event => event.preventDefault());
-    const status = document.createElement('div');
-    status.setAttribute('role', 'status');
-    status.textContent = label;
-    const progress = document.createElement('progress');
-    progress.setAttribute('aria-label', label);
-    mask.append(status, progress);
-    document.body.append(mask);
-    try {
-      mask.showModal();
-      // 先給遮罩一次繪製機會，再進入可能同步裝配世界的工作。
-      await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
-      return await load();
-    } finally { mask.remove(); }
-  }
+  withLoading = withLoading;
 
   async _loadAssets() {
     if (this._imgs) return this._imgs;

@@ -156,6 +156,8 @@ const SUBMENU = [
 
 import { createGameBarImageResources } from "./gamebarimages.js";
 
+import { withLoading } from './loading.js';
+
 export class GameBar {
   constructor(app, resourcePorts = null) {
     this.app = app;
@@ -7702,7 +7704,6 @@ export class GameBar {
       // 資料儲存：打开居中 SAVE DATA 弹窗，保持计时停止
       this.openSystemSaveDialog();
     } else if (i === 1) {
-      // 存檔讀取：弹出防丢失确认弹窗，保持计时停止
       this.openSystemLoadConfirmDialog();
     } else if (i === 2) {
       // KI:1756「音效」→5FF6/6056→60A1→02D0，TYPE只设音乐衰减。
@@ -7897,9 +7898,12 @@ export class GameBar {
     clickSfx();
     this.systemLoadConfirmDialog = null;
     this.settingsOpen = false;
+    if (this.app._formalEntry?.records || this.app.playRelease !== undefined) {
+      await this.openSystemLoadDialog();
+      return;
+    }
     if (this.app._formalEntry) {
-      if (this.app._formalEntry.selectRecord) await this.app.loadFormalRecord();
-      else await this.app.returnToTitle('load');
+      await this.app.returnToTitle('load');
       return;
     }
     if (!this.app.startMenu && this.app.canPersist !== false) {
@@ -8160,24 +8164,17 @@ export class GameBar {
       return false;
     }
     clickSfx();
-    if (this.app._formalEntry) {
-      // Keep the system menu (and its clock hold); no destination picker.
-      void this.confirmSystemSave();
-      return true;
-    }
+    const formal = this.app._formalEntry;
     this.settingsOpen = false;
-    this.syncClock();
-
-    const rows = this.buildSaveSlotRows();
+    const rows = formal ? [] : this.buildSaveSlotRows();
     this.systemSaveDialog = {
-      rows,
+      rows, message: formal ? '正在存檔…' : '',
       scroll: 0,
       hover: -1,
     };
     this.syncClock();
-    void this.app.refreshFormalStatus?.();
     this.app.view.draw();
-    if (this.app.playRelease !== undefined) void this.confirmSystemSave();
+    if (formal || this.app.playRelease !== undefined) void this.confirmSystemSave();
     return true;
   }
 
@@ -8195,7 +8192,7 @@ export class GameBar {
     const formal = Boolean(this.app._formalEntry);
     const append = formal || this.app.playRelease !== undefined;
     const row = dialog?.rows[rowIdx];
-    if ((!formal && !dialog) || (append ? rowIdx !== undefined : !row)) return;
+    if (!dialog || (append ? rowIdx !== undefined : !row)) return;
     if (!canSnapshotState(this.app)) {
       this.app.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
       warnSfx();
@@ -8215,11 +8212,17 @@ export class GameBar {
 
     if (append) {
       const result = await this.app.saveGame(slotIdx, label);
-      if (!formal && result.saved === 'local' && this.systemSaveDialog === dialog) {
-        dialog.rows = this.buildSaveSlotRows();
+      if (this.systemSaveDialog !== dialog) return;
+      if (result.saved !== 'local') { this.closeSystemSaveDialog(); return; }
+      try {
+        dialog.rows = this.app._formalEntry?.records ? await this.app._formalEntry.records.list() : this.buildSaveSlotRows().filter(row => row.played);
+        dialog.message = '';
         dialog.scroll = Math.max(0, dialog.rows.length - 4);
-        this.app.view.draw();
+      } catch (error) {
+        console.error('[wolong] saved record list failed', error);
+        dialog.message = '已存檔，記錄列表讀取失敗。';
       }
+      if (this.systemSaveDialog === dialog) this.app.view.draw();
       return;
     }
     // 关闭弹窗并返回上一级系统选单
@@ -8237,16 +8240,25 @@ export class GameBar {
     if (this.app.canPersist === false) return false;
     clickSfx();
     this.settingsOpen = false;
-    const dialog = this.systemLoadDialog = { rows: [], scroll: 0, hover: -1 };
+    const records = this.app._formalEntry?.records;
+    const dialog = this.systemLoadDialog = { rows: [], scroll: 0, hover: -1, message: records ? '讀取記錄中…' : '' };
     this.syncClock();
     this.app.view.draw();
     try {
+      if (records) {
+        dialog.rows = await records.list();
+        if (this.systemLoadDialog !== dialog) return false;
+        dialog.message = dialog.rows.length ? '' : '尚無存檔記錄。';
+        this.app.view.draw();
+        return true;
+      }
       const saves = await this.app.saveRepository?.load?.();
       if (this.systemLoadDialog !== dialog) return false;
       if (saves) this.app.saves = saves;
     } catch (error) {
       console.error('[wolong] local save list failed', error);
       if (this.systemLoadDialog !== dialog) return false;
+      if (records) { dialog.message = '記錄列表讀取失敗。'; this.app.view.draw(); return false; }
     }
     dialog.rows = this.buildSaveSlotRows();
     this.app.view.draw();
@@ -8259,6 +8271,7 @@ export class GameBar {
     if (!this.app.scenario) return;
     clickSfx();
     this.systemLoadDialog = null;
+    if (this.app._formalEntry?.records || this.app.playRelease !== undefined) this.settingsOpen = true;
     this.syncClock();
     this.app.view.draw();
   }
@@ -8275,7 +8288,8 @@ export class GameBar {
     this.syncClock();
     this.app.view.draw();
     try {
-      await this.app.beginSavedGame(slotIdx);
+      await withLoading('正在讀取存檔…', () => this.app._formalEntry?.records
+        ? this.app.loadFormalRecord(row) : this.app.beginSavedGame(slotIdx));
     } catch (error) {
       console.error('[wolong] local load failed', error);
       this.app.hud?.flashEvent?.("讀檔失敗，請重試。");
@@ -8300,7 +8314,7 @@ export class GameBar {
     ctx.font = FONT;
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#ffffff";
-    const line1 = "現在讀取存檔將會遺失目前遊戲進度，";
+    const line1 = "讀取存檔將會遺失目前未儲存的進度，";
     const tw1 = ctx.measureText(line1).width;
     ctx.fillText(line1, inner.x + (inner.w - tw1) / 2, inner.y + 24);
 
@@ -8376,6 +8390,10 @@ export class GameBar {
     ctx.lineTo(inner.x + inner.w - 4, lineY + 0.5);
     ctx.stroke();
 
+    if (d.message) {
+      ctx.font = FONT;
+      ctx.fillText(d.message, inner.x + 8, inner.y + 48);
+    }
     // Four visible rows; storage capacity is independent of this viewport.
     const startSlotY = inner.y + 28;
     const slotStep = 50;

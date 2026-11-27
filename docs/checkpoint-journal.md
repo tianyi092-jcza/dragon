@@ -2,6 +2,18 @@
 
 長期架構、命令與操作約定見[專案記憶](../AGENTS.md)；本頁記本輪交接。歷史結果不是部署授權，也不代替 DOS 原證。
 
+## DEV-FORMAL-BOOTSTRAP-APPLY｜本地 1.7 目錄已恢復（取代下方 R1 的「真庫待批准」）
+
+- 使用者批准只遷移 dev：兩端共用發布／讀取程式，遊戲上架、版本、分發桶與存檔各自獨立，不向生產推送或從生產拉資料。這是一次性銜接舊 dev pin，不是之後每次上架要跑的步驟。
+- 停本地 8443／8444 寫入；SQLite online backup、完整文件桶／配置封存與 SHA 核驗後，在唯一 dev store 核對 R1 的 UUID、release、摘要、8＋8 舊記錄、空正式根與帳本，再做 bootstrap。正常發布器已確認 gen1，下一輪 IDLE；仍為原 1.7，未發布 1.8 或偽造舊版歷史。19 章正文與 manifest 核 SHA，6 個資產；除批准的 5 張表，其餘 52 張雙向逐行一致，integrity／FK 通過。
+- 本地持久備份：`%LOCALAPPDATA%/DragonDevBackups/baseline-1.7-20261127T063522Z/`（`before.sqlite`、`store-files.tar`、`SHA256SUMS`）；只作離線回滾，不是另一個開發 store。若需回滾，須先停服務，DB、桶、配置作為同一基線，不可只還原 DB。
+- 真實 dev 服務重啟後，新 Chromium 從 `8443/play` 到 `8444/`，在下拉框選《臥龍傳·重構》、進第二章 `upper-2`（195 城）；目錄 gen1／1.7／19 章，無 console error、pageerror 或請求失敗。未接觸生產或既有玩家存檔。
+
+## PLAYER-RECORD-CLOUD｜遊戲內保存回執、點記錄後同頁讀取（本地）
+
+- 更正上批呈現：取消的是目的槽，不是存檔窗。正式局「資料儲存」追加成功仍提示成功，沿用 Canvas `SAVE DATA` 雲紋金框展示當前版本的實際記錄，點列不覆蓋，右鍵退回系統選單。依後續確認，點「存檔讀取」先開雲紋警告，提醒讀取將遺失目前未儲存的進度；取消返回系統選單，保留當前局，確認才開同款 `LOAD DATA`，不用網頁選檔器。點選記錄不再重複詢問，原頁顯示「正在讀取存檔…」模態，重新准入所選章並裝配完成才切局。標題讀檔選擇器未替換。
+- `verify_dev_formal_site.mjs` 隔離使用 dev 1.7 上架包；真實點選兩章，驗證保存後看記錄、右鍵返回、取消讀取警告不換局、確認後開窗、讀取列表取消與跨章讀回、同頁 modal 出現及移除。`verify_formal_app_browser`、`verify_startmenu_loading_browser` 通過。本批未遷移真庫或部署生產。
+
 ## PLAYER-SAVE-RECORDS｜正式新局與讀回的遊戲：從系統選單直接存讀
 
 - 舊 dev 的追加存檔只識別 `trial.persistent`；統一後的正式入口選成內置槽位 UI。現在正式局點保存只追加，不顯示目的槽；讀取在原畫面列實際記錄，取消保留現場，選定後按該記錄重新准入、預裝配，再退舊局。既有記錄 ID、IndexedDB、交易與版本／章節身份檢查不變。

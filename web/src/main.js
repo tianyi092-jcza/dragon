@@ -304,12 +304,12 @@ const app = {
     this.hud?.flashEvent?.(`讀檔：${this._lastLoadedSaveLabel}`);
   },
 
-  async loadFormalRecord() {
+  async loadFormalRecord(row) {
     const entry = this._formalEntry;
     this.setRuntimeEnabled(false);
     let bound;
     try {
-      bound = await entry.selectRecord();
+      bound = await entry.records.select(row);
       if (!bound || this._formalEntry !== entry || !this.checkFormalCurrent()) return;
       const saves = await bound.saveRepository.load();
       const saved = saves.slots.find(row => row.slot === bound.savedSlot);
@@ -1260,7 +1260,7 @@ export async function startApp(opening, { trial = null, formal = null, formalBin
         catalog, openChapter: formal.openChapter, openEnvironment: formal.openEnvironment, chapter: null };
     }
   }
-  if (formalEntry) Object.assign(formalEntry, { selectRecord: formal.selectRecord, close: formal.close });
+  if (formalEntry) Object.assign(formalEntry, { records: formal.records, close: formal.close });
   if (app._bootStarted) throw new Error("App already started; open a new trial window");
   app._bootStarted = true;
   try {
