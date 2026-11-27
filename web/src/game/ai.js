@@ -755,16 +755,19 @@ export function tickStrategicCity(app, cityIndex, onRequestComplete = null) {
     });
     return true;
   }
+  // The Web fallback tracks ownership changes in C1A (a byte). C01's
+  // neutral byte is 18h (KI:3F50); null is only its Scenario representation.
+  const ownerByte = city.faction === null ? EMPTY_FACTION : city.faction;
   if (city._strategicLastFaction === undefined)
-    city._strategicLastFaction = city.faction;
-  else if (city._strategicLastFaction !== city.faction) {
+    city._strategicLastFaction = ownerByte;
+  else if (city._strategicLastFaction !== ownerByte) {
     rememberFactionStrategicCity(
       sc,
       city._strategicLastFaction,
       "strategic_city_secondary",
       city.idx,
     );
-    city._strategicLastFaction = city.faction;
+    city._strategicLastFaction = ownerByte;
   }
   if (city.faction == null) return false;
   if ((city._aiCooldown ?? 0) > 0) city._aiCooldown--;

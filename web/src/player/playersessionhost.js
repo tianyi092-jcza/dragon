@@ -114,5 +114,7 @@ export function createPlayerSessionHost({ session, pack, root, navigate, discard
     else { host.append(dialog); confirm.focus(); }
     return exit;
   }
-  return Object.freeze({ checkStatus, onExit, warning: () => updated });
+  return Object.freeze({ checkStatus, onExit, warning: () => updated,
+    close() { retired = true; if (!disposed) dispose(); host.remove(); },
+  });
 }

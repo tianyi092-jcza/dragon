@@ -31,7 +31,12 @@ try{
  page.on('pageerror',e=>errors.push(String(e)));page.on('console',m=>{if(m.type()==='error'&&!m.location().url?.endsWith('/favicon.ico'))errors.push(m.text());});
  page.on('requestfailed',r=>failed.push({path:new URL(r.url()).pathname,error:r.failure()?.errorText}));
  const query=new URLSearchParams();if(largeOrdinal)query.set('large','1');if(alternateFaction)query.set('alternate-faction','1');
- await page.goto(origin+'/index.html?'+query);await page.waitForFunction(()=>window.__restore?.ready);
+ await page.goto(origin+'/index.html?'+query, {waitUntil:'commit'});
+ await page.waitForFunction(()=>document.querySelector('#advisor-input-overlay input') || document.querySelector('#startv')?.getContext('2d').getImageData(370,267,1,1).data[0]===192);
+ const advisorName=page.locator('#advisor-input-overlay input').first();
+ if(await advisorName.count()){await advisorName.fill('子明');await advisorName.press('Enter');}
+ else await page.locator('#startv').click({position:{x:390,y:268}});
+ await page.waitForFunction(()=>window.__restore?.ready);
  const factionIdentity=await page.evaluate(async()=>{const c=window.__ownedFormal;return{selected:c.environment.player,first:c.environment.content.chapter(0).template.factions[0].idx,saved:(await c.store.get(0)).record.snapshot.state.player_faction};});
  assert.equal(factionIdentity.selected,factionIdentity.saved);
  assert.equal(factionIdentity.selected!==factionIdentity.first,alternateFaction);

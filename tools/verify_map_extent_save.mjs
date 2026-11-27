@@ -33,7 +33,7 @@ import { compileTrialSource } from '../web/src/content/authoring/trialcompile.js
 import { loadPlayerPack } from '../web/src/player/playerpack.js';
 import { createPlayerEnvironment } from '../web/src/player/playerenvironment.js';
 import { GameBar } from '../web/src/ui/gamebar.js';
-import { aiTick, performLegionSlotAction } from '../web/src/game/ai.js';
+import { aiTick, performLegionSlotAction, tickStrategicCity } from '../web/src/game/ai.js';
 import { createOriginalBattleRng } from '../web/src/game/battle/originalrng.js';
 import { snapshotScenarioAssembly, prepareScenario, scenarioGridRoadContext } from '../web/src/game/scenarioassembly.js';
 import { publishLegacyLegionRecord } from '../web/src/game/nativelegions.js';
@@ -218,10 +218,15 @@ test('E9 north-band and west-band mid-march save, title-load, step-sync to arriv
     await t.test('fresh grid native slots survive JSON save and cold restore', async () => {
       const { scenario } = await prepareScenario({ ...input, mapExtent: true });
       const app = { scenario, scenarioIdx: 0, content: env.content, world: env.world, clock: new Clock({ startYear: 184, startMonth: 1, startDay: 1 }), originalRng: createOriginalBattleRng({ ch: 0, cl: 0, dh: 1 }) };
+      const neutral = scenario.cities.find(city => city.faction === null);
+      assert.ok(neutral);
+      tickStrategicCity(app, neutral.idx);
+      assert.equal(neutral._strategicLastFaction, 0x18);
       const saved = JSON.parse(JSON.stringify(snapshotState(app, 0, 'grid')));
       assert.equal(saved.state.nativeLegionSlots.records.length, 128);
       const admitted = admitSavedScenario(saved, { data: { scenarios: Array(game.chapterOrder.length).fill({}) }, content: env.content, world: env.world });
       const restored = await prepareScenario({ ...admitted, mode: 'restore', content: env.content, world: env.world });
+      assert.equal(restored.scenario.cities[neutral.idx]._strategicLastFaction, 0x18);
       assert.deepEqual(snapshotState({ ...app, scenario: restored.scenario }, 0, 'grid').state.nativeLegionSlots, saved.state.nativeLegionSlots);
     });
 

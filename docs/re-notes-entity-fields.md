@@ -1116,6 +1116,8 @@ next: DI+=40h; goto loop          // 418E..4191没有显式128槽上界
 
 ### 据点 5.2 记忆寿命
 
+**Web 格图存档边界**：复核 `KI.EXE`，`3F11 8A BC 5A 08` 读 C1A byte，`3F15` 与 C01 比较；`3F50 80 BC 41 08 18` 比较中立 18h，`4258/425B` 从 C01 读 byte 写到 C1A。格图旧 Web 轮询在其既有记忆更新点曾直接写 Scenario 的 `city.faction=null`，导致第二章实际点击存档后恢复预检报 `Invalid native city/weather byte: _strategicLastFaction`。现在只在这条 Web 写入边界把显式 null 编成 18h；不改变原生轮询、不把这条 Web 记忆刷新说成 `3F29` 原写法，也不在存档读取器猜值。`tools/verify_map_extent_save.mjs`：中立城轮询→JSON存档→冷恢复仍为 18h。
+
 `3F11..3F29`每次当前所属不同于+1A都会给旧方`+17`一次性城目标写该城idx，没有在此将city+1A同步当前所属。不是“一轮缓存自动过期”。
 
 `4236`遍历192城，AL/AH两个势力参数：

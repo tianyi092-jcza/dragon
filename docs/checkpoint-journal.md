@@ -2,10 +2,21 @@
 
 長期架構、命令與操作約定見[專案記憶](../AGENTS.md)；本頁記本輪交接。歷史結果不是部署授權，也不代替 DOS 原證。
 
-## PLAYER-START-MASK｜選章到軍師、確認到入局的等待回饋（本地）
+## PLAYER-SAVE-RECORDS｜正式新局與讀回的遊戲：從系統選單直接存讀
 
-- 生產 `ceb2df1` 更新前端遮罩前，以新 Chromium 會話開《臥龍傳·重構》第二章：本次章節包準備 9.95 秒，確認軍師到新局完成 5.14 秒（其中共用資源 4.52 秒）；是一次量測，不是固定耗時。
-- 等待章節包、確認窗頭像與新局裝配時顯示模態遮罩及不定進度，保留可立即選取的勢力目錄和既有驗證。開局流程、命名後防重入／錯誤清理與隔離正式 reader 前兩章新局、存讀均通過。正式 reader 測試初次因舊 `dist` 身份不符被拒；重建本機靜態清單後通過，未放寬身份、未改上架資料或部署本次遮罩。
+- 舊 dev 的追加存檔只識別 `trial.persistent`；統一後的正式入口選成內置槽位 UI。現在正式局點保存只追加，不顯示目的槽；讀取在原畫面列實際記錄，取消保留現場，選定後按該記錄重新准入、預裝配，再退舊局。既有記錄 ID、IndexedDB、交易與版本／章節身份檢查不變。
+- **另行重現並修正的寫檔失敗**：隔離 dev 第二章從選單實點保存，`encodeSaveFile` 恢復預檢拒絕中立城 C1A 的 null。只修寫入者的 byte 表示，不放寬讀取或把壞檔靜默修正；原證見[實體欄位 C1A](re-notes-entity-fields.md)。此前只呼叫 `saveGame(index, …)` 的測試不能代表選單驗收。
+- **本地驗證**：全新 Chromium、隔離正式 reader 和 dev 的發布包。首章連存兩筆，次章再存，遊戲內開記錄列表後取消、讀回首章、再存、再讀回次章；標題也能讀回兩章。`verify_formal_app_browser`（33）、`verify_player_restore_browser`（36）、`verify_player_saves`（36）、`verify_game_save_exchange`、`verify_map_extent_save` 通過。測試不使用玩家既有存檔，未發布新遊戲版本。
+
+## PLAYER-START-MASK｜正式玩家入口與開局等待提示已部署，未換上架內容
+
+- **本輪目標與決策**：dev `/play` 向生產正式 reader 統一，修復從目錄開第二章時的 `Scenario content identity/index mismatch`。目錄行號只用來選 `chapterId`；換票取得單章包後用包內第 0 槽開局，不放寬身份校驗。使用者對等待的要求是「加遮罩 loading 就可以」：不改下載順序、遊戲規則或上架內容。
+- **已完成**：`ceb2df1` 修正入口與多章開局；`932714a` 在等待章節包、軍師頭像、確認入局裝配時顯示原生模態遮罩與不定進度，阻止重複操作，成功或失敗均清除。這是等待回饋，並非提速：加遮罩前在生產第二章的一次量測，準備章節包 9.95 秒，確認軍師到入局 5.14 秒（其中共用資源 4.52 秒）。
+- **驗證**：本地開局流程、遮罩防重入與錯誤清理通過；隔離正式 reader 取 dev 1.7 已發布包，前兩章皆可開局、保存並按槽讀回。生產 `https://dragon.720108.xyz/` 用全新 Chromium 實開《臥龍傳·重構》第二章 `upper-2`：選勢力後與確認軍師後均看見遮罩，入局後消失，無 `pageerror`。本次未在生產測存讀或全戰役。
+- **失敗與限制**：早期只改 `chapter(index)` 的 `26255ed` 未修正 `resolveReference()` 的槽位差異。隔離 reader 初驗因舊 `dist` 指紋回 `INSTALLED_PROGRAM_INVALID`；重建 Trial bundle 和部署清單後通過，未繞過校驗。部署切換期間歸檔曾回 404、編輯器短暫回 502；重試後歸檔位元組與服務健康檢查通過。遮罩批次 JS 語法與 diff 檢查通過；TS LSP 超時（0/4）、`lens_diagnostics` 不可用。入口批次另有舊票 409 的未通過案例，見下方 DEV-FORMAL-ENTRY。
+- **相關文件**：`tools/dev_editor.mjs`（本地正式入口）；`web/src/main.js`、`web/src/ui/startmenu.js`、`web/intro/styles.css`（開局與遮罩）；`server/public/trialweb.txt`（重建產物）；`tools/verify_startmenu_loading_browser.mjs`、`tools/verify_dev_formal_site.mjs`（瀏覽器回歸）。
+- **部署狀態（交付時）**：`github/main` 與 sadcloud `/srv/dragon/src` 均為 `932714a1a503b4470817e0682e0ec8bf7c94f957`。編輯器鏡像 `dragon-editor-publication:932714a`；玩家鏡像 `dragon-player:f28fe55` 掛載新 dist，歸檔核驗 1661 檔。玩家服務 healthy、編輯器 `initialized:true`。部署前後正式遊戲目錄根 SHA-256 均為 `3b900a68a30d8af1f4be40ad803d903a15d0c323da19685cc84c19c4afd8752d`。回滾資料：`/srv/dragon/rollback-program-932714a/`、`/srv/dragon/dist.live-before-932714a`。
+- **阻塞與下一步**：程式部署已完成，不需為遮罩再部署。若目標是「在生產玩 dev 的確切內容」，兩邊雖為同一遊戲 UUID、各 19 章，且所比 6 個資產位元組相同，但章節 `cities` 不同。生產仍是 1.0（release `ce083704-ace7-4a95-88d6-6d3eabd81130`），dev 是 1.7（release 與摘要見下一節）。要換生產內容，先確認是否接受正式換版後舊局禁存、舊檔不可載入，再單獨授權發布；不要覆蓋現有 1.0。若只要本地 `/play` 顯示舊 dev 1.7，則只需走下一節已演練的本地基線遷移，真庫仍待單獨批准。
 
 ## DEV-FORMAL-BOOTSTRAP-R1｜舊 dev 發布基線遷移演練通過，真庫待批准
 

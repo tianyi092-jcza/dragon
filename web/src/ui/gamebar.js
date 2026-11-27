@@ -7897,7 +7897,12 @@ export class GameBar {
     clickSfx();
     this.systemLoadConfirmDialog = null;
     this.settingsOpen = false;
-    if (!this.app.startMenu && !this.app._formalEntry && this.app.canPersist !== false) {
+    if (this.app._formalEntry) {
+      if (this.app._formalEntry.selectRecord) await this.app.loadFormalRecord();
+      else await this.app.returnToTitle('load');
+      return;
+    }
+    if (!this.app.startMenu && this.app.canPersist !== false) {
       await this.openSystemLoadDialog();
       return;
     }
@@ -8155,6 +8160,11 @@ export class GameBar {
       return false;
     }
     clickSfx();
+    if (this.app._formalEntry) {
+      // Keep the system menu (and its clock hold); no destination picker.
+      void this.confirmSystemSave();
+      return true;
+    }
     this.settingsOpen = false;
     this.syncClock();
 
@@ -8182,9 +8192,10 @@ export class GameBar {
 
   async confirmSystemSave(rowIdx) {
     const dialog = this.systemSaveDialog;
-    const append = this.app.playRelease !== undefined;
+    const formal = Boolean(this.app._formalEntry);
+    const append = formal || this.app.playRelease !== undefined;
     const row = dialog?.rows[rowIdx];
-    if (!dialog || (append ? rowIdx !== undefined : !row)) return;
+    if ((!formal && !dialog) || (append ? rowIdx !== undefined : !row)) return;
     if (!canSnapshotState(this.app)) {
       this.app.hud?.flashEvent?.("戰鬥處理中，現在無法存檔。");
       warnSfx();
@@ -8199,11 +8210,12 @@ export class GameBar {
     const meF = sc.factions?.[sc.player_faction];
     const rulerName = meF?.monarch || meF?.name || sc.rulerName || "－－";
     const advName = sc.player_advisor?.name || sc.advisorName || "－－";
-    const label = `第${chStr}章勢力：${rulerName.trim()}　　軍師：${advName.trim()}`;
+    const chapterName = formal ? this.app.data.scenarios[0].name : `第${chStr}章`;
+    const label = `${chapterName}　勢力：${rulerName.trim()}　　軍師：${advName.trim()}`;
 
     if (append) {
       const result = await this.app.saveGame(slotIdx, label);
-      if (result.saved === 'local' && this.systemSaveDialog === dialog) {
+      if (!formal && result.saved === 'local' && this.systemSaveDialog === dialog) {
         dialog.rows = this.buildSaveSlotRows();
         dialog.scroll = Math.max(0, dialog.rows.length - 4);
         this.app.view.draw();

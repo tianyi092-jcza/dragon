@@ -74,14 +74,14 @@ export function mountPlayerRestore({ root, reader, selection, store, compilerRev
     phase = 'list'; heading.textContent = '讀取存檔'; message.textContent = `${preview.selection.name} ${preview.selection.ordinal}${cleared ? `：遊戲版本已更新，舊版存檔不能載入，已自動清除${cleared}個。` : ''}`; rows.replaceChildren();
     if (!choices.length) rows.append(make('p', '目前沒有本機存檔。'));
     for (const choice of choices) {
-      if (choice.token) button(`槽${choice.slot + 1}　${choice.label}`, () => { void choose(choice); }, choice.slot);
-      else { const line = make('p', `槽${choice.slot + 1}　不可用`); line.dataset.unavailableSlot = String(choice.slot); rows.append(line); }
+      if (choice.token) button(choice.label || '本機存檔', () => { void choose(choice); }, choice.slot);
+      else { const line = make('p', '不可用的存檔'); line.dataset.unavailableSlot = String(choice.slot); rows.append(line); }
     }
     button('重新檢查', () => { void refresh(); });
     if (choices.some(choice => !choice.token)) button('不可用存檔說明', () => {
       phase = 'unavailable'; heading.textContent = '不可用存檔'; rows.replaceChildren();
       message.textContent = '這些存檔的版本資料不足、損壞或未通過檢查，不能判定為已作廢的舊版，將保留且不載入。';
-      for (const choice of choices.filter(item => !item.token)) rows.append(make('p', `槽${choice.slot + 1}　保留原存檔`));
+      for (const choice of choices.filter(item => !item.token)) rows.append(make('p', '已保留原存檔'));
     });
   }
   async function refresh() {
@@ -122,7 +122,9 @@ export function mountPlayerRestore({ root, reader, selection, store, compilerRev
             const bound = createPlayerSaveStore({ environment, store });
             const verified = await bound.get(row.slot); current(ticket);
             if (!verified || saveJSON(verified.token) !== saveJSON(saved.token)) throw new Error('save changed during preflight');
-            group.push({ slot: row.slot, label: verified.snapshot.label ?? '', player: environment.player, chapterId, token: verified.token });
+            const date = verified.snapshot.state.save_date;
+            const label = [verified.snapshot.label, date && `${date.era === 'bc' ? '前' : ''}${date.year}年${date.month}月${date.day}日`].filter(Boolean).join('　');
+            group.push({ slot: row.slot, label, player: environment.player, chapterId, token: verified.token });
           }
           for (const choice of group) next[next.findIndex(row => row.slot === choice.slot)] = choice;
         } catch { current(ticket); /* Whole chapter remains inert, matching repository load's all-row gate. */ }

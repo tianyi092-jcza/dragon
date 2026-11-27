@@ -304,6 +304,33 @@ const app = {
     this.hud?.flashEvent?.(`讀檔：${this._lastLoadedSaveLabel}`);
   },
 
+  async loadFormalRecord() {
+    const entry = this._formalEntry;
+    this.setRuntimeEnabled(false);
+    let bound;
+    try {
+      bound = await entry.selectRecord();
+      if (!bound || this._formalEntry !== entry || !this.checkFormalCurrent()) return;
+      const saves = await bound.saveRepository.load();
+      const saved = saves.slots.find(row => row.slot === bound.savedSlot);
+      const { world, content } = bound.environment;
+      const admitted = admitSavedScenario(saved, { world, content, data: content.data });
+      if (this._formalEntry !== entry || !this.checkFormalCurrent()) return;
+      const { raw, idx, ...assembly } = admitted;
+      await this.enterGame(() => this.loadState(raw, idx, {
+        ...assembly, mode: 'restore', savedSlot: saved.slot, savedLabel: saved.label,
+        rngSnapshot: saved.webMeta.originalRng, target: { ...bound.environment, bound, saves },
+      }));
+      this.hud?.flashEvent?.(`讀檔：${this._lastLoadedSaveLabel}`);
+    } catch (error) {
+      console.error('[wolong] formal record restore failed', error);
+      this.hud?.flashEvent?.('讀檔失敗，請重試。');
+    } finally {
+      if (bound && this._formalBound !== bound) bound.close();
+      if (this._formalEntry === entry && this.checkFormalCurrent()) this.setRuntimeEnabled(true);
+    }
+  },
+
   setRuntimeEnabled(enabled) {
     this.runtimeEnabled = Boolean(enabled) && !this._formalEntry?.ended;
     this.music.setEnabled(this.runtimeEnabled);
@@ -595,6 +622,7 @@ const app = {
       assertCurrentPreflight();
       // v2 never reaches initPlayer/buildArmies/diplomacy or the default v1 facades.
       assertPlayableScenario(prepared);
+      target?.bound?.formal.assertCurrent();
     } catch (error) {
       if (this._scenarioAssemblyPending === assembly) {
         this._scenarioAssemblyPending = null;
@@ -612,11 +640,18 @@ const app = {
     }
     // Protect installed/partially written state independently of the replaceable
     // preflight ticket. A rejected replacement must not release or revive it.
-    if (savedSlot !== null && this.gameStarted && !this.startMenu && !this._formalEntry) {
+    if (savedSlot !== null && this.gameStarted && (target?.bound || (!this.startMenu && !this._formalEntry))) {
       // Titleless /play: leave the old scene only after the chosen snapshot is prepared.
       this.leaveScenarioForTitle();
       this._scenarioAssemblyPending = assembly;
       this.gamebar._clockHoldRequested = false;
+      if (target?.bound) {
+        this._formalEntry.close?.();
+        this._formalBound = target.bound;
+        this._formalEntry = { ...target.bound.formal };
+        this.saveRepository = target.bound.saveRepository;
+        this.saves = target.saves;
+      }
     }
     if (target) {
       this.world = loadedWorld;
@@ -843,7 +878,7 @@ const app = {
           if (!this.runtimeEnabled || !canSnapshotState(this))
             return { saved: "blocked" };
         }
-        const append = slotIdx === null && this.playRelease !== undefined;
+        const append = slotIdx === null && (this._formalEntry || this.playRelease !== undefined);
         let sv = snapshotState(this, append ? 0 : slotIdx, label);
         if (this.playRelease !== undefined) sv.webMeta.playRelease = this.playRelease;
         // Stored snapshots are immutable to gameplay; copy the index, not every
@@ -870,7 +905,7 @@ const app = {
         return { saved: "failed", error };
       }
       this.loadedSaveSlot = slotIdx;
-      this.hud?.flashEvent?.(this.playRelease !== undefined ? '存檔成功。' : `存檔：槽${slotIdx + 1} ${label}`);
+      this.hud?.flashEvent?.(this._formalEntry || this.playRelease !== undefined ? '存檔成功。' : `存檔：槽${slotIdx + 1} ${label}`);
       return { saved: "local" };
     };
     const queued = this._saveQueue.then(operation, operation);
@@ -1225,6 +1260,7 @@ export async function startApp(opening, { trial = null, formal = null, formalBin
         catalog, openChapter: formal.openChapter, openEnvironment: formal.openEnvironment, chapter: null };
     }
   }
+  if (formalEntry) Object.assign(formalEntry, { selectRecord: formal.selectRecord, close: formal.close });
   if (app._bootStarted) throw new Error("App already started; open a new trial window");
   app._bootStarted = true;
   try {

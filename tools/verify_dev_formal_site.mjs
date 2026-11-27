@@ -1,6 +1,7 @@
 // Opt-in: read only the published pack from dev; all serving, distribution,
 // tickets and browser saves belong to a disposable fixture, never the dev DB.
 import assert from 'node:assert/strict';
+import { appendMenuRecord, pickMenuRecord } from './player_record_menu_probe.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -50,7 +51,7 @@ try {
   const page = await context.newPage(), errors = [], failures = [], paths = new Set();
   page.setDefaultTimeout(45000);
   page.on('pageerror', e => errors.push(String(e)));
-  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('console', m => { if (m.type() === 'error') { errors.push(m.text()); console.error(m.text()); } });
   page.on('requestfailed', r => { if (r.failure()?.errorText !== 'net::ERR_ABORTED') failures.push(new URL(r.url()).pathname); });
   page.on('request', r => paths.add(new URL(r.url()).pathname));
   const deadline = Date.now() + 45000;
@@ -61,11 +62,12 @@ try {
   }
   const served = await context.request.get(playerOrigin + '/src/main.js'); assert.deepEqual(await served.body(),readFileSync('web/src/main.js'));
   const click = async (x, y) => { const box = await page.locator('#startv').boundingBox(); await page.mouse.click(box.x+x*box.width/640,box.y+y*box.height/400); };
+  const ids = [];
   for (const [mode,index] of [['new',0],['new',1],['load',0],['load',1]]) {
     await page.goto(origin + '/play'); assert.equal(page.url(),playerOrigin+'/');
     await page.waitForFunction(() => window.__dragonApp?.startMenu?._onClick && !document.querySelector('.player-public-catalog').hidden);
     const select = page.getByLabel('選擇遊戲'); await select.selectOption(gameId); await click(302,mode === 'load' ? 200 : 176);
-    if (mode === 'load') await page.locator(`[data-save-slot="${index}"]`).click();
+    if (mode === 'load') await page.locator(`[data-save-slot="${ids[index === 0 ? 0 : 2]}"]`).click();
     else {
       await page.waitForFunction(() => window.__dragonApp?.startMenu?._sortedScenarios?.length > 1); await click(200,58+index*28);
       await page.waitForFunction(() => window.__dragonApp?.startMenu?._banners.length === 2);
@@ -89,12 +91,22 @@ try {
       if (await name.count()) { await name.fill('子明'); await name.press('Enter'); } else await click(390,268);
     }
     await page.waitForFunction(() => window.__dragonApp?.gameStarted && window.__dragonApp.runtimeEnabled);
-    const live = await page.evaluate(async ({mode,index}) => { const app = window.__dragonApp;
-      return { id:app.content.chapter(0).reference.chapterId, idx:app.scenarioIdx, cities:app.scenario.cities.length, saved:mode === 'load' ? null : await app.saveGame(index,'隔離章節 '+index) };
-    },{mode,index});
+    const live = await page.evaluate(() => { const app = window.__dragonApp;
+      return { id:app.content.chapter(0).reference.chapterId, idx:app.scenarioIdx, cities:app.scenario.cities.length };
+    });
     assert.equal(await page.locator('dialog.start-loading').count(),0);
     assert.equal(live.id,chapters[index]); assert.equal(live.idx,0); assert.ok(live.cities > 0);
-    if (mode === 'new') assert.equal(live.saved.saved,'local',JSON.stringify(live.saved));
+    if (mode === 'new') {
+      ids.push(await appendMenuRecord(page));
+      if (!index) ids.push(await appendMenuRecord(page));
+      else {
+        await pickMenuRecord(page,null,chapters[1],ids);
+        await pickMenuRecord(page,ids[0],chapters[0],ids);
+        ids.push(await appendMenuRecord(page));
+        await pickMenuRecord(page,ids[2],chapters[1],ids);
+      }
+      assert.equal(new Set(ids).size, ids.length);
+    }
     console.log({mode, index, ...live});
   }
   assert.ok(paths.has('/play-api/v1/admissions') && paths.has('/play-api/v1/file'));

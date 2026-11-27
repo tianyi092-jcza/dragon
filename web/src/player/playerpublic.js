@@ -87,6 +87,7 @@ export async function bindFormalGame({ gameId, mode = 'new' }) {
   if (programBase.origin !== location.origin) throw new Error('same-origin program required');
   const policy = { compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 256 * 1024 * 1024,
     readStatic: createPlayerStaticReader({ origin: location.origin, basePath: programBase.pathname }) };
+  const selectRecord = () => bindFormalGame({ gameId, mode: 'load' });
   const navigate = ({ reason, initialAction }) => {
     if (reason === 'title' && initialAction === 'load') navigatePlayerGame(gameId, 'load');
     else initialPage();
@@ -97,8 +98,7 @@ export async function bindFormalGame({ gameId, mode = 'new' }) {
     if (!selected) return null;
     const host = createPlayerSessionHost({ session: selected.session, pack: selected.pack, root,
       discardSaves: () => discardLocalSaves({ store }), navigate });
-    return { ...selected, formal: { assertCurrent: selected.pack.assertCurrent, onExit: host.onExit, checkStatus: host.checkStatus },
-      close() { selected.session.close(); selected.pack.close(); } };
+    return { ...selected, formal: { assertCurrent: selected.pack.assertCurrent, onExit: host.onExit, checkStatus: host.checkStatus, selectRecord, close: host.close }, close: host.close };
   }
   const rows = await loadPlayerChapters({ reader, selection, catalog: fetchChapterCatalog });
   const chapters = rows.chapters.map(row => Object.freeze({ ...row,
@@ -111,7 +111,7 @@ export async function bindFormalGame({ gameId, mode = 'new' }) {
     pack = null; session = null;
   };
   return Object.freeze({ gameId, store, close, formal: Object.freeze({
-    catalog: chapters, assertCurrent,
+    catalog: chapters, assertCurrent, selectRecord, close,
     async openChapter(index) {
       const row = chapters[index];
       if (!row) throw new TypeError('chapter index required');
@@ -172,7 +172,8 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
       const assertCurrent = () => { if (ended) throw new DOMException('Formal session ended', 'AbortError'); };
       catalog.close();
       await startApp(opening, { formal: {
-        catalog: chapters, assertCurrent,
+        catalog: chapters, assertCurrent, selectRecord: () => bindFormalGame({ gameId, mode: 'load' }),
+        close() { ended = true; session?.close(); pack?.close(); },
         async openChapter(index) {
           const row = chapters[index];
           if (!row) throw new TypeError('chapter index required');
@@ -217,7 +218,8 @@ export async function launchPublicPlayer({ opening, startApp, request, root = do
       saves: createPlayerSaveStore({ environment, store }), assertCurrent: selected.pack.assertCurrent,
     });
     await startApp(opening, { formal: { environment, saveRepository, savedSlot: selected.savedSlot ?? null,
-      onExit: host.onExit, checkStatus: host.checkStatus } });
+      onExit: host.onExit, checkStatus: host.checkStatus, close: host.close,
+      selectRecord: () => bindFormalGame({ gameId, mode: 'load' }) } });
   } catch (error) {
     // 正式入口的失敗一律留下代碼：面板文案是給玩家的，診斷要靠這行。
     console.error('[player] public entry failed', error?.code ?? error?.message ?? String(error));

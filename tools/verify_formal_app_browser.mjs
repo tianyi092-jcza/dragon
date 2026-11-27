@@ -67,19 +67,13 @@ try {
  const choices=await page.evaluate(async()=>{
   const a=window.__app,c=window.__ownedFormal,base=(await c.store.get(0)).record.snapshot;
   const other=await c.store.put({...c.saves.identity,releaseId:'dddddddd-dddd-4ddd-addd-dddddddddddd',slot:10,snapshot:{...base,slot:10}},null);
-  a.saves=await c.repository.load();a.gamebar.openSystemSaveDialog();
-  const vacant=a.gamebar.systemSaveDialog.rows.map(row=>row.slot);
-  a.gamebar.systemSaveDialog=null;a.gamebar.syncClock();
-  for(const slot of [1,2,3])await c.saves.put({...base,slot});
-  a.saves=await c.repository.load();a.gamebar.openSystemSaveDialog();
-  const full=a.gamebar.systemSaveDialog.rows.map(row=>row.slot);
-  a.gamebar.systemSaveDialog=null;a.gamebar.syncClock();
-  const saved=await a.saveGame(11,'above reserved identity');
+  a.saves=await c.repository.load();
+  const saved=await a.saveGame(null,'above reserved identity');
   const retained=await c.store.get(10),added=await c.store.get(11);
-  return{vacant,full,saved,unchanged:retained.token.bodyText===other.token.bodyText&&retained.token.bodyDigest===other.token.bodyDigest,
+  return{saved,unchanged:retained.token.bodyText===other.token.bodyText&&retained.token.bodyDigest===other.token.bodyDigest,
    addedSlot:added.record.slot,addedLabel:added.record.snapshot.label,absent:await c.store.get(4)};
  });
- assert.deepEqual(choices,{vacant:[0,1,2,3],full:[0,1,2,3,11],saved:{saved:'local'},unchanged:true,addedSlot:11,addedLabel:'above reserved identity',absent:null});checks++;
+ assert.deepEqual(choices,{saved:{saved:'local'},unchanged:true,addedSlot:11,addedLabel:'above reserved identity',absent:null});checks++;
  const exited=await page.evaluate(async()=>{const a=window.__app,c=window.__ownedFormal;await a.returnToTitle('load');a.setRuntimeEnabled(true);return{exits:c.exits,scenario:a.scenario,enabled:a.runtimeEnabled,discarded:a.battleView._trialDiscarded,trial:a.trialEnded??null};});
  assert.deepEqual(exited,{exits:[{reason:'title',initialAction:'load'}],scenario:null,enabled:false,discarded:true,trial:null});checks++;
  await ready('/index.html?restore=1');
@@ -88,9 +82,8 @@ try {
  const statusChecks=await page.evaluate(async()=>{
   const a=window.__app,c=window.__ownedFormal,opened=window.__ownedDatabases.length,calls=c.statusCalls;
   const rng=JSON.stringify(a.originalRng.snapshot()),hold=a.clock.hold;
-  const dialogOpened=a.gamebar.openSystemSaveDialog();await Promise.resolve();
-  const dialog={opened:dialogOpened,calls:c.statusCalls-calls,noIO:window.__ownedDatabases.length===opened,hold:a.clock.hold===hold,rng:JSON.stringify(a.originalRng.snapshot())===rng};
-  a.gamebar.systemSaveDialog=null;
+  await a.refreshFormalStatus();
+  const status={calls:c.statusCalls-calls,noIO:window.__ownedDatabases.length===opened,hold:a.clock.hold===hold,rng:JSON.stringify(a.originalRng.snapshot())===rng};
   const beforeGuard=c.statusCalls;a._strategicBattleFailure={};
   const unsafe=await a.saveGame(0,'already unsafe');a._strategicBattleFailure=null;
   const guard={saved:unsafe,noCheck:c.statusCalls===beforeGuard,noIO:window.__ownedDatabases.length===opened};
@@ -106,9 +99,9 @@ try {
   // A thrown 410-looking error is not proof of deletion of the captured pack.
   c.statusHook=()=>{throw Object.assign(new Error('unverified status failure'),{code:'GAME_DELETED',status:410});};
   const offline=await a.saveGame(0,'owned formal App');c.statusHook=null;
-  return{dialog,guard,delayed,offline,active:a.checkFormalCurrent(),exits:c.exits.length};
+  return{status,guard,delayed,offline,active:a.checkFormalCurrent(),exits:c.exits.length};
  });
- assert.deepEqual(statusChecks.dialog,{opened:true,calls:1,noIO:true,hold:true,rng:true});checks++;
+ assert.deepEqual(statusChecks.status,{calls:1,noIO:true,hold:true,rng:true});checks++;
  assert.deepEqual(statusChecks.guard,{saved:{saved:'blocked'},noCheck:true,noIO:true});checks++;
  assert.deepEqual(statusChecks.delayed,['battle','paused'].map(mode=>({mode,saved:{saved:'blocked'},noIO:true})));checks++;
  assert.deepEqual(statusChecks.offline,{saved:'local'});assert.equal(statusChecks.active,true);assert.equal(statusChecks.exits,0);checks++;
