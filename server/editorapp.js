@@ -81,6 +81,8 @@ import trialwebBundle from './public/trialweb.txt';
 import playappShell from './public/playapp.txt';
 import { decodeSourceChunks } from '../web/src/content/authoring/sourcejson.js';
 const COOKIE = '__Secure-dragon-editor';
+// Beyond the ECMAScript Date range, but exact in JS and the existing SQLite INTEGER columns.
+const NO_SESSION_DEADLINE = Number.MAX_SAFE_INTEGER;
 function requestURL(request) { try { return new URL(request.url); } catch { fail(400, 'INVALID_URL'); } }
 // Management previews use local object URLs; scripts remain self-only, no remote/data image sources.
 const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; media-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" };
@@ -188,10 +190,7 @@ export function createEditorApplication(PlatformBase, { runtimeStager, frozenPub
 return class EditorMetadata extends PlatformBase {
   constructor(ctx, env) {
     super(ctx, env); this.ctx = ctx; this.env = env; this.sql = ctx.storage.sql;
-    // Single-seat login gate (整站单用户在线), same semantics as vps/auth-server:
-    // a live session rejects any new login with 409 SINGLE_USER_ONLINE.
-    // Default off to preserve existing multi-session harnesses and dev flows;
-    // production enables it with EDITOR_SINGLE_USER=1 (user decision 2026-10-30).
+    // Production editor restricts access to one account at a time. The legacy auth sidecar is separate.
     this.singleUser = env.EDITOR_SINGLE_USER === '1';
     // Set once the available-library row exists; a virgin database has no owner
     // yet at construction time, so the first request retries (see handle()).
@@ -204,6 +203,8 @@ return class EditorMetadata extends PlatformBase {
       const userColumns = new Set(this.sql.exec('PRAGMA table_info(users)').toArray().map(column => column.name));
       for (const column of ['display_name', 'email', 'phone', 'note']) { if (!userColumns.has(column)) { this.sql.exec(`ALTER TABLE users ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`); } }
       this.sql.exec('CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), epoch INTEGER NOT NULL, absolute_until INTEGER NOT NULL, idle_until INTEGER NOT NULL)');
+      // Switching back to timed multi-user mode requires a fresh login for unbounded tokens.
+      if (!this.singleUser) this.sql.exec('DELETE FROM sessions WHERE absolute_until=?', NO_SESSION_DEADLINE);
       this.sql.exec('CREATE TABLE IF NOT EXISTS login_rates (bucket TEXT PRIMARY KEY, start_at INTEGER NOT NULL, attempts INTEGER NOT NULL)');
       this.sql.exec('CREATE TABLE IF NOT EXISTS operations (actor TEXT NOT NULL, op_key TEXT NOT NULL, request_digest TEXT NOT NULL, sealed_result TEXT NOT NULL, epoch INTEGER NOT NULL, expires_at INTEGER NOT NULL, PRIMARY KEY(actor,op_key))');
     });
@@ -383,10 +384,14 @@ return class EditorMetadata extends PlatformBase {
     if (!row || row.disabled || row.epoch !== row.user_epoch || now >= row.absolute_until || now >= row.idle_until) { fail(401, 'SESSION_INVALID'); }
     return { ...row, id: row.user_id, epoch: row.user_epoch };
   }
-  touch(tokenHash, policy) { this.sql.exec('UPDATE sessions SET idle_until=MIN(absolute_until,?) WHERE token_hash=?', Date.now() + policy.idleMs, tokenHash); }
+  touch(tokenHash, policy) {
+    this.sql.exec('UPDATE sessions SET idle_until=MIN(absolute_until,?) WHERE token_hash=? AND absolute_until<>?', Date.now() + policy.idleMs, tokenHash, NO_SESSION_DEADLINE);
+  }
   async sessionData(user, policy) {
     const token = randomToken(), hash = await sha(token), now = Date.now();
-    return { token, hash, absolute: now + policy.sessionMs, idle: Math.min(now + policy.idleMs, now + policy.sessionMs), csrf: await mac(`csrf:${token}`, policy.secret), user };
+    const absolute = this.singleUser ? NO_SESSION_DEADLINE : now + policy.sessionMs;
+    const idle = this.singleUser ? NO_SESSION_DEADLINE : Math.min(now + policy.idleMs, absolute);
+    return { token, hash, absolute, idle, csrf: await mac(`csrf:${token}`, policy.secret), user };
   }
   insertSession(s, user) { this.sql.exec('INSERT INTO sessions VALUES(?,?,?,?,?)', s.hash, user.id, user.epoch, s.absolute, s.idle); }
   async fetch(request) {
@@ -673,10 +678,7 @@ return class EditorMetadata extends PlatformBase {
     const committed = this.ctx.storage.transactionSync(() => {
       if (!this.canCommit(op)) { return false; }
       const current = this.one('SELECT * FROM users WHERE id=?', user.id); if (current.epoch !== user.epoch || current.disabled) { fail(401, 'SESSION_INVALID'); }
-      // Single-seat with last-login-wins (user decision 2026-10-31): purge
-      // expired rows, then evict every live session so the newest login always
-      // succeeds. Only one session stays valid at any moment, and closing a
-      // browser without logging out can never lock the account out.
+      // The newest account wins; keep the existing same-account login semantics.
       if (this.singleUser) {
         const stamp = Date.now();
         this.sql.exec('DELETE FROM sessions WHERE absolute_until<=? OR idle_until<=?', stamp, stamp);

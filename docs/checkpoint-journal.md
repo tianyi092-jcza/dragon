@@ -2,6 +2,12 @@
 
 長期架構、命令與操作約定見[專案記憶](../AGENTS.md)；本頁記本輪交接。歷史結果不是部署授權，也不代替 DOS 原證。
 
+## EDITOR-SESSION｜單用戶工作台不再因編輯時間過長而登出
+
+- 生產已核 `EDITOR_SINGLE_USER=1`。主編輯器新登入／改密換發的 session 無空閒及總時長期限；舊 session 維持原期限，不復活；登出、帳號切換、禁用／改密撤銷、Origin／CSRF 與必改密門仍有效。仍是瀏覽器 session cookie，不承諾關閉瀏覽器後保留，也不是草稿自動保存。
+- `tools/verify_editor_single_user_deadlines.mjs` 以隔離 SQLite 和可控時鐘驗登入後空閒一天、改密後重啟並空閒一年再寫入、拒錯 CSRF、跨帳號撤銷、退出，以及切回有期限模式；`verify_publication_main.mjs` 93 項通過。`verify_editor_draft_session.mjs:118` 的角色斷言仍為 200 而非 403，未改的 `81d7ccf` 也複現。JS LSP 未收到路徑診斷，`lens_diagnostics` 不可用。
+- 部署範圍只換 editor 鏡像，不重建玩家靜態資源或更改上架版本。切回舊程式前，先撤銷本版換發的無期限 session；不能只換回舊映像就視為恢復舊期限。
+
 ## DEV-FORMAL-BOOTSTRAP-APPLY｜本地 1.7 目錄已恢復（取代下方 R1 的「真庫待批准」）
 
 - 使用者批准只遷移 dev：兩端共用發布／讀取程式，遊戲上架、版本、分發桶與存檔各自獨立，不向生產推送或從生產拉資料。這是一次性銜接舊 dev pin，不是之後每次上架要跑的步驟。
