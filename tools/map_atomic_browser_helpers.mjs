@@ -24,6 +24,14 @@ export async function selectAtomicTile(panel, definitions, tile) {
   return panel.getByRole('button', { name: `${item.name}；拖至地圖或按Enter／空白鍵開始放置`, exact: true });
 }
 
+export async function confirmMapSaved(page) {
+  const dialog = page.getByRole('dialog', {name:'保存成功',exact:true});
+  await dialog.waitFor();
+  assert.equal(await dialog.getByRole('button').count(),1);
+  await dialog.getByRole('button',{name:'確認',exact:true}).click();
+  await dialog.waitFor({state:'hidden'});
+}
+
 export async function dragAtomicTile(page, panel, definitions, tile, x, y) {
   const card = await selectAtomicTile(panel, definitions, tile);
   await panel.getByRole('button', { name: '全圖', exact: true }).click();
@@ -353,7 +361,7 @@ export async function verifyAtomicLibrary(page, panel, source) {
         count += displayed.length;
       }
     }
-    assert.equal(count, 240);
+    assert.equal(count, 238);
   assert.equal(JSON.stringify(source), original);
   assert.equal(await panel.getByRole('button', { name: '保存', exact: true }).isEnabled(), false, 'browsing never stages content');
 }

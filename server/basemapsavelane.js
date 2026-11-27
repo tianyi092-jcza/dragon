@@ -1,8 +1,11 @@
 // Only called after the trusted command writer has applied the complete batch.
 // Test the touched footprints against possible topology inputs; not a new road classifier.
+import { cellEditsTouchNetwork } from '../web/src/content/authoring/cellplane.js';
 import { ROAD_TILE_MIN, ROAD_TILE_MAX } from '../web/src/editor/roadchain.js';
 
 export function baseMapSaveLane(before, after, edits) {
+  if (before.map.format !== 'cell-map-1' && after.map.format === 'cell-map-1') return 'full';
+  if (before.map.format === 'cell-map-1') return cellEditsTouchNetwork(before.map, edits) ? 'full' : 'direct';
   if (before.map.base.policy !== 'sea-ground-1' || edits.some(e => ['map-extent', 'sea-ground-enable', 'base-fill'].includes(e.op))) return 'full';
   const touched = new Set();
   for (const e of edits) {

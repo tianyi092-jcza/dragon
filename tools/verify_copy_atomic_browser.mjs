@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { compileGameSource } from '../web/src/content/authoring/trialcompile.js';
 import { applyMapWorkspaceEdits } from '../server/mapworkspace.js';
 import { fitViewport, worldToScreen } from '../web/src/editor/viewport.js';
-import { verifyAtomicLibrary, selectAtomicTile, dragAtomicTile } from './map_atomic_browser_helpers.mjs';
+import { confirmMapSaved, verifyAtomicLibrary, selectAtomicTile, dragAtomicTile } from './map_atomic_browser_helpers.mjs';
 
 export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, gameId, newId, mapData, sha, beforeMap, verifyApprovedMap }) {
   const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE);
@@ -47,7 +47,7 @@ export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, ga
       await dragAtomicTile(page, panel, snapshot.template.content.componentDefinitions, tile, x, y);
       assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, snapshot.digest);
       await panel.getByRole('button', { name: '保存', exact: true }).click();
-      await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      await confirmMapSaved(page);
       await page.waitForFunction(() => !document.querySelector('.map-status').textContent.includes('圖集載入中'));
       const saved = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
       const placed = saved.template.content.map.decorations.at(-1);
@@ -74,7 +74,7 @@ export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, ga
       assert.ok((await menu.locator('.base-map-object-info').textContent()).includes(selectedId));
       await menu.getByRole('button', { name: label, exact: true }).click();
       await panel.getByRole('button', { name: '保存', exact: true }).click();
-      await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+      await confirmMapSaved(page);
       const saved = (await call('/api/admin/base-map', undefined, admin)).data.snapshot;
       const expected = applyMapWorkspaceEdits({ gameId: 'system-base-map', ...snapshot.template.content }, [{ op: 'decoration-reorder', memberIds: [selectedId], direction }]);
       delete expected.gameId;
@@ -123,7 +123,7 @@ export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, ga
     await page.waitForFunction(() => !document.querySelector('.map-status').textContent.includes('圖集載入中'));
     await dragAtomicTile(page, gamePanel, created[0].componentDefinitions, 0, 320, 1);
     await gamePanel.getByRole('button', { name: '保存', exact: true }).click();
-    await page.getByText('已保存並重新讀取遊戲地圖。', { exact: true }).waitFor();
+    await confirmMapSaved(page);
     await page.waitForLoadState('networkidle');
     const stale = await call(`/api/games/${id}/copy/submission`, { ticket: priorTicket.data.ticket, description: '原子修改後舊票拒絕' }, admin);
     assert.equal(stale.status, 409); assert.equal(stale.data.error, 'VALIDATION_STALE');
@@ -150,6 +150,6 @@ export async function verifyAtomicHttpBrowser({ origin, admin, call, storage, ga
     await page.setViewportSize({ width: 900, height: 700 });
     await page.waitForFunction(() => document.documentElement.scrollHeight <= innerHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1);
     assert.deepEqual(errors, []); assert.deepEqual(failures, []);
-    console.log('PASS atomic fresh browser / actual HTTPS / SQLite: 240 spring previews/neutral city library, seven categories/no tooltips or season switch, template drag/cancel/undo/save/reread, context top/bottom saves, both creation entries, game atomic save, stale ticket refusal, validation/submission/approval, exact player pack/environment/scenario terrain and two published minimap PNGs, unchanged definitions/groups and independent games.');
+    console.log('PASS atomic fresh browser / actual HTTPS / SQLite: 238 spring previews/neutral city library, seven categories/no tooltips or season switch, template drag/cancel/undo/save/reread, context top/bottom saves, both creation entries, game atomic save, stale ticket refusal, validation/submission/approval, exact player pack/environment/scenario terrain and two published minimap PNGs, unchanged definitions/groups and independent games.');
   } finally { await browser.close(); }
 }

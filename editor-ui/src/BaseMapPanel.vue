@@ -42,6 +42,7 @@ const groupDisabled = computed(() => placementLocked.value || multiCount.value <
 const ungroupDisabled = computed(() => placementLocked.value || (multiCount.value === 0 && !props.model.selectedGroup && props.model.selected?.layer !== 'decor'));
 const deleteDisabled = computed(() => {
   const layer = props.model.selected?.layer;
+  if (props.model.cellMap) return locked.value || !(multiCount.value || props.model.selected?.cellTileId != null);
   if (multiCount.value || layer === 'decor' || layer === 'group' && props.model.selected.captureAllowed) return placementLocked.value;
   return locked.value || !['cities', 'roads'].includes(layer) || props.model.layers.some(row => row.id === layer && (row.locked || !row.visible));
 });
@@ -111,6 +112,11 @@ function moveMaterialKeyboard(event) {
     origin.focus({ preventScroll: true });
   }
 }
+function undoKey(event) {
+  if (event.key.toLowerCase() !== 'z' || !(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey || event.isComposing || event.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="dialog"]')) return;
+  event.preventDefault();
+  if (!event.repeat && !locked.value && props.model.canUndo && !materialKeyboard && !materialPointer && !pointer) { notice.value = ''; props.actions.undo(); }
+}
 function cancelKey(event) {
   if (event.key !== 'Escape') return;
   if (pointer?.right) { event.preventDefault(); pointer = null; selectionBox.value = null; }
@@ -165,7 +171,7 @@ function down(event) {
     try { objectDragging = props.actions.beginMultiMove(event.offsetX, event.offsetY) === true; } catch { objectDragging = false; }
     return;
   }
-  if (props.model.selected && ['decor', 'group', 'roads', 'cities'].includes(props.model.selected.layer)) {
+  if (props.model.selected && ['cell','decor', 'group', 'roads', 'cities'].includes(props.model.selected.layer)) {
     try { objectDragging = props.actions.beginObjectMove(event.offsetX, event.offsetY) === true; } catch { objectDragging = false; }
   }
 }
@@ -208,6 +214,7 @@ function up(event) {
     pointer = null; return;
   }
   if (objectDragging) {
+    move(event);
     objectDragging = false;
     if (pointer.moved) { props.actions.commitObjectMove(); pointer = null; return; }
     // 无位移的按下即普通单击：先取消拖拽态，再走 pick，落在已选对象上正好切换取消选中。
@@ -248,6 +255,10 @@ function floatingKey(event) {
 }
 async function openContext(event) {
   cancelMaterial();
+  if (props.model.cellMap && event && !props.busy && !multiCount.value) {
+    props.actions.pick(event.offsetX,event.offsetY);
+    await nextTick();
+  }
   if ((!props.model.selected && !(props.model.multi && props.model.multi.length)) || props.model.selected?.layer === 'base' || props.busy) return;
   const bounds = host.value.getBoundingClientRect();
   contextPosition.value = { x: event ? event.clientX - bounds.left : bounds.width / 2, y: event ? event.clientY - bounds.top : bounds.height / 2 };
@@ -260,6 +271,14 @@ function dismissContext(event) { if (!menu.value?.contains(event.target) && !eve
 async function askRemove() {
   if (deleteDisabled.value) return;
   const { selected, multi, gameId, readRevision } = props.model;
+  if (props.model.cellMap) {
+    const label=multi?.length?`選取的 ${multi.length} 格`:`${selected.type}格（${selected.x}, ${selected.y}）`;
+    const warning=selected?.type==='道路'?'；經過此格的道路連線也會移除，不能保存斷開的路網':selected?.type==='據點'?'；清除中心並解除綁定，不刪除據點檔案。有相連道路時無法清除':'';
+    contextPosition.value=null;
+    const ok=await ElMessageBox.confirm(`清除${label}${warning}？`,'清除格子',{confirmButtonText:'清除',cancelButtonText:'取消',closeOnClickModal:false}).then(()=>true,()=>false);
+    if(ok && !deleteDisabled.value && props.model.gameId===gameId && props.model.readRevision===readRevision && props.model.selected?.index===selected?.index && JSON.stringify(props.model.multi)===JSON.stringify(multi)) runObjectCommand('cell-clear');
+    return;
+  }
   const objects = multi?.length ? multi : [selected];
   const names = (multi?.length ? props.model.multiNames : [selected.name || selected.id]).map(name => `「${name}」`).join('、');
   const target = objects.length === 1 ? names : `${names}${objects.length > 3 ? '等' : ''}（共 ${objects.length} 件）`;
@@ -341,24 +360,24 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section :id="model.gameScoped ? 'game-map-editor' : 'base-map-editor'" class="base-map-panel">
+  <section :id="model.gameScoped ? 'game-map-editor' : 'base-map-editor'" class="base-map-panel" @keydown="undoKey">
     <div class="base-map-body">
     <header class="base-map-toolbar" aria-label="地圖工具">
       <div class="base-map-controls">
       <ElButton :disabled="busy" title="重新讀取地圖，取消未保存修改" @click="notice = ''; actions.reload()">載入</ElButton>
       <ElButton v-if="!model.gameScoped && model.loaded && !model.exists" :disabled="busy" title="首次建立系統基礎地圖" @click="actions.initialize()">建立</ElButton>
       <ElButton :disabled="locked || !model.dirty" title="保存並重新讀取地圖" @click="notice = ''; actions.save()">保存</ElButton>
-      <ElButton :disabled="locked || !model.canUndo" title="撤銷上一步修改" @click="notice = ''; actions.undo()">撤銷</ElButton>
+      <ElButton :disabled="locked || !model.canUndo" title="撤銷上一步修改（Ctrl+Z）" aria-keyshortcuts="Control+Z Meta+Z" @click="notice = ''; actions.undo()">撤銷</ElButton>
+      <ElButton v-if="model.exists && !model.cellMap" :disabled="locked || (model.dirty && !(model.seaGroundPending && model.editCount === 1))" @click="actions.convert()">轉為單格地圖</ElButton>
       <slot name="tools" />
       <ElButton :disabled="!model.exists" title="縮放至顯示整張地圖" @click="actions.fit()">全圖</ElButton>
       <ElButton :disabled="!model.exists" title="放大地圖" @click="actions.zoom(1.25)">放大</ElButton>
       <ElButton :disabled="!model.exists" title="原始比例：每格16×16像素，保持視野中心" @click="actions.zoom(1 / model.zoom)">100%</ElButton>
       <ElButton :disabled="!model.exists" title="縮小地圖" @click="actions.zoom(0.8)">縮小</ElButton>
       <ElButton :disabled="busy || !model.exists" aria-label="鎖圖" :aria-pressed="panLocked" :title="panLocked ? '已鎖圖：拖動已選物件；點擊解鎖' : '未鎖圖：拖動平移；點擊鎖定後可拖動已選物件'" @click="panLocked = !panLocked; pointer = null; objectDragging = false; actions.cancelObjectMove(); actions.cancelPlacement()"><WorkspaceIcon :name="panLocked ? 'locked' : 'unlocked'" /></ElButton>
-      <span v-if="!model.gameScoped" title="僅標記沒有可見素材覆蓋的底圖，不影響小地圖或遊戲。">灰色蒙板：裸底圖</span>
       <ElCheckbox :model-value="model.gridVisible !== false" @update:model-value="actions.grid($event)">網格</ElCheckbox>
-        <span class="extent-label">地圖擴展</span>
-        <div v-for="[side, key, name, unit] in extentDirections" :key="side" class="extent-direction" role="group" :aria-label="`${name}側擴縮`">
+        <span v-if="!model.cellMap" class="extent-label">地圖擴展</span>
+        <div v-for="[side, key, name, unit] in (model.cellMap ? [] : extentDirections)" :key="side" class="extent-direction" role="group" :aria-label="`${name}側擴縮`">
           <span>{{ name }}</span>
           <ElButtonGroup>
             <ElButton :aria-label="`${name}增`" :title="`向${name}延伸一${unit}；已用 ${extentQuota(key) ?? '?'}／40 格`" :disabled="locked || !model.exists || (extentQuota(key) ?? 0) >= 40" @click="runExtent(side, 1)"><WorkspaceIcon name="plus" /></ElButton>
@@ -366,25 +385,25 @@ onBeforeUnmount(() => {
           </ElButtonGroup>
         </div>
       </div>
-      <span class="map-status" role="status" aria-live="polite" >{{ model.atlasLoading ? '圖集載入中…' : notice || (model.saveReport ? ({ success: '保存成功', failed: model.uncertain ? '重讀失敗' : '保存失敗', unknown: '結果待確認', running: '保存中…' })[model.saveReport.state] : model.message) }}</span>
+      <span class="map-status" role="status" aria-live="polite" >{{ model.atlasLoading ? '圖集載入中…' : notice || (!model.saveReport ? model.message : '') }}</span>
     </header>
     <div class="base-map-workspace">
-    <ElDialog :model-value="model.saveReport?.state === 'running'" title="地圖保存檢查" width="min(calc(32rem + 80px), 90vw)" align-center append-to-body :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
-      <div role="status" aria-live="polite"><strong>{{ model.saveReport?.summary }}</strong><ol><li v-for="line in checks" :key="line">{{ line }}</li></ol></div>
-    </ElDialog>
-    <details v-if="model.saveReport && model.saveReport.state !== 'running'" class="map-save-report" :open="model.saveReport.state !== 'success'">
-      <summary>{{ model.saveReport.state === 'success' ? '查看保存詳情' : '查看原因與處理方式' }}</summary>
+    <ElDialog :model-value="Boolean(model.saveReport)" :title="model.saveReport?.state === 'running' ? '地圖保存檢查' : model.saveReport?.summary" width="min(56rem, calc(100vw - 2rem))" align-center append-to-body :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
+      <div v-if="model.saveReport" class="map-save-dialog-body" role="status" aria-live="polite">
+      <template v-if="model.saveReport.state === 'running'"><strong>{{ model.saveReport.summary }}</strong><ol><li v-for="line in checks" :key="line">{{ line }}</li></ol></template>
       <p v-if="model.saveReport.state === 'success'">地圖已保存並重新載入。</p>
       <p v-for="(problem, index) in model.serverProblems" :key="index">{{ problem.message }}</p>
       <p v-if="model.uncertain">請先重新讀取地圖，確認目前版本；不要重送同一批修改。</p>
       <p v-else-if="model.saveReport.state === 'failed'">這次沒有寫入地圖。編輯內容仍保留，請修正後再保存。</p>
-    </details>
+      </div>
+      <template v-if="model.saveReport && model.saveReport.state !== 'running'" #footer><ElButton @click="actions.dismissSaveReport()">確認</ElButton></template>
+    </ElDialog>
     <div v-if="model.atlasError" class="base-map-problems" role="alert"><span>{{ model.atlasError }}</span><ElButton @click="actions.retryAtlas()">重試</ElButton></div>
     <div v-if="model.diagnostics?.length" class="base-map-problems" role="alert"><div v-for="problem in model.diagnostics" :key="problem.index"><span>{{ problem.message }}</span><ElButton :disabled="!Number.isInteger(problem.x) || !Number.isInteger(problem.y)" title="定位底圖格" @click="actions.focusDiagnostic(problem.index)">定位</ElButton></div></div>
       <div ref="host" class="base-map-canvas-host">
-        <canvas ref="canvas" class="base-map-canvas" tabindex="0" title="右鍵拖曳框選物件，Delete 確認刪除；Shift+點擊增減物件，Shift+拖曳已選裝飾可複製，Ctrl+C 複製，Ctrl+V 貼上。" aria-description="點選單格、Shift 多選或右鍵框選後按 Ctrl+C 複製圖塊，再點選目標格按 Ctrl+V 貼上。選取素材後以方向鍵逐格移動，Enter或空白鍵放置，Esc取消；選取地圖物件後右鍵或Shift+F10開啟操作。" @keydown="moveMaterialKeyboard" @blur="cancelMaterial" :aria-label="model.gameScoped ? '可編輯遊戲地圖' : '可編輯基礎地圖'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @lostpointercapture="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @contextmenu.prevent="!rightGesture && openContext($event)" @wheel.prevent="contextPosition = null; !busy && actions.zoom($event.deltaY < 0 ? 1.2 : 1 / 1.2, $event.offsetX, $event.offsetY)" />
+        <canvas ref="canvas" class="base-map-canvas" tabindex="0" aria-description="點選單格、Shift 多選或右鍵框選後按 Ctrl+C 複製圖塊，再點選目標格按 Ctrl+V 貼上。選取素材後以方向鍵逐格移動，Enter或空白鍵放置，Esc取消；選取地圖物件後右鍵或Shift+F10開啟操作。" @keydown="moveMaterialKeyboard" @blur="cancelMaterial" :aria-label="model.gameScoped ? '可編輯遊戲地圖' : '可編輯基礎地圖'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @lostpointercapture="pointer = null; selectionBox = null; objectDragging = false; actions.cancelObjectMove()" @contextmenu.prevent="!rightGesture && openContext($event)" @wheel.prevent="contextPosition = null; !busy && actions.zoom($event.deltaY < 0 ? 1.2 : 1 / 1.2, $event.offsetX, $event.offsetY)" />
         <div v-if="selectionBox" aria-hidden="true" class="base-map-selection-box" :style="selectionBox" />
-        <div ref="floating" class="base-map-floating" :style="floatingPosition ? { left: `${floatingPosition.x}px`, top: `${floatingPosition.y}px`, bottom: 'auto' } : {}" aria-label="浮動圖層工具">
+        <div v-show="!model.cellMap" ref="floating" class="base-map-floating" :style="floatingPosition ? { left: `${floatingPosition.x}px`, top: `${floatingPosition.y}px`, bottom: 'auto' } : {}" aria-label="浮動圖層工具">
         <ElCard :body-style="{ padding: '4px' }">
           <div class="base-map-layer-tools">
             <ElButton text class="base-map-drag-handle" aria-label="移動圖層工具" title="拖動圖層工具；方向鍵亦可移動" @pointerdown="floatingDown" @pointermove="floatingMove" @pointerup="floatingPointer = null" @pointercancel="floatingPointer = null" @lostpointercapture="floatingPointer = null" @keydown="floatingKey"><WorkspaceIcon name="drag" /></ElButton>
@@ -398,17 +417,18 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="contextPosition && (model.selected || (model.multi && model.multi.length))" ref="menu" class="base-map-context" :style="{ left: `${contextPosition.x}px`, top: `${contextPosition.y}px` }" role="dialog" aria-label="物件操作" @contextmenu.prevent>
         <ElCard :body-style="{ padding: '12px' }">
-          <div class="base-map-object-info"><template v-if="model.multi && model.multi.length"><strong>组合</strong><span>共{{ model.multi.length }}件</span><span>Shift+单击切换增减</span></template><template v-else><strong>{{ model.selected.type || labels[model.selected.layer] || '组合' }}</strong><span>{{ model.selected.x }}, {{ model.selected.y }}</span><span class="map-object-id" :title="model.selected.id">物件 ID：{{ model.selected.id }}</span><span v-if="model.selected.cellTileId != null">素材庫 ID：{{ model.selected.cellTileId }}</span></template></div>
+          <div class="base-map-object-info"><template v-if="model.multi && model.multi.length"><strong>{{ model.cellMap ? '選取格子' : '組合' }}</strong><span>共 {{ model.multi.length }} {{ model.cellMap ? '格' : '件' }}</span><span>Shift＋點擊增減</span></template><template v-else><strong>{{ model.selected.type || labels[model.selected.layer] || '组合' }}</strong><span>{{ model.selected.x }}, {{ model.selected.y }}</span><span v-if="!model.cellMap" class="map-object-id" :title="model.selected.id">物件 ID：{{ model.selected.id }}</span><span v-if="model.selected.cellTileId != null">素材庫 ID：{{ model.selected.cellTileId }}</span></template></div>
           <div v-if="model.selectedBinding && !model.multi?.length" class="base-map-context-actions base-map-city-bind">
             <span>綁定：</span>
             <ElSelect v-if="model.selectedBinding?.cityId" :model-value="model.selectedBinding.cityId" disabled aria-label="綁定據點下拉框"><ElOption :value="model.selectedBinding.cityId" :label="model.cities.find(c => c.cityId === model.selectedBinding.cityId)?.name || model.selectedBinding.cityId" /></ElSelect>
             <ElSelect v-else v-model="bindCityId" filterable popper-class="base-map-bind-options" :disabled="locked || bindingPending || !bindCityId" placeholder="無可綁據點" aria-label="綁定據點下拉框"><ElOption v-for="city in model.unboundCities || []" :key="city.cityId" :value="city.cityId" :label="city.name" /></ElSelect>
             <ElButton :loading="bindingPending" :disabled="locked || (!model.selectedBinding?.cityId && !bindCityId)" @click="runBindToggle()">{{ model.selectedBinding?.cityId ? '解綁' : '綁定' }}</ElButton>
           </div>
-          <div class="base-map-context-actions">
+          <div v-if="model.cellMap && (model.multi?.length || model.selected?.cellTileId != null)" class="base-map-cell-actions"><ElButton :disabled="deleteDisabled" @click="askRemove()">清除</ElButton></div>
+          <div v-if="!model.cellMap" class="base-map-context-actions">
             <ElButton v-for="item in orderActions" :key="item.icon" :aria-label="item.name" :title="item.name" :disabled="objectLocked" @click="runObjectCommand('decoration-reorder', { direction: item.direction })"><WorkspaceIcon :name="item.icon" /></ElButton>
           </div>
-          <div class="base-map-context-actions">
+          <div v-if="!model.cellMap" class="base-map-context-actions">
             <ElButton aria-label="组合" title="组合" :disabled="groupDisabled" @click="runGroup()"><WorkspaceIcon name="group" /></ElButton>
             <ElButton aria-label="拆散" title="拆散" :disabled="ungroupDisabled" @click="runUngroup()"><WorkspaceIcon name="ungroup" /></ElButton>
 
@@ -449,7 +469,7 @@ onBeforeUnmount(() => {
 .extent-direction + .extent-direction { margin-inline-start: 12px; }
 .base-map-toolbar .map-status { flex: 0 1 auto; min-width: 120px; max-width: 240px; margin-left: auto; text-align: right; }
 .base-map-panel :deep(.el-button + .el-button) { margin-left: 0; }
-.map-save-report { max-height: 25%; overflow: auto; flex-shrink: 0; }
+.map-save-dialog-body { min-height: min(15rem, 32dvh); max-height: max(4rem, calc(100dvh - 11rem)); overflow: auto; overflow-wrap: anywhere; }
 .base-map-problems { max-height: 96px; overflow: auto; flex-shrink: 0; }
 .base-map-body { display: grid; grid-template-columns: minmax(0, 1fr) 260px; grid-template-rows: auto minmax(0, 1fr); gap: 4px 8px; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .base-map-workspace { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
@@ -465,6 +485,7 @@ onBeforeUnmount(() => {
 .base-map-context { position: absolute; width: 240px; max-width: 100%; max-height: 100%; overflow: auto; box-sizing: border-box; }
 .map-object-id { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .base-map-object-info { display: flex; flex-direction: column; overflow-wrap: anywhere; gap: 4px; }
+.base-map-cell-actions { margin-top: 12px; }
 .base-map-context-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .base-map-city-bind { grid-template-columns: auto minmax(calc(4em + 44px), 1fr) auto; align-items: center; gap: 4px; }
 .base-map-library { grid-column: 2; grid-row: 1 / -1; display: flex; flex-direction: column; gap: 8px; overflow: hidden; min-height: 0; }

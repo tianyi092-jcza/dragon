@@ -4,6 +4,7 @@
 // 192 固定槽域只描述原版/Custom 导入基线，不再是校验锁。
 
 import { isNorthExtension, isSupportedMapExtent } from './mapextent.js';
+import { uncoveredCellRoads } from './cellplane.js';
 import { composeMapLayers } from "./maplayers.js";
 
 export const MAP_SCHEMA_VERSION = 1;
@@ -24,24 +25,7 @@ function isInt(value, low, high) {
   return Number.isInteger(value) && value >= low && value <= high;
 }
 
-export function validateMapSource(src, options = {}) {
-  const draft = options.draft === true;
-  const diagnostics = [];
-  if (!src || typeof src !== "object") throw new TypeError("map source must be an object");
-  if (src.schemaVersion !== MAP_SCHEMA_VERSION) throw new RangeError("unsupported map schemaVersion");
-  const bounds = src.map?.bounds;
-  const northExperiment = options.northExperiment === true && isNorthExtension(bounds);
-  // MAP-EXT E5: explicit template/creation admission for supported extents.
-  // Default callers (publish/play packs) stay on the strict origin gate.
-  const mapExtent = options.mapExtent === true && isSupportedMapExtent(bounds);
-  if (!bounds || (!northExperiment && !mapExtent && (bounds.width !== SUPPORTED_BOUNDS.width || bounds.height !== SUPPORTED_BOUNDS.height)) || bounds.tileSize !== SUPPORTED_BOUNDS.tileSize)
-    throw new RangeError("unsupported map bounds for current rule profile");
-  if (!Number.isInteger(bounds.minX) || !Number.isInteger(bounds.minY)) throw new TypeError("bounds minX/minY must be integers");
-  // A-CAP-1：现行规则 profile 只支持原点域；左／上扩边会平移编译坐标，
-  // 须转换全部地图引用（排查§4），在 G-CAP 适配完成前明确拒绝而非默许。
-  if (!northExperiment && !mapExtent && (bounds.minX !== 0 || bounds.minY !== 0)) throw new RangeError("non-zero map origin is not supported by the current rule profile");
-  const W = bounds.width;
-  const H = bounds.height;
+function validateLayerInputs(src, bounds, W, H) {
   const base = src.map?.base;
   if (!Array.isArray(base?.terrainRef) || base.terrainRef.length !== W * H) throw new TypeError("base.terrainRef must cover every cell");
   for (let i = 0; i < base.terrainRef.length; i++) {
@@ -64,6 +48,27 @@ export function validateMapSource(src, options = {}) {
     if (!isInt(deco.x, bounds.minX, bounds.minX + W - 1) || !isInt(deco.y, bounds.minY, bounds.minY + H - 1))
       throw new RangeError(`decorations[${index}] out of bounds`);
   }
+}
+
+export function validateMapSource(src, options = {}) {
+  const draft = options.draft === true;
+  const diagnostics = [];
+  if (!src || typeof src !== "object") throw new TypeError("map source must be an object");
+  if (src.schemaVersion !== MAP_SCHEMA_VERSION) throw new RangeError("unsupported map schemaVersion");
+  const bounds = src.map?.bounds;
+  const northExperiment = options.northExperiment === true && isNorthExtension(bounds);
+  // MAP-EXT E5: explicit template/creation admission for supported extents.
+  // Default callers (publish/play packs) stay on the strict origin gate.
+  const mapExtent = options.mapExtent === true && isSupportedMapExtent(bounds);
+  if (!bounds || (!northExperiment && !mapExtent && (bounds.width !== SUPPORTED_BOUNDS.width || bounds.height !== SUPPORTED_BOUNDS.height)) || bounds.tileSize !== SUPPORTED_BOUNDS.tileSize)
+    throw new RangeError("unsupported map bounds for current rule profile");
+  if (!Number.isInteger(bounds.minX) || !Number.isInteger(bounds.minY)) throw new TypeError("bounds minX/minY must be integers");
+  // A-CAP-1：现行规则 profile 只支持原点域；左／上扩边会平移编译坐标，
+  // 须转换全部地图引用（排查§4），在 G-CAP 适配完成前明确拒绝而非默许。
+  if (!northExperiment && !mapExtent && (bounds.minX !== 0 || bounds.minY !== 0)) throw new RangeError("non-zero map origin is not supported by the current rule profile");
+  const W = bounds.width;
+  const H = bounds.height;
+  if (src.map.format !== 'cell-map-1') validateLayerInputs(src, bounds, W, H);
   const placements = src.map?.placements;
   if (!Array.isArray(placements) || placements.length < 1 || placements.length > 512) throw new RangeError("map.placements must contain 1..512 city slots (live capacity)");
   const seenCells = new Set();
@@ -125,6 +130,10 @@ export function validateMapSource(src, options = {}) {
       }
     }
   }
+  if (src.map.format === 'cell-map-1' && !draft) {
+    const cells = uncoveredCellRoads(src.map, layered.terrain);
+    if (cells.length) throw new RangeError(`道路未接通（${cells[0].join(', ')}）：路磚不屬於已登記的道路。`);
+  }
   return diagnostics;
 }
 
@@ -162,18 +171,24 @@ export function assertMapConnected(src) {
     adjacency.get(road.toCityId).add(road.fromCityId);
   }
   const isolated = cityIds.filter(id => adjacency.get(id).size === 0);
-  if (isolated.length) throw new RangeError(`isolated city without road: ${isolated.slice(0, 8).join('\u3001')}${isolated.length > 8 ? '\u2026' : ''}`);
-  const seen = new Set([cityIds[0]]);
-  const queue = [cityIds[0]];
+  if (isolated.length && src.map.format !== 'cell-map-1') throw new RangeError(`isolated city without road: ${isolated.slice(0, 8).join('\u3001')}${isolated.length > 8 ? '\u2026' : ''}`);
+  // Cell-map policy: a bound town may have no entrance. Do not connect it artificially.
+  // Distinct networks with actual roads must still pass the connected-component gate.
+  const network = cityIds.filter(id => adjacency.get(id).size);
+  if (!network.length) return;
+  const seen = new Set([network[0]]);
+  const queue = [network[0]];
   while (queue.length) {
     const current = queue.pop();
     for (const next of adjacency.get(current)) {
       if (!seen.has(next)) { seen.add(next); queue.push(next); }
     }
   }
-  if (seen.size !== cityIds.length) {
-    const outside = cityIds.filter(id => !seen.has(id));
-    throw new RangeError(`map road network disconnected: isolated segment ${outside.slice(0, 8).join('\u3001')}${outside.length > 8 ? '\u2026' : ''}`);
+  if (seen.size !== network.length) {
+    const outside = network.filter(id => !seen.has(id));
+    const error = new RangeError(`map road network disconnected: isolated segment ${outside.slice(0, 8).join('\u3001')}${outside.length > 8 ? '\u2026' : ''}`);
+    error.outsideCityIds = outside;
+    throw error;
   }
 }
 

@@ -2,11 +2,13 @@
 // --browser additionally uses a fresh Playwright context and actual HTTPS (no API mocks).
 // 新建→ensure(幂等)→读→模块存→检验→填说明提交→复投拒收→越权/参数拒收。
 // 用法：node tools/verify_copy_http_roundtrip.mjs [--browser]（cwd=web-port）
-// Browser mode requires explicit installed PLAYWRIGHT_MODULE/PLAYWRIGHT_CHROMIUM_EXECUTABLE.
+// --cell-player: publish a freshly edited single-cell origin map, boot and restore via the formal reader.
+// --dev-cell-player <UUID>: opt-in northern-front 195-city sample (read-only game copy, rescope into the temporary fixture); also exercise road repair and grid AI.
+// Browser mode requires installed PLAYWRIGHT_MODULE/PLAYWRIGHT_CHROMIUM_EXECUTABLE.
 import assert from 'node:assert/strict';
 import { verifyAtomicHttpBrowser } from './verify_copy_atomic_browser.mjs';
 import test from 'node:test';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -16,6 +18,9 @@ import { createPlayerEnvironment } from '../web/src/player/playerenvironment.js'
 import { ASSET_TYPES } from '../web/src/player/runtimecontract.js';
 import { decodePNG } from '../server/pngio.js';
 import { MINIMAP_SIZES, renderMinimapPixels } from '../web/src/content/authoring/minimap.js';
+import { execFileSync } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
+import { mapExtentOptionFor } from '../server/copyprofile.js';
 import { prepareScenario } from '../web/src/game/scenarioassembly.js';
 import { applyMapWorkspaceEdits } from '../server/mapworkspace.js';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -42,14 +47,14 @@ async function call(path, body, session, extra = {}) {
   if (session) { headers.Cookie = session.cookie; headers['X-CSRF-Token'] = session.csrf; }
   if (body !== undefined) { headers['Content-Type'] = 'application/json'; headers['Idempotency-Key'] ??= randomUUID(); }
   const response = await new Promise((done, reject) => {
-    const req = httpsRequest(origin + path, { method: body === undefined ? 'GET' : 'POST', headers, rejectUnauthorized: false }, res => {
+    const req = httpsRequest(origin + path, { agent:false, method: body === undefined ? 'GET' : 'POST', headers, rejectUnauthorized: false }, res => {
       const parts = [];
       res.on('data', b => parts.push(b));
       res.on('error', reject);
       res.on('end', () => done({ status: res.statusCode, cookie: res.headers['set-cookie']?.[0]?.split(';')[0], data: json(Buffer.concat(parts).toString()) }));
     });
     req.setTimeout(240000, () => req.destroy(new Error('timeout: ' + path)));
-    req.on('error', reject);
+    req.on('error', error => reject(new Error(`${path}: ${error.message}`, {cause:error})));
     req.end(body === undefined ? undefined : JSON.stringify(body));
   });
   return response;
@@ -149,6 +154,22 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
   assert.equal(s0.data.publishEnabled, false);
   assert.ok(s0.data.blockedReason?.includes('重新检验'));
 
+  const devSample = process.argv.includes('--dev-cell-player');
+  const single = devSample || process.argv.includes('--cell-player');
+  let baseline = initialized.data.data;
+  if (devSample) {
+    // Copy ONLY the requested authoring source (no accounts, sessions, pins or saves).
+    // Re-scope entity IDs from the dev game to this throwaway HTTPS fixture's game.
+    const id = process.argv[process.argv.indexOf('--dev-cell-player')+1];
+    assert.match(id,/^[0-9a-f-]{36}$/);
+    const db = new DatabaseSync('.dragon-analysis/basemaps-dev-store/editor.sqlite',{readOnly:true});
+    let row;try {row=db.prepare('SELECT data_json,copy_digest FROM game_copies WHERE game_id=?').get(id);} finally {db.close();}
+    assert.equal(sha(row.data_json),row.copy_digest);
+    const text=row.data_json.replaceAll(id,gameId);
+    baseline=JSON.parse(text);assert.equal(baseline.gameId,gameId);
+    storage.sql.exec('UPDATE game_copies SET data_json=?,copy_digest=? WHERE game_id=?',text,sha(text),gameId);
+    console.log('Read-only dev sample',row.copy_digest,baseline.map.bounds,baseline.map.placements.length,baseline.chapterOrder.length);
+  }
   // A real map write invalidates the existing pass ticket before publication.
   const oldPass = await call(`/api/games/${gameId}/copy/validate`, {}, admin);
   assert.equal(oldPass.data.state, 'passed');
@@ -160,17 +181,36 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
   const cells = content.componentDefinitions[piece.definitionRef].footprint.map(([dx, dy]) => (piece.y + dy) * 384 + piece.x + dx);
   assert.equal(content.map.base.policy, 'sea-ground-1');
   assert.ok(content.map.base.terrainRef.every(tile => tile === 95));
-  const mapEdits = [{ op: 'decoration-remove', memberIds: [piece.id] }];
+  const mapEdits = single ? [...(baseline.map.format === 'cell-map-1'?[]:[{op:'cell-convert'}]),{op:'cell-paint',tile:12,points:[{x:baseline.map.bounds.minX,y:baseline.map.bounds.minY}]}] : [{ op: 'decoration-remove', memberIds: [piece.id] }];
+  let repaired;
+  if (devSample) {
+    repaired=baseline.map.roads.find(r=>[r.fromCityId,r.toCityId].map(id=>baseline.cities[id].name).sort().join('/')==='北平/右北平');
+    assert.ok(repaired,'expected northern corridor in this dev fixture');
+    const p=repaired.geometry[Math.floor(repaired.geometry.length/2)], {minX,minY,width}=baseline.map.bounds;
+    const tile=compileGameSource(baseline,sha,mapExtentOptionFor(baseline.map)).terrainBytes[(p.y-minY)*width+p.x-minX];
+    mapEdits.push({op:'cell-clear',points:[{x:p.x,y:p.y}]});
+    const broken=await call(`/api/games/${gameId}/copy`,{module:'map',patch:{edits:mapEdits}},admin);
+    assert.equal(broken.status,422,JSON.stringify(broken.data));
+    mapEdits.push({op:'cell-stamp',tile,x:p.x,y:p.y});
+  }
   const mapSaved = await call(`/api/games/${gameId}/copy`, { module: 'map', patch: { edits: mapEdits } }, admin);
   assert.equal(mapSaved.status, 200, JSON.stringify(mapSaved.data));
   assert.equal((await call(`/api/games/${gameId}/copy/submission`, undefined, admin)).data.publishEnabled, false);
   assert.equal((await call(`/api/games/${gameId}/copy/submission`, { ticket: oldPass.data.ticket, description: '失效票' }, admin)).status, 409);
   const publishedGame = (await call(`/api/games/${gameId}/copy`, undefined, admin)).data.data;
-  const expected = compileGameSource(publishedGame, sha);
-  const beforeMap = compileGameSource(initialized.data.data, sha);
+  const expected = compileGameSource(publishedGame, sha, mapExtentOptionFor(publishedGame.map));
+  const beforeMap = compileGameSource(baseline, sha, mapExtentOptionFor(baseline.map));
   assert.notEqual(sha(expected.terrainBytes), sha(beforeMap.terrainBytes));
-  cells.forEach(cell => assert.equal(expected.terrainBytes[cell], 95, 'deleting a mountain exposes runnable ocean bytes'));
-  assert.deepEqual(expected.roadGraph, beforeMap.roadGraph);
+  if (single) {
+    assert.equal(publishedGame.map.format,'cell-map-1');assert.equal(expected.terrainBytes[0],12);
+  } else cells.forEach(cell => assert.equal(expected.terrainBytes[cell], 95, 'deleting a mountain exposes runnable ocean bytes'));
+  if (devSample) {
+    const regenerated=publishedGame.map.roads.find(r=>r.id!==repaired.id && [r.fromCityId,r.toCityId].includes(repaired.fromCityId) && [r.fromCityId,r.toCityId].includes(repaired.toCityId));
+    assert.ok(regenerated?.id.startsWith(gameId+'#road-auto-'));
+    assert.equal(expected.roadGraph.edges.length,beforeMap.roadGraph.edges.length);
+    assert.deepEqual(regenerated.geometry,regenerated.fromCityId===repaired.fromCityId?repaired.geometry:repaired.geometry.toReversed());
+    console.log('Broken corridor rejected, repaired and certified',regenerated.id,regenerated.geometry.length,'cells');
+  } else assert.deepEqual(expected.roadGraph, beforeMap.roadGraph);
 
   // 整包检验：编辑后的当前副本须通过。
   const v = await call(`/api/games/${gameId}/copy/validate`, {}, admin);
@@ -241,7 +281,7 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
     assert.deepEqual(Buffer.from(image.pixels.filter((_, index) => index % 4 !== 3)), Buffer.from(expectedPixels), 'published minimap PNG uses the same ground-only coastline and road mask');
   }
   const result = (bytes, contentType) => ({ bytes: new Uint8Array(bytes), contentType, sha256: sha(bytes) });
-  const pack = await loadPlayerPack({ compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 128 * 1024 * 1024,
+  const pack = await loadPlayerPack({ mapExtent:true, compilerRevision: TRIAL_COMPILER_REVISION, maxTotalBytes: 128 * 1024 * 1024,
     session: { identity, state: () => 'active', read: async role => {
       if (role === 'manifest') return result(Buffer.from(packRow.manifest_json), 'application/json');
       if (role === 'chapter:' + chapterId) return result(Buffer.from(storage.sql.exec('SELECT state_json FROM published_pack_chapters WHERE game_id=? AND chapter_id=?', approvedGameId, chapterId).toArray()[0].state_json), 'application/json');
@@ -254,18 +294,29 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
       return result(readFileSync('web/' + path), 'image/png');
     } });
   try {
-    const environment = createPlayerEnvironment(pack, { playerFaction: pack.chapter.factions[0].idx });
+    const environment = createPlayerEnvironment(pack, { mapExtent:true, playerFaction: pack.chapter.factions[0].idx });
     const terrain = await environment.world.terrain.loadTerrain();
     assert.deepEqual(Buffer.from(terrain), Buffer.from(compiled.terrainBytes));
     assert.notEqual(sha(terrain), sha(priorTerrain));
-    const roads = await environment.world.roads.loadRoadGraph(); assert.equal(roads.version, 2); assert.equal(roads.nodes.length, 192);
-    const prepared = await prepareScenario({ raw: environment.raw, idx: 0, mode: 'fresh', content: environment.content, world: environment.world });
-    assert.equal(prepared.scenario.cities.length, 192);
+    const roads = await environment.world.roads.loadRoadGraph(); assert.equal(roads.version, compiled.roadGraph.version); assert.equal(roads.nodes.length, devSample ? 195 : 192); assert.equal(roads.nodes.length, compiled.roadGraph.nodes.length);
+    const prepared = await prepareScenario({ mapExtent:true, raw: environment.raw, idx: 0, mode: 'fresh', content: environment.content, world: environment.world });
+    assert.equal(prepared.scenario.cities.length, roads.nodes.length);
+    if (devSample) {
+      const edge=compiled.roadGraph.edges.find(r=>[r.fromCityIndex,r.toCityIndex].every(i=>['北平','右北平'].includes(prepared.scenario.cities[i].name)));
+      assert.ok(edge);assert.ok(prepared.scenario.cities[edge.fromCityIndex].strategicNeighbours.includes(edge.toCityIndex));
+      assert.deepEqual(roads.edges.find(r=>r.roadId===edge.roadId).points,edge.points);
+    }
     assert.deepEqual(prepared.metadata.content.publication, { releaseId: approval.releaseId, ordinal: approval.ordinal });
     return terrain;
   } finally { pack.close(); }
   }
   await verifyApprovedMap(gameId, ok.data, expected, beforeMap.terrainBytes);
+  if (single) {
+    assert.equal(JSON.parse(storage.sql.exec('SELECT pin_json FROM published_games WHERE game_id=?',gameId).toArray()[0].pin_json).sourceDigest,mapSaved.data.copyDigest);
+    console.log('Approved cell-map-1 pack; read back complete terrain, minimaps and road graph, preparing formal browser');
+    execFileSync(process.execPath,['tools/verify_dev_formal_site.mjs',gameId,...(devSample?['--rules']:[])],{stdio:'inherit',env:{...process.env,DRAGON_TEST_PACK_DB:join(own,'authority.sqlite')}});
+    return;
+  }
   if (process.argv.includes('--publication-only')) {
     // Immediately replace a pending application using a fresh ticket; no clock override.
     for (const description of ['新版申請', '重驗後覆蓋申請']) {
@@ -331,5 +382,5 @@ test('copy 全链路：建游戏→ensure幂等→模块存→检验→提交→
   assert.deepEqual(mapData((await call(`/api/games/${newId}/copy`, undefined, admin)).data.data), mapData(blank.data.data));
   assert.equal((await call('/api/admin/base-map', undefined, admin)).data.snapshot.digest, templateT2.digest);
   if (process.argv.includes('--browser')) await verifyAtomicHttpBrowser({ origin, admin, call, storage, gameId, newId, mapData, sha, beforeMap, verifyApprovedMap });
-  } finally { await close(); }
+  } finally { await close(); rmSync(own,{recursive:true,force:true}); }
 });

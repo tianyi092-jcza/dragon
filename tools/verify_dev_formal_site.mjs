@@ -21,7 +21,7 @@ import { FrozenDistributionLedger } from '../server/distributionledger.js';
 const [gameId, rules] = process.argv.slice(2);
 assert.ok(!rules || rules === '--rules');
 assert.ok(gameId, 'Specify a locally published game UUID (at least two chapters)');
-const source = new DatabaseSync('.dragon-analysis/basemaps-dev-store/editor.sqlite', { readOnly: true });
+const source = new DatabaseSync(process.env.DRAGON_TEST_PACK_DB || '.dragon-analysis/basemaps-dev-store/editor.sqlite', { readOnly: true });
 let pin, release, built;
 try {
   source.exec('BEGIN');
@@ -46,7 +46,7 @@ try {
   storage.transactionSync(() => ledger.enqueueInTxn({ kind: 'publish', gameId, operationId: releaseId, payload: Buffer.from(JSON.stringify({ version: 1, projection, runtime: { ...identity, runtime: built.reference } })) }));
   sites = await startDevSites({ root: resolve('.'), store, port, playerPort, tls: localTestCertificate(store), storage, bucket: new FileBucket({ root: join(store, 'private') }), env: { EDITOR_ORIGIN: origin, EDITOR_DEFAULT_PASSWORD: 'Fixture-Only-Password1!', EDITOR_REQUEST_KEY: randomBytes(32).toString('hex') } });
   const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'C:/Users/fczll/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright');
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' });
   const page = await context.newPage(), errors = [], failures = [], paths = new Set();
   page.setDefaultTimeout(45000);

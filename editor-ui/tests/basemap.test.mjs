@@ -163,7 +163,10 @@ test('known validation rejection preserves editable input; uncertain write block
   await a.reload(); await a.initialize(); a.stage({ amount: 2 });
   f.postError(Object.assign(new Error('BASE_MAP_INVALID'), { status: 422, detail: { problems: [{ message: 'UNKNOWN_UNDERLAY: uncovered cell 2,3' }, null, { message: 7 }] } }));
   await a.save(); assert.equal(f.model().dirty, true); assert.equal(f.model().locked, false);
-  assert.deepEqual(f.model().serverProblems, [{ message: 'UNKNOWN_UNDERLAY: uncovered cell 2,3' }]);
+  assert.deepEqual(f.model().serverProblems, [{ message: '格子（2, 3）缺少底圖，請補上底圖後再保存。' }]);
+  f.postError(Object.assign(new Error('COPY_MAP'),{status:422,detail:{problems:[{message:'isolated city without road: city-003'}]}})); await a.save();
+  assert.match(f.model().message,/city-003 沒有連到其他據點/);
+  f.postError(Object.assign(new Error('BASE_MAP_INVALID'),{status:422,detail:{problems:[{message:'unbound city piece must be bound before connectivity check'}]}})); await a.save(); assert.match(f.model().message,/右鍵中心.*綁定/);
   a.stage({ amount: 1 }); assert.deepEqual(f.model().serverProblems, []);
   assert.equal(f.controller.canLeave(true), false, 'beforeunload must not open a nested confirmation');
   f.postError(new Error('lost response')); await a.save();

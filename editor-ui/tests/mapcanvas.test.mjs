@@ -76,15 +76,15 @@ test('Shift-drag copies selected decorations once in layer order; preview keeps 
   assert.equal(batches.length, 1);
 });
 
-test('default workspace publishes 240 atomic cards and four preview-only city groups without changing existing combinations', () => {
+test('default workspace publishes 238 atomic cards and four preview-only city groups without changing existing combinations', () => {
   const { source } = recipeFixture(), before = JSON.stringify(source);
   let model;
   const view = createMapCanvas({ publish: value => { model = value; }, stage: () => assert.fail('browsing must not stage') });
   view.setSource(source);
-  assert.equal(model.catalogItems.length, 244);
+  assert.equal(model.catalogItems.length, 242);
   assert.equal(model.catalogAtoms.length, 256);
-  assert.ok(model.catalogItems.slice(0, 240).every(row => row.cells === 1 && /^tile-\d+$/.test(row.id)));
-  assert.ok(model.catalogItems.slice(240).every(row => row.category === 'city-group' && !row.canPlace && !row.available));
+  assert.ok(model.catalogItems.slice(0, 238).every(row => row.cells === 1 && /^tile-\d+$/.test(row.id)));
+  assert.ok(model.catalogItems.slice(238).every(row => row.category === 'city-group' && !row.canPlace && !row.available));
   assert.deepEqual(model.catalogCategories.map(row => row.name), ['地面', '山地', '水系', '農田', '牆體', '據點', '據點組', '道路']);
   assert.equal(JSON.stringify(source), before);
 });

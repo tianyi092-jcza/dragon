@@ -6,19 +6,20 @@ const definitions = () => Object.fromEntries(Array.from({ length: 256 }, (_, til
   id: `tile-${tile}`, revision: 'original-byte-1', category: 'atomic-original', anchor: [0, 0], footprint: [[0, 0]],
   visualRef: `MMAP.MDL:tile-${tile}`, ruleRecipeRef: 'ki-byte-stamp-1', variants: { original: { tiles: [[0, 0, tile]] } },
 }]));
-const hidden = [203, 204, 206, 207, 209, 210, ...Array.from({ length: 10 }, (_, i) => i + 232)];
-test('single atomic library keeps 256 source identities but exposes 240 cards in seven terminal categories', () => {
+const hidden = [72, 190, 203, 204, 206, 207, 209, 210, ...Array.from({ length: 10 }, (_, i) => i + 232)];
+test('single atomic library keeps 256 source identities but exposes 238 cards in seven terminal categories', () => {
   const source = definitions(), before = JSON.stringify(source), result = projectAtomicSpriteCatalog(source);
   const byTile = Object.fromEntries(result.catalogItems.map(row => [Number(row.id.slice(5)), row]));
   assert.deepEqual(result.catalogCategories.map(row => row.name), ['地面', '山地', '水系', '農田', '牆體', '據點', '道路']);
   assert.deepEqual(result.catalogItems.map(row => row.id), Array.from({ length: 256 }, (_, tile) => tile).filter(tile => !hidden.includes(tile)).map(tile => `tile-${tile}`));
   assert.deepEqual(result.catalogAtoms.map(row => row.id), Array.from({ length: 256 }, (_, tile) => `tile-${tile}`));
   assert.ok(result.catalogItems.every(row => row.cells === 1 && row.available && !('tiles' in row) && !('variants' in row)));
-  assert.equal(result.catalogItems.filter(row => row.canPlace).length, 240, 'all visible matched atoms can be stamped as decorations');
+  assert.equal(result.catalogItems.filter(row => row.canPlace).length, 238, 'all visible matched atoms can be stamped as decorations');
   for (const [tile, category] of [[0, 'ground'], [112, 'mountain'], [61, 'water'], [95, 'water'], [180, 'field'], [248, 'wall'], [255, 'city'], [196, 'road'], [184, 'road'], [191, 'road'], [202, 'road']])
     assert.equal(byTile[tile].category, category);
-  for (const tile of [72, 190, 95, 184, 191, 196, 205, 255]) assert.equal(byTile[tile].canPlace, true);
-  for (const tile of [72, 190]) assert.match(byTile[tile].note, /未知/);
+  for (const tile of [177, 95, 184, 191, 196, 205, 255]) assert.equal(byTile[tile].canPlace, true);
+  assert.equal(byTile[72], undefined);
+  assert.equal(byTile[190], undefined);
   for (const tile of Array.from({ length: 19 }, (_, index) => 184 + index).filter(tile => tile !== 190)) {
     assert.equal(byTile[tile].category, 'road', `bridge/road/waterway byte ${tile} shares the road browser category`);
     assert.equal(byTile[tile].canPlace, true, 'road artwork is placeable');
@@ -44,10 +45,10 @@ test('only neutral center variants and common non-player parts remain in the cit
 test('visual shore correction keeps all ground and vegetation references on the first page without new capabilities', () => {
   const { catalogItems } = projectAtomicSpriteCatalog(definitions());
   const byTile = Object.fromEntries(catalogItems.map(row => [Number(row.id.slice(5)), row]));
-  const ground = [0, 1, 2, 6, 8, 9, 16, 17, 18, 20, 29, 72, 168, 176, 177, 178, 179, 182, 183, 190];
+  const ground = [0, 1, 2, 6, 8, 9, 16, 17, 18, 20, 29, 168, 176, 177, 178, 179, 182, 183];
   assert.deepEqual(catalogItems.filter(row => row.category === 'ground').map(row => Number(row.id.slice(5))), ground);
   assert.ok(ground.length <= 25, 'all vegetation references are visible on the default first page');
-  for (const tile of Array.from({ length: 112 }, (_, i) => i).filter(tile => !ground.includes(tile)))
+  for (const tile of Array.from({ length: 112 }, (_, i) => i).filter(tile => !hidden.includes(tile) && !ground.includes(tile)))
     assert.equal(byTile[tile].category, 'water', `reviewed blue-water/shore artwork ${tile}`);
   for (const tile of [7, 14, 15, 21, 22, 23, 24, 25]) assert.equal(byTile[tile].category, 'water', 'user-boxed screenshot cards');
   for (const tile of [6, 29, 168, 176, 177, 178, 179]) {
@@ -55,7 +56,7 @@ test('visual shore correction keeps all ground and vegetation references on the 
     assert.equal(byTile[tile].canPlace, true, 'available artwork is placeable');
   }
   assert.equal(catalogItems.filter(row => row.category === 'water').length, 100);
-  assert.equal(catalogItems.filter(row => row.canPlace).length, 240);
+  assert.equal(catalogItems.filter(row => row.canPlace).length, 238);
 });
 test('atom availability requires exact identity, never a matching multi-cell definition or category', () => {
   const source = definitions(); delete source['tile-112'];

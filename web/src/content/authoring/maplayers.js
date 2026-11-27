@@ -5,6 +5,7 @@
 // Native consumers still read the resulting single plane (E4CE, E961,
 // 2708, 4B63, 8A1E). Unsupported recipes fail for every game identity.
 import { SEA_GROUND_POLICY, SEA_BASE_TILE, componentGroundMask } from './mapground.js';
+import { composeCellPlane } from './cellplane.js';
 export const BYTE_STAMP_RECIPE = "ki-byte-stamp-1";
 export const WATER_CLASSES = Object.freeze({ sea: 1, river: 2, lake: 3 });
 
@@ -19,6 +20,7 @@ function integer(value, low, high, at) {
 // covered by explicit stamps; deleting those stamps exposes the unknown
 // and strict compilation refuses until the author supplies a replacement.
 export function composeMapLayers(src, { draft = false } = {}) {
+  if (src.map.format === 'cell-map-1') return composeCellPlane(src.map, draft);
   const { bounds, base, decorations, roads, placements } = src.map;
   const W = bounds.width;
   const H = bounds.height;

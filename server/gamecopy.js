@@ -7,13 +7,14 @@ import { setGeneralPortrait } from '../web/src/editor/generalportrait.js';
 import { checkGameName } from '../web/src/content/authoring/gamesource.js';
 import { bumpOrdinal } from './releases.js';
 import { editChapterResources, editChapterResourcePeople } from '../web/src/editor/chapterresources.js';
+import { cellEditsTouchNetwork } from '../web/src/content/authoring/cellplane.js';
 import { compileMapSource, assertMapConnected } from '../web/src/content/authoring/mapcompile.js';
 import { compileTrialSource } from '../web/src/content/authoring/trialcompile.js';
 import { initializeNativeFactionSlots } from '../web/src/game/nativefactions.js';
 import { initializeNativeDiplomacyMatrix } from '../web/src/game/nativediplomacy.js';
 import { initializeNativeStrategicEventWheel } from '../web/src/game/nativeevents.js';
 import { initializeNativeMonthlyPolicy } from '../web/src/game/nativemonthlypolicy.js';
-import { COPY_MAP_OPS, mapExtentOptionFor, reconcileAutoRoads, refreshChapterNeighbours } from './copyprofile.js';
+import { COPY_MAP_OPS, mapExtentOptionFor, reconcileAutoRoads, reconcileCellRoads, refreshChapterNeighbours, syncRoadEndpoints } from './copyprofile.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { changesMapPositions } from '../web/src/editor/mapobjectmove.js';
 import { assertMapPositions } from '../web/src/editor/mappositionvalidation.js';
@@ -499,7 +500,7 @@ function checkModule(module, patch, data, gameId) {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).sort().join(',') !== 'edits') fail(422, 'COPY_MAP');
     if (!Array.isArray(patch.edits) || !patch.edits.length) fail(422, 'COPY_MAP');
     for (const edit of patch.edits) {
-      if (!edit || typeof edit !== 'object' || Array.isArray(edit) || !COPY_MAP_OPS.includes(edit.op)) fail(422, 'COPY_MAP');
+      if (!edit || typeof edit !== 'object' || Array.isArray(edit) || (!['cell-paint','cell-convert','cell-transfer','cell-clear','cell-stamp'].includes(edit.op) && !COPY_MAP_OPS.includes(edit.op))) fail(422, 'COPY_MAP');
     }
     return patch;
   }
@@ -638,7 +639,12 @@ function applyModule(data, module, checked) {
       const candidate = applyMapWorkspaceEdits(next, checked.edits);
       // 拖放路磚自動成路：先按當前磚塊重算 road-auto-*，再跑位置門（含紅字診斷）。
       // 未連通的磚鏈只標紅（warning），不攔保存。
-      reconcileAutoRoads(candidate);
+      if (candidate.map.format !== 'cell-map-1') reconcileAutoRoads(candidate);
+      else if (cellEditsTouchNetwork(next.map, checked.edits)) {
+        const added = reconcileCellRoads(candidate);
+        const retained = new Set(candidate.map.roads.map(r=>r.id));
+        for (const r of [...added, ...next.map.roads.filter(r=>!retained.has(r.id))]) syncRoadEndpoints(candidate,r.fromCityId,r.toCityId);
+      }
       if (checked.edits.some(edit => edit.op === 'city-bind')) {
         const placed = new Set(candidate.map.placements.map(p => p.cityId));
         let admitted = false;
@@ -652,12 +658,13 @@ function applyModule(data, module, checked) {
         }
         if (admitted) refreshChapterNeighbours(candidate);
       }
-      if (checked.edits.some(changesMapPositions)) assertMapPositions(candidate);
+      if (candidate.map.format !== 'cell-map-1' && checked.edits.some(changesMapPositions)) assertMapPositions(candidate);
       return candidate;
     } catch (e) {
       if (e?.code === 'MAP_POSITION_INVALID') fail(422, e.code, e.detail);
       if (typeof e?.code === 'string' && e.code.startsWith('MAP_EXTENT')) fail(422, e.code, e.detail);
       if (e?.status) throw e;
+      if (e instanceof RangeError) fail(422,'COPY_MAP',{problems:[{message:e.message.slice(0,512)}]});
       fail(422, 'COPY_MAP');
     }
   }

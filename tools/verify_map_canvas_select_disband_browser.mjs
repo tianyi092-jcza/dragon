@@ -1,6 +1,7 @@
 // Selection toggle-off + single-decor ungroup on a real converted template.
 // Real builtin conversion (has web-piece groups), isolated in-memory API, fresh profile.
 import assert from 'node:assert/strict';
+import { confirmMapSaved } from './map_atomic_browser_helpers.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -221,15 +222,12 @@ try {
     await page.waitForFunction(() => Number(document.querySelector('#base-map-editor .base-map-canvas').dataset.redCells) > 0);
     assert.equal(await panel.locator('.base-map-problems').count(), 0, 'drop must not show position details');
     await panel.getByRole('button', { name: '保存', exact: true }).click();
-    await panel.locator('.base-map-problems').first().waitFor();
-    const details = await panel.locator('.base-map-problems').allTextContents();
+    const report = page.getByRole('dialog',{name:'檢查未通過，未保存'}); await report.waitFor();
+    const details = await report.locator('p').allTextContents();
     assert.ok(details.join('').includes(target.id));
     assert.ok(details.join('').includes(template.content.cities[target.cityId].name));
     assert.ok(details.join('').includes('請檢查'));
-    const report = panel.locator('.map-save-report');
-    assert.match(await report.innerText(), /檢查未通過，未保存/);
-    assert.match(await report.innerText(), /失敗：本機檢查/);
-    assert.match(await report.innerText(), /未執行：伺服器核驗/);
+    await report.getByRole('button',{name:'確認',exact:true}).click();
     assert.equal(snapshot.version, 1, 'invalid drop never reaches persistent write');
     await panel.getByRole('button', { name: '撤銷', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#base-map-editor .base-map-canvas').dataset.redCells === '0');
@@ -292,7 +290,7 @@ try {
   await page.getByText(/已拆散1个组合/, { exact: true }).waitFor();
   // 4. save + reload: the disband persists server-side.
   await panel.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+  await confirmMapSaved(page);
   const saved = snapshot.template.content;
   assert.equal(saved.selectionGroups.some(group => group.id === grouped.id), false);
   for (const member of grouped.members) {
@@ -340,7 +338,7 @@ try {
   await menu().getByRole('button', { name: '拆散', exact: true }).click();
   await page.getByText(/1个装饰片段已拆为独立单格/, { exact: true }).waitFor();
   await panel.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+  await confirmMapSaved(page);
   const standaloneChildren = snapshot.template.content.map.decorations.filter(item => item.splitProvenance?.instanceId === standalone.id);
   assert.equal(standaloneChildren.length, template.content.componentDefinitions[standalone.definitionRef].footprint.length);
   assert.ok(standaloneChildren.every(item => snapshot.template.content.componentDefinitions[item.definitionRef].footprint.length === 1));
@@ -359,7 +357,7 @@ try {
   assert.equal(await menu().getByRole('button', { name: '拆散', exact: true }).isEnabled(), true);
   await menu().getByRole('button', { name: '组合', exact: true }).click();
   await panel.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+  await confirmMapSaved(page);
   const current = snapshot.template.content;
   const combined = current.map.decorations.find(item => !saved.map.decorations.some(old => old.id === item.id) && current.componentDefinitions[item.definitionRef].footprint.length === 2);
   assert.ok(combined, 'two selected cells saved as one real object');
@@ -387,7 +385,7 @@ try {
   assert.ok((await menu().locator('.base-map-object-info').textContent()).includes(combined.id));
   await menu().getByRole('button', { name: '拆散', exact: true }).click();
   await panel.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+  await confirmMapSaved(page);
   const splitAgain = snapshot.template.content.map.decorations.filter(item => item.splitProvenance?.instanceId === combined.id);
   assert.equal(splitAgain.length, 2);
   await panel.getByRole('button', { name: '隱藏裝飾', exact: true }).click();
@@ -415,7 +413,7 @@ try {
   await menu().getByRole('button', { name: '刪除', exact: true }).click();
   await question.getByRole('button', { name: '確認刪除' }).click();
   await panel.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+  await confirmMapSaved(page);
   assert.ok(splitAgain.every(child => !snapshot.template.content.map.decorations.some(item => item.id === child.id)), 'both selected objects really deleted in SQLite');
   assert.equal(errors.join('\n'), '');
   assert.equal(failures.join('\n'), '');

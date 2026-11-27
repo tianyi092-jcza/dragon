@@ -1,4 +1,5 @@
 // Native editor canvas adapter. No source or image object enters Vue state.
+import { EMPTY_CELL, decode, cellKind } from '../../web/src/content/authoring/cellplane.js';
 import { hasStructuredMapExtent } from '../../web/src/content/authoring/mapextent.js';
 import { composeMapLayers } from '../../web/src/content/authoring/maplayers.js';
 import { composeMapDisplayLayers } from '../../web/src/editor/mapdisplay.js';
@@ -74,26 +75,35 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       return def ? def.footprint.map(([x, y]) => [item.x + x - def.anchor[0], item.y + y - def.anchor[1]]) : [[item.x, item.y]];
     });
   }
+  let cellValues = null;
+  const cellIndex = (x,y) => (y-source.map.bounds.minY)*source.map.bounds.width+x-source.map.bounds.minX;
+  const cellTile = (x,y) => cellValues.getUint16(cellIndex(x,y)*2,true);
   function facts() {
     const projectedCatalog = structuredClone(atomicCatalog);
-    const usedMaterials = new Set(source ? [...source.map.decorations.map(row => row.definitionRef), ...source.map.roads.flatMap(road => (road.components ?? []).map(row => row.definitionRef)), ...source.map.placements.map(row => row.componentRef)] : []);
+    const usedMaterials = new Set(source ? [...(source.map.decorations ?? []).map(row => row.definitionRef), ...source.map.roads.flatMap(road => (road.components ?? []).map(row => row.definitionRef)), ...source.map.placements.map(row => row.componentRef)] : []);
     const selectedDefinition = selected?.layer === 'decor' ? source.map.decorations.find(row => row.id === selected.id)?.definitionRef : null;
     const selectedCategory = projectedCatalog.catalogItems.find(row => row.id === selectedDefinition)?.category;
-    const selectedType = projectedCatalog.catalogCategories.find(row => row.id === selectedCategory)?.name || ({ decor: '裝飾片段', base: '底圖', roads: '道路', cities: '據點', group: '組合' })[selected?.layer];
+    const selectedType = selected?.layer === 'cell' ? ({ empty: '空格', decor: '裝飾', road: '道路', city: '據點' })[cellKind(cellValues.getUint16(selected.index * 2, true))] : projectedCatalog.catalogCategories.find(row => row.id === selectedCategory)?.name || ({ decor: '裝飾片段', base: '底圖', roads: '道路', cities: '據點', group: '組合' })[selected?.layer];
     let selectedGroup = null;
     if (selected?.layer === 'decor') selectedGroup = selectableGroupOf(selected.id)?.id ?? null;
     // Match the visible cell to the atomic catalog, not the object's instance ID or multi-cell anchor.
     const cell = pickedCell?.selection === selected ? pickedCell : selected;
     const bounds = source?.map.bounds;
-    const cellTileId = cell && bounds && selected?.layer !== 'group' ? tiles?.[(cell.y - bounds.minY) * bounds.width + cell.x - bounds.minX] : null;
-    publish({ loaded: Boolean(source), zoom: view.zoom, gridVisible, selected: selected ? { ...selected, type: selectedType, cellTileId } : null,
+    const cellTileId = selected?.layer === 'cell' ? (selectedType === '空格' ? null : cellValues.getUint16(selected.index * 2, true)) : cell && bounds && selected?.layer !== 'group' ? tiles?.[(cell.y - bounds.minY) * bounds.width + cell.x - bounds.minX] : null;
+    publish({ cellMap: Boolean(cellValues), loaded: Boolean(source), zoom: view.zoom, gridVisible, selected: selected ? { ...selected, type: selectedType, cellTileId } : null,
       ...projectedCatalog,
       catalogCategories: projectedCatalog.catalogCategories.flatMap(category => category.id === 'city' ? [category, { id: 'city-group', name: '據點組' }] : [category]),
-      catalogItems: [...projectedCatalog.catalogItems, ...Array.from(cityGroups, ([id, group]) => {
+      catalogItems: [...projectedCatalog.catalogItems.map(row=>{
+        if (!cellValues || !row.available) return row;
+        const kind=cellKind(Number(row.id.slice(5)));
+        if (kind==='city') return {...row,note:'放置中心後，請右鍵綁定據點並確認道路連通。'};
+        if (kind==='road') return {...row,note:'放置道路或城門圖塊，不自動建立道路連線。'};
+        return row;
+      }), ...Array.from(cityGroups, ([id, group]) => {
         const available = availableCityGroups.has(id);
         return { id, itemId: group.itemId, name: group.name, category: 'city-group', cells: group.tiles.length,
           previewWidth: group.width, previewHeight: group.height, available, canPlace: Boolean(recipePlans.get(id)?.canPlace),
-          note: available ? '整組放置為裝飾，不建立城市或道路連線。' : '本圖缺少匹配的原子定義；不可預覽或放置。' };
+          note: available ? (cellValues ? '展開為獨立格；中心須綁定，不自動連路。' : '整組放置為裝飾，不建立城市或道路連線。') : '本圖缺少匹配的原子定義；不可預覽或放置。' };
       }), ...recipes.map(recipe => {
         const id = `catalog:${recipe.itemId}`, plan = recipePlans.get(id);
         let note = '本圖缺少匹配的原子定義；不可預覽或放置';
@@ -108,11 +118,11 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       materials: source ? Object.values(source.componentDefinitions).map(def => ({ id: def.id, name: def.name || def.id, cells: def.footprint.length, originalAtom: def.category === 'atomic-original' && /^tile-\d+$/.test(def.id), editable: def.id.startsWith(`${gameId}#material-`), inUse: usedMaterials.has(def.id) })) : [],
       groups: (source?.selectionGroups ?? []).map(group => ({ id: group.id, name: ({ 'ground-shore-pattern': '地面／岸線片段', 'mountain-pattern': '山紋片段', 'field-pattern': '田紋片段', 'structure-pattern': '建築／牆段片段' })[group.label] || group.label, members: group.members.length })),
       diagnostics: diagnostics.map((problem, index) => ({ index, code: problem.code, message: problem.message, x: problem.x, y: problem.y })),
-      waters: source ? source.map.waterGroups.map(group => ({ id: group.id, name: group.name || group.id, visible: group.showOnMinimap })) : [],
+      waters: source ? (source.map.waterGroups ?? []).map(group => ({ id: group.id, name: group.name || group.id, visible: group.showOnMinimap })) : [],
       cities: source ? Object.values(source.cities ?? {}).map(city => ({ cityId: city.cityId, name: city.name ?? city.cityId, x: city.x, y: city.y, bound: source.map.placements.some(p => p?.cityId === city.cityId) })) : [],
       placements: source ? source.map.placements.map(p => ({ id: p.id, cityId: p.cityId ?? null, x: p.x, y: p.y })) : [],
       unboundCities: source ? Object.values(source.cities ?? {}).filter(city => !source.map.placements.some(p => p?.cityId === city.cityId)).map(city => ({ cityId: city.cityId, name: city.name ?? city.cityId })) : [],
-      selectedBinding: selected?.layer === 'cities' ? (() => { const piece = source?.map.placements.find(p => p?.id === selected.id); return piece ? { pieceId: piece.id, cityId: piece.cityId ?? null, x: piece.x, y: piece.y } : null; })() : selected?.center205 ? { pieceId: null, cityId: null, x: selected.x + selected.center205[0], y: selected.y + selected.center205[1] } : null,
+      selectedBinding: selected?.layer === 'cities' || (selected?.layer === 'cell' && selectedType === '據點') ? (() => { const piece = source.map.placements.find(p => selected.layer==='cell' ? p.x===selected.x && p.y===selected.y : p.id===selected.id); return piece ? { pieceId: piece.id, cityId: piece.cityId ?? null, x: piece.x, y: piece.y } : null; })() : selected?.center205 ? { pieceId: null, cityId: null, x: selected.x + selected.center205[0], y: selected.y + selected.center205[1] } : null,
       selectedGroup,
       multi: multi.map(({ kind, id }) => ({ kind, id })),
       multiNames: multi.slice(0, 3).map(row => row.name || row.id),
@@ -149,7 +159,12 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const movingIds = new Set(moving ? objectMove.memberIds ?? [objectMove.id] : []);
     const lifting = moving && !objectMove.copy;
     if (!lifting) moveBackdrop = null;
-    else if (!moveBackdrop) {
+    else if (!moveBackdrop && cellValues) {
+      moveBackdrop = tiles.slice(); backdropCoverage = overlayCells?.slice();
+      for (const [x,y] of objectMove.baseCells) {
+        const i=cellIndex(x,y); moveBackdrop[i]=95; if (backdropCoverage) backdropCoverage[i]=0;
+      }
+    } else if (!moveBackdrop) {
       const parts = ['roads', 'cities'].includes(objectMove.layer) ? mapObjectParts(source, objectMove.layer, objectMove.id) : null;
       const removed = new Set(parts ? parts.decorations.map(item => item.id) : movingIds);
       const map = { ...source.map,
@@ -190,8 +205,12 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       context.lineWidth = 1; context.strokeStyle = 'rgba(255, 255, 255, 0.55)'; context.stroke();
     }
     if (moving && atlas) {
-      context.globalAlpha = 0.5;
-      const stamps = ['roads', 'cities'].includes(objectMove.layer) ? mapObjectParts(source, objectMove.layer, objectMove.id).stamps : source.map.decorations.filter(item => movingIds.has(item.id));
+      context.globalAlpha = cellValues && !objectMove.copy ? 1 : 0.5;
+      if (cellValues) for (const [x,y] of objectMove.baseCells) {
+        const tile = cellTile(x,y);
+        context.drawImage(atlas,tile%16*16,Math.floor(tile/16)*16,16,16,((x+objectMove.dx-source.map.bounds.minX)*16-view.x)*view.zoom,((y+objectMove.dy-source.map.bounds.minY)*16-view.y)*view.zoom,cell,cell);
+      }
+      const stamps = cellValues ? [] : ['roads', 'cities'].includes(objectMove.layer) ? mapObjectParts(source, objectMove.layer, objectMove.id).stamps : source.map.decorations.filter(item => movingIds.has(item.id));
       stamps.forEach(item => {
         const def = source.componentDefinitions[item.definitionRef];
         def.variants[item.variantRef ?? 'original'].tiles.forEach(([dx, dy, tile]) => {
@@ -283,6 +302,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   function beginObjectMove(sx, sy, copy = false) {
     objectMove = null;
     if (!source || !selected) return false;
+    if (cellValues) return beginCellMove([[selected.x,selected.y]], sx, sy, copy);
     const layer = ['roads', 'cities'].includes(selected.layer) ? selected.layer : 'decor';
     if (locked[layer] || !visible[layer]) return false;
     const cell = snappedCell(sx, sy);
@@ -352,7 +372,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       moveFeedback();
       return { ...objectMove };
     }
-    if (['multi', 'roads', 'cities'].includes(objectMove.layer)) {
+    if (['cells','multi', 'roads', 'cities'].includes(objectMove.layer)) {
       const base = objectMove.baseCells;
       if (!base?.length) { objectMove = null; draw(); facts(); return null; }
       const shiftX = cell.x - objectMove.gripX, shiftY = cell.y - objectMove.gripY;
@@ -371,6 +391,16 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const layer = ['roads', 'cities'].includes(pending?.layer) ? pending.layer : 'decor';
     if (!pending?.inBounds || !source || locked[layer] || !visible[layer]) { facts(); return; }
     if (pending.dx === 0 && pending.dy === 0) { facts(); return; }
+    if (pending.layer==='cells') {
+      const many = Boolean(multi.length);
+      const result = stage({op:'cell-transfer',points:pending.baseCells.map(([x,y])=>({x,y})),dx:pending.dx,dy:pending.dy,copy:pending.copy});
+      if (result !== false) {
+        if (many) { selected=null; multi=pending.cells.map(([x,y])=>({kind:'cell',id:cellIndex(x,y),x,y,name:`${x}, ${y}`})); }
+        else { const [[x,y]]=pending.cells; selected={layer:'cell',x,y,index:cellIndex(x,y)}; }
+        draw(); facts();
+      }
+      return result;
+    }
     if (layer !== 'decor') {
       positionCheckActive = true;
       facts();
@@ -413,6 +443,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     return row && typeof row.id === 'string' && (row.id.startsWith(genericGroupPrefix()) || legacyGroupId(row.id));
   }
   function multiCells() {
+    if (cellValues) return multi.map(p=>[p.x,p.y]);
     const cells = [];
     for (const entry of multi) {
       if (entry.kind === 'decor') {
@@ -440,6 +471,19 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   // belongs to one (city groups never join multi-select), else the decor.
   // Roads/cities are rejected for grouping. Plain clicks still use pick().
   function toggleMulti(sx, sy, endX, endY) {
+    if (cellValues) {
+      const a=snappedCell(sx,sy), b=endX===undefined?a:snappedCell(endX,endY,true);
+      if (!a || !b) return {toggled:false};
+      const entries=new Map(multi.map(p=>[p.id,p]));
+      const add=(x,y,toggle)=>{
+        if (cellKind(cellTile(x,y))==='empty') return;
+        const id=cellIndex(x,y);
+        if (toggle && entries.has(id)) entries.delete(id); else entries.set(id,{kind:'cell',id,x,y,name:`${x}, ${y}`});
+      };
+      if (selected) add(selected.x,selected.y,false);
+      for(let y=Math.min(a.y,b.y);y<=Math.max(a.y,b.y);y++) for(let x=Math.min(a.x,b.x);x<=Math.max(a.x,b.x);x++) add(x,y,endX===undefined);
+      selected=null; multi=[...entries.values()]; placement=null; objectMove=null;draw();facts();return {toggled:true,multi};
+    }
     if (!source || locked.decor || !visible.decor) return { toggled: false };
     const cell = snappedCell(sx, sy);
     if (!cell) return { toggled: false };
@@ -482,7 +526,14 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     draw(); facts();
     return { toggled: true, multi: multi.map(({ kind, id }) => ({ kind, id })) };
   }
+  function beginCellMove(cells,sx,sy,copy) {
+    const grip=snappedCell(sx,sy);
+    if (!grip || !cells.some(([x,y])=>x===grip.x && y===grip.y) || cells.some(([x,y])=>cellKind(cellTile(x,y))==='empty' || (copy && cellKind(cellTile(x,y))!=='decor'))) return false;
+    objectMove={layer:'cells',copy,gripX:grip.x,gripY:grip.y,fromX:grip.x,fromY:grip.y,dx:0,dy:0,cells,baseCells:cells,inBounds:true};
+    moveFeedback(); return true;
+  }
   function beginMultiMove(sx, sy, copy = false) {
+    if (cellValues) return beginCellMove(multiCells(),sx,sy,copy);
     if (!source || !multi.length || locked.decor || !visible.decor) return false;
     const cell = snappedCell(sx, sy);
     if (!cell) return false;
@@ -556,8 +607,15 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
   function setSource(value, checkPositions = positionCheckActive, unchangedCatalog = false) {
     positionCheckActive = Boolean(value && checkPositions);
     const first = !source;
+    const previousCells = cellValues, previousMap = source?.map;
     placement = null; objectMove = null; multi = [];
     source = value;
+    cellValues = source?.map.format === 'cell-map-1' ? new DataView(decode(source.map.cellsLE, source.map.bounds.width * source.map.bounds.height * 2).buffer) : null;
+    if (cellValues && !unchangedCatalog) {
+      for (const id of Object.keys(visible)) { visible[id] = true; locked[id] = false; }
+    }
+    if ((cellValues && selected?.layer !== 'cell') || (!cellValues && selected?.layer === 'cell')) selected = null;
+    if (cellValues && selected && selected.index * 2 >= cellValues.byteLength) selected = null;
     decorById.clear(); groupById.clear(); selectableByDecor.clear();
     for (const item of source?.map.decorations ?? []) decorById.set(item.id, item);
     for (const group of source?.selectionGroups ?? []) {
@@ -568,7 +626,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     }
     pickedCell = null;
     if (!source) copiedCells = null;
-    errorCells = []; moveBackdrop = null;
+    moveBackdrop = null;
     if (!unchangedCatalog) {
       atomicCatalog = projectAtomicSpriteCatalog(source?.componentDefinitions);
       availableCityGroups = new Set(Array.from(cityGroups).filter(([, group]) => group.tiles.every(([, , tile]) => atomicCatalog.catalogAtoms[tile].available)).map(([id]) => id));
@@ -579,13 +637,16 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     }
     if (!source) { diagnostics = []; atlas = null; tiles = null; picker = null; selected = null; minimap = null; thumbnails.forEach((target, id) => drawThumbnail(target, id)); if (mini) mini.getContext('2d').clearRect(0, 0, mini.width, mini.height); draw(); facts(); return; }
     const composed = composeMapLayers(source, { draft: true });
-    if (Object.values(visible).every(Boolean)) {
+    if (cellValues) {
+      tiles = composed.terrain;
+      overlayCells = gameId === 'system-base-map' ? Uint8Array.from(tiles, (_, i) => cellValues.getUint16(i*2,true) === EMPTY_CELL ? 0 : 1) : null;
+      picker = null;
+    } else if (Object.values(visible).every(Boolean)) {
       const unsupported = composed.diagnostics.find(problem => problem.code !== 'UNKNOWN_UNDERLAY');
       if (unsupported) throw new RangeError(unsupported.message);
       tiles = composed.terrain;
     } else tiles = composeMapDisplayLayers(source, visible).tiles;
-    picker = createDecorationPicker(source);
-    overlayCells = coverage(source.map);
+    if (!cellValues) { picker = createDecorationPicker(source); overlayCells = coverage(source.map); }
     if (selected?.layer === 'decor') {
       const item = source.map.decorations.find(row => row.id === selected.id);
       selected = item ? { ...selected, x: item.x, y: item.y, cells: source.componentDefinitions[item.definitionRef].footprint.length, captureAllowed: true } : null;
@@ -599,8 +660,15 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       const point = selected.layer === 'cities' ? item : item?.geometry[0];
       selected = point ? { ...selected, x: point.x, y: point.y } : null;
     }
-    const positionProblems = positionCheckActive ? mapPositionProblems(source, composed.terrain) : [];
-    errorCells = [...new Map(positionProblems.flatMap(problem => problem.cells).map(cell => [cell.join(','), cell])).values()];
+    // Keep the red overlay through decor-only gestures, including a pre-existing break after reload.
+    const unchangedNetwork = cellValues && previousCells && previousMap.roads === source.map.roads && previousMap.placements === source.map.placements && previousMap.bounds === source.map.bounds && !tiles.some((_, i) => {
+      const a = previousCells.getUint16(i*2,true), b = cellValues.getUint16(i*2,true);
+      return a !== b && (cellKind(a) === 'road' || cellKind(b) === 'road' || cellKind(a) === 'city' || cellKind(b) === 'city');
+    });
+    if (!unchangedNetwork) {
+      const positionProblems = cellValues || positionCheckActive ? mapPositionProblems(source, composed.terrain) : [];
+      errorCells = [...new Map(positionProblems.flatMap(problem => problem.cells).map(cell => [cell.join(','), cell])).values()];
+    }
     // Position details are save-only; live feedback is the red cell overlay.
     diagnostics = composed.diagnostics;
     const { width, height, minX, minY } = source.map.bounds, roads = new Uint8Array(width * height);
@@ -618,6 +686,10 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     const x = Math.floor(wx / 16) + minX, y = Math.floor(wy / 16) + minY;
     if (x < minX || x >= minX + width || y < minY || y >= minY + height) return;
     placement = null; objectMove = null; multi = [];
+    if (cellValues) {
+      selected = { layer: 'cell', x, y, index: (y - minY) * width + x - minX };
+      draw(); facts(); return;
+    }
     const prev = selected;
     selected = null;
     if (visible.cities && !locked.cities) {
@@ -650,6 +722,28 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     return { op: 'city-stamp', pieceId: newId('city-piece'), x, y, tile };
   }
   function command(op, fields = {}) {
+    if (cellValues) {
+      const points=multi.length?multi.map(({x,y})=>({x,y})):selected?[{x:selected.x,y:selected.y}]:[];
+      if (!points.length) throw new RangeError('請先選取格子。');
+      const [anchor]=points;
+      if (op==='city-bind' || op==='city-unbind') return stage({op,...fields});
+      if (op==='cell-clear') {
+        const piece=!multi.length && source.map.placements.find(p=>p.x===anchor.x && p.y===anchor.y);
+        if (piece?.cityId) return stage([{op:'city-unbind',pieceId:piece.id},{op,points}]);
+        return stage(points.every(p=>cellKind(cellTile(p.x,p.y))==='decor') ? {op:'cell-paint',points,tile:EMPTY_CELL} : {op,points});
+      }
+      if (op==='cell-copy') {
+        if (points.some(p=>cellKind(cellTile(p.x,p.y))!=='decor')) throw new RangeError('只能複製裝飾格。');
+        copiedCells=points.map(({x,y})=>({dx:x-anchor.x,dy:y-anchor.y,tile:cellTile(x,y)})); return `已複製 ${points.length} 格。`;
+      }
+      if (op==='cell-paste') {
+        if (!copiedCells || points.length!==1) throw new RangeError('請先複製裝飾，再選一個貼上起點。');
+        const groups=new Map();
+        for (const {dx,dy,tile} of copiedCells) {if (!groups.has(tile)) groups.set(tile,[]); groups.get(tile).push({x:anchor.x+dx,y:anchor.y+dy});}
+        return stage([...groups].map(([tile,points])=>({op:'cell-paint',tile,points})));
+      }
+      throw new RangeError('此操作不適用於單格地圖。');
+    }
     if (op === 'cell-copy' || op === 'cell-paste') {
       if (op === 'cell-paste' && multi.length) throw new Error('請點選一個貼上目標格。');
       const cells = multi.length ? [...new Map(multiCells().map(([x, y]) => [`${x},${y}`, { x, y }])).values()]
@@ -747,7 +841,7 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
     previewPlacement(materialId, sx, sy) {
       placement = null;
       const def = materialDefinition(materialId);
-      const allowed = !recipePlans.has(materialId) || recipePlans.get(materialId)?.canPlace;
+      const allowed = !recipePlans.has(materialId) || (recipePlans.get(materialId)?.canPlace && (!cellValues || cityGroups.has(materialId)));
       if (allowed && def && atlas && visible.decor && !locked.decor && Number.isFinite(sx) && Number.isFinite(sy) && sx >= 0 && sy >= 0 && sx < size.width && sy < size.height) {
         const [wx, wy] = screenToWorld(view, sx, sy);
         const { minX, minY, width, height } = source.map.bounds;
@@ -763,6 +857,17 @@ export function createMapCanvas({ publish, stage, gameId = 'system-base-map', sp
       const pending = placement;
       placement = null; draw();
       if (!pending?.inBounds || !source || !atlas || locked.decor || !visible.decor) return;
+      if (cellValues) {
+        const {x,y,materialId}=pending;
+        const stamps=cityGroups.get(materialId)?.tiles ?? [[0,0,Number(materialId.slice(5))]];
+        const batch=stamps.flatMap(([dx,dy,tile])=>{
+          const at={x:x+dx,y:y+dy};
+          if (cellTile(at.x,at.y)===tile) return [];
+          const kind=cellKind(tile);
+          return [kind==='decor' ? {op:'cell-paint',tile,points:[at]} : {op:'cell-stamp',tile,...at,...(kind==='city' && {pieceId:newId('city-piece')})}];
+        });
+        return batch.length ? stage(batch.length===1?batch[0]:batch) : undefined;
+      }
       if (recipePlans.has(pending.materialId)) {
         const plan = recipePlans.get(pending.materialId);
         if (!plan?.canPlace) return;

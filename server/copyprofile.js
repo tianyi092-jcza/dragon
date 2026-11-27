@@ -12,7 +12,8 @@ import { setCityDefinitionName, setCityDefinitionNumbers, applyChapterCityEdit }
 import { addBlankChapter, assignChapterGeneral, clearChapterGeneral, copyChapterInGame, deleteChapter, moveChapter, editChapterCity, editChapterCityNative, renameChapter, renameGeneral, setStrategist, setMonarch, removeMonarch, disbandFaction, createFaction, setChapterStart, setChapterCityFaction, setFactionCapital, setChapterGeneralFaction, setGeneralActive, setGeneralStatus, setFactionDiplomat, setCityGovernor } from '../web/src/content/authoring/gamesource.js';
 import { composeMapLayers } from '../web/src/content/authoring/maplayers.js';
 import { buildRoad } from '../web/src/content/authoring/roadedit.js';
-import { MAX_ROAD_EDGES } from '../web/src/content/authoring/mapcompile.js';
+import { uncoveredCellRoads } from '../web/src/content/authoring/cellplane.js';
+import { MAX_ROAD_EDGES, assertMapConnected } from '../web/src/content/authoring/mapcompile.js';
 import { analyzeRoadChains, isAutoRoadId } from '../web/src/editor/roadchain.js';
 import { expandMapOneStep, extendTerrainEdge, shrinkMapOneStep, hasStructuredMapExtent } from '../web/src/content/authoring/mapextent.js';
 import { fail } from './security.js';
@@ -382,6 +383,46 @@ export function reconcileAutoRoads(game) {
   game.map.roads = kept;
   for (const road of added) syncRoadEndpoints(game, road.fromCityId, road.toCityId);
   return { added: added.map(road => road.id), removed: [...before].filter(id => !want.has(id)) };
+}
+// Cell brushes stage material only. Certify the final plane, not an intermediate gesture.
+export function reconcileCellRoads(game) {
+  const { terrain } = composeMapLayers(game, { draft: true });
+  const { derived, problems } = analyzeRoadChains(game, terrain, { maxEdges: MAX_ROAD_EDGES });
+  const map = { ...game.map, roads: [...game.map.roads, ...derived] };
+  try { assertMapConnected({ map }); }
+  catch (error) {
+    const ids = /^(?:isolated city without road|map road network disconnected: isolated segment): (.+)$/.exec(error.message)?.[1];
+    if (!ids) throw error;
+    const p = map.placements.find(p => p.cityId === ids.split('、')[0]);
+    if (!p) throw error;
+    const city = `${game.cities[p.cityId]?.name ?? p.cityId}（${p.x}, ${p.y}）`;
+    const gates = [];
+    const { width, height, minX, minY } = map.bounds;
+    for (const [direction, dx, dy] of [['東',1,0],['西',-1,0],['南',0,1],['北',0,-1]]) for (const d of [1,2]) {
+      const x=p.x+d*dx, y=p.y+d*dy;
+      if (x<minX || y<minY || x>=minX+width || y>=minY+height) continue;
+      const tile=terrain[(y-minY)*width+x-minX];
+      if (tile<0xd4 || tile>0xdd) continue;
+      const problem=problems.find(v=>v.cells.some(([cx,cy])=>cx===x && cy===y));
+      const point=problem?.endpoint ?? problem?.chain.junction ?? {x,y};
+      const reason=problem?.code==='ROAD_JUNCTION'?'路磚分岔或成環':problem?.code==='ROAD_AMBIGUOUS'?'門磚對應多個據點':problem?.code==='ROAD_SELF_LOOP'?'路線回到同一據點':problem?.code==='ROAD_UNLINKED'?'路鏈中斷或末端未接另一座城門':problem?`道路未通過校驗：${problem.code}`:'已有路段，未接通主路網';
+      gates.push(`${direction}門（${x}, ${y}）：${reason}（${point.x}, ${point.y}）`);
+    }
+    throw new RangeError(`${city} 未接通路網。${gates.length?gates.join('；'):'找不到城門；請在中心正東、西、南或北 1–2 格放置門磚（212–221）。'}`);
+  }
+  const dangling = uncoveredCellRoads(map, terrain);
+  if (dangling.length) {
+    const [x,y]=dangling[0];
+    const problem=problems.find(p=>p.cells.some(([cx,cy])=>cx===x && cy===y));
+    const end=problem?.endpoint ?? problem?.chain.junction ?? {x,y};
+    const gate = problem?.chain.cells.find(c=>c.tile>=0xd4 && c.tile<=0xdd);
+    const town = gate && map.placements.find(p=>{const dx=gate.x-p.x,dy=gate.y-p.y;return (dx===0)!==(dy===0) && Math.max(Math.abs(dx),Math.abs(dy))<=2;});
+    const side=town && (gate.x>town.x?'東':gate.x<town.x?'西':gate.y>town.y?'南':'北');
+    const label=town?`${game.cities[town.cityId]?.name ?? town.cityId}（${town.x}, ${town.y}）${side}門路鏈中斷；`:'';
+    throw new RangeError(`${label}道路未接通（${end.x}, ${end.y}）：有 ${dangling.length} 格路磚不屬於有效道路。請接通兩端城門，或清除不用的路段。`);
+  }
+  game.map = map;
+  return derived;
 }
 function applyCapturedMapEdit(source, edit, usedGroupIds, usedMaterialIds, usedInstanceIds, definitionLimit = 1024) {
   const descriptors = view(edit); // Reject getters/functions before reading op.

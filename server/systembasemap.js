@@ -77,12 +77,15 @@ export function validateSystemBaseMap(template, sha256hex) {
         throw new RangeError(`template city ${city.cityId} requires valid ${field}`);
     });
   });
-  const instanceIds = [...content.map.decorations, ...content.map.placements,
+  const cellMap = content.map.format === 'cell-map-1';
+  if (cellMap && content.selectionGroups.length) throw new RangeError('cell map cannot have permanent selection groups');
+  const decorations = cellMap ? [] : content.map.decorations;
+  const instanceIds = [...decorations, ...content.map.placements,
     ...content.map.roads.flatMap(road => road.components ?? [])].map(item => item.id);
   if (instanceIds.some(id => typeof id !== 'string' || !id) || new Set(instanceIds).size !== instanceIds.length)
     throw new RangeError('invalid/duplicate template instance identity');
   const layers = new Map([
-    ['decorations', new Set(content.map.decorations.map(item => item.id))],
+    ['decorations', new Set(decorations.map(item => item.id))],
     ['roads', new Set(content.map.roads.map(item => item.id))],
     ['placements', new Set(content.map.placements.map(item => item.id))],
   ]);

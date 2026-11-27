@@ -6,6 +6,7 @@ import { readFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import {fitViewport,worldToScreen} from '../web/src/editor/viewport.js';
 import { createRequire } from 'node:module';
 import { readInstalledEditorSource } from './editor_builtin_source.mjs';
 import { convertInstalledSystemBaseMap } from './system_base_map_conversion.mjs';
@@ -13,7 +14,7 @@ import { BUILTIN_RESOURCES } from '../web/src/content/builtinresources.generated
 import { enableSeaGroundBase } from '../web/src/editor/componenttools.js';
 import { validateSystemBaseMap } from '../server/systembasemap.js';
 import { applyMapWorkspaceEdits } from '../server/mapworkspace.js';
-import { verifyAtomicLibrary, selectAtomicTile, dragAtomicTile, verifyMapWorkspaceChrome, verifyCompactMapLayout, verifyMapPanLock, verifyCityGroupLibrary } from './map_atomic_browser_helpers.mjs';
+import { confirmMapSaved, verifyAtomicLibrary, selectAtomicTile, dragAtomicTile, verifyMapWorkspaceChrome, verifyCompactMapLayout, verifyMapPanLock, verifyCityGroupLibrary } from './map_atomic_browser_helpers.mjs';
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const ratio = Number(process.env.PLAYWRIGHT_DPR || 2);
 assert.ok([1, 2].includes(ratio));
@@ -66,7 +67,10 @@ try {
       const edits = request.postDataJSON().edits; writes.push(structuredClone(edits));
       const next = { ...snapshot.template, content: applyMapWorkspaceEdits({ ...snapshot.template.content, gameId: 'system-base-map' }, edits) };
       delete next.content.gameId;
-      snapshot = { version: snapshot.version + 1, digest: validateSystemBaseMap(next, sha).digest, template: JSON.parse(JSON.stringify(next)) }; saves++;
+      let digest;
+      try { digest = validateSystemBaseMap(next, sha).digest; }
+      catch (error) { return route.fulfill({status:422,json:{error:'BASE_MAP_INVALID',detail:{problems:[{message:error.message}]}}}); }
+      snapshot = { version: snapshot.version + 1, digest, template: JSON.parse(JSON.stringify(next)) }; saves++;
       assert.equal(request.headers().prefer, 'return=minimal');
       return route.fulfill({ json: { receipt: { version: snapshot.version, digest: snapshot.digest }, metrics: { serverMs: 10 } } });
     }
@@ -85,7 +89,72 @@ try {
     unexpected.push(`${request.method()} ${path}`); return route.fulfill({ status: 500, json: { error: 'UNEXPECTED_FIXTURE_REQUEST' } });
   });
   const baseEdge = process.argv.includes('--base-edge-growth');
-  if (baseEdge || process.argv.includes('--edge-growth')) {
+  if (process.argv.includes('--single-cell')) {
+    await page.goto(`http://127.0.0.1:${server.address().port}/#base-map-editor`);
+    const panel = page.locator('#base-map-editor');
+    await panel.getByRole('button', { name:'建立', exact:true }).click();
+    await page.getByText('基礎地圖已建立。',{exact:true}).waitFor();
+    await panel.getByRole('button',{name:'轉為單格地圖'}).click();
+    await panel.locator('.base-map-floating').waitFor({state:'hidden'});
+    await panel.getByRole('button',{name:'保存',exact:true}).click();
+    const result = page.getByRole('dialog',{name:'保存成功',exact:true}); await result.waitFor();
+    const bounds = await result.boundingBox(); assert.ok(bounds.width >= 800 && bounds.height >= 300);
+    await page.keyboard.press('Escape'); assert.ok(await result.isVisible());
+    assert.equal(await panel.getByText('灰色蒙板：裸底圖').count(),0);
+    await confirmMapSaved(page);
+    assert.equal(snapshot.template.content.map.format,'cell-map-1');
+    await dragAtomicTile(page,panel,snapshot.template.content.componentDefinitions,12,20,20);
+    await panel.getByRole('button',{name:'保存',exact:true}).click();
+    await confirmMapSaved(page);
+    assert.equal(saves,2);assert.equal(Buffer.from(snapshot.template.content.map.cellsLE,'base64').readUInt16LE((20*384+20)*2),12);
+    // The status line changes height after save/edit. Keep one viewport for pointer-coordinate assertions.
+    await panel.locator('.base-map-canvas-host').evaluate(n=>{n.style.height='600px';n.style.flex='none';});
+    await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+    await panel.getByRole('button',{name:'全圖',exact:true}).click();
+    const canvas=panel.locator('.base-map-canvas'), box=await canvas.boundingBox();
+    const camera=fitViewport(box,{width:384*16,height:256*16});
+    const pos=(x,y=20)=>{const [px,py]=worldToScreen(camera,(x+.5)*16,(y+.5)*16);return {x:px,y:py};};
+    const click=async x=>canvas.click({position:pos(x)});
+    const drag=async(a,b,button='left')=>{const rect=await canvas.boundingBox();const from=pos(a),to=pos(b);await page.mouse.move(rect.x+from.x,rect.y+from.y);await page.mouse.down({button});await page.mouse.move(rect.x+to.x,rect.y+to.y,{steps:5});await page.mouse.up({button});};
+    const place=snapshot.template.content.map.placements[0];await canvas.click({position:pos(place.x,place.y),button:'right'});
+    await panel.getByRole('button',{name:'解綁',exact:true}).waitFor();await panel.getByRole('button',{name:'清除',exact:true}).waitFor();await page.keyboard.press('Escape');
+    // Lock, drag one road tile and one bound center; inspect the destination and undo each gesture.
+    await panel.getByRole('button',{name:'鎖圖',exact:true}).click();
+    const map=snapshot.template.content.map, bytes=Buffer.from(map.cellsLE,'base64'), road=map.roads.find(r=>r.geometry.length>5);
+    for(const [p,label] of [[road.geometry[3],'道路'],[place,'據點']]) {
+      const dest=[8,-8,10,-10].map(dx=>({x:p.x+dx,y:p.y})).find(({x,y})=>x>=0&&x<384&&bytes.readUInt16LE((y*384+x)*2)<184);
+      const a=pos(p.x,p.y), b=pos(dest.x,dest.y); await canvas.click({position:a}); const frame=await canvas.boundingBox();
+      await page.mouse.move(frame.x+a.x,frame.y+a.y);await page.mouse.down();await page.mouse.move(frame.x+b.x,frame.y+b.y,{steps:5});await page.mouse.up();
+      await page.keyboard.press('Shift+F10');const info=await panel.locator('.base-map-object-info').innerText();assert.ok(info.includes(label)&&info.includes(`${dest.x}, ${dest.y}`),info);await page.keyboard.press('Escape');
+      await canvas.press('Control+z');
+      assert.equal(await panel.getByRole('button',{name:'保存',exact:true}).isDisabled(),true);
+    }
+    await panel.getByRole('button',{name:'鎖圖',exact:true}).click();
+    await click(20);await page.keyboard.press('Control+c');await click(24);await page.keyboard.press('Control+v');
+    await panel.getByRole('button',{name:'鎖圖',exact:true}).click();await click(24);
+    const origin=pos(24), target=pos(28), frame=await canvas.boundingBox();
+    const pixel=()=>canvas.evaluate((n,p)=>Array.from(n.getContext('2d').getImageData(Math.floor(p.x*n.width/n.clientWidth),Math.floor(p.y*n.height/n.clientHeight),1,1).data),origin);
+    const originalPixel=await pixel();await page.mouse.move(frame.x+origin.x,frame.y+origin.y);await page.mouse.down();await page.mouse.move(frame.x+target.x,frame.y+target.y,{steps:5});
+    const liftedPixel=await pixel();assert.notDeepEqual(liftedPixel,originalPixel);await page.mouse.up();assert.deepEqual(await pixel(),liftedPixel);
+    // No second click: keyboard context menu inspects the selection left by the drag.
+    await page.keyboard.press('Shift+F10');assert.match(await panel.locator('.base-map-object-info').innerText(),/28, 20/);await page.keyboard.press('Escape');
+    await page.keyboard.down('Shift');await click(20);await click(28);await page.keyboard.up('Shift');
+    await drag(20,28,'right');await page.keyboard.down('Shift');await drag(20,32);await page.keyboard.up('Shift');
+    // The copied multi-selection follows the drop and can be moved again without reselecting.
+    await drag(32,44);await drag(44,32);
+    await click(32);await page.keyboard.press('Delete');await page.getByRole('button',{name:'清除',exact:true}).last().click();
+    await page.locator('.el-overlay.is-message-box').waitFor({state:'hidden'});
+
+    await panel.getByRole('button',{name:'保存',exact:true}).click();await confirmMapSaved(page);
+    const values=Buffer.from(snapshot.template.content.map.cellsLE,'base64');assert.deepEqual([20,24,28,32,40].map(x=>values.readUInt16LE((20*384+x)*2)),[12,256,12,256,12]);
+    for (const name of ['道路','據點','據點組']) {await panel.getByRole('tab',{name,exact:true}).click();assert.ok(await panel.locator('.base-map-material-album [role=listitem]').count()>0);}
+    const group=panel.locator('.base-map-material-album [role=button]').first();const from=await group.boundingBox(), rect=await canvas.boundingBox(), dest=pos(20,30);
+    await page.mouse.move(from.x+8,from.y+8);await page.mouse.down();await page.mouse.move(rect.x+dest.x,rect.y+dest.y,{steps:5});await page.mouse.up();
+    assert.deepEqual(errors,[]);
+    const rejected=page.waitForResponse(r=>r.url().endsWith('/api/admin/base-map/save') && r.status()===422);
+    await panel.getByRole('button',{name:'保存',exact:true}).click();await rejected;const failure=page.getByRole('dialog',{name:'檢查未通過，未保存'});await failure.getByText(/尚未綁定。請右鍵中心/).first().waitFor();await failure.getByRole('button',{name:'確認'}).click();assert.equal(saves,3);
+    assert.deepEqual(errors.filter(s=>s!=='Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)'),[]);assert.ok(errors.length<=1);assert.deepEqual(failures,[]);console.log('PASS cell move selection, clipboard, clear, city binding panel, restored material groups and friendly save rejection');
+  } else if (baseEdge || process.argv.includes('--edge-growth')) {
     const panel = page.locator(baseEdge ? '#base-map-editor' : '#game-map-editor');
     if (baseEdge) {
       await page.goto(`http://127.0.0.1:${server.address().port}/#base-map-editor`);
@@ -116,7 +185,7 @@ try {
       await panel.getByRole('button', {name:label,exact:true}).click();
       await page.locator('.el-message-box').getByRole('button',{name:'確認',exact:true}).click();
       await panel.getByRole('button',{name:'保存',exact:true}).click();
-      await panel.getByText('查看保存詳情', {exact:true}).waitFor();
+      await confirmMapSaved(page);
       assert.equal(baseEdge ? saves : gameSaves, index+1);
       if (!index) assert.ok(storedMap().decorations.some(d => d.y === -1));
     }
@@ -186,7 +255,7 @@ try {
   await page.locator('[data-view="draft-editor"]').click(); assert.ok(dialogs > 0); assert.equal(await panel.isVisible(), true);
   acceptDialogs = true;
   await panel.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByText('已保存並重新讀取基礎地圖。', { exact: true }).waitFor();
+  await confirmMapSaved(page);
   assert.equal(saves, 1); assert.equal(writes[0].length, 1); assert.equal(writes[0][0].op, 'decoration-place');
   assert.equal(snapshot.template.content.map.decorations.at(-1).definitionRef, 'tile-112');
   assert.deepEqual(snapshot.template.content.map.decorations.slice(0, -1), template.content.map.decorations);
@@ -249,7 +318,7 @@ try {
   if (await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed') === 'true') await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).click();
   await dragAtomicTile(page, gamePanel, game.componentDefinitions, 0, 319, 1);
   await gamePanel.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByText('已保存並重新讀取遊戲地圖。', { exact: true }).waitFor();
+  await confirmMapSaved(page);
   assert.equal(gameSaves, 1); assert.equal(game.map.decorations.at(-1).definitionRef, 'tile-0');
   assert.equal(await gamePanel.getByRole('button', { name: '鎖圖', exact: true }).getAttribute('aria-pressed'), 'false', 'game placement ran from the unlocked state');
   assert.deepEqual(game.mapEditorAssets, editorAssets, 'one edit retains all four seasonal atlases');

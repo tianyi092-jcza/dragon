@@ -35,13 +35,11 @@ export function projectAtomicSpriteCatalog(definitions) {
       else if (water.has(tile)) category = 'water';
       const canPlace = atom.available;
       let note = '16×16原始圖塊；按格放置為裝飾，一次撤銷。';
-      // Both unused identical-looking bytes remain separate, visibly unresolved.
-      if (tile === 72 || tile === 190) note = '原用途未知，暫列地面供瀏覽；不代表陸地、不合併原byte。';
-      else if (tile === 95) note = '底圖圖塊；未放置素材的位置自然露出底圖，不需逐格放置。';
+      if (tile === 95) note = '底圖圖塊；未放置素材的位置自然露出底圖，不需逐格放置。';
       else if (['road', 'city'].includes(category)) note = '放置外觀裝飾，不建立道路連線或城市資料。';
       if (!atom.available) note += ' 本圖缺少匹配原子定義，不可預覽或放置。';
       const label = categories.find(([id]) => id === category)[1];
       return { id: atom.id, itemId: atom.id, name: `${label}圖塊 ${tile}`, category, cells: 1, available: atom.available, canPlace, note };
-    }).filter((_, tile) => !factionCityTiles.has(tile)),
+    }).filter((_, tile) => tile !== 72 && tile !== 190 && !factionCityTiles.has(tile)),
   };
 }

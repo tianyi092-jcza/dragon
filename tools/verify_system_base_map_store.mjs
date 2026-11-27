@@ -96,6 +96,38 @@ try {
   assert.equal(metrics.lane, 'direct'); assert.equal(metrics.validateCompileMs, undefined); assert.equal(metrics.roadsPositionsMs, undefined);
   const persisted = reopened.capture(); assert.equal(persisted.version, 3); assert.equal(persisted.digest, direct.digest);
   assert.ok(persisted.template.content.map.decorations.some(i => i.id === stamp.instanceId));
+  const packed = reopened.edit('admin', [{ op: 'cell-convert' }], {});
+  const compact = reopened.capture();
+  assert.equal(compact.digest, packed.digest); assert.equal(compact.template.content.map.format, 'cell-map-1');
+  assert.equal(compact.template.content.map.decorations, undefined); assert.deepEqual(compact.template.content.selectionGroups, []);
+  const cell = { op:'cell-paint', points:[{x:0,y:0}], tile:95 };
+  const blocked = compact.template.content.map.placements[0];
+  assert.throws(() => reopened.edit('admin',[cell,{...cell,points:[{x:blocked.x,y:blocked.y}]}]),e=>e.status===422);
+  assert.equal(reopened.capture().digest,packed.digest);
+  const written = reopened.edit('admin',[cell],{});
+  assert.equal(reopened.capture().digest,written.digest);
+  assert.equal(Buffer.from(reopened.capture().template.content.map.cellsLE,'base64').readUInt16LE(0),95);
+  // Repaint a tile on 北平's actual corridor: clearing it drops the edge, the final plane restores it at save.
+  const cm = compact.template.content.map, corridor = cm.roads.find(r => r.fromCityId === 'city-000' || r.toCityId === 'city-000');
+  const point = corridor.geometry[Math.floor(corridor.geometry.length / 2)], i = (point.y-cm.bounds.minY)*cm.bounds.width + point.x-cm.bounds.minX;
+  const tile = Buffer.from(cm.cellsLE,'base64').readUInt16LE(2*i);
+  reopened.edit('admin',[{op:'cell-clear',points:[{x:point.x,y:point.y}]},{op:'cell-stamp',x:point.x,y:point.y,tile}],{});
+  const restored = reopened.capture().template.content.map.roads;
+  assert.equal(restored.length, cm.roads.length);
+  assert.ok(restored.some(r=>r.id.includes('#road-auto-') && [r.fromCityId,r.toCityId].includes(corridor.fromCityId) && [r.fromCityId,r.toCityId].includes(corridor.toCityId)));
+  // All cities remain reachable; a newly orphaned road tile must still block the whole batch.
+  const prior=reopened.capture();
+  assert.throws(()=>reopened.edit('admin',[cell,{op:'cell-stamp',tile:184,x:0,y:0}],{}),e=>e.status===422 && e.detail.problems.some(p=>p.message.includes('道路未接通')));
+  assert.equal(reopened.capture().digest,prior.digest);
+  const clearMetrics={};reopened.edit('admin',[{op:'cell-clear',points:[{x:0,y:0}]}],clearMetrics);
+  assert.equal(clearMetrics.lane,'direct');assert.equal(clearMetrics.validateCompileMs,undefined);
+  // A bound leaf town may stand alone: remove its entire corridor, keep its identity and save/reload.
+  const leaf=cm.placements.find(p=>restored.filter(r=>[r.fromCityId,r.toCityId].includes(p.cityId)).length===1);
+  const leafRoad=restored.find(r=>[r.fromCityId,r.toCityId].includes(leaf.cityId));
+  const detached=reopened.edit('admin',[{op:'cell-clear',points:leafRoad.geometry.map(({x,y})=>({x,y}))}],{});
+  const detachedMap=reopened.capture();assert.equal(detachedMap.digest,detached.digest);
+  assert.deepEqual(detachedMap.template.content.map.placements.find(p=>p.id===leaf.id),leaf);
+  assert.ok(detachedMap.template.content.map.roads.every(r=>![r.fromCityId,r.toCityId].includes(leaf.cityId)));
   const concurrentStorage = openStorage(join(directory, 'concurrent.sqlite'));
   try {
     let finish, requests = 0;

@@ -6,6 +6,8 @@ import { buildRoad } from '../content/authoring/roadedit.js';
 import { assertMapConnected, MAX_ROAD_EDGES } from '../content/authoring/mapcompile.js';
 import { analyzeRoadChains, isAutoRoadId } from './roadchain.js';
 
+import { uncoveredCellRoads } from '../content/authoring/cellplane.js';
+
 export function mapPositionProblems(source, terrain = composeMapLayers(source, { draft: true }).terrain) {
   const { placements, roads, bounds } = source.map;
   const definitions = source.cities ?? {}, cities = new Map(placements.map(item => [item.cityId, item]));
@@ -76,16 +78,26 @@ export function mapPositionProblems(source, terrain = composeMapLayers(source, {
   // 拖放路磚鏈：已放未連的走廊只標紅（warning），不攔保存；成形的可建路段
   // 参与下方的孤立检查，避免已连通的据点被误标。
   const autoChains = analyzeRoadChains(source, terrain, { maxEdges: MAX_ROAD_EDGES });
-  for (const problem of autoChains.problems) {
+  const single = source.map.format === 'cell-map-1';
+  if (single) {
+    const cells = uncoveredCellRoads(source.map, terrain, [...roads, ...autoChains.derived]);
+    if (cells.length) add('ROAD_UNLINKED', {id:'road-cells'}, reasons.ROAD_UNLINKED, cells);
+  }
+  for (const problem of single ? [] : autoChains.problems) {
     const cells = problem.cells ?? [];
     const anchor = { id: cells[0]?.id ?? `road-chain@${cells[0]?.join?.(',') ?? 'unknown'}` };
     const detail = problem.code === 'ROAD_AMBIGUOUS' ? `（可連：${(problem.cities ?? []).join('、')}）` : problem.code === 'ROAD_THROUGH_CITY' && problem.point ? `（穿越格：${problem.point.x},${problem.point.y}）` : '';
     add(problem.code, anchor, `${reasons[problem.code] ?? problem.code}${detail}${problem.detail ? `；${problem.detail}` : ''}`, cells, 'warning');
   }
-  const linkedRoads = [...roads.filter(r => !isAutoRoadId(source.gameId, r.id)), ...autoChains.derived];
+  const linkedRoads = [...(single ? roads : roads.filter(r => !isAutoRoadId(source.gameId, r.id))), ...autoChains.derived];
   if (placements.length) {
-    try { assertMapConnected({ map: { placements, roads: linkedRoads } }); }
-    catch {
+    try { assertMapConnected({ map: { format:source.map.format, placements, roads: linkedRoads } }); }
+    catch (error) {
+      if (single) {
+        const outside = new Set(error.outsideCityIds);
+        for (const road of linkedRoads) if (outside.has(road.fromCityId)) add('MAP_CONNECTION', road, '道路網分為互不相連的區段', road.geometry.map(p=>[p.x,p.y]));
+        return problems;
+      }
       // Per-road diagnostics above give exact endpoints. Network errors also
       // mark each involved city so an isolated component cannot be overlooked.
       const isolated = placements.filter(place => !linkedRoads.some(road => road.fromCityId === place.cityId || road.toCityId === place.cityId));

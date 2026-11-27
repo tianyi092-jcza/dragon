@@ -5,6 +5,7 @@
 // block, never silent auto-fix). No catalog import: tile bytes alone classify
 // (catalog audit 2026-11: 37 tiles in B8..DD, zero shared across categories;
 // road 18 + gate D4..DD 10 + water/bridge 9, all road-semantic).
+import { cellKind } from '../content/authoring/cellplane.js';
 import { buildRoad } from '../content/authoring/roadedit.js';
 
 export const ROAD_TILE_MIN = 0xb8;
@@ -22,6 +23,17 @@ export const AUTO_ROAD_PREFIX = 'road-auto-';
 export function collectRoadCells(source, terrain) {
   const bounds = source.map?.bounds ?? { minX: 0, minY: 0, width: 384, height: 256 };
   const tileAt = (x, y) => terrain[(y - bounds.minY) * bounds.width + x - bounds.minX];
+  if (source.map.format === 'cell-map-1') {
+    const cells = new Map();
+    terrain.forEach((tile, i) => {
+      if (cellKind(tile) !== 'road') return;
+      const x = bounds.minX + i % bounds.width, y = bounds.minY + Math.floor(i / bounds.width);
+      cells.set(`${x},${y}`, { x, y, tile });
+    });
+    // Existing paths keep their identities/slots. Clearing a path cell already drops its edge.
+    for (const road of source.map.roads) for (const p of road.geometry) cells.delete(`${p.x},${p.y}`);
+    return cells;
+  }
   const definitions = source.componentDefinitions ?? {};
   const covered = new Map();
   for (const item of source.map?.decorations ?? []) {
@@ -92,7 +104,7 @@ export function traceRoadChains(cells, gateOwners) {
       continue;
     }
     if (ends.length !== 2 || [...degree.values()].some(d => d > 2)) {
-      chains.push({ cells: members.map(key => cells.get(key)), status: 'junction' });
+      chains.push({ cells: members.map(key => cells.get(key)), status: 'junction', junction: cells.get(members.find(key => degree.get(key) > 2) ?? start) });
       continue;
     }
     const [head, tail] = ends[0] < ends[1] ? [ends[0], ends[1]] : [ends[1], ends[0]];
@@ -151,7 +163,7 @@ export function analyzeRoadChains(source, terrain, { maxEdges = Infinity } = {})
   const derived = [], problems = [];
   // Re-derive every automatic edge from the current tiles. An old projection
   // must not collide with itself or disappear on the next save.
-  const existing = (source.map?.roads ?? []).filter(r => !isAutoRoadId(source.gameId, r.id));
+  const existing = (source.map?.roads ?? []).filter(r => source.map.format === 'cell-map-1' || !isAutoRoadId(source.gameId, r.id));
   const matchEnd = point => {
     if (point.tile < GATE_TILE_MIN || point.tile > ROAD_TILE_MAX) return { error: 'end-not-port', point };
     const hits = [];
@@ -182,7 +194,7 @@ export function analyzeRoadChains(source, terrain, { maxEdges = Infinity } = {})
     const tail = matchEnd(chain.cells[chain.cells.length - 1]);
     if (head.error || tail.error) {
       const bad = head.error ? head : tail;
-      problems.push({ code: bad.error === 'end-ambiguous' ? 'ROAD_AMBIGUOUS' : bad.error === 'end-not-port' ? 'ROAD_UNLINKED' : 'ROAD_UNLINKED', cells, chain, endpoint: bad.point, cities: bad.cities ?? [] });
+      problems.push({ code: bad.error === 'end-ambiguous' ? 'ROAD_AMBIGUOUS' : bad.error === 'end-not-port' ? 'ROAD_UNLINKED' : 'ROAD_UNLINKED', cells, chain, endpoint: bad.point, reason: bad.error, cities: bad.cities ?? [] });
       continue;
     }
     if (head.cityId === tail.cityId) {

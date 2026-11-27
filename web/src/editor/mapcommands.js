@@ -4,6 +4,7 @@ import { enableSeaGroundBase, fillBase, splitDecoration, placeComponent, placeCi
   translateDecorations, combineDecorations, captureComponent, renameMaterial, removeMaterial, createWaterGroup,
   splitWaterGroup, mergeWaterGroups, renameWaterGroup, setWaterGroupMinimapVisibility } from './componenttools.js';
 
+import { applyCellPaints, convertCellWorkspace } from '../content/authoring/cellmap.js';
 import { removeMapObject, translateMapObject } from './mapobjectmove.js';
 import { expandMapOneStep, extendTerrainEdge, shrinkMapOneStep } from '../content/authoring/mapextent.js';
 // MAP-EXT E3: all four sides share one op; quota and strip-emptiness are
@@ -62,6 +63,9 @@ export function reconcileMapSelectionGroups(source, next, edits) {
 }
 
 export function previewMapEdits(source, edits) {
+  if (source.map.format === 'cell-map-1') return applyCellPaints(source, edits);
+  const cut = edits.findIndex(edit => edit.op === 'cell-convert');
+  if (cut >= 0) return applyCellPaints(convertCellWorkspace(cut ? previewMapEdits(source, edits.slice(0, cut)) : source), edits.slice(cut+1));
   const next = edits.reduce((current, edit) => {
     switch (edit.op) {
       case 'map-extent': {

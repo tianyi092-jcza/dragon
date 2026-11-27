@@ -1,7 +1,7 @@
 // System-owned singleton; never keyed by a game ID or stored in private/<gameId>.
 import { createHash } from 'node:crypto';
 import { fail, HttpError } from './security.js';
-import { reconcileAutoRoads } from './copyprofile.js';
+import { reconcileAutoRoads, reconcileCellRoads } from './copyprofile.js';
 import { baseMapSaveLane } from './basemapsavelane.js';
 import { applyMapWorkspaceEdits } from './mapworkspace.js';
 import { canonicalDigest } from '../web/src/content/authoring/gamesource.js';
@@ -192,7 +192,8 @@ export class SystemBaseMapStore {
       const lane = baseMapSaveLane(current.template.content, candidate, edits);
       phase('classifyMs');
       if (metrics) metrics.lane = lane;
-      if (lane !== 'direct') {
+      if (candidate.map.format === 'cell-map-1' && lane !== 'direct' && !edits.every(e => e.op === 'cell-convert')) reconcileCellRoads(candidate);
+      if (lane !== 'direct' && candidate.map.format !== 'cell-map-1') {
         reconcileAutoRoads(candidate);
         assertMapPositions(candidate);
         phase('roadsPositionsMs');
@@ -214,7 +215,7 @@ export class SystemBaseMapStore {
   #save(tokenHash, template, current, metrics, phase, lane = 'full') {
     const text = JSON.stringify(template), bytes = Buffer.byteLength(text);
     phase?.('serializeMs');
-    if (metrics) Object.assign(metrics, { templateBytes: bytes, limitBytes: MAX_TEMPLATE_BYTES, decorations: template.content.map.decorations.length, roads: template.content.map.roads.length });
+    if (metrics) Object.assign(metrics, { templateBytes: bytes, limitBytes: MAX_TEMPLATE_BYTES, ...(template.content.map.format === 'cell-map-1' ? { cellCount: template.content.map.bounds.width * template.content.map.bounds.height } : { decorations: template.content.map.decorations.length }), roads: template.content.map.roads.length });
     if (bytes > MAX_TEMPLATE_BYTES) {
       // Only rejected saves pay for the extra per-section measurements.
       if (metrics) {

@@ -58,13 +58,19 @@ export function translateMapObject(source, layer, id, dx, dy) {
   const ids = new Set(parts.decorations.map(item => item.id));
   next.map.decorations = source.map.decorations.map(item => ids.has(item.id) ? move(item) : item);
   if (source.cityGatePorts) next.cityGatePorts = source.cityGatePorts.map(port => port.cityId === cityId ? move(port) : port);
-  const definition = source.cities?.[cityId];
+  return projectMovedCity(next, place);
+}
+
+// Both map formats retain the same city identity and chapter slot when its center moves.
+export function projectMovedCity(next, place) {
+  const { cityId } = place;
+  const definition = next.cities?.[cityId];
   if (!definition) return next; // Unbound pieces have no city/chapter record yet.
-  next.cities = { ...source.cities, [cityId]: { ...definition, x: place.x, y: place.y } };
+  next.cities = { ...next.cities, [cityId]: { ...definition, x: place.x, y: place.y } };
   // Existing city record contract: little-endian u16 X/Y at +08/+0A.
   // Only coordinates change; slot identities, owners and neighbours remain intact.
-  const coordinates = [place.x & 255, place.x >> 8, place.y & 255, place.y >> 8].map(byte => byte.toString(16).padStart(2, '0')).join('');
-  if (source.chapters) next.chapters = Object.fromEntries(Object.entries(source.chapters).map(([chapterId, chapter]) => {
+  const coordinates = [place.x & 255, (place.x >> 8) & 255, place.y & 255, (place.y >> 8) & 255].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  if (next.chapters) next.chapters = Object.fromEntries(Object.entries(next.chapters).map(([chapterId, chapter]) => {
     const state = chapter.state;
     const record = state.cities.find(item => item.idx === definition.runtimeSlot);
     if (!record) return [chapterId, chapter];
